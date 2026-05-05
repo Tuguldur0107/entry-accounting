@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="mn">
+<head>
+<meta charset="UTF-8">
+<title>Ерөнхий журнал</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Tahoma, sans-serif;
+    background: #fafafa;
+    color: #2c2c2c;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .topbar {
+    background: #fff;
+    border-bottom: 1px solid #ececec;
+    padding: 0 32px;
+  }
+  .topbar-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    height: 56px;
+  }
+  .brand {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    letter-spacing: 0.2px;
+  }
+  nav { display: flex; gap: 4px; flex: 1; }
+  nav button {
+    background: transparent;
+    border: none;
+    padding: 8px 14px;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  nav button:hover { background: #f3f3f3; color: #333; }
+  nav button.active { background: #eef2f7; color: #2d3748; }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 32px; }
+
+  .page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 500;
+    color: #333;
+  }
+  .muted { color: #888; font-size: 13px; }
+
+  .btn {
+    padding: 8px 16px;
+    background: #4a5568;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-family: inherit;
+  }
+  .btn:hover { background: #2d3748; }
+  .btn:disabled { background: #cbd5e0; cursor: not-allowed; }
+  .btn.ghost {
+    background: transparent;
+    color: #666;
+    border: 1px solid #e0e0e0;
+  }
+  .btn.ghost:hover { background: #f5f5f5; color: #333; }
+  .btn.sm {
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+  .btn.del {
+    background: transparent;
+    color: #999;
+    padding: 4px 8px;
+    font-size: 14px;
+  }
+  .btn.del:hover { color: #c53030; background: #fdf2f2; }
+
+  table {
+    width: 100%;
+    background: #fff;
+    border: 1px solid #ececec;
+    border-radius: 6px;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    font-size: 14px;
+  }
+  th, td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  th {
+    background: #f7f7f7;
+    font-weight: 500;
+    color: #666;
+    font-size: 13px;
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: none; }
+  tfoot td {
+    background: #f7f7f7;
+    font-weight: 500;
+    border-top: 1px solid #e8e8e8;
+    border-bottom: none;
+  }
+  .empty {
+    text-align: center;
+    color: #aaa;
+    padding: 40px;
+    font-size: 14px;
+  }
+  .balance-ok { color: #38a169; }
+  .balance-bad { color: #c53030; }
+
+  .card {
+    background: #fff;
+    border: 1px solid #ececec;
+    border-radius: 6px;
+    padding: 20px;
+  }
+
+  /* Voucher block on list page */
+  .voucher {
+    background: #fff;
+    border: 1px solid #ececec;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .voucher-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    background: #f7f7f7;
+    border-bottom: 1px solid #ececec;
+  }
+  .voucher-date {
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+    min-width: 100px;
+  }
+  .voucher-desc {
+    flex: 1;
+    color: #444;
+    font-size: 14px;
+  }
+  .voucher table {
+    border: none;
+    border-radius: 0;
+  }
+  .voucher table th { background: #fbfbfb; }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+  .field { display: flex; flex-direction: column; }
+  .field.full { grid-column: span 2; }
+  label {
+    font-size: 12px;
+    color: #777;
+    margin-bottom: 4px;
+  }
+  input, select {
+    padding: 9px 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    background: #fdfdfd;
+    font-size: 14px;
+    color: #2c2c2c;
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.15s;
+    width: 100%;
+  }
+  input:focus, select:focus { border-color: #b8b8b8; background: #fff; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(40, 40, 40, 0.35);
+    z-index: 100;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 60px 16px;
+    overflow-y: auto;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 860px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+    animation: pop 0.15s ease-out;
+  }
+  @keyframes pop {
+    from { transform: translateY(-8px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .modal-head {
+    padding: 18px 22px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .modal-head h2 {
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 22px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+  }
+  .modal-close:hover { background: #f3f3f3; color: #333; }
+  .modal-body { padding: 22px; }
+  .modal-foot {
+    padding: 14px 22px;
+    border-top: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .modal-foot .actions { display: flex; gap: 8px; }
+
+  .section-label {
+    font-size: 12px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 18px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .section-label:first-child { margin-top: 0; }
+
+  /* Lines editor */
+  .lines {
+    border: 1px solid #ececec;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .lines-row {
+    display: grid;
+    grid-template-columns: 1.2fr 110px 110px 1.2fr 36px;
+    gap: 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .lines-row.head {
+    background: #f7f7f7;
+    font-size: 12px;
+    color: #666;
+  }
+  .lines-row.head > div { padding: 8px 10px; }
+  .lines-row.head > div.num { text-align: right; }
+  .lines-row:last-child { border-bottom: none; }
+  .lines-row input, .lines-row select {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 9px 10px;
+  }
+  .lines-row input.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .lines-row input:disabled {
+    background: #f5f5f5;
+    color: #ccc;
+    cursor: not-allowed;
+  }
+  .lines-row > * + * { border-left: 1px solid #f0f0f0; }
+  .lines-row .row-del {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid #f0f0f0;
+  }
+  .lines-row .row-del button {
+    background: none;
+    border: none;
+    color: #bbb;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .lines-row .row-del button:hover { color: #c53030; background: #fdf2f2; }
+
+  .lines-foot {
+    display: grid;
+    grid-template-columns: 1.2fr 110px 110px 1.2fr 36px;
+    background: #f7f7f7;
+    border-top: 1px solid #e8e8e8;
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .lines-foot > div { padding: 9px 10px; }
+  .lines-foot > div + div { border-left: 1px solid #f0f0f0; }
+  .lines-foot .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .add-line {
+    margin-top: 10px;
+  }
+
+  .balance-status {
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 4px;
+  }
+  .balance-status.ok { color: #2f855a; background: #f0fdf4; }
+  .balance-status.bad { color: #c53030; background: #fdf2f2; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: #fff;
+    border: 1px solid #ececec;
+    border-radius: 6px;
+    padding: 16px 18px;
+  }
+  .stat .label { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .stat .value { font-size: 20px; font-weight: 500; color: #333; font-variant-numeric: tabular-nums; }
+
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">Нягтлан</div>
+    <nav id="nav">
+      <button data-page="list" class="active">Журналын жагсаалт</button>
+      <button data-page="report">Тайлан</button>
+      <button data-page="accounts">Дансны тохиргоо</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- Журналын жагсаалт -->
+  <section id="page-list">
+    <div class="page-head">
+      <h1>Журналын жагсаалт</h1>
+      <button class="btn" onclick="openModal()">+ Журнал бичих</button>
+    </div>
+    <div id="vouchers"></div>
+    <div id="grandTotals"></div>
+  </section>
+
+  <!-- Тайлан -->
+  <section id="page-report" class="hide">
+    <div class="page-head">
+      <h1>Тайлан</h1>
+      <span class="muted" id="reportRange"></span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="label">Нийт бичилт</div><div class="value" id="rCount">0</div></div>
+      <div class="stat"><div class="label">Нийт дебет</div><div class="value" id="rDebit">0.00</div></div>
+      <div class="stat"><div class="label">Нийт кредит</div><div class="value" id="rCredit">0.00</div></div>
+      <div class="stat"><div class="label">Зөрүү</div><div class="value" id="rDiff">0.00</div></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Данс</th>
+          <th class="num" style="width:160px;">Дебет</th>
+          <th class="num" style="width:160px;">Кредит</th>
+          <th class="num" style="width:160px;">Үлдэгдэл</th>
+        </tr>
+      </thead>
+      <tbody id="reportRows"></tbody>
+    </table>
+  </section>
+
+  <!-- Дансны тохиргоо -->
+  <section id="page-accounts" class="hide">
+    <div class="page-head">
+      <h1>Дансны тохиргоо</h1>
+      <button class="btn" onclick="openAccountModal()">+ Данс нэмэх</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:160px;">Дугаар</th>
+          <th>Нэр</th>
+          <th style="width:50px;"></th>
+        </tr>
+      </thead>
+      <tbody id="accRows"></tbody>
+    </table>
+  </section>
+
+</main>
+
+<!-- Modal: Данс нэмэх -->
+<div class="modal-overlay" id="accountModal">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-head">
+      <h2>Данс нэмэх</h2>
+      <button class="modal-close" onclick="closeAccountModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="accountForm" class="form-grid" onsubmit="return false;">
+        <div class="field">
+          <label>Дансны дугаар</label>
+          <input type="text" id="accNumber" placeholder="Жишээ: 1100" required>
+        </div>
+        <div class="field">
+          <label>Дансны нэр</label>
+          <input type="text" id="accName" placeholder="Жишээ: Касс" required>
+        </div>
+      </form>
+    </div>
+    <div class="modal-foot">
+      <span></span>
+      <div class="actions">
+        <button class="btn ghost" onclick="closeAccountModal()">Болих</button>
+        <button class="btn" onclick="submitAccount()">Хадгалах</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Журнал бичих -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Журнал бичих</h2>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="section-label">Гарчиг</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Огноо</label>
+          <input type="date" id="vDate" required>
+        </div>
+        <div class="field">
+          <label>Гүйлгээний утга</label>
+          <input type="text" id="vDesc" placeholder="Тайлбар" required>
+        </div>
+      </div>
+
+      <div class="section-label">Мөр</div>
+      <div class="lines">
+        <div class="lines-row head">
+          <div>Данс</div>
+          <div class="num">Дебет</div>
+          <div class="num">Кредит</div>
+          <div>Тайлбар</div>
+          <div></div>
+        </div>
+        <div id="lineRows"></div>
+        <div class="lines-foot">
+          <div style="text-align:right; color:#666;">Нийт</div>
+          <div class="num" id="sumDebit">0.00</div>
+          <div class="num" id="sumCredit">0.00</div>
+          <div></div>
+          <div></div>
+        </div>
+      </div>
+      <div class="add-line">
+        <button class="btn ghost sm" onclick="addLine()">+ Мөр нэмэх</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="balance-status" id="balanceStatus">Тэнцсэн</span>
+      <div class="actions">
+        <button class="btn ghost" onclick="closeModal()">Болих</button>
+        <button class="btn" id="saveBtn" onclick="submitVoucher()">Хадгалах</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const KEY_V = "journal_vouchers_v1";
+  const KEY_A = "journal_accounts_v1";
+  const $ = id => document.getElementById(id);
+  const fmt = n => Number(n || 0).toLocaleString("mn-MN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  let vouchers = JSON.parse(localStorage.getItem(KEY_V) || "[]");
+  let accounts = JSON.parse(localStorage.getItem(KEY_A) || "[]");
+
+  if (accounts.length === 0) {
+    accounts = [
+      { number: "1100", name: "Касс" },
+      { number: "1200", name: "Харилцах данс" },
+      { number: "5100", name: "Борлуулалтын орлого" },
+      { number: "6100", name: "Үндсэн үйл ажиллагааны зардал" },
+    ];
+    saveAccounts();
+  }
+
+  function saveVouchers() { localStorage.setItem(KEY_V, JSON.stringify(vouchers)); }
+  function saveAccounts() { localStorage.setItem(KEY_A, JSON.stringify(accounts)); }
+
+  function accountLabel(num) {
+    const a = accounts.find(x => x.number === num);
+    return a ? `${a.number} — ${a.name}` : num;
+  }
+
+  function accountOptions(selected) {
+    const opts = ['<option value="">— Сонгох —</option>']
+      .concat([...accounts].sort((a, b) => a.number.localeCompare(b.number))
+        .map(a => `<option value="${escapeHtml(a.number)}"${a.number === selected ? " selected" : ""}>${escapeHtml(a.number)} — ${escapeHtml(a.name)}</option>`));
+    return opts.join("");
+  }
+
+  /* ---------- List page ---------- */
+  function renderVouchers() {
+    const wrap = $("vouchers");
+    const totals = $("grandTotals");
+    if (vouchers.length === 0) {
+      wrap.innerHTML = '<div class="card empty">Бичилт байхгүй</div>';
+      totals.innerHTML = "";
+      return;
+    }
+    const sorted = [...vouchers].sort((a, b) => (a.date < b.date ? 1 : -1));
+    let gTd = 0, gTc = 0;
+    wrap.innerHTML = sorted.map(v => {
+      let td = 0, tc = 0;
+      const lineRows = v.lines.map(l => {
+        td += Number(l.debit || 0);
+        tc += Number(l.credit || 0);
+        return `<tr>
+          <td>${escapeHtml(accountLabel(l.account))}</td>
+          <td class="num">${l.debit ? fmt(l.debit) : ""}</td>
+          <td class="num">${l.credit ? fmt(l.credit) : ""}</td>
+          <td>${escapeHtml(l.desc || "")}</td>
+        </tr>`;
+      }).join("");
+      gTd += td; gTc += tc;
+      return `
+        <div class="voucher">
+          <div class="voucher-head">
+            <div class="voucher-date">${v.date}</div>
+            <div class="voucher-desc">${escapeHtml(v.desc)}</div>
+            <button class="btn del" data-vid="${v.id}" title="Устгах">×</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:240px;">Данс</th>
+                <th class="num" style="width:140px;">Дебет</th>
+                <th class="num" style="width:140px;">Кредит</th>
+                <th>Тайлбар</th>
+              </tr>
+            </thead>
+            <tbody>${lineRows}</tbody>
+            <tfoot>
+              <tr>
+                <td style="text-align:right;">Дүн</td>
+                <td class="num">${fmt(td)}</td>
+                <td class="num">${fmt(tc)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }).join("");
+
+    const diff = gTd - gTc;
+    const ok = Math.abs(diff) < 0.005;
+    totals.innerHTML = `
+      <div class="card" style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+        <div class="muted">Нийт</div>
+        <div style="display:flex; gap:24px; align-items:center;">
+          <div><span class="muted">Дебет:</span> <strong style="font-variant-numeric:tabular-nums;">${fmt(gTd)}</strong></div>
+          <div><span class="muted">Кредит:</span> <strong style="font-variant-numeric:tabular-nums;">${fmt(gTc)}</strong></div>
+          <div class="${ok ? "balance-ok" : "balance-bad"}"><strong>${ok ? "Тэнцсэн" : "Зөрүү: " + fmt(diff)}</strong></div>
+        </div>
+      </div>
+    `;
+  }
+
+  $("vouchers").addEventListener("click", e => {
+    const btn = e.target.closest("[data-vid]");
+    if (btn) {
+      const id = btn.dataset.vid;
+      if (!confirm("Энэ бичилтийг устгах уу?")) return;
+      vouchers = vouchers.filter(v => v.id !== id);
+      saveVouchers();
+      renderVouchers();
+    }
+  });
+
+  /* ---------- Report ---------- */
+  function renderReport() {
+    let td = 0, tc = 0, n = 0;
+    const totals = {};
+    vouchers.forEach(v => {
+      n++;
+      v.lines.forEach(l => {
+        td += Number(l.debit || 0);
+        tc += Number(l.credit || 0);
+        if (!totals[l.account]) totals[l.account] = { debit: 0, credit: 0 };
+        totals[l.account].debit += Number(l.debit || 0);
+        totals[l.account].credit += Number(l.credit || 0);
+      });
+    });
+    $("rCount").textContent = n;
+    $("rDebit").textContent = fmt(td);
+    $("rCredit").textContent = fmt(tc);
+    const diff = td - tc;
+    const diffEl = $("rDiff");
+    diffEl.textContent = fmt(diff);
+    diffEl.className = "value " + (Math.abs(diff) < 0.005 ? "balance-ok" : "balance-bad");
+
+    const dates = vouchers.map(v => v.date).sort();
+    $("reportRange").textContent = dates.length ? `${dates[0]} — ${dates[dates.length - 1]}` : "";
+
+    const keys = Object.keys(totals).sort();
+    $("reportRows").innerHTML = keys.length === 0
+      ? '<tr><td colspan="4" class="empty">Өгөгдөл байхгүй</td></tr>'
+      : keys.map(k => {
+        const t = totals[k];
+        return `<tr>
+          <td>${escapeHtml(accountLabel(k))}</td>
+          <td class="num">${fmt(t.debit)}</td>
+          <td class="num">${fmt(t.credit)}</td>
+          <td class="num">${fmt(t.debit - t.credit)}</td>
+        </tr>`;
+      }).join("");
+  }
+
+  /* ---------- Accounts ---------- */
+  function renderAccounts() {
+    const rows = $("accRows");
+    if (accounts.length === 0) {
+      rows.innerHTML = '<tr><td colspan="3" class="empty">Данс байхгүй</td></tr>';
+      return;
+    }
+    const sorted = [...accounts].sort((a, b) => a.number.localeCompare(b.number));
+    rows.innerHTML = sorted.map(a => `
+      <tr>
+        <td>${escapeHtml(a.number)}</td>
+        <td>${escapeHtml(a.name)}</td>
+        <td><button class="btn del" data-num="${escapeHtml(a.number)}">×</button></td>
+      </tr>
+    `).join("");
+  }
+
+  function openAccountModal() {
+    $("accountForm").reset();
+    $("accountModal").classList.add("show");
+    setTimeout(() => $("accNumber").focus(), 50);
+  }
+  function closeAccountModal() {
+    $("accountModal").classList.remove("show");
+  }
+  function submitAccount() {
+    const number = $("accNumber").value.trim();
+    const name = $("accName").value.trim();
+    if (!number || !name) { alert("Бүх талбарыг бөглөнө үү"); return; }
+    if (accounts.some(a => a.number === number)) {
+      alert("Энэ дугаартай данс аль хэдийн бүртгэгдсэн байна");
+      return;
+    }
+    accounts.push({ number, name });
+    saveAccounts();
+    renderAccounts();
+    closeAccountModal();
+  }
+  $("accountForm").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); submitAccount(); }
+  });
+  $("accountModal").addEventListener("click", e => {
+    if (e.target.id === "accountModal") closeAccountModal();
+  });
+
+  $("accRows").addEventListener("click", e => {
+    if (e.target.classList.contains("del")) {
+      const num = e.target.dataset.num;
+      const used = vouchers.some(v => v.lines.some(l => l.account === num));
+      if (used && !confirm("Энэ данс журналд ашиглагдсан байна. Үнэхээр устгах уу?")) return;
+      accounts = accounts.filter(a => a.number !== num);
+      saveAccounts();
+      renderAccounts();
+      renderVouchers();
+    }
+  });
+
+  /* ---------- Modal: Voucher entry ---------- */
+  let draftLines = [];
+
+  function renderDraft() {
+    const host = $("lineRows");
+    host.innerHTML = draftLines.map((l, i) => {
+      const debitDisabled = Number(l.credit) > 0 ? " disabled" : "";
+      const creditDisabled = Number(l.debit) > 0 ? " disabled" : "";
+      return `
+      <div class="lines-row">
+        <select data-i="${i}" data-k="account">${accountOptions(l.account)}</select>
+        <input type="number" inputmode="decimal" class="num" data-i="${i}" data-k="debit" step="0.01" min="0" placeholder="0.00" value="${l.debit || ""}"${debitDisabled}>
+        <input type="number" inputmode="decimal" class="num" data-i="${i}" data-k="credit" step="0.01" min="0" placeholder="0.00" value="${l.credit || ""}"${creditDisabled}>
+        <input type="text" data-i="${i}" data-k="desc" placeholder="Тайлбар" value="${escapeHtml(l.desc || "")}">
+        <div class="row-del"><button type="button" data-i="${i}" data-k="del" title="Мөр устгах">×</button></div>
+      </div>
+    `;
+    }).join("");
+    updateSums();
+  }
+
+  function updateSums() {
+    let td = 0, tc = 0;
+    draftLines.forEach(l => {
+      td += Number(l.debit || 0);
+      tc += Number(l.credit || 0);
+    });
+    $("sumDebit").textContent = fmt(td);
+    $("sumCredit").textContent = fmt(tc);
+    const diff = td - tc;
+    const ok = Math.abs(diff) < 0.005 && (td > 0 || tc > 0);
+    const balanced = Math.abs(diff) < 0.005;
+    const status = $("balanceStatus");
+    if (td === 0 && tc === 0) {
+      status.textContent = "Дүн оруулаагүй";
+      status.className = "balance-status bad";
+    } else if (balanced) {
+      status.textContent = "Тэнцсэн";
+      status.className = "balance-status ok";
+    } else {
+      status.textContent = "Зөрүү: " + fmt(diff);
+      status.className = "balance-status bad";
+    }
+    $("saveBtn").disabled = !(ok);
+  }
+
+  function addLine() {
+    draftLines.push({ account: "", debit: 0, credit: 0, desc: "" });
+    renderDraft();
+  }
+
+  $("lineRows").addEventListener("input", e => {
+    const t = e.target;
+    const i = Number(t.dataset.i);
+    const k = t.dataset.k;
+    if (k === "account") {
+      draftLines[i].account = t.value;
+    } else if (k === "debit" || k === "credit") {
+      let val = parseFloat(t.value);
+      if (isNaN(val) || val < 0) val = 0;
+      draftLines[i][k] = val;
+      const other = k === "debit" ? "credit" : "debit";
+      const row = t.closest(".lines-row");
+      const otherInput = row.querySelector(`input[data-k="${other}"]`);
+      if (val > 0) {
+        otherInput.disabled = true;
+        otherInput.value = "";
+        draftLines[i][other] = 0;
+      } else {
+        otherInput.disabled = false;
+      }
+    } else if (k === "desc") {
+      draftLines[i].desc = t.value;
+    }
+    updateSums();
+  });
+
+  $("lineRows").addEventListener("keydown", e => {
+    const t = e.target;
+    if (t.tagName === "INPUT" && t.type === "number") {
+      if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
+    }
+  });
+
+  $("lineRows").addEventListener("paste", e => {
+    const t = e.target;
+    if (t.tagName === "INPUT" && t.type === "number") {
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      if (!/^\d*\.?\d*$/.test(text)) e.preventDefault();
+    }
+  });
+
+  $("lineRows").addEventListener("click", e => {
+    const btn = e.target.closest("[data-k='del']");
+    if (btn) {
+      const i = Number(btn.dataset.i);
+      draftLines.splice(i, 1);
+      if (draftLines.length === 0) addLine();
+      else renderDraft();
+    }
+  });
+
+  function openModal() {
+    $("vDate").value = new Date().toISOString().slice(0, 10);
+    $("vDesc").value = "";
+    draftLines = [
+      { account: "", debit: 0, credit: 0, desc: "" },
+      { account: "", debit: 0, credit: 0, desc: "" },
+    ];
+    renderDraft();
+    $("modal").classList.add("show");
+    setTimeout(() => $("vDesc").focus(), 50);
+  }
+  function closeModal() {
+    $("modal").classList.remove("show");
+  }
+
+  function submitVoucher() {
+    const date = $("vDate").value;
+    const desc = $("vDesc").value.trim();
+    if (!date || !desc) { alert("Огноо ба гүйлгээний утгыг бөглөнө үү"); return; }
+    const lines = draftLines
+      .filter(l => l.account && (l.debit > 0 || l.credit > 0))
+      .map(l => ({ account: l.account, debit: l.debit, credit: l.credit, desc: (l.desc || "").trim() }));
+    if (lines.length < 2) { alert("Дор хаяж 2 мөр оруулна уу"); return; }
+    let td = 0, tc = 0;
+    lines.forEach(l => { td += Number(l.debit || 0); tc += Number(l.credit || 0); });
+    if (Math.abs(td - tc) >= 0.005) { alert("Дебет ба кредитийн дүн тэнцэхгүй байна"); return; }
+    vouchers.push({ id: uid(), date, desc, lines });
+    saveVouchers();
+    renderVouchers();
+    closeModal();
+  }
+
+  /* ---------- Nav ---------- */
+  function showPage(name) {
+    ["list", "report", "accounts"].forEach(p => {
+      $("page-" + p).classList.toggle("hide", p !== name);
+    });
+    document.querySelectorAll("#nav button").forEach(b => {
+      b.classList.toggle("active", b.dataset.page === name);
+    });
+    if (name === "report") renderReport();
+    if (name === "accounts") renderAccounts();
+  }
+
+  document.querySelectorAll("#nav button").forEach(btn => {
+    btn.addEventListener("click", () => showPage(btn.dataset.page));
+  });
+
+  /* ---------- Modal close ---------- */
+  $("modal").addEventListener("click", e => {
+    if (e.target.id === "modal") closeModal();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      if ($("modal").classList.contains("show")) closeModal();
+      if ($("accountModal").classList.contains("show")) closeAccountModal();
+    }
+  });
+
+  renderVouchers();
+</script>
+</body>
+</html>
