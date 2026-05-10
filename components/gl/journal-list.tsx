@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { deleteVoucher, postVoucher } from "@/lib/actions/gl";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
@@ -20,43 +20,28 @@ interface Props {
 }
 
 export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [appliedStart, setAppliedStart] = useState("");
-  const [appliedEnd, setAppliedEnd] = useState("");
-  const [page, setPage] = useState(1);
+  const today = new Date();
+  const defaultStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const defaultEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-  // Extract S3 account code from composite segment code
-  function extractS3(code: string): string {
-    const parts = code.split(".");
-    if (parts.length === 1) return code;
-    const s3Pos = activeSegIds.indexOf(3);
-    // If code parts match active segment count, use position mapping
-    if (s3Pos !== -1 && parts.length === activeSegIds.length) return parts[s3Pos] ?? code;
-    // Otherwise try each part against chartOfAccounts
-    for (const part of parts) {
-      if (accounts.find((x) => x.number === part)) return part;
-    }
-    return code;
-  }
+  const [startDate, setStartDate] = useState(defaultStart);
+  const [endDate, setEndDate] = useState(defaultEnd);
+  const [appliedStart, setAppliedStart] = useState(defaultStart);
+  const [appliedEnd, setAppliedEnd] = useState(defaultEnd);
+  const [page, setPage] = useState(1);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   function AccountCell({ code }: { code: string }) {
-    const exact = accounts.find((x) => x.number === code);
-    if (exact) {
-      return (
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono font-semibold text-[#1E3A5F] shrink-0">{exact.number}</span>
-          <span className="text-[#666] truncate">{exact.name}</span>
-        </div>
-      );
-    }
-    const s3Code = extractS3(code);
-    const match = accounts.find((x) => x.number === s3Code);
+    const parts = code.split(".");
+    const display =
+      parts.length === 10
+        ? activeSegIds.map((id) => parts[id - 1]).join(".")
+        : code;
     return (
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono font-semibold text-[#1E3A5F] shrink-0">{code}</span>
-        {match && <span className="text-[#666] truncate">{match.name}</span>}
-      </div>
+      <span className="font-mono text-xs text-[#1E3A5F] tracking-tight">
+        {display}
+      </span>
     );
   }
 
@@ -66,12 +51,16 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
   }
 
   async function handlePost(id: string) {
-    if (!confirm("Энэ ноорогийг бичигдсэн болгох уу?")) return;
+    if (!confirm("Энэ ноорогийг батлах уу?")) return;
     await postVoucher(id);
   }
 
   function handleEdit(id: string) {
-    window.open(`/gl/journal/${id}/edit`, "_blank", "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no");
+    window.open(
+      `/gl/journal/${id}/edit`,
+      "_blank",
+      "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
+    );
   }
 
   function handleSearch() {
@@ -99,6 +88,7 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
     (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.credit), 0),
     0
   );
+  const balanced = Math.abs(grandDebit - grandCredit) < 0.005;
 
   return (
     <>
@@ -107,7 +97,13 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
         <h1 className="text-lg font-medium text-[#1A1A19]">Журналын жагсаалт</h1>
         <Button
           className="bg-[#1E3A5F] hover:bg-[#15294A] text-white text-sm h-9 px-4 rounded-md"
-          onClick={() => window.open("/gl/journal/new", "_blank", "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no")}
+          onClick={() =>
+            window.open(
+              "/gl/journal/new",
+              "_blank",
+              "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
+            )
+          }
         >
           + Журнал бичих
         </Button>
@@ -141,7 +137,13 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
         </button>
         {(appliedStart || appliedEnd) && (
           <button
-            onClick={() => { setStartDate(""); setEndDate(""); setAppliedStart(""); setAppliedEnd(""); setPage(1); }}
+            onClick={() => {
+              setStartDate("");
+              setEndDate("");
+              setAppliedStart("");
+              setAppliedEnd("");
+              setPage(1);
+            }}
             className="h-8 px-3 text-sm text-[#6B6B63] border border-[#E5E5DE] rounded-md hover:bg-[#F4F4EE] transition-colors"
           >
             Цэвэрлэх
@@ -150,157 +152,235 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
         <span className="ml-auto text-xs text-[#9A9A91]">{filtered.length} бичилт</span>
       </div>
 
-      {/* List */}
+      {/* Table */}
       {filtered.length === 0 ? (
         <div className="bg-white border border-[#E5E5DE] rounded-md py-16 text-center text-[#aaa] text-sm">
           Бичилт байхгүй
         </div>
       ) : (
         <>
-          <div className="space-y-3">
-            {paginated.map((v) => {
-              const vDebit = v.lines.reduce((s, l) => s + Number(l.debit), 0);
-              const vCredit = v.lines.reduce((s, l) => s + Number(l.credit), 0);
-              return (
-                <div
-                  key={v.id}
-                  className="bg-white border border-[#E5E5DE] rounded-md overflow-hidden"
-                >
-                  {/* Card header */}
-                  <div className="flex items-center gap-3 px-4 py-2.5 bg-[#F4F4EE] border-b border-[#E5E5DE]">
-                    <span className="text-xs font-mono text-[#6B6B63] min-w-[86px]">{v.date}</span>
-                    <span className="text-sm font-medium text-[#1A1A19] flex-1 truncate">{v.description}</span>
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded-full border ${
-                        v.status === "posted"
-                          ? "bg-[#ECFDF5] text-[#047857] border-[#BBF7D0]"
-                          : "bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]"
-                      }`}
-                    >
-                      {v.status === "posted" ? "Бичигдсэн" : "Ноорог"}
-                    </span>
-                    {v.status === "draft" && (
-                      <>
-                        <button
-                          onClick={() => handleEdit(v.id)}
-                          className="text-xs font-medium text-[#1E3A5F] hover:bg-[#EEF3FF] px-2 py-0.5 rounded border border-[#C7D8EE] transition-colors ml-1"
-                          title="Засах"
-                        >
-                          Засах
-                        </button>
-                        <button
-                          onClick={() => handlePost(v.id)}
-                          className="text-xs font-medium text-[#047857] hover:bg-[#ECFDF5] px-2 py-0.5 rounded border border-[#BBF7D0] transition-colors"
-                          title="Бичигдсэн болгох"
-                        >
-                          Бичигдсэн болгох
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => handleDelete(v.id)}
-                      className="text-[#D4D4CB] hover:text-[#B91C1C] hover:bg-red-50 w-6 h-6 flex items-center justify-center rounded text-base leading-none transition-colors ml-1"
-                      title="Устгах"
-                    >
-                      ×
-                    </button>
-                  </div>
+          <div className="bg-white border border-[#E5E5DE] rounded-lg overflow-hidden">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-[#F4F4EE] text-[11px] font-semibold text-[#9A9A91] uppercase tracking-wide">
+                  <th className="px-3 py-2.5 text-left w-[90px] border-b border-[#E5E5DE]">Огноо</th>
+                  <th className="px-3 py-2.5 text-left w-[64px] border-b border-[#E5E5DE]">ID</th>
+                  <th className="px-3 py-2.5 text-left w-[190px] border-b border-[#E5E5DE]">Утга</th>
+                  <th className="px-3 py-2.5 text-left border-b border-[#E5E5DE]">Данс</th>
+                  <th className="px-3 py-2.5 text-right w-[120px] border-b border-[#E5E5DE]">Дебет</th>
+                  <th className="px-3 py-2.5 text-right w-[120px] border-b border-[#E5E5DE]">Кредит</th>
+                  <th className="px-3 py-2.5 text-left w-[150px] border-b border-[#E5E5DE]">Тайлбар</th>
+                  <th className="px-3 py-2.5 w-[120px] border-b border-[#E5E5DE]" />
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((v) => {
+                  const isHovered = hoveredId === v.id;
+                  const rowBg = isHovered ? "#F7F8FC" : "transparent";
 
-                  {/* Lines table */}
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[#EDEDE6]">
-                        <th className="px-4 py-1.5 text-left text-xs font-medium text-[#9A9A91] w-[280px]">Данс</th>
-                        <th className="px-4 py-1.5 text-right text-xs font-medium text-[#9A9A91] w-[130px]">Дебет</th>
-                        <th className="px-4 py-1.5 text-right text-xs font-medium text-[#9A9A91] w-[130px]">Кредит</th>
-                        <th className="px-4 py-1.5 text-left text-xs font-medium text-[#9A9A91]">Тайлбар</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {v.lines.map((l) => (
-                        <tr key={l.id} className="border-t border-[#F0F0E8] hover:bg-[#FAFAF7]">
-                          <td className="px-4 py-2.5"><AccountCell code={l.accountNumber} /></td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-[#1A1A19]">
-                            {Number(l.debit) > 0 ? fmt(l.debit) : <span className="text-[#E5E5DE]">—</span>}
+                  return (
+                    <React.Fragment key={v.id}>
+                      {v.lines.map((l, li) => (
+                        <tr
+                          key={l.id}
+                          style={{ background: rowBg }}
+                          className={`transition-colors ${
+                            li === 0
+                              ? "border-t-2 border-[#D4D4CB]"
+                              : "border-t border-[#F0F0EA]"
+                          }`}
+                          onMouseEnter={() => setHoveredId(v.id)}
+                          onMouseLeave={() => setHoveredId(null)}
+                        >
+                          {/* Огноо */}
+                          {li === 0 ? (
+                            <td
+                              className="px-3 py-2 font-mono text-xs text-[#6B6B63] whitespace-nowrap align-top"
+                              rowSpan={v.lines.length}
+                            >
+                              {v.date}
+                            </td>
+                          ) : null}
+
+                          {/* ID */}
+                          {li === 0 ? (
+                            <td className="px-3 py-2 align-top" rowSpan={v.lines.length}>
+                              <span
+                                className="font-mono text-[10px] text-[#ADADAD] select-all cursor-default"
+                                title={v.id}
+                              >
+                                {v.id.slice(0, 8)}
+                              </span>
+                            </td>
+                          ) : null}
+
+                          {/* Утга */}
+                          {li === 0 ? (
+                            <td
+                              className="px-3 py-2 align-top"
+                              rowSpan={v.lines.length}
+                            >
+                              <span className="text-xs font-medium text-[#1A1A19] leading-snug block">
+                                {v.description}
+                              </span>
+                            </td>
+                          ) : null}
+
+                          {/* Данс */}
+                          <td className="px-3 py-2">
+                            <AccountCell code={l.accountNumber} />
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-[#1A1A19]">
-                            {Number(l.credit) > 0 ? fmt(l.credit) : <span className="text-[#E5E5DE]">—</span>}
+
+                          {/* Дебет */}
+                          <td className="px-3 py-2 text-right tabular-nums text-xs">
+                            {Number(l.debit) > 0 ? (
+                              <span className="text-[#1A1A19]">{fmt(l.debit)}</span>
+                            ) : (
+                              <span className="text-[#D4D4CB]">—</span>
+                            )}
                           </td>
-                          <td className="px-4 py-2.5 text-sm text-[#6B6B63]">{l.description || ""}</td>
+
+                          {/* Кредит */}
+                          <td className="px-3 py-2 text-right tabular-nums text-xs">
+                            {Number(l.credit) > 0 ? (
+                              <span className="text-[#1A1A19]">{fmt(l.credit)}</span>
+                            ) : (
+                              <span className="text-[#D4D4CB]">—</span>
+                            )}
+                          </td>
+
+                          {/* Мөрийн тайлбар */}
+                          <td className="px-3 py-2 text-xs text-[#9A9A91] leading-snug">
+                            {l.description}
+                          </td>
+
+                          {/* Статус + үйлдэл */}
+                          {li === 0 ? (
+                            <td
+                              className="px-3 py-2 align-top"
+                              rowSpan={v.lines.length}
+                            >
+                              <div className="flex flex-col items-end gap-2">
+                                {/* Status */}
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                      v.status === "posted"
+                                        ? "bg-[#059669]"
+                                        : "bg-[#D97706]"
+                                    }`}
+                                  />
+                                  <span
+                                    className={`text-[11px] font-medium ${
+                                      v.status === "posted"
+                                        ? "text-[#047857]"
+                                        : "text-[#B45309]"
+                                    }`}
+                                  >
+                                    {v.status === "posted" ? "Бичигдсэн" : "Ноорог"}
+                                  </span>
+                                </div>
+
+                                {/* Actions */}
+                                <div
+                                  className="flex items-center gap-1 transition-opacity duration-150"
+                                  style={{ opacity: isHovered ? 1 : 0 }}
+                                >
+                                  {v.status === "draft" && (
+                                    <>
+                                      <button
+                                        onClick={() => handleEdit(v.id)}
+                                        className="h-6 px-2 text-[11px] font-medium text-[#1E3A5F] border border-[#C7D8EE] rounded hover:bg-[#EEF3FF] transition-colors bg-white"
+                                      >
+                                        Засах
+                                      </button>
+                                      <button
+                                        onClick={() => handlePost(v.id)}
+                                        className="h-6 px-2 text-[11px] font-medium text-[#047857] border border-[#BBF7D0] rounded hover:bg-[#ECFDF5] transition-colors bg-white"
+                                      >
+                                        Батлах
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={() => handleDelete(v.id)}
+                                    className="h-6 w-6 flex items-center justify-center text-[#C4C4BC] border border-[#E5E5DE] rounded hover:text-[#B91C1C] hover:border-[#FECACA] hover:bg-[#FFF5F5] transition-colors bg-white text-sm leading-none"
+                                    title="Устгах"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-[#E5E5DE] bg-[#F4F4EE]">
-                        <td className="px-4 py-2 text-xs font-semibold text-[#6B6B63] text-right">Дүн</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">{fmt(vDebit)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">{fmt(vCredit)}</td>
-                        <td className="px-4 py-2">
-                          {Math.abs(vDebit - vCredit) < 0.005 ? (
-                            <span className="text-xs text-[#047857]">✓ тэнцсэн</span>
-                          ) : (
-                            <span className="text-xs text-[#B91C1C]">зөрүү {fmt(Math.abs(vDebit - vCredit))}</span>
-                          )}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              );
-            })}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
+                  <td colSpan={4} className="px-3 py-2.5 text-xs font-semibold text-[#1E3A5F]">
+                    Нийт дүн
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">
+                    {fmt(grandDebit)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">
+                    {fmt(grandCredit)}
+                  </td>
+                  <td colSpan={2} className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[#059669]" : "bg-[#DC2626]"}`}
+                      />
+                      <span
+                        className={`text-xs font-medium ${balanced ? "text-[#047857]" : "text-[#B91C1C]"}`}
+                      >
+                        {balanced
+                          ? "Тэнцсэн"
+                          : `Зөрүү ${fmt(Math.abs(grandDebit - grandCredit))}`}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
 
-          {/* Footer: totals + pagination */}
-          <div className="mt-3 flex items-center justify-between border-t-2 border-[#D4D4CB] pt-3" style={{ background: "var(--ea-bg-2)", borderRadius: 6, padding: "10px 16px" }}>
-            {/* Grand totals */}
-            <div className="flex items-center gap-6 text-sm">
-              <span className="font-semibold text-[#1E3A5F]">Нийт дүн</span>
-              <span>
-                <span className="text-xs text-[#6B6B63] mr-1">Дебет</span>
-                <span className="font-semibold tabular-nums text-[#1A1A19]">{fmt(grandDebit)}</span>
-              </span>
-              <span>
-                <span className="text-xs text-[#6B6B63] mr-1">Кредит</span>
-                <span className="font-semibold tabular-nums text-[#1A1A19]">{fmt(grandCredit)}</span>
-              </span>
-              <span className={Math.abs(grandDebit - grandCredit) < 0.005 ? "text-xs font-medium text-[#047857]" : "text-xs font-medium text-[#B91C1C]"}>
-                {Math.abs(grandDebit - grandCredit) < 0.005 ? "Тэнцсэн" : `Зөрүү ${fmt(Math.abs(grandDebit - grandCredit))}`}
-              </span>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-end gap-1 mt-3">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                ‹
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`h-7 min-w-[28px] px-1.5 flex items-center justify-center rounded border text-sm transition-colors ${
+                    p === page
+                      ? "bg-[#1E3A5F] text-white border-[#1E3A5F] font-medium"
+                      : "border-[#E5E5DE] text-[#6B6B63] hover:bg-[#F4F4EE]"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                ›
+              </button>
             </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  ‹
-                </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPage(p)}
-                    className={`h-7 min-w-[28px] px-1.5 flex items-center justify-center rounded border text-sm transition-colors ${
-                      p === page
-                        ? "bg-[#1E3A5F] text-white border-[#1E3A5F] font-medium"
-                        : "border-[#E5E5DE] text-[#6B6B63] hover:bg-[#F4F4EE]"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  ›
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </>
       )}
     </>

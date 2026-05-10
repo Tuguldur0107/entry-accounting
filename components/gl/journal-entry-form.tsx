@@ -23,7 +23,6 @@ type Line = {
   description: string;
 };
 
-
 const fmt = (n: number) =>
   n.toLocaleString("mn-MN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -35,15 +34,17 @@ function SegSelect({
   value,
   onChange,
   groups,
+  width = 220,
 }: {
   options: SegOption[];
   value: string;
   onChange: (v: string) => void;
   groups?: Record<string, string>;
+  width?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 280 });
+  const [pos, setPos] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -59,7 +60,7 @@ function SegSelect({
   function openDropdown() {
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 280) });
+    setPos({ top: r.bottom + 2, left: r.left });
     setOpen(true);
     setTimeout(() => inputRef.current?.focus(), 40);
   }
@@ -67,8 +68,7 @@ function SegSelect({
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (!triggerRef.current?.contains(target)) {
+      if (!triggerRef.current?.contains(e.target as Node)) {
         setOpen(false);
         setQuery("");
       }
@@ -83,7 +83,6 @@ function SegSelect({
     setQuery("");
   }
 
-  // Group filtered options by first char when groups map provided
   const groupedItems = groups
     ? Object.entries(
         filtered.reduce((acc, opt) => {
@@ -96,105 +95,331 @@ function SegSelect({
     : null;
 
   return (
-    <div className="h-full">
+    <>
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => open ? setOpen(false) : openDropdown()}
-        className="w-full h-full px-3 text-sm font-mono text-left flex items-center justify-between gap-1 hover:bg-[#F4F4EE] transition-colors"
+        onClick={() => (open ? setOpen(false) : openDropdown())}
+        className="w-full h-8 px-2.5 text-xs font-mono text-left flex items-center justify-between gap-1 rounded transition-colors"
+        style={{
+          border: "1px solid var(--ea-border-strong)",
+          background: "var(--ea-bg)",
+          color: value ? "var(--ea-text-1)" : "var(--ea-text-4)",
+        }}
       >
-        <span className={cn("truncate", value ? "text-[#1a1a1a]" : "text-[#c0c0c0]")}>
-          {selected ? selected.code : "—"}
-        </span>
-        <svg width="10" height="6" viewBox="0 0 10 6" className="shrink-0 text-[#bbb]">
-          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+        <span className="truncate">{selected ? selected.code : "—"}</span>
+        <svg width="9" height="5" viewBox="0 0 9 5" style={{ flexShrink: 0, color: "var(--ea-text-4)" }}>
+          <path d="M1 1l3.5 3.5L8 1" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
 
-      {open && createPortal(
-        <div
-          style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}
-          className="bg-white border border-[#D4D4CB] rounded-lg shadow-xl overflow-hidden"
-        >
-          <div className="p-2 border-b border-[#EDEDE6]">
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Хайх..."
-              className="w-full px-3 py-1.5 text-sm border border-[#D4D4CB] rounded-md outline-none focus:border-[#1E3A5F] bg-white"
-            />
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            <button
-              type="button"
-              onMouseDown={() => pick("")}
-              className={cn(
-                "w-full text-left px-3 py-2 text-xs text-[#aaa] hover:bg-[#FAFAF7] transition-colors",
-                !value && "bg-[#F4F4EE] text-[#666]"
-              )}
-            >
-              — Хоосон
-            </button>
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-[#aaa] text-center">Олдсонгүй</div>
-            ) : groupedItems ? (
-              groupedItems.map(([key, opts]) => (
-                <div key={key}>
-                  <div className="px-3 py-1 text-xs font-semibold text-[#9A9A91] bg-[#F4F4EE] border-y border-[#EDEDE6] sticky top-0">
-                    {key}X — {groups![key] ?? ""}
-                  </div>
-                  {opts.map((o) => (
-                    <button
-                      key={o.code}
-                      type="button"
-                      onMouseDown={() => pick(o.code)}
-                      className={cn(
-                        "w-full text-left px-3 py-2 text-xs hover:bg-[#FAFAF7] flex items-baseline gap-2 transition-colors",
-                        o.code === value && "bg-[#EEF3FF]"
-                      )}
+      {open &&
+        createPortal(
+          <div
+            data-seg-portal=""
+            style={{
+              position: "fixed",
+              top: pos.top,
+              left: pos.left,
+              width,
+              zIndex: 10000,
+              background: "var(--ea-surface)",
+              border: "1px solid var(--ea-border-strong)",
+              borderRadius: 8,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "6px 6px 5px", borderBottom: "1px solid var(--ea-border)" }}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Хайх..."
+                style={{
+                  width: "100%",
+                  padding: "5px 8px",
+                  fontSize: 12,
+                  border: "1px solid var(--ea-border-strong)",
+                  borderRadius: 5,
+                  outline: "none",
+                  background: "var(--ea-bg)",
+                  color: "var(--ea-text-1)",
+                }}
+              />
+            </div>
+            <div style={{ maxHeight: 200, overflowY: "auto" }}>
+              <button
+                type="button"
+                onMouseDown={() => pick("")}
+                className="w-full text-left px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--ea-bg-2)]"
+                style={{ color: "var(--ea-text-4)" }}
+              >
+                — Хоосон
+              </button>
+              {filtered.length === 0 ? (
+                <div className="px-3 py-3 text-xs text-center" style={{ color: "var(--ea-text-4)" }}>Олдсонгүй</div>
+              ) : groupedItems ? (
+                groupedItems.map(([key, opts]) => (
+                  <div key={key}>
+                    <div
+                      className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider sticky top-0"
+                      style={{
+                        color: "var(--ea-text-3)",
+                        background: "var(--ea-bg-2)",
+                        borderTop: "1px solid var(--ea-border)",
+                        borderBottom: "1px solid var(--ea-border)",
+                      }}
                     >
-                      <span className="font-mono font-semibold text-[#1E3A5F] shrink-0">{o.code}</span>
-                      <span className="text-[#666] truncate">{o.name}</span>
-                    </button>
-                  ))}
-                </div>
-              ))
-            ) : (
-              filtered.map((o) => (
-                <button
-                  key={o.code}
-                  type="button"
-                  onMouseDown={() => pick(o.code)}
-                  className={cn(
-                    "w-full text-left px-3 py-2 text-xs hover:bg-[#FAFAF7] flex items-baseline gap-2 transition-colors",
-                    o.code === value && "bg-[#EEF3FF]"
-                  )}
-                >
-                  <span className="font-mono font-semibold text-[#1E3A5F] shrink-0">{o.code}</span>
-                  <span className="text-[#666] truncate">{o.name}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
+                      {key}x — {groups![key] ?? ""}
+                    </div>
+                    {opts.map((o) => (
+                      <button
+                        key={o.code}
+                        type="button"
+                        onMouseDown={() => pick(o.code)}
+                        className="w-full text-left px-2.5 py-1.5 text-xs flex items-baseline gap-2 transition-colors hover:bg-[var(--ea-bg-2)]"
+                        style={{ background: o.code === value ? "var(--ea-primary-50)" : "transparent" }}
+                      >
+                        <span className="font-mono font-semibold shrink-0" style={{ color: "var(--ea-primary)" }}>{o.code}</span>
+                        <span className="truncate" style={{ color: "var(--ea-text-2)" }}>{o.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                ))
+              ) : (
+                filtered.map((o) => (
+                  <button
+                    key={o.code}
+                    type="button"
+                    onMouseDown={() => pick(o.code)}
+                    className="w-full text-left px-2.5 py-1.5 text-xs flex items-baseline gap-2 transition-colors hover:bg-[var(--ea-bg-2)]"
+                    style={{ background: o.code === value ? "var(--ea-primary-50)" : "transparent" }}
+                  >
+                    <span className="font-mono font-semibold shrink-0" style={{ color: "var(--ea-primary)" }}>{o.code}</span>
+                    <span className="truncate" style={{ color: "var(--ea-text-2)" }}>{o.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+// ─── Account picker: shows combined code + edit popup ─────────────────────────
+function AccountPicker({
+  activeSegIds,
+  segOptions,
+  value,
+  onChange,
+  extraDefaults,
+}: {
+  activeSegIds: number[];
+  segOptions: Record<number, SegOption[]>;
+  value: string;
+  onChange: (v: string) => void;
+  extraDefaults: Record<number, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  const parts = parseSegParts(value, activeSegIds);
+  const display = activeSegIds.map((id) => parts[id] ?? "").filter(Boolean).join(".");
+
+  function openPopup() {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const popupW = 320;
+    const left = Math.min(r.left, window.innerWidth - popupW - 8);
+    setPos({ top: r.bottom + 4, left });
+    // Initialize draft from current value
+    setDraft(parseSegParts(value, activeSegIds));
+    setOpen(true);
+  }
+
+  function confirm() {
+    onChange(buildSegCode(draft, activeSegIds, extraDefaults));
+    setOpen(false);
+  }
+
+  function cancel() {
+    setOpen(false);
+  }
+
+  return (
+    <div ref={triggerRef} className="flex items-center gap-2 h-full px-3 group/cell">
+      {/* Combined code display */}
+      <span
+        className="font-mono text-xs flex-1 truncate"
+        style={{ color: display ? "var(--ea-text-1)" : "var(--ea-text-4)" }}
+      >
+        {display || "—"}
+      </span>
+
+      {/* Edit icon */}
+      <button
+        type="button"
+        onClick={openPopup}
+        className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover/cell:opacity-100 transition-all"
+        style={{ color: "var(--ea-text-4)" }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = "var(--ea-primary)";
+          e.currentTarget.style.background = "var(--ea-primary-50)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = "var(--ea-text-4)";
+          e.currentTarget.style.background = "transparent";
+        }}
+        title="Данс сонгох"
+      >
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="8" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="1" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+          <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
+        </svg>
+      </button>
+
+      {/* Segment picker popup */}
+      {open &&
+        createPortal(
+          <div
+            ref={popupRef}
+            data-seg-portal=""
+            style={{
+              position: "fixed",
+              top: pos.top,
+              left: pos.left,
+              width: 320,
+              zIndex: 9999,
+              background: "var(--ea-surface)",
+              border: "1px solid var(--ea-border-strong)",
+              borderRadius: 10,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+              overflow: "visible",
+            }}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-3 py-2"
+              style={{ borderBottom: "1px solid var(--ea-border)" }}
+            >
+              <span className="text-xs font-semibold" style={{ color: "var(--ea-text-2)" }}>
+                Данс сонгох
+              </span>
+              <button
+                type="button"
+                onClick={cancel}
+                className="w-5 h-5 flex items-center justify-center rounded text-sm leading-none transition-colors"
+                style={{ color: "var(--ea-text-4)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ea-text-1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ea-text-4)")}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Segment rows */}
+            <div className="p-3 space-y-2">
+              {activeSegIds.map((segId) => {
+                const def = SEGMENT_DEFS.find((d) => d.id === segId)!;
+                return (
+                  <div key={segId} className="flex items-center gap-2">
+                    <div className="w-[88px] shrink-0">
+                      <span className="text-[11px] font-medium block" style={{ color: "var(--ea-text-3)" }}>
+                        {def.nameMn}
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--ea-text-4)" }}>S{segId}</span>
+                    </div>
+                    <div className="flex-1">
+                      <SegSelect
+                        options={segOptions[segId] ?? []}
+                        value={draft[segId] ?? ""}
+                        onChange={(v) => setDraft((p) => ({ ...p, [segId]: v }))}
+                        groups={segId === 3 ? ACCOUNT_GROUPS : undefined}
+                        width={260}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div
+              className="flex items-center justify-end gap-2 px-3 py-2.5"
+              style={{ borderTop: "1px solid var(--ea-border)" }}
+            >
+              <button
+                type="button"
+                onClick={cancel}
+                className="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+                style={{ border: "1px solid var(--ea-border-strong)", background: "transparent", color: "var(--ea-text-2)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ea-bg-2)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                Болих
+              </button>
+              <button
+                type="button"
+                onClick={confirm}
+                className="px-3 py-1.5 text-xs font-semibold text-white rounded-md transition-colors"
+                style={{ background: "var(--ea-primary)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ea-primary-700)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ea-primary)")}
+              >
+                Оруулах
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
 
+// Default values for inactive segments
+const SEG_DEFAULTS: Record<number, string> = {
+  1: "", 2: "", 3: "", 4: "", 5: "",
+  6: "000",   // Intercompany — тохиохгүй
+  7: "0000",  // Related party — тохиохгүй
+  8: "",
+  9: "GL",    // Module — General Ledger
+  10: "0",    // Reserve
+};
+
+const ALL_SEG_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Parse active segment values from a stored 10-part or partial code
 function parseSegParts(code: string, activeSegIds: number[]): Record<number, string> {
-  if (activeSegIds.length <= 1) return { [activeSegIds[0] ?? 3]: code };
   const parts = code.split(".");
+  if (parts.length === 10) {
+    // Full 10-segment code: extract by absolute position
+    return Object.fromEntries(activeSegIds.map((id) => [id, parts[id - 1] ?? ""]));
+  }
+  // Legacy partial code: map by index order
   return Object.fromEntries(activeSegIds.map((id, i) => [id, parts[i] ?? ""]));
 }
 
-function buildSegCode(parts: Record<number, string>, activeSegIds: number[]): string {
-  if (activeSegIds.length <= 1) return parts[activeSegIds[0] ?? 3] ?? "";
-  return activeSegIds.map((id) => parts[id] ?? "").join(".");
+// Always build a full 10-segment code; inactive segments use SEG_DEFAULTS
+function buildSegCode(
+  activeParts: Record<number, string>,
+  activeSegIds: number[],
+  extraDefaults: Record<number, string> = {}
+): string {
+  return ALL_SEG_IDS.map((id) => {
+    if (activeSegIds.includes(id)) return activeParts[id] ?? "";
+    return extraDefaults[id] ?? SEG_DEFAULTS[id] ?? "";
+  }).join(".");
 }
 
 // ─── Main form ────────────────────────────────────────────────────────────────
@@ -213,15 +438,21 @@ interface Props {
   initialVoucher?: InitialVoucher;
 }
 
-export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaultSegments = {}, voucherId, initialVoucher }: Props) {
+export function JournalEntryForm({
+  accounts,
+  activeSegIds,
+  segmentValues,
+  defaultSegments = {},
+  voucherId,
+  initialVoucher,
+}: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const isEdit = !!voucherId;
 
   function makeEmptyLine(): Line {
     const parts: Record<number, string> = {};
     for (const id of activeSegIds) parts[id] = defaultSegments[id] ?? "";
-    const account = buildSegCode(parts, activeSegIds);
-    return { account, debit: "", credit: "", description: "" };
+    return { account: buildSegCode(parts, activeSegIds, defaultSegments), debit: "", credit: "", description: "" };
   }
 
   const [date, setDate] = useState(initialVoucher?.date ?? today);
@@ -253,11 +484,16 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
     return map;
   }, [activeSegIds, accounts, segmentValues]);
 
-  const segColWidths = activeSegIds.map((id) => {
-    const def = SEGMENT_DEFS.find((d) => d.id === id)!;
-    return `${Math.max(def.length * 11 + 44, 80)}px`;
-  });
-  const gridCols = `44px ${segColWidths.join(" ")} 136px 136px 1fr 44px`;
+  // Account column: wide enough to show all active segment parts joined by "."
+  const accountColWidth = Math.max(
+    180,
+    activeSegIds.reduce((s, id) => {
+      const def = SEGMENT_DEFS.find((d) => d.id === id)!;
+      return s + def.length * 9 + 10;
+    }, 0)
+  );
+
+  const gridCols = `40px ${accountColWidth}px 140px 140px 1fr 40px`;
 
   const updateLine = useCallback((i: number, field: keyof Line, value: string) => {
     setLines((prev) => {
@@ -268,11 +504,6 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
       return next;
     });
   }, []);
-
-  function updateSegPart(lineIdx: number, segId: number, val: string) {
-    const parts = parseSegParts(lines[lineIdx].account, activeSegIds);
-    updateLine(lineIdx, "account", buildSegCode({ ...parts, [segId]: val }, activeSegIds));
-  }
 
   async function handleSave(status: "draft" | "posted") {
     if (!date || !description.trim()) {
@@ -306,25 +537,30 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
     }
   }
 
-  const inputCls = "w-full border border-[#D4D4CB] rounded-md px-3 py-2 text-sm outline-none focus:border-[#1E3A5F] focus:ring-2 focus:ring-[#1E3A5F]/10 bg-white transition-colors";
-  const thCls = "px-3 py-2.5 text-xs font-semibold text-[#666] tracking-wide border-l border-[#E5E5DE] first:border-l-0";
-  const cellBorder = "border-r border-[#EDEDE6] last:border-r-0";
+  const cellBorder = { borderLeft: "1px solid var(--ea-border)" };
+  const thCls = "px-3 py-2.5 text-xs font-semibold tracking-wide";
 
   return (
     <div className="h-screen flex flex-col" style={{ background: "var(--ea-bg)", fontFamily: "var(--ea-font-sans)" }}>
 
       {/* ── Header ── */}
-      <header style={{ background: "var(--ea-surface)", borderBottom: "1px solid var(--ea-border)" }} className="px-6 py-0 flex items-center shrink-0 h-12">
+      <header
+        className="px-6 flex items-center shrink-0 h-12 gap-3"
+        style={{ background: "var(--ea-surface)", borderBottom: "1px solid var(--ea-border)" }}
+      >
         <button
           onClick={closeWindow}
-          className="flex items-center gap-2 text-sm text-[#888] hover:text-[#1E3A5F] transition-colors mr-4"
+          className="flex items-center gap-2 text-sm transition-colors"
+          style={{ color: "var(--ea-text-3)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ea-text-1)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ea-text-3)")}
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           Буцах
         </button>
-        <div style={{ width: 1, height: 20, background: "var(--ea-border)" }} className="mr-4" />
+        <div style={{ width: 1, height: 20, background: "var(--ea-border)" }} />
         <span className="text-sm font-semibold" style={{ color: "var(--ea-text-1)" }}>
           {isEdit ? "Журнал засах" : "Журнал бичих"}
         </span>
@@ -335,185 +571,195 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
         <div className="max-w-screen-xl mx-auto space-y-4">
 
           {/* Meta card */}
-          <div style={{ background: "var(--ea-surface)", border: "1px solid var(--ea-border)", borderRadius: 10 }} className="p-5">
+          <div
+            className="p-5"
+            style={{ background: "var(--ea-surface)", border: "1px solid var(--ea-border)", borderRadius: 10 }}
+          >
             <div className="grid gap-5" style={{ gridTemplateColumns: "180px 1fr" }}>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold" style={{ color: "var(--ea-text-2)" }}>
-                  Огноо
-                </label>
+                <label className="text-xs font-semibold block" style={{ color: "var(--ea-text-3)" }}>Огноо</label>
                 <input
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className={inputCls}
+                  className="w-full px-3 py-2 text-sm rounded-md outline-none transition-colors"
+                  style={{ border: "1px solid var(--ea-border-strong)", background: "var(--ea-surface)", color: "var(--ea-text-1)" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ea-primary)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--ea-border-strong)")}
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold" style={{ color: "var(--ea-text-2)" }}>
-                  Гүйлгээний утга
-                </label>
+                <label className="text-xs font-semibold block" style={{ color: "var(--ea-text-3)" }}>Гүйлгээний утга</label>
                 <input
                   type="text"
                   placeholder="Гүйлгээний тайлбар оруулна уу"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className={inputCls}
+                  className="w-full px-3 py-2 text-sm rounded-md outline-none transition-colors"
+                  style={{ border: "1px solid var(--ea-border-strong)", background: "var(--ea-surface)", color: "var(--ea-text-1)" }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ea-primary)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--ea-border-strong)")}
                 />
               </div>
             </div>
           </div>
 
           {/* Lines table */}
-          <div style={{ background: "var(--ea-surface)", border: "1px solid var(--ea-border)", borderRadius: 10 }} className="overflow-hidden overflow-x-auto">
+          <div style={{ background: "var(--ea-surface)", border: "1px solid var(--ea-border)", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ overflowX: "auto" }}>
 
-            {/* Header row */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: gridCols,
-                minWidth: "max-content",
-                background: "var(--ea-bg-2)",
-                borderBottom: "1px solid var(--ea-border)",
-              }}
-            >
-              <div className="px-3 py-2.5 text-xs font-semibold text-center" style={{ color: "var(--ea-text-4)" }}>#</div>
-              {activeSegIds.map((segId) => {
-                const def = SEGMENT_DEFS.find((d) => d.id === segId)!;
+              {/* Header */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: gridCols,
+                  minWidth: "max-content",
+                  background: "var(--ea-bg-2)",
+                  borderBottom: "1px solid var(--ea-border)",
+                }}
+              >
+                <div className={cn(thCls, "text-center")} style={{ color: "var(--ea-text-4)" }}>#</div>
+                <div className={thCls} style={{ ...cellBorder, color: "var(--ea-text-3)" }}>Данс</div>
+                <div className={cn(thCls, "text-right")} style={{ ...cellBorder, color: "var(--ea-text-3)" }}>Дебет</div>
+                <div className={cn(thCls, "text-right")} style={{ ...cellBorder, color: "var(--ea-text-3)" }}>Кредит</div>
+                <div className={thCls} style={{ ...cellBorder, color: "var(--ea-text-3)" }}>Тайлбар</div>
+                <div />
+              </div>
+
+              {/* Rows */}
+              {lines.map((line, i) => {
+                const hasDebit = parseFloat(line.debit) > 0;
+                const hasCredit = parseFloat(line.credit) > 0;
                 return (
-                  <div key={segId} className={thCls} title={def.nameMn}>
-                    S{segId}
+                  <div
+                    key={i}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: gridCols,
+                      minWidth: "max-content",
+                      minHeight: 46,
+                      borderTop: "1px solid var(--ea-border)",
+                    }}
+                    className="hover:bg-[var(--ea-bg-2)] group transition-colors"
+                  >
+                    {/* Row # */}
+                    <div
+                      className="flex items-center justify-center text-xs"
+                      style={{ color: "var(--ea-text-4)", borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      {i + 1}
+                    </div>
+
+                    {/* Account */}
+                    <div style={{ borderRight: "1px solid var(--ea-border)" }}>
+                      <AccountPicker
+                        activeSegIds={activeSegIds}
+                        segOptions={segOptions}
+                        value={line.account}
+                        onChange={(v) => updateLine(i, "account", v)}
+                        extraDefaults={defaultSegments}
+                      />
+                    </div>
+
+                    {/* Debit */}
+                    <input
+                      type="number" inputMode="decimal" step="0.01" min="0"
+                      placeholder="0.00"
+                      value={line.debit}
+                      disabled={hasCredit}
+                      onChange={(e) => updateLine(i, "debit", e.target.value)}
+                      onKeyDown={(e) => ["e","E","+","-"].includes(e.key) && e.preventDefault()}
+                      className="px-3 text-right text-sm w-full outline-none h-full transition-colors"
+                      style={{
+                        borderRight: "1px solid var(--ea-border)",
+                        background: hasCredit ? "var(--ea-bg-2)" : "transparent",
+                        color: hasCredit ? "var(--ea-text-4)" : "var(--ea-text-1)",
+                      }}
+                    />
+
+                    {/* Credit */}
+                    <input
+                      type="number" inputMode="decimal" step="0.01" min="0"
+                      placeholder="0.00"
+                      value={line.credit}
+                      disabled={hasDebit}
+                      onChange={(e) => updateLine(i, "credit", e.target.value)}
+                      onKeyDown={(e) => ["e","E","+","-"].includes(e.key) && e.preventDefault()}
+                      className="px-3 text-right text-sm w-full outline-none h-full transition-colors"
+                      style={{
+                        borderRight: "1px solid var(--ea-border)",
+                        background: hasDebit ? "var(--ea-bg-2)" : "transparent",
+                        color: hasDebit ? "var(--ea-text-4)" : "var(--ea-text-1)",
+                      }}
+                    />
+
+                    {/* Description */}
+                    <input
+                      type="text"
+                      placeholder="Тайлбар..."
+                      value={line.description}
+                      onChange={(e) => updateLine(i, "description", e.target.value)}
+                      className="px-3 text-sm w-full outline-none bg-transparent h-full"
+                      style={{ borderRight: "1px solid var(--ea-border)", color: "var(--ea-text-1)" }}
+                    />
+
+                    {/* Remove */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (lines.length <= 2) return;
+                        setLines((p) => p.filter((_, idx) => idx !== i));
+                      }}
+                      disabled={lines.length <= 2}
+                      className="flex items-center justify-center opacity-0 group-hover:opacity-100 disabled:opacity-0 transition-all text-base leading-none"
+                      style={{ color: "var(--ea-text-4)" }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = "var(--ea-danger)";
+                        e.currentTarget.style.background = "color-mix(in srgb, var(--ea-danger) 8%, transparent)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = "var(--ea-text-4)";
+                        e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
                 );
               })}
-              <div className={`${thCls} text-right`}>Дебет</div>
-              <div className={`${thCls} text-right`}>Кредит</div>
-              <div className={thCls}>Тайлбар</div>
-              <div />
-            </div>
 
-            {/* Data rows */}
-            {lines.map((line, i) => {
-              const parts = parseSegParts(line.account, activeSegIds);
-              return (
-                <div
-                  key={i}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: gridCols,
-                    minWidth: "max-content",
-                    minHeight: 46,
-                    borderTop: "1px solid var(--ea-border-2, #F0F0EA)",
-                  }}
-                  className="hover:bg-[#FAFAF7] group"
-                >
-                  {/* Row # */}
-                  <div className={`flex items-center justify-center text-xs ${cellBorder}`} style={{ color: "var(--ea-text-4)" }}>
-                    {i + 1}
-                  </div>
-
-                  {/* Segment dropdowns */}
-                  {activeSegIds.map((segId) => (
-                    <div key={segId} className={cellBorder}>
-                      <SegSelect
-                        options={segOptions[segId] ?? []}
-                        value={parts[segId] ?? ""}
-                        onChange={(v) => updateSegPart(i, segId, v)}
-                        groups={segId === 3 ? ACCOUNT_GROUPS : undefined}
-                      />
-                    </div>
-                  ))}
-
-                  {/* Debit */}
-                  <input
-                    type="number" inputMode="decimal" step="0.01" min="0"
-                    placeholder="0.00"
-                    value={line.debit}
-                    disabled={parseFloat(line.credit) > 0}
-                    onChange={(e) => updateLine(i, "debit", e.target.value)}
-                    onKeyDown={(e) => ["e","E","+","-"].includes(e.key) && e.preventDefault()}
-                    className={`${cellBorder} px-3 text-right text-sm w-full outline-none transition-colors h-full`}
-                    style={{
-                      background: parseFloat(line.credit) > 0 ? "var(--ea-bg-2)" : "transparent",
-                      color: parseFloat(line.credit) > 0 ? "var(--ea-text-4)" : "var(--ea-text-1)",
-                    }}
-                  />
-
-                  {/* Credit */}
-                  <input
-                    type="number" inputMode="decimal" step="0.01" min="0"
-                    placeholder="0.00"
-                    value={line.credit}
-                    disabled={parseFloat(line.debit) > 0}
-                    onChange={(e) => updateLine(i, "credit", e.target.value)}
-                    onKeyDown={(e) => ["e","E","+","-"].includes(e.key) && e.preventDefault()}
-                    className={`${cellBorder} px-3 text-right text-sm w-full outline-none transition-colors h-full`}
-                    style={{
-                      background: parseFloat(line.debit) > 0 ? "var(--ea-bg-2)" : "transparent",
-                      color: parseFloat(line.debit) > 0 ? "var(--ea-text-4)" : "var(--ea-text-1)",
-                    }}
-                  />
-
-                  {/* Description */}
-                  <input
-                    type="text"
-                    placeholder="Тайлбар..."
-                    value={line.description}
-                    onChange={(e) => updateLine(i, "description", e.target.value)}
-                    className={`${cellBorder} px-3 text-sm w-full outline-none bg-transparent h-full`}
-                    style={{ color: "var(--ea-text-1)" }}
-                  />
-
-                  {/* Remove */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (lines.length <= 2) return;
-                      setLines((p) => p.filter((_, idx) => idx !== i));
-                    }}
-                    disabled={lines.length <= 2}
-                    className="flex items-center justify-center opacity-0 group-hover:opacity-100 disabled:opacity-0 hover:text-red-500 hover:bg-red-50 transition-all"
-                    style={{ color: "var(--ea-text-4)" }}
-                  >
-                    ×
-                  </button>
+              {/* Totals */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: gridCols,
+                  minWidth: "max-content",
+                  borderTop: "2px solid var(--ea-border-strong)",
+                  background: "var(--ea-bg-2)",
+                }}
+              >
+                <div />
+                <div style={cellBorder} />
+                <div className="px-3 py-3 text-right text-sm font-semibold tabular-nums" style={{ ...cellBorder, color: "var(--ea-text-1)" }}>
+                  {fmt(totalDebit)}
                 </div>
-              );
-            })}
+                <div className="px-3 py-3 text-right text-sm font-semibold tabular-nums" style={{ ...cellBorder, color: "var(--ea-text-1)" }}>
+                  {fmt(totalCredit)}
+                </div>
+                <div className="px-3 py-3 text-xs" style={{ ...cellBorder, color: "var(--ea-text-3)" }}>Нийт дүн</div>
+                <div />
+              </div>
 
-            {/* Totals row */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: gridCols,
-                minWidth: "max-content",
-                borderTop: "2px solid var(--ea-border-strong)",
-                background: "var(--ea-bg-2)",
-              }}
-            >
-              <div />
-              {activeSegIds.map((segId) => (
-                <div key={segId} style={{ borderLeft: "1px solid var(--ea-border)" }} />
-              ))}
-              <div className="px-3 py-3 text-right text-sm font-semibold tabular-nums" style={{ borderLeft: "1px solid var(--ea-border)", color: "var(--ea-text-1)" }}>
-                {fmt(totalDebit)}
-              </div>
-              <div className="px-3 py-3 text-right text-sm font-semibold tabular-nums" style={{ borderLeft: "1px solid var(--ea-border)", color: "var(--ea-text-1)" }}>
-                {fmt(totalCredit)}
-              </div>
-              <div className="px-3 py-3 text-xs" style={{ borderLeft: "1px solid var(--ea-border)", color: "var(--ea-text-3)" }}>
-                Нийт дүн
-              </div>
-              <div />
             </div>
           </div>
-
         </div>
       </div>
 
       {/* ── Footer ── */}
-      <footer style={{ background: "var(--ea-surface)", borderTop: "1px solid var(--ea-border)" }} className="px-6 py-3 flex items-center justify-between shrink-0">
-
-        {/* Balance status */}
+      <footer
+        className="px-6 py-3 flex items-center justify-between shrink-0"
+        style={{ background: "var(--ea-surface)", borderTop: "1px solid var(--ea-border)" }}
+      >
         <div className="flex items-center gap-3">
           <span
             className="text-sm px-3 py-1.5 rounded-md font-medium"
@@ -527,12 +773,9 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
           >
             {isEmpty ? "Дүн оруулаагүй" : balanced ? "✓ Тэнцсэн" : `Зөрүү: ${fmt(diff)}`}
           </span>
-          {error && (
-            <span className="text-sm" style={{ color: "var(--ea-danger)" }}>{error}</span>
-          )}
+          {error && <span className="text-sm" style={{ color: "var(--ea-danger)" }}>{error}</span>}
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -544,9 +787,7 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
           >
             + Мөр нэмэх
           </button>
-
           <div style={{ width: 1, height: 20, background: "var(--ea-border)" }} />
-
           <button
             onClick={closeWindow}
             className="px-4 py-2 text-sm font-medium rounded-md transition-colors"
@@ -556,7 +797,6 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
           >
             Болих
           </button>
-
           <button
             onClick={() => handleSave("draft")}
             disabled={saving !== null}
@@ -567,7 +807,6 @@ export function JournalEntryForm({ accounts, activeSegIds, segmentValues, defaul
           >
             {saving === "draft" ? "Хадгалж байна..." : "Ноорог"}
           </button>
-
           <button
             onClick={() => handleSave("posted")}
             disabled={!balanced || saving !== null}
