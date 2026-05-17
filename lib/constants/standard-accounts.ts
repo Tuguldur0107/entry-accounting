@@ -226,3 +226,26 @@ export const STANDARD_ACCOUNTS: StandardAccount[] = [
 export function getSegmentKey(accountNumber: string): string {
   return accountNumber[0] ?? "1";
 }
+
+// ─── Default seed accounts (subset for new-user registration) ─────────────────
+// Codes picked from STANDARD_ACCOUNTS so seed + later sync don't create duplicates.
+const SEED_ACCOUNT_NUMBERS = [
+  "10000001", // Касс (MNT)
+  "11000001", // Харилцах (MNT)
+  "13110000", // Дансны авлага
+  "31000001", // AP
+  "31000003", // Татварын өр
+  "41000001", // Эздийн өмч
+  "44000001", // Хуримтлагдсан ашиг
+  "51100000", // Үйл ажиллагааны орлого
+  "61100000", // COGS
+  "72100000", // Цалингийн зардал
+];
+
+export const DEFAULT_ACCOUNTS: StandardAccount[] = SEED_ACCOUNT_NUMBERS.map(
+  (n) => {
+    const a = STANDARD_ACCOUNTS.find((s) => s.number === n);
+    if (!a) throw new Error(`SEED_ACCOUNT_NUMBERS references unknown code ${n}`);
+    return a;
+  }
+);

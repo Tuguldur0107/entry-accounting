@@ -469,7 +469,7 @@ export function JournalEntryForm({
   const totalCredit = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
   const diff = totalDebit - totalCredit;
   const isEmpty = totalDebit === 0 && totalCredit === 0;
-  const balanced = !isEmpty && Math.abs(diff) < 0.005;
+  const balanced = !isEmpty && Math.abs(diff) <= 0.01;
 
   const segOptions = useMemo(() => {
     const map: Record<number, SegOption[]> = {};

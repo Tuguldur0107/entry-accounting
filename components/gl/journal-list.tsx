@@ -88,7 +88,7 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
     (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.credit), 0),
     0
   );
-  const balanced = Math.abs(grandDebit - grandCredit) < 0.005;
+  const balanced = Math.abs(grandDebit - grandCredit) <= 0.01;
 
   return (
     <>
@@ -300,15 +300,15 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                                       >
                                         Батлах
                                       </button>
+                                      <button
+                                        onClick={() => handleDelete(v.id)}
+                                        className="h-6 w-6 flex items-center justify-center text-[#C4C4BC] border border-[#E5E5DE] rounded hover:text-[#B91C1C] hover:border-[#FECACA] hover:bg-[#FFF5F5] transition-colors bg-white text-sm leading-none"
+                                        title="Устгах"
+                                      >
+                                        ×
+                                      </button>
                                     </>
                                   )}
-                                  <button
-                                    onClick={() => handleDelete(v.id)}
-                                    className="h-6 w-6 flex items-center justify-center text-[#C4C4BC] border border-[#E5E5DE] rounded hover:text-[#B91C1C] hover:border-[#FECACA] hover:bg-[#FFF5F5] transition-colors bg-white text-sm leading-none"
-                                    title="Устгах"
-                                  >
-                                    ×
-                                  </button>
                                 </div>
                               </div>
                             </td>
