@@ -5,19 +5,7 @@ import { users, chartOfAccounts } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { signIn } from "@/lib/auth";
-
-const DEFAULT_ACCOUNTS = [
-  { number: "11210000", name: "Касс" },
-  { number: "11000001", name: "Харилцах данс" },
-  { number: "13110000", name: "Авлага" },
-  { number: "31000001", name: "Өглөг (AP)" },
-  { number: "31410000", name: "НӨАТ өглөг" },
-  { number: "41100000", name: "Эздийн өмч" },
-  { number: "44000001", name: "Хуримтлагдсан ашиг" },
-  { number: "51100000", name: "Борлуулалтын орлого" },
-  { number: "61100000", name: "Үндсэн үйл ажиллагааны зардал" },
-  { number: "72100000", name: "Цалингийн зардал" },
-];
+import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 
 export async function registerUser(data: {
   name: string;

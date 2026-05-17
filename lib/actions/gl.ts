@@ -294,25 +294,27 @@ export async function createVoucher(data: {
   if (status === "posted") {
     const totalDebit = validLines.reduce((s, l) => s + l.debit, 0);
     const totalCredit = validLines.reduce((s, l) => s + l.credit, 0);
-    if (Math.abs(totalDebit - totalCredit) >= 0.005)
+    if (Math.abs(totalDebit - totalCredit) > 0.01)
       throw new Error("Дебет ба кредит тэнцэхгүй байна");
   }
 
-  const [voucher] = await db
-    .insert(journalVouchers)
-    .values({ userId, date: data.date, description: data.description, status })
-    .returning();
+  await db.transaction(async (tx) => {
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({ userId, date: data.date, description: data.description, status })
+      .returning();
 
-  await db.insert(journalLines).values(
-    validLines.map((l, i) => ({
-      voucherId: voucher.id,
-      accountNumber: l.account,
-      debit: String(l.debit),
-      credit: String(l.credit),
-      description: l.description,
-      sortOrder: i,
-    }))
-  );
+    await tx.insert(journalLines).values(
+      validLines.map((l, i) => ({
+        voucherId: voucher.id,
+        accountNumber: l.account,
+        debit: String(l.debit),
+        credit: String(l.credit),
+        description: l.description,
+        sortOrder: i,
+      }))
+    );
+  });
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -330,7 +332,7 @@ export async function postVoucher(id: string) {
 
   const totalDebit = voucher.lines.reduce((s, l) => s + Number(l.debit), 0);
   const totalCredit = voucher.lines.reduce((s, l) => s + Number(l.credit), 0);
-  if (Math.abs(totalDebit - totalCredit) >= 0.005)
+  if (Math.abs(totalDebit - totalCredit) > 0.01)
     throw new Error("Дебет ба кредит тэнцэхгүй байна");
 
   await db
@@ -353,11 +355,6 @@ export async function updateVoucher(
 ) {
   const userId = await requireUser();
 
-  const existing = await db.query.journalVouchers.findFirst({
-    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
-  });
-  if (!existing) throw new Error("Бичилт олдсонгүй");
-
   const validLines = data.lines.filter(
     (l) => l.account && (l.debit > 0 || l.credit > 0)
   );
@@ -366,26 +363,36 @@ export async function updateVoucher(
   if (data.status === "posted") {
     const totalDebit = validLines.reduce((s, l) => s + l.debit, 0);
     const totalCredit = validLines.reduce((s, l) => s + l.credit, 0);
-    if (Math.abs(totalDebit - totalCredit) >= 0.005)
+    if (Math.abs(totalDebit - totalCredit) > 0.01)
       throw new Error("Дебет ба кредит тэнцэхгүй байна");
   }
 
-  await db
-    .update(journalVouchers)
-    .set({ date: data.date, description: data.description, status: data.status })
-    .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+  await db.transaction(async (tx) => {
+    const existing = await tx.query.journalVouchers.findFirst({
+      where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+      columns: { status: true },
+    });
+    if (!existing) throw new Error("Бичилт олдсонгүй");
+    if (existing.status === "posted")
+      throw new Error("Бичигдсэн журналыг засах боломжгүй. Сторно бичилт ашиглана уу.");
 
-  await db.delete(journalLines).where(eq(journalLines.voucherId, id));
-  await db.insert(journalLines).values(
-    validLines.map((l, i) => ({
-      voucherId: id,
-      accountNumber: l.account,
-      debit: String(l.debit),
-      credit: String(l.credit),
-      description: l.description,
-      sortOrder: i,
-    }))
-  );
+    await tx
+      .update(journalVouchers)
+      .set({ date: data.date, description: data.description, status: data.status })
+      .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+
+    await tx.delete(journalLines).where(eq(journalLines.voucherId, id));
+    await tx.insert(journalLines).values(
+      validLines.map((l, i) => ({
+        voucherId: id,
+        accountNumber: l.account,
+        debit: String(l.debit),
+        credit: String(l.credit),
+        description: l.description,
+        sortOrder: i,
+      }))
+    );
+  });
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -393,11 +400,21 @@ export async function updateVoucher(
 
 export async function deleteVoucher(id: string) {
   const userId = await requireUser();
-  await db
-    .delete(journalVouchers)
-    .where(
-      and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId))
-    );
+
+  await db.transaction(async (tx) => {
+    const existing = await tx.query.journalVouchers.findFirst({
+      where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+      columns: { status: true },
+    });
+    if (!existing) throw new Error("Бичилт олдсонгүй");
+    if (existing.status === "posted")
+      throw new Error("Бичигдсэн журналыг устгах боломжгүй. Сторно бичилт ашиглана уу.");
+
+    await tx
+      .delete(journalVouchers)
+      .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+  });
+
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
 }
