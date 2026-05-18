@@ -415,93 +415,68 @@
   opacity: 0.5;
 }
 
-/* ─── Action button (tonal) ───────────────────────────────────────────────── */
+/* ─── Action button (ghost → outline-on-hover) ────────────────────────────── */
 /* Compact icon+label buttons used in data-grid action columns.
-   Tonal style: subtle colored background, color-matched text, no border.
-   Hover/active deepen the background. Each variant uses --ea-* tokens
-   via color-mix so light + dark mode both work automatically. */
+   Default state is uniformly quiet (no border, no fill, muted icon) so a
+   row of multiple actions doesn't visually compete with the data. On hover
+   each button reveals a subtle outline + bg-2 fill, and the icon picks up
+   its variant accent — primary/success/warning/danger. This keeps the
+   grid restful while still telegraphing intent on focus. */
 .ea-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   height: 26px;
   padding: 0 8px;
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: 5px;
+  font-size: 11.5px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background-color 0.12s ease, color 0.12s ease, transform 0.06s ease;
-  cursor: pointer;
-  border: none;
-  background: transparent;
   line-height: 1;
+  cursor: pointer;
+  color: var(--ea-text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background-color 0.14s ease, color 0.14s ease,
+              border-color 0.14s ease, transform 0.06s ease;
 }
-.ea-btn:active { transform: scale(0.96); }
+.ea-btn:active { transform: scale(0.97); }
 .ea-btn:focus-visible {
   outline: 2px solid var(--ea-primary);
   outline-offset: 1px;
 }
 .ea-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
+  color: var(--ea-text-3);
+  transition: color 0.14s ease;
 }
+
+/* Neutral hover applies to every variant. */
+.ea-btn:hover {
+  background: var(--ea-bg-2);
+  border-color: var(--ea-border-strong);
+  color: var(--ea-text-1);
+}
+
+/* Variant — only touches the icon (and danger's outline) so multi-action
+   rows look uniform until the user actually hovers. */
+.ea-btn--primary:hover svg { color: var(--ea-primary); }
+.ea-btn--success:hover svg { color: var(--ea-success); }
+.ea-btn--warning:hover svg { color: #B45309; }
+.dark .ea-btn--warning:hover svg { color: #FBBF24; }
+
 .ea-btn--icon {
   width: 26px;
   padding: 0;
   justify-content: center;
 }
 
-/* Primary — edit / link */
-.ea-btn--primary {
-  color: var(--ea-primary);
-  background: color-mix(in srgb, var(--ea-primary) 10%, transparent);
-}
-.ea-btn--primary:hover {
-  background: color-mix(in srgb, var(--ea-primary) 18%, transparent);
-}
-
-/* Success — post / confirm */
-.ea-btn--success {
-  color: var(--ea-success);
-  background: color-mix(in srgb, var(--ea-success) 12%, transparent);
-}
-.ea-btn--success:hover {
-  background: color-mix(in srgb, var(--ea-success) 22%, transparent);
-}
-
-/* Warning — unpost / revert */
-.ea-btn--warning {
-  color: #B45309;
-  background: color-mix(in srgb, #D97706 14%, transparent);
-}
-.ea-btn--warning:hover {
-  background: color-mix(in srgb, #D97706 24%, transparent);
-}
-.dark .ea-btn--warning {
-  color: #FBBF24;
-  background: color-mix(in srgb, #D97706 22%, transparent);
-}
-.dark .ea-btn--warning:hover {
-  background: color-mix(in srgb, #D97706 36%, transparent);
-}
-
-/* Danger — destructive (typically icon-only) */
-.ea-btn--danger {
-  color: var(--ea-text-4);
-  background: transparent;
-}
+/* Danger — distinct hover to make destructive intent obvious. */
 .ea-btn--danger:hover {
   color: var(--ea-danger);
-  background: color-mix(in srgb, var(--ea-danger) 12%, transparent);
+  background: color-mix(in srgb, var(--ea-danger) 8%, transparent);
+  border-color: color-mix(in srgb, var(--ea-danger) 35%, var(--ea-border-strong));
 }
-
-/* Ghost — neutral inline action */
-.ea-btn--ghost {
-  color: var(--ea-text-3);
-  background: transparent;
-}
-.ea-btn--ghost:hover {
-  color: var(--ea-text-1);
-  background: var(--ea-bg-2);
-}
+.ea-btn--danger:hover svg { color: var(--ea-danger); }
