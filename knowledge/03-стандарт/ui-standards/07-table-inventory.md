@@ -1,3 +1,9 @@
+> ⚠️ **SUPERSEDED (2026)** — Энэ файл нь хуучин **Chakra UI**-д суурилсан спекийг тайлбарладаг.
+> Entry Accounting нь одоо **AG Grid Community + shadcn/ui** ашигладаг. Шинэ стандартыг
+> [knowledge/03-стандарт/ui-standards/2026-ag-grid/](./2026-ag-grid/) болон [CLAUDE.md](../../../CLAUDE.md#хүснэгтийн-стандарт-ag-grid-community)-аас үзнэ үү.
+
+---
+
 # 07. Хүснэгтийн каталог — бүх модулийн жагсаалт
 
 > Entry-д **бүх жагсаалт нь `<StandardTable>`-ийг ашиглах ёстой** (`standards/01-tables.md` спекаар). Энэ файл нь системийн бүх 18 модулийн хүснэгтүүдийн нэгдсэн каталог — тус бүрд `storageKey`, баганын тодорхойлолт, filterable / groupable / numeric тэмдэглэгээ, default group-by, Excel экспортын нэрийг тогтоосон.

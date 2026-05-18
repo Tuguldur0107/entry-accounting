@@ -1,3 +1,9 @@
+> ⚠️ **SUPERSEDED (2026)** — Энэ файл нь хуучин **Chakra UI**-д суурилсан спекийг тайлбарладаг.
+> Entry Accounting нь одоо **AG Grid Community + shadcn/ui** ашигладаг. Шинэ стандартыг
+> [knowledge/03-стандарт/ui-standards/2026-ag-grid/](./2026-ag-grid/) болон [CLAUDE.md](../../../CLAUDE.md#хүснэгтийн-стандарт-ag-grid-community)-аас үзнэ үү.
+
+---
+
 # 04. Theme — Dark/Light mode + Glassmorphism
 
 > **Эх код:** `frontend/web/src/theme/index.ts`, `frontend/web/src/components/ChakraProviders.tsx`, `frontend/web/src/components/ColorModeToggle.tsx`.

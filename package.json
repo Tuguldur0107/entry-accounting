@@ -11,7 +11,6 @@
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",
     "@base-ui/react": "^1.4.1",
-    "@tanstack/react-table": "^8.21.3",
     "ag-grid-community": "^35.3.0",
     "ag-grid-react": "^35.3.0",
     "bcryptjs": "^3.0.3",

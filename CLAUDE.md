@@ -45,20 +45,22 @@ entry-accounting/
 - **PostgreSQL** on Railway — Drizzle ORM
 - **NextAuth v5** (Credentials + JWT)
 - **Tailwind CSS** + shadcn/ui (Base UI)
-- **Zustand** — UI state (modal open/close)
+- **AG Grid Community v35** — бүх хүснэгтийн UI ([Хүснэгтийн стандарт](#хүснэгтийн-стандарт-ag-grid-community))
+- **Zustand** — UI state, grid undo/redo store (`lib/store/grid-store.ts`)
 - Server Actions — mutations (createVoucher, deleteVoucher, createAccount…)
 
 ---
 
 ## ⚠️ UI стандартын зөрчил
 
-`knowledge/03-стандарт/ui-standards/` файлууд нь **Chakra UI** системийн spec.
-Энэ төсөл shadcn/ui (Base UI) ашигладаг тул:
+`knowledge/03-стандарт/ui-standards/` файлууд нь хуучин **Chakra UI** spec.
+Энэ төсөл shadcn/ui (Base UI) + AG Grid Community ашигладаг тул:
 
 | Сэдэв | Knowledge файл | Энэ төсөлд |
 |-------|----------------|-----------|
-| UI component | `<StandardTable>`, `<Modal>` (Chakra) | shadcn `Table`, `Dialog` |
-| Дизайн | Dark mode + glassmorphism | Зөвхөн цайвар (#fafafa/#fff) |
+| Хүснэгт | `<StandardTable>` (Chakra) | AG Grid (`EaGridDynamic`) — нэгдсэн стандарт |
+| Modal | `<Modal>` (Chakra) | shadcn `Dialog` |
+| Дизайн | Dark mode + glassmorphism | Light + dark, `--ea-*` CSS токенууд |
 | i18n | `t('key')`, 4 хэл | Зөвхөн монгол, hardcoded |
 
 Нягтлан бодох логик, дансны код, IFRS/татварын дүрэм бүгд хамаарна.
@@ -214,9 +216,9 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 ### Өнгө аяс
 
 ```css
-body: #fafafa | card: #ffffff | border: #ececec
-primary button: #4a6fa5 | danger: #e53e3e | secondary: #f3f4f6
-text: #2c2c2c | secondary text: #666
+body: var(--ea-bg) | card: var(--ea-surface) | border: var(--ea-border)
+primary: var(--ea-primary) | danger: var(--ea-danger) | success: var(--ea-success)
+text: var(--ea-text-1) | secondary: var(--ea-text-3)
 ```
 
 ### Popup / Modal
@@ -234,6 +236,110 @@ Header: гарчиг + × товч | Footer: [Болих] [Хадгалах]
 Устгах → confirm диалог: [Болих] [Устгах]
 Ашиглагдсан данс устгах → анхааруулна
 ```
+
+---
+
+## Хүснэгтийн стандарт (AG Grid Community)
+
+Бүх хүснэгтийн UI **AG Grid Community v35**-д суурилдаг. `<table>`, shadcn `<Table>`,
+эсвэл custom CSS grid-ээр шинээр хүснэгт бичихийг хориглоно.
+
+### Эх сурвалж файлууд
+
+```
+lib/grid/
+├── types.ts              ColumnTypeId, EaColDef, RowMeta, BatchPatch, HistoryEntry
+├── registerGrid.ts       AG Grid module registry (EaGrid-аас л дуудна)
+├── theme.ts              themeQuartz.withParams({...}) → --ea-* CSS vars
+├── validators.ts         required, nonNegativeNumber, debitXorCredit, segmentCodeShape, accountExists, dateISO
+├── formatters.ts         fmtMnt, parseMntInput, moneyValueFormatter, accountValueFormatter
+├── columnTypes.ts        ColumnTypeId → Partial<ColDef> ЦОРЫН ГАНЦ бүртгэл
+├── segments.ts           buildSegCode, parseSegParts, fmtAccountDisplay, normalizePastedAccount
+├── clipboard.ts          processClipboardData (TSV + сегмент-аатай account column танина)
+├── EaGrid.tsx            Wrapper (theme, keyboard, clipboard, undo/redo defaults)
+├── EaGridDynamic.tsx     dynamic(ssr:false) — БҮХ callsite энийг import
+└── editors/
+    ├── SegSelect.tsx                Portal-mounted searchable dropdown
+    ├── AccountSegmentEditor.tsx     Multi-segment popup editor → 10-part dotted код
+    ├── DebitCreditEditor.tsx        Number editor + Dr⊕Cr mutex
+    └── SwitchCellRenderer.tsx       shadcn Switch нүднэнд
+
+lib/store/grid-store.ts   Zustand factory: createGridStore<TData>(surfaceId, initial, capacity=100)
+                          — patch-based undo/redo, buildBatch() → Server Action
+```
+
+### Column type registry
+
+`lib/grid/columnTypes.ts` бол **шинэ column kind тодорхойлох цорын ганц газар**.
+Surface-үүд compose хийдэг бөгөөд багана тус бүрд `valueParser` / `valueFormatter` /
+alignment / editor зэргийг дахин зарлахгүй. Дэмжих kinds:
+
+| `eaType` | Хэрэглээ |
+|----------|---------|
+| `text` | Текст редактор |
+| `readonly-text` | Текст харагдах |
+| `number-money` | MNT тоо, баруун зэрэгцүүлэлт, locale-tolerant parse |
+| `readonly-money` | Тооцоо харагдах |
+| `debit` / `credit` | DebitCreditEditor + mutex |
+| `account-segment` | AccountSegmentEditor (popup) + valueFormatter |
+| `date` | `YYYY-MM-DD` text editor |
+| `switch` | SwitchCellRenderer (callback dispatch) |
+| `select` | agSelectCellEditor |
+
+### Keyboard contract
+
+| Товч | Үйлдэл |
+|------|--------|
+| Arrow keys | Нүд хооронд |
+| Tab / Shift+Tab | Дараагийн / өмнөх editable нүд |
+| Enter / Shift+Enter | Commit + доош / дээш |
+| F2 | Edit mode эхлүүлэх |
+| Esc | Edit-ийг буцаах |
+| Ctrl/Cmd+C / V / X | Copy / Paste / Cut |
+| Ctrl/Cmd+Z / Y | Undo / Redo |
+| Delete | Сонгосон нүднүүдийг цэвэрлэх |
+
+### Paste contract
+
+- TSV / CSV — Excel, Sheets-ээс шууд хуулна
+- Number нүднүүд `parseMntInput`-ээр `₮`, зай, таслал, цэгийг танина
+- Account-segment баганад 10-part dotted ЭСВЭЛ active-only N-part код хүлээж авна
+  (`normalizePastedAccount` нь идэвхгүй position-уудыг `SEG_DEFAULTS`-ээр padded)
+- Алдаатай нүд улаан-border invalid тэмдэглэгдэнэ, paste-ийг REJECT хийхгүй
+
+### Mutation contract
+
+```
+cell edit  →  EaGrid onCellValueChanged  →  setRows / store.applyPatches
+add row    →  api.applyTransaction({ add }) + store.addRow({ isNew: true })
+delete row →  store.removeRow(id)
+save       →  store.buildBatch() → { create, update, delete: string[] } → Server Action
+```
+
+**Client-ээс DB-руу шууд хандахгүй.** Mutation болгон Server Action дайраад явна.
+
+### Сегмент дүрэм (заавал биелүүлэх)
+
+- Editor бүр **бүтэн 10-part dotted код** буцаана (`buildSegCode`-р).
+- Идэвхгүй сегмент `SEG_DEFAULTS` дунд `0`-р padded.
+- Read/display: `fmtAccountDisplay(code, activeSegIds)` идэвхтэй хэсгийг л үзүүлнэ.
+- Paste-д partial код ирэх боломжтой — `normalizePastedAccount`-оор normalize хийнэ.
+
+### SSR
+
+AG Grid module init үед `document` хэрэгтэй. Бүх surface `EaGridDynamic`-ийг
+(`next/dynamic` `ssr:false`) ашиглана. Page-ууд Server Component хэвээр үлдэж
+`rowData`-г prop-оор дамжуулна.
+
+### Surface inventory
+
+| Surface | Файл | Хэлбэр |
+|---------|------|--------|
+| Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | Editable + popup editor + Dr⊕Cr mutex + undo/redo |
+| Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination |
+| Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
+| GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |
+| Balance sheet / IS / Cash flow | [components/gl/report-grid.tsx](components/gl/report-grid.tsx) | Section / group / subtotal / total мөртэй flat row model |
 
 ---
 
