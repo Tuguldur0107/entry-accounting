@@ -11,7 +11,7 @@ export function NewJournalButton() {
           "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
         )
       }
-      className="h-8 px-3 text-xs font-medium bg-[#1E3A5F] text-white rounded-md hover:bg-[#15294A] transition-colors"
+      className="h-8 px-3 text-xs font-medium bg-[var(--ea-primary)] text-white rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
     >
       + Шинэ журнал
     </button>

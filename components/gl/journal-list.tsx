@@ -123,7 +123,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         width: 80,
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <span
-            className="font-mono text-[10px] text-[#ADADAD] select-all"
+            className="font-mono text-[10px] text-[var(--ea-text-4)] select-all"
             title={p.data?.id}
           >
             {p.data?.id?.slice(0, 8) ?? ""}
@@ -231,10 +231,10 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
           if (!v) return null;
           const statusInfo =
             v.status === "posted"
-              ? { dot: "#059669", text: "text-[#047857]", label: "Бичигдсэн" }
+              ? { dot: "var(--ea-success)", text: "text-[var(--ea-success-fg)]", label: "Бичигдсэн" }
               : v.status === "reversed"
-              ? { dot: "#9A9A91", text: "text-[#6B6B63]", label: "Буцаагдсан" }
-              : { dot: "#D97706", text: "text-[#B45309]", label: "Ноорог" };
+              ? { dot: "var(--ea-text-4)", text: "text-[var(--ea-text-3)]", label: "Буцаагдсан" }
+              : { dot: "var(--ea-warning)", text: "text-[var(--ea-warning-fg)]", label: "Ноорог" };
           return (
             <div className="flex items-center justify-end gap-1.5 h-full">
               <span
@@ -308,7 +308,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
 
   if (filtered.length === 0) {
     return (
-      <div className="bg-white border border-[#E5E5DE] rounded-md py-16 text-center text-[#aaa] text-sm">
+      <div className="bg-white border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
         Бичилт байхгүй
       </div>
     );
@@ -340,20 +340,20 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
           borderRadius: 6,
         }}
       >
-        <span className="text-[#6B6B63] font-medium">Нийт дүн:</span>
-        <span className="tabular-nums font-semibold text-[#1A1A19]">
+        <span className="text-[var(--ea-text-3)] font-medium">Нийт дүн:</span>
+        <span className="tabular-nums font-semibold text-[var(--ea-text-1)]">
           Дебет {fmtMnt(grandDebit)}
         </span>
-        <span className="tabular-nums font-semibold text-[#1A1A19]">
+        <span className="tabular-nums font-semibold text-[var(--ea-text-1)]">
           Кредит {fmtMnt(grandCredit)}
         </span>
         <div className="flex items-center gap-1.5">
           <span
             className={`w-1.5 h-1.5 rounded-full ${
-              balanced ? "bg-[#059669]" : "bg-[#DC2626]"
+              balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"
             }`}
           />
-          <span className={`font-medium ${balanced ? "text-[#047857]" : "text-[#B91C1C]"}`}>
+          <span className={`font-medium ${balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"}`}>
             {balanced ? "Тэнцсэн" : `Зөрүү ${fmtMnt(Math.abs(grandDebit - grandCredit))}`}
           </span>
         </div>

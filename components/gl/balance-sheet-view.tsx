@@ -205,8 +205,8 @@ export function BalanceSheetView({
       <ReportGrid activeSegments={activeSegments} rows={reportRows} />
 
       <div className="flex items-center justify-end gap-1.5 mt-3 text-xs">
-        <span className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[#059669]" : "bg-[#DC2626]"}`} />
-        <span className={`font-medium ${balanced ? "text-[#047857]" : "text-[#B91C1C]"}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"}`} />
+        <span className={`font-medium ${balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"}`}>
           {balanced
             ? "Баланс тэнцсэн"
             : `Зөрүү ${fmt(Math.abs(data.totalAssets - data.totalLiabAndEquity))}`}

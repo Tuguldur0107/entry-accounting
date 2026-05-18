@@ -42,7 +42,7 @@ export function HeaderJournalSearch() {
         value={start}
         onChange={(e) => setStart(e.target.value)}
         aria-label="Эхлэх огноо"
-        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
       />
       <span className="text-xs text-[var(--ea-text-3)]">–</span>
       <input
@@ -50,12 +50,12 @@ export function HeaderJournalSearch() {
         value={end}
         onChange={(e) => setEnd(e.target.value)}
         aria-label="Дуусах огноо"
-        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
       />
       <button
         type="button"
         onClick={handleSearch}
-        className="h-8 px-3 text-xs font-medium bg-[#1E3A5F] text-white rounded-md hover:bg-[#15294A] transition-colors"
+        className="h-8 px-3 text-xs font-medium bg-[var(--ea-primary)] text-white rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
       >
         Хайх
       </button>

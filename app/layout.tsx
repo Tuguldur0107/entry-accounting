@@ -3,6 +3,11 @@ import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
+// Inline script that runs before React hydration to apply the saved theme
+// class to <html>. Defined here (server file, no "use client") so the template
+// literal serializes to the actual JS string in the rendered HTML.
+const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');var isDark=t==='dark'||(!t&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;if(isDark){r.classList.add('dark');}r.style.colorScheme=isDark?'dark':'light';}catch(e){}})();`;
+
 const geist = Geist({ subsets: ["latin", "cyrillic"], variable: "--font-geist-sans" });
 const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
@@ -19,7 +24,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="mn" className={`h-full ${geist.variable} ${fraunces.variable} ${mono.variable}`} suppressHydrationWarning>
-      <body className="h-full font-sans antialiased" style={{ backgroundColor: 'var(--ea-bg)', color: 'var(--ea-text-1)' }}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body className="h-full font-sans antialiased">
         <ThemeProvider>
           {children}
         </ThemeProvider>

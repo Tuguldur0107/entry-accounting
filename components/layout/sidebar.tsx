@@ -27,7 +27,7 @@ export function Sidebar() {
               className={cn(
                 "px-3 py-2 text-sm rounded-md transition-colors",
                 isActive
-                  ? "bg-[var(--ea-surface)] text-[#1E3A5F] font-medium border-l-2 border-[#1E3A5F]"
+                  ? "bg-[var(--ea-surface)] text-[var(--ea-primary)] font-medium border-l-2 border-[var(--ea-primary)]"
                   : "text-[var(--ea-text-2)] hover:bg-[var(--ea-surface)] hover:text-[var(--ea-text-1)] border-l-2 border-transparent"
               )}
             >

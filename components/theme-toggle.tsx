@@ -1,11 +1,11 @@
 "use client";
 
-import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Sun, Moon } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 
 export function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme();
+  const { isDark, toggle } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -14,11 +14,13 @@ export function ThemeToggle() {
 
   return (
     <button
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      type="button"
+      onClick={toggle}
       className="w-8 h-8 flex items-center justify-center rounded-md transition-all duration-200 hover:bg-[var(--ea-bg-2)] text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)] border border-transparent hover:border-[var(--ea-border)]"
-      title={resolvedTheme === "dark" ? "Цайвар горим" : "Харанхуй горим"}
+      title={isDark ? "Цайвар горим" : "Харанхуй горим"}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >
-      {resolvedTheme === "dark"
+      {isDark
         ? <Sun size={16} className="transition-transform" />
         : <Moon size={16} className="transition-transform" />}
     </button>

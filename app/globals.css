@@ -105,8 +105,15 @@
   --ea-text-3: #94A3B8;
   --ea-text-4: #64748B;
 
-  --ea-success: #34D399;
-  --ea-danger:  #F87171;
+  --ea-success:    #34D399;
+  --ea-success-fg: #6EE7B7;
+  --ea-success-bg: rgba(52,211,153,0.12);
+  --ea-danger:     #F87171;
+  --ea-danger-fg:  #FCA5A5;
+  --ea-danger-bg:  rgba(248,113,113,0.12);
+  --ea-warning:    #FBBF24;
+  --ea-warning-fg: #FCD34D;
+  --ea-warning-bg: rgba(251,191,36,0.12);
 
   --ea-shadow-2: 0 1px 0 rgba(255,255,255,0.04) inset,
                  0 8px 24px -6px rgba(0,0,0,0.5);
@@ -161,10 +168,10 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground min-h-full;
     background-image: var(--ea-bg-gradient);
-    background-attachment: fixed;
-    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    background-size: 100% 100vh;
   }
   html {
     @apply font-sans;
@@ -192,8 +199,15 @@
   --ea-text-3: #64748B;
   --ea-text-4: #94A3B8;
 
-  --ea-success: #10B981;
-  --ea-danger:  #EF4444;
+  --ea-success:    #10B981;
+  --ea-success-fg: #047857;
+  --ea-success-bg: #ECFDF5;
+  --ea-danger:     #EF4444;
+  --ea-danger-fg:  #B91C1C;
+  --ea-danger-bg:  #FEF2F2;
+  --ea-warning:    #F59E0B;
+  --ea-warning-fg: #B45309;
+  --ea-warning-bg: #FFFBEB;
 
   --ea-font-sans:    var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   --ea-font-display: var(--font-fraunces), 'Fraunces', 'Playfair Display', serif;
@@ -212,119 +226,20 @@
   --ea-bg-gradient: radial-gradient(80% 60% at 50% 0%, #F8FAFC 0%, #FFFFFF 60%);
 }
 
-/* ─── Hardcoded-hex class overrides (both light + dark) ──────────────────────
- *  Components-д хатуу бичсэн hex Tailwind class-ууд (bg-[#F4F4EE] гэх мэт) нь
- *  light mode-д warm beige байсан. Шинэ slate palette-тай хольцолдохгүй болгох
- *  тулд token руу remap хийнэ. var(--ea-*) нь light/dark mode-д өөр утгатай тул
- *  нэг override хоёр горимд ажиллана.
+/* ─── Tailwind-default class overrides ──────────────────────────────────────
+ *  `bg-white` болон `bg-{color}-50` (Tailwind defaults) нь dark mode-д
+ *  surface руу remap хийгдэх ёстой. CSS variable өөрөө дамждаггүй учир
+ *  override шаардлагатай.
  * ────────────────────────────────────────────────────────────────────────── */
-
-/* backgrounds */
-.bg-\[\#F4F4EE\],
-.bg-\[\#EEF0F5\],
-.bg-\[\#EEF2FA\]                  { background-color: var(--ea-bg-2) !important; }
-.bg-\[\#fafafa\],
-.bg-\[\#FAFAF7\],
-.bg-\[\#FAFAF8\]                  { background-color: var(--ea-bg) !important; }
-
-/* hover backgrounds */
-.hover\:bg-\[\#fafafa\]:hover,
-.hover\:bg-\[\#F4F4EE\]:hover,
-.hover\:bg-\[\#FAFAF7\]:hover,
-.hover\:bg-\[\#ECECE5\]:hover,
-.hover\:bg-\[\#EDEDE6\]:hover,
-.hover\:bg-\[\#F0F0E8\]:hover,
-.hover\:bg-\[\#F0F0EA\]:hover     { background-color: var(--ea-bg-2) !important; }
-
-/* text */
-.text-\[\#1A1A19\],
-.text-\[\#1a1a1a\]                { color: var(--ea-text-1) !important; }
-.text-\[\#333\],
-.text-\[\#44443E\]                { color: var(--ea-text-2) !important; }
-.text-\[\#555\],
-.text-\[\#666\],
-.text-\[\#777\],
-.text-\[\#6B6B63\]                { color: var(--ea-text-3) !important; }
-.text-\[\#9A9A91\],
-.text-\[\#888\],
-.text-\[\#aaa\],
-.text-\[\#C4C4BC\]                { color: var(--ea-text-4) !important; }
-
-/* borders */
-.border-\[\#E5E5DE\],
-.border-\[\#E8E8E0\],
-.border-\[\#EDEDE6\],
-.border-\[\#F0F0E8\],
-.border-\[\#F0F0EA\],
-.border-\[\#ddd\]                 { border-color: var(--ea-border) !important; }
-.border-\[\#D4D4CB\]              { border-color: var(--ea-border-strong) !important; }
-.border-\[\#C7D8EE\]              { border-color: var(--ea-primary-100) !important; }
-
-/* very muted text → border-strong */
-.text-\[\#ccc\],
-.text-\[\#bbb\],
-.text-\[\#c0c0c0\],
-.text-\[\#D4D4CB\],
-.text-\[\#E5E5DE\]                { color: var(--ea-border-strong) !important; }
-
-/* primary blue elements */
-.bg-\[\#1E3A5F\],
-.bg-\[\#15294A\]                  { background-color: var(--ea-primary) !important; }
-.hover\:bg-\[\#15294A\]:hover     { background-color: var(--ea-primary-700) !important; }
-.border-\[\#1E3A5F\]              { border-color: var(--ea-primary) !important; }
-.text-\[\#1E3A5F\],
-.hover\:text-\[\#1E3A5F\]:hover   { color: var(--ea-primary) !important; }
-.bg-\[\#EEF3FF\],
-.bg-\[\#EEF4FF\]                  { background-color: var(--ea-primary-50) !important; }
-.hover\:bg-\[\#EEF3FF\]:hover,
-.hover\:bg-\[\#EEF4FF\]:hover     { background-color: var(--ea-primary-50) !important; }
-
-/* focus states */
-.focus\:border-\[\#1E3A5F\]:focus { border-color: var(--ea-primary) !important; }
-.focus\:bg-\[\#EEF4FF\]:focus     { background-color: var(--ea-primary-50) !important; }
-
-/* named color backgrounds (Tailwind defaults) */
-.bg-blue-50,
-.hover\:bg-blue-50:hover          { background-color: var(--ea-primary-50) !important; }
-
-/* status indicator dots — vibrant in both modes */
-.bg-\[\#059669\]                  { background-color: var(--ea-success) !important; }
-.bg-\[\#D97706\]                  { background-color: #F59E0B !important; }
-.bg-\[\#DC2626\]                  { background-color: var(--ea-danger) !important; }
-
-/* ─── Dark-mode-only adjustments for status badges ──────────────────────────
- *  Pastel hex (#ECFDF5 success / #FFF5F5 danger / #FFFBEB warning) нь
- *  light mode-д солидоор зөв харагдана. Dark mode-д цагаан хэт цохилно тул
- *  transparent-tinted-р remap хийнэ.
- * ────────────────────────────────────────────────────────────────────────── */
-.dark {
-  /* success/posted badge */
-  .bg-\[\#ECFDF5\]                  { background-color: rgba(52, 211, 153, 0.12) !important; }
-  .hover\:bg-\[\#ECFDF5\]:hover     { background-color: rgba(52, 211, 153, 0.18) !important; }
-  .border-\[\#BBF7D0\]              { border-color: rgba(52, 211, 153, 0.35) !important; }
-  .text-\[\#047857\]                { color: #6EE7B7 !important; }
-
-  /* draft/warning badge */
-  .bg-\[\#FFFBEB\]                  { background-color: rgba(251, 191, 36, 0.10) !important; }
-  .text-\[\#B45309\]                { color: #FCD34D !important; }
-  .border-\[\#FDE68A\]              { border-color: rgba(251, 191, 36, 0.30) !important; }
-
-  /* danger button hover (delete) */
-  .bg-\[\#FFF5F5\]                  { background-color: rgba(248, 113, 113, 0.12) !important; }
-  .hover\:bg-\[\#FFF5F5\]:hover     { background-color: rgba(248, 113, 113, 0.16) !important; }
-  .border-\[\#FECACA\]              { border-color: rgba(248, 113, 113, 0.35) !important; }
-  .hover\:border-\[\#FECACA\]:hover { border-color: rgba(248, 113, 113, 0.45) !important; }
-
-  /* named bg-{color}-50 — dark transparent tints */
-  .bg-red-50,
-  .hover\:bg-red-50:hover           { background-color: rgba(248, 113, 113, 0.12) !important; }
-  .bg-green-50,
-  .hover\:bg-green-50:hover         { background-color: rgba(52, 211, 153, 0.12) !important; }
-}
-
-/* bg-white — light mode-д цагаан хэвээр, dark mode-д surface руу */
 .bg-white                          { background-color: #FFFFFF !important; }
 .dark .bg-white                    { background-color: var(--ea-surface) !important; }
+
+.bg-blue-50                        { background-color: var(--ea-primary-50) !important; }
+.hover\:bg-blue-50:hover           { background-color: var(--ea-primary-50) !important; }
+.bg-red-50                         { background-color: var(--ea-danger-bg) !important; }
+.hover\:bg-red-50:hover            { background-color: var(--ea-danger-bg) !important; }
+.bg-green-50                       { background-color: var(--ea-success-bg) !important; }
+.hover\:bg-green-50:hover          { background-color: var(--ea-success-bg) !important; }
 
 @keyframes ea-fadeUp {
   from { opacity: 0; transform: translateY(8px); }

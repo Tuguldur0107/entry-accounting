@@ -475,7 +475,7 @@ export function AccountsTable({
           return (
             <button
               onClick={() => undoDelete(d.id)}
-              className="text-red-400 hover:text-[#1E3A5F] hover:bg-blue-50 px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
+              className="text-red-400 hover:text-[var(--ea-primary)] hover:bg-blue-50 px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
               title="Буцаах"
             >
               ↩
@@ -484,7 +484,7 @@ export function AccountsTable({
         return (
           <button
             onClick={() => askDelete(d.id, d.code, d.rowType)}
-            className="text-[#ccc] hover:text-red-500 hover:bg-red-50 px-1 py-0.5 rounded text-base leading-none transition-colors"
+            className="text-[var(--ea-border-strong)] hover:text-red-500 hover:bg-red-50 px-1 py-0.5 rounded text-base leading-none transition-colors"
             title="Устгах"
           >
             ×
@@ -602,7 +602,7 @@ export function AccountsTable({
 
   return (
     <>
-      <div className="flex items-center gap-0 border-b border-[#E5E5DE] mb-6">
+      <div className="flex items-center gap-0 border-b border-[var(--ea-border)] mb-6">
         {(["modules", "config", "values"] as const).map((tab) => (
           <button
             key={tab}
@@ -611,8 +611,8 @@ export function AccountsTable({
             className={cn(
               "px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
               mainTab === tab
-                ? "border-[#1E3A5F] text-[#1E3A5F]"
-                : "border-transparent text-[#888] hover:text-[#333]"
+                ? "border-[var(--ea-primary)] text-[var(--ea-primary)]"
+                : "border-transparent text-[var(--ea-text-4)] hover:text-[var(--ea-text-2)]"
             )}
           >
             {tab === "modules"
@@ -626,7 +626,7 @@ export function AccountsTable({
 
       <div className={cn(mainTab !== "modules" && "hidden")}>
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs text-[#888]">
+          <p className="text-xs text-[var(--ea-text-4)]">
             Системд ашиглах модулиудыг идэвхжүүлнэ үү.
           </p>
           <div className="flex items-center gap-2">
@@ -635,7 +635,7 @@ export function AccountsTable({
                 <Button variant="outline" size="sm" className="text-xs" onClick={cancelModEdit} disabled={modSaving}>
                   Болих
                 </Button>
-                <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={saveModEdit} disabled={modSaving}>
+                <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={saveModEdit} disabled={modSaving}>
                   {modSaving ? "Хадгалж байна..." : "Хадгалах"}
                 </Button>
               </>
@@ -658,11 +658,11 @@ export function AccountsTable({
                 className={cn(
                   "bg-white border rounded-md px-4 py-3 transition-opacity",
                   !on && "opacity-50",
-                  isDirty ? "border-[#1E3A5F]" : "border-[#E5E5DE]"
+                  isDirty ? "border-[var(--ea-primary)]" : "border-[var(--ea-border)]"
                 )}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-xs font-bold text-[#1E3A5F] uppercase">
+                  <span className="font-mono text-xs font-bold text-[var(--ea-primary)] uppercase">
                     {def.key}
                   </span>
                   <Switch
@@ -671,9 +671,9 @@ export function AccountsTable({
                     onCheckedChange={() => toggleModDraft(def.key)}
                   />
                 </div>
-                <div className="text-sm font-medium text-[#333] leading-tight">{def.nameMn}</div>
-                <div className="text-[11px] text-[#aaa] leading-tight mt-1">{def.name}</div>
-                <div className="text-[11px] text-[#888] leading-tight mt-1.5">{def.description}</div>
+                <div className="text-sm font-medium text-[var(--ea-text-2)] leading-tight">{def.nameMn}</div>
+                <div className="text-[11px] text-[var(--ea-text-4)] leading-tight mt-1">{def.name}</div>
+                <div className="text-[11px] text-[var(--ea-text-4)] leading-tight mt-1.5">{def.description}</div>
               </div>
             );
           })}
@@ -682,9 +682,9 @@ export function AccountsTable({
 
       <div className={cn("mb-6", mainTab !== "config" && "hidden")}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-[#888]">
+          <p className="text-xs text-[var(--ea-text-4)]">
             Аль сегментийг ашиглахыг идэвхжүүлнэ.&nbsp;
-            <span className="font-mono text-[#bbb]">S1.S2.S3.S4.S5.S6.S7.S8.S9.S10</span>
+            <span className="font-mono text-[var(--ea-border-strong)]">S1.S2.S3.S4.S5.S6.S7.S8.S9.S10</span>
           </p>
           <div className="flex items-center gap-2">
             {seg1EditMode ? (
@@ -692,7 +692,7 @@ export function AccountsTable({
                 <Button variant="outline" size="sm" className="text-xs" onClick={cancelSeg1Edit} disabled={seg1Saving}>
                   Болих
                 </Button>
-                <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={saveSeg1Edit} disabled={seg1Saving}>
+                <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={saveSeg1Edit} disabled={seg1Saving}>
                   {seg1Saving ? "Хадгалж байна..." : "Хадгалах"}
                 </Button>
               </>
@@ -715,13 +715,13 @@ export function AccountsTable({
                 className={cn(
                   "bg-white border rounded-md px-3 py-2.5 transition-opacity",
                   !on && "opacity-50",
-                  isDirty ? "border-[#1E3A5F]" : "border-[#E5E5DE]"
+                  isDirty ? "border-[var(--ea-primary)]" : "border-[var(--ea-border)]"
                 )}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs font-bold text-[#1E3A5F]">
+                  <span className="font-mono text-xs font-bold text-[var(--ea-primary)]">
                     S{def.id}
-                    <span className="text-[#bbb] font-normal ml-1">{def.length}c</span>
+                    <span className="text-[var(--ea-border-strong)] font-normal ml-1">{def.length}c</span>
                   </span>
                   <Switch
                     checked={on}
@@ -729,8 +729,8 @@ export function AccountsTable({
                     onCheckedChange={() => toggleSeg1Draft(def.id)}
                   />
                 </div>
-                <div className="text-xs font-medium text-[#333] leading-tight">{def.nameMn}</div>
-                <div className="text-[10px] text-[#aaa] leading-tight mt-0.5">{def.name}</div>
+                <div className="text-xs font-medium text-[var(--ea-text-2)] leading-tight">{def.nameMn}</div>
+                <div className="text-[10px] text-[var(--ea-text-4)] leading-tight mt-0.5">{def.name}</div>
               </div>
             );
           })}
@@ -738,9 +738,9 @@ export function AccountsTable({
       </div>
 
       <div className={cn(mainTab !== "values" && "hidden")}>
-        <p className="text-xs text-[#888] mb-3">Идэвхтэй сегментийг сонгоод кодуудыг тохируулна уу.</p>
+        <p className="text-xs text-[var(--ea-text-4)] mb-3">Идэвхтэй сегментийг сонгоод кодуудыг тохируулна уу.</p>
 
-        <div className="flex items-center gap-0 border-b border-[#E5E5DE] mb-4 overflow-x-auto">
+        <div className="flex items-center gap-0 border-b border-[var(--ea-border)] mb-4 overflow-x-auto">
           {SEGMENT_DEFS.filter(
             (d) => localConfigs.find((c) => c.segmentId === d.id)?.isEnabled ?? true
           ).map((def) => (
@@ -751,8 +751,8 @@ export function AccountsTable({
               className={cn(
                 "px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
                 activeTab === def.id
-                  ? "border-[#1E3A5F] text-[#1E3A5F]"
-                  : "border-transparent text-[#888] hover:text-[#333]",
+                  ? "border-[var(--ea-primary)] text-[var(--ea-primary)]"
+                  : "border-transparent text-[var(--ea-text-4)] hover:text-[var(--ea-text-2)]",
                 editMode && activeTab !== def.id && "opacity-40 cursor-not-allowed"
               )}
             >
@@ -765,19 +765,19 @@ export function AccountsTable({
           <div>
             <div className="flex items-center justify-between mb-3">
               <div>
-                <span className="text-sm font-medium text-[#333]">{activeTabDef.nameMn}</span>
-                <span className="text-xs text-[#888] ml-2">{activeTabDef.description}</span>
+                <span className="text-sm font-medium text-[var(--ea-text-2)]">{activeTabDef.nameMn}</span>
+                <span className="text-xs text-[var(--ea-text-4)] ml-2">{activeTabDef.description}</span>
               </div>
               <div className="flex items-center gap-2">
                 {editMode ? (
                   <>
                     {dirtyCount > 0 && (
-                      <span className="text-xs text-[#888]">{dirtyCount} өөрчлөлт</span>
+                      <span className="text-xs text-[var(--ea-text-4)]">{dirtyCount} өөрчлөлт</span>
                     )}
                     <Button variant="outline" size="sm" className="text-xs" onClick={cancelEdit} disabled={saving}>
                       Болих
                     </Button>
-                    <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={saveEdit} disabled={saving}>
+                    <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={saveEdit} disabled={saving}>
                       {saving ? "Хадгалж байна..." : "Хадгалах"}
                     </Button>
                   </>
@@ -792,13 +792,13 @@ export function AccountsTable({
                     <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing} className="text-xs">
                       {syncing ? "Синкчилж байна..." : "Стандарт данс нэмэх"}
                     </Button>
-                    <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={() => setAddOpen(true)}>
+                    <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={() => setAddOpen(true)}>
                       + Данс нэмэх
                     </Button>
                   </>
                 )}
                 {!editMode && activeTab !== 3 && (
-                  <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={openSvAdd}>
+                  <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={openSvAdd}>
                     + Утга нэмэх
                   </Button>
                 )}
@@ -807,7 +807,7 @@ export function AccountsTable({
 
             {activeTab === 3 ? (
               s3GridRows.length === 0 ? (
-                <div className="py-10 text-center text-[#aaa] text-sm border border-[#E5E5DE] rounded-md">
+                <div className="py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
                   Данс байхгүй — стандарт данс нэмэх товч дарна уу
                 </div>
               ) : (
@@ -822,7 +822,7 @@ export function AccountsTable({
                 />
               )
             ) : svGridRows.length === 0 ? (
-              <div className="py-10 text-center text-[#aaa] text-sm border border-[#E5E5DE] rounded-md">
+              <div className="py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
                 Утга байхгүй — + Утга нэмэх товч дарна уу
               </div>
             ) : (
@@ -840,7 +840,7 @@ export function AccountsTable({
         )}
 
         {enabledSegIds.length === 0 && (
-          <div className="py-12 text-center text-[#aaa] text-sm border border-[#E5E5DE] rounded-md">
+          <div className="py-12 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
             Идэвхтэй сегмент байхгүй — дээр дэх тохиргооноос нэгийг идэвхжүүлнэ үү
           </div>
         )}
@@ -862,7 +862,7 @@ export function AccountsTable({
                 autoFocus
               />
               {addNumber.length > 0 && ACCOUNT_GROUPS[addNumber[0]] && (
-                <p className="text-xs text-[#1E3A5F]">
+                <p className="text-xs text-[var(--ea-primary)]">
                   Бүлэг: {addNumber[0]}X — {ACCOUNT_GROUPS[addNumber[0]]}
                 </p>
               )}
@@ -882,7 +882,7 @@ export function AccountsTable({
             <Button variant="outline" onClick={handleCloseAdd}>
               Болих
             </Button>
-            <Button className="bg-[#1E3A5F] hover:bg-[#15294A]" disabled={addSaving} onClick={handleAddAccount}>
+            <Button className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)]" disabled={addSaving} onClick={handleAddAccount}>
               {addSaving ? "Хадгалж байна..." : "Хадгалах"}
             </Button>
           </DialogFooter>
@@ -931,8 +931,8 @@ export function AccountsTable({
                     className={cn(
                       "px-3 py-1.5 rounded border text-xs font-medium transition-colors",
                       svAddMods.includes(mod)
-                        ? "bg-[#1E3A5F] text-white border-[#1E3A5F]"
-                        : "bg-white text-[#666] border-[#ddd] hover:border-[#aaa]"
+                        ? "bg-[var(--ea-primary)] text-white border-[var(--ea-primary)]"
+                        : "bg-white text-[var(--ea-text-3)] border-[var(--ea-border)] hover:border-[var(--ea-border-strong)]"
                     )}
                   >
                     {MODULE_LABELS[mod]}
@@ -946,7 +946,7 @@ export function AccountsTable({
             <Button variant="outline" onClick={closeSvAdd}>
               Болих
             </Button>
-            <Button className="bg-[#1E3A5F] hover:bg-[#15294A]" disabled={svSaving} onClick={handleAddSv}>
+            <Button className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)]" disabled={svSaving} onClick={handleAddSv}>
               {svSaving ? "Хадгалж байна..." : "Хадгалах"}
             </Button>
           </DialogFooter>
@@ -958,7 +958,7 @@ export function AccountsTable({
           <DialogHeader>
             <DialogTitle>Устгах уу?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-[#333]">
+          <p className="text-sm text-[var(--ea-text-2)]">
             <span className="font-mono font-semibold">{deleteTarget?.label}</span>
             -г устгахаар тэмдэглэнэ. Хадгалах дарсны дараа устгагдана. Болих дарвал буцаж болно.
           </p>

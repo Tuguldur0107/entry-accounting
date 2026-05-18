@@ -47,27 +47,27 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
     <>
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-[#6B6B63] whitespace-nowrap">Эхлэх огноо</label>
+          <label className="text-xs text-[var(--ea-text-3)] whitespace-nowrap">Эхлэх огноо</label>
           <input
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
           />
         </div>
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-[#6B6B63] whitespace-nowrap">Дуусах огноо</label>
+          <label className="text-xs text-[var(--ea-text-3)] whitespace-nowrap">Дуусах огноо</label>
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
           />
         </div>
         <select
           value={reportType}
           onChange={(e) => setReportType(e.target.value as ReportType)}
-          className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+          className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
         >
           {REPORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
@@ -77,7 +77,7 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
         </select>
         <button
           onClick={handleSearch}
-          className="h-8 px-4 text-sm font-medium bg-[#1E3A5F] text-white rounded-md hover:bg-[#15294A] transition-colors"
+          className="h-8 px-4 text-sm font-medium bg-[var(--ea-primary)] text-white rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
         >
           Хайх
         </button>

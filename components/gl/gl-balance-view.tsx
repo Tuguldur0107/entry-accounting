@@ -196,9 +196,9 @@ function BalanceIndicator({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[#6B6B63]">{label}:</span>
-      <span className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[#059669]" : "bg-[#DC2626]"}`} />
-      <span className={`font-medium ${balanced ? "text-[#047857]" : "text-[#B91C1C]"}`}>
+      <span className="text-[var(--ea-text-3)]">{label}:</span>
+      <span className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"}`} />
+      <span className={`font-medium ${balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"}`}>
         {balanced ? "Тэнцсэн" : `Зөрүү ${fmt(diff)}`}
       </span>
     </div>
