@@ -172,7 +172,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                   {fmtMnt(n)}
                 </span>
               ) : (
-                <span key={l.id} className="text-[var(--ea-border-strong)]">
+                <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-border-strong)]">
                   —
                 </span>
               );
@@ -196,7 +196,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                   {fmtMnt(n)}
                 </span>
               ) : (
-                <span key={l.id} className="text-[var(--ea-border-strong)]">
+                <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-border-strong)]">
                   —
                 </span>
               );
@@ -251,7 +251,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
       {
         headerName: "Үйлдэл",
         colId: "actions",
-        width: 190,
+        width: 120,
         sortable: false,
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
@@ -264,19 +264,19 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                 <>
                   <button
                     onClick={() => handleEdit(v.id)}
-                    className="ea-btn ea-btn--primary"
+                    className="ea-btn ea-btn--icon ea-btn--primary"
                     title="Журнал засах"
+                    aria-label="Журнал засах"
                   >
                     <Pencil />
-                    Засах
                   </button>
                   <button
                     onClick={() => handlePost(v.id)}
-                    className="ea-btn ea-btn--success"
+                    className="ea-btn ea-btn--icon ea-btn--success"
                     title="Батлах"
+                    aria-label="Батлах"
                   >
                     <Check />
-                    Батлах
                   </button>
                   <button
                     onClick={() => handleDelete(v.id)}
@@ -291,11 +291,11 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
               {v.status === "posted" && (
                 <button
                   onClick={() => handleUnpost(v.id)}
-                  className="ea-btn ea-btn--warning"
+                  className="ea-btn ea-btn--icon ea-btn--warning"
                   title="Ноорог болгож буцаах"
+                  aria-label="Ноорог болгож буцаах"
                 >
                   <Undo2 />
-                  Буцаах
                 </button>
               )}
             </div>

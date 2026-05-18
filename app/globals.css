@@ -446,8 +446,8 @@
   outline-offset: 1px;
 }
 .ea-btn svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--ea-text-3);
   transition: color 0.14s ease;
