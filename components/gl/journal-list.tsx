@@ -19,7 +19,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from "@tanstack/react-table";
-import { deleteVoucher, postVoucher } from "@/lib/actions/gl";
+import { deleteVoucher, postVoucher, unpostVoucher } from "@/lib/actions/gl";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 
 const PAGE_SIZE = 15;
@@ -73,16 +73,43 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
   }
 
   async function handleDelete(id: string) {
+    console.log("[handleDelete] click", id);
     if (!confirm("Энэ бичилтийг устгах уу?")) return;
-    await deleteVoucher(id);
+    try {
+      const r = await deleteVoucher(id);
+      console.log("[handleDelete] result", r);
+    } catch (e) {
+      console.error("[handleDelete] error", e);
+      alert(e instanceof Error ? e.message : "Устгах үед алдаа гарлаа");
+    }
   }
 
   async function handlePost(id: string) {
+    console.log("[handlePost] click", id);
     if (!confirm("Энэ ноорогийг батлах уу?")) return;
-    await postVoucher(id);
+    try {
+      const r = await postVoucher(id);
+      console.log("[handlePost] result", r);
+    } catch (e) {
+      console.error("[handlePost] error", e);
+      alert(e instanceof Error ? e.message : "Батлах үед алдаа гарлаа");
+    }
+  }
+
+  async function handleUnpost(id: string) {
+    console.log("[handleUnpost] click", id);
+    if (!confirm("Энэ батлагдсан журналыг ноорог болгож буцаах уу?")) return;
+    try {
+      const r = await unpostVoucher(id);
+      console.log("[handleUnpost] result", r);
+    } catch (e) {
+      console.error("[handleUnpost] error", e);
+      alert(e instanceof Error ? e.message : "Буцаах үед алдаа гарлаа");
+    }
   }
 
   function handleEdit(id: string) {
+    console.log("[handleEdit] click", id);
     window.open(
       `/gl/journal/${id}/edit`,
       "_blank",
@@ -151,11 +178,30 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
   return (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-lg font-medium text-[#1A1A19]">Журналын жагсаалт</h1>
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 mb-4">
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+        />
+        <span className="text-xs text-[#9A9A91]">–</span>
+        <input
+          type="date"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
+        />
+        <button
+          onClick={handleSearch}
+          className="h-8 px-3 text-sm font-medium bg-[#1E3A5F] text-white rounded-md hover:bg-[#15294A] transition-colors"
+        >
+          Хайх
+        </button>
+        <span className="text-xs text-[#9A9A91]">{filtered.length} бичилт</span>
         <Button
-          className="bg-[#1E3A5F] hover:bg-[#15294A] text-white text-sm h-9 px-4 rounded-md"
+          className="ml-auto bg-[#1E3A5F] hover:bg-[#15294A] text-white text-sm h-8 px-4 rounded-md"
           onClick={() =>
             window.open(
               "/gl/journal/new",
@@ -166,49 +212,6 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
         >
           + Журнал бичих
         </Button>
-      </div>
-
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-[#6B6B63] whitespace-nowrap">Эхлэх огноо</label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-[#6B6B63] whitespace-nowrap">Дуусах огноо</label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
-          />
-        </div>
-        <button
-          onClick={handleSearch}
-          className="h-8 px-4 text-sm font-medium bg-[#1E3A5F] text-white rounded-md hover:bg-[#15294A] transition-colors"
-        >
-          Хайх
-        </button>
-        {(appliedStart || appliedEnd) && (
-          <button
-            onClick={() => {
-              setStartDate("");
-              setEndDate("");
-              setAppliedStart("");
-              setAppliedEnd("");
-              table.setPageIndex(0);
-            }}
-            className="h-8 px-3 text-sm text-[#6B6B63] border border-[#E5E5DE] rounded-md hover:bg-[#F4F4EE] transition-colors"
-          >
-            Цэвэрлэх
-          </button>
-        )}
-        <span className="ml-auto text-xs text-[#9A9A91]">{filtered.length} бичилт</span>
       </div>
 
       {/* Table */}
@@ -316,8 +319,8 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
                           {/* Дебет */}
                           <TableCell className="px-3 py-2 text-right tabular-nums text-xs">
-                            {Number(l.debit) > 0 ? (
-                              <span className="text-[#1A1A19]">{fmt(l.debit)}</span>
+                            {Number(l.debit) !== 0 ? (
+                              <span className={Number(l.debit) < 0 ? "text-[#B91C1C]" : "text-[#1A1A19]"}>{fmt(l.debit)}</span>
                             ) : (
                               <span className="text-[#D4D4CB]">—</span>
                             )}
@@ -325,8 +328,8 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
                           {/* Кредит */}
                           <TableCell className="px-3 py-2 text-right tabular-nums text-xs">
-                            {Number(l.credit) > 0 ? (
-                              <span className="text-[#1A1A19]">{fmt(l.credit)}</span>
+                            {Number(l.credit) !== 0 ? (
+                              <span className={Number(l.credit) < 0 ? "text-[#B91C1C]" : "text-[#1A1A19]"}>{fmt(l.credit)}</span>
                             ) : (
                               <span className="text-[#D4D4CB]">—</span>
                             )}
@@ -350,6 +353,8 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                                     className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                       v.status === "posted"
                                         ? "bg-[#059669]"
+                                        : v.status === "reversed"
+                                        ? "bg-[#9A9A91]"
                                         : "bg-[#D97706]"
                                     }`}
                                   />
@@ -357,18 +362,21 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                                     className={`text-[11px] font-medium ${
                                       v.status === "posted"
                                         ? "text-[#047857]"
+                                        : v.status === "reversed"
+                                        ? "text-[#6B6B63]"
                                         : "text-[#B45309]"
                                     }`}
                                   >
-                                    {v.status === "posted" ? "Бичигдсэн" : "Ноорог"}
+                                    {v.status === "posted"
+                                      ? "Бичигдсэн"
+                                      : v.status === "reversed"
+                                      ? "Буцаагдсан"
+                                      : "Ноорог"}
                                   </span>
                                 </div>
 
                                 {/* Actions */}
-                                <div
-                                  className="flex items-center gap-1 transition-opacity duration-150"
-                                  style={{ opacity: isHovered ? 1 : 0 }}
-                                >
+                                <div className="flex items-center gap-1">
                                   {v.status === "draft" && (
                                     <>
                                       <button
@@ -391,6 +399,14 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                                         ×
                                       </button>
                                     </>
+                                  )}
+                                  {v.status === "posted" && (
+                                    <button
+                                      onClick={() => handleUnpost(v.id)}
+                                      className="h-6 px-2 text-[11px] font-medium text-[#B45309] border border-[#FCD34D] rounded hover:bg-[#FFFBEB] transition-colors bg-white"
+                                    >
+                                      Буцаах
+                                    </button>
                                   )}
                                 </div>
                               </div>

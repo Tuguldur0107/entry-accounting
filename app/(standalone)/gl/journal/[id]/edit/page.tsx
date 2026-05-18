@@ -27,7 +27,7 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
     }),
   ]);
 
-  if (!voucher || voucher.status === "posted") notFound();
+  if (!voucher || voucher.status !== "draft") notFound();
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
 

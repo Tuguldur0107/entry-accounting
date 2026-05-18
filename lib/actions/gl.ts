@@ -344,6 +344,49 @@ export async function postVoucher(id: string) {
   revalidatePath("/gl/reports");
 }
 
+export async function unpostVoucher(id: string) {
+  const userId = await requireUser();
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Бичилт олдсонгүй");
+  if (voucher.status !== "posted")
+    throw new Error("Зөвхөн бичигдсэн журналыг буцаах боломжтой");
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(journalVouchers)
+      .set({ status: "reversed" })
+      .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+
+    const [reversal] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        date: voucher.date,
+        description: `Сторно: ${voucher.description}`,
+        status: "posted",
+      })
+      .returning();
+
+    await tx.insert(journalLines).values(
+      voucher.lines.map((l, i) => ({
+        voucherId: reversal.id,
+        accountNumber: l.accountNumber,
+        debit: String(-Number(l.debit)),
+        credit: String(-Number(l.credit)),
+        description: l.description,
+        sortOrder: i,
+      }))
+    );
+  });
+
+  revalidatePath("/gl/journal");
+  revalidatePath("/gl/reports");
+}
+
 export async function updateVoucher(
   id: string,
   data: {
@@ -373,8 +416,8 @@ export async function updateVoucher(
       columns: { status: true },
     });
     if (!existing) throw new Error("Бичилт олдсонгүй");
-    if (existing.status === "posted")
-      throw new Error("Бичигдсэн журналыг засах боломжгүй. Сторно бичилт ашиглана уу.");
+    if (existing.status !== "draft")
+      throw new Error("Зөвхөн ноорог журналыг засах боломжтой");
 
     await tx
       .update(journalVouchers)
@@ -407,8 +450,8 @@ export async function deleteVoucher(id: string) {
       columns: { status: true },
     });
     if (!existing) throw new Error("Бичилт олдсонгүй");
-    if (existing.status === "posted")
-      throw new Error("Бичигдсэн журналыг устгах боломжгүй. Сторно бичилт ашиглана уу.");
+    if (existing.status !== "draft")
+      throw new Error("Зөвхөн ноорог журналыг устгах боломжтой");
 
     await tx
       .delete(journalVouchers)

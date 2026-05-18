@@ -49,7 +49,7 @@ export const journalVouchers = pgTable("journal_vouchers", {
     .references(() => users.id, { onDelete: "cascade" }),
   date: text("date").notNull(), // YYYY-MM-DD
   description: text("description").notNull(),
-  status: text("status").notNull().default("posted"), // "draft" | "posted"
+  status: text("status").notNull().default("posted"), // "draft" | "posted" | "reversed"
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

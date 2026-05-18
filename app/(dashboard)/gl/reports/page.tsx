@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { journalVouchers, chartOfAccounts, segmentConfigs } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { ReportsView } from "@/components/gl/reports-view";
 
@@ -11,7 +11,10 @@ export default async function ReportsPage() {
 
   const [vouchers, accounts, rawSegConfigs] = await Promise.all([
     db.query.journalVouchers.findMany({
-      where: and(eq(journalVouchers.userId, userId), eq(journalVouchers.status, "posted")),
+      where: and(
+        eq(journalVouchers.userId, userId),
+        inArray(journalVouchers.status, ["posted", "reversed"])
+      ),
       with: { lines: true },
     }),
     db.query.chartOfAccounts.findMany({

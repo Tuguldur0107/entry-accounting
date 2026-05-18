@@ -707,11 +707,15 @@ export function JournalEntryForm({
                     <button
                       type="button"
                       onClick={() => {
-                        if (lines.length <= 2) return;
+                        if (lines.length <= 2) {
+                          setError("Дор хаяж 2 мөр шаардлагатай. Мөр нэмээд буцаад устгана уу.");
+                          return;
+                        }
+                        setError("");
                         setLines((p) => p.filter((_, idx) => idx !== i));
                       }}
-                      disabled={lines.length <= 2}
-                      className="flex items-center justify-center opacity-0 group-hover:opacity-100 disabled:opacity-0 transition-all text-base leading-none"
+                      title="Мөр устгах"
+                      className="flex items-center justify-center transition-all text-base leading-none cursor-pointer"
                       style={{ color: "var(--ea-text-4)" }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.color = "var(--ea-danger)";
