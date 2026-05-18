@@ -1,6 +1,23 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+  createColumnHelper,
+  type SortingState,
+} from "@tanstack/react-table";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 
 const PAGE_SIZE = 20;
@@ -31,30 +48,37 @@ type Row = {
   closeCredit: number;
 };
 
+const columnHelper = createColumnHelper<Row>();
+
+function SortIndicator({ dir }: { dir: false | "asc" | "desc" }) {
+  if (dir === "asc") return <span className="ml-1 text-[#1E3A5F]">▲</span>;
+  if (dir === "desc") return <span className="ml-1 text-[#1E3A5F]">▼</span>;
+  return <span className="ml-1 text-[#D4D4CB]">▲▼</span>;
+}
+
 export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(today);
   const [appliedFrom, setAppliedFrom] = useState(firstOfMonth);
   const [appliedTo, setAppliedTo] = useState(today);
-  const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "number", desc: false },
+  ]);
 
   const accountMap = useMemo(
     () => Object.fromEntries(accounts.map((a) => [a.number, a.name])),
     [accounts]
   );
 
-  // Extract S3 account code from composite segment code, then look up name
   function resolveAccountName(code: string): string {
     if (accountMap[code]) return accountMap[code];
     const parts = code.split(".");
     if (parts.length > 1) {
       const s3Pos = activeSegIds.indexOf(3);
-      // Position match when code parts count equals active segment count
       if (s3Pos !== -1 && parts.length === activeSegIds.length) {
         const name = accountMap[parts[s3Pos] ?? ""];
         if (name) return name;
       }
-      // Fallback: try each part
       for (const part of parts) {
         if (accountMap[part]) return accountMap[part];
       }
@@ -65,11 +89,9 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
   function handleSearch() {
     setAppliedFrom(dateFrom);
     setAppliedTo(dateTo);
-    setPage(1);
   }
 
   const rows = useMemo<Row[]>(() => {
-    // Aggregate per account
     const map: Record<
       string,
       { openD: number; openC: number; periodD: number; periodC: number }
@@ -98,34 +120,59 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
       });
     });
 
-    return Object.entries(map)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([number, t]) => {
-        const openNet = t.openD - t.openC;
-        const openDebit = openNet > 0 ? openNet : 0;
-        const openCredit = openNet < 0 ? -openNet : 0;
+    return Object.entries(map).map(([number, t]) => {
+      const openNet = t.openD - t.openC;
+      const openDebit = openNet > 0 ? openNet : 0;
+      const openCredit = openNet < 0 ? -openNet : 0;
 
-        const closeNet = openNet + t.periodD - t.periodC;
-        const closeDebit = closeNet > 0 ? closeNet : 0;
-        const closeCredit = closeNet < 0 ? -closeNet : 0;
+      const closeNet = openNet + t.periodD - t.periodC;
+      const closeDebit = closeNet > 0 ? closeNet : 0;
+      const closeCredit = closeNet < 0 ? -closeNet : 0;
 
-        return {
-          number,
-          name: resolveAccountName(number),
-          openDebit,
-          openCredit,
-          periodDebit: t.periodD,
-          periodCredit: t.periodC,
-          closeDebit,
-          closeCredit,
-        };
-      });
+      return {
+        number,
+        name: resolveAccountName(number),
+        openDebit,
+        openCredit,
+        periodDebit: t.periodD,
+        periodCredit: t.periodC,
+        closeDebit,
+        closeCredit,
+      };
+    });
   }, [vouchers, appliedFrom, appliedTo, accountMap]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const paginated = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor("number", {
+        id: "number",
+        sortingFn: (a, b) => a.original.number.localeCompare(b.original.number),
+      }),
+      columnHelper.accessor("openDebit", { id: "openDebit" }),
+      columnHelper.accessor("openCredit", { id: "openCredit" }),
+      columnHelper.accessor("periodDebit", { id: "periodDebit" }),
+      columnHelper.accessor("periodCredit", { id: "periodCredit" }),
+      columnHelper.accessor("closeDebit", { id: "closeDebit" }),
+      columnHelper.accessor("closeCredit", { id: "closeCredit" }),
+    ],
+    []
+  );
 
-  // Stats for period
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageSize: PAGE_SIZE } },
+  });
+
+  const sortedRows = table.getRowModel().rows;
+  const totalPages = table.getPageCount() || 1;
+  const page = table.getState().pagination.pageIndex + 1;
+
   const periodVouchers = vouchers.filter(
     (v) => v.date >= appliedFrom && v.date <= appliedTo
   );
@@ -135,6 +182,16 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
   const totalOpenC = rows.reduce((s, r) => s + r.openCredit, 0);
   const totalCloseD = rows.reduce((s, r) => s + r.closeDebit, 0);
   const totalCloseC = rows.reduce((s, r) => s + r.closeCredit, 0);
+
+  function toggleSort(id: string) {
+    table.getColumn(id)?.toggleSorting();
+  }
+  function sortDir(id: string): false | "asc" | "desc" {
+    return table.getColumn(id)?.getIsSorted() ?? false;
+  }
+
+  const sortableThClass =
+    "cursor-pointer select-none hover:bg-[#ECECE5] transition-colors";
 
   return (
     <>
@@ -174,185 +231,203 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
 
       {/* Table */}
       <div className="bg-white border border-[#E5E5DE] rounded-md overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-[#F4F4EE] text-xs text-[#666] font-medium border-b border-[#E5E5DE]">
-              <th
-                className="px-4 py-2.5 text-left"
+        <Table>
+          <TableHeader className="[&_tr]:border-0">
+            <TableRow className="bg-[#F4F4EE] text-xs text-[#666] font-medium border-b border-[#E5E5DE] hover:bg-[#F4F4EE]">
+              <TableHead
+                className={`px-4 py-2.5 text-left ${sortableThClass}`}
                 rowSpan={2}
                 style={{ borderRight: "1px solid var(--ea-border)" }}
+                onClick={() => toggleSort("number")}
               >
                 Данс
-              </th>
-              <th
+                <SortIndicator dir={sortDir("number")} />
+              </TableHead>
+              <TableHead
                 colSpan={2}
                 className="px-4 py-2 text-center border-b border-[#E5E5DE]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 Эхний үлдэгдэл
-              </th>
-              <th
+              </TableHead>
+              <TableHead
                 colSpan={2}
                 className="px-4 py-2 text-center border-b border-[#E5E5DE]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 Гүйлгээ
-              </th>
-              <th
+              </TableHead>
+              <TableHead
                 colSpan={2}
                 className="px-4 py-2 text-center border-b border-[#E5E5DE]"
               >
                 Эцсийн үлдэгдэл
-              </th>
-            </tr>
-            <tr className="bg-[#F4F4EE] text-xs text-[#666] font-medium">
-              <th
-                className="px-4 py-2 text-right w-[120px]"
+              </TableHead>
+            </TableRow>
+            <TableRow className="bg-[#F4F4EE] text-xs text-[#666] font-medium hover:bg-[#F4F4EE]">
+              <TableHead
+                className={`px-4 py-2 text-right w-[120px] ${sortableThClass}`}
                 style={{ borderRight: "1px solid var(--ea-border)" }}
+                onClick={() => toggleSort("openDebit")}
               >
                 Дебет
-              </th>
-              <th
-                className="px-4 py-2 text-right w-[120px]"
+                <SortIndicator dir={sortDir("openDebit")} />
+              </TableHead>
+              <TableHead
+                className={`px-4 py-2 text-right w-[120px] ${sortableThClass}`}
                 style={{ borderRight: "1px solid var(--ea-border)" }}
+                onClick={() => toggleSort("openCredit")}
               >
                 Кредит
-              </th>
-              <th
-                className="px-4 py-2 text-right w-[120px]"
+                <SortIndicator dir={sortDir("openCredit")} />
+              </TableHead>
+              <TableHead
+                className={`px-4 py-2 text-right w-[120px] ${sortableThClass}`}
                 style={{ borderRight: "1px solid var(--ea-border)" }}
+                onClick={() => toggleSort("periodDebit")}
               >
                 Дебет
-              </th>
-              <th
-                className="px-4 py-2 text-right w-[120px]"
+                <SortIndicator dir={sortDir("periodDebit")} />
+              </TableHead>
+              <TableHead
+                className={`px-4 py-2 text-right w-[120px] ${sortableThClass}`}
                 style={{ borderRight: "1px solid var(--ea-border)" }}
+                onClick={() => toggleSort("periodCredit")}
               >
                 Кредит
-              </th>
-              <th
-                className="px-4 py-2 text-right w-[120px]"
+                <SortIndicator dir={sortDir("periodCredit")} />
+              </TableHead>
+              <TableHead
+                className={`px-4 py-2 text-right w-[120px] ${sortableThClass}`}
                 style={{ borderRight: "1px solid var(--ea-border)" }}
+                onClick={() => toggleSort("closeDebit")}
               >
                 Дебет
-              </th>
-              <th className="px-4 py-2 text-right w-[120px]">Кредит</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-10 text-center text-[#aaa]"
-                >
+                <SortIndicator dir={sortDir("closeDebit")} />
+              </TableHead>
+              <TableHead
+                className={`px-4 py-2 text-right w-[120px] ${sortableThClass}`}
+                onClick={() => toggleSort("closeCredit")}
+              >
+                Кредит
+                <SortIndicator dir={sortDir("closeCredit")} />
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sortedRows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="px-4 py-10 text-center text-[#aaa]">
                   Өгөгдөл байхгүй
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
-              paginated.map((r) => (
-                <tr
-                  key={r.number}
-                  className="border-t border-[#E8E8E0] hover:bg-[#fafafa]"
-                >
-                  <td
-                    className="px-4 py-2.5"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
+              sortedRows.map((r) => {
+                const row = r.original;
+                return (
+                  <TableRow
+                    key={row.number}
+                    className="border-t border-[#E8E8E0] hover:bg-[#fafafa]"
                   >
-                    <span className="font-mono text-[#555]">{r.number}</span>
-                    {r.name && (
-                      <span className="text-[#777] ml-2">— {r.name}</span>
-                    )}
-                  </td>
-                  <td
-                    className="px-4 py-2.5 text-right tabular-nums"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
-                  >
-                    {r.openDebit > 0 ? fmt(r.openDebit) : ""}
-                  </td>
-                  <td
-                    className="px-4 py-2.5 text-right tabular-nums"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
-                  >
-                    {r.openCredit > 0 ? fmt(r.openCredit) : ""}
-                  </td>
-                  <td
-                    className="px-4 py-2.5 text-right tabular-nums"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
-                  >
-                    {r.periodDebit > 0 ? fmt(r.periodDebit) : ""}
-                  </td>
-                  <td
-                    className="px-4 py-2.5 text-right tabular-nums"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
-                  >
-                    {r.periodCredit > 0 ? fmt(r.periodCredit) : ""}
-                  </td>
-                  <td
-                    className="px-4 py-2.5 text-right tabular-nums font-medium"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
-                  >
-                    {r.closeDebit > 0 ? fmt(r.closeDebit) : ""}
-                  </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums font-medium">
-                    {r.closeCredit > 0 ? fmt(r.closeCredit) : ""}
-                  </td>
-                </tr>
-              ))
+                    <TableCell
+                      className="px-4 py-2.5"
+                      style={{ borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      <span className="font-mono text-[#555]">{row.number}</span>
+                      {row.name && (
+                        <span className="text-[#777] ml-2">— {row.name}</span>
+                      )}
+                    </TableCell>
+                    <TableCell
+                      className="px-4 py-2.5 text-right tabular-nums"
+                      style={{ borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      {row.openDebit > 0 ? fmt(row.openDebit) : ""}
+                    </TableCell>
+                    <TableCell
+                      className="px-4 py-2.5 text-right tabular-nums"
+                      style={{ borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      {row.openCredit > 0 ? fmt(row.openCredit) : ""}
+                    </TableCell>
+                    <TableCell
+                      className="px-4 py-2.5 text-right tabular-nums"
+                      style={{ borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      {row.periodDebit > 0 ? fmt(row.periodDebit) : ""}
+                    </TableCell>
+                    <TableCell
+                      className="px-4 py-2.5 text-right tabular-nums"
+                      style={{ borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      {row.periodCredit > 0 ? fmt(row.periodCredit) : ""}
+                    </TableCell>
+                    <TableCell
+                      className="px-4 py-2.5 text-right tabular-nums font-medium"
+                      style={{ borderRight: "1px solid var(--ea-border)" }}
+                    >
+                      {row.closeDebit > 0 ? fmt(row.closeDebit) : ""}
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5 text-right tabular-nums font-medium">
+                      {row.closeCredit > 0 ? fmt(row.closeCredit) : ""}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
-          </tbody>
-          <tfoot>
-            <tr style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
-              <td
+          </TableBody>
+          <TableFooter style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
+            <TableRow style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
+              <TableCell
                 className="px-4 py-2.5 text-sm font-semibold text-[#1E3A5F]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 Нийт дүн
-              </td>
-              <td
+              </TableCell>
+              <TableCell
                 className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 {fmt(totalOpenD)}
-              </td>
-              <td
+              </TableCell>
+              <TableCell
                 className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 {fmt(totalOpenC)}
-              </td>
-              <td
+              </TableCell>
+              <TableCell
                 className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 {fmt(totalPeriodD)}
-              </td>
-              <td
+              </TableCell>
+              <TableCell
                 className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 {fmt(totalPeriodC)}
-              </td>
-              <td
+              </TableCell>
+              <TableCell
                 className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]"
                 style={{ borderRight: "1px solid var(--ea-border)" }}
               >
                 {fmt(totalCloseD)}
-              </td>
-              <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]">
+              </TableCell>
+              <TableCell className="px-4 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]">
                 {fmt(totalCloseC)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
       </div>
 
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-end gap-1 mt-3">
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
             className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             ‹
@@ -360,7 +435,7 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
             <button
               key={p}
-              onClick={() => setPage(p)}
+              onClick={() => table.setPageIndex(p - 1)}
               className={`h-7 min-w-[28px] px-1.5 flex items-center justify-center rounded border text-sm transition-colors ${
                 p === page
                   ? "bg-[#1E3A5F] text-white border-[#1E3A5F] font-medium"
@@ -371,8 +446,8 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
             </button>
           ))}
           <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
             className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             ›

@@ -2,6 +2,23 @@
 
 import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableFooter,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+  createColumnHelper,
+  type SortingState,
+} from "@tanstack/react-table";
 import { deleteVoucher, postVoucher } from "@/lib/actions/gl";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 
@@ -19,6 +36,14 @@ interface Props {
   activeSegIds: number[];
 }
 
+const columnHelper = createColumnHelper<JournalVoucherWithLines>();
+
+function SortIndicator({ dir }: { dir: false | "asc" | "desc" }) {
+  if (dir === "asc") return <span className="ml-1 text-[#1E3A5F]">▲</span>;
+  if (dir === "desc") return <span className="ml-1 text-[#1E3A5F]">▼</span>;
+  return <span className="ml-1 text-[#D4D4CB] opacity-60">▲▼</span>;
+}
+
 export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
   const today = new Date();
   const defaultStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
@@ -29,8 +54,10 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
   const [endDate, setEndDate] = useState(defaultEnd);
   const [appliedStart, setAppliedStart] = useState(defaultStart);
   const [appliedEnd, setAppliedEnd] = useState(defaultEnd);
-  const [page, setPage] = useState(1);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "date", desc: true },
+  ]);
 
   function AccountCell({ code }: { code: string }) {
     const parts = code.split(".");
@@ -66,7 +93,7 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
   function handleSearch() {
     setAppliedStart(startDate);
     setAppliedEnd(endDate);
-    setPage(1);
+    table.setPageIndex(0);
   }
 
   const filtered = useMemo(() => {
@@ -77,8 +104,40 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
     });
   }, [vouchers, appliedStart, appliedEnd]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor("date", { id: "date" }),
+      columnHelper.accessor("id", { id: "id" }),
+      columnHelper.accessor("description", { id: "description" }),
+      columnHelper.accessor("status", { id: "status" }),
+    ],
+    []
+  );
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageSize: PAGE_SIZE } },
+  });
+
+  const sortedVouchers = table.getRowModel().rows.map((r) => r.original);
+  const totalPages = table.getPageCount() || 1;
+  const page = table.getState().pagination.pageIndex + 1;
+
+  function toggleSort(id: string) {
+    table.getColumn(id)?.toggleSorting();
+  }
+  function sortDir(id: string): false | "asc" | "desc" {
+    return table.getColumn(id)?.getIsSorted() ?? false;
+  }
+
+  const sortableThClass =
+    "cursor-pointer select-none hover:bg-[#ECECE5] transition-colors";
 
   const grandDebit = filtered.reduce(
     (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.debit), 0),
@@ -142,7 +201,7 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
               setEndDate("");
               setAppliedStart("");
               setAppliedEnd("");
-              setPage(1);
+              table.setPageIndex(0);
             }}
             className="h-8 px-3 text-sm text-[#6B6B63] border border-[#E5E5DE] rounded-md hover:bg-[#F4F4EE] transition-colors"
           >
@@ -160,31 +219,55 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
       ) : (
         <>
           <div className="bg-white border border-[#E5E5DE] rounded-lg overflow-hidden">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-[#F4F4EE] text-[11px] font-semibold text-[#9A9A91] uppercase tracking-wide">
-                  <th className="px-3 py-2.5 text-left w-[90px] border-b border-[#E5E5DE]">Огноо</th>
-                  <th className="px-3 py-2.5 text-left w-[64px] border-b border-[#E5E5DE]">ID</th>
-                  <th className="px-3 py-2.5 text-left w-[190px] border-b border-[#E5E5DE]">Утга</th>
-                  <th className="px-3 py-2.5 text-left border-b border-[#E5E5DE]">Данс</th>
-                  <th className="px-3 py-2.5 text-right w-[120px] border-b border-[#E5E5DE]">Дебет</th>
-                  <th className="px-3 py-2.5 text-right w-[120px] border-b border-[#E5E5DE]">Кредит</th>
-                  <th className="px-3 py-2.5 text-left w-[150px] border-b border-[#E5E5DE]">Тайлбар</th>
-                  <th className="px-3 py-2.5 w-[120px] border-b border-[#E5E5DE]" />
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.map((v) => {
+            <Table className="border-collapse">
+              <TableHeader className="[&_tr]:border-0">
+                <TableRow className="bg-[#F4F4EE] text-[11px] font-semibold text-[#9A9A91] uppercase tracking-wide hover:bg-[#F4F4EE]">
+                  <TableHead
+                    className={`px-3 py-2.5 text-left w-[90px] border-b border-[#E5E5DE] ${sortableThClass}`}
+                    onClick={() => toggleSort("date")}
+                  >
+                    Огноо
+                    <SortIndicator dir={sortDir("date")} />
+                  </TableHead>
+                  <TableHead
+                    className={`px-3 py-2.5 text-left w-[64px] border-b border-[#E5E5DE] ${sortableThClass}`}
+                    onClick={() => toggleSort("id")}
+                  >
+                    ID
+                    <SortIndicator dir={sortDir("id")} />
+                  </TableHead>
+                  <TableHead
+                    className={`px-3 py-2.5 text-left w-[190px] border-b border-[#E5E5DE] ${sortableThClass}`}
+                    onClick={() => toggleSort("description")}
+                  >
+                    Утга
+                    <SortIndicator dir={sortDir("description")} />
+                  </TableHead>
+                  <TableHead className="px-3 py-2.5 text-left border-b border-[#E5E5DE]">Данс</TableHead>
+                  <TableHead className="px-3 py-2.5 text-right w-[120px] border-b border-[#E5E5DE]">Дебет</TableHead>
+                  <TableHead className="px-3 py-2.5 text-right w-[120px] border-b border-[#E5E5DE]">Кредит</TableHead>
+                  <TableHead className="px-3 py-2.5 text-left w-[150px] border-b border-[#E5E5DE]">Тайлбар</TableHead>
+                  <TableHead
+                    className={`px-3 py-2.5 w-[120px] border-b border-[#E5E5DE] text-right ${sortableThClass}`}
+                    onClick={() => toggleSort("status")}
+                  >
+                    Статус
+                    <SortIndicator dir={sortDir("status")} />
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedVouchers.map((v) => {
                   const isHovered = hoveredId === v.id;
                   const rowBg = isHovered ? "#F7F8FC" : "transparent";
 
                   return (
                     <React.Fragment key={v.id}>
                       {v.lines.map((l, li) => (
-                        <tr
+                        <TableRow
                           key={l.id}
                           style={{ background: rowBg }}
-                          className={`transition-colors ${
+                          className={`transition-colors hover:bg-transparent ${
                             li === 0
                               ? "border-t-2 border-[#D4D4CB]"
                               : "border-t border-[#F0F0EA]"
@@ -194,69 +277,69 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                         >
                           {/* Огноо */}
                           {li === 0 ? (
-                            <td
+                            <TableCell
                               className="px-3 py-2 font-mono text-xs text-[#6B6B63] whitespace-nowrap align-top"
                               rowSpan={v.lines.length}
                             >
                               {v.date}
-                            </td>
+                            </TableCell>
                           ) : null}
 
                           {/* ID */}
                           {li === 0 ? (
-                            <td className="px-3 py-2 align-top" rowSpan={v.lines.length}>
+                            <TableCell className="px-3 py-2 align-top" rowSpan={v.lines.length}>
                               <span
                                 className="font-mono text-[10px] text-[#ADADAD] select-all cursor-default"
                                 title={v.id}
                               >
                                 {v.id.slice(0, 8)}
                               </span>
-                            </td>
+                            </TableCell>
                           ) : null}
 
                           {/* Утга */}
                           {li === 0 ? (
-                            <td
+                            <TableCell
                               className="px-3 py-2 align-top"
                               rowSpan={v.lines.length}
                             >
                               <span className="text-xs font-medium text-[#1A1A19] leading-snug block">
                                 {v.description}
                               </span>
-                            </td>
+                            </TableCell>
                           ) : null}
 
                           {/* Данс */}
-                          <td className="px-3 py-2">
+                          <TableCell className="px-3 py-2">
                             <AccountCell code={l.accountNumber} />
-                          </td>
+                          </TableCell>
 
                           {/* Дебет */}
-                          <td className="px-3 py-2 text-right tabular-nums text-xs">
+                          <TableCell className="px-3 py-2 text-right tabular-nums text-xs">
                             {Number(l.debit) > 0 ? (
                               <span className="text-[#1A1A19]">{fmt(l.debit)}</span>
                             ) : (
                               <span className="text-[#D4D4CB]">—</span>
                             )}
-                          </td>
+                          </TableCell>
 
                           {/* Кредит */}
-                          <td className="px-3 py-2 text-right tabular-nums text-xs">
+                          <TableCell className="px-3 py-2 text-right tabular-nums text-xs">
                             {Number(l.credit) > 0 ? (
                               <span className="text-[#1A1A19]">{fmt(l.credit)}</span>
                             ) : (
                               <span className="text-[#D4D4CB]">—</span>
                             )}
-                          </td>
+                          </TableCell>
 
                           {/* Мөрийн тайлбар */}
-                          <td className="px-3 py-2 text-xs text-[#9A9A91] leading-snug">
+                          <TableCell className="px-3 py-2 text-xs text-[#9A9A91] leading-snug">
                             {l.description}
-                          </td>
+                          </TableCell>
 
                           {/* Статус + үйлдэл */}
                           {li === 0 ? (
-                            <td
+                            <TableCell
                               className="px-3 py-2 align-top"
                               rowSpan={v.lines.length}
                             >
@@ -311,26 +394,29 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                                   )}
                                 </div>
                               </div>
-                            </td>
+                            </TableCell>
                           ) : null}
-                        </tr>
+                        </TableRow>
                       ))}
                     </React.Fragment>
                   );
                 })}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
-                  <td colSpan={4} className="px-3 py-2.5 text-xs font-semibold text-[#1E3A5F]">
+              </TableBody>
+              <TableFooter style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
+                <TableRow
+                  className="hover:bg-transparent"
+                  style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}
+                >
+                  <TableCell colSpan={4} className="px-3 py-2.5 text-xs font-semibold text-[#1E3A5F]">
                     Нийт дүн
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">
+                  </TableCell>
+                  <TableCell className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">
                     {fmt(grandDebit)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">
+                  </TableCell>
+                  <TableCell className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-[#1A1A19]">
                     {fmt(grandCredit)}
-                  </td>
-                  <td colSpan={2} className="px-3 py-2.5">
+                  </TableCell>
+                  <TableCell colSpan={2} className="px-3 py-2.5">
                     <div className="flex items-center justify-end gap-1.5">
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[#059669]" : "bg-[#DC2626]"}`}
@@ -343,18 +429,18 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                           : `Зөрүү ${fmt(Math.abs(grandDebit - grandCredit))}`}
                       </span>
                     </div>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+                  </TableCell>
+                </TableRow>
+              </TableFooter>
+            </Table>
           </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-end gap-1 mt-3">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
                 className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 ‹
@@ -362,7 +448,7 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                 <button
                   key={p}
-                  onClick={() => setPage(p)}
+                  onClick={() => table.setPageIndex(p - 1)}
                   className={`h-7 min-w-[28px] px-1.5 flex items-center justify-center rounded border text-sm transition-colors ${
                     p === page
                       ? "bg-[#1E3A5F] text-white border-[#1E3A5F] font-medium"
@@ -373,8 +459,8 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
                 </button>
               ))}
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
                 className="h-7 w-7 flex items-center justify-center rounded border border-[#E5E5DE] text-[#6B6B63] text-sm hover:bg-[#F4F4EE] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 ›
