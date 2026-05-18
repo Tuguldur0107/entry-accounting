@@ -10,18 +10,20 @@ import { EyeIcon, EyeOffIcon } from './icons';
 type FieldProps = {
   label: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: ((v: string) => void);
   placeholder?: string;
   type?: 'text' | 'email' | 'password';
   icon?: React.ReactNode;
   hint?: string;
   error?: string;
   autoComplete?: string;
+  autoFocus?: boolean;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 };
 
 export function EAField({
   label, value, onChange, placeholder, type = 'text',
-  icon, hint, error, autoComplete,
+  icon, hint, error, autoComplete, autoFocus, onKeyDown,
 }: FieldProps) {
   const [focused, setFocused] = React.useState(false);
   const [showPw, setShowPw] = React.useState(false);
@@ -73,6 +75,8 @@ export function EAField({
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          autoFocus={autoFocus}
+          onKeyDown={onKeyDown}
           style={{
             flex: 1,
             padding: '12px 14px',
