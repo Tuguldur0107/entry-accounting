@@ -14,6 +14,7 @@ import type {
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
+import { Pencil, Check, Trash2, Undo2 } from "lucide-react";
 
 const PAGE_SIZE = 15;
 
@@ -250,7 +251,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
       {
         headerName: "Үйлдэл",
         colId: "actions",
-        width: 170,
+        width: 190,
         sortable: false,
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
@@ -263,30 +264,37 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                 <>
                   <button
                     onClick={() => handleEdit(v.id)}
-                    className="h-6 px-2 text-[11px] font-medium text-[#1E3A5F] border border-[#C7D8EE] rounded hover:bg-[#EEF3FF] transition-colors bg-white"
+                    className="ea-btn ea-btn--primary"
+                    title="Журнал засах"
                   >
+                    <Pencil />
                     Засах
                   </button>
                   <button
                     onClick={() => handlePost(v.id)}
-                    className="h-6 px-2 text-[11px] font-medium text-[#047857] border border-[#BBF7D0] rounded hover:bg-[#ECFDF5] transition-colors bg-white"
+                    className="ea-btn ea-btn--success"
+                    title="Батлах"
                   >
+                    <Check />
                     Батлах
                   </button>
                   <button
                     onClick={() => handleDelete(v.id)}
-                    className="h-6 w-6 flex items-center justify-center text-[#C4C4BC] border border-[#E5E5DE] rounded hover:text-[#B91C1C] hover:border-[#FECACA] hover:bg-[#FFF5F5] transition-colors bg-white text-sm leading-none"
+                    className="ea-btn ea-btn--icon ea-btn--danger"
                     title="Устгах"
+                    aria-label="Устгах"
                   >
-                    ×
+                    <Trash2 />
                   </button>
                 </>
               )}
               {v.status === "posted" && (
                 <button
                   onClick={() => handleUnpost(v.id)}
-                  className="h-6 px-2 text-[11px] font-medium text-[#B45309] border border-[#FCD34D] rounded hover:bg-[#FFFBEB] transition-colors bg-white"
+                  className="ea-btn ea-btn--warning"
+                  title="Ноорог болгож буцаах"
                 >
+                  <Undo2 />
                   Буцаах
                 </button>
               )}

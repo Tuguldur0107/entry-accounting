@@ -414,3 +414,94 @@
 .ea-accounts-grid .ea-acct-disabled .ag-cell {
   opacity: 0.5;
 }
+
+/* ─── Action button (tonal) ───────────────────────────────────────────────── */
+/* Compact icon+label buttons used in data-grid action columns.
+   Tonal style: subtle colored background, color-matched text, no border.
+   Hover/active deepen the background. Each variant uses --ea-* tokens
+   via color-mix so light + dark mode both work automatically. */
+.ea-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease, transform 0.06s ease;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  line-height: 1;
+}
+.ea-btn:active { transform: scale(0.96); }
+.ea-btn:focus-visible {
+  outline: 2px solid var(--ea-primary);
+  outline-offset: 1px;
+}
+.ea-btn svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.ea-btn--icon {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* Primary — edit / link */
+.ea-btn--primary {
+  color: var(--ea-primary);
+  background: color-mix(in srgb, var(--ea-primary) 10%, transparent);
+}
+.ea-btn--primary:hover {
+  background: color-mix(in srgb, var(--ea-primary) 18%, transparent);
+}
+
+/* Success — post / confirm */
+.ea-btn--success {
+  color: var(--ea-success);
+  background: color-mix(in srgb, var(--ea-success) 12%, transparent);
+}
+.ea-btn--success:hover {
+  background: color-mix(in srgb, var(--ea-success) 22%, transparent);
+}
+
+/* Warning — unpost / revert */
+.ea-btn--warning {
+  color: #B45309;
+  background: color-mix(in srgb, #D97706 14%, transparent);
+}
+.ea-btn--warning:hover {
+  background: color-mix(in srgb, #D97706 24%, transparent);
+}
+.dark .ea-btn--warning {
+  color: #FBBF24;
+  background: color-mix(in srgb, #D97706 22%, transparent);
+}
+.dark .ea-btn--warning:hover {
+  background: color-mix(in srgb, #D97706 36%, transparent);
+}
+
+/* Danger — destructive (typically icon-only) */
+.ea-btn--danger {
+  color: var(--ea-text-4);
+  background: transparent;
+}
+.ea-btn--danger:hover {
+  color: var(--ea-danger);
+  background: color-mix(in srgb, var(--ea-danger) 12%, transparent);
+}
+
+/* Ghost — neutral inline action */
+.ea-btn--ghost {
+  color: var(--ea-text-3);
+  background: transparent;
+}
+.ea-btn--ghost:hover {
+  color: var(--ea-text-1);
+  background: var(--ea-bg-2);
+}
