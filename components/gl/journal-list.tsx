@@ -221,7 +221,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
       {
         headerName: "Статус",
         field: "status",
-        width: 280,
+        width: 120,
         sortable: true,
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
@@ -234,52 +234,62 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
               : v.status === "reversed"
               ? { dot: "#9A9A91", text: "text-[#6B6B63]", label: "Буцаагдсан" }
               : { dot: "#D97706", text: "text-[#B45309]", label: "Ноорог" };
-          // Status badge + actions on one horizontal row so they fit
-          // within the voucher's row height (which scales with line count).
           return (
-            <div className="flex items-center justify-end gap-2 h-full">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  style={{ background: statusInfo.dot }}
-                />
-                <span className={`text-[11px] font-medium whitespace-nowrap ${statusInfo.text}`}>
-                  {statusInfo.label}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                {v.status === "draft" && (
-                  <>
-                    <button
-                      onClick={() => handleEdit(v.id)}
-                      className="h-6 px-2 text-[11px] font-medium text-[#1E3A5F] border border-[#C7D8EE] rounded hover:bg-[#EEF3FF] transition-colors bg-white"
-                    >
-                      Засах
-                    </button>
-                    <button
-                      onClick={() => handlePost(v.id)}
-                      className="h-6 px-2 text-[11px] font-medium text-[#047857] border border-[#BBF7D0] rounded hover:bg-[#ECFDF5] transition-colors bg-white"
-                    >
-                      Батлах
-                    </button>
-                    <button
-                      onClick={() => handleDelete(v.id)}
-                      className="h-6 w-6 flex items-center justify-center text-[#C4C4BC] border border-[#E5E5DE] rounded hover:text-[#B91C1C] hover:border-[#FECACA] hover:bg-[#FFF5F5] transition-colors bg-white text-sm leading-none"
-                      title="Устгах"
-                    >
-                      ×
-                    </button>
-                  </>
-                )}
-                {v.status === "posted" && (
+            <div className="flex items-center justify-end gap-1.5 h-full">
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ background: statusInfo.dot }}
+              />
+              <span className={`text-[11px] font-medium whitespace-nowrap ${statusInfo.text}`}>
+                {statusInfo.label}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        headerName: "Үйлдэл",
+        colId: "actions",
+        width: 170,
+        sortable: false,
+        cellClass: "ag-right-aligned-cell",
+        headerClass: "ag-right-aligned-header",
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => {
+          const v = p.data;
+          if (!v) return null;
+          return (
+            <div className="flex items-center justify-end gap-1 h-full">
+              {v.status === "draft" && (
+                <>
                   <button
-                    onClick={() => handleUnpost(v.id)}
-                    className="h-6 px-2 text-[11px] font-medium text-[#B45309] border border-[#FCD34D] rounded hover:bg-[#FFFBEB] transition-colors bg-white"
+                    onClick={() => handleEdit(v.id)}
+                    className="h-6 px-2 text-[11px] font-medium text-[#1E3A5F] border border-[#C7D8EE] rounded hover:bg-[#EEF3FF] transition-colors bg-white"
                   >
-                    Буцаах
+                    Засах
                   </button>
-                )}
-              </div>
+                  <button
+                    onClick={() => handlePost(v.id)}
+                    className="h-6 px-2 text-[11px] font-medium text-[#047857] border border-[#BBF7D0] rounded hover:bg-[#ECFDF5] transition-colors bg-white"
+                  >
+                    Батлах
+                  </button>
+                  <button
+                    onClick={() => handleDelete(v.id)}
+                    className="h-6 w-6 flex items-center justify-center text-[#C4C4BC] border border-[#E5E5DE] rounded hover:text-[#B91C1C] hover:border-[#FECACA] hover:bg-[#FFF5F5] transition-colors bg-white text-sm leading-none"
+                    title="Устгах"
+                  >
+                    ×
+                  </button>
+                </>
+              )}
+              {v.status === "posted" && (
+                <button
+                  onClick={() => handleUnpost(v.id)}
+                  className="h-6 px-2 text-[11px] font-medium text-[#B45309] border border-[#FCD34D] rounded hover:bg-[#FFFBEB] transition-colors bg-white"
+                >
+                  Буцаах
+                </button>
+              )}
             </div>
           );
         },
