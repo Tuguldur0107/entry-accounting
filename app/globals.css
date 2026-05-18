@@ -48,8 +48,58 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* ─── LIGHT MODE — :root tokens MUST come BEFORE .dark for cascade ──────────
+ *  `:root` ба `.dark` нь хоёулаа specificity (0,1,0) — pseudo-class & class
+ *  тэгш бүсэлгээтэй. Тиймээс LATER rule нь win хийдэг. Тэгэхээр `.dark` rule
+ *  win хийхийн тулд `:root`-аас ДАРАА бичигдсэн байх ёстой.
+ * ────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* shadcn tokens — light mode aligned to --ea-* (defined below) */
+  /* Brand & UI tokens (light defaults) */
+  --ea-primary:       #1E3A5F;
+  --ea-primary-700:   #15294A;
+  --ea-primary-500:   #2A5285;
+  --ea-primary-100:   #DCE6F2;
+  --ea-primary-50:    #F1F5FA;
+
+  --ea-bg:            #FFFFFF;
+  --ea-bg-2:          #F8FAFC;
+  --ea-bg-3:          #F1F5F9;
+  --ea-surface:       #FFFFFF;
+  --ea-surface-glass: rgba(255,255,255,0.72);
+  --ea-border:        #E2E8F0;
+  --ea-border-strong: #CBD5E1;
+
+  --ea-text-1: #0F172A;
+  --ea-text-2: #334155;
+  --ea-text-3: #64748B;
+  --ea-text-4: #94A3B8;
+
+  --ea-success:    #10B981;
+  --ea-success-fg: #047857;
+  --ea-success-bg: #ECFDF5;
+  --ea-danger:     #EF4444;
+  --ea-danger-fg:  #B91C1C;
+  --ea-danger-bg:  #FEF2F2;
+  --ea-warning:    #F59E0B;
+  --ea-warning-fg: #B45309;
+  --ea-warning-bg: #FFFBEB;
+
+  --ea-font-sans:    var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --ea-font-display: var(--font-fraunces), 'Fraunces', 'Playfair Display', serif;
+  --ea-font-mono:    var(--font-geist-mono), ui-monospace, monospace;
+
+  --ea-r-md:  6px;
+  --ea-r-lg:  10px;
+  --ea-r-xl:  14px;
+
+  --ea-shadow-2: 0 1px 3px rgba(15,23,42,0.04), 0 4px 12px -4px rgba(15,23,42,0.06);
+  --ea-shadow-3: 0 24px 60px -12px rgba(15,23,42,0.22), 0 8px 24px -8px rgba(15,23,42,0.10);
+  --ea-focus: 0 0 0 3px rgba(30,58,95,0.18);
+
+  /* Light mode body gradient */
+  --ea-bg-gradient: radial-gradient(80% 60% at 50% 0%, #F8FAFC 0%, #FFFFFF 60%);
+
+  /* shadcn tokens aligned to --ea-* */
   --background: var(--ea-bg);
   --foreground: var(--ea-text-1);
   --card: var(--ea-surface);
@@ -84,6 +134,7 @@
   --sidebar-ring: var(--ea-primary);
 }
 
+/* ─── DARK MODE — .dark overrides :root (after, same specificity wins) ───── */
 .dark {
   /* ── Entry Accounting tokens (deep navy + glass-ready) ──────── */
   --ea-primary:       #60A5FA;
@@ -176,54 +227,6 @@
   html {
     @apply font-sans;
   }
-}
-
-/* ─── Entry Accounting design tokens (light: clean modern white) ───────────── */
-:root {
-  --ea-primary:       #1E3A5F;
-  --ea-primary-700:   #15294A;
-  --ea-primary-500:   #2A5285;
-  --ea-primary-100:   #DCE6F2;
-  --ea-primary-50:    #F1F5FA;
-
-  --ea-bg:            #FFFFFF;
-  --ea-bg-2:          #F8FAFC;
-  --ea-bg-3:          #F1F5F9;
-  --ea-surface:       #FFFFFF;
-  --ea-surface-glass: rgba(255,255,255,0.72);
-  --ea-border:        #E2E8F0;
-  --ea-border-strong: #CBD5E1;
-
-  --ea-text-1: #0F172A;
-  --ea-text-2: #334155;
-  --ea-text-3: #64748B;
-  --ea-text-4: #94A3B8;
-
-  --ea-success:    #10B981;
-  --ea-success-fg: #047857;
-  --ea-success-bg: #ECFDF5;
-  --ea-danger:     #EF4444;
-  --ea-danger-fg:  #B91C1C;
-  --ea-danger-bg:  #FEF2F2;
-  --ea-warning:    #F59E0B;
-  --ea-warning-fg: #B45309;
-  --ea-warning-bg: #FFFBEB;
-
-  --ea-font-sans:    var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  --ea-font-display: var(--font-fraunces), 'Fraunces', 'Playfair Display', serif;
-  --ea-font-mono:    var(--font-geist-mono), ui-monospace, monospace;
-
-  --ea-r-md:  6px;
-  --ea-r-lg:  10px;
-  --ea-r-xl:  14px;
-
-  --ea-shadow-2: 0 1px 3px rgba(15,23,42,0.04), 0 4px 12px -4px rgba(15,23,42,0.06);
-  --ea-shadow-3: 0 24px 60px -12px rgba(15,23,42,0.22), 0 8px 24px -8px rgba(15,23,42,0.10);
-
-  --ea-focus: 0 0 0 3px rgba(30,58,95,0.18);
-
-  /* Light mode body gradient — subtle slate radial */
-  --ea-bg-gradient: radial-gradient(80% 60% at 50% 0%, #F8FAFC 0%, #FFFFFF 60%);
 }
 
 /* ─── Tailwind-default class overrides ──────────────────────────────────────

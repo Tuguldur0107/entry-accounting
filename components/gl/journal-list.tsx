@@ -332,31 +332,54 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         cellSelection={false}
       />
 
+      {/* Footer — баганатай харалдаа. Grid template AG-Grid-н column width-тэй тааруулсан */}
       <div
-        className="mt-3 px-4 py-2.5 flex items-center justify-end gap-6 text-xs"
+        className="mt-3 text-xs"
         style={{
           background: "var(--ea-bg-2)",
           border: "1px solid var(--ea-border)",
           borderRadius: 6,
+          display: "grid",
+          gridTemplateColumns:
+            "110px 80px minmax(180px,1fr) minmax(160px,1fr) 130px 130px 160px 120px 120px",
+          alignItems: "center",
+          padding: "10px 0",
         }}
       >
-        <span className="text-[var(--ea-text-3)] font-medium">Нийт дүн:</span>
-        <span className="tabular-nums font-semibold text-[var(--ea-text-1)]">
-          Дебет {fmtMnt(grandDebit)}
-        </span>
-        <span className="tabular-nums font-semibold text-[var(--ea-text-1)]">
-          Кредит {fmtMnt(grandCredit)}
-        </span>
-        <div className="flex items-center gap-1.5">
+        {/* Огноо + ID — "Нийт дүн" label spanning */}
+        <div className="pl-3 col-span-2 text-[var(--ea-text-3)] font-medium" style={{ gridColumn: "1 / span 2" }}>
+          Нийт дүн
+        </div>
+        {/* Утга, Данс — empty */}
+        <div />
+        <div />
+        {/* Дебет */}
+        <div className="text-right pr-3 tabular-nums font-mono font-semibold text-[var(--ea-text-1)]">
+          {fmtMnt(grandDebit)}
+        </div>
+        {/* Кредит */}
+        <div className="text-right pr-3 tabular-nums font-mono font-semibold text-[var(--ea-text-1)]">
+          {fmtMnt(grandCredit)}
+        </div>
+        {/* Тайлбар — empty */}
+        <div />
+        {/* Статус */}
+        <div className="flex items-center justify-end gap-1.5 pr-3">
           <span
             className={`w-1.5 h-1.5 rounded-full ${
               balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"
             }`}
           />
-          <span className={`font-medium ${balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"}`}>
+          <span
+            className={`font-medium ${
+              balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"
+            }`}
+          >
             {balanced ? "Тэнцсэн" : `Зөрүү ${fmtMnt(Math.abs(grandDebit - grandCredit))}`}
           </span>
         </div>
+        {/* Үйлдэл — empty */}
+        <div />
       </div>
     </>
   );
