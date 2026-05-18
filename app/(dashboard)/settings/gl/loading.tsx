@@ -1,6 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-export default function AccountsLoading() {
+export default function GlSettingsLoading() {
   return (
     <div>
       {/* Tab bar */}

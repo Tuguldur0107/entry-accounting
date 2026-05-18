@@ -38,7 +38,7 @@ export async function createAccount(data: { number: string; name: string }) {
   if (existing) return { error: "Энэ дугаартай данс аль хэдийн байна" };
 
   await db.insert(chartOfAccounts).values({ userId, ...data });
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
@@ -47,7 +47,7 @@ export async function deleteAccount(id: string) {
   await db
     .delete(chartOfAccounts)
     .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
@@ -57,7 +57,7 @@ export async function toggleAccount(id: string, isEnabled: boolean) {
     .update(chartOfAccounts)
     .set({ isEnabled })
     .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
@@ -72,7 +72,7 @@ export async function bulkToggleSegment(segment: string, isEnabled: boolean) {
         sql`left(${chartOfAccounts.number}, 1) = ${segment}`
       )
     );
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
@@ -82,7 +82,7 @@ export async function updateAccountModules(id: string, modules: string[]) {
     .update(chartOfAccounts)
     .set({ modules: modules.join(",") })
     .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 export async function syncStandardAccounts() {
@@ -102,7 +102,7 @@ export async function syncStandardAccounts() {
     toAdd.map((a) => ({ userId, number: a.number, name: a.name }))
   );
 
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
   return { added: toAdd.length };
 }
@@ -153,7 +153,7 @@ export async function updateSegmentConfig(
         ...(data.modules !== undefined && { modules: data.modules.join(",") }),
       },
     });
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 // ─── Module Configs ───────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ export async function batchSaveModuleConfigs(
         })
     )
   );
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 // ─── Batch save (edit mode) ───────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export async function batchSaveSection2(
     ),
   ]);
 
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
@@ -239,7 +239,7 @@ export async function createSegmentValue(data: {
     name: data.name,
     modules: data.modules.join(","),
   });
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 export async function deleteSegmentValue(id: string) {
@@ -247,7 +247,7 @@ export async function deleteSegmentValue(id: string) {
   await db
     .delete(segmentValues)
     .where(and(eq(segmentValues.id, id), eq(segmentValues.userId, userId)));
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 export async function toggleSegmentValue(id: string, isEnabled: boolean) {
@@ -256,7 +256,7 @@ export async function toggleSegmentValue(id: string, isEnabled: boolean) {
     .update(segmentValues)
     .set({ isEnabled })
     .where(and(eq(segmentValues.id, id), eq(segmentValues.userId, userId)));
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 export async function updateSegmentValueModules(id: string, modules: string[]) {
@@ -265,7 +265,7 @@ export async function updateSegmentValueModules(id: string, modules: string[]) {
     .update(segmentValues)
     .set({ modules: modules.join(",") })
     .where(and(eq(segmentValues.id, id), eq(segmentValues.userId, userId)));
-  revalidatePath("/gl/accounts");
+  revalidatePath("/settings/gl");
 }
 
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────

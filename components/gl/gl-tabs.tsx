@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { label: "Журналын жагсаалт", href: "/gl/journal" },
   { label: "Тайлан", href: "/gl/reports" },
-  { label: "Тохиргоо", href: "/gl/accounts" },
 ];
 
 export function GlTabs() {

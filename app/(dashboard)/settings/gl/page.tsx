@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { AccountsTable } from "@/components/gl/accounts-table";
 import { SEGMENT_DEFS, MODULE_DEFS } from "@/lib/constants/standard-accounts";
 
-export default async function AccountsPage() {
+export default async function GlSettingsPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { label: "Хэрэглэгчийн профайл", href: "/settings/profile" },
   { label: "Компанийн мэдээлэл", href: "/settings/company" },
+  { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl" },
 ];
 
 export function SettingsTabs() {
