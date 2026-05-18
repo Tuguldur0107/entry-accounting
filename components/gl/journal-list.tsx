@@ -221,7 +221,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
       {
         headerName: "Статус",
         field: "status",
-        width: 150,
+        width: 280,
         sortable: true,
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
@@ -234,14 +234,16 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
               : v.status === "reversed"
               ? { dot: "#9A9A91", text: "text-[#6B6B63]", label: "Буцаагдсан" }
               : { dot: "#D97706", text: "text-[#B45309]", label: "Ноорог" };
+          // Status badge + actions on one horizontal row so they fit
+          // within the voucher's row height (which scales with line count).
           return (
-            <div className="flex flex-col items-end gap-1.5 py-2">
+            <div className="flex items-center justify-end gap-2 h-full">
               <div className="flex items-center gap-1.5">
                 <span
                   className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                   style={{ background: statusInfo.dot }}
                 />
-                <span className={`text-[11px] font-medium ${statusInfo.text}`}>
+                <span className={`text-[11px] font-medium whitespace-nowrap ${statusInfo.text}`}>
                   {statusInfo.label}
                 </span>
               </div>
