@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,11 +17,12 @@ import { cn } from "@/lib/utils";
 import {
   createAccount,
   deleteAccount,
+  deleteSegmentValue,
   syncStandardAccounts,
   updateSegmentConfig,
   createSegmentValue,
-  deleteSegmentValue,
   batchSaveSection2,
+  batchSaveModuleConfigs,
 } from "@/lib/actions/gl";
 import {
   SEGMENT_DEFS,
@@ -32,11 +33,18 @@ import {
   getSegmentKey,
   type ModuleKey,
 } from "@/lib/constants/standard-accounts";
-import { batchSaveModuleConfigs } from "@/lib/actions/gl";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
+import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import type { ColDef, ICellRendererParams, RowClassParams } from "ag-grid-community";
 
-interface SegmentConfigRow { segmentId: number; isEnabled: boolean }
-interface ModuleConfigRow  { moduleKey: string; isEnabled: boolean }
+interface SegmentConfigRow {
+  segmentId: number;
+  isEnabled: boolean;
+}
+interface ModuleConfigRow {
+  moduleKey: string;
+  isEnabled: boolean;
+}
 interface Props {
   accounts: ChartOfAccount[];
   segmentConfigs: SegmentConfigRow[];
@@ -47,205 +55,124 @@ interface Props {
 type DraftItem = { isEnabled: boolean; modules: string };
 
 function parseMods(modules: string): ModuleKey[] {
-  return modules.split(",").map((m) => m.trim()).filter((m): m is ModuleKey => ALL_MODULES.includes(m as ModuleKey));
+  return modules
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m): m is ModuleKey => ALL_MODULES.includes(m as ModuleKey));
 }
 
-// ─── Excel-style column filter dropdown ───────────────────────────────────────
-type ShownSet = Set<string> | null; // null = no filter (show all)
-
-function ColumnFilter({
-  label,
-  colKey,
-  allValues,
-  shown,
-  onChange,
-  center,
-  width,
-}: {
-  label: string;
-  colKey: string;
-  allValues: string[];
-  shown: ShownSet;
-  onChange: (key: string, val: ShownSet) => void;
-  center?: boolean;
-  width?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const isActive = shown !== null && shown.size < allValues.length;
-
-  useEffect(() => {
-    if (!open) return;
-    function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false); setQuery("");
-      }
+type AcctGridRow =
+  | {
+      kind: "header";
+      id: string;
+      groupKey: string;
+      groupLabel: string;
+      enabledCount: number;
+      total: number;
     }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [open]);
+  | {
+      kind: "row";
+      id: string;
+      rowType: "account" | "sv";
+      code: string;
+      name: string;
+      isEnabled: boolean;
+      modules: string;
+      isDirty: boolean;
+      isPendingDelete: boolean;
+      effIsEnabled: boolean;
+      effModules: string;
+    };
 
-  const opts = allValues.filter((v) => v.toLowerCase().includes(query.toLowerCase()));
-  const effective = shown ?? new Set(allValues);
-
-  function toggle(val: string) {
-    const next = new Set(effective);
-    if (next.has(val)) next.delete(val); else next.add(val);
-    onChange(colKey, next.size === allValues.length ? null : next);
-  }
-
-  return (
-    <div
-      ref={ref}
-      style={width ? { width } : undefined}
-      className={cn("relative flex items-center gap-0.5 select-none", center && "justify-center", !width && "flex-1")}
-    >
-      <span className="truncate">{label}</span>
-      <button
-        type="button"
-        onClick={() => { setOpen((p) => !p); setQuery(""); }}
-        className={cn(
-          "shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded text-[8px] transition-colors",
-          isActive ? "text-[#1E3A5F] bg-[#EEF2FA]" : "text-[#ccc] hover:text-[#888]"
-        )}
-      >
-        ▼
-      </button>
-      {open && (
-        <div
-          className={cn(
-            "absolute top-full z-50 bg-white border border-[#ddd] rounded-md shadow-lg w-[200px] mt-1 normal-case font-normal tracking-normal",
-            center ? "left-1/2 -translate-x-1/2" : "left-0"
-          )}
-        >
-          <div className="p-2 border-b border-[#E8E8E0]">
-            <input
-              autoFocus
-              type="text"
-              placeholder="Хайх..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full text-xs border border-[#ddd] rounded px-2 py-1 outline-none focus:border-[#1E3A5F]"
-            />
-          </div>
-          <div className="px-2 py-1.5 border-b border-[#E8E8E0] flex gap-3">
-            <button type="button" onClick={() => onChange(colKey, null)} className="text-[10px] text-[#1E3A5F] hover:underline">Бүгдийг харуулах</button>
-            <button type="button" onClick={() => onChange(colKey, new Set())} className="text-[10px] text-[#888] hover:underline">Бүгдийг нуух</button>
-          </div>
-          <div className="max-h-[220px] overflow-y-auto py-1">
-            {opts.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-[#aaa]">Илэрц олдсонгүй</div>
-            ) : opts.map((val) => (
-              <label key={val} className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#F4F4EE] cursor-pointer">
-                <input type="checkbox" checked={effective.has(val)} onChange={() => toggle(val)} className="accent-[#1E3A5F] w-3.5 h-3.5" />
-                <span className="text-xs text-[#333]">{val}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Table header with per-column filters ─────────────────────────────────────
-function TableHeader({
-  activeMods,
-  allValuesMap,
-  colFilters,
-  onFilter,
-}: {
-  activeMods: ModuleKey[];
-  allValuesMap: Record<string, string[]>;
-  colFilters: Record<string, ShownSet>;
-  onFilter: (key: string, val: ShownSet) => void;
-}) {
-  return (
-    <div className="flex items-center px-3 py-2 text-[10px] font-semibold text-[#aaa] uppercase tracking-wide bg-[#F4F4EE] border border-[#E5E5DE] rounded-t-md">
-      <ColumnFilter label="Код" colKey="code" width="120px" allValues={allValuesMap["code"] ?? []} shown={colFilters["code"] ?? null} onChange={onFilter} />
-      <ColumnFilter label="Нэр" colKey="name" allValues={allValuesMap["name"] ?? []} shown={colFilters["name"] ?? null} onChange={onFilter} />
-      {activeMods.map((mod) => (
-        <ColumnFilter key={mod} label={MODULE_LABELS[mod]} colKey={mod} width="52px" center allValues={["Тийм", "Үгүй"]} shown={colFilters[mod] ?? null} onChange={onFilter} />
-      ))}
-      <ColumnFilter label="Төлөв" colKey="isEnabled" width="72px" center allValues={["Тийм", "Үгүй"]} shown={colFilters["isEnabled"] ?? null} onChange={onFilter} />
-      <div className="w-[28px]" />
-    </div>
-  );
-}
-
-export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleConfigs }: Props) {
+export function AccountsTable({
+  accounts,
+  segmentConfigs,
+  segmentValues,
+  moduleConfigs,
+}: Props) {
   const [localConfigs, setLocalConfigs] = useState<SegmentConfigRow[]>(segmentConfigs);
 
   const enabledSegIds = localConfigs.filter((c) => c.isEnabled).map((c) => c.segmentId);
   const [mainTab, setMainTab] = useState<"modules" | "config" | "values">("modules");
 
-  // ── Module config edit mode ───────────────────────────────────────────────
   const [localMods, setLocalMods] = useState<ModuleConfigRow[]>(moduleConfigs);
   const [modEditMode, setModEditMode] = useState(false);
   const [modDraft, setModDraft] = useState<ModuleConfigRow[]>([]);
   const [modSaving, setModSaving] = useState(false);
 
-  function enterModEdit() { setModDraft(localMods.map((m) => ({ ...m }))); setModEditMode(true); }
-  function cancelModEdit() { setModDraft([]); setModEditMode(false); }
-
+  function enterModEdit() {
+    setModDraft(localMods.map((m) => ({ ...m })));
+    setModEditMode(true);
+  }
+  function cancelModEdit() {
+    setModDraft([]);
+    setModEditMode(false);
+  }
   async function saveModEdit() {
     setModSaving(true);
-    const changed = modDraft.filter((d) => localMods.find((m) => m.moduleKey === d.moduleKey)?.isEnabled !== d.isEnabled);
+    const changed = modDraft.filter(
+      (d) =>
+        localMods.find((m) => m.moduleKey === d.moduleKey)?.isEnabled !== d.isEnabled
+    );
     if (changed.length > 0) await batchSaveModuleConfigs(changed);
     setLocalMods(modDraft);
-    setModDraft([]); setModEditMode(false); setModSaving(false);
+    setModDraft([]);
+    setModEditMode(false);
+    setModSaving(false);
+  }
+  function toggleModDraft(key: string) {
+    setModDraft((prev) =>
+      prev.map((m) => (m.moduleKey === key ? { ...m, isEnabled: !m.isEnabled } : m))
+    );
   }
 
-  function toggleModDraft(key: string) {
-    setModDraft((prev) => prev.map((m) => m.moduleKey === key ? { ...m, isEnabled: !m.isEnabled } : m));
-  }
   const [activeTab, setActiveTab] = useState<number>(() =>
     enabledSegIds.includes(3) ? 3 : enabledSegIds[0] ?? 1
   );
 
-  // ── Section 1 edit mode ───────────────────────────────────────────────────
   const [seg1EditMode, setSeg1EditMode] = useState(false);
   const [seg1Draft, setSeg1Draft] = useState<SegmentConfigRow[]>([]);
   const [seg1Saving, setSeg1Saving] = useState(false);
 
   function enterSeg1Edit() {
-    setSeg1Draft(SEGMENT_DEFS.map((def) => ({
-      segmentId: def.id,
-      isEnabled: localConfigs.find((c) => c.segmentId === def.id)?.isEnabled ?? true,
-    })));
+    setSeg1Draft(
+      SEGMENT_DEFS.map((def) => ({
+        segmentId: def.id,
+        isEnabled: localConfigs.find((c) => c.segmentId === def.id)?.isEnabled ?? true,
+      }))
+    );
     setSeg1EditMode(true);
   }
-
   function cancelSeg1Edit() {
     setSeg1Draft([]);
     setSeg1EditMode(false);
   }
-
   async function saveSeg1Edit() {
     setSeg1Saving(true);
-    await Promise.all(seg1Draft.map((d) => updateSegmentConfig(d.segmentId, { isEnabled: d.isEnabled })));
+    await Promise.all(
+      seg1Draft.map((d) =>
+        updateSegmentConfig(d.segmentId, { isEnabled: d.isEnabled })
+      )
+    );
     setLocalConfigs(seg1Draft);
     setSeg1Draft([]);
     setSeg1EditMode(false);
     setSeg1Saving(false);
   }
-
   function toggleSeg1Draft(segId: number) {
     setSeg1Draft((prev) =>
-      prev.map((c) => (c.segmentId === segId ? { ...c, isEnabled: !c.isEnabled } : c))
+      prev.map((c) =>
+        c.segmentId === segId ? { ...c, isEnabled: !c.isEnabled } : c
+      )
     );
   }
 
-  // ── Edit mode (section 2) ─────────────────────────────────────────────────
   const [editMode, setEditMode] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, DraftItem>>(new Map());
-  const [pendingDeletes, setPendingDeletes] = useState<Map<string, "account" | "sv">>(new Map());
+  const [pendingDeletes, setPendingDeletes] = useState<Map<string, "account" | "sv">>(
+    new Map()
+  );
   const [saving, setSaving] = useState(false);
-
-  function getVal(id: string, actual: DraftItem): DraftItem {
-    return editMode ? (drafts.get(id) ?? actual) : actual;
-  }
 
   function setDraft(id: string, update: Partial<DraftItem>, actual: DraftItem) {
     setDrafts((prev) => {
@@ -254,19 +181,16 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
       return next;
     });
   }
-
   function enterEdit() {
     setDrafts(new Map());
     setPendingDeletes(new Map());
     setEditMode(true);
   }
-
   function cancelEdit() {
     setDrafts(new Map());
     setPendingDeletes(new Map());
     setEditMode(false);
   }
-
   async function saveEdit() {
     setSaving(true);
     const deletes = [...pendingDeletes.entries()];
@@ -296,106 +220,18 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
     (mod) => localMods.find((m) => m.moduleKey === mod)?.isEnabled ?? true
   );
 
-  // ── Column filters ────────────────────────────────────────────────────────
-  const [colFilters, setColFilters] = useState<Record<string, ShownSet>>({});
-
-  function handleFilter(key: string, val: ShownSet) {
-    setColFilters((prev) => ({ ...prev, [key]: val }));
-  }
-
-  function applyFilters<T>(rows: T[], getVal: (row: T, key: string) => string): T[] {
-    return rows.filter((row) =>
-      Object.entries(colFilters).every(([key, shown]) => {
-        if (!shown) return true;
-        return shown.has(getVal(row, key));
-      })
-    );
-  }
-
-  // S3 filter logic
-  const filteredAccounts = useMemo(() => {
-    return applyFilters(accounts, (a, key) => {
-      if (key === "code") return a.number;
-      if (key === "name") return a.name;
-      if (key === "isEnabled") return a.isEnabled ? "Тийм" : "Үгүй";
-      const mods = parseMods(drafts.get(a.id)?.modules ?? a.modules);
-      return mods.includes(key as ModuleKey) ? "Тийм" : "Үгүй";
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, colFilters, drafts]);
-
-  // Non-S3 filter logic
-  const currentSegValues = segmentValues.filter((v) => v.segmentId === activeTab);
-
-  const filteredSegValues = useMemo(() => {
-    return applyFilters(currentSegValues ?? [], (sv, key) => {
-      if (key === "code") return sv.code;
-      if (key === "name") return sv.name;
-      if (key === "isEnabled") return sv.isEnabled ? "Тийм" : "Үгүй";
-      const mods = parseMods(drafts.get(sv.id)?.modules ?? sv.modules);
-      return mods.includes(key as ModuleKey) ? "Тийм" : "Үгүй";
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segmentValues, activeTab, colFilters, drafts]);
-
-  // Dynamic available values per column (excluding that column's own filter)
-  // so that subsequent filters only show values visible after prior filters
-  const s3AllValues = useMemo<Record<string, string[]>>(() => {
-    function rowVal(a: ChartOfAccount, key: string): string {
-      if (key === "code") return a.number;
-      if (key === "name") return a.name;
-      if (key === "isEnabled") return a.isEnabled ? "Тийм" : "Үгүй";
-      return parseMods(drafts.get(a.id)?.modules ?? a.modules).includes(key as ModuleKey) ? "Тийм" : "Үгүй";
-    }
-    const result: Record<string, string[]> = {};
-    for (const colKey of ["code", "name", ...activeModules, "isEnabled"]) {
-      const rows = accounts.filter((a) =>
-        Object.entries(colFilters).every(([k, shown]) => !shown || k === colKey || shown.has(rowVal(a, k)))
-      );
-      result[colKey] = [...new Set(rows.map((a) => rowVal(a, colKey)))].sort();
-    }
-    return result;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts, colFilters, activeModules, drafts]);
-
-  const svAllValues = useMemo<Record<string, string[]>>(() => {
-    function rowVal(sv: SegmentValue, key: string): string {
-      if (key === "code") return sv.code;
-      if (key === "name") return sv.name;
-      if (key === "isEnabled") return sv.isEnabled ? "Тийм" : "Үгүй";
-      return parseMods(drafts.get(sv.id)?.modules ?? sv.modules).includes(key as ModuleKey) ? "Тийм" : "Үгүй";
-    }
-    const result: Record<string, string[]> = {};
-    for (const colKey of ["code", "name", ...activeModules, "isEnabled"]) {
-      const rows = currentSegValues.filter((sv) =>
-        Object.entries(colFilters).every(([k, shown]) => !shown || k === colKey || shown.has(rowVal(sv, k)))
-      );
-      result[colKey] = [...new Set(rows.map((sv) => rowVal(sv, colKey)))].sort();
-    }
-    return result;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segmentValues, activeTab, colFilters, activeModules, drafts]);
-
-  const activeTabDef = SEGMENT_DEFS.find((d) => d.id === activeTab);
-
-  // Reset filters when switching tabs
-  function switchTab(id: number) {
-    if (!editMode) { setActiveTab(id); setColFilters({}); }
-  }
-
-  // ── Delete confirmation dialog ────────────────────────────────────────────
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string; type: "account" | "sv" } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    { id: string; label: string; type: "account" | "sv" } | null
+  >(null);
 
   function askDelete(id: string, label: string, type: "account" | "sv") {
     setDeleteTarget({ id, label, type });
   }
-
   function confirmDelete() {
     if (!deleteTarget) return;
     setPendingDeletes((prev) => new Map(prev).set(deleteTarget.id, deleteTarget.type));
     setDeleteTarget(null);
   }
-
   function undoDelete(id: string) {
     setPendingDeletes((prev) => {
       const next = new Map(prev);
@@ -404,7 +240,285 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
     });
   }
 
-  // ── S3 account management ─────────────────────────────────────────────────
+  function effectiveS3Row(a: ChartOfAccount) {
+    const draft = drafts.get(a.id);
+    const effIsEnabled = draft?.isEnabled ?? a.isEnabled;
+    const effModules = draft?.modules ?? a.modules;
+    return {
+      effIsEnabled,
+      effModules,
+      isDirty: drafts.has(a.id),
+      isPendingDelete: pendingDeletes.has(a.id),
+    };
+  }
+  function effectiveSvRow(sv: SegmentValue) {
+    const draft = drafts.get(sv.id);
+    const effIsEnabled = draft?.isEnabled ?? sv.isEnabled;
+    const effModules = draft?.modules ?? sv.modules;
+    return {
+      effIsEnabled,
+      effModules,
+      isDirty: drafts.has(sv.id),
+      isPendingDelete: pendingDeletes.has(sv.id),
+    };
+  }
+
+  const s3GridRows = useMemo<AcctGridRow[]>(() => {
+    const grouped: Record<string, ChartOfAccount[]> = {};
+    accounts.forEach((a) => {
+      const k = getSegmentKey(a.number);
+      if (!grouped[k]) grouped[k] = [];
+      grouped[k].push(a);
+    });
+    Object.values(grouped).forEach((arr) =>
+      arr.sort((a, b) => a.number.localeCompare(b.number))
+    );
+
+    const out: AcctGridRow[] = [];
+    for (const groupKey of Object.keys(ACCOUNT_GROUPS)) {
+      const rows = grouped[groupKey];
+      if (!rows || rows.length === 0) continue;
+      const enabledCount = rows.filter((r) => effectiveS3Row(r).effIsEnabled).length;
+      out.push({
+        kind: "header",
+        id: `__header-${groupKey}`,
+        groupKey,
+        groupLabel: ACCOUNT_GROUPS[groupKey],
+        enabledCount,
+        total: rows.length,
+      });
+      for (const a of rows) {
+        const eff = effectiveS3Row(a);
+        out.push({
+          kind: "row",
+          id: a.id,
+          rowType: "account",
+          code: a.number,
+          name: a.name,
+          isEnabled: a.isEnabled,
+          modules: a.modules,
+          ...eff,
+        });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, drafts, pendingDeletes]);
+
+  const svGridRows = useMemo<AcctGridRow[]>(() => {
+    return segmentValues
+      .filter((sv) => sv.segmentId === activeTab)
+      .map((sv) => {
+        const eff = effectiveSvRow(sv);
+        return {
+          kind: "row" as const,
+          id: sv.id,
+          rowType: "sv" as const,
+          code: sv.code,
+          name: sv.name,
+          isEnabled: sv.isEnabled,
+          modules: sv.modules,
+          ...eff,
+        };
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segmentValues, activeTab, drafts, pendingDeletes]);
+
+  const columnDefs = useMemo<ColDef<AcctGridRow>[]>(() => {
+    const cols: ColDef<AcctGridRow>[] = [
+      {
+        headerName: "Код",
+        colId: "code",
+        width: 140,
+        cellClass: "font-mono text-xs",
+        filter: "agTextColumnFilter",
+        valueGetter: (p) =>
+          p.data?.kind === "row" ? p.data.code : p.data?.groupKey,
+        cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
+          const d = p.data;
+          if (!d) return null;
+          if (d.kind === "header")
+            return (
+              <span className="font-mono text-[10px] font-semibold text-[var(--ea-primary)]">
+                {d.groupKey}X
+              </span>
+            );
+          return (
+            <span
+              className={cn(
+                "font-mono text-xs",
+                d.isPendingDelete && "line-through text-red-400"
+              )}
+            >
+              {d.code}
+            </span>
+          );
+        },
+        // Header rows span code + name + N module cols + isEnabled + actions
+        colSpan: (p) => (p.data?.kind === "header" ? activeModules.length + 4 : 1),
+        sortable: false,
+      },
+      {
+        headerName: "Нэр",
+        colId: "name",
+        flex: 1,
+        minWidth: 240,
+        filter: "agTextColumnFilter",
+        valueGetter: (p) =>
+          p.data?.kind === "row" ? p.data.name : p.data?.groupLabel,
+        cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
+          const d = p.data;
+          if (!d) return null;
+          if (d.kind === "header") {
+            return (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-[var(--ea-text-3)]">
+                  {d.groupLabel}
+                </span>
+                <Badge variant="secondary" className="text-[10px]">
+                  {d.enabledCount}/{d.total}
+                </Badge>
+              </div>
+            );
+          }
+          return (
+            <span
+              className={cn(
+                "text-xs",
+                d.isPendingDelete && "line-through text-red-400"
+              )}
+            >
+              {d.name}
+            </span>
+          );
+        },
+        sortable: false,
+      },
+    ];
+
+    for (const mod of activeModules) {
+      cols.push({
+        headerName: MODULE_LABELS[mod],
+        colId: `mod-${mod}`,
+        width: 64,
+        cellClass: "flex items-center justify-center",
+        headerClass: "ag-right-aligned-header",
+        sortable: false,
+        filter: "agSetColumnFilter",
+        valueGetter: (p) => {
+          if (p.data?.kind !== "row") return "";
+          return parseMods(p.data.effModules).includes(mod) ? "Тийм" : "Үгүй";
+        },
+        cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
+          const d = p.data;
+          if (!d || d.kind !== "row") return null;
+          const mods = parseMods(d.effModules);
+          return (
+            <Switch
+              checked={mods.includes(mod)}
+              disabled={!editMode || d.isPendingDelete}
+              onCheckedChange={() => {
+                const next = mods.includes(mod)
+                  ? mods.filter((m) => m !== mod)
+                  : [...mods, mod];
+                setDraft(
+                  d.id,
+                  { modules: next.join(",") },
+                  { isEnabled: d.isEnabled, modules: d.modules }
+                );
+              }}
+            />
+          );
+        },
+      });
+    }
+
+    cols.push({
+      headerName: "Төлөв",
+      colId: "isEnabled",
+      width: 90,
+      sortable: false,
+      filter: "agTextColumnFilter",
+      cellClass: "flex items-center justify-center",
+      valueGetter: (p) =>
+        p.data?.kind === "row" ? (p.data.effIsEnabled ? "Тийм" : "Үгүй") : "",
+      cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
+        const d = p.data;
+        if (!d || d.kind !== "row") return null;
+        return (
+          <Switch
+            checked={d.effIsEnabled}
+            disabled={!editMode || d.isPendingDelete}
+            onCheckedChange={() =>
+              setDraft(
+                d.id,
+                { isEnabled: !d.effIsEnabled },
+                { isEnabled: d.isEnabled, modules: d.modules }
+              )
+            }
+          />
+        );
+      },
+    });
+
+    cols.push({
+      headerName: "",
+      colId: "actions",
+      width: 50,
+      sortable: false,
+      filter: false,
+      cellClass: "flex items-center justify-center",
+      cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
+        const d = p.data;
+        if (!d || d.kind !== "row" || !editMode) return null;
+        if (d.isPendingDelete)
+          return (
+            <button
+              onClick={() => undoDelete(d.id)}
+              className="text-red-400 hover:text-[#1E3A5F] hover:bg-blue-50 px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
+              title="Буцаах"
+            >
+              ↩
+            </button>
+          );
+        return (
+          <button
+            onClick={() => askDelete(d.id, d.code, d.rowType)}
+            className="text-[#ccc] hover:text-red-500 hover:bg-red-50 px-1 py-0.5 rounded text-base leading-none transition-colors"
+            title="Устгах"
+          >
+            ×
+          </button>
+        );
+      },
+    });
+
+    return cols;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeModules, editMode, drafts, pendingDeletes]);
+
+  const rowClassRules = useMemo(
+    () => ({
+      "ea-acct-header-row": (p: RowClassParams<AcctGridRow>) =>
+        p.data?.kind === "header",
+      "ea-acct-pending-delete": (p: RowClassParams<AcctGridRow>) =>
+        p.data?.kind === "row" && p.data.isPendingDelete,
+      "ea-acct-dirty": (p: RowClassParams<AcctGridRow>) =>
+        p.data?.kind === "row" && p.data.isDirty && !p.data.isPendingDelete,
+      "ea-acct-disabled": (p: RowClassParams<AcctGridRow>) =>
+        p.data?.kind === "row" && !p.data.effIsEnabled && !p.data.isPendingDelete,
+    }),
+    []
+  );
+
+  const activeTabDef = SEGMENT_DEFS.find((d) => d.id === activeTab);
+
+  function switchTab(id: number) {
+    if (!editMode) {
+      setActiveTab(id);
+    }
+  }
+
   const [addOpen, setAddOpen] = useState(false);
   const [addNumber, setAddNumber] = useState("");
   const [addName, setAddName] = useState("");
@@ -413,37 +527,40 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
 
-  const groupedAccounts = useMemo(() => {
-    const g: Record<string, ChartOfAccount[]> = {};
-    filteredAccounts.forEach((a) => {
-      const k = getSegmentKey(a.number);
-      if (!g[k]) g[k] = [];
-      g[k].push(a);
-    });
-    Object.values(g).forEach((arr) => arr.sort((a, b) => a.number.localeCompare(b.number)));
-    return g;
-  }, [filteredAccounts]);
-
-  function handleCloseAdd() { setAddNumber(""); setAddName(""); setAddError(""); setAddOpen(false); }
-
-  async function handleAddAccount() {
-    if (!addNumber.trim() || !addName.trim()) { setAddError("Бүх талбарыг бөглөнө үү"); return; }
-    setAddSaving(true); setAddError("");
-    const res = await createAccount({ number: addNumber.trim(), name: addName.trim() });
-    setAddSaving(false);
-    if (res?.error) setAddError(res.error); else handleCloseAdd();
+  function handleCloseAdd() {
+    setAddNumber("");
+    setAddName("");
+    setAddError("");
+    setAddOpen(false);
   }
-
+  async function handleAddAccount() {
+    if (!addNumber.trim() || !addName.trim()) {
+      setAddError("Бүх талбарыг бөглөнө үү");
+      return;
+    }
+    setAddSaving(true);
+    setAddError("");
+    const res = await createAccount({
+      number: addNumber.trim(),
+      name: addName.trim(),
+    });
+    setAddSaving(false);
+    if (res?.error) setAddError(res.error);
+    else handleCloseAdd();
+  }
   async function handleSync() {
-    setSyncing(true); setSyncMsg("");
+    setSyncing(true);
+    setSyncMsg("");
     const res = await syncStandardAccounts();
     setSyncing(false);
-    setSyncMsg(res.added === 0 ? "Бүх стандарт данс аль хэдийн байна" : `${res.added} шинэ данс нэмэгдлээ`);
+    setSyncMsg(
+      res.added === 0
+        ? "Бүх стандарт данс аль хэдийн байна"
+        : `${res.added} шинэ данс нэмэгдлээ`
+    );
     setTimeout(() => setSyncMsg(""), 3000);
   }
 
-
-  // ── Non-S3 segment value management ──────────────────────────────────────
   const [svAddOpen, setSvAddOpen] = useState(false);
   const [svAddCode, setSvAddCode] = useState("");
   const [svAddName, setSvAddName] = useState("");
@@ -454,24 +571,37 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
   function openSvAdd() {
     const def = SEGMENT_DEFS.find((d) => d.id === activeTab);
     setSvAddMods(def?.defaultModules ?? []);
-    setSvAddCode(""); setSvAddName(""); setSvAddError(""); setSvAddOpen(true);
+    setSvAddCode("");
+    setSvAddName("");
+    setSvAddError("");
+    setSvAddOpen(true);
   }
-
-  function closeSvAdd() { setSvAddOpen(false); setSvAddCode(""); setSvAddName(""); setSvAddError(""); }
-
+  function closeSvAdd() {
+    setSvAddOpen(false);
+    setSvAddCode("");
+    setSvAddName("");
+    setSvAddError("");
+  }
   async function handleAddSv() {
-    if (!svAddCode.trim() || !svAddName.trim()) { setSvAddError("Бүх талбарыг бөглөнө үү"); return; }
-    setSvSaving(true); setSvAddError("");
-    const res = await createSegmentValue({ segmentId: activeTab, code: svAddCode.trim(), name: svAddName.trim(), modules: svAddMods });
+    if (!svAddCode.trim() || !svAddName.trim()) {
+      setSvAddError("Бүх талбарыг бөглөнө үү");
+      return;
+    }
+    setSvSaving(true);
+    setSvAddError("");
+    const res = await createSegmentValue({
+      segmentId: activeTab,
+      code: svAddCode.trim(),
+      name: svAddName.trim(),
+      modules: svAddMods,
+    });
     setSvSaving(false);
-    if (res?.error) setSvAddError(res.error); else closeSvAdd();
+    if (res?.error) setSvAddError(res.error);
+    else closeSvAdd();
   }
 
-
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ═══ Main tabs ══════════════════════════════════════════════════════ */}
       <div className="flex items-center gap-0 border-b border-[#E5E5DE] mb-6">
         {(["modules", "config", "values"] as const).map((tab) => (
           <button
@@ -480,28 +610,39 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
             onClick={() => setMainTab(tab)}
             className={cn(
               "px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-              mainTab === tab ? "border-[#1E3A5F] text-[#1E3A5F]" : "border-transparent text-[#888] hover:text-[#333]"
+              mainTab === tab
+                ? "border-[#1E3A5F] text-[#1E3A5F]"
+                : "border-transparent text-[#888] hover:text-[#333]"
             )}
           >
-            {tab === "modules" ? "Модулийн тохиргоо" : tab === "config" ? "Сегментийн тохиргоо" : "Сегментийн утгуудын жагсаалт"}
+            {tab === "modules"
+              ? "Модулийн тохиргоо"
+              : tab === "config"
+              ? "Сегментийн тохиргоо"
+              : "Сегментийн утгуудын жагсаалт"}
           </button>
         ))}
       </div>
 
-      {/* ═══ MODULE CONFIG TAB ══════════════════════════════════════════════ */}
       <div className={cn(mainTab !== "modules" && "hidden")}>
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs text-[#888]">Системд ашиглах модулиудыг идэвхжүүлнэ үү.</p>
+          <p className="text-xs text-[#888]">
+            Системд ашиглах модулиудыг идэвхжүүлнэ үү.
+          </p>
           <div className="flex items-center gap-2">
             {modEditMode ? (
               <>
-                <Button variant="outline" size="sm" className="text-xs" onClick={cancelModEdit} disabled={modSaving}>Болих</Button>
+                <Button variant="outline" size="sm" className="text-xs" onClick={cancelModEdit} disabled={modSaving}>
+                  Болих
+                </Button>
                 <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={saveModEdit} disabled={modSaving}>
                   {modSaving ? "Хадгалж байна..." : "Хадгалах"}
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="sm" className="text-xs" onClick={enterModEdit}>Засварлах</Button>
+              <Button variant="outline" size="sm" className="text-xs" onClick={enterModEdit}>
+                Засварлах
+              </Button>
             )}
           </div>
         </div>
@@ -512,10 +653,23 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
             const origOn = localMods.find((m) => m.moduleKey === def.key)?.isEnabled ?? true;
             const isDirty = modEditMode && on !== origOn;
             return (
-              <div key={def.key} className={cn("bg-white border rounded-md px-4 py-3 transition-opacity", !on && "opacity-50", isDirty ? "border-[#1E3A5F]" : "border-[#E5E5DE]")}>
+              <div
+                key={def.key}
+                className={cn(
+                  "bg-white border rounded-md px-4 py-3 transition-opacity",
+                  !on && "opacity-50",
+                  isDirty ? "border-[#1E3A5F]" : "border-[#E5E5DE]"
+                )}
+              >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-xs font-bold text-[#1E3A5F] uppercase">{def.key}</span>
-                  <Switch checked={on} disabled={!modEditMode} onCheckedChange={() => toggleModDraft(def.key)} />
+                  <span className="font-mono text-xs font-bold text-[#1E3A5F] uppercase">
+                    {def.key}
+                  </span>
+                  <Switch
+                    checked={on}
+                    disabled={!modEditMode}
+                    onCheckedChange={() => toggleModDraft(def.key)}
+                  />
                 </div>
                 <div className="text-sm font-medium text-[#333] leading-tight">{def.nameMn}</div>
                 <div className="text-[11px] text-[#aaa] leading-tight mt-1">{def.name}</div>
@@ -526,7 +680,6 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
         </div>
       </div>
 
-      {/* ═══ SECTION 1 ══════════════════════════════════════════════════════ */}
       <div className={cn("mb-6", mainTab !== "config" && "hidden")}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs text-[#888]">
@@ -536,13 +689,17 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
           <div className="flex items-center gap-2">
             {seg1EditMode ? (
               <>
-                <Button variant="outline" size="sm" className="text-xs" onClick={cancelSeg1Edit} disabled={seg1Saving}>Болих</Button>
+                <Button variant="outline" size="sm" className="text-xs" onClick={cancelSeg1Edit} disabled={seg1Saving}>
+                  Болих
+                </Button>
                 <Button size="sm" className="bg-[#1E3A5F] hover:bg-[#15294A] text-xs" onClick={saveSeg1Edit} disabled={seg1Saving}>
                   {seg1Saving ? "Хадгалж байна..." : "Хадгалах"}
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="sm" className="text-xs" onClick={enterSeg1Edit}>Засварлах</Button>
+              <Button variant="outline" size="sm" className="text-xs" onClick={enterSeg1Edit}>
+                Засварлах
+              </Button>
             )}
           </div>
         </div>
@@ -553,10 +710,18 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
             const origOn = localConfigs.find((c) => c.segmentId === def.id)?.isEnabled ?? true;
             const isDirty = seg1EditMode && on !== origOn;
             return (
-              <div key={def.id} className={cn("bg-white border rounded-md px-3 py-2.5 transition-opacity", !on && "opacity-50", isDirty ? "border-[#1E3A5F]" : "border-[#E5E5DE]")}>
+              <div
+                key={def.id}
+                className={cn(
+                  "bg-white border rounded-md px-3 py-2.5 transition-opacity",
+                  !on && "opacity-50",
+                  isDirty ? "border-[#1E3A5F]" : "border-[#E5E5DE]"
+                )}
+              >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-mono text-xs font-bold text-[#1E3A5F]">
-                    S{def.id}<span className="text-[#bbb] font-normal ml-1">{def.length}c</span>
+                    S{def.id}
+                    <span className="text-[#bbb] font-normal ml-1">{def.length}c</span>
                   </span>
                   <Switch
                     checked={on}
@@ -572,20 +737,22 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
         </div>
       </div>
 
-      {/* ═══ SECTION 2 ══════════════════════════════════════════════════════ */}
       <div className={cn(mainTab !== "values" && "hidden")}>
         <p className="text-xs text-[#888] mb-3">Идэвхтэй сегментийг сонгоод кодуудыг тохируулна уу.</p>
 
-        {/* Tabs */}
         <div className="flex items-center gap-0 border-b border-[#E5E5DE] mb-4 overflow-x-auto">
-          {SEGMENT_DEFS.filter((d) => localConfigs.find((c) => c.segmentId === d.id)?.isEnabled ?? true).map((def) => (
+          {SEGMENT_DEFS.filter(
+            (d) => localConfigs.find((c) => c.segmentId === d.id)?.isEnabled ?? true
+          ).map((def) => (
             <button
               key={def.id}
               type="button"
               onClick={() => switchTab(def.id)}
               className={cn(
                 "px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
-                activeTab === def.id ? "border-[#1E3A5F] text-[#1E3A5F]" : "border-transparent text-[#888] hover:text-[#333]",
+                activeTab === def.id
+                  ? "border-[#1E3A5F] text-[#1E3A5F]"
+                  : "border-transparent text-[#888] hover:text-[#333]",
                 editMode && activeTab !== def.id && "opacity-40 cursor-not-allowed"
               )}
             >
@@ -596,14 +763,12 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
 
         {activeTabDef && enabledSegIds.length > 0 && (
           <div>
-            {/* Sub-header */}
             <div className="flex items-center justify-between mb-3">
               <div>
                 <span className="text-sm font-medium text-[#333]">{activeTabDef.nameMn}</span>
                 <span className="text-xs text-[#888] ml-2">{activeTabDef.description}</span>
               </div>
               <div className="flex items-center gap-2">
-                {/* Edit mode controls */}
                 {editMode ? (
                   <>
                     {dirtyCount > 0 && (
@@ -621,7 +786,6 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
                     Засварлах
                   </Button>
                 )}
-                {/* Add / Sync */}
                 {!editMode && activeTab === 3 && (
                   <>
                     {syncMsg && <span className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">{syncMsg}</span>}
@@ -641,128 +805,36 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
               </div>
             </div>
 
-            {/* ── S3: chart of accounts ── */}
-            {activeTab === 3 && (
-              <>
-                <TableHeader activeMods={activeModules} allValuesMap={s3AllValues} colFilters={colFilters} onFilter={handleFilter} />
-                <div className="border border-t-0 border-[#E5E5DE] rounded-b-md overflow-hidden">
-                  {Object.keys(ACCOUNT_GROUPS).map((groupKey) => {
-                    const rows = groupedAccounts[groupKey];
-                    if (!rows || rows.length === 0) return null;
-                    return (
-                      <div key={groupKey}>
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F4F4EE] border-t border-[#E8E8E0]">
-                          <span className="font-mono text-[10px] font-semibold text-[#1E3A5F]">{groupKey}X</span>
-                          <span className="text-[11px] text-[#666]">{ACCOUNT_GROUPS[groupKey]}</span>
-                          <Badge variant="secondary" className="text-[10px]">
-                            {rows.filter((r) => (editMode ? (drafts.get(r.id)?.isEnabled ?? r.isEnabled) : r.isEnabled)).length}/{rows.length}
-                          </Badge>
-                        </div>
-                        {rows.map((a) => {
-                          const val = getVal(a.id, { isEnabled: a.isEnabled, modules: a.modules });
-                          const mods = parseMods(val.modules);
-                          const isDirty = drafts.has(a.id);
-                          const isPendingDelete = pendingDeletes.has(a.id);
-                          return (
-                            <div key={a.id} className={cn("flex items-center px-3 py-2 border-t border-[#F0F0EA]", isPendingDelete ? "bg-red-50/60" : (!val.isEnabled && "opacity-50"), isDirty && !isPendingDelete && "bg-blue-50/40")}>
-                              <span className={cn("font-mono text-xs text-[#555] w-[120px]", isPendingDelete && "line-through text-red-400")}>{a.number}</span>
-                              <span className={cn("flex-1 text-xs text-[#333]", isPendingDelete && "line-through text-red-400")}>{a.name}</span>
-                              {activeModules.map((mod) => (
-                                <div key={mod} className="w-[52px] flex justify-center">
-                                  <Switch
-                                    checked={mods.includes(mod)}
-                                    disabled={!editMode || isPendingDelete}
-                                    onCheckedChange={() => {
-                                      const next = mods.includes(mod) ? mods.filter((m) => m !== mod) : [...mods, mod];
-                                      setDraft(a.id, { modules: next.join(",") }, { isEnabled: a.isEnabled, modules: a.modules });
-                                    }}
-                                  />
-                                </div>
-                              ))}
-                              <div className="w-[72px] flex justify-center">
-                                <Switch
-                                  checked={val.isEnabled}
-                                  disabled={!editMode || isPendingDelete}
-                                  onCheckedChange={() =>
-                                    setDraft(a.id, { isEnabled: !val.isEnabled }, { isEnabled: a.isEnabled, modules: a.modules })
-                                  }
-                                />
-                              </div>
-                              <div className="w-[28px] flex justify-center">
-                                {editMode && (
-                                  isPendingDelete
-                                    ? <button onClick={() => undoDelete(a.id)} className="text-red-400 hover:text-[#1E3A5F] hover:bg-blue-50 px-1 py-0.5 rounded text-[10px] leading-none transition-colors" title="Буцаах">↩</button>
-                                    : <button onClick={() => askDelete(a.id, a.number, "account")} className="text-[#ccc] hover:text-red-500 hover:bg-red-50 px-1 py-0.5 rounded text-base leading-none transition-colors" title="Устгах">×</button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                  {Object.keys(groupedAccounts).length === 0 && (
-                    <div className="py-10 text-center text-[#aaa] text-sm">
-                      {Object.values(colFilters).some(Boolean) ? "Шүүлтүүрт тохирох данс олдсонгүй" : "Данс байхгүй — стандарт данс нэмэх товч дарна уу"}
-                    </div>
-                  )}
+            {activeTab === 3 ? (
+              s3GridRows.length === 0 ? (
+                <div className="py-10 text-center text-[#aaa] text-sm border border-[#E5E5DE] rounded-md">
+                  Данс байхгүй — стандарт данс нэмэх товч дарна уу
                 </div>
-              </>
-            )}
-
-            {/* ── Other segments ── */}
-            {activeTab !== 3 && (
-              <>
-                <TableHeader activeMods={activeModules} allValuesMap={svAllValues} colFilters={colFilters} onFilter={handleFilter} />
-                <div className="border border-t-0 border-[#E5E5DE] rounded-b-md overflow-hidden">
-                  {currentSegValues.length === 0 ? (
-                    <div className="py-10 text-center text-[#aaa] text-sm">Утга байхгүй — + Утга нэмэх товч дарна уу</div>
-                  ) : filteredSegValues.length === 0 ? (
-                    <div className="py-10 text-center text-[#aaa] text-sm">Шүүлтүүрт тохирох утга олдсонгүй</div>
-                  ) : (
-                    filteredSegValues.map((sv) => {
-                      const val = getVal(sv.id, { isEnabled: sv.isEnabled, modules: sv.modules });
-                      const mods = parseMods(val.modules);
-                      const isDirty = drafts.has(sv.id);
-                      const isPendingDelete = pendingDeletes.has(sv.id);
-                      return (
-                        <div key={sv.id} className={cn("flex items-center px-3 py-2 border-t border-[#F0F0EA]", isPendingDelete ? "bg-red-50/60" : (!val.isEnabled && "opacity-50"), isDirty && !isPendingDelete && "bg-blue-50/40")}>
-                          <span className={cn("font-mono text-xs text-[#555] w-[120px]", isPendingDelete && "line-through text-red-400")}>{sv.code}</span>
-                          <span className={cn("flex-1 text-xs text-[#333]", isPendingDelete && "line-through text-red-400")}>{sv.name}</span>
-                          {activeModules.map((mod) => (
-                            <div key={mod} className="w-[52px] flex justify-center">
-                              <Switch
-                                checked={mods.includes(mod)}
-                                disabled={!editMode || isPendingDelete}
-                                onCheckedChange={() => {
-                                  const next = mods.includes(mod) ? mods.filter((m) => m !== mod) : [...mods, mod];
-                                  setDraft(sv.id, { modules: next.join(",") }, { isEnabled: sv.isEnabled, modules: sv.modules });
-                                }}
-                              />
-                            </div>
-                          ))}
-                          <div className="w-[72px] flex justify-center">
-                            <Switch
-                              checked={val.isEnabled}
-                              disabled={!editMode || isPendingDelete}
-                              onCheckedChange={() =>
-                                setDraft(sv.id, { isEnabled: !val.isEnabled }, { isEnabled: sv.isEnabled, modules: sv.modules })
-                              }
-                            />
-                          </div>
-                          <div className="w-[28px] flex justify-center">
-                            {editMode && (
-                              isPendingDelete
-                                ? <button onClick={() => undoDelete(sv.id)} className="text-red-400 hover:text-[#1E3A5F] hover:bg-blue-50 px-1 py-0.5 rounded text-[10px] leading-none transition-colors" title="Буцаах">↩</button>
-                                : <button onClick={() => askDelete(sv.id, sv.code, "sv")} className="text-[#ccc] hover:text-red-500 hover:bg-red-50 px-1 py-0.5 rounded text-base leading-none transition-colors" title="Устгах">×</button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </>
+              ) : (
+                <EaGridDynamic<AcctGridRow>
+                  rowData={s3GridRows}
+                  columnDefs={columnDefs}
+                  getRowId={(p) => p.data.id}
+                  rowClassRules={rowClassRules}
+                  height={Math.min(720, 48 + s3GridRows.length * 36)}
+                  wrapperClassName="ea-accounts-grid rounded-md border border-[var(--ea-border)] overflow-hidden"
+                  suppressCellFocus
+                />
+              )
+            ) : svGridRows.length === 0 ? (
+              <div className="py-10 text-center text-[#aaa] text-sm border border-[#E5E5DE] rounded-md">
+                Утга байхгүй — + Утга нэмэх товч дарна уу
+              </div>
+            ) : (
+              <EaGridDynamic<AcctGridRow>
+                rowData={svGridRows}
+                columnDefs={columnDefs}
+                getRowId={(p) => p.data.id}
+                rowClassRules={rowClassRules}
+                height={Math.min(720, 48 + svGridRows.length * 36)}
+                wrapperClassName="ea-accounts-grid rounded-md border border-[var(--ea-border)] overflow-hidden"
+                suppressCellFocus
+              />
             )}
           </div>
         )}
@@ -774,26 +846,42 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
         )}
       </div>
 
-      {/* ── Add S3 account modal ──────────────────────────────────────────── */}
       <Dialog open={addOpen} onOpenChange={(o) => !o && handleCloseAdd()}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Данс нэмэх (S3)</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Данс нэмэх (S3)</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Дансны дугаар (8 орон)</Label>
-              <Input placeholder="Жишээ: 51100000" value={addNumber} onChange={(e) => setAddNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddAccount()} autoFocus />
+              <Input
+                placeholder="Жишээ: 51100000"
+                value={addNumber}
+                onChange={(e) => setAddNumber(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddAccount()}
+                autoFocus
+              />
               {addNumber.length > 0 && ACCOUNT_GROUPS[addNumber[0]] && (
-                <p className="text-xs text-[#1E3A5F]">Бүлэг: {addNumber[0]}X — {ACCOUNT_GROUPS[addNumber[0]]}</p>
+                <p className="text-xs text-[#1E3A5F]">
+                  Бүлэг: {addNumber[0]}X — {ACCOUNT_GROUPS[addNumber[0]]}
+                </p>
               )}
             </div>
             <div className="space-y-1.5">
               <Label>Дансны нэр</Label>
-              <Input placeholder="Жишээ: Үйл ажиллагааны орлого" value={addName} onChange={(e) => setAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddAccount()} />
+              <Input
+                placeholder="Жишээ: Үйл ажиллагааны орлого"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddAccount()}
+              />
             </div>
             {addError && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{addError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={handleCloseAdd}>Болих</Button>
+            <Button variant="outline" onClick={handleCloseAdd}>
+              Болих
+            </Button>
             <Button className="bg-[#1E3A5F] hover:bg-[#15294A]" disabled={addSaving} onClick={handleAddAccount}>
               {addSaving ? "Хадгалж байна..." : "Хадгалах"}
             </Button>
@@ -801,29 +889,50 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
         </DialogContent>
       </Dialog>
 
-      {/* ── Add segment value modal (non-S3) ─────────────────────────────── */}
       <Dialog open={svAddOpen} onOpenChange={(o) => !o && closeSvAdd()}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Утга нэмэх — S{activeTab} {activeTabDef?.nameMn}</DialogTitle>
+            <DialogTitle>
+              Утга нэмэх — S{activeTab} {activeTabDef?.nameMn}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Код ({activeTabDef?.length} орон)</Label>
-              <Input placeholder={`Жишээ: ${"1".padEnd(activeTabDef?.length ?? 2, "0")}`} value={svAddCode} onChange={(e) => setSvAddCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSv()} autoFocus />
+              <Input
+                placeholder={`Жишээ: ${"1".padEnd(activeTabDef?.length ?? 2, "0")}`}
+                value={svAddCode}
+                onChange={(e) => setSvAddCode(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddSv()}
+                autoFocus
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Нэр</Label>
-              <Input placeholder="Жишээ: Үндсэн компани" value={svAddName} onChange={(e) => setSvAddName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddSv()} />
+              <Input
+                placeholder="Жишээ: Үндсэн компани"
+                value={svAddName}
+                onChange={(e) => setSvAddName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddSv()}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Модуль</Label>
               <div className="flex flex-wrap gap-2">
                 {ALL_MODULES.map((mod) => (
-                  <button key={mod} type="button"
-                    onClick={() => setSvAddMods((prev) => prev.includes(mod) ? prev.filter((m) => m !== mod) : [...prev, mod])}
-                    className={cn("px-3 py-1.5 rounded border text-xs font-medium transition-colors",
-                      svAddMods.includes(mod) ? "bg-[#1E3A5F] text-white border-[#1E3A5F]" : "bg-white text-[#666] border-[#ddd] hover:border-[#aaa]"
+                  <button
+                    key={mod}
+                    type="button"
+                    onClick={() =>
+                      setSvAddMods((prev) =>
+                        prev.includes(mod) ? prev.filter((m) => m !== mod) : [...prev, mod]
+                      )
+                    }
+                    className={cn(
+                      "px-3 py-1.5 rounded border text-xs font-medium transition-colors",
+                      svAddMods.includes(mod)
+                        ? "bg-[#1E3A5F] text-white border-[#1E3A5F]"
+                        : "bg-white text-[#666] border-[#ddd] hover:border-[#aaa]"
                     )}
                   >
                     {MODULE_LABELS[mod]}
@@ -834,7 +943,9 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
             {svAddError && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{svAddError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeSvAdd}>Болих</Button>
+            <Button variant="outline" onClick={closeSvAdd}>
+              Болих
+            </Button>
             <Button className="bg-[#1E3A5F] hover:bg-[#15294A]" disabled={svSaving} onClick={handleAddSv}>
               {svSaving ? "Хадгалж байна..." : "Хадгалах"}
             </Button>
@@ -842,18 +953,19 @@ export function AccountsTable({ accounts, segmentConfigs, segmentValues, moduleC
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete confirmation dialog ────────────────────────────────────── */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Устгах уу?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-[#333]">
-            <span className="font-mono font-semibold">{deleteTarget?.label}</span>-г устгахаар тэмдэглэнэ.
-            Хадгалах дарсны дараа устгагдана. Болих дарвал буцаж болно.
+            <span className="font-mono font-semibold">{deleteTarget?.label}</span>
+            -г устгахаар тэмдэглэнэ. Хадгалах дарсны дараа устгагдана. Болих дарвал буцаж болно.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Болих</Button>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Болих
+            </Button>
             <Button className="bg-red-500 hover:bg-red-600 text-white" onClick={confirmDelete}>
               Устгах
             </Button>

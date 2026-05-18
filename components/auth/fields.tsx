@@ -147,7 +147,7 @@ export function EAButton({
         border: '1px solid var(--ea-primary)',
       }
     : {
-        background: hover && !disabled ? 'var(--ea-bg-2)' : '#fff',
+        background: hover && !disabled ? 'var(--ea-bg-2)' : 'var(--ea-surface)',
         color: 'var(--ea-text-1)',
         border: '1px solid var(--ea-border-strong)',
       };

@@ -10,6 +10,7 @@ import {
   type BalanceRow,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
+import { ReportGrid, type ReportRow } from "./report-grid";
 
 const EPOCH = "1900-01-01";
 
@@ -41,15 +42,14 @@ const ASSET_GROUPS = [
   { prefix: "2", label: "Эргэлтийн бус хөрөнгө" },
 ];
 
+// Balance sheet is point-in-time at `appliedTo` and ignores `appliedFrom`.
 export function BalanceSheetView({
   vouchers,
   accounts,
   activeSegIds,
   activeSegments,
-  appliedFrom: _appliedFrom,
   appliedTo,
 }: Props) {
-  // Balance sheet uses point-in-time closing through appliedTo.
   const rows = useMemo(
     () => aggregateBalances(vouchers, accounts, activeSegIds, EPOCH, appliedTo),
     [vouchers, accounts, activeSegIds, appliedTo],
@@ -100,212 +100,118 @@ export function BalanceSheetView({
   }, [rows]);
 
   const balanced = isBalanced(data.totalAssets, data.totalLiabAndEquity);
-  const segCount = activeSegments.length;
-  const colCount = segCount + 2; // segments + name + amount
+
+  const reportRows = useMemo<ReportRow[]>(() => {
+    const out: ReportRow[] = [];
+
+    out.push({ id: "sec-assets", kind: "section", label: "ХӨРӨНГӨ" });
+    data.assets.forEach((g, gi) => {
+      out.push({ id: `grp-asset-${gi}`, kind: "group", label: g.label });
+      if (g.items.length === 0) {
+        out.push({ id: `empty-asset-${gi}`, kind: "empty", label: "Өгөгдөл байхгүй" });
+      } else {
+        g.items.forEach((it) =>
+          out.push({
+            id: `det-asset-${it.activeKey}`,
+            kind: "detail",
+            segs: it.segmentParts,
+            name: it.name,
+            amount: it.amount,
+          })
+        );
+      }
+      out.push({
+        id: `sub-asset-${gi}`,
+        kind: "subtotal",
+        label: `${g.label} нийт`,
+        amount: g.subtotal,
+      });
+    });
+    out.push({
+      id: "tot-assets",
+      kind: "total",
+      label: "ХӨРӨНГИЙН НИЙТ",
+      amount: data.totalAssets,
+    });
+
+    out.push({ id: "sec-le", kind: "section", label: "ӨР ТӨЛБӨР БА ЭЗДИЙН ӨМЧ" });
+
+    out.push({ id: "grp-liab", kind: "group", label: data.liabilities.label });
+    if (data.liabilities.items.length === 0) {
+      out.push({ id: "empty-liab", kind: "empty", label: "Өгөгдөл байхгүй" });
+    } else {
+      data.liabilities.items.forEach((it) =>
+        out.push({
+          id: `det-liab-${it.activeKey}`,
+          kind: "detail",
+          segs: it.segmentParts,
+          name: it.name,
+          amount: it.amount,
+        })
+      );
+    }
+    out.push({
+      id: "sub-liab",
+      kind: "subtotal",
+      label: "Өр төлбөрийн нийт",
+      amount: data.liabilities.subtotal,
+    });
+
+    out.push({ id: "grp-equity", kind: "group", label: data.equity.label });
+    if (data.equity.items.length === 0) {
+      out.push({ id: "empty-equity", kind: "empty", label: "Өгөгдөл байхгүй" });
+    } else {
+      data.equity.items.forEach((it) =>
+        out.push({
+          id: `det-equity-${it.activeKey}`,
+          kind: "detail",
+          segs: it.segmentParts,
+          name: it.name,
+          amount: it.amount,
+        })
+      );
+    }
+    out.push({
+      id: "sub-equity-contrib",
+      kind: "subtotal",
+      label: "Эзний оруулсан өмчийн нийт",
+      amount: data.equity.subtotal,
+    });
+    out.push({
+      id: "pnl",
+      kind: "footnote",
+      label: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
+      amount: data.pnl.netIncome,
+      amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",
+    });
+    out.push({
+      id: "sub-equity-total",
+      kind: "subtotal",
+      label: "Эздийн өмчийн нийт",
+      amount: data.totalEquity,
+    });
+    out.push({
+      id: "tot-le",
+      kind: "total",
+      label: "ӨР ТӨЛБӨР БА ӨМЧИЙН НИЙТ",
+      amount: data.totalLiabAndEquity,
+    });
+
+    return out;
+  }, [data]);
 
   return (
     <>
-      <div className="bg-white border border-[#E5E5DE] rounded-md overflow-x-auto text-sm">
-        <table className="w-full">
-          <thead className="bg-[#F4F4EE] text-xs text-[#666] font-medium border-b border-[#E5E5DE]">
-            <tr>
-              {activeSegments.map((s) => (
-                <th
-                  key={s.id}
-                  className="px-3 py-2.5 text-left whitespace-nowrap"
-                  style={{ borderRight: "1px solid var(--ea-border)" }}
-                >
-                  {s.nameMn}
-                </th>
-              ))}
-              <th
-                className="px-3 py-2.5 text-left"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                Үндсэн дансны нэр
-              </th>
-              <th className="px-3 py-2.5 text-right w-[160px]">Дүн</th>
-            </tr>
-          </thead>
-          <tbody>
-            <BigSection label="ХӨРӨНГӨ" colCount={colCount} />
-            {data.assets.map((g) => (
-              <GroupRows
-                key={g.label}
-                group={g}
-                activeSegments={activeSegments}
-                colCount={colCount}
-                subtotalLabel={`${g.label} нийт`}
-              />
-            ))}
-            <TotalRow
-              label="ХӨРӨНГИЙН НИЙТ"
-              value={data.totalAssets}
-              colCount={colCount}
-            />
-
-            <BigSection label="ӨР ТӨЛБӨР БА ЭЗДИЙН ӨМЧ" colCount={colCount} />
-            <GroupRows
-              group={data.liabilities}
-              activeSegments={activeSegments}
-              colCount={colCount}
-              subtotalLabel="Өр төлбөрийн нийт"
-            />
-            <GroupRows
-              group={data.equity}
-              activeSegments={activeSegments}
-              colCount={colCount}
-              subtotalLabel="Эзний оруулсан өмчийн нийт"
-            />
-            <tr className="border-t border-[#F0F0EA]">
-              <td
-                colSpan={colCount - 1}
-                className="px-3 py-2 pl-6 italic text-[#6B6B63]"
-              >
-                Тайлант үеийн цэвэр {data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}
-              </td>
-              <td
-                className={`px-3 py-2 text-right tabular-nums ${data.pnl.netIncome >= 0 ? "text-[#047857]" : "text-[#B91C1C]"}`}
-              >
-                {fmt(data.pnl.netIncome)}
-              </td>
-            </tr>
-            <tr className="border-t border-[#D4D4CB] bg-[#FAFAF5]">
-              <td
-                colSpan={colCount - 1}
-                className="px-3 py-2 pl-6 font-medium text-[#1A1A19]"
-              >
-                Эздийн өмчийн нийт
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#1A1A19]">
-                {fmt(data.totalEquity)}
-              </td>
-            </tr>
-            <TotalRow
-              label="ӨР ТӨЛБӨР БА ӨМЧИЙН НИЙТ"
-              value={data.totalLiabAndEquity}
-              colCount={colCount}
-            />
-          </tbody>
-        </table>
-      </div>
+      <ReportGrid activeSegments={activeSegments} rows={reportRows} />
 
       <div className="flex items-center justify-end gap-1.5 mt-3 text-xs">
-        <span
-          className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[#059669]" : "bg-[#DC2626]"}`}
-        />
+        <span className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[#059669]" : "bg-[#DC2626]"}`} />
         <span className={`font-medium ${balanced ? "text-[#047857]" : "text-[#B91C1C]"}`}>
           {balanced
             ? "Баланс тэнцсэн"
             : `Зөрүү ${fmt(Math.abs(data.totalAssets - data.totalLiabAndEquity))}`}
         </span>
       </div>
-    </>
-  );
-}
-
-function BigSection({ label, colCount }: { label: string; colCount: number }) {
-  return (
-    <tr className="bg-[#EEF0F4] border-t-2 border-[#1E3A5F]">
-      <td
-        colSpan={colCount}
-        className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#1E3A5F]"
-      >
-        {label}
-      </td>
-    </tr>
-  );
-}
-
-function TotalRow({
-  label,
-  value,
-  colCount,
-}: {
-  label: string;
-  value: number;
-  colCount: number;
-}) {
-  return (
-    <tr className="border-t-2 border-[#1E3A5F] bg-[#F7F8FC]">
-      <td
-        colSpan={colCount - 1}
-        className="px-3 py-2.5 font-semibold text-[#1E3A5F]"
-      >
-        {label}
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-[#1A1A19]">
-        {fmt(value)}
-      </td>
-    </tr>
-  );
-}
-
-function GroupRows({
-  group,
-  activeSegments,
-  colCount,
-  subtotalLabel,
-}: {
-  group: Group;
-  activeSegments: SegmentDef[];
-  colCount: number;
-  subtotalLabel: string;
-}) {
-  return (
-    <>
-      <tr className="bg-[#FAFAF5] border-t border-[#E5E5DE]">
-        <td
-          colSpan={colCount}
-          className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#6B6B63]"
-        >
-          {group.label}
-        </td>
-      </tr>
-      {group.items.length === 0 ? (
-        <tr>
-          <td
-            colSpan={colCount}
-            className="px-3 py-2 pl-8 text-xs italic text-[#aaa]"
-          >
-            Өгөгдөл байхгүй
-          </td>
-        </tr>
-      ) : (
-        group.items.map((r) => (
-          <tr key={r.activeKey} className="border-t border-[#F0F0EA]">
-            {activeSegments.map((s) => (
-              <td
-                key={s.id}
-                className="px-3 py-2 font-mono text-xs text-[#555] whitespace-nowrap"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                {r.segmentParts[s.id] ?? ""}
-              </td>
-            ))}
-            <td
-              className="px-3 py-2 text-[#1A1A19]"
-              style={{ borderRight: "1px solid var(--ea-border)" }}
-            >
-              {r.name || <span className="text-[#aaa]">—</span>}
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums text-[#1A1A19]">
-              {fmt(r.amount)}
-            </td>
-          </tr>
-        ))
-      )}
-      <tr className="border-t border-[#D4D4CB] bg-[#FAFAF5]">
-        <td
-          colSpan={colCount - 1}
-          className="px-3 py-2 pl-6 font-medium text-[#1A1A19]"
-        >
-          {subtotalLabel}
-        </td>
-        <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#1A1A19]">
-          {fmt(group.subtotal)}
-        </td>
-      </tr>
     </>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableHeader,
@@ -21,6 +20,7 @@ import {
 } from "@tanstack/react-table";
 import { deleteVoucher, postVoucher, unpostVoucher } from "@/lib/actions/gl";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const PAGE_SIZE = 15;
 
@@ -34,6 +34,8 @@ interface Props {
   vouchers: JournalVoucherWithLines[];
   accounts: ChartOfAccount[];
   activeSegIds: number[];
+  initialStart?: string;
+  initialEnd?: string;
 }
 
 const columnHelper = createColumnHelper<JournalVoucherWithLines>();
@@ -44,20 +46,19 @@ function SortIndicator({ dir }: { dir: false | "asc" | "desc" }) {
   return <span className="ml-1 text-[#D4D4CB] opacity-60">▲▼</span>;
 }
 
-export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
+export function JournalList({ vouchers, accounts, activeSegIds, initialStart, initialEnd }: Props) {
   const today = new Date();
   const defaultStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
   const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const defaultEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-  const [startDate, setStartDate] = useState(defaultStart);
-  const [endDate, setEndDate] = useState(defaultEnd);
-  const [appliedStart, setAppliedStart] = useState(defaultStart);
-  const [appliedEnd, setAppliedEnd] = useState(defaultEnd);
+  const appliedStart = initialStart ?? defaultStart;
+  const appliedEnd = initialEnd ?? defaultEnd;
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [sorting, setSorting] = useState<SortingState>([
     { id: "date", desc: true },
   ]);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   function AccountCell({ code }: { code: string }) {
     const parts = code.split(".");
@@ -74,7 +75,13 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
   async function handleDelete(id: string) {
     console.log("[handleDelete] click", id);
-    if (!confirm("Энэ бичилтийг устгах уу?")) return;
+    const ok = await confirm({
+      title: "Бичилтийг устгах уу?",
+      description: "Энэ үйлдлийг буцаах боломжгүй.",
+      confirmText: "Устгах",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const r = await deleteVoucher(id);
       console.log("[handleDelete] result", r);
@@ -86,7 +93,12 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
   async function handlePost(id: string) {
     console.log("[handlePost] click", id);
-    if (!confirm("Энэ ноорогийг батлах уу?")) return;
+    const ok = await confirm({
+      title: "Ноорогийг батлах уу?",
+      description: "Батласны дараа засах бол ноорог руу буцаах хэрэгтэй.",
+      confirmText: "Батлах",
+    });
+    if (!ok) return;
     try {
       const r = await postVoucher(id);
       console.log("[handlePost] result", r);
@@ -98,7 +110,12 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
   async function handleUnpost(id: string) {
     console.log("[handleUnpost] click", id);
-    if (!confirm("Энэ батлагдсан журналыг ноорог болгож буцаах уу?")) return;
+    const ok = await confirm({
+      title: "Ноорог руу буцаах уу?",
+      description: "Батлагдсан журналыг ноорог төлөвт буцаана.",
+      confirmText: "Буцаах",
+    });
+    if (!ok) return;
     try {
       const r = await unpostVoucher(id);
       console.log("[handleUnpost] result", r);
@@ -115,12 +132,6 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
       "_blank",
       "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
     );
-  }
-
-  function handleSearch() {
-    setAppliedStart(startDate);
-    setAppliedEnd(endDate);
-    table.setPageIndex(0);
   }
 
   const filtered = useMemo(() => {
@@ -178,40 +189,10 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
 
   return (
     <>
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 mb-4">
-        <input
-          type="date"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
-        />
-        <span className="text-xs text-[#9A9A91]">–</span>
-        <input
-          type="date"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          className="h-8 px-2 text-sm border border-[#E5E5DE] rounded-md bg-white text-[#1A1A19] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[#1E3A5F]"
-        />
-        <button
-          onClick={handleSearch}
-          className="h-8 px-3 text-sm font-medium bg-[#1E3A5F] text-white rounded-md hover:bg-[#15294A] transition-colors"
-        >
-          Хайх
-        </button>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-medium text-[#1A1A19]">Журналын жагсаалт</h1>
         <span className="text-xs text-[#9A9A91]">{filtered.length} бичилт</span>
-        <Button
-          className="ml-auto bg-[#1E3A5F] hover:bg-[#15294A] text-white text-sm h-8 px-4 rounded-md"
-          onClick={() =>
-            window.open(
-              "/gl/journal/new",
-              "_blank",
-              "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
-            )
-          }
-        >
-          + Журнал бичих
-        </Button>
       </div>
 
       {/* Table */}
@@ -485,6 +466,7 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
           )}
         </>
       )}
+      {confirmDialog}
     </>
   );
 }

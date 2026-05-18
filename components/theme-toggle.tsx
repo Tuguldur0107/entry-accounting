@@ -15,10 +15,12 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      className="w-8 h-8 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--ea-bg-2)] text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
+      className="w-8 h-8 flex items-center justify-center rounded-md transition-all duration-200 hover:bg-[var(--ea-bg-2)] text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)] border border-transparent hover:border-[var(--ea-border)]"
       title={resolvedTheme === "dark" ? "Цайвар горим" : "Харанхуй горим"}
     >
-      {resolvedTheme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+      {resolvedTheme === "dark"
+        ? <Sun size={16} className="transition-transform" />
+        : <Moon size={16} className="transition-transform" />}
     </button>
   );
 }

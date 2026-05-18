@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { Inter, Fraunces, JetBrains_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
-const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-sans" });
-const fraunces = Fraunces({ subsets: ["latin"], variable: "--ea-font-display" });
-const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--ea-font-mono" });
+const geist = Geist({ subsets: ["latin", "cyrillic"], variable: "--font-geist-sans" });
+const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
+const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: "Entry Accounting",
@@ -18,8 +18,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="mn" className={`h-full ${inter.variable} ${fraunces.variable} ${mono.variable}`} suppressHydrationWarning>
-      <body className="h-full antialiased" style={{ background: 'var(--ea-bg)', color: 'var(--ea-text-1)' }}>
+    <html lang="mn" className={`h-full ${geist.variable} ${fraunces.variable} ${mono.variable}`} suppressHydrationWarning>
+      <body className="h-full font-sans antialiased" style={{ backgroundColor: 'var(--ea-bg)', color: 'var(--ea-text-1)' }}>
         <ThemeProvider>
           {children}
         </ThemeProvider>

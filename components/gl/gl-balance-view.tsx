@@ -1,15 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableFooter,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import {
   aggregateBalances,
@@ -17,6 +8,9 @@ import {
   isBalanced,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
+import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import { moneyValueFormatter } from "@/lib/grid/formatters";
+import type { ColDef, ColGroupDef } from "ag-grid-community";
 
 interface Props {
   vouchers: JournalVoucherWithLines[];
@@ -26,6 +20,25 @@ interface Props {
   appliedFrom: string;
   appliedTo: string;
 }
+
+interface BalanceRowVM {
+  id: string;
+  name: string;
+  segs: Record<number, string>;
+  openDebit: number;
+  openCredit: number;
+  periodDebit: number;
+  periodCredit: number;
+  closeDebit: number;
+  closeCredit: number;
+}
+
+const NUM = {
+  cellClass: "ag-right-aligned-cell font-mono",
+  headerClass: "ag-right-aligned-header",
+  valueFormatter: moneyValueFormatter,
+  width: 120,
+} satisfies Partial<ColDef<BalanceRowVM>>;
 
 export function GlBalanceView({
   vouchers,
@@ -38,6 +51,22 @@ export function GlBalanceView({
   const rows = useMemo(
     () => aggregateBalances(vouchers, accounts, activeSegIds, appliedFrom, appliedTo),
     [vouchers, accounts, activeSegIds, appliedFrom, appliedTo],
+  );
+
+  const rowData: BalanceRowVM[] = useMemo(
+    () =>
+      rows.map((r) => ({
+        id: r.activeKey,
+        name: r.name,
+        segs: r.segmentParts,
+        openDebit: r.totals.openDebit,
+        openCredit: r.totals.openCredit,
+        periodDebit: r.totals.periodDebit,
+        periodCredit: r.totals.periodCredit,
+        closeDebit: r.totals.closeDebit,
+        closeCredit: r.totals.closeCredit,
+      })),
+    [rows],
   );
 
   const totals = rows.reduce(
@@ -63,118 +92,77 @@ export function GlBalanceView({
   const periodBalanced = isBalanced(totals.periodDebit, totals.periodCredit);
   const closeBalanced = isBalanced(totals.closeDebit, totals.closeCredit);
 
-  const segmentColCount = activeSegments.length + 1;
+  const columnDefs = useMemo<(ColDef<BalanceRowVM> | ColGroupDef<BalanceRowVM>)[]>(() => {
+    const segCols: ColDef<BalanceRowVM>[] = activeSegments.map((s) => ({
+      headerName: s.nameMn,
+      colId: `seg-${s.id}`,
+      valueGetter: (p) => p.data?.segs[s.id] ?? "",
+      cellClass: "font-mono",
+      width: 120,
+      sortable: true,
+    }));
+
+    return [
+      ...segCols,
+      {
+        headerName: "Үндсэн дансны нэр",
+        field: "name",
+        flex: 1,
+        minWidth: 220,
+        sortable: true,
+      },
+      {
+        headerName: "Эхний үлдэгдэл",
+        children: [
+          { headerName: "Дебет", field: "openDebit", ...NUM },
+          { headerName: "Кредит", field: "openCredit", ...NUM },
+        ],
+      },
+      {
+        headerName: "Гүйлгээ",
+        children: [
+          { headerName: "Дебет", field: "periodDebit", ...NUM },
+          { headerName: "Кредит", field: "periodCredit", ...NUM },
+        ],
+      },
+      {
+        headerName: "Эцсийн үлдэгдэл",
+        children: [
+          { headerName: "Дебет", field: "closeDebit", ...NUM, cellClass: "ag-right-aligned-cell font-mono font-semibold" },
+          { headerName: "Кредит", field: "closeCredit", ...NUM, cellClass: "ag-right-aligned-cell font-mono font-semibold" },
+        ],
+      },
+    ];
+  }, [activeSegments]);
+
+  const pinnedBottom = useMemo<BalanceRowVM[]>(
+    () => [
+      {
+        id: "__total__",
+        name: "Нийт дүн",
+        segs: {},
+        openDebit: totals.openDebit,
+        openCredit: totals.openCredit,
+        periodDebit: totals.periodDebit,
+        periodCredit: totals.periodCredit,
+        closeDebit: totals.closeDebit,
+        closeCredit: totals.closeCredit,
+      },
+    ],
+    [totals],
+  );
 
   return (
     <>
-      <div className="bg-white border border-[#E5E5DE] rounded-md overflow-x-auto">
-        <Table>
-          <TableHeader className="[&_tr]:border-0">
-            <TableRow className="bg-[#F4F4EE] text-xs text-[#666] font-medium border-b border-[#E5E5DE] hover:bg-[#F4F4EE]">
-              {activeSegments.map((s) => (
-                <TableHead
-                  key={s.id}
-                  rowSpan={2}
-                  className="px-3 py-2.5 text-left whitespace-nowrap"
-                  style={{ borderRight: "1px solid var(--ea-border)" }}
-                >
-                  {s.nameMn}
-                </TableHead>
-              ))}
-              <TableHead
-                rowSpan={2}
-                className="px-3 py-2.5 text-left whitespace-nowrap"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                Үндсэн дансны нэр
-              </TableHead>
-              <TableHead
-                colSpan={2}
-                className="px-3 py-2 text-center border-b border-[#E5E5DE]"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                Эхний үлдэгдэл
-              </TableHead>
-              <TableHead
-                colSpan={2}
-                className="px-3 py-2 text-center border-b border-[#E5E5DE]"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                Гүйлгээ
-              </TableHead>
-              <TableHead colSpan={2} className="px-3 py-2 text-center border-b border-[#E5E5DE]">
-                Эцсийн үлдэгдэл
-              </TableHead>
-            </TableRow>
-            <TableRow className="bg-[#F4F4EE] text-xs text-[#666] font-medium hover:bg-[#F4F4EE]">
-              <TableHead className="px-3 py-2 text-right w-[110px]" style={{ borderRight: "1px solid var(--ea-border)" }}>Дебет</TableHead>
-              <TableHead className="px-3 py-2 text-right w-[110px]" style={{ borderRight: "1px solid var(--ea-border)" }}>Кредит</TableHead>
-              <TableHead className="px-3 py-2 text-right w-[110px]" style={{ borderRight: "1px solid var(--ea-border)" }}>Дебет</TableHead>
-              <TableHead className="px-3 py-2 text-right w-[110px]" style={{ borderRight: "1px solid var(--ea-border)" }}>Кредит</TableHead>
-              <TableHead className="px-3 py-2 text-right w-[110px]" style={{ borderRight: "1px solid var(--ea-border)" }}>Дебет</TableHead>
-              <TableHead className="px-3 py-2 text-right w-[110px]">Кредит</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={segmentColCount + 6}
-                  className="px-4 py-10 text-center text-[#aaa]"
-                >
-                  Өгөгдөл байхгүй
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((r) => (
-                <TableRow
-                  key={r.activeKey}
-                  className="border-t border-[#E8E8E0] hover:bg-[#fafafa]"
-                >
-                  {activeSegments.map((s) => (
-                    <TableCell
-                      key={s.id}
-                      className="px-3 py-2 font-mono text-xs text-[#555] whitespace-nowrap"
-                      style={{ borderRight: "1px solid var(--ea-border)" }}
-                    >
-                      {r.segmentParts[s.id] ?? ""}
-                    </TableCell>
-                  ))}
-                  <TableCell
-                    className="px-3 py-2 text-[#1A1A19]"
-                    style={{ borderRight: "1px solid var(--ea-border)" }}
-                  >
-                    {r.name || <span className="text-[#aaa]">—</span>}
-                  </TableCell>
-                  <TableCell className="px-3 py-2 text-right tabular-nums" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(r.totals.openDebit)}</TableCell>
-                  <TableCell className="px-3 py-2 text-right tabular-nums" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(r.totals.openCredit)}</TableCell>
-                  <TableCell className="px-3 py-2 text-right tabular-nums" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(r.totals.periodDebit)}</TableCell>
-                  <TableCell className="px-3 py-2 text-right tabular-nums" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(r.totals.periodCredit)}</TableCell>
-                  <TableCell className="px-3 py-2 text-right tabular-nums font-medium" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(r.totals.closeDebit)}</TableCell>
-                  <TableCell className="px-3 py-2 text-right tabular-nums font-medium">{fmt(r.totals.closeCredit)}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-          <TableFooter style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
-            <TableRow style={{ borderTop: "2px solid var(--ea-border-strong)", background: "var(--ea-bg-2)" }}>
-              <TableCell
-                colSpan={segmentColCount}
-                className="px-3 py-2.5 text-sm font-semibold text-[#1E3A5F]"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                Нийт дүн
-              </TableCell>
-              <TableCell className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(totals.openDebit)}</TableCell>
-              <TableCell className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(totals.openCredit)}</TableCell>
-              <TableCell className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(totals.periodDebit)}</TableCell>
-              <TableCell className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(totals.periodCredit)}</TableCell>
-              <TableCell className="px-3 py-2.5 text-right tabular-nums font-semibold" style={{ borderRight: "1px solid var(--ea-border)" }}>{fmt(totals.closeDebit)}</TableCell>
-              <TableCell className="px-3 py-2.5 text-right tabular-nums font-semibold">{fmt(totals.closeCredit)}</TableCell>
-            </TableRow>
-          </TableFooter>
-        </Table>
-      </div>
+      <EaGridDynamic<BalanceRowVM>
+        rowData={rowData}
+        columnDefs={columnDefs}
+        getRowId={(p) => p.data.id}
+        pinnedBottomRowData={pinnedBottom}
+        height={Math.min(600, 120 + rowData.length * 36 + 48)}
+        overlayNoRowsTemplate='<span style="color:var(--ea-text-4); font-size:12px;">Өгөгдөл байхгүй</span>'
+        wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+      />
 
       <div className="flex items-center justify-end gap-4 mt-3 text-xs">
         <BalanceIndicator

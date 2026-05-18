@@ -5,10 +5,10 @@ import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import {
   aggregateBalances,
   computeNetIncome,
-  fmtMnt as fmt,
   type BalanceRow,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
+import { ReportGrid, type ReportRow } from "./report-grid";
 
 interface Props {
   vouchers: JournalVoucherWithLines[];
@@ -86,188 +86,67 @@ export function IncomeStatementView({
     return { revenueRows, expenseGroups, pnl };
   }, [rows]);
 
-  const segCount = activeSegments.length;
-  const colCount = segCount + 2; // segments + name + amount
+  const reportRows = useMemo<ReportRow[]>(() => {
+    const out: ReportRow[] = [];
 
-  return (
-    <div className="bg-white border border-[#E5E5DE] rounded-md overflow-x-auto text-sm">
-      <table className="w-full">
-        <thead className="bg-[#F4F4EE] text-xs text-[#666] font-medium border-b border-[#E5E5DE]">
-          <tr>
-            {activeSegments.map((s) => (
-              <th
-                key={s.id}
-                className="px-3 py-2.5 text-left whitespace-nowrap"
-                style={{ borderRight: "1px solid var(--ea-border)" }}
-              >
-                {s.nameMn}
-              </th>
-            ))}
-            <th
-              className="px-3 py-2.5 text-left"
-              style={{ borderRight: "1px solid var(--ea-border)" }}
-            >
-              Үндсэн дансны нэр
-            </th>
-            <th className="px-3 py-2.5 text-right w-[160px]">Дүн</th>
-          </tr>
-        </thead>
-        <tbody>
-          <BigSection label="ОРЛОГО" colCount={colCount} />
-          {data.revenueRows.length === 0 ? (
-            <tr>
-              <td colSpan={colCount} className="px-3 py-3 pl-8 italic text-[#aaa]">
-                Орлогын бичилт байхгүй
-              </td>
-            </tr>
-          ) : (
-            data.revenueRows.map((r) => (
-              <Row key={r.activeKey} line={r} activeSegments={activeSegments} />
-            ))
-          )}
-          <SubtotalRow
-            label="Орлогын нийт"
-            value={data.pnl.revenue}
-            colCount={colCount}
-          />
+    out.push({ id: "sec-rev", kind: "section", label: "ОРЛОГО" });
+    if (data.revenueRows.length === 0) {
+      out.push({ id: "empty-rev", kind: "empty", label: "Орлогын бичилт байхгүй" });
+    } else {
+      data.revenueRows.forEach((r) =>
+        out.push({
+          id: `det-rev-${r.activeKey}`,
+          kind: "detail",
+          segs: r.segmentParts,
+          name: r.name,
+          amount: r.amount,
+        })
+      );
+    }
+    out.push({
+      id: "sub-rev",
+      kind: "subtotal",
+      label: "Орлогын нийт",
+      amount: data.pnl.revenue,
+    });
 
-          <BigSection label="ЗАРДАЛ" colCount={colCount} />
-          {data.expenseGroups.map((g) =>
-            g.items.length === 0 ? null : (
-              <ExpenseGroupRows
-                key={g.prefix}
-                group={g}
-                activeSegments={activeSegments}
-                colCount={colCount}
-              />
-            ),
-          )}
-          <SubtotalRow
-            label="Зардлын нийт"
-            value={data.pnl.expense}
-            colCount={colCount}
-          />
+    out.push({ id: "sec-exp", kind: "section", label: "ЗАРДАЛ" });
+    data.expenseGroups.forEach((g, gi) => {
+      if (g.items.length === 0) return;
+      out.push({ id: `grp-exp-${gi}`, kind: "group", label: g.label });
+      g.items.forEach((it) =>
+        out.push({
+          id: `det-exp-${it.activeKey}`,
+          kind: "detail",
+          segs: it.segmentParts,
+          name: it.name,
+          amount: it.amount,
+        })
+      );
+      out.push({
+        id: `sub-exp-${gi}`,
+        kind: "subtotal",
+        label: `${g.label} нийт`,
+        amount: g.subtotal,
+      });
+    });
+    out.push({
+      id: "sub-exp-all",
+      kind: "subtotal",
+      label: "Зардлын нийт",
+      amount: data.pnl.expense,
+    });
 
-          <tr className="border-t-2 border-[#1E3A5F] bg-[#F7F8FC]">
-            <td
-              colSpan={colCount - 1}
-              className="px-3 py-3 font-semibold text-[#1E3A5F]"
-            >
-              ТАЙЛАНТ ҮЕИЙН ЦЭВЭР {data.pnl.netIncome >= 0 ? "АШИГ" : "АЛДАГДАЛ"}
-            </td>
-            <td
-              className={`px-3 py-3 text-right tabular-nums font-semibold ${data.pnl.netIncome >= 0 ? "text-[#047857]" : "text-[#B91C1C]"}`}
-            >
-              {fmt(data.pnl.netIncome)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
+    out.push({
+      id: "tot-ni",
+      kind: "total",
+      label: `ТАЙЛАНТ ҮЕИЙН ЦЭВЭР ${data.pnl.netIncome >= 0 ? "АШИГ" : "АЛДАГДАЛ"}`,
+      amount: data.pnl.netIncome,
+      amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",
+    });
 
-function BigSection({ label, colCount }: { label: string; colCount: number }) {
-  return (
-    <tr className="bg-[#EEF0F4] border-t-2 border-[#1E3A5F]">
-      <td
-        colSpan={colCount}
-        className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-[#1E3A5F]"
-      >
-        {label}
-      </td>
-    </tr>
-  );
-}
+    return out;
+  }, [data]);
 
-function SubtotalRow({
-  label,
-  value,
-  colCount,
-}: {
-  label: string;
-  value: number;
-  colCount: number;
-}) {
-  return (
-    <tr className="border-t border-[#D4D4CB] bg-[#FAFAF5]">
-      <td
-        colSpan={colCount - 1}
-        className="px-3 py-2 pl-6 font-medium text-[#1A1A19]"
-      >
-        {label}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#1A1A19]">
-        {fmt(value)}
-      </td>
-    </tr>
-  );
-}
-
-function Row({
-  line,
-  activeSegments,
-}: {
-  line: Line;
-  activeSegments: SegmentDef[];
-}) {
-  return (
-    <tr className="border-t border-[#F0F0EA]">
-      {activeSegments.map((s) => (
-        <td
-          key={s.id}
-          className="px-3 py-2 pl-3 font-mono text-xs text-[#555] whitespace-nowrap"
-          style={{ borderRight: "1px solid var(--ea-border)" }}
-        >
-          {line.segmentParts[s.id] ?? ""}
-        </td>
-      ))}
-      <td
-        className="px-3 py-2 text-[#1A1A19]"
-        style={{ borderRight: "1px solid var(--ea-border)" }}
-      >
-        {line.name || <span className="text-[#aaa]">—</span>}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums text-[#1A1A19]">
-        {fmt(line.amount)}
-      </td>
-    </tr>
-  );
-}
-
-function ExpenseGroupRows({
-  group,
-  activeSegments,
-  colCount,
-}: {
-  group: ExpenseGroup;
-  activeSegments: SegmentDef[];
-  colCount: number;
-}) {
-  return (
-    <>
-      <tr className="border-t border-[#F0F0EA] bg-[#FAFAF5]">
-        <td
-          colSpan={colCount}
-          className="px-3 py-2 pl-4 text-xs font-medium text-[#6B6B63]"
-        >
-          {group.label}
-        </td>
-      </tr>
-      {group.items.map((r) => (
-        <Row key={r.activeKey} line={r} activeSegments={activeSegments} />
-      ))}
-      <tr className="border-t border-[#E8E8E0]">
-        <td
-          colSpan={colCount - 1}
-          className="px-3 py-2 pl-8 text-xs italic text-[#6B6B63]"
-        >
-          {group.label} нийт
-        </td>
-        <td className="px-3 py-2 text-right tabular-nums text-[#1A1A19] font-medium">
-          {fmt(group.subtotal)}
-        </td>
-      </tr>
-    </>
-  );
+  return <ReportGrid activeSegments={activeSegments} rows={reportRows} />;
 }
