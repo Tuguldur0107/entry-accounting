@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useEffect, useMemo, useImperativeHandle, useRef } from "react";
+import { forwardRef, useMemo, useImperativeHandle, useRef } from "react";
 import { AgGridReact, type AgGridReactProps } from "ag-grid-react";
 import type {
   GridApi,
@@ -10,6 +10,13 @@ import type {
 
 import { ensureGridRegistered } from "./registerGrid";
 import { eaGridTheme } from "./theme";
+
+// Register AG Grid modules SYNCHRONOUSLY at module load — before any
+// <AgGridReact> mounts. `useEffect` would fire after the grid tries to
+// initialize, producing "No AG Grid modules are registered" (#272).
+// This file is "use client" + only imported via EaGridDynamic (ssr:false),
+// so the call runs once on the client per browser session.
+ensureGridRegistered();
 
 export interface EaGridHandle {
   api: GridApi | null;
@@ -37,10 +44,6 @@ function EaGridInner<TData>(
     defaultColDef,
     ...rest
   } = props;
-
-  useEffect(() => {
-    ensureGridRegistered();
-  }, []);
 
   const apiRef = useRef<GridApi | null>(null);
 
