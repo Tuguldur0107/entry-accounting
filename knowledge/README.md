@@ -41,6 +41,7 @@ Accounting_System_Chipmo (Entry) системээс авсан мэргэжли�
 |---------------|---------|
 | `chart-of-accounts.md` | Монгол улсын стандарт дансны төлөвлөгөө |
 | `segment-strategy.md` | 10-сегментийн стратеги: ашиглалт, validation, defaulting, reporting + Segment3 дансны бүрэн жагсаалт (§7.1.1–7.1.2) |
+| `segment-active-inactive-rule.md` | **Заавал мөрдөх стандарт** — идэвхтэй/идэвхгүй сегментийн UI харагдац, DB write (0-padded), DB read ("all" wildcard) дүрэм |
 | `05-event-flows.md` | Cross-module үйл явдлын урсгал |
 | `ui-standards/01-tables.md` | `<StandardTable>` стандарт — Excel-маягийн хүснэгт |
 | `ui-standards/02-search-filters.md` | Хайх/шүүлтүүр: CalendarRange, PeriodSelector, SegmentAccountInput гэх мэт |
