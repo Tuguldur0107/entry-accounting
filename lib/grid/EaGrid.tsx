@@ -90,8 +90,12 @@ function EaGridInner<TData>(
         processDataFromClipboard={handleClipboard}
         animateRows={false}
         suppressDragLeaveHidesColumns
-        cellSelection={{ handle: { mode: "range" } }}
-        enableCellTextSelection={false}
+        // cellSelection is an enterprise-only feature in AG Grid v35.
+        // Default to off; surfaces that need range copy/paste can opt in
+        // (or override once enterprise is licensed). Text selection stays
+        // enabled so users can still highlight + Ctrl+C a single cell.
+        cellSelection={false}
+        enableCellTextSelection
         stopEditingWhenCellsLoseFocus
         singleClickEdit={false}
         suppressClickEdit={false}
