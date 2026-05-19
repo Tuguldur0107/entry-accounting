@@ -68,9 +68,9 @@ export default async function DashboardLayout({
           </div>
         </div>
       </header>
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         <Sidebar />
-        <main className="flex-1 px-6 py-8">{children}</main>
+        <main className="flex-1 flex flex-col min-h-0 px-6 py-8">{children}</main>
       </div>
     </div>
   );

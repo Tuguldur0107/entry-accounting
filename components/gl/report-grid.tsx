@@ -40,24 +40,13 @@ const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
 
 export function ReportGrid({ activeSegments, rows, height }: Props) {
   // Standard: ONE "Данс" column showing the active segments joined with ".".
-  // Width scales with the active segment count + each segment's char length
-  // (mirrors journal-entry-form's accountColWidth formula) so the grid keeps
-  // a consistent look across surfaces and adapts automatically when segments
-  // are toggled on/off.
-  const accountColWidth = useMemo(
-    () =>
-      Math.max(
-        160,
-        activeSegments.reduce((s, def) => s + def.length * 9 + 10, 0)
-      ),
-    [activeSegments]
-  );
-
+  // Column width is handled by AG Grid's `autoSizeStrategy: fitCellContents`
+  // (wired below on EaGridDynamic) so the column hugs the longest visible
+  // value across the active segments.
   const columnDefs = useMemo<ColDef<ReportRow>[]>(() => {
     const accountCol: ColDef<ReportRow> = {
       headerName: "Данс",
       colId: "account",
-      width: accountColWidth,
       cellClass: (p) => {
         const k = p.data?.kind;
         if (k === "section") return "report-section-cell";
@@ -141,7 +130,7 @@ export function ReportGrid({ activeSegments, rows, height }: Props) {
     };
 
     return [accountCol, nameCol, amountCol];
-  }, [activeSegments, accountColWidth]);
+  }, [activeSegments]);
 
   const rowClassRules = useMemo(
     () => ({
@@ -155,19 +144,17 @@ export function ReportGrid({ activeSegments, rows, height }: Props) {
     []
   );
 
-  const computedHeight = useMemo(() => {
-    if (height != null) return height;
-    return Math.min(720, 60 + rows.length * 36);
-  }, [height, rows.length]);
-
+  // Default to filling the parent flex container; callers may still pass a
+  // fixed `height` prop for embedded use-cases (modals, side panels).
   return (
     <EaGridDynamic<ReportRow>
       rowData={rows}
       columnDefs={columnDefs}
       getRowId={(p) => p.data.id}
       rowClassRules={rowClassRules}
-      height={computedHeight}
-      wrapperClassName="ea-report-grid rounded-md border border-[var(--ea-border)] overflow-hidden"
+      height={height ?? "100%"}
+      autoSizeStrategy={{ type: "fitCellContents" }}
+      wrapperClassName="ea-report-grid rounded-md border border-[var(--ea-border)] overflow-hidden h-full"
       suppressCellFocus
       cellSelection={false}
     />

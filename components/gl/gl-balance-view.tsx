@@ -92,23 +92,13 @@ export function GlBalanceView({
   const periodBalanced = isBalanced(totals.periodDebit, totals.periodCredit);
   const closeBalanced = isBalanced(totals.closeDebit, totals.closeCredit);
 
-  // Account column width adapts to active segments — mirrors the formula in
-  // journal-entry-form so display feels consistent across surfaces.
   // Standard: ONE "Данс" column showing the segments joined with ".".
-  const accountColWidth = useMemo(
-    () =>
-      Math.max(
-        160,
-        activeSegments.reduce((s, def) => s + def.length * 9 + 10, 0)
-      ),
-    [activeSegments]
-  );
-
+  // Width is left to AG Grid's `autoSizeStrategy: fitCellContents` (wired on
+  // the EaGrid prop below) so the column hugs the longest visible value.
   const columnDefs = useMemo<(ColDef<BalanceRowVM> | ColGroupDef<BalanceRowVM>)[]>(() => {
     const accountCol: ColDef<BalanceRowVM> = {
       headerName: "Данс",
       colId: "account",
-      width: accountColWidth,
       cellClass: "font-mono text-xs",
       valueGetter: (p) =>
         p.data
@@ -151,7 +141,7 @@ export function GlBalanceView({
         ],
       },
     ];
-  }, [activeSegments, accountColWidth]);
+  }, [activeSegments]);
 
   const pinnedBottom = useMemo<BalanceRowVM[]>(
     () => [
@@ -171,18 +161,21 @@ export function GlBalanceView({
   );
 
   return (
-    <>
-      <EaGridDynamic<BalanceRowVM>
-        rowData={rowData}
-        columnDefs={columnDefs}
-        getRowId={(p) => p.data.id}
-        pinnedBottomRowData={pinnedBottom}
-        height={Math.min(600, 120 + rowData.length * 36 + 48)}
-        overlayNoRowsTemplate='<span style="color:var(--ea-text-4); font-size:12px;">Өгөгдөл байхгүй</span>'
-        wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-      />
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      <div className="flex-1 min-h-0">
+        <EaGridDynamic<BalanceRowVM>
+          rowData={rowData}
+          columnDefs={columnDefs}
+          getRowId={(p) => p.data.id}
+          pinnedBottomRowData={pinnedBottom}
+          height="100%"
+          autoSizeStrategy={{ type: "fitCellContents" }}
+          overlayNoRowsTemplate='<span style="color:var(--ea-text-4); font-size:12px;">Өгөгдөл байхгүй</span>'
+          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden h-full"
+        />
+      </div>
 
-      <div className="flex items-center justify-end gap-4 mt-3 text-xs">
+      <div className="flex items-center justify-end gap-4 text-xs shrink-0">
         <BalanceIndicator
           label="Эхний"
           balanced={openBalanced}
@@ -199,7 +192,7 @@ export function GlBalanceView({
           diff={Math.abs(totals.closeDebit - totals.closeCredit)}
         />
       </div>
-    </>
+    </div>
   );
 }
 

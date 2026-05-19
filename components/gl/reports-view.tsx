@@ -44,8 +44,8 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
   );
 
   return (
-    <>
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
+    <div className="flex-1 flex flex-col gap-4 min-h-0">
+      <div className="flex items-center gap-2 flex-wrap shrink-0">
         <div className="flex items-center gap-1.5">
           <label className="text-xs text-[var(--ea-text-3)] whitespace-nowrap">Эхлэх огноо</label>
           <input
@@ -123,6 +123,6 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
           appliedTo={appliedTo}
         />
       )}
-    </>
+    </div>
   );
 }

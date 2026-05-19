@@ -201,10 +201,12 @@ export function BalanceSheetView({
   }, [data]);
 
   return (
-    <>
-      <ReportGrid activeSegments={activeSegments} rows={reportRows} />
+    <div className="flex flex-col gap-3 flex-1 min-h-0">
+      <div className="flex-1 min-h-0">
+        <ReportGrid activeSegments={activeSegments} rows={reportRows} />
+      </div>
 
-      <div className="flex items-center justify-end gap-1.5 mt-3 text-xs">
+      <div className="flex items-center justify-end gap-1.5 text-xs shrink-0">
         <span className={`w-1.5 h-1.5 rounded-full ${balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"}`} />
         <span className={`font-medium ${balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"}`}>
           {balanced
@@ -212,6 +214,6 @@ export function BalanceSheetView({
             : `Зөрүү ${fmt(Math.abs(data.totalAssets - data.totalLiabAndEquity))}`}
         </span>
       </div>
-    </>
+    </div>
   );
 }
