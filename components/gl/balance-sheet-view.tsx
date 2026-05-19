@@ -242,7 +242,12 @@ export function BalanceSheetView({
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
       <div className="flex-1 min-h-0">
-        <ReportGrid activeSegments={activeSegments} rows={reportRows} hideAccount />
+        <ReportGrid
+          activeSegments={activeSegments}
+          rows={reportRows}
+          hideAccount
+          showLineNumbers
+        />
       </div>
 
       <div className="flex items-center justify-end gap-1.5 text-xs shrink-0">

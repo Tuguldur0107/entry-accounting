@@ -36,6 +36,12 @@ interface Props {
    * column when the account column is hidden.
    */
   hideAccount?: boolean;
+  /**
+   * Prepend a "№" column that auto-numbers detail rows (1, 2, 3, …).
+   * Section / group / subtotal / total / empty / footnote rows leave
+   * the cell blank. Matches the statutory Mongolian SAS report layout.
+   */
+  showLineNumbers?: boolean;
 }
 
 const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
@@ -45,7 +51,27 @@ const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
   "footnote",
 ]);
 
-export function ReportGrid({ activeSegments, rows, height, hideAccount = false }: Props) {
+export function ReportGrid({
+  activeSegments,
+  rows,
+  height,
+  hideAccount = false,
+  showLineNumbers = false,
+}: Props) {
+  // Pre-compute line numbers once so the column's valueGetter is pure.
+  // Only `detail` rows get a number; section / group / subtotal / total /
+  // empty / footnote rows leave the cell blank.
+  const lineNumberMap = useMemo(() => {
+    const map = new Map<string, number>();
+    let counter = 0;
+    for (const r of rows) {
+      if (r.kind === "detail") {
+        counter += 1;
+        map.set(r.id, counter);
+      }
+    }
+    return map;
+  }, [rows]);
   // Standard: ONE "Данс" column showing the active segments joined with ".".
   // Column width is handled by AG Grid's `autoSizeStrategy: fitCellContents`
   // (wired below on EaGridDynamic) so the column hugs the longest visible
@@ -158,8 +184,30 @@ export function ReportGrid({ activeSegments, rows, height, hideAccount = false }
       suppressMovable: true,
     };
 
-    return hideAccount ? [nameCol, amountCol] : [accountCol, nameCol, amountCol];
-  }, [activeSegments, hideAccount]);
+    const lineNumberCol: ColDef<ReportRow> = {
+      headerName: "№",
+      colId: "lineNumber",
+      width: 56,
+      maxWidth: 64,
+      cellClass: (p) => {
+        const cls = labelClass(p);
+        return cls
+          ? `${cls} text-right`
+          : "ag-right-aligned-cell text-xs text-[var(--ea-text-3)] font-mono";
+      },
+      headerClass: "ag-right-aligned-header",
+      valueGetter: (p) => {
+        const r = p.data;
+        if (!r || r.kind !== "detail") return "";
+        return lineNumberMap.get(r.id) ?? "";
+      },
+      sortable: false,
+      suppressMovable: true,
+    };
+
+    const dataCols = hideAccount ? [nameCol, amountCol] : [accountCol, nameCol, amountCol];
+    return showLineNumbers ? [lineNumberCol, ...dataCols] : dataCols;
+  }, [activeSegments, hideAccount, showLineNumbers, lineNumberMap]);
 
   const rowClassRules = useMemo(
     () => ({
