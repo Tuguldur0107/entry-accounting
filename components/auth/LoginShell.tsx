@@ -152,16 +152,16 @@ export function LoginShell({
   return (
     <div style={{ minHeight: '100vh', background: 'var(--ea-bg)', display: 'flex', flexDirection: 'column' }}>
       <header style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '18px 32px', background: 'var(--ea-surface)', borderBottom: '1px solid var(--ea-border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        padding: '18px 20px', background: 'var(--ea-surface)', borderBottom: '1px solid var(--ea-border)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <EAMark size={32} />
           <EAWordmark size={17} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 13 }}>
-          <a href="/support" style={{ color: 'var(--ea-text-2)' }}>{t.support}</a>
-          <a href="/terms"   style={{ color: 'var(--ea-text-2)' }}>{t.terms}</a>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, flexShrink: 0 }}>
+          <a href="/support" className="hidden sm:inline" style={{ color: 'var(--ea-text-2)' }}>{t.support}</a>
+          <a href="/terms"   className="hidden sm:inline" style={{ color: 'var(--ea-text-2)' }}>{t.terms}</a>
           <ThemeToggle />
         </div>
       </header>
