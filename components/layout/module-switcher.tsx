@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Settings, Check, ChevronDown } from "lucide-react";
+import { BookOpen, Settings, Check } from "lucide-react";
 import { MODULES, getActiveModule } from "./modules";
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
@@ -49,27 +49,26 @@ export function ModuleSwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-3 h-9 text-sm rounded-md transition-colors hover:bg-[var(--ea-bg-2)]"
+        className="flex items-center justify-center transition-shadow"
         style={{
-          color: "var(--ea-text-1)",
-          background: open ? "var(--ea-bg-2)" : "transparent",
+          width: 36,
+          height: 36,
+          padding: 0,
+          borderRadius: 8,
+          background: "var(--ea-primary)",
+          color: "#fff",
+          border: "none",
+          cursor: "pointer",
+          boxShadow: open
+            ? "0 0 0 3px color-mix(in srgb, var(--ea-primary) 22%, transparent)"
+            : "none",
         }}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={`Модуль: ${active.label}`}
+        title={active.label}
       >
-        <span style={{ color: "#1E3A5F", display: "flex", alignItems: "center" }}>
-          <ModuleIcon id={active.id} size={16} />
-        </span>
-        <span className="font-medium">{active.label}</span>
-        <ChevronDown
-          size={14}
-          strokeWidth={2}
-          style={{
-            color: "var(--ea-text-3)",
-            transition: "transform 160ms",
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
-          }}
-        />
+        <ModuleIcon id={active.id} size={20} />
       </button>
 
       {open && (
