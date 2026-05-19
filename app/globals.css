@@ -263,7 +263,9 @@
   align-items: center;
 }
 .ea-report-grid .report-row-section {
-  background: #EEF0F4 !important;
+  /* Subtle primary-tinted strip; color-mix follows the primary token in
+     both light and dark modes so we don't need a separate .dark override. */
+  background: color-mix(in srgb, var(--ea-primary) 8%, var(--ea-bg-2)) !important;
   border-top: 2px solid var(--ea-primary) !important;
 }
 .ea-report-grid .report-row-section .ag-cell {
@@ -308,10 +310,6 @@
   color: var(--ea-text-4);
   font-size: 12px;
 }
-.dark .ea-report-grid .report-row-section {
-  background: var(--ea-bg-3) !important;
-}
-
 /* ─── AG Grid accounts-table row styling ──────────────────────────────────── */
 .ea-accounts-grid .ea-acct-header-row {
   background: var(--ea-bg-2) !important;
