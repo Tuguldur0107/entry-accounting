@@ -58,16 +58,37 @@ export function ReportGrid({
   hideAccount = false,
   showLineNumbers = false,
 }: Props) {
-  // Pre-compute line numbers once so the column's valueGetter is pure.
-  // Only `detail` rows get a number; section / group / subtotal / total /
-  // empty / footnote rows leave the cell blank.
+  // Pre-compute hierarchical line numbers once so the column's valueGetter
+  // stays pure. Numbering tracks three nested counters and rebuilds the
+  // dotted string per row:
+  //
+  //   section  →  "1", "2", "3"
+  //   group    →  "1.1", "1.2", "2.1"
+  //   detail   →  "1.1.1", "1.1.2", "1.2.1"
+  //
+  // Subtotal / total / empty / footnote rows leave the cell blank — their
+  // dedicated styling and label are enough to communicate role.
   const lineNumberMap = useMemo(() => {
-    const map = new Map<string, number>();
-    let counter = 0;
+    const map = new Map<string, string>();
+    let section = 0;
+    let group = 0;
+    let detail = 0;
     for (const r of rows) {
-      if (r.kind === "detail") {
-        counter += 1;
-        map.set(r.id, counter);
+      if (r.kind === "section") {
+        section += 1;
+        group = 0;
+        detail = 0;
+        map.set(r.id, `${section}`);
+      } else if (r.kind === "group") {
+        group += 1;
+        detail = 0;
+        map.set(r.id, `${section || 1}.${group}`);
+      } else if (r.kind === "detail") {
+        detail += 1;
+        // Auto-promote into a synthetic group when a section emits details
+        // directly (e.g. no group header between section and detail).
+        const groupPart = group || 1;
+        map.set(r.id, `${section || 1}.${groupPart}.${detail}`);
       }
     }
     return map;
@@ -118,6 +139,22 @@ export function ReportGrid({
       suppressMovable: true,
     };
 
+    // Indentation by depth so the hierarchy is visible at a glance:
+    //   section            →   0px
+    //   group              →  16px
+    //   subtotal / total   →  20px (sit just inside their group)
+    //   detail / footnote  →  32px
+    // Applied via cellStyle on the name column.
+    const indentByKind: Record<ReportRowKind, number> = {
+      section: 0,
+      group: 16,
+      detail: 32,
+      empty: 32,
+      footnote: 32,
+      subtotal: 20,
+      total: 0,
+    };
+
     // When the account column is hidden the name column becomes the leftmost
     // column and inherits responsibility for rendering section / group /
     // subtotal / total / empty / footnote labels (since the account column
@@ -151,6 +188,11 @@ export function ReportGrid({
         const k = p.data?.kind;
         if (k === "detail") return "text-[var(--ea-text-1)]";
         return "";
+      },
+      cellStyle: (p) => {
+        const k = p.data?.kind;
+        if (!k) return null;
+        return { paddingLeft: 12 + indentByKind[k] };
       },
       sortable: false,
       suppressMovable: true,
@@ -187,8 +229,8 @@ export function ReportGrid({
     const lineNumberCol: ColDef<ReportRow> = {
       headerName: "№",
       colId: "lineNumber",
-      width: 56,
-      maxWidth: 64,
+      width: 78,
+      maxWidth: 96,
       cellClass: (p) => {
         const cls = labelClass(p);
         return cls
@@ -198,7 +240,7 @@ export function ReportGrid({
       headerClass: "ag-right-aligned-header",
       valueGetter: (p) => {
         const r = p.data;
-        if (!r || r.kind !== "detail") return "";
+        if (!r) return "";
         return lineNumberMap.get(r.id) ?? "";
       },
       sortable: false,
