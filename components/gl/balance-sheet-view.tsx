@@ -96,6 +96,16 @@ export function BalanceSheetView({
     [vouchers, accounts, appliedTo],
   );
 
+  // ── Per-account closing balances (debit-net) exposed for the mapping
+  //     dialog so users can see each account's contribution.
+  const accountBalances = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      map.set(r.mainAccount, r.totals.closeDebit - r.totals.closeCredit);
+    }
+    return map;
+  }, [rows]);
+
   // ── Aggregate balances per BS line per its account set ────────────────
   const data = useMemo(() => {
     const debitNet = (r: BalanceRow) => r.totals.closeDebit - r.totals.closeCredit;
@@ -284,6 +294,7 @@ export function BalanceSheetView({
           lineLabel={openLine.label}
           initialAccounts={openLineAccounts}
           allAccounts={accounts}
+          accountBalances={accountBalances}
         />
       )}
     </div>
