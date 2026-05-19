@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import type { ColDef, RowClassParams } from "ag-grid-community";
+import type { ColDef, ICellRendererParams, RowClassParams } from "ag-grid-community";
 import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
 import { moneyValueFormatter } from "@/lib/grid/formatters";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
+import { SlidersHorizontal } from "lucide-react";
 
 export type ReportRowKind =
   | "section"
@@ -23,6 +24,13 @@ export interface ReportRow {
   name?: string;
   amount?: number;
   amountSign?: "pos" | "neg" | "auto";
+  /**
+   * If set, this detail row is mappable to a set of GL accounts. The
+   * Mapping column renders an icon button for these rows; clicking it
+   * fires `onMappingClick(lineKey)` so the parent can open its
+   * MappingDialog.
+   */
+  lineKey?: string;
 }
 
 interface Props {
@@ -42,6 +50,12 @@ interface Props {
    * the cell blank. Matches the statutory Mongolian SAS report layout.
    */
   showLineNumbers?: boolean;
+  /**
+   * Append a "Mapping" column with an icon button on each detail row
+   * that carries a `lineKey`. The click fires this callback so the
+   * parent can open its configuration dialog.
+   */
+  onMappingClick?: (lineKey: string) => void;
 }
 
 const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
@@ -57,6 +71,7 @@ export function ReportGrid({
   height,
   hideAccount = false,
   showLineNumbers = false,
+  onMappingClick,
 }: Props) {
   // Pre-compute hierarchical line numbers once so the column's valueGetter
   // stays pure. Numbering tracks three nested counters and rebuilds the
@@ -247,9 +262,40 @@ export function ReportGrid({
       suppressMovable: true,
     };
 
+    const mappingCol: ColDef<ReportRow> = {
+      headerName: "Mapping",
+      colId: "mapping",
+      width: 84,
+      maxWidth: 100,
+      sortable: false,
+      suppressMovable: true,
+      cellClass: "flex items-center justify-center",
+      headerClass: "ag-center-aligned-header",
+      cellRenderer: (p: ICellRendererParams<ReportRow>) => {
+        const r = p.data;
+        if (!r || r.kind !== "detail" || !r.lineKey) return null;
+        const key = r.lineKey;
+        return (
+          <button
+            type="button"
+            onClick={() => onMappingClick?.(key)}
+            className="ea-btn ea-btn--icon ea-btn--primary"
+            title="Дансны mapping тохируулах"
+            aria-label="Дансны mapping тохируулах"
+          >
+            <SlidersHorizontal />
+          </button>
+        );
+      },
+    };
+
     const dataCols = hideAccount ? [nameCol, amountCol] : [accountCol, nameCol, amountCol];
-    return showLineNumbers ? [lineNumberCol, ...dataCols] : dataCols;
-  }, [activeSegments, hideAccount, showLineNumbers, lineNumberMap]);
+    const cols: ColDef<ReportRow>[] = [];
+    if (showLineNumbers) cols.push(lineNumberCol);
+    cols.push(...dataCols);
+    if (onMappingClick) cols.push(mappingCol);
+    return cols;
+  }, [activeSegments, hideAccount, showLineNumbers, lineNumberMap, onMappingClick]);
 
   const rowClassRules = useMemo(
     () => ({

@@ -157,6 +157,31 @@ export const segmentConfigsRelations = relations(segmentConfigs, ({ one }) => ({
   user: one(users, { fields: [segmentConfigs.userId], references: [users.id] }),
 }));
 
+// ─── Report Line Mappings ────────────────────────────────────────────────────
+// Per-user override of which GL accounts roll up into each statutory report
+// line. When no row exists for a (reportType, lineKey) the report falls
+// back to the line's hard-coded default prefixes.
+
+export const reportLineMappings = pgTable(
+  "report_line_mappings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reportType: text("report_type").notNull(), // "balance-sheet" | "income-statement" | "cash-flow"
+    lineKey: text("line_key").notNull(),
+    /** Comma-separated 8-digit chart-of-accounts codes that roll into this line. */
+    accountNumbers: text("account_numbers").notNull().default(""),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [unique().on(t.userId, t.reportType, t.lineKey)]
+);
+
+export const reportLineMappingsRelations = relations(reportLineMappings, ({ one }) => ({
+  user: one(users, { fields: [reportLineMappings.userId], references: [users.id] }),
+}));
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -167,3 +192,4 @@ export type JournalVoucherWithLines = JournalVoucher & { lines: JournalLine[] };
 export type SegmentConfig = typeof segmentConfigs.$inferSelect;
 export type SegmentValue = typeof segmentValues.$inferSelect;
 export type ModuleConfig = typeof moduleConfigs.$inferSelect;
+export type ReportLineMapping = typeof reportLineMappings.$inferSelect;

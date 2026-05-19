@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
+import { useMemo, useState } from "react";
+import type { ChartOfAccount, JournalVoucherWithLines, ReportLineMapping } from "@/lib/db/schema";
 import {
   aggregateBalances,
   computeNetIncome,
@@ -10,7 +10,9 @@ import {
   type BalanceRow,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
+import { BS_LINES, BS_LINE_BY_KEY } from "@/lib/reports/bs-lines";
 import { ReportGrid, type ReportRow } from "./report-grid";
+import { MappingDialog } from "./mapping-dialog";
 
 const EPOCH = "1900-01-01";
 
@@ -21,230 +23,220 @@ interface Props {
   activeSegments: SegmentDef[];
   appliedFrom: string;
   appliedTo: string;
+  mappings: ReportLineMapping[];
 }
 
-interface Line {
-  activeKey: string;
-  segmentParts: Record<number, string>;
-  mainAccount: string;
-  name: string;
-  amount: number;
-}
+// Balance Sheet is an entity-level statement. Aggregate at the main-account
+// (segment 3) level regardless of the user's `activeSegIds` configuration.
+// Per-segment workpaper detail belongs in Trial Balance.
+const BALANCE_SHEET_KEY: number[] = [3];
 
-interface Group {
+interface LineComputed {
+  key: string;
   label: string;
-  items: Line[];
+  amount: number;
+  accountNumbers: string[]; // accounts that contributed to this amount
+}
+
+interface GroupComputed {
+  groupId: string;
+  groupLabel: string;
+  lines: LineComputed[];
   subtotal: number;
 }
 
-// ─── IAS 1 / Mongolian SAS Balance Sheet structure ─────────────────────────
-// Assets       — current (1XX) and non-current (2XX)
-// Liabilities  — current (31*, 32*) and non-current (33*)  ← IAS 1 §60
-// Equity       — paid-in capital (41), OCI reserves (42, 43),
-//                retained earnings (44), plus the current-period P/L
-//                computed off revenue / expense accounts.
-// Empty sub-groups are omitted to keep the statement compact.
-
-const ASSET_GROUPS: { prefixes: string[]; label: string }[] = [
-  { prefixes: ["1"], label: "Эргэлтийн хөрөнгө" },
-  { prefixes: ["2"], label: "Эргэлтийн бус хөрөнгө" },
-];
-
-const LIABILITY_GROUPS: { prefixes: string[]; label: string }[] = [
-  { prefixes: ["31", "32"], label: "Богино хугацаат өр төлбөр" },
-  { prefixes: ["33"], label: "Урт хугацаат өр төлбөр" },
-];
-
-const EQUITY_GROUPS: { prefixes: string[]; label: string }[] = [
-  { prefixes: ["41"], label: "Эздийн оруулсан өмч" },
-  { prefixes: ["42", "43"], label: "Нөөц (OCI)" },
-  { prefixes: ["44"], label: "Хуримтлагдсан ашиг" },
-];
-
-function matchesAnyPrefix(mainAccount: string, prefixes: string[]): boolean {
-  return prefixes.some((p) => mainAccount.startsWith(p));
+interface SectionComputed {
+  sectionId: "assets" | "liabilities" | "equity";
+  sectionLabel: string;
+  groups: GroupComputed[];
+  total: number;
 }
 
-// Balance sheet is point-in-time at `appliedTo` and ignores `appliedFrom`.
-//
-// IMPORTANT: Balance Sheet is an *entity-level* statement of financial
-// position — it does NOT show segment-level detail. Cost centre / period /
-// product / module differences must collapse onto the main account.
-// Aggregation key is forced to `[3]` (the Main Account segment) regardless
-// of the user's `activeSegIds`, so a single voucher line for "Харилцах
-// данс" posted under two cost centres shows as one balance row, not two.
-//
-// Trial Balance (Гүйлгээ баланс) keeps the per-segment breakdown — that's
-// the workpaper-level view. Income Statement and Cash Flow are also
-// entity-level and should follow this same pattern.
-const BALANCE_SHEET_KEY: number[] = [3];
+// Resolve which account numbers contribute to a given line: user mapping
+// wins when set; otherwise fall back to the line's default prefixes.
+function resolveLineAccounts(
+  lineKey: string,
+  mappings: Map<string, string[]>,
+  allAccounts: ChartOfAccount[]
+): string[] {
+  const override = mappings.get(lineKey);
+  if (override !== undefined) return override;
+  const line = BS_LINE_BY_KEY[lineKey];
+  if (!line) return [];
+  return allAccounts
+    .filter((a) => line.defaultPrefixes.some((p) => a.number.startsWith(p)))
+    .map((a) => a.number);
+}
 
 export function BalanceSheetView({
   vouchers,
   accounts,
   activeSegments,
   appliedTo,
+  mappings,
 }: Props) {
+  // ── Mappings ──────────────────────────────────────────────────────────
+  const mappingMap = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const row of mappings) {
+      m.set(
+        row.lineKey,
+        row.accountNumbers
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      );
+    }
+    return m;
+  }, [mappings]);
+
+  // ── Raw balances at main-account level ────────────────────────────────
   const rows = useMemo(
     () => aggregateBalances(vouchers, accounts, BALANCE_SHEET_KEY, EPOCH, appliedTo),
     [vouchers, accounts, appliedTo],
   );
 
+  // ── Aggregate balances per BS line per its account set ────────────────
   const data = useMemo(() => {
-    // Sign convention: assets carry a debit balance, liabilities + equity a
-    // credit balance. Each helper net-zeros the other side per row before
-    // dropping zero rows.
     const debitNet = (r: BalanceRow) => r.totals.closeDebit - r.totals.closeCredit;
     const creditNet = (r: BalanceRow) => r.totals.closeCredit - r.totals.closeDebit;
+    const byMainAccount = new Map<string, BalanceRow>();
+    for (const r of rows) byMainAccount.set(r.mainAccount, r);
 
-    const collect = (
-      prefixes: string[],
-      signed: (r: BalanceRow) => number
-    ): Line[] =>
-      rows
-        .filter((r) => matchesAnyPrefix(r.mainAccount, prefixes))
-        .map((r) => ({
-          activeKey: r.activeKey,
-          segmentParts: r.segmentParts,
-          mainAccount: r.mainAccount,
-          name: r.name,
-          amount: signed(r),
-        }))
-        .filter((r) => Math.abs(r.amount) > 0.005)
-        .sort((a, b) => a.mainAccount.localeCompare(b.mainAccount));
-
-    const buildAssetGroup = (def: typeof ASSET_GROUPS[number]): Group => {
-      const items = collect(def.prefixes, debitNet);
-      return {
-        label: def.label,
-        items,
-        subtotal: items.reduce((s, i) => s + i.amount, 0),
-      };
-    };
-    const buildCreditGroup = (
-      def: typeof LIABILITY_GROUPS[number]
-    ): Group => {
-      const items = collect(def.prefixes, creditNet);
-      return {
-        label: def.label,
-        items,
-        subtotal: items.reduce((s, i) => s + i.amount, 0),
-      };
+    const computeLine = (lineKey: string): LineComputed => {
+      const line = BS_LINE_BY_KEY[lineKey];
+      const accountNumbers = resolveLineAccounts(lineKey, mappingMap, accounts);
+      let amount = 0;
+      for (const code of accountNumbers) {
+        const r = byMainAccount.get(code);
+        if (!r) continue;
+        amount += line.sign === "debit" ? debitNet(r) : creditNet(r);
+      }
+      return { key: lineKey, label: line.label, amount, accountNumbers };
     };
 
-    const assets = ASSET_GROUPS.map(buildAssetGroup);
-    const totalAssets = assets.reduce((s, g) => s + g.subtotal, 0);
+    const groupBy = (section: "assets" | "liabilities" | "equity") => {
+      const groups = new Map<string, GroupComputed>();
+      for (const line of BS_LINES.filter((l) => l.section === section)) {
+        if (!groups.has(line.group)) {
+          groups.set(line.group, {
+            groupId: line.group,
+            groupLabel: line.groupLabel,
+            lines: [],
+            subtotal: 0,
+          });
+        }
+        const computed = computeLine(line.key);
+        const g = groups.get(line.group)!;
+        g.lines.push(computed);
+        g.subtotal += computed.amount;
+      }
+      return [...groups.values()];
+    };
 
-    const liabilities = LIABILITY_GROUPS.map(buildCreditGroup);
-    const totalLiabilities = liabilities.reduce((s, g) => s + g.subtotal, 0);
+    const assetsGroups = groupBy("assets");
+    const totalAssets = assetsGroups.reduce((s, g) => s + g.subtotal, 0);
 
-    const equityContrib = EQUITY_GROUPS.map(buildCreditGroup);
-    const totalEquityContrib = equityContrib.reduce((s, g) => s + g.subtotal, 0);
+    const liabGroups = groupBy("liabilities");
+    const totalLiabilities = liabGroups.reduce((s, g) => s + g.subtotal, 0);
+
+    const equityGroups = groupBy("equity");
+    const totalEquityContrib = equityGroups.reduce((s, g) => s + g.subtotal, 0);
 
     const pnl = computeNetIncome(rows);
     const totalEquity = totalEquityContrib + pnl.netIncome;
     const totalLiabAndEquity = totalLiabilities + totalEquity;
 
     return {
-      assets,
-      totalAssets,
-      liabilities,
-      totalLiabilities,
-      equityContrib,
-      totalEquityContrib,
+      assets: { sectionId: "assets" as const, sectionLabel: "ХӨРӨНГӨ", groups: assetsGroups, total: totalAssets },
+      liabilities: { sectionId: "liabilities" as const, sectionLabel: "ӨР ТӨЛБӨР", groups: liabGroups, total: totalLiabilities },
+      equity: { sectionId: "equity" as const, sectionLabel: "ЭЗДИЙН ӨМЧ", groups: equityGroups, total: totalEquity },
       pnl,
+      totalAssets,
+      totalLiabilities,
       totalEquity,
       totalLiabAndEquity,
     };
-  }, [rows]);
+  }, [rows, accounts, mappingMap]);
 
   const balanced = isBalanced(data.totalAssets, data.totalLiabAndEquity);
 
+  // ── Build the flat ReportRow[] ────────────────────────────────────────
   const reportRows = useMemo<ReportRow[]>(() => {
     const out: ReportRow[] = [];
-
-    // Helper: emit a group only if it has items. Empty sub-groups are
-    // skipped so the statement doesn't get cluttered with placeholders.
-    const emitGroup = (g: Group, idPrefix: string) => {
-      if (g.items.length === 0) return;
-      out.push({ id: `grp-${idPrefix}`, kind: "group", label: g.label });
-      g.items.forEach((it) =>
-        out.push({
-          id: `det-${idPrefix}-${it.activeKey}`,
-          kind: "detail",
-          segs: it.segmentParts,
-          name: it.name,
-          amount: it.amount,
-        })
-      );
-      out.push({
-        id: `sub-${idPrefix}`,
-        kind: "subtotal",
-        label: `${g.label} нийт`,
-        amount: g.subtotal,
-      });
+    const emitSection = (sec: SectionComputed, totalLabel: string) => {
+      out.push({ id: `sec-${sec.sectionId}`, kind: "section", label: sec.sectionLabel });
+      // Hide groups that contain zero amounts entirely — keeps the
+      // statement compact for a young ledger.
+      const visibleGroups = sec.groups.filter((g) => g.subtotal !== 0 || g.lines.some((l) => l.amount !== 0));
+      if (visibleGroups.length === 0) {
+        out.push({ id: `empty-${sec.sectionId}`, kind: "empty", label: "Өгөгдөл байхгүй" });
+      } else {
+        for (const g of visibleGroups) {
+          out.push({ id: `grp-${sec.sectionId}-${g.groupId}`, kind: "group", label: g.groupLabel });
+          for (const line of g.lines) {
+            // Skip zero lines unless they have an explicit user override
+            // (so a user-pinned line stays visible even when its current
+            // amount is zero).
+            if (line.amount === 0 && !mappingMap.has(line.key)) continue;
+            out.push({
+              id: `det-${line.key}`,
+              kind: "detail",
+              name: line.label,
+              amount: line.amount,
+              lineKey: line.key,
+            });
+          }
+          out.push({
+            id: `sub-${sec.sectionId}-${g.groupId}`,
+            kind: "subtotal",
+            label: `${g.groupLabel} нийт`,
+            amount: g.subtotal,
+          });
+        }
+      }
+      out.push({ id: `tot-${sec.sectionId}`, kind: "total", label: totalLabel, amount: sec.total });
     };
 
-    // ── ASSETS ────────────────────────────────────────────────────────────
-    out.push({ id: "sec-assets", kind: "section", label: "ХӨРӨНГӨ" });
-    if (data.assets.every((g) => g.items.length === 0)) {
-      out.push({ id: "empty-assets", kind: "empty", label: "Өгөгдөл байхгүй" });
-    } else {
-      data.assets.forEach((g, gi) => emitGroup(g, `asset-${gi}`));
-    }
-    out.push({
-      id: "tot-assets",
-      kind: "total",
-      label: "НИЙТ ХӨРӨНГӨ",
-      amount: data.totalAssets,
-    });
+    emitSection(data.assets, "НИЙТ ХӨРӨНГӨ");
 
-    // ── LIABILITIES ──────────────────────────────────────────────────────
-    // Separate section so the numbering tree becomes
-    //   1. Хөрөнгө   2. Өр төлбөр   3. Эздийн өмч
-    // which matches the СБОУС report form.
-    out.push({ id: "sec-liab", kind: "section", label: "ӨР ТӨЛБӨР" });
-    if (data.liabilities.every((g) => g.items.length === 0)) {
-      out.push({ id: "empty-liab", kind: "empty", label: "Өгөгдөл байхгүй" });
-    } else {
-      data.liabilities.forEach((g, gi) => emitGroup(g, `liab-${gi}`));
-    }
-    out.push({
-      id: "tot-liab",
-      kind: "total",
-      label: "ӨР ТӨЛБӨРИЙН НИЙТ",
-      amount: data.totalLiabilities,
-    });
+    // Liabilities + Equity share a combined grand total at the bottom.
+    emitSection(data.liabilities, "ӨР ТӨЛБӨРИЙН НИЙТ");
 
-    // ── EQUITY ────────────────────────────────────────────────────────────
-    out.push({ id: "sec-equity", kind: "section", label: "ЭЗДИЙН ӨМЧ" });
-    if (
-      data.equityContrib.every((g) => g.items.length === 0) &&
-      data.pnl.netIncome === 0
-    ) {
+    // Equity section is built like the others, then we append the
+    // computed period P/L as an additional detail line.
+    out.push({ id: "sec-equity", kind: "section", label: data.equity.sectionLabel });
+    const equityHasContent =
+      data.equity.groups.some((g) => g.subtotal !== 0 || g.lines.some((l) => l.amount !== 0)) ||
+      data.pnl.netIncome !== 0;
+    if (!equityHasContent) {
       out.push({ id: "empty-equity", kind: "empty", label: "Өгөгдөл байхгүй" });
     } else {
-      data.equityContrib.forEach((g, gi) => emitGroup(g, `eq-${gi}`));
-      // P&L for the period is a regular equity line per IAS 1 §54(r), so
-      // it gets a hierarchical line number just like the rest of equity.
-      // Rendered as `kind: "detail"` (uses `name`, not `label`) so the
-      // ReportGrid line-number counter picks it up.
+      for (const g of data.equity.groups) {
+        const visible = g.lines.some((l) => l.amount !== 0 || mappingMap.has(l.key));
+        if (!visible && g.subtotal === 0) continue;
+        out.push({ id: `grp-equity-${g.groupId}`, kind: "group", label: g.groupLabel });
+        for (const line of g.lines) {
+          if (line.amount === 0 && !mappingMap.has(line.key)) continue;
+          out.push({
+            id: `det-${line.key}`,
+            kind: "detail",
+            name: line.label,
+            amount: line.amount,
+            lineKey: line.key,
+          });
+        }
+      }
       out.push({
-        id: "pnl",
+        id: "det-current-period-pnl",
         kind: "detail",
         name: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
         amount: data.pnl.netIncome,
         amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",
       });
     }
-    out.push({
-      id: "tot-equity",
-      kind: "total",
-      label: "ЭЗДИЙН ӨМЧИЙН НИЙТ",
-      amount: data.totalEquity,
-    });
+    out.push({ id: "tot-equity", kind: "total", label: "ЭЗДИЙН ӨМЧИЙН НИЙТ", amount: data.totalEquity });
 
-    // ── GRAND TOTAL ───────────────────────────────────────────────────────
     out.push({
       id: "tot-le",
       kind: "total",
@@ -253,7 +245,14 @@ export function BalanceSheetView({
     });
 
     return out;
-  }, [data]);
+  }, [data, mappingMap]);
+
+  // ── Mapping dialog state ──────────────────────────────────────────────
+  const [openLineKey, setOpenLineKey] = useState<string | null>(null);
+  const openLine = openLineKey ? BS_LINE_BY_KEY[openLineKey] : null;
+  const openLineAccounts = openLineKey
+    ? resolveLineAccounts(openLineKey, mappingMap, accounts)
+    : [];
 
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
@@ -263,6 +262,7 @@ export function BalanceSheetView({
           rows={reportRows}
           hideAccount
           showLineNumbers
+          onMappingClick={(key) => setOpenLineKey(key)}
         />
       </div>
 
@@ -274,6 +274,18 @@ export function BalanceSheetView({
             : `Зөрүү ${fmt(Math.abs(data.totalAssets - data.totalLiabAndEquity))}`}
         </span>
       </div>
+
+      {openLine && (
+        <MappingDialog
+          open={!!openLineKey}
+          onClose={() => setOpenLineKey(null)}
+          reportType="balance-sheet"
+          lineKey={openLine.key}
+          lineLabel={openLine.label}
+          initialAccounts={openLineAccounts}
+          allAccounts={accounts}
+        />
+      )}
     </div>
   );
 }

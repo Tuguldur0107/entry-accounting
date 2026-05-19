@@ -1,5 +1,10 @@
 import { db } from "@/lib/db";
-import { journalVouchers, chartOfAccounts, segmentConfigs } from "@/lib/db/schema";
+import {
+  journalVouchers,
+  chartOfAccounts,
+  segmentConfigs,
+  reportLineMappings,
+} from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { eq, and, inArray } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
@@ -16,7 +21,7 @@ export default async function ReportsPage({
   const userId = session!.user!.id!;
   const { start, end, report } = await searchParams;
 
-  const [vouchers, accounts, rawSegConfigs] = await Promise.all([
+  const [vouchers, accounts, rawSegConfigs, balanceSheetMappings] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
         eq(journalVouchers.userId, userId),
@@ -28,6 +33,12 @@ export default async function ReportsPage({
       where: eq(chartOfAccounts.userId, userId),
     }),
     db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.reportLineMappings.findMany({
+      where: and(
+        eq(reportLineMappings.userId, userId),
+        eq(reportLineMappings.reportType, "balance-sheet")
+      ),
+    }),
   ]);
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
@@ -43,6 +54,7 @@ export default async function ReportsPage({
       initialStart={start}
       initialEnd={end}
       initialReport={report}
+      balanceSheetMappings={balanceSheetMappings}
     />
   );
 }

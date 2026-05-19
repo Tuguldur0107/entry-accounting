@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
+import type { ChartOfAccount, JournalVoucherWithLines, ReportLineMapping } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { GlBalanceView } from "@/components/gl/gl-balance-view";
 import { BalanceSheetView } from "@/components/gl/balance-sheet-view";
@@ -34,6 +34,8 @@ interface Props {
   initialStart?: string;
   initialEnd?: string;
   initialReport?: string;
+  /** Per-line GL-account overrides loaded from `report_line_mappings`. */
+  balanceSheetMappings: ReportLineMapping[];
 }
 
 // All toolbar controls live in the dashboard header:
@@ -48,6 +50,7 @@ export function ReportsView({
   initialStart,
   initialEnd,
   initialReport,
+  balanceSheetMappings,
 }: Props) {
   const defaults = defaultMonthRange();
   const appliedFrom = initialStart ?? defaults.start;
@@ -82,6 +85,7 @@ export function ReportsView({
           activeSegments={activeSegments}
           appliedFrom={appliedFrom}
           appliedTo={appliedTo}
+          mappings={balanceSheetMappings}
         />
       )}
       {reportType === "income-statement" && (
