@@ -199,12 +199,14 @@ export function BalanceSheetView({
     };
 
     emitSection(data.assets, "НИЙТ ХӨРӨНГӨ");
-
-    // Liabilities + Equity share a combined grand total at the bottom.
     emitSection(data.liabilities, "ӨР ТӨЛБӨРИЙН НИЙТ");
 
-    // Equity section is built like the others, then we append the
-    // computed period P/L as an additional detail line.
+    // Equity is flat — items appear directly under the section header
+    // (no intermediate group row) since SAS lists them at "group level"
+    // (3.1, 3.2, 3.3, 3.4). Period P/L is a regular detail line but
+    // intentionally omits `lineKey` so the Mapping column has nothing
+    // to click — the P/L is computed off the 5/6/7/8 accounts, not a
+    // user-mapped roll-up.
     out.push({ id: "sec-equity", kind: "section", label: data.equity.sectionLabel });
     const equityHasContent =
       data.equity.groups.some((g) => g.subtotal !== 0 || g.lines.some((l) => l.amount !== 0)) ||
@@ -213,9 +215,6 @@ export function BalanceSheetView({
       out.push({ id: "empty-equity", kind: "empty", label: "Өгөгдөл байхгүй" });
     } else {
       for (const g of data.equity.groups) {
-        const visible = g.lines.some((l) => l.amount !== 0 || mappingMap.has(l.key));
-        if (!visible && g.subtotal === 0) continue;
-        out.push({ id: `grp-equity-${g.groupId}`, kind: "group", label: g.groupLabel });
         for (const line of g.lines) {
           if (line.amount === 0 && !mappingMap.has(line.key)) continue;
           out.push({
@@ -230,6 +229,7 @@ export function BalanceSheetView({
       out.push({
         id: "det-current-period-pnl",
         kind: "detail",
+        // No `lineKey` — this line is computed, not mappable.
         name: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
         amount: data.pnl.netIncome,
         amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",

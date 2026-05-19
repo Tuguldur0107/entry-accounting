@@ -120,7 +120,10 @@ export const BS_LINES: readonly BsLine[] = [
     group: "current-liabilities",
     groupLabel: "Богино хугацаат өр төлбөр",
     label: "Дансны өглөг",
-    defaultPrefixes: ["31000", "31100", "31200", "31300"],
+    // Explicit AP codes — using a bare "31000" prefix would also catch
+    // 31000003 which belongs to the tax-payable line. Listing the
+    // specific codes avoids the double-count.
+    defaultPrefixes: ["31000001", "31000099"],
     sign: "credit",
   },
   {
@@ -185,7 +188,7 @@ export const BS_LINES: readonly BsLine[] = [
     key: "share-capital",
     section: "equity",
     group: "equity",
-    groupLabel: "Эзэдийн өмч",
+    groupLabel: "Эздийн өмч",
     label: "Эздийн оруулсан өмч",
     defaultPrefixes: ["41"],
     sign: "credit",
@@ -194,7 +197,7 @@ export const BS_LINES: readonly BsLine[] = [
     key: "revaluation-reserve",
     section: "equity",
     group: "equity",
-    groupLabel: "Эзэдийн өмч",
+    groupLabel: "Эздийн өмч",
     label: "Дахин үнэлгээний нэмэгдэл (OCI)",
     defaultPrefixes: ["42"],
     sign: "credit",
@@ -203,7 +206,7 @@ export const BS_LINES: readonly BsLine[] = [
     key: "fx-translation-reserve",
     section: "equity",
     group: "equity",
-    groupLabel: "Эзэдийн өмч",
+    groupLabel: "Эздийн өмч",
     label: "Гадаад валютын хөрвүүлэлтийн нөөц (OCI)",
     defaultPrefixes: ["43"],
     sign: "credit",
@@ -212,7 +215,7 @@ export const BS_LINES: readonly BsLine[] = [
     key: "retained-earnings",
     section: "equity",
     group: "equity",
-    groupLabel: "Эзэдийн өмч",
+    groupLabel: "Эздийн өмч",
     label: "Хуримтлагдсан ашиг",
     defaultPrefixes: ["44"],
     sign: "credit",
