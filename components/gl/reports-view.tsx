@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useMemo } from "react";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { GlBalanceView } from "@/components/gl/gl-balance-view";
@@ -21,13 +20,12 @@ function defaultMonthRange() {
 }
 
 type ReportType = "gl-balance" | "balance-sheet" | "income-statement" | "cash-flow";
-
-const REPORT_OPTIONS: { value: ReportType; label: string }[] = [
-  { value: "gl-balance", label: "Гүйлгээ баланс" },
-  { value: "balance-sheet", label: "Баланс" },
-  { value: "income-statement", label: "Орлогын тайлан" },
-  { value: "cash-flow", label: "Мөнгөн гүйлгээний тайлан" },
-];
+const VALID_REPORTS = new Set<ReportType>([
+  "gl-balance",
+  "balance-sheet",
+  "income-statement",
+  "cash-flow",
+]);
 
 interface Props {
   vouchers: JournalVoucherWithLines[];
@@ -38,10 +36,11 @@ interface Props {
   initialReport?: string;
 }
 
-// Date range filter lives in the dashboard header (HeaderJournalSearch) —
-// this view only owns the report-type selector. The current `start` / `end`
-// flow through page props from URL searchParams, so toggling reports keeps
-// the same date range without an extra inline toolbar.
+// All toolbar controls live in the dashboard header:
+//   - date range  → HeaderJournalSearch (path-aware)
+//   - report type → HeaderReportSelect (only on /gl/reports)
+// This view simply receives the active range + report from URL search params
+// (via the page server component) and renders the matching report grid.
 export function ReportsView({
   vouchers,
   accounts,
@@ -50,28 +49,13 @@ export function ReportsView({
   initialEnd,
   initialReport,
 }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
   const defaults = defaultMonthRange();
   const appliedFrom = initialStart ?? defaults.start;
   const appliedTo = initialEnd ?? defaults.end;
 
-  const initialType: ReportType =
-    REPORT_OPTIONS.some((o) => o.value === initialReport)
-      ? (initialReport as ReportType)
-      : "gl-balance";
-
-  const [reportType, setReportType] = useState<ReportType>(initialType);
-
-  function handleReportChange(next: ReportType) {
-    setReportType(next);
-    // Persist selection in the URL so refresh / direct links remember it.
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("report", next);
-    router.replace(`${pathname}?${params.toString()}`);
-  }
+  const reportType: ReportType = VALID_REPORTS.has(initialReport as ReportType)
+    ? (initialReport as ReportType)
+    : "gl-balance";
 
   const activeSegments = useMemo(
     () => SEGMENT_DEFS.filter((s) => activeSegIds.includes(s.id)),
@@ -79,21 +63,7 @@ export function ReportsView({
   );
 
   return (
-    <div className="flex-1 flex flex-col gap-4 min-h-0">
-      <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <select
-          value={reportType}
-          onChange={(e) => handleReportChange(e.target.value as ReportType)}
-          className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
-        >
-          {REPORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
+    <div className="flex-1 flex flex-col min-h-0">
       {reportType === "gl-balance" && (
         <GlBalanceView
           vouchers={vouchers}

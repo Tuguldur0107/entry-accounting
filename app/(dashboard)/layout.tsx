@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ModuleSwitcher } from "@/components/layout/module-switcher";
 import { Sidebar } from "@/components/layout/sidebar";
 import { HeaderJournalSearch } from "@/components/layout/header-journal-search";
+import { HeaderReportSelect } from "@/components/layout/header-report-select";
 import { NewJournalButton } from "@/components/layout/new-journal-button";
 
 export default async function DashboardLayout({
@@ -37,8 +38,9 @@ export default async function DashboardLayout({
             <EAMark size={28} />
           </Link>
           <ModuleSwitcher />
-          <div className="flex-1 flex justify-center">
+          <div className="flex-1 flex items-center justify-center gap-2">
             <HeaderJournalSearch />
+            <HeaderReportSelect />
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <NewJournalButton />
