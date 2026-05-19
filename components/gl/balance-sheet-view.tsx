@@ -225,11 +225,14 @@ export function BalanceSheetView({
       out.push({ id: "empty-equity", kind: "empty", label: "Өгөгдөл байхгүй" });
     } else {
       data.equityContrib.forEach((g, gi) => emitGroup(g, `eq-${gi}`));
-      // P&L for the period is a separate line under equity per IAS 1 §54(r).
+      // P&L for the period is a regular equity line per IAS 1 §54(r), so
+      // it gets a hierarchical line number just like the rest of equity.
+      // Rendered as `kind: "detail"` (uses `name`, not `label`) so the
+      // ReportGrid line-number counter picks it up.
       out.push({
         id: "pnl",
-        kind: "footnote",
-        label: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
+        kind: "detail",
+        name: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
         amount: data.pnl.netIncome,
         amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",
       });
