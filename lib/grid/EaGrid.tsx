@@ -6,6 +6,7 @@ import type {
   GridApi,
   GridReadyEvent,
   ProcessDataFromClipboardParams,
+  RowDataUpdatedEvent,
 } from "ag-grid-community";
 
 import { ensureGridRegistered } from "./registerGrid";
@@ -40,8 +41,10 @@ function EaGridInner<TData>(
     height = 480,
     wrapperClassName,
     onGridReady,
+    onRowDataUpdated,
     processDataFromClipboard,
     defaultColDef,
+    autoSizeStrategy,
     ...rest
   } = props;
 
@@ -65,6 +68,21 @@ function EaGridInner<TData>(
     onGridReady?.(e);
   }
 
+  // AG Grid's `autoSizeStrategy` only fires on the initial column setup —
+  // when rowData changes (e.g. user clicks the header "Хайх" with a new
+  // date range), columns keep their original widths. Re-run autoSize on
+  // every data update so the fit stays consistent with the current rows.
+  function handleRowDataUpdated(e: RowDataUpdatedEvent<TData>) {
+    if (
+      autoSizeStrategy &&
+      "type" in autoSizeStrategy &&
+      autoSizeStrategy.type === "fitCellContents"
+    ) {
+      e.api.autoSizeAllColumns(false);
+    }
+    onRowDataUpdated?.(e);
+  }
+
   function handleClipboard(params: ProcessDataFromClipboardParams<TData>) {
     const userResult = processDataFromClipboard?.(params);
     let rows: string[][] = userResult ?? params.data ?? [];
@@ -86,6 +104,8 @@ function EaGridInner<TData>(
       <AgGridReact<TData>
         theme={eaGridTheme}
         onGridReady={handleReady}
+        onRowDataUpdated={handleRowDataUpdated}
+        autoSizeStrategy={autoSizeStrategy}
         defaultColDef={mergedDefaultColDef}
         processDataFromClipboard={handleClipboard}
         animateRows={false}
