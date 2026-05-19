@@ -262,6 +262,14 @@
   display: flex;
   align-items: center;
 }
+/* AG Grid sets `text-align: right` on `.ag-right-aligned-cell` but that
+   only nudges inline text — when the cell switches to flex above, the
+   content stays at the flex-start edge. Restore the right alignment by
+   pushing the flex children to the end of the row. */
+.ea-report-grid .ag-right-aligned-cell {
+  justify-content: flex-end;
+  text-align: right;
+}
 .ea-report-grid .report-row-section {
   /* Subtle primary-tinted strip; color-mix follows the primary token in
      both light and dark modes so we don't need a separate .dark override. */

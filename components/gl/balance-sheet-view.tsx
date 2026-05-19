@@ -199,36 +199,49 @@ export function BalanceSheetView({
       amount: data.totalAssets,
     });
 
-    // ── LIABILITIES + EQUITY ──────────────────────────────────────────────
-    out.push({ id: "sec-le", kind: "section", label: "ӨР ТӨЛБӨР БА ЭЗДИЙН ӨМЧ" });
+    // ── LIABILITIES ──────────────────────────────────────────────────────
+    // Separate section so the numbering tree becomes
+    //   1. Хөрөнгө   2. Өр төлбөр   3. Эздийн өмч
+    // which matches the СБОУС report form.
+    out.push({ id: "sec-liab", kind: "section", label: "ӨР ТӨЛБӨР" });
+    if (data.liabilities.every((g) => g.items.length === 0)) {
+      out.push({ id: "empty-liab", kind: "empty", label: "Өгөгдөл байхгүй" });
+    } else {
+      data.liabilities.forEach((g, gi) => emitGroup(g, `liab-${gi}`));
+    }
+    out.push({
+      id: "tot-liab",
+      kind: "total",
+      label: "ӨР ТӨЛБӨРИЙН НИЙТ",
+      amount: data.totalLiabilities,
+    });
 
-    // Liabilities (current vs non-current) — IAS 1 §60
-    data.liabilities.forEach((g, gi) => emitGroup(g, `liab-${gi}`));
-    if (data.liabilities.some((g) => g.items.length > 0)) {
+    // ── EQUITY ────────────────────────────────────────────────────────────
+    out.push({ id: "sec-equity", kind: "section", label: "ЭЗДИЙН ӨМЧ" });
+    if (
+      data.equityContrib.every((g) => g.items.length === 0) &&
+      data.pnl.netIncome === 0
+    ) {
+      out.push({ id: "empty-equity", kind: "empty", label: "Өгөгдөл байхгүй" });
+    } else {
+      data.equityContrib.forEach((g, gi) => emitGroup(g, `eq-${gi}`));
+      // P&L for the period is a separate line under equity per IAS 1 §54(r).
       out.push({
-        id: "sub-liab-all",
-        kind: "subtotal",
-        label: "Өр төлбөрийн нийт",
-        amount: data.totalLiabilities,
+        id: "pnl",
+        kind: "footnote",
+        label: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
+        amount: data.pnl.netIncome,
+        amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",
       });
     }
-
-    // Equity — paid-in capital, OCI reserves, retained earnings, +period P/L
-    data.equityContrib.forEach((g, gi) => emitGroup(g, `eq-${gi}`));
     out.push({
-      id: "pnl",
-      kind: "footnote",
-      label: `Тайлант үеийн цэвэр ${data.pnl.netIncome >= 0 ? "ашиг" : "алдагдал"}`,
-      amount: data.pnl.netIncome,
-      amountSign: data.pnl.netIncome >= 0 ? "pos" : "neg",
-    });
-    out.push({
-      id: "sub-equity-total",
-      kind: "subtotal",
-      label: "Эздийн өмчийн нийт",
+      id: "tot-equity",
+      kind: "total",
+      label: "ЭЗДИЙН ӨМЧИЙН НИЙТ",
       amount: data.totalEquity,
     });
 
+    // ── GRAND TOTAL ───────────────────────────────────────────────────────
     out.push({
       id: "tot-le",
       kind: "total",
