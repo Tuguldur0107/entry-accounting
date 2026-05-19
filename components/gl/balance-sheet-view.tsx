@@ -66,16 +66,28 @@ function matchesAnyPrefix(mainAccount: string, prefixes: string[]): boolean {
 }
 
 // Balance sheet is point-in-time at `appliedTo` and ignores `appliedFrom`.
+//
+// IMPORTANT: Balance Sheet is an *entity-level* statement of financial
+// position — it does NOT show segment-level detail. Cost centre / period /
+// product / module differences must collapse onto the main account.
+// Aggregation key is forced to `[3]` (the Main Account segment) regardless
+// of the user's `activeSegIds`, so a single voucher line for "Харилцах
+// данс" posted under two cost centres shows as one balance row, not two.
+//
+// Trial Balance (Гүйлгээ баланс) keeps the per-segment breakdown — that's
+// the workpaper-level view. Income Statement and Cash Flow are also
+// entity-level and should follow this same pattern.
+const BALANCE_SHEET_KEY: number[] = [3];
+
 export function BalanceSheetView({
   vouchers,
   accounts,
-  activeSegIds,
   activeSegments,
   appliedTo,
 }: Props) {
   const rows = useMemo(
-    () => aggregateBalances(vouchers, accounts, activeSegIds, EPOCH, appliedTo),
-    [vouchers, accounts, activeSegIds, appliedTo],
+    () => aggregateBalances(vouchers, accounts, BALANCE_SHEET_KEY, EPOCH, appliedTo),
+    [vouchers, accounts, appliedTo],
   );
 
   const data = useMemo(() => {
