@@ -5,7 +5,7 @@ import type { ColDef, ICellRendererParams, RowClassParams } from "ag-grid-commun
 import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
 import { moneyValueFormatter } from "@/lib/grid/formatters";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
-import { SlidersHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, SlidersHorizontal, Trash2 } from "lucide-react";
 
 export type ReportRowKind =
   | "section"
@@ -31,6 +31,13 @@ export interface ReportRow {
    * MappingDialog.
    */
   lineKey?: string;
+  /** Set by the parent so collapse filter can hide rows under a folded
+   *  section / group without losing the row's identity. */
+  parentSectionId?: string;
+  parentGroupId?: string;
+  /** Visibility / origin flags consumed by the Actions column. */
+  isHidden?: boolean;
+  isCustom?: boolean;
 }
 
 interface Props {
@@ -56,6 +63,21 @@ interface Props {
    * parent can open its configuration dialog.
    */
   onMappingClick?: (lineKey: string) => void;
+  /**
+   * IDs of section / group rows that should hide their children. When
+   * provided alongside `onToggleCollapse`, section and group cells
+   * render a chevron toggle.
+   */
+  collapsedKeys?: Set<string>;
+  onToggleCollapse?: (rowId: string) => void;
+  /**
+   * When any of these callbacks are provided an "Үйлдэл" column is
+   * appended with contextual icons (hide / unhide / remove). Only
+   * detail rows with a `lineKey` receive the icons.
+   */
+  onHideLine?: (lineKey: string) => void;
+  onUnhideLine?: (lineKey: string) => void;
+  onRemoveLine?: (lineKey: string) => void;
 }
 
 const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
@@ -72,7 +94,23 @@ export function ReportGrid({
   hideAccount = false,
   showLineNumbers = false,
   onMappingClick,
+  collapsedKeys,
+  onToggleCollapse,
+  onHideLine,
+  onUnhideLine,
+  onRemoveLine,
 }: Props) {
+  // Drop rows whose parent section or group is collapsed. Section / group
+  // rows themselves stay visible so the user always has a way to expand.
+  const visibleRows = useMemo(() => {
+    if (!collapsedKeys || collapsedKeys.size === 0) return rows;
+    return rows.filter((r) => {
+      if (r.parentSectionId && collapsedKeys.has(r.parentSectionId)) return false;
+      if (r.parentGroupId && collapsedKeys.has(r.parentGroupId)) return false;
+      return true;
+    });
+  }, [rows, collapsedKeys]);
+  const hasActionColumn = !!(onHideLine || onUnhideLine || onRemoveLine);
   // Pre-compute hierarchical line numbers once so the column's valueGetter
   // stays pure. Numbering tracks three nested counters and rebuilds the
   // dotted string per row:
@@ -187,22 +225,47 @@ export function ReportGrid({
         }
         return r.name ?? "";
       },
-      cellRenderer: (p: { data?: ReportRow }) => {
+      cellRenderer: (p: ICellRendererParams<ReportRow>) => {
         const r = p.data;
         if (!r) return null;
-        if (SECTION_LIKE.has(r.kind) || r.kind === "subtotal" || r.kind === "total") {
-          return hideAccount ? r.label ?? "" : "";
+        const isCollapsible =
+          (r.kind === "section" || r.kind === "group") && !!onToggleCollapse;
+        const collapsed = collapsedKeys?.has(r.id) ?? false;
+        const label =
+          SECTION_LIKE.has(r.kind) || r.kind === "subtotal" || r.kind === "total"
+            ? hideAccount
+              ? r.label ?? ""
+              : ""
+            : r.name || "—";
+        if (isCollapsible) {
+          return (
+            <button
+              type="button"
+              onClick={() => onToggleCollapse?.(r.id)}
+              className="inline-flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+              aria-label={collapsed ? "Дэлгэх" : "Хумих"}
+            >
+              {collapsed ? (
+                <ChevronRight size={14} />
+              ) : (
+                <ChevronDown size={14} />
+              )}
+              <span>{label}</span>
+            </button>
+          );
         }
-        return r.name || "—";
+        return <span>{label}</span>;
       },
       cellClass: (p) => {
+        const r = p.data;
         if (hideAccount) {
           const cls = labelClass(p);
           if (cls) return cls;
         }
-        const k = p.data?.kind;
-        if (k === "detail") return "text-[var(--ea-text-1)]";
-        return "";
+        const parts: string[] = [];
+        if (r?.kind === "detail") parts.push("text-[var(--ea-text-1)]");
+        if (r?.isHidden) parts.push("opacity-50 line-through");
+        return parts.join(" ");
       },
       cellStyle: (p) => {
         const k = p.data?.kind;
@@ -289,13 +352,84 @@ export function ReportGrid({
       },
     };
 
+    const actionsCol: ColDef<ReportRow> = {
+      headerName: "Үйлдэл",
+      colId: "row-actions",
+      width: 110,
+      maxWidth: 140,
+      sortable: false,
+      suppressMovable: true,
+      cellClass: "flex items-center justify-center gap-1",
+      headerClass: "ag-center-aligned-header",
+      cellRenderer: (p: ICellRendererParams<ReportRow>) => {
+        const r = p.data;
+        if (!r || r.kind !== "detail" || !r.lineKey) return null;
+        const key = r.lineKey;
+        const isHidden = !!r.isHidden;
+        const isCustom = !!r.isCustom;
+        return (
+          <div className="flex items-center justify-center gap-1 h-full">
+            {isHidden
+              ? onUnhideLine && (
+                  <button
+                    type="button"
+                    onClick={() => onUnhideLine(key)}
+                    className="ea-btn ea-btn--icon ea-btn--primary"
+                    title="Дахин харуулах"
+                    aria-label="Дахин харуулах"
+                  >
+                    <Eye />
+                  </button>
+                )
+              : onHideLine && (
+                  <button
+                    type="button"
+                    onClick={() => onHideLine(key)}
+                    className="ea-btn ea-btn--icon"
+                    title="Нуух"
+                    aria-label="Нуух"
+                  >
+                    <EyeOff />
+                  </button>
+                )}
+            {isCustom && onRemoveLine && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("Энэ мөрийг устгах уу?")) onRemoveLine(key);
+                }}
+                className="ea-btn ea-btn--icon ea-btn--danger"
+                title="Мөрийг устгах"
+                aria-label="Мөрийг устгах"
+              >
+                <Trash2 />
+              </button>
+            )}
+          </div>
+        );
+      },
+    };
+
     const dataCols = hideAccount ? [nameCol, amountCol] : [accountCol, nameCol, amountCol];
     const cols: ColDef<ReportRow>[] = [];
     if (showLineNumbers) cols.push(lineNumberCol);
     cols.push(...dataCols);
     if (onMappingClick) cols.push(mappingCol);
+    if (hasActionColumn) cols.push(actionsCol);
     return cols;
-  }, [activeSegments, hideAccount, showLineNumbers, lineNumberMap, onMappingClick]);
+  }, [
+    activeSegments,
+    hideAccount,
+    showLineNumbers,
+    lineNumberMap,
+    onMappingClick,
+    onToggleCollapse,
+    collapsedKeys,
+    onHideLine,
+    onUnhideLine,
+    onRemoveLine,
+    hasActionColumn,
+  ]);
 
   const rowClassRules = useMemo(
     () => ({
@@ -313,7 +447,7 @@ export function ReportGrid({
   // fixed `height` prop for embedded use-cases (modals, side panels).
   return (
     <EaGridDynamic<ReportRow>
-      rowData={rows}
+      rowData={visibleRows}
       columnDefs={columnDefs}
       getRowId={(p) => p.data.id}
       rowClassRules={rowClassRules}

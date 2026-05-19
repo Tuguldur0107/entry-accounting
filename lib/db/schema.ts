@@ -170,9 +170,24 @@ export const reportLineMappings = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     reportType: text("report_type").notNull(), // "balance-sheet" | "income-statement" | "cash-flow"
+    /**
+     * Built-in lines: key from BS_LINES (e.g. "cash", "ap").
+     * Custom user-added lines: starts with "custom-" + nanoid.
+     */
     lineKey: text("line_key").notNull(),
     /** Comma-separated 8-digit chart-of-accounts codes that roll into this line. */
     accountNumbers: text("account_numbers").notNull().default(""),
+    /** Hide the line from the rendered statement (built-in or custom). */
+    isHidden: boolean("is_hidden").notNull().default(false),
+    /** Override the built-in label, or set the display label for a custom line. */
+    customLabel: text("custom_label"),
+    /**
+     * Group ID for a custom line (e.g. "current-assets"). Built-in lines
+     * inherit their group from BS_LINES — this field is null for them.
+     */
+    customGroup: text("custom_group"),
+    /** Position within its group; lower = higher in the statement. */
+    sortOrder: integer("sort_order").notNull().default(0),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => [unique().on(t.userId, t.reportType, t.lineKey)]
