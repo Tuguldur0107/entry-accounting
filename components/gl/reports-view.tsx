@@ -52,7 +52,7 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
+            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
           />
         </div>
         <div className="flex items-center gap-1.5">
@@ -61,13 +61,13 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
+            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
           />
         </div>
         <select
           value={reportType}
           onChange={(e) => setReportType(e.target.value as ReportType)}
-          className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
+          className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-white text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
         >
           {REPORT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
