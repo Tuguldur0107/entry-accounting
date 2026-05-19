@@ -381,3 +381,4 @@ Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
 | Татварын хууль | `knowledge/01-онол-хууль-стандарт/tax/_index.md` → тухайн файл |
 | 2026 татварын шинэчлэлт | `knowledge/01-онол-хууль-стандарт/tax/2026-updates.md` |
 | Дансны нэгдсэн жагсаалт | `knowledge/03-стандарт/chart-of-accounts.md` |
+| Тайлангийн mapping (BS / IS / CF) | `knowledge/03-стандарт/reports/01-line-mapping.md` |
