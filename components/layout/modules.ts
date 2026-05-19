@@ -1,6 +1,16 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  List,
+  BarChart3,
+  User,
+  Building2,
+  Settings as SettingsIcon,
+} from "lucide-react";
+
 export type ModuleItem = {
   label: string;
   href: string;
+  icon: LucideIcon;
 };
 
 export type Module = {
@@ -18,8 +28,8 @@ export const MODULES: Module[] = [
     matchPrefix: "/gl",
     defaultHref: "/gl/journal",
     items: [
-      { label: "Журналын жагсаалт", href: "/gl/journal" },
-      { label: "Тайлан", href: "/gl/reports" },
+      { label: "Журналын жагсаалт", href: "/gl/journal", icon: List },
+      { label: "Тайлан", href: "/gl/reports", icon: BarChart3 },
     ],
   },
   {
@@ -28,9 +38,9 @@ export const MODULES: Module[] = [
     matchPrefix: "/settings",
     defaultHref: "/settings/profile",
     items: [
-      { label: "Хэрэглэгчийн профайл", href: "/settings/profile" },
-      { label: "Компанийн мэдээлэл", href: "/settings/company" },
-      { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl" },
+      { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: User },
+      { label: "Компанийн мэдээлэл", href: "/settings/company", icon: Building2 },
+      { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: SettingsIcon },
     ],
   },
 ];
