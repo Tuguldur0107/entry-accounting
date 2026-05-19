@@ -39,11 +39,25 @@ const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
 ]);
 
 export function ReportGrid({ activeSegments, rows, height }: Props) {
+  // Standard: ONE "Данс" column showing the active segments joined with ".".
+  // Width scales with the active segment count + each segment's char length
+  // (mirrors journal-entry-form's accountColWidth formula) so the grid keeps
+  // a consistent look across surfaces and adapts automatically when segments
+  // are toggled on/off.
+  const accountColWidth = useMemo(
+    () =>
+      Math.max(
+        160,
+        activeSegments.reduce((s, def) => s + def.length * 9 + 10, 0)
+      ),
+    [activeSegments]
+  );
+
   const columnDefs = useMemo<ColDef<ReportRow>[]>(() => {
-    const segCols: ColDef<ReportRow>[] = activeSegments.map((s, idx) => ({
-      headerName: s.nameMn,
-      colId: `seg-${s.id}`,
-      width: 120,
+    const accountCol: ColDef<ReportRow> = {
+      headerName: "Данс",
+      colId: "account",
+      width: accountColWidth,
       cellClass: (p) => {
         const k = p.data?.kind;
         if (k === "section") return "report-section-cell";
@@ -53,24 +67,29 @@ export function ReportGrid({ activeSegments, rows, height }: Props) {
         if (k === "footnote") return "report-footnote-cell";
         return "font-mono text-xs";
       },
-      valueGetter: (p) => p.data?.segs?.[s.id] ?? "",
+      valueGetter: (p) => {
+        const r = p.data;
+        if (!r) return "";
+        if (SECTION_LIKE.has(r.kind) || r.kind === "subtotal" || r.kind === "total") {
+          return r.label ?? "";
+        }
+        return activeSegments
+          .map((s) => r.segs?.[s.id] ?? "")
+          .filter((part) => part !== "")
+          .join(".");
+      },
+      // Section / group / subtotal / total / empty / footnote rows put their
+      // label in the account column and span across the name column too.
       colSpan: (p) => {
         const k = p.data?.kind;
-        if (idx === 0 && (SECTION_LIKE.has(k as ReportRowKind) || k === "subtotal" || k === "total")) {
-          return activeSegments.length + 1;
+        if (SECTION_LIKE.has(k as ReportRowKind) || k === "subtotal" || k === "total") {
+          return 2;
         }
         return 1;
       },
-      cellRenderer: (p: { data?: ReportRow }) => {
-        const r = p.data;
-        if (!r) return null;
-        if (idx === 0 && SECTION_LIKE.has(r.kind)) return r.label ?? "";
-        if (idx === 0 && (r.kind === "subtotal" || r.kind === "total")) return r.label ?? "";
-        return r.segs?.[s.id] ?? "";
-      },
       sortable: false,
       suppressMovable: true,
-    }));
+    };
 
     const nameCol: ColDef<ReportRow> = {
       headerName: "Үндсэн дансны нэр",
@@ -121,8 +140,8 @@ export function ReportGrid({ activeSegments, rows, height }: Props) {
       suppressMovable: true,
     };
 
-    return [...segCols, nameCol, amountCol];
-  }, [activeSegments]);
+    return [accountCol, nameCol, amountCol];
+  }, [activeSegments, accountColWidth]);
 
   const rowClassRules = useMemo(
     () => ({

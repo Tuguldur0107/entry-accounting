@@ -92,18 +92,36 @@ export function GlBalanceView({
   const periodBalanced = isBalanced(totals.periodDebit, totals.periodCredit);
   const closeBalanced = isBalanced(totals.closeDebit, totals.closeCredit);
 
+  // Account column width adapts to active segments — mirrors the formula in
+  // journal-entry-form so display feels consistent across surfaces.
+  // Standard: ONE "Данс" column showing the segments joined with ".".
+  const accountColWidth = useMemo(
+    () =>
+      Math.max(
+        160,
+        activeSegments.reduce((s, def) => s + def.length * 9 + 10, 0)
+      ),
+    [activeSegments]
+  );
+
   const columnDefs = useMemo<(ColDef<BalanceRowVM> | ColGroupDef<BalanceRowVM>)[]>(() => {
-    const segCols: ColDef<BalanceRowVM>[] = activeSegments.map((s) => ({
-      headerName: s.nameMn,
-      colId: `seg-${s.id}`,
-      valueGetter: (p) => p.data?.segs[s.id] ?? "",
-      cellClass: "font-mono",
-      width: 120,
+    const accountCol: ColDef<BalanceRowVM> = {
+      headerName: "Данс",
+      colId: "account",
+      width: accountColWidth,
+      cellClass: "font-mono text-xs",
+      valueGetter: (p) =>
+        p.data
+          ? activeSegments
+              .map((s) => p.data!.segs[s.id] ?? "")
+              .filter((part) => part !== "")
+              .join(".")
+          : "",
       sortable: true,
-    }));
+    };
 
     return [
-      ...segCols,
+      accountCol,
       {
         headerName: "Үндсэн дансны нэр",
         field: "name",
@@ -133,7 +151,7 @@ export function GlBalanceView({
         ],
       },
     ];
-  }, [activeSegments]);
+  }, [activeSegments, accountColWidth]);
 
   const pinnedBottom = useMemo<BalanceRowVM[]>(
     () => [
