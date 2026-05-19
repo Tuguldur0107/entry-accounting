@@ -29,6 +29,13 @@ interface Props {
   activeSegments: SegmentDef[];
   rows: ReportRow[];
   height?: number | string;
+  /**
+   * Skip the "Данс" (account code) column. Useful for the Balance Sheet
+   * where account numbers are noise — the line label and amount are
+   * enough. Section / group / subtotal / total labels move to the name
+   * column when the account column is hidden.
+   */
+  hideAccount?: boolean;
 }
 
 const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
@@ -38,23 +45,28 @@ const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
   "footnote",
 ]);
 
-export function ReportGrid({ activeSegments, rows, height }: Props) {
+export function ReportGrid({ activeSegments, rows, height, hideAccount = false }: Props) {
   // Standard: ONE "Данс" column showing the active segments joined with ".".
   // Column width is handled by AG Grid's `autoSizeStrategy: fitCellContents`
   // (wired below on EaGridDynamic) so the column hugs the longest visible
   // value across the active segments.
   const columnDefs = useMemo<ColDef<ReportRow>[]>(() => {
+    const labelClass = (p: { data?: ReportRow }) => {
+      const k = p.data?.kind;
+      if (k === "section") return "report-section-cell";
+      if (k === "group") return "report-group-cell";
+      if (k === "subtotal") return "report-subtotal-cell";
+      if (k === "total") return "report-total-cell";
+      if (k === "footnote") return "report-footnote-cell";
+      return "";
+    };
+
     const accountCol: ColDef<ReportRow> = {
       headerName: "Данс",
       colId: "account",
       cellClass: (p) => {
-        const k = p.data?.kind;
-        if (k === "section") return "report-section-cell";
-        if (k === "group") return "report-group-cell";
-        if (k === "subtotal") return "report-subtotal-cell";
-        if (k === "total") return "report-total-cell";
-        if (k === "footnote") return "report-footnote-cell";
-        return "font-mono text-xs";
+        const cls = labelClass(p);
+        return cls || "font-mono text-xs";
       },
       valueGetter: (p) => {
         const r = p.data;
@@ -80,19 +92,36 @@ export function ReportGrid({ activeSegments, rows, height }: Props) {
       suppressMovable: true,
     };
 
+    // When the account column is hidden the name column becomes the leftmost
+    // column and inherits responsibility for rendering section / group /
+    // subtotal / total / empty / footnote labels (since the account column
+    // was previously doing that via colSpan).
     const nameCol: ColDef<ReportRow> = {
       headerName: "Үндсэн дансны нэр",
       colId: "name",
       flex: 1,
       minWidth: 220,
-      valueGetter: (p) => p.data?.name ?? "",
+      valueGetter: (p) => {
+        const r = p.data;
+        if (!r) return "";
+        if (hideAccount && (SECTION_LIKE.has(r.kind) || r.kind === "subtotal" || r.kind === "total")) {
+          return r.label ?? "";
+        }
+        return r.name ?? "";
+      },
       cellRenderer: (p: { data?: ReportRow }) => {
         const r = p.data;
         if (!r) return null;
-        if (SECTION_LIKE.has(r.kind) || r.kind === "subtotal" || r.kind === "total") return "";
+        if (SECTION_LIKE.has(r.kind) || r.kind === "subtotal" || r.kind === "total") {
+          return hideAccount ? r.label ?? "" : "";
+        }
         return r.name || "—";
       },
       cellClass: (p) => {
+        if (hideAccount) {
+          const cls = labelClass(p);
+          if (cls) return cls;
+        }
         const k = p.data?.kind;
         if (k === "detail") return "text-[var(--ea-text-1)]";
         return "";
@@ -129,8 +158,8 @@ export function ReportGrid({ activeSegments, rows, height }: Props) {
       suppressMovable: true,
     };
 
-    return [accountCol, nameCol, amountCol];
-  }, [activeSegments]);
+    return hideAccount ? [nameCol, amountCol] : [accountCol, nameCol, amountCol];
+  }, [activeSegments, hideAccount]);
 
   const rowClassRules = useMemo(
     () => ({
