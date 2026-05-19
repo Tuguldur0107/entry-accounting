@@ -140,7 +140,12 @@ export function MappingDialog({
         }
       }}
     >
-      <DialogContent className="max-w-2xl">
+      {/* `sm:max-w-2xl` is required to override DialogContent's default
+          `sm:max-w-sm`. With only `max-w-2xl` (base utility) the sm
+          breakpoint variant wins via media-query specificity and clamps
+          the popup to 384px while the inner content still tries to lay
+          out at full width — the surface visibly under-renders. */}
+      <DialogContent className="max-w-2xl sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             <span className="text-[var(--ea-text-3)] text-xs font-normal mr-2">
