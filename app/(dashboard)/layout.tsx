@@ -5,6 +5,7 @@ import { EAMark } from "@/components/auth/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ModuleSwitcher } from "@/components/layout/module-switcher";
 import { Sidebar } from "@/components/layout/sidebar";
+import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { HeaderJournalSearch } from "@/components/layout/header-journal-search";
 import { NewJournalButton } from "@/components/layout/new-journal-button";
 
@@ -30,6 +31,7 @@ export default async function DashboardLayout({
         }}
       >
         <div className="px-6 flex items-center gap-4 h-14">
+          <SidebarToggle />
           <Link
             href="/gl/journal"
             style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}
