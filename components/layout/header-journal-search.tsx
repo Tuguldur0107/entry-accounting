@@ -14,6 +14,12 @@ function defaultMonthRange() {
   };
 }
 
+// Date range filter rendered in the dashboard header. Acts as a shared
+// filter for any GL surface that reads `start` / `end` from searchParams
+// (currently /gl/journal and /gl/reports). Stays on the active path
+// instead of forcing a navigation to /gl/journal.
+const DATE_AWARE_PATHS = ["/gl/journal", "/gl/reports"];
+
 export function HeaderJournalSearch() {
   const router = useRouter();
   const pathname = usePathname();
@@ -27,8 +33,10 @@ export function HeaderJournalSearch() {
     const params = new URLSearchParams();
     if (start) params.set("start", start);
     if (end) params.set("end", end);
-    const target = `/gl/journal${params.toString() ? `?${params.toString()}` : ""}`;
-    if (pathname === "/gl/journal") {
+    const onDateAwarePath = DATE_AWARE_PATHS.includes(pathname);
+    const basePath = onDateAwarePath ? pathname : "/gl/journal";
+    const target = `${basePath}${params.toString() ? `?${params.toString()}` : ""}`;
+    if (onDateAwarePath) {
       router.replace(target);
     } else {
       router.push(target);
@@ -42,7 +50,7 @@ export function HeaderJournalSearch() {
         value={start}
         onChange={(e) => setStart(e.target.value)}
         aria-label="Эхлэх огноо"
-        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
+        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
       />
       <span className="text-xs text-[var(--ea-text-3)]">–</span>
       <input
@@ -50,7 +58,7 @@ export function HeaderJournalSearch() {
         value={end}
         onChange={(e) => setEnd(e.target.value)}
         aria-label="Дуусах огноо"
-        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[#1E3A5F]/20 focus:border-[var(--ea-primary)]"
+        className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
       />
       <button
         type="button"

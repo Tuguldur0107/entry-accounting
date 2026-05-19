@@ -5,9 +5,16 @@ import { eq, and, inArray } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { ReportsView } from "@/components/gl/reports-view";
 
-export default async function ReportsPage() {
+type SearchParams = Promise<{ start?: string; end?: string; report?: string }>;
+
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   const session = await auth();
   const userId = session!.user!.id!;
+  const { start, end, report } = await searchParams;
 
   const [vouchers, accounts, rawSegConfigs] = await Promise.all([
     db.query.journalVouchers.findMany({
@@ -28,5 +35,14 @@ export default async function ReportsPage() {
     .filter((def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true)
     .map((def) => def.id);
 
-  return <ReportsView vouchers={vouchers} accounts={accounts} activeSegIds={activeSegIds} />;
+  return (
+    <ReportsView
+      vouchers={vouchers}
+      accounts={accounts}
+      activeSegIds={activeSegIds}
+      initialStart={start}
+      initialEnd={end}
+      initialReport={report}
+    />
+  );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { GlBalanceView } from "@/components/gl/gl-balance-view";
@@ -8,8 +9,16 @@ import { BalanceSheetView } from "@/components/gl/balance-sheet-view";
 import { IncomeStatementView } from "@/components/gl/income-statement-view";
 import { CashFlowView } from "@/components/gl/cash-flow-view";
 
-const today = new Date().toISOString().slice(0, 10);
-const firstOfMonth = today.slice(0, 7) + "-01";
+function defaultMonthRange() {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
+  return {
+    start: `${y}-${m}-01`,
+    end: `${y}-${m}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
 
 type ReportType = "gl-balance" | "balance-sheet" | "income-statement" | "cash-flow";
 
@@ -24,18 +33,44 @@ interface Props {
   vouchers: JournalVoucherWithLines[];
   accounts: ChartOfAccount[];
   activeSegIds: number[];
+  initialStart?: string;
+  initialEnd?: string;
+  initialReport?: string;
 }
 
-export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
-  const [dateFrom, setDateFrom] = useState(firstOfMonth);
-  const [dateTo, setDateTo] = useState(today);
-  const [appliedFrom, setAppliedFrom] = useState(firstOfMonth);
-  const [appliedTo, setAppliedTo] = useState(today);
-  const [reportType, setReportType] = useState<ReportType>("gl-balance");
+// Date range filter lives in the dashboard header (HeaderJournalSearch) —
+// this view only owns the report-type selector. The current `start` / `end`
+// flow through page props from URL searchParams, so toggling reports keeps
+// the same date range without an extra inline toolbar.
+export function ReportsView({
+  vouchers,
+  accounts,
+  activeSegIds,
+  initialStart,
+  initialEnd,
+  initialReport,
+}: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  function handleSearch() {
-    setAppliedFrom(dateFrom);
-    setAppliedTo(dateTo);
+  const defaults = defaultMonthRange();
+  const appliedFrom = initialStart ?? defaults.start;
+  const appliedTo = initialEnd ?? defaults.end;
+
+  const initialType: ReportType =
+    REPORT_OPTIONS.some((o) => o.value === initialReport)
+      ? (initialReport as ReportType)
+      : "gl-balance";
+
+  const [reportType, setReportType] = useState<ReportType>(initialType);
+
+  function handleReportChange(next: ReportType) {
+    setReportType(next);
+    // Persist selection in the URL so refresh / direct links remember it.
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("report", next);
+    router.replace(`${pathname}?${params.toString()}`);
   }
 
   const activeSegments = useMemo(
@@ -46,27 +81,9 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
   return (
     <div className="flex-1 flex flex-col gap-4 min-h-0">
       <div className="flex items-center gap-2 flex-wrap shrink-0">
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-[var(--ea-text-3)] whitespace-nowrap">Эхлэх огноо</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <label className="text-xs text-[var(--ea-text-3)] whitespace-nowrap">Дуусах огноо</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
-          />
-        </div>
         <select
           value={reportType}
-          onChange={(e) => setReportType(e.target.value as ReportType)}
+          onChange={(e) => handleReportChange(e.target.value as ReportType)}
           className="h-8 px-2 text-sm border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
         >
           {REPORT_OPTIONS.map((o) => (
@@ -75,12 +92,6 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
             </option>
           ))}
         </select>
-        <button
-          onClick={handleSearch}
-          className="h-8 px-4 text-sm font-medium bg-[var(--ea-primary)] text-white rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
-        >
-          Хайх
-        </button>
       </div>
 
       {reportType === "gl-balance" && (
