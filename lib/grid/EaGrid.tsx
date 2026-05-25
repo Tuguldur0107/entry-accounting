@@ -11,6 +11,7 @@ import type {
 
 import { ensureGridRegistered } from "./registerGrid";
 import { eaGridTheme } from "./theme";
+import { ChecklistFilter } from "./filters/ChecklistFilter";
 
 // Register AG Grid modules SYNCHRONOUSLY at module load — before any
 // <AgGridReact> mounts. `useEffect` would fire after the grid tries to
@@ -52,17 +53,20 @@ function EaGridInner<TData>(
 
   useImperativeHandle(ref, () => ({ api: apiRef.current }), []);
 
-  // Default column behaviour. `filter: true` + `floatingFilter: true`
-  // mirrors Excel-style header search (each column header gets a small
-  // input strip below it). Surfaces that don't want filtering (structured
-  // financial reports, the journal-entry editor) override these flags
-  // on their own `defaultColDef`.
+  // Default column behaviour. The header gets a dedicated filter icon
+  // (Excel-style) instead of an inline floating-filter row. Clicking the
+  // icon opens our custom `ChecklistFilter`: a search box plus a
+  // multi-select checkbox list of the column's unique values. Surfaces
+  // that don't want filtering (structured financial statements, the
+  // journal-entry editor) override these flags on their own
+  // `defaultColDef`.
   const mergedDefaultColDef = useMemo(
     () => ({
       resizable: true,
       sortable: true,
-      filter: "agTextColumnFilter",
-      floatingFilter: true,
+      filter: ChecklistFilter,
+      floatingFilter: false,
+      suppressHeaderFilterButton: false,
       suppressMovable: true,
       ...defaultColDef,
     }),
