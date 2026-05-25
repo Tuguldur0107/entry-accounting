@@ -37,6 +37,7 @@ const NUM = {
   cellClass: "ag-right-aligned-cell font-mono",
   headerClass: "ag-right-aligned-header",
   valueFormatter: moneyValueFormatter,
+  filter: "agNumberColumnFilter",
   width: 120,
 } satisfies Partial<ColDef<BalanceRowVM>>;
 

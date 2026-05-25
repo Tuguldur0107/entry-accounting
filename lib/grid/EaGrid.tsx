@@ -52,11 +52,17 @@ function EaGridInner<TData>(
 
   useImperativeHandle(ref, () => ({ api: apiRef.current }), []);
 
+  // Default column behaviour. `filter: true` + `floatingFilter: true`
+  // mirrors Excel-style header search (each column header gets a small
+  // input strip below it). Surfaces that don't want filtering (structured
+  // financial reports, the journal-entry editor) override these flags
+  // on their own `defaultColDef`.
   const mergedDefaultColDef = useMemo(
     () => ({
       resizable: true,
       sortable: true,
-      filter: false,
+      filter: "agTextColumnFilter",
+      floatingFilter: true,
       suppressMovable: true,
       ...defaultColDef,
     }),
@@ -110,16 +116,22 @@ function EaGridInner<TData>(
         processDataFromClipboard={handleClipboard}
         animateRows={false}
         suppressDragLeaveHidesColumns
-        // cellSelection is an enterprise-only feature in AG Grid v35.
-        // Default to off; surfaces that need range copy/paste can opt in
-        // (or override once enterprise is licensed). Text selection stays
-        // enabled so users can still highlight + Ctrl+C a single cell.
+        // `cellSelection` (range selection) is enterprise in AG Grid v35;
+        // keep it off. To still support Excel-style multi-row / multi-column
+        // copy in community we disable browser-native text selection and
+        // let AG Grid's row clipboard take over — Ctrl+C on selected rows
+        // emits TSV that pastes into Excel / Sheets preserving columns.
         cellSelection={false}
-        enableCellTextSelection
+        enableCellTextSelection={false}
         stopEditingWhenCellsLoseFocus
         singleClickEdit={false}
         suppressClickEdit={false}
-        rowSelection={{ mode: "multiRow", checkboxes: false, headerCheckbox: false }}
+        rowSelection={{
+          mode: "multiRow",
+          checkboxes: false,
+          headerCheckbox: false,
+          enableClickSelection: true,
+        }}
         {...rest}
       />
     </div>

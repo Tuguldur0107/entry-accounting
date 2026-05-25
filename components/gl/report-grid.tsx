@@ -456,6 +456,10 @@ export function ReportGrid({
       wrapperClassName="ea-report-grid rounded-md border border-[var(--ea-border)] overflow-hidden h-full"
       suppressCellFocus
       cellSelection={false}
+      // Statements are structured (section / group / subtotal / total),
+      // so per-column filters would hide context — opt out of the
+      // EaGrid Excel-style filter row defaults.
+      defaultColDef={{ filter: false, floatingFilter: false }}
     />
   );
 }

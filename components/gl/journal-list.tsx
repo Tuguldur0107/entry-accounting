@@ -116,11 +116,13 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         width: 110,
         cellClass: "font-mono text-xs",
         sortable: true,
+        filter: "agDateColumnFilter",
       },
       {
         headerName: "ID",
         field: "id",
         width: 80,
+        filter: "agTextColumnFilter",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <span
             className="font-mono text-[10px] text-[var(--ea-text-4)] select-all"
@@ -146,6 +148,9 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         flex: 1,
         minWidth: 160,
         sortable: false,
+        // Compound column (lists every line of a voucher) — built-in
+        // filters can't introspect multi-line cell renderers, so skip.
+        filter: false,
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px]">
             {p.data?.lines.map((l) => (
@@ -163,6 +168,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         sortable: false,
+        filter: false,
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px] items-end">
             {p.data?.lines.map((l) => {
@@ -187,6 +193,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         sortable: false,
+        filter: false,
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px] items-end">
             {p.data?.lines.map((l) => {
@@ -209,6 +216,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         colId: "lines.description",
         width: 160,
         sortable: false,
+        filter: false,
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px]">
             {p.data?.lines.map((l) => (
@@ -224,6 +232,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         field: "status",
         width: 120,
         sortable: true,
+        filter: "agTextColumnFilter",
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => {
@@ -253,6 +262,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         colId: "actions",
         width: 120,
         sortable: false,
+        filter: false,
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => {

@@ -448,6 +448,11 @@ export function JournalEntryForm({
               undoRedoCellEditingLimit={100}
               suppressClickEdit={false}
               wrapperClassName="ea-journal-lines"
+              // Editing surface — no filter row, keep cell-level text
+              // selection so the user can highlight inside the Тайлбар
+              // text column while typing.
+              defaultColDef={{ filter: false, floatingFilter: false }}
+              enableCellTextSelection
             />
           </div>
         </div>

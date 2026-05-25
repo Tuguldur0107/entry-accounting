@@ -404,7 +404,9 @@ export function AccountsTable({
         cellClass: "flex items-center justify-center",
         headerClass: "ag-right-aligned-header",
         sortable: false,
-        filter: "agSetColumnFilter",
+        // agSetColumnFilter is enterprise — text filter "Тийм" / "Үгүй" works
+        // in community and matches the same string values.
+        filter: "agTextColumnFilter",
         valueGetter: (p) => {
           if (p.data?.kind !== "row") return "";
           return parseMods(p.data.effModules).includes(mod) ? "Тийм" : "Үгүй";
