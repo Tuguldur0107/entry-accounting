@@ -17,11 +17,13 @@ type FieldProps = {
   hint?: string;
   error?: string;
   autoComplete?: string;
+  autoFocus?: boolean;
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
 };
 
 export function EAField({
   label, value, onChange, placeholder, type = 'text',
-  icon, hint, error, autoComplete,
+  icon, hint, error, autoComplete, autoFocus, onKeyDown,
 }: FieldProps) {
   const [focused, setFocused] = React.useState(false);
   const [showPw, setShowPw] = React.useState(false);
@@ -73,6 +75,8 @@ export function EAField({
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          autoFocus={autoFocus}
+          onKeyDown={onKeyDown}
           style={{
             flex: 1,
             padding: '12px 14px',

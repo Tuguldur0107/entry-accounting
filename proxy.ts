@@ -1,9 +1,5 @@
-import NextAuth from "next-auth";
+import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import authConfig from "@/lib/auth.config";
-
-// Edge-safe NextAuth instance — uses only JWT decoding, no DB/bcrypt.
-const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth;

@@ -4,18 +4,23 @@
 хийгдсэн ажил болон үлдсэн зүйлсийн жагсаалт. Маргааш Macbook дээрээс
 үргэлжлүүлэхэд хэрэгтэй.
 
+> ⚠️ **2026-05-18 залруулга**: Эхний review-д "`proxy.ts` нь Next.js-д
+> таниулагдахгүй байна" гэж буруу мэдэгдсэн. Next.js 16-аас эхлэн
+> `middleware` файлын convention нь **`proxy`** болж шинэчлэгдсэн
+> (https://nextjs.org/docs/messages/middleware-to-proxy). Анхны `proxy.ts`
+> бүрэн ажиллаж байсан, Node.js runtime-д ажилладаг тул `bcryptjs`/`postgres-js`
+> импорт асуудалгүй. AGENTS.md-д сэрэмжлүүлсэн "this is NOT the Next.js
+> you know" анхааруулгыг анхаараагүйн алдаа. Тус коммитоор middleware/auth
+> split-г бүгдийг буцаан сэргээв.
+
 ## ✅ Хийгдсэн (энэ PR)
 
 ### P0 — критикал
 
-- **`proxy.ts → middleware.ts` нэр өөрчилсөн**. Файл нь Next.js-д таниулагдахгүй
-  байсан тул `(standalone)` routes (журнал шинээр бичих/засах хуудсууд) auth
-  guard-гүй байсан. Одоо middleware бүх routes дээр ажиллана.
-- **NextAuth config split хийсэн** — Edge runtime-д `bcryptjs` болон `postgres-js`
-  орохгүй болсон.
-    - **NEW** `lib/auth.config.ts` — providers байхгүй, JWT callbacks, pages
-    - `lib/auth.ts` — `...authConfig` spread + Credentials provider
-    - `middleware.ts` — `NextAuth(authConfig)` instance, no DB/bcrypt
+- ~~`proxy.ts → middleware.ts` нэр өөрчилсөн~~ — **БУЦААСАН**.
+  Next.js 16-д `proxy.ts` нь зөв convention.
+- ~~NextAuth config split хийсэн (`lib/auth.config.ts`)~~ — **БУЦААСАН**.
+  Proxy нь Node.js runtime тул split хэрэггүй байсан.
 - **`createVoucher`/`updateVoucher`/`deleteVoucher` транзакц болгосон**.
   Орфан voucher үүсэх эрсдэлийг арилгасан.
 - **Posted journal lock** серверт хэрэгжүүлсэн.
@@ -38,6 +43,9 @@
 
 - **Dead code устгасан**: `components/gl/journal-entry-modal.tsx` (411 мөр),
   `lib/store/gl-store.ts` (24 мөр).
+- **`EAField` prop type засвар**: `autoFocus` болон `onKeyDown` prop-ыг
+  `FieldProps`-д нэмж input-руу дамжуулсан. `npm run build` энэ pre-existing
+  алдаагаар блоклогдож байсан — одоо typecheck цэвэр.
 
 ---
 
@@ -110,7 +118,8 @@ npx drizzle-kit migrate
 # эсвэл (dev only):
 npx drizzle-kit push
 
-npx tsc --noEmit   # 9 алдаа гарна — бүгд EAField prop type (pre-existing)
+npx tsc --noEmit   # цэвэр (0 алдаа)
+npm run build      # production build шалгах
 npm run dev
 ```
 
