@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV_ITEMS = [
   { label: "Ерөнхий журнал", href: "/gl/journal" },
+  { label: "Мөнгөн гүйлгээ", href: "/cash/transactions" },
 ];
 
 export default async function DashboardLayout({

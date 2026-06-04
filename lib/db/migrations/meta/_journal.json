@@ -15,6 +15,13 @@
       "when": 1779040262574,
       "tag": "0001_overjoyed_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780565855324,
+      "tag": "0002_crazy_thanos",
+      "breakpoints": true
     }
   ]
 }

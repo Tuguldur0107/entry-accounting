@@ -95,6 +95,7 @@
 
 ### Plan (CLAUDE.md ёсоор хараахан хийгээгүй модулиуд)
 
+- [x] **Cash модуль V1** (2026-06-04) — доорх "Cash модуль" хэсгийг үз
 - [ ] **Period систем** (open/closed status, period close workflow)
 - [ ] **Reversing entry UI** (posted journal-г сторно бичилтээр амлахл)
 - [ ] **`adjustment_type` багана** (regular/prior_period/closing/reversing/fx_reval/accrual)
@@ -104,6 +105,34 @@
 - [ ] **AI agent** (expert accountant — draft-first guardrail)
 - [ ] **Effective-date lookup** (татварын хувь огноогоор)
 - [ ] **Large-amount approval** (>10M₮ нягтланч баталгаажуулах)
+
+---
+
+## 🏦 Cash модуль V1 (2026-06-04)
+
+Spec: [`knowledge/.../workflows/cash-management.md`](knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/cash-management.md)
+
+### ✅ Хийгдсэн
+- **Schema**: `bank_accounts`, `bank_transactions` + **CHECK constraint**
+  (`direction`, `cf_category`, `status`, `recon_status`, `amount>=0`) —
+  GL `status` чөлөөт-text gap-ийг энд давтаагүй. Migration `0002_crazy_thanos.sql`.
+- **Server actions** [`lib/actions/cash.ts`](lib/actions/cash.ts): банкны данс CRUD;
+  гүйлгээ create/update/post/delete — бүгд `db.transaction` дотор, **posted-lock**
+  (бичигдсэнийг засах/устгахыг хорьж сторно шаардана), post үед **GL журнал
+  автомат үүсгэнэ** (inflow: Dr банк/Cr эсрэг; outflow: Dr эсрэг/Cr банк).
+- **UI** [`app/(dashboard)/cash/*`](app/(dashboard)/cash) + [`components/cash/*`](components/cash):
+  Гүйлгээ (жагсаалт + add/edit dialog + summary), Дансууд, Тайлан (Үлдэгдэл +
+  Direct cash flow by IAS 7 ангилал). Topbar nav-д "Мөнгөн гүйлгээ" нэмэв.
+- **Live test (8/8)**: CHECK reject (bad direction/cf_category/negative),
+  posting balance D=C, voucher холбоос, үлдэгдэл тооцоо, cascade delete. Routes 200.
+
+### ❌ Cash follow-up (дараагийн фаз)
+- [ ] **Reconciliation** — bank statement vs систем тулгалт (`/cash/reconciliation`)
+- [ ] **Statement import** — CSV/Excel auto-match
+- [ ] **AR/AP холболт** — `source='ar'|'ap'` автомат гүйлгээ (E2/E4)
+- [ ] **Multi-currency FX reval** — IAS 21 period-close
+- [ ] **Indirect cash flow** тайлан (цэвэр ашгаас reconciliation)
+- [ ] **Reversing entry UI** — posted гүйлгээг сторнодох (GL-тэй хамт)
 
 ---
 
