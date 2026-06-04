@@ -115,6 +115,28 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-po
 | Үйл ажиллагааны зардал | 7XXXXXXX | `72100000` Цалингийн зардал |
 | Санхүүгийн зардал | 8XXXXXXX | `87100001` Хүүгийн зардал |
 
+---
+
+## ⛔ Сегментийн код — ЗААВАЛ МӨРДӨХ ДҮРЭМ
+
+Knowledge: `knowledge/03-стандарт/segment-coding-rules.md` · Реализаци: **`lib/segments.ts`**
+
+GL дансны код = 10 сегментийн composite: `S1.S2.S3.S4.S5.S6.S7.S8.S9.S10`
+(орон: 3,6,8,2,4,3,4,4,2,1). **Бүх журнал/тайлан/модуль `lib/segments.ts`-ийн
+функцуудыг ЗААВАЛ ашиглана** — хуваагдсан логик (өөрийн `SEG_DEFAULTS`, гар
+`split(".")`) бичихийг хориглоно.
+
+1. **Хадгалах код үргэлж бүтэн 10 хэсэгтэй.** Идэвхтэй+утгатай → утга; идэвхтэй ч
+   хоосон / идэвхгүй (унтарсан) → **орон тоогоор нь ТЭГ** (`000`, `000000`, `00`…).
+   S9 (Модуль) онцгол — хэзээ ч тэг биш (`GL`/`AR`…). `buildSegmentCode()`.
+2. **Унтарсан сегмент** UI-д харагдахгүй ч DB-д тэг default-аар хадгалагдана.
+   Идэвхтэй жагсаалт `computeActiveSegIds()` (S3 үргэлж идэвхтэй; тохиргоо
+   байхгүй → идэвхтэй).
+3. **Тайлан сегмент ашиглаагүй бол** тэр сегментийн бүх утгыг **НИЙЛБЭРЛЭНЭ**
+   (group хийхгүй). GL trial balance = S3-аар нийлбэр. `extractMainAccount()`.
+4. Дүнтэй мөрийн **S3 тэг байж болохгүй** (`isValidLine`). Касс/банк (10/11) бол
+   S8 != `0000`.
+
 ### 4. Period систем (төлөвлөгдсөн)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md`
@@ -266,6 +288,8 @@ Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
 | Нөхцөл | Унших файл |
 |--------|-----------|
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
+| **Сегментийн код дүрэм (заавал)** | `knowledge/03-стандарт/segment-coding-rules.md` → `lib/segments.ts` |
+| Cash модуль workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/cash-management.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |
 | НӨАТ тайлан workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md` |

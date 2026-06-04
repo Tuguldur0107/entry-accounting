@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { chartOfAccounts, journalVouchers, segmentConfigs, segmentValues } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { computeActiveSegIds } from "@/lib/segments";
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
 import { notFound } from "next/navigation";
 
@@ -29,11 +29,7 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
 
   if (!voucher || voucher.status === "posted") notFound();
 
-  const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
-
-  const activeSegIds = SEGMENT_DEFS
-    .filter((def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true)
-    .map((def) => def.id);
+  const activeSegIds = computeActiveSegIds(rawSegConfigs);
 
   const defaultSegments: Record<number, string> = {};
   if (activeSegIds.includes(1)) {

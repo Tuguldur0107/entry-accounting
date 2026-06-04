@@ -108,6 +108,36 @@
 
 ---
 
+## 🔢 Сегментийн системийн засвар (2026-06-04)
+
+Дүрэм: [`knowledge/03-стандарт/segment-coding-rules.md`](knowledge/03-стандарт/segment-coding-rules.md) ·
+Реализаци: [`lib/segments.ts`](lib/segments.ts) · CLAUDE.md "⛔ Сегментийн код" дүрэм нэмэв.
+
+### ✅ Засагдсан (3 invariant)
+1. **Zero-fill** — унтарсан/хоосон сегмент DB-д орон тоогоор нь **ТЭГ** бичигдэнэ
+   (өмнө нь `""` хоосон байсан). `000.000000.51100000.00.0000.000.0000.0000.GL.0`.
+   S9 (модуль) онцгол — `GL`.
+2. **Default-ON consistency** — `computeActiveSegIds()` нэг эх сурвалж: тохиргоо
+   байхгүй → идэвхтэй. Өмнө config-tab (`?? true`) ба журнал хуудас (`=== true`)
+   зөрж байсныг арилгав. S3 үргэлж идэвхтэй.
+3. **Тайлан нийлбэр** — тайлан сегмент ашиглаагүй бол **S3-аар group хийж
+   нийлбэрлэнэ** (`extractMainAccount`). Өмнө бүтэн composite-аар задалж нэг
+   данс олон мөр болдог байсан.
+
+- Бүх логик `lib/segments.ts`-д төвлөрсөн (form/list/reports/4 page хуваалцана).
+  Хуваагдсан `SEG_DEFAULTS`/гар `split(".")`-ийг устгав.
+- gl.ts `isValidLine`: дүнтэй мөрийн **S3 тэг (00000000) байхыг хориглов**.
+- **Live test 13/13**: zero-fill, parse round-trip, display нуулт, S3 нийлбэр
+  (3×S1→1 мөр), plain cash extract, default-ON, S3 lock. tsc/eslint цэвэр,
+  бүх 6 route HTTP 200.
+
+### ❌ Сегмент follow-up
+- [ ] Тайланд сегмент сонгож "зүсэх" UI (S2/S5/S8-аар breakdown) — §7.8 бусад зүсэлт
+- [ ] Cash модулийн GL posting-ийг composite код руу шилжүүлэх (одоо plain 8-оронт)
+- [ ] Хуучин өгөгдөл байгаа бол migration (одоо production өгөгдөлгүй тул шаардлагагүй)
+
+---
+
 ## 🏦 Cash модуль V1 (2026-06-04)
 
 Spec: [`knowledge/.../workflows/cash-management.md`](knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/cash-management.md)

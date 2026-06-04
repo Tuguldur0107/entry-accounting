@@ -15,8 +15,17 @@ import { eq, and, sql } from "drizzle-orm";
 import {
   STANDARD_ACCOUNTS,
   SEGMENT_DEFS,
-  getSegmentKey,
 } from "@/lib/constants/standard-accounts";
+import { extractMainAccount, isZeroSegment } from "@/lib/segments";
+
+/** Мөр хүчинтэй: данс сонгосон, үндсэн данс (S3) тэг биш, дүнтэй. */
+function isValidLine(l: { account: string; debit: number; credit: number }) {
+  return (
+    !!l.account &&
+    !isZeroSegment(extractMainAccount(l.account)) &&
+    (l.debit > 0 || l.credit > 0)
+  );
+}
 
 async function requireUser() {
   const session = await auth();
@@ -286,9 +295,7 @@ export async function createVoucher(data: {
   const userId = await requireUser();
   const status = data.status ?? "posted";
 
-  const validLines = data.lines.filter(
-    (l) => l.account && (l.debit > 0 || l.credit > 0)
-  );
+  const validLines = data.lines.filter(isValidLine);
   if (validLines.length < 2) throw new Error("Дор хаяж 2 мөр оруулна уу");
 
   if (status === "posted") {
@@ -355,9 +362,7 @@ export async function updateVoucher(
 ) {
   const userId = await requireUser();
 
-  const validLines = data.lines.filter(
-    (l) => l.account && (l.debit > 0 || l.credit > 0)
-  );
+  const validLines = data.lines.filter(isValidLine);
   if (validLines.length < 2) throw new Error("Дор хаяж 2 мөр оруулна уу");
 
   if (data.status === "posted") {

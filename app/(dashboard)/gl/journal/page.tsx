@@ -1,32 +1,25 @@
 import { db } from "@/lib/db";
-import { journalVouchers, chartOfAccounts, segmentConfigs } from "@/lib/db/schema";
+import { journalVouchers, segmentConfigs } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { desc } from "drizzle-orm";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { computeActiveSegIds } from "@/lib/segments";
 import { JournalList } from "@/components/gl/journal-list";
 
 export default async function JournalPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const [vouchers, accounts, rawSegConfigs] = await Promise.all([
+  const [vouchers, rawSegConfigs] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: eq(journalVouchers.userId, userId),
       with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
       orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
     }),
-    db.query.chartOfAccounts.findMany({
-      where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
-      orderBy: (a, { asc }) => [asc(a.number)],
-    }),
     db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
   ]);
 
-  const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
-  const activeSegIds = SEGMENT_DEFS
-    .filter((def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true)
-    .map((def) => def.id);
+  const activeSegIds = computeActiveSegIds(rawSegConfigs);
 
-  return <JournalList vouchers={vouchers} accounts={accounts} activeSegIds={activeSegIds} />;
+  return <JournalList vouchers={vouchers} activeSegIds={activeSegIds} />;
 }

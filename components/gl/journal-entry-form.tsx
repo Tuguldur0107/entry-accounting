@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { createVoucher, updateVoucher } from "@/lib/actions/gl";
 import { SEGMENT_DEFS, ACCOUNT_GROUPS } from "@/lib/constants/standard-accounts";
+import { buildSegmentCode, parseSegmentCode } from "@/lib/segments";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
 
 function closeWindow() {
@@ -230,7 +231,7 @@ function AccountPicker({
   const triggerRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
-  const parts = parseSegParts(value, activeSegIds);
+  const parts = parseSegmentCode(value, activeSegIds);
   const display = activeSegIds.map((id) => parts[id] ?? "").filter(Boolean).join(".");
 
   function openPopup() {
@@ -240,12 +241,12 @@ function AccountPicker({
     const left = Math.min(r.left, window.innerWidth - popupW - 8);
     setPos({ top: r.bottom + 4, left });
     // Initialize draft from current value
-    setDraft(parseSegParts(value, activeSegIds));
+    setDraft(parseSegmentCode(value, activeSegIds));
     setOpen(true);
   }
 
   function confirm() {
-    onChange(buildSegCode(draft, activeSegIds, extraDefaults));
+    onChange(buildSegmentCode(draft, activeSegIds, extraDefaults));
     setOpen(false);
   }
 
@@ -385,42 +386,7 @@ function AccountPicker({
   );
 }
 
-// Default values for inactive segments
-const SEG_DEFAULTS: Record<number, string> = {
-  1: "", 2: "", 3: "", 4: "", 5: "",
-  6: "000",   // Intercompany — тохиохгүй
-  7: "0000",  // Related party — тохиохгүй
-  8: "",
-  9: "GL",    // Module — General Ledger
-  10: "0",    // Reserve
-};
-
-const ALL_SEG_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-// Parse active segment values from a stored 10-part or partial code
-function parseSegParts(code: string, activeSegIds: number[]): Record<number, string> {
-  const parts = code.split(".");
-  if (parts.length === 10) {
-    // Full 10-segment code: extract by absolute position
-    return Object.fromEntries(activeSegIds.map((id) => [id, parts[id - 1] ?? ""]));
-  }
-  // Legacy partial code: map by index order
-  return Object.fromEntries(activeSegIds.map((id, i) => [id, parts[i] ?? ""]));
-}
-
-// Always build a full 10-segment code; inactive segments use SEG_DEFAULTS
-function buildSegCode(
-  activeParts: Record<number, string>,
-  activeSegIds: number[],
-  extraDefaults: Record<number, string> = {}
-): string {
-  return ALL_SEG_IDS.map((id) => {
-    if (activeSegIds.includes(id)) return activeParts[id] ?? "";
-    return extraDefaults[id] ?? SEG_DEFAULTS[id] ?? "";
-  }).join(".");
-}
+// Сегментийн build/parse логик нь lib/segments.ts-д төвлөрсөн (single source of truth).
 
 // ─── Main form ────────────────────────────────────────────────────────────────
 interface InitialVoucher {
@@ -452,7 +418,7 @@ export function JournalEntryForm({
   function makeEmptyLine(): Line {
     const parts: Record<number, string> = {};
     for (const id of activeSegIds) parts[id] = defaultSegments[id] ?? "";
-    return { account: buildSegCode(parts, activeSegIds, defaultSegments), debit: "", credit: "", description: "" };
+    return { account: buildSegmentCode(parts, activeSegIds, defaultSegments), debit: "", credit: "", description: "" };
   }
 
   const [date, setDate] = useState(initialVoucher?.date ?? today);

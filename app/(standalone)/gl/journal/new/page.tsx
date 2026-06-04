@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { chartOfAccounts, segmentConfigs, segmentValues } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { computeActiveSegIds } from "@/lib/segments";
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
 
 export default async function NewJournalPage() {
@@ -21,12 +21,8 @@ export default async function NewJournalPage() {
     }),
   ]);
 
-  const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
-
-  // S3 always shows. Others: only if isEnabled=true in segmentConfigs.
-  const activeSegIds = SEGMENT_DEFS
-    .filter((def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true)
-    .map((def) => def.id);
+  // S3 always shows. Others: enabled unless explicitly disabled (тохиргоо байхгүй → идэвхтэй).
+  const activeSegIds = computeActiveSegIds(rawSegConfigs);
 
   // §7.4 — S1 auto-fill: if only one company, pre-fill all lines
   const defaultSegments: Record<number, string> = {};

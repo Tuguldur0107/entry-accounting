@@ -3,7 +3,8 @@
 import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { deleteVoucher, postVoucher } from "@/lib/actions/gl";
-import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
+import { formatSegmentDisplay } from "@/lib/segments";
+import type { JournalVoucherWithLines } from "@/lib/db/schema";
 
 const PAGE_SIZE = 15;
 
@@ -15,11 +16,10 @@ const fmt = (n: number | string) =>
 
 interface Props {
   vouchers: JournalVoucherWithLines[];
-  accounts: ChartOfAccount[];
   activeSegIds: number[];
 }
 
-export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
+export function JournalList({ vouchers, activeSegIds }: Props) {
   const today = new Date();
   const defaultStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
   const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
@@ -33,14 +33,9 @@ export function JournalList({ vouchers, accounts, activeSegIds }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   function AccountCell({ code }: { code: string }) {
-    const parts = code.split(".");
-    const display =
-      parts.length === 10
-        ? activeSegIds.map((id) => parts[id - 1]).join(".")
-        : code;
     return (
       <span className="font-mono text-xs text-[#1E3A5F] tracking-tight">
-        {display}
+        {formatSegmentDisplay(code, activeSegIds)}
       </span>
     );
   }

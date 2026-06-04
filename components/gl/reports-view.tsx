@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { extractMainAccount } from "@/lib/segments";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 
 const PAGE_SIZE = 20;
@@ -17,7 +18,6 @@ const firstOfMonth = today.slice(0, 7) + "-01";
 interface Props {
   vouchers: JournalVoucherWithLines[];
   accounts: ChartOfAccount[];
-  activeSegIds: number[];
 }
 
 type Row = {
@@ -31,7 +31,7 @@ type Row = {
   closeCredit: number;
 };
 
-export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
+export function ReportsView({ vouchers, accounts }: Props) {
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(today);
   const [appliedFrom, setAppliedFrom] = useState(firstOfMonth);
@@ -42,25 +42,6 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
     () => Object.fromEntries(accounts.map((a) => [a.number, a.name])),
     [accounts]
   );
-
-  // Extract S3 account code from composite segment code, then look up name
-  function resolveAccountName(code: string): string {
-    if (accountMap[code]) return accountMap[code];
-    const parts = code.split(".");
-    if (parts.length > 1) {
-      const s3Pos = activeSegIds.indexOf(3);
-      // Position match when code parts count equals active segment count
-      if (s3Pos !== -1 && parts.length === activeSegIds.length) {
-        const name = accountMap[parts[s3Pos] ?? ""];
-        if (name) return name;
-      }
-      // Fallback: try each part
-      for (const part of parts) {
-        if (accountMap[part]) return accountMap[part];
-      }
-    }
-    return "";
-  }
 
   function handleSearch() {
     setAppliedFrom(dateFrom);
@@ -86,14 +67,16 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
       v.lines.forEach((l) => {
         const d = Number(l.debit);
         const c = Number(l.credit);
-        ensure(l.accountNumber);
+        // Тайлан сегментийг ашиглахгүй — үндсэн данс (S3)-аар нийлбэрлэнэ.
+        const acct = extractMainAccount(l.accountNumber);
+        ensure(acct);
 
         if (beforePeriod) {
-          map[l.accountNumber].openD += d;
-          map[l.accountNumber].openC += c;
+          map[acct].openD += d;
+          map[acct].openC += c;
         } else if (inPeriod) {
-          map[l.accountNumber].periodD += d;
-          map[l.accountNumber].periodC += c;
+          map[acct].periodD += d;
+          map[acct].periodC += c;
         }
       });
     });
@@ -111,7 +94,7 @@ export function ReportsView({ vouchers, accounts, activeSegIds }: Props) {
 
         return {
           number,
-          name: resolveAccountName(number),
+          name: accountMap[number] ?? "",
           openDebit,
           openCredit,
           periodDebit: t.periodD,
