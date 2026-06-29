@@ -8,7 +8,7 @@ import {
   isBalanced,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
-import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { moneyValueFormatter } from "@/lib/grid/formatters";
 import type { ColDef, ColGroupDef } from "ag-grid-community";
 
@@ -37,7 +37,6 @@ const NUM = {
   cellClass: "ag-right-aligned-cell font-mono",
   headerClass: "ag-right-aligned-header",
   valueFormatter: moneyValueFormatter,
-  filter: "agNumberColumnFilter",
   width: 120,
 } satisfies Partial<ColDef<BalanceRowVM>>;
 
@@ -95,7 +94,7 @@ export function GlBalanceView({
 
   // Standard: ONE "Данс" column showing the segments joined with ".".
   // Width is left to AG Grid's `autoSizeStrategy: fitCellContents` (wired on
-  // the EaGrid prop below) so the column hugs the longest visible value.
+  // the DataGrid prop below) so the column hugs the longest visible value.
   const columnDefs = useMemo<(ColDef<BalanceRowVM> | ColGroupDef<BalanceRowVM>)[]>(() => {
     const accountCol: ColDef<BalanceRowVM> = {
       headerName: "Данс",
@@ -164,7 +163,7 @@ export function GlBalanceView({
   return (
     <div className="flex flex-col gap-3 flex-1 min-h-0">
       <div className="flex-1 min-h-0">
-        <EaGridDynamic<BalanceRowVM>
+        <DataGridDynamic<BalanceRowVM>
           rowData={rowData}
           columnDefs={columnDefs}
           getRowId={(p) => p.data.id}

@@ -1,6 +1,11 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+
 export function NewJournalButton() {
+  const pathname = usePathname();
+  if (!pathname.startsWith("/gl")) return null;
+
   return (
     <button
       type="button"

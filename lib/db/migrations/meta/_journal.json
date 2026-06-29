@@ -15,6 +15,13 @@
       "when": 1779040262574,
       "tag": "0001_overjoyed_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782717708076,
+      "tag": "0002_cash_management",
+      "breakpoints": true
     }
   ]
 }

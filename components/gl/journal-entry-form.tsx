@@ -11,7 +11,7 @@ import type {
 import { createVoucher, updateVoucher } from "@/lib/actions/gl";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
-import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
   buildSegCode,
@@ -227,6 +227,7 @@ export function JournalEntryForm({
         width: 44,
         editable: false,
         sortable: false,
+        filter: false,
         cellClass: "flex items-center justify-center",
         cellRenderer: (p: ICellRendererParams<LineRow>) => {
           const id = p.data?.id;
@@ -434,7 +435,7 @@ export function JournalEntryForm({
               overflow: "hidden",
             }}
           >
-            <EaGridDynamic<LineRow>
+            <DataGridDynamic<LineRow>
               rowData={lines}
               columnDefs={columnDefs}
               getRowId={(p) => p.data.id}
@@ -448,10 +449,6 @@ export function JournalEntryForm({
               undoRedoCellEditingLimit={100}
               suppressClickEdit={false}
               wrapperClassName="ea-journal-lines"
-              // Editing surface — no filter row, keep cell-level text
-              // selection so the user can highlight inside the Тайлбар
-              // text column while typing.
-              defaultColDef={{ filter: false, floatingFilter: false }}
               enableCellTextSelection
             />
           </div>

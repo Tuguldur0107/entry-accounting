@@ -67,6 +67,63 @@ export const journalLines = pgTable("journal_lines", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
+// ─── Cash Management ─────────────────────────────────────────────────────────
+
+export const cashAccounts = pgTable("cash_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  accountType: text("account_type").notNull(), // "cash" | "bank"
+  bankName: text("bank_name"),
+  accountNumber: text("account_number"),
+  currency: text("currency").notNull().default("MNT"),
+  glAccountNumber: text("gl_account_number").notNull(),
+  openingBalance: numeric("opening_balance", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const cashDocuments = pgTable(
+  "cash_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentNo: text("document_no").notNull(),
+    documentType: text("document_type").notNull(), // "receipt" | "payment" | "transfer"
+    date: text("date").notNull(),
+    fromCashAccountId: uuid("from_cash_account_id").references(
+      () => cashAccounts.id,
+      { onDelete: "restrict" }
+    ),
+    toCashAccountId: uuid("to_cash_account_id").references(
+      () => cashAccounts.id,
+      { onDelete: "restrict" }
+    ),
+    counterAccountNumber: text("counter_account_number"),
+    cashFlowCode: text("cash_flow_code"),
+    counterparty: text("counterparty"),
+    description: text("description").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
+    voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+      onDelete: "set null",
+    }),
+    reversalVoucherId: uuid("reversal_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
+    postedAt: timestamp("posted_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [unique().on(t.userId, t.documentNo)]
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -75,6 +132,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   moduleConfigs: many(moduleConfigs),
   segmentConfigs: many(segmentConfigs),
   segmentValues: many(segmentValues),
+  cashAccounts: many(cashAccounts),
+  cashDocuments: many(cashDocuments),
 }));
 
 export const chartOfAccountsRelations = relations(chartOfAccounts, ({ one }) => ({
@@ -90,6 +149,49 @@ export const journalLinesRelations = relations(journalLines, ({ one }) => ({
   voucher: one(journalVouchers, {
     fields: [journalLines.voucherId],
     references: [journalVouchers.id],
+  }),
+}));
+
+export const cashAccountsRelations = relations(
+  cashAccounts,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [cashAccounts.userId],
+      references: [users.id],
+    }),
+    outgoingDocuments: many(cashDocuments, {
+      relationName: "cashDocumentFromAccount",
+    }),
+    incomingDocuments: many(cashDocuments, {
+      relationName: "cashDocumentToAccount",
+    }),
+  })
+);
+
+export const cashDocumentsRelations = relations(cashDocuments, ({ one }) => ({
+  user: one(users, {
+    fields: [cashDocuments.userId],
+    references: [users.id],
+  }),
+  fromAccount: one(cashAccounts, {
+    fields: [cashDocuments.fromCashAccountId],
+    references: [cashAccounts.id],
+    relationName: "cashDocumentFromAccount",
+  }),
+  toAccount: one(cashAccounts, {
+    fields: [cashDocuments.toCashAccountId],
+    references: [cashAccounts.id],
+    relationName: "cashDocumentToAccount",
+  }),
+  voucher: one(journalVouchers, {
+    fields: [cashDocuments.voucherId],
+    references: [journalVouchers.id],
+    relationName: "cashDocumentVoucher",
+  }),
+  reversalVoucher: one(journalVouchers, {
+    fields: [cashDocuments.reversalVoucherId],
+    references: [journalVouchers.id],
+    relationName: "cashDocumentReversalVoucher",
   }),
 }));
 
@@ -208,3 +310,5 @@ export type SegmentConfig = typeof segmentConfigs.$inferSelect;
 export type SegmentValue = typeof segmentValues.$inferSelect;
 export type ModuleConfig = typeof moduleConfigs.$inferSelect;
 export type ReportLineMapping = typeof reportLineMappings.$inferSelect;
+export type CashAccount = typeof cashAccounts.$inferSelect;
+export type CashDocument = typeof cashDocuments.$inferSelect;

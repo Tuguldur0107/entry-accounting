@@ -5,6 +5,9 @@ import {
   User,
   Building2,
   Settings as SettingsIcon,
+  LayoutDashboard,
+  ArrowLeftRight,
+  Landmark,
 } from "lucide-react";
 
 export type ModuleItem = {
@@ -30,6 +33,21 @@ export const MODULES: Module[] = [
     items: [
       { label: "Журналын жагсаалт", href: "/gl/journal", icon: List },
       { label: "Тайлан", href: "/gl/reports", icon: BarChart3 },
+    ],
+  },
+  {
+    id: "cash",
+    label: "Мөнгөн хөрөнгө",
+    matchPrefix: "/cash",
+    defaultHref: "/cash",
+    items: [
+      { label: "Хяналтын самбар", href: "/cash", icon: LayoutDashboard },
+      {
+        label: "Орлого, зарлага",
+        href: "/cash/transactions",
+        icon: ArrowLeftRight,
+      },
+      { label: "Касс, банкны данс", href: "/cash/accounts", icon: Landmark },
     ],
   },
   {

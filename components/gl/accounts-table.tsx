@@ -34,7 +34,7 @@ import {
   type ModuleKey,
 } from "@/lib/constants/standard-accounts";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
-import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import type { ColDef, ICellRendererParams, RowClassParams } from "ag-grid-community";
 
 interface SegmentConfigRow {
@@ -331,7 +331,6 @@ export function AccountsTable({
         colId: "code",
         width: 140,
         cellClass: "font-mono text-xs",
-        filter: "agTextColumnFilter",
         valueGetter: (p) =>
           p.data?.kind === "row" ? p.data.code : p.data?.groupKey,
         cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
@@ -363,7 +362,6 @@ export function AccountsTable({
         colId: "name",
         flex: 1,
         minWidth: 240,
-        filter: "agTextColumnFilter",
         valueGetter: (p) =>
           p.data?.kind === "row" ? p.data.name : p.data?.groupLabel,
         cellRenderer: (p: ICellRendererParams<AcctGridRow>) => {
@@ -404,9 +402,6 @@ export function AccountsTable({
         cellClass: "flex items-center justify-center",
         headerClass: "ag-right-aligned-header",
         sortable: false,
-        // agSetColumnFilter is enterprise — text filter "Тийм" / "Үгүй" works
-        // in community and matches the same string values.
-        filter: "agTextColumnFilter",
         valueGetter: (p) => {
           if (p.data?.kind !== "row") return "";
           return parseMods(p.data.effModules).includes(mod) ? "Тийм" : "Үгүй";
@@ -440,7 +435,6 @@ export function AccountsTable({
       colId: "isEnabled",
       width: 90,
       sortable: false,
-      filter: "agTextColumnFilter",
       cellClass: "flex items-center justify-center",
       valueGetter: (p) =>
         p.data?.kind === "row" ? (p.data.effIsEnabled ? "Тийм" : "Үгүй") : "",
@@ -813,7 +807,7 @@ export function AccountsTable({
                   Данс байхгүй — стандарт данс нэмэх товч дарна уу
                 </div>
               ) : (
-                <EaGridDynamic<AcctGridRow>
+                <DataGridDynamic<AcctGridRow>
                   rowData={s3GridRows}
                   columnDefs={columnDefs}
                   getRowId={(p) => p.data.id}
@@ -828,7 +822,7 @@ export function AccountsTable({
                 Утга байхгүй — + Утга нэмэх товч дарна уу
               </div>
             ) : (
-              <EaGridDynamic<AcctGridRow>
+              <DataGridDynamic<AcctGridRow>
                 rowData={svGridRows}
                 columnDefs={columnDefs}
                 getRowId={(p) => p.data.id}

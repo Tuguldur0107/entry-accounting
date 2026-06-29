@@ -7,7 +7,7 @@ import {
   unpostVoucher,
 } from "@/lib/actions/gl";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
-import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
@@ -116,13 +116,12 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         width: 110,
         cellClass: "font-mono text-xs",
         sortable: true,
-        filter: "agDateColumnFilter",
       },
       {
         headerName: "ID",
         field: "id",
         width: 80,
-        filter: "agTextColumnFilter",
+        valueGetter: (p) => p.data?.id.slice(0, 8) ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <span
             className="font-mono text-[10px] text-[var(--ea-text-4)] select-all"
@@ -148,9 +147,10 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         flex: 1,
         minWidth: 160,
         sortable: false,
-        // Compound column (lists every line of a voucher) — built-in
-        // filters can't introspect multi-line cell renderers, so skip.
-        filter: false,
+        valueGetter: (p) =>
+          p.data?.lines
+            .map((line) => fmtAccountDisplay(line.accountNumber, activeSegIds))
+            .join(" · ") ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px]">
             {p.data?.lines.map((l) => (
@@ -168,7 +168,12 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         sortable: false,
-        filter: false,
+        valueGetter: (p) =>
+          p.data?.lines
+            .map((line) => Number(line.debit))
+            .filter((amount) => amount !== 0)
+            .map(fmtMnt)
+            .join(" · ") ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px] items-end">
             {p.data?.lines.map((l) => {
@@ -193,7 +198,12 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         sortable: false,
-        filter: false,
+        valueGetter: (p) =>
+          p.data?.lines
+            .map((line) => Number(line.credit))
+            .filter((amount) => amount !== 0)
+            .map(fmtMnt)
+            .join(" · ") ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px] items-end">
             {p.data?.lines.map((l) => {
@@ -216,7 +226,8 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         colId: "lines.description",
         width: 160,
         sortable: false,
-        filter: false,
+        valueGetter: (p) =>
+          p.data?.lines.map((line) => line.description).join(" · ") ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px]">
             {p.data?.lines.map((l) => (
@@ -232,7 +243,11 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         field: "status",
         width: 120,
         sortable: true,
-        filter: "agTextColumnFilter",
+        valueGetter: (p) => {
+          if (p.data?.status === "posted") return "Бичигдсэн";
+          if (p.data?.status === "reversed") return "Буцаагдсан";
+          return "Ноорог";
+        },
         cellClass: "ag-right-aligned-cell",
         headerClass: "ag-right-aligned-header",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => {
@@ -326,7 +341,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
 
   return (
     <>
-      <EaGridDynamic<VoucherRow>
+      <DataGridDynamic<VoucherRow>
         rowData={filtered}
         columnDefs={columnDefs}
         getRowId={(p) => p.data.id}

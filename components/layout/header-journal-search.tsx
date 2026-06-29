@@ -29,18 +29,14 @@ export function HeaderJournalSearch() {
   const [start, setStart] = useState(searchParams.get("start") ?? defaults.start);
   const [end, setEnd] = useState(searchParams.get("end") ?? defaults.end);
 
+  if (!DATE_AWARE_PATHS.includes(pathname)) return null;
+
   function handleSearch() {
     const params = new URLSearchParams();
     if (start) params.set("start", start);
     if (end) params.set("end", end);
-    const onDateAwarePath = DATE_AWARE_PATHS.includes(pathname);
-    const basePath = onDateAwarePath ? pathname : "/gl/journal";
-    const target = `${basePath}${params.toString() ? `?${params.toString()}` : ""}`;
-    if (onDateAwarePath) {
-      router.replace(target);
-    } else {
-      router.push(target);
-    }
+    const target = `${pathname}${params.toString() ? `?${params.toString()}` : ""}`;
+    router.replace(target);
   }
 
   return (

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { ColDef, ICellRendererParams, RowClassParams } from "ag-grid-community";
-import { EaGridDynamic } from "@/lib/grid/EaGridDynamic";
+import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { moneyValueFormatter } from "@/lib/grid/formatters";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
 import { ChevronDown, ChevronRight, Eye, EyeOff, SlidersHorizontal, Trash2 } from "lucide-react";
@@ -148,7 +148,7 @@ export function ReportGrid({
   }, [rows]);
   // Standard: ONE "Данс" column showing the active segments joined with ".".
   // Column width is handled by AG Grid's `autoSizeStrategy: fitCellContents`
-  // (wired below on EaGridDynamic) so the column hugs the longest visible
+  // (wired below on DataGridDynamic) so the column hugs the longest visible
   // value across the active segments.
   const columnDefs = useMemo<ColDef<ReportRow>[]>(() => {
     const labelClass = (p: { data?: ReportRow }) => {
@@ -331,6 +331,7 @@ export function ReportGrid({
       width: 84,
       maxWidth: 100,
       sortable: false,
+      filter: false,
       suppressMovable: true,
       cellClass: "flex items-center justify-center",
       headerClass: "ag-center-aligned-header",
@@ -358,6 +359,7 @@ export function ReportGrid({
       width: 110,
       maxWidth: 140,
       sortable: false,
+      filter: false,
       suppressMovable: true,
       cellClass: "flex items-center justify-center gap-1",
       headerClass: "ag-center-aligned-header",
@@ -446,7 +448,7 @@ export function ReportGrid({
   // Default to filling the parent flex container; callers may still pass a
   // fixed `height` prop for embedded use-cases (modals, side panels).
   return (
-    <EaGridDynamic<ReportRow>
+    <DataGridDynamic<ReportRow>
       rowData={visibleRows}
       columnDefs={columnDefs}
       getRowId={(p) => p.data.id}
@@ -456,10 +458,6 @@ export function ReportGrid({
       wrapperClassName="ea-report-grid rounded-md border border-[var(--ea-border)] overflow-hidden h-full"
       suppressCellFocus
       cellSelection={false}
-      // Statements are structured (section / group / subtotal / total),
-      // so per-column filters would hide context — opt out of the
-      // EaGrid Excel-style filter row defaults.
-      defaultColDef={{ filter: false, floatingFilter: false }}
     />
   );
 }

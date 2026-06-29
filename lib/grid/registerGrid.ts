@@ -1,5 +1,5 @@
 // AG Grid v35 requires modules to be registered before any grid mounts.
-// Import this file ONLY from the EaGrid wrapper.
+// Import this file ONLY from the DataGrid wrapper.
 
 import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";
 

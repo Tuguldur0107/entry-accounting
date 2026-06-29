@@ -404,3 +404,21 @@
   border-color: color-mix(in srgb, var(--ea-danger) 35%, var(--ea-border-strong));
 }
 .ea-btn--danger:hover svg { color: var(--ea-danger); }
+
+/* ─── Shared compact form select ───────────────────────────────────────────── */
+.ea-form-select {
+  width: 100%;
+  height: 32px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--ea-border-strong);
+  border-radius: 8px;
+  color: var(--ea-text-1);
+  background: var(--ea-surface);
+  font-size: 13px;
+  outline: none;
+}
+.ea-form-select:focus {
+  border-color: var(--ea-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ea-primary) 18%, transparent);
+}
