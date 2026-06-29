@@ -124,6 +124,69 @@ export const cashDocuments = pgTable(
   (t) => [unique().on(t.userId, t.documentNo)]
 );
 
+export const bankStatements = pgTable(
+  "bank_statements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "restrict" }),
+    fileName: text("file_name").notNull(),
+    fileHash: text("file_hash").notNull(),
+    bankName: text("bank_name"),
+    periodStart: text("period_start"),
+    periodEnd: text("period_end"),
+    rowCount: integer("row_count").notNull().default(0),
+    totalIncome: numeric("total_income", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    totalExpense: numeric("total_expense", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    status: text("status").notNull().default("posted"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [unique().on(table.userId, table.fileHash)]
+);
+
+export const bankStatementLines = pgTable(
+  "bank_statement_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    statementId: uuid("statement_id")
+      .notNull()
+      .references(() => bankStatements.id, { onDelete: "cascade" }),
+    rowNumber: integer("row_number").notNull(),
+    transactionDate: text("transaction_date").notNull(),
+    valueDate: text("value_date"),
+    description: text("description").notNull(),
+    counterparty: text("counterparty"),
+    counterAccount: text("counter_account"),
+    income: numeric("income", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    expense: numeric("expense", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    balance: numeric("balance", { precision: 18, scale: 2 }),
+    debitAccountNumber: text("debit_account_number").notNull(),
+    creditAccountNumber: text("credit_account_number").notNull(),
+    rawData: text("raw_data"),
+    cashDocumentId: uuid("cash_document_id").references(
+      () => cashDocuments.id,
+      { onDelete: "set null" }
+    ),
+    voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [unique().on(table.statementId, table.rowNumber)]
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -134,6 +197,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   segmentValues: many(segmentValues),
   cashAccounts: many(cashAccounts),
   cashDocuments: many(cashDocuments),
+  bankStatements: many(bankStatements),
 }));
 
 export const chartOfAccountsRelations = relations(chartOfAccounts, ({ one }) => ({
@@ -165,6 +229,7 @@ export const cashAccountsRelations = relations(
     incomingDocuments: many(cashDocuments, {
       relationName: "cashDocumentToAccount",
     }),
+    bankStatements: many(bankStatements),
   })
 );
 
@@ -194,6 +259,39 @@ export const cashDocumentsRelations = relations(cashDocuments, ({ one }) => ({
     relationName: "cashDocumentReversalVoucher",
   }),
 }));
+
+export const bankStatementsRelations = relations(
+  bankStatements,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [bankStatements.userId],
+      references: [users.id],
+    }),
+    cashAccount: one(cashAccounts, {
+      fields: [bankStatements.cashAccountId],
+      references: [cashAccounts.id],
+    }),
+    lines: many(bankStatementLines),
+  })
+);
+
+export const bankStatementLinesRelations = relations(
+  bankStatementLines,
+  ({ one }) => ({
+    statement: one(bankStatements, {
+      fields: [bankStatementLines.statementId],
+      references: [bankStatements.id],
+    }),
+    cashDocument: one(cashDocuments, {
+      fields: [bankStatementLines.cashDocumentId],
+      references: [cashDocuments.id],
+    }),
+    voucher: one(journalVouchers, {
+      fields: [bankStatementLines.voucherId],
+      references: [journalVouchers.id],
+    }),
+  })
+);
 
 // ─── Module Configs ───────────────────────────────────────────────────────────
 
@@ -312,3 +410,5 @@ export type ModuleConfig = typeof moduleConfigs.$inferSelect;
 export type ReportLineMapping = typeof reportLineMappings.$inferSelect;
 export type CashAccount = typeof cashAccounts.$inferSelect;
 export type CashDocument = typeof cashDocuments.$inferSelect;
+export type BankStatement = typeof bankStatements.$inferSelect;
+export type BankStatementLine = typeof bankStatementLines.$inferSelect;

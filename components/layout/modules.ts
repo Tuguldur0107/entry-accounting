@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   ArrowLeftRight,
   Landmark,
+  FileSpreadsheet,
 } from "lucide-react";
 
 export type ModuleItem = {
@@ -46,6 +47,11 @@ export const MODULES: Module[] = [
         label: "Орлого, зарлага",
         href: "/cash/transactions",
         icon: ArrowLeftRight,
+      },
+      {
+        label: "Дансны хуулга",
+        href: "/cash/statements",
+        icon: FileSpreadsheet,
       },
       { label: "Касс, банкны данс", href: "/cash/accounts", icon: Landmark },
     ],
