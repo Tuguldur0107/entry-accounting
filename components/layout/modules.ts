@@ -9,6 +9,7 @@ import {
   ArrowLeftRight,
   Landmark,
   FileSpreadsheet,
+  Palette,
 } from "lucide-react";
 
 export type ModuleItem = {
@@ -65,6 +66,7 @@ export const MODULES: Module[] = [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: User },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: Building2 },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: SettingsIcon },
+      { label: "UI Kit", href: "/settings/ui-kit", icon: Palette },
     ],
   },
 ];
