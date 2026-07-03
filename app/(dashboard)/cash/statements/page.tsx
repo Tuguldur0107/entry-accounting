@@ -5,9 +5,9 @@ import {
   type BankStatementSummary,
 } from "@/components/cash/bank-statement-import";
 import { auth } from "@/lib/auth";
+import { buildCashAccountCodeRules } from "@/lib/cash/account-code-validation";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import type { CashAccountView } from "@/lib/cash/types";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import {
   bankStatements,
@@ -69,29 +69,25 @@ export default async function BankStatementsPage() {
     balance: balanceMap.get(account.id) ?? 0,
   }));
 
-  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-  // Сегментийн тохиргоотой ШУУД уялдана: settings-д асаасан сегмент бүх
-  // модульд гарна (S3 үргэлж). GL журнал болон lib/actions/cash.ts-тэй ижил дүрэм.
-  const activeSegIds = SEGMENT_DEFS.filter(
-    (definition) =>
-      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
-  ).map((definition) => definition.id);
+  // Хадгалах үеийн validator-тай ЯГ НЭГ дүрэм (single source of truth):
+  //   сегментийн түвшин — settings-д асаасан бүх сегмент (S3 үргэлж),
+  //   утга/дансны түвшин — тухайн утгын Cash модулийн toggle.
+  // Ингэснээр dropdown-д харагдсан бүх утга validation-ийг давна.
+  const rules = buildCashAccountCodeRules(configs, values, glAccounts);
+  const activeSegIds = rules.activeSegIds;
 
-  // Дансны түвшний модуль шүүлт хэвээр — аль данс cash-д харагдахыг
-  // "Модулийн тохиргоо" таб шийднэ (хоосон бол бүгдэд).
-  const cashGlAccounts = glAccounts.filter(
-    (account) => !account.modules || account.modules.split(",").includes("cash")
-  );
   const segmentOptions: Record<number, SegOption[]> = {};
   for (const segmentId of activeSegIds) {
+    const allowed = rules.allowedValues.get(segmentId) ?? new Set<string>();
     segmentOptions[segmentId] =
       segmentId === 3
-        ? cashGlAccounts.map((account) => ({
-            code: account.number,
-            name: account.name,
-          }))
+        ? glAccounts
+            .filter((account) => allowed.has(account.number))
+            .map((account) => ({ code: account.number, name: account.name }))
         : values
-            .filter((value) => value.segmentId === segmentId)
+            .filter(
+              (value) => value.segmentId === segmentId && allowed.has(value.code)
+            )
             .map((value) => ({ code: value.code, name: value.name }));
   }
 

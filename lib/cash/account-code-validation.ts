@@ -26,6 +26,7 @@ export type CashAccountCodeRules = {
 };
 
 function moduleEnabled(modules: string, module: string) {
+  if (!modules) return true; // хоосон = бүх модульд нээлттэй
   return modules
     .split(",")
     .map((value) => value.trim())
@@ -40,15 +41,13 @@ export function buildCashAccountCodeRules(
   const configMap = new Map(
     configs.map((config) => [config.segmentId, config])
   );
-  const activeSegIds = SEGMENT_DEFS.filter((definition) => {
-    const config = configMap.get(definition.id);
-    return (
-      (config?.isEnabled ?? true) &&
-      (config
-        ? moduleEnabled(config.modules, "cash")
-        : definition.defaultModules.includes("cash"))
-    );
-  }).map((definition) => definition.id);
+  // Сегментийн түвшин: settings-д асаасан сегмент бүх модульд идэвхтэй
+  // (S3 үргэлж) — GL журнал, statements хуудастай ижил дүрэм.
+  // Модулиар шүүх нь СЕГМЕНТ биш УТГЫН түвшинд (доорх allowedValues).
+  const activeSegIds = SEGMENT_DEFS.filter(
+    (definition) =>
+      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
+  ).map((definition) => definition.id);
 
   const allowedValues = new Map<number, Set<string>>();
   for (const segmentId of activeSegIds) {
