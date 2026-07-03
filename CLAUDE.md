@@ -253,6 +253,14 @@ components/datagrid/
 ├── ComboFilter.tsx       Багана шүүх combo фильтер
 └── datagrid.css          Grid стайл
 
+components/account/       Дансны нэгдсэн component-ууд (бүх модульд)
+├── account-segment-picker.tsx  Идэвхтэй сегмент бүрд searchable dropdown
+└── account-input.tsx           Гараар бичих + ⌄ товчоор сегмент picker popover
+
+components/journal/
+└── journal-lines-grid.tsx      Журналын мөрийн хүснэгт (Данс/Дт/Кт/Тайлбар) —
+                                GL journal entry ашиглана, Cash/VAT/Payroll-д reuse
+
 lib/grid/                 Туслах модулиуд (wrapper биш)
 ├── types.ts              ColumnTypeId, EaColDef, RowMeta, BatchPatch, HistoryEntry
 ├── registerGrid.ts       AG Grid module registry (DataGrid-аас л дуудна)
@@ -264,7 +272,9 @@ lib/grid/                 Туслах модулиуд (wrapper биш)
 ├── clipboard.ts          processClipboardData (TSV + сегмент-аатай account column танина)
 └── editors/
     ├── SegSelect.tsx                Portal-mounted searchable dropdown
-    ├── AccountSegmentEditor.tsx     Multi-segment popup editor → 10-part dotted код
+    ├── AccountSegmentEditor.tsx     Inline данс editor: гараар бичих + ⌄ сегмент panel
+    │                                (AG Grid v32+: onValueChange-ээр commit, портал нь
+    │                                ag-custom-component-popup class-тай байх ЁСТОЙ)
     ├── DebitCreditEditor.tsx        Number editor + Dr⊕Cr mutex
     └── SwitchCellRenderer.tsx       shadcn Switch нүднэнд
 
@@ -339,7 +349,8 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 
 | Surface | Файл | Хэлбэр |
 |---------|------|--------|
-| Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | Editable + popup editor + Dr⊕Cr mutex + undo/redo |
+| Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | `JournalLinesGrid` reuse — inline данс editor + Dr⊕Cr mutex + undo/redo |
+| Journal lines grid (shared) | [components/journal/journal-lines-grid.tsx](components/journal/journal-lines-grid.tsx) | Дахин ашиглагдах мөрийн хүснэгт — pinned totals, clipboard, min-мөр хамгаалалт |
 | Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination |
 | Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
 | GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |

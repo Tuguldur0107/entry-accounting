@@ -2,25 +2,14 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import type {
-  CellValueChangedEvent,
-  ColDef,
-  ICellRendererParams,
-  ProcessDataFromClipboardParams,
-} from "ag-grid-community";
 import { createVoucher, updateVoucher } from "@/lib/actions/gl";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
-import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { fmtMnt } from "@/lib/reports/balances";
+import { buildSegCode } from "@/lib/grid/segments";
 import {
-  buildSegCode,
-  fmtAccountDisplay,
-  normalizePastedAccount,
-} from "@/lib/grid/segments";
-import { parseMntInput } from "@/lib/grid/formatters";
-import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
-import { DebitCreditEditor } from "@/lib/grid/editors/DebitCreditEditor";
+  JournalLinesGrid,
+  type JournalLineRow,
+} from "@/components/journal/journal-lines-grid";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
 function closeWindow() {
@@ -31,14 +20,6 @@ function closeWindow() {
   } else {
     window.location.href = "/gl/journal";
   }
-}
-
-interface LineRow {
-  id: string;
-  account: string;
-  debit: number;
-  credit: number;
-  description: string;
 }
 
 interface InitialLine {
@@ -76,7 +57,7 @@ export function JournalEntryForm({
   const today = new Date().toISOString().slice(0, 10);
   const isEdit = !!voucherId;
 
-  const makeEmptyLine = useCallback((): LineRow => {
+  const makeEmptyLine = useCallback((): JournalLineRow => {
     const parts: Record<number, string> = {};
     for (const id of activeSegIds) parts[id] = defaultSegments[id] ?? "";
     return {
@@ -90,7 +71,7 @@ export function JournalEntryForm({
 
   const [date, setDate] = useState(initialVoucher?.date ?? today);
   const [description, setDescription] = useState(initialVoucher?.description ?? "");
-  const [lines, setLines] = useState<LineRow[]>(() => {
+  const [lines, setLines] = useState<JournalLineRow[]>(() => {
     if (initialVoucher?.lines && initialVoucher.lines.length >= 2) {
       return initialVoucher.lines.map((l) => ({
         id: nanoid(),
@@ -124,179 +105,6 @@ export function JournalEntryForm({
     }
     return map;
   }, [activeSegIds, accounts, segmentValues]);
-
-  const accountColWidth = useMemo(
-    () =>
-      Math.max(
-        220,
-        activeSegIds.reduce((s, id) => {
-          const def = SEGMENT_DEFS.find((d) => d.id === id);
-          return s + (def?.length ?? 4) * 9 + 14;
-        }, 0)
-      ),
-    [activeSegIds]
-  );
-
-  // Single source of truth: AG Grid's onCellValueChanged → setLines.
-  const handleCellChange = useCallback(
-    (e: CellValueChangedEvent<LineRow>) => {
-      const id = e.data.id;
-      const field = e.colDef.field as keyof LineRow | undefined;
-      if (!field) return;
-      setLines((prev) =>
-        prev.map((l) => {
-          if (l.id !== id) return l;
-          const next: LineRow = { ...l, [field]: e.newValue } as LineRow;
-          // Enforce Dr ⊕ Cr mutex at state layer.
-          if (field === "debit" && (next.debit ?? 0) > 0) next.credit = 0;
-          else if (field === "credit" && (next.credit ?? 0) > 0) next.debit = 0;
-          return next;
-        })
-      );
-    },
-    []
-  );
-
-  const columnDefs = useMemo<ColDef<LineRow>[]>(() => {
-    const cols: ColDef<LineRow>[] = [
-      {
-        headerName: "#",
-        colId: "row-num",
-        width: 48,
-        cellClass: "ag-center-cell text-xs",
-        editable: false,
-        sortable: false,
-        valueGetter: (p) => (p.node?.rowIndex != null ? p.node.rowIndex + 1 : ""),
-      },
-      {
-        headerName: "Данс",
-        field: "account",
-        width: accountColWidth,
-        editable: true,
-        cellClass: "font-mono text-xs",
-        cellEditor: AccountSegmentEditor,
-        cellEditorPopup: true,
-        cellEditorParams: {
-          activeSegIds,
-          segOptions,
-          extraDefaults: defaultSegments,
-        },
-        valueFormatter: (p) => fmtAccountDisplay(String(p.value ?? ""), activeSegIds),
-      },
-      {
-        headerName: "Дебет",
-        field: "debit",
-        width: 150,
-        editable: true,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        cellEditor: DebitCreditEditor,
-        valueParser: (p) => {
-          const n = parseMntInput(p.newValue);
-          return Number.isFinite(n) && n > 0 ? n : 0;
-        },
-        valueFormatter: (p) =>
-          p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
-      },
-      {
-        headerName: "Кредит",
-        field: "credit",
-        width: 150,
-        editable: true,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        cellEditor: DebitCreditEditor,
-        valueParser: (p) => {
-          const n = parseMntInput(p.newValue);
-          return Number.isFinite(n) && n > 0 ? n : 0;
-        },
-        valueFormatter: (p) =>
-          p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
-      },
-      {
-        headerName: "Тайлбар",
-        field: "description",
-        flex: 1,
-        minWidth: 200,
-        editable: true,
-        cellClass: "text-xs",
-      },
-      {
-        headerName: "",
-        colId: "actions",
-        width: 44,
-        editable: false,
-        sortable: false,
-        filter: false,
-        cellClass: "flex items-center justify-center",
-        cellRenderer: (p: ICellRendererParams<LineRow>) => {
-          const id = p.data?.id;
-          return (
-            <button
-              type="button"
-              onClick={() => {
-                setLines((prev) => {
-                  if (prev.length <= 2) {
-                    setError("Дор хаяж 2 мөр шаардлагатай. Мөр нэмээд буцаад устгана уу.");
-                    return prev;
-                  }
-                  setError("");
-                  return prev.filter((l) => l.id !== id);
-                });
-              }}
-              title="Мөр устгах"
-              className="w-6 h-6 flex items-center justify-center text-base leading-none cursor-pointer rounded transition-colors"
-              style={{ color: "var(--ea-text-4)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--ea-danger)";
-                e.currentTarget.style.background =
-                  "color-mix(in srgb, var(--ea-danger) 10%, transparent)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--ea-text-4)";
-                e.currentTarget.style.background = "transparent";
-              }}
-            >
-              ×
-            </button>
-          );
-        },
-      },
-    ];
-
-    return cols;
-  }, [accountColWidth, activeSegIds, segOptions, defaultSegments]);
-
-  const processDataFromClipboard = useCallback(
-    (p: ProcessDataFromClipboardParams<LineRow>) => {
-      const rows = p.data;
-      if (!rows || rows.length === 0) return rows;
-      const types = columnDefs.map((c) =>
-        c.field === "account" ? "account-segment" : "other"
-      );
-      return rows.map((row) =>
-        row.map((cell, i) =>
-          types[i] === "account-segment"
-            ? normalizePastedAccount(cell, activeSegIds, defaultSegments)
-            : cell
-        )
-      );
-    },
-    [columnDefs, activeSegIds, defaultSegments]
-  );
-
-  const pinnedBottom = useMemo(
-    () => [
-      {
-        id: "__totals__",
-        account: "",
-        debit: totalDebit,
-        credit: totalCredit,
-        description: "Нийт дүн",
-      } as LineRow,
-    ],
-    [totalDebit, totalCredit]
-  );
 
   async function handleSave(status: "draft" | "posted") {
     if (!date || !description.trim()) {
@@ -435,21 +243,13 @@ export function JournalEntryForm({
               overflow: "hidden",
             }}
           >
-            <DataGridDynamic<LineRow>
-              rowData={lines}
-              columnDefs={columnDefs}
-              getRowId={(p) => p.data.id}
-              pinnedBottomRowData={pinnedBottom}
-              onCellValueChanged={handleCellChange}
-              processDataFromClipboard={processDataFromClipboard}
-              height={Math.min(560, 90 + lines.length * 36 + 48)}
-              singleClickEdit
-              stopEditingWhenCellsLoseFocus
-              undoRedoCellEditing
-              undoRedoCellEditingLimit={100}
-              suppressClickEdit={false}
-              wrapperClassName="ea-journal-lines"
-              enableCellTextSelection
+            <JournalLinesGrid
+              lines={lines}
+              onLinesChange={setLines}
+              activeSegIds={activeSegIds}
+              segOptions={segOptions}
+              defaultSegments={defaultSegments}
+              onError={setError}
             />
           </div>
         </div>

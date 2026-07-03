@@ -91,6 +91,7 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
         createPortal(
           <div
             data-seg-portal=""
+            className="ag-custom-component-popup"
             style={{
               position: "fixed",
               top: pos.top,

@@ -25,7 +25,7 @@ import {
   Upload,
 } from "lucide-react";
 
-import { AccountSegmentPicker } from "./account-segment-picker";
+import { AccountSegmentPicker } from "@/components/account/account-segment-picker";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { Button } from "@/components/ui/button";
@@ -253,7 +253,6 @@ export function BankStatementImport({
         valueFormatter: (params) =>
           fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
         cellEditor: AccountSegmentEditor,
-        cellEditorPopup: true,
         cellEditorParams: {
           activeSegIds,
           segOptions: segmentOptions,
@@ -277,7 +276,6 @@ export function BankStatementImport({
         valueFormatter: (params) =>
           fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
         cellEditor: AccountSegmentEditor,
-        cellEditorPopup: true,
         cellEditorParams: {
           activeSegIds,
           segOptions: segmentOptions,

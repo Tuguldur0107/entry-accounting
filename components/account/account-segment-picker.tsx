@@ -1,15 +1,21 @@
 "use client";
 
+// Дансны сегмент сонгогч — идэвхтэй сегмент бүрд searchable dropdown.
+// Бүх модульд (GL, Cash, ирээдүйд VAT/Payroll) дахин ашиглагдана.
+// value нь үргэлж бүтэн 10-part dotted код байна.
+
 import { SEGMENT_DEFS, ACCOUNT_GROUPS } from "@/lib/constants/standard-accounts";
 import { buildSegCode, parseSegParts } from "@/lib/grid/segments";
 import { SegSelect, type SegOption } from "@/lib/grid/editors/SegSelect";
 
-interface Props {
+export interface AccountSegmentPickerProps {
   value: string;
   onChange: (value: string) => void;
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
-  defaultSegments: Record<number, string>;
+  defaultSegments?: Record<number, string>;
+  /** Dropdown-ий өргөн (px) */
+  selectWidth?: number;
 }
 
 export function AccountSegmentPicker({
@@ -17,8 +23,9 @@ export function AccountSegmentPicker({
   onChange,
   activeSegIds,
   segmentOptions,
-  defaultSegments,
-}: Props) {
+  defaultSegments = {},
+  selectWidth = 280,
+}: AccountSegmentPickerProps) {
   const parts = parseSegParts(value, activeSegIds);
 
   return (
@@ -54,7 +61,7 @@ export function AccountSegmentPicker({
                 )
               }
               groups={segmentId === 3 ? ACCOUNT_GROUPS : undefined}
-              width={280}
+              width={selectWidth}
             />
           </div>
         );
@@ -62,4 +69,3 @@ export function AccountSegmentPicker({
     </div>
   );
 }
-
