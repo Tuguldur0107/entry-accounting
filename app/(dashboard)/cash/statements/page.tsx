@@ -70,17 +70,15 @@ export default async function BankStatementsPage() {
   }));
 
   const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-  // modules="" (хоосон) бол тухайн сегментийн defaultModules-ийг ашиглана —
-  // settings toggle нь modules заалгүй insert хийдэг байсан үеийн өгөгдөлтэй нийцнэ.
-  const activeSegIds = SEGMENT_DEFS.filter((definition) => {
-    const config = configMap.get(definition.id);
-    const enabled = config?.isEnabled ?? true;
-    const modules = config?.modules
-      ? config.modules.split(",")
-      : definition.defaultModules;
-    return enabled && modules.includes("cash");
-  }).map((definition) => definition.id);
+  // Сегментийн тохиргоотой ШУУД уялдана: settings-д асаасан сегмент бүх
+  // модульд гарна (S3 үргэлж). GL журнал болон lib/actions/cash.ts-тэй ижил дүрэм.
+  const activeSegIds = SEGMENT_DEFS.filter(
+    (definition) =>
+      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
+  ).map((definition) => definition.id);
 
+  // Дансны түвшний модуль шүүлт хэвээр — аль данс cash-д харагдахыг
+  // "Модулийн тохиргоо" таб шийднэ (хоосон бол бүгдэд).
   const cashGlAccounts = glAccounts.filter(
     (account) => !account.modules || account.modules.split(",").includes("cash")
   );
@@ -93,11 +91,7 @@ export default async function BankStatementsPage() {
             name: account.name,
           }))
         : values
-            .filter(
-              (value) =>
-                value.segmentId === segmentId &&
-                (!value.modules || value.modules.split(",").includes("cash"))
-            )
+            .filter((value) => value.segmentId === segmentId)
             .map((value) => ({ code: value.code, name: value.name }));
   }
 
