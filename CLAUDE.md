@@ -45,7 +45,7 @@ entry-accounting/
 - **PostgreSQL** on Railway — Drizzle ORM
 - **NextAuth v5** (Credentials + JWT)
 - **Tailwind CSS** + shadcn/ui (Base UI)
-- **AG Grid Community v35** — бүх хүснэгтийн UI ([Хүснэгтийн стандарт](#хүснэгтийн-стандарт-ag-grid-community))
+- **AG Grid Community v35** — бүх хүснэгтийн UI, `DataGrid` wrapper-ээр ([Хүснэгтийн стандарт](#хүснэгтийн-стандарт-ag-grid-community))
 - **Zustand** — UI state, grid undo/redo store (`lib/store/grid-store.ts`)
 - Server Actions — mutations (createVoucher, deleteVoucher, createAccount…)
 
@@ -58,7 +58,7 @@ entry-accounting/
 
 | Сэдэв | Knowledge файл | Энэ төсөлд |
 |-------|----------------|-----------|
-| Хүснэгт | `<StandardTable>` (Chakra) | AG Grid (`EaGridDynamic`) — нэгдсэн стандарт |
+| Хүснэгт | `<StandardTable>` (Chakra) | AG Grid (`DataGridDynamic`) — нэгдсэн стандарт |
 | Modal | `<Modal>` (Chakra) | shadcn `Dialog` |
 | Дизайн | Dark mode + glassmorphism | Light + dark, `--ea-*` CSS токенууд |
 | i18n | `t('key')`, 4 хэл | Зөвхөн монгол, hardcoded |
@@ -247,17 +247,21 @@ Header: гарчиг + × товч | Footer: [Болих] [Хадгалах]
 ### Эх сурвалж файлууд
 
 ```
-lib/grid/
+components/datagrid/
+├── DataGrid.tsx          Wrapper (theme, keyboard, clipboard, undo/redo defaults)
+├── DataGridDynamic.tsx   dynamic(ssr:false) — БҮХ callsite энийг import
+├── ComboFilter.tsx       Багана шүүх combo фильтер
+└── datagrid.css          Grid стайл
+
+lib/grid/                 Туслах модулиуд (wrapper биш)
 ├── types.ts              ColumnTypeId, EaColDef, RowMeta, BatchPatch, HistoryEntry
-├── registerGrid.ts       AG Grid module registry (EaGrid-аас л дуудна)
+├── registerGrid.ts       AG Grid module registry (DataGrid-аас л дуудна)
 ├── theme.ts              themeQuartz.withParams({...}) → --ea-* CSS vars
 ├── validators.ts         required, nonNegativeNumber, debitXorCredit, segmentCodeShape, accountExists, dateISO
 ├── formatters.ts         fmtMnt, parseMntInput, moneyValueFormatter, accountValueFormatter
 ├── columnTypes.ts        ColumnTypeId → Partial<ColDef> ЦОРЫН ГАНЦ бүртгэл
 ├── segments.ts           buildSegCode, parseSegParts, fmtAccountDisplay, normalizePastedAccount
 ├── clipboard.ts          processClipboardData (TSV + сегмент-аатай account column танина)
-├── EaGrid.tsx            Wrapper (theme, keyboard, clipboard, undo/redo defaults)
-├── EaGridDynamic.tsx     dynamic(ssr:false) — БҮХ callsite энийг import
 └── editors/
     ├── SegSelect.tsx                Portal-mounted searchable dropdown
     ├── AccountSegmentEditor.tsx     Multi-segment popup editor → 10-part dotted код
@@ -310,7 +314,7 @@ alignment / editor зэргийг дахин зарлахгүй. Дэмжих ki
 ### Mutation contract
 
 ```
-cell edit  →  EaGrid onCellValueChanged  →  setRows / store.applyPatches
+cell edit  →  DataGrid onCellValueChanged  →  setRows / store.applyPatches
 add row    →  api.applyTransaction({ add }) + store.addRow({ isNew: true })
 delete row →  store.removeRow(id)
 save       →  store.buildBatch() → { create, update, delete: string[] } → Server Action
@@ -327,7 +331,7 @@ save       →  store.buildBatch() → { create, update, delete: string[] } → 
 
 ### SSR
 
-AG Grid module init үед `document` хэрэгтэй. Бүх surface `EaGridDynamic`-ийг
+AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGridDynamic`-ийг
 (`next/dynamic` `ssr:false`) ашиглана. Page-ууд Server Component хэвээр үлдэж
 `rowData`-г prop-оор дамжуулна.
 

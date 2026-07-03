@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { EAMark, EAWordmark } from '@/components/auth/brand';
 import { EAField, EAButton } from '@/components/auth/fields';
-import { LedgerIllustration } from '@/components/auth/ledger-illustration';
+import { LedgerIllustration } from '@/components/auth/LedgerIllustration';
 import { MailIcon, LockIcon, ArrowRightIcon, ShieldIcon } from '@/components/auth/icons';
 import { registerUser } from '@/lib/actions/auth';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -90,7 +90,7 @@ export default function RegisterPage() {
                 Нягтлан бодох{' '}<em style={{ fontWeight: 400, opacity: 0.95 }}>бүртгэл эхлүүлье</em>
               </h2>
             </div>
-            <div style={{ position: 'relative' }}><LedgerIllustration /></div>
+            <div style={{ position: 'relative' }}><LedgerIllustration lang="mn" /></div>
             <div style={{ position: 'relative' }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.10em', textTransform: 'uppercase', opacity: 0.6, marginBottom: 10 }}>
                 Өнөөдөр хийгдсэн ажил
