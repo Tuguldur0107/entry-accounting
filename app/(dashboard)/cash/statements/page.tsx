@@ -70,17 +70,19 @@ export default async function BankStatementsPage() {
   }));
 
   const configMap = new Map(configs.map((config) => [config.segmentId, config]));
+  // modules="" (хоосон) бол тухайн сегментийн defaultModules-ийг ашиглана —
+  // settings toggle нь modules заалгүй insert хийдэг байсан үеийн өгөгдөлтэй нийцнэ.
   const activeSegIds = SEGMENT_DEFS.filter((definition) => {
     const config = configMap.get(definition.id);
     const enabled = config?.isEnabled ?? true;
-    const modules = config
+    const modules = config?.modules
       ? config.modules.split(",")
       : definition.defaultModules;
     return enabled && modules.includes("cash");
   }).map((definition) => definition.id);
 
-  const cashGlAccounts = glAccounts.filter((account) =>
-    account.modules.split(",").includes("cash")
+  const cashGlAccounts = glAccounts.filter(
+    (account) => !account.modules || account.modules.split(",").includes("cash")
   );
   const segmentOptions: Record<number, SegOption[]> = {};
   for (const segmentId of activeSegIds) {
@@ -94,7 +96,7 @@ export default async function BankStatementsPage() {
             .filter(
               (value) =>
                 value.segmentId === segmentId &&
-                value.modules.split(",").includes("cash")
+                (!value.modules || value.modules.split(",").includes("cash"))
             )
             .map((value) => ({ code: value.code, name: value.name }));
   }

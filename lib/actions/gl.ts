@@ -15,7 +15,6 @@ import { eq, and, sql } from "drizzle-orm";
 import {
   STANDARD_ACCOUNTS,
   SEGMENT_DEFS,
-  getSegmentKey,
 } from "@/lib/constants/standard-accounts";
 
 async function requireUser() {
@@ -138,13 +137,17 @@ export async function updateSegmentConfig(
   data: { isEnabled?: boolean; modules?: string[] }
 ) {
   const userId = await requireUser();
+  // modules заагаагүй insert-д тухайн сегментийн defaultModules-ийг өгнө —
+  // хоосон "" хадгалбал модулиар шүүдэг хуудсууд (cash г.м.) сегментийг алдана.
+  const defaultModules =
+    SEGMENT_DEFS.find((d) => d.id === segmentId)?.defaultModules ?? [];
   await db
     .insert(segmentConfigs)
     .values({
       userId,
       segmentId,
       isEnabled: data.isEnabled ?? true,
-      modules: (data.modules ?? []).join(","),
+      modules: (data.modules ?? defaultModules).join(","),
     })
     .onConflictDoUpdate({
       target: [segmentConfigs.userId, segmentConfigs.segmentId],
