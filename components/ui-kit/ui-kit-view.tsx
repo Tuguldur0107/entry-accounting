@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -235,33 +236,14 @@ export function UiKitView() {
             <Badge variant="destructive">destructive</Badge>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className="text-sm px-3 py-1.5 rounded-md font-medium"
-              style={{
-                color: "var(--ea-success)",
-                background: "color-mix(in srgb, var(--ea-success) 10%, var(--ea-surface))",
-                border: "1px solid color-mix(in srgb, var(--ea-success) 30%, transparent)",
-              }}
-            >
-              ✓ Тэнцсэн
-            </span>
-            <span
-              className="text-sm px-3 py-1.5 rounded-md font-medium"
-              style={{
-                color: "var(--ea-danger)",
-                background: "color-mix(in srgb, var(--ea-danger) 10%, var(--ea-surface))",
-                border: "1px solid color-mix(in srgb, var(--ea-danger) 30%, transparent)",
-              }}
-            >
-              Зөрүү: 840,000.00
-            </span>
-            <span
-              className="text-sm px-3 py-1.5 rounded-md font-medium"
-              style={{ color: "var(--ea-text-3)", background: "var(--ea-bg-2)" }}
-            >
-              Дүн оруулаагүй
-            </span>
+            <StatusBadge tone="success">✓ Тэнцсэн</StatusBadge>
+            <StatusBadge tone="danger">Зөрүү: 840,000.00</StatusBadge>
+            <StatusBadge tone="warning">Хугацаа дөхөж байна</StatusBadge>
+            <StatusBadge tone="muted">Дүн оруулаагүй</StatusBadge>
           </div>
+          <p className="text-xs" style={{ color: "var(--ea-text-4)" }}>
+            <code>components/ui/status-badge.tsx</code> — <code>&lt;StatusBadge tone=&quot;success|danger|warning|muted&quot;&gt;</code>
+          </p>
         </div>
       </Section>
 

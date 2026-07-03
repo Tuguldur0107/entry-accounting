@@ -123,7 +123,7 @@ export function AccountInput({
             minWidth: 380,
             background: "var(--ea-surface)",
             border: "1px solid var(--ea-border-strong)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            boxShadow: "var(--ea-shadow-3)",
           }}
         >
           <AccountSegmentPicker

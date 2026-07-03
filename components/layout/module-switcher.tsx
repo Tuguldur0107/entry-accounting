@@ -57,7 +57,7 @@ export function ModuleSwitcher() {
           padding: 0,
           borderRadius: 8,
           background: "var(--ea-primary)",
-          color: "#fff",
+          color: "var(--primary-foreground)",
           border: "none",
           cursor: "pointer",
           boxShadow: open
@@ -85,7 +85,7 @@ export function ModuleSwitcher() {
             background: "var(--ea-surface)",
             border: "1px solid var(--ea-border)",
             borderRadius: 10,
-            boxShadow: "0 12px 32px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.04)",
+            boxShadow: "var(--ea-shadow-3)",
             padding: 8,
             zIndex: 30,
             transformOrigin: "top left",
@@ -118,7 +118,9 @@ export function ModuleSwitcher() {
                     gap: 12,
                     padding: "10px 10px",
                     borderRadius: 8,
-                    background: isActive ? "rgba(30, 58, 95, 0.06)" : "transparent",
+                    background: isActive
+                      ? "color-mix(in srgb, var(--ea-primary) 6%, transparent)"
+                      : "transparent",
                     color: "var(--ea-text-1)",
                     textDecoration: "none",
                     alignItems: "center",
@@ -140,8 +142,10 @@ export function ModuleSwitcher() {
                       alignItems: "center",
                       justifyContent: "center",
                       flexShrink: 0,
-                      background: isActive ? "#1E3A5F" : "var(--ea-bg-2)",
-                      color: isActive ? "#fff" : "#1E3A5F",
+                      background: isActive ? "var(--ea-primary)" : "var(--ea-bg-2)",
+                      color: isActive
+                        ? "var(--primary-foreground)"
+                        : "var(--ea-primary)",
                     }}
                   >
                     <ModuleIcon id={m.id} size={18} />
@@ -152,14 +156,14 @@ export function ModuleSwitcher() {
                         style={{
                           fontSize: 13.5,
                           fontWeight: 500,
-                          color: isActive ? "#1E3A5F" : "var(--ea-text-1)",
+                          color: isActive ? "var(--ea-primary)" : "var(--ea-text-1)",
                           letterSpacing: "-0.005em",
                         }}
                       >
                         {m.label}
                       </span>
                       {isActive && (
-                        <Check size={13} strokeWidth={2.5} style={{ color: "#1E3A5F" }} />
+                        <Check size={13} strokeWidth={2.5} style={{ color: "var(--ea-primary)" }} />
                       )}
                     </div>
                     <div

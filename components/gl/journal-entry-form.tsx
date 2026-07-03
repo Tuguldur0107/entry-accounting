@@ -4,6 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { createVoucher, updateVoucher } from "@/lib/actions/gl";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtMnt } from "@/lib/reports/balances";
 import { buildSegCode } from "@/lib/grid/segments";
 import {
@@ -150,13 +155,7 @@ export function JournalEntryForm({
           borderBottom: "1px solid var(--ea-border)",
         }}
       >
-        <button
-          onClick={closeWindow}
-          className="flex items-center gap-2 text-sm transition-colors"
-          style={{ color: "var(--ea-text-3)" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ea-text-1)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ea-text-3)")}
-        >
+        <Button variant="ghost" size="sm" onClick={closeWindow}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
               d="M10 3L5 8l5 5"
@@ -167,8 +166,8 @@ export function JournalEntryForm({
             />
           </svg>
           Буцах
-        </button>
-        <div style={{ width: 1, height: 20, background: "var(--ea-border)" }} />
+        </Button>
+        <Separator orientation="vertical" className="h-5" />
         <span className="text-sm font-semibold" style={{ color: "var(--ea-text-1)" }}>
           {isEdit ? "Журнал засах" : "Журнал бичих"}
         </span>
@@ -186,50 +185,22 @@ export function JournalEntryForm({
           >
             <div className="grid gap-5" style={{ gridTemplateColumns: "180px 1fr" }}>
               <div className="space-y-1.5">
-                <label
-                  className="text-xs font-semibold block"
-                  style={{ color: "var(--ea-text-3)" }}
-                >
-                  Огноо
-                </label>
-                <input
+                <Label htmlFor="voucher-date">Огноо</Label>
+                <Input
+                  id="voucher-date"
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-md outline-none transition-colors"
-                  style={{
-                    border: "1px solid var(--ea-border-strong)",
-                    background: "var(--ea-surface)",
-                    color: "var(--ea-text-1)",
-                  }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ea-primary)")}
-                  onBlur={(e) =>
-                    (e.currentTarget.style.borderColor = "var(--ea-border-strong)")
-                  }
                 />
               </div>
               <div className="space-y-1.5">
-                <label
-                  className="text-xs font-semibold block"
-                  style={{ color: "var(--ea-text-3)" }}
-                >
-                  Гүйлгээний утга
-                </label>
-                <input
+                <Label htmlFor="voucher-description">Гүйлгээний утга</Label>
+                <Input
+                  id="voucher-description"
                   type="text"
                   placeholder="Гүйлгээний тайлбар оруулна уу"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-md outline-none transition-colors"
-                  style={{
-                    border: "1px solid var(--ea-border-strong)",
-                    background: "var(--ea-surface)",
-                    color: "var(--ea-text-1)",
-                  }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ea-primary)")}
-                  onBlur={(e) =>
-                    (e.currentTarget.style.borderColor = "var(--ea-border-strong)")
-                  }
                 />
               </div>
             </div>
@@ -263,28 +234,9 @@ export function JournalEntryForm({
         }}
       >
         <div className="flex items-center gap-3">
-          <span
-            className="text-sm px-3 py-1.5 rounded-md font-medium"
-            style={
-              isEmpty
-                ? { color: "var(--ea-text-3)", background: "var(--ea-bg-2)" }
-                : balanced
-                ? {
-                    color: "var(--ea-success)",
-                    background:
-                      "color-mix(in srgb, var(--ea-success) 10%, var(--ea-surface))",
-                    border: "1px solid color-mix(in srgb, var(--ea-success) 30%, transparent)",
-                  }
-                : {
-                    color: "var(--ea-danger)",
-                    background:
-                      "color-mix(in srgb, var(--ea-danger) 10%, var(--ea-surface))",
-                    border: "1px solid color-mix(in srgb, var(--ea-danger) 30%, transparent)",
-                  }
-            }
-          >
+          <StatusBadge tone={isEmpty ? "muted" : balanced ? "success" : "danger"}>
             {isEmpty ? "Дүн оруулаагүй" : balanced ? "✓ Тэнцсэн" : `Зөрүү: ${fmt(diff)}`}
-          </span>
+          </StatusBadge>
           {error && (
             <span className="text-sm" style={{ color: "var(--ea-danger)" }}>
               {error}
@@ -293,63 +245,29 @@ export function JournalEntryForm({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
+          <Button
+            variant="outline"
             onClick={() => setLines((p) => [...p, makeEmptyLine()])}
-            className="px-4 py-2 text-sm font-medium rounded-md transition-colors"
-            style={{
-              border: "1px solid var(--ea-border-strong)",
-              background: "var(--ea-surface)",
-              color: "var(--ea-text-2)",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ea-bg-2)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ea-surface)")}
           >
             + Мөр нэмэх
-          </button>
-          <div style={{ width: 1, height: 20, background: "var(--ea-border)" }} />
-          <button
-            onClick={closeWindow}
-            className="px-4 py-2 text-sm font-medium rounded-md transition-colors"
-            style={{
-              border: "1px solid var(--ea-border-strong)",
-              background: "var(--ea-surface)",
-              color: "var(--ea-text-2)",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ea-bg-2)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ea-surface)")}
-          >
+          </Button>
+          <Separator orientation="vertical" className="h-5" />
+          <Button variant="outline" onClick={closeWindow}>
             Болих
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => handleSave("draft")}
             disabled={saving !== null}
-            className="px-4 py-2 text-sm font-medium rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              border: "1px solid var(--ea-border-strong)",
-              background: "var(--ea-surface)",
-              color: "var(--ea-text-2)",
-            }}
-            onMouseEnter={(e) => {
-              if (saving === null) e.currentTarget.style.background = "var(--ea-bg-2)";
-            }}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ea-surface)")}
           >
             {saving === "draft" ? "Хадгалж байна..." : "Ноорог"}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => handleSave("posted")}
             disabled={!balanced || saving !== null}
-            className="px-5 py-2 text-sm font-semibold text-white rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "var(--ea-primary)" }}
-            onMouseEnter={(e) => {
-              if (balanced && saving === null)
-                e.currentTarget.style.background = "var(--ea-primary-700)";
-            }}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ea-primary)")}
           >
             {saving === "posted" ? "Хадгалж байна..." : "Хадгалах"}
-          </button>
+          </Button>
         </div>
       </footer>
     </div>

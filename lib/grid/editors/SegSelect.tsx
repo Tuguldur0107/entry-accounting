@@ -101,7 +101,7 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
               background: "var(--ea-surface)",
               border: "1px solid var(--ea-border-strong)",
               borderRadius: 8,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+              boxShadow: "var(--ea-shadow-2)",
               overflow: "hidden",
             }}
           >
