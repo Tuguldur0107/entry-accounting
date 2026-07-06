@@ -10,6 +10,8 @@ import {
   Landmark,
   FileSpreadsheet,
   Palette,
+  Scale,
+  BarChartBig,
 } from "lucide-react";
 
 export type ModuleItem = {
@@ -54,6 +56,12 @@ export const MODULES: Module[] = [
         href: "/cash/statements",
         icon: FileSpreadsheet,
       },
+      {
+        label: "Тулгалт, ханш",
+        href: "/cash/reconciliation",
+        icon: Scale,
+      },
+      { label: "Мөнгөн хөрөнгийн тайлан", href: "/cash/reports", icon: BarChartBig },
       { label: "Касс, банкны данс", href: "/cash/accounts", icon: Landmark },
     ],
   },

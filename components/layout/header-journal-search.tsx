@@ -18,7 +18,12 @@ function defaultMonthRange() {
 // filter for any surface that reads `start` / `end` from searchParams
 // (GL journal, GL reports, and cash transactions). Stays on the active
 // path instead of forcing a navigation.
-const DATE_AWARE_PATHS = ["/gl/journal", "/gl/reports", "/cash/transactions"];
+const DATE_AWARE_PATHS = [
+  "/gl/journal",
+  "/gl/reports",
+  "/cash/transactions",
+  "/cash/reports",
+];
 
 export function HeaderJournalSearch() {
   const router = useRouter();
