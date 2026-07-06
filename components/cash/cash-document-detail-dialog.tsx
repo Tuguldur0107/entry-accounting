@@ -212,6 +212,7 @@ function VoucherTable({
         <thead>
           <tr className="bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
             <th className="px-3 py-1.5 text-left font-medium">Данс</th>
+            <th className="px-3 py-1.5 text-left font-medium">Гүйлгээний утга</th>
             <th className="px-3 py-1.5 text-right font-medium">Дебет</th>
             <th className="px-3 py-1.5 text-right font-medium">Кредит</th>
           </tr>
@@ -231,6 +232,9 @@ function VoucherTable({
                     {glName(mainAccount)}
                   </span>
                 </td>
+                <td className="px-3 py-1.5 text-[var(--ea-text-2)]">
+                  {l.description || "—"}
+                </td>
                 <td className="px-3 py-1.5 text-right font-mono tabular-nums">
                   {l.debit !== 0 ? fmtMnt(l.debit) : "—"}
                 </td>
@@ -243,7 +247,9 @@ function VoucherTable({
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-[var(--ea-border-strong)] bg-[var(--ea-bg-2)] font-semibold">
-            <td className="px-3 py-1.5 text-right text-[var(--ea-text-3)]">Нийт</td>
+            <td className="px-3 py-1.5 text-right text-[var(--ea-text-3)]" colSpan={2}>
+              Нийт
+            </td>
             <td className="px-3 py-1.5 text-right font-mono tabular-nums">
               {fmtMnt(totalDebit)}
             </td>

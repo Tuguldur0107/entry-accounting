@@ -218,8 +218,29 @@ export function CashDocumentsView({
       {
         headerName: "Баримтын №",
         field: "documentNo",
-        width: 190,
+        width: 210,
         cellClass: "font-mono text-xs",
+        cellRenderer: (params: ICellRendererParams<CashDocumentView>) => {
+          const doc = params.data;
+          if (!doc) return null;
+          return (
+            <span className="flex h-full items-center gap-1.5">
+              <span className="truncate">{doc.documentNo}</span>
+              {doc.sourceVoucherId && (
+                <span
+                  className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none"
+                  style={{
+                    background: "var(--ea-primary-50)",
+                    color: "var(--ea-primary-500)",
+                  }}
+                  title="GL журналаас автоматаар үүссэн"
+                >
+                  GL
+                </span>
+              )}
+            </span>
+          );
+        },
       },
       {
         headerName: "Төрөл",

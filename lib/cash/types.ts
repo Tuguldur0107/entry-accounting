@@ -27,6 +27,8 @@ export type CashDocumentView = {
   amount: number;
   status: string;
   voucherId: string | null;
+  /** Set when the document was auto-derived from a GL voucher. */
+  sourceVoucherId: string | null;
 };
 
 export type CashGlAccountOption = {

@@ -7,6 +7,7 @@ import {
   integer,
   boolean,
   unique,
+  foreignKey,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -55,17 +56,29 @@ export const journalVouchers = pgTable("journal_vouchers", {
 
 // ─── Journal Lines ────────────────────────────────────────────────────────────
 
-export const journalLines = pgTable("journal_lines", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  voucherId: uuid("voucher_id")
-    .notNull()
-    .references(() => journalVouchers.id, { onDelete: "cascade" }),
-  accountNumber: text("account_number").notNull(),
-  debit: numeric("debit", { precision: 18, scale: 2 }).notNull().default("0"),
-  credit: numeric("credit", { precision: 18, scale: 2 }).notNull().default("0"),
-  description: text("description").default(""),
-  sortOrder: integer("sort_order").notNull().default(0),
-});
+export const journalLines = pgTable(
+  "journal_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    voucherId: uuid("voucher_id")
+      .notNull()
+      .references(() => journalVouchers.id, { onDelete: "cascade" }),
+    cashAccountId: uuid("cash_account_id"),
+    accountNumber: text("account_number").notNull(),
+    debit: numeric("debit", { precision: 18, scale: 2 }).notNull().default("0"),
+    credit: numeric("credit", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    description: text("description").default(""),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.cashAccountId],
+      foreignColumns: [cashAccounts.id],
+    }).onDelete("set null"),
+  ]
+);
 
 // ─── Cash Management ─────────────────────────────────────────────────────────
 
@@ -110,11 +123,26 @@ export const cashDocuments = pgTable(
     counterparty: text("counterparty"),
     description: text("description").notNull(),
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("MNT"),
+    exchangeRate: numeric("exchange_rate", {
+      precision: 18,
+      scale: 8,
+    })
+      .notNull()
+      .default("1"),
+    baseAmount: numeric("base_amount", { precision: 18, scale: 2 }),
     status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
     voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
       onDelete: "set null",
     }),
     reversalVoucherId: uuid("reversal_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
+    // Set when this document was auto-derived FROM a GL voucher (reverse
+    // sync). Posting such a draft adopts the referenced voucher rather than
+    // creating a new one, so the GL entry isn't double-counted.
+    sourceVoucherId: uuid("source_voucher_id").references(
       () => journalVouchers.id,
       { onDelete: "set null" }
     ),
@@ -137,6 +165,7 @@ export const bankStatements = pgTable(
     fileName: text("file_name").notNull(),
     fileHash: text("file_hash").notNull(),
     bankName: text("bank_name"),
+    currency: text("currency").notNull().default("MNT"),
     periodStart: text("period_start"),
     periodEnd: text("period_end"),
     rowCount: integer("row_count").notNull().default(0),
@@ -172,6 +201,8 @@ export const bankStatementLines = pgTable(
       .notNull()
       .default("0"),
     balance: numeric("balance", { precision: 18, scale: 2 }),
+    exchangeRate: numeric("exchange_rate", { precision: 18, scale: 8 }),
+    baseAmount: numeric("base_amount", { precision: 18, scale: 2 }),
     debitAccountNumber: text("debit_account_number").notNull(),
     creditAccountNumber: text("credit_account_number").notNull(),
     rawData: text("raw_data"),
@@ -187,6 +218,64 @@ export const bankStatementLines = pgTable(
   (table) => [unique().on(table.statementId, table.rowNumber)]
 );
 
+export const cashFxRevaluations = pgTable(
+  "cash_fx_revaluations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "restrict" }),
+    revision: integer("revision").notNull().default(1),
+    valuationDate: text("valuation_date").notNull(),
+    currency: text("currency").notNull(),
+    closingRate: numeric("closing_rate", { precision: 18, scale: 8 }).notNull(),
+    rateSource: text("rate_source").notNull().default("manual"),
+    rateBasis: text("rate_basis").notNull().default("official"),
+    sourceDate: text("source_date"),
+    sourceUrl: text("source_url"),
+    fetchedAt: timestamp("fetched_at"),
+    manualOverrideReason: text("manual_override_reason"),
+    foreignBalance: numeric("foreign_balance", {
+      precision: 18,
+      scale: 2,
+    }).notNull(),
+    carryingAmount: numeric("carrying_amount", {
+      precision: 18,
+      scale: 2,
+    }).notNull(),
+    revaluedAmount: numeric("revalued_amount", {
+      precision: 18,
+      scale: 2,
+    }).notNull(),
+    adjustmentAmount: numeric("adjustment_amount", {
+      precision: 18,
+      scale: 2,
+    }).notNull(),
+    gainLossAccountNumber: text("gain_loss_account_number").notNull(),
+    status: text("status").notNull().default("posted"),
+    voucherId: uuid("voucher_id")
+      .notNull()
+      .references(() => journalVouchers.id, { onDelete: "restrict" }),
+    reversalVoucherId: uuid("reversal_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "restrict" }
+    ),
+    reversedAt: timestamp("reversed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique().on(
+      table.userId,
+      table.cashAccountId,
+      table.valuationDate,
+      table.revision
+    ),
+  ]
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -198,6 +287,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   cashAccounts: many(cashAccounts),
   cashDocuments: many(cashDocuments),
   bankStatements: many(bankStatements),
+  cashFxRevaluations: many(cashFxRevaluations),
 }));
 
 export const chartOfAccountsRelations = relations(chartOfAccounts, ({ one }) => ({
@@ -230,6 +320,7 @@ export const cashAccountsRelations = relations(
       relationName: "cashDocumentToAccount",
     }),
     bankStatements: many(bankStatements),
+    fxRevaluations: many(cashFxRevaluations),
   })
 );
 
@@ -288,6 +379,24 @@ export const bankStatementLinesRelations = relations(
     }),
     voucher: one(journalVouchers, {
       fields: [bankStatementLines.voucherId],
+      references: [journalVouchers.id],
+    }),
+  })
+);
+
+export const cashFxRevaluationsRelations = relations(
+  cashFxRevaluations,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [cashFxRevaluations.userId],
+      references: [users.id],
+    }),
+    cashAccount: one(cashAccounts, {
+      fields: [cashFxRevaluations.cashAccountId],
+      references: [cashAccounts.id],
+    }),
+    voucher: one(journalVouchers, {
+      fields: [cashFxRevaluations.voucherId],
       references: [journalVouchers.id],
     }),
   })
@@ -412,3 +521,4 @@ export type CashAccount = typeof cashAccounts.$inferSelect;
 export type CashDocument = typeof cashDocuments.$inferSelect;
 export type BankStatement = typeof bankStatements.$inferSelect;
 export type BankStatementLine = typeof bankStatementLines.$inferSelect;
+export type CashFxRevaluation = typeof cashFxRevaluations.$inferSelect;

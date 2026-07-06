@@ -92,6 +92,7 @@ export default async function CashTransactionsPage({
     amount: Number(document.amount),
     status: document.status,
     voucherId: document.voucherId,
+    sourceVoucherId: document.sourceVoucherId,
   }));
 
   return (

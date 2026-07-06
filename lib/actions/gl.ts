@@ -16,6 +16,7 @@ import {
   STANDARD_ACCOUNTS,
   SEGMENT_DEFS,
 } from "@/lib/constants/standard-accounts";
+import { syncDraftCashDocumentForVoucher } from "@/lib/actions/cash";
 
 async function requireUser() {
   const session = await auth();
@@ -301,7 +302,7 @@ export async function createVoucher(data: {
       throw new Error("Дебет ба кредит тэнцэхгүй байна");
   }
 
-  await db.transaction(async (tx) => {
+  const voucherId = await db.transaction(async (tx) => {
     const [voucher] = await tx
       .insert(journalVouchers)
       .values({ userId, date: data.date, description: data.description, status })
@@ -317,7 +318,13 @@ export async function createVoucher(data: {
         sortOrder: i,
       }))
     );
+    return voucher.id;
   });
+
+  // Reverse-sync into the cash subledger when posted directly.
+  if (status === "posted") {
+    await syncDraftCashDocumentForVoucher(voucherId);
+  }
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -342,6 +349,9 @@ export async function postVoucher(id: string) {
     .update(journalVouchers)
     .set({ status: "posted" })
     .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+
+  // Reverse-sync into the cash subledger now that it's posted.
+  await syncDraftCashDocumentForVoucher(id);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");

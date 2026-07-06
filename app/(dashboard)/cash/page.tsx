@@ -45,6 +45,7 @@ export default async function CashDashboardPage() {
     amount: Number(document.amount),
     status: document.status,
     voucherId: document.voucherId,
+    sourceVoucherId: document.sourceVoucherId,
   }));
 
   const today = new Date().toISOString().slice(0, 10);
