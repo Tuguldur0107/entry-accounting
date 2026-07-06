@@ -422,3 +422,10 @@
   border-color: var(--ea-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ea-primary) 18%, transparent);
 }
+
+/* ─── Clickable AG Grid rows ──────────────────────────────────────────────── */
+/* Applied on grids where clicking a row opens a detail drawer (e.g. cash
+   transactions). Shows a pointer cursor over data rows only. */
+.ea-clickable-rows .ag-row {
+  cursor: pointer;
+}

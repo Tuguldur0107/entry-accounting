@@ -12,8 +12,10 @@ import {
   cashAccounts,
   cashDocuments,
   chartOfAccounts,
+  segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
+import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 
 type SearchParams = Promise<{ start?: string; end?: string; type?: string }>;
 
@@ -34,7 +36,8 @@ export default async function CashTransactionsPage({
     end ? lte(cashDocuments.date, end) : undefined,
   ].filter(Boolean);
 
-  const [accounts, documents, glAccounts, cashFlowOptions] = await Promise.all([
+  const [accounts, documents, glAccounts, cashFlowOptions, segConfigs] =
+    await Promise.all([
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.userId, userId),
       orderBy: (account, { asc }) => [asc(account.name)],
@@ -59,7 +62,13 @@ export default async function CashTransactionsPage({
       ),
       orderBy: (value, { asc }) => [asc(value.code)],
     }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
   ]);
+
+  const segConfigMap = new Map(segConfigs.map((c) => [c.segmentId, c]));
+  const activeSegIds = SEGMENT_DEFS.filter(
+    (def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true
+  ).map((def) => def.id);
 
   const balanceMap = calculateCashBalances(accounts, documents);
   const accountViews: CashAccountView[] = accounts.map((account) => ({
@@ -99,6 +108,7 @@ export default async function CashTransactionsPage({
       }))}
       initialType={type}
       showToolbar
+      activeSegIds={activeSegIds}
     />
   );
 }

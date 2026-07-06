@@ -31,6 +31,7 @@ import type {
 } from "@/lib/cash/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
+import { CashDocumentDetailDialog } from "./cash-document-detail-dialog";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -55,6 +56,9 @@ interface Props {
   showToolbar?: boolean;
   /** Active type tab from URL (`?type=`). */
   initialType?: string;
+  /** Active segment ids — needed to render GL account codes in the detail
+   *  drawer per the segment display rule. */
+  activeSegIds?: number[];
 }
 
 type TypeTab = "all" | CashDocumentType;
@@ -88,6 +92,7 @@ export function CashDocumentsView({
   title = "Cash гүйлгээ",
   showToolbar = false,
   initialType,
+  activeSegIds = [3],
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,6 +101,7 @@ export function CashDocumentsView({
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [detailDoc, setDetailDoc] = useState<CashDocumentView | null>(null);
 
   const activeTab: TypeTab = TYPE_TABS.some((t) => t.value === initialType)
     ? (initialType as TypeTab)
@@ -446,8 +452,14 @@ export function CashDocumentsView({
             pagination={visibleDocuments.length > 25}
             paginationPageSize={25}
             paginationPageSizeSelector={false}
-            wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+            wrapperClassName="ea-clickable-rows rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
+            onCellClicked={(event) => {
+              // Ignore clicks in the actions column — those buttons have
+              // their own handlers and shouldn't also open the drawer.
+              if (event.column.getColId() === "actions") return;
+              if (event.data) setDetailDoc(event.data);
+            }}
           />
 
           {showToolbar && (
@@ -726,6 +738,14 @@ export function CashDocumentsView({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CashDocumentDetailDialog
+        document={detailDoc}
+        onClose={() => setDetailDoc(null)}
+        accountName={(id) => (id ? accountNameMap.get(id) ?? "" : "")}
+        glName={(code) => (code ? glNameMap.get(code) ?? "" : "")}
+        activeSegIds={activeSegIds}
+      />
     </section>
   );
 }
