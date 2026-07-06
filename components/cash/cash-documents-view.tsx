@@ -31,6 +31,9 @@ import type {
 } from "@/lib/cash/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CashDocumentDetailDialog } from "./cash-document-detail-dialog";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -102,6 +105,7 @@ export function CashDocumentsView({
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
   const [detailDoc, setDetailDoc] = useState<CashDocumentView | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const activeTab: TypeTab = TYPE_TABS.some((t) => t.value === initialType)
     ? (initialType as TypeTab)
@@ -146,13 +150,16 @@ export function CashDocumentsView({
   );
 
   const runAction = useCallback(
-    (action: () => Promise<unknown>) => {
+    (action: () => Promise<unknown>, successMessage: string) => {
       startTransition(async () => {
         try {
           await action();
           router.refresh();
+          toast.success(successMessage);
         } catch (caught) {
-          alert(caught instanceof Error ? caught.message : "Үйлдэл амжилтгүй");
+          toast.error(
+            caught instanceof Error ? caught.message : "Үйлдэл амжилтгүй"
+          );
         }
       });
     },
@@ -160,27 +167,44 @@ export function CashDocumentsView({
   );
 
   const handlePost = useCallback(
-    (id: string) => {
-      if (!confirm("Энэ Cash баримтыг баталж GL-д бичих үү?")) return;
-      runAction(() => postCashDocument(id));
+    async (id: string) => {
+      const ok = await confirm({
+        title: "Cash баримт батлах",
+        description: "Энэ баримтыг баталж GL журнал автоматаар үүсгэх үү?",
+        confirmText: "Батлах",
+      });
+      if (!ok) return;
+      runAction(() => postCashDocument(id), "Баримт батлагдаж GL-д бичигдлээ");
     },
-    [runAction]
+    [runAction, confirm]
   );
 
   const handleReverse = useCallback(
-    (id: string) => {
-      if (!confirm("Энэ Cash баримтыг сторно бичилтээр буцаах уу?")) return;
-      runAction(() => reverseCashDocument(id));
+    async (id: string) => {
+      const ok = await confirm({
+        title: "Сторно бичих",
+        description: "Энэ батлагдсан баримтыг сторно журналаар буцаах уу?",
+        confirmText: "Сторно",
+        danger: true,
+      });
+      if (!ok) return;
+      runAction(() => reverseCashDocument(id), "Баримт сторно хийгдлээ");
     },
-    [runAction]
+    [runAction, confirm]
   );
 
   const handleDelete = useCallback(
-    (id: string) => {
-      if (!confirm("Энэ ноорог Cash баримтыг устгах уу?")) return;
-      runAction(() => deleteCashDocument(id));
+    async (id: string) => {
+      const ok = await confirm({
+        title: "Ноорог устгах",
+        description: "Энэ ноорог Cash баримтыг бүрмөсөн устгах уу?",
+        confirmText: "Устгах",
+        danger: true,
+      });
+      if (!ok) return;
+      runAction(() => deleteCashDocument(id), "Ноорог устгагдлаа");
     },
-    [runAction]
+    [runAction, confirm]
   );
 
   const columnDefs = useMemo<ColDef<CashDocumentView>[]>(
@@ -383,7 +407,12 @@ export function CashDocumentsView({
         });
         setOpen(false);
         router.refresh();
+        toast.success(
+          postNow ? "Гүйлгээ хадгалагдаж батлагдлаа" : "Ноорог гүйлгээ хадгалагдлаа"
+        );
       } catch (caught) {
+        // Keep the dialog open with the form intact so the user can fix
+        // the input and retry — the error shows inline in the dialog.
         setError(
           caught instanceof Error ? caught.message : "Баримт хадгалж чадсангүй"
         );
@@ -643,23 +672,20 @@ export function CashDocumentsView({
             {form.documentType !== "transfer" && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Харилцах GL данс">
-                  <select
+                  <SearchableSelect
                     value={form.counterAccountNumber}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       setForm((current) => ({
                         ...current,
-                        counterAccountNumber: event.target.value,
+                        counterAccountNumber: value,
                       }))
                     }
-                    className="ea-form-select"
-                  >
-                    <option value="">Сонгох...</option>
-                    {glAccounts.map((account) => (
-                      <option key={account.number} value={account.number}>
-                        {account.number} · {account.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={glAccounts.map((account) => ({
+                      value: account.number,
+                      label: account.name,
+                    }))}
+                    placeholder="GL данс сонгох..."
+                  />
                 </Field>
                 <Field label="Харилцагч">
                   <Input
@@ -746,6 +772,8 @@ export function CashDocumentsView({
         glName={(code) => (code ? glNameMap.get(code) ?? "" : "")}
         activeSegIds={activeSegIds}
       />
+
+      {confirmDialog}
     </section>
   );
 }

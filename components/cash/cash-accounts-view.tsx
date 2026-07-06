@@ -23,6 +23,8 @@ import type {
   CashGlAccountOption,
 } from "@/lib/cash/types";
 import { fmtMnt } from "@/lib/reports/balances";
+import { toast } from "sonner";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface Props {
   accounts: CashAccountView[];
@@ -57,8 +59,11 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         try {
           await toggleCashAccount(id, isActive);
           router.refresh();
+          toast.success(isActive ? "Данс идэвхжлээ" : "Данс идэвхгүй боллоо");
         } catch (caught) {
-          alert(caught instanceof Error ? caught.message : "Төлөв сольж чадсангүй");
+          toast.error(
+            caught instanceof Error ? caught.message : "Төлөв сольж чадсангүй"
+          );
         }
       });
     },
@@ -179,6 +184,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         });
         setOpen(false);
         router.refresh();
+        toast.success("Данс үүслээ");
       } catch (caught) {
         setError(
           caught instanceof Error ? caught.message : "Данс үүсгэж чадсангүй"
@@ -336,23 +342,20 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
             </div>
 
             <FormField label="Холбох GL данс">
-              <select
+              <SearchableSelect
                 value={form.glAccountNumber}
-                onChange={(event) =>
+                onChange={(value) =>
                   setForm((current) => ({
                     ...current,
-                    glAccountNumber: event.target.value,
+                    glAccountNumber: value,
                   }))
                 }
-                className="ea-form-select"
-              >
-                <option value="">Сонгох...</option>
-                {glAccounts.map((account) => (
-                  <option key={account.number} value={account.number}>
-                    {account.number} · {account.name}
-                  </option>
-                ))}
-              </select>
+                options={glAccounts.map((account) => ({
+                  value: account.number,
+                  label: account.name,
+                }))}
+                placeholder="GL данс сонгох..."
+              />
             </FormField>
 
             {error && (

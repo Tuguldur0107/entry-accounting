@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -31,6 +32,15 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
         </ThemeProvider>
+        {/* Global toast host. `theme="system"` follows the .dark class on
+            <html>; richColors gives success/error their own tints. */}
+        <Toaster
+          position="top-right"
+          theme="system"
+          richColors
+          closeButton
+          toastOptions={{ duration: 3500 }}
+        />
       </body>
     </html>
   );
