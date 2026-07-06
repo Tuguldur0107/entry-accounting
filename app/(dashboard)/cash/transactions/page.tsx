@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 
 import { CashDocumentsView } from "@/components/cash/cash-documents-view";
 import { auth } from "@/lib/auth";
@@ -15,9 +15,24 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 
-export default async function CashTransactionsPage() {
+type SearchParams = Promise<{ start?: string; end?: string; type?: string }>;
+
+export default async function CashTransactionsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   const session = await auth();
   const userId = session!.user!.id!;
+  const { start, end, type } = await searchParams;
+
+  // Date range filters the document list at the DB level. `type` (receipt /
+  // payment / transfer) is applied client-side so switching tabs doesn't
+  // require a round-trip, and the summary totals still see the full set.
+  const dateFilters = [
+    start ? gte(cashDocuments.date, start) : undefined,
+    end ? lte(cashDocuments.date, end) : undefined,
+  ].filter(Boolean);
 
   const [accounts, documents, glAccounts, cashFlowOptions] = await Promise.all([
     db.query.cashAccounts.findMany({
@@ -25,7 +40,7 @@ export default async function CashTransactionsPage() {
       orderBy: (account, { asc }) => [asc(account.name)],
     }),
     db.query.cashDocuments.findMany({
-      where: eq(cashDocuments.userId, userId),
+      where: and(eq(cashDocuments.userId, userId), ...dateFilters),
       with: { fromAccount: true, toAccount: true },
       orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
     }),
@@ -82,6 +97,8 @@ export default async function CashTransactionsPage() {
         code: option.code,
         name: option.name,
       }))}
+      initialType={type}
+      showToolbar
     />
   );
 }

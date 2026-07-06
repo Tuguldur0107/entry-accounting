@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { Check, Plus, RotateCcw, Trash2 } from "lucide-react";
 
@@ -51,7 +51,20 @@ interface Props {
   cashFlowOptions: CashFlowOption[];
   allowCreate?: boolean;
   title?: string;
+  /** Render the type-tab row + summary footer (transactions page). */
+  showToolbar?: boolean;
+  /** Active type tab from URL (`?type=`). */
+  initialType?: string;
 }
+
+type TypeTab = "all" | CashDocumentType;
+
+const TYPE_TABS: { value: TypeTab; label: string }[] = [
+  { value: "all", label: "Бүгд" },
+  { value: "receipt", label: "Орлого" },
+  { value: "payment", label: "Зарлага" },
+  { value: "transfer", label: "Шилжүүлэг" },
+];
 
 const initialForm = () => ({
   documentType: "receipt" as CashDocumentType,
@@ -63,6 +76,7 @@ const initialForm = () => ({
   counterparty: "",
   description: "",
   amount: "",
+  exchangeRate: "",
 });
 
 export function CashDocumentsView({
@@ -72,12 +86,49 @@ export function CashDocumentsView({
   cashFlowOptions,
   allowCreate = true,
   title = "Cash гүйлгээ",
+  showToolbar = false,
+  initialType,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  const activeTab: TypeTab = TYPE_TABS.some((t) => t.value === initialType)
+    ? (initialType as TypeTab)
+    : "all";
+
+  function changeTab(next: TypeTab) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "all") params.delete("type");
+    else params.set("type", next);
+    router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+  }
+
+  // Type tab filters the already-date-filtered list. Summary totals below
+  // reflect the *visible* (tab-filtered) documents so the numbers match
+  // what the grid shows.
+  const visibleDocuments = useMemo(
+    () =>
+      activeTab === "all"
+        ? documents
+        : documents.filter((d) => d.documentType === activeTab),
+    [documents, activeTab]
+  );
+
+  const summary = useMemo(() => {
+    let receipts = 0;
+    let payments = 0;
+    for (const d of visibleDocuments) {
+      if (d.status === "reversed") continue;
+      if (d.documentType === "receipt") receipts += d.amount;
+      else if (d.documentType === "payment") payments += d.amount;
+    }
+    return { receipts, payments, net: receipts - payments, count: visibleDocuments.length };
+  }, [visibleDocuments]);
 
   const accountNameMap = useMemo(
     () => new Map(accounts.map((account) => [account.id, account.name])),
@@ -321,6 +372,7 @@ export function CashDocumentsView({
           counterparty: form.counterparty || undefined,
           description: form.description,
           amount,
+          exchangeRate: Number(form.exchangeRate.replaceAll(",", "")) || undefined,
           postNow,
         });
         setOpen(false);
@@ -334,6 +386,12 @@ export function CashDocumentsView({
   }
 
   const activeAccounts = accounts.filter((account) => account.isActive);
+  const selectedCurrency =
+    accounts.find((account) =>
+      form.documentType === "receipt"
+        ? account.id === form.toCashAccountId
+        : account.id === form.fromCashAccountId
+    )?.currency ?? "MNT";
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
@@ -354,22 +412,83 @@ export function CashDocumentsView({
         )}
       </div>
 
-      {documents.length === 0 ? (
+      {showToolbar && (
+        <div className="flex items-center gap-0 border-b border-[var(--ea-border)]">
+          {TYPE_TABS.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => changeTab(tab.value)}
+              className={cn(
+                "-mb-px border-b-2 px-4 py-2 text-xs font-medium transition-colors",
+                activeTab === tab.value
+                  ? "border-[var(--ea-primary)] text-[var(--ea-primary)]"
+                  : "border-transparent text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {visibleDocuments.length === 0 ? (
         <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Cash гүйлгээ байхгүй
         </div>
       ) : (
-        <DataGridDynamic<CashDocumentView>
-          rowData={documents}
-          columnDefs={columnDefs}
-          getRowId={(params) => params.data.id}
-          height={Math.min(680, 86 + documents.length * 38)}
-          pagination={documents.length > 25}
-          paginationPageSize={25}
-          paginationPageSizeSelector={false}
-          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-          suppressCellFocus
-        />
+        <>
+          <DataGridDynamic<CashDocumentView>
+            rowData={visibleDocuments}
+            columnDefs={columnDefs}
+            getRowId={(params) => params.data.id}
+            height={Math.min(680, 86 + visibleDocuments.length * 38)}
+            pagination={visibleDocuments.length > 25}
+            paginationPageSize={25}
+            paginationPageSizeSelector={false}
+            wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+            suppressCellFocus
+          />
+
+          {showToolbar && (
+            <div
+              className="flex flex-wrap items-center justify-end gap-x-6 gap-y-1 rounded-md px-4 py-2.5 text-xs"
+              style={{ background: "var(--ea-bg-2)", border: "1px solid var(--ea-border)" }}
+            >
+              <span className="mr-auto text-[var(--ea-text-3)]">
+                {summary.count} гүйлгээ
+                <span className="ml-1 text-[var(--ea-text-4)]">
+                  (сторно хассан)
+                </span>
+              </span>
+              <span className="text-[var(--ea-text-3)]">
+                Орлого{" "}
+                <span className="font-mono font-semibold text-[var(--ea-success-fg)]">
+                  {fmtMnt(summary.receipts)}
+                </span>
+              </span>
+              <span className="text-[var(--ea-text-3)]">
+                Зарлага{" "}
+                <span className="font-mono font-semibold text-[var(--ea-danger-fg)]">
+                  {fmtMnt(summary.payments)}
+                </span>
+              </span>
+              <span className="text-[var(--ea-text-3)]">
+                Цэвэр{" "}
+                <span
+                  className={cn(
+                    "font-mono font-semibold",
+                    summary.net < 0
+                      ? "text-[var(--ea-danger-fg)]"
+                      : "text-[var(--ea-text-1)]"
+                  )}
+                >
+                  {fmtMnt(summary.net)}
+                </span>
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -448,6 +567,7 @@ export function CashDocumentsView({
                     setForm((current) => ({
                       ...current,
                       fromCashAccountId: value,
+                      exchangeRate: "",
                     }))
                   }
                 />
@@ -464,10 +584,48 @@ export function CashDocumentsView({
                     setForm((current) => ({
                       ...current,
                       toCashAccountId: value,
+                      exchangeRate: "",
                     }))
                   }
                 />
               </Field>
+            )}
+
+            {selectedCurrency !== "MNT" && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label={`${selectedCurrency}/MNT гүйлгээний ханш`}>
+                  <Input
+                    type="number"
+                    min="0.00000001"
+                    step="0.00000001"
+                    value={form.exchangeRate}
+                    placeholder="0.00000000"
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        exchangeRate: event.target.value,
+                      }))
+                    }
+                  />
+                </Field>
+                <Field label="GL-д бичигдэх MNT дүн">
+                  <Input
+                    value={
+                      Number(form.amount) > 0 && Number(form.exchangeRate) > 0
+                        ? fmtMnt(
+                            Math.round(
+                              Number(form.amount) *
+                                Number(form.exchangeRate) *
+                                100
+                            ) / 100
+                          )
+                        : ""
+                    }
+                    readOnly
+                    placeholder="0.00"
+                  />
+                </Field>
+              </div>
             )}
 
             {form.documentType !== "transfer" && (

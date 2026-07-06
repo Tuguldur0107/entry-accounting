@@ -15,10 +15,10 @@ function defaultMonthRange() {
 }
 
 // Date range filter rendered in the dashboard header. Acts as a shared
-// filter for any GL surface that reads `start` / `end` from searchParams
-// (currently /gl/journal and /gl/reports). Stays on the active path
-// instead of forcing a navigation to /gl/journal.
-const DATE_AWARE_PATHS = ["/gl/journal", "/gl/reports"];
+// filter for any surface that reads `start` / `end` from searchParams
+// (GL journal, GL reports, and cash transactions). Stays on the active
+// path instead of forcing a navigation.
+const DATE_AWARE_PATHS = ["/gl/journal", "/gl/reports", "/cash/transactions"];
 
 export function HeaderJournalSearch() {
   const router = useRouter();
@@ -32,9 +32,13 @@ export function HeaderJournalSearch() {
   if (!DATE_AWARE_PATHS.includes(pathname)) return null;
 
   function handleSearch() {
-    const params = new URLSearchParams();
+    // Preserve any other params already on the URL (e.g. cash `type`
+    // tab, report selection) — only overwrite the date range.
+    const params = new URLSearchParams(searchParams.toString());
     if (start) params.set("start", start);
+    else params.delete("start");
     if (end) params.set("end", end);
+    else params.delete("end");
     const target = `${pathname}${params.toString() ? `?${params.toString()}` : ""}`;
     router.replace(target);
   }
