@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, lte } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -18,7 +18,6 @@ import {
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
-import { deriveCashDocumentFromVoucher } from "@/lib/cash/gl-sync";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -268,84 +267,6 @@ export async function createCashDocument(data: {
   if (data.postNow) await postCashDocument(document.id);
   else revalidateCash();
   return { id: document.id };
-}
-
-// Called by the GL actions after a voucher is posted. If the voucher touches
-// a cash account's GL account and isn't already tied to a cash document,
-// create a DRAFT cash document so it surfaces in the cash transactions list.
-// Idempotent: skips vouchers already linked (voucherId) or already sourced
-// (sourceVoucherId) to a cash document. Silent on any failure — cash sync
-// must never block a GL post.
-export async function syncDraftCashDocumentForVoucher(voucherId: string) {
-  try {
-    const voucher = await db.query.journalVouchers.findFirst({
-      where: eq(journalVouchers.id, voucherId),
-      with: { lines: true },
-    });
-    if (!voucher || voucher.status !== "posted") return;
-    const userId = voucher.userId;
-
-    // Skip cash-originated vouchers and any voucher we've already synced.
-    const existing = await db.query.cashDocuments.findFirst({
-      where: and(
-        eq(cashDocuments.userId, userId),
-        or(
-          eq(cashDocuments.voucherId, voucherId),
-          eq(cashDocuments.sourceVoucherId, voucherId)
-        )
-      ),
-      columns: { id: true },
-    });
-    if (existing) return;
-
-    const accounts = await db.query.cashAccounts.findMany({
-      where: eq(cashAccounts.userId, userId),
-    });
-
-    const derived = deriveCashDocumentFromVoucher({
-      voucherDescription: voucher.description,
-      lines: voucher.lines.map((l) => ({
-        accountNumber: l.accountNumber,
-        debit: Number(l.debit),
-        credit: Number(l.credit),
-        description: l.description,
-      })),
-      cashAccounts: accounts.map((a) => ({
-        id: a.id,
-        glAccountNumber: a.glAccountNumber,
-        currency: a.currency,
-        isActive: a.isActive,
-      })),
-    });
-    if (!derived) return;
-
-    const documentNo = `GL-${voucher.date.replaceAll("-", "")}-${crypto
-      .randomUUID()
-      .slice(0, 6)
-      .toUpperCase()}`;
-
-    await db.insert(cashDocuments).values({
-      userId,
-      documentNo,
-      documentType: derived.documentType,
-      date: voucher.date,
-      fromCashAccountId: derived.fromCashAccountId,
-      toCashAccountId: derived.toCashAccountId,
-      counterAccountNumber: derived.counterAccountNumber,
-      counterparty: null,
-      description: derived.description,
-      amount: String(derived.amount),
-      currency: derived.currency,
-      exchangeRate: "1",
-      baseAmount: String(derived.amount),
-      status: "draft",
-      sourceVoucherId: voucherId,
-    });
-
-    revalidateCash();
-  } catch (error) {
-    console.error("[syncDraftCashDocumentForVoucher]", error);
-  }
 }
 
 export async function postCashDocument(id: string) {

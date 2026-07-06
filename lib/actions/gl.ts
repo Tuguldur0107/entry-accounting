@@ -16,7 +16,7 @@ import {
   STANDARD_ACCOUNTS,
   SEGMENT_DEFS,
 } from "@/lib/constants/standard-accounts";
-import { syncDraftCashDocumentForVoucher } from "@/lib/actions/cash";
+import { syncDraftCashDocumentForVoucher } from "@/lib/cash/sync-voucher";
 
 async function requireUser() {
   const session = await auth();
