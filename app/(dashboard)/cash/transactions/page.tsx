@@ -16,6 +16,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { backfillCashDraftsForUser } from "@/lib/cash/sync-voucher";
 
 type SearchParams = Promise<{ start?: string; end?: string; type?: string }>;
 
@@ -27,6 +28,11 @@ export default async function CashTransactionsPage({
   const session = await auth();
   const userId = session!.user!.id!;
   const { start, end, type } = await searchParams;
+
+  // Surface any posted GL journals that touch a cash account but don't yet
+  // have a cash document — including historical ones. Idempotent + best
+  // effort; runs before the document query so new drafts show immediately.
+  await backfillCashDraftsForUser(userId);
 
   // Date range filters the document list at the DB level. `type` (receipt /
   // payment / transfer) is applied client-side so switching tabs doesn't

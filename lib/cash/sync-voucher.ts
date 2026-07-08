@@ -9,7 +9,11 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 import { cashAccounts, cashDocuments, journalVouchers } from "@/lib/db/schema";
-import { deriveCashDocumentFromVoucher } from "./gl-sync";
+import {
+  deriveCashDocumentFromVoucher,
+  mainAccountOf,
+  type CashAccountRef,
+} from "./gl-sync";
 
 // When a GL voucher is posted that touches a cash/bank account's linked GL
 // account, surface a DRAFT cash document. Idempotent (skips vouchers already
@@ -85,5 +89,99 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
     revalidatePath("/cash/transactions");
   } catch (error) {
     console.error("[syncDraftCashDocumentForVoucher]", error);
+  }
+}
+
+// Backfill: scan every posted voucher for the user that isn't yet tied to a
+// cash document and create the missing drafts in one pass. Called when the
+// cash transactions page loads so historical journals — and any posted via a
+// path that didn't trigger the per-post sync — surface without a manual
+// re-post. Idempotent: only unlinked vouchers produce a draft.
+//
+// Returns the number of drafts created (0 when nothing was missing) so the
+// caller can decide whether to re-query.
+export async function backfillCashDraftsForUser(userId: string): Promise<number> {
+  try {
+    const accounts = await db.query.cashAccounts.findMany({
+      where: eq(cashAccounts.userId, userId),
+    });
+    if (accounts.length === 0) return 0;
+    const cashRefs: CashAccountRef[] = accounts.map((a) => ({
+      id: a.id,
+      glAccountNumber: a.glAccountNumber,
+      currency: a.currency,
+      isActive: a.isActive,
+    }));
+    const cashGl = new Set(cashRefs.map((a) => a.glAccountNumber));
+
+    // Voucher ids already tied to a cash document (either direction).
+    const linkedDocs = await db.query.cashDocuments.findMany({
+      where: eq(cashDocuments.userId, userId),
+      columns: { voucherId: true, sourceVoucherId: true },
+    });
+    const linked = new Set<string>();
+    for (const d of linkedDocs) {
+      if (d.voucherId) linked.add(d.voucherId);
+      if (d.sourceVoucherId) linked.add(d.sourceVoucherId);
+    }
+
+    const vouchers = await db.query.journalVouchers.findMany({
+      where: and(
+        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.status, "posted")
+      ),
+      with: { lines: true },
+    });
+
+    const inserts: (typeof cashDocuments.$inferInsert)[] = [];
+    for (const voucher of vouchers) {
+      if (linked.has(voucher.id)) continue;
+      // Cheap pre-filter: skip vouchers that don't touch any cash gl account.
+      const touchesCash = voucher.lines.some((l) =>
+        cashGl.has(mainAccountOf(l.accountNumber))
+      );
+      if (!touchesCash) continue;
+
+      const derived = deriveCashDocumentFromVoucher({
+        voucherDescription: voucher.description,
+        lines: voucher.lines.map((l) => ({
+          accountNumber: l.accountNumber,
+          debit: Number(l.debit),
+          credit: Number(l.credit),
+          description: l.description,
+        })),
+        cashAccounts: cashRefs,
+      });
+      if (!derived) continue;
+
+      const documentNo = `GL-${voucher.date.replaceAll("-", "")}-${crypto
+        .randomUUID()
+        .slice(0, 6)
+        .toUpperCase()}`;
+      inserts.push({
+        userId,
+        documentNo,
+        documentType: derived.documentType,
+        date: voucher.date,
+        fromCashAccountId: derived.fromCashAccountId,
+        toCashAccountId: derived.toCashAccountId,
+        counterAccountNumber: derived.counterAccountNumber,
+        counterparty: null,
+        description: derived.description,
+        amount: String(derived.amount),
+        currency: derived.currency,
+        exchangeRate: "1",
+        baseAmount: String(derived.amount),
+        status: "draft",
+        sourceVoucherId: voucher.id,
+      });
+    }
+
+    if (inserts.length === 0) return 0;
+    await db.insert(cashDocuments).values(inserts);
+    return inserts.length;
+  } catch (error) {
+    console.error("[backfillCashDraftsForUser]", error);
+    return 0;
   }
 }
