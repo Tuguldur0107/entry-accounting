@@ -61,7 +61,7 @@ export const MODULES: Module[] = [
         href: "/cash/reconciliation",
         icon: Scale,
       },
-      { label: "Мөнгөн хөрөнгийн тайлан", href: "/cash/reports", icon: BarChartBig },
+      { label: "Тайлан", href: "/cash/reports", icon: BarChartBig },
       { label: "Касс, банкны данс", href: "/cash/accounts", icon: Landmark },
     ],
   },

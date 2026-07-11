@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { BookOpen, Settings, Check, WalletCards } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { MODULES, getActiveModule } from "./modules";
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
@@ -17,30 +19,75 @@ function ModuleIcon({ id, size = 22 }: { id: string; size?: number }) {
   return <Icon size={size} strokeWidth={1.6} />;
 }
 
-export function ModuleSwitcher() {
+type ModuleSwitcherVariant = "header" | "sidebar" | "collapsed";
+
+interface ModuleSwitcherProps {
+  variant?: ModuleSwitcherVariant;
+  onSelect?: () => void;
+}
+
+export function ModuleSwitcher({
+  variant = "header",
+  onSelect,
+}: ModuleSwitcherProps) {
   const pathname = usePathname();
   const active = getActiveModule(pathname);
   const [open, setOpen] = useState(false);
+  // Popup coordinates in viewport space — the menu is portalled to
+  // document.body so the sidebar's overflow-y / width can't clip it.
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const sidebar = variant === "sidebar";
+  const collapsed = variant === "collapsed";
+
+  function openMenu() {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 360;
+      const margin = 16;
+      // Collapsed rail: fly out to the right of the trigger; otherwise drop
+      // below it. Clamp into the viewport in both cases.
+      const rawLeft = collapsed ? rect.right + 8 : rect.left;
+      const left = Math.min(rawLeft, window.innerWidth - width - margin);
+      const top = collapsed ? rect.top : rect.bottom + 6;
+      setMenuPos({ top, left: Math.max(margin, left) });
+    }
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
     function onClick(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
+    // Any scroll/resize invalidates the cached rect — just close.
+    function onReflow() {
+      setOpen(false);
+    }
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReflow);
+    window.addEventListener("scroll", onReflow, true);
     return () => {
       document.removeEventListener("mousedown", onClick);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReflow);
+      window.removeEventListener("scroll", onReflow, true);
     };
   }, [open]);
 
   return (
-    <div ref={rootRef} style={{ position: "relative" }}>
+    <div
+      ref={rootRef}
+      className={cn("relative", sidebar && "w-full", collapsed && "flex justify-center")}
+    >
       <style>{`
         @keyframes ms-pop-grow {
           from { opacity: 0; transform: translateY(-4px) scale(0.92) }
@@ -49,17 +96,17 @@ export function ModuleSwitcher() {
       `}</style>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center justify-center transition-shadow"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        className={cn(
+          "border-0 transition-shadow",
+          variant === "header" &&
+            "flex size-9 items-center justify-center rounded-md bg-[var(--ea-primary)] text-[var(--primary-foreground)]",
+          sidebar &&
+            "group flex w-full min-w-0 items-center justify-between rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left hover:border-[var(--ea-primary)]",
+          collapsed &&
+            "flex size-9 items-center justify-center rounded-md bg-[var(--ea-surface)] text-[var(--ea-primary)] hover:bg-[var(--ea-bg)]"
+        )}
         style={{
-          width: 36,
-          height: 36,
-          padding: 0,
-          borderRadius: 8,
-          background: "var(--ea-primary)",
-          color: "var(--primary-foreground)",
-          border: "none",
-          cursor: "pointer",
           boxShadow: open
             ? "0 0 0 3px color-mix(in srgb, var(--ea-primary) 22%, transparent)"
             : "none",
@@ -69,17 +116,34 @@ export function ModuleSwitcher() {
         aria-label={`Модуль: ${active.label}`}
         title={active.label}
       >
-        <ModuleIcon id={active.id} size={20} />
+        {sidebar ? (
+          <>
+            <div className="min-w-0">
+              <div className="truncate text-[11px] font-medium text-[var(--ea-text-3)]">
+                Модуль
+              </div>
+              <div className="truncate text-sm font-semibold text-[var(--ea-text-1)]">
+                {active.label}
+              </div>
+            </div>
+            <ModuleIcon id={active.id} size={18} />
+          </>
+        ) : (
+          <ModuleIcon id={active.id} size={20} />
+        )}
       </button>
 
-      {open && (
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
         <div
+          ref={menuRef}
           role="menu"
           aria-label="Модуль сонгох"
           style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
+            position: "fixed",
+            top: menuPos.top,
+            left: menuPos.left,
             width: 360,
             maxWidth: "calc(100vw - 32px)",
             background: "var(--ea-surface)",
@@ -87,7 +151,7 @@ export function ModuleSwitcher() {
             borderRadius: 10,
             boxShadow: "var(--ea-shadow-3)",
             padding: 8,
-            zIndex: 30,
+            zIndex: 60,
             transformOrigin: "top left",
             animation: "ms-pop-grow 140ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
@@ -111,7 +175,10 @@ export function ModuleSwitcher() {
                 <Link
                   key={m.id}
                   href={m.defaultHref}
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    setOpen(false);
+                    onSelect?.();
+                  }}
                   role="menuitem"
                   style={{
                     display: "flex",
@@ -184,7 +251,8 @@ export function ModuleSwitcher() {
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
