@@ -11,7 +11,6 @@ import {
   FilePlus2,
   Plus,
   ReceiptText,
-  Settings2,
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,7 +45,7 @@ import { parseMntInput } from "@/lib/grid/formatters";
 import { buildSegCode, fmtAccountDisplay, normalizePastedAccount } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 
-type Focus = "dashboard" | "counterparties" | "documents" | "reports" | "settings";
+type Focus = "dashboard" | "counterparties" | "documents" | "reports";
 type ArApMode = "combined" | "receivable" | "payable";
 
 type LineRow = ArApLineInput & { id: string };
@@ -63,11 +62,6 @@ type ReportRow = {
   days31To60: number;
   days61To90: number;
   daysOver90: number;
-};
-type SettingRow = {
-  label: string;
-  value: string;
-  note: string;
 };
 
 interface Props {
@@ -107,7 +101,6 @@ const MODE_CONFIG: Record<
     counterpartyType: "customer" | "supplier" | "both";
     documentTitle: string;
     reportTitle: string;
-    settingsTitle: string;
     createLabel: string;
     emptyDocuments: string;
   }
@@ -119,7 +112,6 @@ const MODE_CONFIG: Record<
     counterpartyType: "both",
     documentTitle: "Авлага, өглөгийн баримт",
     reportTitle: "Авлага, өглөгийн тайлан",
-    settingsTitle: "Авлага, өглөгийн тохируулгын тойм",
     createLabel: "Баримт үүсгэх",
     emptyDocuments: "Баримт бүртгээгүй байна",
   },
@@ -130,7 +122,6 @@ const MODE_CONFIG: Record<
     counterpartyType: "customer",
     documentTitle: "Авлагын нэхэмжлэл",
     reportTitle: "Авлагын тайлан",
-    settingsTitle: "Авлагын тохируулгын тойм",
     createLabel: "Нэхэмжлэл үүсгэх",
     emptyDocuments: "Авлагын нэхэмжлэл бүртгээгүй байна",
   },
@@ -141,7 +132,6 @@ const MODE_CONFIG: Record<
     counterpartyType: "supplier",
     documentTitle: "Өглөгийн нэхэмжлэх",
     reportTitle: "Өглөгийн тайлан",
-    settingsTitle: "Өглөгийн тохируулгын тойм",
     createLabel: "Нэхэмжлэх бүртгэх",
     emptyDocuments: "Өглөгийн нэхэмжлэх бүртгээгүй байна",
   },
@@ -488,7 +478,6 @@ export function ArApWorkspace({
   const showCounterparties = focus === "counterparties";
   const showDocuments = focus === "documents";
   const showReports = focus === "reports";
-  const showSettings = focus === "settings";
 
   return (
     <section className="flex min-h-full w-full min-w-0 max-w-full flex-none flex-col gap-6">
@@ -599,16 +588,6 @@ export function ArApWorkspace({
           asOf={reportDate}
           onAsOfChange={setReportDate}
           onRefresh={() => router.push(`${pathname}?asOf=${reportDate}`)}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsSection
-          title={config.settingsTitle}
-          mode={mode}
-          activeSegIds={activeSegIds}
-          defaultAccountNumbers={defaultAccountNumbers}
-          defaultSegments={defaultSegments}
         />
       )}
 
@@ -943,100 +922,6 @@ function ReportSection({
           suppressCellFocus
         />
       )}
-    </section>
-  );
-}
-
-function SettingsSection({
-  title,
-  mode,
-  activeSegIds,
-  defaultAccountNumbers,
-  defaultSegments,
-}: {
-  title: string;
-  mode: ArApMode;
-  activeSegIds: number[];
-  defaultAccountNumbers: { receivable: string; payable: string };
-  defaultSegments: Record<number, string>;
-}) {
-  const rows = useMemo<SettingRow[]>(() => {
-    const defaultControlAccount =
-      mode === "payable"
-        ? defaultAccountNumbers.payable
-        : defaultAccountNumbers.receivable;
-    const documentType =
-      mode === "payable" ? "Өглөгийн нэхэмжлэх" : "Авлагын нэхэмжлэл";
-    const settlement =
-      mode === "payable"
-        ? "Мөнгөн хөрөнгө дээр зарлагаар хаана"
-        : "Мөнгөн хөрөнгө дээр орлогоор хаана";
-    return [
-      {
-        label: "Баримтын төрөл",
-        value: mode === "combined" ? "Авлага ба өглөг" : documentType,
-        note: "Module тус бүр зөвхөн өөрийн төрлийн баримт үүсгэнэ",
-      },
-      {
-        label: "Үндсэн хяналтын данс",
-        value: defaultControlAccount || "Тохируулаагүй",
-        note:
-          mode === "payable"
-            ? "Харилцагчийн өглөгийн үндсэн данснаас автоматаар бөглөгдөнө"
-            : "Харилцагчийн авлагын үндсэн данснаас автоматаар бөглөгдөнө",
-      },
-      {
-        label: "Төлөлтийн урсгал",
-        value: settlement,
-        note: "Мөнгөн гүйлгээ батлахад авлага/өглөгийн үлдэгдэл шинэчлэгдэнэ",
-      },
-      {
-        label: "Идэвхтэй сегмент",
-        value: activeSegIds.join(", "),
-        note: "GL журналтай адил account picker дээр эдгээр сегмент харагдана",
-      },
-      {
-        label: "Үндсэн сегмент",
-        value:
-          Object.entries(defaultSegments)
-            .map(([segmentId, code]) => `S${segmentId}:${code}`)
-            .join(", ") || "Автомат default алга",
-        note: "Нэг сонголттой сегментүүд account code-д автоматаар нөхөгдөнө",
-      },
-    ];
-  }, [activeSegIds, defaultAccountNumbers, defaultSegments, mode]);
-
-  const columns = useMemo<ColDef<SettingRow>[]>(
-    () => [
-      { headerName: "Тохиргоо", field: "label", minWidth: 170, flex: 0.8 },
-      {
-        headerName: "Утга",
-        field: "value",
-        minWidth: 190,
-        flex: 1,
-        cellClass: "font-mono text-xs",
-      },
-      { headerName: "Тайлбар", field: "note", minWidth: 260, flex: 1.4 },
-    ],
-    []
-  );
-
-  return (
-    <section className="min-w-0">
-      <div className="mb-2 flex items-center gap-2">
-        <Settings2 size={16} className="text-[var(--ea-primary)]" />
-        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
-          {title}
-        </h2>
-      </div>
-      <DataGridDynamic<SettingRow>
-        rowData={rows}
-        columnDefs={columns}
-        getRowId={(params) => params.data.label}
-        height={286}
-        wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-        suppressCellFocus
-      />
     </section>
   );
 }
