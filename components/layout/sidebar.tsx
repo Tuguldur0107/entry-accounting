@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { getActiveModule, sectionLabel, SECTION_ORDER } from "./modules";
+import { getActiveModule } from "./modules";
 import { ModuleSwitcher } from "./module-switcher";
 import {
   SIDEBAR_DEFAULT_WIDTH,
@@ -93,68 +93,47 @@ export function Sidebar() {
         />
       </div>
 
-      {/* 4-section standard: dashboard → transactions → reports → settings.
-          Sections render in fixed order with a small header (per-module
-          label via sectionLabels); collapsed mode shows a divider instead. */}
       <nav className="flex flex-col gap-1 px-2">
-        {SECTION_ORDER.map((section, sectionIndex) => {
-          const items = active.items.filter((item) => item.section === section);
-          if (items.length === 0) return null;
-          const label = sectionLabel(active, section);
-          const isCollapsedRail = collapsed && !mobile;
+        {active.items.map((item) => {
+          const isActive = isActivePath(pathname, item.href);
+          const Icon = item.icon;
           return (
-            <div key={section} className="flex flex-col gap-1">
-              {label && !isCollapsedRail && (
-                <div className="mt-2.5 px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ea-text-4)] first:mt-0">
-                  {label}
-                </div>
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => {
+                if (mobile) setMobileOpen(false);
+              }}
+              title={collapsed && !mobile ? item.label : undefined}
+              className={cn(
+                "group relative flex min-h-9 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                collapsed && !mobile && "justify-center px-2",
+                isActive
+                  ? "bg-[var(--ea-surface)] font-medium text-[var(--ea-primary)] shadow-sm"
+                  : "text-[var(--ea-text-2)] hover:bg-[var(--ea-surface)] hover:text-[var(--ea-text-1)]"
               )}
-              {label && isCollapsedRail && sectionIndex > 0 && (
-                <div className="mx-2 my-1.5 h-px bg-[var(--ea-border)]" />
+            >
+              <span
+                className={cn(
+                  "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-transparent transition-colors",
+                  isActive && "bg-[var(--ea-primary)]"
+                )}
+              />
+              <Icon
+                size={16}
+                className={cn(
+                  "shrink-0",
+                  isActive
+                    ? "text-[var(--ea-primary)]"
+                    : "text-[var(--ea-text-3)] group-hover:text-[var(--ea-text-1)]"
+                )}
+              />
+              {collapsed && !mobile ? (
+                <span className="sr-only">{item.label}</span>
+              ) : (
+                <span className="truncate">{item.label}</span>
               )}
-              {items.map((item) => {
-                const isActive = isActivePath(pathname, item.href);
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => {
-                      if (mobile) setMobileOpen(false);
-                    }}
-                    title={isCollapsedRail ? item.label : undefined}
-                    className={cn(
-                      "group relative flex min-h-9 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-                      isCollapsedRail && "justify-center px-2",
-                      isActive
-                        ? "bg-[var(--ea-surface)] font-medium text-[var(--ea-primary)] shadow-sm"
-                        : "text-[var(--ea-text-2)] hover:bg-[var(--ea-surface)] hover:text-[var(--ea-text-1)]"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-transparent transition-colors",
-                        isActive && "bg-[var(--ea-primary)]"
-                      )}
-                    />
-                    <Icon
-                      size={16}
-                      className={cn(
-                        "shrink-0",
-                        isActive
-                          ? "text-[var(--ea-primary)]"
-                          : "text-[var(--ea-text-3)] group-hover:text-[var(--ea-text-1)]"
-                      )}
-                    />
-                    {isCollapsedRail ? (
-                      <span className="sr-only">{item.label}</span>
-                    ) : (
-                      <span className="truncate">{item.label}</span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
+            </Link>
           );
         })}
       </nav>
