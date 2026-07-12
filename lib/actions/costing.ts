@@ -1,0 +1,522 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { and, eq, inArray, sql } from "drizzle-orm";
+
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import {
+  chartOfAccounts,
+  costEntries,
+  costingItemSettings,
+  costingRuns,
+  inventoryItems,
+  inventoryMovements,
+  journalLines,
+  journalVouchers,
+  segmentConfigs,
+  segmentValues,
+} from "@/lib/db/schema";
+import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { buildSegCode } from "@/lib/grid/segments";
+import {
+  computeCostingRun,
+  entryPostingAccounts,
+  type CostEntryType,
+  type PostedEntryRef,
+} from "@/lib/costing/costing";
+import type { MovementRef, MovementType } from "@/lib/inventory/balances";
+
+async function requireUser() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
+  return session.user.id;
+}
+
+function revalidateCosting() {
+  for (const path of [
+    "/costing",
+    "/costing/entries",
+    "/costing/reports",
+    "/costing/settings",
+    "/inventory",
+    "/inventory/movements",
+    "/gl/journal",
+    "/gl/reports",
+  ])
+    revalidatePath(path);
+}
+
+async function assertEnabledMainAccount(userId: string, accountNumber: string) {
+  const account = await db.query.chartOfAccounts.findFirst({
+    where: and(
+      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.number, accountNumber),
+      eq(chartOfAccounts.isEnabled, true)
+    ),
+    columns: { id: true },
+  });
+  if (!account)
+    throw new Error(`${accountNumber} идэвхтэй GL данс олдсонгүй — тохиргоог шалгана уу`);
+}
+
+// Cash-ийн cashPostingCodeBuilder-ийн клон: S9 = "CO" (Өртгийн бүртгэл).
+async function costingPostingCodeBuilder(userId: string) {
+  const [configs, values] = await Promise.all([
+    db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.userId, userId),
+    }),
+    db.query.segmentValues.findMany({
+      where: and(
+        eq(segmentValues.userId, userId),
+        eq(segmentValues.isEnabled, true)
+      ),
+    }),
+  ]);
+  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
+  const activeSegIds = SEGMENT_DEFS.filter(
+    (definition) =>
+      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
+  ).map((definition) => definition.id);
+  const defaults: Record<number, string> = {};
+  for (const segmentId of activeSegIds) {
+    const options = values.filter((value) => value.segmentId === segmentId);
+    if (options.length === 1) defaults[segmentId] = options[0].code;
+  }
+  if (activeSegIds.includes(9)) defaults[9] = "CO";
+  return (mainAccount: string) =>
+    buildSegCode({ ...defaults, 3: mainAccount }, activeSegIds, {
+      ...defaults,
+      9: "CO",
+    });
+}
+
+// ─── Тохиргоо (бараа бүрийн дансны mapping) ──────────────────────────────────
+
+export async function upsertCostingItemSetting(data: {
+  itemId: string;
+  inventoryAccountNumber: string;
+  cogsAccountNumber: string;
+}) {
+  const userId = await requireUser();
+  const inventoryAccountNumber = data.inventoryAccountNumber.trim();
+  const cogsAccountNumber = data.cogsAccountNumber.trim();
+  // Tie-out тайлан 14-бүлгээр тулгадаг тул mapping-ийг бүлэгт нь барина.
+  if (!inventoryAccountNumber.startsWith("14"))
+    throw new Error("Бараа материалын данс 14-бүлгийн данс байна");
+  if (!/^[678]/.test(cogsAccountNumber))
+    throw new Error("Өртгийн данс зардлын (6/7/8) бүлгийн данс байна");
+  await assertEnabledMainAccount(userId, inventoryAccountNumber);
+  await assertEnabledMainAccount(userId, cogsAccountNumber);
+
+  const item = await db.query.inventoryItems.findFirst({
+    where: and(
+      eq(inventoryItems.id, data.itemId),
+      eq(inventoryItems.userId, userId)
+    ),
+    columns: { id: true },
+  });
+  if (!item) throw new Error("Бараа олдсонгүй");
+
+  const existing = await db.query.costingItemSettings.findFirst({
+    where: and(
+      eq(costingItemSettings.userId, userId),
+      eq(costingItemSettings.itemId, data.itemId)
+    ),
+    columns: { id: true },
+  });
+  if (existing)
+    await db
+      .update(costingItemSettings)
+      .set({ inventoryAccountNumber, cogsAccountNumber })
+      .where(eq(costingItemSettings.id, existing.id));
+  else
+    await db.insert(costingItemSettings).values({
+      userId,
+      itemId: data.itemId,
+      inventoryAccountNumber,
+      cogsAccountNumber,
+    });
+  revalidateCosting();
+}
+
+// ─── Costing run ─────────────────────────────────────────────────────────────
+
+// Гараар үнэ өгөх орлогууд: movementId → unitCost. Run нь баталсан-
+// үнэлэгдээгүй хөдөлгөөнүүдийг он цагийн дарааллаар үнэлж ноорог cost entry
+// үүсгэнэ; үнэ хүлээгдэж буй орлого болон түүнд блоклогдсон хөдөлгөөнүүд
+// pending буцна.
+export async function runCosting(data: {
+  asOfDate: string;
+  receiptCosts?: Record<string, number>;
+}) {
+  const userId = await requireUser();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.asOfDate))
+    throw new Error("Огноо буруу байна");
+
+  // Давхар run-аас хамгаалах: унших-тооцох-бичих бүхэлдээ транзакцад,
+  // хэрэглэгч бүрийн advisory lock дор (хоёр зэрэг run нэг хөдөлгөөнийг
+  // хоёр удаа үнэлж GL-ийг давхарлахаас сэргийлнэ).
+  return await db.transaction(async (tx) => {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 2)`);
+
+  const [movements, activeEntries] = await Promise.all([
+    tx.query.inventoryMovements.findMany({
+      where: and(
+        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.status, "confirmed")
+      ),
+    }),
+    tx.query.costEntries.findMany({
+      where: and(
+        eq(costEntries.userId, userId),
+        inArray(costEntries.status, ["draft", "posted"])
+      ),
+    }),
+  ]);
+
+  const movementRefs: MovementRef[] = movements.map((row) => ({
+    id: row.id,
+    movementType: row.movementType as MovementType,
+    date: row.date,
+    itemId: row.itemId,
+    warehouseId: row.warehouseId,
+    toWarehouseId: row.toWarehouseId,
+    quantity: Number(row.quantity),
+    createdAt: row.createdAt.toISOString(),
+  }));
+  const valuedEntries: PostedEntryRef[] = activeEntries.map((entry) => ({
+    movementId: entry.movementId,
+    entryType: entry.entryType as CostEntryType,
+    quantity: Number(entry.quantity),
+    unitCost: Number(entry.unitCost),
+    amount: Number(entry.amount),
+  }));
+
+  const receiptCosts = new Map<string, number>();
+  for (const [movementId, unitCost] of Object.entries(data.receiptCosts ?? {})) {
+    const value = Number(unitCost);
+    if (Number.isFinite(value) && value >= 0) receiptCosts.set(movementId, value);
+  }
+
+  const result = computeCostingRun({
+    movements: movementRefs,
+    valuedEntries,
+    receiptCosts,
+    asOfDate: data.asOfDate,
+  });
+
+  if (result.entries.length === 0)
+    return { created: 0, pending: result.pending };
+
+  const [run] = await tx
+    .insert(costingRuns)
+    .values({
+      userId,
+      asOfDate: data.asOfDate,
+      entryCount: result.entries.length,
+      pendingCount: result.pending.length,
+    })
+    .returning({ id: costingRuns.id });
+
+  await tx.insert(costEntries).values(
+    result.entries.map((entry) => ({
+      userId,
+      runId: run.id,
+      movementId: entry.movementId,
+      entryType: entry.entryType,
+      date: entry.date,
+      quantity: String(entry.quantity),
+      unitCost: String(entry.unitCost),
+      amount: String(entry.amount),
+      valuationSource: entry.valuationSource,
+      // 0 дүнтэй үнэлгээ (үнэгүй орлого, 0 дундажтай тохируулга) GL-д
+      // бичих зүйлгүй тул шууд "posted" — үнэлэгдсэнд тооцогдож,
+      // pipeline-д гацахгүй.
+      ...(entry.amount === 0
+        ? { status: "posted" as const, postedAt: new Date() }
+        : {}),
+    }))
+  );
+
+  revalidateCosting();
+  return { created: result.entries.length, pending: result.pending };
+  });
+}
+
+// ─── Cost entry lifecycle ────────────────────────────────────────────────────
+
+async function itemAccountsFor(userId: string, itemId: string) {
+  const setting = await db.query.costingItemSettings.findFirst({
+    where: and(
+      eq(costingItemSettings.userId, userId),
+      eq(costingItemSettings.itemId, itemId)
+    ),
+  });
+  return {
+    inventoryAccountNumber: setting?.inventoryAccountNumber ?? "14000001",
+    cogsAccountNumber: setting?.cogsAccountNumber ?? "61100000",
+  };
+}
+
+export async function postCostEntry(id: string) {
+  const userId = await requireUser();
+  const entry = await db.query.costEntries.findFirst({
+    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    with: { movement: { with: { item: true } } },
+  });
+  if (!entry) throw new Error("Өртгийн бичилт олдсонгүй");
+  if (entry.status !== "draft")
+    throw new Error("Зөвхөн ноорог бичилтийг батална");
+  const amount = Number(entry.amount);
+  if (!(amount > 0))
+    throw new Error("0 дүнтэй бичилтийг GL-д бичихгүй — устгана уу");
+
+  const accounts = await itemAccountsFor(userId, entry.movement.itemId);
+  const { debit, credit } = entryPostingAccounts(
+    entry.entryType as CostEntryType,
+    accounts
+  );
+  await assertEnabledMainAccount(userId, debit);
+  await assertEnabledMainAccount(userId, credit);
+  const buildCode = await costingPostingCodeBuilder(userId);
+
+  const description = `[${entry.movement.documentNo}] ${entry.movement.item.name} — ${entry.movement.description || "өртгийн бичилт"}`;
+
+  await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(costEntries)
+      .set({ status: "posted", postedAt: new Date() })
+      .where(
+        and(
+          eq(costEntries.id, id),
+          eq(costEntries.userId, userId),
+          eq(costEntries.status, "draft")
+        )
+      )
+      .returning({ id: costEntries.id });
+    if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
+
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        date: entry.date,
+        description,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+
+    await tx.insert(journalLines).values([
+      {
+        voucherId: voucher.id,
+        accountNumber: buildCode(debit),
+        debit: String(amount),
+        credit: "0",
+        description,
+        sortOrder: 0,
+      },
+      {
+        voucherId: voucher.id,
+        accountNumber: buildCode(credit),
+        debit: "0",
+        credit: String(amount),
+        description,
+        sortOrder: 1,
+      },
+    ]);
+
+    await tx
+      .update(costEntries)
+      .set({ voucherId: voucher.id })
+      .where(eq(costEntries.id, id));
+  });
+
+  revalidateCosting();
+}
+
+export async function postCostEntries(ids: string[]) {
+  const failures: { id: string; error: string }[] = [];
+  let posted = 0;
+  for (const id of ids) {
+    try {
+      await postCostEntry(id);
+      posted += 1;
+    } catch (caught) {
+      failures.push({
+        id,
+        error: caught instanceof Error ? caught.message : "Батлагдсангүй",
+      });
+    }
+  }
+  return { posted, failures };
+}
+
+export async function deleteCostEntry(id: string) {
+  const userId = await requireUser();
+  const entry = await db.query.costEntries.findFirst({
+    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    with: { movement: true },
+  });
+  if (!entry) return;
+  if (entry.status !== "draft")
+    throw new Error("Зөвхөн ноорог бичилтийг устгана");
+
+  // Дундаж өртөг дараалсан бичилтүүдээр дамждаг: энэ бичилтээс ХОЙШХИ
+  // идэвхтэй бичилт тухайн бараанд байвал тэдгээрийн үнэлгээ энэ бичилтийн
+  // дунджаас хамаарсан — эхлээд сүүлийнхийг нь устгаж/сторно хийнэ.
+  const laterEntries = await db.query.costEntries.findMany({
+    where: and(
+      eq(costEntries.userId, userId),
+      inArray(costEntries.status, ["draft", "posted"])
+    ),
+    with: { movement: { columns: { itemId: true, date: true, createdAt: true } } },
+  });
+  const dependent = laterEntries.find(
+    (candidate) =>
+      candidate.id !== entry.id &&
+      candidate.movement.itemId === entry.movement.itemId &&
+      (candidate.movement.date > entry.movement.date ||
+        (candidate.movement.date === entry.movement.date &&
+          candidate.movement.createdAt > entry.movement.createdAt))
+  );
+  if (dependent)
+    throw new Error(
+      "Энэ барааны хожмын бичилтүүд энэ үнэлгээнээс хамаарна — эхлээд тэдгээрийг устгаж/сторно хийнэ үү"
+    );
+
+  await db
+    .delete(costEntries)
+    .where(and(eq(costEntries.id, id), eq(costEntries.userId, userId)));
+  revalidateCosting();
+}
+
+// Сторно: журналыг эсрэг бичилтээр буцааж, entry-г reversed болгоно.
+// Дараагийн costing run уг хөдөлгөөнийг дахин үнэлж болно (reversed entry
+// идэвхтэйд тооцогдохгүй).
+export async function reverseCostEntry(id: string) {
+  const userId = await requireUser();
+  const entry = await db.query.costEntries.findFirst({
+    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    with: { movement: true },
+  });
+  if (!entry || entry.status !== "posted" || !entry.voucherId)
+    throw new Error("Зөвхөн батлагдсан бичилтийг сторно хийнэ");
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, entry.voucherId),
+      eq(journalVouchers.userId, userId)
+    ),
+    with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
+
+  await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(costEntries)
+      .set({ status: "reversed" })
+      .where(
+        and(
+          eq(costEntries.id, id),
+          eq(costEntries.userId, userId),
+          eq(costEntries.status, "posted")
+        )
+      )
+      .returning({ id: costEntries.id });
+    if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
+
+    const [reversal] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        date: entry.date,
+        description: `Сторно [${entry.movement.documentNo}] ${voucher.description}`,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+
+    await tx.insert(journalLines).values(
+      voucher.lines.map((line, index) => ({
+        voucherId: reversal.id,
+        accountNumber: line.accountNumber,
+        debit: line.credit,
+        credit: line.debit,
+        description: line.description,
+        sortOrder: index,
+      }))
+    );
+
+    // Воучерийг claim хийж буцаана: GL талаас (unpost) аль хэдийн
+    // буцаагдсан бол ХОЁР ДАХЬ сторно бичихгүй — алдаа шидэж транзакц
+    // бүхэлдээ буцна.
+    const [voucherClaimed] = await tx
+      .update(journalVouchers)
+      .set({ status: "reversed" })
+      .where(
+        and(
+          eq(journalVouchers.id, voucher.id),
+          eq(journalVouchers.status, "posted")
+        )
+      )
+      .returning({ id: journalVouchers.id });
+    if (!voucherClaimed)
+      throw new Error(
+        "GL журнал аль хэдийн буцаагдсан байна — бичилтийн төлвийг шалгана уу"
+      );
+
+    await tx
+      .update(costEntries)
+      .set({ reversalVoucherId: reversal.id })
+      .where(eq(costEntries.id, id));
+  });
+
+  revalidateCosting();
+}
+
+// Дэлгэрэнгүй drawer-т: холбогдсон GL журналын мөрүүд.
+export interface CostEntryDetail {
+  voucherId: string | null;
+  voucherDate: string | null;
+  voucherDescription: string | null;
+  lines: {
+    accountNumber: string;
+    debit: number;
+    credit: number;
+    description: string | null;
+  }[];
+}
+
+export async function getCostEntryDetail(id: string): Promise<CostEntryDetail> {
+  const userId = await requireUser();
+  const entry = await db.query.costEntries.findFirst({
+    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    columns: { voucherId: true },
+  });
+  const empty: CostEntryDetail = {
+    voucherId: null,
+    voucherDate: null,
+    voucherDescription: null,
+    lines: [],
+  };
+  if (!entry?.voucherId) return empty;
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, entry.voucherId),
+      eq(journalVouchers.userId, userId)
+    ),
+    with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+  });
+  if (!voucher) return empty;
+  return {
+    voucherId: voucher.id,
+    voucherDate: voucher.date,
+    voucherDescription: voucher.description,
+    lines: voucher.lines.map((line) => ({
+      accountNumber: line.accountNumber,
+      debit: Number(line.debit),
+      credit: Number(line.credit),
+      description: line.description,
+    })),
+  };
+}

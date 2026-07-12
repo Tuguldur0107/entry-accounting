@@ -13,6 +13,8 @@ import {
   Scale,
   BarChartBig,
   ReceiptText,
+  Calculator,
+  Boxes,
 } from "lucide-react";
 
 // Модуль бүрийн цэс нэг стандарт ДАРААЛЛААР жагсана (визуал бүлэглэлгүй):
@@ -101,6 +103,34 @@ export const MODULES: Module[] = [
         href: "/payables/counterparties",
         icon: Building2,
       },
+    ],
+  },
+  {
+    id: "inventory",
+    label: "Бараа материал",
+    matchPrefix: "/inventory",
+    defaultHref: "/inventory",
+    items: [
+      { label: "Хяналтын самбар", href: "/inventory", icon: LayoutDashboard },
+      {
+        label: "Хөдөлгөөн",
+        href: "/inventory/movements",
+        icon: ArrowLeftRight,
+      },
+      { label: "Тайлан", href: "/inventory/reports", icon: BarChartBig },
+      { label: "Бараа, агуулах", href: "/inventory/items", icon: Boxes },
+    ],
+  },
+  {
+    id: "costing",
+    label: "Өртөг",
+    matchPrefix: "/costing",
+    defaultHref: "/costing",
+    items: [
+      { label: "Хяналтын самбар", href: "/costing", icon: LayoutDashboard },
+      { label: "Өртгийн бичилт", href: "/costing/entries", icon: Calculator },
+      { label: "Тайлан", href: "/costing/reports", icon: BarChartBig },
+      { label: "Тохиргоо", href: "/costing/settings", icon: SettingsIcon },
     ],
   },
   {

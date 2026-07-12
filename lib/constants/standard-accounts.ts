@@ -1,12 +1,13 @@
 // ─── 10 Segment definitions ───────────────────────────────────────────────────
 
-export type ModuleKey = "gl" | "ar" | "ap" | "fa" | "cost" | "cash" | "agis";
+export type ModuleKey = "gl" | "ar" | "ap" | "fa" | "inv" | "cost" | "cash" | "agis";
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   gl: "GL",
   ar: "AR",
   ap: "AP",
   fa: "FA",
+  inv: "Inventory",
   cost: "Cost",
   cash: "Cash",
   agis: "AGIS",
@@ -24,12 +25,13 @@ export const MODULE_DEFS: ModuleDef[] = [
   { key: "ar",   nameMn: "Авлагын удирдлага",       name: "Accounts Receivable", description: "Нэхэмжлэл, харилцагчийн авлага, орлого бүртгэл" },
   { key: "ap",   nameMn: "Өглөгийн удирдлага",      name: "Accounts Payable",    description: "Нийлүүлэгчийн нэхэмжлэл, өглөг, төлбөр" },
   { key: "fa",   nameMn: "Үндсэн хөрөнгө",          name: "Fixed Assets",        description: "Хөрөнгийн бүртгэл, элэгдэл, данснаас хасалт" },
+  { key: "inv",  nameMn: "Бараа материал",          name: "Inventory",           description: "Бараа, агуулах, тоо хэмжээний хөдөлгөөн" },
   { key: "cost", nameMn: "Өртгийн бүртгэл",         name: "Cost Accounting",     description: "Зардлын төв, бүтээгдэхүүний өртөг, MOH" },
   { key: "cash", nameMn: "Мөнгөн гүйлгээ",          name: "Cash Management",     description: "Касс, банк, IAS 7 мөнгөн урсгалын тайлан" },
   { key: "agis", nameMn: "Группын дотоод тооцоо",   name: "Inter-Company (AGIS)", description: "IC журнал, элиминейшн, нэгтгэсэн тайлан" },
 ];
 
-export const ALL_MODULES: ModuleKey[] = ["gl", "ar", "ap", "fa", "cost", "cash", "agis"];
+export const ALL_MODULES: ModuleKey[] = ["gl", "ar", "ap", "fa", "inv", "cost", "cash", "agis"];
 
 export interface SegmentDef {
   id: number;         // 1–10
@@ -196,6 +198,7 @@ export const STANDARD_ACCOUNTS: StandardAccount[] = [
   // ── 51 — Орлого ─────────────────────────────────────────────────────────────
   { number: "51100000", name: "Үйл ажиллагааны орлого" },
   { number: "51800001", name: "Валютын ханшийн олз (FX Gain)" },
+  { number: "51800003", name: "Бараа материалын тооллогын илүүдэл" },
   { number: "51800005", name: "Группын доторх орлого (IC)" },
   { number: "51000099", name: "Орлогын түр данс" },
 
@@ -216,6 +219,7 @@ export const STANDARD_ACCOUNTS: StandardAccount[] = [
   { number: "87000001", name: "Санхүүгийн зардал / Түрээсийн хүү (IFRS 16)" },
   { number: "87000002", name: "Үнэ цэнийн бууралтын алдагдал (IAS 36)" },
   { number: "87000003", name: "Гадаад валютын ханшийн гарз (IAS 21)" },
+  { number: "87100004", name: "Бараа материалын тооллогын дутагдал" },
   { number: "87000004", name: "Үндсэн хөрөнгө данснаас хассаны олз/гарз" },
   { number: "87100007", name: "Татварын торгууль, алданги" },
 

@@ -1,0 +1,387 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { and, eq, inArray, sql } from "drizzle-orm";
+
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import {
+  costEntries,
+  inventoryItems,
+  inventoryMovements,
+  warehouses,
+} from "@/lib/db/schema";
+import {
+  findNegativeStock,
+  type MovementRef,
+  type MovementType,
+} from "@/lib/inventory/balances";
+
+async function requireUser() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
+  return session.user.id;
+}
+
+function revalidateInventory() {
+  for (const path of [
+    "/inventory",
+    "/inventory/movements",
+    "/inventory/reports",
+    "/inventory/items",
+    "/costing",
+    "/costing/entries",
+    "/costing/reports",
+  ])
+    revalidatePath(path);
+}
+
+function cleanText(value: string | null | undefined) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : null;
+}
+
+// ─── Мастер дата ─────────────────────────────────────────────────────────────
+
+export async function createInventoryItem(data: {
+  code: string;
+  name: string;
+  unit: string;
+}) {
+  const userId = await requireUser();
+  const code = data.code.trim();
+  const name = data.name.trim();
+  const unit = data.unit.trim() || "ш";
+  if (!code) throw new Error("Барааны код оруулна уу");
+  if (!name) throw new Error("Барааны нэр оруулна уу");
+  const duplicate = await db.query.inventoryItems.findFirst({
+    where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.code, code)),
+    columns: { id: true },
+  });
+  if (duplicate) throw new Error(`"${code}" кодтой бараа бүртгэгдсэн байна`);
+  await db.insert(inventoryItems).values({ userId, code, name, unit });
+  revalidateInventory();
+}
+
+export async function updateInventoryItem(
+  id: string,
+  data: { name: string; unit: string }
+) {
+  const userId = await requireUser();
+  const name = data.name.trim();
+  if (!name) throw new Error("Барааны нэр оруулна уу");
+  await db
+    .update(inventoryItems)
+    .set({ name, unit: data.unit.trim() || "ш" })
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.userId, userId)));
+  revalidateInventory();
+}
+
+export async function toggleInventoryItem(id: string, isActive: boolean) {
+  const userId = await requireUser();
+  await db
+    .update(inventoryItems)
+    .set({ isActive })
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.userId, userId)));
+  revalidateInventory();
+}
+
+export async function createWarehouse(data: { code: string; name: string }) {
+  const userId = await requireUser();
+  const code = data.code.trim();
+  const name = data.name.trim();
+  if (!code) throw new Error("Агуулахын код оруулна уу");
+  if (!name) throw new Error("Агуулахын нэр оруулна уу");
+  const duplicate = await db.query.warehouses.findFirst({
+    where: and(eq(warehouses.userId, userId), eq(warehouses.code, code)),
+    columns: { id: true },
+  });
+  if (duplicate) throw new Error(`"${code}" кодтой агуулах бүртгэгдсэн байна`);
+  await db.insert(warehouses).values({ userId, code, name });
+  revalidateInventory();
+}
+
+export async function toggleWarehouse(id: string, isActive: boolean) {
+  const userId = await requireUser();
+  await db
+    .update(warehouses)
+    .set({ isActive })
+    .where(and(eq(warehouses.id, id), eq(warehouses.userId, userId)));
+  revalidateInventory();
+}
+
+// ─── Хөдөлгөөн (зөвхөн тоо хэмжээ) ───────────────────────────────────────────
+
+const MOVEMENT_TYPES: MovementType[] = [
+  "receipt",
+  "issue",
+  "transfer",
+  "adjustment",
+];
+
+type DbHandle = Pick<typeof db, "query" | "select">;
+
+async function confirmedMovementRefs(
+  handle: DbHandle,
+  userId: string
+): Promise<MovementRef[]> {
+  const rows = await handle.query.inventoryMovements.findMany({
+    where: and(
+      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.status, "confirmed")
+    ),
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    movementType: row.movementType as MovementType,
+    date: row.date,
+    itemId: row.itemId,
+    warehouseId: row.warehouseId,
+    toWarehouseId: row.toWarehouseId,
+    quantity: Number(row.quantity),
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function createInventoryMovement(data: {
+  movementType: MovementType;
+  date: string;
+  itemId: string;
+  warehouseId: string;
+  toWarehouseId?: string;
+  quantity: number;
+  description?: string;
+  documentNo?: string;
+  confirmNow?: boolean;
+}) {
+  const userId = await requireUser();
+  if (!MOVEMENT_TYPES.includes(data.movementType))
+    throw new Error("Хөдөлгөөний төрөл буруу байна");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
+    throw new Error("Огноо буруу байна");
+
+  const quantity = Number(data.quantity);
+  if (!Number.isFinite(quantity) || quantity === 0)
+    throw new Error("Тоо хэмжээ 0 байж болохгүй");
+  if (data.movementType !== "adjustment" && quantity <= 0)
+    throw new Error("Тоо хэмжээ 0-ээс их байна");
+
+  const [item, warehouse, toWarehouse] = await Promise.all([
+    db.query.inventoryItems.findFirst({
+      where: and(
+        eq(inventoryItems.id, data.itemId),
+        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.isActive, true)
+      ),
+    }),
+    db.query.warehouses.findFirst({
+      where: and(
+        eq(warehouses.id, data.warehouseId),
+        eq(warehouses.userId, userId),
+        eq(warehouses.isActive, true)
+      ),
+    }),
+    data.toWarehouseId
+      ? db.query.warehouses.findFirst({
+          where: and(
+            eq(warehouses.id, data.toWarehouseId),
+            eq(warehouses.userId, userId),
+            eq(warehouses.isActive, true)
+          ),
+        })
+      : Promise.resolve(null),
+  ]);
+  if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
+  if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
+  if (data.movementType === "transfer") {
+    if (!toWarehouse) throw new Error("Хүлээн авах агуулах сонгоно уу");
+    if (data.toWarehouseId === data.warehouseId)
+      throw new Error("Шилжүүлгийн агуулахууд ижил байж болохгүй");
+  }
+
+  const manualNo = cleanText(data.documentNo);
+  if (manualNo && manualNo.length > 40)
+    throw new Error("Баримтын дугаар 40 тэмдэгтээс хэтрэхгүй");
+  if (manualNo) {
+    const duplicate = await db.query.inventoryMovements.findFirst({
+      where: and(
+        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.documentNo, manualNo)
+      ),
+      columns: { id: true },
+    });
+    if (duplicate)
+      throw new Error(`"${manualNo}" дугаартай хөдөлгөөн бүртгэгдсэн байна`);
+  }
+  const documentNo =
+    manualNo ??
+    `INV-${data.date.replaceAll("-", "")}-${crypto
+      .randomUUID()
+      .slice(0, 6)
+      .toUpperCase()}`;
+
+  const [movement] = await db
+    .insert(inventoryMovements)
+    .values({
+      userId,
+      documentNo,
+      movementType: data.movementType,
+      date: data.date,
+      itemId: data.itemId,
+      warehouseId: data.warehouseId,
+      toWarehouseId: data.movementType === "transfer" ? data.toWarehouseId : null,
+      quantity: String(quantity),
+      description: data.description?.trim() ?? "",
+    })
+    .returning({ id: inventoryMovements.id });
+
+  if (data.confirmNow) await confirmInventoryMovement(movement.id);
+  else revalidateInventory();
+  return { id: movement.id };
+}
+
+export async function confirmInventoryMovement(id: string) {
+  const userId = await requireUser();
+
+  // Шалгалт + claim нэг транзакцад, хэрэглэгч бүрийн advisory lock дор —
+  // хоёр ӨӨР ноорогийг зэрэг батлахад хоёулаа шалгалтыг давж үлдэгдлийг
+  // хасах болгох race-ээс сэргийлнэ.
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+
+    const movement = await tx.query.inventoryMovements.findFirst({
+      where: and(
+        eq(inventoryMovements.id, id),
+        eq(inventoryMovements.userId, userId)
+      ),
+    });
+    if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
+    if (movement.status !== "draft")
+      throw new Error("Зөвхөн ноорог хөдөлгөөнийг батална");
+
+    // Хасах үлдэгдлийн шалгалт: он цагийн бүх цэг дээр ≥ 0 (энэ хөдөлгөөнийг
+    // оруулаад, өмнөх огноогоор бичихэд дараагийн үлдэгдлүүд ч эвдрэхгүй).
+    const existing = await confirmedMovementRefs(tx, userId);
+    const violation = findNegativeStock(existing, {
+      id: movement.id,
+      movementType: movement.movementType as MovementType,
+      date: movement.date,
+      itemId: movement.itemId,
+      warehouseId: movement.warehouseId,
+      toWarehouseId: movement.toWarehouseId,
+      quantity: Number(movement.quantity),
+      createdAt: movement.createdAt.toISOString(),
+    });
+    if (violation)
+      throw new Error(
+        `Үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter}) — батлах боломжгүй`
+      );
+
+    const [claimed] = await tx
+      .update(inventoryMovements)
+      .set({ status: "confirmed", confirmedAt: new Date() })
+      .where(
+        and(
+          eq(inventoryMovements.id, id),
+          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.status, "draft")
+        )
+      )
+      .returning({ id: inventoryMovements.id });
+    if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
+  });
+  revalidateInventory();
+}
+
+// Олноор батлах — алдаатай нь алгасагдаж тайлан буцна.
+export async function confirmInventoryMovements(ids: string[]) {
+  const failures: { id: string; error: string }[] = [];
+  let confirmed = 0;
+  for (const id of ids) {
+    try {
+      await confirmInventoryMovement(id);
+      confirmed += 1;
+    } catch (caught) {
+      failures.push({
+        id,
+        error: caught instanceof Error ? caught.message : "Батлагдсангүй",
+      });
+    }
+  }
+  return { confirmed, failures };
+}
+
+export async function deleteInventoryMovement(id: string) {
+  const userId = await requireUser();
+  const movement = await db.query.inventoryMovements.findFirst({
+    where: and(
+      eq(inventoryMovements.id, id),
+      eq(inventoryMovements.userId, userId)
+    ),
+    columns: { status: true },
+  });
+  if (!movement) return;
+  if (movement.status !== "draft")
+    throw new Error("Зөвхөн ноорог хөдөлгөөнийг устгана");
+  await db
+    .delete(inventoryMovements)
+    .where(and(eq(inventoryMovements.id, id), eq(inventoryMovements.userId, userId)));
+  revalidateInventory();
+}
+
+// Баталсан хөдөлгөөнийг цуцлах — зөвхөн идэвхтэй cost entry-гүй үед
+// (үнэлэгдсэн бол эхлээд costing талд сторно хийнэ — уялдааны гэрээ).
+export async function cancelInventoryMovement(id: string) {
+  const userId = await requireUser();
+  const movement = await db.query.inventoryMovements.findFirst({
+    where: and(
+      eq(inventoryMovements.id, id),
+      eq(inventoryMovements.userId, userId)
+    ),
+  });
+  if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
+  if (movement.status !== "confirmed")
+    throw new Error("Зөвхөн баталсан хөдөлгөөнийг цуцална");
+
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+
+    const activeEntry = await tx.query.costEntries.findFirst({
+      where: and(
+        eq(costEntries.userId, userId),
+        eq(costEntries.movementId, id),
+        inArray(costEntries.status, ["draft", "posted"])
+      ),
+      columns: { id: true, status: true },
+    });
+    if (activeEntry)
+      throw new Error(
+        "Энэ хөдөлгөөн үнэлэгдсэн байна — эхлээд өртгийн бичилтийг нь сторно/устгана уу"
+      );
+
+    // Цуцлахад бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой
+    // (ж: орлогыг цуцлахад түүнээс хойшхи зарлага хасах болж болзошгүй).
+    const existing = (await confirmedMovementRefs(tx, userId)).filter(
+      (ref) => ref.id !== id
+    );
+    const violation = findNegativeStock(existing);
+    if (violation)
+      throw new Error(
+        `Цуцалбал үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter})`
+      );
+
+    const [claimed] = await tx
+      .update(inventoryMovements)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(inventoryMovements.id, id),
+          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.status, "confirmed")
+        )
+      )
+      .returning({ id: inventoryMovements.id });
+    if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
+  });
+  revalidateInventory();
+}

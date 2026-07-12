@@ -680,6 +680,205 @@ export const reportLineMappingsRelations = relations(reportLineMappings, ({ one 
   user: one(users, { fields: [reportLineMappings.userId], references: [users.id] }),
 }));
 
+
+// ─── Inventory (inv) — quantity-only subledger ───────────────────────────────
+// The inventory module records movements in UNITS ONLY (no money fields);
+// valuation and GL postings belong to the costing module below.
+
+export const inventoryItems = pgTable(
+  "inventory_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    unit: text("unit").notNull().default("ш"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+export const warehouses = pgTable(
+  "warehouses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+export const inventoryMovements = pgTable(
+  "inventory_movements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentNo: text("document_no").notNull(),
+    movementType: text("movement_type").notNull(), // "receipt" | "issue" | "transfer" | "adjustment"
+    date: text("date").notNull(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "restrict" }),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "restrict" }),
+    // transfer destination; null for other types
+    toWarehouseId: uuid("to_warehouse_id").references(() => warehouses.id, {
+      onDelete: "restrict",
+    }),
+    // Units only. Positive for receipt/issue/transfer; adjustment is SIGNED
+    // (+ илүүдэл, − дутагдал).
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    description: text("description").notNull().default(""),
+    status: text("status").notNull().default("draft"), // "draft" | "confirmed" | "cancelled"
+    sourceType: text("source_type").notNull().default("manual"), // "manual" | "arap_line" | "gl_voucher" | "cash_document"
+    sourceId: uuid("source_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at"),
+  },
+  (t) => [unique().on(t.userId, t.documentNo)]
+);
+
+// ─── Costing (cost) — valuation layer + GL postings ──────────────────────────
+// Values confirmed inventory movements (weighted average) via costing runs and
+// writes its OWN journal vouchers (clearing-account scheme — never adopts).
+
+export const costingItemSettings = pgTable(
+  "costing_item_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "cascade" }),
+    inventoryAccountNumber: text("inventory_account_number")
+      .notNull()
+      .default("14000001"),
+    cogsAccountNumber: text("cogs_account_number").notNull().default("61100000"),
+    costMethod: text("cost_method").notNull().default("weighted_avg"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.itemId)]
+);
+
+export const costingRuns = pgTable("costing_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  asOfDate: text("as_of_date").notNull(),
+  entryCount: integer("entry_count").notNull().default(0),
+  pendingCount: integer("pending_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const costEntries = pgTable("cost_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  runId: uuid("run_id").references(() => costingRuns.id, {
+    onDelete: "set null",
+  }),
+  // 1:1 with the movement among non-reversed entries (enforced in code so a
+  // reversed entry can be superseded by a fresh valuation).
+  movementId: uuid("movement_id")
+    .notNull()
+    .references(() => inventoryMovements.id, { onDelete: "restrict" }),
+  entryType: text("entry_type").notNull(), // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss"
+  date: text("date").notNull(), // movement date — the voucher date
+  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+  unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
+  amount: numeric("amount", { precision: 18, scale: 2 }).notNull(), // MNT
+  valuationSource: text("valuation_source").notNull(), // "manual" | "avg_cost"
+  status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
+  voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+    onDelete: "set null",
+  }),
+  reversalVoucherId: uuid("reversal_voucher_id").references(
+    () => journalVouchers.id,
+    { onDelete: "set null" }
+  ),
+  postedAt: timestamp("posted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const inventoryItemsRelations = relations(inventoryItems, ({ one, many }) => ({
+  user: one(users, { fields: [inventoryItems.userId], references: [users.id] }),
+  movements: many(inventoryMovements),
+}));
+
+export const warehousesRelations = relations(warehouses, ({ one }) => ({
+  user: one(users, { fields: [warehouses.userId], references: [users.id] }),
+}));
+
+export const inventoryMovementsRelations = relations(
+  inventoryMovements,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [inventoryMovements.userId],
+      references: [users.id],
+    }),
+    item: one(inventoryItems, {
+      fields: [inventoryMovements.itemId],
+      references: [inventoryItems.id],
+    }),
+    warehouse: one(warehouses, {
+      fields: [inventoryMovements.warehouseId],
+      references: [warehouses.id],
+      relationName: "movement_warehouse",
+    }),
+    toWarehouse: one(warehouses, {
+      fields: [inventoryMovements.toWarehouseId],
+      references: [warehouses.id],
+      relationName: "movement_to_warehouse",
+    }),
+    costEntries: many(costEntries),
+  })
+);
+
+export const costingItemSettingsRelations = relations(
+  costingItemSettings,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [costingItemSettings.userId],
+      references: [users.id],
+    }),
+    item: one(inventoryItems, {
+      fields: [costingItemSettings.itemId],
+      references: [inventoryItems.id],
+    }),
+  })
+);
+
+export const costEntriesRelations = relations(costEntries, ({ one }) => ({
+  user: one(users, { fields: [costEntries.userId], references: [users.id] }),
+  movement: one(inventoryMovements, {
+    fields: [costEntries.movementId],
+    references: [inventoryMovements.id],
+  }),
+  run: one(costingRuns, {
+    fields: [costEntries.runId],
+    references: [costingRuns.id],
+  }),
+  voucher: one(journalVouchers, {
+    fields: [costEntries.voucherId],
+    references: [journalVouchers.id],
+  }),
+}));
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -700,3 +899,9 @@ export type Counterparty = typeof counterparties.$inferSelect;
 export type ArApDocument = typeof arApDocuments.$inferSelect;
 export type ArApDocumentLine = typeof arApDocumentLines.$inferSelect;
 export type ArApSettlement = typeof arApSettlements.$inferSelect;
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+export type Warehouse = typeof warehouses.$inferSelect;
+export type InventoryMovement = typeof inventoryMovements.$inferSelect;
+export type CostingItemSetting = typeof costingItemSettings.$inferSelect;
+export type CostingRun = typeof costingRuns.$inferSelect;
+export type CostEntry = typeof costEntries.$inferSelect;
