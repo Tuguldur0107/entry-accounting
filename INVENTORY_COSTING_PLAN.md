@@ -1,0 +1,241 @@
+# Бараа материал + Өртгийн модулийн төлөвлөгөө
+
+> **Архитектурын гол зарчим**: Хоёр ТУСДАА модуль, нарийн уялдаатай.
+> - **Бараа материал (inv)** — зөвхөн ТОО ХЭМЖЭЭ: орлого, зарлага, үлдэгдэл,
+>   тайлан, тохиргоо (бараа нэмэх/засах). GL бичилт ОГТ хийхгүй.
+> - **Өртөг (cost)** — цэвэр ӨРТГИЙН ТООЦООЛОЛ + ЖУРНАЛЫН БИЧИЛТ: бараа
+>   материалын бүх хөдөлгөөнийг үнэлж журнал бичнэ, өглөгийн модулиас шууд
+>   бичигдсэн зардлыг хүлээн авч ангилна/хуваарилна.
+>
+> KB-ийн `ModuleKey`-д `"cost"` (Өртгийн бүртгэл — "Зардлын төв, бүтээгдэхүүний
+> өртөг, MOH") аль хэдийн байдаг; `"inv"` шинээр нэмэгдэнэ.
+> Эх сурвалж: `knowledge/.../ias-2-inventory.md`, `01-gl-posting-matrix.md`
+> (§2.15–2.19, 2.29, 2.35–2.40, §7.1 Cost-* template-ууд), `chart-of-accounts.md`,
+> `02-period-close.md`, Cash/АР-АП модулийн код.
+
+---
+
+## 1. Хоёр модулийн хил хязгаар
+
+```
+┌──────────────────────────────┐         ┌──────────────────────────────────┐
+│  БАРАА МАТЕРИАЛ (inv)        │         │  ӨРТӨГ (cost)                    │
+│  — тоо хэмжээний subledger   │ ──────► │  — үнэлгээний давхарга + GL      │
+│                              │ баталсан│                                  │
+│  • Бараа, агуулах (мастер)   │ хөдөлгөөн│ • Хөдөлгөөн бүрийг үнэлэх       │
+│  • Орлого / Зарлага /        │  (qty)  │   (жигнэсэн дундаж)              │
+│    Шилжүүлэг / Тохируулга    │         │ • Журналын ноорог → батлах       │
+│  • Үлдэгдэл (ш, кг, л…)      │         │ • АП-аас шууд бичигдсэн зардлыг  │
+│  • Тоо хэмжээний тайлан      │         │   хүлээн авах, хуваарилах        │
+│                              │         │ • Үнэлгээ + GL тулгалтын тайлан  │
+│  GL-д ХЭЗЭЭ Ч бичихгүй       │         │ • Дансны mapping, өртгийн арга   │
+└──────────────────────────────┘         └──────────────────────────────────┘
+```
+
+**Уялдааны гэрээ (interface contract):**
+
+1. Inventory-ийн хөдөлгөөн `confirmed` болмогц өртгийн модульд **үнэлгээ
+   хүлээгдэж буй ажил** болж харагдана (үнэлгээний дараалал / queue).
+2. Өртгийн модуль хөдөлгөөн бүрд **cost entry** үүсгэнэ: unitCost, amount,
+   үнэлгээний эх сурвалж (АП мөрийн baseAmount / дундаж өртөг / гараар).
+3. Журнал үргэлж **draft-first**: cost entry-гийн журналын ноорог → хэрэглэгч
+   батлахад GL воучер. АП/GL-д аль хэдийн бичигдсэн утгыг **adopt** хийнэ
+   (давхар бичилтгүй), байгаагүй бичилтийг (COGS г.м.) шинээр үүсгэнэ.
+4. Inventory хөдөлгөөнийг буцаахад холбогдсон cost entry автоматаар
+   сторно хийгдэнэ (эсвэл батлагдаагүй бол хүчингүй болно) — хоёр модуль
+   хэзээ ч зөрүүтэй үлдэхгүй.
+5. Инвариант: `Σ(posted cost entries per данс) == GL 14-дансны үлдэгдэл`;
+   тоо хэмжээний үлдэгдэл зөвхөн inventory-д, үнийн дүн зөвхөн costing-д.
+
+---
+
+## 2. Бараа материалын модуль (inv) — зөвхөн тоо хэмжээ
+
+### 2.1 Өгөгдөл
+
+```
+inventory_items      — id, userId, code (unique/user), name, unit (ш/кг/л/м…),
+                       categoryCode?, isActive, createdAt
+                       ⚠️ дансны дугаар, өртгийн арга ЭНД БАЙХГҮЙ — costing-ийн тохиргоо
+
+warehouses           — id, userId, code, name, isActive, createdAt
+
+inventory_movements  — id, userId, documentNo (INV-YYYYMMDD-XXXXXX эсвэл гараар),
+                       movementType ('receipt'|'issue'|'transfer'|'adjustment'),
+                       date, itemId, warehouseId, toWarehouseId (зөвхөн transfer),
+                       quantity numeric(18,4)  ← ҮНИЙН ТАЛБАР ОГТ БАЙХГҮЙ,
+                       description, counterpartyText?,
+                       status ('draft'|'confirmed'|'cancelled'),
+                       sourceType ('manual'|'arap_line'|'gl_voucher'|'cash_document'),
+                       sourceId (uuid, nullable), createdAt, confirmedAt
+```
+
+### 2.2 Амьдралын мөчлөг
+
+`draft → confirmed → (cancelled зөвхөн cost entry-гүй үед)`. Батлах = зөвхөн
+тоо хэмжээний бүртгэл эцэслэгдэнэ (GL огт хөндөгдөхгүй) — гэхдээ:
+
+- **Хасах үлдэгдэл хориотой**: issue батлахад тухайн бараа×агуулахын он цагийн
+  бүх цэг дээр үлдэгдэл ≥ 0 хэвээр байхыг шалгана.
+- Cost entry үүсчихсэн хөдөлгөөнийг шууд cancel хийхгүй — эхлээд costing
+  талд нь сторно хийгдэнэ (уялдааны гэрээ §4).
+
+### 2.3 Эх үүсвэрээс автомат draft (тоо хэмжээ)
+
+| Эх үүсвэр | Үйлдэл |
+|-----------|--------|
+| АП нэхэмжлэхийн бараатай мөр (itemId+qty) батлагдах | receipt draft (qty) |
+| АР нэхэмжлэхийн бараатай мөр батлагдах | issue draft (qty) |
+| GL журнал 14-данс хөндсөн (аль ч subledger-т холбогдоогүй) | **qty=0 sentinel** draft — бараа/агуулах/тоо бөглөтөл батлагдахгүй |
+| Кассын шууд худалдан авалт (14-данс counter) | receipt draft (qty бөглөх шаардлагатай) |
+
+`ar_ap_document_lines`-д nullable `itemId`, `quantity`, `warehouseId` нэмнэ.
+
+### 2.4 UI (page-per-view, Cash загвар)
+
+```
+Бараа материал (/inventory, icon: Package)
+├── Хяналтын самбар   /inventory            ← үлдэгдэл (qty), ноорог тоо, sentinel анхааруулга
+├── Хөдөлгөөн         /inventory/movements  ← Cash transactions UX: төрлийн таб +
+│                                              статус chip + batch батлах + дэлгэрэнгүй drawer
+├── Тайлан            /inventory/reports    ← тоо хэмжээний үлдэгдэл, хөдөлгөөний тайлан
+└── Бараа, агуулах    /inventory/items      ← мастер дата (тохиргооны байрлал, сүүлд)
+```
+
+Шинэ багана төрөл: `quantity` (4 орны бутархай) — `lib/grid/columnTypes.ts`-д.
+
+---
+
+## 3. Өртгийн модуль (cost) — үнэлгээ + журнал
+
+### 3.1 Өгөгдөл
+
+```
+costing_item_settings — id, userId, itemId (unique),
+                        inventoryAccountNumber (default 14000001),
+                        cogsAccountNumber (default 61100000),
+                        costMethod ('weighted_avg' default; 'fifo' Үе 3)
+
+cost_entries          — id, userId, movementId (FK inventory_movements, unique),
+                        entryType ('receipt_capitalize'|'issue_cogs'|'adjustment'),
+                        quantity (хөдөлгөөнөөс хуулбар — audit),
+                        unitCost numeric(18,4), amount numeric(18,2) ← MNT,
+                        valuationSource ('arap_line'|'avg_cost'|'manual'),
+                        sourceVoucherId (adopt хийх эх воучер, nullable),
+                        status ('draft'|'posted'|'reversed'),
+                        voucherId, reversalVoucherId, postedAt, createdAt
+
+direct_cost_links     — Үе 2: АП-аас шууд зардлаар бичигдсэн мөрүүдийг
+                        (landed cost, MOH…) хөдөлгөөн/бүтээгдэхүүнд хуваарилах
+```
+
+### 3.2 Үнэлгээний дүрэм (жигнэсэн дундаж — KB стандарт)
+
+```
+Орлого:  unitCost = АП мөрийн baseAmount / qty  (MNT, historical rate — IAS 21;
+         ханшийн зөрүү 51800001/87000003 өртөгт ХЭЗЭЭ Ч орохгүй;
+         суутгагдах НӨАТ орохгүй)
+         Гар орлого: unitCost-ыг хэрэглэгч оруулна.
+Дундаж:  new_avg = (old_qty×old_avg + in_qty×in_cost) / (old_qty + in_qty)
+Зарлага: cost = qty × тухайн огнооны avg_cost (дундаж өөрчлөгдөхгүй)
+Шилжүүлэг: cost entry ҮҮСЭХГҮЙ (нэг дансны дотор, GL нөлөөгүй)
+LIFO хориотой (IAS 2). Replay нь цэвэр функц: lib/costing/costing.ts + unit тест.
+```
+
+### 3.3 Журналын бичилт (draft-first, adopt-тай)
+
+| Cost entry | GL бичилт | Adopt? |
+|------------|-----------|--------|
+| receipt ← АП мөр (Dr 14000001 аль хэдийн бичигдсэн) | шинэ журналгүй | ✅ эх воучерийг холбоно |
+| receipt ← гар/касс (GL-д бичигдээгүй) | `Dr 14000001 / Cr counter` | ❌ шинэ воучер |
+| issue (борлуулалт) | `Dr 61100000 / Cr 14000001` (qty×avg) | ❌ шинэ воучер (COGS хөл хаана ч байгаагүй) |
+| adjustment илүүдэл / дутагдал (Үе 2) | `Dr 14000001 / Cr 51800003` · `Dr 87100004 / Cr 14000001` | ❌ |
+| NRV бууруулалт (Үе 2) | `Dr 87100005 / Cr 14000001` | ❌ |
+
+Сегмент: `costingPostingCodeBuilder` (cashPostingCodeBuilder-ийн клон),
+**S9 = "CO"** (KB-ийн cost модуль) server талд pin; S4-т барааны код (идэвхтэй бол).
+Batch батлах, optimistic-claim, сторно — Cash-тай ижил хэв.
+
+### 3.4 АП-аас шууд бичигдсэн зардлын урсгал
+
+Өглөгийн модуль зардлын дансанд шууд бичсэн мөрүүд (60xxx/70xxx…) өртгийн
+самбарт **"шууд зардал"** хэсэгт харагдана. Үе 1: зөвхөн харагдац (visibility).
+Үе 2: landed cost — АП мөрийг сонгож орлогын хөдөлгөөнүүдэд хуваарилах
+(`Dr 14000001 / Cr 14000099` 2-шаттай template §2.9). Үе 3: MOH хуваарилалт,
+WIP/FG (§2.35–2.40).
+
+### 3.5 UI
+
+```
+Өртөг (/costing, icon: Calculator)
+├── Хяналтын самбар   /costing            ← үнэлгээ хүлээгдэж буй хөдөлгөөн (queue),
+│                                            ноорог журнал, GL зөрүү, шууд зардлын тойм
+├── Өртгийн бичилт    /costing/entries    ← cost entry жагсаалт: статус chip, batch
+│                                            батлах, дэлгэрэнгүй drawer (журнал + эх хөдөлгөөн)
+├── Тайлан            /costing/reports    ← үнэлгээний тайлан (qty × avg_cost),
+│                                            COGS тайлан, GL 14-данс тулгалт
+└── Тохиргоо          /costing/settings   ← бараа бүрийн данс mapping, өртгийн арга
+```
+
+---
+
+## 4. Урсгалын жишээнүүд (end-to-end)
+
+**А. Худалдан авалт**: АП нэхэмжлэх (бараатай мөр, qty=100) батлагдана →
+GL: `Dr 14000001 / Cr 31000001` (өглөгийн модуль бичсэн) →
+**inv**: receipt draft (100ш) → нягтлан тоог батална →
+**cost**: үнэлгээний queue-д орж ирнэ, АП мөрийн baseAmount-аас unitCost
+автомат санал болгоно → cost entry (adopt — шинэ журналгүй) → дундаж өртөг шинэчлэгдэнэ.
+
+**Б. Борлуулалт**: АР нэхэмжлэх батлагдана → GL: `Dr Авлага / Cr Орлого` →
+**inv**: issue draft (30ш) → батлана (үлдэгдэл шалгагдана) →
+**cost**: 30 × avg_cost тооцоод журналын ноорог `Dr 61100000 / Cr 14000001` →
+нягтлан батлахад COGS воучер GL-д бичигдэнэ.
+
+**В. Гар тохируулга**: inv-д adjustment draft → confirm →
+cost-д avg_cost-оор үнэлээд журналын ноорог → батлана.
+
+**Г. GL-ээс ирсэн**: гар журнал 14-данс хөндөв → inv-д qty=0 sentinel draft →
+нягтлан бараа/тоо бөглөж батална → cost-д adopt entry (воучер аль хэдийн бий).
+
+---
+
+## 5. Guardrail-ууд
+
+1. **Хасах үлдэгдэл хориотой** (inv, батлах үед, он цагийн бүх цэг дээр).
+2. **Давхар бичилтгүй** — adopt + sourceVoucherId; GL sync-ийн idempotency
+   linked-set нь БҮХ subledger-ийн (cash + arap + cost) воучер холбоосыг хамарна.
+3. **Тоо–үнэ зөрөхгүй** — cost entry үргэлж movementId-тай 1:1; GL тулгалтын
+   тайлан (Σ posted cost entries vs 14-данс) costing-ийн үндсэн тайлан.
+4. **Том дүн (>10M₮)** — батлахад нэмэлт анхааруулга (human-in-the-loop).
+5. **Огноогоор effective** — дундаж өртгийн replay нь date+createdAt дараалалтай;
+   өмнөх огноогоор орлого нэмэх/буцаах нь дараагийн бүх зарлагын өртгийг
+   өөрчилдөг тул: батлагдсан cost entry-тэй хугацаанаас өмнө бичихийг
+   анхааруулж, зөрүүг **дахин үнэлгээний ноорог** болгож санал болгоно (Үе 2).
+
+---
+
+## 6. Шийдэх асуултууд
+
+1. Орлогын cost entry-г АП воучерт adopt хийх нь зөв үү, эсвэл өртгийн модуль
+   ӨӨРИЙН журналыг үргэлж бичиж АП нь түр данс (14000099) руу бичдэг байх уу?
+   (Санал: MVP-д adopt — энгийн; түр дансны схем Үе 2-ын landed cost-той хамт.)
+2. Үнэлгээ хөдөлгөөн бүрд шууд үү (real-time), сар бүрийн costing run уу?
+   (Санал: MVP real-time + Үе 2-т period-end batch дахин үнэлгээ.)
+3. NRV-г шууд Cr 14000001 үү, contra-нөөц данс уу (KB дотроо зөрчилтэй)?
+4. АР/АП draft-ын post action одоо `lib/actions/arap.ts`-д алга — интеграцийн
+   өмнө нөхөх шаардлагатай цоорхой.
+
+## 7. Хэрэгжүүлэх дараалал
+
+```
+Үе 1a — inv:  schema + "inv" key → items/warehouses UI → movements lifecycle
+              (гар draft/confirm/cancel) → qty тайлан → sidebar
+Үе 1b — cost: schema + costing.ts (цэвэр, unit тест) → cost entries lifecycle
+              (үнэлгээ queue → журналын ноорог → батлах/adopt/сторно) →
+              үнэлгээ + GL тулгалтын тайлан → sidebar
+Үе 1c — интеграц: АП/АР мөр → inv draft → cost queue; GL sync (sentinel);
+              кассын counter; backfill (бүх subledger-ийн linked-set)
+Үе 2  — тооллого, NRV, буцаалт, landed cost (14000099), period-end costing run
+Үе 3  — үйлдвэрлэл (WIP/FG, standard cost + variance), MOH, FIFO
+```
