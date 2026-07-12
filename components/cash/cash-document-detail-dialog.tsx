@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -82,6 +84,23 @@ export function CashDocumentDetailDialog({
     return accountName(id);
   })();
 
+  // Foreign-currency documents show both the currency amount and the MNT
+  // base; a GL-derived FX draft has no rate yet — only the MNT figure is real.
+  const amountLabel = (() => {
+    if (!document) return "";
+    if (document.currency === "MNT") return fmtMnt(document.amount);
+    if (document.exchangeRate > 0 && document.amount > 0)
+      return `${document.amount.toLocaleString("en-US")} ${document.currency} · ${fmtMnt(document.baseAmount)}`;
+    return `${fmtMnt(document.baseAmount)} · ${document.currency} ханш тодорхойгүй`;
+  })();
+
+  // The journal shown: the adopted/posted voucher, else the source voucher
+  // the draft was derived from (that GL entry already exists — it is what
+  // the accountant verifies before confirming).
+  const journalId = detail?.voucherId ?? detail?.sourceVoucherId ?? null;
+  const showsSourceVoucher =
+    !!detail && !detail.voucherId && !!detail.sourceVoucherId;
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl">
@@ -103,8 +122,8 @@ export function CashDocumentDetailDialog({
                 label="Төлөв"
                 value={STATUS_LABELS[document.status] ?? document.status}
               />
-              <Row label="Cash данс" value={cashAccountLabel} />
-              <Row label="Дүн" value={fmtMnt(document.amount)} mono strong />
+              <Row label="Мөнгөн хөрөнгийн данс" value={cashAccountLabel} />
+              <Row label="Дүн" value={amountLabel} mono strong />
               {document.documentType !== "transfer" && (
                 <Row
                   label="Харилцагч / GL данс"
@@ -124,17 +143,42 @@ export function CashDocumentDetailDialog({
               <Row label="Утга" value={document.description || "—"} span2 />
             </dl>
 
-            {/* Linked GL journal */}
+            {/* Linked GL journal — for a GL-derived draft this is the source
+                voucher the accountant verifies before confirming. */}
             <div>
-              <div className="mb-1.5 text-xs font-semibold text-[var(--ea-text-2)]">
-                GL журнал
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-[var(--ea-text-2)]">
+                  {showsSourceVoucher ? "Эх GL журнал" : "GL журнал"}
+                  {detail?.voucherDate && (
+                    <span className="ml-2 font-mono font-normal text-[var(--ea-text-4)]">
+                      {detail.voucherDate}
+                    </span>
+                  )}
+                </span>
+                {journalId && (
+                  <Link
+                    href={`/gl/journal/${journalId}/edit`}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-[var(--ea-primary)] hover:underline"
+                  >
+                    Журнал нээх
+                    <ExternalLink size={12} />
+                  </Link>
+                )}
               </div>
               {loading ? (
                 <div className="rounded-md border border-[var(--ea-border)] py-6 text-center text-xs text-[var(--ea-text-4)]">
                   Ачаалж байна…
                 </div>
               ) : detail && detail.lines.length > 0 ? (
-                <VoucherTable lines={detail.lines} activeSegIds={activeSegIds} glName={glName} />
+                <>
+                  <VoucherTable lines={detail.lines} activeSegIds={activeSegIds} glName={glName} />
+                  {showsSourceVoucher && (
+                    <p className="mt-1.5 text-[11px] text-[var(--ea-text-4)]">
+                      Энэ бичилт GL-д аль хэдийн батлагдсан. Баримтыг батлахад
+                      шинэ журнал үүсэхгүй — энэ журналыг холбоно.
+                    </p>
+                  )}
+                </>
               ) : (
                 <div className="rounded-md border border-[var(--ea-border)] py-6 text-center text-xs text-[var(--ea-text-4)]">
                   {document.status === "draft"

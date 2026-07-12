@@ -11,6 +11,46 @@ export type CashAccountView = {
   balance: number;
 };
 
+export type CashHealthStatus =
+  | "balanced"
+  | "negative"
+  | "cash-gl-diff"
+  | "bank-cash-diff"
+  | "no-statement"
+  | "missing-rate"
+  | "stale-statement";
+
+export type CashHealthRow = {
+  id: string;
+  accountName: string;
+  accountType: string;
+  currency: string;
+  isActive: boolean;
+  openingBalance: number;
+  receipts: number;
+  payments: number;
+  cashBalance: number;
+  cashBalanceMnt: number | null;
+  glBalance: number;
+  bankBalance: number | null;
+  bankBalanceDate: string | null;
+  cashToGlDifference: number | null;
+  bankToCashDifference: number | null;
+  status: CashHealthStatus;
+  actionLabel: string;
+  actionHref: string;
+  explanation: string;
+  negativeTrigger:
+    | {
+        date: string;
+        documentNo: string;
+        description: string;
+        amount: number;
+        balanceAfter: number;
+      }
+    | null;
+};
+
 export type CashDocumentView = {
   id: string;
   documentNo: string;
@@ -25,6 +65,11 @@ export type CashDocumentView = {
   counterparty: string | null;
   description: string;
   amount: number;
+  currency: string;
+  /** 0 = rate unknown (GL-derived FX draft awaiting a rate before posting). */
+  exchangeRate: number;
+  /** MNT value — for MNT documents identical to `amount`. */
+  baseAmount: number;
   status: string;
   voucherId: string | null;
   /** Set when the document was auto-derived from a GL voucher. */
@@ -40,4 +85,3 @@ export type CashFlowOption = {
   code: string;
   name: string;
 };
-

@@ -2,7 +2,10 @@ import { eq } from "drizzle-orm";
 
 import { CashReportView } from "@/components/cash/cash-report-view";
 import { auth } from "@/lib/auth";
-import { calculateCashMovement } from "@/lib/cash/balances";
+import {
+  calculateCashDetailRows,
+  calculateCashMovement,
+} from "@/lib/cash/balances";
 import { db } from "@/lib/db";
 import { cashAccounts, cashDocuments } from "@/lib/db/schema";
 
@@ -40,8 +43,19 @@ export default async function CashReportsPage({
   ]);
 
   const rows = calculateCashMovement(accounts, documents, periodStart, periodEnd);
+  const detailRows = calculateCashDetailRows(
+    accounts,
+    documents,
+    periodStart,
+    periodEnd
+  );
 
   return (
-    <CashReportView rows={rows} periodStart={periodStart} periodEnd={periodEnd} />
+    <CashReportView
+      rows={rows}
+      detailRows={detailRows}
+      periodStart={periodStart}
+      periodEnd={periodEnd}
+    />
   );
 }

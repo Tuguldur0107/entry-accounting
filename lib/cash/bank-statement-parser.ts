@@ -29,6 +29,20 @@ const HEADER_HINTS = {
   expense: ["зарлага", "дебит", "debit", "гарсан дүн", "withdrawal"],
   amount: ["гүйлгээний дүн", "дүн", "amount", "transaction amount"],
   balance: ["эцсийн үлдэгдэл", "үлдэгдэл", "balance"],
+  exchangeRate: [
+    "гүйлгээний ханш",
+    "валютын ханш",
+    "ханш",
+    "exchange rate",
+    "rate",
+  ],
+  baseAmount: [
+    "төгрөгийн дүн",
+    "mnt дүн",
+    "суурь валютын дүн",
+    "base amount",
+    "mnt amount",
+  ],
   counterAccount: [
     "харьцсан данс",
     "харилцсан данс",
@@ -273,6 +287,14 @@ function normalizeRows(
       expense,
       balance:
         map.balance == null ? null : parseMoney(get(row, map, "balance")),
+      exchangeRate:
+        map.exchangeRate == null
+          ? null
+          : parseMoney(get(row, map, "exchangeRate")),
+      baseAmount:
+        map.baseAmount == null
+          ? null
+          : Math.abs(parseMoney(get(row, map, "baseAmount"))),
       debitAccountNumber: "",
       creditAccountNumber: "",
       rawData,

@@ -31,6 +31,8 @@ export interface DerivedCashDocument {
   fromCashAccountId: string | null;
   toCashAccountId: string | null;
   counterAccountNumber: string | null;
+  /** S8 cash-flow classification carried over from the GL cash line. */
+  cashFlowCode: string | null;
   amount: number;
   currency: string;
   description: string;
@@ -40,6 +42,15 @@ export interface DerivedCashDocument {
 export function mainAccountOf(accountNumber: string): string {
   const parts = accountNumber.split(".");
   return parts.length === 10 ? parts[2] : accountNumber;
+}
+
+// S8 cash-flow classification = segment 8 (parts[7]). Padding defaults
+// ("", "0", "0000"…) mean "unclassified" → null.
+function cashFlowCodeOf(accountNumber: string): string | null {
+  const parts = accountNumber.split(".");
+  if (parts.length !== 10) return null;
+  const code = parts[7];
+  return code && !/^0+$/.test(code) ? code : null;
 }
 
 // Returns a draft cash-document spec derived from a voucher, or null when the
@@ -87,6 +98,7 @@ export function deriveCashDocumentFromVoucher(input: {
       fromCashAccountId: isReceipt ? null : cash.id,
       toCashAccountId: isReceipt ? cash.id : null,
       counterAccountNumber: counter,
+      cashFlowCode: cashFlowCodeOf(line.accountNumber),
       amount,
       currency: cash.currency,
       description: desc,
@@ -99,6 +111,10 @@ export function deriveCashDocumentFromVoucher(input: {
     const creditSide = cashLines.find((t) => t.line.credit > 0 && t.line.debit === 0);
     if (!debitSide || !creditSide || !debitSide.cash || !creditSide.cash) return null;
     if (debitSide.cash.id === creditSide.cash.id) return null;
+    // A cross-currency transfer can't be represented by one amount in one
+    // currency (each leg moves different units). Mirror createCashDocument's
+    // guard and leave it for manual handling instead of corrupting a balance.
+    if (debitSide.cash.currency !== creditSide.cash.currency) return null;
     const amount = debitSide.line.debit;
     if (!(amount > 0)) return null;
     return {
@@ -106,6 +122,7 @@ export function deriveCashDocumentFromVoucher(input: {
       fromCashAccountId: creditSide.cash.id, // money leaves the credited cash acct
       toCashAccountId: debitSide.cash.id, // money enters the debited cash acct
       counterAccountNumber: null,
+      cashFlowCode: cashFlowCodeOf(debitSide.line.accountNumber),
       amount,
       currency: debitSide.cash.currency,
       description: desc,

@@ -79,10 +79,6 @@ export async function POST(request: Request) {
       ]);
     if (!cashAccount) throw new Error("Идэвхтэй банкны Cash данс олдсонгүй");
     if (duplicate) throw new Error("Энэ хуулга өмнө нь импортлогдсон байна");
-    if (cashAccount.currency !== "MNT")
-      throw new Error(
-        `${cashAccount.currency} дансны хуулгад валютын ханшийн модуль шаардлагатай`
-      );
 
     const accountCodeRules = buildCashAccountCodeRules(
       configs,
@@ -123,6 +119,22 @@ export async function POST(request: Request) {
       if (expense > 0 && creditMain !== cashAccount.glAccountNumber)
         throw new Error(`${index + 1}-р мөрийн CR тал банкны данс биш байна`);
 
+      const exchangeRate =
+        cashAccount.currency === "MNT" ? 1 : Number(row.exchangeRate);
+      const baseAmount =
+        cashAccount.currency === "MNT"
+          ? income > 0
+            ? income
+            : expense
+          : Number(row.baseAmount) ||
+            Math.round(
+              (income > 0 ? income : expense) * exchangeRate * 100
+            ) / 100;
+      if (!Number.isFinite(exchangeRate) || exchangeRate <= 0)
+        throw new Error(`${index + 1}-р мөрийн валютын ханш буруу`);
+      if (!Number.isFinite(baseAmount) || baseAmount <= 0)
+        throw new Error(`${index + 1}-р мөрийн MNT дүн буруу`);
+
       return {
         ...row,
         income,
@@ -130,6 +142,8 @@ export async function POST(request: Request) {
         debitMain,
         creditMain,
         amount: income > 0 ? income : expense,
+        exchangeRate,
+        baseAmount,
       };
     });
 
@@ -145,6 +159,7 @@ export async function POST(request: Request) {
           fileName: payload.fileName.slice(0, 255),
           fileHash: payload.fileHash,
           bankName: payload.bankName?.slice(0, 120) || cashAccount.bankName,
+          currency: cashAccount.currency,
           periodStart: payload.periodStart || null,
           periodEnd: payload.periodEnd || null,
           rowCount: rows.length,
@@ -178,7 +193,9 @@ export async function POST(request: Request) {
         {
           voucherId: row.voucherId,
           accountNumber: row.debitAccountNumber,
-          debit: String(row.amount),
+          cashAccountId:
+            row.income > 0 ? cashAccount.id : null,
+          debit: String(row.baseAmount),
           credit: "0",
           description: row.description || row.counterparty,
           sortOrder: 0,
@@ -186,8 +203,10 @@ export async function POST(request: Request) {
         {
           voucherId: row.voucherId,
           accountNumber: row.creditAccountNumber,
+          cashAccountId:
+            row.expense > 0 ? cashAccount.id : null,
           debit: "0",
-          credit: String(row.amount),
+          credit: String(row.baseAmount),
           description: row.description || row.counterparty,
           sortOrder: 1,
         },
@@ -216,6 +235,9 @@ export async function POST(request: Request) {
             counterparty: row.counterparty || null,
             description: row.description || "Банкны гүйлгээ",
             amount: String(row.amount),
+            currency: cashAccount.currency,
+            exchangeRate: String(row.exchangeRate),
+            baseAmount: String(row.baseAmount),
             status: "posted",
             voucherId: row.voucherId,
             postedAt: new Date(),
@@ -234,6 +256,8 @@ export async function POST(request: Request) {
         income: String(row.income),
         expense: String(row.expense),
         balance: row.balance == null ? null : String(row.balance),
+        exchangeRate: String(row.exchangeRate),
+        baseAmount: String(row.baseAmount),
         debitAccountNumber: row.debitAccountNumber,
         creditAccountNumber: row.creditAccountNumber,
         rawData: JSON.stringify(row.rawData),

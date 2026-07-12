@@ -6,6 +6,8 @@ import {
   validateCashAccountCode,
 } from "../lib/cash/account-code-validation";
 import { parseBankStatementFile } from "../lib/cash/bank-statement-parser";
+import { calculateCashDetailRows } from "../lib/cash/balances";
+import type { CashAccount, CashDocument } from "../lib/db/schema";
 import {
   parseGolomtRates,
   parseMongolbankRates,
@@ -122,6 +124,66 @@ test("calculates FX gain and loss adjustments against GL carrying amount", () =>
     adjustmentAmount: -100_000,
   });
   assert.throws(() => calculateFxRevaluation(1_000, 0, 0), /0-ээс их/);
+});
+
+test("builds cash detail report rows with opening and running balance", () => {
+  const rows = calculateCashDetailRows(
+    [
+      {
+        id: "acc-bank",
+        name: "Хаан банк MNT",
+        accountType: "bank",
+        bankName: "Хаан банк",
+        accountNumber: "5000000000",
+        currency: "MNT",
+        openingBalance: "1000",
+      },
+    ] as unknown as CashAccount[],
+    [
+      {
+        id: "before-payment",
+        documentNo: "CM-001",
+        documentType: "payment",
+        date: "2026-05-31",
+        fromCashAccountId: "acc-bank",
+        toCashAccountId: null,
+        amount: "250",
+        baseAmount: "250",
+        exchangeRate: "1",
+        status: "posted",
+        counterparty: "Vendor",
+        counterAccountNumber: "73100001",
+        cashFlowCode: "OPER",
+        description: "Before period",
+        voucherId: "voucher-before",
+      },
+      {
+        id: "period-receipt",
+        documentNo: "CM-002",
+        documentType: "receipt",
+        date: "2026-06-03",
+        fromCashAccountId: null,
+        toCashAccountId: "acc-bank",
+        amount: "500",
+        baseAmount: "500",
+        exchangeRate: "1",
+        status: "posted",
+        counterparty: "Customer",
+        counterAccountNumber: "51100000",
+        cashFlowCode: "OPER",
+        description: "Period receipt",
+        voucherId: "voucher-receipt",
+      },
+    ] as unknown as CashDocument[],
+    "2026-06-01",
+    "2026-06-30"
+  );
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].documentType, "opening");
+  assert.equal(rows[0].runningBalance, 750);
+  assert.equal(rows[1].receipt, 500);
+  assert.equal(rows[1].runningBalance, 1250);
 });
 
 test("classifies reconciliation exceptions and missing evidence", () => {
@@ -280,4 +342,106 @@ test("leaves the counter blank on a multi-split cash voucher", () => {
   assert.equal(derived.documentType, "payment");
   assert.equal(derived.counterAccountNumber, null);
   assert.equal(derived.amount, 300000);
+});
+
+test("carries the S8 cash-flow classification from the GL cash line", () => {
+  const derived = deriveCashDocumentFromVoucher({
+    voucherDescription: "Бэлэн борлуулалт",
+    lines: [
+      {
+        // S8 = segment 8 (parts[7]) — "OPER" here.
+        accountNumber: "100.000000.10000001.00.0000.000.0000.OPER.GL.0",
+        debit: 85000,
+        credit: 0,
+        description: null,
+      },
+      {
+        accountNumber: "100.000000.51100000.00.0000.000.0000.0000.GL.0",
+        debit: 0,
+        credit: 85000,
+        description: null,
+      },
+    ],
+    cashAccounts: [
+      { id: "acc-cash", glAccountNumber: "10000001", currency: "MNT", isActive: true },
+    ],
+  });
+  assert.ok(derived);
+  assert.equal(derived.cashFlowCode, "OPER");
+});
+
+test("treats zero-padded / bare S8 segments as unclassified", () => {
+  const padded = deriveCashDocumentFromVoucher({
+    voucherDescription: "Түрээс",
+    lines: [
+      {
+        accountNumber: "100.000000.10000001.00.0000.000.0000.0000.GL.0",
+        debit: 0,
+        credit: 50000,
+        description: null,
+      },
+      {
+        accountNumber: "100.000000.73100001.00.0000.000.0000.0000.GL.0",
+        debit: 50000,
+        credit: 0,
+        description: null,
+      },
+    ],
+    cashAccounts: [
+      { id: "acc-cash", glAccountNumber: "10000001", currency: "MNT", isActive: true },
+    ],
+  });
+  assert.ok(padded);
+  assert.equal(padded.cashFlowCode, null);
+
+  const bare = deriveCashDocumentFromVoucher({
+    voucherDescription: "Түрээс",
+    lines: [
+      { accountNumber: "10000001", debit: 0, credit: 50000, description: null },
+      { accountNumber: "73100001", debit: 50000, credit: 0, description: null },
+    ],
+    cashAccounts: [
+      { id: "acc-cash", glAccountNumber: "10000001", currency: "MNT", isActive: true },
+    ],
+  });
+  assert.ok(bare);
+  assert.equal(bare.cashFlowCode, null);
+});
+
+test("refuses to derive a cross-currency transfer (one amount can't serve two currencies)", () => {
+  // GL journal moving money between an MNT and a USD cash account: the MNT
+  // figure is NOT the USD leg's movement, so deriving a single-amount
+  // transfer would corrupt one side's balance. Must return null — the
+  // voucher stays in the GL for manual handling.
+  const derived = deriveCashDocumentFromVoucher({
+    voucherDescription: "Валют худалдан авалт",
+    lines: [
+      { accountNumber: "11000002", debit: 3450000, credit: 0, description: null },
+      { accountNumber: "11000001", debit: 0, credit: 3450000, description: null },
+    ],
+    cashAccounts: [
+      { id: "acc-usd", glAccountNumber: "11000002", currency: "USD", isActive: true },
+      { id: "acc-mnt", glAccountNumber: "11000001", currency: "MNT", isActive: true },
+    ],
+  });
+  assert.equal(derived, null);
+});
+
+test("keeps the account currency on a derived foreign-currency movement", () => {
+  // GL lines are MNT figures; the derivation reports the cash account's
+  // currency so the caller knows a rate is still required (amount stays the
+  // MNT figure here — the DB layer stores it as baseAmount with rate 0).
+  const derived = deriveCashDocumentFromVoucher({
+    voucherDescription: "Экспортын орлого",
+    lines: [
+      { accountNumber: "11000002", debit: 3450000, credit: 0, description: null },
+      { accountNumber: "51100000", debit: 0, credit: 3450000, description: null },
+    ],
+    cashAccounts: [
+      { id: "acc-usd", glAccountNumber: "11000002", currency: "USD", isActive: true },
+    ],
+  });
+  assert.ok(derived);
+  assert.equal(derived.currency, "USD");
+  assert.equal(derived.amount, 3450000);
 });

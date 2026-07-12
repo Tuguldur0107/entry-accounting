@@ -4,13 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Settings, Check, WalletCards } from "lucide-react";
+import { BookOpen, Settings, Check, WalletCards, ReceiptText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODULES, getActiveModule } from "./modules";
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
   gl: BookOpen,
   cash: WalletCards,
+  receivables: WalletCards,
+  payables: ReceiptText,
   settings: Settings,
 };
 

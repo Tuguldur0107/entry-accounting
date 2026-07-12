@@ -22,6 +22,7 @@ import {
   RefreshCw,
   RotateCcw,
   Scale,
+  ListChecks,
 } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -217,6 +218,42 @@ export function CashReconciliationWorkspace({
     [rows]
   );
 
+  const adjustment = useCallback((row: FxInputRow | undefined) => {
+    if (!row?.inputRate) return null;
+    return calculateFxRevaluation(row.cashBalance, row.inputRate, row.glBalance);
+  }, []);
+
+  const fxSummary = useMemo(() => {
+    let missingRate = 0;
+    let noAdjustment = 0;
+    let readyToPost = 0;
+
+    for (const row of fxRows) {
+      const result = adjustment(row);
+      if (!row.inputRate) missingRate += 1;
+      else if (Math.abs(result?.adjustmentAmount ?? 0) <= 0.01) noAdjustment += 1;
+      else readyToPost += 1;
+    }
+
+    return {
+      total: fxRows.length,
+      missingRate,
+      noAdjustment,
+      readyToPost,
+    };
+  }, [fxRows, adjustment]);
+
+  const fxPostBlockReason = useCallback(
+    (row: FxInputRow) => {
+      if (!row.inputRate) return "Эхлээд хаалтын ханш оруулна";
+      const result = adjustment(row);
+      if (Math.abs(result?.adjustmentAmount ?? 0) <= 0.01)
+        return "Тэгшитгэлийн дүн 0 тул GL бичилт шаардлагагүй";
+      return "";
+    },
+    [adjustment]
+  );
+
   const reconciliationColumns = useMemo<ColDef<CashReconciliationRow>[]>(
     () => [
       {
@@ -327,11 +364,6 @@ export function CashReconciliationWorkspace({
     ],
     []
   );
-
-  const adjustment = useCallback((row: FxInputRow | undefined) => {
-    if (!row?.inputRate) return null;
-    return calculateFxRevaluation(row.cashBalance, row.inputRate, row.glBalance);
-  }, []);
 
   const postFx = useCallback(
     (row: FxInputRow) => {
@@ -478,26 +510,28 @@ export function CashReconciliationWorkspace({
       {
         headerName: "Үйлдэл",
         colId: "action",
-        width: 130,
+        width: 170,
         sortable: false,
         filter: false,
-        cellRenderer: (params: ICellRendererParams<FxInputRow>) => (
-          <button
-            type="button"
-            className="ea-btn ea-btn--sm ea-btn--primary"
-            disabled={
-              isPending ||
-              !params.data?.inputRate ||
-              Math.abs(adjustment(params.data)?.adjustmentAmount ?? 0) <= 0.01
-            }
-            onClick={() => params.data && postFx(params.data)}
-          >
-            GL-д бичих
-          </button>
-        ),
+        cellRenderer: (params: ICellRendererParams<FxInputRow>) => {
+          const row = params.data;
+          if (!row) return null;
+          const blockReason = fxPostBlockReason(row);
+          return (
+            <button
+              type="button"
+              className="ea-btn ea-btn--sm ea-btn--primary"
+              disabled={isPending || !!blockReason}
+              title={blockReason || "Тэгшитгэлийн GL бичилтийг хянах"}
+              onClick={() => postFx(row)}
+            >
+              {blockReason ? "Хүлээгдэж байна" : "GL-д бичих"}
+            </button>
+          );
+        },
       },
     ],
-    [adjustment, isPending, postFx]
+    [adjustment, fxPostBlockReason, isPending, postFx]
   );
 
   const historyColumns = useMemo<ColDef<CashFxHistoryRow>[]>(
@@ -757,22 +791,22 @@ export function CashReconciliationWorkspace({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex min-h-full w-full min-w-0 max-w-full flex-none flex-col gap-6">
+      <header className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
             Тулгалт ба ханшийн тэгшитгэл
           </h1>
           <div className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Bank · Cash subledger · GL
+            Банк · Дотоод бүртгэл · GL
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <Input
             type="date"
             value={date}
             onChange={(event) => setDate(event.target.value)}
-            className="w-40"
+            className="min-w-0 flex-1 sm:w-40 sm:flex-none"
             aria-label="Тулгалтын огноо"
           />
           <Button variant="outline" onClick={applyDate}>
@@ -800,7 +834,7 @@ export function CashReconciliationWorkspace({
             Дансны тулгалт
           </h2>
         </div>
-        <div className="hidden md:block">
+        <div className="hidden xl:block">
           <DataGridDynamic<CashReconciliationRow>
             rowData={rows}
             columnDefs={reconciliationColumns}
@@ -810,7 +844,7 @@ export function CashReconciliationWorkspace({
             suppressCellFocus
           />
         </div>
-        <div className="divide-y divide-[var(--ea-border)] rounded-md border border-[var(--ea-border)] md:hidden">
+        <div className="divide-y divide-[var(--ea-border)] rounded-md border border-[var(--ea-border)] xl:hidden">
           {rows.map((row) => (
             <div key={row.id} className="space-y-2 p-3">
               <div className="flex items-start justify-between gap-3">
@@ -866,23 +900,41 @@ export function CashReconciliationWorkspace({
       </section>
 
       <section>
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <ArrowRight size={16} className="text-[var(--ea-primary)]" />
-            <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
-              Валютын ханшийн тэгшитгэл
-            </h2>
+        <div className="mb-3 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ArrowRight size={16} className="text-[var(--ea-primary)]" />
+              <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+                Валютын ханшийн тэгшитгэл
+              </h2>
+            </div>
+            {fxRows.length > 0 && (
+              <Button variant="outline" size="sm" onClick={openRateDialog}>
+                <Landmark />
+                Ханш татах
+              </Button>
+            )}
           </div>
+
           {fxRows.length > 0 && (
-            <Button variant="outline" size="sm" onClick={openRateDialog}>
-              <Landmark />
-              Ханш татах
-            </Button>
+            <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)]">
+              <div className="grid gap-0 md:grid-cols-[1.3fr_0.7fr_0.7fr_0.7fr]">
+                <div className="flex items-center gap-2 border-b border-[var(--ea-border)] px-3 py-2 text-xs text-[var(--ea-text-3)] md:border-b-0 md:border-r">
+                  <ListChecks size={15} className="shrink-0 text-[var(--ea-primary)]" />
+                  <span>
+                    Томъёо: <span className="font-mono">валютын үлдэгдэл × шинэ ханш - GL үлдэгдэл = тэгшитгэл</span>
+                  </span>
+                </div>
+                <FxMiniMetric label="Валютын данс" value={fxSummary.total} />
+                <FxMiniMetric label="Ханш дутуу" value={fxSummary.missingRate} tone="warning" />
+                <FxMiniMetric label="GL-д бичих" value={fxSummary.readyToPost} tone="primary" />
+              </div>
+            </div>
           )}
         </div>
         {fxRows.length > 0 ? (
           <>
-            <div className="hidden md:block">
+            <div className="hidden xl:block">
               <DataGridDynamic<FxInputRow>
                 rowData={fxRows}
                 columnDefs={fxColumns}
@@ -908,9 +960,10 @@ export function CashReconciliationWorkspace({
                 wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               />
             </div>
-            <div className="divide-y divide-[var(--ea-border)] rounded-md border border-[var(--ea-border)] md:hidden">
+            <div className="divide-y divide-[var(--ea-border)] rounded-md border border-[var(--ea-border)] xl:hidden">
               {fxRows.map((row) => {
                 const result = adjustment(row);
+                const blockReason = fxPostBlockReason(row);
                 return (
                   <div key={row.id} className="space-y-3 p-3">
                     <div className="flex items-start justify-between gap-3">
@@ -924,11 +977,8 @@ export function CashReconciliationWorkspace({
                       </div>
                       <Button
                         size="sm"
-                        disabled={
-                          isPending ||
-                          !row.inputRate ||
-                          Math.abs(result?.adjustmentAmount ?? 0) <= 0.01
-                        }
+                        disabled={isPending || !!blockReason}
+                        title={blockReason || "Тэгшитгэлийн GL бичилтийг хянах"}
                         onClick={() => postFx(row)}
                       >
                         GL-д бичих
@@ -958,12 +1008,22 @@ export function CashReconciliationWorkspace({
                               )
                             );
                           }}
+                          aria-label={`${row.accountName} шинэ ханш`}
+                          placeholder="Ж: 3580.00"
                         />
                       </label>
                       <MobileAmount
                         label="Олз / (гарз)"
                         value={result?.adjustmentAmount ?? null}
                       />
+                    </div>
+                    <div className="rounded-md bg-[var(--ea-bg-2)] px-3 py-2 text-[11px] text-[var(--ea-text-3)]">
+                      {blockReason ||
+                        (row.rateEvidence
+                          ? `Эх сурвалж: ${
+                              RATE_SOURCE_LABELS[row.rateEvidence.source]
+                            } · ${RATE_BASIS_LABELS[row.rateEvidence.basis]}`
+                          : "Гараар оруулсан ханш бол GL-д бичих үед шалтгаан шаардана")}
                     </div>
                   </div>
                 );
@@ -1367,6 +1427,32 @@ function Metric({
         <div className="font-mono text-lg font-semibold text-[var(--ea-text-1)]">
           {value}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function FxMiniMetric({
+  label,
+  value,
+  tone = "muted",
+}: {
+  label: string;
+  value: number;
+  tone?: "muted" | "warning" | "primary";
+}) {
+  return (
+    <div className="border-b border-r border-[var(--ea-border)] px-3 py-2 last:border-r-0 md:border-b-0">
+      <div className="text-[11px] text-[var(--ea-text-3)]">{label}</div>
+      <div
+        className={cn(
+          "mt-0.5 font-mono text-base font-semibold",
+          tone === "primary" && "text-[var(--ea-primary)]",
+          tone === "warning" && "text-[var(--ea-warning-fg)]",
+          tone === "muted" && "text-[var(--ea-text-1)]"
+        )}
+      >
+        {value}
       </div>
     </div>
   );

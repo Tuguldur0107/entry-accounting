@@ -1,0 +1,1 @@
+ALTER TABLE "journal_lines" ADD CONSTRAINT "journal_lines_cash_account_id_cash_accounts_id_fk" FOREIGN KEY ("cash_account_id") REFERENCES "public"."cash_accounts"("id") ON DELETE set null ON UPDATE no action;

@@ -201,7 +201,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
             Касс, банкны данс
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Cash данс бүрийг нэг үндсэн GL данстай холбоно.
+            Мөнгөн хөрөнгийн данс бүрийг нэг үндсэн GL данстай холбоно.
           </p>
         </div>
         <Button onClick={showDialog}>
@@ -212,7 +212,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
 
       {accounts.length === 0 ? (
         <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Cash данс үүсгээгүй байна
+          Мөнгөн хөрөнгийн данс үүсгээгүй байна
         </div>
       ) : (
         <DataGridDynamic<CashAccountView>
@@ -228,7 +228,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Cash данс нэмэх</DialogTitle>
+            <DialogTitle>Мөнгөн хөрөнгийн данс нэмэх</DialogTitle>
           </DialogHeader>
 
           <div className="grid gap-4">

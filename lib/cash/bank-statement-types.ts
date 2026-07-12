@@ -9,6 +9,8 @@ export type ParsedBankStatementRow = {
   income: number;
   expense: number;
   balance: number | null;
+  exchangeRate: number | null;
+  baseAmount: number | null;
   debitAccountNumber: string;
   creditAccountNumber: string;
   rawData: Record<string, string>;

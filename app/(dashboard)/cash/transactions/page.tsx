@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import {
   cashAccounts,
   cashDocuments,
+  arApDocuments,
   chartOfAccounts,
   segmentConfigs,
   segmentValues,
@@ -18,7 +19,18 @@ import {
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { backfillCashDraftsForUser } from "@/lib/cash/sync-voucher";
 
-type SearchParams = Promise<{ start?: string; end?: string; type?: string }>;
+type SearchParams = Promise<{
+  start?: string;
+  end?: string;
+  type?: string;
+  status?: string;
+  arap?: string;
+}>;
+
+function mainAccountOf(accountNumber: string) {
+  const parts = accountNumber.split(".");
+  return parts.length === 10 ? parts[2] : accountNumber;
+}
 
 export default async function CashTransactionsPage({
   searchParams,
@@ -27,7 +39,7 @@ export default async function CashTransactionsPage({
 }) {
   const session = await auth();
   const userId = session!.user!.id!;
-  const { start, end, type } = await searchParams;
+  const { start, end, type, status, arap } = await searchParams;
 
   // Surface any posted GL journals that touch a cash account but don't yet
   // have a cash document — including historical ones. Idempotent + best
@@ -42,7 +54,7 @@ export default async function CashTransactionsPage({
     end ? lte(cashDocuments.date, end) : undefined,
   ].filter(Boolean);
 
-  const [accounts, documents, glAccounts, cashFlowOptions, segConfigs] =
+  const [accounts, documents, glAccounts, cashFlowOptions, segConfigs, arApTarget] =
     await Promise.all([
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.userId, userId),
@@ -69,6 +81,12 @@ export default async function CashTransactionsPage({
       orderBy: (value, { asc }) => [asc(value.code)],
     }),
     db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    arap
+      ? db.query.arApDocuments.findFirst({
+          where: and(eq(arApDocuments.id, arap), eq(arApDocuments.userId, userId)),
+          with: { counterparty: true },
+        })
+      : Promise.resolve(null),
   ]);
 
   const segConfigMap = new Map(segConfigs.map((c) => [c.segmentId, c]));
@@ -96,6 +114,9 @@ export default async function CashTransactionsPage({
     counterparty: document.counterparty,
     description: document.description,
     amount: Number(document.amount),
+    currency: document.currency,
+    exchangeRate: Number(document.exchangeRate ?? 1),
+    baseAmount: Number(document.baseAmount ?? document.amount),
     status: document.status,
     voucherId: document.voucherId,
     sourceVoucherId: document.sourceVoucherId,
@@ -114,9 +135,28 @@ export default async function CashTransactionsPage({
         name: option.name,
       }))}
       initialType={type}
+      initialStatus={status}
       showToolbar
       activeSegIds={activeSegIds}
+      initialArApSettlement={
+        arApTarget
+          ? {
+              id: arApTarget.id,
+              documentNo: arApTarget.documentNo,
+              documentType: arApTarget.documentType as "ar_invoice" | "ap_bill",
+              counterpartyName: arApTarget.counterparty.name,
+              date: arApTarget.date,
+              currency: arApTarget.currency,
+              controlAccountNumber: mainAccountOf(arApTarget.controlAccountNumber),
+              balance:
+                Math.round(
+                  (Number(arApTarget.totalAmount) - Number(arApTarget.paidAmount)) *
+                    100
+                ) / 100,
+              description: arApTarget.description,
+            }
+          : null
+      }
     />
   );
 }
-

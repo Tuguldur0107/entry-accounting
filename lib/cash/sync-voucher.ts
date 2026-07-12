@@ -13,7 +13,44 @@ import {
   deriveCashDocumentFromVoucher,
   mainAccountOf,
   type CashAccountRef,
+  type DerivedCashDocument,
 } from "./gl-sync";
+
+// GL journal lines are always in MNT (base currency), so a derived amount is
+// an MNT figure. For an MNT cash account that IS the document amount; for a
+// foreign-currency account the amount in currency units is unknown until the
+// user supplies a rate — store baseAmount = GL figure with the rate-unknown
+// sentinel (exchangeRate 0, amount 0). postCashDocument refuses to adopt such
+// a draft until a rate is provided.
+function draftValuesFor(
+  userId: string,
+  voucher: { id: string; date: string },
+  derived: DerivedCashDocument
+): typeof cashDocuments.$inferInsert {
+  const documentNo = `GL-${voucher.date.replaceAll("-", "")}-${crypto
+    .randomUUID()
+    .slice(0, 6)
+    .toUpperCase()}`;
+  const isMnt = derived.currency === "MNT";
+  return {
+    userId,
+    documentNo,
+    documentType: derived.documentType,
+    date: voucher.date,
+    fromCashAccountId: derived.fromCashAccountId,
+    toCashAccountId: derived.toCashAccountId,
+    counterAccountNumber: derived.counterAccountNumber,
+    cashFlowCode: derived.cashFlowCode,
+    counterparty: null,
+    description: derived.description,
+    amount: isMnt ? String(derived.amount) : "0",
+    currency: derived.currency,
+    exchangeRate: isMnt ? "1" : "0",
+    baseAmount: String(derived.amount),
+    status: "draft",
+    sourceVoucherId: voucher.id,
+  };
+}
 
 // When a GL voucher is posted that touches a cash/bank account's linked GL
 // account, surface a DRAFT cash document. Idempotent (skips vouchers already
@@ -62,28 +99,7 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
     });
     if (!derived) return;
 
-    const documentNo = `GL-${voucher.date.replaceAll("-", "")}-${crypto
-      .randomUUID()
-      .slice(0, 6)
-      .toUpperCase()}`;
-
-    await db.insert(cashDocuments).values({
-      userId,
-      documentNo,
-      documentType: derived.documentType,
-      date: voucher.date,
-      fromCashAccountId: derived.fromCashAccountId,
-      toCashAccountId: derived.toCashAccountId,
-      counterAccountNumber: derived.counterAccountNumber,
-      counterparty: null,
-      description: derived.description,
-      amount: String(derived.amount),
-      currency: derived.currency,
-      exchangeRate: "1",
-      baseAmount: String(derived.amount),
-      status: "draft",
-      sourceVoucherId: voucherId,
-    });
+    await db.insert(cashDocuments).values(draftValuesFor(userId, voucher, derived));
 
     revalidatePath("/cash");
     revalidatePath("/cash/transactions");
@@ -153,28 +169,39 @@ export async function backfillCashDraftsForUser(userId: string): Promise<number>
         cashAccounts: cashRefs,
       });
       if (!derived) continue;
+      inserts.push(draftValuesFor(userId, voucher, derived));
+    }
 
-      const documentNo = `GL-${voucher.date.replaceAll("-", "")}-${crypto
-        .randomUUID()
-        .slice(0, 6)
-        .toUpperCase()}`;
-      inserts.push({
-        userId,
-        documentNo,
-        documentType: derived.documentType,
-        date: voucher.date,
-        fromCashAccountId: derived.fromCashAccountId,
-        toCashAccountId: derived.toCashAccountId,
-        counterAccountNumber: derived.counterAccountNumber,
-        counterparty: null,
-        description: derived.description,
-        amount: String(derived.amount),
-        currency: derived.currency,
-        exchangeRate: "1",
-        baseAmount: String(derived.amount),
-        status: "draft",
-        sourceVoucherId: voucher.id,
-      });
+    // Repair earlier GL-derived FX drafts written before the rate-unknown
+    // sentinel existed: they hold the MNT figure as foreign units at rate 1
+    // (e.g. ₮3,450,000 recorded as $3,450,000). Reset them to the sentinel so
+    // posting demands a real rate. Drafts only — posted docs are immutable.
+    const brokenFxDrafts = await db.query.cashDocuments.findMany({
+      where: and(
+        eq(cashDocuments.userId, userId),
+        eq(cashDocuments.status, "draft")
+      ),
+      columns: {
+        id: true,
+        currency: true,
+        exchangeRate: true,
+        amount: true,
+        baseAmount: true,
+        sourceVoucherId: true,
+      },
+    });
+    for (const doc of brokenFxDrafts) {
+      if (
+        !doc.sourceVoucherId ||
+        doc.currency === "MNT" ||
+        Number(doc.exchangeRate) !== 1 ||
+        Number(doc.amount) !== Number(doc.baseAmount)
+      )
+        continue;
+      await db
+        .update(cashDocuments)
+        .set({ amount: "0", exchangeRate: "0" })
+        .where(eq(cashDocuments.id, doc.id));
     }
 
     if (inserts.length === 0) return 0;

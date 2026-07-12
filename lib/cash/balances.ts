@@ -10,6 +10,31 @@ export interface CashMovementRow {
   closing: number;
 }
 
+export interface CashDetailRow {
+  id: string;
+  accountId: string;
+  accountName: string;
+  accountType: string;
+  bankName: string | null;
+  accountNumber: string | null;
+  currency: string;
+  date: string;
+  documentNo: string;
+  documentType: string;
+  counterparty: string | null;
+  counterAccountNumber: string | null;
+  cashFlowCode: string | null;
+  description: string;
+  receipt: number;
+  payment: number;
+  baseReceipt: number;
+  basePayment: number;
+  exchangeRate: number;
+  runningBalance: number;
+  status: string;
+  voucherId: string | null;
+}
+
 // Per-account cash movement for a period: opening balance carried from
 // before `periodStart`, plus receipts / payments / transfers within the
 // [periodStart, periodEnd] window. Only posted documents count. Transfers
@@ -68,6 +93,145 @@ export function calculateCashMovement(
   return out.sort((a, b) => a.accountName.localeCompare(b.accountName));
 }
 
+export function calculateCashDetailRows(
+  accounts: CashAccount[],
+  documents: CashDocument[],
+  periodStart: string,
+  periodEnd: string
+): CashDetailRow[] {
+  const accountMap = new Map(accounts.map((account) => [account.id, account]));
+  const openingBalances = new Map(
+    accounts.map((account) => [account.id, Number(account.openingBalance)])
+  );
+
+  const postedDocuments = documents
+    .filter((document) => document.status === "posted")
+    .sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      return a.documentNo.localeCompare(b.documentNo);
+    });
+
+  for (const document of postedDocuments) {
+    if (document.date >= periodStart) continue;
+    const amount = Number(document.amount);
+    if (
+      (document.documentType === "payment" ||
+        document.documentType === "transfer") &&
+      document.fromCashAccountId
+    ) {
+      openingBalances.set(
+        document.fromCashAccountId,
+        (openingBalances.get(document.fromCashAccountId) ?? 0) - amount
+      );
+    }
+    if (
+      (document.documentType === "receipt" ||
+        document.documentType === "transfer") &&
+      document.toCashAccountId
+    ) {
+      openingBalances.set(
+        document.toCashAccountId,
+        (openingBalances.get(document.toCashAccountId) ?? 0) + amount
+      );
+    }
+  }
+
+  const runningBalances = new Map(openingBalances);
+  const rows: CashDetailRow[] = accounts.map((account) => ({
+    id: `opening-${account.id}`,
+    accountId: account.id,
+    accountName: account.name,
+    accountType: account.accountType,
+    bankName: account.bankName,
+    accountNumber: account.accountNumber,
+    currency: account.currency,
+    date: periodStart,
+    documentNo: "Эхний үлдэгдэл",
+    documentType: "opening",
+    counterparty: null,
+    counterAccountNumber: null,
+    cashFlowCode: null,
+    description: `${periodStart} өдрийн эхний үлдэгдэл`,
+    receipt: 0,
+    payment: 0,
+    baseReceipt: 0,
+    basePayment: 0,
+    exchangeRate: account.currency === "MNT" ? 1 : 0,
+    runningBalance: openingBalances.get(account.id) ?? 0,
+    status: "posted",
+    voucherId: null,
+  }));
+
+  function addMovement(
+    document: CashDocument,
+    accountId: string,
+    direction: "receipt" | "payment"
+  ) {
+    const account = accountMap.get(accountId);
+    if (!account) return;
+    const amount = Number(document.amount);
+    const baseAmount = Number(document.baseAmount ?? document.amount);
+    const nextBalance =
+      (runningBalances.get(accountId) ?? 0) +
+      (direction === "receipt" ? amount : -amount);
+    runningBalances.set(accountId, nextBalance);
+
+    rows.push({
+      id: `${document.id}-${accountId}-${direction}`,
+      accountId,
+      accountName: account.name,
+      accountType: account.accountType,
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+      currency: account.currency,
+      date: document.date,
+      documentNo: document.documentNo,
+      documentType: document.documentType,
+      counterparty: document.counterparty,
+      counterAccountNumber: document.counterAccountNumber,
+      cashFlowCode: document.cashFlowCode,
+      description: document.description,
+      receipt: direction === "receipt" ? amount : 0,
+      payment: direction === "payment" ? amount : 0,
+      baseReceipt: direction === "receipt" ? baseAmount : 0,
+      basePayment: direction === "payment" ? baseAmount : 0,
+      exchangeRate: Number(document.exchangeRate ?? 1),
+      runningBalance: nextBalance,
+      status: document.status,
+      voucherId: document.voucherId,
+    });
+  }
+
+  for (const document of postedDocuments) {
+    if (document.date < periodStart || document.date > periodEnd) continue;
+    if (
+      (document.documentType === "receipt" ||
+        document.documentType === "transfer") &&
+      document.toCashAccountId
+    ) {
+      addMovement(document, document.toCashAccountId, "receipt");
+    }
+    if (
+      (document.documentType === "payment" ||
+        document.documentType === "transfer") &&
+      document.fromCashAccountId
+    ) {
+      addMovement(document, document.fromCashAccountId, "payment");
+    }
+  }
+
+  return rows.sort((a, b) => {
+    const byAccount = a.accountName.localeCompare(b.accountName);
+    if (byAccount !== 0) return byAccount;
+    const byDate = a.date.localeCompare(b.date);
+    if (byDate !== 0) return byDate;
+    if (a.documentType === "opening") return -1;
+    if (b.documentType === "opening") return 1;
+    return a.documentNo.localeCompare(b.documentNo);
+  });
+}
+
 export function calculateCashBalances(
   accounts: CashAccount[],
   documents: CashDocument[]
@@ -105,4 +269,3 @@ export function calculateCashBalances(
 
   return balances;
 }
-

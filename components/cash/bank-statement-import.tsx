@@ -145,10 +145,13 @@ export function BankStatementImport({
             row.creditAccountNumber,
             activeSegIds,
             segmentOptions
-          )
+          ) ||
+          (cashAccount?.currency !== "MNT" &&
+            (!(row.exchangeRate && row.exchangeRate > 0) ||
+              !(row.baseAmount && row.baseAmount > 0)))
       ).length,
     }),
-    [activeSegIds, rows, segmentOptions]
+    [activeSegIds, cashAccount?.currency, rows, segmentOptions]
   );
 
   const handleCellValueChanged = useCallback(
@@ -156,13 +159,30 @@ export function BankStatementImport({
       const field = event.colDef.field;
       if (
         field !== "debitAccountNumber" &&
-        field !== "creditAccountNumber"
+        field !== "creditAccountNumber" &&
+        field !== "exchangeRate" &&
+        field !== "baseAmount"
       )
         return;
       setRows((current) =>
         current.map((row) =>
           row.id === event.data.id
-            ? { ...row, [field]: String(event.newValue ?? "") }
+            ? field === "exchangeRate"
+              ? {
+                  ...row,
+                  exchangeRate: Number(event.newValue) || null,
+                  baseAmount:
+                    Number(event.newValue) > 0
+                      ? Math.round(
+                          (row.income || row.expense) *
+                            Number(event.newValue) *
+                            100
+                        ) / 100
+                      : null,
+                }
+              : field === "baseAmount"
+                ? { ...row, baseAmount: Number(event.newValue) || null }
+                : { ...row, [field]: String(event.newValue ?? "") }
             : row
         )
       );
@@ -233,6 +253,44 @@ export function BankStatementImport({
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) =>
+          params.value == null ? "" : fmtMnt(Number(params.value)),
+      },
+      {
+        headerName: "Гүйлгээний ханш",
+        field: "exchangeRate",
+        width: 150,
+        editable: cashAccount?.currency !== "MNT",
+        singleClickEdit: true,
+        hide: cashAccount?.currency === "MNT",
+        cellClass:
+          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-soft)]",
+        headerClass: "ag-right-aligned-header",
+        valueParser: (params) => {
+          const value = Number(params.newValue);
+          return Number.isFinite(value) && value > 0 ? value : null;
+        },
+        valueFormatter: (params) =>
+          params.value == null
+            ? ""
+            : Number(params.value).toLocaleString("mn-MN", {
+                maximumFractionDigits: 8,
+              }),
+      },
+      {
+        headerName: "MNT дүн",
+        field: "baseAmount",
+        width: 150,
+        editable: cashAccount?.currency !== "MNT",
+        singleClickEdit: true,
+        hide: cashAccount?.currency === "MNT",
+        cellClass:
+          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-soft)]",
+        headerClass: "ag-right-aligned-header",
+        valueParser: (params) => {
+          const value = Number(params.newValue);
+          return Number.isFinite(value) && value > 0 ? value : null;
+        },
         valueFormatter: (params) =>
           params.value == null ? "" : fmtMnt(Number(params.value)),
       },
@@ -328,7 +386,7 @@ export function BankStatementImport({
         },
       },
     ],
-    [activeSegIds, defaultSegments, segmentOptions]
+    [activeSegIds, cashAccount?.currency, defaultSegments, segmentOptions]
   );
 
   function applyQuickFilter(value: string) {
@@ -338,7 +396,7 @@ export function BankStatementImport({
 
   async function parseFile(file: File) {
     if (!cashAccount) {
-      setError("Эхлээд банкны Cash данс сонгоно уу");
+      setError("Эхлээд банкны мөнгөн хөрөнгийн данс сонгоно уу");
       return;
     }
     setError("");
@@ -364,6 +422,17 @@ export function BankStatementImport({
         const blankCode = emptyAccountCode(activeSegIds, defaultSegments);
         const normalizedRows = result.rows.map((row) => ({
           ...row,
+          exchangeRate:
+            cashAccount.currency === "MNT" ? 1 : row.exchangeRate,
+          baseAmount:
+            cashAccount.currency === "MNT"
+              ? row.income || row.expense
+              : row.baseAmount ??
+                (row.exchangeRate
+                  ? Math.round(
+                      (row.income || row.expense) * row.exchangeRate * 100
+                    ) / 100
+                  : null),
           debitAccountNumber: row.income > 0 ? cashCode : blankCode,
           creditAccountNumber: row.expense > 0 ? cashCode : blankCode,
         }));
@@ -452,7 +521,7 @@ export function BankStatementImport({
         !copied.debitAccountNumber ||
         !copied.creditAccountNumber
       )
-        throw new Error("Clipboard-д Cash DR/CR данс алга");
+        throw new Error("Clipboard-д мөнгөн хөрөнгийн DR/CR данс алга");
 
       const api = gridRef.current?.api as
         | GridApi<ParsedBankStatementRow>
@@ -532,7 +601,7 @@ export function BankStatementImport({
       { headerName: "Файл", field: "fileName", minWidth: 180, flex: 1 },
       { headerName: "Банк", field: "bankName", minWidth: 140 },
       {
-        headerName: "Cash данс",
+        headerName: "Мөнгөн хөрөнгийн данс",
         field: "cashAccountName",
         minWidth: 160,
       },
@@ -603,7 +672,7 @@ export function BankStatementImport({
                 setRows([]);
               }}
               className="ea-form-select sm:w-64"
-              aria-label="Банкны Cash данс"
+              aria-label="Банкны мөнгөн хөрөнгийн данс"
             >
               <option value="">Банкны данс сонгох...</option>
               {accounts
@@ -615,12 +684,8 @@ export function BankStatementImport({
                   <option
                     key={account.id}
                     value={account.id}
-                    disabled={account.currency !== "MNT"}
                   >
                     {account.name} · {account.currency}
-                    {account.currency !== "MNT"
-                      ? " · Ханшийн модуль шаардлагатай"
-                      : ""}
                   </option>
                 ))}
             </select>

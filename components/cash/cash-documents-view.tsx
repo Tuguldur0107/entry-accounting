@@ -1,9 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Check, Plus, RotateCcw, Trash2 } from "lucide-react";
+import type {
+  ColDef,
+  GridApi,
+  ICellRendererParams,
+  SelectionChangedEvent,
+} from "ag-grid-community";
+import { Check, CheckCheck, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
@@ -20,6 +25,7 @@ import {
   createCashDocument,
   deleteCashDocument,
   postCashDocument,
+  postCashDocuments,
   reverseCashDocument,
   type CashDocumentType,
 } from "@/lib/actions/cash";
@@ -59,18 +65,41 @@ interface Props {
   showToolbar?: boolean;
   /** Active type tab from URL (`?type=`). */
   initialType?: string;
+  /** Active status filter from URL (`?status=`). */
+  initialStatus?: string;
   /** Active segment ids — needed to render GL account codes in the detail
    *  drawer per the segment display rule. */
   activeSegIds?: number[];
+  initialArApSettlement?: CashArApSettlementTarget | null;
 }
 
 type TypeTab = "all" | CashDocumentType;
+type StatusTab = "all" | "draft" | "posted" | "reversed";
+
+interface CashArApSettlementTarget {
+  id: string;
+  documentNo: string;
+  documentType: "ar_invoice" | "ap_bill";
+  counterpartyName: string;
+  date: string;
+  currency: string;
+  controlAccountNumber: string;
+  balance: number;
+  description: string;
+}
 
 const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "all", label: "Бүгд" },
   { value: "receipt", label: "Орлого" },
   { value: "payment", label: "Зарлага" },
   { value: "transfer", label: "Шилжүүлэг" },
+];
+
+const STATUS_TABS: { value: StatusTab; label: string }[] = [
+  { value: "all", label: "Бүх төлөв" },
+  { value: "draft", label: "Ноорог" },
+  { value: "posted", label: "Батлагдсан" },
+  { value: "reversed", label: "Буцаагдсан" },
 ];
 
 const initialForm = () => ({
@@ -86,29 +115,69 @@ const initialForm = () => ({
   exchangeRate: "",
 });
 
+function settlementForm(
+  target: CashArApSettlementTarget,
+  accounts: CashAccountView[]
+) {
+  const documentType: CashDocumentType =
+    target.documentType === "ar_invoice" ? "receipt" : "payment";
+  const matchingCashAccount =
+    accounts.find(
+      (account) => account.isActive && account.currency === target.currency
+    ) ?? null;
+  return {
+    ...initialForm(),
+    documentType,
+    fromCashAccountId: documentType === "payment" ? matchingCashAccount?.id ?? "" : "",
+    toCashAccountId: documentType === "receipt" ? matchingCashAccount?.id ?? "" : "",
+    counterAccountNumber: target.controlAccountNumber,
+    counterparty: target.counterpartyName,
+    description: `${target.documentNo} төлөлт`,
+    amount: String(target.balance),
+  };
+}
+
 export function CashDocumentsView({
   documents,
   accounts,
   glAccounts,
   cashFlowOptions,
   allowCreate = true,
-  title = "Cash гүйлгээ",
+  title = "Мөнгөн гүйлгээ",
   showToolbar = false,
   initialType,
+  initialStatus,
   activeSegIds = [3],
+  initialArApSettlement = null,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(initialForm);
+  const [open, setOpen] = useState(Boolean(initialArApSettlement));
+  const [form, setForm] = useState(() =>
+    initialArApSettlement
+      ? settlementForm(initialArApSettlement, accounts)
+      : initialForm()
+  );
+  const [settlementTarget, setSettlementTarget] =
+    useState<CashArApSettlementTarget | null>(initialArApSettlement);
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
   const [detailDoc, setDetailDoc] = useState<CashDocumentView | null>(null);
+  // GL-derived FX draft being confirmed — needs a rate before it can post.
+  const [rateDoc, setRateDoc] = useState<CashDocumentView | null>(null);
+  const [rateInput, setRateInput] = useState("");
+  const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
+  const gridApiRef = useRef<GridApi<CashDocumentView> | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const activeTab: TypeTab = TYPE_TABS.some((t) => t.value === initialType)
     ? (initialType as TypeTab)
+    : "all";
+  const activeStatus: StatusTab = STATUS_TABS.some(
+    (t) => t.value === initialStatus
+  )
+    ? (initialStatus as StatusTab)
     : "all";
 
   function changeTab(next: TypeTab) {
@@ -118,10 +187,17 @@ export function CashDocumentsView({
     router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
   }
 
-  // Type tab filters the already-date-filtered list. Summary totals below
-  // reflect the *visible* (tab-filtered) documents so the numbers match
-  // what the grid shows.
-  const visibleDocuments = useMemo(
+  function changeStatus(next: StatusTab) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "all") params.delete("status");
+    else params.set("status", next);
+    router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+  }
+
+  // Type tab + status chips filter the already-date-filtered list. Status
+  // counts are computed on the type-filtered set so the chips always show
+  // how many drafts etc. sit behind the current tab.
+  const typeFiltered = useMemo(
     () =>
       activeTab === "all"
         ? documents
@@ -129,15 +205,66 @@ export function CashDocumentsView({
     [documents, activeTab]
   );
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusTab, number> = {
+      all: typeFiltered.length,
+      draft: 0,
+      posted: 0,
+      reversed: 0,
+    };
+    for (const d of typeFiltered) {
+      if (d.status === "draft" || d.status === "posted" || d.status === "reversed")
+        counts[d.status] += 1;
+    }
+    return counts;
+  }, [typeFiltered]);
+
+  const visibleDocuments = useMemo(
+    () =>
+      activeStatus === "all"
+        ? typeFiltered
+        : typeFiltered.filter((d) => d.status === activeStatus),
+    [typeFiltered, activeStatus]
+  );
+
+  // Effective selection = the grid's last-reported selection ∩ drafts still
+  // visible. A filter change (grid unmounts without firing selectionChanged)
+  // or a row posted through another path must not leave a stale count on
+  // the batch button or send non-drafts to the server.
+  const selectedDrafts = useMemo(
+    () =>
+      visibleDocuments.filter(
+        (d) => d.status === "draft" && selectedDraftIds.includes(d.id)
+      ),
+    [visibleDocuments, selectedDraftIds]
+  );
+
+  // Footer totals count ONLY posted documents (MNT base amounts) so they tie
+  // to the dashboard / GL balances, which are posted-only. Drafts surface as
+  // their own chip instead of silently inflating the totals.
   const summary = useMemo(() => {
     let receipts = 0;
     let payments = 0;
+    let draftCount = 0;
+    let draftBase = 0;
     for (const d of visibleDocuments) {
-      if (d.status === "reversed") continue;
-      if (d.documentType === "receipt") receipts += d.amount;
-      else if (d.documentType === "payment") payments += d.amount;
+      if (d.status === "draft") {
+        draftCount += 1;
+        draftBase += d.baseAmount;
+        continue;
+      }
+      if (d.status !== "posted") continue;
+      if (d.documentType === "receipt") receipts += d.baseAmount;
+      else if (d.documentType === "payment") payments += d.baseAmount;
     }
-    return { receipts, payments, net: receipts - payments, count: visibleDocuments.length };
+    return {
+      receipts,
+      payments,
+      net: receipts - payments,
+      count: visibleDocuments.length,
+      draftCount,
+      draftBase,
+    };
   }, [visibleDocuments]);
 
   const accountNameMap = useMemo(
@@ -167,17 +294,103 @@ export function CashDocumentsView({
   );
 
   const handlePost = useCallback(
-    async (id: string) => {
+    async (document: CashDocumentView) => {
+      // GL-derived FX draft without a rate: the GL figure is MNT, so the
+      // foreign-unit amount is unknown until the accountant supplies the
+      // transaction-date rate. Ask for it instead of failing on the server.
+      if (
+        document.sourceVoucherId &&
+        document.currency !== "MNT" &&
+        document.exchangeRate <= 0
+      ) {
+        setRateInput("");
+        setRateDoc(document);
+        return;
+      }
       const ok = await confirm({
-        title: "Cash баримт батлах",
-        description: "Энэ баримтыг баталж GL журнал автоматаар үүсгэх үү?",
+        title: "Мөнгөн гүйлгээ батлах",
+        description: document.sourceVoucherId
+          ? "Энэ баримт GL журналаас үүссэн — батлахад шинэ журнал үүсэхгүй, эх журналыг холбоно. Батлах уу?"
+          : "Энэ баримтыг баталж GL журнал автоматаар үүсгэх үү?",
         confirmText: "Батлах",
       });
       if (!ok) return;
-      runAction(() => postCashDocument(id), "Баримт батлагдаж GL-д бичигдлээ");
+      runAction(
+        () => postCashDocument(document.id),
+        document.sourceVoucherId
+          ? "Баримт батлагдаж эх GL журналтай холбогдлоо"
+          : "Баримт батлагдаж GL-д бичигдлээ"
+      );
     },
     [runAction, confirm]
   );
+
+  const handleBatchPost = useCallback(async () => {
+    const drafts = selectedDrafts;
+    if (drafts.length === 0) return;
+    const total = drafts.reduce((sum, d) => sum + d.baseAmount, 0);
+    const ok = await confirm({
+      title: "Ноорог олноор батлах",
+      description: `${drafts.length} ноорог баримт (нийт ${fmtMnt(total)}) баталж GL-тэй холбох уу? Алдаатай баримт алгасагдаж, тайлан гарна.`,
+      confirmText: `Батлах (${drafts.length})`,
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      try {
+        const result = await postCashDocuments(drafts.map((d) => d.id));
+        gridApiRef.current?.deselectAll();
+        setSelectedDraftIds([]);
+        router.refresh();
+        if (result.failures.length === 0) {
+          toast.success(`${result.posted} баримт батлагдлаа`);
+        } else {
+          const numberById = new Map(drafts.map((d) => [d.id, d.documentNo]));
+          toast.warning(
+            `${result.posted} батлагдаж, ${result.failures.length} баримт алдаатай`,
+            {
+              description: result.failures
+                .map((f) => `${numberById.get(f.id) ?? f.id}: ${f.error}`)
+                .join("\n"),
+              duration: 10000,
+            }
+          );
+        }
+      } catch (caught) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Олноор батлах амжилтгүй"
+        );
+      }
+    });
+  }, [selectedDrafts, confirm, router]);
+
+  const handleSelectionChanged = useCallback(
+    (event: SelectionChangedEvent<CashDocumentView>) => {
+      gridApiRef.current = event.api;
+      setSelectedDraftIds(
+        event.api
+          .getSelectedRows()
+          .filter((row) => row.status === "draft")
+          .map((row) => row.id)
+      );
+    },
+    []
+  );
+
+  // Confirm a GL-derived FX draft once the rate is supplied.
+  function submitRatePost() {
+    if (!rateDoc) return;
+    const rate = Number(rateInput.replaceAll(",", ""));
+    if (!Number.isFinite(rate) || rate <= 0) {
+      toast.error("Ханш 0-ээс их тоо байна");
+      return;
+    }
+    const target = rateDoc;
+    setRateDoc(null);
+    runAction(
+      () => postCashDocument(target.id, { exchangeRate: rate }),
+      "Баримт батлагдаж эх GL журналтай холбогдлоо"
+    );
+  }
 
   const handleReverse = useCallback(
     async (id: string) => {
@@ -197,7 +410,7 @@ export function CashDocumentsView({
     async (id: string) => {
       const ok = await confirm({
         title: "Ноорог устгах",
-        description: "Энэ ноорог Cash баримтыг бүрмөсөн устгах уу?",
+        description: "Энэ ноорог мөнгөн гүйлгээг бүрмөсөн устгах уу?",
         confirmText: "Устгах",
         danger: true,
       });
@@ -265,7 +478,7 @@ export function CashDocumentsView({
         },
       },
       {
-        headerName: "Cash данс",
+        headerName: "Мөнгөн хөрөнгийн данс",
         colId: "cashAccount",
         minWidth: 180,
         flex: 1,
@@ -309,10 +522,26 @@ export function CashDocumentsView({
       {
         headerName: "Дүн",
         field: "amount",
-        width: 140,
+        width: 150,
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        // Foreign-currency documents show currency units; a GL-derived FX
+        // draft has no rate yet, so only its MNT base figure is real.
+        valueFormatter: (params) => {
+          const document = params.data;
+          if (!document) return fmtMnt(Number(params.value ?? 0));
+          if (document.currency === "MNT") return fmtMnt(document.amount);
+          if (document.exchangeRate > 0 && document.amount > 0)
+            return `${document.amount.toLocaleString("en-US")} ${document.currency}`;
+          return `${fmtMnt(document.baseAmount)} · ханш?`;
+        },
+        tooltipValueGetter: (params) => {
+          const document = params.data;
+          if (!document || document.currency === "MNT") return null;
+          if (document.exchangeRate > 0)
+            return `MNT дүн: ${fmtMnt(document.baseAmount)} (ханш ${document.exchangeRate})`;
+          return "Валютын ханш тодорхойгүй — батлахад ханш асууна";
+        },
       },
       {
         headerName: "Төлөв",
@@ -362,7 +591,7 @@ export function CashDocumentsView({
                     className="ea-btn ea-btn--icon ea-btn--success"
                     title="Баталж GL-д бичих"
                     aria-label="Баталж GL-д бичих"
-                    onClick={() => handlePost(document.id)}
+                    onClick={() => handlePost(document)}
                   >
                     <Check />
                   </button>
@@ -403,6 +632,7 @@ export function CashDocumentsView({
   );
 
   function showCreateDialog() {
+    setSettlementTarget(null);
     setForm(initialForm());
     setError("");
     setOpen(true);
@@ -425,6 +655,7 @@ export function CashDocumentsView({
           amount,
           exchangeRate: Number(form.exchangeRate.replaceAll(",", "")) || undefined,
           postNow,
+          arApDocumentId: settlementTarget?.id,
         });
         setOpen(false);
         router.refresh();
@@ -457,7 +688,8 @@ export function CashDocumentsView({
             {title}
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Ноорог баримтыг батлах үед GL журнал автоматаар үүснэ.
+            Ноорог батлахад GL журнал үүснэ; GL тэмдэгтэй ноорог эх журналаа
+            холбоно (давхар бичилт үүсэхгүй).
           </p>
         </div>
         {allowCreate && (
@@ -469,7 +701,7 @@ export function CashDocumentsView({
       </div>
 
       {showToolbar && (
-        <div className="flex items-center gap-0 border-b border-[var(--ea-border)]">
+        <div className="flex flex-wrap items-center gap-x-0 gap-y-1.5 border-b border-[var(--ea-border)]">
           {TYPE_TABS.map((tab) => (
             <button
               key={tab.value}
@@ -485,12 +717,47 @@ export function CashDocumentsView({
               {tab.label}
             </button>
           ))}
+          <div className="ml-auto flex items-center gap-1.5 pb-1.5 pl-3">
+            {STATUS_TABS.map((chip) => (
+              <button
+                key={chip.value}
+                type="button"
+                onClick={() => changeStatus(chip.value)}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  activeStatus === chip.value
+                    ? "border-[var(--ea-primary)] bg-[var(--ea-primary-50)] text-[var(--ea-primary)]"
+                    : "border-[var(--ea-border)] text-[var(--ea-text-3)] hover:border-[var(--ea-border-strong)] hover:text-[var(--ea-text-1)]",
+                  chip.value === "draft" &&
+                    statusCounts.draft > 0 &&
+                    activeStatus !== "draft" &&
+                    "border-[var(--ea-warning)] text-[var(--ea-warning-fg)]"
+                )}
+              >
+                {chip.label}
+                {chip.value !== "all" && statusCounts[chip.value] > 0 && (
+                  <span className="ml-1 font-mono">{statusCounts[chip.value]}</span>
+                )}
+              </button>
+            ))}
+            {selectedDrafts.length > 0 && (
+              <Button
+                size="sm"
+                className="ml-1.5 h-7"
+                onClick={handleBatchPost}
+                disabled={isPending}
+              >
+                <CheckCheck />
+                Сонгосныг батлах ({selectedDrafts.length})
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
       {visibleDocuments.length === 0 ? (
         <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Cash гүйлгээ байхгүй
+          Мөнгөн гүйлгээ байхгүй
         </div>
       ) : (
         <>
@@ -504,10 +771,28 @@ export function CashDocumentsView({
             paginationPageSizeSelector={false}
             wrapperClassName="ea-clickable-rows rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
+            rowSelection={
+              showToolbar
+                ? {
+                    mode: "multiRow",
+                    checkboxes: (params) => params.data?.status === "draft",
+                    headerCheckbox: true,
+                    hideDisabledCheckboxes: true,
+                    isRowSelectable: (node) => node.data?.status === "draft",
+                    enableClickSelection: false,
+                  }
+                : undefined
+            }
+            onGridReady={(event) => {
+              gridApiRef.current = event.api;
+            }}
+            onSelectionChanged={handleSelectionChanged}
             onCellClicked={(event) => {
-              // Ignore clicks in the actions column — those buttons have
-              // their own handlers and shouldn't also open the drawer.
-              if (event.column.getColId() === "actions") return;
+              // Ignore clicks in the actions column and the selection
+              // checkbox column — those have their own behavior and
+              // shouldn't also open the drawer.
+              const colId = event.column.getColId();
+              if (colId === "actions" || colId.startsWith("ag-Grid")) return;
               if (event.data) setDetailDoc(event.data);
             }}
           />
@@ -520,9 +805,20 @@ export function CashDocumentsView({
               <span className="mr-auto text-[var(--ea-text-3)]">
                 {summary.count} гүйлгээ
                 <span className="ml-1 text-[var(--ea-text-4)]">
-                  (сторно хассан)
+                  (дүн — зөвхөн батлагдсан, MNT)
                 </span>
               </span>
+              {summary.draftCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => changeStatus("draft")}
+                  className="rounded-full border border-[var(--ea-warning)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--ea-warning-fg)] transition-colors hover:bg-[var(--ea-bg-3)]"
+                  title="Ноорог баримтуудыг шүүж харах"
+                >
+                  Ноорог {summary.draftCount} ·{" "}
+                  <span className="font-mono">{fmtMnt(summary.draftBase)}</span>
+                </button>
+              )}
               <span className="text-[var(--ea-text-3)]">
                 Орлого{" "}
                 <span className="font-mono font-semibold text-[var(--ea-success-fg)]">
@@ -556,10 +852,29 @@ export function CashDocumentsView({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Шинэ Cash гүйлгээ</DialogTitle>
+            <DialogTitle>
+              {settlementTarget ? "Авлага/өглөгийн төлөлт" : "Шинэ мөнгөн гүйлгээ"}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="grid gap-4">
+            {settlementTarget && (
+              <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-[var(--ea-text-1)]">
+                    {settlementTarget.documentNo} · {settlementTarget.counterpartyName}
+                  </span>
+                  <span className="font-mono font-semibold text-[var(--ea-primary)]">
+                    Үлдэгдэл {fmtMnt(settlementTarget.balance)} {settlementTarget.currency}
+                  </span>
+                </div>
+                <p className="mt-1 text-[var(--ea-text-3)]">
+                  Батлаад хадгалахад энэ мөнгөн гүйлгээ авлага/өглөгийн баримттай
+                  автоматаар тулгагдана.
+                </p>
+              </div>
+            )}
+
             <div
               className="grid grid-cols-3 overflow-hidden rounded-md border border-[var(--ea-border)]"
               role="group"
@@ -793,6 +1108,72 @@ export function CashDocumentsView({
         glName={(code) => (code ? glNameMap.get(code) ?? "" : "")}
         activeSegIds={activeSegIds}
       />
+
+      {/* Rate prompt for confirming a GL-derived foreign-currency draft:
+          the GL amount is MNT, so the accountant supplies the transaction
+          rate and the currency amount is derived from it. */}
+      <Dialog open={!!rateDoc} onOpenChange={(o) => !o && setRateDoc(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Валютын ханш оруулах</DialogTitle>
+          </DialogHeader>
+          {rateDoc && (
+            <div className="grid gap-4">
+              <p className="text-xs text-[var(--ea-text-3)]">
+                <span className="font-mono">{rateDoc.documentNo}</span> — GL
+                журналын дүн <b>{fmtMnt(rateDoc.baseAmount)}</b> (MNT). Энэ{" "}
+                {rateDoc.currency} дансны гүйлгээний ханшийг оруулбал валютын
+                дүн тооцогдож баталгаажна.
+              </p>
+              <Field label={`${rateDoc.currency}/MNT гүйлгээний ханш`}>
+                <Input
+                  type="number"
+                  min="0.00000001"
+                  step="0.00000001"
+                  value={rateInput}
+                  placeholder="0.00"
+                  autoFocus
+                  onChange={(event) => setRateInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitRatePost();
+                  }}
+                />
+              </Field>
+              <Field label={`Тооцоолсон ${rateDoc.currency} дүн`}>
+                <Input
+                  readOnly
+                  placeholder="0.00"
+                  value={
+                    Number(rateInput) > 0
+                      ? `${(
+                          Math.round(
+                            (rateDoc.baseAmount / Number(rateInput)) * 100
+                          ) / 100
+                        ).toLocaleString("en-US")} ${rateDoc.currency}`
+                      : ""
+                  }
+                />
+              </Field>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRateDoc(null)}
+              disabled={isPending}
+            >
+              Болих
+            </Button>
+            <Button
+              onClick={submitRatePost}
+              disabled={isPending || !(Number(rateInput) > 0)}
+            >
+              <Check />
+              Ханшаар батлах
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {confirmDialog}
     </section>

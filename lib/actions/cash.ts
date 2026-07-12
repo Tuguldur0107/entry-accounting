@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -9,6 +9,8 @@ import {
   cashAccounts,
   cashDocuments,
   cashFxRevaluations,
+  arApDocuments,
+  arApSettlements,
   chartOfAccounts,
   journalLines,
   journalVouchers,
@@ -18,6 +20,7 @@ import {
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
+import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -34,6 +37,13 @@ function revalidateCash() {
   revalidatePath("/cash/reconciliation");
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
+  for (const root of ["/arap", "/receivables", "/payables"]) {
+    revalidatePath(root);
+    revalidatePath(`${root}/documents`);
+    revalidatePath(`${root}/counterparties`);
+    revalidatePath(`${root}/reports`);
+    revalidatePath(`${root}/settings`);
+  }
 }
 
 function cleanText(value: string | null | undefined) {
@@ -44,6 +54,51 @@ function cleanText(value: string | null | undefined) {
 function assertAmount(value: number) {
   if (!Number.isFinite(value) || value <= 0)
     throw new Error("Дүн 0-ээс их байна");
+}
+
+function mainAccountOf(accountNumber: string) {
+  const parts = accountNumber.split(".");
+  return parts.length === 10 ? parts[2] : accountNumber;
+}
+
+async function validateArApSettlement(
+  userId: string,
+  data: {
+    arApDocumentId?: string;
+    documentType: CashDocumentType;
+    counterAccountNumber: string | null;
+    amount: number;
+  },
+  currency: string
+) {
+  if (!data.arApDocumentId) return null;
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.id, data.arApDocumentId),
+      eq(arApDocuments.userId, userId)
+    ),
+  });
+  if (!document) throw new Error("Авлага/өглөгийн баримт олдсонгүй");
+  if (document.status !== "posted" && document.status !== "partially_paid")
+    throw new Error("Зөвхөн батлагдсан авлага/өглөгийн баримтыг хаана");
+
+  const expectedType =
+    document.documentType === "ar_invoice" ? "receipt" : "payment";
+  if (data.documentType !== expectedType)
+    throw new Error("Cash гүйлгээний төрөл авлага/өглөгийн баримттай таарахгүй байна");
+  if (document.currency !== currency)
+    throw new Error("Cash дансны валют авлага/өглөгийн баримтын валюттай таарахгүй байна");
+
+  const controlMain = mainAccountOf(document.controlAccountNumber);
+  if (data.counterAccountNumber !== controlMain)
+    throw new Error("Харилцах GL данс авлага/өглөгийн хяналтын данстай таарахгүй байна");
+
+  const total = Number(document.totalAmount);
+  const paid = Number(document.paidAmount);
+  const balance = Math.round((total - paid) * 100) / 100;
+  if (data.amount > balance + 0.005)
+    throw new Error("Төлөх дүн авлага/өглөгийн үлдэгдлээс их байна");
+  return { document, balance };
 }
 
 async function assertMainAccount(userId: string, accountNumber: string) {
@@ -165,6 +220,7 @@ export async function createCashDocument(data: {
   amount: number;
   exchangeRate?: number;
   postNow?: boolean;
+  arApDocumentId?: string;
 }) {
   const userId = await requireUser();
   const description = data.description.trim();
@@ -244,6 +300,18 @@ export async function createCashDocument(data: {
     .slice(0, 6)
     .toUpperCase()}`;
 
+  const arApDocumentId = cleanText(data.arApDocumentId);
+  await validateArApSettlement(
+    userId,
+    {
+      arApDocumentId: arApDocumentId ?? undefined,
+      documentType: data.documentType,
+      counterAccountNumber,
+      amount: data.amount,
+    },
+    currency
+  );
+
   const [document] = await db
     .insert(cashDocuments)
     .values({
@@ -261,15 +329,122 @@ export async function createCashDocument(data: {
       currency,
       exchangeRate: String(exchangeRate),
       baseAmount: String(baseAmount),
+      arApDocumentId,
     })
     .returning({ id: cashDocuments.id });
 
-  if (data.postNow) await postCashDocument(document.id);
-  else revalidateCash();
+  if (data.postNow) {
+    await postCashDocument(document.id);
+  } else revalidateCash();
   return { id: document.id };
 }
 
-export async function postCashDocument(id: string) {
+function buildSettlementPostingLines({
+  voucherId,
+  documentType,
+  cashAccountId,
+  cashAccountNumber,
+  controlAccountNumber,
+  baseAmount,
+  historicalBaseAmount,
+  fxDifference,
+  buildCode,
+  description,
+}: {
+  voucherId: string;
+  documentType: string;
+  cashDocumentType: CashDocumentType;
+  cashAccountId: string | undefined;
+  cashAccountNumber: string;
+  controlAccountNumber: string;
+  baseAmount: number;
+  historicalBaseAmount: number;
+  fxDifference: number;
+  buildCode: (accountNumber: string) => string;
+  description: string;
+}) {
+  const isReceivable = documentType === "ar_invoice";
+  const lines = isReceivable
+    ? [
+        {
+          voucherId,
+          cashAccountId,
+          accountNumber: cashAccountNumber,
+          debit: String(baseAmount),
+          credit: "0",
+          description,
+          sortOrder: 0,
+        },
+        {
+          voucherId,
+          cashAccountId: null,
+          accountNumber: controlAccountNumber,
+          debit: "0",
+          credit: String(historicalBaseAmount),
+          description,
+          sortOrder: 1,
+        },
+      ]
+    : [
+        {
+          voucherId,
+          cashAccountId: null,
+          accountNumber: controlAccountNumber,
+          debit: String(historicalBaseAmount),
+          credit: "0",
+          description,
+          sortOrder: 0,
+        },
+        {
+          voucherId,
+          cashAccountId,
+          accountNumber: cashAccountNumber,
+          debit: "0",
+          credit: String(baseAmount),
+          description,
+          sortOrder: 1,
+        },
+      ];
+
+  if (Math.abs(fxDifference) <= 0.01) return lines;
+
+  const isGain = isReceivable ? fxDifference > 0 : fxDifference < 0;
+  lines.push({
+    voucherId,
+    cashAccountId: null,
+    accountNumber: buildCode(isGain ? "51800001" : "87000003"),
+    debit: isGain ? "0" : String(Math.abs(fxDifference)),
+    credit: isGain ? String(Math.abs(fxDifference)) : "0",
+    description: `Ханшийн ${isGain ? "олз" : "гарз"}: ${description}`,
+    sortOrder: 2,
+  });
+  return lines;
+}
+
+// Batch-confirm drafts (month-end close): posts each id independently and
+// reports per-document failures instead of aborting the whole batch, so one
+// bad draft (e.g. an FX draft missing its rate) doesn't block the rest.
+export async function postCashDocuments(ids: string[]) {
+  const failures: { id: string; error: string }[] = [];
+  let posted = 0;
+  for (const id of ids) {
+    try {
+      await postCashDocument(id);
+      posted += 1;
+    } catch (caught) {
+      failures.push({
+        id,
+        error: caught instanceof Error ? caught.message : "Батлагдсангүй",
+      });
+    }
+  }
+  return { posted, failures };
+}
+
+export async function postCashDocument(
+  id: string,
+  options?: { exchangeRate?: number }
+) {
   const userId = await requireUser();
 
   const document = await db.query.cashDocuments.findFirst({
@@ -283,20 +458,38 @@ export async function postCashDocument(id: string) {
   // GL-derived draft: the ledger already has this entry. Confirming it just
   // adopts the source voucher — do NOT create a second one (double-count).
   if (document.sourceVoucherId) {
-    await db
+    const patch: Partial<typeof cashDocuments.$inferInsert> = {
+      status: "posted",
+      postedAt: new Date(),
+      voucherId: document.sourceVoucherId,
+    };
+    // GL lines are MNT, so the draft's baseAmount is authoritative; the
+    // foreign-unit amount needs a real rate before entering the subledger.
+    if (document.currency !== "MNT") {
+      const rate = options?.exchangeRate ?? Number(document.exchangeRate);
+      if (!Number.isFinite(rate) || rate <= 0)
+        throw new Error(
+          `${document.currency} гүйлгээний ханш оруулж батална уу`
+        );
+      const baseAmount = Number(document.baseAmount);
+      assertAmount(baseAmount);
+      patch.exchangeRate = String(rate);
+      patch.amount = String(Math.round((baseAmount / rate) * 100) / 100);
+    }
+    const [claimed] = await db
       .update(cashDocuments)
-      .set({
-        status: "posted",
-        postedAt: new Date(),
-        voucherId: document.sourceVoucherId,
-      })
+      .set(patch)
       .where(
         and(
           eq(cashDocuments.id, id),
           eq(cashDocuments.userId, userId),
           eq(cashDocuments.status, "draft")
         )
-      );
+      )
+      .returning({ id: cashDocuments.id });
+    // Lost race (someone else already posted it): report it instead of
+    // pretending this caller's rate was applied.
+    if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
     revalidateCash();
     return;
   }
@@ -317,6 +510,42 @@ export async function postCashDocument(id: string) {
     userId,
     document.cashFlowCode
   );
+
+  const arApSettlement = await validateArApSettlement(
+    userId,
+    {
+      arApDocumentId: document.arApDocumentId ?? undefined,
+      documentType: document.documentType as CashDocumentType,
+      counterAccountNumber: document.counterAccountNumber,
+      amount,
+    },
+    document.currency
+  );
+  const settlementExchangeEffect = arApSettlement
+    ? calculateSettlementExchangeEffect({
+        documentType: arApSettlement.document.documentType as
+          | "ar_invoice"
+          | "ap_bill",
+        amount,
+        documentExchangeRate: Number(arApSettlement.document.exchangeRate),
+        paymentBaseAmount: baseAmount,
+      })
+    : null;
+  const historicalBaseAmount =
+    settlementExchangeEffect?.historicalBaseAmount ?? baseAmount;
+  const fxDifference = settlementExchangeEffect?.difference ?? 0;
+  if (arApSettlement && Math.abs(fxDifference) > 0.01) {
+    await assertMainAccount(
+      userId,
+      fxDifference > 0
+        ? arApSettlement.document.documentType === "ar_invoice"
+          ? "51800001"
+          : "87000003"
+        : arApSettlement.document.documentType === "ar_invoice"
+          ? "87000003"
+          : "51800001"
+    );
+  }
 
   let debitAccount: string;
   let creditAccount: string;
@@ -363,8 +592,25 @@ export async function postCashDocument(id: string) {
       })
       .returning({ id: journalVouchers.id });
 
-    await tx.insert(journalLines).values([
-      {
+    const postingLines = arApSettlement
+      ? buildSettlementPostingLines({
+          voucherId: voucher.id,
+          documentType: arApSettlement.document.documentType,
+          cashDocumentType: document.documentType as CashDocumentType,
+          cashAccountId:
+            document.documentType === "receipt" ? toAccount?.id : fromAccount?.id,
+          cashAccountNumber:
+            document.documentType === "receipt" ? debitAccount : creditAccount,
+          controlAccountNumber:
+            document.documentType === "receipt" ? creditAccount : debitAccount,
+          baseAmount,
+          historicalBaseAmount,
+          fxDifference,
+          buildCode,
+          description: document.counterparty ?? document.description,
+        })
+      : [
+          {
         voucherId: voucher.id,
         cashAccountId:
           document.documentType === "receipt" ||
@@ -376,8 +622,8 @@ export async function postCashDocument(id: string) {
         credit: "0",
         description: document.counterparty ?? document.description,
         sortOrder: 0,
-      },
-      {
+          },
+          {
         voucherId: voucher.id,
         cashAccountId:
           document.documentType === "payment" ||
@@ -389,8 +635,46 @@ export async function postCashDocument(id: string) {
         credit: String(baseAmount),
         description: document.counterparty ?? document.description,
         sortOrder: 1,
-      },
-    ]);
+          },
+        ];
+
+    await tx.insert(journalLines).values(postingLines);
+
+    if (arApSettlement) {
+      const [updatedDocument] = await tx
+        .update(arApDocuments)
+        .set({
+          paidAmount: sql`${arApDocuments.paidAmount} + ${String(amount)}`,
+          basePaidAmount: sql`${arApDocuments.basePaidAmount} + ${String(
+            historicalBaseAmount
+          )}`,
+          status: sql`CASE WHEN ${arApDocuments.paidAmount} + ${String(
+            amount
+          )} >= ${arApDocuments.totalAmount} - 0.005 THEN 'paid' ELSE 'partially_paid' END`,
+        })
+        .where(
+          and(
+            eq(arApDocuments.id, arApSettlement.document.id),
+            eq(arApDocuments.userId, userId),
+            inArray(arApDocuments.status, ["posted", "partially_paid"]),
+            sql`${arApDocuments.totalAmount} - ${arApDocuments.paidAmount} >= ${String(
+              amount
+            )} - 0.005`
+          )
+        )
+        .returning({ id: arApDocuments.id });
+      if (!updatedDocument)
+        throw new Error("Авлага/өглөгийн үлдэгдэл өөрчлөгдсөн байна");
+
+      await tx.insert(arApSettlements).values({
+        userId,
+        documentId: arApSettlement.document.id,
+        cashDocumentId: id,
+        settlementDate: document.date,
+        amount: String(amount),
+        baseAmount: String(historicalBaseAmount),
+      });
+    }
 
     await tx
       .update(cashDocuments)
@@ -418,6 +702,10 @@ export async function reverseCashDocument(id: string) {
     with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
   });
   if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
+  const linkedSettlements = await db.query.arApSettlements.findMany({
+    where: eq(arApSettlements.cashDocumentId, id),
+    with: { document: true },
+  });
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -470,6 +758,48 @@ export async function reverseCashDocument(id: string) {
       .update(cashDocuments)
       .set({ reversalVoucherId: reversal.id })
       .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+
+    for (const settlement of linkedSettlements) {
+      if (settlement.userId !== userId || !settlement.document) continue;
+      const total = Number(settlement.document.totalAmount);
+      const paid = Number(settlement.document.paidAmount);
+      const nextPaid = Math.max(
+        0,
+        Math.round((paid - Number(settlement.amount)) * 100) / 100
+      );
+      const nextBasePaid = Math.max(
+        0,
+        Math.round(
+          (Number(settlement.document.basePaidAmount) -
+            Number(settlement.baseAmount)) *
+            100
+        ) / 100
+      );
+      const nextStatus =
+        settlement.document.status === "reversed"
+          ? "reversed"
+          : nextPaid <= 0.005
+            ? "posted"
+            : nextPaid >= total - 0.005
+              ? "paid"
+              : "partially_paid";
+      await tx
+        .update(arApDocuments)
+        .set({
+          paidAmount: String(nextPaid),
+          basePaidAmount: String(nextBasePaid),
+          status: nextStatus,
+        })
+        .where(
+          and(
+            eq(arApDocuments.id, settlement.documentId),
+            eq(arApDocuments.userId, userId)
+          )
+        );
+      await tx
+        .delete(arApSettlements)
+        .where(eq(arApSettlements.id, settlement.id));
+    }
   });
 
   revalidateCash();
@@ -500,6 +830,8 @@ export interface CashDocumentVoucherLine {
 
 export interface CashDocumentDetail {
   voucherId: string | null;
+  /** GL voucher a derived draft came from — its lines show before adoption. */
+  sourceVoucherId: string | null;
   voucherDate: string | null;
   voucherDescription: string | null;
   lines: CashDocumentVoucherLine[];
@@ -507,20 +839,22 @@ export interface CashDocumentDetail {
   reversalLines: CashDocumentVoucherLine[];
 }
 
-// Fetch the GL journal behind a posted cash document so the transactions
-// detail drawer can show the Dr/Cr lines. Returns null-ish fields for draft
-// documents that haven't posted yet.
+// Fetch the GL journal behind a cash document so the transactions detail
+// drawer can show the Dr/Cr lines. For a GL-derived draft (not yet adopted)
+// the lines come from the source voucher — the entry already exists in the
+// ledger and is exactly what the accountant must verify before confirming.
 export async function getCashDocumentDetail(
   id: string
 ): Promise<CashDocumentDetail> {
   const userId = await requireUser();
   const document = await db.query.cashDocuments.findFirst({
     where: and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)),
-    columns: { voucherId: true, reversalVoucherId: true },
+    columns: { voucherId: true, sourceVoucherId: true, reversalVoucherId: true },
   });
 
   const empty: CashDocumentDetail = {
     voucherId: null,
+    sourceVoucherId: null,
     voucherDate: null,
     voucherDescription: null,
     lines: [],
@@ -551,12 +885,13 @@ export async function getCashDocumentDetail(
   }
 
   const [main, reversal] = await Promise.all([
-    linesFor(document.voucherId),
+    linesFor(document.voucherId ?? document.sourceVoucherId),
     linesFor(document.reversalVoucherId),
   ]);
 
   return {
     voucherId: document.voucherId,
+    sourceVoucherId: document.sourceVoucherId,
     voucherDate: main.voucher?.date ?? null,
     voucherDescription: main.voucher?.description ?? null,
     lines: main.lines,

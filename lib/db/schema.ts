@@ -146,6 +146,10 @@ export const cashDocuments = pgTable(
       () => journalVouchers.id,
       { onDelete: "set null" }
     ),
+    arApDocumentId: uuid("ar_ap_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "restrict" }
+    ),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -276,6 +280,108 @@ export const cashFxRevaluations = pgTable(
   ]
 );
 
+// ─── Counterparty AR/AP ──────────────────────────────────────────────────────
+
+export const counterparties = pgTable(
+  "counterparties",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    counterpartyType: text("counterparty_type").notNull().default("both"), // "customer" | "supplier" | "both"
+    registerNo: text("register_no"),
+    defaultReceivableAccountNumber: text("default_receivable_account_number"),
+    defaultPayableAccountNumber: text("default_payable_account_number"),
+    defaultCurrency: text("default_currency").notNull().default("MNT"),
+    paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [unique().on(table.userId, table.name)]
+);
+
+export const arApDocuments = pgTable(
+  "ar_ap_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentNo: text("document_no").notNull(),
+    documentType: text("document_type").notNull(), // "ar_invoice" | "ap_bill"
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id, { onDelete: "restrict" }),
+    date: text("date").notNull(),
+    dueDate: text("due_date").notNull(),
+    currency: text("currency").notNull().default("MNT"),
+    exchangeRate: numeric("exchange_rate", { precision: 18, scale: 8 })
+      .notNull()
+      .default("1"),
+    controlAccountNumber: text("control_account_number").notNull(),
+    description: text("description").notNull(),
+    totalAmount: numeric("total_amount", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    paidAmount: numeric("paid_amount", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    baseTotalAmount: numeric("base_total_amount", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    basePaidAmount: numeric("base_paid_amount", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    status: text("status").notNull().default("draft"), // "draft" | "posted" | "partially_paid" | "paid" | "reversed"
+    voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+      onDelete: "set null",
+    }),
+    reversalVoucherId: uuid("reversal_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
+    postedAt: timestamp("posted_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [unique().on(table.userId, table.documentNo)]
+);
+
+export const arApDocumentLines = pgTable(
+  "ar_ap_document_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => arApDocuments.id, { onDelete: "cascade" }),
+    accountNumber: text("account_number").notNull(),
+    description: text("description").notNull().default(""),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  }
+);
+
+export const arApSettlements = pgTable("ar_ap_settlements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => arApDocuments.id, { onDelete: "restrict" }),
+  cashDocumentId: uuid("cash_document_id").references(() => cashDocuments.id, {
+    onDelete: "set null",
+  }),
+  settlementDate: text("settlement_date").notNull(),
+  amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  baseAmount: numeric("base_amount", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -288,6 +394,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   cashDocuments: many(cashDocuments),
   bankStatements: many(bankStatements),
   cashFxRevaluations: many(cashFxRevaluations),
+  counterparties: many(counterparties),
+  arApDocuments: many(arApDocuments),
+  arApSettlements: many(arApSettlements),
 }));
 
 export const chartOfAccountsRelations = relations(chartOfAccounts, ({ one }) => ({
@@ -398,6 +507,71 @@ export const cashFxRevaluationsRelations = relations(
     voucher: one(journalVouchers, {
       fields: [cashFxRevaluations.voucherId],
       references: [journalVouchers.id],
+    }),
+  })
+);
+
+export const counterpartiesRelations = relations(
+  counterparties,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [counterparties.userId],
+      references: [users.id],
+    }),
+    documents: many(arApDocuments),
+  })
+);
+
+export const arApDocumentsRelations = relations(
+  arApDocuments,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [arApDocuments.userId],
+      references: [users.id],
+    }),
+    counterparty: one(counterparties, {
+      fields: [arApDocuments.counterpartyId],
+      references: [counterparties.id],
+    }),
+    lines: many(arApDocumentLines),
+    settlements: many(arApSettlements),
+    voucher: one(journalVouchers, {
+      fields: [arApDocuments.voucherId],
+      references: [journalVouchers.id],
+      relationName: "arApDocumentVoucher",
+    }),
+    reversalVoucher: one(journalVouchers, {
+      fields: [arApDocuments.reversalVoucherId],
+      references: [journalVouchers.id],
+      relationName: "arApDocumentReversalVoucher",
+    }),
+  })
+);
+
+export const arApDocumentLinesRelations = relations(
+  arApDocumentLines,
+  ({ one }) => ({
+    document: one(arApDocuments, {
+      fields: [arApDocumentLines.documentId],
+      references: [arApDocuments.id],
+    }),
+  })
+);
+
+export const arApSettlementsRelations = relations(
+  arApSettlements,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [arApSettlements.userId],
+      references: [users.id],
+    }),
+    document: one(arApDocuments, {
+      fields: [arApSettlements.documentId],
+      references: [arApDocuments.id],
+    }),
+    cashDocument: one(cashDocuments, {
+      fields: [arApSettlements.cashDocumentId],
+      references: [cashDocuments.id],
     }),
   })
 );
@@ -522,3 +696,7 @@ export type CashDocument = typeof cashDocuments.$inferSelect;
 export type BankStatement = typeof bankStatements.$inferSelect;
 export type BankStatementLine = typeof bankStatementLines.$inferSelect;
 export type CashFxRevaluation = typeof cashFxRevaluations.$inferSelect;
+export type Counterparty = typeof counterparties.$inferSelect;
+export type ArApDocument = typeof arApDocuments.$inferSelect;
+export type ArApDocumentLine = typeof arApDocumentLines.$inferSelect;
+export type ArApSettlement = typeof arApSettlements.$inferSelect;
