@@ -71,12 +71,15 @@ interface Props {
    *  drawer per the segment display rule. */
   activeSegIds?: number[];
   initialArApSettlement?: CashArApSettlementTarget | null;
+  /** Open (unpaid / partially paid) AR/AP documents — lets the user pick an
+   *  invoice to settle right from the new-transaction dialog. */
+  arApOpenDocuments?: CashArApSettlementTarget[];
 }
 
 type TypeTab = "all" | CashDocumentType;
 type StatusTab = "all" | "draft" | "posted" | "reversed";
 
-interface CashArApSettlementTarget {
+export interface CashArApSettlementTarget {
   id: string;
   documentNo: string;
   documentType: "ar_invoice" | "ap_bill";
@@ -149,6 +152,7 @@ export function CashDocumentsView({
   initialStatus,
   activeSegIds = [3],
   initialArApSettlement = null,
+  arApOpenDocuments = [],
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -680,6 +684,34 @@ export function CashDocumentsView({
         : account.id === form.fromCashAccountId
     )?.currency ?? "MNT";
 
+  // Open AR/AP documents matching the dialog's direction: receipts settle
+  // AR invoices, payments settle AP bills.
+  const arApOptionsForType =
+    form.documentType === "transfer"
+      ? []
+      : arApOpenDocuments.filter(
+          (d) =>
+            d.documentType ===
+            (form.documentType === "receipt" ? "ar_invoice" : "ap_bill")
+        );
+
+  // Link an open AR/AP document: prefill the form from it so posting
+  // settles the invoice automatically. The already-chosen date stays, and
+  // so does the chosen cash account when its currency matches the invoice.
+  function applySettlementTarget(target: CashArApSettlementTarget | null) {
+    setSettlementTarget(target);
+    if (!target) return;
+    setForm((current) => {
+      const next = { ...settlementForm(target, accounts), date: current.date };
+      const accountKey =
+        next.documentType === "receipt" ? "toCashAccountId" : "fromCashAccountId";
+      const chosen = accounts.find((a) => a.id === current[accountKey]);
+      if (chosen?.isActive && chosen.currency === target.currency)
+        next[accountKey] = chosen.id;
+      return next;
+    });
+  }
+
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -885,12 +917,23 @@ export function CashDocumentsView({
                   <button
                     key={type}
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
                       setForm((current) => ({
                         ...current,
                         documentType: type,
-                      }))
-                    }
+                      }));
+                      // An AR invoice settles via receipt, an AP bill via
+                      // payment — unlink the invoice when the chosen type
+                      // no longer matches it.
+                      setSettlementTarget((current) =>
+                        current &&
+                        (current.documentType === "ar_invoice"
+                          ? "receipt"
+                          : "payment") !== type
+                          ? null
+                          : current
+                      );
+                    }}
                     className={cn(
                       "h-9 border-r border-[var(--ea-border)] text-xs font-medium last:border-r-0",
                       form.documentType === type
@@ -1003,6 +1046,34 @@ export function CashDocumentsView({
                   />
                 </Field>
               </div>
+            )}
+
+            {arApOptionsForType.length > 0 && (
+              <Field
+                label={
+                  form.documentType === "receipt"
+                    ? "Авлагын нэхэмжлэлээс сонгох"
+                    : "Өглөгийн нэхэмжлэхээс сонгох"
+                }
+              >
+                <SearchableSelect
+                  value={settlementTarget?.id ?? ""}
+                  onChange={(value) =>
+                    applySettlementTarget(
+                      arApOpenDocuments.find((d) => d.id === value) ?? null
+                    )
+                  }
+                  options={[
+                    { value: "", label: "— Нэхэмжлэх холбохгүй —" },
+                    ...arApOptionsForType.map((d) => ({
+                      value: d.id,
+                      label: `${d.documentNo} · ${d.counterpartyName}`,
+                      hint: `Үлдэгдэл ${fmtMnt(d.balance)} ${d.currency}`,
+                    })),
+                  ]}
+                  placeholder="Нэхэмжлэх сонгох (заавал биш)..."
+                />
+              </Field>
             )}
 
             {form.documentType !== "transfer" && (
