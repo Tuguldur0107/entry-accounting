@@ -118,6 +118,8 @@ export async function toggleCounterparty(id: string, isActive: boolean) {
 
 export async function createArApDocument(data: {
   documentType: ArApDocumentType;
+  /** Гараар өгсөн нэхэмжлэхийн дугаар — хоосон бол автоматаар үүснэ. */
+  documentNo?: string;
   counterpartyId: string;
   date: string;
   dueDate: string;
@@ -184,7 +186,24 @@ export async function createArApDocument(data: {
     );
   }
   const status = data.postNow ? "posted" : "draft";
-  const documentNo = nextDocumentNo(data.documentType, data.date);
+
+  // Manual invoice number wins over the generated one; it must be unique
+  // per user so the cash-side picker and reports resolve it unambiguously.
+  const manualNo = data.documentNo?.trim();
+  if (manualNo && manualNo.length > 40)
+    throw new Error("Нэхэмжлэхийн дугаар 40 тэмдэгтээс хэтрэхгүй");
+  if (manualNo) {
+    const duplicate = await db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.userId, userId),
+        eq(arApDocuments.documentNo, manualNo)
+      ),
+      columns: { id: true },
+    });
+    if (duplicate)
+      throw new Error(`"${manualNo}" дугаартай баримт аль хэдийн бүртгэгдсэн`);
+  }
+  const documentNo = manualNo || nextDocumentNo(data.documentType, data.date);
 
   await db.transaction(async (tx) => {
     let voucherId: string | null = null;

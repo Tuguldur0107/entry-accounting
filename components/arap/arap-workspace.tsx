@@ -201,6 +201,7 @@ export function ArApWorkspace({
     const date = today();
     return {
       documentType: config.documentType,
+      documentNo: "",
       counterpartyId: "",
       date,
       dueDate: addDays(date, 30),
@@ -432,6 +433,7 @@ export function ArApWorkspace({
     const date = today();
     setDocumentForm({
       documentType: type,
+      documentNo: "",
       counterpartyId: "",
       date,
       dueDate: addDays(date, 30),
@@ -1189,6 +1191,7 @@ function DocumentDialog({
   onOpenChange: (open: boolean) => void;
   form: {
     documentType: ArApDocumentType;
+    documentNo: string;
     counterpartyId: string;
     date: string;
     dueDate: string;
@@ -1270,6 +1273,19 @@ function DocumentDialog({
                 <option value="ap_bill">Өглөгийн нэхэмжлэх</option>
               )}
             </select>
+          </Field>
+          <Field label="Нэхэмжлэхийн дугаар">
+            <Input
+              value={form.documentNo}
+              placeholder="Хоосон бол автоматаар үүснэ"
+              maxLength={40}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  documentNo: event.target.value,
+                }))
+              }
+            />
           </Field>
           <Field label="Харилцагч">
             <SearchableSelect

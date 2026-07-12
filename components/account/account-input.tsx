@@ -5,8 +5,13 @@
 //      блюр/Enter дээр normalizePastedAccount-аар бүтэн код болгоно.
 //   2. Сегмент сонгох: баруун талын товч → AccountSegmentPicker popover.
 // value нь үргэлж бүтэн 10-part dotted код байна.
+//
+// Popover нь document.body-руу portal хийгдэнэ: dialog/grid-ийн overflow
+// хайрцагт хавчигдахгүй, идэвхтэй сегментийн тоо нэмэгдэхэд (динамик)
+// viewport-д багтааж дээш/доош эргэж, дотроо гүйлгэдэг.
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   fmtAccountDisplay,
   normalizePastedAccount,
@@ -26,6 +31,9 @@ export interface AccountInputProps {
   disabled?: boolean;
 }
 
+const POPOVER_WIDTH = 400;
+const MARGIN = 16;
+
 export function AccountInput({
   value,
   onChange,
@@ -38,24 +46,57 @@ export function AccountInput({
   const [draftText, setDraftText] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
+  // Viewport координат — portal хийгдсэн popover-ийн байрлал.
+  const [pos, setPos] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  }>({ left: 0, width: POPOVER_WIDTH, maxHeight: 480 });
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Бичиж байх үед draftText, бусад үед value-гийн display-г үзүүлнэ —
   // effect шаардлагагүй derive.
   const text = draftText ?? fmtAccountDisplay(value, activeSegIds);
 
-  // Popover-оос гадуур дарвал хаана
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => {
+    const closeOnOutside = (e: MouseEvent) => {
       const t = e.target as Node;
       if (wrapperRef.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return;
       // SegSelect-ийн portal dropdown дээр дарсныг popover-ийн дотор гэж үзнэ
       if ((t as HTMLElement).closest?.("[data-seg-portal]")) return;
       setOpen(false);
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    // Гадна талын scroll/resize нь хадгалсан координатыг хуучруулна — хаана.
+    // Popover болон SegSelect list доторх scroll-д хаахгүй.
+    const closeOnScroll = (e: Event) => {
+      const t = e.target as Node | null;
+      if (
+        t &&
+        (popoverRef.current?.contains(t) ||
+          (t as HTMLElement).closest?.("[data-seg-portal]"))
+      )
+        return;
+      setOpen(false);
+    };
+    const closeOnResize = () => setOpen(false);
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", closeOnResize);
+    };
   }, [open]);
 
   function commitText() {
@@ -66,6 +107,37 @@ export function AccountInput({
   }
 
   function openPicker() {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = Math.min(
+        Math.max(POPOVER_WIDTH, rect.width),
+        window.innerWidth - MARGIN * 2
+      );
+      const left = Math.max(
+        MARGIN,
+        Math.min(rect.left, window.innerWidth - width - MARGIN)
+      );
+      const spaceBelow = window.innerHeight - rect.bottom - MARGIN;
+      const spaceAbove = rect.top - MARGIN;
+      // Доошоо багтахгүй, дээр нь илүү зайтай бол дээшээ нээнэ; аль ч
+      // талд maxHeight хязгаартай тул олон сегменттэй үед дотроо гүйлгэнэ.
+      const openUp = spaceBelow < 320 && spaceAbove > spaceBelow;
+      setPos(
+        openUp
+          ? {
+              bottom: window.innerHeight - rect.top + 4,
+              left,
+              width,
+              maxHeight: Math.max(240, spaceAbove - 4),
+            }
+          : {
+              top: rect.bottom + 4,
+              left,
+              width,
+              maxHeight: Math.max(240, spaceBelow - 4),
+            }
+      );
+    }
     setDraft(value);
     setOpen(true);
   }
@@ -116,53 +188,71 @@ export function AccountInput({
         </button>
       </div>
 
-      {open && (
-        <div
-          className="absolute z-50 mt-1 left-0 p-3 rounded-lg"
-          style={{
-            minWidth: 380,
-            background: "var(--ea-surface)",
-            border: "1px solid var(--ea-border-strong)",
-            boxShadow: "var(--ea-shadow-3)",
-          }}
-        >
-          <AccountSegmentPicker
-            value={draft}
-            onChange={setDraft}
-            activeSegIds={activeSegIds}
-            segmentOptions={segmentOptions}
-            defaultSegments={defaultSegments}
-          />
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            className="flex items-center justify-end gap-2 mt-3 pt-2.5"
-            style={{ borderTop: "1px solid var(--ea-border)" }}
+            ref={popoverRef}
+            data-account-input-portal
+            className="flex flex-col rounded-lg"
+            style={{
+              position: "fixed",
+              top: pos.top,
+              bottom: pos.bottom,
+              left: pos.left,
+              width: pos.width,
+              maxHeight: pos.maxHeight,
+              zIndex: 70,
+              background: "var(--ea-surface)",
+              border: "1px solid var(--ea-border-strong)",
+              boxShadow: "var(--ea-shadow-3)",
+            }}
           >
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="px-3 py-1.5 text-xs font-medium rounded-md"
-              style={{
-                border: "1px solid var(--ea-border-strong)",
-                color: "var(--ea-text-2)",
-              }}
+            <div className="min-h-0 overflow-y-auto p-3">
+              <AccountSegmentPicker
+                value={draft}
+                onChange={setDraft}
+                activeSegIds={activeSegIds}
+                segmentOptions={segmentOptions}
+                defaultSegments={defaultSegments}
+              />
+            </div>
+            <div
+              className="flex shrink-0 items-center justify-between gap-2 px-3 py-2.5"
+              style={{ borderTop: "1px solid var(--ea-border)" }}
             >
-              Болих
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onChange(draft);
-                setDraftText(null);
-                setOpen(false);
-              }}
-              className="px-3 py-1.5 text-xs font-semibold text-white rounded-md"
-              style={{ background: "var(--ea-primary)" }}
-            >
-              Оруулах
-            </button>
-          </div>
-        </div>
-      )}
+              <span className="truncate font-mono text-[11px] text-[var(--ea-text-4)]">
+                {fmtAccountDisplay(draft, activeSegIds)}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md"
+                  style={{
+                    border: "1px solid var(--ea-border-strong)",
+                    color: "var(--ea-text-2)",
+                  }}
+                >
+                  Болих
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(draft);
+                    setDraftText(null);
+                    setOpen(false);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-white rounded-md"
+                  style={{ background: "var(--ea-primary)" }}
+                >
+                  Оруулах
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
