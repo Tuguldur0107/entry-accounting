@@ -115,6 +115,7 @@ export default async function CostingDashboardPage() {
     if (
       entry.entryType === "receipt_capitalize" ||
       entry.entryType === "adjustment_gain" ||
+      entry.entryType === "return_in" ||
       entry.entryType === "nrv_reversal"
     )
       subledgerTotal += amount;

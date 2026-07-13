@@ -1,7 +1,15 @@
 // Тоо хэмжээний үлдэгдэл — цэвэр тооцоолол (DB хамааралгүй, unit тесттэй).
 // Inventory модуль ЗӨВХӨН тоо хэмжээ хөтөлнө; үнэлгээ costing модульд.
 
-export type MovementType = "receipt" | "issue" | "transfer" | "adjustment";
+export type MovementType =
+  | "receipt"
+  | "issue"
+  | "transfer"
+  | "adjustment"
+  // Буцаалт: return_in = худалдан авагчаас буцаж ирсэн (+qty),
+  // return_out = нийлүүлэгчид буцаасан (−qty).
+  | "return_in"
+  | "return_out";
 
 export interface MovementRef {
   id: string;
@@ -27,8 +35,10 @@ export function movementEffects(
   const qty = movement.quantity;
   switch (movement.movementType) {
     case "receipt":
+    case "return_in":
       return [{ itemId: movement.itemId, warehouseId: movement.warehouseId, delta: qty }];
     case "issue":
+    case "return_out":
       return [{ itemId: movement.itemId, warehouseId: movement.warehouseId, delta: -qty }];
     case "transfer":
       if (!movement.toWarehouseId) return [];

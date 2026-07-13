@@ -45,6 +45,8 @@ const TYPE_LABELS: Record<string, string> = {
   issue: "Зарлага",
   transfer: "Шилжүүлэг",
   adjustment: "Тохируулга",
+  return_in: "Буцаалт (ирсэн)",
+  return_out: "Буцаалт (гарсан)",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -62,6 +64,8 @@ const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "issue", label: "Зарлага" },
   { value: "transfer", label: "Шилжүүлэг" },
   { value: "adjustment", label: "Тохируулга" },
+  { value: "return_in", label: "Буцаалт ирсэн" },
+  { value: "return_out", label: "Буцаалт гарсан" },
 ];
 
 const STATUS_TABS: { value: StatusTab; label: string }[] = [
@@ -234,9 +238,11 @@ export function InventoryMovementsView({
     // алдаа өгөхөөс сэргийлнэ.
     const typeOrder: Record<string, number> = {
       receipt: 0,
+      return_in: 0,
       adjustment: 1,
       transfer: 2,
       issue: 3,
+      return_out: 3,
     };
     const drafts = [...selectedDrafts].sort((a, b) => {
       const byDate = a.date.localeCompare(b.date);
@@ -311,8 +317,10 @@ export function InventoryMovementsView({
             <span
               className={cn(
                 "text-xs font-medium",
-                type === "receipt" && "text-[var(--ea-success)]",
-                type === "issue" && "text-[var(--ea-danger)]",
+                (type === "receipt" || type === "return_in") &&
+                  "text-[var(--ea-success)]",
+                (type === "issue" || type === "return_out") &&
+                  "text-[var(--ea-danger)]",
                 type === "transfer" && "text-[var(--ea-primary)]",
                 type === "adjustment" && "text-[var(--ea-warning-fg)]"
               )}
@@ -605,7 +613,7 @@ export function InventoryMovementsView({
           </DialogHeader>
           <div className="grid gap-4">
             <div
-              className="grid grid-cols-4 overflow-hidden rounded-md border border-[var(--ea-border)]"
+              className="grid grid-cols-3 overflow-hidden rounded-md border border-[var(--ea-border)]"
               role="group"
               aria-label="Хөдөлгөөний төрөл"
             >
@@ -617,7 +625,7 @@ export function InventoryMovementsView({
                     setForm((current) => ({ ...current, movementType: type }))
                   }
                   className={cn(
-                    "h-9 border-r border-[var(--ea-border)] text-xs font-medium last:border-r-0",
+                    "h-9 border-b border-r border-[var(--ea-border)] text-xs font-medium [&:nth-child(3n)]:border-r-0 [&:nth-child(n+4)]:border-b-0",
                     form.movementType === type
                       ? "bg-[var(--ea-primary)] text-white"
                       : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-3)]"

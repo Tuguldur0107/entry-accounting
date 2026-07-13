@@ -30,6 +30,10 @@ export type CostEntryType =
   | "issue_cogs"
   | "adjustment_gain"
   | "adjustment_loss"
+  // Буцаалт (clearing схемийн mirror): гарах нь клиринг рүү, ирэх нь
+  // COGS-оо буцаана — аль аль нь тухайн үеийн дунджаар.
+  | "return_out"
+  | "return_in"
   | "nrv_writedown"
   | "nrv_reversal";
 
@@ -126,7 +130,11 @@ export function computeCostingRun(input: {
 
     if (existing) {
       // Replay: төлөвийг өмнө үнэлэгдсэнээр урагшлуулна.
-      if (existing.entryType === "receipt_capitalize" || existing.entryType === "adjustment_gain")
+      if (
+        existing.entryType === "receipt_capitalize" ||
+        existing.entryType === "adjustment_gain" ||
+        existing.entryType === "return_in"
+      )
         applyReceipt(itemState, existing.quantity, existing.unitCost);
       else applyOut(itemState, existing.quantity);
       continue;
@@ -161,12 +169,30 @@ export function computeCostingRun(input: {
       continue;
     }
 
-    if (movement.movementType === "issue") {
+    if (movement.movementType === "issue" || movement.movementType === "return_out") {
       const unitCost = itemState.avgCost;
       applyOut(itemState, qty);
       entries.push({
         movementId: movement.id,
-        entryType: "issue_cogs",
+        entryType: movement.movementType === "issue" ? "issue_cogs" : "return_out",
+        date: movement.date,
+        quantity: qty,
+        unitCost,
+        amount: round2(qty * unitCost),
+        valuationSource: "avg_cost",
+      });
+      continue;
+    }
+
+    if (movement.movementType === "return_in") {
+      // Худалдан авагчаас буцаж ирсэн бараа тухайн үеийн дунджаар нөөцөд
+      // орж, COGS-ыг мөн дүнгээр бууруулна (ойролцоолол — эх зарлагын
+      // өртгийг мөшгихгүй).
+      const unitCost = itemState.avgCost;
+      applyReceipt(itemState, qty, unitCost);
+      entries.push({
+        movementId: movement.id,
+        entryType: "return_in",
         date: movement.date,
         quantity: qty,
         unitCost,
@@ -221,6 +247,20 @@ export function entryPostingAccounts(
       return {
         debit: ADJUSTMENT_LOSS_ACCOUNT,
         credit: itemAccounts.inventoryAccountNumber,
+      };
+    case "return_out":
+      // Нийлүүлэгчид буцаалт: нөөцөөс гаргаж клирингт — АП талын кредит
+      // ноот (Dr АП / Cr клиринг)-той клиринг дээр тулна.
+      return {
+        debit: CLEARING_ACCOUNT,
+        credit: itemAccounts.inventoryAccountNumber,
+      };
+    case "return_in":
+      // Борлуулалтын буцаалт: нөөц сэргэж COGS буурна (орлогын буцаалтыг
+      // АР/GL талдаа тусад нь бичнэ).
+      return {
+        debit: itemAccounts.inventoryAccountNumber,
+        credit: itemAccounts.cogsAccountNumber,
       };
     case "nrv_writedown":
       return { debit: NRV_EXPENSE_ACCOUNT, credit: NRV_RESERVE_ACCOUNT };

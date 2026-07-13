@@ -170,3 +170,29 @@ test("costing run: signed adjustment classifies gain vs loss at average cost", (
   // transfer үнэлэгдэхгүй
   assert.equal(entries.some((e) => e.movementId === "t1"), false);
 });
+
+test("returns: out at average to clearing, in restores stock and COGS at average", () => {
+  const movements = [
+    m({ id: "r1", movementType: "receipt", quantity: 100, date: "2026-07-01" }),
+    m({ id: "ro1", movementType: "return_out", quantity: 10, date: "2026-07-02" }),
+    m({ id: "i1", movementType: "issue", quantity: 20, date: "2026-07-03" }),
+    m({ id: "ri1", movementType: "return_in", quantity: 5, date: "2026-07-04" }),
+  ];
+  const { entries, pending, state } = computeCostingRun({
+    movements,
+    valuedEntries: [],
+    receiptCosts: new Map([["r1", 2000]]),
+    asOfDate: "2026-07-31",
+  });
+  assert.equal(pending.length, 0);
+  const out = entries.find((e) => e.movementId === "ro1")!;
+  assert.equal(out.entryType, "return_out");
+  assert.equal(out.amount, 20000); // 10 × 2000 дунджаар клиринг рүү
+  const back = entries.find((e) => e.movementId === "ri1")!;
+  assert.equal(back.entryType, "return_in");
+  assert.equal(back.amount, 10000); // 5 × 2000 — COGS буцаана
+  // Үлдэгдэл: 100 − 10 − 20 + 5 = 75, дундаж хэвээр 2000
+  const itemState = state.get("item-a")!;
+  assert.equal(itemState.qty, 75);
+  assert.equal(itemState.avgCost, 2000);
+});

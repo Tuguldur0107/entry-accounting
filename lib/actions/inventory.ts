@@ -119,6 +119,8 @@ const MOVEMENT_TYPES: MovementType[] = [
   "issue",
   "transfer",
   "adjustment",
+  "return_in",
+  "return_out",
 ];
 
 type DbHandle = Pick<typeof db, "query" | "select">;

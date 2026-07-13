@@ -134,7 +134,9 @@ export default async function CostingReportsPage() {
       (itemId && settingByItem.get(itemId)?.inventoryAccountNumber) || "14000001";
     const amount = Number(entry.amount);
     const delta =
-      entry.entryType === "receipt_capitalize" || entry.entryType === "adjustment_gain"
+      entry.entryType === "receipt_capitalize" ||
+      entry.entryType === "adjustment_gain" ||
+      entry.entryType === "return_in"
         ? amount
         : -amount;
     subledgerByAccount.set(account, (subledgerByAccount.get(account) ?? 0) + delta);
