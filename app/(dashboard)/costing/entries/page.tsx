@@ -21,7 +21,7 @@ export default async function CostEntriesPage({
   const [entries, glAccounts, segConfigs] = await Promise.all([
     db.query.costEntries.findMany({
       where: eq(costEntries.userId, userId),
-      with: { movement: { with: { item: true } } },
+      with: { movement: { with: { item: true } }, item: true },
       orderBy: (entry, { desc }) => [desc(entry.date), desc(entry.createdAt)],
     }),
     db.query.chartOfAccounts.findMany({
@@ -40,14 +40,14 @@ export default async function CostEntriesPage({
     (def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true
   ).map((def) => def.id);
 
-  const views: CostEntryView[] = entries.map((entry) => ({
+  const views: CostEntryView[] = entries.map((entry) => {
+    const item = entry.movement?.item ?? entry.item;
+    return {
     id: entry.id,
     movementId: entry.movementId,
-    documentNo: entry.movement.documentNo,
-    itemLabel: entry.movement.item
-      ? `${entry.movement.item.code} · ${entry.movement.item.name}`
-      : "⚠ Бараа сонгоогүй",
-    unit: entry.movement.item?.unit ?? "",
+    documentNo: entry.movement?.documentNo ?? "NRV",
+    itemLabel: item ? `${item.code} · ${item.name}` : "⚠ Бараа сонгоогүй",
+    unit: item?.unit ?? "",
     entryType: entry.entryType,
     date: entry.date,
     quantity: Number(entry.quantity),
@@ -56,7 +56,8 @@ export default async function CostEntriesPage({
     valuationSource: entry.valuationSource,
     status: entry.status,
     voucherId: entry.voucherId,
-  }));
+    };
+  });
 
   return (
     <CostEntriesView

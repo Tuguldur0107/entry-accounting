@@ -44,7 +44,8 @@ export type QtyBalanceRow = {
 
 export type CostEntryView = {
   id: string;
-  movementId: string;
+  /** null = NRV бичилт (хөдөлгөөнгүй, барааны түвшний). */
+  movementId: string | null;
   documentNo: string;
   itemLabel: string;
   unit: string;
@@ -76,6 +77,9 @@ export type ValuationRow = {
   quantity: number;
   avgCost: number;
   value: number;
+  /** Идэвхтэй NRV нөөц (бууруулалт − сэргээлт). */
+  nrvReserve: number;
+  netValue: number;
 };
 
 export type TieOutRow = {

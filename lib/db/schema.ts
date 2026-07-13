@@ -803,11 +803,17 @@ export const costEntries = pgTable("cost_entries", {
     onDelete: "set null",
   }),
   // 1:1 with the movement among non-reversed entries (enforced in code so a
-  // reversed entry can be superseded by a fresh valuation).
-  movementId: uuid("movement_id")
-    .notNull()
-    .references(() => inventoryMovements.id, { onDelete: "restrict" }),
-  entryType: text("entry_type").notNull(), // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss"
+  // reversed entry can be superseded by a fresh valuation). NULL for NRV
+  // entries — they attach to an ITEM, not a movement, and never touch the
+  // moving average.
+  movementId: uuid("movement_id").references(() => inventoryMovements.id, {
+    onDelete: "restrict",
+  }),
+  // NRV бичилтийн бараа (movement-гүй тул шууд холбоно).
+  itemId: uuid("item_id").references(() => inventoryItems.id, {
+    onDelete: "restrict",
+  }),
+  entryType: text("entry_type").notNull(), // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss" | "nrv_writedown" | "nrv_reversal"
   date: text("date").notNull(), // movement date — the voucher date
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
   unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
@@ -878,6 +884,10 @@ export const costEntriesRelations = relations(costEntries, ({ one }) => ({
   movement: one(inventoryMovements, {
     fields: [costEntries.movementId],
     references: [inventoryMovements.id],
+  }),
+  item: one(inventoryItems, {
+    fields: [costEntries.itemId],
+    references: [inventoryItems.id],
   }),
   run: one(costingRuns, {
     fields: [costEntries.runId],

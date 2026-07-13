@@ -62,16 +62,14 @@ export function InventoryCountingView({
   const columns = useMemo<ColDef<CountSheetRow>[]>(
     () => [
       { headerName: "Бараа", field: "itemLabel", minWidth: 220, flex: 1 },
+      { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
       {
         headerName: "Системийн үлдэгдэл",
         field: "systemQty",
-        width: 170,
+        width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          params.data
-            ? `${fmtQty(params.data.systemQty)} ${params.data.unit}`
-            : "",
+        valueFormatter: (params) => fmtQty(Number(params.value ?? 0)),
       },
       {
         headerName: "Тоолсон тоо",

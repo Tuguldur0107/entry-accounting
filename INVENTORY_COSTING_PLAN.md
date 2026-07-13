@@ -248,6 +248,9 @@ cost-д avg_cost-оор үнэлээд журналын ноорог → бат�
               ЗААВАЛ клирингт, АР-ынх 14-т суухгүй — сервер шалгана);
               postArApDocument (draft батлах); GL/касс → клиринг-Dr sentinel;
               unpost/сторно нь бөглөгдөөгүй draft-аа цэвэрлэнэ
-Үе 2  — тооллого, NRV, буцаалт, landed cost (14000099), period-end costing run
+Үе 2  — тооллого ✅ (/inventory/counting — зөрүү → тохируулгын ноорог),
+              NRV ✅ (14900001 contra-нөөц, бууруулалт 87100005, сэргээлт
+              өмнөх бууруулалтын хэмжээнд — үнэлгээний тайлангаас), 
+              буцаалт, landed cost (14000099), period-end costing run
 Үе 3  — үйлдвэрлэл (WIP/FG, standard cost + variance), MOH, FIFO
 ```

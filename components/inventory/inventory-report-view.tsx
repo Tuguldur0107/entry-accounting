@@ -46,12 +46,12 @@ export function InventoryReportView({ rows, start, end }: Props) {
       width: 130,
       cellClass: `ag-right-aligned-cell font-mono${strong ? " font-semibold" : ""}`,
       headerClass: "ag-right-aligned-header",
-      valueFormatter: (params) =>
-        params.data ? `${fmtQty(Number(params.value ?? 0))} ${params.data.unit}` : "",
+      valueFormatter: (params) => fmtQty(Number(params.value ?? 0)),
     });
     return [
       { headerName: "Бараа", field: "itemLabel", minWidth: 200, flex: 1 },
       { headerName: "Агуулах", field: "warehouseName", minWidth: 140, flex: 1 },
+      { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
       qtyCol("opening", "Эхний үлдэгдэл"),
       qtyCol("inQty", "Орлого"),
       qtyCol("outQty", "Зарлага"),

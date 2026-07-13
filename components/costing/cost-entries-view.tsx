@@ -38,6 +38,8 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
   issue_cogs: "COGS",
   adjustment_gain: "Илүүдэл",
   adjustment_loss: "Дутагдал",
+  nrv_writedown: "NRV бууруулалт",
+  nrv_reversal: "NRV сэргээлт",
 };
 
 const STATUS_LABELS: Record<string, string> = {

@@ -51,10 +51,12 @@ export default async function CostingDashboardPage() {
   ]);
 
   const activeEntries = entries.filter(
-    (entry) => entry.status === "draft" || entry.status === "posted"
+    (entry) =>
+      (entry.status === "draft" || entry.status === "posted") &&
+      entry.movementId != null
   );
   const valuedEntries: PostedEntryRef[] = activeEntries.map((entry) => ({
-    movementId: entry.movementId,
+    movementId: entry.movementId!,
     entryType: entry.entryType as CostEntryType,
     quantity: Number(entry.quantity),
     unitCost: Number(entry.unitCost),
@@ -110,7 +112,11 @@ export default async function CostingDashboardPage() {
   for (const entry of entries) {
     if (entry.status !== "posted") continue;
     const amount = Number(entry.amount);
-    if (entry.entryType === "receipt_capitalize" || entry.entryType === "adjustment_gain")
+    if (
+      entry.entryType === "receipt_capitalize" ||
+      entry.entryType === "adjustment_gain" ||
+      entry.entryType === "nrv_reversal"
+    )
       subledgerTotal += amount;
     else subledgerTotal -= amount;
   }

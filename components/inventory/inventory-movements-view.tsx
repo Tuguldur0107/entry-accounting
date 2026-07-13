@@ -339,15 +339,12 @@ export function InventoryMovementsView({
       {
         headerName: "Тоо хэмжээ",
         field: "quantity",
-        width: 140,
+        width: 120,
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => {
-          const m = params.data;
-          if (!m) return "";
-          return `${fmtQty(m.quantity)} ${m.unit}`;
-        },
+        valueFormatter: (params) => fmtQty(Number(params.value ?? 0)),
       },
+      { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
       { headerName: "Утга", field: "description", minWidth: 160, flex: 1 },
       {
         headerName: "Төлөв",

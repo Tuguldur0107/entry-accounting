@@ -33,12 +33,12 @@ export function InventoryDashboard({
       {
         headerName: "Үлдэгдэл",
         field: "quantity",
-        width: 150,
+        width: 130,
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          params.data ? `${fmtQty(params.data.quantity)} ${params.data.unit}` : "",
+        valueFormatter: (params) => fmtQty(Number(params.value ?? 0)),
       },
+      { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
     ],
     []
   );

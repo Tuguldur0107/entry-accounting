@@ -186,13 +186,17 @@ export async function runCosting(data: {
     quantity: Number(row.quantity),
     createdAt: row.createdAt.toISOString(),
   }));
-  const valuedEntries: PostedEntryRef[] = activeEntries.map((entry) => ({
-    movementId: entry.movementId,
-    entryType: entry.entryType as CostEntryType,
-    quantity: Number(entry.quantity),
-    unitCost: Number(entry.unitCost),
-    amount: Number(entry.amount),
-  }));
+  // NRV бичилт (movementId=null) дундажийн replay-д ОРОХГҮЙ — IAS 2-оор
+  // өртгийн суурь хэвээр, нөөц нь тусдаа.
+  const valuedEntries: PostedEntryRef[] = activeEntries
+    .filter((entry) => entry.movementId != null)
+    .map((entry) => ({
+      movementId: entry.movementId!,
+      entryType: entry.entryType as CostEntryType,
+      quantity: Number(entry.quantity),
+      unitCost: Number(entry.unitCost),
+      amount: Number(entry.amount),
+    }));
 
   const receiptCosts = new Map<string, number>();
   for (const [movementId, unitCost] of Object.entries(data.receiptCosts ?? {})) {
@@ -264,7 +268,7 @@ export async function postCostEntry(id: string) {
   const userId = await requireUser();
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
-    with: { movement: { with: { item: true } } },
+    with: { movement: { with: { item: true } }, item: true },
   });
   if (!entry) throw new Error("Өртгийн бичилт олдсонгүй");
   if (entry.status !== "draft")
@@ -273,9 +277,11 @@ export async function postCostEntry(id: string) {
   if (!(amount > 0))
     throw new Error("0 дүнтэй бичилтийг GL-д бичихгүй — устгана уу");
 
-  if (!entry.movement.itemId)
-    throw new Error("Хөдөлгөөний бараа сонгогдоогүй байна");
-  const accounts = await itemAccountsFor(userId, entry.movement.itemId);
+  const isNrv = entry.movementId == null;
+  const linkedItemId = isNrv ? entry.itemId : entry.movement?.itemId;
+  if (!linkedItemId)
+    throw new Error("Бичилтийн бараа сонгогдоогүй байна");
+  const accounts = await itemAccountsFor(userId, linkedItemId);
   const { debit, credit } = entryPostingAccounts(
     entry.entryType as CostEntryType,
     accounts
@@ -284,7 +290,10 @@ export async function postCostEntry(id: string) {
   await assertEnabledMainAccount(userId, credit);
   const buildCode = await costingPostingCodeBuilder(userId);
 
-  const description = `[${entry.movement.documentNo}] ${entry.movement.item?.name ?? ""} — ${entry.movement.description || "өртгийн бичилт"}`;
+  const itemName = entry.movement?.item?.name ?? entry.item?.name ?? "";
+  const description = isNrv
+    ? `[NRV] ${itemName} — цэвэр боломжит үнийн бууруулалт`
+    : `[${entry.movement!.documentNo}] ${itemName} — ${entry.movement!.description || "өртгийн бичилт"}`;
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -365,6 +374,15 @@ export async function deleteCostEntry(id: string) {
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг устгана");
 
+  // NRV бичилт дундажид нөлөөлдөггүй — шууд устгаж болно.
+  if (entry.movementId == null) {
+    await db
+      .delete(costEntries)
+      .where(and(eq(costEntries.id, id), eq(costEntries.userId, userId)));
+    revalidateCosting();
+    return;
+  }
+
   // Дундаж өртөг дараалсан бичилтүүдээр дамждаг: энэ бичилтээс ХОЙШХИ
   // идэвхтэй бичилт тухайн бараанд байвал тэдгээрийн үнэлгээ энэ бичилтийн
   // дунджаас хамаарсан — эхлээд сүүлийнхийг нь устгаж/сторно хийнэ.
@@ -378,6 +396,8 @@ export async function deleteCostEntry(id: string) {
   const dependent = laterEntries.find(
     (candidate) =>
       candidate.id !== entry.id &&
+      candidate.movement != null &&
+      entry.movement != null &&
       candidate.movement.itemId === entry.movement.itemId &&
       (candidate.movement.date > entry.movement.date ||
         (candidate.movement.date === entry.movement.date &&
@@ -405,6 +425,7 @@ export async function reverseCostEntry(id: string) {
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
     throw new Error("Зөвхөн батлагдсан бичилтийг сторно хийнэ");
+  const entryLabel = entry.movement?.documentNo ?? "NRV";
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
@@ -434,7 +455,7 @@ export async function reverseCostEntry(id: string) {
       .values({
         userId,
         date: entry.date,
-        description: `Сторно [${entry.movement.documentNo}] ${voucher.description}`,
+        description: `Сторно [${entryLabel}] ${voucher.description}`,
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -475,6 +496,134 @@ export async function reverseCostEntry(id: string) {
   });
 
   revalidateCosting();
+}
+
+// ─── NRV бууруулалт / сэргээлт (IAS 2 §9, §28–33) ────────────────────────────
+
+// Барааны цэвэр боломжит үнэ (NRV/нэгж)-ийг өгөхөд: зорилтот нөөц =
+// max(0, дундаж − NRV) × үлдэгдэл; одоогийн нөөцтэй харьцуулж зөрүүгээр
+// бууруулалт (Dr 87100005 / Cr 14900001) эсвэл сэргээлтийн (эсрэг) НООРОГ
+// бичилт үүсгэнэ. Сэргээлт өмнөх бууруулалтаас хэтрэхгүй (зорилтот ≥ 0).
+export async function createNrvEntry(data: {
+  itemId: string;
+  date: string;
+  nrvPerUnit: number;
+}) {
+  const userId = await requireUser();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
+    throw new Error("Огноо буруу байна");
+  const nrvPerUnit = Number(data.nrvPerUnit);
+  if (!Number.isFinite(nrvPerUnit) || nrvPerUnit < 0)
+    throw new Error("NRV 0 буюу түүнээс их байна");
+
+  const item = await db.query.inventoryItems.findFirst({
+    where: and(
+      eq(inventoryItems.id, data.itemId),
+      eq(inventoryItems.userId, userId)
+    ),
+    columns: { id: true, name: true },
+  });
+  if (!item) throw new Error("Бараа олдсонгүй");
+
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 2)`);
+
+    const [movements, entries] = await Promise.all([
+      tx.query.inventoryMovements.findMany({
+        where: and(
+          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.status, "confirmed"),
+          eq(inventoryMovements.itemId, data.itemId)
+        ),
+      }),
+      tx.query.costEntries.findMany({
+        where: and(
+          eq(costEntries.userId, userId),
+          inArray(costEntries.status, ["draft", "posted"])
+        ),
+      }),
+    ]);
+
+    // Дундаж + үлдэгдэл: батлагдсан movement-линктэй бичилтийн replay.
+    const movementEntries: PostedEntryRef[] = entries
+      .filter((entry) => entry.movementId != null && entry.status === "posted")
+      .map((entry) => ({
+        movementId: entry.movementId!,
+        entryType: entry.entryType as CostEntryType,
+        quantity: Number(entry.quantity),
+        unitCost: Number(entry.unitCost),
+        amount: Number(entry.amount),
+      }));
+    const valuedIds = new Set(movementEntries.map((entry) => entry.movementId));
+    const { state } = computeCostingRun({
+      movements: movements
+        .filter((movement) => valuedIds.has(movement.id))
+        .map((row) => ({
+          id: row.id,
+          movementType: row.movementType as MovementType,
+          date: row.date,
+          itemId: row.itemId ?? "",
+          warehouseId: row.warehouseId ?? "",
+          toWarehouseId: row.toWarehouseId,
+          quantity: Number(row.quantity),
+          createdAt: row.createdAt.toISOString(),
+        })),
+      valuedEntries: movementEntries,
+      receiptCosts: new Map(),
+      asOfDate: data.date,
+    });
+    const itemState = state.get(data.itemId);
+    const qty = itemState?.qty ?? 0;
+    const avgCost = itemState?.avgCost ?? 0;
+    if (!(qty > 0))
+      throw new Error("Батлагдсан үнэлгээтэй үлдэгдэл алга — NRV хамаарахгүй");
+
+    // Одоогийн нөөц: идэвхтэй (draft орсон — давхар бичилтээс сэргийлнэ)
+    // NRV бичилтүүдийн цэвэр дүн.
+    let currentReserve = 0;
+    for (const entry of entries) {
+      if (entry.itemId !== data.itemId) continue;
+      if (entry.entryType === "nrv_writedown")
+        currentReserve += Number(entry.amount);
+      else if (entry.entryType === "nrv_reversal")
+        currentReserve -= Number(entry.amount);
+    }
+    currentReserve = Math.round(currentReserve * 100) / 100;
+
+    const targetReserve =
+      Math.round(Math.max(0, avgCost - nrvPerUnit) * qty * 100) / 100;
+    const delta = Math.round((targetReserve - currentReserve) * 100) / 100;
+    if (Math.abs(delta) <= 0.01)
+      throw new Error("Нөөцийн зөрүү 0 байна — бичилт шаардлагагүй");
+
+    const [created] = await tx
+      .insert(costEntries)
+      .values({
+        userId,
+        movementId: null,
+        itemId: data.itemId,
+        entryType: delta > 0 ? "nrv_writedown" : "nrv_reversal",
+        date: data.date,
+        quantity: String(qty),
+        unitCost: String(nrvPerUnit),
+        amount: String(Math.abs(delta)),
+        valuationSource: "manual",
+      })
+      .returning({ id: costEntries.id });
+
+    return {
+      id: created.id,
+      entryType: delta > 0 ? "nrv_writedown" : "nrv_reversal",
+      amount: Math.abs(delta),
+      qty,
+      avgCost,
+      targetReserve,
+      currentReserve,
+    };
+  }).then((result) => {
+    revalidateCosting();
+    return result;
+  });
 }
 
 // Дэлгэрэнгүй drawer-т: холбогдсон GL журналын мөрүүд.

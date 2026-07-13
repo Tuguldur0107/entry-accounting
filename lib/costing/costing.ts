@@ -20,12 +20,18 @@ import {
 export const CLEARING_ACCOUNT = "14000099";
 export const ADJUSTMENT_GAIN_ACCOUNT = "51800003";
 export const ADJUSTMENT_LOSS_ACCOUNT = "87100004";
+// NRV (IAS 2 §9, §28–33): бууруулалтыг contra-нөөц дансаар — өртгийн суурь
+// (дундаж) ХӨНДӨГДӨХГҮЙ; сэргээлт өмнөх бууруулалтын хэмжээнд л.
+export const NRV_EXPENSE_ACCOUNT = "87100005";
+export const NRV_RESERVE_ACCOUNT = "14900001";
 
 export type CostEntryType =
   | "receipt_capitalize"
   | "issue_cogs"
   | "adjustment_gain"
-  | "adjustment_loss";
+  | "adjustment_loss"
+  | "nrv_writedown"
+  | "nrv_reversal";
 
 export interface PostedEntryRef {
   movementId: string;
@@ -216,5 +222,9 @@ export function entryPostingAccounts(
         debit: ADJUSTMENT_LOSS_ACCOUNT,
         credit: itemAccounts.inventoryAccountNumber,
       };
+    case "nrv_writedown":
+      return { debit: NRV_EXPENSE_ACCOUNT, credit: NRV_RESERVE_ACCOUNT };
+    case "nrv_reversal":
+      return { debit: NRV_RESERVE_ACCOUNT, credit: NRV_EXPENSE_ACCOUNT };
   }
 }

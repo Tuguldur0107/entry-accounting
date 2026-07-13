@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import {
   CLEARING_ACCOUNT,
+  NRV_RESERVE_ACCOUNT,
   computeCostingRun,
   type CostEntryType,
   type PostedEntryRef,
@@ -59,14 +60,35 @@ export default async function CostingReportsPage() {
 
   // Үнэлгээ: зөвхөн POSTED бичилтийг replay хийж бараа бүрийн qty+дундаж авна.
   const postedEntries: PostedEntryRef[] = entries
-    .filter((entry) => entry.status === "posted")
+    .filter((entry) => entry.status === "posted" && entry.movementId != null)
     .map((entry) => ({
-      movementId: entry.movementId,
+      movementId: entry.movementId!,
       entryType: entry.entryType as CostEntryType,
       quantity: Number(entry.quantity),
       unitCost: Number(entry.unitCost),
       amount: Number(entry.amount),
     }));
+
+  // NRV нөөц бараагаар (идэвхтэй draft+posted — давхар бичилтээс сэргийлж
+  // draft-ыг мөн тооцно; GL тулгалтад зөвхөн posted).
+  const nrvReserveByItem = new Map<string, number>();
+  const nrvPostedByItem = new Map<string, number>();
+  for (const entry of entries) {
+    if (!entry.itemId) continue;
+    if (entry.status === "reversed") continue;
+    const sign = entry.entryType === "nrv_writedown" ? 1 : entry.entryType === "nrv_reversal" ? -1 : 0;
+    if (sign === 0) continue;
+    const amount = sign * Number(entry.amount);
+    nrvReserveByItem.set(
+      entry.itemId,
+      (nrvReserveByItem.get(entry.itemId) ?? 0) + amount
+    );
+    if (entry.status === "posted")
+      nrvPostedByItem.set(
+        entry.itemId,
+        (nrvPostedByItem.get(entry.itemId) ?? 0) + amount
+      );
+  }
   // Зөвхөн БАТЛАГДСАН бичилттэй хөдөлгөөнүүдийг replay хийнэ — үнэлэгдээгүй
   // хөдөлгөөнийг таамгаар үнэлж tie-out хүснэгттэй зөрүүлэхгүй.
   const valuedMovementIds = new Set(postedEntries.map((entry) => entry.movementId));
@@ -83,13 +105,18 @@ export default async function CostingReportsPage() {
   for (const item of itemViews) {
     const itemState = state.get(item.id);
     if (!itemState || (itemState.qty === 0 && itemState.avgCost === 0)) continue;
+    const reserve =
+      Math.round((nrvReserveByItem.get(item.id) ?? 0) * 100) / 100;
+    const grossValue = Math.round(itemState.qty * itemState.avgCost * 100) / 100;
     valuation.push({
       itemId: item.id,
       itemLabel: `${item.code} · ${item.name}`,
       unit: item.unit,
       quantity: itemState.qty,
       avgCost: itemState.avgCost,
-      value: Math.round(itemState.qty * itemState.avgCost * 100) / 100,
+      value: grossValue,
+      nrvReserve: reserve,
+      netValue: Math.round((grossValue - reserve) * 100) / 100,
     });
   }
   valuation.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel));
@@ -100,6 +127,8 @@ export default async function CostingReportsPage() {
   const movementItem = new Map(movements.map((m) => [m.id, m.itemId]));
   for (const entry of entries) {
     if (entry.status !== "posted") continue;
+    // NRV бичилт (movement-гүй) энд орохгүй — нөөцөө тусдаа мөрөөр нэмсэн.
+    if (entry.movementId == null) continue;
     const itemId = movementItem.get(entry.movementId);
     const account =
       (itemId && settingByItem.get(itemId)?.inventoryAccountNumber) || "14000001";
@@ -110,6 +139,15 @@ export default async function CostingReportsPage() {
         : -amount;
     subledgerByAccount.set(account, (subledgerByAccount.get(account) ?? 0) + delta);
   }
+
+  // NRV-ийн posted нөлөө contra-нөөц дансанд (кредит үлдэгдэл → сөрөг).
+  let nrvPostedTotal = 0;
+  for (const amount of nrvPostedByItem.values()) nrvPostedTotal += amount;
+  if (Math.abs(nrvPostedTotal) > 0.005)
+    subledgerByAccount.set(
+      NRV_RESERVE_ACCOUNT,
+      Math.round(-nrvPostedTotal * 100) / 100
+    );
 
   const glByAccount = new Map<string, number>();
   for (const voucher of vouchers) {
