@@ -14,6 +14,8 @@ import {
   WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -30,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   createArApDocument,
+  postArApDocument,
   createCounterparty,
   toggleCounterparty,
 } from "@/lib/actions/arap";
@@ -64,6 +67,19 @@ type ReportRow = {
   daysOver90: number;
 };
 
+interface InventoryItemOption {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+}
+
+interface WarehouseOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
 interface Props {
   focus?: Focus;
   mode?: ArApMode;
@@ -77,6 +93,9 @@ interface Props {
     payable: string;
   };
   reportAsOf?: string;
+  /** Бараатай мөр бичихэд — АП орлого / АР зарлагын inventory холбоос. */
+  inventoryItems?: InventoryItemOption[];
+  warehouses?: WarehouseOption[];
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -166,11 +185,14 @@ export function ArApWorkspace({
   defaultSegments,
   defaultAccountNumbers,
   reportAsOf = today(),
+  inventoryItems = [],
+  warehouses = [],
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const config = MODE_CONFIG[mode];
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
   const [documentOpen, setDocumentOpen] = useState(false);
   const [reportDate, setReportDate] = useState(reportAsOf);
@@ -411,11 +433,20 @@ export function ArApWorkspace({
             >
               Мөнгөн хөрөнгөөр хаах
             </Link>
+          ) : data?.status === "draft" ? (
+            <button
+              type="button"
+              className="text-xs font-medium text-[var(--ea-success-fg)] hover:underline"
+              onClick={() => postDraftDocument(data)}
+            >
+              Батлах
+            </button>
           ) : (
             <span className="text-xs text-[var(--ea-text-4)]">—</span>
           ),
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
@@ -461,16 +492,41 @@ export function ArApWorkspace({
           ...documentForm,
           exchangeRate: Number(documentForm.exchangeRate),
           postNow,
-          lines: documentForm.lines.map(({ account, description, amount }) => ({
-            account,
-            description,
-            amount,
-          })),
+          lines: documentForm.lines.map(
+            ({ account, description, amount, itemId, quantity, warehouseId }) => ({
+              account,
+              description,
+              amount,
+              itemId: itemId || undefined,
+              quantity: quantity || undefined,
+              warehouseId: warehouseId || undefined,
+            })
+          ),
         });
         setDocumentOpen(false);
         toast.success(postNow ? "Баримт GL-д бичигдлээ" : "Ноорог хадгалагдлаа");
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Хадгалж чадсангүй");
+      }
+    });
+  }
+
+  async function postDraftDocument(document: ArApDocumentView) {
+    const ok = await confirm({
+      title: "Баримт батлах",
+      description: `${document.documentNo} ноорог баримтыг баталж GL журнал үүсгэх үү? Бараатай мөрүүд нь Бараа материалд тоо хэмжээний ноорог үүсгэнэ.`,
+      confirmText: "Батлах",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      try {
+        await postArApDocument(document.id);
+        router.refresh();
+        toast.success("Баримт батлагдаж GL-д бичигдлээ");
+      } catch (caught) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Батлах амжилтгүй"
+        );
       }
     });
   }
@@ -642,7 +698,10 @@ export function ArApWorkspace({
         error={error}
         onSave={saveDocument}
         mode={mode}
+        inventoryItems={inventoryItems}
+        warehouses={warehouses}
       />
+      {confirmDialog}
     </section>
   );
 }
@@ -696,14 +755,39 @@ function ArApLinesGrid({
   activeSegIds,
   segmentOptions,
   defaultSegments,
+  inventoryItems,
+  warehouses,
+  documentType,
 }: {
   lines: LineRow[];
   onChange: (updater: (prev: LineRow[]) => LineRow[]) => void;
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
   defaultSegments: Record<number, string>;
+  inventoryItems: InventoryItemOption[];
+  warehouses: WarehouseOption[];
+  documentType: ArApDocumentType;
 }) {
   const total = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  // Бараатай мөр: АП батлагдахад орлогын, АР батлагдахад зарлагын тоо
+  // хэмжээний draft inventory-д үүснэ (бараа бүртгэлтэй үед л харагдана).
+  const itemLabelById = useMemo(
+    () =>
+      new Map(
+        inventoryItems.map((item) => [item.id, `${item.code} · ${item.name}`])
+      ),
+    [inventoryItems]
+  );
+  const warehouseLabelById = useMemo(
+    () =>
+      new Map(
+        warehouses.map((warehouse) => [
+          warehouse.id,
+          `${warehouse.code} · ${warehouse.name}`,
+        ])
+      ),
+    [warehouses]
+  );
   const columns = useMemo<ColDef<LineRow>[]>(
     () => [
       { headerName: "#", width: 48, valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1 },
@@ -743,6 +827,50 @@ function ArApLinesGrid({
         valueFormatter: (params) =>
           params.value ? fmtMnt(Number(params.value)) : "",
       },
+      ...(inventoryItems.length > 0
+        ? ([
+            {
+              headerName: "Бараа",
+              field: "itemId",
+              minWidth: 170,
+              editable: true,
+              cellEditor: "agSelectCellEditor",
+              cellEditorParams: {
+                values: ["", ...inventoryItems.map((item) => item.id)],
+              },
+              valueFormatter: (params) =>
+                params.value ? itemLabelById.get(String(params.value)) ?? "" : "—",
+            },
+            {
+              headerName: "Тоо",
+              field: "quantity",
+              width: 96,
+              editable: true,
+              cellClass: "ag-right-aligned-cell font-mono",
+              headerClass: "ag-right-aligned-header",
+              valueParser: (params) => {
+                const value = Number(String(params.newValue).replaceAll(",", ""));
+                return Number.isFinite(value) && value > 0 ? value : undefined;
+              },
+              valueFormatter: (params) =>
+                params.value ? String(params.value) : "",
+            },
+            {
+              headerName: "Агуулах",
+              field: "warehouseId",
+              minWidth: 140,
+              editable: true,
+              cellEditor: "agSelectCellEditor",
+              cellEditorParams: {
+                values: ["", ...warehouses.map((warehouse) => warehouse.id)],
+              },
+              valueFormatter: (params) =>
+                params.value
+                  ? warehouseLabelById.get(String(params.value)) ?? ""
+                  : "—",
+            },
+          ] as ColDef<LineRow>[])
+        : []),
       {
         headerName: "",
         colId: "action",
@@ -765,7 +893,16 @@ function ArApLinesGrid({
         ),
       },
     ],
-    [activeSegIds, defaultSegments, onChange, segmentOptions]
+    [
+      activeSegIds,
+      defaultSegments,
+      onChange,
+      segmentOptions,
+      inventoryItems,
+      warehouses,
+      itemLabelById,
+      warehouseLabelById,
+    ]
   );
 
   return (
@@ -778,9 +915,24 @@ function ArApLinesGrid({
           const field = event.colDef.field as keyof LineRow | undefined;
           if (!field) return;
           onChange((prev) =>
-            prev.map((line) =>
-              line.id === event.data.id ? { ...line, [field]: event.newValue } : line
-            )
+            prev.map((line) => {
+              if (line.id !== event.data.id) return line;
+              const next = { ...line, [field]: event.newValue };
+              // АП-ийн бараатай мөр клирингийн дансанд суух ёстой (server
+              // талд мөн шалгадаг) — бараа сонгонгуут дансыг автоматаар
+              // 14000099 болгоно.
+              if (
+                field === "itemId" &&
+                event.newValue &&
+                documentType === "ap_bill"
+              )
+                next.account = buildSegCode(
+                  { 3: CLEARING_ACCOUNT },
+                  activeSegIds,
+                  defaultSegments
+                );
+              return next;
+            })
           );
         }}
         processDataFromClipboard={(params) =>
@@ -1071,6 +1223,8 @@ function DocumentDialog({
   error,
   onSave,
   mode,
+  inventoryItems,
+  warehouses,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -1086,6 +1240,8 @@ function DocumentDialog({
     description: string;
     lines: LineRow[];
   };
+  inventoryItems: InventoryItemOption[];
+  warehouses: WarehouseOption[];
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
   counterparties: CounterpartyView[];
   cpOptions: Array<{ value: string; label: string; hint?: string }>;
@@ -1299,6 +1455,9 @@ function DocumentDialog({
             activeSegIds={activeSegIds}
             segmentOptions={segmentOptions}
             defaultSegments={defaultSegments}
+            inventoryItems={inventoryItems}
+            warehouses={warehouses}
+            documentType={form.documentType}
           />
         </div>
 

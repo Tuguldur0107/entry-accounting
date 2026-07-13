@@ -44,8 +44,10 @@ export default async function CostEntriesPage({
     id: entry.id,
     movementId: entry.movementId,
     documentNo: entry.movement.documentNo,
-    itemLabel: `${entry.movement.item.code} · ${entry.movement.item.name}`,
-    unit: entry.movement.item.unit,
+    itemLabel: entry.movement.item
+      ? `${entry.movement.item.code} · ${entry.movement.item.name}`
+      : "⚠ Бараа сонгоогүй",
+    unit: entry.movement.item?.unit ?? "",
     entryType: entry.entryType,
     date: entry.date,
     quantity: Number(entry.quantity),

@@ -71,6 +71,13 @@
       "when": 1783877806357,
       "tag": "0009_solid_tombstone",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783907750915,
+      "tag": "0010_white_firedrake",
+      "breakpoints": true
     }
   ]
 }

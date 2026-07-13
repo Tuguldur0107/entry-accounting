@@ -38,4 +38,8 @@ export type ArApLineInput = {
   account: string;
   description: string;
   amount: number;
+  /** Бараатай мөр: батлагдахад inventory-д тоо хэмжээний draft үүснэ. */
+  itemId?: string;
+  quantity?: number;
+  warehouseId?: string;
 };

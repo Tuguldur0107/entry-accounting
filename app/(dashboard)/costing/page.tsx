@@ -75,13 +75,13 @@ export default async function CostingDashboardPage() {
     .map((p) => {
       const movement = movementById.get(p.movementId);
       if (!movement) return null;
-      const item = itemById.get(movement.itemId);
+      const item = movement.itemId ? itemById.get(movement.itemId) : undefined;
       return {
         movementId: p.movementId,
         documentNo: movement.documentNo,
         date: movement.date,
         movementType: movement.movementType,
-        itemLabel: item ? `${item.code} · ${item.name}` : movement.itemId,
+        itemLabel: item ? `${item.code} · ${item.name}` : "⚠ Бараа сонгоогүй",
         unit: item?.unit ?? "",
         quantity: Number(movement.quantity),
         reason: p.reason,

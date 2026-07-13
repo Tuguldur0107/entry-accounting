@@ -8,7 +8,7 @@ import type {
   ICellRendererParams,
   SelectionChangedEvent,
 } from "ag-grid-community";
-import { Ban, Check, CheckCheck, Plus, Trash2 } from "lucide-react";
+import { Ban, Check, CheckCheck, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -30,6 +30,7 @@ import {
   confirmInventoryMovements,
   createInventoryMovement,
   deleteInventoryMovement,
+  updateInventoryMovement,
 } from "@/lib/actions/inventory";
 import type {
   InventoryItemView,
@@ -103,6 +104,8 @@ export function InventoryMovementsView({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
+  // null = шинээр үүсгэх; id = ноорог засварлах (sentinel бөглөх гол зам).
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -388,6 +391,29 @@ export function InventoryMovementsView({
                 <>
                   <button
                     type="button"
+                    className="ea-btn ea-btn--icon"
+                    title="Засах"
+                    aria-label="Засах"
+                    onClick={() => {
+                      setForm({
+                        movementType: movement.movementType as MovementType,
+                        date: movement.date,
+                        itemId: movement.itemId ?? "",
+                        warehouseId: movement.warehouseId ?? "",
+                        toWarehouseId: movement.toWarehouseId ?? "",
+                        quantity: movement.quantity ? String(movement.quantity) : "",
+                        documentNo: movement.documentNo,
+                        description: movement.description,
+                      });
+                      setError("");
+                      setEditingId(movement.id);
+                      setOpen(true);
+                    }}
+                  >
+                    <Pencil />
+                  </button>
+                  <button
+                    type="button"
                     className="ea-btn ea-btn--icon ea-btn--success"
                     title="Батлах"
                     aria-label="Батлах"
@@ -429,18 +455,27 @@ export function InventoryMovementsView({
     setError("");
     startTransition(async () => {
       try {
-        await createInventoryMovement({
+        const payload = {
           movementType: form.movementType,
           date: form.date,
           itemId: form.itemId,
           warehouseId: form.warehouseId,
           toWarehouseId: form.toWarehouseId || undefined,
           quantity: Number(form.quantity.replaceAll(",", "")),
-          documentNo: form.documentNo || undefined,
           description: form.description,
-          confirmNow,
-        });
+        };
+        if (editingId) {
+          await updateInventoryMovement(editingId, payload);
+          if (confirmNow) await confirmInventoryMovement(editingId);
+        } else {
+          await createInventoryMovement({
+            ...payload,
+            documentNo: form.documentNo || undefined,
+            confirmNow,
+          });
+        }
         setOpen(false);
+        setEditingId(null);
         router.refresh();
         toast.success(
           confirmNow ? "Хөдөлгөөн бүртгэгдэж батлагдлаа" : "Ноорог хадгалагдлаа"
@@ -468,7 +503,14 @@ export function InventoryMovementsView({
             Зөвхөн тоо хэмжээ — үнэлгээ, GL бичилтийг өртгийн модуль хийнэ.
           </p>
         </div>
-        <Button onClick={() => { setForm(initialForm()); setError(""); setOpen(true); }}>
+        <Button
+          onClick={() => {
+            setForm(initialForm());
+            setError("");
+            setEditingId(null);
+            setOpen(true);
+          }}
+        >
           <Plus />
           Шинэ хөдөлгөөн
         </Button>
@@ -560,7 +602,9 @@ export function InventoryMovementsView({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Шинэ хөдөлгөөн</DialogTitle>
+            <DialogTitle>
+              {editingId ? "Хөдөлгөөн засах" : "Шинэ хөдөлгөөн"}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
             <div
@@ -600,6 +644,7 @@ export function InventoryMovementsView({
                   value={form.documentNo}
                   placeholder="Хоосон бол автоматаар үүснэ"
                   maxLength={40}
+                  disabled={!!editingId}
                   onChange={(e) =>
                     setForm((c) => ({ ...c, documentNo: e.target.value }))
                   }

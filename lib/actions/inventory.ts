@@ -135,8 +135,9 @@ async function confirmedMovementRefs(
     id: row.id,
     movementType: row.movementType as MovementType,
     date: row.date,
-    itemId: row.itemId,
-    warehouseId: row.warehouseId,
+    // Confirmed мөрөнд null байх боломжгүй (confirm-ийн шалгалт).
+    itemId: row.itemId ?? "",
+    warehouseId: row.warehouseId ?? "",
     toWarehouseId: row.toWarehouseId,
     quantity: Number(row.quantity),
     createdAt: row.createdAt.toISOString(),
@@ -240,6 +241,94 @@ export async function createInventoryMovement(data: {
   return { id: movement.id };
 }
 
+// Ноорог хөдөлгөөнийг засах — sentinel (GL/касс) draft-ыг бөглөх гол зам.
+export async function updateInventoryMovement(
+  id: string,
+  data: {
+    movementType: MovementType;
+    date: string;
+    itemId: string;
+    warehouseId: string;
+    toWarehouseId?: string;
+    quantity: number;
+    description?: string;
+  }
+) {
+  const userId = await requireUser();
+  const movement = await db.query.inventoryMovements.findFirst({
+    where: and(
+      eq(inventoryMovements.id, id),
+      eq(inventoryMovements.userId, userId)
+    ),
+    columns: { status: true },
+  });
+  if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
+  if (movement.status !== "draft")
+    throw new Error("Зөвхөн ноорог хөдөлгөөнийг засна");
+  if (!MOVEMENT_TYPES.includes(data.movementType))
+    throw new Error("Хөдөлгөөний төрөл буруу байна");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
+    throw new Error("Огноо буруу байна");
+  const quantity = Number(data.quantity);
+  if (!Number.isFinite(quantity) || quantity === 0)
+    throw new Error("Тоо хэмжээ 0 байж болохгүй");
+  if (data.movementType !== "adjustment" && quantity <= 0)
+    throw new Error("Тоо хэмжээ 0-ээс их байна");
+
+  const [item, warehouse, toWarehouse] = await Promise.all([
+    db.query.inventoryItems.findFirst({
+      where: and(
+        eq(inventoryItems.id, data.itemId),
+        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.isActive, true)
+      ),
+    }),
+    db.query.warehouses.findFirst({
+      where: and(
+        eq(warehouses.id, data.warehouseId),
+        eq(warehouses.userId, userId),
+        eq(warehouses.isActive, true)
+      ),
+    }),
+    data.toWarehouseId
+      ? db.query.warehouses.findFirst({
+          where: and(
+            eq(warehouses.id, data.toWarehouseId),
+            eq(warehouses.userId, userId),
+            eq(warehouses.isActive, true)
+          ),
+        })
+      : Promise.resolve(null),
+  ]);
+  if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
+  if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
+  if (data.movementType === "transfer") {
+    if (!toWarehouse) throw new Error("Хүлээн авах агуулах сонгоно уу");
+    if (data.toWarehouseId === data.warehouseId)
+      throw new Error("Шилжүүлгийн агуулахууд ижил байж болохгүй");
+  }
+
+  await db
+    .update(inventoryMovements)
+    .set({
+      movementType: data.movementType,
+      date: data.date,
+      itemId: data.itemId,
+      warehouseId: data.warehouseId,
+      toWarehouseId: data.movementType === "transfer" ? data.toWarehouseId : null,
+      quantity: String(quantity),
+      description: data.description?.trim() ?? "",
+    })
+    .where(
+      and(
+        eq(inventoryMovements.id, id),
+        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.status, "draft")
+      )
+    );
+  revalidateInventory();
+}
+
 export async function confirmInventoryMovement(id: string) {
   const userId = await requireUser();
 
@@ -258,6 +347,15 @@ export async function confirmInventoryMovement(id: string) {
     if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
     if (movement.status !== "draft")
       throw new Error("Зөвхөн ноорог хөдөлгөөнийг батална");
+    // GL/кассаас үүссэн sentinel: бараа, агуулах, тоо бөглөгдөөгүй бол
+    // батлахгүй — засварлаад дахин оролдоно.
+    if (!movement.itemId || !movement.warehouseId)
+      throw new Error("Бараа, агуулах сонгоогүй байна — засаад батална уу");
+    const movementQty = Number(movement.quantity);
+    if (!Number.isFinite(movementQty) || movementQty === 0)
+      throw new Error("Тоо хэмжээ бөглөөгүй байна — засаад батална уу");
+    if (movement.movementType !== "adjustment" && movementQty <= 0)
+      throw new Error("Тоо хэмжээ 0-ээс их байна");
 
     // Хасах үлдэгдлийн шалгалт: он цагийн бүх цэг дээр ≥ 0 (энэ хөдөлгөөнийг
     // оруулаад, өмнөх огноогоор бичихэд дараагийн үлдэгдлүүд ч эвдрэхгүй).
@@ -269,7 +367,7 @@ export async function confirmInventoryMovement(id: string) {
       itemId: movement.itemId,
       warehouseId: movement.warehouseId,
       toWarehouseId: movement.toWarehouseId,
-      quantity: Number(movement.quantity),
+      quantity: movementQty,
       createdAt: movement.createdAt.toISOString(),
     });
     if (violation)

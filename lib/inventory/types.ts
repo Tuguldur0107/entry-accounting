@@ -18,10 +18,11 @@ export type InventoryMovementView = {
   documentNo: string;
   movementType: string;
   date: string;
-  itemId: string;
+  /** null = GL/кассаас үүссэн sentinel — бөглөж батална. */
+  itemId: string | null;
   itemLabel: string;
   unit: string;
-  warehouseId: string;
+  warehouseId: string | null;
   warehouseName: string;
   toWarehouseId: string | null;
   toWarehouseName: string | null;

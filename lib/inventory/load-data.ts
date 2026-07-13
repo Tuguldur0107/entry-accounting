@@ -69,10 +69,12 @@ export async function loadMovements(userId: string) {
     movementType: movement.movementType,
     date: movement.date,
     itemId: movement.itemId,
-    itemLabel: `${movement.item.code} · ${movement.item.name}`,
-    unit: movement.item.unit,
+    itemLabel: movement.item
+      ? `${movement.item.code} · ${movement.item.name}`
+      : "⚠ Бараа сонгоогүй",
+    unit: movement.item?.unit ?? "",
     warehouseId: movement.warehouseId,
-    warehouseName: movement.warehouse.name,
+    warehouseName: movement.warehouse?.name ?? "—",
     toWarehouseId: movement.toWarehouseId,
     toWarehouseName: movement.toWarehouse?.name ?? null,
     quantity: Number(movement.quantity),
@@ -89,8 +91,10 @@ export function toMovementRefs(
     id: string;
     movementType: string;
     date: string;
-    itemId: string;
-    warehouseId: string;
+    // Confirmed хөдөлгөөнд null байх боломжгүй (confirm-ийн шалгалт);
+    // sentinel draft-ууд энд хэзээ ч орж ирэхгүй.
+    itemId: string | null;
+    warehouseId: string | null;
     toWarehouseId: string | null;
     quantity: string | number;
     createdAt: Date;
@@ -100,8 +104,8 @@ export function toMovementRefs(
     id: row.id,
     movementType: row.movementType as MovementType,
     date: row.date,
-    itemId: row.itemId,
-    warehouseId: row.warehouseId,
+    itemId: row.itemId ?? "",
+    warehouseId: row.warehouseId ?? "",
     toWarehouseId: row.toWarehouseId,
     quantity: Number(row.quantity),
     createdAt: row.createdAt.toISOString(),

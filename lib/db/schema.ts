@@ -358,6 +358,14 @@ export const arApDocumentLines = pgTable(
     accountNumber: text("account_number").notNull(),
     description: text("description").notNull().default(""),
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    // Бараатай мөр: батлагдахад inventory-д тоо хэмжээний draft үүсгэнэ.
+    itemId: uuid("item_id").references(() => inventoryItems.id, {
+      onDelete: "set null",
+    }),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }),
+    warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
+      onDelete: "set null",
+    }),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   }
@@ -726,12 +734,14 @@ export const inventoryMovements = pgTable(
     documentNo: text("document_no").notNull(),
     movementType: text("movement_type").notNull(), // "receipt" | "issue" | "transfer" | "adjustment"
     date: text("date").notNull(),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => inventoryItems.id, { onDelete: "restrict" }),
-    warehouseId: uuid("warehouse_id")
-      .notNull()
-      .references(() => warehouses.id, { onDelete: "restrict" }),
+    // Sentinel drafts (GL/кассаас үүссэн, бараа нь тодорхойгүй) null байж
+    // болно — батлахын өмнө заавал бөглөнө.
+    itemId: uuid("item_id").references(() => inventoryItems.id, {
+      onDelete: "restrict",
+    }),
+    warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
+      onDelete: "restrict",
+    }),
     // transfer destination; null for other types
     toWarehouseId: uuid("to_warehouse_id").references(() => warehouses.id, {
       onDelete: "restrict",

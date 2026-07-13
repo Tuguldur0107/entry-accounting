@@ -16,6 +16,12 @@ import {
 import type { ArApDocumentType, ArApLineInput } from "@/lib/arap/types";
 import { calculateBaseAmount, roundMoney } from "@/lib/arap/accounting";
 import { extractMainAccount } from "@/lib/reports/balances";
+import {
+  createMovementDraftsForArApDocument,
+  syncInventoryDraftForVoucher,
+} from "@/lib/inventory/sync-sources";
+import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
+import { inventoryItems, warehouses } from "@/lib/db/schema";
 
 async function requireUser() {
   const session = await auth();
@@ -157,12 +163,52 @@ export async function createArApDocument(data: {
       account: line.account.trim(),
       description: line.description.trim(),
       amount: Number(line.amount),
+      itemId: line.itemId || null,
+      quantity: line.itemId ? Number(line.quantity ?? 0) : null,
+      warehouseId: line.itemId ? line.warehouseId || null : null,
     }))
     .filter((line) => line.account && line.amount > 0);
   if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
   for (const line of validLines) {
     assertAmount(line.amount, "Мөрийн дүн");
     await assertEnabledMainAccount(userId, line.account);
+    if (!line.itemId) continue;
+    if (!(line.quantity! > 0))
+      throw new Error("Бараатай мөрөнд тоо хэмжээ 0-ээс их байна");
+    // Клирингийн сахилга: АП-ийн бараатай мөр ЗААВАЛ 14000099 клирингт
+    // суана (капитализацийг өртгийн модуль Dr бараа данс / Cr клиринг гэж
+    // бичдэг — шууд 14000001-д суулгавал GL давхарлана). АР-ийн бараатай
+    // мөр орлогын тал тул 14-бүлэгт огт суухгүй.
+    const lineMain = extractMainAccount(line.account);
+    if (data.documentType === "ap_bill" && lineMain !== CLEARING_ACCOUNT)
+      throw new Error(
+        `Бараатай мөрийн данс ${CLEARING_ACCOUNT} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
+      );
+    if (data.documentType === "ar_invoice" && lineMain.startsWith("14"))
+      throw new Error(
+        "Борлуулалтын бараатай мөр орлогын дансанд суана — COGS бичилтийг өртгийн модуль хийнэ"
+      );
+    // Ownership + идэвх: өөр хэрэглэгчийн бараа/агуулах холбохоос сэргийлнэ.
+    const item = await db.query.inventoryItems.findFirst({
+      where: and(
+        eq(inventoryItems.id, line.itemId),
+        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.isActive, true)
+      ),
+      columns: { id: true },
+    });
+    if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
+    if (line.warehouseId) {
+      const warehouse = await db.query.warehouses.findFirst({
+        where: and(
+          eq(warehouses.id, line.warehouseId),
+          eq(warehouses.userId, userId),
+          eq(warehouses.isActive, true)
+        ),
+        columns: { id: true },
+      });
+      if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
+    }
   }
 
   const totalAmount =
@@ -204,6 +250,9 @@ export async function createArApDocument(data: {
       throw new Error(`"${manualNo}" дугаартай баримт аль хэдийн бүртгэгдсэн`);
   }
   const documentNo = manualNo || nextDocumentNo(data.documentType, data.date);
+
+  let createdDocumentId: string | null = null;
+  let createdVoucherId2: string | null = null;
 
   await db.transaction(async (tx) => {
     let voucherId: string | null = null;
@@ -261,6 +310,7 @@ export async function createArApDocument(data: {
             ];
 
       await tx.insert(journalLines).values(lineValues);
+      createdVoucherId2 = createdVoucherId;
     }
 
     const [document] = await tx
@@ -292,10 +342,143 @@ export async function createArApDocument(data: {
         accountNumber: line.account,
         description: line.description || description,
         amount: String(line.amount),
+        itemId: line.itemId,
+        quantity: line.quantity != null ? String(line.quantity) : null,
+        warehouseId: line.warehouseId,
         sortOrder: index,
       }))
     );
+    createdDocumentId = document.id;
   });
+
+  // Батлагдсан бараатай мөрүүд → inventory-д тоо хэмжээний draft;
+  // бараагүй 14-данс хөндсөн бол sentinel (sync дотроо шийднэ).
+  if (data.postNow && createdDocumentId) {
+    await createMovementDraftsForArApDocument(createdDocumentId);
+    if (createdVoucherId2) await syncInventoryDraftForVoucher(createdVoucherId2);
+  }
+
+  revalidateArAp();
+}
+
+// Ноорог АР/АП баримтыг батлах: create(postNow)-тэй ижил журналын бичилтийг
+// хадгалагдсан мөрүүдээс үүсгэнэ (base дүнг баримтын ханшаар дахин тооцно).
+export async function postArApDocument(id: string) {
+  const userId = await requireUser();
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)),
+    with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+  });
+  if (!document) throw new Error("Баримт олдсонгүй");
+  if (document.status !== "draft")
+    throw new Error("Зөвхөн ноорог баримтыг батална");
+  if (document.lines.length === 0) throw new Error("Баримтад мөр алга");
+
+  const counterparty = await db.query.counterparties.findFirst({
+    where: and(
+      eq(counterparties.id, document.counterpartyId),
+      eq(counterparties.userId, userId),
+      eq(counterparties.isActive, true)
+    ),
+    columns: { id: true },
+  });
+  if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
+
+  await assertEnabledMainAccount(userId, document.controlAccountNumber);
+  for (const line of document.lines)
+    await assertEnabledMainAccount(userId, line.accountNumber);
+
+  const exchangeRate = Number(document.exchangeRate);
+  const baseTotalAmount = calculateBaseAmount(
+    Number(document.totalAmount),
+    exchangeRate
+  );
+  const baseLineAmounts = document.lines.map((line) =>
+    calculateBaseAmount(Number(line.amount), exchangeRate)
+  );
+  // Мөрүүдийн base нийлбэрийн зөрүүг сүүлийн мөрөнд шингээнэ (create-тэй ижил).
+  const residual =
+    baseTotalAmount -
+    baseLineAmounts.reduce((sum, amount) => sum + amount, 0);
+  if (baseLineAmounts.length > 0)
+    baseLineAmounts[baseLineAmounts.length - 1] = roundMoney(
+      baseLineAmounts[baseLineAmounts.length - 1] + residual
+    );
+
+  let voucherId: string | null = null;
+  await db.transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(arApDocuments)
+      .set({ status: "posted", postedAt: new Date() })
+      .where(
+        and(
+          eq(arApDocuments.id, id),
+          eq(arApDocuments.userId, userId),
+          eq(arApDocuments.status, "draft")
+        )
+      )
+      .returning({ id: arApDocuments.id });
+    if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        date: document.date,
+        description: `${documentLabel(document.documentType as ArApDocumentType)}: ${document.description}`,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+    voucherId = voucher.id;
+
+    const lineValues =
+      document.documentType === "ar_invoice"
+        ? [
+            {
+              voucherId: voucher.id,
+              accountNumber: document.controlAccountNumber,
+              debit: String(baseTotalAmount),
+              credit: "0",
+              description: document.description,
+              sortOrder: 0,
+            },
+            ...document.lines.map((line, index) => ({
+              voucherId: voucher.id,
+              accountNumber: line.accountNumber,
+              debit: "0",
+              credit: String(baseLineAmounts[index]),
+              description: line.description || document.description,
+              sortOrder: index + 1,
+            })),
+          ]
+        : [
+            ...document.lines.map((line, index) => ({
+              voucherId: voucher.id,
+              accountNumber: line.accountNumber,
+              debit: String(baseLineAmounts[index]),
+              credit: "0",
+              description: line.description || document.description,
+              sortOrder: index,
+            })),
+            {
+              voucherId: voucher.id,
+              accountNumber: document.controlAccountNumber,
+              debit: "0",
+              credit: String(baseTotalAmount),
+              description: document.description,
+              sortOrder: document.lines.length,
+            },
+          ];
+    await tx.insert(journalLines).values(lineValues);
+
+    await tx
+      .update(arApDocuments)
+      .set({ voucherId: voucher.id })
+      .where(eq(arApDocuments.id, id));
+  });
+
+  await createMovementDraftsForArApDocument(id);
+  if (voucherId) await syncInventoryDraftForVoucher(voucherId);
 
   revalidateArAp();
 }

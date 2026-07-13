@@ -17,6 +17,10 @@ import {
   SEGMENT_DEFS,
 } from "@/lib/constants/standard-accounts";
 import { syncDraftCashDocumentForVoucher } from "@/lib/cash/sync-voucher";
+import {
+  removeDraftMovementsForVoucher,
+  syncInventoryDraftForVoucher,
+} from "@/lib/inventory/sync-sources";
 
 async function requireUser() {
   const session = await auth();
@@ -324,6 +328,7 @@ export async function createVoucher(data: {
   // Reverse-sync into the cash subledger when posted directly.
   if (status === "posted") {
     await syncDraftCashDocumentForVoucher(voucherId);
+    await syncInventoryDraftForVoucher(voucherId);
   }
 
   revalidatePath("/gl/journal");
@@ -345,13 +350,23 @@ export async function postVoucher(id: string) {
   if (Math.abs(totalDebit - totalCredit) > 0.01)
     throw new Error("Дебет ба кредит тэнцэхгүй байна");
 
-  await db
+  // Atomic claim: давхар товшилт/зэрэгцээ post нэг л удаа sync ажиллуулна.
+  const [claimed] = await db
     .update(journalVouchers)
     .set({ status: "posted" })
-    .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+    .where(
+      and(
+        eq(journalVouchers.id, id),
+        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.status, "draft")
+      )
+    )
+    .returning({ id: journalVouchers.id });
+  if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
 
   // Reverse-sync into the cash subledger now that it's posted.
   await syncDraftCashDocumentForVoucher(id);
+  await syncInventoryDraftForVoucher(id);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -369,10 +384,18 @@ export async function unpostVoucher(id: string) {
     throw new Error("Зөвхөн бичигдсэн журналыг буцаах боломжтой");
 
   await db.transaction(async (tx) => {
-    await tx
+    const [claimed] = await tx
       .update(journalVouchers)
       .set({ status: "reversed" })
-      .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+      .where(
+        and(
+          eq(journalVouchers.id, id),
+          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.status, "posted")
+        )
+      )
+      .returning({ id: journalVouchers.id });
+    if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
 
     const [reversal] = await tx
       .insert(journalVouchers)
@@ -395,6 +418,10 @@ export async function unpostVoucher(id: string) {
       }))
     );
   });
+
+  // Эх бичилт нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory
+  // draft-ууд хүчингүй — устгана.
+  await removeDraftMovementsForVoucher(id);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -449,6 +476,13 @@ export async function updateVoucher(
       }))
     );
   });
+
+  // Засварын формоос шууд post хийхэд ч subledger sync-үүд ажиллана —
+  // postVoucher-тэй ижил зам.
+  if (data.status === "posted") {
+    await syncDraftCashDocumentForVoucher(id);
+    await syncInventoryDraftForVoucher(id);
+  }
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");

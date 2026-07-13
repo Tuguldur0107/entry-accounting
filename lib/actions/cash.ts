@@ -21,6 +21,10 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
+import {
+  removeDraftMovementsForVoucher,
+  syncInventoryDraftForVoucher,
+} from "@/lib/inventory/sync-sources";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -567,6 +571,7 @@ export async function postCashDocument(
     creditAccount = buildCode(fromAccount.glAccountNumber);
   }
 
+  let postedVoucherId: string | null = null;
   await db.transaction(async (tx) => {
     const [claimed] = await tx
       .update(cashDocuments)
@@ -680,7 +685,12 @@ export async function postCashDocument(
       .update(cashDocuments)
       .set({ voucherId: voucher.id })
       .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+    postedVoucherId = voucher.id;
   });
+
+  // 14-данс хөндсөн кассын гүйлгээ (шууд бэлэн худалдан авалт г.м.) →
+  // inventory-д тоо нь бөглөгдөөгүй sentinel draft (sync дотроо шийднэ).
+  if (postedVoucherId) await syncInventoryDraftForVoucher(postedVoucherId);
 
   revalidateCash();
 }
@@ -801,6 +811,11 @@ export async function reverseCashDocument(id: string) {
         .where(eq(arApSettlements.id, settlement.id));
     }
   });
+
+  // Эх воучер нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory
+  // draft-ууд хүчингүй.
+  if (document.voucherId)
+    await removeDraftMovementsForVoucher(document.voucherId);
 
   revalidateCash();
 }

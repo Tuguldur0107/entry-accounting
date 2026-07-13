@@ -91,7 +91,7 @@ inventory_movements  — id, userId, documentNo (INV-YYYYMMDD-XXXXXX эсвэл 
 |-----------|--------|
 | АП нэхэмжлэхийн бараатай мөр (itemId+qty) батлагдах | receipt draft (qty) |
 | АР нэхэмжлэхийн бараатай мөр батлагдах | issue draft (qty) |
-| GL журнал 14-данс хөндсөн (аль ч subledger-т холбогдоогүй) | **qty=0 sentinel** draft — бараа/агуулах/тоо бөглөтөл батлагдахгүй |
+| GL воучер **клирингийн 14000099-д цэвэр Dr** бичсэн (subledger-т холбогдоогүй) | **qty=0 sentinel** draft — бараа/агуулах/тоо бөглөтөл батлагдахгүй. Клирингээс гадуурх 14-данс руу шууд бичсэн журналд draft үүсгэхгүй (costing давхарлана) — GL тулгалтын тайланд зөрүү болж илэрнэ |
 | Кассын шууд худалдан авалт (14-данс counter) | receipt draft (qty бөглөх шаардлагатай) |
 
 `ar_ap_document_lines`-д nullable `itemId`, `quantity`, `warehouseId` нэмнэ.
@@ -244,8 +244,10 @@ cost-д avg_cost-оор үнэлээд журналын ноорог → бат�
 Үе 1b — cost: schema + costing.ts (цэвэр, unit тест) → cost entries lifecycle
               (үнэлгээ queue → журналын ноорог → батлах/adopt/сторно) →
               үнэлгээ + GL тулгалтын тайлан → sidebar
-Үе 1c — интеграц: АП/АР мөр → inv draft → cost queue; GL sync (sentinel);
-              кассын counter; backfill (бүх subledger-ийн linked-set)
+Үе 1c — интеграц ✅ (2026-07): АП/АР мөр → inv draft (АП бараатай мөр
+              ЗААВАЛ клирингт, АР-ынх 14-т суухгүй — сервер шалгана);
+              postArApDocument (draft батлах); GL/касс → клиринг-Dr sentinel;
+              unpost/сторно нь бөглөгдөөгүй draft-аа цэвэрлэнэ
 Үе 2  — тооллого, NRV, буцаалт, landed cost (14000099), period-end costing run
 Үе 3  — үйлдвэрлэл (WIP/FG, standard cost + variance), MOH, FIFO
 ```

@@ -175,12 +175,13 @@ export async function runCosting(data: {
     }),
   ]);
 
+  // Confirmed хөдөлгөөнд item/warehouse null байх боломжгүй (confirm guard).
   const movementRefs: MovementRef[] = movements.map((row) => ({
     id: row.id,
     movementType: row.movementType as MovementType,
     date: row.date,
-    itemId: row.itemId,
-    warehouseId: row.warehouseId,
+    itemId: row.itemId ?? "",
+    warehouseId: row.warehouseId ?? "",
     toWarehouseId: row.toWarehouseId,
     quantity: Number(row.quantity),
     createdAt: row.createdAt.toISOString(),
@@ -272,6 +273,8 @@ export async function postCostEntry(id: string) {
   if (!(amount > 0))
     throw new Error("0 дүнтэй бичилтийг GL-д бичихгүй — устгана уу");
 
+  if (!entry.movement.itemId)
+    throw new Error("Хөдөлгөөний бараа сонгогдоогүй байна");
   const accounts = await itemAccountsFor(userId, entry.movement.itemId);
   const { debit, credit } = entryPostingAccounts(
     entry.entryType as CostEntryType,
@@ -281,7 +284,7 @@ export async function postCostEntry(id: string) {
   await assertEnabledMainAccount(userId, credit);
   const buildCode = await costingPostingCodeBuilder(userId);
 
-  const description = `[${entry.movement.documentNo}] ${entry.movement.item.name} — ${entry.movement.description || "өртгийн бичилт"}`;
+  const description = `[${entry.movement.documentNo}] ${entry.movement.item?.name ?? ""} — ${entry.movement.description || "өртгийн бичилт"}`;
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx

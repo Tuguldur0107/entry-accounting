@@ -9,6 +9,8 @@ import {
   counterparties,
   segmentConfigs,
   segmentValues,
+  inventoryItems,
+  warehouses,
 } from "@/lib/db/schema";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -44,7 +46,7 @@ export async function loadArApWorkspaceData() {
   if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
   const userId = session.user.id;
 
-  const [counterpartyRows, documentRows, accounts, configs, values] =
+  const [counterpartyRows, documentRows, accounts, configs, values, items, warehouseRows] =
     await Promise.all([
       db.query.counterparties.findMany({
         where: eq(counterparties.userId, userId),
@@ -71,6 +73,17 @@ export async function loadArApWorkspaceData() {
           eq(segmentValues.isEnabled, true)
         ),
         orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],
+      }),
+      db.query.inventoryItems.findMany({
+        where: and(
+          eq(inventoryItems.userId, userId),
+          eq(inventoryItems.isActive, true)
+        ),
+        orderBy: (item, { asc }) => [asc(item.code)],
+      }),
+      db.query.warehouses.findMany({
+        where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+        orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
       }),
     ]);
 
@@ -153,5 +166,17 @@ export async function loadArApWorkspaceData() {
     segmentOptions,
     defaultSegments,
     defaultAccountNumbers,
+    // Бараатай мөр бичихэд (АП орлого / АР зарлага) ашиглана.
+    inventoryItems: items.map((item) => ({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      unit: item.unit,
+    })),
+    warehouses: warehouseRows.map((warehouse) => ({
+      id: warehouse.id,
+      code: warehouse.code,
+      name: warehouse.name,
+    })),
   };
 }
