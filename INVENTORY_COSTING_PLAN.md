@@ -254,6 +254,9 @@ cost-д avg_cost-оор үнэлээд журналын ноорог → бат�
               буцаалт ✅ (return_in/return_out хөдөлгөөн — гарах нь
               Dr клиринг / Cr бараа данс, ирэх нь Dr бараа данс / Cr COGS,
               хоёулаа дунджаар; АР/АП credit note баримт Үе 3-т),
-              landed cost (14000099), period-end costing run
+              landed cost ✅ (нэмэлт зардлыг бараанд оноох — Dr бараа данс /
+              Cr клиринг, батлагдмагц огнооноос хойшхи дундажийг өсгөнө);
+              period-end costing run — runCosting asOf-оор хангагдсан,
+              backdated дахин үнэлгээ Үе 3-т
 Үе 3  — үйлдвэрлэл (WIP/FG, standard cost + variance), MOH, FIFO
 ```

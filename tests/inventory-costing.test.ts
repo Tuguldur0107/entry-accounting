@@ -196,3 +196,40 @@ test("returns: out at average to clearing, in restores stock and COGS at average
   assert.equal(itemState.qty, 75);
   assert.equal(itemState.avgCost, 2000);
 });
+
+test("landed cost: posted adjustment raises the average for later valuations", () => {
+  const movements = [
+    m({ id: "r1", movementType: "receipt", quantity: 100, date: "2026-07-01" }),
+    m({ id: "i1", movementType: "issue", quantity: 10, date: "2026-07-05" }),
+  ];
+  const { entries, state } = computeCostingRun({
+    movements,
+    valuedEntries: [
+      {
+        movementId: "r1",
+        entryType: "receipt_capitalize",
+        quantity: 100,
+        unitCost: 1000,
+        amount: 100000,
+      },
+    ],
+    receiptCosts: new Map(),
+    asOfDate: "2026-07-31",
+    // 2026-07-02-нд 20,000₮ тээврийн зардал → дундаж 1000 → 1200
+    valueAdjustments: [
+      {
+        id: "lc1",
+        itemId: "item-a",
+        date: "2026-07-02",
+        amount: 20000,
+        createdAt: "lc1",
+      },
+    ],
+  });
+  const issue = entries.find((e) => e.movementId === "i1")!;
+  assert.equal(issue.unitCost, 1200);
+  assert.equal(issue.amount, 12000);
+  const itemState = state.get("item-a")!;
+  assert.equal(itemState.qty, 90);
+  assert.equal(itemState.avgCost, 1200);
+});

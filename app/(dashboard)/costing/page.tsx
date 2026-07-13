@@ -69,6 +69,20 @@ export default async function CostingDashboardPage() {
     valuedEntries,
     receiptCosts: new Map(),
     asOfDate: today(),
+    valueAdjustments: entries
+      .filter(
+        (entry) =>
+          entry.entryType === "landed_cost" &&
+          entry.status === "posted" &&
+          entry.itemId != null
+      )
+      .map((entry) => ({
+        id: entry.id,
+        itemId: entry.itemId!,
+        date: entry.date,
+        amount: Number(entry.amount),
+        createdAt: entry.createdAt.toISOString(),
+      })),
   });
 
   const movementById = new Map(movements.map((movement) => [movement.id, movement]));
@@ -116,6 +130,7 @@ export default async function CostingDashboardPage() {
       entry.entryType === "receipt_capitalize" ||
       entry.entryType === "adjustment_gain" ||
       entry.entryType === "return_in" ||
+      entry.entryType === "landed_cost" ||
       entry.entryType === "nrv_reversal"
     )
       subledgerTotal += amount;
@@ -132,6 +147,9 @@ export default async function CostingDashboardPage() {
       clearingBalance={clearingBalance}
       tieOutDifference={tieOutDifference}
       defaultAsOf={today()}
+      items={itemViews
+        .filter((item) => item.isActive)
+        .map((item) => ({ id: item.id, label: `${item.code} · ${item.name}` }))}
     />
   );
 }

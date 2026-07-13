@@ -34,6 +34,10 @@ export type CostEntryType =
   // COGS-оо буцаана — аль аль нь тухайн үеийн дунджаар.
   | "return_out"
   | "return_in"
+  // Landed cost (IAS 2.11): клирингт суусан тээвэр/гааль зэрэг зардлыг
+  // барааны өртөгт шингээнэ — БАТЛАГДМАГЦ тухайн огнооноос хойшхи
+  // үнэлгээнд дундажийг өсгөнө.
+  | "landed_cost"
   | "nrv_writedown"
   | "nrv_reversal";
 
@@ -63,6 +67,15 @@ export interface PendingMovement {
 export interface ItemCostState {
   qty: number;
   avgCost: number;
+}
+
+/** Батлагдсан landed cost — тухайн огнооны үлдэгдэлд үнийн нэмэгдэл. */
+export interface ValueAdjustmentRef {
+  id: string;
+  itemId: string;
+  date: string;
+  amount: number;
+  createdAt: string;
 }
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
@@ -96,6 +109,8 @@ export function computeCostingRun(input: {
   valuedEntries: PostedEntryRef[];
   receiptCosts: Map<string, number>;
   asOfDate: string;
+  /** Батлагдсан landed cost-ууд — стриймд огноогоор нь орж дундажийг өсгөнө. */
+  valueAdjustments?: ValueAdjustmentRef[];
 }): {
   entries: ComputedEntry[];
   pending: PendingMovement[];
@@ -104,7 +119,33 @@ export function computeCostingRun(input: {
   const valuedByMovement = new Map(
     input.valuedEntries.map((entry) => [entry.movementId, entry])
   );
-  const ordered = sortChronologically(input.movements);
+  // Хөдөлгөөн + landed cost-ыг нэг он цагийн стрийм болгоно.
+  type StreamEvent =
+    | { kind: "movement"; date: string; createdAt: string; id: string; movement: MovementRef }
+    | { kind: "adjust"; date: string; createdAt: string; id: string; adjust: ValueAdjustmentRef };
+  const events: StreamEvent[] = [
+    ...sortChronologically(input.movements).map((movement) => ({
+      kind: "movement" as const,
+      date: movement.date,
+      createdAt: movement.createdAt,
+      id: movement.id,
+      movement,
+    })),
+    ...(input.valueAdjustments ?? []).map((adjust) => ({
+      kind: "adjust" as const,
+      date: adjust.date,
+      createdAt: adjust.createdAt,
+      id: adjust.id,
+      adjust,
+    })),
+  ].sort((a, b) => {
+    const byDate = a.date.localeCompare(b.date);
+    if (byDate !== 0) return byDate;
+    const byCreated = a.createdAt.localeCompare(b.createdAt);
+    if (byCreated !== 0) return byCreated;
+    return a.id.localeCompare(b.id);
+  });
+  const ordered = events;
   const state = new Map<string, ItemCostState>();
   const stateFor = (itemId: string) => {
     let s = state.get(itemId);
@@ -121,9 +162,20 @@ export function computeCostingRun(input: {
   // бүх хөдөлгөөн нь blocked.
   const blockedItems = new Set<string>();
 
-  for (const movement of ordered) {
+  for (const event of ordered) {
+    if (event.date > input.asOfDate) continue;
+    if (event.kind === "adjust") {
+      // Landed cost: qty > 0 үед л дундажид шингэнэ (нөөцгүй үед орхино —
+      // GL талдаа бичигдсэн, tie-out биш үнэлгээний тайланд л ялгарна).
+      const adjustState = stateFor(event.adjust.itemId);
+      if (adjustState.qty > 0)
+        adjustState.avgCost = round4(
+          adjustState.avgCost + event.adjust.amount / adjustState.qty
+        );
+      continue;
+    }
+    const movement = event.movement;
     if (movement.movementType === "transfer") continue; // GL нөлөөгүй
-    if (movement.date > input.asOfDate) continue;
 
     const existing = valuedByMovement.get(movement.id);
     const itemState = stateFor(movement.itemId);
@@ -261,6 +313,12 @@ export function entryPostingAccounts(
       return {
         debit: itemAccounts.inventoryAccountNumber,
         credit: itemAccounts.cogsAccountNumber,
+      };
+    case "landed_cost":
+      // Клирингт суусан нэмэлт зардлыг барааны дансанд капитализацилна.
+      return {
+        debit: itemAccounts.inventoryAccountNumber,
+        credit: CLEARING_ACCOUNT,
       };
     case "nrv_writedown":
       return { debit: NRV_EXPENSE_ACCOUNT, credit: NRV_RESERVE_ACCOUNT };

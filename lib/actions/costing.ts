@@ -24,6 +24,7 @@ import {
   entryPostingAccounts,
   type CostEntryType,
   type PostedEntryRef,
+  type ValueAdjustmentRef,
 } from "@/lib/costing/costing";
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 
@@ -140,6 +141,33 @@ export async function upsertCostingItemSetting(data: {
   revalidateCosting();
 }
 
+function postedLandedCosts(
+  entries: {
+    id: string;
+    itemId: string | null;
+    entryType: string;
+    status: string;
+    date: string;
+    amount: string;
+    createdAt: Date;
+  }[]
+): ValueAdjustmentRef[] {
+  return entries
+    .filter(
+      (entry) =>
+        entry.entryType === "landed_cost" &&
+        entry.status === "posted" &&
+        entry.itemId != null
+    )
+    .map((entry) => ({
+      id: entry.id,
+      itemId: entry.itemId!,
+      date: entry.date,
+      amount: Number(entry.amount),
+      createdAt: entry.createdAt.toISOString(),
+    }));
+}
+
 // ─── Costing run ─────────────────────────────────────────────────────────────
 
 // Гараар үнэ өгөх орлогууд: movementId → unitCost. Run нь баталсан-
@@ -209,6 +237,7 @@ export async function runCosting(data: {
     valuedEntries,
     receiptCosts,
     asOfDate: data.asOfDate,
+    valueAdjustments: postedLandedCosts(activeEntries),
   });
 
   if (result.entries.length === 0)
@@ -291,9 +320,11 @@ export async function postCostEntry(id: string) {
   const buildCode = await costingPostingCodeBuilder(userId);
 
   const itemName = entry.movement?.item?.name ?? entry.item?.name ?? "";
-  const description = isNrv
-    ? `[NRV] ${itemName} — цэвэр боломжит үнийн бууруулалт`
-    : `[${entry.movement!.documentNo}] ${itemName} — ${entry.movement!.description || "өртгийн бичилт"}`;
+  const description = !isNrv
+    ? `[${entry.movement!.documentNo}] ${itemName} — ${entry.movement!.description || "өртгийн бичилт"}`
+    : entry.entryType === "landed_cost"
+      ? `[Landed cost] ${itemName} — нэмэлт зардлын капитализаци`
+      : `[NRV] ${itemName} — цэвэр боломжит үнийн бууруулалт`;
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -571,6 +602,7 @@ export async function createNrvEntry(data: {
       valuedEntries: movementEntries,
       receiptCosts: new Map(),
       asOfDate: data.date,
+      valueAdjustments: postedLandedCosts(entries),
     });
     const itemState = state.get(data.itemId);
     const qty = itemState?.qty ?? 0;
@@ -624,6 +656,52 @@ export async function createNrvEntry(data: {
     revalidateCosting();
     return result;
   });
+}
+
+// ─── Landed cost (IAS 2.11) ──────────────────────────────────────────────────
+
+// Клирингт суусан тээвэр/гааль зэрэг зардлыг сонгосон бараанд оноож НООРОГ
+// бичилт үүсгэнэ (Dr бараа данс / Cr 14000099). Батлагдмагц тухайн огнооноос
+// хойшхи costing run-ууд дундажийг өссөнөөр тооцно.
+export async function createLandedCostEntry(data: {
+  itemId: string;
+  date: string;
+  amount: number;
+}) {
+  const userId = await requireUser();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
+    throw new Error("Огноо буруу байна");
+  const amount = Math.round(Number(data.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0)
+    throw new Error("Дүн 0-ээс их байна");
+
+  const item = await db.query.inventoryItems.findFirst({
+    where: and(
+      eq(inventoryItems.id, data.itemId),
+      eq(inventoryItems.userId, userId),
+      eq(inventoryItems.isActive, true)
+    ),
+    columns: { id: true },
+  });
+  if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
+
+  const [created] = await db
+    .insert(costEntries)
+    .values({
+      userId,
+      movementId: null,
+      itemId: data.itemId,
+      entryType: "landed_cost",
+      date: data.date,
+      quantity: "0",
+      unitCost: "0",
+      amount: String(amount),
+      valuationSource: "manual",
+    })
+    .returning({ id: costEntries.id });
+
+  revalidateCosting();
+  return { id: created.id, amount };
 }
 
 // Дэлгэрэнгүй drawer-т: холбогдсон GL журналын мөрүүд.

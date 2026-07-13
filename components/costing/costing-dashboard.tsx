@@ -4,13 +4,22 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { AlertTriangle, Calculator, FileClock, Scale } from "lucide-react";
+import { AlertTriangle, Calculator, FileClock, PackagePlus, Scale } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { runCosting } from "@/lib/actions/costing";
+import { createLandedCostEntry, runCosting } from "@/lib/actions/costing";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import type { PendingValuationView } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
 
@@ -25,6 +34,8 @@ interface Props {
   tieOutDifference: number;
   /** Серверийн (UTC+8) өнөөдөр — клиентийн цагийн бүсээс хамаарахгүй. */
   defaultAsOf: string;
+  /** Landed cost оноох барааны сонголт. */
+  items: { id: string; label: string }[];
 }
 
 // Өртгийн модулийн самбар: үнэлгээ хүлээгдэж буй хөдөлгөөнүүдэд нэгж өртөг
@@ -37,6 +48,7 @@ export function CostingDashboard({
   clearingBalance,
   tieOutDifference,
   defaultAsOf,
+  items,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -44,6 +56,12 @@ export function CostingDashboard({
   // Ref (state биш): keystroke бүрд grid-ийн columnDefs дахин үүсэж input
   // focus-оо алдахаас сэргийлнэ — uncontrolled input + ref бичилт.
   const costInputsRef = useRef<Record<string, string>>({});
+  const [landedOpen, setLandedOpen] = useState(false);
+  const [landedForm, setLandedForm] = useState({
+    itemId: "",
+    date: defaultAsOf,
+    amount: "",
+  });
 
   const receiptsNeedingCost = useMemo(
     () => pending.filter((p) => p.reason === "unit-cost-required"),
@@ -185,6 +203,18 @@ export function CostingDashboard({
             value={asOfDate}
             onChange={(event) => setAsOfDate(event.target.value)}
           />
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={isPending}
+            onClick={() => {
+              setLandedForm({ itemId: "", date: asOfDate, amount: "" });
+              setLandedOpen(true);
+            }}
+          >
+            <PackagePlus />
+            Landed cost
+          </Button>
           <Button size="sm" onClick={handleRun} disabled={isPending}>
             <Calculator />
             Costing run
@@ -259,6 +289,104 @@ export function CostingDashboard({
           />
         )}
       </section>
+
+      {/* Landed cost: клирингт суусан нэмэлт зардлыг бараанд оноох */}
+      <Dialog open={landedOpen} onOpenChange={setLandedOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Landed cost оноох</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <p className="text-xs text-[var(--ea-text-3)]">
+              Тээвэр, гааль зэрэг клирингт (14000099) суусан зардлыг бараанд
+              оноож капитализацилна — батлагдмагц тухайн огнооноос хойшхи
+              үнэлгээнд дундаж өртөг өснө.
+            </p>
+            <div className="grid gap-1.5">
+              <Label>Бараа</Label>
+              <SearchableSelect
+                value={landedForm.itemId}
+                onChange={(value) =>
+                  setLandedForm((current) => ({ ...current, itemId: value }))
+                }
+                options={items.map((item) => ({ value: item.id, label: item.label }))}
+                placeholder="Бараа сонгох..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label>Огноо</Label>
+                <Input
+                  type="date"
+                  value={landedForm.date}
+                  onChange={(event) =>
+                    setLandedForm((current) => ({
+                      ...current,
+                      date: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Дүн (MNT)</Label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={landedForm.amount}
+                  placeholder="0.00"
+                  onChange={(event) =>
+                    setLandedForm((current) => ({
+                      ...current,
+                      amount: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setLandedOpen(false)}
+              disabled={isPending}
+            >
+              Болих
+            </Button>
+            <Button
+              disabled={
+                isPending ||
+                !landedForm.itemId ||
+                !(Number(landedForm.amount) > 0)
+              }
+              onClick={() =>
+                startTransition(async () => {
+                  try {
+                    const result = await createLandedCostEntry({
+                      itemId: landedForm.itemId,
+                      date: landedForm.date,
+                      amount: Number(landedForm.amount.replaceAll(",", "")),
+                    });
+                    setLandedOpen(false);
+                    router.refresh();
+                    toast.success(
+                      `Landed cost ноорог үүслээ — ${fmtMnt(result.amount)}`
+                    );
+                  } catch (caught) {
+                    toast.error(
+                      caught instanceof Error
+                        ? caught.message
+                        : "Landed cost үүссэнгүй"
+                    );
+                  }
+                })
+              }
+            >
+              Ноорог үүсгэх
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

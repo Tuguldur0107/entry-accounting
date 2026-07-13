@@ -40,6 +40,7 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
   adjustment_loss: "Дутагдал",
   return_in: "Буцаалт (ирсэн)",
   return_out: "Буцаалт (гарсан)",
+  landed_cost: "Landed cost",
   nrv_writedown: "NRV бууруулалт",
   nrv_reversal: "NRV сэргээлт",
 };

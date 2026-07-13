@@ -92,6 +92,20 @@ export default async function CostingReportsPage() {
   // Зөвхөн БАТЛАГДСАН бичилттэй хөдөлгөөнүүдийг replay хийнэ — үнэлэгдээгүй
   // хөдөлгөөнийг таамгаар үнэлж tie-out хүснэгттэй зөрүүлэхгүй.
   const valuedMovementIds = new Set(postedEntries.map((entry) => entry.movementId));
+  const landedCosts = entries
+    .filter(
+      (entry) =>
+        entry.entryType === "landed_cost" &&
+        entry.status === "posted" &&
+        entry.itemId != null
+    )
+    .map((entry) => ({
+      id: entry.id,
+      itemId: entry.itemId!,
+      date: entry.date,
+      amount: Number(entry.amount),
+      createdAt: entry.createdAt.toISOString(),
+    }));
   const { state } = computeCostingRun({
     movements: toMovementRefs(
       movements.filter((movement) => valuedMovementIds.has(movement.id))
@@ -99,6 +113,7 @@ export default async function CostingReportsPage() {
     valuedEntries: postedEntries,
     receiptCosts: new Map(),
     asOfDate: today(),
+    valueAdjustments: landedCosts,
   });
 
   const valuation: ValuationRow[] = [];
@@ -140,6 +155,18 @@ export default async function CostingReportsPage() {
         ? amount
         : -amount;
     subledgerByAccount.set(account, (subledgerByAccount.get(account) ?? 0) + delta);
+  }
+
+  // Landed cost (movement-гүй, item-д оноогдсон) — барааны дансанд нэмэгдэнэ.
+  for (const entry of entries) {
+    if (entry.entryType !== "landed_cost" || entry.status !== "posted") continue;
+    if (!entry.itemId) continue;
+    const account =
+      settingByItem.get(entry.itemId)?.inventoryAccountNumber || "14000001";
+    subledgerByAccount.set(
+      account,
+      (subledgerByAccount.get(account) ?? 0) + Number(entry.amount)
+    );
   }
 
   // NRV-ийн posted нөлөө contra-нөөц дансанд (кредит үлдэгдэл → сөрөг).
