@@ -15,6 +15,7 @@ import {
   ReceiptText,
   Calculator,
   Boxes,
+  ClipboardCheck,
 } from "lucide-react";
 
 // Модуль бүрийн цэс нэг стандарт ДАРААЛЛААР жагсана (визуал бүлэглэлгүй):
@@ -116,6 +117,11 @@ export const MODULES: Module[] = [
         label: "Хөдөлгөөн",
         href: "/inventory/movements",
         icon: ArrowLeftRight,
+      },
+      {
+        label: "Тооллого",
+        href: "/inventory/counting",
+        icon: ClipboardCheck,
       },
       { label: "Тайлан", href: "/inventory/reports", icon: BarChartBig },
       { label: "Бараа, агуулах", href: "/inventory/items", icon: Boxes },

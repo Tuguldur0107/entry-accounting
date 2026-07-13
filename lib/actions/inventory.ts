@@ -12,6 +12,8 @@ import {
   warehouses,
 } from "@/lib/db/schema";
 import {
+  balanceKey,
+  calculateQtyBalances,
   findNegativeStock,
   type MovementRef,
   type MovementType,
@@ -482,4 +484,90 @@ export async function cancelInventoryMovement(id: string) {
     if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
   });
   revalidateInventory();
+}
+
+// ─── Тооллого ────────────────────────────────────────────────────────────────
+
+// Тооллогын хуудас: агуулах, огноо, бараа бүрийн тоолсон тоог хүлээж авч
+// системийн үлдэгдэлтэй (тухайн огнооны байдлаар, сервер талд дахин тооцно)
+// харьцуулаад зөрүү бүрд ТОХИРУУЛГЫН НООРОГ хөдөлгөөн үүсгэнэ. Ноорог нь
+// ердийн замаараа батлагдаж, costing run илүүдлийг 51800003, дутагдлыг
+// 87100004-өөр журналдана. Advisory lock — батлах/цуцлахтай нэг цуваанд.
+export async function recordInventoryCount(data: {
+  date: string;
+  warehouseId: string;
+  counts: { itemId: string; countedQty: number }[];
+}) {
+  const userId = await requireUser();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
+    throw new Error("Огноо буруу байна");
+  if (data.counts.length === 0)
+    throw new Error("Тоолсон бараа алга");
+
+  const warehouse = await db.query.warehouses.findFirst({
+    where: and(
+      eq(warehouses.id, data.warehouseId),
+      eq(warehouses.userId, userId),
+      eq(warehouses.isActive, true)
+    ),
+    columns: { id: true },
+  });
+  if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
+
+  const itemIds = data.counts.map((count) => count.itemId);
+  const items = await db.query.inventoryItems.findMany({
+    where: and(
+      eq(inventoryItems.userId, userId),
+      eq(inventoryItems.isActive, true),
+      inArray(inventoryItems.id, itemIds)
+    ),
+    columns: { id: true },
+  });
+  const ownedItems = new Set(items.map((item) => item.id));
+
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+
+    // Системийн үлдэгдэл тооллогын огнооны байдлаар (confirmed replay).
+    const refs = (await confirmedMovementRefs(tx, userId)).filter(
+      (ref) => ref.date <= data.date
+    );
+    const balances = calculateQtyBalances(refs);
+
+    const inserts: (typeof inventoryMovements.$inferInsert)[] = [];
+    for (const count of data.counts) {
+      if (!ownedItems.has(count.itemId))
+        throw new Error("Идэвхтэй бараа олдсонгүй");
+      const countedQty = Number(count.countedQty);
+      if (!Number.isFinite(countedQty) || countedQty < 0)
+        throw new Error("Тоолсон тоо 0 буюу түүнээс их байна");
+      const systemQty =
+        balances.get(balanceKey(count.itemId, data.warehouseId)) ?? 0;
+      const difference = Math.round((countedQty - systemQty) * 10000) / 10000;
+      if (difference === 0) continue;
+      inserts.push({
+        userId,
+        documentNo: `CNT-${data.date.replaceAll("-", "")}-${crypto
+          .randomUUID()
+          .slice(0, 6)
+          .toUpperCase()}`,
+        movementType: "adjustment",
+        date: data.date,
+        itemId: count.itemId,
+        warehouseId: data.warehouseId,
+        toWarehouseId: null,
+        quantity: String(difference),
+        description: `Тооллого ${data.date}: систем ${systemQty}, тоолсон ${countedQty}`,
+        status: "draft",
+        sourceType: "manual",
+        sourceId: null,
+      });
+    }
+
+    if (inserts.length > 0) await tx.insert(inventoryMovements).values(inserts);
+    return { created: inserts.length };
+  }).then((result) => {
+    revalidateInventory();
+    return result;
+  });
 }
