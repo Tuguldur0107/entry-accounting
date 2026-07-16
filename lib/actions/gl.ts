@@ -21,6 +21,10 @@ import {
   removeDraftMovementsForVoucher,
   syncInventoryDraftForVoucher,
 } from "@/lib/inventory/sync-sources";
+import {
+  removeDraftAssetsForVoucher,
+  syncFixedAssetDraftForVoucher,
+} from "@/lib/fa/sync-sources";
 
 async function requireUser() {
   const session = await auth();
@@ -329,6 +333,7 @@ export async function createVoucher(data: {
   if (status === "posted") {
     await syncDraftCashDocumentForVoucher(voucherId);
     await syncInventoryDraftForVoucher(voucherId);
+    await syncFixedAssetDraftForVoucher(voucherId);
   }
 
   revalidatePath("/gl/journal");
@@ -367,6 +372,7 @@ export async function postVoucher(id: string) {
   // Reverse-sync into the cash subledger now that it's posted.
   await syncDraftCashDocumentForVoucher(id);
   await syncInventoryDraftForVoucher(id);
+  await syncFixedAssetDraftForVoucher(id);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -420,8 +426,9 @@ export async function unpostVoucher(id: string) {
   });
 
   // Эх бичилт нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory
-  // draft-ууд хүчингүй — устгана.
+  // draft, FA ноорог карт хүчингүй — устгана.
   await removeDraftMovementsForVoucher(id);
+  await removeDraftAssetsForVoucher(id);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -482,6 +489,7 @@ export async function updateVoucher(
   if (data.status === "posted") {
     await syncDraftCashDocumentForVoucher(id);
     await syncInventoryDraftForVoucher(id);
+  await syncFixedAssetDraftForVoucher(id);
   }
 
   revalidatePath("/gl/journal");

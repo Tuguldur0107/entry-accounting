@@ -899,6 +899,93 @@ export const costEntriesRelations = relations(costEntries, ({ one }) => ({
   }),
 }));
 
+
+// ─── Fixed Assets (fa) — хөрөнгийн карт + элэгдэл ────────────────────────────
+// Худалдан авалтын GL-ийг АП/касс/GL модуль бичдэг; FA модуль картыг хөтөлж
+// зөвхөн ЭЛЭГДЛИЙН журналыг (Dr 70000001 / Cr 21000099, §2.21) бичнэ.
+
+export const fixedAssets = pgTable(
+  "fixed_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    acquisitionDate: text("acquisition_date").notNull(),
+    cost: numeric("cost", { precision: 18, scale: 2 }).notNull(),
+    salvageValue: numeric("salvage_value", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    usefulLifeMonths: integer("useful_life_months").notNull().default(0),
+    // Элэгдэл эхлэх сар (YYYY-MM); идэвхжүүлэхэд заавал бөглөнө.
+    depreciationStartMonth: text("depreciation_start_month"),
+    assetAccountNumber: text("asset_account_number")
+      .notNull()
+      .default("21010000"),
+    accumDepAccountNumber: text("accum_dep_account_number")
+      .notNull()
+      .default("21000099"),
+    depExpenseAccountNumber: text("dep_expense_account_number")
+      .notNull()
+      .default("70000001"),
+    status: text("status").notNull().default("draft"), // "draft" | "active" | "disposed"
+    // Худалдан авалтыг бичсэн GL воучер (АП/касс/гар журналын sync).
+    sourceVoucherId: uuid("source_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  assetId: uuid("asset_id")
+    .notNull()
+    .references(() => fixedAssets.id, { onDelete: "restrict" }),
+  periodMonth: text("period_month").notNull(), // YYYY-MM — нэг сард 1 идэвхтэй бичилт (кодоор)
+  amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
+  voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+    onDelete: "set null",
+  }),
+  reversalVoucherId: uuid("reversal_voucher_id").references(
+    () => journalVouchers.id,
+    { onDelete: "set null" }
+  ),
+  postedAt: timestamp("posted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const fixedAssetsRelations = relations(fixedAssets, ({ one, many }) => ({
+  user: one(users, { fields: [fixedAssets.userId], references: [users.id] }),
+  depreciationEntries: many(faDepreciationEntries),
+}));
+
+export const faDepreciationEntriesRelations = relations(
+  faDepreciationEntries,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [faDepreciationEntries.userId],
+      references: [users.id],
+    }),
+    asset: one(fixedAssets, {
+      fields: [faDepreciationEntries.assetId],
+      references: [fixedAssets.id],
+    }),
+    voucher: one(journalVouchers, {
+      fields: [faDepreciationEntries.voucherId],
+      references: [journalVouchers.id],
+    }),
+  })
+);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -925,3 +1012,5 @@ export type InventoryMovement = typeof inventoryMovements.$inferSelect;
 export type CostingItemSetting = typeof costingItemSettings.$inferSelect;
 export type CostingRun = typeof costingRuns.$inferSelect;
 export type CostEntry = typeof costEntries.$inferSelect;
+export type FixedAsset = typeof fixedAssets.$inferSelect;
+export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;

@@ -25,6 +25,10 @@ import {
   removeDraftMovementsForVoucher,
   syncInventoryDraftForVoucher,
 } from "@/lib/inventory/sync-sources";
+import {
+  removeDraftAssetsForVoucher,
+  syncFixedAssetDraftForVoucher,
+} from "@/lib/fa/sync-sources";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -690,7 +694,10 @@ export async function postCashDocument(
 
   // 14-данс хөндсөн кассын гүйлгээ (шууд бэлэн худалдан авалт г.м.) →
   // inventory-д тоо нь бөглөгдөөгүй sentinel draft (sync дотроо шийднэ).
-  if (postedVoucherId) await syncInventoryDraftForVoucher(postedVoucherId);
+  if (postedVoucherId) {
+    await syncInventoryDraftForVoucher(postedVoucherId);
+    await syncFixedAssetDraftForVoucher(postedVoucherId);
+  }
 
   revalidateCash();
 }
@@ -814,8 +821,10 @@ export async function reverseCashDocument(id: string) {
 
   // Эх воучер нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory
   // draft-ууд хүчингүй.
-  if (document.voucherId)
+  if (document.voucherId) {
     await removeDraftMovementsForVoucher(document.voucherId);
+    await removeDraftAssetsForVoucher(document.voucherId);
+  }
 
   revalidateCash();
 }

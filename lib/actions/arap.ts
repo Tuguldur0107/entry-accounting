@@ -20,6 +20,7 @@ import {
   createMovementDraftsForArApDocument,
   syncInventoryDraftForVoucher,
 } from "@/lib/inventory/sync-sources";
+import { syncFixedAssetDraftForVoucher } from "@/lib/fa/sync-sources";
 import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 
@@ -355,7 +356,10 @@ export async function createArApDocument(data: {
   // бараагүй 14-данс хөндсөн бол sentinel (sync дотроо шийднэ).
   if (data.postNow && createdDocumentId) {
     await createMovementDraftsForArApDocument(createdDocumentId);
-    if (createdVoucherId2) await syncInventoryDraftForVoucher(createdVoucherId2);
+    if (createdVoucherId2) {
+      await syncInventoryDraftForVoucher(createdVoucherId2);
+      await syncFixedAssetDraftForVoucher(createdVoucherId2);
+    }
   }
 
   revalidateArAp();
@@ -478,7 +482,10 @@ export async function postArApDocument(id: string) {
   });
 
   await createMovementDraftsForArApDocument(id);
-  if (voucherId) await syncInventoryDraftForVoucher(voucherId);
+  if (voucherId) {
+    await syncInventoryDraftForVoucher(voucherId);
+    await syncFixedAssetDraftForVoucher(voucherId);
+  }
 
   revalidateArAp();
 }

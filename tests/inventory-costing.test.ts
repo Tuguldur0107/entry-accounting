@@ -8,6 +8,10 @@ import {
   type MovementRef,
 } from "../lib/inventory/balances";
 import { computeCostingRun } from "../lib/costing/costing";
+import {
+  computeMonthlyDepreciation,
+  monthlyDepreciation,
+} from "../lib/fa/depreciation";
 
 function m(partial: Partial<MovementRef> & Pick<MovementRef, "id">): MovementRef {
   return {
@@ -232,4 +236,55 @@ test("landed cost: posted adjustment raises the average for later valuations", (
   const itemState = state.get("item-a")!;
   assert.equal(itemState.qty, 90);
   assert.equal(itemState.avgCost, 1200);
+});
+
+test("depreciation: straight line with final-month cap and start gating", () => {
+  const assets = [
+    {
+      id: "a1",
+      cost: 1200000,
+      salvageValue: 0,
+      usefulLifeMonths: 12,
+      depreciationStartMonth: "2026-01",
+      status: "active",
+    },
+    {
+      id: "a2", // элэгдэл 8 сараас эхэлнэ — 7 сард орохгүй
+      cost: 600000,
+      salvageValue: 0,
+      usefulLifeMonths: 6,
+      depreciationStartMonth: "2026-08",
+      status: "active",
+    },
+    {
+      id: "a3", // бараг бүрэн элэгдсэн — сүүлийн сард үлдэгдлээр
+      cost: 500000,
+      salvageValue: 50000,
+      usefulLifeMonths: 10,
+      depreciationStartMonth: "2025-01",
+      status: "active",
+    },
+  ];
+  assert.equal(monthlyDepreciation(assets[0]), 100000);
+  const result = computeMonthlyDepreciation({
+    assets,
+    postedAccum: new Map([["a3", 440000]]), // суурь 450k — үлдсэн 10k < сарын 45k
+    alreadyCharged: new Set(),
+    month: "2026-07",
+  });
+  assert.deepEqual(
+    result.map((r) => [r.assetId, r.amount]),
+    [
+      ["a1", 100000],
+      ["a3", 10000],
+    ]
+  );
+  // Тухайн сард аль хэдийн бичилттэй бол алгасна
+  const again = computeMonthlyDepreciation({
+    assets,
+    postedAccum: new Map([["a1", 100000]]),
+    alreadyCharged: new Set(["a1", "a3"]),
+    month: "2026-07",
+  });
+  assert.equal(again.length, 0);
 });

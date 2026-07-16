@@ -143,9 +143,9 @@ export function Sidebar() {
           <button
             type="button"
             onClick={toggle}
-            aria-label={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
+            // aria-label={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
             aria-expanded={!collapsed}
-            title={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
+            // title={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
             className={cn(
               "flex min-h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--ea-text-3)] transition-colors hover:bg-[var(--ea-surface)] hover:text-[var(--ea-text-1)]",
               collapsed && "justify-center px-2"
@@ -157,9 +157,9 @@ export function Sidebar() {
               <PanelLeftClose size={16} className="shrink-0" />
             )}
             {collapsed ? (
-              <span className="sr-only">Sidebar дэлгэх</span>
+              <span className="sr-only"></span>
             ) : (
-              <span className="truncate">Sidebar хураах</span>
+              <span className="truncate"></span>
             )}
           </button>
         </div>
