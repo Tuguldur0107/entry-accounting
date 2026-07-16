@@ -30,7 +30,7 @@ import {
 } from "@/lib/actions/costing";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
-import { fmtAccountDisplay } from "@/lib/grid/segments";
+import { VoucherLinesTable } from "@/components/gl/voucher-lines-table";
 import { cn } from "@/lib/utils";
 
 const ENTRY_TYPE_LABELS: Record<string, string> = {
@@ -508,42 +508,11 @@ function CostEntryDetailDialog({
                 )}
               </div>
               {detail && detail.lines.length > 0 ? (
-                <div className="overflow-hidden rounded-md border border-[var(--ea-border)]">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
-                        <th className="px-3 py-1.5 text-left font-medium">Данс</th>
-                        <th className="px-3 py-1.5 text-right font-medium">Дебет</th>
-                        <th className="px-3 py-1.5 text-right font-medium">Кредит</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.lines.map((line, index) => {
-                        const parts = line.accountNumber.split(".");
-                        const main =
-                          parts.length === 10 ? parts[2] : line.accountNumber;
-                        return (
-                          <tr key={index} className="border-t border-[var(--ea-border)]">
-                            <td className="px-3 py-1.5">
-                              <span className="font-mono text-[var(--ea-primary-500)]">
-                                {fmtAccountDisplay(line.accountNumber, activeSegIds)}
-                              </span>
-                              <span className="ml-2 text-[var(--ea-text-3)]">
-                                {glNames[main] ?? ""}
-                              </span>
-                            </td>
-                            <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-                              {line.debit !== 0 ? fmtMnt(line.debit) : "—"}
-                            </td>
-                            <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-                              {line.credit !== 0 ? fmtMnt(line.credit) : "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <VoucherLinesTable
+                  lines={detail.lines}
+                  activeSegIds={activeSegIds}
+                  glName={(main) => glNames[main] ?? ""}
+                />
               ) : (
                 <div className="rounded-md border border-[var(--ea-border)] py-6 text-center text-xs text-[var(--ea-text-4)]">
                   {entry.status === "draft"

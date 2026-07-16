@@ -12,11 +12,10 @@ import {
 import {
   getCashDocumentDetail,
   type CashDocumentDetail,
-  type CashDocumentVoucherLine,
 } from "@/lib/actions/cash";
 import type { CashDocumentView } from "@/lib/cash/types";
 import { fmtMnt } from "@/lib/reports/balances";
-import { fmtAccountDisplay } from "@/lib/grid/segments";
+import { VoucherLinesTable } from "@/components/gl/voucher-lines-table";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -171,7 +170,11 @@ export function CashDocumentDetailDialog({
                 </div>
               ) : detail && detail.lines.length > 0 ? (
                 <>
-                  <VoucherTable lines={detail.lines} activeSegIds={activeSegIds} glName={glName} />
+                  <VoucherLinesTable
+                    lines={detail.lines}
+                    activeSegIds={activeSegIds}
+                    glName={glName}
+                  />
                   {showsSourceVoucher && (
                     <p className="mt-1.5 text-[11px] text-[var(--ea-text-4)]">
                       Энэ бичилт GL-д аль хэдийн батлагдсан. Баримтыг батлахад
@@ -194,7 +197,7 @@ export function CashDocumentDetailDialog({
                 <div className="mb-1.5 text-xs font-semibold text-[var(--ea-warning-fg)]">
                   Сторно журнал
                 </div>
-                <VoucherTable
+                <VoucherLinesTable
                   lines={detail.reversalLines}
                   activeSegIds={activeSegIds}
                   glName={glName}
@@ -235,74 +238,6 @@ function Row({
       >
         {value}
       </dd>
-    </div>
-  );
-}
-
-function VoucherTable({
-  lines,
-  activeSegIds,
-  glName,
-}: {
-  lines: CashDocumentVoucherLine[];
-  activeSegIds: number[];
-  glName: (code: string | null) => string;
-}) {
-  const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
-  const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
-  return (
-    <div className="overflow-hidden rounded-md border border-[var(--ea-border)]">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
-            <th className="px-3 py-1.5 text-left font-medium">Данс</th>
-            <th className="px-3 py-1.5 text-left font-medium">Гүйлгээний утга</th>
-            <th className="px-3 py-1.5 text-right font-medium">Дебет</th>
-            <th className="px-3 py-1.5 text-right font-medium">Кредит</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => {
-            // Main account = segment 3 (parts[2]) for the name lookup.
-            const parts = l.accountNumber.split(".");
-            const mainAccount = parts.length === 10 ? parts[2] : l.accountNumber;
-            return (
-              <tr key={i} className="border-t border-[var(--ea-border)]">
-                <td className="px-3 py-1.5">
-                  <span className="font-mono text-[var(--ea-primary-500)]">
-                    {fmtAccountDisplay(l.accountNumber, activeSegIds)}
-                  </span>
-                  <span className="ml-2 text-[var(--ea-text-3)]">
-                    {glName(mainAccount)}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5 text-[var(--ea-text-2)]">
-                  {l.description || "—"}
-                </td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-                  {l.debit !== 0 ? fmtMnt(l.debit) : "—"}
-                </td>
-                <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-                  {l.credit !== 0 ? fmtMnt(l.credit) : "—"}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-[var(--ea-border-strong)] bg-[var(--ea-bg-2)] font-semibold">
-            <td className="px-3 py-1.5 text-right text-[var(--ea-text-3)]" colSpan={2}>
-              Нийт
-            </td>
-            <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-              {fmtMnt(totalDebit)}
-            </td>
-            <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-              {fmtMnt(totalCredit)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
     </div>
   );
 }

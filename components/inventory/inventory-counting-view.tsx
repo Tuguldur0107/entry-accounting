@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { recordInventoryCount } from "@/lib/actions/inventory";
 import type { WarehouseView } from "@/lib/inventory/types";
@@ -160,17 +161,17 @@ export function InventoryCountingView({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="ea-form-select h-8 w-52"
-            value={selectedWarehouseId}
-            onChange={(event) => changeParams({ warehouseId: event.target.value })}
-          >
-            {activeWarehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.code} · {warehouse.name}
-              </option>
-            ))}
-          </select>
+          <div className="w-56">
+            <SearchableSelect
+              value={selectedWarehouseId}
+              onChange={(value) => changeParams({ warehouseId: value })}
+              options={activeWarehouses.map((warehouse) => ({
+                value: warehouse.id,
+                label: `${warehouse.code} · ${warehouse.name}`,
+              }))}
+              placeholder="Агуулах сонгох..."
+            />
+          </div>
           <Input
             type="date"
             className="h-8 w-40"

@@ -17,7 +17,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { AccountInput } from "@/components/account/account-input";
+import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { buildSegCode } from "@/lib/grid/segments";
+import { extractMainAccount } from "@/lib/reports/balances";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   activateFixedAsset,
@@ -64,13 +67,20 @@ const emptyForm = () => ({
 
 interface Props {
   assets: FixedAssetView[];
-  glAccounts: { number: string; name: string }[];
+  activeSegIds: number[];
+  segmentOptions: Record<number, SegOption[]>;
+  defaultSegments: Record<number, string>;
 }
 
 // Хөрөнгийн карт: гараар үүсгэх эсвэл АП/касс/GL-ээс автоматаар ирсэн
 // НООРОГ картыг бөглөж идэвхжүүлнэ. Идэвхжүүлэлт GL бичихгүй — өртөг эх
 // сувагтаа данслагдсан; элэгдэл нь Элэгдэл хуудаснаас run-аар бичигдэнэ.
-export function FaAssetsView({ assets, glAccounts }: Props) {
+export function FaAssetsView({
+  assets,
+  activeSegIds,
+  segmentOptions,
+  defaultSegments,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -78,15 +88,6 @@ export function FaAssetsView({ assets, glAccounts }: Props) {
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
-
-  const accountOptions = useMemo(
-    () =>
-      glAccounts.map((account) => ({
-        value: account.number,
-        label: `${account.number} · ${account.name}`,
-      })),
-    [glAccounts]
-  );
 
   const columns = useMemo<ColDef<FixedAssetView>[]>(
     () => [
@@ -176,9 +177,21 @@ export function FaAssetsView({ assets, glAccounts }: Props) {
                     depreciationStartMonth:
                       asset.depreciationStartMonth ??
                       asset.acquisitionDate.slice(0, 7),
-                    assetAccountNumber: asset.assetAccountNumber,
-                    accumDepAccountNumber: asset.accumDepAccountNumber,
-                    depExpenseAccountNumber: asset.depExpenseAccountNumber,
+                    assetAccountNumber: buildSegCode(
+                      { 3: asset.assetAccountNumber },
+                      activeSegIds,
+                      defaultSegments
+                    ),
+                    accumDepAccountNumber: buildSegCode(
+                      { 3: asset.accumDepAccountNumber },
+                      activeSegIds,
+                      defaultSegments
+                    ),
+                    depExpenseAccountNumber: buildSegCode(
+                      { 3: asset.depExpenseAccountNumber },
+                      activeSegIds,
+                      defaultSegments
+                    ),
                   });
                   setError("");
                   setActivatingId(asset.id);
@@ -221,7 +234,7 @@ export function FaAssetsView({ assets, glAccounts }: Props) {
       },
     ],
      
-    [confirm, router]
+    [confirm, router, activeSegIds, defaultSegments]
   );
 
   function save() {
@@ -236,9 +249,10 @@ export function FaAssetsView({ assets, glAccounts }: Props) {
           salvageValue: Number(form.salvageValue.replaceAll(",", "")) || 0,
           usefulLifeMonths: Number(form.usefulLifeMonths),
           depreciationStartMonth: form.depreciationStartMonth,
-          assetAccountNumber: form.assetAccountNumber,
-          accumDepAccountNumber: form.accumDepAccountNumber,
-          depExpenseAccountNumber: form.depExpenseAccountNumber,
+          // AccountInput бүтэн код буцаана — картад main дансыг хадгална.
+          assetAccountNumber: extractMainAccount(form.assetAccountNumber),
+          accumDepAccountNumber: extractMainAccount(form.accumDepAccountNumber),
+          depExpenseAccountNumber: extractMainAccount(form.depExpenseAccountNumber),
         };
         if (activatingId) await activateFixedAsset(activatingId, payload);
         else await createFixedAsset(payload);
@@ -274,7 +288,25 @@ export function FaAssetsView({ assets, glAccounts }: Props) {
         </div>
         <Button
           onClick={() => {
-            setForm(emptyForm());
+            const base = emptyForm();
+            setForm({
+              ...base,
+              assetAccountNumber: buildSegCode(
+                { 3: base.assetAccountNumber },
+                activeSegIds,
+                defaultSegments
+              ),
+              accumDepAccountNumber: buildSegCode(
+                { 3: base.accumDepAccountNumber },
+                activeSegIds,
+                defaultSegments
+              ),
+              depExpenseAccountNumber: buildSegCode(
+                { 3: base.depExpenseAccountNumber },
+                activeSegIds,
+                defaultSegments
+              ),
+            });
             setError("");
             setActivatingId(null);
             setOpen(true);
@@ -381,34 +413,40 @@ export function FaAssetsView({ assets, glAccounts }: Props) {
               </Field>
             </div>
             <Field label="Өртгийн данс (2Х)">
-              <SearchableSelect
+              <AccountInput
                 value={form.assetAccountNumber}
                 onChange={(value) =>
                   setForm((c) => ({ ...c, assetAccountNumber: value }))
                 }
-                options={accountOptions}
-                placeholder="Данс сонгох..."
+                activeSegIds={activeSegIds}
+                segmentOptions={segmentOptions}
+                defaultSegments={defaultSegments}
+                placeholder="Өртгийн данс..."
               />
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Хуримтлагдсан элэгдлийн данс">
-                <SearchableSelect
+                <AccountInput
                   value={form.accumDepAccountNumber}
                   onChange={(value) =>
                     setForm((c) => ({ ...c, accumDepAccountNumber: value }))
                   }
-                  options={accountOptions}
-                  placeholder="Данс сонгох..."
+                  activeSegIds={activeSegIds}
+                  segmentOptions={segmentOptions}
+                  defaultSegments={defaultSegments}
+                  placeholder="Хуримт. элэгдлийн данс..."
                 />
               </Field>
               <Field label="Элэгдлийн зардлын данс">
-                <SearchableSelect
+                <AccountInput
                   value={form.depExpenseAccountNumber}
                   onChange={(value) =>
                     setForm((c) => ({ ...c, depExpenseAccountNumber: value }))
                   }
-                  options={accountOptions}
-                  placeholder="Данс сонгох..."
+                  activeSegIds={activeSegIds}
+                  segmentOptions={segmentOptions}
+                  defaultSegments={defaultSegments}
+                  placeholder="Зардлын данс..."
                 />
               </Field>
             </div>

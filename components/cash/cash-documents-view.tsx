@@ -40,6 +40,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { AccountInput } from "@/components/account/account-input";
+import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { buildSegCode } from "@/lib/grid/segments";
+import { extractMainAccount } from "@/lib/reports/balances";
 import { CashDocumentDetailDialog } from "./cash-document-detail-dialog";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -70,6 +74,9 @@ interface Props {
   /** Active segment ids — needed to render GL account codes in the detail
    *  drawer per the segment display rule. */
   activeSegIds?: number[];
+  /** AccountInput-ийн сегмент picker-т — байхгүй бол энгийн жагсаалт. */
+  segmentOptions?: Record<number, SegOption[]>;
+  defaultSegments?: Record<number, string>;
   initialArApSettlement?: CashArApSettlementTarget | null;
   /** Open (unpaid / partially paid) AR/AP documents — lets the user pick an
    *  invoice to settle right from the new-transaction dialog. */
@@ -151,6 +158,8 @@ export function CashDocumentsView({
   initialType,
   initialStatus,
   activeSegIds = [3],
+  segmentOptions,
+  defaultSegments = {},
   initialArApSettlement = null,
   arApOpenDocuments = [],
 }: Props) {
@@ -652,7 +661,9 @@ export function CashDocumentsView({
           date: form.date,
           fromCashAccountId: form.fromCashAccountId || undefined,
           toCashAccountId: form.toCashAccountId || undefined,
-          counterAccountNumber: form.counterAccountNumber || undefined,
+          counterAccountNumber: form.counterAccountNumber
+            ? extractMainAccount(form.counterAccountNumber)
+            : undefined,
           cashFlowCode: form.cashFlowCode || undefined,
           counterparty: form.counterparty || undefined,
           description: form.description,
@@ -703,6 +714,12 @@ export function CashDocumentsView({
     if (!target) return;
     setForm((current) => {
       const next = { ...settlementForm(target, accounts), date: current.date };
+      if (segmentOptions)
+        next.counterAccountNumber = buildSegCode(
+          { 3: target.controlAccountNumber },
+          activeSegIds,
+          defaultSegments
+        );
       const accountKey =
         next.documentType === "receipt" ? "toCashAccountId" : "fromCashAccountId";
       const chosen = accounts.find((a) => a.id === current[accountKey]);
@@ -1079,20 +1096,36 @@ export function CashDocumentsView({
             {form.documentType !== "transfer" && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Харилцах GL данс">
-                  <SearchableSelect
-                    value={form.counterAccountNumber}
-                    onChange={(value) =>
-                      setForm((current) => ({
-                        ...current,
-                        counterAccountNumber: value,
-                      }))
-                    }
-                    options={glAccounts.map((account) => ({
-                      value: account.number,
-                      label: account.name,
-                    }))}
-                    placeholder="GL данс сонгох..."
-                  />
+                  {segmentOptions ? (
+                    <AccountInput
+                      value={form.counterAccountNumber}
+                      onChange={(value) =>
+                        setForm((current) => ({
+                          ...current,
+                          counterAccountNumber: value,
+                        }))
+                      }
+                      activeSegIds={activeSegIds}
+                      segmentOptions={segmentOptions}
+                      defaultSegments={defaultSegments}
+                      placeholder="GL данс..."
+                    />
+                  ) : (
+                    <SearchableSelect
+                      value={form.counterAccountNumber}
+                      onChange={(value) =>
+                        setForm((current) => ({
+                          ...current,
+                          counterAccountNumber: value,
+                        }))
+                      }
+                      options={glAccounts.map((account) => ({
+                        value: account.number,
+                        label: account.name,
+                      }))}
+                      placeholder="GL данс сонгох..."
+                    />
+                  )}
                 </Field>
                 <Field label="Харилцагч">
                   <Input

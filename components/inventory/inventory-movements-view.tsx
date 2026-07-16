@@ -674,37 +674,31 @@ export function InventoryMovementsView({
               <Field
                 label={form.movementType === "transfer" ? "Гаргах агуулах" : "Агуулах"}
               >
-                <select
+                <SearchableSelect
                   value={form.warehouseId}
-                  onChange={(e) =>
-                    setForm((c) => ({ ...c, warehouseId: e.target.value }))
+                  onChange={(value) =>
+                    setForm((c) => ({ ...c, warehouseId: value }))
                   }
-                  className="ea-form-select"
-                >
-                  <option value="">Сонгох...</option>
-                  {activeWarehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.code} · {warehouse.name}
-                    </option>
-                  ))}
-                </select>
+                  options={activeWarehouses.map((warehouse) => ({
+                    value: warehouse.id,
+                    label: `${warehouse.code} · ${warehouse.name}`,
+                  }))}
+                  placeholder="Агуулах сонгох..."
+                />
               </Field>
               {form.movementType === "transfer" ? (
                 <Field label="Хүлээн авах агуулах">
-                  <select
+                  <SearchableSelect
                     value={form.toWarehouseId}
-                    onChange={(e) =>
-                      setForm((c) => ({ ...c, toWarehouseId: e.target.value }))
+                    onChange={(value) =>
+                      setForm((c) => ({ ...c, toWarehouseId: value }))
                     }
-                    className="ea-form-select"
-                  >
-                    <option value="">Сонгох...</option>
-                    {activeWarehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.code} · {warehouse.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={activeWarehouses.map((warehouse) => ({
+                      value: warehouse.id,
+                      label: `${warehouse.code} · ${warehouse.name}`,
+                    }))}
+                    placeholder="Агуулах сонгох..."
+                  />
                 </Field>
               ) : (
                 <Field

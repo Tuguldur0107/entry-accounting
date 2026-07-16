@@ -3,13 +3,14 @@ import { and, eq, inArray } from "drizzle-orm";
 import { FaAssetsView, type FixedAssetView } from "@/components/fa/fa-assets-view";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { chartOfAccounts, faDepreciationEntries, fixedAssets } from "@/lib/db/schema";
+import { faDepreciationEntries, fixedAssets } from "@/lib/db/schema";
+import { loadSegmentPickerData } from "@/lib/gl/segment-picker-data";
 
 export default async function FaAssetsPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const [assets, entries, glAccounts] = await Promise.all([
+  const [assets, entries, segmentData] = await Promise.all([
     db.query.fixedAssets.findMany({
       where: eq(fixedAssets.userId, userId),
       orderBy: (asset, { desc }) => [desc(asset.acquisitionDate), desc(asset.createdAt)],
@@ -21,13 +22,7 @@ export default async function FaAssetsPage() {
       ),
       columns: { assetId: true, amount: true },
     }),
-    db.query.chartOfAccounts.findMany({
-      where: and(
-        eq(chartOfAccounts.userId, userId),
-        eq(chartOfAccounts.isEnabled, true)
-      ),
-      orderBy: (account, { asc }) => [asc(account.number)],
-    }),
+    loadSegmentPickerData(userId),
   ]);
 
   const accumByAsset = new Map<string, number>();
@@ -56,7 +51,9 @@ export default async function FaAssetsPage() {
   return (
     <FaAssetsView
       assets={views}
-      glAccounts={glAccounts.map((a) => ({ number: a.number, name: a.name }))}
+      activeSegIds={segmentData.activeSegIds}
+      segmentOptions={segmentData.segmentOptions}
+      defaultSegments={segmentData.defaultSegments}
     />
   );
 }

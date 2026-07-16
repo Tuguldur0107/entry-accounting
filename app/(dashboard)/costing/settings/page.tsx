@@ -8,12 +8,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chartOfAccounts, costingItemSettings } from "@/lib/db/schema";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
+import { loadSegmentPickerData } from "@/lib/gl/segment-picker-data";
 
 export default async function CostingSettingsPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const [{ itemViews }, settings, glAccounts] = await Promise.all([
+  const [{ itemViews }, settings, glAccounts, segmentData] = await Promise.all([
     loadInventoryBase(userId),
     db.query.costingItemSettings.findMany({
       where: eq(costingItemSettings.userId, userId),
@@ -25,6 +26,7 @@ export default async function CostingSettingsPage() {
       ),
       orderBy: (account, { asc }) => [asc(account.number)],
     }),
+    loadSegmentPickerData(userId),
   ]);
 
   const settingByItem = new Map(settings.map((s) => [s.itemId, s]));
@@ -45,6 +47,9 @@ export default async function CostingSettingsPage() {
         number: account.number,
         name: account.name,
       }))}
+      activeSegIds={segmentData.activeSegIds}
+      segmentOptions={segmentData.segmentOptions}
+      defaultSegments={segmentData.defaultSegments}
     />
   );
 }

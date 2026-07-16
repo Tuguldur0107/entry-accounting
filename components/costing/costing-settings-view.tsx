@@ -16,7 +16,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { AccountInput } from "@/components/account/account-input";
+import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { buildSegCode } from "@/lib/grid/segments";
+import { extractMainAccount } from "@/lib/reports/balances";
 import { upsertCostingItemSetting } from "@/lib/actions/costing";
 import {
   ADJUSTMENT_GAIN_ACCOUNT,
@@ -34,9 +37,18 @@ export type CostingSettingRow = {
 interface Props {
   rows: CostingSettingRow[];
   glAccounts: { number: string; name: string }[];
+  activeSegIds: number[];
+  segmentOptions: Record<number, SegOption[]>;
+  defaultSegments: Record<number, string>;
 }
 
-export function CostingSettingsView({ rows, glAccounts }: Props) {
+export function CostingSettingsView({
+  rows,
+  glAccounts,
+  activeSegIds,
+  segmentOptions,
+  defaultSegments,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [editRow, setEditRow] = useState<CostingSettingRow | null>(null);
@@ -86,8 +98,16 @@ export function CostingSettingsView({ rows, glAccounts }: Props) {
               const row = params.data;
               if (!row) return;
               setForm({
-                inventory: row.inventoryAccountNumber,
-                cogs: row.cogsAccountNumber,
+                inventory: buildSegCode(
+                  { 3: row.inventoryAccountNumber },
+                  activeSegIds,
+                  defaultSegments
+                ),
+                cogs: buildSegCode(
+                  { 3: row.cogsAccountNumber },
+                  activeSegIds,
+                  defaultSegments
+                ),
               });
               setError("");
               setEditRow(row);
@@ -109,8 +129,10 @@ export function CostingSettingsView({ rows, glAccounts }: Props) {
       try {
         await upsertCostingItemSetting({
           itemId: editRow.itemId,
-          inventoryAccountNumber: form.inventory,
-          cogsAccountNumber: form.cogs,
+          // AccountInput бүтэн 10 хэсэгт код буцаадаг — үндсэн дансыг нь
+          // хадгална (mapping нь main-түвшний).
+          inventoryAccountNumber: extractMainAccount(form.inventory),
+          cogsAccountNumber: extractMainAccount(form.cogs),
         });
         setEditRow(null);
         router.refresh();
@@ -122,11 +144,6 @@ export function CostingSettingsView({ rows, glAccounts }: Props) {
       }
     });
   }
-
-  const accountOptions = glAccounts.map((account) => ({
-    value: account.number,
-    label: `${account.number} · ${account.name}`,
-  }));
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4">
@@ -177,21 +194,25 @@ export function CostingSettingsView({ rows, glAccounts }: Props) {
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-1.5">
-              <Label>Бараа материалын данс (1-бүлэг)</Label>
-              <SearchableSelect
+              <Label>Бараа материалын данс (14-бүлэг)</Label>
+              <AccountInput
                 value={form.inventory}
                 onChange={(value) => setForm((c) => ({ ...c, inventory: value }))}
-                options={accountOptions}
-                placeholder="Данс сонгох..."
+                activeSegIds={activeSegIds}
+                segmentOptions={segmentOptions}
+                defaultSegments={defaultSegments}
+                placeholder="Бараа материалын данс..."
               />
             </div>
             <div className="grid gap-1.5">
               <Label>Өртгийн (COGS) данс (6-бүлэг)</Label>
-              <SearchableSelect
+              <AccountInput
                 value={form.cogs}
                 onChange={(value) => setForm((c) => ({ ...c, cogs: value }))}
-                options={accountOptions}
-                placeholder="Данс сонгох..."
+                activeSegIds={activeSegIds}
+                segmentOptions={segmentOptions}
+                defaultSegments={defaultSegments}
+                placeholder="COGS данс..."
               />
             </div>
             {error && (

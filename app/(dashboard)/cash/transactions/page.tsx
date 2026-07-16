@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { backfillCashDraftsForUser } from "@/lib/cash/sync-voucher";
+import { loadSegmentPickerData } from "@/lib/gl/segment-picker-data";
 
 type SearchParams = Promise<{
   start?: string;
@@ -54,7 +55,7 @@ export default async function CashTransactionsPage({
     end ? lte(cashDocuments.date, end) : undefined,
   ].filter(Boolean);
 
-  const [accounts, documents, glAccounts, cashFlowOptions, segConfigs, openArApDocs] =
+  const [accounts, documents, glAccounts, cashFlowOptions, segConfigs, openArApDocs, segmentData] =
     await Promise.all([
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.userId, userId),
@@ -91,6 +92,7 @@ export default async function CashTransactionsPage({
       with: { counterparty: true },
       orderBy: (doc, { asc }) => [asc(doc.dueDate), asc(doc.date)],
     }),
+    loadSegmentPickerData(userId),
   ]);
 
   const segConfigMap = new Map(segConfigs.map((c) => [c.segmentId, c]));
@@ -157,6 +159,8 @@ export default async function CashTransactionsPage({
       initialStatus={status}
       showToolbar
       activeSegIds={activeSegIds}
+      segmentOptions={segmentData.segmentOptions}
+      defaultSegments={segmentData.defaultSegments}
       arApOpenDocuments={arApOpenDocuments}
       // `?arap=` deep link (AR/AP module's "Төлөх" button) preselects the
       // invoice; a settled/closed document simply isn't in the open list.
