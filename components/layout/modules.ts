@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   List,
+  Sparkles,
   BarChart3,
   User,
   Building2,
@@ -151,6 +152,13 @@ export const MODULES: Module[] = [
       { label: "Тайлан", href: "/costing/reports", icon: BarChartBig },
       { label: "Тохиргоо", href: "/costing/settings", icon: SettingsIcon },
     ],
+  },
+  {
+    id: "ai",
+    label: "AI туслах",
+    matchPrefix: "/ai",
+    defaultHref: "/ai",
+    items: [{ label: "Чат", href: "/ai", icon: Sparkles }],
   },
   {
     id: "settings",

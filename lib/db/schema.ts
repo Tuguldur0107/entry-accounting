@@ -986,6 +986,21 @@ export const faDepreciationEntriesRelations = relations(
   })
 );
 
+// ─── AI чат ──────────────────────────────────────────────────────────────────
+// AI туслахын харилцан ярианы түүх — хэрэглэгч бүрд нэг урсгал.
+// Draft-first бодлого: AI зөвхөн зөвлөгөө өгнө, DB-руу бичилт хийхгүй тул
+// энд журналын reference хадгалахгүй.
+
+export const aiMessages = pgTable("ai_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull(), // "user" | "assistant"
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -1014,3 +1029,4 @@ export type CostingRun = typeof costingRuns.$inferSelect;
 export type CostEntry = typeof costEntries.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
 export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
+export type AiMessage = typeof aiMessages.$inferSelect;

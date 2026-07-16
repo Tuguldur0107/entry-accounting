@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "@auth/drizzle-adapter": "^1.11.2",
     "@base-ui/react": "^1.4.1",
     "ag-grid-community": "^35.3.0",

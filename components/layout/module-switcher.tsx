@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Settings, Check, WalletCards, ReceiptText, Boxes, Calculator, Building } from "lucide-react";
+import { BookOpen, Settings, Check, WalletCards, ReceiptText, Boxes, Calculator, Building, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MODULES, getActiveModule } from "./modules";
 
@@ -16,6 +16,7 @@ const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWi
   inventory: Boxes,
   costing: Calculator,
   fa: Building,
+  ai: Sparkles,
   settings: Settings,
 };
 
