@@ -158,7 +158,10 @@ export const MODULES: Module[] = [
     label: "AI туслах",
     matchPrefix: "/ai",
     defaultHref: "/ai",
-    items: [{ label: "Чат", href: "/ai", icon: Sparkles }],
+    items: [
+      { label: "Чат", href: "/ai", icon: Sparkles },
+      { label: "Тохиргоо", href: "/ai/settings", icon: SettingsIcon },
+    ],
   },
   {
     id: "settings",

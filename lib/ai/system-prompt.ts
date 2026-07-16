@@ -74,8 +74,11 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 - Журналын бичилт санал болгохдоо мөр бүрийг "Dr 61100000 Өртөг 100,000₮ / Cr 14000001 Бараа материал 100,000₮" хэлбэрээр бич.
 - Markdown-ийн энгийн хэлбэрүүд (жагсаалт, **тод**) болно; хүснэгт хэрэглэж болно.`;
 
-/** Хэрэглэгчийн дансны мод + огноо — хүсэлт бүрд шинэчлэгддэг хэсэг. */
-export async function buildDynamicContext(userId: string): Promise<string> {
+/** Хэрэглэгчийн дансны мод + огноо + нэмэлт заавар — хүсэлт бүрд өөр хэсэг. */
+export async function buildDynamicContext(
+  userId: string,
+  customInstructions?: string | null
+): Promise<string> {
   const accounts = await db.query.chartOfAccounts.findMany({
     where: and(
       eq(chartOfAccounts.userId, userId),
@@ -85,7 +88,11 @@ export async function buildDynamicContext(userId: string): Promise<string> {
     orderBy: (account, { asc }) => [asc(account.number)],
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Улаанбаатарын цагийн бүсээр (UTC+8) — серверийн UTC өдөр шөнийн
+  // 00:00-08:00-д нэг хоногоор хоцордог.
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Ulaanbaatar",
+  });
   const list = accounts
     .map((account) => `${account.number} ${account.name}`)
     .join("\n");
@@ -96,5 +103,9 @@ export async function buildDynamicContext(userId: string): Promise<string> {
 
 Бичилт санал болгохдоо доорх ЖАГСААЛТАД БАЙГАА дансдыг л ашигла. Тохирох данс байхгүй бол дансны кодыг таамаглахын оронд "Тохиргоо → Ерөнхий журналын тохиргоо" хэсэгт данс нээхийг зөвлө.
 
-${list || "(данс бүртгэгдээгүй)"}`;
+${list || "(данс бүртгэгдээгүй)"}${
+    customInstructions?.trim()
+      ? `\n\n## Хэрэглэгчийн нэмэлт заавар\n\n${customInstructions.trim()}`
+      : ""
+  }`;
 }

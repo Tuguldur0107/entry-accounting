@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 310" role="img" aria-labelledby="title description">
+  <title id="title">Entry Accounting</title>
+  <desc id="description">Entry Accounting logo with an abstract ledger and upward growth mark.</desc>
+
+  <g id="symbol" transform="translate(20 26)">
+    <path
+      d="M91 68c-43 9-67 48-56 91 11 44 54 70 96 57 34-10 48-38 66-65 16-24 32-42 55-39 10 1 18 7 25 14"
+      fill="none"
+      stroke="#D4AF37"
+      stroke-width="18"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <path
+      d="M14 149c27 15 64 14 92-2 27-15 50-42 56-66 4-18-7-28-25-29-31-2-61 22-64 54-4 39 28 81 68 92 25 7 51-1 69-19"
+      fill="none"
+      stroke="#073763"
+      stroke-width="18"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <path
+      d="M253 115c-13-10-29-15-46-13-35 4-59 35-55 70 4 33 31 56 63 54 20-1 37-12 47-28v25h22V108h-22v17c-3-4-6-7-9-10Zm-38 88c-22 2-40-13-42-34-3-22 12-42 34-45 22-2 41 13 43 35 2 22-13 42-35 44Z"
+      fill="#073763"
+      fill-rule="evenodd"
+    />
+
+    <path
+      d="M102 126 139 85l29 26 34-42"
+      fill="none"
+      stroke="#073763"
+      stroke-width="7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <circle cx="102" cy="126" r="7" fill="#D4AF37" stroke="#fff" stroke-width="3" />
+    <circle cx="139" cy="85" r="7" fill="#073763" />
+    <circle cx="168" cy="111" r="7" fill="#073763" />
+    <circle cx="202" cy="69" r="7" fill="#D4AF37" stroke="#fff" stroke-width="3" />
+
+    <path
+      d="m139 202 122-145"
+      fill="none"
+      stroke="#fff"
+      stroke-width="23"
+      stroke-linecap="round"
+    />
+    <path
+      d="m139 202 122-145"
+      fill="none"
+      stroke="#D4AF37"
+      stroke-width="9"
+      stroke-linecap="round"
+    />
+    <path d="m253 40 41-17-9 43-10-15-14 6Z" fill="#073763" />
+  </g>
+
+  <g id="wordmark" font-family="Arial, Helvetica, sans-serif">
+    <text x="350" y="112" fill="#073763" font-size="70" font-weight="700">ENTRY</text>
+    <text x="350" y="184" fill="#073763" font-size="52" font-weight="700">ACCOUNTING</text>
+    <text x="354" y="231" fill="#292929" font-size="31" font-weight="400">Precision &#183; Clarity &#183; Growth</text>
+  </g>
+</svg>

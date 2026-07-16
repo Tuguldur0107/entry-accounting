@@ -1001,6 +1001,48 @@ export const aiMessages = pgTable("ai_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Мессежид хавсаргасан файлууд (зураг/PDF/текст, base64) — дараагийн
+// асуултуудад ч AI контекстээ харж чаддаг байхын тулд хадгална.
+export const aiAttachments = pgTable("ai_attachments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  messageId: uuid("message_id")
+    .notNull()
+    .references(() => aiMessages.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  mediaType: text("media_type").notNull(),
+  data: text("data").notNull(), // base64
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const aiMessagesRelations = relations(aiMessages, ({ many }) => ({
+  attachments: many(aiAttachments),
+}));
+
+export const aiAttachmentsRelations = relations(aiAttachments, ({ one }) => ({
+  message: one(aiMessages, {
+    fields: [aiAttachments.messageId],
+    references: [aiMessages.id],
+  }),
+}));
+
+// AI туслахын хэрэглэгч бүрийн тохиргоо. apiKey нь хэрэглэгчийн өөрийн
+// Anthropic түлхүүр — байхгүй бол серверийн ANTHROPIC_API_KEY-г ашиглана.
+export const aiSettings = pgTable("ai_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  apiKey: text("api_key"),
+  model: text("model").notNull().default("claude-opus-4-8"),
+  effort: text("effort").notNull().default("high"), // low | medium | high
+  customInstructions: text("custom_instructions"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -1030,3 +1072,5 @@ export type CostEntry = typeof costEntries.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
 export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
 export type AiMessage = typeof aiMessages.$inferSelect;
+export type AiAttachment = typeof aiAttachments.$inferSelect;
+export type AiSettings = typeof aiSettings.$inferSelect;
