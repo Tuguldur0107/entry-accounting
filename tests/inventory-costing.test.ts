@@ -245,6 +245,7 @@ test("depreciation: straight line with final-month cap and start gating", () => 
       cost: 1200000,
       salvageValue: 0,
       usefulLifeMonths: 12,
+      method: "straight_line" as const,
       depreciationStartMonth: "2026-01",
       status: "active",
     },
@@ -253,6 +254,7 @@ test("depreciation: straight line with final-month cap and start gating", () => 
       cost: 600000,
       salvageValue: 0,
       usefulLifeMonths: 6,
+      method: "straight_line" as const,
       depreciationStartMonth: "2026-08",
       status: "active",
     },
@@ -261,6 +263,7 @@ test("depreciation: straight line with final-month cap and start gating", () => 
       cost: 500000,
       salvageValue: 50000,
       usefulLifeMonths: 10,
+      method: "straight_line" as const,
       depreciationStartMonth: "2025-01",
       status: "active",
     },
@@ -287,4 +290,54 @@ test("depreciation: straight line with final-month cap and start gating", () => 
     month: "2026-07",
   });
   assert.equal(again.length, 0);
+});
+
+test("depreciation: declining balance (×2) — NBV-based, salvage cap, terminal month", () => {
+  const asset = {
+    id: "d1",
+    cost: 1200000,
+    salvageValue: 0,
+    usefulLifeMonths: 24,
+    method: "declining_balance" as const,
+    depreciationStartMonth: "2026-01",
+    status: "active",
+  };
+  const run = (accum: number, month: string) =>
+    computeMonthlyDepreciation({
+      assets: [asset],
+      postedAccum: new Map([["d1", accum]]),
+      alreadyCharged: new Set(),
+      month,
+    });
+
+  // 1-р сар: NBV 1,200,000 × 2/24 = 100,000
+  assert.deepEqual(run(0, "2026-01"), [{ assetId: "d1", amount: 100000 }]);
+  // 2-р сар: NBV 1,100,000 × 2/24 = 91,666.67
+  assert.deepEqual(run(100000, "2026-02"), [{ assetId: "d1", amount: 91666.67 }]);
+  // Хугацааны сүүлийн сар (24 дэх): үлдэгдлийг бүтнээр нь хаана
+  assert.deepEqual(run(1100000, "2027-12"), [{ assetId: "d1", amount: 100000 }]);
+  // Хугацаа хэтэрсэн ч үлдэгдэлтэй бол мөн хаана
+  assert.deepEqual(run(1150000, "2028-03"), [{ assetId: "d1", amount: 50000 }]);
+  // Бүрэн элэгдсэн бол бичилт үүсэхгүй
+  assert.equal(run(1200000, "2028-04").length, 0);
+
+  // Үлдэх өртгийн cap: суурь (өртөг − salvage)-аас хэтрэхгүй
+  const capped = computeMonthlyDepreciation({
+    assets: [
+      {
+        id: "d2",
+        cost: 1000000,
+        salvageValue: 800000,
+        usefulLifeMonths: 12,
+        method: "declining_balance" as const,
+        depreciationStartMonth: "2026-01",
+        status: "active",
+      },
+    ],
+    postedAccum: new Map([["d2", 150000]]),
+    alreadyCharged: new Set(),
+    month: "2026-03",
+  });
+  // NBV 850,000 × 2/12 = 141,666.67 боловч үлдсэн суурь 50,000
+  assert.deepEqual(capped, [{ assetId: "d2", amount: 50000 }]);
 });

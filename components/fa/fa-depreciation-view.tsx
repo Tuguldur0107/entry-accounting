@@ -265,7 +265,9 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
             Элэгдэл
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Шулуун шугамын арга — Dr Элэгдлийн зардал / Cr Хуримтлагдсан элэгдэл
+            Карт бүрийн сонгосон аргаар (шулуун шугам / үлдэгдэл буурах) — Dr
+            Элэгдлийн зардал / Cr Хуримтлагдсан элэгдэл. Checkbox-оор олныг
+            сонгож нэг дор GL-рүү бичнэ.
             {draftCount > 0 && (
               <span className="ml-1 font-medium text-[var(--ea-warning-fg)]">
                 · {draftCount} ноорог батлахыг хүлээж байна
@@ -274,16 +276,21 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {selectedDrafts.length > 0 && (
+          {draftCount > 0 && (
             <Button
               size="sm"
               variant="secondary"
               className="h-8"
               onClick={handleBatchPost}
-              disabled={isPending}
+              disabled={isPending || selectedDrafts.length === 0}
+              title={
+                selectedDrafts.length === 0
+                  ? "Эхний баганын checkbox-оор ноорог бичилтүүдээ сонгоно"
+                  : undefined
+              }
             >
               <CheckCheck />
-              Сонгосныг батлах ({selectedDrafts.length})
+              GL-рүү батлах ({selectedDrafts.length})
             </Button>
           )}
           <Input

@@ -18,6 +18,7 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import {
   computeMonthlyDepreciation,
+  isDepreciationMethod,
   type FixedAssetRef,
 } from "@/lib/fa/depreciation";
 
@@ -80,6 +81,7 @@ export interface FixedAssetInput {
   cost: number;
   salvageValue: number;
   usefulLifeMonths: number;
+  depreciationMethod: string;
   depreciationStartMonth: string;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
@@ -99,6 +101,8 @@ function validateAssetInput(data: FixedAssetInput) {
     throw new Error("Ашиглалтын хугацаа (сар) 0-ээс их бүхэл тоо байна");
   if (!/^\d{4}-\d{2}$/.test(data.depreciationStartMonth))
     throw new Error("Элэгдэл эхлэх сар (YYYY-MM) буруу байна");
+  if (!isDepreciationMethod(data.depreciationMethod))
+    throw new Error("Элэгдлийн арга буруу байна");
 }
 
 export async function createFixedAsset(data: FixedAssetInput) {
@@ -133,6 +137,7 @@ export async function createFixedAsset(data: FixedAssetInput) {
     cost: String(Math.round(Number(data.cost) * 100) / 100),
     salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
     usefulLifeMonths: data.usefulLifeMonths,
+    depreciationMethod: data.depreciationMethod,
     depreciationStartMonth: data.depreciationStartMonth,
     assetAccountNumber: data.assetAccountNumber.trim(),
     accumDepAccountNumber: data.accumDepAccountNumber.trim(),
@@ -167,6 +172,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
       cost: String(Math.round(Number(data.cost) * 100) / 100),
       salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
       usefulLifeMonths: data.usefulLifeMonths,
+      depreciationMethod: data.depreciationMethod,
       depreciationStartMonth: data.depreciationStartMonth,
       assetAccountNumber: data.assetAccountNumber.trim(),
       accumDepAccountNumber: data.accumDepAccountNumber.trim(),
@@ -227,6 +233,9 @@ export async function runDepreciation(data: { month: string }) {
       cost: Number(asset.cost),
       salvageValue: Number(asset.salvageValue),
       usefulLifeMonths: asset.usefulLifeMonths,
+      method: isDepreciationMethod(asset.depreciationMethod)
+        ? asset.depreciationMethod
+        : "straight_line",
       depreciationStartMonth: asset.depreciationStartMonth,
       status: asset.status,
     }));

@@ -919,6 +919,10 @@ export const fixedAssets = pgTable(
       .notNull()
       .default("0"),
     usefulLifeMonths: integer("useful_life_months").notNull().default(0),
+    // "straight_line" | "declining_balance" (×2 үлдэгдэл буурах)
+    depreciationMethod: text("depreciation_method")
+      .notNull()
+      .default("straight_line"),
     // Элэгдэл эхлэх сар (YYYY-MM); идэвхжүүлэхэд заавал бөглөнө.
     depreciationStartMonth: text("depreciation_start_month"),
     assetAccountNumber: text("asset_account_number")
