@@ -716,7 +716,7 @@ export function CashDocumentsView({
       const next = { ...settlementForm(target, accounts), date: current.date };
       if (segmentOptions)
         next.counterAccountNumber = buildSegCode(
-          { 3: target.controlAccountNumber },
+        { ...defaultSegments, 3: target.controlAccountNumber },
           activeSegIds,
           defaultSegments
         );

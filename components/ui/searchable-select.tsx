@@ -21,6 +21,8 @@ interface Props {
   onChange: (value: string) => void;
   options: SearchableOption[];
   placeholder?: string;
+  /** Trigger дээр түлхүүр утгыг (font-mono) нуугаад зөвхөн label үзүүлнэ. */
+  hideValue?: boolean;
   emptyLabel?: string;
   disabled?: boolean;
 }
@@ -30,6 +32,7 @@ export function SearchableSelect({
   onChange,
   options,
   placeholder = "Сонгох...",
+  hideValue = false,
   emptyLabel = "Илэрц олдсонгүй",
   disabled = false,
 }: Props) {
@@ -92,10 +95,14 @@ export function SearchableSelect({
           className={selected ? "truncate text-[var(--ea-text-1)]" : "truncate text-[var(--ea-text-4)]"}
         >
           {selected ? (
-            <>
-              <span className="font-mono">{selected.value}</span>
-              <span className="ml-2 text-[var(--ea-text-3)]">{selected.label}</span>
-            </>
+            hideValue ? (
+              <span>{selected.label}</span>
+            ) : (
+              <>
+                <span className="font-mono">{selected.value}</span>
+                <span className="ml-2 text-[var(--ea-text-3)]">{selected.label}</span>
+              </>
+            )
           ) : (
             placeholder
           )}

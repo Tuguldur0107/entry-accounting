@@ -179,6 +179,7 @@ export function AiSettingsView({
                 label: `${entry.label} — ${entry.description}`,
               }))}
               placeholder="Модель сонгох..."
+              hideValue
             />
           </div>
 
@@ -192,6 +193,7 @@ export function AiSettingsView({
                 label: option.label,
               }))}
               placeholder="Гүн сонгох..."
+              hideValue
             />
             <p className="text-[11px] text-[var(--ea-text-4)]">
               Claude Haiku 4.5 модельд хамаарахгүй — тэр үргэлж хөнгөн горимоор

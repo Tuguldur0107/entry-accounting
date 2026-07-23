@@ -66,6 +66,7 @@ export default async function FaAssetsPage() {
       salvageValue: Number(asset.salvageValue),
       usefulLifeMonths: asset.usefulLifeMonths,
       depreciationMethod: asset.depreciationMethod,
+      custodian: asset.custodian,
       depreciationStartMonth: asset.depreciationStartMonth,
       assetAccountNumber: asset.assetAccountNumber,
       accumDepAccountNumber: asset.accumDepAccountNumber,

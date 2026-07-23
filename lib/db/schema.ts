@@ -923,6 +923,8 @@ export const fixedAssets = pgTable(
     depreciationMethod: text("depreciation_method")
       .notNull()
       .default("straight_line"),
+    // Хөрөнгө эзэмшигч / хариуцагч (ажилтан, хэлтэс)
+    custodian: text("custodian"),
     // Элэгдэл эхлэх сар (YYYY-MM); идэвхжүүлэхэд заавал бөглөнө.
     depreciationStartMonth: text("depreciation_start_month"),
     assetAccountNumber: text("asset_account_number")

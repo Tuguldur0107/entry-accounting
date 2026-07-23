@@ -99,12 +99,12 @@ export function CostingSettingsView({
               if (!row) return;
               setForm({
                 inventory: buildSegCode(
-                  { 3: row.inventoryAccountNumber },
+        { ...defaultSegments, 3: row.inventoryAccountNumber },
                   activeSegIds,
                   defaultSegments
                 ),
                 cogs: buildSegCode(
-                  { 3: row.cogsAccountNumber },
+        { ...defaultSegments, 3: row.cogsAccountNumber },
                   activeSegIds,
                   defaultSegments
                 ),

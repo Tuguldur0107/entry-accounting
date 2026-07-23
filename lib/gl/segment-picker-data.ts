@@ -55,10 +55,18 @@ export async function loadSegmentPickerData(
             .map((value) => ({ code: value.code, name: value.name }));
   }
 
+  // Идэвхтэй сегмент бүрд default утга: цор ганц сонголт → тэр;
+  // бүх-0 код бүхий сонголт байвал → тэр; үгүй бол сегментийн уртаар
+  // "0"-оор дүүргэнэ (жишээ: 2 оронтой бол "00"). Ингэснээр prefill код
+  // бүрэн бөглөгдөж, тодорхойгүй сегмент default-аараа бичигдэнэ.
   const defaultSegments: Record<number, string> = {};
   for (const id of activeSegIds) {
+    if (id === 3) continue; // үндсэн дансыг үргэлж хэрэглэгч сонгоно
+    const definition = SEGMENT_DEFS.find((def) => def.id === id);
     const options = segmentOptions[id] ?? [];
-    if (options.length === 1) defaultSegments[id] = options[0].code;
+    const zeroCode = "0".repeat(definition?.length ?? 2);
+    defaultSegments[id] =
+      options.length === 1 ? options[0].code : zeroCode;
   }
 
   return { activeSegIds, segmentOptions, defaultSegments };

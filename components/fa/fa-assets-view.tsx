@@ -52,6 +52,7 @@ export type FixedAssetView = {
   salvageValue: number;
   usefulLifeMonths: number;
   depreciationMethod: string;
+  custodian: string | null;
   depreciationStartMonth: string | null;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
@@ -82,6 +83,7 @@ const emptyForm = () => ({
   salvageValue: "0",
   usefulLifeMonths: "36",
   depreciationMethod: "straight_line",
+  custodian: "",
   depreciationStartMonth: new Date().toISOString().slice(0, 7),
   assetAccountNumber: "21010000",
   accumDepAccountNumber: "21000099",
@@ -129,20 +131,21 @@ export function FaAssetsView({
       salvageValue: String(asset.salvageValue),
       usefulLifeMonths: String(asset.usefulLifeMonths || 36),
       depreciationMethod: asset.depreciationMethod || "straight_line",
+      custodian: asset.custodian ?? "",
       depreciationStartMonth:
         asset.depreciationStartMonth ?? asset.acquisitionDate.slice(0, 7),
       assetAccountNumber: buildSegCode(
-        { 3: asset.assetAccountNumber },
+        { ...defaultSegments, 3: asset.assetAccountNumber },
         activeSegIds,
         defaultSegments
       ),
       accumDepAccountNumber: buildSegCode(
-        { 3: asset.accumDepAccountNumber },
+        { ...defaultSegments, 3: asset.accumDepAccountNumber },
         activeSegIds,
         defaultSegments
       ),
       depExpenseAccountNumber: buildSegCode(
-        { 3: asset.depExpenseAccountNumber },
+        { ...defaultSegments, 3: asset.depExpenseAccountNumber },
         activeSegIds,
         defaultSegments
       ),
@@ -157,6 +160,13 @@ export function FaAssetsView({
     () => [
       { headerName: "Код", field: "code", width: 170, cellClass: "font-mono text-xs" },
       { headerName: "Нэр", field: "name", minWidth: 180, flex: 1 },
+      {
+        headerName: "Эзэмшигч",
+        field: "custodian",
+        width: 130,
+        cellClass: "text-xs",
+        valueFormatter: (params) => String(params.value ?? "—"),
+      },
       {
         headerName: "Арга",
         field: "depreciationMethod",
@@ -329,6 +339,7 @@ export function FaAssetsView({
           salvageValue: Number(form.salvageValue.replaceAll(",", "")) || 0,
           usefulLifeMonths: Number(form.usefulLifeMonths),
           depreciationMethod: form.depreciationMethod,
+          custodian: form.custodian,
           depreciationStartMonth: form.depreciationStartMonth,
           // AccountInput бүтэн код буцаана — картад main дансыг хадгална.
           assetAccountNumber: extractMainAccount(form.assetAccountNumber),
@@ -382,17 +393,17 @@ export function FaAssetsView({
             setForm({
               ...base,
               assetAccountNumber: buildSegCode(
-                { 3: base.assetAccountNumber },
+        { ...defaultSegments, 3: base.assetAccountNumber },
                 activeSegIds,
                 defaultSegments
               ),
               accumDepAccountNumber: buildSegCode(
-                { 3: base.accumDepAccountNumber },
+        { ...defaultSegments, 3: base.accumDepAccountNumber },
                 activeSegIds,
                 defaultSegments
               ),
               depExpenseAccountNumber: buildSegCode(
-                { 3: base.depExpenseAccountNumber },
+        { ...defaultSegments, 3: base.depExpenseAccountNumber },
                 activeSegIds,
                 defaultSegments
               ),
@@ -458,6 +469,7 @@ export function FaAssetsView({
               <div className="grid gap-4">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
                   <DetailItem label="Авсан огноо" value={detail.acquisitionDate} mono />
+                  <DetailItem label="Эзэмшигч" value={detail.custodian || "—"} />
                   <DetailItem
                     label="Элэгдлийн арга"
                     value={depreciationMethodLabel(detail.depreciationMethod)}
@@ -605,6 +617,16 @@ export function FaAssetsView({
                   onChange={(e) => setForm((c) => ({ ...c, name: e.target.value }))}
                 />
               </Field>
+              <Field label="Эзэмшигч (хариуцагч)">
+                <Input
+                  value={form.custodian}
+                  placeholder="Ажилтан, хэлтэс..."
+                  maxLength={120}
+                  onChange={(e) =>
+                    setForm((c) => ({ ...c, custodian: e.target.value }))
+                  }
+                />
+              </Field>
               <Field label="Авсан огноо">
                 <Input
                   type="date"
@@ -659,6 +681,7 @@ export function FaAssetsView({
                     label: method.label,
                   }))}
                   placeholder="Арга сонгох..."
+                  hideValue
                 />
               </Field>
               <Field label="Элэгдэл эхлэх сар">

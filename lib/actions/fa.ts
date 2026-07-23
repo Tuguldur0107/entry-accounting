@@ -82,6 +82,7 @@ export interface FixedAssetInput {
   salvageValue: number;
   usefulLifeMonths: number;
   depreciationMethod: string;
+  custodian: string;
   depreciationStartMonth: string;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
@@ -103,6 +104,8 @@ function validateAssetInput(data: FixedAssetInput) {
     throw new Error("Элэгдэл эхлэх сар (YYYY-MM) буруу байна");
   if (!isDepreciationMethod(data.depreciationMethod))
     throw new Error("Элэгдлийн арга буруу байна");
+  if (typeof data.custodian !== "string" || !data.custodian.trim())
+    throw new Error("Хөрөнгө эзэмшигч (хариуцагч) оруулна уу");
 }
 
 export async function createFixedAsset(data: FixedAssetInput) {
@@ -138,6 +141,7 @@ export async function createFixedAsset(data: FixedAssetInput) {
     salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
     usefulLifeMonths: data.usefulLifeMonths,
     depreciationMethod: data.depreciationMethod,
+    custodian: data.custodian.trim().slice(0, 120),
     depreciationStartMonth: data.depreciationStartMonth,
     assetAccountNumber: data.assetAccountNumber.trim(),
     accumDepAccountNumber: data.accumDepAccountNumber.trim(),
@@ -173,6 +177,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
       salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
       usefulLifeMonths: data.usefulLifeMonths,
       depreciationMethod: data.depreciationMethod,
+      custodian: data.custodian.trim().slice(0, 120),
       depreciationStartMonth: data.depreciationStartMonth,
       assetAccountNumber: data.assetAccountNumber.trim(),
       accumDepAccountNumber: data.accumDepAccountNumber.trim(),
