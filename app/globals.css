@@ -136,25 +136,25 @@
 
 /* ─── DARK MODE — .dark overrides :root (after, same specificity wins) ───── */
 .dark {
-  /* ── Entry Accounting tokens (deep navy + glass-ready) ──────── */
+  /* ── Entry Accounting tokens (тас хар суурь, цэнхэр нь зөвхөн accent) ── */
   --ea-primary:       #60A5FA;
   --ea-primary-700:   #3B82F6;
   --ea-primary-500:   #93C5FD;
-  --ea-primary-100:   #1E293B;
+  --ea-primary-100:   #1C1C1E;
   --ea-primary-50:    rgba(96,165,250,0.12);
 
-  --ea-bg:            #0A0F1F;
-  --ea-bg-2:          #0F172A;
-  --ea-bg-3:          #1E293B;
-  --ea-surface:       #131B30;
-  --ea-surface-glass: rgba(30,41,59,0.55);
-  --ea-border:        rgba(148,163,184,0.14);
-  --ea-border-strong: rgba(148,163,184,0.25);
+  --ea-bg:            #000000;
+  --ea-bg-2:          #0C0C0D;
+  --ea-bg-3:          #161618;
+  --ea-surface:       #0A0A0B;
+  --ea-surface-glass: rgba(18,18,20,0.55);
+  --ea-border:        rgba(255,255,255,0.10);
+  --ea-border-strong: rgba(255,255,255,0.18);
 
-  --ea-text-1: #F1F5F9;
-  --ea-text-2: #CBD5E1;
-  --ea-text-3: #94A3B8;
-  --ea-text-4: #64748B;
+  --ea-text-1: #F5F5F5;
+  --ea-text-2: #D4D4D4;
+  --ea-text-3: #9E9E9E;
+  --ea-text-4: #6E6E6E;
 
   --ea-success:    #34D399;
   --ea-success-fg: #6EE7B7;
@@ -174,11 +174,10 @@
 
   --ea-focus: 0 0 0 3px rgba(96,165,250,0.40);
 
-  /* Dark mode body gradient — deep navy + subtle blue glow */
+  /* Dark mode body gradient — тас хар, маш бүдэг саарал өргөлттэй */
   --ea-bg-gradient:
-    radial-gradient(60% 50% at 20% 0%, rgba(59,130,246,0.10) 0%, transparent 60%),
-    radial-gradient(50% 50% at 90% 30%, rgba(99,102,241,0.08) 0%, transparent 60%),
-    linear-gradient(180deg, #0A0F1F 0%, #060912 100%);
+    radial-gradient(60% 50% at 20% 0%, rgba(255,255,255,0.03) 0%, transparent 60%),
+    linear-gradient(180deg, #050505 0%, #000000 100%);
 
   /* ── shadcn tokens aligned to --ea-* ────────────────────────── */
   --background: var(--ea-bg);
