@@ -10,27 +10,18 @@ import {
   CheckCircle2,
   FileClock,
   Landmark,
-  Loader2,
-  Pencil,
   Scale,
   TrendingUp,
 } from "lucide-react";
-import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  VoucherLinesTable,
-  type VoucherLineRow,
-} from "@/components/gl/voucher-lines-table";
-import { getGlVoucherDetail } from "@/lib/actions/gl";
+import { VoucherDetailDialog } from "@/components/journal/voucher-detail-dialog";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -125,17 +116,6 @@ type DrillState = {
   link?: { href: string; label: string };
 };
 
-type DetailState = {
-  loading: boolean;
-  voucher: {
-    id: string;
-    date: string;
-    description: string;
-    status: string;
-    lines: VoucherLineRow[];
-  } | null;
-};
-
 interface Props {
   month: string; // YYYY-MM
   postedCount: number;
@@ -192,7 +172,7 @@ export function GlDashboard({
   const monthQuery = `start=${monthStart}&end=${monthEnd}`;
 
   const [drill, setDrill] = useState<DrillState | null>(null);
-  const [detail, setDetail] = useState<DetailState | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   // Журналын жагсаалтын засах үйлдэлтэй ижил standalone цонх (зөвхөн ноорог).
   function openVoucherEditor(id: string) {
@@ -201,20 +181,6 @@ export function GlDashboard({
       "_blank",
       "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
     );
-  }
-
-  /** 2-р түвшин: журналын мөрийн дэлгэрэнгүй. */
-  async function openDetail(id: string) {
-    setDetail({ loading: true, voucher: null });
-    try {
-      const voucher = await getGlVoucherDetail(id);
-      setDetail({ loading: false, voucher });
-    } catch (caught) {
-      setDetail(null);
-      toast.error(
-        caught instanceof Error ? caught.message : "Журнал уншиж чадсангүй"
-      );
-    }
   }
 
   /** 1-р түвшин: метрикийн бүрдүүлэгч журналуудын жагсаалт. */
@@ -812,7 +778,7 @@ export function GlDashboard({
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
             onRowClicked={(event) => {
-              if (event.data) openDetail(event.data.id);
+              if (event.data) setDetailId(event.data.id);
             }}
           />
         )}
@@ -862,7 +828,7 @@ export function GlDashboard({
                     wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
                     suppressCellFocus
                     onRowClicked={(event) => {
-                      if (event.data) openDetail(event.data.id);
+                      if (event.data) setDetailId(event.data.id);
                     }}
                   />
                 </>
@@ -872,67 +838,13 @@ export function GlDashboard({
         </DialogContent>
       </Dialog>
 
-      {/* 2-р түвшин: журналын мөрийн дэлгэрэнгүй */}
-      <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-          {detail?.loading && (
-            <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-              <Loader2 size={16} className="animate-spin" />
-              Журнал уншиж байна...
-            </div>
-          )}
-          {detail?.voucher && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-[var(--ea-text-3)]">
-                    {detail.voucher.date}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {detail.voucher.description || "(утгагүй журнал)"}
-                  </span>
-                  <span
-                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    style={{
-                      background: "var(--ea-bg-2)",
-                      color:
-                        detail.voucher.status === "posted"
-                          ? "var(--ea-success)"
-                          : detail.voucher.status === "draft"
-                            ? "var(--ea-warning)"
-                            : "var(--ea-text-3)",
-                    }}
-                  >
-                    {STATUS_LABELS[detail.voucher.status] ?? detail.voucher.status}
-                  </span>
-                </DialogTitle>
-              </DialogHeader>
-              <VoucherLinesTable
-                lines={detail.voucher.lines}
-                activeSegIds={activeSegIds}
-                glName={(main) => glNames[main] ?? ""}
-              />
-              <DialogFooter>
-                {detail.voucher.status === "draft" && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      openVoucherEditor(detail.voucher!.id);
-                      setDetail(null);
-                    }}
-                  >
-                    <Pencil size={14} />
-                    Засах
-                  </Button>
-                )}
-                <Button variant="outline" onClick={() => setDetail(null)}>
-                  Хаах
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* 2-р түвшин: журналын мөрийн дэлгэрэнгүй — нэгдсэн dialog */}
+      <VoucherDetailDialog
+        voucherId={detailId}
+        onClose={() => setDetailId(null)}
+        activeSegIds={activeSegIds}
+        glName={(main) => glNames[main] ?? ""}
+      />
     </div>
   );
 }
