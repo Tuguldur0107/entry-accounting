@@ -516,3 +516,29 @@ export async function deleteVoucher(id: string) {
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
 }
+
+/** Журналын дэлгэрэнгүй — самбарын задаргааны dialog-т (унших зориулалттай). */
+export async function getGlVoucherDetail(id: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Нэвтрэх шаардлагатай");
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Журнал олдсонгүй");
+
+  return {
+    id: voucher.id,
+    date: voucher.date,
+    description: voucher.description,
+    status: voucher.status,
+    lines: voucher.lines.map((line) => ({
+      accountNumber: line.accountNumber,
+      debit: Number(line.debit),
+      credit: Number(line.credit),
+      description: line.description,
+    })),
+  };
+}

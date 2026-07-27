@@ -4,6 +4,7 @@ import {
   GlDashboard,
   type GlAlerts,
   type GlDraftItem,
+  type GlDrillVoucher,
   type GlClassSummary,
   type GlModuleFlowRow,
   type GlMonthTrendRow,
@@ -12,7 +13,12 @@ import {
 } from "@/components/gl/gl-dashboard";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { chartOfAccounts, journalVouchers } from "@/lib/db/schema";
+import {
+  chartOfAccounts,
+  journalVouchers,
+  segmentConfigs,
+} from "@/lib/db/schema";
+import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
@@ -52,7 +58,7 @@ export default async function GlDashboardPage() {
     .slice(0, 7);
 
   // Тайлангийн хуудастай ижил ачаалалт: журналууд мөрүүдтэйгээ + дансны мод.
-  const [vouchers, accounts] = await Promise.all([
+  const [vouchers, accounts, rawSegConfigs] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
         eq(journalVouchers.userId, userId),
@@ -67,7 +73,14 @@ export default async function GlDashboardPage() {
         eq(chartOfAccounts.isEnabled, true)
       ),
     }),
+    db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.userId, userId),
+    }),
   ]);
+  const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
+  const activeSegIds = SEGMENT_DEFS.filter(
+    (def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true
+  ).map((def) => def.id);
   const nameByMain = new Map(accounts.map((account) => [account.number, account.name]));
 
   // ── Нэгдсэн гүйлт: бүх нийлбэрийг нэг дамжилтаар ────────────────────────────
@@ -94,6 +107,8 @@ export default async function GlDashboardPage() {
   let unbalancedDraftCount = 0;
   let reversedThisMonth = 0;
   const draftItems: GlDraftItem[] = [];
+  // Задаргааны индекс — журнал бүрийн компакт мэдээлэл (клиент шүүнэ).
+  const drillVouchers: GlDrillVoucher[] = [];
 
   for (const voucher of vouchers) {
     if (voucher.status === "draft") {
@@ -115,6 +130,17 @@ export default async function GlDashboardPage() {
           amount: round2(dr),
           unbalanced,
         });
+      drillVouchers.push({
+        id: voucher.id,
+        date: voucher.date,
+        description: voucher.description,
+        status: voucher.status,
+        moduleKey: "GL",
+        mains: [],
+        lineCount: voucher.lines.length,
+        debit: round2(dr),
+        cls: { asset: 0, liability: 0, equity: 0, revenue: 0, expense: 0 },
+      });
       continue;
     }
     // Сторно хийгдсэн эх журналыг НИЙЛБЭРТ ОРУУЛНА — түүний сторно журнал
@@ -128,6 +154,14 @@ export default async function GlDashboardPage() {
     const trendCell = trendMap.get(trendKey);
     let voucherDebit = 0;
     const modules = new Set<string>();
+    const voucherMains: string[] = [];
+    const voucherCls = {
+      asset: 0,
+      liability: 0,
+      equity: 0,
+      revenue: 0,
+      expense: 0,
+    };
 
     for (const line of voucher.lines) {
       const debit = Number(line.debit);
@@ -137,26 +171,52 @@ export default async function GlDashboardPage() {
       voucherDebit += debit;
 
       const main = extractMainAccount(line.accountNumber);
+      if (main && !voucherMains.includes(main)) voucherMains.push(main);
+      modules.add(sourceModuleOf(line.accountNumber));
       const cls = getAccountClass(main);
-      if (cls === "asset") assets += debit - credit;
-      else if (cls === "liability") liabilities += credit - debit;
-      else if (cls === "equity") equity += credit - debit;
-      else if (cls === "revenue") {
-        cumRevenue += credit - debit;
-        if (inMonth) monthRevenue += credit - debit;
-      } else if (cls === "expense") {
-        cumExpense += debit - credit;
-        if (inMonth) monthExpense += debit - credit;
-      }
+      if (cls === "asset") voucherCls.asset += debit - credit;
+      else if (cls === "liability") voucherCls.liability += credit - debit;
+      else if (cls === "equity") voucherCls.equity += credit - debit;
+      else if (cls === "revenue") voucherCls.revenue += credit - debit;
+      else if (cls === "expense") voucherCls.expense += debit - credit;
 
       if (inMonth) {
         accountTurnover.set(
           main,
           (accountTurnover.get(main) ?? 0) + debit + credit
         );
-        modules.add(sourceModuleOf(line.accountNumber));
       }
     }
+
+    assets += voucherCls.asset;
+    liabilities += voucherCls.liability;
+    equity += voucherCls.equity;
+    cumRevenue += voucherCls.revenue;
+    cumExpense += voucherCls.expense;
+    if (inMonth) {
+      monthRevenue += voucherCls.revenue;
+      monthExpense += voucherCls.expense;
+    }
+
+    const drillSource =
+      [...modules].find((entry) => entry !== "GL") ?? [...modules][0] ?? "GL";
+    drillVouchers.push({
+      id: voucher.id,
+      date: voucher.date,
+      description: voucher.description,
+      status: voucher.status,
+      moduleKey: drillSource,
+      mains: voucherMains,
+      lineCount: voucher.lines.length,
+      debit: round2(voucherDebit),
+      cls: {
+        asset: round2(voucherCls.asset),
+        liability: round2(voucherCls.liability),
+        equity: round2(voucherCls.equity),
+        revenue: round2(voucherCls.revenue),
+        expense: round2(voucherCls.expense),
+      },
+    });
 
     if (trendCell) {
       trendCell.debit += voucherDebit;
@@ -165,12 +225,10 @@ export default async function GlDashboardPage() {
     if (inMonth) {
       // Журналыг гол эх сурвалжаар нь нэг удаа тоолно (GL биш тэмдэглэгээ
       // давамгайлна — жишээ нь кассын журналд counter GL мөр байдаг).
-      const source =
-        [...modules].find((entry) => entry !== "GL") ?? [...modules][0] ?? "GL";
-      const cell = moduleFlow.get(source) ?? { count: 0, debit: 0 };
+      const cell = moduleFlow.get(drillSource) ?? { count: 0, debit: 0 };
       cell.count += 1;
       cell.debit += voucherDebit;
-      moduleFlow.set(source, cell);
+      moduleFlow.set(drillSource, cell);
     }
   }
 
@@ -257,6 +315,9 @@ export default async function GlDashboardPage() {
       alerts={alerts}
       draftItems={draftItems}
       recent={recent}
+      drillVouchers={drillVouchers}
+      activeSegIds={activeSegIds}
+      glNames={Object.fromEntries(nameByMain)}
       monthStart={monthRange(month).start}
       monthEnd={monthRange(month).end}
     />

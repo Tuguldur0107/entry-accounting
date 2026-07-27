@@ -1,20 +1,36 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import {
   AlertTriangle,
+  ArrowUpRight,
   BookOpen,
   CheckCircle2,
   FileClock,
   Landmark,
+  Loader2,
+  Pencil,
   Scale,
   TrendingUp,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  VoucherLinesTable,
+  type VoucherLineRow,
+} from "@/components/gl/voucher-lines-table";
+import { getGlVoucherDetail } from "@/lib/actions/gl";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -60,10 +76,64 @@ export type GlDraftItem = {
   unbalanced: boolean;
 };
 
+/** Задаргааны индекс — журнал бүрийн компакт төлөөлөл (сервер бүрдүүлнэ). */
+export type GlDrillVoucher = {
+  id: string;
+  date: string;
+  description: string;
+  status: string;
+  moduleKey: string;
+  mains: string[];
+  lineCount: number;
+  debit: number;
+  cls: {
+    asset: number;
+    liability: number;
+    equity: number;
+    revenue: number;
+    expense: number;
+  };
+};
+
 const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Бичигдсэн",
   reversed: "Буцаагдсан",
+};
+
+const MODULE_LABELS: Record<string, string> = {
+  GL: "Гар журнал",
+  CA: "Мөнгөн хөрөнгө",
+  CO: "Өртөг",
+  FA: "Үндсэн хөрөнгө",
+};
+
+type DrillRow = {
+  id: string;
+  date: string;
+  description: string;
+  module: string;
+  lineCount: number;
+  amount: number;
+  status: string;
+};
+
+type DrillState = {
+  title: string;
+  note?: string;
+  rows: DrillRow[];
+  link?: { href: string; label: string };
+};
+
+type DetailState = {
+  loading: boolean;
+  voucher: {
+    id: string;
+    date: string;
+    description: string;
+    status: string;
+    lines: VoucherLineRow[];
+  } | null;
 };
 
 interface Props {
@@ -79,12 +149,15 @@ interface Props {
   alerts: GlAlerts;
   draftItems: GlDraftItem[];
   recent: GlRecentVoucherRow[];
+  drillVouchers: GlDrillVoucher[];
+  activeSegIds: number[];
+  glNames: Record<string, string>;
   monthStart: string; // YYYY-MM-DD
   monthEnd: string; // YYYY-MM-DD
 }
 
-// GL хяналтын самбар — нягтланчийн өглөөний нэг дэлгэц: тэнцлийн байдал,
-// санхүүгийн байдлын хураангуй, урсгалын трэнд, анхаарах зүйлс.
+// GL хяналтын самбар — үзүүлэлт бүр даргдана: эхлээд бүрдүүлэгч журналуудын
+// задаргаа (dialog), тэндээс журнал бүрийн мөрийн дэлгэрэнгүй нээгдэнэ.
 export function GlDashboard({
   month,
   postedCount,
@@ -98,10 +171,12 @@ export function GlDashboard({
   alerts,
   draftItems,
   recent,
+  drillVouchers,
+  activeSegIds,
+  glNames,
   monthStart,
   monthEnd,
 }: Props) {
-  const router = useRouter();
   const drCrBalanced = Math.abs(totalDebit - totalCredit) <= 0.01;
   const bsGap =
     Math.round(
@@ -109,57 +184,108 @@ export function GlDashboard({
         100
     ) / 100;
   const bsBalanced = Math.abs(bsGap) <= 0.01;
-  const alertTotal =
-    alerts.draftCount + alerts.unbalancedDraftCount + alerts.reversedThisMonth;
+  const alertTotal = alerts.draftCount + alerts.reversedThisMonth;
 
   const maxTrend = Math.max(...trend.map((row) => row.debit), 1);
   const maxTurnover = Math.max(...topAccounts.map((row) => row.turnover), 1);
 
   const monthQuery = `start=${monthStart}&end=${monthEnd}`;
 
-  // Журналын жагсаалтын засах үйлдэлтэй ижил standalone цонх.
-  function openVoucher(id: string) {
+  const [drill, setDrill] = useState<DrillState | null>(null);
+  const [detail, setDetail] = useState<DetailState | null>(null);
+
+  // Журналын жагсаалтын засах үйлдэлтэй ижил standalone цонх (зөвхөн ноорог).
+  function openVoucherEditor(id: string) {
     window.open(
       `/gl/journal/${id}/edit`,
       "_blank",
       "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
     );
   }
-  // Модулийн урсгалын мөр → тухайн модулийн задаргаа (сарын хүрээтэй нь)
-  const MODULE_HREFS: Record<string, string> = {
-    GL: `/gl/journal?${monthQuery}`,
-    CA: `/cash/transactions?${monthQuery}`,
-    CO: "/costing/entries",
-    FA: "/fa/depreciation",
-  };
 
-  function monthRangeQuery(month: string): string {
-    const [year, mon] = month.split("-").map(Number);
-    const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-    return `start=${month}-01&end=${month}-${String(lastDay).padStart(2, "0")}`;
+  /** 2-р түвшин: журналын мөрийн дэлгэрэнгүй. */
+  async function openDetail(id: string) {
+    setDetail({ loading: true, voucher: null });
+    try {
+      const voucher = await getGlVoucherDetail(id);
+      setDetail({ loading: false, voucher });
+    } catch (caught) {
+      setDetail(null);
+      toast.error(
+        caught instanceof Error ? caught.message : "Журнал уншиж чадсангүй"
+      );
+    }
   }
 
-  const columns = useMemo<ColDef<GlRecentVoucherRow>[]>(
+  /** 1-р түвшин: метрикийн бүрдүүлэгч журналуудын жагсаалт. */
+  function openDrill(
+    title: string,
+    filter: (voucher: GlDrillVoucher) => boolean,
+    amount: (voucher: GlDrillVoucher) => number,
+    options?: { note?: string; link?: { href: string; label: string } }
+  ) {
+    const rows = drillVouchers
+      .filter(filter)
+      .map((voucher) => ({
+        id: voucher.id,
+        date: voucher.date,
+        description: voucher.description,
+        module: MODULE_LABELS[voucher.moduleKey] ?? voucher.moduleKey,
+        lineCount: voucher.lineCount,
+        amount: Math.round(amount(voucher) * 100) / 100,
+        status: voucher.status,
+      }))
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    setDrill({ title, rows, ...options });
+  }
+
+  const isPostedLike = (voucher: GlDrillVoucher) =>
+    voucher.status === "posted" || voucher.status === "reversed";
+  const inMonth = (voucher: GlDrillVoucher) => voucher.date.startsWith(month);
+
+  function monthRangeQuery(m: string): string {
+    const [year, mon] = m.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+    return `start=${m}-01&end=${m}-${String(lastDay).padStart(2, "0")}`;
+  }
+
+  const drillColumns = useMemo<ColDef<DrillRow>[]>(
     () => [
+      { headerName: "Огноо", field: "date", width: 104, cellClass: "font-mono text-xs" },
+      { headerName: "Утга", field: "description", minWidth: 190, flex: 1 },
+      { headerName: "Модуль", field: "module", width: 128, cellClass: "text-xs" },
       {
-        headerName: "Огноо",
-        field: "date",
-        width: 110,
-        cellClass: "font-mono text-xs",
+        headerName: "Мөр",
+        field: "lineCount",
+        width: 64,
+        cellClass: "ag-right-aligned-cell font-mono text-xs",
+        headerClass: "ag-right-aligned-header",
       },
-      { headerName: "Утга", field: "description", minWidth: 200, flex: 1 },
       {
-        headerName: "Модуль",
-        field: "module",
+        headerName: "Дүн",
+        field: "amount",
         width: 140,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+      },
+      {
+        headerName: "Төлөв",
+        field: "status",
+        width: 110,
+        valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
         cellClass: "text-xs",
       },
-      {
-        headerName: "Данс",
-        field: "accounts",
-        width: 210,
-        cellClass: "font-mono text-xs",
-      },
+    ],
+    []
+  );
+
+  const recentColumns = useMemo<ColDef<GlRecentVoucherRow>[]>(
+    () => [
+      { headerName: "Огноо", field: "date", width: 110, cellClass: "font-mono text-xs" },
+      { headerName: "Утга", field: "description", minWidth: 200, flex: 1 },
+      { headerName: "Модуль", field: "module", width: 140, cellClass: "text-xs" },
+      { headerName: "Данс", field: "accounts", width: 210, cellClass: "font-mono text-xs" },
       {
         headerName: "Мөр",
         field: "lineCount",
@@ -204,6 +330,11 @@ export function GlDashboard({
     []
   );
 
+  const drillTotal = drill
+    ? Math.round(drill.rows.reduce((sum, row) => sum + row.amount, 0) * 100) /
+      100
+    : 0;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       {/* Гарчиг + хяналтын хоёр chip */}
@@ -213,8 +344,7 @@ export function GlDashboard({
             Ерөнхий журналын хяналт
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            {month} сарын байдлаар · дэлгэрэнгүй нь Журналын жагсаалт болон
-            Тайлан хэсэгт
+            {month} сарын байдлаар · үзүүлэлт бүр дээр дарж задаргааг нь харна
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -222,13 +352,33 @@ export function GlDashboard({
             ok={drCrBalanced}
             okText={`Дт = Кт · ${fmtMnt(totalDebit)}`}
             badText={`Дт ≠ Кт · зөрүү ${fmtMnt(totalDebit - totalCredit)}`}
-            href="/gl/reports?report=gl-balance"
+            onClick={() =>
+              openDrill("Дт=Кт — бүх бичигдсэн журнал", isPostedLike, (v) => v.debit, {
+                note: "Сторно хосууд хамт орсон — нийлбэр нь харилцан цуцлагдана",
+                link: {
+                  href: "/gl/reports?report=gl-balance",
+                  label: "Гүйлгээ баланс руу",
+                },
+              })
+            }
           />
           <CheckChip
             ok={bsBalanced}
             okText="Актив = Өр төлбөр + Өмч"
             badText={`А ≠ Ө+Э · зөрүү ${fmtMnt(bsGap)}`}
-            href="/gl/reports?report=balance-sheet"
+            onClick={() =>
+              openDrill(
+                "Балансын тэгшитгэл — бүх журнал",
+                isPostedLike,
+                (v) => v.debit,
+                {
+                  link: {
+                    href: "/gl/reports?report=balance-sheet",
+                    label: "Баланс тайлан руу",
+                  },
+                }
+              )
+            }
           />
         </div>
       </div>
@@ -238,27 +388,92 @@ export function GlDashboard({
         <SummaryCell
           label="Актив"
           value={fmtMnt(classSummary.assets)}
-          href="/gl/reports?report=balance-sheet"
+          onClick={() =>
+            openDrill(
+              "Актив данс хөдөлгөсөн журналууд",
+              (v) => isPostedLike(v) && v.cls.asset !== 0,
+              (v) => v.cls.asset,
+              {
+                note: "Дүн = журналын активт үзүүлсэн цэвэр нөлөө (Дт−Кт)",
+                link: {
+                  href: "/gl/reports?report=balance-sheet",
+                  label: "Баланс тайлан руу",
+                },
+              }
+            )
+          }
         />
         <SummaryCell
           label="Өр төлбөр"
           value={fmtMnt(classSummary.liabilities)}
-          href="/gl/reports?report=balance-sheet"
+          onClick={() =>
+            openDrill(
+              "Өр төлбөрийн данс хөдөлгөсөн журналууд",
+              (v) => isPostedLike(v) && v.cls.liability !== 0,
+              (v) => v.cls.liability,
+              {
+                note: "Дүн = журналын өр төлбөрт үзүүлсэн цэвэр нөлөө (Кт−Дт)",
+                link: {
+                  href: "/gl/reports?report=balance-sheet",
+                  label: "Баланс тайлан руу",
+                },
+              }
+            )
+          }
         />
         <SummaryCell
           label="Эздийн өмч (ЦА багтсан)"
           value={fmtMnt(classSummary.equity)}
-          href="/gl/reports?report=balance-sheet"
+          onClick={() =>
+            openDrill(
+              "Өмч, орлого, зардлын данс хөдөлгөсөн журналууд",
+              (v) =>
+                isPostedLike(v) &&
+                v.cls.equity + v.cls.revenue - v.cls.expense !== 0,
+              (v) => v.cls.equity + v.cls.revenue - v.cls.expense,
+              {
+                note: "Дүн = өмчид үзүүлсэн цэвэр нөлөө (өссөн дүнгийн ЦА багтсан)",
+                link: {
+                  href: "/gl/reports?report=balance-sheet",
+                  label: "Баланс тайлан руу",
+                },
+              }
+            )
+          }
         />
         <SummaryCell
           label={`Орлого (${month})`}
           value={fmtMnt(classSummary.monthRevenue)}
-          href={`/gl/reports?report=income-statement&${monthQuery}`}
+          onClick={() =>
+            openDrill(
+              `${month} — орлогын данс хөдөлгөсөн журналууд`,
+              (v) => isPostedLike(v) && inMonth(v) && v.cls.revenue !== 0,
+              (v) => v.cls.revenue,
+              {
+                link: {
+                  href: `/gl/reports?report=income-statement&${monthQuery}`,
+                  label: "ОДТ руу",
+                },
+              }
+            )
+          }
         />
         <SummaryCell
           label={`Зардал (${month})`}
           value={fmtMnt(classSummary.monthExpense)}
-          href={`/gl/reports?report=income-statement&${monthQuery}`}
+          onClick={() =>
+            openDrill(
+              `${month} — зардлын данс хөдөлгөсөн журналууд`,
+              (v) => isPostedLike(v) && inMonth(v) && v.cls.expense !== 0,
+              (v) => v.cls.expense,
+              {
+                link: {
+                  href: `/gl/reports?report=income-statement&${monthQuery}`,
+                  label: "ОДТ руу",
+                },
+              }
+            )
+          }
         />
         <SummaryCell
           label={`Цэвэр ашиг (${month})`}
@@ -268,7 +483,23 @@ export function GlDashboard({
               ? "var(--ea-success)"
               : "var(--ea-danger)"
           }
-          href={`/gl/reports?report=income-statement&${monthQuery}`}
+          onClick={() =>
+            openDrill(
+              `${month} — үр дүнд нөлөөлсөн журналууд`,
+              (v) =>
+                isPostedLike(v) &&
+                inMonth(v) &&
+                v.cls.revenue - v.cls.expense !== 0,
+              (v) => v.cls.revenue - v.cls.expense,
+              {
+                note: "Дүн = журналын цэвэр ашигт үзүүлсэн нөлөө (орлого − зардал)",
+                link: {
+                  href: `/gl/reports?report=income-statement&${monthQuery}`,
+                  label: "ОДТ руу",
+                },
+              }
+            )
+          }
         />
       </section>
 
@@ -285,14 +516,26 @@ export function GlDashboard({
               бичигдсэн журналын Σ дебет
             </span>
           </div>
-          <div className="space-y-2.5">
+          <div className="space-y-1">
             {trend.map((row) => (
-              <Link
+              <button
                 key={row.month}
-                href={`/gl/journal?${monthRangeQuery(row.month)}`}
-                className="flex items-center gap-3 rounded px-1 py-0.5 transition-colors hover:bg-[var(--ea-bg-2)]"
-                style={{ textDecoration: "none" }}
-                title={`${row.month} сарын журналууд руу очих`}
+                type="button"
+                onClick={() =>
+                  openDrill(
+                    `${row.month} сарын журналууд`,
+                    (v) => isPostedLike(v) && v.date.startsWith(row.month),
+                    (v) => v.debit,
+                    {
+                      link: {
+                        href: `/gl/journal?${monthRangeQuery(row.month)}`,
+                        label: "Журналын жагсаалт руу",
+                      },
+                    }
+                  )
+                }
+                className="flex w-full items-center gap-3 rounded px-1 py-1 text-left transition-colors hover:bg-[var(--ea-bg-2)]"
+                title={`${row.month} сарын задаргаа`}
               >
                 <span className="w-16 shrink-0 font-mono text-xs text-[var(--ea-text-3)]">
                   {row.month}
@@ -311,13 +554,13 @@ export function GlDashboard({
                 <span className="w-14 shrink-0 text-right text-[11px] text-[var(--ea-text-4)]">
                   {row.count} ж.
                 </span>
-              </Link>
+              </button>
             ))}
           </div>
 
           {/* Топ данс */}
           <div className="mt-5 border-t border-[var(--ea-border)] pt-4">
-            <h3 className="mb-3 text-xs font-semibold text-[var(--ea-text-2)]">
+            <h3 className="mb-2 text-xs font-semibold text-[var(--ea-text-2)]">
               Энэ сарын идэвхтэй данс (эргэлтээр, топ 8)
             </h3>
             {topAccounts.length === 0 ? (
@@ -325,14 +568,30 @@ export function GlDashboard({
                 Энэ сард гүйлгээ бичигдээгүй байна
               </p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {topAccounts.map((row) => (
-                  <Link
+                  <button
                     key={row.main}
-                    href={`/gl/reports?report=gl-balance&${monthQuery}`}
-                    className="flex items-center gap-3 rounded px-1 py-0.5 transition-colors hover:bg-[var(--ea-bg-2)]"
-                    style={{ textDecoration: "none" }}
-                    title={`${row.main} — гүйлгээ баланс руу очих`}
+                    type="button"
+                    onClick={() =>
+                      openDrill(
+                        `${row.main} ${row.name} — ${month} сарын журналууд`,
+                        (v) =>
+                          isPostedLike(v) &&
+                          inMonth(v) &&
+                          v.mains.includes(row.main),
+                        (v) => v.debit,
+                        {
+                          note: "Дүн = журналын нийт дебет",
+                          link: {
+                            href: `/gl/reports?report=gl-balance&${monthQuery}`,
+                            label: "Гүйлгээ баланс руу",
+                          },
+                        }
+                      )
+                    }
+                    className="flex w-full items-center gap-3 rounded px-1 py-1 text-left transition-colors hover:bg-[var(--ea-bg-2)]"
+                    title={`${row.main} — задаргаа`}
                   >
                     <span className="w-20 shrink-0 font-mono text-xs text-[var(--ea-text-3)]">
                       {row.main}
@@ -351,21 +610,30 @@ export function GlDashboard({
                     <span className="w-28 shrink-0 text-right font-mono text-xs text-[var(--ea-text-1)]">
                       {fmtMnt(row.turnover)}
                     </span>
-                  </Link>
+                  </button>
                 ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* Баруун багана: тоон үзүүлэлт + модулийн урсгал + анхааруулга */}
+        {/* Баруун багана */}
         <div className="flex min-w-0 flex-col gap-6">
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[var(--ea-border)] bg-[var(--ea-border)]">
             <MiniStat
               icon={BookOpen}
               label="Бичигдсэн журнал"
               value={String(postedCount)}
-              href="/gl/journal"
+              onClick={() =>
+                openDrill(
+                  "Бичигдсэн журналууд",
+                  (v) => v.status === "posted",
+                  (v) => v.debit,
+                  {
+                    link: { href: "/gl/journal", label: "Журналын жагсаалт руу" },
+                  }
+                )
+              }
             />
             <MiniStat
               icon={Landmark}
@@ -385,20 +653,33 @@ export function GlDashboard({
                 Энэ сард журнал бичигдээгүй
               </p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {moduleRows.map((row) => (
-                  <Link
+                  <button
                     key={row.key}
-                    href={MODULE_HREFS[row.key] ?? `/gl/journal?${monthQuery}`}
-                    className="flex items-center justify-between gap-2 rounded px-1 py-1 text-xs transition-colors hover:bg-[var(--ea-bg-2)]"
-                    style={{ textDecoration: "none" }}
+                    type="button"
+                    onClick={() =>
+                      openDrill(
+                        `${row.module} — ${month} сарын журналууд`,
+                        (v) =>
+                          isPostedLike(v) &&
+                          inMonth(v) &&
+                          v.moduleKey === row.key,
+                        (v) => v.debit,
+                        {
+                          note: "Дүн = журналын нийт дебет",
+                        }
+                      )
+                    }
+                    className="flex w-full items-center justify-between gap-2 rounded px-1 py-1.5 text-left text-xs transition-colors hover:bg-[var(--ea-bg-2)]"
+                    title={`${row.module} — задаргаа`}
                   >
                     <span className="text-[var(--ea-text-2)]">{row.module}</span>
                     <span className="text-[var(--ea-text-4)]">{row.count} журнал</span>
                     <span className="w-24 text-right font-mono text-[var(--ea-text-1)]">
                       {fmtMnt(row.debit)}
                     </span>
-                  </Link>
+                  </button>
                 ))}
               </div>
             )}
@@ -430,7 +711,7 @@ export function GlDashboard({
                   <li key={draft.id}>
                     <button
                       type="button"
-                      onClick={() => openVoucher(draft.id)}
+                      onClick={() => openVoucherEditor(draft.id)}
                       title="Журналыг нээж шалгах"
                       className={cn(
                         "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[var(--ea-bg-2)]",
@@ -465,16 +746,46 @@ export function GlDashboard({
                   </li>
                 ))}
                 {alerts.draftCount > draftItems.length && (
-                  <AlertRow
-                    href="/gl/journal"
-                    text={`... нийт ${alerts.draftCount} ноорог — жагсаалтаас бүгдийг харах`}
-                  />
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openDrill(
+                          "Бүх ноорог журнал",
+                          (v) => v.status === "draft",
+                          (v) => v.debit,
+                          {
+                            link: {
+                              href: "/gl/journal",
+                              label: "Журналын жагсаалт руу",
+                            },
+                          }
+                        )
+                      }
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[var(--ea-text-2)] transition-colors hover:bg-[var(--ea-bg-2)]"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ea-warning)]" />
+                      ... нийт {alerts.draftCount} ноорог — бүгдийг харах
+                    </button>
+                  </li>
                 )}
                 {alerts.reversedThisMonth > 0 && (
-                  <AlertRow
-                    href="/gl/journal"
-                    text={`Энэ сард ${alerts.reversedThisMonth} журнал сторно хийгдсэн`}
-                  />
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openDrill(
+                          `${month} — сторно хийгдсэн журналууд`,
+                          (v) => v.status === "reversed" && inMonth(v),
+                          (v) => v.debit
+                        )
+                      }
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[var(--ea-text-2)] transition-colors hover:bg-[var(--ea-bg-2)]"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ea-warning)]" />
+                      Энэ сард {alerts.reversedThisMonth} журнал сторно хийгдсэн
+                    </button>
+                  </li>
                 )}
               </ul>
             )}
@@ -482,7 +793,7 @@ export function GlDashboard({
         </div>
       </section>
 
-      {/* Сүүлийн журналууд */}
+      {/* Сүүлийн журналууд — мөр дээр дарахад журналын дэлгэрэнгүй */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
           <FileClock size={15} className="text-[var(--ea-primary)]" />
@@ -495,22 +806,133 @@ export function GlDashboard({
         ) : (
           <DataGridDynamic<GlRecentVoucherRow>
             rowData={recent}
-            columnDefs={columns}
+            columnDefs={recentColumns}
             getRowId={(params) => params.data.id}
             height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
             onRowClicked={(event) => {
-              const date = event.data?.date;
-              router.push(
-                date
-                  ? `/gl/journal?${monthRangeQuery(date.slice(0, 7))}`
-                  : "/gl/journal"
-              );
+              if (event.data) openDetail(event.data.id);
             }}
           />
         )}
       </section>
+
+      {/* 1-р түвшин: метрикийн задаргаа */}
+      <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          {drill && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{drill.title}</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--ea-text-3)]">
+                <span>
+                  {drill.rows.length} журнал · Σ{" "}
+                  <span className="font-mono font-medium text-[var(--ea-text-1)]">
+                    {fmtMnt(drillTotal)}
+                  </span>
+                  {drill.note ? ` · ${drill.note}` : ""}
+                </span>
+                {drill.link && (
+                  <Link
+                    href={drill.link.href}
+                    className="inline-flex items-center gap-1 font-medium text-[var(--ea-primary)]"
+                    onClick={() => setDrill(null)}
+                  >
+                    {drill.link.label}
+                    <ArrowUpRight size={12} />
+                  </Link>
+                )}
+              </div>
+              {drill.rows.length === 0 ? (
+                <p className="rounded-md border border-[var(--ea-border)] px-3 py-6 text-center text-xs text-[var(--ea-text-4)]">
+                  Журнал олдсонгүй
+                </p>
+              ) : (
+                <>
+                  <p className="text-[11px] text-[var(--ea-text-4)]">
+                    Мөр дээр дарж журналын мөрийн дэлгэрэнгүйг харна
+                  </p>
+                  <DataGridDynamic<DrillRow>
+                    rowData={drill.rows}
+                    columnDefs={drillColumns}
+                    getRowId={(params) => params.data.id}
+                    height={Math.min(420, 86 + drill.rows.length * 36)}
+                    wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+                    suppressCellFocus
+                    onRowClicked={(event) => {
+                      if (event.data) openDetail(event.data.id);
+                    }}
+                  />
+                </>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 2-р түвшин: журналын мөрийн дэлгэрэнгүй */}
+      <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          {detail?.loading && (
+            <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
+              <Loader2 size={16} className="animate-spin" />
+              Журнал уншиж байна...
+            </div>
+          )}
+          {detail?.voucher && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="font-mono text-sm text-[var(--ea-text-3)]">
+                    {detail.voucher.date}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {detail.voucher.description || "(утгагүй журнал)"}
+                  </span>
+                  <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    style={{
+                      background: "var(--ea-bg-2)",
+                      color:
+                        detail.voucher.status === "posted"
+                          ? "var(--ea-success)"
+                          : detail.voucher.status === "draft"
+                            ? "var(--ea-warning)"
+                            : "var(--ea-text-3)",
+                    }}
+                  >
+                    {STATUS_LABELS[detail.voucher.status] ?? detail.voucher.status}
+                  </span>
+                </DialogTitle>
+              </DialogHeader>
+              <VoucherLinesTable
+                lines={detail.voucher.lines}
+                activeSegIds={activeSegIds}
+                glName={(main) => glNames[main] ?? ""}
+              />
+              <DialogFooter>
+                {detail.voucher.status === "draft" && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      openVoucherEditor(detail.voucher!.id);
+                      setDetail(null);
+                    }}
+                  >
+                    <Pencil size={14} />
+                    Засах
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => setDetail(null)}>
+                  Хаах
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -519,17 +941,18 @@ function CheckChip({
   ok,
   okText,
   badText,
-  href,
+  onClick,
 }: {
   ok: boolean;
   okText: string;
   badText: string;
-  href: string;
+  onClick: () => void;
 }) {
   return (
-    <Link
-      href={href}
-      style={{ textDecoration: "none" }}
+    <button
+      type="button"
+      onClick={onClick}
+      title="Задаргаа харах"
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-xs font-medium transition-colors hover:bg-[var(--ea-bg-2)]",
         ok
@@ -542,7 +965,7 @@ function CheckChip({
         style={{ background: ok ? "var(--ea-success)" : "var(--ea-danger)" }}
       />
       {ok ? okText : badText}
-    </Link>
+    </button>
   );
 }
 
@@ -550,18 +973,19 @@ function SummaryCell({
   label,
   value,
   valueColor,
-  href,
+  onClick,
 }: {
   label: string;
   value: string;
   valueColor?: string;
-  href: string;
+  onClick: () => void;
 }) {
   return (
-    <Link
-      href={href}
-      className="min-w-0 border-b border-r border-[var(--ea-border)] px-4 py-3 transition-colors last:border-r-0 hover:bg-[var(--ea-bg-2)] lg:border-b-0"
-      style={{ textDecoration: "none" }}
+    <button
+      type="button"
+      onClick={onClick}
+      title="Задаргаа харах"
+      className="min-w-0 border-b border-r border-[var(--ea-border)] px-4 py-3 text-left transition-colors last:border-r-0 hover:bg-[var(--ea-bg-2)] lg:border-b-0"
     >
       <div className="truncate text-[11px] text-[var(--ea-text-3)]">{label}</div>
       <div
@@ -570,7 +994,7 @@ function SummaryCell({
       >
         {value}
       </div>
-    </Link>
+    </button>
   );
 }
 
@@ -579,18 +1003,16 @@ function MiniStat({
   label,
   value,
   href,
+  onClick,
 }: {
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   value: string;
-  href: string;
+  href?: string;
+  onClick?: () => void;
 }) {
-  return (
-    <Link
-      href={href}
-      className="flex min-w-0 items-center gap-3 bg-[var(--ea-surface)] px-4 py-3 transition-colors hover:bg-[var(--ea-bg-2)]"
-      style={{ textDecoration: "none" }}
-    >
+  const content = (
+    <>
       <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)] text-[var(--ea-primary)]">
         <Icon size={15} />
       </div>
@@ -600,37 +1022,19 @@ function MiniStat({
           {value}
         </div>
       </div>
-    </Link>
+    </>
   );
-}
-
-function AlertRow({
-  href,
-  text,
-  danger = false,
-}: {
-  href: string;
-  text: string;
-  danger?: boolean;
-}) {
+  const className =
+    "flex min-w-0 items-center gap-3 bg-[var(--ea-surface)] px-4 py-3 text-left transition-colors hover:bg-[var(--ea-bg-2)]";
+  if (onClick)
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {content}
+      </button>
+    );
   return (
-    <li>
-      <Link
-        href={href}
-        className={cn(
-          "flex items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-[var(--ea-bg-2)]",
-          danger ? "text-[var(--ea-danger)]" : "text-[var(--ea-text-2)]"
-        )}
-        style={{ textDecoration: "none" }}
-      >
-        <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{
-            background: danger ? "var(--ea-danger)" : "var(--ea-warning)",
-          }}
-        />
-        {text}
-      </Link>
-    </li>
+    <Link href={href!} className={className} style={{ textDecoration: "none" }}>
+      {content}
+    </Link>
   );
 }
