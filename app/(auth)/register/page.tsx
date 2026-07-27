@@ -71,7 +71,7 @@ export default function RegisterPage() {
         }}>
           {/* Left */}
           <div style={{
-            background: 'linear-gradient(165deg, #1E3A5F 0%, #15294A 100%)',
+            background: 'var(--ea-hero-gradient)',
             color: '#fff', padding: '36px 32px',
             display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 20,
             position: 'relative', overflow: 'hidden',

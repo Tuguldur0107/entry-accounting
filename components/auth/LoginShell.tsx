@@ -176,7 +176,7 @@ export function LoginShell({
         }}>
           {/* Left panel */}
           <div style={{
-            background: 'linear-gradient(165deg, var(--ea-primary) 0%, var(--ea-primary-700) 100%)',
+            background: 'var(--ea-hero-gradient)',
             color: '#fff', padding: '40px 36px',
             display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
             position: 'relative', overflow: 'hidden',

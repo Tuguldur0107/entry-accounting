@@ -99,6 +99,9 @@
   /* Light mode body gradient */
   --ea-bg-gradient: radial-gradient(80% 60% at 50% 0%, #F8FAFC 0%, #FFFFFF 60%);
 
+  /* Auth hero panel — light-д брэнд nav, dark-д тас хар */
+  --ea-hero-gradient: linear-gradient(165deg, #1E3A5F 0%, #15294A 100%);
+
   /* shadcn tokens aligned to --ea-* */
   --background: var(--ea-bg);
   --foreground: var(--ea-text-1);
@@ -178,6 +181,9 @@
   --ea-bg-gradient:
     radial-gradient(60% 50% at 20% 0%, rgba(255,255,255,0.03) 0%, transparent 60%),
     linear-gradient(180deg, #050505 0%, #000000 100%);
+
+  /* Auth hero panel — dark-д тас хар */
+  --ea-hero-gradient: linear-gradient(165deg, #111113 0%, #000000 100%);
 
   /* ── shadcn tokens aligned to --ea-* ────────────────────────── */
   --background: var(--ea-bg);

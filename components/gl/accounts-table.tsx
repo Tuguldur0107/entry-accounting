@@ -471,7 +471,7 @@ export function AccountsTable({
           return (
             <button
               onClick={() => undoDelete(d.id)}
-              className="text-red-400 hover:text-[var(--ea-primary)] hover:bg-blue-50 px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
+              className="text-red-400 hover:text-[var(--ea-primary)] hover:bg-[var(--ea-primary-50)] px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
               title="Буцаах"
             >
               ↩
@@ -652,7 +652,7 @@ export function AccountsTable({
               <div
                 key={def.key}
                 className={cn(
-                  "bg-white border rounded-md px-4 py-3 transition-opacity",
+                  "bg-[var(--ea-surface)] border rounded-md px-4 py-3 transition-opacity",
                   !on && "opacity-50",
                   isDirty ? "border-[var(--ea-primary)]" : "border-[var(--ea-border)]"
                 )}
@@ -709,7 +709,7 @@ export function AccountsTable({
               <div
                 key={def.id}
                 className={cn(
-                  "bg-white border rounded-md px-3 py-2.5 transition-opacity",
+                  "bg-[var(--ea-surface)] border rounded-md px-3 py-2.5 transition-opacity",
                   !on && "opacity-50",
                   isDirty ? "border-[var(--ea-primary)]" : "border-[var(--ea-border)]"
                 )}
