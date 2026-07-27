@@ -289,11 +289,9 @@ export function JournalLinesGrid({
         },
       },
     ];
-    // Засварлах горимд нэрийн багана хэрэггүй (editor доторх picker нэрийг
-    // үзүүлдэг); харах горимд устгах багана хэрэггүй.
-    return readOnly
-      ? cols.filter((col) => col.colId !== "actions")
-      : cols.filter((col) => col.colId !== "account-name");
+    // Дансны нэр хоёр горимд ч харагдана (нэг UX); харах горимд мөр
+    // устгах багана хэрэггүй.
+    return readOnly ? cols.filter((col) => col.colId !== "actions") : cols;
   }, [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange, readOnly, accountNameByMain]);
 
   const processDataFromClipboard = useCallback(

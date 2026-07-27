@@ -23,6 +23,27 @@ import {
 } from "@/components/journal/journal-lines-grid";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
+function MetaField({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] text-[var(--ea-text-4)]">{label}</div>
+      <div
+        className={`mt-0.5 break-words text-[var(--ea-text-1)]${mono ? " font-mono" : ""}`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function closeWindow() {
   if (typeof window === "undefined") return;
   if (window.opener) {
@@ -337,30 +358,77 @@ export function JournalEntryForm({
               borderRadius: 10,
             }}
           >
-            {readOnly ? (
-              // Баримт-харагдац: саарал input биш, цэвэр текст.
-              <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
-                <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-4">
-                  <div>
-                    <div className="text-[11px] text-[var(--ea-text-4)]">Огноо</div>
-                    <div className="mt-0.5 font-mono text-[var(--ea-text-1)]">{date}</div>
+            {/* Толгой — хоёр горимд НЭГ бүтэц: зүүн талд талбарууд
+                (харах горимд текст, засварлахад input), баруун талд том
+                Дт/Кт нийлбэр, доор нь метадата. */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+                {readOnly ? (
+                  <div className="grid min-w-0 flex-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
+                    <MetaField label="Огноо" value={date} mono />
+                    <MetaField
+                      label="Гүйлгээний утга"
+                      value={description || "—"}
+                    />
                   </div>
-                  <div>
-                    <div className="text-[11px] text-[var(--ea-text-4)]">Мөрийн тоо</div>
-                    <div className="mt-0.5 font-mono text-[var(--ea-text-1)]">
-                      {lines.length}
+                ) : (
+                  <div
+                    className="grid min-w-0 flex-1 gap-5"
+                    style={{ gridTemplateColumns: "180px minmax(0,1fr)" }}
+                  >
+                    <div className="space-y-1.5">
+                      <Label htmlFor="voucher-date">Огноо</Label>
+                      <Input
+                        id="voucher-date"
+                        type="date"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="voucher-description">Гүйлгээний утга</Label>
+                      <Input
+                        id="voucher-description"
+                        type="text"
+                        placeholder="Гүйлгээний тайлбар оруулна уу"
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                      />
                     </div>
                   </div>
-                  {voucherCreatedAt && (
-                    <div>
-                      <div className="text-[11px] text-[var(--ea-text-4)]">Үүсгэсэн</div>
-                      <div className="mt-0.5 font-mono text-[var(--ea-text-1)]">
-                        {voucherCreatedAt}
-                      </div>
+                )}
+
+                <div className="flex shrink-0 gap-6 text-right">
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">
+                      Нийт дебет
                     </div>
-                  )}
-                  <div className="col-span-2 sm:col-span-4">
-                    <div className="text-[11px] text-[var(--ea-text-4)]">Дугаар</div>
+                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
+                      {fmt(totalDebit)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">
+                      Нийт кредит
+                    </div>
+                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
+                      {fmt(totalCredit)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className="grid grid-cols-2 gap-x-8 gap-y-3 pt-3 text-sm sm:grid-cols-4"
+                style={{ borderTop: "1px solid var(--ea-border)" }}
+              >
+                <MetaField label="Мөрийн тоо" value={String(lines.length)} mono />
+                {voucherCreatedAt && (
+                  <MetaField label="Үүсгэсэн" value={voucherCreatedAt} mono />
+                )}
+                <div className="col-span-2">
+                  <div className="text-[11px] text-[var(--ea-text-4)]">Дугаар</div>
+                  {voucherId ? (
                     <div className="mt-0.5 flex items-start gap-1.5">
                       {/* Сонгож хуулах боломжтой — товч нь зөвхөн хурдавчлал */}
                       <span className="min-w-0 select-all break-all font-mono text-xs text-[var(--ea-text-2)]">
@@ -387,55 +455,14 @@ export function JournalEntryForm({
                         </span>
                       )}
                     </div>
-                  </div>
-                  <div className="col-span-2 sm:col-span-4">
-                    <div className="text-[11px] text-[var(--ea-text-4)]">
-                      Гүйлгээний утга
+                  ) : (
+                    <div className="mt-0.5 text-xs text-[var(--ea-text-4)]">
+                      Хадгалахад үүснэ
                     </div>
-                    <div className="mt-0.5 text-[var(--ea-text-1)]">
-                      {description || "—"}
-                    </div>
-                  </div>
-                </div>
-                {/* Том Дт/Кт нийлбэр */}
-                <div className="flex gap-6 text-right">
-                  <div>
-                    <div className="text-[11px] text-[var(--ea-text-4)]">Нийт дебет</div>
-                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
-                      {fmt(totalDebit)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-[var(--ea-text-4)]">Нийт кредит</div>
-                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
-                      {fmt(totalCredit)}
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
-            ) : (
-              <div className="grid gap-5" style={{ gridTemplateColumns: "180px 1fr" }}>
-                <div className="space-y-1.5">
-                  <Label htmlFor="voucher-date">Огноо</Label>
-                  <Input
-                    id="voucher-date"
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="voucher-description">Гүйлгээний утга</Label>
-                  <Input
-                    id="voucher-description"
-                    type="text"
-                    placeholder="Гүйлгээний тайлбар оруулна уу"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
+            </div>
           </div>
 
           <div
