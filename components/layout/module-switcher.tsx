@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, Settings, Check, WalletCards, ReceiptText, Boxes, Calculator, Building, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Z } from "@/lib/ui/z-layers";
 import { MODULES, getActiveModule } from "./modules";
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
@@ -157,7 +158,7 @@ export function ModuleSwitcher({
             borderRadius: 10,
             boxShadow: "var(--ea-shadow-3)",
             padding: 8,
-            zIndex: 80,
+            zIndex: Z.moduleMenu,
             transformOrigin: "top left",
             animation: "ms-pop-grow 140ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}

@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import {
   AlertTriangle,
-  ArrowUpRight,
   BookOpen,
   CheckCircle2,
   FileClock,
@@ -15,13 +14,11 @@ import {
 } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { openVoucherPanel } from "@/lib/store/panel-store";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  openDrillPanel,
+  openVoucherPanel,
+  type DrillPanelRow,
+} from "@/lib/store/panel-store";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -99,23 +96,6 @@ const MODULE_LABELS: Record<string, string> = {
   FA: "Үндсэн хөрөнгө",
 };
 
-type DrillRow = {
-  id: string;
-  date: string;
-  description: string;
-  module: string;
-  lineCount: number;
-  amount: number;
-  status: string;
-};
-
-type DrillState = {
-  title: string;
-  note?: string;
-  rows: DrillRow[];
-  link?: { href: string; label: string };
-};
-
 interface Props {
   month: string; // YYYY-MM
   postedCount: number;
@@ -167,25 +147,20 @@ export function GlDashboard({
 
   const monthQuery = `start=${monthStart}&end=${monthEnd}`;
 
-  const [drill, setDrill] = useState<DrillState | null>(null);
-
   // Журналын жагсаалттай ижил ажлын панель — ноорог бол засварлагч,
-  // бичигдсэн/буцаагдсан бол харах горимоор нээгдэнэ. Задаргааны dialog нь
-  // modal (панелиас дээд давхаргад overlay-тай) тул хаана — эс бөгөөс шинэ
-  // панель харанхуй overlay-н ДОР дарагдаж, дарж болохгүй болно.
+  // бичигдсэн/буцаагдсан бол харах горимоор нээгдэнэ.
   function openVoucherEditor(id: string, title?: string) {
-    setDrill(null);
     openVoucherPanel(id, title);
   }
 
-  /** 1-р түвшин: метрикийн бүрдүүлэгч журналуудын жагсаалт. */
+  /** 1-р түвшин: метрикийн бүрдүүлэгч журналуудын жагсаалт — панелиар. */
   function openDrill(
     title: string,
     filter: (voucher: GlDrillVoucher) => boolean,
     amount: (voucher: GlDrillVoucher) => number,
     options?: { note?: string; link?: { href: string; label: string } }
   ) {
-    const rows = drillVouchers
+    const rows: DrillPanelRow[] = drillVouchers
       .filter(filter)
       .map((voucher) => ({
         id: voucher.id,
@@ -197,7 +172,7 @@ export function GlDashboard({
         status: voucher.status,
       }))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-    setDrill({ title, rows, ...options });
+    openDrillPanel({ title, rows, ...options });
   }
 
   const isPostedLike = (voucher: GlDrillVoucher) =>
@@ -209,37 +184,6 @@ export function GlDashboard({
     const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
     return `start=${m}-01&end=${m}-${String(lastDay).padStart(2, "0")}`;
   }
-
-  const drillColumns = useMemo<ColDef<DrillRow>[]>(
-    () => [
-      { headerName: "Огноо", field: "date", width: 104, cellClass: "font-mono text-xs" },
-      { headerName: "Утга", field: "description", minWidth: 190, flex: 1 },
-      { headerName: "Модуль", field: "module", width: 128, cellClass: "text-xs" },
-      {
-        headerName: "Мөр",
-        field: "lineCount",
-        width: 64,
-        cellClass: "ag-right-aligned-cell font-mono text-xs",
-        headerClass: "ag-right-aligned-header",
-      },
-      {
-        headerName: "Дүн",
-        field: "amount",
-        width: 140,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
-      },
-      {
-        headerName: "Төлөв",
-        field: "status",
-        width: 110,
-        valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
-        cellClass: "text-xs",
-      },
-    ],
-    []
-  );
 
   const recentColumns = useMemo<ColDef<GlRecentVoucherRow>[]>(
     () => [
@@ -290,11 +234,6 @@ export function GlDashboard({
     ],
     []
   );
-
-  const drillTotal = drill
-    ? Math.round(drill.rows.reduce((sum, row) => sum + row.amount, 0) * 100) /
-      100
-    : 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -779,61 +718,6 @@ export function GlDashboard({
           />
         )}
       </section>
-
-      {/* 1-р түвшин: метрикийн задаргаа */}
-      <Dialog open={!!drill} onOpenChange={(o) => !o && setDrill(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-          {drill && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{drill.title}</DialogTitle>
-              </DialogHeader>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--ea-text-3)]">
-                <span>
-                  {drill.rows.length} журнал · Σ{" "}
-                  <span className="font-mono font-medium text-[var(--ea-text-1)]">
-                    {fmtMnt(drillTotal)}
-                  </span>
-                  {drill.note ? ` · ${drill.note}` : ""}
-                </span>
-                {drill.link && (
-                  <Link
-                    href={drill.link.href}
-                    className="inline-flex items-center gap-1 font-medium text-[var(--ea-primary)]"
-                    onClick={() => setDrill(null)}
-                  >
-                    {drill.link.label}
-                    <ArrowUpRight size={12} />
-                  </Link>
-                )}
-              </div>
-              {drill.rows.length === 0 ? (
-                <p className="rounded-md border border-[var(--ea-border)] px-3 py-6 text-center text-xs text-[var(--ea-text-4)]">
-                  Журнал олдсонгүй
-                </p>
-              ) : (
-                <>
-                  <p className="text-[11px] text-[var(--ea-text-4)]">
-                    Мөр дээр дарахад журнал өөрийн цонхонд нээгдэнэ
-                  </p>
-                  <DataGridDynamic<DrillRow>
-                    rowData={drill.rows}
-                    columnDefs={drillColumns}
-                    getRowId={(params) => params.data.id}
-                    height={Math.min(420, 86 + drill.rows.length * 36)}
-                    wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-                    suppressCellFocus
-                    onRowClicked={(event) => {
-                      if (event.data)
-                openVoucherEditor(event.data.id, event.data.description);
-                    }}
-                  />
-                </>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
     </div>
   );

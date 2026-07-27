@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronUp, FileText, Minus, X } from "lucide-react";
 
 import { FloatingPanel } from "./floating-panel";
-import { VoucherPanel } from "./voucher-panel";
+import { PANEL_REGISTRY } from "./panel-registry";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePanelStore, type PanelInstance } from "@/lib/store/panel-store";
 import { Z } from "@/lib/ui/z-layers";
@@ -127,7 +127,13 @@ export function PanelHost() {
 
       {panels.map((panel) => {
         // Цэвэр хураастай панель — unmount (сэргээхэд шинээр татна).
-        if (panel.minimized && !panel.dirty) return null;
+        // keepMounted kind (жишээ нь стрийм явж буй чат) үл хамаарна.
+        if (
+          panel.minimized &&
+          !panel.dirty &&
+          !PANEL_REGISTRY[panel.kind]?.keepMounted
+        )
+          return null;
         return (
           <FloatingPanel
             key={panel.id}
@@ -338,11 +344,8 @@ function PanelBody({
   panel: PanelInstance;
   requestClose: () => void;
 }) {
-  switch (panel.kind) {
-    case "voucher":
-    case "voucher-new":
-      return <VoucherPanel panel={panel} requestClose={requestClose} />;
-    default:
-      return null;
-  }
+  const config = PANEL_REGISTRY[panel.kind];
+  if (!config) return null;
+  const Body = config.component;
+  return <Body panel={panel} requestClose={requestClose} />;
 }

@@ -19,7 +19,34 @@ import { create } from "zustand";
 export type PanelKind =
   | "voucher" // GL журнал — засах эсвэл харах
   | "voucher-new" // Шинэ журнал бичих
-  | "drill"; // Самбарын метрикийн задаргаа
+  | "drill" // Самбарын метрикийн задаргаа (журналуудын жагсаалт)
+  | "cash-doc" // Мөнгөн гүйлгээний баримтын дэлгэрэнгүй
+  | "cash-new" // Шинэ мөнгөн гүйлгээ / АР-АП төлөлт бичих
+  | "cost-entry" // Өртгийн бичилтийн дэлгэрэнгүй
+  | "fa-asset" // Үндсэн хөрөнгийн карт — дэлгэрэнгүй
+  | "fa-asset-form" // Хөрөнгө үүсгэх / картыг бөглөж идэвхжүүлэх
+  | "arap-doc" // АР/АП баримт — үүсгэх эсвэл харах
+  | "ai-chat"; // AI туслах — глобал хөвөгч чат
+
+/** Самбарын задаргааны нэг мөр (drill панелийн payload-д). */
+export interface DrillPanelRow {
+  id: string;
+  date: string;
+  description: string;
+  module: string;
+  lineCount: number;
+  amount: number;
+  status: string;
+}
+
+/** Drill панелийн payload — самбар дээр бодогдсон мөрүүдийг шууд авч явна. */
+export interface DrillPanelPayload {
+  title: string;
+  note?: string;
+  rows: DrillPanelRow[];
+  link?: { href: string; label: string };
+  [key: string]: unknown;
+}
 
 export interface PanelInstance {
   /** Дотоод дахин давтагдашгүй id. */
@@ -120,6 +147,8 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
     const existing = get().panels.find((panel) => panel.key === key);
     if (existing) {
       // Дахин нээхгүй — сэргээж фокуслоод, агуулгыг нь дахин ачаалуулна.
+      // Payload-ыг ШИНЭЭР солино — нээгч талаас шинэ өгөгдөл (жишээ нь
+      // самбар дахин бодогдсон drill мөрүүд) ирсэн байж болно.
       set((state) => {
         let panels = state.panels;
         if (existing.minimized)
@@ -131,6 +160,7 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
               ? {
                   ...panel,
                   title,
+                  payload,
                   minimized: false,
                   order: ++seq,
                   slot,
@@ -277,6 +307,114 @@ export function openNewVoucherPanel() {
     key: `voucher:new:${++newVoucherSeq}`,
     kind: "voucher-new",
     title: "Шинэ журнал",
+    payload: {},
+  });
+}
+
+/** Самбарын метрикийн задаргаа — мөрүүд нь payload-аар шууд дамжина. */
+export function openDrillPanel(payload: DrillPanelPayload) {
+  return usePanelStore.getState().openPanel({
+    key: `drill:${payload.title}`,
+    kind: "drill",
+    title: payload.title,
+    payload,
+  });
+}
+
+/** Мөнгөн гүйлгээний баримтын дэлгэрэнгүй. */
+export function openCashDocPanel(documentId: string, title?: string) {
+  return usePanelStore.getState().openPanel({
+    key: `cash-doc:${documentId}`,
+    kind: "cash-doc",
+    title: title || "Мөнгөн гүйлгээ",
+    payload: { documentId },
+  });
+}
+
+/**
+ * Шинэ мөнгөн гүйлгээ бичих. arApDocumentId өгвөл тухайн АР/АП баримтын
+ * төлөлт болгож урьдчилан бөглөнө (АР/АП-ийн "Төлөлт" товчноос).
+ */
+export function openCashNewPanel(init?: { arApDocumentId?: string }) {
+  const settlement = init?.arApDocumentId;
+  return usePanelStore.getState().openPanel({
+    // Төлөлт нь баримт бүрд тусдаа панель; энгийн шинэ гүйлгээ нь
+    // дарах бүрд шинэ хоосон форм.
+    key: settlement
+      ? `cash-new:arap:${settlement}`
+      : `cash-new:${++newVoucherSeq}`,
+    kind: "cash-new",
+    title: settlement ? "АР/АП төлөлт" : "Шинэ мөнгөн гүйлгээ",
+    payload: { arApDocumentId: settlement },
+  });
+}
+
+/** Өртгийн бичилтийн дэлгэрэнгүй. */
+export function openCostEntryPanel(entryId: string, title?: string) {
+  return usePanelStore.getState().openPanel({
+    key: `cost-entry:${entryId}`,
+    kind: "cost-entry",
+    title: title || "Өртгийн бичилт",
+    payload: { entryId },
+  });
+}
+
+/** Үндсэн хөрөнгийн карт — дэлгэрэнгүй. */
+export function openFaAssetPanel(assetId: string, title?: string) {
+  return usePanelStore.getState().openPanel({
+    key: `fa-asset:${assetId}`,
+    kind: "fa-asset",
+    title: title || "Үндсэн хөрөнгө",
+    payload: { assetId },
+  });
+}
+
+/**
+ * Хөрөнгийн форм: assetId өгвөл тухайн картыг бөглөж идэвхжүүлэх,
+ * өгөхгүй бол шинэ хөрөнгө үүсгэх.
+ */
+export function openFaAssetFormPanel(init?: { assetId?: string }) {
+  const assetId = init?.assetId;
+  return usePanelStore.getState().openPanel({
+    key: assetId ? `fa-asset-form:${assetId}` : `fa-asset-form:new:${++newVoucherSeq}`,
+    kind: "fa-asset-form",
+    title: assetId ? "Хөрөнгө идэвхжүүлэх" : "Шинэ үндсэн хөрөнгө",
+    payload: { assetId },
+  });
+}
+
+/**
+ * АР/АП баримт: documentId өгвөл харах, өгөхгүй бол шинээр үүсгэх.
+ * mode нь receivable/payable/combined харагдацын аль нь болохыг заана.
+ */
+export function openArapDocPanel(init: {
+  documentId?: string;
+  mode: "receivable" | "payable" | "combined";
+  title?: string;
+}) {
+  const { documentId, mode, title } = init;
+  return usePanelStore.getState().openPanel({
+    key: documentId
+      ? `arap-doc:${documentId}`
+      : `arap-doc:new:${++newVoucherSeq}`,
+    kind: "arap-doc",
+    title:
+      title ||
+      (documentId
+        ? "АР/АП баримт"
+        : mode === "payable"
+          ? "Шинэ нэхэмжлэх"
+          : "Шинэ нэхэмжлэл"),
+    payload: { documentId, mode },
+  });
+}
+
+/** AI туслах — глобал нэг чат панель (dedupe key тогтмол). */
+export function openAiChatPanel() {
+  return usePanelStore.getState().openPanel({
+    key: "ai-chat",
+    kind: "ai-chat",
+    title: "AI туслах",
     payload: {},
   });
 }
