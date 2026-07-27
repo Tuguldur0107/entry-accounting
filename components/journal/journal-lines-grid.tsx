@@ -44,6 +44,8 @@ export interface JournalLinesGridProps {
   minLines?: number;
   onError?: (message: string) => void;
   maxHeight?: number;
+  /** Зөвхөн харах — засварлах, мөр устгах, paste идэвхгүй. */
+  readOnly?: boolean;
 }
 
 export function JournalLinesGrid({
@@ -55,6 +57,7 @@ export function JournalLinesGrid({
   minLines = 2,
   onError,
   maxHeight = 560,
+  readOnly = false,
 }: JournalLinesGridProps) {
   const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
@@ -91,8 +94,8 @@ export function JournalLinesGrid({
     [onLinesChange]
   );
 
-  const columnDefs = useMemo<ColDef<JournalLineRow>[]>(
-    () => [
+  const columnDefs = useMemo<ColDef<JournalLineRow>[]>(() => {
+    const cols: ColDef<JournalLineRow>[] = [
       {
         headerName: "#",
         colId: "row-num",
@@ -106,7 +109,7 @@ export function JournalLinesGrid({
         headerName: "Данс",
         field: "account",
         width: accountColWidth,
-        editable: true,
+        editable: !readOnly,
         cellClass: "font-mono text-xs",
         cellEditor: AccountSegmentEditor,
         cellEditorParams: {
@@ -120,7 +123,7 @@ export function JournalLinesGrid({
         headerName: "Дебет",
         field: "debit",
         width: 150,
-        editable: true,
+        editable: !readOnly,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         cellEditor: DebitCreditEditor,
@@ -135,7 +138,7 @@ export function JournalLinesGrid({
         headerName: "Кредит",
         field: "credit",
         width: 150,
-        editable: true,
+        editable: !readOnly,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         cellEditor: DebitCreditEditor,
@@ -151,7 +154,7 @@ export function JournalLinesGrid({
         field: "description",
         flex: 1,
         minWidth: 200,
-        editable: true,
+        editable: !readOnly,
         cellClass: "text-xs",
       },
       {
@@ -197,9 +200,9 @@ export function JournalLinesGrid({
           );
         },
       },
-    ],
-    [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange]
-  );
+    ];
+    return readOnly ? cols.filter((col) => col.colId !== "actions") : cols;
+  }, [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange, readOnly]);
 
   const processDataFromClipboard = useCallback(
     (p: ProcessDataFromClipboardParams<JournalLineRow>) => {

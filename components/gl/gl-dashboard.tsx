@@ -21,7 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { VoucherDetailDialog } from "@/components/journal/voucher-detail-dialog";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -130,8 +129,6 @@ interface Props {
   draftItems: GlDraftItem[];
   recent: GlRecentVoucherRow[];
   drillVouchers: GlDrillVoucher[];
-  activeSegIds: number[];
-  glNames: Record<string, string>;
   monthStart: string; // YYYY-MM-DD
   monthEnd: string; // YYYY-MM-DD
 }
@@ -152,8 +149,6 @@ export function GlDashboard({
   draftItems,
   recent,
   drillVouchers,
-  activeSegIds,
-  glNames,
   monthStart,
   monthEnd,
 }: Props) {
@@ -172,9 +167,9 @@ export function GlDashboard({
   const monthQuery = `start=${monthStart}&end=${monthEnd}`;
 
   const [drill, setDrill] = useState<DrillState | null>(null);
-  const [detailId, setDetailId] = useState<string | null>(null);
 
-  // Журналын жагсаалтын засах үйлдэлтэй ижил standalone цонх (зөвхөн ноорог).
+  // Журналын жагсаалттай ижил standalone цонх — ноорог бол засварлагч,
+  // бичигдсэн/буцаагдсан бол харах горимоор нээгдэнэ.
   function openVoucherEditor(id: string) {
     window.open(
       `/gl/journal/${id}/edit`,
@@ -778,7 +773,7 @@ export function GlDashboard({
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
             onRowClicked={(event) => {
-              if (event.data) setDetailId(event.data.id);
+              if (event.data) openVoucherEditor(event.data.id);
             }}
           />
         )}
@@ -818,7 +813,7 @@ export function GlDashboard({
               ) : (
                 <>
                   <p className="text-[11px] text-[var(--ea-text-4)]">
-                    Мөр дээр дарж журналын мөрийн дэлгэрэнгүйг харна
+                    Мөр дээр дарахад журнал өөрийн цонхонд нээгдэнэ
                   </p>
                   <DataGridDynamic<DrillRow>
                     rowData={drill.rows}
@@ -828,7 +823,7 @@ export function GlDashboard({
                     wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
                     suppressCellFocus
                     onRowClicked={(event) => {
-                      if (event.data) setDetailId(event.data.id);
+                      if (event.data) openVoucherEditor(event.data.id);
                     }}
                   />
                 </>
@@ -838,13 +833,6 @@ export function GlDashboard({
         </DialogContent>
       </Dialog>
 
-      {/* 2-р түвшин: журналын мөрийн дэлгэрэнгүй — нэгдсэн dialog */}
-      <VoucherDetailDialog
-        voucherId={detailId}
-        onClose={() => setDetailId(null)}
-        activeSegIds={activeSegIds}
-        glName={(main) => glNames[main] ?? ""}
-      />
     </div>
   );
 }

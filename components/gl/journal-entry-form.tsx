@@ -47,6 +47,10 @@ interface Props {
   defaultSegments?: Record<number, string>;
   voucherId?: string;
   initialVoucher?: InitialVoucher;
+  /** Зөвхөн харах — батлагдсан/буцаагдсан журналд засвар хийхгүй. */
+  readOnly?: boolean;
+  /** Харах горимд төлөвийг badge-аар үзүүлнэ. */
+  voucherStatus?: string;
 }
 
 const fmt = (n: number) => fmtMnt(n);
@@ -58,6 +62,8 @@ export function JournalEntryForm({
   defaultSegments = {},
   voucherId,
   initialVoucher,
+  readOnly = false,
+  voucherStatus,
 }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const isEdit = !!voucherId;
@@ -169,8 +175,25 @@ export function JournalEntryForm({
         </Button>
         <Separator orientation="vertical" className="h-5" />
         <span className="text-sm font-semibold" style={{ color: "var(--ea-text-1)" }}>
-          {isEdit ? "Журнал засах" : "Журнал бичих"}
+          {readOnly ? "Журнал харах" : isEdit ? "Журнал засах" : "Журнал бичих"}
         </span>
+        {readOnly && voucherStatus && (
+          <StatusBadge
+            tone={
+              voucherStatus === "posted"
+                ? "success"
+                : voucherStatus === "draft"
+                  ? "warning"
+                  : "muted"
+            }
+          >
+            {voucherStatus === "posted"
+              ? "Бичигдсэн"
+              : voucherStatus === "reversed"
+                ? "Буцаагдсан"
+                : "Ноорог"}
+          </StatusBadge>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto py-6 px-6">
@@ -190,6 +213,7 @@ export function JournalEntryForm({
                   id="voucher-date"
                   type="date"
                   value={date}
+                  disabled={readOnly}
                   onChange={(e) => setDate(e.target.value)}
                 />
               </div>
@@ -200,6 +224,7 @@ export function JournalEntryForm({
                   type="text"
                   placeholder="Гүйлгээний тайлбар оруулна уу"
                   value={description}
+                  disabled={readOnly}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </div>
@@ -221,6 +246,7 @@ export function JournalEntryForm({
               segOptions={segOptions}
               defaultSegments={defaultSegments}
               onError={setError}
+              readOnly={readOnly}
             />
           </div>
         </div>
@@ -245,29 +271,37 @@ export function JournalEntryForm({
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setLines((p) => [...p, makeEmptyLine()])}
-          >
-            + Мөр нэмэх
-          </Button>
-          <Separator orientation="vertical" className="h-5" />
-          <Button variant="outline" onClick={closeWindow}>
-            Болих
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => handleSave("draft")}
-            disabled={saving !== null}
-          >
-            {saving === "draft" ? "Хадгалж байна..." : "Ноорог"}
-          </Button>
-          <Button
-            onClick={() => handleSave("posted")}
-            disabled={!balanced || saving !== null}
-          >
-            {saving === "posted" ? "Хадгалж байна..." : "Хадгалах"}
-          </Button>
+          {readOnly ? (
+            <Button variant="outline" onClick={closeWindow}>
+              Хаах
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setLines((p) => [...p, makeEmptyLine()])}
+              >
+                + Мөр нэмэх
+              </Button>
+              <Separator orientation="vertical" className="h-5" />
+              <Button variant="outline" onClick={closeWindow}>
+                Болих
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleSave("draft")}
+                disabled={saving !== null}
+              >
+                {saving === "draft" ? "Хадгалж байна..." : "Ноорог"}
+              </Button>
+              <Button
+                onClick={() => handleSave("posted")}
+                disabled={!balanced || saving !== null}
+              >
+                {saving === "posted" ? "Хадгалж байна..." : "Хадгалах"}
+              </Button>
+            </>
+          )}
         </div>
       </footer>
     </div>

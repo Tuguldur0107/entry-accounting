@@ -13,12 +13,7 @@ import {
 } from "@/components/gl/gl-dashboard";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import {
-  chartOfAccounts,
-  journalVouchers,
-  segmentConfigs,
-} from "@/lib/db/schema";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { chartOfAccounts, journalVouchers } from "@/lib/db/schema";
 import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
@@ -58,7 +53,7 @@ export default async function GlDashboardPage() {
     .slice(0, 7);
 
   // Тайлангийн хуудастай ижил ачаалалт: журналууд мөрүүдтэйгээ + дансны мод.
-  const [vouchers, accounts, rawSegConfigs] = await Promise.all([
+  const [vouchers, accounts] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
         eq(journalVouchers.userId, userId),
@@ -73,14 +68,7 @@ export default async function GlDashboardPage() {
         eq(chartOfAccounts.isEnabled, true)
       ),
     }),
-    db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
-    }),
   ]);
-  const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
-  const activeSegIds = SEGMENT_DEFS.filter(
-    (def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true
-  ).map((def) => def.id);
   const nameByMain = new Map(accounts.map((account) => [account.number, account.name]));
 
   // ── Нэгдсэн гүйлт: бүх нийлбэрийг нэг дамжилтаар ────────────────────────────
@@ -316,8 +304,6 @@ export default async function GlDashboardPage() {
       draftItems={draftItems}
       recent={recent}
       drillVouchers={drillVouchers}
-      activeSegIds={activeSegIds}
-      glNames={Object.fromEntries(nameByMain)}
       monthStart={monthRange(month).start}
       monthEnd={monthRange(month).end}
     />

@@ -27,7 +27,9 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
     }),
   ]);
 
-  if (!voucher || voucher.status !== "draft") notFound();
+  if (!voucher) notFound();
+  // Ноорог → засварлана; бичигдсэн/буцаагдсан → зөвхөн харах горим.
+  const readOnly = voucher.status !== "draft";
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
 
@@ -43,6 +45,8 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
 
   return (
     <JournalEntryForm
+      readOnly={readOnly}
+      voucherStatus={voucher.status}
       accounts={accounts}
       activeSegIds={activeSegIds}
       segmentValues={rawSegValues}
