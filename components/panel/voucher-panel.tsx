@@ -25,6 +25,12 @@ const STATUS_TITLES: Record<string, string> = {
   reversed: "Буцаагдсан",
 };
 
+const ERROR_MESSAGES = {
+  unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
+  "not-found": "Журнал олдсонгүй. Устгагдсан байж болзошгүй.",
+  failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
+} as const;
+
 export function VoucherPanel({
   panel,
   requestClose,
@@ -40,38 +46,54 @@ export function VoucherPanel({
   const activeId = usePanelStore((state) => state.activeId);
 
   const voucherId = panel.payload.voucherId as string | undefined;
+  const refreshToken = panel.refreshToken;
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "error"; message: string }
-    | { status: "ready"; data: JournalEditorData }
+    | { status: "ready"; data: JournalEditorData; loadedToken: number }
   >({ status: "loading" });
 
+  // Эхний ачаалалт + СЭРГЭЭХ/ДАХИН НЭЭХ бүрд дахин татна (store refreshToken-ийг
+  // өсгөдөг) — панель хураастай байх зуур журнал өөр газраас өөрчлөгдсөн байж
+  // болно. Хадгалаагүй өөрчлөлттэй үед хэрэглэгчийн бичсэнийг дарж болохгүй
+  // тул алгасна.
   useEffect(() => {
+    const current = usePanelStore
+      .getState()
+      .panels.find((entry) => entry.id === panel.id);
+    if (current?.dirty) return;
+
     let cancelled = false;
     getJournalEditorData(voucherId)
-      .then((data) => {
+      .then((result) => {
         if (cancelled) return;
-        setState({ status: "ready", data });
-        if (data.voucher) {
-          const label = STATUS_TITLES[data.voucher.status] ?? data.voucher.status;
+        if (!result.ok) {
+          setState({ status: "error", message: ERROR_MESSAGES[result.code] });
+          return;
+        }
+        setState({
+          status: "ready",
+          data: result.data,
+          loadedToken: refreshToken,
+        });
+        if (result.data.voucher) {
+          const label =
+            STATUS_TITLES[result.data.voucher.status] ??
+            result.data.voucher.status;
           setTitle(
             panel.id,
-            `${data.voucher.description || "Журнал"} · ${label}`
+            `${result.data.voucher.description || "Журнал"} · ${label}`
           );
         }
       })
-      .catch((caught) => {
+      .catch(() => {
         if (cancelled) return;
-        setState({
-          status: "error",
-          message:
-            caught instanceof Error ? caught.message : "Ачаалж чадсангүй",
-        });
+        setState({ status: "error", message: ERROR_MESSAGES.failed });
       });
     return () => {
       cancelled = true;
     };
-  }, [voucherId, panel.id, setTitle]);
+  }, [voucherId, refreshToken, panel.id, setTitle]);
 
   if (state.status === "loading")
     return (
@@ -92,6 +114,9 @@ export function VoucherPanel({
 
   return (
     <JournalEntryForm
+      // Шинэ өгөгдөл татагдмагц формыг цэвэрхэн remount хийнэ — доторх
+      // draft state найдвартай шинэчлэгдэнэ.
+      key={state.loadedToken}
       embedded
       accounts={data.accounts}
       activeSegIds={data.activeSegIds}

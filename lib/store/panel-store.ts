@@ -5,11 +5,14 @@
 //
 // Гол дүрмүүд:
 //   - Нэг зүйлийг (жишээ нь нэг журнал) хоёр удаа нээхгүй — байгааг нь
-//     фокуслоно (key-ээр dedupe).
+//     фокуслоно (key-ээр dedupe) ба refreshToken-ийг өсгөж дахин ачаалуулна.
 //   - Хураахад панель UNMOUNT ХИЙГДЭХГҮЙ — зөвхөн нуугдана. Тиймээс бөглөж
 //     байсан форм, бичиж байсан журнал хэвээр үлдэнэ.
-//   - Дээд тал нь MAX_PANELS; хэтэрвэл хамгийн эртний ХУРААГДААГҮЙ панелийг
-//     хураана (хаахгүй — өгөгдөл алдагдахгүй).
+//   - Харагдаж буй панель дээд тал нь MAX_PANELS — нээх, сэргээх, dedupe
+//     БҮХ зам дээр мөрдөнө; хэтэрвэл хамгийн эртнийг ХУРААНА (хаахгүй).
+//   - Байрлал `slot`-оор тогтмол: фокус солиход панель ХӨДЛӨХГҮЙ, зөвхөн
+//     zIndex өөрчлөгдөнө (эс бөгөөс идэвхгүй панелийн товч дээр дарахад
+//     mousedown дээр байрлал сольчихоод click нь өөр газар буудаг).
 
 import { create } from "zustand";
 
@@ -27,11 +30,18 @@ export interface PanelInstance {
   title: string;
   /** Панелийн төрлөөс хамаарсан props (PanelHost дотор тайлагдана). */
   payload: Record<string, unknown>;
+  /**
+   * Дахин ачаалах дохио — dedupe-ээр дахин нээх, хураагдснаа сэргэх бүрд
+   * өснө. Панелийн агуулга үүнийг fetch effect-ийнхээ dep болгоно.
+   */
+  refreshToken: number;
   minimized: boolean;
   /** Дэлгэц дүүрэн горим. */
   maximized: boolean;
-  /** Нээгдсэн дараалал — стекийн байрлал тооцоход. */
+  /** Нээгдсэн/фокуслогдсон дараалал — zIndex-ийн зэрэглэлд. */
   order: number;
+  /** Байрлалын тогтмол суудал (0..MAX-1) — шатласан офсет үүнээс. */
+  slot: number;
   /** Хадгалаагүй өөрчлөлттэй эсэх — хаахад анхааруулна. */
   dirty: boolean;
 }
@@ -59,7 +69,48 @@ type PanelState = {
 };
 
 let seq = 0;
+let newVoucherSeq = 0;
 const nextId = () => `panel-${++seq}`;
+
+const visibleOf = (panels: PanelInstance[]) =>
+  panels.filter((panel) => !panel.minimized);
+
+/** Харагдах тоог MAX-д барина: keepId-ээс бусдын хамгийн эртнийг хураана. */
+function enforceVisibleCap(
+  panels: PanelInstance[],
+  keepId: string | null
+): PanelInstance[] {
+  let result = panels;
+  for (;;) {
+    const visible = visibleOf(result).filter((panel) => panel.id !== keepId);
+    const total = visibleOf(result).length;
+    if (total < MAX_PANELS || visible.length === 0) return result;
+    const oldest = visible.reduce((a, b) => (a.order < b.order ? a : b));
+    result = result.map((panel) =>
+      panel.id === oldest.id
+        ? { ...panel, minimized: true, maximized: false }
+        : panel
+    );
+  }
+}
+
+/** Харагдаж буй панелиудын эзэлээгүй хамгийн бага суудал. */
+function freeSlot(panels: PanelInstance[]): number {
+  const taken = new Set(visibleOf(panels).map((panel) => panel.slot));
+  let slot = 0;
+  while (taken.has(slot)) slot += 1;
+  return slot;
+}
+
+/** Фокус шилжих дараагийн панель — хамгийн сүүлд идэвхтэй байсан харагдах нь. */
+function topVisibleId(panels: PanelInstance[]): string | null {
+  return (
+    visibleOf(panels).reduce<PanelInstance | null>(
+      (top, panel) => (!top || panel.order > top.order ? panel : top),
+      null
+    )?.id ?? null
+  );
+}
 
 export const usePanelStore = create<PanelState>()((set, get) => ({
   panels: [],
@@ -68,41 +119,53 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
   openPanel: ({ key, kind, title, payload = {} }) => {
     const existing = get().panels.find((panel) => panel.key === key);
     if (existing) {
-      // Дахин нээхгүй — байгааг нь сэргээж фокуслоно.
-      set((state) => ({
-        panels: state.panels.map((panel) =>
-          panel.id === existing.id
-            ? { ...panel, minimized: false, order: ++seq }
-            : panel
-        ),
-        activeId: existing.id,
-      }));
+      // Дахин нээхгүй — сэргээж фокуслоод, агуулгыг нь дахин ачаалуулна.
+      set((state) => {
+        let panels = state.panels;
+        if (existing.minimized)
+          panels = enforceVisibleCap(panels, existing.id);
+        const slot = existing.minimized ? freeSlot(panels) : existing.slot;
+        return {
+          panels: panels.map((panel) =>
+            panel.id === existing.id
+              ? {
+                  ...panel,
+                  title,
+                  minimized: false,
+                  order: ++seq,
+                  slot,
+                  refreshToken: panel.refreshToken + 1,
+                }
+              : panel
+          ),
+          activeId: existing.id,
+        };
+      });
       return existing.id;
     }
 
     const id = nextId();
     set((state) => {
-      let panels = [...state.panels];
-      // Хязгаар хэтэрвэл хамгийн эртний хураагдаагүйг хураана (хаахгүй).
-      const visible = panels.filter((panel) => !panel.minimized);
-      if (visible.length >= MAX_PANELS) {
-        const oldest = visible.reduce((a, b) => (a.order < b.order ? a : b));
-        panels = panels.map((panel) =>
-          panel.id === oldest.id ? { ...panel, minimized: true } : panel
-        );
-      }
-      panels.push({
-        id,
-        key,
-        kind,
-        title,
-        payload,
-        minimized: false,
-        maximized: false,
-        order: ++seq,
-        dirty: false,
-      });
-      return { panels, activeId: id };
+      const panels = enforceVisibleCap(state.panels, null);
+      return {
+        panels: [
+          ...panels,
+          {
+            id,
+            key,
+            kind,
+            title,
+            payload,
+            refreshToken: 0,
+            minimized: false,
+            maximized: false,
+            order: ++seq,
+            slot: freeSlot(panels),
+            dirty: false,
+          },
+        ],
+        activeId: id,
+      };
     });
     return id;
   },
@@ -110,16 +173,11 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
   closePanel: (id) =>
     set((state) => {
       const panels = state.panels.filter((panel) => panel.id !== id);
-      const activeId =
-        state.activeId === id
-          ? panels
-              .filter((panel) => !panel.minimized)
-              .reduce<PanelInstance | null>(
-                (top, panel) => (!top || panel.order > top.order ? panel : top),
-                null
-              )?.id ?? null
-          : state.activeId;
-      return { panels, activeId };
+      return {
+        panels,
+        activeId:
+          state.activeId === id ? topVisibleId(panels) : state.activeId,
+      };
     }),
 
   closeAll: () => set({ panels: [], activeId: null }),
@@ -127,27 +185,34 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
   minimize: (id) =>
     set((state) => {
       const panels = state.panels.map((panel) =>
-        panel.id === id ? { ...panel, minimized: true, maximized: false } : panel
+        panel.id === id
+          ? { ...panel, minimized: true, maximized: false }
+          : panel
       );
-      const activeId =
-        state.activeId === id
-          ? panels
-              .filter((panel) => !panel.minimized)
-              .reduce<PanelInstance | null>(
-                (top, panel) => (!top || panel.order > top.order ? panel : top),
-                null
-              )?.id ?? null
-          : state.activeId;
-      return { panels, activeId };
+      return {
+        panels,
+        activeId:
+          state.activeId === id ? topVisibleId(panels) : state.activeId,
+      };
     }),
 
   restore: (id) =>
-    set((state) => ({
-      panels: state.panels.map((panel) =>
-        panel.id === id ? { ...panel, minimized: false, order: ++seq } : panel
-      ),
-      activeId: id,
-    })),
+    set((state) => {
+      let panels = enforceVisibleCap(state.panels, id);
+      panels = panels.map((panel) =>
+        panel.id === id
+          ? {
+              ...panel,
+              minimized: false,
+              order: ++seq,
+              slot: freeSlot(panels),
+              // Хураастай байх зуур өгөгдөл хуучирсан байж болно.
+              refreshToken: panel.refreshToken + 1,
+            }
+          : panel
+      );
+      return { panels, activeId: id };
+    }),
 
   toggleMaximize: (id) =>
     set((state) => ({
@@ -158,26 +223,41 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
     })),
 
   focus: (id) =>
-    set((state) => ({
-      panels: state.panels.map((panel) =>
-        panel.id === id ? { ...panel, order: ++seq } : panel
-      ),
-      activeId: id,
-    })),
+    set((state) => {
+      const target = state.panels.find((panel) => panel.id === id);
+      if (!target || state.activeId === id) return state;
+      return {
+        panels: state.panels.map((panel) =>
+          panel.id === id ? { ...panel, order: ++seq } : panel
+        ),
+        activeId: id,
+      };
+    }),
 
   setTitle: (id, title) =>
-    set((state) => ({
-      panels: state.panels.map((panel) =>
-        panel.id === id ? { ...panel, title } : panel
-      ),
-    })),
+    set((state) => {
+      const target = state.panels.find((panel) => panel.id === id);
+      if (!target || target.title === title) return state;
+      return {
+        panels: state.panels.map((panel) =>
+          panel.id === id ? { ...panel, title } : panel
+        ),
+      };
+    }),
 
   setDirty: (id, dirty) =>
-    set((state) => ({
-      panels: state.panels.map((panel) =>
-        panel.id === id ? { ...panel, dirty } : panel
-      ),
-    })),
+    set((state) => {
+      // Өөрчлөгдөөгүй бол state-ээ хэвээр буцаана — эс бөгөөс формын
+      // onDirtyChange → setDirty → дахин render → onDirtyChange гэсэн
+      // төгсгөлгүй давталт үүснэ.
+      const target = state.panels.find((panel) => panel.id === id);
+      if (!target || target.dirty === dirty) return state;
+      return {
+        panels: state.panels.map((panel) =>
+          panel.id === id ? { ...panel, dirty } : panel
+        ),
+      };
+    }),
 }));
 
 /** Панель нээх богино туслахууд — callsite бүрд key/title давтахгүйн тулд. */
@@ -191,8 +271,10 @@ export function openVoucherPanel(voucherId: string, title?: string) {
 }
 
 export function openNewVoucherPanel() {
+  // Дарах бүрд ШИНЭ хоосон форм — тогтмол key байсан бол өмнөх хагас
+  // бөглөсөн ноорог чимээгүй сэргэж, хэрэглэгчийг төөрөлдүүлнэ.
   return usePanelStore.getState().openPanel({
-    key: "voucher:new",
+    key: `voucher:new:${++newVoucherSeq}`,
     kind: "voucher-new",
     title: "Шинэ журнал",
     payload: {},

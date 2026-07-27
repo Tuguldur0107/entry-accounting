@@ -41,12 +41,18 @@ export interface JournalEditorData {
   readOnly: boolean;
 }
 
+// Алдааг throw хийхгүй — production build дээр Next.js server action-ий
+// error message-ийг нууж "An error occurred..." болгодог тул код буцаана.
+export type JournalEditorResult =
+  | { ok: true; data: JournalEditorData }
+  | { ok: false; code: "unauthenticated" | "not-found" };
+
 export async function getJournalEditorData(
   voucherId?: string
-): Promise<JournalEditorData> {
+): Promise<JournalEditorResult> {
   const session = await auth();
   const userId = session?.user?.id;
-  if (!userId) throw new Error("Нэвтрэх шаардлагатай");
+  if (!userId) return { ok: false, code: "unauthenticated" };
 
   const [voucher, accounts, rawSegConfigs, rawSegValues] = await Promise.all([
     voucherId
@@ -74,7 +80,7 @@ export async function getJournalEditorData(
     }),
   ]);
 
-  if (voucherId && !voucher) throw new Error("Журнал олдсонгүй");
+  if (voucherId && !voucher) return { ok: false, code: "not-found" };
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
   const activeSegIds = SEGMENT_DEFS.filter(
@@ -88,28 +94,32 @@ export async function getJournalEditorData(
   }
 
   return {
-    accounts,
-    segmentValues: rawSegValues,
-    activeSegIds,
-    defaultSegments,
-    readOnly: voucher ? voucher.status !== "draft" : false,
-    voucher: voucher
-      ? {
-          id: voucher.id,
-          date: voucher.date,
-          description: voucher.description,
-          status: voucher.status,
-          createdAt: voucher.createdAt
-            .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
-            .slice(0, 16),
-          lines: voucher.lines.map((line) => ({
-            account: line.accountNumber,
-            // Буцаалтын журналын дүн СӨРӨГ — 0-ээс ялгаатай бүгдийг дамжуулна.
-            debit: Number(line.debit) !== 0 ? String(Number(line.debit)) : "",
-            credit: Number(line.credit) !== 0 ? String(Number(line.credit)) : "",
-            description: line.description ?? "",
-          })),
-        }
-      : null,
+    ok: true,
+    data: {
+      accounts,
+      segmentValues: rawSegValues,
+      activeSegIds,
+      defaultSegments,
+      readOnly: voucher ? voucher.status !== "draft" : false,
+      voucher: voucher
+        ? {
+            id: voucher.id,
+            date: voucher.date,
+            description: voucher.description,
+            status: voucher.status,
+            createdAt: voucher.createdAt
+              .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
+              .slice(0, 16),
+            lines: voucher.lines.map((line) => ({
+              account: line.accountNumber,
+              // Буцаалтын журналын дүн СӨРӨГ — 0-ээс ялгаатай бүгдийг дамжуулна.
+              debit: Number(line.debit) !== 0 ? String(Number(line.debit)) : "",
+              credit:
+                Number(line.credit) !== 0 ? String(Number(line.credit)) : "",
+              description: line.description ?? "",
+            })),
+          }
+        : null,
+    },
   };
 }

@@ -23,12 +23,13 @@ export function PanelHost() {
   const focus = usePanelStore((state) => state.focus);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // Нээгдсэн дарааллаар — сүүлд фокуслагдсан нь хамгийн дээр.
-  const stacked = useMemo(
-    () => [...panels].sort((a, b) => a.order - b.order),
-    [panels]
-  );
-  const visible = stacked.filter((panel) => !panel.minimized);
+  // zIndex-ийн зэрэглэл фокусын дарааллаас; харин RENDER болон док нь
+  // НЭЭСЭН дарааллаараа тогтмол — фокус солиход панель байрлалаа алдахгүй,
+  // док дахь товчнууд ээлжлэн үсэрч самуурахгүй.
+  const zRankById = useMemo(() => {
+    const byOrder = [...panels].sort((a, b) => a.order - b.order);
+    return new Map(byOrder.map((panel, rank) => [panel.id, rank]));
+  }, [panels]);
 
   async function requestClose(panel: PanelInstance) {
     if (panel.dirty) {
@@ -48,11 +49,11 @@ export function PanelHost() {
 
   return (
     <>
-      {stacked.map((panel) => (
+      {panels.map((panel) => (
         <FloatingPanel
           key={panel.id}
           panel={panel}
-          index={visible.findIndex((entry) => entry.id === panel.id)}
+          zRank={zRankById.get(panel.id) ?? 0}
           active={panel.id === activeId}
           onRequestClose={() => requestClose(panel)}
         >
@@ -62,7 +63,7 @@ export function PanelHost() {
 
       {/* Док — нээлттэй бүх ажил, хураасныг сэргээнэ */}
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center px-3 pb-3"
+        className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center px-3 pb-3 print:hidden"
         style={{ zIndex: Z.panelDock }}
       >
         <div
@@ -75,7 +76,7 @@ export function PanelHost() {
             boxShadow: "var(--ea-shadow-3)",
           }}
         >
-          {stacked.map((panel) => {
+          {panels.map((panel) => {
             const isActive = panel.id === activeId && !panel.minimized;
             return (
               <div

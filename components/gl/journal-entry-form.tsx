@@ -180,6 +180,8 @@ export function JournalEntryForm({
   // editor-ийг blur-аар commit хийхэд state-ийн шинэчлэл асинхрон тул
   // хадгалах үед энэ ref-ээс уншина.
   const linesRef = useRef(lines);
+  // Формын root — панель горимд Ctrl+Enter фокус дотор нь байгааг шалгана.
+  const formRootRef = useRef<HTMLDivElement>(null);
   const updateLines = useCallback(
     (updater: (prev: JournalLineRow[]) => JournalLineRow[]) => {
       const next = updater(linesRef.current);
@@ -318,6 +320,14 @@ export function JournalEntryForm({
     if (readOnly || !shortcutsEnabled) return;
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return;
+      // Панель горимд фокус ФОРМ ДОТОР байх ёстой — панель "идэвхтэй" ч
+      // хэрэглэгч ард буй хуудасны талбар/диалогт бичиж байвал энэ панель
+      // хадгалж болохгүй.
+      if (
+        embedded &&
+        !formRootRef.current?.contains(document.activeElement)
+      )
+        return;
       event.preventDefault();
       if (saving !== null) return;
       // Нүдэнд бичиж байгаад дарсан бол эхлээд editor-ийг commit хийнэ —
@@ -330,7 +340,7 @@ export function JournalEntryForm({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, shortcutsEnabled, saving, date, description]);
+  }, [readOnly, shortcutsEnabled, embedded, saving, date, description]);
 
   function handlePrint() {
     // Standalone цонхонд бүх хуудас өөрөө print:hidden/print:block-оор
@@ -486,6 +496,7 @@ export function JournalEntryForm({
   return (
     <>
     <div
+      ref={formRootRef}
       className={cn(
         "flex flex-col print:hidden",
         embedded ? "min-h-0 flex-1" : "h-screen"

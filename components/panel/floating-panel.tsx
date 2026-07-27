@@ -4,6 +4,11 @@
 // [✕ хаах]. Modal БИШ: ард нь байгаа хуудас ажиллаж, хэд хэдэн панель зэрэг
 // нээгдэнэ. Хураахад агуулга нь unmount хийгдэхгүй (нуугдана) тул бөглөж
 // байсан форм хэвээр үлдэнэ.
+//
+// Байрлал panel.slot-оос (тогтмол), давхарга zRank-аас (фокусаар өөрчлөгддөг)
+// тооцогдоно — фокус солиход панель ХӨДЛӨХГҮЙ, зөвхөн дээшилнэ. Эс бөгөөс
+// идэвхгүй панелийн товчин дээр дарахад mousedown дээр байрлал нь сольчихоод
+// click нь өөр элемент дээр буудаг байсан.
 
 import { useCallback, useEffect, useRef } from "react";
 import { Maximize2, Minus, Minimize2, X } from "lucide-react";
@@ -14,8 +19,8 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   panel: PanelInstance;
-  /** Стек дэх байрлал (0 = хамгийн доор) — zIndex ба шатласан офсетод. */
-  index: number;
+  /** Давхаргын зэрэг (0 = хамгийн доор) — фокусын дарааллаар. */
+  zRank: number;
   active: boolean;
   children: React.ReactNode;
   /** Хаахын өмнөх шалгалт (жишээ нь хадгалаагүй өөрчлөлт). */
@@ -24,7 +29,7 @@ interface Props {
 
 export function FloatingPanel({
   panel,
-  index,
+  zRank,
   active,
   children,
   onRequestClose,
@@ -41,23 +46,35 @@ export function FloatingPanel({
     else closePanel(panel.id);
   }, [onRequestClose, closePanel, panel.id]);
 
+  // Идэвхжихэд фокусыг панель руу оруулна — Esc/Ctrl+Enter зэрэг товчлуур
+  // зөв панельд очно. Хэрэглэгч панель доторх талбар дээр дарсан бол фокусыг
+  // нь булаахгүй.
+  useEffect(() => {
+    if (!active || panel.minimized) return;
+    const root = rootRef.current;
+    if (!root) return;
+    if (!root.contains(document.activeElement)) root.focus();
+  }, [active, panel.minimized]);
+
   // Esc — зөвхөн ФОКУСТАЙ панелийг хаана (доод давхаргууд хөндөгдөхгүй).
   useEffect(() => {
-    if (!active) return;
+    if (!active || panel.minimized) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const target = event.target as HTMLElement | null;
       if (target) {
         // Popover/dialog нээлттэй бол тэр нь эхэлж хаагдана. Панель ӨӨРӨӨ
-        // role="dialog" тул зөвхөн ӨӨРӨӨС нь ЯЛГААТАЙ overlay-г тоолно —
-        // эс бөгөөс панель доторх фокус Esc-ийг үргэлж залгичихна.
+        // role="dialog" тул зөвхөн ӨӨРӨӨС нь ЯЛГААТАЙ overlay-г тоолно.
         const overlay = target.closest(
           "[data-account-segment-panel],[data-searchable-portal],[data-seg-portal],[role='dialog']"
         );
         if (overlay && overlay !== rootRef.current) return;
-        // Талбар бөглөж/грид засаж байхад Esc нь тэр editor-ийнх —
-        // панелийг гэнэт хаахгүй.
-        if (target.closest("input,textarea,select,[contenteditable],.ag-root"))
+        // ЭНЭ панель доторх талбар/грид засварт Esc нь editor-ийнх.
+        // Гаднах (ард буй хуудасны) input-ууд панелийн Esc-ийг хаахгүй.
+        if (
+          rootRef.current?.contains(target) &&
+          target.closest("input,textarea,select,[contenteditable],.ag-root")
+        )
           return;
       }
       event.stopPropagation();
@@ -65,24 +82,29 @@ export function FloatingPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, requestClose]);
+  }, [active, panel.minimized, requestClose]);
 
-  // Шатласан офсет — олон панель нээлттэй үед доод нь цухуйж харагдана.
-  const offset = Math.min(index, 4) * 22;
+  // Шатласан офсет — ТОГТМОЛ суудлаас (фокусаар өөрчлөгдөхгүй).
+  const offset = Math.min(panel.slot, 4) * 22;
 
   return (
     <div
       ref={rootRef}
       role="dialog"
       aria-label={panel.title}
-      aria-hidden={panel.minimized}
+      tabIndex={-1}
+      // Хураастай панель руу Tab-аар орох боломжгүй (агуулга нь mounted
+      // хэвээр ч гэсэн) — inert нь focus + hit-testing хоёуланг хаана.
+      inert={panel.minimized}
       onMouseDown={() => !active && focus(panel.id)}
+      // Tab-аар панелийн талбарт орсон ч идэвхжинэ (зөвхөн хулгана биш).
+      onFocus={() => !active && focus(panel.id)}
       className={cn(
-        "pointer-events-auto fixed flex flex-col overflow-hidden rounded-xl border transition-[opacity,transform] duration-150",
+        "pointer-events-auto fixed flex flex-col overflow-hidden rounded-xl border outline-none transition-[opacity] duration-150 print:hidden",
         panel.minimized && "pointer-events-none invisible opacity-0"
       )}
       style={{
-        zIndex: panelZ(index),
+        zIndex: panelZ(zRank),
         borderColor: active ? "var(--ea-primary)" : "var(--ea-border-strong)",
         background: "var(--ea-surface)",
         boxShadow: active ? "var(--ea-shadow-3)" : "var(--ea-shadow-2)",
