@@ -10,13 +10,12 @@
 // таслахаас сэргийлж "ag-custom-component-popup" class заавал хэрэгтэй.
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { CustomCellEditorProps } from "ag-grid-react";
 import {
   fmtAccountDisplay,
   normalizePastedAccount,
 } from "@/lib/grid/segments";
-import { AccountSegmentPicker } from "@/components/account/account-segment-picker";
+import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
 import type { SegOption } from "./SegSelect";
 
 export interface AccountSegmentEditorParams {
@@ -40,8 +39,9 @@ export function AccountSegmentEditor(
       : fmtAccountDisplay(initialCode, activeSegIds);
 
   const [text, setText] = useState(startText);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [panelPos, setPanelPos] = useState({ top: 0, left: 0 });
+  // Panel-ийн anchor — null бол хаалттай.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const panelOpen = anchor !== null;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -68,9 +68,8 @@ export function AccountSegmentEditor(
   }
 
   function openPanel() {
-    const r = wrapperRef.current?.getBoundingClientRect();
-    if (r) setPanelPos({ top: r.bottom + 2, left: r.left });
-    setPanelOpen(true);
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    if (rect) setAnchor(rect);
   }
 
   function handlePick(code: string) {
@@ -90,7 +89,7 @@ export function AccountSegmentEditor(
         value={text}
         onChange={(e) => handleTextChange(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && panelOpen) setPanelOpen(false);
+          if (e.key === "Enter" && panelOpen) setAnchor(null);
         }}
         className="flex-1 min-w-0 px-2 text-xs font-mono outline-none border-0"
         style={{ background: "transparent", color: "var(--ea-text-1)" }}
@@ -100,7 +99,7 @@ export function AccountSegmentEditor(
         type="button"
         tabIndex={-1}
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => (panelOpen ? setPanelOpen(false) : openPanel())}
+        onClick={() => (panelOpen ? setAnchor(null) : openPanel())}
         title="Сегментээр сонгох"
         className="px-1.5 flex items-center justify-center shrink-0 transition-colors"
         style={{
@@ -120,65 +119,26 @@ export function AccountSegmentEditor(
         </svg>
       </button>
 
-      {panelOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            className="ag-custom-component-popup"
-            style={{
-              position: "fixed",
-              top: panelPos.top,
-              left: panelPos.left,
-              zIndex: 10000,
-              minWidth: 380,
-              padding: 12,
-              background: "var(--ea-surface)",
-              border: "1px solid var(--ea-border-strong)",
-              borderRadius: 10,
-              boxShadow: "var(--ea-shadow-3)",
-            }}
-          >
-            <AccountSegmentPicker
-              value={props.value ?? ""}
-              onChange={handlePick}
-              activeSegIds={activeSegIds}
-              segmentOptions={segOptions}
-              defaultSegments={extraDefaults}
-            />
-            <div
-              className="flex items-center justify-end gap-2 mt-3 pt-2.5"
-              style={{ borderTop: "1px solid var(--ea-border)" }}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  props.onValueChange(initialCode);
-                  setText(fmtAccountDisplay(initialCode, activeSegIds));
-                  setPanelOpen(false);
-                }}
-                className="px-3 py-1.5 text-xs font-medium rounded-md"
-                style={{
-                  border: "1px solid var(--ea-border-strong)",
-                  color: "var(--ea-text-2)",
-                }}
-              >
-                Болих
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPanelOpen(false);
-                  props.stopEditing();
-                }}
-                className="px-3 py-1.5 text-xs font-semibold text-white rounded-md"
-                style={{ background: "var(--ea-primary)" }}
-              >
-                Оруулах
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
+      <AccountSegmentPanel
+        anchor={anchor}
+        value={props.value ?? ""}
+        onChange={handlePick}
+        onCancel={() => {
+          props.onValueChange(initialCode);
+          setText(fmtAccountDisplay(initialCode, activeSegIds));
+          setAnchor(null);
+        }}
+        onConfirm={() => {
+          setAnchor(null);
+          props.stopEditing();
+        }}
+        activeSegIds={activeSegIds}
+        segmentOptions={segOptions}
+        defaultSegments={extraDefaults}
+        agPopup
+        // AG Grid өөрөө focus/stopEditing-ээ удирддаг тул гадна дарж хаахгүй.
+        closeOnOutside={false}
+      />
     </div>
   );
 }

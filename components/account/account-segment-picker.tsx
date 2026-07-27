@@ -16,6 +16,8 @@ export interface AccountSegmentPickerProps {
   defaultSegments?: Record<number, string>;
   /** Dropdown-ий өргөн (px) */
   selectWidth?: number;
+  /** Зөвхөн харах — dropdown биш, код + нэрийг статикаар үзүүлнэ. */
+  readOnly?: boolean;
 }
 
 export function AccountSegmentPicker({
@@ -25,6 +27,7 @@ export function AccountSegmentPicker({
   segmentOptions,
   defaultSegments = {},
   selectWidth = 280,
+  readOnly = false,
 }: AccountSegmentPickerProps) {
   const parts = parseSegParts(value, activeSegIds);
 
@@ -48,21 +51,34 @@ export function AccountSegmentPicker({
                 S{segmentId}
               </div>
             </div>
-            <SegSelect
-              options={segmentOptions[segmentId] ?? []}
-              value={parts[segmentId] ?? ""}
-              onChange={(nextValue) =>
-                onChange(
-                  buildSegCode(
-                    { ...parts, [segmentId]: nextValue },
-                    activeSegIds,
-                    defaultSegments
+            {readOnly ? (
+              <div className="min-w-0 rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-2.5 py-1.5">
+                <div className="font-mono text-xs text-[var(--ea-text-1)]">
+                  {parts[segmentId] || "—"}
+                </div>
+                <div className="truncate text-[11px] text-[var(--ea-text-3)]">
+                  {(segmentOptions[segmentId] ?? []).find(
+                    (option) => option.code === parts[segmentId]
+                  )?.name ?? "—"}
+                </div>
+              </div>
+            ) : (
+              <SegSelect
+                options={segmentOptions[segmentId] ?? []}
+                value={parts[segmentId] ?? ""}
+                onChange={(nextValue) =>
+                  onChange(
+                    buildSegCode(
+                      { ...parts, [segmentId]: nextValue },
+                      activeSegIds,
+                      defaultSegments
+                    )
                   )
-                )
-              }
-              groups={segmentId === 3 ? ACCOUNT_GROUPS : undefined}
-              width={selectWidth}
-            />
+                }
+                groups={segmentId === 3 ? ACCOUNT_GROUPS : undefined}
+                width={selectWidth}
+              />
+            )}
           </div>
         );
       })}

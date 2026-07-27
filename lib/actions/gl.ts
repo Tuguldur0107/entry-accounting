@@ -530,6 +530,16 @@ export async function duplicateVoucher(id: string) {
     with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
+  // Сторно журналын дүн сөрөг байдаг; createVoucher/updateVoucher нь
+  // сөрөг мөрийг шүүж хаядаг тул хуулбар нь хадгалагдахгүй ноорог болно.
+  if (
+    voucher.lines.some(
+      (line) => Number(line.debit) < 0 || Number(line.credit) < 0
+    )
+  )
+    throw new Error(
+      "Сторно журналыг хуулбарлах боломжгүй — эх журналыг нь хуулбарлана уу"
+    );
 
   const today = new Date().toLocaleDateString("en-CA", {
     timeZone: "Asia/Ulaanbaatar",

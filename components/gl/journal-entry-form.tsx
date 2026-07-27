@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { Copy, Files, Printer, RotateCcw } from "lucide-react";
 import {
@@ -104,9 +104,22 @@ export function JournalEntryForm({
     return [makeEmptyLine(), makeEmptyLine()];
   });
 
+  // Мөрүүдийн ХАМГИЙН СҮҮЛИЙН утга — Ctrl+Enter дарахад AG Grid-ийн нээлттэй
+  // editor-ийг blur-аар commit хийхэд state-ийн шинэчлэл асинхрон тул
+  // хадгалах үед энэ ref-ээс уншина.
+  const linesRef = useRef(lines);
+  const updateLines = useCallback(
+    (updater: (prev: JournalLineRow[]) => JournalLineRow[]) => {
+      const next = updater(linesRef.current);
+      linesRef.current = next;
+      setLines(next);
+    },
+    []
+  );
+
   const [saving, setSaving] = useState<"draft" | "posted" | null>(null);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
 
   const nameByMain = useMemo(
     () => new Map(accounts.map((a) => [a.number, a.name])),
@@ -151,23 +164,34 @@ export function JournalEntryForm({
 
   const segOptions = useMemo<Record<number, SegOption[]>>(() => {
     const map: Record<number, SegOption[]> = {};
+    // Засварлах үед зөвхөн идэвхтэй данс сонгогдоно; харах горимд бүгд —
+    // идэвхгүй болсон данстай хуучин бичилтийн нэр харагдана.
+    const s3Accounts = readOnly
+      ? accounts
+      : accounts.filter((a) => a.isEnabled);
     for (const segId of activeSegIds) {
       map[segId] =
         segId === 3
-          ? accounts.map((a) => ({ code: a.number, name: a.name }))
+          ? s3Accounts.map((a) => ({ code: a.number, name: a.name }))
           : segmentValues
               .filter((sv) => sv.segmentId === segId)
               .map((sv) => ({ code: sv.code, name: sv.name }));
     }
     return map;
-  }, [activeSegIds, accounts, segmentValues]);
+  }, [activeSegIds, accounts, segmentValues, readOnly]);
 
   async function handleSave(status: "draft" | "posted") {
     if (!date || !description.trim()) {
       setError("Огноо ба гүйлгээний утгыг бөглөнө үү");
       return;
     }
-    if (status === "posted" && !balanced) return;
+    // Хамгийн сүүлийн (commit хийгдсэн) мөрүүдээр тэнцлийг дахин шалгана.
+    const current = linesRef.current;
+    const dr = current.reduce((s, l) => s + l.debit, 0);
+    const cr = current.reduce((s, l) => s + l.credit, 0);
+    const balancedNow =
+      !(dr === 0 && cr === 0) && Math.abs(dr - cr) <= 0.01;
+    if (status === "posted" && !balancedNow) return;
     setSaving(status);
     setError("");
     try {
@@ -175,7 +199,7 @@ export function JournalEntryForm({
         date,
         description: description.trim(),
         status,
-        lines: lines.map((l) => ({
+        lines: current.map((l) => ({
           account: l.account,
           debit: l.debit,
           credit: l.credit,
@@ -198,25 +222,32 @@ export function JournalEntryForm({
   useEffect(() => {
     if (readOnly) return;
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        event.preventDefault();
-        if (balanced && saving === null) handleSave("posted");
-      }
+      if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return;
+      event.preventDefault();
+      if (saving !== null) return;
+      // Нүдэнд бичиж байгаад дарсан бол эхлээд editor-ийг commit хийнэ —
+      // blur нь AG Grid-ийн stopEditingWhenCellsLoseFocus-ыг синхроноор
+      // ажиллуулж linesRef-ийг шинэчилнэ.
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest?.(".ag-cell")) active.blur();
+      handleSave("posted");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, balanced, saving, date, description, lines]);
+  }, [readOnly, saving, date, description]);
 
   async function copyId() {
     if (!voucherId) return;
     try {
       await navigator.clipboard.writeText(voucherId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setCopyState("ok");
     } catch {
-      /* clipboard зөвшөөрөлгүй — чимээгүй өнгөрнө */
+      // Зөвшөөрөлгүй/HTTP орчинд clipboard ажиллахгүй — хэрэглэгчид хэлнэ
+      // (ID нь сонгож хуулах боломжтой текстээр хажууд нь байгаа).
+      setCopyState("fail");
     }
+    setTimeout(() => setCopyState("idle"), 2000);
   }
 
   async function handleDuplicate() {
@@ -328,22 +359,34 @@ export function JournalEntryForm({
                       </div>
                     </div>
                   )}
-                  <div>
+                  <div className="col-span-2 sm:col-span-4">
                     <div className="text-[11px] text-[var(--ea-text-4)]">Дугаар</div>
-                    <button
-                      type="button"
-                      onClick={copyId}
-                      title="ID хуулах"
-                      className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-[var(--ea-text-2)] transition-colors hover:text-[var(--ea-primary)]"
-                    >
-                      {voucherId?.slice(0, 8)}…
-                      <Copy size={11} />
-                      {copied && (
-                        <span className="text-[10px] text-[var(--ea-success)]">
-                          Хуулагдлаа
+                    <div className="mt-0.5 flex items-start gap-1.5">
+                      {/* Сонгож хуулах боломжтой — товч нь зөвхөн хурдавчлал */}
+                      <span className="min-w-0 select-all break-all font-mono text-xs text-[var(--ea-text-2)]">
+                        {voucherId}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={copyId}
+                        title="ID хуулах"
+                        aria-label="Журналын ID хуулах"
+                        className="mt-0.5 shrink-0 text-[var(--ea-text-4)] transition-colors hover:text-[var(--ea-primary)]"
+                      >
+                        <Copy size={11} />
+                      </button>
+                      {copyState !== "idle" && (
+                        <span
+                          className={
+                            copyState === "ok"
+                              ? "shrink-0 text-[10px] text-[var(--ea-success)]"
+                              : "shrink-0 text-[10px] text-[var(--ea-danger)]"
+                          }
+                        >
+                          {copyState === "ok" ? "Хуулагдлаа" : "Хуулж чадсангүй"}
                         </span>
                       )}
-                    </button>
+                    </div>
                   </div>
                   <div className="col-span-2 sm:col-span-4">
                     <div className="text-[11px] text-[var(--ea-text-4)]">
@@ -405,7 +448,7 @@ export function JournalEntryForm({
           >
             <JournalLinesGrid
               lines={lines}
-              onLinesChange={setLines}
+              onLinesChange={updateLines}
               activeSegIds={activeSegIds}
               segOptions={segOptions}
               defaultSegments={defaultSegments}
@@ -460,7 +503,7 @@ export function JournalEntryForm({
             <>
               <Button
                 variant="outline"
-                onClick={() => setLines((p) => [...p, makeEmptyLine()])}
+                onClick={() => updateLines((p) => [...p, makeEmptyLine()])}
               >
                 + Мөр нэмэх
               </Button>

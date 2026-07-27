@@ -10,7 +10,7 @@
 //   - Paste: TSV, дансны баганад active-only эсвэл 10-part код
 //   - Pinned bottom мөрөнд нийт дүн
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type {
   CellValueChangedEvent,
   ColDef,
@@ -23,6 +23,7 @@ import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay, normalizePastedAccount } from "@/lib/grid/segments";
 import { parseMntInput } from "@/lib/grid/formatters";
 import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
+import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
 import { DebitCreditEditor } from "@/lib/grid/editors/DebitCreditEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
@@ -66,6 +67,14 @@ export function JournalLinesGrid({
 }: JournalLinesGridProps) {
   const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
+
+  // Харах горимд ДАНС нүд дээр дарахад — журнал бичихэд гардагтай ижил
+  // сегментийн panel (readOnly).
+  const [segPanel, setSegPanel] = useState<{
+    code: string;
+    anchor: DOMRect;
+  } | null>(null);
+  const closeSegPanel = useCallback(() => setSegPanel(null), []);
 
   const accountColWidth = useMemo(
     () =>
@@ -123,25 +132,73 @@ export function JournalLinesGrid({
         headerName: "Данс",
         field: "account",
         width: accountColWidth,
-        editable: !readOnly,
-        cellClass: "font-mono text-xs",
+        editable: (p) => !readOnly && !p.node?.rowPinned,
         cellEditor: AccountSegmentEditor,
         cellEditorParams: {
           activeSegIds,
           segOptions,
           extraDefaults: defaultSegments,
         },
-        valueFormatter: (p) => fmtAccountDisplay(String(p.value ?? ""), activeSegIds),
+        valueFormatter: (p) =>
+          p.node?.rowPinned
+            ? "Нийт дүн"
+            : fmtAccountDisplay(String(p.value ?? ""), activeSegIds),
+        cellClass: (p) =>
+          p.node?.rowPinned
+            ? "font-semibold text-[var(--ea-text-1)]"
+            : "font-mono text-xs",
+        // Харах горимд нүд засагдахгүй тул дарахад сегментийн panel нээнэ.
+        cellRenderer: readOnly
+          ? (p: ICellRendererParams<JournalLineRow>) => {
+              if (!p.data || p.node?.rowPinned) return p.valueFormatted ?? "";
+              const code = String(p.data.account ?? "");
+              return (
+                <button
+                  type="button"
+                  data-account-segment-trigger
+                  aria-haspopup="dialog"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    // Ижил нүд дээр дахин дарвал хаана (toggle).
+                    setSegPanel((prev) =>
+                      prev && prev.code === code ? null : { code, anchor: rect }
+                    );
+                  }}
+                  title="Сегментээр харах"
+                  className="flex h-full w-full items-center gap-1.5 text-left transition-colors hover:text-[var(--ea-primary)]"
+                >
+                  <span className="min-w-0 truncate">
+                    {p.valueFormatted ?? ""}
+                  </span>
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    className="shrink-0 text-[var(--ea-text-4)]"
+                  >
+                    <path
+                      d="M2 4.5L6 8l4-3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              );
+            }
+          : undefined,
       },
       {
         headerName: "Дансны нэр",
         colId: "account-name",
-        width: 200,
+        width: 210,
         editable: false,
         sortable: false,
         cellClass: "text-xs text-[var(--ea-text-2)]",
         valueGetter: (p) => {
-          if (!p.data || p.data.id === "__totals__") return "";
+          if (!p.data || p.node?.rowPinned) return "";
           const parts = String(p.data.account ?? "").split(".");
           const main = parts.length === 10 ? parts[2] : String(p.data.account ?? "");
           return accountNameByMain.get(main) ?? "";
@@ -151,7 +208,7 @@ export function JournalLinesGrid({
         headerName: "Дебет",
         field: "debit",
         width: 150,
-        editable: !readOnly,
+        editable: (p) => !readOnly && !p.node?.rowPinned,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         cellEditor: DebitCreditEditor,
@@ -167,7 +224,7 @@ export function JournalLinesGrid({
         headerName: "Кредит",
         field: "credit",
         width: 150,
-        editable: !readOnly,
+        editable: (p) => !readOnly && !p.node?.rowPinned,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         cellEditor: DebitCreditEditor,
@@ -184,7 +241,7 @@ export function JournalLinesGrid({
         field: "description",
         flex: 1,
         minWidth: 200,
-        editable: !readOnly,
+        editable: (p) => !readOnly && !p.node?.rowPinned,
         cellClass: "text-xs",
       },
       {
@@ -196,6 +253,7 @@ export function JournalLinesGrid({
         filter: false,
         cellClass: "flex items-center justify-center",
         cellRenderer: (p: ICellRendererParams<JournalLineRow>) => {
+          if (p.node?.rowPinned) return null;
           const id = p.data?.id;
           return (
             <button
@@ -242,18 +300,27 @@ export function JournalLinesGrid({
     (p: ProcessDataFromClipboardParams<JournalLineRow>) => {
       const rows = p.data;
       if (!rows || rows.length === 0) return rows;
-      const types = columnDefs.map((c) =>
-        c.field === "account" ? "account-segment" : "other"
-      );
+      // Clipboard-ийн 0-р багана нь grid-ийн 0-р багана БИШ — фокустай
+      // нүдний баганаас эхэлдэг. Тиймээс тухайн offset-оос зурвасална.
+      const displayed = p.api.getAllDisplayedColumns();
+      const focused = p.api.getFocusedCell();
+      const startIndex = focused
+        ? Math.max(
+            0,
+            displayed.findIndex(
+              (column) => column.getColId() === focused.column.getColId()
+            )
+          )
+        : 0;
       return rows.map((row) =>
         row.map((cell, i) =>
-          types[i] === "account-segment"
+          displayed[startIndex + i]?.getColDef()?.field === "account"
             ? normalizePastedAccount(cell, activeSegIds, defaultSegments)
             : cell
         )
       );
     },
-    [columnDefs, activeSegIds, defaultSegments]
+    [activeSegIds, defaultSegments]
   );
 
   const pinnedBottom = useMemo(
@@ -263,13 +330,14 @@ export function JournalLinesGrid({
         account: "",
         debit: totalDebit,
         credit: totalCredit,
-        description: "Нийт дүн",
+        description: "",
       } as JournalLineRow,
     ],
     [totalDebit, totalCredit]
   );
 
   return (
+    <>
     <DataGridDynamic<JournalLineRow>
       rowData={lines}
       columnDefs={columnDefs}
@@ -286,5 +354,14 @@ export function JournalLinesGrid({
       wrapperClassName="ea-journal-lines"
       enableCellTextSelection
     />
+    <AccountSegmentPanel
+      anchor={segPanel?.anchor ?? null}
+      value={segPanel?.code ?? ""}
+      onCancel={closeSegPanel}
+      activeSegIds={activeSegIds}
+      segmentOptions={segOptions}
+      readOnly
+    />
+    </>
   );
 }

@@ -3,22 +3,16 @@
 // Данс оруулах нэгдсэн input — хоёр горим:
 //   1. Гараар бичих: active-only код (ж: "100.11210000") эсвэл бүтэн 10-part код,
 //      блюр/Enter дээр normalizePastedAccount-аар бүтэн код болгоно.
-//   2. Сегмент сонгох: баруун талын товч → AccountSegmentPicker popover.
+//   2. Сегмент сонгох: баруун талын товч → нэгдсэн AccountSegmentPanel
+//      (grid editor-той ижил panel — portal, дээш/доош эргэх, гүйлгэх).
 // value нь үргэлж бүтэн 10-part dotted код байна.
-//
-// Popover нь document.body-руу portal хийгдэнэ: dialog/grid-ийн overflow
-// хайрцагт хавчигдахгүй, идэвхтэй сегментийн тоо нэмэгдэхэд (динамик)
-// viewport-д багтааж дээш/доош эргэж, дотроо гүйлгэдэг.
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useRef, useState } from "react";
 import {
   fmtAccountDisplay,
   normalizePastedAccount,
 } from "@/lib/grid/segments";
-import {
-  AccountSegmentPicker,
-} from "./account-segment-picker";
+import { AccountSegmentPanel } from "./account-segment-panel";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
 export interface AccountInputProps {
@@ -31,9 +25,6 @@ export interface AccountInputProps {
   disabled?: boolean;
 }
 
-const POPOVER_WIDTH = 400;
-const MARGIN = 16;
-
 export function AccountInput({
   value,
   onChange,
@@ -44,60 +35,15 @@ export function AccountInput({
   disabled = false,
 }: AccountInputProps) {
   const [draftText, setDraftText] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  // Panel-ийн anchor — null бол хаалттай.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [draft, setDraft] = useState(value);
-  // Viewport координат — portal хийгдсэн popover-ийн байрлал.
-  const [pos, setPos] = useState<{
-    top?: number;
-    bottom?: number;
-    left: number;
-    width: number;
-    maxHeight: number;
-  }>({ left: 0, width: POPOVER_WIDTH, maxHeight: 480 });
+  const open = anchor !== null;
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Бичиж байх үед draftText, бусад үед value-гийн display-г үзүүлнэ —
   // effect шаардлагагүй derive.
   const text = draftText ?? fmtAccountDisplay(value, activeSegIds);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutside = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (wrapperRef.current?.contains(t)) return;
-      if (popoverRef.current?.contains(t)) return;
-      // SegSelect-ийн portal dropdown дээр дарсныг popover-ийн дотор гэж үзнэ
-      if ((t as HTMLElement).closest?.("[data-seg-portal]")) return;
-      setOpen(false);
-    };
-    const closeOnEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    // Гадна талын scroll/resize нь хадгалсан координатыг хуучруулна — хаана.
-    // Popover болон SegSelect list доторх scroll-д хаахгүй.
-    const closeOnScroll = (e: Event) => {
-      const t = e.target as Node | null;
-      if (
-        t &&
-        (popoverRef.current?.contains(t) ||
-          (t as HTMLElement).closest?.("[data-seg-portal]"))
-      )
-        return;
-      setOpen(false);
-    };
-    const closeOnResize = () => setOpen(false);
-    document.addEventListener("mousedown", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("scroll", closeOnScroll, true);
-    window.addEventListener("resize", closeOnResize);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("scroll", closeOnScroll, true);
-      window.removeEventListener("resize", closeOnResize);
-    };
-  }, [open]);
 
   function commitText() {
     if (draftText === null) return;
@@ -108,38 +54,9 @@ export function AccountInput({
 
   function openPicker() {
     const rect = wrapperRef.current?.getBoundingClientRect();
-    if (rect) {
-      const width = Math.min(
-        Math.max(POPOVER_WIDTH, rect.width),
-        window.innerWidth - MARGIN * 2
-      );
-      const left = Math.max(
-        MARGIN,
-        Math.min(rect.left, window.innerWidth - width - MARGIN)
-      );
-      const spaceBelow = window.innerHeight - rect.bottom - MARGIN;
-      const spaceAbove = rect.top - MARGIN;
-      // Доошоо багтахгүй, дээр нь илүү зайтай бол дээшээ нээнэ; аль ч
-      // талд maxHeight хязгаартай тул олон сегменттэй үед дотроо гүйлгэнэ.
-      const openUp = spaceBelow < 320 && spaceAbove > spaceBelow;
-      setPos(
-        openUp
-          ? {
-              bottom: window.innerHeight - rect.top + 4,
-              left,
-              width,
-              maxHeight: Math.max(240, spaceAbove - 4),
-            }
-          : {
-              top: rect.bottom + 4,
-              left,
-              width,
-              maxHeight: Math.max(240, spaceBelow - 4),
-            }
-      );
-    }
+    if (!rect) return;
     setDraft(value);
-    setOpen(true);
+    setAnchor(rect);
   }
 
   return (
@@ -167,7 +84,7 @@ export function AccountInput({
         <button
           type="button"
           disabled={disabled}
-          onClick={() => (open ? setOpen(false) : openPicker())}
+          onClick={() => (open ? setAnchor(null) : openPicker())}
           title="Сегментээр сонгох"
           className="px-2.5 flex items-center justify-center transition-colors shrink-0"
           style={{
@@ -188,71 +105,20 @@ export function AccountInput({
         </button>
       </div>
 
-      {open &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            ref={popoverRef}
-            data-account-input-portal
-            className="flex flex-col rounded-lg"
-            style={{
-              position: "fixed",
-              top: pos.top,
-              bottom: pos.bottom,
-              left: pos.left,
-              width: pos.width,
-              maxHeight: pos.maxHeight,
-              zIndex: 70,
-              background: "var(--ea-surface)",
-              border: "1px solid var(--ea-border-strong)",
-              boxShadow: "var(--ea-shadow-3)",
-            }}
-          >
-            <div className="min-h-0 overflow-y-auto p-3">
-              <AccountSegmentPicker
-                value={draft}
-                onChange={setDraft}
-                activeSegIds={activeSegIds}
-                segmentOptions={segmentOptions}
-                defaultSegments={defaultSegments}
-              />
-            </div>
-            <div
-              className="flex shrink-0 items-center justify-between gap-2 px-3 py-2.5"
-              style={{ borderTop: "1px solid var(--ea-border)" }}
-            >
-              <span className="truncate font-mono text-[11px] text-[var(--ea-text-4)]">
-                {fmtAccountDisplay(draft, activeSegIds)}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md"
-                  style={{
-                    border: "1px solid var(--ea-border-strong)",
-                    color: "var(--ea-text-2)",
-                  }}
-                >
-                  Болих
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(draft);
-                    setDraftText(null);
-                    setOpen(false);
-                  }}
-                  className="px-3 py-1.5 text-xs font-semibold text-white rounded-md"
-                  style={{ background: "var(--ea-primary)" }}
-                >
-                  Оруулах
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
+      <AccountSegmentPanel
+        anchor={anchor}
+        value={draft}
+        onChange={setDraft}
+        onCancel={() => setAnchor(null)}
+        onConfirm={() => {
+          onChange(draft);
+          setDraftText(null);
+          setAnchor(null);
+        }}
+        activeSegIds={activeSegIds}
+        segmentOptions={segmentOptions}
+        defaultSegments={defaultSegments}
+      />
     </div>
   );
 }

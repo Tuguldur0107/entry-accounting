@@ -16,8 +16,11 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
       where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
       with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
     }),
+    // Бүх дансыг ачаална — идэвхгүй болсон данстай хуучин журналын нэр
+    // харах горимд хоосон харагдахгүй. Засварлах үед form нь зөвхөн
+    // идэвхтэйг сонгуулна.
     db.query.chartOfAccounts.findMany({
-      where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
+      where: eq(chartOfAccounts.userId, userId),
       orderBy: (a, { asc }) => [asc(a.number)],
     }),
     db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
