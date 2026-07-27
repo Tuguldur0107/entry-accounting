@@ -52,6 +52,14 @@ export type GlAlerts = {
   reversedThisMonth: number;
 };
 
+export type GlDraftItem = {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  unbalanced: boolean;
+};
+
 const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Бичигдсэн",
@@ -69,6 +77,7 @@ interface Props {
   topAccounts: GlTopAccountRow[];
   moduleRows: GlModuleFlowRow[];
   alerts: GlAlerts;
+  draftItems: GlDraftItem[];
   recent: GlRecentVoucherRow[];
   monthStart: string; // YYYY-MM-DD
   monthEnd: string; // YYYY-MM-DD
@@ -87,6 +96,7 @@ export function GlDashboard({
   topAccounts,
   moduleRows,
   alerts,
+  draftItems,
   recent,
   monthStart,
   monthEnd,
@@ -106,6 +116,15 @@ export function GlDashboard({
   const maxTurnover = Math.max(...topAccounts.map((row) => row.turnover), 1);
 
   const monthQuery = `start=${monthStart}&end=${monthEnd}`;
+
+  // Журналын жагсаалтын засах үйлдэлтэй ижил standalone цонх.
+  function openVoucher(id: string) {
+    window.open(
+      `/gl/journal/${id}/edit`,
+      "_blank",
+      "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
+    );
+  }
   // Модулийн урсгалын мөр → тухайн модулийн задаргаа (сарын хүрээтэй нь)
   const MODULE_HREFS: Record<string, string> = {
     GL: `/gl/journal?${monthQuery}`,
@@ -406,18 +425,49 @@ export function GlDashboard({
                 Бүгд хэвийн — ноорог болон тэнцлийн асуудал алга.
               </p>
             ) : (
-              <ul className="space-y-2 text-xs">
-                {alerts.draftCount > 0 && (
+              <ul className="space-y-1.5 text-xs">
+                {draftItems.map((draft) => (
+                  <li key={draft.id}>
+                    <button
+                      type="button"
+                      onClick={() => openVoucher(draft.id)}
+                      title="Журналыг нээж шалгах"
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[var(--ea-bg-2)]",
+                        draft.unbalanced
+                          ? "text-[var(--ea-danger)]"
+                          : "text-[var(--ea-text-2)]"
+                      )}
+                    >
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{
+                          background: draft.unbalanced
+                            ? "var(--ea-danger)"
+                            : "var(--ea-warning)",
+                        }}
+                      />
+                      <span className="shrink-0 font-mono text-[11px] text-[var(--ea-text-4)]">
+                        {draft.date}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {draft.description || "(утгагүй ноорог)"}
+                      </span>
+                      <span className="shrink-0 font-mono text-[11px]">
+                        {fmtMnt(draft.amount)}
+                      </span>
+                      {draft.unbalanced && (
+                        <span className="shrink-0 rounded bg-[var(--ea-danger)]/10 px-1.5 py-0.5 text-[10px] font-medium">
+                          Дт≠Кт
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+                {alerts.draftCount > draftItems.length && (
                   <AlertRow
                     href="/gl/journal"
-                    text={`${alerts.draftCount} ноорог журнал батлагдахыг хүлээж байна`}
-                  />
-                )}
-                {alerts.unbalancedDraftCount > 0 && (
-                  <AlertRow
-                    href="/gl/journal"
-                    text={`${alerts.unbalancedDraftCount} ноорог Дт ≠ Кт тэнцээгүй`}
-                    danger
+                    text={`... нийт ${alerts.draftCount} ноорог — жагсаалтаас бүгдийг харах`}
                   />
                 )}
                 {alerts.reversedThisMonth > 0 && (

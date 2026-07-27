@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   GlDashboard,
   type GlAlerts,
+  type GlDraftItem,
   type GlClassSummary,
   type GlModuleFlowRow,
   type GlMonthTrendRow,
@@ -92,6 +93,7 @@ export default async function GlDashboardPage() {
   let draftCount = 0;
   let unbalancedDraftCount = 0;
   let reversedThisMonth = 0;
+  const draftItems: GlDraftItem[] = [];
 
   for (const voucher of vouchers) {
     if (voucher.status === "draft") {
@@ -102,7 +104,17 @@ export default async function GlDashboardPage() {
         dr += Number(line.debit);
         cr += Number(line.credit);
       }
-      if (Math.abs(dr - cr) > 0.01) unbalancedDraftCount += 1;
+      const unbalanced = Math.abs(dr - cr) > 0.01;
+      if (unbalanced) unbalancedDraftCount += 1;
+      // vouchers огноогоор desc эрэмбэтэй тул эхний 5 нь хамгийн шинэ нь.
+      if (draftItems.length < 5)
+        draftItems.push({
+          id: voucher.id,
+          date: voucher.date,
+          description: voucher.description,
+          amount: round2(dr),
+          unbalanced,
+        });
       continue;
     }
     // Сторно хийгдсэн эх журналыг НИЙЛБЭРТ ОРУУЛНА — түүний сторно журнал
@@ -243,6 +255,7 @@ export default async function GlDashboardPage() {
       topAccounts={topAccounts}
       moduleRows={moduleRows}
       alerts={alerts}
+      draftItems={draftItems}
       recent={recent}
       monthStart={monthRange(month).start}
       monthEnd={monthRange(month).end}
