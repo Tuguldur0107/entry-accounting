@@ -272,7 +272,7 @@ export function CashReportView({
       </div>
 
       {rows.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Касс, банкны данс үүсгээгүй байна
         </div>
       ) : (
@@ -281,7 +281,7 @@ export function CashReportView({
           columnDefs={movementColumnDefs}
           getRowId={(p) => p.data.accountId}
           pinnedBottomRowData={pinnedBottom}
-          height={Math.min(600, 100 + rows.length * 38)}
+          height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />

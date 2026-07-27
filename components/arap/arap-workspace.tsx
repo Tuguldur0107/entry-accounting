@@ -536,7 +536,7 @@ export function ArApWorkspace({
   const showReports = focus === "reports";
 
   return (
-    <section className="flex min-h-full w-full min-w-0 max-w-full flex-none flex-col gap-6">
+    <section className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
@@ -609,7 +609,7 @@ export function ArApWorkspace({
         ))}
 
       {showDocuments && (
-        <section className="min-w-0">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               {config.documentTitle}
@@ -629,7 +629,7 @@ export function ArApWorkspace({
               rowData={filteredDocuments}
               columnDefs={documentColumns}
               getRowId={(params) => params.data.id}
-              height={Math.min(560, 86 + filteredDocuments.length * 38)}
+              height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
             />
@@ -648,7 +648,7 @@ export function ArApWorkspace({
       )}
 
       {showCounterparties && (
-        <section className="min-w-0">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <h2 className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
             Харилцагчид
           </h2>
@@ -663,7 +663,7 @@ export function ArApWorkspace({
               rowData={filteredCounterparties}
               columnDefs={counterpartyColumns}
               getRowId={(params) => params.data.id}
-              height={Math.min(480, 86 + filteredCounterparties.length * 38)}
+              height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
             />
@@ -1605,7 +1605,7 @@ function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex min-h-36 flex-col items-center justify-center rounded-md border border-[var(--ea-border)] px-4 text-center text-sm text-[var(--ea-text-4)]">
+    <div className="flex min-h-36 flex-1 flex-col items-center justify-center rounded-md border border-[var(--ea-border)] px-4 text-center text-sm text-[var(--ea-text-4)]">
       <span>{text}</span>
       {actionLabel && onAction && (
         <Button variant="outline" size="sm" className="mt-3" onClick={onAction}>

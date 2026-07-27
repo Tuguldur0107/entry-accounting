@@ -419,7 +419,7 @@ export function FaAssetsView({
       </div>
 
       {assets.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Хөрөнгө бүртгэгдээгүй байна
         </div>
       ) : (
@@ -427,7 +427,7 @@ export function FaAssetsView({
           rowData={assets}
           columnDefs={columns}
           getRowId={(params) => params.data.id}
-          height={Math.min(680, 86 + assets.length * 38)}
+          height="flex"
           pagination={assets.length > 25}
           paginationPageSize={25}
           paginationPageSizeSelector={false}

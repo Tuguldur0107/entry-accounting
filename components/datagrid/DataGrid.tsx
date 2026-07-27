@@ -30,6 +30,11 @@ export interface DataGridProps<TData = unknown>
   clipboard?: {
     onProcess?: (rows: string[][]) => string[][];
   };
+  /**
+   * Пикселийн өндөр, CSS утга, эсвэл "flex" — flex үед wrapper нь эцэг
+   * flex-колонкоо дүүргэнэ (flex:1 min-h-0). Эцэг гинж нь main хүртэл
+   * flex байх ёстой; үгүй бол minHeight fallback (320px) хэрэглэгдэнэ.
+   */
   height?: number | string;
   wrapperClassName?: string;
   pageSize?: number;
@@ -110,12 +115,16 @@ function DataGridInner<TData>(
   const resolvedPagination = pagination ?? pageSize !== undefined;
   const resolvedPageSize = paginationPageSize ?? pageSize;
 
+  const isFlex = height === "flex";
+
   return (
     <div
       className={`ea-data-grid${wrapperClassName ? ` ${wrapperClassName}` : ""}`}
       style={
         {
-          height,
+          flex: isFlex ? "1 1 auto" : undefined,
+          minHeight: isFlex ? 320 : undefined,
+          height: isFlex ? undefined : height,
           width: "100%",
           "--ea-grid-bg": "var(--ea-surface)",
         } as React.CSSProperties

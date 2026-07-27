@@ -211,7 +211,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
       </div>
 
       {accounts.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Мөнгөн хөрөнгийн данс үүсгээгүй байна
         </div>
       ) : (
@@ -219,7 +219,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
           rowData={accounts}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
-          height={Math.min(680, 86 + accounts.length * 38)}
+          height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />

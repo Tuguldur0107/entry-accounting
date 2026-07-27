@@ -195,7 +195,7 @@ export function InventoryCountingView({
           rowData={rows}
           columnDefs={columns}
           getRowId={(params) => params.data.itemId}
-          height={Math.min(680, 86 + rows.length * 38)}
+          height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />
@@ -208,7 +208,7 @@ export function InventoryCountingView({
 
 function EmptyBox({ text }: { text: string }) {
   return (
-    <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+    <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
       {text}
     </div>
   );

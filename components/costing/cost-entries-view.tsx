@@ -401,7 +401,7 @@ export function CostEntriesView({
       </div>
 
       {visibleEntries.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Өртгийн бичилт байхгүй — costing run ажиллуулж үнэлгээ хийнэ
         </div>
       ) : (
@@ -409,7 +409,7 @@ export function CostEntriesView({
           rowData={visibleEntries}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
-          height={Math.min(680, 86 + visibleEntries.length * 38)}
+          height="flex"
           pagination={visibleEntries.length > 25}
           paginationPageSize={25}
           paginationPageSizeSelector={false}

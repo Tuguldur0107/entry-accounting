@@ -805,7 +805,7 @@ export function CashDocumentsView({
       )}
 
       {visibleDocuments.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Мөнгөн гүйлгээ байхгүй
         </div>
       ) : (
@@ -814,7 +814,7 @@ export function CashDocumentsView({
             rowData={visibleDocuments}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
-            height={Math.min(680, 86 + visibleDocuments.length * 38)}
+            height="flex"
             pagination={visibleDocuments.length > 25}
             paginationPageSize={25}
             paginationPageSizeSelector={false}

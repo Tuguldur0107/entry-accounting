@@ -818,7 +818,7 @@ export function BankStatementImport({
       )}
 
       {statements.length > 0 && (
-        <section>
+        <section className="flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center gap-2">
             <FileSpreadsheet
               size={16}
@@ -832,7 +832,7 @@ export function BankStatementImport({
             rowData={statements}
             columnDefs={statementColumns}
             getRowId={(params) => params.data.id}
-            height={Math.min(480, 84 + statements.length * 38)}
+            height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
           />

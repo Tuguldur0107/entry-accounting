@@ -210,18 +210,18 @@ export function CostingReportView({ valuation, tieOut }: Props) {
         </p>
       </div>
 
-      <section className="min-w-0">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <h2 className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
           Нөөцийн үнэлгээ (qty × дундаж өртөг)
         </h2>
         {valuation.length === 0 ? (
-          <EmptyBox text="Батлагдсан өртгийн бичилт байхгүй" />
+          <EmptyBox text="Батлагдсан өртгийн бичилт байхгүй" className="flex-1" />
         ) : (
           <DataGridDynamic<ValuationRow>
             rowData={valuation}
             columnDefs={valuationColumns}
             getRowId={(params) => params.data.itemId}
-            height={Math.min(480, 86 + valuation.length * 38)}
+            height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
           />
@@ -349,9 +349,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function EmptyBox({ text }: { text: string }) {
+function EmptyBox({ text, className }: { text: string; className?: string }) {
   return (
-    <div className="flex min-h-40 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+    <div
+      className={cn(
+        "flex min-h-40 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]",
+        className
+      )}
+    >
       {text}
     </div>
   );

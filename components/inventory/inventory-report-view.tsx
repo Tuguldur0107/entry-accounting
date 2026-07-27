@@ -98,7 +98,7 @@ export function InventoryReportView({ rows, start, end }: Props) {
       </div>
 
       {rows.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Хөдөлгөөн байхгүй
         </div>
       ) : (
@@ -106,7 +106,7 @@ export function InventoryReportView({ rows, start, end }: Props) {
           rowData={rows}
           columnDefs={columns}
           getRowId={(params) => params.data.key}
-          height={Math.min(680, 86 + rows.length * 38)}
+          height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />

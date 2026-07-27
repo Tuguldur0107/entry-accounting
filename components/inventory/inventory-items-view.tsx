@@ -155,8 +155,8 @@ export function InventoryItemsView({ items, warehouses }: Props) {
         </div>
       </div>
 
-      <div className="grid min-h-0 gap-6 xl:grid-cols-2">
-        <div className="min-w-0">
+      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-2">
+        <div className="flex min-h-0 min-w-0 flex-col">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               Бараа ({items.length})
@@ -180,14 +180,14 @@ export function InventoryItemsView({ items, warehouses }: Props) {
               rowData={items}
               columnDefs={itemColumns}
               getRowId={(params) => params.data.id}
-              height={Math.min(520, 86 + items.length * 38)}
+              height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
             />
           )}
         </div>
 
-        <div className="min-w-0">
+        <div className="flex min-h-0 min-w-0 flex-col">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               Агуулах ({warehouses.length})
@@ -212,7 +212,7 @@ export function InventoryItemsView({ items, warehouses }: Props) {
               rowData={warehouses}
               columnDefs={warehouseColumns}
               getRowId={(params) => params.data.id}
-              height={Math.min(520, 86 + warehouses.length * 38)}
+              height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
             />
@@ -358,7 +358,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function EmptyBox({ text }: { text: string }) {
   return (
-    <div className="flex min-h-40 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+    <div className="flex min-h-40 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
       {text}
     </div>
   );

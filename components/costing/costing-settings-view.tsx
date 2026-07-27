@@ -173,7 +173,7 @@ export function CostingSettingsView({
       </div>
 
       {rows.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Бараа бүртгээгүй байна — эхлээд Бараа материал модульд бараа нэмнэ
         </div>
       ) : (
@@ -181,7 +181,7 @@ export function CostingSettingsView({
           rowData={rows}
           columnDefs={columns}
           getRowId={(params) => params.data.itemId}
-          height={Math.min(640, 86 + rows.length * 38)}
+          height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />

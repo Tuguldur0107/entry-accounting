@@ -114,12 +114,12 @@ export function InventoryDashboard({
         })}
       </section>
 
-      <section className="min-w-0">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <h2 className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
           Үлдэгдэл (баталсан хөдөлгөөнөөр)
         </h2>
         {balances.length === 0 ? (
-          <div className="flex min-h-40 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+          <div className="flex min-h-40 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
             Үлдэгдэл байхгүй — хөдөлгөөн бүртгэж эхэлнэ
           </div>
         ) : (
@@ -127,7 +127,7 @@ export function InventoryDashboard({
             rowData={balances}
             columnDefs={columns}
             getRowId={(params) => `${params.data.itemId}|${params.data.warehouseName}`}
-            height={Math.min(560, 86 + balances.length * 38)}
+            height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
           />

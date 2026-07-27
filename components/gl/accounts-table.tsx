@@ -597,7 +597,7 @@ export function AccountsTable({
   }
 
   return (
-    <>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-0 border-b border-[var(--ea-border)] mb-6">
         {(["modules", "config", "values"] as const).map((tab) => (
           <button
@@ -733,7 +733,7 @@ export function AccountsTable({
         </div>
       </div>
 
-      <div className={cn(mainTab !== "values" && "hidden")}>
+      <div className={cn(mainTab !== "values" ? "hidden" : "flex min-h-0 flex-1 flex-col")}>
         <p className="text-xs text-[var(--ea-text-4)] mb-3">Идэвхтэй сегментийг сонгоод кодуудыг тохируулна уу.</p>
 
         <div className="flex items-center gap-0 border-b border-[var(--ea-border)] mb-4 overflow-x-auto">
@@ -758,7 +758,7 @@ export function AccountsTable({
         </div>
 
         {activeTabDef && enabledSegIds.length > 0 && (
-          <div>
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <span className="text-sm font-medium text-[var(--ea-text-2)]">{activeTabDef.nameMn}</span>
@@ -803,7 +803,7 @@ export function AccountsTable({
 
             {activeTab === 3 ? (
               s3GridRows.length === 0 ? (
-                <div className="py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
+                <div className="flex flex-1 items-center justify-center py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
                   Данс байхгүй — стандарт данс нэмэх товч дарна уу
                 </div>
               ) : (
@@ -812,13 +812,13 @@ export function AccountsTable({
                   columnDefs={columnDefs}
                   getRowId={(p) => p.data.id}
                   rowClassRules={rowClassRules}
-                  height={Math.min(720, 48 + s3GridRows.length * 36)}
+                  height="flex"
                   wrapperClassName="ea-accounts-grid rounded-md border border-[var(--ea-border)] overflow-hidden"
                   suppressCellFocus
                 />
               )
             ) : svGridRows.length === 0 ? (
-              <div className="py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
+              <div className="flex flex-1 items-center justify-center py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
                 Утга байхгүй — + Утга нэмэх товч дарна уу
               </div>
             ) : (
@@ -827,7 +827,7 @@ export function AccountsTable({
                 columnDefs={columnDefs}
                 getRowId={(p) => p.data.id}
                 rowClassRules={rowClassRules}
-                height={Math.min(720, 48 + svGridRows.length * 36)}
+                height="flex"
                 wrapperClassName="ea-accounts-grid rounded-md border border-[var(--ea-border)] overflow-hidden"
                 suppressCellFocus
               />
@@ -836,7 +836,7 @@ export function AccountsTable({
         )}
 
         {enabledSegIds.length === 0 && (
-          <div className="py-12 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
+          <div className="flex flex-1 items-center justify-center py-12 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
             Идэвхтэй сегмент байхгүй — дээр дэх тохиргооноос нэгийг идэвхжүүлнэ үү
           </div>
         )}
@@ -968,6 +968,6 @@ export function AccountsTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </section>
   );
 }

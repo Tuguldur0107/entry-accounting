@@ -333,14 +333,14 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
 
   if (filtered.length === 0) {
     return (
-      <div className="bg-white border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
+      <div className="flex flex-1 items-center justify-center bg-white border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
         Бичилт байхгүй
       </div>
     );
   }
 
   return (
-    <>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <DataGridDynamic<VoucherRow>
         rowData={filtered}
         columnDefs={columnDefs}
@@ -351,7 +351,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         pagination
         paginationPageSize={PAGE_SIZE}
         paginationPageSizeSelector={false}
-        height={Math.min(720, 48 + filtered.length * 48 + 56)}
+        height="flex"
         wrapperClassName="rounded-lg border border-[var(--ea-border)] overflow-hidden"
         suppressCellFocus
         cellSelection={false}
@@ -406,6 +406,6 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         {/* Үйлдэл — empty */}
         <div />
       </div>
-    </>
+    </section>
   );
 }

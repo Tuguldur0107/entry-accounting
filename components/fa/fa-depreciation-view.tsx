@@ -307,7 +307,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
       </div>
 
       {entries.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
           Элэгдлийн бичилт байхгүй — сар сонгоод тооцоолуулна
         </div>
       ) : (
@@ -315,7 +315,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
           rowData={entries}
           columnDefs={columns}
           getRowId={(params) => params.data.id}
-          height={Math.min(680, 86 + entries.length * 38)}
+          height="flex"
           pagination={entries.length > 25}
           paginationPageSize={25}
           paginationPageSizeSelector={false}
