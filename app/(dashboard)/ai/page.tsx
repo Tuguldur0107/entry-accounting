@@ -1,39 +1,18 @@
-import { asc, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
 
-import { AiChatView, type AiChatMessage } from "@/components/ai/ai-chat-view";
-import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { aiMessages, aiSettings } from "@/lib/db/schema";
+import { AiChatView } from "@/components/ai/ai-chat-view";
+import { getAiChatBootstrap } from "@/lib/actions/ai";
 
 export default async function AiChatPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
-
-  const [history, settings] = await Promise.all([
-    db.query.aiMessages.findMany({
-      where: eq(aiMessages.userId, userId),
-      orderBy: [asc(aiMessages.createdAt)],
-      with: { attachments: { columns: { name: true } } },
-    }),
-    db.query.aiSettings.findFirst({
-      where: eq(aiSettings.userId, userId),
-      columns: { apiKey: true },
-    }),
-  ]);
-
-  const messages: AiChatMessage[] = history.map((entry) => ({
-    id: entry.id,
-    role: entry.role as "user" | "assistant",
-    content: entry.content,
-    attachments: entry.attachments.map((attachment) => ({
-      name: attachment.name,
-    })),
-  }));
+  // Хуудас болон глобал чат панель хоёул НЭГ ачаалагчийг хэрэглэнэ —
+  // query давхардахгүй (lib/actions/ai.ts).
+  const result = await getAiChatBootstrap();
+  if (!result.ok) redirect("/login");
 
   return (
     <AiChatView
-      initialMessages={messages}
-      configured={Boolean(settings?.apiKey || process.env.ANTHROPIC_API_KEY)}
+      initialMessages={result.data.initialMessages}
+      configured={result.data.configured}
     />
   );
 }

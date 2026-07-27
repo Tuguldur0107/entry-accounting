@@ -36,6 +36,11 @@ interface Props {
   initialMessages: AiChatMessage[];
   /** API түлхүүр (хэрэглэгчийн эсвэл серверийн) тохируулагдсан эсэх. */
   configured: boolean;
+  /**
+   * Панель дотор — хуудасны гарчгийг (панелийн жаазны гарчигтай давхардана)
+   * нууж, flex эцгээ дүүргэсэн нягт байрлалтай render хийнэ.
+   */
+  embedded?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -65,7 +70,11 @@ function fmtSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-export function AiChatView({ initialMessages, configured }: Props) {
+export function AiChatView({
+  initialMessages,
+  configured,
+  embedded = false,
+}: Props) {
   const [messages, setMessages] = useState<AiChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<PendingAttachment[]>([]);
@@ -80,6 +89,10 @@ export function AiChatView({ initialMessages, configured }: Props) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Нуугдсан (display:none) байхад хэмжээс 0 — scroll тооцоо утгагүй тул
+    // алгасна. Хураасан панелийн visibility:hidden үед layout хэвээр тул
+    // стрийм үргэлжлэхэд доош гүйлгэлт хэвийн ажиллана.
+    if (el.clientHeight === 0) return;
     // Хэрэглэгч дээш гүйлгэсэн байхад стримийн chunk бүрд доош чирэхгүй.
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     if (nearBottom) el.scrollTo({ top: el.scrollHeight });
@@ -261,32 +274,48 @@ export function AiChatView({ initialMessages, configured }: Props) {
     }
   }
 
+  const clearHistoryButton =
+    messages.length > 0 ? (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={clearHistory}
+        disabled={isStreaming}
+      >
+        <Trash2 size={14} />
+        Түүх цэвэрлэх
+      </Button>
+    ) : null;
+
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-lg font-semibold text-[var(--ea-text-1)]">
-            <Sparkles size={18} className="text-[var(--ea-primary)]" />
-            AI туслах
-          </h1>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Нягтлан бодох бүртгэл, татвар, журналын бичилтийн зөвлөгөө. AI
-            журналд шууд бичилт хийхгүй — санал болгосон бичилтийг өөрөө шалгаж
-            баталгаажуулна.
-          </p>
+    <section
+      className={cn(
+        "flex min-h-0 flex-1 flex-col",
+        embedded ? "gap-2 p-3" : "gap-3"
+      )}
+    >
+      {embedded ? (
+        // Панелийн жааз өөрөө "AI туслах" гарчигтай — хуудасны толгойг
+        // давхардуулахгүй, зөвхөн түүх цэвэрлэх товчийг үлдээнэ.
+        clearHistoryButton && (
+          <div className="flex justify-end">{clearHistoryButton}</div>
+        )
+      ) : (
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="flex items-center gap-2 text-lg font-semibold text-[var(--ea-text-1)]">
+              <Sparkles size={18} className="text-[var(--ea-primary)]" />
+              AI туслах
+            </h1>
+            <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+              Нягтлан бодох бүртгэл, татвар, журналын бичилтийн зөвлөгөө. AI
+              журналд шууд бичилт хийхгүй — санал болгосон бичилтийг өөрөө
+              шалгаж баталгаажуулна.
+            </p>
+          </div>
+          {clearHistoryButton}
         </div>
-        {messages.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearHistory}
-            disabled={isStreaming}
-          >
-            <Trash2 size={14} />
-            Түүх цэвэрлэх
-          </Button>
-        )}
-      </div>
+      )}
 
       {!configured && (
         <p className="flex items-center gap-2 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-xs text-[var(--ea-danger)]">
@@ -303,7 +332,10 @@ export function AiChatView({ initialMessages, configured }: Props) {
 
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)]",
+          embedded ? "p-3" : "p-4"
+        )}
       >
         {messages.length === 0 ? (
           <div className="m-auto flex max-w-md flex-col items-center gap-4 text-center">

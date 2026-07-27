@@ -1,13 +1,64 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { aiSettings } from "@/lib/db/schema";
+import { aiMessages, aiSettings } from "@/lib/db/schema";
 import { isAiEffort, isAiModelId } from "@/lib/ai/models";
 import { encryptSecret } from "@/lib/ai/crypto";
+import type { AiChatMessage } from "@/components/ai/ai-chat-view";
+
+export interface AiChatBootstrap {
+  initialMessages: AiChatMessage[];
+  /** API түлхүүр (хэрэглэгчийн эсвэл серверийн) тохируулагдсан эсэх. */
+  configured: boolean;
+}
+
+// Алдааг throw хийхгүй — production build дээр Next.js server action-ий
+// error message-ийг нууж "An error occurred..." болгодог тул код буцаана.
+export type AiChatBootstrapResult =
+  | { ok: true; data: AiChatBootstrap }
+  | { ok: false; code: "unauthenticated" | "not-found" };
+
+/**
+ * Чатын эхлэлийн өгөгдөл — харилцан ярианы түүх + тохиргооны төлөв.
+ * /ai хуудас болон глобал чат панель хоёул ЭНЭ ГАНЦ ачаалагчийг хэрэглэнэ
+ * (query давхардуулахгүй).
+ */
+export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+
+  const [history, settings] = await Promise.all([
+    db.query.aiMessages.findMany({
+      where: eq(aiMessages.userId, userId),
+      orderBy: [asc(aiMessages.createdAt)],
+      with: { attachments: { columns: { name: true } } },
+    }),
+    db.query.aiSettings.findFirst({
+      where: eq(aiSettings.userId, userId),
+      columns: { apiKey: true },
+    }),
+  ]);
+
+  return {
+    ok: true,
+    data: {
+      initialMessages: history.map((entry) => ({
+        id: entry.id,
+        role: entry.role as "user" | "assistant",
+        content: entry.content,
+        attachments: entry.attachments.map((attachment) => ({
+          name: attachment.name,
+        })),
+      })),
+      configured: Boolean(settings?.apiKey || process.env.ANTHROPIC_API_KEY),
+    },
+  };
+}
 
 async function requireUserId(): Promise<string> {
   const session = await auth();

@@ -8,6 +8,7 @@ import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { HeaderJournalSearch } from "@/components/layout/header-journal-search";
 import { HeaderReportSelect } from "@/components/layout/header-report-select";
 import { NewJournalButton } from "@/components/layout/new-journal-button";
+import { AiChatButton } from "@/components/layout/ai-chat-button";
 import { PanelHost } from "@/components/panel/panel-host";
 
 export default async function DashboardLayout({
@@ -55,6 +56,7 @@ export default async function DashboardLayout({
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <NewJournalButton />
+            <AiChatButton />
             <ThemeToggle />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--ea-text-3)" }}>
               {session.user.name}
