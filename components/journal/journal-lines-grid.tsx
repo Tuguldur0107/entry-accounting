@@ -94,6 +94,12 @@ export function JournalLinesGrid({
     [onLinesChange]
   );
 
+  // Харах горимд дансны НЭРИЙГ тусдаа баганаар үзүүлнэ (S3 сонголтоос).
+  const accountNameByMain = useMemo(
+    () => new Map((segOptions[3] ?? []).map((option) => [option.code, option.name])),
+    [segOptions]
+  );
+
   const columnDefs = useMemo<ColDef<JournalLineRow>[]>(() => {
     const cols: ColDef<JournalLineRow>[] = [
       {
@@ -118,6 +124,20 @@ export function JournalLinesGrid({
           extraDefaults: defaultSegments,
         },
         valueFormatter: (p) => fmtAccountDisplay(String(p.value ?? ""), activeSegIds),
+      },
+      {
+        headerName: "Дансны нэр",
+        colId: "account-name",
+        width: 200,
+        editable: false,
+        sortable: false,
+        cellClass: "text-xs text-[var(--ea-text-2)]",
+        valueGetter: (p) => {
+          if (!p.data || p.data.id === "__totals__") return "";
+          const parts = String(p.data.account ?? "").split(".");
+          const main = parts.length === 10 ? parts[2] : String(p.data.account ?? "");
+          return accountNameByMain.get(main) ?? "";
+        },
       },
       {
         headerName: "Дебет",
@@ -201,8 +221,12 @@ export function JournalLinesGrid({
         },
       },
     ];
-    return readOnly ? cols.filter((col) => col.colId !== "actions") : cols;
-  }, [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange, readOnly]);
+    // Засварлах горимд нэрийн багана хэрэггүй (editor доторх picker нэрийг
+    // үзүүлдэг); харах горимд устгах багана хэрэггүй.
+    return readOnly
+      ? cols.filter((col) => col.colId !== "actions")
+      : cols.filter((col) => col.colId !== "account-name");
+  }, [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange, readOnly, accountNameByMain]);
 
   const processDataFromClipboard = useCallback(
     (p: ProcessDataFromClipboardParams<JournalLineRow>) => {

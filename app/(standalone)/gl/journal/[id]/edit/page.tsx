@@ -47,6 +47,9 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
     <JournalEntryForm
       readOnly={readOnly}
       voucherStatus={voucher.status}
+      voucherCreatedAt={voucher.createdAt
+        .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
+        .slice(0, 16)}
       accounts={accounts}
       activeSegIds={activeSegIds}
       segmentValues={rawSegValues}

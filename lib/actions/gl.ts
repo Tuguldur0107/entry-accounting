@@ -516,3 +516,49 @@ export async function deleteVoucher(id: string) {
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
 }
+
+/**
+ * Журналыг өнөөдрийн огноогоор НООРОГ болгон хуулбарлана — сар бүр давтагддаг
+ * бичилтэд. Ноорог тул модулийн sync-үүд хөндөгдөхгүй (тэдгээр нь posted
+ * журналаас л үүсдэг).
+ */
+export async function duplicateVoucher(id: string) {
+  const userId = await requireUser();
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Бичилт олдсонгүй");
+
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Ulaanbaatar",
+  });
+
+  const copyId = await db.transaction(async (tx) => {
+    const [copy] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        date: today,
+        description: voucher.description,
+        status: "draft",
+      })
+      .returning({ id: journalVouchers.id });
+    await tx.insert(journalLines).values(
+      voucher.lines.map((line, index) => ({
+        voucherId: copy.id,
+        accountNumber: line.accountNumber,
+        debit: line.debit,
+        credit: line.credit,
+        description: line.description,
+        sortOrder: index,
+      }))
+    );
+    return copy.id;
+  });
+
+  revalidatePath("/gl/journal");
+  revalidatePath("/gl");
+  return { id: copyId };
+}

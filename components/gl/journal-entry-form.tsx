@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import { createVoucher, updateVoucher } from "@/lib/actions/gl";
+import { Copy, Files, Printer, RotateCcw } from "lucide-react";
+import {
+  createVoucher,
+  duplicateVoucher,
+  unpostVoucher,
+  updateVoucher,
+} from "@/lib/actions/gl";
 import type { ChartOfAccount, SegmentValue } from "@/lib/db/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtMnt } from "@/lib/reports/balances";
-import { buildSegCode } from "@/lib/grid/segments";
+import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import {
   JournalLinesGrid,
   type JournalLineRow,
@@ -51,6 +57,8 @@ interface Props {
   readOnly?: boolean;
   /** Харах горимд төлөвийг badge-аар үзүүлнэ. */
   voucherStatus?: string;
+  /** Харах горимд үзүүлэх үүсгэсэн огноо-цаг (урьдчилан форматалсан). */
+  voucherCreatedAt?: string;
 }
 
 const fmt = (n: number) => fmtMnt(n);
@@ -64,6 +72,7 @@ export function JournalEntryForm({
   initialVoucher,
   readOnly = false,
   voucherStatus,
+  voucherCreatedAt,
 }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const isEdit = !!voucherId;
@@ -97,6 +106,42 @@ export function JournalEntryForm({
 
   const [saving, setSaving] = useState<"draft" | "posted" | null>(null);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const nameByMain = useMemo(
+    () => new Map(accounts.map((a) => [a.number, a.name])),
+    [accounts]
+  );
+  const accountLabel = useCallback(
+    (code: string) => {
+      const parts = code.split(".");
+      const main = parts.length === 10 ? parts[2] : code;
+      return {
+        code: fmtAccountDisplay(code, activeSegIds),
+        name: nameByMain.get(main) ?? "",
+      };
+    },
+    [activeSegIds, nameByMain]
+  );
+
+  // Хадгалаагүй өөрчлөлтийн хамгаалалт — эхний render-ийн snapshot-той
+  // харьцуулна (lazy useState нь ref-ээс ялгаатай render-цэвэр).
+  const currentSnapshot = JSON.stringify({
+    date,
+    description,
+    lines: lines.map((l) => [l.account, l.debit, l.credit, l.description]),
+  });
+  const [initialSnapshot] = useState(currentSnapshot);
+  const dirty = !readOnly && currentSnapshot !== initialSnapshot;
+
+  useEffect(() => {
+    if (!dirty || saving !== null) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, saving]);
 
   const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
@@ -149,9 +194,64 @@ export function JournalEntryForm({
     }
   }
 
+  // Ctrl/Cmd+Enter — хадгалах shortcut (зөвхөн засварлах горимд).
+  useEffect(() => {
+    if (readOnly) return;
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (balanced && saving === null) handleSave("posted");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, balanced, saving, date, description, lines]);
+
+  async function copyId() {
+    if (!voucherId) return;
+    try {
+      await navigator.clipboard.writeText(voucherId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard зөвшөөрөлгүй — чимээгүй өнгөрнө */
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!voucherId) return;
+    try {
+      const { id } = await duplicateVoucher(voucherId);
+      window.location.href = `/gl/journal/${id}/edit`;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Хуулбарлаж чадсангүй");
+    }
+  }
+
+  async function handleStorno() {
+    if (!voucherId) return;
+    if (!confirm("Энэ журналд сторно бичилт үүсгэх үү? Эх журнал 'Буцаагдсан' төлөвт орно."))
+      return;
+    try {
+      await unpostVoucher(voucherId);
+      closeWindow();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Сторно хийж чадсангүй");
+    }
+  }
+
+  const statusLabel =
+    voucherStatus === "posted"
+      ? "Бичигдсэн"
+      : voucherStatus === "reversed"
+        ? "Буцаагдсан"
+        : "Ноорог";
+
   return (
+    <>
     <div
-      className="h-screen flex flex-col"
+      className="h-screen flex flex-col print:hidden"
       style={{ background: "var(--ea-bg)", fontFamily: "var(--ea-font-sans)" }}
     >
       <header
@@ -206,29 +306,93 @@ export function JournalEntryForm({
               borderRadius: 10,
             }}
           >
-            <div className="grid gap-5" style={{ gridTemplateColumns: "180px 1fr" }}>
-              <div className="space-y-1.5">
-                <Label htmlFor="voucher-date">Огноо</Label>
-                <Input
-                  id="voucher-date"
-                  type="date"
-                  value={date}
-                  disabled={readOnly}
-                  onChange={(e) => setDate(e.target.value)}
-                />
+            {readOnly ? (
+              // Баримт-харагдац: саарал input биш, цэвэр текст.
+              <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
+                <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-4">
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">Огноо</div>
+                    <div className="mt-0.5 font-mono text-[var(--ea-text-1)]">{date}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">Мөрийн тоо</div>
+                    <div className="mt-0.5 font-mono text-[var(--ea-text-1)]">
+                      {lines.length}
+                    </div>
+                  </div>
+                  {voucherCreatedAt && (
+                    <div>
+                      <div className="text-[11px] text-[var(--ea-text-4)]">Үүсгэсэн</div>
+                      <div className="mt-0.5 font-mono text-[var(--ea-text-1)]">
+                        {voucherCreatedAt}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">Дугаар</div>
+                    <button
+                      type="button"
+                      onClick={copyId}
+                      title="ID хуулах"
+                      className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-[var(--ea-text-2)] transition-colors hover:text-[var(--ea-primary)]"
+                    >
+                      {voucherId?.slice(0, 8)}…
+                      <Copy size={11} />
+                      {copied && (
+                        <span className="text-[10px] text-[var(--ea-success)]">
+                          Хуулагдлаа
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                  <div className="col-span-2 sm:col-span-4">
+                    <div className="text-[11px] text-[var(--ea-text-4)]">
+                      Гүйлгээний утга
+                    </div>
+                    <div className="mt-0.5 text-[var(--ea-text-1)]">
+                      {description || "—"}
+                    </div>
+                  </div>
+                </div>
+                {/* Том Дт/Кт нийлбэр */}
+                <div className="flex gap-6 text-right">
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">Нийт дебет</div>
+                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
+                      {fmt(totalDebit)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[var(--ea-text-4)]">Нийт кредит</div>
+                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
+                      {fmt(totalCredit)}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="voucher-description">Гүйлгээний утга</Label>
-                <Input
-                  id="voucher-description"
-                  type="text"
-                  placeholder="Гүйлгээний тайлбар оруулна уу"
-                  value={description}
-                  disabled={readOnly}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
+            ) : (
+              <div className="grid gap-5" style={{ gridTemplateColumns: "180px 1fr" }}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="voucher-date">Огноо</Label>
+                  <Input
+                    id="voucher-date"
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="voucher-description">Гүйлгээний утга</Label>
+                  <Input
+                    id="voucher-description"
+                    type="text"
+                    placeholder="Гүйлгээний тайлбар оруулна уу"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div
@@ -272,9 +436,26 @@ export function JournalEntryForm({
 
         <div className="flex items-center gap-2">
           {readOnly ? (
-            <Button variant="outline" onClick={closeWindow}>
-              Хаах
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => window.print()}>
+                <Printer size={14} />
+                Хэвлэх
+              </Button>
+              <Button variant="outline" onClick={handleDuplicate}>
+                <Files size={14} />
+                Хуулбарлах
+              </Button>
+              {voucherStatus === "posted" && (
+                <Button variant="outline" onClick={handleStorno}>
+                  <RotateCcw size={14} />
+                  Сторно хийх
+                </Button>
+              )}
+              <Separator orientation="vertical" className="h-5" />
+              <Button variant="outline" onClick={closeWindow}>
+                Хаах
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -297,6 +478,7 @@ export function JournalEntryForm({
               <Button
                 onClick={() => handleSave("posted")}
                 disabled={!balanced || saving !== null}
+                title="Ctrl+Enter"
               >
                 {saving === "posted" ? "Хадгалж байна..." : "Хадгалах"}
               </Button>
@@ -305,5 +487,89 @@ export function JournalEntryForm({
         </div>
       </footer>
     </div>
+
+      {/* ── Хэвлэх баримт — зөвхөн print үед харагдана ─────────────────── */}
+      <div className="hidden print:block bg-white p-8 text-black">
+        <div className="mb-1 text-center text-lg font-bold uppercase tracking-wide">
+          Журналын баримт
+        </div>
+        <div className="mb-5 text-center text-xs text-neutral-500">
+          № {voucherId ?? "—"}
+        </div>
+        <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
+          <div>
+            <span className="text-neutral-500">Огноо: </span>
+            <span className="font-mono">{date}</span>
+          </div>
+          <div>
+            <span className="text-neutral-500">Төлөв: </span>
+            {statusLabel}
+          </div>
+          <div>
+            <span className="text-neutral-500">Мөр: </span>
+            <span className="font-mono">{lines.length}</span>
+          </div>
+          <div className="col-span-3">
+            <span className="text-neutral-500">Гүйлгээний утга: </span>
+            {description || "—"}
+          </div>
+        </div>
+
+        <div
+          className="grid border-t border-b border-black text-xs"
+          style={{ gridTemplateColumns: "1.4fr 1.2fr 1.4fr 0.9fr 0.9fr" }}
+        >
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Данс</div>
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Дансны нэр</div>
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Тайлбар</div>
+          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
+            Дебет
+          </div>
+          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
+            Кредит
+          </div>
+          {lines.map((line) => {
+            const label = accountLabel(line.account);
+            return (
+              <div key={line.id} className="contents">
+                <div className="py-1 font-mono">{label.code}</div>
+                <div className="py-1">{label.name}</div>
+                <div className="py-1">{line.description || ""}</div>
+                <div className="py-1 text-right font-mono">
+                  {line.debit ? fmt(line.debit) : ""}
+                </div>
+                <div className="py-1 text-right font-mono">
+                  {line.credit ? fmt(line.credit) : ""}
+                </div>
+              </div>
+            );
+          })}
+          <div className="col-span-3 border-t border-black py-1.5 font-semibold">
+            Нийт дүн
+          </div>
+          <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
+            {fmt(totalDebit)}
+          </div>
+          <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
+            {fmt(totalCredit)}
+          </div>
+        </div>
+
+        <div className="mt-12 grid grid-cols-3 gap-8 text-xs">
+          <div>
+            Бүрдүүлсэн: _______________________
+            <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+          </div>
+          <div>
+            Шалгасан: _______________________
+            <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+          </div>
+          <div>
+            Батласан: _______________________
+            <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
