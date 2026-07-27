@@ -21,6 +21,14 @@ import {
   isDepreciationMethod,
   type FixedAssetRef,
 } from "@/lib/fa/depreciation";
+import {
+  loadFixedAssetViews,
+  type FixedAssetView,
+} from "@/lib/fa/asset-views";
+import {
+  loadSegmentPickerData,
+  type SegmentPickerData,
+} from "@/lib/gl/segment-picker-data";
 
 async function requireUser() {
   const session = await auth();
@@ -70,6 +78,43 @@ async function faPostingCodeBuilder(userId: string) {
       ...defaults,
       9: "FA",
     });
+}
+
+// ─── Панелийн өгөгдөл ────────────────────────────────────────────────────────
+
+/**
+ * Хөрөнгийн панелиудын өгөгдөл. `asset` нь:
+ *   - дэлгэрэнгүй панель / идэвхжүүлэх форм → тухайн карт;
+ *   - шинэ хөрөнгийн форм (assetId өгөөгүй) → null.
+ * Сегментийн сонголтууд формын AccountInput-уудад хэрэгтэй.
+ */
+export interface FaAssetPanelData extends SegmentPickerData {
+  asset: FixedAssetView | null;
+}
+
+// Алдааг throw хийхгүй — production build дээр Next.js server action-ий
+// error message-ийг нууж "An error occurred..." болгодог тул код буцаана.
+export type FaAssetPanelResult =
+  | { ok: true; data: FaAssetPanelData }
+  | { ok: false; code: "unauthenticated" | "not-found" };
+
+// Панель клиентээс нээгддэг тул өгөгдлөө энэ action-аар татна. Жагсаалтын
+// хуудастай НЭГ хэрэгжилт — loadFixedAssetViews (lib/fa/asset-views.ts).
+export async function getFaAssetPanelData(
+  assetId?: string
+): Promise<FaAssetPanelResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+
+  const [views, segmentData] = await Promise.all([
+    assetId ? loadFixedAssetViews(userId, assetId) : Promise.resolve([]),
+    loadSegmentPickerData(userId),
+  ]);
+  const asset = views[0] ?? null;
+  if (assetId && !asset) return { ok: false, code: "not-found" };
+
+  return { ok: true, data: { asset, ...segmentData } };
 }
 
 // ─── Хөрөнгийн карт ──────────────────────────────────────────────────────────
