@@ -1,10 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { CostEntriesView } from "@/components/costing/cost-entries-view";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { chartOfAccounts, costEntries, segmentConfigs } from "@/lib/db/schema";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { costEntries } from "@/lib/db/schema";
 import type { CostEntryView } from "@/lib/inventory/types";
 
 type SearchParams = Promise<{ status?: string }>;
@@ -18,27 +17,13 @@ export default async function CostEntriesPage({
   const userId = session!.user!.id!;
   const { status } = await searchParams;
 
-  const [entries, glAccounts, segConfigs] = await Promise.all([
-    db.query.costEntries.findMany({
-      where: eq(costEntries.userId, userId),
-      with: { movement: { with: { item: true } }, item: true },
-      orderBy: (entry, { desc }) => [desc(entry.date), desc(entry.createdAt)],
-    }),
-    db.query.chartOfAccounts.findMany({
-      where: and(
-        eq(chartOfAccounts.userId, userId),
-        eq(chartOfAccounts.isEnabled, true)
-      ),
-    }),
-    db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
-    }),
-  ]);
-
-  const segConfigMap = new Map(segConfigs.map((c) => [c.segmentId, c]));
-  const activeSegIds = SEGMENT_DEFS.filter(
-    (def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true
-  ).map((def) => def.id);
+  // Дэлгэрэнгүй (GL мөр, дансны нэр, сегмент) нь одоо панель өөрөө
+  // getCostEntryPanelData-аар татдаг тул энд зөвхөн жагсаалтын өгөгдөл.
+  const entries = await db.query.costEntries.findMany({
+    where: eq(costEntries.userId, userId),
+    with: { movement: { with: { item: true } }, item: true },
+    orderBy: (entry, { desc }) => [desc(entry.date), desc(entry.createdAt)],
+  });
 
   const views: CostEntryView[] = entries.map((entry) => {
     const item = entry.movement?.item ?? entry.item;
@@ -59,12 +44,5 @@ export default async function CostEntriesPage({
     };
   });
 
-  return (
-    <CostEntriesView
-      entries={views}
-      glNames={Object.fromEntries(glAccounts.map((a) => [a.number, a.name]))}
-      activeSegIds={activeSegIds}
-      initialStatus={status}
-    />
-  );
+  return <CostEntriesView entries={views} initialStatus={status} />;
 }

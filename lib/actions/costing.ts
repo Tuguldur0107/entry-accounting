@@ -27,6 +27,7 @@ import {
   type ValueAdjustmentRef,
 } from "@/lib/costing/costing";
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
+import type { CostEntryView } from "@/lib/inventory/types";
 
 async function requireUser() {
   const session = await auth();
@@ -61,6 +62,19 @@ async function assertEnabledMainAccount(userId: string, accountNumber: string) {
     throw new Error(`${accountNumber} идэвхтэй GL данс олдсонгүй — тохиргоог шалгана уу`);
 }
 
+// Идэвхтэй сегмент ID-ууд — тохиргооноос (S3 буюу ерөнхий данс үргэлж
+// идэвхтэй). Posting code builder болон панелийн дэлгэрэнгүй хоёулаа энэ
+// НЭГ хэрэгжилтийг ашиглана.
+function activeSegIdsOf(
+  configs: { segmentId: number; isEnabled: boolean }[]
+): number[] {
+  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
+  return SEGMENT_DEFS.filter(
+    (definition) =>
+      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
+  ).map((definition) => definition.id);
+}
+
 // Cash-ийн cashPostingCodeBuilder-ийн клон: S9 = "CO" (Өртгийн бүртгэл).
 async function costingPostingCodeBuilder(userId: string) {
   const [configs, values] = await Promise.all([
@@ -74,11 +88,7 @@ async function costingPostingCodeBuilder(userId: string) {
       ),
     }),
   ]);
-  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-  const activeSegIds = SEGMENT_DEFS.filter(
-    (definition) =>
-      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
-  ).map((definition) => definition.id);
+  const activeSegIds = activeSegIdsOf(configs);
   const defaults: Record<number, string> = {};
   for (const segmentId of activeSegIds) {
     const options = values.filter((value) => value.segmentId === segmentId);
@@ -704,49 +714,104 @@ export async function createLandedCostEntry(data: {
   return { id: created.id, amount };
 }
 
-// Дэлгэрэнгүй drawer-т: холбогдсон GL журналын мөрүүд.
-export interface CostEntryDetail {
-  voucherId: string | null;
-  voucherDate: string | null;
-  voucherDescription: string | null;
+// ─── Панелийн дэлгэрэнгүй ────────────────────────────────────────────────────
+
+// Өртгийн бичилтийн панель бүх өгөгдлөө id-аар татна: мета (жагсаалтын
+// мөртэй ИЖИЛ CostEntryView хэлбэрээр), холбогдсон GL журналын мөрүүд,
+// дансны нэрс, идэвхтэй сегментүүд.
+export interface CostEntryPanelData {
+  entry: CostEntryView;
+  voucher: { id: string; date: string; description: string } | null;
+  /** Reversed бичилтийн буцаалтын журнал (байвал). */
+  reversalVoucherId: string | null;
   lines: {
     accountNumber: string;
     debit: number;
     credit: number;
     description: string | null;
   }[];
+  glNames: Record<string, string>;
+  activeSegIds: number[];
 }
 
-export async function getCostEntryDetail(id: string): Promise<CostEntryDetail> {
-  const userId = await requireUser();
-  const entry = await db.query.costEntries.findFirst({
-    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
-    columns: { voucherId: true },
-  });
-  const empty: CostEntryDetail = {
-    voucherId: null,
-    voucherDate: null,
-    voucherDescription: null,
-    lines: [],
-  };
-  if (!entry?.voucherId) return empty;
-  const voucher = await db.query.journalVouchers.findFirst({
-    where: and(
-      eq(journalVouchers.id, entry.voucherId),
-      eq(journalVouchers.userId, userId)
-    ),
-    with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
-  });
-  if (!voucher) return empty;
+// Алдааг throw хийхгүй — production дээр Next.js server action-ий error
+// message-ийг нуудаг тул код буцаана (journal-editor-тэй ижил хэлбэр).
+export type CostEntryPanelResult =
+  | { ok: true; data: CostEntryPanelData }
+  | { ok: false; code: "unauthenticated" | "not-found" };
+
+export async function getCostEntryPanelData(
+  entryId: string
+): Promise<CostEntryPanelResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+
+  const [entry, glAccounts, segConfigs] = await Promise.all([
+    db.query.costEntries.findFirst({
+      where: and(eq(costEntries.id, entryId), eq(costEntries.userId, userId)),
+      with: { movement: { with: { item: true } }, item: true },
+    }),
+    db.query.chartOfAccounts.findMany({
+      where: and(
+        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.isEnabled, true)
+      ),
+      columns: { number: true, name: true },
+    }),
+    db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.userId, userId),
+    }),
+  ]);
+  if (!entry) return { ok: false, code: "not-found" };
+
+  const voucher = entry.voucherId
+    ? await db.query.journalVouchers.findFirst({
+        where: and(
+          eq(journalVouchers.id, entry.voucherId),
+          eq(journalVouchers.userId, userId)
+        ),
+        with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+      })
+    : undefined;
+
+  const item = entry.movement?.item ?? entry.item;
   return {
-    voucherId: voucher.id,
-    voucherDate: voucher.date,
-    voucherDescription: voucher.description,
-    lines: voucher.lines.map((line) => ({
-      accountNumber: line.accountNumber,
-      debit: Number(line.debit),
-      credit: Number(line.credit),
-      description: line.description,
-    })),
+    ok: true,
+    data: {
+      entry: {
+        id: entry.id,
+        movementId: entry.movementId,
+        documentNo: entry.movement?.documentNo ?? "NRV",
+        itemLabel: item ? `${item.code} · ${item.name}` : "⚠ Бараа сонгоогүй",
+        unit: item?.unit ?? "",
+        entryType: entry.entryType,
+        date: entry.date,
+        quantity: Number(entry.quantity),
+        unitCost: Number(entry.unitCost),
+        amount: Number(entry.amount),
+        valuationSource: entry.valuationSource,
+        status: entry.status,
+        voucherId: entry.voucherId,
+      },
+      voucher: voucher
+        ? {
+            id: voucher.id,
+            date: voucher.date,
+            description: voucher.description,
+          }
+        : null,
+      reversalVoucherId: entry.reversalVoucherId,
+      lines: (voucher?.lines ?? []).map((line) => ({
+        accountNumber: line.accountNumber,
+        debit: Number(line.debit),
+        credit: Number(line.credit),
+        description: line.description,
+      })),
+      glNames: Object.fromEntries(
+        glAccounts.map((account) => [account.number, account.name])
+      ),
+      activeSegIds: activeSegIdsOf(segConfigs),
+    },
   };
 }

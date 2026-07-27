@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type {
   ColDef,
@@ -13,27 +13,20 @@ import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   deleteCostEntry,
-  getCostEntryDetail,
   postCostEntries,
   postCostEntry,
   reverseCostEntry,
-  type CostEntryDetail,
 } from "@/lib/actions/costing";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
-import { VoucherLinesTable } from "@/components/gl/voucher-lines-table";
+import { openCostEntryPanel } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 
-const ENTRY_TYPE_LABELS: Record<string, string> = {
+// Панель (cost-entry-panel) мөн энэ шошгуудыг хэрэглэдэг — нэг л газар.
+export const ENTRY_TYPE_LABELS: Record<string, string> = {
   receipt_capitalize: "Капитализаци",
   issue_cogs: "COGS",
   adjustment_gain: "Илүүдэл",
@@ -45,7 +38,7 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
   nrv_reversal: "NRV сэргээлт",
 };
 
-const STATUS_LABELS: Record<string, string> = {
+export const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Батлагдсан",
   reversed: "Буцаагдсан",
@@ -60,28 +53,20 @@ const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: "reversed", label: "Буцаагдсан" },
 ];
 
-const fmtQty = (value: number) =>
+export const fmtQty = (value: number) =>
   value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 
 interface Props {
   entries: CostEntryView[];
-  glNames: Record<string, string>;
-  activeSegIds: number[];
   initialStatus?: string;
 }
 
-export function CostEntriesView({
-  entries,
-  glNames,
-  activeSegIds,
-  initialStatus,
-}: Props) {
+export function CostEntriesView({ entries, initialStatus }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
-  const [detailEntry, setDetailEntry] = useState<CostEntryView | null>(null);
   const gridApiRef = useRef<GridApi<CostEntryView> | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
@@ -430,129 +415,16 @@ export function CostEntriesView({
           onCellClicked={(event) => {
             const colId = event.column.getColId();
             if (colId === "actions" || colId.startsWith("ag-Grid")) return;
-            if (event.data) setDetailEntry(event.data);
+            if (event.data)
+              openCostEntryPanel(
+                event.data.id,
+                `${event.data.documentNo} · ${ENTRY_TYPE_LABELS[event.data.entryType] ?? "Өртгийн бичилт"}`
+              );
           }}
         />
       )}
 
-      <CostEntryDetailDialog
-        entry={detailEntry}
-        glNames={glNames}
-        activeSegIds={activeSegIds}
-        onClose={() => setDetailEntry(null)}
-      />
-
       {confirmDialog}
     </section>
-  );
-}
-
-function CostEntryDetailDialog({
-  entry,
-  glNames,
-  activeSegIds,
-  onClose,
-}: {
-  entry: CostEntryView | null;
-  glNames: Record<string, string>;
-  activeSegIds: number[];
-  onClose: () => void;
-}) {
-  const [loaded, setLoaded] = useState<{ id: string; detail: CostEntryDetail } | null>(
-    null
-  );
-
-  useEffect(() => {
-    if (!entry) return;
-    let cancelled = false;
-    getCostEntryDetail(entry.id).then((detail) => {
-      if (!cancelled) setLoaded({ id: entry.id, detail });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [entry]);
-
-  const detail = entry && loaded && loaded.id === entry.id ? loaded.detail : null;
-
-  return (
-    <Dialog open={!!entry} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            <span className="mr-2 font-mono text-xs font-normal text-[var(--ea-text-3)]">
-              {entry?.documentNo}
-            </span>
-            {ENTRY_TYPE_LABELS[entry?.entryType ?? ""] ?? ""}
-          </DialogTitle>
-        </DialogHeader>
-        {entry && (
-          <div className="space-y-4">
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
-              <DetailRow label="Огноо" value={entry.date} mono />
-              <DetailRow label="Бараа" value={entry.itemLabel} />
-              <DetailRow
-                label="Тоо × нэгж өртөг"
-                value={`${fmtQty(entry.quantity)} ${entry.unit} × ${fmtMnt(entry.unitCost)}`}
-                mono
-              />
-              <DetailRow label="Дүн" value={fmtMnt(entry.amount)} mono strong />
-            </dl>
-            <div>
-              <div className="mb-1.5 text-xs font-semibold text-[var(--ea-text-2)]">
-                GL журнал
-                {detail?.voucherDate && (
-                  <span className="ml-2 font-mono font-normal text-[var(--ea-text-4)]">
-                    {detail.voucherDate}
-                  </span>
-                )}
-              </div>
-              {detail && detail.lines.length > 0 ? (
-                <VoucherLinesTable
-                  lines={detail.lines}
-                  activeSegIds={activeSegIds}
-                  glName={(main) => glNames[main] ?? ""}
-                />
-              ) : (
-                <div className="rounded-md border border-[var(--ea-border)] py-6 text-center text-xs text-[var(--ea-text-4)]">
-                  {entry.status === "draft"
-                    ? "Ноорог — батлагдаагүй тул GL журнал үүсээгүй"
-                    : !detail
-                      ? "Ачаалж байна…"
-                      : "GL журнал олдсонгүй"}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function DetailRow({
-  label,
-  value,
-  mono,
-  strong,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  strong?: boolean;
-}) {
-  return (
-    <div>
-      <dt className="text-[var(--ea-text-4)]">{label}</dt>
-      <dd
-        className={cn(
-          "mt-0.5 text-[var(--ea-text-1)]",
-          mono && "font-mono",
-          strong && "font-semibold"
-        )}
-      >
-        {value}
-      </dd>
-    </div>
   );
 }
