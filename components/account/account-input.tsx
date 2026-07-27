@@ -84,6 +84,9 @@ export function AccountInput({
         <button
           type="button"
           disabled={disabled}
+          // Panel-ийн гадна-дарж-хаах шалгалт энэ товчийг "дотор" гэж үзнэ —
+          // үгүй бол mousedown хаагаад click дахин нээж, toggle ажиллахгүй.
+          data-account-segment-trigger
           onClick={() => (open ? setAnchor(null) : openPicker())}
           title="Сегментээр сонгох"
           className="px-2.5 flex items-center justify-center transition-colors shrink-0"

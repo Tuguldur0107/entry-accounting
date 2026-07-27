@@ -11,6 +11,7 @@ import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
+  CellClickedEvent,
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
@@ -78,6 +79,13 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Буцаах үед алдаа гарлаа");
     }
+  }
+
+  // Мөр дээр дарахад ижил цонх нээгдэнэ — ноорог бол засварлагч,
+  // бичигдсэн/буцаагдсан бол харах горим.
+  function handleRowClick(event: CellClickedEvent<VoucherRow>) {
+    if (event.colDef.colId === "actions") return;
+    if (event.data) handleEdit(event.data.id);
   }
 
   function handleEdit(id: string) {
@@ -355,6 +363,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         wrapperClassName="rounded-lg border border-[var(--ea-border)] overflow-hidden"
         suppressCellFocus
         cellSelection={false}
+        onCellClicked={handleRowClick}
       />
 
       {/* Footer — баганатай харалдаа. Grid template AG-Grid-н column width-тэй тааруулсан */}

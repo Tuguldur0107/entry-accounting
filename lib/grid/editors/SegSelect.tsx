@@ -80,7 +80,21 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
           color: value ? "var(--ea-text-1)" : "var(--ea-text-4)",
         }}
       >
-        <span className="truncate">{selected ? selected.code : placeholder}</span>
+        {selected ? (
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="shrink-0">{selected.code}</span>
+            {selected.name && (
+              <span
+                className="truncate font-sans"
+                style={{ color: "var(--ea-text-3)" }}
+              >
+                {selected.name}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="truncate">{placeholder}</span>
+        )}
         <svg width="9" height="5" viewBox="0 0 9 5" style={{ flexShrink: 0, color: "var(--ea-text-4)" }}>
           <path d="M1 1l3.5 3.5L8 1" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
