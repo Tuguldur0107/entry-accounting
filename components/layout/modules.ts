@@ -42,12 +42,12 @@ export const MODULES: Module[] = [
     id: "gl",
     label: "Ерөнхий журнал",
     matchPrefix: "/gl",
-    defaultHref: "/gl/journal",
+    defaultHref: "/gl",
     items: [
+      { label: "Хяналтын самбар", href: "/gl", icon: LayoutDashboard },
       { label: "Журналын жагсаалт", href: "/gl/journal", icon: List },
       { label: "Тайлан", href: "/gl/reports", icon: BarChart3 },
-      // GL-ийн тохиргоо (сегмент, данс) тохиргооны модульд байрладаг.
-      { label: "Журналын тохиргоо", href: "/settings/gl", icon: SettingsIcon },
+      // GL-ийн тохиргоо (сегмент, данс) Тохиргоо модульд байрладаг.
     ],
   },
   {
