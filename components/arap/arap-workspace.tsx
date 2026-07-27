@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { nanoid } from "nanoid";
-import type { CellValueChangedEvent, ColDef } from "ag-grid-community";
+import type { ColDef } from "ag-grid-community";
 import {
   AlertTriangle,
   Building2,
@@ -16,7 +14,6 @@ import {
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useDirtyClose } from "@/lib/ui/use-dirty-close";
-import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -30,29 +27,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
-  createArApDocument,
   postArApDocument,
   createCounterparty,
   toggleCounterparty,
 } from "@/lib/actions/arap";
-import type {
-  ArApDocumentType,
-  ArApDocumentView,
-  ArApLineInput,
-  CounterpartyView,
-} from "@/lib/arap/types";
-import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
+import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
-import { parseMntInput } from "@/lib/grid/formatters";
-import { buildSegCode, fmtAccountDisplay, normalizePastedAccount } from "@/lib/grid/segments";
+import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
+import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
 
 type Focus = "dashboard" | "counterparties" | "documents" | "reports";
 type ArApMode = "combined" | "receivable" | "payable";
-
-type LineRow = ArApLineInput & { id: string };
 type ReportRow = {
   counterpartyName: string;
   currency: string;
@@ -68,19 +55,6 @@ type ReportRow = {
   daysOver90: number;
 };
 
-interface InventoryItemOption {
-  id: string;
-  code: string;
-  name: string;
-  unit: string;
-}
-
-interface WarehouseOption {
-  id: string;
-  code: string;
-  name: string;
-}
-
 interface Props {
   focus?: Focus;
   mode?: ArApMode;
@@ -94,9 +68,6 @@ interface Props {
     payable: string;
   };
   reportAsOf?: string;
-  /** Бараатай мөр бичихэд — АП орлого / АР зарлагын inventory холбоос. */
-  inventoryItems?: InventoryItemOption[];
-  warehouses?: WarehouseOption[];
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -117,7 +88,6 @@ const MODE_CONFIG: Record<
   {
     title: string;
     description: string;
-    documentType: ArApDocumentType;
     counterpartyType: "customer" | "supplier" | "both";
     documentTitle: string;
     reportTitle: string;
@@ -128,7 +98,6 @@ const MODE_CONFIG: Record<
   combined: {
     title: "Харилцагчийн тооцоо",
     description: "Авлага, өглөгийн баримт, харилцагчийн default данс, GL бичилтийн хяналт",
-    documentType: "ar_invoice",
     counterpartyType: "both",
     documentTitle: "Авлага, өглөгийн баримт",
     reportTitle: "Авлага, өглөгийн тайлан",
@@ -138,7 +107,6 @@ const MODE_CONFIG: Record<
   receivable: {
     title: "Авлага",
     description: "Харилцагчийн авлага, нэхэмжлэл, төлөлтийн үлдэгдэл",
-    documentType: "ar_invoice",
     counterpartyType: "customer",
     documentTitle: "Авлагын нэхэмжлэл",
     reportTitle: "Авлагын тайлан",
@@ -148,7 +116,6 @@ const MODE_CONFIG: Record<
   payable: {
     title: "Өглөг",
     description: "Нийлүүлэгчийн өглөг, нэхэмжлэх, төлөлтийн үлдэгдэл",
-    documentType: "ap_bill",
     counterpartyType: "supplier",
     documentTitle: "Өглөгийн нэхэмжлэх",
     reportTitle: "Өглөгийн тайлан",
@@ -161,21 +128,6 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function addDays(date: string, days: number) {
-  const value = new Date(`${date}T00:00:00`);
-  value.setDate(value.getDate() + days);
-  return value.toISOString().slice(0, 10);
-}
-
-function emptyLine(activeSegIds: number[], defaultSegments: Record<number, string>): LineRow {
-  return {
-    id: nanoid(),
-    account: buildSegCode({}, activeSegIds, defaultSegments),
-    description: "",
-    amount: 0,
-  };
-}
-
 export function ArApWorkspace({
   focus = "dashboard",
   mode = "combined",
@@ -186,8 +138,6 @@ export function ArApWorkspace({
   defaultSegments,
   defaultAccountNumbers,
   reportAsOf = today(),
-  inventoryItems = [],
-  warehouses = [],
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -195,7 +145,6 @@ export function ArApWorkspace({
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
-  const [documentOpen, setDocumentOpen] = useState(false);
   const [reportDate, setReportDate] = useState(reportAsOf);
   const [counterpartyForm, setCounterpartyForm] = useState(() => ({
     name: "",
@@ -210,24 +159,9 @@ export function ArApWorkspace({
     defaultCurrency: "MNT",
     paymentTermsDays: "30",
   }));
-  const [documentForm, setDocumentForm] = useState(() => {
-    const date = today();
-    return {
-      documentType: config.documentType,
-      documentNo: "",
-      counterpartyId: "",
-      date,
-      dueDate: addDays(date, 30),
-      currency: "MNT",
-      exchangeRate: "1",
-      controlAccountNumber: "",
-      description: "",
-      lines: [emptyLine(activeSegIds, defaultSegments)],
-    };
-  });
-  // Баримтын dialog нээгдэх агшны snapshot (JSON) — хаах үед үүнтэй
+  // Харилцагчийн dialog нээгдэх агшны snapshot (JSON) — хаах үед үүнтэй
   // харьцуулж "хадгалаагүй өөрчлөлт" эсэхийг мэдэрнэ.
-  const [documentBaseline, setDocumentBaseline] = useState("");
+  const [counterpartyBaseline, setCounterpartyBaseline] = useState("");
   const [error, setError] = useState("");
 
   const filteredDocuments = useMemo(
@@ -251,30 +185,6 @@ export function ArApWorkspace({
               ? item.counterpartyType === "customer" || item.counterpartyType === "both"
               : item.counterpartyType === "supplier" || item.counterpartyType === "both"
           ),
-    [counterparties, mode]
-  );
-
-  const cpOptions = useMemo(
-    () =>
-      counterparties
-        .filter((item) => item.isActive)
-        .filter((item) =>
-          mode === "combined"
-            ? true
-            : mode === "receivable"
-              ? item.counterpartyType === "customer" || item.counterpartyType === "both"
-              : item.counterpartyType === "supplier" || item.counterpartyType === "both"
-        )
-        .map((item) => ({
-          value: item.id,
-          label: item.name,
-          hint:
-            item.counterpartyType === "both"
-              ? "Авлага/Өглөг"
-              : item.counterpartyType === "customer"
-                ? "Авлага"
-                : "Өглөг",
-        })),
     [counterparties, mode]
   );
 
@@ -431,12 +341,15 @@ export function ArApWorkspace({
         filter: false,
         cellRenderer: ({ data }: { data?: ArApDocumentView }) =>
           data?.status === "posted" || data?.status === "partially_paid" ? (
-            <Link
-              href={`/cash/transactions?arap=${data.id}`}
+            // Мөнгөн хөрөнгийн хуудас руу үсрэхгүй — төлөлтийн панель нээгээд
+            // хэрэглэгч АР/АП контекстдээ үлдэнэ.
+            <button
+              type="button"
               className="text-xs font-medium text-[var(--ea-primary)] hover:underline"
+              onClick={() => openCashNewPanel({ arApDocumentId: data.id })}
             >
               Мөнгөн хөрөнгөөр хаах
-            </Link>
+            </button>
           ) : data?.status === "draft" ? (
             <button
               type="button"
@@ -454,24 +367,12 @@ export function ArApWorkspace({
     []
   );
 
-  function resetDocument(type: ArApDocumentType = config.documentType) {
-    const date = today();
-    const next = {
-      documentType: type,
-      documentNo: "",
-      counterpartyId: "",
-      date,
-      dueDate: addDays(date, 30),
-      currency: "MNT",
-      exchangeRate: "1",
-      controlAccountNumber: "",
-      description: "",
-      lines: [emptyLine(activeSegIds, defaultSegments)],
-    };
-    setDocumentForm(next);
-    setDocumentBaseline(JSON.stringify(next));
+  // Dialog нээгдэх агшинд snapshot авна — бөглөж эхэлснийг үүнтэй
+  // харьцуулж Esc/overlay дээр "гарах уу?" асууна.
+  function openCounterpartyDialog() {
+    setCounterpartyBaseline(JSON.stringify(counterpartyForm));
     setError("");
-    setDocumentOpen(true);
+    setCounterpartyOpen(true);
   }
 
   function saveCounterparty() {
@@ -490,39 +391,14 @@ export function ArApWorkspace({
     });
   }
 
-  function saveDocument(postNow: boolean) {
-    setError("");
-    startTransition(async () => {
-      try {
-        await createArApDocument({
-          ...documentForm,
-          exchangeRate: Number(documentForm.exchangeRate),
-          postNow,
-          lines: documentForm.lines.map(
-            ({ account, description, amount, itemId, quantity, warehouseId }) => ({
-              account,
-              description,
-              amount,
-              itemId: itemId || undefined,
-              quantity: quantity || undefined,
-              warehouseId: warehouseId || undefined,
-            })
-          ),
-        });
-        setDocumentOpen(false);
-        toast.success(postNow ? "Баримт GL-д бичигдлээ" : "Ноорог хадгалагдлаа");
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Хадгалж чадсангүй");
-      }
-    });
-  }
-
-  // Хадгалалт нь setDocumentOpen(false)-ийг шууд дуудна — тиймээс амжилттай
-  // хадгалсны дараа "гарах уу?" асуулт гарахгүй.
-  const guardDocumentClose = useDirtyClose({
-    dirty: documentOpen && JSON.stringify(documentForm) !== documentBaseline,
+  // Хадгалалт нь setCounterpartyOpen(false)-ийг шууд дуудна — тиймээс
+  // амжилттай хадгалсны дараа "гарах уу?" асуулт гарахгүй.
+  const guardCounterpartyClose = useDirtyClose({
+    dirty:
+      counterpartyOpen &&
+      JSON.stringify(counterpartyForm) !== counterpartyBaseline,
     confirm,
-    setOpen: setDocumentOpen,
+    setOpen: setCounterpartyOpen,
   });
 
   async function postDraftDocument(document: ArApDocumentView) {
@@ -562,13 +438,13 @@ export function ArApWorkspace({
         </div>
         <div className="flex flex-wrap gap-2">
           {(focus === "dashboard" || focus === "counterparties") && (
-            <Button variant="outline" onClick={() => setCounterpartyOpen(true)}>
+            <Button variant="outline" onClick={openCounterpartyDialog}>
               <Plus />
               Харилцагч
             </Button>
           )}
           {(focus === "dashboard" || focus === "documents") && (
-            <Button onClick={() => resetDocument(config.documentType)}>
+            <Button onClick={() => openArapDocPanel({ mode })}>
               <FilePlus2 />
               {config.createLabel}
             </Button>
@@ -601,10 +477,7 @@ export function ArApWorkspace({
 
       {focus === "dashboard" &&
         (filteredDocuments.length === 0 && filteredCounterparties.length === 0 ? (
-          <OnboardingState
-            mode={mode}
-            onCounterparty={() => setCounterpartyOpen(true)}
-          />
+          <OnboardingState mode={mode} onCounterparty={openCounterpartyDialog} />
         ) : (
           <div className="grid min-w-0 gap-5 xl:grid-cols-2">
             <CompactDocumentList
@@ -636,7 +509,7 @@ export function ArApWorkspace({
             <EmptyState
               text={config.emptyDocuments}
               actionLabel={config.createLabel}
-              onAction={() => resetDocument(config.documentType)}
+              onAction={() => openArapDocPanel({ mode })}
             />
           ) : (
             <DataGridDynamic<ArApDocumentView>
@@ -646,6 +519,18 @@ export function ArApWorkspace({
               height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
+              onRowClicked={(event) => {
+                // Нүдэн доторх товч/линк (Батлах, Мөнгөн хөрөнгөөр хаах)
+                // дарахад баримтын панель давхар нээгдэхгүй.
+                const target = event.event?.target as HTMLElement | null;
+                if (target?.closest("button,a")) return;
+                if (event.data)
+                  openArapDocPanel({
+                    documentId: event.data.id,
+                    mode,
+                    title: `${event.data.documentNo} · ${event.data.counterpartyName}`,
+                  });
+              }}
             />
           )}
         </section>
@@ -670,7 +555,7 @@ export function ArApWorkspace({
             <EmptyState
               text="Харилцагч үүсгээгүй байна"
               actionLabel="Харилцагч нэмэх"
-              onAction={() => setCounterpartyOpen(true)}
+              onAction={openCounterpartyDialog}
             />
           ) : (
             <DataGridDynamic<CounterpartyView>
@@ -687,7 +572,7 @@ export function ArApWorkspace({
 
       <CounterpartyDialog
         open={counterpartyOpen}
-        onOpenChange={setCounterpartyOpen}
+        onOpenChange={guardCounterpartyClose}
         form={counterpartyForm}
         setForm={setCounterpartyForm}
         activeSegIds={activeSegIds}
@@ -696,24 +581,6 @@ export function ArApWorkspace({
         isPending={isPending}
         error={error}
         onSave={saveCounterparty}
-      />
-
-      <DocumentDialog
-        open={documentOpen}
-        onOpenChange={guardDocumentClose}
-        form={documentForm}
-        setForm={setDocumentForm}
-        counterparties={counterparties}
-        cpOptions={cpOptions}
-        activeSegIds={activeSegIds}
-        segmentOptions={segmentOptions}
-        defaultSegments={defaultSegments}
-        isPending={isPending}
-        error={error}
-        onSave={saveDocument}
-        mode={mode}
-        inventoryItems={inventoryItems}
-        warehouses={warehouses}
       />
       {confirmDialog}
     </section>
@@ -761,224 +628,6 @@ function buildReportRows(documents: ArApDocumentView[], asOf: string): ReportRow
     rows.set(key, existing);
   }
   return [...rows.values()].sort((a, b) => b.baseBalance - a.baseBalance);
-}
-
-function ArApLinesGrid({
-  lines,
-  onChange,
-  activeSegIds,
-  segmentOptions,
-  defaultSegments,
-  inventoryItems,
-  warehouses,
-  documentType,
-}: {
-  lines: LineRow[];
-  onChange: (updater: (prev: LineRow[]) => LineRow[]) => void;
-  activeSegIds: number[];
-  segmentOptions: Record<number, SegOption[]>;
-  defaultSegments: Record<number, string>;
-  inventoryItems: InventoryItemOption[];
-  warehouses: WarehouseOption[];
-  documentType: ArApDocumentType;
-}) {
-  const total = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
-  // Бараатай мөр: АП батлагдахад орлогын, АР батлагдахад зарлагын тоо
-  // хэмжээний draft inventory-д үүснэ (бараа бүртгэлтэй үед л харагдана).
-  const itemLabelById = useMemo(
-    () =>
-      new Map(
-        inventoryItems.map((item) => [item.id, `${item.code} · ${item.name}`])
-      ),
-    [inventoryItems]
-  );
-  const warehouseLabelById = useMemo(
-    () =>
-      new Map(
-        warehouses.map((warehouse) => [
-          warehouse.id,
-          `${warehouse.code} · ${warehouse.name}`,
-        ])
-      ),
-    [warehouses]
-  );
-  const columns = useMemo<ColDef<LineRow>[]>(
-    () => [
-      { headerName: "#", width: 48, valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1 },
-      {
-        headerName: "Данс",
-        field: "account",
-        minWidth: 240,
-        flex: 1,
-        editable: true,
-        cellEditor: AccountSegmentEditor,
-        cellEditorParams: {
-          activeSegIds,
-          segOptions: segmentOptions,
-          extraDefaults: defaultSegments,
-        },
-        valueFormatter: (params) =>
-          fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
-      },
-      {
-        headerName: "Тайлбар",
-        field: "description",
-        minWidth: 180,
-        flex: 1,
-        editable: true,
-      },
-      {
-        headerName: "Дүн",
-        field: "amount",
-        width: 150,
-        editable: true,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        valueParser: (params) => {
-          const value = parseMntInput(params.newValue);
-          return Number.isFinite(value) && value > 0 ? value : 0;
-        },
-        valueFormatter: (params) =>
-          params.value ? fmtMnt(Number(params.value)) : "",
-      },
-      ...(inventoryItems.length > 0
-        ? ([
-            {
-              headerName: "Бараа",
-              field: "itemId",
-              minWidth: 170,
-              editable: true,
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: ["", ...inventoryItems.map((item) => item.id)],
-              },
-              valueFormatter: (params) =>
-                params.value ? itemLabelById.get(String(params.value)) ?? "" : "—",
-            },
-            {
-              headerName: "Тоо",
-              field: "quantity",
-              width: 96,
-              editable: true,
-              cellClass: "ag-right-aligned-cell font-mono",
-              headerClass: "ag-right-aligned-header",
-              valueParser: (params) => {
-                const value = Number(String(params.newValue).replaceAll(",", ""));
-                return Number.isFinite(value) && value > 0 ? value : undefined;
-              },
-              valueFormatter: (params) =>
-                params.value ? String(params.value) : "",
-            },
-            {
-              headerName: "Агуулах",
-              field: "warehouseId",
-              minWidth: 140,
-              editable: true,
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: ["", ...warehouses.map((warehouse) => warehouse.id)],
-              },
-              valueFormatter: (params) =>
-                params.value
-                  ? warehouseLabelById.get(String(params.value)) ?? ""
-                  : "—",
-            },
-          ] as ColDef<LineRow>[])
-        : []),
-      {
-        headerName: "",
-        colId: "action",
-        width: 44,
-        sortable: false,
-        filter: false,
-        cellRenderer: ({ data }: { data?: LineRow }) => (
-          <button
-            type="button"
-            title="Мөр устгах"
-            className="text-lg text-[var(--ea-text-4)] hover:text-[var(--ea-danger)]"
-            onClick={() =>
-              onChange((prev) =>
-                prev.length <= 1 ? prev : prev.filter((line) => line.id !== data?.id)
-              )
-            }
-          >
-            ×
-          </button>
-        ),
-      },
-    ],
-    [
-      activeSegIds,
-      defaultSegments,
-      onChange,
-      segmentOptions,
-      inventoryItems,
-      warehouses,
-      itemLabelById,
-      warehouseLabelById,
-    ]
-  );
-
-  return (
-    <div className="space-y-2">
-      <DataGridDynamic<LineRow>
-        rowData={lines}
-        columnDefs={columns}
-        getRowId={(params) => params.data.id}
-        onCellValueChanged={(event: CellValueChangedEvent<LineRow>) => {
-          const field = event.colDef.field as keyof LineRow | undefined;
-          if (!field) return;
-          onChange((prev) =>
-            prev.map((line) => {
-              if (line.id !== event.data.id) return line;
-              const next = { ...line, [field]: event.newValue };
-              // АП-ийн бараатай мөр клирингийн дансанд суух ёстой (server
-              // талд мөн шалгадаг) — бараа сонгонгуут дансыг автоматаар
-              // 14000099 болгоно.
-              if (
-                field === "itemId" &&
-                event.newValue &&
-                documentType === "ap_bill"
-              )
-                next.account = buildSegCode(
-                  { 3: CLEARING_ACCOUNT },
-                  activeSegIds,
-                  defaultSegments
-                );
-              return next;
-            })
-          );
-        }}
-        processDataFromClipboard={(params) =>
-          (params.data ?? []).map((row) =>
-            row.map((cell, index) =>
-              index === 1
-                ? normalizePastedAccount(cell, activeSegIds, defaultSegments)
-                : cell
-            )
-          )
-        }
-        height={Math.min(360, 86 + lines.length * 38)}
-        wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-        singleClickEdit
-      />
-      <div className="flex items-center justify-between text-xs">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            onChange((prev) => [...prev, emptyLine(activeSegIds, defaultSegments)])
-          }
-        >
-          + Мөр нэмэх
-        </Button>
-        <span className="font-mono font-semibold text-[var(--ea-text-1)]">
-          Нийт: {fmtMnt(total)}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 function ReportSection({
@@ -1223,275 +872,6 @@ function CounterpartyDialog({
   );
 }
 
-function DocumentDialog({
-  open,
-  onOpenChange,
-  form,
-  setForm,
-  counterparties,
-  cpOptions,
-  activeSegIds,
-  segmentOptions,
-  defaultSegments,
-  isPending,
-  error,
-  onSave,
-  mode,
-  inventoryItems,
-  warehouses,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  form: {
-    documentType: ArApDocumentType;
-    documentNo: string;
-    counterpartyId: string;
-    date: string;
-    dueDate: string;
-    currency: string;
-    exchangeRate: string;
-    controlAccountNumber: string;
-    description: string;
-    lines: LineRow[];
-  };
-  inventoryItems: InventoryItemOption[];
-  warehouses: WarehouseOption[];
-  setForm: React.Dispatch<React.SetStateAction<typeof form>>;
-  counterparties: CounterpartyView[];
-  cpOptions: Array<{ value: string; label: string; hint?: string }>;
-  activeSegIds: number[];
-  segmentOptions: Record<number, SegOption[]>;
-  defaultSegments: Record<number, string>;
-  isPending: boolean;
-  error: string;
-  onSave: (postNow: boolean) => void;
-  mode: ArApMode;
-}) {
-  const selectedCounterparty = counterparties.find(
-    (item) => item.id === form.counterpartyId
-  );
-  const transactionTotal = form.lines.reduce(
-    (sum, line) => sum + Number(line.amount || 0),
-    0
-  );
-  function defaultsFor(
-    counterpartyId: string,
-    documentType: ArApDocumentType,
-    date: string
-  ) {
-    const counterparty = counterparties.find((item) => item.id === counterpartyId);
-    if (!counterparty) return {};
-    const control =
-      documentType === "ar_invoice"
-        ? counterparty.defaultReceivableAccountNumber
-        : counterparty.defaultPayableAccountNumber;
-    return {
-      currency: counterparty.defaultCurrency,
-      exchangeRate: counterparty.defaultCurrency === "MNT" ? "1" : "",
-      dueDate: addDays(date, counterparty.paymentTermsDays),
-      controlAccountNumber: control ?? "",
-    };
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-        <DialogHeader>
-          <DialogTitle>
-            {mode === "payable"
-              ? "Өглөгийн нэхэмжлэх"
-              : mode === "receivable"
-                ? "Авлагын нэхэмжлэл"
-                : "Авлага/өглөгийн баримт"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-3 lg:grid-cols-4">
-          <Field label="Төрөл">
-            <select
-              className="ea-form-select"
-              value={form.documentType}
-              onChange={(event) =>
-                setForm((current) => {
-                  const documentType = event.target.value as ArApDocumentType;
-                  return {
-                    ...current,
-                    documentType,
-                    ...defaultsFor(current.counterpartyId, documentType, current.date),
-                  };
-                })
-              }
-            >
-              {mode !== "payable" && (
-                <option value="ar_invoice">Авлагын нэхэмжлэл</option>
-              )}
-              {mode !== "receivable" && (
-                <option value="ap_bill">Өглөгийн нэхэмжлэх</option>
-              )}
-            </select>
-          </Field>
-          <Field label="Нэхэмжлэхийн дугаар">
-            <Input
-              value={form.documentNo}
-              placeholder="Хоосон бол автоматаар үүснэ"
-              maxLength={40}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  documentNo: event.target.value,
-                }))
-              }
-            />
-          </Field>
-          <Field label="Харилцагч">
-            <SearchableSelect
-              value={form.counterpartyId}
-              onChange={(value) =>
-                setForm((current) => ({
-                  ...current,
-                  counterpartyId: value,
-                  ...defaultsFor(value, current.documentType, current.date),
-                }))
-              }
-              options={cpOptions}
-              placeholder="Харилцагч сонгох..."
-            />
-          </Field>
-          <Field label="Огноо">
-            <Input
-              type="date"
-              value={form.date}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  date: event.target.value,
-                  ...defaultsFor(
-                    current.counterpartyId,
-                    current.documentType,
-                    event.target.value
-                  ),
-                }))
-              }
-            />
-          </Field>
-          <Field label="Төлөх огноо">
-            <Input
-              type="date"
-              value={form.dueDate}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, dueDate: event.target.value }))
-              }
-            />
-          </Field>
-          <div className="lg:col-span-2">
-            <Field label="Хяналтын данс">
-              <AccountInput
-                value={form.controlAccountNumber}
-                onChange={(value) =>
-                  setForm((current) => ({ ...current, controlAccountNumber: value }))
-                }
-                activeSegIds={activeSegIds}
-                segmentOptions={segmentOptions}
-                defaultSegments={defaultSegments}
-                placeholder={
-                  form.documentType === "ar_invoice"
-                    ? "Авлагын данс..."
-                    : "Өглөгийн данс..."
-                }
-              />
-            </Field>
-          </div>
-          <Field label="Валют">
-            <Input
-              value={form.currency}
-              onChange={(event) =>
-                setForm((current) => {
-                  const currency = event.target.value.toUpperCase();
-                  return {
-                    ...current,
-                    currency,
-                    exchangeRate: currency === "MNT" ? "1" : current.exchangeRate,
-                  };
-                })
-              }
-              maxLength={3}
-            />
-          </Field>
-          {form.currency !== "MNT" && (
-            <Field label={`${form.currency || "Валют"}/MNT ханш`}>
-              <Input
-                type="number"
-                min="0.00000001"
-                step="0.00000001"
-                value={form.exchangeRate}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    exchangeRate: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-          )}
-          {form.currency !== "MNT" && Number(form.exchangeRate) > 0 && (
-            <div className="flex items-end pb-2 text-xs text-[var(--ea-text-3)]">
-              GL дүн: {fmtMnt(transactionTotal * Number(form.exchangeRate))} MNT
-            </div>
-          )}
-          <div className="lg:col-span-4">
-            <Field label="Утга">
-              <Input
-                value={form.description}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-                placeholder={
-                  selectedCounterparty
-                    ? `${selectedCounterparty.name} - тооцооны баримт`
-                    : "Баримтын тайлбар"
-                }
-              />
-            </Field>
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
-            Мөрүүд
-          </div>
-          <ArApLinesGrid
-            lines={form.lines}
-            onChange={(updater) =>
-              setForm((current) => ({ ...current, lines: updater(current.lines) }))
-            }
-            activeSegIds={activeSegIds}
-            segmentOptions={segmentOptions}
-            defaultSegments={defaultSegments}
-            inventoryItems={inventoryItems}
-            warehouses={warehouses}
-            documentType={form.documentType}
-          />
-        </div>
-
-        {error && <p className="text-xs text-[var(--ea-danger)]">{error}</p>}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Болих
-          </Button>
-          <Button variant="outline" onClick={() => onSave(false)} disabled={isPending}>
-            Ноорог
-          </Button>
-          <Button onClick={() => onSave(true)} disabled={isPending}>
-            GL-д бичих
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
@@ -1547,12 +927,14 @@ function CompactDocumentList({
                     {fmtMnt(doc.balance)} {doc.currency}
                   </div>
                   {(doc.status === "posted" || doc.status === "partially_paid") && (
-                    <Link
-                      href={`/cash/transactions?arap=${doc.id}`}
+                    // Төлөлтийн панель — хэрэглэгч АР/АП контекстдээ үлдэнэ.
+                    <button
+                      type="button"
                       className="text-[11px] font-medium text-[var(--ea-primary)] hover:underline"
+                      onClick={() => openCashNewPanel({ arApDocumentId: doc.id })}
                     >
                       Мөнгөн хөрөнгөөр хаах
-                    </Link>
+                    </button>
                   )}
                 </div>
               </div>

@@ -15,6 +15,47 @@ import {
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
+// ── Хуваалцсан төрлүүд ──────────────────────────────────────────────────────
+// Workspace хуудас болон АР/АП баримтын панелийн server action ХОЁУЛАА эндээс
+// уншдаг — query давхардуулж бичихгүй.
+
+export interface InventoryItemOption {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+}
+
+export interface WarehouseOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface ArApSegmentData {
+  activeSegIds: number[];
+  segmentOptions: Record<number, SegOption[]>;
+  defaultSegments: Record<number, string>;
+  defaultAccountNumbers: {
+    receivable: string;
+    payable: string;
+  };
+}
+
+export interface ArApDocumentLineView {
+  id: string;
+  account: string;
+  description: string;
+  amount: number;
+  itemId: string | null;
+  quantity: number | null;
+  warehouseId: string | null;
+}
+
+export type ArApDocumentDetail = ArApDocumentView & {
+  lines: ArApDocumentLineView[];
+};
+
 function moduleEnabled(modules: string | null | undefined) {
   const values = (modules ?? "")
     .split(",")
@@ -41,51 +82,29 @@ function pickDefaultAccount(
   return nameMatch?.number ?? "";
 }
 
-export async function loadArApWorkspaceData() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  const userId = session.user.id;
-
-  const [counterpartyRows, documentRows, accounts, configs, values, items, warehouseRows] =
-    await Promise.all([
-      db.query.counterparties.findMany({
-        where: eq(counterparties.userId, userId),
-        orderBy: (item, { asc }) => [asc(item.name)],
-      }),
-      db.query.arApDocuments.findMany({
-        where: eq(arApDocuments.userId, userId),
-        with: { counterparty: true },
-        orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
-      }),
-      db.query.chartOfAccounts.findMany({
-        where: and(
-          eq(chartOfAccounts.userId, userId),
-          eq(chartOfAccounts.isEnabled, true)
-        ),
-        orderBy: (account, { asc }) => [asc(account.number)],
-      }),
-      db.query.segmentConfigs.findMany({
-        where: eq(segmentConfigs.userId, userId),
-      }),
-      db.query.segmentValues.findMany({
-        where: and(
-          eq(segmentValues.userId, userId),
-          eq(segmentValues.isEnabled, true)
-        ),
-        orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],
-      }),
-      db.query.inventoryItems.findMany({
-        where: and(
-          eq(inventoryItems.userId, userId),
-          eq(inventoryItems.isActive, true)
-        ),
-        orderBy: (item, { asc }) => [asc(item.code)],
-      }),
-      db.query.warehouses.findMany({
-        where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
-        orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
-      }),
-    ]);
+/** Сегмент, данс, default-уудын багц — форм бүхий бүх АР/АП UI-д хэрэгтэй. */
+export async function loadArApSegmentData(
+  userId: string
+): Promise<ArApSegmentData> {
+  const [accounts, configs, values] = await Promise.all([
+    db.query.chartOfAccounts.findMany({
+      where: and(
+        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.isEnabled, true)
+      ),
+      orderBy: (account, { asc }) => [asc(account.number)],
+    }),
+    db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.userId, userId),
+    }),
+    db.query.segmentValues.findMany({
+      where: and(
+        eq(segmentValues.userId, userId),
+        eq(segmentValues.isEnabled, true)
+      ),
+      orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],
+    }),
+  ]);
 
   const configMap = new Map(configs.map((config) => [config.segmentId, config]));
   const activeSegIds = SEGMENT_DEFS.filter((definition) => {
@@ -125,7 +144,18 @@ export async function loadArApWorkspaceData() {
     ),
   };
 
-  const counterpartiesView: CounterpartyView[] = counterpartyRows.map((item) => ({
+  return { activeSegIds, segmentOptions, defaultSegments, defaultAccountNumbers };
+}
+
+/** Харилцагчдын жагсаалт (view хэлбэрээр). */
+export async function loadArApCounterparties(
+  userId: string
+): Promise<CounterpartyView[]> {
+  const rows = await db.query.counterparties.findMany({
+    where: eq(counterparties.userId, userId),
+    orderBy: (item, { asc }) => [asc(item.name)],
+  });
+  return rows.map((item) => ({
     id: item.id,
     name: item.name,
     counterpartyType: item.counterpartyType,
@@ -136,8 +166,47 @@ export async function loadArApWorkspaceData() {
     paymentTermsDays: item.paymentTermsDays,
     isActive: item.isActive,
   }));
+}
 
-  const documentsView: ArApDocumentView[] = documentRows.map((item) => ({
+/** Бараатай мөр бичихэд (АП орлого / АР зарлага) ашиглах сонголтууд. */
+export async function loadArApInventoryOptions(userId: string): Promise<{
+  inventoryItems: InventoryItemOption[];
+  warehouses: WarehouseOption[];
+}> {
+  const [items, warehouseRows] = await Promise.all([
+    db.query.inventoryItems.findMany({
+      where: and(
+        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.isActive, true)
+      ),
+      orderBy: (item, { asc }) => [asc(item.code)],
+    }),
+    db.query.warehouses.findMany({
+      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
+    }),
+  ]);
+  return {
+    inventoryItems: items.map((item) => ({
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      unit: item.unit,
+    })),
+    warehouses: warehouseRows.map((warehouse) => ({
+      id: warehouse.id,
+      code: warehouse.code,
+      name: warehouse.name,
+    })),
+  };
+}
+
+type DocumentRowWithCounterparty = typeof arApDocuments.$inferSelect & {
+  counterparty: { name: string };
+};
+
+function toDocumentView(item: DocumentRowWithCounterparty): ArApDocumentView {
+  return {
     id: item.id,
     documentNo: item.documentNo,
     documentType: item.documentType as ArApDocumentView["documentType"],
@@ -157,26 +226,72 @@ export async function loadArApWorkspaceData() {
     baseBalance: Number(item.baseTotalAmount) - Number(item.basePaidAmount),
     status: item.status,
     voucherId: item.voucherId,
-  }));
+  };
+}
+
+/** Бүх баримт (жагсаалт, тайлан, самбарт). */
+export async function loadArApDocuments(
+  userId: string
+): Promise<ArApDocumentView[]> {
+  const rows = await db.query.arApDocuments.findMany({
+    where: eq(arApDocuments.userId, userId),
+    with: { counterparty: true },
+    orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
+  });
+  return rows.map(toDocumentView);
+}
+
+/** Нэг баримт мөрүүдтэйгээ — панелийн read-only харагдац. */
+export async function loadArApDocumentDetail(
+  userId: string,
+  documentId: string
+): Promise<ArApDocumentDetail | null> {
+  const row = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.id, documentId),
+      eq(arApDocuments.userId, userId)
+    ),
+    with: {
+      counterparty: true,
+      lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] },
+    },
+  });
+  if (!row) return null;
+  return {
+    ...toDocumentView(row),
+    lines: row.lines.map((line) => ({
+      id: line.id,
+      account: line.accountNumber,
+      description: line.description,
+      amount: Number(line.amount),
+      itemId: line.itemId,
+      quantity: line.quantity != null ? Number(line.quantity) : null,
+      warehouseId: line.warehouseId,
+    })),
+  };
+}
+
+export async function loadArApWorkspaceData() {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
+  const userId = session.user.id;
+
+  const [counterpartiesView, documentsView, segmentData, inventoryOptions] =
+    await Promise.all([
+      loadArApCounterparties(userId),
+      loadArApDocuments(userId),
+      loadArApSegmentData(userId),
+      loadArApInventoryOptions(userId),
+    ]);
 
   return {
     counterparties: counterpartiesView,
     documents: documentsView,
-    activeSegIds,
-    segmentOptions,
-    defaultSegments,
-    defaultAccountNumbers,
-    // Бараатай мөр бичихэд (АП орлого / АР зарлага) ашиглана.
-    inventoryItems: items.map((item) => ({
-      id: item.id,
-      code: item.code,
-      name: item.name,
-      unit: item.unit,
-    })),
-    warehouses: warehouseRows.map((warehouse) => ({
-      id: warehouse.id,
-      code: warehouse.code,
-      name: warehouse.name,
-    })),
+    activeSegIds: segmentData.activeSegIds,
+    segmentOptions: segmentData.segmentOptions,
+    defaultSegments: segmentData.defaultSegments,
+    defaultAccountNumbers: segmentData.defaultAccountNumbers,
+    inventoryItems: inventoryOptions.inventoryItems,
+    warehouses: inventoryOptions.warehouses,
   };
 }

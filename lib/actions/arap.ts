@@ -13,7 +13,21 @@ import {
   journalLines,
   journalVouchers,
 } from "@/lib/db/schema";
-import type { ArApDocumentType, ArApLineInput } from "@/lib/arap/types";
+import type {
+  ArApDocumentType,
+  ArApLineInput,
+  CounterpartyView,
+} from "@/lib/arap/types";
+import {
+  loadArApCounterparties,
+  loadArApDocumentDetail,
+  loadArApInventoryOptions,
+  loadArApSegmentData,
+  type ArApDocumentDetail,
+  type InventoryItemOption,
+  type WarehouseOption,
+} from "@/lib/arap/load-data";
+import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { calculateBaseAmount, roundMoney } from "@/lib/arap/accounting";
 import { extractMainAccount } from "@/lib/reports/balances";
 import {
@@ -78,6 +92,61 @@ function nextDocumentNo(type: ArApDocumentType, date: string) {
     .randomUUID()
     .slice(0, 6)
     .toUpperCase()}`;
+}
+
+// ── АР/АП баримтын панелийн өгөгдөл ─────────────────────────────────────────
+// Панель клиентээс нээгддэг тул сонголтын өгөгдлөө (харилцагч, сегмент,
+// бараа/агуулах) энэ action-аар татна. Query-нүүд нь workspace хуудасны
+// loadArApWorkspaceData-тай НЭГ хэрэгжилт (lib/arap/load-data.ts).
+// Алдааг throw хийхгүй — production дээр Next.js server action-ий message-ийг
+// нуудаг тул код буцаана.
+
+export type ArapDocPanelData = {
+  counterparties: CounterpartyView[];
+  activeSegIds: number[];
+  segmentOptions: Record<number, SegOption[]>;
+  defaultSegments: Record<number, string>;
+  inventoryItems: InventoryItemOption[];
+  warehouses: WarehouseOption[];
+  /** documentId өгөгдсөн үед л — read-only харагдацын баримт. */
+  document: ArApDocumentDetail | null;
+};
+
+export type ArapDocPanelResult =
+  | { ok: true; data: ArapDocPanelData }
+  | { ok: false; code: "unauthenticated" | "not-found" };
+
+export async function getArapDocPanelData(
+  documentId?: string
+): Promise<ArapDocPanelResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+
+  const [segmentData, counterpartyRows, inventoryOptions, document] =
+    await Promise.all([
+      loadArApSegmentData(userId),
+      loadArApCounterparties(userId),
+      loadArApInventoryOptions(userId),
+      documentId
+        ? loadArApDocumentDetail(userId, documentId)
+        : Promise.resolve(null),
+    ]);
+
+  if (documentId && !document) return { ok: false, code: "not-found" };
+
+  return {
+    ok: true,
+    data: {
+      counterparties: counterpartyRows,
+      activeSegIds: segmentData.activeSegIds,
+      segmentOptions: segmentData.segmentOptions,
+      defaultSegments: segmentData.defaultSegments,
+      inventoryItems: inventoryOptions.inventoryItems,
+      warehouses: inventoryOptions.warehouses,
+      document,
+    },
+  };
 }
 
 export async function createCounterparty(data: {
