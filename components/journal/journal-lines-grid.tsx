@@ -26,6 +26,11 @@ import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
 import { DebitCreditEditor } from "@/lib/grid/editors/DebitCreditEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
+// Сторногийн сөрөг дүнг улаанаар — "улаан сторно"-гийн уламжлалт тэмдэглэгээ.
+const NEGATIVE_CELL_RULE = {
+  "text-[var(--ea-danger)]": (p: { value: unknown }) => Number(p.value) < 0,
+};
+
 export interface JournalLineRow {
   id: string;
   account: string;
@@ -109,7 +114,10 @@ export function JournalLinesGrid({
         cellClass: "ag-center-cell text-xs",
         editable: false,
         sortable: false,
-        valueGetter: (p) => (p.node?.rowIndex != null ? p.node.rowIndex + 1 : ""),
+        valueGetter: (p) =>
+          p.node?.rowPinned || p.node?.rowIndex == null
+            ? ""
+            : p.node.rowIndex + 1,
       },
       {
         headerName: "Данс",
@@ -153,6 +161,7 @@ export function JournalLinesGrid({
         },
         valueFormatter: (p) =>
           p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
+        cellClassRules: NEGATIVE_CELL_RULE,
       },
       {
         headerName: "Кредит",
@@ -168,6 +177,7 @@ export function JournalLinesGrid({
         },
         valueFormatter: (p) =>
           p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
+        cellClassRules: NEGATIVE_CELL_RULE,
       },
       {
         headerName: "Тайлбар",
