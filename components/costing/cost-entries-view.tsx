@@ -22,7 +22,7 @@ import {
 } from "@/lib/actions/costing";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
-import { openCostEntryPanel } from "@/lib/store/panel-store";
+import { openCostEntryPanel, refreshOpenPanels } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 
 // Панель (cost-entry-panel) мөн энэ шошгуудыг хэрэглэдэг — нэг л газар.
@@ -116,6 +116,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
       startTransition(async () => {
         try {
           await action();
+          refreshOpenPanels();
           router.refresh();
           toast.success(successMessage);
         } catch (caught) {
@@ -184,6 +185,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
         const result = await postCostEntries(drafts.map((entry) => entry.id));
         gridApiRef.current?.deselectAll();
         setSelectedDraftIds([]);
+        refreshOpenPanels();
         router.refresh();
         if (result.failures.length === 0)
           toast.success(`${result.posted} бичилт батлагдлаа`);

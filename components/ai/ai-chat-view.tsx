@@ -41,6 +41,12 @@ interface Props {
    * нууж, flex эцгээ дүүргэсэн нягт байрлалтай render хийнэ.
    */
   embedded?: boolean;
+  /**
+   * "Алдагдах юмтай" төлвийн мэдэгдэл — бичээд илгээгээгүй асуулт,
+   * хавсралт, явж буй стрийм байвал true. Панель үүнийг dirty болгож
+   * хаахын өмнө баталгаажуулалт асуудаг.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const SUGGESTIONS = [
@@ -74,6 +80,7 @@ export function AiChatView({
   initialMessages,
   configured,
   embedded = false,
+  onDirtyChange,
 }: Props) {
   const [messages, setMessages] = useState<AiChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -99,6 +106,13 @@ export function AiChatView({
   }, [messages]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Хаагдвал алдагдах зүйл: бичээд илгээгээгүй асуулт, хавсралт, явж буй
+  // стрийм (сервер хариултыг стрийм дуусахад л хадгалдаг).
+  const dirty = isStreaming || input.trim() !== "" || pending.length > 0;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   async function addFiles(files: FileList | File[]) {
     const list = Array.from(files);

@@ -71,7 +71,9 @@ const initialForm = () => ({
 
 function settlementForm(
   target: CashArApSettlementTarget,
-  accounts: CashAccountView[]
+  accounts: CashAccountView[],
+  activeSegIds: number[],
+  defaultSegments: Record<number, string>
 ) {
   const documentType: CashDocumentType =
     target.documentType === "ar_invoice" ? "receipt" : "payment";
@@ -86,7 +88,13 @@ function settlementForm(
       documentType === "payment" ? matchingCashAccount?.id ?? "" : "",
     toCashAccountId:
       documentType === "receipt" ? matchingCashAccount?.id ?? "" : "",
-    counterAccountNumber: target.controlAccountNumber,
+    // AccountInput бүтэн 10 хэсэгт код хүлээдэг (сегментийн гэрээ) —
+    // түүхий 8 оронтой control дансыг default сегментүүдээр өргөтгөнө.
+    counterAccountNumber: buildSegCode(
+      { ...defaultSegments, 3: target.controlAccountNumber },
+      activeSegIds,
+      defaultSegments
+    ),
     counterparty: target.counterpartyName,
     description: `${target.documentNo} төлөлт`,
     amount: String(target.balance),
@@ -108,7 +116,7 @@ export function CashNewForm({
 }: Props) {
   const [form, setForm] = useState(() =>
     initialSettlement
-      ? settlementForm(initialSettlement, accounts)
+      ? settlementForm(initialSettlement, accounts, activeSegIds, defaultSegments)
       : initialForm()
   );
   const [settlementTarget, setSettlementTarget] =
@@ -193,13 +201,10 @@ export function CashNewForm({
     setSettlementTarget(target);
     if (!target) return;
     setForm((current) => {
-      const next = { ...settlementForm(target, accounts), date: current.date };
-      if (segmentOptions)
-        next.counterAccountNumber = buildSegCode(
-          { ...defaultSegments, 3: target.controlAccountNumber },
-          activeSegIds,
-          defaultSegments
-        );
+      const next = {
+        ...settlementForm(target, accounts, activeSegIds, defaultSegments),
+        date: current.date,
+      };
       const accountKey =
         next.documentType === "receipt"
           ? "toCashAccountId"

@@ -10,7 +10,7 @@ import {
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { openVoucherPanel } from "@/lib/store/panel-store";
+import { openVoucherPanel, refreshOpenPanels } from "@/lib/store/panel-store";
 import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
@@ -87,6 +87,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
     try {
       await deleteVoucher(id);
       toast.success("Журнал устгагдлаа");
+      refreshOpenPanels();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Устгах үед алдаа гарлаа");
     }
@@ -102,6 +103,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
     try {
       await postVoucher(id);
       toast.success("Журнал батлагдлаа");
+      refreshOpenPanels();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Батлах үед алдаа гарлаа");
     }
@@ -117,6 +119,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
     try {
       await unpostVoucher(id);
       toast.success("Журнал ноорог болов");
+      refreshOpenPanels();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Буцаах үед алдаа гарлаа");
     }

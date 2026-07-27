@@ -15,7 +15,11 @@ import {
   getCashNewPanelData,
 } from "@/lib/actions/cash";
 import type { CashTransactionOptions } from "@/lib/cash/load-options";
-import { usePanelStore, type PanelInstance } from "@/lib/store/panel-store";
+import {
+  refreshOpenPanels,
+  usePanelStore,
+  type PanelInstance,
+} from "@/lib/store/panel-store";
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -56,6 +60,12 @@ export function CashNewPanel({
     getCashNewPanelData()
       .then((result) => {
         if (cancelled) return;
+        // Fetch явж байх зуур хэрэглэгч бөглөж эхэлсэн бол хариуг хаяна —
+        // key remount бичсэнийг нь арчих байсан.
+        const now = usePanelStore
+          .getState()
+          .panels.find((entry) => entry.id === panel.id);
+        if (now?.dirty) return;
         if (!result.ok) {
           setState({ status: "error", message: ERROR_MESSAGES[result.code] });
           return;
@@ -125,7 +135,10 @@ export function CashNewPanel({
         onDirtyChange={(dirty) => setDirty(panel.id, dirty)}
         onSaved={() => {
           // Бүтэн reload биш — зөвхөн серверийн өгөгдлийг сэргээнэ.
+          // Нээлттэй бусад панель (жишээ нь төлсөн нэхэмжлэлийн панель)
+          // мөн шинэ үлдэгдлээ татна.
           closePanel(panel.id);
+          refreshOpenPanels();
           router.refresh();
         }}
         // Болих/Хаах — юу ч хадгалаагүй тул dirty-баталгаажуулалтаар дайрна.

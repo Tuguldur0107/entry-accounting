@@ -45,6 +45,7 @@ import { fmtMnt } from "@/lib/reports/balances";
 import {
   openCashNewPanel,
   openVoucherPanel,
+  refreshOpenPanels,
   usePanelStore,
   type PanelInstance,
 } from "@/lib/store/panel-store";
@@ -133,6 +134,12 @@ export function ArapDocPanel({
     getArapDocPanelData(documentId)
       .then((result) => {
         if (cancelled) return;
+        // Fetch явж байх зуур хэрэглэгч бөглөж эхэлсэн бол хариуг хаяна —
+        // key remount бичсэнийг нь арчих байсан.
+        const now = usePanelStore
+          .getState()
+          .panels.find((entry) => entry.id === panel.id);
+        if (now?.dirty) return;
         if (!result.ok) {
           setState({ status: "error", message: ERROR_MESSAGES[result.code] });
           return;
@@ -324,6 +331,7 @@ function ArapDocForm({
         });
         toast.success(postNow ? "Баримт GL-д бичигдлээ" : "Ноорог хадгалагдлаа");
         closePanel(panel.id);
+        refreshOpenPanels();
         router.refresh();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Хадгалж чадсангүй");
@@ -624,6 +632,7 @@ function ArapDocReadOnly({
           await postArApDocument(document.id);
           toast.success("Баримт батлагдаж GL-д бичигдлээ");
           closePanel(panel.id);
+          refreshOpenPanels();
           router.refresh();
         } catch (caught) {
           toast.error(caught instanceof Error ? caught.message : "Батлах амжилтгүй");

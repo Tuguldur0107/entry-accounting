@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { asc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -33,9 +33,12 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
   if (!userId) return { ok: false, code: "unauthenticated" };
 
   const [history, settings] = await Promise.all([
+    // Түүх хязгааргүй ургадаг — панель нээх бүрд бүгдийг татахгүйн тулд
+    // сүүлийн 100 мессежийг л ачаална (desc + limit, дараа нь эргүүлнэ).
     db.query.aiMessages.findMany({
       where: eq(aiMessages.userId, userId),
-      orderBy: [asc(aiMessages.createdAt)],
+      orderBy: [desc(aiMessages.createdAt)],
+      limit: 100,
       with: { attachments: { columns: { name: true } } },
     }),
     db.query.aiSettings.findFirst({
@@ -47,7 +50,8 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
   return {
     ok: true,
     data: {
-      initialMessages: history.map((entry) => ({
+      // desc-ээр татсан тул хуучин → шинэ дараалалд эргүүлнэ.
+      initialMessages: history.reverse().map((entry) => ({
         id: entry.id,
         role: entry.role as "user" | "assistant",
         content: entry.content,

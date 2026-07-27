@@ -15,6 +15,7 @@ import {
 } from "@/lib/actions/journal-editor";
 import {
   openVoucherPanel,
+  refreshOpenPanels,
   usePanelStore,
   type PanelInstance,
 } from "@/lib/store/panel-store";
@@ -67,6 +68,12 @@ export function VoucherPanel({
     getJournalEditorData(voucherId)
       .then((result) => {
         if (cancelled) return;
+        // Fetch явж байх зуур хэрэглэгч засаж эхэлсэн бол хариуг хаяна —
+        // key remount бичсэнийг нь арчих байсан.
+        const now = usePanelStore
+          .getState()
+          .panels.find((entry) => entry.id === panel.id);
+        if (now?.dirty) return;
         if (!result.ok) {
           setState({ status: "error", message: ERROR_MESSAGES[result.code] });
           return;
@@ -141,8 +148,11 @@ export function VoucherPanel({
       onDirtyChange={(dirty) => setDirty(panel.id, dirty)}
       onOpenVoucher={(id) => openVoucherPanel(id)}
       onDone={() => {
-        // Бүтэн reload биш — зөвхөн серверийн өгөгдлийг сэргээнэ.
+        // Бүтэн reload биш — зөвхөн серверийн өгөгдлийг сэргээнэ. Журналд
+        // тулгуурласан бусад нээлттэй панель (касс/өртгийн дэлгэрэнгүй,
+        // задаргаа) мөн шинэ өгөгдлөө татна.
         closePanel(panel.id);
+        refreshOpenPanels();
         router.refresh();
       }}
       // Болих/Хаах — юу ч хадгалаагүй тул dirty-баталгаажуулалтаар дайрна.

@@ -15,6 +15,7 @@ import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { refreshOpenPanels } from "@/lib/store/panel-store";
 import {
   deleteDepreciationEntry,
   postDepreciationEntries,
@@ -68,6 +69,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
       startTransition(async () => {
         try {
           await action();
+          refreshOpenPanels();
           router.refresh();
           toast.success(successMessage);
         } catch (caught) {
@@ -82,6 +84,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
     startTransition(async () => {
       try {
         const result = await runDepreciation({ month });
+        refreshOpenPanels();
         router.refresh();
         if (result.created === 0)
           toast.info("Элэгдүүлэх карт алга — бүгд тооцогдсон эсвэл эхлээгүй");
@@ -107,6 +110,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
         const result = await postDepreciationEntries(drafts.map((e) => e.id));
         gridApiRef.current?.deselectAll();
         setSelectedDraftIds([]);
+        refreshOpenPanels();
         router.refresh();
         if (result.failures.length === 0)
           toast.success(`${result.posted} бичилт батлагдлаа`);

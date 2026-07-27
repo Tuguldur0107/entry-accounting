@@ -3,11 +3,16 @@
 // Толгой мөрний AI товч — глобал хөвөгч чат панелийг нээнэ. NewJournalButton-
 // оос ялгаатай нь бүх модульд харагдана (чат хаана ч хэрэгтэй).
 
+import { usePathname } from "next/navigation";
 import { Sparkles } from "lucide-react";
 
 import { openAiChatPanel } from "@/lib/store/panel-store";
 
 export function AiChatButton() {
+  const pathname = usePathname();
+  // /ai хуудсан дээр чат аль хэдийн дэлгэцээр нээлттэй — давхар панель
+  // нээвэл нэг ярианы хоёр хуулбар зөрж явна.
+  if (pathname === "/ai" || pathname.startsWith("/ai/")) return null;
   return (
     <button
       type="button"

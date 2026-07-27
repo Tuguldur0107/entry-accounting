@@ -26,7 +26,11 @@ import {
 import { DEPRECIATION_METHODS } from "@/lib/fa/depreciation";
 import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount, fmtMnt } from "@/lib/reports/balances";
-import { usePanelStore, type PanelInstance } from "@/lib/store/panel-store";
+import {
+  refreshOpenPanels,
+  usePanelStore,
+  type PanelInstance,
+} from "@/lib/store/panel-store";
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -120,6 +124,12 @@ export function FaAssetFormPanel({
     getFaAssetPanelData(assetId)
       .then((result) => {
         if (cancelled) return;
+        // Fetch явж байх зуур хэрэглэгч бөглөж эхэлсэн бол хариуг хаяна —
+        // key remount бичсэнийг нь арчих байсан.
+        const now = usePanelStore
+          .getState()
+          .panels.find((entry) => entry.id === panel.id);
+        if (now?.dirty) return;
         if (!result.ok) {
           setState({ status: "error", message: ERROR_MESSAGES[result.code] });
           return;
@@ -227,8 +237,11 @@ function FaAssetFormBody({
             ? "Карт идэвхжлээ — элэгдэлд хамрагдана"
             : "Хөрөнгө бүртгэгдлээ"
         );
-        // Бүтэн reload биш — зөвхөн серверийн өгөгдлийг сэргээнэ.
+        // Бүтэн reload биш — зөвхөн серверийн өгөгдлийг сэргээнэ. Хажууд
+        // нээлттэй хөрөнгийн картын панель мөн шинэ төлөвөө татна —
+        // эс бөгөөс "Ноорог" + идэвхжүүлэх товчоо үзүүлсээр үлддэг.
         closePanel(panel.id);
+        refreshOpenPanels();
         router.refresh();
       } catch (caught) {
         setError(

@@ -49,6 +49,7 @@ import { fmtMnt } from "@/lib/reports/balances";
 import {
   openCashDocPanel,
   openCashNewPanel,
+  refreshOpenPanels,
 } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -244,6 +245,7 @@ export function CashDocumentsView({
       startTransition(async () => {
         try {
           await action();
+          refreshOpenPanels();
           router.refresh();
           toast.success(successMessage);
         } catch (caught) {
@@ -303,6 +305,7 @@ export function CashDocumentsView({
         const result = await postCashDocuments(drafts.map((d) => d.id));
         gridApiRef.current?.deselectAll();
         setSelectedDraftIds([]);
+        refreshOpenPanels();
         router.refresh();
         if (result.failures.length === 0) {
           toast.success(`${result.posted} баримт батлагдлаа`);

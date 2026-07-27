@@ -5,9 +5,8 @@
 // Balance нь БҮХ батлагдсан баримтаас бодогдоно (дансны сонголтод харагдана);
 // хуудасны жагсаалт огноогоор шүүгдсэн тусдаа query хэвээр.
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
-import { calculateCashBalances } from "@/lib/cash/balances";
 import type {
   CashAccountView,
   CashDocumentView,
@@ -88,20 +87,47 @@ export function toCashDocumentView(
 export async function loadCashTransactionOptions(
   userId: string
 ): Promise<CashTransactionOptions> {
-  const [accounts, postedDocuments, cashFlowValues, openArApDocs, segmentData] =
+  const [accounts, outflows, inflows, cashFlowValues, openArApDocs, segmentData] =
     await Promise.all([
       db.query.cashAccounts.findMany({
         where: eq(cashAccounts.userId, userId),
         orderBy: (account, { asc }) => [asc(account.name)],
       }),
-      // Зөвхөн balance бодоход — calculateCashBalances posted-оос бусдыг
-      // алгасдаг тул статусаар нь шүүж татна.
-      db.query.cashDocuments.findMany({
-        where: and(
-          eq(cashDocuments.userId, userId),
-          eq(cashDocuments.status, "posted")
-        ),
-      }),
+      // Balance = нээлт + орлого − зарлага. Баримт бүрийг клиент рүү татаж
+      // давтахын оронд SQL-ээр данс тус бүрд нийлбэрлэнэ (баримтын тоо
+      // өссөн ч энэ хоёр query тогтмол жинтэй). Семантик нь
+      // calculateCashBalances-тай яг ижил: payment/transfer → from дансаас
+      // хасна, receipt/transfer → to дансанд нэмнэ, зөвхөн posted.
+      db
+        .select({
+          accountId: cashDocuments.fromCashAccountId,
+          total: sql<string>`sum(${cashDocuments.amount})`,
+        })
+        .from(cashDocuments)
+        .where(
+          and(
+            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.status, "posted"),
+            inArray(cashDocuments.documentType, ["payment", "transfer"]),
+            isNotNull(cashDocuments.fromCashAccountId)
+          )
+        )
+        .groupBy(cashDocuments.fromCashAccountId),
+      db
+        .select({
+          accountId: cashDocuments.toCashAccountId,
+          total: sql<string>`sum(${cashDocuments.amount})`,
+        })
+        .from(cashDocuments)
+        .where(
+          and(
+            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.status, "posted"),
+            inArray(cashDocuments.documentType, ["receipt", "transfer"]),
+            isNotNull(cashDocuments.toCashAccountId)
+          )
+        )
+        .groupBy(cashDocuments.toCashAccountId),
       db.query.segmentValues.findMany({
         where: and(
           eq(segmentValues.userId, userId),
@@ -122,7 +148,23 @@ export async function loadCashTransactionOptions(
       loadSegmentPickerData(userId),
     ]);
 
-  const balanceMap = calculateCashBalances(accounts, postedDocuments);
+  const balanceMap = new Map(
+    accounts.map((account) => [account.id, Number(account.openingBalance)])
+  );
+  for (const row of outflows) {
+    if (!row.accountId) continue;
+    balanceMap.set(
+      row.accountId,
+      (balanceMap.get(row.accountId) ?? 0) - Number(row.total ?? 0)
+    );
+  }
+  for (const row of inflows) {
+    if (!row.accountId) continue;
+    balanceMap.set(
+      row.accountId,
+      (balanceMap.get(row.accountId) ?? 0) + Number(row.total ?? 0)
+    );
+  }
 
   return {
     accounts: accounts.map((account) => ({

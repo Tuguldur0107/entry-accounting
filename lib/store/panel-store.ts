@@ -93,6 +93,7 @@ type PanelState = {
   focus: (id: string) => void;
   setTitle: (id: string, title: string) => void;
   setDirty: (id: string, dirty: boolean) => void;
+  refreshOpenPanels: () => void;
 };
 
 let seq = 0;
@@ -275,6 +276,20 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
       };
     }),
 
+  // Мутаци амжилттай болсны дараа НЭЭЛТТЭЙ бусад панелиудын өгөгдлийг
+  // сэргээнэ (refreshToken bump → fetch effect дахин ажиллана). Эс бөгөөс
+  // жишээ нь нэхэмжлэлийн панель төлөлт хийгдсэний дараа ч хуучин үлдэгдлээ
+  // үзүүлсээр байдаг. Dirty панель хамгаалагдана — тэдний fetch effect
+  // өөрөө алгасдаг тул бичсэн зүйл алдагдахгүй.
+  refreshOpenPanels: () =>
+    set((state) => ({
+      panels: state.panels.map((panel) =>
+        panel.dirty
+          ? panel
+          : { ...panel, refreshToken: panel.refreshToken + 1 }
+      ),
+    })),
+
   setDirty: (id, dirty) =>
     set((state) => {
       // Өөрчлөгдөөгүй бол state-ээ хэвээр буцаана — эс бөгөөс формын
@@ -289,6 +304,15 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
       };
     }),
 }));
+
+/**
+ * Мутацийн дараах нэгдсэн сэргээлт — router.refresh()-тэй ХАМТ дуудна.
+ * router.refresh() нь server component-уудыг л шинэчилдэг, нээлттэй
+ * панелиудын client fetch-ийг хөндөдгүй.
+ */
+export function refreshOpenPanels() {
+  usePanelStore.getState().refreshOpenPanels();
+}
 
 /** Панель нээх богино туслахууд — callsite бүрд key/title давтахгүйн тулд. */
 export function openVoucherPanel(voucherId: string, title?: string) {

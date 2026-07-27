@@ -4,14 +4,14 @@
 // хажуудаа нээгээд байлгана. Registry-д keepMounted: true — хураастай ч
 // unmount хийгдэхгүй (стрийм үргэлжилж, бичсэн draft хадгалагдана).
 //
-// Ачаалалтын дүрэм: түүхээ НЭГ Л УДАА татна. Чат нээгдсэнийхээ дараа
-// мессежүүд клиент талд нэмэгддэг (сервер талд давхар хадгалагддаг) тул
-// сэргээх/дахин нээх бүрд refetch + remount хийвэл явж буй стрийм, бичиж
-// буй draft устаж keepMounted-ийн зорилго алдагдана. refreshToken-ийг
-// зөвхөн АЛДААНЫ ДАРААХ retry-д ашиглана (voucher-panel-аас энэ л
-// зөрүүтэй — чатад dirty/refetch ойлголт хамаарахгүй).
+// Dirty = явж буй стрийм / бичээд илгээгээгүй асуулт / хавсралт — чатны
+// view өөрөө onDirtyChange-ээр мэдэгдэнэ. Ингэснээр (1) хаахын өмнө
+// баталгаажуулалт асууна (стрийм таслах нь хариултыг сервер талд ч
+// алдагдуулдаг), (2) сэргээх/дахин нээх үеийн refetch зөвхөн ЦЭВЭР үед
+// хийгдэж /ai хуудастай зөрөх түүхийг тэгшилнэ, бичиж буй draft-ыг хэзээ ч
+// арчихгүй.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { AiChatView } from "@/components/ai/ai-chat-view";
@@ -28,34 +28,46 @@ export function AiChatPanel({
   panel,
 }: {
   panel: PanelInstance;
-  /** Панелийн хаалт — энэ панельд dirty байхгүй, жаазны ✕ шууд хаана. */
+  /** Панелийн хаалт — dirty бол баталгаажуулалттай (PanelHost эзэмшинэ). */
   requestClose: () => void;
 }) {
   const setTitle = usePanelStore((state) => state.setTitle);
+  const setDirty = usePanelStore((state) => state.setDirty);
 
   const refreshToken = panel.refreshToken;
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "error"; message: string }
-    | { status: "ready"; data: AiChatBootstrap }
+    | { status: "ready"; data: AiChatBootstrap; loadedToken: number }
   >({ status: "loading" });
-  // Амжилттай ачаалснаа тэмдэглэнэ — дараагийн refreshToken bump-ууд
-  // (сэргээх, дахин нээх) чатыг дахин ачаалахгүй.
-  const loadedRef = useRef(false);
 
+  // Эхний ачаалалт + сэргээх/дахин нээх бүрд түүхээ дахин татна — /ai
+  // хуудсан дээр бичсэн мессежүүд панельд мөн харагдана. Стрийм явж байгаа
+  // эсвэл draft бичсэн (dirty) үед алгасна — remount тэднийг устгах байсан.
   useEffect(() => {
-    if (loadedRef.current) return;
+    const current = usePanelStore
+      .getState()
+      .panels.find((entry) => entry.id === panel.id);
+    if (current?.dirty) return;
 
     let cancelled = false;
     getAiChatBootstrap()
       .then((result) => {
         if (cancelled) return;
+        // Fetch явж байх зуур стрийм эхэлсэн/draft бичигдсэн бол хаяна.
+        const now = usePanelStore
+          .getState()
+          .panels.find((entry) => entry.id === panel.id);
+        if (now?.dirty) return;
         if (!result.ok) {
           setState({ status: "error", message: ERROR_MESSAGES[result.code] });
           return;
         }
-        loadedRef.current = true;
-        setState({ status: "ready", data: result.data });
+        setState({
+          status: "ready",
+          data: result.data,
+          loadedToken: refreshToken,
+        });
         // Док чип дээрээс тохиргоо дутуу нь харагдана.
         setTitle(
           panel.id,
@@ -88,9 +100,13 @@ export function AiChatPanel({
 
   return (
     <AiChatView
+      // Шинэ түүх татагдмагц цэвэрхэн remount — зөвхөн цэвэр үед татдаг
+      // тул стрийм/draft-д халдахгүй.
+      key={state.loadedToken}
       embedded
       initialMessages={state.data.initialMessages}
       configured={state.data.configured}
+      onDirtyChange={(dirty) => setDirty(panel.id, dirty)}
     />
   );
 }
