@@ -22,23 +22,44 @@ import {
   type JournalLineRow,
 } from "@/components/journal/journal-lines-grid";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { cn } from "@/lib/utils";
 
-function MetaField({
+/**
+ * Толгойн НЭГ талбар: жижиг саарал шошго + тогтмол өндөртэй утгын нүд.
+ * Утга нь текст (харах горим) эсвэл Input (засварлах) байхаас үл хамааран
+ * мөрийн өндөр ижил байна — хоёр горим ижил харагдана.
+ */
+function HeaderField({
   label,
-  value,
-  mono = false,
+  htmlFor,
+  align = "left",
+  className,
+  children,
 }: {
   label: string;
-  value: string;
-  mono?: boolean;
+  htmlFor?: string;
+  align?: "left" | "right";
+  className?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="min-w-0">
-      <div className="text-[11px] text-[var(--ea-text-4)]">{label}</div>
-      <div
-        className={`mt-0.5 break-words text-[var(--ea-text-1)]${mono ? " font-mono" : ""}`}
+    <div className={cn("min-w-0", className)}>
+      <Label
+        htmlFor={htmlFor}
+        className={cn(
+          "block text-[11px] font-normal text-[var(--ea-text-4)]",
+          align === "right" && "text-right"
+        )}
       >
-        {value}
+        {label}
+      </Label>
+      <div
+        className={cn(
+          "mt-0.5 flex h-8 min-w-0 items-center",
+          align === "right" && "justify-end"
+        )}
+      >
+        {children}
       </div>
     </div>
   );
@@ -361,92 +382,80 @@ export function JournalEntryForm({
               borderRadius: 10,
             }}
           >
-            {/* Толгой — хоёр горимд НЭГ бүтэц: зүүн талд талбарууд
-                (харах горимд текст, засварлахад input), баруун талд том
-                Дт/Кт нийлбэр, доор нь метадата. */}
+            {/* Толгой — НЭГ бүтэц, НЭГ талбарын component. readOnly нь
+                зөвхөн нүд дотор текст үү, input уу гэдгийг шийднэ. */}
             <div className="space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-                {readOnly ? (
-                  <div className="grid min-w-0 flex-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
-                    <MetaField label="Огноо" value={date} mono />
-                    <MetaField
-                      label="Гүйлгээний утга"
-                      value={description || "—"}
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className="grid min-w-0 flex-1 gap-5"
-                    style={{ gridTemplateColumns: "180px minmax(0,1fr)" }}
-                  >
-                    <div className="min-w-0">
-                      <Label
-                        htmlFor="voucher-date"
-                        className="text-[11px] font-normal text-[var(--ea-text-4)]"
-                      >
-                        Огноо
-                      </Label>
+                <div className="grid min-w-0 flex-1 gap-x-8 gap-y-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                  <HeaderField label="Огноо" htmlFor="voucher-date">
+                    {readOnly ? (
+                      <span className="font-mono text-sm text-[var(--ea-text-1)]">
+                        {date}
+                      </span>
+                    ) : (
                       <Input
                         id="voucher-date"
                         type="date"
-                        className="mt-0.5 h-9"
+                        className="h-8 w-full"
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
                       />
-                    </div>
-                    <div className="min-w-0">
-                      <Label
-                        htmlFor="voucher-description"
-                        className="text-[11px] font-normal text-[var(--ea-text-4)]"
-                      >
-                        Гүйлгээний утга
-                      </Label>
+                    )}
+                  </HeaderField>
+                  <HeaderField
+                    label="Гүйлгээний утга"
+                    htmlFor="voucher-description"
+                  >
+                    {readOnly ? (
+                      <span className="truncate text-sm text-[var(--ea-text-1)]">
+                        {description || "—"}
+                      </span>
+                    ) : (
                       <Input
                         id="voucher-description"
                         type="text"
-                        className="mt-0.5 h-9"
+                        className="h-8 w-full"
                         placeholder="Гүйлгээний тайлбар оруулна уу"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                       />
-                    </div>
-                  </div>
-                )}
+                    )}
+                  </HeaderField>
+                </div>
 
                 <div className="flex shrink-0 gap-6 text-right">
-                  <div>
-                    <div className="text-[11px] text-[var(--ea-text-4)]">
-                      Нийт дебет
-                    </div>
-                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
+                  <HeaderField label="Нийт дебет" align="right">
+                    <span className="font-mono text-lg font-semibold text-[var(--ea-text-1)]">
                       {fmt(totalDebit)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-[var(--ea-text-4)]">
-                      Нийт кредит
-                    </div>
-                    <div className="mt-0.5 font-mono text-lg font-semibold text-[var(--ea-text-1)]">
+                    </span>
+                  </HeaderField>
+                  <HeaderField label="Нийт кредит" align="right">
+                    <span className="font-mono text-lg font-semibold text-[var(--ea-text-1)]">
                       {fmt(totalCredit)}
-                    </div>
-                  </div>
+                    </span>
+                  </HeaderField>
                 </div>
               </div>
 
               <div
-                className="grid grid-cols-2 gap-x-8 gap-y-3 pt-3 text-sm sm:grid-cols-4"
+                className="grid grid-cols-2 gap-x-8 gap-y-3 pt-3 sm:grid-cols-4"
                 style={{ borderTop: "1px solid var(--ea-border)" }}
               >
-                <MetaField label="Мөрийн тоо" value={String(lines.length)} mono />
-                {voucherCreatedAt && (
-                  <MetaField label="Үүсгэсэн" value={voucherCreatedAt} mono />
-                )}
-                <div className="col-span-2">
-                  <div className="text-[11px] text-[var(--ea-text-4)]">Дугаар</div>
+                <HeaderField label="Мөрийн тоо">
+                  <span className="font-mono text-sm text-[var(--ea-text-1)]">
+                    {lines.length}
+                  </span>
+                </HeaderField>
+                <HeaderField label="Үүсгэсэн">
+                  <span className="font-mono text-sm text-[var(--ea-text-1)]">
+                    {voucherCreatedAt ?? "—"}
+                  </span>
+                </HeaderField>
+                <HeaderField label="Дугаар" className="col-span-2">
                   {voucherId ? (
-                    <div className="mt-0.5 flex items-start gap-1.5">
+                    <span className="flex min-w-0 items-center gap-1.5">
                       {/* Сонгож хуулах боломжтой — товч нь зөвхөн хурдавчлал */}
-                      <span className="min-w-0 select-all break-all font-mono text-xs text-[var(--ea-text-2)]">
+                      <span className="min-w-0 select-all truncate font-mono text-xs text-[var(--ea-text-2)]">
                         {voucherId}
                       </span>
                       <button
@@ -454,7 +463,7 @@ export function JournalEntryForm({
                         onClick={copyId}
                         title="ID хуулах"
                         aria-label="Журналын ID хуулах"
-                        className="mt-0.5 shrink-0 text-[var(--ea-text-4)] transition-colors hover:text-[var(--ea-primary)]"
+                        className="shrink-0 text-[var(--ea-text-4)] transition-colors hover:text-[var(--ea-primary)]"
                       >
                         <Copy size={11} />
                       </button>
@@ -469,13 +478,13 @@ export function JournalEntryForm({
                           {copyState === "ok" ? "Хуулагдлаа" : "Хуулж чадсангүй"}
                         </span>
                       )}
-                    </div>
+                    </span>
                   ) : (
-                    <div className="mt-0.5 text-xs text-[var(--ea-text-4)]">
+                    <span className="text-xs text-[var(--ea-text-4)]">
                       Хадгалахад үүснэ
-                    </div>
+                    </span>
                   )}
-                </div>
+                </HeaderField>
               </div>
             </div>
           </div>
