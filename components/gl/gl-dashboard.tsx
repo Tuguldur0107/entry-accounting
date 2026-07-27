@@ -22,6 +22,9 @@ export type GlRecentVoucherRow = {
   id: string;
   date: string;
   description: string;
+  module: string;
+  accounts: string;
+  lineCount: number;
   amount: number;
   status: string;
 };
@@ -37,7 +40,12 @@ export type GlClassSummary = {
 
 export type GlMonthTrendRow = { month: string; debit: number; count: number };
 export type GlTopAccountRow = { main: string; name: string; turnover: number };
-export type GlModuleFlowRow = { module: string; count: number; debit: number };
+export type GlModuleFlowRow = {
+  key: string;
+  module: string;
+  count: number;
+  debit: number;
+};
 export type GlAlerts = {
   draftCount: number;
   unbalancedDraftCount: number;
@@ -62,6 +70,8 @@ interface Props {
   moduleRows: GlModuleFlowRow[];
   alerts: GlAlerts;
   recent: GlRecentVoucherRow[];
+  monthStart: string; // YYYY-MM-DD
+  monthEnd: string; // YYYY-MM-DD
 }
 
 // GL хяналтын самбар — нягтланчийн өглөөний нэг дэлгэц: тэнцлийн байдал,
@@ -78,6 +88,8 @@ export function GlDashboard({
   moduleRows,
   alerts,
   recent,
+  monthStart,
+  monthEnd,
 }: Props) {
   const router = useRouter();
   const drCrBalanced = Math.abs(totalDebit - totalCredit) <= 0.01;
@@ -93,6 +105,21 @@ export function GlDashboard({
   const maxTrend = Math.max(...trend.map((row) => row.debit), 1);
   const maxTurnover = Math.max(...topAccounts.map((row) => row.turnover), 1);
 
+  const monthQuery = `start=${monthStart}&end=${monthEnd}`;
+  // Модулийн урсгалын мөр → тухайн модулийн задаргаа (сарын хүрээтэй нь)
+  const MODULE_HREFS: Record<string, string> = {
+    GL: `/gl/journal?${monthQuery}`,
+    CA: `/cash/transactions?${monthQuery}`,
+    CO: "/costing/entries",
+    FA: "/fa/depreciation",
+  };
+
+  function monthRangeQuery(month: string): string {
+    const [year, mon] = month.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+    return `start=${month}-01&end=${month}-${String(lastDay).padStart(2, "0")}`;
+  }
+
   const columns = useMemo<ColDef<GlRecentVoucherRow>[]>(
     () => [
       {
@@ -101,11 +128,30 @@ export function GlDashboard({
         width: 110,
         cellClass: "font-mono text-xs",
       },
-      { headerName: "Утга", field: "description", minWidth: 240, flex: 1 },
+      { headerName: "Утга", field: "description", minWidth: 200, flex: 1 },
+      {
+        headerName: "Модуль",
+        field: "module",
+        width: 140,
+        cellClass: "text-xs",
+      },
+      {
+        headerName: "Данс",
+        field: "accounts",
+        width: 210,
+        cellClass: "font-mono text-xs",
+      },
+      {
+        headerName: "Мөр",
+        field: "lineCount",
+        width: 70,
+        cellClass: "ag-right-aligned-cell font-mono text-xs",
+        headerClass: "ag-right-aligned-header",
+      },
       {
         headerName: "Дүн",
         field: "amount",
-        width: 150,
+        width: 140,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
@@ -157,11 +203,13 @@ export function GlDashboard({
             ok={drCrBalanced}
             okText={`Дт = Кт · ${fmtMnt(totalDebit)}`}
             badText={`Дт ≠ Кт · зөрүү ${fmtMnt(totalDebit - totalCredit)}`}
+            href="/gl/reports?report=gl-balance"
           />
           <CheckChip
             ok={bsBalanced}
             okText="Актив = Өр төлбөр + Өмч"
             badText={`А ≠ Ө+Э · зөрүү ${fmtMnt(bsGap)}`}
+            href="/gl/reports?report=balance-sheet"
           />
         </div>
       </div>
@@ -186,12 +234,12 @@ export function GlDashboard({
         <SummaryCell
           label={`Орлого (${month})`}
           value={fmtMnt(classSummary.monthRevenue)}
-          href="/gl/reports?report=income-statement"
+          href={`/gl/reports?report=income-statement&${monthQuery}`}
         />
         <SummaryCell
           label={`Зардал (${month})`}
           value={fmtMnt(classSummary.monthExpense)}
-          href="/gl/reports?report=income-statement"
+          href={`/gl/reports?report=income-statement&${monthQuery}`}
         />
         <SummaryCell
           label={`Цэвэр ашиг (${month})`}
@@ -201,7 +249,7 @@ export function GlDashboard({
               ? "var(--ea-success)"
               : "var(--ea-danger)"
           }
-          href="/gl/reports?report=income-statement"
+          href={`/gl/reports?report=income-statement&${monthQuery}`}
         />
       </section>
 
@@ -220,7 +268,13 @@ export function GlDashboard({
           </div>
           <div className="space-y-2.5">
             {trend.map((row) => (
-              <div key={row.month} className="flex items-center gap-3">
+              <Link
+                key={row.month}
+                href={`/gl/journal?${monthRangeQuery(row.month)}`}
+                className="flex items-center gap-3 rounded px-1 py-0.5 transition-colors hover:bg-[var(--ea-bg-2)]"
+                style={{ textDecoration: "none" }}
+                title={`${row.month} сарын журналууд руу очих`}
+              >
                 <span className="w-16 shrink-0 font-mono text-xs text-[var(--ea-text-3)]">
                   {row.month}
                 </span>
@@ -238,7 +292,7 @@ export function GlDashboard({
                 <span className="w-14 shrink-0 text-right text-[11px] text-[var(--ea-text-4)]">
                   {row.count} ж.
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
 
@@ -254,7 +308,13 @@ export function GlDashboard({
             ) : (
               <div className="space-y-2">
                 {topAccounts.map((row) => (
-                  <div key={row.main} className="flex items-center gap-3">
+                  <Link
+                    key={row.main}
+                    href={`/gl/reports?report=gl-balance&${monthQuery}`}
+                    className="flex items-center gap-3 rounded px-1 py-0.5 transition-colors hover:bg-[var(--ea-bg-2)]"
+                    style={{ textDecoration: "none" }}
+                    title={`${row.main} — гүйлгээ баланс руу очих`}
+                  >
                     <span className="w-20 shrink-0 font-mono text-xs text-[var(--ea-text-3)]">
                       {row.main}
                     </span>
@@ -272,7 +332,7 @@ export function GlDashboard({
                     <span className="w-28 shrink-0 text-right font-mono text-xs text-[var(--ea-text-1)]">
                       {fmtMnt(row.turnover)}
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
@@ -308,16 +368,18 @@ export function GlDashboard({
             ) : (
               <div className="space-y-2">
                 {moduleRows.map((row) => (
-                  <div
-                    key={row.module}
-                    className="flex items-center justify-between gap-2 text-xs"
+                  <Link
+                    key={row.key}
+                    href={MODULE_HREFS[row.key] ?? `/gl/journal?${monthQuery}`}
+                    className="flex items-center justify-between gap-2 rounded px-1 py-1 text-xs transition-colors hover:bg-[var(--ea-bg-2)]"
+                    style={{ textDecoration: "none" }}
                   >
                     <span className="text-[var(--ea-text-2)]">{row.module}</span>
                     <span className="text-[var(--ea-text-4)]">{row.count} журнал</span>
                     <span className="w-24 text-right font-mono text-[var(--ea-text-1)]">
                       {fmtMnt(row.debit)}
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
@@ -388,7 +450,14 @@ export function GlDashboard({
             height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
-            onRowClicked={() => router.push("/gl/journal")}
+            onRowClicked={(event) => {
+              const date = event.data?.date;
+              router.push(
+                date
+                  ? `/gl/journal?${monthRangeQuery(date.slice(0, 7))}`
+                  : "/gl/journal"
+              );
+            }}
           />
         )}
       </section>
@@ -400,15 +469,19 @@ function CheckChip({
   ok,
   okText,
   badText,
+  href,
 }: {
   ok: boolean;
   okText: string;
   badText: string;
+  href: string;
 }) {
   return (
-    <span
+    <Link
+      href={href}
+      style={{ textDecoration: "none" }}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-xs font-medium transition-colors hover:bg-[var(--ea-bg-2)]",
         ok
           ? "border-[var(--ea-success)]/40 text-[var(--ea-success)]"
           : "border-[var(--ea-danger)]/40 text-[var(--ea-danger)]"
@@ -419,7 +492,7 @@ function CheckChip({
         style={{ background: ok ? "var(--ea-success)" : "var(--ea-danger)" }}
       />
       {ok ? okText : badText}
-    </span>
+    </Link>
   );
 }
 

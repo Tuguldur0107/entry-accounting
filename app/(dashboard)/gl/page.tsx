@@ -28,6 +28,20 @@ function monthShift(base: string, offset: number): string {
   return d.toISOString().slice(0, 7);
 }
 
+/** Сарын эхний ба сүүлийн өдөр — drill-down холбоосуудад. */
+function monthRange(month: string): { start: string; end: string } {
+  const [year, mon] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  return { start: `${month}-01`, end: `${month}-${String(lastDay).padStart(2, "0")}` };
+}
+
+const MODULE_LABELS: Record<string, string> = {
+  GL: "Гар журнал",
+  CA: "Мөнгөн хөрөнгө",
+  CO: "Өртөг",
+  FA: "Үндсэн хөрөнгө",
+};
+
 export default async function GlDashboardPage() {
   const session = await auth();
   const userId = session!.user!.id!;
@@ -174,15 +188,10 @@ export default async function GlDashboardPage() {
       turnover: round2(turnover),
     }));
 
-  const MODULE_LABELS: Record<string, string> = {
-    GL: "Гар журнал",
-    CA: "Мөнгөн хөрөнгө",
-    CO: "Өртөг",
-    FA: "Үндсэн хөрөнгө",
-  };
   const moduleRows: GlModuleFlowRow[] = [...moduleFlow.entries()]
     .sort((a, b) => b[1].debit - a[1].debit)
     .map(([key, cell]) => ({
+      key,
       module: MODULE_LABELS[key] ?? key,
       count: cell.count,
       debit: round2(cell.debit),
@@ -194,15 +203,31 @@ export default async function GlDashboardPage() {
     reversedThisMonth,
   };
 
-  const recent: GlRecentVoucherRow[] = vouchers.slice(0, 10).map((voucher) => ({
-    id: voucher.id,
-    date: voucher.date,
-    description: voucher.description,
-    amount: round2(
-      voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0)
-    ),
-    status: voucher.status,
-  }));
+  const recent: GlRecentVoucherRow[] = vouchers.slice(0, 10).map((voucher) => {
+    const modules = new Set<string>();
+    const mains: string[] = [];
+    for (const line of voucher.lines) {
+      modules.add(sourceModuleOf(line.accountNumber));
+      const main = extractMainAccount(line.accountNumber);
+      if (main && !mains.includes(main)) mains.push(main);
+    }
+    const sourceKey =
+      [...modules].find((entry) => entry !== "GL") ?? [...modules][0] ?? "GL";
+    return {
+      id: voucher.id,
+      date: voucher.date,
+      description: voucher.description,
+      module: MODULE_LABELS[sourceKey] ?? sourceKey,
+      accounts:
+        mains.slice(0, 3).join(", ") +
+        (mains.length > 3 ? ` +${mains.length - 3}` : ""),
+      lineCount: voucher.lines.length,
+      amount: round2(
+        voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0)
+      ),
+      status: voucher.status,
+    };
+  });
 
   const postedCount = vouchers.filter((v) => v.status === "posted").length;
 
@@ -219,6 +244,8 @@ export default async function GlDashboardPage() {
       moduleRows={moduleRows}
       alerts={alerts}
       recent={recent}
+      monthStart={monthRange(month).start}
+      monthEnd={monthRange(month).end}
     />
   );
 }
