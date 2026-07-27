@@ -195,7 +195,7 @@ export function CashDocumentDetailDialog({
             {detail && detail.reversalLines.length > 0 && (
               <div>
                 <div className="mb-1.5 text-xs font-semibold text-[var(--ea-warning-fg)]">
-                  Сторно журнал
+                  Буцаалтын журнал
                 </div>
                 <VoucherLinesTable
                   lines={detail.reversalLines}

@@ -744,7 +744,7 @@ export async function reverseCashDocument(id: string) {
       .values({
         userId,
         date: document.date,
-        description: `Сторно [${document.documentNo}] ${document.description}`,
+        description: `Буцаалт [${document.documentNo}] ${document.description}`,
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -1122,7 +1122,7 @@ export async function postCashFxRevaluation(data: {
         .values({
           userId,
           date: data.valuationDate,
-          description: `Сторно: ${replaceTarget.voucher.description}`,
+          description: `Буцаалт: ${replaceTarget.voucher.description}`,
           status: "posted",
         })
         .returning({ id: journalVouchers.id });
@@ -1260,7 +1260,7 @@ export async function reverseCashFxRevaluation(id: string) {
     ],
   });
   if (latest?.id !== revaluation.id)
-    throw new Error("Зөвхөн хамгийн сүүлийн тэгшитгэлийг сторно хийнэ");
+    throw new Error("Зөвхөн хамгийн сүүлийн тэгшитгэлийг буцаана");
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -1280,7 +1280,7 @@ export async function reverseCashFxRevaluation(id: string) {
       .values({
         userId,
         date: revaluation.valuationDate,
-        description: `Сторно: ${revaluation.voucher.description}`,
+        description: `Буцаалт: ${revaluation.voucher.description}`,
         status: "posted",
       })
       .returning({ id: journalVouchers.id });

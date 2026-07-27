@@ -72,7 +72,7 @@ const STATUS_LABELS: Record<string, string> = {
 const ENTRY_STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Батлагдсан",
-  reversed: "Сторно",
+  reversed: "Буцаагдсан",
 };
 
 const emptyForm = () => ({

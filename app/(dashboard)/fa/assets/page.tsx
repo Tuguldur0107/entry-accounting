@@ -15,7 +15,7 @@ export default async function FaAssetsPage() {
       where: eq(fixedAssets.userId, userId),
       orderBy: (asset, { desc }) => [desc(asset.acquisitionDate), desc(asset.createdAt)],
     }),
-    // Дэлгэрэнгүй харагдацад бүх бичилт (ноорог/батлагдсан/сторно) хэрэгтэй;
+    // Дэлгэрэнгүй харагдацад бүх бичилт (ноорог/батлагдсан/буцаагдсан) хэрэгтэй;
     // хуримтлагдсанд зөвхөн posted-ыг тооцно.
     db.query.faDepreciationEntries.findMany({
       where: and(

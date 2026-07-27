@@ -315,7 +315,7 @@ export function GlDashboard({
             badText={`Дт ≠ Кт · зөрүү ${fmtMnt(totalDebit - totalCredit)}`}
             onClick={() =>
               openDrill("Дт=Кт — бүх бичигдсэн журнал", isPostedLike, (v) => v.debit, {
-                note: "Сторно хосууд хамт орсон — нийлбэр нь харилцан цуцлагдана",
+                note: "Буцаалтын хосууд хамт орсон — нийлбэр нь харилцан цуцлагдана",
                 link: {
                   href: "/gl/reports?report=gl-balance",
                   label: "Гүйлгээ баланс руу",
@@ -736,7 +736,7 @@ export function GlDashboard({
                       type="button"
                       onClick={() =>
                         openDrill(
-                          `${month} — сторно хийгдсэн журналууд`,
+                          `${month} — буцаагдсан журналууд`,
                           (v) => v.status === "reversed" && inMonth(v),
                           (v) => v.debit
                         )
@@ -744,7 +744,7 @@ export function GlDashboard({
                       className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[var(--ea-text-2)] transition-colors hover:bg-[var(--ea-bg-2)]"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ea-warning)]" />
-                      Энэ сард {alerts.reversedThisMonth} журнал сторно хийгдсэн
+                      Энэ сард {alerts.reversedThisMonth} журнал буцаагдсан
                     </button>
                   </li>
                 )}

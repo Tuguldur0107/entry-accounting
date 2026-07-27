@@ -408,7 +408,7 @@ export async function unpostVoucher(id: string) {
       .values({
         userId,
         date: voucher.date,
-        description: `Сторно: ${voucher.description}`,
+        description: `Буцаалт: ${voucher.description}`,
         status: "posted",
       })
       .returning();
@@ -530,7 +530,7 @@ export async function duplicateVoucher(id: string) {
     with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
-  // Сторно журналын дүн сөрөг байдаг; createVoucher/updateVoucher нь
+  // Буцаалтын журналын дүн сөрөг байдаг; createVoucher/updateVoucher нь
   // сөрөг мөрийг шүүж хаядаг тул хуулбар нь хадгалагдахгүй ноорог болно.
   if (
     voucher.lines.some(
@@ -538,7 +538,7 @@ export async function duplicateVoucher(id: string) {
     )
   )
     throw new Error(
-      "Сторно журналыг хуулбарлах боломжгүй — эх журналыг нь хуулбарлана уу"
+      "Буцаалтын журналыг хуулбарлах боломжгүй — эх журналыг нь хуулбарлана уу"
     );
 
   const today = new Date().toLocaleDateString("en-CA", {

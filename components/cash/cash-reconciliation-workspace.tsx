@@ -428,9 +428,9 @@ export function CashReconciliationWorkspace({
   const reverseFx = useCallback(
     async (row: CashFxHistoryRow) => {
       const ok = await confirm({
-        title: "Ханшийн тэгшитгэл сторно",
-        description: `${row.accountName} дансны тэгшитгэлийг сторно журналаар буцаах уу?`,
-        confirmText: "Сторно",
+        title: "Ханшийн тэгшитгэлийн буцаалт",
+        description: `${row.accountName} дансны тэгшитгэлийг буцаалтын журналаар буцаах уу?`,
+        confirmText: "Буцаалт хийх",
         danger: true,
       });
       if (!ok) return;
@@ -439,12 +439,12 @@ export function CashReconciliationWorkspace({
         try {
           await reverseCashFxRevaluation(row.id);
           router.refresh();
-          toast.success("Тэгшитгэл сторно хийгдлээ");
+          toast.success("Тэгшитгэл буцаагдлаа");
         } catch (caught) {
           const message =
             caught instanceof Error
               ? caught.message
-              : "Тэгшитгэлийг сторно хийж чадсангүй";
+              : "Тэгшитгэлийг буцаалт хийж чадсангүй";
           setError(message);
           toast.error(message);
         }
@@ -583,7 +583,7 @@ export function CashReconciliationWorkspace({
         width: 105,
         pinned: "right",
         valueFormatter: (params) =>
-          params.value === "posted" ? "Идэвхтэй" : "Сторно",
+          params.value === "posted" ? "Идэвхтэй" : "Буцаагдсан",
       },
       {
         headerName: "",
@@ -597,8 +597,8 @@ export function CashReconciliationWorkspace({
             <button
               type="button"
               className="ea-btn ea-btn--icon ea-btn--warning"
-              title="Тэгшитгэлийг сторно хийх"
-              aria-label="Тэгшитгэлийг сторно хийх"
+              title="Тэгшитгэлийг буцаалт хийх"
+              aria-label="Тэгшитгэлийг буцаалт хийх"
               disabled={isPending}
               onClick={() => params.data && reverseFx(params.data)}
             >
@@ -1082,7 +1082,7 @@ export function CashReconciliationWorkspace({
                     variant="outline"
                     size="icon"
                     className="h-10 w-10 shrink-0"
-                    aria-label="Тэгшитгэлийг сторно хийх"
+                    aria-label="Тэгшитгэлийг буцаалт хийх"
                     disabled={isPending}
                     onClick={() => reverseFx(item)}
                   >
@@ -1090,7 +1090,7 @@ export function CashReconciliationWorkspace({
                   </Button>
                 ) : (
                   <span className="text-xs text-[var(--ea-text-4)]">
-                    Сторно
+                    Буцаалт хийх
                   </span>
                 )}
               </div>
@@ -1241,7 +1241,7 @@ export function CashReconciliationWorkspace({
                 <div className="space-y-4">
                   {replacesExisting && (
                     <div className="rounded-md bg-[var(--ea-warning-bg)] px-3 py-2 text-xs text-[var(--ea-warning)]">
-                      Энэ өдрийн өмнөх тэгшитгэлийг сторно хийж шинэ
+                      Энэ өдрийн өмнөх тэгшитгэлийг буцаалт хийж шинэ
                       хувилбараар солино.
                     </div>
                   )}

@@ -432,7 +432,7 @@ export async function deleteInventoryMovement(id: string) {
 }
 
 // Баталсан хөдөлгөөнийг цуцлах — зөвхөн идэвхтэй cost entry-гүй үед
-// (үнэлэгдсэн бол эхлээд costing талд сторно хийнэ — уялдааны гэрээ).
+// (үнэлэгдсэн бол эхлээд costing талд буцаалт хийнэ — уялдааны гэрээ).
 export async function cancelInventoryMovement(id: string) {
   const userId = await requireUser();
   const movement = await db.query.inventoryMovements.findFirst({
@@ -458,7 +458,7 @@ export async function cancelInventoryMovement(id: string) {
     });
     if (activeEntry)
       throw new Error(
-        "Энэ хөдөлгөөн үнэлэгдсэн байна — эхлээд өртгийн бичилтийг нь сторно/устгана уу"
+        "Энэ хөдөлгөөн үнэлэгдсэн байна — эхлээд өртгийн бичилтийг нь буцааж/устгана уу"
       );
 
     // Цуцлахад бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой

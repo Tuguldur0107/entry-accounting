@@ -416,7 +416,7 @@ export async function deleteCostEntry(id: string) {
 
   // Дундаж өртөг дараалсан бичилтүүдээр дамждаг: энэ бичилтээс ХОЙШХИ
   // идэвхтэй бичилт тухайн бараанд байвал тэдгээрийн үнэлгээ энэ бичилтийн
-  // дунджаас хамаарсан — эхлээд сүүлийнхийг нь устгаж/сторно хийнэ.
+  // дунджаас хамаарсан — эхлээд сүүлийнхийг нь устгаж/буцаана.
   const laterEntries = await db.query.costEntries.findMany({
     where: and(
       eq(costEntries.userId, userId),
@@ -436,7 +436,7 @@ export async function deleteCostEntry(id: string) {
   );
   if (dependent)
     throw new Error(
-      "Энэ барааны хожмын бичилтүүд энэ үнэлгээнээс хамаарна — эхлээд тэдгээрийг устгаж/сторно хийнэ үү"
+      "Энэ барааны хожмын бичилтүүд энэ үнэлгээнээс хамаарна — эхлээд тэдгээрийг устгаж/буцаана үү"
     );
 
   await db
@@ -445,7 +445,7 @@ export async function deleteCostEntry(id: string) {
   revalidateCosting();
 }
 
-// Сторно: журналыг эсрэг бичилтээр буцааж, entry-г reversed болгоно.
+// Буцаалт: журналыг эсрэг бичилтээр буцааж, entry-г reversed болгоно.
 // Дараагийн costing run уг хөдөлгөөнийг дахин үнэлж болно (reversed entry
 // идэвхтэйд тооцогдохгүй).
 export async function reverseCostEntry(id: string) {
@@ -455,7 +455,7 @@ export async function reverseCostEntry(id: string) {
     with: { movement: true },
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
-    throw new Error("Зөвхөн батлагдсан бичилтийг сторно хийнэ");
+    throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
   const entryLabel = entry.movement?.documentNo ?? "NRV";
 
   const voucher = await db.query.journalVouchers.findFirst({
@@ -486,7 +486,7 @@ export async function reverseCostEntry(id: string) {
       .values({
         userId,
         date: entry.date,
-        description: `Сторно [${entryLabel}] ${voucher.description}`,
+        description: `Буцаалт [${entryLabel}] ${voucher.description}`,
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -503,7 +503,7 @@ export async function reverseCostEntry(id: string) {
     );
 
     // Воучерийг claim хийж буцаана: GL талаас (unpost) аль хэдийн
-    // буцаагдсан бол ХОЁР ДАХЬ сторно бичихгүй — алдаа шидэж транзакц
+    // буцаагдсан бол ХОЁР ДАХЬ буцаалт бичихгүй — алдаа шидэж транзакц
     // бүхэлдээ буцна.
     const [voucherClaimed] = await tx
       .update(journalVouchers)

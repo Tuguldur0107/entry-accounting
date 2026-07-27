@@ -48,7 +48,7 @@ const ENTRY_TYPE_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Батлагдсан",
-  reversed: "Сторно",
+  reversed: "Буцаагдсан",
 };
 
 type StatusTab = "all" | "draft" | "posted" | "reversed";
@@ -57,7 +57,7 @@ const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: "all", label: "Бүх төлөв" },
   { value: "draft", label: "Ноорог" },
   { value: "posted", label: "Батлагдсан" },
-  { value: "reversed", label: "Сторно" },
+  { value: "reversed", label: "Буцаагдсан" },
 ];
 
 const fmtQty = (value: number) =>
@@ -159,13 +159,13 @@ export function CostEntriesView({
   const handleReverse = useCallback(
     async (id: string) => {
       const ok = await confirm({
-        title: "Сторно бичих",
-        description: "Энэ батлагдсан бичилтийг сторно журналаар буцаах уу?",
-        confirmText: "Сторно",
+        title: "Буцаалт бичих",
+        description: "Энэ батлагдсан бичилтийг буцаалтын журналаар буцаах уу?",
+        confirmText: "Буцаалт хийх",
         danger: true,
       });
       if (!ok) return;
-      runAction(() => reverseCostEntry(id), "Бичилт сторно хийгдлээ");
+      runAction(() => reverseCostEntry(id), "Бичилт буцаагдлаа");
     },
     [runAction, confirm]
   );
@@ -324,8 +324,8 @@ export function CostEntriesView({
                 <button
                   type="button"
                   className="ea-btn ea-btn--icon ea-btn--warning"
-                  title="Сторно хийх"
-                  aria-label="Сторно хийх"
+                  title="Буцаалт хийх"
+                  aria-label="Буцаалт хийх"
                   onClick={() => handleReverse(entry.id)}
                 >
                   <RotateCcw />

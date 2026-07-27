@@ -63,7 +63,7 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
         description: voucher.description,
         lines: voucher.lines.map((l) => ({
           account: l.accountNumber,
-          // Сторно журналын дүн СӨРӨГ хадгалагддаг тул зөвхөн эерэгийг
+          // Буцаалтын журналын дүн СӨРӨГ хадгалагддаг тул зөвхөн эерэгийг
           // шүүхгүй — 0-ээс ялгаатай бүх дүнг дамжуулна.
           debit: Number(l.debit) !== 0 ? String(Number(l.debit)) : "",
           credit: Number(l.credit) !== 0 ? String(Number(l.credit)) : "",

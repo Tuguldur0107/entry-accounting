@@ -131,7 +131,7 @@ export default async function GlDashboardPage() {
       });
       continue;
     }
-    // Сторно хийгдсэн эх журналыг НИЙЛБЭРТ ОРУУЛНА — түүний сторно журнал
+    // Буцаагдсан эх журналыг НИЙЛБЭРТ ОРУУЛНА — түүний буцаалтын журнал
     // (posted, Дт/Кт сольсон) хамт орж харилцан цуцлагдана. Тайлангийн
     // хуудас яг ийм дүрмээр ачаалдаг ("posted" + "reversed").
     if (voucher.status === "reversed" && voucher.date.startsWith(month))

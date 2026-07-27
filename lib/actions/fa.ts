@@ -396,7 +396,7 @@ export async function reverseDepreciationEntry(id: string) {
     with: { asset: true },
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
-    throw new Error("Зөвхөн батлагдсан бичилтийг сторно хийнэ");
+    throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
@@ -426,7 +426,7 @@ export async function reverseDepreciationEntry(id: string) {
       .values({
         userId,
         date: voucher.date,
-        description: `Сторно: ${voucher.description}`,
+        description: `Буцаалт: ${voucher.description}`,
         status: "posted",
       })
       .returning({ id: journalVouchers.id });

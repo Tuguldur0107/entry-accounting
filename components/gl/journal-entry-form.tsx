@@ -283,13 +283,13 @@ export function JournalEntryForm({
 
   async function handleStorno() {
     if (!voucherId) return;
-    if (!confirm("Энэ журналд сторно бичилт үүсгэх үү? Эх журнал 'Буцаагдсан' төлөвт орно."))
+    if (!confirm("Энэ журналд буцаалтын бичилт үүсгэх үү? Эх журнал 'Буцаагдсан' төлөвт орно."))
       return;
     try {
       await unpostVoucher(voucherId);
       closeWindow();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Сторно хийж чадсангүй");
+      setError(e instanceof Error ? e.message : "Буцааж чадсангүй");
     }
   }
 
@@ -329,6 +329,9 @@ export function JournalEntryForm({
         <span className="text-sm font-semibold" style={{ color: "var(--ea-text-1)" }}>
           {readOnly ? "Журнал харах" : isEdit ? "Журнал засах" : "Журнал бичих"}
         </span>
+        {!readOnly && (
+          <StatusBadge tone="warning">Ноорог</StatusBadge>
+        )}
         {readOnly && voucherStatus && (
           <StatusBadge
             tone={
@@ -376,20 +379,32 @@ export function JournalEntryForm({
                     className="grid min-w-0 flex-1 gap-5"
                     style={{ gridTemplateColumns: "180px minmax(0,1fr)" }}
                   >
-                    <div className="space-y-1.5">
-                      <Label htmlFor="voucher-date">Огноо</Label>
+                    <div className="min-w-0">
+                      <Label
+                        htmlFor="voucher-date"
+                        className="text-[11px] font-normal text-[var(--ea-text-4)]"
+                      >
+                        Огноо
+                      </Label>
                       <Input
                         id="voucher-date"
                         type="date"
+                        className="mt-0.5 h-9"
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="voucher-description">Гүйлгээний утга</Label>
+                    <div className="min-w-0">
+                      <Label
+                        htmlFor="voucher-description"
+                        className="text-[11px] font-normal text-[var(--ea-text-4)]"
+                      >
+                        Гүйлгээний утга
+                      </Label>
                       <Input
                         id="voucher-description"
                         type="text"
+                        className="mt-0.5 h-9"
                         placeholder="Гүйлгээний тайлбар оруулна уу"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
@@ -518,7 +533,7 @@ export function JournalEntryForm({
               {voucherStatus === "posted" && (
                 <Button variant="outline" onClick={handleStorno}>
                   <RotateCcw size={14} />
-                  Сторно хийх
+                  Буцаалт хийх
                 </Button>
               )}
               <Separator orientation="vertical" className="h-5" />

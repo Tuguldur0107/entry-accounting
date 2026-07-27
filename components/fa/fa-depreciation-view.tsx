@@ -37,7 +37,7 @@ export type DepreciationEntryView = {
 const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Батлагдсан",
-  reversed: "Сторно",
+  reversed: "Буцаагдсан",
 };
 
 interface Props {
@@ -215,19 +215,19 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
                 <button
                   type="button"
                   className="ea-btn ea-btn--icon ea-btn--warning"
-                  title="Сторно хийх"
-                  aria-label="Сторно хийх"
+                  title="Буцаалт хийх"
+                  aria-label="Буцаалт хийх"
                   onClick={async () => {
                     const ok = await confirm({
-                      title: "Сторно бичих",
-                      description: `${entry.assetName} — ${entry.periodMonth} сарын элэгдлийг сторно хийх үү?`,
-                      confirmText: "Сторно",
+                      title: "Буцаалт бичих",
+                      description: `${entry.assetName} — ${entry.periodMonth} сарын элэгдлийг буцаалт хийх үү?`,
+                      confirmText: "Буцаалт хийх",
                       danger: true,
                     });
                     if (!ok) return;
                     runAction(
                       () => reverseDepreciationEntry(entry.id),
-                      "Бичилт сторно хийгдлээ"
+                      "Бичилт буцаагдлаа"
                     );
                   }}
                 >

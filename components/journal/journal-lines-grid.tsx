@@ -27,7 +27,7 @@ import { AccountSegmentPanel } from "@/components/account/account-segment-panel"
 import { DebitCreditEditor } from "@/lib/grid/editors/DebitCreditEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
-// Сторногийн сөрөг дүнг улаанаар — "улаан сторно"-гийн уламжлалт тэмдэглэгээ.
+// Буцаалтгийн сөрөг дүнг улаанаар — "улаан буцаалт"-гийн уламжлалт тэмдэглэгээ.
 const NEGATIVE_CELL_RULE = {
   "text-[var(--ea-danger)]": (p: { value: unknown }) => Number(p.value) < 0,
 };

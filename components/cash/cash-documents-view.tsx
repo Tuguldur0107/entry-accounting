@@ -408,13 +408,13 @@ export function CashDocumentsView({
   const handleReverse = useCallback(
     async (id: string) => {
       const ok = await confirm({
-        title: "Сторно бичих",
-        description: "Энэ батлагдсан баримтыг сторно журналаар буцаах уу?",
-        confirmText: "Сторно",
+        title: "Буцаалт бичих",
+        description: "Энэ батлагдсан баримтыг буцаалтын журналаар буцаах уу?",
+        confirmText: "Буцаалт хийх",
         danger: true,
       });
       if (!ok) return;
-      runAction(() => reverseCashDocument(id), "Баримт сторно хийгдлээ");
+      runAction(() => reverseCashDocument(id), "Баримт буцаагдлаа");
     },
     [runAction, confirm]
   );
@@ -623,8 +623,8 @@ export function CashDocumentsView({
                 <button
                   type="button"
                   className="ea-btn ea-btn--icon ea-btn--warning"
-                  title="Сторно хийх"
-                  aria-label="Сторно хийх"
+                  title="Буцаалт хийх"
+                  aria-label="Буцаалт хийх"
                   onClick={() => handleReverse(document.id)}
                 >
                   <RotateCcw />

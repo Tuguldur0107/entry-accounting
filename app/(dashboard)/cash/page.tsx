@@ -61,7 +61,7 @@ function healthAction(status: CashHealthStatus) {
         actionLabel: "Тулгалт дээр GL зөрүү шалгах",
         actionHref: "/cash/reconciliation",
         explanation:
-          "Cash бүртгэл ба GL cash дансны үлдэгдэл зөрсөн байна. CashAccountId-тэй GL бичилт, сторно, гар аргаар хийсэн журнал шалгана.",
+          "Cash бүртгэл ба GL cash дансны үлдэгдэл зөрсөн байна. CashAccountId-тэй GL бичилт, буцаалт, гар аргаар хийсэн журнал шалгана.",
       };
     case "bank-cash-diff":
       return {
