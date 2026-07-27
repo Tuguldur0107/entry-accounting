@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import {
   deleteVoucher,
   postVoucher,
@@ -8,6 +9,8 @@ import {
 } from "@/lib/actions/gl";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { openVoucherPanel } from "@/lib/store/panel-store";
 import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
@@ -54,30 +57,68 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
   const defaults = defaultMonthRange();
   const appliedStart = initialStart ?? defaults.start;
   const appliedEnd = initialEnd ?? defaults.end;
+  const { confirm, dialog: confirmDialog } = useConfirm();
+
+  // columnDefs нь [activeSegIds]-ээр л memo хийгддэг тул renderer доторх
+  // handler-ууд эхний render-ийн vouchers-ийг хаасан хэвээр үлддэг. Ref-ээр
+  // үргэлж СҮҮЛИЙН жагсаалтаас уншина — эс бөгөөс refresh-ийн дараах
+  // баталгаажуулалтын текст хуучин/буруу тайлбар үзүүлнэ.
+  const vouchersRef = useRef(vouchers);
+  useEffect(() => {
+    vouchersRef.current = vouchers;
+  }, [vouchers]);
+
+  // Диалогийн текстэд аль журнал болохыг нь заана — зөвхөн id-гаар
+  // баталгаажуулах нь буруу бичилт батлах эрсдэлтэй.
+  function describeVoucher(id: string) {
+    const voucher = vouchersRef.current.find((entry) => entry.id === id);
+    if (!voucher) return "Энэ журнал";
+    return `${voucher.date} — ${voucher.description || "тайлбаргүй"}`;
+  }
+
   async function handleDelete(id: string) {
-    if (!confirm("Энэ бичилтийг устгах уу?")) return;
+    const ok = await confirm({
+      title: "Журнал устгах",
+      description: `${describeVoucher(id)} бичилтийг устгах уу?`,
+      confirmText: "Устгах",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await deleteVoucher(id);
+      toast.success("Журнал устгагдлаа");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Устгах үед алдаа гарлаа");
+      toast.error(e instanceof Error ? e.message : "Устгах үед алдаа гарлаа");
     }
   }
 
   async function handlePost(id: string) {
-    if (!confirm("Энэ ноорогийг батлах уу?")) return;
+    const ok = await confirm({
+      title: "Журнал батлах",
+      description: `${describeVoucher(id)} ноорогийг батлах уу?`,
+      confirmText: "Батлах",
+    });
+    if (!ok) return;
     try {
       await postVoucher(id);
+      toast.success("Журнал батлагдлаа");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Батлах үед алдаа гарлаа");
+      toast.error(e instanceof Error ? e.message : "Батлах үед алдаа гарлаа");
     }
   }
 
   async function handleUnpost(id: string) {
-    if (!confirm("Энэ батлагдсан журналыг ноорог болгож буцаах уу?")) return;
+    const ok = await confirm({
+      title: "Ноорог болгох",
+      description: `${describeVoucher(id)} батлагдсан журналыг ноорог болгож буцаах уу?`,
+      confirmText: "Буцаах",
+    });
+    if (!ok) return;
     try {
       await unpostVoucher(id);
+      toast.success("Журнал ноорог болов");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Буцаах үед алдаа гарлаа");
+      toast.error(e instanceof Error ? e.message : "Буцаах үед алдаа гарлаа");
     }
   }
 
@@ -88,12 +129,11 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
     if (event.data) handleEdit(event.data.id);
   }
 
+  // Тусдаа browser цонх БИШ — апп доторх ажлын панель. Нэг журналыг хоёр
+  // удаа дарвал шинээр нээхгүй, байгааг нь фокуслоно (store дотор dedupe).
   function handleEdit(id: string) {
-    window.open(
-      `/gl/journal/${id}/edit`,
-      "_blank",
-      "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
-    );
+    const voucher = vouchersRef.current.find((entry) => entry.id === id);
+    openVoucherPanel(id, voucher?.description || "Журнал");
   }
 
   const filtered = useMemo(
@@ -336,14 +376,22 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         },
       },
     ],
+    // handleEdit нь vouchers-оос хамаарах ч мөрийн товч дарагдах үед л
+    // дуудагддаг тул columnDefs-ийг дахин барих шаардлагагүй.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeSegIds]
   );
 
+  // Хоосон төлөвт ч {confirmDialog} render хийнэ — filter-ийн улмаас жагсаалт
+  // хоосон болсон үед нээлттэй байсан диалог алга болохгүй.
   if (filtered.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-white border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
-        Бичилт байхгүй
-      </div>
+      <>
+        <div className="flex flex-1 items-center justify-center bg-white border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
+          Бичилт байхгүй
+        </div>
+        {confirmDialog}
+      </>
     );
   }
 
@@ -415,6 +463,8 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         {/* Үйлдэл — empty */}
         <div />
       </div>
+
+      {confirmDialog}
     </section>
   );
 }

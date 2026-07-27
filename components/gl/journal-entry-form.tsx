@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { nanoid } from "nanoid";
 import { Copy, Files, Printer, RotateCcw } from "lucide-react";
 import {
@@ -65,6 +66,11 @@ function HeaderField({
   );
 }
 
+/**
+ * Standalone цонх дахь хаалт. Панель горимд ЭНИЙГ ДУУДАХГҮЙ — оронд нь
+ * onDone() дуудаж, эх хуудсыг router.refresh()-ээр л шинэчилнэ (бүтэн
+ * reload хийхгүй тул шүүлтүүр/скролл/бусад панель хэвээр үлдэнэ).
+ */
 function closeWindow() {
   if (typeof window === "undefined") return;
   if (window.opener) {
@@ -101,6 +107,24 @@ interface Props {
   voucherStatus?: string;
   /** Харах горимд үзүүлэх үүсгэсэн огноо-цаг (урьдчилан форматалсан). */
   voucherCreatedAt?: string;
+  /** Панель дотор — өөрийн gorimoo цонх шиг барихгүй, эцгээ дүүргэнэ. */
+  embedded?: boolean;
+  /** Панель горимд: АМЖИЛТТАЙ ажил (хадгалах/буцаалт) дуусахад дуудагдана. */
+  onDone?: () => void;
+  /**
+   * Панель горимд: Болих/Хаах — юу ч хадгалагдаагүй гарах хүсэлт. Панелийн
+   * dirty-баталгаажуулалтаар дайрдаг тул бөглөсөн зүйл чимээгүй устахгүй.
+   */
+  onCancel?: () => void;
+  /** Панель горимд: хадгалаагүй өөрчлөлтийн төлөв мэдэгдэнэ. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** Панель горимд: хуулбарыг шинэ панелиар нээхэд. */
+  onOpenVoucher?: (voucherId: string) => void;
+  /**
+   * Гарын shortcut (Ctrl+Enter) идэвхтэй эсэх. Панель горимд зөвхөн ФОКУСТАЙ
+   * панель true авна — эс бөгөөс нээлттэй бүх панель зэрэг хадгалчихна.
+   */
+  shortcutsEnabled?: boolean;
 }
 
 const fmt = (n: number) => fmtMnt(n);
@@ -115,6 +139,12 @@ export function JournalEntryForm({
   readOnly = false,
   voucherStatus,
   voucherCreatedAt,
+  embedded = false,
+  onDone,
+  onCancel,
+  onDirtyChange,
+  onOpenVoucher,
+  shortcutsEnabled = true,
 }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const isEdit = !!voucherId;
@@ -162,6 +192,10 @@ export function JournalEntryForm({
   const [saving, setSaving] = useState<"draft" | "posted" | null>(null);
   const [error, setError] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
+  // Панель горимд хэвлэх үед л print sheet-ийг body-д portal-оор гаргана —
+  // эс бөгөөс window.print() нь АРД байгаа хуудас + нээлттэй БҮХ панелийн
+  // sheet-ийг зэрэг хэвлэнэ.
+  const [printing, setPrinting] = useState(false);
 
   const nameByMain = useMemo(
     () => new Map(accounts.map((a) => [a.number, a.name])),
@@ -188,6 +222,10 @@ export function JournalEntryForm({
   });
   const [initialSnapshot] = useState(currentSnapshot);
   const dirty = !readOnly && currentSnapshot !== initialSnapshot;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   useEffect(() => {
     if (!dirty || saving !== null) return;
@@ -222,6 +260,20 @@ export function JournalEntryForm({
     return map;
   }, [activeSegIds, accounts, segmentValues, readOnly]);
 
+  // АМЖИЛТТАЙ ажил дуусахад: панель горимд эцэгтээ мэдэгдэнэ (эх хуудас
+  // зөвхөн router.refresh хийнэ), standalone цонхонд өөрийгөө хаана.
+  const finish = useCallback(() => {
+    if (embedded) onDone?.();
+    else closeWindow();
+  }, [embedded, onDone]);
+
+  // Болих/Хаах: панель горимд onCancel → панелийн dirty-баталгаажуулалт.
+  // onDone-оор дайрвал бөглөсөн зүйл асуултгүй устана — тиймээс тусдаа зам.
+  function cancel() {
+    if (embedded) (onCancel ?? onDone)?.();
+    else closeWindow();
+  }
+
   async function handleSave(status: "draft" | "posted") {
     if (!date || !description.trim()) {
       setError("Огноо ба гүйлгээний утгыг бөглөнө үү");
@@ -253,16 +305,17 @@ export function JournalEntryForm({
       } else {
         await createVoucher(payload);
       }
-      closeWindow();
+      finish();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Алдаа гарлаа");
       setSaving(null);
     }
   }
 
-  // Ctrl/Cmd+Enter — хадгалах shortcut (зөвхөн засварлах горимд).
+  // Ctrl/Cmd+Enter — хадгалах shortcut (зөвхөн засварлах горимд, панель
+  // горимд зөвхөн фокустай панельд — window-түвшний listener тул).
   useEffect(() => {
-    if (readOnly) return;
+    if (readOnly || !shortcutsEnabled) return;
     const onKey = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return;
       event.preventDefault();
@@ -277,7 +330,26 @@ export function JournalEntryForm({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, saving, date, description]);
+  }, [readOnly, shortcutsEnabled, saving, date, description]);
+
+  function handlePrint() {
+    // Standalone цонхонд бүх хуудас өөрөө print:hidden/print:block-оор
+    // зохицуулагдсан; панель горимд portal + body class хэрэгтэй.
+    if (!embedded) window.print();
+    else setPrinting(true);
+  }
+
+  useEffect(() => {
+    if (!printing) return;
+    // Class нь globals.css-ийн дүрмээр sheet-ээс бусад бүгдийг нуудаг.
+    document.body.classList.add("ea-printing-voucher");
+    window.print();
+    document.body.classList.remove("ea-printing-voucher");
+    // window.print() нь хэвлэх dialog хаагдтал блоклоно — дараа нь portal-ыг
+    // буулгана (sync setState effect дотор хориотой тул timeout-оор).
+    const timer = setTimeout(() => setPrinting(false), 0);
+    return () => clearTimeout(timer);
+  }, [printing]);
 
   async function copyId() {
     if (!voucherId) return;
@@ -296,7 +368,12 @@ export function JournalEntryForm({
     if (!voucherId) return;
     try {
       const { id } = await duplicateVoucher(voucherId);
-      window.location.href = `/gl/journal/${id}/edit`;
+      if (embedded) {
+        onOpenVoucher?.(id);
+        onDone?.();
+      } else {
+        window.location.href = `/gl/journal/${id}/edit`;
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Хуулбарлаж чадсангүй");
     }
@@ -308,7 +385,7 @@ export function JournalEntryForm({
       return;
     try {
       await unpostVoucher(voucherId);
-      closeWindow();
+      finish();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Буцааж чадсангүй");
     }
@@ -321,12 +398,105 @@ export function JournalEntryForm({
         ? "Буцаагдсан"
         : "Ноорог";
 
+  /* ── Хэвлэх баримт — зөвхөн print үед харагдана ─────────────────────── */
+  const printSheet = (
+    <div className="ea-print-sheet hidden print:block bg-white p-8 text-black">
+      <div className="mb-1 text-center text-lg font-bold uppercase tracking-wide">
+        Журналын баримт
+      </div>
+      <div className="mb-5 text-center text-xs text-neutral-500">
+        № {voucherId ?? "—"}
+      </div>
+      <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
+        <div>
+          <span className="text-neutral-500">Огноо: </span>
+          <span className="font-mono">{date}</span>
+        </div>
+        <div>
+          <span className="text-neutral-500">Төлөв: </span>
+          {statusLabel}
+        </div>
+        <div>
+          <span className="text-neutral-500">Мөр: </span>
+          <span className="font-mono">{lines.length}</span>
+        </div>
+        <div className="col-span-3">
+          <span className="text-neutral-500">Гүйлгээний утга: </span>
+          {description || "—"}
+        </div>
+      </div>
+
+      <div
+        className="grid border-t border-b border-black text-xs"
+        style={{ gridTemplateColumns: "1.4fr 1.2fr 1.4fr 0.9fr 0.9fr" }}
+      >
+        <div className="border-b border-neutral-400 py-1.5 font-semibold">Данс</div>
+        <div className="border-b border-neutral-400 py-1.5 font-semibold">Дансны нэр</div>
+        <div className="border-b border-neutral-400 py-1.5 font-semibold">Тайлбар</div>
+        <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
+          Дебет
+        </div>
+        <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
+          Кредит
+        </div>
+        {lines.map((line) => {
+          const label = accountLabel(line.account);
+          return (
+            <div key={line.id} className="contents">
+              <div className="py-1 font-mono">{label.code}</div>
+              <div className="py-1">{label.name}</div>
+              <div className="py-1">{line.description || ""}</div>
+              <div className="py-1 text-right font-mono">
+                {line.debit ? fmt(line.debit) : ""}
+              </div>
+              <div className="py-1 text-right font-mono">
+                {line.credit ? fmt(line.credit) : ""}
+              </div>
+            </div>
+          );
+        })}
+        <div className="col-span-3 border-t border-black py-1.5 font-semibold">
+          Нийт дүн
+        </div>
+        <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
+          {fmt(totalDebit)}
+        </div>
+        <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
+          {fmt(totalCredit)}
+        </div>
+      </div>
+
+      <div className="mt-12 grid grid-cols-3 gap-8 text-xs">
+        <div>
+          Бүрдүүлсэн: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+        <div>
+          Шалгасан: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+        <div>
+          Батласан: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
     <div
-      className="h-screen flex flex-col print:hidden"
-      style={{ background: "var(--ea-bg)", fontFamily: "var(--ea-font-sans)" }}
+      className={cn(
+        "flex flex-col print:hidden",
+        embedded ? "min-h-0 flex-1" : "h-screen"
+      )}
+      style={{
+        background: embedded ? "var(--ea-surface)" : "var(--ea-bg)",
+        fontFamily: "var(--ea-font-sans)",
+      }}
     >
+      {/* Панель дотор гарчгийн мөрийг панелийн толгой үзүүлдэг тул давхардуулахгүй */}
+      {!embedded && (
       <header
         className="px-6 flex items-center shrink-0 h-12 gap-3"
         style={{
@@ -334,7 +504,7 @@ export function JournalEntryForm({
           borderBottom: "1px solid var(--ea-border)",
         }}
       >
-        <Button variant="ghost" size="sm" onClick={closeWindow}>
+        <Button variant="ghost" size="sm" onClick={cancel}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
               d="M10 3L5 8l5 5"
@@ -371,8 +541,14 @@ export function JournalEntryForm({
           </StatusBadge>
         )}
       </header>
+      )}
 
-      <div className="flex-1 overflow-y-auto py-6 px-6">
+      <div
+        className={cn(
+          "flex-1 overflow-y-auto",
+          embedded ? "px-4 py-4" : "px-6 py-6"
+        )}
+      >
         <div className="max-w-screen-xl mx-auto space-y-4">
           <div
             className="p-5"
@@ -511,7 +687,10 @@ export function JournalEntryForm({
       </div>
 
       <footer
-        className="px-6 py-3 flex items-center justify-between shrink-0"
+        className={cn(
+          "flex shrink-0 items-center justify-between py-3",
+          embedded ? "px-4" : "px-6"
+        )}
         style={{
           background: "var(--ea-surface)",
           borderTop: "1px solid var(--ea-border)",
@@ -531,7 +710,7 @@ export function JournalEntryForm({
         <div className="flex items-center gap-2">
           {readOnly ? (
             <>
-              <Button variant="outline" onClick={() => window.print()}>
+              <Button variant="outline" onClick={handlePrint}>
                 <Printer size={14} />
                 Хэвлэх
               </Button>
@@ -546,7 +725,7 @@ export function JournalEntryForm({
                 </Button>
               )}
               <Separator orientation="vertical" className="h-5" />
-              <Button variant="outline" onClick={closeWindow}>
+              <Button variant="outline" onClick={cancel}>
                 Хаах
               </Button>
             </>
@@ -559,7 +738,7 @@ export function JournalEntryForm({
                 + Мөр нэмэх
               </Button>
               <Separator orientation="vertical" className="h-5" />
-              <Button variant="outline" onClick={closeWindow}>
+              <Button variant="outline" onClick={cancel}>
                 Болих
               </Button>
               <Button
@@ -582,88 +761,14 @@ export function JournalEntryForm({
       </footer>
     </div>
 
-      {/* ── Хэвлэх баримт — зөвхөн print үед харагдана ─────────────────── */}
-      <div className="hidden print:block bg-white p-8 text-black">
-        <div className="mb-1 text-center text-lg font-bold uppercase tracking-wide">
-          Журналын баримт
-        </div>
-        <div className="mb-5 text-center text-xs text-neutral-500">
-          № {voucherId ?? "—"}
-        </div>
-        <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
-          <div>
-            <span className="text-neutral-500">Огноо: </span>
-            <span className="font-mono">{date}</span>
-          </div>
-          <div>
-            <span className="text-neutral-500">Төлөв: </span>
-            {statusLabel}
-          </div>
-          <div>
-            <span className="text-neutral-500">Мөр: </span>
-            <span className="font-mono">{lines.length}</span>
-          </div>
-          <div className="col-span-3">
-            <span className="text-neutral-500">Гүйлгээний утга: </span>
-            {description || "—"}
-          </div>
-        </div>
-
-        <div
-          className="grid border-t border-b border-black text-xs"
-          style={{ gridTemplateColumns: "1.4fr 1.2fr 1.4fr 0.9fr 0.9fr" }}
-        >
-          <div className="border-b border-neutral-400 py-1.5 font-semibold">Данс</div>
-          <div className="border-b border-neutral-400 py-1.5 font-semibold">Дансны нэр</div>
-          <div className="border-b border-neutral-400 py-1.5 font-semibold">Тайлбар</div>
-          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
-            Дебет
-          </div>
-          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
-            Кредит
-          </div>
-          {lines.map((line) => {
-            const label = accountLabel(line.account);
-            return (
-              <div key={line.id} className="contents">
-                <div className="py-1 font-mono">{label.code}</div>
-                <div className="py-1">{label.name}</div>
-                <div className="py-1">{line.description || ""}</div>
-                <div className="py-1 text-right font-mono">
-                  {line.debit ? fmt(line.debit) : ""}
-                </div>
-                <div className="py-1 text-right font-mono">
-                  {line.credit ? fmt(line.credit) : ""}
-                </div>
-              </div>
-            );
-          })}
-          <div className="col-span-3 border-t border-black py-1.5 font-semibold">
-            Нийт дүн
-          </div>
-          <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
-            {fmt(totalDebit)}
-          </div>
-          <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
-            {fmt(totalCredit)}
-          </div>
-        </div>
-
-        <div className="mt-12 grid grid-cols-3 gap-8 text-xs">
-          <div>
-            Бүрдүүлсэн: _______________________
-            <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
-          </div>
-          <div>
-            Шалгасан: _______________________
-            <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
-          </div>
-          <div>
-            Батласан: _______________________
-            <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
-          </div>
-        </div>
-      </div>
+      {/* Панель горимд sheet-ийг body-д, зөвхөн хэвлэж байх агшинд — олон
+          панель нээлттэй байсан ч зөвхөн ЭНЭ журнал хэвлэгдэнэ. Standalone
+          цонхонд хуучин шигээ байнга (Ctrl+P ч ажиллана). */}
+      {embedded
+        ? printing &&
+          typeof document !== "undefined" &&
+          createPortal(printSheet, document.body)
+        : printSheet}
     </>
   );
 }

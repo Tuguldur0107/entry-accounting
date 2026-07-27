@@ -8,6 +8,7 @@ import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { HeaderJournalSearch } from "@/components/layout/header-journal-search";
 import { HeaderReportSelect } from "@/components/layout/header-report-select";
 import { NewJournalButton } from "@/components/layout/new-journal-button";
+import { PanelHost } from "@/components/panel/panel-host";
 
 export default async function DashboardLayout({
   children,
@@ -84,6 +85,8 @@ export default async function DashboardLayout({
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 md:px-6 md:py-8">{children}</main>
       </div>
+      {/* Ажлын панелиуд — олон зэрэг нээгдэж, доод докоор сэлгэнэ */}
+      <PanelHost />
     </div>
   );
 }

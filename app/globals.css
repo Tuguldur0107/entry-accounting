@@ -429,3 +429,13 @@
 .ea-clickable-rows .ag-row {
   cursor: pointer;
 }
+
+/* ─── Панелиас хэвлэх ─────────────────────────────────────────────────────── */
+/* Журналын панель window.print() дуудахдаа энэ class-ыг body-д түр тавьдаг —
+   portal-оор гарсан .ea-print-sheet-ээс бусад бүх зүйл (апп, бусад панель)
+   хэвлэгдэхгүй. */
+@media print {
+  body.ea-printing-voucher > *:not(.ea-print-sheet) {
+    display: none !important;
+  }
+}

@@ -9,11 +9,41 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronsUpDown, Check } from "lucide-react";
 
+const MIN_WIDTH = 260;
+const MARGIN = 8;
+/** Хүсэмжит өндөр (хайлтын мөр + жагсаалт) — flip шийдэх босго. */
+const PREFERRED_HEIGHT = 300;
+
 export interface SearchableOption {
   value: string;
   label: string;
   /** Optional secondary text shown muted next to the label. */
   hint?: string;
+}
+
+/**
+ * Anchor-оос portal-ийн байрлалыг тооцно. Trigger-ийн rect нь нээх үед
+ * авагддаг тул scroll/resize дээр panel-ыг хаадаг (доор effect); энд зөвхөн
+ * viewport-д багтаах — доошоо зай хүрэхгүй бол дээшээ эргэнэ, хэвтээ чиглэлд
+ * шахна.
+ */
+function panelPosition(anchor: DOMRect) {
+  const width = Math.min(
+    Math.max(MIN_WIDTH, anchor.width),
+    window.innerWidth - MARGIN * 2
+  );
+  const left = Math.max(
+    MARGIN,
+    Math.min(anchor.left, window.innerWidth - width - MARGIN)
+  );
+  const spaceBelow = window.innerHeight - anchor.bottom - MARGIN;
+  const spaceAbove = anchor.top - MARGIN;
+  const openUp = spaceBelow < PREFERRED_HEIGHT && spaceAbove > spaceBelow;
+  const available = Math.max(0, openUp ? spaceAbove : spaceBelow) - 4;
+  const maxHeight = Math.max(140, Math.min(PREFERRED_HEIGHT, available));
+  return openUp
+    ? { left, width, bottom: window.innerHeight - anchor.top + 4, maxHeight }
+    : { left, width, top: anchor.bottom + 4, maxHeight };
 }
 
 interface Props {
@@ -36,9 +66,10 @@ export function SearchableSelect({
   emptyLabel = "Илэрц олдсонгүй",
   disabled = false,
 }: Props) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  // Нээлттэй эсэх нь anchor-оор илэрхийлэгдэнэ — null бол хаалттай.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const open = anchor !== null;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -57,28 +88,50 @@ export function SearchableSelect({
 
   function openDropdown() {
     if (disabled || !triggerRef.current) return;
-    const r = triggerRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    setAnchor(triggerRef.current.getBoundingClientRect());
     setQuery("");
-    setOpen(true);
     setTimeout(() => inputRef.current?.focus(), 30);
   }
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t)) return;
-      if ((t as HTMLElement).closest?.("[data-searchable-portal]")) return;
-      setOpen(false);
+    const isInside = (target: EventTarget | null) => {
+      const node = target as HTMLElement | null;
+      return Boolean(
+        node && (triggerRef.current?.contains(node) ||
+          node.closest?.("[data-searchable-portal]"))
+      );
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    const onMouseDown = (e: MouseEvent) => {
+      if (!isInside(e.target)) setAnchor(null);
+    };
+    // Capture дээр барьж stopPropagation хийнэ — эс бөгөөс Dialog нь ижил
+    // Escape дээр бүхэлдээ хаагдана (Base UI нь document-д bubble сонсдог).
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setAnchor(null);
+    };
+    // Anchor координат хуучирдаг тул гадна scroll/resize дээр хаана.
+    const onScroll = (e: Event) => {
+      if (!isInside(e.target)) setAnchor(null);
+    };
+    const onResize = () => setAnchor(null);
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
   }, [open]);
 
   function pick(v: string) {
     onChange(v);
-    setOpen(false);
+    setAnchor(null);
     setQuery("");
   }
 
@@ -88,7 +141,7 @@ export function SearchableSelect({
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={() => (open ? setOpen(false) : openDropdown())}
+        onClick={() => (open ? setAnchor(null) : openDropdown())}
         className="ea-form-select flex w-full items-center justify-between gap-2 text-left disabled:opacity-50"
       >
         <span
@@ -110,16 +163,16 @@ export function SearchableSelect({
         <ChevronsUpDown size={14} className="shrink-0 text-[var(--ea-text-4)]" />
       </button>
 
-      {open &&
+      {anchor &&
         typeof document !== "undefined" &&
         createPortal(
           <div
             data-searchable-portal=""
             style={{
               position: "fixed",
-              top: pos.top,
-              left: pos.left,
-              width: Math.max(pos.width, 260),
+              ...panelPosition(anchor),
+              display: "flex",
+              flexDirection: "column",
               zIndex: 10000,
               background: "var(--ea-surface)",
               border: "1px solid var(--ea-border-strong)",
@@ -128,7 +181,10 @@ export function SearchableSelect({
               overflow: "hidden",
             }}
           >
-            <div className="p-1.5" style={{ borderBottom: "1px solid var(--ea-border)" }}>
+            <div
+              className="shrink-0 p-1.5"
+              style={{ borderBottom: "1px solid var(--ea-border)" }}
+            >
               <input
                 ref={inputRef}
                 type="text"
@@ -138,7 +194,8 @@ export function SearchableSelect({
                 className="w-full rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg)] px-2 py-1.5 text-xs text-[var(--ea-text-1)] outline-none focus:border-[var(--ea-primary)]"
               />
             </div>
-            <div style={{ maxHeight: 260, overflowY: "auto" }}>
+            {/* maxHeight нь эцэг элемент дээр — жагсаалт үлдсэн зайг эзэлнэ. */}
+            <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
               <button
                 type="button"
                 onMouseDown={() => pick("")}

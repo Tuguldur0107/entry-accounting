@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { openVoucherPanel } from "@/lib/store/panel-store";
 import {
   Dialog,
   DialogContent,
@@ -168,14 +169,13 @@ export function GlDashboard({
 
   const [drill, setDrill] = useState<DrillState | null>(null);
 
-  // Журналын жагсаалттай ижил standalone цонх — ноорог бол засварлагч,
-  // бичигдсэн/буцаагдсан бол харах горимоор нээгдэнэ.
-  function openVoucherEditor(id: string) {
-    window.open(
-      `/gl/journal/${id}/edit`,
-      "_blank",
-      "width=1280,height=800,menubar=no,toolbar=no,location=no,status=no"
-    );
+  // Журналын жагсаалттай ижил ажлын панель — ноорог бол засварлагч,
+  // бичигдсэн/буцаагдсан бол харах горимоор нээгдэнэ. Задаргааны dialog нь
+  // modal (панелиас дээд давхаргад overlay-тай) тул хаана — эс бөгөөс шинэ
+  // панель харанхуй overlay-н ДОР дарагдаж, дарж болохгүй болно.
+  function openVoucherEditor(id: string, title?: string) {
+    setDrill(null);
+    openVoucherPanel(id, title);
   }
 
   /** 1-р түвшин: метрикийн бүрдүүлэгч журналуудын жагсаалт. */
@@ -672,7 +672,7 @@ export function GlDashboard({
                   <li key={draft.id}>
                     <button
                       type="button"
-                      onClick={() => openVoucherEditor(draft.id)}
+                      onClick={() => openVoucherEditor(draft.id, draft.description)}
                       title="Журналыг нээж шалгах"
                       className={cn(
                         "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-[var(--ea-bg-2)]",
@@ -773,7 +773,8 @@ export function GlDashboard({
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
             onRowClicked={(event) => {
-              if (event.data) openVoucherEditor(event.data.id);
+              if (event.data)
+                openVoucherEditor(event.data.id, event.data.description);
             }}
           />
         )}
@@ -823,7 +824,8 @@ export function GlDashboard({
                     wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
                     suppressCellFocus
                     onRowClicked={(event) => {
-                      if (event.data) openVoucherEditor(event.data.id);
+                      if (event.data)
+                openVoucherEditor(event.data.id, event.data.description);
                     }}
                   />
                 </>

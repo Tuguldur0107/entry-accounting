@@ -157,7 +157,7 @@ export function ModuleSwitcher({
             borderRadius: 10,
             boxShadow: "var(--ea-shadow-3)",
             padding: 8,
-            zIndex: 60,
+            zIndex: 80,
             transformOrigin: "top left",
             animation: "ms-pop-grow 140ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}

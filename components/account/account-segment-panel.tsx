@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 
 import { AccountSegmentPicker } from "./account-segment-picker";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
+import { Z } from "@/lib/ui/z-layers";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
 const MIN_WIDTH = 380;
@@ -123,7 +124,7 @@ export function AccountSegmentPanel({
         left,
         width,
         ...position,
-        zIndex: agPopup ? 10000 : 70,
+        zIndex: agPopup ? Z.gridPopup : Z.popover,
         background: "var(--ea-surface)",
         border: "1px solid var(--ea-border-strong)",
         boxShadow: "var(--ea-shadow-3)",

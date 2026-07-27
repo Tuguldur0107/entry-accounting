@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
 
 import { AccountInput } from "@/components/account/account-input";
@@ -224,6 +225,9 @@ export function ArApWorkspace({
       lines: [emptyLine(activeSegIds, defaultSegments)],
     };
   });
+  // Баримтын dialog нээгдэх агшны snapshot (JSON) — хаах үед үүнтэй
+  // харьцуулж "хадгалаагүй өөрчлөлт" эсэхийг мэдэрнэ.
+  const [documentBaseline, setDocumentBaseline] = useState("");
   const [error, setError] = useState("");
 
   const filteredDocuments = useMemo(
@@ -452,7 +456,7 @@ export function ArApWorkspace({
 
   function resetDocument(type: ArApDocumentType = config.documentType) {
     const date = today();
-    setDocumentForm({
+    const next = {
       documentType: type,
       documentNo: "",
       counterpartyId: "",
@@ -463,7 +467,9 @@ export function ArApWorkspace({
       controlAccountNumber: "",
       description: "",
       lines: [emptyLine(activeSegIds, defaultSegments)],
-    });
+    };
+    setDocumentForm(next);
+    setDocumentBaseline(JSON.stringify(next));
     setError("");
     setDocumentOpen(true);
   }
@@ -510,6 +516,14 @@ export function ArApWorkspace({
       }
     });
   }
+
+  // Хадгалалт нь setDocumentOpen(false)-ийг шууд дуудна — тиймээс амжилттай
+  // хадгалсны дараа "гарах уу?" асуулт гарахгүй.
+  const guardDocumentClose = useDirtyClose({
+    dirty: documentOpen && JSON.stringify(documentForm) !== documentBaseline,
+    confirm,
+    setOpen: setDocumentOpen,
+  });
 
   async function postDraftDocument(document: ArApDocumentView) {
     const ok = await confirm({
@@ -686,7 +700,7 @@ export function ArApWorkspace({
 
       <DocumentDialog
         open={documentOpen}
-        onOpenChange={setDocumentOpen}
+        onOpenChange={guardDocumentClose}
         form={documentForm}
         setForm={setDocumentForm}
         counterparties={counterparties}

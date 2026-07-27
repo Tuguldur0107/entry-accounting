@@ -23,6 +23,7 @@ import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 import {
   activateFixedAsset,
   createFixedAsset,
@@ -90,6 +91,8 @@ const emptyForm = () => ({
   depExpenseAccountNumber: "70000001",
 });
 
+type AssetForm = ReturnType<typeof emptyForm>;
+
 interface Props {
   assets: FixedAssetView[];
   activeSegIds: number[];
@@ -112,6 +115,9 @@ export function FaAssetsView({
   const [open, setOpen] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  // Dialog нээгдэх агшны маягтын snapshot (JSON) — хаах үед үүнтэй харьцуулж
+  // "хадгалаагүй өөрчлөлт" эсэхийг мэдэрнэ.
+  const [baseline, setBaseline] = useState("");
   const [error, setError] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -122,8 +128,16 @@ export function FaAssetsView({
     [assets, detailId]
   );
 
+  // Маягтыг нээх цорын ганц гарц — snapshot-ыг мартаж орхихгүйн тулд.
+  function openForm(next: AssetForm) {
+    setForm(next);
+    setBaseline(JSON.stringify(next));
+    setError("");
+    setOpen(true);
+  }
+
   function openActivateDialog(asset: FixedAssetView) {
-    setForm({
+    openForm({
       code: asset.code,
       name: asset.name,
       acquisitionDate: asset.acquisitionDate,
@@ -150,10 +164,8 @@ export function FaAssetsView({
         defaultSegments
       ),
     });
-    setError("");
     setActivatingId(asset.id);
     setDetailId(null);
-    setOpen(true);
   }
 
   const columns = useMemo<ColDef<FixedAssetView>[]>(
@@ -360,6 +372,14 @@ export function FaAssetsView({
     });
   }
 
+  // Хадгалалт нь setOpen(false)-ийг шууд дуудна — тиймээс амжилттай
+  // хадгалсны дараа "гарах уу?" асуулт гарахгүй.
+  const guardClose = useDirtyClose({
+    dirty: open && JSON.stringify(form) !== baseline,
+    confirm,
+    setOpen,
+  });
+
   const draftCount = assets.filter((asset) => asset.status === "draft").length;
 
   const depreciableBase = detail
@@ -390,7 +410,7 @@ export function FaAssetsView({
         <Button
           onClick={() => {
             const base = emptyForm();
-            setForm({
+            openForm({
               ...base,
               assetAccountNumber: buildSegCode(
         { ...defaultSegments, 3: base.assetAccountNumber },
@@ -408,9 +428,7 @@ export function FaAssetsView({
                 defaultSegments
               ),
             });
-            setError("");
             setActivatingId(null);
-            setOpen(true);
           }}
         >
           <Plus />
@@ -592,7 +610,7 @@ export function FaAssetsView({
       </Dialog>
 
       {/* Бүртгэх / идэвхжүүлэх */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={guardClose}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -739,7 +757,11 @@ export function FaAssetsView({
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
+            <Button
+              variant="outline"
+              onClick={() => guardClose(false)}
+              disabled={isPending}
+            >
               Болих
             </Button>
             <Button onClick={save} disabled={isPending}>
