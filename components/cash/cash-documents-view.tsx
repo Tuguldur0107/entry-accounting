@@ -1,6 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+// Мөнгөн гүйлгээний жагсаалт. Мөр дээр дарахад баримтын дэлгэрэнгүй ПАНЕЛЬ
+// (cash-doc), "Шинэ гүйлгээ" нь бичих ПАНЕЛЬ (cash-new) нээгдэнэ — урьд нь
+// хоёулаа Dialog байсан. Валютын ханш асуух жижиг prompt болон бүх confirm
+// хэвээр dialog.
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type {
   ColDef,
@@ -22,7 +34,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  createCashDocument,
   deleteCashDocument,
   postCashDocument,
   postCashDocuments,
@@ -32,19 +43,16 @@ import {
 import type {
   CashAccountView,
   CashDocumentView,
-  CashFlowOption,
   CashGlAccountOption,
 } from "@/lib/cash/types";
 import { fmtMnt } from "@/lib/reports/balances";
+import {
+  openCashDocPanel,
+  openCashNewPanel,
+} from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { AccountInput } from "@/components/account/account-input";
-import type { SegOption } from "@/lib/grid/editors/SegSelect";
-import { buildSegCode } from "@/lib/grid/segments";
-import { extractMainAccount } from "@/lib/reports/balances";
-import { CashDocumentDetailDialog } from "./cash-document-detail-dialog";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -62,7 +70,6 @@ interface Props {
   documents: CashDocumentView[];
   accounts: CashAccountView[];
   glAccounts: CashGlAccountOption[];
-  cashFlowOptions: CashFlowOption[];
   allowCreate?: boolean;
   title?: string;
   /** Render the type-tab row + summary footer (transactions page). */
@@ -71,32 +78,16 @@ interface Props {
   initialType?: string;
   /** Active status filter from URL (`?status=`). */
   initialStatus?: string;
-  /** Active segment ids — needed to render GL account codes in the detail
-   *  drawer per the segment display rule. */
-  activeSegIds?: number[];
-  /** AccountInput-ийн сегмент picker-т — байхгүй бол энгийн жагсаалт. */
-  segmentOptions?: Record<number, SegOption[]>;
-  defaultSegments?: Record<number, string>;
-  initialArApSettlement?: CashArApSettlementTarget | null;
-  /** Open (unpaid / partially paid) AR/AP documents — lets the user pick an
-   *  invoice to settle right from the new-transaction dialog. */
-  arApOpenDocuments?: CashArApSettlementTarget[];
+  /**
+   * `?arap=` deep link (АР/АП-ийн "Төлөх" товч) — сервер талд нээлттэй
+   * баримт мөн эсэхийг нь шалгаад дамжуулдаг; mount дээр НЭГ удаа cash-new
+   * панелийг төлөлтийн prefill-тэй нээнэ.
+   */
+  initialArApDocumentId?: string | null;
 }
 
 type TypeTab = "all" | CashDocumentType;
 type StatusTab = "all" | "draft" | "posted" | "reversed";
-
-export interface CashArApSettlementTarget {
-  id: string;
-  documentNo: string;
-  documentType: "ar_invoice" | "ap_bill";
-  counterpartyName: string;
-  date: string;
-  currency: string;
-  controlAccountNumber: string;
-  balance: number;
-  description: string;
-}
 
 const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "all", label: "Бүгд" },
@@ -112,77 +103,36 @@ const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: "reversed", label: "Буцаагдсан" },
 ];
 
-const initialForm = () => ({
-  documentType: "receipt" as CashDocumentType,
-  date: new Date().toISOString().slice(0, 10),
-  fromCashAccountId: "",
-  toCashAccountId: "",
-  counterAccountNumber: "",
-  cashFlowCode: "",
-  counterparty: "",
-  description: "",
-  amount: "",
-  exchangeRate: "",
-});
-
-function settlementForm(
-  target: CashArApSettlementTarget,
-  accounts: CashAccountView[]
-) {
-  const documentType: CashDocumentType =
-    target.documentType === "ar_invoice" ? "receipt" : "payment";
-  const matchingCashAccount =
-    accounts.find(
-      (account) => account.isActive && account.currency === target.currency
-    ) ?? null;
-  return {
-    ...initialForm(),
-    documentType,
-    fromCashAccountId: documentType === "payment" ? matchingCashAccount?.id ?? "" : "",
-    toCashAccountId: documentType === "receipt" ? matchingCashAccount?.id ?? "" : "",
-    counterAccountNumber: target.controlAccountNumber,
-    counterparty: target.counterpartyName,
-    description: `${target.documentNo} төлөлт`,
-    amount: String(target.balance),
-  };
-}
-
 export function CashDocumentsView({
   documents,
   accounts,
   glAccounts,
-  cashFlowOptions,
   allowCreate = true,
   title = "Мөнгөн гүйлгээ",
   showToolbar = false,
   initialType,
   initialStatus,
-  activeSegIds = [3],
-  segmentOptions,
-  defaultSegments = {},
-  initialArApSettlement = null,
-  arApOpenDocuments = [],
+  initialArApDocumentId = null,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [open, setOpen] = useState(Boolean(initialArApSettlement));
-  const [form, setForm] = useState(() =>
-    initialArApSettlement
-      ? settlementForm(initialArApSettlement, accounts)
-      : initialForm()
-  );
-  const [settlementTarget, setSettlementTarget] =
-    useState<CashArApSettlementTarget | null>(initialArApSettlement);
-  const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [detailDoc, setDetailDoc] = useState<CashDocumentView | null>(null);
   // GL-derived FX draft being confirmed — needs a rate before it can post.
   const [rateDoc, setRateDoc] = useState<CashDocumentView | null>(null);
   const [rateInput, setRateInput] = useState("");
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
   const gridApiRef = useRef<GridApi<CashDocumentView> | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
+
+  // `?arap=` deep link: АР/АП баримтын төлөлтийг cash-new панелиэр НЭГ удаа
+  // нээнэ (ref guard — рендер бүрд дахин нээгдэхээс сэргийлнэ).
+  const arApOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!initialArApDocumentId || arApOpenedRef.current) return;
+    arApOpenedRef.current = true;
+    openCashNewPanel({ arApDocumentId: initialArApDocumentId });
+  }, [initialArApDocumentId]);
 
   const activeTab: TypeTab = TYPE_TABS.some((t) => t.value === initialType)
     ? (initialType as TypeTab)
@@ -644,91 +594,6 @@ export function CashDocumentsView({
     ]
   );
 
-  function showCreateDialog() {
-    setSettlementTarget(null);
-    setForm(initialForm());
-    setError("");
-    setOpen(true);
-  }
-
-  function save(postNow: boolean) {
-    setError("");
-    const amount = Number(form.amount.replaceAll(",", ""));
-    startTransition(async () => {
-      try {
-        await createCashDocument({
-          documentType: form.documentType,
-          date: form.date,
-          fromCashAccountId: form.fromCashAccountId || undefined,
-          toCashAccountId: form.toCashAccountId || undefined,
-          counterAccountNumber: form.counterAccountNumber
-            ? extractMainAccount(form.counterAccountNumber)
-            : undefined,
-          cashFlowCode: form.cashFlowCode || undefined,
-          counterparty: form.counterparty || undefined,
-          description: form.description,
-          amount,
-          exchangeRate: Number(form.exchangeRate.replaceAll(",", "")) || undefined,
-          postNow,
-          arApDocumentId: settlementTarget?.id,
-        });
-        setOpen(false);
-        router.refresh();
-        toast.success(
-          postNow ? "Гүйлгээ хадгалагдаж батлагдлаа" : "Ноорог гүйлгээ хадгалагдлаа"
-        );
-      } catch (caught) {
-        // Keep the dialog open with the form intact so the user can fix
-        // the input and retry — the error shows inline in the dialog.
-        setError(
-          caught instanceof Error ? caught.message : "Баримт хадгалж чадсангүй"
-        );
-      }
-    });
-  }
-
-  const activeAccounts = accounts.filter((account) => account.isActive);
-  const selectedCurrency =
-    accounts.find((account) =>
-      form.documentType === "receipt"
-        ? account.id === form.toCashAccountId
-        : account.id === form.fromCashAccountId
-    )?.currency ?? "MNT";
-
-  // Open AR/AP documents matching the dialog's direction: receipts settle
-  // AR invoices, payments settle AP bills.
-  const arApOptionsForType =
-    form.documentType === "transfer"
-      ? []
-      : arApOpenDocuments.filter(
-          (d) =>
-            d.documentType ===
-            (form.documentType === "receipt" ? "ar_invoice" : "ap_bill")
-        );
-
-  // Link an open AR/AP document: prefill the form from it so posting
-  // settles the invoice automatically. The already-chosen date stays, and
-  // so does the chosen cash account when its currency matches the invoice.
-  function applySettlementTarget(target: CashArApSettlementTarget | null) {
-    setSettlementTarget(target);
-    if (!target) return;
-    setForm((current) => {
-      const next = { ...settlementForm(target, accounts), date: current.date };
-      if (segmentOptions)
-        next.counterAccountNumber = buildSegCode(
-        { ...defaultSegments, 3: target.controlAccountNumber },
-          activeSegIds,
-          defaultSegments
-        );
-      const accountKey =
-        next.documentType === "receipt" ? "toCashAccountId" : "fromCashAccountId";
-      const chosen = accounts.find((a) => a.id === current[accountKey]);
-      if (chosen?.isActive && chosen.currency === target.currency)
-        next[accountKey] = chosen.id;
-      return next;
-    });
-  }
-
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
@@ -742,7 +607,7 @@ export function CashDocumentsView({
           </p>
         </div>
         {allowCreate && (
-          <Button onClick={showCreateDialog}>
+          <Button onClick={() => openCashNewPanel()}>
             <Plus />
             Шинэ гүйлгээ
           </Button>
@@ -839,10 +704,11 @@ export function CashDocumentsView({
             onCellClicked={(event) => {
               // Ignore clicks in the actions column and the selection
               // checkbox column — those have their own behavior and
-              // shouldn't also open the drawer.
+              // shouldn't also open the detail panel.
               const colId = event.column.getColId();
               if (colId === "actions" || colId.startsWith("ag-Grid")) return;
-              if (event.data) setDetailDoc(event.data);
+              if (event.data)
+                openCashDocPanel(event.data.id, event.data.documentNo);
             }}
           />
 
@@ -897,321 +763,6 @@ export function CashDocumentsView({
           )}
         </>
       )}
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {settlementTarget ? "Авлага/өглөгийн төлөлт" : "Шинэ мөнгөн гүйлгээ"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="grid gap-4">
-            {settlementTarget && (
-              <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-[var(--ea-text-1)]">
-                    {settlementTarget.documentNo} · {settlementTarget.counterpartyName}
-                  </span>
-                  <span className="font-mono font-semibold text-[var(--ea-primary)]">
-                    Үлдэгдэл {fmtMnt(settlementTarget.balance)} {settlementTarget.currency}
-                  </span>
-                </div>
-                <p className="mt-1 text-[var(--ea-text-3)]">
-                  Батлаад хадгалахад энэ мөнгөн гүйлгээ авлага/өглөгийн баримттай
-                  автоматаар тулгагдана.
-                </p>
-              </div>
-            )}
-
-            <div
-              className="grid grid-cols-3 overflow-hidden rounded-md border border-[var(--ea-border)]"
-              role="group"
-              aria-label="Гүйлгээний төрөл"
-            >
-              {(["receipt", "payment", "transfer"] as CashDocumentType[]).map(
-                (type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => {
-                      setForm((current) => ({
-                        ...current,
-                        documentType: type,
-                      }));
-                      // An AR invoice settles via receipt, an AP bill via
-                      // payment — unlink the invoice when the chosen type
-                      // no longer matches it.
-                      setSettlementTarget((current) =>
-                        current &&
-                        (current.documentType === "ar_invoice"
-                          ? "receipt"
-                          : "payment") !== type
-                          ? null
-                          : current
-                      );
-                    }}
-                    className={cn(
-                      "h-9 border-r border-[var(--ea-border)] text-xs font-medium last:border-r-0",
-                      form.documentType === type
-                        ? "bg-[var(--ea-primary)] text-white"
-                        : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-3)]"
-                    )}
-                  >
-                    {TYPE_LABELS[type]}
-                  </button>
-                )
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Огноо">
-                <Input
-                  type="date"
-                  value={form.date}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label="Дүн">
-                <Input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={form.amount}
-                  placeholder="0.00"
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      amount: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
-            </div>
-
-            {(form.documentType === "payment" ||
-              form.documentType === "transfer") && (
-              <Field label="Гаргах данс">
-                <CashAccountSelect
-                  value={form.fromCashAccountId}
-                  accounts={activeAccounts}
-                  onChange={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      fromCashAccountId: value,
-                      exchangeRate: "",
-                    }))
-                  }
-                />
-              </Field>
-            )}
-
-            {(form.documentType === "receipt" ||
-              form.documentType === "transfer") && (
-              <Field label="Хүлээн авах данс">
-                <CashAccountSelect
-                  value={form.toCashAccountId}
-                  accounts={activeAccounts}
-                  onChange={(value) =>
-                    setForm((current) => ({
-                      ...current,
-                      toCashAccountId: value,
-                      exchangeRate: "",
-                    }))
-                  }
-                />
-              </Field>
-            )}
-
-            {selectedCurrency !== "MNT" && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label={`${selectedCurrency}/MNT гүйлгээний ханш`}>
-                  <Input
-                    type="number"
-                    min="0.00000001"
-                    step="0.00000001"
-                    value={form.exchangeRate}
-                    placeholder="0.00000000"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        exchangeRate: event.target.value,
-                      }))
-                    }
-                  />
-                </Field>
-                <Field label="GL-д бичигдэх MNT дүн">
-                  <Input
-                    value={
-                      Number(form.amount) > 0 && Number(form.exchangeRate) > 0
-                        ? fmtMnt(
-                            Math.round(
-                              Number(form.amount) *
-                                Number(form.exchangeRate) *
-                                100
-                            ) / 100
-                          )
-                        : ""
-                    }
-                    readOnly
-                    placeholder="0.00"
-                  />
-                </Field>
-              </div>
-            )}
-
-            {arApOptionsForType.length > 0 && (
-              <Field
-                label={
-                  form.documentType === "receipt"
-                    ? "Авлагын нэхэмжлэлээс сонгох"
-                    : "Өглөгийн нэхэмжлэхээс сонгох"
-                }
-              >
-                <SearchableSelect
-                  value={settlementTarget?.id ?? ""}
-                  onChange={(value) =>
-                    applySettlementTarget(
-                      arApOpenDocuments.find((d) => d.id === value) ?? null
-                    )
-                  }
-                  options={[
-                    { value: "", label: "— Нэхэмжлэх холбохгүй —" },
-                    ...arApOptionsForType.map((d) => ({
-                      value: d.id,
-                      label: `${d.documentNo} · ${d.counterpartyName}`,
-                      hint: `Үлдэгдэл ${fmtMnt(d.balance)} ${d.currency}`,
-                    })),
-                  ]}
-                  placeholder="Нэхэмжлэх сонгох (заавал биш)..."
-                />
-              </Field>
-            )}
-
-            {form.documentType !== "transfer" && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Харилцах GL данс">
-                  {segmentOptions ? (
-                    <AccountInput
-                      value={form.counterAccountNumber}
-                      onChange={(value) =>
-                        setForm((current) => ({
-                          ...current,
-                          counterAccountNumber: value,
-                        }))
-                      }
-                      activeSegIds={activeSegIds}
-                      segmentOptions={segmentOptions}
-                      defaultSegments={defaultSegments}
-                      placeholder="GL данс..."
-                    />
-                  ) : (
-                    <SearchableSelect
-                      value={form.counterAccountNumber}
-                      onChange={(value) =>
-                        setForm((current) => ({
-                          ...current,
-                          counterAccountNumber: value,
-                        }))
-                      }
-                      options={glAccounts.map((account) => ({
-                        value: account.number,
-                        label: account.name,
-                      }))}
-                      placeholder="GL данс сонгох..."
-                    />
-                  )}
-                </Field>
-                <Field label="Харилцагч">
-                  <Input
-                    value={form.counterparty}
-                    placeholder="Нэр эсвэл байгууллага"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        counterparty: event.target.value,
-                      }))
-                    }
-                  />
-                </Field>
-              </div>
-            )}
-
-            <Field label="Мөнгөн гүйлгээний ангилал (S8)">
-              <select
-                value={form.cashFlowCode}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    cashFlowCode: event.target.value,
-                  }))
-                }
-                className="ea-form-select"
-              >
-                <option value="">Ангилалгүй</option>
-                {cashFlowOptions.map((option) => (
-                  <option key={option.code} value={option.code}>
-                    {option.code} · {option.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Гүйлгээний утга">
-              <Input
-                value={form.description}
-                placeholder="Баримтын тайлбар"
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-
-            {error && (
-              <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
-                {error}
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isPending}
-            >
-              Болих
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => save(false)}
-              disabled={isPending}
-            >
-              Ноорог хадгалах
-            </Button>
-            <Button onClick={() => save(true)} disabled={isPending}>
-              <Check />
-              Хадгалж батлах
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <CashDocumentDetailDialog
-        document={detailDoc}
-        onClose={() => setDetailDoc(null)}
-        accountName={(id) => (id ? accountNameMap.get(id) ?? "" : "")}
-        glName={(code) => (code ? glNameMap.get(code) ?? "" : "")}
-        activeSegIds={activeSegIds}
-      />
 
       {/* Rate prompt for confirming a GL-derived foreign-currency draft:
           the GL amount is MNT, so the accountant supplies the transaction
@@ -1296,30 +847,5 @@ function Field({
       <Label>{label}</Label>
       {children}
     </div>
-  );
-}
-
-function CashAccountSelect({
-  value,
-  accounts,
-  onChange,
-}: {
-  value: string;
-  accounts: CashAccountView[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="ea-form-select"
-    >
-      <option value="">Сонгох...</option>
-      {accounts.map((account) => (
-        <option key={account.id} value={account.id}>
-          {account.name} · {account.currency} · {fmtMnt(account.balance)}
-        </option>
-      ))}
-    </select>
   );
 }

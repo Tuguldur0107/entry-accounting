@@ -19,6 +19,13 @@ import {
 } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
+import {
+  loadCashTransactionOptions,
+  mainAccountOf,
+  toCashDocumentView,
+  type CashTransactionOptions,
+} from "@/lib/cash/load-options";
+import type { CashDocumentView } from "@/lib/cash/types";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
 import {
@@ -62,11 +69,6 @@ function cleanText(value: string | null | undefined) {
 function assertAmount(value: number) {
   if (!Number.isFinite(value) || value <= 0)
     throw new Error("Дүн 0-ээс их байна");
-}
-
-function mainAccountOf(accountNumber: string) {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
 }
 
 async function validateArApSettlement(
@@ -863,65 +865,113 @@ export interface CashDocumentDetail {
   reversalLines: CashDocumentVoucherLine[];
 }
 
-// Fetch the GL journal behind a cash document so the transactions detail
-// drawer can show the Dr/Cr lines. For a GL-derived draft (not yet adopted)
-// the lines come from the source voucher — the entry already exists in the
-// ledger and is exactly what the accountant must verify before confirming.
-export async function getCashDocumentDetail(
-  id: string
-): Promise<CashDocumentDetail> {
-  const userId = await requireUser();
-  const document = await db.query.cashDocuments.findFirst({
-    where: and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)),
-    columns: { voucherId: true, sourceVoucherId: true, reversalVoucherId: true },
+// Воучерын мөрүүд — гарчгийн хамт (панелийн дэлгэрэнгүйд).
+async function voucherLinesFor(userId: string, voucherId: string | null) {
+  if (!voucherId)
+    return { voucher: null, lines: [] as CashDocumentVoucherLine[] };
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, voucherId),
+      eq(journalVouchers.userId, userId)
+    ),
+    with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
-
-  const empty: CashDocumentDetail = {
-    voucherId: null,
-    sourceVoucherId: null,
-    voucherDate: null,
-    voucherDescription: null,
-    lines: [],
-    reversalVoucherId: null,
-    reversalLines: [],
+  if (!voucher)
+    return { voucher: null, lines: [] as CashDocumentVoucherLine[] };
+  return {
+    voucher,
+    lines: voucher.lines.map((l) => ({
+      accountNumber: l.accountNumber,
+      debit: Number(l.debit),
+      credit: Number(l.credit),
+      description: l.description,
+    })),
   };
-  if (!document) return empty;
+}
 
-  async function linesFor(voucherId: string | null) {
-    if (!voucherId) return { voucher: null, lines: [] as CashDocumentVoucherLine[] };
-    const voucher = await db.query.journalVouchers.findFirst({
-      where: and(
-        eq(journalVouchers.id, voucherId),
-        eq(journalVouchers.userId, userId)
-      ),
-      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
-    });
-    if (!voucher) return { voucher: null, lines: [] as CashDocumentVoucherLine[] };
-    return {
-      voucher,
-      lines: voucher.lines.map((l) => ({
-        accountNumber: l.accountNumber,
-        debit: Number(l.debit),
-        credit: Number(l.credit),
-        description: l.description,
-      })),
-    };
-  }
+export interface CashDocPanelData {
+  document: CashDocumentView;
+  detail: CashDocumentDetail;
+  activeSegIds: number[];
+  /** Үндсэн дансны код → нэр (идэвхгүй данс ч багтана — хуучин бичилтэд). */
+  glNames: Record<string, string>;
+}
 
-  const [main, reversal] = await Promise.all([
-    linesFor(document.voucherId ?? document.sourceVoucherId),
-    linesFor(document.reversalVoucherId),
+// Алдааг throw хийхгүй — production build дээр Next.js server action-ий
+// error message-ийг нууж "An error occurred..." болгодог тул код буцаана.
+export type CashDocPanelResult =
+  | { ok: true; data: CashDocPanelData }
+  | { ok: false; code: "unauthenticated" | "not-found" };
+
+// Cash-doc панелийн бүх өгөгдөл НЭГ дуудалтаар: баримтын толгой + холбоотой
+// GL журналын Dr/Cr мөрүүд + буцаалтын журнал. GL-ээс үүссэн, хараахан
+// батлагдаагүй ноорогт мөрүүд нь ЭХ воучероос ирнэ — нягтланч баталгаажуулахын
+// өмнө яг тэр бичилтийг харна.
+export async function getCashDocPanelData(
+  documentId: string
+): Promise<CashDocPanelResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+
+  const document = await db.query.cashDocuments.findFirst({
+    where: and(
+      eq(cashDocuments.id, documentId),
+      eq(cashDocuments.userId, userId)
+    ),
+    with: { fromAccount: true, toAccount: true },
+  });
+  if (!document) return { ok: false, code: "not-found" };
+
+  const [main, reversal, configs, accounts] = await Promise.all([
+    voucherLinesFor(userId, document.voucherId ?? document.sourceVoucherId),
+    voucherLinesFor(userId, document.reversalVoucherId),
+    db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.userId, userId),
+    }),
+    db.query.chartOfAccounts.findMany({
+      where: eq(chartOfAccounts.userId, userId),
+      columns: { number: true, name: true },
+    }),
   ]);
 
+  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
+  const activeSegIds = SEGMENT_DEFS.filter(
+    (def) => def.id === 3 || configMap.get(def.id)?.isEnabled === true
+  ).map((def) => def.id);
+
   return {
-    voucherId: document.voucherId,
-    sourceVoucherId: document.sourceVoucherId,
-    voucherDate: main.voucher?.date ?? null,
-    voucherDescription: main.voucher?.description ?? null,
-    lines: main.lines,
-    reversalVoucherId: document.reversalVoucherId,
-    reversalLines: reversal.lines,
+    ok: true,
+    data: {
+      document: toCashDocumentView(document),
+      detail: {
+        voucherId: document.voucherId,
+        sourceVoucherId: document.sourceVoucherId,
+        voucherDate: main.voucher?.date ?? null,
+        voucherDescription: main.voucher?.description ?? null,
+        lines: main.lines,
+        reversalVoucherId: document.reversalVoucherId,
+        reversalLines: reversal.lines,
+      },
+      activeSegIds,
+      glNames: Object.fromEntries(
+        accounts.map((account) => [account.number, account.name])
+      ),
+    },
   };
+}
+
+export type CashNewPanelResult =
+  | { ok: true; data: CashTransactionOptions }
+  | { ok: false; code: "unauthenticated" };
+
+// Cash-new панелийн сонголтын өгөгдөл — transactions хуудастай НЭГ ачаалагч
+// (lib/cash/load-options) ашиглана.
+export async function getCashNewPanelData(): Promise<CashNewPanelResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+  return { ok: true, data: await loadCashTransactionOptions(userId) };
 }
 
 function fxPostingCode(template: string | undefined, mainAccount: string) {
