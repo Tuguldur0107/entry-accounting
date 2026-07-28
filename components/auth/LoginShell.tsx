@@ -177,13 +177,13 @@ export function LoginShell({
           {/* Left panel */}
           <div style={{
             background: 'var(--ea-hero-gradient)',
-            color: '#fff', padding: '40px 36px',
+            color: 'var(--ea-hero-fg)', padding: '40px 36px',
             display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
             position: 'relative', overflow: 'hidden',
           }}>
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.06 }}>
               {Array.from({ length: 22 }).map((_, i) => (
-                <line key={i} x1="0" x2="100%" y1={i * 28 + 14} y2={i * 28 + 14} stroke="#fff" strokeWidth="1" />
+                <line key={i} x1="0" x2="100%" y1={i * 28 + 14} y2={i * 28 + 14} stroke="var(--ea-hero-fg)" strokeWidth="1" />
               ))}
             </svg>
 
@@ -193,7 +193,7 @@ export function LoginShell({
                 textTransform: 'uppercase', opacity: 0.72, marginBottom: 14,
                 display: 'flex', alignItems: 'center', gap: 8,
               }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#A7F3D0' }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ea-hero-accent)' }} />
                 {lt.ledgerEyebrow}{dateStr ? ` · ${dateStr}` : ''}
               </div>
               <h2 style={{

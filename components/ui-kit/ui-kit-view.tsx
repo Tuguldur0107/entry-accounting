@@ -12,6 +12,12 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  LoadingBlock,
+  LoadingInline,
+  LoadingRows,
+  Spinner,
+} from "@/components/ui/loading";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -281,6 +287,62 @@ export function UiKitView() {
           <div className="space-y-2">
             <Skeleton className="h-4 w-2/3" />
             <Skeleton className="h-4 w-1/2" />
+          </div>
+        </div>
+      </Section>
+
+      {/* 5.5 Уншиж байгаа төлөв */}
+      <Section
+        title="Уншиж байна (loading)"
+        hint="components/ui/loading.tsx — өгөгдөл хүлээж байх бүх төлөв эндээс."
+      >
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-2">
+              <Spinner />
+              <code className="text-[11px]" style={{ color: "var(--ea-text-4)" }}>
+                &lt;Spinner /&gt;
+              </code>
+            </div>
+            <div className="flex items-center gap-2">
+              <LoadingInline />
+              <code className="text-[11px]" style={{ color: "var(--ea-text-4)" }}>
+                &lt;LoadingInline /&gt;
+              </code>
+            </div>
+            <Button disabled>
+              <Spinner size={13} /> Хадгалж байна…
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <div className="text-xs mb-2" style={{ color: "var(--ea-text-3)" }}>
+                <code>&lt;LoadingBlock /&gt;</code> — хуудас/панелийн төвд
+              </div>
+              <div
+                style={{
+                  border: "1px solid var(--ea-border)",
+                  borderRadius: "var(--ea-r-md)",
+                  background: "var(--ea-bg-2)",
+                }}
+              >
+                <LoadingBlock />
+              </div>
+            </div>
+            <div>
+              <div className="text-xs mb-2" style={{ color: "var(--ea-text-3)" }}>
+                <code>&lt;LoadingRows /&gt;</code> — хүснэгт ачаалж байх үед
+              </div>
+              <div
+                style={{
+                  border: "1px solid var(--ea-border)",
+                  borderRadius: "var(--ea-r-md)",
+                }}
+              >
+                <LoadingRows count={4} />
+              </div>
+            </div>
           </div>
         </div>
       </Section>

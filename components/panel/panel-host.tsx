@@ -171,7 +171,7 @@ export function PanelHost() {
                 className={cn(
                   "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                   overflowOpen
-                    ? "bg-[var(--ea-primary)] text-white"
+                    ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                     : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:text-[var(--ea-text-1)]"
                 )}
               >
@@ -186,7 +186,7 @@ export function PanelHost() {
                 {overflowPanels.some((panel) => panel.dirty) && (
                   <span
                     className="size-1.5 rounded-full"
-                    style={{ background: "var(--ea-warning, #f59e0b)" }}
+                    style={{ background: "var(--ea-warning)" }}
                     title="Хадгалаагүй өөрчлөлттэй панель бий"
                   />
                 )}
@@ -228,7 +228,7 @@ export function PanelHost() {
                           {panel.dirty && (
                             <span
                               className="size-1.5 shrink-0 rounded-full"
-                              style={{ background: "var(--ea-warning, #f59e0b)" }}
+                              style={{ background: "var(--ea-warning)" }}
                               title="Хадгалаагүй өөрчлөлт"
                             />
                           )}
@@ -267,7 +267,7 @@ export function PanelHost() {
                   className={cn(
                     "flex shrink-0 items-center gap-1 rounded-full py-1 pl-2.5 pr-1 text-xs transition-colors",
                     isActive
-                      ? "bg-[var(--ea-primary)] text-white"
+                      ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                       : panel.minimized
                         ? "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)]"
                         : "bg-[var(--ea-bg-2)] text-[var(--ea-text-1)]"
@@ -299,7 +299,7 @@ export function PanelHost() {
                         style={{
                           background: isActive
                             ? "white"
-                            : "var(--ea-warning, #f59e0b)",
+                            : "var(--ea-warning)",
                         }}
                         title="Хадгалаагүй өөрчлөлт"
                       />

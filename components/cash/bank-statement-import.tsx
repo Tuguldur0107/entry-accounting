@@ -864,7 +864,7 @@ export function BankStatementImport({
                   className={cn(
                     "h-9 text-xs font-medium disabled:opacity-40",
                     assignmentScope === "selected"
-                      ? "bg-[var(--ea-primary)] text-white"
+                      ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                       : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)]"
                   )}
                 >
@@ -876,7 +876,7 @@ export function BankStatementImport({
                   className={cn(
                     "h-9 text-xs font-medium",
                     assignmentScope === "filtered"
-                      ? "bg-[var(--ea-primary)] text-white"
+                      ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                       : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)]"
                   )}
                 >

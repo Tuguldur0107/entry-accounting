@@ -126,6 +126,29 @@
   .warn { color: var(--ea-warning-fg); font-weight: 600; }
   .fail { color: var(--ea-danger); font-weight: 600; }
 
+  /* ── Уншиж байна — components/ui/loading.tsx ── */
+  .spinner {
+    display: inline-block; flex-shrink: 0; border-radius: 50%;
+    width: 16px; height: 16px;
+    border: 2px solid var(--ea-border-strong);
+    border-top-color: var(--ea-primary);
+    animation: ea-spin .7s linear infinite;
+  }
+  .spinner--lg { width: 26px; height: 26px; border-width: 2.5px; }
+  @keyframes ea-spin { to { transform: rotate(360deg); } }
+  .loading-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ea-text-3); }
+  .loading-block {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; min-height: 140px; background: var(--ea-bg-2);
+    border: 1px solid var(--ea-border); border-radius: var(--ea-r-md);
+    font-size: 13px; color: var(--ea-text-3);
+  }
+  .skel-wrap { display: flex; flex-direction: column; gap: 8px; padding: 12px;
+    border: 1px solid var(--ea-border); border-radius: var(--ea-r-md); }
+  .skel { height: 32px; border-radius: var(--ea-r-md); background: var(--ea-bg-2);
+    animation: ea-pulse 1.6s ease-in-out infinite; }
+  @keyframes ea-pulse { 0%,100% { opacity: 1 } 50% { opacity: .45 } }
+
   .toggle {
     display: inline-flex; align-items: center; gap: 8px;
     height: 34px; padding: 0 14px; cursor: pointer;
@@ -205,6 +228,28 @@
       <span class="badge badge--danger">Зөрүү: 840,000.00</span>
       <span class="badge badge--warning">Хугацаа дөхөж байна</span>
       <span class="badge badge--muted">Дүн оруулаагүй</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Уншиж байна (loading)</h2>
+    <div class="hint">components/ui/loading.tsx — өгөгдөл хүлээж байх бүх төлөв.</div>
+    <div class="row" style="gap:22px; margin-bottom:16px">
+      <span class="spinner"></span>
+      <span class="loading-inline"><span class="spinner"></span> Уншиж байна…</span>
+      <button class="btn btn--primary" disabled><span class="spinner" style="width:13px;height:13px;border-width:1.5px"></span> Хадгалж байна…</button>
+    </div>
+    <div class="grid2">
+      <div class="loading-block">
+        <span class="spinner spinner--lg"></span>
+        Уншиж байна…
+      </div>
+      <div class="skel-wrap">
+        <div class="skel" style="width:100%"></div>
+        <div class="skel" style="width:92%"></div>
+        <div class="skel" style="width:84%"></div>
+        <div class="skel" style="width:100%"></div>
+      </div>
     </div>
   </section>
 

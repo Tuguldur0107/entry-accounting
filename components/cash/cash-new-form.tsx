@@ -269,7 +269,7 @@ export function CashNewForm({
                   className={cn(
                     "h-9 border-r border-[var(--ea-border)] text-xs font-medium last:border-r-0",
                     form.documentType === type
-                      ? "bg-[var(--ea-primary)] text-white"
+                      ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                       : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-3)]"
                   )}
                 >

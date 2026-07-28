@@ -440,7 +440,7 @@ export function BalanceSheetView({
         <button
           type="button"
           onClick={() => setAddLineOpen(true)}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-[var(--ea-primary)] text-white font-medium hover:bg-[var(--ea-primary-700)] transition-colors"
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-[var(--ea-primary)] text-[var(--primary-foreground)] font-medium hover:bg-[var(--ea-primary-700)] transition-colors"
         >
           <Plus size={14} />
           Шинэ мөр

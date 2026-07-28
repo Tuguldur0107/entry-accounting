@@ -74,8 +74,7 @@
  *  surface руу remap хийгдэх ёстой. CSS variable өөрөө дамждаггүй учир
  *  override шаардлагатай.
  * ────────────────────────────────────────────────────────────────────────── */
-.bg-white                          { background-color: #FFFFFF !important; }
-.dark .bg-white                    { background-color: var(--ea-surface) !important; }
+.bg-white                          { background-color: var(--ea-surface) !important; }
 
 .bg-blue-50                        { background-color: var(--ea-primary-50) !important; }
 .hover\:bg-blue-50:hover           { background-color: var(--ea-primary-50) !important; }
@@ -228,8 +227,7 @@
    rows look uniform until the user actually hovers. */
 .ea-btn--primary:hover svg { color: var(--ea-primary); }
 .ea-btn--success:hover svg { color: var(--ea-success); }
-.ea-btn--warning:hover svg { color: #B45309; }
-.dark .ea-btn--warning:hover svg { color: #FBBF24; }
+.ea-btn--warning:hover svg { color: var(--ea-warning-fg); }
 
 .ea-btn--icon {
   width: 26px;

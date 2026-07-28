@@ -16,7 +16,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                 display: 'inline-grid', placeItems: 'center',
                 fontWeight: 600, fontSize: 11,
                 background: i < current ? 'var(--ea-primary)' : i === current ? 'var(--ea-surface)' : 'transparent',
-                color: i < current ? '#fff' : i === current ? 'var(--ea-primary)' : 'var(--ea-text-4)',
+                color: i < current ? 'var(--ea-hero-fg)' : i === current ? 'var(--ea-primary)' : 'var(--ea-text-4)',
                 border: `1.5px solid ${i <= current ? 'var(--ea-primary)' : 'var(--ea-border-strong)'}`,
                 fontFamily: 'var(--ea-font-mono)',
               }}

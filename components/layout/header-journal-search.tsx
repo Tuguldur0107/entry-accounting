@@ -68,7 +68,7 @@ export function HeaderJournalSearch() {
       <button
         type="button"
         onClick={handleSearch}
-        className="h-8 px-3 text-xs font-medium bg-[var(--ea-primary)] text-white rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
+        className="h-8 px-3 text-xs font-medium bg-[var(--ea-primary)] text-[var(--primary-foreground)] rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
       >
         Хайх
       </button>

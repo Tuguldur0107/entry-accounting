@@ -252,7 +252,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
                   }
                   className={
                     form.accountType === option.value
-                      ? "h-9 bg-[var(--ea-primary)] text-xs font-medium text-white"
+                      ? "h-9 bg-[var(--ea-primary)] text-xs font-medium text-[var(--primary-foreground)]"
                       : "h-9 bg-[var(--ea-bg-2)] text-xs font-medium text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-3)]"
                   }
                 >

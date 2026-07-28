@@ -182,8 +182,11 @@ export function AccountSegmentPanel({
             <button
               type="button"
               onClick={onConfirm}
-              className="rounded-md px-3 py-1.5 text-xs font-semibold text-white"
-              style={{ background: "var(--ea-primary)" }}
+              className="rounded-md px-3 py-1.5 text-xs font-semibold"
+              style={{
+                background: "var(--ea-primary)",
+                color: "var(--primary-foreground)",
+              }}
             >
               Оруулах
             </button>

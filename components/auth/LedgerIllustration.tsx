@@ -6,7 +6,7 @@ import { LEDGER_T, type Lang } from '@/lib/i18n';
 
 export function LedgerIllustration({
   lang,
-  currencyAccent = '#FFD79A',
+  currencyAccent = 'var(--ea-hero-amount)',
 }: {
   lang: Lang;
   currencyAccent?: string;
@@ -24,8 +24,8 @@ export function LedgerIllustration({
     <div
       style={{
         position: 'relative',
-        background: 'rgba(255,255,255,0.06)',
-        border: '1px solid rgba(255,255,255,0.10)',
+        background: 'var(--ea-hero-surface)',
+        border: '1px solid var(--ea-hero-border)',
         borderRadius: 12,
         padding: '14px 16px 16px 16px',
         backdropFilter: 'blur(12px)',
@@ -48,9 +48,9 @@ export function LedgerIllustration({
         <span
           style={{
             fontSize: 10,
-            color: '#A7F3D0',
-            background: 'rgba(16,185,129,0.18)',
-            border: '1px solid rgba(16,185,129,0.32)',
+            color: 'var(--ea-hero-accent)',
+            background: 'color-mix(in srgb, var(--ea-success) 18%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--ea-success) 32%, transparent)',
             padding: '2px 8px',
             borderRadius: 999,
             fontFamily: 'var(--ea-font-sans)',
@@ -71,7 +71,7 @@ export function LedgerIllustration({
           textTransform: 'uppercase',
           letterSpacing: '0.08em',
           paddingBottom: 8,
-          borderBottom: '1px solid rgba(255,255,255,0.10)',
+          borderBottom: '1px solid var(--ea-hero-border)',
         }}
       >
         <span />
@@ -87,26 +87,26 @@ export function LedgerIllustration({
             padding: '8px 0',
             fontSize: 12,
             alignItems: 'center',
-            borderBottom: i < rows.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+            borderBottom: i < rows.length - 1 ? '1px solid var(--ea-hero-border-soft)' : 'none',
             opacity: 0,
             animation: `ea-fadeUp 0.4s ease ${0.4 + i * 0.12}s forwards`,
           }}
         >
           <span style={{ fontFamily: 'var(--ea-font-sans)', fontSize: 13 }}>{r.acc}</span>
-          <span style={{ textAlign: 'right', color: r.dr ? currencyAccent : 'rgba(255,255,255,0.25)' }}>{r.dr || '—'}</span>
-          <span style={{ textAlign: 'right', color: r.cr ? currencyAccent : 'rgba(255,255,255,0.25)' }}>{r.cr || '—'}</span>
+          <span style={{ textAlign: 'right', color: r.dr ? currencyAccent : 'var(--ea-hero-muted)' }}>{r.dr || '—'}</span>
+          <span style={{ textAlign: 'right', color: r.cr ? currencyAccent : 'var(--ea-hero-muted)' }}>{r.cr || '—'}</span>
         </div>
       ))}
       <div
         style={{
           marginTop: 10,
           paddingTop: 10,
-          borderTop: '1.5px double rgba(255,255,255,0.30)',
+          borderTop: '1.5px double var(--ea-hero-rule-strong)',
           display: 'grid',
           gridTemplateColumns: '1fr 100px 100px',
           fontSize: 13,
           fontWeight: 600,
-          color: '#fff',
+          color: 'var(--ea-hero-fg)',
         }}
       >
         <span style={{ fontFamily: 'var(--ea-font-sans)', fontSize: 12, opacity: 0.85 }}>Total ₮</span>

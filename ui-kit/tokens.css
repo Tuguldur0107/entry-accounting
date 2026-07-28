@@ -34,15 +34,33 @@
   --ea-text-3: #64748B;
   --ea-text-4: #94A3B8;
 
+  /* Семантик: `-fg` = ТЕКСТЭД, суурь = дэвсгэр/хүрээ/дүрсэнд,
+     `-solid` = дүүрэн товчны дэвсгэр (`-solid-fg` = түүн дээрх текст) */
   --ea-success:    #10B981;
   --ea-success-fg: #047857;
   --ea-success-bg: #ECFDF5;
   --ea-danger:     #EF4444;
   --ea-danger-fg:  #B91C1C;
   --ea-danger-bg:  #FEF2F2;
+  --ea-danger-solid:    #DC2626;
+  --ea-danger-solid-fg: #FFFFFF;
   --ea-warning:    #F59E0B;
   --ea-warning-fg: #B45309;
   --ea-warning-bg: #FFFBEB;
+
+  /* Modal / drawer-ийн бүрхүүл */
+  --ea-overlay: rgba(0,0,0,0.45);
+
+  /* Auth hero panel дээрх элементүүд (панель нь --ea-hero-gradient) */
+  --ea-hero-fg:     #FFFFFF;
+  --ea-hero-rule:   rgba(255,255,255,0.10);
+  --ea-hero-accent: #A7F3D0;
+  --ea-hero-amount: #FFD79A;
+  --ea-hero-surface:     rgba(255,255,255,0.06);
+  --ea-hero-border:      rgba(255,255,255,0.10);
+  --ea-hero-border-soft: rgba(255,255,255,0.06);
+  --ea-hero-muted:       rgba(255,255,255,0.25);
+  --ea-hero-rule-strong: rgba(255,255,255,0.30);
 
   --ea-font-sans:    var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   --ea-font-display: var(--font-fraunces), 'Fraunces', 'Playfair Display', serif;
@@ -128,9 +146,20 @@
   --ea-danger:     #F87171;
   --ea-danger-fg:  #FCA5A5;
   --ea-danger-bg:  rgba(248,113,113,0.12);
+  --ea-danger-solid:    #F87171;
+  --ea-danger-solid-fg: #1A0A0A;
   --ea-warning:    #FBBF24;
   --ea-warning-fg: #FCD34D;
   --ea-warning-bg: rgba(251,191,36,0.12);
+
+  /* Modal / drawer-ийн бүрхүүл — тас хар дээр илүү гүн */
+  --ea-overlay: rgba(0,0,0,0.65);
+
+  /* Auth hero panel — тас хар дээр ижил цагаан текст */
+  --ea-hero-fg:     #FFFFFF;
+  --ea-hero-rule:   rgba(255,255,255,0.08);
+  --ea-hero-accent: #6EE7B7;
+  --ea-hero-amount: #FFD79A;
 
   --ea-shadow-2: 0 1px 0 rgba(255,255,255,0.04) inset,
                  0 8px 24px -6px rgba(0,0,0,0.5);

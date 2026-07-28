@@ -68,7 +68,7 @@ export function Sidebar() {
           type="button"
           aria-label="Sidebar хаах"
           onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 z-20 bg-black/45"
+          className="fixed inset-0 z-20 bg-[var(--ea-overlay)]"
         />
       )}
       <aside

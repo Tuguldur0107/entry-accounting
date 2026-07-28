@@ -143,7 +143,7 @@ export function EAButton({
   const styles: React.CSSProperties = variant === 'primary'
     ? {
         background: hover && !disabled ? 'var(--ea-primary-700)' : 'var(--ea-primary)',
-        color: '#fff',
+        color: 'var(--ea-hero-fg)',
         border: '1px solid var(--ea-primary)',
       }
     : {

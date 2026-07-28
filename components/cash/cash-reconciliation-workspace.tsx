@@ -1121,7 +1121,7 @@ export function CashReconciliationWorkspace({
                 className={cn(
                   "min-h-11 border-b border-r border-[var(--ea-border)] px-2 text-xs font-medium md:border-b-0 md:last:border-r-0",
                   rateBasis === option.value
-                    ? "bg-[var(--ea-primary)] text-white"
+                    ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                     : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-3)]"
                 )}
               >

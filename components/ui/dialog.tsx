@@ -36,7 +36,7 @@ function DialogOverlay({
       // half-rendered, especially in dark mode where dialog + backdrop
       // were both shades of grey.
       className={cn(
-        "fixed inset-0 isolate z-[70] bg-black/55 duration-100 supports-backdrop-filter:backdrop-blur-md supports-backdrop-filter:backdrop-saturate-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-[70] bg-[var(--ea-overlay)] duration-100 supports-backdrop-filter:backdrop-blur-md supports-backdrop-filter:backdrop-saturate-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}

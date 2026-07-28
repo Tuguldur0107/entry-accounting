@@ -390,7 +390,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
   if (filtered.length === 0) {
     return (
       <>
-        <div className="flex flex-1 items-center justify-center bg-white border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
+        <div className="flex flex-1 items-center justify-center bg-[var(--ea-surface)] border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
           Бичилт байхгүй
         </div>
         {confirmDialog}

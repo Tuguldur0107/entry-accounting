@@ -346,7 +346,7 @@ export function AccountsTable({
             <span
               className={cn(
                 "font-mono text-xs",
-                d.isPendingDelete && "line-through text-red-400"
+                d.isPendingDelete && "line-through text-[var(--ea-danger-fg)]"
               )}
             >
               {d.code}
@@ -383,7 +383,7 @@ export function AccountsTable({
             <span
               className={cn(
                 "text-xs",
-                d.isPendingDelete && "line-through text-red-400"
+                d.isPendingDelete && "line-through text-[var(--ea-danger-fg)]"
               )}
             >
               {d.name}
@@ -471,7 +471,7 @@ export function AccountsTable({
           return (
             <button
               onClick={() => undoDelete(d.id)}
-              className="text-red-400 hover:text-[var(--ea-primary)] hover:bg-[var(--ea-primary-50)] px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
+              className="text-[var(--ea-danger-fg)] hover:text-[var(--ea-primary)] hover:bg-[var(--ea-primary-50)] px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
               title="Буцаах"
             >
               ↩
@@ -480,7 +480,7 @@ export function AccountsTable({
         return (
           <button
             onClick={() => askDelete(d.id, d.code, d.rowType)}
-            className="text-[var(--ea-border-strong)] hover:text-red-500 hover:bg-red-50 px-1 py-0.5 rounded text-base leading-none transition-colors"
+            className="text-[var(--ea-border-strong)] hover:text-[var(--ea-danger-fg)] hover:bg-[var(--ea-danger-bg)] px-1 py-0.5 rounded text-base leading-none transition-colors"
             title="Устгах"
           >
             ×
@@ -784,7 +784,7 @@ export function AccountsTable({
                 )}
                 {!editMode && activeTab === 3 && (
                   <>
-                    {syncMsg && <span className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">{syncMsg}</span>}
+                    {syncMsg && <span className="text-xs text-[var(--ea-success-fg)] bg-[var(--ea-success-bg)] px-2 py-1 rounded">{syncMsg}</span>}
                     <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing} className="text-xs">
                       {syncing ? "Синкчилж байна..." : "Стандарт данс нэмэх"}
                     </Button>
@@ -872,7 +872,7 @@ export function AccountsTable({
                 onKeyDown={(e) => e.key === "Enter" && handleAddAccount()}
               />
             </div>
-            {addError && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{addError}</p>}
+            {addError && <p className="text-sm text-[var(--ea-danger-fg)] bg-[var(--ea-danger-bg)] px-3 py-2 rounded">{addError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseAdd}>
@@ -927,8 +927,8 @@ export function AccountsTable({
                     className={cn(
                       "px-3 py-1.5 rounded border text-xs font-medium transition-colors",
                       svAddMods.includes(mod)
-                        ? "bg-[var(--ea-primary)] text-white border-[var(--ea-primary)]"
-                        : "bg-white text-[var(--ea-text-3)] border-[var(--ea-border)] hover:border-[var(--ea-border-strong)]"
+                        ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)] border-[var(--ea-primary)]"
+                        : "bg-[var(--ea-surface)] text-[var(--ea-text-3)] border-[var(--ea-border)] hover:border-[var(--ea-border-strong)]"
                     )}
                   >
                     {MODULE_LABELS[mod]}
@@ -936,7 +936,7 @@ export function AccountsTable({
                 ))}
               </div>
             </div>
-            {svAddError && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{svAddError}</p>}
+            {svAddError && <p className="text-sm text-[var(--ea-danger-fg)] bg-[var(--ea-danger-bg)] px-3 py-2 rounded">{svAddError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeSvAdd}>
@@ -962,7 +962,10 @@ export function AccountsTable({
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               Болих
             </Button>
-            <Button className="bg-red-500 hover:bg-red-600 text-white" onClick={confirmDelete}>
+            <Button
+              className="bg-[var(--ea-danger-solid)] text-[var(--ea-danger-solid-fg)] hover:opacity-90"
+              onClick={confirmDelete}
+            >
               Устгах
             </Button>
           </DialogFooter>

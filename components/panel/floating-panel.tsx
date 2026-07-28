@@ -133,7 +133,7 @@ export function FloatingPanel({
           <span
             className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{
-              background: "var(--ea-warning-bg, rgba(245,158,11,.14))",
+              background: "var(--ea-warning-bg)",
               color: "var(--ea-warning-fg, var(--ea-warning))",
             }}
           >

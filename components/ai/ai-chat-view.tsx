@@ -380,7 +380,7 @@ export function AiChatView({
               className={cn(
                 "max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed",
                 entry.role === "user"
-                  ? "self-end bg-[var(--ea-primary)] text-white"
+                  ? "self-end bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                   : "self-start border border-[var(--ea-border)] bg-[var(--ea-bg)] text-[var(--ea-text-1)]"
               )}
             >
@@ -392,7 +392,7 @@ export function AiChatView({
                       className={cn(
                         "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]",
                         entry.role === "user"
-                          ? "bg-white/20"
+                          ? "bg-[var(--ea-surface)]/20"
                           : "bg-[var(--ea-surface)]"
                       )}
                     >

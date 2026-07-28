@@ -627,7 +627,7 @@ export function InventoryMovementsView({
                   className={cn(
                     "h-9 border-b border-r border-[var(--ea-border)] text-xs font-medium [&:nth-child(3n)]:border-r-0 [&:nth-child(n+4)]:border-b-0",
                     form.movementType === type
-                      ? "bg-[var(--ea-primary)] text-white"
+                      ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                       : "bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-3)]"
                   )}
                 >

@@ -506,7 +506,7 @@ export function CashDashboard({
               <div className="flex justify-end">
                 <Link
                   href={explainRow.actionHref}
-                  className="inline-flex h-8 items-center rounded-md bg-[var(--ea-primary)] px-3 text-xs font-medium text-white hover:bg-[var(--ea-primary-700)]"
+                  className="inline-flex h-8 items-center rounded-md bg-[var(--ea-primary)] px-3 text-xs font-medium text-[var(--primary-foreground)] hover:bg-[var(--ea-primary-700)]"
                   onClick={() => setExplainRow(null)}
                 >
                   {explainRow.actionLabel}

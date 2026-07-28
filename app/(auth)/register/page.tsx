@@ -72,18 +72,18 @@ export default function RegisterPage() {
           {/* Left */}
           <div style={{
             background: 'var(--ea-hero-gradient)',
-            color: '#fff', padding: '36px 32px',
+            color: 'var(--ea-hero-fg)', padding: '36px 32px',
             display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 20,
             position: 'relative', overflow: 'hidden',
           }}>
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.06 }}>
               {Array.from({ length: 22 }).map((_, i) => (
-                <line key={i} x1="0" x2="100%" y1={i * 28 + 14} y2={i * 28 + 14} stroke="#fff" strokeWidth="1" />
+                <line key={i} x1="0" x2="100%" y1={i * 28 + 14} y2={i * 28 + 14} stroke="var(--ea-hero-fg)" strokeWidth="1" />
               ))}
             </svg>
             <div style={{ position: 'relative' }}>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.72, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#A7F3D0' }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ea-hero-accent)' }} />
                 Шинэ бүртгэл · {new Date().toLocaleDateString('mn-MN', { month: 'short', day: 'numeric', year: 'numeric' })}
               </div>
               <h2 style={{ fontFamily: 'var(--ea-font-display)', fontSize: 30, fontWeight: 400, lineHeight: 1.18, letterSpacing: '-0.015em', margin: 0 }}>
@@ -97,7 +97,7 @@ export default function RegisterPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 18 }}>
                 {STATS.map((s, i) => (
-                  <div key={i} style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}>
+                  <div key={i} style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--ea-hero-surface)', border: '1px solid var(--ea-hero-border)' }}>
                     <div style={{ fontFamily: 'var(--ea-font-mono)', fontSize: 18, fontWeight: 500 }}>{s.v}</div>
                     <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{s.l}</div>
                   </div>
