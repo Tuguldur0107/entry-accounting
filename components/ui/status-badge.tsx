@@ -7,14 +7,17 @@ import type { ReactNode } from "react";
 
 export type StatusTone = "success" | "danger" | "warning" | "muted";
 
+// ТЕКСТЭД --ea-*-fg, дэвсгэр/хүрээнд --ea-* хэрэглэнэ.
+// Шалтгаан: суурь өнгө (#10B981 г.м.) цайвар surface дээр 2.5:1 контрасттай —
+// WCAG AA (4.5:1) давахгүй. `-fg` хувилбар нь горим бүрд уншигдахаар тааруулагдсан.
 const TONE_STYLES: Record<StatusTone, React.CSSProperties> = {
   success: {
-    color: "var(--ea-success)",
+    color: "var(--ea-success-fg)",
     background: "color-mix(in srgb, var(--ea-success) 10%, var(--ea-surface))",
     border: "1px solid color-mix(in srgb, var(--ea-success) 30%, transparent)",
   },
   danger: {
-    color: "var(--ea-danger)",
+    color: "var(--ea-danger-fg)",
     background: "color-mix(in srgb, var(--ea-danger) 10%, var(--ea-surface))",
     border: "1px solid color-mix(in srgb, var(--ea-danger) 30%, transparent)",
   },

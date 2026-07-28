@@ -213,6 +213,18 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ## UI стандарт
 
+### Дизайн токен — эх сурвалж
+
+```
+ui-kit/tokens.css          ← ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ (:root = light, .dark = dark)
+   ├─→ app/globals.css     @import — бүтэн систем эндээс авна
+   └─→ ui-kit/preview.html статик preview (dev server хэрэггүй, WCAG контраст тооцно)
+```
+
+Өнгө/сүүдэр/радиус өөрчлөх бол **зөвхөн `ui-kit/tokens.css`**. Component дотор
+hex/rgba бичихийг хориглоно. Заавар: [ui-kit/README.md](ui-kit/README.md).
+Амьд component gallery: `/settings/ui-kit`.
+
 ### Өнгө аяс
 
 ```css
@@ -220,6 +232,17 @@ body: var(--ea-bg) | card: var(--ea-surface) | border: var(--ea-border)
 primary: var(--ea-primary) | danger: var(--ea-danger) | success: var(--ea-success)
 text: var(--ea-text-1) | secondary: var(--ea-text-3)
 ```
+
+**Семантик өнгө — текст vs дэвсгэр:**
+
+| Хэрэглээ | Токен | Шалтгаан |
+|----------|-------|----------|
+| ТЕКСТ (амжилт/аюул/анхааруулга) | `--ea-success-fg` / `--ea-danger-fg` / `--ea-warning-fg` | Суурь өнгө цайвар surface дээр 2.5–3.8:1 — AA давахгүй |
+| Дэвсгэр, хүрээ, дүрс, chart | `--ea-success` / `--ea-danger` / `--ea-warning` | Дүүргэлтэд контраст шаардлага бага |
+
+**Dark mode:** суурь нь тас хар (`--ea-bg: #000`), цэнхэр нь **зөвхөн accent**
+(товч, линк, focus, сонгосон мөр). Цэнхэрийн ханалт 62% — тас хар дээр неон
+гэрэлтэхээс сэргийлнэ. Контраст 8.17:1 (AAA).
 
 ### Popup / Modal
 

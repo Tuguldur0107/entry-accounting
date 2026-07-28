@@ -1,0 +1,183 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  Entry Accounting — ДИЗАЙН ТОКЕНЫ ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ
+ *
+ *  Энэ файлыг хоёр газар хэрэглэнэ:
+ *    1. app/globals.css  → @import "../ui-kit/tokens.css"   (бүтэн систем)
+ *    2. ui-kit/preview.html → <link rel="stylesheet">        (статик preview)
+ *
+ *  Өнгө өөрчлөх бол ЗӨВХӨН энд. Component дотор hardcode хийхийг хориглоно.
+ *  Дэлгэрэнгүй: ui-kit/README.md
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── LIGHT MODE — :root токенууд .dark-аас ӨМНӨ байх ЁСТОЙ ─────────────────
+ *  `:root` ба `.dark` хоёулаа specificity (0,1,0) — тэнцүү. Тэгш үед СҮҮЛД
+ *  бичигдсэн rule ялдаг тул `.dark` нь `:root`-аас доор байх ёстой.
+ * ────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* ── Брэнд: тайван нави. Цагаан дэвсгэр дээр 11.5:1 контраст ── */
+  --ea-primary:       #1E3A5F;
+  --ea-primary-700:   #15294A;   /* hover — бараан тал руу */
+  --ea-primary-500:   #2A5285;
+  --ea-primary-100:   #DCE6F2;
+  --ea-primary-50:    #F1F5FA;
+
+  --ea-bg:            #FFFFFF;
+  --ea-bg-2:          #F8FAFC;
+  --ea-bg-3:          #F1F5F9;
+  --ea-surface:       #FFFFFF;
+  --ea-surface-glass: rgba(255,255,255,0.72);
+  --ea-border:        #E2E8F0;
+  --ea-border-strong: #CBD5E1;
+
+  --ea-text-1: #0F172A;
+  --ea-text-2: #334155;
+  --ea-text-3: #64748B;
+  --ea-text-4: #94A3B8;
+
+  --ea-success:    #10B981;
+  --ea-success-fg: #047857;
+  --ea-success-bg: #ECFDF5;
+  --ea-danger:     #EF4444;
+  --ea-danger-fg:  #B91C1C;
+  --ea-danger-bg:  #FEF2F2;
+  --ea-warning:    #F59E0B;
+  --ea-warning-fg: #B45309;
+  --ea-warning-bg: #FFFBEB;
+
+  --ea-font-sans:    var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --ea-font-display: var(--font-fraunces), 'Fraunces', 'Playfair Display', serif;
+  --ea-font-mono:    var(--font-geist-mono), ui-monospace, monospace;
+
+  --ea-r-md:  6px;
+  --ea-r-lg:  10px;
+  --ea-r-xl:  14px;
+
+  --ea-shadow-2: 0 1px 3px rgba(15,23,42,0.04), 0 4px 12px -4px rgba(15,23,42,0.06);
+  --ea-shadow-3: 0 24px 60px -12px rgba(15,23,42,0.22), 0 8px 24px -8px rgba(15,23,42,0.10);
+  --ea-focus: 0 0 0 3px rgba(30,58,95,0.18);
+
+  /* Body gradient — цэвэр цагаан, маш бүдэг өргөлттэй */
+  --ea-bg-gradient: radial-gradient(80% 60% at 50% 0%, #F8FAFC 0%, #FFFFFF 60%);
+
+  /* Auth hero panel — light-д брэнд нави, dark-д тас хар */
+  --ea-hero-gradient: linear-gradient(165deg, #1E3A5F 0%, #15294A 100%);
+
+  /* ── shadcn токенууд --ea-*-д уягдана ── */
+  --background: var(--ea-bg);
+  --foreground: var(--ea-text-1);
+  --card: var(--ea-surface);
+  --card-foreground: var(--ea-text-1);
+  --popover: var(--ea-surface);
+  --popover-foreground: var(--ea-text-1);
+  --primary: var(--ea-primary);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--ea-bg-2);
+  --secondary-foreground: var(--ea-text-1);
+  --muted: var(--ea-bg-2);
+  --muted-foreground: var(--ea-text-3);
+  --accent: var(--ea-bg-3);
+  --accent-foreground: var(--ea-text-1);
+  --destructive: var(--ea-danger);
+  --border: var(--ea-border);
+  --input: var(--ea-border-strong);
+  --ring: var(--ea-primary);
+  --chart-1: #1E3A5F;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #EF4444;
+  --chart-5: #8B5CF6;
+  --radius: 0.625rem;
+  --sidebar: var(--ea-surface);
+  --sidebar-foreground: var(--ea-text-1);
+  --sidebar-primary: var(--ea-primary);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--ea-bg-2);
+  --sidebar-accent-foreground: var(--ea-text-1);
+  --sidebar-border: var(--ea-border);
+  --sidebar-ring: var(--ea-primary);
+}
+
+/* ─── DARK MODE — тас хар суурь, цэнхэр нь зөвхөн accent ────────────────────
+ *  Цэнхэрийн ханалт (saturation) нь light-ийн нави (52%)-тай ойролцоо 62%
+ *  байлгаж, тас хар дээр "неон гэрэлтэх" (halation) эффектээс сэргийлнэ.
+ *  Контраст: #73A5DE / #000 = 8.1:1 (AAA), хар текст товчин дээр мөн 8.1:1.
+ * ────────────────────────────────────────────────────────────────────────── */
+.dark {
+  --ea-primary:       #73A5DE;   /* HSL(212, 62%, 66%) — тайвшруулсан цэнхэр */
+  --ea-primary-700:   #8CB8E8;   /* hover — dark-д ЦАЙВАР тал руу */
+  --ea-primary-500:   #9DC3EE;
+  --ea-primary-100:   #1C1C1E;
+  --ea-primary-50:    rgba(115,165,222,0.14);
+
+  --ea-bg:            #000000;
+  --ea-bg-2:          #0C0C0D;
+  --ea-bg-3:          #161618;
+  --ea-surface:       #0A0A0B;
+  --ea-surface-glass: rgba(18,18,20,0.55);
+  --ea-border:        rgba(255,255,255,0.10);
+  --ea-border-strong: rgba(255,255,255,0.18);
+
+  --ea-text-1: #F5F5F5;
+  --ea-text-2: #D4D4D4;
+  --ea-text-3: #9E9E9E;
+  --ea-text-4: #6E6E6E;
+
+  --ea-success:    #34D399;
+  --ea-success-fg: #6EE7B7;
+  --ea-success-bg: rgba(52,211,153,0.12);
+  --ea-danger:     #F87171;
+  --ea-danger-fg:  #FCA5A5;
+  --ea-danger-bg:  rgba(248,113,113,0.12);
+  --ea-warning:    #FBBF24;
+  --ea-warning-fg: #FCD34D;
+  --ea-warning-bg: rgba(251,191,36,0.12);
+
+  --ea-shadow-2: 0 1px 0 rgba(255,255,255,0.04) inset,
+                 0 8px 24px -6px rgba(0,0,0,0.5);
+  --ea-shadow-3: 0 1px 0 rgba(255,255,255,0.06) inset,
+                 0 24px 60px -12px rgba(0,0,0,0.7),
+                 0 8px 16px -8px rgba(0,0,0,0.4);
+
+  --ea-focus: 0 0 0 3px rgba(115,165,222,0.38);
+
+  /* Body gradient — тас хар, маш бүдэг саарал өргөлттэй */
+  --ea-bg-gradient:
+    radial-gradient(60% 50% at 20% 0%, rgba(255,255,255,0.03) 0%, transparent 60%),
+    linear-gradient(180deg, #050505 0%, #000000 100%);
+
+  /* Auth hero panel — dark-д тас хар */
+  --ea-hero-gradient: linear-gradient(165deg, #111113 0%, #000000 100%);
+
+  /* ── shadcn токенууд --ea-*-д уягдана ── */
+  --background: var(--ea-bg);
+  --foreground: var(--ea-text-1);
+  --card: var(--ea-surface);
+  --card-foreground: var(--ea-text-1);
+  --popover: var(--ea-surface);
+  --popover-foreground: var(--ea-text-1);
+  --primary: var(--ea-primary);
+  --primary-foreground: var(--ea-bg);
+  --secondary: var(--ea-bg-2);
+  --secondary-foreground: var(--ea-text-1);
+  --muted: var(--ea-bg-2);
+  --muted-foreground: var(--ea-text-3);
+  --accent: var(--ea-bg-3);
+  --accent-foreground: var(--ea-text-1);
+  --destructive: var(--ea-danger);
+  --border: var(--ea-border);
+  --input: var(--ea-border-strong);
+  --ring: var(--ea-primary);
+  --chart-1: #73A5DE;
+  --chart-2: #34D399;
+  --chart-3: #FBBF24;
+  --chart-4: #F87171;
+  --chart-5: #A78BFA;
+  --sidebar: var(--ea-surface);
+  --sidebar-foreground: var(--ea-text-1);
+  --sidebar-primary: var(--ea-primary);
+  --sidebar-primary-foreground: var(--ea-bg);
+  --sidebar-accent: var(--ea-bg-2);
+  --sidebar-accent-foreground: var(--ea-text-1);
+  --sidebar-border: var(--ea-border);
+  --sidebar-ring: var(--ea-primary);
+}

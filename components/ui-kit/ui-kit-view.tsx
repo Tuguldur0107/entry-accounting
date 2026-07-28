@@ -144,6 +144,13 @@ export function UiKitView() {
         <p className="text-sm mt-1" style={{ color: "var(--ea-text-3)" }}>
           Дизайн токен ба component-уудын нэгдсэн лавлагаа. Шинэ UI бүтээхдээ эндээс хэв маягаа авна.
         </p>
+        <p className="text-xs mt-2" style={{ color: "var(--ea-text-4)" }}>
+          Токены эх сурвалж:{" "}
+          <code style={{ color: "var(--ea-text-3)" }}>ui-kit/tokens.css</code> →{" "}
+          <code style={{ color: "var(--ea-text-3)" }}>app/globals.css</code>. Өнгө өөрчлөх бол
+          зөвхөн тэнд. Контраст шалгах статик preview:{" "}
+          <code style={{ color: "var(--ea-text-3)" }}>ui-kit/preview.html</code>
+        </p>
       </div>
 
       {/* 1. Өнгө */}

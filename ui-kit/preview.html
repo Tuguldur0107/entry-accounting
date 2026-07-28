@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entry Accounting — UI Kit</title>
+
+<!-- ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ. Апп мөн үүнийг л import хийдэг. -->
+<link rel="stylesheet" href="./tokens.css">
+
+<style>
+  /* Статик preview дээр Next.js-ийн font хувьсагч байхгүй тул fallback өгнө */
+  :root {
+    --font-geist-sans: ui-sans-serif;
+    --font-geist-mono: ui-monospace;
+    --font-fraunces: Georgia;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--ea-bg);
+    background-image: var(--ea-bg-gradient);
+    background-repeat: no-repeat;
+    background-size: 100% 100vh;
+    color: var(--ea-text-1);
+    font-family: var(--ea-font-sans);
+    min-height: 100vh;
+    padding: 28px 24px 64px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1100px; margin: 0 auto; }
+
+  header.page {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-bottom: 20px;
+  }
+  h1 { font-family: var(--ea-font-display); font-size: 26px; font-weight: 400; }
+  .sub { color: var(--ea-text-3); font-size: 13.5px; margin-top: 4px; }
+  .src { color: var(--ea-text-4); font-size: 11.5px; margin-top: 8px; font-family: var(--ea-font-mono); }
+
+  section {
+    background: var(--ea-surface);
+    border: 1px solid var(--ea-border);
+    border-radius: var(--ea-r-lg);
+    padding: 20px;
+    margin-bottom: 14px;
+  }
+  h2 { font-size: 13.5px; font-weight: 600; margin-bottom: 3px; }
+  .hint { color: var(--ea-text-3); font-size: 12px; margin-bottom: 14px; }
+  h3 { font-size: 11.5px; font-weight: 600; color: var(--ea-text-2); margin: 16px 0 8px; }
+  h3:first-of-type { margin-top: 0; }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+  .sw { width: 118px; }
+  .sw .chip {
+    height: 42px; border-radius: var(--ea-r-md);
+    border: 1px solid var(--ea-border); margin-bottom: 6px;
+  }
+  .sw code { font-size: 10px; color: var(--ea-text-3); display: block; line-height: 1.35; word-break: break-all; }
+  .sw .val { font-size: 9.5px; color: var(--ea-text-4); font-family: var(--ea-font-mono); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  /* ── Товч — components/ui/button.tsx-тэй ижил хэв маяг ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 32px; padding: 0 14px; gap: 6px;
+    font: inherit; font-size: 13px; font-weight: 500;
+    border-radius: 8px; border: 1px solid transparent;
+    cursor: pointer; transition: background-color .12s, color .12s, box-shadow .12s;
+  }
+  .btn:focus-visible { outline: none; box-shadow: var(--ea-focus); }
+  .btn--primary   { background: var(--ea-primary); color: var(--primary-foreground); }
+  .btn--primary:hover { background: var(--ea-primary-700); }
+  .btn--secondary { background: var(--ea-bg-2); color: var(--ea-text-1); }
+  .btn--secondary:hover { background: var(--ea-bg-3); }
+  .btn--outline   { background: transparent; color: var(--ea-text-2); border-color: var(--ea-border-strong); }
+  .btn--outline:hover { background: var(--ea-bg-2); }
+  .btn--ghost     { background: transparent; color: var(--ea-text-2); }
+  .btn--ghost:hover { background: var(--ea-bg-2); }
+  .btn--danger    { background: var(--ea-danger-bg); color: var(--ea-danger); }
+  .btn--link      { background: none; color: var(--ea-primary); text-decoration: underline; text-underline-offset: 4px; }
+  .btn[disabled]  { opacity: .4; cursor: not-allowed; }
+
+  /* ── Статус badge — components/ui/status-badge.tsx ── */
+  .badge {
+    display: inline-flex; align-items: center;
+    font-size: 13px; font-weight: 500; padding: 6px 12px; border-radius: var(--ea-r-md);
+  }
+  .badge--success { color: var(--ea-success-fg); background: color-mix(in srgb, var(--ea-success) 10%, var(--ea-surface)); border: 1px solid color-mix(in srgb, var(--ea-success) 30%, transparent); }
+  .badge--danger  { color: var(--ea-danger-fg);  background: color-mix(in srgb, var(--ea-danger) 10%, var(--ea-surface));  border: 1px solid color-mix(in srgb, var(--ea-danger) 30%, transparent); }
+  .badge--warning { color: var(--ea-warning-fg); background: color-mix(in srgb, var(--ea-warning) 10%, var(--ea-surface)); border: 1px solid color-mix(in srgb, var(--ea-warning) 30%, transparent); }
+  .badge--muted   { color: var(--ea-text-3); background: var(--ea-bg-2); }
+
+  /* ── Form ── */
+  label.f { display: block; font-size: 12px; font-weight: 600; color: var(--ea-text-3); margin-bottom: 6px; }
+  input.f, select.f {
+    width: 100%; height: 34px; padding: 0 10px;
+    background: var(--ea-surface); color: var(--ea-text-1);
+    border: 1px solid var(--ea-border-strong); border-radius: var(--ea-r-md);
+    font: inherit; font-size: 13px; outline: none;
+  }
+  input.f:focus, select.f:focus { border-color: var(--ea-primary); box-shadow: var(--ea-focus); }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+
+  /* ── Хүснэгт — DataGrid-ийн өнгөний хэв маяг ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th {
+    text-align: left; font-weight: 600; color: var(--ea-text-2);
+    background: var(--ea-bg-2); padding: 9px 12px;
+    border-bottom: 1px solid var(--ea-border);
+  }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--ea-border); }
+  tr:hover td { background: var(--ea-bg-2); }
+  tr.sel td { background: var(--ea-primary-50); }
+  .num { text-align: right; font-family: var(--ea-font-mono); }
+  .mono { font-family: var(--ea-font-mono); }
+
+  /* ── Контрастын хүснэгт ── */
+  .cx { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .cx td, .cx th { padding: 7px 10px; border-bottom: 1px solid var(--ea-border); }
+  .cx .demo { border-radius: var(--ea-r-md); padding: 5px 10px; display: inline-block; font-size: 12px; }
+  .pass { color: var(--ea-success); font-weight: 600; }
+  .warn { color: var(--ea-warning-fg); font-weight: 600; }
+  .fail { color: var(--ea-danger); font-weight: 600; }
+
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 34px; padding: 0 14px; cursor: pointer;
+    background: var(--ea-surface); color: var(--ea-text-1);
+    border: 1px solid var(--ea-border-strong); border-radius: 999px;
+    font: inherit; font-size: 13px; font-weight: 500;
+  }
+  .toggle:hover { background: var(--ea-bg-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <div>
+      <h1>Entry Accounting — UI Kit</h1>
+      <div class="sub">Дизайн токен ба component-уудын нэгдсэн лавлагаа.</div>
+      <div class="src">эх сурвалж: ui-kit/tokens.css → app/globals.css</div>
+    </div>
+    <button class="toggle" id="mode">🌙 Dark горим</button>
+  </header>
+
+  <section>
+    <h2>Өнгөний токен (--ea-*)</h2>
+    <div class="hint">Утга бүр tokens.css-ээс АМЬДААР уншигдаж байна — энэ хуудсанд өнгө давхардаж бичигдээгүй.</div>
+    <h3>Brand</h3>
+    <div class="swatches" data-tokens="--ea-primary,--ea-primary-700,--ea-primary-500,--ea-primary-100,--ea-primary-50"></div>
+    <h3>Дэвсгэр ба хүрээ</h3>
+    <div class="swatches" data-tokens="--ea-bg,--ea-bg-2,--ea-bg-3,--ea-surface,--ea-border,--ea-border-strong"></div>
+    <h3>Текст</h3>
+    <div class="swatches" data-tokens="--ea-text-1,--ea-text-2,--ea-text-3,--ea-text-4"></div>
+    <h3>Семантик</h3>
+    <div class="swatches" data-tokens="--ea-success,--ea-danger,--ea-warning,--ea-success-bg,--ea-danger-bg,--ea-warning-bg"></div>
+  </section>
+
+  <section>
+    <h2>Контраст шалгалт (WCAG)</h2>
+    <div class="hint">Тас хар / цэвэр цагаан суурьтай цэнхэр товч хэр цэвэр хослохыг бодит тоогоор. AA ≥ 4.5, AAA ≥ 7.</div>
+    <table class="cx"><thead><tr>
+      <th>Хослол</th><th>Жишээ</th><th style="text-align:right">Харьцаа</th><th>Түвшин</th>
+    </tr></thead><tbody id="cxbody"></tbody></table>
+  </section>
+
+  <section>
+    <h2>Тайпографи</h2>
+    <div class="hint">3 font family + текстийн 4 түвшин.</div>
+    <div style="font-family:var(--ea-font-display); font-size:24px; margin-bottom:8px">Display — Нягтлан бодох бүртгэл</div>
+    <div style="font-size:14px; margin-bottom:8px">Sans — Үндсэн интерфейсийн текст</div>
+    <div style="font-family:var(--ea-font-mono); font-size:13px; margin-bottom:14px">Mono — 11210000 · 4,200,000.00 ₮</div>
+    <div class="row" style="gap:22px; font-size:13.5px">
+      <span style="color:var(--ea-text-1)">text-1 Үндсэн</span>
+      <span style="color:var(--ea-text-2)">text-2 Хоёрдогч</span>
+      <span style="color:var(--ea-text-3)">text-3 Сул</span>
+      <span style="color:var(--ea-text-4)">text-4 Хамгийн сул</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Button</h2>
+    <div class="hint">components/ui/button.tsx — variant бүр.</div>
+    <div class="row">
+      <button class="btn btn--primary">Хадгалах</button>
+      <button class="btn btn--secondary">Secondary</button>
+      <button class="btn btn--outline">Болих</button>
+      <button class="btn btn--ghost">Ghost</button>
+      <button class="btn btn--danger">Устгах</button>
+      <button class="btn btn--link">Дэлгэрэнгүй</button>
+      <button class="btn btn--primary" disabled>Идэвхгүй</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Статус badge</h2>
+    <div class="hint">components/ui/status-badge.tsx — tone="success | danger | warning | muted"</div>
+    <div class="row">
+      <span class="badge badge--success">✓ Тэнцсэн</span>
+      <span class="badge badge--danger">Зөрүү: 840,000.00</span>
+      <span class="badge badge--warning">Хугацаа дөхөж байна</span>
+      <span class="badge badge--muted">Дүн оруулаагүй</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Form элементүүд</h2>
+    <div class="hint">components/ui/input.tsx, label.tsx, select.tsx</div>
+    <div class="grid2">
+      <div><label class="f">Гүйлгээний утга</label><input class="f" placeholder="Тайлбар оруулна уу"></div>
+      <div><label class="f">Огноо</label><input class="f" type="date" value="2026-07-28"></div>
+      <div><label class="f">Валют</label>
+        <select class="f"><option>MNT — Төгрөг</option><option>USD — Доллар</option></select>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Хүснэгт (DataGrid өнгө)</h2>
+    <div class="hint">components/datagrid/ — AG Grid theme нь эдгээр л токеныг ашигладаг.</div>
+    <table>
+      <thead><tr>
+        <th>Огноо</th><th>Данс</th><th>Нэр</th>
+        <th class="num">Дебет</th><th class="num">Кредит</th>
+      </tr></thead>
+      <tbody>
+        <tr class="sel"><td class="mono">2026-07-01</td><td class="mono">11210000</td><td>Касс</td><td class="num">4,200,000.00</td><td class="num">—</td></tr>
+        <tr><td class="mono">2026-07-01</td><td class="mono">13110000</td><td>Авлага</td><td class="num">—</td><td class="num">4,200,000.00</td></tr>
+        <tr><td class="mono">2026-07-02</td><td class="mono">51100000</td><td>Борлуулалтын орлого</td><td class="num">—</td><td class="num">8,400,000.00</td></tr>
+        <tr><td class="mono">2026-07-03</td><td class="mono">72100000</td><td>Цалингийн зардал</td><td class="num">2,100,000.00</td><td class="num">—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+
+<script>
+/* ── Токеныг АМЬДААР уншина: preview дотор өнгө давхардаж бичигдэхээс сэргийлнэ ── */
+const probe = document.createElement("div");
+probe.style.display = "none";
+document.body.appendChild(probe);
+
+/** Дурын CSS өнгийг [r,g,b,a] болгож normalize хийнэ (hex, rgba, color-mix бүгд). */
+function toRgba(cssColor) {
+  probe.style.backgroundColor = "";
+  probe.style.backgroundColor = cssColor;
+  const out = getComputedStyle(probe).backgroundColor;
+  const m = out.match(/[\d.]+/g);
+  if (!m) return null;
+  return [+m[0], +m[1], +m[2], m[3] === undefined ? 1 : +m[3]];
+}
+
+function tokenValue(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** Alpha-тай өнгийг дэвсгэр дээр нь нийлүүлнэ. */
+function flatten(fg, bg) {
+  const a = fg[3];
+  return [0, 1, 2].map(i => fg[i] * a + bg[i] * (1 - a));
+}
+
+function luminance([r, g, b]) {
+  const f = c => {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrast(fgCss, bgCss) {
+  const bg = toRgba(bgCss), fg = toRgba(fgCss);
+  if (!bg || !fg) return null;
+  const bgFlat = bg[3] < 1 ? flatten(bg, [255, 255, 255]) : bg.slice(0, 3);
+  const fgFlat = fg[3] < 1 ? flatten(fg, bgFlat) : fg.slice(0, 3);
+  const L1 = luminance(fgFlat), L2 = luminance(bgFlat);
+  const [hi, lo] = L1 > L2 ? [L1, L2] : [L2, L1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/* ── Swatch-ууд ── */
+function renderSwatches() {
+  document.querySelectorAll(".swatches").forEach(box => {
+    box.innerHTML = box.dataset.tokens.split(",").map(name => {
+      const raw = tokenValue(name);
+      const rgba = toRgba(raw);
+      const shown = rgba && rgba[3] === 1
+        ? "#" + rgba.slice(0, 3).map(n => Math.round(n).toString(16).padStart(2, "0")).join("").toUpperCase()
+        : raw;
+      return `<div class="sw">
+        <div class="chip" style="background:${raw}"></div>
+        <code>${name}</code>
+        <span class="val">${shown}</span>
+      </div>`;
+    }).join("");
+  });
+}
+
+/* ── Контрастын хүснэгт ── */
+const PAIRS = [
+  { label: "Primary товч (текст товчин дээр)", fg: "var(--primary-foreground)", bg: "var(--ea-primary)", demoText: "Хадгалах" },
+  { label: "Primary өнгө / дэвсгэр (линк)",    fg: "var(--ea-primary)", bg: "var(--ea-bg)", demoText: "Дэлгэрэнгүй" },
+  { label: "Үндсэн текст / дэвсгэр",           fg: "var(--ea-text-1)",  bg: "var(--ea-bg)", demoText: "Үндсэн текст" },
+  { label: "Хоёрдогч текст / дэвсгэр",         fg: "var(--ea-text-2)",  bg: "var(--ea-bg)", demoText: "Хоёрдогч" },
+  { label: "Сул текст / дэвсгэр",              fg: "var(--ea-text-3)",  bg: "var(--ea-bg)", demoText: "Сул текст" },
+  { label: "Хамгийн сул текст / дэвсгэр",      fg: "var(--ea-text-4)",  bg: "var(--ea-bg)", demoText: "Placeholder" },
+  { label: "Амжилт текст (-fg) / surface",     fg: "var(--ea-success-fg)", bg: "var(--ea-surface)", demoText: "✓ Тэнцсэн" },
+  { label: "Аюул текст (-fg) / surface",       fg: "var(--ea-danger-fg)",  bg: "var(--ea-surface)", demoText: "Зөрүү" },
+  { label: "Анхааруулга текст (-fg) / surface", fg: "var(--ea-warning-fg)", bg: "var(--ea-surface)", demoText: "Хугацаа дөхөв" },
+  { label: "⚠ Аюулын СУУРЬ өнгө текстээр",     fg: "var(--ea-danger)",  bg: "var(--ea-surface)", demoText: "-840,000" },
+  { label: "⚠ Амжилтын СУУРЬ өнгө текстээр",   fg: "var(--ea-success)", bg: "var(--ea-surface)", demoText: "Тэнцсэн" },
+];
+
+function renderContrast() {
+  document.getElementById("cxbody").innerHTML = PAIRS.map(p => {
+    const ratio = contrast(p.fg, p.bg);
+    const r = ratio ? ratio.toFixed(2) : "—";
+    let cls = "fail", level = "Хангалтгүй";
+    if (ratio >= 7)        { cls = "pass"; level = "AAA"; }
+    else if (ratio >= 4.5) { cls = "pass"; level = "AA"; }
+    else if (ratio >= 3)   { cls = "warn"; level = "AA (том текст)"; }
+    return `<tr>
+      <td>${p.label}</td>
+      <td><span class="demo" style="color:${p.fg};background:${p.bg}">${p.demoText}</span></td>
+      <td class="num">${r}:1</td>
+      <td class="${cls}">${level}</td>
+    </tr>`;
+  }).join("");
+}
+
+/* ── Light / Dark ── */
+const modeBtn = document.getElementById("mode");
+function applyMode(dark) {
+  document.documentElement.classList.toggle("dark", dark);
+  modeBtn.textContent = dark ? "☀️ Light горим" : "🌙 Dark горим";
+  localStorage.setItem("ea-uikit-mode", dark ? "dark" : "light");
+  renderSwatches();
+  renderContrast();
+}
+modeBtn.addEventListener("click", () =>
+  applyMode(!document.documentElement.classList.contains("dark"))
+);
+
+const saved = localStorage.getItem("ea-uikit-mode");
+applyMode(
+  saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches
+);
+</script>
+</body>
+</html>
