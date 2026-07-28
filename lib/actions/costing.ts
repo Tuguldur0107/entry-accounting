@@ -257,15 +257,26 @@ export async function runCosting(data: {
     valueAdjustments: postedLandedCosts(activeEntries),
   });
 
-  if (result.entries.length === 0)
-    return { created: 0, pending: result.pending };
+  // ЗӨВХӨН ХУДАЛДАН АВАЛТЫН ОРЛОГЫГ шууд үнэлнэ — түүний өртөг эх
+  // баримтаас ирдэг тул хүлээх шаардлагагүй, мөн сарын дундажийг ЭНЭ
+  // тодорхойлдог. Зарлага, тооллогын тохируулга, буцаалт нь сарын дундаж
+  // гарах хүртэл хүлээнэ (README change-control 0.3: "сар дуусаад бүх
+  // зардал бүртгэгдсэний дараа өртөг тооцно") — тэднийг
+  // computePeriodCosting үнэлж GL-д бичнэ.
+  const immediateEntries = result.entries.filter(
+    (entry) => entry.entryType === "receipt_capitalize"
+  );
+  const deferred = result.entries.length - immediateEntries.length;
+
+  if (immediateEntries.length === 0)
+    return { created: 0, pending: result.pending, deferred };
 
   const [run] = await tx
     .insert(costingRuns)
     .values({
       userId,
       asOfDate: data.asOfDate,
-      entryCount: result.entries.length,
+      entryCount: immediateEntries.length,
       pendingCount: result.pending.length,
     })
     .returning({ id: costingRuns.id });
@@ -275,7 +286,7 @@ export async function runCosting(data: {
   const movementById = new Map(movements.map((row) => [row.id, row]));
 
   await tx.insert(costEntries).values(
-    result.entries.map((entry) => {
+    immediateEntries.map((entry) => {
       const movement = movementById.get(entry.movementId);
       return {
       userId,
@@ -302,7 +313,11 @@ export async function runCosting(data: {
   );
 
   revalidateCosting();
-  return { created: result.entries.length, pending: result.pending };
+  return {
+    created: immediateEntries.length,
+    pending: result.pending,
+    deferred,
+  };
   });
 }
 

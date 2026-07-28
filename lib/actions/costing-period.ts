@@ -7,7 +7,10 @@
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/lib/auth";
+import { computePeriodCosting } from "@/lib/costing/period-close";
 import { runPeriodicCosting } from "@/lib/costing/period-run";
+import { loadInventoryBase } from "@/lib/inventory/load-data";
+import { isPeriodCode } from "@/lib/periods/period";
 
 export type RecalculateResult =
   | {
@@ -43,4 +46,85 @@ export async function recalculatePeriodicCosting(): Promise<RecalculateResult> {
       message: caught instanceof Error ? caught.message : "Тооцоолол амжилтгүй",
     };
   }
+}
+
+export type PeriodCostingActionResult =
+  | {
+      ok: true;
+      valued: number;
+      alreadyValued: number;
+      zeroValued: number;
+      blockers: { label: string; reason: string }[];
+    }
+  | {
+      ok: false;
+      code: "unauthenticated" | "invalid-period" | "failed";
+      message?: string;
+    };
+
+/**
+ * Сарын өртөг тооцох — зарлага, тооллогын тохируулга, буцаалтыг тухайн
+ * сарын жигнэсэн дундажаар үнэлж НООРОГ бичилт болгоно. GL-д бичих нь
+ * дараагийн тусдаа алхам (нягтланчийн баталгаажуулалт).
+ *
+ * Блоклогдсон бараа-агуулах байвал ямар ч бичилт үүсгэхгүй — өртгийг
+ * зохиохгүй, шалтгааныг нь буцаана.
+ */
+export async function computeMonthlyCosting(
+  periodCode: string
+): Promise<PeriodCostingActionResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+  if (!isPeriodCode(periodCode)) return { ok: false, code: "invalid-period" };
+
+  try {
+    const summary = await computePeriodCosting(userId, periodCode);
+
+    // Блоклогдсон мөрүүдийг хүнд ойлгомжтой шошготой болгоно.
+    const labels = await loadScopeLabels(
+      userId,
+      summary.blockers.map((entry) => entry)
+    );
+
+    revalidatePath("/costing");
+    revalidatePath("/costing/entries");
+    revalidatePath("/costing/control");
+    revalidatePath("/costing/detail");
+    return {
+      ok: true,
+      valued: summary.valued,
+      alreadyValued: summary.alreadyValued,
+      zeroValued: summary.zeroValued,
+      blockers: labels,
+    };
+  } catch (caught) {
+    return {
+      ok: false,
+      code: "failed",
+      message: caught instanceof Error ? caught.message : "Тооцоолол амжилтгүй",
+    };
+  }
+}
+
+async function loadScopeLabels(
+  userId: string,
+  blockers: { itemId: string; warehouseId: string; reason: string }[]
+): Promise<{ label: string; reason: string }[]> {
+  if (blockers.length === 0) return [];
+  const { itemViews, warehouseViews } = await loadInventoryBase(userId);
+  const itemById = new Map(itemViews.map((item) => [item.id, item]));
+  const warehouseById = new Map(
+    warehouseViews.map((warehouse) => [warehouse.id, warehouse])
+  );
+  return blockers.map((entry) => {
+    const item = itemById.get(entry.itemId);
+    const warehouse = warehouseById.get(entry.warehouseId);
+    return {
+      label: `${item ? `${item.code} · ${item.name}` : entry.itemId} — ${
+        warehouse ? warehouse.name : entry.warehouseId
+      }`,
+      reason: entry.reason,
+    };
+  });
 }

@@ -15,13 +15,16 @@
 
 import { useMemo, useState } from "react";
 import type { ColDef, ColGroupDef } from "ag-grid-community";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Calculator, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
-import { recalculatePeriodicCosting } from "@/lib/actions/costing-period";
+import {
+  computeMonthlyCosting,
+  recalculatePeriodicCosting,
+} from "@/lib/actions/costing-period";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +104,10 @@ export function CostControlReport({
 }: Props) {
   const router = useRouter();
   const [recalculating, setRecalculating] = useState(false);
+  const [valuing, setValuing] = useState(false);
+  const [blockers, setBlockers] = useState<
+    { label: string; reason: string }[] | null
+  >(null);
 
   const columnDefs = useMemo<(ColDef<CostControlRow> | ColGroupDef<CostControlRow>)[]>(
     () => [
@@ -273,6 +280,31 @@ export function CostControlReport({
     });
   }
 
+  function valueMonth() {
+    setValuing(true);
+    setBlockers(null);
+    void computeMonthlyCosting(periodCode).then((result) => {
+      setValuing(false);
+      if (!result.ok) {
+        toast.error(result.message ?? "Тооцоолол амжилтгүй");
+        return;
+      }
+      if (result.blockers.length > 0) {
+        setBlockers(result.blockers);
+        toast.error(
+          `${result.blockers.length} бараа-агуулах тооцоологдохгүй байна — бичилт үүсгэсэнгүй`
+        );
+        return;
+      }
+      const parts = [`${result.valued} бичилт үнэлэгдлээ`];
+      if (result.alreadyValued > 0)
+        parts.push(`${result.alreadyValued} нь GL-д бичигдсэн тул хөндөгдсөнгүй`);
+      if (result.zeroValued > 0) parts.push(`${result.zeroValued} нь 0 дүнтэй`);
+      toast.success(parts.join(" · "));
+      router.refresh();
+    });
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -281,8 +313,8 @@ export function CostControlReport({
             Өртгийн хяналтын тайлан
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Хугацааны жигнэсэн дундаж · бараа × агуулах · Зарлагын нэгж өртөг
-            ба C2 нэгж өртөг нь нэг утга
+            Хугацааны жигнэсэн дундаж · бараа × агуулах · Зарлага нь сарын
+            өртөг тооцоход л үнэлэгдэнэ (зөрүү үүсэхгүй)
             {calculatedAt ? ` · тооцоолсон: ${calculatedAt}` : ""}
           </p>
         </div>
@@ -305,10 +337,23 @@ export function CostControlReport({
             variant="outline"
             size="sm"
             onClick={recalculate}
-            disabled={recalculating}
+            disabled={recalculating || valuing}
           >
             <RefreshCw size={13} className={cn(recalculating && "animate-spin")} />
             Дахин тооцоолох
+          </Button>
+          <Button
+            size="sm"
+            onClick={valueMonth}
+            disabled={valuing || recalculating || periodClosed}
+            title={
+              periodClosed
+                ? "Хаагдсан сарын өртгийг дахин тооцохгүй"
+                : "Зарлага, тохируулга, буцаалтыг сарын дундажаар үнэлж ноорог бичилт үүсгэнэ"
+            }
+          >
+            <Calculator size={13} />
+            Сарын өртөг тооцох
           </Button>
         </div>
       </div>
@@ -334,6 +379,23 @@ export function CostControlReport({
               <p>{unbalancedCount} мөрд тоо/дүнгийн тэнцэл алдагдсан байна.</p>
             )}
           </div>
+        </div>
+      )}
+
+      {blockers && blockers.length > 0 && (
+        <div className="rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger)]">
+          <p className="mb-1 font-medium">
+            Дараах бараа-агуулахын өртөг тодорхойлогдохгүй тул НЭГ Ч бичилт
+            үүсгэсэнгүй:
+          </p>
+          <ul className="space-y-0.5">
+            {blockers.slice(0, 12).map((entry) => (
+              <li key={entry.label}>
+                • {entry.label} — {entry.reason}
+              </li>
+            ))}
+            {blockers.length > 12 && <li>… бусад {blockers.length - 12}</li>}
+          </ul>
         </div>
       )}
 

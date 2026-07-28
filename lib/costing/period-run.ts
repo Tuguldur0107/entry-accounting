@@ -30,6 +30,15 @@ import {
 /** Үнэлгээнд орохгүй хөдөлгөөний төрлүүд (OD-014 нээлттэй). */
 const EXCLUDED_TYPES = new Set(["transfer"]);
 
+/**
+ * Орлогын үнэлгээний хэлбэр: худалдан авалт нь эх баримтаас өртөгтэй ирнэ;
+ * тооллогын илүүдэл, худалдан авагчаас буцаж ирсэн бараа нь худалдан авах
+ * үнэгүй тул сарын дунджаар үнэлэгдэнэ (README change-control 0.2).
+ */
+function inboundValuationOf(movementType: string): "priced" | "average" {
+  return movementType === "receipt" ? "priced" : "average";
+}
+
 function directionOf(
   movementType: string,
   quantity: number
@@ -102,7 +111,10 @@ export async function runPeriodicCosting(
     };
 
   // Орлогын мөнгөн дүн: тухайн хөдөлгөөнд холбогдсон ИДЭВХТЭЙ (ноорог эсвэл
-  // батлагдсан) өртгийн бичилтээс. Буцаагдсан бичилт тооцогдохгүй.
+  // батлагдсан) ӨРТӨГТЭЙ бичилтээс — худалдан авалт ба нэмэлт зардал.
+  // Тооллогын илүүдэл, буцаж ирсэн бараа нь худалдан авах үнэгүй тул
+  // САРЫН ДУНДАЖААР үнэлэгдэнэ (README change-control 0.2) — тэдгээрийг
+  // дундажийн тоологч/хуваарьт ОРУУЛАХГҮЙ.
   const entries = await db.query.costEntries.findMany({
     where: and(
       eq(costEntries.userId, userId),
@@ -123,9 +135,7 @@ export async function runPeriodicCosting(
     // периодын дунджаас гардаг тул эх өгөгдөл БИШ.
     if (
       entry.entryType === "receipt_capitalize" ||
-      entry.entryType === "landed_cost" ||
-      entry.entryType === "return_in" ||
-      entry.entryType === "adjustment_gain"
+      entry.entryType === "landed_cost"
     )
       inboundAmountByMovement.set(
         entry.movementId,
@@ -146,10 +156,15 @@ export async function runPeriodicCosting(
       warehouseId: movement.warehouseId!,
       direction,
       quantity: Math.abs(quantity),
-      inboundAmount:
-        direction === "in"
-          ? (inboundAmountByMovement.get(movement.id) ?? null)
-          : undefined,
+      ...(direction === "in"
+        ? {
+            inboundValuation: inboundValuationOf(movement.movementType),
+            inboundAmount:
+              inboundValuationOf(movement.movementType) === "priced"
+                ? (inboundAmountByMovement.get(movement.id) ?? null)
+                : undefined,
+          }
+        : {}),
     });
   }
 

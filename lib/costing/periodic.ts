@@ -33,9 +33,15 @@ export interface PeriodicMovement {
   /** Үргэлж ЭЕРЭГ (чиглэл нь direction-д). */
   quantity: number;
   /**
-   * Орлогын мөнгөн дүн (эх баримтаас). "in" чиглэлд ЗААВАЛ — байхгүй бол
-   * тухайн бараа-агуулах-периодын дундаж тодорхойгүй болно.
+   * Орлогын үнэлгээний хэлбэр ("in" чиглэлд):
+   *   "priced"  — эх баримтаас өртөг ирнэ (худалдан авалт, нэмэлт зардал).
+   *               Өртөг байхгүй бол тухайн сар тооцоологдохгүй.
+   *   "average" — тухайн сарын дунджаар үнэлэгдэнэ. Тооллогын илүүдэл,
+   *               худалдан авагчаас буцаж ирсэн бараанд худалдан авах үнэ
+   *               байхгүй тул (README change-control 0.2-д батлагдсан).
    */
+  inboundValuation?: "priced" | "average";
+  /** "priced" орлогын мөнгөн дүн. "average"-д хэрэглэгдэхгүй. */
   inboundAmount?: number | null;
 }
 
@@ -60,11 +66,16 @@ export interface PeriodicResult {
   openingAmount: number;
   /** C1 Amount / C1 Qty — Qty 0 бол null (утгагүй, зохиохгүй). */
   openingUnitCost: number | null;
-  // Inbound
+  // Inbound (үнэтэй + дунджаар үнэлэгдсэн хоёрын нийлбэр)
   inboundQty: number;
   inboundAmount: number;
   /** Inbound Amount / Inbound Qty — Qty 0 бол null. */
   inboundUnitCost: number | null;
+  /** Эх баримтаас өртөгтэй ирсэн орлого — дундажийг ЗӨВХӨН үүнээс бодно. */
+  pricedInboundQty: number;
+  pricedInboundAmount: number;
+  /** Дунджаар үнэлэгдсэн орлого (илүүдэл, буцаж ирсэн). */
+  averageValuedInboundQty: number;
   // Outbound
   outboundQty: number;
   /** Outbound Amount = Outbound Qty × дундаж. Блоклогдвол null. */
@@ -105,28 +116,42 @@ export function computePeriodResult(input: {
 }): PeriodicResult {
   const { itemId, warehouseId, periodCode, opening, movements } = input;
 
-  let inboundQty = 0;
-  let inboundAmount = 0;
+  // Орлогыг ХОЁР бүлэгт хуваана: өртөгтэй ирсэн (дундажийг тодорхойлдог) ба
+  // дунджаар үнэлэгдэх (илүүдэл, буцаж ирсэн — худалдан авах үнэ байхгүй).
+  let pricedInboundQty = 0;
+  let pricedInboundAmount = 0;
+  let averageValuedInboundQty = 0;
   let outboundQty = 0;
   let missingInboundCost = false;
   const movementIds: string[] = [];
 
   for (const movement of movements) {
     movementIds.push(movement.id);
-    if (movement.direction === "in") {
-      inboundQty += movement.quantity;
-      if (movement.inboundAmount == null) missingInboundCost = true;
-      else inboundAmount += movement.inboundAmount;
-    } else {
+    if (movement.direction === "out") {
       outboundQty += movement.quantity;
+      continue;
     }
+    if (movement.inboundValuation === "average") {
+      averageValuedInboundQty += movement.quantity;
+      continue;
+    }
+    pricedInboundQty += movement.quantity;
+    if (movement.inboundAmount == null) missingInboundCost = true;
+    else pricedInboundAmount += movement.inboundAmount;
   }
 
-  const availableQty = opening.qty + inboundQty;
-  const availableAmount = opening.amount + inboundAmount;
-  const closingQty = availableQty - outboundQty;
+  // Дундажийг ЗӨВХӨН эхний үлдэгдэл + өртөгтэй орлогоос бодно. Дараа нь
+  // үнэгүй орлогыг тэр дунджаар үнэлнэ — ингэснээр
+  //   C1 + Орлого = Зарлага + C2
+  // тэнцэл хэвээр биелнэ (бүх тал нэг л дундажтай).
+  const pricedQty = opening.qty + pricedInboundQty;
+  const pricedAmount = opening.amount + pricedInboundAmount;
 
-  const base = {
+  const inboundQtyTotal = pricedInboundQty + averageValuedInboundQty;
+  const closingQtyTotal =
+    opening.qty + inboundQtyTotal - outboundQty;
+
+  const baseOf = (inboundAmount: number) => ({
     itemId,
     warehouseId,
     periodCode,
@@ -134,33 +159,43 @@ export function computePeriodResult(input: {
     openingAmount: opening.amount,
     openingUnitCost:
       Math.abs(opening.qty) > QTY_EPSILON ? opening.amount / opening.qty : null,
-    inboundQty,
+    inboundQty: inboundQtyTotal,
     inboundAmount,
     inboundUnitCost:
-      Math.abs(inboundQty) > QTY_EPSILON ? inboundAmount / inboundQty : null,
+      Math.abs(inboundQtyTotal) > QTY_EPSILON
+        ? inboundAmount / inboundQtyTotal
+        : null,
+    pricedInboundQty,
+    pricedInboundAmount,
+    averageValuedInboundQty,
     outboundQty,
-    closingQty,
+    closingQty: closingQtyTotal,
     movementIds,
-  };
+  });
+
+  const qtyBalanced =
+    Math.abs(
+      opening.qty + inboundQtyTotal - (outboundQty + closingQtyTotal)
+    ) < QTY_EPSILON;
 
   const blocked = (
     status: PeriodResultStatus,
     blockReason: string
   ): PeriodicResult => ({
-    ...base,
+    // Блоклогдвол дунджаар үнэлэгдэх орлогын дүн тодорхойгүй тул зөвхөн
+    // өртөгтэй орлогын дүнг үзүүлнэ.
+    ...baseOf(pricedInboundAmount),
     outboundAmount: null,
     closingAmount: null,
     averageUnitCost: null,
     // Тоо хэмжээ нь мөнгөн дүнгээс хамаарахгүй тул блоклогдсон ч шалгана.
-    qtyBalanced:
-      Math.abs(opening.qty + inboundQty - (outboundQty + closingQty)) <
-      QTY_EPSILON,
+    qtyBalanced,
     amountBalanced: false,
     status,
     blockReason,
   });
 
-  // Үнэлэгдээгүй орлого — дундаж тодорхойгүй (үнийг ЗОХИОХГҮЙ).
+  // Өртөг бөглөгдөөгүй худалдан авалт — дундаж тодорхойгүй (ЗОХИОХГҮЙ).
   if (missingInboundCost)
     return blocked(
       "blocked-missing-inbound-cost",
@@ -168,22 +203,25 @@ export function computePeriodResult(input: {
     );
 
   // Хасах боломжит нөөц — OD-005 нээлттэй тул зогсооно.
-  if (availableQty < -QTY_EPSILON)
+  if (opening.qty + inboundQtyTotal < -QTY_EPSILON)
     return blocked(
       "blocked-negative-available",
       "Боломжит үлдэгдэл сөрөг байна — хасах нөөцийн дүрэм батлагдаагүй"
     );
 
-  // Тэгээр хуваахгүй (FR-COST-005).
-  if (Math.abs(availableQty) <= QTY_EPSILON) {
-    if (Math.abs(outboundQty) > QTY_EPSILON)
+  // Тэгээр хуваахгүй (FR-COST-005): өртөгтэй тал 0 бол дундаж гарахгүй.
+  if (Math.abs(pricedQty) <= QTY_EPSILON) {
+    if (
+      Math.abs(outboundQty) > QTY_EPSILON ||
+      Math.abs(averageValuedInboundQty) > QTY_EPSILON
+    )
       return blocked(
         "blocked-zero-available",
-        "Боломжит үлдэгдэл 0 атлаа зарлага байна — нэгж өртөг тодорхойлогдохгүй"
+        "Өртөгтэй орлого, эхний үлдэгдэл байхгүй тул нэгж өртөг тодорхойлогдохгүй"
       );
     // Хөдөлгөөнгүй, үлдэгдэлгүй — үнэлэх зүйлгүй, алдаа биш.
     return {
-      ...base,
+      ...baseOf(0),
       outboundAmount: 0,
       closingAmount: 0,
       averageUnitCost: null,
@@ -194,18 +232,19 @@ export function computePeriodResult(input: {
     };
   }
 
-  const averageUnitCost = availableAmount / availableQty;
+  const averageUnitCost = pricedAmount / pricedQty;
+  const inboundAmount =
+    pricedInboundAmount + averageValuedInboundQty * averageUnitCost;
+  const availableAmount = opening.amount + inboundAmount;
   const outboundAmount = outboundQty * averageUnitCost;
-  const closingAmount = closingQty * averageUnitCost;
+  const closingAmount = closingQtyTotal * averageUnitCost;
 
   return {
-    ...base,
+    ...baseOf(inboundAmount),
     outboundAmount,
     closingAmount,
     averageUnitCost,
-    qtyBalanced:
-      Math.abs(opening.qty + inboundQty - (outboundQty + closingQty)) <
-      QTY_EPSILON,
+    qtyBalanced,
     amountBalanced:
       Math.abs(availableAmount - (outboundAmount + closingAmount)) <
       AMOUNT_EPSILON,
@@ -265,6 +304,21 @@ export function computePeriodSeries(input: {
         inboundQty,
         inboundAmount: 0,
         inboundUnitCost: null,
+        pricedInboundQty: periodMovements
+          .filter(
+            (movement) =>
+              movement.direction === "in" &&
+              movement.inboundValuation !== "average"
+          )
+          .reduce((sum, movement) => sum + movement.quantity, 0),
+        pricedInboundAmount: 0,
+        averageValuedInboundQty: periodMovements
+          .filter(
+            (movement) =>
+              movement.direction === "in" &&
+              movement.inboundValuation === "average"
+          )
+          .reduce((sum, movement) => sum + movement.quantity, 0),
         outboundQty,
         outboundAmount: null,
         closingQty: 0,

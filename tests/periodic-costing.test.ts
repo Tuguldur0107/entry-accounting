@@ -296,3 +296,92 @@ test("OD-003: repeating-decimal average still balances at full precision", () =>
     ) < 1e-6
   );
 });
+
+// README change-control 0.2: тооллогын илүүдэл, буцаж ирсэн бараа нь
+// худалдан авах үнэгүй тул САРЫН ДУНДАЖААР үнэлэгдэнэ.
+test("average-valued inbound (count surplus) is valued at the period average", () => {
+  const result = computePeriodResult({
+    itemId: ITEM,
+    warehouseId: WH,
+    periodCode: "2026-07",
+    opening: { qty: 0, amount: 0 },
+    movements: [
+      inbound("in-1", "2026-07-01", 100, 1_000_000), // 10,000/ш — өртөгтэй
+      {
+        id: "surplus",
+        date: "2026-07-15",
+        itemId: ITEM,
+        warehouseId: WH,
+        direction: "in",
+        quantity: 10,
+        inboundValuation: "average", // үнэгүй — дунджаар үнэлэгдэнэ
+      },
+      outbound("out-1", "2026-07-20", 40),
+    ],
+  });
+
+  assert.equal(result.status, "calculated");
+  // Дундаж нь ЗӨВХӨН өртөгтэй талаас: 1,000,000 / 100 = 10,000
+  assert.equal(result.averageUnitCost, 10_000);
+  assert.equal(result.pricedInboundQty, 100);
+  assert.equal(result.averageValuedInboundQty, 10);
+  // Илүүдэл 10 ш × 10,000 = 100,000 нь Орлогын дүнд нэмэгдэнэ
+  assert.equal(result.inboundQty, 110);
+  assert.equal(result.inboundAmount, 1_100_000);
+  // Зарлага, C2 нэг л дунджаар
+  assert.equal(result.outboundAmount, 400_000);
+  assert.equal(result.closingQty, 70);
+  assert.equal(result.closingAmount, 700_000);
+  // Тэнцэл: 0 + 1,100,000 = 400,000 + 700,000
+  assert.ok(result.qtyBalanced);
+  assert.ok(result.amountBalanced);
+});
+
+test("only average-valued inbound with no priced source blocks — no invented cost", () => {
+  const result = computePeriodResult({
+    itemId: ITEM,
+    warehouseId: WH,
+    periodCode: "2026-07",
+    opening: { qty: 0, amount: 0 },
+    movements: [
+      {
+        id: "surplus",
+        date: "2026-07-15",
+        itemId: ITEM,
+        warehouseId: WH,
+        direction: "in",
+        quantity: 10,
+        inboundValuation: "average",
+      },
+    ],
+  });
+
+  assert.equal(result.status, "blocked-zero-available");
+  assert.equal(result.averageUnitCost, null);
+  assert.match(result.blockReason ?? "", /Өртөгтэй орлого/);
+});
+
+// Асуудал 2-ын шийдвэр: сар дуустал хүлээж НЭГ дундажаар үнэлбэл зөрүү
+// үүсэхгүй. Тестээр батална: сарын сүүлд орсон үнэтэй орлого сарын эхэнд
+// гарсан зарлагын өртгийг ч өсгөнө.
+test("late expensive receipt raises the cost of an earlier issue in the same period", () => {
+  const result = computePeriodResult({
+    itemId: ITEM,
+    warehouseId: WH,
+    periodCode: "2026-01",
+    opening: { qty: 0, amount: 0 },
+    movements: [
+      inbound("in-1", "2026-01-05", 100, 100_000), // 1,000/ш
+      outbound("out-1", "2026-01-10", 50),
+      inbound("in-2", "2026-01-20", 100, 200_000), // 2,000/ш
+    ],
+  });
+
+  // Сарын дундаж = 300,000 / 200 = 1,500
+  assert.equal(result.averageUnitCost, 1_500);
+  // 01-10-ны зарлага 50 × 1,500 = 75,000 (running дундажаар 50,000 байсан)
+  assert.equal(result.outboundAmount, 75_000);
+  assert.equal(result.closingQty, 150);
+  assert.equal(result.closingAmount, 225_000);
+  assert.ok(result.amountBalanced);
+});

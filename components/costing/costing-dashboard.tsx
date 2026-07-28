@@ -81,13 +81,23 @@ export function CostingDashboard({
         const result = await runCosting({ asOfDate, receiptCosts });
         costInputsRef.current = {};
         router.refresh();
-        if (result.created === 0 && result.pending.length === 0)
+        const deferredNote =
+          result.deferred > 0
+            ? ` · ${result.deferred} зарлага/тохируулга сарын өртөг тооцоход үнэлэгдэнэ`
+            : "";
+        if (
+          result.created === 0 &&
+          result.pending.length === 0 &&
+          result.deferred === 0
+        )
           toast.info("Үнэлэх хөдөлгөөн алга — бүгд үнэлэгдсэн");
         else if (result.pending.length === 0)
-          toast.success(`${result.created} ноорог бичилт үүслээ`);
+          toast.success(
+            `${result.created} орлогын бичилт үүслээ${deferredNote}`
+          );
         else
           toast.warning(
-            `${result.created} бичилт үүсэж, ${result.pending.length} хөдөлгөөн үнэ хүлээж байна`
+            `${result.created} орлого үнэлэгдэж, ${result.pending.length} хөдөлгөөн үнэ хүлээж байна${deferredNote}`
           );
       } catch (caught) {
         toast.error(
