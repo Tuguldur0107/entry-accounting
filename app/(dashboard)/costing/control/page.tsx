@@ -5,10 +5,10 @@ import {
   type CostControlRow,
 } from "@/components/costing/cost-control-report";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { accountingPeriods, costPeriodResults } from "@/lib/db/schema";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
-import { periodCodeOf } from "@/lib/periods/period";
 
 type SearchParams = Promise<{ period?: string }>;
 
@@ -37,10 +37,14 @@ export default async function CostControlPage({
     ...new Set(allResults.map((row) => row.periodCode)),
   ].sort((a, b) => (a < b ? 1 : -1));
 
+  // Зангуу сар: URL → topbar-ийн сонголт → үр дүнтэй сүүлийн сар.
+  const selection = await getPeriodSelection();
   const periodCode =
     period && periodOptions.includes(period)
       ? period
-      : (periodOptions[0] ?? periodCodeOf(new Date().toISOString().slice(0, 10)));
+      : periodOptions.includes(selection.periodCode)
+        ? selection.periodCode
+        : (periodOptions[0] ?? selection.periodCode);
 
   const results = allResults.filter((row) => row.periodCode === periodCode);
 

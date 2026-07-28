@@ -8,6 +8,7 @@
     "start": "next start",
     "test": "tsx --test tests/**/*.test.ts",
     "lint": "eslint",
+    "ui-kit:icons": "tsx scripts/build-icon-kit-html.ts",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {

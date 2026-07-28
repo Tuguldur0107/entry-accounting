@@ -12,6 +12,7 @@ import {
   type GlTopAccountRow,
 } from "@/components/gl/gl-dashboard";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalVouchers } from "@/lib/db/schema";
 import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
@@ -48,9 +49,8 @@ export default async function GlDashboardPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const month = new Date()
-    .toLocaleDateString("en-CA", { timeZone: "Asia/Ulaanbaatar" })
-    .slice(0, 7);
+  // Самбарын сар = topbar-ийн периодын сонголтын зангуу сар.
+  const month = (await getPeriodSelection()).periodCode;
 
   // Тайлангийн хуудастай ижил ачаалалт: журналууд мөрүүдтэйгээ + дансны мод.
   const [vouchers, accounts] = await Promise.all([

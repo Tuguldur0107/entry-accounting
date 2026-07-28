@@ -119,6 +119,40 @@
   --ea-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ea-glass-filter: blur(22px) saturate(135%);
 
+  /* ── Icon Kit ────────────────────────────────────────────────────────────
+     Functional icon-уудын хэмжээ, stroke, өнгө, action hit-area-г нэг газраас
+     удирдана. components/ui/icon*.tsx эдгээрээс өөр утга hardcode хийхгүй. */
+  --ea-icon-size-xs: 12px;
+  --ea-icon-size-sm: 14px;
+  --ea-icon-size-md: 16px;
+  --ea-icon-size-lg: 18px;
+  --ea-icon-size-xl: 20px;
+  --ea-icon-size-2xl: 24px;
+  --ea-icon-stroke-width: 1.75;
+
+  --ea-icon-action-xs: 24px;
+  --ea-icon-action-sm: 28px;
+  --ea-icon-action-md: 32px;
+  --ea-icon-action-lg: 36px;
+  --ea-icon-action-radius: var(--ea-r-md);
+
+  --ea-icon-default: var(--ea-text-2);
+  --ea-icon-muted: var(--ea-text-4);
+  --ea-icon-interactive: var(--ea-interactive);
+  --ea-icon-selected: var(--ea-interactive);
+  --ea-icon-success: var(--ea-success-fg);
+  --ea-icon-warning: var(--ea-warning-fg);
+  --ea-icon-danger: var(--ea-danger-fg);
+  --ea-icon-inverse: var(--primary-foreground);
+  --ea-icon-disabled-opacity: 0.42;
+
+  --ea-icon-action-bg: transparent;
+  --ea-icon-action-border: transparent;
+  --ea-icon-action-hover-bg: var(--ea-hover-subtle);
+  --ea-icon-action-hover-border: var(--ea-hover-border);
+  --ea-icon-action-selected-bg: var(--ea-selected-bg);
+  --ea-icon-action-selected-border: var(--ea-selected-border);
+
   /* Warm paper, restrained dark-blue light and a book-cloth gold undertone. */
   --ea-bg-gradient:
     radial-gradient(70% 55% at 72% -8%, rgba(51,91,138,0.12) 0%, transparent 62%),

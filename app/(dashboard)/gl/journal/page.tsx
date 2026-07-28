@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { journalVouchers, chartOfAccounts, segmentConfigs } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { eq, and } from "drizzle-orm";
 import { desc } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
@@ -16,6 +17,8 @@ export default async function JournalPage({
   const session = await auth();
   const userId = session!.user!.id!;
   const { start, end } = await searchParams;
+  // Topbar-ийн периодын сонголт (PTD/QTD/YTD) — URL параметр дарна.
+  const period = await getPeriodSelection();
 
   const [vouchers, accounts, rawSegConfigs] = await Promise.all([
     db.query.journalVouchers.findMany({
@@ -40,8 +43,8 @@ export default async function JournalPage({
       vouchers={vouchers}
       accounts={accounts}
       activeSegIds={activeSegIds}
-      initialStart={start}
-      initialEnd={end}
+      initialStart={start ?? period.from}
+      initialEnd={end ?? period.to}
     />
   );
 }

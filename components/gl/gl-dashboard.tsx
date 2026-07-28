@@ -19,6 +19,7 @@ import {
   openVoucherPanel,
   type DrillPanelRow,
 } from "@/lib/store/panel-store";
+import { fmtPeriodCode } from "@/lib/periods/period";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -244,7 +245,7 @@ export function GlDashboard({
             Ерөнхий журналын хяналт
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            {month} сарын байдлаар · үзүүлэлт бүр дээр дарж задаргааг нь харна
+            {fmtPeriodCode(month)} — сарын байдлаар · үзүүлэлт бүр дээр дарж задаргааг нь харна
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

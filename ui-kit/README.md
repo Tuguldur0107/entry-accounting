@@ -2,8 +2,11 @@
 
 ```
 ui-kit/
-├── tokens.css     ← ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ (өнгө, фонт, радиус, сүүдэр)
-├── preview.html   ← статик preview — dev server ШААРДАХГҮЙ
+├── tokens.css       ← ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ (өнгө, фонт, радиус, сүүдэр, icon)
+├── preview.html     ← ерөнхий статик preview — dev server ШААРДАХГҮЙ
+├── icon-kit.html    ← offline interactive semantic icon catalog
+├── ICON-KIT.md      ← Icon / IconAction API ба Claude migration
+├── COMPONENT-RECOMMENDATIONS.md
 └── README.md
 ```
 
@@ -30,6 +33,30 @@ tokens.css-ийг өөрчлөхөд систем даяар шууд тусна
 `preview.html` дотор өнгө **давхардаж бичигдээгүй** — `getComputedStyle`-аар tokens.css-ээс
 амьдаар уншиж, hex утга болон WCAG контрастыг тооцож харуулдаг. Тиймээс токен өөрчлөхөд
 preview автоматаар шинэчлэгдэнэ, зөрөх боломжгүй.
+
+Icon Kit-ийн offline HTML-ийг registry өөрчлөгдөх бүрд шинэчилнэ:
+
+```bash
+npm run ui-kit:icons
+```
+
+`icon-kit.html` нь semantic catalog, light/dark, search/category filter, size,
+tone, default/hover/selected/disabled/loading state-уудыг харуулна.
+
+## Хүснэгтийн UI Kit
+
+`/settings/ui-kit` дотор:
+
+- үндсэн `DataGridDynamic` demo;
+- C1 / Inbound / Outbound / C2 хоёр түвшинт header;
+- Qty / Unit cost / Amount sub-header;
+- pinned total мөр;
+- master-data selection, status, row action;
+- Transaction / Master Data / Control Report / Editable Lines preset contract;
+- column alignment болон loading/empty/error/selected state дүрэм
+
+орсон. Эдгээр нь шинэ table component биш; одоогийн DataGrid primitive-ийн
+нэгдсэн preset хэрэглээ.
 
 ## Токен өөрчлөх
 

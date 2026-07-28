@@ -1,11 +1,11 @@
 import { CostAllocationView } from "@/components/costing/cost-allocation-view";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import {
   loadAllocationTargets,
   loadAllocations,
 } from "@/lib/actions/cost-allocation";
 import { loadCostComponents } from "@/lib/costing/master-data";
-import { periodRange } from "@/lib/periods/period";
 
 type SearchParams = Promise<{ from?: string; to?: string }>;
 
@@ -20,11 +20,10 @@ export default async function CostAllocationsPage({
   const userId = session!.user!.id!;
   const { from, to } = await searchParams;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const thisMonth = periodRange(today.slice(0, 7));
+  const period = await getPeriodSelection();
   const range = {
-    from: from && DATE_RE.test(from) ? from : thisMonth.startDate,
-    to: to && DATE_RE.test(to) ? to : thisMonth.endDate,
+    from: from && DATE_RE.test(from) ? from : period.from,
+    to: to && DATE_RE.test(to) ? to : period.to,
   };
 
   const [rows, targets, components] = await Promise.all([

@@ -2,10 +2,10 @@ import { eq } from "drizzle-orm";
 
 import { ComponentAnalysisReport } from "@/components/costing/component-analysis-report";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { loadComponentAnalysis } from "@/lib/costing/component-analysis";
 import { db } from "@/lib/db";
 import { costEntries } from "@/lib/db/schema";
-import { periodCodeOf } from "@/lib/periods/period";
 
 type SearchParams = Promise<{ period?: string }>;
 
@@ -29,11 +29,13 @@ export default async function ComponentAnalysisPage({
     ),
   ].sort((a, b) => (a < b ? 1 : -1));
 
+  const selection = await getPeriodSelection();
   const periodCode =
     period && periodOptions.includes(period)
       ? period
-      : (periodOptions[0] ??
-        periodCodeOf(new Date().toISOString().slice(0, 10)));
+      : periodOptions.includes(selection.periodCode)
+        ? selection.periodCode
+        : (periodOptions[0] ?? selection.periodCode);
 
   const rows = await loadComponentAnalysis(userId, periodCode);
 

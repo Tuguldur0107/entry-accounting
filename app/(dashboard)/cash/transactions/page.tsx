@@ -2,6 +2,7 @@ import { and, desc, eq, gte, lte } from "drizzle-orm";
 
 import { CashDocumentsView } from "@/components/cash/cash-documents-view";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import {
   loadCashTransactionOptions,
   toCashDocumentView,
@@ -26,6 +27,10 @@ export default async function CashTransactionsPage({
   const session = await auth();
   const userId = session!.user!.id!;
   const { start, end, type, status, arap } = await searchParams;
+  // Topbar-ийн периодын сонголт — URL-д ил огноо байхгүй үед хэрэглэнэ.
+  const period = await getPeriodSelection();
+  const rangeStart = start ?? period.from;
+  const rangeEnd = end ?? period.to;
 
   // Surface any posted GL journals that touch a cash account but don't yet
   // have a cash document — including historical ones. Idempotent + best
@@ -36,9 +41,9 @@ export default async function CashTransactionsPage({
   // payment / transfer) is applied client-side so switching tabs doesn't
   // require a round-trip, and the summary totals still see the full set.
   const dateFilters = [
-    start ? gte(cashDocuments.date, start) : undefined,
-    end ? lte(cashDocuments.date, end) : undefined,
-  ].filter(Boolean);
+    gte(cashDocuments.date, rangeStart),
+    lte(cashDocuments.date, rangeEnd),
+  ];
 
   // Сонголтын өгөгдөл (данс, GL данс, урсгал, нээлттэй АР/АП, сегмент) —
   // cash-new панелийн server action-тай НЭГ ачаалагч (lib/cash/load-options).

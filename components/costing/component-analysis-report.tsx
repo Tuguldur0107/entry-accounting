@@ -14,6 +14,7 @@ import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { ComponentAnalysisRow } from "@/lib/costing/component-analysis-types";
 import { fmtMnt } from "@/lib/reports/balances";
+import { fmtPeriodCode } from "@/lib/periods/period";
 import { openVoucherPanel } from "@/lib/store/panel-store";
 
 interface Props {
@@ -228,11 +229,11 @@ export function ComponentAnalysisReport({
           onChange={(event) => changePeriod(event.target.value)}
         >
           {periodOptions.length === 0 && (
-            <option value={periodCode}>{periodCode}</option>
+            <option value={periodCode}>{fmtPeriodCode(periodCode)}</option>
           )}
           {periodOptions.map((code) => (
             <option key={code} value={code}>
-              {code}
+              {fmtPeriodCode(code)}
             </option>
           ))}
         </select>

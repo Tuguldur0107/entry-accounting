@@ -69,3 +69,70 @@ test("writability: unregistered period is open, closed blocks writes", () => {
   // Бүртгэлгүй сар — нээлттэй (хаалт хийж эхлээгүй систем ажиллана).
   assert.equal(isPeriodWritable(periods, "2026-07-15"), true);
 });
+
+// ── PTD / QTD / YTD муж ──────────────────────────────────────────────────
+
+test("fmtPeriodCode: JAN-26 style labels", async () => {
+  const { fmtPeriodCode, recentPeriodCodes } = await import(
+    "../lib/periods/period"
+  );
+  assert.equal(fmtPeriodCode("2026-01"), "JAN-26");
+  assert.equal(fmtPeriodCode("2026-12"), "DEC-26");
+  assert.equal(fmtPeriodCode("2025-07"), "JUL-25");
+  // Буруу код өөрчлөгдөхгүй буцна (UI-д эвдрэхгүй).
+  assert.equal(fmtPeriodCode("garbage"), "garbage");
+
+  assert.deepEqual(recentPeriodCodes("2026-02", 4), [
+    "2026-02",
+    "2026-01",
+    "2025-12",
+    "2025-11",
+  ]);
+});
+
+test("scopeRange: PTD past month is the full month", async () => {
+  const { scopeRange } = await import("../lib/periods/scope");
+  assert.deepEqual(scopeRange("2026-05", "PTD", "2026-07-28"), {
+    from: "2026-05-01",
+    to: "2026-05-31",
+  });
+});
+
+test("scopeRange: current month is cut at today (true to-date)", async () => {
+  const { scopeRange } = await import("../lib/periods/scope");
+  assert.deepEqual(scopeRange("2026-07", "PTD", "2026-07-28"), {
+    from: "2026-07-01",
+    to: "2026-07-28",
+  });
+  assert.deepEqual(scopeRange("2026-07", "QTD", "2026-07-28"), {
+    from: "2026-07-01", // Q3 = 7-9 сар
+    to: "2026-07-28",
+  });
+  assert.deepEqual(scopeRange("2026-07", "YTD", "2026-07-28"), {
+    from: "2026-01-01",
+    to: "2026-07-28",
+  });
+});
+
+test("scopeRange: QTD quarter boundaries", async () => {
+  const { scopeRange, quarterStartCode } = await import("../lib/periods/scope");
+  assert.equal(quarterStartCode("2026-01"), "2026-01");
+  assert.equal(quarterStartCode("2026-03"), "2026-01");
+  assert.equal(quarterStartCode("2026-04"), "2026-04");
+  assert.equal(quarterStartCode("2026-05"), "2026-04");
+  assert.equal(quarterStartCode("2026-12"), "2026-10");
+
+  // Өнгөрсөн улирлын дунд сар: улирлын эхнээс сарын эцэс хүртэл.
+  assert.deepEqual(scopeRange("2026-05", "QTD", "2026-07-28"), {
+    from: "2026-04-01",
+    to: "2026-05-31",
+  });
+});
+
+test("scopeRange: YTD anchored at a past month ends at that month's end", async () => {
+  const { scopeRange } = await import("../lib/periods/scope");
+  assert.deepEqual(scopeRange("2026-03", "YTD", "2026-07-28"), {
+    from: "2026-01-01",
+    to: "2026-03-31",
+  });
+});

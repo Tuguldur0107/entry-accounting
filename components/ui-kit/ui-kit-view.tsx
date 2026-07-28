@@ -38,6 +38,7 @@ import {
 import { AccountInput } from "@/components/account/account-input";
 import { AccountSegmentPicker } from "@/components/account/account-segment-picker";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { TableKitView } from "@/components/ui-kit/table-kit-view";
 import { fmtMnt } from "@/lib/reports/balances";
 import type { ColDef } from "ag-grid-community";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -484,6 +485,8 @@ export function UiKitView() {
           Журналын мөр оруулах бол <code>components/journal/journal-lines-grid.tsx</code>-г шууд ашиглана.
         </p>
       </Section>
+
+      <TableKitView />
     </div>
   );
 }

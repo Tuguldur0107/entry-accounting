@@ -26,6 +26,7 @@ import {
   recalculatePeriodicCosting,
 } from "@/lib/actions/costing-period";
 import { fmtMnt } from "@/lib/reports/balances";
+import { fmtPeriodCode } from "@/lib/periods/period";
 import { cn } from "@/lib/utils";
 
 export type CostControlRow = {
@@ -325,11 +326,11 @@ export function CostControlReport({
             onChange={(event) => changePeriod(event.target.value)}
           >
             {periodOptions.length === 0 && (
-              <option value={periodCode}>{periodCode}</option>
+              <option value={periodCode}>{fmtPeriodCode(periodCode)}</option>
             )}
             {periodOptions.map((code) => (
               <option key={code} value={code}>
-                {code}
+                {fmtPeriodCode(code)}
               </option>
             ))}
           </select>

@@ -1,11 +1,8 @@
 import { ArApWorkspace } from "@/components/arap/arap-workspace";
 import { loadArApWorkspaceData } from "@/lib/arap/load-data";
+import { getPeriodSelection } from "@/lib/periods/selection";
 
 type SearchParams = Promise<{ asOf?: string }>;
-
-function todayInUlaanbaatar() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 
 export default async function PayablesReportsPage({
   searchParams,
@@ -14,9 +11,11 @@ export default async function PayablesReportsPage({
 }) {
   const data = await loadArApWorkspaceData();
   const params = await searchParams;
+  // Насжилт "аль өдрийн байдлаар" — периодын сонголтын төгсгөл.
+  const period = await getPeriodSelection();
   const reportAsOf = /^\d{4}-\d{2}-\d{2}$/.test(params.asOf ?? "")
     ? params.asOf!
-    : todayInUlaanbaatar();
+    : period.to;
   return (
     <ArApWorkspace
       focus="reports"

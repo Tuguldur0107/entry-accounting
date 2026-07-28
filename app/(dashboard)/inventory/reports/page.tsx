@@ -5,21 +5,13 @@ import {
   type QtyFlowRow,
 } from "@/components/inventory/inventory-report-view";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { inventoryMovements } from "@/lib/db/schema";
 import { movementEffects } from "@/lib/inventory/balances";
 import { loadInventoryBase, toMovementRefs } from "@/lib/inventory/load-data";
 
 type SearchParams = Promise<{ start?: string; end?: string }>;
-
-function monthStart() {
-  const now = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return `${now.toISOString().slice(0, 7)}-01`;
-}
-
-function today() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 
 export default async function InventoryReportsPage({
   searchParams,
@@ -29,10 +21,13 @@ export default async function InventoryReportsPage({
   const session = await auth();
   const userId = session!.user!.id!;
   const params = await searchParams;
+  const period = await getPeriodSelection();
   const start = /^\d{4}-\d{2}-\d{2}$/.test(params.start ?? "")
     ? params.start!
-    : monthStart();
-  const end = /^\d{4}-\d{2}-\d{2}$/.test(params.end ?? "") ? params.end! : today();
+    : period.from;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(params.end ?? "")
+    ? params.end!
+    : period.to;
 
   const [{ itemViews, warehouseViews }, movements] = await Promise.all([
     loadInventoryBase(userId),

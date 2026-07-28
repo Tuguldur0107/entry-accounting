@@ -35,12 +35,10 @@ type VoucherRow = JournalVoucherWithLines;
 const LINE_HEIGHT = 22;
 const ROW_PADDING = 16;
 
-// Date range filter + "+ Журнал бичих" товч нь dashboard layout-д
-// (components/layout/header-journal-search.tsx, new-journal-button.tsx)
-// байх тул энэ компонент нь өөрөө toolbar render хийхгүй —
-// зөвхөн `initialStart`/`initialEnd` URL search-param-аас filter хийнэ.
-// URL-д огноо байхгүй үед HeaderJournalSearch-той ижил сарын default
-// (1-нээс сүүлийн өдөр) хэрэглэнэ — header / жагсаалт зөрөхгүй.
+// Огнооны шүүлтүүр нь topbar-ийн PeriodFilter (components/periods/
+// period-filter.tsx, cookie-д хадгалагдана) — хуудас нь сонголтыг
+// initialStart/initialEnd болгож дамжуулдаг тул энэ component toolbar
+// render хийхгүй. Доорх default нь зөвхөн аюулгүйн fallback.
 // `accounts` prop одоогоор ашиглагдахгүй (page-level shape хадгална).
 function defaultMonthRange() {
   const today = new Date();

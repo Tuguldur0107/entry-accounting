@@ -7,10 +7,7 @@ import {
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { faDepreciationEntries } from "@/lib/db/schema";
-
-function currentMonth() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 7);
-}
+import { getPeriodSelection } from "@/lib/periods/selection";
 
 export default async function FaDepreciationPage() {
   const session = await auth();
@@ -31,5 +28,7 @@ export default async function FaDepreciationPage() {
     status: entry.status,
   }));
 
-  return <FaDepreciationView entries={views} defaultMonth={currentMonth()} />;
+  // Элэгдлийн сар нь topbar-ийн периодын сонголтын зангуу сар.
+  const period = await getPeriodSelection();
+  return <FaDepreciationView entries={views} defaultMonth={period.periodCode} />;
 }

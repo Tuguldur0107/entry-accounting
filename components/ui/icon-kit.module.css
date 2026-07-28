@@ -1,0 +1,148 @@
+.icon {
+  display: inline-block;
+  width: var(--ea-icon-render-size, var(--ea-icon-size-md));
+  height: var(--ea-icon-render-size, var(--ea-icon-size-md));
+  flex: 0 0 auto;
+  color: inherit;
+  stroke-width: var(--ea-icon-stroke-width);
+  transition:
+    color var(--ea-motion-hover) var(--ea-ease-standard),
+    opacity var(--ea-motion-hover) var(--ea-ease-standard),
+    transform var(--ea-motion-press) var(--ea-ease-standard);
+}
+
+.sizeXs { --ea-icon-render-size: var(--ea-icon-size-xs); }
+.sizeSm { --ea-icon-render-size: var(--ea-icon-size-sm); }
+.sizeMd { --ea-icon-render-size: var(--ea-icon-size-md); }
+.sizeLg { --ea-icon-render-size: var(--ea-icon-size-lg); }
+.sizeXl { --ea-icon-render-size: var(--ea-icon-size-xl); }
+.size2xl { --ea-icon-render-size: var(--ea-icon-size-2xl); }
+
+.toneInherit { color: inherit; }
+.toneDefault { color: var(--ea-icon-default); }
+.toneMuted { color: var(--ea-icon-muted); }
+.toneInteractive { color: var(--ea-icon-interactive); }
+.toneSelected { color: var(--ea-icon-selected); }
+.toneSuccess { color: var(--ea-icon-success); }
+.toneWarning { color: var(--ea-icon-warning); }
+.toneDanger { color: var(--ea-icon-danger); }
+.toneInverse { color: var(--ea-icon-inverse); }
+
+.stateSelected { color: var(--ea-icon-selected); }
+.stateDisabled {
+  opacity: var(--ea-icon-disabled-opacity);
+}
+.stateLoading {
+  animation: ea-icon-spin 0.85s linear infinite;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--ea-icon-action-border);
+  border-radius: var(--ea-icon-action-radius);
+  color: var(--ea-icon-default);
+  background: var(--ea-icon-action-bg);
+  cursor: pointer;
+  outline: none;
+  transition:
+    color var(--ea-motion-hover) var(--ea-ease-standard),
+    background-color var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    box-shadow var(--ea-motion-hover) var(--ea-ease-standard),
+    transform var(--ea-motion-press) var(--ea-ease-standard);
+}
+
+.actionXs { width: var(--ea-icon-action-xs); height: var(--ea-icon-action-xs); }
+.actionSm { width: var(--ea-icon-action-sm); height: var(--ea-icon-action-sm); }
+.actionMd { width: var(--ea-icon-action-md); height: var(--ea-icon-action-md); }
+.actionLg { width: var(--ea-icon-action-lg); height: var(--ea-icon-action-lg); }
+
+.variantOutline {
+  border-color: var(--ea-border);
+  background: var(--ea-surface);
+}
+.variantSoft {
+  color: var(--ea-icon-interactive);
+  background: var(--ea-hover-subtle);
+}
+.variantSolid {
+  color: var(--primary-foreground);
+  background: var(--ea-primary);
+  border-color: var(--ea-primary);
+}
+.variantDanger {
+  color: var(--ea-icon-danger);
+  background: var(--ea-danger-bg);
+  border-color: color-mix(in srgb, var(--ea-danger) 24%, transparent);
+}
+
+.action[data-selected="true"],
+.action[aria-pressed="true"] {
+  color: var(--ea-icon-selected);
+  background: var(--ea-icon-action-selected-bg);
+  border-color: var(--ea-icon-action-selected-border);
+}
+
+.action:focus-visible {
+  box-shadow: var(--ea-focus);
+}
+
+.action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.action:disabled,
+.action[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: var(--ea-icon-disabled-opacity);
+}
+
+.action:disabled .icon {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .action:hover:not(:disabled) {
+    color: var(--ea-text-1);
+    background: var(--ea-icon-action-hover-bg);
+    border-color: var(--ea-icon-action-hover-border);
+  }
+
+  .variantSolid:hover:not(:disabled) {
+    color: var(--primary-foreground);
+    background: var(--ea-primary-700);
+    border-color: var(--ea-primary-700);
+  }
+
+  .variantDanger:hover:not(:disabled) {
+    color: var(--ea-icon-danger);
+    background: color-mix(in srgb, var(--ea-danger) 14%, var(--ea-surface));
+    border-color: color-mix(in srgb, var(--ea-danger) 38%, transparent);
+  }
+
+  .action[data-selected="true"]:hover:not(:disabled),
+  .action[aria-pressed="true"]:hover:not(:disabled) {
+    color: var(--ea-icon-selected);
+    background: var(--ea-icon-action-selected-bg);
+    border-color: var(--ea-icon-action-selected-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon,
+  .action {
+    transition: none;
+  }
+
+  .stateLoading {
+    animation-duration: 1.6s;
+  }
+}
+
+@keyframes ea-icon-spin {
+  to { transform: rotate(360deg); }
+}

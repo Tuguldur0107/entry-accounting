@@ -137,6 +137,21 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 - **Буцаалт нь ЭХ огноогоор** шинэ журнал бичдэг тул тэр периодыг шалгана
 - Ноорог бичилт үлдсэн сарыг хаахгүй (ноорог хожим батлагдаж гацна)
 - Шинэ бичилтийн зам нэмэхэд `assertPeriodOpen(userId, date)`-ыг ЗААВАЛ дайруулна
+
+**Системийн хэмжээний периодын шүүлтүүр (topbar):**
+
+- `components/periods/period-filter.tsx` — сарын сонгогч ("JAN-26" формат,
+  `fmtPeriodCode`) + **PTD / QTD / YTD** горим. Layout-д НЭГ л удаа суусан
+- Сонголт cookie-д (`ea-period`) хадгалагдаж бүх хуудсанд дагаж явна;
+  server хуудас `getPeriodSelection()`-оор уншина (`lib/periods/selection.ts`)
+- Мужийн тооцоо: `lib/periods/scope.ts` `scopeRange(code, scope, today)` —
+  PTD = зангуу сар, QTD = улирлынх нь эхнээс, YTD = оны эхнээс; дуусах огноо
+  нь одоогийн сард ӨНӨӨДРӨӨР таслагдана ("to date")
+- **Дүрэм:** URL-ийн ил параметр (`start`/`end`, `from`/`to`, `period`,
+  `asOf`) сонголтыг ДАРНА — deep link хэвээр ажиллана. Cookie зөвхөн
+  default өгнө
+- Шинэ огноо-шүүлттэй хуудас нэмэхдээ: URL параметр → байхгүй бол
+  `getPeriodSelection()`-ийн from/to — энэ хэв маягийг дагана
 - **Monthly close** гол алхмууд:
   1. Элэгдэл бодох (FA)
   2. FX дахин үнэлгээ (валют)

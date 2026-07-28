@@ -45,6 +45,43 @@ export function periodRange(code: string): {
   };
 }
 
+const MONTH_ABBREVS = [
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+] as const;
+
+/** Периодын харагдах нэр: "2026-01" → "JAN-26". */
+export function fmtPeriodCode(code: string): string {
+  if (!isPeriodCode(code)) return code;
+  const [year, month] = code.split("-").map(Number);
+  return `${MONTH_ABBREVS[month - 1]}-${String(year % 100).padStart(2, "0")}`;
+}
+
+/**
+ * Сонгох боломжтой периодуудын жагсаалт — `latest`-ээс хойш `count` сар,
+ * ШИНЭЭС хуучин руу. Dropdown-д хэрэглэгдэнэ.
+ */
+export function recentPeriodCodes(latest: string, count: number): string[] {
+  if (!isPeriodCode(latest)) throw new Error(`Периодын код буруу: ${latest}`);
+  const codes: string[] = [];
+  let cursor = latest;
+  for (let index = 0; index < count; index += 1) {
+    codes.push(cursor);
+    cursor = previousPeriodCode(cursor);
+  }
+  return codes;
+}
+
 /** Дараагийн период — "2026-12" → "2027-01". */
 export function nextPeriodCode(code: string): string {
   if (!isPeriodCode(code)) throw new Error(`Периодын код буруу: ${code}`);

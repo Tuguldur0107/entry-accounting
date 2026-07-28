@@ -1,10 +1,10 @@
 import { TransactionDetailReport } from "@/components/costing/transaction-detail-report";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import {
   loadInventoryGlReconciliation,
   loadTransactionDetail,
 } from "@/lib/costing/transaction-detail";
-import { periodRange } from "@/lib/periods/period";
 
 type SearchParams = Promise<{ from?: string; to?: string }>;
 
@@ -19,12 +19,11 @@ export default async function CostingDetailPage({
   const userId = session!.user!.id!;
   const { from, to } = await searchParams;
 
-  // Анхдагч: энэ сар (нягтлан бодох период).
-  const today = new Date().toISOString().slice(0, 10);
-  const thisMonth = periodRange(today.slice(0, 7));
+  // Анхдагч: topbar-ийн периодын сонголт (PTD/QTD/YTD).
+  const period = await getPeriodSelection();
   const range = {
-    from: from && DATE_RE.test(from) ? from : thisMonth.startDate,
-    to: to && DATE_RE.test(to) ? to : thisMonth.endDate,
+    from: from && DATE_RE.test(from) ? from : period.from,
+    to: to && DATE_RE.test(to) ? to : period.to,
   };
 
   const [rows, reconciliation] = await Promise.all([

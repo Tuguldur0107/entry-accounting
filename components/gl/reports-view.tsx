@@ -39,7 +39,7 @@ interface Props {
 }
 
 // All toolbar controls live in the dashboard header:
-//   - date range  → HeaderJournalSearch (path-aware)
+//   - date range  → topbar-ийн PeriodFilter (cookie, PTD/QTD/YTD)
 //   - report type → HeaderReportSelect (only on /gl/reports)
 // This view simply receives the active range + report from URL search params
 // (via the page server component) and renders the matching report grid.

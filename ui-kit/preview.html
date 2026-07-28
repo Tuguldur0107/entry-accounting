@@ -183,6 +183,8 @@
     font: inherit; font-size: 13px; font-weight: 500;
   }
   .toggle:hover { background: var(--ea-hover-subtle); border-color: var(--ea-hover-border); }
+  .preview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  a.toggle { color: var(--ea-text-1); text-decoration: none; }
 
   .hover-demo {
     min-height: 96px; padding: 14px; border: 1px solid var(--ea-border);
@@ -219,7 +221,10 @@
       <div class="sub">Дизайн токен ба component-уудын нэгдсэн лавлагаа.</div>
       <div class="src">эх сурвалж: ui-kit/tokens.css → app/globals.css</div>
     </div>
-    <button class="toggle" id="mode">🌙 Dark горим</button>
+    <div class="preview-actions">
+      <a class="toggle" href="./icon-kit.html">Icon Kit →</a>
+      <button class="toggle" id="mode">🌙 Dark горим</button>
+    </div>
   </header>
 
   <section>

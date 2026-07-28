@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { closePeriod, reopenPeriod, type PeriodRow } from "@/lib/actions/periods";
+import { fmtPeriodCode } from "@/lib/periods/period";
 
 const CLOSE_ERRORS: Record<string, string> = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -31,7 +32,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
 
   function handleClose(row: PeriodRow) {
     void confirm({
-      title: `${row.code} период хаах`,
+      title: `${fmtPeriodCode(row.code)} период хаах`,
       description: `Хаасны дараа энэ сарын огноогоор журнал, өртгийн бичилт, буцаалт хийх боломжгүй болно. Дахин нээх боломжтой. (${row.voucherCount} журнал, ${row.movementCount} хөдөлгөөн)`,
       confirmText: "Хаах",
     }).then((ok) => {
@@ -44,7 +45,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
           toast.error(CLOSE_ERRORS[result.code] ?? "Хаах амжилтгүй");
           return;
         }
-        toast.success(`${row.code} период хаагдлаа`);
+        toast.success(`${fmtPeriodCode(row.code)} период хаагдлаа`);
         router.refresh();
       });
     });
@@ -52,7 +53,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
 
   function handleReopen(row: PeriodRow) {
     void confirm({
-      title: `${row.code} период дахин нээх`,
+      title: `${fmtPeriodCode(row.code)} период дахин нээх`,
       description:
         "Дахин нээвэл энэ сарын огноогоор бичилт хийх боломжтой болно. Энэ үйлдэл бүртгэгдэнэ.",
       confirmText: "Дахин нээх",
@@ -67,7 +68,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
           toast.error(CLOSE_ERRORS[result.code] ?? "Дахин нээх амжилтгүй");
           return;
         }
-        toast.success(`${row.code} период нээгдлээ`);
+        toast.success(`${fmtPeriodCode(row.code)} период нээгдлээ`);
         router.refresh();
       });
     });
@@ -75,7 +76,13 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
 
   const columnDefs = useMemo<ColDef<PeriodRow>[]>(
     () => [
-      { headerName: "Период", field: "code", width: 120, cellClass: "font-mono" },
+      {
+        headerName: "Период",
+        field: "code",
+        width: 120,
+        cellClass: "font-mono",
+        valueFormatter: (params) => fmtPeriodCode(String(params.value ?? "")),
+      },
       {
         headerName: "Хугацаа",
         width: 210,

@@ -6,6 +6,7 @@ import {
   reportLineMappings,
 } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { eq, and, inArray } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { ReportsView } from "@/components/gl/reports-view";
@@ -20,6 +21,7 @@ export default async function ReportsPage({
   const session = await auth();
   const userId = session!.user!.id!;
   const { start, end, report } = await searchParams;
+  const period = await getPeriodSelection();
 
   const [vouchers, accounts, rawSegConfigs, balanceSheetMappings] = await Promise.all([
     db.query.journalVouchers.findMany({
@@ -51,8 +53,8 @@ export default async function ReportsPage({
       vouchers={vouchers}
       accounts={accounts}
       activeSegIds={activeSegIds}
-      initialStart={start}
-      initialEnd={end}
+      initialStart={start ?? period.from}
+      initialEnd={end ?? period.to}
       initialReport={report}
       balanceSheetMappings={balanceSheetMappings}
     />

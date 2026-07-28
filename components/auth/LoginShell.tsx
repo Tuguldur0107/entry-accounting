@@ -5,7 +5,7 @@ import * as React from 'react';
 import { useState } from 'react';
 import { EAField, EAButton } from './fields';
 import { EAMark, EAWordmark } from './brand';
-import { EmojiTileGrid } from './emoji-tile-grid';
+import { HeroPixelGrid } from './hero-pixel-grid';
 import { MailIcon, LockIcon, ArrowRightIcon } from './icons';
 import { T, LEDGER_T, type Lang } from '@/lib/i18n';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -179,8 +179,8 @@ export function LoginShell({
               ))}
             </svg>
 
-            {/* Текстгүй чимэглэл — асаж унтардаг 64×64 шилэн хавтангууд */}
-            <EmojiTileGrid className="relative flex-1" />
+            {/* Текстгүй чимэглэл — 64×64 нүдний самбар, олон нүд нийлж дүрс болно */}
+            <HeroPixelGrid className="relative" />
           </div>
 
           {/* Right panel */}
