@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   costEntries,
+  inventoryIssueTypes,
   inventoryItems,
   inventoryMovements,
   warehouses,
@@ -157,6 +158,8 @@ export async function createInventoryMovement(data: {
   quantity: number;
   description?: string;
   documentNo?: string;
+  /** Зарлагын төрөл — өртгийн дебет чиглэлийг шийднэ (FR-ISSUE-001). */
+  issueTypeId?: string;
   confirmNow?: boolean;
 }) {
   const userId = await requireUser();
@@ -237,12 +240,43 @@ export async function createInventoryMovement(data: {
       toWarehouseId: data.movementType === "transfer" ? data.toWarehouseId : null,
       quantity: String(quantity),
       description: data.description?.trim() ?? "",
+      issueTypeId: await resolveIssueTypeId(
+        userId,
+        data.movementType,
+        data.issueTypeId
+      ),
     })
     .returning({ id: inventoryMovements.id });
 
   if (data.confirmNow) await confirmInventoryMovement(movement.id);
   else revalidateInventory();
   return { id: movement.id };
+}
+
+
+/**
+ * Зарлагын төрлийг шалгана. Зөвхөн ЗАРЛАГЫН чиглэлийн хөдөлгөөнд утгатай
+ * (FR-ISSUE-001); бусад төрөлд null болгоно. Идэвхтэй байх ёстой.
+ */
+async function resolveIssueTypeId(
+  userId: string,
+  movementType: MovementType,
+  issueTypeId: string | undefined
+): Promise<string | null> {
+  const bearsIssueCost =
+    movementType === "issue" || movementType === "return_out";
+  if (!bearsIssueCost) return null;
+  if (!issueTypeId) return null;
+  const type = await db.query.inventoryIssueTypes.findFirst({
+    where: and(
+      eq(inventoryIssueTypes.id, issueTypeId),
+      eq(inventoryIssueTypes.userId, userId),
+      eq(inventoryIssueTypes.isActive, true)
+    ),
+    columns: { id: true },
+  });
+  if (!type) throw new Error("Идэвхтэй зарлагын төрөл олдсонгүй");
+  return type.id;
 }
 
 // Ноорог хөдөлгөөнийг засах — sentinel (GL/касс) draft-ыг бөглөх гол зам.
@@ -256,6 +290,7 @@ export async function updateInventoryMovement(
     toWarehouseId?: string;
     quantity: number;
     description?: string;
+    issueTypeId?: string;
   }
 ) {
   const userId = await requireUser();
@@ -322,6 +357,11 @@ export async function updateInventoryMovement(
       toWarehouseId: data.movementType === "transfer" ? data.toWarehouseId : null,
       quantity: String(quantity),
       description: data.description?.trim() ?? "",
+      issueTypeId: await resolveIssueTypeId(
+        userId,
+        data.movementType,
+        data.issueTypeId
+      ),
     })
     .where(
       and(

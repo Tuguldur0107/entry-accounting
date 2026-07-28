@@ -15,7 +15,8 @@ listed as an open decision.
 1. [01-functional-specification.md](01-functional-specification.md)
 2. [02-journal-posting-rules.md](02-journal-posting-rules.md)
 3. [03-report-specifications.md](03-report-specifications.md)
-4. [CLAUDE.md](CLAUDE.md)
+4. [04-implementation-status.md](04-implementation-status.md)
+5. [CLAUDE.md](CLAUDE.md)
 
 ## Approved decisions captured by this package
 
@@ -82,4 +83,10 @@ When an accounting decision is approved:
 | Version | Date | Decision | Status |
 |---|---|---|---|
 | 0.1 | 2026-07-28 | Initial package based on approved conversation decisions | Baseline |
+| 0.2 | 2026-07-28 | **OD-001 Costing scope** — the costing scope is **item × warehouse × company**. Cost Ledger period results are keyed on that triple. | Approved |
+| 0.2 | 2026-07-28 | **OD-002 Period lifecycle** — costing uses the platform's accounting period system (`accounting_periods`, calendar month, `open`/`closed`). An unregistered month is open; closing blocks writes on that date range; reopening is an explicit, recorded action. | Approved |
+| 0.2 | 2026-07-28 | **OD-003 Rounding** — the periodic average and the C1/Inbound/Outbound/C2 amounts are stored at full precision (`numeric(28,10)`); rounding happens only for display and for GL posting (2dp). The residual between posted GL amounts and the full-precision Outbound Amount is reported, never plugged. | Approved |
+| 0.2 | 2026-07-28 | **Previously shipped behaviour ratified** — returns (`return_in`/`return_out`), stock-count adjustments, NRV write-down/reversal, landed cost and the purchase clearing account remain supported. They are valued at the item-period weighted average and their accounts are now configuration, not constants. This closes OD-007, OD-008 and OD-015 for the current rules and partially answers OD-009/OD-010 (single configurable clearing account). | Approved |
+| 0.2 | 2026-07-28 | **OD-005 Negative stock** — remains unapproved; a period whose available quantity is negative stops with a visible validation error rather than being valued. | Deferred (blocking behaviour implemented) |
+| 0.2 | 2026-07-28 | **OD-014 Transfers** — remain unapproved; transfers move quantity in the Inventory Ledger but are excluded from valuation, which surfaces as a visible reconciliation difference rather than an invented rule. | Deferred (neutral behaviour implemented) |
 

@@ -80,6 +80,7 @@ export async function loadMovements(userId: string) {
     quantity: Number(movement.quantity),
     description: movement.description,
     status: movement.status,
+    issueTypeId: movement.issueTypeId ?? null,
     sourceType: movement.sourceType,
     hasCostEntry: valuedMovementIds.has(movement.id),
   }));

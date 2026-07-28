@@ -1,5 +1,6 @@
 import { InventoryMovementsView } from "@/components/inventory/inventory-movements-view";
 import { auth } from "@/lib/auth";
+import { loadIssueTypes } from "@/lib/costing/master-data";
 import { loadInventoryBase, loadMovements } from "@/lib/inventory/load-data";
 
 type SearchParams = Promise<{ type?: string; status?: string }>;
@@ -13,16 +14,24 @@ export default async function InventoryMovementsPage({
   const userId = session!.user!.id!;
   const { type, status } = await searchParams;
 
-  const [{ itemViews, warehouseViews }, movements] = await Promise.all([
-    loadInventoryBase(userId),
-    loadMovements(userId),
-  ]);
+  const [{ itemViews, warehouseViews }, movements, issueTypes] =
+    await Promise.all([
+      loadInventoryBase(userId),
+      loadMovements(userId),
+      loadIssueTypes(userId, { activeOnly: true }),
+    ]);
 
   return (
     <InventoryMovementsView
       movements={movements}
       items={itemViews}
       warehouses={warehouseViews}
+      issueTypes={issueTypes.map((entry) => ({
+        id: entry.id,
+        code: entry.code,
+        name: entry.name,
+        destinationClass: entry.destinationClass,
+      }))}
       initialType={type}
       initialStatus={status}
     />

@@ -270,11 +270,21 @@ export async function runCosting(data: {
     })
     .returning({ id: costingRuns.id });
 
+  // Хөдөлгөөнөөс ирэх ангилал/хамрах хүрээг өртгийн бичилтэд шилжүүлнэ
+  // (FR-LEDGER-COST-003, OD-001 хамрах хүрээ, OD-002 период).
+  const movementById = new Map(movements.map((row) => [row.id, row]));
+
   await tx.insert(costEntries).values(
-    result.entries.map((entry) => ({
+    result.entries.map((entry) => {
+      const movement = movementById.get(entry.movementId);
+      return {
       userId,
       runId: run.id,
       movementId: entry.movementId,
+      itemId: movement?.itemId ?? null,
+      warehouseId: movement?.warehouseId ?? null,
+      periodCode: entry.date.slice(0, 7),
+      issueTypeId: movement?.issueTypeId ?? null,
       entryType: entry.entryType,
       date: entry.date,
       quantity: String(entry.quantity),
@@ -287,7 +297,8 @@ export async function runCosting(data: {
       ...(entry.amount === 0
         ? { status: "posted" as const, postedAt: new Date() }
         : {}),
-    }))
+      };
+    })
   );
 
   revalidateCosting();

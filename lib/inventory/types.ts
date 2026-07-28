@@ -30,6 +30,8 @@ export type InventoryMovementView = {
   description: string;
   status: string;
   sourceType: string;
+  /** Зарлагын төрөл (зарлагын чиглэлд) — өртгийн дебетийг шийднэ. */
+  issueTypeId: string | null;
   /** Идэвхтэй (draft|posted) cost entry-тэй эсэх — цуцлах боломжийг хаана. */
   hasCostEntry: boolean;
 };

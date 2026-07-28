@@ -87,12 +87,22 @@ const initialForm = () => ({
   quantity: "",
   documentNo: "",
   description: "",
+  issueTypeId: "",
 });
+
+export type IssueTypeOption = {
+  id: string;
+  code: string;
+  name: string;
+  destinationClass: string;
+};
 
 interface Props {
   movements: InventoryMovementView[];
   items: InventoryItemView[];
   warehouses: WarehouseView[];
+  /** Идэвхтэй зарлагын төрлүүд — зарлагын дебет чиглэлийг шийднэ. */
+  issueTypes: IssueTypeOption[];
   initialType?: string;
   initialStatus?: string;
 }
@@ -101,6 +111,7 @@ export function InventoryMovementsView({
   movements,
   items,
   warehouses,
+  issueTypes,
   initialType,
   initialStatus,
 }: Props) {
@@ -409,6 +420,7 @@ export function InventoryMovementsView({
                         quantity: movement.quantity ? String(movement.quantity) : "",
                         documentNo: movement.documentNo,
                         description: movement.description,
+                        issueTypeId: movement.issueTypeId ?? "",
                       });
                       setError("");
                       setEditingId(movement.id);
@@ -468,6 +480,7 @@ export function InventoryMovementsView({
           toWarehouseId: form.toWarehouseId || undefined,
           quantity: Number(form.quantity.replaceAll(",", "")),
           description: form.description,
+          issueTypeId: form.issueTypeId || undefined,
         };
         if (editingId) {
           await updateInventoryMovement(editingId, payload);
@@ -735,6 +748,28 @@ export function InventoryMovementsView({
                     setForm((c) => ({ ...c, quantity: e.target.value }))
                   }
                 />
+              </Field>
+            )}
+
+            {(form.movementType === "issue" ||
+              form.movementType === "return_out") && (
+              <Field label="Зарлагын төрөл">
+                <SearchableSelect
+                  value={form.issueTypeId}
+                  onChange={(value) =>
+                    setForm((c) => ({ ...c, issueTypeId: value }))
+                  }
+                  options={issueTypes.map((type) => ({
+                    value: type.id,
+                    label: `${type.code} · ${type.name}`,
+                    hint: type.destinationClass || undefined,
+                  }))}
+                  placeholder="Төрөл сонгох..."
+                />
+                <p className="mt-1 text-[11px] text-[var(--ea-text-4)]">
+                  Өртгийн бичилтийн ДЕБЕТ чиглэл эндээс шийдэгдэнэ. Сонгохгүй
+                  бол анхдагч төрөл (COGS) хэрэглэгдэнэ.
+                </p>
               </Field>
             )}
 
