@@ -60,21 +60,26 @@ export function LoginShell({
   const formBody = () => {
     if (mode === 'forgot') {
       return (
-        <>
-          <a onClick={() => setMode('signin')} style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--ea-primary)' }}>
+        // <form> — Enter дарахад илгээгдэнэ, нууц үг хадгалагч танина
+        <form onSubmit={(e) => { e.preventDefault(); sendReset(); }}>
+          <button
+            type="button"
+            onClick={() => setMode('signin')}
+            style={linkButtonStyle}
+          >
             ← {lt.backToSignIn}
-          </a>
+          </button>
           <div style={{ marginTop: 16, marginBottom: 22 }}>
-            <h2 style={titleStyle}>{lt.forgotTitle}</h2>
+            <h1 style={titleStyle}>{lt.forgotTitle}</h1>
             <p style={subStyle}>{lt.forgotSub}</p>
           </div>
-          <EAField label={t.email} value={email} onChange={setEmail} placeholder={t.emailPh} icon={<MailIcon />} autoComplete="email" />
+          <EAField label={t.email} value={email} onChange={setEmail} placeholder={t.emailPh} icon={<MailIcon />} autoComplete="email" autoFocus />
           <div style={{ marginTop: 22 }}>
-            <EAButton onClick={sendReset} loading={loading} fullWidth>
+            <EAButton type="submit" loading={loading} fullWidth>
               {loading ? t.loading : lt.sendLink}
             </EAButton>
           </div>
-        </>
+        </form>
       );
     }
 
@@ -89,7 +94,7 @@ export function LoginShell({
           }}>
             <MailIcon width={26} height={26} />
           </div>
-          <h2 style={titleStyle}>{lt.forgotSent}</h2>
+          <h1 style={titleStyle}>{lt.forgotSent}</h1>
           <p style={{ ...subStyle, marginBottom: 22 }}>
             <b style={{ color: 'var(--ea-text-1)', fontWeight: 600 }}>{email}</b> {lt.forgotSentBody}
           </p>
@@ -101,8 +106,9 @@ export function LoginShell({
     }
 
     return (
-      <div className="ea-fade-up">
-        <h2 style={{ ...titleStyle, marginBottom: 6 }}>{lt.step2Title}</h2>
+      // <form> — Enter дарахад нэвтэрнэ, нууц үг хадгалагч (1Password г.м.) танина
+      <form className="ea-fade-up" onSubmit={(e) => { e.preventDefault(); signIn(); }}>
+        <h1 style={{ ...titleStyle, marginBottom: 6 }}>{lt.step2Title}</h1>
         <p style={subStyle}>{lt.step2Sub}</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <EAField
@@ -112,6 +118,7 @@ export function LoginShell({
             placeholder={t.emailPh}
             icon={<MailIcon />}
             autoComplete="email"
+            autoFocus
           />
           <EAField
             label={t.password}
@@ -125,44 +132,47 @@ export function LoginShell({
           />
         </div>
         <div style={{ marginTop: 10, textAlign: 'right' }}>
-          <a onClick={() => setMode('forgot')} style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--ea-primary)' }}>
+          <button type="button" onClick={() => setMode('forgot')} style={linkButtonStyle}>
             {t.forgot}
-          </a>
+          </button>
         </div>
         <div style={{ marginTop: 20 }}>
-          <EAButton onClick={signIn} loading={loading} fullWidth>
+          <EAButton type="submit" loading={loading} fullWidth>
             {loading ? t.loading : <>{t.signIn} <ArrowRightIcon /></>}
           </EAButton>
         </div>
         <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13, color: 'var(--ea-text-3)' }}>
           {t.noAccount} <a href="/register" style={{ fontWeight: 500, color: 'var(--ea-primary)' }}>{t.register}</a>
         </div>
-      </div>
+      </form>
     );
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--ea-bg)', display: 'flex', flexDirection: 'column' }}>
-      <header style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-        padding: '18px 20px', background: 'var(--ea-surface)', borderBottom: '1px solid var(--ea-border)',
-      }}>
+    // Дэвсгэрийг тодорхойлохгүй — аппын --ea-bg-gradient (globals.css → body)
+    // ил гарна. Өмнө нь var(--ea-bg) хатуу тавьснаас градиент далдардаг байсан.
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <header
+        className="ea-glass"
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          padding: '18px 20px', borderBottom: '1px solid var(--ea-border)',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <EAMark size={32} />
           <EAWordmark size={17} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, flexShrink: 0 }}>
-          <a href="/support" className="hidden sm:inline" style={{ color: 'var(--ea-text-2)' }}>{t.support}</a>
-          <a href="/terms"   className="hidden sm:inline" style={{ color: 'var(--ea-text-2)' }}>{t.terms}</a>
-          <ThemeToggle />
-        </div>
+        {/* Тусламж / Үйлчилгээний нөхцөл нь footer-т байгаа тул энд давхардуулахгүй */}
+        <ThemeToggle />
       </header>
 
       <main style={{ flex: 1, display: 'grid', placeItems: 'center', padding: '40px 24px' }}>
-        <div className="ea-fade-up" style={{
+        {/* ea-glass — UI kit-ийн шилэн гадаргуу (аппын бусад карттай ижил) */}
+        <div className="ea-fade-up ea-glass" style={{
           width: '100%', maxWidth: 900,
           display: 'grid', gridTemplateColumns: '1fr 1fr',
-          background: 'var(--ea-surface)', border: '1px solid var(--ea-border)',
+          border: '1px solid var(--ea-border)',
           borderRadius: 'var(--ea-r-xl)', boxShadow: 'var(--ea-shadow-3)',
           overflow: 'hidden', minHeight: 560,
         }}>
@@ -190,17 +200,21 @@ export function LoginShell({
         </div>
       </main>
 
-      <footer style={{
-        padding: '20px 32px', borderTop: '1px solid var(--ea-border)', background: 'var(--ea-surface)',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        fontSize: 12, color: 'var(--ea-text-3)',
-      }}>
+      <footer
+        className="ea-glass"
+        style={{
+          padding: '20px 32px', borderTop: '1px solid var(--ea-border)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 12, flexWrap: 'wrap',
+          fontSize: 12, color: 'var(--ea-text-3)',
+        }}
+      >
         <span>{t.copyright}</span>
-        <span style={{ display: 'inline-flex', gap: 18 }}>
-          <a href="/terms"   style={{ color: 'var(--ea-text-3)' }}>{t.terms}</a>
-          <a href="/privacy" style={{ color: 'var(--ea-text-3)' }}>{t.privacy}</a>
-          <a href="/support" style={{ color: 'var(--ea-text-3)' }}>{t.support}</a>
-        </span>
+        {/* Зөвхөн ажилладаг холбоос. /terms, /privacy хуудас хараахан байхгүй
+            тул тэдгээрийг түр хассан — үүсгэсний дараа буцааж нэмнэ. */}
+        <a href="mailto:support@entry.mn" style={{ color: 'var(--ea-text-3)' }}>
+          {t.support}
+        </a>
       </footer>
     </div>
   );
@@ -213,4 +227,10 @@ const titleStyle: React.CSSProperties = {
 
 const subStyle: React.CSSProperties = {
   fontSize: 13, color: 'var(--ea-text-3)', margin: '6px 0 22px 0', lineHeight: 1.5,
+};
+
+// Текст мэт харагдах товч — <a onClick> биш: гараас Tab-аар хүрч, Enter-ээр ажиллана
+const linkButtonStyle: React.CSSProperties = {
+  fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--ea-primary)',
+  background: 'none', border: 'none', padding: 0, fontFamily: 'inherit',
 };

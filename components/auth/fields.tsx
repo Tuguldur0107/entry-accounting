@@ -30,9 +30,15 @@ export function EAField({
   const isPw = type === 'password';
   const inputType = isPw && showPw ? 'text' : type;
 
+  // label ↔ input холбоо: шошго дээр дарахад input идэвхжинэ, дэлгэц уншигч танина
+  const inputId = React.useId();
+  const hintId = `${inputId}-hint`;
+  const errorId = `${inputId}-error`;
+
   return (
     <div>
       <label
+        htmlFor={inputId}
         style={{
           display: 'block',
           fontSize: 12,
@@ -68,6 +74,7 @@ export function EAField({
           </span>
         )}
         <input
+          id={inputId}
           type={inputType}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -77,6 +84,8 @@ export function EAField({
           autoComplete={autoComplete}
           autoFocus={autoFocus}
           onKeyDown={onKeyDown}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : hint ? hintId : undefined}
           style={{
             flex: 1,
             padding: '12px 14px',
@@ -101,19 +110,24 @@ export function EAField({
               color: 'var(--ea-text-3)',
               display: 'inline-flex',
             }}
-            aria-label={showPw ? 'Hide password' : 'Show password'}
+            aria-label={showPw ? 'Нууц үгийг нуух' : 'Нууц үгийг харуулах'}
           >
             {showPw ? <EyeOffIcon /> : <EyeIcon />}
           </button>
         )}
       </div>
       {hint && !error && (
-        <div style={{ fontSize: 11, color: 'var(--ea-text-3)', marginTop: 4 }}>
+        <div id={hintId} style={{ fontSize: 11, color: 'var(--ea-text-3)', marginTop: 4 }}>
           {hint}
         </div>
       )}
       {error && (
-        <div style={{ fontSize: 12, color: 'var(--ea-danger)', marginTop: 4 }}>
+        // -fg хувилбар: суурь --ea-danger нь цайвар дэвсгэр дээр 3.76:1 — AA давахгүй
+        <div
+          id={errorId}
+          role="alert"
+          style={{ fontSize: 12, color: 'var(--ea-danger-fg)', marginTop: 4 }}
+        >
           {error}
         </div>
       )}
@@ -143,7 +157,9 @@ export function EAButton({
   const styles: React.CSSProperties = variant === 'primary'
     ? {
         background: hover && !disabled ? 'var(--ea-primary-700)' : 'var(--ea-primary)',
-        color: 'var(--ea-hero-fg)',
+        // --ea-hero-fg (цагаан) БИШ: dark-д primary цайвар болохоор цагаан текст
+        // 2.6:1 болж уншигдахаа болино. --primary-foreground горим бүрд зөв.
+        color: 'var(--primary-foreground)',
         border: '1px solid var(--ea-primary)',
       }
     : {
