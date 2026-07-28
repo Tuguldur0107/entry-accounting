@@ -1,0 +1,1682 @@
+<!doctype html>
+<html lang="mn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Entry Design System 2.0 — Proposal</title>
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    :root {
+      --font-geist-sans: Inter, "SF Pro Text", "Segoe UI", Arial, sans-serif;
+      --font-geist-mono: "SFMono-Regular", Consolas, monospace;
+      --font-fraunces: Georgia, "Times New Roman", serif;
+
+      /* Proposed foundation tokens — preview only */
+      --ea-space-1: 4px;
+      --ea-space-2: 8px;
+      --ea-space-3: 12px;
+      --ea-space-4: 16px;
+      --ea-space-5: 20px;
+      --ea-space-6: 24px;
+      --ea-space-8: 32px;
+      --ea-space-10: 40px;
+
+      --ea-control-xs: 26px;
+      --ea-control-sm: 30px;
+      --ea-control-md: 34px;
+      --ea-control-lg: 40px;
+
+      --ea-type-caption: 10px;
+      --ea-type-label: 11px;
+      --ea-type-body-sm: 12px;
+      --ea-type-body: 13px;
+      --ea-type-title-sm: 16px;
+      --ea-type-title: 22px;
+      --ea-type-display: 32px;
+
+      --ea-motion-fast: 120ms;
+      --ea-motion-normal: 180ms;
+      --ea-ease-standard: cubic-bezier(.2,.8,.2,1);
+
+      --v2-sidebar: 236px;
+      --v2-topbar: 58px;
+      --v2-page: 1120px;
+      --v2-grid: color-mix(in srgb, var(--ea-border) 88%, transparent);
+      --v2-code-bg: color-mix(in srgb, var(--ea-primary) 5%, var(--ea-bg-2));
+    }
+
+    .dark {
+      --v2-grid: color-mix(in srgb, var(--ea-border) 94%, transparent);
+      --v2-code-bg: color-mix(in srgb, var(--ea-primary) 7%, var(--ea-bg-2));
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 68% -8%, color-mix(in srgb, var(--ea-primary) 8%, transparent), transparent 28%),
+        var(--ea-bg);
+      color: var(--ea-text-1);
+      font-family: var(--ea-font-sans);
+      font-size: var(--ea-type-body);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    svg { display: block; }
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--v2-sidebar) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    /* Navigation */
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 10;
+      display: flex;
+      width: var(--v2-sidebar);
+      flex-direction: column;
+      border-right: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-bg-2) 88%, var(--ea-surface));
+    }
+    .brand {
+      display: flex;
+      height: var(--v2-topbar);
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--ea-border);
+    }
+    .mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border-radius: 9px;
+      background: var(--ea-primary);
+      color: var(--primary-foreground);
+      box-shadow: 0 8px 18px color-mix(in srgb, var(--ea-primary) 20%, transparent);
+    }
+    .brand-name {
+      font-family: var(--ea-font-display);
+      font-size: 16px;
+      font-weight: 650;
+      letter-spacing: -.02em;
+    }
+    .brand-sub {
+      margin-top: 3px;
+      color: var(--ea-text-3);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .side-scroll {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 10px;
+    }
+    .side-label {
+      padding: 0 9px 7px;
+      color: var(--ea-text-3);
+      font-size: 8.5px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .side-link {
+      position: relative;
+      display: flex;
+      min-height: 36px;
+      align-items: center;
+      gap: 10px;
+      margin: 2px 0;
+      padding: 0 10px;
+      border-radius: 8px;
+      color: var(--ea-text-2);
+      font-size: 11px;
+      font-weight: 550;
+      transition: background var(--ea-motion-fast), color var(--ea-motion-fast);
+    }
+    .side-link svg { color: var(--ea-text-3); }
+    .side-link:hover {
+      background: var(--ea-surface);
+      color: var(--ea-text-1);
+    }
+    .side-link.active {
+      background: var(--ea-surface);
+      color: var(--ea-primary);
+      font-weight: 700;
+      box-shadow: 0 0 0 1px var(--ea-border), 0 2px 6px rgba(15,23,42,.04);
+    }
+    .side-link.active svg { color: var(--ea-primary); }
+    .side-link.active::before {
+      position: absolute;
+      left: -1px;
+      width: 3px;
+      height: 18px;
+      border-radius: 0 3px 3px 0;
+      background: var(--ea-primary);
+      content: "";
+    }
+    .side-group + .side-group { margin-top: 19px; }
+    .side-foot {
+      margin: 10px;
+      padding: 12px;
+      border: 1px solid var(--ea-border);
+      border-radius: 10px;
+      background: var(--ea-surface);
+    }
+    .side-foot-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--ea-text-2);
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+    .side-foot p {
+      margin: 6px 0 0;
+      color: var(--ea-text-3);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+    .mini-progress {
+      height: 4px;
+      margin-top: 9px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: var(--ea-bg-3);
+    }
+    .mini-progress span {
+      display: block;
+      width: 72%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--ea-primary), var(--ea-success));
+    }
+
+    /* Main */
+    .main {
+      grid-column: 2;
+      min-width: 0;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 8;
+      display: flex;
+      height: var(--v2-topbar);
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-surface) 90%, transparent);
+      backdrop-filter: blur(18px) saturate(140%);
+    }
+    .top-title { font-size: 11px; font-weight: 700; }
+    .proposal-badge {
+      display: inline-flex;
+      height: 22px;
+      align-items: center;
+      gap: 5px;
+      padding: 0 7px;
+      border: 1px solid color-mix(in srgb, var(--ea-primary) 28%, var(--ea-border));
+      border-radius: 99px;
+      background: var(--ea-primary-50);
+      color: var(--ea-primary);
+      font-size: 8.5px;
+      font-weight: 800;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    .top-spacer { flex: 1; }
+    .control-group {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px;
+      border: 1px solid var(--ea-border);
+      border-radius: 8px;
+      background: var(--ea-bg-2);
+    }
+    .control-group button {
+      display: inline-flex;
+      height: 27px;
+      align-items: center;
+      gap: 5px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ea-text-3);
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 650;
+    }
+    .control-group button.active {
+      background: var(--ea-surface);
+      color: var(--ea-primary);
+      box-shadow: 0 1px 3px rgba(15,23,42,.08);
+    }
+    .icon-button {
+      display: grid;
+      width: 31px;
+      height: 31px;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ea-text-3);
+      cursor: pointer;
+    }
+    .icon-button:hover {
+      border-color: var(--ea-border);
+      background: var(--ea-bg-2);
+      color: var(--ea-text-1);
+    }
+    .icon-button:focus-visible,
+    button:focus-visible,
+    input:focus-visible {
+      outline: 0;
+      box-shadow: var(--ea-focus);
+    }
+
+    .content {
+      width: min(var(--v2-page), calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 64px;
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 30px;
+      border: 1px solid var(--ea-border);
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 92% 6%, color-mix(in srgb, var(--ea-primary) 15%, transparent), transparent 28%),
+        var(--ea-surface);
+      box-shadow: 0 14px 40px rgba(15,23,42,.055);
+    }
+    .hero::after {
+      position: absolute;
+      top: -74px;
+      right: -54px;
+      width: 210px;
+      height: 210px;
+      border: 1px solid color-mix(in srgb, var(--ea-primary) 14%, transparent);
+      border-radius: 50%;
+      content: "";
+    }
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 330px;
+      gap: 38px;
+      align-items: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--ea-primary);
+      font-size: 9px;
+      font-weight: 850;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .eyebrow-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ea-primary);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ea-primary) 12%, transparent);
+    }
+    h1 {
+      max-width: 680px;
+      margin: 12px 0 0;
+      font-family: var(--ea-font-display);
+      font-size: 34px;
+      font-weight: 600;
+      letter-spacing: -.04em;
+      line-height: 1.08;
+    }
+    .hero p {
+      max-width: 670px;
+      margin: 12px 0 0;
+      color: var(--ea-text-3);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    .btn {
+      display: inline-flex;
+      height: var(--ea-control-md);
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 11px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ea-text-2);
+      cursor: pointer;
+      font-size: 10.5px;
+      font-weight: 700;
+      transition: transform var(--ea-motion-fast), background var(--ea-motion-fast), border-color var(--ea-motion-fast);
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary {
+      border-color: var(--ea-primary);
+      background: var(--ea-primary);
+      color: var(--primary-foreground);
+      box-shadow: 0 7px 18px color-mix(in srgb, var(--ea-primary) 18%, transparent);
+    }
+    .btn.primary:hover { background: var(--ea-primary-700); }
+    .btn.secondary {
+      border-color: var(--ea-border-strong);
+      background: var(--ea-surface);
+    }
+    .btn.secondary:hover { background: var(--ea-bg-2); }
+    .btn.ghost:hover { background: var(--ea-bg-2); color: var(--ea-text-1); }
+    .btn.danger {
+      background: var(--ea-danger-bg);
+      color: var(--ea-danger-fg);
+    }
+    .btn[disabled] { cursor: not-allowed; opacity: .45; }
+    .btn.sm { height: var(--ea-control-sm); padding: 0 9px; font-size: 9.5px; }
+    .btn.lg { height: var(--ea-control-lg); padding: 0 14px; font-size: 11px; }
+
+    .hero-score {
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--ea-bg-2) 64%, var(--ea-surface));
+    }
+    .score-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 13px;
+      border-bottom: 1px solid var(--ea-border);
+    }
+    .score-head span:first-child { color: var(--ea-text-2); font-size: 10px; font-weight: 750; }
+    .score-head span:last-child { color: var(--ea-success-fg); font-size: 9px; font-weight: 800; }
+    .score-list { padding: 5px 0; }
+    .score-row {
+      display: grid;
+      grid-template-columns: 1fr 58px 54px;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 13px;
+      font-size: 9px;
+    }
+    .score-row span:first-child { color: var(--ea-text-3); }
+    .score-now { color: var(--ea-text-2); font-family: var(--ea-font-mono); text-align: right; }
+    .score-target { color: var(--ea-primary); font-family: var(--ea-font-mono); font-weight: 750; text-align: right; }
+
+    .section {
+      scroll-margin-top: calc(var(--v2-topbar) + 18px);
+      margin-top: 34px;
+    }
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 13px;
+    }
+    .section-number {
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      font-size: 9px;
+      font-weight: 800;
+    }
+    h2 {
+      margin: 5px 0 0;
+      font-family: var(--ea-font-display);
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -.025em;
+    }
+    .section-desc {
+      max-width: 610px;
+      margin: 6px 0 0;
+      color: var(--ea-text-3);
+      font-size: 10.5px;
+      line-height: 1.55;
+    }
+    .section-note {
+      color: var(--ea-text-3);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+
+    /* Proposal cards */
+    .proposal-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .proposal-card {
+      position: relative;
+      min-height: 172px;
+      overflow: hidden;
+      padding: 15px;
+      border: 1px solid var(--ea-border);
+      border-radius: 12px;
+      background: var(--ea-surface);
+      transition: transform var(--ea-motion-normal) var(--ea-ease-standard), box-shadow var(--ea-motion-normal), border-color var(--ea-motion-normal);
+    }
+    .proposal-card:hover {
+      transform: translateY(-2px);
+      border-color: color-mix(in srgb, var(--ea-primary) 28%, var(--ea-border));
+      box-shadow: var(--ea-shadow-2);
+    }
+    .proposal-index {
+      display: grid;
+      width: 29px;
+      height: 29px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--ea-primary-50);
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .proposal-card h3 {
+      margin: 12px 0 0;
+      font-size: 11px;
+      font-weight: 750;
+    }
+    .proposal-card p {
+      margin: 7px 0 0;
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+      line-height: 1.55;
+    }
+    .proposal-tag {
+      position: absolute;
+      right: 11px;
+      bottom: 10px;
+      color: var(--ea-primary);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    /* Foundation */
+    .foundation-grid {
+      display: grid;
+      grid-template-columns: 1.08fr .92fr;
+      gap: 10px;
+    }
+    .panel {
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 12px;
+      background: var(--ea-surface);
+    }
+    .panel-head {
+      display: flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-bg-2) 55%, var(--ea-surface));
+    }
+    .panel-title { font-size: 10.5px; font-weight: 750; }
+    .panel-hint { color: var(--ea-text-3); font-family: var(--ea-font-mono); font-size: 8px; }
+    .panel-body { padding: 14px; }
+
+    .spacing-scale {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 7px;
+      align-items: end;
+    }
+    .space-token { text-align: center; }
+    .space-bar {
+      width: 100%;
+      max-width: 42px;
+      margin: 0 auto 7px;
+      border-radius: 4px 4px 2px 2px;
+      background: linear-gradient(180deg, var(--ea-primary), var(--ea-primary-500));
+      opacity: .88;
+    }
+    .space-token code {
+      display: block;
+      color: var(--ea-text-3);
+      font-family: var(--ea-font-mono);
+      font-size: 7.5px;
+    }
+    .space-token span {
+      display: block;
+      margin-top: 2px;
+      color: var(--ea-text-3);
+      font-size: 7.5px;
+    }
+    .divider { height: 1px; margin: 15px 0; background: var(--ea-border); }
+    .foundation-row {
+      display: grid;
+      grid-template-columns: 112px 1fr;
+      align-items: center;
+      min-height: 31px;
+      border-bottom: 1px solid var(--ea-border);
+    }
+    .foundation-row:last-child { border-bottom: 0; }
+    .foundation-row code {
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      font-size: 8px;
+    }
+    .foundation-row span { color: var(--ea-text-2); font-size: 9.5px; }
+    .type-display {
+      font-family: var(--ea-font-display);
+      font-size: 27px !important;
+      font-weight: 600;
+      letter-spacing: -.035em;
+    }
+    .type-title { font-size: 17px !important; font-weight: 700; letter-spacing: -.015em; }
+    .type-body { font-size: 12px !important; }
+    .type-label { font-size: 9px !important; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+    .type-mono { font-family: var(--ea-font-mono); font-size: 11px !important; }
+
+    .semantic-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+    .semantic-card {
+      padding: 10px;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+      background: var(--ea-bg-2);
+    }
+    .semantic-chip {
+      height: 36px;
+      border-radius: 7px;
+      background: var(--semantic);
+    }
+    .semantic-card code {
+      display: block;
+      margin-top: 7px;
+      color: var(--ea-text-2);
+      font-family: var(--ea-font-mono);
+      font-size: 8px;
+    }
+    .semantic-card span {
+      display: block;
+      margin-top: 3px;
+      color: var(--ea-text-3);
+      font-size: 8px;
+    }
+
+    .elevation-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 9px;
+      margin-top: 12px;
+    }
+    .elevation {
+      display: grid;
+      min-height: 68px;
+      place-items: center;
+      border: 1px solid var(--ea-border);
+      border-radius: 10px;
+      background: var(--ea-surface);
+      color: var(--ea-text-3);
+      font-family: var(--ea-font-mono);
+      font-size: 8px;
+    }
+    .elevation.e1 { box-shadow: 0 1px 2px rgba(15,23,42,.05); }
+    .elevation.e2 { box-shadow: var(--ea-shadow-2); }
+    .elevation.e3 { box-shadow: var(--ea-shadow-3); }
+
+    /* Components */
+    .component-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .component-full { grid-column: 1 / -1; }
+    .sample-label {
+      margin-bottom: 9px;
+      color: var(--ea-text-3);
+      font-size: 8.5px;
+      font-weight: 750;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .sample-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 7px;
+    }
+    .sample-row + .sample-label { margin-top: 17px; }
+    .status {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+      gap: 5px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 99px;
+      font-size: 8.5px;
+      font-weight: 750;
+    }
+    .status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .status.success {
+      border-color: color-mix(in srgb, var(--ea-success) 25%, transparent);
+      background: var(--ea-success-bg);
+      color: var(--ea-success-fg);
+    }
+    .status.warning {
+      border-color: color-mix(in srgb, var(--ea-warning) 25%, transparent);
+      background: var(--ea-warning-bg);
+      color: var(--ea-warning-fg);
+    }
+    .status.danger {
+      border-color: color-mix(in srgb, var(--ea-danger) 25%, transparent);
+      background: var(--ea-danger-bg);
+      color: var(--ea-danger-fg);
+    }
+    .status.neutral {
+      border-color: var(--ea-border);
+      background: var(--ea-bg-2);
+      color: var(--ea-text-2);
+    }
+    .status.info {
+      border-color: color-mix(in srgb, var(--ea-primary) 24%, transparent);
+      background: var(--ea-primary-50);
+      color: var(--ea-primary);
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .field { min-width: 0; }
+    .field label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+      color: var(--ea-text-2);
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .field label span { color: var(--ea-text-3); font-size: 8px; font-weight: 500; }
+    .input-shell {
+      display: flex;
+      height: var(--ea-control-md);
+      align-items: center;
+      gap: 7px;
+      padding: 0 9px;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 8px;
+      background: var(--ea-surface);
+      color: var(--ea-text-3);
+      transition: border-color var(--ea-motion-fast), box-shadow var(--ea-motion-fast);
+    }
+    .input-shell:focus-within { border-color: var(--ea-primary); box-shadow: var(--ea-focus); }
+    .input-shell.invalid { border-color: var(--ea-danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ea-danger) 13%, transparent); }
+    .input-shell input {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ea-text-1);
+      font-size: 10.5px;
+    }
+    .input-shell input::placeholder { color: var(--ea-text-3); }
+    .input-shell .suffix { color: var(--ea-text-3); font-size: 9px; font-weight: 650; }
+    .input-shell.amount input {
+      font-family: var(--ea-font-mono);
+      font-weight: 700;
+      text-align: right;
+    }
+    .field-help { margin-top: 5px; color: var(--ea-text-3); font-size: 8px; line-height: 1.4; }
+    .field-help.error { color: var(--ea-danger-fg); }
+    .account-value { color: var(--ea-primary); font-family: var(--ea-font-mono); font-weight: 700; }
+
+    .state-matrix {
+      width: 100%;
+      border-spacing: 0;
+      border-collapse: separate;
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+      font-size: 9px;
+    }
+    .state-matrix th,
+    .state-matrix td {
+      height: 34px;
+      padding: 0 9px;
+      border-right: 1px solid var(--ea-border);
+      border-bottom: 1px solid var(--ea-border);
+      text-align: left;
+    }
+    .state-matrix th:last-child,
+    .state-matrix td:last-child { border-right: 0; }
+    .state-matrix tr:last-child td { border-bottom: 0; }
+    .state-matrix th {
+      background: var(--ea-bg-2);
+      color: var(--ea-text-3);
+      font-size: 8px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+    .state-matrix td:first-child { color: var(--ea-text-2); font-weight: 650; }
+    .check { color: var(--ea-success-fg); font-weight: 800; }
+    .planned { color: var(--ea-warning-fg); }
+
+    /* Accounting patterns */
+    .pattern-grid {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 10px;
+    }
+    .recon {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 11px;
+      padding: 11px 12px;
+      border: 1px solid color-mix(in srgb, var(--ea-success) 28%, var(--ea-border));
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--ea-success) 5%, var(--ea-surface));
+    }
+    .recon-icon {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--ea-success-bg);
+      color: var(--ea-success-fg);
+    }
+    .recon-title { color: var(--ea-success-fg); font-size: 10px; font-weight: 750; }
+    .recon-sub { margin-top: 3px; color: var(--ea-text-3); font-size: 8px; }
+    .recon-amount { font-family: var(--ea-font-mono); font-size: 10px; font-weight: 750; text-align: right; }
+    .recon-amount span { display: block; margin-top: 3px; color: var(--ea-success-fg); font-family: var(--ea-font-sans); font-size: 8px; }
+
+    .entry-card {
+      margin-top: 10px;
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 10px;
+      background: var(--ea-surface);
+    }
+    .entry-head {
+      display: flex;
+      height: 38px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 11px;
+      border-bottom: 1px solid var(--ea-border);
+      background: var(--ea-bg-2);
+    }
+    .entry-title { font-size: 9.5px; font-weight: 750; }
+    .entry-ref { color: var(--ea-primary); font-family: var(--ea-font-mono); font-size: 8px; }
+    .entry-line {
+      display: grid;
+      grid-template-columns: 30px 94px 1fr 100px;
+      align-items: center;
+      min-height: 35px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--ea-border);
+      font-size: 8.5px;
+    }
+    .entry-line:last-child { border-bottom: 0; }
+    .dc {
+      display: grid;
+      width: 21px;
+      height: 21px;
+      place-items: center;
+      border-radius: 5px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-2);
+      font-family: var(--ea-font-mono);
+      font-size: 7.5px;
+      font-weight: 800;
+    }
+    .entry-account { color: var(--ea-primary); font-family: var(--ea-font-mono); font-weight: 700; }
+    .entry-name { color: var(--ea-text-2); }
+    .entry-amount { font-family: var(--ea-font-mono); font-weight: 750; text-align: right; }
+    .entry-total {
+      display: flex;
+      min-height: 35px;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 18px;
+      padding: 0 10px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-3);
+      font-size: 8px;
+    }
+    .entry-total strong { color: var(--ea-text-1); font-family: var(--ea-font-mono); }
+
+    .empty-state {
+      display: grid;
+      min-height: 168px;
+      place-items: center;
+      padding: 22px;
+      text-align: center;
+    }
+    .empty-icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      margin: 0 auto;
+      place-items: center;
+      border: 1px solid var(--ea-border);
+      border-radius: 12px;
+      background: var(--ea-bg-2);
+      color: var(--ea-primary);
+      box-shadow: 0 7px 18px rgba(15,23,42,.05);
+    }
+    .empty-state h3 { margin: 11px 0 0; font-size: 10.5px; }
+    .empty-state p { max-width: 245px; margin: 6px auto 0; color: var(--ea-text-3); font-size: 8.5px; line-height: 1.5; }
+    .empty-state .btn { margin-top: 12px; }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .metric {
+      padding: 11px;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+      background: var(--ea-surface);
+    }
+    .metric-label { color: var(--ea-text-3); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+    .metric-value { margin-top: 7px; font-family: var(--ea-font-mono); font-size: 14px; font-weight: 750; letter-spacing: -.03em; }
+    .metric-meta { margin-top: 5px; color: var(--ea-text-3); font-size: 7.5px; }
+
+    /* Governance and roadmap */
+    .governance-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .governance-card {
+      padding: 15px;
+      border: 1px solid var(--ea-border);
+      border-radius: 11px;
+      background: var(--ea-surface);
+    }
+    .governance-card h3 { margin: 0; font-size: 10.5px; }
+    .governance-card ul {
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .governance-card li {
+      position: relative;
+      margin-top: 7px;
+      padding-left: 15px;
+      color: var(--ea-text-3);
+      font-size: 9px;
+      line-height: 1.45;
+    }
+    .governance-card li::before {
+      position: absolute;
+      top: 5px;
+      left: 1px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--ea-primary);
+      content: "";
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 12px;
+      background: var(--ea-surface);
+    }
+    .phase {
+      min-height: 190px;
+      padding: 16px;
+      border-right: 1px solid var(--ea-border);
+    }
+    .phase:last-child { border-right: 0; }
+    .phase-no {
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .phase h3 { margin: 7px 0 0; font-size: 11px; }
+    .phase-time { margin-top: 4px; color: var(--ea-text-3); font-size: 8.5px; }
+    .phase ul { margin: 12px 0 0; padding: 0; list-style: none; }
+    .phase li {
+      display: flex;
+      gap: 7px;
+      margin-top: 7px;
+      color: var(--ea-text-2);
+      font-size: 8.5px;
+      line-height: 1.4;
+    }
+    .phase li::before { color: var(--ea-success-fg); content: "✓"; font-weight: 800; }
+
+    .final-callout {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 34px;
+      padding: 20px;
+      border: 1px solid color-mix(in srgb, var(--ea-primary) 28%, var(--ea-border));
+      border-radius: 13px;
+      background:
+        linear-gradient(110deg, color-mix(in srgb, var(--ea-primary) 8%, var(--ea-surface)), var(--ea-surface));
+    }
+    .final-callout h3 {
+      margin: 0;
+      font-family: var(--ea-font-display);
+      font-size: 17px;
+      letter-spacing: -.02em;
+    }
+    .final-callout p {
+      margin: 5px 0 0;
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+    }
+
+    /* Modal + toast */
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: var(--ea-overlay);
+      opacity: 0;
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+      transition: opacity var(--ea-motion-normal);
+    }
+    .backdrop.open { opacity: 1; pointer-events: auto; }
+    .modal {
+      width: min(420px, 100%);
+      overflow: hidden;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 14px;
+      background: var(--ea-surface);
+      box-shadow: var(--ea-shadow-3);
+      transform: translateY(8px) scale(.985);
+      transition: transform var(--ea-motion-normal) var(--ea-ease-standard);
+    }
+    .backdrop.open .modal { transform: translateY(0) scale(1); }
+    .modal-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+    }
+    .modal-title { font-family: var(--ea-font-display); font-size: 17px; font-weight: 600; }
+    .modal-desc { margin-top: 5px; color: var(--ea-text-3); font-size: 9px; line-height: 1.5; }
+    .modal-body { padding: 0 16px 16px; }
+    .modal-foot {
+      display: flex;
+      justify-content: flex-end;
+      gap: 7px;
+      padding: 11px 16px;
+      border-top: 1px solid var(--ea-border);
+      background: var(--ea-bg-2);
+    }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 70;
+      display: flex;
+      min-width: 290px;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 12px;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 10px;
+      background: var(--ea-surface);
+      box-shadow: var(--ea-shadow-3);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity var(--ea-motion-normal), transform var(--ea-motion-normal) var(--ea-ease-standard);
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast-icon {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--ea-success-bg);
+      color: var(--ea-success-fg);
+    }
+    .toast-title { font-size: 9.5px; font-weight: 750; }
+    .toast-sub { margin-top: 3px; color: var(--ea-text-3); font-size: 8px; }
+
+    body.compact {
+      --ea-control-xs: 24px;
+      --ea-control-sm: 27px;
+      --ea-control-md: 30px;
+      --ea-control-lg: 36px;
+    }
+    body.compact .panel-body { padding: 11px; }
+    body.compact .proposal-card { min-height: 156px; padding: 12px; }
+    body.compact .content { padding-top: 24px; }
+
+    @media (max-width: 940px) {
+      :root { --v2-sidebar: 68px; }
+      .brand { justify-content: center; padding: 0; }
+      .brand > div:last-child, .side-label, .side-link span, .side-foot { display: none; }
+      .side-link { justify-content: center; padding: 0; }
+      .hero-grid, .foundation-grid, .pattern-grid { grid-template-columns: 1fr; }
+      .proposal-grid { grid-template-columns: 1fr 1fr; }
+      .hero-score { max-width: 440px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 5h12M6 12h8M6 19h12M4 3v18"/></svg>
+        </div>
+        <div>
+          <div class="brand-name">Entry</div>
+          <div class="brand-sub">Design system</div>
+        </div>
+      </div>
+      <div class="side-scroll">
+        <div class="side-group">
+          <div class="side-label">Proposal</div>
+          <a class="side-link active" href="#overview">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span>Ерөнхий санал</span>
+          </a>
+          <a class="side-link" href="#foundation">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>
+            <span>Foundation</span>
+          </a>
+          <a class="side-link" href="#components">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 2 8 4-8 4-8-4 8-4Z"/><path d="m4 10 8 4 8-4M4 14l8 4 8-4"/></svg>
+            <span>Components</span>
+          </a>
+          <a class="side-link" href="#patterns">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4zM4 10h16M9 5v14"/></svg>
+            <span>Accounting patterns</span>
+          </a>
+          <a class="side-link" href="#governance">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 12 2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+            <span>Accessibility & QA</span>
+          </a>
+          <a class="side-link" href="#roadmap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5M4 19h16"/><path d="m7 14 3-3 3 2 5-6"/></svg>
+            <span>Хэрэгжүүлэх дараалал</span>
+          </a>
+        </div>
+      </div>
+      <div class="side-foot">
+        <div class="side-foot-top"><span>System maturity</span><span style="color:var(--ea-primary)">72 → 92</span></div>
+        <p>Нэг дор дахин бичихгүй. Foundation-оос эхэлж component ба pattern-уудыг үе шаттай шилжүүлнэ.</p>
+        <div class="mini-progress"><span></span></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="top-title">Entry Design System</div>
+        <span class="proposal-badge"><span class="eyebrow-dot" style="width:5px;height:5px;box-shadow:none"></span> v2 proposal</span>
+        <div class="top-spacer"></div>
+        <div class="control-group" aria-label="Нягтрал">
+          <button class="active density-choice" data-density="comfortable" type="button">Comfortable</button>
+          <button class="density-choice" data-density="compact" type="button">Compact</button>
+        </div>
+        <button class="icon-button" id="themeToggle" type="button" aria-label="Light dark горим солих">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 15.2A8.5 8.5 0 1 1 8.8 4 7 7 0 0 0 20 15.2Z"/></svg>
+        </button>
+      </header>
+
+      <div class="content">
+        <section class="hero" id="overview">
+          <div class="hero-grid">
+            <div>
+              <div class="eyebrow"><span class="eyebrow-dot"></span> Entry UI Kit evolution</div>
+              <h1>Цэвэр UI kit-ээс санхүүгийн бүтээгдэхүүний дизайн систем рүү.</h1>
+              <p>Одоогийн өнгө, dark mode, Base UI болон AG Grid-ийн суурийг хадгална. Дээр нь бүрэн token scale, бүх state-тай primitive, нягтлан бодох ажлын pattern, accessibility болон автомат QA нэмнэ.</p>
+              <div class="hero-actions">
+                <button class="btn primary" type="button" onclick="document.getElementById('foundation').scrollIntoView()">
+                  Саналыг үзэх
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+                <button class="btn secondary" id="openModal" type="button">
+                  Modal pattern турших
+                </button>
+              </div>
+            </div>
+            <div class="hero-score">
+              <div class="score-head"><span>System target</span><span>Incremental upgrade</span></div>
+              <div class="score-list">
+                <div class="score-row"><span>Design token coverage</span><span class="score-now">48</span><span class="score-target">80+</span></div>
+                <div class="score-row"><span>Core primitives</span><span class="score-now">13</span><span class="score-target">24</span></div>
+                <div class="score-row"><span>Accounting patterns</span><span class="score-now">Partial</span><span class="score-target">12</span></div>
+                <div class="score-row"><span>Documented states</span><span class="score-now">Mixed</span><span class="score-target">100%</span></div>
+                <div class="score-row"><span>Visual / a11y QA</span><span class="score-now">Manual</span><span class="score-target">CI</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <div>
+              <div class="section-number">00 · STRATEGY</div>
+              <h2>Сайжруулах дөрвөн чиглэл</h2>
+              <p class="section-desc">Одоогийн системийг эвдэхгүйгээр хамгийн их өгөөж өгөх дарааллаар эрэмбэлэв.</p>
+            </div>
+          </div>
+          <div class="proposal-grid">
+            <article class="proposal-card">
+              <div class="proposal-index">01</div>
+              <h3>Foundation token 2.0</h3>
+              <p>Өнгөн дээр spacing, type scale, control height, motion, elevation, density, z-layer нэмнэ.</p>
+              <span class="proposal-tag">First</span>
+            </article>
+            <article class="proposal-card">
+              <div class="proposal-index">02</div>
+              <h3>Complete component states</h3>
+              <p>Default, hover, focus, active, disabled, loading, invalid, read-only төлөв бүрийг API ба gallery-д тогтооно.</p>
+              <span class="proposal-tag">Core</span>
+            </article>
+            <article class="proposal-card">
+              <div class="proposal-index">03</div>
+              <h3>Accounting patterns</h3>
+              <p>Amount, Account, Journal, Reconciliation, Drill-down, Period status зэрэг domain component үүсгэнэ.</p>
+              <span class="proposal-tag">Differentiate</span>
+            </article>
+            <article class="proposal-card">
+              <div class="proposal-index">04</div>
+              <h3>Governance & automated QA</h3>
+              <p>Usage guide, accessibility contract, screenshot regression болон hardcode lint-ийг CI-д оруулна.</p>
+              <span class="proposal-tag">Scale</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="foundation">
+          <div class="section-head">
+            <div>
+              <div class="section-number">01 · FOUNDATION</div>
+              <h2>Token system-ийг бүрэн болгох</h2>
+              <p class="section-desc">Компонент доторх жижиг тоонуудыг багасгаж, бүх модуль ижил rhythm, typography, motion ашигладаг болгоно.</p>
+            </div>
+            <div class="section-note">Preview token-ууд production-д хараахан ороогүй</div>
+          </div>
+          <div class="foundation-grid">
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Spacing & control scale</span><span class="panel-hint">4px base grid</span></div>
+              <div class="panel-body">
+                <div class="spacing-scale">
+                  <div class="space-token"><div class="space-bar" style="height:4px"></div><code>space-1</code><span>4</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:8px"></div><code>space-2</code><span>8</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:12px"></div><code>space-3</code><span>12</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:16px"></div><code>space-4</code><span>16</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:20px"></div><code>space-5</code><span>20</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:24px"></div><code>space-6</code><span>24</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:32px"></div><code>space-8</code><span>32</span></div>
+                  <div class="space-token"><div class="space-bar" style="height:40px"></div><code>space-10</code><span>40</span></div>
+                </div>
+                <div class="divider"></div>
+                <div class="foundation-row"><code>--ea-control-xs</code><span>26px · grid action, badge control</span></div>
+                <div class="foundation-row"><code>--ea-control-sm</code><span>30px · toolbar, dense form</span></div>
+                <div class="foundation-row"><code>--ea-control-md</code><span>34px · default form, button</span></div>
+                <div class="foundation-row"><code>--ea-control-lg</code><span>40px · auth, high emphasis</span></div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Typography roles</span><span class="panel-hint">role, not random size</span></div>
+              <div class="panel-body">
+                <div class="foundation-row"><code>display</code><span class="type-display">Financial clarity</span></div>
+                <div class="foundation-row"><code>title</code><span class="type-title">Өртгийн хяналтын тайлан</span></div>
+                <div class="foundation-row"><code>body</code><span class="type-body">Бизнесийн үйл явдлыг ойлгомжтой тайлбарлана.</span></div>
+                <div class="foundation-row"><code>label</code><span class="type-label">Accounting period</span></div>
+                <div class="foundation-row"><code>mono</code><span class="type-mono">11210000 · ₮ 4,200,000.00</span></div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Semantic role tokens</span><span class="panel-hint">surface / text / border</span></div>
+              <div class="panel-body">
+                <div class="semantic-grid">
+                  <div class="semantic-card"><div class="semantic-chip" style="--semantic:var(--ea-primary)"></div><code>--ea-action-primary</code><span>Primary action, active state</span></div>
+                  <div class="semantic-card"><div class="semantic-chip" style="--semantic:var(--ea-success)"></div><code>--ea-state-success</code><span>Balanced, completed, posted</span></div>
+                  <div class="semantic-card"><div class="semantic-chip" style="--semantic:var(--ea-warning)"></div><code>--ea-state-warning</code><span>Pending, due, review</span></div>
+                  <div class="semantic-card"><div class="semantic-chip" style="--semantic:var(--ea-danger)"></div><code>--ea-state-danger</code><span>Error, destructive, mismatch</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Elevation & motion</span><span class="panel-hint">3 levels only</span></div>
+              <div class="panel-body">
+                <div class="foundation-row"><code>motion-fast</code><span>120ms · hover, press, focus</span></div>
+                <div class="foundation-row"><code>motion-normal</code><span>180ms · popup, panel, toast</span></div>
+                <div class="elevation-row">
+                  <div class="elevation e1">surface-1</div>
+                  <div class="elevation e2">surface-2</div>
+                  <div class="elevation e3">surface-3</div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="components">
+          <div class="section-head">
+            <div>
+              <div class="section-number">02 · COMPONENTS</div>
+              <h2>Variant-аас гадна бүх state</h2>
+              <p class="section-desc">Component бүр зөвхөн сайхан харагдах биш, loading, invalid, disabled, read-only болон keyboard contract-тай байна.</p>
+            </div>
+          </div>
+          <div class="component-layout">
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Button family</span><span class="panel-hint">variant × size × state</span></div>
+              <div class="panel-body">
+                <div class="sample-label">Variants</div>
+                <div class="sample-row">
+                  <button class="btn primary" type="button">Хадгалах</button>
+                  <button class="btn secondary" type="button">Шалгах</button>
+                  <button class="btn ghost" type="button">Дэлгэрэнгүй</button>
+                  <button class="btn danger" type="button">Устгах</button>
+                </div>
+                <div class="sample-label">Sizes & state</div>
+                <div class="sample-row">
+                  <button class="btn primary sm" type="button">Small</button>
+                  <button class="btn primary" type="button">Default</button>
+                  <button class="btn primary lg" type="button">Large</button>
+                  <button class="btn secondary" type="button" disabled>Disabled</button>
+                  <button class="btn primary" id="loadingButton" type="button">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-5V2"/><path d="M20 7a8 8 0 1 0 1 7"/></svg>
+                    Loading турших
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Status language</span><span class="panel-hint">icon + text + color</span></div>
+              <div class="panel-body">
+                <div class="sample-label">Accounting status</div>
+                <div class="sample-row">
+                  <span class="status success"><span class="status-dot"></span>Тэнцсэн</span>
+                  <span class="status info"><span class="status-dot"></span>Posted</span>
+                  <span class="status warning"><span class="status-dot"></span>Review</span>
+                  <span class="status danger"><span class="status-dot"></span>Зөрүүтэй</span>
+                  <span class="status neutral"><span class="status-dot"></span>Draft</span>
+                </div>
+                <div class="sample-label">Rule</div>
+                <div style="color:var(--ea-text-3);font-size:9px;line-height:1.55">
+                  Өнгө ганцаараа утга дамжуулахгүй. Төлөв бүр icon, label, accessible name-тай байна. Жижиг текстэд <code style="color:var(--ea-primary)">text-4</code> ашиглахгүй.
+                </div>
+              </div>
+            </article>
+
+            <article class="panel component-full">
+              <div class="panel-head"><span class="panel-title">Finance-aware form fields</span><span class="panel-hint">label + input + help + validation</span></div>
+              <div class="panel-body">
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Гүйлгээний дүн <span>Required</span></label>
+                    <div class="input-shell amount">
+                      <span>₮</span>
+                      <input value="4,200,000.00" aria-label="Гүйлгээний дүн">
+                      <span class="suffix">MNT</span>
+                    </div>
+                    <div class="field-help">Мөнгөний утга үргэлж mono, баруун тийш зэрэгцэнэ.</div>
+                  </div>
+                  <div class="field">
+                    <label>Данс <span>8 оронтой код</span></label>
+                    <div class="input-shell">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                      <span class="account-value">11210000</span>
+                      <input value="Касс" aria-label="Данс">
+                      <span class="suffix">⌄</span>
+                    </div>
+                    <div class="field-help">Код, нэр, segment болон keyboard search нэг component-д.</div>
+                  </div>
+                  <div class="field">
+                    <label>Баримтын огноо</label>
+                    <div class="input-shell">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+                      <input value="2026.07.28" aria-label="Баримтын огноо">
+                      <span class="suffix">Period open</span>
+                    </div>
+                    <div class="field-help">Period status-ийг талбар дээр шууд тайлбарлана.</div>
+                  </div>
+                  <div class="field">
+                    <label>Харилцагчийн код</label>
+                    <div class="input-shell invalid">
+                      <input value="SUP-0042X" aria-invalid="true" aria-describedby="supplier-error">
+                    </div>
+                    <div class="field-help error" id="supplier-error">Идэвхтэй харилцагч олдсонгүй.</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel component-full">
+              <div class="panel-head"><span class="panel-title">Component state contract</span><span class="panel-hint">gallery + docs + tests</span></div>
+              <div class="panel-body">
+                <table class="state-matrix">
+                  <thead><tr><th>Component</th><th>Default</th><th>Hover</th><th>Focus</th><th>Disabled</th><th>Loading</th><th>Invalid</th><th>Read-only</th></tr></thead>
+                  <tbody>
+                    <tr><td>Button</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td>—</td><td>—</td></tr>
+                    <tr><td>Input</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="planned">Add</td><td class="check">✓</td><td class="planned">Add</td></tr>
+                    <tr><td>Select</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td class="planned">Add</td><td class="check">✓</td><td class="planned">Add</td></tr>
+                    <tr><td>DataGrid</td><td class="check">✓</td><td class="check">✓</td><td class="planned">Refine</td><td class="planned">Add</td><td class="check">✓</td><td class="planned">Add</td><td class="planned">Add</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="patterns">
+          <div class="section-head">
+            <div>
+              <div class="section-number">03 · ACCOUNTING PATTERNS</div>
+              <h2>Entry-ийн жинхэнэ ялгарал</h2>
+              <p class="section-desc">Generic shadcn component-оос цааш, нягтлан нэг хараад ойлгох domain pattern-уудыг UI kit-д албан ёсоор оруулна.</p>
+            </div>
+          </div>
+          <div class="pattern-grid">
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Reconciliation + journal preview</span><span class="panel-hint">one source of explanation</span></div>
+              <div class="panel-body">
+                <div class="recon">
+                  <div class="recon-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="m5 12 4 4L19 6"/></svg>
+                  </div>
+                  <div><div class="recon-title">Subledger болон GL тэнцсэн</div><div class="recon-sub">1,248 гүйлгээ · 2026.07.28 13:42</div></div>
+                  <div class="recon-amount">₮ 1,284,220,400<span>Зөрүү ₮0</span></div>
+                </div>
+                <div class="entry-card">
+                  <div class="entry-head"><span class="entry-title">Generated journal</span><span class="entry-ref">JV-2026-07-01842</span></div>
+                  <div class="entry-line"><span class="dc">Dr</span><span class="entry-account">61100000</span><span class="entry-name">Бараа борлуулсны өртөг</span><span class="entry-amount">21,845,655</span></div>
+                  <div class="entry-line"><span class="dc">Dr</span><span class="entry-account">14100000</span><span class="entry-name">Дуусаагүй үйлдвэрлэл</span><span class="entry-amount">54,894,210</span></div>
+                  <div class="entry-line"><span class="dc">Cr</span><span class="entry-account">14010000</span><span class="entry-name">Бараа материал</span><span class="entry-amount">76,739,865</span></div>
+                  <div class="entry-total"><span>Дебет <strong>76,739,865</strong></span><span>Кредит <strong>76,739,865</strong></span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head"><span class="panel-title">Empty & first-use state</span><span class="panel-hint">explain next action</span></div>
+              <div class="empty-state">
+                <div>
+                  <div class="empty-icon">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v13H3z"/><path d="m3 7 4-4h10l4 4M8 12h8"/></svg>
+                  </div>
+                  <h3>Энэ периодод өртгийн тооцоо алга</h3>
+                  <p>Орлого, зарлагын гүйлгээг шалгаад periodic weighted average тооцоог эхлүүлнэ.</p>
+                  <button class="btn primary sm" type="button">Өртөг тооцох</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="metric-row">
+            <article class="metric"><div class="metric-label">C1 amount</div><div class="metric-value">₮ 1.212B</div><div class="metric-meta">Beginning inventory</div></article>
+            <article class="metric"><div class="metric-label">Inbound</div><div class="metric-value">₮ 864.6M</div><div class="metric-meta">142 receipts · 8 components</div></article>
+            <article class="metric"><div class="metric-label">Outbound & C2 cost</div><div class="metric-value">₮ 5,601.45</div><div class="metric-meta">Same periodic average unit cost</div></article>
+          </div>
+        </section>
+
+        <section class="section" id="governance">
+          <div class="section-head">
+            <div>
+              <div class="section-number">04 · GOVERNANCE</div>
+              <h2>“Сайн харагдах”-аас “тогтвортой ажиллах” руу</h2>
+              <p class="section-desc">UI kit ашигласан хүн бүр ижил чанартай дэлгэц бүтээдэг байх автомат болон баримтжуулалтын хамгаалалт.</p>
+            </div>
+          </div>
+          <div class="governance-grid">
+            <article class="governance-card">
+              <h3>Accessibility contract</h3>
+              <ul>
+                <li>Жижиг текст minimum AA 4.5:1</li>
+                <li>Focus ring бүх interactive element-д</li>
+                <li>Icon-only action accessible name-тай</li>
+                <li>Keyboard ба screen reader behavior documented</li>
+              </ul>
+            </article>
+            <article class="governance-card">
+              <h3>Automated guardrails</h3>
+              <ul>
+                <li>Hardcoded color/spacing lint</li>
+                <li>Light, dark, compact screenshot regression</li>
+                <li>axe accessibility smoke test</li>
+                <li>Component state coverage checklist</li>
+              </ul>
+            </article>
+            <article class="governance-card">
+              <h3>Living documentation</h3>
+              <ul>
+                <li>Variant, state, API, accessibility</li>
+                <li>Do / Don’t accounting examples</li>
+                <li>Code sample ба migration note</li>
+                <li>Owner, version, deprecation policy</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="roadmap">
+          <div class="section-head">
+            <div>
+              <div class="section-number">05 · ROLLOUT</div>
+              <h2>Хэрэгжүүлэх санал болгосон дараалал</h2>
+              <p class="section-desc">Big-bang redesign хийхгүй. Foundation-оос эхэлж хамгийн их ашиглагддаг workflow-уудаар өргөжүүлнэ.</p>
+            </div>
+          </div>
+          <div class="roadmap">
+            <article class="phase">
+              <div class="phase-no">PHASE 01</div>
+              <h3>Foundation & accessibility</h3>
+              <div class="phase-time">Эхний суурь ажил</div>
+              <ul>
+                <li>Spacing, type, control, motion token</li>
+                <li>text-4 жижиг текстийн засвар</li>
+                <li>z-layer нэг эх сурвалж</li>
+                <li>Light/dark/compact density</li>
+              </ul>
+            </article>
+            <article class="phase">
+              <div class="phase-no">PHASE 02</div>
+              <h3>Core component completion</h3>
+              <div class="phase-time">Дараагийн хамгийн их хэрэглээ</div>
+              <ul>
+                <li>Input, Select, Dialog, DataGrid states</li>
+                <li>Tooltip, Tabs, Toast, Drawer</li>
+                <li>PageHeader, FilterToolbar, EmptyState</li>
+                <li>Gallery documentation</li>
+              </ul>
+            </article>
+            <article class="phase">
+              <div class="phase-no">PHASE 03</div>
+              <h3>Accounting pattern library</h3>
+              <div class="phase-time">Entry-ийн premium ялгарал</div>
+              <ul>
+                <li>AmountField, AccountPicker</li>
+                <li>JournalPreview, BalanceGuard</li>
+                <li>ReconciliationBanner, AuditTrace</li>
+                <li>ControlReport, PeriodStatus</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="final-callout">
+          <div>
+            <h3>Миний санал: энэ чиглэлийг UI Kit v2 baseline болгоё.</h3>
+            <p>Зөвшөөрвөл дараагийн алхамд Phase 01-ийг production token болон core component дээр хэрэгжүүлнэ.</p>
+          </div>
+          <button class="btn primary lg" id="approveDemo" type="button">
+            Энэ чиглэл таалагдлаа
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
+          </button>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="modalTitle">Журнал баталгаажуулах</div>
+          <div class="modal-desc">Энэ component pattern нь утга, эрсдэл болон үр дүнг товч тайлбарлаад үндсэн үйлдлийг тодорхой харуулна.</div>
+        </div>
+        <button class="icon-button" id="closeModal" type="button" aria-label="Хаах">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="recon">
+          <div class="recon-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg></div>
+          <div><div class="recon-title">Дебет, кредит тэнцсэн</div><div class="recon-sub">3 мөр · 2 данс · 2026.07 period open</div></div>
+          <div class="recon-amount">₮ 76,739,865</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn secondary" id="cancelModal" type="button">Болих</button>
+        <button class="btn primary" id="confirmModal" type="button">Баталгаажуулах</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <div class="toast-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg></div>
+    <div><div class="toast-title">UI Kit v2 санал тэмдэглэгдлээ</div><div class="toast-sub">Энэ бол interactive prototype — production өөрчлөлт хийгдээгүй.</div></div>
+  </div>
+
+  <script>
+    const root = document.documentElement;
+    const body = document.body;
+    const params = new URLSearchParams(location.search);
+    const savedTheme = params.get("theme") || localStorage.getItem("ea-v2-proposal-theme");
+    root.classList.toggle("dark", savedTheme === "dark");
+    body.classList.toggle("compact", params.get("density") === "compact");
+
+    document.getElementById("themeToggle").addEventListener("click", () => {
+      root.classList.toggle("dark");
+      localStorage.setItem("ea-v2-proposal-theme", root.classList.contains("dark") ? "dark" : "light");
+    });
+
+    document.querySelectorAll(".density-choice").forEach(button => {
+      button.addEventListener("click", () => {
+        const compact = button.dataset.density === "compact";
+        body.classList.toggle("compact", compact);
+        document.querySelectorAll(".density-choice").forEach(b => b.classList.toggle("active", b === button));
+      });
+    });
+
+    const backdrop = document.getElementById("modalBackdrop");
+    const openModal = document.getElementById("openModal");
+    const closeModal = document.getElementById("closeModal");
+    const cancelModal = document.getElementById("cancelModal");
+    const confirmModal = document.getElementById("confirmModal");
+    const toast = document.getElementById("toast");
+
+    function showModal() {
+      backdrop.classList.add("open");
+      setTimeout(() => closeModal.focus(), 40);
+    }
+    function hideModal() {
+      backdrop.classList.remove("open");
+      openModal.focus();
+    }
+    openModal.addEventListener("click", showModal);
+    closeModal.addEventListener("click", hideModal);
+    cancelModal.addEventListener("click", hideModal);
+    backdrop.addEventListener("click", event => {
+      if (event.target === backdrop) hideModal();
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && backdrop.classList.contains("open")) hideModal();
+    });
+    confirmModal.addEventListener("click", () => {
+      hideModal();
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2600);
+    });
+
+    const loadingButton = document.getElementById("loadingButton");
+    loadingButton.addEventListener("click", () => {
+      const original = loadingButton.innerHTML;
+      loadingButton.disabled = true;
+      loadingButton.innerHTML = '<span style="width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .65s linear infinite"></span> Хадгалж байна…';
+      const style = document.createElement("style");
+      style.textContent = "@keyframes spin{to{transform:rotate(360deg)}}";
+      document.head.appendChild(style);
+      setTimeout(() => {
+        loadingButton.disabled = false;
+        loadingButton.innerHTML = original;
+      }, 1200);
+    });
+
+    document.getElementById("approveDemo").addEventListener("click", () => {
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2600);
+    });
+
+    const sections = [...document.querySelectorAll("section[id]")];
+    const links = [...document.querySelectorAll(".side-link")];
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        links.forEach(link => link.classList.toggle("active", link.getAttribute("href") === "#" + entry.target.id));
+      });
+    }, { rootMargin: "-30% 0px -60% 0px" });
+    sections.forEach(section => observer.observe(section));
+  </script>
+</body>
+</html>

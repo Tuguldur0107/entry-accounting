@@ -912,6 +912,65 @@ export const costingRuns = pgTable("costing_runs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+/**
+ * Cost Ledger-ийн ПЕРИОДЫН ҮР ДҮН — бараа × агуулах × период тус бүрд нэг мөр
+ * (docs/cost FR-LEDGER-COST-002). Хамрах хүрээ OD-001-ээр батлагдсан.
+ *
+ * Нарийвчлал (OD-003): нэгж өртөг ба дүнг numeric(28,10)-аар бүтнээр нь
+ * хадгална — бөөрөнхийлөлт зөвхөн харуулах/GL-д бичих үед. Ингэснээр
+ * C1+Inbound = Outbound+C2 тэнцэл алдагдахгүй.
+ */
+export const costPeriodResults = pgTable(
+  "cost_period_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodCode: text("period_code").notNull(), // YYYY-MM
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "cascade" }),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "cascade" }),
+    // C1
+    openingQty: numeric("opening_qty", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    openingAmount: numeric("opening_amount", { precision: 28, scale: 10 })
+      .notNull()
+      .default("0"),
+    // Inbound
+    inboundQty: numeric("inbound_qty", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    inboundAmount: numeric("inbound_amount", { precision: 28, scale: 10 })
+      .notNull()
+      .default("0"),
+    // Outbound / C2 — хуваалцсан дундаж (FR-COST-001)
+    outboundQty: numeric("outbound_qty", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    averageUnitCost: numeric("average_unit_cost", {
+      precision: 28,
+      scale: 10,
+    }),
+    outboundAmount: numeric("outbound_amount", { precision: 28, scale: 10 }),
+    closingQty: numeric("closing_qty", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    closingAmount: numeric("closing_amount", { precision: 28, scale: 10 }),
+    // Хяналт (FR-COST-003/004) ба тооцооллын төлөв (FR-UX-003)
+    qtyBalanced: boolean("qty_balanced").notNull().default(false),
+    amountBalanced: boolean("amount_balanced").notNull().default(false),
+    status: text("status").notNull(), // "calculated" | "blocked-*"
+    blockReason: text("block_reason"),
+    calculatedAt: timestamp("calculated_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.periodCode, t.itemId, t.warehouseId)]
+);
+
 export const costEntries = pgTable("cost_entries", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
@@ -1216,6 +1275,7 @@ export type CostingAccountSetting = typeof costingAccountSettings.$inferSelect;
 export type CostingItemSetting = typeof costingItemSettings.$inferSelect;
 export type CostingRun = typeof costingRuns.$inferSelect;
 export type CostEntry = typeof costEntries.$inferSelect;
+export type CostPeriodResult = typeof costPeriodResults.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
 export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
 export type AiMessage = typeof aiMessages.$inferSelect;

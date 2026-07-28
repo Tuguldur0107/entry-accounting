@@ -150,6 +150,7 @@ export const MODULES: Module[] = [
     items: [
       { label: "Хяналтын самбар", href: "/costing", icon: LayoutDashboard },
       { label: "Өртгийн бичилт", href: "/costing/entries", icon: Calculator },
+      { label: "Өртгийн хяналт", href: "/costing/control", icon: Scale },
       { label: "Тайлан", href: "/costing/reports", icon: BarChartBig },
       { label: "Тохиргоо", href: "/costing/settings", icon: SettingsIcon },
     ],
