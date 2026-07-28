@@ -3,7 +3,7 @@
 ## Report Specifications
 
 **Document status:** Approved baseline with explicit open presentation details  
-**Version:** 0.1
+**Version:** 0.2 — corrected against approved conversation decisions
 
 ---
 
@@ -73,11 +73,51 @@ of the four group headers. They must not be concatenated into a single
 
 ### 2.4 Mandatory calculation rules
 
+The report MUST display results produced in this exact sequence:
+
+1. establish C1 Qty and Amount, then derive C1 Unit Cost;
+2. aggregate Inbound Qty and item-level Inbound Amount, then derive Inbound
+   Unit Cost;
+3. calculate Goods Available Qty and Amount;
+4. calculate one Periodic Weighted Average Unit Cost;
+5. apply it to all Outbound Qty and calculate Outbound Amount;
+6. calculate C2 Qty and apply the same unit cost to C2 Amount;
+7. execute quantity and amount controls.
+
+```text
+C1 Unit Cost =
+    C1 Amount / C1 Qty, when C1 Qty is not zero
+
+Inbound Unit Cost =
+    Inbound Amount / Inbound Qty, when Inbound Qty is not zero
+
+Goods Available Qty =
+    C1 Qty + Inbound Qty
+
+Goods Available Amount =
+    C1 Amount + Inbound Amount
+```
+
 ```text
 Periodic Weighted Average =
-    (C1 Amount + Inbound Amount)
-    /
-    (C1 Qty + Inbound Qty)
+    Goods Available Amount / Goods Available Qty
+```
+
+```text
+Outbound Unit Cost =
+    Periodic Weighted Average
+
+Outbound Amount =
+    Outbound Qty × Outbound Unit Cost
+
+C2 Qty =
+    Goods Available Qty - Outbound Qty
+
+C2 Unit Cost =
+    Periodic Weighted Average
+
+C2 Amount =
+    C2 Qty × C2 Unit Cost
 ```
 
 ```text
@@ -223,6 +263,8 @@ subledger activity awaiting or failing posting.
 | Quantity | Unit of Measure | Required |
 | Cost | Unit Cost | Entered/allocated inbound cost or periodic issue cost |
 | Cost | Amount | Transaction cost amount |
+| Balance | Running Qty | Required |
+| Balance | Running Amount | Required after the period is calculated |
 | Cost | Cost Method | `Periodic Weighted Average` for valued issues |
 | Classification | Cost Component | Required where transaction relates to component |
 | Classification | Inventory Issue Type | Required for cost-bearing issues |
@@ -236,19 +278,45 @@ subledger activity awaiting or failing posting.
 | Audit | Created By | Required |
 | Audit | Created At | Required |
 
-### 3.4 Running balances
+### 3.4 Running quantities and amounts
 
-The report SHOULD expose:
+The report MUST expose Running Qty and Running Amount. They are report
+balances within the selected item, period, and valuation scope; they MUST NOT
+recalculate a moving-average unit cost.
 
-- Running Qty;
-- Running Amount.
+Rows use a stable display order based on accounting/posting date and stable
+transaction identity. For each displayed row `n`:
 
-However, because Periodic Weighted Average is a period method and the approved
-costing scope/order rules are incomplete, these columns must not be implemented
-with moving-average semantics.
+```text
+Running Qty(n) =
+    C1 Qty
+    + cumulative Qty In through row n
+    - cumulative Qty Out through row n
+```
 
-**Open Decision:** Define ordering, opening point, scope, and treatment of
-unvalued transactions for running balances.
+After the Periodic Weighted Average result is calculated:
+
+```text
+Running Amount(n) =
+    C1 Amount
+    + cumulative Inbound Amount through row n
+    - cumulative Outbound Amount through row n
+```
+
+where:
+
+```text
+Each receipt contribution =
+    its eligible item-level Inbound Amount
+
+Each issue contribution =
+    its Qty Out × the one Periodic Weighted Average Unit Cost
+```
+
+The final row MUST reconcile to C2 Qty and C2 Amount. If the period is not yet
+calculated or a row remains unvalued, Running Amount MUST show an explicit
+not-calculated/incomplete status instead of applying a provisional
+moving-average cost.
 
 ### 3.5 Required row drill-down
 
@@ -338,6 +406,10 @@ For each transaction:
 6. Credit account follows inventory account configuration.
 7. Filters by debit/credit account return the supporting item transactions.
 8. Report totals tie to the selected Cost Ledger population.
+9. Running Qty begins from C1 Qty and ends at C2 Qty.
+10. Running Amount begins from C1 Amount, uses actual eligible inbound amounts
+    and the one period cost for issues, and ends at C2 Amount.
+11. Running balances do not recalculate unit cost transaction by transaction.
 
 ## 4. Cost Component Analysis
 
@@ -452,16 +524,17 @@ or equivalent difference.
 
 ## 6. Temporary Account Reconciliation
 
-The need to explain and reconcile temporary account balances was discussed.
-The exact temporary account design is not approved.
+This is a mandatory bridge report for configured inventory and production
+temporary/clearing accounts. It explains what entered each temporary account,
+what was allocated or cleared, and what remains by business object.
 
-This report becomes mandatory when temporary/clearing accounts are implemented.
-
-### 6.1 Minimum future behavior
+### 6.1 Mandatory behavior
 
 | Column | Purpose |
 |---|---|
 | Temporary Account | Account being reconciled |
+| Business Object Type | Shipment, receipt, invoice, landed-cost/allocation document, production order, cost allocation batch, or the process object used |
+| Business Object ID | Stable matching key |
 | Opening | Beginning balance |
 | Increase | New temporary amount |
 | Allocated/Cleared | Amount linked and cleared |
@@ -473,14 +546,19 @@ This report becomes mandatory when temporary/clearing accounts are implemented.
 
 ### 6.2 Control
 
-The report must not clear or hide a balance by netting unrelated documents.
-Clearing must retain source linkage.
+```text
+Opening + Increase - Allocated/Cleared = Ending
+```
+
+The report MUST reconcile within each Temporary Account + Business Object Type
++ Business Object ID. It MUST NOT clear or hide a balance by netting unrelated
+documents or unrelated business objects. Clearing retains source, Cost
+Component, allocation, item, and journal linkage.
 
 ### 6.3 Open decisions
 
-- account list;
-- matching object: shipment, receipt, invoice, production order, or other;
-- partial clearing;
+- exact configured account-role list;
+- authorization/timing for partial clearing;
 - aging;
 - write-off;
 - cross-period handling.
@@ -523,4 +601,3 @@ The detailed permission matrix remains an open decision.
 | Posted journals | Sum to linked GL side of reconciliation |
 | Unlinked manual GL | Appears as reconciliation difference |
 | Outbound Unit Cost | Equals C2 Unit Cost |
-

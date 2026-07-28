@@ -3,7 +3,7 @@
 ## Journal Posting Rules
 
 **Document status:** Approved baseline plus explicit unresolved rules  
-**Version:** 0.1
+**Version:** 0.2 — corrected against approved conversation decisions  
 
 ---
 
@@ -167,12 +167,13 @@ The approved functional principle is:
 - item-level Inbound Amount feeds the periodic weighted average;
 - the corresponding GL-bound entries must be visible and traceable.
 
-The exact debit/credit event sequence for purchase receipt, supplier invoice,
-landed cost, and temporary accounts was not finally approved.
+The generic Cost Component temporary-account and capitalization sequence is
+approved. Specific GRNI, invoice-before-receipt, tax, currency, late-cost, and
+price-difference rules remain open.
 
-### JPR-REC-001 — What may be implemented now
+### JPR-IN-001 — Required inbound posting interface
 
-The implementation may build a neutral posting interface that accepts:
+The implementation MUST provide a posting interface that accepts:
 
 - source document;
 - item;
@@ -183,19 +184,61 @@ The implementation may build a neutral posting interface that accepts:
 - configured credit account role;
 - GL-bound status.
 
-It MUST NOT hardcode the unresolved event sequence below.
+It MUST also carry a stable Business Object Type and Business Object ID for
+temporary-account clearing and reconciliation.
+
+### JPR-IN-002 — Cost source recognition
+
+When a Cost Component source amount is recognized before item-level
+capitalization, the GL-bound posting follows:
+
+```text
+Dr  Configured Cost Component temporary/clearing account
+Cr  Configured source counter-account
+```
+
+For a supplier invoice the counter-account may be supplier payable, resolved
+from configuration. This requirement does not approve a fixed account number.
+
+### JPR-IN-003 — Item-level allocation/capitalization
+
+When the recognized Cost Component amount is allocated to inventory or to a
+production/WIP cost destination:
+
+```text
+Dr  Configured Inventory or Production/WIP destination
+Cr  The same configured Cost Component temporary/clearing account
+```
+
+The debit amount MUST equal the sum of the item-level allocation lines linked
+to that clearing line. Those item-level amounts feed Inbound Amount.
+
+### JPR-IN-004 — Clearing identity
+
+The source recognition and allocation/capitalization lines MUST be matched by:
+
+```text
+Temporary/Clearing Account
++ Business Object Type
++ Business Object ID
++ Cost Component, where applicable
+```
+
+The business object may be a shipment, purchase order, goods receipt, supplier
+invoice, landed-cost/allocation document, production order, or cost allocation
+batch. The implementation MUST use the actual process object and MUST NOT clear
+one object's balance against an unrelated object's balance merely because the
+GL account totals net to zero.
 
 ### Open posting decisions for receipts
 
 1. Goods receipt before supplier invoice (GRNI).
 2. Supplier invoice before goods receipt (goods in transit/prepayment).
-3. Purchase price posting and clearing.
-4. Freight, customs, insurance, broker, and other component clearing.
-5. Tax recoverability and capitalization.
-6. Receipt price difference.
-7. Late cost invoice after inventory is partly or fully issued.
-8. Prior-period landed-cost adjustment.
-9. Foreign-currency recognition and exchange differences.
+3. Tax recoverability and capitalization.
+4. Receipt price difference.
+5. Late cost invoice after inventory is partly or fully issued.
+6. Prior-period landed-cost adjustment.
+7. Foreign-currency recognition and exchange differences.
 
 ## 6. Cost component accounting
 
@@ -222,7 +265,8 @@ reconcile to the GL-bound capitalized amount.
 
 ### JPR-CC-005
 
-The exact clearing rule for component costs is an open decision.
+Cost Component source recognition and inventory capitalization MUST use the
+approved temporary/clearing pattern in JPR-IN-002 through JPR-IN-004.
 
 ## 7. Production accounting
 
@@ -303,22 +347,39 @@ for inventory/production costs. The previous discussion included possible
 purchase, freight, customs, insurance, labor, depreciation, overhead, and WIP
 clearing accounts.
 
-What is approved:
+Required behavior:
 
 - GL-bound inventory/cost entries must show debit and credit accounts;
+- Cost Component source recognition debits its configured temporary/clearing
+  account and credits the configured source counter-account;
+- item-level capitalization or production allocation debits configured
+  inventory/production/WIP and credits the same temporary/clearing account;
+- every clearing line must carry a Business Object Type and Business Object ID;
 - unresolved temporary-account balances must be explainable by source
-  document/item/cost component when temporary accounts are implemented;
+  document, business object, item allocation, and Cost Component;
 - clearing must be traceable, not an unexplained net GL adjustment.
 
-What is not approved:
+Configurable examples include purchase, freight, customs, insurance, broker,
+labor, depreciation, overhead, production, and WIP clearing. These examples do
+not create a mandatory closed account list.
 
-- mandatory list of temporary accounts;
-- their exact debit/credit event sequence;
-- whether each Cost Component needs a distinct account;
-- clearing timing;
-- partial allocation behavior;
-- residual handling;
+Still open:
+
+- exact account-role list for a specific organization;
+- whether multiple Cost Components share one account;
+- authorization and timing for partial allocation;
+- aging presentation;
+- approved residual/write-off treatment;
 - automatic write-off behavior.
+
+For each temporary/clearing account and business object:
+
+```text
+Opening + Increase - Allocated/Cleared = Ending
+```
+
+An Ending balance is not an error by itself, but it MUST be visible and
+explainable. It MUST NOT be silently netted against another business object.
 
 ## 11. Posting statuses
 
@@ -385,6 +446,19 @@ Posted GL Amount linked to those subledger records
 
 Differences must be displayed, not hidden through an automatic plug.
 
+### JPR-REC-004 — Temporary-account reconciliation
+
+For each configured temporary/clearing account and business object:
+
+```text
+Source-recognition amount
+- Item-level allocated/cleared amount
+= Remaining amount
+```
+
+The remaining amount MUST be traceable to its source document, Cost Component,
+and business object.
+
 ## 14. Posting acceptance scenarios
 
 ### Scenario A — COGS and admin issues
@@ -436,3 +510,27 @@ Given a user posts an unrelated manual GL entry to the inventory account:
 - the difference is traceable to a GL entry without an inventory subledger
   reference.
 
+### Scenario D — Cost Component clearing by business object
+
+Given a freight Cost Component amount of 500,000 is recognized for shipment
+`SH-001`:
+
+```text
+Dr Configured Freight Clearing       500,000
+Cr Configured Supplier Payable       500,000
+```
+
+When 450,000 is allocated to items of `SH-001`:
+
+```text
+Dr Configured Inventory              450,000
+Cr Configured Freight Clearing       450,000
+```
+
+Expected result:
+
+- 450,000 is included in item-level Inbound Amount;
+- `SH-001` has a visible 50,000 clearing residual;
+- the 50,000 cannot be hidden by a balance from another shipment;
+- source invoice, Cost Component, allocation lines, accounts, and journal
+  references remain drillable.

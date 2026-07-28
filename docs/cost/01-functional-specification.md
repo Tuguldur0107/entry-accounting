@@ -3,7 +3,7 @@
 ## Comprehensive Functional Specification
 
 **Document status:** Implementation baseline with explicit open decisions  
-**Version:** 0.1  
+**Version:** 0.2 — corrected against approved conversation decisions  
 **Decision authority:** Product owner  
 **Related documents:** `02-journal-posting-rules.md`,
 `03-report-specifications.md`, `CLAUDE.md`
@@ -43,6 +43,9 @@ between disconnected reports.
 - inventory transaction details with cost and account;
 - item-level cost control;
 - GL-bound journal generation and traceability;
+- configurable temporary/clearing account roles;
+- clearing by stable business-object reference;
+- temporary/clearing account reconciliation;
 - reconciliation between inventory/cost subledger and GL.
 
 ### 2.2 Not approved for Version 1
@@ -55,7 +58,6 @@ The following must not be treated as approved requirements:
 - standard cost;
 - serial-specific or lot-specific costing;
 - fixed account numbers;
-- exact temporary/clearing account lifecycle;
 - exact manufacturing overhead allocation logic;
 - backdated recalculation rules;
 - return and cancellation valuation rules;
@@ -144,38 +146,108 @@ For each item in the costing scope, the system MUST produce:
 | Outbound | required | periodic average | derived |
 | C2 | derived | periodic average | derived |
 
-### 5.3 Periodic Weighted Average formulas
+### 5.3 Mandatory Periodic Weighted Average processing sequence
 
-For an item and costing period:
+For every item, selected costing period, and approved valuation scope, the
+engine MUST execute the following sequence. Reordering these steps must not
+change their accounting meaning.
+
+#### Step 1 — Establish C1
 
 ```text
-Available Qty    = C1 Qty + Inbound Qty
-Available Amount = C1 Amount + Inbound Amount
+C1 Qty        = quantity carried into the period
+C1 Amount     = inventory amount carried into the period
+C1 Unit Cost  = C1 Amount / C1 Qty, when C1 Qty is not zero
+```
 
-Periodic Average Unit Cost =
-    Available Amount / Available Qty
+C1 is a carried beginning position. It is not recalculated from GL.
+
+#### Step 2 — Aggregate Inbound
+
+```text
+Inbound Qty    = sum of eligible receipt quantities in the period
+Inbound Amount = sum of eligible item-level inbound amounts in the period
+Inbound Unit Cost =
+    Inbound Amount / Inbound Qty, when Inbound Qty is not zero
+```
+
+Inbound Amount includes the item-level amounts formed by the selected,
+user-configured Cost Components that are included in inventory valuation. The
+component breakdown MUST remain traceable to its source document and allocation
+record.
+
+#### Step 3 — Calculate goods available
+
+```text
+Goods Available Qty =
+    C1 Qty + Inbound Qty
+
+Goods Available Amount =
+    C1 Amount + Inbound Amount
+```
+
+#### Step 4 — Calculate the one period weighted-average unit cost
+
+```text
+Periodic Weighted Average Unit Cost =
+    Goods Available Amount / Goods Available Qty
+```
+
+This calculation is performed once for the item-period valuation result. It is
+not recalculated after each transaction and MUST NOT be implemented as moving
+average.
+
+#### Step 5 — Value all Outbound
+
+```text
+Outbound Qty =
+    sum of issue quantities in the period
+
+Outbound Unit Cost =
+    Periodic Weighted Average Unit Cost
 
 Outbound Amount =
-    Outbound Qty × Periodic Average Unit Cost
+    Outbound Qty × Outbound Unit Cost
+```
 
+Every cost-bearing issue for the same item, period, and valuation scope uses
+this same unit cost. Inventory Issue Type changes the debit destination and
+classification; it does not change the item-period unit cost.
+
+#### Step 6 — Calculate C2
+
+```text
 C2 Qty =
-    Available Qty - Outbound Qty
+    Goods Available Qty - Outbound Qty
+
+C2 Unit Cost =
+    Periodic Weighted Average Unit Cost
 
 C2 Amount =
-    C2 Qty × Periodic Average Unit Cost
+    C2 Qty × C2 Unit Cost
 ```
 
-When `Inbound Qty` is not zero:
+Therefore:
 
 ```text
-Inbound Unit Cost = Inbound Amount / Inbound Qty
+Outbound Unit Cost = C2 Unit Cost
 ```
 
-When `C1 Qty` is not zero:
+The control report consequently shows three meaningful unit-cost positions:
+C1 Unit Cost, Inbound Unit Cost, and the one shared Outbound/C2 Unit Cost.
+
+#### Step 7 — Run mandatory controls
 
 ```text
-C1 Unit Cost = C1 Amount / C1 Qty
+C1 Qty + Inbound Qty
+= Outbound Qty + C2 Qty
+
+C1 Amount + Inbound Amount
+= Outbound Amount + C2 Amount
 ```
+
+The amount control is subject only to a future approved precision and rounding
+policy. A rounding policy MUST NOT change the Periodic Weighted Average method.
 
 ### FR-COST-001 — Shared unit cost
 
@@ -218,7 +290,7 @@ differences have not been approved.
 
 The engine MUST NOT divide by zero or silently create a unit cost.
 
-**Open Decision:** The permitted business behavior when `Available Qty = 0`
+**Open Decision:** The permitted business behavior when `Goods Available Qty = 0`
 has not been approved. Until approved, the implementation should stop the
 calculation with a visible validation error rather than invent a result.
 
@@ -469,7 +541,7 @@ rule was approved. Claude Code MUST NOT select one as accounting policy.
 
 ### FR-ALLOC-005 — User-visible lineage
 
-For each allocated component amount, the system should expose:
+For each allocated component amount, the system MUST expose:
 
 - Cost Component;
 - allocated amount;
@@ -501,9 +573,61 @@ period.
 - goods-received-not-invoiced treatment;
 - invoice-before-receipt treatment;
 - exact landed-cost document lifecycle;
-- temporary account postings and clearing;
 - tax capitalization rules;
 - multi-currency conversion date and exchange rate.
+
+### FR-PROC-003 — Configurable clearing flow
+
+When a purchase-related Cost Component is first recognized before it is
+capitalized into an item, it MUST be recorded through a configured
+temporary/clearing account role. When the amount is allocated to an item, the
+allocation MUST clear that same role into inventory.
+
+The approved generic posting pattern is:
+
+```text
+Cost source recognition
+Dr  Configured Cost Component temporary/clearing account
+Cr  Configured source counter-account, such as supplier payable
+
+Item-level allocation/capitalization
+Dr  Configured Inventory account
+Cr  The same Cost Component temporary/clearing account
+```
+
+The account numbers are configurable. Examples such as purchase, freight,
+customs, insurance, and broker clearing are not a mandatory closed account
+list.
+
+### FR-PROC-004 — Business-object clearing
+
+Every temporary/clearing debit and its allocation/clearing credit MUST carry a
+stable reconciliation key made of:
+
+```text
+Business Object Type + Business Object ID
+```
+
+Supported business-object references MUST be capable of representing the
+objects used by the process, including shipment, purchase order, goods receipt,
+supplier invoice, landed-cost/allocation document, production order, or cost
+allocation batch. The system MUST reconcile related entries by this reference,
+not by netting unrelated GL totals.
+
+Partial clearing may leave a residual against the same business object. The
+system MUST show the residual and its source; automatic write-off behavior is
+not approved.
+
+### FR-PROC-005 — Temporary account close control
+
+For each configured temporary/clearing account and business object:
+
+```text
+Opening + Increase - Allocated/Cleared = Ending
+```
+
+An ending balance MUST remain explainable by account, business object, source
+document, Cost Component, amount, and status/reason.
 
 ## 12. Manufacturing relationship
 
@@ -527,6 +651,26 @@ Amount.
 
 Production costs that become part of inventory cost MUST be classifiable by
 user-configurable Cost Components.
+
+### FR-MFG-004 — Production cost clearing invariant
+
+When a production Cost Component is first recognized through a configured
+temporary/clearing account, its later allocation to production/WIP or finished
+inventory MUST credit that same temporary/clearing role and retain the
+Production Order or Cost Allocation Batch business-object key.
+
+```text
+Production cost source recognition
+Dr  Configured production Cost Component temporary/clearing account
+Cr  Configured source counter-account
+
+Production cost allocation
+Dr  Configured Production/WIP or Finished Inventory destination
+Cr  The same production Cost Component temporary/clearing account
+```
+
+This invariant does not approve a production overhead allocation base, WIP
+stage logic, scrap rule, variance rule, or fixed account number.
 
 **Open Decisions:**
 
@@ -697,7 +841,7 @@ transactions; deactivation is required.
 | OD-007 | Returns | Purchase return and sales return valuation |
 | OD-008 | Corrections | Void, reverse, replace, and audit workflow |
 | OD-009 | Receipt accounting | Account resolution and timing |
-| OD-010 | Temporary accounts | Required accounts, event rules, and clearing |
+| OD-010 | Clearing configuration details | Exact account-role list, partial-clearing authorization, aging, and residual/write-off handling; the clearing pattern and business-object reconciliation are already approved |
 | OD-011 | Late landed cost | Current/prior period treatment and revaluation |
 | OD-012 | Taxes | Capitalizable versus recoverable amounts |
 | OD-013 | Currency | Exchange rates and realized/unrealized differences |
@@ -801,6 +945,31 @@ C2      [Qty | Unit Cost | Amount]
 `Qty`, `Unit Cost`, and `Amount` are true second-level column headers, not text
 embedded in one cell.
 
+### AC-007 — Exact calculation sequence
+
+For each item-period result, the calculation trace shows, in order:
+
+1. C1 Qty, C1 Amount, and C1 Unit Cost;
+2. Inbound Qty, Inbound Amount, and Inbound Unit Cost;
+3. Goods Available Qty and Goods Available Amount;
+4. Periodic Weighted Average Unit Cost;
+5. Outbound Qty, shared Unit Cost, and Amount;
+6. C2 Qty, the same shared Unit Cost, and Amount;
+7. quantity and amount control results.
+
+No transaction-by-transaction moving-average recalculation exists.
+
+### AC-008 — Business-object clearing
+
+Given a configured Cost Component temporary account receives a source cost and
+the amount is allocated to inventory:
+
+- both sides carry the same Business Object Type and Business Object ID;
+- allocated item-level amounts reconcile to the clearing credit;
+- unrelated business objects are not netted together;
+- any remaining amount is visible with source and reason;
+- the Temporary Account Reconciliation report reproduces the balance.
+
 ## 20. Implementation completion gate
 
 The inventory costing feature is not complete until:
@@ -812,6 +981,6 @@ The inventory costing feature is not complete until:
 - Inventory Issue Type account routing works end to end;
 - every receipt/issue is visible in the transaction detail report;
 - GL-bound entries and posted journals are traceable;
+- temporary/clearing entries close and reconcile by business object;
 - inventory/cost-to-GL differences are visible;
 - open decisions have not been silently encoded as accounting policy.
-

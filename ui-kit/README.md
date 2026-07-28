@@ -53,19 +53,35 @@ preview автоматаар шинэчлэгдэнэ, зөрөх боломжг
 
 Шинэ өнгө хэрэгтэй бол component дотор биш, **tokens.css-д токен нэмнэ**.
 
-## Өнгөний бодлого (dark mode)
+## Өнгөний бодлого
 
-Тас хар (`--ea-bg: #000`) суурьтай үед өндөр ханалттай (saturated) цэнхэр нь
-"неон гэрэлтэх" (halation) эффект өгдөг тул dark-ийн цэнхэрийг light-ийн нави
-(HSL 211°, **52%**)-тэй ойролцоо **62%** ханалттай болгосон:
+Entry-ийн хоёр горим нэг философитой:
 
-| | Light | Dark |
-|---|---|---|
-| `--ea-primary` | `#1E3A5F` HSL(211, 52%, 25%) | `#73A5DE` HSL(212, 62%, 66%) |
-| Контраст (дэвсгэртэй) | 11.5:1 (AAA) | 8.1:1 (AAA) |
+| Горим | Суурь | Бүтцийн өнгө | Interaction / чимэг |
+|---|---|---|---|
+| Light | **Editorial Ivory** — дулаан цаас | Navy | Dark blue + маш бага book-cloth gold |
+| Dark | **Cosmic Glass** — navy-black | Lavender navy | Violet glow |
 
-Цэнхэр нь **зөвхөн accent** — товч, линк, focus ring, сонгосон мөр. Дэвсгэр,
-хүрээ, текст бүгд саармаг (хар/цагаан/саарал).
+`--ea-primary` нь бүтэц, үндсэн CTA-д; `--ea-accent-*` / `--ea-interactive` нь focus, selected,
+AI болон чимэглэлд хэрэглэгдэнэ. Light mode-д dark blue, dark mode-д violet
+утгатай. Success, warning, danger өнгүүдийг interaction accent-аар орлуулахгүй.
+
+## Hover ба interaction contract
+
+Custom component хийхдээ эдгээр global class-ыг ашиглана:
+
+| Class | Хэрэглээ |
+|---|---|
+| `.ea-interactive` | Navigation row, toolbar, quiet action |
+| `.ea-card-interactive` | Clickable card — 1px lift + restrained glow |
+| `.ea-icon-action` | Icon-only action |
+| `.ea-is-selected` | Hover-оос ялгаатай тогтвортой selected төлөв |
+| `.ea-glass` | Header, modal, elevated translucent surface |
+
+Хугацаа/easing-ийг `--ea-motion-*`, `--ea-ease-standard` токеноос авна.
+Hover effect нь зөвхөн fine pointer төхөөрөмжид ажиллаж, `prefers-reduced-motion`
+тохиргоог хүндэтгэнэ. Hover-оор дамжуулсан мэдээлэл keyboard focus болон
+selected төлөвөөр мөн харагдах ёстой.
 
 ## Токен өөрчлөхөд бүх систем дагаж байгааг батлах (canary тест)
 

@@ -811,7 +811,6 @@ export const costingItemSettings = pgTable(
       .notNull()
       .default("14000001"),
     cogsAccountNumber: text("cogs_account_number").notNull().default("61100000"),
-    costMethod: text("cost_method").notNull().default("weighted_avg"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [unique().on(t.userId, t.itemId)]

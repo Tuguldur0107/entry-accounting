@@ -7,11 +7,16 @@
 | Feature | Одоо | Төлөвлөгдсөн |
 |---------|------|--------------|
 | Ерөнхий журнал (GL) | ✅ | — |
-| Draft → Post журнал | ❌ | ✅ |
-| Period систем | ❌ | ✅ |
+| Draft → Post журнал | ✅ | — |
+| Мөнгөн хөрөнгө (Cash) | ✅ | — |
+| Авлага / Өглөг (AR/AP) | ✅ | — |
+| Бараа материал (Inventory) | ✅ | — |
+| Өртөг (Costing) | ✅ | — |
+| Үндсэн хөрөнгө (FA) | ✅ | — |
+| Period систем | ✅ | — |
+| AI туслах (expert accountant) | ✅ | — |
 | НӨАТ модуль | ❌ | ✅ |
 | Цалингийн модуль (Payroll) | ❌ | ✅ |
-| AI agent (expert accountant) | ❌ | ✅ |
 
 ## Файлын бүтэц
 
@@ -89,7 +94,7 @@ abs(ΣДебет − ΣКредит) ≤ 0.01   → тэнцсэн
 
 Тэнцээгүй бол "Хадгалах" товч идэвхгүй — **одоогийн кодонд хэрэгжсэн**.
 
-### 2. Draft → Post журнал (төлөвлөгдсөн)
+### 2. Draft → Post журнал — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md`
 
@@ -117,12 +122,21 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-po
 | Үйл ажиллагааны зардал | 7XXXXXXX | `72100000` Цалингийн зардал |
 | Санхүүгийн зардал | 8XXXXXXX | `87100001` Хүүгийн зардал |
 
-### 4. Period систем (төлөвлөгдсөн)
+### 4. Period систем — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md`
+Код: `lib/periods/period.ts` (цэвэр логик), `lib/periods/guard.ts`
+(`assertPeriodOpen`), `lib/actions/periods.ts`, `app/(dashboard)/settings/periods`
 
-- Период нь `open` → `closed` статустай
-- Хаагдсан периодод журнал бичих хориотой (admin-аас бусад)
+- Период = хуанлийн сар, код нь `YYYY-MM`; `open` → `closed`
+- **Бүртгэгдээгүй сар = НЭЭЛТТЭЙ.** Период мөр нь ХААЛТ хийхэд л үүсдэг тул
+  хаалт хийж эхлээгүй систем саадгүй ажиллана
+- Хаагдсан периодод бичилт хийх хориотой. Хамгаалалт орсон замууд: GL
+  create/post/unpost/update, cash post/reverse, AR/AP post, FA элэгдэл
+  post/reverse, өртөг post/reverse, зардлын хуваарилалт
+- **Буцаалт нь ЭХ огноогоор** шинэ журнал бичдэг тул тэр периодыг шалгана
+- Ноорог бичилт үлдсэн сарыг хаахгүй (ноорог хожим батлагдаж гацна)
+- Шинэ бичилтийн зам нэмэхэд `assertPeriodOpen(userId, date)`-ыг ЗААВАЛ дайруулна
 - **Monthly close** гол алхмууд:
   1. Элэгдэл бодох (FA)
   2. FX дахин үнэлгээ (валют)
@@ -134,7 +148,58 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
   - `Dr 44000099 net → Cr 44000001 Хуримтлагдсан ашиг`
 - Татварын хуваарь: НӨАТ дараа сарын 10, НДШ дараа сарын 5, ААНОАТ улирлын дараа сарын 20
 
-### 5. НӨАТ (VAT) — 10%
+### 5. Өртгийн бүртгэл (Costing) — ХЭРЭГЖСЭН
+
+**Баримт бичиг: `docs/cost/` — өртгийн логик хөндөхийн ӨМНӨ заавал уншина.**
+`README.md` (change-control хүснэгт = батлагдсан шийдвэрүүд) →
+`01-functional-specification.md` → `02-journal-posting-rules.md` →
+`03-report-specifications.md` → `04-implementation-status.md` → `CLAUDE.md`.
+
+Батлагдсан шийдвэрүүд (README change-control 0.2–0.3):
+
+| Асуудал | Шийдэл |
+|---------|--------|
+| Өртгийн арга | **Зөвхөн** хугацааны жигнэсэн дундаж (Periodic Weighted Average). FIFO/LIFO/perpetual moving average/standard cost хориотой |
+| Хамрах хүрээ (OD-001) | Бараа × агуулах × компани |
+| Период (OD-002) | GL-ийн `accounting_periods` — хуанлийн сар |
+| Нарийвчлал (OD-003) | Дундаж, дүнг `numeric(28,10)`-аар бүтнээр; бөөрөнхийлөлт зөвхөн харуулах/GL-д бичихэд |
+| Зардлын хуваарь (OD-017) | 3 суурь, баримт бүрд сонгоно: үнийн дүнгээр / тоо хэмжээгээр / гараар |
+| Өртөг бодох цаг (OD-019) | Худалдан авалт — батлагдмагц шууд. Зарлага/тохируулга/буцаалт — **сар хаахад** сарын дундажаар |
+| Үнэгүй орлого | Тооллогын илүүдэл, буцаж ирсэн бараа нь сарын дунджаар үнэлэгдэнэ. Дундаж нь эхний үлдэгдэл + ӨРТӨГТЭЙ орлогоос л бодогдоно |
+
+Хатуу дүрмүүд:
+
+- **Дансны дугаар кодод хатуу бичихийг хориглоно** — `costing_account_settings`
+  (клиринг, тооллогын илүүдэл/дутагдал, NRV) ба `costing_item_settings`
+  (барааны нөөц/COGS данс)-аас уншина
+- **Зарлагын төрөл** (`inventory_issue_types`) дебет чиглэлийг шийднэ; посting
+  profile нь `fixed` (тогтмол данс) эсвэл `item_cogs` (барааны COGS данс)
+- **Өртгийн бүрэлдэхүүн** (`cost_components`) нь хэрэглэгчийн лавлах — код
+  дотор хаалттай жагсаалт байхыг хориглоно
+- **Үнэ ХЭЗЭЭ Ч зохиохгүй.** Өртөггүй орлого, 0 боломжит үлдэгдэл, сөрөг
+  үлдэгдэл → тухайн бараа-агуулах-сар ЗОГСОЖ, шалтгаан нь UI-д харагдана
+- **Нэг л үнэлгээний суурь:** нөөцийн үнэлгээ, NRV-ийн харьцуулалт, өртгийн
+  хяналтын тайлан гурвуулаа `cost_period_results`-ээс уншина
+  (`lib/costing/valuation.ts`). GL-ээс өртөг бодохыг хориглоно
+- **Нээлттэй шийдвэрийг кодод, migration-д, enum default-д, fallback данс
+  эсвэл UI default-д НУУХГҮЙ** — product owner-оос асууна
+
+Гол файлууд:
+
+```
+lib/costing/
+├── periodic.ts          Цэвэр PWA хөдөлгөгч (тесттэй) — C1/Орлого/Зарлага/C2
+├── period-run.ts        Хөдөлгөөн → хөдөлгөгч → cost_period_results
+├── period-close.ts      Сарын өртөг тооцох (зарлагыг дундажаар үнэлнэ)
+├── allocation.ts        Нэмэлт зардлын хуваарь (3 суурь, тесттэй)
+├── valuation.ts         C2-оос нөөцийн үнэлгээ / NRV суурь
+├── master-data.ts       Зарлагын төрөл, бүрэлдэхүүн, дансны рольууд
+├── transaction-detail.ts Гүйлгээний дэлгэрэнгүй + GL тулгалт
+├── component-analysis.ts Бүрэлдэхүүний задаргаа
+└── costing.ts           Орлогын капитализаци + "үнэ хүлээж байгаа" жагсаалт
+```
+
+### 6. НӨАТ (VAT) — 10%
 
 Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
 
@@ -152,7 +217,7 @@ GL posting:
 
 Дараа сарын **10-нд** тайлан + төлбөр. Хоцорвол 0.1%/хоног.
 
-### 6. Цалин (Payroll) — Gross → Net
+### 7. Цалин (Payroll) — Gross → Net
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/`
 
@@ -189,20 +254,20 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 
 Тайлагнал: НДШ дараа сарын **5-нд**, ХАОАТ дараа сарын **10-нд**.
 
-### 7. Domain separation (guardrail)
+### 8. Domain separation (guardrail)
 
 - **IFRS treatment ≠ Татварын treatment** — ялгааг тодорхой тусгана
 - **Цалингийн ХАОАТ ≠ Бизнесийн WHT** — андуурахгүй
 - **Элэгдэл:** IAS 16 (дансны) vs татварын хуулийн хувь зөрүү → IAS 12 DTA/DTL
 
-### 8. Human-in-the-loop (draft-first policy)
+### 9. Human-in-the-loop (draft-first policy)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/human-in-the-loop.md`
 
 - AI agent бичилт **шууд хадгалахгүй** — draft үүсгэнэ, хэрэглэгч баталгаажуулна
 - Том дүн (>10M₮), period хаалт, payroll post → нягтланч баталгаажуулалт шаарддаг
 
-### 9. Effective date (татвар/цалины тооцоололд)
+### 10. Effective date (татвар/цалины тооцоололд)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/effective-date.md`
 
@@ -378,19 +443,44 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
 | GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |
 | Balance sheet / IS / Cash flow | [components/gl/report-grid.tsx](components/gl/report-grid.tsx) | Section / group / subtotal / total мөртэй flat row model |
+| Өртгийн хяналт (C1/Орлого/Зарлага/C2) | [components/costing/cost-control-report.tsx](components/costing/cost-control-report.tsx) | **ТОГТМОЛ** 2 түвшний colGroup толгой (docs/cost §2.2) — дахин зохиогдохгүй; нэгж өртгийн багана нийлбэргүй |
+| Гүйлгээний дэлгэрэнгүй + GL тулгалт | [components/costing/transaction-detail-report.tsx](components/costing/transaction-detail-report.tsx) | colGroup + `columnGroupShow: "open"` — задарч нэмэлт багана гаргана |
+| Бүрэлдэхүүний задаргаа | [components/costing/component-analysis-report.tsx](components/costing/component-analysis-report.tsx) | Бараа × бүрэлдэхүүн, нэгжид нөлөө, хуваарилалтын лавлагаа |
+| Зардлын хуваарилалт | [components/costing/cost-allocation-view.tsx](components/costing/cost-allocation-view.tsx) | Сонголтын хүснэгт + хадгалахын өмнөх урьдчилсан хуваарь |
+| Нягтлан бодох период | [components/periods/periods-view.tsx](components/periods/periods-view.tsx) | Хаах / дахин нээх, сар бүрийн бичилтийн тоо |
 
 ---
 
 ## DB өгөгдлийн бүтэц (Drizzle / PostgreSQL)
 
+Бүх хүснэгт `userId`-аар хамгаалагдсан (нэг хэрэглэгч = нэг компани).
+Дэлгэрэнгүйг `lib/db/schema.ts`-ээс уншина — доор нь зөвхөн бүлэглэл.
+
 ```
-users              — id, name, email, passwordHash
-chart_of_accounts  — id, userId, number, name
-journal_vouchers   — id, userId, date, description, status
-journal_lines      — id, voucherId, accountNumber, debit, credit, description, sortOrder
+Цөм        users, chart_of_accounts, segment_configs, segment_values,
+           module_configs, accounting_periods
+GL         journal_vouchers, journal_lines
+             journal_lines.costEntryId / inventoryMovementId — дэд дэвтрийн
+             эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
+Cash       cash_accounts, cash_documents, bank_statements,
+           bank_statement_lines, cash_fx_revaluations
+AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
+           ar_ap_settlements
+Inventory  inventory_items, warehouses, inventory_movements
+             movements.issueTypeId — зарлагын дебет чиглэл
+Costing    cost_components, inventory_issue_types, costing_account_settings,
+           costing_item_settings, cost_allocations, cost_allocation_lines,
+           costing_runs, cost_entries, cost_period_results
+FA         fixed_assets, fa_depreciation_entries
+AI         ai_messages, ai_attachments, ai_settings
+Тайлан     report_line_mappings
 ```
 
 Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
+
+⚠️ `drizzle-kit push` нь одоо байгаа DB-тэй diff хийдэг. Урьд нь шууд SQL-ээр
+хэрэгжүүлсэн хүснэгтүүд бий тул generate-ийн гаргасан файл бүхэлдээ
+ажиллуулбал "already exists" гэж унана — шинэ DDL-ийг л хэрэглэнэ.
 
 ## Анхдагч дансны мэдээлэл
 
@@ -409,6 +499,7 @@ Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
 
 | Нөхцөл | Унших файл |
 |--------|-----------|
+| **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |

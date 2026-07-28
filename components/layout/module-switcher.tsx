@@ -105,17 +105,17 @@ export function ModuleSwitcher({
         type="button"
         onClick={() => (open ? setOpen(false) : openMenu())}
         className={cn(
-          "border-0 transition-shadow",
+          "ea-icon-action border-0",
           variant === "header" &&
-            "flex size-9 items-center justify-center rounded-md bg-[var(--ea-primary)] text-[var(--primary-foreground)]",
+            "ea-primary-button flex size-9 items-center justify-center rounded-md text-[var(--primary-foreground)]",
           sidebar &&
-            "group flex w-full min-w-0 items-center justify-between rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left hover:border-[var(--ea-primary)]",
+            "group flex w-full min-w-0 items-center justify-between rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left",
           collapsed &&
-            "flex size-9 items-center justify-center rounded-md bg-[var(--ea-surface)] text-[var(--ea-primary)] hover:bg-[var(--ea-bg)]"
+            "flex size-9 items-center justify-center rounded-md bg-[var(--ea-surface)] text-[var(--ea-interactive)]"
         )}
         style={{
           boxShadow: open
-            ? "0 0 0 3px color-mix(in srgb, var(--ea-primary) 22%, transparent)"
+            ? "var(--ea-focus)"
             : "none",
         }}
         aria-haspopup="menu"
@@ -153,10 +153,12 @@ export function ModuleSwitcher({
             left: menuPos.left,
             width: 360,
             maxWidth: "calc(100vw - 32px)",
-            background: "var(--ea-surface)",
+            background: "var(--ea-surface-glass)",
             border: "1px solid var(--ea-border)",
             borderRadius: 10,
             boxShadow: "var(--ea-shadow-3)",
+            backdropFilter: "var(--ea-glass-filter)",
+            WebkitBackdropFilter: "var(--ea-glass-filter)",
             padding: 8,
             zIndex: Z.moduleMenu,
             transformOrigin: "top left",
@@ -193,7 +195,7 @@ export function ModuleSwitcher({
                     padding: "10px 10px",
                     borderRadius: 8,
                     background: isActive
-                      ? "color-mix(in srgb, var(--ea-primary) 6%, transparent)"
+                      ? "var(--ea-selected-bg)"
                       : "transparent",
                     color: "var(--ea-text-1)",
                     textDecoration: "none",
@@ -201,7 +203,7 @@ export function ModuleSwitcher({
                     transition: "background-color 120ms",
                   }}
                   onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.background = "var(--ea-bg-2)";
+                    if (!isActive) e.currentTarget.style.background = "var(--ea-hover-subtle)";
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) e.currentTarget.style.background = "transparent";
@@ -216,10 +218,12 @@ export function ModuleSwitcher({
                       alignItems: "center",
                       justifyContent: "center",
                       flexShrink: 0,
-                      background: isActive ? "var(--ea-primary)" : "var(--ea-bg-2)",
+                      background: isActive
+                        ? "linear-gradient(145deg, var(--ea-primary), var(--ea-accent-strong))"
+                        : "var(--ea-bg-2)",
                       color: isActive
                         ? "var(--primary-foreground)"
-                        : "var(--ea-primary)",
+                        : "var(--ea-interactive)",
                     }}
                   >
                     <ModuleIcon id={m.id} size={18} />
@@ -230,14 +234,14 @@ export function ModuleSwitcher({
                         style={{
                           fontSize: 13.5,
                           fontWeight: 500,
-                          color: isActive ? "var(--ea-primary)" : "var(--ea-text-1)",
+                          color: isActive ? "var(--ea-interactive)" : "var(--ea-text-1)",
                           letterSpacing: "-0.005em",
                         }}
                       >
                         {m.label}
                       </span>
                       {isActive && (
-                        <Check size={13} strokeWidth={2.5} style={{ color: "var(--ea-primary)" }} />
+                        <Check size={13} strokeWidth={2.5} style={{ color: "var(--ea-interactive)" }} />
                       )}
                     </div>
                     <div

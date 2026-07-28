@@ -50,7 +50,7 @@ export function ThemeToggle() {
       ref={ref}
       type="button"
       suppressHydrationWarning
-      className="w-9 h-9 flex items-center justify-center rounded-md transition-all duration-200 hover:bg-[var(--ea-bg-2)] text-[var(--ea-text-2)] hover:text-[var(--ea-text-1)] border border-[var(--ea-border)] hover:border-[var(--ea-border-strong)] cursor-pointer"
+      className="ea-icon-action flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-[var(--ea-border)] text-[var(--ea-text-2)]"
       title={isDark ? "Цайвар горим" : "Харанхуй горим"}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >

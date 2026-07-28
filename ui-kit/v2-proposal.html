@@ -29,18 +29,24 @@
       --ea-text-2: #354158;
       --ea-text-3: #566075;
       --ea-text-4: #656E80;
-      --ea-violet: #7C3AED;
-      --ea-violet-strong: #6D28D9;
-      --ea-violet-soft: #A78BFA;
-      --ea-violet-bg: #F0EAFE;
-      --ea-violet-border: rgba(124,58,237,.24);
+      /* Light mode signature: dark blue. Dark mode overrides this with violet. */
+      --ea-accent: #335B8A;
+      --ea-accent-strong: #203A60;
+      --ea-accent-soft: #7893B7;
+      --ea-accent-bg: #E7EDF5;
+      --ea-accent-border: rgba(38,60,96,.28);
+      --ea-violet: var(--ea-accent);
+      --ea-violet-strong: var(--ea-accent-strong);
+      --ea-violet-soft: var(--ea-accent-soft);
+      --ea-violet-bg: var(--ea-accent-bg);
+      --ea-violet-border: var(--ea-accent-border);
       --ea-shine: rgba(255,255,255,.72);
-      --ea-focus: 0 0 0 3px rgba(124,58,237,.18);
+      --ea-focus: 0 0 0 3px rgba(38,60,96,.22);
       --ea-shadow-2:
         0 1px 2px rgba(53,41,25,.05),
         0 10px 28px -12px rgba(53,41,25,.16);
       --ea-shadow-3:
-        0 28px 70px -20px rgba(37,26,58,.28),
+        0 28px 70px -20px rgba(27,45,75,.26),
         0 8px 24px -12px rgba(53,41,25,.18);
 
       /* Proposed foundation tokens — preview only */
@@ -76,7 +82,7 @@
       --v2-grid: color-mix(in srgb, var(--ea-border) 88%, transparent);
       --v2-code-bg: color-mix(in srgb, var(--ea-primary) 5%, var(--ea-bg-2));
       --v2-glass-border:
-        linear-gradient(135deg, rgba(255,255,255,.82), rgba(124,58,237,.16) 48%, rgba(38,60,96,.12));
+        linear-gradient(135deg, rgba(255,255,255,.82), rgba(51,91,138,.18) 48%, rgba(38,60,96,.12));
     }
 
     .dark {
@@ -97,11 +103,16 @@
       --ea-text-2: #DDD7E8;
       --ea-text-3: #A8A0B5;
       --ea-text-4: #8D859B;
-      --ea-violet: #A78BFA;
-      --ea-violet-strong: #8B5CF6;
-      --ea-violet-soft: #C4B5FD;
-      --ea-violet-bg: rgba(139,92,246,.15);
-      --ea-violet-border: rgba(167,139,250,.30);
+      --ea-accent: #A78BFA;
+      --ea-accent-strong: #8B5CF6;
+      --ea-accent-soft: #C4B5FD;
+      --ea-accent-bg: rgba(139,92,246,.15);
+      --ea-accent-border: rgba(167,139,250,.30);
+      --ea-violet: var(--ea-accent);
+      --ea-violet-strong: var(--ea-accent-strong);
+      --ea-violet-soft: var(--ea-accent-soft);
+      --ea-violet-bg: var(--ea-accent-bg);
+      --ea-violet-border: var(--ea-accent-border);
       --ea-shine: rgba(255,255,255,.10);
       --ea-focus: 0 0 0 3px rgba(167,139,250,.28);
       --ea-shadow-2:
@@ -1337,8 +1348,8 @@
           <div class="hero-grid">
             <div>
               <div class="eyebrow"><span class="eyebrow-dot"></span> Editorial Ivory · Cosmic Glass</div>
-              <h1>Номын тайван суурь, нил ягаан signature-тай санхүүгийн дизайн систем.</h1>
-              <p>Light mode нь дулаан цаас, бэхэн navy бүтэцтэй. Violet нь focus, selected state, glow болон нарийн чимэглэлд; dark mode нь гүн navy-black glass surface дээр илүү тод харагдана.</p>
+              <h1>Номын тайван суурь, dark-blue signature-тай санхүүгийн дизайн систем.</h1>
+              <p>Light mode нь дулаан цаас, бэхэн navy бүтэцтэй бөгөөд focus, selected state, glow болон нарийн чимэглэл dark blue байна. Dark mode нь гүн navy-black glass surface дээр violet signature-аа хадгална.</p>
               <div class="hero-actions">
                 <button class="btn primary" type="button" onclick="document.getElementById('foundation').scrollIntoView()">
                   Саналыг үзэх
@@ -1374,7 +1385,7 @@
             <article class="proposal-card">
               <div class="proposal-index">01</div>
               <h3>Editorial color foundation</h3>
-              <p>Warm ivory surface, ink navy structure, violet signature accent дээр spacing, type, motion, density нэмнэ.</p>
+              <p>Warm ivory surface, ink navy structure, light-д dark-blue / dark-д violet signature accent дээр spacing, type, motion, density нэмнэ.</p>
               <span class="proposal-tag">First</span>
             </article>
             <article class="proposal-card">

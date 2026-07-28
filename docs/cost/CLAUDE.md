@@ -23,9 +23,15 @@ They are the implementation baseline for this module.
 - Inventory Issue Types are user-configurable and map issued cost to accounts,
   including COGS, admin expense, production/WIP, and other configured
   destinations.
+- Cost Component source amounts use configurable temporary/clearing account
+  roles and are cleared into item-level inventory or production/WIP amounts.
+- Temporary/clearing entries reconcile by stable Business Object Type and
+  Business Object ID; unrelated objects must never be netted merely because
+  their GL account totals offset.
 - The Inventory Transaction Detail Report with Cost & Account must expose every
   receipt/issue, source document, item, quantity, unit cost, amount, debit
-  account, credit account, GL-bound status, and journal reference when posted.
+  account, credit account, GL-bound status, journal reference when posted,
+  Running Qty, and Running Amount.
 - Inventory Ledger and Cost Ledger are the item-level source of truth.
 - Generate GL entries from the subledgers. Never calculate item cost from GL
   balances.
@@ -51,26 +57,77 @@ fallback account, or a UI default.
 ## Required calculation
 
 ```text
-Available Qty    = C1 Qty + Inbound Qty
-Available Amount = C1 Amount + Inbound Amount
+Step 1 — C1
+C1 Unit Cost =
+    C1 Amount / C1 Qty, when C1 Qty is not zero
 
+Step 2 — Inbound
+Inbound Unit Cost =
+    Inbound Amount / Inbound Qty, when Inbound Qty is not zero
+
+Step 3 — Goods available
+Goods Available Qty    = C1 Qty + Inbound Qty
+Goods Available Amount = C1 Amount + Inbound Amount
+
+Step 4 — One period cost
 Periodic Average Unit Cost =
-    Available Amount / Available Qty
+    Goods Available Amount / Goods Available Qty
 
+Step 5 — Outbound
+Outbound Unit Cost =
+    Periodic Average Unit Cost
 Outbound Amount =
-    Outbound Qty × Periodic Average Unit Cost
+    Outbound Qty × Outbound Unit Cost
 
+Step 6 — C2
 C2 Qty =
-    Available Qty - Outbound Qty
+    Goods Available Qty - Outbound Qty
 
+C2 Unit Cost =
+    Periodic Average Unit Cost
 C2 Amount =
-    C2 Qty × Periodic Average Unit Cost
+    C2 Qty × C2 Unit Cost
 
 Outbound Unit Cost = C2 Unit Cost
+
+Step 7 — Controls
+C1 Qty + Inbound Qty =
+    Outbound Qty + C2 Qty
+
+C1 Amount + Inbound Amount =
+    Outbound Amount + C2 Amount
 ```
 
 Do not invent zero-denominator, negative-stock, rounding, backdate, return, or
 revaluation behavior. Those decisions are open.
+
+Do not recalculate the average after each transaction. Running Amount in the
+detail report is:
+
+```text
+C1 Amount
++ cumulative eligible Inbound Amount
+- cumulative Outbound Amount valued at the one period average
+```
+
+Its final row must equal C2 Amount. If the period is not calculated, show an
+explicit incomplete/not-calculated status rather than a moving-average value.
+
+## Required temporary/clearing pattern
+
+```text
+Cost source recognition
+Dr  Configured Cost Component temporary/clearing account
+Cr  Configured source counter-account
+
+Item-level allocation/capitalization
+Dr  Configured Inventory or Production/WIP destination
+Cr  The same Cost Component temporary/clearing account
+```
+
+Both sides must carry the stable business-object reconciliation key. Exact
+account numbers, GRNI, invoice-before-receipt, taxes, currency, late cost,
+write-off, and other explicitly open rules must not be invented.
 
 ## Implementation sequence
 
@@ -106,11 +163,15 @@ Before completion:
 6. Verify every detail row traces to source and GL-bound/posted status.
 7. Verify a manual GL-only entry creates a reconciliation difference without
    changing item cost.
-8. List open decisions that remain; do not claim they are implemented.
+8. Verify temporary/clearing balances reconcile by business object and expose
+   any residual with source and reason.
+9. Verify Running Qty/Amount end at C2 without moving-average semantics.
+10. List open decisions that remain; do not claim they are implemented.
 
 ## Minimum tests
 
 - C1 and Inbound calculate one period average.
+- The exact seven-step calculation sequence is test-covered.
 - Outbound Unit Cost equals C2 Unit Cost at calculation precision.
 - Quantity control balances.
 - Amount control balances under the approved rounding policy once defined.
@@ -118,7 +179,9 @@ Before completion:
   configured debit destinations.
 - Custom Cost Component appears in item cost breakdown.
 - Detail report shows unposted, pending, posted, and error states.
+- Detail report Running Qty and Running Amount end at C2.
 - Posted row links to its journal.
+- Temporary/clearing source and allocation lines reconcile by business object.
 - Cost Control, transaction detail, and reconciliation totals agree for the
   same population.
 - GL-only manual posting does not change Inventory Ledger or Cost Ledger.
@@ -134,4 +197,3 @@ Report:
 5. approved requirements satisfied;
 6. open decisions or blockers;
 7. any existing behavior that conflicts with the specification.
-

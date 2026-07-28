@@ -29,6 +29,12 @@
     padding: 28px 24px 64px;
     -webkit-font-smoothing: antialiased;
   }
+  body::before {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image: radial-gradient(circle, color-mix(in srgb, var(--ea-accent) 22%, transparent) 1px, transparent 1.4px);
+    background-size: 32px 32px; opacity: .10; content: "";
+    mask-image: linear-gradient(120deg, transparent 8%, #000 42%, transparent 78%);
+  }
 
   .wrap { max-width: 1100px; margin: 0 auto; }
 
@@ -41,11 +47,14 @@
   .src { color: var(--ea-text-4); font-size: 11.5px; margin-top: 8px; font-family: var(--ea-font-mono); }
 
   section {
-    background: var(--ea-surface);
+    background: var(--ea-surface-glass);
     border: 1px solid var(--ea-border);
     border-radius: var(--ea-r-lg);
     padding: 20px;
     margin-bottom: 14px;
+    box-shadow: inset 0 1px 0 var(--ea-shine);
+    backdrop-filter: var(--ea-glass-filter);
+    -webkit-backdrop-filter: var(--ea-glass-filter);
   }
   h2 { font-size: 13.5px; font-weight: 600; margin-bottom: 3px; }
   .hint { color: var(--ea-text-3); font-size: 12px; margin-bottom: 14px; }
@@ -69,17 +78,32 @@
     height: 32px; padding: 0 14px; gap: 6px;
     font: inherit; font-size: 13px; font-weight: 500;
     border-radius: 8px; border: 1px solid transparent;
-    cursor: pointer; transition: background-color .12s, color .12s, box-shadow .12s;
+    cursor: pointer;
+    transition:
+      transform var(--ea-motion-press) var(--ea-ease-standard),
+      background-color var(--ea-motion-hover) var(--ea-ease-standard),
+      border-color var(--ea-motion-hover) var(--ea-ease-standard),
+      color var(--ea-motion-hover) var(--ea-ease-standard),
+      box-shadow var(--ea-motion-hover) var(--ea-ease-standard);
   }
   .btn:focus-visible { outline: none; box-shadow: var(--ea-focus); }
-  .btn--primary   { background: var(--ea-primary); color: var(--primary-foreground); }
-  .btn--primary:hover { background: var(--ea-primary-700); }
+  .btn:active { transform: translateY(1px); }
+  .btn--primary {
+    color: var(--primary-foreground);
+    border-color: color-mix(in srgb, var(--ea-accent) 42%, var(--ea-primary));
+    background: linear-gradient(118deg, var(--ea-primary) 0%, var(--ea-accent-strong) 118%);
+    box-shadow: var(--ea-shadow-button);
+  }
+  .btn--primary:hover {
+    background: linear-gradient(118deg, var(--ea-primary-700) 0%, var(--ea-accent) 112%);
+    box-shadow: var(--ea-shadow-button-hover);
+  }
   .btn--secondary { background: var(--ea-bg-2); color: var(--ea-text-1); }
-  .btn--secondary:hover { background: var(--ea-bg-3); }
+  .btn--secondary:hover { background: var(--ea-hover-subtle); border-color: var(--ea-hover-border); }
   .btn--outline   { background: transparent; color: var(--ea-text-2); border-color: var(--ea-border-strong); }
-  .btn--outline:hover { background: var(--ea-bg-2); }
+  .btn--outline:hover { background: var(--ea-hover-subtle); border-color: var(--ea-hover-border); }
   .btn--ghost     { background: transparent; color: var(--ea-text-2); }
-  .btn--ghost:hover { background: var(--ea-bg-2); }
+  .btn--ghost:hover { background: var(--ea-hover-subtle); }
   .btn--danger    { background: var(--ea-danger-bg); color: var(--ea-danger); }
   .btn--link      { background: none; color: var(--ea-primary); text-decoration: underline; text-underline-offset: 4px; }
   .btn[disabled]  { opacity: .4; cursor: not-allowed; }
@@ -113,8 +137,10 @@
     border-bottom: 1px solid var(--ea-border);
   }
   td { padding: 8px 12px; border-bottom: 1px solid var(--ea-border); }
-  tr:hover td { background: var(--ea-bg-2); }
-  tr.sel td { background: var(--ea-primary-50); }
+  tr:hover td { background: var(--ea-hover-subtle); }
+  tr:hover td:first-child { box-shadow: inset 2px 0 0 var(--ea-interactive); }
+  tr.sel td { background: var(--ea-selected-bg); }
+  tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--ea-selected-border); }
   .num { text-align: right; font-family: var(--ea-font-mono); }
   .mono { font-family: var(--ea-font-mono); }
 
@@ -156,7 +182,32 @@
     border: 1px solid var(--ea-border-strong); border-radius: 999px;
     font: inherit; font-size: 13px; font-weight: 500;
   }
-  .toggle:hover { background: var(--ea-bg-2); }
+  .toggle:hover { background: var(--ea-hover-subtle); border-color: var(--ea-hover-border); }
+
+  .hover-demo {
+    min-height: 96px; padding: 14px; border: 1px solid var(--ea-border);
+    border-radius: var(--ea-r-lg); background: var(--ea-surface-glass);
+    color: var(--ea-text-2); cursor: pointer; text-align: left;
+    transition:
+      transform var(--ea-motion-lift) var(--ea-ease-standard),
+      border-color var(--ea-motion-hover) var(--ea-ease-standard),
+      box-shadow var(--ea-motion-lift) var(--ea-ease-standard);
+  }
+  .hover-demo:hover {
+    transform: translateY(-1px);
+    border-color: var(--ea-hover-border);
+    box-shadow: var(--ea-shadow-hover);
+  }
+  .hover-demo strong { display: block; color: var(--ea-text-1); font-size: 12px; }
+  .hover-demo span { display: block; margin-top: 6px; color: var(--ea-text-3); font-size: 11px; line-height: 1.45; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -176,6 +227,8 @@
     <div class="hint">Утга бүр tokens.css-ээс АМЬДААР уншигдаж байна — энэ хуудсанд өнгө давхардаж бичигдээгүй.</div>
     <h3>Brand</h3>
     <div class="swatches" data-tokens="--ea-primary,--ea-primary-700,--ea-primary-500,--ea-primary-100,--ea-primary-50"></div>
+    <h3>Signature accent</h3>
+    <div class="swatches" data-tokens="--ea-accent,--ea-accent-strong,--ea-accent-soft,--ea-accent-bg,--ea-gold"></div>
     <h3>Дэвсгэр ба хүрээ</h3>
     <div class="swatches" data-tokens="--ea-bg,--ea-bg-2,--ea-bg-3,--ea-surface,--ea-border,--ea-border-strong"></div>
     <h3>Текст</h3>
@@ -217,6 +270,15 @@
       <button class="btn btn--danger">Устгах</button>
       <button class="btn btn--link">Дэлгэрэнгүй</button>
       <button class="btn btn--primary" disabled>Идэвхгүй</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Hover ба interaction</h2>
+    <div class="hint">Hover түр зуурын, selected тогтвортой. Touch дээр lift/glow өгөхгүй.</div>
+    <div class="grid2">
+      <button class="hover-demo"><strong>Raised card</strong><span>1px lift · signature border · restrained glow</span></button>
+      <button class="hover-demo" style="box-shadow:inset 2px 0 0 var(--ea-selected-border);background:var(--ea-selected-bg)"><strong style="color:var(--ea-interactive)">Selected state</strong><span>Тогтвортой accent tint нь hover-оос ялгаатай.</span></button>
     </div>
   </section>
 

@@ -19,7 +19,7 @@ export function SidebarToggle() {
       aria-label={open ? "Sidebar хаах" : "Sidebar нээх"}
       aria-expanded={open}
       title={open ? "Sidebar хаах" : "Sidebar нээх"}
-      className="p-2 rounded-md transition-colors hover:bg-[var(--ea-bg-2)]"
+      className="ea-icon-action rounded-md border border-transparent p-2"
       style={{ color: "var(--ea-text-2)" }}
     >
       {open ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}

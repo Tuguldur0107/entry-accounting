@@ -15,7 +15,7 @@
  * ────────────────────────────────────────────────────────────────────────── */
 :root {
   /* ── Editorial Ivory ─────────────────────────────────────────────────────
-     Navy = trust / accounting structure. Violet = interaction + decoration.
+     Navy = trust / accounting structure and the light-mode interaction accent.
      Light mode intentionally reads like warm paper instead of a white app. */
   --ea-primary:       #263C60;
   --ea-primary-700:   #1B2D4B;
@@ -23,11 +23,17 @@
   --ea-primary-100:   #E3E8F0;
   --ea-primary-50:    #EFF2F6;
 
-  --ea-violet:        #7C3AED;
-  --ea-violet-strong: #6D28D9;
-  --ea-violet-soft:   #A78BFA;
-  --ea-violet-bg:     #F0EAFE;
-  --ea-violet-border: rgba(124,58,237,0.24);
+  --ea-accent:        #335B8A;
+  --ea-accent-strong: #203A60;
+  --ea-accent-soft:   #7893B7;
+  --ea-accent-bg:     #E7EDF5;
+  --ea-accent-border: rgba(38,60,96,0.28);
+  /* Backward-compatible aliases; шинэ code `--ea-accent-*` ашиглана. */
+  --ea-violet:        var(--ea-accent);
+  --ea-violet-strong: var(--ea-accent-strong);
+  --ea-violet-soft:   var(--ea-accent-soft);
+  --ea-violet-bg:     var(--ea-accent-bg);
+  --ea-violet-border: var(--ea-accent-border);
   --ea-gold:          #B58A42;
 
   --ea-bg:            #F4F0E7;
@@ -45,13 +51,13 @@
   --ea-text-4: #656E80;
 
   /* ── Interaction language ────────────────────────────────────────────────
-     Hover is temporary and quiet; selected/focus is persistent and violet. */
-  --ea-interactive:     var(--ea-violet);
-  --ea-hover-subtle:    color-mix(in srgb, var(--ea-violet) 6%, var(--ea-surface));
-  --ea-hover-strong:    color-mix(in srgb, var(--ea-violet) 10%, var(--ea-surface));
-  --ea-hover-border:    color-mix(in srgb, var(--ea-violet) 28%, var(--ea-border-strong));
-  --ea-selected-bg:     color-mix(in srgb, var(--ea-violet) 10%, var(--ea-surface));
-  --ea-selected-border: color-mix(in srgb, var(--ea-violet) 48%, var(--ea-border-strong));
+     Hover is temporary and quiet; selected/focus is persistent dark blue. */
+  --ea-interactive:     var(--ea-accent);
+  --ea-hover-subtle:    color-mix(in srgb, var(--ea-accent) 6%, var(--ea-surface));
+  --ea-hover-strong:    color-mix(in srgb, var(--ea-accent) 10%, var(--ea-surface));
+  --ea-hover-border:    color-mix(in srgb, var(--ea-accent) 28%, var(--ea-border-strong));
+  --ea-selected-bg:     color-mix(in srgb, var(--ea-accent) 10%, var(--ea-surface));
+  --ea-selected-border: color-mix(in srgb, var(--ea-accent) 48%, var(--ea-border-strong));
   --ea-shine:           rgba(255,255,255,0.72);
 
   /* Семантик: `-fg` = ТЕКСТЭД, суурь = дэвсгэр/хүрээ/дүрсэнд,
@@ -98,14 +104,14 @@
     0 8px 24px -12px rgba(53,41,25,0.18);
   --ea-shadow-hover:
     0 16px 34px -22px rgba(27,36,67,0.45),
-    0 0 22px -16px rgba(124,58,237,0.55);
+    0 0 22px -16px rgba(51,91,138,0.48);
   --ea-shadow-button:
     inset 0 1px 0 var(--ea-shine),
-    0 8px 22px -12px rgba(124,58,237,0.42);
+    0 8px 22px -12px rgba(38,60,96,0.42);
   --ea-shadow-button-hover:
     inset 0 1px 0 var(--ea-shine),
-    0 12px 28px -12px rgba(124,58,237,0.52);
-  --ea-focus: 0 0 0 3px rgba(124,58,237,0.20);
+    0 12px 28px -12px rgba(51,91,138,0.50);
+  --ea-focus: 0 0 0 3px rgba(38,60,96,0.22);
 
   --ea-motion-press: 70ms;
   --ea-motion-hover: 120ms;
@@ -113,15 +119,15 @@
   --ea-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ea-glass-filter: blur(22px) saturate(135%);
 
-  /* Warm paper, a restrained violet glow and a book-cloth gold undertone. */
+  /* Warm paper, restrained dark-blue light and a book-cloth gold undertone. */
   --ea-bg-gradient:
-    radial-gradient(70% 55% at 72% -8%, rgba(124,58,237,0.12) 0%, transparent 62%),
+    radial-gradient(70% 55% at 72% -8%, rgba(51,91,138,0.12) 0%, transparent 62%),
     radial-gradient(48% 42% at 10% 28%, rgba(181,138,66,0.08) 0%, transparent 66%),
     linear-gradient(180deg, #F7F3EB 0%, var(--ea-bg) 72%);
 
   --ea-hero-gradient:
-    radial-gradient(circle at 88% 8%, rgba(124,58,237,0.24), transparent 34%),
-    linear-gradient(155deg, #263C60 0%, #1B2D4B 72%, #30204F 118%);
+    radial-gradient(circle at 88% 8%, rgba(51,91,138,0.26), transparent 34%),
+    linear-gradient(155deg, #263C60 0%, #1B2D4B 72%, #203A60 118%);
 
   /* ── shadcn токенууд --ea-*-д уягдана ── */
   --background: var(--ea-bg);
@@ -142,11 +148,11 @@
   --border: var(--ea-border);
   --input: var(--ea-border-strong);
   --ring: var(--ea-interactive);
-  --chart-1: #1E3A5F;
+  --chart-1: var(--ea-primary);
   --chart-2: #10B981;
   --chart-3: #F59E0B;
   --chart-4: #EF4444;
-  --chart-5: var(--ea-violet);
+  --chart-5: var(--ea-accent);
   --radius: 0.625rem;
   --sidebar: var(--ea-surface-glass);
   --sidebar-foreground: var(--ea-text-1);
@@ -158,10 +164,9 @@
   --sidebar-ring: var(--ea-interactive);
 }
 
-/* ─── DARK MODE — тас хар суурь, цэнхэр нь зөвхөн accent ────────────────────
- *  Цэнхэрийн ханалт (saturation) нь light-ийн нави (52%)-тай ойролцоо 62%
- *  байлгаж, тас хар дээр "неон гэрэлтэх" (halation) эффектээс сэргийлнэ.
- *  Контраст: #73A5DE / #000 = 8.1:1 (AAA), хар текст товчин дээр мөн 8.1:1.
+/* ─── DARK MODE — Cosmic Glass ─────────────────────────────────────────────
+ *  Navy-black суурь, lavender primary, violet interaction/decorative accent.
+ *  Semantic success/warning/danger өнгүүд утгаа хадгална.
  * ────────────────────────────────────────────────────────────────────────── */
 .dark {
   /* Cosmic Glass — navy-black base, violet replaces cyan decoration. */
@@ -171,11 +176,16 @@
   --ea-primary-100:   #221B38;
   --ea-primary-50:    rgba(139,92,246,0.15);
 
-  --ea-violet:        #A78BFA;
-  --ea-violet-strong: #8B5CF6;
-  --ea-violet-soft:   #C4B5FD;
-  --ea-violet-bg:     rgba(139,92,246,0.15);
-  --ea-violet-border: rgba(167,139,250,0.30);
+  --ea-accent:        #A78BFA;
+  --ea-accent-strong: #8B5CF6;
+  --ea-accent-soft:   #C4B5FD;
+  --ea-accent-bg:     rgba(139,92,246,0.15);
+  --ea-accent-border: rgba(167,139,250,0.30);
+  --ea-violet:        var(--ea-accent);
+  --ea-violet-strong: var(--ea-accent-strong);
+  --ea-violet-soft:   var(--ea-accent-soft);
+  --ea-violet-bg:     var(--ea-accent-bg);
+  --ea-violet-border: var(--ea-accent-border);
   --ea-gold:          #D6B16C;
 
   --ea-bg:            #070711;
@@ -192,12 +202,12 @@
   --ea-text-3: #A8A0B5;
   --ea-text-4: #8D859B;
 
-  --ea-interactive:     var(--ea-violet);
-  --ea-hover-subtle:    color-mix(in srgb, var(--ea-violet) 8%, var(--ea-surface));
-  --ea-hover-strong:    color-mix(in srgb, var(--ea-violet) 13%, var(--ea-surface));
-  --ea-hover-border:    color-mix(in srgb, var(--ea-violet) 34%, var(--ea-border-strong));
-  --ea-selected-bg:     color-mix(in srgb, var(--ea-violet) 15%, var(--ea-surface));
-  --ea-selected-border: color-mix(in srgb, var(--ea-violet) 52%, var(--ea-border-strong));
+  --ea-interactive:     var(--ea-accent);
+  --ea-hover-subtle:    color-mix(in srgb, var(--ea-accent) 8%, var(--ea-surface));
+  --ea-hover-strong:    color-mix(in srgb, var(--ea-accent) 13%, var(--ea-surface));
+  --ea-hover-border:    color-mix(in srgb, var(--ea-accent) 34%, var(--ea-border-strong));
+  --ea-selected-bg:     color-mix(in srgb, var(--ea-accent) 15%, var(--ea-surface));
+  --ea-selected-border: color-mix(in srgb, var(--ea-accent) 52%, var(--ea-border-strong));
   --ea-shine:           rgba(255,255,255,0.10);
 
   --ea-success:    #34D399;
@@ -269,11 +279,11 @@
   --border: var(--ea-border);
   --input: var(--ea-border-strong);
   --ring: var(--ea-interactive);
-  --chart-1: #73A5DE;
+  --chart-1: var(--ea-primary);
   --chart-2: #34D399;
   --chart-3: #FBBF24;
   --chart-4: #F87171;
-  --chart-5: var(--ea-violet);
+  --chart-5: var(--ea-accent);
   --sidebar: var(--ea-surface-glass);
   --sidebar-foreground: var(--ea-text-1);
   --sidebar-primary: var(--ea-interactive);

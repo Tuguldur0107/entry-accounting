@@ -98,9 +98,8 @@ const DEMO_COLS: ColDef<DemoRow>[] = [
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section
-      className="p-5 space-y-4"
+      className="ea-glass space-y-4 p-5"
       style={{
-        background: "var(--ea-surface)",
         border: "1px solid var(--ea-border)",
         borderRadius: "var(--ea-r-lg)",
       }}
@@ -165,11 +164,21 @@ export function UiKitView() {
           <div>
             <div className="text-xs font-medium mb-2" style={{ color: "var(--ea-text-2)" }}>Brand</div>
             <div className="flex flex-wrap gap-3">
-              <Swatch token="--ea-primary" label="Гол өнгө" />
-              <Swatch token="--ea-primary-700" label="Hover" />
+              <Swatch token="--ea-primary" label="Navy structure" />
+              <Swatch token="--ea-primary-700" label="Primary hover" />
               <Swatch token="--ea-primary-500" />
               <Swatch token="--ea-primary-100" />
               <Swatch token="--ea-primary-50" />
+            </div>
+          </div>
+          <div>
+            <div className="text-xs font-medium mb-2" style={{ color: "var(--ea-text-2)" }}>Signature accent</div>
+            <div className="flex flex-wrap gap-3">
+              <Swatch token="--ea-accent" label="Interaction" />
+              <Swatch token="--ea-accent-strong" label="Gradient" />
+              <Swatch token="--ea-accent-soft" label="Decoration" />
+              <Swatch token="--ea-accent-bg" label="Tint" />
+              <Swatch token="--ea-gold" label="Editorial detail" />
             </div>
           </div>
           <div>
@@ -237,6 +246,50 @@ export function UiKitView() {
             <Button disabled>disabled</Button>
           </div>
         </div>
+      </Section>
+
+      <Section
+        title="Hover ба interaction"
+        hint="Hover түр зуурын, selected тогтвортой. Touch төхөөрөмж дээр lift/glow ажиллахгүй."
+      >
+        <div className="grid gap-3 md:grid-cols-3">
+          <button
+            type="button"
+            className="ea-card-interactive rounded-xl border p-4 text-left"
+            style={{
+              borderColor: "var(--ea-border)",
+              background: "var(--ea-surface-glass)",
+            }}
+          >
+            <span className="block text-xs font-semibold">Raised card</span>
+            <span className="mt-1 block text-[11px]" style={{ color: "var(--ea-text-3)" }}>
+              1px lift · signature border · restrained glow
+            </span>
+          </button>
+          <button
+            type="button"
+            className="ea-interactive rounded-lg border p-4 text-left"
+            style={{ borderColor: "var(--ea-border)", color: "var(--ea-text-2)" }}
+          >
+            <span className="block text-xs font-semibold">Navigation row</span>
+            <span className="mt-1 block text-[11px]" style={{ color: "var(--ea-text-3)" }}>
+              Tint only · no lift or shadow
+            </span>
+          </button>
+          <button
+            type="button"
+            className="ea-interactive ea-is-selected rounded-lg border p-4 text-left"
+          >
+            <span className="block text-xs font-semibold">Selected state</span>
+            <span className="mt-1 block text-[11px]" style={{ color: "var(--ea-text-3)" }}>
+              Persistent tint · stronger signature border
+            </span>
+          </button>
+        </div>
+        <p className="text-xs" style={{ color: "var(--ea-text-4)" }}>
+          Custom UI-д <code>ea-card-interactive</code>, <code>ea-interactive</code>,{" "}
+          <code>ea-icon-action</code>, <code>ea-is-selected</code> contract-уудыг хэрэглэнэ.
+        </p>
       </Section>
 
       {/* 4. Badge + статус */}

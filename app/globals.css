@@ -76,14 +76,14 @@
   }
 }
 
-/* A quiet violet dot field: decoration only, never a data or status signal. */
+/* Quiet signature dots: dark blue in light, violet in dark mode. */
 body::before {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
   background-image:
-    radial-gradient(circle, color-mix(in srgb, var(--ea-violet) 22%, transparent) 1px, transparent 1.4px);
+    radial-gradient(circle, color-mix(in srgb, var(--ea-accent) 22%, transparent) 1px, transparent 1.4px);
   background-position: 0 0;
   background-size: 32px 32px;
   opacity: 0.10;
@@ -104,6 +104,20 @@ body::before {
 .hover\:bg-red-50:hover            { background-color: var(--ea-danger-bg) !important; }
 .bg-green-50                       { background-color: var(--ea-success-bg) !important; }
 .hover\:bg-green-50:hover          { background-color: var(--ea-success-bg) !important; }
+
+/* Existing Tailwind hover utilities are remapped centrally so legacy screens
+   inherit the new interaction language without component-level color forks. */
+@media (hover: hover) and (pointer: fine) {
+  .hover\:bg-\[var\(--ea-bg-2\)\]:hover {
+    background-color: var(--ea-hover-subtle) !important;
+  }
+  .hover\:bg-\[var\(--ea-bg-3\)\]:hover {
+    background-color: var(--ea-hover-strong) !important;
+  }
+  .hover\:border-\[var\(--ea-border-strong\)\]:hover {
+    border-color: var(--ea-hover-border) !important;
+  }
+}
 
 /* ─── Shared surface + interaction contracts ───────────────────────────────
  * Calm → precise → slightly magical.
@@ -180,11 +194,40 @@ body::before {
   }
 }
 
-/* Primary CTA: navy structure with violet as the signature edge/glow. */
+/* Primary CTA: navy in light; violet remains the dark-mode signature edge. */
 .ea-primary-button {
-  border-color: color-mix(in srgb, var(--ea-violet) 42%, var(--ea-primary));
-  background: linear-gradient(118deg, var(--ea-primary) 0%, var(--ea-violet-strong) 118%);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--ea-accent) 42%, var(--ea-primary));
+  background: linear-gradient(118deg, var(--ea-primary) 0%, var(--ea-accent-strong) 118%);
   box-shadow: var(--ea-shadow-button);
+  transition:
+    transform var(--ea-motion-press) var(--ea-ease-standard),
+    background var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    box-shadow var(--ea-motion-hover) var(--ea-ease-standard);
+}
+
+.ea-primary-button::after {
+  position: absolute;
+  inset: -30% auto -30% -55%;
+  z-index: 0;
+  width: 34%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.26), transparent);
+  content: "";
+  transform: skewX(-18deg);
+  transition: transform var(--ea-motion-lift) var(--ea-ease-standard);
+}
+
+.ea-primary-button:focus-visible {
+  outline: none;
+  box-shadow: var(--ea-shadow-button), var(--ea-focus);
+}
+
+.ea-primary-button:active {
+  transform: translateY(1px);
 }
 
 .ea-outline-button,
@@ -201,9 +244,13 @@ body::before {
 
 @media (hover: hover) and (pointer: fine) {
   .ea-primary-button:hover {
-    border-color: color-mix(in srgb, var(--ea-violet) 64%, var(--ea-primary));
-    background: linear-gradient(118deg, var(--ea-primary-700) 0%, var(--ea-violet) 112%);
+    border-color: color-mix(in srgb, var(--ea-accent) 64%, var(--ea-primary));
+    background: linear-gradient(118deg, var(--ea-primary-700) 0%, var(--ea-accent) 112%);
     box-shadow: var(--ea-shadow-button-hover);
+  }
+
+  .ea-primary-button:hover::after {
+    transform: translateX(470%) skewX(-18deg);
   }
 
   .ea-outline-button:hover,

@@ -67,6 +67,17 @@ test("negative stock: backdated issue that breaks a later balance is caught", ()
   );
 });
 
+// ⚠ Хамрах хүрээний тэмдэглэл (README change-control 0.3-ийн дараа)
+//
+// computeCostingRun нь perpetual дундажийг дотроо бодсоор байгаа ч ЗАРЛАГЫН
+// өртөг түүнээс ГАРАХГҮЙ болсон: зарлага, тооллогын тохируулга, буцаалт нь
+// САРЫН жигнэсэн дундажаар үнэлэгддэг (lib/costing/periodic.ts,
+// tests/periodic-costing.test.ts). Энэ функцээс одоо ЗӨВХӨН:
+//   • орлогын капитализацийн бичилт (receipt_capitalize), ба
+//   • "үнэ хүлээж байгаа" (pending) жагсаалт
+// хэрэглэгддэг. Доорх тестүүд түүний ДОТООД зан төлвийг л шалгана —
+// нягтлан бодох дүрэм БИШ.
+
 test("costing run: weighted average across receipts, issue at avg", () => {
   const movements = [
     m({ id: "r1", movementType: "receipt", quantity: 100, date: "2026-07-01" }),

@@ -150,9 +150,6 @@ export default async function CostingDashboardPage() {
       clearingBalance={clearingBalance}
       tieOutDifference={tieOutDifference}
       defaultAsOf={today()}
-      items={itemViews
-        .filter((item) => item.isActive)
-        .map((item) => ({ id: item.id, label: `${item.code} · ${item.name}` }))}
     />
   );
 }

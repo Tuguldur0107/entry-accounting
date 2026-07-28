@@ -11,17 +11,9 @@ import {
   inventoryMovements,
   journalVouchers,
 } from "@/lib/db/schema";
-import {
-  computeCostingRun,
-  type CostEntryType,
-  type PostedEntryRef,
-} from "@/lib/costing/costing";
-import { loadInventoryBase, toMovementRefs } from "@/lib/inventory/load-data";
+import { latestClosingByItem } from "@/lib/costing/valuation";
+import { loadInventoryBase } from "@/lib/inventory/load-data";
 import type { TieOutRow, ValuationRow } from "@/lib/inventory/types";
-
-function today() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
 
 function mainAccountOf(accountNumber: string) {
   const parts = accountNumber.split(".");
@@ -57,17 +49,6 @@ export default async function CostingReportsPage() {
       }),
     ]);
 
-  // Үнэлгээ: зөвхөн POSTED бичилтийг replay хийж бараа бүрийн qty+дундаж авна.
-  const postedEntries: PostedEntryRef[] = entries
-    .filter((entry) => entry.status === "posted" && entry.movementId != null)
-    .map((entry) => ({
-      movementId: entry.movementId!,
-      entryType: entry.entryType as CostEntryType,
-      quantity: Number(entry.quantity),
-      unitCost: Number(entry.unitCost),
-      amount: Number(entry.amount),
-    }));
-
   // NRV нөөц бараагаар (идэвхтэй draft+posted — давхар бичилтээс сэргийлж
   // draft-ыг мөн тооцно; GL тулгалтад зөвхөн posted).
   const nrvReserveByItem = new Map<string, number>();
@@ -75,7 +56,12 @@ export default async function CostingReportsPage() {
   for (const entry of entries) {
     if (!entry.itemId) continue;
     if (entry.status === "reversed") continue;
-    const sign = entry.entryType === "nrv_writedown" ? 1 : entry.entryType === "nrv_reversal" ? -1 : 0;
+    const sign =
+      entry.entryType === "nrv_writedown"
+        ? 1
+        : entry.entryType === "nrv_reversal"
+          ? -1
+          : 0;
     if (sign === 0) continue;
     const amount = sign * Number(entry.amount);
     nrvReserveByItem.set(
@@ -88,46 +74,28 @@ export default async function CostingReportsPage() {
         (nrvPostedByItem.get(entry.itemId) ?? 0) + amount
       );
   }
-  // Зөвхөн БАТЛАГДСАН бичилттэй хөдөлгөөнүүдийг replay хийнэ — үнэлэгдээгүй
-  // хөдөлгөөнийг таамгаар үнэлж tie-out хүснэгттэй зөрүүлэхгүй.
-  const valuedMovementIds = new Set(postedEntries.map((entry) => entry.movementId));
-  const landedCosts = entries
-    .filter(
-      (entry) =>
-        entry.entryType === "landed_cost" &&
-        entry.status === "posted" &&
-        entry.itemId != null
-    )
-    .map((entry) => ({
-      id: entry.id,
-      itemId: entry.itemId!,
-      date: entry.date,
-      amount: Number(entry.amount),
-      createdAt: entry.createdAt.toISOString(),
-    }));
-  const { state } = computeCostingRun({
-    movements: toMovementRefs(
-      movements.filter((movement) => valuedMovementIds.has(movement.id))
-    ),
-    valuedEntries: postedEntries,
-    receiptCosts: new Map(),
-    asOfDate: today(),
-    valueAdjustments: landedCosts,
-  });
+
+  // Нөөцийн үнэлгээ нь ӨРТГИЙН ХЯНАЛТЫН тайлантай ИЖИЛ сууриас гарна:
+  // cost_period_results-ийн хамгийн сүүлийн тооцоологдсон сарын C2
+  // (docs/cost FR-PR-001 — нэг л арга; RPT-PR-001 — тайлангууд Cost Ledger-
+  // ээс гарна). Урьд нь энд perpetual дундаж бодогддог байсан нь одоо
+  // батлагдсан дүрэмтэй зөрчилдөнө.
+  const closingByItem = await latestClosingByItem(userId);
 
   const valuation: ValuationRow[] = [];
   for (const item of itemViews) {
-    const itemState = state.get(item.id);
-    if (!itemState || (itemState.qty === 0 && itemState.avgCost === 0)) continue;
+    const closing = closingByItem.get(item.id);
+    if (!closing || (closing.qty === 0 && closing.amount === 0)) continue;
     const reserve =
       Math.round((nrvReserveByItem.get(item.id) ?? 0) * 100) / 100;
-    const grossValue = Math.round(itemState.qty * itemState.avgCost * 100) / 100;
+    const grossValue = Math.round(closing.amount * 100) / 100;
     valuation.push({
       itemId: item.id,
       itemLabel: `${item.code} · ${item.name}`,
       unit: item.unit,
-      quantity: itemState.qty,
-      avgCost: itemState.avgCost,
+      quantity: closing.qty,
+      // Нэгж өртөг = C2 Дүн / C2 Тоо (сарын жигнэсэн дундаж).
+      avgCost: closing.qty !== 0 ? closing.amount / closing.qty : 0,
       value: grossValue,
       nrvReserve: reserve,
       netValue: Math.round((grossValue - reserve) * 100) / 100,

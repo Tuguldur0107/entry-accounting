@@ -12,7 +12,7 @@ export function NewJournalButton() {
     <button
       type="button"
       onClick={() => openNewVoucherPanel()}
-      className="h-8 px-3 text-xs font-medium bg-[var(--ea-primary)] text-[var(--primary-foreground)] rounded-md hover:bg-[var(--ea-primary-700)] transition-colors"
+      className="ea-primary-button h-8 rounded-md px-3 text-xs font-medium text-[var(--primary-foreground)]"
     >
       + Шинэ журнал
     </button>

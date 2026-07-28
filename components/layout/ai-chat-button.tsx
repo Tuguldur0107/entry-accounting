@@ -18,9 +18,9 @@ export function AiChatButton() {
       type="button"
       onClick={() => openAiChatPanel()}
       title="AI туслах нээх"
-      className="flex h-8 items-center gap-1.5 rounded-md border border-[var(--ea-border)] px-3 text-xs font-medium text-[var(--ea-text-2)] transition-colors hover:border-[var(--ea-border-strong)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
+      className="ea-interactive flex h-8 items-center gap-1.5 rounded-md border border-[var(--ea-accent-border)] bg-[var(--ea-accent-bg)] px-3 text-xs font-medium text-[var(--ea-interactive)]"
     >
-      <Sparkles size={14} className="text-[var(--ea-primary)]" />
+      <Sparkles size={14} className="text-[var(--ea-interactive)]" />
       AI
     </button>
   );

@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { assertPeriodOpen } from "@/lib/periods/guard";
+import { latestUnitCost } from "@/lib/costing/valuation";
 import {
   defaultIssueType,
   loadCostingAccountSettings,
@@ -649,56 +650,25 @@ export async function createNrvEntry(data: {
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 2)`);
 
-    const [movements, entries] = await Promise.all([
-      tx.query.inventoryMovements.findMany({
-        where: and(
-          eq(inventoryMovements.userId, userId),
-          eq(inventoryMovements.status, "confirmed"),
-          eq(inventoryMovements.itemId, data.itemId)
-        ),
-      }),
-      tx.query.costEntries.findMany({
-        where: and(
-          eq(costEntries.userId, userId),
-          inArray(costEntries.status, ["draft", "posted"])
-        ),
-      }),
-    ]);
-
-    // Дундаж + үлдэгдэл: батлагдсан movement-линктэй бичилтийн replay.
-    const movementEntries: PostedEntryRef[] = entries
-      .filter((entry) => entry.movementId != null && entry.status === "posted")
-      .map((entry) => ({
-        movementId: entry.movementId!,
-        entryType: entry.entryType as CostEntryType,
-        quantity: Number(entry.quantity),
-        unitCost: Number(entry.unitCost),
-        amount: Number(entry.amount),
-      }));
-    const valuedIds = new Set(movementEntries.map((entry) => entry.movementId));
-    const { state } = computeCostingRun({
-      movements: movements
-        .filter((movement) => valuedIds.has(movement.id))
-        .map((row) => ({
-          id: row.id,
-          movementType: row.movementType as MovementType,
-          date: row.date,
-          itemId: row.itemId ?? "",
-          warehouseId: row.warehouseId ?? "",
-          toWarehouseId: row.toWarehouseId,
-          quantity: Number(row.quantity),
-          createdAt: row.createdAt.toISOString(),
-        })),
-      valuedEntries: movementEntries,
-      receiptCosts: new Map(),
-      asOfDate: data.date,
-      valueAdjustments: postedLandedCosts(entries),
+    // Хөдөлгөөн шаардлагагүй — өртгийн суурийг cost_period_results-ээс авна.
+    const entries = await tx.query.costEntries.findMany({
+      where: and(
+        eq(costEntries.userId, userId),
+        inArray(costEntries.status, ["draft", "posted"])
+      ),
     });
-    const itemState = state.get(data.itemId);
-    const qty = itemState?.qty ?? 0;
-    const avgCost = itemState?.avgCost ?? 0;
+
+    // Өртгийн суурь нь ӨРТГИЙН ХЯНАЛТЫН тайлантай ИЖИЛ: cost_period_results-
+    // ийн хамгийн сүүлийн тооцоологдсон сарын C2 нэгж өртөг (docs/cost
+    // FR-PR-001 — нэг л арга). Урьд нь perpetual дундаж бодогддог байсан нь
+    // одоо батлагдсан дүрэмтэй зөрчилдөнө.
+    const closing = await latestUnitCost(userId, data.itemId);
+    const qty = closing?.qty ?? 0;
+    const avgCost = closing?.unitCost ?? 0;
     if (!(qty > 0))
-      throw new Error("Батлагдсан үнэлгээтэй үлдэгдэл алга — NRV хамаарахгүй");
+      throw new Error(
+        "Тооцоологдсон үлдэгдэл алга — эхлээд сарын өртөг тооцоолно уу"
+      );
 
     // Одоогийн нөөц: идэвхтэй (draft орсон — давхар бичилтээс сэргийлнэ)
     // NRV бичилтүүдийн цэвэр дүн.
@@ -753,47 +723,6 @@ export async function createNrvEntry(data: {
 // Клирингт суусан тээвэр/гааль зэрэг зардлыг сонгосон бараанд оноож НООРОГ
 // бичилт үүсгэнэ (Dr бараа данс / Cr 14000099). Батлагдмагц тухайн огнооноос
 // хойшхи costing run-ууд дундажийг өссөнөөр тооцно.
-export async function createLandedCostEntry(data: {
-  itemId: string;
-  date: string;
-  amount: number;
-}) {
-  const userId = await requireUser();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
-    throw new Error("Огноо буруу байна");
-  const amount = Math.round(Number(data.amount) * 100) / 100;
-  if (!Number.isFinite(amount) || amount <= 0)
-    throw new Error("Дүн 0-ээс их байна");
-
-  const item = await db.query.inventoryItems.findFirst({
-    where: and(
-      eq(inventoryItems.id, data.itemId),
-      eq(inventoryItems.userId, userId),
-      eq(inventoryItems.isActive, true)
-    ),
-    columns: { id: true },
-  });
-  if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
-
-  const [created] = await db
-    .insert(costEntries)
-    .values({
-      userId,
-      movementId: null,
-      itemId: data.itemId,
-      entryType: "landed_cost",
-      date: data.date,
-      quantity: "0",
-      unitCost: "0",
-      amount: String(amount),
-      valuationSource: "manual",
-    })
-    .returning({ id: costEntries.id });
-
-  revalidateCosting();
-  return { id: created.id, amount };
-}
-
 // ─── Панелийн дэлгэрэнгүй ────────────────────────────────────────────────────
 
 // Өртгийн бичилтийн панель бүх өгөгдлөө id-аар татна: мета (жагсаалтын
