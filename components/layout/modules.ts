@@ -151,6 +151,11 @@ export const MODULES: Module[] = [
       { label: "Хяналтын самбар", href: "/costing", icon: LayoutDashboard },
       { label: "Өртгийн бичилт", href: "/costing/entries", icon: Calculator },
       { label: "Өртгийн хяналт", href: "/costing/control", icon: Scale },
+      {
+        label: "Гүйлгээний дэлгэрэнгүй",
+        href: "/costing/detail",
+        icon: FileSpreadsheet,
+      },
       { label: "Тайлан", href: "/costing/reports", icon: BarChartBig },
       { label: "Тохиргоо", href: "/costing/settings", icon: SettingsIcon },
     ],
