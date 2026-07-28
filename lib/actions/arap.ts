@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
+import { assertPeriodOpen } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   arApDocumentLines,
@@ -445,6 +446,7 @@ export async function postArApDocument(id: string) {
   if (!document) throw new Error("Баримт олдсонгүй");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
+  await assertPeriodOpen(userId, document.date);
   if (document.lines.length === 0) throw new Error("Баримтад мөр алга");
 
   const counterparty = await db.query.counterparties.findFirst({

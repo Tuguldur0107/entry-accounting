@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   Building,
   TrendingDown,
+  CalendarClock,
 } from "lucide-react";
 
 // Модуль бүрийн цэс нэг стандарт ДАРААЛЛААР жагсана (визуал бүлэглэлгүй):
@@ -172,6 +173,7 @@ export const MODULES: Module[] = [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: User },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: Building2 },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: SettingsIcon },
+      { label: "Нягтлан бодох период", href: "/settings/periods", icon: CalendarClock },
       { label: "UI Kit", href: "/settings/ui-kit", icon: Palette },
     ],
   },

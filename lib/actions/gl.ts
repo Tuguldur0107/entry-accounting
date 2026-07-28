@@ -25,6 +25,7 @@ import {
   removeDraftAssetsForVoucher,
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
+import { assertPeriodOpen } from "@/lib/periods/guard";
 
 async function requireUser() {
   const session = await auth();
@@ -297,6 +298,9 @@ export async function createVoucher(data: {
 }) {
   const userId = await requireUser();
   const status = data.status ?? "posted";
+  // Хаагдсан период руу шинэ бичилт хийхгүй (ноорог ч мөн адил — тэр нь
+  // хожим батлагдах гэж гацна).
+  await assertPeriodOpen(userId, data.date);
 
   const validLines = data.lines.filter(
     (l) => l.account && (l.debit > 0 || l.credit > 0)
@@ -349,6 +353,7 @@ export async function postVoucher(id: string) {
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
   if (voucher.status === "posted") return;
+  await assertPeriodOpen(userId, voucher.date);
 
   const totalDebit = voucher.lines.reduce((s, l) => s + Number(l.debit), 0);
   const totalCredit = voucher.lines.reduce((s, l) => s + Number(l.credit), 0);
@@ -388,6 +393,8 @@ export async function unpostVoucher(id: string) {
   if (!voucher) throw new Error("Бичилт олдсонгүй");
   if (voucher.status !== "posted")
     throw new Error("Зөвхөн бичигдсэн журналыг буцаах боломжтой");
+  // Буцаалт нь ЭХ огноогоор шинэ журнал бичдэг тул тэр период нээлттэй байх ёстой.
+  await assertPeriodOpen(userId, voucher.date);
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -444,6 +451,8 @@ export async function updateVoucher(
   }
 ) {
   const userId = await requireUser();
+
+  await assertPeriodOpen(userId, data.date);
 
   const validLines = data.lines.filter(
     (l) => l.account && (l.debit > 0 || l.credit > 0)

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
+import { assertPeriodOpen } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   cashAccounts,
@@ -464,6 +465,7 @@ export async function postCashDocument(
   if (!document) throw new Error("Cash баримт олдсонгүй");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
+  await assertPeriodOpen(userId, document.date);
 
   // GL-derived draft: the ledger already has this entry. Confirming it just
   // adopts the source voucher — do NOT create a second one (double-count).
@@ -712,6 +714,7 @@ export async function reverseCashDocument(id: string) {
   });
   if (!document || document.status !== "posted" || !document.voucherId)
     throw new Error("Зөвхөн батлагдсан Cash баримтыг буцаана");
+  await assertPeriodOpen(userId, document.date);
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
+import { assertPeriodOpen } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -334,6 +335,7 @@ export async function postDepreciationEntry(id: string) {
   if (!entry) throw new Error("Элэгдлийн бичилт олдсонгүй");
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг батална");
+  await assertPeriodOpen(userId, `${entry.periodMonth}-28`);
   const amount = Number(entry.amount);
   if (!(amount > 0)) throw new Error("Дүн 0-ээс их байна");
 
@@ -442,6 +444,7 @@ export async function reverseDepreciationEntry(id: string) {
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
     throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
+  await assertPeriodOpen(userId, `${entry.periodMonth}-28`);
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(

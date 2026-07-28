@@ -41,6 +41,31 @@ export const chartOfAccounts = pgTable(
   (t) => [unique().on(t.userId, t.number)]
 );
 
+// ─── Accounting periods (нягтлан бодох период) ───────────────────────────────
+// Апп даяарх НЭГ период бүртгэл. Өртгийн модулийн Periodic Weighted Average
+// нь энэ периодын хил дээр тооцогдоно (docs/cost OD-002 → "GL-ийн period
+// системийг ашиглана" гэж product owner баталсан).
+//
+// Мөчлөг: open → closed. Хаагдсан периодод бичилт хийхийг хориглоно;
+// дахин нээх нь ил үйлдэл (closedAt цэвэрлэгдэнэ).
+
+export const accountingPeriods = pgTable(
+  "accounting_periods",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(), // "YYYY-MM"
+    startDate: text("start_date").notNull(), // YYYY-MM-DD (оруулаад)
+    endDate: text("end_date").notNull(), // YYYY-MM-DD (оруулаад)
+    status: text("status").notNull().default("open"), // "open" | "closed"
+    closedAt: timestamp("closed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
 
 export const journalVouchers = pgTable("journal_vouchers", {
@@ -1060,6 +1085,7 @@ export type SegmentConfig = typeof segmentConfigs.$inferSelect;
 export type SegmentValue = typeof segmentValues.$inferSelect;
 export type ModuleConfig = typeof moduleConfigs.$inferSelect;
 export type ReportLineMapping = typeof reportLineMappings.$inferSelect;
+export type AccountingPeriod = typeof accountingPeriods.$inferSelect;
 export type CashAccount = typeof cashAccounts.$inferSelect;
 export type CashDocument = typeof cashDocuments.$inferSelect;
 export type BankStatement = typeof bankStatements.$inferSelect;
