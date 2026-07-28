@@ -36,7 +36,7 @@ import {
   syncInventoryDraftForVoucher,
 } from "@/lib/inventory/sync-sources";
 import { syncFixedAssetDraftForVoucher } from "@/lib/fa/sync-sources";
-import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
+import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 
 async function requireUser() {
@@ -109,6 +109,8 @@ export type ArapDocPanelData = {
   defaultSegments: Record<number, string>;
   inventoryItems: InventoryItemOption[];
   warehouses: WarehouseOption[];
+  /** Клирингийн данс (тохиргооноос) — бараатай АП мөр энд суана. */
+  clearingAccountNumber: string;
   /** documentId өгөгдсөн үед л — read-only харагдацын баримт. */
   document: ArApDocumentDetail | null;
 };
@@ -124,7 +126,7 @@ export async function getArapDocPanelData(
   const userId = session?.user?.id;
   if (!userId) return { ok: false, code: "unauthenticated" };
 
-  const [segmentData, counterpartyRows, inventoryOptions, document] =
+  const [segmentData, counterpartyRows, inventoryOptions, document, costingAccounts] =
     await Promise.all([
       loadArApSegmentData(userId),
       loadArApCounterparties(userId),
@@ -132,6 +134,7 @@ export async function getArapDocPanelData(
       documentId
         ? loadArApDocumentDetail(userId, documentId)
         : Promise.resolve(null),
+      loadCostingAccountSettings(userId),
     ]);
 
   if (documentId && !document) return { ok: false, code: "not-found" };
@@ -145,6 +148,7 @@ export async function getArapDocPanelData(
       defaultSegments: segmentData.defaultSegments,
       inventoryItems: inventoryOptions.inventoryItems,
       warehouses: inventoryOptions.warehouses,
+      clearingAccountNumber: costingAccounts.clearingAccountNumber,
       document,
     },
   };
@@ -240,6 +244,9 @@ export async function createArApDocument(data: {
     }))
     .filter((line) => line.account && line.amount > 0);
   if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+  // Клирингийн данс тохиргооноос (JPR-006) — кодод хатуу дугаар байхгүй.
+  const clearingAccount = (await loadCostingAccountSettings(userId))
+    .clearingAccountNumber;
   for (const line of validLines) {
     assertAmount(line.amount, "Мөрийн дүн");
     await assertEnabledMainAccount(userId, line.account);
@@ -251,9 +258,9 @@ export async function createArApDocument(data: {
     // бичдэг — шууд 14000001-д суулгавал GL давхарлана). АР-ийн бараатай
     // мөр орлогын тал тул 14-бүлэгт огт суухгүй.
     const lineMain = extractMainAccount(line.account);
-    if (data.documentType === "ap_bill" && lineMain !== CLEARING_ACCOUNT)
+    if (data.documentType === "ap_bill" && lineMain !== clearingAccount)
       throw new Error(
-        `Бараатай мөрийн данс ${CLEARING_ACCOUNT} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
+        `Бараатай мөрийн данс ${clearingAccount} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
       );
     if (data.documentType === "ar_invoice" && lineMain.startsWith("14"))
       throw new Error(

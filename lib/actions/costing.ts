@@ -5,12 +5,18 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { assertPeriodOpen } from "@/lib/periods/guard";
+import {
+  defaultIssueType,
+  loadCostingAccountSettings,
+  resolveIssueDebitAccount,
+} from "@/lib/costing/master-data";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
   costEntries,
   costingItemSettings,
   costingRuns,
+  inventoryIssueTypes,
   inventoryItems,
   inventoryMovements,
   journalLines,
@@ -304,6 +310,18 @@ async function itemAccountsFor(userId: string, itemId: string) {
   };
 }
 
+/** Нэг зарлагын төрөл — id-гаар (хэрэглэгчийн хүрээнд). */
+async function loadIssueTypeById(userId: string, id: string) {
+  return (
+    (await db.query.inventoryIssueTypes.findFirst({
+      where: and(
+        eq(inventoryIssueTypes.id, id),
+        eq(inventoryIssueTypes.userId, userId)
+      ),
+    })) ?? null
+  );
+}
+
 export async function postCostEntry(id: string) {
   const userId = await requireUser();
   const entry = await db.query.costEntries.findFirst({
@@ -323,9 +341,30 @@ export async function postCostEntry(id: string) {
   if (!linkedItemId)
     throw new Error("Бичилтийн бараа сонгогдоогүй байна");
   const accounts = await itemAccountsFor(userId, linkedItemId);
+  const roleSettings = await loadCostingAccountSettings(userId);
+  // Зарлагын дебет чиглэл: бичилтэд оноогдсон төрөл, эс бөгөөс анхны
+  // "COGS" төрөл (энэ нь барааны COGS данс руу шийддэг profile тул хуучин
+  // зан төлөв хэвээр). FR-MD-IT-002 / FR-ISSUE-002.
+  const entryIssueType =
+    (entry.issueTypeId
+      ? (await loadIssueTypeById(userId, entry.issueTypeId))
+      : null) ?? (await defaultIssueType(userId));
+  const issueDebitAccountNumber = entryIssueType
+    ? resolveIssueDebitAccount(entryIssueType, accounts.cogsAccountNumber)
+    : accounts.cogsAccountNumber;
   const { debit, credit } = entryPostingAccounts(
     entry.entryType as CostEntryType,
-    accounts
+    {
+      inventoryAccountNumber: accounts.inventoryAccountNumber,
+      issueDebitAccountNumber,
+    },
+    {
+      clearing: roleSettings.clearingAccountNumber,
+      adjustmentGain: roleSettings.adjustmentGainAccountNumber,
+      adjustmentLoss: roleSettings.adjustmentLossAccountNumber,
+      nrvExpense: roleSettings.nrvExpenseAccountNumber,
+      nrvReserve: roleSettings.nrvReserveAccountNumber,
+    }
   );
   await assertEnabledMainAccount(userId, debit);
   await assertEnabledMainAccount(userId, credit);
@@ -341,7 +380,15 @@ export async function postCostEntry(id: string) {
   await db.transaction(async (tx) => {
     const [claimed] = await tx
       .update(costEntries)
-      .set({ status: "posted", postedAt: new Date() })
+      .set({
+        status: "posted",
+        postedAt: new Date(),
+        // Бичих мөчид шийдэгдсэн дүр зураг — master data хожим өөрчлөгдөхөд
+        // түүхэн бичилт дахин тайлагдахгүй (JPR-005, FR-AUD-003).
+        issueTypeId: entry.issueTypeId ?? entryIssueType?.id ?? null,
+        debitAccountNumber: debit,
+        creditAccountNumber: credit,
+      })
       .where(
         and(
           eq(costEntries.id, id),
@@ -365,6 +412,8 @@ export async function postCostEntry(id: string) {
     await tx.insert(journalLines).values([
       {
         voucherId: voucher.id,
+        costEntryId: entry.id,
+        inventoryMovementId: entry.movementId,
         accountNumber: buildCode(debit),
         debit: String(amount),
         credit: "0",
@@ -373,6 +422,8 @@ export async function postCostEntry(id: string) {
       },
       {
         voucherId: voucher.id,
+        costEntryId: entry.id,
+        inventoryMovementId: entry.movementId,
         accountNumber: buildCode(credit),
         debit: "0",
         credit: String(amount),

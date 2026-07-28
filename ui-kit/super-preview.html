@@ -1,0 +1,1871 @@
+<!doctype html>
+<html lang="mn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Entry Accounting — Inventory Cost Control Prototype</title>
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    :root {
+      --font-geist-sans: Inter, "SF Pro Text", "Segoe UI", Arial, sans-serif;
+      --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --font-fraunces: Georgia, "Times New Roman", serif;
+
+      --proto-header-h: 58px;
+      --proto-sidebar-w: 236px;
+      --proto-control-h: 34px;
+      --proto-page-pad: 24px;
+      --proto-ease: cubic-bezier(.2,.8,.2,1);
+      --proto-shadow-float:
+        0 1px 2px rgba(15,23,42,.04),
+        0 12px 32px rgba(15,23,42,.08);
+      --proto-grid-line: color-mix(in srgb, var(--ea-border) 86%, transparent);
+    }
+
+    .dark {
+      --proto-shadow-float:
+        0 1px 0 rgba(255,255,255,.04) inset,
+        0 18px 48px rgba(0,0,0,.48);
+      --proto-grid-line: color-mix(in srgb, var(--ea-border) 92%, transparent);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--ea-bg);
+      color: var(--ea-text-1);
+      font-family: var(--ea-font-sans);
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    svg { display: block; }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--proto-sidebar-w) minmax(0, 1fr);
+      grid-template-rows: var(--proto-header-h) minmax(0, 1fr);
+      height: 100%;
+      background:
+        radial-gradient(circle at 74% -14%, color-mix(in srgb, var(--ea-primary) 8%, transparent), transparent 32%),
+        var(--ea-bg);
+    }
+
+    /* Top bar */
+    .topbar {
+      position: relative;
+      z-index: 5;
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      border-bottom: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-surface) 92%, transparent);
+      backdrop-filter: blur(18px) saturate(140%);
+    }
+
+    .brand {
+      display: flex;
+      width: var(--proto-sidebar-w);
+      height: 100%;
+      flex: 0 0 var(--proto-sidebar-w);
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      border-right: 1px solid var(--ea-border);
+    }
+
+    .brand-mark {
+      position: relative;
+      display: grid;
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 9px;
+      background: var(--ea-primary);
+      color: var(--primary-foreground);
+      box-shadow: 0 6px 16px color-mix(in srgb, var(--ea-primary) 22%, transparent);
+    }
+    .brand-mark::after {
+      position: absolute;
+      top: -11px;
+      right: -9px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.16);
+      content: "";
+    }
+    .brand-mark svg { position: relative; z-index: 1; }
+    .brand-copy { min-width: 0; line-height: 1.05; }
+    .brand-name {
+      font-family: var(--ea-font-display);
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -.02em;
+    }
+    .brand-edition {
+      margin-top: 4px;
+      color: var(--ea-text-3);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+
+    .topbar-main {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      align-items: center;
+      gap: 12px;
+      padding: 0 16px;
+    }
+
+    .module-pill {
+      display: inline-flex;
+      min-width: 0;
+      align-items: center;
+      gap: 9px;
+      padding: 6px 10px 6px 7px;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-2);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .module-pill .icon-box {
+      display: grid;
+      width: 23px;
+      height: 23px;
+      place-items: center;
+      border-radius: 6px;
+      background: var(--ea-surface);
+      color: var(--ea-primary);
+      box-shadow: 0 0 0 1px var(--ea-border);
+    }
+
+    .command-search {
+      display: flex;
+      width: min(420px, 36vw);
+      min-width: 190px;
+      height: 32px;
+      align-items: center;
+      gap: 8px;
+      margin-left: 2px;
+      padding: 0 10px;
+      border: 1px solid var(--ea-border);
+      border-radius: 8px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-3);
+      transition: border-color .16s, box-shadow .16s, background .16s;
+    }
+    .command-search:focus-within {
+      border-color: var(--ea-primary);
+      background: var(--ea-surface);
+      box-shadow: var(--ea-focus);
+    }
+    .command-search input {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ea-text-1);
+      font-size: 12px;
+    }
+    .command-search input::placeholder { color: var(--ea-text-3); }
+    .kbd {
+      display: inline-flex;
+      height: 19px;
+      align-items: center;
+      padding: 0 5px;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 5px;
+      background: var(--ea-surface);
+      color: var(--ea-text-3);
+      font-family: var(--ea-font-mono);
+      font-size: 9px;
+      box-shadow: 0 1px 0 var(--ea-border);
+    }
+    .topbar-spacer { flex: 1; }
+
+    .icon-button {
+      display: inline-grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ea-text-3);
+      cursor: pointer;
+      transition: color .14s, background .14s, border-color .14s, transform .08s;
+    }
+    .icon-button:hover {
+      border-color: var(--ea-border);
+      background: var(--ea-bg-2);
+      color: var(--ea-text-1);
+    }
+    .icon-button:active { transform: scale(.96); }
+    .icon-button:focus-visible {
+      outline: 0;
+      box-shadow: var(--ea-focus);
+    }
+
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-left: 2px;
+      padding-left: 12px;
+      border-left: 1px solid var(--ea-border);
+    }
+    .avatar {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--ea-primary) 24%, var(--ea-border));
+      border-radius: 50%;
+      background: var(--ea-primary-50);
+      color: var(--ea-primary);
+      font-size: 10px;
+      font-weight: 750;
+    }
+    .profile-copy { line-height: 1.15; }
+    .profile-name { font-size: 11.5px; font-weight: 650; }
+    .profile-org { margin-top: 3px; color: var(--ea-text-3); font-size: 9.5px; }
+
+    /* Sidebar */
+    .sidebar {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      min-height: 0;
+      flex-direction: column;
+      border-right: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-bg-2) 88%, var(--ea-surface));
+    }
+
+    .nav-scroll {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 10px;
+    }
+    .nav-section + .nav-section { margin-top: 20px; }
+    .nav-label {
+      padding: 0 9px 7px;
+      color: var(--ea-text-3);
+      font-size: 9px;
+      font-weight: 750;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .nav-item {
+      position: relative;
+      display: flex;
+      width: 100%;
+      min-height: 36px;
+      align-items: center;
+      gap: 10px;
+      margin: 2px 0;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ea-text-2);
+      cursor: pointer;
+      text-align: left;
+      transition: background .14s, color .14s;
+    }
+    .nav-item svg { flex: 0 0 auto; color: var(--ea-text-3); }
+    .nav-item:hover {
+      background: var(--ea-surface);
+      color: var(--ea-text-1);
+    }
+    .nav-item.active {
+      background: var(--ea-surface);
+      color: var(--ea-primary);
+      font-weight: 650;
+      box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 0 0 1px var(--ea-border);
+    }
+    .nav-item.active svg { color: var(--ea-primary); }
+    .nav-item.active::before {
+      position: absolute;
+      left: -1px;
+      width: 3px;
+      height: 18px;
+      border-radius: 0 4px 4px 0;
+      background: var(--ea-primary);
+      content: "";
+    }
+    .nav-badge {
+      min-width: 20px;
+      margin-left: auto;
+      padding: 2px 5px;
+      border-radius: 999px;
+      background: var(--ea-warning-bg);
+      color: var(--ea-warning-fg);
+      font-size: 9px;
+      font-weight: 750;
+      text-align: center;
+    }
+
+    .sidebar-foot {
+      margin: 10px;
+      padding: 12px;
+      border: 1px solid var(--ea-border);
+      border-radius: 10px;
+      background: var(--ea-surface);
+    }
+    .close-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--ea-text-2);
+      font-size: 10.5px;
+      font-weight: 650;
+    }
+    .close-value {
+      margin-top: 8px;
+      font-family: var(--ea-font-mono);
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .progress {
+      height: 4px;
+      margin-top: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--ea-bg-3);
+    }
+    .progress > span {
+      display: block;
+      width: 82%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--ea-primary), var(--ea-success));
+    }
+    .close-meta {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 7px;
+      color: var(--ea-text-3);
+      font-size: 9px;
+    }
+
+    /* Workspace */
+    .workspace {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+    }
+    .page {
+      min-width: 1180px;
+      padding: 20px var(--proto-page-pad) 32px;
+    }
+
+    .crumbs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--ea-text-3);
+      font-size: 10px;
+    }
+    .crumbs .current { color: var(--ea-text-2); font-weight: 600; }
+
+    .page-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 10px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 7px;
+      color: var(--ea-primary);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .eyebrow-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ea-success);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ea-success) 12%, transparent);
+    }
+    h1 {
+      margin: 0;
+      font-family: var(--ea-font-display);
+      font-size: 27px;
+      font-weight: 600;
+      letter-spacing: -.035em;
+      line-height: 1.1;
+    }
+    .page-subtitle {
+      max-width: 720px;
+      margin: 6px 0 0;
+      color: var(--ea-text-3);
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .head-actions {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control {
+      display: inline-flex;
+      height: var(--proto-control-h);
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 8px;
+      background: var(--ea-surface);
+      color: var(--ea-text-2);
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 1px 1px rgba(15,23,42,.02);
+      transition: border-color .14s, background .14s, transform .08s, box-shadow .14s;
+    }
+    .control:hover {
+      border-color: color-mix(in srgb, var(--ea-primary) 36%, var(--ea-border-strong));
+      background: var(--ea-bg-2);
+    }
+    .control:active { transform: translateY(1px); }
+    .control:focus-visible { outline: 0; box-shadow: var(--ea-focus); }
+    .control.primary {
+      border-color: var(--ea-primary);
+      background: var(--ea-primary);
+      color: var(--primary-foreground);
+      box-shadow: 0 6px 16px color-mix(in srgb, var(--ea-primary) 18%, transparent);
+    }
+    .control.primary:hover { background: var(--ea-primary-700); }
+    .control.ghost {
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    /* KPI */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .metric {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      padding: 14px 15px;
+      border: 1px solid var(--ea-border);
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--ea-surface) 96%, transparent);
+      box-shadow: 0 1px 2px rgba(15,23,42,.025);
+      transition: transform .18s var(--proto-ease), box-shadow .18s var(--proto-ease), border-color .18s;
+    }
+    .metric:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--ea-primary) 24%, var(--ea-border));
+      box-shadow: var(--proto-shadow-float);
+    }
+    .metric::after {
+      position: absolute;
+      top: -24px;
+      right: -18px;
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--metric-accent, var(--ea-primary)) 7%, transparent);
+      content: "";
+    }
+    .metric-top {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .metric-label {
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .metric-icon {
+      display: grid;
+      width: 26px;
+      height: 26px;
+      place-items: center;
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--metric-accent, var(--ea-primary)) 10%, var(--ea-surface));
+      color: var(--metric-accent, var(--ea-primary));
+    }
+    .metric-value {
+      position: relative;
+      z-index: 1;
+      margin-top: 8px;
+      font-family: var(--ea-font-mono);
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -.045em;
+    }
+    .metric-meta {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 6px;
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+    }
+    .trend {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      color: var(--ea-success-fg);
+      font-weight: 700;
+    }
+
+    /* Reconciliation strip */
+    .recon-strip {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--ea-success) 26%, var(--ea-border));
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--ea-success) 5%, var(--ea-surface));
+    }
+    .recon-icon {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--ea-success-bg);
+      color: var(--ea-success-fg);
+    }
+    .recon-title {
+      color: var(--ea-success-fg);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .recon-detail {
+      margin-top: 2px;
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+    }
+    .recon-stats {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding-left: 14px;
+      border-left: 1px solid color-mix(in srgb, var(--ea-success) 22%, var(--ea-border));
+    }
+    .recon-stat { text-align: right; }
+    .recon-stat-label { color: var(--ea-text-3); font-size: 8.5px; }
+    .recon-stat-value {
+      margin-top: 2px;
+      font-family: var(--ea-font-mono);
+      font-size: 10.5px;
+      font-weight: 700;
+    }
+
+    /* Tabs and report card */
+    .work-card {
+      margin-top: 14px;
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 12px;
+      background: var(--ea-surface);
+      box-shadow: 0 1px 2px rgba(15,23,42,.025), 0 10px 30px rgba(15,23,42,.035);
+    }
+    .tabbar {
+      display: flex;
+      min-height: 46px;
+      align-items: flex-end;
+      gap: 4px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-bg-2) 55%, var(--ea-surface));
+    }
+    .tab {
+      position: relative;
+      display: inline-flex;
+      height: 45px;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      color: var(--ea-text-3);
+      cursor: pointer;
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+    .tab:hover { color: var(--ea-text-1); }
+    .tab.active { color: var(--ea-primary); }
+    .tab.active::after {
+      position: absolute;
+      right: 7px;
+      bottom: -1px;
+      left: 7px;
+      height: 2px;
+      border-radius: 2px 2px 0 0;
+      background: var(--ea-primary);
+      content: "";
+    }
+    .tab-count {
+      padding: 2px 5px;
+      border-radius: 99px;
+      background: var(--ea-bg-3);
+      color: var(--ea-text-3);
+      font-size: 8px;
+    }
+    .tab.active .tab-count {
+      background: var(--ea-primary-50);
+      color: var(--ea-primary);
+    }
+
+    .toolbar {
+      display: flex;
+      min-height: 48px;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--ea-border);
+    }
+    .filter-search {
+      display: flex;
+      width: 240px;
+      height: 30px;
+      align-items: center;
+      gap: 7px;
+      padding: 0 9px;
+      border: 1px solid var(--ea-border);
+      border-radius: 7px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-3);
+    }
+    .filter-search:focus-within {
+      border-color: var(--ea-primary);
+      background: var(--ea-surface);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--ea-primary) 14%, transparent);
+    }
+    .filter-search input {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ea-text-1);
+      font-size: 10.5px;
+    }
+    .filter-chip {
+      display: inline-flex;
+      height: 29px;
+      align-items: center;
+      gap: 6px;
+      padding: 0 8px;
+      border: 1px solid var(--ea-border);
+      border-radius: 7px;
+      background: var(--ea-surface);
+      color: var(--ea-text-2);
+      cursor: pointer;
+      font-size: 9.5px;
+      font-weight: 600;
+    }
+    .filter-chip:hover { background: var(--ea-bg-2); }
+    .filter-chip .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--ea-primary);
+    }
+    .toolbar-spacer { flex: 1; }
+    .view-switch {
+      display: inline-flex;
+      padding: 2px;
+      border: 1px solid var(--ea-border);
+      border-radius: 7px;
+      background: var(--ea-bg-2);
+    }
+    .view-switch button {
+      display: grid;
+      width: 25px;
+      height: 24px;
+      place-items: center;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--ea-text-3);
+      cursor: pointer;
+    }
+    .view-switch button.active {
+      background: var(--ea-surface);
+      color: var(--ea-primary);
+      box-shadow: 0 1px 2px rgba(15,23,42,.08);
+    }
+
+    /* Cost table */
+    .table-shell { overflow: auto; }
+    .cost-table {
+      width: 100%;
+      min-width: 1410px;
+      border-spacing: 0;
+      border-collapse: separate;
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .cost-table th,
+    .cost-table td {
+      height: 34px;
+      padding: 0 8px;
+      border-right: 1px solid var(--proto-grid-line);
+      border-bottom: 1px solid var(--proto-grid-line);
+      white-space: nowrap;
+    }
+    .cost-table th:last-child,
+    .cost-table td:last-child { border-right: 0; }
+    .cost-table thead th {
+      position: sticky;
+      z-index: 2;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-2);
+      font-weight: 700;
+      text-align: center;
+    }
+    .cost-table thead tr:first-child th {
+      top: 0;
+      height: 31px;
+      border-bottom-color: var(--ea-border-strong);
+      color: var(--ea-text-1);
+      font-size: 9.5px;
+      letter-spacing: .025em;
+    }
+    .cost-table thead tr:nth-child(2) th {
+      top: 31px;
+      height: 29px;
+      color: var(--ea-text-3);
+      font-size: 8.5px;
+      font-weight: 650;
+    }
+    .cost-table thead th.group-c1 { box-shadow: inset 0 2px 0 var(--ea-text-3); }
+    .cost-table thead th.group-in { box-shadow: inset 0 2px 0 var(--ea-primary); }
+    .cost-table thead th.group-out { box-shadow: inset 0 2px 0 var(--ea-warning); }
+    .cost-table thead th.group-c2 { box-shadow: inset 0 2px 0 var(--ea-success); }
+    .cost-table .left { text-align: left; }
+    .cost-table .right {
+      font-family: var(--ea-font-mono);
+      text-align: right;
+    }
+    .cost-table .center { text-align: center; }
+    .cost-table tbody tr.data-row {
+      background: var(--ea-surface);
+      cursor: pointer;
+      transition: background .12s;
+    }
+    .cost-table tbody tr.data-row:hover { background: var(--ea-bg-2); }
+    .cost-table tbody tr.data-row.selected {
+      background: color-mix(in srgb, var(--ea-primary) 6%, var(--ea-surface));
+      box-shadow: inset 3px 0 0 var(--ea-primary);
+    }
+    .cost-table tbody tr.data-row.flagged {
+      box-shadow: inset 3px 0 0 var(--ea-warning);
+    }
+    .cost-table .rowno { color: var(--ea-text-3); }
+    .item-code {
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      font-weight: 700;
+    }
+    .item-name { color: var(--ea-text-1); font-weight: 600; }
+    .muted-number { color: var(--ea-text-3); }
+    .amount-strong { color: var(--ea-text-1); font-weight: 700; }
+    .avg-cell {
+      background: color-mix(in srgb, var(--ea-primary) 3.5%, transparent);
+      color: var(--ea-primary);
+      font-weight: 700;
+    }
+    .balance-cell {
+      background: color-mix(in srgb, var(--ea-success) 3.5%, transparent);
+    }
+    .row-toggle {
+      display: inline-grid;
+      width: 20px;
+      height: 20px;
+      margin-right: 4px;
+      place-items: center;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--ea-text-3);
+      cursor: pointer;
+      vertical-align: middle;
+    }
+    .row-toggle:hover { background: var(--ea-bg-3); color: var(--ea-primary); }
+    .row-toggle svg { transition: transform .16s var(--proto-ease); }
+    .expanded .row-toggle svg { transform: rotate(90deg); }
+    .row-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      font-size: 8.5px;
+      font-weight: 700;
+    }
+    .row-status.ok {
+      background: var(--ea-success-bg);
+      color: var(--ea-success-fg);
+    }
+    .row-status.pending {
+      background: var(--ea-warning-bg);
+      color: var(--ea-warning-fg);
+    }
+    .mini-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .detail-row { display: none; }
+    .detail-row.open { display: table-row; }
+    .detail-row > td {
+      height: auto;
+      padding: 0;
+      background: color-mix(in srgb, var(--ea-bg-2) 70%, var(--ea-surface));
+    }
+    .detail-wrap {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 12px;
+      padding: 12px 14px 14px 58px;
+      border-left: 3px solid var(--ea-primary);
+    }
+    .detail-card {
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+      background: var(--ea-surface);
+    }
+    .detail-head {
+      display: flex;
+      height: 34px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--ea-border);
+      color: var(--ea-text-2);
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+    .detail-head span:last-child {
+      color: var(--ea-text-3);
+      font-family: var(--ea-font-mono);
+      font-size: 8.5px;
+      font-weight: 500;
+    }
+    .detail-list { padding: 4px 0; }
+    .detail-line {
+      display: grid;
+      grid-template-columns: minmax(130px, 1fr) 95px 112px 110px;
+      align-items: center;
+      min-height: 29px;
+      padding: 0 10px;
+      color: var(--ea-text-2);
+      font-size: 9px;
+    }
+    .detail-line:hover { background: var(--ea-bg-2); }
+    .detail-line .value,
+    .detail-line .impact {
+      font-family: var(--ea-font-mono);
+      text-align: right;
+    }
+    .source-link {
+      overflow: hidden;
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .detail-total {
+      border-top: 1px solid var(--ea-border);
+      color: var(--ea-text-1);
+      font-weight: 750;
+    }
+    .issue-list .detail-line {
+      grid-template-columns: minmax(130px, 1fr) 72px 105px minmax(145px, 1fr);
+    }
+    .account {
+      overflow: hidden;
+      color: var(--ea-text-3);
+      font-family: var(--ea-font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .table-footer {
+      display: flex;
+      min-height: 43px;
+      align-items: center;
+      gap: 14px;
+      padding: 0 12px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+    }
+    .table-footer strong {
+      color: var(--ea-text-1);
+      font-family: var(--ea-font-mono);
+    }
+    .footer-spacer { flex: 1; }
+    .pager {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .pager button {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 1px solid var(--ea-border);
+      border-radius: 6px;
+      background: var(--ea-surface);
+      color: var(--ea-text-3);
+      cursor: pointer;
+    }
+    .pager button:hover { color: var(--ea-primary); }
+
+    /* Inspector */
+    .inspector {
+      position: fixed;
+      top: calc(var(--proto-header-h) + 12px);
+      right: 12px;
+      bottom: 12px;
+      z-index: 20;
+      display: flex;
+      width: 360px;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 14px;
+      background: var(--ea-surface);
+      box-shadow: var(--proto-shadow-float);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(24px) scale(.985);
+      transition: opacity .2s var(--proto-ease), transform .2s var(--proto-ease);
+    }
+    .inspector.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0) scale(1);
+    }
+    .inspector-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px;
+      border-bottom: 1px solid var(--ea-border);
+      background: color-mix(in srgb, var(--ea-bg-2) 60%, var(--ea-surface));
+    }
+    .inspector-kicker {
+      color: var(--ea-primary);
+      font-family: var(--ea-font-mono);
+      font-size: 9px;
+      font-weight: 750;
+    }
+    .inspector-title {
+      margin-top: 4px;
+      font-family: var(--ea-font-display);
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -.02em;
+    }
+    .inspector-sub {
+      margin-top: 4px;
+      color: var(--ea-text-3);
+      font-size: 9.5px;
+    }
+    .inspector-body {
+      min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+    }
+    .inspector-metric {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+    }
+    .inspector-metric > div {
+      padding: 10px;
+      border-right: 1px solid var(--ea-border);
+    }
+    .inspector-metric > div:last-child { border-right: 0; }
+    .inspector-metric label {
+      display: block;
+      color: var(--ea-text-3);
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .inspector-metric strong {
+      display: block;
+      margin-top: 5px;
+      font-family: var(--ea-font-mono);
+      font-size: 10.5px;
+    }
+    .inspector-section { margin-top: 17px; }
+    .inspector-section h3 {
+      margin: 0 0 8px;
+      color: var(--ea-text-2);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .trace {
+      position: relative;
+      padding-left: 20px;
+    }
+    .trace::before {
+      position: absolute;
+      top: 9px;
+      bottom: 9px;
+      left: 6px;
+      width: 1px;
+      background: var(--ea-border-strong);
+      content: "";
+    }
+    .trace-item {
+      position: relative;
+      padding: 7px 0 8px;
+    }
+    .trace-item::before {
+      position: absolute;
+      top: 10px;
+      left: -18px;
+      width: 7px;
+      height: 7px;
+      border: 2px solid var(--ea-surface);
+      border-radius: 50%;
+      background: var(--ea-primary);
+      box-shadow: 0 0 0 1px var(--ea-primary);
+      content: "";
+    }
+    .trace-item.done::before { background: var(--ea-success); box-shadow: 0 0 0 1px var(--ea-success); }
+    .trace-title { color: var(--ea-text-1); font-size: 10px; font-weight: 650; }
+    .trace-meta { margin-top: 3px; color: var(--ea-text-3); font-size: 8.5px; }
+    .posting {
+      overflow: hidden;
+      border: 1px solid var(--ea-border);
+      border-radius: 9px;
+    }
+    .posting-line {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 35px;
+      padding: 0 9px;
+      border-bottom: 1px solid var(--ea-border);
+    }
+    .posting-line:last-child { border-bottom: 0; }
+    .dc {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      place-items: center;
+      border-radius: 5px;
+      background: var(--ea-bg-2);
+      color: var(--ea-text-2);
+      font-family: var(--ea-font-mono);
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .posting-account { font-family: var(--ea-font-mono); font-size: 9px; }
+    .posting-name { margin-top: 2px; color: var(--ea-text-3); font-family: var(--ea-font-sans); font-size: 8px; }
+    .posting-amount { font-family: var(--ea-font-mono); font-size: 9.5px; font-weight: 700; }
+    .inspector-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 11px 14px;
+      border-top: 1px solid var(--ea-border);
+      background: var(--ea-bg-2);
+    }
+    .gl-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--ea-success-fg);
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    /* Command dialog */
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: grid;
+      place-items: start center;
+      padding-top: 14vh;
+      background: var(--ea-overlay);
+      opacity: 0;
+      pointer-events: none;
+      backdrop-filter: blur(8px);
+      transition: opacity .16s;
+    }
+    .backdrop.open { opacity: 1; pointer-events: auto; }
+    .command {
+      width: min(600px, calc(100vw - 32px));
+      overflow: hidden;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 14px;
+      background: var(--ea-surface);
+      box-shadow: var(--ea-shadow-3);
+      transform: translateY(-8px) scale(.985);
+      transition: transform .18s var(--proto-ease);
+    }
+    .backdrop.open .command { transform: translateY(0) scale(1); }
+    .command-input {
+      display: flex;
+      height: 54px;
+      align-items: center;
+      gap: 10px;
+      padding: 0 15px;
+      border-bottom: 1px solid var(--ea-border);
+    }
+    .command-input input {
+      min-width: 0;
+      flex: 1;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ea-text-1);
+      font-size: 14px;
+    }
+    .command-list { padding: 8px; }
+    .command-label {
+      padding: 7px 8px 5px;
+      color: var(--ea-text-3);
+      font-size: 8.5px;
+      font-weight: 750;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .command-item {
+      display: flex;
+      min-height: 40px;
+      align-items: center;
+      gap: 10px;
+      padding: 0 9px;
+      border-radius: 8px;
+      color: var(--ea-text-2);
+    }
+    .command-item.active {
+      background: var(--ea-primary-50);
+      color: var(--ea-primary);
+    }
+    .command-item span:last-child { margin-left: auto; color: var(--ea-text-3); font-size: 9px; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 60;
+      display: flex;
+      min-width: 290px;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 12px;
+      border: 1px solid var(--ea-border-strong);
+      border-radius: 10px;
+      background: var(--ea-surface);
+      box-shadow: var(--proto-shadow-float);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity .18s, transform .18s var(--proto-ease);
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast-icon {
+      display: grid;
+      width: 27px;
+      height: 27px;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--ea-success-bg);
+      color: var(--ea-success-fg);
+    }
+    .toast-title { font-size: 10px; font-weight: 700; }
+    .toast-sub { margin-top: 2px; color: var(--ea-text-3); font-size: 8.5px; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    body.compact {
+      --proto-control-h: 30px;
+    }
+    body.compact .metric { padding: 11px 13px; }
+    body.compact .metric-value { font-size: 17px; }
+    body.compact .cost-table th,
+    body.compact .cost-table td { height: 29px; }
+    body.compact .cost-table thead tr:first-child th { height: 27px; }
+    body.compact .cost-table thead tr:nth-child(2) th { top: 27px; height: 25px; }
+
+    @media (max-width: 1180px) {
+      :root { --proto-sidebar-w: 70px; }
+      .brand-copy, .nav-label, .nav-item span, .nav-badge, .sidebar-foot { display: none; }
+      .brand { justify-content: center; padding: 0; }
+      .nav-item { justify-content: center; padding: 0; }
+      .nav-item.active::before { left: 0; }
+      .profile-copy { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 5h12M6 12h8M6 19h12"/>
+            <path d="M4 3v18"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <div class="brand-name">Entry</div>
+          <div class="brand-edition">Accounting system</div>
+        </div>
+      </div>
+
+      <div class="topbar-main">
+        <button class="module-pill" type="button">
+          <span class="icon-box" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+              <path d="m12 2 8 4-8 4-8-4 8-4Z"/><path d="m4 10 8 4 8-4M4 14l8 4 8-4"/>
+            </svg>
+          </span>
+          Бараа материал
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+
+        <label class="command-search" id="commandSearch">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input type="text" placeholder="Баримт, бараа, данс хайх…" aria-label="Системээс хайх">
+          <span class="kbd">⌘ K</span>
+        </label>
+
+        <div class="topbar-spacer"></div>
+
+        <button class="icon-button" id="densityToggle" type="button" aria-label="Хүснэгтийн нягтрал солих" title="Нягтрал">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <button class="icon-button" id="themeToggle" type="button" aria-label="Өнгөний горим солих" title="Light / dark">
+          <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 15.2A8.5 8.5 0 1 1 8.8 4 7 7 0 0 0 20 15.2Z"/></svg>
+        </button>
+        <button class="icon-button" type="button" aria-label="Мэдэгдэл">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 7h18s-3 0-3-7"/><path d="M10 19h4"/></svg>
+        </button>
+        <div class="profile">
+          <div class="avatar">ТЭ</div>
+          <div class="profile-copy">
+            <div class="profile-name">Төгөлдөр Э.</div>
+            <div class="profile-org">Entry Demo LLC</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <div class="nav-scroll">
+        <div class="nav-section">
+          <div class="nav-label">Өртгийн удирдлага</div>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span>Тойм</span>
+          </button>
+          <button class="nav-item active" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5M4 19h16"/><path d="m7 14 3-3 3 2 5-6"/></svg>
+            <span>Өртгийн хяналт</span>
+          </button>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="2"/></svg>
+            <span>Гүйлгээний дэлгэрэнгүй</span>
+          </button>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="8"/></svg>
+            <span>Өртгийн бүрэлдэхүүн</span>
+            <span class="nav-badge">3</span>
+          </button>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 17h16"/><path d="m8 4-4 3 4 3M16 14l4 3-4 3"/></svg>
+            <span>Тулгалт</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">Бараа материал</div>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 2 8 4-8 4-8-4 8-4Z"/><path d="M4 6v12l8 4 8-4V6M12 10v12"/></svg>
+            <span>Барааны жагсаалт</span>
+          </button>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M7 6V3h10v3M5 6l1 15h12l1-15"/><path d="M9 10v7M15 10v7"/></svg>
+            <span>Орлого, зарлага</span>
+          </button>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v13H3z"/><path d="m3 7 4-4h10l4 4M8 12h8"/></svg>
+            <span>Агуулах</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-label">Тохиргоо</div>
+          <button class="nav-item" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+            <span>Өртгийн тохиргоо</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-foot">
+        <div class="close-title">
+          <span>7-р сарын хаалт</span>
+          <span style="color:var(--ea-success-fg)">82%</span>
+        </div>
+        <div class="close-value">2026.07</div>
+        <div class="progress"><span></span></div>
+        <div class="close-meta"><span>9 / 11 хяналт</span><span>2 үлдсэн</span></div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="page">
+        <div class="crumbs">
+          <span>Бараа материал</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          <span class="current">Өртгийн хяналт</span>
+        </div>
+
+        <div class="page-head">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-dot"></span> Inventory cost management</div>
+            <h1>Өртгийн хяналтын тайлан</h1>
+            <p class="page-subtitle">Эхний үлдэгдэл, орлого, зарлага болон эцсийн үлдэгдлийг periodic weighted average аргаар нэг дэлгэцээс хянаж, дансны бичилт хүртэл мөрдөнө.</p>
+          </div>
+          <div class="head-actions">
+            <button class="control" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+              2026 оны 7-р сар
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 10 5 5 5-5"/></svg>
+            </button>
+            <button class="control" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+              Excel
+            </button>
+            <button class="control primary" id="recalculate" type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 7h-5V2"/><path d="M20 7a8 8 0 1 0 1 7"/></svg>
+              Өртөг дахин бодох
+            </button>
+          </div>
+        </div>
+
+        <section class="summary-grid" aria-label="Өртгийн хураангуй">
+          <article class="metric" style="--metric-accent:var(--ea-primary)">
+            <div class="metric-top">
+              <span class="metric-label">Эцсийн үлдэгдэл</span>
+              <span class="metric-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 19V5M4 19h16"/><path d="m7 14 3-3 3 2 5-6"/></svg>
+              </span>
+            </div>
+            <div class="metric-value">₮ 1.284B</div>
+            <div class="metric-meta"><span class="trend">↗ 4.8%</span><span>өмнөх сараас</span></div>
+          </article>
+          <article class="metric" style="--metric-accent:var(--ea-primary)">
+            <div class="metric-top">
+              <span class="metric-label">Орлогодсон өртөг</span>
+              <span class="metric-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M4 21h16"/></svg>
+              </span>
+            </div>
+            <div class="metric-value">₮ 864.6M</div>
+            <div class="metric-meta"><span>142 орлогын баримт</span><span>•</span><span>38 бараа</span></div>
+          </article>
+          <article class="metric" style="--metric-accent:var(--ea-warning)">
+            <div class="metric-top">
+              <span class="metric-label">Зарлагын өртөг</span>
+              <span class="metric-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21V8M7 13l5-5 5 5"/><path d="M4 3h16"/></svg>
+              </span>
+            </div>
+            <div class="metric-value">₮ 792.3M</div>
+            <div class="metric-meta"><span>ББӨ 68%</span><span>•</span><span>ДҮ 24%</span><span>•</span><span>Бусад 8%</span></div>
+          </article>
+          <article class="metric" style="--metric-accent:var(--ea-warning)">
+            <div class="metric-top">
+              <span class="metric-label">Анхаарах зүйл</span>
+              <span class="metric-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/></svg>
+              </span>
+            </div>
+            <div class="metric-value">3</div>
+            <div class="metric-meta"><span style="color:var(--ea-warning-fg);font-weight:700">Хувиарлаагүй өртөг</span><span>₮ 12.4M</span></div>
+          </article>
+        </section>
+
+        <section class="recon-strip" aria-label="Тулгалтын төлөв">
+          <div class="recon-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="m5 12 4 4L19 6"/></svg>
+          </div>
+          <div>
+            <div class="recon-title">Inventory subledger болон GL тэнцсэн</div>
+            <div class="recon-detail">2026.07.28 13:42-д шалгав • 1,248 гүйлгээ • зөрүүгүй</div>
+          </div>
+          <div class="recon-stats">
+            <div class="recon-stat"><div class="recon-stat-label">Subledger</div><div class="recon-stat-value">₮ 1,284,220,400</div></div>
+            <div class="recon-stat"><div class="recon-stat-label">General Ledger</div><div class="recon-stat-value">₮ 1,284,220,400</div></div>
+            <div class="recon-stat"><div class="recon-stat-label">Зөрүү</div><div class="recon-stat-value" style="color:var(--ea-success-fg)">₮ 0</div></div>
+          </div>
+        </section>
+
+        <section class="work-card">
+          <div class="tabbar" role="tablist" aria-label="Өртгийн тайлангууд">
+            <button class="tab active" type="button" role="tab" aria-selected="true">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 19V5M4 19h16"/><path d="m7 14 3-3 3 2 5-6"/></svg>
+              Өртгийн хяналт
+            </button>
+            <button class="tab" type="button" role="tab" aria-selected="false">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+              Гүйлгээний дэлгэрэнгүй
+              <span class="tab-count">1,248</span>
+            </button>
+            <button class="tab" type="button" role="tab" aria-selected="false">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>
+              Өртгийн бүрэлдэхүүн
+              <span class="tab-count">8</span>
+            </button>
+            <button class="tab" type="button" role="tab" aria-selected="false">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 7h16M4 17h16"/><path d="m8 4-4 3 4 3M16 14l4 3-4 3"/></svg>
+              Түр дансны тулгалт
+              <span class="tab-count">3</span>
+            </button>
+          </div>
+
+          <div class="toolbar">
+            <label class="filter-search">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+              <input type="search" id="itemSearch" placeholder="Барааны код эсвэл нэр…" aria-label="Бараа хайх">
+            </label>
+            <button class="filter-chip" type="button"><span class="dot"></span> Бүх агуулах <span>⌄</span></button>
+            <button class="filter-chip" type="button">Барааны бүлэг <span>⌄</span></button>
+            <button class="filter-chip" type="button">Төлөв: Бүгд <span>⌄</span></button>
+            <button class="control ghost" type="button" style="height:29px;padding:0 7px;color:var(--ea-text-3)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="m6 6 12 12M18 6 6 18"/></svg>
+              Цэвэрлэх
+            </button>
+            <div class="toolbar-spacer"></div>
+            <span style="color:var(--ea-text-3);font-size:9px">38 бараа</span>
+            <div class="view-switch" aria-label="Харагдац">
+              <button class="active" type="button" aria-label="Хүснэгт">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4zM4 10h16M9 5v14"/></svg>
+              </button>
+              <button type="button" aria-label="Бүлэглэсэн харагдац">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></svg>
+              </button>
+            </div>
+            <button class="icon-button" type="button" aria-label="Багана тохируулах" style="width:29px;height:29px;border-color:var(--ea-border)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="9" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="19" r="2"/></svg>
+            </button>
+          </div>
+
+          <div class="table-shell">
+            <table class="cost-table" aria-label="Өртгийн хяналтын тайлан">
+              <colgroup>
+                <col style="width:42px"><col style="width:118px"><col style="width:190px"><col style="width:82px">
+                <col span="12" style="width:89px"><col style="width:90px">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th rowspan="2">#</th>
+                  <th rowspan="2" class="left">Item code</th>
+                  <th rowspan="2" class="left">Item description</th>
+                  <th rowspan="2">UoM</th>
+                  <th colspan="3" class="group-c1">C1 · Эхний үлдэгдэл</th>
+                  <th colspan="3" class="group-in">Inbound · Орлого</th>
+                  <th colspan="3" class="group-out">Outbound · Зарлага</th>
+                  <th colspan="3" class="group-c2">C2 · Эцсийн үлдэгдэл</th>
+                  <th rowspan="2">Төлөв</th>
+                </tr>
+                <tr>
+                  <th>Qty</th><th>Unit cost</th><th>Amount</th>
+                  <th>Qty</th><th>Unit cost</th><th>Amount</th>
+                  <th>Qty</th><th>Unit cost</th><th>Amount</th>
+                  <th>Qty</th><th>Unit cost</th><th>Amount</th>
+                </tr>
+              </thead>
+              <tbody id="costRows">
+                <tr class="data-row selected expanded" data-item="RM-001 Ган төмөр">
+                  <td class="center rowno">01</td>
+                  <td class="left">
+                    <button class="row-toggle" type="button" aria-label="Задаргаа харуулах" aria-expanded="true">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+                    </button><span class="item-code">RM-001</span>
+                  </td>
+                  <td class="left item-name">Ган төмөр · 2мм</td><td class="center">кг</td>
+                  <td class="right muted-number">8,240.00</td><td class="right">5,420.00</td><td class="right">44,660,800</td>
+                  <td class="right">12,600.00</td><td class="right">5,720.00</td><td class="right amount-strong">72,072,000</td>
+                  <td class="right">14,180.00</td><td class="right avg-cell">5,601.45</td><td class="right">79,429,060</td>
+                  <td class="right balance-cell">6,660.00</td><td class="right avg-cell balance-cell">5,601.45</td><td class="right amount-strong balance-cell">37,303,740</td>
+                  <td class="center"><span class="row-status ok"><span class="mini-dot"></span>Тэнцсэн</span></td>
+                </tr>
+                <tr class="detail-row open">
+                  <td colspan="17">
+                    <div class="detail-wrap">
+                      <div class="detail-card">
+                        <div class="detail-head"><span>Inbound · Өртгийн бүрэлдэхүүн</span><span>12,600.00 кг</span></div>
+                        <div class="detail-list">
+                          <div class="detail-line"><span>Худалдан авалтын үнэ</span><span class="impact">4,980.00 / кг</span><span class="value">62,748,000</span><span class="source-link">PI-2026-0718</span></div>
+                          <div class="detail-line"><span>Олон улсын тээвэр</span><span class="impact">340.00 / кг</span><span class="value">4,284,000</span><span class="source-link">FRT-000184</span></div>
+                          <div class="detail-line"><span>Гаалийн татвар</span><span class="impact">310.00 / кг</span><span class="value">3,906,000</span><span class="source-link">CUS-260718</span></div>
+                          <div class="detail-line"><span>Даатгал</span><span class="impact">90.00 / кг</span><span class="value">1,134,000</span><span class="source-link">INS-000042</span></div>
+                          <div class="detail-line detail-total"><span>Нийт орлогодох өртөг</span><span class="impact">5,720.00 / кг</span><span class="value">72,072,000</span><span></span></div>
+                        </div>
+                      </div>
+                      <div class="detail-card issue-list">
+                        <div class="detail-head"><span>Outbound · Зарлагын төрөл</span><span>14,180.00 кг</span></div>
+                        <div class="detail-list">
+                          <div class="detail-line"><span>Үйлдвэрлэлд тавьсан</span><span class="value">9,800 кг</span><span class="value">54,894,210</span><span class="account">Dr 14100000 · ДҮ</span></div>
+                          <div class="detail-line"><span>Борлуулалтын зарлага</span><span class="value">3,900 кг</span><span class="value">21,845,655</span><span class="account">Dr 61100000 · ББӨ</span></div>
+                          <div class="detail-line"><span>Удирдлагын хэрэглээ</span><span class="value">480 кг</span><span class="value">2,689,195</span><span class="account">Dr 73100000 · УЗ</span></div>
+                          <div class="detail-line detail-total"><span>Нийт зарлага</span><span class="value">14,180 кг</span><span class="value">79,429,060</span><span class="account">Cr 14010000 · БМ</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+
+                <tr class="data-row" data-item="RM-014 Үйлдвэрийн будаг">
+                  <td class="center rowno">02</td>
+                  <td class="left"><button class="row-toggle" type="button" aria-label="Задаргаа харуулах" aria-expanded="false"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button><span class="item-code">RM-014</span></td>
+                  <td class="left item-name">Үйлдвэрийн будаг · Саарал</td><td class="center">л</td>
+                  <td class="right muted-number">1,420.00</td><td class="right">18,200.00</td><td class="right">25,844,000</td>
+                  <td class="right">2,800.00</td><td class="right">19,640.00</td><td class="right amount-strong">54,992,000</td>
+                  <td class="right">3,180.00</td><td class="right avg-cell">19,155.45</td><td class="right">60,912,331</td>
+                  <td class="right balance-cell">1,040.00</td><td class="right avg-cell balance-cell">19,155.45</td><td class="right amount-strong balance-cell">19,923,669</td>
+                  <td class="center"><span class="row-status ok"><span class="mini-dot"></span>Тэнцсэн</span></td>
+                </tr>
+                <tr class="detail-row"><td colspan="17"></td></tr>
+
+                <tr class="data-row flagged" data-item="PK-002 Сав баглаа">
+                  <td class="center rowno">03</td>
+                  <td class="left"><button class="row-toggle" type="button" aria-label="Задаргаа харуулах" aria-expanded="false"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button><span class="item-code">PK-002</span></td>
+                  <td class="left item-name">Сав баглаа · 500мл</td><td class="center">ш</td>
+                  <td class="right muted-number">24,800.00</td><td class="right">620.00</td><td class="right">15,376,000</td>
+                  <td class="right">40,000.00</td><td class="right">—</td><td class="right" style="color:var(--ea-warning-fg)">24,800,000</td>
+                  <td class="right">38,400.00</td><td class="right avg-cell">619.65</td><td class="right">23,795,076</td>
+                  <td class="right balance-cell">26,400.00</td><td class="right avg-cell balance-cell">619.65</td><td class="right amount-strong balance-cell">16,380,924</td>
+                  <td class="center"><span class="row-status pending"><span class="mini-dot"></span>Хүлээгдэж буй</span></td>
+                </tr>
+                <tr class="detail-row"><td colspan="17"></td></tr>
+
+                <tr class="data-row" data-item="FG-101 Бэлэн бүтээгдэхүүн А">
+                  <td class="center rowno">04</td>
+                  <td class="left"><button class="row-toggle" type="button" aria-label="Задаргаа харуулах" aria-expanded="false"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button><span class="item-code">FG-101</span></td>
+                  <td class="left item-name">Бэлэн бүтээгдэхүүн · Model A</td><td class="center">ш</td>
+                  <td class="right muted-number">3,240.00</td><td class="right">42,800.00</td><td class="right">138,672,000</td>
+                  <td class="right">5,600.00</td><td class="right">44,960.00</td><td class="right amount-strong">251,776,000</td>
+                  <td class="right">6,900.00</td><td class="right avg-cell">44,168.78</td><td class="right">304,764,582</td>
+                  <td class="right balance-cell">1,940.00</td><td class="right avg-cell balance-cell">44,168.78</td><td class="right amount-strong balance-cell">85,683,418</td>
+                  <td class="center"><span class="row-status ok"><span class="mini-dot"></span>Тэнцсэн</span></td>
+                </tr>
+                <tr class="detail-row"><td colspan="17"></td></tr>
+
+                <tr class="data-row" data-item="SP-008 Сэлбэг хэрэгсэл">
+                  <td class="center rowno">05</td>
+                  <td class="left"><button class="row-toggle" type="button" aria-label="Задаргаа харуулах" aria-expanded="false"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button><span class="item-code">SP-008</span></td>
+                  <td class="left item-name">Машины сэлбэг · Set 08</td><td class="center">ком</td>
+                  <td class="right muted-number">18.00</td><td class="right">685,000.00</td><td class="right">12,330,000</td>
+                  <td class="right">12.00</td><td class="right">712,400.00</td><td class="right amount-strong">8,548,800</td>
+                  <td class="right">8.00</td><td class="right avg-cell">695,960.00</td><td class="right">5,567,680</td>
+                  <td class="right balance-cell">22.00</td><td class="right avg-cell balance-cell">695,960.00</td><td class="right amount-strong balance-cell">15,311,120</td>
+                  <td class="center"><span class="row-status ok"><span class="mini-dot"></span>Тэнцсэн</span></td>
+                </tr>
+                <tr class="detail-row"><td colspan="17"></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="table-footer">
+            <span>Нийт C1: <strong>₮ 236,882,800</strong></span>
+            <span>Inbound: <strong>₮ 412,188,800</strong></span>
+            <span>Outbound: <strong>₮ 474,468,729</strong></span>
+            <span>C2: <strong>₮ 174,602,871</strong></span>
+            <div class="footer-spacer"></div>
+            <span>1–5 / 38</span>
+            <div class="pager">
+              <button type="button" aria-label="Өмнөх хуудас"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+              <button type="button" aria-label="Дараагийн хуудас"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <aside class="inspector" id="inspector" aria-label="Гүйлгээний мөрдөлт">
+    <div class="inspector-head">
+      <div>
+        <div class="inspector-kicker">RM-001 · INVENTORY TRACE</div>
+        <div class="inspector-title">Ган төмөр · 2мм</div>
+        <div class="inspector-sub">Main warehouse · 2026 оны 7-р сар</div>
+      </div>
+      <button class="icon-button" id="closeInspector" type="button" aria-label="Хаах">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="inspector-body">
+      <div class="inspector-metric">
+        <div><label>Qty</label><strong>6,660 кг</strong></div>
+        <div><label>Unit cost</label><strong>5,601.45</strong></div>
+        <div><label>C2 amount</label><strong>37.30M</strong></div>
+      </div>
+
+      <section class="inspector-section">
+        <h3>Source to GL trace</h3>
+        <div class="trace">
+          <div class="trace-item done"><div class="trace-title">Purchase invoice</div><div class="trace-meta">PI-2026-0718 · Golden Steel LLC</div></div>
+          <div class="trace-item done"><div class="trace-title">Goods receipt</div><div class="trace-meta">GR-000842 · Main warehouse · 12,600 кг</div></div>
+          <div class="trace-item done"><div class="trace-title">Cost allocation</div><div class="trace-meta">LC-000219 · 4 бүрэлдэхүүн · ₮72,072,000</div></div>
+          <div class="trace-item done"><div class="trace-title">Periodic cost calculation</div><div class="trace-meta">2026.07 · Average ₮5,601.45</div></div>
+          <div class="trace-item"><div class="trace-title">General Ledger</div><div class="trace-meta">JV-2026-07-01842 · Posted</div></div>
+        </div>
+      </section>
+
+      <section class="inspector-section">
+        <h3>Journal posting</h3>
+        <div class="posting">
+          <div class="posting-line">
+            <span class="dc">Dr</span>
+            <div><div class="posting-account">14100000</div><div class="posting-name">Дуусаагүй үйлдвэрлэл</div></div>
+            <span class="posting-amount">54,894,210</span>
+          </div>
+          <div class="posting-line">
+            <span class="dc">Dr</span>
+            <div><div class="posting-account">61100000</div><div class="posting-name">Бараа борлуулсны өртөг</div></div>
+            <span class="posting-amount">21,845,655</span>
+          </div>
+          <div class="posting-line">
+            <span class="dc">Dr</span>
+            <div><div class="posting-account">73100000</div><div class="posting-name">Удирдлагын зардал</div></div>
+            <span class="posting-amount">2,689,195</span>
+          </div>
+          <div class="posting-line">
+            <span class="dc">Cr</span>
+            <div><div class="posting-account">14010000</div><div class="posting-name">Бараа материал</div></div>
+            <span class="posting-amount">79,429,060</span>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="inspector-foot">
+      <span class="gl-status"><span class="mini-dot"></span> GL-д бичигдсэн</span>
+      <button class="control" type="button">JV-2026-07-01842 →</button>
+    </div>
+  </aside>
+
+  <div class="backdrop" id="commandBackdrop" role="dialog" aria-modal="true" aria-label="Түргэн хайлт">
+    <div class="command">
+      <label class="command-input">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <input id="commandInput" type="text" placeholder="Бараа, баримт, данс эсвэл үйлдэл хайх…">
+        <span class="kbd">ESC</span>
+      </label>
+      <div class="command-list">
+        <div class="command-label">Түргэн үйлдэл</div>
+        <div class="command-item active">
+          <span class="metric-icon" style="width:25px;height:25px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-5V2"/><path d="M20 7a8 8 0 1 0 1 7"/></svg></span>
+          Өртөг дахин бодох
+          <span>⌘ ↵</span>
+        </div>
+        <div class="command-item">
+          <span class="metric-icon" style="width:25px;height:25px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>
+          Inventory transaction detail нээх
+          <span>G then T</span>
+        </div>
+        <div class="command-item">
+          <span class="metric-icon" style="width:25px;height:25px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 17h16"/><path d="m8 4-4 3 4 3"/></svg></span>
+          Inventory ↔ GL тулгалт
+          <span>G then R</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <div class="toast-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
+    </div>
+    <div><div class="toast-title">Өртгийн тооцоо шинэчлэгдлээ</div><div class="toast-sub">38 бараа · 1,248 гүйлгээ · зөрүүгүй</div></div>
+  </div>
+
+  <script>
+    const root = document.documentElement;
+    const body = document.body;
+    const themeToggle = document.getElementById("themeToggle");
+    const densityToggle = document.getElementById("densityToggle");
+    const inspector = document.getElementById("inspector");
+    const closeInspector = document.getElementById("closeInspector");
+    const commandBackdrop = document.getElementById("commandBackdrop");
+    const commandInput = document.getElementById("commandInput");
+    const commandSearch = document.getElementById("commandSearch");
+    const itemSearch = document.getElementById("itemSearch");
+    const toast = document.getElementById("toast");
+    const recalculate = document.getElementById("recalculate");
+
+    const params = new URLSearchParams(location.search);
+    const savedTheme = params.get("theme") || localStorage.getItem("ea-super-preview-theme");
+    root.classList.toggle("dark", savedTheme === "dark");
+    body.classList.toggle("compact", params.get("density") === "compact");
+
+    themeToggle.addEventListener("click", () => {
+      root.classList.toggle("dark");
+      localStorage.setItem("ea-super-preview-theme", root.classList.contains("dark") ? "dark" : "light");
+    });
+
+    densityToggle.addEventListener("click", () => {
+      body.classList.toggle("compact");
+      densityToggle.style.color = body.classList.contains("compact") ? "var(--ea-primary)" : "";
+    });
+
+    function selectRow(row) {
+      document.querySelectorAll(".data-row").forEach(r => r.classList.remove("selected"));
+      row.classList.add("selected");
+      inspector.classList.add("open");
+    }
+
+    document.querySelectorAll(".data-row").forEach(row => {
+      row.addEventListener("click", event => {
+        if (event.target.closest(".row-toggle")) return;
+        selectRow(row);
+      });
+    });
+
+    document.querySelectorAll(".row-toggle").forEach(button => {
+      button.addEventListener("click", event => {
+        event.stopPropagation();
+        const row = button.closest(".data-row");
+        const detail = row.nextElementSibling;
+        const open = !detail.classList.contains("open");
+        document.querySelectorAll(".detail-row").forEach(r => r.classList.remove("open"));
+        document.querySelectorAll(".data-row").forEach(r => r.classList.remove("expanded"));
+        document.querySelectorAll(".row-toggle").forEach(b => b.setAttribute("aria-expanded", "false"));
+        if (open) {
+          detail.classList.add("open");
+          row.classList.add("expanded", "selected");
+          button.setAttribute("aria-expanded", "true");
+        }
+      });
+    });
+
+    closeInspector.addEventListener("click", () => inspector.classList.remove("open"));
+
+    function openCommand() {
+      commandBackdrop.classList.add("open");
+      setTimeout(() => commandInput.focus(), 40);
+    }
+    function closeCommand() {
+      commandBackdrop.classList.remove("open");
+    }
+    commandSearch.addEventListener("click", openCommand);
+    commandSearch.querySelector("input").addEventListener("focus", openCommand);
+    commandBackdrop.addEventListener("click", event => {
+      if (event.target === commandBackdrop) closeCommand();
+    });
+    document.addEventListener("keydown", event => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openCommand();
+      }
+      if (event.key === "Escape") {
+        closeCommand();
+        inspector.classList.remove("open");
+      }
+    });
+
+    itemSearch.addEventListener("input", () => {
+      const q = itemSearch.value.trim().toLowerCase();
+      document.querySelectorAll(".data-row").forEach(row => {
+        const visible = row.dataset.item.toLowerCase().includes(q);
+        row.style.display = visible ? "" : "none";
+        const detail = row.nextElementSibling;
+        if (!visible) detail.classList.remove("open");
+      });
+    });
+
+    recalculate.addEventListener("click", () => {
+      recalculate.disabled = true;
+      recalculate.innerHTML = '<span style="width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .65s linear infinite"></span> Тооцоолж байна…';
+      const style = document.createElement("style");
+      style.textContent = "@keyframes spin{to{transform:rotate(360deg)}}";
+      document.head.appendChild(style);
+      setTimeout(() => {
+        recalculate.disabled = false;
+        recalculate.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 7h-5V2"/><path d="M20 7a8 8 0 1 0 1 7"/></svg> Өртөг дахин бодох';
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 2600);
+      }, 1100);
+    });
+  </script>
+</body>
+</html>

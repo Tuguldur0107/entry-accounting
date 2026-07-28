@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { CostingReportView } from "@/components/costing/costing-report-view";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
   chartOfAccounts,
   costEntries,
@@ -11,8 +12,6 @@ import {
   journalVouchers,
 } from "@/lib/db/schema";
 import {
-  CLEARING_ACCOUNT,
-  NRV_RESERVE_ACCOUNT,
   computeCostingRun,
   type CostEntryType,
   type PostedEntryRef,
@@ -169,12 +168,15 @@ export default async function CostingReportsPage() {
     );
   }
 
+  // Дансны рольууд тохиргооноос (JPR-006).
+  const costingAccounts = await loadCostingAccountSettings(userId);
+
   // NRV-ийн posted нөлөө contra-нөөц дансанд (кредит үлдэгдэл → сөрөг).
   let nrvPostedTotal = 0;
   for (const amount of nrvPostedByItem.values()) nrvPostedTotal += amount;
   if (Math.abs(nrvPostedTotal) > 0.005)
     subledgerByAccount.set(
-      NRV_RESERVE_ACCOUNT,
+      costingAccounts.nrvReserveAccountNumber,
       Math.round(-nrvPostedTotal * 100) / 100
     );
 
@@ -182,7 +184,8 @@ export default async function CostingReportsPage() {
   for (const voucher of vouchers) {
     for (const line of voucher.lines) {
       const main = mainAccountOf(line.accountNumber);
-      if (!main.startsWith("14") || main === CLEARING_ACCOUNT) continue;
+      if (!main.startsWith("14") || main === costingAccounts.clearingAccountNumber)
+        continue;
       glByAccount.set(
         main,
         (glByAccount.get(main) ?? 0) + Number(line.debit) - Number(line.credit)

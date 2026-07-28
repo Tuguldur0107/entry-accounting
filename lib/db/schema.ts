@@ -89,6 +89,10 @@ export const journalLines = pgTable(
       .notNull()
       .references(() => journalVouchers.id, { onDelete: "cascade" }),
     cashAccountId: uuid("cash_account_id"),
+    // Дэд дэвтрийн эх сурвалж (FR-ARCH-001: Source → Movement → Cost → GL мөр
+    // → Журнал). FK биш — дэд дэвтэр устахад журнал үлдэх ёстой (аудит).
+    costEntryId: uuid("cost_entry_id"),
+    inventoryMovementId: uuid("inventory_movement_id"),
     accountNumber: text("account_number").notNull(),
     debit: numeric("debit", { precision: 18, scale: 2 }).notNull().default("0"),
     credit: numeric("credit", { precision: 18, scale: 2 })
@@ -776,6 +780,11 @@ export const inventoryMovements = pgTable(
     quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
     description: text("description").notNull().default(""),
     status: text("status").notNull().default("draft"), // "draft" | "confirmed" | "cancelled"
+    // Зарлагын төрөл — өртгийн дебет чиглэлийг шийднэ (FR-ISSUE-001/002).
+    // Зөвхөн зарлагад хамаарна; орлого/шилжүүлэгт null.
+    issueTypeId: uuid("issue_type_id").references(() => inventoryIssueTypes.id, {
+      onDelete: "restrict",
+    }),
     sourceType: text("source_type").notNull().default("manual"), // "manual" | "arap_line" | "gl_voucher" | "cash_document"
     sourceId: uuid("source_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -807,6 +816,90 @@ export const costingItemSettings = pgTable(
   },
   (t) => [unique().on(t.userId, t.itemId)]
 );
+
+// ── Өртгийн master data (docs/cost FR-MD-CC-*, FR-MD-IT-*) ──────────────────
+// Хоёулаа ХЭРЭГЛЭГЧИЙН тохируулдаг лавлах — код дотор хаалттай жагсаалт
+// байхыг spec хориглодог (FR-MD-CC-002, FR-PR-005). Устгахгүй, зөвхөн
+// идэвхгүй болгоно (FR-AUD-004); өөрчлөлт нь аудитлагдана (FR-AUD-002).
+
+export const costComponents = pgTable(
+  "cost_components",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    // Бүлэглэл/тайлангийн ангилал — ЧӨЛӨӨТ текст. Ангиллын жагсаалт нь
+    // нээлттэй шийдвэр тул enum болгохгүй (docs/cost 7.1).
+    classification: text("classification").notNull().default(""),
+    // Journal-д холбогдох данс (сонголтоор) — байхгүй бол зөвхөн
+    // ангилал/тайлангийн зорилготой компонент.
+    accountNumber: text("account_number"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+export const inventoryIssueTypes = pgTable(
+  "inventory_issue_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    // Зориулалтын ангилал (COGS / удирдлагын зардал / үйлдвэрлэл-WIP …) —
+    // ЧӨЛӨӨТ текст, хаалттай жагсаалт биш (FR-MD-IT-002).
+    destinationClass: text("destination_class").notNull().default(""),
+    /**
+     * Дебет дансыг хаанаас шийдэх вэ (posting profile, FR-MD-IT-002):
+     *   "fixed"     — debitAccountNumber-ийг шууд хэрэглэнэ
+     *   "item_cogs" — тухайн барааны costing_item_settings.cogsAccountNumber
+     */
+    debitAccountSource: text("debit_account_source")
+      .notNull()
+      .default("fixed"),
+    debitAccountNumber: text("debit_account_number"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+/**
+ * Өртгийн модулийн дансны РОЛЬ-ууд. Урьд нь эдгээр нь кодод хатуу бичигдсэн
+ * тогтмолууд байсан (JPR-006 зөрчил) — одоо хэрэглэгчийн тохиргоо.
+ * Эхний уншилтад өнөөгийн утгуудаар seed хийгдэнэ (product owner
+ * "одоогийн дүрмийг батлагдсан болгоё" гэж шийдсэн — README change-control).
+ */
+export const costingAccountSettings = pgTable("costing_account_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Орлогын эсрэг тал — худалдан авалтын клиринг. */
+  clearingAccountNumber: text("clearing_account_number").notNull(),
+  /** Тооллогын илүүдэл (орлого). */
+  adjustmentGainAccountNumber: text("adjustment_gain_account_number").notNull(),
+  /** Тооллогын дутагдал (зардал). */
+  adjustmentLossAccountNumber: text("adjustment_loss_account_number").notNull(),
+  /** NRV бууруулалтын зардал. */
+  nrvExpenseAccountNumber: text("nrv_expense_account_number").notNull(),
+  /** NRV нөөц (contra-хөрөнгө). */
+  nrvReserveAccountNumber: text("nrv_reserve_account_number").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 export const costingRuns = pgTable("costing_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -844,6 +937,25 @@ export const costEntries = pgTable("cost_entries", {
   unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(), // MNT
   valuationSource: text("valuation_source").notNull(), // "manual" | "avg_cost"
+  // Хамрах хүрээ + период (OD-001 "бараа × агуулах × компани", OD-002 GL
+  // период). Хуучин мөрүүдэд null — backfill хийгдэнэ.
+  warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
+    onDelete: "restrict",
+  }),
+  periodCode: text("period_code"), // YYYY-MM
+  // Ангилал (FR-LEDGER-COST-003, JPR-004): аль зарлагын төрөл / өртгийн
+  // бүрэлдэхүүнд хамаарах вэ.
+  issueTypeId: uuid("issue_type_id").references(() => inventoryIssueTypes.id, {
+    onDelete: "restrict",
+  }),
+  costComponentId: uuid("cost_component_id").references(
+    () => costComponents.id,
+    { onDelete: "restrict" }
+  ),
+  // Бичих МӨЧИД шийдэгдсэн дансны хувилбар — хожим master data өөрчлөгдөхөд
+  // түүхэн бичилт дахин бичигдэхгүй (JPR-005, FR-AUD-003).
+  debitAccountNumber: text("debit_account_number"),
+  creditAccountNumber: text("credit_account_number"),
   status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
   voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
     onDelete: "set null",
@@ -1098,6 +1210,9 @@ export type ArApSettlement = typeof arApSettlements.$inferSelect;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type Warehouse = typeof warehouses.$inferSelect;
 export type InventoryMovement = typeof inventoryMovements.$inferSelect;
+export type CostComponent = typeof costComponents.$inferSelect;
+export type InventoryIssueType = typeof inventoryIssueTypes.$inferSelect;
+export type CostingAccountSetting = typeof costingAccountSettings.$inferSelect;
 export type CostingItemSetting = typeof costingItemSettings.$inferSelect;
 export type CostingRun = typeof costingRuns.$inferSelect;
 export type CostEntry = typeof costEntries.$inferSelect;

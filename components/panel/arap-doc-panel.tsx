@@ -32,7 +32,6 @@ import type {
   WarehouseOption,
 } from "@/lib/arap/load-data";
 import type { ArApDocumentType, ArApLineInput } from "@/lib/arap/types";
-import { CLEARING_ACCOUNT } from "@/lib/costing/costing";
 import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { parseMntInput } from "@/lib/grid/formatters";
@@ -229,6 +228,7 @@ function ArapDocForm({
     defaultSegments,
     inventoryItems,
     warehouses,
+    clearingAccountNumber,
   } = data;
 
   const [form, setForm] = useState(() => {
@@ -508,6 +508,7 @@ function ArapDocForm({
           inventoryItems={inventoryItems}
           warehouses={warehouses}
           documentType={form.documentType}
+          clearingAccountNumber={clearingAccountNumber}
         />
       </div>
 
@@ -769,6 +770,7 @@ function ArApLinesGrid({
   inventoryItems,
   warehouses,
   documentType,
+  clearingAccountNumber,
 }: {
   lines: LineRow[];
   onChange: (updater: (prev: LineRow[]) => LineRow[]) => void;
@@ -778,6 +780,8 @@ function ArApLinesGrid({
   inventoryItems: InventoryItemOption[];
   warehouses: WarehouseOption[];
   documentType: ArApDocumentType;
+  /** Клирингийн данс — тохиргооноос ирнэ (JPR-006). */
+  clearingAccountNumber: string;
 }) {
   const total = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   // Бараатай мөр: АП батлагдахад орлогын, АР батлагдахад зарлагын тоо
@@ -938,7 +942,7 @@ function ArApLinesGrid({
                 documentType === "ap_bill"
               )
                 next.account = buildSegCode(
-                  { 3: CLEARING_ACCOUNT },
+                  { 3: clearingAccountNumber },
                   activeSegIds,
                   defaultSegments
                 );

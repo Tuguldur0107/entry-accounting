@@ -3,13 +3,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { CostingDashboard } from "@/components/costing/costing-dashboard";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
   costEntries,
   inventoryMovements,
   journalVouchers,
 } from "@/lib/db/schema";
 import {
-  CLEARING_ACCOUNT,
   computeCostingRun,
   type CostEntryType,
   type PostedEntryRef,
@@ -106,14 +106,17 @@ export default async function CostingDashboardPage() {
     .filter((row): row is PendingValuationView => row !== null);
 
   // Клирингийн болон 14-дансны GL үлдэгдэл + subledger нийлбэр (зөрүү).
+  // Клирингийн данс тохиргооноос ирнэ (JPR-006).
+  const clearingAccount = (await loadCostingAccountSettings(userId))
+    .clearingAccountNumber;
   let clearingBalance = 0;
   const glByAccount = new Map<string, number>();
   for (const voucher of vouchers) {
     for (const line of voucher.lines) {
       const main = mainAccountOf(line.accountNumber);
       const delta = Number(line.debit) - Number(line.credit);
-      if (main === CLEARING_ACCOUNT) clearingBalance += delta;
-      if (main.startsWith("14") && main !== CLEARING_ACCOUNT)
+      if (main === clearingAccount) clearingBalance += delta;
+      if (main.startsWith("14") && main !== clearingAccount)
         glByAccount.set(main, (glByAccount.get(main) ?? 0) + delta);
     }
   }

@@ -7,23 +7,30 @@
 // тодорхойгүй болсон тул) — pending шалтгаантайгаа буцна.
 //
 // GL бичилт (clearing схем — өртгийн модуль үргэлж өөрөө бичнэ):
-//   receipt_capitalize: Dr inventoryAccount / Cr 14000099 (клиринг)
-//   issue_cogs:         Dr cogsAccount      / Cr inventoryAccount
-//   adjustment_gain:    Dr inventoryAccount / Cr 51800003
-//   adjustment_loss:    Dr 87100004         / Cr inventoryAccount
+//   receipt_capitalize: Dr inventoryAccount   / Cr клиринг (тохиргоо)
+//   issue_cogs:         Dr зарлагын төрлийн данс / Cr inventoryAccount
+//   adjustment_gain:    Dr inventoryAccount   / Cr илүүдлийн данс (тохиргоо)
+//   adjustment_loss:    Dr дутагдлын данс     / Cr inventoryAccount
+// Дансны дугаар БҮГД costing_account_settings-ээс ирнэ (JPR-006).
 
 import {
   sortChronologically,
   type MovementRef,
 } from "@/lib/inventory/balances";
 
-export const CLEARING_ACCOUNT = "14000099";
-export const ADJUSTMENT_GAIN_ACCOUNT = "51800003";
-export const ADJUSTMENT_LOSS_ACCOUNT = "87100004";
-// NRV (IAS 2 §9, §28–33): бууруулалтыг contra-нөөц дансаар — өртгийн суурь
-// (дундаж) ХӨНДӨГДӨХГҮЙ; сэргээлт өмнөх бууруулалтын хэмжээнд л.
-export const NRV_EXPENSE_ACCOUNT = "87100005";
-export const NRV_RESERVE_ACCOUNT = "14900001";
+/**
+ * Өртгийн модулийн дансны РОЛЬ-ууд. Дугаарууд нь хэрэглэгчийн тохиргооноос
+ * ирнэ (costing_account_settings) — кодод хатуу бичихийг spec хориглодог
+ * (JPR-006, FR-PR-005). NRV (IAS 2 §9, §28–33) нь contra-нөөц дансаар
+ * бичигддэг тул өртгийн суурь (дундаж) хөндөгдөхгүй.
+ */
+export interface CostingAccountRoles {
+  clearing: string;
+  adjustmentGain: string;
+  adjustmentLoss: string;
+  nrvExpense: string;
+  nrvReserve: string;
+}
 
 export type CostEntryType =
   | "receipt_capitalize"
@@ -274,37 +281,47 @@ export function computeCostingRun(input: {
   return { entries, pending, state };
 }
 
-/** GL мөрийн Dr/Cr данс (main account, сегментгүй) — entry төрлөөс. */
+/**
+ * GL мөрийн Dr/Cr данс (main account, сегментгүй) — entry төрөл + тохируулсан
+ * дансны рольуудаас. `issueDebitAccountNumber` нь ЗАРЛАГЫН ТӨРЛӨӨС
+ * шийдэгдсэн дебет чиглэл (FR-MD-IT-002) — өмнө нь барааны COGS данс
+ * байсныг зарлагын төрөл орлож, "item_cogs" profile-оор хуучин зан төлөв
+ * хэвээр үлдэнэ.
+ */
 export function entryPostingAccounts(
   entryType: CostEntryType,
-  itemAccounts: { inventoryAccountNumber: string; cogsAccountNumber: string }
+  itemAccounts: {
+    inventoryAccountNumber: string;
+    issueDebitAccountNumber: string;
+  },
+  roles: CostingAccountRoles
 ): { debit: string; credit: string } {
   switch (entryType) {
     case "receipt_capitalize":
       return {
         debit: itemAccounts.inventoryAccountNumber,
-        credit: CLEARING_ACCOUNT,
+        credit: roles.clearing,
       };
     case "issue_cogs":
       return {
-        debit: itemAccounts.cogsAccountNumber,
+        debit: itemAccounts.issueDebitAccountNumber,
         credit: itemAccounts.inventoryAccountNumber,
       };
     case "adjustment_gain":
       return {
         debit: itemAccounts.inventoryAccountNumber,
-        credit: ADJUSTMENT_GAIN_ACCOUNT,
+        credit: roles.adjustmentGain,
       };
     case "adjustment_loss":
       return {
-        debit: ADJUSTMENT_LOSS_ACCOUNT,
+        debit: roles.adjustmentLoss,
         credit: itemAccounts.inventoryAccountNumber,
       };
     case "return_out":
       // Нийлүүлэгчид буцаалт: нөөцөөс гаргаж клирингт — АП талын кредит
       // ноот (Dr АП / Cr клиринг)-той клиринг дээр тулна.
       return {
-        debit: CLEARING_ACCOUNT,
+        debit: roles.clearing,
         credit: itemAccounts.inventoryAccountNumber,
       };
     case "return_in":
@@ -312,17 +329,17 @@ export function entryPostingAccounts(
       // АР/GL талдаа тусад нь бичнэ).
       return {
         debit: itemAccounts.inventoryAccountNumber,
-        credit: itemAccounts.cogsAccountNumber,
+        credit: itemAccounts.issueDebitAccountNumber,
       };
     case "landed_cost":
       // Клирингт суусан нэмэлт зардлыг барааны дансанд капитализацилна.
       return {
         debit: itemAccounts.inventoryAccountNumber,
-        credit: CLEARING_ACCOUNT,
+        credit: roles.clearing,
       };
     case "nrv_writedown":
-      return { debit: NRV_EXPENSE_ACCOUNT, credit: NRV_RESERVE_ACCOUNT };
+      return { debit: roles.nrvExpense, credit: roles.nrvReserve };
     case "nrv_reversal":
-      return { debit: NRV_RESERVE_ACCOUNT, credit: NRV_EXPENSE_ACCOUNT };
+      return { debit: roles.nrvReserve, credit: roles.nrvExpense };
   }
 }
