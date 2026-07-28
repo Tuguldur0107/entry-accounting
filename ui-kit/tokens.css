@@ -14,25 +14,45 @@
  *  бичигдсэн rule ялдаг тул `.dark` нь `:root`-аас доор байх ёстой.
  * ────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* ── Брэнд: тайван нави. Цагаан дэвсгэр дээр 11.5:1 контраст ── */
-  --ea-primary:       #1E3A5F;
-  --ea-primary-700:   #15294A;   /* hover — бараан тал руу */
-  --ea-primary-500:   #2A5285;
-  --ea-primary-100:   #DCE6F2;
-  --ea-primary-50:    #F1F5FA;
+  /* ── Editorial Ivory ─────────────────────────────────────────────────────
+     Navy = trust / accounting structure. Violet = interaction + decoration.
+     Light mode intentionally reads like warm paper instead of a white app. */
+  --ea-primary:       #263C60;
+  --ea-primary-700:   #1B2D4B;
+  --ea-primary-500:   #405D84;
+  --ea-primary-100:   #E3E8F0;
+  --ea-primary-50:    #EFF2F6;
 
-  --ea-bg:            #FFFFFF;
-  --ea-bg-2:          #F8FAFC;
-  --ea-bg-3:          #F1F5F9;
-  --ea-surface:       #FFFFFF;
-  --ea-surface-glass: rgba(255,255,255,0.72);
-  --ea-border:        #E2E8F0;
-  --ea-border-strong: #CBD5E1;
+  --ea-violet:        #7C3AED;
+  --ea-violet-strong: #6D28D9;
+  --ea-violet-soft:   #A78BFA;
+  --ea-violet-bg:     #F0EAFE;
+  --ea-violet-border: rgba(124,58,237,0.24);
+  --ea-gold:          #B58A42;
 
-  --ea-text-1: #0F172A;
-  --ea-text-2: #334155;
-  --ea-text-3: #64748B;
-  --ea-text-4: #94A3B8;
+  --ea-bg:            #F4F0E7;
+  --ea-bg-2:          #EEE8DD;
+  --ea-bg-3:          #E7DFD2;
+  --ea-surface:       #FBF8F2;
+  --ea-surface-raised:#FFFCF7;
+  --ea-surface-glass: rgba(255,253,248,0.72);
+  --ea-border:        #D9D1C5;
+  --ea-border-strong: #C9BFB1;
+
+  --ea-text-1: #172036;
+  --ea-text-2: #354158;
+  --ea-text-3: #566075;
+  --ea-text-4: #656E80;
+
+  /* ── Interaction language ────────────────────────────────────────────────
+     Hover is temporary and quiet; selected/focus is persistent and violet. */
+  --ea-interactive:     var(--ea-violet);
+  --ea-hover-subtle:    color-mix(in srgb, var(--ea-violet) 6%, var(--ea-surface));
+  --ea-hover-strong:    color-mix(in srgb, var(--ea-violet) 10%, var(--ea-surface));
+  --ea-hover-border:    color-mix(in srgb, var(--ea-violet) 28%, var(--ea-border-strong));
+  --ea-selected-bg:     color-mix(in srgb, var(--ea-violet) 10%, var(--ea-surface));
+  --ea-selected-border: color-mix(in srgb, var(--ea-violet) 48%, var(--ea-border-strong));
+  --ea-shine:           rgba(255,255,255,0.72);
 
   /* Семантик: `-fg` = ТЕКСТЭД, суурь = дэвсгэр/хүрээ/дүрсэнд,
      `-solid` = дүүрэн товчны дэвсгэр (`-solid-fg` = түүн дээрх текст) */
@@ -70,15 +90,38 @@
   --ea-r-lg:  10px;
   --ea-r-xl:  14px;
 
-  --ea-shadow-2: 0 1px 3px rgba(15,23,42,0.04), 0 4px 12px -4px rgba(15,23,42,0.06);
-  --ea-shadow-3: 0 24px 60px -12px rgba(15,23,42,0.22), 0 8px 24px -8px rgba(15,23,42,0.10);
-  --ea-focus: 0 0 0 3px rgba(30,58,95,0.18);
+  --ea-shadow-2:
+    0 1px 2px rgba(53,41,25,0.05),
+    0 10px 28px -12px rgba(53,41,25,0.16);
+  --ea-shadow-3:
+    0 28px 70px -20px rgba(37,26,58,0.28),
+    0 8px 24px -12px rgba(53,41,25,0.18);
+  --ea-shadow-hover:
+    0 16px 34px -22px rgba(27,36,67,0.45),
+    0 0 22px -16px rgba(124,58,237,0.55);
+  --ea-shadow-button:
+    inset 0 1px 0 var(--ea-shine),
+    0 8px 22px -12px rgba(124,58,237,0.42);
+  --ea-shadow-button-hover:
+    inset 0 1px 0 var(--ea-shine),
+    0 12px 28px -12px rgba(124,58,237,0.52);
+  --ea-focus: 0 0 0 3px rgba(124,58,237,0.20);
 
-  /* Body gradient — цэвэр цагаан, маш бүдэг өргөлттэй */
-  --ea-bg-gradient: radial-gradient(80% 60% at 50% 0%, #F8FAFC 0%, #FFFFFF 60%);
+  --ea-motion-press: 70ms;
+  --ea-motion-hover: 120ms;
+  --ea-motion-lift:  180ms;
+  --ea-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ea-glass-filter: blur(22px) saturate(135%);
 
-  /* Auth hero panel — light-д брэнд нави, dark-д тас хар */
-  --ea-hero-gradient: linear-gradient(165deg, #1E3A5F 0%, #15294A 100%);
+  /* Warm paper, a restrained violet glow and a book-cloth gold undertone. */
+  --ea-bg-gradient:
+    radial-gradient(70% 55% at 72% -8%, rgba(124,58,237,0.12) 0%, transparent 62%),
+    radial-gradient(48% 42% at 10% 28%, rgba(181,138,66,0.08) 0%, transparent 66%),
+    linear-gradient(180deg, #F7F3EB 0%, var(--ea-bg) 72%);
+
+  --ea-hero-gradient:
+    radial-gradient(circle at 88% 8%, rgba(124,58,237,0.24), transparent 34%),
+    linear-gradient(155deg, #263C60 0%, #1B2D4B 72%, #30204F 118%);
 
   /* ── shadcn токенууд --ea-*-д уягдана ── */
   --background: var(--ea-bg);
@@ -93,26 +136,26 @@
   --secondary-foreground: var(--ea-text-1);
   --muted: var(--ea-bg-2);
   --muted-foreground: var(--ea-text-3);
-  --accent: var(--ea-bg-3);
+  --accent: var(--ea-hover-subtle);
   --accent-foreground: var(--ea-text-1);
   --destructive: var(--ea-danger);
   --border: var(--ea-border);
   --input: var(--ea-border-strong);
-  --ring: var(--ea-primary);
+  --ring: var(--ea-interactive);
   --chart-1: #1E3A5F;
   --chart-2: #10B981;
   --chart-3: #F59E0B;
   --chart-4: #EF4444;
-  --chart-5: #8B5CF6;
+  --chart-5: var(--ea-violet);
   --radius: 0.625rem;
-  --sidebar: var(--ea-surface);
+  --sidebar: var(--ea-surface-glass);
   --sidebar-foreground: var(--ea-text-1);
-  --sidebar-primary: var(--ea-primary);
+  --sidebar-primary: var(--ea-interactive);
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: var(--ea-bg-2);
+  --sidebar-accent: var(--ea-hover-subtle);
   --sidebar-accent-foreground: var(--ea-text-1);
   --sidebar-border: var(--ea-border);
-  --sidebar-ring: var(--ea-primary);
+  --sidebar-ring: var(--ea-interactive);
 }
 
 /* ─── DARK MODE — тас хар суурь, цэнхэр нь зөвхөн accent ────────────────────
@@ -121,24 +164,41 @@
  *  Контраст: #73A5DE / #000 = 8.1:1 (AAA), хар текст товчин дээр мөн 8.1:1.
  * ────────────────────────────────────────────────────────────────────────── */
 .dark {
-  --ea-primary:       #73A5DE;   /* HSL(212, 62%, 66%) — тайвшруулсан цэнхэр */
-  --ea-primary-700:   #8CB8E8;   /* hover — dark-д ЦАЙВАР тал руу */
-  --ea-primary-500:   #9DC3EE;
-  --ea-primary-100:   #1C1C1E;
-  --ea-primary-50:    rgba(115,165,222,0.14);
+  /* Cosmic Glass — navy-black base, violet replaces cyan decoration. */
+  --ea-primary:       #B49AF7;
+  --ea-primary-700:   #C5B2FA;
+  --ea-primary-500:   #D4C7FC;
+  --ea-primary-100:   #221B38;
+  --ea-primary-50:    rgba(139,92,246,0.15);
 
-  --ea-bg:            #000000;
-  --ea-bg-2:          #0C0C0D;
-  --ea-bg-3:          #161618;
-  --ea-surface:       #0A0A0B;
-  --ea-surface-glass: rgba(18,18,20,0.55);
-  --ea-border:        rgba(255,255,255,0.10);
-  --ea-border-strong: rgba(255,255,255,0.18);
+  --ea-violet:        #A78BFA;
+  --ea-violet-strong: #8B5CF6;
+  --ea-violet-soft:   #C4B5FD;
+  --ea-violet-bg:     rgba(139,92,246,0.15);
+  --ea-violet-border: rgba(167,139,250,0.30);
+  --ea-gold:          #D6B16C;
 
-  --ea-text-1: #F5F5F5;
-  --ea-text-2: #D4D4D4;
-  --ea-text-3: #9E9E9E;
-  --ea-text-4: #6E6E6E;
+  --ea-bg:            #070711;
+  --ea-bg-2:          #0E0D17;
+  --ea-bg-3:          #171424;
+  --ea-surface:       #0B0B13;
+  --ea-surface-raised:#12101D;
+  --ea-surface-glass: rgba(14,13,24,0.66);
+  --ea-border:        rgba(221,214,254,0.11);
+  --ea-border-strong: rgba(221,214,254,0.20);
+
+  --ea-text-1: #F7F4FB;
+  --ea-text-2: #DDD7E8;
+  --ea-text-3: #A8A0B5;
+  --ea-text-4: #8D859B;
+
+  --ea-interactive:     var(--ea-violet);
+  --ea-hover-subtle:    color-mix(in srgb, var(--ea-violet) 8%, var(--ea-surface));
+  --ea-hover-strong:    color-mix(in srgb, var(--ea-violet) 13%, var(--ea-surface));
+  --ea-hover-border:    color-mix(in srgb, var(--ea-violet) 34%, var(--ea-border-strong));
+  --ea-selected-bg:     color-mix(in srgb, var(--ea-violet) 15%, var(--ea-surface));
+  --ea-selected-border: color-mix(in srgb, var(--ea-violet) 52%, var(--ea-border-strong));
+  --ea-shine:           rgba(255,255,255,0.10);
 
   --ea-success:    #34D399;
   --ea-success-fg: #6EE7B7;
@@ -161,21 +221,34 @@
   --ea-hero-accent: #6EE7B7;
   --ea-hero-amount: #FFD79A;
 
-  --ea-shadow-2: 0 1px 0 rgba(255,255,255,0.04) inset,
-                 0 8px 24px -6px rgba(0,0,0,0.5);
-  --ea-shadow-3: 0 1px 0 rgba(255,255,255,0.06) inset,
-                 0 24px 60px -12px rgba(0,0,0,0.7),
-                 0 8px 16px -8px rgba(0,0,0,0.4);
+  --ea-shadow-2:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 16px 34px -18px rgba(0,0,0,0.72);
+  --ea-shadow-3:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 32px 84px -20px rgba(0,0,0,0.82),
+    0 14px 40px -24px rgba(124,58,237,0.55);
+  --ea-shadow-hover:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 22px 44px -24px rgba(0,0,0,0.88),
+    0 0 28px -18px rgba(167,139,250,0.70);
+  --ea-shadow-button:
+    inset 0 1px 0 var(--ea-shine),
+    0 10px 26px -12px rgba(139,92,246,0.58);
+  --ea-shadow-button-hover:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 14px 34px -12px rgba(167,139,250,0.68);
 
-  --ea-focus: 0 0 0 3px rgba(115,165,222,0.38);
+  --ea-focus: 0 0 0 3px rgba(167,139,250,0.30);
 
-  /* Body gradient — тас хар, маш бүдэг саарал өргөлттэй */
   --ea-bg-gradient:
-    radial-gradient(60% 50% at 20% 0%, rgba(255,255,255,0.03) 0%, transparent 60%),
-    linear-gradient(180deg, #050505 0%, #000000 100%);
+    radial-gradient(68% 52% at 72% -8%, rgba(139,92,246,0.15) 0%, transparent 62%),
+    radial-gradient(44% 38% at 9% 30%, rgba(214,177,108,0.06) 0%, transparent 68%),
+    linear-gradient(180deg, #0B0915 0%, var(--ea-bg) 72%);
 
-  /* Auth hero panel — dark-д тас хар */
-  --ea-hero-gradient: linear-gradient(165deg, #111113 0%, #000000 100%);
+  --ea-hero-gradient:
+    radial-gradient(circle at 86% 10%, rgba(139,92,246,0.24), transparent 36%),
+    linear-gradient(160deg, #14111E 0%, #090811 74%, #160E26 116%);
 
   /* ── shadcn токенууд --ea-*-д уягдана ── */
   --background: var(--ea-bg);
@@ -185,28 +258,28 @@
   --popover: var(--ea-surface);
   --popover-foreground: var(--ea-text-1);
   --primary: var(--ea-primary);
-  --primary-foreground: var(--ea-bg);
+  --primary-foreground: #090711;
   --secondary: var(--ea-bg-2);
   --secondary-foreground: var(--ea-text-1);
   --muted: var(--ea-bg-2);
   --muted-foreground: var(--ea-text-3);
-  --accent: var(--ea-bg-3);
+  --accent: var(--ea-hover-subtle);
   --accent-foreground: var(--ea-text-1);
   --destructive: var(--ea-danger);
   --border: var(--ea-border);
   --input: var(--ea-border-strong);
-  --ring: var(--ea-primary);
+  --ring: var(--ea-interactive);
   --chart-1: #73A5DE;
   --chart-2: #34D399;
   --chart-3: #FBBF24;
   --chart-4: #F87171;
-  --chart-5: #A78BFA;
-  --sidebar: var(--ea-surface);
+  --chart-5: var(--ea-violet);
+  --sidebar: var(--ea-surface-glass);
   --sidebar-foreground: var(--ea-text-1);
-  --sidebar-primary: var(--ea-primary);
+  --sidebar-primary: var(--ea-interactive);
   --sidebar-primary-foreground: var(--ea-bg);
-  --sidebar-accent: var(--ea-bg-2);
+  --sidebar-accent: var(--ea-hover-subtle);
   --sidebar-accent-foreground: var(--ea-text-1);
   --sidebar-border: var(--ea-border);
-  --sidebar-ring: var(--ea-primary);
+  --sidebar-ring: var(--ea-interactive);
 }

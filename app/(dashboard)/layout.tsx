@@ -22,11 +22,8 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
       <header
-        className="shrink-0"
+        className="ea-glass shrink-0"
         style={{
-          background: "var(--ea-surface-glass)",
-          backdropFilter: "blur(16px) saturate(180%)",
-          WebkitBackdropFilter: "blur(16px) saturate(180%)",
           borderBottom: "1px solid var(--ea-border)",
           zIndex: 10,
         }}
@@ -69,7 +66,7 @@ export default async function DashboardLayout({
             >
               <button
                 type="submit"
-                className="text-sm px-3 py-1.5 rounded transition-colors hover:bg-[var(--ea-bg-2)]"
+                className="ea-interactive rounded border border-transparent px-3 py-1.5 text-sm"
                 style={{
                   color: "var(--ea-text-3)",
                   background: "transparent",

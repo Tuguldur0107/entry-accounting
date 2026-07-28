@@ -63,10 +63,32 @@
     background-image: var(--ea-bg-gradient);
     background-repeat: no-repeat;
     background-size: 100% 100vh;
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   html {
     @apply font-sans;
   }
+  ::selection {
+    color: var(--ea-text-1);
+    background: var(--ea-selected-bg);
+  }
+}
+
+/* A quiet violet dot field: decoration only, never a data or status signal. */
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, color-mix(in srgb, var(--ea-violet) 22%, transparent) 1px, transparent 1.4px);
+  background-position: 0 0;
+  background-size: 32px 32px;
+  opacity: 0.10;
+  content: "";
+  mask-image: linear-gradient(120deg, transparent 8%, #000 42%, transparent 78%);
 }
 
 /* ─── Tailwind-default class overrides ──────────────────────────────────────
@@ -77,11 +99,127 @@
 .bg-white                          { background-color: var(--ea-surface) !important; }
 
 .bg-blue-50                        { background-color: var(--ea-primary-50) !important; }
-.hover\:bg-blue-50:hover           { background-color: var(--ea-primary-50) !important; }
+.hover\:bg-blue-50:hover           { background-color: var(--ea-hover-subtle) !important; }
 .bg-red-50                         { background-color: var(--ea-danger-bg) !important; }
 .hover\:bg-red-50:hover            { background-color: var(--ea-danger-bg) !important; }
 .bg-green-50                       { background-color: var(--ea-success-bg) !important; }
 .hover\:bg-green-50:hover          { background-color: var(--ea-success-bg) !important; }
+
+/* ─── Shared surface + interaction contracts ───────────────────────────────
+ * Calm → precise → slightly magical.
+ * Hover is temporary; selected/focus remains visually stronger and persistent.
+ * Use these classes for custom components that cannot use the shadcn Button. */
+.ea-glass {
+  background: var(--ea-surface-glass);
+  border-color: var(--ea-border);
+  box-shadow: inset 0 1px 0 var(--ea-shine);
+  -webkit-backdrop-filter: var(--ea-glass-filter);
+  backdrop-filter: var(--ea-glass-filter);
+}
+
+.ea-card-interactive {
+  transition:
+    transform var(--ea-motion-lift) var(--ea-ease-standard),
+    background-color var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    box-shadow var(--ea-motion-lift) var(--ea-ease-standard);
+}
+
+.ea-interactive {
+  transition:
+    background-color var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    color var(--ea-motion-hover) var(--ea-ease-standard);
+}
+
+.ea-icon-action {
+  transition:
+    background-color var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    color var(--ea-motion-hover) var(--ea-ease-standard),
+    transform var(--ea-motion-press) var(--ea-ease-standard);
+}
+
+.ea-icon-action:focus-visible,
+.ea-card-interactive:focus-visible,
+.ea-interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--ea-focus);
+}
+
+.ea-icon-action:active,
+.ea-interactive:active {
+  transform: translateY(1px);
+}
+
+.ea-is-selected {
+  color: var(--ea-interactive);
+  background: var(--ea-selected-bg);
+  border-color: var(--ea-selected-border);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ea-card-interactive:hover {
+    transform: translateY(-1px);
+    background: color-mix(in srgb, var(--ea-surface-glass) 88%, var(--ea-hover-subtle));
+    border-color: var(--ea-hover-border);
+    box-shadow: var(--ea-shadow-hover);
+  }
+
+  .ea-interactive:hover,
+  .ea-icon-action:hover {
+    color: var(--ea-text-1);
+    background: var(--ea-hover-subtle);
+    border-color: var(--ea-hover-border);
+  }
+
+  .ea-is-selected:hover {
+    color: var(--ea-interactive);
+    background: var(--ea-selected-bg);
+    border-color: var(--ea-selected-border);
+  }
+}
+
+/* Primary CTA: navy structure with violet as the signature edge/glow. */
+.ea-primary-button {
+  border-color: color-mix(in srgb, var(--ea-violet) 42%, var(--ea-primary));
+  background: linear-gradient(118deg, var(--ea-primary) 0%, var(--ea-violet-strong) 118%);
+  box-shadow: var(--ea-shadow-button);
+}
+
+.ea-outline-button,
+.ea-secondary-button,
+.ea-ghost-button,
+.ea-danger-button {
+  transition:
+    transform var(--ea-motion-press) var(--ea-ease-standard),
+    background-color var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    color var(--ea-motion-hover) var(--ea-ease-standard),
+    box-shadow var(--ea-motion-hover) var(--ea-ease-standard);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ea-primary-button:hover {
+    border-color: color-mix(in srgb, var(--ea-violet) 64%, var(--ea-primary));
+    background: linear-gradient(118deg, var(--ea-primary-700) 0%, var(--ea-violet) 112%);
+    box-shadow: var(--ea-shadow-button-hover);
+  }
+
+  .ea-outline-button:hover,
+  .ea-secondary-button:hover,
+  .ea-ghost-button:hover {
+    color: var(--ea-text-1);
+    background: var(--ea-hover-subtle);
+    border-color: var(--ea-hover-border);
+  }
+
+  .ea-danger-button:hover {
+    color: var(--ea-danger-fg);
+    background: color-mix(in srgb, var(--ea-danger) 14%, var(--ea-surface));
+    border-color: color-mix(in srgb, var(--ea-danger) 38%, var(--ea-border-strong));
+  }
+}
 
 @keyframes ea-fadeUp {
   from { opacity: 0; transform: translateY(8px); }
@@ -200,32 +338,37 @@
   color: var(--ea-text-2);
   background: transparent;
   border: 1px solid transparent;
-  transition: background-color 0.14s ease, color 0.14s ease,
-              border-color 0.14s ease, transform 0.06s ease;
+  transition:
+    background-color var(--ea-motion-hover) var(--ea-ease-standard),
+    color var(--ea-motion-hover) var(--ea-ease-standard),
+    border-color var(--ea-motion-hover) var(--ea-ease-standard),
+    transform var(--ea-motion-press) var(--ea-ease-standard);
 }
-.ea-btn:active { transform: scale(0.97); }
+.ea-btn:active { transform: translateY(1px); }
 .ea-btn:focus-visible {
-  outline: 2px solid var(--ea-primary);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--ea-focus);
 }
 .ea-btn svg {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
   color: var(--ea-text-3);
-  transition: color 0.14s ease;
+  transition: color var(--ea-motion-hover) var(--ea-ease-standard);
 }
 
 /* Neutral hover applies to every variant. */
-.ea-btn:hover {
-  background: var(--ea-bg-2);
-  border-color: var(--ea-border-strong);
-  color: var(--ea-text-1);
+@media (hover: hover) and (pointer: fine) {
+  .ea-btn:hover {
+    background: var(--ea-hover-subtle);
+    border-color: var(--ea-hover-border);
+    color: var(--ea-text-1);
+  }
 }
 
 /* Variant — only touches the icon (and danger's outline) so multi-action
    rows look uniform until the user actually hovers. */
-.ea-btn--primary:hover svg { color: var(--ea-primary); }
+.ea-btn--primary:hover svg { color: var(--ea-interactive); }
 .ea-btn--success:hover svg { color: var(--ea-success); }
 .ea-btn--warning:hover svg { color: var(--ea-warning-fg); }
 
@@ -257,8 +400,8 @@
   outline: none;
 }
 .ea-form-select:focus {
-  border-color: var(--ea-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ea-primary) 18%, transparent);
+  border-color: var(--ea-interactive);
+  box-shadow: var(--ea-focus);
 }
 
 /* ─── Clickable AG Grid rows ──────────────────────────────────────────────── */
@@ -266,6 +409,17 @@
    transactions). Shows a pointer cursor over data rows only. */
 .ea-clickable-rows .ag-row {
   cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ─── Панелиас хэвлэх ─────────────────────────────────────────────────────── */

@@ -80,8 +80,10 @@ export function Sidebar() {
         )}
         style={{
           width: mobile ? Math.min(280, width) : collapsed ? 56 : width,
-          background: "var(--ea-bg-2)",
+          background: "color-mix(in srgb, var(--ea-surface-glass) 88%, var(--ea-bg-2))",
           borderRight: "1px solid var(--ea-border)",
+          backdropFilter: "var(--ea-glass-filter)",
+          WebkitBackdropFilter: "var(--ea-glass-filter)",
         }}
       >
       <div className={cn("px-3 pb-3", collapsed && !mobile && "px-2")}>
@@ -106,17 +108,17 @@ export function Sidebar() {
               }}
               title={collapsed && !mobile ? item.label : undefined}
               className={cn(
-                "group relative flex min-h-9 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                "ea-interactive group relative flex min-h-9 items-center gap-2.5 rounded-md border border-transparent px-3 py-2 text-sm",
                 collapsed && !mobile && "justify-center px-2",
                 isActive
-                  ? "bg-[var(--ea-surface)] font-medium text-[var(--ea-primary)] shadow-sm"
-                  : "text-[var(--ea-text-2)] hover:bg-[var(--ea-surface)] hover:text-[var(--ea-text-1)]"
+                  ? "ea-is-selected font-medium shadow-sm"
+                  : "text-[var(--ea-text-2)]"
               )}
             >
               <span
                 className={cn(
                   "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-transparent transition-colors",
-                  isActive && "bg-[var(--ea-primary)]"
+                  isActive && "bg-[var(--ea-interactive)]"
                 )}
               />
               <Icon
@@ -124,7 +126,7 @@ export function Sidebar() {
                 className={cn(
                   "shrink-0",
                   isActive
-                    ? "text-[var(--ea-primary)]"
+                    ? "text-[var(--ea-interactive)]"
                     : "text-[var(--ea-text-3)] group-hover:text-[var(--ea-text-1)]"
                 )}
               />
@@ -147,7 +149,7 @@ export function Sidebar() {
             aria-expanded={!collapsed}
             // title={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
             className={cn(
-              "flex min-h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--ea-text-3)] transition-colors hover:bg-[var(--ea-surface)] hover:text-[var(--ea-text-1)]",
+              "ea-interactive flex min-h-9 w-full items-center gap-2.5 rounded-md border border-transparent px-3 py-2 text-sm text-[var(--ea-text-3)]",
               collapsed && "justify-center px-2"
             )}
           >
@@ -193,14 +195,14 @@ export function Sidebar() {
           }}
           className={cn(
             "group absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize touch-none outline-none",
-            resizing && "bg-[color-mix(in_srgb,var(--ea-primary)_10%,transparent)]"
+            resizing && "bg-[color-mix(in_srgb,var(--ea-interactive)_10%,transparent)]"
           )}
         >
           <span
             className={cn(
               "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors",
-              "bg-transparent group-hover:bg-[var(--ea-primary)] group-focus-visible:bg-[var(--ea-primary)]",
-              resizing && "!bg-[var(--ea-primary)]"
+              "bg-transparent group-hover:bg-[var(--ea-interactive)] group-focus-visible:bg-[var(--ea-interactive)]",
+              resizing && "!bg-[var(--ea-interactive)]"
             )}
           />
         </div>

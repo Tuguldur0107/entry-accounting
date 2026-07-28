@@ -4,11 +4,29 @@
 }
 
 .ea-data-grid .ag-row-hover {
-  background: var(--ea-bg-2) !important;
+  background: var(--ea-hover-subtle) !important;
+  box-shadow: inset 2px 0 0 var(--ea-interactive);
 }
 
 .ea-data-grid .ag-column-hover {
-  background: color-mix(in srgb, var(--ea-primary) 5%, transparent) !important;
+  background: color-mix(in srgb, var(--ea-violet) 4%, transparent) !important;
+}
+
+.ea-data-grid .ag-row-selected {
+  background: var(--ea-selected-bg) !important;
+  box-shadow: inset 2px 0 0 var(--ea-selected-border);
+}
+
+/* Optional convention: row action groups stay quiet until the row is engaged. */
+.ea-data-grid .ea-row-actions {
+  opacity: 0.42;
+  transition: opacity var(--ea-motion-hover) var(--ea-ease-standard);
+}
+
+.ea-data-grid .ag-row-hover .ea-row-actions,
+.ea-data-grid .ag-row-selected .ea-row-actions,
+.ea-data-grid .ag-row:focus-within .ea-row-actions {
+  opacity: 1;
 }
 
 .ea-combo-filter {
@@ -46,8 +64,8 @@
 
 .ea-combo-filter__info:hover,
 .ea-combo-filter__info:focus-visible {
-  color: var(--ea-primary);
-  background: var(--ea-bg-2);
+  color: var(--ea-interactive);
+  background: var(--ea-hover-subtle);
   outline: none;
 }
 
@@ -68,9 +86,8 @@
 .ea-combo-filter select:focus,
 .ea-combo-filter input[type="text"]:focus,
 .ea-combo-filter input[type="search"]:focus {
-  border-color: var(--ea-primary);
-  box-shadow: 0 0 0 2px
-    color-mix(in srgb, var(--ea-primary) 16%, transparent);
+  border-color: var(--ea-interactive);
+  box-shadow: var(--ea-focus);
 }
 
 .ea-combo-filter__range {
@@ -124,7 +141,7 @@
 }
 
 .ea-combo-filter__list label:hover {
-  background: var(--ea-bg-2);
+  background: var(--ea-hover-subtle);
 }
 
 .ea-combo-filter__list input[type="checkbox"] {
@@ -132,7 +149,7 @@
   height: 14px;
   flex: 0 0 14px;
   margin: 0;
-  accent-color: var(--ea-primary);
+  accent-color: var(--ea-interactive);
 }
 
 .ea-combo-filter__list label span {

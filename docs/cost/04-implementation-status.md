@@ -3,7 +3,7 @@
 ## Implementation Status
 
 **Document status:** Living record of what is built  
-**Version:** 0.2 · 2026-07-28  
+**Version:** 0.3 · 2026-07-28  
 **Companion documents:** `README.md`, `01-functional-specification.md`,
 `02-journal-posting-rules.md`, `03-report-specifications.md`, `CLAUDE.md`
 
@@ -93,6 +93,19 @@ encoded an unapproved policy.
 | Inventory Cost Control (§2) | `/costing/control` | Fixed two-level headers as real column groups; totals exclude unit cost (§2.8); not-calculated and not-balanced states visible (§2.6, FR-UX-003) |
 | Transaction Detail with Cost & Account (§3) | `/costing/detail` | Includes unvalued and pending rows (§3.2); journal link opens the voucher panel; totals exclude unit cost (§3.8) |
 | Inventory-to-GL Reconciliation (§5) | `/costing/detail` → GL тулгалт | Subledger vs GL per account, difference shown, GL lines without a subledger reference counted separately (§5.4, §5.6) |
+| Cost Component Analysis (§4) | `/costing/components` | Per item/warehouse/component amount, unit-cost impact, source and allocation document, accounts and GL status; per-item totals shown for the §4.3 control |
+
+### Allocation and month-end costing (0.3)
+
+| Requirement | Where |
+|---|---|
+| FR-ALLOC-001 selection from master data | Allocation document picks an active Cost Component |
+| FR-ALLOC-002 item-level result | Each allocation line becomes a `landed_cost` cost entry on a specific receipt movement, so the amount lands on one item in one warehouse in one period |
+| FR-ALLOC-003 breakdown retained | `cost_allocations` / `cost_allocation_lines` keep the total, the base, the weight used and the resulting amount |
+| FR-ALLOC-004 no invented allocation base | Three bases only, chosen per document; a zero-weight base is rejected |
+| FR-ALLOC-005 user-visible lineage | Component, amount, item, source document and allocation document all appear in the §4 report |
+| OD-019 posting timing | `computePeriodCosting` values issues/adjustments/returns at the month average; receipts stay immediate |
+| §12 posting validation | The month-end run refuses to create any entry when a scope in that month is blocked |
 
 ---
 
@@ -105,38 +118,24 @@ behave somehow, it blocks or stays neutral and makes the gap visible.
 |---|---|
 | OD-004 / OD-005 zero and negative quantity | Period stops with a visible error; nothing is valued |
 | OD-006 backdated transactions | Recalculation rewrites **draft** results only; posted entries keep their historical amounts and any resulting gap appears in reconciliation |
-| OD-011 late landed cost | Existing date-effective behaviour retained under the 0.2 ratification; the prior-period revaluation rule is still undecided |
+| OD-011 late landed cost | An allocation dated inside an open month simply raises that month's Inbound Amount and is picked up by the month-end run. An allocation for a month that is already closed is rejected by the period guard; the prior-period revaluation rule remains undecided |
 | OD-012 taxes | Not implemented |
 | OD-013 currency | Not implemented — costing is MNT only |
 | OD-014 transfers | Excluded from valuation; the quantity movement still occurs |
 | OD-016 manufacturing | Not implemented beyond an issue type being able to point at a production/WIP account |
-| OD-017 allocation bases | Not implemented; cost components can be recorded but no allocation engine exists |
 | OD-018 receipt types | Not implemented |
-| OD-019 posting timing | Immediate per-entry posting retained; period-end aggregation not built |
 | OD-020 dimensions | Not implemented as columns; dimensions remain inside the account segment string |
 
 ---
 
 ## 4. Known gaps against the baseline
 
-1. **Cost Component Analysis (§4)** is not built as a separate report.
-   Components can be created and referenced, and they appear as a column in
-   the transaction detail report, but there is no allocation flow that
-   attaches components to a receipt at item level, so the report would have
-   nothing to analyse. Building it requires OD-017.
-2. **Per-transaction issue valuation still uses the perpetual average.**
-   `lib/costing/costing.ts` values each issue as it is confirmed so that GL
-   posting can happen immediately (the ratified current behaviour, OD-019).
-   The period results in `cost_period_results` are the specification's
-   Periodic Weighted Average and are the source for the control report. Where
-   the two differ, the difference is visible in reconciliation. Unifying them
-   requires deciding OD-019 (posting timing) and OD-006 (backdating).
-3. **Running balances (§3.4)** are not implemented — the specification
+1. **Running balances (§3.4)** are not implemented — the specification
    leaves their ordering and opening point open.
-4. **Temporary Account Reconciliation (§6)** is not built; it becomes
+2. **Temporary Account Reconciliation (§6)** is not built; it becomes
    mandatory only once a temporary-account design is approved beyond the
    single clearing account ratified in 0.2.
-5. **Export (§2.9)** relies on AG Grid's built-in CSV export; a two-level
+3. **Export (§2.9)** relies on AG Grid's built-in CSV export; a two-level
    header export has not been verified.
-6. **Authorization (§7)** follows the platform's per-user data scoping.
+4. **Authorization (§7)** follows the platform's per-user data scoping.
    The detailed permission matrix remains an open decision.

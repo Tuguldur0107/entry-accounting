@@ -913,6 +913,53 @@ export const costingRuns = pgTable("costing_runs", {
 });
 
 /**
+ * Нэмэлт зардлын ХУВААРИЛАЛТ (docs/cost §10, FR-ALLOC-*). Нэг тээвэр/гаалийн
+ * зардлыг олон бараанд хуваарилах баримт. Хуваарийн суурь нь баримт бүрд
+ * сонгогддог (OD-017, README change-control 0.3).
+ *
+ * Мөр бүр нь `landed_cost` төрлийн өртгийн бичилт үүсгэж, тухайн орлогын
+ * хөдөлгөөний Орлогын дүнд нэмэгддэг.
+ */
+export const costAllocations = pgTable(
+  "cost_allocations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    documentNo: text("document_no").notNull(),
+    date: text("date").notNull(), // YYYY-MM-DD
+    costComponentId: uuid("cost_component_id")
+      .notNull()
+      .references(() => costComponents.id, { onDelete: "restrict" }),
+    totalAmount: numeric("total_amount", { precision: 18, scale: 2 }).notNull(),
+    /** "value" | "quantity" | "manual" */
+    allocationBase: text("allocation_base").notNull(),
+    description: text("description").notNull().default(""),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.documentNo)]
+);
+
+export const costAllocationLines = pgTable("cost_allocation_lines", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  allocationId: uuid("allocation_id")
+    .notNull()
+    .references(() => costAllocations.id, { onDelete: "cascade" }),
+  movementId: uuid("movement_id")
+    .notNull()
+    .references(() => inventoryMovements.id, { onDelete: "restrict" }),
+  /** Хуваарилалтад хэрэглэгдсэн жин (дүн эсвэл тоо; гараар бол 0). */
+  baseValue: numeric("base_value", { precision: 18, scale: 4 })
+    .notNull()
+    .default("0"),
+  amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  /** Үүссэн өртгийн бичилт — задаргааны гинжийг хаана. */
+  costEntryId: uuid("cost_entry_id"),
+});
+
+/**
  * Cost Ledger-ийн ПЕРИОДЫН ҮР ДҮН — бараа × агуулах × период тус бүрд нэг мөр
  * (docs/cost FR-LEDGER-COST-002). Хамрах хүрээ OD-001-ээр батлагдсан.
  *
@@ -1071,6 +1118,35 @@ export const costingItemSettingsRelations = relations(
     item: one(inventoryItems, {
       fields: [costingItemSettings.itemId],
       references: [inventoryItems.id],
+    }),
+  })
+);
+
+export const costAllocationsRelations = relations(
+  costAllocations,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [costAllocations.userId],
+      references: [users.id],
+    }),
+    component: one(costComponents, {
+      fields: [costAllocations.costComponentId],
+      references: [costComponents.id],
+    }),
+    lines: many(costAllocationLines),
+  })
+);
+
+export const costAllocationLinesRelations = relations(
+  costAllocationLines,
+  ({ one }) => ({
+    allocation: one(costAllocations, {
+      fields: [costAllocationLines.allocationId],
+      references: [costAllocations.id],
+    }),
+    movement: one(inventoryMovements, {
+      fields: [costAllocationLines.movementId],
+      references: [inventoryMovements.id],
     }),
   })
 );
@@ -1276,6 +1352,8 @@ export type CostingItemSetting = typeof costingItemSettings.$inferSelect;
 export type CostingRun = typeof costingRuns.$inferSelect;
 export type CostEntry = typeof costEntries.$inferSelect;
 export type CostPeriodResult = typeof costPeriodResults.$inferSelect;
+export type CostAllocation = typeof costAllocations.$inferSelect;
+export type CostAllocationLine = typeof costAllocationLines.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
 export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
 export type AiMessage = typeof aiMessages.$inferSelect;
