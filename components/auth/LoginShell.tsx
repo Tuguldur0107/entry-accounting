@@ -2,11 +2,11 @@
 'use client';
 
 import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { EAField, EAButton } from './fields';
 import { EAMark, EAWordmark } from './brand';
-import { LedgerIllustration } from './LedgerIllustration';
-import { MailIcon, LockIcon, ShieldIcon, ArrowRightIcon } from './icons';
+import { EmojiTileGrid } from './emoji-tile-grid';
+import { MailIcon, LockIcon, ArrowRightIcon } from './icons';
 import { T, LEDGER_T, type Lang } from '@/lib/i18n';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -35,14 +35,6 @@ export function LoginShell({
   const [pw, setPw] = useState('');
   const [pwError, setPwError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [dateStr, setDateStr] = useState('');
-
-  useEffect(() => {
-    setDateStr(new Date().toLocaleDateString(
-      lang === 'mn' ? 'mn-MN' : lang === 'ru' ? 'ru-RU' : 'en-US',
-      { month: 'short', day: 'numeric', year: 'numeric' }
-    ));
-  }, [lang]);
 
   const signIn = async () => {
     setLoading(true);
@@ -178,7 +170,7 @@ export function LoginShell({
           <div style={{
             background: 'var(--ea-hero-gradient)',
             color: 'var(--ea-hero-fg)', padding: '40px 36px',
-            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center',
             position: 'relative', overflow: 'hidden',
           }}>
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.06 }}>
@@ -187,31 +179,8 @@ export function LoginShell({
               ))}
             </svg>
 
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                fontSize: 11, fontWeight: 600, letterSpacing: '0.16em',
-                textTransform: 'uppercase', opacity: 0.72, marginBottom: 14,
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--ea-hero-accent)' }} />
-                {lt.ledgerEyebrow}{dateStr ? ` · ${dateStr}` : ''}
-              </div>
-              <h2 style={{
-                fontFamily: 'var(--ea-font-display)', fontSize: 28, fontWeight: 400,
-                lineHeight: 1.2, letterSpacing: '-0.015em', margin: 0,
-              }}>
-                {t.welcomeTitle}{' '}
-                <em style={{ fontWeight: 400, opacity: 0.95 }}>{t.welcomeTitle2}</em>
-              </h2>
-            </div>
-
-            <div style={{ position: 'relative' }}>
-              <LedgerIllustration lang={lang} />
-            </div>
-
-            <div style={{ position: 'relative', fontSize: 12, opacity: 0.7, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldIcon width={13} height={13} /> {t.secure}
-            </div>
+            {/* Текстгүй чимэглэл — асаж унтардаг 64×64 шилэн хавтангууд */}
+            <EmojiTileGrid className="relative flex-1" />
           </div>
 
           {/* Right panel */}
