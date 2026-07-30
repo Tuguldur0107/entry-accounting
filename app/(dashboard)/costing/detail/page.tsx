@@ -1,6 +1,7 @@
 import { TransactionDetailReport } from "@/components/costing/transaction-detail-report";
 import { auth } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
+import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliation";
 import {
   loadInventoryGlReconciliation,
   loadTransactionDetail,
@@ -26,9 +27,10 @@ export default async function CostingDetailPage({
     to: to && DATE_RE.test(to) ? to : period.to,
   };
 
-  const [rows, reconciliation] = await Promise.all([
+  const [rows, reconciliation, clearing] = await Promise.all([
     loadTransactionDetail(userId, range),
     loadInventoryGlReconciliation(userId, range),
+    loadClearingReconciliation(userId, range),
   ]);
 
   return (
@@ -39,6 +41,7 @@ export default async function CostingDetailPage({
       reconciliation={reconciliation.rows}
       pendingCount={reconciliation.pendingCount}
       pendingAmount={reconciliation.pendingAmount}
+      clearing={clearing}
     />
   );
 }

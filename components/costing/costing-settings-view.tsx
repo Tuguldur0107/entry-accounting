@@ -781,8 +781,10 @@ function CostComponentsSection({
       <div className="flex items-start justify-between gap-3">
         <p className="text-xs text-[var(--ea-text-3)]">
           Барааны орлогын өртгийг бүрдүүлэгч ангилалууд (худалдан авах үнэ,
-          тээвэр, гааль, даатгал, ажиллах хүч…). Жагсаалт нээлттэй — өөрийн
-          бүрэлдэхүүнээ нэмнэ.
+          тээвэр, гааль, даатгал, ажиллах хүч…). Жагсаалт нээлттэй. Клирингийн
+          данс тохируулбал тухайн бүрэлдэхүүний зардал ТЭР дансаар дамжиж
+          (Dr клиринг / Cr эх тал → Dr бараа / Cr мөн клиринг) обьект бүрээр
+          тулгагдана; хоосон бол ерөнхий клиринг ашиглана.
         </p>
         <Button size="sm" onClick={openNew} disabled={isPending}>
           <Plus size={14} />
@@ -849,7 +851,7 @@ function CostComponentsSection({
             </div>
 
             <div className="grid gap-1.5">
-              <Label>Холбогдох данс (сонголтоор)</Label>
+              <Label>Клирингийн данс (сонголтоор)</Label>
               <AccountInput
                 value={form.accountNumber}
                 onChange={(value) =>

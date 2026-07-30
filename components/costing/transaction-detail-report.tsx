@@ -14,6 +14,7 @@ import { AlertTriangle, ArrowUpRight } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import type { ClearingReconciliation } from "@/lib/costing/clearing-types";
 import {
   GL_BOUND_LABELS,
   type GlBoundStatus,
@@ -31,7 +32,7 @@ const STATUS_TONES: Record<GlBoundStatus, StatusTone> = {
   reversed: "muted",
 };
 
-type Tab = "detail" | "reconciliation";
+type Tab = "detail" | "reconciliation" | "clearing";
 
 interface Props {
   from: string;
@@ -40,6 +41,7 @@ interface Props {
   reconciliation: ReconciliationRow[];
   pendingCount: number;
   pendingAmount: number;
+  clearing: ClearingReconciliation;
 }
 
 const QTY = {
@@ -61,6 +63,7 @@ export function TransactionDetailReport({
   reconciliation,
   pendingCount,
   pendingAmount,
+  clearing,
 }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("detail");
@@ -205,6 +208,37 @@ export function TransactionDetailReport({
         ],
       },
       {
+        headerName: "Үлдэгдэл (гүйлгээ тутам)",
+        children: [
+          {
+            headerName: "Тоо",
+            field: "runningQty",
+            width: 110,
+            cellClass: "ag-right-aligned-cell font-mono text-xs",
+            headerClass: "ag-right-aligned-header",
+            valueFormatter: (params) =>
+              params.value == null
+                ? "—"
+                : Number(params.value).toLocaleString("en-US", {
+                    maximumFractionDigits: 4,
+                  }),
+          },
+          {
+            headerName: "Дүн",
+            field: "runningAmount",
+            width: 150,
+            cellClass: "ag-right-aligned-cell font-mono text-xs",
+            headerClass: "ag-right-aligned-header",
+            valueFormatter: (params) =>
+              params.value == null ? "—" : fmtMnt(Number(params.value)),
+            tooltipValueGetter: (params) =>
+              params.value == null
+                ? "Тодорхойгүй: период тооцоологдоогүй, үнэлэгдээгүй мөр эсвэл шилжүүлэг таарсан"
+                : "",
+          },
+        ],
+      },
+      {
         headerName: "Данс",
         children: [
           {
@@ -333,6 +367,8 @@ export function TransactionDetailReport({
         journalNo: null,
         voucherId: null,
         costEntryId: null,
+        runningQty: null,
+        runningAmount: null,
         createdAt: "",
       },
     ],
@@ -446,6 +482,21 @@ export function TransactionDetailReport({
         </button>
         <button
           type="button"
+          onClick={() => setTab("clearing")}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+            tab === "clearing"
+              ? "bg-[var(--ea-primary)] text-white"
+              : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
+          )}
+        >
+          Клирингийн тулгалт
+          {clearing.rows.filter((row) => row.status !== "cleared").length > 0
+            ? ` · ${clearing.rows.filter((row) => row.status !== "cleared").length} нээлттэй`
+            : ""}
+        </button>
+        <button
+          type="button"
           onClick={() => setTab("reconciliation")}
           className={cn(
             "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
@@ -459,7 +510,9 @@ export function TransactionDetailReport({
         </button>
       </div>
 
-      {tab === "detail" ? (
+      {tab === "clearing" && <ClearingPane clearing={clearing} />}
+
+      {tab === "detail" && (
         rows.length === 0 ? (
           <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
             Энэ хугацаанд хөдөлгөөн алга
@@ -475,7 +528,9 @@ export function TransactionDetailReport({
             suppressCellFocus
           />
         )
-      ) : (
+      )}
+
+      {tab === "reconciliation" && (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           {(diffCount > 0 || pendingCount > 0) && (
             <div className="flex items-start gap-2 rounded-md border border-[var(--ea-warning)]/40 bg-[var(--ea-warning)]/8 px-3 py-2 text-xs text-[var(--ea-warning-fg,var(--ea-text-1))]">
@@ -514,6 +569,148 @@ export function TransactionDetailReport({
             />
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Клирингийн тулгалт (§6) — данс + бизнес объектоор ───────────────────────
+
+function ClearingPane({ clearing }: { clearing: ClearingReconciliation }) {
+  const openRows = clearing.rows.filter((row) => row.status !== "cleared");
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      {clearing.unknownCount > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger)]">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <p>
+            {clearing.unknownCount} объектгүй (гар журналын) үлдэгдэл —{" "}
+            {fmtMnt(clearing.unknownAmount)}. Эдгээрийг бизнес объекттой нь
+            холбож тайлбарлах шаардлагатай; автоматаар шүүрдэхгүй.
+          </p>
+        </div>
+      )}
+
+      {/* Дансны нэгтгэл */}
+      {clearing.accounts.length === 0 ? (
+        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] px-6 text-center text-sm text-[var(--ea-text-4)]">
+          Клирингийн дансанд бичилт алга
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {clearing.accounts.map((summary) => (
+              <div
+                key={summary.account}
+                className="rounded-md border border-[var(--ea-border)] px-3 py-2 text-xs"
+              >
+                <div className="font-mono font-semibold text-[var(--ea-text-1)]">
+                  {summary.account}
+                </div>
+                <div className="mt-1 grid grid-cols-4 gap-3 font-mono text-[11px] text-[var(--ea-text-3)]">
+                  <span title="Эхний үлдэгдэл">Э: {fmtMnt(summary.opening)}</span>
+                  <span title="Орсон (дебет)">+ {fmtMnt(summary.increase)}</span>
+                  <span title="Хаагдсан (кредит)">− {fmtMnt(summary.cleared)}</span>
+                  <span
+                    title="Эцсийн үлдэгдэл"
+                    className={cn(
+                      "font-semibold",
+                      Math.abs(summary.ending) > 0.01
+                        ? "text-[var(--ea-warning)]"
+                        : "text-[var(--ea-success)]"
+                    )}
+                  >
+                    = {fmtMnt(summary.ending)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Объект бүрийн мөрүүд — Данс + Төрөл + ID дотроо тулна (§6.2) */}
+          <div className="overflow-x-auto rounded-md border border-[var(--ea-border)]">
+            <table className="w-full text-xs">
+              <thead className="bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
+                <tr>
+                  <th className="px-2 py-1.5 text-left font-medium">Данс</th>
+                  <th className="px-2 py-1.5 text-left font-medium">
+                    Объектын төрөл
+                  </th>
+                  <th className="px-2 py-1.5 text-left font-medium">Объект</th>
+                  <th className="px-2 py-1.5 text-left font-medium">
+                    Бүрэлдэхүүн
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium">Эхний</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Орсон</th>
+                  <th className="px-2 py-1.5 text-right font-medium">
+                    Хаагдсан
+                  </th>
+                  <th className="px-2 py-1.5 text-right font-medium">Эцсийн</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Төлөв</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clearing.rows.map((row) => (
+                  <tr
+                    key={`${row.account}:${row.objectType}:${row.objectId}`}
+                    className={cn(
+                      "border-t border-[var(--ea-border)]",
+                      row.status === "unknown" && "bg-[var(--ea-danger)]/5"
+                    )}
+                  >
+                    <td className="px-2 py-1.5 font-mono">{row.account}</td>
+                    <td className="px-2 py-1.5">{row.objectType}</td>
+                    <td className="px-2 py-1.5 font-mono">{row.objectLabel}</td>
+                    <td className="px-2 py-1.5 text-[var(--ea-text-3)]">
+                      {row.componentLabel ?? "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {fmtMnt(row.opening)}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {fmtMnt(row.increase)}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {fmtMnt(row.cleared)}
+                    </td>
+                    <td
+                      className={cn(
+                        "px-2 py-1.5 text-right font-mono font-semibold",
+                        Math.abs(row.ending) > 0.01 && "text-[var(--ea-warning)]"
+                      )}
+                    >
+                      {fmtMnt(row.ending)}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <StatusBadge
+                        tone={
+                          row.status === "cleared"
+                            ? "success"
+                            : row.status === "open"
+                              ? "warning"
+                              : "danger"
+                        }
+                      >
+                        {row.status === "cleared"
+                          ? "Хаагдсан"
+                          : row.status === "open"
+                            ? "Үлдэгдэлтэй"
+                            : "Объектгүй"}
+                      </StatusBadge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {openRows.length === 0 && clearing.rows.length > 0 && (
+            <p className="text-xs text-[var(--ea-success)]">
+              ✓ Бүх объект дотроо тулсан — тайлбаргүй үлдэгдэл алга.
+            </p>
+          )}
+        </>
       )}
     </div>
   );

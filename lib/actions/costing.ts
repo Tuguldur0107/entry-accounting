@@ -14,6 +14,7 @@ import {
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
+  costComponents,
   costEntries,
   costingItemSettings,
   costingRuns,
@@ -379,6 +380,20 @@ export async function postCostEntry(id: string) {
   const issueDebitAccountNumber = entryIssueType
     ? resolveIssueDebitAccount(entryIssueType, accounts.cogsAccountNumber)
     : accounts.cogsAccountNumber;
+  // Бүрэлдэхүүнд ӨӨРИЙН clearing данс тохируулсан бол нэмэлт зардлын
+  // бичилт ТЭР дансаар кредитлэгдэнэ (corrected baseline §4: Dr Inventory /
+  // Cr the SAME component clearing) — эс бөгөөс ерөнхий клиринг.
+  let componentClearing: string | null = null;
+  if (entry.entryType === "landed_cost" && entry.costComponentId) {
+    const component = await db.query.costComponents.findFirst({
+      where: and(
+        eq(costComponents.id, entry.costComponentId),
+        eq(costComponents.userId, userId)
+      ),
+      columns: { accountNumber: true },
+    });
+    componentClearing = component?.accountNumber ?? null;
+  }
   const { debit, credit } = entryPostingAccounts(
     entry.entryType as CostEntryType,
     {
@@ -386,7 +401,7 @@ export async function postCostEntry(id: string) {
       issueDebitAccountNumber,
     },
     {
-      clearing: roleSettings.clearingAccountNumber,
+      clearing: componentClearing ?? roleSettings.clearingAccountNumber,
       adjustmentGain: roleSettings.adjustmentGainAccountNumber,
       adjustmentLoss: roleSettings.adjustmentLossAccountNumber,
       nrvExpense: roleSettings.nrvExpenseAccountNumber,

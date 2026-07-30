@@ -3,7 +3,7 @@
 ## Implementation Status
 
 **Document status:** Living record of what is built  
-**Version:** 0.4 · 2026-07-30  
+**Version:** 0.5 · 2026-07-30  
 **Companion documents:** `README.md`, `01-functional-specification.md`,
 `02-journal-posting-rules.md`, `03-report-specifications.md`, `CLAUDE.md`
 
@@ -125,8 +125,8 @@ The corrected package upgraded three areas. Current state against them:
 | Corrected requirement | Status |
 |---|---|
 | Exact seven-step periodic sequence (C1 → Inbound → Goods Available → PWA → Outbound → C2 → controls), computed once per item-period | **Conforms** — `lib/costing/periodic.ts` implements exactly this order with the two control equations; the average never refreshes per transaction. Tests assert AC-001 and the control identities |
-| Running Qty / Running Amount mandatory in the transaction detail report, periodic semantics, final row reconciles to C2 | **Not implemented yet** — the detail report has no running columns. Next work item |
-| Temporary/clearing flow (Dr component clearing / Cr source; Dr inventory / Cr same clearing) matched by Business Object Type + ID + Component; §6 temporary-account report mandatory | **Partial** — a single configurable clearing account exists and every cost entry carries movement/allocation lineage, but there are no per-component clearing roles and no business-object-keyed temporary-account reconciliation report. Next work item |
+| Running Qty / Running Amount mandatory in the transaction detail report, periodic semantics, final row reconciles to C2 | **Conforms** — `lib/costing/running-balance.ts` (pure, 7 tests): per item×warehouse×period from that period's C1; receipts at actual inbound amounts, issues/average-valued inbound at the one PWA; unvalued rows/blocked periods/transfers turn Running Amount into an explicit "—" (qty keeps running). Columns in the detail report |
+| Temporary/clearing flow (Dr component clearing / Cr source; Dr inventory / Cr same clearing) matched by Business Object Type + ID + Component; §6 temporary-account report mandatory | **Conforms** — a Cost Component may carry its own clearing account (`cost_components.account_number`; landed-cost postings credit it, falling back to the global clearing role); `lib/costing/clearing-reconciliation.ts` + the Клирингийн тулгалт tab reconcile per Account + Object Type + ID (+ component) with Opening + Increase − Cleared = Ending per object, objects resolved from movements / allocations / AR-AP / cash documents, and unknown-object (manual GL) residuals surfaced — never netted |
 
 ## 3. Open decisions still open
 

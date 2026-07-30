@@ -54,6 +54,11 @@ export interface TransactionDetailRow {
   journalNo: string | null;
   voucherId: string | null;
   costEntryId: string | null;
+  // Гүйлгээ тутмын үлдэгдэл (§3.4, corrected baseline — ЗААВАЛ).
+  // null = тодорхойгүй: период тооцоологдоогүй / үнэлэгдээгүй мөр таарсан /
+  // хөдөлгөөн батлагдаагүй. Таамаг өртөг зохиохгүй.
+  runningQty: number | null;
+  runningAmount: number | null;
   // Аудит
   createdAt: string;
 }

@@ -12,11 +12,18 @@ import {
   chartOfAccounts,
   costComponents,
   costEntries,
+  costPeriodResults,
   inventoryIssueTypes,
   inventoryMovements,
   journalVouchers,
 } from "@/lib/db/schema";
 import { extractMainAccount } from "@/lib/reports/balances";
+import { periodCodeOf, periodRange } from "@/lib/periods/period";
+import {
+  computeRunningBalances,
+  type RunningMovement,
+} from "./running-balance";
+import { scopeKey } from "./periodic";
 import type {
   GlBoundStatus,
   ReconciliationRow,
@@ -71,10 +78,14 @@ export async function loadTransactionDetail(
   userId: string,
   range: { from: string; to: string }
 ): Promise<TransactionDetailRow[]> {
+  // Running балансын хуримтлал периодын ЭХНЭЭС явдаг тул хайлтын цонхыг
+  // эхний өдрийнх нь периодын эхлэл хүртэл өргөтгөж уншина; харуулахдаа
+  // хүссэн мужаар нь шүүнэ.
+  const windowStart = periodRange(periodCodeOf(range.from)).startDate;
   const movements = await db.query.inventoryMovements.findMany({
     where: and(
       eq(inventoryMovements.userId, userId),
-      gte(inventoryMovements.date, range.from),
+      gte(inventoryMovements.date, windowStart),
       lte(inventoryMovements.date, range.to)
     ),
     with: { item: true, warehouse: true },
@@ -144,8 +155,117 @@ export async function loadTransactionDetail(
     else entriesByMovement.set(entry.movementId, [entry]);
   }
 
+  // ── Running балансууд (§3.4) ────────────────────────────────────────────
+  // Суурь: тухайн scope-периодын C1 + PWA (cost_period_results-ээс).
+  const periodCodes = [...new Set(movements.map((m) => periodCodeOf(m.date)))];
+  const periodResults = await db.query.costPeriodResults.findMany({
+    where: and(
+      eq(costPeriodResults.userId, userId),
+      inArray(costPeriodResults.periodCode, periodCodes),
+      eq(costPeriodResults.status, "calculated")
+    ),
+  });
+  const runningBasis = new Map(
+    periodResults.map((row) => [
+      `${scopeKey(row.itemId, row.warehouseId)}::${row.periodCode}`,
+      {
+        openingQty: Number(row.openingQty),
+        openingAmount: Number(row.openingAmount),
+        average:
+          row.averageUnitCost === null ? null : Number(row.averageUnitCost),
+      },
+    ])
+  );
+
+  // Хөдөлгөөн → running үйл явдал. Зөвхөн БАТЛАГДСАН хөдөлгөөн нөөц хөдөлгөнө.
+  const runningEvents: RunningMovement[] = [];
+  for (const movement of movements) {
+    if (movement.status !== "confirmed") continue;
+    if (!movement.itemId || !movement.warehouseId) continue;
+    const quantity = Number(movement.quantity);
+    const absQty = Math.abs(quantity);
+    const periodCode = periodCodeOf(movement.date);
+    const shared = {
+      itemId: movement.itemId,
+      warehouseId: movement.warehouseId,
+      periodCode,
+      inboundAmount: null as number | null,
+    };
+    switch (movement.movementType) {
+      case "receipt": {
+        // Бодит орлогын дүн: идэвхтэй капитализаци + нэмэлт зардал.
+        const amount = (entriesByMovement.get(movement.id) ?? [])
+          .filter(
+            (entry) =>
+              entry.status !== "reversed" &&
+              (entry.entryType === "receipt_capitalize" ||
+                entry.entryType === "landed_cost")
+          )
+          .reduce((sum, entry) => sum + Number(entry.amount), 0);
+        const hasCapitalize = (entriesByMovement.get(movement.id) ?? []).some(
+          (entry) =>
+            entry.status !== "reversed" &&
+            entry.entryType === "receipt_capitalize"
+        );
+        runningEvents.push({
+          ...shared,
+          movementId: movement.id,
+          kind: "priced-in",
+          quantityDelta: absQty,
+          inboundAmount: hasCapitalize ? Math.round(amount * 100) / 100 : null,
+        });
+        break;
+      }
+      case "return_in":
+        runningEvents.push({
+          ...shared,
+          movementId: movement.id,
+          kind: "avg-in",
+          quantityDelta: absQty,
+        });
+        break;
+      case "issue":
+      case "return_out":
+        runningEvents.push({
+          ...shared,
+          movementId: movement.id,
+          kind: "avg-out",
+          quantityDelta: -absQty,
+        });
+        break;
+      case "adjustment":
+        runningEvents.push({
+          ...shared,
+          movementId: movement.id,
+          kind: quantity >= 0 ? "avg-in" : "avg-out",
+          quantityDelta: quantity,
+        });
+        break;
+      case "transfer":
+        // Гаргах агуулахын scope — дэлгэцэнд ЭНЭ утга харагдана.
+        runningEvents.push({
+          ...shared,
+          movementId: movement.id,
+          kind: "transfer",
+          quantityDelta: -absQty,
+        });
+        if (movement.toWarehouseId)
+          runningEvents.push({
+            ...shared,
+            warehouseId: movement.toWarehouseId,
+            movementId: `${movement.id}::in`,
+            kind: "transfer",
+            quantityDelta: absQty,
+          });
+        break;
+    }
+  }
+  const runningByMovement = computeRunningBalances(runningEvents, runningBasis);
+
   const rows: TransactionDetailRow[] = [];
   for (const movement of movements) {
+    // Өргөтгөсөн цонхны эхний хэсэг зөвхөн хуримтлалд — харагдахгүй.
+    if (movement.date < range.from) continue;
     const quantity = Number(movement.quantity);
     const direction =
       movement.movementType === "adjustment"
@@ -174,6 +294,8 @@ export async function loadTransactionDetail(
       createdAt: movement.createdAt
         .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
         .slice(0, 16),
+      runningQty: runningByMovement.get(movement.id)?.qty ?? null,
+      runningAmount: runningByMovement.get(movement.id)?.amount ?? null,
     };
 
     const movementEntries = entriesByMovement.get(movement.id) ?? [];
