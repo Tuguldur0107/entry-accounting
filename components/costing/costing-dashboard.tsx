@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import { Icon, type IconName } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { AlertTriangle, Calculator, FileClock, PackagePlus, Scale } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -147,21 +147,21 @@ export function CostingDashboard({
     {
       label: "Үнэлгээ хүлээгдэж буй",
       value: String(pending.length),
-      icon: Calculator,
+      icon: "costing" as IconName,
       color: pending.length > 0 ? "var(--ea-warning)" : "var(--ea-success)",
       href: undefined as string | undefined,
     },
     {
       label: "Ноорог бичилт",
       value: String(draftEntryCount),
-      icon: FileClock,
+      icon: "pending" as IconName,
       color: "var(--ea-warning)",
       href: "/costing/entries?status=draft",
     },
     {
       label: "Клирингийн үлдэгдэл (14000099)",
       value: fmtMnt(clearingBalance),
-      icon: Scale,
+      icon: "reconciliation" as IconName,
       color:
         Math.abs(clearingBalance) > 0.01 ? "var(--ea-warning)" : "var(--ea-success)",
       href: undefined,
@@ -169,7 +169,7 @@ export function CostingDashboard({
     {
       label: "GL зөрүү (14-данс)",
       value: fmtMnt(tieOutDifference),
-      icon: AlertTriangle,
+      icon: "warning" as IconName,
       color:
         Math.abs(tieOutDifference) > 0.01 ? "var(--ea-danger)" : "var(--ea-success)",
       href: "/costing/reports",
@@ -204,11 +204,11 @@ export function CostingDashboard({
             // холбогддог тул сарын дундажид зөв тусна (docs/cost FR-ALLOC-*).
             onClick={() => router.push("/costing/allocations")}
           >
-            <PackagePlus />
+            <Icon name="packageReceipt" />
             Зардлын хуваарилалт
           </Button>
           <Button size="sm" onClick={handleRun} disabled={isPending}>
-            <Calculator />
+            <Icon name="costing" />
             Costing run
           </Button>
         </div>
@@ -216,14 +216,13 @@ export function CostingDashboard({
 
       <section className="grid grid-cols-2 border-y border-[var(--ea-border)] lg:grid-cols-4">
         {metrics.map((metric) => {
-          const Icon = metric.icon;
           const body = (
             <>
               <div
                 className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)]"
                 style={{ color: metric.color }}
               >
-                <Icon size={16} />
+                <Icon name={metric.icon} />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-[11px] text-[var(--ea-text-3)]">

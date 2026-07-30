@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type {
   ColDef,
@@ -8,7 +9,6 @@ import type {
   ICellRendererParams,
   SelectionChangedEvent,
 } from "ag-grid-community";
-import { Ban, Check, CheckCheck, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -427,7 +427,7 @@ export function InventoryMovementsView({
                       setOpen(true);
                     }}
                   >
-                    <Pencil />
+                    <Icon name="edit" />
                   </button>
                   <button
                     type="button"
@@ -436,7 +436,7 @@ export function InventoryMovementsView({
                     aria-label="Батлах"
                     onClick={() => handleConfirm(movement)}
                   >
-                    <Check />
+                    <Icon name="approve" />
                   </button>
                   <button
                     type="button"
@@ -445,7 +445,7 @@ export function InventoryMovementsView({
                     aria-label="Ноорог устгах"
                     onClick={() => handleDelete(movement.id)}
                   >
-                    <Trash2 />
+                    <Icon name="delete" />
                   </button>
                 </>
               )}
@@ -457,7 +457,7 @@ export function InventoryMovementsView({
                   aria-label="Цуцлах"
                   onClick={() => handleCancel(movement.id)}
                 >
-                  <Ban />
+                  <Icon name="cancel" />
                 </button>
               )}
             </div>
@@ -529,7 +529,7 @@ export function InventoryMovementsView({
             setOpen(true);
           }}
         >
-          <Plus />
+          <Icon name="add" />
           Шинэ хөдөлгөөн
         </Button>
       </div>
@@ -580,7 +580,7 @@ export function InventoryMovementsView({
               onClick={handleBatchConfirm}
               disabled={isPending}
             >
-              <CheckCheck />
+              <Icon name="approveAll" />
               Сонгосныг батлах ({selectedDrafts.length})
             </Button>
           )}
@@ -797,7 +797,7 @@ export function InventoryMovementsView({
               Ноорог хадгалах
             </Button>
             <Button onClick={() => save(true)} disabled={isPending}>
-              <Check />
+              <Icon name="approve" />
               Хадгалж батлах
             </Button>
           </DialogFooter>

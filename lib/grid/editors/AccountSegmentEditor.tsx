@@ -10,6 +10,7 @@
 // таслахаас сэргийлж "ag-custom-component-popup" class заавал хэрэгтэй.
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import type { CustomCellEditorProps } from "ag-grid-react";
 import {
   fmtAccountDisplay,
@@ -108,15 +109,7 @@ export function AccountSegmentEditor(
           color: "var(--ea-text-3)",
         }}
       >
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-          <path
-            d="M2 4.5L6 8l4-3.5"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <Icon name="chevronDown" size="xs" />
       </button>
 
       <AccountSegmentPanel

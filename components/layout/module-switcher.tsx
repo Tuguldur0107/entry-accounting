@@ -1,30 +1,29 @@
 "use client";
 
 import Link from "next/link";
+import { Icon, type IconName, type IconSize } from "@/components/ui/icon";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Settings, Check, WalletCards, ReceiptText, Boxes, Calculator, Building, Sparkles, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Z } from "@/lib/ui/z-layers";
 import { MODULES, getActiveModule } from "./modules";
 
-const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
-  home: LayoutDashboard,
-  gl: BookOpen,
-  cash: WalletCards,
-  receivables: WalletCards,
-  payables: ReceiptText,
-  inventory: Boxes,
-  costing: Calculator,
-  fa: Building,
-  ai: Sparkles,
-  settings: Settings,
+const MODULE_ICONS: Record<string, IconName> = {
+  home: "dashboard",
+  gl: "generalLedger",
+  cash: "cash",
+  receivables: "cash",
+  payables: "document",
+  inventory: "inventory",
+  costing: "costing",
+  fa: "fixedAsset",
+  ai: "ai",
+  settings: "settings",
 };
 
-function ModuleIcon({ id, size = 22 }: { id: string; size?: number }) {
-  const Icon = MODULE_ICONS[id] ?? BookOpen;
-  return <Icon size={size} strokeWidth={1.6} />;
+function ModuleIcon({ id, size = "xl" }: { id: string; size?: IconSize }) {
+  return <Icon name={MODULE_ICONS[id] ?? "generalLedger"} size={size} />;
 }
 
 type ModuleSwitcherVariant = "header" | "sidebar" | "collapsed";
@@ -134,10 +133,10 @@ export function ModuleSwitcher({
                 {active.label}
               </div>
             </div>
-            <ModuleIcon id={active.id} size={18} />
+            <ModuleIcon id={active.id} size="lg" />
           </>
         ) : (
-          <ModuleIcon id={active.id} size={20} />
+          <ModuleIcon id={active.id} size="xl" />
         )}
       </button>
 
@@ -227,7 +226,7 @@ export function ModuleSwitcher({
                         : "var(--ea-interactive)",
                     }}
                   >
-                    <ModuleIcon id={m.id} size={18} />
+                    <ModuleIcon id={m.id} size="lg" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -242,7 +241,7 @@ export function ModuleSwitcher({
                         {m.label}
                       </span>
                       {isActive && (
-                        <Check size={13} strokeWidth={2.5} style={{ color: "var(--ea-interactive)" }} />
+                        <Icon name="approve" size="sm" style={{ color: "var(--ea-interactive)" }} />
                       )}
                     </div>
                     <div

@@ -7,8 +7,8 @@
 // (сервер fetch байхгүй — самбар шинэчлэгдээд дахин дарахад payload солигдоно).
 
 import { useMemo } from "react";
+import { Icon } from "@/components/ui/icon";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
 import type { ColDef } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -80,7 +80,7 @@ export function DrillPanel({ panel }: { panel: PanelInstance }) {
             className="inline-flex items-center gap-1 font-medium text-[var(--ea-primary)]"
           >
             {payload.link.label}
-            <ArrowUpRight size={12} />
+            <Icon name="openDetail" size="xs" />
           </Link>
         )}
       </div>

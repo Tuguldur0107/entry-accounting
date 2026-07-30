@@ -1,17 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import Link from "next/link";
-import {
-  FileText,
-  Paperclip,
-  Send,
-  Settings,
-  Sparkles,
-  Square,
-  Trash2,
-  X,
-} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -296,7 +287,7 @@ export function AiChatView({
         onClick={clearHistory}
         disabled={isStreaming}
       >
-        <Trash2 size={14} />
+        <Icon name="delete" size="sm" />
         Түүх цэвэрлэх
       </Button>
     ) : null;
@@ -318,7 +309,7 @@ export function AiChatView({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="flex items-center gap-2 text-lg font-semibold text-[var(--ea-text-1)]">
-              <Sparkles size={18} className="text-[var(--ea-primary)]" />
+              <Icon name="ai" size="lg" className="text-[var(--ea-primary)]" />
               AI туслах
             </h1>
             <p className="mt-1 text-xs text-[var(--ea-text-3)]">
@@ -338,7 +329,7 @@ export function AiChatView({
             href="/ai/settings"
             className="inline-flex items-center gap-1 font-medium underline"
           >
-            <Settings size={12} />
+            <Icon name="settings" size="xs" />
             Тохиргоо руу очих
           </Link>
         </p>
@@ -353,7 +344,7 @@ export function AiChatView({
       >
         {messages.length === 0 ? (
           <div className="m-auto flex max-w-md flex-col items-center gap-4 text-center">
-            <Sparkles size={28} className="text-[var(--ea-primary)]" />
+            <Icon name="ai" size="2xl" className="text-[var(--ea-primary)]" />
             <p className="text-sm text-[var(--ea-text-3)]">
               Нягтлан бодох бүртгэлийн асуултаа асуугаарай — журналын бичилт,
               НӨАТ, цалин, өртөг, элэгдэл… Нэхэмжлэх, хуулгын зураг/PDF
@@ -396,7 +387,7 @@ export function AiChatView({
                           : "bg-[var(--ea-surface)]"
                       )}
                     >
-                      <FileText size={11} />
+                      <Icon name="file" size="xs" />
                       <span className="max-w-40 truncate">{attachment.name}</span>
                     </span>
                   ))}
@@ -424,7 +415,7 @@ export function AiChatView({
               key={`${attachment.name}-${index}`}
               className="inline-flex items-center gap-1.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 py-1 text-xs text-[var(--ea-text-2)]"
             >
-              <FileText size={12} />
+              <Icon name="file" size="xs" />
               <span className="max-w-44 truncate">{attachment.name}</span>
               <span className="text-[var(--ea-text-4)]">
                 {fmtSize(attachment.size)}
@@ -439,7 +430,7 @@ export function AiChatView({
                 }
                 className="text-[var(--ea-text-4)] transition hover:text-[var(--ea-danger)]"
               >
-                <X size={12} />
+                <Icon name="close" size="xs" />
               </button>
             </span>
           ))}
@@ -473,7 +464,7 @@ export function AiChatView({
           disabled={isStreaming || pending.length >= MAX_ATTACHMENTS}
           onClick={() => fileInputRef.current?.click()}
         >
-          <Paperclip size={15} />
+          <Icon name="attach" size="sm" />
         </Button>
         <textarea
           ref={textareaRef}
@@ -505,7 +496,7 @@ export function AiChatView({
             className="h-12"
             onClick={() => abortRef.current?.abort()}
           >
-            <Square size={14} />
+            <Icon name="stop" size="sm" />
             Зогсоох
           </Button>
         ) : (
@@ -514,7 +505,7 @@ export function AiChatView({
             className="h-12"
             disabled={!input.trim() && pending.length === 0}
           >
-            <Send size={14} />
+            <Icon name="send" size="sm" />
             Илгээх
           </Button>
         )}

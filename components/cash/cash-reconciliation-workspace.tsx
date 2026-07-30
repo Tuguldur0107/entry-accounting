@@ -7,23 +7,12 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@/components/ui/icon";
 import type {
   CellValueChangedEvent,
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
-import {
-  ArrowRight,
-  CheckCircle2,
-  CircleAlert,
-  ExternalLink,
-  Landmark,
-  LoaderCircle,
-  RefreshCw,
-  RotateCcw,
-  Scale,
-  ListChecks,
-} from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
@@ -602,7 +591,7 @@ export function CashReconciliationWorkspace({
               disabled={isPending}
               onClick={() => params.data && reverseFx(params.data)}
             >
-              <RotateCcw />
+              <Icon name="reset" />
             </button>
           ) : null,
       },
@@ -657,7 +646,7 @@ export function CashReconciliationWorkspace({
             className="inline-flex items-center gap-1 text-[var(--ea-primary)] hover:underline"
           >
             {params.value}
-            <ExternalLink size={12} />
+            <Icon name="openExternal" size="xs" />
           </a>
         ),
       },
@@ -810,7 +799,7 @@ export function CashReconciliationWorkspace({
             aria-label="Тулгалтын огноо"
           />
           <Button variant="outline" onClick={applyDate}>
-            <RefreshCw />
+            <Icon name="refresh" />
             Шинэчлэх
           </Button>
         </div>
@@ -829,7 +818,7 @@ export function CashReconciliationWorkspace({
 
       <section>
         <div className="mb-2 flex items-center gap-2">
-          <Scale size={16} className="text-[var(--ea-primary)]" />
+          <Icon name="reconciliation" className="text-[var(--ea-primary)]" />
           <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
             Дансны тулгалт
           </h2>
@@ -903,14 +892,14 @@ export function CashReconciliationWorkspace({
         <div className="mb-3 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <ArrowRight size={16} className="text-[var(--ea-primary)]" />
+              <Icon name="arrowRight" className="text-[var(--ea-primary)]" />
               <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
                 Валютын ханшийн тэгшитгэл
               </h2>
             </div>
             {fxRows.length > 0 && (
               <Button variant="outline" size="sm" onClick={openRateDialog}>
-                <Landmark />
+                <Icon name="bank" />
                 Ханш татах
               </Button>
             )}
@@ -920,7 +909,7 @@ export function CashReconciliationWorkspace({
             <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)]">
               <div className="grid gap-0 md:grid-cols-[1.3fr_0.7fr_0.7fr_0.7fr]">
                 <div className="flex items-center gap-2 border-b border-[var(--ea-border)] px-3 py-2 text-xs text-[var(--ea-text-3)] md:border-b-0 md:border-r">
-                  <ListChecks size={15} className="shrink-0 text-[var(--ea-primary)]" />
+                  <Icon name="checklist" size="sm" className="shrink-0 text-[var(--ea-primary)]" />
                   <span>
                     Томъёо: <span className="font-mono">валютын үлдэгдэл × шинэ ханш - GL үлдэгдэл = тэгшитгэл</span>
                   </span>
@@ -1045,7 +1034,7 @@ export function CashReconciliationWorkspace({
       {history.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-[var(--ea-success)]" />
+            <Icon name="success" className="text-[var(--ea-success)]" />
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               Тэгшитгэлийн түүх
             </h2>
@@ -1086,7 +1075,7 @@ export function CashReconciliationWorkspace({
                     disabled={isPending}
                     onClick={() => reverseFx(item)}
                   >
-                    <RotateCcw />
+                    <Icon name="reset" />
                   </Button>
                 ) : (
                   <span className="text-xs text-[var(--ea-text-4)]">
@@ -1132,14 +1121,14 @@ export function CashReconciliationWorkspace({
 
           {ratesLoading && rateQuotes.length === 0 ? (
             <div className="flex h-56 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-              <LoaderCircle className="animate-spin" size={18} />
+              <Icon name="loading" size="lg" className="animate-spin" />
               Банкнуудын ханш татаж байна...
             </div>
           ) : rateQuotes.length > 0 ? (
             <>
               {ratesLoading && (
                 <div className="flex items-center gap-2 text-xs text-[var(--ea-text-3)]">
-                  <LoaderCircle className="animate-spin" size={14} />
+                  <Icon name="loading" size="sm" className="animate-spin" />
                   Үлдсэн эх сурвалжийг татаж байна...
                 </div>
               )}
@@ -1167,7 +1156,7 @@ export function CashReconciliationWorkspace({
                             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--ea-primary)]"
                           >
                             {quote.sourceName}
-                            <ExternalLink size={12} />
+                            <Icon name="openExternal" size="xs" />
                           </a>
                           <div className="text-xs text-[var(--ea-text-3)]">
                             {quote.currency} · {quote.date}
@@ -1410,11 +1399,11 @@ function Metric({
   value: number;
   tone: "success" | "danger" | "warning" | "muted";
 }) {
-  const Icon = tone === "success" ? CheckCircle2 : CircleAlert;
   return (
     <div className="flex min-w-0 items-center gap-3 border-b border-r border-[var(--ea-border)] px-4 py-4 last:border-r-0 lg:border-b-0">
       <Icon
-        size={17}
+        name={tone === "success" ? "success" : "error"}
+        size="lg"
         className={cn(
           tone === "success" && "text-[var(--ea-success)]",
           tone === "danger" && "text-[var(--ea-danger)]",

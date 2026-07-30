@@ -6,9 +6,9 @@
 // хяналтыг (бүрэлдэхүүний нийлбэр = Орлогын дүн) мөрөөр гаргана.
 
 import { useMemo } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
-import { ArrowUpRight } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -151,7 +151,7 @@ export function ComponentAnalysisReport({
               className="inline-flex items-center gap-1 font-mono text-xs text-[var(--ea-primary)] hover:underline"
             >
               {row.journalNo}
-              <ArrowUpRight size={11} />
+              <Icon name="openDetail" size="xs" />
             </button>
           );
         },

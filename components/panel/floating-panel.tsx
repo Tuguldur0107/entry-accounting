@@ -11,7 +11,7 @@
 // click нь өөр элемент дээр буудаг байсан.
 
 import { useCallback, useEffect, useRef } from "react";
-import { Maximize2, Minus, Minimize2, X } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 import { usePanelStore, type PanelInstance } from "@/lib/store/panel-store";
 import { panelZ } from "@/lib/ui/z-layers";
@@ -143,20 +143,20 @@ export function FloatingPanel({
         <PanelIconButton
           label="Хураах"
           onClick={() => minimize(panel.id)}
-          icon={<Minus size={14} />}
+          icon={<Icon name="minus" size="sm" />}
         />
         <PanelIconButton
           label={panel.maximized ? "Багасгах" : "Дэлгэц дүүрэн"}
           onClick={() => toggleMaximize(panel.id)}
           icon={
-            panel.maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />
+            panel.maximized ? <Icon name="minimize" size="sm" /> : <Icon name="maximize" size="sm" />
           }
         />
         <PanelIconButton
           label="Хаах"
           danger
           onClick={requestClose}
-          icon={<X size={14} />}
+          icon={<Icon name="close" size="sm" />}
         />
       </header>
 

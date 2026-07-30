@@ -1,17 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import {
-  AlertTriangle,
-  BookOpen,
-  CheckCircle2,
-  FileClock,
-  Landmark,
-  Scale,
-  TrendingUp,
-} from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import {
@@ -410,7 +402,7 @@ export function GlDashboard({
         <div className="min-w-0 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4 xl:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-              <TrendingUp size={15} className="text-[var(--ea-primary)]" />
+              <Icon name="trendUp" size="sm" className="text-[var(--ea-primary)]" />
               Сүүлийн 6 сарын эргэлт
             </h2>
             <span className="text-[11px] text-[var(--ea-text-4)]">
@@ -522,7 +514,7 @@ export function GlDashboard({
         <div className="flex min-w-0 flex-col gap-6">
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-[var(--ea-border)] bg-[var(--ea-border)]">
             <MiniStat
-              icon={BookOpen}
+              icon="generalLedger"
               label="Бичигдсэн журнал"
               value={String(postedCount)}
               onClick={() =>
@@ -537,7 +529,7 @@ export function GlDashboard({
               }
             />
             <MiniStat
-              icon={Landmark}
+              icon="bank"
               label="Идэвхтэй данс"
               value={String(accountCount)}
               href="/settings/gl"
@@ -546,7 +538,7 @@ export function GlDashboard({
 
           <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-              <Scale size={15} className="text-[var(--ea-primary)]" />
+              <Icon name="reconciliation" size="sm" className="text-[var(--ea-primary)]" />
               Модулийн урсгал ({month})
             </h2>
             {moduleRows.length === 0 ? (
@@ -596,9 +588,9 @@ export function GlDashboard({
           >
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
               {alertTotal > 0 ? (
-                <AlertTriangle size={15} className="text-[var(--ea-warning)]" />
+                <Icon name="warning" size="sm" className="text-[var(--ea-warning)]" />
               ) : (
-                <CheckCircle2 size={15} className="text-[var(--ea-success)]" />
+                <Icon name="success" size="sm" className="text-[var(--ea-success)]" />
               )}
               Анхаарах зүйлс
             </h2>
@@ -697,7 +689,7 @@ export function GlDashboard({
       {/* Сүүлийн журналууд — мөр дээр дарахад журналын дэлгэрэнгүй */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-          <FileClock size={15} className="text-[var(--ea-primary)]" />
+          <Icon name="pending" size="sm" className="text-[var(--ea-primary)]" />
           Сүүлийн журналууд
         </h2>
         {recent.length === 0 ? (
@@ -786,13 +778,13 @@ function SummaryCell({
 }
 
 function MiniStat({
-  icon: Icon,
+  icon,
   label,
   value,
   href,
   onClick,
 }: {
-  icon: React.ComponentType<{ size?: number }>;
+  icon: IconName;
   label: string;
   value: string;
   href?: string;
@@ -801,7 +793,7 @@ function MiniStat({
   const content = (
     <>
       <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)] text-[var(--ea-primary)]">
-        <Icon size={15} />
+        <Icon name={icon} size="sm" />
       </div>
       <div className="min-w-0">
         <div className="truncate text-[11px] text-[var(--ea-text-3)]">{label}</div>

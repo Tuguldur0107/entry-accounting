@@ -3,18 +3,7 @@
 // Link болон CSS hover). Өнгө бүгд --ea-* токеноор.
 
 import Link from "next/link";
-import {
-  AlertTriangle,
-  ArrowRight,
-  BookOpen,
-  CalendarClock,
-  CheckCircle2,
-  FileSpreadsheet,
-  Info,
-  Landmark,
-  Plus,
-  Scale,
-} from "lucide-react";
+import { Icon, type IconName } from "@/components/ui/icon";
 
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtPeriodCode } from "@/lib/periods/period";
@@ -64,11 +53,16 @@ const STATUS_LABEL: Record<string, string> = {
   reversed: "Буцаагдсан",
 };
 
-const QUICK_ACTIONS = [
-  { href: "/gl/journal/new", label: "Журнал бичих", icon: Plus, primary: true },
-  { href: "/cash/statements", label: "Хуулга импорт", icon: FileSpreadsheet },
-  { href: "/receivables/documents", label: "Нэхэмжлэл", icon: BookOpen },
-  { href: "/gl/reports", label: "Тайлан", icon: Scale },
+const QUICK_ACTIONS: {
+  href: string;
+  label: string;
+  icon: IconName;
+  primary?: boolean;
+}[] = [
+  { href: "/gl/journal/new", label: "Журнал бичих", icon: "add", primary: true },
+  { href: "/cash/statements", label: "Хуулга импорт", icon: "spreadsheet" },
+  { href: "/receivables/documents", label: "Нэхэмжлэл", icon: "document" },
+  { href: "/gl/reports", label: "Тайлан", icon: "report" },
 ];
 
 export function HomeDashboard({
@@ -153,7 +147,7 @@ export function HomeDashboard({
             )}
             style={{ textDecoration: "none" }}
           >
-            <action.icon size={14} />
+            <Icon name={action.icon} size="sm" />
             {action.label}
           </Link>
         ))}
@@ -162,7 +156,7 @@ export function HomeDashboard({
       {/* Санхүүгийн байдал */}
       <section>
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-          <Landmark size={15} className="text-[var(--ea-text-3)]" />
+          <Icon name="bank" size="sm" className="text-[var(--ea-text-3)]" />
           Санхүүгийн байдал
         </h2>
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--ea-r-md)] border border-[var(--ea-border)] bg-[var(--ea-border)] lg:grid-cols-6">
@@ -199,7 +193,7 @@ export function HomeDashboard({
                 <span className="text-xs font-medium text-[var(--ea-text-2)]">
                   {tile.label}
                 </span>
-                <ArrowRight size={13} className="text-[var(--ea-text-4)]" />
+                <Icon name="arrowRight" size="sm" className="text-[var(--ea-text-4)]" />
               </div>
               <div className="font-mono text-xl font-semibold text-[var(--ea-text-1)]">
                 {typeof tile.value === "number" ? fmtMnt(tile.value) : tile.value}
@@ -228,12 +222,12 @@ export function HomeDashboard({
         {/* Анхаарах шаардлагатай */}
         <section>
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-            <AlertTriangle size={15} className="text-[var(--ea-text-3)]" />
+            <Icon name="warning" size="sm" className="text-[var(--ea-text-3)]" />
             Анхаарах шаардлагатай
           </h2>
           {alerts.length === 0 ? (
             <div className="flex items-center gap-2.5 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] bg-[var(--ea-surface)] px-4 py-5 text-xs text-[var(--ea-text-3)]">
-              <CheckCircle2 size={16} className="text-[var(--ea-success-fg)]" />
+              <Icon name="success" className="text-[var(--ea-success-fg)]" />
               Анхаарах зүйл алга — ноорог, хугацаа хэтрэлт байхгүй.
             </div>
           ) : (
@@ -256,9 +250,9 @@ export function HomeDashboard({
                       )}
                     >
                       {alert.tone === "default" ? (
-                        <Info size={15} />
+                        <Icon name="info" size="sm" />
                       ) : (
-                        <AlertTriangle size={15} />
+                        <Icon name="warning" size="sm" />
                       )}
                     </span>
                     <span className="min-w-0 flex-1">
@@ -271,7 +265,7 @@ export function HomeDashboard({
                     </span>
                     <span className="flex shrink-0 items-center gap-1 text-[11px] text-[var(--ea-primary)]">
                       {alert.action}
-                      <ArrowRight size={11} />
+                      <Icon name="arrowRight" size="xs" />
                     </span>
                   </Link>
                 </li>
@@ -284,7 +278,7 @@ export function HomeDashboard({
         <section>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-              <CalendarClock size={15} className="text-[var(--ea-text-3)]" />
+              <Icon name="period" size="sm" className="text-[var(--ea-text-3)]" />
               Сүүлийн бичилтүүд
             </h2>
             <Link
@@ -292,7 +286,7 @@ export function HomeDashboard({
               className="flex items-center gap-1 text-[11px] text-[var(--ea-primary)]"
             >
               Бүгдийг харах
-              <ArrowRight size={11} />
+              <Icon name="arrowRight" size="xs" />
             </Link>
           </div>
           <div className="overflow-hidden rounded-[var(--ea-r-md)] border border-[var(--ea-border)]">

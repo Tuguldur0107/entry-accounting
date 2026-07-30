@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type {
   ColDef,
@@ -8,7 +9,6 @@ import type {
   ICellRendererParams,
   SelectionChangedEvent,
 } from "ag-grid-community";
-import { Calculator, Check, CheckCheck, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -197,7 +197,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
                       )
                     }
                   >
-                    <Check />
+                    <Icon name="approve" />
                   </button>
                   <button
                     type="button"
@@ -211,7 +211,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
                       )
                     }
                   >
-                    <Trash2 />
+                    <Icon name="delete" />
                   </button>
                 </>
               )}
@@ -235,7 +235,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
                     );
                   }}
                 >
-                  <RotateCcw />
+                  <Icon name="reset" />
                 </button>
               )}
             </div>
@@ -293,7 +293,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
                   : undefined
               }
             >
-              <CheckCheck />
+              <Icon name="approveAll" />
               GL-рүү батлах ({selectedDrafts.length})
             </Button>
           )}
@@ -304,7 +304,7 @@ export function FaDepreciationView({ entries, defaultMonth }: Props) {
             onChange={(event) => setMonth(event.target.value)}
           />
           <Button size="sm" onClick={handleRun} disabled={isPending}>
-            <Calculator />
+            <Icon name="costing" />
             Элэгдэл тооцох
           </Button>
         </div>

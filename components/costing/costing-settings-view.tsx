@@ -10,9 +10,9 @@
 // бичилтүүд эдгээрт холбогдсон байдаг.
 
 import { useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Pencil, Plus, Power } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
@@ -473,7 +473,7 @@ function IssueTypesSection({
                 onClick={() => openEdit(row)}
                 className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
               >
-                <Pencil size={13} />
+                <Icon name="edit" size="sm" />
               </button>
               <button
                 type="button"
@@ -482,7 +482,7 @@ function IssueTypesSection({
                 onClick={() => toggle(row)}
                 className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
               >
-                <Power size={13} />
+                <Icon name="power" size="sm" />
               </button>
             </div>
           );
@@ -502,7 +502,7 @@ function IssueTypesSection({
           барааны тохиргооноос ирнэ.
         </p>
         <Button size="sm" onClick={openNew} disabled={isPending}>
-          <Plus size={14} />
+          <Icon name="add" size="sm" />
           Нэмэх
         </Button>
       </div>
@@ -756,7 +756,7 @@ function CostComponentsSection({
                 onClick={() => openEdit(row)}
                 className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
               >
-                <Pencil size={13} />
+                <Icon name="edit" size="sm" />
               </button>
               <button
                 type="button"
@@ -765,7 +765,7 @@ function CostComponentsSection({
                 onClick={() => toggle(row)}
                 className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
               >
-                <Power size={13} />
+                <Icon name="power" size="sm" />
               </button>
             </div>
           );
@@ -787,7 +787,7 @@ function CostComponentsSection({
           тулгагдана; хоосон бол ерөнхий клиринг ашиглана.
         </p>
         <Button size="sm" onClick={openNew} disabled={isPending}>
-          <Plus size={14} />
+          <Icon name="add" size="sm" />
           Нэмэх
         </Button>
       </div>
@@ -986,7 +986,7 @@ function ItemAccountsSection({
                 onClick={() => openEdit(row)}
                 className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
               >
-                <Pencil size={13} />
+                <Icon name="edit" size="sm" />
               </button>
             </div>
           );

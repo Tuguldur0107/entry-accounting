@@ -7,7 +7,7 @@
 // нээх" нь журналыг ЗЭРЭГЦЭЭ панельд нээнэ — баримт, журнал хоёр хамт харагдана.
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 import { VoucherLinesTable } from "@/components/gl/voucher-lines-table";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -95,7 +95,7 @@ export function CashDocPanel({ panel }: { panel: PanelInstance }) {
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );
@@ -194,7 +194,7 @@ export function CashDocPanel({ panel }: { panel: PanelInstance }) {
                 className="inline-flex items-center gap-1 text-xs font-medium text-[var(--ea-primary)] hover:underline"
               >
                 Журнал нээх
-                <ExternalLink size={12} />
+                <Icon name="openExternal" size="xs" />
               </button>
             )}
           </div>

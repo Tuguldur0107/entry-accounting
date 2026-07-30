@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
 import type { ColDef } from "ag-grid-community";
-import { Building, FileClock, Scale, TrendingDown } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -117,28 +117,28 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
     {
       label: "Нийт өртөг (идэвхтэй)",
       value: fmtMnt(totalCost),
-      icon: Building,
+      icon: "fixedAsset" as IconName,
       color: "var(--ea-primary)",
       href: "/fa/assets",
     },
     {
       label: "Хуримтлагдсан элэгдэл",
       value: fmtMnt(totalAccum),
-      icon: TrendingDown,
+      icon: "depreciation" as IconName,
       color: "var(--ea-text-3)",
       href: "/fa/depreciation",
     },
     {
       label: "Үлдэгдэл өртөг (NBV)",
       value: fmtMnt(totalNbv),
-      icon: Scale,
+      icon: "reconciliation" as IconName,
       color: "var(--ea-success)",
       href: "/fa/assets",
     },
     {
       label: "Ноорог (карт + элэгдэл)",
       value: `${draftAssetCount} + ${draftEntryCount}`,
-      icon: FileClock,
+      icon: "pending" as IconName,
       color:
         draftAssetCount + draftEntryCount > 0
           ? "var(--ea-warning)"
@@ -160,7 +160,6 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
 
       <section className="grid grid-cols-2 border-y border-[var(--ea-border)] lg:grid-cols-4">
         {metrics.map((metric) => {
-          const Icon = metric.icon;
           return (
             <Link
               key={metric.label}
@@ -172,7 +171,7 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
                 className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)]"
                 style={{ color: metric.color }}
               >
-                <Icon size={16} />
+                <Icon name={metric.icon} />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-[11px] text-[var(--ea-text-3)]">

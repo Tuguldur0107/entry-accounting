@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
-import { KeyRound, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -115,7 +115,7 @@ export function AiSettingsView({
         {/* API түлхүүр */}
         <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-            <KeyRound size={15} />
+            <Icon name="key" size="sm" />
             Anthropic API түлхүүр
           </h2>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
@@ -157,7 +157,7 @@ export function AiSettingsView({
                 disabled={isPending}
                 title="Хадгалсан түлхүүр устгах"
               >
-                <Trash2 size={14} />
+                <Icon name="delete" size="sm" />
               </Button>
             )}
           </div>
@@ -219,7 +219,7 @@ export function AiSettingsView({
           </div>
 
           <Button onClick={saveSettings} disabled={isPending}>
-            <Save size={14} />
+            <Icon name="save" size="sm" />
             Тохиргоо хадгалах
           </Button>
         </div>

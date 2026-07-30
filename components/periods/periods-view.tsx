@@ -5,9 +5,9 @@
 // хадгалагдана.
 
 import { useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Lock, LockOpen } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -153,7 +153,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
                   disabled={busy}
                   onClick={() => handleReopen(row)}
                 >
-                  <LockOpen size={12} />
+                  <Icon name="unlocked" size="xs" />
                   Дахин нээх
                 </Button>
               ) : (
@@ -164,7 +164,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
                   disabled={busy}
                   onClick={() => handleClose(row)}
                 >
-                  <Lock size={12} />
+                  <Icon name="locked" size="xs" />
                   Хаах
                 </Button>
               )}

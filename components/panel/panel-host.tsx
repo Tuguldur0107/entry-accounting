@@ -14,7 +14,7 @@
 // layout-д зай нөөцөлнө (доор буй "Нийт дүн" зэрэг мөрийг дарахгүй).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronUp, FileText, Minus, X } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 import { FloatingPanel } from "./floating-panel";
 import { PANEL_REGISTRY } from "./panel-registry";
@@ -176,13 +176,7 @@ export function PanelHost() {
                 )}
               >
                 +{overflowPanels.length}
-                <ChevronUp
-                  size={12}
-                  className={cn(
-                    "transition-transform",
-                    overflowOpen && "rotate-180"
-                  )}
-                />
+                <Icon name="chevronUp" size="xs" className={cn( "transition-transform", overflowOpen && "rotate-180" )} />
                 {overflowPanels.some((panel) => panel.dirty) && (
                   <span
                     className="size-1.5 rounded-full"
@@ -218,10 +212,7 @@ export function PanelHost() {
                           }}
                           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                         >
-                          <FileText
-                            size={12}
-                            className="shrink-0 text-[var(--ea-text-3)]"
-                          />
+                          <Icon name="file" size="xs" className="shrink-0 text-[var(--ea-text-3)]" />
                           <span className="min-w-0 flex-1 truncate">
                             {panel.title}
                           </span>
@@ -240,7 +231,7 @@ export function PanelHost() {
                           aria-label="Хаах"
                           className="flex size-5 shrink-0 items-center justify-center rounded-full text-[var(--ea-text-3)] hover:bg-[var(--ea-danger)]/12 hover:text-[var(--ea-danger)]"
                         >
-                          <X size={11} />
+                          <Icon name="close" size="xs" />
                         </button>
                       </div>
                     ))}
@@ -291,7 +282,7 @@ export function PanelHost() {
                     }
                     className="flex min-w-0 items-center gap-1.5"
                   >
-                    <FileText size={12} className="shrink-0" />
+                    <Icon name="file" size="xs" className="shrink-0" />
                     <span className="max-w-40 truncate">{panel.title}</span>
                     {panel.dirty && (
                       <span
@@ -313,7 +304,7 @@ export function PanelHost() {
                       aria-label="Хураах"
                       className="flex size-4 items-center justify-center rounded-full opacity-60 hover:opacity-100"
                     >
-                      <Minus size={11} />
+                      <Icon name="minus" size="xs" />
                     </button>
                   )}
                   <button
@@ -323,7 +314,7 @@ export function PanelHost() {
                     aria-label="Хаах"
                     className="flex size-4 items-center justify-center rounded-full opacity-60 hover:opacity-100"
                   >
-                    <X size={11} />
+                    <Icon name="close" size="xs" />
                   </button>
                 </div>
               );

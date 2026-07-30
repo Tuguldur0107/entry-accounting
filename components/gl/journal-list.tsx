@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
 import {
   deleteVoucher,
@@ -18,7 +19,6 @@ import type {
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
-import { Pencil, Check, Trash2, Undo2 } from "lucide-react";
 
 const PAGE_SIZE = 15;
 
@@ -342,7 +342,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                     title="Журнал засах"
                     aria-label="Журнал засах"
                   >
-                    <Pencil />
+                    <Icon name="edit" />
                   </button>
                   <button
                     onClick={() => handlePost(v.id)}
@@ -350,7 +350,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                     title="Батлах"
                     aria-label="Батлах"
                   >
-                    <Check />
+                    <Icon name="approve" />
                   </button>
                   <button
                     onClick={() => handleDelete(v.id)}
@@ -358,7 +358,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                     title="Устгах"
                     aria-label="Устгах"
                   >
-                    <Trash2 />
+                    <Icon name="delete" />
                   </button>
                 </>
               )}
@@ -369,7 +369,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
                   title="Ноорог болгож буцаах"
                   aria-label="Ноорог болгож буцаах"
                 >
-                  <Undo2 />
+                  <Icon name="undo" />
                 </button>
               )}
             </div>

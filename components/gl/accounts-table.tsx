@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { IconAction } from "@/components/ui/icon-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -469,22 +470,21 @@ export function AccountsTable({
         if (!d || d.kind !== "row" || !editMode) return null;
         if (d.isPendingDelete)
           return (
-            <button
+            <IconAction
+              name="undo"
+              label="Буцаах"
+              size="xs"
               onClick={() => undoDelete(d.id)}
-              className="text-[var(--ea-danger-fg)] hover:text-[var(--ea-primary)] hover:bg-[var(--ea-primary-50)] px-1 py-0.5 rounded text-[10px] leading-none transition-colors"
-              title="Буцаах"
-            >
-              ↩
-            </button>
+            />
           );
         return (
-          <button
+          <IconAction
+            name="delete"
+            label="Устгах"
+            size="xs"
+            variant="danger"
             onClick={() => askDelete(d.id, d.code, d.rowType)}
-            className="text-[var(--ea-border-strong)] hover:text-[var(--ea-danger-fg)] hover:bg-[var(--ea-danger-bg)] px-1 py-0.5 rounded text-base leading-none transition-colors"
-            title="Устгах"
-          >
-            ×
-          </button>
+          />
         );
       },
     });

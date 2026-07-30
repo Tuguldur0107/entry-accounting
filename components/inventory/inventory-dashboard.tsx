@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
 import type { ColDef } from "ag-grid-community";
-import { Boxes, Calculator, FileClock, Warehouse as WarehouseIcon } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import type { QtyBalanceRow } from "@/lib/inventory/types";
@@ -47,28 +47,28 @@ export function InventoryDashboard({
     {
       label: "Идэвхтэй бараа",
       value: String(itemCount),
-      icon: Boxes,
+      icon: "inventory" as IconName,
       color: "var(--ea-primary)",
       href: "/inventory/items",
     },
     {
       label: "Агуулах",
       value: String(warehouseCount),
-      icon: WarehouseIcon,
+      icon: "warehouse" as IconName,
       color: "var(--ea-primary)",
       href: "/inventory/items",
     },
     {
       label: "Ноорог хөдөлгөөн",
       value: String(draftCount),
-      icon: FileClock,
+      icon: "pending" as IconName,
       color: draftCount > 0 ? "var(--ea-warning)" : "var(--ea-success)",
       href: "/inventory/movements?status=draft",
     },
     {
       label: "Үнэлгээ хүлээгдэж буй",
       value: String(unvaluedCount),
-      icon: Calculator,
+      icon: "costing" as IconName,
       color: unvaluedCount > 0 ? "var(--ea-warning)" : "var(--ea-success)",
       href: "/costing",
     },
@@ -87,7 +87,6 @@ export function InventoryDashboard({
 
       <section className="grid grid-cols-2 border-y border-[var(--ea-border)] lg:grid-cols-4">
         {metrics.map((metric) => {
-          const Icon = metric.icon;
           return (
             <Link
               key={metric.label}
@@ -99,7 +98,7 @@ export function InventoryDashboard({
                 className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)]"
                 style={{ color: metric.color }}
               >
-                <Icon size={16} />
+                <Icon name={metric.icon} />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-[11px] text-[var(--ea-text-3)]">

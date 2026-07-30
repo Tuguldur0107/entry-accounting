@@ -8,9 +8,9 @@
 // зөрүү болж харагдана, автоматаар нөхөгдөхгүй.
 
 import { useMemo, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ColGroupDef, ICellRendererParams } from "ag-grid-community";
-import { AlertTriangle, ArrowUpRight } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -300,7 +300,7 @@ export function TransactionDetailReport({
                   className="inline-flex items-center gap-1 font-mono text-xs text-[var(--ea-primary)] hover:underline"
                 >
                   {row.journalNo}
-                  <ArrowUpRight size={11} />
+                  <Icon name="openDetail" size="xs" />
                 </button>
               );
             },
@@ -534,7 +534,7 @@ export function TransactionDetailReport({
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           {(diffCount > 0 || pendingCount > 0) && (
             <div className="flex items-start gap-2 rounded-md border border-[var(--ea-warning)]/40 bg-[var(--ea-warning)]/8 px-3 py-2 text-xs text-[var(--ea-warning-fg,var(--ea-text-1))]">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <Icon name="warning" size="sm" className="mt-0.5 shrink-0" />
               <div className="space-y-0.5">
                 {diffCount > 0 && (
                   <p>
@@ -583,7 +583,7 @@ function ClearingPane({ clearing }: { clearing: ClearingReconciliation }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       {clearing.unknownCount > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger)]">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <Icon name="warning" size="sm" className="mt-0.5 shrink-0" />
           <p>
             {clearing.unknownCount} объектгүй (гар журналын) үлдэгдэл —{" "}
             {fmtMnt(clearing.unknownAmount)}. Эдгээрийг бизнес объекттой нь

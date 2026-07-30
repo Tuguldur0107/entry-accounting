@@ -1,7 +1,7 @@
 "use client";
 
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useSidebarStore } from "@/lib/store/sidebar-store";
+import { Icon } from "@/components/ui/icon";
 import { useMobile } from "@/lib/hooks/use-mobile";
 
 export function SidebarToggle() {
@@ -22,7 +22,7 @@ export function SidebarToggle() {
       className="ea-icon-action rounded-md border border-transparent p-2"
       style={{ color: "var(--ea-text-2)" }}
     >
-      {open ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+      {open ? <Icon name="collapseSidebar" size="lg" /> : <Icon name="expandSidebar" size="lg" />}
     </button>
   );
 }

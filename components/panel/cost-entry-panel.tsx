@@ -6,7 +6,7 @@
 // өөрчлөгдөх бүрд дахин татна (voucher-panel-тай ижил загвар).
 
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Loader2 } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 import {
   ENTRY_TYPE_LABELS,
@@ -99,7 +99,7 @@ export function CostEntryPanel({
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );
@@ -153,7 +153,7 @@ export function CostEntryPanel({
                 }
               >
                 Журнал нээх
-                <ArrowUpRight />
+                <Icon name="openDetail" />
               </Button>
             )}
             {reversalVoucherId && (
@@ -166,7 +166,7 @@ export function CostEntryPanel({
                 }
               >
                 Буцаалтын журнал
-                <ArrowUpRight />
+                <Icon name="openDetail" />
               </Button>
             )}
           </div>

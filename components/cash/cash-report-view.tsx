@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import type { ColDef } from "ag-grid-community";
-import { Download, Search } from "lucide-react";
 
 import {
   DataGridDynamic,
@@ -300,7 +300,7 @@ export function CashReportView({
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <label className="relative w-full sm:w-72">
-              <Search className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-[var(--ea-text-4)]" />
+              <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-[var(--ea-text-4)]" />
               <span className="sr-only">Дэлгэрэнгүй тайлангаас хайх</span>
               <input
                 value={quickFilter}
@@ -310,7 +310,7 @@ export function CashReportView({
               />
             </label>
             <Button type="button" variant="outline" onClick={exportDetails}>
-              <Download />
+              <Icon name="download" />
               CSV
             </Button>
           </div>

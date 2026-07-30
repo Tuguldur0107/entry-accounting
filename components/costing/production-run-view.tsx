@@ -19,16 +19,8 @@
 // ноорог өртгийн бичилт үүсгэнэ (цаашид жирийн орлого шиг).
 
 import { useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
-import {
-  ArrowDown,
-  ArrowUpRight,
-  Calculator,
-  CheckCircle2,
-  ChevronDown,
-  Plus,
-  Trash2,
-} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -202,7 +194,7 @@ export function ProductionRunView({ data }: Props) {
                 onClick={compute}
                 disabled={isPending || data.stages.length === 0}
               >
-                <Calculator size={13} />
+                <Icon name="costing" size="sm" />
                 Тооцоолох
               </Button>
               <Button
@@ -215,7 +207,7 @@ export function ProductionRunView({ data }: Props) {
                     : "Гаралтуудыг нөөцөд оруулна"
                 }
               >
-                <CheckCircle2 size={13} />
+                <Icon name="success" size="sm" />
                 Батлах
               </Button>
             </>
@@ -286,7 +278,7 @@ export function ProductionRunView({ data }: Props) {
               <div key={stage.id}>
                 {index > 0 && (
                   <div className="flex justify-center py-1 text-[var(--ea-text-4)]">
-                    <ArrowDown size={16} />
+                    <Icon name="arrowDown" />
                   </div>
                 )}
                 <div
@@ -344,13 +336,7 @@ export function ProductionRunView({ data }: Props) {
                                   }
                                   className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-[var(--ea-bg-2)]"
                                 >
-                                  <ChevronDown
-                                    size={12}
-                                    className={cn(
-                                      "shrink-0 text-[var(--ea-text-4)] transition-transform",
-                                      !isOpen && "-rotate-90"
-                                    )}
-                                  />
+                                  <Icon name="chevronDown" size="xs" className={cn( "shrink-0 text-[var(--ea-text-4)] transition-transform", !isOpen && "-rotate-90" )} />
                                   <span className="font-mono text-[11px] text-[var(--ea-text-3)]">
                                     {pool.code}
                                   </span>
@@ -390,7 +376,7 @@ export function ProductionRunView({ data }: Props) {
                                           className="inline-flex shrink-0 items-center gap-0.5 text-[var(--ea-primary)] hover:underline"
                                         >
                                           {line.date}
-                                          <ArrowUpRight size={10} />
+                                          <Icon name="openDetail" size="xs" />
                                         </button>
                                         <span className="shrink-0">{line.mainAccount}</span>
                                         <span className="min-w-0 flex-1 truncate text-[var(--ea-text-3)]">
@@ -497,7 +483,7 @@ export function ProductionRunView({ data }: Props) {
                                   }
                                   className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--ea-text-4)] hover:bg-[var(--ea-danger)]/10 hover:text-[var(--ea-danger)]"
                                 >
-                                  <Trash2 size={12} />
+                                  <Icon name="delete" size="xs" />
                                 </button>
                               )}
                             </div>
@@ -518,7 +504,7 @@ export function ProductionRunView({ data }: Props) {
                               }))
                             }
                           >
-                            <Plus size={12} />
+                            <Icon name="add" size="xs" />
                             Орц нэмэх
                           </Button>
                         )}
@@ -622,7 +608,7 @@ export function ProductionRunView({ data }: Props) {
                                     }
                                     className="flex size-6 shrink-0 items-center justify-center rounded text-[var(--ea-text-4)] hover:bg-[var(--ea-danger)]/10 hover:text-[var(--ea-danger)]"
                                   >
-                                    <Trash2 size={12} />
+                                    <Icon name="delete" size="xs" />
                                   </button>
                                 )}
                               </div>
@@ -725,7 +711,7 @@ export function ProductionRunView({ data }: Props) {
                               }))
                             }
                           >
-                            <Plus size={12} />
+                            <Icon name="add" size="xs" />
                             Гаралт нэмэх
                           </Button>
                         )}

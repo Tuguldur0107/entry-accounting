@@ -8,22 +8,13 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@/components/ui/icon";
 import type {
   CellValueChangedEvent,
   ColDef,
   GridApi,
   ICellRendererParams,
 } from "ag-grid-community";
-import {
-  Check,
-  ClipboardPaste,
-  Copy,
-  Download,
-  FileSpreadsheet,
-  Filter,
-  Search,
-  Upload,
-} from "lucide-react";
 
 import { AccountSegmentPicker } from "@/components/account/account-segment-picker";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -653,7 +644,7 @@ export function BankStatementImport({
               download
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[var(--ea-border)] px-2.5 text-sm font-medium text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-2)]"
             >
-              <Download size={15} />
+              <Icon name="download" size="sm" />
               Жишээ XLSX
             </a>
             <a
@@ -661,7 +652,7 @@ export function BankStatementImport({
               download
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[var(--ea-border)] px-2.5 text-sm font-medium text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-2)]"
             >
-              <Download size={15} />
+              <Icon name="download" size="sm" />
               Жишээ CSV
             </a>
             <select
@@ -703,7 +694,7 @@ export function BankStatementImport({
               onClick={() => fileRef.current?.click()}
               disabled={!cashAccountId || isPending}
             >
-              <Upload />
+              <Icon name="upload" />
               Хуулга сонгох
             </Button>
           </div>
@@ -720,10 +711,7 @@ export function BankStatementImport({
         <section className="flex min-h-0 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-56 flex-1 sm:max-w-sm">
-              <Search
-                size={14}
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ea-text-4)]"
-              />
+              <Icon name="search" size="sm" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ea-text-4)]" />
               <Input
                 value={quickFilter}
                 onChange={(event) => applyQuickFilter(event.target.value)}
@@ -732,11 +720,11 @@ export function BankStatementImport({
               />
             </div>
             <Button variant="outline" onClick={() => openAssignment("debit")}>
-              <Filter />
+              <Icon name="filter" />
               DR данс оноох
             </Button>
             <Button variant="outline" onClick={() => openAssignment("credit")}>
-              <Filter />
+              <Icon name="filter" />
               CR данс оноох
             </Button>
             <Button
@@ -746,7 +734,7 @@ export function BankStatementImport({
               aria-label="DR/CR данс хуулах"
               onClick={() => void copyAssignments()}
             >
-              <Copy />
+              <Icon name="copy" />
             </Button>
             <Button
               variant="ghost"
@@ -755,7 +743,7 @@ export function BankStatementImport({
               aria-label="DR/CR данс буулгах"
               onClick={() => void pasteAssignments()}
             >
-              <ClipboardPaste />
+              <Icon name="paste" />
             </Button>
             <span className="text-xs text-[var(--ea-text-3)]">
               {selectedCount > 0
@@ -810,7 +798,7 @@ export function BankStatementImport({
               onClick={saveStatement}
               disabled={isPending || totals.invalid > 0}
             >
-              <Check />
+              <Icon name="approve" />
               Хуулга хадгалж GL-д бичих
             </Button>
           </div>
@@ -820,10 +808,7 @@ export function BankStatementImport({
       {statements.length > 0 && (
         <section className="flex min-h-0 flex-1 flex-col">
           <div className="mb-2 flex items-center gap-2">
-            <FileSpreadsheet
-              size={16}
-              className="text-[var(--ea-primary)]"
-            />
+            <Icon name="spreadsheet" className="text-[var(--ea-primary)]" />
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               Импортын түүх
             </h2>

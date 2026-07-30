@@ -11,6 +11,8 @@
 //   - Pinned bottom мөрөнд нийт дүн
 
 import { useCallback, useMemo, useState } from "react";
+import { IconAction } from "@/components/ui/icon-action";
+import { Icon } from "@/components/ui/icon";
 import type {
   CellValueChangedEvent,
   ColDef,
@@ -170,21 +172,7 @@ export function JournalLinesGrid({
                   <span className="min-w-0 truncate">
                     {p.valueFormatted ?? ""}
                   </span>
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 12 12"
-                    fill="none"
-                    className="shrink-0 text-[var(--ea-text-4)]"
-                  >
-                    <path
-                      d="M2 4.5L6 8l4-3.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  <Icon name="chevronDown" size="xs" className="shrink-0 text-[var(--ea-text-4)]" />
                 </button>
               );
             }
@@ -256,8 +244,11 @@ export function JournalLinesGrid({
           if (p.node?.rowPinned) return null;
           const id = p.data?.id;
           return (
-            <button
-              type="button"
+            <IconAction
+              name="delete"
+              label="Мөр устгах"
+              size="sm"
+              variant="danger"
               onClick={() => {
                 onLinesChange((prev) => {
                   if (prev.length <= minLines) {
@@ -270,21 +261,7 @@ export function JournalLinesGrid({
                   return prev.filter((l) => l.id !== id);
                 });
               }}
-              title="Мөр устгах"
-              className="w-6 h-6 flex items-center justify-center text-base leading-none cursor-pointer rounded transition-colors"
-              style={{ color: "var(--ea-text-4)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--ea-danger)";
-                e.currentTarget.style.background =
-                  "color-mix(in srgb, var(--ea-danger) 10%, transparent)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--ea-text-4)";
-                e.currentTarget.style.background = "transparent";
-              }}
-            >
-              ×
-            </button>
+            />
           );
         },
       },

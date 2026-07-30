@@ -1,34 +1,11 @@
-import type { LucideIcon } from "lucide-react";
-import {
-  List,
-  Sparkles,
-  BarChart3,
-  User,
-  Building2,
-  Settings as SettingsIcon,
-  LayoutDashboard,
-  ArrowLeftRight,
-  Landmark,
-  FileSpreadsheet,
-  Palette,
-  Scale,
-  BarChartBig,
-  ReceiptText,
-  Calculator,
-  Boxes,
-  ClipboardCheck,
-  Building,
-  TrendingDown,
-  CalendarClock,
-  Factory,
-} from "lucide-react";
+import type { IconName } from "@/components/ui/icon";
 
 // Модуль бүрийн цэс нэг стандарт ДАРААЛЛААР жагсана (визуал бүлэглэлгүй):
 //   самбар → гүйлгээ (журнал/нэхэмжлэл/хуулга…) → тайлан → тохиргоо
 export type ModuleItem = {
   label: string;
   href: string;
-  icon: LucideIcon;
+  icon: IconName;
 };
 
 export type Module = {
@@ -49,7 +26,7 @@ export const MODULES: Module[] = [
     label: "Системийн хяналт",
     matchPrefix: "/",
     defaultHref: "/",
-    items: [{ label: "Хяналтын самбар", href: "/", icon: LayoutDashboard }],
+    items: [{ label: "Хяналтын самбар", href: "/", icon: "dashboard" }],
   },
   {
     id: "gl",
@@ -57,9 +34,9 @@ export const MODULES: Module[] = [
     matchPrefix: "/gl",
     defaultHref: "/gl",
     items: [
-      { label: "Хяналтын самбар", href: "/gl", icon: LayoutDashboard },
-      { label: "Журналын жагсаалт", href: "/gl/journal", icon: List },
-      { label: "Тайлан", href: "/gl/reports", icon: BarChart3 },
+      { label: "Хяналтын самбар", href: "/gl", icon: "dashboard" },
+      { label: "Журналын жагсаалт", href: "/gl/journal", icon: "journal" },
+      { label: "Тайлан", href: "/gl/reports", icon: "report" },
       // GL-ийн тохиргоо (сегмент, данс) Тохиргоо модульд байрладаг.
     ],
   },
@@ -69,24 +46,24 @@ export const MODULES: Module[] = [
     matchPrefix: "/cash",
     defaultHref: "/cash",
     items: [
-      { label: "Хяналтын самбар", href: "/cash", icon: LayoutDashboard },
+      { label: "Хяналтын самбар", href: "/cash", icon: "dashboard" },
       {
         label: "Орлого, зарлага",
         href: "/cash/transactions",
-        icon: ArrowLeftRight,
+        icon: "movement",
       },
       {
         label: "Дансны хуулга",
         href: "/cash/statements",
-        icon: FileSpreadsheet,
+        icon: "spreadsheet",
       },
       {
         label: "Тулгалт, ханш",
         href: "/cash/reconciliation",
-        icon: Scale,
+        icon: "reconciliation",
       },
-      { label: "Тайлан", href: "/cash/reports", icon: BarChartBig },
-      { label: "Касс, банкны данс", href: "/cash/accounts", icon: Landmark },
+      { label: "Тайлан", href: "/cash/reports", icon: "reportDetailed" },
+      { label: "Касс, банкны данс", href: "/cash/accounts", icon: "bank" },
     ],
   },
   {
@@ -95,14 +72,14 @@ export const MODULES: Module[] = [
     matchPrefix: "/receivables",
     defaultHref: "/receivables",
     items: [
-      { label: "Хяналтын самбар", href: "/receivables", icon: LayoutDashboard },
-      { label: "Нэхэмжлэл", href: "/receivables/documents", icon: ReceiptText },
-      { label: "Тайлан", href: "/receivables/reports", icon: BarChartBig },
+      { label: "Хяналтын самбар", href: "/receivables", icon: "dashboard" },
+      { label: "Нэхэмжлэл", href: "/receivables/documents", icon: "document" },
+      { label: "Тайлан", href: "/receivables/reports", icon: "reportDetailed" },
       // Харилцагч бол лавлах өгөгдөл — тохиргооны байрлалд (сүүлд) байна.
       {
         label: "Харилцагчид",
         href: "/receivables/counterparties",
-        icon: Building2,
+        icon: "company",
       },
     ],
   },
@@ -112,13 +89,13 @@ export const MODULES: Module[] = [
     matchPrefix: "/payables",
     defaultHref: "/payables",
     items: [
-      { label: "Хяналтын самбар", href: "/payables", icon: LayoutDashboard },
-      { label: "Нэхэмжлэх", href: "/payables/documents", icon: ReceiptText },
-      { label: "Тайлан", href: "/payables/reports", icon: BarChartBig },
+      { label: "Хяналтын самбар", href: "/payables", icon: "dashboard" },
+      { label: "Нэхэмжлэх", href: "/payables/documents", icon: "document" },
+      { label: "Тайлан", href: "/payables/reports", icon: "reportDetailed" },
       {
         label: "Харилцагчид",
         href: "/payables/counterparties",
-        icon: Building2,
+        icon: "company",
       },
     ],
   },
@@ -128,19 +105,19 @@ export const MODULES: Module[] = [
     matchPrefix: "/inventory",
     defaultHref: "/inventory",
     items: [
-      { label: "Хяналтын самбар", href: "/inventory", icon: LayoutDashboard },
+      { label: "Хяналтын самбар", href: "/inventory", icon: "dashboard" },
       {
         label: "Хөдөлгөөн",
         href: "/inventory/movements",
-        icon: ArrowLeftRight,
+        icon: "movement",
       },
       {
         label: "Тооллого",
         href: "/inventory/counting",
-        icon: ClipboardCheck,
+        icon: "counting",
       },
-      { label: "Тайлан", href: "/inventory/reports", icon: BarChartBig },
-      { label: "Бараа, агуулах", href: "/inventory/items", icon: Boxes },
+      { label: "Тайлан", href: "/inventory/reports", icon: "reportDetailed" },
+      { label: "Бараа, агуулах", href: "/inventory/items", icon: "inventory" },
     ],
   },
   {
@@ -149,9 +126,9 @@ export const MODULES: Module[] = [
     matchPrefix: "/fa",
     defaultHref: "/fa",
     items: [
-      { label: "Хяналтын самбар", href: "/fa", icon: LayoutDashboard },
-      { label: "Хөрөнгийн карт", href: "/fa/assets", icon: Building },
-      { label: "Элэгдэл", href: "/fa/depreciation", icon: TrendingDown },
+      { label: "Хяналтын самбар", href: "/fa", icon: "dashboard" },
+      { label: "Хөрөнгийн карт", href: "/fa/assets", icon: "fixedAsset" },
+      { label: "Элэгдэл", href: "/fa/depreciation", icon: "depreciation" },
     ],
   },
   {
@@ -160,27 +137,27 @@ export const MODULES: Module[] = [
     matchPrefix: "/costing",
     defaultHref: "/costing",
     items: [
-      { label: "Хяналтын самбар", href: "/costing", icon: LayoutDashboard },
-      { label: "Өртгийн бичилт", href: "/costing/entries", icon: Calculator },
-      { label: "Үйлдвэрлэл", href: "/costing/production", icon: Factory },
+      { label: "Хяналтын самбар", href: "/costing", icon: "dashboard" },
+      { label: "Өртгийн бичилт", href: "/costing/entries", icon: "costing" },
+      { label: "Үйлдвэрлэл", href: "/costing/production", icon: "production" },
       {
         label: "Зардлын хуваарилалт",
         href: "/costing/allocations",
-        icon: ArrowLeftRight,
+        icon: "movement",
       },
-      { label: "Өртгийн хяналт", href: "/costing/control", icon: Scale },
+      { label: "Өртгийн хяналт", href: "/costing/control", icon: "reconciliation" },
       {
         label: "Бүрэлдэхүүний задаргаа",
         href: "/costing/components",
-        icon: Boxes,
+        icon: "inventory",
       },
       {
         label: "Гүйлгээний дэлгэрэнгүй",
         href: "/costing/detail",
-        icon: FileSpreadsheet,
+        icon: "spreadsheet",
       },
-      { label: "Тайлан", href: "/costing/reports", icon: BarChartBig },
-      { label: "Тохиргоо", href: "/costing/settings", icon: SettingsIcon },
+      { label: "Тайлан", href: "/costing/reports", icon: "reportDetailed" },
+      { label: "Тохиргоо", href: "/costing/settings", icon: "settings" },
     ],
   },
   {
@@ -189,8 +166,8 @@ export const MODULES: Module[] = [
     matchPrefix: "/ai",
     defaultHref: "/ai",
     items: [
-      { label: "Чат", href: "/ai", icon: Sparkles },
-      { label: "Тохиргоо", href: "/ai/settings", icon: SettingsIcon },
+      { label: "Чат", href: "/ai", icon: "ai" },
+      { label: "Тохиргоо", href: "/ai/settings", icon: "settings" },
     ],
   },
   {
@@ -199,11 +176,11 @@ export const MODULES: Module[] = [
     matchPrefix: "/settings",
     defaultHref: "/settings/profile",
     items: [
-      { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: User },
-      { label: "Компанийн мэдээлэл", href: "/settings/company", icon: Building2 },
-      { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: SettingsIcon },
-      { label: "Нягтлан бодох период", href: "/settings/periods", icon: CalendarClock },
-      { label: "UI Kit", href: "/settings/ui-kit", icon: Palette },
+      { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: "user" },
+      { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
+      { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
+      { label: "Нягтлан бодох период", href: "/settings/periods", icon: "period" },
+      { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
     ],
   },
 ];

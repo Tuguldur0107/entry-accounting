@@ -8,6 +8,7 @@
 // value нь үргэлж бүтэн 10-part dotted код байна.
 
 import { useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import {
   fmtAccountDisplay,
   normalizePastedAccount,
@@ -96,15 +97,7 @@ export function AccountInput({
             color: "var(--ea-text-3)",
           }}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M2 4.5L6 8l4-3.5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Icon name="chevronDown" size="xs" />
         </button>
       </div>
 

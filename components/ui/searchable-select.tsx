@@ -6,8 +6,8 @@
 // to <body> so it isn't clipped by dialog overflow.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { createPortal } from "react-dom";
-import { ChevronsUpDown, Check } from "lucide-react";
 
 const MIN_WIDTH = 260;
 const MARGIN = 8;
@@ -160,7 +160,7 @@ export function SearchableSelect({
             placeholder
           )}
         </span>
-        <ChevronsUpDown size={14} className="shrink-0 text-[var(--ea-text-4)]" />
+        <Icon name="select" size="sm" className="shrink-0 text-[var(--ea-text-4)]" />
       </button>
 
       {anchor &&
@@ -218,11 +218,7 @@ export function SearchableSelect({
                       background: o.value === value ? "var(--ea-primary-50)" : "transparent",
                     }}
                   >
-                    <Check
-                      size={13}
-                      className="shrink-0"
-                      style={{ opacity: o.value === value ? 1 : 0, color: "var(--ea-primary)" }}
-                    />
+                    <Icon name="approve" size="sm" className="shrink-0" style={{ opacity: o.value === value ? 1 : 0, color: "var(--ea-primary)" }} />
                     <span className="font-mono font-medium shrink-0 text-[var(--ea-primary-500)]">
                       {o.value}
                     </span>

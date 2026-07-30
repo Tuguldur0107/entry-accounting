@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { EyeIcon, EyeOffIcon } from './icons';
+import { Icon } from "@/components/ui/icon";
 
 // =====================================================
 // EAField — text/password input with icon, label, hint, error
@@ -112,7 +112,7 @@ export function EAField({
             }}
             aria-label={showPw ? 'Нууц үгийг нуух' : 'Нууц үгийг харуулах'}
           >
-            {showPw ? <EyeOffIcon /> : <EyeIcon />}
+            {showPw ? <Icon name="hide" /> : <Icon name="show" />}
           </button>
         )}
       </div>

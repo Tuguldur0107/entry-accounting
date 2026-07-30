@@ -14,8 +14,8 @@
 // (утгагүй дүн болно).
 
 import { useMemo, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import type { ColDef, ColGroupDef } from "ag-grid-community";
-import { AlertTriangle, Calculator, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
@@ -340,7 +340,7 @@ export function CostControlReport({
             onClick={recalculate}
             disabled={recalculating || valuing}
           >
-            <RefreshCw size={13} className={cn(recalculating && "animate-spin")} />
+            <Icon name="refresh" size="sm" className={cn(recalculating && "animate-spin")} />
             Дахин тооцоолох
           </Button>
           <Button
@@ -353,7 +353,7 @@ export function CostControlReport({
                 : "Зарлага, тохируулга, буцаалтыг сарын дундажаар үнэлж ноорог бичилт үүсгэнэ"
             }
           >
-            <Calculator size={13} />
+            <Icon name="costing" size="sm" />
             Сарын өртөг тооцох
           </Button>
         </div>
@@ -367,7 +367,7 @@ export function CostControlReport({
 
       {(blockedCount > 0 || unbalancedCount > 0) && (
         <div className="flex items-start gap-2 rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger)]">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <Icon name="warning" size="sm" className="mt-0.5 shrink-0" />
           <div>
             {blockedCount > 0 && (
               <p>

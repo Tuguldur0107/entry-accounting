@@ -9,9 +9,9 @@
 // барааны Орлогын дүнд нэмэгдэнэ. GL-д бичих нь тусдаа алхам.
 
 import { useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
-import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -206,7 +206,7 @@ export function CostAllocationView({
               : undefined
           }
         >
-          <Plus size={14} />
+          <Icon name="add" size="sm" />
           Хуваарилах
         </Button>
       </div>

@@ -1,14 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { Icon, type IconName } from "@/components/ui/icon";
 import { useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import {
-  AlertTriangle,
-  FileClock,
-  HelpCircle,
-  WalletCards,
-} from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import {
@@ -208,7 +203,7 @@ export function CashDashboard({
                   onClick={() => setExplainRow(row)}
                   className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--ea-border)] px-2 text-xs text-[var(--ea-text-2)] hover:bg-[var(--ea-bg-2)]"
                 >
-                  <HelpCircle size={13} />
+                  <Icon name="help" size="sm" />
                   Яагаад?
                 </button>
               )}
@@ -285,25 +280,25 @@ export function CashDashboard({
     {
       label: "MNT нийт үлдэгдэл",
       value: fmtMnt(summary.totalMnt),
-      icon: WalletCards,
+      icon: "cash" as IconName,
       color: "var(--ea-primary)",
     },
     {
       label: "Асуудалтай данс",
       value: String(summary.issueCount),
-      icon: AlertTriangle,
+      icon: "warning" as IconName,
       color: summary.issueCount > 0 ? "var(--ea-danger)" : "var(--ea-success)",
     },
     {
       label: "Хасах үлдэгдэл",
       value: String(summary.negativeCount),
-      icon: AlertTriangle,
+      icon: "warning" as IconName,
       color: "var(--ea-danger)",
     },
     {
       label: "Батлах ноорог",
       value: String(summary.draftCount),
-      icon: FileClock,
+      icon: "pending" as IconName,
       color: "var(--ea-warning)",
       // Deep link straight to the draft queue — close prep starts here.
       href: "/cash/transactions?status=draft" as string | undefined,
@@ -333,14 +328,13 @@ export function CashDashboard({
 
       <section className="grid grid-cols-2 border-y border-[var(--ea-border)] lg:grid-cols-4">
         {metrics.map((metric) => {
-          const Icon = metric.icon;
           const body = (
             <>
               <div
                 className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)]"
                 style={{ color: metric.color }}
               >
-                <Icon size={16} />
+                <Icon name={metric.icon} />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-[11px] text-[var(--ea-text-3)]">
@@ -420,7 +414,7 @@ export function CashDashboard({
                           onClick={() => setExplainRow(row)}
                           className="inline-flex items-center gap-1 text-xs text-[var(--ea-text-2)] hover:text-[var(--ea-text-1)]"
                         >
-                          <HelpCircle size={13} />
+                          <Icon name="help" size="sm" />
                           Яагаад?
                         </button>
                       )}

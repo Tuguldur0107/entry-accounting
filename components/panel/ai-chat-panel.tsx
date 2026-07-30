@@ -12,7 +12,7 @@
 // арчихгүй.
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 import { AiChatView } from "@/components/ai/ai-chat-view";
 import { getAiChatBootstrap, type AiChatBootstrap } from "@/lib/actions/ai";
@@ -86,7 +86,7 @@ export function AiChatPanel({
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );

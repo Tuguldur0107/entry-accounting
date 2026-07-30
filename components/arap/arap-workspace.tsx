@@ -1,16 +1,9 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { Icon, type IconName } from "@/components/ui/icon";
 import { useMemo, useState, useTransition } from "react";
 import type { ColDef } from "ag-grid-community";
-import {
-  AlertTriangle,
-  Building2,
-  FilePlus2,
-  Plus,
-  ReceiptText,
-  WalletCards,
-} from "lucide-react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useDirtyClose } from "@/lib/ui/use-dirty-close";
@@ -439,13 +432,13 @@ export function ArApWorkspace({
         <div className="flex flex-wrap gap-2">
           {(focus === "dashboard" || focus === "counterparties") && (
             <Button variant="outline" onClick={openCounterpartyDialog}>
-              <Plus />
+              <Icon name="add" />
               Харилцагч
             </Button>
           )}
           {(focus === "dashboard" || focus === "documents") && (
             <Button onClick={() => openArapDocPanel({ mode })}>
-              <FilePlus2 />
+              <Icon name="addDocument" />
               {config.createLabel}
             </Button>
           )}
@@ -460,19 +453,19 @@ export function ArApWorkspace({
               : "Нийт авлага (MNT)"
           }
           value={fmtMnt(mode === "payable" ? apBalance : arBalance)}
-          icon={mode === "payable" ? ReceiptText : WalletCards}
+          icon={mode === "payable" ? "document" : "cash"}
         />
         <Metric
           label={mode === "combined" ? "Нийт өглөг (MNT)" : "Нээлттэй (MNT)"}
           value={fmtMnt(mode === "combined" ? apBalance : openBalance)}
-          icon={mode === "combined" ? ReceiptText : WalletCards}
+          icon={mode === "combined" ? "document" : "cash"}
         />
         <Metric
           label={`Хэтэрсэн (MNT) · ${overdueCount}`}
           value={fmtMnt(overdueBalance)}
-          icon={AlertTriangle}
+          icon="warning"
         />
-        <Metric label="Харилцагч" value={String(filteredCounterparties.length)} icon={Building2} />
+        <Metric label="Харилцагч" value={String(filteredCounterparties.length)} icon="company" />
       </section>
 
       {focus === "dashboard" &&
@@ -955,12 +948,12 @@ function OnboardingState({
 }) {
   return (
     <div className="flex min-h-48 flex-col items-center justify-center border-y border-[var(--ea-border)] px-4 text-center">
-      <Building2 size={22} className="text-[var(--ea-text-3)]" />
+      <Icon name="company" size="xl" className="text-[var(--ea-text-3)]" />
       <div className="mt-3 text-sm font-medium text-[var(--ea-text-1)]">
         {mode === "payable" ? "Нийлүүлэгч бүртгээгүй байна" : "Харилцагч бүртгээгүй байна"}
       </div>
       <Button className="mt-4" onClick={onCounterparty}>
-        <Plus />
+        <Icon name="add" />
         {mode === "payable" ? "Нийлүүлэгч нэмэх" : "Харилцагч нэмэх"}
       </Button>
     </div>
@@ -970,16 +963,16 @@ function OnboardingState({
 function Metric({
   label,
   value,
-  icon: Icon,
+  icon,
 }: {
   label: string;
   value: string;
-  icon: React.ComponentType<{ size?: number }>;
+  icon: IconName;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3 border-b border-r border-[var(--ea-border)] px-4 py-4 last:border-r-0 lg:border-b-0">
       <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)] text-[var(--ea-primary)]">
-        <Icon size={16} />
+        <Icon name={icon} />
       </div>
       <div className="min-w-0">
         <div className="truncate text-[11px] text-[var(--ea-text-3)]">{label}</div>
@@ -1005,7 +998,7 @@ function EmptyState({
       <span>{text}</span>
       {actionLabel && onAction && (
         <Button variant="outline" size="sm" className="mt-3" onClick={onAction}>
-          <Plus />
+          <Icon name="add" />
           {actionLabel}
         </Button>
       )}

@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { Icon, type IconName } from "@/components/ui/icon";
 import { usePathname } from "next/navigation";
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getActiveModule } from "./modules";
 import { ModuleSwitcher } from "./module-switcher";
 import {
@@ -25,7 +25,7 @@ function isActivePath(pathname: string, href: string) {
 function SidebarLink({
   href,
   label,
-  icon: Icon,
+  icon,
   isActive,
   collapsed,
   mobile,
@@ -33,7 +33,7 @@ function SidebarLink({
 }: {
   href: string;
   label: string;
-  icon: LucideIcon;
+  icon: IconName;
   isActive: boolean;
   collapsed: boolean;
   mobile: boolean;
@@ -57,7 +57,7 @@ function SidebarLink({
         )}
       />
       <Icon
-        size={16}
+        name={icon}
         className={cn(
           "shrink-0",
           isActive
@@ -179,9 +179,9 @@ export function Sidebar() {
             )}
           >
             {collapsed ? (
-              <PanelLeftOpen size={16} className="shrink-0" />
+              <Icon name="expandSidebar" className="shrink-0" />
             ) : (
-              <PanelLeftClose size={16} className="shrink-0" />
+              <Icon name="collapseSidebar" className="shrink-0" />
             )}
             {collapsed ? (
               <span className="sr-only"></span>

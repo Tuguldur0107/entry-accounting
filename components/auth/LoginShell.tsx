@@ -2,11 +2,11 @@
 'use client';
 
 import * as React from 'react';
+import { Icon } from "@/components/ui/icon";
 import { useState } from 'react';
 import { EAField, EAButton } from './fields';
 import { EAMark, EAWordmark } from './brand';
 import { HeroPixelGrid } from './hero-pixel-grid';
-import { MailIcon, LockIcon, ArrowRightIcon } from './icons';
 import { T, LEDGER_T, type Lang } from '@/lib/i18n';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -73,7 +73,7 @@ export function LoginShell({
             <h1 style={titleStyle}>{lt.forgotTitle}</h1>
             <p style={subStyle}>{lt.forgotSub}</p>
           </div>
-          <EAField label={t.email} value={email} onChange={setEmail} placeholder={t.emailPh} icon={<MailIcon />} autoComplete="email" autoFocus />
+          <EAField label={t.email} value={email} onChange={setEmail} placeholder={t.emailPh} icon={<Icon name="mail" />} autoComplete="email" autoFocus />
           <div style={{ marginTop: 22 }}>
             <EAButton type="submit" loading={loading} fullWidth>
               {loading ? t.loading : lt.sendLink}
@@ -92,7 +92,7 @@ export function LoginShell({
             display: 'grid', placeItems: 'center',
             border: '1px solid color-mix(in srgb, var(--ea-success) 35%, transparent)', marginBottom: 18,
           }}>
-            <MailIcon width={26} height={26} />
+            <Icon name="mail" size="2xl" />
           </div>
           <h1 style={titleStyle}>{lt.forgotSent}</h1>
           <p style={{ ...subStyle, marginBottom: 22 }}>
@@ -116,7 +116,7 @@ export function LoginShell({
             value={email}
             onChange={setEmail}
             placeholder={t.emailPh}
-            icon={<MailIcon />}
+            icon={<Icon name="mail" />}
             autoComplete="email"
             autoFocus
           />
@@ -126,7 +126,7 @@ export function LoginShell({
             value={pw}
             onChange={(v) => { setPw(v); setPwError(''); }}
             placeholder={t.passwordPh}
-            icon={<LockIcon />}
+            icon={<Icon name="locked" />}
             autoComplete="current-password"
             error={pwError}
           />
@@ -138,7 +138,7 @@ export function LoginShell({
         </div>
         <div style={{ marginTop: 20 }}>
           <EAButton type="submit" loading={loading} fullWidth>
-            {loading ? t.loading : <>{t.signIn} <ArrowRightIcon /></>}
+            {loading ? t.loading : <>{t.signIn} <Icon name="arrowRight" /></>}
           </EAButton>
         </div>
         <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13, color: 'var(--ea-text-3)' }}>

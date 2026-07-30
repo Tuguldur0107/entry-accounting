@@ -8,8 +8,8 @@
 // нээлттэй үлдэж inline мессеж үзүүлнэ.
 
 import { useEffect, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
-import { Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
@@ -157,7 +157,7 @@ export function FaAssetFormPanel({
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );
@@ -418,7 +418,7 @@ function FaAssetFormBody({
           Болих
         </Button>
         <Button onClick={save} disabled={isPending}>
-          <Check />
+          <Icon name="approve" />
           {activatingId ? "Идэвхжүүлэх" : "Бүртгэх"}
         </Button>
       </footer>

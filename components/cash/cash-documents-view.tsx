@@ -14,13 +14,13 @@ import {
   useTransition,
 } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { Icon } from "@/components/ui/icon";
 import type {
   ColDef,
   GridApi,
   ICellRendererParams,
   SelectionChangedEvent,
 } from "ag-grid-community";
-import { Check, CheckCheck, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
@@ -559,7 +559,7 @@ export function CashDocumentsView({
                     aria-label="Баталж GL-д бичих"
                     onClick={() => handlePost(document)}
                   >
-                    <Check />
+                    <Icon name="approve" />
                   </button>
                   <button
                     type="button"
@@ -568,7 +568,7 @@ export function CashDocumentsView({
                     aria-label="Ноорог устгах"
                     onClick={() => handleDelete(document.id)}
                   >
-                    <Trash2 />
+                    <Icon name="delete" />
                   </button>
                 </>
               )}
@@ -580,7 +580,7 @@ export function CashDocumentsView({
                   aria-label="Буцаалт хийх"
                   onClick={() => handleReverse(document.id)}
                 >
-                  <RotateCcw />
+                  <Icon name="reset" />
                 </button>
               )}
             </div>
@@ -611,7 +611,7 @@ export function CashDocumentsView({
         </div>
         {allowCreate && (
           <Button onClick={() => openCashNewPanel()}>
-            <Plus />
+            <Icon name="add" />
             Шинэ гүйлгээ
           </Button>
         )}
@@ -664,7 +664,7 @@ export function CashDocumentsView({
                 onClick={handleBatchPost}
                 disabled={isPending}
               >
-                <CheckCheck />
+                <Icon name="approveAll" />
                 Сонгосныг батлах ({selectedDrafts.length})
               </Button>
             )}
@@ -826,7 +826,7 @@ export function CashDocumentsView({
               onClick={submitRatePost}
               disabled={isPending || !(Number(rateInput) > 0)}
             >
-              <Check />
+              <Icon name="approve" />
               Ханшаар батлах
             </Button>
           </DialogFooter>

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { createPortal } from "react-dom";
 import { nanoid } from "nanoid";
-import { Copy, Files, Printer, RotateCcw } from "lucide-react";
 import {
   createVoucher,
   duplicateVoucher,
@@ -17,11 +17,20 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtMnt } from "@/lib/reports/balances";
-import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
+import {
+  buildSegCode,
+  fmtAccountDisplay,
+  parseSegParts,
+} from "@/lib/grid/segments";
 import {
   JournalLinesGrid,
   type JournalLineRow,
 } from "@/components/journal/journal-lines-grid";
+import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
+import {
+  journalLinesSpec,
+  type JournalLineImport,
+} from "@/lib/excel/specs";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { cn } from "@/lib/utils";
 
@@ -193,6 +202,7 @@ export function JournalEntryForm({
 
   const [saving, setSaving] = useState<"draft" | "posted" | null>(null);
   const [error, setError] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   // Панель горимд хэвлэх үед л print sheet-ийг body-д portal-оор гаргана —
   // эс бөгөөс window.print() нь АРД байгаа хуудас + нээлттэй БҮХ панелийн
@@ -261,6 +271,37 @@ export function JournalEntryForm({
     }
     return map;
   }, [activeSegIds, accounts, segmentValues, readOnly]);
+
+  // Excel импорт — спек нь grid-ийн paste урсгалтай ижил normalize хийдэг
+  // (стандарт: зөвхөн зөв мөрүүд орж ирнэ, шалгалт нь спек дотор).
+  const importSpec = useMemo(
+    () =>
+      journalLinesSpec({
+        accountsByMain: new Map(
+          accounts.filter((a) => a.isEnabled).map((a) => [a.number, a.name])
+        ),
+        activeSegIds,
+        defaultSegments,
+      }),
+    [accounts, activeSegIds, defaultSegments]
+  );
+
+  function handleImportLines(values: JournalLineImport[]) {
+    updateLines((prev) => {
+      // Хүрээгүй хоосон мөрүүдийг (үндсэн данс, дүн, тайлбаргүй) импорт орлоно.
+      const kept = prev.filter(
+        (line) =>
+          line.debit > 0 ||
+          line.credit > 0 ||
+          line.description.trim() !== "" ||
+          (parseSegParts(line.account, [3])[3] ?? "").trim() !== ""
+      );
+      return [
+        ...kept,
+        ...values.map((value) => ({ id: nanoid(), ...value })),
+      ];
+    });
+  }
 
   // АМЖИЛТТАЙ ажил дуусахад: панель горимд эцэгтээ мэдэгдэнэ (эх хуудас
   // зөвхөн router.refresh хийнэ), standalone цонхонд өөрийгөө хаана.
@@ -516,15 +557,7 @@ export function JournalEntryForm({
         }}
       >
         <Button variant="ghost" size="sm" onClick={cancel}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M10 3L5 8l5 5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Icon name="chevronLeft" />
           Буцах
         </Button>
         <Separator orientation="vertical" className="h-5" />
@@ -652,7 +685,7 @@ export function JournalEntryForm({
                         aria-label="Журналын ID хуулах"
                         className="shrink-0 text-[var(--ea-text-4)] transition-colors hover:text-[var(--ea-primary)]"
                       >
-                        <Copy size={11} />
+                        <Icon name="copy" size="xs" />
                       </button>
                       {copyState !== "idle" && (
                         <span
@@ -722,16 +755,16 @@ export function JournalEntryForm({
           {readOnly ? (
             <>
               <Button variant="outline" onClick={handlePrint}>
-                <Printer size={14} />
+                <Icon name="print" size="sm" />
                 Хэвлэх
               </Button>
               <Button variant="outline" onClick={handleDuplicate}>
-                <Files size={14} />
+                <Icon name="duplicate" size="sm" />
                 Хуулбарлах
               </Button>
               {voucherStatus === "posted" && (
                 <Button variant="outline" onClick={handleStorno}>
-                  <RotateCcw size={14} />
+                  <Icon name="reset" size="sm" />
                   Буцаалт хийх
                 </Button>
               )}
@@ -747,6 +780,10 @@ export function JournalEntryForm({
                 onClick={() => updateLines((p) => [...p, makeEmptyLine()])}
               >
                 + Мөр нэмэх
+              </Button>
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Icon name="spreadsheet" size="sm" />
+                Excel импорт
               </Button>
               <Separator orientation="vertical" className="h-5" />
               <Button variant="outline" onClick={cancel}>
@@ -780,6 +817,16 @@ export function JournalEntryForm({
           typeof document !== "undefined" &&
           createPortal(printSheet, document.body)
         : printSheet}
+
+      {!readOnly && (
+        <ExcelImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          spec={importSpec}
+          title="Журналын мөр импортлох"
+          onImport={handleImportLines}
+        />
+      )}
     </>
   );
 }

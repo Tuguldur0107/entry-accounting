@@ -6,10 +6,11 @@
 // татна; формын dirty төлвийг setDirty(panel.id, ...)-д мэдэгдэнэ.
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { IconAction } from "@/components/ui/icon-action";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 import type { CellValueChangedEvent, ColDef } from "ag-grid-community";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
@@ -165,7 +166,7 @@ export function ArapDocPanel({
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );
@@ -893,18 +894,17 @@ function ArApLinesGrid({
         sortable: false,
         filter: false,
         cellRenderer: ({ data }: { data?: LineRow }) => (
-          <button
-            type="button"
-            title="Мөр устгах"
-            className="text-lg text-[var(--ea-text-4)] hover:text-[var(--ea-danger)]"
+          <IconAction
+            name="delete"
+            label="Мөр устгах"
+            size="sm"
+            variant="danger"
             onClick={() =>
               onChange((prev) =>
                 prev.length <= 1 ? prev : prev.filter((line) => line.id !== data?.id)
               )
             }
-          >
-            ×
-          </button>
+          />
         ),
       },
     ],

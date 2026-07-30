@@ -7,8 +7,8 @@
 // мэдэгдэж, амжилттай хадгалахад панелаа хааж серверийн өгөгдлийг сэргээнэ.
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 
 import { CashNewForm } from "@/components/cash/cash-new-form";
 import {
@@ -95,7 +95,7 @@ export function CashNewPanel({
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );

@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { ClipboardCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -180,7 +180,7 @@ export function InventoryCountingView({
             onBlur={() => changeParams({ date: dateInput })}
           />
           <Button size="sm" onClick={handleRecord} disabled={isPending}>
-            <ClipboardCheck />
+            <Icon name="counting" />
             Зөрүү бүртгэх
           </Button>
         </div>

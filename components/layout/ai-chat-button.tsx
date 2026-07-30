@@ -4,7 +4,7 @@
 // оос ялгаатай нь бүх модульд харагдана (чат хаана ч хэрэгтэй).
 
 import { usePathname } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 import { openAiChatPanel } from "@/lib/store/panel-store";
 
@@ -20,7 +20,7 @@ export function AiChatButton() {
       title="AI туслах нээх"
       className="ea-interactive flex h-8 items-center gap-1.5 rounded-md border border-[var(--ea-accent-border)] bg-[var(--ea-accent-bg)] px-3 text-xs font-medium text-[var(--ea-interactive)]"
     >
-      <Sparkles size={14} className="text-[var(--ea-interactive)]" />
+      <Icon name="ai" size="sm" className="text-[var(--ea-interactive)]" />
       AI
     </button>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type {
   ColDef,
@@ -8,7 +9,6 @@ import type {
   ICellRendererParams,
   SelectionChangedEvent,
 } from "ag-grid-community";
-import { Check, CheckCheck, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -294,7 +294,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
                     aria-label="Баталж GL-д бичих"
                     onClick={() => handlePost(entry)}
                   >
-                    <Check />
+                    <Icon name="approve" />
                   </button>
                   <button
                     type="button"
@@ -303,7 +303,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
                     aria-label="Ноорог устгах"
                     onClick={() => handleDelete(entry.id)}
                   >
-                    <Trash2 />
+                    <Icon name="delete" />
                   </button>
                 </>
               )}
@@ -315,7 +315,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
                   aria-label="Буцаалт хийх"
                   onClick={() => handleReverse(entry.id)}
                 >
-                  <RotateCcw />
+                  <Icon name="reset" />
                 </button>
               )}
             </div>
@@ -380,7 +380,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
               onClick={handleBatchPost}
               disabled={isPending}
             >
-              <CheckCheck />
+              <Icon name="approveAll" />
               Сонгосныг батлах ({selectedDrafts.length})
             </Button>
           )}

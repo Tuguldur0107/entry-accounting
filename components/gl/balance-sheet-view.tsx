@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Plus } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 import type { ChartOfAccount, JournalVoucherWithLines, ReportLineMapping } from "@/lib/db/schema";
 import {
   aggregateBalances,
@@ -442,7 +442,7 @@ export function BalanceSheetView({
           onClick={() => setAddLineOpen(true)}
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-[var(--ea-primary)] text-[var(--primary-foreground)] font-medium hover:bg-[var(--ea-primary-700)] transition-colors"
         >
-          <Plus size={14} />
+          <Icon name="add" size="sm" />
           Шинэ мөр
         </button>
         <label className="inline-flex items-center gap-1.5 text-[var(--ea-text-2)] cursor-pointer select-none ml-2">

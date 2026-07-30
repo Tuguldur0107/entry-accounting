@@ -8,8 +8,8 @@
 //   → зураглалын дүрэм (S2 өртгийн төв × дансны угтвар → GL-ээс автоматаар).
 
 import { useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Pencil, Plus, Power, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -143,7 +143,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
             setStageOpen(true);
           }}
         >
-          <Plus size={14} />
+          <Icon name="add" size="sm" />
           Дамжлага нэмэх
         </Button>
       </div>
@@ -180,10 +180,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                     className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)]"
                     aria-label={isExpanded ? "Хураах" : "Дэлгэх"}
                   >
-                    <ChevronDown
-                      size={14}
-                      className={cn("transition-transform", !isExpanded && "-rotate-90")}
-                    />
+                    <Icon name="chevronDown" size="sm" className={cn("transition-transform", !isExpanded && "-rotate-90")} />
                   </button>
                   <span className="flex size-6 items-center justify-center rounded-full bg-[var(--ea-primary)]/12 font-mono text-[11px] font-bold text-[var(--ea-primary)]">
                     {index + 1}
@@ -215,7 +212,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                     }}
                     className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
                   >
-                    <Pencil size={13} />
+                    <Icon name="edit" size="sm" />
                   </button>
                   <button
                     type="button"
@@ -223,7 +220,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                     onClick={() => toggleStage(stage)}
                     className="flex size-6 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
                   >
-                    <Power size={13} />
+                    <Icon name="power" size="sm" />
                   </button>
                 </div>
 
@@ -314,7 +311,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                                     }}
                                     className="flex size-5 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)]"
                                   >
-                                    <Pencil size={12} />
+                                    <Icon name="edit" size="xs" />
                                   </button>
                                   <button
                                     type="button"
@@ -326,7 +323,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                                     onClick={() => togglePool(pool.id, pool.isActive)}
                                     className="flex size-5 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)]"
                                   >
-                                    <Power size={12} />
+                                    <Icon name="power" size="xs" />
                                   </button>
                                 </div>
                               </td>
@@ -357,7 +354,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                           setPoolOpen(true);
                         }}
                       >
-                        <Plus size={12} />
+                        <Icon name="add" size="xs" />
                         Бүлэг нэмэх
                       </Button>
                     </div>
@@ -575,7 +572,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                         }
                         className="flex size-7 shrink-0 items-center justify-center rounded text-[var(--ea-text-3)] hover:bg-[var(--ea-danger)]/10 hover:text-[var(--ea-danger)]"
                       >
-                        <Trash2 size={13} />
+                        <Icon name="delete" size="sm" />
                       </button>
                     </div>
                   ))}
@@ -597,7 +594,7 @@ export function ProductionConfigSection({ stages, costCenters }: Props) {
                     )
                   }
                 >
-                  <Plus size={12} />
+                  <Icon name="add" size="xs" />
                   Дүрэм нэмэх
                 </Button>
               </div>

@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { CheckIcon } from './icons';
+import { Icon } from "@/components/ui/icon";
 
 export function Stepper({ steps, current }: { steps: string[]; current: number }) {
   return (
@@ -21,7 +21,7 @@ export function Stepper({ steps, current }: { steps: string[]; current: number }
                 fontFamily: 'var(--ea-font-mono)',
               }}
             >
-              {i < current ? <CheckIcon width={11} height={11} /> : i + 1}
+              {i < current ? <Icon name="approve" size="xs" /> : i + 1}
             </span>
             <span
               style={{

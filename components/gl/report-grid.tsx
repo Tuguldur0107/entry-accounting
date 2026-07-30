@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
+import { Icon } from "@/components/ui/icon";
 import type { ColDef, ICellRendererParams, RowClassParams } from "ag-grid-community";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { moneyValueFormatter } from "@/lib/grid/formatters";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
-import { ChevronDown, ChevronRight, Eye, EyeOff, SlidersHorizontal, Trash2 } from "lucide-react";
 
 export type ReportRowKind =
   | "section"
@@ -246,9 +246,9 @@ export function ReportGrid({
               aria-label={collapsed ? "Дэлгэх" : "Хумих"}
             >
               {collapsed ? (
-                <ChevronRight size={14} />
+                <Icon name="chevronRight" size="sm" />
               ) : (
-                <ChevronDown size={14} />
+                <Icon name="chevronDown" size="sm" />
               )}
               <span>{label}</span>
             </button>
@@ -347,7 +347,7 @@ export function ReportGrid({
             title="Дансны mapping тохируулах"
             aria-label="Дансны mapping тохируулах"
           >
-            <SlidersHorizontal />
+            <Icon name="tune" />
           </button>
         );
       },
@@ -380,7 +380,7 @@ export function ReportGrid({
                     title="Дахин харуулах"
                     aria-label="Дахин харуулах"
                   >
-                    <Eye />
+                    <Icon name="show" />
                   </button>
                 )
               : onHideLine && (
@@ -391,7 +391,7 @@ export function ReportGrid({
                     title="Нуух"
                     aria-label="Нуух"
                   >
-                    <EyeOff />
+                    <Icon name="hide" />
                   </button>
                 )}
             {isCustom && onRemoveLine && (
@@ -404,7 +404,7 @@ export function ReportGrid({
                 title="Мөрийг устгах"
                 aria-label="Мөрийг устгах"
               >
-                <Trash2 />
+                <Icon name="delete" />
               </button>
             )}
           </div>

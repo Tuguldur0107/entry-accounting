@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Info } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 import { useGridFilter, type CustomFilterProps } from "ag-grid-react";
 import type {
   IDoesFilterPassParams,
@@ -257,7 +257,7 @@ export function ComboFilter(
           aria-expanded={showHelp}
           onClick={() => setShowHelp((current) => !current)}
         >
-          <Info size={13} />
+          <Icon name="info" size="sm" />
         </button>
       </div>
       <select

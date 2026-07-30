@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sun, Moon } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
 /**
  * Theme toggle — works WITH or WITHOUT React hydration.
@@ -55,8 +55,8 @@ export function ThemeToggle() {
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >
       {isDark
-        ? <Sun size={18} className="transition-transform pointer-events-none" />
-        : <Moon size={18} className="transition-transform pointer-events-none" />}
+        ? <Icon name="lightMode" size="lg" className="transition-transform pointer-events-none" />
+        : <Icon name="darkMode" size="lg" className="transition-transform pointer-events-none" />}
     </button>
   );
 }

@@ -10,7 +10,7 @@
 // onSaved, алдаанд формоо нээлттэй үлдээж inline алдаа үзүүлнэ.
 
 import { useEffect, useState, useTransition } from "react";
-import { Check } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
@@ -513,7 +513,7 @@ export function CashNewForm({
           Ноорог хадгалах
         </Button>
         <Button onClick={() => save(true)} disabled={isPending}>
-          <Check />
+          <Icon name="approve" />
           Хадгалж батлах
         </Button>
       </footer>

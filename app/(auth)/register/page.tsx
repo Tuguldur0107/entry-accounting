@@ -1,21 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import { Icon } from "@/components/ui/icon";
 import { useState } from 'react';
 import Link from 'next/link';
 import { EAMark, EAWordmark } from '@/components/auth/brand';
 import { EAField, EAButton } from '@/components/auth/fields';
 import { HeroPixelGrid } from '@/components/auth/hero-pixel-grid';
-import { MailIcon, LockIcon, ArrowRightIcon } from '@/components/auth/icons';
 import { registerUser } from '@/lib/actions/auth';
 import { ThemeToggle } from '@/components/theme-toggle';
-
-const UserIcon = (p: React.SVGProps<SVGSVGElement>) => (
-  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <circle cx="12" cy="8" r="4" />
-    <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-  </svg>
-);
 
 export default function RegisterPage() {
   // registerUser амжилттай бол server action өөрөө redirect хийдэг тул router хэрэггүй
@@ -94,15 +87,15 @@ export default function RegisterPage() {
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <EAField label="Нэр" value={name} onChange={setName} placeholder="Овог нэр" icon={<UserIcon />} autoComplete="name" autoFocus />
-                <EAField label="И-мэйл" value={email} onChange={setEmail} placeholder="name@company.mn" icon={<MailIcon />} autoComplete="email" />
+                <EAField label="Нэр" value={name} onChange={setName} placeholder="Овог нэр" icon={<Icon name="user" />} autoComplete="name" autoFocus />
+                <EAField label="И-мэйл" value={email} onChange={setEmail} placeholder="name@company.mn" icon={<Icon name="mail" />} autoComplete="email" />
                 <EAField label="Нууц үг" type="password" value={password} onChange={(v) => { setPassword(v); setError(''); }} placeholder="8+ тэмдэгт"
-                  icon={<LockIcon />} autoComplete="new-password" error={error || undefined} />
+                  icon={<Icon name="locked" />} autoComplete="new-password" error={error || undefined} />
               </div>
 
               <div style={{ marginTop: 24 }}>
                 <EAButton type="submit" loading={loading} fullWidth disabled={!name.trim() || !email.trim() || !password}>
-                  {loading ? 'Бүртгэж байна...' : <>{`Бүртгүүлэх`} <ArrowRightIcon /></>}
+                  {loading ? 'Бүртгэж байна...' : <>{`Бүртгүүлэх`} <Icon name="arrowRight" /></>}
                 </EAButton>
               </div>
 

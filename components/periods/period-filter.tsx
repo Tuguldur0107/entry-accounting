@@ -14,8 +14,8 @@
 // Дуусах огноо нь одоогийн сард өнөөдрөөр таслагдана ("to date").
 
 import { useRef, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { savePeriodSelection } from "@/lib/actions/period-selection";
 import {
@@ -88,7 +88,7 @@ export function PeriodFilter({ initialPeriodCode, initialScope, today }: Props) 
           aria-label="Өмнөх сар"
           className="flex h-8 w-6 items-center justify-center text-[var(--ea-text-3)] transition-colors hover:text-[var(--ea-text-1)]"
         >
-          <ChevronLeft size={13} />
+          <Icon name="chevronLeft" size="sm" />
         </button>
 
         <button
@@ -100,15 +100,9 @@ export function PeriodFilter({ initialPeriodCode, initialScope, today }: Props) 
           aria-expanded={open}
           className="flex h-8 items-center gap-1.5 px-1.5 font-mono text-xs font-semibold text-[var(--ea-text-1)]"
         >
-          <CalendarDays size={13} className="text-[var(--ea-text-3)]" />
+          <Icon name="period" size="sm" className="text-[var(--ea-text-3)]" />
           {fmtPeriodCode(periodCode)}
-          <ChevronDown
-            size={12}
-            className={cn(
-              "text-[var(--ea-text-3)] transition-transform",
-              open && "rotate-180"
-            )}
-          />
+          <Icon name="chevronDown" size="xs" className={cn( "text-[var(--ea-text-3)] transition-transform", open && "rotate-180" )} />
         </button>
 
         <button
@@ -119,7 +113,7 @@ export function PeriodFilter({ initialPeriodCode, initialScope, today }: Props) 
           aria-label="Дараагийн сар"
           className="flex h-8 w-6 items-center justify-center text-[var(--ea-text-3)] transition-colors hover:text-[var(--ea-text-1)] disabled:opacity-30"
         >
-          <ChevronRight size={13} />
+          <Icon name="chevronRight" size="sm" />
         </button>
 
         {open && (

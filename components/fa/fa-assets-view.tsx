@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type {
   CellClickedEvent,
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
-import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -139,7 +139,7 @@ export function FaAssetsView({ assets }: Props) {
                 aria-label="Бөглөж идэвхжүүлэх"
                 onClick={() => openFaAssetFormPanel({ assetId: asset.id })}
               >
-                <Pencil />
+                <Icon name="edit" />
               </button>
               <button
                 type="button"
@@ -167,7 +167,7 @@ export function FaAssetsView({ assets }: Props) {
                   });
                 }}
               >
-                <Trash2 />
+                <Icon name="delete" />
               </button>
             </div>
           );
@@ -203,7 +203,7 @@ export function FaAssetsView({ assets }: Props) {
           </p>
         </div>
         <Button onClick={() => openFaAssetFormPanel()}>
-          <Plus />
+          <Icon name="add" />
           Шинэ хөрөнгө
         </Button>
       </div>

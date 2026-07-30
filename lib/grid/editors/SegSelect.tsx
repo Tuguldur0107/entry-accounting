@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import { createPortal } from "react-dom";
 
 export type SegOption = { code: string; name: string };
@@ -95,9 +96,7 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
         ) : (
           <span className="truncate">{placeholder}</span>
         )}
-        <svg width="9" height="5" viewBox="0 0 9 5" style={{ flexShrink: 0, color: "var(--ea-text-4)" }}>
-          <path d="M1 1l3.5 3.5L8 1" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <Icon name="chevronDown" size="xs" className="shrink-0 text-[var(--ea-text-4)]" />
       </button>
 
       {open &&

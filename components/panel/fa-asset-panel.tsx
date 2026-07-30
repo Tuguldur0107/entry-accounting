@@ -6,8 +6,8 @@
 // ачаална. Ноорог картад "Бөглөж идэвхжүүлэх" → openFaAssetFormPanel.
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/ui/icon";
 import type { ColDef } from "ag-grid-community";
-import { Loader2, Pencil } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
@@ -148,7 +148,7 @@ export function FaAssetPanel({
   if (state.status === "loading")
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Loader2 size={16} className="animate-spin" />
+        <Icon name="loading" className="animate-spin" />
         Ачаалж байна…
       </div>
     );
@@ -298,7 +298,7 @@ export function FaAssetPanel({
             variant="secondary"
             onClick={() => openFaAssetFormPanel({ assetId: asset.id })}
           >
-            <Pencil size={14} />
+            <Icon name="edit" size="sm" />
             Бөглөж идэвхжүүлэх
           </Button>
         )}

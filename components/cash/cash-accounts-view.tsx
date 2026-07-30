@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Landmark, Plus, WalletCards } from "lucide-react";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
@@ -80,9 +80,9 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         cellRenderer: (params: ICellRendererParams<CashAccountView>) => (
           <div className="flex h-full items-center gap-2">
             {params.data?.accountType === "bank" ? (
-              <Landmark size={15} className="text-[var(--ea-primary)]" />
+              <Icon name="bank" size="sm" className="text-[var(--ea-primary)]" />
             ) : (
-              <WalletCards size={15} className="text-[var(--ea-success)]" />
+              <Icon name="cash" size="sm" className="text-[var(--ea-success)]" />
             )}
             <span>{params.value}</span>
           </div>
@@ -205,7 +205,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
           </p>
         </div>
         <Button onClick={showDialog}>
-          <Plus />
+          <Icon name="add" />
           Данс нэмэх
         </Button>
       </div>

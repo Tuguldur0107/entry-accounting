@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -105,7 +105,7 @@ export function InventoryItemsView({ items, warehouses }: Props) {
               setItemOpen(true);
             }}
           >
-            <Pencil />
+            <Icon name="edit" />
           </button>
         ),
       },
@@ -169,7 +169,7 @@ export function InventoryItemsView({ items, warehouses }: Props) {
                 setItemOpen(true);
               }}
             >
-              <Plus />
+              <Icon name="add" />
               Бараа нэмэх
             </Button>
           </div>
@@ -201,7 +201,7 @@ export function InventoryItemsView({ items, warehouses }: Props) {
                 setWarehouseOpen(true);
               }}
             >
-              <Plus />
+              <Icon name="add" />
               Агуулах нэмэх
             </Button>
           </div>

@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -140,7 +140,7 @@ export function CostingReportView({ valuation, tieOut }: Props) {
               setNrvRow(row);
             }}
           >
-            <TrendingDown />
+            <Icon name="depreciation" />
           </button>
         ),
       },
