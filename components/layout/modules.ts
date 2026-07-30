@@ -20,6 +20,7 @@ import {
   Building,
   TrendingDown,
   CalendarClock,
+  Factory,
 } from "lucide-react";
 
 // Модуль бүрийн цэс нэг стандарт ДАРААЛЛААР жагсана (визуал бүлэглэлгүй):
@@ -150,6 +151,7 @@ export const MODULES: Module[] = [
     items: [
       { label: "Хяналтын самбар", href: "/costing", icon: LayoutDashboard },
       { label: "Өртгийн бичилт", href: "/costing/entries", icon: Calculator },
+      { label: "Үйлдвэрлэл", href: "/costing/production", icon: Factory },
       {
         label: "Зардлын хуваарилалт",
         href: "/costing/allocations",

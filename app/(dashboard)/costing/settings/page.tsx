@@ -12,6 +12,7 @@ import {
   loadCostingAccountSettings,
   loadIssueTypes,
 } from "@/lib/costing/master-data";
+import { loadProductionConfig } from "@/lib/actions/production";
 import { db } from "@/lib/db";
 import { chartOfAccounts, costingItemSettings } from "@/lib/db/schema";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
@@ -29,6 +30,7 @@ export default async function CostingSettingsPage() {
     accountRoles,
     issueTypes,
     components,
+    productionStages,
   ] = await Promise.all([
     loadInventoryBase(userId),
     db.query.costingItemSettings.findMany({
@@ -45,6 +47,7 @@ export default async function CostingSettingsPage() {
     loadCostingAccountSettings(userId),
     loadIssueTypes(userId),
     loadCostComponents(userId),
+    loadProductionConfig(userId),
   ]);
 
   const settingByItem = new Map(settings.map((s) => [s.itemId, s]));
@@ -89,6 +92,32 @@ export default async function CostingSettingsPage() {
         nrvExpenseAccountNumber: accountRoles.nrvExpenseAccountNumber,
         nrvReserveAccountNumber: accountRoles.nrvReserveAccountNumber,
       }}
+      productionStages={productionStages.map((stage) => ({
+        id: stage.id,
+        code: stage.code,
+        name: stage.name,
+        sortOrder: stage.sortOrder,
+        isActive: stage.isActive,
+        pools: stage.pools
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code))
+          .map((pool) => ({
+            id: pool.id,
+            code: pool.code,
+            name: pool.name,
+            costBehavior: pool.costBehavior,
+            sortOrder: pool.sortOrder,
+            isActive: pool.isActive,
+            rules: pool.rules.map((rule) => ({
+              costCenterCode: rule.costCenterCode,
+              accountPrefix: rule.accountPrefix,
+              priority: rule.priority,
+            })),
+          })),
+      }))}
+      costCenters={(segmentData.segmentOptions[2] ?? []).map((option) => ({
+        code: option.code,
+        name: option.name,
+      }))}
       glAccounts={glAccounts.map((account) => ({
         number: account.number,
         name: account.name,

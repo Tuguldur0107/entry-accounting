@@ -958,6 +958,168 @@ export const costAllocationLines = pgTable("cost_allocation_lines", {
   costEntryId: uuid("cost_entry_id"),
 });
 
+// ── Үйлдвэрлэлийн өртөг (docs/cost OD-016 → 0.4-д шийдэгдсэн хэсэг) ─────────
+// Хэрэглэгч ДУРААРАА дамжлага (шат) үүсгэж, GL-ийн зардлыг өртгийн бүлэгт
+// зураглаж, сарын нийт өртгийг гарсан бүтээгдэхүүнүүдэд хуваарилна.
+// Загвар нь Excel-ийн Production Cost Report-ийн урсгалыг дагана:
+//   GL (S2 өртгийн төв × данс) → Өртгийн бүлэг → Дамжлага → Бүтээгдэхүүн.
+
+export const productionStages = pgTable(
+  "production_stages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    /** Тооцооллын дараалал — өмнөх шатны гаралт дараагийнхад орж болно. */
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: text("created_by"),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+export const costPools = pgTable(
+  "cost_pools",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => productionStages.id, { onDelete: "cascade" }),
+    code: text("code").notNull(), // "105BLAST DRILL" маягийн
+    name: text("name").notNull(),
+    /** Хувьсах / тогтмол ангилал (Excel-ийн VARIABLE/FIXED). */
+    costBehavior: text("cost_behavior").notNull().default("variable"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.code)]
+);
+
+/**
+ * GL → өртгийн бүлгийн зураглалын дүрэм: S2 өртгийн төв ба/эсвэл дансны
+ * угтвар. Аль нь ч хоосон байж болно (нэгээр нь л тааруулна); хоёулаа
+ * байвал хоёулаа таарах ёстой. priority бага нь түрүүлж таарна.
+ */
+export const costPoolRules = pgTable("cost_pool_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  poolId: uuid("pool_id")
+    .notNull()
+    .references(() => costPools.id, { onDelete: "cascade" }),
+  costCenterCode: text("cost_center_code"), // S2 код (яг таарна)
+  accountPrefix: text("account_prefix"), // үндсэн дансны угтвар
+  priority: integer("priority").notNull().default(100),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/** Сарын үйлдвэрлэлийн тооцоолол — нэг сард нэг идэвхтэй run. */
+export const productionRuns = pgTable(
+  "production_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodCode: text("period_code").notNull(), // YYYY-MM
+    status: text("status").notNull().default("draft"), // "draft" | "confirmed"
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at"),
+  },
+  (t) => [unique().on(t.userId, t.periodCode)]
+);
+
+/** Шат бүрийн run-д хэрэглэсэн хуваарийн суурь. */
+export const productionRunStages = pgTable("production_run_stages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .notNull()
+    .references(() => productionRuns.id, { onDelete: "cascade" }),
+  stageId: uuid("stage_id")
+    .notNull()
+    .references(() => productionStages.id, { onDelete: "restrict" }),
+  /** "sales_value" | "quantity" | "manual" */
+  allocationBase: text("allocation_base").notNull().default("sales_value"),
+});
+
+/** GL-ээс цугласан бүлгийн дүн (run бүрд хөлдөнө — дахин тооцоход шинэчлэгдэнэ). */
+export const productionRunPools = pgTable("production_run_pools", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .notNull()
+    .references(() => productionRuns.id, { onDelete: "cascade" }),
+  poolId: uuid("pool_id")
+    .notNull()
+    .references(() => costPools.id, { onDelete: "restrict" }),
+  amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  matchedLineCount: integer("matched_line_count").notNull().default(0),
+});
+
+/** Шатанд зарцуулсан орц: өмнөх шатны гаралт эсвэл нөөцөөс. */
+export const productionRunInputs = pgTable("production_run_inputs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .notNull()
+    .references(() => productionRuns.id, { onDelete: "cascade" }),
+  stageId: uuid("stage_id")
+    .notNull()
+    .references(() => productionStages.id, { onDelete: "restrict" }),
+  itemId: uuid("item_id")
+    .notNull()
+    .references(() => inventoryItems.id, { onDelete: "restrict" }),
+  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+  /** Нэгж өртөг: энэ run-ийн өмнөх шатнаас ирвэл тэндээс, үгүй бол нөөцийн дундажаас. */
+  unitCost: numeric("unit_cost", { precision: 28, scale: 10 }).notNull(),
+  amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  /** Энэ run доторх өмнөх шатны гаралтаас зарцуулсан бол тэр шат. */
+  sourceStageId: uuid("source_stage_id").references(() => productionStages.id, {
+    onDelete: "restrict",
+  }),
+});
+
+/** Шатны гаралт: бүтээгдэхүүн + хуваарилагдсан өртөг. */
+export const productionRunOutputs = pgTable("production_run_outputs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .notNull()
+    .references(() => productionRuns.id, { onDelete: "cascade" }),
+  stageId: uuid("stage_id")
+    .notNull()
+    .references(() => productionStages.id, { onDelete: "restrict" }),
+  itemId: uuid("item_id")
+    .notNull()
+    .references(() => inventoryItems.id, { onDelete: "restrict" }),
+  warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
+    onDelete: "restrict",
+  }),
+  quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+  /** "sales_value" суурьт: нэгжийн борлуулах үнэ. */
+  salesPrice: numeric("sales_price", { precision: 18, scale: 2 }),
+  /** "manual" суурьт: гараар өгсөн дүн. */
+  manualAmount: numeric("manual_amount", { precision: 18, scale: 2 }),
+  allocatedAmount: numeric("allocated_amount", { precision: 18, scale: 2 }),
+  unitCost: numeric("unit_cost", { precision: 28, scale: 10 }),
+  /** Батлахад үүссэн нөөцийн хөдөлгөөн ба өртгийн бичилт. */
+  movementId: uuid("movement_id").references(() => inventoryMovements.id, {
+    onDelete: "set null",
+  }),
+  costEntryId: uuid("cost_entry_id").references(() => costEntries.id, {
+    onDelete: "set null",
+  }),
+});
+
 /**
  * Cost Ledger-ийн ПЕРИОДЫН ҮР ДҮН — бараа × агуулах × период тус бүрд нэг мөр
  * (docs/cost FR-LEDGER-COST-002). Хамрах хүрээ OD-001-ээр батлагдсан.
@@ -1116,6 +1278,94 @@ export const costingItemSettingsRelations = relations(
     }),
     item: one(inventoryItems, {
       fields: [costingItemSettings.itemId],
+      references: [inventoryItems.id],
+    }),
+  })
+);
+
+export const productionStagesRelations = relations(
+  productionStages,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [productionStages.userId],
+      references: [users.id],
+    }),
+    pools: many(costPools),
+  })
+);
+
+export const costPoolsRelations = relations(costPools, ({ one, many }) => ({
+  stage: one(productionStages, {
+    fields: [costPools.stageId],
+    references: [productionStages.id],
+  }),
+  rules: many(costPoolRules),
+}));
+
+export const costPoolRulesRelations = relations(costPoolRules, ({ one }) => ({
+  pool: one(costPools, {
+    fields: [costPoolRules.poolId],
+    references: [costPools.id],
+  }),
+}));
+
+export const productionRunsRelations = relations(
+  productionRuns,
+  ({ many }) => ({
+    stages: many(productionRunStages),
+    pools: many(productionRunPools),
+    inputs: many(productionRunInputs),
+    outputs: many(productionRunOutputs),
+  })
+);
+
+export const productionRunStagesRelations = relations(
+  productionRunStages,
+  ({ one }) => ({
+    run: one(productionRuns, {
+      fields: [productionRunStages.runId],
+      references: [productionRuns.id],
+    }),
+  })
+);
+
+export const productionRunPoolsRelations = relations(
+  productionRunPools,
+  ({ one }) => ({
+    run: one(productionRuns, {
+      fields: [productionRunPools.runId],
+      references: [productionRuns.id],
+    }),
+    pool: one(costPools, {
+      fields: [productionRunPools.poolId],
+      references: [costPools.id],
+    }),
+  })
+);
+
+export const productionRunInputsRelations = relations(
+  productionRunInputs,
+  ({ one }) => ({
+    run: one(productionRuns, {
+      fields: [productionRunInputs.runId],
+      references: [productionRuns.id],
+    }),
+    item: one(inventoryItems, {
+      fields: [productionRunInputs.itemId],
+      references: [inventoryItems.id],
+    }),
+  })
+);
+
+export const productionRunOutputsRelations = relations(
+  productionRunOutputs,
+  ({ one }) => ({
+    run: one(productionRuns, {
+      fields: [productionRunOutputs.runId],
+      references: [productionRuns.id],
+    }),
+    item: one(inventoryItems, {
+      fields: [productionRunOutputs.itemId],
       references: [inventoryItems.id],
     }),
   })
@@ -1351,6 +1601,10 @@ export type CostingItemSetting = typeof costingItemSettings.$inferSelect;
 export type CostingRun = typeof costingRuns.$inferSelect;
 export type CostEntry = typeof costEntries.$inferSelect;
 export type CostPeriodResult = typeof costPeriodResults.$inferSelect;
+export type ProductionStage = typeof productionStages.$inferSelect;
+export type CostPool = typeof costPools.$inferSelect;
+export type CostPoolRule = typeof costPoolRules.$inferSelect;
+export type ProductionRun = typeof productionRuns.$inferSelect;
 export type CostAllocation = typeof costAllocations.$inferSelect;
 export type CostAllocationLine = typeof costAllocationLines.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
