@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
 import {
@@ -8,9 +9,18 @@ import {
   postVoucher,
   unpostVoucher,
 } from "@/lib/actions/gl";
+import { importJournalVouchers } from "@/lib/actions/journal-import";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
+import { downloadWorkbook } from "@/lib/excel/core";
+import {
+  groupVoucherRows,
+  journalVouchersSpec,
+  type VoucherRowImport,
+} from "@/lib/excel/specs";
 import { openVoucherPanel, refreshOpenPanels } from "@/lib/store/panel-store";
 import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
@@ -26,6 +36,8 @@ interface Props {
   vouchers: JournalVoucherWithLines[];
   accounts: ChartOfAccount[];
   activeSegIds: number[];
+  /** Excel импортын normalize — журналын редактортой ижил (S1 auto-fill). */
+  defaultSegments?: Record<number, string>;
   initialStart?: string;
   initialEnd?: string;
 }
@@ -51,11 +63,122 @@ function defaultMonthRange() {
   };
 }
 
-export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }: Props) {
+export function JournalList({
+  vouchers,
+  accounts,
+  activeSegIds,
+  defaultSegments = {},
+  initialStart,
+  initialEnd,
+}: Props) {
   const defaults = defaultMonthRange();
   const appliedStart = initialStart ?? defaults.start;
   const appliedEnd = initialEnd ?? defaults.end;
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const router = useRouter();
+  const [importOpen, setImportOpen] = useState(false);
+
+  // Багц импортын спек — Баримт № ижил мөрүүд нэг журнал болж НООРОГ үүснэ.
+  const importSpec = useMemo(
+    () =>
+      journalVouchersSpec({
+        accountsByMain: new Map(
+          accounts.map((account) => [account.number, account.name])
+        ),
+        activeSegIds,
+        defaultSegments,
+      }),
+    [accounts, activeSegIds, defaultSegments]
+  );
+
+  async function handleBatchImport(rows: VoucherRowImport[]) {
+    const grouped = groupVoucherRows(rows);
+    const clean = grouped.filter((entry) => entry.errors.length === 0);
+    const broken = grouped.filter((entry) => entry.errors.length > 0);
+
+    if (clean.length === 0)
+      return broken
+        .map((entry) => `${entry.voucherKey}: ${entry.errors.join(", ")}`)
+        .join(" · ");
+
+    const result = await importJournalVouchers(
+      clean.map((entry) => ({
+        voucherKey: entry.voucherKey,
+        date: entry.date,
+        description: entry.description,
+        lines: entry.lines,
+      }))
+    );
+    if (!result.ok)
+      return result.code === "unauthenticated"
+        ? "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү."
+        : "Оруулахад алдаа гарлаа. Дахин оролдоно уу.";
+
+    if (result.created > 0)
+      toast.success(`${result.created} журнал ноорог болж үүслээ`);
+    for (const failure of [
+      ...broken.map((entry) => ({
+        voucherKey: entry.voucherKey,
+        reason: entry.errors.join(", "),
+      })),
+      ...result.failures,
+    ])
+      toast.error(`${failure.voucherKey}: ${failure.reason}`);
+
+    router.refresh();
+    // Юу ч үүсээгүй бол диалогийг нээлттэй үлдээж шалтгааныг үзүүлнэ.
+    if (result.created === 0 && result.failures.length > 0)
+      return result.failures
+        .map((failure) => `${failure.voucherKey}: ${failure.reason}`)
+        .join(" · ");
+  }
+
+  // Экспорт — багц импортын загвартай ИЖИЛ багана (+ Статус) тул экспортолсон
+  // файлыг шууд буцааж импортлож болно (round-trip).
+  async function handleExport() {
+    const rows = filtered;
+    if (rows.length === 0) {
+      toast.error("Экспортлох бичилт алга");
+      return;
+    }
+    const nameByMain = new Map(accounts.map((a) => [a.number, a.name]));
+    await downloadWorkbook({
+      slug: "entry-journal",
+      sheetName: "Журнал",
+      columns: [
+        { header: "Баримт №", width: 12 },
+        { header: "Огноо", width: 12 },
+        { header: "Гүйлгээний утга", width: 30 },
+        { header: "Данс", width: 22 },
+        { header: "Дансны нэр", width: 26 },
+        { header: "Дебет", width: 16, kind: "number" },
+        { header: "Кредит", width: 16, kind: "number" },
+        { header: "Мөрийн тайлбар", width: 26 },
+        { header: "Статус", width: 12 },
+      ],
+      rows: rows.flatMap((voucher) =>
+        voucher.lines.map((line) => {
+          const parts = line.accountNumber.split(".");
+          const main = parts.length === 10 ? parts[2] : line.accountNumber;
+          return [
+            voucher.id.slice(0, 8),
+            voucher.date,
+            voucher.description,
+            fmtAccountDisplay(line.accountNumber, activeSegIds),
+            nameByMain.get(main) ?? "",
+            Number(line.debit) || null,
+            Number(line.credit) || null,
+            line.description,
+            voucher.status === "posted"
+              ? "Бичигдсэн"
+              : voucher.status === "reversed"
+                ? "Буцаагдсан"
+                : "Ноорог",
+          ];
+        })
+      ),
+    });
+  }
 
   // columnDefs нь [activeSegIds]-ээр л memo хийгддэг тул renderer доторх
   // handler-ууд эхний render-ийн vouchers-ийг хаасан хэвээр үлддэг. Ref-ээр
@@ -383,14 +506,43 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
     [activeSegIds]
   );
 
+  // Импорт/экспортын toolbar — жагсаалт хоосон үед ч харагдана (импорт нь
+  // яг тэр үед хамгийн хэрэгтэй).
+  const excelToolbar = (
+    <div className="mb-3 flex items-center justify-end gap-2">
+      <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+        <Icon name="spreadsheet" size="sm" />
+        Excel импорт (багц)
+      </Button>
+      <Button variant="outline" size="sm" onClick={handleExport}>
+        <Icon name="download" size="sm" />
+        Excel экспорт
+      </Button>
+    </div>
+  );
+
+  const importDialog = (
+    <ExcelImportDialog
+      open={importOpen}
+      onOpenChange={setImportOpen}
+      spec={importSpec}
+      title="Олон журнал багцаар импортлох"
+      onImport={handleBatchImport}
+    />
+  );
+
   // Хоосон төлөвт ч {confirmDialog} render хийнэ — filter-ийн улмаас жагсаалт
   // хоосон болсон үед нээлттэй байсан диалог алга болохгүй.
   if (filtered.length === 0) {
     return (
       <>
-        <div className="flex flex-1 items-center justify-center bg-[var(--ea-surface)] border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
-          Бичилт байхгүй
-        </div>
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {excelToolbar}
+          <div className="flex flex-1 items-center justify-center bg-[var(--ea-surface)] border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
+            Бичилт байхгүй
+          </div>
+        </section>
+        {importDialog}
         {confirmDialog}
       </>
     );
@@ -398,6 +550,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {excelToolbar}
       <DataGridDynamic<VoucherRow>
         rowData={filtered}
         columnDefs={columnDefs}
@@ -465,6 +618,7 @@ export function JournalList({ vouchers, activeSegIds, initialStart, initialEnd }
         <div />
       </div>
 
+      {importDialog}
       {confirmDialog}
     </section>
   );

@@ -15,8 +15,10 @@ import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { arapLinesSpec, type ArapLineImport } from "@/lib/excel/specs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -785,6 +787,55 @@ function ArApLinesGrid({
   clearingAccountNumber: string;
 }) {
   const total = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const [importOpen, setImportOpen] = useState(false);
+
+  // Excel импорт — олон бараатай нэхэмжлэхийг нэг файлаас (стандарт:
+  // зөвхөн зөв мөрүүд орж ирнэ; бараа/агуулах КОДООР танигдана).
+  const importSpec = useMemo(
+    () =>
+      arapLinesSpec({
+        accountsByMain: new Map(
+          (segmentOptions[3] ?? []).map((option) => [option.code, option.name])
+        ),
+        activeSegIds,
+        defaultSegments,
+        itemsByCode: new Map(
+          inventoryItems.map((item) => [
+            item.code,
+            { id: item.id, name: item.name },
+          ])
+        ),
+        warehousesByCode: new Map(
+          warehouses.map((warehouse) => [
+            warehouse.code,
+            { id: warehouse.id, name: warehouse.name },
+          ])
+        ),
+      }),
+    [segmentOptions, activeSegIds, defaultSegments, inventoryItems, warehouses]
+  );
+
+  function handleImportLines(values: ArapLineImport[]) {
+    onChange((prev) => {
+      // Хүрээгүй хоосон мөрүүдийг импорт орлоно.
+      const kept = prev.filter(
+        (line) => Number(line.amount || 0) > 0 || line.description.trim() !== ""
+      );
+      return [
+        ...kept,
+        ...values.map((value) => ({
+          id: nanoid(),
+          account: value.account,
+          description: value.description,
+          amount: value.amount,
+          itemId: value.itemId ?? undefined,
+          quantity: value.quantity ?? undefined,
+          warehouseId: value.warehouseId ?? undefined,
+        })),
+      ];
+    });
+  }
+
   // Бараатай мөр: АП батлагдахад орлогын, АР батлагдахад зарлагын тоо
   // хэмжээний draft inventory-д үүснэ (бараа бүртгэлтэй үед л харагдана).
   const itemLabelById = useMemo(
@@ -964,20 +1015,38 @@ function ArApLinesGrid({
         singleClickEdit
       />
       <div className="flex items-center justify-between text-xs">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            onChange((prev) => [...prev, emptyLine(activeSegIds, defaultSegments)])
-          }
-        >
-          + Мөр нэмэх
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              onChange((prev) => [...prev, emptyLine(activeSegIds, defaultSegments)])
+            }
+          >
+            + Мөр нэмэх
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setImportOpen(true)}
+          >
+            <Icon name="spreadsheet" size="sm" />
+            Excel импорт
+          </Button>
+        </div>
         <span className="font-mono font-semibold text-[var(--ea-text-1)]">
           Нийт: {fmtMnt(total)}
         </span>
       </div>
+      <ExcelImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        spec={importSpec}
+        title="Баримтын мөр импортлох"
+        onImport={handleImportLines}
+      />
     </div>
   );
 }

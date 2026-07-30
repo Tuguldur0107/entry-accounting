@@ -26,6 +26,7 @@ import {
   toggleCounterparty,
 } from "@/lib/actions/arap";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
+import { downloadWorkbook } from "@/lib/excel/core";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -494,8 +495,18 @@ export function ArApWorkspace({
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               {config.documentTitle}
             </h2>
-            <div className="text-[11px] text-[var(--ea-text-3)]">
-              Төлөлт нь Мөнгөн хөрөнгийн модулиар хаагдана
+            <div className="flex items-center gap-3">
+              <div className="text-[11px] text-[var(--ea-text-3)]">
+                Төлөлт нь Мөнгөн хөрөнгийн модулиар хаагдана
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => exportDocuments(filteredDocuments, activeSegIds)}
+              >
+                <Icon name="download" size="sm" />
+                Excel экспорт
+              </Button>
             </div>
           </div>
           {filteredDocuments.length === 0 ? (
@@ -584,6 +595,51 @@ function daysBetween(later: string, earlier: string) {
   const laterTime = Date.parse(`${later}T00:00:00Z`);
   const earlierTime = Date.parse(`${earlier}T00:00:00Z`);
   return Math.floor((laterTime - earlierTime) / 86_400_000);
+}
+
+/** Шүүгдсэн баримтуудыг Excel болгож татуулна (стандарт экспорт). */
+async function exportDocuments(
+  documents: ArApDocumentView[],
+  activeSegIds: number[]
+) {
+  if (documents.length === 0) {
+    toast.error("Экспортлох баримт алга");
+    return;
+  }
+  await downloadWorkbook({
+    slug: "entry-arap-documents",
+    sheetName: "Баримтууд",
+    columns: [
+      { header: "Дугаар", width: 16 },
+      { header: "Төрөл", width: 20 },
+      { header: "Харилцагч", width: 26 },
+      { header: "Огноо", width: 12 },
+      { header: "Төлөх огноо", width: 12 },
+      { header: "Валют", width: 8 },
+      { header: "Хяналтын данс", width: 20 },
+      { header: "Утга", width: 30 },
+      { header: "Нийт дүн", width: 16, kind: "number" },
+      { header: "Төлсөн", width: 16, kind: "number" },
+      { header: "Үлдэгдэл", width: 16, kind: "number" },
+      { header: "Статус", width: 16 },
+    ],
+    rows: documents.map((doc) => [
+      doc.documentNo,
+      doc.documentType === "ar_invoice"
+        ? "Авлагын нэхэмжлэл"
+        : "Өглөгийн нэхэмжлэх",
+      doc.counterpartyName,
+      doc.date,
+      doc.dueDate,
+      doc.currency,
+      fmtAccountDisplay(doc.controlAccountNumber, activeSegIds),
+      doc.description,
+      doc.totalAmount,
+      doc.paidAmount,
+      doc.balance,
+      STATUS_LABELS[doc.status] ?? doc.status,
+    ]),
+  });
 }
 
 function buildReportRows(documents: ArApDocumentView[], asOf: string): ReportRow[] {

@@ -466,6 +466,56 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 
 ---
 
+## Excel импорт/экспортын стандарт
+
+Excel-тэй харилцах БҮХ зам нэг стандартаар явна — шинэ импорт/экспорт нэмэхдээ
+өөр parser/dialog зохиохгүй, доорх хэсгүүдийг compose хийнэ.
+
+### Эх сурвалж файлууд
+
+```
+lib/excel/
+├── import-spec.ts   Цэвэр логик (тесттэй): ImportSpec<T>, parseMatrix,
+│                    parseAmountCell (₮/зай/таслал), parseDateCell (round-trip)
+├── specs.ts         Спек үйлдвэрүүд: journalLinesSpec, arapLinesSpec,
+│                    journalVouchersSpec + groupVoucherRows
+└── core.ts          Client тал (exceljs dynamic import): readWorkbookMatrix,
+                     downloadWorkbook, downloadTemplate(spec)
+
+components/excel/excel-import-dialog.tsx   Нийтлэг диалог (аль ч спекээр)
+lib/actions/journal-import.ts              Багц журнал → НООРОГ (server шалгалттай)
+```
+
+### Хатуу дүрмүүд
+
+- **Багана НЭРЭЭР танигдана** (байрлалаар БИШ) — том/жижиг үсэг, зай, `*`
+  хамаарахгүй; илүүдэл багана үл тоомсорлоно; заавал багана дутвал
+  headerError болж юу ч орохгүй
+- **Мөр бүр тусдаа шалгагдана**, алдаа нь Excel-ийн мөрийн ДУГААРТАЙГАА
+  урьдчилан харах хүснэгтэд гарна. **Зөвхөн зөв мөрүүд орно** — алдаатай мөр
+  хэзээ ч чимээгүй орохгүй
+- **Загвар файл спекээсээ үүснэ** (`downloadTemplate`) — толгой, жишээ мөр,
+  "Заавар" хуудас parser-аас зөрөх боломжгүй
+- **Дансны нүд paste-тай ИЖИЛ normalize** — `normalizePastedAccount` (бүтэн
+  10-part, active-only N-part, эсвэл ганц 8 оронтой код); идэвхтэй данс мөн
+  эсэхийг спек + server хоёулаа шалгана
+- **Багц журнал НООРОГ болж үүснэ** (human-in-the-loop §9); server action
+  данс/период/мөрийн тоог ДАХИН шалгаж баримт бүрд тусдаа амжилт/алдаа буцаана
+- **Экспорт нь импортын загвартай ижил баганатай** (журналын экспорт →
+  багц импортын толгой + Статус) — round-trip ажиллана
+- Client-ээс DB-руу шууд хандахгүй — импортын бичилт Server Action-аар
+
+### Одоогийн integration-ууд
+
+| Газар | Импорт | Экспорт |
+|-------|--------|---------|
+| Журнал бичих форм (footer) | Мөрүүд (`journalLinesSpec`) | — |
+| Журналын жагсаалт (toolbar) | Багц журнал (`journalVouchersSpec` → draft) | Шүүгдсэн журнал мөрөөрөө |
+| АР/АП баримтын панель (мөрийн footer) | Мөрүүд + бараа/агуулах кодоор (`arapLinesSpec`) | — |
+| АР/АП баримтын жагсаалт | — | Шүүгдсэн баримтууд |
+
+---
+
 ## DB өгөгдлийн бүтэц (Drizzle / PostgreSQL)
 
 Бүх хүснэгт `userId`-аар хамгаалагдсан (нэг хэрэглэгч = нэг компани).
