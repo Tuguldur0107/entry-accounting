@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Home, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getActiveModule } from "./modules";
 import { ModuleSwitcher } from "./module-switcher";
 import {
@@ -19,6 +19,59 @@ function isActivePath(pathname: string, href: string) {
   if (pathname === href) return true;
   const segmentCount = href.split("/").filter(Boolean).length;
   return segmentCount > 1 && pathname.startsWith(`${href}/`);
+}
+
+/** Sidebar-ийн навигацийн мөр — нүүр ба модулийн цэс хоёулаа үүнийг ашиглана. */
+function SidebarLink({
+  href,
+  label,
+  icon: Icon,
+  isActive,
+  collapsed,
+  mobile,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  isActive: boolean;
+  collapsed: boolean;
+  mobile: boolean;
+  onNavigate: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      title={collapsed && !mobile ? label : undefined}
+      className={cn(
+        "ea-interactive group relative flex min-h-9 items-center gap-2.5 rounded-md border border-transparent px-3 py-2 text-sm",
+        collapsed && !mobile && "justify-center px-2",
+        isActive ? "ea-is-selected font-medium shadow-sm" : "text-[var(--ea-text-2)]"
+      )}
+    >
+      <span
+        className={cn(
+          "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-transparent transition-colors",
+          isActive && "bg-[var(--ea-interactive)]"
+        )}
+      />
+      <Icon
+        size={16}
+        className={cn(
+          "shrink-0",
+          isActive
+            ? "text-[var(--ea-interactive)]"
+            : "text-[var(--ea-text-3)] group-hover:text-[var(--ea-text-1)]"
+        )}
+      />
+      {collapsed && !mobile ? (
+        <span className="sr-only">{label}</span>
+      ) : (
+        <span className="truncate">{label}</span>
+      )}
+    </Link>
+  );
 }
 
 export function Sidebar() {
@@ -95,49 +148,39 @@ export function Sidebar() {
         />
       </div>
 
+      {/* Системийн нүүр — модулиудаас гадуур байрлах тул module nav-аас тусад нь */}
+      <nav
+        className="flex flex-col gap-1 px-2 pb-2"
+        style={{ borderBottom: "1px solid var(--ea-border)", marginBottom: 8 }}
+      >
+        <SidebarLink
+          href="/"
+          label="Нүүр"
+          icon={Home}
+          isActive={pathname === "/"}
+          collapsed={collapsed}
+          mobile={mobile}
+          onNavigate={() => {
+            if (mobile) setMobileOpen(false);
+          }}
+        />
+      </nav>
+
       <nav className="flex flex-col gap-1 px-2">
-        {active.items.map((item) => {
-          const isActive = isActivePath(pathname, item.href);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => {
-                if (mobile) setMobileOpen(false);
-              }}
-              title={collapsed && !mobile ? item.label : undefined}
-              className={cn(
-                "ea-interactive group relative flex min-h-9 items-center gap-2.5 rounded-md border border-transparent px-3 py-2 text-sm",
-                collapsed && !mobile && "justify-center px-2",
-                isActive
-                  ? "ea-is-selected font-medium shadow-sm"
-                  : "text-[var(--ea-text-2)]"
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-transparent transition-colors",
-                  isActive && "bg-[var(--ea-interactive)]"
-                )}
-              />
-              <Icon
-                size={16}
-                className={cn(
-                  "shrink-0",
-                  isActive
-                    ? "text-[var(--ea-interactive)]"
-                    : "text-[var(--ea-text-3)] group-hover:text-[var(--ea-text-1)]"
-                )}
-              />
-              {collapsed && !mobile ? (
-                <span className="sr-only">{item.label}</span>
-              ) : (
-                <span className="truncate">{item.label}</span>
-              )}
-            </Link>
-          );
-        })}
+        {active.items.map((item) => (
+          <SidebarLink
+            key={item.href}
+            href={item.href}
+            label={item.label}
+            icon={item.icon}
+            isActive={isActivePath(pathname, item.href)}
+            collapsed={collapsed}
+            mobile={mobile}
+            onNavigate={() => {
+              if (mobile) setMobileOpen(false);
+            }}
+          />
+        ))}
       </nav>
       <div className="min-h-4 flex-1" />
       {!mobile && (

@@ -12,11 +12,11 @@ export default function LoginPage() {
     verifyPassword: async (email, password) => {
       const res = await signIn('credentials', { identifier: email, password, redirect: false });
       if (res?.error) throw new Error('Нууц үг буруу байна');
-      router.push('/gl/journal');
+      router.push('/');
     },
 
     selectOrg: async () => {
-      router.push('/gl/journal');
+      router.push('/');
     },
 
     sendResetEmail: async () => {

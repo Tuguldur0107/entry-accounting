@@ -40,7 +40,7 @@ export default async function DashboardLayout({
             {/* Global brand — module / page context lives in the sidebar
                 (module switcher) so the header stays constant app-wide. */}
             <Link
-              href="/gl/journal"
+              href="/"
               className="flex min-w-0 items-center gap-2.5"
               style={{ textDecoration: "none" }}
               aria-label="Entry Accounting — нүүр"
