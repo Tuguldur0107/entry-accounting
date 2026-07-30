@@ -3,7 +3,7 @@
 ## Implementation Status
 
 **Document status:** Living record of what is built  
-**Version:** 0.3 · 2026-07-28  
+**Version:** 0.4 · 2026-07-30  
 **Companion documents:** `README.md`, `01-functional-specification.md`,
 `02-journal-posting-rules.md`, `03-report-specifications.md`, `CLAUDE.md`
 
@@ -108,6 +108,25 @@ encoded an unapproved policy.
 | §12 posting validation | The month-end run refuses to create any entry when a scope in that month is blocked |
 
 ---
+
+### Production costing (0.4)
+
+| Piece | Where |
+|---|---|
+| Stages / pools / mapping rules master data | `production_stages`, `cost_pools`, `cost_pool_rules` + Өртгийн тохиргоо → Үйлдвэрлэл tab |
+| GL collection per month | `collectGlPools` (`lib/actions/production.ts`) — posted lines keyed by (S2 cost center, main account), matched by priority-ordered rules; known-cost-center lines with no match are listed in the UI with voucher links, never dropped |
+| Stage-chain engine | `lib/costing/production.ts` `computeProductionRun` — pure, 9 tests: the ER report's sales-value split, chained stages at computed unit cost, blocked propagation, manual-base validation |
+| Run workspace | `/costing/production` — top-down pipeline per period (topbar anchor month); compute saves a draft, confirm creates receipt movements + draft cost entries per output and issue movements for inventory-sourced inputs |
+
+### Corrected-baseline (0.2C) conformance
+
+The corrected package upgraded three areas. Current state against them:
+
+| Corrected requirement | Status |
+|---|---|
+| Exact seven-step periodic sequence (C1 → Inbound → Goods Available → PWA → Outbound → C2 → controls), computed once per item-period | **Conforms** — `lib/costing/periodic.ts` implements exactly this order with the two control equations; the average never refreshes per transaction. Tests assert AC-001 and the control identities |
+| Running Qty / Running Amount mandatory in the transaction detail report, periodic semantics, final row reconciles to C2 | **Not implemented yet** — the detail report has no running columns. Next work item |
+| Temporary/clearing flow (Dr component clearing / Cr source; Dr inventory / Cr same clearing) matched by Business Object Type + ID + Component; §6 temporary-account report mandatory | **Partial** — a single configurable clearing account exists and every cost entry carries movement/allocation lineage, but there are no per-component clearing roles and no business-object-keyed temporary-account reconciliation report. Next work item |
 
 ## 3. Open decisions still open
 
