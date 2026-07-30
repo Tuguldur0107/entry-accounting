@@ -39,7 +39,18 @@ export type Module = {
   items: ModuleItem[];
 };
 
+/** Нүүр модулийн id — matchPrefix "/" бүх замд таарах тул тусад нь шалгана. */
+export const HOME_MODULE_ID = "home";
+
 export const MODULES: Module[] = [
+  {
+    // Системийн ерөнхий самбар — модулийн ДОТОР биш, модулиудтай ЗЭРЭГЦЭЭ.
+    id: HOME_MODULE_ID,
+    label: "Системийн хяналт",
+    matchPrefix: "/",
+    defaultHref: "/",
+    items: [{ label: "Хяналтын самбар", href: "/", icon: LayoutDashboard }],
+  },
   {
     id: "gl",
     label: "Ерөнхий журнал",
@@ -198,7 +209,12 @@ export const MODULES: Module[] = [
 ];
 
 export function getActiveModule(pathname: string): Module {
+  const home = MODULES.find((m) => m.id === HOME_MODULE_ID)!;
+  // Нүүр нь ЗӨВХӨН яг "/" үед идэвхтэй — эс тэгвээс prefix "/" нь бүх замд таарна.
+  if (pathname === "/") return home;
   return (
-    MODULES.find((m) => pathname.startsWith(m.matchPrefix)) ?? MODULES[0]
+    MODULES.find(
+      (m) => m.id !== HOME_MODULE_ID && pathname.startsWith(m.matchPrefix)
+    ) ?? home
   );
 }

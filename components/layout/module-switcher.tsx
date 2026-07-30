@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Settings, Check, WalletCards, ReceiptText, Boxes, Calculator, Building, Sparkles } from "lucide-react";
+import { BookOpen, Settings, Check, WalletCards, ReceiptText, Boxes, Calculator, Building, Sparkles, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Z } from "@/lib/ui/z-layers";
 import { MODULES, getActiveModule } from "./modules";
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
+  home: LayoutDashboard,
   gl: BookOpen,
   cash: WalletCards,
   receivables: WalletCards,

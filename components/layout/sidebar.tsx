@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Home, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { getActiveModule } from "./modules";
 import { ModuleSwitcher } from "./module-switcher";
 import {
@@ -147,24 +147,6 @@ export function Sidebar() {
           }}
         />
       </div>
-
-      {/* Системийн нүүр — модулиудаас гадуур байрлах тул module nav-аас тусад нь */}
-      <nav
-        className="flex flex-col gap-1 px-2 pb-2"
-        style={{ borderBottom: "1px solid var(--ea-border)", marginBottom: 8 }}
-      >
-        <SidebarLink
-          href="/"
-          label="Нүүр"
-          icon={Home}
-          isActive={pathname === "/"}
-          collapsed={collapsed}
-          mobile={mobile}
-          onNavigate={() => {
-            if (mobile) setMobileOpen(false);
-          }}
-        />
-      </nav>
 
       <nav className="flex flex-col gap-1 px-2">
         {active.items.map((item) => (
