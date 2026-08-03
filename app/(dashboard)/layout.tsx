@@ -43,7 +43,7 @@ export default async function DashboardLayout({
               href="/"
               className="flex min-w-0 items-center gap-2.5"
               style={{ textDecoration: "none" }}
-              aria-label="Гоёл Кашмер ХХК — нүүр"
+              aria-label="Entry Accounting — нүүр"
             >
               <EAMark size={26} />
               <span className="hidden md:inline">

@@ -118,7 +118,7 @@ export default function RegisterPage() {
           fontSize: 12, color: 'var(--ea-text-3)',
         }}
       >
-        <span>© 2026 Гоёл Кашмер ХХК · Бүх эрх хуулиар хамгаалагдсан</span>
+        <span>© 2026 Entry Accounting · Бүх эрх хуулиар хамгаалагдсан</span>
         <a href="mailto:support@entry.mn" style={{ color: 'var(--ea-text-3)' }}>Тусламж</a>
       </footer>
     </div>

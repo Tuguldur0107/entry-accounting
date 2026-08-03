@@ -27,7 +27,7 @@ export const T = {
     support: 'Тусламж',
     terms: 'Үйлчилгээний нөхцөл',
     privacy: 'Нууцлал',
-    copyright: '© 2026 Гоёл Кашмер ХХК · Бүх эрх хуулиар хамгаалагдсан',
+    copyright: '© 2026 Entry Accounting · Бүх эрх хуулиар хамгаалагдсан',
   },
   en: {
     tagline: 'DOUBLE-ENTRY ACCOUNTING',
@@ -52,7 +52,7 @@ export const T = {
     support: 'Support',
     terms: 'Terms',
     privacy: 'Privacy',
-    copyright: '© 2026 Goyol Cashmere LLC · All rights reserved',
+    copyright: '© 2026 Entry Accounting · All rights reserved',
   },
   ru: {
     tagline: 'ДВОЙНАЯ БУХГАЛТЕРИЯ',
@@ -77,7 +77,7 @@ export const T = {
     support: 'Поддержка',
     terms: 'Условия',
     privacy: 'Конфиденциальность',
-    copyright: '© 2026 Гоёл Кашмер ХХК',
+    copyright: '© 2026 Entry Accounting',
   },
 } as const;
 

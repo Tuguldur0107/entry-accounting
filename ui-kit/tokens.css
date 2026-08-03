@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
- *  Гоёл Кашмер ХХК — ДИЗАЙН ТОКЕНЫ ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ
+ *  Entry Accounting — ДИЗАЙН ТОКЕНЫ ЦОРЫН ГАНЦ ЭХ СУРВАЛЖ
  *
  *  Энэ файлыг хоёр газар хэрэглэнэ:
  *    1. app/globals.css  → @import "../ui-kit/tokens.css"   (бүтэн систем)
@@ -89,7 +89,7 @@
   --ea-hero-rule-strong: rgba(255,255,255,0.30);
 
   --ea-font-sans:    var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  --ea-font-display: var(--font-display), 'Playfair Display', serif;
+  --ea-font-display: var(--font-fraunces), 'Fraunces', 'Playfair Display', serif;
   --ea-font-mono:    var(--font-geist-mono), ui-monospace, monospace;
 
   --ea-r-md:  6px;
