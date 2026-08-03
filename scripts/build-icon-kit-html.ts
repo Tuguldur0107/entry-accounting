@@ -54,13 +54,13 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Entry Accounting — Icon Kit</title>
+<title>Гоёл Кашмер ХХК — Icon Kit</title>
 <link rel="stylesheet" href="./tokens.css">
 <style>
   :root {
     --font-geist-sans: ui-sans-serif;
     --font-geist-mono: ui-monospace;
-    --font-fraunces: Georgia;
+    --font-display: Georgia;
   }
   * { box-sizing: border-box; }
   html { color-scheme: light; }
@@ -286,7 +286,7 @@ const html = `<!doctype html>
 <main class="wrap">
   <header class="page-head">
     <div>
-      <h1>Entry Accounting — Icon Kit</h1>
+      <h1>Гоёл Кашмер ХХК — Icon Kit</h1>
       <p class="lead">Functional icon-уудын semantic catalog. Хэмжээ, stroke, tone, hit-area, hover, pressed, selected, disabled болон loading state бүгд <code>tokens.css</code>-ээс удирдагдана.</p>
       <div class="source">offline preview · source: components/ui/icon-registry.ts + ui-kit/tokens.css</div>
     </div>

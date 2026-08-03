@@ -212,7 +212,7 @@ export function UiKitView() {
       <Section title="Тайпографи" hint="3 font family + 4 текстийн түвшин.">
         <div className="space-y-3">
           <div style={{ fontFamily: "var(--ea-font-display)", fontSize: 24, color: "var(--ea-text-1)" }}>
-            Display — Fraunces · Нягтлан бодох бүртгэл
+            Display — Playfair Display · Нягтлан бодох бүртгэл
           </div>
           <div style={{ fontFamily: "var(--ea-font-sans)", fontSize: 14, color: "var(--ea-text-1)" }}>
             Sans — Geist · Үндсэн интерфейсийн текст

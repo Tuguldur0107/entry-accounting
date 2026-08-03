@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Fraunces } from "next/font/google";
+import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -10,12 +10,17 @@ import { ThemeProvider } from "@/components/theme-provider";
 const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');var isDark=t==='dark'||(!t&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;if(isDark){r.classList.add('dark');}r.style.colorScheme=isDark?'dark':'light';}catch(e){}})();`;
 
 const geist = Geist({ subsets: ["latin", "cyrillic"], variable: "--font-geist-sans" });
-const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
+// Display фонт нь брэндийн кирилл нэрийг ("Гоёл Кашмер") зурдаг тул
+// cyrillic subset ЗААВАЛ — Fraunces кирилл глифгүй байсан.
+const display = Playfair_Display({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-display",
+});
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
-  title: "Entry Accounting",
-  description: "Монгол нягтлан бодох бүртгэлийн систем",
+  title: "Гоёл Кашмер ХХК",
+  description: "Гоёл Кашмер ХХК — нягтлан бодох бүртгэлийн систем",
 };
 
 export default function RootLayout({
@@ -24,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="mn" className={`h-full ${geist.variable} ${fraunces.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="mn" className={`h-full ${geist.variable} ${display.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
