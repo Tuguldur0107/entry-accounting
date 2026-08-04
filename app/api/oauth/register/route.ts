@@ -6,15 +6,25 @@ import { OAUTH_CORS_HEADERS, registerOAuthClient } from "@/lib/oauth/server";
 
 export const runtime = "nodejs";
 
+// Аюултай scheme-үүд — browser дотор код ажиллуулж чадна.
+const BLOCKED_SCHEMES = new Set([
+  "javascript:",
+  "data:",
+  "file:",
+  "vbscript:",
+  "blob:",
+]);
+
 function isValidRedirectUri(value: string): boolean {
   try {
     const url = new URL(value);
-    // https заавал; локал хөгжүүлэлтэд localhost-ийн http-г зөвшөөрнө.
-    return (
-      url.protocol === "https:" ||
-      (url.protocol === "http:" &&
-        (url.hostname === "localhost" || url.hostname === "127.0.0.1"))
-    );
+    if (BLOCKED_SCHEMES.has(url.protocol)) return false;
+    // http зөвхөн loopback-д (RFC 8252 native app). https болон native
+    // app-ийн private-use scheme (claude:// гэх мэт) зөвшөөрөгдөнө —
+    // Cowork/desktop клиентүүд custom scheme callback ашигладаг.
+    if (url.protocol === "http:")
+      return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    return true;
   } catch {
     return false;
   }
@@ -40,6 +50,9 @@ export async function POST(request: Request) {
       )
     : [];
   if (redirectUris.length === 0) {
+    // Ямар URI няцаагдсаныг серверийн логт үлдээнэ — клиент бүр өөр
+    // callback хэлбэртэй тул дараагийн оношилгоонд хэрэгтэй.
+    console.error("OAuth DCR rejected redirect_uris:", body.redirect_uris);
     return Response.json(
       {
         error: "invalid_redirect_uri",
