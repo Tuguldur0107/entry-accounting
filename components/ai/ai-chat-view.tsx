@@ -52,6 +52,68 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const ACCEPT =
   ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.md,application/pdf,image/png,image/jpeg,image/gif,image/webp,text/plain,text/csv,text/markdown";
 
+/**
+ * Стрийм текстийг ТОГТМОЛ хурдтай, бичигдэж буй мэт задална. Сүлжээний
+ * chunk-ууд жигд бус, бөөнөөрөө ирдэг тул шууд үзүүлбэл текст "үсэрч"
+ * харагддаг — оронд нь бүрэн ирсэн текстийг буфер гэж үзээд rAF-аар
+ * тэгш хурдаар нээнэ. Хоцрол ихсэх тусам хурд пропорциональ нэмэгддэг
+ * (адаптив) тул стрийм дууссаны дараа хормын дотор гүйцдэг, хэзээ ч
+ * хоцорч "чирэгдэхгүй". Түүхийн мессеж (streaming=false mount) шууд
+ * бүтнээрээ гарна.
+ */
+function SmoothStreamText({
+  text,
+  streaming,
+  onReveal,
+}: {
+  text: string;
+  streaming: boolean;
+  /** Тэмдэгт нэмэгдэж өндөр өсөх бүрд — эцэг доош гүйлгэлтээ дагуулна. */
+  onReveal?: () => void;
+}) {
+  const [shown, setShown] = useState(() => (streaming ? 0 : text.length));
+  const shownRef = useRef(shown);
+
+  useEffect(() => {
+    if (shownRef.current >= text.length) return;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      // Tab идэвхгүй байгаад эргэж ирэхэд dt хэт томрохоос хамгаална.
+      const dt = Math.min(now - last, 100);
+      last = now;
+      const backlog = text.length - shownRef.current;
+      if (backlog > 0) {
+        // Суурь ~90 тэмдэгт/сек; хоцрол ихэдвэл хурдасна (0.2 секундэд гүйцнэ).
+        const speed = Math.max(90, backlog * 5);
+        shownRef.current = Math.min(
+          text.length,
+          shownRef.current + Math.max(1, Math.round((speed * dt) / 1000))
+        );
+        setShown(shownRef.current);
+        onReveal?.();
+      }
+      if (shownRef.current < text.length) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [text, onReveal]);
+
+  return (
+    <>
+      {text.slice(0, shown)}
+      {/* Анивчих caret — стрийм явж байгаа (дараагийн chunk хүлээж буй
+          завсарлагад ч) эсвэл задаргаа гүйцээгүй үед харагдана. */}
+      {(streaming || shown < text.length) && (
+        <span
+          aria-hidden
+          className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] animate-pulse rounded-[1px] bg-[var(--ea-primary)]"
+        />
+      )}
+    </>
+  );
+}
+
 // Зарим OS .md/.csv-д хоосон MIME өгдөг — өргөтгөлөөс нь тодорхойлно.
 function resolveMediaType(file: File): string | null {
   if (file.type) return file.type;
@@ -83,17 +145,23 @@ export function AiChatView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messageSeqRef = useRef(0);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  // Эхний render-д байсан мессежүүд fade-in хийхгүй — зөвхөн ШИНЭЭР
+  // нэмэгдсэн bubble mount дээрээ нэг удаа зөөлөн орж ирнэ.
+  const [initialCount] = useState(initialMessages.length);
 
-  useEffect(() => {
+  // Хэрэглэгч дээш гүйлгэсэн байхад доош чирэхгүй; нуугдсан (display:none,
+  // clientHeight=0) байхад scroll тооцоо утгагүй тул алгасна. Мессеж
+  // нэмэгдэхэд ч, стрийм задаргааны frame бүрд ч (SmoothStreamText.onReveal)
+  // энэ л логик ажиллана.
+  function followScroll() {
     const el = scrollRef.current;
-    if (!el) return;
-    // Нуугдсан (display:none) байхад хэмжээс 0 — scroll тооцоо утгагүй тул
-    // алгасна. Хураасан панелийн visibility:hidden үед layout хэвээр тул
-    // стрийм үргэлжлэхэд доош гүйлгэлт хэвийн ажиллана.
-    if (el.clientHeight === 0) return;
-    // Хэрэглэгч дээш гүйлгэсэн байхад стримийн chunk бүрд доош чирэхгүй.
+    if (!el || el.clientHeight === 0) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     if (nearBottom) el.scrollTo({ top: el.scrollHeight });
+  }
+
+  useEffect(() => {
+    followScroll();
   }, [messages]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -372,7 +440,10 @@ export function AiChatView({
                 "max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed",
                 entry.role === "user"
                   ? "self-end bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
-                  : "self-start border border-[var(--ea-border)] bg-[var(--ea-bg)] text-[var(--ea-text-1)]"
+                  : "self-start border border-[var(--ea-border)] bg-[var(--ea-bg)] text-[var(--ea-text-1)]",
+                // Шинэ bubble зөөлөн орж ирнэ (түүхийнх шууд харагдана).
+                index >= initialCount &&
+                  "animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
               )}
             >
               {entry.attachments && entry.attachments.length > 0 && (
@@ -394,14 +465,23 @@ export function AiChatView({
                 </span>
               )}
               <span className="whitespace-pre-wrap">
-                {entry.content ||
-                  (isStreaming && index === messages.length - 1 ? (
-                    <span className="inline-flex gap-1 py-1">
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:0ms]" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:150ms]" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:300ms]" />
-                    </span>
-                  ) : null)}
+                {entry.content ? (
+                  entry.role === "assistant" ? (
+                    <SmoothStreamText
+                      text={entry.content}
+                      streaming={isStreaming && index === messages.length - 1}
+                      onReveal={followScroll}
+                    />
+                  ) : (
+                    entry.content
+                  )
+                ) : isStreaming && index === messages.length - 1 ? (
+                  <span className="inline-flex gap-1 py-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:300ms]" />
+                  </span>
+                ) : null}
               </span>
             </div>
           ))
