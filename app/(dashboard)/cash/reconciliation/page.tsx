@@ -90,18 +90,28 @@ export default async function CashReconciliationPage({
     ]);
 
   const cashBalanceMap = calculateCashBalances(accounts, documents);
-  const glBalanceMap = new Map<string, number>();
+  // GL үлдэгдлийг ДАНСНЫ ДУГААРААР тоолно (cashAccountId холбоосоор БИШ) —
+  // гараар/AI-гаар бичсэн журнал холбоосгүй байдаг тул холбоосоор тоолбол
+  // тэдгээр нь GL талд "алга болж" хий зөрүү үзүүлдэг байсан. Дугаараар
+  // тоолсноор энэ хуудас reconcile_modules tool-той ИЖИЛ үнэнийг харуулна.
+  const glByMain = new Map<string, number>();
   for (const voucher of vouchers) {
+    if (voucher.status !== "posted") continue;
     for (const line of voucher.lines) {
-      if (!line.cashAccountId) continue;
-      glBalanceMap.set(
-        line.cashAccountId,
-        (glBalanceMap.get(line.cashAccountId) ?? 0) +
-          Number(line.debit) -
-          Number(line.credit)
+      const parts = line.accountNumber.split(".");
+      const main = parts.length === 10 ? parts[2] : line.accountNumber;
+      glByMain.set(
+        main,
+        (glByMain.get(main) ?? 0) + Number(line.debit) - Number(line.credit)
       );
     }
   }
+  const glBalanceMap = new Map<string, number>(
+    accounts.map((account) => [
+      account.id,
+      Math.round((glByMain.get(account.glAccountNumber) ?? 0) * 100) / 100,
+    ])
+  );
 
   const latestBankBalance = new Map<
     string,
@@ -148,10 +158,14 @@ export default async function CashReconciliationPage({
         : rateRow
           ? Number(rateRow.closingRate)
           : null;
+    // 0 үлдэгдэлтэй валютын дансанд ханш хамаагүй (0 × ямар ч ханш = 0) —
+    // "Ханш дутуу" гэж дэмий сануулахгүй.
     const cashBalanceMnt =
-      closingRate == null
-        ? null
-        : Math.round(cashBalance * closingRate * 100) / 100;
+      cashBalance === 0
+        ? 0
+        : closingRate == null
+          ? null
+          : Math.round(cashBalance * closingRate * 100) / 100;
     const cashToGlDifference =
       cashBalanceMnt == null
         ? null
@@ -182,12 +196,20 @@ export default async function CashReconciliationPage({
       bankToCashDifference,
       cashToGlDifference,
       openingBalance: Number(account.openingBalance ?? 0),
-      status: reconciliationStatus(
-        cashToGlDifference,
-        bankToCashDifference,
-        account.currency === "MNT" || closingRate != null,
-        statementBalance == null || statementBalance.evidenceDate === asOf
-      ),
+      status:
+        // Юу ч хөдлөөгүй хоосон данс — тулгах зүйл алга, "тэнцсэн" гэж үзнэ
+        // (0 үлдэгдэлтэй валютын данс "Ханш дутуу"/"Хуулгагүй" гэж дэмий
+        // сануулахгүй).
+        cashBalance === 0 && Math.abs(glBalance) <= 0.01 && statementBalance == null
+          ? ("balanced" as const)
+          : reconciliationStatus(
+              cashToGlDifference,
+              bankToCashDifference,
+              account.currency === "MNT" ||
+                closingRate != null ||
+                cashBalance === 0,
+              statementBalance == null || statementBalance.evidenceDate === asOf
+            ),
     };
   });
 
