@@ -18,14 +18,18 @@ import {
   postArApDocument,
 } from "@/lib/actions/arap";
 import {
+  createCashAccount,
   createCashDocument,
   deleteCashDocument,
   postCashDocument,
   reverseCashDocument,
 } from "@/lib/actions/cash";
 import {
+  activateFixedAsset,
   createFixedAsset,
+  deleteFixedAsset,
   postDepreciationEntries,
+  reverseDepreciationEntry,
   runDepreciation,
 } from "@/lib/actions/fa";
 import {
@@ -42,6 +46,10 @@ import {
   createInventoryMovement,
   createWarehouse,
   deleteInventoryMovement,
+  recordInventoryCount,
+  toggleInventoryItem,
+  updateInventoryItem,
+  updateInventoryMovement,
 } from "@/lib/actions/inventory";
 import { postCostEntries } from "@/lib/actions/costing";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
@@ -468,6 +476,149 @@ export const AI_TOOLS: AiToolDef[] = [
         name: { type: "string", description: "Агуулахын нэр" },
       },
       required: ["code", "name"],
+    },
+  },
+
+  {
+    name: "update_counterparty",
+    description:
+      "Харилцагчийн мэдээлэл засна (нэр, төрөл, нөхцөл, default данс, идэвх). Зөвхөн өгсөн талбарууд өөрчлөгдөнө.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        counterparty: { type: "string", description: "Одоогийн нэр (олоход ашиглана)" },
+        newName: { type: "string", description: "Шинэ нэр (сонголтоор)" },
+        counterpartyType: {
+          type: "string",
+          enum: ["customer", "supplier", "both"],
+          description: "Шинэ төрөл (сонголтоор)",
+        },
+        paymentTermsDays: { type: "integer", description: "Төлбөрийн нөхцөл, хоног (сонголтоор)" },
+        defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
+        defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
+        currency: { type: "string", description: "Default валют (сонголтоор)" },
+        isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
+      },
+      required: ["counterparty"],
+    },
+  },
+  {
+    name: "update_inventory_item",
+    description: "Барааны нэр, нэгж, идэвхийг засна (кодоор нь олно).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemCode: { type: "string", description: "Барааны код" },
+        name: { type: "string", description: "Шинэ нэр (сонголтоор)" },
+        unit: { type: "string", description: "Шинэ нэгж (сонголтоор)" },
+        isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
+      },
+      required: ["itemCode"],
+    },
+  },
+  {
+    name: "update_inventory_movement",
+    description:
+      "НООРОГ хөдөлгөөнийг засна (огноо, тоо, тайлбар, бараа, агуулах). Зөвхөн өгсөн талбарууд өөрчлөгдөнө.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        movementId: { type: "string", description: "Хөдөлгөөний ID (бүтэн эсвэл 8+ тэмдэгт)" },
+        date: { type: "string", description: "Шинэ огноо YYYY-MM-DD (сонголтоор)" },
+        quantity: { type: "number", description: "Шинэ тоо хэмжээ (сонголтоор)" },
+        description: { type: "string", description: "Шинэ тайлбар (сонголтоор)" },
+        itemCode: { type: "string", description: "Шинэ бараа (сонголтоор)" },
+        warehouseCode: { type: "string", description: "Шинэ агуулах (сонголтоор)" },
+        toWarehouseCode: { type: "string", description: "Шилжүүлэгт хүлээн авах агуулах (сонголтоор)" },
+        issueType: { type: "string", description: "Зарлагын төрлийн нэр (сонголтоор)" },
+      },
+      required: ["movementId"],
+    },
+  },
+  {
+    name: "record_inventory_count",
+    description:
+      "Тооллого бүртгэнэ — агуулах дахь бараануудын тоолсон тоог өгөхөд системийн үлдэгдэлтэй зөрсөн зөрүүгээр тохируулгын НООРОГ хөдөлгөөн үүснэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "Тооллогын огноо YYYY-MM-DD" },
+        warehouseCode: { type: "string", description: "Агуулахын код" },
+        counts: {
+          type: "array",
+          description: "Тоолсон бараанууд",
+          items: {
+            type: "object",
+            properties: {
+              itemCode: { type: "string", description: "Барааны код" },
+              countedQty: { type: "number", description: "Тоолсон бодит тоо" },
+            },
+            required: ["itemCode", "countedQty"],
+          },
+        },
+      },
+      required: ["date", "warehouseCode", "counts"],
+    },
+  },
+  {
+    name: "create_cash_account",
+    description: "Шинэ кассын/банкны данс бүртгэнэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Дансны нэр (жишээ нь 'Хаан банк MNT')" },
+        accountType: { type: "string", enum: ["cash", "bank"] },
+        bankName: { type: "string", description: "Банкны нэр (банкны дансанд)" },
+        accountNumber: { type: "string", description: "Банкны дансны дугаар (сонголтоор)" },
+        currency: { type: "string", description: "Валют (default MNT)" },
+        glAccount: { type: "string", description: "Холбогдох GL данс (8 оронтой)" },
+        openingBalance: { type: "number", description: "Нээлтийн үлдэгдэл (сонголтоор)" },
+      },
+      required: ["name", "accountType", "glAccount"],
+    },
+  },
+  {
+    name: "activate_fixed_asset",
+    description:
+      "НООРОГ хөрөнгийн картыг идэвхжүүлнэ (АП нэхэмжлэх/AI-аас үүссэн ноорог карт элэгдүүлж эхлэхийн өмнө). Өгсөн талбарууд картын утгыг дарж бичигдэнэ, бусад нь хэвээрээ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        assetCode: { type: "string", description: "Хөрөнгийн код (FA-...)" },
+        name: { type: "string" },
+        cost: { type: "number" },
+        salvageValue: { type: "number" },
+        usefulLifeMonths: { type: "integer" },
+        custodian: { type: "string", description: "Хариуцагч" },
+        depreciationStartMonth: { type: "string", description: "YYYY-MM" },
+        assetAccountNumber: { type: "string" },
+        accumDepAccountNumber: { type: "string" },
+        depExpenseAccountNumber: { type: "string" },
+      },
+      required: ["assetCode"],
+    },
+  },
+  {
+    name: "delete_fixed_asset",
+    description: "НООРОГ хөрөнгийн картыг устгана. Хэрэглэгч ил хүссэн үед л ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        assetCode: { type: "string", description: "Хөрөнгийн код (FA-...)" },
+      },
+      required: ["assetCode"],
+    },
+  },
+  {
+    name: "reverse_fa_depreciation",
+    description:
+      "Тухайн сарын БАТЛАГДСАН элэгдлийн бичилтүүдийг буцаана (сторно). Зөвхөн 'Шууд бичих' горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        month: { type: "string", description: "Сар YYYY-MM" },
+      },
+      required: ["month"],
     },
   },
 
@@ -1619,6 +1770,348 @@ async function runCreateWarehouse(
   return { resultText: `Агуулах бүртгэгдлээ: ${input.code} — ${input.name}` };
 }
 
+async function runUpdateCounterparty(
+  userId: string,
+  input: {
+    counterparty: string;
+    newName?: string;
+    counterpartyType?: "customer" | "supplier" | "both";
+    paymentTermsDays?: number;
+    defaultReceivableAccount?: string;
+    defaultPayableAccount?: string;
+    currency?: string;
+    isActive?: boolean;
+  }
+): Promise<AiToolResult> {
+  const list = await db.query.counterparties.findMany({
+    where: eq(counterparties.userId, userId),
+  });
+  const counterparty = requireSingle(
+    nameMatches(list, (entry) => entry.name, input.counterparty),
+    (entry) => entry.name,
+    "харилцагч",
+    input.counterparty
+  );
+
+  const changes: Record<string, unknown> = {};
+  if (input.newName?.trim()) changes.name = input.newName.trim();
+  if (input.counterpartyType) {
+    if (!["customer", "supplier", "both"].includes(input.counterpartyType))
+      throw new Error("Харилцагчийн төрөл буруу байна");
+    changes.counterpartyType = input.counterpartyType;
+  }
+  if (input.paymentTermsDays != null)
+    changes.paymentTermsDays = Math.max(0, Math.round(input.paymentTermsDays));
+  if (input.currency?.trim())
+    changes.defaultCurrency = input.currency.trim().toUpperCase();
+  if (input.isActive != null) changes.isActive = input.isActive;
+  if (input.defaultReceivableAccount != null || input.defaultPayableAccount != null) {
+    const ctx = await accountContext(userId);
+    if (input.defaultReceivableAccount)
+      changes.defaultReceivableAccountNumber = resolveAccount(
+        input.defaultReceivableAccount,
+        ctx
+      ).main;
+    if (input.defaultPayableAccount)
+      changes.defaultPayableAccountNumber = resolveAccount(
+        input.defaultPayableAccount,
+        ctx
+      ).main;
+  }
+  if (Object.keys(changes).length === 0)
+    throw new Error("Өөрчлөх талбар өгөгдөөгүй байна");
+
+  await db
+    .update(counterparties)
+    .set(changes)
+    .where(and(eq(counterparties.id, counterparty.id), eq(counterparties.userId, userId)));
+  return {
+    resultText: `Харилцагч шинэчлэгдлээ: ${counterparty.name}${input.newName ? ` → ${input.newName}` : ""} (${Object.keys(changes).join(", ")})`,
+  };
+}
+
+async function runUpdateItem(
+  userId: string,
+  input: { itemCode: string; name?: string; unit?: string; isActive?: boolean }
+): Promise<AiToolResult> {
+  const items = await db.query.inventoryItems.findMany({
+    where: eq(inventoryItems.userId, userId),
+  });
+  const item = requireSingle(
+    nameMatches(items, (entry) => entry.code, input.itemCode),
+    (entry) => `${entry.code} (${entry.name})`,
+    "бараа",
+    input.itemCode
+  );
+  if (input.name != null || input.unit != null)
+    await updateInventoryItem(item.id, {
+      name: input.name ?? item.name,
+      unit: input.unit ?? item.unit,
+    });
+  if (input.isActive != null) await toggleInventoryItem(item.id, input.isActive);
+  return { resultText: `Бараа шинэчлэгдлээ: ${item.code}` };
+}
+
+async function runUpdateMovement(
+  userId: string,
+  input: {
+    movementId: string;
+    date?: string;
+    quantity?: number;
+    description?: string;
+    itemCode?: string;
+    warehouseCode?: string;
+    toWarehouseCode?: string;
+    issueType?: string;
+  }
+): Promise<AiToolResult> {
+  const movements = await db.query.inventoryMovements.findMany({
+    where: eq(inventoryMovements.userId, userId),
+    orderBy: [desc(inventoryMovements.createdAt)],
+    limit: 500,
+  });
+  const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
+  if (movement.status !== "draft")
+    throw new Error(`Зөвхөн ноорог хөдөлгөөнийг засна (төлөв: ${movement.status})`);
+
+  const [items, whList, issueTypes] = await Promise.all([
+    db.query.inventoryItems.findMany({
+      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+    }),
+    db.query.warehouses.findMany({
+      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+    }),
+    db.query.inventoryIssueTypes.findMany({
+      where: eq(inventoryIssueTypes.userId, userId),
+    }),
+  ]);
+  const findItem = (code: string) =>
+    requireSingle(
+      nameMatches(items, (entry) => entry.code, code),
+      (entry) => entry.code,
+      "бараа",
+      code
+    );
+  const findWh = (code: string) =>
+    requireSingle(
+      nameMatches(whList, (entry) => entry.code, code),
+      (entry) => entry.code,
+      "агуулах",
+      code
+    );
+
+  const itemId = input.itemCode ? findItem(input.itemCode).id : movement.itemId;
+  const warehouseId = input.warehouseCode
+    ? findWh(input.warehouseCode).id
+    : movement.warehouseId;
+  if (!itemId || !warehouseId)
+    throw new Error("Хөдөлгөөнд бараа/агуулах дутуу — itemCode, warehouseCode өгнө үү");
+
+  let issueTypeId = movement.issueTypeId ?? undefined;
+  if (input.issueType) {
+    issueTypeId = requireSingle(
+      nameMatches(
+        issueTypes.filter((entry) => entry.isActive),
+        (entry) => entry.name,
+        input.issueType
+      ),
+      (entry) => entry.name,
+      "зарлагын төрөл",
+      input.issueType
+    ).id;
+  }
+
+  await updateInventoryMovement(movement.id, {
+    movementType: movement.movementType as
+      | "receipt"
+      | "issue"
+      | "transfer"
+      | "adjustment"
+      | "return_in"
+      | "return_out",
+    date: input.date ?? movement.date,
+    itemId,
+    warehouseId,
+    toWarehouseId: input.toWarehouseCode
+      ? findWh(input.toWarehouseCode).id
+      : (movement.toWarehouseId ?? undefined),
+    quantity: input.quantity != null ? Number(input.quantity) : Number(movement.quantity),
+    description: input.description ?? movement.description ?? undefined,
+    issueTypeId,
+  });
+  return { resultText: `Ноорог хөдөлгөөн шинэчлэгдлээ: ${movement.documentNo}` };
+}
+
+async function runRecordCount(
+  userId: string,
+  input: {
+    date: string;
+    warehouseCode: string;
+    counts: { itemCode: string; countedQty: number }[];
+  }
+): Promise<AiToolResult> {
+  const [items, whList] = await Promise.all([
+    db.query.inventoryItems.findMany({
+      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+    }),
+    db.query.warehouses.findMany({
+      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+    }),
+  ]);
+  const warehouse = requireSingle(
+    nameMatches(whList, (entry) => entry.code, input.warehouseCode),
+    (entry) => entry.code,
+    "агуулах",
+    input.warehouseCode
+  );
+  const counts = (input.counts ?? []).map((count) => ({
+    itemId: requireSingle(
+      nameMatches(items, (entry) => entry.code, count.itemCode),
+      (entry) => entry.code,
+      "бараа",
+      count.itemCode
+    ).id,
+    countedQty: Number(count.countedQty),
+  }));
+  const result = await recordInventoryCount({
+    date: input.date,
+    warehouseId: warehouse.id,
+    counts,
+  });
+  const created = "created" in result ? result.created : 0;
+  return {
+    resultText:
+      created === 0
+        ? "Тооллого системийн үлдэгдэлтэй яг таарч байна — тохируулга хэрэггүй"
+        : `Тооллого бүртгэгдлээ: ${created} зөрүүнд тохируулгын НООРОГ хөдөлгөөн үүслээ — баталгаажуулахаар шалгана уу`,
+  };
+}
+
+async function runCreateCashAccount(
+  userId: string,
+  input: {
+    name: string;
+    accountType: "cash" | "bank";
+    bankName?: string;
+    accountNumber?: string;
+    currency?: string;
+    glAccount: string;
+    openingBalance?: number;
+  }
+): Promise<AiToolResult> {
+  const ctx = await accountContext(userId);
+  await createCashAccount({
+    name: input.name,
+    accountType: input.accountType,
+    bankName: input.bankName,
+    accountNumber: input.accountNumber,
+    currency: input.currency?.trim().toUpperCase() || "MNT",
+    glAccountNumber: resolveAccount(input.glAccount, ctx).main,
+    openingBalance: input.openingBalance,
+  });
+  return { resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}` };
+}
+
+async function findAssetByCode(userId: string, assetCode: string) {
+  const assets = await db.query.fixedAssets.findMany({
+    where: eq(fixedAssets.userId, userId),
+  });
+  return requireSingle(
+    nameMatches(assets, (entry) => entry.code, assetCode),
+    (entry) => `${entry.code} (${entry.name})`,
+    "хөрөнгө",
+    assetCode
+  );
+}
+
+async function runActivateFixedAsset(
+  userId: string,
+  input: {
+    assetCode: string;
+    name?: string;
+    cost?: number;
+    salvageValue?: number;
+    usefulLifeMonths?: number;
+    custodian?: string;
+    depreciationStartMonth?: string;
+    assetAccountNumber?: string;
+    accumDepAccountNumber?: string;
+    depExpenseAccountNumber?: string;
+  }
+): Promise<AiToolResult> {
+  const asset = await findAssetByCode(userId, input.assetCode);
+  if (asset.status !== "draft")
+    throw new Error(`Зөвхөн ноорог картыг идэвхжүүлнэ (төлөв: ${asset.status})`);
+
+  await activateFixedAsset(asset.id, {
+    code: asset.code,
+    name: input.name ?? asset.name,
+    acquisitionDate: asset.acquisitionDate,
+    cost: input.cost ?? Number(asset.cost),
+    salvageValue: input.salvageValue ?? Number(asset.salvageValue),
+    usefulLifeMonths: input.usefulLifeMonths ?? asset.usefulLifeMonths,
+    depreciationMethod: asset.depreciationMethod as
+      | "straight_line"
+      | "declining_balance",
+    // Ноорог картад хариуцагч/эхлэх сар хоосон байж болно — идэвхжүүлэхэд
+    // заавал тул моделиос нөхөж өгөхийг шаардана.
+    custodian:
+      input.custodian ??
+      asset.custodian ??
+      (() => {
+        throw new Error("Хариуцагч (custodian) өгнө үү — ноорог картад хоосон байна");
+      })(),
+    depreciationStartMonth:
+      input.depreciationStartMonth ??
+      asset.depreciationStartMonth ??
+      (() => {
+        throw new Error(
+          "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
+        );
+      })(),
+    assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
+    accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
+    depExpenseAccountNumber:
+      input.depExpenseAccountNumber ?? asset.depExpenseAccountNumber,
+  });
+  return {
+    resultText: `Хөрөнгө идэвхжлээ: ${asset.code} · ${input.name ?? asset.name} — элэгдэл ${input.depreciationStartMonth ?? asset.depreciationStartMonth} сараас бодогдоно`,
+  };
+}
+
+async function runDeleteFixedAsset(
+  userId: string,
+  input: { assetCode: string }
+): Promise<AiToolResult> {
+  const asset = await findAssetByCode(userId, input.assetCode);
+  await deleteFixedAsset(asset.id);
+  return { resultText: `Ноорог хөрөнгийн карт устгагдлаа: ${asset.code} · ${asset.name}` };
+}
+
+async function runReverseFaDepreciation(
+  userId: string,
+  input: { month: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const entries = await db.query.faDepreciationEntries.findMany({
+    where: and(
+      eq(faDepreciationEntries.userId, userId),
+      eq(faDepreciationEntries.periodMonth, input.month),
+      eq(faDepreciationEntries.status, "posted")
+    ),
+    columns: { id: true, amount: true },
+  });
+  if (entries.length === 0)
+    return { resultText: `${input.month} сард батлагдсан элэгдлийн бичилт алга` };
+  const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
+  assertPostLimit(total);
+  for (const entry of entries) await reverseDepreciationEntry(entry.id);
+  return {
+    resultText: `${input.month} сарын элэгдэл буцаагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
+  };
+}
+
 // ── GL нэмэлт гүйцэтгэгчид ──────────────────────────────────────────────────
 
 async function loadVouchers(userId: string) {
@@ -2280,6 +2773,22 @@ export async function executeAiTool(
         return await runCreateItem(userId, args);
       case "create_warehouse":
         return await runCreateWarehouse(userId, args);
+      case "update_counterparty":
+        return await runUpdateCounterparty(userId, args);
+      case "update_inventory_item":
+        return await runUpdateItem(userId, args);
+      case "update_inventory_movement":
+        return await runUpdateMovement(userId, args);
+      case "record_inventory_count":
+        return await runRecordCount(userId, args);
+      case "create_cash_account":
+        return await runCreateCashAccount(userId, args);
+      case "activate_fixed_asset":
+        return await runActivateFixedAsset(userId, args);
+      case "delete_fixed_asset":
+        return await runDeleteFixedAsset(userId, args);
+      case "reverse_fa_depreciation":
+        return await runReverseFaDepreciation(userId, args, mode);
       case "get_journal_voucher":
         return await runGetJournal(userId, args);
       case "update_journal_voucher":
