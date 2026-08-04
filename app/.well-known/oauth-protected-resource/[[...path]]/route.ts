@@ -2,7 +2,7 @@
 // authorization server-ээ олно. Path-тай хувилбар (/.well-known/
 // oauth-protected-resource/api/mcp) нь тухайн resource-ийн URI-г заана.
 
-import { OAUTH_CORS_HEADERS } from "@/lib/oauth/server";
+import { OAUTH_CORS_HEADERS, publicOrigin } from "@/lib/oauth/server";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ path?: string[] }> }
 ) {
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   const { path } = await params;
   const resource =
     path && path.length > 0 ? `${origin}/${path.join("/")}` : origin;
