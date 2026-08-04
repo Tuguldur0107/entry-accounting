@@ -16,7 +16,7 @@ import { eq } from "drizzle-orm";
 import { runAsUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiSettings, apiTokens } from "@/lib/db/schema";
-import { resolveOAuthAccessToken } from "@/lib/oauth/server";
+import { publicOrigin, resolveOAuthAccessToken } from "@/lib/oauth/server";
 import {
   DEFAULT_AI_WRITE_MODE,
   isAiWriteMode,
@@ -183,7 +183,7 @@ export async function handleMcpPost(
 export function mcpUnauthorized(request: Request): Response {
   // resource_metadata заавар — OAuth чадвартай клиент (claude.ai custom
   // connector) эндээс authorization server-ээ олж Connect урсгалаа эхлүүлнэ.
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   return Response.json(
     {
       error:

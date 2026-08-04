@@ -25,6 +25,22 @@ export function sha256hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Гаднаас харагдах origin. Railway/reverse proxy-ийн ард request.url нь
+ * app-ийн ДОТООД сонсох хаяг (http://localhost:8080) болдог тул metadata-д
+ * түүнийг шууд бичвэл OAuth клиент localhost руу очиж унана — заавал
+ * x-forwarded-host/proto толгойгоор сэргээнэ.
+ */
+export function publicOrigin(request: Request): string {
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = forwardedHost || request.headers.get("host");
+  if (host && !/^localhost(:\d+)?$|^127\.0\.0\.1(:\d+)?$/.test(host)) {
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    return `${proto.split(",")[0].trim()}://${host.split(",")[0].trim()}`;
+  }
+  return new URL(request.url).origin;
+}
+
 function b64url(buffer: Buffer): string {
   return buffer.toString("base64url");
 }

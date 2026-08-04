@@ -3,12 +3,12 @@
 // api/mcp) дууддаг тул optional catch-all-аар хоёуланд нь хариулна.
 // proxy.ts-ийн matcher .well-known-ийг алгасдаг (login redirect орохгүй).
 
-import { OAUTH_CORS_HEADERS } from "@/lib/oauth/server";
+import { OAUTH_CORS_HEADERS, publicOrigin } from "@/lib/oauth/server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   return Response.json(
     {
       issuer: origin,
