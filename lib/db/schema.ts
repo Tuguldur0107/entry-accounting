@@ -7,9 +7,10 @@ import {
   integer,
   boolean,
   unique,
+  uniqueIndex,
   foreignKey,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 
@@ -68,16 +69,27 @@ export const accountingPeriods = pgTable(
 
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
 
-export const journalVouchers = pgTable("journal_vouchers", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  date: text("date").notNull(), // YYYY-MM-DD
-  description: text("description").notNull(),
-  status: text("status").notNull().default("posted"), // "draft" | "posted" | "reversed"
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const journalVouchers = pgTable(
+  "journal_vouchers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // YYYY-MM-DD
+    description: text("description").notNull(),
+    status: text("status").notNull().default("posted"), // "draft" | "posted" | "reversed"
+    // Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency
+    // түлхүүр: ижил ref-тэй хоёр дахь create шинэ баримт үүсгэхгүй.
+    externalRef: text("external_ref"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("journal_vouchers_user_external_ref_uq")
+      .on(t.userId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
+  ]
+);
 
 // ─── Journal Lines ────────────────────────────────────────────────────────────
 
@@ -179,10 +191,17 @@ export const cashDocuments = pgTable(
       () => arApDocuments.id,
       { onDelete: "restrict" }
     ),
+    // Гадаад системийн давтагдашгүй дугаар (банкны гүйлгээний ID г.м).
+    externalRef: text("external_ref"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.documentNo)]
+  (t) => [
+    unique().on(t.userId, t.documentNo),
+    uniqueIndex("cash_documents_user_external_ref_uq")
+      .on(t.userId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
+  ]
 );
 
 export const bankStatements = pgTable(
@@ -371,10 +390,17 @@ export const arApDocuments = pgTable(
       () => journalVouchers.id,
       { onDelete: "set null" }
     ),
+    // Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м).
+    externalRef: text("external_ref"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.userId, table.documentNo)]
+  (table) => [
+    unique().on(table.userId, table.documentNo),
+    uniqueIndex("ar_ap_documents_user_external_ref_uq")
+      .on(table.userId, table.externalRef)
+      .where(sql`${table.externalRef} is not null`),
+  ]
 );
 
 export const arApDocumentLines = pgTable(

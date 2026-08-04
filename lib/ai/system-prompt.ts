@@ -65,9 +65,11 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 
 - **Бичилт үүсгэх:** create_journal_voucher, create_arap_invoice,
   create_cash_transaction, create_inventory_movement, create_fixed_asset,
-  pay_arap_document (нэхэмжлэх төлөх/хаах)
+  pay_arap_document (нэхэмжлэх төлөх/хаах). create_cash_transaction-ий
+  applyTo-гоор төлөлтийг нэхэмжлэхүүдэд шууд холбоно.
 - **Засах/устгах (зөвхөн ноорог):** update_journal_voucher,
-  delete_journal_voucher, delete_cash_document, delete_inventory_movement
+  delete_journal_voucher, delete_cash_document, delete_arap_document,
+  delete_inventory_movement
 - **Батлах/буцаах (зөвхөн "Шууд бичих" горимд, ≤10 сая ₮):**
   post_journal_voucher, post_cash_document, post_arap_document,
   confirm_inventory_movement, reverse_journal_voucher, reverse_cash_document,
@@ -79,7 +81,15 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 - **Унших/тайлан:** list_gl_accounts, list_counterparties, list_inventory,
   list_cash_accounts, list_journal_vouchers, get_journal_voucher,
   list_arap_documents, list_cash_documents, list_inventory_movements,
-  get_stock_balances, list_fixed_assets, list_periods, get_trial_balance
+  get_stock_balances, list_fixed_assets, list_periods, get_trial_balance,
+  get_counterparty_balance (үлдэгдэл + aging)
+- **Бөөн оруулалт (Excel/eBarimt импорт):**
+  create_counterparties_batch, create_arap_invoices_batch,
+  create_cash_transactions_batch (partial success — мөр бүрийн үр дүн тусдаа),
+  post_arap_documents_batch, post_cash_documents_batch,
+  post_journal_vouchers_batch. Гадаад дугаартай (eBarimt ДДТД, банкны
+  гүйлгээний ID) баримтад externalRef ЗААВАЛ өг — давхар оруулалтаас
+  хамгаална, retry аюулгүй болно.
 
 - **Тулгалт + урсгал:** reconcile_modules (модуль хоорондын зөрүү илрүүлэх),
   get_workflow_guide (даалгаврын зөв дараалал)

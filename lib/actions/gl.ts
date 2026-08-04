@@ -295,6 +295,8 @@ export async function createVoucher(data: {
   description: string;
   lines: LineInput[];
   status?: "draft" | "posted";
+  /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
+  externalRef?: string;
 }) {
   const userId = await requireUser();
   const status = data.status ?? "posted";
@@ -317,7 +319,13 @@ export async function createVoucher(data: {
   const voucherId = await db.transaction(async (tx) => {
     const [voucher] = await tx
       .insert(journalVouchers)
-      .values({ userId, date: data.date, description: data.description, status })
+      .values({
+        userId,
+        date: data.date,
+        description: data.description,
+        status,
+        externalRef: data.externalRef?.trim() || null,
+      })
       .returning();
 
     await tx.insert(journalLines).values(

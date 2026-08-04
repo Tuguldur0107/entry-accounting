@@ -232,6 +232,8 @@ export async function createCashDocument(data: {
   exchangeRate?: number;
   postNow?: boolean;
   arApDocumentId?: string;
+  /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
+  externalRef?: string;
 }) {
   const userId = await requireUser();
   const description = data.description.trim();
@@ -341,6 +343,7 @@ export async function createCashDocument(data: {
       exchangeRate: String(exchangeRate),
       baseAmount: String(baseAmount),
       arApDocumentId,
+      externalRef: cleanText(data.externalRef),
     })
     .returning({ id: cashDocuments.id });
 

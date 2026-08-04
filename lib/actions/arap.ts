@@ -174,18 +174,22 @@ export async function createCounterparty(data: {
   if (receivable) await assertEnabledMainAccount(userId, receivable);
   if (payable) await assertEnabledMainAccount(userId, payable);
 
-  await db.insert(counterparties).values({
-    userId,
-    name,
-    counterpartyType: data.counterpartyType,
-    registerNo: cleanText(data.registerNo),
-    defaultReceivableAccountNumber: receivable,
-    defaultPayableAccountNumber: payable,
-    defaultCurrency: data.defaultCurrency?.trim().toUpperCase() || "MNT",
-    paymentTermsDays: Math.max(0, Math.round(data.paymentTermsDays ?? 30)),
-  });
+  const [created] = await db
+    .insert(counterparties)
+    .values({
+      userId,
+      name,
+      counterpartyType: data.counterpartyType,
+      registerNo: cleanText(data.registerNo),
+      defaultReceivableAccountNumber: receivable,
+      defaultPayableAccountNumber: payable,
+      defaultCurrency: data.defaultCurrency?.trim().toUpperCase() || "MNT",
+      paymentTermsDays: Math.max(0, Math.round(data.paymentTermsDays ?? 30)),
+    })
+    .returning({ id: counterparties.id });
 
   revalidateArAp();
+  return { id: created.id };
 }
 
 export async function toggleCounterparty(id: string, isActive: boolean) {
@@ -210,6 +214,8 @@ export async function createArApDocument(data: {
   description: string;
   lines: ArApLineInput[];
   postNow?: boolean;
+  /** Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency. */
+  externalRef?: string;
 }) {
   const userId = await requireUser();
   if (!["ar_invoice", "ap_bill"].includes(data.documentType))
@@ -410,6 +416,7 @@ export async function createArApDocument(data: {
         basePaidAmount: "0",
         status,
         voucherId,
+        externalRef: cleanText(data.externalRef),
         postedAt: data.postNow ? new Date() : null,
       })
       .returning({ id: arApDocuments.id });
@@ -567,4 +574,25 @@ export async function postArApDocument(id: string) {
   }
 
   revalidateArAp();
+}
+
+// Ноорог АР/АП баримтыг устгах — journal/cash-ийн delete-тэй ижил зан төлөв:
+// батлагдсан баримт устгагдахгүй (буцаалтыг reverse урсгалаар хийнэ).
+export async function deleteArApDocument(id: string) {
+  const userId = await requireUser();
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)),
+    columns: { id: true, status: true, documentNo: true },
+  });
+  if (!document) throw new Error("Баримт олдсонгүй");
+  if (document.status !== "draft")
+    throw new Error("Зөвхөн ноорог баримтыг устгана — батлагдсаныг буцаалтаар засна");
+
+  // Мөрүүд FK cascade-аар хамт устна; ноорогт settlement/journal холбоос байхгүй.
+  await db
+    .delete(arApDocuments)
+    .where(and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)));
+
+  revalidateArAp();
+  return { documentNo: document.documentNo };
 }

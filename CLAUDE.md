@@ -287,21 +287,33 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 49 tool)
+AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 57 tool)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
 |-------|-------|-------|
-| Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction, create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
-| Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,inventory_movement,fixed_asset}, activate_fixed_asset, record_inventory_count | зөвхөн ноорог, аль ч горимд |
+| Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction (applyTo-гоор нэхэмжлэхэд холбоно), create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
+| Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, activate_fixed_asset, record_inventory_count | зөвхөн ноорог, аль ч горимд |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
-| Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances | — |
+| Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
+| Batch | create_{counterparties,arap_invoices,cash_transactions}_batch (max 100, partial success), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
 
 ID-тэй tools бүгд бүтэн эсвэл 8+ тэмдэгтийн угтвар ID хүлээнэ;
-нэхэмжлэх documentNo-гоор ч олдоно.
+нэхэмжлэх documentNo болон externalRef-ээр ч олдоно.
+
+**Idempotency (externalRef):** create_{journal_voucher,arap_invoice,
+cash_transaction} нь externalRef (eBarimt ДДТД, банкны гүйлгээний ID) авдаг —
+ижил ref-тэй хоёр дахь дуудлага ШИНЭ баримт үүсгэхгүй, байгааг нь буцаана
+(`dedup`, batch-д "алгассан"). DB талд (user_id, external_ref) partial unique
+index гурван хүснэгтэд бий. Давхардлыг create_counterparty нэр
+(case-insensitive) + ТТД-гээр мөн шалгаж [CONFLICT] буцаана.
+
+**Алдааны кодууд:** tool-ийн алдаа `[CODE] текст` форматтай —
+COUNTERPARTY_NOT_FOUND (ойролцоо нэрс санал болгоно), COUNTERPARTY_AMBIGUOUS,
+ACCOUNT_NOT_FOUND, CONFLICT, AMOUNT_LIMIT_EXCEEDED, DIRECT_MODE_REQUIRED г.м.
 
 ```
 lib/ai/

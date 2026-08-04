@@ -10,11 +10,12 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 
 import {
   createArApDocument,
   createCounterparty,
+  deleteArApDocument,
   postArApDocument,
 } from "@/lib/actions/arap";
 import {
@@ -61,6 +62,7 @@ import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail"
 import { db } from "@/lib/db";
 import {
   arApDocuments,
+  arApSettlements,
   cashAccounts,
   cashDocuments,
   chartOfAccounts,
@@ -97,6 +99,20 @@ export interface AiToolResult {
   resultText: string;
   /** Амжилттай үүссэн объект — чатад карт болж харагдана. */
   action?: AiAction;
+  /**
+   * externalRef/давхардлаар алгасагдсан (шинэ бичлэг үүсээгүй, байгааг нь
+   * буцаасан) — batch wrapper "skipped" гэж тоолно.
+   */
+  dedup?: boolean;
+}
+
+/**
+ * Машинаар боловсруулагдах алдааны код — текстийн эхэнд [CODE] хэлбэрээр
+ * залгагдана (спек: entry-mcp-tools §11). Модель болон MCP клиент кодоор
+ * нь салгаж боловсруулна.
+ */
+function codedError(code: string, message: string): Error {
+  return new Error(`[${code}] ${message}`);
 }
 
 export interface AiToolDef {
@@ -131,6 +147,13 @@ const LINE_SCHEMA = {
   required: ["account"],
 } as const;
 
+/** Idempotency түлхүүр — гурван create tool ижил талбартай (спек §3). */
+const EXTERNAL_REF_SCHEMA = {
+  type: "string",
+  description:
+    "Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД, банкны гүйлгээний ID г.м). Ижил externalRef-тэй баримт байвал шинээр үүсгэхгүй, байгааг нь буцаана — retry аюулгүй.",
+} as const;
+
 export const AI_TOOLS: AiToolDef[] = [
   {
     name: "create_journal_voucher",
@@ -146,6 +169,7 @@ export const AI_TOOLS: AiToolDef[] = [
           description: "Журналын мөрүүд (дор хаяж 2)",
           items: LINE_SCHEMA,
         },
+        externalRef: EXTERNAL_REF_SCHEMA,
       },
       required: ["date", "description", "lines"],
     },
@@ -191,6 +215,7 @@ export const AI_TOOLS: AiToolDef[] = [
             required: ["amount"],
           },
         },
+        externalRef: EXTERNAL_REF_SCHEMA,
       },
       required: ["documentType", "counterparty", "date", "description", "lines"],
     },
@@ -217,6 +242,23 @@ export const AI_TOOLS: AiToolDef[] = [
         description: { type: "string", description: "Гүйлгээний утга" },
         counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
         exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
+        externalRef: EXTERNAL_REF_SCHEMA,
+        applyTo: {
+          type: "array",
+          description:
+            "Энэ төлөлтөөр хаагдах АР/АП нэхэмжлэхүүд (батлагдсан). Σ amount нь төлөлтийн дүнгээс хэтрэхгүй; олон нэхэмжлэхэд хуваарилахад нэхэмжлэх тус бүрд тусдаа кассын баримт үүснэ. Өгөхгүй бол нэхэмжлэхтэй холбогдохгүй.",
+          items: {
+            type: "object",
+            properties: {
+              documentId: {
+                type: "string",
+                description: "Нэхэмжлэхийн ID, дугаар (AR-...), эсвэл externalRef",
+              },
+              amount: { type: "number", description: "Энэ нэхэмжлэхэд ноогдох дүн" },
+            },
+            required: ["documentId", "amount"],
+          },
+        },
       },
       required: ["documentType", "date", "cashAccount", "amount", "description"],
     },
@@ -287,11 +329,16 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "list_counterparties",
     description:
-      "Идэвхтэй харилцагчдын жагсаалт (нэр, төрөл, төлбөрийн нөхцөл, default данс). Нэхэмжлэх үүсгэхийн өмнө харилцагчийн яг нэрийг шалгахад ашиглана.",
+      "Харилцагчдын жагсаалт (ID, нэр, ТТД/регистр, төрөл, төлбөрийн нөхцөл, default данс). Нэхэмжлэх үүсгэхийн өмнө яг нэр/ID-г шалгах, ТТД-гээр давхардлыг илрүүлэхэд ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Нэрээр шүүх (сонголтоор)" },
+        query: { type: "string", description: "Нэр эсвэл ТТД-гээр шүүх (сонголтоор)" },
+        includeInactive: {
+          type: "boolean",
+          description: "Идэвхгүй харилцагчдыг ч оруулах (default false)",
+        },
+        limit: { type: "integer", description: "Max мөр (default 50, max 100)" },
       },
     },
   },
@@ -436,7 +483,8 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "create_counterparty",
-    description: "Шинэ харилцагч бүртгэнэ (авлага/өглөгийн нэхэмжлэхэд ашиглагдана).",
+    description:
+      "Шинэ харилцагч бүртгэнэ (авлага/өглөгийн нэхэмжлэхэд ашиглагдана). Нэрийг нормчилж (илүү зай арилгана), ижил нэр (том/жижиг ялгахгүй) эсвэл ижил ТТД-тэй харилцагч байвал шинээр үүсгэхгүй — [CONFLICT] + байгаа харилцагчийн ID-г буцаана. Мастер дата тул аль ч горимд шууд идэвхтэй үүснэ.",
     inputSchema: {
       type: "object",
       properties: {
@@ -685,17 +733,49 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "list_arap_documents",
     description:
-      "АР/АП нэхэмжлэхүүдийн жагсаалт (дугаар, харилцагч, дүн, үлдэгдэл, төлөв).",
+      "АР/АП нэхэмжлэхүүдийн жагсаалт (огноо, дугаар, харилцагч, нийт, төлөгдсөн, үлдэгдэл, төлөв, ID, externalRef).",
     inputSchema: {
       type: "object",
       properties: {
         documentType: { type: "string", enum: ["ar_invoice", "ap_bill"], description: "Төрлөөр шүүх" },
+        counterparty: { type: "string", description: "Харилцагчийн нэрээр шүүх" },
         status: {
           type: "string",
           enum: ["draft", "posted", "partially_paid", "paid", "reversed"],
           description: "Төлвөөр шүүх",
         },
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        openOnly: { type: "boolean", description: "Зөвхөн үлдэгдэлтэйг" },
         limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
+      },
+    },
+  },
+  {
+    name: "delete_arap_document",
+    description:
+      "НООРОГ АР/АП нэхэмжлэхийг устгана (батлагдсаныг устгахгүй — буцаалтаар засна). Хэрэглэгч ил хүссэн үед л ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: {
+          type: "string",
+          description: "Баримтын ID (бүтэн эсвэл эхний 8+ тэмдэгт) эсвэл дугаар (AR-...)",
+        },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "get_counterparty_balance",
+    description:
+      "Харилцагчийн авлага/өглөгийн үлдэгдэл (батлагдсан нэхэмжлэхээр, asOf огноогоор). Тулгалт болон aging (0-30/31-60/61-90/90+) задаргаанд ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        counterparty: { type: "string", description: "Харилцагчийн нэр — хоосон бол бүх харилцагч" },
+        asOf: { type: "string", description: "YYYY-MM-DD (default өнөөдөр)" },
+        aging: { type: "boolean", description: "Хугацааны задаргаатай (0-30/31-60/61-90/90+)" },
       },
     },
   },
@@ -718,15 +798,23 @@ export const AI_TOOLS: AiToolDef[] = [
   // ── Касс нэмэлт ───────────────────────────────────────────────────────────
   {
     name: "list_cash_documents",
-    description: "Мөнгөн хөрөнгийн баримтуудын жагсаалт (төрөл, дүн, төлөв).",
+    description:
+      "Мөнгөн хөрөнгийн баримтуудын жагсаалт (огноо, дугаар, төрөл, дүн, төлөв, ID, externalRef).",
     inputSchema: {
       type: "object",
       properties: {
+        documentType: {
+          type: "string",
+          enum: ["receipt", "payment", "transfer"],
+          description: "Төрлөөр шүүх",
+        },
         status: {
           type: "string",
           enum: ["draft", "posted", "reversed"],
           description: "Төлвөөр шүүх",
         },
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
         limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
       },
     },
@@ -933,6 +1021,116 @@ export const AI_TOOLS: AiToolDef[] = [
       required: ["month"],
     },
   },
+
+  // ── Batch (бөөн оруулалт) ─────────────────────────────────────────────────
+  {
+    name: "create_counterparties_batch",
+    description:
+      "Олон харилцагчийг нэг дуудлагаар бүртгэнэ (max 100). Partial success: мөр бүрийн үр дүн тусдаа буцна — давхардсан нь алгасагдаж, алдаатай нь бусдад нөлөөлөхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_counterparty-ийн input-уудын жагсаалт",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              counterpartyType: { type: "string", enum: ["customer", "supplier", "both"] },
+              registerNo: { type: "string" },
+              defaultReceivableAccount: { type: "string" },
+              defaultPayableAccount: { type: "string" },
+              currency: { type: "string" },
+              paymentTermsDays: { type: "integer" },
+            },
+            required: ["name", "counterpartyType"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "create_arap_invoices_batch",
+    description:
+      "Олон АР/АП нэхэмжлэхийг нэг дуудлагаар үүсгэнэ (max 100). Partial success + externalRef idempotency: давхардсан нь алгасагдана, алдаатай мөрийг л дахин явуулна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_arap_invoice-ийн input-уудын жагсаалт",
+          items: { type: "object" },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "create_cash_transactions_batch",
+    description:
+      "Олон мөнгөн хөрөнгийн гүйлгээг нэг дуудлагаар үүсгэнэ (max 100). Partial success + externalRef idempotency; applyTo дэмжинэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_cash_transaction-ийн input-уудын жагсаалт",
+          items: { type: "object" },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "post_arap_documents_batch",
+    description:
+      "Олон ноорог АР/АП нэхэмжлэхийг бөөнөөр батална. Зөвхөн 'Шууд бичих' горимд; 10 сая ₮-с их дүнтэй нь алгасагдаж, вэб дээрээс батлах жагсаалт болж буцна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentIds: {
+          type: "array",
+          description: "Баримтын ID эсвэл дугаарууд (max 100)",
+          items: { type: "string" },
+        },
+      },
+      required: ["documentIds"],
+    },
+  },
+  {
+    name: "post_cash_documents_batch",
+    description:
+      "Олон ноорог кассын баримтыг бөөнөөр батална. Зөвхөн 'Шууд бичих' горимд; 10 сая ₮-с их дүнтэй нь алгасагдаж, вэб дээрээс батлах жагсаалт болж буцна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentIds: {
+          type: "array",
+          description: "Баримтын ID-ууд (max 100)",
+          items: { type: "string" },
+        },
+      },
+      required: ["documentIds"],
+    },
+  },
+  {
+    name: "post_journal_vouchers_batch",
+    description:
+      "Олон ноорог журналыг бөөнөөр батална. Зөвхөн 'Шууд бичих' горимд; 10 сая ₮-с их дүнтэй нь алгасагдаж, вэб дээрээс батлах жагсаалт болж буцна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        voucherIds: {
+          type: "array",
+          description: "Журналын ID-ууд (max 100)",
+          items: { type: "string" },
+        },
+      },
+      required: ["voucherIds"],
+    },
+  },
 ];
 
 // ── Туслах ──────────────────────────────────────────────────────────────────
@@ -976,10 +1174,32 @@ function resolveAccount(raw: string, ctx: Ctx): { code: string; main: string } {
   const code = normalizePastedAccount(String(raw).trim(), ctx.activeSegIds, ctx.defaults);
   const main = parseSegParts(code, [3])[3] ?? "";
   if (!ctx.enabledByMain.has(main))
-    throw new Error(
+    throw codedError(
+      "ACCOUNT_NOT_FOUND",
       `"${raw}" данс идэвхтэй жагсаалтад алга — list_gl_accounts tool-оор зөв дугаарыг хайна уу`
     );
   return { code, main };
+}
+
+/** Ойролцоо нэрсийг bigram давхцлаар эрэмбэлж санал болгоно (спек §11). */
+function suggestNames(all: string[], query: string, max = 5): string[] {
+  const compact = (value: string) => value.toLowerCase().replace(/\s+/g, "");
+  const q = compact(query);
+  if (q.length === 0) return [];
+  const bigrams = new Set<string>();
+  for (let i = 0; i < q.length - 1; i++) bigrams.add(q.slice(i, i + 2));
+  return all
+    .map((name) => {
+      const n = compact(name);
+      let score = n.includes(q) || q.includes(n) ? 3 : 0;
+      for (let i = 0; i < n.length - 1; i++)
+        if (bigrams.has(n.slice(i, i + 2))) score += 1;
+      return { name, score };
+    })
+    .filter((entry) => entry.score > 1)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((entry) => entry.name);
 }
 
 /** Нэрээр ганц тохирол шаардана — 0 эсвэл олон бол ойлгомжтой алдаа. */
@@ -987,12 +1207,20 @@ function requireSingle<T>(
   matches: T[],
   labelOf: (entry: T) => string,
   what: string,
-  query: string
+  query: string,
+  opts?: { codePrefix?: string; allNames?: string[] }
 ): T {
   if (matches.length === 1) return matches[0];
-  if (matches.length === 0)
-    throw new Error(`"${query}" нэртэй ${what} олдсонгүй — жагсаалтаас шалгана уу`);
-  throw new Error(
+  const prefix = opts?.codePrefix;
+  if (matches.length === 0) {
+    const similar = opts?.allNames ? suggestNames(opts.allNames, query) : [];
+    throw codedError(
+      prefix ? `${prefix}_NOT_FOUND` : "NOT_FOUND",
+      `"${query}" нэртэй ${what} олдсонгүй${similar.length > 0 ? `. Ойролцоо: ${similar.map((name) => `"${name}"`).join(", ")}` : " — жагсаалтаас шалгана уу"}`
+    );
+  }
+  throw codedError(
+    prefix ? `${prefix}_AMBIGUOUS` : "AMBIGUOUS",
     `"${query}" гэхэд ${matches.length} ${what} таарлаа: ${matches
       .slice(0, 8)
       .map(labelOf)
@@ -1022,9 +1250,33 @@ async function runCreateJournal(
     date: string;
     description: string;
     lines: JournalLineInput[];
+    externalRef?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = input.externalRef?.trim() || undefined;
+  if (externalRef) {
+    const existing = await db.query.journalVouchers.findFirst({
+      where: and(
+        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.externalRef, externalRef)
+      ),
+      with: { lines: { columns: { debit: true } } },
+    });
+    if (existing) {
+      const total = existing.lines.reduce((sum, line) => sum + Number(line.debit), 0);
+      return {
+        resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${existing.id}, ${existing.date} · ${existing.description}, ${fmt(total)}₮, төлөв: ${existing.status}`,
+        action: {
+          kind: "voucher",
+          id: existing.id,
+          title: existing.description || "Журнал",
+          status: existing.status === "draft" ? "draft" : "posted",
+        },
+        dedup: true,
+      };
+    }
+  }
   const ctx = await accountContext(userId);
   const lines = (input.lines ?? []).map((line) => {
     const { code } = resolveAccount(line.account, ctx);
@@ -1056,6 +1308,7 @@ async function runCreateJournal(
     description: input.description,
     lines,
     status,
+    externalRef,
   });
 
   return {
@@ -1088,9 +1341,31 @@ async function runCreateArap(
       quantity?: number;
       warehouseCode?: string;
     }[];
+    externalRef?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = input.externalRef?.trim() || undefined;
+  if (externalRef) {
+    const existing = await db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.userId, userId),
+        eq(arApDocuments.externalRef, externalRef)
+      ),
+    });
+    if (existing) {
+      return {
+        resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${existing.id}, ${existing.documentNo}, ${fmt(Number(existing.totalAmount))}₮, төлөв: ${ARAP_STATUS_LABELS[existing.status] ?? existing.status}`,
+        action: {
+          kind: "arap",
+          id: existing.id,
+          title: existing.documentNo,
+          status: existing.status === "draft" ? "draft" : "posted",
+        },
+        dedup: true,
+      };
+    }
+  }
   const ctx = await accountContext(userId);
   const [cpList, items, whList, costingAccounts] = await Promise.all([
     db.query.counterparties.findMany({
@@ -1109,7 +1384,8 @@ async function runCreateArap(
     nameMatches(cpList, (entry) => entry.name, input.counterparty),
     (entry) => entry.name,
     "харилцагч",
-    input.counterparty
+    input.counterparty,
+    { codePrefix: "COUNTERPARTY", allNames: cpList.map((entry) => entry.name) }
   );
 
   const isAp = input.documentType === "ap_bill";
@@ -1188,6 +1464,7 @@ async function runCreateArap(
     description: input.description,
     lines,
     postNow,
+    externalRef,
   });
 
   const label = isAp ? "Өглөгийн нэхэмжлэх" : "Авлагын нэхэмжлэл";
@@ -1214,9 +1491,38 @@ async function runCreateCash(
     description: string;
     counterparty?: string;
     exchangeRate?: number;
+    externalRef?: string;
+    applyTo?: { documentId: string; amount: number }[];
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
+  const externalRef = input.externalRef?.trim() || undefined;
+  if (externalRef) {
+    // Split төлөлт (олон нэхэмжлэхэд хуваарилсан) ref#1 ref#2 ... болж
+    // хадгалагддаг тул хоёуланг нь шалгана.
+    const existing = await db.query.cashDocuments.findFirst({
+      where: and(
+        eq(cashDocuments.userId, userId),
+        or(
+          eq(cashDocuments.externalRef, externalRef),
+          eq(cashDocuments.externalRef, `${externalRef}#1`)
+        )
+      ),
+    });
+    if (existing) {
+      return {
+        resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${existing.id}, ${existing.documentNo}, ${existing.date}, ${fmt(Number(existing.amount))}₮, төлөв: ${existing.status}`,
+        action: {
+          kind: "cash",
+          id: existing.id,
+          title: existing.description,
+          status: existing.status === "draft" ? "draft" : "posted",
+        },
+        dedup: true,
+      };
+    }
+  }
+
   const accounts = await db.query.cashAccounts.findMany({
     where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
   });
@@ -1225,7 +1531,8 @@ async function runCreateCash(
       nameMatches(accounts, (entry) => entry.name, query),
       (entry) => entry.name,
       "мөнгөн данс",
-      query
+      query,
+      { allNames: accounts.map((entry) => entry.name) }
     );
 
   const primary = findAccount(input.cashAccount);
@@ -1237,15 +1544,64 @@ async function runCreateCash(
     counterAccountNumber = resolveAccount(input.counterAccount, ctx).main;
   }
 
-  let postNow = false;
-  let note = "";
-  if (mode === "post") {
-    if (Number(input.amount) > AI_POST_LIMIT_MNT)
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
-    else postNow = true;
+  const totalAmount = Math.round(Number(input.amount) * 100) / 100;
+
+  // ── applyTo: төлөлтийг нэхэмжлэхүүдэд холбох (спек §7) ──────────────────
+  const applyTo = (input.applyTo ?? []).map((entry) => ({
+    documentId: String(entry.documentId ?? "").trim(),
+    amount: Math.round(Number(entry.amount) * 100) / 100,
+  }));
+  const allocations: {
+    document: typeof arApDocuments.$inferSelect;
+    amount: number;
+  }[] = [];
+  if (applyTo.length > 0) {
+    if (input.documentType === "transfer")
+      throw new Error("Шилжүүлэгт applyTo хэрэглэхгүй — орлого/зарлагад л нэхэмжлэх холбоно");
+    const documents = await db.query.arApDocuments.findMany({
+      where: eq(arApDocuments.userId, userId),
+      orderBy: [desc(arApDocuments.createdAt)],
+      limit: 1000,
+    });
+    for (const alloc of applyTo) {
+      if (!(alloc.amount > 0))
+        throw new Error("applyTo мөр бүрийн дүн 0-ээс их байх ёстой");
+      const q = alloc.documentId.toLowerCase();
+      const byNo = documents.filter((doc) => doc.documentNo.toLowerCase() === q);
+      const byRef = documents.filter(
+        (doc) => (doc.externalRef ?? "").toLowerCase() === q && q.length > 0
+      );
+      const document =
+        byNo.length === 1
+          ? byNo[0]
+          : byRef.length === 1
+            ? byRef[0]
+            : resolveByIdPrefix(documents, alloc.documentId, "нэхэмжлэх");
+      const balance =
+        Number(document.totalAmount) - Number(document.paidAmount);
+      if (alloc.amount > balance + 0.01)
+        throw new Error(
+          `${document.documentNo}: хуваарилах дүн (${fmt(alloc.amount)}₮) үлдэгдлээс (${fmt(balance)}₮) их байна`
+        );
+      allocations.push({ document, amount: alloc.amount });
+    }
+    const applied = allocations.reduce((sum, alloc) => sum + alloc.amount, 0);
+    if (applied > totalAmount + 0.01)
+      throw new Error(
+        `applyTo нийлбэр (${fmt(applied)}₮) төлөлтийн дүнгээс (${fmt(totalAmount)}₮) их байна`
+      );
   }
 
-  const { id } = await createCashDocument({
+  const decidePost = (amount: number) => {
+    if (mode !== "post") return { postNow: false, note: "" };
+    if (amount > AI_POST_LIMIT_MNT)
+      return {
+        postNow: false,
+        note: ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`,
+      };
+    return { postNow: true, note: "" };
+  };
+  const commonFields = (amount: number) => ({
     documentType: input.documentType,
     date: input.date,
     fromCashAccountId:
@@ -1258,28 +1614,90 @@ async function runCreateCash(
         : input.documentType === "transfer"
           ? secondary?.id
           : undefined,
-    counterAccountNumber,
     counterparty: input.counterparty,
-    description: input.description,
-    amount: Number(input.amount),
+    amount,
     exchangeRate: input.exchangeRate,
-    postNow,
   });
-
   const typeLabel =
     input.documentType === "receipt"
       ? "Орлого"
       : input.documentType === "payment"
         ? "Зарлага"
         : "Шилжүүлэг";
+  const controlMainOf = (doc: typeof arApDocuments.$inferSelect) =>
+    parseSegParts(doc.controlAccountNumber, [3])[3] ?? doc.controlAccountNumber;
+
+  const applied = allocations.reduce((sum, alloc) => sum + alloc.amount, 0);
+  const remainder = Math.round((totalAmount - applied) * 100) / 100;
+
+  // Энгийн зам: нэхэмжлэхгүй, эсвэл ГАНЦ нэхэмжлэх бүтэн дүнгээ авч байвал
+  // нэг л баримт үүсгэнэ (settlement нь баримтын дүнгээр бүтнээр хийгддэг).
+  if (allocations.length === 0 || (allocations.length === 1 && remainder <= 0.01)) {
+    const linked = allocations[0]?.document;
+    const { postNow, note } = decidePost(totalAmount);
+    const { id } = await createCashDocument({
+      ...commonFields(totalAmount),
+      counterAccountNumber:
+        counterAccountNumber ?? (linked ? controlMainOf(linked) : undefined),
+      description: input.description,
+      postNow,
+      arApDocumentId: linked?.id,
+      externalRef,
+    });
+    return {
+      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+      action: {
+        kind: "cash",
+        id,
+        title: `${typeLabel} · ${input.description}`.slice(0, 80),
+        status: postNow ? "posted" : "draft",
+      },
+    };
+  }
+
+  // Хуваарилалттай зам: нэхэмжлэх бүрд (болон үлдэгдэлд) тусдаа баримт.
+  // Settlement нь баримт бүрийн дүнгээр хийгддэг тул нэг баримтад олон
+  // нэхэмжлэх холбох боломжгүй — хуваарилалт бүр өөрийн баримттай.
+  if (remainder > 0.01 && !counterAccountNumber)
+    throw new Error(
+      `Хуваарилагдаагүй ${fmt(remainder)}₮ үлдэж байна — counterAccount өгнө үү (эсвэл applyTo нийлбэрийг дүнтэй тэнцүүлнэ)`
+    );
+  const created: string[] = [];
+  let part = 0;
+  for (const alloc of allocations) {
+    part += 1;
+    const { postNow, note } = decidePost(alloc.amount);
+    await createCashDocument({
+      ...commonFields(alloc.amount),
+      counterAccountNumber: controlMainOf(alloc.document),
+      description: `${input.description} (${alloc.document.documentNo})`,
+      postNow,
+      arApDocumentId: alloc.document.id,
+      externalRef: externalRef ? `${externalRef}#${part}` : undefined,
+    });
+    created.push(
+      `${alloc.document.documentNo} · ${fmt(alloc.amount)}₮ · ${postNow ? "батлагдсан" : "ноорог"}${note}`
+    );
+  }
+  if (remainder > 0.01) {
+    part += 1;
+    const { postNow, note } = decidePost(remainder);
+    await createCashDocument({
+      ...commonFields(remainder),
+      counterAccountNumber,
+      description: `${input.description} (хуваарилагдаагүй)`,
+      postNow,
+      externalRef: externalRef ? `${externalRef}#${part}` : undefined,
+    });
+    created.push(
+      `хуваарилагдаагүй · ${fmt(remainder)}₮ · ${postNow ? "батлагдсан" : "ноорог"}${note}`
+    );
+  }
   return {
-    resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(Number(input.amount))}₮, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
-    action: {
-      kind: "cash",
-      id,
-      title: `${typeLabel} · ${input.description}`.slice(0, 80),
-      status: postNow ? "posted" : "draft",
-    },
+    resultText: [
+      `${typeLabel} ${fmt(totalAmount)}₮ (${primary.name}) ${part} баримтад хуваагдаж нэхэмжлэхүүдэд холбогдлоо:`,
+      ...created.map((line) => `  ${line}`),
+    ].join("\n"),
   };
 }
 
@@ -1450,14 +1868,16 @@ function resolveByIdPrefix<T extends { id: string }>(
 /** Батлах үйлдэл зөвхөн "Шууд бичих" горимд — эс бөгөөс ойлгомжтой татгалзал. */
 function assertPostMode(mode: AiWriteMode) {
   if (mode !== "post")
-    throw new Error(
+    throw codedError(
+      "DIRECT_MODE_REQUIRED",
       "Батлах нь зөвхөн 'Шууд бичих' горимд зөвшөөрөгдөнө. Чатын доод талын toggle-оос горимоо солих эсвэл вэб дээрээс өөрөө батална уу."
     );
 }
 
 function assertPostLimit(total: number) {
   if (total > AI_POST_LIMIT_MNT)
-    throw new Error(
+    throw codedError(
+      "AMOUNT_LIMIT_EXCEEDED",
       `${fmt(total)}₮ нь ${fmt(AI_POST_LIMIT_MNT)}₮-ийн хязгаараас их — нягтланч вэб дээрээс шалгаж батална уу`
     );
 }
@@ -1641,25 +2061,49 @@ async function runListGlAccounts(
 
 async function runListCounterparties(
   userId: string,
-  input: { query?: string }
+  input: { query?: string; includeInactive?: boolean; limit?: number }
 ): Promise<AiToolResult> {
+  const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
   const list = await db.query.counterparties.findMany({
-    where: and(eq(counterparties.userId, userId), eq(counterparties.isActive, true)),
+    where: input.includeInactive
+      ? eq(counterparties.userId, userId)
+      : and(eq(counterparties.userId, userId), eq(counterparties.isActive, true)),
   });
-  const filtered = input.query ? nameMatches(list, (entry) => entry.name, input.query) : list;
-  if (filtered.length === 0) return { resultText: "Идэвхтэй харилцагч олдсонгүй" };
-  const typeLabel: Record<string, string> = {
-    customer: "Авлага",
-    supplier: "Өглөг",
-    both: "Авлага/Өглөг",
-  };
+  const q = input.query?.trim().toLowerCase();
+  const filtered = q
+    ? list.filter(
+        (entry) =>
+          entry.name.toLowerCase().includes(q) ||
+          (entry.registerNo ?? "").toLowerCase().includes(q)
+      )
+    : list;
+  if (filtered.length === 0) return { resultText: "Тохирох харилцагч олдсонгүй" };
+  // Сегменттэй бүтэн кодыг биш зөвхөн 8 оронтой үндсэн дугаарыг харуулна.
+  const mainOf = (code: string | null) =>
+    code ? (parseSegParts(code, [3])[3] ?? code) : null;
   return {
     resultText: filtered
-      .slice(0, 30)
-      .map(
-        (entry) =>
-          `${entry.name} — ${typeLabel[entry.counterpartyType] ?? entry.counterpartyType}, нөхцөл ${entry.paymentTermsDays} хоног, валют ${entry.defaultCurrency}${entry.defaultReceivableAccountNumber ? `, авлагын данс ${entry.defaultReceivableAccountNumber}` : ""}${entry.defaultPayableAccountNumber ? `, өглөгийн данс ${entry.defaultPayableAccountNumber}` : ""}`
-      )
+      .slice(0, limit)
+      .map((entry) => {
+        const ar = mainOf(entry.defaultReceivableAccountNumber);
+        const ap = mainOf(entry.defaultPayableAccountNumber);
+        return [
+          entry.id.slice(0, 8),
+          entry.name,
+          entry.registerNo ? `ТТД ${entry.registerNo}` : null,
+          CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
+          entry.defaultCurrency,
+          `${entry.paymentTermsDays} хоног`,
+          ar || ap
+            ? [ar ? `Дт ${ar}` : null, ap ? `Кт ${ap}` : null]
+                .filter(Boolean)
+                .join(" / ")
+            : null,
+          entry.isActive ? null : "ИДЭВХГҮЙ",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      })
       .join("\n"),
   };
 }
@@ -1768,8 +2212,14 @@ async function runCreateGlAccount(
   return { resultText: `Данс нээгдлээ: ${number} — ${input.name}` };
 }
 
+const CP_TYPE_LABELS: Record<string, string> = {
+  customer: "Авлага",
+  supplier: "Өглөг",
+  both: "Авлага/Өглөг",
+};
+
 async function runCreateCounterparty(
-  _userId: string,
+  userId: string,
   input: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
@@ -1780,16 +2230,40 @@ async function runCreateCounterparty(
     paymentTermsDays?: number;
   }
 ): Promise<AiToolResult> {
-  await createCounterparty({
-    name: input.name,
+  // Нэр нормчлол: trim + доторх давхар зайг нэг болгоно ("Би  Ти Эф " → "Би Ти Эф").
+  const name = String(input.name ?? "").trim().replace(/\s+/g, " ");
+  if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
+  const registerNo = input.registerNo?.trim() || undefined;
+
+  // Давхардлын шалгалт: нэр case-insensitive, ТТД яг таарлаар (идэвхгүйг ч
+  // оруулна — идэвхгүй харилцагчтай ижил нэр DB unique-д унана).
+  const existingList = await db.query.counterparties.findMany({
+    where: eq(counterparties.userId, userId),
+  });
+  const duplicate = existingList.find(
+    (entry) =>
+      entry.name.toLowerCase() === name.toLowerCase() ||
+      (registerNo != null && entry.registerNo === registerNo)
+  );
+  if (duplicate) {
+    return {
+      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.registerNo ? ` (ТТД ${duplicate.registerNo})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
+      dedup: true,
+    };
+  }
+
+  const { id } = await createCounterparty({
+    name,
     counterpartyType: input.counterpartyType,
-    registerNo: input.registerNo,
+    registerNo,
     defaultReceivableAccountNumber: input.defaultReceivableAccount,
     defaultPayableAccountNumber: input.defaultPayableAccount,
     defaultCurrency: input.currency,
     paymentTermsDays: input.paymentTermsDays,
   });
-  return { resultText: `Харилцагч бүртгэгдлээ: ${input.name}` };
+  return {
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${registerNo ? ` (ТТД ${registerNo})` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+  };
 }
 
 async function runCreateItem(
@@ -2318,7 +2792,15 @@ const ARAP_STATUS_LABELS: Record<string, string> = {
 
 async function runListArapDocuments(
   userId: string,
-  input: { documentType?: string; status?: string; limit?: number }
+  input: {
+    documentType?: string;
+    counterparty?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    openOnly?: boolean;
+    limit?: number;
+  }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
   const documents = await db.query.arApDocuments.findMany({
@@ -2327,19 +2809,27 @@ async function runListArapDocuments(
     orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
     limit: 400,
   });
+  const cpQuery = input.counterparty?.trim().toLowerCase();
   const filtered = documents
-    .filter(
-      (doc) =>
-        (!input.documentType || doc.documentType === input.documentType) &&
-        (!input.status || doc.status === input.status)
-    )
+    .filter((doc) => {
+      const balance = Number(doc.totalAmount) - Number(doc.paidAmount);
+      if (input.documentType && doc.documentType !== input.documentType) return false;
+      if (input.status && doc.status !== input.status) return false;
+      if (cpQuery && !(doc.counterparty?.name ?? "").toLowerCase().includes(cpQuery))
+        return false;
+      if (input.from && doc.date < input.from) return false;
+      if (input.to && doc.date > input.to) return false;
+      if (input.openOnly && !(balance > 0.01 && doc.status !== "draft" && doc.status !== "reversed"))
+        return false;
+      return true;
+    })
     .slice(0, limit);
   if (filtered.length === 0) return { resultText: "Тохирох нэхэмжлэх олдсонгүй" };
   return {
     resultText: filtered
       .map((doc) => {
         const balance = Number(doc.totalAmount) - Number(doc.paidAmount);
-        return `${doc.date} · ${doc.documentNo} · ${doc.counterparty?.name ?? "?"} · ${doc.documentType === "ar_invoice" ? "АР" : "АП"} · нийт ${fmt(Number(doc.totalAmount))} · үлдэгдэл ${fmt(balance)} · ${ARAP_STATUS_LABELS[doc.status] ?? doc.status} · ID ${doc.id.slice(0, 8)}`;
+        return `${doc.date} · ${doc.documentNo} · ${doc.counterparty?.name ?? "?"} · ${doc.documentType === "ar_invoice" ? "АР" : "АП"} · нийт ${fmt(Number(doc.totalAmount))} · төлөгдсөн ${fmt(Number(doc.paidAmount))} · үлдэгдэл ${fmt(balance)} · ${ARAP_STATUS_LABELS[doc.status] ?? doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`;
       })
       .join("\n"),
   };
@@ -2416,11 +2906,222 @@ async function runPayArap(
   };
 }
 
+async function runDeleteArap(
+  userId: string,
+  input: { documentId: string }
+): Promise<AiToolResult> {
+  const documents = await db.query.arApDocuments.findMany({
+    where: eq(arApDocuments.userId, userId),
+    columns: { id: true, status: true, documentNo: true, date: true, totalAmount: true },
+    orderBy: [desc(arApDocuments.createdAt)],
+    limit: 500,
+  });
+  const byNo = documents.filter(
+    (doc) => doc.documentNo.toLowerCase() === input.documentId.trim().toLowerCase()
+  );
+  const document =
+    byNo.length === 1
+      ? byNo[0]
+      : resolveByIdPrefix(documents, input.documentId, "нэхэмжлэх");
+  // deleteArApDocument өөрөө "зөвхөн ноорог" дүрмээ шалгана.
+  await deleteArApDocument(document.id);
+  return {
+    resultText: `Ноорог нэхэмжлэх устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
+  };
+}
+
+// Хугацааны задаргааны багцууд (asOf − dueDate хоногоор).
+const AGING_BUCKETS = [
+  { label: "хугацаа болоогүй", min: -Infinity, max: -1 },
+  { label: "0-30", min: 0, max: 30 },
+  { label: "31-60", min: 31, max: 60 },
+  { label: "61-90", min: 61, max: 90 },
+  { label: "90+", min: 91, max: Infinity },
+] as const;
+
+async function runCounterpartyBalance(
+  userId: string,
+  input: { counterparty?: string; asOf?: string; aging?: boolean }
+): Promise<AiToolResult> {
+  const asOf = input.asOf?.trim() || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf))
+    throw new Error("asOf огноо YYYY-MM-DD форматтай байна");
+
+  const [documents, settlements] = await Promise.all([
+    db.query.arApDocuments.findMany({
+      where: eq(arApDocuments.userId, userId),
+      with: { counterparty: { columns: { id: true, name: true } } },
+    }),
+    db.query.arApSettlements.findMany({
+      where: eq(arApSettlements.userId, userId),
+    }),
+  ]);
+  // asOf-оор түүхэн үлдэгдэл: paidAmount биш settlement-ийн огноогоор тоолно.
+  const paidAsOf = new Map<string, number>();
+  for (const settlement of settlements) {
+    if (settlement.settlementDate > asOf) continue;
+    paidAsOf.set(
+      settlement.documentId,
+      (paidAsOf.get(settlement.documentId) ?? 0) + Number(settlement.amount)
+    );
+  }
+
+  const cpQuery = input.counterparty?.trim().toLowerCase();
+  const open = documents.filter((doc) => {
+    if (doc.status === "draft" || doc.status === "reversed") return false;
+    if (doc.date > asOf) return false;
+    if (cpQuery && !(doc.counterparty?.name ?? "").toLowerCase().includes(cpQuery))
+      return false;
+    const balance = Number(doc.totalAmount) - (paidAsOf.get(doc.id) ?? 0);
+    return balance > 0.01;
+  });
+  if (open.length === 0)
+    return {
+      resultText: `${asOf}-ны байдлаар ${cpQuery ? `"${input.counterparty}" харилцагчид` : ""} үлдэгдэлтэй нэхэмжлэх алга`,
+    };
+
+  const daysOverdue = (dueDate: string) =>
+    Math.floor(
+      (Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`)) / 86_400_000
+    );
+  const bucketOf = (dueDate: string) => {
+    const days = daysOverdue(dueDate);
+    return AGING_BUCKETS.find((bucket) => days >= bucket.min && days <= bucket.max)!;
+  };
+
+  const sections: string[] = [];
+  for (const documentType of ["ar_invoice", "ap_bill"] as const) {
+    const docs = open.filter((doc) => doc.documentType === documentType);
+    if (docs.length === 0) continue;
+    const label = documentType === "ar_invoice" ? "АВЛАГА" : "ӨГЛӨГ";
+    const byCp = new Map<string, typeof docs>();
+    for (const doc of docs) {
+      const key = doc.counterparty?.name ?? "?";
+      byCp.set(key, [...(byCp.get(key) ?? []), doc]);
+    }
+    const lines: string[] = [];
+    let sectionTotal = 0;
+    for (const [cpName, cpDocs] of [...byCp.entries()].sort((a, b) =>
+      a[0].localeCompare(b[0])
+    )) {
+      const cpTotal = cpDocs.reduce(
+        (sum, doc) => sum + Number(doc.totalAmount) - (paidAsOf.get(doc.id) ?? 0),
+        0
+      );
+      sectionTotal += cpTotal;
+      lines.push(`  ${cpName} — ${fmt(cpTotal)}₮`);
+      for (const doc of cpDocs) {
+        const balance = Number(doc.totalAmount) - (paidAsOf.get(doc.id) ?? 0);
+        const partial = balance < Number(doc.totalAmount) - 0.01 ? ", хэсэгчилсэн" : "";
+        lines.push(
+          `    ${doc.date} · ${doc.documentNo} · үлдэгдэл ${fmt(balance)}₮${partial}${input.aging ? ` · ${bucketOf(doc.dueDate).label}` : ""}`
+        );
+      }
+    }
+    if (input.aging) {
+      const bucketTotals = AGING_BUCKETS.map((bucket) => ({
+        bucket,
+        total: docs
+          .filter((doc) => bucketOf(doc.dueDate) === bucket)
+          .reduce(
+            (sum, doc) => sum + Number(doc.totalAmount) - (paidAsOf.get(doc.id) ?? 0),
+            0
+          ),
+      })).filter((entry) => entry.total > 0.01);
+      lines.push(
+        `  Задаргаа: ${bucketTotals.map((entry) => `${entry.bucket.label} ${fmt(entry.total)}₮`).join(" · ")}`
+      );
+    }
+    sections.push(`${label} (${asOf}-ны байдлаар): нийт ${fmt(sectionTotal)}₮\n${lines.join("\n")}`);
+  }
+  return { resultText: sections.join("\n\n") };
+}
+
+// ── Batch (бөөн оруулалт) гүйцэтгэгчид ──────────────────────────────────────
+
+/** Partial success: мөр бүр тусдаа — нэг мөрийн алдаа бусдыг унагахгүй (спек §9). */
+async function runCreateBatch(
+  items: unknown[] | undefined,
+  runOne: (item: unknown, index: number) => Promise<AiToolResult>
+): Promise<AiToolResult> {
+  if (!Array.isArray(items) || items.length === 0)
+    throw new Error("items хоосон байна");
+  if (items.length > 100) throw new Error("Нэг batch-д хамгийн ихдээ 100 мөр");
+  const lines: string[] = [];
+  let created = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const [index, item] of items.entries()) {
+    try {
+      const result = await runOne(item, index);
+      if (result.dedup) {
+        skipped += 1;
+        lines.push(`#${index} алгассан — ${result.resultText}`);
+      } else {
+        created += 1;
+        lines.push(`#${index} үүссэн — ${result.resultText}`);
+      }
+    } catch (caught) {
+      failed += 1;
+      lines.push(`#${index} АЛДАА — ${errorText(caught)}`);
+    }
+  }
+  return {
+    resultText: [
+      `Нийт ${items.length} · үүссэн ${created} · алгассан ${skipped} · алдаатай ${failed}`,
+      ...lines,
+    ].join("\n"),
+  };
+}
+
+/** Бөөнөөр батлах: хязгаараас хэтэрсэн нь вэб дээрээс батлах жагсаалт болно (спек §10). */
+async function runPostBatch(
+  ids: string[] | undefined,
+  mode: AiWriteMode,
+  postOne: (id: string) => Promise<AiToolResult>
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  if (!Array.isArray(ids) || ids.length === 0)
+    throw new Error("ID-ийн жагсаалт хоосон байна");
+  if (ids.length > 100) throw new Error("Нэг batch-д хамгийн ихдээ 100 баримт");
+  const lines: string[] = [];
+  const needsManual: string[] = [];
+  let posted = 0;
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      const result = await postOne(String(id));
+      posted += 1;
+      lines.push(`${id} батлагдсан — ${result.resultText}`);
+    } catch (caught) {
+      const message = errorText(caught);
+      failed += 1;
+      if (message.startsWith("[AMOUNT_LIMIT_EXCEEDED]")) needsManual.push(String(id));
+      lines.push(`${id} АЛДАА — ${message}`);
+    }
+  }
+  const summary = [
+    `Нийт ${ids.length} · батлагдсан ${posted} · алдаатай ${failed}`,
+    ...lines,
+  ];
+  if (needsManual.length > 0)
+    summary.push(
+      `Вэб дээрээс нягтланч батлах шаардлагатай (${fmt(AI_POST_LIMIT_MNT)}₮-с их): ${needsManual.join(", ")}`
+    );
+  return { resultText: summary.join("\n") };
+}
+
 // ── Касс нэмэлт гүйцэтгэгчид ────────────────────────────────────────────────
 
 async function runListCashDocuments(
   userId: string,
-  input: { status?: string; limit?: number }
+  input: {
+    documentType?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
   const documents = await db.query.cashDocuments.findMany({
@@ -2434,14 +3135,20 @@ async function runListCashDocuments(
     transfer: "шилжүүлэг",
   };
   const filtered = documents
-    .filter((doc) => !input.status || doc.status === input.status)
+    .filter((doc) => {
+      if (input.documentType && doc.documentType !== input.documentType) return false;
+      if (input.status && doc.status !== input.status) return false;
+      if (input.from && doc.date < input.from) return false;
+      if (input.to && doc.date > input.to) return false;
+      return true;
+    })
     .slice(0, limit);
   if (filtered.length === 0) return { resultText: "Тохирох баримт олдсонгүй" };
   return {
     resultText: filtered
       .map(
         (doc) =>
-          `${doc.date} · ${typeLabels[doc.documentType] ?? doc.documentType} · ${doc.description} · ${fmt(Number(doc.amount))} · ${doc.status} · ID ${doc.id.slice(0, 8)}`
+          `${doc.date} · ${doc.documentNo} · ${typeLabels[doc.documentType] ?? doc.documentType} · ${doc.description} · ${fmt(Number(doc.amount))} · ${doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`
       )
       .join("\n"),
   };
@@ -3071,6 +3778,10 @@ export async function executeAiTool(
         return await runGetTrialBalance(userId, args);
       case "list_arap_documents":
         return await runListArapDocuments(userId, args);
+      case "delete_arap_document":
+        return await runDeleteArap(userId, args);
+      case "get_counterparty_balance":
+        return await runCounterpartyBalance(userId, args);
       case "pay_arap_document":
         return await runPayArap(userId, args, mode);
       case "list_cash_documents":
@@ -3105,6 +3816,30 @@ export async function executeAiTool(
         return await runReconcileModules(userId, args);
       case "get_workflow_guide":
         return runWorkflowGuide(args);
+      case "create_counterparties_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateCounterparty(userId, item as Parameters<typeof runCreateCounterparty>[1])
+        );
+      case "create_arap_invoices_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateArap(userId, item as Parameters<typeof runCreateArap>[1], mode)
+        );
+      case "create_cash_transactions_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateCash(userId, item as Parameters<typeof runCreateCash>[1], mode)
+        );
+      case "post_arap_documents_batch":
+        return await runPostBatch(args.documentIds, mode, (id) =>
+          runPostArap(userId, { documentId: id }, mode)
+        );
+      case "post_cash_documents_batch":
+        return await runPostBatch(args.documentIds, mode, (id) =>
+          runPostCash(userId, { documentId: id }, mode)
+        );
+      case "post_journal_vouchers_batch":
+        return await runPostBatch(args.voucherIds, mode, (id) =>
+          runPostJournal(userId, { voucherId: id }, mode)
+        );
       default:
         return { resultText: `"${name}" гэдэг tool байхгүй` };
     }
