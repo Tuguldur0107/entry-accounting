@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { runAsUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiSettings, apiTokens } from "@/lib/db/schema";
+import { resolveOAuthAccessToken } from "@/lib/oauth/server";
 import {
   DEFAULT_AI_WRITE_MODE,
   isAiWriteMode,
@@ -45,9 +46,14 @@ function rpcError(id: number | string | null, code: number, message: string) {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-/** Түлхий token → userId (sha256 тулгалт + lastUsedAt тэмдэглэнэ). */
+/**
+ * Түлхий token → userId. Хоёр төрлийг хүлээнэ:
+ *   eak_...  Personal Access Token (Тохиргоо → MCP холболт)
+ *   eoat_... OAuth access token (custom connector-ийн Connect урсгал)
+ */
 export async function resolveApiToken(token: string): Promise<string | null> {
   if (!token) return null;
+  if (token.startsWith("eoat_")) return resolveOAuthAccessToken(token);
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const row = await db.query.apiTokens.findFirst({
     where: eq(apiTokens.tokenHash, tokenHash),
@@ -174,13 +180,21 @@ export async function handleMcpPost(
   }
 }
 
-export function mcpUnauthorized(): Response {
+export function mcpUnauthorized(request: Request): Response {
+  // resource_metadata заавар — OAuth чадвартай клиент (claude.ai custom
+  // connector) эндээс authorization server-ээ олж Connect урсгалаа эхлүүлнэ.
+  const origin = new URL(request.url).origin;
   return Response.json(
     {
       error:
         "Token буруу эсвэл хүчингүй — Тохиргоо → MCP холболт хэсгээс шинээр үүсгэнэ үү",
     },
-    { status: 401, headers: { "WWW-Authenticate": "Bearer" } }
+    {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/mcp"`,
+      },
+    }
   );
 }
 

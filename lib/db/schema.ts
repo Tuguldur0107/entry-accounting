@@ -1555,6 +1555,49 @@ export const aiAttachmentsRelations = relations(aiAttachments, ({ one }) => ({
   }),
 }));
 
+// ── OAuth 2.1 (MCP custom connector) ────────────────────────────────────────
+// claude.ai / Cowork-ийн custom connector "Connect" дарахад dynamic client
+// registration → PKCE authorize → token гэсэн стандарт урсгалаар холбогдоно.
+// Бүх нууц (code, access, refresh) sha256 hash-аараа хадгалагдана.
+
+export const oauthClients = pgTable("oauth_clients", {
+  id: uuid("id").primaryKey().defaultRandom(), // = client_id
+  name: text("name").notNull(),
+  /** JSON массив — зөвшөөрөгдсөн redirect_uri-ууд. */
+  redirectUris: text("redirect_uris").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const oauthCodes = pgTable("oauth_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  codeHash: text("code_hash").notNull().unique(),
+  clientId: uuid("client_id")
+    .notNull()
+    .references(() => oauthClients.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  redirectUri: text("redirect_uri").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const oauthTokens = pgTable("oauth_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  clientId: uuid("client_id")
+    .notNull()
+    .references(() => oauthClients.id, { onDelete: "cascade" }),
+  accessTokenHash: text("access_token_hash").notNull().unique(),
+  refreshTokenHash: text("refresh_token_hash").notNull().unique(),
+  accessExpiresAt: timestamp("access_expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
 // MCP холболтын Personal Access Token — Claude Code зэрэг гадны MCP клиент
 // Bearer token-оор нэвтэрнэ. Түлхүүр өөрөө хадгалагдахгүй, sha256 hash нь л
 // хадгалагдана (үүсгэх мөчид НЭГ л удаа бүтнээрээ харагдана).

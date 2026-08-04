@@ -23,7 +23,7 @@ type Params = { params: Promise<{ token: string }> };
 export async function POST(request: Request, { params }: Params) {
   const { token } = await params;
   const userId = await resolveApiToken(token);
-  if (!userId) return mcpUnauthorized();
+  if (!userId) return mcpUnauthorized(request);
   return handleMcpPost(userId, request);
 }
 

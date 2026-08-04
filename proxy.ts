@@ -7,12 +7,16 @@ const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth;
-  const { pathname } = req.nextUrl;
+  const { pathname, search } = req.nextUrl;
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
 
   if (!isLoggedIn && !isAuthPage) {
-    return NextResponse.redirect(new URL("/login", req.nextUrl));
+    const login = new URL("/login", req.nextUrl);
+    // Нэвтэрснийхээ дараа очих гэж байсан хуудас руугаа буцна (OAuth
+    // authorize зэрэг параметртэй урсгалд заавал хэрэгтэй).
+    login.searchParams.set("callbackUrl", pathname + search);
+    return NextResponse.redirect(login);
   }
 
   if (isLoggedIn && isAuthPage) {
@@ -23,5 +27,6 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // .well-known — OAuth discovery metadata нээлттэй байх ёстой.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|\\.well-known).*)"],
 };

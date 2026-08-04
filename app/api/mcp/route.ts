@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   const userId = await resolveApiToken(token);
-  if (!userId) return mcpUnauthorized();
+  if (!userId) return mcpUnauthorized(request);
   return handleMcpPost(userId, request);
 }
 

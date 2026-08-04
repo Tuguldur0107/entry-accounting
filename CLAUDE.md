@@ -328,9 +328,25 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
                    claude mcp add --transport http --scope user \
                      entry-accounting https://<domain>/api/mcp \
                      --header "Authorization: Bearer <token>"
-/api/mcp/<token>   Token нь URL-д — claude.ai / Cowork-ийн custom connector
-                   (тэнд header тохируулах боломжгүй); холбоос = нууц
+/api/mcp/<token>   Token нь URL-д (fallback зам)
 ```
+
+**OAuth 2.1 (custom connector-ийн үндсэн зам):** claude.ai / Cowork-ийн
+"Connect" товч стандарт урсгалаар холбогдоно — цөм нь `lib/oauth/server.ts`:
+
+```
+/.well-known/oauth-authorization-server   RFC 8414 metadata (path-aware)
+/.well-known/oauth-protected-resource     RFC 9728 (401-ийн WWW-Authenticate заадаг)
+/api/oauth/register                       RFC 7591 DCR (public client, нууцгүй)
+/oauth/authorize                          Consent хуудас (standalone, login redirect
+                                          callbackUrl-тэй), PKCE S256 ЗААВАЛ
+/api/oauth/token                          code + refresh grant (rotation)
+```
+
+- Бүх нууц (code/access/refresh) sha256 hash-аар `oauth_*` хүснэгтүүдэд;
+  code нэг удаагийн, access 7 хоног, refresh rotation-тэй
+- MCP-ийн `resolveApiToken` `eak_` (PAT) болон `eoat_` (OAuth) хоёуланг танина
+- proxy matcher `.well-known`-ийг алгасдаг; login redirect callbackUrl дамжуулдаг
 
 - **Нэвтрэлт:** Personal Access Token (`eak_...`, Тохиргоо → AI туслах →
   MCP холболт). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л
