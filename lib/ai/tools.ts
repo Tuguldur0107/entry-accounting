@@ -26,10 +26,12 @@ import {
   counterparties,
   inventoryIssueTypes,
   inventoryItems,
+  journalVouchers,
   segmentConfigs,
   segmentValues,
   warehouses,
 } from "@/lib/db/schema";
+import { desc } from "drizzle-orm";
 import { normalizePastedAccount, parseSegParts } from "@/lib/grid/segments";
 
 import type { AiWriteMode } from "./models";
@@ -259,6 +261,24 @@ export const AI_TOOLS: AiToolDef[] = [
     name: "list_cash_accounts",
     description: "Идэвхтэй кассын/банкны дансны жагсаалт (нэр, төрөл, валют, GL данс).",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_journal_vouchers",
+    description:
+      "Журналын бичилтүүдийн жагсаалт (огноо, утга, дүн, төлөв) — сүүлийнх нь эхэндээ. Үүсгэсэн ноорогоо шалгах, тайлагнахад ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD (сонголтоор)" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD (сонголтоор)" },
+        status: {
+          type: "string",
+          enum: ["draft", "posted", "reversed"],
+          description: "Төлвөөр шүүх (сонголтоор)",
+        },
+        limit: { type: "integer", description: "Хамгийн ихдээ хэдэн мөр (default 20, max 50)" },
+      },
+    },
   },
 ];
 
@@ -819,6 +839,45 @@ async function runListInventory(
   };
 }
 
+async function runListJournalVouchers(
+  userId: string,
+  input: { from?: string; to?: string; status?: string; limit?: number }
+): Promise<AiToolResult> {
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
+  const vouchers = await db.query.journalVouchers.findMany({
+    where: eq(journalVouchers.userId, userId),
+    with: { lines: { columns: { debit: true } } },
+    orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
+    // Огноогоор JS талд шүүх тул хангалттай нөөцтэй татна.
+    limit: 400,
+  });
+  const statusLabels: Record<string, string> = {
+    draft: "ноорог",
+    posted: "батлагдсан",
+    reversed: "буцаагдсан",
+  };
+  const filtered = vouchers
+    .filter((voucher) => {
+      if (input.from && voucher.date < input.from) return false;
+      if (input.to && voucher.date > input.to) return false;
+      if (input.status && voucher.status !== input.status) return false;
+      return true;
+    })
+    .slice(0, limit);
+  if (filtered.length === 0) return { resultText: "Тохирох журнал олдсонгүй" };
+  return {
+    resultText: filtered
+      .map((voucher) => {
+        const total = voucher.lines.reduce(
+          (sum, line) => sum + Number(line.debit),
+          0
+        );
+        return `${voucher.date} · ${voucher.description || "(утгагүй)"} · ${fmt(total)}₮ · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id.slice(0, 8)}`;
+      })
+      .join("\n"),
+  };
+}
+
 async function runListCashAccounts(userId: string): Promise<AiToolResult> {
   const accounts = await db.query.cashAccounts.findMany({
     where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
@@ -867,6 +926,8 @@ export async function executeAiTool(
         return await runListInventory(userId, args);
       case "list_cash_accounts":
         return await runListCashAccounts(userId);
+      case "list_journal_vouchers":
+        return await runListJournalVouchers(userId, args);
       default:
         return { resultText: `"${name}" гэдэг tool байхгүй` };
     }

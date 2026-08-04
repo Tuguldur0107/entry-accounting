@@ -1555,6 +1555,22 @@ export const aiAttachmentsRelations = relations(aiAttachments, ({ one }) => ({
   }),
 }));
 
+// MCP холболтын Personal Access Token — Claude Code зэрэг гадны MCP клиент
+// Bearer token-оор нэвтэрнэ. Түлхүүр өөрөө хадгалагдахгүй, sha256 hash нь л
+// хадгалагдана (үүсгэх мөчид НЭГ л удаа бүтнээрээ харагдана).
+export const apiTokens = pgTable("api_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  /** Сүүлийн 4 тэмдэгт — жагсаалтад таних зорилгоор. */
+  tokenHint: text("token_hint").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
 // AI туслахын хэрэглэгч бүрийн тохиргоо. apiKey нь хэрэглэгчийн өөрийн
 // Anthropic түлхүүр — байхгүй бол серверийн ANTHROPIC_API_KEY-г ашиглана.
 // openaiApiKey — OpenAI моделиудад (байхгүй бол серверийн OPENAI_API_KEY).

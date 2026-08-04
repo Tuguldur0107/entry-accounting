@@ -6,14 +6,18 @@ import { db } from "@/lib/db";
 import { aiSettings } from "@/lib/db/schema";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { DEFAULT_AI_EFFORT, DEFAULT_AI_MODEL } from "@/lib/ai/models";
+import { listApiTokens } from "@/lib/actions/mcp-tokens";
 
 export default async function AiSettingsPage() {
   const session = await auth();
   const userId = session!.user!.id!;
 
-  const settings = await db.query.aiSettings.findFirst({
-    where: eq(aiSettings.userId, userId),
-  });
+  const [settings, mcpTokens] = await Promise.all([
+    db.query.aiSettings.findFirst({
+      where: eq(aiSettings.userId, userId),
+    }),
+    listApiTokens(),
+  ]);
 
   // Түлхүүр шифрлэгдсэн хадгалагддаг — hint-д сүүлийн 4 тэмдэгтийг л
   // тайлж үзүүлнэ (тайлагдахгүй бол •••• — AUTH_SECRET солигдсон гэх мэт).
@@ -35,6 +39,7 @@ export default async function AiSettingsPage() {
       envKeyConfigured={Boolean(process.env.ANTHROPIC_API_KEY)}
       openaiKeyHint={openaiKeyHint}
       openaiEnvKeyConfigured={Boolean(process.env.OPENAI_API_KEY)}
+      mcpTokens={mcpTokens}
     />
   );
 }

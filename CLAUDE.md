@@ -318,6 +318,27 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
 - Модель/горимын сонголт `ai_settings`-д хадгалагдана; provider нь
   сонгосон моделиос тодорхойлогдоно; OpenAI-д PDF хавсралт дэмжигдэхгүй
 
+### 9b. MCP server — гадны Claude клиентэд нээх
+
+`app/api/mcp/route.ts` — streamable HTTP (stateless JSON-RPC POST) MCP
+server. Claude Code дараах командаар холбогдоно:
+
+```
+claude mcp add --transport http entry-accounting https://<domain>/api/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+- **Нэвтрэлт:** Personal Access Token (`eak_...`, Тохиргоо → AI туслах →
+  MCP холболт). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л
+  удаа бүтнээрээ харагдана; хэрэглэгч бүр дээд тал нь 5 token
+- **Tools = чатын agent-тай ИЖИЛ давхарга** (`lib/ai/tools.ts`) — тусдаа
+  логик ХОРИОТОЙ; шинэ tool нэмбэл хоёр замд зэрэг очно
+- **Impersonation:** `runAsUser(userId, fn)` (lib/auth.ts, AsyncLocalStorage)
+  — server action доторх `auth()` token-ий эзний session мэт хариулна.
+  Cookie-той ердийн замд огт нөлөөгүй
+- Бичилтийн горим нь чатын toggle-тэй НЭГ тохиргоо (`ai_settings.write_mode`)
+- proxy.ts-ийн matcher `/api`-г алгасдаг тул энэ зам login redirect-д орохгүй
+
 ### 10. Effective date (татвар/цалины тооцоололд)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/effective-date.md`
