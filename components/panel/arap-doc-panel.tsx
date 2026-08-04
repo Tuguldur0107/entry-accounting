@@ -10,15 +10,21 @@ import { IconAction } from "@/components/ui/icon-action";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
-import type { CellValueChangedEvent, ColDef } from "ag-grid-community";
+import type {
+  CellValueChangedEvent,
+  ColDef,
+  ICellRendererParams,
+} from "ag-grid-community";
 import { toast } from "sonner";
 
 import { AccountInput } from "@/components/account/account-input";
+import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { arapLinesSpec, type ArapLineImport } from "@/lib/excel/specs";
+import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -45,6 +51,7 @@ import {
 } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
+  openCashDocPanel,
   openCashNewPanel,
   openVoucherPanel,
   refreshOpenPanels,
@@ -550,9 +557,30 @@ function ArapDocReadOnly({
   const closePanel = usePanelStore((state) => state.closePanel);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [isPending, startTransition] = useTransition();
+  const { print, renderSheet } = usePanelPrint();
 
-  const { activeSegIds, inventoryItems, warehouses } = data;
+  const { activeSegIds, segmentOptions, inventoryItems, warehouses, payments } =
+    data;
   const hasItems = document.lines.some((line) => line.itemId);
+
+  // Данс дээр дарахад журнал бичихтэй ижил сегментийн panel нээгдэнэ.
+  const [segPanel, setSegPanel] = useState<{
+    code: string;
+    anchor: DOMRect;
+  } | null>(null);
+
+  const accountNameByMain = useMemo(
+    () =>
+      new Map(
+        (segmentOptions[3] ?? []).map((option) => [option.code, option.name])
+      ),
+    [segmentOptions]
+  );
+  const accountName = (code: string) => {
+    const parts = String(code ?? "").split(".");
+    const main = parts.length === 10 ? parts[2] : String(code ?? "");
+    return accountNameByMain.get(main) ?? "";
+  };
   const itemLabelById = useMemo(
     () =>
       new Map(
@@ -571,25 +599,71 @@ function ArapDocReadOnly({
     [warehouses]
   );
 
-  const columns = useMemo<ColDef<ArApDocumentDetail["lines"][number]>[]>(
+  type LineView = ArApDocumentDetail["lines"][number];
+  // Журнал бичих дэлгэцтэй ижил дараалал: Данс · Дансны нэр · Дүн ·
+  // (Бараа · Тоо · Агуулах) · Тайлбар СҮҮЛД + pinned нийт дүн.
+  const columns = useMemo<ColDef<LineView>[]>(
     () => [
-      { headerName: "#", width: 48, valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1 },
+      {
+        headerName: "#",
+        width: 48,
+        cellClass: "ag-center-cell text-xs",
+        valueGetter: (p) =>
+          p.node?.rowPinned || p.node?.rowIndex == null ? "" : p.node.rowIndex + 1,
+      },
       {
         headerName: "Данс",
         field: "account",
         minWidth: 200,
         flex: 1,
+        cellClass: (p) =>
+          p.node?.rowPinned
+            ? "font-semibold text-[var(--ea-text-1)]"
+            : "font-mono text-xs",
         valueFormatter: (params) =>
-          fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
+          params.node?.rowPinned
+            ? "Нийт дүн"
+            : fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
+        // Дарахад сегментээр задалж харах panel (журнал бичихтэй ижил UX).
+        cellRenderer: (p: ICellRendererParams<LineView>) => {
+          if (!p.data || p.node?.rowPinned) return p.valueFormatted ?? "";
+          const code = String(p.data.account ?? "");
+          return (
+            <button
+              type="button"
+              data-account-segment-trigger
+              aria-haspopup="dialog"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setSegPanel((prev) =>
+                  prev && prev.code === code ? null : { code, anchor: rect }
+                );
+              }}
+              title="Сегментээр харах"
+              className="flex h-full w-full items-center gap-1.5 text-left transition-colors hover:text-[var(--ea-primary)]"
+            >
+              <span className="min-w-0 truncate">{p.valueFormatted ?? ""}</span>
+              <Icon name="chevronDown" size="xs" className="shrink-0 text-[var(--ea-text-4)]" />
+            </button>
+          );
+        },
       },
-      { headerName: "Тайлбар", field: "description", minWidth: 170, flex: 1 },
+      {
+        headerName: "Дансны нэр",
+        colId: "account-name",
+        width: 190,
+        cellClass: "text-xs text-[var(--ea-text-2)]",
+        valueGetter: (p) =>
+          !p.data || p.node?.rowPinned ? "" : accountName(p.data.account),
+      },
       {
         headerName: "Дүн",
         field: "amount",
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: (params) =>
+          params.value != null && params.value !== "" ? fmtMnt(Number(params.value)) : "",
       },
       ...(hasItems
         ? ([
@@ -598,7 +672,11 @@ function ArapDocReadOnly({
               field: "itemId",
               minWidth: 160,
               valueFormatter: (params) =>
-                params.value ? itemLabelById.get(String(params.value)) ?? "—" : "—",
+                params.node?.rowPinned
+                  ? ""
+                  : params.value
+                    ? itemLabelById.get(String(params.value)) ?? "—"
+                    : "—",
             },
             {
               headerName: "Тоо",
@@ -607,21 +685,51 @@ function ArapDocReadOnly({
               cellClass: "ag-right-aligned-cell font-mono",
               headerClass: "ag-right-aligned-header",
               valueFormatter: (params) =>
-                params.value != null ? String(params.value) : "",
+                params.node?.rowPinned
+                  ? ""
+                  : params.value != null
+                    ? String(params.value)
+                    : "",
             },
             {
               headerName: "Агуулах",
               field: "warehouseId",
               minWidth: 140,
               valueFormatter: (params) =>
-                params.value
-                  ? warehouseLabelById.get(String(params.value)) ?? "—"
-                  : "—",
+                params.node?.rowPinned
+                  ? ""
+                  : params.value
+                    ? warehouseLabelById.get(String(params.value)) ?? "—"
+                    : "—",
             },
-          ] as ColDef<ArApDocumentDetail["lines"][number]>[])
+          ] as ColDef<LineView>[])
         : []),
+      {
+        headerName: "Тайлбар",
+        field: "description",
+        minWidth: 170,
+        flex: 1,
+        cellClass: "text-xs",
+      },
     ],
-    [activeSegIds, hasItems, itemLabelById, warehouseLabelById]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSegIds, hasItems, itemLabelById, warehouseLabelById, accountNameByMain]
+  );
+
+  const pinnedTotals = useMemo(
+    () =>
+      [
+        {
+          id: "__totals__",
+          account: "",
+          description: "",
+          amount: document.lines.reduce(
+            (sum, line) => sum + Number(line.amount ?? 0),
+            0
+          ),
+        } as LineView,
+      ],
+    [document.lines]
   );
 
   function postDraft() {
@@ -646,6 +754,116 @@ function ArapDocReadOnly({
   }
 
   const foreign = document.currency !== "MNT";
+  const isAr = document.documentType === "ar_invoice";
+
+  // Хэвлэх маягт — НЭХЭМЖЛЭХ (АР) / ХУДАЛДАН АВАЛТЫН БАРИМТ (АП).
+  const printSheet = (
+    <div className="ea-print-sheet hidden bg-white p-8 text-black print:block">
+      <div className="mb-1 text-center text-lg font-bold uppercase tracking-wide">
+        {isAr ? "НЭХЭМЖЛЭХ" : "ХУДАЛДАН АВАЛТЫН БАРИМТ"}
+      </div>
+      <div className="mb-5 text-center text-xs text-neutral-500">
+        № {document.documentNo}
+      </div>
+      <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
+        <div>
+          <span className="text-neutral-500">{isAr ? "Худалдан авагч" : "Нийлүүлэгч"}: </span>
+          {document.counterpartyName}
+        </div>
+        <div>
+          <span className="text-neutral-500">Огноо: </span>
+          <span className="font-mono">{document.date}</span>
+        </div>
+        <div>
+          <span className="text-neutral-500">Төлөх огноо: </span>
+          <span className="font-mono">{document.dueDate}</span>
+        </div>
+        <div className="col-span-3">
+          <span className="text-neutral-500">Утга: </span>
+          {document.description || "—"}
+        </div>
+      </div>
+
+      <div
+        className="grid border-b border-t border-black text-xs"
+        style={{
+          gridTemplateColumns: hasItems
+            ? "0.4fr 2fr 1.4fr 0.7fr 1fr"
+            : "0.4fr 2.6fr 1.6fr 1fr",
+        }}
+      >
+        <div className="border-b border-neutral-400 py-1.5 font-semibold">№</div>
+        <div className="border-b border-neutral-400 py-1.5 font-semibold">Тайлбар</div>
+        {hasItems && (
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Бараа</div>
+        )}
+        {hasItems && (
+          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">Тоо</div>
+        )}
+        {!hasItems && (
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Данс</div>
+        )}
+        <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">
+          Дүн ({document.currency})
+        </div>
+        {document.lines.map((line, index) => (
+          <div key={line.id} className="contents">
+            <div className="py-1">{index + 1}</div>
+            <div className="py-1">{line.description || "—"}</div>
+            {hasItems && (
+              <div className="py-1">
+                {line.itemId ? itemLabelById.get(line.itemId) ?? "" : ""}
+              </div>
+            )}
+            {hasItems && (
+              <div className="py-1 text-right font-mono">
+                {line.quantity != null ? String(line.quantity) : ""}
+              </div>
+            )}
+            {!hasItems && (
+              <div className="py-1 font-mono">
+                {fmtAccountDisplay(line.account, activeSegIds)}
+              </div>
+            )}
+            <div className="py-1 text-right font-mono">
+              {fmtMnt(Number(line.amount ?? 0))}
+            </div>
+          </div>
+        ))}
+        <div
+          className="border-t border-black py-1.5 font-semibold"
+          style={{ gridColumn: hasItems ? "1 / span 4" : "1 / span 3" }}
+        >
+          Нийт дүн
+        </div>
+        <div className="border-t border-black py-1.5 text-right font-mono font-semibold">
+          {fmtMnt(document.totalAmount)}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <span className="text-neutral-500">Төлсөн: </span>
+          <span className="font-mono">{fmtMnt(document.paidAmount)}</span>
+        </div>
+        <div>
+          <span className="text-neutral-500">Үлдэгдэл: </span>
+          <span className="font-mono font-semibold">{fmtMnt(document.balance)}</span>
+        </div>
+      </div>
+
+      <div className="mt-12 grid grid-cols-2 gap-8 text-xs">
+        <div>
+          Захирал: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+        <div>
+          Нягтлан бодогч: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
@@ -687,15 +905,76 @@ function ArapDocReadOnly({
         <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
           Мөрүүд
         </div>
-        <DataGridDynamic<ArApDocumentDetail["lines"][number]>
+        <DataGridDynamic<LineView>
           rowData={document.lines}
           columnDefs={columns}
           getRowId={(params) => params.data.id}
-          height={Math.min(360, 86 + document.lines.length * 38)}
+          pinnedBottomRowData={pinnedTotals}
+          height={Math.min(420, 130 + document.lines.length * 38)}
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
+          enableCellTextSelection
+        />
+        <AccountSegmentPanel
+          anchor={segPanel?.anchor ?? null}
+          value={segPanel?.code ?? ""}
+          onCancel={() => setSegPanel(null)}
+          activeSegIds={activeSegIds}
+          segmentOptions={segmentOptions}
+          readOnly
         />
       </div>
+
+      {/* Төлөлтүүд — нэхэмжлэхтэй холбогдсон мөнгөн хөрөнгийн баримтууд */}
+      {payments.length > 0 && (
+        <div>
+          <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
+            Төлөлтүүд
+          </div>
+          <div className="space-y-1.5">
+            {payments.map((payment) => (
+              <button
+                key={payment.id}
+                type="button"
+                onClick={() => openCashDocPanel(payment.id, payment.documentNo)}
+                className="flex w-full items-center gap-2.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left transition-colors hover:border-[var(--ea-primary)]"
+              >
+                <Icon name="cash" size="sm" className="shrink-0 text-[var(--ea-primary)]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-[var(--ea-text-1)]">
+                    {payment.documentNo}
+                  </span>
+                  <span className="font-mono text-[10px] text-[var(--ea-text-4)]">
+                    {payment.date}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono text-xs font-semibold text-[var(--ea-text-1)]">
+                  {fmtMnt(payment.baseAmount)}
+                </span>
+                <StatusBadge
+                  tone={
+                    payment.status === "posted"
+                      ? "success"
+                      : payment.status === "reversed"
+                        ? "muted"
+                        : "warning"
+                  }
+                >
+                  {payment.status === "posted"
+                    ? "Батлагдсан"
+                    : payment.status === "reversed"
+                      ? "Буцаагдсан"
+                      : "Ноорог"}
+                </StatusBadge>
+                <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--ea-primary)]">
+                  Нээх
+                  <Icon name="openDetail" size="xs" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <ReadField label={`Нийт дүн (${document.currency})`}>
@@ -729,6 +1008,10 @@ function ArapDocReadOnly({
       </div>
 
       <div className="mt-auto flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">
+        <Button variant="outline" onClick={print} disabled={isPending}>
+          <Icon name="print" size="sm" />
+          Хэвлэх
+        </Button>
         <Button variant="outline" onClick={requestClose}>
           Хаах
         </Button>
@@ -756,6 +1039,7 @@ function ArapDocReadOnly({
         )}
       </div>
       {confirmDialog}
+      {renderSheet(printSheet)}
     </div>
   );
 }

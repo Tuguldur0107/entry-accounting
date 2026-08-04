@@ -30,7 +30,9 @@ import {
   type CashDocPanelData,
 } from "@/lib/actions/cash";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
+import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import {
   openArapDocPanel,
   openVoucherPanel,
@@ -76,6 +78,7 @@ export function CashDocPanel({
 
   const documentId = panel.payload.documentId as string | undefined;
   const refreshToken = panel.refreshToken;
+  const { print, renderSheet } = usePanelPrint();
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "error"; message: string }
@@ -246,9 +249,102 @@ export function CashDocPanel({
   const journalId = detail.voucherId ?? detail.sourceVoucherId;
   const showsSourceVoucher = !detail.voucherId && !!detail.sourceVoucherId;
 
+  const printTitle =
+    document.documentType === "receipt"
+      ? "МӨНГӨН ОРЛОГЫН БАРИМТ"
+      : document.documentType === "payment"
+        ? "МӨНГӨН ЗАРЛАГЫН БАРИМТ"
+        : "ШИЛЖҮҮЛГИЙН БАРИМТ";
+
+  // Хэвлэх маягт — журналын баримттай ижил хэв маяг, кассын толгойтой.
+  const printSheet = (
+    <div className="ea-print-sheet hidden bg-white p-8 text-black print:block">
+      <div className="mb-1 text-center text-lg font-bold uppercase tracking-wide">
+        {printTitle}
+      </div>
+      <div className="mb-5 text-center text-xs text-neutral-500">
+        № {document.documentNo}
+      </div>
+      <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
+        <div>
+          <span className="text-neutral-500">Огноо: </span>
+          <span className="font-mono">{document.date}</span>
+        </div>
+        <div>
+          <span className="text-neutral-500">Данс: </span>
+          {cashAccountLabel}
+        </div>
+        <div>
+          <span className="text-neutral-500">Дүн: </span>
+          <span className="font-mono font-semibold">{amountLabel}</span>
+        </div>
+        {document.counterparty && (
+          <div>
+            <span className="text-neutral-500">Харилцагч: </span>
+            {document.counterparty}
+          </div>
+        )}
+        {linkedInvoice && (
+          <div>
+            <span className="text-neutral-500">Нэхэмжлэх: </span>
+            <span className="font-mono">{linkedInvoice.documentNo}</span>
+          </div>
+        )}
+        <div className="col-span-3">
+          <span className="text-neutral-500">Гүйлгээний утга: </span>
+          {document.description || "—"}
+        </div>
+      </div>
+
+      {detail.lines.length > 0 && (
+        <div
+          className="grid border-b border-t border-black text-xs"
+          style={{ gridTemplateColumns: "1.4fr 1.2fr 1.4fr 0.9fr 0.9fr" }}
+        >
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Данс</div>
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Дансны нэр</div>
+          <div className="border-b border-neutral-400 py-1.5 font-semibold">Тайлбар</div>
+          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">Дебет</div>
+          <div className="border-b border-neutral-400 py-1.5 text-right font-semibold">Кредит</div>
+          {detail.lines.map((line, index) => (
+            <div key={index} className="contents">
+              <div className="py-1 font-mono">
+                {fmtAccountDisplay(line.accountNumber, activeSegIds)}
+              </div>
+              <div className="py-1">{glName(line.accountNumber.split(".").length === 10 ? line.accountNumber.split(".")[2] : line.accountNumber)}</div>
+              <div className="py-1">{line.description ?? ""}</div>
+              <div className="py-1 text-right font-mono">
+                {Number(line.debit) ? fmtMnt(Number(line.debit)) : ""}
+              </div>
+              <div className="py-1 text-right font-mono">
+                {Number(line.credit) ? fmtMnt(Number(line.credit)) : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-12 grid grid-cols-3 gap-8 text-xs">
+        <div>
+          Бүрдүүлсэн: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+        <div>
+          Шалгасан: _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+        <div>
+          {document.documentType === "receipt" ? "Тушаасан" : "Хүлээн авсан"}:
+          _______________________
+          <div className="mt-1 text-neutral-500">/овог нэр, гарын үсэг/</div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
-      <div className="mx-auto w-full max-w-3xl space-y-4">
+      <div className="mx-auto w-full max-w-5xl space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
             <span className="mr-2 font-mono text-xs font-normal text-[var(--ea-text-3)]">
@@ -391,6 +487,10 @@ export function CashDocPanel({
 
         {/* Үйлдлүүд — GL журналын харах дэлгэцтэй ижил зарчим */}
         <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">
+          <Button variant="outline" onClick={print} disabled={isPending}>
+            <Icon name="print" size="sm" />
+            Хэвлэх
+          </Button>
           <Button variant="outline" onClick={requestClose} disabled={isPending}>
             Хаах
           </Button>
@@ -415,6 +515,7 @@ export function CashDocPanel({
         </div>
       </div>
       {confirmDialog}
+      {renderSheet(printSheet)}
     </div>
   );
 }

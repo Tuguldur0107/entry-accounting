@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import {
   arApDocumentLines,
   arApDocuments,
+  cashDocuments,
   chartOfAccounts,
   counterparties,
   journalLines,
@@ -113,6 +114,14 @@ export type ArapDocPanelData = {
   clearingAccountNumber: string;
   /** documentId өгөгдсөн үед л — read-only харагдацын баримт. */
   document: ArApDocumentDetail | null;
+  /** Нэхэмжлэхтэй холбогдсон мөнгөн хөрөнгийн баримтууд (төлөлтүүд). */
+  payments: {
+    id: string;
+    documentNo: string;
+    date: string;
+    baseAmount: number;
+    status: string;
+  }[];
 };
 
 export type ArapDocPanelResult =
@@ -126,16 +135,39 @@ export async function getArapDocPanelData(
   const userId = session?.user?.id;
   if (!userId) return { ok: false, code: "unauthenticated" };
 
-  const [segmentData, counterpartyRows, inventoryOptions, document, costingAccounts] =
-    await Promise.all([
-      loadArApSegmentData(userId),
-      loadArApCounterparties(userId),
-      loadArApInventoryOptions(userId),
-      documentId
-        ? loadArApDocumentDetail(userId, documentId)
-        : Promise.resolve(null),
-      loadCostingAccountSettings(userId),
-    ]);
+  const [
+    segmentData,
+    counterpartyRows,
+    inventoryOptions,
+    document,
+    costingAccounts,
+    paymentRows,
+  ] = await Promise.all([
+    loadArApSegmentData(userId),
+    loadArApCounterparties(userId),
+    loadArApInventoryOptions(userId),
+    documentId
+      ? loadArApDocumentDetail(userId, documentId)
+      : Promise.resolve(null),
+    loadCostingAccountSettings(userId),
+    documentId
+      ? db.query.cashDocuments.findMany({
+          where: and(
+            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.arApDocumentId, documentId)
+          ),
+          columns: {
+            id: true,
+            documentNo: true,
+            date: true,
+            amount: true,
+            baseAmount: true,
+            status: true,
+          },
+          orderBy: (doc, { asc }) => [asc(doc.date)],
+        })
+      : Promise.resolve([]),
+  ]);
 
   if (documentId && !document) return { ok: false, code: "not-found" };
 
@@ -150,6 +182,13 @@ export async function getArapDocPanelData(
       warehouses: inventoryOptions.warehouses,
       clearingAccountNumber: costingAccounts.clearingAccountNumber,
       document,
+      payments: paymentRows.map((row) => ({
+        id: row.id,
+        documentNo: row.documentNo,
+        date: row.date,
+        baseAmount: Number(row.baseAmount ?? row.amount),
+        status: row.status,
+      })),
     },
   };
 }
