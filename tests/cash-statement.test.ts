@@ -93,13 +93,13 @@ test("validates every active Cash segment and inactive defaults", () => {
       },
     ]
   );
-  const valid = "ENT..11000001...000.0000.OPER.CA.0";
+  const valid = "ENT.000000.11000001.00.0000.000.0000.OPER.CA.0";
 
   assert.equal(validateCashAccountCode(valid, rules), "11000001");
   assert.throws(
     () =>
       validateCashAccountCode(
-        "ENT.CC01.11000001...000.0000.OPER.CA.0",
+        "ENT.CC01.11000001.00.0000.000.0000.OPER.CA.0",
         rules
       ),
     /S2 сегмент Cash-д идэвхгүй/
@@ -107,7 +107,7 @@ test("validates every active Cash segment and inactive defaults", () => {
   assert.throws(
     () =>
       validateCashAccountCode(
-        "ENT..11000001...000.0000.INVL.CA.0",
+        "ENT.000000.11000001.00.0000.000.0000.INVL.CA.0",
         rules
       ),
     /S8 сегментийн утга Cash-д идэвхгүй/

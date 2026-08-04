@@ -5,7 +5,11 @@
 // value нь үргэлж бүтэн 10-part dotted код байна.
 
 import { SEGMENT_DEFS, ACCOUNT_GROUPS } from "@/lib/constants/standard-accounts";
-import { buildSegCode, parseSegParts } from "@/lib/grid/segments";
+import {
+  buildSegCode,
+  parseSegParts,
+  withSegDefaultOption,
+} from "@/lib/grid/segments";
 import { SegSelect, type SegOption } from "@/lib/grid/editors/SegSelect";
 
 export interface AccountSegmentPickerProps {
@@ -64,7 +68,10 @@ export function AccountSegmentPicker({
               </div>
             ) : (
               <SegSelect
-                options={segmentOptions[segmentId] ?? []}
+                options={withSegDefaultOption(
+                  segmentId,
+                  segmentOptions[segmentId] ?? []
+                )}
                 value={parts[segmentId] ?? ""}
                 onChange={(nextValue) =>
                   onChange(

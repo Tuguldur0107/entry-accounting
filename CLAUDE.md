@@ -528,9 +528,19 @@ save       →  store.buildBatch() → { create, update, delete: string[] } → 
 ### Сегмент дүрэм (заавал биелүүлэх)
 
 - Editor бүр **бүтэн 10-part dotted код** буцаана (`buildSegCode`-р).
-- Идэвхгүй сегмент `SEG_DEFAULTS` дунд `0`-р padded.
-- Read/display: `fmtAccountDisplay(code, activeSegIds)` идэвхтэй хэсгийг л үзүүлнэ.
-- Paste-д partial код ирэх боломжтой — `normalizePastedAccount`-оор normalize хийнэ.
+- **Бүх сегмент бөглөгдөнө:** бичигдээгүй (идэвхгүй ЭСВЭЛ идэвхтэй ч
+  сонгоогүй) сегмент **оронгийн тоогоор "0"** утга авна — `SEG_DEFAULTS` нь
+  SEGMENT_DEFS-ийн length-ээс автоматаар гарна (S1="000", S2="000000"…).
+  Онцгой: S3 үндсэн данс default-гүй (заавал сонгоно), S9="GL".
+- Идэвхгүй байсан сегментийг идэвхжүүлэхэд хуучин дата "0…0" утгатайгаа
+  шууд харагдана — migration хэрэггүй (parseSegParts хуучин хоосон хэсгийг
+  ч default-аар уншина; DB-ийн хуучин код 2026-08-д нэг удаа 0-жүүлэгдсэн).
+- Picker бүрд "Ерөнхий (default)" 0-сонголт автоматаар нэмэгдэнэ
+  (`withSegDefaultOption`, S3-д үгүй).
+- Read/display: `fmtAccountDisplay(code, activeSegIds)` идэвхтэй хэсгийг л
+  үзүүлнэ; данс (S3) сонгогдоогүй бол бүхэлдээ хоосон.
+- Paste/Excel/AI/MCP бүгд `normalizePastedAccount`-оор normalize хийнэ —
+  хуучин форматын (хоосон хэсэгтэй) код мөн 0-жиж орж ирнэ.
 
 ### SSR
 
