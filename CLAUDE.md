@@ -320,12 +320,16 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
 
 ### 9b. MCP server — гадны Claude клиентэд нээх
 
-`app/api/mcp/route.ts` — streamable HTTP (stateless JSON-RPC POST) MCP
-server. Claude Code дараах командаар холбогдоно:
+Цөм: `lib/mcp/server.ts` (streamable HTTP, stateless JSON-RPC POST) —
+хоёр route хуваалцана:
 
 ```
-claude mcp add --transport http entry-accounting https://<domain>/api/mcp \
-  --header "Authorization: Bearer <token>"
+/api/mcp           Bearer header (Claude Code CLI):
+                   claude mcp add --transport http --scope user \
+                     entry-accounting https://<domain>/api/mcp \
+                     --header "Authorization: Bearer <token>"
+/api/mcp/<token>   Token нь URL-д — claude.ai / Cowork-ийн custom connector
+                   (тэнд header тохируулах боломжгүй); холбоос = нууц
 ```
 
 - **Нэвтрэлт:** Personal Access Token (`eak_...`, Тохиргоо → AI туслах →

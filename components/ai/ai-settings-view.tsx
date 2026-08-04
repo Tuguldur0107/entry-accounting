@@ -198,8 +198,10 @@ export function AiSettingsView({
       ? `${window.location.origin}/api/mcp`
       : "/api/mcp";
   const claudeCommand = freshToken
-    ? `claude mcp add --transport http entry-accounting ${mcpUrl} --header "Authorization: Bearer ${freshToken}"`
+    ? `claude mcp add --transport http --scope user entry-accounting ${mcpUrl} --header "Authorization: Bearer ${freshToken}"`
     : null;
+  // claude.ai / Cowork-ийн custom connector header дэмждэггүй — token-URL.
+  const connectorUrl = freshToken ? `${mcpUrl}/${freshToken}` : null;
 
   function saveSettings() {
     startTransition(async () => {
@@ -420,6 +422,23 @@ export function AiSettingsView({
                   variant="outline"
                   size="sm"
                   onClick={() => copyText(claudeCommand)}
+                >
+                  <Icon name="copy" size="sm" />
+                </Button>
+              </div>
+              <p className="text-xs text-[var(--ea-text-3)]">
+                Cowork / claude.ai-д: Settings → Connectors → Add custom
+                connector хэсэгт доорх URL-ыг бүтнээр нь оруулна (token нь
+                URL дотроо — холбоосыг нууц мэт хадгална):
+              </p>
+              <div className="flex items-start gap-2">
+                <code className="min-w-0 flex-1 select-all break-all rounded bg-[var(--ea-bg-2)] px-2 py-1.5 font-mono text-[11px] text-[var(--ea-text-1)]">
+                  {connectorUrl}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => connectorUrl && copyText(connectorUrl)}
                 >
                   <Icon name="copy" size="sm" />
                 </Button>
