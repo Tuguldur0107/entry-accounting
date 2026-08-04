@@ -27,9 +27,11 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   createCashOpeningVoucher,
+  postCashDocument,
   postCashFxRevaluation,
   reverseCashFxRevaluation,
 } from "@/lib/actions/cash";
+import { openCashDocPanel } from "@/lib/store/panel-store";
 import {
   rateForBasis,
   type ExchangeRateBasis,
@@ -58,6 +60,20 @@ export type CashReconciliationRow = {
   cashToGlDifference: number | null;
   /** Модульд бүртгэлтэй нээлтийн үлдэгдэл — GL-д дутуу бол зөрүүний шалтгаан. */
   openingBalance: number;
+  /** Дансанд хамаатай НООРОГ баримтууд — зөрүүний оношилгоонд. */
+  pendingDrafts: {
+    id: string;
+    documentNo: string;
+    date: string;
+    documentType: string;
+    baseAmount: number;
+    /** GL журналаас үүссэн (журнал нь GL-д аль хэдийн бичигдсэн). */
+    fromGl: boolean;
+    /** Валютын ханш тодорхойгүй — батлахын өмнө ханш оруулна. */
+    rateUnknown: boolean;
+    /** Батлагдвал энэ дансны бүртгэлд орох чиглэлтэй дүн (+ орлого, − зарлага). */
+    effect: number;
+  }[];
   rateSource: string | null;
   rateBasis: string | null;
   sourceDate: string | null;
@@ -210,19 +226,62 @@ export function CashReconciliationWorkspace({
     [rows]
   );
 
-  // Зөрүү нь яг нээлтийн үлдэгдэлтэй тэнцүү данснууд — GL-д нээлтийн журнал
-  // дутуу гэсэн ойлгомжтой оношилгоо + нэг товчны засвар.
-  const openingFixRows = useMemo(
+  // Зөрүүтэй данс бүрийн ОНОШИЛГОО — шалтгаан бүрийг дүнтэй нь задалж,
+  // засах товчтой нь хамт "Зөрүүг арилгах" хэсэгт үзүүлнэ.
+  const fixCards = useMemo(
     () =>
-      rows.filter(
-        (row) =>
-          row.cashToGlDifference != null &&
-          Math.abs(row.cashToGlDifference) > 0.01 &&
-          Math.abs(row.openingBalance) > 0.005 &&
-          Math.abs(row.cashToGlDifference - row.openingBalance) <= 0.01
-      ),
+      rows
+        .map((row) => {
+          const diff = row.cashToGlDifference ?? 0;
+          if (Math.abs(diff) <= 0.01) return null;
+
+          // Шалтгаан 1: нээлтийн үлдэгдэл GL-д бичигдээгүй.
+          const openingMissing =
+            Math.abs(row.openingBalance) > 0.005 &&
+            Math.abs(diff - row.openingBalance) <= 0.01;
+
+          // Шалтгаан 2: GL-ээс үүссэн ноорог — журнал нь GL-д бичигдсэн ч
+          // кассын бүртгэлд ноорог хэвээр. Батлагдвал зөрүү арилна.
+          const glDrafts = row.pendingDrafts.filter((doc) => doc.fromGl);
+          const glDraftsEffect = glDrafts.reduce((sum, doc) => sum + doc.effect, 0);
+
+          // Тайлбарлагдаагүй үлдэгдэл зөрүү.
+          const residual =
+            Math.round(
+              (diff - (openingMissing ? row.openingBalance : 0) + glDraftsEffect) * 100
+            ) / 100;
+
+          return {
+            row,
+            diff,
+            openingMissing,
+            glDrafts,
+            plainDrafts: row.pendingDrafts.filter((doc) => !doc.fromGl),
+            residual,
+          };
+        })
+        .filter((card): card is NonNullable<typeof card> => card !== null),
     [rows]
   );
+
+  function handlePostPendingDoc(doc: CashReconciliationRow["pendingDrafts"][number]) {
+    void confirm({
+      title: "Баримт батлах",
+      description: `${doc.documentNo} (${doc.date}, ${fmtMnt(doc.baseAmount)}) ноорог баримтыг батлах уу?${doc.fromGl ? " Журнал нь GL-д аль хэдийн бичигдсэн тул шинэ журнал үүсэхгүй — зөвхөн кассын бүртгэлд орно." : " Батлагдахад GL журнал үүснэ."}`,
+      confirmText: "Батлах",
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await postCashDocument(doc.id);
+          toast.success(`${doc.documentNo} батлагдлаа`);
+          router.refresh();
+        } catch (caught) {
+          toast.error(caught instanceof Error ? caught.message : "Батлах амжилтгүй");
+        }
+      });
+    });
+  }
 
   function handleCreateOpeningVoucher(row: CashReconciliationRow) {
     void confirm({
@@ -294,7 +353,8 @@ export function CashReconciliationWorkspace({
       },
       { headerName: "Валют", field: "currency", width: 86 },
       {
-        headerName: "Банкны үлдэгдэл",
+        headerName: "Банкны хуулга",
+        headerTooltip: "Импортолсон банкны хуулгын хаалтын үлдэгдэл (Дансны хуулга хэсгээс)",
         field: "bankBalance",
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
@@ -304,12 +364,14 @@ export function CashReconciliationWorkspace({
       },
       {
         headerName: "Хуулгын огноо",
+        headerTooltip: "Хуулгын хамгийн сүүлийн нотлох огноо",
         field: "bankBalanceDate",
         width: 120,
         cellClass: "font-mono text-xs",
       },
       {
-        headerName: "Дотоод бүртгэл",
+        headerName: "Кассын бүртгэл",
+        headerTooltip: "Нээлтийн үлдэгдэл + батлагдсан орлого − зарлага (дансны валютаар)",
         field: "cashBalance",
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
@@ -318,6 +380,7 @@ export function CashReconciliationWorkspace({
       },
       {
         headerName: "Хаалтын ханш",
+        headerTooltip: "Валютын дансыг MNT руу хөрвүүлэх сүүлд баталсан ханш",
         field: "closingRate",
         width: 130,
         cellClass: "ag-right-aligned-cell font-mono",
@@ -330,16 +393,18 @@ export function CashReconciliationWorkspace({
               }),
       },
       {
-        headerName: "Дотоод бүртгэл (MNT)",
+        headerName: "Кассын бүртгэл (MNT)",
+        headerTooltip: "Кассын бүртгэл × хаалтын ханш",
         field: "cashBalanceMnt",
-        width: 150,
+        width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
           numberOrBlank(params.value == null ? null : Number(params.value)),
       },
       {
-        headerName: "GL үлдэгдэл (MNT)",
+        headerName: "GL журнал (MNT)",
+        headerTooltip: "Батлагдсан журналын мөрүүдийн нийлбэр — энэ дансны GL дугаараар",
         field: "glBalance",
         width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
@@ -347,19 +412,35 @@ export function CashReconciliationWorkspace({
         valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
       },
       {
-        headerName: "Банк–Бүртгэл",
+        headerName: "Хуулга − Бүртгэл",
+        headerTooltip:
+          "0 биш бол: хуулга дутуу импортлогдсон эсвэл кассын баримт дутуу бүртгэгдсэн",
         field: "bankToCashDifference",
-        width: 145,
-        cellClass: "ag-right-aligned-cell font-mono",
+        width: 150,
+        cellClass: (params) =>
+          cn(
+            "ag-right-aligned-cell font-mono",
+            params.value != null &&
+              Math.abs(Number(params.value)) > 0.01 &&
+              "font-semibold text-[var(--ea-danger)]"
+          ),
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
           numberOrBlank(params.value == null ? null : Number(params.value)),
       },
       {
-        headerName: "Бүртгэл–GL",
+        headerName: "Бүртгэл − GL",
+        headerTooltip:
+          "0 биш бол: шалтгаан, засах алхам нь доорх «Зөрүүг арилгах» хэсэгт гарна",
         field: "cashToGlDifference",
-        width: 145,
-        cellClass: "ag-right-aligned-cell font-mono font-semibold",
+        width: 150,
+        cellClass: (params) =>
+          cn(
+            "ag-right-aligned-cell font-mono",
+            params.value != null &&
+              Math.abs(Number(params.value)) > 0.01 &&
+              "font-semibold text-[var(--ea-danger)]"
+          ),
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
           numberOrBlank(params.value == null ? null : Number(params.value)),
@@ -827,7 +908,8 @@ export function CashReconciliationWorkspace({
             Тулгалт ба ханшийн тэгшитгэл
           </h1>
           <div className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Банк · Дотоод бүртгэл · GL
+            Гурван эх сурвалжийг тулгана: Банкны хуулга ↔ Кассын бүртгэл ↔ GL
+            журнал. Зөрүү гарвал шалтгаан, засах алхам нь доор автоматаар гарна.
           </div>
         </div>
         <div className="flex w-full items-center gap-2 sm:w-auto">
@@ -927,35 +1009,115 @@ export function CashReconciliationWorkspace({
           ))}
         </div>
 
-        {/* Нээлтийн үлдэгдэл GL-д бичигдээгүйгээс үүссэн зөрүү — нэг товчоор
-            ноорог журнал үүсгэж арилгана. */}
-        {openingFixRows.length > 0 && (
-          <div className="mt-3 space-y-2 rounded-md border border-[var(--ea-warning)] bg-[var(--ea-warning)]/5 p-3">
-            <p className="text-xs font-medium text-[var(--ea-warning-fg)]">
-              <Icon name="info" size="xs" className="mr-1 inline-block" />
-              Доорх дансдын зөрүү нь НЭЭЛТИЙН ҮЛДЭГДЭЛТЭЙ тэнцүү байна — данс
-              үүсгэхэд нээлтийн дүн зөвхөн модульд бүртгэгдсэн, GL-д журнал
-              бичигдээгүй гэсэн үг. Товч дармагц Дт/Кт данс ↔ эздийн өмчийн
-              НООРОГ журнал үүснэ — шалгаад баталмагц зөрүү арилна.
-            </p>
-            {openingFixRows.map((row) => (
+        {/* ЗӨРҮҮГ АРИЛГАХ — зөрүүтэй данс бүрийн шалтгааны задаргаа, засах
+            товчнууд. Хэрэглэгч энэ хуудаснаас гаралгүйгээр зөрүүгээ ойлгож,
+            арилгаж чадна. */}
+        {fixCards.length > 0 && (
+          <div className="mt-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Icon name="tune" size="sm" className="text-[var(--ea-warning)]" />
+              <h3 className="text-sm font-semibold text-[var(--ea-text-1)]">
+                Зөрүүг арилгах
+              </h3>
+            </div>
+            {fixCards.map(({ row, diff, openingMissing, glDrafts, plainDrafts, residual }) => (
               <div
                 key={row.id}
-                className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2"
+                className="space-y-2.5 rounded-md border border-[var(--ea-warning)] bg-[var(--ea-warning)]/5 p-3"
               >
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--ea-text-1)]">
-                  {row.accountName}
-                </span>
-                <span className="font-mono text-xs text-[var(--ea-text-2)]">
-                  нээлт {fmtMnt(row.openingBalance)}
-                </span>
-                <Button
-                  size="sm"
-                  disabled={isPending}
-                  onClick={() => handleCreateOpeningVoucher(row)}
-                >
-                  Нээлтийн журнал үүсгэх
-                </Button>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="text-sm font-semibold text-[var(--ea-text-1)]">
+                    {row.accountName}
+                  </span>
+                  <span className="font-mono text-xs text-[var(--ea-text-3)]">
+                    Кассын бүртгэл {fmtMnt(row.cashBalanceMnt ?? row.cashBalance)} · GL{" "}
+                    {fmtMnt(row.glBalance)} · зөрүү{" "}
+                    <span className="font-semibold text-[var(--ea-danger-fg)]">
+                      {fmtMnt(diff)}
+                    </span>
+                  </span>
+                </div>
+
+                {openingMissing && (
+                  <div className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+                    <span className="min-w-0 flex-1 text-xs text-[var(--ea-text-2)]">
+                      <span className="font-medium text-[var(--ea-text-1)]">
+                        Нээлтийн үлдэгдэл GL-д бичигдээгүй.
+                      </span>{" "}
+                      Данс үүсгэхэд нээлтийн {fmtMnt(row.openingBalance)} зөвхөн кассын
+                      бүртгэлд орсон. Товч дармагц данс ↔ эздийн өмчийн НООРОГ журнал
+                      үүснэ — журналын жагсаалтаас баталмагц зөрүү арилна.
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() => handleCreateOpeningVoucher(row)}
+                    >
+                      Нээлтийн журнал үүсгэх
+                    </Button>
+                  </div>
+                )}
+
+                {glDrafts.length > 0 && (
+                  <div className="space-y-1.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+                    <p className="text-xs text-[var(--ea-text-2)]">
+                      <span className="font-medium text-[var(--ea-text-1)]">
+                        GL-ээс үүссэн ноорог баримт ({glDrafts.length}).
+                      </span>{" "}
+                      Журнал нь GL-д аль хэдийн бичигдсэн ч кассын бүртгэлд ноорог
+                      хэвээр тул зөрүү үүсгэж байна — баталмагц бүртгэлд орж зөрүү
+                      арилна (шинэ журнал үүсэхгүй).
+                    </p>
+                    {glDrafts.map((doc) => (
+                      <div key={doc.id} className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openCashDocPanel(doc.id, doc.documentNo)}
+                          className="font-mono text-xs text-[var(--ea-primary)] hover:underline"
+                        >
+                          {doc.documentNo}
+                        </button>
+                        <span className="font-mono text-xs text-[var(--ea-text-3)]">
+                          {doc.date} · {fmtMnt(doc.effect)}
+                        </span>
+                        {doc.rateUnknown ? (
+                          <span className="text-[11px] text-[var(--ea-warning-fg)]">
+                            ханш оруулж батална — нээгээд засна уу
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isPending}
+                            onClick={() => handlePostPendingDoc(doc)}
+                          >
+                            Батлах
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {Math.abs(residual) > 0.01 && (
+                  <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
+                    <span className="font-medium text-[var(--ea-text-1)]">
+                      Тайлбарлагдаагүй зөрүү {fmtMnt(residual)}.
+                    </span>{" "}
+                    GL-д гараар бичсэн журнал эсвэл кассын бүртгэлээс дутуу баримт
+                    байж болзошгүй — журналын жагсаалтаас энэ дансны ({row.glAccountNumber})
+                    бичилтүүдийг шалгана уу. AI туслахаас &quot;{row.accountName} дансны
+                    зөрүүг оношлоод өг&quot; гэж асууж болно.
+                  </div>
+                )}
+
+                {plainDrafts.length > 0 && (
+                  <p className="text-[11px] text-[var(--ea-text-4)]">
+                    Мөн батлагдаагүй {plainDrafts.length} энгийн ноорог баримт бий
+                    (зөрүүнд нөлөөгүй ч батлагдвал үлдэгдэл өөрчлөгдөнө) —{" "}
+                    {plainDrafts.map((doc) => doc.documentNo).join(", ")}
+                  </p>
+                )}
               </div>
             ))}
           </div>

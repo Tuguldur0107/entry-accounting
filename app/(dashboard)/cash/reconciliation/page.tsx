@@ -147,6 +147,38 @@ export default async function CashReconciliationPage({
       latestFxRate.set(revaluation.cashAccountId, revaluation);
   }
 
+  // Данс бүрийн НООРОГ баримтууд — зөрүүний оношилгоонд:
+  //   - GL-ээс үүссэн (sourceVoucherId-тэй) ноорог: журнал нь GL-д аль
+  //     хэдийн бичигдсэн ч кассын бүртгэлд ороогүй → Бүртгэл−GL зөрүү үүсгэнэ
+  //   - Энгийн ноорог: аль талд ч тоологдоогүй — зөрүүнд нөлөөгүй ч
+  //     батлагдаагүй орхигдсоныг сануулна
+  const pendingDraftsByAccount = new Map<
+    string,
+    CashReconciliationRow["pendingDrafts"]
+  >();
+  for (const doc of documents) {
+    if (doc.status !== "draft") continue;
+    const entry = {
+      id: doc.id,
+      documentNo: doc.documentNo,
+      date: doc.date,
+      documentType: doc.documentType,
+      baseAmount: Number(doc.baseAmount ?? doc.amount),
+      fromGl: !!doc.sourceVoucherId,
+      rateUnknown: Number(doc.exchangeRate ?? 1) === 0,
+    };
+    for (const accountId of [doc.fromCashAccountId, doc.toCashAccountId]) {
+      if (!accountId) continue;
+      const list = pendingDraftsByAccount.get(accountId) ?? [];
+      list.push({
+        ...entry,
+        // Энэ дансны бүртгэлд батлагдвал орох чиглэл.
+        effect: doc.toCashAccountId === accountId ? entry.baseAmount : -entry.baseAmount,
+      });
+      pendingDraftsByAccount.set(accountId, list);
+    }
+  }
+
   const rows: CashReconciliationRow[] = accounts.map((account) => {
     const cashBalance = cashBalanceMap.get(account.id) ?? 0;
     const glBalance = glBalanceMap.get(account.id) ?? 0;
@@ -196,6 +228,7 @@ export default async function CashReconciliationPage({
       bankToCashDifference,
       cashToGlDifference,
       openingBalance: Number(account.openingBalance ?? 0),
+      pendingDrafts: pendingDraftsByAccount.get(account.id) ?? [],
       status:
         // Юу ч хөдлөөгүй хоосон данс — тулгах зүйл алга, "тэнцсэн" гэж үзнэ
         // (0 үлдэгдэлтэй валютын данс "Ханш дутуу"/"Хуулгагүй" гэж дэмий
