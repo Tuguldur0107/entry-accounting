@@ -154,7 +154,14 @@ function validateAssetInput(data: FixedAssetInput) {
     throw new Error("Хөрөнгө эзэмшигч (хариуцагч) оруулна уу");
 }
 
-export async function createFixedAsset(data: FixedAssetInput) {
+export async function createFixedAsset(
+  data: FixedAssetInput,
+  options?: {
+    /** true бол "draft" төлөвтэй карт үүсгэнэ (AI туслах §9 — хэрэглэгч
+     * шалгаж идэвхжүүлнэ; АП sync-ийн draft карттай ижил урсгал). */
+    asDraft?: boolean;
+  }
+) {
   const userId = await requireUser();
   validateAssetInput(data);
   await assertEnabledMainAccount(userId, data.assetAccountNumber.trim());
@@ -178,23 +185,27 @@ export async function createFixedAsset(data: FixedAssetInput) {
       .slice(0, 6)
       .toUpperCase()}`;
 
-  await db.insert(fixedAssets).values({
-    userId,
-    code,
-    name: data.name.trim(),
-    acquisitionDate: data.acquisitionDate,
-    cost: String(Math.round(Number(data.cost) * 100) / 100),
-    salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
-    usefulLifeMonths: data.usefulLifeMonths,
-    depreciationMethod: data.depreciationMethod,
-    custodian: data.custodian.trim().slice(0, 120),
-    depreciationStartMonth: data.depreciationStartMonth,
-    assetAccountNumber: data.assetAccountNumber.trim(),
-    accumDepAccountNumber: data.accumDepAccountNumber.trim(),
-    depExpenseAccountNumber: data.depExpenseAccountNumber.trim(),
-    status: "active",
-  });
+  const [created] = await db
+    .insert(fixedAssets)
+    .values({
+      userId,
+      code,
+      name: data.name.trim(),
+      acquisitionDate: data.acquisitionDate,
+      cost: String(Math.round(Number(data.cost) * 100) / 100),
+      salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
+      usefulLifeMonths: data.usefulLifeMonths,
+      depreciationMethod: data.depreciationMethod,
+      custodian: data.custodian.trim().slice(0, 120),
+      depreciationStartMonth: data.depreciationStartMonth,
+      assetAccountNumber: data.assetAccountNumber.trim(),
+      accumDepAccountNumber: data.accumDepAccountNumber.trim(),
+      depExpenseAccountNumber: data.depExpenseAccountNumber.trim(),
+      status: options?.asDraft ? "draft" : "active",
+    })
+    .returning({ id: fixedAssets.id });
   revalidateFa();
+  return { id: created.id, code };
 }
 
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж

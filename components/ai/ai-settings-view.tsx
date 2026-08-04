@@ -12,10 +12,12 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   removeAiApiKey,
+  removeAiOpenAiApiKey,
   saveAiSettings,
   setAiApiKey,
+  setAiOpenAiApiKey,
 } from "@/lib/actions/ai";
-import { AI_EFFORT_OPTIONS, AI_MODELS } from "@/lib/ai/models";
+import { AI_EFFORT_OPTIONS, AI_MODELS, AI_PROVIDER_LABELS } from "@/lib/ai/models";
 
 interface Props {
   model: string;
@@ -25,6 +27,9 @@ interface Props {
   keyHint: string | null;
   /** Серверийн орчинд ANTHROPIC_API_KEY байгаа эсэх (fallback). */
   envKeyConfigured: boolean;
+  /** OpenAI түлхүүрийн hint + орчны fallback. */
+  openaiKeyHint: string | null;
+  openaiEnvKeyConfigured: boolean;
 }
 
 export function AiSettingsView({
@@ -33,6 +38,8 @@ export function AiSettingsView({
   customInstructions: initialInstructions,
   keyHint,
   envKeyConfigured,
+  openaiKeyHint,
+  openaiEnvKeyConfigured,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -40,13 +47,20 @@ export function AiSettingsView({
   const [effort, setEffort] = useState(initialEffort);
   const [instructions, setInstructions] = useState(initialInstructions);
   const [keyInput, setKeyInput] = useState("");
+  const [openaiKeyInput, setOpenaiKeyInput] = useState("");
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const keyStatus = keyHint
     ? `Хадгалсан түлхүүр: sk-ant-••••${keyHint}`
     : envKeyConfigured
       ? "Серверийн орчны түлхүүр (.env.local) ашиглаж байна"
-      : "Түлхүүр тохируулаагүй — AI туслах ажиллахгүй";
+      : "Түлхүүр тохируулаагүй — Claude моделиуд ажиллахгүй";
+
+  const openaiKeyStatus = openaiKeyHint
+    ? `Хадгалсан түлхүүр: sk-••••${openaiKeyHint}`
+    : openaiEnvKeyConfigured
+      ? "Серверийн орчны түлхүүр ашиглаж байна"
+      : "Түлхүүр тохируулаагүй — OpenAI моделиуд ажиллахгүй (сонголтоор)";
 
   function saveKey() {
     startTransition(async () => {
@@ -63,12 +77,27 @@ export function AiSettingsView({
     });
   }
 
+  function saveOpenaiKey() {
+    startTransition(async () => {
+      try {
+        await setAiOpenAiApiKey(openaiKeyInput);
+        setOpenaiKeyInput("");
+        router.refresh();
+        toast.success("OpenAI түлхүүр хадгалагдлаа");
+      } catch (caught) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Хадгалж чадсангүй"
+        );
+      }
+    });
+  }
+
   async function removeKey() {
     const ok = await confirm({
       title: "Түлхүүр устгах",
       description: envKeyConfigured
         ? "Хадгалсан түлхүүр устаж, серверийн орчны түлхүүр рүү буцна."
-        : "Хадгалсан түлхүүр устана — өөр түлхүүр оруулах хүртэл AI туслах ажиллахгүй.",
+        : "Хадгалсан түлхүүр устана — өөр түлхүүр оруулах хүртэл Claude моделиуд ажиллахгүй.",
       confirmText: "Устгах",
       danger: true,
     });
@@ -76,6 +105,27 @@ export function AiSettingsView({
     startTransition(async () => {
       try {
         await removeAiApiKey();
+        router.refresh();
+        toast.success("Түлхүүр устгагдлаа");
+      } catch (caught) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Устгаж чадсангүй"
+        );
+      }
+    });
+  }
+
+  async function removeOpenaiKey() {
+    const ok = await confirm({
+      title: "OpenAI түлхүүр устгах",
+      description: "Хадгалсан OpenAI түлхүүр устана.",
+      confirmText: "Устгах",
+      danger: true,
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      try {
+        await removeAiOpenAiApiKey();
         router.refresh();
         toast.success("Түлхүүр устгагдлаа");
       } catch (caught) {
@@ -163,6 +213,56 @@ export function AiSettingsView({
           </div>
         </div>
 
+        {/* OpenAI API түлхүүр — сонголтоор */}
+        <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+            <Icon name="key" size="sm" />
+            OpenAI API түлхүүр (сонголтоор)
+          </h2>
+          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+            platform.openai.com → API keys хэсгээс түлхүүр үүсгэнэ. GPT
+            моделиудыг чатнаас сонгож ашиглах бол шаардлагатай.
+          </p>
+          <p
+            className={
+              openaiKeyHint || openaiEnvKeyConfigured
+                ? "mt-3 text-xs font-medium text-[var(--ea-success)]"
+                : "mt-3 text-xs font-medium text-[var(--ea-text-4)]"
+            }
+          >
+            {openaiKeyStatus}
+          </p>
+          <div className="mt-3 flex items-end gap-2">
+            <div className="grid flex-1 gap-1.5">
+              <Label htmlFor="ai-openai-key">Шинэ түлхүүр</Label>
+              <Input
+                id="ai-openai-key"
+                type="password"
+                autoComplete="off"
+                placeholder="sk-..."
+                value={openaiKeyInput}
+                onChange={(event) => setOpenaiKeyInput(event.target.value)}
+              />
+            </div>
+            <Button
+              onClick={saveOpenaiKey}
+              disabled={isPending || !openaiKeyInput.trim()}
+            >
+              Хадгалах
+            </Button>
+            {openaiKeyHint && (
+              <Button
+                variant="outline"
+                onClick={removeOpenaiKey}
+                disabled={isPending}
+                title="Хадгалсан түлхүүр устгах"
+              >
+                <Icon name="delete" size="sm" />
+              </Button>
+            )}
+          </div>
+        </div>
+
         {/* Модель + хариултын гүн + нэмэлт заавар */}
         <div className="space-y-4 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
           <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
@@ -177,6 +277,7 @@ export function AiSettingsView({
               options={AI_MODELS.map((entry) => ({
                 value: entry.id,
                 label: `${entry.label} — ${entry.description}`,
+                hint: AI_PROVIDER_LABELS[entry.provider],
               }))}
               placeholder="Модель сонгох..."
               hideValue

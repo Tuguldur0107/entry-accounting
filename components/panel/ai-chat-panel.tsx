@@ -106,6 +106,10 @@ export function AiChatPanel({
       embedded
       initialMessages={state.data.initialMessages}
       configured={state.data.configured}
+      anthropicConfigured={state.data.anthropicConfigured}
+      openaiConfigured={state.data.openaiConfigured}
+      initialModel={state.data.model}
+      initialWriteMode={state.data.writeMode}
       onDirtyChange={(dirty) => setDirty(panel.id, dirty)}
     />
   );

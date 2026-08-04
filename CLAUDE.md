@@ -279,8 +279,44 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/human-in-the-loop.md`
 
-- AI agent бичилт **шууд хадгалахгүй** — draft үүсгэнэ, хэрэглэгч баталгаажуулна
-- Том дүн (>10M₮), period хаалт, payroll post → нягтланч баталгаажуулалт шаарддаг
+- AI agent бичилт default-оор **ноорог** үүсгэнэ — хэрэглэгч баталгаажуулна
+- Хэрэглэгч чатнаас "Шууд бичих" горим ИЛ сонгосон үед л тэнцсэн, ≤10M₮
+  бичилт шууд батлагдана (`AI_POST_LIMIT_MNT`, lib/ai/tools.ts)
+- Том дүн (>10M₮), period хаалт, payroll post → нягтланч баталгаажуулалт
+  шаарддаг — post горимд ч ноорог үлдэнэ
+
+### 9a. AI туслах — tool-use agent
+
+AI чат нь бүх модульд өгөгдөл оруулах чадвартай (журнал, АР/АП нэхэмжлэх,
+кассын гүйлгээ, бараа материалын хөдөлгөөн, ҮХ карт + лавлах tools).
+
+```
+lib/ai/
+├── models.ts          Provider-aware registry (anthropic: fable/opus/sonnet/haiku,
+│                      openai: gpt-5.1/gpt-5/gpt-5-mini) + AiWriteMode
+├── tools.ts           Tool JSON schema + executor-ууд — одоо байгаа server
+│                      action-уудыг дуудна (шалгалт нэг газар); actionMarker
+├── action-markers.ts  CLIENT-safe: [[EA_ACTION:{json}]] задлагч
+├── openai.ts          OpenAI chat.completions adapter (fetch+SSE, function calling)
+├── system-prompt.ts   Tool дүрэм + UI навигацийн зам ("энд дараад тэнд дарна")
+└── crypto.ts          Түлхүүрүүд AES-256-GCM шифртэй (Anthropic + OpenAI)
+
+app/api/ai/chat/route.ts   Agent давталт (MAX_TOOL_ROUNDS=8): Anthropic tool-use
+                           stream эсвэл OpenAI adapter; action → маркер стримд
+components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэгтэй), Ноорог/Шууд
+                           бичих toggle, ActionCard (панель нээнэ)
+```
+
+Хатуу дүрмүүд:
+
+- Tool executor алдаа ШИДЭХГҮЙ — модельд монгол текстээр буцаана
+- Данс normalize нь paste/Excel-тэй ИЖИЛ (`normalizePastedAccount`)
+- Харилцагч/бараа/данс НЭРЭЭР олдохгүй эсвэл олон таарвал алдаа + жагсаалт
+  буцаана — модель таамаглахгүй, лавлах tool эсвэл хэрэглэгчээс асуана
+- Үүссэн объект `[[EA_ACTION:{json}]]` маркераар контентод хадгалагдана —
+  түүхээс дахин ачаалахад ч картууд харагдана
+- Модель/горимын сонголт `ai_settings`-д хадгалагдана; provider нь
+  сонгосон моделиос тодорхойлогдоно; OpenAI-д PDF хавсралт дэмжигдэхгүй
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 

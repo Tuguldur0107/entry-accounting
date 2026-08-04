@@ -1,12 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "@/components/ui/icon";
+import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { saveAiChatPrefs } from "@/lib/actions/ai";
+import {
+  parseAiContent,
+  stripPartialMarker,
+  type AiAction,
+} from "@/lib/ai/action-markers";
+import {
+  AI_MODELS,
+  AI_PROVIDER_LABELS,
+  modelInfo,
+  type AiModelId,
+  type AiWriteMode,
+} from "@/lib/ai/models";
+import {
+  openArapDocPanel,
+  openCashDocPanel,
+  openFaAssetPanel,
+  openVoucherPanel,
+} from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 
 export type AiChatMessage = {
@@ -25,8 +44,14 @@ type PendingAttachment = {
 
 interface Props {
   initialMessages: AiChatMessage[];
-  /** API түлхүүр (хэрэглэгчийн эсвэл серверийн) тохируулагдсан эсэх. */
+  /** Идэвхтэй provider-т түлхүүр тохируулагдсан эсэх. */
   configured: boolean;
+  /** Provider бүрийн түлхүүрийн төлөв — модель сонгогчийн анхааруулгад. */
+  anthropicConfigured?: boolean;
+  openaiConfigured?: boolean;
+  /** Сүүлд хадгалсан модель + бичилтийн горим (aiSettings). */
+  initialModel?: AiModelId;
+  initialWriteMode?: AiWriteMode;
   /**
    * Панель дотор — хуудасны гарчгийг (панелийн жаазны гарчигтай давхардана)
    * нууж, flex эцгээ дүүргэсэн нягт байрлалтай render хийнэ.
@@ -41,11 +66,103 @@ interface Props {
 }
 
 const SUGGESTIONS = [
+  "500,000₮-ийн түрээсийн зардлын журналын ноорог бэлдээд өгөөч",
   "Борлуулалтын НӨАТ-тай бичилтийг хэрхэн хийх вэ?",
   "Цалингийн журналын бичилтийг тайлбарлаад өг",
-  "Бараа материалын өртөг хэрхэн тооцогддог вэ?",
-  "Үндсэн хөрөнгийн элэгдлийг хэзээ бичих ёстой вэ?",
+  "Системд шинэ данс хаанаас нээх вэ?",
 ];
+
+/** Action картын төрөл бүрийн икон, шошго, нээх үйлдэл. */
+const ACTION_META: Record<
+  AiAction["kind"],
+  { icon: IconName; label: string }
+> = {
+  voucher: { icon: "journal", label: "Журнал" },
+  arap: { icon: "document", label: "Нэхэмжлэх" },
+  cash: { icon: "cash", label: "Мөнгөн хөрөнгө" },
+  inventory: { icon: "inventory", label: "Бараа материал" },
+  fa: { icon: "fixedAsset", label: "Үндсэн хөрөнгө" },
+};
+
+const ACTION_STATUS: Record<
+  AiAction["status"],
+  { label: string; className: string }
+> = {
+  draft: {
+    label: "Ноорог",
+    className: "text-[var(--ea-warning-fg)] border-[var(--ea-warning)]",
+  },
+  posted: {
+    label: "Батлагдсан",
+    className: "text-[var(--ea-success-fg)] border-[var(--ea-success)]",
+  },
+  confirmed: {
+    label: "Баталгаажсан",
+    className: "text-[var(--ea-success-fg)] border-[var(--ea-success)]",
+  },
+  active: {
+    label: "Идэвхтэй",
+    className: "text-[var(--ea-success-fg)] border-[var(--ea-success)]",
+  },
+};
+
+/** AI-ийн үүсгэсэн объектын карт — дарахад панель/хуудас нээнэ. */
+function ActionCard({ action }: { action: AiAction }) {
+  const meta = ACTION_META[action.kind];
+  const status = ACTION_STATUS[action.status] ?? ACTION_STATUS.draft;
+
+  function open() {
+    if (action.kind === "voucher") openVoucherPanel(action.id, action.title);
+    else if (action.kind === "arap")
+      openArapDocPanel({
+        documentId: action.id,
+        mode: "combined",
+        title: action.title,
+      });
+    else if (action.kind === "cash") openCashDocPanel(action.id, action.title);
+    else if (action.kind === "fa") openFaAssetPanel(action.id, action.title);
+  }
+
+  const body = (
+    <>
+      <Icon name={meta.icon} size="sm" className="shrink-0 text-[var(--ea-primary)]" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium text-[var(--ea-text-1)]">
+          {action.title}
+        </span>
+        <span className="text-[10px] text-[var(--ea-text-4)]">{meta.label}</span>
+      </span>
+      <span
+        className={cn(
+          "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+          status.className
+        )}
+      >
+        {status.label}
+      </span>
+      <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--ea-primary)]">
+        Нээх
+        <Icon name="openDetail" size="xs" />
+      </span>
+    </>
+  );
+
+  const className =
+    "my-1.5 flex w-full items-center gap-2.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left transition-colors hover:border-[var(--ea-primary)]";
+
+  // Бараа материалын хөдөлгөөнд панель байхгүй — жагсаалт руу нь холбоно.
+  if (action.kind === "inventory")
+    return (
+      <Link href="/inventory/movements" className={className}>
+        {body}
+      </Link>
+    );
+  return (
+    <button type="button" onClick={open} className={className}>
+      {body}
+    </button>
+  );
+}
 
 const MAX_ATTACHMENTS = 4;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -132,6 +249,10 @@ function fmtSize(bytes: number) {
 export function AiChatView({
   initialMessages,
   configured,
+  anthropicConfigured = true,
+  openaiConfigured = false,
+  initialModel = "claude-opus-4-8",
+  initialWriteMode = "draft",
   embedded = false,
   onDirtyChange,
 }: Props) {
@@ -139,6 +260,8 @@ export function AiChatView({
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [model, setModel] = useState<AiModelId>(initialModel);
+  const [writeMode, setWriteMode] = useState<AiWriteMode>(initialWriteMode);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -172,6 +295,15 @@ export function AiChatView({
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Модель/горимын сонголт серверт хадгалагдана — дараагийн нээлтэд сэргэнэ.
+  function applyPrefs(nextModel: AiModelId, nextMode: AiWriteMode) {
+    setModel(nextModel);
+    setWriteMode(nextMode);
+    saveAiChatPrefs({ model: nextModel, writeMode: nextMode }).catch(() => {
+      // Хадгалалт амжилтгүй ч сонголт энэ session-д хүчинтэй хэвээр.
+    });
+  }
 
   async function addFiles(files: FileList | File[]) {
     const list = Array.from(files);
@@ -254,6 +386,8 @@ export function AiChatView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
+          model,
+          mode: writeMode,
           attachments: attachments.map((entry) => ({
             name: entry.name,
             mediaType: entry.mediaType,
@@ -464,25 +598,49 @@ export function AiChatView({
                   ))}
                 </span>
               )}
-              <span className="whitespace-pre-wrap">
-                {entry.content ? (
-                  entry.role === "assistant" ? (
-                    <SmoothStreamText
-                      text={entry.content}
-                      streaming={isStreaming && index === messages.length - 1}
-                      onReveal={followScroll}
-                    />
-                  ) : (
-                    entry.content
-                  )
-                ) : isStreaming && index === messages.length - 1 ? (
-                  <span className="inline-flex gap-1 py-1">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:0ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:150ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:300ms]" />
-                  </span>
-                ) : null}
-              </span>
+              {entry.content ? (
+                entry.role === "assistant" ? (
+                  (() => {
+                    const streaming = isStreaming && index === messages.length - 1;
+                    // Стрийм үед хагас ирсэн action маркерыг нууна.
+                    const segments = parseAiContent(
+                      streaming
+                        ? stripPartialMarker(entry.content)
+                        : entry.content
+                    );
+                    const lastTextIndex = segments.reduce(
+                      (last, segment, segmentIndex) =>
+                        segment.type === "text" ? segmentIndex : last,
+                      -1
+                    );
+                    return segments.map((segment, segmentIndex) =>
+                      segment.type === "action" ? (
+                        <ActionCard key={segmentIndex} action={segment.action} />
+                      ) : (
+                        <span key={segmentIndex} className="whitespace-pre-wrap">
+                          {streaming && segmentIndex === lastTextIndex ? (
+                            <SmoothStreamText
+                              text={segment.text}
+                              streaming
+                              onReveal={followScroll}
+                            />
+                          ) : (
+                            segment.text
+                          )}
+                        </span>
+                      )
+                    );
+                  })()
+                ) : (
+                  <span className="whitespace-pre-wrap">{entry.content}</span>
+                )
+              ) : isStreaming && index === messages.length - 1 ? (
+                <span className="inline-flex gap-1 py-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ea-text-3)] [animation-delay:300ms]" />
+                </span>
+              ) : null}
             </div>
           ))
         )}
@@ -516,6 +674,56 @@ export function AiChatView({
           ))}
         </div>
       )}
+
+      {/* Модель + бичилтийн горим — сонголт серверт хадгалагдана */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ModelPicker
+          model={model}
+          anthropicConfigured={anthropicConfigured}
+          openaiConfigured={openaiConfigured}
+          disabled={isStreaming}
+          onChange={(next) => applyPrefs(next, writeMode)}
+        />
+        <div
+          role="radiogroup"
+          aria-label="Бичилтийн горим"
+          className="flex h-7 items-center gap-0.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-0.5"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={writeMode === "draft"}
+            disabled={isStreaming}
+            onClick={() => applyPrefs(model, "draft")}
+            title="AI бичилт бүр ноорог үүсгэнэ — та шалгаад өөрөө батална"
+            className={cn(
+              "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+              writeMode === "draft"
+                ? "bg-[var(--ea-primary)] text-white"
+                : "text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
+            )}
+          >
+            Ноорог
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={writeMode === "post"}
+            disabled={isStreaming}
+            onClick={() => applyPrefs(model, "post")}
+            title="Тэнцсэн, 10 сая ₮ хүртэлх бичилт шууд батлагдана — бусад нь ноорог үлдэнэ"
+            className={cn(
+              "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
+              writeMode === "post"
+                ? "bg-[var(--ea-warning)] text-black"
+                : "text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
+            )}
+          >
+            <Icon name="warning" size="xs" className="mr-1 inline-block" />
+            Шууд бичих
+          </button>
+        </div>
+      </div>
 
       <form
         className="flex items-end gap-2"
@@ -592,5 +800,117 @@ export function AiChatView({
       </form>
       {confirmDialog}
     </section>
+  );
+}
+
+/**
+ * Модель сонгогч — composer-ийн дээр provider-оор бүлэглэсэн жагсаалт
+ * (дээшээ нээгдэнэ). Түлхүүргүй provider-ийн моделиуд идэвхгүй, шалтгаан нь
+ * бүлгийн гарчигт харагдана.
+ */
+function ModelPicker({
+  model,
+  onChange,
+  anthropicConfigured,
+  openaiConfigured,
+  disabled,
+}: {
+  model: AiModelId;
+  onChange: (model: AiModelId) => void;
+  anthropicConfigured: boolean;
+  openaiConfigured: boolean;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const info = modelInfo(model);
+  const providerReady = (provider: "anthropic" | "openai") =>
+    provider === "openai" ? openaiConfigured : anthropicConfigured;
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative"
+      onBlur={(event) => {
+        if (!rootRef.current?.contains(event.relatedTarget as Node))
+          setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={`${AI_PROVIDER_LABELS[info.provider]} · ${info.description}`}
+        className="flex h-7 items-center gap-1.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-[11px] font-medium text-[var(--ea-text-2)] transition-colors hover:text-[var(--ea-text-1)] disabled:opacity-50"
+      >
+        <Icon name="ai" size="xs" className="text-[var(--ea-primary)]" />
+        {info.label}
+        <Icon
+          name="chevronDown"
+          size="xs"
+          className={cn(
+            "text-[var(--ea-text-4)] transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="Модель сонгох"
+          className="absolute bottom-full left-0 z-[90] mb-1 w-80 rounded-md border border-[var(--ea-border-strong)] bg-[var(--ea-surface)] p-1"
+          style={{ boxShadow: "var(--ea-shadow-3)" }}
+        >
+          {(["anthropic", "openai"] as const).map((provider) => (
+            <div key={provider}>
+              <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--ea-text-4)]">
+                {AI_PROVIDER_LABELS[provider]}
+                {!providerReady(provider) && (
+                  <span className="ml-1.5 font-normal normal-case">
+                    · түлхүүр тохируулаагүй (Тохиргоо)
+                  </span>
+                )}
+              </div>
+              {AI_MODELS.filter((entry) => entry.provider === provider).map(
+                (entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    role="option"
+                    aria-selected={entry.id === model}
+                    disabled={!providerReady(provider)}
+                    onClick={() => {
+                      onChange(entry.id);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full flex-col items-start rounded px-2 py-1.5 text-left transition-colors disabled:opacity-40",
+                      entry.id === model
+                        ? "bg-[var(--ea-primary)] text-white"
+                        : "text-[var(--ea-text-1)] hover:bg-[var(--ea-bg-2)]"
+                    )}
+                  >
+                    <span className="text-xs font-medium">{entry.label}</span>
+                    <span
+                      className={cn(
+                        "text-[10px]",
+                        entry.id === model
+                          ? "text-white/80"
+                          : "text-[var(--ea-text-4)]"
+                      )}
+                    >
+                      {entry.description}
+                    </span>
+                  </button>
+                )
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

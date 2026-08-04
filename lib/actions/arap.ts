@@ -440,6 +440,7 @@ export async function createArApDocument(data: {
   }
 
   revalidateArAp();
+  return { id: createdDocumentId!, documentNo };
 }
 
 // Ноорог АР/АП баримтыг батлах: create(postNow)-тэй ижил журналын бичилтийг

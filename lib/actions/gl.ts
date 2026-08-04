@@ -342,6 +342,7 @@ export async function createVoucher(data: {
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
+  return { id: voucherId };
 }
 
 export async function postVoucher(id: string) {

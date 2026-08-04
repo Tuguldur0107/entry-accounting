@@ -13,6 +13,10 @@ export default async function AiChatPage() {
     <AiChatView
       initialMessages={result.data.initialMessages}
       configured={result.data.configured}
+      anthropicConfigured={result.data.anthropicConfigured}
+      openaiConfigured={result.data.openaiConfigured}
+      initialModel={result.data.model}
+      initialWriteMode={result.data.writeMode}
     />
   );
 }

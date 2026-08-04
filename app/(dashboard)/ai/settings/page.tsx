@@ -19,6 +19,12 @@ export default async function AiSettingsPage() {
   // тайлж үзүүлнэ (тайлагдахгүй бол •••• — AUTH_SECRET солигдсон гэх мэт).
   const storedKey = settings?.apiKey ? decryptSecret(settings.apiKey) : null;
   const keyHint = settings?.apiKey ? (storedKey?.slice(-4) ?? "····") : null;
+  const storedOpenaiKey = settings?.openaiApiKey
+    ? decryptSecret(settings.openaiApiKey)
+    : null;
+  const openaiKeyHint = settings?.openaiApiKey
+    ? (storedOpenaiKey?.slice(-4) ?? "····")
+    : null;
 
   return (
     <AiSettingsView
@@ -27,6 +33,8 @@ export default async function AiSettingsPage() {
       customInstructions={settings?.customInstructions ?? ""}
       keyHint={keyHint}
       envKeyConfigured={Boolean(process.env.ANTHROPIC_API_KEY)}
+      openaiKeyHint={openaiKeyHint}
+      openaiEnvKeyConfigured={Boolean(process.env.OPENAI_API_KEY)}
     />
   );
 }

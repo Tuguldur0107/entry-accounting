@@ -1557,6 +1557,9 @@ export const aiAttachmentsRelations = relations(aiAttachments, ({ one }) => ({
 
 // AI туслахын хэрэглэгч бүрийн тохиргоо. apiKey нь хэрэглэгчийн өөрийн
 // Anthropic түлхүүр — байхгүй бол серверийн ANTHROPIC_API_KEY-г ашиглана.
+// openaiApiKey — OpenAI моделиудад (байхгүй бол серверийн OPENAI_API_KEY).
+// model нь аль ч provider-ийн модель байж болно (provider нь моделиос
+// тодорхойлогдоно — lib/ai/models.ts modelInfo).
 export const aiSettings = pgTable("ai_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
@@ -1564,8 +1567,12 @@ export const aiSettings = pgTable("ai_settings", {
     .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   apiKey: text("api_key"),
+  openaiApiKey: text("openai_api_key"),
   model: text("model").notNull().default("claude-opus-4-8"),
   effort: text("effort").notNull().default("high"), // low | medium | high
+  // AI бичилт хийх горим: "draft" = зөвхөн ноорог (§9 human-in-the-loop),
+  // "post" = тэнцсэн журналыг шууд батлахыг зөвшөөрнө (хэрэглэгч ил сонгоно).
+  writeMode: text("write_mode").notNull().default("draft"),
   customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

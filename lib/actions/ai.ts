@@ -6,14 +6,28 @@ import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiMessages, aiSettings } from "@/lib/db/schema";
-import { isAiEffort, isAiModelId } from "@/lib/ai/models";
+import {
+  DEFAULT_AI_MODEL,
+  DEFAULT_AI_WRITE_MODE,
+  isAiEffort,
+  isAiModelId,
+  isAiWriteMode,
+  type AiModelId,
+  type AiWriteMode,
+} from "@/lib/ai/models";
 import { encryptSecret } from "@/lib/ai/crypto";
 import type { AiChatMessage } from "@/components/ai/ai-chat-view";
 
 export interface AiChatBootstrap {
   initialMessages: AiChatMessage[];
-  /** API түлхүүр (хэрэглэгчийн эсвэл серверийн) тохируулагдсан эсэх. */
+  /** Идэвхтэй моделийн provider-т түлхүүр тохируулагдсан эсэх. */
   configured: boolean;
+  /** Provider бүрд түлхүүр байгаа эсэх — модель сонгогчийн анхааруулгад. */
+  anthropicConfigured: boolean;
+  openaiConfigured: boolean;
+  /** Сүүлд сонгосон модель + бичилтийн горим. */
+  model: AiModelId;
+  writeMode: AiWriteMode;
 }
 
 // Алдааг throw хийхгүй — production build дээр Next.js server action-ий
@@ -43,9 +57,16 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
     }),
     db.query.aiSettings.findFirst({
       where: eq(aiSettings.userId, userId),
-      columns: { apiKey: true },
+      columns: { apiKey: true, openaiApiKey: true, model: true, writeMode: true },
     }),
   ]);
+
+  const anthropicConfigured = Boolean(
+    settings?.apiKey || process.env.ANTHROPIC_API_KEY
+  );
+  const openaiConfigured = Boolean(
+    settings?.openaiApiKey || process.env.OPENAI_API_KEY
+  );
 
   return {
     ok: true,
@@ -59,9 +80,51 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
           name: attachment.name,
         })),
       })),
-      configured: Boolean(settings?.apiKey || process.env.ANTHROPIC_API_KEY),
+      configured: anthropicConfigured || openaiConfigured,
+      anthropicConfigured,
+      openaiConfigured,
+      model:
+        settings && isAiModelId(settings.model)
+          ? settings.model
+          : DEFAULT_AI_MODEL,
+      writeMode:
+        settings && isAiWriteMode(settings.writeMode)
+          ? settings.writeMode
+          : DEFAULT_AI_WRITE_MODE,
     },
   };
+}
+
+/**
+ * Чатны толгойн сонголт (модель + бичилтийн горим) — сонголт бүрд
+ * хадгалагдаж дараагийн нээлтэд сэргэнэ.
+ */
+export async function saveAiChatPrefs(input: {
+  model: string;
+  writeMode: string;
+}) {
+  const userId = await requireUserId();
+  if (typeof input?.model !== "string" || !isAiModelId(input.model))
+    throw new Error("Модель буруу байна");
+  if (typeof input?.writeMode !== "string" || !isAiWriteMode(input.writeMode))
+    throw new Error("Горим буруу байна");
+
+  await db
+    .insert(aiSettings)
+    .values({
+      userId,
+      model: input.model,
+      writeMode: input.writeMode,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: aiSettings.userId,
+      set: {
+        model: input.model,
+        writeMode: input.writeMode,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 async function requireUserId(): Promise<string> {
@@ -146,6 +209,44 @@ export async function removeAiApiKey() {
   await db
     .update(aiSettings)
     .set({ apiKey: null, updatedAt: new Date() })
+    .where(eq(aiSettings.userId, userId));
+
+  revalidatePath("/ai");
+  revalidatePath("/ai/settings");
+}
+
+/** Хэрэглэгчийн өөрийн OpenAI API түлхүүрийг хадгална (шифрлэгдэнэ). */
+export async function setAiOpenAiApiKey(apiKey: string) {
+  const userId = await requireUserId();
+
+  const trimmed = typeof apiKey === "string" ? apiKey.trim() : "";
+  // OpenAI түлхүүр sk- угтвартай (sk-proj-... г.м).
+  if (!/^sk-[A-Za-z0-9_-]{20,}$/.test(trimmed)) {
+    throw new Error(
+      "Түлхүүр буруу форматтай байна — sk- угтвартай OpenAI түлхүүрээ бүтнээр нь хуулна уу"
+    );
+  }
+
+  const encrypted = encryptSecret(trimmed);
+  await db
+    .insert(aiSettings)
+    .values({ userId, openaiApiKey: encrypted, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: aiSettings.userId,
+      set: { openaiApiKey: encrypted, updatedAt: new Date() },
+    });
+
+  revalidatePath("/ai");
+  revalidatePath("/ai/settings");
+}
+
+/** Хадгалсан OpenAI түлхүүрийг устгана. */
+export async function removeAiOpenAiApiKey() {
+  const userId = await requireUserId();
+
+  await db
+    .update(aiSettings)
+    .set({ openaiApiKey: null, updatedAt: new Date() })
     .where(eq(aiSettings.userId, userId));
 
   revalidatePath("/ai");

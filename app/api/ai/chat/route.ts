@@ -7,16 +7,24 @@ import { aiAttachments, aiMessages, aiSettings } from "@/lib/db/schema";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import {
-  AI_MODELS,
   DEFAULT_AI_EFFORT,
   DEFAULT_AI_MODEL,
+  DEFAULT_AI_WRITE_MODE,
   isAiEffort,
   isAiModelId,
+  isAiWriteMode,
+  modelInfo,
+  type AiWriteMode,
 } from "@/lib/ai/models";
+import { OpenAiError, runOpenAiAgent, type OpenAiMessage } from "@/lib/ai/openai";
+import { AI_TOOLS, actionMarker, executeAiTool } from "@/lib/ai/tools";
 import {
   AI_STABLE_SYSTEM_PROMPT,
   buildDynamicContext,
 } from "@/lib/ai/system-prompt";
+
+/** Нэг хариултад хийх tool дуудлагын дээд эргэлт. */
+const MAX_TOOL_ROUNDS = 8;
 
 // Streaming + DB тул Node runtime; урт хариултад зай үлдээнэ.
 export const runtime = "nodejs";
@@ -121,10 +129,14 @@ export async function POST(request: Request) {
 
   let message = "";
   let attachments: IncomingAttachment[] = [];
+  let modelOverride = "";
+  let modeOverride = "";
   try {
     const body = await request.json();
     message = typeof body?.message === "string" ? body.message.trim() : "";
     if (Array.isArray(body?.attachments)) attachments = body.attachments;
+    if (typeof body?.model === "string") modelOverride = body.model;
+    if (typeof body?.mode === "string") modeOverride = body.mode;
   } catch {
     message = "";
   }
@@ -193,23 +205,54 @@ export async function POST(request: Request) {
     where: eq(aiSettings.userId, userId),
   });
 
-  const storedKey = settings?.apiKey ? decryptSecret(settings.apiKey) : null;
-  const apiKey = storedKey || process.env.ANTHROPIC_API_KEY;
+  // Модель: хүсэлтийн override → тохиргоо → default. Provider нь моделиос
+  // тодорхойлогдоно (claude-* → anthropic, gpt-* → openai).
+  const model = isAiModelId(modelOverride)
+    ? modelOverride
+    : settings && isAiModelId(settings.model)
+      ? settings.model
+      : DEFAULT_AI_MODEL;
+  const capabilities = modelInfo(model);
+  const provider = capabilities.provider;
+
+  // Бичилтийн горим: хүсэлтийн override → тохиргоо → draft (§9).
+  const mode: AiWriteMode = isAiWriteMode(modeOverride)
+    ? modeOverride
+    : settings && isAiWriteMode(settings.writeMode)
+      ? settings.writeMode
+      : DEFAULT_AI_WRITE_MODE;
+
+  const effort =
+    settings && isAiEffort(settings.effort) ? settings.effort : DEFAULT_AI_EFFORT;
+
+  const apiKey =
+    provider === "openai"
+      ? (settings?.openaiApiKey ? decryptSecret(settings.openaiApiKey) : null) ||
+        process.env.OPENAI_API_KEY
+      : (settings?.apiKey ? decryptSecret(settings.apiKey) : null) ||
+        process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return Response.json(
       {
         error:
-          "AI туслах тохируулагдаагүй байна — AI туслах → Тохиргоо хэсэгт Anthropic API түлхүүрээ оруулна уу.",
+          provider === "openai"
+            ? "OpenAI түлхүүр тохируулагдаагүй байна — AI туслах → Тохиргоо хэсэгт OpenAI API түлхүүрээ оруулна уу."
+            : "AI туслах тохируулагдаагүй байна — AI туслах → Тохиргоо хэсэгт Anthropic API түлхүүрээ оруулна уу.",
       },
       { status: 503 }
     );
   }
 
-  const model =
-    settings && isAiModelId(settings.model) ? settings.model : DEFAULT_AI_MODEL;
-  const effort =
-    settings && isAiEffort(settings.effort) ? settings.effort : DEFAULT_AI_EFFORT;
-  const capabilities = AI_MODELS.find((entry) => entry.id === model)!;
+  // OpenAI-ийн chat.completions PDF дэмждэггүй — ойлгомжтой алдаа өгнө.
+  if (
+    provider === "openai" &&
+    attachments.some((attachment) => attachment.mediaType === "application/pdf")
+  ) {
+    return Response.json(
+      { error: "PDF хавсралтыг зөвхөн Claude моделиуд уншина — модель солих эсвэл зураг болгож хавсаргана уу." },
+      { status: 400 }
+    );
+  }
 
   // Түүхийг шинэ мессежийг хадгалахаас ӨМНӨ, SQL LIMIT-тэй уншина — бүх
   // түүх (хавсралтын base64-тэй нь) санах ойд ачаалагдахаас сэргийлнэ.
@@ -284,54 +327,139 @@ export async function POST(request: Request) {
 
   const dynamicContext = await buildDynamicContext(
     userId,
-    settings?.customInstructions
+    settings?.customInstructions,
+    mode
   );
-
-  const client = new Anthropic({ apiKey });
-  const stream = client.messages.stream({
-    model,
-    max_tokens: 16000,
-    ...(capabilities.adaptive ? { thinking: { type: "adaptive" as const } } : {}),
-    ...(capabilities.effort ? { output_config: { effort } } : {}),
-    system: [
-      {
-        type: "text",
-        text: AI_STABLE_SYSTEM_PROMPT,
-        // Тогтвортой prefix — дараагийн хүсэлтүүдэд кэшээс уншигдана.
-        cache_control: { type: "ephemeral" },
-      },
-      { type: "text", text: dynamicContext },
-    ],
-    messages: [
-      ...historyMessages,
-      { role: "user", content: currentBlocks },
-    ],
-  });
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
+      const emit = (text: string) => {
+        full += text;
+        controller.enqueue(encoder.encode(text));
+      };
+
       try {
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            full += event.delta.text;
-            controller.enqueue(encoder.encode(event.delta.text));
+        if (provider === "openai") {
+          // ── OpenAI зам ─────────────────────────────────────────────────
+          // Түүхийн хавсралтыг текст тэмдэглэгээгээр, одоогийн зураг/текстийг
+          // шууд явуулна (PDF дээр аль хэдийн 400 өгсөн).
+          const openAiHistory: OpenAiMessage[] = recent.map((entry) => ({
+            role: entry.role as "user" | "assistant",
+            content:
+              entry.role === "user" && (entry.attachments?.length ?? 0) > 0
+                ? `${entry.attachments!.map((a) => `[Хавсралт: ${a.name}]`).join(" ")} ${entry.content}`
+                : entry.content,
+          }));
+          const currentParts = [
+            ...attachments.map((attachment) =>
+              IMAGE_TYPES.has(attachment.mediaType)
+                ? {
+                    type: "image_url" as const,
+                    image_url: {
+                      url: `data:${attachment.mediaType};base64,${attachment.data}`,
+                    },
+                  }
+                : {
+                    type: "text" as const,
+                    text: `Хавсаргасан файл: ${attachment.name}\n---\n${Buffer.from(attachment.data, "base64").toString("utf8").slice(0, MAX_TEXT_ATTACHMENT_CHARS)}\n---`,
+                  }
+            ),
+            { type: "text" as const, text: message || "(файл хавсаргав)" },
+          ];
+
+          await runOpenAiAgent({
+            apiKey,
+            model,
+            system: `${AI_STABLE_SYSTEM_PROMPT}\n\n${dynamicContext}`,
+            messages: [
+              ...openAiHistory,
+              { role: "user", content: currentParts },
+            ],
+            userId,
+            mode,
+            onText: emit,
+            onToolResult: (result) => {
+              if (result.action) emit(actionMarker(result.action));
+            },
+          });
+        } else {
+          // ── Anthropic зам: tool-use agent давталт ──────────────────────
+          const client = new Anthropic({ apiKey });
+          const tools: Anthropic.Tool[] = AI_TOOLS.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+          }));
+          const convo: Anthropic.MessageParam[] = [
+            ...historyMessages,
+            { role: "user", content: currentBlocks },
+          ];
+
+          for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            const stream = client.messages.stream({
+              model,
+              max_tokens: 16000,
+              ...(capabilities.adaptive
+                ? { thinking: { type: "adaptive" as const } }
+                : {}),
+              ...(capabilities.effort ? { output_config: { effort } } : {}),
+              tools,
+              system: [
+                {
+                  type: "text",
+                  text: AI_STABLE_SYSTEM_PROMPT,
+                  // Тогтвортой prefix — дараагийн хүсэлтүүдэд кэшээс уншигдана.
+                  cache_control: { type: "ephemeral" },
+                },
+                { type: "text", text: dynamicContext },
+              ],
+              messages: convo,
+            });
+
+            for await (const event of stream) {
+              if (
+                event.type === "content_block_delta" &&
+                event.delta.type === "text_delta"
+              ) {
+                emit(event.delta.text);
+              }
+            }
+            const final = await stream.finalMessage();
+
+            if (final.stop_reason === "refusal") {
+              const notice = full.trim()
+                ? "\n\n⚠️ Хариулт аюулгүй байдлын шалтгаанаар энд таслагдлаа."
+                : "Уучлаарай, энэ асуултад хариулах боломжгүй байна. Өөр асуулт асуугаарай.";
+              emit(notice);
+              break;
+            }
+            if (final.stop_reason !== "tool_use") break;
+
+            // Tool дуудлагууд: гүйцэтгээд үр дүнг нь буцааж өгч дахин асууна.
+            // Thinking блокуудыг ХАМТ нь буцаана (signature шаардлагатай).
+            convo.push({ role: "assistant", content: final.content });
+            const results: Anthropic.ToolResultBlockParam[] = [];
+            for (const block of final.content) {
+              if (block.type !== "tool_use") continue;
+              const result = await executeAiTool(
+                userId,
+                block.name,
+                block.input,
+                mode
+              );
+              if (result.action) emit(actionMarker(result.action));
+              results.push({
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: result.resultText,
+              });
+            }
+            convo.push({ role: "user", content: results });
           }
         }
-        const final = await stream.finalMessage();
-        if (final.stop_reason === "refusal") {
-          // Дунд нь таслагдсан хариултыг "бүрэн" мэт хадгалахгүй —
-          // тэмдэглэгээ залгаж стрим болон түүхэнд хоёуланд нь буулгана.
-          const notice = full.trim()
-            ? "\n\n⚠️ Хариулт аюулгүй байдлын шалтгаанаар энд таслагдлаа."
-            : "Уучлаарай, энэ асуултад хариулах боломжгүй байна. Өөр асуулт асуугаарай.";
-          full += notice;
-          controller.enqueue(encoder.encode(notice));
-        }
+
         if (full.trim()) {
           await db
             .insert(aiMessages)
@@ -352,6 +480,13 @@ export async function POST(request: Request) {
         } else if (caught instanceof Anthropic.BadRequestError) {
           notice =
             "⚠️ Хүсэлт буруу байна — хавсралт хэт том эсвэл дэмжигдэхгүй байж болзошгүй.";
+        } else if (caught instanceof OpenAiError) {
+          notice =
+            caught.status === 401
+              ? "⚠️ OpenAI түлхүүр буруу эсвэл хүчингүй байна — Тохиргоо хэсэгт шалгана уу."
+              : caught.status === 429
+                ? "⚠️ OpenAI хүсэлтийн хязгаарт хүрлээ — хэсэг хүлээгээд дахин оролдоно уу."
+                : `⚠️ OpenAI алдаа: ${caught.message}`;
         }
         if (!full.trim()) {
           controller.enqueue(encoder.encode(notice));
