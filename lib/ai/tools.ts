@@ -12,16 +12,22 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { createArApDocument } from "@/lib/actions/arap";
-import { createCashDocument } from "@/lib/actions/cash";
+import { createArApDocument, postArApDocument } from "@/lib/actions/arap";
+import {
+  createCashDocument,
+  deleteCashDocument,
+  postCashDocument,
+} from "@/lib/actions/cash";
 import { createFixedAsset } from "@/lib/actions/fa";
-import { createVoucher } from "@/lib/actions/gl";
+import { createVoucher, deleteVoucher, postVoucher } from "@/lib/actions/gl";
 import { createInventoryMovement } from "@/lib/actions/inventory";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { db } from "@/lib/db";
 import {
+  arApDocuments,
   cashAccounts,
+  cashDocuments,
   chartOfAccounts,
   counterparties,
   inventoryIssueTypes,
@@ -263,6 +269,96 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: { type: "object", properties: {} },
   },
   {
+    name: "list_gl_accounts",
+    description:
+      "Идэвхтэй GL дансны жагсаалт (дугаар, нэр). Данс таамаглахын ОРОНД үүгээр хайна — бичилт хийхийн өмнө зөв дугаараа олоход ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Нэр эсвэл дугаараар шүүх (жишээ нь 'түрээс', '7400'). Хоосон бол бүгд",
+        },
+      },
+    },
+  },
+  {
+    name: "post_journal_voucher",
+    description:
+      "Ноорог журналыг баталж GL-д бичнэ. Зөвхөн 'Шууд бичих' горимд, тэнцсэн, 10 сая ₮-с хэтрэхгүй бичилтэд зөвшөөрөгдөнө — бусад тохиолдолд вэб дээрээс батлахыг заана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        voucherId: {
+          type: "string",
+          description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+        },
+      },
+      required: ["voucherId"],
+    },
+  },
+  {
+    name: "delete_journal_voucher",
+    description:
+      "НООРОГ журналыг устгана (батлагдсан бичилт устгагдахгүй). Хэрэглэгч ил хүссэн үед л ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        voucherId: {
+          type: "string",
+          description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+        },
+      },
+      required: ["voucherId"],
+    },
+  },
+  {
+    name: "post_cash_document",
+    description:
+      "Ноорог мөнгөн хөрөнгийн баримтыг баталж GL журнал үүсгэнэ. Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд зөвшөөрөгдөнө.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: {
+          type: "string",
+          description: "Баримтын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+        },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "delete_cash_document",
+    description:
+      "НООРОГ мөнгөн хөрөнгийн баримтыг устгана. Хэрэглэгч ил хүссэн үед л ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: {
+          type: "string",
+          description: "Баримтын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+        },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "post_arap_document",
+    description:
+      "Ноорог АР/АП нэхэмжлэхийг баталж GL журнал үүсгэнэ (бараатай мөрүүд нь бараа материалын ноорог хөдөлгөөн үүсгэнэ). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд зөвшөөрөгдөнө.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: {
+          type: "string",
+          description: "Баримтын ID эсвэл нэхэмжлэхийн дугаар (жишээ нь AR-20260712-18CFE0)",
+        },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
     name: "list_journal_vouchers",
     description:
       "Журналын бичилтүүдийн жагсаалт (огноо, утга, дүн, төлөв) — сүүлийнх нь эхэндээ. Үүсгэсэн ноорогоо шалгах, тайлагнахад ашиглана.",
@@ -324,7 +420,7 @@ function resolveAccount(raw: string, ctx: Ctx): { code: string; main: string } {
   const main = parseSegParts(code, [3])[3] ?? "";
   if (!ctx.enabledByMain.has(main))
     throw new Error(
-      `"${raw}" данс идэвхтэй жагсаалтад алга — дансны жагсаалтаас сонгоно уу`
+      `"${raw}" данс идэвхтэй жагсаалтад алга — list_gl_accounts tool-оор зөв дугаарыг хайна уу`
     );
   return { code, main };
 }
@@ -776,7 +872,215 @@ async function runCreateFixedAsset(
   };
 }
 
+// ── Батлах / устгах гүйцэтгэгчид ────────────────────────────────────────────
+
+/** ID-г бүтэн эсвэл угтвараар нь ГАНЦ тохирол болгож шийднэ. */
+function resolveByIdPrefix<T extends { id: string }>(
+  rows: T[],
+  idOrPrefix: string,
+  what: string
+): T {
+  const query = idOrPrefix.trim().toLowerCase();
+  if (query.length < 6)
+    throw new Error(`${what}-ийн ID дор хаяж 6 тэмдэгт байх ёстой`);
+  const matches = rows.filter((row) => row.id.toLowerCase().startsWith(query));
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0)
+    throw new Error(`"${idOrPrefix}" ID-тай ${what} олдсонгүй`);
+  throw new Error(`"${idOrPrefix}" гэхэд ${matches.length} ${what} таарлаа — бүтэн ID өгнө үү`);
+}
+
+/** Батлах үйлдэл зөвхөн "Шууд бичих" горимд — эс бөгөөс ойлгомжтой татгалзал. */
+function assertPostMode(mode: AiWriteMode) {
+  if (mode !== "post")
+    throw new Error(
+      "Батлах нь зөвхөн 'Шууд бичих' горимд зөвшөөрөгдөнө. Чатын доод талын toggle-оос горимоо солих эсвэл вэб дээрээс өөрөө батална уу."
+    );
+}
+
+function assertPostLimit(total: number) {
+  if (total > AI_POST_LIMIT_MNT)
+    throw new Error(
+      `${fmt(total)}₮ нь ${fmt(AI_POST_LIMIT_MNT)}₮-ийн хязгаараас их — нягтланч вэб дээрээс шалгаж батална уу`
+    );
+}
+
+async function runPostJournal(
+  userId: string,
+  input: { voucherId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const vouchers = await db.query.journalVouchers.findMany({
+    where: eq(journalVouchers.userId, userId),
+    columns: { id: true, status: true, description: true, date: true },
+    with: { lines: { columns: { debit: true } } },
+    orderBy: [desc(journalVouchers.createdAt)],
+    limit: 500,
+  });
+  const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
+  if (voucher.status !== "draft")
+    throw new Error(`Журнал ноорог биш байна (төлөв: ${voucher.status})`);
+  const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
+  assertPostLimit(total);
+
+  await postVoucher(voucher.id);
+  return {
+    resultText: `Журнал батлагдлаа. ${voucher.date} · ${voucher.description} · ${fmt(total)}₮`,
+    action: {
+      kind: "voucher",
+      id: voucher.id,
+      title: voucher.description || "Журнал",
+      status: "posted",
+    },
+  };
+}
+
+async function runDeleteJournal(
+  userId: string,
+  input: { voucherId: string }
+): Promise<AiToolResult> {
+  const vouchers = await db.query.journalVouchers.findMany({
+    where: eq(journalVouchers.userId, userId),
+    columns: { id: true, status: true, description: true, date: true },
+    orderBy: [desc(journalVouchers.createdAt)],
+    limit: 500,
+  });
+  const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
+  // deleteVoucher өөрөө "зөвхөн ноорог" дүрмээ шалгана.
+  await deleteVoucher(voucher.id);
+  return {
+    resultText: `Ноорог журнал устгагдлаа: ${voucher.date} · ${voucher.description}`,
+  };
+}
+
+async function runPostCash(
+  userId: string,
+  input: { documentId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const documents = await db.query.cashDocuments.findMany({
+    where: eq(cashDocuments.userId, userId),
+    columns: {
+      id: true,
+      status: true,
+      description: true,
+      date: true,
+      amount: true,
+      baseAmount: true,
+    },
+    orderBy: [desc(cashDocuments.createdAt)],
+    limit: 500,
+  });
+  const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
+  if (document.status !== "draft")
+    throw new Error(`Баримт ноорог биш байна (төлөв: ${document.status})`);
+  assertPostLimit(Number(document.baseAmount ?? document.amount));
+
+  await postCashDocument(document.id);
+  return {
+    resultText: `Мөнгөн хөрөнгийн баримт батлагдаж GL-д бичигдлээ. ${document.date} · ${document.description}`,
+    action: {
+      kind: "cash",
+      id: document.id,
+      title: document.description,
+      status: "posted",
+    },
+  };
+}
+
+async function runDeleteCash(
+  userId: string,
+  input: { documentId: string }
+): Promise<AiToolResult> {
+  const documents = await db.query.cashDocuments.findMany({
+    where: eq(cashDocuments.userId, userId),
+    columns: { id: true, status: true, description: true, date: true },
+    orderBy: [desc(cashDocuments.createdAt)],
+    limit: 500,
+  });
+  const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
+  // deleteCashDocument өөрөө "зөвхөн ноорог" дүрмээ шалгана.
+  await deleteCashDocument(document.id);
+  return {
+    resultText: `Ноорог кассын баримт устгагдлаа: ${document.date} · ${document.description}`,
+  };
+}
+
+async function runPostArap(
+  userId: string,
+  input: { documentId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const documents = await db.query.arApDocuments.findMany({
+    where: eq(arApDocuments.userId, userId),
+    columns: {
+      id: true,
+      status: true,
+      documentNo: true,
+      description: true,
+      totalAmount: true,
+      baseTotalAmount: true,
+    },
+    orderBy: [desc(arApDocuments.createdAt)],
+    limit: 500,
+  });
+  // Нэхэмжлэхийн дугаараар ч, ID-гаар ч олно.
+  const byNo = documents.filter(
+    (doc) => doc.documentNo.toLowerCase() === input.documentId.trim().toLowerCase()
+  );
+  const document =
+    byNo.length === 1
+      ? byNo[0]
+      : resolveByIdPrefix(documents, input.documentId, "нэхэмжлэх");
+  if (document.status !== "draft")
+    throw new Error(`Нэхэмжлэх ноорог биш байна (төлөв: ${document.status})`);
+  assertPostLimit(Number(document.baseTotalAmount ?? document.totalAmount));
+
+  await postArApDocument(document.id);
+  return {
+    resultText: `Нэхэмжлэх батлагдаж GL-д бичигдлээ: ${document.documentNo}`,
+    action: {
+      kind: "arap",
+      id: document.id,
+      title: document.documentNo,
+      status: "posted",
+    },
+  };
+}
+
 // ── Лавлах гүйцэтгэгчид ─────────────────────────────────────────────────────
+
+async function runListGlAccounts(
+  userId: string,
+  input: { query?: string }
+): Promise<AiToolResult> {
+  const accounts = await db.query.chartOfAccounts.findMany({
+    where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
+    columns: { number: true, name: true },
+    orderBy: (account, { asc }) => [asc(account.number)],
+  });
+  const query = input.query?.trim().toLowerCase();
+  const filtered = query
+    ? accounts.filter(
+        (account) =>
+          account.number.includes(query) ||
+          account.name.toLowerCase().includes(query)
+      )
+    : accounts;
+  if (filtered.length === 0)
+    return {
+      resultText: `"${input.query}" гэсэн данс олдсонгүй — query-гүйгээр бүх дансыг харна уу`,
+    };
+  return {
+    resultText: filtered
+      .slice(0, 100)
+      .map((account) => `${account.number} — ${account.name}`)
+      .join("\n"),
+  };
+}
 
 async function runListCounterparties(
   userId: string,
@@ -924,6 +1228,18 @@ export async function executeAiTool(
         return await runListCounterparties(userId, args);
       case "list_inventory":
         return await runListInventory(userId, args);
+      case "post_journal_voucher":
+        return await runPostJournal(userId, args, mode);
+      case "delete_journal_voucher":
+        return await runDeleteJournal(userId, args);
+      case "post_cash_document":
+        return await runPostCash(userId, args, mode);
+      case "delete_cash_document":
+        return await runDeleteCash(userId, args);
+      case "post_arap_document":
+        return await runPostArap(userId, args, mode);
+      case "list_gl_accounts":
+        return await runListGlAccounts(userId, args);
       case "list_cash_accounts":
         return await runListCashAccounts(userId);
       case "list_journal_vouchers":

@@ -64,8 +64,11 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 Чамд системд ШУУД өгөгдөл оруулах tools бий: журнал (create_journal_voucher),
 авлага/өглөгийн нэхэмжлэх (create_arap_invoice), мөнгөн хөрөнгийн гүйлгээ
 (create_cash_transaction), бараа материалын хөдөлгөөн (create_inventory_movement),
-үндсэн хөрөнгийн карт (create_fixed_asset), мөн лавлах tools
-(list_counterparties, list_inventory, list_cash_accounts).
+үндсэн хөрөнгийн карт (create_fixed_asset); ноорог батлах/устгах
+(post_journal_voucher, delete_journal_voucher, post_cash_document,
+delete_cash_document, post_arap_document — батлах нь зөвхөн "Шууд бичих"
+горимд, ≤10 сая ₮); лавлах tools (list_gl_accounts, list_counterparties,
+list_inventory, list_cash_accounts, list_journal_vouchers).
 
 Tool ашиглах дүрэм:
 
