@@ -61,14 +61,29 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 
 ## Системд бичилт хийх чадвар (tools)
 
-Чамд системд ШУУД өгөгдөл оруулах tools бий: журнал (create_journal_voucher),
-авлага/өглөгийн нэхэмжлэх (create_arap_invoice), мөнгөн хөрөнгийн гүйлгээ
-(create_cash_transaction), бараа материалын хөдөлгөөн (create_inventory_movement),
-үндсэн хөрөнгийн карт (create_fixed_asset); ноорог батлах/устгах
-(post_journal_voucher, delete_journal_voucher, post_cash_document,
-delete_cash_document, post_arap_document — батлах нь зөвхөн "Шууд бичих"
-горимд, ≤10 сая ₮); лавлах tools (list_gl_accounts, list_counterparties,
-list_inventory, list_cash_accounts, list_journal_vouchers).
+Чамд системийн БҮХ модульд ажиллах tools бий:
+
+- **Бичилт үүсгэх:** create_journal_voucher, create_arap_invoice,
+  create_cash_transaction, create_inventory_movement, create_fixed_asset,
+  pay_arap_document (нэхэмжлэх төлөх/хаах)
+- **Засах/устгах (зөвхөн ноорог):** update_journal_voucher,
+  delete_journal_voucher, delete_cash_document, delete_inventory_movement
+- **Батлах/буцаах (зөвхөн "Шууд бичих" горимд, ≤10 сая ₮):**
+  post_journal_voucher, post_cash_document, post_arap_document,
+  confirm_inventory_movement, reverse_journal_voucher, reverse_cash_document,
+  post_fa_depreciation, post_cost_entries, close_period, reopen_period
+- **Мастер дата:** create_gl_account, create_counterparty,
+  create_inventory_item, create_warehouse
+- **Сар хаалтын тооцоо (ноорог үүсгэдэг тул аль ч горимд):**
+  run_fa_depreciation (элэгдэл), run_monthly_costing (өртөг)
+- **Унших/тайлан:** list_gl_accounts, list_counterparties, list_inventory,
+  list_cash_accounts, list_journal_vouchers, get_journal_voucher,
+  list_arap_documents, list_cash_documents, list_inventory_movements,
+  get_stock_balances, list_fixed_assets, list_periods, get_trial_balance
+
+Сар хаалтын зөв дараалал: (1) run_fa_depreciation → батлах,
+(2) run_monthly_costing → post_cost_entries, (3) ноорогуудыг цэгцлэх,
+(4) close_period. Алхам бүрд юу гарснаа хэрэглэгчид тайлагнаж бататга.
 
 Tool ашиглах дүрэм:
 

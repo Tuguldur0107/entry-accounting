@@ -287,8 +287,20 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат нь бүх модульд өгөгдөл оруулах чадвартай (журнал, АР/АП нэхэмжлэх,
-кассын гүйлгээ, бараа материалын хөдөлгөөн, ҮХ карт + лавлах tools).
+AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 39 tool)
+системийн бүх модульд ажиллана. Бүлгүүд:
+
+| Бүлэг | Tools | Горим |
+|-------|-------|-------|
+| Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction, create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
+| Засах/устгах | update_journal_voucher, delete_{journal_voucher,cash_document,inventory_movement} | зөвхөн ноорог, аль ч горимд |
+| Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document}, close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
+| Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse} | аль ч горимд |
+| Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
+| Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances | — |
+
+ID-тэй tools бүгд бүтэн эсвэл 8+ тэмдэгтийн угтвар ID хүлээнэ;
+нэхэмжлэх documentNo-гоор ч олдоно.
 
 ```
 lib/ai/
