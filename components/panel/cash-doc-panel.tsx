@@ -1,23 +1,40 @@
 "use client";
 
-// Мөнгөн гүйлгээний баримтын дэлгэрэнгүй панель (урьд нь read-only Dialog
-// байсан). Payload: { documentId: string } — өгөгдлөө server action-аар
-// өөрөө татна, panel.refreshToken өөрчлөгдөх бүрд дахин татна. Баримтын
-// толгой + холбоотой GL журналын Dr/Cr мөрүүд + буцаалтын журнал. "Журнал
-// нээх" нь журналыг ЗЭРЭГЦЭЭ панельд нээнэ — баримт, журнал хоёр хамт харагдана.
+// Мөнгөн гүйлгээний баримтын дэлгэрэнгүй панель. Payload: { documentId } —
+// өгөгдлөө server action-аар өөрөө татна, panel.refreshToken өөрчлөгдөх
+// бүрд дахин татна.
+//
+// GL журналын мөрүүд нь журнал бичихтэй ИЖИЛ хүснэгтээр (JournalLinesGrid
+// readOnly) харагдана: Данс (дарахад сегментийн panel) · Дансны нэр · Дебет
+// · Кредит · Тайлбар + pinned нийт дүн. Холбогдсон АР/АП нэхэмжлэхийг
+// зэрэгцээ панелиар нээнэ; ноорог батлах/устгах, батлагдсаныг буцаах
+// үйлдлүүд GL журналын харах дэлгэцтэй ижил footer-т байна.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Icon } from "@/components/ui/icon";
 
-import { VoucherLinesTable } from "@/components/gl/voucher-lines-table";
+import {
+  JournalLinesGrid,
+  type JournalLineRow,
+} from "@/components/journal/journal-lines-grid";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
+  deleteCashDocument,
   getCashDocPanelData,
+  postCashDocument,
+  reverseCashDocument,
   type CashDocPanelData,
 } from "@/lib/actions/cash";
+import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
+  openArapDocPanel,
   openVoucherPanel,
+  refreshOpenPanels,
   usePanelStore,
   type PanelInstance,
 } from "@/lib/store/panel-store";
@@ -44,8 +61,18 @@ const ERROR_MESSAGES = {
   failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
 } as const;
 
-export function CashDocPanel({ panel }: { panel: PanelInstance }) {
+export function CashDocPanel({
+  panel,
+  requestClose,
+}: {
+  panel: PanelInstance;
+  requestClose: () => void;
+}) {
   const setTitle = usePanelStore((state) => state.setTitle);
+  const closePanel = usePanelStore((state) => state.closePanel);
+  const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const [isPending, startTransition] = useTransition();
 
   const documentId = panel.payload.documentId as string | undefined;
   const refreshToken = panel.refreshToken;
@@ -107,8 +134,95 @@ export function CashDocPanel({ panel }: { panel: PanelInstance }) {
       </div>
     );
 
-  const { document, detail, activeSegIds, glNames } = state.data;
+  const { document, detail, activeSegIds, glNames, segmentValues, linkedInvoice } =
+    state.data;
   const glName = (code: string | null) => (code ? glNames[code] ?? "" : "");
+
+  // Журнал бичихтэй ИЖИЛ сегмент сонголтууд — S3 нь дансны мод, бусад нь
+  // сегментийн лавлах утгууд (хуучин бичилтэд идэвхгүй данс ч харагдана).
+  const segOptions: Record<number, SegOption[]> = {};
+  for (const segId of activeSegIds) {
+    segOptions[segId] =
+      segId === 3
+        ? Object.entries(glNames).map(([code, name]) => ({ code, name }))
+        : segmentValues
+            .filter((value) => value.segmentId === segId)
+            .map((value) => ({ code: value.code, name: value.name }));
+  }
+  const toRows = (
+    lines: { accountNumber: string; debit: number; credit: number; description: string | null }[]
+  ): JournalLineRow[] =>
+    lines.map((line, index) => ({
+      id: `${index}`,
+      account: line.accountNumber,
+      debit: Number(line.debit),
+      credit: Number(line.credit),
+      description: line.description ?? "",
+    }));
+  const noop = () => {};
+
+  function handlePost() {
+    void confirm({
+      title: "Баримт батлах",
+      description: `${document.documentNo} ноорог баримтыг баталж GL журнал үүсгэх үү?`,
+      confirmText: "Батлах",
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await postCashDocument(document.id);
+          toast.success("Баримт батлагдаж GL-д бичигдлээ");
+          refreshOpenPanels();
+          router.refresh();
+        } catch (caught) {
+          toast.error(caught instanceof Error ? caught.message : "Батлах амжилтгүй");
+        }
+      });
+    });
+  }
+
+  function handleDelete() {
+    void confirm({
+      title: "Ноорог устгах",
+      description: `${document.documentNo} ноорог баримтыг устгах уу?`,
+      confirmText: "Устгах",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await deleteCashDocument(document.id);
+          toast.success("Ноорог баримт устгагдлаа");
+          closePanel(panel.id);
+          refreshOpenPanels();
+          router.refresh();
+        } catch (caught) {
+          toast.error(caught instanceof Error ? caught.message : "Устгах амжилтгүй");
+        }
+      });
+    });
+  }
+
+  function handleReverse() {
+    void confirm({
+      title: "Баримт буцаах",
+      description: `${document.documentNo} батлагдсан баримтад буцаалтын (сторно) журнал үүсгэх үү?`,
+      confirmText: "Буцаах",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await reverseCashDocument(document.id);
+          toast.success("Баримт буцаагдлаа — сторно журнал үүслээ");
+          refreshOpenPanels();
+          router.refresh();
+        } catch (caught) {
+          toast.error(caught instanceof Error ? caught.message : "Буцаах амжилтгүй");
+        }
+      });
+    });
+  }
 
   const cashAccountLabel =
     document.documentType === "transfer"
@@ -171,6 +285,38 @@ export function CashDocPanel({ panel }: { panel: PanelInstance }) {
           <Row label="Утга" value={document.description || "—"} span2 />
         </dl>
 
+        {/* Холбогдсон АР/АП нэхэмжлэх — зэрэгцээ панелиар нээнэ */}
+        {linkedInvoice && (
+          <button
+            type="button"
+            onClick={() =>
+              openArapDocPanel({
+                documentId: linkedInvoice.id,
+                mode: "combined",
+                title: `${linkedInvoice.documentNo} · ${linkedInvoice.counterpartyName}`,
+              })
+            }
+            className="flex w-full items-center gap-2.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left transition-colors hover:border-[var(--ea-primary)]"
+          >
+            <Icon name="document" size="sm" className="shrink-0 text-[var(--ea-primary)]" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium text-[var(--ea-text-1)]">
+                {linkedInvoice.documentNo} · {linkedInvoice.counterpartyName}
+              </span>
+              <span className="text-[10px] text-[var(--ea-text-4)]">
+                Холбогдсон{" "}
+                {linkedInvoice.documentType === "ar_invoice"
+                  ? "авлагын нэхэмжлэл"
+                  : "өглөгийн нэхэмжлэх"}
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--ea-primary)]">
+              Нэхэмжлэх нээх
+              <Icon name="openDetail" size="xs" />
+            </span>
+          </button>
+        )}
+
         {/* Холбоотой GL журнал — GL-ээс үүссэн ноорогт энэ нь эх воучер. */}
         <div>
           <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -200,11 +346,15 @@ export function CashDocPanel({ panel }: { panel: PanelInstance }) {
           </div>
           {detail.lines.length > 0 ? (
             <>
-              <VoucherLinesTable
-                lines={detail.lines}
-                activeSegIds={activeSegIds}
-                glName={(code) => glName(code)}
-              />
+              <div className="overflow-hidden rounded-md border border-[var(--ea-border)]">
+                <JournalLinesGrid
+                  lines={toRows(detail.lines)}
+                  onLinesChange={noop}
+                  activeSegIds={activeSegIds}
+                  segOptions={segOptions}
+                  readOnly
+                />
+              </div>
               {showsSourceVoucher && (
                 <p className="mt-1.5 text-[11px] text-[var(--ea-text-4)]">
                   Энэ бичилт GL-д аль хэдийн батлагдсан. Баримтыг батлахад
@@ -227,14 +377,44 @@ export function CashDocPanel({ panel }: { panel: PanelInstance }) {
             <div className="mb-1.5 text-xs font-semibold text-[var(--ea-warning-fg)]">
               Буцаалтын журнал
             </div>
-            <VoucherLinesTable
-              lines={detail.reversalLines}
-              activeSegIds={activeSegIds}
-              glName={(code) => glName(code)}
-            />
+            <div className="overflow-hidden rounded-md border border-[var(--ea-border)]">
+              <JournalLinesGrid
+                lines={toRows(detail.reversalLines)}
+                onLinesChange={noop}
+                activeSegIds={activeSegIds}
+                segOptions={segOptions}
+                readOnly
+              />
+            </div>
           </div>
         )}
+
+        {/* Үйлдлүүд — GL журналын харах дэлгэцтэй ижил зарчим */}
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">
+          <Button variant="outline" onClick={requestClose} disabled={isPending}>
+            Хаах
+          </Button>
+          {document.status === "draft" && (
+            <>
+              <Button variant="outline" onClick={handleDelete} disabled={isPending}>
+                <Icon name="delete" size="sm" />
+                Устгах
+              </Button>
+              <Button onClick={handlePost} disabled={isPending}>
+                <Icon name="approve" size="sm" />
+                Батлах
+              </Button>
+            </>
+          )}
+          {document.status === "posted" && (
+            <Button variant="outline" onClick={handleReverse} disabled={isPending}>
+              <Icon name="reset" size="sm" />
+              Буцаах
+            </Button>
+          )}
+        </div>
       </div>
+      {confirmDialog}
     </div>
   );
 }

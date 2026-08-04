@@ -898,6 +898,16 @@ export interface CashDocPanelData {
   activeSegIds: number[];
   /** Үндсэн дансны код → нэр (идэвхгүй данс ч багтана — хуучин бичилтэд). */
   glNames: Record<string, string>;
+  /** Сегментийн лавлах утгууд — данс дээр дарахад сегмент panel-д хэрэгтэй. */
+  segmentValues: { segmentId: number; code: string; name: string }[];
+  /** Холбогдсон АР/АП нэхэмжлэх (төлбөрийн баримтад). */
+  linkedInvoice: {
+    id: string;
+    documentNo: string;
+    counterpartyName: string;
+    documentType: string;
+    status: string;
+  } | null;
 }
 
 // Алдааг throw хийхгүй — production build дээр Next.js server action-ий
@@ -926,17 +936,32 @@ export async function getCashDocPanelData(
   });
   if (!document) return { ok: false, code: "not-found" };
 
-  const [main, reversal, configs, accounts] = await Promise.all([
-    voucherLinesFor(userId, document.voucherId ?? document.sourceVoucherId),
-    voucherLinesFor(userId, document.reversalVoucherId),
-    db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
-    }),
-    db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
-      columns: { number: true, name: true },
-    }),
-  ]);
+  const [main, reversal, configs, accounts, segValues, linkedInvoiceRow] =
+    await Promise.all([
+      voucherLinesFor(userId, document.voucherId ?? document.sourceVoucherId),
+      voucherLinesFor(userId, document.reversalVoucherId),
+      db.query.segmentConfigs.findMany({
+        where: eq(segmentConfigs.userId, userId),
+      }),
+      db.query.chartOfAccounts.findMany({
+        where: eq(chartOfAccounts.userId, userId),
+        columns: { number: true, name: true },
+      }),
+      db.query.segmentValues.findMany({
+        where: eq(segmentValues.userId, userId),
+        columns: { segmentId: true, code: true, name: true },
+      }),
+      document.arApDocumentId
+        ? db.query.arApDocuments.findFirst({
+            where: and(
+              eq(arApDocuments.id, document.arApDocumentId),
+              eq(arApDocuments.userId, userId)
+            ),
+            columns: { id: true, documentNo: true, documentType: true, status: true },
+            with: { counterparty: { columns: { name: true } } },
+          })
+        : Promise.resolve(null),
+    ]);
 
   const configMap = new Map(configs.map((config) => [config.segmentId, config]));
   const activeSegIds = SEGMENT_DEFS.filter(
@@ -960,6 +985,16 @@ export async function getCashDocPanelData(
       glNames: Object.fromEntries(
         accounts.map((account) => [account.number, account.name])
       ),
+      segmentValues: segValues,
+      linkedInvoice: linkedInvoiceRow
+        ? {
+            id: linkedInvoiceRow.id,
+            documentNo: linkedInvoiceRow.documentNo,
+            counterpartyName: linkedInvoiceRow.counterparty?.name ?? "",
+            documentType: linkedInvoiceRow.documentType,
+            status: linkedInvoiceRow.status,
+          }
+        : null,
     },
   };
 }
