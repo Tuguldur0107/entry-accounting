@@ -21,6 +21,7 @@ import {
 import {
   createCashAccount,
   createCashDocument,
+  createCashOpeningVoucher,
   deleteCashDocument,
   postCashDocument,
   reverseCashDocument,
@@ -953,6 +954,23 @@ export const AI_TOOLS: AiToolDef[] = [
         code: { type: "string", description: "Период YYYY-MM" },
       },
       required: ["code"],
+    },
+  },
+
+  {
+    name: "fix_cash_opening_balance",
+    description:
+      "Кассын дансны НЭЭЛТИЙН үлдэгдлийг GL-д бичих ноорог журнал үүсгэнэ (Дт данс / Кт эздийн өмч; сөрөгт эсрэгээр). reconcile_modules-д кассын зөрүү нь нээлтийн үлдэгдэлтэй тэнцүү гарсан үед ашиглана — журнал батлагдмагц зөрүү арилна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cashAccount: { type: "string", description: "Кассын/банкны дансны нэр" },
+        counterAccount: {
+          type: "string",
+          description: "Харьцах данс (default: 41100000 эздийн өмч)",
+        },
+      },
+      required: ["cashAccount"],
     },
   },
 
@@ -3467,6 +3485,39 @@ async function runPostCostEntries(
   };
 }
 
+async function runFixCashOpening(
+  userId: string,
+  input: { cashAccount: string; counterAccount?: string }
+): Promise<AiToolResult> {
+  const accounts = await db.query.cashAccounts.findMany({
+    where: eq(cashAccounts.userId, userId),
+  });
+  const account = requireSingle(
+    nameMatches(accounts, (entry) => entry.name, input.cashAccount),
+    (entry) => entry.name,
+    "мөнгөн данс",
+    input.cashAccount
+  );
+  let counter: string | undefined;
+  if (input.counterAccount) {
+    const ctx = await accountContext(userId);
+    counter = resolveAccount(input.counterAccount, ctx).main;
+  }
+  const result = await createCashOpeningVoucher({
+    cashAccountId: account.id,
+    counterAccountNumber: counter,
+  });
+  return {
+    resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${fmt(result.amount)}₮, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
+    action: {
+      kind: "voucher",
+      id: result.id,
+      title: `Нээлтийн үлдэгдэл — ${account.name}`,
+      status: "draft",
+    },
+  };
+}
+
 // ── Тулгалт ─────────────────────────────────────────────────────────────────
 
 /** Батлагдсан журналын мөрүүдээс үндсэн данс бүрийн цэвэр үлдэгдэл (Дт−Кт). */
@@ -3529,9 +3580,15 @@ async function runReconcileModules(
         lines.push(
           `  ЗӨРҮҮ ${account.name}: модуль ${fmt(subledger)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
         );
-        problems.push(
-          `Касс "${account.name}": ноорог кассын баримт батлагдаагүй, эсвэл GL-д гараар бичсэн бичилт байж магадгүй — list_cash_documents status=draft шалгаад батлах/устгах`
-        );
+        const opening = Number(account.openingBalance ?? 0);
+        if (Math.abs(opening) > 0.005 && Math.abs(diff - opening) <= EPS)
+          problems.push(
+            `Касс "${account.name}": зөрүү нь НЭЭЛТИЙН үлдэгдэлтэй (${fmt(opening)}₮) тэнцүү — нээлтийн журнал GL-д бичигдээгүй. fix_cash_opening_balance tool-оор ноорог журнал үүсгээд батлана`
+          );
+        else
+          problems.push(
+            `Касс "${account.name}": ноорог кассын баримт батлагдаагүй, эсвэл GL-д гараар бичсэн бичилт байж магадгүй — list_cash_documents status=draft шалгаад батлах/устгах`
+          );
       } else lines.push(`  OK ${account.name}: ${fmt(subledger)}`);
     }
     sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
@@ -3812,6 +3869,8 @@ export async function executeAiTool(
         return await runMonthlyCosting(userId, args);
       case "post_cost_entries":
         return await runPostCostEntries(userId, args, mode);
+      case "fix_cash_opening_balance":
+        return await runFixCashOpening(userId, args);
       case "reconcile_modules":
         return await runReconcileModules(userId, args);
       case "get_workflow_guide":

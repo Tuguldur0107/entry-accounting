@@ -181,6 +181,7 @@ export default async function CashReconciliationPage({
       glBalance,
       bankToCashDifference,
       cashToGlDifference,
+      openingBalance: Number(account.openingBalance ?? 0),
       status: reconciliationStatus(
         cashToGlDifference,
         bankToCashDifference,

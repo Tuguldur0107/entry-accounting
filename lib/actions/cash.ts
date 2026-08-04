@@ -210,6 +210,125 @@ export async function createCashAccount(data: {
   revalidateCash();
 }
 
+/**
+ * Кассын дансны НЭЭЛТИЙН ҮЛДЭГДЛИЙГ GL-д ноорог журналаар бичнэ.
+ *
+ * Данс үүсгэхэд openingBalance зөвхөн модульд бүртгэгддэг тул GL-тэй
+ * тулгахад яг нээлтийн дүнгээр байнгын зөрүү үүсдэг — энэ action түүнийг
+ * арилгах ГҮҮР: Дт данс / Кт эздийн өмч (сөрөг нээлтэд эсрэгээр) ноорог
+ * журнал үүсгэж, хэрэглэгч шалгаад батална.
+ *
+ * Мөрөнд cashAccountId тэмдэглэгдсэн тул (1) тулгалтын GL тал нээлтийг
+ * тоолно, (2) sync/backfill давхар кассын баримт үүсгэхгүй.
+ */
+export async function createCashOpeningVoucher(data: {
+  cashAccountId: string;
+  /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
+  counterAccountNumber?: string;
+}) {
+  const userId = await requireUser();
+
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(
+      eq(cashAccounts.id, data.cashAccountId),
+      eq(cashAccounts.userId, userId)
+    ),
+  });
+  if (!account) throw new Error("Кассын данс олдсонгүй");
+
+  const opening = Number(account.openingBalance ?? 0);
+  if (Math.abs(opening) < 0.005)
+    throw new Error("Нээлтийн үлдэгдэл 0 тул журнал шаардлагагүй");
+
+  // Нэг дансанд нэг л нээлтийн журнал — тайлбар доторх тэмдэгээр таньж
+  // давхардуулахгүй (ноорог нь ч, батлагдсан нь ч тооцогдоно).
+  const marker = `[НЭЭЛТ:${account.id}]`;
+  const existing = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.userId, userId),
+      sql`${journalVouchers.description} LIKE ${"%" + marker + "%"}`
+    ),
+    columns: { id: true, status: true },
+  });
+  if (existing)
+    throw new Error(
+      existing.status === "draft"
+        ? "Нээлтийн журнал аль хэдийн ноорогоор үүссэн — журналын жагсаалтаас баталгаажуулна уу"
+        : "Нээлтийн журнал аль хэдийн батлагдсан байна"
+    );
+
+  // Харьцах данс: default нь эздийн өмч.
+  let counter = cleanText(data.counterAccountNumber);
+  if (!counter) {
+    const equity = await db.query.chartOfAccounts.findMany({
+      where: and(
+        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.isEnabled, true),
+        sql`left(${chartOfAccounts.number}, 1) = '4'`
+      ),
+      orderBy: (a, { asc }) => [asc(a.number)],
+    });
+    counter =
+      equity.find((a) => a.number === "41100000")?.number ??
+      equity[0]?.number ??
+      null;
+    if (!counter)
+      throw new Error(
+        "Эздийн өмчийн (4XXXXXXX) идэвхтэй данс олдсонгүй — харьцах дансаа зааж өгнө үү"
+      );
+  } else {
+    await assertMainAccount(userId, counter);
+  }
+
+  const today = new Date(Date.now() + 8 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  await assertPeriodOpen(userId, today);
+
+  const buildCode = await cashPostingCodeBuilder(userId, null);
+  const bankCode = buildCode(account.glAccountNumber);
+  const counterCode = buildCode(counter);
+  const amount = Math.round(Math.abs(opening) * 100) / 100;
+
+  const voucherId = await db.transaction(async (tx) => {
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        date: today,
+        description: `Нээлтийн үлдэгдэл — ${account.name} ${marker}`,
+        status: "draft",
+      })
+      .returning({ id: journalVouchers.id });
+
+    await tx.insert(journalLines).values([
+      {
+        voucherId: voucher.id,
+        accountNumber: opening > 0 ? bankCode : counterCode,
+        debit: String(amount),
+        credit: "0",
+        description: "Нээлтийн үлдэгдэл",
+        sortOrder: 0,
+        cashAccountId: opening > 0 ? account.id : null,
+      },
+      {
+        voucherId: voucher.id,
+        accountNumber: opening > 0 ? counterCode : bankCode,
+        debit: "0",
+        credit: String(amount),
+        description: "Нээлтийн үлдэгдэл",
+        sortOrder: 1,
+        cashAccountId: opening > 0 ? null : account.id,
+      },
+    ]);
+    return voucher.id;
+  });
+
+  revalidateCash();
+  revalidatePath("/gl/journal");
+  return { id: voucherId, counterAccountNumber: counter, amount };
+}
+
 export async function toggleCashAccount(id: string, isActive: boolean) {
   const userId = await requireUser();
   await db

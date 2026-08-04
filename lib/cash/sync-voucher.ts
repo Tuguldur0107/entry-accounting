@@ -66,6 +66,11 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
     if (!voucher || voucher.status !== "posted") return;
     const userId = voucher.userId;
 
+    // Кассын модулиас ӨӨРӨӨС нь үүссэн GL бичилт (кассын баримт, ханшийн
+    // тэгшитгэл, нээлтийн журнал) мөрөндөө cashAccountId тэмдэгтэй байдаг —
+    // модульд аль хэдийн тусгагдсан тул давхар ноорог баримт үүсгэхгүй.
+    if (voucher.lines.some((line) => line.cashAccountId)) return;
+
     const existing = await db.query.cashDocuments.findFirst({
       where: and(
         eq(cashDocuments.userId, userId),
@@ -152,6 +157,9 @@ export async function backfillCashDraftsForUser(userId: string): Promise<number>
     const inserts: (typeof cashDocuments.$inferInsert)[] = [];
     for (const voucher of vouchers) {
       if (linked.has(voucher.id)) continue;
+      // Кассын модулиас үүссэн GL (cashAccountId тэмдэгтэй мөртэй) —
+      // модульд аль хэдийн байгаа тул давхар ноорог үүсгэхгүй.
+      if (voucher.lines.some((l) => l.cashAccountId)) continue;
       // Cheap pre-filter: skip vouchers that don't touch any cash gl account.
       const touchesCash = voucher.lines.some((l) =>
         cashGl.has(mainAccountOf(l.accountNumber))

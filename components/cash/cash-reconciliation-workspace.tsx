@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  createCashOpeningVoucher,
   postCashFxRevaluation,
   reverseCashFxRevaluation,
 } from "@/lib/actions/cash";
@@ -55,6 +56,8 @@ export type CashReconciliationRow = {
   glBalance: number;
   bankToCashDifference: number | null;
   cashToGlDifference: number | null;
+  /** Модульд бүртгэлтэй нээлтийн үлдэгдэл — GL-д дутуу бол зөрүүний шалтгаан. */
+  openingBalance: number;
   rateSource: string | null;
   rateBasis: string | null;
   sourceDate: string | null;
@@ -206,6 +209,43 @@ export function CashReconciliationWorkspace({
     }),
     [rows]
   );
+
+  // Зөрүү нь яг нээлтийн үлдэгдэлтэй тэнцүү данснууд — GL-д нээлтийн журнал
+  // дутуу гэсэн ойлгомжтой оношилгоо + нэг товчны засвар.
+  const openingFixRows = useMemo(
+    () =>
+      rows.filter(
+        (row) =>
+          row.cashToGlDifference != null &&
+          Math.abs(row.cashToGlDifference) > 0.01 &&
+          Math.abs(row.openingBalance) > 0.005 &&
+          Math.abs(row.cashToGlDifference - row.openingBalance) <= 0.01
+      ),
+    [rows]
+  );
+
+  function handleCreateOpeningVoucher(row: CashReconciliationRow) {
+    void confirm({
+      title: "Нээлтийн журнал үүсгэх",
+      description: `${row.accountName} дансны нээлтийн үлдэгдэл ${fmtMnt(row.openingBalance)}-г GL-д бичих НООРОГ журнал (харьцах данс: эздийн өмч) үүсгэх үү? Баталмагц тулгалтын зөрүү арилна.`,
+      confirmText: "Үүсгэх",
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await createCashOpeningVoucher({ cashAccountId: row.id });
+          toast.success(
+            "Нээлтийн ноорог журнал үүслээ — GL журналын жагсаалтаас шалгаж батална уу"
+          );
+          router.refresh();
+        } catch (caught) {
+          toast.error(
+            caught instanceof Error ? caught.message : "Үүсгэж чадсангүй"
+          );
+        }
+      });
+    });
+  }
 
   const adjustment = useCallback((row: FxInputRow | undefined) => {
     if (!row?.inputRate) return null;
@@ -886,6 +926,40 @@ export function CashReconciliationWorkspace({
             </div>
           ))}
         </div>
+
+        {/* Нээлтийн үлдэгдэл GL-д бичигдээгүйгээс үүссэн зөрүү — нэг товчоор
+            ноорог журнал үүсгэж арилгана. */}
+        {openingFixRows.length > 0 && (
+          <div className="mt-3 space-y-2 rounded-md border border-[var(--ea-warning)] bg-[var(--ea-warning)]/5 p-3">
+            <p className="text-xs font-medium text-[var(--ea-warning-fg)]">
+              <Icon name="info" size="xs" className="mr-1 inline-block" />
+              Доорх дансдын зөрүү нь НЭЭЛТИЙН ҮЛДЭГДЭЛТЭЙ тэнцүү байна — данс
+              үүсгэхэд нээлтийн дүн зөвхөн модульд бүртгэгдсэн, GL-д журнал
+              бичигдээгүй гэсэн үг. Товч дармагц Дт/Кт данс ↔ эздийн өмчийн
+              НООРОГ журнал үүснэ — шалгаад баталмагц зөрүү арилна.
+            </p>
+            {openingFixRows.map((row) => (
+              <div
+                key={row.id}
+                className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2"
+              >
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--ea-text-1)]">
+                  {row.accountName}
+                </span>
+                <span className="font-mono text-xs text-[var(--ea-text-2)]">
+                  нээлт {fmtMnt(row.openingBalance)}
+                </span>
+                <Button
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => handleCreateOpeningVoucher(row)}
+                >
+                  Нээлтийн журнал үүсгэх
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section>
@@ -923,6 +997,15 @@ export function CashReconciliationWorkspace({
         </div>
         {fxRows.length > 0 ? (
           <>
+            {fxRows.every((row) => Math.abs(row.cashBalance) < 0.005) && (
+              <p className="mb-2 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
+                <Icon name="info" size="xs" className="mr-1 inline-block" />
+                Бүх валютын дансны үлдэгдэл 0 байна — тэгшитгэх зүйл байхгүй
+                тул одоогоор энд хийх үйлдэл алга. Валютын гүйлгээ орж
+                үлдэгдэл үүссэн үед (ихэвчлэн сарын эцэст) &quot;Ханш татах&quot;-аар
+                хаалтын ханш аваад тэгшитгэлээ GL-д бичнэ.
+              </p>
+            )}
             <div className="hidden xl:block">
               <DataGridDynamic<FxInputRow>
                 rowData={fxRows}
