@@ -55,7 +55,9 @@ import { postCostEntries } from "@/lib/actions/costing";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
 import { closePeriod, listPeriods, reopenPeriod } from "@/lib/actions/periods";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliation";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
+import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
@@ -863,6 +865,46 @@ export const AI_TOOLS: AiToolDef[] = [
         code: { type: "string", description: "Период YYYY-MM" },
       },
       required: ["code"],
+    },
+  },
+
+  // ── Тулгалт ба ажлын урсгал ───────────────────────────────────────────────
+  {
+    name: "reconcile_modules",
+    description:
+      "Модуль хоорондын тулгалт — дэд дэвтэр бүрийг GL-тэй тулгаж зөрүүг илрүүлнэ: касс/банкны данс, авлага/өглөгийн хяналтын данс, бараа материалын үнэлгээ, клирингийн данс. Зөрүү олдвол магадлалт шалтгаан, засах алхмыг зааж өгнө. Сар хаахын ӨМНӨ заавал ажиллуулна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Мужийн эхлэл YYYY-MM-DD (клиринг/бараанд)" },
+        to: { type: "string", description: "Тулгах огноо YYYY-MM-DD (үлдэгдэл энэ өдрөөр)" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "get_workflow_guide",
+    description:
+      "Даалгаврыг модулиудын ЗӨВ ДАРААЛЛААР хийх заавар — аль tool-ыг ямар дэс дараатай дуудахыг алхам алхмаар өгнө. Олон модуль дамнасан ажил эхлэхийн өмнө үүнийг уншина.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workflow: {
+          type: "string",
+          enum: [
+            "purchase_inventory",
+            "sale",
+            "payment",
+            "month_end_close",
+            "fix_discrepancy",
+            "new_company_setup",
+            "fixed_asset_lifecycle",
+          ],
+          description:
+            "purchase_inventory=бараатай худалдан авалт, sale=борлуулалт, payment=нэхэмжлэх төлөх, month_end_close=сар хаалт, fix_discrepancy=зөрүү засах, new_company_setup=шинэ компанийн тохиргоо, fixed_asset_lifecycle=ҮХ-ийн амьдралын мөчлөг",
+        },
+      },
+      required: ["workflow"],
     },
   },
 
@@ -2718,6 +2760,236 @@ async function runPostCostEntries(
   };
 }
 
+// ── Тулгалт ─────────────────────────────────────────────────────────────────
+
+/** Батлагдсан журналын мөрүүдээс үндсэн данс бүрийн цэвэр үлдэгдэл (Дт−Кт). */
+async function glNetByMain(userId: string, upTo: string): Promise<Map<string, number>> {
+  const vouchers = await db.query.journalVouchers.findMany({
+    where: and(eq(journalVouchers.userId, userId), eq(journalVouchers.status, "posted")),
+    with: { lines: { columns: { accountNumber: true, debit: true, credit: true } } },
+    columns: { date: true },
+  });
+  const net = new Map<string, number>();
+  for (const voucher of vouchers) {
+    if (voucher.date > upTo) continue;
+    for (const line of voucher.lines) {
+      const main = parseSegParts(line.accountNumber, [3])[3] ?? line.accountNumber;
+      net.set(main, (net.get(main) ?? 0) + Number(line.debit) - Number(line.credit));
+    }
+  }
+  return net;
+}
+
+async function runReconcileModules(
+  userId: string,
+  input: { from: string; to: string }
+): Promise<AiToolResult> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.from ?? "") || !/^\d{4}-\d{2}-\d{2}$/.test(input.to ?? ""))
+    throw new Error("from/to огноо YYYY-MM-DD форматтай байх ёстой");
+
+  const EPS = 0.01;
+  const sections: string[] = [];
+  const problems: string[] = [];
+  const glNet = await glNetByMain(userId, input.to);
+
+  // 1. Касс/банк: GL данс vs модулийн үлдэгдэл (нээлт + батлагдсан баримт).
+  {
+    const [accounts, documents] = await Promise.all([
+      db.query.cashAccounts.findMany({
+        where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+      }),
+      db.query.cashDocuments.findMany({
+        where: and(eq(cashDocuments.userId, userId), eq(cashDocuments.status, "posted")),
+      }),
+    ]);
+    const moduleBalance = new Map<string, number>(
+      accounts.map((account) => [account.id, Number(account.openingBalance ?? 0)])
+    );
+    for (const doc of documents) {
+      if (doc.date > input.to) continue;
+      const amount = Number(doc.baseAmount ?? doc.amount);
+      if (doc.toCashAccountId)
+        moduleBalance.set(doc.toCashAccountId, (moduleBalance.get(doc.toCashAccountId) ?? 0) + amount);
+      if (doc.fromCashAccountId)
+        moduleBalance.set(doc.fromCashAccountId, (moduleBalance.get(doc.fromCashAccountId) ?? 0) - amount);
+    }
+    const lines: string[] = [];
+    for (const account of accounts) {
+      const subledger = moduleBalance.get(account.id) ?? 0;
+      const gl = glNet.get(account.glAccountNumber) ?? 0;
+      const diff = Math.round((subledger - gl) * 100) / 100;
+      if (Math.abs(diff) > EPS) {
+        lines.push(
+          `  ЗӨРҮҮ ${account.name}: модуль ${fmt(subledger)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
+        );
+        problems.push(
+          `Касс "${account.name}": ноорог кассын баримт батлагдаагүй, эсвэл GL-д гараар бичсэн бичилт байж магадгүй — list_cash_documents status=draft шалгаад батлах/устгах`
+        );
+      } else lines.push(`  OK ${account.name}: ${fmt(subledger)}`);
+    }
+    sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
+  }
+
+  // 2. АР/АП: хяналтын данс vs нээлттэй баримтын үлдэгдэл.
+  {
+    const documents = await db.query.arApDocuments.findMany({
+      where: eq(arApDocuments.userId, userId),
+    });
+    const open = documents.filter(
+      (doc) =>
+        ["posted", "partially_paid"].includes(doc.status) && doc.date <= input.to
+    );
+    const byControl = new Map<string, { type: string; sum: number }>();
+    for (const doc of open) {
+      const main =
+        parseSegParts(doc.controlAccountNumber, [3])[3] ?? doc.controlAccountNumber;
+      const balance = Number(doc.baseTotalAmount) - Number(doc.basePaidAmount);
+      const slot = byControl.get(main) ?? { type: doc.documentType, sum: 0 };
+      slot.sum += balance;
+      byControl.set(main, slot);
+    }
+    const lines: string[] = [];
+    for (const [main, slot] of byControl) {
+      const gl = glNet.get(main) ?? 0;
+      // АР дебет, АП кредит үлдэгдэлтэй — GL-ийн цэвэрийг тохирох тэмдэгтэй нь харна.
+      const glSide = slot.type === "ar_invoice" ? gl : -gl;
+      const diff = Math.round((slot.sum - glSide) * 100) / 100;
+      if (Math.abs(diff) > EPS) {
+        lines.push(
+          `  ЗӨРҮҮ ${main}: нээлттэй баримтууд ${fmt(slot.sum)} vs GL ${fmt(glSide)} → зөрүү ${fmt(diff)}`
+        );
+        problems.push(
+          `${slot.type === "ar_invoice" ? "Авлага" : "Өглөг"} ${main}: хяналтын дансанд гараар журнал бичсэн, эсвэл төлөлт нэхэмжлэхтэй холбогдоогүй байж магадгүй — get_trial_balance + list_arap_documents тулгах`
+        );
+      } else lines.push(`  OK ${main}: ${fmt(slot.sum)}`);
+    }
+    sections.push(`АВЛАГА/ӨГЛӨГ:\n${lines.join("\n") || "  нээлттэй баримт алга"}`);
+  }
+
+  // 3. Бараа материал: дэд дэвтрийн үнэлгээ vs GL (өртгийн тулгалтын тайлан).
+  {
+    const recon = await loadInventoryGlReconciliation(userId, {
+      from: input.from,
+      to: input.to,
+    });
+    const lines = recon.rows.map((row) =>
+      Math.abs(row.difference) > EPS
+        ? `  ЗӨРҮҮ ${row.accountNumber} ${row.accountName}: дэд дэвтэр ${fmt(row.subledgerAmount)} vs GL ${fmt(row.glAmount)} → ${fmt(row.difference)}${row.unlinkedGlLines > 0 ? ` (гараар бичсэн ${row.unlinkedGlLines} мөр ${fmt(row.unlinkedGlAmount)})` : ""}`
+        : `  OK ${row.accountNumber} ${row.accountName}: ${fmt(row.glAmount)}`
+    );
+    for (const row of recon.rows)
+      if (Math.abs(row.difference) > EPS)
+        problems.push(
+          `Бараа ${row.accountNumber}: өртгийн ноорог бичилт батлагдаагүй (${recon.pendingCount} хүлээгдэж буй, ${fmt(recon.pendingAmount)}₮) эсвэл run_monthly_costing ажиллаагүй — run_monthly_costing → post_cost_entries`
+        );
+    if (recon.pendingCount > 0)
+      lines.push(`  Хүлээгдэж буй ноорог өртгийн бичилт: ${recon.pendingCount} (${fmt(recon.pendingAmount)}₮)`);
+    sections.push(`БАРАА МАТЕРИАЛ (${input.from} — ${input.to}):\n${lines.join("\n") || "  тулгах данс алга"}`);
+  }
+
+  // 4. Клиринг: бизнес объектоор тулгаж хаагдаагүй үлдэгдлийг үзүүлнэ.
+  {
+    const clearing = await loadClearingReconciliation(userId, {
+      from: input.from,
+      to: input.to,
+    });
+    const openRows = clearing.rows.filter((row) => Math.abs(row.ending) > EPS);
+    const lines = [
+      ...openRows
+        .slice(0, 15)
+        .map(
+          (row) =>
+            `  ХААГДААГҮЙ ${row.account} · ${row.objectLabel}${row.componentLabel ? ` (${row.componentLabel})` : ""}: ${fmt(row.ending)}`
+        ),
+      ...(clearing.unknownCount > 0
+        ? [`  ОБЪЕКТГҮЙ (гар журнал): ${clearing.unknownCount} мөр, ${fmt(clearing.unknownAmount)}₮`]
+        : []),
+    ];
+    if (openRows.length > 0)
+      problems.push(
+        `Клиринг: ${openRows.length} объект хаагдаагүй — худалдан авалтын өртөг капиталжаагүй (run_monthly_costing → post_cost_entries) эсвэл орлого баталгаажаагүй байж магадгүй`
+      );
+    if (clearing.unknownCount > 0)
+      problems.push(
+        "Клирингийн дансанд объектгүй гар журнал бий — эдгээрийг олж буцаах эсвэл зөв дансанд шилжүүлэх"
+      );
+    sections.push(`КЛИРИНГ (${input.from} — ${input.to}):\n${lines.join("\n") || "  бүгд хаагдсан"}`);
+  }
+
+  return {
+    resultText: [
+      ...sections,
+      problems.length === 0
+        ? "\n✓ Модуль хоорондын зөрүү илрээгүй."
+        : `\nИЛЭРСЭН АСУУДАЛ (${problems.length}):\n${problems.map((problem, index) => `${index + 1}. ${problem}`).join("\n")}`,
+    ].join("\n\n"),
+  };
+}
+
+// ── Ажлын урсгалын заавар ───────────────────────────────────────────────────
+
+const WORKFLOW_GUIDES: Record<string, string> = {
+  purchase_inventory: `БАРААТАЙ ХУДАЛДАН АВАЛТ — зөв дараалал:
+1. list_counterparties / list_inventory — нийлүүлэгч, барааны кодоо шалгах (байхгүй бол create_counterparty / create_inventory_item)
+2. create_arap_invoice (ap_bill, бараатай мөрөнд itemCode+quantity+warehouseCode) — данс автоматаар клирингт суана
+3. post_arap_document — батлахад: GL-д Кт өглөг бичигдэж, бараа ОРЛОГЫН НООРОГ хөдөлгөөн автоматаар үүснэ
+4. confirm_inventory_movement — орлого баталгаажиж үлдэгдэлд орно (өртөг нь худалдан авалтын үнээр шууд капиталжина)
+5. Төлбөр: pay_arap_document (касс автоматаар холбогдоно)
+Сар дуусахад run_monthly_costing клирингээс бараанд капиталжуулна — reconcile_modules-оор шалгана.`,
+  sale: `БОРЛУУЛАЛТ — зөв дараалал:
+1. create_arap_invoice (ar_invoice) — орлогын данс мөрөнд (51100000), бараатай бол itemCode+quantity+warehouseCode
+2. post_arap_document — GL-д Дт авлага/Кт орлого бичигдэж, бараа ЗАРЛАГЫН НООРОГ үүснэ
+3. confirm_inventory_movement — зарлага баталгаажина (тоо хэмжээ хасагдана; ӨРТӨГ нь сар хаахад сарын дундажаар COGS болно)
+4. Төлбөр ирэхэд: pay_arap_document (орлогын кассын баримт үүснэ)
+5. Сар хаалтад: run_monthly_costing → post_cost_entries — COGS бичигдэнэ
+НӨАТ-тай бол: авлага = нийт, орлого = нийт/1.1, НӨАТ өглөг 31410000 = нийт×10/110 гэж мөр хуваана.`,
+  payment: `НЭХЭМЖЛЭХ ТӨЛӨХ/ХААХ:
+1. list_arap_documents status=posted (эсвэл partially_paid) — үлдэгдэлтэй баримтаа олох
+2. list_cash_accounts — аль данснаас/данс руу
+3. pay_arap_document {documentId, cashAccount, date, amount?} — amount өгөхгүй бол үлдэгдлээр бүтэн хаана; АР=орлого, АП=зарлага автоматаар
+Кассын баримт нэхэмжлэхтэй холбогдож үлдэгдэл автоматаар хасагдана.`,
+  month_end_close: `САР ХААЛТ — ЗААВАЛ энэ дарааллаар (сар: YYYY-MM):
+1. list_journal_vouchers status=draft + list_cash_documents status=draft + list_inventory_movements status=draft — ноорогуудыг цэгцлэх (батлах эсвэл устгах; ноорог үлдвэл период хаагдахгүй)
+2. run_fa_depreciation {month} — элэгдэл бодох → post_fa_depreciation {month}
+3. run_monthly_costing {period} — зарлага/тохируулгыг сарын дундажаар үнэлэх; блоклогдсон бараа гарвал шалтгааныг нь шийдэж ДАХИН ажиллуулах
+4. post_cost_entries {month} — өртгийн бичилтүүд GL-д
+5. reconcile_modules {from: сарын 1, to: сарын сүүлч} — зөрүү 0 болтол засах
+6. get_trial_balance — эцсийн шалгалт (ΣДт=ΣКт)
+7. close_period {code} — хаах
+Алхам бүрийн үр дүнг хэрэглэгчид тайлагнаж, дараагийнхыг эхлэхийн өмнө бататгана.`,
+  fix_discrepancy: `ЗӨРҮҮ ЗАСАХ — оношилгооны дараалал:
+1. reconcile_modules — аль модульд, ямар дансанд, хэдээр зөрж байгааг тогтоох
+2. Шалтгаан бүрийн засвар:
+   - Касс зөрүү → list_cash_documents status=draft: батлагдаагүй баримт батлах/устгах; GL-д гараар бичсэн кассын бичилт байвал reverse_journal_voucher
+   - АР/АП зөрүү → төлөлт нэхэмжлэхгүй бүртгэгдсэн (гар журнал) эсвэл нэхэмжлэх GL-гүй; get_trial_balance + list_arap_documents мөр мөрөөр тулгах
+   - Бараа зөрүү → run_monthly_costing ажиллуулаагүй эсвэл post_cost_entries хийгээгүй; блоклогдсон бараа (өртөггүй орлого) байвал эх баримтыг нь засах
+   - Клиринг хаагдаагүй → орлого capitalize хийгдээгүй (сар хаалт хүлээж буй бол хэвийн); объектгүй гар журналыг олж буцаах
+3. Засвар бүрийн дараа reconcile_modules ДАХИН ажиллуулж 0 болсныг бататгах
+Гараар тохируулгын журнал бичихээс ӨМНӨ эх баримтаар нь засахыг үргэлж эрмэлзэнэ.`,
+  new_company_setup: `ШИНЭ КОМПАНИЙН ТОХИРГОО — дараалал:
+1. list_gl_accounts — стандарт дансны мод байгаа эсэхийг шалгах; дутууг create_gl_account
+2. create_cash_account — касс, банкны данснууд (нээлтийн үлдэгдэлтэй нь)
+3. create_counterparty — үндсэн харилцагчид (default данс, нөхцөлтэй нь)
+4. create_warehouse + create_inventory_item — агуулах, бараанууд
+5. Эхний үлдэгдлүүд: create_journal_voucher-оор нээлтийн баланс (харьцах данс нь эздийн өмч 4XXXXXXX)
+6. get_trial_balance — нээлтийн баланс тэнцэж буйг шалгах`,
+  fixed_asset_lifecycle: `ҮНДСЭН ХӨРӨНГИЙН МӨЧЛӨГ:
+1. Худалдан авалт: create_arap_invoice (ap_bill, хөрөнгийн данс 21XXXXXX мөртэй) → post — ноорог ҮХ карт автоматаар үүснэ; ЭСВЭЛ create_fixed_asset-ээр шууд
+2. activate_fixed_asset — картыг бөглөж идэвхжүүлэх (хариуцагч, элэгдэл эхлэх сар заавал)
+3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 21000099)
+4. Алдаатай бол: reverse_fa_depreciation {month}
+Анхаар: актлах/борлуулах (disposal) функц системд одоогоор байхгүй — гарын журналаар шийдэж, хөрөнгөө идэвхгүй болгохыг хэрэглэгчид зөвлө.`,
+};
+
+function runWorkflowGuide(input: { workflow: string }): AiToolResult {
+  const guide = WORKFLOW_GUIDES[input.workflow];
+  if (!guide)
+    return {
+      resultText: `Ийм урсгал алга. Боломжит: ${Object.keys(WORKFLOW_GUIDES).join(", ")}`,
+    };
+  return { resultText: guide };
+}
+
 // ── Нэгдсэн диспетчер ───────────────────────────────────────────────────────
 
 /**
@@ -2829,6 +3101,10 @@ export async function executeAiTool(
         return await runMonthlyCosting(userId, args);
       case "post_cost_entries":
         return await runPostCostEntries(userId, args, mode);
+      case "reconcile_modules":
+        return await runReconcileModules(userId, args);
+      case "get_workflow_guide":
+        return runWorkflowGuide(args);
       default:
         return { resultText: `"${name}" гэдэг tool байхгүй` };
     }

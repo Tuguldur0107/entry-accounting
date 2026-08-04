@@ -287,7 +287,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 47 tool)
+AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 49 tool)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -298,6 +298,7 @@ AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/too
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances | — |
+| Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
 
 ID-тэй tools бүгд бүтэн эсвэл 8+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo-гоор ч олдоно.
