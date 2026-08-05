@@ -27,6 +27,7 @@ export default auth((req) => {
 });
 
 export const config = {
-  // .well-known — OAuth discovery metadata нээлттэй байх ёстой.
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|\\.well-known).*)"],
+  // .well-known — OAuth discovery. /invoice/[token] — харилцагчид илгээсэн
+  // нэхэмжлэхийн НЭЭЛТТЭЙ линк тул нэвтрэлт шаардахгүй.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|\\.well-known|invoice).*)"],
 };

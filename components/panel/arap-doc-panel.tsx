@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { arapLinesSpec, type ArapLineImport } from "@/lib/excel/specs";
 import { usePanelPrint } from "@/lib/ui/use-panel-print";
+import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -559,6 +560,8 @@ function ArapDocReadOnly({
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [isPending, startTransition] = useTransition();
   const { print, renderSheet } = usePanelPrint();
+  // Нэхэмжлэх илгээх dialog (зөвхөн posted АР нэхэмжлэхэд).
+  const [sendOpen, setSendOpen] = useState(false);
 
   const { activeSegIds, segmentOptions, inventoryItems, warehouses, payments } =
     data;
@@ -1038,6 +1041,30 @@ function ArapDocReadOnly({
           <Icon name="print" size="sm" />
           Хэвлэх
         </Button>
+        {isAr && (
+          <Button
+            variant="outline"
+            render={
+              <a
+                href={`/api/arap/${document.id}/pdf`}
+                target="_blank"
+                rel="noreferrer"
+              />
+            }
+          >
+            <Icon name="download" size="sm" />
+            PDF
+          </Button>
+        )}
+        {isAr &&
+          (document.status === "posted" ||
+            document.status === "partially_paid" ||
+            document.status === "paid") && (
+            <Button onClick={() => setSendOpen(true)}>
+              <Icon name="send" size="sm" />
+              Илгээх
+            </Button>
+          )}
         <Button variant="outline" onClick={requestClose}>
           Хаах
         </Button>
@@ -1078,6 +1105,14 @@ function ArapDocReadOnly({
       </div>
       {confirmDialog}
       {renderSheet(printSheet)}
+      {isAr && (
+        <InvoiceSendDialog
+          documentId={document.id}
+          documentNo={document.documentNo}
+          open={sendOpen}
+          onOpenChange={setSendOpen}
+        />
+      )}
     </div>
   );
 }

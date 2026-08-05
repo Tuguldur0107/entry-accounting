@@ -134,6 +134,24 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
   return { sentTo: email, documentNo: document.documentNo };
 }
 
+/** Илгээх dialog-ийн контекст — харилцагчийн и-мэйл + илгээлтийн түүх. */
+export async function getInvoiceSendContext(documentId: string) {
+  const userId = await requireUser();
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.id, documentId),
+      eq(arApDocuments.userId, userId)
+    ),
+    with: { counterparty: true },
+  });
+  if (!document) throw new Error("Нэхэмжлэх олдсонгүй");
+  return {
+    counterpartyEmail: document.counterparty.email,
+    counterpartyName: document.counterparty.name,
+    sends: await listInvoiceSends(documentId),
+  };
+}
+
 /** Баримтын илгээлтийн түүх — panel-д үзүүлнэ. */
 export async function listInvoiceSends(documentId: string) {
   const userId = await requireUser();

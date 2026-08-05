@@ -32,6 +32,8 @@ export type ArApDocumentView = {
   baseBalance: number;
   status: string;
   voucherId: string | null;
+  /** АР нэхэмжлэхийн илгээлт: null = илгээгээгүй. */
+  sendStatus: "sent" | "viewed" | null;
 };
 
 export type ArApLineInput = {

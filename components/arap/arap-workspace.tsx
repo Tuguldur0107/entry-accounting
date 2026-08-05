@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { useMemo, useState, useTransition } from "react";
 import type { ColDef } from "ag-grid-community";
@@ -330,6 +331,24 @@ export function ArApWorkspace({
         field: "status",
         width: 130,
         valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
+      },
+      {
+        headerName: "Илгээлт",
+        field: "sendStatus",
+        width: 110,
+        valueGetter: (params) =>
+          params.data?.sendStatus === "viewed"
+            ? "Үзсэн"
+            : params.data?.sendStatus === "sent"
+              ? "Илгээсэн"
+              : "",
+        cellClass: (params) =>
+          cn(
+            "text-xs",
+            params.data?.sendStatus === "viewed"
+              ? "text-[var(--ea-success-fg)]"
+              : "text-[var(--ea-text-3)]"
+          ),
       },
       {
         headerName: "Үйлдэл",

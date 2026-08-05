@@ -11,6 +11,7 @@ import {
   segmentValues,
   inventoryItems,
   warehouses,
+  arApInvoiceSends,
 } from "@/lib/db/schema";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -205,8 +206,12 @@ type DocumentRowWithCounterparty = typeof arApDocuments.$inferSelect & {
   counterparty: { name: string };
 };
 
-function toDocumentView(item: DocumentRowWithCounterparty): ArApDocumentView {
+function toDocumentView(
+  item: DocumentRowWithCounterparty,
+  sendStatus: ArApDocumentView["sendStatus"] = null
+): ArApDocumentView {
   return {
+    sendStatus,
     id: item.id,
     documentNo: item.documentNo,
     documentType: item.documentType as ArApDocumentView["documentType"],
@@ -233,12 +238,27 @@ function toDocumentView(item: DocumentRowWithCounterparty): ArApDocumentView {
 export async function loadArApDocuments(
   userId: string
 ): Promise<ArApDocumentView[]> {
-  const rows = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.userId, userId),
-    with: { counterparty: true },
-    orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
-  });
-  return rows.map(toDocumentView);
+  const [rows, sendRows] = await Promise.all([
+    db.query.arApDocuments.findMany({
+      where: eq(arApDocuments.userId, userId),
+      with: { counterparty: true },
+      orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
+    }),
+    db.query.arApInvoiceSends.findMany({
+      where: eq(arApInvoiceSends.userId, userId),
+    }),
+  ]);
+  // Баримт бүрийн илгээлтийн ХАМГИЙН АХИСАН төлөв: үзсэн > илгээсэн > null.
+  const sendStatusByDocument = new Map<string, "sent" | "viewed">();
+  for (const send of sendRows) {
+    if (send.revokedAt) continue;
+    const current = sendStatusByDocument.get(send.documentId);
+    if (send.viewedAt) sendStatusByDocument.set(send.documentId, "viewed");
+    else if (!current) sendStatusByDocument.set(send.documentId, "sent");
+  }
+  return rows.map((row) =>
+    toDocumentView(row, sendStatusByDocument.get(row.id) ?? null)
+  );
 }
 
 /** Нэг баримт мөрүүдтэйгээ — панелийн read-only харагдац. */
