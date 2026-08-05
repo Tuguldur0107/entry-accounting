@@ -96,7 +96,10 @@ export default async function CashReconciliationPage({
   // тоолсноор энэ хуудас reconcile_modules tool-той ИЖИЛ үнэнийг харуулна.
   const glByMain = new Map<string, number>();
   for (const voucher of vouchers) {
-    if (voucher.status !== "posted") continue;
+    // "reversed" журнал GL-д тооцогдсон хэвээр байдаг (GL тайлантай ижил):
+    // эх бичилт + posted буцаалт нь хоорондоо нэт 0 болдог. Reversed-ийг
+    // алгасвал буцаалт нь дан ганцаараа орж, буцаасан гүйлгээ бүр хий
+    // зөрүү үүсгэдэг байсан.
     for (const line of voucher.lines) {
       const parts = line.accountNumber.split(".");
       const main = parts.length === 10 ? parts[2] : line.accountNumber;
@@ -210,7 +213,8 @@ export default async function CashReconciliationPage({
     CashReconciliationRow["details"]["gl"]
   >();
   for (const voucher of vouchers) {
-    if (voucher.status !== "posted") continue;
+    // Задаргаанд ч эх + буцаалт хоёул харагдана — нэт 0 гэдгийг нүдээр
+    // харах боломжтой (дээрх glByMain-тай ижил дүрэм).
     const byMain = new Map<string, number>();
     for (const line of voucher.lines) {
       const parts = line.accountNumber.split(".");

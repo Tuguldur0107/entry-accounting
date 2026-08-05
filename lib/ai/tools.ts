@@ -10,7 +10,7 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 
 import {
   createArApDocument,
@@ -2772,7 +2772,9 @@ async function runGetTrialBalance(
     db.query.journalVouchers.findMany({
       where: and(
         eq(journalVouchers.userId, userId),
-        eq(journalVouchers.status, "posted")
+        // GL тайлангийн хуудастай ижил: reversed нь эх + буцаалт хосоороо
+        // тооцогдож нэт 0 болно.
+        inArray(journalVouchers.status, ["posted", "reversed"])
       ),
       with: { lines: true },
     }),
@@ -3531,10 +3533,18 @@ async function runFixCashOpening(
 
 // ── Тулгалт ─────────────────────────────────────────────────────────────────
 
-/** Батлагдсан журналын мөрүүдээс үндсэн данс бүрийн цэвэр үлдэгдэл (Дт−Кт). */
+/**
+ * Журналын мөрүүдээс үндсэн данс бүрийн цэвэр үлдэгдэл (Дт−Кт).
+ * "reversed" журнал GL-д тооцогдсон хэвээр (GL тайлантай ижил) — эх бичилт +
+ * posted буцаалт нэт 0. Зөвхөн posted тоолбол буцаасан гүйлгээ бүр хий зөрүү
+ * үзүүлдэг.
+ */
 async function glNetByMain(userId: string, upTo: string): Promise<Map<string, number>> {
   const vouchers = await db.query.journalVouchers.findMany({
-    where: and(eq(journalVouchers.userId, userId), eq(journalVouchers.status, "posted")),
+    where: and(
+      eq(journalVouchers.userId, userId),
+      inArray(journalVouchers.status, ["posted", "reversed"])
+    ),
     with: { lines: { columns: { accountNumber: true, debit: true, credit: true } } },
     columns: { date: true },
   });
