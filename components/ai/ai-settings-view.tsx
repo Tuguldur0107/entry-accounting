@@ -24,6 +24,14 @@ import {
 } from "@/lib/actions/mcp-tokens";
 import { AI_EFFORT_OPTIONS, AI_MODELS, AI_PROVIDER_LABELS } from "@/lib/ai/models";
 
+type SettingsTab = "keys" | "mcp" | "chat";
+
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: "keys", label: "API түлхүүр" },
+  { id: "mcp", label: "MCP холболт" },
+  { id: "chat", label: "Чатны тохиргоо" },
+];
+
 interface Props {
   model: string;
   effort: string;
@@ -59,6 +67,7 @@ export function AiSettingsView({
   const [tokenName, setTokenName] = useState("");
   // Сая үүссэн token — ЗӨВХӨН энэ render-д бүтнээрээ харагдана.
   const [freshToken, setFreshToken] = useState<string | null>(null);
+  const [tab, setTab] = useState<SettingsTab>("keys");
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const keyStatus = keyHint
@@ -229,6 +238,32 @@ export function AiSettingsView({
       </div>
 
       <div className="max-w-2xl space-y-4">
+        {/* Таб — гурван бүлэг тохиргоо нэг хуудсанд */}
+        <div
+          className="inline-flex h-8 items-center gap-0.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-0.5"
+          role="tablist"
+          aria-label="Тохиргооны бүлэг"
+        >
+          {SETTINGS_TABS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === entry.id}
+              onClick={() => setTab(entry.id)}
+              className={
+                tab === entry.id
+                  ? "rounded bg-[var(--ea-primary)] px-2.5 py-1 text-xs font-semibold text-white transition-colors"
+                  : "rounded px-2.5 py-1 text-xs font-semibold text-[var(--ea-text-3)] transition-colors hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
+              }
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "keys" && (
+          <>
         {/* API түлхүүр */}
         <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
@@ -330,7 +365,11 @@ export function AiSettingsView({
           </div>
         </div>
 
+          </>
+        )}
+
         {/* MCP холболт — Claude Code, Cowork/claude.ai, ChatGPT, Codex */}
+        {tab === "mcp" && (
         <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
             <Icon name="openExternal" size="sm" />
@@ -475,8 +514,10 @@ export function AiSettingsView({
             </div>
           )}
         </div>
+        )}
 
         {/* Модель + хариултын гүн + нэмэлт заавар */}
+        {tab === "chat" && (
         <div className="space-y-4 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
           <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
             Чатны тохиргоо
@@ -537,6 +578,7 @@ export function AiSettingsView({
             Тохиргоо хадгалах
           </Button>
         </div>
+        )}
       </div>
       {confirmDialog}
     </section>
