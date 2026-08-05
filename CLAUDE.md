@@ -287,7 +287,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 57 tool)
+AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 63 tool)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -298,6 +298,7 @@ AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/too
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
+| Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
 | Batch | create_{counterparties,arap_invoices,cash_transactions}_batch (max 100, partial success), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
 

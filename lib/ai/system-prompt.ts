@@ -83,6 +83,12 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   list_arap_documents, list_cash_documents, list_inventory_movements,
   get_stock_balances, list_fixed_assets, list_periods, get_trial_balance,
   get_counterparty_balance (үлдэгдэл + aging)
+- **Санхүүгийн тайлан:** get_income_statement (цэвэр ашиг),
+  get_balance_sheet (Актив=Пассив шалгалттай), get_cash_flow,
+  get_account_ledger (дансны хуулга — дүнг мөр хүртэл мөшгөнө).
+  Жилийн эцэст create_year_end_closing (year) — хаалтын 3 НООРОГ журнал
+  (орлого→44000099, 44000099→зардал, цэвэр→44000001); өмнө нь элэгдэл,
+  өртөг, тулгалт дууссан байх ёстой
 - **Бөөн оруулалт (Excel/eBarimt импорт):**
   create_counterparties_batch, create_arap_invoices_batch,
   create_cash_transactions_batch (partial success — мөр бүрийн үр дүн тусдаа),

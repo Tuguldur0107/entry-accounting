@@ -75,6 +75,7 @@ import {
   inventoryItems,
   inventoryMovements,
   journalVouchers,
+  reportLineMappings,
   segmentConfigs,
   segmentValues,
   warehouses,
@@ -84,7 +85,13 @@ import {
   normalizePastedAccount,
   parseSegParts,
 } from "@/lib/grid/segments";
-import { aggregateBalances } from "@/lib/reports/balances";
+import {
+  aggregateBalances,
+  buildCashFlow,
+  computeNetIncome,
+  isBalanced,
+} from "@/lib/reports/balances";
+import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
 
 import type { AiWriteMode } from "./models";
 
@@ -727,6 +734,73 @@ export const AI_TOOLS: AiToolDef[] = [
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
       },
       required: ["from", "to"],
+    },
+  },
+
+  // ── Санхүүгийн тайлангууд ─────────────────────────────────────────────────
+  {
+    name: "get_income_statement",
+    description:
+      "Орлогын тайлан (үр дүнгийн тайлан) — орлого дансаар, зардал бүлгээр (COGS/үйл ажиллагааны/санхүүгийн), тайлант үеийн ЦЭВЭР АШИГ/АЛДАГДАЛ. Вэбийн тайлантай ижил тооцоо.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "get_balance_sheet",
+    description:
+      "Баланс тайлан (SAS/IAS 1 мөрүүдээр) — хөрөнгө, өр төлбөр, эздийн өмч + тайлант үеийн цэвэр ашиг; Актив = Пассив тэнцлийг шалгана. Хэрэглэгчийн мөрийн mapping (report_line_mappings) хэрэглэгдэнэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        asOf: { type: "string", description: "Тайлант огноо YYYY-MM-DD" },
+      },
+      required: ["asOf"],
+    },
+  },
+  {
+    name: "get_cash_flow",
+    description:
+      "Мөнгөн гүйлгээний тайлан (шууд бус ангилал: үндсэн/хөрөнгө оруулалт/санхүүгийн үйл ажиллагаа) — мөнгөний эхний/эцсийн үлдэгдэлтэй тулгана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "get_account_ledger",
+    description:
+      "Нэг дансны хуулга — эхний үлдэгдэл, хөдөлгөөн бүр (огноо, утга, Дт/Кт), гүйлгээний дараах явцын үлдэгдэл. Тайлангийн дүнг мөр хүртэл нь мөшгөхөд ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        account: { type: "string", description: "Дансны 8 оронтой дугаар" },
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        limit: { type: "integer", description: "Max мөр (default 50, max 200)" },
+      },
+      required: ["account", "from", "to"],
+    },
+  },
+  {
+    name: "create_year_end_closing",
+    description:
+      "Жилийн эцсийн хаалтын бичилтүүдийг НООРОГ-оор үүсгэнэ (12-31 огноогоор, 3 журнал): орлого → 44000099 Орлогын дүн, 44000099 → зардал, цэвэр дүн → 44000001 Хуримтлагдсан ашиг. Өмнө нь тухайн жилд хаалт хийгдсэн бол шинээр үүсгэхгүй. Урьдчилаад элэгдэл, өртөг, тулгалтаа дуусгасан байх ёстой — нягтланч ноорогуудыг вэбээс шалгаж батална.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        year: { type: "string", description: "Хаах жил YYYY (жишээ нь 2026)" },
+      },
+      required: ["year"],
     },
   },
 
@@ -2806,6 +2880,426 @@ async function runGetTrialBalance(
   };
 }
 
+// ── Санхүүгийн тайлангийн гүйцэтгэгчид ──────────────────────────────────────
+// Вэбийн тайлангуудтай (components/gl/*view.tsx) ИЖИЛ цэвэр функцуудыг
+// (lib/reports/balances.ts, bs-lines.ts) ашиглана — тусдаа тооцооны зам гаргахгүй.
+
+function assertDates(...values: string[]) {
+  for (const value of values)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? ""))
+      throw new Error("Огноо YYYY-MM-DD форматтай байх ёстой");
+}
+
+/** Тайлангийн түүхий дата — батлагдсан журнал + бүх данс (нэр тайлбарт хэрэгтэй). */
+async function loadReportData(userId: string) {
+  const [vouchers, accounts] = await Promise.all([
+    db.query.journalVouchers.findMany({
+      where: and(
+        eq(journalVouchers.userId, userId),
+        inArray(journalVouchers.status, ["posted", "reversed"])
+      ),
+      with: { lines: true },
+    }),
+    db.query.chartOfAccounts.findMany({
+      where: eq(chartOfAccounts.userId, userId),
+    }),
+  ]);
+  return { vouchers, accounts };
+}
+
+const IS_EXPENSE_GROUPS = [
+  { prefix: "6", label: "Борлуулсан бараа/үйлчилгээний өртөг" },
+  { prefix: "7", label: "Үйл ажиллагааны зардал" },
+  { prefix: "8", label: "Санхүүгийн зардал" },
+] as const;
+
+async function runIncomeStatement(
+  userId: string,
+  input: { from: string; to: string }
+): Promise<AiToolResult> {
+  assertDates(input.from, input.to);
+  const { vouchers, accounts } = await loadReportData(userId);
+  const rows = aggregateBalances(vouchers, accounts, [3], input.from, input.to);
+  const pnl = computeNetIncome(rows);
+
+  const out: string[] = [`ОРЛОГЫН ТАЙЛАН ${input.from} — ${input.to}`, "Орлого:"];
+  const revenueRows = rows
+    .filter((row) => row.cls === "revenue")
+    .map((row) => ({
+      row,
+      amount: row.totals.periodCredit - row.totals.periodDebit,
+    }))
+    .filter((entry) => Math.abs(entry.amount) > 0.005);
+  for (const entry of revenueRows)
+    out.push(`  ${entry.row.mainAccount} ${entry.row.name} — ${fmt(entry.amount)}`);
+  out.push(`  Нийт орлого: ${fmt(pnl.revenue)}`);
+
+  for (const group of IS_EXPENSE_GROUPS) {
+    const items = rows
+      .filter((row) => row.mainAccount.startsWith(group.prefix))
+      .map((row) => ({
+        row,
+        amount: row.totals.periodDebit - row.totals.periodCredit,
+      }))
+      .filter((entry) => Math.abs(entry.amount) > 0.005);
+    if (items.length === 0) continue;
+    out.push(`${group.label}:`);
+    for (const entry of items)
+      out.push(`  ${entry.row.mainAccount} ${entry.row.name} — ${fmt(entry.amount)}`);
+    out.push(`  Дэд дүн: ${fmt(items.reduce((sum, entry) => sum + entry.amount, 0))}`);
+  }
+  out.push(`Нийт зардал: ${fmt(pnl.expense)}`);
+  out.push(
+    `ТАЙЛАНТ ҮЕИЙН ЦЭВЭР ${pnl.netIncome >= 0 ? "АШИГ" : "АЛДАГДАЛ"}: ${fmt(pnl.netIncome)}`
+  );
+  return { resultText: out.join("\n") };
+}
+
+// balance-sheet-view.tsx-ийн GROUP_META-тай ижил: custom мөрийн бүлэг →
+// хэсэг + тэмдэг.
+const BS_GROUP_META: Record<
+  string,
+  { section: BsSection; groupLabel: string; sign: BsSign }
+> = {
+  "current-assets": { section: "assets", groupLabel: "Эргэлтийн хөрөнгө", sign: "debit" },
+  "non-current-assets": {
+    section: "assets",
+    groupLabel: "Эргэлтийн бус хөрөнгө",
+    sign: "debit",
+  },
+  "current-liabilities": {
+    section: "liabilities",
+    groupLabel: "Богино хугацаат өр төлбөр",
+    sign: "credit",
+  },
+  "non-current-liabilities": {
+    section: "liabilities",
+    groupLabel: "Урт хугацаат өр төлбөр",
+    sign: "credit",
+  },
+  equity: { section: "equity", groupLabel: "Эздийн өмч", sign: "credit" },
+};
+
+async function runBalanceSheet(
+  userId: string,
+  input: { asOf: string }
+): Promise<AiToolResult> {
+  assertDates(input.asOf);
+  const [{ vouchers, accounts }, mappings] = await Promise.all([
+    loadReportData(userId),
+    db.query.reportLineMappings.findMany({
+      where: and(
+        eq(reportLineMappings.userId, userId),
+        eq(reportLineMappings.reportType, "balance-sheet")
+      ),
+    }),
+  ]);
+  const rows = aggregateBalances(vouchers, accounts, [3], "1900-01-01", input.asOf);
+  const byMain = new Map(rows.map((row) => [row.mainAccount, row]));
+  const mappingByKey = new Map(mappings.map((row) => [row.lineKey, row]));
+
+  // Вэбийн resolvedLines-тай ижил: built-in мөр + override + custom мөрүүд.
+  type Line = {
+    section: BsSection;
+    groupLabel: string;
+    label: string;
+    accountNumbers: string[];
+    sign: BsSign;
+  };
+  const lines: Line[] = BS_LINES.map((line) => {
+    const mapping = mappingByKey.get(line.key);
+    const override = mapping?.accountNumbers
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return {
+      section: line.section,
+      groupLabel: line.groupLabel,
+      label: mapping?.customLabel?.trim() || line.label,
+      accountNumbers:
+        override !== undefined
+          ? override
+          : accounts
+              .filter((account) =>
+                line.defaultPrefixes.some((prefix) => account.number.startsWith(prefix))
+              )
+              .map((account) => account.number),
+      sign: line.sign,
+    };
+  });
+  for (const mapping of mappings) {
+    if (!mapping.lineKey.startsWith("custom-")) continue;
+    const meta = BS_GROUP_META[mapping.customGroup ?? "current-assets"];
+    if (!meta) continue;
+    lines.push({
+      section: meta.section,
+      groupLabel: meta.groupLabel,
+      label: mapping.customLabel?.trim() || "Нэргүй мөр",
+      accountNumbers: mapping.accountNumbers
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+      sign: meta.sign,
+    });
+  }
+
+  const amountOf = (line: Line) =>
+    line.accountNumbers.reduce((sum, code) => {
+      const row = byMain.get(code);
+      if (!row) return sum;
+      const debitNet = row.totals.closeDebit - row.totals.closeCredit;
+      return sum + (line.sign === "debit" ? debitNet : -debitNet);
+    }, 0);
+
+  const pnl = computeNetIncome(rows);
+  const out: string[] = [`БАЛАНС ${input.asOf}-ны байдлаар`];
+  const sectionTotals: Record<BsSection, number> = { assets: 0, liabilities: 0, equity: 0 };
+  for (const section of ["assets", "liabilities", "equity"] as const) {
+    const label =
+      section === "assets" ? "ХӨРӨНГӨ" : section === "liabilities" ? "ӨР ТӨЛБӨР" : "ЭЗДИЙН ӨМЧ";
+    out.push(`${label}:`);
+    let lastGroup = "";
+    for (const line of lines.filter((entry) => entry.section === section)) {
+      const amount = amountOf(line);
+      sectionTotals[section] += amount;
+      if (Math.abs(amount) <= 0.005) continue;
+      if (line.groupLabel !== lastGroup) {
+        out.push(`  ${line.groupLabel}:`);
+        lastGroup = line.groupLabel;
+      }
+      out.push(`    ${line.label} — ${fmt(amount)}`);
+    }
+    if (section === "equity") {
+      out.push(
+        `    Тайлант үеийн цэвэр ${pnl.netIncome >= 0 ? "ашиг" : "алдагдал"} — ${fmt(pnl.netIncome)}`
+      );
+    }
+  }
+  const totalEquity = sectionTotals.equity + pnl.netIncome;
+  const totalLiabAndEquity = sectionTotals.liabilities + totalEquity;
+  out.push(`НИЙТ ХӨРӨНГӨ: ${fmt(sectionTotals.assets)}`);
+  out.push(`НИЙТ ӨР ТӨЛБӨР: ${fmt(sectionTotals.liabilities)}`);
+  out.push(`НИЙТ ЭЗДИЙН ӨМЧ: ${fmt(totalEquity)}`);
+  out.push(`НИЙТ ӨР ТӨЛБӨР + ЭЗДИЙН ӨМЧ: ${fmt(totalLiabAndEquity)}`);
+  out.push(
+    isBalanced(sectionTotals.assets, totalLiabAndEquity)
+      ? "Тэнцэл: ✓ Актив = Пассив"
+      : `Тэнцэл: ✗ ЗӨРҮҮ ${fmt(sectionTotals.assets - totalLiabAndEquity)} — reconcile_modules-оор шалтгааныг хайна уу`
+  );
+  return { resultText: out.join("\n") };
+}
+
+async function runCashFlow(
+  userId: string,
+  input: { from: string; to: string }
+): Promise<AiToolResult> {
+  assertDates(input.from, input.to);
+  const { vouchers, accounts } = await loadReportData(userId);
+  const report = buildCashFlow(vouchers, accounts, [3], input.from, input.to);
+  const sectionLabels = {
+    operating: "Үндсэн үйл ажиллагаа",
+    investing: "Хөрөнгө оруулалт",
+    financing: "Санхүүгийн үйл ажиллагаа",
+  } as const;
+  const out: string[] = [`МӨНГӨН ГҮЙЛГЭЭНИЙ ТАЙЛАН ${input.from} — ${input.to}`];
+  for (const section of ["operating", "investing", "financing"] as const) {
+    const lines = report[section];
+    out.push(`${sectionLabels[section]}: ${fmt(report.totals[section])}`);
+    for (const line of lines)
+      out.push(`  ${line.mainAccount} ${line.name} — ${fmt(line.amount)}`);
+  }
+  const open = report.cashOpenDebit - report.cashOpenCredit;
+  const close = report.cashCloseDebit - report.cashCloseCredit;
+  out.push(`ЦЭВЭР МӨНГӨН УРСГАЛ: ${fmt(report.totals.net)}`);
+  out.push(`Мөнгөний эхний үлдэгдэл: ${fmt(open)} · эцсийн үлдэгдэл: ${fmt(close)}`);
+  out.push(
+    isBalanced(open + report.totals.net, close)
+      ? "Тулгалт: ✓ эхний + урсгал = эцсийн"
+      : `Тулгалт: ✗ зөрүү ${fmt(open + report.totals.net - close)}`
+  );
+  return { resultText: out.join("\n") };
+}
+
+async function runAccountLedger(
+  userId: string,
+  input: { account: string; from: string; to: string; limit?: number }
+): Promise<AiToolResult> {
+  assertDates(input.from, input.to);
+  const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 200);
+  const ctx = await accountContext(userId);
+  const { main } = resolveAccount(input.account, ctx);
+  const { vouchers } = await loadReportData(userId);
+
+  let opening = 0;
+  const entries: {
+    date: string;
+    description: string;
+    debit: number;
+    credit: number;
+  }[] = [];
+  for (const voucher of vouchers) {
+    for (const line of voucher.lines) {
+      if ((parseSegParts(line.accountNumber, [3])[3] ?? line.accountNumber) !== main)
+        continue;
+      const debit = Number(line.debit);
+      const credit = Number(line.credit);
+      if (voucher.date < input.from) opening += debit - credit;
+      else if (voucher.date <= input.to)
+        entries.push({
+          date: voucher.date,
+          description: line.description || voucher.description,
+          debit,
+          credit,
+        });
+    }
+  }
+  entries.sort((a, b) => a.date.localeCompare(b.date));
+  const name = ctx.enabledByMain.get(main) ?? "";
+  const out: string[] = [
+    `ДАНСНЫ ХУУЛГА ${main} ${name} · ${input.from} — ${input.to}`,
+    `Эхний үлдэгдэл: ${fmt(opening)}`,
+  ];
+  let running = opening;
+  for (const entry of entries.slice(0, limit)) {
+    running += entry.debit - entry.credit;
+    out.push(
+      `${entry.date} · ${entry.description} · Дт ${fmt(entry.debit)} / Кт ${fmt(entry.credit)} · үлдэгдэл ${fmt(running)}`
+    );
+  }
+  if (entries.length > limit)
+    out.push(`… ${entries.length - limit} мөр хасагдав (limit=${limit})`);
+  const closing = entries.reduce((sum, entry) => sum + entry.debit - entry.credit, opening);
+  out.push(`Эцсийн үлдэгдэл: ${fmt(closing)}`);
+  return { resultText: out.join("\n") };
+}
+
+async function runYearEndClosing(
+  userId: string,
+  input: { year: string }
+): Promise<AiToolResult> {
+  const year = String(input.year ?? "").trim();
+  if (!/^\d{4}$/.test(year)) throw new Error("Жил YYYY форматтай байх ёстой");
+  const from = `${year}-01-01`;
+  const to = `${year}-12-31`;
+  const marker = `Жилийн хаалт ${year}`;
+
+  const { vouchers, accounts } = await loadReportData(userId);
+  // Idempotency: ноорог ч бай, батлагдсан ч бай — нэг жилд нэг л хаалт.
+  const dupes = await db.query.journalVouchers.findMany({
+    where: eq(journalVouchers.userId, userId),
+    columns: { id: true, description: true, status: true },
+  });
+  const already = dupes.find((voucher) => voucher.description.startsWith(marker));
+  if (already)
+    return {
+      resultText: `[CONFLICT] ${year} оны хаалтын бичилт аль хэдийн байна (ID ${already.id.slice(0, 8)}, төлөв: ${already.status}) — дахин үүсгэсэнгүй. Дахин хийх бол эхлээд хуучныг устгаж/буцаана уу.`,
+      dedup: true,
+    };
+
+  const ctx = await accountContext(userId);
+  const plSummary = resolveAccount("44000099", ctx);
+  const retained = resolveAccount("44000001", ctx);
+
+  const rows = aggregateBalances(vouchers, accounts, [3], from, to);
+  const revenue = rows
+    .map((row) => ({
+      main: row.mainAccount,
+      amount: row.totals.periodCredit - row.totals.periodDebit,
+    }))
+    .filter((entry) => entry.main.startsWith("5") && Math.abs(entry.amount) > 0.005);
+  const expense = rows
+    .map((row) => ({
+      main: row.mainAccount,
+      amount: row.totals.periodDebit - row.totals.periodCredit,
+    }))
+    .filter((entry) => /^[678]/.test(entry.main) && Math.abs(entry.amount) > 0.005);
+  const totalRevenue = revenue.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalExpense = expense.reduce((sum, entry) => sum + entry.amount, 0);
+  const net = Math.round((totalRevenue - totalExpense) * 100) / 100;
+  if (revenue.length === 0 && expense.length === 0)
+    throw new Error(`${year} онд хаах орлого/зардлын гүйлгээ алга`);
+
+  // Сөрөг үлдэгдэлтэй данс талаа сольж бичигдэнэ (контра орлого г.м).
+  const side = (amount: number, normal: "debit" | "credit") => {
+    const debitSide = (normal === "debit") === (amount >= 0);
+    return {
+      debit: debitSide ? Math.abs(amount) : 0,
+      credit: debitSide ? 0 : Math.abs(amount),
+    };
+  };
+
+  const created: string[] = [];
+  if (revenue.length > 0) {
+    const { id } = await createVoucher({
+      date: to,
+      description: `${marker} 1/3: орлогын дансдыг хаав`,
+      status: "draft",
+      lines: [
+        ...revenue.map((entry) => ({
+          account: resolveAccount(entry.main, ctx).code,
+          description: "Орлого хаах",
+          ...side(entry.amount, "debit"),
+        })),
+        {
+          account: plSummary.code,
+          description: "Орлогын дүн",
+          ...side(totalRevenue, "credit"),
+        },
+      ],
+    });
+    created.push(`1/3 орлого ${fmt(totalRevenue)} (ID ${id.slice(0, 8)})`);
+  }
+  if (expense.length > 0) {
+    const { id } = await createVoucher({
+      date: to,
+      description: `${marker} 2/3: зардлын дансдыг хаав`,
+      status: "draft",
+      lines: [
+        {
+          account: plSummary.code,
+          description: "Орлогын дүн",
+          ...side(totalExpense, "debit"),
+        },
+        ...expense.map((entry) => ({
+          account: resolveAccount(entry.main, ctx).code,
+          description: "Зардал хаах",
+          ...side(entry.amount, "credit"),
+        })),
+      ],
+    });
+    created.push(`2/3 зардал ${fmt(totalExpense)} (ID ${id.slice(0, 8)})`);
+  }
+  if (Math.abs(net) > 0.005) {
+    const { id } = await createVoucher({
+      date: to,
+      description: `${marker} 3/3: цэвэр дүнг хуримтлагдсан ашигт`,
+      status: "draft",
+      lines: [
+        {
+          account: plSummary.code,
+          description: "Орлогын дүн хаах",
+          ...side(net, "debit"),
+        },
+        {
+          account: retained.code,
+          description: "Хуримтлагдсан ашиг",
+          ...side(net, "credit"),
+        },
+      ],
+    });
+    created.push(`3/3 цэвэр дүн ${fmt(net)} (ID ${id.slice(0, 8)})`);
+  }
+
+  return {
+    resultText: [
+      `${year} оны хаалтын НООРОГ бичилтүүд ${to} огноогоор үүслээ:`,
+      ...created.map((line) => `  ${line}`),
+      `Нийт орлого ${fmt(totalRevenue)} − зардал ${fmt(totalExpense)} = ЦЭВЭР ${net >= 0 ? "АШИГ" : "АЛДАГДАЛ"} ${fmt(net)}`,
+      "Нягтланч вэбээс (Ерөнхий журнал → Журналын жагсаалт) шалгаж батална.",
+    ].join("\n"),
+  };
+}
+
 // ── АР/АП нэмэлт гүйцэтгэгчид ───────────────────────────────────────────────
 
 const ARAP_STATUS_LABELS: Record<string, string> = {
@@ -3854,6 +4348,16 @@ export async function executeAiTool(
         return await runReverseJournal(userId, args, mode);
       case "get_trial_balance":
         return await runGetTrialBalance(userId, args);
+      case "get_income_statement":
+        return await runIncomeStatement(userId, args);
+      case "get_balance_sheet":
+        return await runBalanceSheet(userId, args);
+      case "get_cash_flow":
+        return await runCashFlow(userId, args);
+      case "get_account_ledger":
+        return await runAccountLedger(userId, args);
+      case "create_year_end_closing":
+        return await runYearEndClosing(userId, args);
       case "list_arap_documents":
         return await runListArapDocuments(userId, args);
       case "delete_arap_document":
