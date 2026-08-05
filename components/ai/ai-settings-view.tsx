@@ -330,17 +330,37 @@ export function AiSettingsView({
           </div>
         </div>
 
-        {/* MCP холболт — Claude Code зэрэг гадны клиент */}
+        {/* MCP холболт — Claude Code, Cowork/claude.ai, ChatGPT, Codex */}
         <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
             <Icon name="openExternal" size="sm" />
-            MCP холболт (Claude Code)
+            MCP холболт
           </h2>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Claude Code-оос энэ системд шууд ажиллах token. Бичилтүүд таны
-            сонгосон горимоор (ноорог / шууд бичих) үүснэ. Token нэг л удаа
-            харагдана — хуулж аваад Claude Code-д бүртгэнэ.
+            Claude Code, Cowork / claude.ai, ChatGPT, Codex зэрэг MCP клиент
+            энэ системд шууд ажиллана. Бичилт таны сонгосон горимоор
+            (ноорог / шууд бичих) үүснэ.
           </p>
+
+          {/* OAuth зам — token огт хэрэггүй */}
+          <div className="mt-3 rounded-md border border-[var(--ea-border)] p-3">
+            <p className="text-xs font-medium text-[var(--ea-text-1)]">
+              OAuth-оор (token хэрэггүй) — claude.ai / Cowork Connectors,
+              ChatGPT чат (Developer mode)
+            </p>
+            <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+              Server URL-д доорхыг оруулаад Authentication: OAuth сонгоно —
+              нэвтрээд зөвшөөрөхөд л холбогдоно.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 select-all break-all rounded bg-[var(--ea-bg-2)] px-2 py-1.5 font-mono text-[11px] text-[var(--ea-text-1)]">
+                {mcpUrl}
+              </code>
+              <Button variant="outline" size="sm" onClick={() => copyText(mcpUrl)}>
+                <Icon name="copy" size="sm" />
+              </Button>
+            </div>
+          </div>
 
           {mcpTokens.length > 0 && (
             <div className="mt-3 space-y-1.5">
@@ -377,10 +397,12 @@ export function AiSettingsView({
 
           <div className="mt-3 flex items-end gap-2">
             <div className="grid flex-1 gap-1.5">
-              <Label htmlFor="mcp-token-name">Шинэ token-ий нэр</Label>
+              <Label htmlFor="mcp-token-name">
+                Шинэ token (Claude Code, Codex зэрэг OAuth-гүй клиентэд)
+              </Label>
               <Input
                 id="mcp-token-name"
-                placeholder="Жишээ: Claude Code — ажлын компьютер"
+                placeholder="Жишээ: Codex — ажлын компьютер"
                 value={tokenName}
                 maxLength={60}
                 onChange={(event) => setTokenName(event.target.value)}
@@ -412,7 +434,7 @@ export function AiSettingsView({
                 </Button>
               </div>
               <p className="text-xs text-[var(--ea-text-3)]">
-                Claude Code-д бүртгэх команд (terminal дээр ажиллуулна):
+                Claude Code — terminal дээр:
               </p>
               <div className="flex items-start gap-2">
                 <code className="min-w-0 flex-1 select-all break-all rounded bg-[var(--ea-bg-2)] px-2 py-1.5 font-mono text-[11px] text-[var(--ea-text-1)]">
@@ -427,9 +449,9 @@ export function AiSettingsView({
                 </Button>
               </div>
               <p className="text-xs text-[var(--ea-text-3)]">
-                Cowork / claude.ai-д: Settings → Connectors → Add custom
-                connector хэсэгт доорх URL-ыг бүтнээр нь оруулна (token нь
-                URL дотроо — холбоосыг нууц мэт хадгална):
+                Codex / бусад клиент — Server URL-д доорхыг (эсвэл
+                Authorization header-т token-оо) өгнө. Token нь URL дотроо
+                тул холбоосыг нууц мэт хадгална:
               </p>
               <div className="flex items-start gap-2">
                 <code className="min-w-0 flex-1 select-all break-all rounded bg-[var(--ea-bg-2)] px-2 py-1.5 font-mono text-[11px] text-[var(--ea-text-1)]">
