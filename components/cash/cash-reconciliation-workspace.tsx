@@ -31,7 +31,7 @@ import {
   postCashFxRevaluation,
   reverseCashFxRevaluation,
 } from "@/lib/actions/cash";
-import { openCashDocPanel } from "@/lib/store/panel-store";
+import { openCashDocPanel, openVoucherPanel } from "@/lib/store/panel-store";
 import {
   rateForBasis,
   type ExchangeRateBasis,
@@ -60,6 +60,15 @@ export type CashReconciliationRow = {
   cashToGlDifference: number | null;
   /** Модульд бүртгэлтэй нээлтийн үлдэгдэл — GL-д дутуу бол зөрүүний шалтгаан. */
   openingBalance: number;
+  /** Тоон дээр дарахад гарах задаргаа — эх сурвалж тус бүрийн мөрүүд. */
+  details: {
+    /** Кассын бүртгэл: нээлт + батлагдсан баримт бүр (дансны валютаар). */
+    cash: { id: string; date: string; label: string; amount: number }[];
+    /** GL: энэ дансны дугаарт нөлөөлсөн журнал бүрийн цэвэр дүн (MNT). */
+    gl: { id: string; date: string; label: string; amount: number }[];
+    /** Банкны хуулга бүрийн сүүлийн үлдэгдэл мөр. */
+    bank: { id: string; date: string; label: string; amount: number }[];
+  };
   /** Дансанд хамаатай НООРОГ баримтууд — зөрүүний оношилгоонд. */
   pendingDrafts: {
     id: string;
@@ -172,6 +181,11 @@ export function CashReconciliationWorkspace({
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  // Тоон дээр дарахад гарах задаргааны dialog.
+  const [detail, setDetail] = useState<{
+    row: CashReconciliationRow;
+    measure: "bank" | "cash" | "gl" | "bankToCash" | "cashToGl";
+  } | null>(null);
   const [ratesOpen, setRatesOpen] = useState(false);
   const [ratesLoading, setRatesLoading] = useState(false);
   const [rateBasis, setRateBasis] =
@@ -226,8 +240,8 @@ export function CashReconciliationWorkspace({
     [rows]
   );
 
-  // Зөрүүтэй данс бүрийн ОНОШИЛГОО — шалтгаан бүрийг дүнтэй нь задалж,
-  // засах товчтой нь хамт "Зөрүүг арилгах" хэсэгт үзүүлнэ.
+  // Зөрүүтэй данс бүрийн ОНОШИЛГОО — «Бүртгэл − GL» дүн дээр дарахад гарах
+  // задаргааны dialog-т шалтгаан бүрийг дүнтэй нь, засах товчтой нь үзүүлнэ.
   const fixCards = useMemo(
     () =>
       rows
@@ -342,6 +356,31 @@ export function CashReconciliationWorkspace({
     [adjustment]
   );
 
+  // Дүнгийн нүдийг ДАРДАГ болгоно — задаргааны dialog нээнэ. Хоосон (null)
+  // утгад товч гаргахгүй.
+  const clickableAmount = useCallback(
+    (
+      measure: "bank" | "cash" | "gl" | "bankToCash" | "cashToGl",
+      format: (value: number) => string
+    ) =>
+      function AmountCell(params: ICellRendererParams<CashReconciliationRow>) {
+        const raw = params.value;
+        if (raw == null || !params.data) return "";
+        const value = Number(raw);
+        return (
+          <button
+            type="button"
+            onClick={() => setDetail({ row: params.data!, measure })}
+            title="Задаргааг харах"
+            className="w-full cursor-pointer text-right underline decoration-[var(--ea-border-strong)] decoration-dotted underline-offset-4 transition-colors hover:text-[var(--ea-primary)] hover:decoration-[var(--ea-primary)]"
+          >
+            {format(value)}
+          </button>
+        );
+      },
+    []
+  );
+
   const reconciliationColumns = useMemo<ColDef<CashReconciliationRow>[]>(
     () => [
       {
@@ -359,8 +398,7 @@ export function CashReconciliationWorkspace({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          numberOrBlank(params.value == null ? null : Number(params.value)),
+        cellRenderer: clickableAmount("bank", (v) => numberOrBlank(v)),
       },
       {
         headerName: "Хуулгын огноо",
@@ -376,7 +414,7 @@ export function CashReconciliationWorkspace({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        cellRenderer: clickableAmount("cash", (v) => fmtMnt(v)),
       },
       {
         headerName: "Хаалтын ханш",
@@ -399,8 +437,7 @@ export function CashReconciliationWorkspace({
         width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          numberOrBlank(params.value == null ? null : Number(params.value)),
+        cellRenderer: clickableAmount("cash", (v) => numberOrBlank(v)),
       },
       {
         headerName: "GL журнал (MNT)",
@@ -409,7 +446,7 @@ export function CashReconciliationWorkspace({
         width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        cellRenderer: clickableAmount("gl", (v) => fmtMnt(v)),
       },
       {
         headerName: "Хуулга − Бүртгэл",
@@ -425,13 +462,11 @@ export function CashReconciliationWorkspace({
               "font-semibold text-[var(--ea-danger)]"
           ),
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          numberOrBlank(params.value == null ? null : Number(params.value)),
+        cellRenderer: clickableAmount("bankToCash", (v) => numberOrBlank(v)),
       },
       {
         headerName: "Бүртгэл − GL",
-        headerTooltip:
-          "0 биш бол: шалтгаан, засах алхам нь доорх «Зөрүүг арилгах» хэсэгт гарна",
+        headerTooltip: "0 биш бол дүн дээр дарж шалтгааны задаргааг харна",
         field: "cashToGlDifference",
         width: 150,
         cellClass: (params) =>
@@ -442,8 +477,7 @@ export function CashReconciliationWorkspace({
               "font-semibold text-[var(--ea-danger)]"
           ),
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          numberOrBlank(params.value == null ? null : Number(params.value)),
+        cellRenderer: clickableAmount("cashToGl", (v) => numberOrBlank(v)),
       },
       {
         headerName: "Статус",
@@ -472,7 +506,7 @@ export function CashReconciliationWorkspace({
         },
       },
     ],
-    []
+    [clickableAmount]
   );
 
   const postFx = useCallback(
@@ -1009,119 +1043,6 @@ export function CashReconciliationWorkspace({
           ))}
         </div>
 
-        {/* ЗӨРҮҮГ АРИЛГАХ — зөрүүтэй данс бүрийн шалтгааны задаргаа, засах
-            товчнууд. Хэрэглэгч энэ хуудаснаас гаралгүйгээр зөрүүгээ ойлгож,
-            арилгаж чадна. */}
-        {fixCards.length > 0 && (
-          <div className="mt-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <Icon name="tune" size="sm" className="text-[var(--ea-warning)]" />
-              <h3 className="text-sm font-semibold text-[var(--ea-text-1)]">
-                Зөрүүг арилгах
-              </h3>
-            </div>
-            {fixCards.map(({ row, diff, openingMissing, glDrafts, plainDrafts, residual }) => (
-              <div
-                key={row.id}
-                className="space-y-2.5 rounded-md border border-[var(--ea-warning)] bg-[var(--ea-warning)]/5 p-3"
-              >
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span className="text-sm font-semibold text-[var(--ea-text-1)]">
-                    {row.accountName}
-                  </span>
-                  <span className="font-mono text-xs text-[var(--ea-text-3)]">
-                    Кассын бүртгэл {fmtMnt(row.cashBalanceMnt ?? row.cashBalance)} · GL{" "}
-                    {fmtMnt(row.glBalance)} · зөрүү{" "}
-                    <span className="font-semibold text-[var(--ea-danger-fg)]">
-                      {fmtMnt(diff)}
-                    </span>
-                  </span>
-                </div>
-
-                {openingMissing && (
-                  <div className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
-                    <span className="min-w-0 flex-1 text-xs text-[var(--ea-text-2)]">
-                      <span className="font-medium text-[var(--ea-text-1)]">
-                        Нээлтийн үлдэгдэл GL-д бичигдээгүй.
-                      </span>{" "}
-                      Данс үүсгэхэд нээлтийн {fmtMnt(row.openingBalance)} зөвхөн кассын
-                      бүртгэлд орсон. Товч дармагц данс ↔ эздийн өмчийн НООРОГ журнал
-                      үүснэ — журналын жагсаалтаас баталмагц зөрүү арилна.
-                    </span>
-                    <Button
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() => handleCreateOpeningVoucher(row)}
-                    >
-                      Нээлтийн журнал үүсгэх
-                    </Button>
-                  </div>
-                )}
-
-                {glDrafts.length > 0 && (
-                  <div className="space-y-1.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
-                    <p className="text-xs text-[var(--ea-text-2)]">
-                      <span className="font-medium text-[var(--ea-text-1)]">
-                        GL-ээс үүссэн ноорог баримт ({glDrafts.length}).
-                      </span>{" "}
-                      Журнал нь GL-д аль хэдийн бичигдсэн ч кассын бүртгэлд ноорог
-                      хэвээр тул зөрүү үүсгэж байна — баталмагц бүртгэлд орж зөрүү
-                      арилна (шинэ журнал үүсэхгүй).
-                    </p>
-                    {glDrafts.map((doc) => (
-                      <div key={doc.id} className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openCashDocPanel(doc.id, doc.documentNo)}
-                          className="font-mono text-xs text-[var(--ea-primary)] hover:underline"
-                        >
-                          {doc.documentNo}
-                        </button>
-                        <span className="font-mono text-xs text-[var(--ea-text-3)]">
-                          {doc.date} · {fmtMnt(doc.effect)}
-                        </span>
-                        {doc.rateUnknown ? (
-                          <span className="text-[11px] text-[var(--ea-warning-fg)]">
-                            ханш оруулж батална — нээгээд засна уу
-                          </span>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={isPending}
-                            onClick={() => handlePostPendingDoc(doc)}
-                          >
-                            Батлах
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {Math.abs(residual) > 0.01 && (
-                  <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
-                    <span className="font-medium text-[var(--ea-text-1)]">
-                      Тайлбарлагдаагүй зөрүү {fmtMnt(residual)}.
-                    </span>{" "}
-                    GL-д гараар бичсэн журнал эсвэл кассын бүртгэлээс дутуу баримт
-                    байж болзошгүй — журналын жагсаалтаас энэ дансны ({row.glAccountNumber})
-                    бичилтүүдийг шалгана уу. AI туслахаас &quot;{row.accountName} дансны
-                    зөрүүг оношлоод өг&quot; гэж асууж болно.
-                  </div>
-                )}
-
-                {plainDrafts.length > 0 && (
-                  <p className="text-[11px] text-[var(--ea-text-4)]">
-                    Мөн батлагдаагүй {plainDrafts.length} энгийн ноорог баримт бий
-                    (зөрүүнд нөлөөгүй ч батлагдвал үлдэгдэл өөрчлөгдөнө) —{" "}
-                    {plainDrafts.map((doc) => doc.documentNo).join(", ")}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       <section>
@@ -1627,6 +1548,240 @@ export function CashReconciliationWorkspace({
               GL-д бичих
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Тоон дээр дарахад гарах задаргаа ─────────────────────────────── */}
+      <Dialog open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          {detail && (() => {
+            const { row, measure } = detail;
+            const card = fixCards.find((c) => c.row.id === row.id) ?? null;
+            const config = {
+              bank: {
+                title: "Банкны хуулга — задаргаа",
+                note: `Импортолсон хуулга бүрийн ${asOf}-с өмнөх сүүлийн үлдэгдэл мөр · ${row.currency}`,
+                lines: row.details.bank,
+                total: row.bankBalance,
+                onOpen: null as ((id: string, label: string) => void) | null,
+              },
+              cash: {
+                title: "Кассын бүртгэл — задаргаа",
+                note: `Нээлтийн үлдэгдэл + батлагдсан баримтууд · ${row.currency}`,
+                lines: row.details.cash,
+                total: row.cashBalance,
+                onOpen: (id: string, label: string) =>
+                  id.startsWith("opening-") ? undefined : openCashDocPanel(id, label),
+              },
+              gl: {
+                title: "GL журнал — задаргаа",
+                note: `${row.glAccountNumber} дансанд нөлөөлсөн батлагдсан журналууд · MNT`,
+                lines: row.details.gl,
+                total: row.glBalance,
+                onOpen: (id: string, label: string) => openVoucherPanel(id, label),
+              },
+              bankToCash: {
+                title: "Хуулга − Бүртгэл зөрүү",
+                note: "Хоёр талын задаргааг тулгаж, аль баримт дутууг олно",
+                lines: [
+                  ...row.details.bank.map((l) => ({ ...l, label: `[Хуулга] ${l.label}` })),
+                  ...row.details.cash.map((l) => ({ ...l, label: `[Бүртгэл] ${l.label}` })),
+                ],
+                total: row.bankToCashDifference,
+                onOpen: (id: string, label: string) =>
+                  id.startsWith("opening-") || row.details.bank.some((l) => l.id === id)
+                    ? undefined
+                    : openCashDocPanel(id, label),
+              },
+              cashToGl: {
+                title: "Бүртгэл − GL зөрүү — оношилгоо",
+                note: "Шалтгаан бүрийг дүнтэй нь задалж, зассан алхмыг санал болгоно",
+                lines: [] as { id: string; date: string; label: string; amount: number }[],
+                total: row.cashToGlDifference,
+                onOpen: null,
+              },
+            }[measure];
+
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{row.accountName}</DialogTitle>
+                  <DialogDescription>
+                    {config.title} · {config.note}
+                  </DialogDescription>
+                </DialogHeader>
+
+                {measure === "cashToGl" ? (
+                  /* Оношилгоо — өмнө нь «Зөрүүг арилгах» хэсэгт байсан агуулга */
+                  <div className="space-y-2.5">
+                    <div className="font-mono text-xs text-[var(--ea-text-3)]">
+                      Кассын бүртгэл {fmtMnt(row.cashBalanceMnt ?? row.cashBalance)} · GL{" "}
+                      {fmtMnt(row.glBalance)} · зөрүү{" "}
+                      <span className="font-semibold text-[var(--ea-danger-fg)]">
+                        {fmtMnt(row.cashToGlDifference ?? 0)}
+                      </span>
+                    </div>
+
+                    {!card && (
+                      <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
+                        Зөрүү 0.01-с бага тул оношлох зүйл алга.
+                      </p>
+                    )}
+
+                    {card?.openingMissing && (
+                      <div className="flex flex-wrap items-center gap-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+                        <span className="min-w-0 flex-1 text-xs text-[var(--ea-text-2)]">
+                          <span className="font-medium text-[var(--ea-text-1)]">
+                            Нээлтийн үлдэгдэл GL-д бичигдээгүй.
+                          </span>{" "}
+                          Данс үүсгэхэд нээлтийн {fmtMnt(row.openingBalance)} зөвхөн кассын
+                          бүртгэлд орсон. Товч дармагц данс ↔ эздийн өмчийн НООРОГ журнал
+                          үүснэ — баталмагц зөрүү арилна.
+                        </span>
+                        <Button
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => handleCreateOpeningVoucher(row)}
+                        >
+                          Нээлтийн журнал үүсгэх
+                        </Button>
+                      </div>
+                    )}
+
+                    {card && card.glDrafts.length > 0 && (
+                      <div className="space-y-1.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+                        <p className="text-xs text-[var(--ea-text-2)]">
+                          <span className="font-medium text-[var(--ea-text-1)]">
+                            GL-ээс үүссэн ноорог баримт ({card.glDrafts.length}).
+                          </span>{" "}
+                          Журнал нь GL-д бичигдсэн ч кассын бүртгэлд ноорог хэвээр —
+                          баталмагц зөрүү арилна (шинэ журнал үүсэхгүй).
+                        </p>
+                        {card.glDrafts.map((doc) => (
+                          <div key={doc.id} className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openCashDocPanel(doc.id, doc.documentNo)}
+                              className="font-mono text-xs text-[var(--ea-primary)] hover:underline"
+                            >
+                              {doc.documentNo}
+                            </button>
+                            <span className="font-mono text-xs text-[var(--ea-text-3)]">
+                              {doc.date} · {fmtMnt(doc.effect)}
+                            </span>
+                            {doc.rateUnknown ? (
+                              <span className="text-[11px] text-[var(--ea-warning-fg)]">
+                                ханш оруулж батална — нээгээд засна уу
+                              </span>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={isPending}
+                                onClick={() => handlePostPendingDoc(doc)}
+                              >
+                                Батлах
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {card && Math.abs(card.residual) > 0.01 && (
+                      <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
+                        <span className="font-medium text-[var(--ea-text-1)]">
+                          Тайлбарлагдаагүй зөрүү {fmtMnt(card.residual)}.
+                        </span>{" "}
+                        GL-д гараар бичсэн журнал эсвэл кассын бүртгэлээс дутуу баримт байж
+                        болзошгүй — доорх GL болон Кассын задаргааг тулгаж шалгана уу. AI
+                        туслахаас &quot;{row.accountName} дансны зөрүүг оношлоод өг&quot; гэж
+                        асууж болно.
+                      </div>
+                    )}
+
+                    {card && card.plainDrafts.length > 0 && (
+                      <p className="text-[11px] text-[var(--ea-text-4)]">
+                        Мөн батлагдаагүй {card.plainDrafts.length} энгийн ноорог баримт бий —{" "}
+                        {card.plainDrafts.map((doc) => doc.documentNo).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="max-h-[55vh] overflow-y-auto rounded-md border border-[var(--ea-border)]">
+                    {config.lines.length === 0 ? (
+                      <p className="px-3 py-6 text-center text-xs text-[var(--ea-text-4)]">
+                        Мөр байхгүй.
+                      </p>
+                    ) : (
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-[var(--ea-bg-2)]">
+                          <tr className="text-[var(--ea-text-2)]">
+                            <th className="px-3 py-2 text-left font-semibold">Огноо</th>
+                            <th className="px-3 py-2 text-left font-semibold">Баримт</th>
+                            <th className="px-3 py-2 text-right font-semibold">Дүн</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {config.lines.map((line) => {
+                            const openable = config.onOpen && !line.id.startsWith("opening-");
+                            return (
+                              <tr
+                                key={`${measure}-${line.id}`}
+                                className="border-t border-[var(--ea-border)]"
+                              >
+                                <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[var(--ea-text-3)]">
+                                  {line.date || "—"}
+                                </td>
+                                <td className="max-w-0 px-3 py-1.5">
+                                  {openable ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => config.onOpen!(line.id, line.label)}
+                                      className="block w-full truncate text-left text-[var(--ea-primary)] hover:underline"
+                                      title={line.label}
+                                    >
+                                      {line.label}
+                                    </button>
+                                  ) : (
+                                    <span className="block truncate text-[var(--ea-text-1)]" title={line.label}>
+                                      {line.label}
+                                    </span>
+                                  )}
+                                </td>
+                                <td
+                                  className={cn(
+                                    "whitespace-nowrap px-3 py-1.5 text-right font-mono",
+                                    line.amount < 0
+                                      ? "text-[var(--ea-danger-fg)]"
+                                      : "text-[var(--ea-text-1)]"
+                                  )}
+                                >
+                                  {fmtMnt(line.amount)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        {config.total != null && (
+                          <tfoot>
+                            <tr className="border-t border-[var(--ea-border)] bg-[var(--ea-bg-2)] font-semibold">
+                              <td className="px-3 py-2" colSpan={2}>
+                                Нийт
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-2 text-right font-mono">
+                                {fmtMnt(config.total)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
