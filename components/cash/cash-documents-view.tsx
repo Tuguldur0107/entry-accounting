@@ -1,6 +1,6 @@
 "use client";
 
-// Мөнгөн гүйлгээний жагсаалт. Мөр дээр дарахад баримтын дэлгэрэнгүй ПАНЕЛЬ
+// Мөнгөн гүйлгээний жагсаалт. Мөр дээр давхар дарахад баримтын дэлгэрэнгүй ПАНЕЛЬ
 // (cash-doc), "Шинэ гүйлгээ" нь бичих ПАНЕЛЬ (cash-new) нээгдэнэ — урьд нь
 // хоёулаа Dialog байсан. Валютын ханш асуух жижиг prompt болон бүх confirm
 // хэвээр dialog.
@@ -709,7 +709,7 @@ export function CashDocumentsView({
               gridApiRef.current = event.api;
             }}
             onSelectionChanged={handleSelectionChanged}
-            onCellClicked={(event) => {
+            onCellDoubleClicked={(event) => {
               // Ignore clicks in the actions column and the selection
               // checkbox column — those have their own behavior and
               // shouldn't also open the detail panel.

@@ -4,7 +4,7 @@ import { useMemo, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import type {
-  CellClickedEvent,
+  CellDoubleClickedEvent,
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
@@ -182,8 +182,9 @@ export function FaAssetsView({ assets }: Props) {
     [confirm, router, startTransition]
   );
 
-  // Мөр дээр дарахад дэлгэрэнгүй панель нээнэ — үйлдлийн баганад дарсныг алгасна.
-  function handleCellClicked(event: CellClickedEvent<FixedAssetView>) {
+  // Мөр дээр ДАВХАР дарахад дэлгэрэнгүй панель нээнэ — үйлдлийн баганад
+  // дарсныг алгасна. Нэг даралт нь нүдний мужийн сонголтод үлдээгдсэн.
+  function handleCellClicked(event: CellDoubleClickedEvent<FixedAssetView>) {
     if (event.colDef.colId === "actions") return;
     if (event.data) openFaAssetPanel(event.data.id, event.data.name);
   }
@@ -198,7 +199,7 @@ export function FaAssetsView({ assets }: Props) {
             Хөрөнгийн карт
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Мөр дээр дарж дэлгэрэнгүй харна · АП/касс/GL-ээс 2Х-дансанд
+            Мөр дээр давхар дарж дэлгэрэнгүй харна · АП/касс/GL-ээс 2Х-дансанд
             бичигдмэгц ноорог карт автоматаар үүснэ
             {draftCount > 0 && (
               <span className="ml-1 font-medium text-[var(--ea-warning-fg)]">
@@ -228,7 +229,7 @@ export function FaAssetsView({ assets }: Props) {
           paginationPageSizeSelector={false}
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
-          onCellClicked={handleCellClicked}
+          onCellDoubleClicked={handleCellClicked}
         />
       )}
 

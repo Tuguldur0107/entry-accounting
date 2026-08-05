@@ -414,7 +414,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
             gridApiRef.current = event.api;
           }}
           onSelectionChanged={handleSelectionChanged}
-          onCellClicked={(event) => {
+          onCellDoubleClicked={(event) => {
             const colId = event.column.getColId();
             if (colId === "actions" || colId.startsWith("ag-Grid")) return;
             if (event.data)

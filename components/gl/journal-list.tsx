@@ -25,7 +25,7 @@ import { openVoucherPanel, refreshOpenPanels } from "@/lib/store/panel-store";
 import { fmtMnt } from "@/lib/reports/balances";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
-  CellClickedEvent,
+  CellDoubleClickedEvent,
   ColDef,
   ICellRendererParams,
 } from "ag-grid-community";
@@ -250,9 +250,10 @@ export function JournalList({
     }
   }
 
-  // Мөр дээр дарахад ижил цонх нээгдэнэ — ноорог бол засварлагч,
-  // бичигдсэн/буцаагдсан бол харах горим.
-  function handleRowClick(event: CellClickedEvent<VoucherRow>) {
+  // Мөр дээр ДАВХАР дарахад ижил цонх нээгдэнэ — ноорог бол засварлагч,
+  // бичигдсэн/буцаагдсан бол харах горим. Нэг даралт нь нүдний мужийн
+  // сонголтод (Excel-маягийн select+copy) үлдээгдсэн.
+  function handleRowClick(event: CellDoubleClickedEvent<VoucherRow>) {
     if (event.colDef.colId === "actions") return;
     if (event.data) handleEdit(event.data.id);
   }
@@ -579,7 +580,7 @@ export function JournalList({
         wrapperClassName="rounded-lg border border-[var(--ea-border)] overflow-hidden"
         suppressCellFocus
         cellSelection={false}
-        onCellClicked={handleRowClick}
+        onCellDoubleClicked={handleRowClick}
       />
 
       {/* Footer — баганатай харалдаа. Grid template AG-Grid-н column width-тэй тааруулсан */}

@@ -505,18 +505,32 @@ alignment / editor зэргийг дахин зарлахгүй. Дэмжих ki
 | `switch` | SwitchCellRenderer (callback dispatch) |
 | `select` | agSelectCellEditor |
 
-### Keyboard contract
+### Keyboard / mouse contract
 
 | Товч | Үйлдэл |
 |------|--------|
+| Нэг даралт | Нүдний мужийн ЗАНГУУ (Excel-маягийн сонголт эхэлнэ) |
+| Shift+даралт | Зангуунаас тэгш өнцөгт муж сонгоно |
+| Давхар даралт | Мөрийн дэлгэрэнгүй панель / edit mode (жагсаалтын grid бүрд) |
 | Arrow keys | Нүд хооронд |
 | Tab / Shift+Tab | Дараагийн / өмнөх editable нүд |
 | Enter / Shift+Enter | Commit + доош / дээш |
 | F2 | Edit mode эхлүүлэх |
-| Esc | Edit-ийг буцаах |
-| Ctrl/Cmd+C / V / X | Copy / Paste / Cut |
+| Esc | Edit-ийг буцаах / мужийн сонголтыг арилгах |
+| Ctrl/Cmd+C / V / X | Copy (сонгосон муж → TSV) / Paste / Cut |
 | Ctrl/Cmd+Z / Y | Undo / Redo |
 | Delete | Сонгосон нүднүүдийг цэвэрлэх |
+
+**Мужийн сонголт + copy (DataGrid built-in, бүх grid-д):** AG Grid
+Community-д range selection байхгүй тул `DataGrid.tsx` дээр custom
+хэрэгжсэн — нэг даралт зангуу, Shift+даралт муж, `ea-range-cell` класс
+(багана бүрийн `cellClassRules`-д wrapper автоматаар шингээдэг),
+Ctrl/Cmd+C нь мужийг TSV болгож clipboard-д тавина (тоон утга raw, бусад нь
+formatted) — MS Excel-д шууд paste хийгдэнэ. Нэг агшинд нэг л grid-д
+сонголт идэвхтэй. Мөрийн сонголт (batch үйлдэл) зөвхөн checkbox-оор —
+`enableClickSelection` default false. **Дэлгэрэнгүй панель нээх нь ДАВХАР
+даралт** — шинэ жагсаалтын grid нэмэхдээ `onCellDoubleClicked` /
+`onRowDoubleClicked` хэрэглэнэ, нэг даралтад panel нээхийг хориглоно.
 
 ### Paste contract
 

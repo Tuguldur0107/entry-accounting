@@ -568,7 +568,7 @@ export function ArApWorkspace({
               height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
-              onRowClicked={(event) => {
+              onRowDoubleClicked={(event) => {
                 // Нүдэн доторх товч/линк (Батлах, Мөнгөн хөрөнгөөр хаах)
                 // дарахад баримтын панель давхар нээгдэхгүй.
                 const target = event.event?.target as HTMLElement | null;

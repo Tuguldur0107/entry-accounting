@@ -686,7 +686,7 @@ export function GlDashboard({
         </div>
       </section>
 
-      {/* Сүүлийн журналууд — мөр дээр дарахад журналын дэлгэрэнгүй */}
+      {/* Сүүлийн журналууд — мөр дээр давхар дарахад журналын дэлгэрэнгүй */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
           <Icon name="pending" size="sm" className="text-[var(--ea-primary)]" />
@@ -704,7 +704,7 @@ export function GlDashboard({
             height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
-            onRowClicked={(event) => {
+            onRowDoubleClicked={(event) => {
               if (event.data)
                 openVoucherEditor(event.data.id, event.data.description);
             }}

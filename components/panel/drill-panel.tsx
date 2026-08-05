@@ -91,7 +91,7 @@ export function DrillPanel({ panel }: { panel: PanelInstance }) {
       ) : (
         <>
           <p className="text-[11px] text-[var(--ea-text-4)]">
-            Мөр дээр дарахад журнал өөрийн панельд нээгдэнэ
+            Мөр дээр давхар дарахад журнал өөрийн панельд нээгдэнэ
           </p>
           <DataGridDynamic<DrillPanelRow>
             rowData={rows}
@@ -100,7 +100,7 @@ export function DrillPanel({ panel }: { panel: PanelInstance }) {
             height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
-            onRowClicked={(event) => {
+            onRowDoubleClicked={(event) => {
               if (event.data)
                 openVoucherPanel(event.data.id, event.data.description);
             }}
