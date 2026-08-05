@@ -129,27 +129,32 @@ export function FaAssetsView({ assets }: Props) {
         headerClass: "ag-right-aligned-header",
         cellRenderer: (params: ICellRendererParams<FixedAssetView>) => {
           const asset = params.data;
-          if (!asset || asset.status !== "draft") return null;
+          if (!asset) return null;
+          const isDraft = asset.status === "draft";
           return (
             <div className="flex items-center justify-end gap-1">
-              <button
-                type="button"
-                className="ea-btn ea-btn--icon ea-btn--success"
-                title="Бөглөж идэвхжүүлэх"
-                aria-label="Бөглөж идэвхжүүлэх"
-                onClick={() => openFaAssetFormPanel({ assetId: asset.id })}
-              >
-                <Icon name="edit" />
-              </button>
+              {isDraft && (
+                <button
+                  type="button"
+                  className="ea-btn ea-btn--icon ea-btn--success"
+                  title="Бөглөж идэвхжүүлэх"
+                  aria-label="Бөглөж идэвхжүүлэх"
+                  onClick={() => openFaAssetFormPanel({ assetId: asset.id })}
+                >
+                  <Icon name="edit" />
+                </button>
+              )}
               <button
                 type="button"
                 className="ea-btn ea-btn--icon ea-btn--danger"
-                title="Ноорог устгах"
-                aria-label="Ноорог устгах"
+                title={isDraft ? "Ноорог устгах" : "Карт устгах"}
+                aria-label="Устгах"
                 onClick={async () => {
                   const ok = await confirm({
-                    title: "Ноорог карт устгах",
-                    description: `${asset.code} — ${asset.name} картыг устгах уу?`,
+                    title: isDraft ? "Ноорог карт устгах" : "Карт устгах",
+                    description: isDraft
+                      ? `${asset.code} — ${asset.name} картыг устгах уу?`
+                      : `${asset.code} — ${asset.name} идэвхтэй картыг устгах уу? (Элэгдлийн бичилттэй бол татгалзана — эхлээд элэгдлийг нь устгаж/буцаана.)`,
                     confirmText: "Устгах",
                     danger: true,
                   });
@@ -158,7 +163,7 @@ export function FaAssetsView({ assets }: Props) {
                     try {
                       await deleteFixedAsset(asset.id);
                       router.refresh();
-                      toast.success("Ноорог карт устгагдлаа");
+                      toast.success("Карт устгагдлаа");
                     } catch (caught) {
                       toast.error(
                         caught instanceof Error ? caught.message : "Устгаж чадсангүй"

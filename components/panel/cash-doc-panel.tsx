@@ -186,8 +186,11 @@ export function CashDocPanel({
 
   function handleDelete() {
     void confirm({
-      title: "Ноорог устгах",
-      description: `${document.documentNo} ноорог баримтыг устгах уу?`,
+      title: document.status === "draft" ? "Ноорог устгах" : "Баримт устгах",
+      description:
+        document.status === "draft"
+          ? `${document.documentNo} ноорог баримтыг устгах уу?`
+          : `${document.documentNo} баримтыг GL журналтай нь ХАМТ бүрмөсөн устгана (буцаалт биш). Нэхэмжлэхийн төлөлт байсан бол үлдэгдэл нь сэргэнэ. Устгах уу?`,
       confirmText: "Устгах",
       danger: true,
     }).then((ok) => {
@@ -507,10 +510,16 @@ export function CashDocPanel({
             </>
           )}
           {document.status === "posted" && (
-            <Button variant="outline" onClick={handleReverse} disabled={isPending}>
-              <Icon name="reset" size="sm" />
-              Буцаах
-            </Button>
+            <>
+              <Button variant="outline" onClick={handleDelete} disabled={isPending}>
+                <Icon name="delete" size="sm" />
+                Устгах
+              </Button>
+              <Button variant="outline" onClick={handleReverse} disabled={isPending}>
+                <Icon name="reset" size="sm" />
+                Буцаах
+              </Button>
+            </>
           )}
         </div>
       </div>

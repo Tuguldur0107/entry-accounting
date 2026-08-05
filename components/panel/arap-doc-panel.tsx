@@ -755,9 +755,12 @@ function ArapDocReadOnly({
   }
 
   function deleteDraft() {
+    const posted = document.status !== "draft";
     void confirm({
-      title: "Ноорог устгах",
-      description: `${document.documentNo} · ${document.counterpartyName} ноорог баримтыг устгах уу? Мөрүүд нь хамт устана.`,
+      title: posted ? "Баримт устгах" : "Ноорог устгах",
+      description: posted
+        ? `${document.documentNo} · ${document.counterpartyName} БАТЛАГДСАН нэхэмжлэхийг GL журналтай нь хамт бүрмөсөн устгах уу? (Төлөлттэй бол татгалзана.)`
+        : `${document.documentNo} · ${document.counterpartyName} ноорог баримтыг устгах уу? Мөрүүд нь хамт устана.`,
       confirmText: "Устгах",
       danger: true,
     }).then((ok) => {
@@ -1053,6 +1056,12 @@ function ArapDocReadOnly({
             onClick={() => openCashNewPanel({ arApDocumentId: document.id })}
           >
             Мөнгөн хөрөнгөөр хаах
+          </Button>
+        )}
+        {document.status === "posted" && (
+          <Button variant="outline" onClick={deleteDraft} disabled={isPending}>
+            <Icon name="delete" size="sm" />
+            Устгах
           </Button>
         )}
         {document.status === "draft" && (

@@ -956,19 +956,124 @@ export async function reverseCashDocument(id: string) {
   revalidateCash();
 }
 
+/**
+ * Кассын баримт устгах. Ноорог — шууд. БАТЛАГДСАН/БУЦААГДСАН баримтыг
+ * мөн устгаж болно — GL журнал(ууд) нь хамт устаж, нэхэмжлэхтэй холбоотой
+ * байсан бол төлөлтийг нь буцааж (settlement rollback) нэхэмжлэхийн
+ * үлдэгдэл, төлөв сэргэнэ. Период нээлттэй байх шаардлагатай.
+ */
 export async function deleteCashDocument(id: string) {
   const userId = await requireUser();
   const document = await db.query.cashDocuments.findFirst({
     where: and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)),
-    columns: { status: true },
   });
   if (!document) return;
-  if (document.status !== "draft")
-    throw new Error("Зөвхөн ноорог Cash баримтыг устгана");
 
-  await db
-    .delete(cashDocuments)
-    .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+  if (document.status === "draft") {
+    await db
+      .delete(cashDocuments)
+      .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+    revalidateCash();
+    return;
+  }
+
+  await assertPeriodOpen(userId, document.date);
+
+  const voucherIds = [
+    ...new Set(
+      [document.voucherId, document.reversalVoucherId, document.sourceVoucherId].filter(
+        (value): value is string => !!value
+      )
+    ),
+  ];
+
+  // Журналуудаас sync-ээр үүссэн ноорог (бараа, ҮХ) — журнал устахаас ӨМНӨ
+  // цэвэрлэнэ (FK журнал устахад холбоос nullжиж олдохоо болино).
+  for (const voucherId of voucherIds) {
+    await removeDraftMovementsForVoucher(voucherId);
+    await removeDraftAssetsForVoucher(voucherId);
+  }
+
+  await db.transaction(async (tx) => {
+    // 1. Нэхэмжлэхийн төлөлт байсан бол буцаана — үлдэгдэл, төлөв сэргэнэ.
+    const settlements = await tx.query.arApSettlements.findMany({
+      where: and(
+        eq(arApSettlements.userId, userId),
+        eq(arApSettlements.cashDocumentId, id)
+      ),
+    });
+    const byInvoice = new Map<string, { amount: number; baseAmount: number }>();
+    for (const settlement of settlements) {
+      const slot = byInvoice.get(settlement.documentId) ?? {
+        amount: 0,
+        baseAmount: 0,
+      };
+      slot.amount += Number(settlement.amount);
+      slot.baseAmount += Number(settlement.baseAmount ?? settlement.amount);
+      byInvoice.set(settlement.documentId, slot);
+    }
+    for (const [invoiceId, sums] of byInvoice) {
+      const invoice = await tx.query.arApDocuments.findFirst({
+        where: and(
+          eq(arApDocuments.id, invoiceId),
+          eq(arApDocuments.userId, userId)
+        ),
+      });
+      if (!invoice) continue;
+      const newPaid = Math.max(
+        0,
+        Math.round((Number(invoice.paidAmount) - sums.amount) * 100) / 100
+      );
+      const newBasePaid = Math.max(
+        0,
+        Math.round(
+          (Number(invoice.basePaidAmount ?? invoice.paidAmount) - sums.baseAmount) *
+            100
+        ) / 100
+      );
+      const total = Number(invoice.totalAmount);
+      await tx
+        .update(arApDocuments)
+        .set({
+          paidAmount: String(newPaid),
+          basePaidAmount: String(newBasePaid),
+          status:
+            newPaid <= 0.005
+              ? "posted"
+              : newPaid >= total - 0.005
+                ? "paid"
+                : "partially_paid",
+        })
+        .where(eq(arApDocuments.id, invoiceId));
+    }
+    if (settlements.length > 0)
+      await tx
+        .delete(arApSettlements)
+        .where(
+          and(
+            eq(arApSettlements.userId, userId),
+            eq(arApSettlements.cashDocumentId, id)
+          )
+        );
+
+    // 2. Баримт эхэлж устна (журнал руу FK-тэй тул).
+    await tx
+      .delete(cashDocuments)
+      .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+
+    // 3. Холбоотой GL журналууд (үндсэн + буцаалт + эх) хамт устна.
+    for (const voucherId of voucherIds) {
+      await tx
+        .delete(journalVouchers)
+        .where(
+          and(
+            eq(journalVouchers.id, voucherId),
+            eq(journalVouchers.userId, userId)
+          )
+        );
+    }
+  });
+
   revalidateCash();
 }
 

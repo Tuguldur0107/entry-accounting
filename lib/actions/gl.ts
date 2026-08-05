@@ -2,7 +2,12 @@
 
 import { db } from "@/lib/db";
 import {
+  arApDocuments,
+  cashDocuments,
+  cashFxRevaluations,
   chartOfAccounts,
+  costEntries,
+  faDepreciationEntries,
   journalVouchers,
   journalLines,
   moduleConfigs,
@@ -11,7 +16,7 @@ import {
 } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 import {
   STANDARD_ACCOUNTS,
   SEGMENT_DEFS,
@@ -514,22 +519,105 @@ export async function updateVoucher(
   revalidatePath("/gl/reports");
 }
 
+/**
+ * Журнал устгах. Ноорог — шууд. БАТЛАГДСАН журналыг мөн устгаж болно
+ * (сторно биш — GL-ээс бүрмөсөн хасна), гэхдээ:
+ *   - период нээлттэй байх
+ *   - дэд дэвтрийн баримттай (касс, АР/АП, элэгдэл, өртөг, ханшийн
+ *     тэгшитгэл) холбоотой бол ЭХ БАРИМТААР нь устгуулахаар чиглүүлнэ —
+ *     эс бөгөөс дэд дэвтэр GL хоёр зөрнө.
+ */
 export async function deleteVoucher(id: string) {
   const userId = await requireUser();
 
-  await db.transaction(async (tx) => {
-    const existing = await tx.query.journalVouchers.findFirst({
-      where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
-      columns: { status: true },
-    });
-    if (!existing) throw new Error("Бичилт олдсонгүй");
-    if (existing.status !== "draft")
-      throw new Error("Зөвхөн ноорог журналыг устгах боломжтой");
-
-    await tx
-      .delete(journalVouchers)
-      .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+  const existing = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    with: {
+      lines: { columns: { costEntryId: true, inventoryMovementId: true } },
+    },
   });
+  if (!existing) throw new Error("Бичилт олдсонгүй");
+
+  if (existing.status !== "draft") {
+    await assertPeriodOpen(userId, existing.date);
+
+    if (
+      existing.lines.some((line) => line.costEntryId || line.inventoryMovementId)
+    )
+      throw new Error(
+        "Өртгийн модулиас үүссэн журнал — өртгийн бичилтийг нь буцааж/устгаж удирдана"
+      );
+
+    const [cashRef, arapRef, faRef, costRef, fxRef] = await Promise.all([
+      db.query.cashDocuments.findFirst({
+        where: and(
+          eq(cashDocuments.userId, userId),
+          or(
+            eq(cashDocuments.voucherId, id),
+            eq(cashDocuments.sourceVoucherId, id),
+            eq(cashDocuments.reversalVoucherId, id)
+          )
+        ),
+        columns: { documentNo: true },
+      }),
+      db.query.arApDocuments.findFirst({
+        where: and(
+          eq(arApDocuments.userId, userId),
+          or(
+            eq(arApDocuments.voucherId, id),
+            eq(arApDocuments.reversalVoucherId, id)
+          )
+        ),
+        columns: { documentNo: true },
+      }),
+      db.query.faDepreciationEntries.findFirst({
+        where: and(
+          eq(faDepreciationEntries.userId, userId),
+          eq(faDepreciationEntries.voucherId, id)
+        ),
+        columns: { id: true },
+      }),
+      db.query.costEntries.findFirst({
+        where: and(eq(costEntries.userId, userId), eq(costEntries.voucherId, id)),
+        columns: { id: true },
+      }),
+      db.query.cashFxRevaluations.findFirst({
+        where: and(
+          eq(cashFxRevaluations.userId, userId),
+          eq(cashFxRevaluations.voucherId, id)
+        ),
+        columns: { id: true },
+      }),
+    ]);
+    if (cashRef)
+      throw new Error(
+        `Кассын ${cashRef.documentNo} баримттай холбоотой журнал — Мөнгөн хөрөнгө хэсгээс баримтыг нь устгана уу`
+      );
+    if (arapRef)
+      throw new Error(
+        `АР/АП-ийн ${arapRef.documentNo} баримттай холбоотой журнал — нэхэмжлэхийг нь устгана уу`
+      );
+    if (faRef)
+      throw new Error(
+        "Элэгдлийн бичилттэй холбоотой журнал — ҮХ → Элэгдэл хэсгээс удирдана"
+      );
+    if (costRef)
+      throw new Error(
+        "Өртгийн бичилттэй холбоотой журнал — өртгийн модулиас удирдана"
+      );
+    if (fxRef)
+      throw new Error(
+        "Ханшийн тэгшитгэлийн журнал — Тулгалт, ханш хэсгээс буцаана"
+      );
+  }
+
+  // Энэ журналаас sync-ээр үүссэн ноорог (бараа, ҮХ) хамт цэвэрлэгдэнэ.
+  await removeDraftMovementsForVoucher(id);
+  await removeDraftAssetsForVoucher(id);
+
+  await db
+    .delete(journalVouchers)
+    .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");

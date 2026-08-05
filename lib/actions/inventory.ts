@@ -453,6 +453,12 @@ export async function confirmInventoryMovements(ids: string[]) {
   return { confirmed, failures };
 }
 
+/**
+ * Хөдөлгөөн устгах. Ноорог/цуцлагдсан — шууд. БАТАЛГААЖСАН хөдөлгөөнийг
+ * мөн устгаж болно — цуцлахтай ижил хамгаалалттай: идэвхтэй өртгийн
+ * бичилттэй бол блок (эхлээд өртгийг буцаана), устгаснаар аль нэг
+ * бараа-агуулахын үлдэгдэл хасах болохоор бол блок.
+ */
 export async function deleteInventoryMovement(id: string) {
   const userId = await requireUser();
   const movement = await db.query.inventoryMovements.findFirst({
@@ -463,11 +469,49 @@ export async function deleteInventoryMovement(id: string) {
     columns: { status: true },
   });
   if (!movement) return;
-  if (movement.status !== "draft")
-    throw new Error("Зөвхөн ноорог хөдөлгөөнийг устгана");
-  await db
-    .delete(inventoryMovements)
-    .where(and(eq(inventoryMovements.id, id), eq(inventoryMovements.userId, userId)));
+
+  await db.transaction(async (tx) => {
+    if (movement.status === "confirmed") {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+
+      const activeEntry = await tx.query.costEntries.findFirst({
+        where: and(
+          eq(costEntries.userId, userId),
+          eq(costEntries.movementId, id),
+          inArray(costEntries.status, ["draft", "posted"])
+        ),
+        columns: { id: true },
+      });
+      if (activeEntry)
+        throw new Error(
+          "Энэ хөдөлгөөн үнэлэгдсэн байна — эхлээд өртгийн бичилтийг нь буцааж/устгана уу"
+        );
+
+      // Устгаснаар бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой.
+      const existing = (await confirmedMovementRefs(tx, userId)).filter(
+        (ref) => ref.id !== id
+      );
+      const violation = findNegativeStock(existing);
+      if (violation)
+        throw new Error(
+          `Устгавал үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter})`
+        );
+    }
+
+    // Буцаагдсан өртгийн бичилтийн лавлагааг салгана (FK restrict).
+    await tx
+      .update(costEntries)
+      .set({ movementId: null })
+      .where(
+        and(eq(costEntries.userId, userId), eq(costEntries.movementId, id))
+      );
+
+    await tx
+      .delete(inventoryMovements)
+      .where(
+        and(eq(inventoryMovements.id, id), eq(inventoryMovements.userId, userId))
+      );
+  });
   revalidateInventory();
 }
 

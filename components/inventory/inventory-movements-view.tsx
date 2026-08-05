@@ -215,15 +215,18 @@ export function InventoryMovementsView({
   );
 
   const handleDelete = useCallback(
-    async (id: string) => {
+    async (id: string, status: string) => {
       const ok = await confirm({
-        title: "Ноорог устгах",
-        description: "Энэ ноорог хөдөлгөөнийг бүрмөсөн устгах уу?",
+        title: status === "draft" ? "Ноорог устгах" : "Хөдөлгөөн устгах",
+        description:
+          status === "draft"
+            ? "Энэ ноорог хөдөлгөөнийг бүрмөсөн устгах уу?"
+            : "Энэ хөдөлгөөнийг бүрмөсөн устгах уу? (Үнэлэгдсэн бол эхлээд өртгийн бичилтийг нь буцаана; үлдэгдэл хасах болохоор бол татгалзана.)",
         confirmText: "Устгах",
         danger: true,
       });
       if (!ok) return;
-      runAction(() => deleteInventoryMovement(id), "Ноорог устгагдлаа");
+      runAction(() => deleteInventoryMovement(id), "Хөдөлгөөн устгагдлаа");
     },
     [runAction, confirm]
   );
@@ -438,15 +441,6 @@ export function InventoryMovementsView({
                   >
                     <Icon name="approve" />
                   </button>
-                  <button
-                    type="button"
-                    className="ea-btn ea-btn--icon ea-btn--danger"
-                    title="Ноорог устгах"
-                    aria-label="Ноорог устгах"
-                    onClick={() => handleDelete(movement.id)}
-                  >
-                    <Icon name="delete" />
-                  </button>
                 </>
               )}
               {movement.status === "confirmed" && !movement.hasCostEntry && (
@@ -460,6 +454,19 @@ export function InventoryMovementsView({
                   <Icon name="cancel" />
                 </button>
               )}
+              <button
+                type="button"
+                className="ea-btn ea-btn--icon ea-btn--danger"
+                title={
+                  movement.status === "draft"
+                    ? "Ноорог устгах"
+                    : "Бүрмөсөн устгах"
+                }
+                aria-label="Устгах"
+                onClick={() => handleDelete(movement.id, movement.status)}
+              >
+                <Icon name="delete" />
+              </button>
             </div>
           );
         },

@@ -198,9 +198,13 @@ export function JournalList({
   }
 
   async function handleDelete(id: string) {
+    const voucher = vouchersRef.current.find((entry) => entry.id === id);
+    const posted = voucher?.status === "posted";
     const ok = await confirm({
       title: "Журнал устгах",
-      description: `${describeVoucher(id)} бичилтийг устгах уу?`,
+      description: posted
+        ? `${describeVoucher(id)} БАТЛАГДСАН бичилтийг GL-ээс бүрмөсөн устгах уу? (Буцаалт биш — аудитын ул мөр үлдэхгүй. Дэд дэвтрийн баримттай холбоотой бол эх баримтаар нь устгахыг шаардана.)`
+        : `${describeVoucher(id)} бичилтийг устгах уу?`,
       confirmText: "Устгах",
       danger: true,
     });
@@ -486,14 +490,24 @@ export function JournalList({
                 </>
               )}
               {v.status === "posted" && (
-                <button
-                  onClick={() => handleUnpost(v.id)}
-                  className="ea-btn ea-btn--icon ea-btn--warning"
-                  title="Ноорог болгож буцаах"
-                  aria-label="Ноорог болгож буцаах"
-                >
-                  <Icon name="undo" />
-                </button>
+                <>
+                  <button
+                    onClick={() => handleUnpost(v.id)}
+                    className="ea-btn ea-btn--icon ea-btn--warning"
+                    title="Ноорог болгож буцаах"
+                    aria-label="Ноорог болгож буцаах"
+                  >
+                    <Icon name="undo" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(v.id)}
+                    className="ea-btn ea-btn--icon ea-btn--danger"
+                    title="GL-ээс бүрмөсөн устгах"
+                    aria-label="GL-ээс бүрмөсөн устгах"
+                  >
+                    <Icon name="delete" />
+                  </button>
+                </>
               )}
             </div>
           );

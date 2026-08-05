@@ -373,15 +373,18 @@ export function CashDocumentsView({
   );
 
   const handleDelete = useCallback(
-    async (id: string) => {
+    async (id: string, status: string) => {
       const ok = await confirm({
-        title: "Ноорог устгах",
-        description: "Энэ ноорог мөнгөн гүйлгээг бүрмөсөн устгах уу?",
+        title: status === "draft" ? "Ноорог устгах" : "Баримт устгах",
+        description:
+          status === "draft"
+            ? "Энэ ноорог мөнгөн гүйлгээг бүрмөсөн устгах уу?"
+            : "Энэ баримтыг GL журналтай нь ХАМТ бүрмөсөн устгана (буцаалт биш). Нэхэмжлэхийн төлөлт байсан бол үлдэгдэл нь сэргэнэ. Устгах уу?",
         confirmText: "Устгах",
         danger: true,
       });
       if (!ok) return;
-      runAction(() => deleteCashDocument(id), "Ноорог устгагдлаа");
+      runAction(() => deleteCashDocument(id), "Баримт устгагдлаа");
     },
     [runAction, confirm]
   );
@@ -551,26 +554,15 @@ export function CashDocumentsView({
           return (
             <div className="flex items-center justify-end gap-1">
               {document.status === "draft" && (
-                <>
-                  <button
-                    type="button"
-                    className="ea-btn ea-btn--icon ea-btn--success"
-                    title="Баталж GL-д бичих"
-                    aria-label="Баталж GL-д бичих"
-                    onClick={() => handlePost(document)}
-                  >
-                    <Icon name="approve" />
-                  </button>
-                  <button
-                    type="button"
-                    className="ea-btn ea-btn--icon ea-btn--danger"
-                    title="Ноорог устгах"
-                    aria-label="Ноорог устгах"
-                    onClick={() => handleDelete(document.id)}
-                  >
-                    <Icon name="delete" />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className="ea-btn ea-btn--icon ea-btn--success"
+                  title="Баталж GL-д бичих"
+                  aria-label="Баталж GL-д бичих"
+                  onClick={() => handlePost(document)}
+                >
+                  <Icon name="approve" />
+                </button>
               )}
               {document.status === "posted" && (
                 <button
@@ -583,6 +575,19 @@ export function CashDocumentsView({
                   <Icon name="reset" />
                 </button>
               )}
+              <button
+                type="button"
+                className="ea-btn ea-btn--icon ea-btn--danger"
+                title={
+                  document.status === "draft"
+                    ? "Ноорог устгах"
+                    : "Баримтыг GL журналтай нь хамт устгах"
+                }
+                aria-label="Устгах"
+                onClick={() => handleDelete(document.id, document.status)}
+              >
+                <Icon name="delete" />
+              </button>
             </div>
           );
         },

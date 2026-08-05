@@ -338,13 +338,24 @@ export function ArApWorkspace({
           data?.status === "posted" || data?.status === "partially_paid" ? (
             // Мөнгөн хөрөнгийн хуудас руу үсрэхгүй — төлөлтийн панель нээгээд
             // хэрэглэгч АР/АП контекстдээ үлдэнэ.
-            <button
-              type="button"
-              className="text-xs font-medium text-[var(--ea-primary)] hover:underline"
-              onClick={() => openCashNewPanel({ arApDocumentId: data.id })}
-            >
-              Мөнгөн хөрөнгөөр хаах
-            </button>
+            <span className="flex items-center gap-2.5">
+              <button
+                type="button"
+                className="text-xs font-medium text-[var(--ea-primary)] hover:underline"
+                onClick={() => openCashNewPanel({ arApDocumentId: data.id })}
+              >
+                Мөнгөн хөрөнгөөр хаах
+              </button>
+              {data.status === "posted" && (
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[var(--ea-danger-fg)] hover:underline"
+                  onClick={() => deleteDraftDocument(data)}
+                >
+                  Устгах
+                </button>
+              )}
+            </span>
           ) : data?.status === "draft" ? (
             <span className="flex items-center gap-2.5">
               <button
@@ -426,9 +437,12 @@ export function ArApWorkspace({
   }
 
   async function deleteDraftDocument(document: ArApDocumentView) {
+    const posted = document.status !== "draft";
     const ok = await confirm({
-      title: "Ноорог устгах",
-      description: `${document.documentNo} · ${document.counterpartyName} ноорог баримтыг устгах уу? Мөрүүд нь хамт устана.`,
+      title: posted ? "Баримт устгах" : "Ноорог устгах",
+      description: posted
+        ? `${document.documentNo} · ${document.counterpartyName} БАТЛАГДСАН нэхэмжлэхийг GL журналтай нь хамт бүрмөсөн устгах уу? (Төлөлттэй бол татгалзана — эхлээд төлөлтийн баримтыг устгана.)`
+        : `${document.documentNo} · ${document.counterpartyName} ноорог баримтыг устгах уу? Мөрүүд нь хамт устана.`,
       confirmText: "Устгах",
       danger: true,
     });

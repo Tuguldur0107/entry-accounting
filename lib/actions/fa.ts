@@ -253,15 +253,33 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
   revalidateFa();
 }
 
+/**
+ * Хөрөнгийн карт устгах. Ноорог — шууд. ИДЭВХТЭЙ картыг мөн устгаж болно,
+ * гэхдээ элэгдлийн бичилттэй (аль ч төлөвийн) бол блок — эхлээд элэгдлийн
+ * бичилтүүдийг устгаж/буцааж байж картыг устгана (GL-тэй зөрөхөөс сэргийлнэ).
+ */
 export async function deleteFixedAsset(id: string) {
   const userId = await requireUser();
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.userId, userId)),
-    columns: { status: true },
+    columns: { status: true, code: true },
   });
   if (!asset) return;
-  if (asset.status !== "draft")
-    throw new Error("Зөвхөн ноорог картыг устгана");
+
+  if (asset.status !== "draft") {
+    const entry = await db.query.faDepreciationEntries.findFirst({
+      where: and(
+        eq(faDepreciationEntries.userId, userId),
+        eq(faDepreciationEntries.assetId, id)
+      ),
+      columns: { id: true },
+    });
+    if (entry)
+      throw new Error(
+        `${asset.code} хөрөнгө элэгдлийн бичилттэй — эхлээд элэгдлийн бичилтүүдийг нь устгаж/буцаана уу (ҮХ → Элэгдэл)`
+      );
+  }
+
   await db
     .delete(fixedAssets)
     .where(and(eq(fixedAssets.id, id), eq(fixedAssets.userId, userId)));

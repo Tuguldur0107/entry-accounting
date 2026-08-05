@@ -392,7 +392,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "delete_journal_voucher",
     description:
-      "НООРОГ журналыг устгана (батлагдсан бичилт устгагдахгүй). Хэрэглэгч ил хүссэн үед л ашиглана.",
+      "Журнал устгана. Ноорог — аль ч горимд; БАТЛАГДСАНЫГ устгах нь 'Шууд бичих' горимд л зөвшөөрөгдөнө (GL-ээс бүрмөсөн хасна; дэд дэвтрийн баримттай холбоотой бол эх баримтаар нь устгуулна). Хэрэглэгч ил хүссэн үед л ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -422,7 +422,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "delete_cash_document",
     description:
-      "НООРОГ мөнгөн хөрөнгийн баримтыг устгана. Хэрэглэгч ил хүссэн үед л ашиглана.",
+      "Мөнгөн хөрөнгийн баримт устгана. Ноорог — аль ч горимд; БАТЛАГДСАНЫГ устгах нь 'Шууд бичих' горимд — GL журнал нь хамт устаж, нэхэмжлэхийн төлөлт байсан бол үлдэгдэл сэргэнэ. Хэрэглэгч ил хүссэн үед л ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -651,7 +651,7 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "delete_fixed_asset",
-    description: "НООРОГ хөрөнгийн картыг устгана. Хэрэглэгч ил хүссэн үед л ашиглана.",
+    description: "Хөрөнгийн карт устгана. Ноорог — аль ч горимд; ИДЭВХТЭЙГ устгах нь 'Шууд бичих' горимд, элэгдлийн бичилтгүй үед л. Хэрэглэгч ил хүссэн үед л ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -755,7 +755,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "delete_arap_document",
     description:
-      "НООРОГ АР/АП нэхэмжлэхийг устгана (батлагдсаныг устгахгүй — буцаалтаар засна). Хэрэглэгч ил хүссэн үед л ашиглана.",
+      "АР/АП нэхэмжлэх устгана. Ноорог — аль ч горимд; БАТЛАГДСАНЫГ устгах нь 'Шууд бичих' горимд — GL журнал нь хамт устна (төлөлттэй бол татгалзана: эхлээд төлөлтийн баримтыг устгана; баталгаажсан бараа хөдөлгөөнтэй бол эхлээд цуцлана). Хэрэглэгч ил хүссэн үед л ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -864,7 +864,7 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "delete_inventory_movement",
-    description: "НООРОГ хөдөлгөөнийг устгана. Хэрэглэгч ил хүссэн үед л ашиглана.",
+    description: "Хөдөлгөөн устгана. Ноорог — аль ч горимд; БАТАЛГААЖСАНЫГ устгах нь 'Шууд бичих' горимд (үнэлэгдсэн бол эхлээд өртгийг буцаана; үлдэгдэл хасах болохоор бол татгалзана). Хэрэглэгч ил хүссэн үед л ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1933,7 +1933,8 @@ async function runPostJournal(
 
 async function runDeleteJournal(
   userId: string,
-  input: { voucherId: string }
+  input: { voucherId: string },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const vouchers = await db.query.journalVouchers.findMany({
     where: eq(journalVouchers.userId, userId),
@@ -1942,10 +1943,12 @@ async function runDeleteJournal(
     limit: 500,
   });
   const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
-  // deleteVoucher өөрөө "зөвхөн ноорог" дүрмээ шалгана.
+  // Батлагдсан бичилтийг устгах нь эргэлт буцалтгүй — зөвхөн "Шууд бичих"
+  // горимд зөвшөөрнө (ноорог устгалт аль ч горимд чөлөөтэй).
+  if (voucher.status !== "draft") assertPostMode(mode);
   await deleteVoucher(voucher.id);
   return {
-    resultText: `Ноорог журнал устгагдлаа: ${voucher.date} · ${voucher.description}`,
+    resultText: `${voucher.status === "draft" ? "Ноорог журнал" : "Журнал GL-тэй нь хамт"} устгагдлаа: ${voucher.date} · ${voucher.description}`,
   };
 }
 
@@ -1987,7 +1990,8 @@ async function runPostCash(
 
 async function runDeleteCash(
   userId: string,
-  input: { documentId: string }
+  input: { documentId: string },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
     where: eq(cashDocuments.userId, userId),
@@ -1996,7 +2000,7 @@ async function runDeleteCash(
     limit: 500,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
-  // deleteCashDocument өөрөө "зөвхөн ноорог" дүрмээ шалгана.
+  if (document.status !== "draft") assertPostMode(mode);
   await deleteCashDocument(document.id);
   return {
     resultText: `Ноорог кассын баримт устгагдлаа: ${document.date} · ${document.description}`,
@@ -2615,11 +2619,13 @@ async function runActivateFixedAsset(
 
 async function runDeleteFixedAsset(
   userId: string,
-  input: { assetCode: string }
+  input: { assetCode: string },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const asset = await findAssetByCode(userId, input.assetCode);
+  if (asset.status !== "draft") assertPostMode(mode);
   await deleteFixedAsset(asset.id);
-  return { resultText: `Ноорог хөрөнгийн карт устгагдлаа: ${asset.code} · ${asset.name}` };
+  return { resultText: `Хөрөнгийн карт устгагдлаа: ${asset.code} · ${asset.name}` };
 }
 
 async function runReverseFaDepreciation(
@@ -2926,7 +2932,8 @@ async function runPayArap(
 
 async function runDeleteArap(
   userId: string,
-  input: { documentId: string }
+  input: { documentId: string },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
     where: eq(arApDocuments.userId, userId),
@@ -2941,7 +2948,9 @@ async function runDeleteArap(
     byNo.length === 1
       ? byNo[0]
       : resolveByIdPrefix(documents, input.documentId, "нэхэмжлэх");
-  // deleteArApDocument өөрөө "зөвхөн ноорог" дүрмээ шалгана.
+  // Батлагдсан бичилтийг устгах нь эргэлт буцалтгүй — зөвхөн "Шууд бичих"
+  // горимд зөвшөөрнө (ноорог устгалт аль ч горимд чөлөөтэй).
+  if (document.status !== "draft") assertPostMode(mode);
   await deleteArApDocument(document.id);
   return {
     resultText: `Ноорог нэхэмжлэх устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
@@ -3255,7 +3264,8 @@ async function runConfirmMovement(
 
 async function runDeleteMovement(
   userId: string,
-  input: { movementId: string }
+  input: { movementId: string },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
     where: eq(inventoryMovements.userId, userId),
@@ -3264,6 +3274,7 @@ async function runDeleteMovement(
     limit: 500,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
+  if (movement.status !== "draft") assertPostMode(mode);
   await deleteInventoryMovement(movement.id);
   return { resultText: `Ноорог хөдөлгөөн устгагдлаа: ${movement.documentNo}` };
 }
@@ -3788,11 +3799,11 @@ export async function executeAiTool(
       case "post_journal_voucher":
         return await runPostJournal(userId, args, mode);
       case "delete_journal_voucher":
-        return await runDeleteJournal(userId, args);
+        return await runDeleteJournal(userId, args, mode);
       case "post_cash_document":
         return await runPostCash(userId, args, mode);
       case "delete_cash_document":
-        return await runDeleteCash(userId, args);
+        return await runDeleteCash(userId, args, mode);
       case "post_arap_document":
         return await runPostArap(userId, args, mode);
       case "list_gl_accounts":
@@ -3822,7 +3833,7 @@ export async function executeAiTool(
       case "activate_fixed_asset":
         return await runActivateFixedAsset(userId, args);
       case "delete_fixed_asset":
-        return await runDeleteFixedAsset(userId, args);
+        return await runDeleteFixedAsset(userId, args, mode);
       case "reverse_fa_depreciation":
         return await runReverseFaDepreciation(userId, args, mode);
       case "get_journal_voucher":
@@ -3836,7 +3847,7 @@ export async function executeAiTool(
       case "list_arap_documents":
         return await runListArapDocuments(userId, args);
       case "delete_arap_document":
-        return await runDeleteArap(userId, args);
+        return await runDeleteArap(userId, args, mode);
       case "get_counterparty_balance":
         return await runCounterpartyBalance(userId, args);
       case "pay_arap_document":
@@ -3850,7 +3861,7 @@ export async function executeAiTool(
       case "confirm_inventory_movement":
         return await runConfirmMovement(userId, args, mode);
       case "delete_inventory_movement":
-        return await runDeleteMovement(userId, args);
+        return await runDeleteMovement(userId, args, mode);
       case "get_stock_balances":
         return await runGetStockBalances(userId, args);
       case "list_fixed_assets":

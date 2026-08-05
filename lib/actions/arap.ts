@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { assertPeriodOpen } from "@/lib/periods/guard";
@@ -9,9 +9,11 @@ import { db } from "@/lib/db";
 import {
   arApDocumentLines,
   arApDocuments,
+  arApSettlements,
   cashDocuments,
   chartOfAccounts,
   counterparties,
+  inventoryMovements,
   journalLines,
   journalVouchers,
 } from "@/lib/db/schema";
@@ -617,15 +619,100 @@ export async function postArApDocument(id: string) {
 
 // Ноорог АР/АП баримтыг устгах — journal/cash-ийн delete-тэй ижил зан төлөв:
 // батлагдсан баримт устгагдахгүй (буцаалтыг reverse урсгалаар хийнэ).
+/**
+ * АР/АП баримт устгах. Ноорог — шууд. БАТЛАГДСАН нэхэмжлэхийг мөн устгаж
+ * болно — GL журнал(ууд) нь хамт устна. Хамгаалалт:
+ *   - төлөлттэй (paid/partially_paid эсвэл settlement-тэй) бол эхлээд
+ *     төлөлтийн кассын баримтуудыг устгуулна
+ *   - үүсгэсэн бараа хөдөлгөөн нь БАТАЛГААЖСАН бол эхлээд цуцлуулна
+ *     (ноорог хөдөлгөөн хамт устна)
+ *   - период нээлттэй байх
+ */
 export async function deleteArApDocument(id: string) {
   const userId = await requireUser();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)),
-    columns: { id: true, status: true, documentNo: true },
   });
   if (!document) throw new Error("Баримт олдсонгүй");
-  if (document.status !== "draft")
-    throw new Error("Зөвхөн ноорог баримтыг устгана — батлагдсаныг буцаалтаар засна");
+
+  if (document.status !== "draft") {
+    await assertPeriodOpen(userId, document.date);
+
+    const settlement = await db.query.arApSettlements.findFirst({
+      where: and(
+        eq(arApSettlements.userId, userId),
+        eq(arApSettlements.documentId, id)
+      ),
+      columns: { id: true },
+    });
+    if (settlement || Number(document.paidAmount) > 0.005)
+      throw new Error(
+        "Төлөлттэй нэхэмжлэх — эхлээд төлөлтийн кассын баримт(ууд)ыг устгана уу"
+      );
+
+    // Энэ баримтын мөрүүдээс үүссэн хөдөлгөөнүүд (sourceType=arap_line,
+    // sourceId=мөрийн id).
+    const lines = await db.query.arApDocumentLines.findMany({
+      where: eq(arApDocumentLines.documentId, id),
+      columns: { id: true },
+    });
+    const movements =
+      lines.length > 0
+        ? await db.query.inventoryMovements.findMany({
+            where: and(
+              eq(inventoryMovements.userId, userId),
+              eq(inventoryMovements.sourceType, "arap_line"),
+              inArray(
+                inventoryMovements.sourceId,
+                lines.map((line) => line.id)
+              )
+            ),
+            columns: { id: true, status: true },
+          })
+        : [];
+    if (movements.some((movement) => movement.status === "confirmed"))
+      throw new Error(
+        "Энэ нэхэмжлэхээс үүссэн бараа хөдөлгөөн баталгаажсан байна — эхлээд хөдөлгөөнийг цуцлана уу"
+      );
+
+    const voucherIds = [
+      ...new Set(
+        [document.voucherId, document.reversalVoucherId].filter(
+          (value): value is string => !!value
+        )
+      ),
+    ];
+
+    await db.transaction(async (tx) => {
+      // Үүсгэсэн ноорог хөдөлгөөнүүд хамт устна.
+      for (const movement of movements) {
+        await tx
+          .delete(inventoryMovements)
+          .where(
+            and(
+              eq(inventoryMovements.id, movement.id),
+              eq(inventoryMovements.userId, userId)
+            )
+          );
+      }
+      await tx
+        .delete(arApDocuments)
+        .where(and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)));
+      for (const voucherId of voucherIds) {
+        await tx
+          .delete(journalVouchers)
+          .where(
+            and(
+              eq(journalVouchers.id, voucherId),
+              eq(journalVouchers.userId, userId)
+            )
+          );
+      }
+    });
+
+    revalidateArAp();
+    return { documentNo: document.documentNo };
+  }
 
   // Мөрүүд FK cascade-аар хамт устна; ноорогт settlement/journal холбоос байхгүй.
   await db
