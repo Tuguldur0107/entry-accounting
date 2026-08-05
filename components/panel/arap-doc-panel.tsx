@@ -31,6 +31,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
   createArApDocument,
+  deleteArApDocument,
   getArapDocPanelData,
   postArApDocument,
   type ArapDocPanelData,
@@ -753,6 +754,28 @@ function ArapDocReadOnly({
     });
   }
 
+  function deleteDraft() {
+    void confirm({
+      title: "Ноорог устгах",
+      description: `${document.documentNo} · ${document.counterpartyName} ноорог баримтыг устгах уу? Мөрүүд нь хамт устана.`,
+      confirmText: "Устгах",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await deleteArApDocument(document.id);
+          toast.success("Ноорог баримт устгагдлаа");
+          closePanel(panel.id);
+          refreshOpenPanels();
+          router.refresh();
+        } catch (caught) {
+          toast.error(caught instanceof Error ? caught.message : "Устгах амжилтгүй");
+        }
+      });
+    });
+  }
+
   const foreign = document.currency !== "MNT";
   const isAr = document.documentType === "ar_invoice";
 
@@ -1033,9 +1056,15 @@ function ArapDocReadOnly({
           </Button>
         )}
         {document.status === "draft" && (
-          <Button onClick={postDraft} disabled={isPending}>
-            Батлах
-          </Button>
+          <>
+            <Button variant="outline" onClick={deleteDraft} disabled={isPending}>
+              <Icon name="delete" size="sm" />
+              Устгах
+            </Button>
+            <Button onClick={postDraft} disabled={isPending}>
+              Батлах
+            </Button>
+          </>
         )}
       </div>
       {confirmDialog}

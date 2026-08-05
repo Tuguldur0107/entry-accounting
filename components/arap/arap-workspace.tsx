@@ -21,8 +21,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  postArApDocument,
   createCounterparty,
+  deleteArApDocument,
+  postArApDocument,
   toggleCounterparty,
 } from "@/lib/actions/arap";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
@@ -328,9 +329,9 @@ export function ArApWorkspace({
         valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
       },
       {
-        headerName: "Төлөлт",
+        headerName: "Үйлдэл",
         colId: "payment",
-        width: 145,
+        width: 175,
         sortable: false,
         filter: false,
         cellRenderer: ({ data }: { data?: ArApDocumentView }) =>
@@ -345,13 +346,22 @@ export function ArApWorkspace({
               Мөнгөн хөрөнгөөр хаах
             </button>
           ) : data?.status === "draft" ? (
-            <button
-              type="button"
-              className="text-xs font-medium text-[var(--ea-success-fg)] hover:underline"
-              onClick={() => postDraftDocument(data)}
-            >
-              Батлах
-            </button>
+            <span className="flex items-center gap-2.5">
+              <button
+                type="button"
+                className="text-xs font-medium text-[var(--ea-success-fg)] hover:underline"
+                onClick={() => postDraftDocument(data)}
+              >
+                Батлах
+              </button>
+              <button
+                type="button"
+                className="text-xs font-medium text-[var(--ea-danger-fg)] hover:underline"
+                onClick={() => deleteDraftDocument(data)}
+              >
+                Устгах
+              </button>
+            </span>
           ) : (
             <span className="text-xs text-[var(--ea-text-4)]">—</span>
           ),
@@ -410,6 +420,27 @@ export function ArApWorkspace({
       } catch (caught) {
         toast.error(
           caught instanceof Error ? caught.message : "Батлах амжилтгүй"
+        );
+      }
+    });
+  }
+
+  async function deleteDraftDocument(document: ArApDocumentView) {
+    const ok = await confirm({
+      title: "Ноорог устгах",
+      description: `${document.documentNo} · ${document.counterpartyName} ноорог баримтыг устгах уу? Мөрүүд нь хамт устана.`,
+      confirmText: "Устгах",
+      danger: true,
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      try {
+        await deleteArApDocument(document.id);
+        router.refresh();
+        toast.success("Ноорог баримт устгагдлаа");
+      } catch (caught) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Устгах амжилтгүй"
         );
       }
     });
