@@ -9,6 +9,7 @@ import {
   unique,
   uniqueIndex,
   foreignKey,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
@@ -344,6 +345,10 @@ export const counterparties = pgTable(
     defaultPayableAccountNumber: text("default_payable_account_number"),
     defaultCurrency: text("default_currency").notNull().default("MNT"),
     paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+    // Нэхэмжлэх илгээхэд ашиглагдана.
+    email: text("email"),
+    phone: text("phone"),
+    address: text("address"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -1662,6 +1667,59 @@ export const aiSettings = pgTable("ai_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ─── Компанийн мэдээлэл — нэхэмжлэх, хэвлэх маягтын толгой ───────────────────
+
+export const companySettings = pgTable("company_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull().default(""),
+  registerNo: text("register_no"),
+  vatPayerNo: text("vat_payer_no"),
+  address: text("address"),
+  phone: text("phone"),
+  email: text("email"),
+  /** Банкны данснууд — [{ bankName, accountNo, accountName }] */
+  bankAccounts: jsonb("bank_accounts")
+    .$type<{ bankName: string; accountNo: string; accountName: string }[]>()
+    .notNull()
+    .default([]),
+  /** PNG зурагнууд — data URL биш, цэвэр base64 (aiAttachments-тай ижил загвар). */
+  logo: text("logo"),
+  stamp: text("stamp"),
+  /** Гарын үсгүүд — [{ name, title, image(base64 PNG) }] */
+  signatures: jsonb("signatures")
+    .$type<{ name: string; title: string; image: string }[]>()
+    .notNull()
+    .default([]),
+  /** Нэхэмжлэхийн PDF-д тамга/гарын үсгийг автоматаар оруулах эсэх. */
+  autoStamp: boolean("auto_stamp").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── Нэхэмжлэх илгээлт — суваг бүрийн бүртгэл, төлөв мөрдөлт ─────────────────
+
+export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  documentId: uuid("document_id")
+    .notNull()
+    .references(() => arApDocuments.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(), // "email" | "link"
+  /** И-мэйл суваг: хүлээн авагчийн хаяг. Линк суваг: null. */
+  recipient: text("recipient"),
+  /** Public линкний токен — таамаглагдашгүй, хүчингүй болгож болно. */
+  token: uuid("token").notNull().defaultRandom().unique(),
+  revokedAt: timestamp("revoked_at"),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  /** Линк анх нээгдсэн мөч — "Үзсэн" төлөв. */
+  viewedAt: timestamp("viewed_at"),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -1704,3 +1762,5 @@ export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
 export type AiMessage = typeof aiMessages.$inferSelect;
 export type AiAttachment = typeof aiAttachments.$inferSelect;
 export type AiSettings = typeof aiSettings.$inferSelect;
+export type CompanySettings = typeof companySettings.$inferSelect;
+export type ArApInvoiceSend = typeof arApInvoiceSends.$inferSelect;

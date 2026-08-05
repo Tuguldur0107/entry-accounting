@@ -203,6 +203,9 @@ export async function createCounterparty(data: {
   defaultPayableAccountNumber?: string;
   defaultCurrency?: string;
   paymentTermsDays?: number;
+  email?: string;
+  phone?: string;
+  address?: string;
 }) {
   const userId = await requireUser();
   const name = data.name.trim();
@@ -226,6 +229,9 @@ export async function createCounterparty(data: {
       defaultPayableAccountNumber: payable,
       defaultCurrency: data.defaultCurrency?.trim().toUpperCase() || "MNT",
       paymentTermsDays: Math.max(0, Math.round(data.paymentTermsDays ?? 30)),
+      email: cleanText(data.email),
+      phone: cleanText(data.phone),
+      address: cleanText(data.address),
     })
     .returning({ id: counterparties.id });
 

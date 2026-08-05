@@ -16,12 +16,15 @@ import {
 } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { eq, and, or, sql } from "drizzle-orm";
+import { eq, and, ne, or, sql } from "drizzle-orm";
 import {
   STANDARD_ACCOUNTS,
   SEGMENT_DEFS,
 } from "@/lib/constants/standard-accounts";
-import { syncDraftCashDocumentForVoucher } from "@/lib/cash/sync-voucher";
+import {
+  removeDraftCashDocsForVoucher,
+  syncDraftCashDocumentForVoucher,
+} from "@/lib/cash/sync-voucher";
 import {
   removeDraftMovementsForVoucher,
   syncInventoryDraftForVoucher,
@@ -397,6 +400,92 @@ export async function postVoucher(id: string) {
   revalidatePath("/gl/reports");
 }
 
+/**
+ * Журнал дэд дэвтрийн баримтад эзэмшигдсэн бол GL талаас буцаах/устгахыг
+ * хориглоно — ЭХ БАРИМТААР нь удирдуулна (эс бөгөөс дэд дэвтэр статусаа
+ * хадгалж GL-тэй зөрнө). sourceVoucherId-тэй НООРОГ кассын баримт
+ * (батлагдаагүй sync санал) саад болохгүй — дуудагч removeDraftCashDocsFor-
+ * Voucher-ээр цэвэрлэнэ.
+ */
+async function assertNotSubledgerOwned(
+  userId: string,
+  id: string,
+  lines: {
+    costEntryId: string | null;
+    inventoryMovementId: string | null;
+  }[]
+) {
+  if (lines.some((line) => line.costEntryId || line.inventoryMovementId))
+    throw new Error(
+      "Өртгийн модулиас үүссэн журнал — өртгийн бичилтийг нь буцааж/устгаж удирдана"
+    );
+
+  const [cashRef, arapRef, faRef, costRef, fxRef] = await Promise.all([
+    db.query.cashDocuments.findFirst({
+      where: and(
+        eq(cashDocuments.userId, userId),
+        or(
+          eq(cashDocuments.voucherId, id),
+          eq(cashDocuments.reversalVoucherId, id),
+          and(
+            eq(cashDocuments.sourceVoucherId, id),
+            ne(cashDocuments.status, "draft")
+          )
+        )
+      ),
+      columns: { documentNo: true },
+    }),
+    db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.userId, userId),
+        or(
+          eq(arApDocuments.voucherId, id),
+          eq(arApDocuments.reversalVoucherId, id)
+        )
+      ),
+      columns: { documentNo: true },
+    }),
+    db.query.faDepreciationEntries.findFirst({
+      where: and(
+        eq(faDepreciationEntries.userId, userId),
+        eq(faDepreciationEntries.voucherId, id)
+      ),
+      columns: { id: true },
+    }),
+    db.query.costEntries.findFirst({
+      where: and(eq(costEntries.userId, userId), eq(costEntries.voucherId, id)),
+      columns: { id: true },
+    }),
+    db.query.cashFxRevaluations.findFirst({
+      where: and(
+        eq(cashFxRevaluations.userId, userId),
+        eq(cashFxRevaluations.voucherId, id)
+      ),
+      columns: { id: true },
+    }),
+  ]);
+  if (cashRef)
+    throw new Error(
+      `Кассын ${cashRef.documentNo} баримттай холбоотой журнал — Мөнгөн хөрөнгө хэсгээс баримтыг нь удирдана уу`
+    );
+  if (arapRef)
+    throw new Error(
+      `АР/АП-ийн ${arapRef.documentNo} баримттай холбоотой журнал — нэхэмжлэхийг нь удирдана уу`
+    );
+  if (faRef)
+    throw new Error(
+      "Элэгдлийн бичилттэй холбоотой журнал — ҮХ → Элэгдэл хэсгээс удирдана"
+    );
+  if (costRef)
+    throw new Error(
+      "Өртгийн бичилттэй холбоотой журнал — өртгийн модулиас удирдана"
+    );
+  if (fxRef)
+    throw new Error(
+      "Ханшийн тэгшитгэлийн журнал — Тулгалт, ханш хэсгээс буцаана"
+    );
+}
+
 export async function unpostVoucher(id: string) {
   const userId = await requireUser();
 
@@ -409,6 +498,10 @@ export async function unpostVoucher(id: string) {
     throw new Error("Зөвхөн бичигдсэн журналыг буцаах боломжтой");
   // Буцаалт нь ЭХ огноогоор шинэ журнал бичдэг тул тэр период нээлттэй байх ёстой.
   await assertPeriodOpen(userId, voucher.date);
+  // Дэд дэвтрийн (касс, АР/АП, элэгдэл, өртөг, ханш) журналыг GL талаас
+  // буцаавал эх баримт нь "posted" хэвээр үлдэж модуль GL хоёр зөрдөг —
+  // тиймээс эх баримтаар нь буцаана.
+  await assertNotSubledgerOwned(userId, id, voucher.lines);
 
   await db.transaction(async (tx) => {
     const [claimed] = await tx
@@ -447,9 +540,10 @@ export async function unpostVoucher(id: string) {
   });
 
   // Эх бичилт нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory
-  // draft, FA ноорог карт хүчингүй — устгана.
+  // draft, FA ноорог карт, кассын sync-ноорог хүчингүй — устгана.
   await removeDraftMovementsForVoucher(id);
   await removeDraftAssetsForVoucher(id);
+  await removeDraftCashDocsForVoucher(id);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -540,80 +634,15 @@ export async function deleteVoucher(id: string) {
 
   if (existing.status !== "draft") {
     await assertPeriodOpen(userId, existing.date);
-
-    if (
-      existing.lines.some((line) => line.costEntryId || line.inventoryMovementId)
-    )
-      throw new Error(
-        "Өртгийн модулиас үүссэн журнал — өртгийн бичилтийг нь буцааж/устгаж удирдана"
-      );
-
-    const [cashRef, arapRef, faRef, costRef, fxRef] = await Promise.all([
-      db.query.cashDocuments.findFirst({
-        where: and(
-          eq(cashDocuments.userId, userId),
-          or(
-            eq(cashDocuments.voucherId, id),
-            eq(cashDocuments.sourceVoucherId, id),
-            eq(cashDocuments.reversalVoucherId, id)
-          )
-        ),
-        columns: { documentNo: true },
-      }),
-      db.query.arApDocuments.findFirst({
-        where: and(
-          eq(arApDocuments.userId, userId),
-          or(
-            eq(arApDocuments.voucherId, id),
-            eq(arApDocuments.reversalVoucherId, id)
-          )
-        ),
-        columns: { documentNo: true },
-      }),
-      db.query.faDepreciationEntries.findFirst({
-        where: and(
-          eq(faDepreciationEntries.userId, userId),
-          eq(faDepreciationEntries.voucherId, id)
-        ),
-        columns: { id: true },
-      }),
-      db.query.costEntries.findFirst({
-        where: and(eq(costEntries.userId, userId), eq(costEntries.voucherId, id)),
-        columns: { id: true },
-      }),
-      db.query.cashFxRevaluations.findFirst({
-        where: and(
-          eq(cashFxRevaluations.userId, userId),
-          eq(cashFxRevaluations.voucherId, id)
-        ),
-        columns: { id: true },
-      }),
-    ]);
-    if (cashRef)
-      throw new Error(
-        `Кассын ${cashRef.documentNo} баримттай холбоотой журнал — Мөнгөн хөрөнгө хэсгээс баримтыг нь устгана уу`
-      );
-    if (arapRef)
-      throw new Error(
-        `АР/АП-ийн ${arapRef.documentNo} баримттай холбоотой журнал — нэхэмжлэхийг нь устгана уу`
-      );
-    if (faRef)
-      throw new Error(
-        "Элэгдлийн бичилттэй холбоотой журнал — ҮХ → Элэгдэл хэсгээс удирдана"
-      );
-    if (costRef)
-      throw new Error(
-        "Өртгийн бичилттэй холбоотой журнал — өртгийн модулиас удирдана"
-      );
-    if (fxRef)
-      throw new Error(
-        "Ханшийн тэгшитгэлийн журнал — Тулгалт, ханш хэсгээс буцаана"
-      );
+    // Дэд дэвтрийн баримттай журнал — эх баримтаар нь устгуулна.
+    // sourceVoucherId-тэй НООРОГ кассын баримт саад болохгүй (доор цэвэрлэнэ).
+    await assertNotSubledgerOwned(userId, id, existing.lines);
   }
 
-  // Энэ журналаас sync-ээр үүссэн ноорог (бараа, ҮХ) хамт цэвэрлэгдэнэ.
+  // Энэ журналаас sync-ээр үүссэн ноорог (бараа, ҮХ, касс) хамт цэвэрлэгдэнэ.
   await removeDraftMovementsForVoucher(id);
   await removeDraftAssetsForVoucher(id);
+  await removeDraftCashDocsForVoucher(id);
 
   await db
     .delete(journalVouchers)

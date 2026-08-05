@@ -113,6 +113,29 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
   }
 }
 
+/**
+ * Воучер буцаагдах/устгахад түүнээс sync-ээр үүссэн БАТЛАГДААГҮЙ кассын
+ * ноорог баримтыг устгана (inventory/FA-ийн remover-уудтай ижил зарчим) —
+ * эх бичилт нь GL-д 0 болсон гүйлгээг хэрэглэгч андуурч баталж, кассын
+ * бүртгэл GL хоёрыг зөрүүлэхээс сэргийлнэ. Батлагдсан баримтад гар хүрэхгүй.
+ */
+export async function removeDraftCashDocsForVoucher(voucherId: string) {
+  try {
+    await db
+      .delete(cashDocuments)
+      .where(
+        and(
+          eq(cashDocuments.sourceVoucherId, voucherId),
+          eq(cashDocuments.status, "draft")
+        )
+      );
+    revalidatePath("/cash");
+    revalidatePath("/cash/transactions");
+  } catch (error) {
+    console.error("[removeDraftCashDocsForVoucher]", error);
+  }
+}
+
 // Backfill: scan every posted voucher for the user that isn't yet tied to a
 // cash document and create the missing drafts in one pass. Called when the
 // cash transactions page loads so historical journals — and any posted via a

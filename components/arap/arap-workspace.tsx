@@ -153,6 +153,9 @@ export function ArApWorkspace({
       : "",
     defaultCurrency: "MNT",
     paymentTermsDays: "30",
+    email: "",
+    phone: "",
+    address: "",
   }));
   // Харилцагчийн dialog нээгдэх агшны snapshot (JSON) — хаах үед үүнтэй
   // харьцуулж "хадгалаагүй өөрчлөлт" эсэхийг мэдэрнэ.
@@ -857,6 +860,9 @@ function CounterpartyDialog({
     defaultPayableAccountNumber: string;
     defaultCurrency: string;
     paymentTermsDays: string;
+    email: string;
+    phone: string;
+    address: string;
   };
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
   activeSegIds: number[];
@@ -937,6 +943,32 @@ function CounterpartyDialog({
               activeSegIds={activeSegIds}
               segmentOptions={segmentOptions}
               defaultSegments={defaultSegments}
+            />
+          </Field>
+          <Field label="И-мэйл (нэхэмжлэх илгээхэд)">
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, email: event.target.value }))
+              }
+              placeholder="billing@company.mn"
+            />
+          </Field>
+          <Field label="Утас">
+            <Input
+              value={form.phone}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, phone: event.target.value }))
+              }
+            />
+          </Field>
+          <Field label="Хаяг">
+            <Input
+              value={form.address}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, address: event.target.value }))
+              }
             />
           </Field>
           <Field label="Төлбөрийн нөхцөл /хоног/">
