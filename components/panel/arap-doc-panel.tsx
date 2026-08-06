@@ -241,21 +241,35 @@ function ArapDocForm({
     inventoryItems,
     warehouses,
     clearingAccountNumber,
+    defaultAccountNumbers,
   } = data;
+
+  // Модулийн default хяналтын данс (бүтэн сегмент кодоор) — харилцагч
+  // сонгоогүй эсвэл харилцагчид default данс байхгүй үед хэрэглэнэ.
+  function moduleControlFor(documentType: ArApDocumentType) {
+    const number =
+      documentType === "ar_invoice"
+        ? defaultAccountNumbers.receivable
+        : defaultAccountNumbers.payable;
+    return number
+      ? buildSegCode({ 3: number }, activeSegIds, defaultSegments)
+      : "";
+  }
 
   const [form, setForm] = useState(() => {
     const date = today();
+    const documentType = (mode === "payable"
+      ? "ap_bill"
+      : "ar_invoice") as ArApDocumentType;
     return {
-      documentType: (mode === "payable"
-        ? "ap_bill"
-        : "ar_invoice") as ArApDocumentType,
+      documentType,
       documentNo: "",
       counterpartyId: "",
       date,
       dueDate: addDays(date, 30),
       currency: "MNT",
       exchangeRate: "1",
-      controlAccountNumber: "",
+      controlAccountNumber: moduleControlFor(documentType),
       description: "",
       lines: [emptyLine(activeSegIds, defaultSegments)],
     };
@@ -318,11 +332,38 @@ function ArapDocForm({
       currency: counterparty.defaultCurrency,
       exchangeRate: counterparty.defaultCurrency === "MNT" ? "1" : "",
       dueDate: addDays(date, counterparty.paymentTermsDays),
-      controlAccountNumber: control ?? "",
+      // Харилцагчид default данс байхгүй бол модулийн default-аар нөхнө —
+      // хяналтын данс хоосон үлдэж хадгалахад алдаа өгдөг байсан.
+      controlAccountNumber: control || moduleControlFor(documentType),
     };
   }
 
   function save(postNow: boolean) {
+    // Клиент талын урьдчилсан шалгалт — server-ийн ерөнхий алдааны оронд
+    // ЮУ дутуу байгааг тодорхой хэлнэ.
+    if (!form.counterpartyId) {
+      setError("Харилцагч сонгоно уу");
+      return;
+    }
+    if (!form.controlAccountNumber.trim()) {
+      setError(
+        form.documentType === "ar_invoice"
+          ? "Хяналтын (авлагын) данс сонгоно уу"
+          : "Хяналтын (өглөгийн) данс сонгоно уу"
+      );
+      return;
+    }
+    if (!form.description.trim()) {
+      setError("Баримтын утга оруулна уу");
+      return;
+    }
+    const hasValidLine = form.lines.some(
+      (line) => line.account && Number(line.amount) > 0
+    );
+    if (!hasValidLine) {
+      setError("Дор хаяж нэг мөрөнд данс болон 0-ээс их дүн оруулна уу");
+      return;
+    }
     setError("");
     startTransition(async () => {
       try {

@@ -76,6 +76,8 @@ function assertAmount(value: number, label = "Дүн") {
 
 async function assertEnabledMainAccount(userId: string, accountNumber: string) {
   const main = extractMainAccount(accountNumber);
+  if (!main.trim())
+    throw new Error("Данс сонгоогүй байна — данс сонгоод дахин хадгална уу");
   const account = await db.query.chartOfAccounts.findFirst({
     where: and(
       eq(chartOfAccounts.userId, userId),
@@ -114,6 +116,8 @@ export type ArapDocPanelData = {
   warehouses: WarehouseOption[];
   /** Клирингийн данс (тохиргооноос) — бараатай АП мөр энд суана. */
   clearingAccountNumber: string;
+  /** Системийн default хяналтын дансууд — харилцагчид default байхгүй үед. */
+  defaultAccountNumbers: { receivable: string; payable: string };
   /** documentId өгөгдсөн үед л — read-only харагдацын баримт. */
   document: ArApDocumentDetail | null;
   /** Нэхэмжлэхтэй холбогдсон мөнгөн хөрөнгийн баримтууд (төлөлтүүд). */
@@ -183,6 +187,7 @@ export async function getArapDocPanelData(
       inventoryItems: inventoryOptions.inventoryItems,
       warehouses: inventoryOptions.warehouses,
       clearingAccountNumber: costingAccounts.clearingAccountNumber,
+      defaultAccountNumbers: segmentData.defaultAccountNumbers,
       document,
       payments: paymentRows.map((row) => ({
         id: row.id,
@@ -213,8 +218,16 @@ export async function createCounterparty(data: {
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
     throw new Error("Харилцагчийн төрөл буруу байна");
 
-  const receivable = cleanText(data.defaultReceivableAccountNumber);
-  const payable = cleanText(data.defaultPayableAccountNumber);
+  let receivable = cleanText(data.defaultReceivableAccountNumber);
+  let payable = cleanText(data.defaultPayableAccountNumber);
+  // Default данс өгөгдөөгүй бол системийн default дансаар автоматаар
+  // бөглөнө — нэхэмжлэх үүсгэхэд хяналтын данс хоосон үлдэж алдаа
+  // өгөхөөс сэргийлнэ (AI/MCP-ээр үүсгэхэд ч мөн адил).
+  if (!receivable || !payable) {
+    const fallback = (await loadArApSegmentData(userId)).defaultAccountNumbers;
+    receivable = receivable ?? cleanText(fallback.receivable);
+    payable = payable ?? cleanText(fallback.payable);
+  }
   if (receivable) await assertEnabledMainAccount(userId, receivable);
   if (payable) await assertEnabledMainAccount(userId, payable);
 
