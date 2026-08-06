@@ -239,6 +239,54 @@ export async function createCounterparty(data: {
   return { id: created.id };
 }
 
+/** Бүртгэгдсэн харилцагчийн мэдээллийг бүхэлд нь засна (create-тэй ижил шалгалт). */
+export async function updateCounterparty(
+  id: string,
+  data: {
+    name: string;
+    counterpartyType: "customer" | "supplier" | "both";
+    registerNo?: string;
+    defaultReceivableAccountNumber?: string;
+    defaultPayableAccountNumber?: string;
+    defaultCurrency?: string;
+    paymentTermsDays?: number;
+    email?: string;
+    phone?: string;
+    address?: string;
+  }
+) {
+  const userId = await requireUser();
+  const name = data.name.trim();
+  if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
+  if (!["customer", "supplier", "both"].includes(data.counterpartyType))
+    throw new Error("Харилцагчийн төрөл буруу байна");
+
+  const receivable = cleanText(data.defaultReceivableAccountNumber);
+  const payable = cleanText(data.defaultPayableAccountNumber);
+  if (receivable) await assertEnabledMainAccount(userId, receivable);
+  if (payable) await assertEnabledMainAccount(userId, payable);
+
+  const [updated] = await db
+    .update(counterparties)
+    .set({
+      name,
+      counterpartyType: data.counterpartyType,
+      registerNo: cleanText(data.registerNo),
+      defaultReceivableAccountNumber: receivable,
+      defaultPayableAccountNumber: payable,
+      defaultCurrency: data.defaultCurrency?.trim().toUpperCase() || "MNT",
+      paymentTermsDays: Math.max(0, Math.round(data.paymentTermsDays ?? 30)),
+      email: cleanText(data.email),
+      phone: cleanText(data.phone),
+      address: cleanText(data.address),
+    })
+    .where(and(eq(counterparties.id, id), eq(counterparties.userId, userId)))
+    .returning({ id: counterparties.id });
+  if (!updated) throw new Error("Харилцагч олдсонгүй");
+
+  revalidateArAp();
+}
+
 export async function toggleCounterparty(id: string, isActive: boolean) {
   const userId = await requireUser();
   await db

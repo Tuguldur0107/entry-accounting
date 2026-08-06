@@ -165,6 +165,9 @@ export async function loadArApCounterparties(
     defaultPayableAccountNumber: item.defaultPayableAccountNumber,
     defaultCurrency: item.defaultCurrency,
     paymentTermsDays: item.paymentTermsDays,
+    email: item.email,
+    phone: item.phone,
+    address: item.address,
     isActive: item.isActive,
   }));
 }

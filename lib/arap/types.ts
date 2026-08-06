@@ -7,6 +7,9 @@ export type CounterpartyView = {
   defaultPayableAccountNumber: string | null;
   defaultCurrency: string;
   paymentTermsDays: number;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
   isActive: boolean;
 };
 

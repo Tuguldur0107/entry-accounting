@@ -26,6 +26,7 @@ import {
   deleteArApDocument,
   postArApDocument,
   toggleCounterparty,
+  updateCounterparty,
 } from "@/lib/actions/arap";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import { downloadWorkbook } from "@/lib/excel/core";
@@ -142,22 +143,29 @@ export function ArApWorkspace({
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
   const [reportDate, setReportDate] = useState(reportAsOf);
-  const [counterpartyForm, setCounterpartyForm] = useState(() => ({
-    name: "",
-    counterpartyType: config.counterpartyType,
-    registerNo: "",
-    defaultReceivableAccountNumber: defaultAccountNumbers.receivable
-      ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
-      : "",
-    defaultPayableAccountNumber: defaultAccountNumbers.payable
-      ? buildSegCode({ 3: defaultAccountNumbers.payable }, activeSegIds, defaultSegments)
-      : "",
-    defaultCurrency: "MNT",
-    paymentTermsDays: "30",
-    email: "",
-    phone: "",
-    address: "",
-  }));
+  // null = шинээр үүсгэх; id = тухайн харилцагчийг засах.
+  const [editingCounterpartyId, setEditingCounterpartyId] = useState<
+    string | null
+  >(null);
+  function emptyCounterpartyForm() {
+    return {
+      name: "",
+      counterpartyType: config.counterpartyType,
+      registerNo: "",
+      defaultReceivableAccountNumber: defaultAccountNumbers.receivable
+        ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
+        : "",
+      defaultPayableAccountNumber: defaultAccountNumbers.payable
+        ? buildSegCode({ 3: defaultAccountNumbers.payable }, activeSegIds, defaultSegments)
+        : "",
+      defaultCurrency: "MNT",
+      paymentTermsDays: "30",
+      email: "",
+      phone: "",
+      address: "",
+    };
+  }
+  const [counterpartyForm, setCounterpartyForm] = useState(emptyCounterpartyForm);
   // Харилцагчийн dialog нээгдэх агшны snapshot (JSON) — хаах үед үүнтэй
   // харьцуулж "хадгалаагүй өөрчлөлт" эсэхийг мэдэрнэ.
   const [counterpartyBaseline, setCounterpartyBaseline] = useState("");
@@ -265,30 +273,41 @@ export function ArApWorkspace({
       {
         headerName: "",
         colId: "action",
-        width: 100,
+        width: 150,
         sortable: false,
         filter: false,
         cellRenderer: ({ data }: { data?: CounterpartyView }) =>
           data ? (
-            <button
-              type="button"
-              className="text-xs font-medium text-[var(--ea-primary)] hover:underline"
-              onClick={() =>
-                startTransition(async () => {
-                  try {
-                    await toggleCounterparty(data.id, !data.isActive);
-                    toast.success("Харилцагчийн төлөв шинэчлэгдлээ");
-                  } catch (caught) {
-                    toast.error(caught instanceof Error ? caught.message : "Алдаа гарлаа");
-                  }
-                })
-              }
-            >
-              {data.isActive ? "Идэвхгүй" : "Идэвхтэй"}
-            </button>
+            <div className="flex h-full items-center justify-end gap-3">
+              <button
+                type="button"
+                className="text-xs font-medium text-[var(--ea-primary)] hover:underline"
+                onClick={() => openEditCounterparty(data)}
+              >
+                Засах
+              </button>
+              <button
+                type="button"
+                className="text-xs font-medium text-[var(--ea-text-3)] hover:underline"
+                onClick={() =>
+                  startTransition(async () => {
+                    try {
+                      await toggleCounterparty(data.id, !data.isActive);
+                      toast.success("Харилцагчийн төлөв шинэчлэгдлээ");
+                    } catch (caught) {
+                      toast.error(caught instanceof Error ? caught.message : "Алдаа гарлаа");
+                    }
+                  })
+                }
+              >
+                {data.isActive ? "Идэвхгүй" : "Идэвхтэй"}
+              </button>
+            </div>
           ) : null,
       },
     ],
+    // openEditCounterparty нь зөвхөн тогтвортой setter-үүд ашигладаг тул
+    // хуучирсан хувилбар нь ч зөв ажиллана.
     [activeSegIds]
   );
 
@@ -407,7 +426,37 @@ export function ArApWorkspace({
   // Dialog нээгдэх агшинд snapshot авна — бөглөж эхэлснийг үүнтэй
   // харьцуулж Esc/overlay дээр "гарах уу?" асууна.
   function openCounterpartyDialog() {
-    setCounterpartyBaseline(JSON.stringify(counterpartyForm));
+    const base = emptyCounterpartyForm();
+    setEditingCounterpartyId(null);
+    setCounterpartyForm(base);
+    setCounterpartyBaseline(JSON.stringify(base));
+    setError("");
+    setCounterpartyOpen(true);
+  }
+
+  /** Бүртгэгдсэн харилцагчийг засах — форм нь одоогийн утгуудаар бөглөгдөнө. */
+  function openEditCounterparty(counterparty: CounterpartyView) {
+    const filled = {
+      name: counterparty.name,
+      counterpartyType: (["customer", "supplier", "both"].includes(
+        counterparty.counterpartyType
+      )
+        ? counterparty.counterpartyType
+        : "both") as "customer" | "supplier" | "both",
+      registerNo: counterparty.registerNo ?? "",
+      defaultReceivableAccountNumber:
+        counterparty.defaultReceivableAccountNumber ?? "",
+      defaultPayableAccountNumber:
+        counterparty.defaultPayableAccountNumber ?? "",
+      defaultCurrency: counterparty.defaultCurrency,
+      paymentTermsDays: String(counterparty.paymentTermsDays),
+      email: counterparty.email ?? "",
+      phone: counterparty.phone ?? "",
+      address: counterparty.address ?? "",
+    };
+    setEditingCounterpartyId(counterparty.id);
+    setCounterpartyForm(filled);
+    setCounterpartyBaseline(JSON.stringify(filled));
     setError("");
     setCounterpartyOpen(true);
   }
@@ -416,12 +465,18 @@ export function ArApWorkspace({
     setError("");
     startTransition(async () => {
       try {
-        await createCounterparty({
+        const payload = {
           ...counterpartyForm,
           paymentTermsDays: Number(counterpartyForm.paymentTermsDays) || 0,
-        });
+        };
+        if (editingCounterpartyId) {
+          await updateCounterparty(editingCounterpartyId, payload);
+          toast.success("Харилцагч шинэчлэгдлээ");
+        } else {
+          await createCounterparty(payload);
+          toast.success("Харилцагч үүслээ");
+        }
         setCounterpartyOpen(false);
-        toast.success("Харилцагч үүслээ");
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Хадгалж чадсангүй");
       }
@@ -636,6 +691,11 @@ export function ArApWorkspace({
               height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
+              onRowDoubleClicked={(event) => {
+                const target = event.event?.target as HTMLElement | null;
+                if (target?.closest("button,a")) return;
+                if (event.data) openEditCounterparty(event.data);
+              }}
             />
           )}
         </section>
@@ -644,6 +704,7 @@ export function ArApWorkspace({
       <CounterpartyDialog
         open={counterpartyOpen}
         onOpenChange={guardCounterpartyClose}
+        title={editingCounterpartyId ? "Харилцагч засах" : "Харилцагч үүсгэх"}
         form={counterpartyForm}
         setForm={setCounterpartyForm}
         activeSegIds={activeSegIds}
@@ -860,6 +921,7 @@ function ReportSection({
 function CounterpartyDialog({
   open,
   onOpenChange,
+  title,
   form,
   setForm,
   activeSegIds,
@@ -871,6 +933,7 @@ function CounterpartyDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  title: string;
   form: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
@@ -895,7 +958,7 @@ function CounterpartyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Харилцагч үүсгэх</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Нэр">

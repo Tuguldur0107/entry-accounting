@@ -560,7 +560,10 @@ export const AI_TOOLS: AiToolDef[] = [
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистр/ТТД (сонголтоор)" },
         email: { type: "string", description: "И-мэйл — нэхэмжлэх илгээхэд (сонголтоор)" },
+        phone: { type: "string", description: "Утас (сонголтоор)" },
+        address: { type: "string", description: "Хаяг (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
       },
       required: ["counterparty"],
@@ -2435,7 +2438,10 @@ async function runUpdateCounterparty(
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
     currency?: string;
+    registerNo?: string;
     email?: string;
+    phone?: string;
+    address?: string;
     isActive?: boolean;
   }
 ): Promise<AiToolResult> {
@@ -2460,12 +2466,16 @@ async function runUpdateCounterparty(
     changes.paymentTermsDays = Math.max(0, Math.round(input.paymentTermsDays));
   if (input.currency?.trim())
     changes.defaultCurrency = input.currency.trim().toUpperCase();
+  if (input.registerNo != null)
+    changes.registerNo = input.registerNo.trim() || null;
   if (input.email != null) {
     const email = input.email.trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       throw new Error("И-мэйл хаяг буруу байна");
     changes.email = email || null;
   }
+  if (input.phone != null) changes.phone = input.phone.trim() || null;
+  if (input.address != null) changes.address = input.address.trim() || null;
   if (input.isActive != null) changes.isActive = input.isActive;
   if (input.defaultReceivableAccount != null || input.defaultPayableAccount != null) {
     const ctx = await accountContext(userId);
