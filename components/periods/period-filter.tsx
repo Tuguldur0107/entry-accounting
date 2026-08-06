@@ -119,7 +119,7 @@ export function PeriodFilter({ initialPeriodCode, initialScope, today }: Props) 
         {open && (
           <div
             role="listbox"
-            aria-label="Период сонгох"
+            aria-label="Тайлант үе сонгох"
             className="absolute left-0 top-full z-[90] mt-1 max-h-72 w-40 overflow-y-auto rounded-md border border-[var(--ea-border-strong)] bg-[var(--ea-surface)] p-1"
             style={{ boxShadow: "var(--ea-shadow-3)" }}
           >

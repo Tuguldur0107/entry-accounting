@@ -179,7 +179,7 @@ export const MODULES: Module[] = [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: "user" },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
-      { label: "Нягтлан бодох период", href: "/settings/periods", icon: "period" },
+      { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
       { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
     ],
   },

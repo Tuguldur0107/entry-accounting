@@ -205,7 +205,7 @@ export default async function HomePage() {
       note:
         draftCount > 0
           ? `${draftCount} ноорог хүлээгдэж байна`
-          : `${monthVoucherCount} бичилт · энэ период`,
+          : `${monthVoucherCount} бичилт · энэ тайлант үе`,
       tone: unbalancedDraftCount > 0 ? "danger" : "default",
     },
     {
@@ -243,7 +243,7 @@ export default async function HomePage() {
       label: "Бараа материал",
       href: "/inventory",
       value: `${postedMovementCount}`,
-      valueLabel: "хөдөлгөөн · энэ период",
+      valueLabel: "хөдөлгөөн · энэ тайлант үе",
       note: draftMovementCount > 0 ? `${draftMovementCount} ноорог` : "ноорог алга",
       tone: draftMovementCount > 0 ? "warning" : "default",
     },
@@ -279,18 +279,18 @@ export default async function HomePage() {
   if (periodStatus === "missing")
     alerts.push({
       tone: "warning",
-      title: `${periodCode} период үүсээгүй`,
-      detail: "Период үүсгэвэл хаалт, бичилтийн хяналт бүрэн ажиллана.",
+      title: `${periodCode} тайлант үе үүсээгүй`,
+      detail: "Тайлант үе үүсгэвэл хаалт, бичилтийн хяналт бүрэн ажиллана.",
       href: "/settings/periods",
-      action: "Период руу",
+      action: "Тайлант үе рүү",
     });
   if (periodStatus === "closed")
     alerts.push({
       tone: "default",
-      title: `${periodCode} период хаагдсан`,
-      detail: "Хаагдсан периодод шинэ бичилт хийхгүй.",
+      title: `${periodCode} тайлант үе хаагдсан`,
+      detail: "Хаагдсан тайлант үед шинэ бичилт хийхгүй.",
       href: "/settings/periods",
-      action: "Период руу",
+      action: "Тайлант үе рүү",
     });
   if (arOverdue > 0)
     alerts.push({

@@ -199,7 +199,7 @@ test("a blocked period blocks the following period (opening is unknown)", () => 
 
   assert.equal(results[0].status, "blocked-missing-inbound-cost");
   assert.equal(results[1].status, "blocked-missing-inbound-cost");
-  assert.match(results[1].blockReason ?? "", /Өмнөх период/);
+  assert.match(results[1].blockReason ?? "", /Өмнөх тайлант үе/);
 });
 
 // OD-001: хамрах хүрээ = бараа × агуулах × компани

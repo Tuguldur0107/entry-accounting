@@ -1,8 +1,10 @@
 "use client";
 
-// Нягтлан бодох периодын хаалт. Бүртгэлгүй период = НЭЭЛТТЭЙ тул хүснэгтэд
-// бичилттэй сарууд бүгд гарч ирнэ; хаасан сар л accounting_periods-д
-// хадгалагдана.
+// Тайлант үеийн хаалт. Бүртгэлгүй тайлант үе = НЭЭЛТТЭЙ тул хүснэгтэд
+// бичилттэй сарууд бүгд гарч ирнэ; бүртгэгдсэн (нээлттэй/хаагдсан) сар л
+// accounting_periods-д хадгалагдана. Төлөвийг мөр бүрийн dropdown-оор
+// сольдог; "Тайлант үе нэмэх" нь ирээдүйн/өнгөрсөн сарыг урьдчилан
+// бүртгэнэ.
 
 import { useMemo, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
@@ -13,15 +15,44 @@ import { toast } from "sonner";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { closePeriod, reopenPeriod, type PeriodRow } from "@/lib/actions/periods";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  closePeriod,
+  createPeriod,
+  reopenPeriod,
+  type PeriodRow,
+} from "@/lib/actions/periods";
 import { fmtPeriodCode } from "@/lib/periods/period";
 
-const CLOSE_ERRORS: Record<string, string> = {
+const ACTION_ERRORS: Record<string, string> = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
-  "invalid-period": "Периодын код буруу байна.",
+  "invalid-period": "Тайлант үеийн код буруу байна.",
   "has-drafts":
-    "Ноорог бичилт үлдсэн байна — хаагдсан периодод ноорог батлагдахгүй тул эхлээд батлах эсвэл устгана уу.",
+    "Ноорог бичилт үлдсэн байна — хаагдсан тайлант үед ноорог батлагдахгүй тул эхлээд батлах эсвэл устгана уу.",
+  exists: "Энэ тайлант үе аль хэдийн бүртгэлтэй байна.",
+};
+
+const STATUS_META: Record<
+  "open" | "closed",
+  { label: string; dot: string }
+> = {
+  open: { label: "Нээлттэй", dot: "var(--ea-success)" },
+  closed: { label: "Хаагдсан", dot: "var(--ea-text-4)" },
 };
 
 export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
@@ -29,10 +60,14 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [busyCode, setBusyCode] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newCode, setNewCode] = useState(() =>
+    new Date().toISOString().slice(0, 7)
+  );
 
   function handleClose(row: PeriodRow) {
     void confirm({
-      title: `${fmtPeriodCode(row.code)} период хаах`,
+      title: `${fmtPeriodCode(row.code)} тайлант үе хаах`,
       description: `Хаасны дараа энэ сарын огноогоор журнал, өртгийн бичилт, буцаалт хийх боломжгүй болно. Дахин нээх боломжтой. (${row.voucherCount} журнал, ${row.movementCount} хөдөлгөөн)`,
       confirmText: "Хаах",
     }).then((ok) => {
@@ -42,10 +77,10 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
         const result = await closePeriod(row.code);
         setBusyCode(null);
         if (!result.ok) {
-          toast.error(CLOSE_ERRORS[result.code] ?? "Хаах амжилтгүй");
+          toast.error(ACTION_ERRORS[result.code] ?? "Хаах амжилтгүй");
           return;
         }
-        toast.success(`${fmtPeriodCode(row.code)} период хаагдлаа`);
+        toast.success(`${fmtPeriodCode(row.code)} тайлант үе хаагдлаа`);
         router.refresh();
       });
     });
@@ -53,7 +88,7 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
 
   function handleReopen(row: PeriodRow) {
     void confirm({
-      title: `${fmtPeriodCode(row.code)} период дахин нээх`,
+      title: `${fmtPeriodCode(row.code)} тайлант үе дахин нээх`,
       description:
         "Дахин нээвэл энэ сарын огноогоор бичилт хийх боломжтой болно. Энэ үйлдэл бүртгэгдэнэ.",
       confirmText: "Дахин нээх",
@@ -65,21 +100,44 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
         const result = await reopenPeriod(row.code);
         setBusyCode(null);
         if (!result.ok) {
-          toast.error(CLOSE_ERRORS[result.code] ?? "Дахин нээх амжилтгүй");
+          toast.error(ACTION_ERRORS[result.code] ?? "Дахин нээх амжилтгүй");
           return;
         }
-        toast.success(`${fmtPeriodCode(row.code)} период нээгдлээ`);
+        toast.success(`${fmtPeriodCode(row.code)} тайлант үе нээгдлээ`);
         router.refresh();
       });
+    });
+  }
+
+  function handleStatusChange(row: PeriodRow, next: string | null) {
+    if (!next || next === row.status) return;
+    if (next === "closed") handleClose(row);
+    else handleReopen(row);
+  }
+
+  function handleCreate() {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(newCode)) {
+      toast.error("Сар сонгоно уу (ЖЖЖЖ-СС)");
+      return;
+    }
+    startTransition(async () => {
+      const result = await createPeriod(newCode);
+      if (!result.ok) {
+        toast.error(ACTION_ERRORS[result.code] ?? "Нэмэх амжилтгүй");
+        return;
+      }
+      toast.success(`${fmtPeriodCode(newCode)} тайлант үе бүртгэгдлээ`);
+      setAddOpen(false);
+      router.refresh();
     });
   }
 
   const columnDefs = useMemo<ColDef<PeriodRow>[]>(
     () => [
       {
-        headerName: "Период",
+        headerName: "Тайлант үе",
         field: "code",
-        width: 120,
+        width: 130,
         cellClass: "font-mono",
         valueFormatter: (params) => fmtPeriodCode(String(params.value ?? "")),
       },
@@ -93,16 +151,38 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
       {
         headerName: "Төлөв",
         field: "status",
-        width: 130,
-        cellRenderer: (params: ICellRendererParams<PeriodRow>) => (
-          <div className="flex h-full items-center">
-            <StatusBadge
-              tone={params.data?.status === "closed" ? "muted" : "success"}
-            >
-              {params.data?.status === "closed" ? "Хаагдсан" : "Нээлттэй"}
-            </StatusBadge>
-          </div>
-        ),
+        width: 160,
+        cellRenderer: (params: ICellRendererParams<PeriodRow>) => {
+          const row = params.data;
+          if (!row) return null;
+          const busy = isPending && busyCode === row.code;
+          return (
+            <div className="flex h-full items-center">
+              <Select
+                value={row.status}
+                onValueChange={(value) =>
+                  handleStatusChange(row, value as string | null)
+                }
+                disabled={busy}
+              >
+                <SelectTrigger size="sm" className="w-[128px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(["open", "closed"] as const).map((status) => (
+                    <SelectItem key={status} value={status}>
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: STATUS_META[status].dot }}
+                      />
+                      {STATUS_META[status].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        },
       },
       {
         headerName: "Журнал",
@@ -133,69 +213,38 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
         width: 150,
         cellClass: "font-mono text-xs text-[var(--ea-text-3)]",
       },
-      {
-        headerName: "",
-        colId: "actions",
-        width: 150,
-        sortable: false,
-        filter: false,
-        cellRenderer: (params: ICellRendererParams<PeriodRow>) => {
-          const row = params.data;
-          if (!row) return null;
-          const busy = isPending && busyCode === row.code;
-          return (
-            <div className="flex h-full items-center justify-end">
-              {row.status === "closed" ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  disabled={busy}
-                  onClick={() => handleReopen(row)}
-                >
-                  <Icon name="unlocked" size="xs" />
-                  Дахин нээх
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  disabled={busy}
-                  onClick={() => handleClose(row)}
-                >
-                  <Icon name="locked" size="xs" />
-                  Хаах
-                </Button>
-              )}
-            </div>
-          );
-        },
-      },
     ],
-    // handleClose/handleReopen нь render бүрд шинэ функц ч гэсэн зөвхөн
-    // товч дарахад л дуудагдана — deps-д оруулбал багана дахин бүтэх тул
-    // React Compiler-ийн memo хамгаалалтыг эвдэнэ.
+    // handleStatusChange нь render бүрд шинэ функц ч гэсэн зөвхөн сонголт
+    // хийхэд л дуудагдана — deps-д оруулбал багана дахин бүтэх тул React
+    // Compiler-ийн memo хамгаалалтыг эвдэнэ.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isPending, busyCode]
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div>
-        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-          Нягтлан бодох период
-        </h1>
-        <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          Бүртгэгдээгүй сар нээлттэй гэж тооцогдоно. Хаасан сарын огноогоор
-          журнал, өртгийн бичилт, буцаалт хийх боломжгүй болно. Өртгийн
-          жигнэсэн дундаж мөн энэ периодын хилээр тооцогдоно.
-        </p>
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
+            Тайлант үе
+          </h1>
+          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+            Бүртгэгдээгүй сар нээлттэй гэж тооцогдоно. Хаасан сарын огноогоор
+            журнал, өртгийн бичилт, буцаалт хийх боломжгүй болно. Өртгийн
+            жигнэсэн дундаж мөн энэ тайлант үеийн хилээр тооцогдоно.
+          </p>
+        </div>
+        <Button onClick={() => setAddOpen(true)}>
+          <Icon name="add" />
+          Тайлант үе нэмэх
+        </Button>
       </div>
 
       {periods.length === 0 ? (
         <p className="rounded-md border border-[var(--ea-border)] px-3 py-8 text-center text-xs text-[var(--ea-text-4)]">
-          Бичилт хийгдээгүй байна — хаах период алга.
+          Тайлант үе бүртгэгдээгүй байна — бичилт хийхэд сарууд энд автоматаар
+          гарч ирнэ, эсвэл &quot;Тайлант үе нэмэх&quot;-ээр урьдчилан
+          бүртгэнэ.
         </p>
       ) : (
         <DataGridDynamic<PeriodRow>
@@ -207,6 +256,35 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
           suppressCellFocus
         />
       )}
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Шинэ тайлант үе нэмэх</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-period-month">Сар</Label>
+            <Input
+              id="new-period-month"
+              type="month"
+              value={newCode}
+              onChange={(event) => setNewCode(event.target.value)}
+            />
+            <p className="text-xs text-[var(--ea-text-3)]">
+              Нээлттэй төлөвтэй бүртгэгдэнэ — дараа нь төлөвийн сонголтоор
+              хааж болно.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>
+              Болих
+            </Button>
+            <Button onClick={handleCreate} disabled={isPending}>
+              Нэмэх
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {confirmDialog}
     </div>

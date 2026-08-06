@@ -125,10 +125,10 @@ export function HomeDashboard({
             }
           >
             {periodStatus === "open"
-              ? "Период нээлттэй"
+              ? "Тайлант үе нээлттэй"
               : periodStatus === "closed"
-                ? "Период хаагдсан"
-                : "Период үүсээгүй"}
+                ? "Тайлант үе хаагдсан"
+                : "Тайлант үе үүсээгүй"}
           </StatusBadge>
         </div>
       </div>
@@ -163,10 +163,10 @@ export function HomeDashboard({
           <SummaryCell label="Актив" value={classSummary.assets} />
           <SummaryCell label="Өр төлбөр" value={classSummary.liabilities} />
           <SummaryCell label="Эздийн өмч" value={classSummary.equity} />
-          <SummaryCell label="Орлого · период" value={classSummary.monthRevenue} />
-          <SummaryCell label="Зардал · период" value={classSummary.monthExpense} />
+          <SummaryCell label="Орлого · тайлант үе" value={classSummary.monthRevenue} />
+          <SummaryCell label="Зардал · тайлант үе" value={classSummary.monthExpense} />
           <SummaryCell
-            label="Цэвэр ашиг · период"
+            label="Цэвэр ашиг · тайлант үе"
             value={classSummary.monthNetIncome}
             tone={classSummary.monthNetIncome < 0 ? "danger" : "success"}
           />

@@ -28,7 +28,7 @@ export function isPeriodScope(value: string): value is PeriodScope {
 
 /** Тухайн сарын улирлын ЭХНИЙ сар: "2026-05" → "2026-04". */
 export function quarterStartCode(code: string): string {
-  if (!isPeriodCode(code)) throw new Error(`Периодын код буруу: ${code}`);
+  if (!isPeriodCode(code)) throw new Error(`Тайлант үеийн код буруу: ${code}`);
   const [year, month] = code.split("-").map(Number);
   const startMonth = Math.floor((month - 1) / 3) * 3 + 1;
   return `${year}-${String(startMonth).padStart(2, "0")}`;
@@ -48,7 +48,7 @@ export function scopeRange(
   scope: PeriodScope,
   today: string
 ): ScopeRange {
-  if (!isPeriodCode(code)) throw new Error(`Периодын код буруу: ${code}`);
+  if (!isPeriodCode(code)) throw new Error(`Тайлант үеийн код буруу: ${code}`);
   const [year] = code.split("-").map(Number);
 
   const from =

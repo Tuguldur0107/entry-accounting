@@ -328,7 +328,7 @@ export function computePeriodSeries(input: {
         amountBalanced: false,
         status: "blocked-missing-inbound-cost",
         blockReason:
-          "Өмнөх период тооцоологдоогүй тул эхний үлдэгдэл тодорхойгүй",
+          "Өмнөх тайлант үе тооцоологдоогүй тул эхний үлдэгдэл тодорхойгүй",
         movementIds: periodMovements.map((movement) => movement.id),
       });
       continue;

@@ -289,7 +289,7 @@ export const ICON_CATALOG: readonly IconCatalogItem[] = [
   { name: "mail", category: "module", label: "Имэйл" },
   { name: "movement", category: "module", label: "Хөдөлгөөн" },
   { name: "packageReceipt", category: "module", label: "Бараа хүлээн авах" },
-  { name: "period", category: "module", label: "Период" },
+  { name: "period", category: "module", label: "Тайлант үе" },
   { name: "production", category: "module", label: "Үйлдвэрлэл" },
   { name: "reconciliation", category: "module", label: "Тулгалт, баланс" },
   { name: "report", category: "module", label: "Тайлан" },

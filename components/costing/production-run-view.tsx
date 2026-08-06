@@ -182,7 +182,7 @@ export function ProductionRunView({ data }: Props) {
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
             GL → өртгийн бүлэг → дамжлага → бүтээгдэхүүн. Сар нь topbar-ийн
-            периодын сонголтоор солигдоно.
+            тайлант үеийн сонголтоор солигдоно.
           </p>
         </div>
         <div className="flex items-center gap-2">

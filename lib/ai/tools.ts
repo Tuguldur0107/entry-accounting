@@ -1004,17 +1004,17 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "list_periods",
     description:
-      "Нягтлан бодох периодуудын жагсаалт (сар, төлөв, бичилтийн тоо). Бүртгэгдээгүй сар = нээлттэй.",
+      "Тайлант үеүүдийн жагсаалт (сар, төлөв, бичилтийн тоо). Бүртгэгдээгүй сар = нээлттэй.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "close_period",
     description:
-      "Сарыг хаана — хаагдсан период руу бичилт хийгдэхгүй болно. Ноорог бичилт үлдсэн бол татгалзана. Зөвхөн 'Шууд бичих' горимд; хаахын өмнө элэгдэл, өртөг тооцоо хийгдсэн эсэхийг хэрэглэгчээс лавлана.",
+      "Сарыг хаана — хаагдсан тайлант үе рүү бичилт хийгдэхгүй болно. Ноорог бичилт үлдсэн бол татгалзана. Зөвхөн 'Шууд бичих' горимд; хаахын өмнө элэгдэл, өртөг тооцоо хийгдсэн эсэхийг хэрэглэгчээс лавлана.",
     inputSchema: {
       type: "object",
       properties: {
-        code: { type: "string", description: "Период YYYY-MM" },
+        code: { type: "string", description: "Тайлант үе YYYY-MM" },
       },
       required: ["code"],
     },
@@ -1025,7 +1025,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        code: { type: "string", description: "Период YYYY-MM" },
+        code: { type: "string", description: "Тайлант үе YYYY-MM" },
       },
       required: ["code"],
     },
@@ -1096,7 +1096,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        period: { type: "string", description: "Период YYYY-MM" },
+        period: { type: "string", description: "Тайлант үе YYYY-MM" },
       },
       required: ["period"],
     },
@@ -3907,7 +3907,7 @@ async function runPostFaDepreciation(
 
 async function runListPeriods(): Promise<AiToolResult> {
   const periods = await listPeriods();
-  if (periods.length === 0) return { resultText: "Период бүртгэгдээгүй (бүх сар нээлттэй)" };
+  if (periods.length === 0) return { resultText: "Тайлант үе бүртгэгдээгүй (бүх сар нээлттэй)" };
   return {
     resultText: periods
       .map(
@@ -3930,9 +3930,9 @@ async function runClosePeriod(
       throw new Error(
         `${input.code} сард ноорог бичилт үлдсэн тул хаагдахгүй — эхлээд ноорогуудыг батлах эсвэл устгана`
       );
-    throw new Error(`Период хаагдсангүй (${result.code})`);
+    throw new Error(`Тайлант үе хаагдсангүй (${result.code})`);
   }
-  return { resultText: `${input.code} период ХААГДЛАА — цаашид энэ сар руу бичилт хийгдэхгүй` };
+  return { resultText: `${input.code} тайлант үе ХААГДЛАА — цаашид энэ сар руу бичилт хийгдэхгүй` };
 }
 
 async function runReopenPeriod(
@@ -3942,8 +3942,8 @@ async function runReopenPeriod(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const result = await reopenPeriod(input.code);
-  if (!result.ok) throw new Error(`Период нээгдсэнгүй (${result.code})`);
-  return { resultText: `${input.code} период дахин НЭЭГДЛЭЭ` };
+  if (!result.ok) throw new Error(`Тайлант үе нээгдсэнгүй (${result.code})`);
+  return { resultText: `${input.code} тайлант үе дахин НЭЭГДЛЭЭ` };
 }
 
 // ── Өртөг гүйцэтгэгчид ──────────────────────────────────────────────────────
@@ -4228,7 +4228,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 3. pay_arap_document {documentId, cashAccount, date, amount?} — amount өгөхгүй бол үлдэгдлээр бүтэн хаана; АР=орлого, АП=зарлага автоматаар
 Кассын баримт нэхэмжлэхтэй холбогдож үлдэгдэл автоматаар хасагдана.`,
   month_end_close: `САР ХААЛТ — ЗААВАЛ энэ дарааллаар (сар: YYYY-MM):
-1. list_journal_vouchers status=draft + list_cash_documents status=draft + list_inventory_movements status=draft — ноорогуудыг цэгцлэх (батлах эсвэл устгах; ноорог үлдвэл период хаагдахгүй)
+1. list_journal_vouchers status=draft + list_cash_documents status=draft + list_inventory_movements status=draft — ноорогуудыг цэгцлэх (батлах эсвэл устгах; ноорог үлдвэл тайлант үе хаагдахгүй)
 2. run_fa_depreciation {month} — элэгдэл бодох → post_fa_depreciation {month}
 3. run_monthly_costing {period} — зарлага/тохируулгыг сарын дундажаар үнэлэх; блоклогдсон бараа гарвал шалтгааныг нь шийдэж ДАХИН ажиллуулах
 4. post_cost_entries {month} — өртгийн бичилтүүд GL-д

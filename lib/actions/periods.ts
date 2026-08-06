@@ -34,7 +34,10 @@ export interface PeriodRow {
 
 export type PeriodActionResult =
   | { ok: true }
-  | { ok: false; code: "unauthenticated" | "invalid-period" | "has-drafts" };
+  | {
+      ok: false;
+      code: "unauthenticated" | "invalid-period" | "has-drafts" | "exists";
+    };
 
 async function requireUser() {
   const session = await auth();
@@ -107,9 +110,34 @@ export async function listPeriods(): Promise<PeriodRow[]> {
 }
 
 /**
- * Период хаах. Ноорог бичилт үлдсэн бол ЗОГСОНО — ноорог нь хаагдсан
- * периодод батлагдах боломжгүй болж "гацна" (CLAUDE.md §4: ноорог нь period
- * close-д ороогүй байх ёстой).
+ * Шинэ тайлант үе бүртгэх — нээлттэй төлөвтэй мөр үүсгэнэ. Бүртгэлгүй сар
+ * угаасаа нээлттэй тул энэ нь зөвхөн жагсаалтад урьдчилан харагдуулах,
+ * дараа нь хаах суурь болдог. Давхардвал "exists" буцаана.
+ */
+export async function createPeriod(code: string): Promise<PeriodActionResult> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, code: "unauthenticated" };
+  if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
+
+  const { startDate, endDate } = periodRange(code);
+  const inserted = await db
+    .insert(accountingPeriods)
+    .values({ userId, code, startDate, endDate, status: "open" })
+    .onConflictDoNothing({
+      target: [accountingPeriods.userId, accountingPeriods.code],
+    })
+    .returning({ code: accountingPeriods.code });
+  if (inserted.length === 0) return { ok: false, code: "exists" };
+
+  revalidatePath("/settings/periods");
+  return { ok: true };
+}
+
+/**
+ * Тайлант үе хаах. Ноорог бичилт үлдсэн бол ЗОГСОНО — ноорог нь хаагдсан
+ * тайлант үед батлагдах боломжгүй болж "гацна" (CLAUDE.md §4: ноорог нь
+ * period close-д ороогүй байх ёстой).
  */
 export async function closePeriod(code: string): Promise<PeriodActionResult> {
   const session = await auth();

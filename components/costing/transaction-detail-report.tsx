@@ -233,7 +233,7 @@ export function TransactionDetailReport({
               params.value == null ? "—" : fmtMnt(Number(params.value)),
             tooltipValueGetter: (params) =>
               params.value == null
-                ? "Тодорхойгүй: период тооцоологдоогүй, үнэлэгдээгүй мөр эсвэл шилжүүлэг таарсан"
+                ? "Тодорхойгүй: тайлант үе тооцоологдоогүй, үнэлэгдээгүй мөр эсвэл шилжүүлэг таарсан"
                 : "",
           },
         ],

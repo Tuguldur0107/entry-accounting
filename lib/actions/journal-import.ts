@@ -82,7 +82,7 @@ export async function importJournalVouchers(
           reason:
             error instanceof ClosedPeriodError
               ? error.message
-              : "Периодын шалгалт амжилтгүй",
+              : "Тайлант үеийн шалгалт амжилтгүй",
         });
         continue;
       }

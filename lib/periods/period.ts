@@ -38,7 +38,7 @@ export function periodRange(code: string): {
   startDate: string;
   endDate: string;
 } {
-  if (!isPeriodCode(code)) throw new Error(`Периодын код буруу: ${code}`);
+  if (!isPeriodCode(code)) throw new Error(`Тайлант үеийн код буруу: ${code}`);
   return {
     startDate: `${code}-01`,
     endDate: `${code}-${String(lastDayOfMonth(code)).padStart(2, "0")}`,
@@ -72,7 +72,7 @@ export function fmtPeriodCode(code: string): string {
  * ШИНЭЭС хуучин руу. Dropdown-д хэрэглэгдэнэ.
  */
 export function recentPeriodCodes(latest: string, count: number): string[] {
-  if (!isPeriodCode(latest)) throw new Error(`Периодын код буруу: ${latest}`);
+  if (!isPeriodCode(latest)) throw new Error(`Тайлант үеийн код буруу: ${latest}`);
   const codes: string[] = [];
   let cursor = latest;
   for (let index = 0; index < count; index += 1) {
@@ -84,7 +84,7 @@ export function recentPeriodCodes(latest: string, count: number): string[] {
 
 /** Дараагийн период — "2026-12" → "2027-01". */
 export function nextPeriodCode(code: string): string {
-  if (!isPeriodCode(code)) throw new Error(`Периодын код буруу: ${code}`);
+  if (!isPeriodCode(code)) throw new Error(`Тайлант үеийн код буруу: ${code}`);
   const [year, month] = code.split("-").map(Number);
   return month === 12
     ? `${year + 1}-01`
@@ -93,7 +93,7 @@ export function nextPeriodCode(code: string): string {
 
 /** Өмнөх период — "2026-01" → "2025-12". */
 export function previousPeriodCode(code: string): string {
-  if (!isPeriodCode(code)) throw new Error(`Периодын код буруу: ${code}`);
+  if (!isPeriodCode(code)) throw new Error(`Тайлант үеийн код буруу: ${code}`);
   const [year, month] = code.split("-").map(Number);
   return month === 1
     ? `${year - 1}-12`
@@ -103,7 +103,7 @@ export function previousPeriodCode(code: string): string {
 /** from..to (оруулаад) хоорондох бүх периодын код, өсөх дарааллаар. */
 export function periodCodesBetween(from: string, to: string): string[] {
   if (!isPeriodCode(from) || !isPeriodCode(to))
-    throw new Error(`Периодын код буруу: ${from}..${to}`);
+    throw new Error(`Тайлант үеийн код буруу: ${from}..${to}`);
   if (from > to) return [];
   const codes: string[] = [];
   let cursor = from;

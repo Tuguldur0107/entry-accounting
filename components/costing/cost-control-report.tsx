@@ -361,7 +361,7 @@ export function CostControlReport({
 
       {periodClosed && (
         <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
-          Энэ период ХААГДСАН — үр дүн нь хаалтын үеийн байдлаар харагдана.
+          Энэ тайлант үе ХААГДСАН — үр дүн нь хаалтын үеийн байдлаар харагдана.
         </p>
       )}
 
@@ -402,7 +402,7 @@ export function CostControlReport({
 
       {rows.length === 0 ? (
         <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          {periodCode} периодод өртгийн үр дүн алга — &quot;Дахин
+          {periodCode} тайлант үед өртгийн үр дүн алга — &quot;Дахин
           тооцоолох&quot; товчийг дарна уу
         </div>
       ) : (

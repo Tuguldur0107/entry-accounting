@@ -12,7 +12,7 @@ import { periodCodeOf } from "./period";
 
 export class ClosedPeriodError extends Error {
   constructor(public readonly periodCode: string) {
-    super(`${periodCode} период хаагдсан — энэ огноогоор бичилт хийх боломжгүй`);
+    super(`${periodCode} тайлант үе хаагдсан — энэ огноогоор бичилт хийх боломжгүй`);
     this.name = "ClosedPeriodError";
   }
 }

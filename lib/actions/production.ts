@@ -340,7 +340,7 @@ export async function computeAndSaveProductionRun(data: {
   const userId = await userIdOrNull();
   if (!userId) return { ok: false, code: "unauthenticated" };
   if (!isPeriodCode(data.periodCode))
-    return { ok: false, code: "validation", message: "Периодын код буруу" };
+    return { ok: false, code: "validation", message: "Тайлант үеийн код буруу" };
 
   try {
     await assertPeriodOpen(userId, `${data.periodCode}-01`);
@@ -348,7 +348,7 @@ export async function computeAndSaveProductionRun(data: {
     return {
       ok: false,
       code: "validation",
-      message: caught instanceof Error ? caught.message : "Период хаагдсан",
+      message: caught instanceof Error ? caught.message : "Тайлант үе хаагдсан",
     };
   }
 

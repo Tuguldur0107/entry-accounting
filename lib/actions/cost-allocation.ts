@@ -181,7 +181,7 @@ export async function createCostAllocation(data: {
     return {
       ok: false,
       code: "validation",
-      message: caught instanceof Error ? caught.message : "Период хаагдсан",
+      message: caught instanceof Error ? caught.message : "Тайлант үе хаагдсан",
     };
   }
 
