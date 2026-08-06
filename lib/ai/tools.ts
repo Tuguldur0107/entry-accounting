@@ -2393,13 +2393,23 @@ async function runCreateCounterparty(
     };
   }
 
+  // Сегмент дүрэм: default дансыг бүтэн 10-part 0-padded кодоор хадгална.
+  let receivableCode: string | undefined;
+  let payableCode: string | undefined;
+  if (input.defaultReceivableAccount || input.defaultPayableAccount) {
+    const ctx = await accountContext(userId);
+    if (input.defaultReceivableAccount)
+      receivableCode = resolveAccount(input.defaultReceivableAccount, ctx).code;
+    if (input.defaultPayableAccount)
+      payableCode = resolveAccount(input.defaultPayableAccount, ctx).code;
+  }
   const { id } = await createCounterparty({
     name,
     counterpartyType: input.counterpartyType,
     registerNo,
     email: input.email,
-    defaultReceivableAccountNumber: input.defaultReceivableAccount,
-    defaultPayableAccountNumber: input.defaultPayableAccount,
+    defaultReceivableAccountNumber: receivableCode,
+    defaultPayableAccountNumber: payableCode,
     defaultCurrency: input.currency,
     paymentTermsDays: input.paymentTermsDays,
   });
@@ -2479,16 +2489,18 @@ async function runUpdateCounterparty(
   if (input.isActive != null) changes.isActive = input.isActive;
   if (input.defaultReceivableAccount != null || input.defaultPayableAccount != null) {
     const ctx = await accountContext(userId);
+    // Сегмент дүрэм: бүтэн 10-part 0-padded кодоор хадгална — UI-ийн
+    // сегмент picker болон нэхэмжлэхийн default энэ форматыг хүлээдэг.
     if (input.defaultReceivableAccount)
       changes.defaultReceivableAccountNumber = resolveAccount(
         input.defaultReceivableAccount,
         ctx
-      ).main;
+      ).code;
     if (input.defaultPayableAccount)
       changes.defaultPayableAccountNumber = resolveAccount(
         input.defaultPayableAccount,
         ctx
-      ).main;
+      ).code;
   }
   if (Object.keys(changes).length === 0)
     throw new Error("Өөрчлөх талбар өгөгдөөгүй байна");
