@@ -19,6 +19,10 @@ import {
   postArApDocument,
 } from "@/lib/actions/arap";
 import {
+  createInvoiceLink,
+  sendInvoiceEmail,
+} from "@/lib/actions/invoice-send";
+import {
   createCashAccount,
   createCashDocument,
   createCashOpeningVoucher,
@@ -503,6 +507,7 @@ export const AI_TOOLS: AiToolDef[] = [
           description: "customer=авлагын, supplier=өглөгийн, both=хоёулаа",
         },
         registerNo: { type: "string", description: "Регистрийн дугаар (сонголтоор)" },
+        email: { type: "string", description: "И-мэйл (нэхэмжлэх илгээхэд ашиглагдана)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (default MNT)" },
@@ -540,7 +545,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "update_counterparty",
     description:
-      "Харилцагчийн мэдээлэл засна (нэр, төрөл, нөхцөл, default данс, идэвх). Зөвхөн өгсөн талбарууд өөрчлөгдөнө.",
+      "Харилцагчийн мэдээлэл засна (нэр, төрөл, нөхцөл, default данс, и-мэйл, идэвх). Зөвхөн өгсөн талбарууд өөрчлөгдөнө.",
     inputSchema: {
       type: "object",
       properties: {
@@ -555,9 +560,44 @@ export const AI_TOOLS: AiToolDef[] = [
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (сонголтоор)" },
+        email: { type: "string", description: "И-мэйл — нэхэмжлэх илгээхэд (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
       },
       required: ["counterparty"],
+    },
+  },
+  {
+    name: "send_invoice_email",
+    description:
+      "БИЧИГДСЭН (posted) авлагын нэхэмжлэхийг харилцагч руу и-мэйлээр илгээнэ — PDF хавсралт + онлайнаар үзэх линктэй. to өгөхгүй бол харилцагчийн бүртгэлтэй и-мэйл рүү явна. Хэрэглэгч ил хүссэн үед л ашиглана; ноорог нэхэмжлэх илгээгдэхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: {
+          type: "string",
+          description: "Нэхэмжлэхийн ID, дугаар (AR-...), эсвэл externalRef",
+        },
+        to: {
+          type: "string",
+          description: "Хүлээн авагчийн и-мэйл (default: харилцагчийн бүртгэлтэй и-мэйл)",
+        },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "create_invoice_link",
+    description:
+      "БИЧИГДСЭН авлагын нэхэмжлэхийн public линк үүсгэнэ — и-мэйлгүй харилцагчид хуваалцахад (линкийг хэрэглэгч өөрөө дамжуулна).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: {
+          type: "string",
+          description: "Нэхэмжлэхийн ID, дугаар (AR-...), эсвэл externalRef",
+        },
+      },
+      required: ["documentId"],
     },
   },
   {
@@ -2187,6 +2227,7 @@ async function runListCounterparties(
           entry.id.slice(0, 8),
           entry.name,
           entry.registerNo ? `ТТД ${entry.registerNo}` : null,
+          entry.email || null,
           CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
           entry.defaultCurrency,
           `${entry.paymentTermsDays} хоног`,
@@ -2320,6 +2361,7 @@ async function runCreateCounterparty(
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
     registerNo?: string;
+    email?: string;
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
     currency?: string;
@@ -2352,13 +2394,14 @@ async function runCreateCounterparty(
     name,
     counterpartyType: input.counterpartyType,
     registerNo,
+    email: input.email,
     defaultReceivableAccountNumber: input.defaultReceivableAccount,
     defaultPayableAccountNumber: input.defaultPayableAccount,
     defaultCurrency: input.currency,
     paymentTermsDays: input.paymentTermsDays,
   });
   return {
-    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${registerNo ? ` (ТТД ${registerNo})` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${registerNo ? ` (ТТД ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };
 }
 
@@ -2392,6 +2435,7 @@ async function runUpdateCounterparty(
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
     currency?: string;
+    email?: string;
     isActive?: boolean;
   }
 ): Promise<AiToolResult> {
@@ -2416,6 +2460,12 @@ async function runUpdateCounterparty(
     changes.paymentTermsDays = Math.max(0, Math.round(input.paymentTermsDays));
   if (input.currency?.trim())
     changes.defaultCurrency = input.currency.trim().toUpperCase();
+  if (input.email != null) {
+    const email = input.email.trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      throw new Error("И-мэйл хаяг буруу байна");
+    changes.email = email || null;
+  }
   if (input.isActive != null) changes.isActive = input.isActive;
   if (input.defaultReceivableAccount != null || input.defaultPayableAccount != null) {
     const ctx = await accountContext(userId);
@@ -3426,6 +3476,62 @@ async function runPayArap(
   };
 }
 
+/** АР/АП баримтыг ID, дугаар, эсвэл externalRef-ээр олно. */
+async function findArapDocument(userId: string, idOrNo: string) {
+  const documents = await db.query.arApDocuments.findMany({
+    where: eq(arApDocuments.userId, userId),
+    orderBy: [desc(arApDocuments.createdAt)],
+    limit: 1000,
+  });
+  const query = idOrNo.trim().toLowerCase();
+  const byNo = documents.filter((doc) => doc.documentNo.toLowerCase() === query);
+  if (byNo.length === 1) return byNo[0];
+  const byRef = documents.filter(
+    (doc) => query.length > 0 && (doc.externalRef ?? "").toLowerCase() === query
+  );
+  if (byRef.length === 1) return byRef[0];
+  return resolveByIdPrefix(documents, idOrNo, "нэхэмжлэх");
+}
+
+async function runSendInvoiceEmail(
+  userId: string,
+  input: { documentId: string; to?: string }
+): Promise<AiToolResult> {
+  const document = await findArapDocument(userId, input.documentId);
+  let recipient = input.to?.trim();
+  if (!recipient) {
+    const counterparty = await db.query.counterparties.findFirst({
+      where: and(
+        eq(counterparties.id, document.counterpartyId),
+        eq(counterparties.userId, userId)
+      ),
+      columns: { name: true, email: true },
+    });
+    recipient = counterparty?.email ?? undefined;
+    if (!recipient)
+      throw codedError(
+        "EMAIL_MISSING",
+        `"${counterparty?.name ?? "?"}" харилцагчид и-мэйл бүртгэгдээгүй — update_counterparty-гаар и-мэйл нэмэх эсвэл to параметр өгнө үү`
+      );
+  }
+  // sendInvoiceEmail өөрөө "зөвхөн posted АР нэхэмжлэх" дүрмээ шалгана.
+  const result = await sendInvoiceEmail(document.id, recipient);
+  return {
+    resultText: `Нэхэмжлэх и-мэйлээр илгээгдлээ: ${result.documentNo} → ${result.sentTo} (PDF хавсралт + онлайн линктэй)`,
+  };
+}
+
+async function runCreateInvoiceLink(
+  userId: string,
+  input: { documentId: string }
+): Promise<AiToolResult> {
+  const document = await findArapDocument(userId, input.documentId);
+  const { url } = await createInvoiceLink(document.id);
+  return {
+    resultText: `Нэхэмжлэхийн public линк үүслээ: ${document.documentNo} → ${url}`,
+  };
+}
+
 async function runDeleteArap(
   userId: string,
   input: { documentId: string },
@@ -4362,6 +4468,10 @@ export async function executeAiTool(
         return await runListArapDocuments(userId, args);
       case "delete_arap_document":
         return await runDeleteArap(userId, args, mode);
+      case "send_invoice_email":
+        return await runSendInvoiceEmail(userId, args);
+      case "create_invoice_link":
+        return await runCreateInvoiceLink(userId, args);
       case "get_counterparty_balance":
         return await runCounterpartyBalance(userId, args);
       case "pay_arap_document":

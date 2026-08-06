@@ -97,6 +97,11 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   гүйлгээний ID) баримтад externalRef ЗААВАЛ өг — давхар оруулалтаас
   хамгаална, retry аюулгүй болно.
 
+- **Нэхэмжлэх илгээх:** send_invoice_email (posted АР нэхэмжлэхийг
+  харилцагчийн и-мэйл рүү PDF + линктэй илгээнэ — хэрэглэгч ил хүссэн үед л),
+  create_invoice_link (public линк). Харилцагчид и-мэйл байхгүй бол
+  update_counterparty-гаар нэмнэ.
+
 - **Тулгалт + урсгал:** reconcile_modules (модуль хоорондын зөрүү илрүүлэх),
   get_workflow_guide (даалгаврын зөв дараалал)
 
