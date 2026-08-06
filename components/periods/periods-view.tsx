@@ -29,7 +29,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   closePeriod,
@@ -156,6 +155,8 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
           const row = params.data;
           if (!row) return null;
           const busy = isPending && busyCode === row.code;
+          const meta = STATUS_META[row.status] ?? STATUS_META.open;
+          const isOpen = row.status !== "closed";
           return (
             <div className="flex h-full items-center">
               <Select
@@ -165,8 +166,28 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
                 }
                 disabled={busy}
               >
-                <SelectTrigger size="sm" className="w-[128px] text-xs">
-                  <SelectValue />
+                {/* Trigger нь StatusBadge шиг өнгөт pill — сонгосон төлөв
+                    мөрийн өгөгдлөөс шууд гарна (SelectValue-ийн түүхий
+                    open/closed утга харагдахгүй). */}
+                <SelectTrigger
+                  size="sm"
+                  className="w-[124px] rounded-full border-transparent text-xs font-medium"
+                  style={{
+                    background: isOpen
+                      ? "color-mix(in srgb, var(--ea-success) 14%, transparent)"
+                      : "color-mix(in srgb, var(--ea-text-4) 16%, transparent)",
+                    color: isOpen
+                      ? "var(--ea-success-fg)"
+                      : "var(--ea-text-3)",
+                  }}
+                >
+                  <span className="flex flex-1 items-center gap-1.5 text-left">
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ background: meta.dot }}
+                    />
+                    {meta.label}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {(["open", "closed"] as const).map((status) => (
