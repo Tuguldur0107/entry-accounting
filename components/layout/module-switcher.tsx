@@ -18,6 +18,8 @@ const MODULE_ICONS: Record<string, IconName> = {
   inventory: "inventory",
   costing: "costing",
   fa: "fixedAsset",
+  payroll: "user",
+  vat: "report",
   ai: "ai",
   settings: "settings",
 };
@@ -177,7 +179,14 @@ export function ModuleSwitcher({
           >
             Модуль
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {/* 3 баганатай grid — дэд цэсний жагсаалт tooltip-д (title) нуугдана. */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 4,
+            }}
+          >
             {MODULES.map((m) => {
               const isActive = m.id === active.id;
               return (
@@ -189,17 +198,20 @@ export function ModuleSwitcher({
                     onSelect?.();
                   }}
                   role="menuitem"
+                  title={m.items.map((i) => i.label).join(" · ")}
                   style={{
                     display: "flex",
-                    gap: 12,
-                    padding: "10px 10px",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 7,
+                    padding: "12px 6px 10px",
                     borderRadius: 8,
                     background: isActive
                       ? "var(--ea-selected-bg)"
                       : "transparent",
                     color: "var(--ea-text-1)",
                     textDecoration: "none",
-                    alignItems: "center",
+                    textAlign: "center",
                     transition: "background-color 120ms",
                   }}
                   onMouseEnter={(e) => {
@@ -211,9 +223,9 @@ export function ModuleSwitcher({
                 >
                   <div
                     style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 8,
+                      width: 38,
+                      height: 38,
+                      borderRadius: 9,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -228,36 +240,17 @@ export function ModuleSwitcher({
                   >
                     <ModuleIcon id={m.id} size="lg" />
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span
-                        style={{
-                          fontSize: 13.5,
-                          fontWeight: 500,
-                          color: isActive ? "var(--ea-interactive)" : "var(--ea-text-1)",
-                          letterSpacing: "-0.005em",
-                        }}
-                      >
-                        {m.label}
-                      </span>
-                      {isActive && (
-                        <Icon name="approve" size="sm" style={{ color: "var(--ea-interactive)" }} />
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11.5,
-                        color: "var(--ea-text-3)",
-                        lineHeight: 1.4,
-                        marginTop: 2,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {m.items.map((i) => i.label).join(" · ")}
-                    </div>
-                  </div>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 500,
+                      lineHeight: 1.25,
+                      color: isActive ? "var(--ea-interactive)" : "var(--ea-text-1)",
+                      letterSpacing: "-0.005em",
+                    }}
+                  >
+                    {m.label}
+                  </span>
                 </Link>
               );
             })}
