@@ -6,7 +6,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/lib/auth";
@@ -28,7 +28,14 @@ export interface ApiTokenView {
   tokenHint: string;
   createdAt: string;
   lastUsedAt: string | null;
+  /** Дуусах огноо (YYYY-MM-DD) — null бол хугацаагүй. */
+  expiresAt: string | null;
+  /** Хугацаа нь дууссан эсэх — ийм token-оор нэвтрэх боломжгүй. */
+  expired: boolean;
 }
+
+/** Token-ий хугацааны зөвшөөрөгдсөн сонголтууд (хоногоор). */
+const TOKEN_EXPIRY_DAYS = [30, 90, 365] as const;
 
 function fmtTime(value: Date | null): string | null {
   if (!value) return null;
@@ -50,31 +57,59 @@ export async function listApiTokens(): Promise<ApiTokenView[]> {
     tokenHint: row.tokenHint,
     createdAt: fmtTime(row.createdAt)!,
     lastUsedAt: fmtTime(row.lastUsedAt),
+    expiresAt: row.expiresAt ? fmtTime(row.expiresAt)!.slice(0, 10) : null,
+    expired: !!row.expiresAt && row.expiresAt.getTime() < Date.now(),
   }));
 }
 
-/** Шинэ token үүсгэнэ — бүтэн утга нь ЗӨВХӨН энэ хариунд байна. */
-export async function createApiToken(name: string): Promise<{ token: string }> {
+/**
+ * Шинэ token үүсгэнэ — бүтэн утга нь ЗӨВХӨН энэ хариунд байна.
+ * expiryDays: 30 | 90 | 365 хоног, null/өгөөгүй бол хугацаагүй (CLI клиент
+ * гэнэт тасрахаас сэргийлж default нь хугацаагүй).
+ */
+export async function createApiToken(
+  name: string,
+  expiryDays?: number | null
+): Promise<{ token: string }> {
   const userId = await requireUserId();
 
   const trimmed = typeof name === "string" ? name.trim().slice(0, 60) : "";
   if (!trimmed) throw new Error("Token-д нэр өгнө үү (жишээ нь: Claude Code)");
 
-  const existing = await db.query.apiTokens.findMany({
-    where: eq(apiTokens.userId, userId),
-    columns: { id: true },
-  });
-  if (existing.length >= MAX_TOKENS_PER_USER)
-    throw new Error(
-      `Дээд тал нь ${MAX_TOKENS_PER_USER} token — хуучнаас нь устгаад дахин үүсгэнэ үү`
-    );
+  const days = expiryDays ?? null;
+  if (
+    days !== null &&
+    !TOKEN_EXPIRY_DAYS.includes(days as (typeof TOKEN_EXPIRY_DAYS)[number])
+  )
+    throw new Error("Хугацааны сонголт буруу байна (30/90/365 хоног эсвэл хугацаагүй)");
+  const expiresAt =
+    days === null ? null : new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
   const token = `eak_${randomBytes(24).toString("hex")}`;
-  await db.insert(apiTokens).values({
-    userId,
-    name: trimmed,
-    tokenHash: createHash("sha256").update(token).digest("hex"),
-    tokenHint: token.slice(-4),
+
+  // Тоолох + insert хоёрыг зэрэгцээ хүсэлтээс хамгаална — advisory lock
+  // (key 6; 1–5 нь бусад модульд эзлэгдсэн) нэг хэрэглэгчийн token үүсгэлтийг
+  // цуваа болгож max-5 хязгаарыг race-гүй сахиулна.
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${userId}), 6)`
+    );
+    const existing = await tx.query.apiTokens.findMany({
+      where: eq(apiTokens.userId, userId),
+      columns: { id: true },
+    });
+    if (existing.length >= MAX_TOKENS_PER_USER)
+      throw new Error(
+        `Дээд тал нь ${MAX_TOKENS_PER_USER} token — хуучнаас нь устгаад дахин үүсгэнэ үү`
+      );
+
+    await tx.insert(apiTokens).values({
+      userId,
+      name: trimmed,
+      tokenHash: createHash("sha256").update(token).digest("hex"),
+      tokenHint: token.slice(-4),
+      expiresAt,
+    });
   });
 
   revalidatePath("/ai/settings");

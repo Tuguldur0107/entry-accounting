@@ -2,9 +2,10 @@
 
 import { db } from "@/lib/db";
 import { users, chartOfAccounts } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { signIn } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 
 export async function registerUser(data: {
@@ -12,8 +13,22 @@ export async function registerUser(data: {
   email: string;
   password: string;
 }) {
+  // Server-side шалгалт — client формыг тойрч шууд дуудахад ч хүчинтэй.
+  const name = data.name?.trim() ?? "";
+  const email = data.email?.trim().toLowerCase() ?? "";
+  if (!name) return { error: "Нэрээ оруулна уу" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return { error: "Имэйл хаяг буруу байна" };
+  if (typeof data.password !== "string" || data.password.length < 8)
+    return { error: "Нууц үг 8-аас доошгүй тэмдэгттэй байна" };
+
+  // Нэг имэйл дээр цагт 5 бүртгэлийн оролдлого — бот/спамаас хамгаална.
+  if (!checkRateLimit(`register:${email}`, 5, 60 * 60_000))
+    return { error: "Хэт олон оролдлого — түр хүлээнэ үү" };
+
+  // Login case-insensitive хайдаг тул давхардлыг ч мөн case-insensitive шалгана.
   const existing = await db.query.users.findFirst({
-    where: eq(users.email, data.email),
+    where: sql`lower(${users.email}) = ${email}`,
   });
   if (existing) return { error: "Энэ имэйл бүртгэлтэй байна" };
 
@@ -21,7 +36,7 @@ export async function registerUser(data: {
 
   const [user] = await db
     .insert(users)
-    .values({ name: data.name, email: data.email, passwordHash })
+    .values({ name, email, passwordHash })
     .returning();
 
   // Seed default chart of accounts
@@ -30,7 +45,7 @@ export async function registerUser(data: {
   );
 
   await signIn("credentials", {
-    email: data.email,
+    email,
     password: data.password,
     redirectTo: "/gl/journal",
   });

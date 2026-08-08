@@ -33,6 +33,11 @@ import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
 } from "@/lib/cash/bank-statement-types";
+import {
+  suggestMatches,
+  type MatchContext,
+  type RowSuggestion,
+} from "@/lib/cash/statement-matching";
 import type { CashAccountView } from "@/lib/cash/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
@@ -118,6 +123,7 @@ export function BankStatementImport({
     useState<AssignmentScope>("selected");
   const [assignmentCode, setAssignmentCode] = useState("");
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [matchContext, setMatchContext] = useState<MatchContext | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
@@ -179,6 +185,48 @@ export function BankStatementImport({
       );
     },
     []
+  );
+
+  // Саналууд нь parse хийсэн эх мөрүүдээс (дүн/харилцагч/утга засагдахгүй
+  // талбарууд) бодогдоно — засвар хийхэд дахин тооцоолохгүй.
+  const suggestions = useMemo<Record<string, RowSuggestion[]>>(
+    () =>
+      parsed && matchContext ? suggestMatches(parsed.rows, matchContext) : {},
+    [parsed, matchContext]
+  );
+
+  // Саналын дансыг бүтэн 10-part сегмент код болгоно (хуучин дата ганц
+  // 8 оронтой үндсэн данс хадгалсан байж болно).
+  const suggestionCode = useCallback(
+    (suggestion: RowSuggestion) => {
+      const raw = suggestion.counterAccountNumber ?? "";
+      if (!raw) return "";
+      return raw.split(".").length === 10
+        ? raw
+        : buildSegCode(
+            { ...defaultSegments, 3: raw },
+            activeSegIds,
+            defaultSegments
+          );
+    },
+    [activeSegIds, defaultSegments]
+  );
+
+  const applySuggestion = useCallback(
+    (rowId: string, suggestion: RowSuggestion) => {
+      const code = suggestionCode(suggestion);
+      if (!code) return;
+      setRows((current) =>
+        current.map((row) =>
+          row.id === rowId
+            ? row.income > 0
+              ? { ...row, creditAccountNumber: code }
+              : { ...row, debitAccountNumber: code }
+            : row
+        )
+      );
+    },
+    [suggestionCode]
   );
 
   const columnDefs = useMemo<ColDef<ParsedBankStatementRow>[]>(
@@ -332,6 +380,68 @@ export function BankStatementImport({
         },
       },
       {
+        headerName: "Санал",
+        colId: "suggestion",
+        width: 280,
+        sortable: false,
+        cellRenderer: (
+          params: ICellRendererParams<ParsedBankStatementRow>
+        ) => {
+          const row = params.data;
+          if (!row) return null;
+          const top = suggestions[row.id]?.[0];
+          if (!top) return null;
+          const targetCode = suggestionCode(top);
+          const currentCounter =
+            row.income > 0 ? row.creditAccountNumber : row.debitAccountNumber;
+          const applied = targetCode !== "" && currentCounter === targetCode;
+          const label =
+            top.kind === "invoice"
+              ? `${top.documentNo} (${
+                  top.reason === "amount_and_name"
+                    ? "нэр+дүн таарсан"
+                    : "дүн таарсан"
+                })`
+              : `${fmtAccountDisplay(
+                  targetCode,
+                  activeSegIds
+                )} · түгээмэл данс`;
+          const hint =
+            top.kind === "invoice"
+              ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}. Хяналтын дансыг бөглөнө; нэхэмжлэхтэй холбохыг АР/АП төлбөрөөр бүртгэнэ.`
+              : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
+          return (
+            <span className="flex h-full items-center gap-1.5">
+              <span
+                title={hint}
+                className={cn(
+                  "min-w-0 flex-1 truncate text-xs",
+                  top.confidence === "high"
+                    ? "font-medium text-[var(--ea-success-fg)]"
+                    : "text-[var(--ea-text-3)]"
+                )}
+              >
+                {label}
+              </span>
+              {applied ? (
+                <span className="shrink-0 text-xs font-medium text-[var(--ea-success-fg)]">
+                  Ашигласан
+                </span>
+              ) : targetCode !== "" ? (
+                <button
+                  type="button"
+                  title={hint}
+                  onClick={() => applySuggestion(row.id, top)}
+                  className="shrink-0 rounded-md border border-[var(--ea-border)] px-2 py-0.5 text-xs font-medium text-[var(--ea-primary)] hover:bg-[var(--ea-primary-soft)]"
+                >
+                  Ашиглах
+                </button>
+              ) : null}
+            </span>
+          );
+        },
+      },
+      {
         headerName: "Шалгалт",
         colId: "validation",
         width: 104,
@@ -377,7 +487,15 @@ export function BankStatementImport({
         },
       },
     ],
-    [activeSegIds, cashAccount?.currency, defaultSegments, segmentOptions]
+    [
+      activeSegIds,
+      applySuggestion,
+      cashAccount?.currency,
+      defaultSegments,
+      segmentOptions,
+      suggestionCode,
+      suggestions,
+    ]
   );
 
   function applyQuickFilter(value: string) {
@@ -431,6 +549,14 @@ export function BankStatementImport({
         setRows(normalizedRows);
         setSelectedCount(0);
         applyQuickFilter("");
+        // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар) —
+        // фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
+        void fetch("/api/cash/statements/suggestions")
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data: (MatchContext & { error?: string }) | null) => {
+            if (data && !data.error) setMatchContext(data);
+          })
+          .catch(() => {});
       } catch (caught) {
         setError(
           caught instanceof Error ? caught.message : "Хуулга уншиж чадсангүй"

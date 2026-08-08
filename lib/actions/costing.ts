@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
-import { assertPeriodOpen } from "@/lib/periods/guard";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { latestUnitCost } from "@/lib/costing/valuation";
 import {
   defaultIssueType,
@@ -37,6 +37,7 @@ import {
 } from "@/lib/costing/costing";
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
+import { logAuditEvent } from "@/lib/audit";
 
 async function requireUser() {
   const session = await auth();
@@ -233,8 +234,9 @@ export async function runCosting(data: {
     quantity: Number(row.quantity),
     createdAt: row.createdAt.toISOString(),
   }));
-  // NRV бичилт (movementId=null) дундажийн replay-д ОРОХГҮЙ — IAS 2-оор
-  // өртгийн суурь хэвээр, нөөц нь тусдаа.
+  // Хөдөлгөөнгүй бичилт (NRV гэх мэт) дундажийн replay-д ОРОХГҮЙ — NRV нь
+  // IAS 2-оор өртгийн суурь хэвээр, нөөц нь тусдаа. (movementId=null нь
+  // бүтцийн шүүлт — PostedEntryRef хөдөлгөөнд заавал холбогдоно.)
   const valuedEntries: PostedEntryRef[] = activeEntries
     .filter((entry) => entry.movementId != null)
     .map((entry) => ({
@@ -332,9 +334,40 @@ async function itemAccountsFor(userId: string, itemId: string) {
       eq(costingItemSettings.itemId, itemId)
     ),
   });
+  if (setting)
+    return {
+      inventoryAccountNumber: setting.inventoryAccountNumber,
+      cogsAccountNumber: setting.cogsAccountNumber,
+    };
+
+  // Тохиргооны мөр байхгүй үед бичих мөчид ТОГТМОЛООР шийдэхгүй (docs/cost
+  // JPR-006 / CLAUDE.md: нээлттэй шийдвэрийг fallback дансанд нуухыг
+  // хориглодог). Оронд нь мөрийг schema-ийн default утгатай нь ҮҮСГЭНЭ —
+  // Тохиргоо → Өртөг → Барааны данс хуудсанд яг эдгээр утга аль хэдийн
+  // харагдаж, засагдах боломжтой тул энэ нь нуугдсан тогтмол биш, ИЛ
+  // хадгалагдсан тохиргоо болно (master-data.ts-ийн ratified-seed хэв
+  // маягтай ижил — README change-control 0.2/0.3: одоогийн дүрмийг нэг
+  // удаа seed хийж, түүнээс хойш зөвхөн тохиргооноос уншина).
+  const [created] = await db
+    .insert(costingItemSettings)
+    .values({ userId, itemId })
+    .onConflictDoNothing()
+    .returning();
+  const row =
+    created ??
+    (await db.query.costingItemSettings.findFirst({
+      where: and(
+        eq(costingItemSettings.userId, userId),
+        eq(costingItemSettings.itemId, itemId)
+      ),
+    }));
+  if (!row)
+    throw new Error(
+      "Барааны дансны тохиргоо олдсонгүй — Тохиргоо → Өртөг → Барааны данс хэсэгт бүртгэнэ үү"
+    );
   return {
-    inventoryAccountNumber: setting?.inventoryAccountNumber ?? "14000001",
-    cogsAccountNumber: setting?.cogsAccountNumber ?? "61100000",
+    inventoryAccountNumber: row.inventoryAccountNumber,
+    cogsAccountNumber: row.cogsAccountNumber,
   };
 }
 
@@ -364,22 +397,44 @@ export async function postCostEntry(id: string) {
   if (!(amount > 0))
     throw new Error("0 дүнтэй бичилтийг GL-д бичихгүй — устгана уу");
 
-  const isNrv = entry.movementId == null;
+  // NRV-ийг entryType-оор танина (movementId биш): устгагдсан хөдөлгөөний
+  // буцаагдсан бичилт movementId=null болдог тул null нь NRV гэсэн үг БИШ.
+  const isNrv =
+    entry.entryType === "nrv_writedown" || entry.entryType === "nrv_reversal";
   const linkedItemId = isNrv ? entry.itemId : entry.movement?.itemId;
   if (!linkedItemId)
     throw new Error("Бичилтийн бараа сонгогдоогүй байна");
   const accounts = await itemAccountsFor(userId, linkedItemId);
   const roleSettings = await loadCostingAccountSettings(userId);
+  // Үйлдвэрлэлийн ОРЦЫН зарлага мөн үү? confirmProductionRun орцоо
+  // issueTypeId-гүй, "PROD-…-INxx" дугаартай зарлага болгон үүсгэдэг.
+  const isProductionInput =
+    !isNrv &&
+    entry.movement?.movementType === "issue" &&
+    entry.movement.documentNo.startsWith("PROD-");
   // Зарлагын дебет чиглэл: бичилтэд оноогдсон төрөл, эс бөгөөс анхны
   // "COGS" төрөл (энэ нь барааны COGS данс руу шийддэг profile тул хуучин
   // зан төлөв хэвээр). FR-MD-IT-002 / FR-ISSUE-002.
-  const entryIssueType =
-    (entry.issueTypeId
-      ? (await loadIssueTypeById(userId, entry.issueTypeId))
-      : null) ?? (await defaultIssueType(userId));
-  const issueDebitAccountNumber = entryIssueType
-    ? resolveIssueDebitAccount(entryIssueType, accounts.cogsAccountNumber)
-    : accounts.cogsAccountNumber;
+  //
+  // ҮЙЛДВЭРЛЭЛИЙН ОРЦОД COGS fallback ХОРИОТОЙ (JPR §7.1): орцын өртөг
+  // гаралтын receipt_capitalize-д аль хэдийн капитализацлагдсан тул COGS-д
+  // давхар бичвэл P&L ДАВХАРДАНА. Ил тохируулсан зарлагын төрөлгүй орц нь
+  // клиринг дансаар дебетлэгдэнэ (JPR-IN-002 cost source recognition:
+  // Dr клиринг / Cr түүхий эдийн нөөц), гаралт нь Dr бэлэн бүтээгдэхүүн /
+  // Cr мөн тэр клиринг (JPR-IN-003, README 0.4) — run бүрд клиринг 0-ээр
+  // тулна, орцын өртөг P&L-д огт хүрэхгүй. Данс нь JPR-006-гийн
+  // costing_account_settings.clearingAccountNumber тохиргооноос ирнэ.
+  const entryIssueType = entry.issueTypeId
+    ? await loadIssueTypeById(userId, entry.issueTypeId)
+    : null;
+  const resolvedIssueType =
+    entryIssueType ??
+    (isProductionInput ? null : await defaultIssueType(userId));
+  const issueDebitAccountNumber = resolvedIssueType
+    ? resolveIssueDebitAccount(resolvedIssueType, accounts.cogsAccountNumber)
+    : isProductionInput
+      ? roleSettings.clearingAccountNumber
+      : accounts.cogsAccountNumber;
   // Бүрэлдэхүүнд ӨӨРИЙН clearing данс тохируулсан бол нэмэлт зардлын
   // бичилт ТЭР дансаар кредитлэгдэнэ (corrected baseline §4: Dr Inventory /
   // Cr the SAME component clearing) — эс бөгөөс ерөнхий клиринг.
@@ -413,13 +468,17 @@ export async function postCostEntry(id: string) {
   const buildCode = await costingPostingCodeBuilder(userId);
 
   const itemName = entry.movement?.item?.name ?? entry.item?.name ?? "";
-  const description = !isNrv
-    ? `[${entry.movement!.documentNo}] ${itemName} — ${entry.movement!.description || "өртгийн бичилт"}`
-    : entry.entryType === "landed_cost"
-      ? `[Landed cost] ${itemName} — нэмэлт зардлын капитализаци`
-      : `[NRV] ${itemName} — цэвэр боломжит үнийн бууруулалт`;
+  const description = isNrv
+    ? `[NRV] ${itemName} — цэвэр боломжит үнийн бууруулалт`
+    : entry.movement
+      ? `[${entry.movement.documentNo}] ${itemName} — ${entry.movement.description || "өртгийн бичилт"}`
+      : entry.entryType === "landed_cost"
+        ? `[Landed cost] ${itemName} — нэмэлт зардлын капитализаци`
+        : `${itemName} — өртгийн бичилт`;
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, entry.date);
     const [claimed] = await tx
       .update(costEntries)
       .set({
@@ -427,7 +486,7 @@ export async function postCostEntry(id: string) {
         postedAt: new Date(),
         // Бичих мөчид шийдэгдсэн дүр зураг — master data хожим өөрчлөгдөхөд
         // түүхэн бичилт дахин тайлагдахгүй (JPR-005, FR-AUD-003).
-        issueTypeId: entry.issueTypeId ?? entryIssueType?.id ?? null,
+        issueTypeId: entry.issueTypeId ?? resolvedIssueType?.id ?? null,
         debitAccountNumber: debit,
         creditAccountNumber: credit,
       })
@@ -478,6 +537,16 @@ export async function postCostEntry(id: string) {
       .update(costEntries)
       .set({ voucherId: voucher.id })
       .where(eq(costEntries.id, id));
+    await logAuditEvent(
+      {
+        userId,
+        action: "post",
+        entityType: "cost",
+        entityId: id,
+        summary: `Өртгийн бичилт батлагдав — ${description}, ${entry.date}, дүн ${amount.toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   revalidateCosting();
@@ -510,11 +579,23 @@ export async function deleteCostEntry(id: string) {
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг устгана");
 
-  // NRV бичилт дундажид нөлөөлдөггүй — шууд устгаж болно.
-  if (entry.movementId == null) {
+  // NRV бичилт дундажид нөлөөлдөггүй — шууд устгаж болно. Таних нь
+  // entryType-оор (movementId=null нь устгагдсан хөдөлгөөний бичилт ч
+  // байж болно — NRV гэсэн үг биш).
+  if (
+    entry.entryType === "nrv_writedown" ||
+    entry.entryType === "nrv_reversal"
+  ) {
     await db
       .delete(costEntries)
       .where(and(eq(costEntries.id, id), eq(costEntries.userId, userId)));
+    await logAuditEvent({
+      userId,
+      action: "delete",
+      entityType: "cost",
+      entityId: id,
+      summary: `Өртгийн NRV бичилт устгагдав — ${entry.date}, дүн ${Number(entry.amount).toLocaleString("en-US")}₮`,
+    });
     revalidateCosting();
     return;
   }
@@ -547,6 +628,13 @@ export async function deleteCostEntry(id: string) {
   await db
     .delete(costEntries)
     .where(and(eq(costEntries.id, id), eq(costEntries.userId, userId)));
+  await logAuditEvent({
+    userId,
+    action: "delete",
+    entityType: "cost",
+    entityId: id,
+    summary: `Өртгийн бичилт устгагдав — ${entry.movement?.documentNo ?? "—"}, ${entry.date}, дүн ${Number(entry.amount).toLocaleString("en-US")}₮`,
+  });
   revalidateCosting();
 }
 
@@ -562,7 +650,13 @@ export async function reverseCostEntry(id: string) {
   if (!entry || entry.status !== "posted" || !entry.voucherId)
     throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
   await assertPeriodOpen(userId, entry.date);
-  const entryLabel = entry.movement?.documentNo ?? "NRV";
+  // Хөдөлгөөнгүй бичилт заавал NRV биш (устгагдсан хөдөлгөөн байж болно) —
+  // шошгыг entryType-оор ялгана.
+  const entryLabel =
+    entry.movement?.documentNo ??
+    (entry.entryType === "nrv_writedown" || entry.entryType === "nrv_reversal"
+      ? "NRV"
+      : "—");
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
@@ -574,6 +668,8 @@ export async function reverseCostEntry(id: string) {
   if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, entry.date);
     const [claimed] = await tx
       .update(costEntries)
       .set({ status: "reversed" })
@@ -630,6 +726,16 @@ export async function reverseCostEntry(id: string) {
       .update(costEntries)
       .set({ reversalVoucherId: reversal.id })
       .where(eq(costEntries.id, id));
+    await logAuditEvent(
+      {
+        userId,
+        action: "reverse",
+        entityType: "cost",
+        entityId: id,
+        summary: `Өртгийн бичилт буцаагдав — [${entryLabel}], ${entry.date}, дүн ${Number(entry.amount).toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   revalidateCosting();
@@ -806,7 +912,14 @@ export async function getCostEntryPanelData(
       entry: {
         id: entry.id,
         movementId: entry.movementId,
-        documentNo: entry.movement?.documentNo ?? "NRV",
+        // NRV-таних нь entryType-оор — movementId=null нь устгагдсан
+        // хөдөлгөөний буцаагдсан бичилт ч байж болно.
+        documentNo:
+          entry.movement?.documentNo ??
+          (entry.entryType === "nrv_writedown" ||
+          entry.entryType === "nrv_reversal"
+            ? "NRV"
+            : "—"),
         itemLabel: item ? `${item.code} · ${item.name}` : "⚠ Бараа сонгоогүй",
         unit: item?.unit ?? "",
         entryType: entry.entryType,

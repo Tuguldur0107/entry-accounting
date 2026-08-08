@@ -22,9 +22,12 @@ import {
   isAiWriteMode,
   type AiWriteMode,
 } from "@/lib/ai/models";
+import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { AI_TOOLS, executeAiTool } from "@/lib/ai/tools";
 
 const PROTOCOL_VERSION = "2025-06-18";
+/** Нэг JSON-RPC batch POST-д зөвшөөрөх дуудлагын дээд тоо. */
+const MAX_BATCH_REQUESTS = 20;
 const SERVER_INFO = {
   name: "entry-accounting",
   title: "Entry Accounting",
@@ -57,9 +60,11 @@ export async function resolveApiToken(token: string): Promise<string | null> {
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const row = await db.query.apiTokens.findFirst({
     where: eq(apiTokens.tokenHash, tokenHash),
-    columns: { id: true, userId: true },
+    columns: { id: true, userId: true, expiresAt: true },
   });
   if (!row) return null;
+  // Хугацаа нь дууссан token — буруу token-той ижил хандлагаар татгалзана.
+  if (row.expiresAt && row.expiresAt.getTime() < Date.now()) return null;
   // Хяналтын мэдээлэл — амжилтыг хүлээлгүй үргэлжлүүлнэ.
   void (async () => {
     try {
@@ -122,6 +127,15 @@ async function handleRequest(
         })),
       });
     case "tools/call": {
+      // Чатын route-тай ИЖИЛ хэрэглэгч-бүрийн sliding-window хязгаар — MCP
+      // клиент tool-давхаргыг хязгааргүй цохихоос хамгаална. HTTP 500 биш
+      // JSON-RPC алдаагаар буцаана (клиент retry-гээ өөрөө удирдана).
+      if (!checkAiRateLimit(userId))
+        return rpcError(
+          id,
+          -32000,
+          "Хэт олон хүсэлт — 1 минут хүлээгээд дахин оролдоно уу"
+        );
       const name = String(message.params?.name ?? "");
       const args = message.params?.arguments ?? {};
       const mode = await writeModeOf(userId);
@@ -154,6 +168,16 @@ export async function handleMcpPost(
 
   try {
     if (Array.isArray(body)) {
+      // Хязгааргүй batch массив нэг POST-оор серверийг дарахаас сэргийлнэ.
+      if (body.length > MAX_BATCH_REQUESTS)
+        return Response.json(
+          rpcError(
+            null,
+            -32600,
+            `Batch хэт урт (${body.length}) — нэг хүсэлтэд дээд тал нь ${MAX_BATCH_REQUESTS} дуудлага`
+          ),
+          { status: 400 }
+        );
       const responses = [];
       for (const entry of body) {
         const response = await handleRequest(userId, entry as JsonRpcRequest);

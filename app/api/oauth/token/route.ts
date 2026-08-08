@@ -7,6 +7,7 @@ import {
   refreshOAuthTokens,
   type TokenExchangeResult,
 } from "@/lib/oauth/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,19 @@ function tokenResponse(result: TokenExchangeResult): Response {
 
 export async function POST(request: Request) {
   const params = await readParams(request);
+
+  // Code/refresh token таах оролдлогоос хамгаална: клиент (эсвэл IP) бүрд
+  // 5 минутад 30 хүсэлт.
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (!checkRateLimit(`oauth-token:${params.client_id || ip}`, 30, 5 * 60_000))
+    return Response.json(
+      {
+        error: "invalid_request",
+        error_description: "Хэт олон хүсэлт — түр хүлээгээд дахин оролдоно уу",
+      },
+      { status: 429, headers: OAUTH_CORS_HEADERS }
+    );
 
   if (params.grant_type === "authorization_code") {
     return tokenResponse(

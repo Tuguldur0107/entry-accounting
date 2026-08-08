@@ -38,6 +38,11 @@ import {
   type StageSpec,
 } from "@/lib/costing/production";
 import { latestUnitCost } from "@/lib/costing/valuation";
+import {
+  findNegativeStock,
+  type MovementRef,
+  type MovementType,
+} from "@/lib/inventory/balances";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { extractMainAccount } from "@/lib/reports/balances";
@@ -54,6 +59,9 @@ async function userIdOrNull(): Promise<string | null> {
   const session = await auth();
   return session?.user?.id ?? null;
 }
+
+/** Транзакц доторх шалгалтын алдааг "validation" код руу буулгахад. */
+class ProductionValidationError extends Error {}
 
 function revalidateProduction() {
   revalidatePath("/costing/production");
@@ -543,8 +551,24 @@ export async function confirmProductionRun(
   const { endDate } = periodRange(periodCode);
   const stamp = periodCode.replaceAll("-", "");
 
+  // Хаагдсан периодын хамгаалалт — хөдөлгөөнүүд сарын эцсийн огноогоор үүснэ.
+  try {
+    await assertPeriodOpen(userId, endDate);
+  } catch (err) {
+    return {
+      ok: false,
+      code: "validation",
+      message: err instanceof Error ? err.message : "Период хаагдсан байна",
+    };
+  }
+
   try {
     await db.transaction(async (tx) => {
+      // Lock-ийн дараалал: БАГА түлхүүр эхэлж (1 → 4) — бусад зам мөн энэ
+      // дарааллыг барьвал deadlock үүсэхгүй. Түлхүүр 1 нь
+      // confirmInventoryMovement / delete / cancel-тай НЭГ цуваа тул доорх
+      // хасах үлдэгдлийн шалгалт бусад батлалттай уралдахгүй.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 4)`);
 
       const [claimed] = await tx
@@ -555,6 +579,69 @@ export async function confirmProductionRun(
         )
         .returning({ id: productionRuns.id });
       if (!claimed) throw new Error("Run-ийн төлөв өөрчлөгдсөн байна");
+
+      // Хасах үлдэгдлийн шалгалт — confirmInventoryMovement-тэй ИЖИЛ дүрэм
+      // (findNegativeStock, он цагийн бүрэн replay): батлагдах гэж буй
+      // орцын зарлагуудыг одоогийн батлагдсан хөдөлгөөний цуваан дээр
+      // нэмж, аль нэг бараа×агуулахын үлдэгдэл хасах болбол зогсооно.
+      const confirmedRows = await tx.query.inventoryMovements.findMany({
+        where: and(
+          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.status, "confirmed")
+        ),
+      });
+      const existingRefs: MovementRef[] = confirmedRows.map((row) => ({
+        id: row.id,
+        movementType: row.movementType as MovementType,
+        date: row.date,
+        // Confirmed мөрөнд null байх боломжгүй (confirm-ийн шалгалт).
+        itemId: row.itemId ?? "",
+        warehouseId: row.warehouseId ?? "",
+        toWarehouseId: row.toWarehouseId,
+        quantity: Number(row.quantity),
+        createdAt: row.createdAt.toISOString(),
+      }));
+      const nowIso = new Date().toISOString();
+      const pendingIssueRefs: MovementRef[] = run.inputs
+        .filter((input) => !input.sourceStageId)
+        .map((input, index) => ({
+          id: `pending-production-issue-${index}`,
+          movementType: "issue" as const,
+          date: endDate,
+          itemId: input.itemId,
+          // Доорх бодит insert-тэй ИЖИЛ агуулах — гаралтын эхний агуулах.
+          warehouseId: run.outputs[0].warehouseId!,
+          toWarehouseId: null,
+          quantity: Number(input.quantity),
+          createdAt: nowIso,
+        }));
+      const violation = findNegativeStock([
+        ...existingRefs,
+        ...pendingIssueRefs,
+      ]);
+      if (violation) {
+        const [item, warehouse] = await Promise.all([
+          tx.query.inventoryItems.findFirst({
+            where: and(
+              eq(inventoryItems.id, violation.itemId),
+              eq(inventoryItems.userId, userId)
+            ),
+            columns: { code: true, name: true },
+          }),
+          tx.query.warehouses.findFirst({
+            where: and(
+              eq(warehouses.id, violation.warehouseId),
+              eq(warehouses.userId, userId)
+            ),
+            columns: { code: true, name: true },
+          }),
+        ]);
+        throw new ProductionValidationError(
+          `Орцын зарлагаар "${item?.name ?? violation.itemId}" барааны үлдэгдэл ` +
+            `"${warehouse?.name ?? violation.warehouseId}" агуулахад хасах болно ` +
+            `(${violation.date}: ${violation.balanceAfter}) — батлах боломжгүй`
+        );
+      }
 
       let seq = 0;
       // Нөөцөөс авсан орц → зарлагын хөдөлгөөн (үйлдвэрлэлд зарцуулсан).
@@ -631,7 +718,8 @@ export async function confirmProductionRun(
   } catch (caught) {
     return {
       ok: false,
-      code: "failed",
+      code:
+        caught instanceof ProductionValidationError ? "validation" : "failed",
       message: caught instanceof Error ? caught.message : "Батлах амжилтгүй",
     };
   }

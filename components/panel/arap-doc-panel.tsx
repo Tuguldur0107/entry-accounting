@@ -37,6 +37,7 @@ import {
   postArApDocument,
   type ArapDocPanelData,
 } from "@/lib/actions/arap";
+import { getVatLineDefaults } from "@/lib/actions/vat";
 import type {
   ArApDocumentDetail,
   InventoryItemOption,
@@ -1186,6 +1187,58 @@ function ArApLinesGrid({
 }) {
   const total = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const [importOpen, setImportOpen] = useState(false);
+  const [vatBusy, setVatBusy] = useState(false);
+
+  // "НӨАТ 10% нэмэх" — НӨАТ-гүй мөрүүдийн нийлбэрээс exclusive тооцож
+  // тохиргооны НӨАТ дансанд нэг мөр нэмнэ (байвал дүнг нь шинэчилнэ).
+  // АР → гаралтын НӨАТ (өглөг), АП → оролтын НӨАТ (авлага).
+  async function addVatLine() {
+    setVatBusy(true);
+    try {
+      const defaults = await getVatLineDefaults();
+      const account =
+        documentType === "ap_bill" ? defaults.inputCode : defaults.outputCode;
+      const label = `НӨАТ ${defaults.ratePercent}%`;
+      onChange((prev) => {
+        const isVatLine = (line: LineRow) =>
+          line.description.trim().startsWith("НӨАТ");
+        const base = prev
+          .filter((line) => !isVatLine(line))
+          .reduce((sum, line) => sum + Number(line.amount || 0), 0);
+        const vatAmount =
+          Math.round(base * defaults.ratePercent) / 100;
+        if (!(vatAmount > 0)) return prev;
+        const existing = prev.find(isVatLine);
+        if (existing)
+          return prev.map((line) =>
+            line === existing
+              ? { ...line, account, description: label, amount: vatAmount }
+              : line
+          );
+        return [
+          ...prev.filter(
+            (line) =>
+              Number(line.amount || 0) > 0 || line.description.trim() !== ""
+          ),
+          {
+            id: nanoid(),
+            account,
+            description: label,
+            amount: vatAmount,
+            itemId: undefined,
+            quantity: undefined,
+            warehouseId: undefined,
+          },
+        ];
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "НӨАТ-ийн тохиргоо уншигдсангүй"
+      );
+    } finally {
+      setVatBusy(false);
+    }
+  }
 
   // Excel импорт — олон бараатай нэхэмжлэхийг нэг файлаас (стандарт:
   // зөвхөн зөв мөрүүд орж ирнэ; бараа/агуулах КОДООР танигдана).
@@ -1432,6 +1485,15 @@ function ArApLinesGrid({
           >
             <Icon name="spreadsheet" size="sm" />
             Excel импорт
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={vatBusy}
+            onClick={addVatLine}
+          >
+            НӨАТ 10% нэмэх
           </Button>
         </div>
         <span className="font-mono font-semibold text-[var(--ea-text-1)]">

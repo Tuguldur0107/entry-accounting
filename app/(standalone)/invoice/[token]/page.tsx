@@ -26,6 +26,24 @@ export default async function PublicInvoicePage({
   });
   if (!send) notFound();
 
+  // Хугацаа дууссан линк — нэхэмжлэхийн агуулга харагдахгүй.
+  // Server Component тул хүсэлтийн агшны цагаар шалгах нь зорилготой.
+  // eslint-disable-next-line react-hooks/purity
+  const expired = send.expiresAt ? send.expiresAt.getTime() < Date.now() : false;
+  if (expired) {
+    return (
+      <main className="mx-auto max-w-3xl px-4 py-16 text-center">
+        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
+          Линкний хугацаа дууссан
+        </h1>
+        <p className="mt-2 text-sm text-[var(--ea-text-3)]">
+          Энэ нэхэмжлэхийн линкний хүчинтэй хугацаа дууссан байна — илгээгчээс
+          шинэ линк хүснэ үү.
+        </p>
+      </main>
+    );
+  }
+
   const invoice = await loadInvoicePayload(send.userId, send.documentId);
   if (!invoice) notFound();
 

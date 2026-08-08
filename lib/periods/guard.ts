@@ -4,11 +4,23 @@
 // үүсдэг тул шинэ систем дээр бичилт саадгүй явна. Хаагдсан период руу
 // бичих оролдлого нь ойлгомжтой монгол алдаагаар зогсоно.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { accountingPeriods } from "@/lib/db/schema";
 import { periodCodeOf } from "./period";
+
+/**
+ * Per-user advisory lock түлхүүрүүд (pg_advisory_xact_lock(hashtext(userId), N)):
+ *   1 — inventory үлдэгдэл, 2 — costing run, 3 — costing close / FA run,
+ *   4 — production, 5 — ПЕРИОДЫН ХААЛТ (энэ файл).
+ * Периодын түлхүүр 5-ыг post замууд SHARED, closePeriod EXCLUSIVE авдаг —
+ * хаалт хийгдэж байх агшинд batch post зэрэгцээд хаагдсан сард бичихээс
+ * сэргийлнэ (TOCTOU).
+ */
+export const PERIOD_GATE_LOCK_KEY = 5;
+
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export class ClosedPeriodError extends Error {
   constructor(public readonly periodCode: string) {
@@ -27,6 +39,33 @@ export async function assertPeriodOpen(userId: string, date: string) {
     ),
     columns: { status: true },
   });
+  if (period?.status === "closed") throw new ClosedPeriodError(code);
+}
+
+/**
+ * Бичилтийн ТРАНЗАКЦ ДОТОР дуудна: периодын shared lock аваад периодыг
+ * ДАХИН шалгана. Транзакцийн гаднах assertPeriodOpen нь UX-ийн эрт
+ * шалгалт; энэ нь closePeriod-той уралдахаас хамгаалдаг жинхэнэ түгжээ.
+ * Бусад advisory lock-оос ӨМНӨ (транзакцийн эхэнд) авбал deadlock-гүй.
+ */
+export async function assertPeriodOpenInTx(
+  tx: DbTx,
+  userId: string,
+  date: string
+) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock_shared(hashtext(${userId}), ${PERIOD_GATE_LOCK_KEY})`
+  );
+  const code = periodCodeOf(date);
+  const [period] = await tx
+    .select({ status: accountingPeriods.status })
+    .from(accountingPeriods)
+    .where(
+      and(
+        eq(accountingPeriods.userId, userId),
+        eq(accountingPeriods.code, code)
+      )
+    );
   if (period?.status === "closed") throw new ClosedPeriodError(code);
 }
 

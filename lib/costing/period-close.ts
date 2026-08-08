@@ -193,7 +193,11 @@ export async function computePeriodCosting(
 
       if (amount === 0) {
         zeroValued += 1;
-        if (current) continue;
+        // Дахин тооцоход 0 болсон хуучин НООРОГ бичилт хуучин дүнгээрээ
+        // үлдэж батлагдах ёсгүй — устгана (энд current нь үргэлж draft:
+        // posted-ыг дээр аль хэдийн алгассан).
+        if (current)
+          await tx.delete(costEntries).where(eq(costEntries.id, current.id));
         continue;
       }
 

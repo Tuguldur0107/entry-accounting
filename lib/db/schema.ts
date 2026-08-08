@@ -8,6 +8,7 @@ import {
   boolean,
   unique,
   uniqueIndex,
+  index,
   foreignKey,
   jsonb,
 } from "drizzle-orm/pg-core";
@@ -79,16 +80,29 @@ export const journalVouchers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     date: text("date").notNull(), // YYYY-MM-DD
     description: text("description").notNull(),
-    status: text("status").notNull().default("posted"), // "draft" | "posted" | "reversed"
+    // Draft-first систем тул default нь draft — status-аа мартсан ямар ч
+    // insert аюулгүй талдаа (ноорог) унана. Бүх код status-аа ил өгдөг.
+    status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
     // Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency
     // түлхүүр: ижил ref-тэй хоёр дахь create шинэ баримт үүсгэхгүй.
     externalRef: text("external_ref"),
+    // GL unpost-ийн буцаалтын журнал ЭХ журналдаа хамааралтай: эхийг устгавал
+    // буцаалт нь хамт устана (cascade); буцаалтыг дангаар нь устгахыг
+    // deleteVoucher хориглоно — эс бөгөөс эх нь "reversed" статустай атлаа
+    // тайланд бүрэн тоологдоно.
+    reversalOfVoucherId: uuid("reversal_of_voucher_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
     uniqueIndex("journal_vouchers_user_external_ref_uq")
       .on(t.userId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
+    index("journal_vouchers_user_date_ix").on(t.userId, t.date),
+    index("journal_vouchers_user_status_ix").on(t.userId, t.status),
+    foreignKey({
+      columns: [t.reversalOfVoucherId],
+      foreignColumns: [t.id],
+    }).onDelete("cascade"),
   ]
 );
 
@@ -119,6 +133,13 @@ export const journalLines = pgTable(
       columns: [table.cashAccountId],
       foreignColumns: [cashAccounts.id],
     }).onDelete("set null"),
+    index("journal_lines_voucher_ix").on(table.voucherId),
+    index("journal_lines_cost_entry_ix")
+      .on(table.costEntryId)
+      .where(sql`${table.costEntryId} is not null`),
+    index("journal_lines_inventory_movement_ix")
+      .on(table.inventoryMovementId)
+      .where(sql`${table.inventoryMovementId} is not null`),
   ]
 );
 
@@ -202,6 +223,8 @@ export const cashDocuments = pgTable(
     uniqueIndex("cash_documents_user_external_ref_uq")
       .on(t.userId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
+    index("cash_documents_user_status_ix").on(t.userId, t.status),
+    index("cash_documents_user_date_ix").on(t.userId, t.date),
   ]
 );
 
@@ -405,6 +428,8 @@ export const arApDocuments = pgTable(
     uniqueIndex("ar_ap_documents_user_external_ref_uq")
       .on(table.userId, table.externalRef)
       .where(sql`${table.externalRef} is not null`),
+    index("ar_ap_documents_user_status_ix").on(table.userId, table.status),
+    index("ar_ap_documents_user_date_ix").on(table.userId, table.date),
   ]
 );
 
@@ -448,7 +473,12 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
     .notNull()
     .default("0"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("ar_ap_settlements_document_ix").on(t.documentId),
+  index("ar_ap_settlements_cash_document_ix")
+    .on(t.cashDocumentId)
+    .where(sql`${t.cashDocumentId} is not null`),
+]);
 
 // ─── Relations ────────────────────────────────────────────────────────────────
 
@@ -821,7 +851,11 @@ export const inventoryMovements = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     confirmedAt: timestamp("confirmed_at"),
   },
-  (t) => [unique().on(t.userId, t.documentNo)]
+  (t) => [
+    unique().on(t.userId, t.documentNo),
+    index("inventory_movements_user_status_ix").on(t.userId, t.status),
+    index("inventory_movements_user_date_ix").on(t.userId, t.date),
+  ]
 );
 
 // ─── Costing (cost) — valuation layer + GL postings ──────────────────────────
@@ -928,6 +962,171 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
   nrvExpenseAccountNumber: text("nrv_expense_account_number").notNull(),
   /** NRV нөөц (contra-хөрөнгө). */
   nrvReserveAccountNumber: text("nrv_reserve_account_number").notNull(),
+  /** Валютын төлбөрийн ханшийн олз (settlement) — өмнө нь кодод хатуу байсан. */
+  fxGainAccountNumber: text("fx_gain_account_number")
+    .notNull()
+    .default("51800001"),
+  /** Валютын төлбөрийн ханшийн гарз (settlement). */
+  fxLossAccountNumber: text("fx_loss_account_number")
+    .notNull()
+    .default("87000003"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ─── Payroll (Цалин) ─────────────────────────────────────────────────────────
+// Knowledge: knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/. Тооцооллын
+// хувь хэмжээ lib/payroll/calc.ts-д огноогоор (effective date guardrail §10);
+// данс/доод цалин/босго нь ЭНЭ тохиргооноос — кодод хатуу утга байхгүй.
+
+export const employees = pgTable(
+  "employees",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: text("position").notNull().default(""),
+    /** Сарын үндсэн цалин — бодолтод earnings-ийн default болно. */
+    baseSalary: numeric("base_salary", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    /** ҮОМШӨ (%) — салбараас хамаарна: оффис 0.8 … уул уурхай 3.0. */
+    accidentRatePercent: numeric("accident_rate_percent", {
+      precision: 5,
+      scale: 2,
+    })
+      .notNull()
+      .default("0.8"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.name)]
+);
+
+export const payrollSettings = pgTable("payroll_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  salaryExpenseAccountNumber: text("salary_expense_account_number")
+    .notNull()
+    .default("72100000"),
+  employerSiExpenseAccountNumber: text("employer_si_expense_account_number")
+    .notNull()
+    .default("72100002"),
+  siPayableAccountNumber: text("si_payable_account_number")
+    .notNull()
+    .default("31420000"),
+  pitPayableAccountNumber: text("pit_payable_account_number")
+    .notNull()
+    .default("31430000"),
+  salaryPayableAccountNumber: text("salary_payable_account_number")
+    .notNull()
+    .default("31500001"),
+  /** Бусад суутгалын (зээл г.м) кредит тал. */
+  deductionAccountNumber: text("deduction_account_number")
+    .notNull()
+    .default("31900001"),
+  /** Хөдөлмөрийн хөлсний доод хэмжээ — НДШ cap = доод цалин × үржүүлэгч. */
+  minimumWage: numeric("minimum_wage", { precision: 18, scale: 2 })
+    .notNull()
+    .default("792000"),
+  siCapMultiplier: integer("si_cap_multiplier").notNull().default(10),
+  /**
+   * Сарын татваргүй босго (2026 шинэчлэлт: 800,000₮ — хуулийн
+   * баталгаажуулалтын дараа хэрэглэгч тохируулна; default 0 = идэвхгүй).
+   */
+  monthlyTaxFree: numeric("monthly_tax_free", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const payrollRuns = pgTable(
+  "payroll_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodMonth: text("period_month").notNull(), // YYYY-MM
+    status: text("status").notNull().default("draft"), // "draft" | "voucher_created"
+    /** GL-ийн НООРОГ журнал (human-in-the-loop §9 — эндээс шууд postгүй). */
+    voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.periodMonth)]
+);
+
+export const payrollRunLines = pgTable("payroll_run_lines", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .notNull()
+    .references(() => payrollRuns.id, { onDelete: "cascade" }),
+  employeeId: uuid("employee_id")
+    .notNull()
+    .references(() => employees.id, { onDelete: "restrict" }),
+  /** Нийт олголт (үндсэн + илүү цаг + урамшуулал) — засварлагдана. */
+  earnings: numeric("earnings", { precision: 18, scale: 2 }).notNull(),
+  /** Бусад суутгал (зээл г.м) — засварлагдана. */
+  otherDeductions: numeric("other_deductions", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  // Доорх багана server-д calc.ts-ээр ДАХИН бодогдож хадгалагдана (түүх).
+  employeeSi: numeric("employee_si", { precision: 18, scale: 2 }).notNull(),
+  employerSi: numeric("employer_si", { precision: 18, scale: 2 }).notNull(),
+  pit: numeric("pit", { precision: 18, scale: 2 }).notNull(),
+  netSalary: numeric("net_salary", { precision: 18, scale: 2 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
+  user: one(users, { fields: [payrollRuns.userId], references: [users.id] }),
+  voucher: one(journalVouchers, {
+    fields: [payrollRuns.voucherId],
+    references: [journalVouchers.id],
+  }),
+  lines: many(payrollRunLines),
+}));
+
+export const payrollRunLinesRelations = relations(payrollRunLines, ({ one }) => ({
+  run: one(payrollRuns, {
+    fields: [payrollRunLines.runId],
+    references: [payrollRuns.id],
+  }),
+  employee: one(employees, {
+    fields: [payrollRunLines.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+// ─── VAT (НӨАТ) ──────────────────────────────────────────────────────────────
+// Дансны роль тохиргоо — кодод хатуу дугаар байхгүй (costing_account_settings-
+// тэй ижил ratified-seed хэв маяг). Default нь стандарт дансны схемээс.
+
+export const vatSettings = pgTable("vat_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Гаралтын НӨАТ өглөг (борлуулалтын НӨАТ). */
+  outputVatAccountNumber: text("output_vat_account_number")
+    .notNull()
+    .default("31410000"),
+  /** Оролтын НӨАТ авлага (худалдан авалтын НӨАТ). */
+  inputVatAccountNumber: text("input_vat_account_number")
+    .notNull()
+    .default("13620000"),
+  /** НӨАТ-ийн хувь (%) — хуулиар 10; effective-date шинэчлэлт гарвал энд. */
+  vatRatePercent: numeric("vat_rate_percent", { precision: 5, scale: 2 })
+    .notNull()
+    .default("10"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
@@ -1229,7 +1428,7 @@ export const costEntries = pgTable("cost_entries", {
   itemId: uuid("item_id").references(() => inventoryItems.id, {
     onDelete: "restrict",
   }),
-  entryType: text("entry_type").notNull(), // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss" | "nrv_writedown" | "nrv_reversal"
+  entryType: text("entry_type").notNull(), // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss" | "landed_cost" | "nrv_writedown" | "nrv_reversal" | "return_in"
   date: text("date").notNull(), // movement date — the voucher date
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
   unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
@@ -1264,7 +1463,16 @@ export const costEntries = pgTable("cost_entries", {
   ),
   postedAt: timestamp("posted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // 1:1 дүрмийн DB backstop: нэг хөдөлгөөнд идэвхтэй ҮНДСЭН үнэлгээний
+  // бичилт нэг л байна (landed_cost нь нэмэлт давхарга тул хамаарахгүй).
+  uniqueIndex("cost_entries_movement_active_uq")
+    .on(t.movementId)
+    .where(
+      sql`${t.movementId} is not null and ${t.status} <> 'reversed' and ${t.entryType} <> 'landed_cost'`
+    ),
+  index("cost_entries_user_status_ix").on(t.userId, t.status),
+]);
 
 export const inventoryItemsRelations = relations(inventoryItems, ({ one, many }) => ({
   user: one(users, { fields: [inventoryItems.userId], references: [users.id] }),
@@ -1519,7 +1727,12 @@ export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
   ),
   postedAt: timestamp("posted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  // "Нэг сард 1 идэвхтэй бичилт" дүрмийн DB backstop (advisory lock-ийн нэмэлт).
+  uniqueIndex("fa_dep_entries_asset_month_active_uq")
+    .on(t.assetId, t.periodMonth)
+    .where(sql`${t.status} <> 'reversed'`),
+]);
 
 export const fixedAssetsRelations = relations(fixedAssets, ({ one, many }) => ({
   user: one(users, { fields: [fixedAssets.userId], references: [users.id] }),
@@ -1641,6 +1854,8 @@ export const apiTokens = pgTable("api_tokens", {
   tokenHash: text("token_hash").notNull().unique(),
   /** Сүүлийн 4 тэмдэгт — жагсаалтад таних зорилгоор. */
   tokenHint: text("token_hint").notNull(),
+  /** Дуусах хугацаа — null бол хугацаагүй (хуучин токенууд хэвээр). */
+  expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastUsedAt: timestamp("last_used_at"),
 });
@@ -1715,10 +1930,35 @@ export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
   /** Public линкний токен — таамаглагдашгүй, хүчингүй болгож болно. */
   token: uuid("token").notNull().defaultRandom().unique(),
   revokedAt: timestamp("revoked_at"),
+  /** Линкний дуусах хугацаа — null бол хугацаагүй (хуучин линкүүд хэвээр). */
+  expiresAt: timestamp("expires_at"),
   sentAt: timestamp("sent_at").defaultNow().notNull(),
   /** Линк анх нээгдсэн мөч — "Үзсэн" төлөв. */
   viewedAt: timestamp("viewed_at"),
 });
+
+// ─── Audit log — хэн, хэзээ, юу хийснийг мөрдөх ──────────────────────────────
+// Батлах/буцаах/устгах/хаах зэрэг статус шилжилт бүрд НЭГ мөр. Бизнесийн
+// дата энд ХАДГАЛАГДАХГҮЙ — зөвхөн мөрдөлтийн тэмдэглэл (summary текст).
+
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** post | unpost | reverse | delete | close | reopen | create_voucher ... */
+    action: text("action").notNull(),
+    /** journal | cash | arap | fa | cost | period | payroll | vat ... */
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    /** Хүнд уншигдах товч тайлбар (дүн, дугаар, огноо). */
+    summary: text("summary").notNull().default(""),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("audit_events_user_created_ix").on(t.userId, t.createdAt)]
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

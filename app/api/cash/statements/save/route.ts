@@ -8,6 +8,7 @@ import {
   validateCashAccountCode,
 } from "@/lib/cash/account-code-validation";
 import type { ParsedBankStatement } from "@/lib/cash/bank-statement-types";
+import { assertPeriodsOpen } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   bankStatementLines,
@@ -146,6 +147,12 @@ export async function POST(request: Request) {
         baseAmount,
       };
     });
+
+    // Хаагдсан периодын хамгаалалт — мөр бүр өөрийн огноогоор GL-д бичигдэнэ.
+    await assertPeriodsOpen(
+      userId,
+      rows.map((row) => row.transactionDate)
+    );
 
     const totalIncome = rows.reduce((sum, row) => sum + row.income, 0);
     const totalExpense = rows.reduce((sum, row) => sum + row.expense, 0);

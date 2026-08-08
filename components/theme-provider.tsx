@@ -35,25 +35,25 @@ function readDomTheme(): Theme {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // SSR default = "light"; client first effect reads real DOM (which `themeInitScript`
-  // already set before hydration, so this is consistent).
-  const [theme, setThemeState] = React.useState<Theme>("light");
+/** DOM `<html>` class-ийн өөрчлөлтөд бүртгүүлэх — useSyncExternalStore-д. */
+function subscribeToDomTheme(callback: () => void) {
+  const observer = new MutationObserver(callback);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+  return () => observer.disconnect();
+}
 
-  // Sync internal state with DOM on mount + observe future changes.
-  // Any component (toggle, debug script, etc.) that mutates `<html>` class will
-  // notify subscribers via the observer.
-  React.useEffect(() => {
-    setThemeState(readDomTheme());
-    const observer = new MutationObserver(() => {
-      setThemeState(readDomTheme());
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, []);
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  // SSR snapshot = "light"; client реальный DOM-оос уншина (`themeInitScript`
+  // hydration-оос өмнө тохируулсан байдаг). Toggle/скрипт `<html>` class-ыг
+  // өөрчлөхөд MutationObserver-ээр бүх subscriber шинэчлэгдэнэ.
+  const theme = React.useSyncExternalStore(
+    subscribeToDomTheme,
+    readDomTheme,
+    () => "light" as Theme
+  );
 
   // Listen to system preference changes only when user hasn't picked one.
   React.useEffect(() => {

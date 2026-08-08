@@ -6,18 +6,23 @@
 // нээлттэй. Тиймээс хэрэглэгч юу ч тохируулалгүй ажиллаж эхлээд, хаалт
 // хийхээр шийдсэн үедээ л энэ дэлгэцийг хэрэглэнэ.
 
-import { and, eq } from "drizzle-orm";
+import { and, between, count, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
+  arApDocuments,
+  cashDocuments,
   costEntries,
+  faDepreciationEntries,
   journalVouchers,
   inventoryMovements,
 } from "@/lib/db/schema";
+import { PERIOD_GATE_LOCK_KEY } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange, type PeriodStatus } from "@/lib/periods/period";
+import { logAuditEvent } from "@/lib/audit";
 
 export interface PeriodRow {
   code: string;
@@ -36,7 +41,12 @@ export type PeriodActionResult =
   | { ok: true }
   | {
       ok: false;
-      code: "unauthenticated" | "invalid-period" | "has-drafts" | "exists";
+      code:
+        | "unauthenticated"
+        | "invalid-period"
+        | "has-drafts"
+        | "exists"
+        | "not-closed";
     };
 
 async function requireUser() {
@@ -145,26 +155,109 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
   if (!userId) return { ok: false, code: "unauthenticated" };
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
-  const rows = await listPeriods();
-  const row = rows.find((entry) => entry.code === code);
-  if (row && (row.draftVoucherCount > 0 || row.draftCostEntryCount > 0))
-    return { ok: false, code: "has-drafts" };
-
   const { startDate, endDate } = periodRange(code);
-  await db
-    .insert(accountingPeriods)
-    .values({
-      userId,
-      code,
-      startDate,
-      endDate,
-      status: "closed",
-      closedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [accountingPeriods.userId, accountingPeriods.code],
-      set: { status: "closed", closedAt: new Date() },
-    });
+
+  // Exclusive advisory lock: post замууд shared lock-оо транзакц дотроо
+  // авдаг тул хаалт хийгдэж дуусах хүртэл шинэ бичилт хүлээнэ — ноорог
+  // тооллого болон "closed" upsert хоёрын завсар бичилт орох боломжгүй.
+  const hasDrafts = await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${userId}), ${PERIOD_GATE_LOCK_KEY})`
+    );
+
+    // Бүх дэд дэвтрийн ноорог энэ сард үлдсэн эсэх — хаасны дараа тэдгээр
+    // ноорог батлагдах боломжгүй болж гацдаг тул бүгдийг шалгана.
+    const draftCounts = await Promise.all([
+      tx
+        .select({ n: count() })
+        .from(journalVouchers)
+        .where(
+          and(
+            eq(journalVouchers.userId, userId),
+            eq(journalVouchers.status, "draft"),
+            between(journalVouchers.date, startDate, endDate)
+          )
+        ),
+      tx
+        .select({ n: count() })
+        .from(costEntries)
+        .where(
+          and(
+            eq(costEntries.userId, userId),
+            eq(costEntries.status, "draft"),
+            between(costEntries.date, startDate, endDate)
+          )
+        ),
+      tx
+        .select({ n: count() })
+        .from(cashDocuments)
+        .where(
+          and(
+            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.status, "draft"),
+            between(cashDocuments.date, startDate, endDate)
+          )
+        ),
+      tx
+        .select({ n: count() })
+        .from(arApDocuments)
+        .where(
+          and(
+            eq(arApDocuments.userId, userId),
+            eq(arApDocuments.status, "draft"),
+            between(arApDocuments.date, startDate, endDate)
+          )
+        ),
+      tx
+        .select({ n: count() })
+        .from(inventoryMovements)
+        .where(
+          and(
+            eq(inventoryMovements.userId, userId),
+            eq(inventoryMovements.status, "draft"),
+            between(inventoryMovements.date, startDate, endDate)
+          )
+        ),
+      tx
+        .select({ n: count() })
+        .from(faDepreciationEntries)
+        .where(
+          and(
+            eq(faDepreciationEntries.userId, userId),
+            eq(faDepreciationEntries.status, "draft"),
+            eq(faDepreciationEntries.periodMonth, code)
+          )
+        ),
+    ]);
+    if (draftCounts.some(([row]) => Number(row?.n ?? 0) > 0)) return true;
+
+    await tx
+      .insert(accountingPeriods)
+      .values({
+        userId,
+        code,
+        startDate,
+        endDate,
+        status: "closed",
+        closedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [accountingPeriods.userId, accountingPeriods.code],
+        set: { status: "closed", closedAt: new Date() },
+      });
+    await logAuditEvent(
+      {
+        userId,
+        action: "close",
+        entityType: "period",
+        entityId: code,
+        summary: `Период хаагдав — ${code} (${startDate} … ${endDate})`,
+      },
+      tx
+    );
+    return false;
+  });
+  if (hasDrafts) return { ok: false, code: "has-drafts" };
 
   revalidatePath("/settings/periods");
   return { ok: true };
@@ -177,15 +270,30 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
   if (!userId) return { ok: false, code: "unauthenticated" };
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
-  await db
+  // Зөвхөн ХААЛТТАЙ периодыг дахин нээнэ — бүртгэлгүй/нээлттэй период
+  // угаасаа нээлттэй тул "нээх" зүйл байхгүй (мөр статус update нь
+  // хийсвэр амжилт мэт харагдахаас сэргийлнэ).
+  const [reopened] = await db
     .update(accountingPeriods)
     .set({ status: "open", closedAt: null })
     .where(
       and(
         eq(accountingPeriods.userId, userId),
-        eq(accountingPeriods.code, code)
+        eq(accountingPeriods.code, code),
+        eq(accountingPeriods.status, "closed")
       )
-    );
+    )
+    .returning({ code: accountingPeriods.code });
+  if (!reopened) return { ok: false, code: "not-closed" };
+
+  // Аудитын мөр — хаагдсан периодыг нээх нь мэдрэг үйлдэл.
+  await logAuditEvent({
+    userId,
+    action: "reopen",
+    entityType: "period",
+    entityId: code,
+    summary: `Период дахин нээгдэв — ${code}`,
+  });
 
   revalidatePath("/settings/periods");
   return { ok: true };

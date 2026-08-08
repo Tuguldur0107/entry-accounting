@@ -33,7 +33,9 @@ import {
   removeDraftAssetsForVoucher,
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
-import { assertPeriodOpen } from "@/lib/periods/guard";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { parseSegParts } from "@/lib/grid/segments";
+import { logAuditEvent } from "@/lib/audit";
 
 async function requireUser() {
   const session = await auth();
@@ -61,6 +63,34 @@ export async function createAccount(data: { number: string; name: string }) {
 
 export async function deleteAccount(id: string) {
   const userId = await requireUser();
+
+  const account = await db.query.chartOfAccounts.findFirst({
+    where: and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)),
+    columns: { number: true },
+  });
+  if (!account) throw new Error("Данс олдсонгүй");
+
+  // Журналын түүхтэй дансыг устгавал тайлан нэргүй мөртэй үлдэж, шинэ
+  // бичилт/буцаалт бүгд унана — идэвхгүй болгохыг л зөвшөөрнө.
+  // Мөрийн код бүтэн 10-part (S3 = 3-р хэсэг) эсвэл дан 8 оронтой байж болно.
+  const [used] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(journalLines)
+    .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+    .where(
+      and(
+        eq(journalVouchers.userId, userId),
+        or(
+          eq(sql`split_part(${journalLines.accountNumber}, '.', 3)`, account.number),
+          eq(journalLines.accountNumber, account.number)
+        )
+      )
+    );
+  if (Number(used?.count ?? 0) > 0)
+    throw new Error(
+      `${account.number} данс журналын бичилтэд ашиглагдсан тул устгах боломжгүй — идэвхгүй болгоно уу`
+    );
+
   await db
     .delete(chartOfAccounts)
     .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
@@ -298,6 +328,54 @@ export type LineInput = {
   description: string;
 };
 
+/**
+ * Мөрийн серверийн шалгалт — client validator-оос үл хамааран ЭНД дахин
+ * шалгана (Server Action бол жинхэнэ trust boundary):
+ *   - дүн сөрөг биш, төгсгөлөг тоо
+ *   - нэг мөрөнд дебет БОЛОН кредит зэрэг байхгүй (mutex)
+ *   - данс идэвхтэй жагсаалтад бий
+ * Хоосон мөрийг (данс/дүнгүй) шүүж хаяад үлдсэнийг буцаана.
+ */
+async function validateVoucherLines(userId: string, lines: LineInput[]) {
+  for (const l of lines) {
+    const debit = Number(l.debit);
+    const credit = Number(l.credit);
+    if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0)
+      throw new Error("Мөрийн дүн 0-ээс бага байж болохгүй");
+    if (debit > 0 && credit > 0)
+      throw new Error("Нэг мөрөнд дебет, кредит зэрэг байж болохгүй");
+  }
+
+  const validLines = lines.filter(
+    (l) => l.account && (l.debit > 0 || l.credit > 0)
+  );
+  if (validLines.length < 2) throw new Error("Дор хаяж 2 мөр оруулна уу");
+
+  const accounts = await db.query.chartOfAccounts.findMany({
+    where: and(
+      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.isEnabled, true)
+    ),
+    columns: { number: true },
+  });
+  const enabledMains = new Set(accounts.map((account) => account.number));
+  const bad = validLines.find(
+    (l) => !enabledMains.has(parseSegParts(l.account, [3])[3] ?? "")
+  );
+  if (bad) throw new Error(`"${bad.account}" данс идэвхтэй жагсаалтад алга`);
+
+  return validLines;
+}
+
+/** Батлагдах журналын нийлбэрийн шалгалт: ΣДебет > 0, тэнцвэр ≤ 0.01. */
+function assertBalanced(lines: { debit: number; credit: number }[]) {
+  const totalDebit = lines.reduce((s, l) => s + Number(l.debit), 0);
+  const totalCredit = lines.reduce((s, l) => s + Number(l.credit), 0);
+  if (!(totalDebit > 0)) throw new Error("Хоосон журнал батлагдахгүй");
+  if (Math.abs(totalDebit - totalCredit) > 0.01)
+    throw new Error("Дебет ба кредит тэнцэхгүй байна");
+}
+
 export async function createVoucher(data: {
   date: string;
   description: string;
@@ -312,19 +390,12 @@ export async function createVoucher(data: {
   // хожим батлагдах гэж гацна).
   await assertPeriodOpen(userId, data.date);
 
-  const validLines = data.lines.filter(
-    (l) => l.account && (l.debit > 0 || l.credit > 0)
-  );
-  if (validLines.length < 2) throw new Error("Дор хаяж 2 мөр оруулна уу");
-
-  if (status === "posted") {
-    const totalDebit = validLines.reduce((s, l) => s + l.debit, 0);
-    const totalCredit = validLines.reduce((s, l) => s + l.credit, 0);
-    if (Math.abs(totalDebit - totalCredit) > 0.01)
-      throw new Error("Дебет ба кредит тэнцэхгүй байна");
-  }
+  const validLines = await validateVoucherLines(userId, data.lines);
+  if (status === "posted") assertBalanced(validLines);
 
   const voucherId = await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, data.date);
     const [voucher] = await tx
       .insert(journalVouchers)
       .values({
@@ -346,14 +417,34 @@ export async function createVoucher(data: {
         sortOrder: i,
       }))
     );
+    if (status === "posted")
+      await logAuditEvent(
+        {
+          userId,
+          action: "create_posted",
+          entityType: "journal",
+          entityId: voucher.id,
+          summary: `Журнал шууд бичигдэв — ${data.date}, ${data.description}, дүн ${validLines.reduce((s, l) => s + l.debit, 0).toLocaleString("en-US")}₮`,
+        },
+        tx
+      );
     return voucher.id;
   });
 
   // Reverse-sync into the cash subledger when posted directly.
+  // Sync унавал журнал аль хэдийн батлагдсан тул алдаа шидэхгүй —
+  // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
   if (status === "posted") {
-    await syncDraftCashDocumentForVoucher(voucherId);
-    await syncInventoryDraftForVoucher(voucherId);
-    await syncFixedAssetDraftForVoucher(voucherId);
+    try {
+      await syncDraftCashDocumentForVoucher(voucherId);
+      await syncInventoryDraftForVoucher(voucherId);
+      await syncFixedAssetDraftForVoucher(voucherId);
+    } catch (caught) {
+      console.error(
+        `createVoucher: subledger sync failed for voucher ${voucherId}`,
+        caught
+      );
+    }
   }
 
   revalidatePath("/gl/journal");
@@ -372,29 +463,59 @@ export async function postVoucher(id: string) {
   if (voucher.status === "posted") return;
   await assertPeriodOpen(userId, voucher.date);
 
-  const totalDebit = voucher.lines.reduce((s, l) => s + Number(l.debit), 0);
-  const totalCredit = voucher.lines.reduce((s, l) => s + Number(l.credit), 0);
-  if (Math.abs(totalDebit - totalCredit) > 0.01)
-    throw new Error("Дебет ба кредит тэнцэхгүй байна");
-
-  // Atomic claim: давхар товшилт/зэрэгцээ post нэг л удаа sync ажиллуулна.
-  const [claimed] = await db
-    .update(journalVouchers)
-    .set({ status: "posted" })
-    .where(
-      and(
-        eq(journalVouchers.id, id),
-        eq(journalVouchers.userId, userId),
-        eq(journalVouchers.status, "draft")
+  await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, voucher.date);
+    // Atomic claim: давхар товшилт/зэрэгцээ post нэг л удаа sync ажиллуулна.
+    const [claimed] = await tx
+      .update(journalVouchers)
+      .set({ status: "posted" })
+      .where(
+        and(
+          eq(journalVouchers.id, id),
+          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.status, "draft")
+        )
       )
-    )
-    .returning({ id: journalVouchers.id });
-  if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
+      .returning({ date: journalVouchers.date });
+    if (!claimed) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
+
+    // Claim-ийн ДАРАА огноо/мөрүүдийг дахин шалгана — зэрэгцээ updateVoucher
+    // огноо, мөрийг сольсон байж болзошгүй. Алдаа шидвэл транзакц буцна.
+    if (claimed.date !== voucher.date)
+      await assertPeriodOpenInTx(tx, userId, claimed.date);
+    const lines = await tx.query.journalLines.findMany({
+      where: eq(journalLines.voucherId, id),
+      columns: { debit: true, credit: true },
+    });
+    assertBalanced(
+      lines.map((l) => ({ debit: Number(l.debit), credit: Number(l.credit) }))
+    );
+    await logAuditEvent(
+      {
+        userId,
+        action: "post",
+        entityType: "journal",
+        entityId: id,
+        summary: `Журнал батлагдав — ${claimed.date}, ${voucher.description}, дүн ${lines.reduce((s, l) => s + Number(l.debit), 0).toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
+  });
 
   // Reverse-sync into the cash subledger now that it's posted.
-  await syncDraftCashDocumentForVoucher(id);
-  await syncInventoryDraftForVoucher(id);
-  await syncFixedAssetDraftForVoucher(id);
+  // Sync унавал журнал аль хэдийн батлагдсан тул алдаа шидэхгүй —
+  // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
+  try {
+    await syncDraftCashDocumentForVoucher(id);
+    await syncInventoryDraftForVoucher(id);
+    await syncFixedAssetDraftForVoucher(id);
+  } catch (caught) {
+    console.error(
+      `postVoucher: subledger sync failed for voucher ${id}`,
+      caught
+    );
+  }
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
@@ -504,6 +625,8 @@ export async function unpostVoucher(id: string) {
   await assertNotSubledgerOwned(userId, id, voucher.lines);
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, voucher.date);
     const [claimed] = await tx
       .update(journalVouchers)
       .set({ status: "reversed" })
@@ -524,6 +647,9 @@ export async function unpostVoucher(id: string) {
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
         status: "posted",
+        // Эх журналтайгаа хосолно: эхийг устгавал буцаалт FK cascade-аар
+        // хамт устана; буцаалтыг дангаар устгахыг deleteVoucher хориглоно.
+        reversalOfVoucherId: id,
       })
       .returning();
 
@@ -536,6 +662,16 @@ export async function unpostVoucher(id: string) {
         description: l.description,
         sortOrder: i,
       }))
+    );
+    await logAuditEvent(
+      {
+        userId,
+        action: "unpost",
+        entityType: "journal",
+        entityId: id,
+        summary: `Журнал буцаагдав — ${voucher.date}, ${voucher.description}, дүн ${voucher.lines.reduce((s, l) => s + Number(l.debit), 0).toLocaleString("en-US")}₮`,
+      },
+      tx
     );
   });
 
@@ -562,19 +698,12 @@ export async function updateVoucher(
 
   await assertPeriodOpen(userId, data.date);
 
-  const validLines = data.lines.filter(
-    (l) => l.account && (l.debit > 0 || l.credit > 0)
-  );
-  if (validLines.length < 2) throw new Error("Дор хаяж 2 мөр оруулна уу");
-
-  if (data.status === "posted") {
-    const totalDebit = validLines.reduce((s, l) => s + l.debit, 0);
-    const totalCredit = validLines.reduce((s, l) => s + l.credit, 0);
-    if (Math.abs(totalDebit - totalCredit) > 0.01)
-      throw new Error("Дебет ба кредит тэнцэхгүй байна");
-  }
+  const validLines = await validateVoucherLines(userId, data.lines);
+  if (data.status === "posted") assertBalanced(validLines);
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, data.date);
     const existing = await tx.query.journalVouchers.findFirst({
       where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
       columns: { status: true },
@@ -602,11 +731,19 @@ export async function updateVoucher(
   });
 
   // Засварын формоос шууд post хийхэд ч subledger sync-үүд ажиллана —
-  // postVoucher-тэй ижил зам.
+  // postVoucher-тэй ижил зам. Sync унавал журнал аль хэдийн батлагдсан тул
+  // алдаа шидэхгүй — reconcile_modules өөрөө засна (self-healing).
   if (data.status === "posted") {
-    await syncDraftCashDocumentForVoucher(id);
-    await syncInventoryDraftForVoucher(id);
-  await syncFixedAssetDraftForVoucher(id);
+    try {
+      await syncDraftCashDocumentForVoucher(id);
+      await syncInventoryDraftForVoucher(id);
+      await syncFixedAssetDraftForVoucher(id);
+    } catch (caught) {
+      console.error(
+        `updateVoucher: subledger sync failed for voucher ${id}`,
+        caught
+      );
+    }
   }
 
   revalidatePath("/gl/journal");
@@ -632,6 +769,14 @@ export async function deleteVoucher(id: string) {
   });
   if (!existing) throw new Error("Бичилт олдсонгүй");
 
+  // Буцаалтын журналыг дангаар нь устгавал эх нь "reversed" статустай атлаа
+  // тайланд бүрэн тоологдож сэргэнэ — эхээр нь удирдуулна (эхийг устгахад
+  // буцаалт нь FK cascade-аар хамт устана).
+  if (existing.reversalOfVoucherId)
+    throw new Error(
+      "Буцаалтын журналыг дангаар нь устгахгүй — эх журналаар нь удирдана уу"
+    );
+
   if (existing.status !== "draft") {
     await assertPeriodOpen(userId, existing.date);
     // Дэд дэвтрийн баримттай журнал — эх баримтаар нь устгуулна.
@@ -640,13 +785,42 @@ export async function deleteVoucher(id: string) {
   }
 
   // Энэ журналаас sync-ээр үүссэн ноорог (бараа, ҮХ, касс) хамт цэвэрлэгдэнэ.
-  await removeDraftMovementsForVoucher(id);
-  await removeDraftAssetsForVoucher(id);
-  await removeDraftCashDocsForVoucher(id);
+  // Эхийг устгахад буцаалт нь cascade-аар устах тул буцаалтын журналын
+  // sync-ноорогуудыг ч мөн цэвэрлэнэ.
+  const reversals = await db.query.journalVouchers.findMany({
+    where: and(
+      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.reversalOfVoucherId, id)
+    ),
+    columns: { id: true },
+  });
+  for (const voucherId of [id, ...reversals.map((r) => r.id)]) {
+    await removeDraftMovementsForVoucher(voucherId);
+    await removeDraftAssetsForVoucher(voucherId);
+    await removeDraftCashDocsForVoucher(voucherId);
+  }
 
-  await db
+  // Статус шалгасан үеийнхээс өөрчлөгдсөн бол (ноорог зэрэгцээ батлагдсан
+  // г.м.) устгахгүй — дээрх период/subledger шалгалтууд хүчингүй болсон.
+  const [deleted] = await db
     .delete(journalVouchers)
-    .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+    .where(
+      and(
+        eq(journalVouchers.id, id),
+        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.status, existing.status)
+      )
+    )
+    .returning({ id: journalVouchers.id });
+  if (!deleted) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна — дахин оролдоно уу");
+
+  await logAuditEvent({
+    userId,
+    action: "delete",
+    entityType: "journal",
+    entityId: id,
+    summary: `Журнал устгагдав — ${existing.date}, ${existing.description} (өмнөх төлөв: ${existing.status})`,
+  });
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");

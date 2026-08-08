@@ -19,6 +19,7 @@ import {
   type MovementRef,
   type MovementType,
 } from "@/lib/inventory/balances";
+import { logAuditEvent } from "@/lib/audit";
 
 async function requireUser() {
   const session = await auth();
@@ -431,6 +432,16 @@ export async function confirmInventoryMovement(id: string) {
       )
       .returning({ id: inventoryMovements.id });
     if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
+    await logAuditEvent(
+      {
+        userId,
+        action: "confirm",
+        entityType: "inventory",
+        entityId: id,
+        summary: `Бараа хөдөлгөөн батлагдав — ${movement.documentNo}, ${movement.date}, тоо ${movementQty}`,
+      },
+      tx
+    );
   });
   revalidateInventory();
 }
@@ -466,7 +477,7 @@ export async function deleteInventoryMovement(id: string) {
       eq(inventoryMovements.id, id),
       eq(inventoryMovements.userId, userId)
     ),
-    columns: { status: true },
+    columns: { status: true, documentNo: true, date: true },
   });
   if (!movement) return;
 
@@ -511,6 +522,16 @@ export async function deleteInventoryMovement(id: string) {
       .where(
         and(eq(inventoryMovements.id, id), eq(inventoryMovements.userId, userId))
       );
+    await logAuditEvent(
+      {
+        userId,
+        action: "delete",
+        entityType: "inventory",
+        entityId: id,
+        summary: `Бараа хөдөлгөөн устгагдав — ${movement.documentNo}, ${movement.date} (өмнөх төлөв: ${movement.status})`,
+      },
+      tx
+    );
   });
   revalidateInventory();
 }
@@ -568,6 +589,16 @@ export async function cancelInventoryMovement(id: string) {
       )
       .returning({ id: inventoryMovements.id });
     if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
+    await logAuditEvent(
+      {
+        userId,
+        action: "cancel",
+        entityType: "inventory",
+        entityId: id,
+        summary: `Бараа хөдөлгөөн цуцлагдав — ${movement.documentNo}, ${movement.date}, тоо ${Number(movement.quantity)}`,
+      },
+      tx
+    );
   });
   revalidateInventory();
 }
@@ -577,8 +608,10 @@ export async function cancelInventoryMovement(id: string) {
 // Тооллогын хуудас: агуулах, огноо, бараа бүрийн тоолсон тоог хүлээж авч
 // системийн үлдэгдэлтэй (тухайн огнооны байдлаар, сервер талд дахин тооцно)
 // харьцуулаад зөрүү бүрд ТОХИРУУЛГЫН НООРОГ хөдөлгөөн үүсгэнэ. Ноорог нь
-// ердийн замаараа батлагдаж, costing run илүүдлийг 51800003, дутагдлыг
-// 87100004-өөр журналдана. Advisory lock — батлах/цуцлахтай нэг цуваанд.
+// ердийн замаараа батлагдаж, costing run илүүдэл/дутагдлыг
+// costing_account_settings-д тохируулсан тохируулгын ашиг/алдагдлын
+// дансаар журналдана (JPR-006 — данс кодод хатуу бичигдэхгүй).
+// Advisory lock — батлах/цуцлахтай нэг цуваанд.
 export async function recordInventoryCount(data: {
   date: string;
   warehouseId: string;

@@ -3,6 +3,7 @@
 // заавал) тул client_secret олгохгүй.
 
 import { OAUTH_CORS_HEADERS, registerOAuthClient } from "@/lib/oauth/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,19 @@ function isValidRedirectUri(value: string): boolean {
 }
 
 export async function POST(request: Request) {
+  // DCR нь нээлттэй endpoint — IP бүрд цагт 10 бүртгэл (спам клиентээс
+  // oauth_clients хүснэгт дүүрэхээс хамгаална).
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (!checkRateLimit(`dcr:${ip}`, 10, 60 * 60_000))
+    return Response.json(
+      {
+        error: "invalid_client_metadata",
+        error_description: "Хэт олон хүсэлт — түр хүлээгээд дахин оролдоно уу",
+      },
+      { status: 429, headers: OAUTH_CORS_HEADERS }
+    );
+
   let body: {
     redirect_uris?: unknown;
     client_name?: unknown;

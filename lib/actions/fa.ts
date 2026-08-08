@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
-import { assertPeriodOpen } from "@/lib/periods/guard";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -30,6 +30,7 @@ import {
   loadSegmentPickerData,
   type SegmentPickerData,
 } from "@/lib/gl/segment-picker-data";
+import { logAuditEvent } from "@/lib/audit";
 
 async function requireUser() {
   const session = await auth();
@@ -374,6 +375,8 @@ export async function postDepreciationEntry(id: string) {
   const description = `[${entry.asset.code}] ${entry.asset.name} — ${entry.periodMonth} сарын элэгдэл`;
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, `${entry.periodMonth}-28`);
     const [claimed] = await tx
       .update(faDepreciationEntries)
       .set({ status: "posted", postedAt: new Date() })
@@ -420,6 +423,16 @@ export async function postDepreciationEntry(id: string) {
       .update(faDepreciationEntries)
       .set({ voucherId: voucher.id })
       .where(eq(faDepreciationEntries.id, id));
+    await logAuditEvent(
+      {
+        userId,
+        action: "post",
+        entityType: "fa",
+        entityId: id,
+        summary: `Элэгдэл батлагдав — [${entry.asset.code}] ${entry.asset.name}, ${entry.periodMonth}, дүн ${amount.toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   revalidateFa();
@@ -485,6 +498,8 @@ export async function reverseDepreciationEntry(id: string) {
   if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, `${entry.periodMonth}-28`);
     const [claimed] = await tx
       .update(faDepreciationEntries)
       .set({ status: "reversed" })
@@ -533,6 +548,16 @@ export async function reverseDepreciationEntry(id: string) {
       .update(faDepreciationEntries)
       .set({ reversalVoucherId: reversal.id })
       .where(eq(faDepreciationEntries.id, id));
+    await logAuditEvent(
+      {
+        userId,
+        action: "reverse",
+        entityType: "fa",
+        entityId: id,
+        summary: `Элэгдэл буцаагдав — [${entry.asset.code}] ${entry.asset.name}, ${entry.periodMonth}, дүн ${Number(entry.amount).toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   revalidateFa();

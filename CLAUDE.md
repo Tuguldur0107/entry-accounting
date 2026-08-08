@@ -15,8 +15,11 @@
 | Үндсэн хөрөнгө (FA) | ✅ | — |
 | Period систем | ✅ | — |
 | AI туслах (expert accountant) | ✅ | — |
-| НӨАТ модуль | ❌ | ✅ |
-| Цалингийн модуль (Payroll) | ❌ | ✅ |
+| НӨАТ модуль | ✅ | — |
+| Цалингийн модуль (Payroll) | ✅ | — |
+| Сар хаалтын wizard | ✅ | — |
+| Аудитын мөр (audit log) | ✅ | — |
+| Банкны хуулгын автомат тулгалт | ✅ | — |
 
 ## Файлын бүтэц
 
@@ -132,8 +135,13 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 - **Бүртгэгдээгүй сар = НЭЭЛТТЭЙ.** Период мөр нь ХААЛТ хийхэд л үүсдэг тул
   хаалт хийж эхлээгүй систем саадгүй ажиллана
 - Хаагдсан периодод бичилт хийх хориотой. Хамгаалалт орсон замууд: GL
-  create/post/unpost/update, cash post/reverse, AR/AP post, FA элэгдэл
-  post/reverse, өртөг post/reverse, зардлын хуваарилалт
+  create/post/unpost/update, cash post/reverse, FX тэгшитгэл post/reverse,
+  AR/AP create/post, банкны хуулга импорт, FA элэгдэл post/reverse, өртөг
+  post/reverse, зардлын хуваарилалт, production confirm
+- **Close/post race хамгаалалт:** post замууд транзакц дотроо
+  `assertPeriodOpenInTx` (shared advisory lock, түлхүүр 5) дууддаг;
+  `closePeriod` exclusive lock авч БҮХ дэд дэвтрийн ноорог (GL, өртөг,
+  касс, АР/АП, бараа, элэгдэл) тухайн сард үлдсэн эсэхийг шалгаад хаадаг
 - **Буцаалт нь ЭХ огноогоор** шинэ журнал бичдэг тул тэр периодыг шалгана
 - Ноорог бичилт үлдсэн сарыг хаахгүй (ноорог хожим батлагдаж гацна)
 - Шинэ бичилтийн зам нэмэхэд `assertPeriodOpen(userId, date)`-ыг ЗААВАЛ дайруулна
@@ -214,7 +222,7 @@ lib/costing/
 └── costing.ts           Орлогын капитализаци + "үнэ хүлээж байгаа" жагсаалт
 ```
 
-### 6. НӨАТ (VAT) — 10%
+### 6. НӨАТ (VAT) — 10% — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
 
@@ -232,9 +240,51 @@ GL posting:
 
 Дараа сарын **10-нд** тайлан + төлбөр. Хоцорвол 0.1%/хоног.
 
-### 7. Цалин (Payroll) — Gross → Net
+Хэрэгжилт:
+
+```
+lib/vat/return.ts        Цэвэр логик (тесттэй): splitVat, applyInclusiveVatToLines,
+                         computeVatReturn (сарын эргэлт: гаралт Cr−Dr, оролт Dr−Cr)
+lib/vat/settings.ts      vat_settings loader (ratified-seed: 31410000/13620000, 10%)
+lib/actions/vat.ts       getVatReturnData, createVatSettlementDraft (НООРОГ,
+                         externalRef `vat-settlement:YYYY-MM` — сард нэг л удаа),
+                         getVatLineDefaults (панелийн товчинд)
+app/(dashboard)/vat/     Сарын тайлангийн хуудас (URL `period` парам cookie-г дарна)
+```
+
+- **Дансууд `vat_settings`-ээс** — кодод хатуу дугаар байхгүй; тохиргоо
+  байхгүй бол default-аар мөр үүсдэг (ил, засварлагдахуйц)
+- **АР/АП интеграци:** панелийн "НӨАТ 10% нэмэх" товч (exclusive, НӨАТ мөр
+  нэмнэ/шинэчилнэ); AI `create_arap_invoice`-ийн `vatMode`
+  (`exclusive`/`inclusive` — inclusive нь мөрүүдийг /1.1 болгож largest-line
+  absorb бөөрөнхийллөөр НӨАТ ялгана). АР → 31410000 Cr, АП → 13620000 Dr
+- **Тооцооны журнал** ЗААВАЛ ноорог (§9); буцаан авах үед оролтын үлдэгдэл
+  дараа сард шилжинэ (гаралтын дүнгээр л offset хийнэ)
+
+### 7. Цалин (Payroll) — Gross → Net — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/`
+
+Хэрэгжилт:
+
+```
+lib/payroll/calc.ts      Цэвэр тооцоолол (тесттэй, worked-example.md-тэй тулгасан):
+                         НДШ cap (доод цалин × үржүүлэгч), ХАОАТ effective date-ээр
+                         (2025 flat 10% / 2026 шатлал 10-15-20% + хөнгөлөлт),
+                         buildPayrollJournalLines (Dr=Cr тэнцвэртэй)
+lib/payroll/settings.ts  payroll_settings loader (данс, доод цалин, cap, татваргүй босго)
+lib/actions/payroll.ts   Ажилтан CRUD, calculatePayrollRun (мөр бүр дахин бодогдоно,
+                         засвар хадгалагдана), createPayrollVoucher (НООРОГ,
+                         externalRef `payroll:YYYY-MM` — сард нэг)
+app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд
+```
+
+- **Дансууд `payroll_settings`-ээс** (default: доорх §7 схем) — кодод хатуу
+  дугаар байхгүй; доод цалин/cap/татваргүй босго мөн тохиргооноос
+- **2026 татваргүй босго (800,000₮)** — `monthlyTaxFree` тохиргоо, default 0
+  (хуулийн баталгаажуулалтын дараа хэрэглэгч идэвхжүүлнэ — 2026-updates.md)
+- **GL журнал ЗААВАЛ ноорог** (§9: payroll post нягтланчийн баталгаажуулалт
+  шаарддаг) — сарын эцсийн огноогоор, бусад суутгалтай бол 6 мөр
 
 **НДШ хувь:**
 
@@ -287,13 +337,13 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 65 tool)
+AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 72 tool)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
 |-------|-------|-------|
 | Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction (applyTo-гоор нэхэмжлэхэд холбоно), create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
-| Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, activate_fixed_asset, record_inventory_count | зөвхөн ноорог, аль ч горимд |
+| Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
@@ -301,9 +351,13 @@ AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/too
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
 | Batch | create_{counterparties,arap_invoices,cash_transactions}_batch (max 100, partial success), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
+| НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
+| Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Тохиргоо → Сар хаалт `/settings/close`) | аль ч горимд |
+| Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |
 
-ID-тэй tools бүгд бүтэн эсвэл 8+ тэмдэгтийн угтвар ID хүлээнэ;
-нэхэмжлэх documentNo болон externalRef-ээр ч олдоно.
+ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
+нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
+500–1000 баримтын цонхонд хайдаг — хуучин баримтыг бүтэн ID-гаар өгнө.
 
 **Idempotency (externalRef):** create_{journal_voucher,arap_invoice,
 cash_transaction} нь externalRef (eBarimt ДДТД, банкны гүйлгээний ID) авдаг —
@@ -665,6 +719,10 @@ Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results
 FA         fixed_assets, fa_depreciation_entries
+VAT        vat_settings
+Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
+Audit      audit_events — статус шилжилт бүрд lib/audit.ts logAuditEvent
+           (бизнесийн урсгалыг хэзээ ч унагахгүй); /settings/audit хуудас
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
 ```

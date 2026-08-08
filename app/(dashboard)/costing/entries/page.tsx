@@ -30,7 +30,13 @@ export default async function CostEntriesPage({
     return {
     id: entry.id,
     movementId: entry.movementId,
-    documentNo: entry.movement?.documentNo ?? "NRV",
+    // NRV нь entryType-аар тодорхойлогдоно — movement нь устсан reversed
+    // бичилтийг NRV гэж андуурахгүй.
+    documentNo:
+      entry.movement?.documentNo ??
+      (entry.entryType === "nrv_writedown" || entry.entryType === "nrv_reversal"
+        ? "NRV"
+        : "—"),
     itemLabel: item ? `${item.code} · ${item.name}` : "⚠ Бараа сонгоогүй",
     unit: item?.unit ?? "",
     entryType: entry.entryType,

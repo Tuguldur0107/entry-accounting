@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiAttachments, aiMessages, aiSettings } from "@/lib/db/schema";
+import { createMarkerSanitizer } from "@/lib/ai/action-markers";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import {
@@ -339,6 +340,21 @@ export async function POST(request: Request) {
         full += text;
         controller.enqueue(encoder.encode(text));
       };
+      // МОДЕЛИЙН текст ЗААВАЛ энэ шүүлтүүрээр дамжина: клиент контент доторх
+      // [[EA_ACTION:{json}]]-ийг жинхэнэ ActionCard гэж зурдаг тул модель
+      // (эсвэл prompt injection) маркер зохиож хуурамч "баримт үүслээ" карт
+      // харуулахаас сэргийлж угтварыг нь идэвхгүй болгоно. Серверийн
+      // actionMarker() шигтгээ raw emit-ээр явдаг тул хэвээр үлдэнэ; full-д
+      // хуримтлагдаж DB-д хадгалагдах контент ч мөн ариутгагдсан байна.
+      const modelText = createMarkerSanitizer();
+      const emitModelText = (text: string) => {
+        const safe = modelText.push(text);
+        if (safe) emit(safe);
+      };
+      const flushModelText = () => {
+        const rest = modelText.flush();
+        if (rest) emit(rest);
+      };
 
       try {
         if (provider === "openai") {
@@ -423,9 +439,12 @@ export async function POST(request: Request) {
                 event.type === "content_block_delta" &&
                 event.delta.type === "text_delta"
               ) {
-                emit(event.delta.text);
+                emitModelText(event.delta.text);
               }
             }
+            // Барьсан сүүлийг эргэлт бүрийн төгсгөлд гаргана — дараагийн
+            // серверийн маркертай дараалал нь холилдохгүй.
+            flushModelText();
             const final = await stream.finalMessage();
 
             if (final.stop_reason === "refusal") {

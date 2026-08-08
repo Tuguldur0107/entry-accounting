@@ -19,6 +19,7 @@
 // Тэгээр хуваахгүй (FR-COST-005): Available Qty = 0 атлаа зарлага байвал
 // тооцоолол ЗОГСОНО — үнэ зохиохгүй, ил алдаа болж харагдана. Available Qty
 // сөрөг (хасах нөөц) нь OD-005-д хамаарах нээлттэй шийдвэр тул мөн зогсоно.
+// Зарлага боломжит үлдэгдлээс их (C2 сөрөг болох) нь мөн OD-005 — зогсоно.
 
 import { periodCodeOf } from "@/lib/periods/period";
 
@@ -55,7 +56,8 @@ export type PeriodResultStatus =
   | "calculated"
   | "blocked-missing-inbound-cost"
   | "blocked-zero-available"
-  | "blocked-negative-available";
+  | "blocked-negative-available"
+  | "blocked-negative-closing";
 
 export interface PeriodicResult {
   itemId: string;
@@ -97,6 +99,14 @@ export interface PeriodicResult {
 
 /** Мөнгөн дүнгийн тэнцвэрийн хүлцэл — 10 орны нарийвчлалын үлдэгдэлд. */
 const AMOUNT_EPSILON = 1e-6;
+/**
+ * Хэмжээст пропорциональ хүлцэл: тэрбум ₮-ийн хэмжээний дүнд float64-ийн
+ * бөөрөнхийллийн алдаа үнэмлэхүй 1e-6-аас давдаг тул суурь хүлцэлийг
+ * дүнгийн хэмжээтэй (харьцангуй 1e-9) уялдуулан өргөнө — худал
+ * "тэнцээгүй" туг гарахаас сэргийлнэ.
+ */
+const amountToleranceFor = (scale: number) =>
+  Math.max(AMOUNT_EPSILON, Math.abs(scale) * 1e-9);
 /** Тоо хэмжээний хүлцэл — numeric(18,4). */
 const QTY_EPSILON = 1e-9;
 
@@ -232,6 +242,17 @@ export function computePeriodResult(input: {
     };
   }
 
+  // Зарлага боломжит үлдэгдлээс их — C2 сөрөг болно. Хасах нөөцийн дүрэм
+  // (OD-005) батлагдаагүй тул сөрөг үлдэгдлээр цааш үнэлэхгүй ЗОГСООНО;
+  // дараагийн сарууд ч C1 тодорхойгүй тул мөн блоклогдоно.
+  if (closingQtyTotal < -QTY_EPSILON) {
+    const availableQty = opening.qty + inboundQtyTotal;
+    return blocked(
+      "blocked-negative-closing",
+      `Зарлага (${outboundQty}) боломжит үлдэгдлээс (${availableQty}) их — сөрөг үлдэгдэл`
+    );
+  }
+
   const averageUnitCost = pricedAmount / pricedQty;
   const inboundAmount =
     pricedInboundAmount + averageValuedInboundQty * averageUnitCost;
@@ -247,7 +268,7 @@ export function computePeriodResult(input: {
     qtyBalanced,
     amountBalanced:
       Math.abs(availableAmount - (outboundAmount + closingAmount)) <
-      AMOUNT_EPSILON,
+      amountToleranceFor(availableAmount),
     status: "calculated",
     blockReason: null,
   };

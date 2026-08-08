@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
-import { assertPeriodOpen } from "@/lib/periods/guard";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   arApDocumentLines,
@@ -41,6 +41,7 @@ import {
 import { syncFixedAssetDraftForVoucher } from "@/lib/fa/sync-sources";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
+import { logAuditEvent } from "@/lib/audit";
 
 async function requireUser() {
   const session = await auth();
@@ -332,6 +333,8 @@ export async function createArApDocument(data: {
   assertDate(data.dueDate, "Төлөх огноо");
   if (data.dueDate < data.date)
     throw new Error("Төлөх огноо баримтын огнооноос өмнө байж болохгүй");
+  // Хаагдсан периодын хамгаалалт — ноорог ч, postNow ч энэ огноогоор бичигдэнэ.
+  await assertPeriodOpen(userId, data.date);
   const description = data.description.trim();
   if (!description) throw new Error("Баримтын утга оруулна уу");
 
@@ -447,6 +450,8 @@ export async function createArApDocument(data: {
   let createdVoucherId2: string | null = null;
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, data.date);
     let voucherId: string | null = null;
 
     if (data.postNow) {
@@ -542,15 +547,35 @@ export async function createArApDocument(data: {
       }))
     );
     createdDocumentId = document.id;
+    if (data.postNow)
+      await logAuditEvent(
+        {
+          userId,
+          action: "create_posted",
+          entityType: "arap",
+          entityId: document.id,
+          summary: `${documentLabel(data.documentType)} шууд бичигдэв — ${documentNo}, ${data.date}, ${counterparty.name}, дүн ${totalAmount.toLocaleString("en-US")} ${currency}`,
+        },
+        tx
+      );
   });
 
   // Батлагдсан бараатай мөрүүд → inventory-д тоо хэмжээний draft;
   // бараагүй 14-данс хөндсөн бол sentinel (sync дотроо шийднэ).
+  // Sync унавал баримт аль хэдийн батлагдсан тул алдаа шидэхгүй —
+  // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
   if (data.postNow && createdDocumentId) {
-    await createMovementDraftsForArApDocument(createdDocumentId);
-    if (createdVoucherId2) {
-      await syncInventoryDraftForVoucher(createdVoucherId2);
-      await syncFixedAssetDraftForVoucher(createdVoucherId2);
+    try {
+      await createMovementDraftsForArApDocument(createdDocumentId);
+      if (createdVoucherId2) {
+        await syncInventoryDraftForVoucher(createdVoucherId2);
+        await syncFixedAssetDraftForVoucher(createdVoucherId2);
+      }
+    } catch (caught) {
+      console.error(
+        `createArApDocument: subledger sync failed for document ${createdDocumentId} (voucher ${createdVoucherId2})`,
+        caught
+      );
     }
   }
 
@@ -605,6 +630,8 @@ export async function postArApDocument(id: string) {
 
   let voucherId: string | null = null;
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, document.date);
     const [claimed] = await tx
       .update(arApDocuments)
       .set({ status: "posted", postedAt: new Date() })
@@ -673,12 +700,31 @@ export async function postArApDocument(id: string) {
       .update(arApDocuments)
       .set({ voucherId: voucher.id })
       .where(eq(arApDocuments.id, id));
+    await logAuditEvent(
+      {
+        userId,
+        action: "post",
+        entityType: "arap",
+        entityId: id,
+        summary: `${documentLabel(document.documentType as ArApDocumentType)} батлагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.totalAmount).toLocaleString("en-US")} ${document.currency}`,
+      },
+      tx
+    );
   });
 
-  await createMovementDraftsForArApDocument(id);
-  if (voucherId) {
-    await syncInventoryDraftForVoucher(voucherId);
-    await syncFixedAssetDraftForVoucher(voucherId);
+  // Sync унавал баримт аль хэдийн батлагдсан тул алдаа шидэхгүй —
+  // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
+  try {
+    await createMovementDraftsForArApDocument(id);
+    if (voucherId) {
+      await syncInventoryDraftForVoucher(voucherId);
+      await syncFixedAssetDraftForVoucher(voucherId);
+    }
+  } catch (caught) {
+    console.error(
+      `postArApDocument: subledger sync failed for document ${id} (voucher ${voucherId})`,
+      caught
+    );
   }
 
   revalidateArAp();
@@ -775,6 +821,16 @@ export async function deleteArApDocument(id: string) {
             )
           );
       }
+      await logAuditEvent(
+        {
+          userId,
+          action: "delete",
+          entityType: "arap",
+          entityId: id,
+          summary: `АР/АП баримт устгагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.totalAmount).toLocaleString("en-US")} ${document.currency} (өмнөх төлөв: ${document.status})`,
+        },
+        tx
+      );
     });
 
     revalidateArAp();
@@ -785,6 +841,14 @@ export async function deleteArApDocument(id: string) {
   await db
     .delete(arApDocuments)
     .where(and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)));
+
+  await logAuditEvent({
+    userId,
+    action: "delete",
+    entityType: "arap",
+    entityId: id,
+    summary: `АР/АП баримт устгагдав — ${document.documentNo}, ${document.date} (өмнөх төлөв: draft)`,
+  });
 
   revalidateArAp();
   return { documentNo: document.documentNo };

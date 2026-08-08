@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
-import { assertPeriodOpen } from "@/lib/periods/guard";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
   cashAccounts,
@@ -19,7 +19,8 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
-import { buildSegCode } from "@/lib/grid/segments";
+import { ALL_SEG_IDS, buildSegCode, SEG_DEFAULTS } from "@/lib/grid/segments";
+import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
   loadCashTransactionOptions,
   mainAccountOf,
@@ -37,6 +38,7 @@ import {
   removeDraftAssetsForVoucher,
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
+import { logAuditEvent } from "@/lib/audit";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -240,13 +242,19 @@ export async function createCashOpeningVoucher(data: {
   if (Math.abs(opening) < 0.005)
     throw new Error("Нээлтийн үлдэгдэл 0 тул журнал шаардлагагүй");
 
-  // Нэг дансанд нэг л нээлтийн журнал — тайлбар доторх тэмдэгээр таньж
-  // давхардуулахгүй (ноорог нь ч, батлагдсан нь ч тооцогдоно).
+  // Нэг дансанд нэг л нээлтийн журнал. Давхардлын жинхэнэ хамгаалалт нь
+  // externalRef — journal_vouchers-ийн (user_id, external_ref) partial
+  // unique index уралдаант давхар insert-ийг DB түвшинд хаана. Тайлбар
+  // доторх [НЭЭЛТ:id] тэмдэг нь харагдац + хуучин (externalRef-гүй) дата.
   const marker = `[НЭЭЛТ:${account.id}]`;
+  const externalRef = `cash-opening:${account.id}`;
   const existing = await db.query.journalVouchers.findFirst({
     where: and(
       eq(journalVouchers.userId, userId),
-      sql`${journalVouchers.description} LIKE ${"%" + marker + "%"}`
+      or(
+        eq(journalVouchers.externalRef, externalRef),
+        sql`${journalVouchers.description} LIKE ${"%" + marker + "%"}`
+      )
     ),
     columns: { id: true, status: true },
   });
@@ -298,6 +306,7 @@ export async function createCashOpeningVoucher(data: {
         date: today,
         description: `Нээлтийн үлдэгдэл — ${account.name} ${marker}`,
         status: "draft",
+        externalRef,
       })
       .returning({ id: journalVouchers.id });
 
@@ -481,6 +490,8 @@ function buildSettlementPostingLines({
   baseAmount,
   historicalBaseAmount,
   fxDifference,
+  fxGainAccountNumber,
+  fxLossAccountNumber,
   buildCode,
   description,
 }: {
@@ -493,6 +504,9 @@ function buildSettlementPostingLines({
   baseAmount: number;
   historicalBaseAmount: number;
   fxDifference: number;
+  /** Ханшийн олз/гарзын данс — costing_account_settings-ээс (хатуу код биш). */
+  fxGainAccountNumber: string;
+  fxLossAccountNumber: string;
   buildCode: (accountNumber: string) => string;
   description: string;
 }) {
@@ -545,7 +559,7 @@ function buildSettlementPostingLines({
   lines.push({
     voucherId,
     cashAccountId: null,
-    accountNumber: buildCode(isGain ? "51800001" : "87000003"),
+    accountNumber: buildCode(isGain ? fxGainAccountNumber : fxLossAccountNumber),
     debit: isGain ? "0" : String(Math.abs(fxDifference)),
     credit: isGain ? String(Math.abs(fxDifference)) : "0",
     description: `Ханшийн ${isGain ? "олз" : "гарз"}: ${description}`,
@@ -624,6 +638,13 @@ export async function postCashDocument(
     // Lost race (someone else already posted it): report it instead of
     // pretending this caller's rate was applied.
     if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+    await logAuditEvent({
+      userId,
+      action: "post",
+      entityType: "cash",
+      entityId: id,
+      summary: `Кассын баримт батлагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.baseAmount).toLocaleString("en-US")}₮`,
+    });
     revalidateCash();
     return;
   }
@@ -668,16 +689,21 @@ export async function postCashDocument(
   const historicalBaseAmount =
     settlementExchangeEffect?.historicalBaseAmount ?? baseAmount;
   const fxDifference = settlementExchangeEffect?.difference ?? 0;
-  if (arApSettlement && Math.abs(fxDifference) > 0.01) {
+  // Ханшийн олз/гарзын данс — тохиргооноос (costing_account_settings);
+  // анхны утга нь хуучин хатуу кодтой ижил тул зан төлөв өөрчлөгдөхгүй.
+  const costingSettings = arApSettlement
+    ? await loadCostingAccountSettings(userId)
+    : null;
+  if (arApSettlement && costingSettings && Math.abs(fxDifference) > 0.01) {
+    const isGain =
+      arApSettlement.document.documentType === "ar_invoice"
+        ? fxDifference > 0
+        : fxDifference < 0;
     await assertMainAccount(
       userId,
-      fxDifference > 0
-        ? arApSettlement.document.documentType === "ar_invoice"
-          ? "51800001"
-          : "87000003"
-        : arApSettlement.document.documentType === "ar_invoice"
-          ? "87000003"
-          : "51800001"
+      isGain
+        ? costingSettings.fxGainAccountNumber
+        : costingSettings.fxLossAccountNumber
     );
   }
 
@@ -703,6 +729,8 @@ export async function postCashDocument(
 
   let postedVoucherId: string | null = null;
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, document.date);
     const [claimed] = await tx
       .update(cashDocuments)
       .set({ status: "posted", postedAt: new Date() })
@@ -741,6 +769,10 @@ export async function postCashDocument(
           baseAmount,
           historicalBaseAmount,
           fxDifference,
+          fxGainAccountNumber:
+            costingSettings?.fxGainAccountNumber ?? "51800001",
+          fxLossAccountNumber:
+            costingSettings?.fxLossAccountNumber ?? "87000003",
           buildCode,
           description: document.counterparty ?? document.description,
         })
@@ -816,13 +848,32 @@ export async function postCashDocument(
       .set({ voucherId: voucher.id })
       .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
     postedVoucherId = voucher.id;
+    await logAuditEvent(
+      {
+        userId,
+        action: "post",
+        entityType: "cash",
+        entityId: id,
+        summary: `Кассын баримт батлагдав — ${document.documentNo}, ${document.date}, дүн ${baseAmount.toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   // 14-данс хөндсөн кассын гүйлгээ (шууд бэлэн худалдан авалт г.м.) →
   // inventory-д тоо нь бөглөгдөөгүй sentinel draft (sync дотроо шийднэ).
+  // Sync унавал баримт аль хэдийн батлагдсан тул алдаа шидэхгүй —
+  // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
   if (postedVoucherId) {
-    await syncInventoryDraftForVoucher(postedVoucherId);
-    await syncFixedAssetDraftForVoucher(postedVoucherId);
+    try {
+      await syncInventoryDraftForVoucher(postedVoucherId);
+      await syncFixedAssetDraftForVoucher(postedVoucherId);
+    } catch (caught) {
+      console.error(
+        `postCashDocument: subledger sync failed for voucher ${postedVoucherId}`,
+        caught
+      );
+    }
   }
 
   revalidateCash();
@@ -852,6 +903,8 @@ export async function reverseCashDocument(id: string) {
   });
 
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, document.date);
     const [claimed] = await tx
       .update(cashDocuments)
       .set({ status: "reversed" })
@@ -944,6 +997,16 @@ export async function reverseCashDocument(id: string) {
         .delete(arApSettlements)
         .where(eq(arApSettlements.id, settlement.id));
     }
+    await logAuditEvent(
+      {
+        userId,
+        action: "reverse",
+        entityType: "cash",
+        entityId: id,
+        summary: `Кассын баримт буцаагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.baseAmount).toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   // Эх воучер нь буцаагдсан тул түүнээс үүссэн бөглөгдөөгүй inventory
@@ -973,6 +1036,13 @@ export async function deleteCashDocument(id: string) {
     await db
       .delete(cashDocuments)
       .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+    await logAuditEvent({
+      userId,
+      action: "delete",
+      entityType: "cash",
+      entityId: id,
+      summary: `Кассын баримт устгагдав — ${document.documentNo}, ${document.date} (өмнөх төлөв: draft)`,
+    });
     revalidateCash();
     return;
   }
@@ -1072,6 +1142,16 @@ export async function deleteCashDocument(id: string) {
           )
         );
     }
+    await logAuditEvent(
+      {
+        userId,
+        action: "delete",
+        entityType: "cash",
+        entityId: id,
+        summary: `Кассын баримт устгагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.baseAmount).toLocaleString("en-US")}₮ (өмнөх төлөв: ${document.status})`,
+      },
+      tx
+    );
   });
 
   revalidateCash();
@@ -1240,10 +1320,12 @@ export async function getCashNewPanelData(): Promise<CashNewPanelResult> {
 }
 
 function fxPostingCode(template: string | undefined, mainAccount: string) {
+  // Fallback template нь SEG_DEFAULTS-аас — бичигдээгүй сегмент бүр
+  // оронгийн тоогоор "0" padded (хоосон хэсэгтэй код гаргахыг хориглоно).
   const parts =
     template?.split(".").length === 10
       ? template.split(".")
-      : ["", "", "", "", "", "000", "0000", "", "CA", "0"];
+      : ALL_SEG_IDS.map((id) => SEG_DEFAULTS[id] ?? "");
   parts[2] = mainAccount;
   parts[8] = "CA";
   return parts.join(".");
@@ -1271,6 +1353,8 @@ export async function postCashFxRevaluation(data: {
     .slice(0, 10);
   if (data.valuationDate > todayInUlaanbaatar)
     throw new Error("Ирээдүйн огноонд ханшийн тэгшитгэл хийхгүй");
+  // Хаагдсан периодын хамгаалалт — тэгшитгэлийн журнал энэ огноогоор бичигдэнэ.
+  await assertPeriodOpen(userId, data.valuationDate);
 
   const closingRate = Number(data.closingRate);
   if (!Number.isFinite(closingRate) || closingRate <= 0)
@@ -1418,6 +1502,8 @@ export async function postCashFxRevaluation(data: {
   const gainLossCode = fxPostingCode(templateCode, gainLossAccountNumber);
 
   const result = await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, data.valuationDate);
     if (replaceTarget) {
       const [claimed] = await tx
         .update(cashFxRevaluations)
@@ -1539,6 +1625,16 @@ export async function postCashFxRevaluation(data: {
         voucherId: voucher.id,
       })
       .returning({ id: cashFxRevaluations.id });
+    await logAuditEvent(
+      {
+        userId,
+        action: "fx_post",
+        entityType: "cash",
+        entityId: revaluation.id,
+        summary: `Ханшийн тэгшитгэл бичигдэв — ${account.name} (${account.currency}), ${data.valuationDate}, зөрүү ${adjustmentAmount.toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
     return { id: revaluation.id, voucherId: voucher.id, adjustmentAmount };
   });
 
@@ -1577,7 +1673,12 @@ export async function reverseCashFxRevaluation(id: string) {
   if (latest?.id !== revaluation.id)
     throw new Error("Зөвхөн хамгийн сүүлийн тэгшитгэлийг буцаана");
 
+  // Буцаалт нь ЭХ огноогоор бичигдэх тул тэр огнооны периодыг шалгана.
+  await assertPeriodOpen(userId, revaluation.valuationDate);
+
   await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, userId, revaluation.valuationDate);
     const [claimed] = await tx
       .update(cashFxRevaluations)
       .set({ status: "reversed", reversedAt: new Date() })
@@ -1618,6 +1719,16 @@ export async function reverseCashFxRevaluation(id: string) {
       .update(cashFxRevaluations)
       .set({ reversalVoucherId: reversal.id })
       .where(eq(cashFxRevaluations.id, id));
+    await logAuditEvent(
+      {
+        userId,
+        action: "fx_reverse",
+        entityType: "cash",
+        entityId: id,
+        summary: `Ханшийн тэгшитгэл буцаагдав — ${revaluation.cashAccount.name} (${revaluation.currency}), ${revaluation.valuationDate}, зөрүү ${Number(revaluation.adjustmentAmount).toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
   });
 
   revalidateCash();

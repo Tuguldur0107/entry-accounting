@@ -7,6 +7,7 @@ import { users } from "@/lib/db/schema";
 import { or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import authConfig from "@/lib/auth.config";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const { handlers, auth: sessionAuth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -20,6 +21,10 @@ const { handlers, auth: sessionAuth, signIn, signOut } = NextAuth({
         if (!credentials?.identifier || !credentials?.password) return null;
 
         const id = (credentials.identifier as string).toLowerCase().trim();
+
+        // Brute-force хамгаалалт: нэг identifier дээр 5 минутад 10 оролдлого.
+        // Хэтэрвэл null — NextAuth ердийн "нэвтрэлт амжилтгүй" харуулна.
+        if (!checkRateLimit(`login:${id}`, 10, 5 * 60_000)) return null;
 
         // Case-insensitive: email эсвэл нэрээр хайна
         const user = await db.query.users.findFirst({

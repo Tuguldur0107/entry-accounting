@@ -161,6 +161,23 @@ export const MODULES: Module[] = [
     ],
   },
   {
+    id: "payroll",
+    label: "Цалин",
+    matchPrefix: "/payroll",
+    defaultHref: "/payroll",
+    items: [
+      { label: "Цалин бодолт", href: "/payroll", icon: "movement" },
+      { label: "Ажилтнууд", href: "/payroll/employees", icon: "user" },
+    ],
+  },
+  {
+    id: "vat",
+    label: "НӨАТ",
+    matchPrefix: "/vat",
+    defaultHref: "/vat",
+    items: [{ label: "Сарын тайлан", href: "/vat", icon: "report" }],
+  },
+  {
     id: "ai",
     label: "AI туслах",
     matchPrefix: "/ai",
@@ -180,6 +197,8 @@ export const MODULES: Module[] = [
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
+      { label: "Сар хаалт", href: "/settings/close", icon: "reconciliation" },
+      { label: "Аудитын мөр", href: "/settings/audit", icon: "journal" },
       { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
     ],
   },

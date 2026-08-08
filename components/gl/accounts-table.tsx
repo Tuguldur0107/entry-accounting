@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { IconAction } from "@/components/ui/icon-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -194,25 +195,32 @@ export function AccountsTable({
   }
   async function saveEdit() {
     setSaving(true);
-    const deletes = [...pendingDeletes.entries()];
-    await Promise.all(
-      deletes.map(([id, type]) =>
-        type === "account" ? deleteAccount(id) : deleteSegmentValue(id)
-      )
-    );
-    const accountChanges = accounts
-      .filter((a) => drafts.has(a.id) && !pendingDeletes.has(a.id))
-      .map((a) => ({ id: a.id, ...drafts.get(a.id)! }));
-    const svChanges = segmentValues
-      .filter((sv) => drafts.has(sv.id) && !pendingDeletes.has(sv.id))
-      .map((sv) => ({ id: sv.id, ...drafts.get(sv.id)! }));
-    if (accountChanges.length > 0 || svChanges.length > 0) {
-      await batchSaveSection2(accountChanges, svChanges);
+    try {
+      const deletes = [...pendingDeletes.entries()];
+      await Promise.all(
+        deletes.map(([id, type]) =>
+          type === "account" ? deleteAccount(id) : deleteSegmentValue(id)
+        )
+      );
+      const accountChanges = accounts
+        .filter((a) => drafts.has(a.id) && !pendingDeletes.has(a.id))
+        .map((a) => ({ id: a.id, ...drafts.get(a.id)! }));
+      const svChanges = segmentValues
+        .filter((sv) => drafts.has(sv.id) && !pendingDeletes.has(sv.id))
+        .map((sv) => ({ id: sv.id, ...drafts.get(sv.id)! }));
+      if (accountChanges.length > 0 || svChanges.length > 0) {
+        await batchSaveSection2(accountChanges, svChanges);
+      }
+      setDrafts(new Map());
+      setPendingDeletes(new Map());
+      setEditMode(false);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Хадгалж чадсангүй"
+      );
+    } finally {
+      setSaving(false);
     }
-    setDrafts(new Map());
-    setPendingDeletes(new Map());
-    setEditMode(false);
-    setSaving(false);
   }
 
   const dirtyCount = drafts.size + pendingDeletes.size;

@@ -27,6 +27,10 @@ export const RATIFIED_ACCOUNT_SEED = {
   adjustmentLossAccountNumber: "87100004",
   nrvExpenseAccountNumber: "87100005",
   nrvReserveAccountNumber: "14900001",
+  /** Валютын төлбөрийн (settlement) ханшийн олз — өмнө нь cash.ts-д хатуу байсан. */
+  fxGainAccountNumber: "51800001",
+  /** Валютын төлбөрийн (settlement) ханшийн гарз. */
+  fxLossAccountNumber: "87000003",
 } as const;
 
 /**

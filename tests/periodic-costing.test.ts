@@ -144,6 +144,47 @@ test("receipt without a cost blocks the item-period — no invented unit cost", 
   assert.equal(result.outboundAmount, null);
 });
 
+// OD-005 нээлттэй: зарлага боломжит үлдэгдлээс их бол C2 сөрөг болно —
+// "calculated" гэж үнэлэхгүй, ил шалтгаантайгаар ЗОГСОНО.
+test("outbound greater than available blocks — closing stock must not go negative", () => {
+  const result = computePeriodResult({
+    itemId: ITEM,
+    warehouseId: WH,
+    periodCode: "2026-07",
+    opening: { qty: 10, amount: 100_000 },
+    movements: [outbound("out-1", "2026-07-10", 15)],
+  });
+
+  assert.equal(result.status, "blocked-negative-closing");
+  assert.equal(result.averageUnitCost, null);
+  assert.equal(result.outboundAmount, null);
+  assert.equal(result.closingAmount, null);
+  assert.match(result.blockReason ?? "", /сөрөг үлдэгдэл/);
+  // Шалтгаанд зарлага (15) ба боломжит үлдэгдэл (10) хоёул харагдана.
+  assert.match(result.blockReason ?? "", /15/);
+  assert.match(result.blockReason ?? "", /10/);
+});
+
+test("negative closing blocks the following periods too (opening unknown)", () => {
+  const results = computePeriodSeries({
+    itemId: ITEM,
+    warehouseId: WH,
+    periodCodes: ["2026-06", "2026-07"],
+    movements: [
+      inbound("in-1", "2026-06-05", 10, 100_000),
+      outbound("out-1", "2026-06-20", 15), // 10-аас их зарлага
+      inbound("in-2", "2026-07-03", 20, 200_000),
+    ],
+  });
+
+  assert.equal(results[0].status, "blocked-negative-closing");
+  assert.match(results[0].blockReason ?? "", /сөрөг үлдэгдэл/);
+  // Дараагийн сар C1 тодорхойгүй тул мөн блоклогдоно — үнэ зохиохгүй.
+  assert.notEqual(results[1].status, "calculated");
+  assert.equal(results[1].averageUnitCost, null);
+  assert.match(results[1].blockReason ?? "", /Өмнөх тайлант үе/);
+});
+
 test("negative available quantity blocks (OD-005 not approved)", () => {
   const result = computePeriodResult({
     itemId: ITEM,
@@ -295,6 +336,24 @@ test("OD-003: repeating-decimal average still balances at full precision", () =>
       result.outboundAmount! + result.closingAmount! - result.inboundAmount
     ) < 1e-6
   );
+});
+
+// Хэмжээст пропорциональ хүлцэл: тэрбум ₮-ийн дүнд float64-ийн алдаа
+// үнэмлэхүй 1e-6-аас давж болно — худал "тэнцээгүй" туг гарах ёсгүй.
+test("billion-tugrik amounts with repeating decimals still report balanced", () => {
+  const result = computePeriodResult({
+    itemId: ITEM,
+    warehouseId: WH,
+    periodCode: "2026-07",
+    opening: { qty: 0, amount: 0 },
+    movements: [
+      inbound("in-1", "2026-07-01", 3, 10_000_000_000), // 3.33…e9/ш
+      outbound("out-1", "2026-07-11", 1),
+    ],
+  });
+
+  assert.equal(result.status, "calculated");
+  assert.ok(result.amountBalanced);
 });
 
 // README change-control 0.2: тооллогын илүүдэл, буцаж ирсэн бараа нь

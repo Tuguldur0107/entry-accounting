@@ -44,3 +44,56 @@ export function stripPartialMarker(content: string): string {
     return content.slice(0, tail);
   return content;
 }
+
+const MARKER_PREFIX = "[[EA_ACTION:";
+// "[[" ба "EA_ACTION:" хооронд zero-width space шигтгэвэл MARKER_RE таарахаа
+// больж, харагдах текст өөрчлөгдөхгүй.
+const NEUTRALIZED_PREFIX = "[[" + String.fromCharCode(0x200b) + "EA_ACTION:";
+
+/**
+ * МОДЕЛИЙН бичсэн текстээс EA_ACTION маркерын угтварыг идэвхгүй болгоно —
+ * клиент [[EA_ACTION:{json}]]-ийг ЖИНХЭНЭ үйлдлийн карт гэж зурдаг тул
+ * модель (эсвэл моделийг хуурсан prompt injection) өөрөө маркер зохиож
+ * "баримт үүслээ" гэсэн хуурамч карт харуулж чадах ёсгүй. Зөвхөн серверийн
+ * actionMarker()-оор шигтгэсэн маркер энэ шүүлтүүрийг ТОЙРЧ дамждаг тул
+ * амьд үлдэнэ.
+ *
+ * Stateful: угтвар нь стримийн хоёр delta-ийн заагаар тасарч ирж болзошгүй
+ * тул маркерын эхлэл байж болох сүүлчийн хэдэн тэмдэгтийг түр барьж
+ * (carry), дараагийн chunk эсвэл flush() дээр шийднэ.
+ */
+export function createMarkerSanitizer(): {
+  push: (chunk: string) => string;
+  flush: () => string;
+} {
+  let carry = "";
+  const neutralize = (text: string) =>
+    text.split(MARKER_PREFIX).join(NEUTRALIZED_PREFIX);
+  return {
+    push(chunk: string): string {
+      const combined = carry + chunk;
+      // Төгсгөлд нь маркерын угтварын ЭХЛЭЛ байж болох хэсгийг барина.
+      let hold = 0;
+      for (
+        let k = Math.min(MARKER_PREFIX.length - 1, combined.length);
+        k > 0;
+        k--
+      ) {
+        if (MARKER_PREFIX.startsWith(combined.slice(combined.length - k))) {
+          hold = k;
+          break;
+        }
+      }
+      carry = hold > 0 ? combined.slice(combined.length - hold) : "";
+      return neutralize(
+        hold > 0 ? combined.slice(0, combined.length - hold) : combined
+      );
+    },
+    flush(): string {
+      // Бүтэн угтвар болж амжаагүй сүүл — аюулгүй, хэвээр нь буцаана.
+      const rest = carry;
+      carry = "";
+      return rest;
+    },
+  };
+}

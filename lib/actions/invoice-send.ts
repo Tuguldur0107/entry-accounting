@@ -43,14 +43,34 @@ async function assertSendable(userId: string, documentId: string) {
   return document;
 }
 
-/** Public линк үүсгэнэ (болон бүртгэнэ) — и-мэйлгүй харилцагчид хуваалцахад. */
-export async function createInvoiceLink(documentId: string) {
+/** Линкний хугацааны зөвшөөрөгдсөн сонголтууд (хоногоор). */
+const LINK_EXPIRY_DAYS = [7, 30, 90] as const;
+
+/**
+ * Public линк үүсгэнэ (болон бүртгэнэ) — и-мэйлгүй харилцагчид хуваалцахад.
+ * expiryDays: 7 | 30 | 90 хоног, null = хугацаагүй. Default 90 хоног.
+ */
+export async function createInvoiceLink(
+  documentId: string,
+  options?: { expiryDays?: number | null }
+) {
   const userId = await requireUser();
   await assertSendable(userId, documentId);
 
+  const expiryDays = options?.expiryDays === undefined ? 90 : options.expiryDays;
+  if (
+    expiryDays !== null &&
+    !LINK_EXPIRY_DAYS.includes(expiryDays as (typeof LINK_EXPIRY_DAYS)[number])
+  )
+    throw new Error("Линкний хугацааны сонголт буруу байна (7/30/90 хоног эсвэл хугацаагүй)");
+  const expiresAt =
+    expiryDays === null
+      ? null
+      : new Date(Date.now() + expiryDays * 24 * 60 * 60 * 1000);
+
   const [send] = await db
     .insert(arApInvoiceSends)
-    .values({ userId, documentId, channel: "link" })
+    .values({ userId, documentId, channel: "link", expiresAt })
     .returning({ token: arApInvoiceSends.token });
 
   revalidatePath("/receivables/documents");
@@ -162,15 +182,24 @@ export async function listInvoiceSends(documentId: string) {
     ),
     orderBy: [desc(arApInvoiceSends.sentAt)],
   });
-  return rows.map((row) => ({
-    id: row.id,
-    channel: row.channel as "email" | "link",
-    recipient: row.recipient,
-    url: row.revokedAt ? null : `${appBaseUrl()}/invoice/${row.token}`,
-    sentAt: row.sentAt.toISOString(),
-    viewedAt: row.viewedAt?.toISOString() ?? null,
-    revoked: !!row.revokedAt,
-  }));
+  return rows.map((row) => {
+    const expired =
+      !!row.expiresAt && row.expiresAt.getTime() < Date.now();
+    return {
+      id: row.id,
+      channel: row.channel as "email" | "link",
+      recipient: row.recipient,
+      url:
+        row.revokedAt || expired
+          ? null
+          : `${appBaseUrl()}/invoice/${row.token}`,
+      sentAt: row.sentAt.toISOString(),
+      viewedAt: row.viewedAt?.toISOString() ?? null,
+      revoked: !!row.revokedAt,
+      expiresAt: row.expiresAt?.toISOString() ?? null,
+      expired,
+    };
+  });
 }
 
 /** Линкийг хүчингүй болгоно — цаашид нээгдэхгүй. */

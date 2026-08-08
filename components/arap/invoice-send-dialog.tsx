@@ -36,7 +36,17 @@ type SendRow = {
   sentAt: string;
   viewedAt: string | null;
   revoked: boolean;
+  expiresAt: string | null;
+  expired: boolean;
 };
+
+/** Линкний хугацааны сонголтууд — "" нь хугацаагүй. */
+const LINK_EXPIRY_OPTIONS = [
+  { value: "7", label: "7 хоног" },
+  { value: "30", label: "30 хоног" },
+  { value: "90", label: "90 хоног" },
+  { value: "", label: "Хугацаагүй" },
+] as const;
 
 export function InvoiceSendDialog({
   documentId,
@@ -77,6 +87,7 @@ function SendDialogBody({
 }) {
   const [email, setEmail] = useState("");
   const [sends, setSends] = useState<SendRow[] | null>(null);
+  const [linkExpiry, setLinkExpiry] = useState("90");
   const [isPending, startTransition] = useTransition();
 
   // Mount үед контекст (харилцагчийн и-мэйл + түүх) ачаална.
@@ -118,7 +129,9 @@ function SendDialogBody({
   function handleCreateLink() {
     startTransition(async () => {
       try {
-        const { url } = await createInvoiceLink(documentId);
+        const { url } = await createInvoiceLink(documentId, {
+          expiryDays: linkExpiry === "" ? null : Number(linkExpiry),
+        });
         await navigator.clipboard.writeText(url).catch(() => undefined);
         toast.success("Линк үүсч, санах ойд хуулагдлаа");
         refresh();
@@ -165,15 +178,32 @@ function SendDialogBody({
             <div className="h-px flex-1 bg-[var(--ea-border)]" />
           </div>
 
-          <Button
-            variant="outline"
-            onClick={handleCreateLink}
-            disabled={isPending}
-            className="w-full"
-          >
-            <Icon name="openExternal" size="sm" />
-            Нээлттэй линк үүсгэж хуулах
-          </Button>
+          <div className="flex items-end gap-2">
+            <div className="grid w-32 shrink-0 gap-1.5">
+              <Label htmlFor="invoice-link-expiry">Хугацаа</Label>
+              <select
+                id="invoice-link-expiry"
+                className="h-9 rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg)] px-2 text-sm text-[var(--ea-text-1)]"
+                value={linkExpiry}
+                onChange={(event) => setLinkExpiry(event.target.value)}
+              >
+                {LINK_EXPIRY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button
+              variant="outline"
+              onClick={handleCreateLink}
+              disabled={isPending}
+              className="flex-1"
+            >
+              <Icon name="openExternal" size="sm" />
+              Нээлттэй линк үүсгэж хуулах
+            </Button>
+          </div>
 
           {/* Илгээлтийн түүх */}
           <div>
@@ -203,10 +233,19 @@ function SendDialogBody({
                       <span className="ml-2 text-[var(--ea-text-4)]">
                         {send.sentAt.slice(0, 16).replace("T", " ")}
                       </span>
+                      {!send.revoked && !send.expired && send.expiresAt && (
+                        <span className="ml-2 text-[var(--ea-text-4)]">
+                          · {send.expiresAt.slice(0, 10)} хүртэл
+                        </span>
+                      )}
                     </span>
                     {send.revoked ? (
                       <StatusBadge tone="muted" className="!px-2 !py-0.5 !text-[10px]">
                         Хүчингүй
+                      </StatusBadge>
+                    ) : send.expired ? (
+                      <StatusBadge tone="danger" className="!px-2 !py-0.5 !text-[10px]">
+                        Хугацаа дууссан
                       </StatusBadge>
                     ) : send.viewedAt ? (
                       <StatusBadge tone="success" className="!px-2 !py-0.5 !text-[10px]">
@@ -230,7 +269,7 @@ function SendDialogBody({
                         }}
                       />
                     )}
-                    {!send.revoked && (
+                    {!send.revoked && !send.expired && (
                       <IconAction
                         name="cancel"
                         label="Хүчингүй болгох"

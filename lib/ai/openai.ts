@@ -2,6 +2,7 @@
 // Anthropic-ийн үндсэн замтай ИЖИЛ tool давхарга (lib/ai/tools.ts) ашиглана;
 // зөвхөн wire формат нь өөр. SDK нэмэлгүй, raw HTTP (fetch + SSE).
 
+import { createMarkerSanitizer } from "./action-markers";
 import { AI_TOOLS, executeAiTool, type AiToolResult } from "./tools";
 import type { AiWriteMode } from "./models";
 
@@ -159,12 +160,29 @@ export async function runOpenAiAgent(options: {
     ...options.messages,
   ];
 
+  // Моделийн текстээс [[EA_ACTION: угтварыг идэвхгүй болгож байж onText-руу
+  // (стрим + DB-д хадгалагдах контент) дамжуулна — клиент маркерыг жинхэнэ
+  // ActionCard гэж зурдаг тул зөвхөн route-ийн server-injected actionMarker()
+  // л амьд үлдэх ёстой (forgery хамгаалалт, Anthropic замтай ижил).
+  const modelText = createMarkerSanitizer();
+  const emitSanitized = (chunk: string) => {
+    const safe = modelText.push(chunk);
+    if (safe) options.onText(safe);
+  };
+  const flushSanitized = () => {
+    const rest = modelText.flush();
+    if (rest) options.onText(rest);
+  };
+
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const { finishReason, text, toolCalls } = await streamOnce(
       options.apiKey,
       { model: options.model, messages: convo, tools },
-      options.onText
+      emitSanitized
     );
+    // Эргэлт бүрийн төгсгөлд барьсан сүүлийг гаргана — дараа нь ирэх
+    // серверийн маркертай дараалал холилдохгүй.
+    flushSanitized();
 
     if (finishReason !== "tool_calls" || toolCalls.length === 0) return;
 

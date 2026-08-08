@@ -86,6 +86,8 @@ function closeWindow() {
     window.opener.location.reload();
     window.close();
   } else {
+    // Popup биш горимд бүтэн reload зориудынх (module-level функц тул router байхгүй).
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.href = "/gl/journal";
   }
 }
@@ -423,6 +425,8 @@ export function JournalEntryForm({
         onOpenVoucher?.(id);
         onDone?.();
       } else {
+        // Тусдаа цонхны горимд шинэ voucher-ийн бүтэн хуудас руу зориуд шилжинэ.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = `/gl/journal/${id}/edit`;
       }
     } catch (e) {

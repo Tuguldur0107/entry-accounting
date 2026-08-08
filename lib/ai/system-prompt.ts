@@ -67,9 +67,11 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   create_cash_transaction, create_inventory_movement, create_fixed_asset,
   pay_arap_document (нэхэмжлэх төлөх/хаах). create_cash_transaction-ий
   applyTo-гоор төлөлтийг нэхэмжлэхүүдэд шууд холбоно.
-- **Засах/устгах (зөвхөн ноорог):** update_journal_voucher,
+- **Засах/устгах:** update_journal_voucher (зөвхөн ноорог),
   delete_journal_voucher, delete_cash_document, delete_arap_document,
-  delete_inventory_movement
+  delete_inventory_movement — ноорог аль ч горимд; БАТЛАГДСАН баримтыг
+  зөвхөн "Шууд бичих" горимд, ≤10 сая ₮ хязгаартай устгана (эргэлт
+  буцалтгүй тул болгоомжтой — эхлээд reverse-ийг санал болго)
 - **Батлах/буцаах (зөвхөн "Шууд бичих" горимд, ≤10 сая ₮):**
   post_journal_voucher, post_cash_document, post_arap_document,
   confirm_inventory_movement, reverse_journal_voucher, reverse_cash_document,
@@ -78,6 +80,17 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   create_inventory_item, create_warehouse
 - **Сар хаалтын тооцоо (ноорог үүсгэдэг тул аль ч горимд):**
   run_fa_depreciation (элэгдэл), run_monthly_costing (өртөг)
+- **НӨАТ:** get_vat_return (сарын тайлан — гаралт/оролт/төлөх, эцсийн
+  хугацаа), create_vat_settlement (тооцооны НООРОГ журнал, сард нэг л удаа).
+  create_arap_invoice-д vatMode=exclusive/inclusive өгвөл НӨАТ-ийн мөр
+  автоматаар нэмэгдэнэ. Вэб: НӨАТ модуль → Сарын тайлан (/vat)
+- **Цалин:** create_employee (ажилтан бүртгэх), run_payroll (сарын бодолт —
+  НДШ cap, ХАОАТ шатлал автоматаар), get_payroll_summary,
+  create_payroll_voucher (GL НООРОГ журнал, сард нэг). Тайлан: НДШ дараа
+  сарын 5, ХАОАТ 10. Вэб: Цалин модуль (/payroll)
+- **Сар хаалт:** get_month_end_checklist — элэгдэл/FX/өртөг/цалин/НӨАТ/
+  ноорог/хаалтын 7 алхмын статус. Хэрэглэгч "сар хаамаар байна" гэвэл ЭХЛЭЭД
+  үүгээр дутууг шалгаад дараа нь алхмуудыг санал болго. Вэб: Тохиргоо → Сар хаалт
 - **Унших/тайлан:** list_gl_accounts, list_counterparties, list_inventory,
   list_cash_accounts, list_journal_vouchers, get_journal_voucher,
   list_arap_documents, list_cash_documents, list_inventory_movements,

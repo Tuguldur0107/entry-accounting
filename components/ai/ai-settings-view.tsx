@@ -26,6 +26,14 @@ import { AI_EFFORT_OPTIONS, AI_MODELS, AI_PROVIDER_LABELS } from "@/lib/ai/model
 
 type SettingsTab = "keys" | "mcp" | "chat";
 
+/** Token-ий хугацааны сонголтууд — "" нь хугацаагүй (default). */
+const TOKEN_EXPIRY_OPTIONS = [
+  { value: "", label: "Хугацаагүй" },
+  { value: "30", label: "30 хоног" },
+  { value: "90", label: "90 хоног" },
+  { value: "365", label: "365 хоног" },
+] as const;
+
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "keys", label: "API түлхүүр" },
   { id: "mcp", label: "MCP холболт" },
@@ -65,6 +73,7 @@ export function AiSettingsView({
   const [keyInput, setKeyInput] = useState("");
   const [openaiKeyInput, setOpenaiKeyInput] = useState("");
   const [tokenName, setTokenName] = useState("");
+  const [tokenExpiry, setTokenExpiry] = useState("");
   // Сая үүссэн token — ЗӨВХӨН энэ render-д бүтнээрээ харагдана.
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>("keys");
@@ -159,7 +168,10 @@ export function AiSettingsView({
   function createToken() {
     startTransition(async () => {
       try {
-        const { token } = await createApiToken(tokenName);
+        const { token } = await createApiToken(
+          tokenName,
+          tokenExpiry === "" ? null : Number(tokenExpiry)
+        );
         setTokenName("");
         setFreshToken(token);
         router.refresh();
@@ -414,6 +426,17 @@ export function AiSettingsView({
                   <span className="font-mono text-[var(--ea-text-4)]">
                     eak_••••{token.tokenHint}
                   </span>
+                  {token.expired ? (
+                    <span className="font-medium text-[var(--ea-danger-fg)]">
+                      хугацаа дууссан
+                    </span>
+                  ) : (
+                    <span className="text-[var(--ea-text-4)]">
+                      {token.expiresAt
+                        ? `Дуусах: ${token.expiresAt}`
+                        : "Хугацаагүй"}
+                    </span>
+                  )}
                   <span className="ml-auto text-[var(--ea-text-4)]">
                     {token.lastUsedAt
                       ? `Сүүлд: ${token.lastUsedAt}`
@@ -446,6 +469,21 @@ export function AiSettingsView({
                 maxLength={60}
                 onChange={(event) => setTokenName(event.target.value)}
               />
+            </div>
+            <div className="grid w-32 shrink-0 gap-1.5">
+              <Label htmlFor="mcp-token-expiry">Хугацаа</Label>
+              <select
+                id="mcp-token-expiry"
+                className="h-9 rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg)] px-2 text-sm text-[var(--ea-text-1)]"
+                value={tokenExpiry}
+                onChange={(event) => setTokenExpiry(event.target.value)}
+              >
+                {TOKEN_EXPIRY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <Button
               onClick={createToken}
