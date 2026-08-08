@@ -21,7 +21,9 @@ import {
 } from "@/components/ui/dialog";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import {
+  deleteOrganization,
   inviteMember,
+  leaveOrganization,
   removeMember,
   updateMemberRole,
   updateOrganization,
@@ -47,6 +49,8 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<MembershipRole>("accountant");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const canManage = data.myRole === "admin" || data.myRole === "owner";
 
@@ -200,6 +204,94 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
           suppressCellFocus
         />
       </div>
+
+      {/* Аюултай бүс — owner: устгах, бусад гишүүн: гарах */}
+      <div
+        className="space-y-3 rounded-lg border p-4"
+        style={{
+          borderColor: "color-mix(in srgb, var(--ea-danger) 40%, transparent)",
+          background: "var(--ea-surface)",
+        }}
+      >
+        <h2 className="text-sm font-semibold" style={{ color: "var(--ea-danger-fg)" }}>
+          Аюултай бүс
+        </h2>
+        {data.myRole === "owner" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs" style={{ color: "var(--ea-text-3)" }}>
+              Байгууллагыг устгавал журнал, баримт, тохиргоо — БҮХ дата
+              буцалтгүй устна.
+            </p>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => setDeleteOpen(true)}
+            >
+              Байгууллага устгах
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs" style={{ color: "var(--ea-text-3)" }}>
+              Байгууллагаас гарвал дахин нэвтрэхийн тулд admin таныг шинээр
+              урих шаардлагатай.
+            </p>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={isPending}
+              onClick={() =>
+                act(async () => {
+                  await leaveOrganization();
+                }, "Байгууллагаас гарлаа")
+              }
+            >
+              Байгууллагаас гарах
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Байгууллага устгах</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <p className="text-sm" style={{ color: "var(--ea-danger-fg)" }}>
+              «{data.org.name}»-ийн БҮХ дата (журнал, баримт, тайлан, тохиргоо)
+              буцалтгүй устана. Backup-гүй бол сэргээх боломжгүй.
+            </p>
+            <div className="grid gap-1.5">
+              <Label>
+                Баталгаажуулахын тулд байгууллагын нэрийг яг бичнэ үү
+              </Label>
+              <Input
+                value={deleteConfirm}
+                onChange={(event) => setDeleteConfirm(event.target.value)}
+                placeholder={data.org.name}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Болих
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isPending || deleteConfirm.trim() !== data.org.name}
+              onClick={() =>
+                act(async () => {
+                  await deleteOrganization(deleteConfirm);
+                  setDeleteOpen(false);
+                }, "Байгууллага устгагдлаа")
+              }
+            >
+              Бүрмөсөн устгах
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent className="sm:max-w-md">

@@ -212,7 +212,7 @@ export async function createFixedAsset(
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж
 // идэвхжүүлнэ. GL бичилт хийхгүй — өртөг эх сувагтаа данслагдсан.
 export async function activateFixedAsset(id: string, data: FixedAssetInput) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   validateAssetInput(data);
   await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
   await assertEnabledMainAccount(orgId, data.accumDepAccountNumber.trim());
@@ -260,7 +260,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
  * бичилтүүдийг устгаж/буцааж байж картыг устгана (GL-тэй зөрөхөөс сэргийлнэ).
  */
 export async function deleteFixedAsset(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
     columns: { status: true, code: true },
@@ -459,7 +459,7 @@ export async function postDepreciationEntries(ids: string[]) {
 }
 
 export async function deleteDepreciationEntry(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),

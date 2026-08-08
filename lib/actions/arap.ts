@@ -269,7 +269,7 @@ export async function updateCounterparty(
     address?: string;
   }
 ) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   const name = data.name.trim();
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
@@ -302,7 +302,7 @@ export async function updateCounterparty(
 }
 
 export async function toggleCounterparty(id: string, isActive: boolean) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   await db
     .update(counterparties)
     .set({ isActive })

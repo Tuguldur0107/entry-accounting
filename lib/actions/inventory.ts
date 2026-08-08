@@ -70,7 +70,7 @@ export async function updateInventoryItem(
   id: string,
   data: { name: string; unit: string }
 ) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   const name = data.name.trim();
   if (!name) throw new Error("Барааны нэр оруулна уу");
   await db
@@ -81,7 +81,7 @@ export async function updateInventoryItem(
 }
 
 export async function toggleInventoryItem(id: string, isActive: boolean) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   await db
     .update(inventoryItems)
     .set({ isActive })
@@ -105,7 +105,7 @@ export async function createWarehouse(data: { code: string; name: string }) {
 }
 
 export async function toggleWarehouse(id: string, isActive: boolean) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   await db
     .update(warehouses)
     .set({ isActive })
@@ -294,7 +294,7 @@ export async function updateInventoryMovement(
     issueTypeId?: string;
   }
 ) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId } = await requireAccountant();
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),

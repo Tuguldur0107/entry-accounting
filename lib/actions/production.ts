@@ -266,7 +266,7 @@ export async function toggleCostPool(
 ): Promise<ProductionResult> {
   const active = await adminCtxOrNull();
   if (!active) return { ok: false, code: "unauthenticated" };
-  const { orgId, userId } = active;
+  const { orgId } = active;
   await db
     .update(costPools)
     .set({ isActive, updatedAt: new Date() })

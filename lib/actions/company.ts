@@ -6,15 +6,10 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth, getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companySettings, type CompanySettings } from "@/lib/db/schema";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
 
 /** ~1MB-аас том зураг татгалзана — PDF/DB-ийг дэмий бүдүүрүүлэхгүй. */
 const MAX_IMAGE_BYTES = 1_000_000;

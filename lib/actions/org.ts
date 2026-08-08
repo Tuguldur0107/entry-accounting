@@ -263,6 +263,78 @@ export async function updateMemberRole(data: {
   revalidatePath("/settings/org");
 }
 
+/**
+ * Байгууллага УСТГАХ — зөвхөн owner. Бүх дата (журнал, баримт, тохиргоо)
+ * cascade-аар БУЦАЛТГҮЙ устана — баталгаажуулалтад нэрийг яг бичиж өгнө.
+ */
+export async function deleteOrganization(confirmName: string) {
+  const { orgId, userId, role } = await getActiveOrg();
+  if (role !== "owner")
+    throw new Error("Байгууллагыг зөвхөн owner устгана");
+
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, orgId),
+    columns: { name: true },
+  });
+  if (!org) throw new Error("Байгууллага олдсонгүй");
+  if (confirmName.trim() !== org.name)
+    throw new Error(
+      `Баталгаажуулахын тулд байгууллагын нэрийг яг бичнэ үү: "${org.name}"`
+    );
+
+  // Cascade нь audit_events-ийг ч устгах тул сервер лог л үлдэнэ.
+  console.log(
+    `[org-audit] deleteOrganization org=${orgId} "${org.name}" by user=${userId} at=${new Date().toISOString()}`
+  );
+  await db.delete(organizations).where(eq(organizations.id, orgId));
+
+  // Өөр байгууллагатай бол тийш нь, үгүй бол cookie цэвэрлээд дараагийн
+  // хандалтад personal org автоматаар үүснэ (getActiveOrg safety net).
+  const next = await db.query.memberships.findFirst({
+    where: eq(memberships.userId, userId),
+    orderBy: [asc(memberships.createdAt)],
+    columns: { organizationId: true },
+  });
+  const store = await cookies();
+  if (next) {
+    store.set(ORG_COOKIE, next.organizationId, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+    });
+  } else {
+    store.delete(ORG_COOKIE);
+  }
+  revalidatePath("/", "layout");
+}
+
+/**
+ * Байгууллагаас ГАРАХ — өөрийн гишүүнчлэлийг хасна (owner биш гишүүнд;
+ * сүүлчийн owner гарахын оронд устгах эсвэл owner эрхээ шилжүүлнэ).
+ */
+export async function leaveOrganization() {
+  const { orgId, userId, role } = await getActiveOrg();
+  if (role === "owner") {
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(memberships)
+      .where(
+        and(eq(memberships.organizationId, orgId), eq(memberships.role, "owner"))
+      );
+    if (Number(n) <= 1)
+      throw new Error(
+        "Сүүлчийн owner гарах боломжгүй — owner эрхээ шилжүүлэх эсвэл байгууллагаа устгана уу"
+      );
+  }
+  await db
+    .delete(memberships)
+    .where(
+      and(eq(memberships.organizationId, orgId), eq(memberships.userId, userId))
+    );
+  (await cookies()).delete(ORG_COOKIE);
+  revalidatePath("/", "layout");
+}
+
 /** Гишүүн хасах — admin+; сүүлчийн owner хасагдахгүй. */
 export async function removeMember(membershipId: string) {
   const { orgId, role: myRole } = await requireRole("admin");

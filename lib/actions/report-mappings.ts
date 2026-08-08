@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { reportLineMappings } from "@/lib/db/schema";
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
@@ -88,7 +88,7 @@ export async function saveReportMapping(
 
 export async function clearReportMapping(reportType: ReportType, lineKey: string) {
   try {
-    const { orgId, userId } = await ctx();
+    const { orgId } = await ctx();
     await db
       .delete(reportLineMappings)
       .where(
@@ -180,7 +180,7 @@ export async function removeCustomLine(reportType: ReportType, lineKey: string) 
     if (!lineKey.startsWith("custom-")) {
       return { error: "Зөвхөн нэмсэн мөрийг устгана" };
     }
-    const { orgId, userId } = await ctx();
+    const { orgId } = await ctx();
     await db
       .delete(reportLineMappings)
       .where(
