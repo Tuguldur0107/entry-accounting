@@ -2,35 +2,32 @@
 
 import { db } from "@/lib/db";
 import { reportLineMappings } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 
 export type ReportType = "balance-sheet" | "income-statement" | "cash-flow";
 
-async function requireUserId() {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Нэвтрээгүй");
-  return userId;
+async function ctx() {
+  // Тайлангийн mapping = тохиргоо — унших нь гишүүн бүр, засах admin.
+  const { orgId, userId } = await getActiveOrg();
+  return { orgId, userId };
 }
 
 export async function getReportMappings(reportType: ReportType) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return [];
+  const { orgId } = await ctx();
   return db.query.reportLineMappings.findMany({
     where: and(
-      eq(reportLineMappings.userId, userId),
+      eq(reportLineMappings.organizationId, orgId),
       eq(reportLineMappings.reportType, reportType)
     ),
   });
 }
 
-// Helper: upsert by (userId, reportType, lineKey).
+// Helper: upsert by (orgId, reportType, lineKey).
 async function upsertLine(
-  userId: string,
+  ctx0: { orgId: string; userId: string },
   reportType: ReportType,
   lineKey: string,
   patch: Partial<{
@@ -41,9 +38,10 @@ async function upsertLine(
     sortOrder: number;
   }>
 ) {
+  const { orgId, userId } = ctx0;
   const existing = await db.query.reportLineMappings.findFirst({
     where: and(
-      eq(reportLineMappings.userId, userId),
+      eq(reportLineMappings.organizationId, orgId),
       eq(reportLineMappings.reportType, reportType),
       eq(reportLineMappings.lineKey, lineKey)
     ),
@@ -59,6 +57,7 @@ async function upsertLine(
     .insert(reportLineMappings)
     .values({
       userId,
+      organizationId: orgId,
       reportType,
       lineKey,
       accountNumbers: patch.accountNumbers ?? "",
@@ -77,9 +76,9 @@ export async function saveReportMapping(
   accountNumbers: string[]
 ) {
   try {
-    const userId = await requireUserId();
+    const { orgId, userId } = await ctx();
     const csv = accountNumbers.map((a) => a.trim()).filter(Boolean).join(",");
-    await upsertLine(userId, reportType, lineKey, { accountNumbers: csv });
+    await upsertLine({ orgId, userId }, reportType, lineKey, { accountNumbers: csv });
     revalidatePath("/gl/reports");
     return { ok: true };
   } catch (e) {
@@ -89,12 +88,12 @@ export async function saveReportMapping(
 
 export async function clearReportMapping(reportType: ReportType, lineKey: string) {
   try {
-    const userId = await requireUserId();
+    const { orgId, userId } = await ctx();
     await db
       .delete(reportLineMappings)
       .where(
         and(
-          eq(reportLineMappings.userId, userId),
+          eq(reportLineMappings.organizationId, orgId),
           eq(reportLineMappings.reportType, reportType),
           eq(reportLineMappings.lineKey, lineKey)
         )
@@ -112,8 +111,8 @@ export async function setLineHidden(
   isHidden: boolean
 ) {
   try {
-    const userId = await requireUserId();
-    await upsertLine(userId, reportType, lineKey, { isHidden });
+    const { orgId, userId } = await ctx();
+    await upsertLine({ orgId, userId }, reportType, lineKey, { isHidden });
     revalidatePath("/gl/reports");
     return { ok: true };
   } catch (e) {
@@ -127,9 +126,9 @@ export async function renameLine(
   customLabel: string | null
 ) {
   try {
-    const userId = await requireUserId();
+    const { orgId, userId } = await ctx();
     const trimmed = customLabel?.trim() || null;
-    await upsertLine(userId, reportType, lineKey, { customLabel: trimmed });
+    await upsertLine({ orgId, userId }, reportType, lineKey, { customLabel: trimmed });
     revalidatePath("/gl/reports");
     return { ok: true };
   } catch (e) {
@@ -143,14 +142,14 @@ export async function addCustomLine(
   customLabel: string
 ) {
   try {
-    const userId = await requireUserId();
+    const { orgId, userId } = await ctx();
     const label = customLabel.trim();
     if (!label) return { error: "Гарчиг хоосон байна" };
 
     // Position the new line at the end of its group.
     const existing = await db.query.reportLineMappings.findMany({
       where: and(
-        eq(reportLineMappings.userId, userId),
+        eq(reportLineMappings.organizationId, orgId),
         eq(reportLineMappings.reportType, reportType)
       ),
     });
@@ -161,6 +160,7 @@ export async function addCustomLine(
     const lineKey = `custom-${nanoid(10)}`;
     await db.insert(reportLineMappings).values({
       userId,
+      organizationId: orgId,
       reportType,
       lineKey,
       accountNumbers: "",
@@ -180,12 +180,12 @@ export async function removeCustomLine(reportType: ReportType, lineKey: string) 
     if (!lineKey.startsWith("custom-")) {
       return { error: "Зөвхөн нэмсэн мөрийг устгана" };
     }
-    const userId = await requireUserId();
+    const { orgId, userId } = await ctx();
     await db
       .delete(reportLineMappings)
       .where(
         and(
-          eq(reportLineMappings.userId, userId),
+          eq(reportLineMappings.organizationId, orgId),
           eq(reportLineMappings.reportType, reportType),
           eq(reportLineMappings.lineKey, lineKey)
         )

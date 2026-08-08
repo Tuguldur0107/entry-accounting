@@ -56,6 +56,9 @@ export async function createMovementDraftsForArApDocument(documentId: string) {
       with: { lines: true },
     });
     if (!document) return 0;
+    // Scope нь эх баримтын байгууллага (userId нь createdBy болж үлдэнэ).
+    const orgId = document.organizationId;
+    if (!orgId) return 0;
 
     const itemLines = document.lines.filter(
       (line) => line.itemId && Number(line.quantity) > 0
@@ -64,7 +67,7 @@ export async function createMovementDraftsForArApDocument(documentId: string) {
 
     const existing = await db.query.inventoryMovements.findMany({
       where: and(
-        eq(inventoryMovements.userId, document.userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.sourceType, "arap_line"),
         inArray(
           inventoryMovements.sourceId,
@@ -81,6 +84,7 @@ export async function createMovementDraftsForArApDocument(documentId: string) {
       .filter((line) => !linked.has(line.id))
       .map((line) => ({
         userId: document.userId,
+        organizationId: orgId,
         documentNo: autoDocumentNo("INV", document.date),
         movementType,
         date: document.date,
@@ -118,6 +122,8 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
     });
     if (!voucher || voucher.status !== "posted") return;
     const userId = voucher.userId;
+    const orgId = voucher.organizationId;
+    if (!orgId) return;
 
     // Клирингийн цэвэр Dr нөлөө (худалдан авалт клирингт суусан дүн)
     let net = 0;
@@ -132,7 +138,7 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
     const [alreadySynced, costingOwned, arApDoc] = await Promise.all([
       db.query.inventoryMovements.findFirst({
         where: and(
-          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.organizationId, orgId),
           eq(inventoryMovements.sourceType, "gl_voucher"),
           eq(inventoryMovements.sourceId, voucherId)
         ),
@@ -141,7 +147,7 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
       // Costing-ийн өөрийн журнал (үнэлгээ өөрөө) — sentinel хэрэггүй.
       db.query.costEntries.findFirst({
         where: and(
-          eq(costEntries.userId, userId),
+          eq(costEntries.organizationId, orgId),
           or(
             eq(costEntries.voucherId, voucherId),
             eq(costEntries.reversalVoucherId, voucherId)
@@ -151,7 +157,7 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
       }),
       db.query.arApDocuments.findFirst({
         where: and(
-          eq(arApDocuments.userId, userId),
+          eq(arApDocuments.organizationId, orgId),
           eq(arApDocuments.voucherId, voucherId)
         ),
         columns: { id: true, exchangeRate: true },
@@ -181,6 +187,7 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
 
     await db.insert(inventoryMovements).values({
       userId,
+      organizationId: orgId,
       documentNo: autoDocumentNo("INV", voucher.date),
       movementType: net > 0 ? "receipt" : "issue",
       date: voucher.date,

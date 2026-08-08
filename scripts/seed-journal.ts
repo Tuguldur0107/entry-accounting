@@ -169,13 +169,23 @@ async function seed() {
   const userId = users[0].id;
   console.log(`Хэрэглэгч: ${users[0].email}\n`);
 
-  await db.delete(schema.journalVouchers).where(eq(schema.journalVouchers.userId, userId));
+  // Фаз 01: хэрэглэгчийн эхний байгууллагад seed хийнэ.
+  const membership = await db.query.memberships.findFirst({
+    where: eq(schema.memberships.userId, userId),
+    columns: { organizationId: true },
+  });
+  if (!membership) { console.error("Гишүүнчлэл олдсонгүй — эхлээд migration ажиллуул."); process.exit(1); }
+  const organizationId = membership.organizationId;
+
+  await db
+    .delete(schema.journalVouchers)
+    .where(eq(schema.journalVouchers.organizationId, organizationId));
   console.log("── Өмнөх бичилтүүдийг устгалаа.\n");
 
   for (const v of VOUCHERS) {
     const [voucher] = await db
       .insert(schema.journalVouchers)
-      .values({ userId, date: v.date, description: v.description, status: v.status })
+      .values({ userId, organizationId, date: v.date, description: v.description, status: v.status })
       .returning();
     await db.insert(schema.journalLines).values(v.lines.map((l) => ({ voucherId: voucher.id, ...l })));
     const d = v.lines.reduce((s, l) => s + Number(l.debit), 0);

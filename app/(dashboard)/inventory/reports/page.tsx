@@ -4,7 +4,7 @@ import {
   InventoryReportView,
   type QtyFlowRow,
 } from "@/components/inventory/inventory-report-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { inventoryMovements } from "@/lib/db/schema";
@@ -18,8 +18,7 @@ export default async function InventoryReportsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const params = await searchParams;
   const period = await getPeriodSelection();
   const start = /^\d{4}-\d{2}-\d{2}$/.test(params.start ?? "")
@@ -30,9 +29,9 @@ export default async function InventoryReportsPage({
     : period.to;
 
   const [{ itemViews, warehouseViews }, movements] = await Promise.all([
-    loadInventoryBase(userId),
+    loadInventoryBase(orgId),
     db.query.inventoryMovements.findMany({
-      where: eq(inventoryMovements.userId, userId),
+      where: eq(inventoryMovements.organizationId, orgId),
     }),
   ]);
 

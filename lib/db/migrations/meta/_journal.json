@@ -134,6 +134,13 @@
       "when": 1786176062368,
       "tag": "0018_productive_raza",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786183980341,
+      "tag": "0019_remarkable_iron_patriot",
+      "breakpoints": true
     }
   ]
 }

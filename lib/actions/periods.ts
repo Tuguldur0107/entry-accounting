@@ -9,7 +9,7 @@
 import { and, between, count, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
@@ -49,11 +49,14 @@ export type PeriodActionResult =
         | "not-closed";
     };
 
-async function requireUser() {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Нэвтрэх шаардлагатай");
-  return userId;
+// Период нээх/хаах/дахин нээх — admin+ эрхтэй гишүүн; жагсаалт унших —
+// гишүүн бүр. requireRole алдаа шидвэл дуудагч { ok: false } буцаана.
+async function requireAdmin() {
+  try {
+    return await requireRole("admin");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -61,22 +64,22 @@ async function requireUser() {
  * Бичилтгүй сарыг харуулах шаардлагагүй тул хоосон саруудыг алгасна.
  */
 export async function listPeriods(): Promise<PeriodRow[]> {
-  const userId = await requireUser();
+  const { orgId } = await getActiveOrg();
 
   const [registered, vouchers, movements, entries] = await Promise.all([
     db.query.accountingPeriods.findMany({
-      where: eq(accountingPeriods.userId, userId),
+      where: eq(accountingPeriods.organizationId, orgId),
     }),
     db.query.journalVouchers.findMany({
-      where: eq(journalVouchers.userId, userId),
+      where: eq(journalVouchers.organizationId, orgId),
       columns: { date: true, status: true },
     }),
     db.query.inventoryMovements.findMany({
-      where: eq(inventoryMovements.userId, userId),
+      where: eq(inventoryMovements.organizationId, orgId),
       columns: { date: true },
     }),
     db.query.costEntries.findMany({
-      where: eq(costEntries.userId, userId),
+      where: eq(costEntries.organizationId, orgId),
       columns: { date: true, status: true },
     }),
   ]);
@@ -125,17 +128,24 @@ export async function listPeriods(): Promise<PeriodRow[]> {
  * дараа нь хаах суурь болдог. Давхардвал "exists" буцаана.
  */
 export async function createPeriod(code: string): Promise<PeriodActionResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await requireAdmin();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
   const { startDate, endDate } = periodRange(code);
   const inserted = await db
     .insert(accountingPeriods)
-    .values({ userId, code, startDate, endDate, status: "open" })
+    .values({
+      userId,
+      organizationId: orgId,
+      code,
+      startDate,
+      endDate,
+      status: "open",
+    })
     .onConflictDoNothing({
-      target: [accountingPeriods.userId, accountingPeriods.code],
+      target: [accountingPeriods.organizationId, accountingPeriods.code],
     })
     .returning({ code: accountingPeriods.code });
   if (inserted.length === 0) return { ok: false, code: "exists" };
@@ -150,9 +160,9 @@ export async function createPeriod(code: string): Promise<PeriodActionResult> {
  * period close-д ороогүй байх ёстой).
  */
 export async function closePeriod(code: string): Promise<PeriodActionResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await requireAdmin();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
   const { startDate, endDate } = periodRange(code);
@@ -162,7 +172,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
   // тооллого болон "closed" upsert хоёрын завсар бичилт орох боломжгүй.
   const hasDrafts = await db.transaction(async (tx) => {
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${userId}), ${PERIOD_GATE_LOCK_KEY})`
+      sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${PERIOD_GATE_LOCK_KEY})`
     );
 
     // Бүх дэд дэвтрийн ноорог энэ сард үлдсэн эсэх — хаасны дараа тэдгээр
@@ -173,7 +183,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         .from(journalVouchers)
         .where(
           and(
-            eq(journalVouchers.userId, userId),
+            eq(journalVouchers.organizationId, orgId),
             eq(journalVouchers.status, "draft"),
             between(journalVouchers.date, startDate, endDate)
           )
@@ -183,7 +193,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         .from(costEntries)
         .where(
           and(
-            eq(costEntries.userId, userId),
+            eq(costEntries.organizationId, orgId),
             eq(costEntries.status, "draft"),
             between(costEntries.date, startDate, endDate)
           )
@@ -193,7 +203,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         .from(cashDocuments)
         .where(
           and(
-            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.organizationId, orgId),
             eq(cashDocuments.status, "draft"),
             between(cashDocuments.date, startDate, endDate)
           )
@@ -203,7 +213,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         .from(arApDocuments)
         .where(
           and(
-            eq(arApDocuments.userId, userId),
+            eq(arApDocuments.organizationId, orgId),
             eq(arApDocuments.status, "draft"),
             between(arApDocuments.date, startDate, endDate)
           )
@@ -213,7 +223,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         .from(inventoryMovements)
         .where(
           and(
-            eq(inventoryMovements.userId, userId),
+            eq(inventoryMovements.organizationId, orgId),
             eq(inventoryMovements.status, "draft"),
             between(inventoryMovements.date, startDate, endDate)
           )
@@ -223,7 +233,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         .from(faDepreciationEntries)
         .where(
           and(
-            eq(faDepreciationEntries.userId, userId),
+            eq(faDepreciationEntries.organizationId, orgId),
             eq(faDepreciationEntries.status, "draft"),
             eq(faDepreciationEntries.periodMonth, code)
           )
@@ -235,6 +245,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
       .insert(accountingPeriods)
       .values({
         userId,
+        organizationId: orgId,
         code,
         startDate,
         endDate,
@@ -242,12 +253,13 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         closedAt: new Date(),
       })
       .onConflictDoUpdate({
-        target: [accountingPeriods.userId, accountingPeriods.code],
+        target: [accountingPeriods.organizationId, accountingPeriods.code],
         set: { status: "closed", closedAt: new Date() },
       });
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "close",
         entityType: "period",
         entityId: code,
@@ -265,9 +277,9 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
 
 /** Период дахин нээх — ил үйлдэл, closedAt цэвэрлэгдэнэ. */
 export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await requireAdmin();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
   // Зөвхөн ХААЛТТАЙ периодыг дахин нээнэ — бүртгэлгүй/нээлттэй период
@@ -278,7 +290,7 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
     .set({ status: "open", closedAt: null })
     .where(
       and(
-        eq(accountingPeriods.userId, userId),
+        eq(accountingPeriods.organizationId, orgId),
         eq(accountingPeriods.code, code),
         eq(accountingPeriods.status, "closed")
       )
@@ -289,6 +301,7 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
   // Аудитын мөр — хаагдсан периодыг нээх нь мэдрэг үйлдэл.
   await logAuditEvent({
     userId,
+    organizationId: orgId,
     action: "reopen",
     entityType: "period",
     entityId: code,

@@ -1,25 +1,24 @@
 import { db } from "@/lib/db";
 import { chartOfAccounts, segmentConfigs, segmentValues, moduleConfigs } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { AccountsTable } from "@/components/gl/accounts-table";
 import { SEGMENT_DEFS, MODULE_DEFS } from "@/lib/constants/standard-accounts";
 
 export default async function GlSettingsPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const [accounts, rawSegConfigs, rawSegValues, rawModConfigs] = await Promise.all([
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
       orderBy: (a, { asc }) => [asc(a.number)],
     }),
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
     db.query.segmentValues.findMany({
-      where: eq(segmentValues.userId, userId),
+      where: eq(segmentValues.organizationId, orgId),
       orderBy: (v, { asc }) => [asc(v.segmentId), asc(v.code)],
     }),
-    db.query.moduleConfigs.findMany({ where: eq(moduleConfigs.userId, userId) }),
+    db.query.moduleConfigs.findMany({ where: eq(moduleConfigs.organizationId, orgId) }),
   ]);
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));

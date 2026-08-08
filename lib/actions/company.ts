@@ -6,7 +6,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { auth, getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companySettings, type CompanySettings } from "@/lib/db/schema";
 
@@ -29,10 +29,10 @@ function validatePngBase64(image: string, label: string) {
 }
 
 export async function getCompanySettings(): Promise<CompanySettings | null> {
-  const userId = await requireUser();
+  const { orgId } = await getActiveOrg();
   return (
     (await db.query.companySettings.findFirst({
-      where: eq(companySettings.userId, userId),
+      where: eq(companySettings.organizationId, orgId),
     })) ?? null
   );
 }
@@ -51,7 +51,8 @@ export async function updateCompanySettings(data: {
   signatures: { name: string; title: string; image: string }[];
   autoStamp: boolean;
 }) {
-  const userId = await requireUser();
+  // Компанийн мэдээлэл = тохиргоо — admin+.
+  const { orgId, userId } = await requireRole("admin");
 
   if (data.logo) validatePngBase64(data.logo, "Лого");
   if (data.stamp) validatePngBase64(data.stamp, "Тамга");
@@ -79,12 +80,13 @@ export async function updateCompanySettings(data: {
     .insert(companySettings)
     .values({
       userId,
+      organizationId: orgId,
       ...base,
       logo: data.logo ?? null,
       stamp: data.stamp ?? null,
     })
     .onConflictDoUpdate({
-      target: companySettings.userId,
+      target: companySettings.organizationId,
       set: {
         ...base,
         // undefined бол хуучин зургаа хадгална.

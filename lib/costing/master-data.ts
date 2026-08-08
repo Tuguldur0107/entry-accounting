@@ -15,10 +15,30 @@ import {
   costComponents,
   costingAccountSettings,
   inventoryIssueTypes,
+  memberships,
   type CostComponent,
   type CostingAccountSetting,
   type InventoryIssueType,
 } from "@/lib/db/schema";
+
+/**
+ * Seed мөр үүсгэхэд userId (notNull, createdBy утгатай) хэрэгтэй. Дуудагч
+ * ихэвчлэн өөрийн userId-г дамжуулна; өгөөгүй үед байгууллагын хамгийн
+ * эртний owner-ийг ашиглана (cross-batch дуудлагууд orgId-г л мэддэг).
+ */
+async function seedCreatorUserId(
+  orgId: string,
+  creatorUserId?: string
+): Promise<string> {
+  if (creatorUserId) return creatorUserId;
+  const row = await db.query.memberships.findFirst({
+    where: eq(memberships.organizationId, orgId),
+    orderBy: (m, { asc: ascOrder }) => [ascOrder(m.createdAt)],
+    columns: { userId: true, role: true },
+  });
+  if (!row) throw new Error("Байгууллагын гишүүнчлэл олдсонгүй");
+  return row.userId;
+}
 
 /** Seed-ийн эх утгууд — 0.1 хувилбарт кодод хатуу бичигдсэн байсан дүрмүүд. */
 export const RATIFIED_ACCOUNT_SEED = {
@@ -49,23 +69,25 @@ const DEFAULT_ISSUE_TYPES = [
 ];
 
 export async function loadCostingAccountSettings(
-  userId: string
+  orgId: string,
+  creatorUserId?: string
 ): Promise<CostingAccountSetting> {
   const existing = await db.query.costingAccountSettings.findFirst({
-    where: eq(costingAccountSettings.userId, userId),
+    where: eq(costingAccountSettings.organizationId, orgId),
   });
   if (existing) return existing;
 
+  const userId = await seedCreatorUserId(orgId, creatorUserId);
   const [created] = await db
     .insert(costingAccountSettings)
-    .values({ userId, ...RATIFIED_ACCOUNT_SEED })
+    .values({ userId, organizationId: orgId, ...RATIFIED_ACCOUNT_SEED })
     .onConflictDoNothing()
     .returning();
   if (created) return created;
 
   // Зэрэгцээ insert — нөгөөх нь ялсан бол уншаад буцаана.
   const row = await db.query.costingAccountSettings.findFirst({
-    where: eq(costingAccountSettings.userId, userId),
+    where: eq(costingAccountSettings.organizationId, orgId),
   });
   if (!row) throw new Error("Өртгийн дансны тохиргоо үүсгэж чадсангүй");
   return row;
@@ -73,20 +95,22 @@ export async function loadCostingAccountSettings(
 
 /** Зарлагын төрлүүд — хоосон бол анхны "COGS" төрлийг үүсгэнэ. */
 export async function loadIssueTypes(
-  userId: string,
-  options?: { activeOnly?: boolean }
+  orgId: string,
+  options?: { activeOnly?: boolean; creatorUserId?: string }
 ): Promise<InventoryIssueType[]> {
   let rows = await db.query.inventoryIssueTypes.findMany({
-    where: eq(inventoryIssueTypes.userId, userId),
+    where: eq(inventoryIssueTypes.organizationId, orgId),
     orderBy: (type, { asc }) => [asc(type.code)],
   });
 
   if (rows.length === 0) {
+    const userId = await seedCreatorUserId(orgId, options?.creatorUserId);
     await db
       .insert(inventoryIssueTypes)
       .values(
         DEFAULT_ISSUE_TYPES.map((type) => ({
           userId,
+          organizationId: orgId,
           createdBy: userId,
           updatedBy: userId,
           ...type,
@@ -94,7 +118,7 @@ export async function loadIssueTypes(
       )
       .onConflictDoNothing();
     rows = await db.query.inventoryIssueTypes.findMany({
-      where: eq(inventoryIssueTypes.userId, userId),
+      where: eq(inventoryIssueTypes.organizationId, orgId),
       orderBy: (type, { asc }) => [asc(type.code)],
     });
   }
@@ -104,23 +128,23 @@ export async function loadIssueTypes(
 
 /** Анхны (кодоор "COGS") зарлагын төрөл — төрөл заагаагүй хуучин бичилтэд. */
 export async function defaultIssueType(
-  userId: string
+  orgId: string
 ): Promise<InventoryIssueType | null> {
-  const rows = await loadIssueTypes(userId, { activeOnly: true });
+  const rows = await loadIssueTypes(orgId, { activeOnly: true });
   return rows.find((row) => row.code === "COGS") ?? rows[0] ?? null;
 }
 
 export async function loadCostComponents(
-  userId: string,
+  orgId: string,
   options?: { activeOnly?: boolean }
 ): Promise<CostComponent[]> {
   const rows = await db.query.costComponents.findMany({
     where: options?.activeOnly
       ? and(
-          eq(costComponents.userId, userId),
+          eq(costComponents.organizationId, orgId),
           eq(costComponents.isActive, true)
         )
-      : eq(costComponents.userId, userId),
+      : eq(costComponents.organizationId, orgId),
     orderBy: (component, { asc }) => [asc(component.code)],
   });
   return rows;

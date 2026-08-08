@@ -4,7 +4,7 @@ import {
   CostControlReport,
   type CostControlRow,
 } from "@/components/costing/cost-control-report";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { accountingPeriods, costPeriodResults } from "@/lib/db/schema";
@@ -17,18 +17,17 @@ export default async function CostControlPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { period } = await searchParams;
 
   const [allResults, { itemViews, warehouseViews }, periods] =
     await Promise.all([
       db.query.costPeriodResults.findMany({
-        where: eq(costPeriodResults.userId, userId),
+        where: eq(costPeriodResults.organizationId, orgId),
       }),
-      loadInventoryBase(userId),
+      loadInventoryBase(orgId),
       db.query.accountingPeriods.findMany({
-        where: eq(accountingPeriods.userId, userId),
+        where: eq(accountingPeriods.organizationId, orgId),
       }),
     ]);
 

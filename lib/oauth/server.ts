@@ -89,6 +89,8 @@ export function clientRedirectUris(client: { redirectUris: string }): string[] {
 export async function createAuthCode(input: {
   clientId: string;
   userId: string;
+  /** Фаз 01 (Шат 6): зөвшөөрөл өгөх мөчийн ИДЭВХТЭЙ байгууллага — token үүсэхэд өвлөгдөнө. */
+  organizationId: string;
   redirectUri: string;
   codeChallenge: string;
 }): Promise<string> {
@@ -97,6 +99,7 @@ export async function createAuthCode(input: {
     codeHash: sha256hex(code),
     clientId: input.clientId,
     userId: input.userId,
+    organizationId: input.organizationId,
     redirectUri: input.redirectUri,
     codeChallenge: input.codeChallenge,
     expiresAt: new Date(Date.now() + CODE_TTL_MS),
@@ -110,11 +113,16 @@ export interface IssuedTokens {
   expiresIn: number;
 }
 
-async function issueTokens(userId: string, clientId: string): Promise<IssuedTokens> {
+async function issueTokens(
+  userId: string,
+  clientId: string,
+  organizationId: string
+): Promise<IssuedTokens> {
   const accessToken = `eoat_${randomBytes(32).toString("hex")}`;
   const refreshToken = `eort_${randomBytes(32).toString("hex")}`;
   await db.insert(oauthTokens).values({
     userId,
+    organizationId,
     clientId,
     accessTokenHash: sha256hex(accessToken),
     refreshTokenHash: sha256hex(refreshToken),
@@ -154,7 +162,10 @@ export async function exchangeAuthCode(input: {
   if (!input.codeVerifier || !verifyPkce(input.codeVerifier, row.codeChallenge))
     return { ok: false, error: "invalid_grant", description: "PKCE шалгалт амжилтгүй" };
 
-  return { ok: true, tokens: await issueTokens(row.userId, row.clientId) };
+  return {
+    ok: true,
+    tokens: await issueTokens(row.userId, row.clientId, row.organizationId),
+  };
 }
 
 /** refresh_token grant — rotation: хуучин мөр устаж шинэ хос гарна. */
@@ -171,18 +182,28 @@ export async function refreshOAuthTokens(input: {
     return { ok: false, error: "invalid_grant", description: "client_id таарахгүй" };
 
   await db.delete(oauthTokens).where(eq(oauthTokens.id, row.id));
-  return { ok: true, tokens: await issueTokens(row.userId, row.clientId) };
+  return {
+    ok: true,
+    tokens: await issueTokens(row.userId, row.clientId, row.organizationId),
+  };
 }
 
 // ── Resource server тал ─────────────────────────────────────────────────────
 
-/** Bearer access token → userId. Хугацаа дууссан/олдоогүй бол null. */
-export async function resolveOAuthAccessToken(token: string): Promise<string | null> {
+/** Token-оор танигдсан MCP контекст — хэрэглэгч + уягдсан байгууллага. */
+export type TokenContext = { userId: string; orgId: string };
+
+/** Bearer access token → {userId, orgId}. Хугацаа дууссан/олдоогүй бол null. */
+export async function resolveOAuthAccessToken(
+  token: string
+): Promise<TokenContext | null> {
   const row = await db.query.oauthTokens.findFirst({
     where: eq(oauthTokens.accessTokenHash, sha256hex(token)),
-    columns: { id: true, userId: true, accessExpiresAt: true },
+    columns: { id: true, userId: true, organizationId: true, accessExpiresAt: true },
   });
   if (!row || row.accessExpiresAt.getTime() < Date.now()) return null;
+  // Фаз 01: бүх мөр backfill-ээр org-той; org-гүй мөр — хүчингүй token.
+  if (!row.organizationId) return null;
   void (async () => {
     try {
       await db
@@ -202,7 +223,7 @@ export async function resolveOAuthAccessToken(token: string): Promise<string | n
       // Цэвэрлэгээ амжилтгүй байсан ч хүсэлтэд нөлөөлөхгүй.
     }
   })();
-  return row.userId;
+  return { userId: row.userId, orgId: row.organizationId };
 }
 
 /** CORS — well-known/register/token endpoint-уудыг browser клиентээс уншина. */

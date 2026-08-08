@@ -10,7 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalLines, journalVouchers } from "@/lib/db/schema";
 import { parseSegParts } from "@/lib/grid/segments";
@@ -34,14 +34,19 @@ export type VoucherImportResult =
 export async function importJournalVouchers(
   vouchers: VoucherImportInput[]
 ): Promise<VoucherImportResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  // Excel импорт = бичилт үүсгэх мутаци — accountant+ эрх шаардана.
+  let orgId: string;
+  let userId: string;
+  try {
+    ({ orgId, userId } = await requireRole("accountant"));
+  } catch {
+    return { ok: false, code: "unauthenticated" };
+  }
 
   try {
     const accounts = await db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
       columns: { number: true },
@@ -75,7 +80,7 @@ export async function importJournalVouchers(
       }
 
       try {
-        await assertPeriodOpen(userId, voucher.date);
+        await assertPeriodOpen(orgId, voucher.date);
       } catch (error) {
         failures.push({
           voucherKey: voucher.voucherKey,
@@ -92,6 +97,7 @@ export async function importJournalVouchers(
           .insert(journalVouchers)
           .values({
             userId,
+            organizationId: orgId,
             date: voucher.date,
             description: voucher.description,
             status: "draft",

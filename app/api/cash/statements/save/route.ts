@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import {
   buildCashAccountCodeRules,
   validateCashAccountCode,
@@ -36,10 +36,20 @@ function chunks<T>(items: T[], size = 400) {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId)
-    return Response.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
+  // Хуулгын импорт = бичилт үүсгэх мутаци — accountant+ эрх шаардана.
+  let orgId: string;
+  let userId: string;
+  try {
+    ({ orgId, userId } = await requireRole("accountant"));
+  } catch (caught) {
+    return Response.json(
+      {
+        error:
+          caught instanceof Error ? caught.message : "Нэвтрэх шаардлагатай",
+      },
+      { status: 401 }
+    );
+  }
 
   try {
     const payload = (await request.json()) as SavePayload;
@@ -57,25 +67,27 @@ export async function POST(request: Request) {
         db.query.cashAccounts.findFirst({
           where: and(
             eq(cashAccounts.id, payload.cashAccountId),
-            eq(cashAccounts.userId, userId),
+            eq(cashAccounts.organizationId, orgId),
             eq(cashAccounts.isActive, true)
           ),
         }),
+        // fileHash давхардлын шалгалт БАЙГУУЛЛАГЫН түвшинд — өөр org ижил
+        // файлыг өөрийн дансандаа импортолж болно.
         db.query.bankStatements.findFirst({
           where: and(
-            eq(bankStatements.userId, userId),
+            eq(bankStatements.organizationId, orgId),
             eq(bankStatements.fileHash, payload.fileHash)
           ),
           columns: { id: true },
         }),
         db.query.chartOfAccounts.findMany({
-          where: eq(chartOfAccounts.userId, userId),
+          where: eq(chartOfAccounts.organizationId, orgId),
         }),
         db.query.segmentConfigs.findMany({
-          where: eq(segmentConfigs.userId, userId),
+          where: eq(segmentConfigs.organizationId, orgId),
         }),
         db.query.segmentValues.findMany({
-          where: eq(segmentValues.userId, userId),
+          where: eq(segmentValues.organizationId, orgId),
         }),
       ]);
     if (!cashAccount) throw new Error("Идэвхтэй банкны Cash данс олдсонгүй");
@@ -150,7 +162,7 @@ export async function POST(request: Request) {
 
     // Хаагдсан периодын хамгаалалт — мөр бүр өөрийн огноогоор GL-д бичигдэнэ.
     await assertPeriodsOpen(
-      userId,
+      orgId,
       rows.map((row) => row.transactionDate)
     );
 
@@ -162,6 +174,7 @@ export async function POST(request: Request) {
         .insert(bankStatements)
         .values({
           userId,
+          organizationId: orgId,
           cashAccountId: cashAccount.id,
           fileName: payload.fileName.slice(0, 255),
           fileHash: payload.fileHash,
@@ -187,6 +200,7 @@ export async function POST(request: Request) {
           group.map((row) => ({
             id: row.voucherId,
             userId,
+            organizationId: orgId,
             date: row.transactionDate,
             description: `[BANK ${statement.id.slice(0, 8)}-${row.rowNumber}] ${
               row.description || row.counterparty || "Банкны гүйлгээ"
@@ -226,6 +240,7 @@ export async function POST(request: Request) {
           group.map((row) => ({
             id: row.cashDocumentId,
             userId,
+            organizationId: orgId,
             documentNo: `BS-${statement.id.slice(0, 8).toUpperCase()}-${
               row.rowNumber
             }`,

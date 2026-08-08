@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { CostingReportView } from "@/components/costing/costing-report-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
@@ -21,31 +21,30 @@ function mainAccountOf(accountNumber: string) {
 }
 
 export default async function CostingReportsPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const [{ itemViews }, movements, entries, settings, vouchers, accounts] =
     await Promise.all([
-      loadInventoryBase(userId),
+      loadInventoryBase(orgId),
       db.query.inventoryMovements.findMany({
         where: and(
-          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.organizationId, orgId),
           eq(inventoryMovements.status, "confirmed")
         ),
       }),
-      db.query.costEntries.findMany({ where: eq(costEntries.userId, userId) }),
+      db.query.costEntries.findMany({ where: eq(costEntries.organizationId, orgId) }),
       db.query.costingItemSettings.findMany({
-        where: eq(costingItemSettings.userId, userId),
+        where: eq(costingItemSettings.organizationId, orgId),
       }),
       db.query.journalVouchers.findMany({
         where: and(
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           inArray(journalVouchers.status, ["posted", "reversed"])
         ),
         with: { lines: true },
       }),
       db.query.chartOfAccounts.findMany({
-        where: eq(chartOfAccounts.userId, userId),
+        where: eq(chartOfAccounts.organizationId, orgId),
       }),
     ]);
 
@@ -80,7 +79,7 @@ export default async function CostingReportsPage() {
   // (docs/cost FR-PR-001 — нэг л арга; RPT-PR-001 — тайлангууд Cost Ledger-
   // ээс гарна). Урьд нь энд perpetual дундаж бодогддог байсан нь одоо
   // батлагдсан дүрэмтэй зөрчилдөнө.
-  const closingByItem = await latestClosingByItem(userId);
+  const closingByItem = await latestClosingByItem(orgId);
 
   const valuation: ValuationRow[] = [];
   for (const item of itemViews) {
@@ -137,7 +136,7 @@ export default async function CostingReportsPage() {
   }
 
   // Дансны рольууд тохиргооноос (JPR-006).
-  const costingAccounts = await loadCostingAccountSettings(userId);
+  const costingAccounts = await loadCostingAccountSettings(orgId);
 
   // NRV-ийн posted нөлөө contra-нөөц дансанд (кредит үлдэгдэл → сөрөг).
   let nrvPostedTotal = 0;

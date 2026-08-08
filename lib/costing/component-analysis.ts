@@ -27,12 +27,12 @@ import type { ComponentAnalysisRow } from "./component-analysis-types";
  * гэсэн үндсэн мөр болгож үзүүлнэ (тусад нь master data үүсгэх шаардлагагүй).
  */
 export async function loadComponentAnalysis(
-  userId: string,
+  orgId: string,
   periodCode: string
 ): Promise<ComponentAnalysisRow[]> {
   const entries = await db.query.costEntries.findMany({
     where: and(
-      eq(costEntries.userId, userId),
+      eq(costEntries.organizationId, orgId),
       eq(costEntries.periodCode, periodCode),
       inArray(costEntries.status, ["draft", "posted"]),
       inArray(costEntries.entryType, ["receipt_capitalize", "landed_cost"])
@@ -60,7 +60,7 @@ export async function loadComponentAnalysis(
       movementIds.length > 0
         ? db.query.inventoryMovements.findMany({
             where: and(
-              eq(inventoryMovements.userId, userId),
+              eq(inventoryMovements.organizationId, orgId),
               inArray(inventoryMovements.id, movementIds)
             ),
             columns: {
@@ -73,32 +73,32 @@ export async function loadComponentAnalysis(
           })
         : Promise.resolve([]),
       db.query.costComponents.findMany({
-        where: eq(costComponents.userId, userId),
+        where: eq(costComponents.organizationId, orgId),
         columns: { id: true, code: true, name: true },
       }),
       db.query.inventoryItems.findMany({
-        where: eq(inventoryItems.userId, userId),
+        where: eq(inventoryItems.organizationId, orgId),
         columns: { id: true, code: true, name: true },
       }),
       db.query.warehouses.findMany({
-        where: eq(warehouses.userId, userId),
+        where: eq(warehouses.organizationId, orgId),
         columns: { id: true, code: true, name: true },
       }),
       db.query.chartOfAccounts.findMany({
-        where: eq(chartOfAccounts.userId, userId),
+        where: eq(chartOfAccounts.organizationId, orgId),
         columns: { number: true, name: true },
       }),
       voucherIds.length > 0
         ? db.query.journalVouchers.findMany({
             where: and(
-              eq(journalVouchers.userId, userId),
+              eq(journalVouchers.organizationId, orgId),
               inArray(journalVouchers.id, voucherIds)
             ),
             columns: { id: true },
           })
         : Promise.resolve([]),
       db.query.costAllocationLines.findMany({
-        with: { allocation: { columns: { documentNo: true, userId: true } } },
+        with: { allocation: { columns: { documentNo: true, organizationId: true } } },
       }),
     ]);
 
@@ -111,7 +111,7 @@ export async function loadComponentAnalysis(
   // Хуваарилалтын баримтын дугаар — өртгийн бичилтээс эсрэг холбоно.
   const allocationByEntry = new Map(
     allocationLines
-      .filter((line) => line.allocation?.userId === userId && line.costEntryId)
+      .filter((line) => line.allocation?.organizationId === orgId && line.costEntryId)
       .map((line) => [line.costEntryId!, line.allocation.documentNo])
   );
 

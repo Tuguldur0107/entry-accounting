@@ -17,7 +17,7 @@ import {
   type HomeModuleTile,
   type HomeRecentRow,
 } from "@/components/dashboard/home-dashboard";
-import { auth } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import { db } from "@/lib/db";
 import {
@@ -37,7 +37,7 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
 
 export default async function HomePage() {
   const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { periodCode, today } = await getPeriodSelection();
 
   const [
@@ -52,7 +52,7 @@ export default async function HomePage() {
   ] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["draft", "posted", "reversed"])
       ),
       with: { lines: true },
@@ -60,19 +60,19 @@ export default async function HomePage() {
     }),
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
     }),
-    db.query.cashAccounts.findMany({ where: eq(cashAccounts.userId, userId) }),
-    db.query.cashDocuments.findMany({ where: eq(cashDocuments.userId, userId) }),
-    db.query.arApDocuments.findMany({ where: eq(arApDocuments.userId, userId) }),
-    db.query.fixedAssets.findMany({ where: eq(fixedAssets.userId, userId) }),
+    db.query.cashAccounts.findMany({ where: eq(cashAccounts.organizationId, orgId) }),
+    db.query.cashDocuments.findMany({ where: eq(cashDocuments.organizationId, orgId) }),
+    db.query.arApDocuments.findMany({ where: eq(arApDocuments.organizationId, orgId) }),
+    db.query.fixedAssets.findMany({ where: eq(fixedAssets.organizationId, orgId) }),
     db.query.inventoryMovements.findMany({
-      where: eq(inventoryMovements.userId, userId),
+      where: eq(inventoryMovements.organizationId, orgId),
     }),
     db.query.accountingPeriods.findMany({
-      where: eq(accountingPeriods.userId, userId),
+      where: eq(accountingPeriods.organizationId, orgId),
     }),
   ]);
 

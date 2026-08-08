@@ -75,7 +75,7 @@ export const sourceTypeLabel = (type: string) =>
  * задаргааг ил гаргана.
  */
 export async function loadTransactionDetail(
-  userId: string,
+  orgId: string,
   range: { from: string; to: string }
 ): Promise<TransactionDetailRow[]> {
   // Running балансын хуримтлал периодын ЭХНЭЭС явдаг тул хайлтын цонхыг
@@ -84,7 +84,7 @@ export async function loadTransactionDetail(
   const windowStart = periodRange(periodCodeOf(range.from)).startDate;
   const movements = await db.query.inventoryMovements.findMany({
     where: and(
-      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.organizationId, orgId),
       gte(inventoryMovements.date, windowStart),
       lte(inventoryMovements.date, range.to)
     ),
@@ -97,20 +97,20 @@ export async function loadTransactionDetail(
   const [entries, accounts, issueTypes, components] = await Promise.all([
     db.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         inArray(costEntries.movementId, movementIds)
       ),
     }),
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
       columns: { number: true, name: true },
     }),
     db.query.inventoryIssueTypes.findMany({
-      where: eq(inventoryIssueTypes.userId, userId),
+      where: eq(inventoryIssueTypes.organizationId, orgId),
       columns: { id: true, code: true, name: true },
     }),
     db.query.costComponents.findMany({
-      where: eq(costComponents.userId, userId),
+      where: eq(costComponents.organizationId, orgId),
       columns: { id: true, code: true, name: true },
     }),
   ]);
@@ -126,7 +126,7 @@ export async function loadTransactionDetail(
     voucherIds.length > 0
       ? await db.query.journalVouchers.findMany({
           where: and(
-            eq(journalVouchers.userId, userId),
+            eq(journalVouchers.organizationId, orgId),
             inArray(journalVouchers.id, voucherIds)
           ),
           columns: { id: true, date: true, description: true },
@@ -160,7 +160,7 @@ export async function loadTransactionDetail(
   const periodCodes = [...new Set(movements.map((m) => periodCodeOf(m.date)))];
   const periodResults = await db.query.costPeriodResults.findMany({
     where: and(
-      eq(costPeriodResults.userId, userId),
+      eq(costPeriodResults.organizationId, orgId),
       inArray(costPeriodResults.periodCode, periodCodes),
       eq(costPeriodResults.status, "calculated")
     ),
@@ -383,7 +383,7 @@ export async function loadTransactionDetail(
  * Зөрүү нь ил гарна — автоматаар нөхөхгүй (§5.6, AC-005).
  */
 export async function loadInventoryGlReconciliation(
-  userId: string,
+  orgId: string,
   range: { from: string; to: string }
 ): Promise<{
   rows: ReconciliationRow[];
@@ -393,7 +393,7 @@ export async function loadInventoryGlReconciliation(
   const [entries, vouchers] = await Promise.all([
     db.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         gte(costEntries.date, range.from),
         lte(costEntries.date, range.to)
       ),
@@ -406,7 +406,7 @@ export async function loadInventoryGlReconciliation(
     }),
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         gte(journalVouchers.date, range.from),
         lte(journalVouchers.date, range.to)
       ),
@@ -416,7 +416,7 @@ export async function loadInventoryGlReconciliation(
   ]);
 
   const accounts = await db.query.chartOfAccounts.findMany({
-    where: eq(chartOfAccounts.userId, userId),
+    where: eq(chartOfAccounts.organizationId, orgId),
     columns: { number: true, name: true },
   });
   const accountName = new Map(

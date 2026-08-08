@@ -10,7 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   cashAccounts,
@@ -28,21 +28,15 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
-
 /** Идэвхтэй сегментүүдээр бүтэн posting код угсрагч (S9 default "GL"). */
-async function vatPostingCodeBuilder(userId: string) {
+async function vatPostingCodeBuilder(orgId: string) {
   const [configs, values] = await Promise.all([
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
     }),
@@ -74,9 +68,9 @@ export async function getVatLineDefaults(): Promise<{
   inputCode: string;
   ratePercent: number;
 }> {
-  const userId = await requireUser();
-  const settings = await loadVatSettings(userId);
-  const code = await vatPostingCodeBuilder(userId);
+  const { orgId, userId } = await getActiveOrg();
+  const settings = await loadVatSettings(orgId, userId);
+  const code = await vatPostingCodeBuilder(orgId);
   return {
     outputCode: code(settings.outputVatAccountNumber),
     inputCode: code(settings.inputVatAccountNumber),
@@ -107,10 +101,10 @@ const VAT_REGISTRATION_THRESHOLD_MNT = 400_000_000;
 export async function getVatReturnData(
   periodCode: string
 ): Promise<VatReturnData> {
-  const userId = await requireUser();
+  const { orgId, userId } = await getActiveOrg();
   if (!isPeriodCode(periodCode)) throw new Error("Тайлант үеийн код буруу байна");
 
-  const settings = await loadVatSettings(userId);
+  const settings = await loadVatSettings(orgId, userId);
   const { startDate, endDate } = periodRange(periodCode);
   // Бүртгэлийн босгын хяналт — хуанлийн оны эхнээс тайлант үеийн эцэс хүртэл.
   const yearStart = `${periodCode.slice(0, 4)}-01-01`;
@@ -128,7 +122,7 @@ export async function getVatReturnData(
       .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
       .where(
         and(
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           gte(journalVouchers.date, startDate),
           lte(journalVouchers.date, endDate),
           inArray(journalVouchers.status, ["posted", "reversed"])
@@ -136,13 +130,13 @@ export async function getVatReturnData(
       ),
     db.query.journalVouchers.findFirst({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         eq(journalVouchers.externalRef, settlementRefOf(periodCode))
       ),
       columns: { id: true, status: true, date: true },
     }),
     db.query.cashAccounts.findMany({
-      where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+      where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
       columns: { id: true, name: true, glAccountNumber: true },
     }),
     db
@@ -155,7 +149,7 @@ export async function getVatReturnData(
       .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
       .where(
         and(
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           gte(journalVouchers.date, yearStart),
           lte(journalVouchers.date, endDate),
           inArray(journalVouchers.status, ["posted", "reversed"])
@@ -214,13 +208,13 @@ export async function createVatSettlementDraft(data: {
   /** Төлөх дүнтэй үед заавал — төлбөр гарах банкны данс. */
   cashAccountId?: string;
 }): Promise<{ id: string; dedup?: boolean }> {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("accountant");
   if (!isPeriodCode(data.periodCode))
     throw new Error("Тайлант үеийн код буруу байна");
 
   const existing = await db.query.journalVouchers.findFirst({
     where: and(
-      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.organizationId, orgId),
       eq(journalVouchers.externalRef, settlementRefOf(data.periodCode))
     ),
     columns: { id: true },
@@ -235,7 +229,7 @@ export async function createVatSettlementDraft(data: {
       "Гаралтын НӨАТ 0 байна — тооцооны бичилт шаардлагагүй (оролтын НӨАТ дараа сард шилжинэ)"
     );
 
-  const code = await vatPostingCodeBuilder(userId);
+  const code = await vatPostingCodeBuilder(orgId);
   const lines: { account: string; debit: number; credit: number; description: string }[] = [
     {
       account: code(settings.outputVatAccountNumber),
@@ -260,7 +254,7 @@ export async function createVatSettlementDraft(data: {
     const account = await db.query.cashAccounts.findFirst({
       where: and(
         eq(cashAccounts.id, data.cashAccountId),
-        eq(cashAccounts.userId, userId),
+        eq(cashAccounts.organizationId, orgId),
         eq(cashAccounts.isActive, true)
       ),
       columns: { glAccountNumber: true },
@@ -282,7 +276,7 @@ export async function createVatSettlementDraft(data: {
   ]) {
     const account = await db.query.chartOfAccounts.findFirst({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.number, main),
         eq(chartOfAccounts.isEnabled, true)
       ),

@@ -22,11 +22,11 @@ export interface ClosingBalance {
  * нэгтгэсэн. Тооцоологдоогүй (blocked) сарыг АВАХГҮЙ — үнэ зохиохгүй.
  */
 export async function latestClosingByItem(
-  userId: string
+  orgId: string
 ): Promise<Map<string, ClosingBalance>> {
   const rows = await db.query.costPeriodResults.findMany({
     where: and(
-      eq(costPeriodResults.userId, userId),
+      eq(costPeriodResults.organizationId, orgId),
       eq(costPeriodResults.status, "calculated")
     ),
     columns: {
@@ -80,12 +80,12 @@ export async function latestClosingByItem(
  * боломжит үнийн аль багыг сонгоно.
  */
 export async function latestUnitCost(
-  userId: string,
+  orgId: string,
   itemId: string
 ): Promise<{ qty: number; unitCost: number; periodCode: string } | null> {
   const rows = await db.query.costPeriodResults.findMany({
     where: and(
-      eq(costPeriodResults.userId, userId),
+      eq(costPeriodResults.organizationId, orgId),
       eq(costPeriodResults.itemId, itemId),
       eq(costPeriodResults.status, "calculated")
     ),

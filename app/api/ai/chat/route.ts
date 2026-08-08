@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiAttachments, aiMessages, aiSettings } from "@/lib/db/schema";
 import { createMarkerSanitizer } from "@/lib/ai/action-markers";
@@ -202,8 +202,13 @@ export async function POST(request: Request) {
     );
   }
 
+  // Фаз 01: тохиргоо (модель, түлхүүр, горим) байгууллага бүрд тусдаа.
+  const { orgId } = await getActiveOrg();
   const settings = await db.query.aiSettings.findFirst({
-    where: eq(aiSettings.userId, userId),
+    where: and(
+      eq(aiSettings.userId, userId),
+      eq(aiSettings.organizationId, orgId)
+    ),
   });
 
   // Модель: хүсэлтийн override → тохиргоо → default. Provider нь моделиос
@@ -327,7 +332,7 @@ export async function POST(request: Request) {
   ];
 
   const dynamicContext = await buildDynamicContext(
-    userId,
+    orgId,
     settings?.customInstructions,
     mode
   );

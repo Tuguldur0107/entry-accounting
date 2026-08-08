@@ -24,7 +24,9 @@ export async function GET(
   if (send.expiresAt && send.expiresAt.getTime() < Date.now())
     return new Response("Линкний хугацаа дууссан", { status: 410 });
 
-  const invoice = await loadInvoicePayload(send.userId, send.documentId);
+  // Payload нь илгээлтийн БАЙГУУЛЛАГЫН хүрээнд уншигдана (userId нь createdBy).
+  if (!send.organizationId) return new Response("Олдсонгүй", { status: 404 });
+  const invoice = await loadInvoicePayload(send.organizationId, send.documentId);
   if (!invoice) return new Response("Олдсонгүй", { status: 404 });
 
   const pdf = await renderInvoicePdf(invoice);

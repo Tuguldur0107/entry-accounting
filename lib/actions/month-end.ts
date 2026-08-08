@@ -10,7 +10,7 @@
 
 import { and, between, count, desc, eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
@@ -30,11 +30,6 @@ import {
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { getVatReturnData } from "@/lib/actions/vat";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
 
 /** Алхмын нэгдсэн статус: done ✓ · attention ⚠ · pending ○ · na —. */
 export type StepStatus = "done" | "attention" | "pending" | "na";
@@ -97,7 +92,7 @@ export type MonthEndChecklist = {
 export async function getMonthEndChecklist(
   periodCode: string
 ): Promise<MonthEndChecklist> {
-  const userId = await requireUser();
+  const { orgId } = await getActiveOrg();
   if (!isPeriodCode(periodCode)) throw new Error("Тайлант үеийн код буруу байна");
   const { startDate, endDate } = periodRange(periodCode);
 
@@ -107,7 +102,7 @@ export async function getMonthEndChecklist(
       .from(table)
       .where(
         and(
-          eq(table.userId, userId),
+          eq(table.organizationId, orgId),
           eq(table.status, "draft"),
           between(table.date, startDate, endDate)
         )
@@ -133,7 +128,7 @@ export async function getMonthEndChecklist(
   ] = await Promise.all([
     db.query.accountingPeriods.findFirst({
       where: and(
-        eq(accountingPeriods.userId, userId),
+        eq(accountingPeriods.organizationId, orgId),
         eq(accountingPeriods.code, periodCode)
       ),
       columns: { status: true, closedAt: true },
@@ -141,28 +136,36 @@ export async function getMonthEndChecklist(
     db
       .select({ n: count() })
       .from(fixedAssets)
-      .where(and(eq(fixedAssets.userId, userId), eq(fixedAssets.status, "active"))),
+      .where(
+        and(
+          eq(fixedAssets.organizationId, orgId),
+          eq(fixedAssets.status, "active")
+        )
+      ),
     db.query.faDepreciationEntries.findMany({
       where: and(
-        eq(faDepreciationEntries.userId, userId),
+        eq(faDepreciationEntries.organizationId, orgId),
         eq(faDepreciationEntries.periodMonth, periodCode)
       ),
       columns: { status: true },
     }),
     db.query.cashAccounts.findMany({
-      where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+      where: and(
+        eq(cashAccounts.organizationId, orgId),
+        eq(cashAccounts.isActive, true)
+      ),
       columns: { id: true, name: true, currency: true },
     }),
     db.query.costPeriodResults.findMany({
       where: and(
-        eq(costPeriodResults.userId, userId),
+        eq(costPeriodResults.organizationId, orgId),
         eq(costPeriodResults.periodCode, periodCode)
       ),
       columns: { status: true },
     }),
     db.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         between(costEntries.date, startDate, endDate)
       ),
       columns: { status: true },
@@ -172,7 +175,7 @@ export async function getMonthEndChecklist(
       .from(inventoryMovements)
       .where(
         and(
-          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.organizationId, orgId),
           eq(inventoryMovements.status, "confirmed"),
           between(inventoryMovements.date, startDate, endDate)
         )
@@ -181,10 +184,12 @@ export async function getMonthEndChecklist(
     db
       .select({ n: count() })
       .from(employees)
-      .where(and(eq(employees.userId, userId), eq(employees.isActive, true))),
+      .where(
+        and(eq(employees.organizationId, orgId), eq(employees.isActive, true))
+      ),
     db.query.payrollRuns.findFirst({
       where: and(
-        eq(payrollRuns.userId, userId),
+        eq(payrollRuns.organizationId, orgId),
         eq(payrollRuns.periodMonth, periodCode)
       ),
       with: {
@@ -201,7 +206,7 @@ export async function getMonthEndChecklist(
       .from(faDepreciationEntries)
       .where(
         and(
-          eq(faDepreciationEntries.userId, userId),
+          eq(faDepreciationEntries.organizationId, orgId),
           eq(faDepreciationEntries.status, "draft"),
           eq(faDepreciationEntries.periodMonth, periodCode)
         )
@@ -228,7 +233,7 @@ export async function getMonthEndChecklist(
     foreignAccounts.map(async (account) => {
       const latest = await db.query.cashFxRevaluations.findFirst({
         where: and(
-          eq(cashFxRevaluations.userId, userId),
+          eq(cashFxRevaluations.organizationId, orgId),
           eq(cashFxRevaluations.cashAccountId, account.id),
           eq(cashFxRevaluations.status, "posted")
         ),

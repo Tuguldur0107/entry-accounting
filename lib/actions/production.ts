@@ -11,7 +11,7 @@
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -55,9 +55,14 @@ export type ProductionResult =
       message?: string;
     };
 
-async function userIdOrNull(): Promise<string | null> {
-  const session = await auth();
-  return session?.user?.id ?? null;
+/** Тохиргооны мутаци — admin+ (эрхгүй/нэвтрээгүй бол null). */
+async function adminCtxOrNull() {
+  return requireRole("admin").catch(() => null);
+}
+
+/** Бичилтийн мутаци — accountant+ (эрхгүй/нэвтрээгүй бол null). */
+async function accountantCtxOrNull() {
+  return requireRole("accountant").catch(() => null);
 }
 
 /** Транзакц доторх шалгалтын алдааг "validation" код руу буулгахад. */
@@ -77,8 +82,9 @@ export async function saveProductionStage(data: {
   name: string;
   sortOrder: number;
 }): Promise<ProductionResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await adminCtxOrNull();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
 
   const code = data.code.trim().toUpperCase();
   const name = data.name.trim();
@@ -97,7 +103,7 @@ export async function saveProductionStage(data: {
     const existing = await db.query.productionStages.findFirst({
       where: and(
         eq(productionStages.id, data.id),
-        eq(productionStages.userId, userId)
+        eq(productionStages.organizationId, orgId)
       ),
       columns: { id: true },
     });
@@ -109,7 +115,7 @@ export async function saveProductionStage(data: {
   } else {
     const duplicate = await db.query.productionStages.findFirst({
       where: and(
-        eq(productionStages.userId, userId),
+        eq(productionStages.organizationId, orgId),
         eq(productionStages.code, code)
       ),
       columns: { id: true },
@@ -122,7 +128,7 @@ export async function saveProductionStage(data: {
       };
     await db
       .insert(productionStages)
-      .values({ userId, createdBy: userId, ...values });
+      .values({ userId, organizationId: orgId, createdBy: userId, ...values });
   }
 
   revalidateProduction();
@@ -133,13 +139,14 @@ export async function toggleProductionStage(
   id: string,
   isActive: boolean
 ): Promise<ProductionResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await adminCtxOrNull();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   await db
     .update(productionStages)
     .set({ isActive, updatedBy: userId, updatedAt: new Date() })
     .where(
-      and(eq(productionStages.id, id), eq(productionStages.userId, userId))
+      and(eq(productionStages.id, id), eq(productionStages.organizationId, orgId))
     );
   revalidateProduction();
   return { ok: true };
@@ -157,8 +164,9 @@ export async function saveCostPool(data: {
   /** Дүрмүүд бүхэлдээ СОЛИГДОНО (жагсаалтыг нь бүтнээр илгээнэ). */
   rules: { costCenterCode: string; accountPrefix: string; priority: number }[];
 }): Promise<ProductionResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await adminCtxOrNull();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
 
   const code = data.code.trim().toUpperCase();
   const name = data.name.trim();
@@ -168,7 +176,7 @@ export async function saveCostPool(data: {
   const stage = await db.query.productionStages.findFirst({
     where: and(
       eq(productionStages.id, data.stageId),
-      eq(productionStages.userId, userId)
+      eq(productionStages.organizationId, orgId)
     ),
     columns: { id: true },
   });
@@ -193,7 +201,7 @@ export async function saveCostPool(data: {
   let poolId = data.id ?? null;
   if (poolId) {
     const existing = await db.query.costPools.findFirst({
-      where: and(eq(costPools.id, poolId), eq(costPools.userId, userId)),
+      where: and(eq(costPools.id, poolId), eq(costPools.organizationId, orgId)),
       columns: { id: true },
     });
     if (!existing) return { ok: false, code: "not-found" };
@@ -210,7 +218,7 @@ export async function saveCostPool(data: {
       .where(eq(costPools.id, poolId));
   } else {
     const duplicate = await db.query.costPools.findFirst({
-      where: and(eq(costPools.userId, userId), eq(costPools.code, code)),
+      where: and(eq(costPools.organizationId, orgId), eq(costPools.code, code)),
       columns: { id: true },
     });
     if (duplicate)
@@ -223,6 +231,7 @@ export async function saveCostPool(data: {
       .insert(costPools)
       .values({
         userId,
+        organizationId: orgId,
         stageId: data.stageId,
         code,
         name,
@@ -238,6 +247,7 @@ export async function saveCostPool(data: {
     await tx.insert(costPoolRules).values(
       cleanRules.map((rule) => ({
         userId,
+        organizationId: orgId,
         poolId: poolId!,
         costCenterCode: rule.costCenterCode,
         accountPrefix: rule.accountPrefix,
@@ -254,12 +264,13 @@ export async function toggleCostPool(
   id: string,
   isActive: boolean
 ): Promise<ProductionResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await adminCtxOrNull();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   await db
     .update(costPools)
     .set({ isActive, updatedAt: new Date() })
-    .where(and(eq(costPools.id, id), eq(costPools.userId, userId)));
+    .where(and(eq(costPools.id, id), eq(costPools.organizationId, orgId)));
   revalidateProduction();
   return { ok: true };
 }
@@ -270,12 +281,12 @@ export async function toggleCostPool(
  * Тухайн сарын БАТЛАГДСАН журналын мөрүүдийг (S2, үндсэн данс)-аар нэгтгэж
  * зураглалын дүрмээр бүлэглэнэ. Дебет − кредит = зардлын өсөлт.
  */
-async function collectGlPools(userId: string, periodCode: string) {
+async function collectGlPools(orgId: string, periodCode: string) {
   const { startDate, endDate } = periodRange(periodCode);
   const [vouchers, pools] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["posted", "reversed"]),
         gte(journalVouchers.date, startDate),
         lte(journalVouchers.date, endDate)
@@ -284,7 +295,7 @@ async function collectGlPools(userId: string, periodCode: string) {
       columns: { id: true, date: true, description: true },
     }),
     db.query.costPools.findMany({
-      where: and(eq(costPools.userId, userId), eq(costPools.isActive, true)),
+      where: and(eq(costPools.organizationId, orgId), eq(costPools.isActive, true)),
       with: { rules: true },
     }),
   ]);
@@ -345,13 +356,14 @@ export async function computeAndSaveProductionRun(data: {
   periodCode: string;
   stages: RunStageInput[];
 }): Promise<ProductionResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await accountantCtxOrNull();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   if (!isPeriodCode(data.periodCode))
     return { ok: false, code: "validation", message: "Тайлант үеийн код буруу" };
 
   try {
-    await assertPeriodOpen(userId, `${data.periodCode}-01`);
+    await assertPeriodOpen(orgId, `${data.periodCode}-01`);
   } catch (caught) {
     return {
       ok: false,
@@ -362,7 +374,7 @@ export async function computeAndSaveProductionRun(data: {
 
   const existing = await db.query.productionRuns.findFirst({
     where: and(
-      eq(productionRuns.userId, userId),
+      eq(productionRuns.organizationId, orgId),
       eq(productionRuns.periodCode, data.periodCode)
     ),
   });
@@ -373,10 +385,10 @@ export async function computeAndSaveProductionRun(data: {
       message: "Энэ сарын тооцоолол батлагдсан — эхлээд буцаана уу",
     };
 
-  const { matched } = await collectGlPools(userId, data.periodCode);
+  const { matched } = await collectGlPools(orgId, data.periodCode);
   const stageRows = await db.query.productionStages.findMany({
     where: and(
-      eq(productionStages.userId, userId),
+      eq(productionStages.organizationId, orgId),
       eq(productionStages.isActive, true)
     ),
     with: { pools: true },
@@ -398,7 +410,7 @@ export async function computeAndSaveProductionRun(data: {
     for (const entry of input?.inputs ?? []) {
       let unitCost: number | null = null;
       if (!entry.sourceStageId) {
-        const closing = await latestUnitCost(userId, entry.itemId);
+        const closing = await latestUnitCost(orgId, entry.itemId);
         unitCost = closing?.unitCost ?? null;
       }
       inputs.push({
@@ -427,7 +439,7 @@ export async function computeAndSaveProductionRun(data: {
 
   // Хадгална: run-ыг бүхэлд нь сольж бичнэ.
   await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 4)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 4)`);
     let runId = existing?.id ?? null;
     if (runId) {
       await tx.delete(productionRunStages).where(eq(productionRunStages.runId, runId));
@@ -437,7 +449,7 @@ export async function computeAndSaveProductionRun(data: {
     } else {
       const [created] = await tx
         .insert(productionRuns)
-        .values({ userId, periodCode: data.periodCode })
+        .values({ userId, organizationId: orgId, periodCode: data.periodCode })
         .returning({ id: productionRuns.id });
       runId = created.id;
     }
@@ -514,12 +526,13 @@ export async function computeAndSaveProductionRun(data: {
 export async function confirmProductionRun(
   periodCode: string
 ): Promise<ProductionResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await accountantCtxOrNull();
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
 
   const run = await db.query.productionRuns.findFirst({
     where: and(
-      eq(productionRuns.userId, userId),
+      eq(productionRuns.organizationId, orgId),
       eq(productionRuns.periodCode, periodCode)
     ),
     with: { outputs: true, inputs: true },
@@ -553,7 +566,7 @@ export async function confirmProductionRun(
 
   // Хаагдсан периодын хамгаалалт — хөдөлгөөнүүд сарын эцсийн огноогоор үүснэ.
   try {
-    await assertPeriodOpen(userId, endDate);
+    await assertPeriodOpen(orgId, endDate);
   } catch (err) {
     return {
       ok: false,
@@ -568,8 +581,8 @@ export async function confirmProductionRun(
       // дарааллыг барьвал deadlock үүсэхгүй. Түлхүүр 1 нь
       // confirmInventoryMovement / delete / cancel-тай НЭГ цуваа тул доорх
       // хасах үлдэгдлийн шалгалт бусад батлалттай уралдахгүй.
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 4)`);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 4)`);
 
       const [claimed] = await tx
         .update(productionRuns)
@@ -586,7 +599,7 @@ export async function confirmProductionRun(
       // нэмж, аль нэг бараа×агуулахын үлдэгдэл хасах болбол зогсооно.
       const confirmedRows = await tx.query.inventoryMovements.findMany({
         where: and(
-          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.organizationId, orgId),
           eq(inventoryMovements.status, "confirmed")
         ),
       });
@@ -624,14 +637,14 @@ export async function confirmProductionRun(
           tx.query.inventoryItems.findFirst({
             where: and(
               eq(inventoryItems.id, violation.itemId),
-              eq(inventoryItems.userId, userId)
+              eq(inventoryItems.organizationId, orgId)
             ),
             columns: { code: true, name: true },
           }),
           tx.query.warehouses.findFirst({
             where: and(
               eq(warehouses.id, violation.warehouseId),
-              eq(warehouses.userId, userId)
+              eq(warehouses.organizationId, orgId)
             ),
             columns: { code: true, name: true },
           }),
@@ -650,6 +663,7 @@ export async function confirmProductionRun(
         seq += 1;
         await tx.insert(inventoryMovements).values({
           userId,
+          organizationId: orgId,
           documentNo: `PROD-${stamp}-IN${String(seq).padStart(2, "0")}`,
           movementType: "issue",
           date: endDate,
@@ -675,6 +689,7 @@ export async function confirmProductionRun(
           .insert(inventoryMovements)
           .values({
             userId,
+            organizationId: orgId,
             documentNo: `PROD-${stamp}-OUT${String(seq).padStart(2, "0")}`,
             movementType: "receipt",
             date: endDate,
@@ -694,6 +709,7 @@ export async function confirmProductionRun(
           .insert(costEntries)
           .values({
             userId,
+            organizationId: orgId,
             movementId: movement.id,
             itemId: output.itemId,
             warehouseId: output.warehouseId,
@@ -793,14 +809,15 @@ export type ProductionWorkspaceResult =
 export async function getProductionWorkspace(
   periodCode: string
 ): Promise<ProductionWorkspaceResult> {
-  const userId = await userIdOrNull();
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId } = active;
 
   const [collected, stageRows, run, items, warehouseRows] = await Promise.all([
-    collectGlPools(userId, periodCode),
+    collectGlPools(orgId, periodCode),
     db.query.productionStages.findMany({
       where: and(
-        eq(productionStages.userId, userId),
+        eq(productionStages.organizationId, orgId),
         eq(productionStages.isActive, true)
       ),
       with: { pools: { with: { rules: true } } },
@@ -808,21 +825,21 @@ export async function getProductionWorkspace(
     }),
     db.query.productionRuns.findFirst({
       where: and(
-        eq(productionRuns.userId, userId),
+        eq(productionRuns.organizationId, orgId),
         eq(productionRuns.periodCode, periodCode)
       ),
       with: { stages: true, inputs: true, outputs: true },
     }),
     db.query.inventoryItems.findMany({
       where: and(
-        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.organizationId, orgId),
         eq(inventoryItems.isActive, true)
       ),
       columns: { id: true, code: true, name: true, unit: true },
       orderBy: (item, { asc }) => [asc(item.code)],
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
       columns: { id: true, code: true, name: true },
       orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
     }),
@@ -908,9 +925,9 @@ export async function getProductionWorkspace(
 }
 
 /** Тохиргооны хуудсанд — дамжлага, бүлэг, дүрмүүд. */
-export async function loadProductionConfig(userId: string) {
+export async function loadProductionConfig(orgId: string) {
   const stages = await db.query.productionStages.findMany({
-    where: eq(productionStages.userId, userId),
+    where: eq(productionStages.organizationId, orgId),
     with: { pools: { with: { rules: true } } },
     orderBy: (stage, { asc }) => [asc(stage.sortOrder), asc(stage.code)],
   });
@@ -918,10 +935,10 @@ export async function loadProductionConfig(userId: string) {
 }
 
 /** Дансны жагсаалт зураглалын дүрмийн тусламжид. */
-export async function loadAccountOptions(userId: string) {
+export async function loadAccountOptions(orgId: string) {
   return db.query.chartOfAccounts.findMany({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.isEnabled, true)
     ),
     columns: { number: true, name: true },

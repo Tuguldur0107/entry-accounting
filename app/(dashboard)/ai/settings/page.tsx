@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { AiSettingsView } from "@/components/ai/ai-settings-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiSettings } from "@/lib/db/schema";
 import { decryptSecret } from "@/lib/ai/crypto";
@@ -9,12 +9,14 @@ import { DEFAULT_AI_EFFORT, DEFAULT_AI_MODEL } from "@/lib/ai/models";
 import { listApiTokens } from "@/lib/actions/mcp-tokens";
 
 export default async function AiSettingsPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { userId, orgId } = await getActiveOrg();
 
   const [settings, mcpTokens] = await Promise.all([
     db.query.aiSettings.findFirst({
-      where: eq(aiSettings.userId, userId),
+      where: and(
+        eq(aiSettings.userId, userId),
+        eq(aiSettings.organizationId, orgId)
+      ),
     }),
     listApiTokens(),
   ]);

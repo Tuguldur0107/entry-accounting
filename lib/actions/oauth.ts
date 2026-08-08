@@ -6,7 +6,7 @@
 
 import { redirect } from "next/navigation";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import {
   clientRedirectUris,
   createAuthCode,
@@ -14,9 +14,9 @@ import {
 } from "@/lib/oauth/server";
 
 export async function approveOAuthRequest(formData: FormData) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Нэвтрээгүй байна");
+  // Фаз 01 (Шат 6): consent хуудас хэрэглэгчийн session-тэй ажилладаг тул
+  // идэвхтэй байгууллагыг эндээс аваад code → token-д уяна.
+  const { userId, orgId } = await getActiveOrg();
 
   const clientId = String(formData.get("client_id") ?? "");
   const redirectUri = String(formData.get("redirect_uri") ?? "");
@@ -41,6 +41,7 @@ export async function approveOAuthRequest(formData: FormData) {
   const code = await createAuthCode({
     clientId,
     userId,
+    organizationId: orgId,
     redirectUri,
     codeChallenge,
   });

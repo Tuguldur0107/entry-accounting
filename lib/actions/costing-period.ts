@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { computePeriodCosting } from "@/lib/costing/period-close";
 import { runPeriodicCosting } from "@/lib/costing/period-run";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
@@ -23,12 +23,12 @@ export type RecalculateResult =
   | { ok: false; code: "unauthenticated" | "failed"; message?: string };
 
 export async function recalculatePeriodicCosting(): Promise<RecalculateResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await requireRole("accountant").catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
 
   try {
-    const summary = await runPeriodicCosting(userId);
+    const summary = await runPeriodicCosting(orgId, userId);
     revalidatePath("/costing");
     revalidatePath("/costing/reports");
     revalidatePath("/costing/control");
@@ -73,17 +73,17 @@ export type PeriodCostingActionResult =
 export async function computeMonthlyCosting(
   periodCode: string
 ): Promise<PeriodCostingActionResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await requireRole("accountant").catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
   if (!isPeriodCode(periodCode)) return { ok: false, code: "invalid-period" };
 
   try {
-    const summary = await computePeriodCosting(userId, periodCode);
+    const summary = await computePeriodCosting(orgId, userId, periodCode);
 
     // Блоклогдсон мөрүүдийг хүнд ойлгомжтой шошготой болгоно.
     const labels = await loadScopeLabels(
-      userId,
+      orgId,
       summary.blockers.map((entry) => entry)
     );
 
@@ -108,11 +108,11 @@ export async function computeMonthlyCosting(
 }
 
 async function loadScopeLabels(
-  userId: string,
+  orgId: string,
   blockers: { itemId: string; warehouseId: string; reason: string }[]
 ): Promise<{ label: string; reason: string }[]> {
   if (blockers.length === 0) return [];
-  const { itemViews, warehouseViews } = await loadInventoryBase(userId);
+  const { itemViews, warehouseViews } = await loadInventoryBase(orgId);
   const itemById = new Map(itemViews.map((item) => [item.id, item]));
   const warehouseById = new Map(
     warehouseViews.map((warehouse) => [warehouse.id, warehouse])

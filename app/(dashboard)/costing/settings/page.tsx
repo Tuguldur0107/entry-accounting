@@ -6,7 +6,7 @@ import {
   type CostingSettingRow,
   type IssueTypeRow,
 } from "@/components/costing/costing-settings-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import {
   loadCostComponents,
   loadCostingAccountSettings,
@@ -19,8 +19,7 @@ import { loadInventoryBase } from "@/lib/inventory/load-data";
 import { loadSegmentPickerData } from "@/lib/gl/segment-picker-data";
 
 export default async function CostingSettingsPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const [
     { itemViews },
@@ -32,22 +31,22 @@ export default async function CostingSettingsPage() {
     components,
     productionStages,
   ] = await Promise.all([
-    loadInventoryBase(userId),
+    loadInventoryBase(orgId),
     db.query.costingItemSettings.findMany({
-      where: eq(costingItemSettings.userId, userId),
+      where: eq(costingItemSettings.organizationId, orgId),
     }),
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
       orderBy: (account, { asc }) => [asc(account.number)],
     }),
-    loadSegmentPickerData(userId),
-    loadCostingAccountSettings(userId),
-    loadIssueTypes(userId),
-    loadCostComponents(userId),
-    loadProductionConfig(userId),
+    loadSegmentPickerData(orgId),
+    loadCostingAccountSettings(orgId),
+    loadIssueTypes(orgId),
+    loadCostComponents(orgId),
+    loadProductionConfig(orgId),
   ]);
 
   const settingByItem = new Map(settings.map((s) => [s.itemId, s]));

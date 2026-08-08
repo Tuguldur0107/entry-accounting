@@ -80,12 +80,14 @@ export interface PeriodRunSummary {
  * хөдөлгөөний период хүртэл.
  */
 export async function runPeriodicCosting(
+  orgId: string,
+  /** Үр дүнгийн мөрийн createdBy — дуудаж буй хэрэглэгч. */
   userId: string,
   options?: { throughPeriod?: string }
 ): Promise<PeriodRunSummary> {
   const movements = await db.query.inventoryMovements.findMany({
     where: and(
-      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.organizationId, orgId),
       eq(inventoryMovements.status, "confirmed")
     ),
     columns: {
@@ -117,7 +119,7 @@ export async function runPeriodicCosting(
   // дундажийн тоологч/хуваарьт ОРУУЛАХГҮЙ.
   const entries = await db.query.costEntries.findMany({
     where: and(
-      eq(costEntries.userId, userId),
+      eq(costEntries.organizationId, orgId),
       inArray(costEntries.status, ["draft", "posted"])
     ),
     columns: {
@@ -211,14 +213,14 @@ export async function runPeriodicCosting(
           reason: result.blockReason ?? "Тооцоологдоогүй",
         });
       }
-      rows.push(toRow(userId, result));
+      rows.push(toRow(orgId, userId, result));
     }
   }
 
   await db.transaction(async (tx) => {
     await tx
       .delete(costPeriodResults)
-      .where(eq(costPeriodResults.userId, userId));
+      .where(eq(costPeriodResults.organizationId, orgId));
     // Багцлан оруулна — мөр олон байж болно.
     for (let index = 0; index < rows.length; index += 500)
       await tx.insert(costPeriodResults).values(rows.slice(index, index + 500));
@@ -234,12 +236,14 @@ export async function runPeriodicCosting(
 }
 
 function toRow(
+  orgId: string,
   userId: string,
   result: PeriodicResult
 ): typeof costPeriodResults.$inferInsert {
   const num = (value: number | null) => (value === null ? null : String(value));
   return {
     userId,
+    organizationId: orgId,
     periodCode: result.periodCode,
     itemId: result.itemId,
     warehouseId: result.warehouseId,
@@ -262,12 +266,12 @@ function toRow(
 
 /** Хадгалагдсан периодын үр дүнг унших (тайлангуудад). */
 export async function loadPeriodResults(
-  userId: string,
+  orgId: string,
   periodCode: string
 ): Promise<(typeof costPeriodResults.$inferSelect)[]> {
   return db.query.costPeriodResults.findMany({
     where: and(
-      eq(costPeriodResults.userId, userId),
+      eq(costPeriodResults.organizationId, orgId),
       eq(costPeriodResults.periodCode, periodCode)
     ),
   });

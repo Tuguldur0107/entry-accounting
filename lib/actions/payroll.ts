@@ -11,7 +11,7 @@
 import { revalidatePath } from "next/cache";
 import { and, asc, eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -35,12 +35,6 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import { logAuditEvent } from "@/lib/audit";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
-
 function revalidatePayroll() {
   revalidatePath("/payroll");
   revalidatePath("/payroll/employees");
@@ -59,7 +53,7 @@ export async function upsertEmployee(data: {
   accidentRatePercent: number;
   isActive?: boolean;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const name = data.name.trim();
   if (!name) throw new Error("Ажилтны нэр оруулна уу");
   const baseSalary = Number(data.baseSalary);
@@ -81,26 +75,26 @@ export async function upsertEmployee(data: {
     const [updated] = await db
       .update(employees)
       .set(values)
-      .where(and(eq(employees.id, data.id), eq(employees.userId, userId)))
+      .where(and(eq(employees.id, data.id), eq(employees.organizationId, orgId)))
       .returning({ id: employees.id });
     if (!updated) throw new Error("Ажилтан олдсонгүй");
   } else {
     const duplicate = await db.query.employees.findFirst({
-      where: and(eq(employees.userId, userId), eq(employees.name, name)),
+      where: and(eq(employees.organizationId, orgId), eq(employees.name, name)),
       columns: { id: true },
     });
     if (duplicate) throw new Error(`"${name}" нэртэй ажилтан бүртгэлтэй байна`);
-    await db.insert(employees).values({ userId, ...values });
+    await db.insert(employees).values({ userId, organizationId: orgId, ...values });
   }
   revalidatePayroll();
 }
 
 export async function toggleEmployee(id: string, isActive: boolean) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("accountant");
   await db
     .update(employees)
     .set({ isActive })
-    .where(and(eq(employees.id, id), eq(employees.userId, userId)));
+    .where(and(eq(employees.id, id), eq(employees.organizationId, orgId)));
   revalidatePayroll();
 }
 
@@ -138,14 +132,14 @@ export type PayrollRunView = {
 export async function getPayrollRunData(
   periodMonth: string
 ): Promise<PayrollRunView> {
-  const userId = await requireUser();
+  const { orgId, userId } = await getActiveOrg();
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
 
   const [settings, run, activeEmployees] = await Promise.all([
-    loadPayrollSettings(userId),
+    loadPayrollSettings(orgId, userId),
     db.query.payrollRuns.findFirst({
       where: and(
-        eq(payrollRuns.userId, userId),
+        eq(payrollRuns.organizationId, orgId),
         eq(payrollRuns.periodMonth, periodMonth)
       ),
       with: {
@@ -159,7 +153,7 @@ export async function getPayrollRunData(
     db
       .select({ id: employees.id })
       .from(employees)
-      .where(and(eq(employees.userId, userId), eq(employees.isActive, true))),
+      .where(and(eq(employees.organizationId, orgId), eq(employees.isActive, true))),
   ]);
 
   return {
@@ -223,15 +217,15 @@ function computeFor(
  * мөр нэмнэ. GL журнал үүссэн run-д дахин бодолт хийхгүй.
  */
 export async function calculatePayrollRun(periodMonth: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
   const { endDate } = periodRange(periodMonth);
-  await assertPeriodOpen(userId, endDate);
+  await assertPeriodOpen(orgId, endDate);
 
   const [settingsRow, staff] = await Promise.all([
-    loadPayrollSettings(userId),
+    loadPayrollSettings(orgId, userId),
     db.query.employees.findMany({
-      where: and(eq(employees.userId, userId), eq(employees.isActive, true)),
+      where: and(eq(employees.organizationId, orgId), eq(employees.isActive, true)),
       orderBy: [asc(employees.name)],
     }),
   ]);
@@ -246,7 +240,7 @@ export async function calculatePayrollRun(periodMonth: string) {
   await db.transaction(async (tx) => {
     let run = await tx.query.payrollRuns.findFirst({
       where: and(
-        eq(payrollRuns.userId, userId),
+        eq(payrollRuns.organizationId, orgId),
         eq(payrollRuns.periodMonth, periodMonth)
       ),
       with: { lines: true },
@@ -258,7 +252,7 @@ export async function calculatePayrollRun(periodMonth: string) {
     if (!run) {
       const [created] = await tx
         .insert(payrollRuns)
-        .values({ userId, periodMonth })
+        .values({ userId, organizationId: orgId, periodMonth })
         .returning();
       run = { ...created, lines: [] };
     }
@@ -312,16 +306,16 @@ export async function updatePayrollLine(data: {
   earnings: number;
   otherDeductions: number;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const line = await db.query.payrollRunLines.findFirst({
     where: eq(payrollRunLines.id, data.lineId),
     with: { run: true, employee: true },
   });
-  if (!line || line.run.userId !== userId) throw new Error("Мөр олдсонгүй");
+  if (!line || line.run.organizationId !== orgId) throw new Error("Мөр олдсонгүй");
   if (line.run.voucherId)
     throw new Error("GL журнал үүссэн тул мөр засварлахгүй");
 
-  const settingsRow = await loadPayrollSettings(userId);
+  const settingsRow = await loadPayrollSettings(orgId, userId);
   const result = computeFor(
     Number(data.earnings),
     Number(data.otherDeductions),
@@ -350,14 +344,14 @@ export async function updatePayrollLine(data: {
 // ── GL ноорог журнал ────────────────────────────────────────────────────────
 
 /** Идэвхтэй сегментүүдээр бүтэн posting код угсрагч (S9 default "GL"). */
-async function payrollPostingCodeBuilder(userId: string) {
+async function payrollPostingCodeBuilder(orgId: string) {
   const [configs, values] = await Promise.all([
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
     }),
@@ -383,12 +377,12 @@ async function payrollPostingCodeBuilder(userId: string) {
 export async function createPayrollVoucher(
   periodMonth: string
 ): Promise<{ id: string; dedup?: boolean }> {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
 
   const existing = await db.query.journalVouchers.findFirst({
     where: and(
-      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.organizationId, orgId),
       eq(journalVouchers.externalRef, voucherRefOf(periodMonth))
     ),
     columns: { id: true },
@@ -397,7 +391,7 @@ export async function createPayrollVoucher(
 
   const run = await db.query.payrollRuns.findFirst({
     where: and(
-      eq(payrollRuns.userId, userId),
+      eq(payrollRuns.organizationId, orgId),
       eq(payrollRuns.periodMonth, periodMonth)
     ),
     with: { lines: true },
@@ -418,7 +412,7 @@ export async function createPayrollVoucher(
   );
   if (!(totals.earnings > 0)) throw new Error("Нийт олголт 0 байна");
 
-  const settings = await loadPayrollSettings(userId);
+  const settings = await loadPayrollSettings(orgId, userId);
   const accounts = {
     salaryExpense: settings.salaryExpenseAccountNumber,
     employerSiExpense: settings.employerSiExpenseAccountNumber,
@@ -432,7 +426,7 @@ export async function createPayrollVoucher(
   for (const main of Object.values(accounts)) {
     const account = await db.query.chartOfAccounts.findFirst({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.number, main),
         eq(chartOfAccounts.isEnabled, true)
       ),
@@ -444,7 +438,7 @@ export async function createPayrollVoucher(
       );
   }
 
-  const code = await payrollPostingCodeBuilder(userId);
+  const code = await payrollPostingCodeBuilder(orgId);
   const lines = buildPayrollJournalLines(totals, accounts, periodMonth).map(
     (line) => ({
       account: code(line.account),
@@ -470,6 +464,7 @@ export async function createPayrollVoucher(
 
   await logAuditEvent({
     userId,
+    organizationId: orgId,
     action: "create_voucher",
     entityType: "payroll",
     entityId: id,

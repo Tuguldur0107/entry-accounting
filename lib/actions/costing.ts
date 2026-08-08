@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { latestUnitCost } from "@/lib/costing/valuation";
 import {
@@ -39,10 +39,9 @@ import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { logAuditEvent } from "@/lib/audit";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
+/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
+async function requireAccountant() {
+  return requireRole("accountant");
 }
 
 function revalidateCosting() {
@@ -59,10 +58,10 @@ function revalidateCosting() {
     revalidatePath(path);
 }
 
-async function assertEnabledMainAccount(userId: string, accountNumber: string) {
+async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
   const account = await db.query.chartOfAccounts.findFirst({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.number, accountNumber),
       eq(chartOfAccounts.isEnabled, true)
     ),
@@ -86,14 +85,14 @@ function activeSegIdsOf(
 }
 
 // Cash-ийн cashPostingCodeBuilder-ийн клон: S9 = "CO" (Өртгийн бүртгэл).
-async function costingPostingCodeBuilder(userId: string) {
+async function costingPostingCodeBuilder(orgId: string) {
   const [configs, values] = await Promise.all([
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
     }),
@@ -119,7 +118,7 @@ export async function upsertCostingItemSetting(data: {
   inventoryAccountNumber: string;
   cogsAccountNumber: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("admin");
   const inventoryAccountNumber = data.inventoryAccountNumber.trim();
   const cogsAccountNumber = data.cogsAccountNumber.trim();
   // Tie-out тайлан 14-бүлгээр тулгадаг тул mapping-ийг бүлэгт нь барина.
@@ -127,13 +126,13 @@ export async function upsertCostingItemSetting(data: {
     throw new Error("Бараа материалын данс 14-бүлгийн данс байна");
   if (!/^[678]/.test(cogsAccountNumber))
     throw new Error("Өртгийн данс зардлын (6/7/8) бүлгийн данс байна");
-  await assertEnabledMainAccount(userId, inventoryAccountNumber);
-  await assertEnabledMainAccount(userId, cogsAccountNumber);
+  await assertEnabledMainAccount(orgId, inventoryAccountNumber);
+  await assertEnabledMainAccount(orgId, cogsAccountNumber);
 
   const item = await db.query.inventoryItems.findFirst({
     where: and(
       eq(inventoryItems.id, data.itemId),
-      eq(inventoryItems.userId, userId)
+      eq(inventoryItems.organizationId, orgId)
     ),
     columns: { id: true },
   });
@@ -141,7 +140,7 @@ export async function upsertCostingItemSetting(data: {
 
   const existing = await db.query.costingItemSettings.findFirst({
     where: and(
-      eq(costingItemSettings.userId, userId),
+      eq(costingItemSettings.organizationId, orgId),
       eq(costingItemSettings.itemId, data.itemId)
     ),
     columns: { id: true },
@@ -154,6 +153,7 @@ export async function upsertCostingItemSetting(data: {
   else
     await db.insert(costingItemSettings).values({
       userId,
+      organizationId: orgId,
       itemId: data.itemId,
       inventoryAccountNumber,
       cogsAccountNumber,
@@ -198,7 +198,7 @@ export async function runCosting(data: {
   asOfDate: string;
   receiptCosts?: Record<string, number>;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.asOfDate))
     throw new Error("Огноо буруу байна");
 
@@ -206,18 +206,18 @@ export async function runCosting(data: {
   // хэрэглэгч бүрийн advisory lock дор (хоёр зэрэг run нэг хөдөлгөөнийг
   // хоёр удаа үнэлж GL-ийг давхарлахаас сэргийлнэ).
   return await db.transaction(async (tx) => {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 2)`);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 2)`);
 
   const [movements, activeEntries] = await Promise.all([
     tx.query.inventoryMovements.findMany({
       where: and(
-        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.status, "confirmed")
       ),
     }),
     tx.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         inArray(costEntries.status, ["draft", "posted"])
       ),
     }),
@@ -279,6 +279,7 @@ export async function runCosting(data: {
     .insert(costingRuns)
     .values({
       userId,
+      organizationId: orgId,
       asOfDate: data.asOfDate,
       entryCount: immediateEntries.length,
       pendingCount: result.pending.length,
@@ -294,6 +295,7 @@ export async function runCosting(data: {
       const movement = movementById.get(entry.movementId);
       return {
       userId,
+      organizationId: orgId,
       runId: run.id,
       movementId: entry.movementId,
       itemId: movement?.itemId ?? null,
@@ -327,10 +329,10 @@ export async function runCosting(data: {
 
 // ─── Cost entry lifecycle ────────────────────────────────────────────────────
 
-async function itemAccountsFor(userId: string, itemId: string) {
+async function itemAccountsFor(orgId: string, userId: string, itemId: string) {
   const setting = await db.query.costingItemSettings.findFirst({
     where: and(
-      eq(costingItemSettings.userId, userId),
+      eq(costingItemSettings.organizationId, orgId),
       eq(costingItemSettings.itemId, itemId)
     ),
   });
@@ -350,14 +352,14 @@ async function itemAccountsFor(userId: string, itemId: string) {
   // удаа seed хийж, түүнээс хойш зөвхөн тохиргооноос уншина).
   const [created] = await db
     .insert(costingItemSettings)
-    .values({ userId, itemId })
+    .values({ userId, organizationId: orgId, itemId })
     .onConflictDoNothing()
     .returning();
   const row =
     created ??
     (await db.query.costingItemSettings.findFirst({
       where: and(
-        eq(costingItemSettings.userId, userId),
+        eq(costingItemSettings.organizationId, orgId),
         eq(costingItemSettings.itemId, itemId)
       ),
     }));
@@ -372,27 +374,27 @@ async function itemAccountsFor(userId: string, itemId: string) {
 }
 
 /** Нэг зарлагын төрөл — id-гаар (хэрэглэгчийн хүрээнд). */
-async function loadIssueTypeById(userId: string, id: string) {
+async function loadIssueTypeById(orgId: string, id: string) {
   return (
     (await db.query.inventoryIssueTypes.findFirst({
       where: and(
         eq(inventoryIssueTypes.id, id),
-        eq(inventoryIssueTypes.userId, userId)
+        eq(inventoryIssueTypes.organizationId, orgId)
       ),
     })) ?? null
   );
 }
 
 export async function postCostEntry(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const entry = await db.query.costEntries.findFirst({
-    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: { with: { item: true } }, item: true },
   });
   if (!entry) throw new Error("Өртгийн бичилт олдсонгүй");
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг батална");
-  await assertPeriodOpen(userId, entry.date);
+  await assertPeriodOpen(orgId, entry.date);
   const amount = Number(entry.amount);
   if (!(amount > 0))
     throw new Error("0 дүнтэй бичилтийг GL-д бичихгүй — устгана уу");
@@ -404,8 +406,8 @@ export async function postCostEntry(id: string) {
   const linkedItemId = isNrv ? entry.itemId : entry.movement?.itemId;
   if (!linkedItemId)
     throw new Error("Бичилтийн бараа сонгогдоогүй байна");
-  const accounts = await itemAccountsFor(userId, linkedItemId);
-  const roleSettings = await loadCostingAccountSettings(userId);
+  const accounts = await itemAccountsFor(orgId, userId, linkedItemId);
+  const roleSettings = await loadCostingAccountSettings(orgId, userId);
   // Үйлдвэрлэлийн ОРЦЫН зарлага мөн үү? confirmProductionRun орцоо
   // issueTypeId-гүй, "PROD-…-INxx" дугаартай зарлага болгон үүсгэдэг.
   const isProductionInput =
@@ -425,11 +427,11 @@ export async function postCostEntry(id: string) {
   // тулна, орцын өртөг P&L-д огт хүрэхгүй. Данс нь JPR-006-гийн
   // costing_account_settings.clearingAccountNumber тохиргооноос ирнэ.
   const entryIssueType = entry.issueTypeId
-    ? await loadIssueTypeById(userId, entry.issueTypeId)
+    ? await loadIssueTypeById(orgId, entry.issueTypeId)
     : null;
   const resolvedIssueType =
     entryIssueType ??
-    (isProductionInput ? null : await defaultIssueType(userId));
+    (isProductionInput ? null : await defaultIssueType(orgId));
   const issueDebitAccountNumber = resolvedIssueType
     ? resolveIssueDebitAccount(resolvedIssueType, accounts.cogsAccountNumber)
     : isProductionInput
@@ -443,7 +445,7 @@ export async function postCostEntry(id: string) {
     const component = await db.query.costComponents.findFirst({
       where: and(
         eq(costComponents.id, entry.costComponentId),
-        eq(costComponents.userId, userId)
+        eq(costComponents.organizationId, orgId)
       ),
       columns: { accountNumber: true },
     });
@@ -463,9 +465,9 @@ export async function postCostEntry(id: string) {
       nrvReserve: roleSettings.nrvReserveAccountNumber,
     }
   );
-  await assertEnabledMainAccount(userId, debit);
-  await assertEnabledMainAccount(userId, credit);
-  const buildCode = await costingPostingCodeBuilder(userId);
+  await assertEnabledMainAccount(orgId, debit);
+  await assertEnabledMainAccount(orgId, credit);
+  const buildCode = await costingPostingCodeBuilder(orgId);
 
   const itemName = entry.movement?.item?.name ?? entry.item?.name ?? "";
   const description = isNrv
@@ -478,7 +480,7 @@ export async function postCostEntry(id: string) {
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, entry.date);
+    await assertPeriodOpenInTx(tx, orgId, entry.date);
     const [claimed] = await tx
       .update(costEntries)
       .set({
@@ -493,7 +495,7 @@ export async function postCostEntry(id: string) {
       .where(
         and(
           eq(costEntries.id, id),
-          eq(costEntries.userId, userId),
+          eq(costEntries.organizationId, orgId),
           eq(costEntries.status, "draft")
         )
       )
@@ -504,6 +506,7 @@ export async function postCostEntry(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: entry.date,
         description,
         status: "posted",
@@ -540,6 +543,7 @@ export async function postCostEntry(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "post",
         entityType: "cost",
         entityId: id,
@@ -570,9 +574,9 @@ export async function postCostEntries(ids: string[]) {
 }
 
 export async function deleteCostEntry(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const entry = await db.query.costEntries.findFirst({
-    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: true },
   });
   if (!entry) return;
@@ -588,9 +592,10 @@ export async function deleteCostEntry(id: string) {
   ) {
     await db
       .delete(costEntries)
-      .where(and(eq(costEntries.id, id), eq(costEntries.userId, userId)));
+      .where(and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)));
     await logAuditEvent({
       userId,
+      organizationId: orgId,
       action: "delete",
       entityType: "cost",
       entityId: id,
@@ -605,7 +610,7 @@ export async function deleteCostEntry(id: string) {
   // дунджаас хамаарсан — эхлээд сүүлийнхийг нь устгаж/буцаана.
   const laterEntries = await db.query.costEntries.findMany({
     where: and(
-      eq(costEntries.userId, userId),
+      eq(costEntries.organizationId, orgId),
       inArray(costEntries.status, ["draft", "posted"])
     ),
     with: { movement: { columns: { itemId: true, date: true, createdAt: true } } },
@@ -627,9 +632,10 @@ export async function deleteCostEntry(id: string) {
 
   await db
     .delete(costEntries)
-    .where(and(eq(costEntries.id, id), eq(costEntries.userId, userId)));
+    .where(and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)));
   await logAuditEvent({
     userId,
+    organizationId: orgId,
     action: "delete",
     entityType: "cost",
     entityId: id,
@@ -642,14 +648,14 @@ export async function deleteCostEntry(id: string) {
 // Дараагийн costing run уг хөдөлгөөнийг дахин үнэлж болно (reversed entry
 // идэвхтэйд тооцогдохгүй).
 export async function reverseCostEntry(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const entry = await db.query.costEntries.findFirst({
-    where: and(eq(costEntries.id, id), eq(costEntries.userId, userId)),
+    where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: true },
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
     throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
-  await assertPeriodOpen(userId, entry.date);
+  await assertPeriodOpen(orgId, entry.date);
   // Хөдөлгөөнгүй бичилт заавал NRV биш (устгагдсан хөдөлгөөн байж болно) —
   // шошгыг entryType-оор ялгана.
   const entryLabel =
@@ -661,7 +667,7 @@ export async function reverseCostEntry(id: string) {
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
       eq(journalVouchers.id, entry.voucherId),
-      eq(journalVouchers.userId, userId)
+      eq(journalVouchers.organizationId, orgId)
     ),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
@@ -669,14 +675,14 @@ export async function reverseCostEntry(id: string) {
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, entry.date);
+    await assertPeriodOpenInTx(tx, orgId, entry.date);
     const [claimed] = await tx
       .update(costEntries)
       .set({ status: "reversed" })
       .where(
         and(
           eq(costEntries.id, id),
-          eq(costEntries.userId, userId),
+          eq(costEntries.organizationId, orgId),
           eq(costEntries.status, "posted")
         )
       )
@@ -687,6 +693,7 @@ export async function reverseCostEntry(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: entry.date,
         description: `Буцаалт [${entryLabel}] ${voucher.description}`,
         status: "posted",
@@ -729,6 +736,7 @@ export async function reverseCostEntry(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "reverse",
         entityType: "cost",
         entityId: id,
@@ -752,7 +760,7 @@ export async function createNrvEntry(data: {
   date: string;
   nrvPerUnit: number;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
   const nrvPerUnit = Number(data.nrvPerUnit);
@@ -762,19 +770,19 @@ export async function createNrvEntry(data: {
   const item = await db.query.inventoryItems.findFirst({
     where: and(
       eq(inventoryItems.id, data.itemId),
-      eq(inventoryItems.userId, userId)
+      eq(inventoryItems.organizationId, orgId)
     ),
     columns: { id: true, name: true },
   });
   if (!item) throw new Error("Бараа олдсонгүй");
 
   return await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 2)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 2)`);
 
     // Хөдөлгөөн шаардлагагүй — өртгийн суурийг cost_period_results-ээс авна.
     const entries = await tx.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         inArray(costEntries.status, ["draft", "posted"])
       ),
     });
@@ -783,7 +791,7 @@ export async function createNrvEntry(data: {
     // ийн хамгийн сүүлийн тооцоологдсон сарын C2 нэгж өртөг (docs/cost
     // FR-PR-001 — нэг л арга). Урьд нь perpetual дундаж бодогддог байсан нь
     // одоо батлагдсан дүрэмтэй зөрчилдөнө.
-    const closing = await latestUnitCost(userId, data.itemId);
+    const closing = await latestUnitCost(orgId, data.itemId);
     const qty = closing?.qty ?? 0;
     const avgCost = closing?.unitCost ?? 0;
     if (!(qty > 0))
@@ -813,6 +821,7 @@ export async function createNrvEntry(data: {
       .insert(costEntries)
       .values({
         userId,
+        organizationId: orgId,
         movementId: null,
         itemId: data.itemId,
         entryType: delta > 0 ? "nrv_writedown" : "nrv_reversal",
@@ -873,24 +882,24 @@ export type CostEntryPanelResult =
 export async function getCostEntryPanelData(
   entryId: string
 ): Promise<CostEntryPanelResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId } = active;
 
   const [entry, glAccounts, segConfigs] = await Promise.all([
     db.query.costEntries.findFirst({
-      where: and(eq(costEntries.id, entryId), eq(costEntries.userId, userId)),
+      where: and(eq(costEntries.id, entryId), eq(costEntries.organizationId, orgId)),
       with: { movement: { with: { item: true } }, item: true },
     }),
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
       columns: { number: true, name: true },
     }),
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
   ]);
   if (!entry) return { ok: false, code: "not-found" };
@@ -899,7 +908,7 @@ export async function getCostEntryPanelData(
     ? await db.query.journalVouchers.findFirst({
         where: and(
           eq(journalVouchers.id, entry.voucherId),
-          eq(journalVouchers.userId, userId)
+          eq(journalVouchers.organizationId, orgId)
         ),
         with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
       })

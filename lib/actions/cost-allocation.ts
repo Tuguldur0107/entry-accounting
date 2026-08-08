@@ -10,7 +10,7 @@
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   costAllocationLines,
@@ -64,13 +64,13 @@ export async function loadAllocationTargets(range: {
   from: string;
   to: string;
 }): Promise<AllocationTargetOption[]> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return [];
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return [];
+  const { orgId } = active;
 
   const movements = await db.query.inventoryMovements.findMany({
     where: and(
-      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.organizationId, orgId),
       eq(inventoryMovements.status, "confirmed"),
       eq(inventoryMovements.movementType, "receipt"),
       gte(inventoryMovements.date, range.from),
@@ -83,7 +83,7 @@ export async function loadAllocationTargets(range: {
 
   const entries = await db.query.costEntries.findMany({
     where: and(
-      eq(costEntries.userId, userId),
+      eq(costEntries.organizationId, orgId),
       inArray(costEntries.status, ["draft", "posted"]),
       inArray(
         costEntries.movementId,
@@ -125,18 +125,18 @@ export async function loadAllocationTargets(range: {
 
 /** Бүртгэгдсэн хуваарилалтууд. */
 export async function loadAllocations(): Promise<AllocationRow[]> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return [];
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return [];
+  const { orgId } = active;
 
   const [rows, components] = await Promise.all([
     db.query.costAllocations.findMany({
-      where: eq(costAllocations.userId, userId),
+      where: eq(costAllocations.organizationId, orgId),
       with: { lines: true },
       orderBy: (allocation, { desc }) => [desc(allocation.date)],
     }),
     db.query.costComponents.findMany({
-      where: eq(costComponents.userId, userId),
+      where: eq(costComponents.organizationId, orgId),
       columns: { id: true, code: true, name: true },
     }),
   ]);
@@ -168,15 +168,15 @@ export async function createCostAllocation(data: {
   /** Сонгосон орлогууд + гараар бичсэн дүн. */
   targets: { movementId: string; manualAmount?: number }[];
 }): Promise<AllocationResultAction> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await requireRole("accountant").catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId, userId } = active;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     return { ok: false, code: "validation", message: "Огноо буруу байна" };
 
   try {
-    await assertPeriodOpen(userId, data.date);
+    await assertPeriodOpen(orgId, data.date);
   } catch (caught) {
     return {
       ok: false,
@@ -188,7 +188,7 @@ export async function createCostAllocation(data: {
   const component = await db.query.costComponents.findFirst({
     where: and(
       eq(costComponents.id, data.costComponentId),
-      eq(costComponents.userId, userId),
+      eq(costComponents.organizationId, orgId),
       eq(costComponents.isActive, true)
     ),
   });
@@ -210,7 +210,7 @@ export async function createCostAllocation(data: {
   // Сонгосон орлогуудыг эзэмшил, төлөв, төрлөөр шалгана.
   const movements = await db.query.inventoryMovements.findMany({
     where: and(
-      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.organizationId, orgId),
       eq(inventoryMovements.status, "confirmed"),
       eq(inventoryMovements.movementType, "receipt"),
       inArray(inventoryMovements.id, movementIds)
@@ -271,6 +271,7 @@ export async function createCostAllocation(data: {
         .insert(costAllocations)
         .values({
           userId,
+          organizationId: orgId,
           documentNo,
           date: data.date,
           costComponentId: component.id,
@@ -289,6 +290,7 @@ export async function createCostAllocation(data: {
           .insert(costEntries)
           .values({
             userId,
+            organizationId: orgId,
             movementId: movement.id,
             itemId: movement.itemId,
             warehouseId: movement.warehouseId,

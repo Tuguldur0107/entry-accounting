@@ -4,7 +4,7 @@ import {
   InventoryCountingView,
   type CountSheetRow,
 } from "@/components/inventory/inventory-counting-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { inventoryMovements } from "@/lib/db/schema";
 import { balanceKey, calculateQtyBalances } from "@/lib/inventory/balances";
@@ -21,14 +21,13 @@ export default async function InventoryCountingPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const params = await searchParams;
   const asOfDate = /^\d{4}-\d{2}-\d{2}$/.test(params.date ?? "")
     ? params.date!
     : today();
 
-  const { itemViews, warehouseViews } = await loadInventoryBase(userId);
+  const { itemViews, warehouseViews } = await loadInventoryBase(orgId);
   const activeWarehouses = warehouseViews.filter((w) => w.isActive);
   const selectedWarehouseId =
     activeWarehouses.find((w) => w.id === params.warehouse)?.id ??
@@ -39,7 +38,7 @@ export default async function InventoryCountingPage({
   if (selectedWarehouseId) {
     const movements = await db.query.inventoryMovements.findMany({
       where: and(
-        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.status, "confirmed")
       ),
     });

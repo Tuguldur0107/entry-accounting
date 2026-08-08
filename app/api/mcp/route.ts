@@ -25,9 +25,9 @@ export async function POST(request: Request) {
     : /^e(ak|oat)_/.test(header)
       ? header
       : "";
-  const userId = await resolveApiToken(token);
-  if (!userId) return mcpUnauthorized(request);
-  return handleMcpPost(userId, request);
+  const context = await resolveApiToken(token);
+  if (!context) return mcpUnauthorized(request);
+  return handleMcpPost(context, request);
 }
 
 export async function GET() {

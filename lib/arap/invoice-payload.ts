@@ -49,18 +49,18 @@ export interface InvoicePayload {
 }
 
 /**
- * userId + documentId-аар нэхэмжлэхийн бүрэн payload. Зөвхөн ar_invoice.
- * Байхгүй/өөр хэрэглэгчийнх бол null.
+ * orgId + documentId-аар нэхэмжлэхийн бүрэн payload. Зөвхөн ar_invoice.
+ * Байхгүй/өөр байгууллагынх бол null.
  */
 export async function loadInvoicePayload(
-  userId: string,
+  orgId: string,
   documentId: string
 ): Promise<InvoicePayload | null> {
   const [document, company] = await Promise.all([
     db.query.arApDocuments.findFirst({
       where: and(
         eq(arApDocuments.id, documentId),
-        eq(arApDocuments.userId, userId)
+        eq(arApDocuments.organizationId, orgId)
       ),
       with: {
         counterparty: true,
@@ -68,7 +68,7 @@ export async function loadInvoicePayload(
       },
     }),
     db.query.companySettings.findFirst({
-      where: eq(companySettings.userId, userId),
+      where: eq(companySettings.organizationId, orgId),
     }),
   ]);
   if (!document || document.documentType !== "ar_invoice") return null;
@@ -81,7 +81,7 @@ export async function loadInvoicePayload(
   ];
   const items = itemIds.length
     ? await db.query.inventoryItems.findMany({
-        where: eq(inventoryItems.userId, userId),
+        where: eq(inventoryItems.organizationId, orgId),
       })
     : [];
   const itemNameById = new Map(items.map((item) => [item.id, item.name]));

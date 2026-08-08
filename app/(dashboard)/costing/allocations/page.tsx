@@ -1,5 +1,5 @@
 import { CostAllocationView } from "@/components/costing/cost-allocation-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import {
   loadAllocationTargets,
@@ -16,8 +16,7 @@ export default async function CostAllocationsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { from, to } = await searchParams;
 
   const period = await getPeriodSelection();
@@ -29,7 +28,7 @@ export default async function CostAllocationsPage({
   const [rows, targets, components] = await Promise.all([
     loadAllocations(),
     loadAllocationTargets(range),
-    loadCostComponents(userId, { activeOnly: true }),
+    loadCostComponents(orgId, { activeOnly: true }),
   ]);
 
   return (

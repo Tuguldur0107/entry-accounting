@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -43,10 +43,9 @@ import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
+/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
+async function requireAccountant() {
+  return requireRole("accountant");
 }
 
 function revalidateArAp() {
@@ -75,13 +74,13 @@ function assertAmount(value: number, label = "Дүн") {
     throw new Error(`${label} 0-ээс их байна`);
 }
 
-async function assertEnabledMainAccount(userId: string, accountNumber: string) {
+async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
   const main = extractMainAccount(accountNumber);
   if (!main.trim())
     throw new Error("Данс сонгоогүй байна — данс сонгоод дахин хадгална уу");
   const account = await db.query.chartOfAccounts.findFirst({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.number, main),
       eq(chartOfAccounts.isEnabled, true)
     ),
@@ -138,9 +137,9 @@ export type ArapDocPanelResult =
 export async function getArapDocPanelData(
   documentId?: string
 ): Promise<ArapDocPanelResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId } = active;
 
   const [
     segmentData,
@@ -150,17 +149,17 @@ export async function getArapDocPanelData(
     costingAccounts,
     paymentRows,
   ] = await Promise.all([
-    loadArApSegmentData(userId),
-    loadArApCounterparties(userId),
-    loadArApInventoryOptions(userId),
+    loadArApSegmentData(orgId),
+    loadArApCounterparties(orgId),
+    loadArApInventoryOptions(orgId),
     documentId
-      ? loadArApDocumentDetail(userId, documentId)
+      ? loadArApDocumentDetail(orgId, documentId)
       : Promise.resolve(null),
-    loadCostingAccountSettings(userId),
+    loadCostingAccountSettings(orgId),
     documentId
       ? db.query.cashDocuments.findMany({
           where: and(
-            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.organizationId, orgId),
             eq(cashDocuments.arApDocumentId, documentId)
           ),
           columns: {
@@ -213,7 +212,7 @@ export async function createCounterparty(data: {
   phone?: string;
   address?: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const name = data.name.trim();
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
@@ -225,17 +224,18 @@ export async function createCounterparty(data: {
   // бөглөнө — нэхэмжлэх үүсгэхэд хяналтын данс хоосон үлдэж алдаа
   // өгөхөөс сэргийлнэ (AI/MCP-ээр үүсгэхэд ч мөн адил).
   if (!receivable || !payable) {
-    const fallback = (await loadArApSegmentData(userId)).defaultAccountNumbers;
+    const fallback = (await loadArApSegmentData(orgId)).defaultAccountNumbers;
     receivable = receivable ?? cleanText(fallback.receivable);
     payable = payable ?? cleanText(fallback.payable);
   }
-  if (receivable) await assertEnabledMainAccount(userId, receivable);
-  if (payable) await assertEnabledMainAccount(userId, payable);
+  if (receivable) await assertEnabledMainAccount(orgId, receivable);
+  if (payable) await assertEnabledMainAccount(orgId, payable);
 
   const [created] = await db
     .insert(counterparties)
     .values({
       userId,
+      organizationId: orgId,
       name,
       counterpartyType: data.counterpartyType,
       registerNo: cleanText(data.registerNo),
@@ -269,7 +269,7 @@ export async function updateCounterparty(
     address?: string;
   }
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const name = data.name.trim();
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
@@ -277,8 +277,8 @@ export async function updateCounterparty(
 
   const receivable = cleanText(data.defaultReceivableAccountNumber);
   const payable = cleanText(data.defaultPayableAccountNumber);
-  if (receivable) await assertEnabledMainAccount(userId, receivable);
-  if (payable) await assertEnabledMainAccount(userId, payable);
+  if (receivable) await assertEnabledMainAccount(orgId, receivable);
+  if (payable) await assertEnabledMainAccount(orgId, payable);
 
   const [updated] = await db
     .update(counterparties)
@@ -294,7 +294,7 @@ export async function updateCounterparty(
       phone: cleanText(data.phone),
       address: cleanText(data.address),
     })
-    .where(and(eq(counterparties.id, id), eq(counterparties.userId, userId)))
+    .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)))
     .returning({ id: counterparties.id });
   if (!updated) throw new Error("Харилцагч олдсонгүй");
 
@@ -302,11 +302,11 @@ export async function updateCounterparty(
 }
 
 export async function toggleCounterparty(id: string, isActive: boolean) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   await db
     .update(counterparties)
     .set({ isActive })
-    .where(and(eq(counterparties.id, id), eq(counterparties.userId, userId)));
+    .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)));
   revalidateArAp();
 }
 
@@ -326,7 +326,7 @@ export async function createArApDocument(data: {
   /** Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency. */
   externalRef?: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   if (!["ar_invoice", "ap_bill"].includes(data.documentType))
     throw new Error("Баримтын төрөл буруу байна");
   assertDate(data.date, "Огноо");
@@ -334,21 +334,21 @@ export async function createArApDocument(data: {
   if (data.dueDate < data.date)
     throw new Error("Төлөх огноо баримтын огнооноос өмнө байж болохгүй");
   // Хаагдсан периодын хамгаалалт — ноорог ч, postNow ч энэ огноогоор бичигдэнэ.
-  await assertPeriodOpen(userId, data.date);
+  await assertPeriodOpen(orgId, data.date);
   const description = data.description.trim();
   if (!description) throw new Error("Баримтын утга оруулна уу");
 
   const counterparty = await db.query.counterparties.findFirst({
     where: and(
       eq(counterparties.id, data.counterpartyId),
-      eq(counterparties.userId, userId),
+      eq(counterparties.organizationId, orgId),
       eq(counterparties.isActive, true)
     ),
   });
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
 
   const controlAccountNumber = data.controlAccountNumber.trim();
-  await assertEnabledMainAccount(userId, controlAccountNumber);
+  await assertEnabledMainAccount(orgId, controlAccountNumber);
 
   const validLines = data.lines
     .map((line) => ({
@@ -362,11 +362,11 @@ export async function createArApDocument(data: {
     .filter((line) => line.account && line.amount > 0);
   if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
   // Клирингийн данс тохиргооноос (JPR-006) — кодод хатуу дугаар байхгүй.
-  const clearingAccount = (await loadCostingAccountSettings(userId))
+  const clearingAccount = (await loadCostingAccountSettings(orgId, userId))
     .clearingAccountNumber;
   for (const line of validLines) {
     assertAmount(line.amount, "Мөрийн дүн");
-    await assertEnabledMainAccount(userId, line.account);
+    await assertEnabledMainAccount(orgId, line.account);
     if (!line.itemId) continue;
     if (!(line.quantity! > 0))
       throw new Error("Бараатай мөрөнд тоо хэмжээ 0-ээс их байна");
@@ -387,7 +387,7 @@ export async function createArApDocument(data: {
     const item = await db.query.inventoryItems.findFirst({
       where: and(
         eq(inventoryItems.id, line.itemId),
-        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.organizationId, orgId),
         eq(inventoryItems.isActive, true)
       ),
       columns: { id: true },
@@ -397,7 +397,7 @@ export async function createArApDocument(data: {
       const warehouse = await db.query.warehouses.findFirst({
         where: and(
           eq(warehouses.id, line.warehouseId),
-          eq(warehouses.userId, userId),
+          eq(warehouses.organizationId, orgId),
           eq(warehouses.isActive, true)
         ),
         columns: { id: true },
@@ -436,7 +436,7 @@ export async function createArApDocument(data: {
   if (manualNo) {
     const duplicate = await db.query.arApDocuments.findFirst({
       where: and(
-        eq(arApDocuments.userId, userId),
+        eq(arApDocuments.organizationId, orgId),
         eq(arApDocuments.documentNo, manualNo)
       ),
       columns: { id: true },
@@ -451,7 +451,7 @@ export async function createArApDocument(data: {
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, data.date);
+    await assertPeriodOpenInTx(tx, orgId, data.date);
     let voucherId: string | null = null;
 
     if (data.postNow) {
@@ -459,6 +459,7 @@ export async function createArApDocument(data: {
         .insert(journalVouchers)
         .values({
           userId,
+          organizationId: orgId,
           date: data.date,
           description: `${documentLabel(data.documentType)}: ${description}`,
           status: "posted",
@@ -514,6 +515,7 @@ export async function createArApDocument(data: {
       .insert(arApDocuments)
       .values({
         userId,
+        organizationId: orgId,
         documentNo,
         documentType: data.documentType,
         counterpartyId: data.counterpartyId,
@@ -551,6 +553,7 @@ export async function createArApDocument(data: {
       await logAuditEvent(
         {
           userId,
+          organizationId: orgId,
           action: "create_posted",
           entityType: "arap",
           entityId: document.id,
@@ -586,30 +589,30 @@ export async function createArApDocument(data: {
 // Ноорог АР/АП баримтыг батлах: create(postNow)-тэй ижил журналын бичилтийг
 // хадгалагдсан мөрүүдээс үүсгэнэ (base дүнг баримтын ханшаар дахин тооцно).
 export async function postArApDocument(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const document = await db.query.arApDocuments.findFirst({
-    where: and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)),
+    where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
   if (!document) throw new Error("Баримт олдсонгүй");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
-  await assertPeriodOpen(userId, document.date);
+  await assertPeriodOpen(orgId, document.date);
   if (document.lines.length === 0) throw new Error("Баримтад мөр алга");
 
   const counterparty = await db.query.counterparties.findFirst({
     where: and(
       eq(counterparties.id, document.counterpartyId),
-      eq(counterparties.userId, userId),
+      eq(counterparties.organizationId, orgId),
       eq(counterparties.isActive, true)
     ),
     columns: { id: true },
   });
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
 
-  await assertEnabledMainAccount(userId, document.controlAccountNumber);
+  await assertEnabledMainAccount(orgId, document.controlAccountNumber);
   for (const line of document.lines)
-    await assertEnabledMainAccount(userId, line.accountNumber);
+    await assertEnabledMainAccount(orgId, line.accountNumber);
 
   const exchangeRate = Number(document.exchangeRate);
   const baseTotalAmount = calculateBaseAmount(
@@ -631,14 +634,14 @@ export async function postArApDocument(id: string) {
   let voucherId: string | null = null;
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, document.date);
+    await assertPeriodOpenInTx(tx, orgId, document.date);
     const [claimed] = await tx
       .update(arApDocuments)
       .set({ status: "posted", postedAt: new Date() })
       .where(
         and(
           eq(arApDocuments.id, id),
-          eq(arApDocuments.userId, userId),
+          eq(arApDocuments.organizationId, orgId),
           eq(arApDocuments.status, "draft")
         )
       )
@@ -649,6 +652,7 @@ export async function postArApDocument(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: document.date,
         description: `${documentLabel(document.documentType as ArApDocumentType)}: ${document.description}`,
         status: "posted",
@@ -703,6 +707,7 @@ export async function postArApDocument(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "post",
         entityType: "arap",
         entityId: id,
@@ -742,18 +747,18 @@ export async function postArApDocument(id: string) {
  *   - период нээлттэй байх
  */
 export async function deleteArApDocument(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const document = await db.query.arApDocuments.findFirst({
-    where: and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)),
+    where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
   });
   if (!document) throw new Error("Баримт олдсонгүй");
 
   if (document.status !== "draft") {
-    await assertPeriodOpen(userId, document.date);
+    await assertPeriodOpen(orgId, document.date);
 
     const settlement = await db.query.arApSettlements.findFirst({
       where: and(
-        eq(arApSettlements.userId, userId),
+        eq(arApSettlements.organizationId, orgId),
         eq(arApSettlements.documentId, id)
       ),
       columns: { id: true },
@@ -773,7 +778,7 @@ export async function deleteArApDocument(id: string) {
       lines.length > 0
         ? await db.query.inventoryMovements.findMany({
             where: and(
-              eq(inventoryMovements.userId, userId),
+              eq(inventoryMovements.organizationId, orgId),
               eq(inventoryMovements.sourceType, "arap_line"),
               inArray(
                 inventoryMovements.sourceId,
@@ -804,26 +809,27 @@ export async function deleteArApDocument(id: string) {
           .where(
             and(
               eq(inventoryMovements.id, movement.id),
-              eq(inventoryMovements.userId, userId)
+              eq(inventoryMovements.organizationId, orgId)
             )
           );
       }
       await tx
         .delete(arApDocuments)
-        .where(and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)));
+        .where(and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)));
       for (const voucherId of voucherIds) {
         await tx
           .delete(journalVouchers)
           .where(
             and(
               eq(journalVouchers.id, voucherId),
-              eq(journalVouchers.userId, userId)
+              eq(journalVouchers.organizationId, orgId)
             )
           );
       }
       await logAuditEvent(
         {
           userId,
+          organizationId: orgId,
           action: "delete",
           entityType: "arap",
           entityId: id,
@@ -840,10 +846,11 @@ export async function deleteArApDocument(id: string) {
   // Мөрүүд FK cascade-аар хамт устна; ноорогт settlement/journal холбоос байхгүй.
   await db
     .delete(arApDocuments)
-    .where(and(eq(arApDocuments.id, id), eq(arApDocuments.userId, userId)));
+    .where(and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)));
 
   await logAuditEvent({
     userId,
+    organizationId: orgId,
     action: "delete",
     entityType: "arap",
     entityId: id,

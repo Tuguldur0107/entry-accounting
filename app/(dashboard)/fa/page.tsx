@@ -5,7 +5,7 @@ import {
   type FaTieOutRow,
   type NbvRow,
 } from "@/components/fa/fa-dashboard";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -20,23 +20,22 @@ function mainAccountOf(accountNumber: string) {
 }
 
 export default async function FaDashboardPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const [assets, entries, vouchers, accounts] = await Promise.all([
-    db.query.fixedAssets.findMany({ where: eq(fixedAssets.userId, userId) }),
+    db.query.fixedAssets.findMany({ where: eq(fixedAssets.organizationId, orgId) }),
     db.query.faDepreciationEntries.findMany({
-      where: eq(faDepreciationEntries.userId, userId),
+      where: eq(faDepreciationEntries.organizationId, orgId),
     }),
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["posted", "reversed"])
       ),
       with: { lines: true },
     }),
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
     }),
   ]);
 

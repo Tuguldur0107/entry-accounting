@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { CostEntriesView } from "@/components/costing/cost-entries-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { costEntries } from "@/lib/db/schema";
 import type { CostEntryView } from "@/lib/inventory/types";
@@ -13,14 +13,13 @@ export default async function CostEntriesPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { status } = await searchParams;
 
   // Дэлгэрэнгүй (GL мөр, дансны нэр, сегмент) нь одоо панель өөрөө
   // getCostEntryPanelData-аар татдаг тул энд зөвхөн жагсаалтын өгөгдөл.
   const entries = await db.query.costEntries.findMany({
-    where: eq(costEntries.userId, userId),
+    where: eq(costEntries.organizationId, orgId),
     with: { movement: { with: { item: true } }, item: true },
     orderBy: (entry, { desc }) => [desc(entry.date), desc(entry.createdAt)],
   });

@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 
 import { CashDocumentsView } from "@/components/cash/cash-documents-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import {
   loadCashTransactionOptions,
@@ -24,8 +24,7 @@ export default async function CashTransactionsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { start, end, type, status, arap } = await searchParams;
   // Topbar-ийн периодын сонголт — URL-д ил огноо байхгүй үед хэрэглэнэ.
   const period = await getPeriodSelection();
@@ -35,7 +34,7 @@ export default async function CashTransactionsPage({
   // Surface any posted GL journals that touch a cash account but don't yet
   // have a cash document — including historical ones. Idempotent + best
   // effort; runs before the document query so new drafts show immediately.
-  await backfillCashDraftsForUser(userId);
+  await backfillCashDraftsForUser(orgId);
 
   // Date range filters the document list at the DB level. `type` (receipt /
   // payment / transfer) is applied client-side so switching tabs doesn't
@@ -48,9 +47,9 @@ export default async function CashTransactionsPage({
   // Сонголтын өгөгдөл (данс, GL данс, урсгал, нээлттэй АР/АП, сегмент) —
   // cash-new панелийн server action-тай НЭГ ачаалагч (lib/cash/load-options).
   const [options, documents] = await Promise.all([
-    loadCashTransactionOptions(userId),
+    loadCashTransactionOptions(orgId),
     db.query.cashDocuments.findMany({
-      where: and(eq(cashDocuments.userId, userId), ...dateFilters),
+      where: and(eq(cashDocuments.organizationId, orgId), ...dateFilters),
       with: { fromAccount: true, toAccount: true },
       orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
     }),

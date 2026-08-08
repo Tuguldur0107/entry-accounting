@@ -193,15 +193,15 @@ Tool ашиглах дүрэм:
 - Журналын бичилт санал болгохдоо мөр бүрийг "Dr 61100000 Өртөг 100,000₮ / Cr 14000001 Бараа материал 100,000₮" хэлбэрээр бич.
 - Markdown-ийн энгийн хэлбэрүүд (жагсаалт, **тод**) болно; хүснэгт хэрэглэж болно.`;
 
-/** Хэрэглэгчийн дансны мод + огноо + горим + нэмэлт заавар — хүсэлт бүрд өөр. */
+/** Идэвхтэй байгууллагын дансны мод + огноо + горим + нэмэлт заавар — хүсэлт бүрд өөр. */
 export async function buildDynamicContext(
-  userId: string,
+  orgId: string,
   customInstructions?: string | null,
   writeMode: "draft" | "post" = "draft"
 ): Promise<string> {
   const accounts = await db.query.chartOfAccounts.findMany({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.isEnabled, true)
     ),
     columns: { number: true, name: true },

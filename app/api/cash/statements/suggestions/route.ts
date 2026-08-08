@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import {
   buildHistoricalPatterns,
   type MatchContext,
@@ -17,20 +17,22 @@ const HISTORY_LINE_LIMIT = 5000;
  * Хуулгын импортын саналын лавлах дата:
  *   - нээлттэй АР/АП нэхэмжлэхүүд (posted | partially_paid, үлдэгдэлтэй)
  *   - өмнөх баталгаажсан хуулгын мөрүүдээс гарсан харилцагч → данс загварууд
- * Хоёул userId-аар хамгаалагдсан. Тулгалтын логик нь client талд цэвэр
- * функцээр (lib/cash/statement-matching.ts) ажиллана.
+ * Хоёул байгууллагаар (organizationId) хамгаалагдсан. Тулгалтын логик нь
+ * client талд цэвэр функцээр (lib/cash/statement-matching.ts) ажиллана.
  */
 export async function GET() {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId)
+  let orgId: string;
+  try {
+    ({ orgId } = await getActiveOrg());
+  } catch {
     return Response.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
+  }
 
   try {
     const [invoices, historyLines] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
-          eq(arApDocuments.userId, userId),
+          eq(arApDocuments.organizationId, orgId),
           inArray(arApDocuments.status, ["posted", "partially_paid"])
         ),
         with: { counterparty: { columns: { name: true } } },
@@ -50,7 +52,7 @@ export async function GET() {
           bankStatements,
           eq(bankStatementLines.statementId, bankStatements.id)
         )
-        .where(eq(bankStatements.userId, userId))
+        .where(eq(bankStatements.organizationId, orgId))
         .orderBy(desc(bankStatementLines.createdAt))
         .limit(HISTORY_LINE_LIMIT),
     ]);

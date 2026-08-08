@@ -8,7 +8,7 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -50,30 +50,33 @@ export type JournalEditorResult =
 export async function getJournalEditorData(
   voucherId?: string
 ): Promise<JournalEditorResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  let orgId: string;
+  try {
+    ({ orgId } = await getActiveOrg());
+  } catch {
+    return { ok: false, code: "unauthenticated" };
+  }
 
   const [voucher, accounts, rawSegConfigs, rawSegValues] = await Promise.all([
     voucherId
       ? db.query.journalVouchers.findFirst({
           where: and(
             eq(journalVouchers.id, voucherId),
-            eq(journalVouchers.userId, userId)
+            eq(journalVouchers.organizationId, orgId)
           ),
           with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
         })
       : Promise.resolve(undefined),
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
       orderBy: (account, { asc }) => [asc(account.number)],
     }),
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
       orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],

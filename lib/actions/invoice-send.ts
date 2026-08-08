@@ -8,17 +8,13 @@ import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { Resend } from "resend";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
 import { db } from "@/lib/db";
 import { arApDocuments, arApInvoiceSends } from "@/lib/db/schema";
 import { renderInvoicePdf } from "@/lib/pdf/invoice-pdf";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
+
 
 /** Public линкний суурь URL — тохируулаагүй бол localhost. */
 function appBaseUrl() {
@@ -28,11 +24,11 @@ function appBaseUrl() {
   );
 }
 
-async function assertSendable(userId: string, documentId: string) {
+async function assertSendable(orgId: string, documentId: string) {
   const document = await db.query.arApDocuments.findFirst({
     where: and(
       eq(arApDocuments.id, documentId),
-      eq(arApDocuments.userId, userId)
+      eq(arApDocuments.organizationId, orgId)
     ),
   });
   if (!document) throw new Error("Нэхэмжлэх олдсонгүй");
@@ -54,8 +50,8 @@ export async function createInvoiceLink(
   documentId: string,
   options?: { expiryDays?: number | null }
 ) {
-  const userId = await requireUser();
-  await assertSendable(userId, documentId);
+  const { orgId, userId } = await requireRole("accountant");
+  await assertSendable(orgId, documentId);
 
   const expiryDays = options?.expiryDays === undefined ? 90 : options.expiryDays;
   if (
@@ -70,7 +66,7 @@ export async function createInvoiceLink(
 
   const [send] = await db
     .insert(arApInvoiceSends)
-    .values({ userId, documentId, channel: "link", expiresAt })
+    .values({ userId, organizationId: orgId, documentId, channel: "link", expiresAt })
     .returning({ token: arApInvoiceSends.token });
 
   revalidatePath("/receivables/documents");
@@ -79,8 +75,8 @@ export async function createInvoiceLink(
 
 /** И-мэйлээр илгээнэ — PDF хавсралт + public линк хоёулаа орно. */
 export async function sendInvoiceEmail(documentId: string, recipient: string) {
-  const userId = await requireUser();
-  const document = await assertSendable(userId, documentId);
+  const { orgId, userId } = await requireRole("accountant");
+  const document = await assertSendable(orgId, documentId);
 
   const email = recipient.trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -92,7 +88,7 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
       "И-мэйл илгээх тохиргоо хийгдээгүй — .env.local-д RESEND_API_KEY нэмнэ үү. Түр зуур «Линк үүсгэх»-ийг ашиглаж болно."
     );
 
-  const invoice = await loadInvoicePayload(userId, documentId);
+  const invoice = await loadInvoicePayload(orgId, documentId);
   if (!invoice) throw new Error("Нэхэмжлэх олдсонгүй");
   if (!invoice.company.name)
     throw new Error(
@@ -102,7 +98,7 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
   // Линк + и-мэйлийг НЭГ бүртгэлээр — линк нь мэйл доторх "онлайнаар үзэх".
   const [send] = await db
     .insert(arApInvoiceSends)
-    .values({ userId, documentId, channel: "email", recipient: email })
+    .values({ userId, organizationId: orgId, documentId, channel: "email", recipient: email })
     .returning({ token: arApInvoiceSends.token });
   const viewUrl = `${appBaseUrl()}/invoice/${send.token}`;
 
@@ -156,11 +152,11 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
 
 /** Илгээх dialog-ийн контекст — харилцагчийн и-мэйл + илгээлтийн түүх. */
 export async function getInvoiceSendContext(documentId: string) {
-  const userId = await requireUser();
+  const { orgId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
     where: and(
       eq(arApDocuments.id, documentId),
-      eq(arApDocuments.userId, userId)
+      eq(arApDocuments.organizationId, orgId)
     ),
     with: { counterparty: true },
   });
@@ -174,11 +170,11 @@ export async function getInvoiceSendContext(documentId: string) {
 
 /** Баримтын илгээлтийн түүх — panel-д үзүүлнэ. */
 export async function listInvoiceSends(documentId: string) {
-  const userId = await requireUser();
+  const { orgId } = await getActiveOrg();
   const rows = await db.query.arApInvoiceSends.findMany({
     where: and(
       eq(arApInvoiceSends.documentId, documentId),
-      eq(arApInvoiceSends.userId, userId)
+      eq(arApInvoiceSends.organizationId, orgId)
     ),
     orderBy: [desc(arApInvoiceSends.sentAt)],
   });
@@ -204,12 +200,15 @@ export async function listInvoiceSends(documentId: string) {
 
 /** Линкийг хүчингүй болгоно — цаашид нээгдэхгүй. */
 export async function revokeInvoiceSend(sendId: string) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("accountant");
   await db
     .update(arApInvoiceSends)
     .set({ revokedAt: new Date() })
     .where(
-      and(eq(arApInvoiceSends.id, sendId), eq(arApInvoiceSends.userId, userId))
+      and(
+        eq(arApInvoiceSends.id, sendId),
+        eq(arApInvoiceSends.organizationId, orgId)
+      )
     );
   revalidatePath("/receivables/documents");
 }

@@ -14,7 +14,7 @@ import {
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { eq, and, ne, or, sql } from "drizzle-orm";
 import {
@@ -37,35 +37,33 @@ import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { parseSegParts } from "@/lib/grid/segments";
 import { logAuditEvent } from "@/lib/audit";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
+// Фаз 01 multi-tenancy: scope нь идэвхтэй байгууллага (orgId), userId нь
+// createdBy/audit утгаар үлддэг. Дансны/сегментийн тохиргоо — admin,
+// журналын бичилт — accountant, унших — гишүүн бүр.
 
 // ─── Chart of Accounts ───────────────────────────────────────────────────────
 
 export async function createAccount(data: { number: string; name: string }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("admin");
 
   const existing = await db.query.chartOfAccounts.findFirst({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.number, data.number)
     ),
   });
   if (existing) return { error: "Энэ дугаартай данс аль хэдийн байна" };
 
-  await db.insert(chartOfAccounts).values({ userId, ...data });
+  await db.insert(chartOfAccounts).values({ userId, organizationId: orgId, ...data });
   revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
 export async function deleteAccount(id: string) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
 
   const account = await db.query.chartOfAccounts.findFirst({
-    where: and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)),
+    where: and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.organizationId, orgId)),
     columns: { number: true },
   });
   if (!account) throw new Error("Данс олдсонгүй");
@@ -79,7 +77,7 @@ export async function deleteAccount(id: string) {
     .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
     .where(
       and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         or(
           eq(sql`split_part(${journalLines.accountNumber}, '.', 3)`, account.number),
           eq(journalLines.accountNumber, account.number)
@@ -93,29 +91,29 @@ export async function deleteAccount(id: string) {
 
   await db
     .delete(chartOfAccounts)
-    .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
+    .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.organizationId, orgId)));
   revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
 export async function toggleAccount(id: string, isEnabled: boolean) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
   await db
     .update(chartOfAccounts)
     .set({ isEnabled })
-    .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
+    .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.organizationId, orgId)));
   revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
 }
 
 export async function bulkToggleSegment(segment: string, isEnabled: boolean) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
   await db
     .update(chartOfAccounts)
     .set({ isEnabled })
     .where(
       and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         sql`left(${chartOfAccounts.number}, 1) = ${segment}`
       )
     );
@@ -124,19 +122,19 @@ export async function bulkToggleSegment(segment: string, isEnabled: boolean) {
 }
 
 export async function updateAccountModules(id: string, modules: string[]) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
   await db
     .update(chartOfAccounts)
     .set({ modules: modules.join(",") })
-    .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.userId, userId)));
+    .where(and(eq(chartOfAccounts.id, id), eq(chartOfAccounts.organizationId, orgId)));
   revalidatePath("/settings/gl");
 }
 
 export async function syncStandardAccounts() {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("admin");
 
   const existing = await db.query.chartOfAccounts.findMany({
-    where: eq(chartOfAccounts.userId, userId),
+    where: eq(chartOfAccounts.organizationId, orgId),
   });
   const existingNumbers = new Set(existing.map((a) => a.number));
 
@@ -146,7 +144,12 @@ export async function syncStandardAccounts() {
   if (toAdd.length === 0) return { added: 0 };
 
   await db.insert(chartOfAccounts).values(
-    toAdd.map((a) => ({ userId, number: a.number, name: a.name }))
+    toAdd.map((a) => ({
+      userId,
+      organizationId: orgId,
+      number: a.number,
+      name: a.name,
+    }))
   );
 
   revalidatePath("/settings/gl");
@@ -157,9 +160,9 @@ export async function syncStandardAccounts() {
 // ─── Segment Configs ──────────────────────────────────────────────────────────
 
 export async function getSegmentConfigs() {
-  const userId = await requireUser();
+  const { orgId, userId } = await getActiveOrg();
   const rows = await db.query.segmentConfigs.findMany({
-    where: eq(segmentConfigs.userId, userId),
+    where: eq(segmentConfigs.organizationId, orgId),
   });
   // Seed defaults for any missing segments
   const existing = new Set(rows.map((r) => r.segmentId));
@@ -168,13 +171,14 @@ export async function getSegmentConfigs() {
     await db.insert(segmentConfigs).values(
       missing.map((d) => ({
         userId,
+        organizationId: orgId,
         segmentId: d.id,
         isEnabled: true,
         modules: d.defaultModules.join(","),
       }))
     );
     return db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     });
   }
   return rows;
@@ -184,7 +188,7 @@ export async function updateSegmentConfig(
   segmentId: number,
   data: { isEnabled?: boolean; modules?: string[] }
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("admin");
   // modules заагаагүй insert-д тухайн сегментийн defaultModules-ийг өгнө —
   // хоосон "" хадгалбал модулиар шүүдэг хуудсууд (cash г.м.) сегментийг алдана.
   const defaultModules =
@@ -193,12 +197,13 @@ export async function updateSegmentConfig(
     .insert(segmentConfigs)
     .values({
       userId,
+      organizationId: orgId,
       segmentId,
       isEnabled: data.isEnabled ?? true,
       modules: (data.modules ?? defaultModules).join(","),
     })
     .onConflictDoUpdate({
-      target: [segmentConfigs.userId, segmentConfigs.segmentId],
+      target: [segmentConfigs.organizationId, segmentConfigs.segmentId],
       set: {
         ...(data.isEnabled !== undefined && { isEnabled: data.isEnabled }),
         ...(data.modules !== undefined && { modules: data.modules.join(",") }),
@@ -212,14 +217,19 @@ export async function updateSegmentConfig(
 export async function batchSaveModuleConfigs(
   changes: { moduleKey: string; isEnabled: boolean }[]
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("admin");
   await Promise.all(
     changes.map((c) =>
       db
         .insert(moduleConfigs)
-        .values({ userId, moduleKey: c.moduleKey, isEnabled: c.isEnabled })
+        .values({
+          userId,
+          organizationId: orgId,
+          moduleKey: c.moduleKey,
+          isEnabled: c.isEnabled,
+        })
         .onConflictDoUpdate({
-          target: [moduleConfigs.userId, moduleConfigs.moduleKey],
+          target: [moduleConfigs.organizationId, moduleConfigs.moduleKey],
           set: { isEnabled: c.isEnabled },
         })
     )
@@ -233,20 +243,20 @@ export async function batchSaveSection2(
   accountChanges: { id: string; isEnabled: boolean; modules: string }[],
   svChanges: { id: string; isEnabled: boolean; modules: string }[]
 ) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
 
   await Promise.all([
     ...accountChanges.map((c) =>
       db
         .update(chartOfAccounts)
         .set({ isEnabled: c.isEnabled, modules: c.modules })
-        .where(and(eq(chartOfAccounts.id, c.id), eq(chartOfAccounts.userId, userId)))
+        .where(and(eq(chartOfAccounts.id, c.id), eq(chartOfAccounts.organizationId, orgId)))
     ),
     ...svChanges.map((c) =>
       db
         .update(segmentValues)
         .set({ isEnabled: c.isEnabled, modules: c.modules })
-        .where(and(eq(segmentValues.id, c.id), eq(segmentValues.userId, userId)))
+        .where(and(eq(segmentValues.id, c.id), eq(segmentValues.organizationId, orgId)))
     ),
   ]);
 
@@ -257,10 +267,10 @@ export async function batchSaveSection2(
 // ─── Segment Values (S1,S2,S4–S10) ───────────────────────────────────────────
 
 export async function getSegmentValuesBySegment(segmentId: number) {
-  const userId = await requireUser();
+  const { orgId } = await getActiveOrg();
   return db.query.segmentValues.findMany({
     where: and(
-      eq(segmentValues.userId, userId),
+      eq(segmentValues.organizationId, orgId),
       eq(segmentValues.segmentId, segmentId)
     ),
     orderBy: (v, { asc }) => [asc(v.code)],
@@ -273,10 +283,10 @@ export async function createSegmentValue(data: {
   name: string;
   modules: string[];
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("admin");
   const existing = await db.query.segmentValues.findFirst({
     where: and(
-      eq(segmentValues.userId, userId),
+      eq(segmentValues.organizationId, orgId),
       eq(segmentValues.segmentId, data.segmentId),
       eq(segmentValues.code, data.code)
     ),
@@ -285,6 +295,7 @@ export async function createSegmentValue(data: {
 
   await db.insert(segmentValues).values({
     userId,
+    organizationId: orgId,
     segmentId: data.segmentId,
     code: data.code,
     name: data.name,
@@ -294,28 +305,28 @@ export async function createSegmentValue(data: {
 }
 
 export async function deleteSegmentValue(id: string) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
   await db
     .delete(segmentValues)
-    .where(and(eq(segmentValues.id, id), eq(segmentValues.userId, userId)));
+    .where(and(eq(segmentValues.id, id), eq(segmentValues.organizationId, orgId)));
   revalidatePath("/settings/gl");
 }
 
 export async function toggleSegmentValue(id: string, isEnabled: boolean) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
   await db
     .update(segmentValues)
     .set({ isEnabled })
-    .where(and(eq(segmentValues.id, id), eq(segmentValues.userId, userId)));
+    .where(and(eq(segmentValues.id, id), eq(segmentValues.organizationId, orgId)));
   revalidatePath("/settings/gl");
 }
 
 export async function updateSegmentValueModules(id: string, modules: string[]) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("admin");
   await db
     .update(segmentValues)
     .set({ modules: modules.join(",") })
-    .where(and(eq(segmentValues.id, id), eq(segmentValues.userId, userId)));
+    .where(and(eq(segmentValues.id, id), eq(segmentValues.organizationId, orgId)));
   revalidatePath("/settings/gl");
 }
 
@@ -336,7 +347,7 @@ export type LineInput = {
  *   - данс идэвхтэй жагсаалтад бий
  * Хоосон мөрийг (данс/дүнгүй) шүүж хаяад үлдсэнийг буцаана.
  */
-async function validateVoucherLines(userId: string, lines: LineInput[]) {
+async function validateVoucherLines(orgId: string, lines: LineInput[]) {
   for (const l of lines) {
     const debit = Number(l.debit);
     const credit = Number(l.credit);
@@ -353,7 +364,7 @@ async function validateVoucherLines(userId: string, lines: LineInput[]) {
 
   const accounts = await db.query.chartOfAccounts.findMany({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.isEnabled, true)
     ),
     columns: { number: true },
@@ -384,22 +395,23 @@ export async function createVoucher(data: {
   /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
   externalRef?: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const status = data.status ?? "posted";
   // Хаагдсан период руу шинэ бичилт хийхгүй (ноорог ч мөн адил — тэр нь
   // хожим батлагдах гэж гацна).
-  await assertPeriodOpen(userId, data.date);
+  await assertPeriodOpen(orgId, data.date);
 
-  const validLines = await validateVoucherLines(userId, data.lines);
+  const validLines = await validateVoucherLines(orgId, data.lines);
   if (status === "posted") assertBalanced(validLines);
 
   const voucherId = await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, data.date);
+    await assertPeriodOpenInTx(tx, orgId, data.date);
     const [voucher] = await tx
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: data.date,
         description: data.description,
         status,
@@ -421,6 +433,7 @@ export async function createVoucher(data: {
       await logAuditEvent(
         {
           userId,
+          organizationId: orgId,
           action: "create_posted",
           entityType: "journal",
           entityId: voucher.id,
@@ -453,19 +466,22 @@ export async function createVoucher(data: {
 }
 
 export async function postVoucher(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const voucher = await db.query.journalVouchers.findFirst({
-    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    where: and(
+      eq(journalVouchers.id, id),
+      eq(journalVouchers.organizationId, orgId)
+    ),
     with: { lines: true },
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
   if (voucher.status === "posted") return;
-  await assertPeriodOpen(userId, voucher.date);
+  await assertPeriodOpen(orgId, voucher.date);
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, voucher.date);
+    await assertPeriodOpenInTx(tx, orgId, voucher.date);
     // Atomic claim: давхар товшилт/зэрэгцээ post нэг л удаа sync ажиллуулна.
     const [claimed] = await tx
       .update(journalVouchers)
@@ -473,7 +489,7 @@ export async function postVoucher(id: string) {
       .where(
         and(
           eq(journalVouchers.id, id),
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           eq(journalVouchers.status, "draft")
         )
       )
@@ -483,7 +499,7 @@ export async function postVoucher(id: string) {
     // Claim-ийн ДАРАА огноо/мөрүүдийг дахин шалгана — зэрэгцээ updateVoucher
     // огноо, мөрийг сольсон байж болзошгүй. Алдаа шидвэл транзакц буцна.
     if (claimed.date !== voucher.date)
-      await assertPeriodOpenInTx(tx, userId, claimed.date);
+      await assertPeriodOpenInTx(tx, orgId, claimed.date);
     const lines = await tx.query.journalLines.findMany({
       where: eq(journalLines.voucherId, id),
       columns: { debit: true, credit: true },
@@ -494,6 +510,7 @@ export async function postVoucher(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "post",
         entityType: "journal",
         entityId: id,
@@ -529,7 +546,7 @@ export async function postVoucher(id: string) {
  * Voucher-ээр цэвэрлэнэ.
  */
 async function assertNotSubledgerOwned(
-  userId: string,
+  orgId: string,
   id: string,
   lines: {
     costEntryId: string | null;
@@ -544,7 +561,7 @@ async function assertNotSubledgerOwned(
   const [cashRef, arapRef, faRef, costRef, fxRef] = await Promise.all([
     db.query.cashDocuments.findFirst({
       where: and(
-        eq(cashDocuments.userId, userId),
+        eq(cashDocuments.organizationId, orgId),
         or(
           eq(cashDocuments.voucherId, id),
           eq(cashDocuments.reversalVoucherId, id),
@@ -558,7 +575,7 @@ async function assertNotSubledgerOwned(
     }),
     db.query.arApDocuments.findFirst({
       where: and(
-        eq(arApDocuments.userId, userId),
+        eq(arApDocuments.organizationId, orgId),
         or(
           eq(arApDocuments.voucherId, id),
           eq(arApDocuments.reversalVoucherId, id)
@@ -568,18 +585,21 @@ async function assertNotSubledgerOwned(
     }),
     db.query.faDepreciationEntries.findFirst({
       where: and(
-        eq(faDepreciationEntries.userId, userId),
+        eq(faDepreciationEntries.organizationId, orgId),
         eq(faDepreciationEntries.voucherId, id)
       ),
       columns: { id: true },
     }),
     db.query.costEntries.findFirst({
-      where: and(eq(costEntries.userId, userId), eq(costEntries.voucherId, id)),
+      where: and(
+        eq(costEntries.organizationId, orgId),
+        eq(costEntries.voucherId, id)
+      ),
       columns: { id: true },
     }),
     db.query.cashFxRevaluations.findFirst({
       where: and(
-        eq(cashFxRevaluations.userId, userId),
+        eq(cashFxRevaluations.organizationId, orgId),
         eq(cashFxRevaluations.voucherId, id)
       ),
       columns: { id: true },
@@ -608,32 +628,35 @@ async function assertNotSubledgerOwned(
 }
 
 export async function unpostVoucher(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const voucher = await db.query.journalVouchers.findFirst({
-    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    where: and(
+      eq(journalVouchers.id, id),
+      eq(journalVouchers.organizationId, orgId)
+    ),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
   if (voucher.status !== "posted")
     throw new Error("Зөвхөн бичигдсэн журналыг буцаах боломжтой");
   // Буцаалт нь ЭХ огноогоор шинэ журнал бичдэг тул тэр период нээлттэй байх ёстой.
-  await assertPeriodOpen(userId, voucher.date);
+  await assertPeriodOpen(orgId, voucher.date);
   // Дэд дэвтрийн (касс, АР/АП, элэгдэл, өртөг, ханш) журналыг GL талаас
   // буцаавал эх баримт нь "posted" хэвээр үлдэж модуль GL хоёр зөрдөг —
   // тиймээс эх баримтаар нь буцаана.
-  await assertNotSubledgerOwned(userId, id, voucher.lines);
+  await assertNotSubledgerOwned(orgId, id, voucher.lines);
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, voucher.date);
+    await assertPeriodOpenInTx(tx, orgId, voucher.date);
     const [claimed] = await tx
       .update(journalVouchers)
       .set({ status: "reversed" })
       .where(
         and(
           eq(journalVouchers.id, id),
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           eq(journalVouchers.status, "posted")
         )
       )
@@ -644,6 +667,7 @@ export async function unpostVoucher(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
         status: "posted",
@@ -666,6 +690,7 @@ export async function unpostVoucher(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "unpost",
         entityType: "journal",
         entityId: id,
@@ -694,18 +719,21 @@ export async function updateVoucher(
     status: "draft" | "posted";
   }
 ) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("accountant");
 
-  await assertPeriodOpen(userId, data.date);
+  await assertPeriodOpen(orgId, data.date);
 
-  const validLines = await validateVoucherLines(userId, data.lines);
+  const validLines = await validateVoucherLines(orgId, data.lines);
   if (data.status === "posted") assertBalanced(validLines);
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, data.date);
+    await assertPeriodOpenInTx(tx, orgId, data.date);
     const existing = await tx.query.journalVouchers.findFirst({
-      where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+      where: and(
+        eq(journalVouchers.id, id),
+        eq(journalVouchers.organizationId, orgId)
+      ),
       columns: { status: true },
     });
     if (!existing) throw new Error("Бичилт олдсонгүй");
@@ -715,7 +743,12 @@ export async function updateVoucher(
     await tx
       .update(journalVouchers)
       .set({ date: data.date, description: data.description, status: data.status })
-      .where(and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)));
+      .where(
+        and(
+          eq(journalVouchers.id, id),
+          eq(journalVouchers.organizationId, orgId)
+        )
+      );
 
     await tx.delete(journalLines).where(eq(journalLines.voucherId, id));
     await tx.insert(journalLines).values(
@@ -759,10 +792,13 @@ export async function updateVoucher(
  *     эс бөгөөс дэд дэвтэр GL хоёр зөрнө.
  */
 export async function deleteVoucher(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const existing = await db.query.journalVouchers.findFirst({
-    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    where: and(
+      eq(journalVouchers.id, id),
+      eq(journalVouchers.organizationId, orgId)
+    ),
     with: {
       lines: { columns: { costEntryId: true, inventoryMovementId: true } },
     },
@@ -778,10 +814,10 @@ export async function deleteVoucher(id: string) {
     );
 
   if (existing.status !== "draft") {
-    await assertPeriodOpen(userId, existing.date);
+    await assertPeriodOpen(orgId, existing.date);
     // Дэд дэвтрийн баримттай журнал — эх баримтаар нь устгуулна.
     // sourceVoucherId-тэй НООРОГ кассын баримт саад болохгүй (доор цэвэрлэнэ).
-    await assertNotSubledgerOwned(userId, id, existing.lines);
+    await assertNotSubledgerOwned(orgId, id, existing.lines);
   }
 
   // Энэ журналаас sync-ээр үүссэн ноорог (бараа, ҮХ, касс) хамт цэвэрлэгдэнэ.
@@ -789,7 +825,7 @@ export async function deleteVoucher(id: string) {
   // sync-ноорогуудыг ч мөн цэвэрлэнэ.
   const reversals = await db.query.journalVouchers.findMany({
     where: and(
-      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.organizationId, orgId),
       eq(journalVouchers.reversalOfVoucherId, id)
     ),
     columns: { id: true },
@@ -807,7 +843,7 @@ export async function deleteVoucher(id: string) {
     .where(
       and(
         eq(journalVouchers.id, id),
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         eq(journalVouchers.status, existing.status)
       )
     )
@@ -816,6 +852,7 @@ export async function deleteVoucher(id: string) {
 
   await logAuditEvent({
     userId,
+    organizationId: orgId,
     action: "delete",
     entityType: "journal",
     entityId: id,
@@ -832,10 +869,13 @@ export async function deleteVoucher(id: string) {
  * журналаас л үүсдэг).
  */
 export async function duplicateVoucher(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const voucher = await db.query.journalVouchers.findFirst({
-    where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+    where: and(
+      eq(journalVouchers.id, id),
+      eq(journalVouchers.organizationId, orgId)
+    ),
     with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
@@ -859,6 +899,7 @@ export async function duplicateVoucher(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: today,
         description: voucher.description,
         status: "draft",

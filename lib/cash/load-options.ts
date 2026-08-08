@@ -84,13 +84,14 @@ export function toCashDocumentView(
   };
 }
 
+// Фаз 01 multi-tenancy: параметр нь идэвхтэй байгууллагын ID (orgId).
 export async function loadCashTransactionOptions(
-  userId: string
+  orgId: string
 ): Promise<CashTransactionOptions> {
   const [accounts, outflows, inflows, cashFlowValues, openArApDocs, segmentData] =
     await Promise.all([
       db.query.cashAccounts.findMany({
-        where: eq(cashAccounts.userId, userId),
+        where: eq(cashAccounts.organizationId, orgId),
         orderBy: (account, { asc }) => [asc(account.name)],
       }),
       // Balance = нээлт + орлого − зарлага. Баримт бүрийг клиент рүү татаж
@@ -106,7 +107,7 @@ export async function loadCashTransactionOptions(
         .from(cashDocuments)
         .where(
           and(
-            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.organizationId, orgId),
             eq(cashDocuments.status, "posted"),
             inArray(cashDocuments.documentType, ["payment", "transfer"]),
             isNotNull(cashDocuments.fromCashAccountId)
@@ -121,7 +122,7 @@ export async function loadCashTransactionOptions(
         .from(cashDocuments)
         .where(
           and(
-            eq(cashDocuments.userId, userId),
+            eq(cashDocuments.organizationId, orgId),
             eq(cashDocuments.status, "posted"),
             inArray(cashDocuments.documentType, ["receipt", "transfer"]),
             isNotNull(cashDocuments.toCashAccountId)
@@ -130,7 +131,7 @@ export async function loadCashTransactionOptions(
         .groupBy(cashDocuments.toCashAccountId),
       db.query.segmentValues.findMany({
         where: and(
-          eq(segmentValues.userId, userId),
+          eq(segmentValues.organizationId, orgId),
           eq(segmentValues.segmentId, 8),
           eq(segmentValues.isEnabled, true)
         ),
@@ -139,13 +140,13 @@ export async function loadCashTransactionOptions(
       // Нээлттэй АР/АП баримтууд — төлөлтийн сонголт ба `?arap=` deep link.
       db.query.arApDocuments.findMany({
         where: and(
-          eq(arApDocuments.userId, userId),
+          eq(arApDocuments.organizationId, orgId),
           inArray(arApDocuments.status, ["posted", "partially_paid"])
         ),
         with: { counterparty: true },
         orderBy: (doc, { asc }) => [asc(doc.dueDate), asc(doc.date)],
       }),
-      loadSegmentPickerData(userId),
+      loadSegmentPickerData(orgId),
     ]);
 
   const balanceMap = new Map(

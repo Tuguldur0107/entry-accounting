@@ -5,7 +5,7 @@ import {
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { eq, and } from "drizzle-orm";
 import { desc } from "drizzle-orm";
@@ -19,24 +19,23 @@ export default async function JournalPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { start, end } = await searchParams;
   // Topbar-ийн периодын сонголт (PTD/QTD/YTD) — URL параметр дарна.
   const period = await getPeriodSelection();
 
   const [vouchers, accounts, rawSegConfigs, rawSegValues] = await Promise.all([
     db.query.journalVouchers.findMany({
-      where: eq(journalVouchers.userId, userId),
+      where: eq(journalVouchers.organizationId, orgId),
       with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
       orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
     }),
     db.query.chartOfAccounts.findMany({
-      where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
+      where: and(eq(chartOfAccounts.organizationId, orgId), eq(chartOfAccounts.isEnabled, true)),
       orderBy: (a, { asc }) => [asc(a.number)],
     }),
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
-    db.query.segmentValues.findMany({ where: eq(segmentValues.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
+    db.query.segmentValues.findMany({ where: eq(segmentValues.organizationId, orgId) }),
   ]);
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));

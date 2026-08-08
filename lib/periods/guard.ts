@@ -11,7 +11,7 @@ import { accountingPeriods } from "@/lib/db/schema";
 import { periodCodeOf } from "./period";
 
 /**
- * Per-user advisory lock түлхүүрүүд (pg_advisory_xact_lock(hashtext(userId), N)):
+ * Байгууллага бүрийн advisory lock түлхүүрүүд (pg_advisory_xact_lock(hashtext(orgId), N)):
  *   1 — inventory үлдэгдэл, 2 — costing run, 3 — costing close / FA run,
  *   4 — production, 5 — ПЕРИОДЫН ХААЛТ (энэ файл).
  * Периодын түлхүүр 5-ыг post замууд SHARED, closePeriod EXCLUSIVE авдаг —
@@ -30,11 +30,11 @@ export class ClosedPeriodError extends Error {
 }
 
 /** Нэг огноо бичигдэх боломжтой эсэх (хаагдсан бол алдаа шиднэ). */
-export async function assertPeriodOpen(userId: string, date: string) {
+export async function assertPeriodOpen(orgId: string, date: string) {
   const code = periodCodeOf(date);
   const period = await db.query.accountingPeriods.findFirst({
     where: and(
-      eq(accountingPeriods.userId, userId),
+      eq(accountingPeriods.organizationId, orgId),
       eq(accountingPeriods.code, code)
     ),
     columns: { status: true },
@@ -50,11 +50,11 @@ export async function assertPeriodOpen(userId: string, date: string) {
  */
 export async function assertPeriodOpenInTx(
   tx: DbTx,
-  userId: string,
+  orgId: string,
   date: string
 ) {
   await tx.execute(
-    sql`select pg_advisory_xact_lock_shared(hashtext(${userId}), ${PERIOD_GATE_LOCK_KEY})`
+    sql`select pg_advisory_xact_lock_shared(hashtext(${orgId}), ${PERIOD_GATE_LOCK_KEY})`
   );
   const code = periodCodeOf(date);
   const [period] = await tx
@@ -62,7 +62,7 @@ export async function assertPeriodOpenInTx(
     .from(accountingPeriods)
     .where(
       and(
-        eq(accountingPeriods.userId, userId),
+        eq(accountingPeriods.organizationId, orgId),
         eq(accountingPeriods.code, code)
       )
     );
@@ -70,11 +70,11 @@ export async function assertPeriodOpenInTx(
 }
 
 /** Хэд хэдэн огноог нэг дуудалтаар шалгана (batch post). */
-export async function assertPeriodsOpen(userId: string, dates: string[]) {
+export async function assertPeriodsOpen(orgId: string, dates: string[]) {
   const codes = [...new Set(dates.map(periodCodeOf))];
   if (codes.length === 0) return;
   const rows = await db.query.accountingPeriods.findMany({
-    where: eq(accountingPeriods.userId, userId),
+    where: eq(accountingPeriods.organizationId, orgId),
     columns: { code: true, status: true },
   });
   const closed = new Set(

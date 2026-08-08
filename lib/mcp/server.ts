@@ -6,17 +6,22 @@
 // Streamable HTTP, STATELESS горим — хүсэлт бүр бие даасан JSON-RPC POST,
 // хариу нь энгийн application/json. Tools = чатын agent-тай ЯГ ИЖИЛ давхарга
 // (lib/ai/tools.ts) — ноорог-first, 10 сая ₮ хязгаар, периодын хамгаалалт
-// бүгд үйлчилнэ. Server action доторх auth() дуудлагууд runAsUser()-ийн
-// ачаар token-ий эзний session мэт ажиллана (lib/auth.ts).
+// бүгд үйлчилнэ. Server action доторх auth()/getActiveOrg() дуудлагууд
+// runAsOrg()-ийн ачаар token-ий эзний session + token-д уягдсан байгууллага
+// мэт ажиллана (lib/auth.ts).
 
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { runAsUser } from "@/lib/auth";
+import { runAsOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiSettings, apiTokens } from "@/lib/db/schema";
-import { publicOrigin, resolveOAuthAccessToken } from "@/lib/oauth/server";
+import {
+  publicOrigin,
+  resolveOAuthAccessToken,
+  type TokenContext,
+} from "@/lib/oauth/server";
 import {
   DEFAULT_AI_WRITE_MODE,
   isAiWriteMode,
@@ -50,21 +55,28 @@ function rpcError(id: number | string | null, code: number, message: string) {
 }
 
 /**
- * Түлхий token → userId. Хоёр төрлийг хүлээнэ:
+ * Түлхий token → {userId, orgId}. Хоёр төрлийг хүлээнэ:
  *   eak_...  Personal Access Token (Тохиргоо → MCP холболт)
  *   eoat_... OAuth access token (custom connector-ийн Connect урсгал)
+ * Фаз 01 (Шат 6): token үүсэх мөчийн идэвхтэй байгууллагад уягдсан —
+ * бүх хандалт тэр org-ийн scope-д явна.
  */
-export async function resolveApiToken(token: string): Promise<string | null> {
+export async function resolveApiToken(
+  token: string
+): Promise<TokenContext | null> {
   if (!token) return null;
   if (token.startsWith("eoat_")) return resolveOAuthAccessToken(token);
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const row = await db.query.apiTokens.findFirst({
     where: eq(apiTokens.tokenHash, tokenHash),
-    columns: { id: true, userId: true, expiresAt: true },
+    columns: { id: true, userId: true, organizationId: true, expiresAt: true },
   });
   if (!row) return null;
   // Хугацаа нь дууссан token — буруу token-той ижил хандлагаар татгалзана.
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) return null;
+  // Backfill-ээр бүх token org-той; org-гүй мөр — хүчингүй token.
+  if (!row.organizationId) return null;
+  const context: TokenContext = { userId: row.userId, orgId: row.organizationId };
   // Хяналтын мэдээлэл — амжилтыг хүлээлгүй үргэлжлүүлнэ.
   void (async () => {
     try {
@@ -76,13 +88,16 @@ export async function resolveApiToken(token: string): Promise<string | null> {
       // lastUsedAt тэмдэглэгээ амжилтгүй байсан ч хүсэлтэд нөлөөлөхгүй.
     }
   })();
-  return row.userId;
+  return context;
 }
 
-/** Хэрэглэгчийн сонгосон бичилтийн горим (чатын toggle-тэй нэг тохиргоо). */
-async function writeModeOf(userId: string): Promise<AiWriteMode> {
+/** Хэрэглэгчийн сонгосон бичилтийн горим (чатын toggle-тэй нэг тохиргоо) — org бүрд тусдаа. */
+async function writeModeOf(context: TokenContext): Promise<AiWriteMode> {
   const settings = await db.query.aiSettings.findFirst({
-    where: eq(aiSettings.userId, userId),
+    where: and(
+      eq(aiSettings.userId, context.userId),
+      eq(aiSettings.organizationId, context.orgId)
+    ),
     columns: { writeMode: true },
   });
   return settings && isAiWriteMode(settings.writeMode)
@@ -91,7 +106,7 @@ async function writeModeOf(userId: string): Promise<AiWriteMode> {
 }
 
 async function handleRequest(
-  userId: string,
+  context: TokenContext,
   message: JsonRpcRequest
 ): Promise<Record<string, unknown> | null> {
   const id = message.id ?? null;
@@ -130,7 +145,7 @@ async function handleRequest(
       // Чатын route-тай ИЖИЛ хэрэглэгч-бүрийн sliding-window хязгаар — MCP
       // клиент tool-давхаргыг хязгааргүй цохихоос хамгаална. HTTP 500 биш
       // JSON-RPC алдаагаар буцаана (клиент retry-гээ өөрөө удирдана).
-      if (!checkAiRateLimit(userId))
+      if (!checkAiRateLimit(context.userId))
         return rpcError(
           id,
           -32000,
@@ -138,9 +153,11 @@ async function handleRequest(
         );
       const name = String(message.params?.name ?? "");
       const args = message.params?.arguments ?? {};
-      const mode = await writeModeOf(userId);
-      const result = await runAsUser(userId, () =>
-        executeAiTool(userId, name, args, mode)
+      const mode = await writeModeOf(context);
+      // runAsOrg: fn доторх auth() нь token-ий эзнээр, getActiveOrg() нь
+      // token-д уягдсан байгууллагаар хариулна (гишүүнчлэл ДАХИН шалгагдана).
+      const result = await runAsOrg(context, () =>
+        executeAiTool(context.userId, name, args, mode)
       );
       return rpcResult(id, {
         content: [{ type: "text", text: result.resultText }],
@@ -154,7 +171,7 @@ async function handleRequest(
 
 /** Танигдсан хэрэглэгчийн JSON-RPC POST body-г бүрэн боловсруулна. */
 export async function handleMcpPost(
-  userId: string,
+  context: TokenContext,
   request: Request
 ): Promise<Response> {
   let body: unknown;
@@ -180,14 +197,14 @@ export async function handleMcpPost(
         );
       const responses = [];
       for (const entry of body) {
-        const response = await handleRequest(userId, entry as JsonRpcRequest);
+        const response = await handleRequest(context, entry as JsonRpcRequest);
         if (response) responses.push(response);
       }
       if (responses.length === 0) return new Response(null, { status: 202 });
       return Response.json(responses);
     }
 
-    const response = await handleRequest(userId, body as JsonRpcRequest);
+    const response = await handleRequest(context, body as JsonRpcRequest);
     // Notification — 202 Accepted, биегүй.
     if (!response) return new Response(null, { status: 202 });
     return Response.json(response);

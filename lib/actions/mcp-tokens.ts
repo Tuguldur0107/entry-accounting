@@ -9,7 +9,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { auth, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiTokens } from "@/lib/db/schema";
 
@@ -71,7 +71,9 @@ export async function createApiToken(
   name: string,
   expiryDays?: number | null
 ): Promise<{ token: string }> {
-  const userId = await requireUserId();
+  // Фаз 01 (Шат 6): token нь ИДЭВХТЭЙ байгууллагад уягдана — MCP клиент
+  // энэ token-оор зөвхөн тэр org-ийн дата руу ханддаг. admin+ эрх шаардана.
+  const { orgId, userId } = await requireRole("admin");
 
   const trimmed = typeof name === "string" ? name.trim().slice(0, 60) : "";
   if (!trimmed) throw new Error("Token-д нэр өгнө үү (жишээ нь: Claude Code)");
@@ -105,6 +107,7 @@ export async function createApiToken(
 
     await tx.insert(apiTokens).values({
       userId,
+      organizationId: orgId,
       name: trimmed,
       tokenHash: createHash("sha256").update(token).digest("hex"),
       tokenHint: token.slice(-4),

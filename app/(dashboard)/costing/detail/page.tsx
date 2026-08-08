@@ -1,5 +1,5 @@
 import { TransactionDetailReport } from "@/components/costing/transaction-detail-report";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliation";
 import {
@@ -16,8 +16,7 @@ export default async function CostingDetailPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { from, to } = await searchParams;
 
   // Анхдагч: topbar-ийн периодын сонголт (PTD/QTD/YTD).
@@ -28,9 +27,9 @@ export default async function CostingDetailPage({
   };
 
   const [rows, reconciliation, clearing] = await Promise.all([
-    loadTransactionDetail(userId, range),
-    loadInventoryGlReconciliation(userId, range),
-    loadClearingReconciliation(userId, range),
+    loadTransactionDetail(orgId, range),
+    loadInventoryGlReconciliation(orgId, range),
+    loadClearingReconciliation(orgId, range),
   ]);
 
   return (

@@ -44,7 +44,9 @@ export default async function PublicInvoicePage({
     );
   }
 
-  const invoice = await loadInvoicePayload(send.userId, send.documentId);
+  // Payload нь илгээлтийн БАЙГУУЛЛАГЫН хүрээнд уншигдана (userId нь createdBy).
+  if (!send.organizationId) notFound();
+  const invoice = await loadInvoicePayload(send.organizationId, send.documentId);
   if (!invoice) notFound();
 
   // "Үзсэн" — зөвхөн анхны нээлтийг тэмдэглэнэ.

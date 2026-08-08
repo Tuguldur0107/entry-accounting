@@ -75,16 +75,18 @@ const round4 = (value: number) => Math.round(value * 10000) / 10000;
  * Блоклогдсон бараа-агуулах байвал бичилт үүсгэхгүй ЗОГСОНО — үнэ зохиохгүй.
  */
 export async function computePeriodCosting(
+  orgId: string,
+  /** Үүсэх ноорог бичилтийн createdBy — дуудаж буй хэрэглэгч. */
   userId: string,
   periodCode: string
 ): Promise<PeriodCostingSummary> {
   // 1. Бүх сарыг дахин тооцно (C1 → C2 цуваа тул хэсэгчилж болохгүй).
-  await runPeriodicCosting(userId);
+  await runPeriodicCosting(orgId, userId);
 
   // 2. Тухайн сарын үр дүн.
   const results = await db.query.costPeriodResults.findMany({
     where: and(
-      eq(costPeriodResults.userId, userId),
+      eq(costPeriodResults.organizationId, orgId),
       eq(costPeriodResults.periodCode, periodCode)
     ),
   });
@@ -109,7 +111,7 @@ export async function computePeriodCosting(
   // 3. Тухайн сарын батлагдсан хөдөлгөөнүүд.
   const movements = await db.query.inventoryMovements.findMany({
     where: and(
-      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.organizationId, orgId),
       eq(inventoryMovements.status, "confirmed"),
       gte(inventoryMovements.date, startDate),
       lte(inventoryMovements.date, endDate)
@@ -154,11 +156,11 @@ export async function computePeriodCosting(
   await db.transaction(async (tx) => {
     // Давхар тооцооллоос хамгаална (хоёр зэрэг дуудалт нэг хөдөлгөөнийг
     // хоёр удаа үнэлэхээс сэргийлнэ).
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 3)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 3)`);
 
     const existing = await tx.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         inArray(costEntries.status, ["draft", "posted"]),
         inArray(
           costEntries.movementId,
@@ -203,6 +205,7 @@ export async function computePeriodCosting(
 
       const values = {
         userId,
+        organizationId: orgId,
         movementId: movement.id,
         itemId: movement.itemId,
         warehouseId: movement.warehouseId,

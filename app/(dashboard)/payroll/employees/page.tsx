@@ -1,16 +1,15 @@
 import { asc, eq } from "drizzle-orm";
 
 import { EmployeesView, type EmployeeRow } from "@/components/payroll/employees-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { employees } from "@/lib/db/schema";
 
 export default async function PayrollEmployeesPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const staff = await db.query.employees.findMany({
-    where: eq(employees.userId, userId),
+    where: eq(employees.organizationId, orgId),
     orderBy: [asc(employees.name)],
   });
 

@@ -74,6 +74,7 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliation";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
@@ -1393,12 +1394,12 @@ function errorText(caught: unknown): string {
 const fmt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n * 100) / 100);
 
 /** Журналын редактортой ижил сегментийн контекст. */
-async function accountContext(userId: string) {
+async function accountContext(orgId: string) {
   const [configs, values, accounts] = await Promise.all([
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
-    db.query.segmentValues.findMany({ where: eq(segmentValues.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
+    db.query.segmentValues.findMany({ where: eq(segmentValues.organizationId, orgId) }),
     db.query.chartOfAccounts.findMany({
-      where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
+      where: and(eq(chartOfAccounts.organizationId, orgId), eq(chartOfAccounts.isEnabled, true)),
       columns: { number: true, name: true },
     }),
   ]);
@@ -1496,7 +1497,7 @@ type JournalLineInput = {
 };
 
 async function runCreateJournal(
-  userId: string,
+  orgId: string,
   input: {
     date: string;
     description: string;
@@ -1509,7 +1510,7 @@ async function runCreateJournal(
   if (externalRef) {
     const existing = await db.query.journalVouchers.findFirst({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         eq(journalVouchers.externalRef, externalRef)
       ),
       with: { lines: { columns: { debit: true } } },
@@ -1528,7 +1529,7 @@ async function runCreateJournal(
       };
     }
   }
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const lines = (input.lines ?? []).map((line) => {
     const { code } = resolveAccount(line.account, ctx);
     const debit = Number(line.debit ?? 0);
@@ -1574,7 +1575,7 @@ async function runCreateJournal(
 }
 
 async function runCreateArap(
-  userId: string,
+  orgId: string,
   input: {
     documentType: "ar_invoice" | "ap_bill";
     counterparty: string;
@@ -1601,7 +1602,7 @@ async function runCreateArap(
   if (externalRef) {
     const existing = await db.query.arApDocuments.findFirst({
       where: and(
-        eq(arApDocuments.userId, userId),
+        eq(arApDocuments.organizationId, orgId),
         eq(arApDocuments.externalRef, externalRef)
       ),
     });
@@ -1618,18 +1619,18 @@ async function runCreateArap(
       };
     }
   }
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const [cpList, items, whList, costingAccounts] = await Promise.all([
     db.query.counterparties.findMany({
-      where: and(eq(counterparties.userId, userId), eq(counterparties.isActive, true)),
+      where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
     }),
     db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+      where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
     }),
-    loadCostingAccountSettings(userId),
+    loadCostingAccountSettings(orgId),
   ]);
 
   const counterparty = requireSingle(
@@ -1693,7 +1694,7 @@ async function runCreateArap(
   // АП → оролтын НӨАТ (авлага тал); дансууд vat_settings тохиргооноос.
   let vatNote = "";
   if (input.vatMode && input.vatMode !== "none") {
-    const vat = await loadVatSettings(userId);
+    const vat = await loadVatSettings(orgId);
     const rate = Number(vat.vatRatePercent);
     const vatMain = isAp
       ? vat.inputVatAccountNumber
@@ -1777,7 +1778,7 @@ async function runCreateArap(
 }
 
 async function runCreateCash(
-  userId: string,
+  orgId: string,
   input: {
     documentType: "receipt" | "payment" | "transfer";
     date: string;
@@ -1814,7 +1815,7 @@ async function runCreateCash(
     const likeSafe = externalRef.replace(/[\\%_]/g, (c) => `\\${c}`);
     const existingDocs = await db.query.cashDocuments.findMany({
       where: and(
-        eq(cashDocuments.userId, userId),
+        eq(cashDocuments.organizationId, orgId),
         or(
           eq(cashDocuments.externalRef, externalRef),
           like(cashDocuments.externalRef, `${likeSafe}#%`)
@@ -1832,7 +1833,7 @@ async function runCreateCash(
   }
 
   const accounts = await db.query.cashAccounts.findMany({
-    where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
   });
   const findAccount = (query: string) =>
     requireSingle(
@@ -1848,7 +1849,7 @@ async function runCreateCash(
 
   let counterAccountNumber: string | undefined;
   if (input.counterAccount) {
-    const ctx = await accountContext(userId);
+    const ctx = await accountContext(orgId);
     counterAccountNumber = resolveAccount(input.counterAccount, ctx).main;
   }
 
@@ -1867,7 +1868,7 @@ async function runCreateCash(
     if (input.documentType === "transfer")
       throw new Error("Шилжүүлэгт applyTo хэрэглэхгүй — орлого/зарлагад л нэхэмжлэх холбоно");
     const documents = await db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.userId, userId),
+      where: eq(arApDocuments.organizationId, orgId),
       orderBy: [desc(arApDocuments.createdAt)],
       limit: 1000,
     });
@@ -2045,7 +2046,7 @@ async function runCreateCash(
 }
 
 async function runCreateMovement(
-  userId: string,
+  orgId: string,
   input: {
     movementType: "receipt" | "issue" | "transfer" | "adjustment" | "return_in" | "return_out";
     date: string;
@@ -2060,13 +2061,13 @@ async function runCreateMovement(
 ): Promise<AiToolResult> {
   const [items, whList, issueTypes] = await Promise.all([
     db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+      where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
     }),
     db.query.inventoryIssueTypes.findMany({
-      where: eq(inventoryIssueTypes.userId, userId),
+      where: eq(inventoryIssueTypes.organizationId, orgId),
     }),
   ]);
 
@@ -2134,7 +2135,7 @@ async function runCreateMovement(
 }
 
 async function runCreateFixedAsset(
-  userId: string,
+  orgId: string,
   input: {
     name: string;
     acquisitionDate: string;
@@ -2150,7 +2151,7 @@ async function runCreateFixedAsset(
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const asDraft = mode !== "post";
 
   // Default: авсан сарын ДАРААХ сараас элэгдүүлж эхэлнэ.
@@ -2230,13 +2231,13 @@ function assertPostLimit(total: number) {
 }
 
 async function runPostJournal(
-  userId: string,
+  orgId: string,
   input: { voucherId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const vouchers = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.userId, userId),
+    where: eq(journalVouchers.organizationId, orgId),
     columns: { id: true, status: true, description: true, date: true },
     with: { lines: { columns: { debit: true } } },
     orderBy: [desc(journalVouchers.createdAt)],
@@ -2261,12 +2262,12 @@ async function runPostJournal(
 }
 
 async function runDeleteJournal(
-  userId: string,
+  orgId: string,
   input: { voucherId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const vouchers = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.userId, userId),
+    where: eq(journalVouchers.organizationId, orgId),
     columns: { id: true, status: true, description: true, date: true },
     orderBy: [desc(journalVouchers.createdAt)],
     limit: 500,
@@ -2290,13 +2291,13 @@ async function runDeleteJournal(
 }
 
 async function runPostCash(
-  userId: string,
+  orgId: string,
   input: { documentId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.userId, userId),
+    where: eq(cashDocuments.organizationId, orgId),
     columns: {
       id: true,
       status: true,
@@ -2326,12 +2327,12 @@ async function runPostCash(
 }
 
 async function runDeleteCash(
-  userId: string,
+  orgId: string,
   input: { documentId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.userId, userId),
+    where: eq(cashDocuments.organizationId, orgId),
     columns: {
       id: true,
       status: true,
@@ -2355,13 +2356,13 @@ async function runDeleteCash(
 }
 
 async function runPostArap(
-  userId: string,
+  orgId: string,
   input: { documentId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.userId, userId),
+    where: eq(arApDocuments.organizationId, orgId),
     columns: {
       id: true,
       status: true,
@@ -2400,11 +2401,11 @@ async function runPostArap(
 // ── Лавлах гүйцэтгэгчид ─────────────────────────────────────────────────────
 
 async function runListGlAccounts(
-  userId: string,
+  orgId: string,
   input: { query?: string }
 ): Promise<AiToolResult> {
   const accounts = await db.query.chartOfAccounts.findMany({
-    where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
+    where: and(eq(chartOfAccounts.organizationId, orgId), eq(chartOfAccounts.isEnabled, true)),
     columns: { number: true, name: true },
     orderBy: (account, { asc }) => [asc(account.number)],
   });
@@ -2429,14 +2430,14 @@ async function runListGlAccounts(
 }
 
 async function runListCounterparties(
-  userId: string,
+  orgId: string,
   input: { query?: string; includeInactive?: boolean; limit?: number }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
   const list = await db.query.counterparties.findMany({
     where: input.includeInactive
-      ? eq(counterparties.userId, userId)
-      : and(eq(counterparties.userId, userId), eq(counterparties.isActive, true)),
+      ? eq(counterparties.organizationId, orgId)
+      : and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
   });
   const q = input.query?.trim().toLowerCase();
   const filtered = q
@@ -2479,18 +2480,18 @@ async function runListCounterparties(
 }
 
 async function runListInventory(
-  userId: string,
+  orgId: string,
   input: { query?: string }
 ): Promise<AiToolResult> {
   const [items, whList, issueTypes] = await Promise.all([
     db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+      where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
     }),
     db.query.inventoryIssueTypes.findMany({
-      where: eq(inventoryIssueTypes.userId, userId),
+      where: eq(inventoryIssueTypes.organizationId, orgId),
     }),
   ]);
   const filteredItems = input.query
@@ -2515,12 +2516,12 @@ async function runListInventory(
 }
 
 async function runListJournalVouchers(
-  userId: string,
+  orgId: string,
   input: { from?: string; to?: string; status?: string; limit?: number }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
   const vouchers = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.userId, userId),
+    where: eq(journalVouchers.organizationId, orgId),
     with: { lines: { columns: { debit: true } } },
     orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
     // Огноогоор JS талд шүүх тул хангалттай нөөцтэй татна.
@@ -2553,9 +2554,9 @@ async function runListJournalVouchers(
   };
 }
 
-async function runListCashAccounts(userId: string): Promise<AiToolResult> {
+async function runListCashAccounts(orgId: string): Promise<AiToolResult> {
   const accounts = await db.query.cashAccounts.findMany({
-    where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
   });
   if (accounts.length === 0) return { resultText: "Идэвхтэй мөнгөн данс олдсонгүй" };
   return {
@@ -2571,7 +2572,7 @@ async function runListCashAccounts(userId: string): Promise<AiToolResult> {
 // ── Мастер дата гүйцэтгэгчид ────────────────────────────────────────────────
 
 async function runCreateGlAccount(
-  _userId: string,
+  _orgId: string,
   input: { number: string; name: string }
 ): Promise<AiToolResult> {
   const number = String(input.number ?? "").trim();
@@ -2589,7 +2590,7 @@ const CP_TYPE_LABELS: Record<string, string> = {
 };
 
 async function runCreateCounterparty(
-  userId: string,
+  orgId: string,
   input: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
@@ -2609,7 +2610,7 @@ async function runCreateCounterparty(
   // Давхардлын шалгалт: нэр case-insensitive, ТТД яг таарлаар (идэвхгүйг ч
   // оруулна — идэвхгүй харилцагчтай ижил нэр DB unique-д унана).
   const existingList = await db.query.counterparties.findMany({
-    where: eq(counterparties.userId, userId),
+    where: eq(counterparties.organizationId, orgId),
   });
   const duplicate = existingList.find(
     (entry) =>
@@ -2627,7 +2628,7 @@ async function runCreateCounterparty(
   let receivableCode: string | undefined;
   let payableCode: string | undefined;
   if (input.defaultReceivableAccount || input.defaultPayableAccount) {
-    const ctx = await accountContext(userId);
+    const ctx = await accountContext(orgId);
     if (input.defaultReceivableAccount)
       receivableCode = resolveAccount(input.defaultReceivableAccount, ctx).code;
     if (input.defaultPayableAccount)
@@ -2649,7 +2650,7 @@ async function runCreateCounterparty(
 }
 
 async function runCreateItem(
-  _userId: string,
+  _orgId: string,
   input: { code: string; name: string; unit?: string }
 ): Promise<AiToolResult> {
   await createInventoryItem({
@@ -2661,7 +2662,7 @@ async function runCreateItem(
 }
 
 async function runCreateWarehouse(
-  _userId: string,
+  _orgId: string,
   input: { code: string; name: string }
 ): Promise<AiToolResult> {
   await createWarehouse({ code: input.code, name: input.name });
@@ -2669,7 +2670,7 @@ async function runCreateWarehouse(
 }
 
 async function runUpdateCounterparty(
-  userId: string,
+  orgId: string,
   input: {
     counterparty: string;
     newName?: string;
@@ -2686,7 +2687,7 @@ async function runUpdateCounterparty(
   }
 ): Promise<AiToolResult> {
   const list = await db.query.counterparties.findMany({
-    where: eq(counterparties.userId, userId),
+    where: eq(counterparties.organizationId, orgId),
   });
   const counterparty = requireSingle(
     nameMatches(list, (entry) => entry.name, input.counterparty),
@@ -2718,7 +2719,7 @@ async function runUpdateCounterparty(
   if (input.address != null) changes.address = input.address.trim() || null;
   if (input.isActive != null) changes.isActive = input.isActive;
   if (input.defaultReceivableAccount != null || input.defaultPayableAccount != null) {
-    const ctx = await accountContext(userId);
+    const ctx = await accountContext(orgId);
     // Сегмент дүрэм: бүтэн 10-part 0-padded кодоор хадгална — UI-ийн
     // сегмент picker болон нэхэмжлэхийн default энэ форматыг хүлээдэг.
     if (input.defaultReceivableAccount)
@@ -2738,18 +2739,18 @@ async function runUpdateCounterparty(
   await db
     .update(counterparties)
     .set(changes)
-    .where(and(eq(counterparties.id, counterparty.id), eq(counterparties.userId, userId)));
+    .where(and(eq(counterparties.id, counterparty.id), eq(counterparties.organizationId, orgId)));
   return {
     resultText: `Харилцагч шинэчлэгдлээ: ${counterparty.name}${input.newName ? ` → ${input.newName}` : ""} (${Object.keys(changes).join(", ")})`,
   };
 }
 
 async function runUpdateItem(
-  userId: string,
+  orgId: string,
   input: { itemCode: string; name?: string; unit?: string; isActive?: boolean }
 ): Promise<AiToolResult> {
   const items = await db.query.inventoryItems.findMany({
-    where: eq(inventoryItems.userId, userId),
+    where: eq(inventoryItems.organizationId, orgId),
   });
   const item = requireSingle(
     nameMatches(items, (entry) => entry.code, input.itemCode),
@@ -2767,7 +2768,7 @@ async function runUpdateItem(
 }
 
 async function runUpdateMovement(
-  userId: string,
+  orgId: string,
   input: {
     movementId: string;
     date?: string;
@@ -2780,7 +2781,7 @@ async function runUpdateMovement(
   }
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.userId, userId),
+    where: eq(inventoryMovements.organizationId, orgId),
     orderBy: [desc(inventoryMovements.createdAt)],
     limit: 500,
   });
@@ -2790,13 +2791,13 @@ async function runUpdateMovement(
 
   const [items, whList, issueTypes] = await Promise.all([
     db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+      where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
     }),
     db.query.inventoryIssueTypes.findMany({
-      where: eq(inventoryIssueTypes.userId, userId),
+      where: eq(inventoryIssueTypes.organizationId, orgId),
     }),
   ]);
   const findItem = (code: string) =>
@@ -2857,7 +2858,7 @@ async function runUpdateMovement(
 }
 
 async function runRecordCount(
-  userId: string,
+  orgId: string,
   input: {
     date: string;
     warehouseCode: string;
@@ -2866,10 +2867,10 @@ async function runRecordCount(
 ): Promise<AiToolResult> {
   const [items, whList] = await Promise.all([
     db.query.inventoryItems.findMany({
-      where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.isActive, true)),
+      where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
     }),
   ]);
   const warehouse = requireSingle(
@@ -2902,7 +2903,7 @@ async function runRecordCount(
 }
 
 async function runCreateCashAccount(
-  userId: string,
+  orgId: string,
   input: {
     name: string;
     accountType: "cash" | "bank";
@@ -2913,7 +2914,7 @@ async function runCreateCashAccount(
     openingBalance?: number;
   }
 ): Promise<AiToolResult> {
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   await createCashAccount({
     name: input.name,
     accountType: input.accountType,
@@ -2926,9 +2927,9 @@ async function runCreateCashAccount(
   return { resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}` };
 }
 
-async function findAssetByCode(userId: string, assetCode: string) {
+async function findAssetByCode(orgId: string, assetCode: string) {
   const assets = await db.query.fixedAssets.findMany({
-    where: eq(fixedAssets.userId, userId),
+    where: eq(fixedAssets.organizationId, orgId),
   });
   return requireSingle(
     nameMatches(assets, (entry) => entry.code, assetCode),
@@ -2939,7 +2940,7 @@ async function findAssetByCode(userId: string, assetCode: string) {
 }
 
 async function runActivateFixedAsset(
-  userId: string,
+  orgId: string,
   input: {
     assetCode: string;
     name?: string;
@@ -2953,7 +2954,7 @@ async function runActivateFixedAsset(
     depExpenseAccountNumber?: string;
   }
 ): Promise<AiToolResult> {
-  const asset = await findAssetByCode(userId, input.assetCode);
+  const asset = await findAssetByCode(orgId, input.assetCode);
   if (asset.status !== "draft")
     throw new Error(`Зөвхөн ноорог картыг идэвхжүүлнэ (төлөв: ${asset.status})`);
 
@@ -2994,25 +2995,25 @@ async function runActivateFixedAsset(
 }
 
 async function runDeleteFixedAsset(
-  userId: string,
+  orgId: string,
   input: { assetCode: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
-  const asset = await findAssetByCode(userId, input.assetCode);
+  const asset = await findAssetByCode(orgId, input.assetCode);
   if (asset.status !== "draft") assertPostMode(mode);
   await deleteFixedAsset(asset.id);
   return { resultText: `Хөрөнгийн карт устгагдлаа: ${asset.code} · ${asset.name}` };
 }
 
 async function runReverseFaDepreciation(
-  userId: string,
+  orgId: string,
   input: { month: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const entries = await db.query.faDepreciationEntries.findMany({
     where: and(
-      eq(faDepreciationEntries.userId, userId),
+      eq(faDepreciationEntries.organizationId, orgId),
       eq(faDepreciationEntries.periodMonth, input.month),
       eq(faDepreciationEntries.status, "posted")
     ),
@@ -3030,9 +3031,9 @@ async function runReverseFaDepreciation(
 
 // ── GL нэмэлт гүйцэтгэгчид ──────────────────────────────────────────────────
 
-async function loadVouchers(userId: string) {
+async function loadVouchers(orgId: string) {
   return db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.userId, userId),
+    where: eq(journalVouchers.organizationId, orgId),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
     orderBy: [desc(journalVouchers.createdAt)],
     limit: 500,
@@ -3040,12 +3041,12 @@ async function loadVouchers(userId: string) {
 }
 
 async function runGetJournal(
-  userId: string,
+  orgId: string,
   input: { voucherId: string }
 ): Promise<AiToolResult> {
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const voucher = resolveByIdPrefix(
-    await loadVouchers(userId),
+    await loadVouchers(orgId),
     input.voucherId,
     "журнал"
   );
@@ -3067,7 +3068,7 @@ async function runGetJournal(
 }
 
 async function runUpdateJournal(
-  userId: string,
+  orgId: string,
   input: {
     voucherId: string;
     date?: string;
@@ -3075,9 +3076,9 @@ async function runUpdateJournal(
     lines?: JournalLineInput[];
   }
 ): Promise<AiToolResult> {
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const voucher = resolveByIdPrefix(
-    await loadVouchers(userId),
+    await loadVouchers(orgId),
     input.voucherId,
     "журнал"
   );
@@ -3118,13 +3119,13 @@ async function runUpdateJournal(
 }
 
 async function runReverseJournal(
-  userId: string,
+  orgId: string,
   input: { voucherId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const voucher = resolveByIdPrefix(
-    await loadVouchers(userId),
+    await loadVouchers(orgId),
     input.voucherId,
     "журнал"
   );
@@ -3139,7 +3140,7 @@ async function runReverseJournal(
 }
 
 async function runGetTrialBalance(
-  userId: string,
+  orgId: string,
   input: { from: string; to: string }
 ): Promise<AiToolResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.from ?? "") || !/^\d{4}-\d{2}-\d{2}$/.test(input.to ?? ""))
@@ -3147,7 +3148,7 @@ async function runGetTrialBalance(
   const [vouchers, accounts, configs] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         // GL тайлангийн хуудастай ижил: reversed нь эх + буцаалт хосоороо
         // тооцогдож нэт 0 болно.
         inArray(journalVouchers.status, ["posted", "reversed"])
@@ -3155,9 +3156,9 @@ async function runGetTrialBalance(
       with: { lines: true },
     }),
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
     }),
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
   ]);
   const configMap = new Map(configs.map((config) => [config.segmentId, config]));
   const activeSegIds = SEGMENT_DEFS.filter(
@@ -3193,17 +3194,17 @@ function assertDates(...values: string[]) {
 }
 
 /** Тайлангийн түүхий дата — батлагдсан журнал + бүх данс (нэр тайлбарт хэрэгтэй). */
-async function loadReportData(userId: string) {
+async function loadReportData(orgId: string) {
   const [vouchers, accounts] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["posted", "reversed"])
       ),
       with: { lines: true },
     }),
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
     }),
   ]);
   return { vouchers, accounts };
@@ -3216,11 +3217,11 @@ const IS_EXPENSE_GROUPS = [
 ] as const;
 
 async function runIncomeStatement(
-  userId: string,
+  orgId: string,
   input: { from: string; to: string }
 ): Promise<AiToolResult> {
   assertDates(input.from, input.to);
-  const { vouchers, accounts } = await loadReportData(userId);
+  const { vouchers, accounts } = await loadReportData(orgId);
   const rows = aggregateBalances(vouchers, accounts, [3], input.from, input.to);
   const pnl = computeNetIncome(rows);
 
@@ -3283,15 +3284,15 @@ const BS_GROUP_META: Record<
 };
 
 async function runBalanceSheet(
-  userId: string,
+  orgId: string,
   input: { asOf: string }
 ): Promise<AiToolResult> {
   assertDates(input.asOf);
   const [{ vouchers, accounts }, mappings] = await Promise.all([
-    loadReportData(userId),
+    loadReportData(orgId),
     db.query.reportLineMappings.findMany({
       where: and(
-        eq(reportLineMappings.userId, userId),
+        eq(reportLineMappings.organizationId, orgId),
         eq(reportLineMappings.reportType, "balance-sheet")
       ),
     }),
@@ -3392,11 +3393,11 @@ async function runBalanceSheet(
 }
 
 async function runCashFlow(
-  userId: string,
+  orgId: string,
   input: { from: string; to: string }
 ): Promise<AiToolResult> {
   assertDates(input.from, input.to);
-  const { vouchers, accounts } = await loadReportData(userId);
+  const { vouchers, accounts } = await loadReportData(orgId);
   const report = buildCashFlow(vouchers, accounts, [3], input.from, input.to);
   const sectionLabels = {
     operating: "Үндсэн үйл ажиллагаа",
@@ -3423,14 +3424,14 @@ async function runCashFlow(
 }
 
 async function runAccountLedger(
-  userId: string,
+  orgId: string,
   input: { account: string; from: string; to: string; limit?: number }
 ): Promise<AiToolResult> {
   assertDates(input.from, input.to);
   const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 200);
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const { main } = resolveAccount(input.account, ctx);
-  const { vouchers } = await loadReportData(userId);
+  const { vouchers } = await loadReportData(orgId);
 
   let opening = 0;
   const entries: {
@@ -3476,7 +3477,7 @@ async function runAccountLedger(
 }
 
 async function runYearEndClosing(
-  userId: string,
+  orgId: string,
   input: { year: string }
 ): Promise<AiToolResult> {
   const year = String(input.year ?? "").trim();
@@ -3486,13 +3487,13 @@ async function runYearEndClosing(
   const marker = `Жилийн хаалт ${year}`;
   const refPrefix = `year-end-${year}`;
 
-  const { vouchers, accounts } = await loadReportData(userId);
+  const { vouchers, accounts } = await loadReportData(orgId);
   // Idempotency: ноорог ч бай, батлагдсан ч бай — нэг жилд нэг л хаалт.
   // Гол түлхүүр нь externalRef (year-end-YYYY-N) — тайлбарыг засварлаад
   // хамгаалалтыг тойрч чадахгүй; хуучин (ref-гүй) хаалтуудыг тайлбараар нь
   // нэмэлт байдлаар таньсаар байна.
   const dupes = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.userId, userId),
+    where: eq(journalVouchers.organizationId, orgId),
     columns: { id: true, description: true, status: true, externalRef: true },
   });
   const already = dupes.find(
@@ -3506,7 +3507,7 @@ async function runYearEndClosing(
       dedup: true,
     };
 
-  const ctx = await accountContext(userId);
+  const ctx = await accountContext(orgId);
   const plSummary = resolveAccount("44000099", ctx);
   const retained = resolveAccount("44000001", ctx);
 
@@ -3624,7 +3625,7 @@ const ARAP_STATUS_LABELS: Record<string, string> = {
 };
 
 async function runListArapDocuments(
-  userId: string,
+  orgId: string,
   input: {
     documentType?: string;
     counterparty?: string;
@@ -3637,7 +3638,7 @@ async function runListArapDocuments(
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.userId, userId),
+    where: eq(arApDocuments.organizationId, orgId),
     with: { counterparty: { columns: { name: true } } },
     orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
     limit: 400,
@@ -3680,7 +3681,7 @@ async function runListArapDocuments(
 }
 
 async function runPayArap(
-  userId: string,
+  orgId: string,
   input: {
     documentId: string;
     cashAccount: string;
@@ -3691,7 +3692,7 @@ async function runPayArap(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.userId, userId),
+    where: eq(arApDocuments.organizationId, orgId),
     orderBy: [desc(arApDocuments.createdAt)],
     limit: 500,
   });
@@ -3714,7 +3715,7 @@ async function runPayArap(
     throw new Error(`Төлөх дүн үлдэгдлээс их байна (үлдэгдэл ${fmt(balance)}₮)`);
 
   const accounts = await db.query.cashAccounts.findMany({
-    where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
   });
   const cashAccount = requireSingle(
     nameMatches(accounts, (entry) => entry.name, input.cashAccount),
@@ -3764,9 +3765,9 @@ async function runPayArap(
 }
 
 /** АР/АП баримтыг ID, дугаар, эсвэл externalRef-ээр олно. */
-async function findArapDocument(userId: string, idOrNo: string) {
+async function findArapDocument(orgId: string, idOrNo: string) {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.userId, userId),
+    where: eq(arApDocuments.organizationId, orgId),
     orderBy: [desc(arApDocuments.createdAt)],
     limit: 1000,
   });
@@ -3781,16 +3782,16 @@ async function findArapDocument(userId: string, idOrNo: string) {
 }
 
 async function runSendInvoiceEmail(
-  userId: string,
+  orgId: string,
   input: { documentId: string; to?: string }
 ): Promise<AiToolResult> {
-  const document = await findArapDocument(userId, input.documentId);
+  const document = await findArapDocument(orgId, input.documentId);
   let recipient = input.to?.trim();
   if (!recipient) {
     const counterparty = await db.query.counterparties.findFirst({
       where: and(
         eq(counterparties.id, document.counterpartyId),
-        eq(counterparties.userId, userId)
+        eq(counterparties.organizationId, orgId)
       ),
       columns: { name: true, email: true },
     });
@@ -3809,10 +3810,10 @@ async function runSendInvoiceEmail(
 }
 
 async function runCreateInvoiceLink(
-  userId: string,
+  orgId: string,
   input: { documentId: string }
 ): Promise<AiToolResult> {
-  const document = await findArapDocument(userId, input.documentId);
+  const document = await findArapDocument(orgId, input.documentId);
   const { url } = await createInvoiceLink(document.id);
   return {
     resultText: `Нэхэмжлэхийн public линк үүслээ: ${document.documentNo} → ${url}`,
@@ -3820,12 +3821,12 @@ async function runCreateInvoiceLink(
 }
 
 async function runDeleteArap(
-  userId: string,
+  orgId: string,
   input: { documentId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.userId, userId),
+    where: eq(arApDocuments.organizationId, orgId),
     columns: {
       id: true,
       status: true,
@@ -3867,7 +3868,7 @@ const AGING_BUCKETS = [
 ] as const;
 
 async function runCounterpartyBalance(
-  userId: string,
+  orgId: string,
   input: { counterparty?: string; asOf?: string; aging?: boolean }
 ): Promise<AiToolResult> {
   const asOf = input.asOf?.trim() || new Date().toISOString().slice(0, 10);
@@ -3876,11 +3877,11 @@ async function runCounterpartyBalance(
 
   const [documents, settlements] = await Promise.all([
     db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.userId, userId),
+      where: eq(arApDocuments.organizationId, orgId),
       with: { counterparty: { columns: { id: true, name: true } } },
     }),
     db.query.arApSettlements.findMany({
-      where: eq(arApSettlements.userId, userId),
+      where: eq(arApSettlements.organizationId, orgId),
     }),
   ]);
   // asOf-оор түүхэн үлдэгдэл: paidAmount биш settlement-ийн огноогоор тоолно.
@@ -4061,7 +4062,7 @@ async function runPostBatch(
 // ── Касс нэмэлт гүйцэтгэгчид ────────────────────────────────────────────────
 
 async function runListCashDocuments(
-  userId: string,
+  orgId: string,
   input: {
     documentType?: string;
     status?: string;
@@ -4072,7 +4073,7 @@ async function runListCashDocuments(
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.userId, userId),
+    where: eq(cashDocuments.organizationId, orgId),
     orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
     limit: 400,
   });
@@ -4102,13 +4103,13 @@ async function runListCashDocuments(
 }
 
 async function runReverseCash(
-  userId: string,
+  orgId: string,
   input: { documentId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.userId, userId),
+    where: eq(cashDocuments.organizationId, orgId),
     columns: { id: true, status: true, description: true, date: true, amount: true, baseAmount: true },
     orderBy: [desc(cashDocuments.createdAt)],
     limit: 500,
@@ -4126,12 +4127,12 @@ async function runReverseCash(
 // ── Бараа материал нэмэлт гүйцэтгэгчид ──────────────────────────────────────
 
 async function runListMovements(
-  userId: string,
+  orgId: string,
   input: { status?: string; limit?: number }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.userId, userId),
+    where: eq(inventoryMovements.organizationId, orgId),
     with: {
       item: { columns: { code: true, name: true } },
       warehouse: { columns: { code: true } },
@@ -4162,13 +4163,13 @@ async function runListMovements(
 }
 
 async function runConfirmMovement(
-  userId: string,
+  orgId: string,
   input: { movementId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.userId, userId),
+    where: eq(inventoryMovements.organizationId, orgId),
     columns: { id: true, status: true, documentNo: true },
     orderBy: [desc(inventoryMovements.createdAt)],
     limit: 500,
@@ -4183,12 +4184,12 @@ async function runConfirmMovement(
 }
 
 async function runDeleteMovement(
-  userId: string,
+  orgId: string,
   input: { movementId: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.userId, userId),
+    where: eq(inventoryMovements.organizationId, orgId),
     columns: { id: true, status: true, documentNo: true },
     orderBy: [desc(inventoryMovements.createdAt)],
     limit: 500,
@@ -4200,18 +4201,18 @@ async function runDeleteMovement(
 }
 
 async function runGetStockBalances(
-  userId: string,
+  orgId: string,
   input: { itemCode?: string; warehouseCode?: string }
 ): Promise<AiToolResult> {
   const [movements, items, whList] = await Promise.all([
     db.query.inventoryMovements.findMany({
       where: and(
-        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.status, "confirmed")
       ),
     }),
-    db.query.inventoryItems.findMany({ where: eq(inventoryItems.userId, userId) }),
-    db.query.warehouses.findMany({ where: eq(warehouses.userId, userId) }),
+    db.query.inventoryItems.findMany({ where: eq(inventoryItems.organizationId, orgId) }),
+    db.query.warehouses.findMany({ where: eq(warehouses.organizationId, orgId) }),
   ]);
   const itemById = new Map(items.map((item) => [item.id, item]));
   const whById = new Map(whList.map((wh) => [wh.id, wh]));
@@ -4268,11 +4269,11 @@ async function runGetStockBalances(
 // ── Үндсэн хөрөнгө нэмэлт гүйцэтгэгчид ──────────────────────────────────────
 
 async function runListFixedAssets(
-  userId: string,
+  orgId: string,
   input: { status?: string }
 ): Promise<AiToolResult> {
   const assets = await db.query.fixedAssets.findMany({
-    where: eq(fixedAssets.userId, userId),
+    where: eq(fixedAssets.organizationId, orgId),
     orderBy: [desc(fixedAssets.createdAt)],
     limit: 200,
   });
@@ -4291,7 +4292,7 @@ async function runListFixedAssets(
 }
 
 async function runFaDepreciation(
-  _userId: string,
+  _orgId: string,
   input: { month: string }
 ): Promise<AiToolResult> {
   const result = await runDepreciation({ month: input.month });
@@ -4304,14 +4305,14 @@ async function runFaDepreciation(
 }
 
 async function runPostFaDepreciation(
-  userId: string,
+  orgId: string,
   input: { month: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const entries = await db.query.faDepreciationEntries.findMany({
     where: and(
-      eq(faDepreciationEntries.userId, userId),
+      eq(faDepreciationEntries.organizationId, orgId),
       eq(faDepreciationEntries.periodMonth, input.month),
       eq(faDepreciationEntries.status, "draft")
     ),
@@ -4343,7 +4344,7 @@ async function runListPeriods(): Promise<AiToolResult> {
 }
 
 async function runClosePeriod(
-  _userId: string,
+  _orgId: string,
   input: { code: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -4360,7 +4361,7 @@ async function runClosePeriod(
 }
 
 async function runReopenPeriod(
-  _userId: string,
+  _orgId: string,
   input: { code: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -4495,7 +4496,7 @@ async function runMonthEndChecklist(input: {
 // ── НӨАТ гүйцэтгэгчид ───────────────────────────────────────────────────────
 
 async function runGetVatReturn(
-  userId: string,
+  orgId: string,
   input: { period: string }
 ): Promise<AiToolResult> {
   const data = await getVatReturnData(input.period);
@@ -4522,14 +4523,14 @@ async function runGetVatReturn(
 }
 
 async function runCreateVatSettlement(
-  userId: string,
+  orgId: string,
   input: { period: string; cashAccount?: string }
 ): Promise<AiToolResult> {
   let cashAccountId: string | undefined;
   if (input.cashAccount?.trim()) {
     const accounts = await db.query.cashAccounts.findMany({
       where: and(
-        eq(cashAccounts.userId, userId),
+        eq(cashAccounts.organizationId, orgId),
         eq(cashAccounts.isActive, true)
       ),
     });
@@ -4562,7 +4563,7 @@ async function runCreateVatSettlement(
 // ── Өртөг гүйцэтгэгчид ──────────────────────────────────────────────────────
 
 async function runMonthlyCosting(
-  _userId: string,
+  _orgId: string,
   input: { period: string }
 ): Promise<AiToolResult> {
   const result = await computeMonthlyCosting(input.period);
@@ -4581,7 +4582,7 @@ async function runMonthlyCosting(
 }
 
 async function runPostCostEntries(
-  userId: string,
+  orgId: string,
   input: { month: string },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -4589,7 +4590,7 @@ async function runPostCostEntries(
   if (!/^\d{4}-\d{2}$/.test(input.month ?? ""))
     throw new Error("Сар YYYY-MM форматтай байх ёстой");
   const entries = await db.query.costEntries.findMany({
-    where: and(eq(costEntries.userId, userId), eq(costEntries.status, "draft")),
+    where: and(eq(costEntries.organizationId, orgId), eq(costEntries.status, "draft")),
     columns: { id: true, date: true, amount: true },
   });
   const monthEntries = entries.filter((entry) => entry.date.startsWith(input.month));
@@ -4606,11 +4607,11 @@ async function runPostCostEntries(
 }
 
 async function runFixCashOpening(
-  userId: string,
+  orgId: string,
   input: { cashAccount: string; counterAccount?: string }
 ): Promise<AiToolResult> {
   const accounts = await db.query.cashAccounts.findMany({
-    where: eq(cashAccounts.userId, userId),
+    where: eq(cashAccounts.organizationId, orgId),
   });
   const account = requireSingle(
     nameMatches(accounts, (entry) => entry.name, input.cashAccount),
@@ -4620,7 +4621,7 @@ async function runFixCashOpening(
   );
   let counter: string | undefined;
   if (input.counterAccount) {
-    const ctx = await accountContext(userId);
+    const ctx = await accountContext(orgId);
     counter = resolveAccount(input.counterAccount, ctx).main;
   }
   const result = await createCashOpeningVoucher({
@@ -4646,10 +4647,10 @@ async function runFixCashOpening(
  * posted буцаалт нэт 0. Зөвхөн posted тоолбол буцаасан гүйлгээ бүр хий зөрүү
  * үзүүлдэг.
  */
-async function glNetByMain(userId: string, upTo: string): Promise<Map<string, number>> {
+async function glNetByMain(orgId: string, upTo: string): Promise<Map<string, number>> {
   const vouchers = await db.query.journalVouchers.findMany({
     where: and(
-      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.organizationId, orgId),
       inArray(journalVouchers.status, ["posted", "reversed"])
     ),
     with: { lines: { columns: { accountNumber: true, debit: true, credit: true } } },
@@ -4667,7 +4668,7 @@ async function glNetByMain(userId: string, upTo: string): Promise<Map<string, nu
 }
 
 async function runReconcileModules(
-  userId: string,
+  orgId: string,
   input: { from: string; to: string }
 ): Promise<AiToolResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.from ?? "") || !/^\d{4}-\d{2}-\d{2}$/.test(input.to ?? ""))
@@ -4676,16 +4677,16 @@ async function runReconcileModules(
   const EPS = 0.01;
   const sections: string[] = [];
   const problems: string[] = [];
-  const glNet = await glNetByMain(userId, input.to);
+  const glNet = await glNetByMain(orgId, input.to);
 
   // 1. Касс/банк: GL данс vs модулийн үлдэгдэл (нээлт + батлагдсан баримт).
   {
     const [accounts, documents] = await Promise.all([
       db.query.cashAccounts.findMany({
-        where: and(eq(cashAccounts.userId, userId), eq(cashAccounts.isActive, true)),
+        where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
       }),
       db.query.cashDocuments.findMany({
-        where: and(eq(cashDocuments.userId, userId), eq(cashDocuments.status, "posted")),
+        where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.status, "posted")),
       }),
     ]);
     const moduleBalance = new Map<string, number>(
@@ -4725,7 +4726,7 @@ async function runReconcileModules(
   // 2. АР/АП: хяналтын данс vs нээлттэй баримтын үлдэгдэл.
   {
     const documents = await db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.userId, userId),
+      where: eq(arApDocuments.organizationId, orgId),
     });
     const open = documents.filter(
       (doc) =>
@@ -4760,7 +4761,7 @@ async function runReconcileModules(
 
   // 3. Бараа материал: дэд дэвтрийн үнэлгээ vs GL (өртгийн тулгалтын тайлан).
   {
-    const recon = await loadInventoryGlReconciliation(userId, {
+    const recon = await loadInventoryGlReconciliation(orgId, {
       from: input.from,
       to: input.to,
     });
@@ -4781,7 +4782,7 @@ async function runReconcileModules(
 
   // 4. Клиринг: бизнес объектоор тулгаж хаагдаагүй үлдэгдлийг үзүүлнэ.
   {
-    const clearing = await loadClearingReconciliation(userId, {
+    const clearing = await loadClearingReconciliation(orgId, {
       from: input.from,
       to: input.to,
     });
@@ -4890,123 +4891,128 @@ function runWorkflowGuide(input: { workflow: string }): AiToolResult {
  * тодруулах боломжтой).
  */
 export async function executeAiTool(
-  userId: string,
+  _userId: string,
   name: string,
   input: unknown,
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   try {
+    // Фаз 01: бүх scoping идэвхтэй байгууллагаар — session (чат) эсвэл
+    // runAsOrg (MCP token) контекстоос ирнэ; гишүүнчлэлийг getActiveOrg
+    // ДАХИН баталгаажуулна. Хэрэглэгч өөрөө (createdBy) server action-ууд
+    // дотроо auth()-оос авагдана.
+    const { orgId } = await getActiveOrg();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
     switch (name) {
       case "create_journal_voucher":
-        return await runCreateJournal(userId, args, mode);
+        return await runCreateJournal(orgId, args, mode);
       case "create_arap_invoice":
-        return await runCreateArap(userId, args, mode);
+        return await runCreateArap(orgId, args, mode);
       case "create_cash_transaction":
-        return await runCreateCash(userId, args, mode);
+        return await runCreateCash(orgId, args, mode);
       case "create_inventory_movement":
-        return await runCreateMovement(userId, args, mode);
+        return await runCreateMovement(orgId, args, mode);
       case "create_fixed_asset":
-        return await runCreateFixedAsset(userId, args, mode);
+        return await runCreateFixedAsset(orgId, args, mode);
       case "list_counterparties":
-        return await runListCounterparties(userId, args);
+        return await runListCounterparties(orgId, args);
       case "list_inventory":
-        return await runListInventory(userId, args);
+        return await runListInventory(orgId, args);
       case "post_journal_voucher":
-        return await runPostJournal(userId, args, mode);
+        return await runPostJournal(orgId, args, mode);
       case "delete_journal_voucher":
-        return await runDeleteJournal(userId, args, mode);
+        return await runDeleteJournal(orgId, args, mode);
       case "post_cash_document":
-        return await runPostCash(userId, args, mode);
+        return await runPostCash(orgId, args, mode);
       case "delete_cash_document":
-        return await runDeleteCash(userId, args, mode);
+        return await runDeleteCash(orgId, args, mode);
       case "post_arap_document":
-        return await runPostArap(userId, args, mode);
+        return await runPostArap(orgId, args, mode);
       case "list_gl_accounts":
-        return await runListGlAccounts(userId, args);
+        return await runListGlAccounts(orgId, args);
       case "list_cash_accounts":
-        return await runListCashAccounts(userId);
+        return await runListCashAccounts(orgId);
       case "list_journal_vouchers":
-        return await runListJournalVouchers(userId, args);
+        return await runListJournalVouchers(orgId, args);
       case "create_gl_account":
-        return await runCreateGlAccount(userId, args);
+        return await runCreateGlAccount(orgId, args);
       case "create_counterparty":
-        return await runCreateCounterparty(userId, args);
+        return await runCreateCounterparty(orgId, args);
       case "create_inventory_item":
-        return await runCreateItem(userId, args);
+        return await runCreateItem(orgId, args);
       case "create_warehouse":
-        return await runCreateWarehouse(userId, args);
+        return await runCreateWarehouse(orgId, args);
       case "update_counterparty":
-        return await runUpdateCounterparty(userId, args);
+        return await runUpdateCounterparty(orgId, args);
       case "update_inventory_item":
-        return await runUpdateItem(userId, args);
+        return await runUpdateItem(orgId, args);
       case "update_inventory_movement":
-        return await runUpdateMovement(userId, args);
+        return await runUpdateMovement(orgId, args);
       case "record_inventory_count":
-        return await runRecordCount(userId, args);
+        return await runRecordCount(orgId, args);
       case "create_cash_account":
-        return await runCreateCashAccount(userId, args);
+        return await runCreateCashAccount(orgId, args);
       case "activate_fixed_asset":
-        return await runActivateFixedAsset(userId, args);
+        return await runActivateFixedAsset(orgId, args);
       case "delete_fixed_asset":
-        return await runDeleteFixedAsset(userId, args, mode);
+        return await runDeleteFixedAsset(orgId, args, mode);
       case "reverse_fa_depreciation":
-        return await runReverseFaDepreciation(userId, args, mode);
+        return await runReverseFaDepreciation(orgId, args, mode);
       case "get_journal_voucher":
-        return await runGetJournal(userId, args);
+        return await runGetJournal(orgId, args);
       case "update_journal_voucher":
-        return await runUpdateJournal(userId, args);
+        return await runUpdateJournal(orgId, args);
       case "reverse_journal_voucher":
-        return await runReverseJournal(userId, args, mode);
+        return await runReverseJournal(orgId, args, mode);
       case "get_trial_balance":
-        return await runGetTrialBalance(userId, args);
+        return await runGetTrialBalance(orgId, args);
       case "get_income_statement":
-        return await runIncomeStatement(userId, args);
+        return await runIncomeStatement(orgId, args);
       case "get_balance_sheet":
-        return await runBalanceSheet(userId, args);
+        return await runBalanceSheet(orgId, args);
       case "get_cash_flow":
-        return await runCashFlow(userId, args);
+        return await runCashFlow(orgId, args);
       case "get_account_ledger":
-        return await runAccountLedger(userId, args);
+        return await runAccountLedger(orgId, args);
       case "create_year_end_closing":
-        return await runYearEndClosing(userId, args);
+        return await runYearEndClosing(orgId, args);
       case "list_arap_documents":
-        return await runListArapDocuments(userId, args);
+        return await runListArapDocuments(orgId, args);
       case "delete_arap_document":
-        return await runDeleteArap(userId, args, mode);
+        return await runDeleteArap(orgId, args, mode);
       case "send_invoice_email":
-        return await runSendInvoiceEmail(userId, args);
+        return await runSendInvoiceEmail(orgId, args);
       case "create_invoice_link":
-        return await runCreateInvoiceLink(userId, args);
+        return await runCreateInvoiceLink(orgId, args);
       case "get_counterparty_balance":
-        return await runCounterpartyBalance(userId, args);
+        return await runCounterpartyBalance(orgId, args);
       case "pay_arap_document":
-        return await runPayArap(userId, args, mode);
+        return await runPayArap(orgId, args, mode);
       case "list_cash_documents":
-        return await runListCashDocuments(userId, args);
+        return await runListCashDocuments(orgId, args);
       case "reverse_cash_document":
-        return await runReverseCash(userId, args, mode);
+        return await runReverseCash(orgId, args, mode);
       case "list_inventory_movements":
-        return await runListMovements(userId, args);
+        return await runListMovements(orgId, args);
       case "confirm_inventory_movement":
-        return await runConfirmMovement(userId, args, mode);
+        return await runConfirmMovement(orgId, args, mode);
       case "delete_inventory_movement":
-        return await runDeleteMovement(userId, args, mode);
+        return await runDeleteMovement(orgId, args, mode);
       case "get_stock_balances":
-        return await runGetStockBalances(userId, args);
+        return await runGetStockBalances(orgId, args);
       case "list_fixed_assets":
-        return await runListFixedAssets(userId, args);
+        return await runListFixedAssets(orgId, args);
       case "run_fa_depreciation":
-        return await runFaDepreciation(userId, args);
+        return await runFaDepreciation(orgId, args);
       case "post_fa_depreciation":
-        return await runPostFaDepreciation(userId, args, mode);
+        return await runPostFaDepreciation(orgId, args, mode);
       case "list_periods":
         return await runListPeriods();
       case "close_period":
-        return await runClosePeriod(userId, args, mode);
+        return await runClosePeriod(orgId, args, mode);
       case "reopen_period":
-        return await runReopenPeriod(userId, args, mode);
+        return await runReopenPeriod(orgId, args, mode);
       case "create_employee":
         return await runCreateEmployee(args);
       case "run_payroll":
@@ -5018,42 +5024,42 @@ export async function executeAiTool(
       case "get_month_end_checklist":
         return await runMonthEndChecklist(args);
       case "get_vat_return":
-        return await runGetVatReturn(userId, args);
+        return await runGetVatReturn(orgId, args);
       case "create_vat_settlement":
-        return await runCreateVatSettlement(userId, args);
+        return await runCreateVatSettlement(orgId, args);
       case "run_monthly_costing":
-        return await runMonthlyCosting(userId, args);
+        return await runMonthlyCosting(orgId, args);
       case "post_cost_entries":
-        return await runPostCostEntries(userId, args, mode);
+        return await runPostCostEntries(orgId, args, mode);
       case "fix_cash_opening_balance":
-        return await runFixCashOpening(userId, args);
+        return await runFixCashOpening(orgId, args);
       case "reconcile_modules":
-        return await runReconcileModules(userId, args);
+        return await runReconcileModules(orgId, args);
       case "get_workflow_guide":
         return runWorkflowGuide(args);
       case "create_counterparties_batch":
         return await runCreateBatch(args.items, (item) =>
-          runCreateCounterparty(userId, item as Parameters<typeof runCreateCounterparty>[1])
+          runCreateCounterparty(orgId, item as Parameters<typeof runCreateCounterparty>[1])
         );
       case "create_arap_invoices_batch":
         return await runCreateBatch(args.items, (item) =>
-          runCreateArap(userId, item as Parameters<typeof runCreateArap>[1], mode)
+          runCreateArap(orgId, item as Parameters<typeof runCreateArap>[1], mode)
         );
       case "create_cash_transactions_batch":
         return await runCreateBatch(args.items, (item) =>
-          runCreateCash(userId, item as Parameters<typeof runCreateCash>[1], mode)
+          runCreateCash(orgId, item as Parameters<typeof runCreateCash>[1], mode)
         );
       case "post_arap_documents_batch":
         return await runPostBatch(args.documentIds, mode, (id) =>
-          runPostArap(userId, { documentId: id }, mode)
+          runPostArap(orgId, { documentId: id }, mode)
         );
       case "post_cash_documents_batch":
         return await runPostBatch(args.documentIds, mode, (id) =>
-          runPostCash(userId, { documentId: id }, mode)
+          runPostCash(orgId, { documentId: id }, mode)
         );
       case "post_journal_vouchers_batch":
         return await runPostBatch(args.voucherIds, mode, (id) =>
-          runPostJournal(userId, { voucherId: id }, mode)
+          runPostJournal(orgId, { voucherId: id }, mode)
         );
       default:
         return { resultText: `"${name}" гэдэг tool байхгүй` };

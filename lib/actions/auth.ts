@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { users, chartOfAccounts } from "@/lib/db/schema";
 import { sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { signIn } from "@/lib/auth";
+import { createPersonalOrg, signIn } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 
@@ -39,9 +39,13 @@ export async function registerUser(data: {
     .values({ name, email, passwordHash })
     .returning();
 
+  // Фаз 01: шинэ хэрэглэгч бүр personal байгууллагатай төрнө — org гэдэг
+  // ойлголтыг анзааралгүйгээр ажиллаж чадна (спекийн хатуу дүрэм).
+  const orgId = await createPersonalOrg(user.id, name);
+
   // Seed default chart of accounts
   await db.insert(chartOfAccounts).values(
-    DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, ...a }))
+    DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, organizationId: orgId, ...a }))
   );
 
   await signIn("credentials", {

@@ -1,21 +1,19 @@
 // Аудитын мөр — хэн, хэзээ, юу хийснийг харах хуудас (зөвхөн унших).
 // Статус шилжилт бүрд lib/audit.ts-ийн logAuditEvent нэг мөр бичдэг;
-// энд тухайн хэрэглэгчийн сүүлийн 500 тэмдэглэлийг шинээс нь харуулна.
+// энд идэвхтэй байгууллагын сүүлийн 500 тэмдэглэлийг шинээс нь харуулна.
 
 import { desc, eq } from "drizzle-orm";
 
 import { AuditLogView, type AuditLogRow } from "@/components/audit/audit-log-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { auditEvents } from "@/lib/db/schema";
 
 export default async function AuditLogPage() {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Нэвтрэх шаардлагатай");
+  const { orgId } = await getActiveOrg();
 
   const events = await db.query.auditEvents.findMany({
-    where: eq(auditEvents.userId, userId),
+    where: eq(auditEvents.organizationId, orgId),
     orderBy: [desc(auditEvents.createdAt)],
     limit: 500,
   });

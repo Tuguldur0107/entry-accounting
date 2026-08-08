@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   costEntries,
@@ -21,10 +21,9 @@ import {
 } from "@/lib/inventory/balances";
 import { logAuditEvent } from "@/lib/audit";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
+/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
+async function requireAccountant() {
+  return requireRole("accountant");
 }
 
 function revalidateInventory() {
@@ -52,18 +51,18 @@ export async function createInventoryItem(data: {
   name: string;
   unit: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const code = data.code.trim();
   const name = data.name.trim();
   const unit = data.unit.trim() || "ш";
   if (!code) throw new Error("Барааны код оруулна уу");
   if (!name) throw new Error("Барааны нэр оруулна уу");
   const duplicate = await db.query.inventoryItems.findFirst({
-    where: and(eq(inventoryItems.userId, userId), eq(inventoryItems.code, code)),
+    where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, code)),
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой бараа бүртгэгдсэн байна`);
-  await db.insert(inventoryItems).values({ userId, code, name, unit });
+  await db.insert(inventoryItems).values({ userId, organizationId: orgId, code, name, unit });
   revalidateInventory();
 }
 
@@ -71,46 +70,46 @@ export async function updateInventoryItem(
   id: string,
   data: { name: string; unit: string }
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const name = data.name.trim();
   if (!name) throw new Error("Барааны нэр оруулна уу");
   await db
     .update(inventoryItems)
     .set({ name, unit: data.unit.trim() || "ш" })
-    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.userId, userId)));
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
   revalidateInventory();
 }
 
 export async function toggleInventoryItem(id: string, isActive: boolean) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   await db
     .update(inventoryItems)
     .set({ isActive })
-    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.userId, userId)));
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
   revalidateInventory();
 }
 
 export async function createWarehouse(data: { code: string; name: string }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const code = data.code.trim();
   const name = data.name.trim();
   if (!code) throw new Error("Агуулахын код оруулна уу");
   if (!name) throw new Error("Агуулахын нэр оруулна уу");
   const duplicate = await db.query.warehouses.findFirst({
-    where: and(eq(warehouses.userId, userId), eq(warehouses.code, code)),
+    where: and(eq(warehouses.organizationId, orgId), eq(warehouses.code, code)),
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой агуулах бүртгэгдсэн байна`);
-  await db.insert(warehouses).values({ userId, code, name });
+  await db.insert(warehouses).values({ userId, organizationId: orgId, code, name });
   revalidateInventory();
 }
 
 export async function toggleWarehouse(id: string, isActive: boolean) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   await db
     .update(warehouses)
     .set({ isActive })
-    .where(and(eq(warehouses.id, id), eq(warehouses.userId, userId)));
+    .where(and(eq(warehouses.id, id), eq(warehouses.organizationId, orgId)));
   revalidateInventory();
 }
 
@@ -129,11 +128,11 @@ type DbHandle = Pick<typeof db, "query" | "select">;
 
 async function confirmedMovementRefs(
   handle: DbHandle,
-  userId: string
+  orgId: string
 ): Promise<MovementRef[]> {
   const rows = await handle.query.inventoryMovements.findMany({
     where: and(
-      eq(inventoryMovements.userId, userId),
+      eq(inventoryMovements.organizationId, orgId),
       eq(inventoryMovements.status, "confirmed")
     ),
   });
@@ -163,7 +162,7 @@ export async function createInventoryMovement(data: {
   issueTypeId?: string;
   confirmNow?: boolean;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   if (!MOVEMENT_TYPES.includes(data.movementType))
     throw new Error("Хөдөлгөөний төрөл буруу байна");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
@@ -179,14 +178,14 @@ export async function createInventoryMovement(data: {
     db.query.inventoryItems.findFirst({
       where: and(
         eq(inventoryItems.id, data.itemId),
-        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.organizationId, orgId),
         eq(inventoryItems.isActive, true)
       ),
     }),
     db.query.warehouses.findFirst({
       where: and(
         eq(warehouses.id, data.warehouseId),
-        eq(warehouses.userId, userId),
+        eq(warehouses.organizationId, orgId),
         eq(warehouses.isActive, true)
       ),
     }),
@@ -194,7 +193,7 @@ export async function createInventoryMovement(data: {
       ? db.query.warehouses.findFirst({
           where: and(
             eq(warehouses.id, data.toWarehouseId),
-            eq(warehouses.userId, userId),
+            eq(warehouses.organizationId, orgId),
             eq(warehouses.isActive, true)
           ),
         })
@@ -214,7 +213,7 @@ export async function createInventoryMovement(data: {
   if (manualNo) {
     const duplicate = await db.query.inventoryMovements.findFirst({
       where: and(
-        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.documentNo, manualNo)
       ),
       columns: { id: true },
@@ -233,6 +232,7 @@ export async function createInventoryMovement(data: {
     .insert(inventoryMovements)
     .values({
       userId,
+      organizationId: orgId,
       documentNo,
       movementType: data.movementType,
       date: data.date,
@@ -242,7 +242,7 @@ export async function createInventoryMovement(data: {
       quantity: String(quantity),
       description: data.description?.trim() ?? "",
       issueTypeId: await resolveIssueTypeId(
-        userId,
+        orgId,
         data.movementType,
         data.issueTypeId
       ),
@@ -260,7 +260,7 @@ export async function createInventoryMovement(data: {
  * (FR-ISSUE-001); бусад төрөлд null болгоно. Идэвхтэй байх ёстой.
  */
 async function resolveIssueTypeId(
-  userId: string,
+  orgId: string,
   movementType: MovementType,
   issueTypeId: string | undefined
 ): Promise<string | null> {
@@ -271,7 +271,7 @@ async function resolveIssueTypeId(
   const type = await db.query.inventoryIssueTypes.findFirst({
     where: and(
       eq(inventoryIssueTypes.id, issueTypeId),
-      eq(inventoryIssueTypes.userId, userId),
+      eq(inventoryIssueTypes.organizationId, orgId),
       eq(inventoryIssueTypes.isActive, true)
     ),
     columns: { id: true },
@@ -294,11 +294,11 @@ export async function updateInventoryMovement(
     issueTypeId?: string;
   }
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),
-      eq(inventoryMovements.userId, userId)
+      eq(inventoryMovements.organizationId, orgId)
     ),
     columns: { status: true },
   });
@@ -319,14 +319,14 @@ export async function updateInventoryMovement(
     db.query.inventoryItems.findFirst({
       where: and(
         eq(inventoryItems.id, data.itemId),
-        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.organizationId, orgId),
         eq(inventoryItems.isActive, true)
       ),
     }),
     db.query.warehouses.findFirst({
       where: and(
         eq(warehouses.id, data.warehouseId),
-        eq(warehouses.userId, userId),
+        eq(warehouses.organizationId, orgId),
         eq(warehouses.isActive, true)
       ),
     }),
@@ -334,7 +334,7 @@ export async function updateInventoryMovement(
       ? db.query.warehouses.findFirst({
           where: and(
             eq(warehouses.id, data.toWarehouseId),
-            eq(warehouses.userId, userId),
+            eq(warehouses.organizationId, orgId),
             eq(warehouses.isActive, true)
           ),
         })
@@ -359,7 +359,7 @@ export async function updateInventoryMovement(
       quantity: String(quantity),
       description: data.description?.trim() ?? "",
       issueTypeId: await resolveIssueTypeId(
-        userId,
+        orgId,
         data.movementType,
         data.issueTypeId
       ),
@@ -367,7 +367,7 @@ export async function updateInventoryMovement(
     .where(
       and(
         eq(inventoryMovements.id, id),
-        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.status, "draft")
       )
     );
@@ -375,18 +375,18 @@ export async function updateInventoryMovement(
 }
 
 export async function confirmInventoryMovement(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
 
   // Шалгалт + claim нэг транзакцад, хэрэглэгч бүрийн advisory lock дор —
   // хоёр ӨӨР ноорогийг зэрэг батлахад хоёулаа шалгалтыг давж үлдэгдлийг
   // хасах болгох race-ээс сэргийлнэ.
   await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
 
     const movement = await tx.query.inventoryMovements.findFirst({
       where: and(
         eq(inventoryMovements.id, id),
-        eq(inventoryMovements.userId, userId)
+        eq(inventoryMovements.organizationId, orgId)
       ),
     });
     if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
@@ -404,7 +404,7 @@ export async function confirmInventoryMovement(id: string) {
 
     // Хасах үлдэгдлийн шалгалт: он цагийн бүх цэг дээр ≥ 0 (энэ хөдөлгөөнийг
     // оруулаад, өмнөх огноогоор бичихэд дараагийн үлдэгдлүүд ч эвдрэхгүй).
-    const existing = await confirmedMovementRefs(tx, userId);
+    const existing = await confirmedMovementRefs(tx, orgId);
     const violation = findNegativeStock(existing, {
       id: movement.id,
       movementType: movement.movementType as MovementType,
@@ -426,7 +426,7 @@ export async function confirmInventoryMovement(id: string) {
       .where(
         and(
           eq(inventoryMovements.id, id),
-          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.organizationId, orgId),
           eq(inventoryMovements.status, "draft")
         )
       )
@@ -435,6 +435,7 @@ export async function confirmInventoryMovement(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "confirm",
         entityType: "inventory",
         entityId: id,
@@ -471,11 +472,11 @@ export async function confirmInventoryMovements(ids: string[]) {
  * бараа-агуулахын үлдэгдэл хасах болохоор бол блок.
  */
 export async function deleteInventoryMovement(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),
-      eq(inventoryMovements.userId, userId)
+      eq(inventoryMovements.organizationId, orgId)
     ),
     columns: { status: true, documentNo: true, date: true },
   });
@@ -483,11 +484,11 @@ export async function deleteInventoryMovement(id: string) {
 
   await db.transaction(async (tx) => {
     if (movement.status === "confirmed") {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
 
       const activeEntry = await tx.query.costEntries.findFirst({
         where: and(
-          eq(costEntries.userId, userId),
+          eq(costEntries.organizationId, orgId),
           eq(costEntries.movementId, id),
           inArray(costEntries.status, ["draft", "posted"])
         ),
@@ -499,7 +500,7 @@ export async function deleteInventoryMovement(id: string) {
         );
 
       // Устгаснаар бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой.
-      const existing = (await confirmedMovementRefs(tx, userId)).filter(
+      const existing = (await confirmedMovementRefs(tx, orgId)).filter(
         (ref) => ref.id !== id
       );
       const violation = findNegativeStock(existing);
@@ -514,17 +515,18 @@ export async function deleteInventoryMovement(id: string) {
       .update(costEntries)
       .set({ movementId: null })
       .where(
-        and(eq(costEntries.userId, userId), eq(costEntries.movementId, id))
+        and(eq(costEntries.organizationId, orgId), eq(costEntries.movementId, id))
       );
 
     await tx
       .delete(inventoryMovements)
       .where(
-        and(eq(inventoryMovements.id, id), eq(inventoryMovements.userId, userId))
+        and(eq(inventoryMovements.id, id), eq(inventoryMovements.organizationId, orgId))
       );
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "delete",
         entityType: "inventory",
         entityId: id,
@@ -539,11 +541,11 @@ export async function deleteInventoryMovement(id: string) {
 // Баталсан хөдөлгөөнийг цуцлах — зөвхөн идэвхтэй cost entry-гүй үед
 // (үнэлэгдсэн бол эхлээд costing талд буцаалт хийнэ — уялдааны гэрээ).
 export async function cancelInventoryMovement(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),
-      eq(inventoryMovements.userId, userId)
+      eq(inventoryMovements.organizationId, orgId)
     ),
   });
   if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
@@ -551,11 +553,11 @@ export async function cancelInventoryMovement(id: string) {
     throw new Error("Зөвхөн баталсан хөдөлгөөнийг цуцална");
 
   await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
 
     const activeEntry = await tx.query.costEntries.findFirst({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         eq(costEntries.movementId, id),
         inArray(costEntries.status, ["draft", "posted"])
       ),
@@ -568,7 +570,7 @@ export async function cancelInventoryMovement(id: string) {
 
     // Цуцлахад бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой
     // (ж: орлогыг цуцлахад түүнээс хойшхи зарлага хасах болж болзошгүй).
-    const existing = (await confirmedMovementRefs(tx, userId)).filter(
+    const existing = (await confirmedMovementRefs(tx, orgId)).filter(
       (ref) => ref.id !== id
     );
     const violation = findNegativeStock(existing);
@@ -583,7 +585,7 @@ export async function cancelInventoryMovement(id: string) {
       .where(
         and(
           eq(inventoryMovements.id, id),
-          eq(inventoryMovements.userId, userId),
+          eq(inventoryMovements.organizationId, orgId),
           eq(inventoryMovements.status, "confirmed")
         )
       )
@@ -592,6 +594,7 @@ export async function cancelInventoryMovement(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "cancel",
         entityType: "inventory",
         entityId: id,
@@ -617,7 +620,7 @@ export async function recordInventoryCount(data: {
   warehouseId: string;
   counts: { itemId: string; countedQty: number }[];
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
   if (data.counts.length === 0)
@@ -626,7 +629,7 @@ export async function recordInventoryCount(data: {
   const warehouse = await db.query.warehouses.findFirst({
     where: and(
       eq(warehouses.id, data.warehouseId),
-      eq(warehouses.userId, userId),
+      eq(warehouses.organizationId, orgId),
       eq(warehouses.isActive, true)
     ),
     columns: { id: true },
@@ -636,7 +639,7 @@ export async function recordInventoryCount(data: {
   const itemIds = data.counts.map((count) => count.itemId);
   const items = await db.query.inventoryItems.findMany({
     where: and(
-      eq(inventoryItems.userId, userId),
+      eq(inventoryItems.organizationId, orgId),
       eq(inventoryItems.isActive, true),
       inArray(inventoryItems.id, itemIds)
     ),
@@ -645,10 +648,10 @@ export async function recordInventoryCount(data: {
   const ownedItems = new Set(items.map((item) => item.id));
 
   return await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 1)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
 
     // Системийн үлдэгдэл тооллогын огнооны байдлаар (confirmed replay).
-    const refs = (await confirmedMovementRefs(tx, userId)).filter(
+    const refs = (await confirmedMovementRefs(tx, orgId)).filter(
       (ref) => ref.date <= data.date
     );
     const balances = calculateQtyBalances(refs);
@@ -666,6 +669,7 @@ export async function recordInventoryCount(data: {
       if (difference === 0) continue;
       inserts.push({
         userId,
+        organizationId: orgId,
         documentNo: `CNT-${data.date.replaceAll("-", "")}-${crypto
           .randomUUID()
           .slice(0, 6)

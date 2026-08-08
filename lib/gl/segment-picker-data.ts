@@ -16,23 +16,25 @@ export interface SegmentPickerData {
   defaultSegments: Record<number, string>;
 }
 
+// Фаз 01 multi-tenancy: параметр нь идэвхтэй байгууллагын ID (orgId) —
+// бүх дуудагч getActiveOrg()-ийн orgId-г дамжуулна.
 export async function loadSegmentPickerData(
-  userId: string
+  orgId: string
 ): Promise<SegmentPickerData> {
   const [accounts, configs, values] = await Promise.all([
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
       orderBy: (account, { asc }) => [asc(account.number)],
     }),
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
       orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],

@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import {
@@ -85,22 +85,22 @@ function pickDefaultAccount(
 
 /** Сегмент, данс, default-уудын багц — форм бүхий бүх АР/АП UI-д хэрэгтэй. */
 export async function loadArApSegmentData(
-  userId: string
+  orgId: string
 ): Promise<ArApSegmentData> {
   const [accounts, configs, values] = await Promise.all([
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
       orderBy: (account, { asc }) => [asc(account.number)],
     }),
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
       orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],
@@ -150,10 +150,10 @@ export async function loadArApSegmentData(
 
 /** Харилцагчдын жагсаалт (view хэлбэрээр). */
 export async function loadArApCounterparties(
-  userId: string
+  orgId: string
 ): Promise<CounterpartyView[]> {
   const rows = await db.query.counterparties.findMany({
-    where: eq(counterparties.userId, userId),
+    where: eq(counterparties.organizationId, orgId),
     orderBy: (item, { asc }) => [asc(item.name)],
   });
   return rows.map((item) => ({
@@ -173,20 +173,20 @@ export async function loadArApCounterparties(
 }
 
 /** Бараатай мөр бичихэд (АП орлого / АР зарлага) ашиглах сонголтууд. */
-export async function loadArApInventoryOptions(userId: string): Promise<{
+export async function loadArApInventoryOptions(orgId: string): Promise<{
   inventoryItems: InventoryItemOption[];
   warehouses: WarehouseOption[];
 }> {
   const [items, warehouseRows] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: and(
-        eq(inventoryItems.userId, userId),
+        eq(inventoryItems.organizationId, orgId),
         eq(inventoryItems.isActive, true)
       ),
       orderBy: (item, { asc }) => [asc(item.code)],
     }),
     db.query.warehouses.findMany({
-      where: and(eq(warehouses.userId, userId), eq(warehouses.isActive, true)),
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
       orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
     }),
   ]);
@@ -239,16 +239,16 @@ function toDocumentView(
 
 /** Бүх баримт (жагсаалт, тайлан, самбарт). */
 export async function loadArApDocuments(
-  userId: string
+  orgId: string
 ): Promise<ArApDocumentView[]> {
   const [rows, sendRows] = await Promise.all([
     db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.userId, userId),
+      where: eq(arApDocuments.organizationId, orgId),
       with: { counterparty: true },
       orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
     }),
     db.query.arApInvoiceSends.findMany({
-      where: eq(arApInvoiceSends.userId, userId),
+      where: eq(arApInvoiceSends.organizationId, orgId),
     }),
   ]);
   // Баримт бүрийн илгээлтийн ХАМГИЙН АХИСАН төлөв: үзсэн > илгээсэн > null.
@@ -266,13 +266,13 @@ export async function loadArApDocuments(
 
 /** Нэг баримт мөрүүдтэйгээ — панелийн read-only харагдац. */
 export async function loadArApDocumentDetail(
-  userId: string,
+  orgId: string,
   documentId: string
 ): Promise<ArApDocumentDetail | null> {
   const row = await db.query.arApDocuments.findFirst({
     where: and(
       eq(arApDocuments.id, documentId),
-      eq(arApDocuments.userId, userId)
+      eq(arApDocuments.organizationId, orgId)
     ),
     with: {
       counterparty: true,
@@ -295,16 +295,14 @@ export async function loadArApDocumentDetail(
 }
 
 export async function loadArApWorkspaceData() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  const userId = session.user.id;
+  const { orgId } = await getActiveOrg();
 
   const [counterpartiesView, documentsView, segmentData, inventoryOptions] =
     await Promise.all([
-      loadArApCounterparties(userId),
-      loadArApDocuments(userId),
-      loadArApSegmentData(userId),
-      loadArApInventoryOptions(userId),
+      loadArApCounterparties(orgId),
+      loadArApDocuments(orgId),
+      loadArApSegmentData(orgId),
+      loadArApInventoryOptions(orgId),
     ]);
 
   return {

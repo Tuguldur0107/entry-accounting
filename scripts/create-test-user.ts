@@ -3,7 +3,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { db } from "../lib/db";
-import { users, chartOfAccounts } from "../lib/db/schema";
+import { users, chartOfAccounts, memberships, organizations } from "../lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
@@ -32,7 +32,11 @@ async function main() {
   }
   const passwordHash = await bcrypt.hash(PASSWORD, 12);
   const [user] = await db.insert(users).values({ name: NAME, email: EMAIL, passwordHash }).returning();
-  await db.insert(chartOfAccounts).values(DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, ...a })));
+  const [org] = await db.insert(organizations).values({ name: NAME }).returning();
+  await db.insert(memberships).values({ organizationId: org.id, userId: user.id, role: "owner" });
+  await db.insert(chartOfAccounts).values(
+    DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, organizationId: org.id, ...a }))
+  );
   console.log(`✓ Тест хэрэглэгч үүслээ: ${EMAIL}`);
   process.exit(0);
 }

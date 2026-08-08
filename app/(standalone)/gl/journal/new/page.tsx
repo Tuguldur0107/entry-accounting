@@ -1,22 +1,24 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { chartOfAccounts, segmentConfigs, segmentValues } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
 
 export default async function NewJournalPage() {
   const session = await auth();
-  const userId = session!.user!.id!;
+  if (!session?.user?.id) redirect("/login");
+  const { orgId } = await getActiveOrg();
 
   const [accounts, rawSegConfigs, rawSegValues] = await Promise.all([
     db.query.chartOfAccounts.findMany({
-      where: and(eq(chartOfAccounts.userId, userId), eq(chartOfAccounts.isEnabled, true)),
+      where: and(eq(chartOfAccounts.organizationId, orgId), eq(chartOfAccounts.isEnabled, true)),
       orderBy: (a, { asc }) => [asc(a.number)],
     }),
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
     db.query.segmentValues.findMany({
-      where: and(eq(segmentValues.userId, userId), eq(segmentValues.isEnabled, true)),
+      where: and(eq(segmentValues.organizationId, orgId), eq(segmentValues.isEnabled, true)),
       orderBy: (v, { asc }) => [asc(v.segmentId), asc(v.code)],
     }),
   ]);

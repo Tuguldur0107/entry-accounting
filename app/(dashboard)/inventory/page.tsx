@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { InventoryDashboard } from "@/components/inventory/inventory-dashboard";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { costEntries, inventoryMovements } from "@/lib/db/schema";
 import { calculateQtyBalances, balanceKey } from "@/lib/inventory/balances";
@@ -9,17 +9,16 @@ import { loadInventoryBase, toMovementRefs } from "@/lib/inventory/load-data";
 import type { QtyBalanceRow } from "@/lib/inventory/types";
 
 export default async function InventoryDashboardPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
-  const { itemViews, warehouseViews } = await loadInventoryBase(userId);
+  const { itemViews, warehouseViews } = await loadInventoryBase(orgId);
   const [movements, activeEntries] = await Promise.all([
     db.query.inventoryMovements.findMany({
-      where: eq(inventoryMovements.userId, userId),
+      where: eq(inventoryMovements.organizationId, orgId),
     }),
     db.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         inArray(costEntries.status, ["draft", "posted"])
       ),
       columns: { movementId: true },

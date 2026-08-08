@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiMessages, aiSettings } from "@/lib/db/schema";
 import {
@@ -45,10 +45,12 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return { ok: false, code: "unauthenticated" };
+  const { orgId } = await getActiveOrg();
 
   const [history, settings] = await Promise.all([
     // Түүх хязгааргүй ургадаг — панель нээх бүрд бүгдийг татахгүйн тулд
     // сүүлийн 100 мессежийг л ачаална (desc + limit, дараа нь эргүүлнэ).
+    // Чатын түүх ЗОРИУД хэрэглэгчийн хувийн scope-д үлдэнэ.
     db.query.aiMessages.findMany({
       where: eq(aiMessages.userId, userId),
       orderBy: [desc(aiMessages.createdAt)],
@@ -56,7 +58,10 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
       with: { attachments: { columns: { name: true } } },
     }),
     db.query.aiSettings.findFirst({
-      where: eq(aiSettings.userId, userId),
+      where: and(
+        eq(aiSettings.userId, userId),
+        eq(aiSettings.organizationId, orgId)
+      ),
       columns: { apiKey: true, openaiApiKey: true, model: true, writeMode: true },
     }),
   ]);
@@ -103,7 +108,7 @@ export async function saveAiChatPrefs(input: {
   model: string;
   writeMode: string;
 }) {
-  const userId = await requireUserId();
+  const { userId, orgId } = await getActiveOrg();
   if (typeof input?.model !== "string" || !isAiModelId(input.model))
     throw new Error("Модель буруу байна");
   if (typeof input?.writeMode !== "string" || !isAiWriteMode(input.writeMode))
@@ -113,12 +118,13 @@ export async function saveAiChatPrefs(input: {
     .insert(aiSettings)
     .values({
       userId,
+      organizationId: orgId,
       model: input.model,
       writeMode: input.writeMode,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: aiSettings.userId,
+      target: [aiSettings.userId, aiSettings.organizationId],
       set: {
         model: input.model,
         writeMode: input.writeMode,
@@ -127,20 +133,13 @@ export async function saveAiChatPrefs(input: {
     });
 }
 
-async function requireUserId(): Promise<string> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Нэвтрээгүй байна");
-  return userId;
-}
-
 /** Модель / хариултын гүн / нэмэлт заавар хадгална (түлхүүрт үл хамаарна). */
 export async function saveAiSettings(input: {
   model: string;
   effort: string;
   customInstructions: string;
 }) {
-  const userId = await requireUserId();
+  const { userId, orgId } = await getActiveOrg();
 
   // Server action-ыг гараар дуудаж дурын payload өгч болдог тул төрлийг
   // нь эхэлж шалгана.
@@ -157,13 +156,14 @@ export async function saveAiSettings(input: {
     .insert(aiSettings)
     .values({
       userId,
+      organizationId: orgId,
       model: input.model,
       effort: input.effort,
       customInstructions: customInstructions || null,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: aiSettings.userId,
+      target: [aiSettings.userId, aiSettings.organizationId],
       set: {
         model: input.model,
         effort: input.effort,
@@ -178,7 +178,7 @@ export async function saveAiSettings(input: {
 
 /** Хэрэглэгчийн өөрийн Anthropic API түлхүүрийг хадгална. */
 export async function setAiApiKey(apiKey: string) {
-  const userId = await requireUserId();
+  const { userId, orgId } = await getActiveOrg();
 
   const trimmed = typeof apiKey === "string" ? apiKey.trim() : "";
   // Anthropic түлхүүр sk-ant- угтвартай — бичихдээ андуурахаас сэргийлнэ.
@@ -192,9 +192,9 @@ export async function setAiApiKey(apiKey: string) {
   const encrypted = encryptSecret(trimmed);
   await db
     .insert(aiSettings)
-    .values({ userId, apiKey: encrypted, updatedAt: new Date() })
+    .values({ userId, organizationId: orgId, apiKey: encrypted, updatedAt: new Date() })
     .onConflictDoUpdate({
-      target: aiSettings.userId,
+      target: [aiSettings.userId, aiSettings.organizationId],
       set: { apiKey: encrypted, updatedAt: new Date() },
     });
 
@@ -204,12 +204,14 @@ export async function setAiApiKey(apiKey: string) {
 
 /** Хадгалсан түлхүүрийг устгана — серверийн орчны түлхүүр рүү буцна. */
 export async function removeAiApiKey() {
-  const userId = await requireUserId();
+  const { userId, orgId } = await getActiveOrg();
 
   await db
     .update(aiSettings)
     .set({ apiKey: null, updatedAt: new Date() })
-    .where(eq(aiSettings.userId, userId));
+    .where(
+      and(eq(aiSettings.userId, userId), eq(aiSettings.organizationId, orgId))
+    );
 
   revalidatePath("/ai");
   revalidatePath("/ai/settings");
@@ -217,7 +219,7 @@ export async function removeAiApiKey() {
 
 /** Хэрэглэгчийн өөрийн OpenAI API түлхүүрийг хадгална (шифрлэгдэнэ). */
 export async function setAiOpenAiApiKey(apiKey: string) {
-  const userId = await requireUserId();
+  const { userId, orgId } = await getActiveOrg();
 
   const trimmed = typeof apiKey === "string" ? apiKey.trim() : "";
   // OpenAI түлхүүр sk- угтвартай (sk-proj-... г.м).
@@ -230,9 +232,9 @@ export async function setAiOpenAiApiKey(apiKey: string) {
   const encrypted = encryptSecret(trimmed);
   await db
     .insert(aiSettings)
-    .values({ userId, openaiApiKey: encrypted, updatedAt: new Date() })
+    .values({ userId, organizationId: orgId, openaiApiKey: encrypted, updatedAt: new Date() })
     .onConflictDoUpdate({
-      target: aiSettings.userId,
+      target: [aiSettings.userId, aiSettings.organizationId],
       set: { openaiApiKey: encrypted, updatedAt: new Date() },
     });
 
@@ -242,12 +244,14 @@ export async function setAiOpenAiApiKey(apiKey: string) {
 
 /** Хадгалсан OpenAI түлхүүрийг устгана. */
 export async function removeAiOpenAiApiKey() {
-  const userId = await requireUserId();
+  const { userId, orgId } = await getActiveOrg();
 
   await db
     .update(aiSettings)
     .set({ openaiApiKey: null, updatedAt: new Date() })
-    .where(eq(aiSettings.userId, userId));
+    .where(
+      and(eq(aiSettings.userId, userId), eq(aiSettings.organizationId, orgId))
+    );
 
   revalidatePath("/ai");
   revalidatePath("/ai/settings");

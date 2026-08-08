@@ -4,17 +4,16 @@ import {
   FaDepreciationView,
   type DepreciationEntryView,
 } from "@/components/fa/fa-depreciation-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { faDepreciationEntries } from "@/lib/db/schema";
 import { getPeriodSelection } from "@/lib/periods/selection";
 
 export default async function FaDepreciationPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const entries = await db.query.faDepreciationEntries.findMany({
-    where: eq(faDepreciationEntries.userId, userId),
+    where: eq(faDepreciationEntries.organizationId, orgId),
     with: { asset: true },
     orderBy: (entry, { desc }) => [desc(entry.periodMonth), desc(entry.createdAt)],
   });

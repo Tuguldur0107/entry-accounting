@@ -23,7 +23,7 @@ import {
 // sentinel (exchangeRate 0, amount 0). postCashDocument refuses to adopt such
 // a draft until a rate is provided.
 function draftValuesFor(
-  userId: string,
+  owner: { userId: string; organizationId: string },
   voucher: { id: string; date: string },
   derived: DerivedCashDocument
 ): typeof cashDocuments.$inferInsert {
@@ -33,7 +33,8 @@ function draftValuesFor(
     .toUpperCase()}`;
   const isMnt = derived.currency === "MNT";
   return {
-    userId,
+    userId: owner.userId,
+    organizationId: owner.organizationId,
     documentNo,
     documentType: derived.documentType,
     date: voucher.date,
@@ -64,7 +65,9 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
       with: { lines: true },
     });
     if (!voucher || voucher.status !== "posted") return;
-    const userId = voucher.userId;
+    // Фаз 01: scope нь воучерын байгууллага; userId нь createdBy.
+    const orgId = voucher.organizationId;
+    if (!orgId) return;
 
     // Кассын модулиас ӨӨРӨӨС нь үүссэн GL бичилт (кассын баримт, ханшийн
     // тэгшитгэл, нээлтийн журнал) мөрөндөө cashAccountId тэмдэгтэй байдаг —
@@ -73,7 +76,7 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
 
     const existing = await db.query.cashDocuments.findFirst({
       where: and(
-        eq(cashDocuments.userId, userId),
+        eq(cashDocuments.organizationId, orgId),
         or(
           eq(cashDocuments.voucherId, voucherId),
           eq(cashDocuments.sourceVoucherId, voucherId)
@@ -84,7 +87,7 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
     if (existing) return;
 
     const accounts = await db.query.cashAccounts.findMany({
-      where: eq(cashAccounts.userId, userId),
+      where: eq(cashAccounts.organizationId, orgId),
     });
 
     const derived = deriveCashDocumentFromVoucher({
@@ -104,7 +107,15 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
     });
     if (!derived) return;
 
-    await db.insert(cashDocuments).values(draftValuesFor(userId, voucher, derived));
+    await db
+      .insert(cashDocuments)
+      .values(
+        draftValuesFor(
+          { userId: voucher.userId, organizationId: orgId },
+          voucher,
+          derived
+        )
+      );
 
     revalidatePath("/cash");
     revalidatePath("/cash/transactions");
@@ -144,10 +155,11 @@ export async function removeDraftCashDocsForVoucher(voucherId: string) {
 //
 // Returns the number of drafts created (0 when nothing was missing) so the
 // caller can decide whether to re-query.
-export async function backfillCashDraftsForUser(userId: string): Promise<number> {
+// Фаз 01 multi-tenancy: параметр нь идэвхтэй байгууллагын ID (orgId).
+export async function backfillCashDraftsForUser(orgId: string): Promise<number> {
   try {
     const accounts = await db.query.cashAccounts.findMany({
-      where: eq(cashAccounts.userId, userId),
+      where: eq(cashAccounts.organizationId, orgId),
     });
     if (accounts.length === 0) return 0;
     const cashRefs: CashAccountRef[] = accounts.map((a) => ({
@@ -160,7 +172,7 @@ export async function backfillCashDraftsForUser(userId: string): Promise<number>
 
     // Voucher ids already tied to a cash document (either direction).
     const linkedDocs = await db.query.cashDocuments.findMany({
-      where: eq(cashDocuments.userId, userId),
+      where: eq(cashDocuments.organizationId, orgId),
       columns: { voucherId: true, sourceVoucherId: true },
     });
     const linked = new Set<string>();
@@ -171,7 +183,7 @@ export async function backfillCashDraftsForUser(userId: string): Promise<number>
 
     const vouchers = await db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         eq(journalVouchers.status, "posted")
       ),
       with: { lines: true },
@@ -200,7 +212,13 @@ export async function backfillCashDraftsForUser(userId: string): Promise<number>
         cashAccounts: cashRefs,
       });
       if (!derived) continue;
-      inserts.push(draftValuesFor(userId, voucher, derived));
+      inserts.push(
+        draftValuesFor(
+          { userId: voucher.userId, organizationId: orgId },
+          voucher,
+          derived
+        )
+      );
     }
 
     // Repair earlier GL-derived FX drafts written before the rate-unknown
@@ -209,7 +227,7 @@ export async function backfillCashDraftsForUser(userId: string): Promise<number>
     // posting demands a real rate. Drafts only — posted docs are immutable.
     const brokenFxDrafts = await db.query.cashDocuments.findMany({
       where: and(
-        eq(cashDocuments.userId, userId),
+        eq(cashDocuments.organizationId, orgId),
         eq(cashDocuments.status, "draft")
       ),
       columns: {

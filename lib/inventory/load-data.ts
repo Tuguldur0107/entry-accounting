@@ -16,14 +16,14 @@ import type {
   WarehouseView,
 } from "@/lib/inventory/types";
 
-export async function loadInventoryBase(userId: string) {
+export async function loadInventoryBase(orgId: string) {
   const [items, warehouseRows] = await Promise.all([
     db.query.inventoryItems.findMany({
-      where: eq(inventoryItems.userId, userId),
+      where: eq(inventoryItems.organizationId, orgId),
       orderBy: (item, { asc }) => [asc(item.code)],
     }),
     db.query.warehouses.findMany({
-      where: eq(warehouses.userId, userId),
+      where: eq(warehouses.organizationId, orgId),
       orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
     }),
   ]);
@@ -43,10 +43,10 @@ export async function loadInventoryBase(userId: string) {
   return { itemViews, warehouseViews };
 }
 
-export async function loadMovements(userId: string) {
+export async function loadMovements(orgId: string) {
   const [movements, activeEntries] = await Promise.all([
     db.query.inventoryMovements.findMany({
-      where: eq(inventoryMovements.userId, userId),
+      where: eq(inventoryMovements.organizationId, orgId),
       with: {
         item: true,
         warehouse: true,
@@ -56,7 +56,7 @@ export async function loadMovements(userId: string) {
     }),
     db.query.costEntries.findMany({
       where: and(
-        eq(costEntries.userId, userId),
+        eq(costEntries.organizationId, orgId),
         inArray(costEntries.status, ["draft", "posted"])
       ),
       columns: { movementId: true },

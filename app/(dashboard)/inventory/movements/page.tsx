@@ -1,5 +1,5 @@
 import { InventoryMovementsView } from "@/components/inventory/inventory-movements-view";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { loadIssueTypes } from "@/lib/costing/master-data";
 import { loadInventoryBase, loadMovements } from "@/lib/inventory/load-data";
 
@@ -10,15 +10,14 @@ export default async function InventoryMovementsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { type, status } = await searchParams;
 
   const [{ itemViews, warehouseViews }, movements, issueTypes] =
     await Promise.all([
-      loadInventoryBase(userId),
-      loadMovements(userId),
-      loadIssueTypes(userId, { activeOnly: true }),
+      loadInventoryBase(orgId),
+      loadMovements(orgId),
+      loadIssueTypes(orgId, { activeOnly: true }),
     ]);
 
   return (

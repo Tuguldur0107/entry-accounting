@@ -11,7 +11,7 @@ import {
   type GlRecentVoucherRow,
   type GlTopAccountRow,
 } from "@/components/gl/gl-dashboard";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalVouchers } from "@/lib/db/schema";
@@ -46,8 +46,7 @@ const MODULE_LABELS: Record<string, string> = {
 };
 
 export default async function GlDashboardPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   // Самбарын сар = topbar-ийн периодын сонголтын зангуу сар.
   const month = (await getPeriodSelection()).periodCode;
@@ -56,7 +55,7 @@ export default async function GlDashboardPage() {
   const [vouchers, accounts] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["draft", "posted", "reversed"])
       ),
       with: { lines: true },
@@ -64,7 +63,7 @@ export default async function GlDashboardPage() {
     }),
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
     }),

@@ -11,7 +11,10 @@ import { auditEvents } from "@/lib/db/schema";
 type DbLike = Pick<typeof db, "insert">;
 
 export type AuditEventInput = {
+  /** Хэн хийсэн (createdBy). */
   userId: string;
+  /** Фаз 01: аль байгууллагад — заавал. */
+  organizationId: string;
   /** post | unpost | reverse | delete | close | reopen | create_voucher ... */
   action: string;
   /** journal | cash | arap | fa | cost | period | payroll | vat ... */
@@ -28,6 +31,7 @@ export async function logAuditEvent(
   try {
     await executor.insert(auditEvents).values({
       userId: event.userId,
+      organizationId: event.organizationId,
       action: event.action,
       entityType: event.entityType,
       entityId: event.entityId,

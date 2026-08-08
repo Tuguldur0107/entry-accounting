@@ -5,7 +5,7 @@ import {
   type CashFxHistoryRow,
   type CashReconciliationRow,
 } from "@/components/cash/cash-reconciliation-workspace";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import { reconciliationStatus } from "@/lib/cash/reconciliation";
 import { db } from "@/lib/db";
@@ -31,8 +31,7 @@ export default async function CashReconciliationPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const params = await searchParams;
   const asOf = /^\d{4}-\d{2}-\d{2}$/.test(params.asOf ?? "")
     ? params.asOf!
@@ -48,30 +47,30 @@ export default async function CashReconciliationPage({
   ] =
     await Promise.all([
       db.query.cashAccounts.findMany({
-        where: eq(cashAccounts.userId, userId),
+        where: eq(cashAccounts.organizationId, orgId),
         orderBy: (account, { asc }) => [asc(account.name)],
       }),
       db.query.cashDocuments.findMany({
         where: and(
-          eq(cashDocuments.userId, userId),
+          eq(cashDocuments.organizationId, orgId),
           lte(cashDocuments.date, asOf)
         ),
       }),
       db.query.journalVouchers.findMany({
         where: and(
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           lte(journalVouchers.date, asOf),
           inArray(journalVouchers.status, ["posted", "reversed"])
         ),
         with: { lines: true },
       }),
       db.query.bankStatements.findMany({
-        where: eq(bankStatements.userId, userId),
+        where: eq(bankStatements.organizationId, orgId),
         with: { lines: true },
       }),
       db.query.cashFxRevaluations.findMany({
         where: and(
-          eq(cashFxRevaluations.userId, userId),
+          eq(cashFxRevaluations.organizationId, orgId),
           lte(cashFxRevaluations.valuationDate, asOf)
         ),
         with: { cashAccount: true },
@@ -82,7 +81,7 @@ export default async function CashReconciliationPage({
       }),
       db.query.chartOfAccounts.findMany({
         where: and(
-          eq(chartOfAccounts.userId, userId),
+          eq(chartOfAccounts.organizationId, orgId),
           eq(chartOfAccounts.isEnabled, true)
         ),
         orderBy: (account, { asc }) => [asc(account.number)],

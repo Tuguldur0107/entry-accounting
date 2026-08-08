@@ -4,7 +4,7 @@ import {
   BankStatementImport,
   type BankStatementSummary,
 } from "@/components/cash/bank-statement-import";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { buildCashAccountCodeRules } from "@/lib/cash/account-code-validation";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import type { CashAccountView } from "@/lib/cash/types";
@@ -20,8 +20,7 @@ import {
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 
 export default async function BankStatementsPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const [
     accounts,
@@ -32,31 +31,31 @@ export default async function BankStatementsPage() {
     statements,
   ] = await Promise.all([
     db.query.cashAccounts.findMany({
-      where: eq(cashAccounts.userId, userId),
+      where: eq(cashAccounts.organizationId, orgId),
       orderBy: (account, { asc }) => [asc(account.name)],
     }),
     db.query.cashDocuments.findMany({
-      where: eq(cashDocuments.userId, userId),
+      where: eq(cashDocuments.organizationId, orgId),
     }),
     db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true)
       ),
       orderBy: (account, { asc }) => [asc(account.number)],
     }),
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
       orderBy: (value, { asc }) => [asc(value.segmentId), asc(value.code)],
     }),
     db.query.bankStatements.findMany({
-      where: eq(bankStatements.userId, userId),
+      where: eq(bankStatements.organizationId, orgId),
       with: { cashAccount: true },
       orderBy: [desc(bankStatements.createdAt)],
     }),

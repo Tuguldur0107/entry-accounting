@@ -7,6 +7,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { HeaderReportSelect } from "@/components/layout/header-report-select";
 import { PeriodFilter } from "@/components/periods/period-filter";
+import { OrgSwitcher } from "@/components/layout/org-switcher";
+import { getMyOrgs } from "@/lib/actions/org";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { NewJournalButton } from "@/components/layout/new-journal-button";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
@@ -22,6 +24,9 @@ export default async function DashboardLayout({
 
   // Системийн хэмжээний периодын сонголт (cookie) — topbar-ийн шүүлтүүрт.
   const periodSelection = await getPeriodSelection();
+  // Фаз 01: идэвхтэй байгууллага + сонголтын жагсаалт (personal org
+  // байхгүй бол энд автоматаар үүснэ — getActiveOrg-ийн safety net).
+  const { activeOrgId, orgs } = await getMyOrgs();
 
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
@@ -52,6 +57,7 @@ export default async function DashboardLayout({
             </Link>
           </div>
           <div className="order-3 flex w-full items-center gap-2 md:order-none md:w-auto md:flex-1 md:justify-end">
+            <OrgSwitcher orgs={orgs} activeOrgId={activeOrgId} />
             <PeriodFilter
               initialPeriodCode={periodSelection.periodCode}
               initialScope={periodSelection.scope}

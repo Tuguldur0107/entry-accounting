@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -32,10 +32,9 @@ import {
 } from "@/lib/gl/segment-picker-data";
 import { logAuditEvent } from "@/lib/audit";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
+/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
+async function requireAccountant() {
+  return requireRole("accountant");
 }
 
 function revalidateFa() {
@@ -43,10 +42,10 @@ function revalidateFa() {
     revalidatePath(path);
 }
 
-async function assertEnabledMainAccount(userId: string, accountNumber: string) {
+async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
   const account = await db.query.chartOfAccounts.findFirst({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.number, accountNumber),
       eq(chartOfAccounts.isEnabled, true)
     ),
@@ -57,11 +56,11 @@ async function assertEnabledMainAccount(userId: string, accountNumber: string) {
 }
 
 // cashPostingCodeBuilder-ийн клон: S9 = "FA".
-async function faPostingCodeBuilder(userId: string) {
+async function faPostingCodeBuilder(orgId: string) {
   const [configs, values] = await Promise.all([
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
     db.query.segmentValues.findMany({
-      where: and(eq(segmentValues.userId, userId), eq(segmentValues.isEnabled, true)),
+      where: and(eq(segmentValues.organizationId, orgId), eq(segmentValues.isEnabled, true)),
     }),
   ]);
   const configMap = new Map(configs.map((config) => [config.segmentId, config]));
@@ -105,13 +104,13 @@ export type FaAssetPanelResult =
 export async function getFaAssetPanelData(
   assetId?: string
 ): Promise<FaAssetPanelResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return { ok: false, code: "unauthenticated" };
+  const { orgId } = active;
 
   const [views, segmentData] = await Promise.all([
-    assetId ? loadFixedAssetViews(userId, assetId) : Promise.resolve([]),
-    loadSegmentPickerData(userId),
+    assetId ? loadFixedAssetViews(orgId, assetId) : Promise.resolve([]),
+    loadSegmentPickerData(orgId),
   ]);
   const asset = views[0] ?? null;
   if (assetId && !asset) return { ok: false, code: "not-found" };
@@ -163,18 +162,18 @@ export async function createFixedAsset(
     asDraft?: boolean;
   }
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   validateAssetInput(data);
-  await assertEnabledMainAccount(userId, data.assetAccountNumber.trim());
-  await assertEnabledMainAccount(userId, data.accumDepAccountNumber.trim());
-  await assertEnabledMainAccount(userId, data.depExpenseAccountNumber.trim());
+  await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
+  await assertEnabledMainAccount(orgId, data.accumDepAccountNumber.trim());
+  await assertEnabledMainAccount(orgId, data.depExpenseAccountNumber.trim());
 
   const manualCode = data.code?.trim();
   if (manualCode && manualCode.length > 40)
     throw new Error("Код 40 тэмдэгтээс хэтрэхгүй");
   if (manualCode) {
     const duplicate = await db.query.fixedAssets.findFirst({
-      where: and(eq(fixedAssets.userId, userId), eq(fixedAssets.code, manualCode)),
+      where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.code, manualCode)),
       columns: { id: true },
     });
     if (duplicate) throw new Error(`"${manualCode}" кодтой хөрөнгө бүртгэгдсэн`);
@@ -190,6 +189,7 @@ export async function createFixedAsset(
     .insert(fixedAssets)
     .values({
       userId,
+      organizationId: orgId,
       code,
       name: data.name.trim(),
       acquisitionDate: data.acquisitionDate,
@@ -212,14 +212,14 @@ export async function createFixedAsset(
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж
 // идэвхжүүлнэ. GL бичилт хийхгүй — өртөг эх сувагтаа данслагдсан.
 export async function activateFixedAsset(id: string, data: FixedAssetInput) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   validateAssetInput(data);
-  await assertEnabledMainAccount(userId, data.assetAccountNumber.trim());
-  await assertEnabledMainAccount(userId, data.accumDepAccountNumber.trim());
-  await assertEnabledMainAccount(userId, data.depExpenseAccountNumber.trim());
+  await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
+  await assertEnabledMainAccount(orgId, data.accumDepAccountNumber.trim());
+  await assertEnabledMainAccount(orgId, data.depExpenseAccountNumber.trim());
 
   const asset = await db.query.fixedAssets.findFirst({
-    where: and(eq(fixedAssets.id, id), eq(fixedAssets.userId, userId)),
+    where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
     columns: { status: true },
   });
   if (!asset) throw new Error("Хөрөнгө олдсонгүй");
@@ -245,7 +245,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
     .where(
       and(
         eq(fixedAssets.id, id),
-        eq(fixedAssets.userId, userId),
+        eq(fixedAssets.organizationId, orgId),
         eq(fixedAssets.status, "draft")
       )
     )
@@ -260,9 +260,9 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
  * бичилтүүдийг устгаж/буцааж байж картыг устгана (GL-тэй зөрөхөөс сэргийлнэ).
  */
 export async function deleteFixedAsset(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const asset = await db.query.fixedAssets.findFirst({
-    where: and(eq(fixedAssets.id, id), eq(fixedAssets.userId, userId)),
+    where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
     columns: { status: true, code: true },
   });
   if (!asset) return;
@@ -270,7 +270,7 @@ export async function deleteFixedAsset(id: string) {
   if (asset.status !== "draft") {
     const entry = await db.query.faDepreciationEntries.findFirst({
       where: and(
-        eq(faDepreciationEntries.userId, userId),
+        eq(faDepreciationEntries.organizationId, orgId),
         eq(faDepreciationEntries.assetId, id)
       ),
       columns: { id: true },
@@ -283,27 +283,27 @@ export async function deleteFixedAsset(id: string) {
 
   await db
     .delete(fixedAssets)
-    .where(and(eq(fixedAssets.id, id), eq(fixedAssets.userId, userId)));
+    .where(and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)));
   revalidateFa();
 }
 
 // ─── Элэгдлийн run ───────────────────────────────────────────────────────────
 
 export async function runDepreciation(data: { month: string }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   if (!/^\d{4}-\d{2}$/.test(data.month))
     throw new Error("Сар (YYYY-MM) буруу байна");
 
   return await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}), 3)`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 3)`);
 
     const [assets, entries] = await Promise.all([
       tx.query.fixedAssets.findMany({
-        where: and(eq(fixedAssets.userId, userId), eq(fixedAssets.status, "active")),
+        where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.status, "active")),
       }),
       tx.query.faDepreciationEntries.findMany({
         where: and(
-          eq(faDepreciationEntries.userId, userId),
+          eq(faDepreciationEntries.organizationId, orgId),
           inArray(faDepreciationEntries.status, ["draft", "posted"])
         ),
       }),
@@ -341,6 +341,7 @@ export async function runDepreciation(data: { month: string }) {
     await tx.insert(faDepreciationEntries).values(
       computed.map((entry) => ({
         userId,
+        organizationId: orgId,
         assetId: entry.assetId,
         periodMonth: data.month,
         amount: String(entry.amount),
@@ -354,36 +355,36 @@ export async function runDepreciation(data: { month: string }) {
 }
 
 export async function postDepreciationEntry(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),
-      eq(faDepreciationEntries.userId, userId)
+      eq(faDepreciationEntries.organizationId, orgId)
     ),
     with: { asset: true },
   });
   if (!entry) throw new Error("Элэгдлийн бичилт олдсонгүй");
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг батална");
-  await assertPeriodOpen(userId, `${entry.periodMonth}-28`);
+  await assertPeriodOpen(orgId, `${entry.periodMonth}-28`);
   const amount = Number(entry.amount);
   if (!(amount > 0)) throw new Error("Дүн 0-ээс их байна");
 
-  await assertEnabledMainAccount(userId, entry.asset.depExpenseAccountNumber);
-  await assertEnabledMainAccount(userId, entry.asset.accumDepAccountNumber);
-  const buildCode = await faPostingCodeBuilder(userId);
+  await assertEnabledMainAccount(orgId, entry.asset.depExpenseAccountNumber);
+  await assertEnabledMainAccount(orgId, entry.asset.accumDepAccountNumber);
+  const buildCode = await faPostingCodeBuilder(orgId);
   const description = `[${entry.asset.code}] ${entry.asset.name} — ${entry.periodMonth} сарын элэгдэл`;
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, `${entry.periodMonth}-28`);
+    await assertPeriodOpenInTx(tx, orgId, `${entry.periodMonth}-28`);
     const [claimed] = await tx
       .update(faDepreciationEntries)
       .set({ status: "posted", postedAt: new Date() })
       .where(
         and(
           eq(faDepreciationEntries.id, id),
-          eq(faDepreciationEntries.userId, userId),
+          eq(faDepreciationEntries.organizationId, orgId),
           eq(faDepreciationEntries.status, "draft")
         )
       )
@@ -394,6 +395,7 @@ export async function postDepreciationEntry(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: `${entry.periodMonth}-28`,
         description,
         status: "posted",
@@ -426,6 +428,7 @@ export async function postDepreciationEntry(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "post",
         entityType: "fa",
         entityId: id,
@@ -456,11 +459,11 @@ export async function postDepreciationEntries(ids: string[]) {
 }
 
 export async function deleteDepreciationEntry(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),
-      eq(faDepreciationEntries.userId, userId)
+      eq(faDepreciationEntries.organizationId, orgId)
     ),
     columns: { status: true },
   });
@@ -470,28 +473,28 @@ export async function deleteDepreciationEntry(id: string) {
   await db
     .delete(faDepreciationEntries)
     .where(
-      and(eq(faDepreciationEntries.id, id), eq(faDepreciationEntries.userId, userId))
+      and(eq(faDepreciationEntries.id, id), eq(faDepreciationEntries.organizationId, orgId))
     );
   revalidateFa();
 }
 
 export async function reverseDepreciationEntry(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireAccountant();
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),
-      eq(faDepreciationEntries.userId, userId)
+      eq(faDepreciationEntries.organizationId, orgId)
     ),
     with: { asset: true },
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
     throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
-  await assertPeriodOpen(userId, `${entry.periodMonth}-28`);
+  await assertPeriodOpen(orgId, `${entry.periodMonth}-28`);
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
       eq(journalVouchers.id, entry.voucherId),
-      eq(journalVouchers.userId, userId)
+      eq(journalVouchers.organizationId, orgId)
     ),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
@@ -499,14 +502,14 @@ export async function reverseDepreciationEntry(id: string) {
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, `${entry.periodMonth}-28`);
+    await assertPeriodOpenInTx(tx, orgId, `${entry.periodMonth}-28`);
     const [claimed] = await tx
       .update(faDepreciationEntries)
       .set({ status: "reversed" })
       .where(
         and(
           eq(faDepreciationEntries.id, id),
-          eq(faDepreciationEntries.userId, userId),
+          eq(faDepreciationEntries.organizationId, orgId),
           eq(faDepreciationEntries.status, "posted")
         )
       )
@@ -517,6 +520,7 @@ export async function reverseDepreciationEntry(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
         status: "posted",
@@ -551,6 +555,7 @@ export async function reverseDepreciationEntry(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "reverse",
         entityType: "fa",
         entityId: id,

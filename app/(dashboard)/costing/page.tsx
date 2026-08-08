@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 
 import { CostingDashboard } from "@/components/costing/costing-dashboard";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
@@ -27,23 +27,22 @@ function mainAccountOf(accountNumber: string) {
 }
 
 export default async function CostingDashboardPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
 
   const [{ itemViews }, movements, entries, vouchers] = await Promise.all([
-    loadInventoryBase(userId),
+    loadInventoryBase(orgId),
     db.query.inventoryMovements.findMany({
       where: and(
-        eq(inventoryMovements.userId, userId),
+        eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.status, "confirmed")
       ),
     }),
     db.query.costEntries.findMany({
-      where: eq(costEntries.userId, userId),
+      where: eq(costEntries.organizationId, orgId),
     }),
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["posted", "reversed"])
       ),
       with: { lines: true },
@@ -107,7 +106,7 @@ export default async function CostingDashboardPage() {
 
   // Клирингийн болон 14-дансны GL үлдэгдэл + subledger нийлбэр (зөрүү).
   // Клирингийн данс тохиргооноос ирнэ (JPR-006).
-  const clearingAccount = (await loadCostingAccountSettings(userId))
+  const clearingAccount = (await loadCostingAccountSettings(orgId))
     .clearingAccountNumber;
   let clearingBalance = 0;
   const glByAccount = new Map<string, number>();

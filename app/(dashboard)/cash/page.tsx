@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, lte } from "drizzle-orm";
 
 import { CashDashboard } from "@/components/cash/cash-dashboard";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import { reconciliationStatus } from "@/lib/cash/reconciliation";
 import type {
@@ -102,36 +102,35 @@ function healthAction(status: CashHealthStatus) {
 }
 
 export default async function CashDashboardPage() {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const asOf = todayInUlaanbaatar();
 
   const [accounts, documents, vouchers, statements, fxRevaluations] =
     await Promise.all([
     db.query.cashAccounts.findMany({
-      where: eq(cashAccounts.userId, userId),
+      where: eq(cashAccounts.organizationId, orgId),
       orderBy: (account, { asc }) => [asc(account.name)],
     }),
     db.query.cashDocuments.findMany({
-      where: eq(cashDocuments.userId, userId),
+      where: eq(cashDocuments.organizationId, orgId),
       with: { fromAccount: true, toAccount: true },
       orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
     }),
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         lte(journalVouchers.date, asOf),
         inArray(journalVouchers.status, ["posted", "reversed"])
       ),
       with: { lines: true },
     }),
     db.query.bankStatements.findMany({
-      where: eq(bankStatements.userId, userId),
+      where: eq(bankStatements.organizationId, orgId),
       with: { lines: true },
     }),
     db.query.cashFxRevaluations.findMany({
       where: and(
-        eq(cashFxRevaluations.userId, userId),
+        eq(cashFxRevaluations.organizationId, orgId),
         lte(cashFxRevaluations.valuationDate, asOf)
       ),
       orderBy: [

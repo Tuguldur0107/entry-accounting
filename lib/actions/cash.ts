@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
-import { auth } from "@/lib/auth";
+import { getActiveOrg, requireRole } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -42,11 +42,8 @@ import { logAuditEvent } from "@/lib/audit";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Нэвтрэх шаардлагатай");
-  return session.user.id;
-}
+// Фаз 01 multi-tenancy: бүх бичилт accountant+ эрхээр, scope нь идэвхтэй
+// байгууллага (orgId); userId нь createdBy/audit утгаар үлддэг.
 
 function revalidateCash() {
   revalidatePath("/cash");
@@ -75,7 +72,7 @@ function assertAmount(value: number) {
 }
 
 async function validateArApSettlement(
-  userId: string,
+  orgId: string,
   data: {
     arApDocumentId?: string;
     documentType: CashDocumentType;
@@ -88,7 +85,7 @@ async function validateArApSettlement(
   const document = await db.query.arApDocuments.findFirst({
     where: and(
       eq(arApDocuments.id, data.arApDocumentId),
-      eq(arApDocuments.userId, userId)
+      eq(arApDocuments.organizationId, orgId)
     ),
   });
   if (!document) throw new Error("Авлага/өглөгийн баримт олдсонгүй");
@@ -114,10 +111,10 @@ async function validateArApSettlement(
   return { document, balance };
 }
 
-async function assertMainAccount(userId: string, accountNumber: string) {
+async function assertMainAccount(orgId: string, accountNumber: string) {
   const account = await db.query.chartOfAccounts.findFirst({
     where: and(
-      eq(chartOfAccounts.userId, userId),
+      eq(chartOfAccounts.organizationId, orgId),
       eq(chartOfAccounts.number, accountNumber),
       eq(chartOfAccounts.isEnabled, true)
     ),
@@ -125,11 +122,11 @@ async function assertMainAccount(userId: string, accountNumber: string) {
   if (!account) throw new Error("Идэвхтэй GL данс олдсонгүй");
 }
 
-async function requireActiveCashAccount(userId: string, id: string) {
+async function requireActiveCashAccount(orgId: string, id: string) {
   const account = await db.query.cashAccounts.findFirst({
     where: and(
       eq(cashAccounts.id, id),
-      eq(cashAccounts.userId, userId),
+      eq(cashAccounts.organizationId, orgId),
       eq(cashAccounts.isActive, true)
     ),
   });
@@ -138,16 +135,16 @@ async function requireActiveCashAccount(userId: string, id: string) {
 }
 
 async function cashPostingCodeBuilder(
-  userId: string,
+  orgId: string,
   cashFlowCode: string | null
 ) {
   const [configs, values] = await Promise.all([
     db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.userId, userId),
+      where: eq(segmentConfigs.organizationId, orgId),
     }),
     db.query.segmentValues.findMany({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.isEnabled, true)
       ),
     }),
@@ -184,14 +181,14 @@ export async function createCashAccount(data: {
   glAccountNumber: string;
   openingBalance?: number;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const name = data.name.trim();
   if (!name) throw new Error("Дансны нэр оруулна уу");
   if (!["cash", "bank"].includes(data.accountType))
     throw new Error("Дансны төрөл буруу байна");
 
   const glAccountNumber = data.glAccountNumber.trim();
-  await assertMainAccount(userId, glAccountNumber);
+  await assertMainAccount(orgId, glAccountNumber);
 
   const openingBalance = Number(data.openingBalance ?? 0);
   if (!Number.isFinite(openingBalance))
@@ -199,6 +196,7 @@ export async function createCashAccount(data: {
 
   await db.insert(cashAccounts).values({
     userId,
+    organizationId: orgId,
     name,
     accountType: data.accountType,
     bankName: data.accountType === "bank" ? cleanText(data.bankName) : null,
@@ -228,12 +226,12 @@ export async function createCashOpeningVoucher(data: {
   /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const account = await db.query.cashAccounts.findFirst({
     where: and(
       eq(cashAccounts.id, data.cashAccountId),
-      eq(cashAccounts.userId, userId)
+      eq(cashAccounts.organizationId, orgId)
     ),
   });
   if (!account) throw new Error("Кассын данс олдсонгүй");
@@ -243,14 +241,14 @@ export async function createCashOpeningVoucher(data: {
     throw new Error("Нээлтийн үлдэгдэл 0 тул журнал шаардлагагүй");
 
   // Нэг дансанд нэг л нээлтийн журнал. Давхардлын жинхэнэ хамгаалалт нь
-  // externalRef — journal_vouchers-ийн (user_id, external_ref) partial
-  // unique index уралдаант давхар insert-ийг DB түвшинд хаана. Тайлбар
-  // доторх [НЭЭЛТ:id] тэмдэг нь харагдац + хуучин (externalRef-гүй) дата.
+  // externalRef — journal_vouchers-ийн (organization_id, external_ref)
+  // partial unique index уралдаант давхар insert-ийг DB түвшинд хаана.
+  // Тайлбар доторх [НЭЭЛТ:id] тэмдэг нь харагдац + хуучин дата.
   const marker = `[НЭЭЛТ:${account.id}]`;
   const externalRef = `cash-opening:${account.id}`;
   const existing = await db.query.journalVouchers.findFirst({
     where: and(
-      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.organizationId, orgId),
       or(
         eq(journalVouchers.externalRef, externalRef),
         sql`${journalVouchers.description} LIKE ${"%" + marker + "%"}`
@@ -270,7 +268,7 @@ export async function createCashOpeningVoucher(data: {
   if (!counter) {
     const equity = await db.query.chartOfAccounts.findMany({
       where: and(
-        eq(chartOfAccounts.userId, userId),
+        eq(chartOfAccounts.organizationId, orgId),
         eq(chartOfAccounts.isEnabled, true),
         sql`left(${chartOfAccounts.number}, 1) = '4'`
       ),
@@ -285,15 +283,15 @@ export async function createCashOpeningVoucher(data: {
         "Эздийн өмчийн (4XXXXXXX) идэвхтэй данс олдсонгүй — харьцах дансаа зааж өгнө үү"
       );
   } else {
-    await assertMainAccount(userId, counter);
+    await assertMainAccount(orgId, counter);
   }
 
   const today = new Date(Date.now() + 8 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
-  await assertPeriodOpen(userId, today);
+  await assertPeriodOpen(orgId, today);
 
-  const buildCode = await cashPostingCodeBuilder(userId, null);
+  const buildCode = await cashPostingCodeBuilder(orgId, null);
   const bankCode = buildCode(account.glAccountNumber);
   const counterCode = buildCode(counter);
   const amount = Math.round(Math.abs(opening) * 100) / 100;
@@ -303,6 +301,7 @@ export async function createCashOpeningVoucher(data: {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: today,
         description: `Нээлтийн үлдэгдэл — ${account.name} ${marker}`,
         status: "draft",
@@ -339,11 +338,13 @@ export async function createCashOpeningVoucher(data: {
 }
 
 export async function toggleCashAccount(id: string, isActive: boolean) {
-  const userId = await requireUser();
+  const { orgId } = await requireRole("accountant");
   await db
     .update(cashAccounts)
     .set({ isActive })
-    .where(and(eq(cashAccounts.id, id), eq(cashAccounts.userId, userId)));
+    .where(
+      and(eq(cashAccounts.id, id), eq(cashAccounts.organizationId, orgId))
+    );
   revalidateCash();
 }
 
@@ -363,7 +364,7 @@ export async function createCashDocument(data: {
   /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
   externalRef?: string;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const description = data.description.trim();
   if (!description) throw new Error("Гүйлгээний утга оруулна уу");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
@@ -398,10 +399,10 @@ export async function createCashDocument(data: {
 
   const [fromAccount, toAccount] = await Promise.all([
     fromCashAccountId
-      ? requireActiveCashAccount(userId, fromCashAccountId)
+      ? requireActiveCashAccount(orgId, fromCashAccountId)
       : null,
     toCashAccountId
-      ? requireActiveCashAccount(userId, toCashAccountId)
+      ? requireActiveCashAccount(orgId, toCashAccountId)
       : null,
   ]);
   if (
@@ -421,13 +422,13 @@ export async function createCashDocument(data: {
   if (data.documentType !== "transfer" && !counterAccountNumber)
     throw new Error("Харилцах GL данс сонгоно уу");
   if (counterAccountNumber)
-    await assertMainAccount(userId, counterAccountNumber);
+    await assertMainAccount(orgId, counterAccountNumber);
 
   const cashFlowCode = cleanText(data.cashFlowCode);
   if (cashFlowCode) {
     const cashFlow = await db.query.segmentValues.findFirst({
       where: and(
-        eq(segmentValues.userId, userId),
+        eq(segmentValues.organizationId, orgId),
         eq(segmentValues.segmentId, 8),
         eq(segmentValues.code, cashFlowCode),
         eq(segmentValues.isEnabled, true)
@@ -443,7 +444,7 @@ export async function createCashDocument(data: {
 
   const arApDocumentId = cleanText(data.arApDocumentId);
   await validateArApSettlement(
-    userId,
+    orgId,
     {
       arApDocumentId: arApDocumentId ?? undefined,
       documentType: data.documentType,
@@ -457,6 +458,7 @@ export async function createCashDocument(data: {
     .insert(cashDocuments)
     .values({
       userId,
+      organizationId: orgId,
       documentNo,
       documentType: data.documentType,
       date: data.date,
@@ -592,16 +594,19 @@ export async function postCashDocument(
   id: string,
   options?: { exchangeRate?: number }
 ) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const document = await db.query.cashDocuments.findFirst({
-    where: and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)),
+    where: and(
+      eq(cashDocuments.id, id),
+      eq(cashDocuments.organizationId, orgId)
+    ),
     with: { fromAccount: true, toAccount: true },
   });
   if (!document) throw new Error("Cash баримт олдсонгүй");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
-  await assertPeriodOpen(userId, document.date);
+  await assertPeriodOpen(orgId, document.date);
 
   // GL-derived draft: the ledger already has this entry. Confirming it just
   // adopts the source voucher — do NOT create a second one (double-count).
@@ -630,7 +635,7 @@ export async function postCashDocument(
       .where(
         and(
           eq(cashDocuments.id, id),
-          eq(cashDocuments.userId, userId),
+          eq(cashDocuments.organizationId, orgId),
           eq(cashDocuments.status, "draft")
         )
       )
@@ -640,6 +645,7 @@ export async function postCashDocument(
     if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
     await logAuditEvent({
       userId,
+      organizationId: orgId,
       action: "post",
       entityType: "cash",
       entityId: id,
@@ -656,18 +662,21 @@ export async function postCashDocument(
 
   const fromAccount = document.fromAccount;
   const toAccount = document.toAccount;
-  if (fromAccount && (!fromAccount.isActive || fromAccount.userId !== userId))
+  if (
+    fromAccount &&
+    (!fromAccount.isActive || fromAccount.organizationId !== orgId)
+  )
     throw new Error("Гаргах Cash данс идэвхгүй байна");
-  if (toAccount && (!toAccount.isActive || toAccount.userId !== userId))
+  if (toAccount && (!toAccount.isActive || toAccount.organizationId !== orgId))
     throw new Error("Хүлээн авах Cash данс идэвхгүй байна");
 
   const buildCode = await cashPostingCodeBuilder(
-    userId,
+    orgId,
     document.cashFlowCode
   );
 
   const arApSettlement = await validateArApSettlement(
-    userId,
+    orgId,
     {
       arApDocumentId: document.arApDocumentId ?? undefined,
       documentType: document.documentType as CashDocumentType,
@@ -691,8 +700,9 @@ export async function postCashDocument(
   const fxDifference = settlementExchangeEffect?.difference ?? 0;
   // Ханшийн олз/гарзын данс — тохиргооноос (costing_account_settings);
   // анхны утга нь хуучин хатуу кодтой ижил тул зан төлөв өөрчлөгдөхгүй.
+  // Cross-batch helper: параметрын байрлал хэвээр — одоо orgId дамжуулна.
   const costingSettings = arApSettlement
-    ? await loadCostingAccountSettings(userId)
+    ? await loadCostingAccountSettings(orgId)
     : null;
   if (arApSettlement && costingSettings && Math.abs(fxDifference) > 0.01) {
     const isGain =
@@ -700,7 +710,7 @@ export async function postCashDocument(
         ? fxDifference > 0
         : fxDifference < 0;
     await assertMainAccount(
-      userId,
+      orgId,
       isGain
         ? costingSettings.fxGainAccountNumber
         : costingSettings.fxLossAccountNumber
@@ -730,14 +740,14 @@ export async function postCashDocument(
   let postedVoucherId: string | null = null;
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, document.date);
+    await assertPeriodOpenInTx(tx, orgId, document.date);
     const [claimed] = await tx
       .update(cashDocuments)
       .set({ status: "posted", postedAt: new Date() })
       .where(
         and(
           eq(cashDocuments.id, id),
-          eq(cashDocuments.userId, userId),
+          eq(cashDocuments.organizationId, orgId),
           eq(cashDocuments.status, "draft")
         )
       )
@@ -749,6 +759,7 @@ export async function postCashDocument(
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: document.date,
         description: `[${document.documentNo}] ${document.description}`,
         status: "posted",
@@ -822,7 +833,7 @@ export async function postCashDocument(
         .where(
           and(
             eq(arApDocuments.id, arApSettlement.document.id),
-            eq(arApDocuments.userId, userId),
+            eq(arApDocuments.organizationId, orgId),
             inArray(arApDocuments.status, ["posted", "partially_paid"]),
             sql`${arApDocuments.totalAmount} - ${arApDocuments.paidAmount} >= ${String(
               amount
@@ -835,6 +846,7 @@ export async function postCashDocument(
 
       await tx.insert(arApSettlements).values({
         userId,
+        organizationId: orgId,
         documentId: arApSettlement.document.id,
         cashDocumentId: id,
         settlementDate: document.date,
@@ -846,11 +858,14 @@ export async function postCashDocument(
     await tx
       .update(cashDocuments)
       .set({ voucherId: voucher.id })
-      .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+      .where(
+        and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId))
+      );
     postedVoucherId = voucher.id;
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "post",
         entityType: "cash",
         entityId: id,
@@ -880,19 +895,22 @@ export async function postCashDocument(
 }
 
 export async function reverseCashDocument(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
 
   const document = await db.query.cashDocuments.findFirst({
-    where: and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)),
+    where: and(
+      eq(cashDocuments.id, id),
+      eq(cashDocuments.organizationId, orgId)
+    ),
   });
   if (!document || document.status !== "posted" || !document.voucherId)
     throw new Error("Зөвхөн батлагдсан Cash баримтыг буцаана");
-  await assertPeriodOpen(userId, document.date);
+  await assertPeriodOpen(orgId, document.date);
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
       eq(journalVouchers.id, document.voucherId),
-      eq(journalVouchers.userId, userId)
+      eq(journalVouchers.organizationId, orgId)
     ),
     with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
   });
@@ -904,14 +922,14 @@ export async function reverseCashDocument(id: string) {
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, document.date);
+    await assertPeriodOpenInTx(tx, orgId, document.date);
     const [claimed] = await tx
       .update(cashDocuments)
       .set({ status: "reversed" })
       .where(
         and(
           eq(cashDocuments.id, id),
-          eq(cashDocuments.userId, userId),
+          eq(cashDocuments.organizationId, orgId),
           eq(cashDocuments.status, "posted")
         )
       )
@@ -923,6 +941,7 @@ export async function reverseCashDocument(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: document.date,
         description: `Буцаалт [${document.documentNo}] ${document.description}`,
         status: "posted",
@@ -947,17 +966,20 @@ export async function reverseCashDocument(id: string) {
       .where(
         and(
           eq(journalVouchers.id, voucher.id),
-          eq(journalVouchers.userId, userId)
+          eq(journalVouchers.organizationId, orgId)
         )
       );
 
     await tx
       .update(cashDocuments)
       .set({ reversalVoucherId: reversal.id })
-      .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+      .where(
+        and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId))
+      );
 
     for (const settlement of linkedSettlements) {
-      if (settlement.userId !== userId || !settlement.document) continue;
+      if (settlement.organizationId !== orgId || !settlement.document)
+        continue;
       const total = Number(settlement.document.totalAmount);
       const paid = Number(settlement.document.paidAmount);
       const nextPaid = Math.max(
@@ -990,7 +1012,7 @@ export async function reverseCashDocument(id: string) {
         .where(
           and(
             eq(arApDocuments.id, settlement.documentId),
-            eq(arApDocuments.userId, userId)
+            eq(arApDocuments.organizationId, orgId)
           )
         );
       await tx
@@ -1000,6 +1022,7 @@ export async function reverseCashDocument(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "reverse",
         entityType: "cash",
         entityId: id,
@@ -1026,18 +1049,24 @@ export async function reverseCashDocument(id: string) {
  * үлдэгдэл, төлөв сэргэнэ. Период нээлттэй байх шаардлагатай.
  */
 export async function deleteCashDocument(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const document = await db.query.cashDocuments.findFirst({
-    where: and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)),
+    where: and(
+      eq(cashDocuments.id, id),
+      eq(cashDocuments.organizationId, orgId)
+    ),
   });
   if (!document) return;
 
   if (document.status === "draft") {
     await db
       .delete(cashDocuments)
-      .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+      .where(
+        and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId))
+      );
     await logAuditEvent({
       userId,
+      organizationId: orgId,
       action: "delete",
       entityType: "cash",
       entityId: id,
@@ -1047,7 +1076,7 @@ export async function deleteCashDocument(id: string) {
     return;
   }
 
-  await assertPeriodOpen(userId, document.date);
+  await assertPeriodOpen(orgId, document.date);
 
   const voucherIds = [
     ...new Set(
@@ -1068,7 +1097,7 @@ export async function deleteCashDocument(id: string) {
     // 1. Нэхэмжлэхийн төлөлт байсан бол буцаана — үлдэгдэл, төлөв сэргэнэ.
     const settlements = await tx.query.arApSettlements.findMany({
       where: and(
-        eq(arApSettlements.userId, userId),
+        eq(arApSettlements.organizationId, orgId),
         eq(arApSettlements.cashDocumentId, id)
       ),
     });
@@ -1086,7 +1115,7 @@ export async function deleteCashDocument(id: string) {
       const invoice = await tx.query.arApDocuments.findFirst({
         where: and(
           eq(arApDocuments.id, invoiceId),
-          eq(arApDocuments.userId, userId)
+          eq(arApDocuments.organizationId, orgId)
         ),
       });
       if (!invoice) continue;
@@ -1121,7 +1150,7 @@ export async function deleteCashDocument(id: string) {
         .delete(arApSettlements)
         .where(
           and(
-            eq(arApSettlements.userId, userId),
+            eq(arApSettlements.organizationId, orgId),
             eq(arApSettlements.cashDocumentId, id)
           )
         );
@@ -1129,7 +1158,9 @@ export async function deleteCashDocument(id: string) {
     // 2. Баримт эхэлж устна (журнал руу FK-тэй тул).
     await tx
       .delete(cashDocuments)
-      .where(and(eq(cashDocuments.id, id), eq(cashDocuments.userId, userId)));
+      .where(
+        and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId))
+      );
 
     // 3. Холбоотой GL журналууд (үндсэн + буцаалт + эх) хамт устна.
     for (const voucherId of voucherIds) {
@@ -1138,13 +1169,14 @@ export async function deleteCashDocument(id: string) {
         .where(
           and(
             eq(journalVouchers.id, voucherId),
-            eq(journalVouchers.userId, userId)
+            eq(journalVouchers.organizationId, orgId)
           )
         );
     }
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "delete",
         entityType: "cash",
         entityId: id,
@@ -1176,13 +1208,13 @@ export interface CashDocumentDetail {
 }
 
 // Воучерын мөрүүд — гарчгийн хамт (панелийн дэлгэрэнгүйд).
-async function voucherLinesFor(userId: string, voucherId: string | null) {
+async function voucherLinesFor(orgId: string, voucherId: string | null) {
   if (!voucherId)
     return { voucher: null, lines: [] as CashDocumentVoucherLine[] };
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
       eq(journalVouchers.id, voucherId),
-      eq(journalVouchers.userId, userId)
+      eq(journalVouchers.organizationId, orgId)
     ),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
@@ -1230,14 +1262,17 @@ export type CashDocPanelResult =
 export async function getCashDocPanelData(
   documentId: string
 ): Promise<CashDocPanelResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
+  let orgId: string;
+  try {
+    ({ orgId } = await getActiveOrg());
+  } catch {
+    return { ok: false, code: "unauthenticated" };
+  }
 
   const document = await db.query.cashDocuments.findFirst({
     where: and(
       eq(cashDocuments.id, documentId),
-      eq(cashDocuments.userId, userId)
+      eq(cashDocuments.organizationId, orgId)
     ),
     with: { fromAccount: true, toAccount: true },
   });
@@ -1245,24 +1280,24 @@ export async function getCashDocPanelData(
 
   const [main, reversal, configs, accounts, segValues, linkedInvoiceRow] =
     await Promise.all([
-      voucherLinesFor(userId, document.voucherId ?? document.sourceVoucherId),
-      voucherLinesFor(userId, document.reversalVoucherId),
+      voucherLinesFor(orgId, document.voucherId ?? document.sourceVoucherId),
+      voucherLinesFor(orgId, document.reversalVoucherId),
       db.query.segmentConfigs.findMany({
-        where: eq(segmentConfigs.userId, userId),
+        where: eq(segmentConfigs.organizationId, orgId),
       }),
       db.query.chartOfAccounts.findMany({
-        where: eq(chartOfAccounts.userId, userId),
+        where: eq(chartOfAccounts.organizationId, orgId),
         columns: { number: true, name: true },
       }),
       db.query.segmentValues.findMany({
-        where: eq(segmentValues.userId, userId),
+        where: eq(segmentValues.organizationId, orgId),
         columns: { segmentId: true, code: true, name: true },
       }),
       document.arApDocumentId
         ? db.query.arApDocuments.findFirst({
             where: and(
               eq(arApDocuments.id, document.arApDocumentId),
-              eq(arApDocuments.userId, userId)
+              eq(arApDocuments.organizationId, orgId)
             ),
             columns: { id: true, documentNo: true, documentType: true, status: true },
             with: { counterparty: { columns: { name: true } } },
@@ -1313,10 +1348,13 @@ export type CashNewPanelResult =
 // Cash-new панелийн сонголтын өгөгдөл — transactions хуудастай НЭГ ачаалагч
 // (lib/cash/load-options) ашиглана.
 export async function getCashNewPanelData(): Promise<CashNewPanelResult> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, code: "unauthenticated" };
-  return { ok: true, data: await loadCashTransactionOptions(userId) };
+  let orgId: string;
+  try {
+    ({ orgId } = await getActiveOrg());
+  } catch {
+    return { ok: false, code: "unauthenticated" };
+  }
+  return { ok: true, data: await loadCashTransactionOptions(orgId) };
 }
 
 function fxPostingCode(template: string | undefined, mainAccount: string) {
@@ -1345,7 +1383,7 @@ export async function postCashFxRevaluation(data: {
   lossAccountNumber: string;
   replaceExisting?: boolean;
 }) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.valuationDate))
     throw new Error("Тэгшитгэлийн огноо буруу байна");
   const todayInUlaanbaatar = new Date(Date.now() + 8 * 60 * 60 * 1000)
@@ -1354,7 +1392,7 @@ export async function postCashFxRevaluation(data: {
   if (data.valuationDate > todayInUlaanbaatar)
     throw new Error("Ирээдүйн огноонд ханшийн тэгшитгэл хийхгүй");
   // Хаагдсан периодын хамгаалалт — тэгшитгэлийн журнал энэ огноогоор бичигдэнэ.
-  await assertPeriodOpen(userId, data.valuationDate);
+  await assertPeriodOpen(orgId, data.valuationDate);
 
   const closingRate = Number(data.closingRate);
   if (!Number.isFinite(closingRate) || closingRate <= 0)
@@ -1390,7 +1428,7 @@ export async function postCashFxRevaluation(data: {
   if (gainAccountNumber === lossAccountNumber)
     throw new Error("Ханшийн олз, гарзын данс ижил байж болохгүй");
 
-  const account = await requireActiveCashAccount(userId, data.cashAccountId);
+  const account = await requireActiveCashAccount(orgId, data.cashAccountId);
   if (account.currency === "MNT")
     throw new Error("MNT дансанд ханшийн тэгшитгэл хийхгүй");
 
@@ -1404,7 +1442,7 @@ export async function postCashFxRevaluation(data: {
     await Promise.all([
       db.query.cashFxRevaluations.findFirst({
         where: and(
-          eq(cashFxRevaluations.userId, userId),
+          eq(cashFxRevaluations.organizationId, orgId),
           eq(cashFxRevaluations.cashAccountId, account.id),
           eq(cashFxRevaluations.status, "posted")
         ),
@@ -1416,7 +1454,7 @@ export async function postCashFxRevaluation(data: {
       }),
       db.query.cashFxRevaluations.findFirst({
         where: and(
-          eq(cashFxRevaluations.userId, userId),
+          eq(cashFxRevaluations.organizationId, orgId),
           eq(cashFxRevaluations.cashAccountId, account.id),
           eq(cashFxRevaluations.valuationDate, data.valuationDate)
         ),
@@ -1425,13 +1463,13 @@ export async function postCashFxRevaluation(data: {
       }),
       db.query.cashDocuments.findMany({
         where: and(
-          eq(cashDocuments.userId, userId),
+          eq(cashDocuments.organizationId, orgId),
           lte(cashDocuments.date, data.valuationDate)
         ),
       }),
       db.query.journalVouchers.findMany({
         where: and(
-          eq(journalVouchers.userId, userId),
+          eq(journalVouchers.organizationId, orgId),
           lte(journalVouchers.date, data.valuationDate),
           inArray(journalVouchers.status, ["posted", "reversed"])
         ),
@@ -1440,7 +1478,7 @@ export async function postCashFxRevaluation(data: {
       }),
       db.query.chartOfAccounts.findMany({
         where: and(
-          eq(chartOfAccounts.userId, userId),
+          eq(chartOfAccounts.organizationId, orgId),
           eq(chartOfAccounts.isEnabled, true),
           inArray(chartOfAccounts.number, [
             gainAccountNumber,
@@ -1503,7 +1541,7 @@ export async function postCashFxRevaluation(data: {
 
   const result = await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, data.valuationDate);
+    await assertPeriodOpenInTx(tx, orgId, data.valuationDate);
     if (replaceTarget) {
       const [claimed] = await tx
         .update(cashFxRevaluations)
@@ -1522,6 +1560,7 @@ export async function postCashFxRevaluation(data: {
         .insert(journalVouchers)
         .values({
           userId,
+          organizationId: orgId,
           date: data.valuationDate,
           description: `Буцаалт: ${replaceTarget.voucher.description}`,
           status: "posted",
@@ -1552,6 +1591,7 @@ export async function postCashFxRevaluation(data: {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: data.valuationDate,
         description: `[FX ${account.currency}] ${account.name} @ ${closingRate}`,
         status: "posted",
@@ -1606,6 +1646,7 @@ export async function postCashFxRevaluation(data: {
       .insert(cashFxRevaluations)
       .values({
         userId,
+        organizationId: orgId,
         cashAccountId: account.id,
         revision: (sameDateLatest?.revision ?? 0) + 1,
         valuationDate: data.valuationDate,
@@ -1628,6 +1669,7 @@ export async function postCashFxRevaluation(data: {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "fx_post",
         entityType: "cash",
         entityId: revaluation.id,
@@ -1644,11 +1686,11 @@ export async function postCashFxRevaluation(data: {
 }
 
 export async function reverseCashFxRevaluation(id: string) {
-  const userId = await requireUser();
+  const { orgId, userId } = await requireRole("accountant");
   const revaluation = await db.query.cashFxRevaluations.findFirst({
     where: and(
       eq(cashFxRevaluations.id, id),
-      eq(cashFxRevaluations.userId, userId),
+      eq(cashFxRevaluations.organizationId, orgId),
       eq(cashFxRevaluations.status, "posted")
     ),
     with: {
@@ -1660,7 +1702,7 @@ export async function reverseCashFxRevaluation(id: string) {
 
   const latest = await db.query.cashFxRevaluations.findFirst({
     where: and(
-      eq(cashFxRevaluations.userId, userId),
+      eq(cashFxRevaluations.organizationId, orgId),
       eq(cashFxRevaluations.cashAccountId, revaluation.cashAccountId),
       eq(cashFxRevaluations.status, "posted")
     ),
@@ -1674,11 +1716,11 @@ export async function reverseCashFxRevaluation(id: string) {
     throw new Error("Зөвхөн хамгийн сүүлийн тэгшитгэлийг буцаана");
 
   // Буцаалт нь ЭХ огноогоор бичигдэх тул тэр огнооны периодыг шалгана.
-  await assertPeriodOpen(userId, revaluation.valuationDate);
+  await assertPeriodOpen(orgId, revaluation.valuationDate);
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
-    await assertPeriodOpenInTx(tx, userId, revaluation.valuationDate);
+    await assertPeriodOpenInTx(tx, orgId, revaluation.valuationDate);
     const [claimed] = await tx
       .update(cashFxRevaluations)
       .set({ status: "reversed", reversedAt: new Date() })
@@ -1695,6 +1737,7 @@ export async function reverseCashFxRevaluation(id: string) {
       .insert(journalVouchers)
       .values({
         userId,
+        organizationId: orgId,
         date: revaluation.valuationDate,
         description: `Буцаалт: ${revaluation.voucher.description}`,
         status: "posted",
@@ -1722,6 +1765,7 @@ export async function reverseCashFxRevaluation(id: string) {
     await logAuditEvent(
       {
         userId,
+        organizationId: orgId,
         action: "fx_reverse",
         entityType: "cash",
         entityId: id,

@@ -29,6 +29,8 @@ export async function syncFixedAssetDraftForVoucher(voucherId: string) {
     });
     if (!voucher || voucher.status !== "posted") return;
     const userId = voucher.userId;
+    const orgId = voucher.organizationId;
+    if (!orgId) return;
 
     let net = 0;
     for (const line of voucher.lines) {
@@ -40,7 +42,7 @@ export async function syncFixedAssetDraftForVoucher(voucherId: string) {
 
     const existing = await db.query.fixedAssets.findFirst({
       where: and(
-        eq(fixedAssets.userId, userId),
+        eq(fixedAssets.organizationId, orgId),
         eq(fixedAssets.sourceVoucherId, voucherId)
       ),
       columns: { id: true },
@@ -49,6 +51,7 @@ export async function syncFixedAssetDraftForVoucher(voucherId: string) {
 
     await db.insert(fixedAssets).values({
       userId,
+      organizationId: orgId,
       code: `FA-${voucher.date.replaceAll("-", "")}-${crypto
         .randomUUID()
         .slice(0, 6)

@@ -194,6 +194,7 @@ export const MODULES: Module[] = [
     defaultHref: "/settings/profile",
     items: [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: "user" },
+      { label: "Байгууллага", href: "/settings/org", icon: "company" },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },

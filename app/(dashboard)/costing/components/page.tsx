@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { ComponentAnalysisReport } from "@/components/costing/component-analysis-report";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { loadComponentAnalysis } from "@/lib/costing/component-analysis";
 import { db } from "@/lib/db";
@@ -14,13 +14,12 @@ export default async function ComponentAnalysisPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { period } = await searchParams;
 
   // Сонгох боломжтой сарууд — орлогын өртгийн бичилт байгаа сарууд.
   const entries = await db.query.costEntries.findMany({
-    where: eq(costEntries.userId, userId),
+    where: eq(costEntries.organizationId, orgId),
     columns: { periodCode: true, date: true },
   });
   const periodOptions = [
@@ -37,7 +36,7 @@ export default async function ComponentAnalysisPage({
         ? selection.periodCode
         : (periodOptions[0] ?? selection.periodCode);
 
-  const rows = await loadComponentAnalysis(userId, periodCode);
+  const rows = await loadComponentAnalysis(orgId, periodCode);
 
   return (
     <ComponentAnalysisReport

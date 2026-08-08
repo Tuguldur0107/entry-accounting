@@ -1,31 +1,32 @@
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalVouchers, segmentConfigs, segmentValues } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
 import { eq, and } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 export default async function EditJournalPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
-  const userId = session!.user!.id!;
+  if (!session?.user?.id) redirect("/login");
+  const { orgId } = await getActiveOrg();
 
   const [voucher, accounts, rawSegConfigs, rawSegValues] = await Promise.all([
     db.query.journalVouchers.findFirst({
-      where: and(eq(journalVouchers.id, id), eq(journalVouchers.userId, userId)),
+      where: and(eq(journalVouchers.id, id), eq(journalVouchers.organizationId, orgId)),
       with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
     }),
     // Бүх дансыг ачаална — идэвхгүй болсон данстай хуучин журналын нэр
     // харах горимд хоосон харагдахгүй. Засварлах үед form нь зөвхөн
     // идэвхтэйг сонгуулна.
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
       orderBy: (a, { asc }) => [asc(a.number)],
     }),
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
     db.query.segmentValues.findMany({
-      where: and(eq(segmentValues.userId, userId), eq(segmentValues.isEnabled, true)),
+      where: and(eq(segmentValues.organizationId, orgId), eq(segmentValues.isEnabled, true)),
       orderBy: (v, { asc }) => [asc(v.segmentId), asc(v.code)],
     }),
   ]);

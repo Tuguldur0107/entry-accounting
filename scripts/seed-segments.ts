@@ -116,9 +116,15 @@ async function seed() {
   if (users.length === 0) { console.error("Хэрэглэгч олдсонгүй."); process.exit(1); }
   const userId = users[0].id;
   console.log(`Хэрэглэгч: ${users[0].email}\n`);
+  const membership = await db.query.memberships.findFirst({
+    where: eq(schema.memberships.userId, userId),
+    columns: { organizationId: true },
+  });
+  if (!membership) { console.error("Гишүүнчлэл олдсонгүй — эхлээд migration ажиллуул."); process.exit(1); }
+  const organizationId = membership.organizationId;
 
   // Clear all existing segment values for clean seed
-  await db.delete(schema.segmentValues).where(eq(schema.segmentValues.userId, userId));
+  await db.delete(schema.segmentValues).where(eq(schema.segmentValues.organizationId, organizationId));
   console.log("Өмнөх сегментийн утгуудыг устгалаа.\n");
 
   for (const seg of SEGMENT_DATA) {
@@ -126,6 +132,7 @@ async function seed() {
     for (const v of seg.values) {
       await db.insert(schema.segmentValues).values({
         userId,
+        organizationId,
         segmentId: seg.segmentId,
         code: v.code,
         name: v.name,

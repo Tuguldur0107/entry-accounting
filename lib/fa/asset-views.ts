@@ -43,11 +43,11 @@ export interface FixedAssetView {
  * (панелийн дэлгэрэнгүй), өгөхгүй бол бүгдийг (жагсаалтын хуудас).
  */
 export async function loadFixedAssetViews(
-  userId: string,
+  orgId: string,
   assetId?: string
 ): Promise<FixedAssetView[]> {
   const entryConditions: SQL[] = [
-    eq(faDepreciationEntries.userId, userId),
+    eq(faDepreciationEntries.organizationId, orgId),
     inArray(faDepreciationEntries.status, ["draft", "posted", "reversed"]),
   ];
   if (assetId) entryConditions.push(eq(faDepreciationEntries.assetId, assetId));
@@ -55,8 +55,8 @@ export async function loadFixedAssetViews(
   const [assets, entries] = await Promise.all([
     db.query.fixedAssets.findMany({
       where: assetId
-        ? and(eq(fixedAssets.userId, userId), eq(fixedAssets.id, assetId))
-        : eq(fixedAssets.userId, userId),
+        ? and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.id, assetId))
+        : eq(fixedAssets.organizationId, orgId),
       orderBy: (asset, { desc }) => [
         desc(asset.acquisitionDate),
         desc(asset.createdAt),

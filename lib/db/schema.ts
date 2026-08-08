@@ -26,6 +26,50 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ─── Organizations (Фаз 01 multi-tenancy) ────────────────────────────────────
+// Байгууллага = компани. Хэрэглэгч олон байгууллагад гишүүн байж болно
+// (нягтлан фирмийн кейс). Бизнесийн бүх хүснэгт organization_id-аар scope
+// хийгдэнэ; user_id багана нь "хэн үүсгэсэн" (createdBy) утгаар үлдсэн.
+
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  /** ТТД — Татвар төлөгчийн дугаар. */
+  registryNo: text("registry_no"),
+  /** Фаз 05 (billing)-д ашиглана — одоогоор үргэлж null. */
+  planId: text("plan_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";
+
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("owner"), // MembershipRole
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.organizationId, t.userId),
+    index("memberships_user_ix").on(t.userId),
+  ]
+);
+
+export const membershipsRelations = relations(memberships, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [memberships.organizationId],
+    references: [organizations.id],
+  }),
+  user: one(users, { fields: [memberships.userId], references: [users.id] }),
+}));
+
 // ─── Chart of Accounts ───────────────────────────────────────────────────────
 
 export const chartOfAccounts = pgTable(
@@ -35,13 +79,17 @@ export const chartOfAccounts = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     number: text("number").notNull(),
     name: text("name").notNull(),
     isEnabled: boolean("is_enabled").notNull().default(true),
     modules: text("modules").notNull().default("gl,ar,ap,fa,cost,cash"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.number)]
+  (t) => [unique().on(t.userId, t.number), unique().on(t.organizationId, t.number)]
 );
 
 // ─── Accounting periods (нягтлан бодох период) ───────────────────────────────
@@ -59,6 +107,10 @@ export const accountingPeriods = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(), // "YYYY-MM"
     startDate: text("start_date").notNull(), // YYYY-MM-DD (оруулаад)
     endDate: text("end_date").notNull(), // YYYY-MM-DD (оруулаад)
@@ -66,7 +118,7 @@ export const accountingPeriods = pgTable(
     closedAt: timestamp("closed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
@@ -78,6 +130,10 @@ export const journalVouchers = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     date: text("date").notNull(), // YYYY-MM-DD
     description: text("description").notNull(),
     // Draft-first систем тул default нь draft — status-аа мартсан ямар ч
@@ -94,11 +150,11 @@ export const journalVouchers = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("journal_vouchers_user_external_ref_uq")
-      .on(t.userId, t.externalRef)
+    uniqueIndex("journal_vouchers_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
-    index("journal_vouchers_user_date_ix").on(t.userId, t.date),
-    index("journal_vouchers_user_status_ix").on(t.userId, t.status),
+    index("journal_vouchers_user_date_ix").on(t.userId, t.date), index("journal_vouchers_org_date_ix").on(t.organizationId, t.date),
+    index("journal_vouchers_user_status_ix").on(t.userId, t.status), index("journal_vouchers_org_status_ix").on(t.organizationId, t.status),
     foreignKey({
       columns: [t.reversalOfVoucherId],
       foreignColumns: [t.id],
@@ -150,6 +206,10 @@ export const cashAccounts = pgTable("cash_accounts", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   name: text("name").notNull(),
   accountType: text("account_type").notNull(), // "cash" | "bank"
   bankName: text("bank_name"),
@@ -170,6 +230,10 @@ export const cashDocuments = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     documentNo: text("document_no").notNull(),
     documentType: text("document_type").notNull(), // "receipt" | "payment" | "transfer"
     date: text("date").notNull(),
@@ -219,12 +283,12 @@ export const cashDocuments = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    unique().on(t.userId, t.documentNo),
-    uniqueIndex("cash_documents_user_external_ref_uq")
-      .on(t.userId, t.externalRef)
+    unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("cash_documents_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
-    index("cash_documents_user_status_ix").on(t.userId, t.status),
-    index("cash_documents_user_date_ix").on(t.userId, t.date),
+    index("cash_documents_user_status_ix").on(t.userId, t.status), index("cash_documents_org_status_ix").on(t.organizationId, t.status),
+    index("cash_documents_user_date_ix").on(t.userId, t.date), index("cash_documents_org_date_ix").on(t.organizationId, t.date),
   ]
 );
 
@@ -235,6 +299,10 @@ export const bankStatements = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     cashAccountId: uuid("cash_account_id")
       .notNull()
       .references(() => cashAccounts.id, { onDelete: "restrict" }),
@@ -254,7 +322,7 @@ export const bankStatements = pgTable(
     status: text("status").notNull().default("posted"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.userId, table.fileHash)]
+  (table) => [unique().on(table.userId, table.fileHash), unique().on(table.organizationId, table.fileHash)]
 );
 
 export const bankStatementLines = pgTable(
@@ -301,6 +369,10 @@ export const cashFxRevaluations = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     cashAccountId: uuid("cash_account_id")
       .notNull()
       .references(() => cashAccounts.id, { onDelete: "restrict" }),
@@ -348,6 +420,10 @@ export const cashFxRevaluations = pgTable(
       table.cashAccountId,
       table.valuationDate,
       table.revision
+    ), unique().on(table.organizationId,
+      table.cashAccountId,
+      table.valuationDate,
+      table.revision
     ),
   ]
 );
@@ -361,6 +437,10 @@ export const counterparties = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     name: text("name").notNull(),
     counterpartyType: text("counterparty_type").notNull().default("both"), // "customer" | "supplier" | "both"
     registerNo: text("register_no"),
@@ -375,7 +455,7 @@ export const counterparties = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.userId, table.name)]
+  (table) => [unique().on(table.userId, table.name), unique().on(table.organizationId, table.name)]
 );
 
 export const arApDocuments = pgTable(
@@ -385,6 +465,10 @@ export const arApDocuments = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     documentNo: text("document_no").notNull(),
     documentType: text("document_type").notNull(), // "ar_invoice" | "ap_bill"
     counterpartyId: uuid("counterparty_id")
@@ -424,12 +508,12 @@ export const arApDocuments = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    unique().on(table.userId, table.documentNo),
-    uniqueIndex("ar_ap_documents_user_external_ref_uq")
-      .on(table.userId, table.externalRef)
+    unique().on(table.userId, table.documentNo), unique().on(table.organizationId, table.documentNo),
+    uniqueIndex("ar_ap_documents_org_external_ref_uq")
+      .on(table.organizationId, table.externalRef)
       .where(sql`${table.externalRef} is not null`),
-    index("ar_ap_documents_user_status_ix").on(table.userId, table.status),
-    index("ar_ap_documents_user_date_ix").on(table.userId, table.date),
+    index("ar_ap_documents_user_status_ix").on(table.userId, table.status), index("ar_ap_documents_org_status_ix").on(table.organizationId, table.status),
+    index("ar_ap_documents_user_date_ix").on(table.userId, table.date), index("ar_ap_documents_org_date_ix").on(table.organizationId, table.date),
   ]
 );
 
@@ -461,6 +545,10 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   documentId: uuid("document_id")
     .notNull()
     .references(() => arApDocuments.id, { onDelete: "restrict" }),
@@ -683,11 +771,15 @@ export const moduleConfigs = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     moduleKey: text("module_key").notNull(), // "gl" | "ar" | "ap" | "fa" | "cost" | "cash" | "agis"
     isEnabled: boolean("is_enabled").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.moduleKey)]
+  (t) => [unique().on(t.userId, t.moduleKey), unique().on(t.organizationId, t.moduleKey)]
 );
 
 export const moduleConfigsRelations = relations(moduleConfigs, ({ one }) => ({
@@ -703,6 +795,10 @@ export const segmentValues = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     segmentId: integer("segment_id").notNull(), // 1–10 (except 3, which uses chartOfAccounts)
     code: text("code").notNull(),
     name: text("name").notNull(),
@@ -710,7 +806,7 @@ export const segmentValues = pgTable(
     modules: text("modules").notNull().default(""),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.segmentId, t.code)]
+  (t) => [unique().on(t.userId, t.segmentId, t.code), unique().on(t.organizationId, t.segmentId, t.code)]
 );
 
 export const segmentValuesRelations = relations(segmentValues, ({ one }) => ({
@@ -726,12 +822,16 @@ export const segmentConfigs = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     segmentId: integer("segment_id").notNull(), // 1–10
     isEnabled: boolean("is_enabled").notNull().default(true),
     modules: text("modules").notNull().default(""), // comma-separated: "gl,ar,ap,fa,cost,cash"
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.segmentId)]
+  (t) => [unique().on(t.userId, t.segmentId), unique().on(t.organizationId, t.segmentId)]
 );
 
 export const segmentConfigsRelations = relations(segmentConfigs, ({ one }) => ({
@@ -750,6 +850,10 @@ export const reportLineMappings = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     reportType: text("report_type").notNull(), // "balance-sheet" | "income-statement" | "cash-flow"
     /**
      * Built-in lines: key from BS_LINES (e.g. "cash", "ap").
@@ -771,7 +875,7 @@ export const reportLineMappings = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.reportType, t.lineKey)]
+  (t) => [unique().on(t.userId, t.reportType, t.lineKey), unique().on(t.organizationId, t.reportType, t.lineKey)]
 );
 
 export const reportLineMappingsRelations = relations(reportLineMappings, ({ one }) => ({
@@ -790,13 +894,17 @@ export const inventoryItems = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(),
     name: text("name").notNull(),
     unit: text("unit").notNull().default("ш"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 export const warehouses = pgTable(
@@ -806,12 +914,16 @@ export const warehouses = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(),
     name: text("name").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 export const inventoryMovements = pgTable(
@@ -821,6 +933,10 @@ export const inventoryMovements = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     documentNo: text("document_no").notNull(),
     movementType: text("movement_type").notNull(), // "receipt" | "issue" | "transfer" | "adjustment"
     date: text("date").notNull(),
@@ -852,9 +968,9 @@ export const inventoryMovements = pgTable(
     confirmedAt: timestamp("confirmed_at"),
   },
   (t) => [
-    unique().on(t.userId, t.documentNo),
-    index("inventory_movements_user_status_ix").on(t.userId, t.status),
-    index("inventory_movements_user_date_ix").on(t.userId, t.date),
+    unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo),
+    index("inventory_movements_user_status_ix").on(t.userId, t.status), index("inventory_movements_org_status_ix").on(t.organizationId, t.status),
+    index("inventory_movements_user_date_ix").on(t.userId, t.date), index("inventory_movements_org_date_ix").on(t.organizationId, t.date),
   ]
 );
 
@@ -869,6 +985,10 @@ export const costingItemSettings = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     itemId: uuid("item_id")
       .notNull()
       .references(() => inventoryItems.id, { onDelete: "cascade" }),
@@ -878,7 +998,7 @@ export const costingItemSettings = pgTable(
     cogsAccountNumber: text("cogs_account_number").notNull().default("61100000"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.itemId)]
+  (t) => [unique().on(t.userId, t.itemId), unique().on(t.organizationId, t.itemId)]
 );
 
 // ── Өртгийн master data (docs/cost FR-MD-CC-*, FR-MD-IT-*) ──────────────────
@@ -893,6 +1013,10 @@ export const costComponents = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(),
     name: text("name").notNull(),
     // Бүлэглэл/тайлангийн ангилал — ЧӨЛӨӨТ текст. Ангиллын жагсаалт нь
@@ -907,7 +1031,7 @@ export const costComponents = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 export const inventoryIssueTypes = pgTable(
@@ -917,6 +1041,10 @@ export const inventoryIssueTypes = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(),
     name: text("name").notNull(),
     // Зориулалтын ангилал (COGS / удирдлагын зардал / үйлдвэрлэл-WIP …) —
@@ -937,7 +1065,7 @@ export const inventoryIssueTypes = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 /**
@@ -950,8 +1078,11 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   /** Орлогын эсрэг тал — худалдан авалтын клиринг. */
   clearingAccountNumber: text("clearing_account_number").notNull(),
   /** Тооллогын илүүдэл (орлого). */
@@ -971,7 +1102,7 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
     .notNull()
     .default("87000003"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [unique().on(t.organizationId)]);
 
 // ─── Payroll (Цалин) ─────────────────────────────────────────────────────────
 // Knowledge: knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/. Тооцооллын
@@ -985,6 +1116,10 @@ export const employees = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     name: text("name").notNull(),
     position: text("position").notNull().default(""),
     /** Сарын үндсэн цалин — бодолтод earnings-ийн default болно. */
@@ -1001,15 +1136,18 @@ export const employees = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.name)]
+  (t) => [unique().on(t.userId, t.name), unique().on(t.organizationId, t.name)]
 );
 
 export const payrollSettings = pgTable("payroll_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   salaryExpenseAccountNumber: text("salary_expense_account_number")
     .notNull()
     .default("72100000"),
@@ -1042,7 +1180,7 @@ export const payrollSettings = pgTable("payroll_settings", {
     .notNull()
     .default("0"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [unique().on(t.organizationId)]);
 
 export const payrollRuns = pgTable(
   "payroll_runs",
@@ -1051,6 +1189,10 @@ export const payrollRuns = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     periodMonth: text("period_month").notNull(), // YYYY-MM
     status: text("status").notNull().default("draft"), // "draft" | "voucher_created"
     /** GL-ийн НООРОГ журнал (human-in-the-loop §9 — эндээс шууд postгүй). */
@@ -1060,7 +1202,7 @@ export const payrollRuns = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.periodMonth)]
+  (t) => [unique().on(t.userId, t.periodMonth), unique().on(t.organizationId, t.periodMonth)]
 );
 
 export const payrollRunLines = pgTable("payroll_run_lines", {
@@ -1113,8 +1255,11 @@ export const vatSettings = pgTable("vat_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   /** Гаралтын НӨАТ өглөг (борлуулалтын НӨАТ). */
   outputVatAccountNumber: text("output_vat_account_number")
     .notNull()
@@ -1128,13 +1273,17 @@ export const vatSettings = pgTable("vat_settings", {
     .notNull()
     .default("10"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [unique().on(t.organizationId)]);
 
 export const costingRuns = pgTable("costing_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   asOfDate: text("as_of_date").notNull(),
   entryCount: integer("entry_count").notNull().default(0),
   pendingCount: integer("pending_count").notNull().default(0),
@@ -1156,6 +1305,10 @@ export const costAllocations = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     documentNo: text("document_no").notNull(),
     date: text("date").notNull(), // YYYY-MM-DD
     costComponentId: uuid("cost_component_id")
@@ -1168,7 +1321,7 @@ export const costAllocations = pgTable(
     createdBy: text("created_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.documentNo)]
+  (t) => [unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo)]
 );
 
 export const costAllocationLines = pgTable("cost_allocation_lines", {
@@ -1201,6 +1354,10 @@ export const productionStages = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(),
     name: text("name").notNull(),
     /** Тооцооллын дараалал — өмнөх шатны гаралт дараагийнхад орж болно. */
@@ -1211,7 +1368,7 @@ export const productionStages = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 export const costPools = pgTable(
@@ -1221,6 +1378,10 @@ export const costPools = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     stageId: uuid("stage_id")
       .notNull()
       .references(() => productionStages.id, { onDelete: "cascade" }),
@@ -1233,7 +1394,7 @@ export const costPools = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 /**
@@ -1246,6 +1407,10 @@ export const costPoolRules = pgTable("cost_pool_rules", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   poolId: uuid("pool_id")
     .notNull()
     .references(() => costPools.id, { onDelete: "cascade" }),
@@ -1263,12 +1428,16 @@ export const productionRuns = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     periodCode: text("period_code").notNull(), // YYYY-MM
     status: text("status").notNull().default("draft"), // "draft" | "confirmed"
     createdAt: timestamp("created_at").notNull().defaultNow(),
     confirmedAt: timestamp("confirmed_at"),
   },
-  (t) => [unique().on(t.userId, t.periodCode)]
+  (t) => [unique().on(t.userId, t.periodCode), unique().on(t.organizationId, t.periodCode)]
 );
 
 /** Шат бүрийн run-д хэрэглэсэн хуваарийн суурь. */
@@ -1365,6 +1534,10 @@ export const costPeriodResults = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     periodCode: text("period_code").notNull(), // YYYY-MM
     itemId: uuid("item_id")
       .notNull()
@@ -1406,7 +1579,7 @@ export const costPeriodResults = pgTable(
     blockReason: text("block_reason"),
     calculatedAt: timestamp("calculated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.periodCode, t.itemId, t.warehouseId)]
+  (t) => [unique().on(t.userId, t.periodCode, t.itemId, t.warehouseId), unique().on(t.organizationId, t.periodCode, t.itemId, t.warehouseId)]
 );
 
 export const costEntries = pgTable("cost_entries", {
@@ -1414,6 +1587,10 @@ export const costEntries = pgTable("cost_entries", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   runId: uuid("run_id").references(() => costingRuns.id, {
     onDelete: "set null",
   }),
@@ -1471,7 +1648,7 @@ export const costEntries = pgTable("cost_entries", {
     .where(
       sql`${t.movementId} is not null and ${t.status} <> 'reversed' and ${t.entryType} <> 'landed_cost'`
     ),
-  index("cost_entries_user_status_ix").on(t.userId, t.status),
+  index("cost_entries_user_status_ix").on(t.userId, t.status), index("cost_entries_org_status_ix").on(t.organizationId, t.status),
 ]);
 
 export const inventoryItemsRelations = relations(inventoryItems, ({ one, many }) => ({
@@ -1671,6 +1848,10 @@ export const fixedAssets = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     code: text("code").notNull(),
     name: text("name").notNull(),
     acquisitionDate: text("acquisition_date").notNull(),
@@ -1704,7 +1885,7 @@ export const fixedAssets = pgTable(
     ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code)]
+  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
 export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
@@ -1712,6 +1893,10 @@ export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   assetId: uuid("asset_id")
     .notNull()
     .references(() => fixedAssets.id, { onDelete: "restrict" }),
@@ -1821,6 +2006,10 @@ export const oauthCodes = pgTable("oauth_codes", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   redirectUri: text("redirect_uri").notNull(),
   codeChallenge: text("code_challenge").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
@@ -1832,6 +2021,10 @@ export const oauthTokens = pgTable("oauth_tokens", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   clientId: uuid("client_id")
     .notNull()
     .references(() => oauthClients.id, { onDelete: "cascade" }),
@@ -1850,6 +2043,10 @@ export const apiTokens = pgTable("api_tokens", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   name: text("name").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   /** Сүүлийн 4 тэмдэгт — жагсаалтад таних зорилгоор. */
@@ -1869,8 +2066,11 @@ export const aiSettings = pgTable("ai_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   apiKey: text("api_key"),
   openaiApiKey: text("openai_api_key"),
   model: text("model").notNull().default("claude-opus-4-8"),
@@ -1880,7 +2080,7 @@ export const aiSettings = pgTable("ai_settings", {
   writeMode: text("write_mode").notNull().default("draft"),
   customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [unique().on(t.userId, t.organizationId)]);
 
 // ─── Компанийн мэдээлэл — нэхэмжлэх, хэвлэх маягтын толгой ───────────────────
 
@@ -1888,8 +2088,11 @@ export const companySettings = pgTable("company_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   name: text("name").notNull().default(""),
   registerNo: text("register_no"),
   vatPayerNo: text("vat_payer_no"),
@@ -1912,7 +2115,7 @@ export const companySettings = pgTable("company_settings", {
   /** Нэхэмжлэхийн PDF-д тамга/гарын үсгийг автоматаар оруулах эсэх. */
   autoStamp: boolean("auto_stamp").notNull().default(true),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [unique().on(t.organizationId)]);
 
 // ─── Нэхэмжлэх илгээлт — суваг бүрийн бүртгэл, төлөв мөрдөлт ─────────────────
 
@@ -1921,6 +2124,10 @@ export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
+  // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+  organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
   documentId: uuid("document_id")
     .notNull()
     .references(() => arApDocuments.id, { onDelete: "cascade" }),
@@ -1948,6 +2155,10 @@ export const auditEvents = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // Фаз 01: scope нь байгууллага; userId нь createdBy утгаар үлдсэн.
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
     /** post | unpost | reverse | delete | close | reopen | create_voucher ... */
     action: text("action").notNull(),
     /** journal | cash | arap | fa | cost | period | payroll | vat ... */
@@ -1957,7 +2168,7 @@ export const auditEvents = pgTable(
     summary: text("summary").notNull().default(""),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("audit_events_user_created_ix").on(t.userId, t.createdAt)]
+  (t) => [index("audit_events_user_created_ix").on(t.userId, t.createdAt), index("audit_events_org_created_ix").on(t.organizationId, t.createdAt)]
 );
 
 // ─── Types ────────────────────────────────────────────────────────────────────

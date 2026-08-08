@@ -32,13 +32,13 @@ import type {
 } from "./clearing-types";
 
 export async function loadClearingReconciliation(
-  userId: string,
+  orgId: string,
   range: { from: string; to: string }
 ): Promise<ClearingReconciliation> {
   const [roles, components] = await Promise.all([
-    loadCostingAccountSettings(userId),
+    loadCostingAccountSettings(orgId),
     db.query.costComponents.findMany({
-      where: eq(costComponents.userId, userId),
+      where: eq(costComponents.organizationId, orgId),
       columns: { id: true, code: true, name: true, accountNumber: true },
     }),
   ]);
@@ -56,7 +56,7 @@ export async function loadClearingReconciliation(
   // БҮХ түүхийг уншина (opening-д мужаас өмнөх нийлбэр хэрэгтэй).
   const vouchers = await db.query.journalVouchers.findMany({
     where: and(
-      eq(journalVouchers.userId, userId),
+      eq(journalVouchers.organizationId, orgId),
       inArray(journalVouchers.status, ["posted", "reversed"])
     ),
     with: { lines: true },
@@ -101,7 +101,7 @@ export async function loadClearingReconciliation(
     entryIds.length > 0
       ? db.query.costEntries.findMany({
           where: and(
-            eq(costEntries.userId, userId),
+            eq(costEntries.organizationId, orgId),
             inArray(costEntries.id, entryIds)
           ),
           columns: {
@@ -116,20 +116,20 @@ export async function loadClearingReconciliation(
     db.query.costAllocationLines.findMany({
       with: {
         allocation: {
-          columns: { documentNo: true, userId: true, costComponentId: true },
+          columns: { documentNo: true, organizationId: true, costComponentId: true },
         },
       },
     }),
     db.query.arApDocuments.findMany({
       where: and(
-        eq(arApDocuments.userId, userId),
+        eq(arApDocuments.organizationId, orgId),
         inArray(arApDocuments.voucherId, voucherIds)
       ),
       columns: { voucherId: true, documentNo: true, documentType: true },
     }),
     db.query.cashDocuments.findMany({
       where: and(
-        eq(cashDocuments.userId, userId),
+        eq(cashDocuments.organizationId, orgId),
         inArray(cashDocuments.voucherId, voucherIds)
       ),
       columns: { voucherId: true, documentNo: true },
@@ -139,7 +139,7 @@ export async function loadClearingReconciliation(
   const entryById = new Map(entries.map((entry) => [entry.id, entry]));
   const allocationByEntry = new Map(
     allocationLines
-      .filter((line) => line.allocation?.userId === userId && line.costEntryId)
+      .filter((line) => line.allocation?.organizationId === orgId && line.costEntryId)
       .map((line) => [line.costEntryId!, line.allocation])
   );
   const apByVoucher = new Map(
@@ -167,7 +167,7 @@ export async function loadClearingReconciliation(
     movementIds.length > 0
       ? await db.query.inventoryMovements.findMany({
           where: and(
-            eq(inventoryMovements.userId, userId),
+            eq(inventoryMovements.organizationId, orgId),
             inArray(inventoryMovements.id, movementIds)
           ),
           columns: { id: true, documentNo: true },

@@ -5,7 +5,7 @@ import {
   segmentConfigs,
   reportLineMappings,
 } from "@/lib/db/schema";
-import { auth } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { eq, and, inArray } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
@@ -18,26 +18,25 @@ export default async function ReportsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const session = await auth();
-  const userId = session!.user!.id!;
+  const { orgId } = await getActiveOrg();
   const { start, end, report } = await searchParams;
   const period = await getPeriodSelection();
 
   const [vouchers, accounts, rawSegConfigs, balanceSheetMappings] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
-        eq(journalVouchers.userId, userId),
+        eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["posted", "reversed"])
       ),
       with: { lines: true },
     }),
     db.query.chartOfAccounts.findMany({
-      where: eq(chartOfAccounts.userId, userId),
+      where: eq(chartOfAccounts.organizationId, orgId),
     }),
-    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.userId, userId) }),
+    db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
     db.query.reportLineMappings.findMany({
       where: and(
-        eq(reportLineMappings.userId, userId),
+        eq(reportLineMappings.organizationId, orgId),
         eq(reportLineMappings.reportType, "balance-sheet")
       ),
     }),
