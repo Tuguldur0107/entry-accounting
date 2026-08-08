@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { FilterChips, PageTabs } from "@/components/ui/tabs";
 import {
   LoadingBlock,
   LoadingInline,
@@ -315,6 +316,14 @@ export function UiKitView() {
         </div>
       </Section>
 
+      {/* 4b. Таб + шүүлтүүрийн chip */}
+      <Section
+        title="Таб ба шүүлтүүр"
+        hint="Хуудасны доторх хэсгийн таб + статус шүүлтүүр — өөрийн markup бичихгүй, эндээс compose хийнэ."
+      >
+        <TabsDemo />
+      </Section>
+
       {/* 5. Form elements */}
       <Section title="Form элементүүд" hint="Input, Select, Switch, Skeleton.">
         <div className="grid gap-5 md:grid-cols-2">
@@ -490,6 +499,41 @@ export function UiKitView() {
       <IconKitView />
 
       <TableKitView />
+    </div>
+  );
+}
+
+// Демо — PageTabs/FilterChips-ийн амьд жишээ (components/ui/tabs.tsx).
+function TabsDemo() {
+  const [tab, setTab] = useState<"list" | "report" | "settings">("list");
+  const [chip, setChip] = useState<"all" | "draft" | "posted">("all");
+  return (
+    <div className="space-y-3">
+      <PageTabs
+        tabs={[
+          { value: "list", label: "Жагсаалт" },
+          { value: "report", label: "Тайлан" },
+          { value: "settings", label: "Тохиргоо", disabled: true },
+        ]}
+        value={tab}
+        onChange={setTab}
+        trailing={
+          <FilterChips
+            options={[
+              { value: "all", label: "Бүгд" },
+              { value: "draft", label: "Ноорог", count: 3, tone: "warning" },
+              { value: "posted", label: "Батлагдсан", count: 12 },
+            ]}
+            value={chip}
+            onChange={setChip}
+          />
+        }
+      />
+      <p className="text-xs" style={{ color: "var(--ea-text-4)" }}>
+        <code>components/ui/tabs.tsx</code> — <code>&lt;PageTabs size=&quot;sm|md&quot; trailing=…&gt;</code>{" "}
+        + <code>&lt;FilterChips count/tone=&quot;warning&quot;&gt;</code>. Хэрэглээ: AI тохиргоо,
+        касс/бараа/өртгийн жагсаалт, дансны тохиргоо, өртгийн тохиргоо.
+      </p>
     </div>
   );
 }

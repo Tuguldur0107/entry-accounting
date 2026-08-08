@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { PageTabs } from "@/components/ui/tabs";
 import { IconAction } from "@/components/ui/icon-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -606,27 +607,17 @@ export function AccountsTable({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-0 border-b border-[var(--ea-border)] mb-6">
-        {(["modules", "config", "values"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setMainTab(tab)}
-            className={cn(
-              "px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-              mainTab === tab
-                ? "border-[var(--ea-primary)] text-[var(--ea-primary)]"
-                : "border-transparent text-[var(--ea-text-4)] hover:text-[var(--ea-text-2)]"
-            )}
-          >
-            {tab === "modules"
-              ? "Модулийн тохиргоо"
-              : tab === "config"
-              ? "Сегментийн тохиргоо"
-              : "Сегментийн утгуудын жагсаалт"}
-          </button>
-        ))}
-      </div>
+      <PageTabs
+        className="mb-6"
+        size="md"
+        tabs={[
+          { value: "modules", label: "Модулийн тохиргоо" },
+          { value: "config", label: "Сегментийн тохиргоо" },
+          { value: "values", label: "Сегментийн утгуудын жагсаалт" },
+        ]}
+        value={mainTab}
+        onChange={setMainTab}
+      />
 
       <div className={cn(mainTab !== "modules" && "hidden")}>
         <div className="flex items-center justify-between mb-4">
@@ -744,26 +735,18 @@ export function AccountsTable({
       <div className={cn(mainTab !== "values" ? "hidden" : "flex min-h-0 flex-1 flex-col")}>
         <p className="text-xs text-[var(--ea-text-4)] mb-3">Идэвхтэй сегментийг сонгоод кодуудыг тохируулна уу.</p>
 
-        <div className="flex items-center gap-0 border-b border-[var(--ea-border)] mb-4 overflow-x-auto">
-          {SEGMENT_DEFS.filter(
+        <PageTabs
+          className="mb-4 flex-nowrap overflow-x-auto"
+          tabs={SEGMENT_DEFS.filter(
             (d) => localConfigs.find((c) => c.segmentId === d.id)?.isEnabled ?? true
-          ).map((def) => (
-            <button
-              key={def.id}
-              type="button"
-              onClick={() => switchTab(def.id)}
-              className={cn(
-                "px-4 py-2 text-xs font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
-                activeTab === def.id
-                  ? "border-[var(--ea-primary)] text-[var(--ea-primary)]"
-                  : "border-transparent text-[var(--ea-text-4)] hover:text-[var(--ea-text-2)]",
-                editMode && activeTab !== def.id && "opacity-40 cursor-not-allowed"
-              )}
-            >
-              S{def.id} {def.nameMn}
-            </button>
-          ))}
-        </div>
+          ).map((def) => ({
+            value: String(def.id),
+            label: `S${def.id} ${def.nameMn}`,
+            disabled: editMode && activeTab !== def.id,
+          }))}
+          value={String(activeTab)}
+          onChange={(value) => switchTab(Number(value))}
+        />
 
         {activeTabDef && enabledSegIds.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col">

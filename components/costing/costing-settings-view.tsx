@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
+import { PageTabs } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +44,6 @@ import {
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount } from "@/lib/reports/balances";
-import { cn } from "@/lib/utils";
 
 export type CostingSettingRow = {
   itemId: string;
@@ -147,23 +147,7 @@ export function CostingSettingsView({
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-1">
-        {TABS.map((entry) => (
-          <button
-            key={entry.value}
-            type="button"
-            onClick={() => setTab(entry.value)}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-              tab === entry.value
-                ? "bg-[var(--ea-primary)] text-white"
-                : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
-            )}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
+      <PageTabs tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === "accounts" && (
         <AccountRolesSection

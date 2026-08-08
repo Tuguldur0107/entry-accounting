@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
+import { FilterChips, PageTabs } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -541,58 +542,39 @@ export function InventoryMovementsView({
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-0 gap-y-1.5 border-b border-[var(--ea-border)]">
-        {TYPE_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => changeParam("type", tab.value)}
-            className={cn(
-              "-mb-px border-b-2 px-4 py-2 text-xs font-medium transition-colors",
-              activeTab === tab.value
-                ? "border-[var(--ea-primary)] text-[var(--ea-primary)]"
-                : "border-transparent text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
+      <PageTabs
+        tabs={TYPE_TABS}
+        value={activeTab}
+        onChange={(value) => changeParam("type", value)}
+        trailing={
+          <>
+            <FilterChips
+              options={STATUS_TABS.map((chip) => ({
+                ...chip,
+                count:
+                  chip.value !== "all" ? statusCounts[chip.value] : undefined,
+                tone:
+                  chip.value === "draft" && statusCounts.draft > 0
+                    ? ("warning" as const)
+                    : undefined,
+              }))}
+              value={activeStatus}
+              onChange={(value) => changeParam("status", value)}
+            />
+            {selectedDrafts.length > 0 && (
+              <Button
+                size="sm"
+                className="ml-1.5 h-7"
+                onClick={handleBatchConfirm}
+                disabled={isPending}
+              >
+                <Icon name="approveAll" />
+                Сонгосныг батлах ({selectedDrafts.length})
+              </Button>
             )}
-          >
-            {tab.label}
-          </button>
-        ))}
-        <div className="ml-auto flex items-center gap-1.5 pb-1.5 pl-3">
-          {STATUS_TABS.map((chip) => (
-            <button
-              key={chip.value}
-              type="button"
-              onClick={() => changeParam("status", chip.value)}
-              className={cn(
-                "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                activeStatus === chip.value
-                  ? "border-[var(--ea-primary)] bg-[var(--ea-primary-50)] text-[var(--ea-primary)]"
-                  : "border-[var(--ea-border)] text-[var(--ea-text-3)] hover:border-[var(--ea-border-strong)] hover:text-[var(--ea-text-1)]",
-                chip.value === "draft" &&
-                  statusCounts.draft > 0 &&
-                  activeStatus !== "draft" &&
-                  "border-[var(--ea-warning)] text-[var(--ea-warning-fg)]"
-              )}
-            >
-              {chip.label}
-              {chip.value !== "all" && statusCounts[chip.value] > 0 && (
-                <span className="ml-1 font-mono">{statusCounts[chip.value]}</span>
-              )}
-            </button>
-          ))}
-          {selectedDrafts.length > 0 && (
-            <Button
-              size="sm"
-              className="ml-1.5 h-7"
-              onClick={handleBatchConfirm}
-              disabled={isPending}
-            >
-              <Icon name="approveAll" />
-              Сонгосныг батлах ({selectedDrafts.length})
-            </Button>
-          )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {visibleMovements.length === 0 ? (
         <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">

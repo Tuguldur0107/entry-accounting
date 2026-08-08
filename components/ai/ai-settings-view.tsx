@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { PageTabs } from "@/components/ui/tabs";
 import {
   removeAiApiKey,
   removeAiOpenAiApiKey,
@@ -250,29 +251,16 @@ export function AiSettingsView({
       </div>
 
       <div className="max-w-2xl space-y-4">
-        {/* Таб — гурван бүлэг тохиргоо нэг хуудсанд */}
-        <div
-          className="inline-flex h-8 items-center gap-0.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-0.5"
-          role="tablist"
-          aria-label="Тохиргооны бүлэг"
-        >
-          {SETTINGS_TABS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === entry.id}
-              onClick={() => setTab(entry.id)}
-              className={
-                tab === entry.id
-                  ? "rounded bg-[var(--ea-primary)] px-2.5 py-1 text-xs font-semibold text-white transition-colors"
-                  : "rounded px-2.5 py-1 text-xs font-semibold text-[var(--ea-text-3)] transition-colors hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
-              }
-            >
-              {entry.label}
-            </button>
-          ))}
-        </div>
+        {/* Таб — гурван бүлэг тохиргоо нэг хуудсанд (системийн стандарт PageTabs) */}
+        <PageTabs
+          tabs={SETTINGS_TABS.map((entry) => ({
+            value: entry.id,
+            label: entry.label,
+          }))}
+          value={tab}
+          onChange={setTab}
+          ariaLabel="Тохиргооны бүлэг"
+        />
 
         {tab === "keys" && (
           <>
