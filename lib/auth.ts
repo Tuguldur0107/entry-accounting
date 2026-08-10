@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import {
   memberships,
@@ -156,9 +157,13 @@ export async function getActiveOrg(): Promise<ActiveOrg> {
       where: eq(users.id, userId),
       columns: { name: true, email: true },
     });
+    // Session нь хүчинтэй ч хэрэглэгч нь DB-ээс устсан (ghost session) —
+    // personal org үүсгэх гэж FK-гаар унахын оронд cookie цэвэрлэх route
+    // руу чиглүүлнэ (/login руу шууд буцаавал proxy эргүүлж loop үүсгэнэ).
+    if (!user) redirect("/api/auth/ghost");
     const orgId = await createPersonalOrg(
       userId,
-      user?.name || user?.email?.split("@")[0] || "Миний байгууллага"
+      user.name || user.email?.split("@")[0] || "Миний байгууллага"
     );
     return { orgId, userId, role: "owner" };
   }

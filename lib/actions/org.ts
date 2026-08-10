@@ -16,6 +16,8 @@ import {
 } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  auditEvents,
+  companySettings,
   memberships,
   organizations,
   orgInvitations,
@@ -28,12 +30,19 @@ const ROLES: MembershipRole[] = ["owner", "admin", "accountant", "viewer"];
 
 export type OrgSummary = { id: string; name: string; role: MembershipRole };
 
+/** Удирдлага хуудасны зүүн жагсаалтад — гишүүдийн тоотой. */
+export type OrgOverview = OrgSummary & {
+  registryNo: string | null;
+  memberCount: number;
+};
+
 export type OrgMemberView = {
   membershipId: string;
   userId: string;
   name: string;
   email: string;
   role: MembershipRole;
+  joinedAt: string;
 };
 
 export type OrgInvitationView = {
@@ -49,7 +58,7 @@ export type OrgSettingsData = {
   myRole: MembershipRole;
   members: OrgMemberView[];
   invitations: OrgInvitationView[];
-  myOrgs: OrgSummary[];
+  myOrgs: OrgOverview[];
 };
 
 function inviteUrl(token: string) {
@@ -63,42 +72,62 @@ function inviteUrl(token: string) {
 export async function getOrgSettingsData(): Promise<OrgSettingsData> {
   const { orgId, userId, role } = await getActiveOrg();
 
-  const [org, memberRows, myMemberships, invitationRows] = await Promise.all([
-    db.query.organizations.findFirst({
-      where: eq(organizations.id, orgId),
-      columns: { id: true, name: true, registryNo: true },
-    }),
-    db
-      .select({
-        membershipId: memberships.id,
-        userId: memberships.userId,
-        role: memberships.role,
-        name: users.name,
-        email: users.email,
-      })
-      .from(memberships)
-      .innerJoin(users, eq(memberships.userId, users.id))
-      .where(eq(memberships.organizationId, orgId))
-      .orderBy(asc(memberships.createdAt)),
-    db
-      .select({
-        id: organizations.id,
-        name: organizations.name,
-        role: memberships.role,
-      })
-      .from(memberships)
-      .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
-      .where(eq(memberships.userId, userId))
-      .orderBy(asc(memberships.createdAt)),
-    db.query.orgInvitations.findMany({
-      where: and(
-        eq(orgInvitations.organizationId, orgId),
-        sql`${orgInvitations.acceptedAt} is null`
-      ),
-      orderBy: [asc(orgInvitations.createdAt)],
-    }),
-  ]);
+  const [org, memberRows, myMemberships, invitationRows, memberCounts] =
+    await Promise.all([
+      db.query.organizations.findFirst({
+        where: eq(organizations.id, orgId),
+        columns: { id: true, name: true, registryNo: true },
+      }),
+      db
+        .select({
+          membershipId: memberships.id,
+          userId: memberships.userId,
+          role: memberships.role,
+          joinedAt: memberships.createdAt,
+          name: users.name,
+          email: users.email,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .where(eq(memberships.organizationId, orgId))
+        .orderBy(asc(memberships.createdAt)),
+      db
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+          registryNo: organizations.registryNo,
+          role: memberships.role,
+        })
+        .from(memberships)
+        .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
+        .where(eq(memberships.userId, userId))
+        .orderBy(asc(memberships.createdAt)),
+      db.query.orgInvitations.findMany({
+        where: and(
+          eq(orgInvitations.organizationId, orgId),
+          sql`${orgInvitations.acceptedAt} is null`
+        ),
+        orderBy: [asc(orgInvitations.createdAt)],
+      }),
+      // Миний байгууллага бүрийн гишүүдийн тоо — зүүн жагсаалтад.
+      db
+        .select({
+          organizationId: memberships.organizationId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(memberships)
+        .where(
+          sql`${memberships.organizationId} in (
+            select organization_id from memberships where user_id = ${userId}
+          )`
+        )
+        .groupBy(memberships.organizationId),
+    ]);
   if (!org) throw new Error("Байгууллага олдсонгүй");
+
+  const countByOrg = new Map(
+    memberCounts.map((row) => [row.organizationId, row.count])
+  );
 
   return {
     org,
@@ -109,6 +138,7 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
       name: row.name,
       email: row.email,
       role: row.role as MembershipRole,
+      joinedAt: row.joinedAt.toISOString().slice(0, 10),
     })),
     invitations: invitationRows.map((row) => ({
       id: row.id,
@@ -120,7 +150,52 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
     myOrgs: myMemberships.map((row) => ({
       id: row.id,
       name: row.name,
+      registryNo: row.registryNo,
       role: row.role as MembershipRole,
+      memberCount: countByOrg.get(row.id) ?? 1,
+    })),
+  };
+}
+
+/** Гишүүний профайл — мэдээлэл + энэ байгууллага дахь сүүлийн үйлдлүүд. */
+export async function getMemberDetail(membershipId: string) {
+  const { orgId } = await getActiveOrg();
+  const [row] = await db
+    .select({
+      membershipId: memberships.id,
+      userId: memberships.userId,
+      role: memberships.role,
+      joinedAt: memberships.createdAt,
+      name: users.name,
+      email: users.email,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(memberships.userId, users.id))
+    .where(
+      and(eq(memberships.id, membershipId), eq(memberships.organizationId, orgId))
+    );
+  if (!row) throw new Error("Гишүүн олдсонгүй");
+
+  const events = await db.query.auditEvents.findMany({
+    where: and(
+      eq(auditEvents.organizationId, orgId),
+      eq(auditEvents.userId, row.userId)
+    ),
+    orderBy: [sql`${auditEvents.createdAt} desc`],
+    limit: 8,
+  });
+
+  return {
+    name: row.name,
+    email: row.email,
+    role: row.role as MembershipRole,
+    joinedAt: row.joinedAt.toISOString().slice(0, 10),
+    recentEvents: events.map((event) => ({
+      id: event.id,
+      action: event.action,
+      entityType: event.entityType,
+      summary: event.summary,
+      at: event.createdAt.toISOString().slice(0, 16).replace("T", " "),
     })),
   };
 }
@@ -175,9 +250,18 @@ export async function switchOrganization(orgId: string) {
 }
 
 /** Шинэ байгууллага үүсгээд шууд түүн рүү шилжинэ. */
+/**
+ * Шинэ байгууллага (компани) бүртгэх — үүсгэсэн хүн owner болж, шинэ
+ * байгууллага идэвхтэй болно. Реквизит нь компанийн мэдээлэлд (нэхэмжлэх,
+ * тайланд хэрэглэгддэг company_settings) хамт хадгалагдана.
+ */
 export async function createOrganization(data: {
   name: string;
   registryNo?: string;
+  vatPayerNo?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
 }) {
   const session = await auth();
   const userId = session?.user?.id;
@@ -185,12 +269,30 @@ export async function createOrganization(data: {
   const name = data.name.trim();
   if (!name) throw new Error("Байгууллагын нэр оруулна уу");
 
+  const clean = (value?: string) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  };
+
   const orgId = await createPersonalOrg(userId, name);
-  if (data.registryNo?.trim())
+  if (clean(data.registryNo))
     await db
       .update(organizations)
-      .set({ registryNo: data.registryNo.trim() })
+      .set({ registryNo: clean(data.registryNo) })
       .where(eq(organizations.id, orgId));
+
+  // Реквизитийг компанийн мэдээлэлд шууд суулгана — Тохиргоо → Компанийн
+  // мэдээлэл хуудсанд бэлэн бөглөгдсөн байх ба нэхэмжлэхэд шууд хэрэглэгдэнэ.
+  await db.insert(companySettings).values({
+    userId,
+    organizationId: orgId,
+    name,
+    registerNo: clean(data.registryNo),
+    vatPayerNo: clean(data.vatPayerNo),
+    address: clean(data.address),
+    phone: clean(data.phone),
+    email: clean(data.email),
+  });
 
   (await cookies()).set(ORG_COOKIE, orgId, {
     path: "/",
