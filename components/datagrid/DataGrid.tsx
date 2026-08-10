@@ -34,6 +34,15 @@ ensureGridRegistered();
 // өмнөхийнх нь арилна.
 let clearActiveRange: (() => void) | null = null;
 
+function isFillDownShortcut(event: KeyboardEvent): boolean {
+  return (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.code === "KeyD" || event.key.toLowerCase() === "d")
+  );
+}
+
 interface CellRange {
   /** Дэлгэцийн мөрийн индексийн муж [эхлэл, төгсгөл]. */
   rows: [number, number];
@@ -222,6 +231,53 @@ function DataGridInner<TData>(
     onCellClicked?.(event);
   }
 
+  function handleGridKeyDownCapture(
+    event: React.KeyboardEvent<HTMLDivElement>
+  ) {
+    const api = apiRef.current;
+    if (!api || api.isDestroyed() || !isFillDownShortcut(event.nativeEvent)) {
+      return;
+    }
+
+    const focusedCell = api.getFocusedCell();
+    if (!focusedCell) return;
+
+    // Browser bookmark болон AG Grid-ийн дараагийн keyboard handler-ийг зогсооно.
+    // Хуулалтыг энд шууд хийх тул custom editor event bubble хийхээс хамаарахгүй.
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (focusedCell.rowPinned || focusedCell.rowIndex <= 0) return;
+
+    const currentRow = api.getDisplayedRowAtIndex(focusedCell.rowIndex);
+    const previousRow = api.getDisplayedRowAtIndex(focusedCell.rowIndex - 1);
+    if (
+      !currentRow ||
+      !previousRow ||
+      currentRow.rowPinned ||
+      previousRow.rowPinned ||
+      currentRow.data === undefined ||
+      previousRow.data === undefined ||
+      !focusedCell.column.isCellEditable(currentRow)
+    ) {
+      return;
+    }
+
+    const previousValue = api.getCellValue({
+      rowNode: previousRow,
+      colKey: focusedCell.column,
+    });
+
+    // Editor нээлттэй бол бичиж байсан түр утгыг цуцлаад өмнөх мөрийн утгыг тавина.
+    api.stopEditing(true);
+    currentRow.setDataValue(focusedCell.column, previousValue, "edit");
+    api.setFocusedCell(
+      focusedCell.rowIndex,
+      focusedCell.column,
+      focusedCell.rowPinned
+    );
+  }
+
   // Ctrl/Cmd+C — сонгосон мужийг TSV болгож clipboard-д тавина (Excel paste-д
   // бэлэн); Esc — сонголтыг арилгана. Editor нээлттэй (input фокустай) үед
   // хөндөхгүй.
@@ -331,6 +387,7 @@ function DataGridInner<TData>(
   return (
     <div
       className={`ea-data-grid${wrapperClassName ? ` ${wrapperClassName}` : ""}`}
+      onKeyDownCapture={handleGridKeyDownCapture}
       style={
         {
           flex: isFlex ? "1 1 auto" : undefined,
