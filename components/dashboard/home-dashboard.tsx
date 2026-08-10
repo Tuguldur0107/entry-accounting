@@ -66,7 +66,6 @@ const QUICK_ACTIONS: {
 ];
 
 export function HomeDashboard({
-  userName,
   periodCode,
   periodStatus,
   totalDebit,
@@ -77,7 +76,6 @@ export function HomeDashboard({
   alerts,
   recent,
 }: {
-  userName: string;
   periodCode: string;
   periodStatus: "open" | "closed" | "missing";
   totalDebit: number;
@@ -99,11 +97,10 @@ export function HomeDashboard({
       <div className="flex flex-col items-start justify-between gap-3 xl:flex-row xl:items-center">
         <div>
           <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            {userName ? `${userName} — системийн хяналт` : "Системийн хяналт"}
+            Хяналтын самбар
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            {fmtPeriodCode(periodCode)} · бүх модулийн нэгдсэн байдал —
-            хавтан дээр дарж тухайн модуль руу орно
+            {fmtPeriodCode(periodCode)} · бүх модулийн нэгдсэн байдал
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

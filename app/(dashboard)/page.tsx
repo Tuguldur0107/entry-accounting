@@ -17,7 +17,7 @@ import {
   type HomeModuleTile,
   type HomeRecentRow,
 } from "@/components/dashboard/home-dashboard";
-import { auth, getActiveOrg } from "@/lib/auth";
+import { getActiveOrg } from "@/lib/auth";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import { db } from "@/lib/db";
 import {
@@ -36,7 +36,6 @@ import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
 export default async function HomePage() {
-  const session = await auth();
   const { orgId } = await getActiveOrg();
   const { periodCode, today } = await getPeriodSelection();
 
@@ -350,7 +349,6 @@ export default async function HomePage() {
 
   return (
     <HomeDashboard
-      userName={session!.user!.name ?? ""}
       periodCode={periodCode}
       periodStatus={periodStatus}
       totalDebit={round2(totalDebit)}
