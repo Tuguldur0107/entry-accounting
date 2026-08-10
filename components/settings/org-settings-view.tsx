@@ -225,8 +225,10 @@ export function OrgSettingsView({
         </Button>
       </aside>
 
-      {/* ── Баруун: идэвхтэй байгууллагын дэлгэрэнгүй ──────────────────── */}
-      <div className="min-w-0 max-w-3xl flex-1 space-y-6">
+      {/* ── Баруун: идэвхтэй байгууллагын дэлгэрэнгүй ──────────────────────
+          max-w-2xl — компанийн формын хэсгүүдтэй ИЖИЛ өргөн: гишүүдийн
+          хүснэгт, урилга, аюултай бүс бүгд нэг ирмэгээр зэрэгцэнэ. */}
+      <div className="min-w-0 max-w-2xl flex-1 space-y-6">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold">{data.org.name}</h2>
