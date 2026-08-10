@@ -6,8 +6,7 @@ import {
   type CashReconciliationRow,
 } from "@/components/cash/cash-reconciliation-workspace";
 import { getActiveOrg } from "@/lib/auth";
-import { calculateCashBalances } from "@/lib/cash/balances";
-import { reconciliationStatus } from "@/lib/cash/reconciliation";
+import { computeCashCoreRows, glMainNumber } from "@/lib/cash/reconciliation";
 import { db } from "@/lib/db";
 import {
   bankStatements,
@@ -88,66 +87,15 @@ export default async function CashReconciliationPage({
       }),
     ]);
 
-  const cashBalanceMap = calculateCashBalances(accounts, documents);
-  // GL үлдэгдлийг ДАНСНЫ ДУГААРААР тоолно (cashAccountId холбоосоор БИШ) —
-  // гараар/AI-гаар бичсэн журнал холбоосгүй байдаг тул холбоосоор тоолбол
-  // тэдгээр нь GL талд "алга болж" хий зөрүү үзүүлдэг байсан. Дугаараар
-  // тоолсноор энэ хуудас reconcile_modules tool-той ИЖИЛ үнэнийг харуулна.
-  const glByMain = new Map<string, number>();
-  for (const voucher of vouchers) {
-    // "reversed" журнал GL-д тооцогдсон хэвээр байдаг (GL тайлантай ижил):
-    // эх бичилт + posted буцаалт нь хоорондоо нэт 0 болдог. Reversed-ийг
-    // алгасвал буцаалт нь дан ганцаараа орж, буцаасан гүйлгээ бүр хий
-    // зөрүү үүсгэдэг байсан.
-    for (const line of voucher.lines) {
-      const parts = line.accountNumber.split(".");
-      const main = parts.length === 10 ? parts[2] : line.accountNumber;
-      glByMain.set(
-        main,
-        (glByMain.get(main) ?? 0) + Number(line.debit) - Number(line.credit)
-      );
-    }
-  }
-  const glBalanceMap = new Map<string, number>(
-    accounts.map((account) => [
-      account.id,
-      Math.round((glByMain.get(account.glAccountNumber) ?? 0) * 100) / 100,
-    ])
-  );
-
-  const latestBankBalance = new Map<
-    string,
-    { date: string; evidenceDate: string; rowNumber: number; balance: number }
-  >();
-  for (const statement of statements) {
-    for (const line of statement.lines) {
-      if (line.transactionDate > asOf || line.balance == null) continue;
-      const current = latestBankBalance.get(statement.cashAccountId);
-      if (
-        !current ||
-        line.transactionDate > current.date ||
-        (line.transactionDate === current.date &&
-          line.rowNumber > current.rowNumber)
-      ) {
-        latestBankBalance.set(statement.cashAccountId, {
-          date: line.transactionDate,
-          evidenceDate:
-            statement.periodEnd && statement.periodEnd <= asOf
-              ? statement.periodEnd
-              : line.transactionDate,
-          rowNumber: line.rowNumber,
-          balance: Number(line.balance),
-        });
-      }
-    }
-  }
-
-  const latestFxRate = new Map<string, (typeof fxRevaluations)[number]>();
-  for (const revaluation of fxRevaluations) {
-    if (revaluation.status !== "posted") continue;
-    if (!latestFxRate.has(revaluation.cashAccountId))
-      latestFxRate.set(revaluation.cashAccountId, revaluation);
-  }
+  // Данс бүрийн үлдэгдэл/зөрүү/статус — хяналтын самбартай ХАМТЫН цөм.
+  const coreRows = computeCashCoreRows({
+    accounts,
+    documents,
+    vouchers,
+    statements,
+    fxRevaluations,
+    asOf,
+  });
 
   // Данс бүрийн НООРОГ баримтууд — зөрүүний оношилгоонд:
   //   - GL-ээс үүссэн (sourceVoucherId-тэй) ноорог: журнал нь GL-д аль
@@ -216,8 +164,7 @@ export default async function CashReconciliationPage({
     // харах боломжтой (дээрх glByMain-тай ижил дүрэм).
     const byMain = new Map<string, number>();
     for (const line of voucher.lines) {
-      const parts = line.accountNumber.split(".");
-      const main = parts.length === 10 ? parts[2] : line.accountNumber;
+      const main = glMainNumber(line.accountNumber);
       byMain.set(main, (byMain.get(main) ?? 0) + Number(line.debit) - Number(line.credit));
     }
     for (const [main, effect] of byMain) {
@@ -267,32 +214,8 @@ export default async function CashReconciliationPage({
     b.date.localeCompare(a.date);
 
   const rows: CashReconciliationRow[] = accounts.map((account) => {
-    const cashBalance = cashBalanceMap.get(account.id) ?? 0;
-    const glBalance = glBalanceMap.get(account.id) ?? 0;
-    const statementBalance = latestBankBalance.get(account.id);
-    const rateRow = latestFxRate.get(account.id);
-    const closingRate =
-      account.currency === "MNT"
-        ? 1
-        : rateRow
-          ? Number(rateRow.closingRate)
-          : null;
-    // 0 үлдэгдэлтэй валютын дансанд ханш хамаагүй (0 × ямар ч ханш = 0) —
-    // "Ханш дутуу" гэж дэмий сануулахгүй.
-    const cashBalanceMnt =
-      cashBalance === 0
-        ? 0
-        : closingRate == null
-          ? null
-          : Math.round(cashBalance * closingRate * 100) / 100;
-    const cashToGlDifference =
-      cashBalanceMnt == null
-        ? null
-        : Math.round((cashBalanceMnt - glBalance) * 100) / 100;
-    const bankToCashDifference =
-      statementBalance == null
-        ? null
-        : Math.round((statementBalance.balance - cashBalance) * 100) / 100;
+    const core = coreRows.get(account.id)!;
+    const rateRow = core.rateRow;
 
     return {
       id: account.id,
@@ -301,19 +224,19 @@ export default async function CashReconciliationPage({
       accountType: account.accountType,
       currency: account.currency,
       glAccountNumber: account.glAccountNumber,
-      cashBalance,
-      bankBalance: statementBalance?.balance ?? null,
-      bankBalanceDate: statementBalance?.evidenceDate ?? null,
-      closingRate,
+      cashBalance: core.cashBalance,
+      bankBalance: core.bankBalance,
+      bankBalanceDate: core.bankBalanceDate,
+      closingRate: core.closingRate,
       rateSource: rateRow?.rateSource ?? null,
       rateBasis: rateRow?.rateBasis ?? null,
       sourceDate: rateRow?.sourceDate ?? null,
       sourceUrl: rateRow?.sourceUrl ?? null,
       fetchedAt: rateRow?.fetchedAt?.toISOString() ?? null,
-      cashBalanceMnt,
-      glBalance,
-      bankToCashDifference,
-      cashToGlDifference,
+      cashBalanceMnt: core.cashBalanceMnt,
+      glBalance: core.glBalance,
+      bankToCashDifference: core.bankToCashDifference,
+      cashToGlDifference: core.cashToGlDifference,
       openingBalance: Number(account.openingBalance ?? 0),
       pendingDrafts: pendingDraftsByAccount.get(account.id) ?? [],
       details: {
@@ -334,20 +257,7 @@ export default async function CashReconciliationPage({
         gl: (glDetailByMain.get(account.glAccountNumber) ?? []).sort(byDateDesc),
         bank: (bankDetailByAccount.get(account.id) ?? []).sort(byDateDesc),
       },
-      status:
-        // Юу ч хөдлөөгүй хоосон данс — тулгах зүйл алга, "тэнцсэн" гэж үзнэ
-        // (0 үлдэгдэлтэй валютын данс "Ханш дутуу"/"Хуулгагүй" гэж дэмий
-        // сануулахгүй).
-        cashBalance === 0 && Math.abs(glBalance) <= 0.01 && statementBalance == null
-          ? ("balanced" as const)
-          : reconciliationStatus(
-              cashToGlDifference,
-              bankToCashDifference,
-              account.currency === "MNT" ||
-                closingRate != null ||
-                cashBalance === 0,
-              statementBalance == null || statementBalance.evidenceDate === asOf
-            ),
+      status: core.status,
     };
   });
 

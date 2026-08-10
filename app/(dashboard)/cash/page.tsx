@@ -2,8 +2,10 @@ import { and, desc, eq, inArray, lte } from "drizzle-orm";
 
 import { CashDashboard } from "@/components/cash/cash-dashboard";
 import { getActiveOrg } from "@/lib/auth";
-import { calculateCashBalances } from "@/lib/cash/balances";
-import { reconciliationStatus } from "@/lib/cash/reconciliation";
+import {
+  computeCashCoreRows,
+  type CashCoreRow,
+} from "@/lib/cash/reconciliation";
 import type {
   CashAccountView,
   CashDocumentView,
@@ -25,26 +27,19 @@ function todayInUlaanbaatar() {
     .slice(0, 10);
 }
 
-function classifyHealthStatus(
-  cashBalance: number,
-  cashToGlDifference: number | null,
-  bankToCashDifference: number | null,
-  hasRate: boolean,
-  isStatementCurrent: boolean
-): CashHealthStatus {
-  if (cashBalance < -0.01) return "negative";
-  const status = reconciliationStatus(
-    cashToGlDifference,
-    bankToCashDifference,
-    hasRate,
-    isStatementCurrent
-  );
-  if (status === "exception") {
-    if (cashToGlDifference != null && Math.abs(cashToGlDifference) > 0.01)
+// Тулгалт хуудасны цөм статусыг самбарын нарийвчилсан төлөвт хөрвүүлнэ:
+// сөрөг үлдэгдэл түрүүлж анхааруулна, "exception"-ыг аль тал зөрснөөр задална.
+function classifyHealthStatus(core: CashCoreRow): CashHealthStatus {
+  if (core.cashBalance < -0.01) return "negative";
+  if (core.status === "exception") {
+    if (
+      core.cashToGlDifference != null &&
+      Math.abs(core.cashToGlDifference) > 0.01
+    )
       return "cash-gl-diff";
     return "bank-cash-diff";
   }
-  return status;
+  return core.status;
 }
 
 function healthAction(status: CashHealthStatus) {
@@ -140,11 +135,21 @@ export default async function CashDashboardPage() {
     }),
   ]);
 
-  const balanceMap = calculateCashBalances(accounts, documents);
+  // Данс бүрийн үлдэгдэл/зөрүү/статус — тулгалт хуудастай ХАМТЫН цөм
+  // (өмнө нь хоёр хуудас тус тусдаа тооцоод зөрдөг байсан).
+  const coreRows = computeCashCoreRows({
+    accounts,
+    documents,
+    vouchers,
+    statements,
+    fxRevaluations,
+    asOf,
+  });
+
   const accountViews: CashAccountView[] = accounts.map((account) => ({
     ...account,
     openingBalance: Number(account.openingBalance),
-    balance: balanceMap.get(account.id) ?? 0,
+    balance: coreRows.get(account.id)?.cashBalance ?? 0,
   }));
   const documentViews: CashDocumentView[] = documents.map((document) => ({
     id: document.id,
@@ -192,53 +197,6 @@ export default async function CashDashboardPage() {
     )
     .reduce((sum, document) => sum + Number(document.amount), 0);
 
-  const glBalanceMap = new Map<string, number>();
-  for (const voucher of vouchers) {
-    for (const line of voucher.lines) {
-      if (!line.cashAccountId) continue;
-      glBalanceMap.set(
-        line.cashAccountId,
-        (glBalanceMap.get(line.cashAccountId) ?? 0) +
-          Number(line.debit) -
-          Number(line.credit)
-      );
-    }
-  }
-
-  const latestBankBalance = new Map<
-    string,
-    { date: string; evidenceDate: string; rowNumber: number; balance: number }
-  >();
-  for (const statement of statements) {
-    for (const line of statement.lines) {
-      if (line.transactionDate > asOf || line.balance == null) continue;
-      const current = latestBankBalance.get(statement.cashAccountId);
-      if (
-        !current ||
-        line.transactionDate > current.date ||
-        (line.transactionDate === current.date &&
-          line.rowNumber > current.rowNumber)
-      ) {
-        latestBankBalance.set(statement.cashAccountId, {
-          date: line.transactionDate,
-          evidenceDate:
-            statement.periodEnd && statement.periodEnd <= asOf
-              ? statement.periodEnd
-              : line.transactionDate,
-          rowNumber: line.rowNumber,
-          balance: Number(line.balance),
-        });
-      }
-    }
-  }
-
-  const latestFxRate = new Map<string, (typeof fxRevaluations)[number]>();
-  for (const revaluation of fxRevaluations) {
-    if (revaluation.status !== "posted") continue;
-    if (!latestFxRate.has(revaluation.cashAccountId))
-      latestFxRate.set(revaluation.cashAccountId, revaluation);
-  }
-
   const chronologicalDocuments = [...documents]
     .filter((document) => document.status === "posted" && document.date <= asOf)
     .sort((a, b) => {
@@ -277,35 +235,8 @@ export default async function CashDashboardPage() {
       }
     }
 
-    const cashBalance = balanceMap.get(account.id) ?? 0;
-    const glBalance = glBalanceMap.get(account.id) ?? 0;
-    const statementBalance = latestBankBalance.get(account.id);
-    const rateRow = latestFxRate.get(account.id);
-    const closingRate =
-      account.currency === "MNT"
-        ? 1
-        : rateRow
-          ? Number(rateRow.closingRate)
-          : null;
-    const cashBalanceMnt =
-      closingRate == null
-        ? null
-        : Math.round(cashBalance * closingRate * 100) / 100;
-    const cashToGlDifference =
-      cashBalanceMnt == null
-        ? null
-        : Math.round((cashBalanceMnt - glBalance) * 100) / 100;
-    const bankToCashDifference =
-      statementBalance == null
-        ? null
-        : Math.round((statementBalance.balance - cashBalance) * 100) / 100;
-    const status = classifyHealthStatus(
-      cashBalance,
-      cashToGlDifference,
-      bankToCashDifference,
-      account.currency === "MNT" || closingRate != null,
-      statementBalance == null || statementBalance.evidenceDate === asOf
-    );
+    const core = coreRows.get(account.id)!;
+    const status = classifyHealthStatus(core);
     const action = healthAction(status);
 
     return {
@@ -317,13 +248,13 @@ export default async function CashDashboardPage() {
       openingBalance: Number(account.openingBalance),
       receipts,
       payments,
-      cashBalance,
-      cashBalanceMnt,
-      glBalance,
-      bankBalance: statementBalance?.balance ?? null,
-      bankBalanceDate: statementBalance?.evidenceDate ?? null,
-      cashToGlDifference,
-      bankToCashDifference,
+      cashBalance: core.cashBalance,
+      cashBalanceMnt: core.cashBalanceMnt,
+      glBalance: core.glBalance,
+      bankBalance: core.bankBalance,
+      bankBalanceDate: core.bankBalanceDate,
+      cashToGlDifference: core.cashToGlDifference,
+      bankToCashDifference: core.bankToCashDifference,
       status,
       actionLabel: action.actionLabel,
       actionHref: action.actionHref,
