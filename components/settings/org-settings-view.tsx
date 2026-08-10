@@ -8,7 +8,6 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { toast } from "sonner";
 import type { ColDef, RowDoubleClickedEvent } from "ag-grid-community";
 
@@ -27,6 +26,7 @@ import { Icon } from "@/components/ui/icon";
 import { LoadingInline } from "@/components/ui/loading";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { CompanySettingsForm } from "@/components/settings/company-settings-form";
 import {
   cancelInvitation,
   createOrganization,
@@ -37,11 +37,10 @@ import {
   removeMember,
   switchOrganization,
   updateMemberRole,
-  updateOrganization,
   type OrgMemberView,
   type OrgSettingsData,
 } from "@/lib/actions/org";
-import type { MembershipRole } from "@/lib/db/schema";
+import type { CompanySettings, MembershipRole } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<MembershipRole, string> = {
@@ -53,7 +52,13 @@ const ROLE_LABELS: Record<MembershipRole, string> = {
 
 const INVITABLE_ROLES: MembershipRole[] = ["admin", "accountant", "viewer"];
 
-export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
+export function OrgSettingsView({
+  data,
+  companySettings,
+}: {
+  data: OrgSettingsData;
+  companySettings: CompanySettings | null;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
@@ -234,13 +239,11 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
           </p>
         </div>
 
-        <OrgInfoCard
-          key={data.org.id}
-          org={data.org}
-          canManage={canManage}
-          isPending={isPending}
-          act={act}
-        />
+        {/* Компанийн бүрэн мэдээлэл (реквизит, данс, лого, тамга, гарын үсэг) —
+            /settings/company-тэй НЭГ форм. Нэр/регистр хадгалахад байгууллагын
+            нэр/ТТД мөн шинэчлэгдэнэ. Байгууллага солиход key-гээр шинээр
+            mount хийгдэж тухайн байгууллагын утга ачаална. */}
+        <CompanySettingsForm key={data.org.id} initial={companySettings} />
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -461,72 +464,6 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-// ── Идэвхтэй байгууллагын мэдээлэл ─────────────────────────────────────────
-
-function OrgInfoCard({
-  org,
-  canManage,
-  isPending,
-  act,
-}: {
-  org: { name: string; registryNo: string | null };
-  canManage: boolean;
-  isPending: boolean;
-  act: (fn: () => Promise<void>, success: string) => void;
-}) {
-  const [name, setName] = useState(org.name);
-  const [registryNo, setRegistryNo] = useState(org.registryNo ?? "");
-
-  return (
-    <div
-      className="space-y-3 rounded-lg border p-4"
-      style={{ borderColor: "var(--ea-border)", background: "var(--ea-surface)" }}
-    >
-      <h3 className="text-sm font-semibold">Мэдээлэл</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <Label>Нэр</Label>
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            disabled={!canManage}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label>ТТД</Label>
-          <Input
-            value={registryNo}
-            onChange={(event) => setRegistryNo(event.target.value)}
-            disabled={!canManage}
-          />
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {canManage ? (
-          <Button
-            size="sm"
-            disabled={isPending || !name.trim()}
-            onClick={() =>
-              act(() => updateOrganization({ name, registryNo }), "Хадгалагдлаа")
-            }
-          >
-            Хадгалах
-          </Button>
-        ) : (
-          <span />
-        )}
-        <Link
-          href="/settings/company"
-          className="text-xs underline"
-          style={{ color: "var(--ea-text-3)" }}
-        >
-          Бусад реквизит (НӨАТ, данс, тамга…) → Компанийн мэдээлэл
-        </Link>
-      </div>
     </div>
   );
 }

@@ -8,7 +8,11 @@ import { revalidatePath } from "next/cache";
 
 import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companySettings, type CompanySettings } from "@/lib/db/schema";
+import {
+  companySettings,
+  organizations,
+  type CompanySettings,
+} from "@/lib/db/schema";
 
 
 /** ~1MB-аас том зураг татгалзана — PDF/DB-ийг дэмий бүдүүрүүлэхгүй. */
@@ -90,5 +94,15 @@ export async function updateCompanySettings(data: {
       },
     });
 
+  // Байгууллагын нэр/ТТД = компанийн нэр/регистр — нэг эх сурвалж.
+  // (Switcher, жагсаалт, Удирдлага хуудас бүгд organizations-оос уншдаг.)
+  if (base.name)
+    await db
+      .update(organizations)
+      .set({ name: base.name, registryNo: base.registerNo })
+      .where(eq(organizations.id, orgId));
+
   revalidatePath("/settings/company");
+  revalidatePath("/admin/org");
+  revalidatePath("/", "layout");
 }
