@@ -1,7 +1,6 @@
-import { getOrgSettingsData } from "@/lib/actions/org";
-import { OrgSettingsView } from "@/components/settings/org-settings-view";
+import { redirect } from "next/navigation";
 
-export default async function OrgSettingsPage() {
-  const data = await getOrgSettingsData();
-  return <OrgSettingsView data={data} />;
+// Байгууллагын удирдлага "Удирдлага" модуль руу нүүсэн — хуучин линк хэвээр ажиллана.
+export default function OldOrgSettingsPage() {
+  redirect("/admin/org");
 }

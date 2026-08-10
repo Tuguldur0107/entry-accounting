@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import {
   memberships,
   organizations,
+  orgInvitations,
   users,
   type MembershipRole,
 } from "@/lib/db/schema";
@@ -35,18 +36,34 @@ export type OrgMemberView = {
   role: MembershipRole;
 };
 
+export type OrgInvitationView = {
+  id: string;
+  email: string;
+  role: MembershipRole;
+  createdAt: string;
+  url: string;
+};
+
 export type OrgSettingsData = {
   org: { id: string; name: string; registryNo: string | null };
   myRole: MembershipRole;
   members: OrgMemberView[];
+  invitations: OrgInvitationView[];
   myOrgs: OrgSummary[];
 };
+
+function inviteUrl(token: string) {
+  const base =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
+    "http://localhost:3000";
+  return `${base}/register?invite=${token}`;
+}
 
 /** Topbar-ийн сонголт + Байгууллага хуудасны өгөгдөл. */
 export async function getOrgSettingsData(): Promise<OrgSettingsData> {
   const { orgId, userId, role } = await getActiveOrg();
 
-  const [org, memberRows, myMemberships] = await Promise.all([
+  const [org, memberRows, myMemberships, invitationRows] = await Promise.all([
     db.query.organizations.findFirst({
       where: eq(organizations.id, orgId),
       columns: { id: true, name: true, registryNo: true },
@@ -73,6 +90,13 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
       .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
       .where(eq(memberships.userId, userId))
       .orderBy(asc(memberships.createdAt)),
+    db.query.orgInvitations.findMany({
+      where: and(
+        eq(orgInvitations.organizationId, orgId),
+        sql`${orgInvitations.acceptedAt} is null`
+      ),
+      orderBy: [asc(orgInvitations.createdAt)],
+    }),
   ]);
   if (!org) throw new Error("Байгууллага олдсонгүй");
 
@@ -85,6 +109,13 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
       name: row.name,
       email: row.email,
       role: row.role as MembershipRole,
+    })),
+    invitations: invitationRows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      role: row.role as MembershipRole,
+      createdAt: row.createdAt.toISOString().slice(0, 10),
+      url: inviteUrl(row.token),
     })),
     myOrgs: myMemberships.map((row) => ({
       id: row.id,
@@ -182,7 +213,7 @@ export async function updateOrganization(data: {
     .update(organizations)
     .set({ name, registryNo: data.registryNo?.trim() || null })
     .where(eq(organizations.id, orgId));
-  revalidatePath("/settings/org");
+  revalidatePath("/admin/org");
   revalidatePath("/", "layout");
 }
 
@@ -190,13 +221,23 @@ export async function updateOrganization(data: {
  * Гишүүн урих — admin+. Бүртгэлтэй email бол шууд нэмнэ; бүртгэлгүй бол
  * ойлгомжтой алдаа (спекийн pending урилга нь дараагийн сайжруулалт).
  */
+export type InviteResult =
+  | { outcome: "added" }
+  | { outcome: "invited"; url: string; emailed: boolean };
+
+/**
+ * Гишүүн нэмэх — бүртгэлтэй и-мэйл шууд гишүүн болно; бүртгэлгүй бол урилга
+ * үүсгэж, Resend тохируулсан үед урилгын и-мэйл илгээнэ (үгүй бол линкийг
+ * буцаана — админ өөрөө дамжуулна). Урилгын линкээр бүртгүүлмэгц идэвхжинэ.
+ */
 export async function inviteMember(data: {
   email: string;
   role: MembershipRole;
-}) {
-  const { orgId } = await requireRole("admin");
+}): Promise<InviteResult> {
+  const { orgId, userId: invitedBy } = await requireRole("admin");
   const email = data.email.trim().toLowerCase();
-  if (!email) throw new Error("Email оруулна уу");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    throw new Error("И-мэйл хаяг буруу байна");
   if (!ROLES.includes(data.role) || data.role === "owner")
     throw new Error("Эрх нь admin/accountant/viewer байна (owner шилжүүлэхгүй)");
 
@@ -204,26 +245,78 @@ export async function inviteMember(data: {
     where: sql`lower(${users.email}) = ${email}`,
     columns: { id: true },
   });
-  if (!user)
-    throw new Error(
-      `${email} хаягтай хэрэглэгч бүртгэлгүй байна — эхлээд бүртгүүлсний дараа нэмнэ үү`
+
+  if (user) {
+    const existing = await db.query.memberships.findFirst({
+      where: and(
+        eq(memberships.organizationId, orgId),
+        eq(memberships.userId, user.id)
+      ),
+      columns: { id: true },
+    });
+    if (existing) throw new Error("Энэ хэрэглэгч аль хэдийн гишүүн байна");
+
+    await db.insert(memberships).values({
+      organizationId: orgId,
+      userId: user.id,
+      role: data.role,
+    });
+    revalidatePath("/admin/org");
+    return { outcome: "added" };
+  }
+
+  // Бүртгэлгүй — урилга. Давхар илгээвэл хуучныг шинэчилнэ (нэг pending/и-мэйл).
+  const [invitation] = await db
+    .insert(orgInvitations)
+    .values({ organizationId: orgId, email, role: data.role, invitedBy })
+    .onConflictDoUpdate({
+      target: [orgInvitations.organizationId, orgInvitations.email],
+      targetWhere: sql`accepted_at is null`,
+      set: { role: data.role, invitedBy },
+    })
+    .returning({ token: orgInvitations.token });
+
+  const url = inviteUrl(invitation.token);
+  let emailed = false;
+  if (process.env.RESEND_API_KEY) {
+    const org = await db.query.organizations.findFirst({
+      where: eq(organizations.id, orgId),
+      columns: { name: true },
+    });
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM ?? "Entry Accounting <onboarding@resend.dev>",
+      to: email,
+      subject: `«${org?.name ?? "Байгууллага"}» таныг Entry Accounting-д урьж байна`,
+      text: [
+        `Сайн байна уу,`,
+        ``,
+        `Таныг «${org?.name ?? ""}» байгууллагын бүртгэлд «${data.role}» эрхтэйгээр урьлаа.`,
+        ``,
+        `Доорх линкээр бүртгүүлмэгц шууд нэвтэрнэ:`,
+        url,
+      ].join("\n"),
+    });
+    emailed = !error;
+  }
+
+  revalidatePath("/admin/org");
+  return { outcome: "invited", url, emailed };
+}
+
+/** Хүлээгдэж буй урилгыг цуцлах — линк нь хүчингүй болно. */
+export async function cancelInvitation(invitationId: string) {
+  const { orgId } = await requireRole("admin");
+  await db
+    .delete(orgInvitations)
+    .where(
+      and(
+        eq(orgInvitations.id, invitationId),
+        eq(orgInvitations.organizationId, orgId)
+      )
     );
-
-  const existing = await db.query.memberships.findFirst({
-    where: and(
-      eq(memberships.organizationId, orgId),
-      eq(memberships.userId, user.id)
-    ),
-    columns: { id: true },
-  });
-  if (existing) throw new Error("Энэ хэрэглэгч аль хэдийн гишүүн байна");
-
-  await db.insert(memberships).values({
-    organizationId: orgId,
-    userId: user.id,
-    role: data.role,
-  });
-  revalidatePath("/settings/org");
+  revalidatePath("/admin/org");
 }
 
 /** Гишүүний эрх өөрчлөх — admin+; сүүлчийн owner-ыг бууруулахгүй. */
@@ -260,7 +353,7 @@ export async function updateMemberRole(data: {
     .update(memberships)
     .set({ role: data.role })
     .where(eq(memberships.id, data.membershipId));
-  revalidatePath("/settings/org");
+  revalidatePath("/admin/org");
 }
 
 /**
@@ -357,5 +450,5 @@ export async function removeMember(membershipId: string) {
     if (Number(n) <= 1) throw new Error("Сүүлчийн owner-ыг хасаж болохгүй");
   }
   await db.delete(memberships).where(eq(memberships.id, membershipId));
-  revalidatePath("/settings/org");
+  revalidatePath("/admin/org");
 }

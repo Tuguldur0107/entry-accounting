@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import {
+  cancelInvitation,
   deleteOrganization,
   inviteMember,
   leaveOrganization,
@@ -203,6 +204,61 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />
+
+        {/* Хүлээгдэж буй урилгууд — бүртгүүлмэгц гишүүн болно */}
+        {data.invitations.length > 0 && (
+          <div className="space-y-1.5">
+            <h3 className="text-xs font-semibold" style={{ color: "var(--ea-text-2)" }}>
+              Хүлээгдэж буй урилга
+            </h3>
+            <ul className="space-y-1.5">
+              {data.invitations.map((invitation) => (
+                <li
+                  key={invitation.id}
+                  className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
+                  style={{
+                    borderColor: "var(--ea-border)",
+                    background: "var(--ea-bg-2)",
+                  }}
+                >
+                  <span className="min-w-0 flex-1 truncate" style={{ color: "var(--ea-text-1)" }}>
+                    {invitation.email}
+                    <span className="ml-2" style={{ color: "var(--ea-text-4)" }}>
+                      {ROLE_LABELS[invitation.role]} · {invitation.createdAt}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs underline"
+                    onClick={() => {
+                      navigator.clipboard
+                        .writeText(invitation.url)
+                        .then(() => toast.success("Урилгын линк хуулагдлаа"))
+                        .catch(() => toast.error("Хуулж чадсангүй"));
+                    }}
+                  >
+                    Линк хуулах
+                  </button>
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="text-xs underline"
+                      style={{ color: "var(--ea-danger-fg)" }}
+                      onClick={() =>
+                        act(
+                          () => cancelInvitation(invitation.id),
+                          "Урилга цуцлагдлаа"
+                        )
+                      }
+                    >
+                      Цуцлах
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Аюултай бүс — owner: устгах, бусад гишүүн: гарах */}
@@ -296,16 +352,21 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Гишүүн нэмэх</DialogTitle>
+            <DialogTitle>«{data.org.name}» — гишүүн нэмэх</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3">
+            <p className="text-xs" style={{ color: "var(--ea-text-3)" }}>
+              Гишүүн болмогц энэ байгууллагын бүх бүртгэлийг эрхийнхээ хүрээнд
+              харна. Бүртгэлтэй и-мэйл шууд нэмэгдэнэ; бүртгэлгүй бол урилгын
+              линк илгээгдэж, бүртгүүлмэгц гишүүн болно.
+            </p>
             <div className="grid gap-1.5">
               <Label>Email</Label>
               <Input
                 type="email"
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="Бүртгэлтэй хэрэглэгчийн email"
+                placeholder="hongorzul@company.mn"
               />
             </div>
             <div className="grid gap-1.5">
@@ -341,11 +402,33 @@ export function OrgSettingsView({ data }: { data: OrgSettingsData }) {
             <Button
               disabled={isPending || !inviteEmail.trim()}
               onClick={() =>
-                act(async () => {
-                  await inviteMember({ email: inviteEmail, role: inviteRole });
-                  setInviteOpen(false);
-                  setInviteEmail("");
-                }, "Гишүүн нэмэгдлээ")
+                startTransition(async () => {
+                  try {
+                    const result = await inviteMember({
+                      email: inviteEmail,
+                      role: inviteRole,
+                    });
+                    if (result.outcome === "added") {
+                      toast.success("Гишүүн нэмэгдлээ");
+                    } else if (result.emailed) {
+                      toast.success("Урилгын и-мэйл илгээгдлээ — бүртгүүлмэгц гишүүн болно");
+                    } else {
+                      await navigator.clipboard
+                        .writeText(result.url)
+                        .catch(() => undefined);
+                      toast.success(
+                        "Урилгын линк хуулагдлаа — и-мэйл тохиргоогүй тул линкийг өөрөө дамжуулна уу"
+                      );
+                    }
+                    setInviteOpen(false);
+                    setInviteEmail("");
+                    router.refresh();
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : "Амжилтгүй"
+                    );
+                  }
+                })
               }
             >
               Нэмэх

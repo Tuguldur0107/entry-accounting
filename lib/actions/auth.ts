@@ -1,8 +1,14 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { users, chartOfAccounts } from "@/lib/db/schema";
-import { sql } from "drizzle-orm";
+import {
+  users,
+  chartOfAccounts,
+  memberships,
+  orgInvitations,
+} from "@/lib/db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import { createPersonalOrg, signIn } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -12,6 +18,8 @@ export async function registerUser(data: {
   name: string;
   email: string;
   password: string;
+  /** Урилгын token (/register?invite=...) — байвал урьсан байгууллагад шууд элсэнэ. */
+  invite?: string;
 }) {
   // Server-side шалгалт — client формыг тойрч шууд дуудахад ч хүчинтэй.
   const name = data.name?.trim() ?? "";
@@ -48,8 +56,43 @@ export async function registerUser(data: {
     DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, organizationId: orgId, ...a }))
   );
 
+  // Урилгын линкээр ирсэн бол урьсан байгууллагад элсүүлж, түүнийг нь
+  // идэвхтэй байгууллага болгоно. Token буруу/ашиглагдсан бол чимээгүй
+  // алгасна — бүртгэл өөрөө хэвийн үргэлжилнэ.
+  if (data.invite && /^[0-9a-f-]{36}$/.test(data.invite)) {
+    const invitation = await db.query.orgInvitations.findFirst({
+      where: and(
+        eq(orgInvitations.token, data.invite),
+        sql`${orgInvitations.acceptedAt} is null`
+      ),
+    });
+    if (invitation) {
+      await db
+        .insert(memberships)
+        .values({
+          organizationId: invitation.organizationId,
+          userId: user.id,
+          role: invitation.role,
+        })
+        .onConflictDoNothing();
+      await db
+        .update(orgInvitations)
+        .set({ acceptedAt: new Date() })
+        .where(eq(orgInvitations.id, invitation.id));
+      try {
+        (await cookies()).set("ea-org", invitation.organizationId, {
+          path: "/",
+          maxAge: 60 * 60 * 24 * 365,
+        });
+      } catch {
+        // cookie тавигдахгүй бол switcher-ээс сонгоно — элсэлт хүчинтэй хэвээр.
+      }
+    }
+  }
+
+  // Credentials provider талбарын нэр нь `identifier` (login формтой ижил).
   await signIn("credentials", {
-    email,
+    identifier: email,
     password: data.password,
     redirectTo: "/gl/journal",
   });

@@ -23,7 +23,11 @@ export default function RegisterPage() {
     if (password.length < 8) { setError('Нууц үг 8+ тэмдэгт байна'); return; }
     setError(''); setLoading(true);
     try {
-      const res = await registerUser({ name, email, password });
+      // Урилгын линкээр (/register?invite=token) ирсэн бол token дамжуулна —
+      // бүртгэл дуусмагц урьсан байгууллагад шууд элсэнэ.
+      const invite =
+        new URLSearchParams(window.location.search).get('invite') ?? undefined;
+      const res = await registerUser({ name, email, password, invite });
       if (res?.error) { setError(res.error); setLoading(false); }
       // redirects on success
     } catch {

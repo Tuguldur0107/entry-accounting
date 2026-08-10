@@ -70,6 +70,39 @@ export const membershipsRelations = relations(memberships, ({ one }) => ({
   user: one(users, { fields: [memberships.userId], references: [users.id] }),
 }));
 
+// Бүртгэлгүй и-мэйл рүү илгээсэн урилга. Хүлээн авагч token-той линкээр
+// бүртгүүлмэгц гишүүнчлэл идэвхжиж acceptedAt тавигдана; цуцлах = мөр устгах.
+export const orgInvitations = pgTable(
+  "org_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull().default("accountant"), // MembershipRole (owner-гүй)
+    token: uuid("token").notNull().defaultRandom().unique(),
+    invitedBy: text("invited_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at"),
+  },
+  (t) => [
+    // Нэг байгууллагад нэг и-мэйлд НЭГ л хүлээгдэж буй урилга.
+    uniqueIndex("org_invitations_pending_ux")
+      .on(t.organizationId, t.email)
+      .where(sql`${t.acceptedAt} is null`),
+  ]
+);
+
+export const orgInvitationsRelations = relations(orgInvitations, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [orgInvitations.organizationId],
+    references: [organizations.id],
+  }),
+}));
+
 // ─── Chart of Accounts ───────────────────────────────────────────────────────
 
 export const chartOfAccounts = pgTable(

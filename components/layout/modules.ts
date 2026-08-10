@@ -188,18 +188,28 @@ export const MODULES: Module[] = [
     ],
   },
   {
+    // Байгууллагын удирдлага — гишүүд, эрх, аудит. Нягтлан бодох тохиргооноос
+    // (Тохиргоо модуль) тусдаа: энд "хэн юу хийж болох"-ыг удирдана.
+    id: "admin",
+    label: "Удирдлага",
+    matchPrefix: "/admin",
+    defaultHref: "/admin/org",
+    items: [
+      { label: "Байгууллага, гишүүд", href: "/admin/org", icon: "company" },
+      { label: "Аудитын мөр", href: "/admin/audit", icon: "journal" },
+    ],
+  },
+  {
     id: "settings",
     label: "Тохиргоо",
     matchPrefix: "/settings",
     defaultHref: "/settings/profile",
     items: [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: "user" },
-      { label: "Байгууллага", href: "/settings/org", icon: "company" },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
       { label: "Сар хаалт", href: "/settings/close", icon: "reconciliation" },
-      { label: "Аудитын мөр", href: "/settings/audit", icon: "journal" },
       { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
     ],
   },
