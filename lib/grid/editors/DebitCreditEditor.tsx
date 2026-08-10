@@ -1,26 +1,14 @@
 "use client";
 
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-  type ForwardedRef,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CustomCellEditorProps } from "ag-grid-react";
 import { parseMntInput } from "@/lib/grid/formatters";
-
-interface CellEditorRef {
-  getValue: () => number;
-}
 
 // Numeric inline editor for debit / credit cells. Returns a parsed money
 // number; the Dr⊕Cr mutex is enforced by the surface's onCellValueChanged
 // handler (single source of truth — editor must not mutate grid rowData).
-function DebitCreditEditorInner(
-  props: CustomCellEditorProps<Record<string, unknown>, number>,
-  ref: ForwardedRef<CellEditorRef>
+export function DebitCreditEditor(
+  props: CustomCellEditorProps<Record<string, unknown>, number>
 ) {
   const initial = props.value == null || props.value === 0 ? "" : String(props.value);
   const [text, setText] = useState(initial);
@@ -31,20 +19,20 @@ function DebitCreditEditorInner(
     inputRef.current?.select();
   }, []);
 
-  useImperativeHandle(ref, () => ({
-    getValue: () => {
-      const n = parseMntInput(text);
-      return Number.isFinite(n) && n > 0 ? n : 0;
-    },
-  }));
-
   return (
     <input
       ref={inputRef}
       type="text"
       inputMode="decimal"
       value={text}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        const nextText = e.target.value;
+        setText(nextText);
+        const amount = parseMntInput(nextText);
+        props.onValueChange(
+          Number.isFinite(amount) && amount > 0 ? amount : 0
+        );
+      }}
       onKeyDown={(e) => {
         if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault();
       }}
@@ -63,5 +51,3 @@ function DebitCreditEditorInner(
     />
   );
 }
-
-export const DebitCreditEditor = forwardRef(DebitCreditEditorInner);

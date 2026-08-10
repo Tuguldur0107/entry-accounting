@@ -28,6 +28,7 @@ import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
 import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
 import { DebitCreditEditor } from "@/lib/grid/editors/DebitCreditEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { applyJournalAmountSuggestion } from "@/lib/grid/journal-amount-suggestion";
 
 // Буцаалтгийн сөрөг дүнг улаанаар — "улаан буцаалт"-гийн уламжлалт тэмдэглэгээ.
 const NEGATIVE_CELL_RULE = {
@@ -96,14 +97,16 @@ export function JournalLinesGrid({
       const id = e.data.id;
       const field = e.colDef.field as keyof JournalLineRow | undefined;
       if (!field) return;
+      if (field === "debit" || field === "credit") {
+        onLinesChange((prev) =>
+          applyJournalAmountSuggestion(prev, id, field, e.newValue)
+        );
+        return;
+      }
       onLinesChange((prev) =>
         prev.map((l) => {
           if (l.id !== id) return l;
-          const next: JournalLineRow = { ...l, [field]: e.newValue } as JournalLineRow;
-          // Dr ⊕ Cr mutex — state давхаргад баталгаажуулна.
-          if (field === "debit" && (next.debit ?? 0) > 0) next.credit = 0;
-          else if (field === "credit" && (next.credit ?? 0) > 0) next.debit = 0;
-          return next;
+          return { ...l, [field]: e.newValue } as JournalLineRow;
         })
       );
     },
