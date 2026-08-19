@@ -4,8 +4,9 @@
 // (Өмнө нь зөвхөн GL дотор "+ Шинэ журнал" харагддаг байсныг орлоно.)
 // Панелиуд PanelHost-оор глобал тул шууд нээгдэнэ.
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
+import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import { Icon, type IconName } from "@/components/ui/icon";
 import {
   openArapDocPanel,
@@ -44,56 +45,35 @@ export const QUICK_CREATE_ACTIONS: {
 
 export function QuickCreate() {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  // Гадна дарахад хаагдана.
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
 
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="ea-primary-button h-8 rounded-md px-3 text-xs font-medium text-[var(--primary-foreground)]"
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        + Шинэ
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-50 mt-1.5 w-60 rounded-md border p-1.5"
-          style={{
-            borderColor: "var(--ea-border)",
-            background: "var(--ea-surface)",
-            boxShadow: "var(--ea-shadow-3)",
+    <Dropdown
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="ea-primary-button h-8 rounded-md px-3 text-xs font-medium text-[var(--primary-foreground)]"
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          + Шинэ
+        </button>
+      }
+    >
+      {QUICK_CREATE_ACTIONS.map((action) => (
+        <DropdownItem
+          key={action.key}
+          onSelect={() => {
+            setOpen(false);
+            action.run();
           }}
         >
-          {QUICK_CREATE_ACTIONS.map((action) => (
-            <button
-              key={action.key}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                action.run();
-              }}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-[var(--ea-text-1)] hover:bg-[var(--ea-hover-subtle)]"
-            >
-              <Icon name={action.icon} size="sm" className="text-[var(--ea-text-3)]" />
-              {action.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+          <Icon name={action.icon} size="sm" className="text-[var(--ea-text-3)]" />
+          {action.label}
+        </DropdownItem>
+      ))}
+    </Dropdown>
   );
 }

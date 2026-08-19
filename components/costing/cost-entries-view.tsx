@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FilterChips } from "@/components/ui/tabs";
 import {
   deleteCostEntry,
   postCostEntries,
@@ -23,7 +24,6 @@ import {
 import type { CostEntryView } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openCostEntryPanel, refreshOpenPanels } from "@/lib/store/panel-store";
-import { cn } from "@/lib/utils";
 
 // Панель (cost-entry-panel) мөн энэ шошгуудыг хэрэглэдэг — нэг л газар.
 export const ENTRY_TYPE_LABELS: Record<string, string> = {
@@ -351,28 +351,20 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-1.5">
-          {STATUS_TABS.map((chip) => (
-            <button
-              key={chip.value}
-              type="button"
-              onClick={() => changeStatus(chip.value)}
-              className={cn(
-                "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                activeStatus === chip.value
-                  ? "border-[var(--ea-primary)] bg-[var(--ea-primary-50)] text-[var(--ea-primary)]"
-                  : "border-[var(--ea-border)] text-[var(--ea-text-3)] hover:border-[var(--ea-border-strong)] hover:text-[var(--ea-text-1)]",
-                chip.value === "draft" &&
-                  statusCounts.draft > 0 &&
-                  activeStatus !== "draft" &&
-                  "border-[var(--ea-warning)] text-[var(--ea-warning-fg)]"
-              )}
-            >
-              {chip.label}
-              {chip.value !== "all" && statusCounts[chip.value] > 0 && (
-                <span className="ml-1 font-mono">{statusCounts[chip.value]}</span>
-              )}
-            </button>
-          ))}
+          <FilterChips
+            options={STATUS_TABS.map((chip) => ({
+              value: chip.value,
+              label: chip.label,
+              count:
+                chip.value !== "all" ? statusCounts[chip.value] : undefined,
+              tone:
+                chip.value === "draft" && statusCounts.draft > 0
+                  ? ("warning" as const)
+                  : undefined,
+            }))}
+            value={activeStatus}
+            onChange={changeStatus}
+          />
           {selectedDrafts.length > 0 && (
             <Button
               size="sm"

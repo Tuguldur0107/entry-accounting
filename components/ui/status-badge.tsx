@@ -36,14 +36,19 @@ export function StatusBadge({
   tone,
   children,
   className,
+  size = "md",
 }: {
   tone: StatusTone;
   children: ReactNode;
   className?: string;
+  /** sm — хүснэгтийн нүд, жагсаалтын мөр доторх авсаархан badge. */
+  size?: "md" | "sm";
 }) {
   return (
     <span
-      className={`text-sm px-3 py-1.5 rounded-md font-medium ${className ?? ""}`}
+      className={`${
+        size === "sm" ? "px-1.5 py-0 text-[10px]" : "px-3 py-1.5 text-sm"
+      } rounded-md font-medium ${className ?? ""}`}
       style={TONE_STYLES[tone]}
     >
       {children}

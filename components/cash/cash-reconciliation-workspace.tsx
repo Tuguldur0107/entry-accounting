@@ -613,7 +613,7 @@ export function CashReconciliationWorkspace({
         editable: true,
         singleClickEdit: true,
         cellClass:
-          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-soft)]",
+          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-50)]",
         headerClass: "ag-right-aligned-header",
         valueParser: (params) => {
           const value = Number(params.newValue);

@@ -10,9 +10,9 @@ import {
   validateCashAccountCode,
 } from "@/lib/cash/account-code-validation";
 import type { ParsedBankStatement } from "@/lib/cash/bank-statement-types";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
+import { buildSettlementPostingLines } from "@/lib/cash/settlement-lines";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
-import { buildSegCode } from "@/lib/grid/segments";
+import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import { assertPeriodsOpen } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -295,15 +295,17 @@ export async function POST(request: Request) {
         ? effect.difference < 0
         : effect.difference > 0;
     });
-    let fxGainMain = "51800001";
-    let fxLossMain = "87000003";
+    // Дансны дугаар зөвхөн тохиргооноос — код дотор fallback байхгүй.
+    let fxAccounts: { gain: string; loss: string } | null = null;
     if (needsFxGain || needsFxLoss) {
       const costingSettings = await loadCostingAccountSettings(orgId);
-      fxGainMain = costingSettings.fxGainAccountNumber;
-      fxLossMain = costingSettings.fxLossAccountNumber;
+      fxAccounts = {
+        gain: costingSettings.fxGainAccountNumber,
+        loss: costingSettings.fxLossAccountNumber,
+      };
       for (const main of [
-        ...(needsFxGain ? [fxGainMain] : []),
-        ...(needsFxLoss ? [fxLossMain] : []),
+        ...(needsFxGain ? [fxAccounts.gain] : []),
+        ...(needsFxLoss ? [fxAccounts.loss] : []),
       ])
         if (
           !glAccounts.some(
@@ -314,25 +316,23 @@ export async function POST(request: Request) {
             `Ханшийн олз/гарзын данс (${main}) идэвхтэй биш байна — өртгийн дансны тохиргоог шалгана уу`
           );
     }
-    // FX мөрийн бүтэн сегмент код — cashPostingCodeBuilder-тэй ижил дүрэм:
-    // идэвхтэй сегмент бүрд ганц сонголттой бол default, S9 = "CA".
-    const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-    const fxActiveSegIds = SEGMENT_DEFS.filter(
-      (definition) =>
-        definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
-    ).map((definition) => definition.id);
-    const fxDefaults: Record<number, string> = {};
-    for (const segmentId of fxActiveSegIds) {
-      const options = values.filter(
-        (value) => value.segmentId === segmentId && value.isEnabled
-      );
-      if (options.length === 1) fxDefaults[segmentId] = options[0].code;
-    }
-    if (fxActiveSegIds.includes(9)) fxDefaults[9] = "CA";
-    const buildFxCode = (mainAccount: string, cashFlowCode: string | null) => {
-      const parts: Record<number, string> = { ...fxDefaults, 3: mainAccount };
-      if (cashFlowCode && fxActiveSegIds.includes(8)) parts[8] = cashFlowCode;
-      return buildSegCode(parts, fxActiveSegIds, { ...fxDefaults, 9: "CA" });
+    // FX мөрийн бүтэн сегмент код — cashPostingCodeBuilder-тэй НЭГ цөм
+    // (lib/gl/posting-code.ts); cash-flow код мөр бүрд өөр байж болох тул
+    // builder-ийг код тус бүрд нэг л удаа бүтээж кэшилнэ.
+    const fxBuilderByFlow = new Map<string, (main: string) => string>();
+    const fxCodeBuilder = (cashFlowCode: string | null) => {
+      const key = cashFlowCode ?? "";
+      let builder = fxBuilderByFlow.get(key);
+      if (!builder) {
+        builder = postingCodeBuilderFromData({
+          configs,
+          values,
+          moduleTag: "CA",
+          cashFlowCode,
+        });
+        fxBuilderByFlow.set(key, builder);
+      }
+      return builder;
     };
 
     const totalIncome = rows.reduce((sum, row) => sum + row.income, 0);
@@ -384,18 +384,39 @@ export async function POST(request: Request) {
         const effect = row.settleInvoiceId
           ? settleEffectByRowId.get(row.id)
           : undefined;
-        // Settlement мөр: хяналтын (харьцах) данс нэхэмжлэхийн ТҮҮХЭН
-        // ханшаар хаагдана; банкны тал төлбөрийн өдрийн ханшаар. Зөрүү нь
-        // ханшийн олз/гарзын мөр болно (buildSettlementPostingLines-тэй ижил).
-        const counterBase = effect
-          ? effect.historicalBaseAmount
-          : row.baseAmount;
-        const lines = [
+        if (effect) {
+          // Settlement мөр — postCashDocument-той НЭГ мөр-бүтээгчээр
+          // (хяналтын данс түүхэн ханшаар, зөрүү = ханшийн олз/гарз).
+          const invoice = invoiceById.get(row.settleInvoiceId as string)!;
+          if (Math.abs(effect.difference) > 0.01 && !fxAccounts)
+            throw new Error("Ханшийн олз/гарзын данс ачаалагдсангүй");
+          return buildSettlementPostingLines({
+            voucherId: row.voucherId,
+            documentType: invoice.documentType,
+            cashAccountId: cashAccount.id,
+            cashAccountNumber:
+              row.income > 0 ? row.debitAccountNumber : row.creditAccountNumber,
+            controlAccountNumber:
+              row.income > 0 ? row.creditAccountNumber : row.debitAccountNumber,
+            baseAmount: row.baseAmount,
+            historicalBaseAmount: effect.historicalBaseAmount,
+            fxDifference: effect.difference,
+            fxGainAccountNumber: fxAccounts?.gain ?? "",
+            fxLossAccountNumber: fxAccounts?.loss ?? "",
+            buildCode: fxCodeBuilder(
+              row.debitAccountNumber.split(".")[7] ||
+                row.creditAccountNumber.split(".")[7] ||
+                null
+            ),
+            description: lineDescription,
+          });
+        }
+        return [
           {
             voucherId: row.voucherId,
             accountNumber: row.debitAccountNumber,
             cashAccountId: row.income > 0 ? cashAccount.id : null,
-            debit: String(row.income > 0 ? row.baseAmount : counterBase),
+            debit: String(row.baseAmount),
             credit: "0",
             description: lineDescription,
             sortOrder: 0,
@@ -405,34 +426,11 @@ export async function POST(request: Request) {
             accountNumber: row.creditAccountNumber,
             cashAccountId: row.expense > 0 ? cashAccount.id : null,
             debit: "0",
-            credit: String(row.expense > 0 ? row.baseAmount : counterBase),
+            credit: String(row.baseAmount),
             description: lineDescription,
             sortOrder: 1,
           },
         ];
-        if (effect && Math.abs(effect.difference) > 0.01) {
-          const invoice = invoiceById.get(row.settleInvoiceId as string)!;
-          const isGain =
-            invoice.documentType === "ar_invoice"
-              ? effect.difference > 0
-              : effect.difference < 0;
-          const fxAmount = String(Math.abs(effect.difference));
-          lines.push({
-            voucherId: row.voucherId,
-            accountNumber: buildFxCode(
-              isGain ? fxGainMain : fxLossMain,
-              row.debitAccountNumber.split(".")[7] ||
-                row.creditAccountNumber.split(".")[7] ||
-                null
-            ),
-            cashAccountId: null,
-            debit: isGain ? "0" : fxAmount,
-            credit: isGain ? fxAmount : "0",
-            description: `Ханшийн ${isGain ? "олз" : "гарз"}: ${lineDescription}`,
-            sortOrder: 2,
-          });
-        }
-        return lines;
       });
       for (const group of chunks(allJournalLines))
         await tx.insert(journalLines).values(group);

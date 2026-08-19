@@ -136,28 +136,35 @@ export function BankStatementImport({
   const [triageFilter, setTriageFilter] = useState<
     "all" | "ready" | "suggested" | "missing"
   >("all");
+  // Мөрийн triage төлөв: бэлэн = данс бүрэн + (валюттай бол) ханш/MNT дүн.
+  const rowReady = useCallback(
+    (row: ParsedBankStatementRow) =>
+      isCompleteAccountCode(
+        row.debitAccountNumber,
+        activeSegIds,
+        segmentOptions
+      ) &&
+      isCompleteAccountCode(
+        row.creditAccountNumber,
+        activeSegIds,
+        segmentOptions
+      ) &&
+      (cashAccount?.currency === "MNT" ||
+        (!!row.exchangeRate &&
+          row.exchangeRate > 0 &&
+          !!row.baseAmount &&
+          row.baseAmount > 0)),
+    [activeSegIds, segmentOptions, cashAccount?.currency]
+  );
+
+  // invalid = rowReady-гийн урвуу — нэг л шалгуур, хоёр газар салаалахгүй.
   const totals = useMemo(
     () => ({
       income: rows.reduce((sum, row) => sum + row.income, 0),
       expense: rows.reduce((sum, row) => sum + row.expense, 0),
-      invalid: rows.filter(
-        (row) =>
-          !isCompleteAccountCode(
-            row.debitAccountNumber,
-            activeSegIds,
-            segmentOptions
-          ) ||
-          !isCompleteAccountCode(
-            row.creditAccountNumber,
-            activeSegIds,
-            segmentOptions
-          ) ||
-          (cashAccount?.currency !== "MNT" &&
-            (!(row.exchangeRate && row.exchangeRate > 0) ||
-              !(row.baseAmount && row.baseAmount > 0)))
-      ).length,
+      invalid: rows.filter((row) => !rowReady(row)).length,
     }),
-    [activeSegIds, cashAccount?.currency, rows, segmentOptions]
+    [rows, rowReady]
   );
 
   const handleCellValueChanged = useCallback(
@@ -330,27 +337,6 @@ export function BankStatementImport({
     );
   }, [highConfidencePending, suggestionCode]);
 
-  // Мөрийн triage төлөв: бэлэн (данс бүрэн) / саналтай / данс дутуу.
-  const rowReady = useCallback(
-    (row: ParsedBankStatementRow) =>
-      isCompleteAccountCode(
-        row.debitAccountNumber,
-        activeSegIds,
-        segmentOptions
-      ) &&
-      isCompleteAccountCode(
-        row.creditAccountNumber,
-        activeSegIds,
-        segmentOptions
-      ) &&
-      (cashAccount?.currency === "MNT" ||
-        (!!row.exchangeRate &&
-          row.exchangeRate > 0 &&
-          !!row.baseAmount &&
-          row.baseAmount > 0)),
-    [activeSegIds, segmentOptions, cashAccount?.currency]
-  );
-
   const triageCounts = useMemo(() => {
     let ready = 0;
     let suggested = 0;
@@ -448,7 +434,7 @@ export function BankStatementImport({
         singleClickEdit: true,
         hide: cashAccount?.currency === "MNT",
         cellClass:
-          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-soft)]",
+          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-50)]",
         headerClass: "ag-right-aligned-header",
         valueParser: (params) => {
           const value = Number(params.newValue);
@@ -469,7 +455,7 @@ export function BankStatementImport({
         singleClickEdit: true,
         hide: cashAccount?.currency === "MNT",
         cellClass:
-          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-soft)]",
+          "ag-right-aligned-cell font-mono bg-[var(--ea-primary-50)]",
         headerClass: "ag-right-aligned-header",
         valueParser: (params) => {
           const value = Number(params.newValue);
@@ -552,7 +538,8 @@ export function BankStatementImport({
               {/* Итгэлийн түвшний дохио — QBO/Digits загвар: ногоон=хүчтэй */}
               <StatusBadge
                 tone={top.confidence === "high" ? "success" : "warning"}
-                className="!px-1.5 !py-0 !text-[10px] shrink-0"
+                size="sm"
+                className="shrink-0"
               >
                 {top.confidence === "high" ? "Хүчтэй" : "Дунд"}
               </StatusBadge>
@@ -583,7 +570,7 @@ export function BankStatementImport({
                   type="button"
                   title={hint}
                   onClick={() => applySuggestion(row.id, top)}
-                  className="shrink-0 rounded-md border border-[var(--ea-border)] px-2 py-0.5 text-xs font-medium text-[var(--ea-primary)] hover:bg-[var(--ea-primary-soft)]"
+                  className="shrink-0 rounded-md border border-[var(--ea-border)] px-2 py-0.5 text-xs font-medium text-[var(--ea-primary)] hover:bg-[var(--ea-primary-50)]"
                 >
                   Ашиглах
                 </button>
@@ -1270,9 +1257,11 @@ type StatementLineView = {
   documentStatus: string | null;
 };
 
+// cash-doc-panel-ийн статусын өнгөтэй ИЖИЛ — нэг баримт хоёр UI-д өөр
+// өнгөөр харагдаж болохгүй (reversed = muted).
 const LINE_DOC_STATUS: Record<string, { label: string; tone: "success" | "danger" | "muted" }> = {
   posted: { label: "Батлагдсан", tone: "success" },
-  reversed: { label: "Буцаагдсан", tone: "danger" },
+  reversed: { label: "Буцаагдсан", tone: "muted" },
 };
 
 function StatementLinesBody({
@@ -1360,23 +1349,25 @@ function StatementLinesBody({
                 </span>
                 <StatusBadge
                   tone={status.tone}
-                  className="!px-1.5 !py-0 !text-[10px] shrink-0"
+                  size="sm"
+                  className="shrink-0"
                 >
                   {status.label}
                 </StatusBadge>
                 {line.cashDocumentId && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    className="shrink-0 text-[var(--ea-primary)]"
                     onClick={() =>
                       openCashDocPanel(
                         line.cashDocumentId!,
                         line.documentNo ?? undefined
                       )
                     }
-                    className="shrink-0 rounded-md border border-[var(--ea-border)] px-2 py-0.5 text-xs font-medium text-[var(--ea-primary)] hover:bg-[var(--ea-primary-soft)]"
                   >
                     Баримт
-                  </button>
+                  </Button>
                 )}
               </li>
             );

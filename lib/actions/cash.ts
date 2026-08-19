@@ -19,7 +19,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
-import { ALL_SEG_IDS, buildSegCode, SEG_DEFAULTS } from "@/lib/grid/segments";
+import { ALL_SEG_IDS, SEG_DEFAULTS } from "@/lib/grid/segments";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
   loadCashTransactionOptions,
@@ -30,6 +30,8 @@ import {
 import type { CashDocumentView } from "@/lib/cash/types";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
+import { buildSettlementPostingLines } from "@/lib/cash/settlement-lines";
+import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import {
   removeDraftMovementsForVoucher,
   syncInventoryDraftForVoucher,
@@ -149,27 +151,13 @@ async function cashPostingCodeBuilder(
       ),
     }),
   ]);
-
-  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-  const activeSegIds = SEGMENT_DEFS.filter(
-    (definition) =>
-      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
-  ).map((definition) => definition.id);
-
-  const defaults: Record<number, string> = {};
-  for (const segmentId of activeSegIds) {
-    const options = values.filter((value) => value.segmentId === segmentId);
-    if (options.length === 1) defaults[segmentId] = options[0].code;
-  }
-  if (activeSegIds.includes(8) && cashFlowCode) defaults[8] = cashFlowCode;
-  if (activeSegIds.includes(9)) defaults[9] = "CA";
-
-  return (mainAccount: string) =>
-    buildSegCode(
-      { ...defaults, 3: mainAccount },
-      activeSegIds,
-      { ...defaults, 9: "CA" }
-    );
+  // Цөм дүрэм нэг эх сурвалжтай (lib/gl/posting-code.ts).
+  return postingCodeBuilderFromData({
+    configs,
+    values,
+    moduleTag: "CA",
+    cashFlowCode,
+  });
 }
 
 export async function createCashAccount(data: {
@@ -483,93 +471,6 @@ export async function createCashDocument(data: {
   return { id: document.id };
 }
 
-function buildSettlementPostingLines({
-  voucherId,
-  documentType,
-  cashAccountId,
-  cashAccountNumber,
-  controlAccountNumber,
-  baseAmount,
-  historicalBaseAmount,
-  fxDifference,
-  fxGainAccountNumber,
-  fxLossAccountNumber,
-  buildCode,
-  description,
-}: {
-  voucherId: string;
-  documentType: string;
-  cashDocumentType: CashDocumentType;
-  cashAccountId: string | undefined;
-  cashAccountNumber: string;
-  controlAccountNumber: string;
-  baseAmount: number;
-  historicalBaseAmount: number;
-  fxDifference: number;
-  /** Ханшийн олз/гарзын данс — costing_account_settings-ээс (хатуу код биш). */
-  fxGainAccountNumber: string;
-  fxLossAccountNumber: string;
-  buildCode: (accountNumber: string) => string;
-  description: string;
-}) {
-  const isReceivable = documentType === "ar_invoice";
-  const lines = isReceivable
-    ? [
-        {
-          voucherId,
-          cashAccountId,
-          accountNumber: cashAccountNumber,
-          debit: String(baseAmount),
-          credit: "0",
-          description,
-          sortOrder: 0,
-        },
-        {
-          voucherId,
-          cashAccountId: null,
-          accountNumber: controlAccountNumber,
-          debit: "0",
-          credit: String(historicalBaseAmount),
-          description,
-          sortOrder: 1,
-        },
-      ]
-    : [
-        {
-          voucherId,
-          cashAccountId: null,
-          accountNumber: controlAccountNumber,
-          debit: String(historicalBaseAmount),
-          credit: "0",
-          description,
-          sortOrder: 0,
-        },
-        {
-          voucherId,
-          cashAccountId,
-          accountNumber: cashAccountNumber,
-          debit: "0",
-          credit: String(baseAmount),
-          description,
-          sortOrder: 1,
-        },
-      ];
-
-  if (Math.abs(fxDifference) <= 0.01) return lines;
-
-  const isGain = isReceivable ? fxDifference > 0 : fxDifference < 0;
-  lines.push({
-    voucherId,
-    cashAccountId: null,
-    accountNumber: buildCode(isGain ? fxGainAccountNumber : fxLossAccountNumber),
-    debit: isGain ? "0" : String(Math.abs(fxDifference)),
-    credit: isGain ? String(Math.abs(fxDifference)) : "0",
-    description: `Ханшийн ${isGain ? "олз" : "гарз"}: ${description}`,
-    sortOrder: 2,
-  });
-  return lines;
-}
-
 // Batch-confirm drafts (month-end close): posts each id independently and
 // reports per-document failures instead of aborting the whole batch, so one
 // bad draft (e.g. an FX draft missing its rate) doesn't block the rest.
@@ -770,7 +671,6 @@ export async function postCashDocument(
       ? buildSettlementPostingLines({
           voucherId: voucher.id,
           documentType: arApSettlement.document.documentType,
-          cashDocumentType: document.documentType as CashDocumentType,
           cashAccountId:
             document.documentType === "receipt" ? toAccount?.id : fromAccount?.id,
           cashAccountNumber:

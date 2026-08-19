@@ -158,14 +158,15 @@ export function HomeDashboard({
         </h2>
         {queue.length === 0 ? (
           <p
-            className="rounded-[var(--ea-r-md)] border px-4 py-3 text-xs"
+            className="flex items-center gap-1.5 rounded-[var(--ea-r-md)] border px-4 py-3 text-xs"
             style={{
               borderColor: "var(--ea-border)",
               color: "var(--ea-success-fg)",
               background: "var(--ea-surface)",
             }}
           >
-            ✓ Хүлээгдэж буй ажил алга — бүх бичилт батлагдсан, тулгагдсан.
+            <Icon name="success" size="sm" />
+            Хүлээгдэж буй ажил алга — бүх бичилт батлагдсан, тулгагдсан.
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
