@@ -35,6 +35,8 @@ export type ArApDocumentView = {
   baseBalance: number;
   status: string;
   voucherId: string | null;
+  /** Буцаагдсан баримтын буцаалтын журнал — панелиас шууд үсэрнэ. */
+  reversalVoucherId: string | null;
   /** АР нэхэмжлэхийн илгээлт: null = илгээгээгүй. */
   sendStatus: "sent" | "viewed" | null;
 };

@@ -1141,6 +1141,15 @@ function ArapDocReadOnly({
             GL журнал
           </Button>
         )}
+        {document.status === "reversed" && document.reversalVoucherId && (
+          <Button
+            variant="outline"
+            onClick={() => openVoucherPanel(document.reversalVoucherId!)}
+          >
+            <Icon name="reset" size="sm" />
+            Буцаалтын журнал
+          </Button>
+        )}
         {(document.status === "posted" ||
           document.status === "partially_paid") && (
           <Button

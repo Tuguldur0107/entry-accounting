@@ -697,6 +697,8 @@ export async function reverseCostEntry(id: string) {
         date: entry.date,
         description: `Буцаалт [${entryLabel}] ${voucher.description}`,
         status: "posted",
+        // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+        reversalOfVoucherId: voucher.id,
       })
       .returning({ id: journalVouchers.id });
 

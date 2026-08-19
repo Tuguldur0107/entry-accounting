@@ -31,6 +31,10 @@ export interface JournalEditorData {
     description: string;
     status: string;
     createdAt: string;
+    /** Энэ журнал ӨӨРӨӨ буцаалт бол — эх журналын id. */
+    reversalOfVoucherId: string | null;
+    /** Энэ журнал БУЦААГДСАН бол — буцаалтын журналын id. */
+    reversedByVoucherId: string | null;
     lines: {
       account: string;
       debit: string;
@@ -85,6 +89,17 @@ export async function getJournalEditorData(
 
   if (voucherId && !voucher) return { ok: false, code: "not-found" };
 
+  // Буцаалтын хос холбоос — энэ журналыг буцаасан журнал байвал олно.
+  const reversedBy = voucher
+    ? await db.query.journalVouchers.findFirst({
+        where: and(
+          eq(journalVouchers.reversalOfVoucherId, voucher.id),
+          eq(journalVouchers.organizationId, orgId)
+        ),
+        columns: { id: true },
+      })
+    : undefined;
+
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
   const activeSegIds = SEGMENT_DEFS.filter(
     (def) => def.id === 3 || segConfigMap.get(def.id)?.isEnabled === true
@@ -113,6 +128,8 @@ export async function getJournalEditorData(
             createdAt: voucher.createdAt
               .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
               .slice(0, 16),
+            reversalOfVoucherId: voucher.reversalOfVoucherId ?? null,
+            reversedByVoucherId: reversedBy?.id ?? null,
             lines: voucher.lines.map((line) => ({
               account: line.accountNumber,
               // Буцаалтын журналын дүн СӨРӨГ — 0-ээс ялгаатай бүгдийг дамжуулна.

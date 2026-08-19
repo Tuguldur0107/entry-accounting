@@ -834,6 +834,8 @@ export async function reverseArApDocument(id: string) {
         date: document.date,
         description: `Буцаалт [${document.documentNo}] ${document.description}`,
         status: "posted",
+        // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+        reversalOfVoucherId: voucher.id,
       })
       .returning({ id: journalVouchers.id });
 

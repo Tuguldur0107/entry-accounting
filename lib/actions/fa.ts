@@ -524,6 +524,8 @@ export async function reverseDepreciationEntry(id: string) {
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
         status: "posted",
+        // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+        reversalOfVoucherId: voucher.id,
       })
       .returning({ id: journalVouchers.id });
 

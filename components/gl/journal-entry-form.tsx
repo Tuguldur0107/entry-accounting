@@ -118,6 +118,10 @@ interface Props {
   voucherStatus?: string;
   /** Харах горимд үзүүлэх үүсгэсэн огноо-цаг (урьдчилан форматалсан). */
   voucherCreatedAt?: string;
+  /** Энэ журнал ӨӨРӨӨ буцаалт бол — эх журналын id (холбоос гарна). */
+  reversalOfVoucherId?: string | null;
+  /** Энэ журнал БУЦААГДСАН бол — буцаалтын журналын id (холбоос гарна). */
+  reversedByVoucherId?: string | null;
   /** Панель дотор — өөрийн gorimoo цонх шиг барихгүй, эцгээ дүүргэнэ. */
   embedded?: boolean;
   /** Панель горимд: АМЖИЛТТАЙ ажил (хадгалах/буцаалт) дуусахад дуудагдана. */
@@ -150,6 +154,8 @@ export function JournalEntryForm({
   readOnly = false,
   voucherStatus,
   voucherCreatedAt,
+  reversalOfVoucherId,
+  reversedByVoucherId,
   embedded = false,
   onDone,
   onCancel,
@@ -598,6 +604,37 @@ export function JournalEntryForm({
         )}
       >
         <div className="max-w-screen-xl mx-auto space-y-4">
+          {/* Буцаалтын хос холбоос — эх ↔ буцаалт хоёр чигт үсэрнэ. */}
+          {(reversalOfVoucherId || reversedByVoucherId) && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs"
+              style={{
+                borderColor:
+                  "color-mix(in srgb, var(--ea-warning) 45%, transparent)",
+                background: "var(--ea-surface)",
+              }}
+            >
+              <span style={{ color: "var(--ea-warning-fg)" }}>
+                {reversalOfVoucherId
+                  ? "Энэ бол БУЦААЛТЫН журнал — эх журналын бичилтийг нэт 0 болгож цэвэрлэсэн."
+                  : "Энэ журнал БУЦААГДСАН — буцаалтын журналтай хамт нэт 0 болно."}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const target = reversalOfVoucherId ?? reversedByVoucherId!;
+                  if (embedded && onOpenVoucher) onOpenVoucher(target);
+                  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+                  else window.location.href = `/gl/journal/${target}/edit`;
+                }}
+              >
+                {reversalOfVoucherId
+                  ? "Эх журнал руу очих"
+                  : "Буцаалтын журнал руу очих"}
+              </Button>
+            </div>
+          )}
           <div
             className="p-5"
             style={{

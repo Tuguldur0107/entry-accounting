@@ -132,6 +132,8 @@ export function VoucherPanel({
       voucherId={data.voucher?.id}
       voucherStatus={data.voucher?.status}
       voucherCreatedAt={data.voucher?.createdAt}
+      reversalOfVoucherId={data.voucher?.reversalOfVoucherId}
+      reversedByVoucherId={data.voucher?.reversedByVoucherId}
       readOnly={data.readOnly}
       initialVoucher={
         data.voucher

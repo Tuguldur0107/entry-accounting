@@ -35,6 +35,15 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
   // Ноорог → засварлана; бичигдсэн/буцаагдсан → зөвхөн харах горим.
   const readOnly = voucher.status !== "draft";
 
+  // Буцаалтын хос холбоос — энэ журналыг буцаасан журнал байвал олно.
+  const reversedBy = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.reversalOfVoucherId, voucher.id),
+      eq(journalVouchers.organizationId, orgId)
+    ),
+    columns: { id: true },
+  });
+
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
 
   const activeSegIds = SEGMENT_DEFS
@@ -51,6 +60,8 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
     <JournalEntryForm
       readOnly={readOnly}
       voucherStatus={voucher.status}
+      reversalOfVoucherId={voucher.reversalOfVoucherId}
+      reversedByVoucherId={reversedBy?.id ?? null}
       voucherCreatedAt={voucher.createdAt
         .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
         .slice(0, 16)}

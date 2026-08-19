@@ -234,6 +234,7 @@ function toDocumentView(
     baseBalance: Number(item.baseTotalAmount) - Number(item.basePaidAmount),
     status: item.status,
     voucherId: item.voucherId,
+    reversalVoucherId: item.reversalVoucherId,
   };
 }
 

@@ -945,6 +945,8 @@ export async function reverseCashDocument(id: string) {
         date: document.date,
         description: `Буцаалт [${document.documentNo}] ${document.description}`,
         status: "posted",
+        // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+        reversalOfVoucherId: voucher.id,
       })
       .returning({ id: journalVouchers.id });
 
@@ -1564,6 +1566,8 @@ export async function postCashFxRevaluation(data: {
           date: data.valuationDate,
           description: `Буцаалт: ${replaceTarget.voucher.description}`,
           status: "posted",
+          // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+          reversalOfVoucherId: replaceTarget.voucher.id,
         })
         .returning({ id: journalVouchers.id });
       await tx.insert(journalLines).values(
@@ -1741,6 +1745,8 @@ export async function reverseCashFxRevaluation(id: string) {
         date: revaluation.valuationDate,
         description: `Буцаалт: ${revaluation.voucher.description}`,
         status: "posted",
+        // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+        reversalOfVoucherId: revaluation.voucher.id,
       })
       .returning({ id: journalVouchers.id });
     await tx.insert(journalLines).values(
