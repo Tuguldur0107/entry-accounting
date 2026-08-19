@@ -32,6 +32,11 @@ export interface FixedAssetView {
   accumDepAccountNumber: string;
   depExpenseAccountNumber: string;
   status: string;
+  // Данснаас хасалтын мэдээлэл — status="disposed" үед бөглөгдсөн байна.
+  disposalType: string | null;
+  disposalDate: string | null;
+  disposalProceeds: number | null;
+  disposalVoucherId: string | null;
   accumulated: number;
   netBookValue: number;
   entries: FaDepreciationEntryRow[];
@@ -111,6 +116,11 @@ export async function loadFixedAssetViews(
       accumDepAccountNumber: asset.accumDepAccountNumber,
       depExpenseAccountNumber: asset.depExpenseAccountNumber,
       status: asset.status,
+      disposalType: asset.disposalType,
+      disposalDate: asset.disposalDate,
+      disposalProceeds:
+        asset.disposalProceeds != null ? Number(asset.disposalProceeds) : null,
+      disposalVoucherId: asset.disposalVoucherId,
       accumulated,
       netBookValue: Math.round((Number(asset.cost) - accumulated) * 100) / 100,
       entries: entriesByAsset.get(asset.id) ?? [],

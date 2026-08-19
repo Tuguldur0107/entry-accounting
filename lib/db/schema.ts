@@ -1916,6 +1916,14 @@ export const fixedAssets = pgTable(
       () => journalVouchers.id,
       { onDelete: "set null" }
     ),
+    // Данснаас хасалт (актлах/борлуулах/бэлэглэх) — status="disposed" үед.
+    disposalType: text("disposal_type"), // "scrap" | "sale" | "donation"
+    disposalDate: text("disposal_date"),
+    disposalProceeds: numeric("disposal_proceeds", { precision: 18, scale: 2 }),
+    disposalVoucherId: uuid("disposal_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]

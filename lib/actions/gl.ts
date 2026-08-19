@@ -8,6 +8,7 @@ import {
   chartOfAccounts,
   costEntries,
   faDepreciationEntries,
+  fixedAssets,
   journalVouchers,
   journalLines,
   moduleConfigs,
@@ -589,7 +590,17 @@ async function assertNotSubledgerOwned(
         eq(faDepreciationEntries.voucherId, id)
       ),
       columns: { id: true },
-    }),
+    }).then(async (entry) =>
+      entry ??
+      // ҮХ-ийн данснаас хасалтын журнал — мөн ҮХ модулиас удирдана.
+      (await db.query.fixedAssets.findFirst({
+        where: and(
+          eq(fixedAssets.organizationId, orgId),
+          eq(fixedAssets.disposalVoucherId, id)
+        ),
+        columns: { id: true },
+      }))
+    ),
     db.query.costEntries.findFirst({
       where: and(
         eq(costEntries.organizationId, orgId),
@@ -615,7 +626,7 @@ async function assertNotSubledgerOwned(
     );
   if (faRef)
     throw new Error(
-      "Элэгдлийн бичилттэй холбоотой журнал — ҮХ → Элэгдэл хэсгээс удирдана"
+      "Үндсэн хөрөнгийн бичилттэй (элэгдэл/хасалт) холбоотой журнал — ҮХ модулиас удирдана"
     );
   if (costRef)
     throw new Error(

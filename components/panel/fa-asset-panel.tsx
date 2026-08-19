@@ -11,11 +11,29 @@ import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 
+import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
-import { deactivateFixedAsset, getFaAssetPanelData } from "@/lib/actions/fa";
+import {
+  deactivateFixedAsset,
+  disposeFixedAsset,
+  getFaAssetPanelData,
+  reverseFixedAssetDisposal,
+  type FaAssetPanelData,
+  type FaDisposalType,
+} from "@/lib/actions/fa";
 import type {
   FaDepreciationEntryRow,
   FixedAssetView,
@@ -25,8 +43,10 @@ import {
   monthlyDepreciation,
 } from "@/lib/fa/depreciation";
 import { fmtMnt } from "@/lib/reports/balances";
+import { extractMainAccount } from "@/lib/reports/balances";
 import {
   openFaAssetFormPanel,
+  openVoucherPanel,
   refreshOpenPanels,
   usePanelStore,
   type PanelInstance,
@@ -49,6 +69,12 @@ const ENTRY_STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Батлагдсан",
   reversed: "Буцаагдсан",
+};
+
+const DISPOSAL_TYPE_LABELS: Record<string, string> = {
+  scrap: "Актлалт",
+  sale: "Борлуулалт",
+  donation: "Бэлэглэл",
 };
 
 const ERROR_MESSAGES = {
@@ -95,6 +121,7 @@ export function FaAssetPanel({
   const closePanel = usePanelStore((state) => state.closePanel);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [disposeOpen, setDisposeOpen] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const assetId = panel.payload.assetId as string | undefined;
@@ -102,7 +129,7 @@ export function FaAssetPanel({
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "error"; message: string }
-    | { status: "ready"; asset: FixedAssetView }
+    | { status: "ready"; asset: FixedAssetView; panelData: FaAssetPanelData }
   >({ status: "loading" });
 
   // Эхний ачаалалт + сэргээх/дахин нээх бүрд дахин татна (store refreshToken-ийг
@@ -131,7 +158,7 @@ export function FaAssetPanel({
           });
           return;
         }
-        setState({ status: "ready", asset });
+        setState({ status: "ready", asset, panelData: result.data });
         setTitle(
           panel.id,
           `${asset.name} · ${STATUS_LABELS[asset.status] ?? asset.status}`
@@ -168,7 +195,7 @@ export function FaAssetPanel({
       </div>
     );
 
-  const { asset } = state;
+  const { asset, panelData } = state;
   const depreciableBase =
     Math.round((asset.cost - asset.salvageValue) * 100) / 100;
   const progressPercent =
@@ -227,6 +254,31 @@ export function FaAssetPanel({
               mono
             />
           </div>
+
+          {/* Хасалтын мэдээлэл — данснаас хасагдсан хөрөнгөд */}
+          {asset.status === "disposed" && asset.disposalDate && (
+            <div
+              className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border px-3 py-2 text-sm sm:grid-cols-3"
+              style={{
+                borderColor:
+                  "color-mix(in srgb, var(--ea-warning) 45%, transparent)",
+                background: "var(--ea-surface)",
+              }}
+            >
+              <DetailItem
+                label="Хасалтын төрөл"
+                value={DISPOSAL_TYPE_LABELS[asset.disposalType ?? ""] ?? "—"}
+              />
+              <DetailItem label="Хасалтын огноо" value={asset.disposalDate} mono />
+              {asset.disposalProceeds != null && (
+                <DetailItem
+                  label="Борлуулсан үнэ"
+                  value={fmtMnt(asset.disposalProceeds)}
+                  mono
+                />
+              )}
+            </div>
+          )}
 
           {/* Санхүүгийн дүнгүүд */}
           <div className="grid grid-cols-3 gap-2">
@@ -314,6 +366,60 @@ export function FaAssetPanel({
           <Button
             variant="outline"
             disabled={isPending}
+            onClick={() => setDisposeOpen(true)}
+          >
+            <Icon name="delete" size="sm" />
+            Данснаас хасах
+          </Button>
+        )}
+        {asset.status === "disposed" && (
+          <>
+            {asset.disposalVoucherId && (
+              <Button
+                variant="outline"
+                onClick={() => openVoucherPanel(asset.disposalVoucherId!)}
+              >
+                Хасалтын журнал
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              disabled={isPending}
+              onClick={() => {
+                void confirm({
+                  title: "Хасалт буцаах",
+                  description: `${asset.code} · ${asset.name} хөрөнгийн данснаас хасалтыг буцааж, картыг идэвхтэй болгох уу? GL-д урвуу журнал бичигдэнэ.`,
+                  confirmText: "Буцаах",
+                  danger: true,
+                }).then((ok) => {
+                  if (!ok) return;
+                  startTransition(async () => {
+                    try {
+                      await reverseFixedAssetDisposal(asset.id);
+                      toast.success("Хасалт буцаагдаж, хөрөнгө идэвхтэй боллоо");
+                      closePanel(panel.id);
+                      refreshOpenPanels();
+                      router.refresh();
+                    } catch (caught) {
+                      toast.error(
+                        caught instanceof Error
+                          ? caught.message
+                          : "Буцаах амжилтгүй"
+                      );
+                    }
+                  });
+                });
+              }}
+            >
+              <Icon name="reset" size="sm" />
+              Хасалт буцаах
+            </Button>
+          </>
+        )}
+        {asset.status === "active" && (
+          <Button
+            variant="outline"
+            disabled={isPending}
             onClick={() => {
               void confirm({
                 title: "Идэвхжүүлэлт буцаах",
@@ -347,7 +453,179 @@ export function FaAssetPanel({
         </Button>
       </footer>
       {confirmDialog}
+
+      <Dialog open={disposeOpen} onOpenChange={setDisposeOpen}>
+        <DialogContent className="sm:max-w-lg">
+          {disposeOpen && (
+            <DisposeBody
+              asset={asset}
+              panelData={panelData}
+              onDone={() => {
+                setDisposeOpen(false);
+                closePanel(panel.id);
+                refreshOpenPanels();
+                router.refresh();
+              }}
+              onClose={() => setDisposeOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// ── Данснаас хасах dialog — актлах / борлуулах / бэлэглэх ───────────────────
+
+function DisposeBody({
+  asset,
+  panelData,
+  onDone,
+  onClose,
+}: {
+  asset: FixedAssetView;
+  panelData: FaAssetPanelData;
+  onDone: () => void;
+  onClose: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [disposalType, setDisposalType] = useState<FaDisposalType>("scrap");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [proceeds, setProceeds] = useState("");
+  const [proceedsAccount, setProceedsAccount] = useState("");
+  const [gainLossAccount, setGainLossAccount] = useState("");
+
+  const isSale = disposalType === "sale";
+  const proceedsValue = isSale ? Number(proceeds) || 0 : 0;
+  // Урьдчилсан тооцоо: NBV − орлого = гарз (+) / олз (−).
+  const gainLoss =
+    Math.round((asset.netBookValue - proceedsValue) * 100) / 100;
+
+  function submit() {
+    startTransition(async () => {
+      try {
+        await disposeFixedAsset(asset.id, {
+          disposalType,
+          date,
+          proceeds: proceedsValue,
+          proceedsAccountNumber: isSale
+            ? extractMainAccount(proceedsAccount)
+            : undefined,
+          gainLossAccountNumber: extractMainAccount(gainLossAccount),
+        });
+        toast.success(
+          `${asset.code} данснаас хасагдаж, GL журнал бичигдлээ`
+        );
+        onDone();
+      } catch (caught) {
+        toast.error(
+          caught instanceof Error ? caught.message : "Хасалт амжилтгүй"
+        );
+      }
+    });
+  }
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>
+          {asset.code} · {asset.name} — данснаас хасах
+        </DialogTitle>
+        <DialogDescription>
+          Өртөг {fmtMnt(asset.cost)} · Хуримт. элэгдэл {fmtMnt(asset.accumulated)}{" "}
+          · NBV {fmtMnt(asset.netBookValue)}. GL-д хасалтын журнал шууд бичигдэнэ.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label>Хасалтын төрөл</Label>
+            <select
+              className="rounded-md border px-3 py-2 text-sm"
+              style={{
+                borderColor: "var(--ea-border)",
+                background: "var(--ea-bg)",
+                color: "var(--ea-text-1)",
+              }}
+              value={disposalType}
+              onChange={(event) =>
+                setDisposalType(event.target.value as FaDisposalType)
+              }
+            >
+              <option value="scrap">Актлах</option>
+              <option value="sale">Борлуулах</option>
+              <option value="donation">Бэлэглэх</option>
+            </select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Огноо</Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+            />
+          </div>
+        </div>
+
+        {isSale && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-1.5">
+              <Label>Борлуулсан үнэ</Label>
+              <Input
+                type="number"
+                min="0"
+                value={proceeds}
+                onChange={(event) => setProceeds(event.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label>Орлого хүлээн авах данс</Label>
+              <AccountInput
+                value={proceedsAccount}
+                onChange={setProceedsAccount}
+                activeSegIds={panelData.activeSegIds}
+                segmentOptions={panelData.segmentOptions}
+                defaultSegments={panelData.defaultSegments}
+                placeholder="Мөнгө / авлагын данс..."
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-1.5">
+          <Label>Олз (гарз)-ын данс</Label>
+          <AccountInput
+            value={gainLossAccount}
+            onChange={setGainLossAccount}
+            activeSegIds={panelData.activeSegIds}
+            segmentOptions={panelData.segmentOptions}
+            defaultSegments={panelData.defaultSegments}
+            placeholder="Данснаас хассаны олз (гарз)..."
+          />
+          <p className="text-[11px]" style={{ color: "var(--ea-text-4)" }}>
+            Урьдчилсан тооцоо:{" "}
+            {gainLoss > 0
+              ? `гарз ${fmtMnt(gainLoss)}`
+              : gainLoss < 0
+                ? `олз ${fmtMnt(-gainLoss)}`
+                : "олз/гарзгүй (0)"}
+          </p>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
+          Болих
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={isPending || !gainLossAccount || (isSale && (!proceedsAccount || proceedsValue <= 0))}
+          onClick={submit}
+        >
+          Данснаас хасах
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
 

@@ -736,3 +736,272 @@ export async function getFaTieOutDetail(data: {
     subledgerTotal: round2(subledger.reduce((sum, row) => sum + row.amount, 0)),
   };
 }
+
+// ─── Данснаас хасах (актлах / борлуулах / бэлэглэх) ──────────────────────────
+
+export type FaDisposalType = "scrap" | "sale" | "donation";
+
+const DISPOSAL_LABELS: Record<FaDisposalType, string> = {
+  scrap: "Актлалт",
+  sale: "Борлуулалт",
+  donation: "Бэлэглэл",
+};
+
+/**
+ * ҮХ-ийг данснаас хасна (зарлагын гүйлгээ). GL бичилт (posting matrix §2.25):
+ *   Dr Мөнгө/Авлага (борлуулсан үнэ — зөвхөн борлуулалтад)
+ *   Dr Хуримт. элэгдэл (батлагдсан Σ)
+ *   Cr ҮХ өртгийн данс (өртөг)
+ *   Dr/Cr Олз (гарз)-ын данс — тэнцвэржүүлэгч (NBV − орлого)
+ * Дансуудыг хэрэглэгч сонгоно — кодод хатуу дугаар байхгүй. Ноорог элэгдэлтэй
+ * бол хориглоно (батлагдаагүй элэгдэл орхигдоно). Атом claim (active→disposed)
+ * давхар хасалтыг таслана; период нээлттэй байх ёстой.
+ */
+export async function disposeFixedAsset(
+  id: string,
+  data: {
+    disposalType: FaDisposalType;
+    date: string;
+    /** Борлуулсан үнэ — зөвхөн "sale"-д, 0-ээс их. */
+    proceeds?: number;
+    /** Орлого хүлээн авах данс (мөнгө/авлага) — зөвхөн "sale"-д. */
+    proceedsAccountNumber?: string;
+    /** Олз (гарз)-ын данс — бүх төрөлд заавал. */
+    gainLossAccountNumber: string;
+  }
+) {
+  const { orgId, userId } = await requireAccountant();
+  if (!["scrap", "sale", "donation"].includes(data.disposalType))
+    throw new Error("Хасалтын төрөл буруу байна");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) throw new Error("Огноо буруу байна");
+
+  const asset = await db.query.fixedAssets.findFirst({
+    where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
+  });
+  if (!asset) throw new Error("Хөрөнгө олдсонгүй");
+  if (asset.status === "disposed")
+    throw new Error("Энэ хөрөнгө аль хэдийн данснаас хасагдсан байна");
+  if (asset.status !== "active")
+    throw new Error("Зөвхөн идэвхтэй хөрөнгийг данснаас хасна");
+  if (data.date < asset.acquisitionDate)
+    throw new Error("Хасалтын огноо авсан огнооноос өмнө байж болохгүй");
+  await assertPeriodOpen(orgId, data.date);
+
+  const gainLossAccount = data.gainLossAccountNumber.trim();
+  if (!gainLossAccount) throw new Error("Олз (гарз)-ын данс сонгоно уу");
+  await assertEnabledMainAccount(orgId, gainLossAccount);
+
+  const isSale = data.disposalType === "sale";
+  const proceeds = isSale ? Math.round(Number(data.proceeds ?? 0) * 100) / 100 : 0;
+  const proceedsAccount = data.proceedsAccountNumber?.trim() ?? "";
+  if (isSale) {
+    if (!Number.isFinite(proceeds) || proceeds <= 0)
+      throw new Error("Борлуулсан үнэ 0-ээс их байна");
+    if (!proceedsAccount)
+      throw new Error("Орлого хүлээн авах данс (мөнгө/авлага) сонгоно уу");
+    await assertEnabledMainAccount(orgId, proceedsAccount);
+  }
+
+  // Батлагдаагүй элэгдэл орхигдохоос сэргийлнэ.
+  const draftEntry = await db.query.faDepreciationEntries.findFirst({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.assetId, id),
+      eq(faDepreciationEntries.status, "draft")
+    ),
+    columns: { id: true },
+  });
+  if (draftEntry)
+    throw new Error(
+      "Ноорог элэгдлийн бичилт байна — эхлээд баталж эсвэл устгана уу (ҮХ → Элэгдэл)"
+    );
+
+  const postedEntries = await db.query.faDepreciationEntries.findMany({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.assetId, id),
+      eq(faDepreciationEntries.status, "posted")
+    ),
+    columns: { amount: true },
+  });
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const cost = round2(Number(asset.cost));
+  const accum = round2(
+    postedEntries.reduce((sum, entry) => sum + Number(entry.amount), 0)
+  );
+  // Тэнцвэржүүлэгч: эерэг = гарз (Dr), сөрөг = олз (Cr).
+  const gainLoss = round2(cost - accum - proceeds);
+  const label = DISPOSAL_LABELS[data.disposalType];
+
+  const buildCode = await faPostingCodeBuilder(orgId);
+
+  await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, orgId, data.date);
+    const [claimed] = await tx
+      .update(fixedAssets)
+      .set({
+        status: "disposed",
+        disposalType: data.disposalType,
+        disposalDate: data.date,
+        disposalProceeds: isSale ? String(proceeds) : null,
+      })
+      .where(
+        and(
+          eq(fixedAssets.id, id),
+          eq(fixedAssets.organizationId, orgId),
+          eq(fixedAssets.status, "active")
+        )
+      )
+      .returning({ id: fixedAssets.id });
+    if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
+
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        organizationId: orgId,
+        date: data.date,
+        description: `ҮХ ${label.toLowerCase()}: ${asset.code} ${asset.name}`,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+
+    const lines: {
+      voucherId: string;
+      accountNumber: string;
+      debit: string;
+      credit: string;
+      description: string;
+      sortOrder: number;
+    }[] = [];
+    const push = (accountNumber: string, debit: number, credit: number, description: string) =>
+      lines.push({
+        voucherId: voucher.id,
+        accountNumber: buildCode(accountNumber),
+        debit: String(round2(debit)),
+        credit: String(round2(credit)),
+        description,
+        sortOrder: lines.length,
+      });
+    if (isSale) push(proceedsAccount, proceeds, 0, `${label} — орлого`);
+    if (accum > 0)
+      push(asset.accumDepAccountNumber, accum, 0, "Хуримт. элэгдэл хаав");
+    push(asset.assetAccountNumber, 0, cost, "Өртөг данснаас хасав");
+    if (gainLoss > 0) push(gainLossAccount, gainLoss, 0, `${label} — гарз`);
+    else if (gainLoss < 0) push(gainLossAccount, 0, -gainLoss, `${label} — олз`);
+    await tx.insert(journalLines).values(lines);
+
+    await tx
+      .update(fixedAssets)
+      .set({ disposalVoucherId: voucher.id })
+      .where(eq(fixedAssets.id, id));
+
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "dispose",
+        entityType: "fa",
+        entityId: id,
+        summary: `ҮХ данснаас хасагдав (${label}) — ${asset.code} ${asset.name}, өртөг ${cost.toLocaleString("en-US")}₮${isSale ? `, орлого ${proceeds.toLocaleString("en-US")}₮` : ""}`,
+      },
+      tx
+    );
+  });
+  revalidateFa();
+}
+
+/**
+ * Данснаас хасалтыг БУЦААХ — хөрөнгө идэвхтэй болж, хасалтын журнал урвуу
+ * журналаар цэвэрлэгдэнэ. Атом claim (disposed→active) давхар буцаалтыг
+ * таслана; буцаалт эх огноогоор бичигдэх тул тэр период нээлттэй байна.
+ */
+export async function reverseFixedAssetDisposal(id: string) {
+  const { orgId, userId } = await requireAccountant();
+  const asset = await db.query.fixedAssets.findFirst({
+    where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
+  });
+  if (!asset) throw new Error("Хөрөнгө олдсонгүй");
+  if (asset.status !== "disposed" || !asset.disposalVoucherId || !asset.disposalDate)
+    throw new Error("Зөвхөн данснаас хасагдсан хөрөнгийн хасалтыг буцаана");
+  await assertPeriodOpen(orgId, asset.disposalDate);
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, asset.disposalVoucherId),
+      eq(journalVouchers.organizationId, orgId)
+    ),
+    with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Хасалтын журнал олдсонгүй");
+
+  await db.transaction(async (tx) => {
+    await assertPeriodOpenInTx(tx, orgId, asset.disposalDate!);
+    const [claimed] = await tx
+      .update(fixedAssets)
+      .set({
+        status: "active",
+        disposalType: null,
+        disposalDate: null,
+        disposalProceeds: null,
+        disposalVoucherId: null,
+      })
+      .where(
+        and(
+          eq(fixedAssets.id, id),
+          eq(fixedAssets.organizationId, orgId),
+          eq(fixedAssets.status, "disposed")
+        )
+      )
+      .returning({ id: fixedAssets.id });
+    if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
+
+    const [reversal] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        organizationId: orgId,
+        date: voucher.date,
+        description: `Буцаалт: ${voucher.description}`,
+        status: "posted",
+        // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
+        reversalOfVoucherId: voucher.id,
+      })
+      .returning({ id: journalVouchers.id });
+
+    await tx.insert(journalLines).values(
+      voucher.lines.map((line, index) => ({
+        voucherId: reversal.id,
+        accountNumber: line.accountNumber,
+        debit: line.credit,
+        credit: line.debit,
+        description: line.description,
+        sortOrder: index,
+      }))
+    );
+
+    await tx
+      .update(journalVouchers)
+      .set({ status: "reversed" })
+      .where(
+        and(
+          eq(journalVouchers.id, voucher.id),
+          eq(journalVouchers.organizationId, orgId)
+        )
+      );
+
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "reverse",
+        entityType: "fa",
+        entityId: id,
+        summary: `ҮХ хасалт буцаагдав — ${asset.code} ${asset.name}`,
+      },
+      tx
+    );
+  });
+  revalidateFa();
+}

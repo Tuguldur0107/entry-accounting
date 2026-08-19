@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
-import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import type { ColDef } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { clickableAmountCell } from "@/components/datagrid/clickable-amount";
+import { FilterChips } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -101,22 +103,12 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
   );
 
   const tieOutColumns = useMemo<ColDef<FaTieOutRow>[]>(() => {
-    // Багана бүрийн дүн — дархад задаргаа нээх clickable товч (кассын
-    // тулгалтын хэв маягтай ижил). setDetail нь тогтвортой тул deps хоосон.
+    // Дүн дархад задаргаа нээнэ — нэгдсэн clickableAmountCell renderer.
     const clickableAmount = (measure: TieOutMeasure) =>
-      function AmountCell(params: ICellRendererParams<FaTieOutRow>) {
-        if (params.value == null || !params.data) return "";
-        return (
-          <button
-            type="button"
-            onClick={() => setDetail({ row: params.data!, measure })}
-            title="Задаргааг харах"
-            className="w-full cursor-pointer text-right underline decoration-[var(--ea-border-strong)] decoration-dotted underline-offset-4 transition-colors hover:text-[var(--ea-primary)] hover:decoration-[var(--ea-primary)]"
-          >
-            {fmtMnt(Number(params.value))}
-          </button>
-        );
-      };
+      clickableAmountCell<FaTieOutRow>(
+        (row) => setDetail({ row, measure }),
+        fmtMnt
+      );
     return [
       {
         headerName: "GL данс",
@@ -355,26 +347,19 @@ function TieOutDetailBody({
         </DialogDescription>
       </DialogHeader>
 
-      {/* Мужийн сонголт — PTD/QTD/YTD chip + гар муж */}
+      {/* Мужийн сонголт — нэгдсэн FilterChips + гар муж */}
       <div className="flex flex-wrap items-center gap-2">
-        {PERIOD_SCOPES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => {
-              setScope(option);
-              setRange(scopeRange(currentMonth, option, today));
-            }}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-              scope === option
-                ? "border-[var(--ea-primary)] bg-[var(--ea-selected-bg)] text-[var(--ea-interactive)]"
-                : "border-[var(--ea-border)] text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
-            )}
-          >
-            {PERIOD_SCOPE_LABELS[option]}
-          </button>
-        ))}
+        <FilterChips
+          options={PERIOD_SCOPES.map((option) => ({
+            value: option,
+            label: PERIOD_SCOPE_LABELS[option],
+          }))}
+          value={scope === "custom" ? ("" as PeriodScope) : scope}
+          onChange={(option) => {
+            setScope(option);
+            setRange(scopeRange(currentMonth, option, today));
+          }}
+        />
         <div className="flex items-center gap-1.5">
           <Input
             type="date"

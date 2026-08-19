@@ -15,6 +15,7 @@ import type {
 } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { clickableAmountCell } from "@/components/datagrid/clickable-amount";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -356,28 +357,17 @@ export function CashReconciliationWorkspace({
     [adjustment]
   );
 
-  // Дүнгийн нүдийг ДАРДАГ болгоно — задаргааны dialog нээнэ. Хоосон (null)
-  // утгад товч гаргахгүй.
+  // Дүнгийн нүдийг ДАРДАГ болгоно — задаргааны dialog нээнэ. Нэгдсэн
+  // clickableAmountCell renderer (ҮХ-ийн GL тулгалттай ижил).
   const clickableAmount = useCallback(
     (
       measure: "bank" | "cash" | "gl" | "bankToCash" | "cashToGl",
       format: (value: number) => string
     ) =>
-      function AmountCell(params: ICellRendererParams<CashReconciliationRow>) {
-        const raw = params.value;
-        if (raw == null || !params.data) return "";
-        const value = Number(raw);
-        return (
-          <button
-            type="button"
-            onClick={() => setDetail({ row: params.data!, measure })}
-            title="Задаргааг харах"
-            className="w-full cursor-pointer text-right underline decoration-[var(--ea-border-strong)] decoration-dotted underline-offset-4 transition-colors hover:text-[var(--ea-primary)] hover:decoration-[var(--ea-primary)]"
-          >
-            {format(value)}
-          </button>
-        );
-      },
+      clickableAmountCell<CashReconciliationRow>(
+        (row) => setDetail({ row, measure }),
+        format
+      ),
     []
   );
 
