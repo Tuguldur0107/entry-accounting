@@ -1,0 +1,48 @@
+# CI — push/PR бүрд төрөл, lint, нэгж тест, хамаарлын аудит.
+#
+# DB integration тест (tests/org-isolation.test.ts) нь DATABASE_URL шаарддаг
+# тул repo-ийн Settings → Secrets-д DATABASE_URL нэмсэн үед л ажиллана —
+# нэмээгүй бол тэр алхам чимээгүй алгасагдана (бусад шалгалт бүрэн явна).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Хамаарал суулгах
+        run: npm ci
+
+      # next-env.d.ts нь gitignore-д тул CI-д гараар үүсгэнэ (tsc-д хэрэгтэй).
+      - name: Next.js төрлийн лавлагаа
+        run: |
+          printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
+
+      - name: Төрлийн шалгалт (tsc)
+        run: npx tsc --noEmit
+
+      - name: Lint (eslint)
+        run: npx eslint .
+
+      - name: Нэгж тест (DB шаардахгүй)
+        run: npx tsx --test $(ls tests/*.test.ts | grep -v org-isolation)
+
+      - name: DB integration тест (DATABASE_URL secret тохируулсан үед)
+        if: env.DATABASE_URL != ''
+        run: npx tsx --test tests/org-isolation.test.ts
+
+      - name: Хамаарлын аудит
+        run: npm audit --audit-level=high
