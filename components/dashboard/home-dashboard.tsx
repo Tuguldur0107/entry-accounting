@@ -8,7 +8,14 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtPeriodCode } from "@/lib/periods/period";
 import { fmtMnt } from "@/lib/reports/balances";
+import type { TaxDeadline } from "@/lib/tax/calendar";
 import { cn } from "@/lib/utils";
+
+/** Хуанлийн мөр + бэлтгэлийн төлөв (null = системд мөрдөх объектгүй). */
+export type HomeTaxDeadline = TaxDeadline & {
+  prepared: boolean | null;
+  href: string;
+};
 
 export type HomeClassSummary = {
   assets: number;
@@ -75,6 +82,7 @@ export function HomeDashboard({
   modules,
   alerts,
   recent,
+  taxDeadlines,
 }: {
   periodCode: string;
   periodStatus: "open" | "closed" | "missing";
@@ -85,6 +93,7 @@ export function HomeDashboard({
   modules: HomeModuleTile[];
   alerts: HomeAlert[];
   recent: HomeRecentRow[];
+  taxDeadlines: HomeTaxDeadline[];
 }) {
   const drCrBalanced = Math.abs(totalDebit - totalCredit) <= 0.01;
   const bsGap =
@@ -149,6 +158,65 @@ export function HomeDashboard({
           </Link>
         ))}
       </div>
+
+      {/* Татварын хуанли — дараагийн тайлагналын хугацаанууд */}
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+          <Icon name="period" size="sm" className="text-[var(--ea-text-3)]" />
+          Татварын хуанли
+        </h2>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[var(--ea-r-md)] border border-[var(--ea-border)] bg-[var(--ea-border)] lg:grid-cols-4">
+          {taxDeadlines.map((deadline) => {
+            const urgent = deadline.daysLeft <= 3;
+            const soon = deadline.daysLeft <= 7;
+            return (
+              <Link
+                key={deadline.key}
+                href={deadline.href}
+                className="block bg-[var(--ea-surface)] px-4 py-3 transition-colors hover:bg-[var(--ea-bg-2)]"
+                style={{ textDecoration: "none" }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-[var(--ea-text-1)]">
+                    {deadline.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-[11px] font-semibold",
+                      urgent
+                        ? "text-[var(--ea-danger-fg)]"
+                        : soon
+                          ? "text-[var(--ea-warning-fg)]"
+                          : "text-[var(--ea-text-3)]"
+                    )}
+                  >
+                    {deadline.daysLeft === 0
+                      ? "Өнөөдөр!"
+                      : `${deadline.daysLeft} хоног`}
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-xs text-[var(--ea-text-2)]">
+                  {deadline.dueDate}
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-[var(--ea-text-4)]">
+                  <span>Тайлант үе: {deadline.period}</span>
+                  {deadline.prepared !== null && (
+                    <span
+                      className={
+                        deadline.prepared
+                          ? "text-[var(--ea-success-fg)]"
+                          : "text-[var(--ea-warning-fg)]"
+                      }
+                    >
+                      {deadline.prepared ? "Журнал үүссэн" : "Журнал үүсээгүй"}
+                    </span>
+                  )}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Санхүүгийн байдал */}
       <section>

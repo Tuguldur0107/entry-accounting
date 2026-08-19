@@ -14,6 +14,7 @@ import { runDepreciation } from "@/lib/actions/fa";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
 import { closePeriod, reopenPeriod } from "@/lib/actions/periods";
 import type { MonthEndChecklist, StepStatus } from "@/lib/actions/month-end";
+import type { LedgerIntegrityResult } from "@/lib/gl/integrity";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { fmtPeriodCode } from "@/lib/periods/period";
 
@@ -83,9 +84,11 @@ function LinkButton({ href, children }: { href: string; children: React.ReactNod
 export function CloseWizard({
   periodCode,
   checklist,
+  integrity,
 }: {
   periodCode: string;
   checklist: MonthEndChecklist;
+  integrity: LedgerIntegrityResult;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -139,6 +142,60 @@ export function CloseWizard({
           Дахин нээх нь ил үйлдэл — зөвхөн засварын зайлшгүй шаардлагад.
         </div>
       ) : null}
+
+      {/* Ledger integrity assertion — DB trigger-үүдийн давхар баталгаа.
+          "Хэзээ ч зөрчигдөхгүй" нөхцөлүүд зөрчигдвөл хаалтын өмнө ил гарна. */}
+      <div
+        className="rounded-lg border p-4 text-sm"
+        style={{
+          borderColor: integrity.ok
+            ? "var(--ea-border)"
+            : "color-mix(in srgb, var(--ea-danger) 45%, transparent)",
+          background: "var(--ea-surface)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-semibold text-[var(--ea-text-1)]">
+            Ledger-ийн бүрэн бүтэн байдал
+          </span>
+          <span
+            className="text-xs font-semibold"
+            style={{
+              color: integrity.ok
+                ? "var(--ea-success-fg)"
+                : "var(--ea-danger-fg)",
+            }}
+          >
+            {integrity.ok ? "✓ Зөрчилгүй" : "⚠ Зөрчилтэй"}
+          </span>
+        </div>
+        <p className="mt-1 text-xs" style={{ color: "var(--ea-text-3)" }}>
+          {integrity.checkedVoucherCount} батлагдсан журнал шалгагдав — ΣДт=ΣКт
+          болон мөр бүр Дт/Кт-ийн аль нэг талд гэсэн нөхцөлүүд.
+        </p>
+        {integrity.bothSidesLineCount > 0 && (
+          <p className="mt-1 text-xs" style={{ color: "var(--ea-danger-fg)" }}>
+            Дт, Кт хоёул бөглөгдсөн {integrity.bothSidesLineCount} мөр байна.
+          </p>
+        )}
+        {integrity.unbalancedVouchers.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {integrity.unbalancedVouchers.map((voucher) => (
+              <li key={voucher.id} className="text-xs">
+                <span className="font-mono" style={{ color: "var(--ea-text-4)" }}>
+                  {voucher.date}
+                </span>{" "}
+                <span style={{ color: "var(--ea-text-1)" }}>
+                  {voucher.description}
+                </span>{" "}
+                <span style={{ color: "var(--ea-danger-fg)" }}>
+                  зөрүү {fmtMnt(voucher.imbalance)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <Step
         index={1}

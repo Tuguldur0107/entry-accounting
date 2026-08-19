@@ -10,7 +10,8 @@ import { PeriodFilter } from "@/components/periods/period-filter";
 import { OrgSwitcher } from "@/components/layout/org-switcher";
 import { getMyOrgs } from "@/lib/actions/org";
 import { getPeriodSelection } from "@/lib/periods/selection";
-import { NewJournalButton } from "@/components/layout/new-journal-button";
+import { QuickCreate } from "@/components/layout/quick-create";
+import { QuickNav } from "@/components/layout/quick-nav";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
 import { PanelHost } from "@/components/panel/panel-host";
 
@@ -66,7 +67,7 @@ export default async function DashboardLayout({
             <HeaderReportSelect />
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <NewJournalButton />
+            <QuickCreate />
             <AiChatButton />
             <ThemeToggle />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--ea-text-3)" }}>
@@ -100,6 +101,8 @@ export default async function DashboardLayout({
       </div>
       {/* Ажлын панелиуд — олон зэрэг нээгдэж, доод докоор сэлгэнэ */}
       <PanelHost />
+      {/* "/" палитр + "?" товчлолын тусламж — глобал keyboard навигаци */}
+      <QuickNav />
     </div>
   );
 }

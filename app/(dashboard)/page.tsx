@@ -16,7 +16,9 @@ import {
   type HomeClassSummary,
   type HomeModuleTile,
   type HomeRecentRow,
+  type HomeTaxDeadline,
 } from "@/components/dashboard/home-dashboard";
+import { computeTaxDeadlines } from "@/lib/tax/calendar";
 import { getActiveOrg } from "@/lib/auth";
 import { calculateCashBalances } from "@/lib/cash/balances";
 import { db } from "@/lib/db";
@@ -347,6 +349,32 @@ export default async function HomePage() {
     };
   });
 
+  // Татварын хуанли: НӨАТ/ХАОАТ-д системд мөрдөгддөг журналын marker бий
+  // (vat-settlement:YYYY-MM, payroll:YYYY-MM) — "журнал үүссэн үү" төлөвийг
+  // аль хэдийн ачаалсан vouchers жагсаалтаас шууд харна.
+  const taxDeadlines: HomeTaxDeadline[] = computeTaxDeadlines(today).map(
+    (deadline) => {
+      const marker =
+        deadline.key === "vat"
+          ? `vat-settlement:${deadline.period}`
+          : deadline.key === "pit"
+            ? `payroll:${deadline.period}`
+            : null;
+      return {
+        ...deadline,
+        prepared: marker
+          ? vouchers.some((voucher) => voucher.externalRef === marker)
+          : null,
+        href:
+          deadline.key === "vat"
+            ? `/vat?period=${deadline.period}`
+            : deadline.key === "pit" || deadline.key === "si"
+              ? "/payroll"
+              : "/gl/reports",
+      };
+    }
+  );
+
   return (
     <HomeDashboard
       periodCode={periodCode}
@@ -358,6 +386,7 @@ export default async function HomePage() {
       modules={modules}
       alerts={alerts}
       recent={recent}
+      taxDeadlines={taxDeadlines}
     />
   );
 }

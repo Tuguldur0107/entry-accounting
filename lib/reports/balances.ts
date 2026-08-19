@@ -32,11 +32,16 @@ export function isBalanced(a: number, b: number): boolean {
   return Math.abs(a - b) <= EPSILON;
 }
 
-export const fmtMnt = (n: number): string =>
-  n.toLocaleString("mn-MN", {
+// Мөнгөн дүнгийн НЭГДСЭН формат: тогтмол 2 орон, сөрөгт жинхэнэ хасах
+// тэмдэг (U+2212 — hyphen-ээс өргөн, тоотой ижил өндөртэй типографийн
+// стандарт). parseMntInput энэ тэмдгийг буцааж таньдаг (round-trip).
+export const fmtMnt = (n: number): string => {
+  const formatted = Math.abs(n).toLocaleString("mn-MN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+  return n < 0 ? `−${formatted}` : formatted;
+};
 
 // Journal data stores accountNumber as a 10-segment dotted string.
 // parts[i-1] holds segment i. Inactive segments default to 0-padded on write.

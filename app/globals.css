@@ -66,6 +66,9 @@
     background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* Тоо бүр ижил өргөнтэй (tabular) — мөнгөн дүнгийн багана, KPI-ууд
+       босоо тэнхлэгтээ яг зэрэгцэнэ. Кирилл текстэд нөлөөгүй. */
+    font-variant-numeric: tabular-nums;
   }
   html {
     @apply font-sans;

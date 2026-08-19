@@ -9,6 +9,7 @@ export function parseMntInput(raw: unknown): number {
   if (typeof raw === "number") return raw;
   if (raw == null) return NaN;
   const s = String(raw)
+    .replace(/−/g, "-") // fmtMnt-ийн жинхэнэ хасах тэмдэг → ASCII minus
     .replace(/[₮\s]/g, "")
     .replace(/,(?=\d{3}(?:\D|$))/g, "");
   const dotCount = (s.match(/\./g) || []).length;
