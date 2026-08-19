@@ -13,6 +13,12 @@ export type ParsedBankStatementRow = {
   baseAmount: number | null;
   debitAccountNumber: string;
   creditAccountNumber: string;
+  /**
+   * Нэхэмжлэхийн саналыг «Ашиглах» дарахад бөглөгдөнө — хадгалах үед энэ
+   * нэхэмжлэхтэй settlement (төлбөрийн холбоос) үүсгэж, төлсөн дүнг нь
+   * шинэчилнэ. Харьцах дансыг гараар өөрчилбөл цуцлагдана.
+   */
+  settleInvoiceId?: string | null;
   rawData: Record<string, string>;
 };
 

@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -29,6 +30,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { FilterChips } from "@/components/ui/tabs";
 import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
@@ -46,6 +49,7 @@ import {
 } from "@/lib/grid/segments";
 import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { openCashDocPanel } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 
 export type BankStatementSummary = {
@@ -124,9 +128,14 @@ export function BankStatementImport({
   const [assignmentCode, setAssignmentCode] = useState("");
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [matchContext, setMatchContext] = useState<MatchContext | null>(null);
+  const [linesStatement, setLinesStatement] =
+    useState<BankStatementSummary | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const cashAccount = accounts.find((account) => account.id === cashAccountId);
+  const [triageFilter, setTriageFilter] = useState<
+    "all" | "ready" | "suggested" | "missing"
+  >("all");
   const totals = useMemo(
     () => ({
       income: rows.reduce((sum, row) => sum + row.income, 0),
@@ -179,7 +188,19 @@ export function BankStatementImport({
                 }
               : field === "baseAmount"
                 ? { ...row, baseAmount: Number(event.newValue) || null }
-                : { ...row, [field]: String(event.newValue ?? "") }
+                : {
+                    ...row,
+                    [field]: String(event.newValue ?? ""),
+                    // ХАРЬЦАХ талын дансыг гараар өөрчилбөл нэхэмжлэхийн
+                    // холбоос цуцлагдана; банкны талын засвар settlement-д
+                    // нөлөөгүй тул холбоосыг хадгална.
+                    ...(field ===
+                    (row.income > 0
+                      ? "creditAccountNumber"
+                      : "debitAccountNumber")
+                      ? { settleInvoiceId: null }
+                      : {}),
+                  }
             : row
         )
       );
@@ -189,11 +210,21 @@ export function BankStatementImport({
 
   // Саналууд нь parse хийсэн эх мөрүүдээс (дүн/харилцагч/утга засагдахгүй
   // талбарууд) бодогдоно — засвар хийхэд дахин тооцоолохгүй.
-  const suggestions = useMemo<Record<string, RowSuggestion[]>>(
-    () =>
-      parsed && matchContext ? suggestMatches(parsed.rows, matchContext) : {},
-    [parsed, matchContext]
-  );
+  const cashCurrency = cashAccount?.currency;
+  const suggestions = useMemo<Record<string, RowSuggestion[]>>(() => {
+    if (!parsed || !matchContext) return {};
+    // Валют зөрсөн нэхэмжлэх санал болохгүй — save route хориглодог тул
+    // ийм санал хадгалах үед бүх импортыг унагана.
+    const context = cashCurrency
+      ? {
+          ...matchContext,
+          openInvoices: matchContext.openInvoices.filter(
+            (invoice) => (invoice.currency ?? "MNT") === cashCurrency
+          ),
+        }
+      : matchContext;
+    return suggestMatches(parsed.rows, context);
+  }, [parsed, matchContext, cashCurrency]);
 
   // Саналын дансыг бүтэн 10-part сегмент код болгоно (хуучин дата ганц
   // 8 оронтой үндсэн данс хадгалсан байж болно).
@@ -216,18 +247,132 @@ export function BankStatementImport({
     (rowId: string, suggestion: RowSuggestion) => {
       const code = suggestionCode(suggestion);
       if (!code) return;
+      // Нэхэмжлэхийн санал → хадгалахад settlement (төлбөрийн холбоос)
+      // үүсгэнэ; дансны загварын санал → зөвхөн данс бөглөнө.
+      const settleInvoiceId =
+        suggestion.kind === "invoice" ? suggestion.invoiceId : null;
+      setError("");
       setRows((current) =>
-        current.map((row) =>
-          row.id === rowId
-            ? row.income > 0
-              ? { ...row, creditAccountNumber: code }
-              : { ...row, debitAccountNumber: code }
-            : row
-        )
+        current.map((row) => {
+          if (row.id === rowId)
+            return row.income > 0
+              ? { ...row, creditAccountNumber: code, settleInvoiceId }
+              : { ...row, debitAccountNumber: code, settleInvoiceId };
+          // Нэг нэхэмжлэх нэг л мөрөнд — өөр мөрөнд байсан холбоос энэ мөр
+          // рүү ШИЛЖИНЭ (давхардал нь хадгалах үед бүх импортыг унагадаг).
+          if (settleInvoiceId && row.settleInvoiceId === settleInvoiceId)
+            return { ...row, settleInvoiceId: null };
+          return row;
+        })
       );
     },
     [suggestionCode]
   );
+
+  // Санал мөрөнд бүрэн хэрэгжсэн үү: данс таарсан БА (нэхэмжлэхийн санал
+  // бол) settlement холбоос нь мөн тавигдсан. Данс нь өөр замаар (олноор
+  // оноох, paste) таарчихсан ч холбоогүй мөр "хэрэгжсэн" биш — холбох
+  // боломж (товч) харагдана.
+  const suggestionApplied = useCallback(
+    (row: ParsedBankStatementRow, top: RowSuggestion, code: string) => {
+      const current =
+        row.income > 0 ? row.creditAccountNumber : row.debitAccountNumber;
+      return (
+        code !== "" &&
+        current === code &&
+        (top.kind !== "invoice" || row.settleInvoiceId === top.invoiceId)
+      );
+    },
+    []
+  );
+
+  // Batch accept: өндөр итгэлтэй (нэр+дүн таарсан) top саналтай, хараахан
+  // хэрэгжүүлээгүй мөрүүд — Xero-гийн "ногооныг OK" урсгал. Товчны тоолуур
+  // болон үйлдэл ЯГ энэ жагсаалтаас гарна. Нэг нэхэмжлэхийг нэг л мөрөнд
+  // онооно — давхардал нь хадгалах үед бүх импортыг унагадаг.
+  const highConfidencePending = useMemo(() => {
+    const linkedInvoiceIds = new Set(
+      rows
+        .map((row) => row.settleInvoiceId)
+        .filter((value): value is string => !!value)
+    );
+    const pending: { rowId: string; top: RowSuggestion }[] = [];
+    for (const row of rows) {
+      const top = suggestions[row.id]?.[0];
+      if (!top || top.confidence !== "high") continue;
+      const code = suggestionCode(top);
+      if (!code || suggestionApplied(row, top, code)) continue;
+      if (top.kind === "invoice") {
+        if (linkedInvoiceIds.has(top.invoiceId)) continue;
+        linkedInvoiceIds.add(top.invoiceId);
+      }
+      pending.push({ rowId: row.id, top });
+    }
+    return pending;
+  }, [rows, suggestions, suggestionCode, suggestionApplied]);
+
+  const applyAllHighConfidence = useCallback(() => {
+    const pendingByRowId = new Map(
+      highConfidencePending.map((entry) => [entry.rowId, entry.top])
+    );
+    setRows((current) =>
+      current.map((row) => {
+        const top = pendingByRowId.get(row.id);
+        if (!top) return row;
+        const code = suggestionCode(top);
+        if (!code) return row;
+        const settleInvoiceId =
+          top.kind === "invoice" ? top.invoiceId : null;
+        return row.income > 0
+          ? { ...row, creditAccountNumber: code, settleInvoiceId }
+          : { ...row, debitAccountNumber: code, settleInvoiceId };
+      })
+    );
+  }, [highConfidencePending, suggestionCode]);
+
+  // Мөрийн triage төлөв: бэлэн (данс бүрэн) / саналтай / данс дутуу.
+  const rowReady = useCallback(
+    (row: ParsedBankStatementRow) =>
+      isCompleteAccountCode(
+        row.debitAccountNumber,
+        activeSegIds,
+        segmentOptions
+      ) &&
+      isCompleteAccountCode(
+        row.creditAccountNumber,
+        activeSegIds,
+        segmentOptions
+      ) &&
+      (cashAccount?.currency === "MNT" ||
+        (!!row.exchangeRate &&
+          row.exchangeRate > 0 &&
+          !!row.baseAmount &&
+          row.baseAmount > 0)),
+    [activeSegIds, segmentOptions, cashAccount?.currency]
+  );
+
+  const triageCounts = useMemo(() => {
+    let ready = 0;
+    let suggested = 0;
+    let missing = 0;
+    for (const row of rows) {
+      if (rowReady(row)) ready += 1;
+      else if (suggestions[row.id]?.length) suggested += 1;
+      else missing += 1;
+    }
+    return { ready, suggested, missing };
+  }, [rows, rowReady, suggestions]);
+
+  const displayedRows = useMemo(() => {
+    if (triageFilter === "all") return rows;
+    return rows.filter((row) => {
+      const ready = rowReady(row);
+      if (triageFilter === "ready") return ready;
+      if (triageFilter === "suggested")
+        return !ready && (suggestions[row.id]?.length ?? 0) > 0;
+      return !ready && (suggestions[row.id]?.length ?? 0) === 0;
+    });
+  }, [rows, triageFilter, rowReady, suggestions]);
 
   const columnDefs = useMemo<ColDef<ParsedBankStatementRow>[]>(
     () => [
@@ -392,26 +537,25 @@ export function BankStatementImport({
           const top = suggestions[row.id]?.[0];
           if (!top) return null;
           const targetCode = suggestionCode(top);
-          const currentCounter =
-            row.income > 0 ? row.creditAccountNumber : row.debitAccountNumber;
-          const applied = targetCode !== "" && currentCounter === targetCode;
+          const applied = suggestionApplied(row, top, targetCode);
           const label =
             top.kind === "invoice"
-              ? `${top.documentNo} (${
-                  top.reason === "amount_and_name"
-                    ? "нэр+дүн таарсан"
-                    : "дүн таарсан"
-                })`
-              : `${fmtAccountDisplay(
-                  targetCode,
-                  activeSegIds
-                )} · түгээмэл данс`;
+              ? top.documentNo
+              : `${fmtAccountDisplay(targetCode, activeSegIds)} · түгээмэл данс`;
           const hint =
             top.kind === "invoice"
-              ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}. Хяналтын дансыг бөглөнө; нэхэмжлэхтэй холбохыг АР/АП төлбөрөөр бүртгэнэ.`
+              ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}. «Ашиглах» дарвал хадгалах үед энэ нэхэмжлэхтэй ШУУД холбогдож, төлсөн дүн нь шинэчлэгдэнэ.`
               : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
+          const settleLinked = applied && !!row.settleInvoiceId;
           return (
             <span className="flex h-full items-center gap-1.5">
+              {/* Итгэлийн түвшний дохио — QBO/Digits загвар: ногоон=хүчтэй */}
+              <StatusBadge
+                tone={top.confidence === "high" ? "success" : "warning"}
+                className="!px-1.5 !py-0 !text-[10px] shrink-0"
+              >
+                {top.confidence === "high" ? "Хүчтэй" : "Дунд"}
+              </StatusBadge>
               <span
                 title={hint}
                 className={cn(
@@ -424,8 +568,15 @@ export function BankStatementImport({
                 {label}
               </span>
               {applied ? (
-                <span className="shrink-0 text-xs font-medium text-[var(--ea-success-fg)]">
-                  Ашигласан
+                <span
+                  className="shrink-0 text-xs font-medium text-[var(--ea-success-fg)]"
+                  title={
+                    settleLinked
+                      ? "Хадгалахад нэхэмжлэхийн төлбөр болж бүртгэгдэнэ"
+                      : undefined
+                  }
+                >
+                  {settleLinked ? "Холбогдсон ✓" : "Ашигласан"}
                 </span>
               ) : targetCode !== "" ? (
                 <button
@@ -493,6 +644,7 @@ export function BankStatementImport({
       cashAccount?.currency,
       defaultSegments,
       segmentOptions,
+      suggestionApplied,
       suggestionCode,
       suggestions,
     ]
@@ -509,6 +661,9 @@ export function BankStatementImport({
       return;
     }
     setError("");
+    // Хуучин лавлахаар (өмнөх импортын дараах хуучирсан нээлттэй нэхэмжлэх)
+    // шинэ мөрүүдэд санал гаргахгүй — fetch эргэж иртэл саналгүй байна.
+    setMatchContext(null);
     startTransition(async () => {
       try {
         const formData = new FormData();
@@ -548,6 +703,8 @@ export function BankStatementImport({
         setParsed(result);
         setRows(normalizedRows);
         setSelectedCount(0);
+        // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
+        setTriageFilter("all");
         applyQuickFilter("");
         // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар) —
         // фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
@@ -591,9 +748,17 @@ export function BankStatementImport({
     const field =
       side === "debit" ? "debitAccountNumber" : "creditAccountNumber";
     setRows((current) =>
-      current.map((row) =>
-        ids.has(row.id) ? { ...row, [field]: code } : row
-      )
+      current.map((row) => {
+        if (!ids.has(row.id)) return row;
+        // Харьцах талын данс өөрчлөгдвөл нэхэмжлэхийн холбоос цуцлагдана;
+        // банкны талын оноолт settlement-д нөлөөгүй.
+        const counterSide = row.income > 0 ? "credit" : "debit";
+        return {
+          ...row,
+          [field]: code,
+          ...(side === counterSide ? { settleInvoiceId: null } : {}),
+        };
+      })
     );
     setAssignmentOpen(false);
   }
@@ -663,6 +828,8 @@ export function BankStatementImport({
                 ...row,
                 debitAccountNumber: copied.debitAccountNumber!,
                 creditAccountNumber: copied.creditAccountNumber!,
+                // Данс өөрчлөгдсөн тул нэхэмжлэхийн холбоос цуцлагдана.
+                settleInvoiceId: null,
               }
             : row
         )
@@ -787,6 +954,7 @@ export function BankStatementImport({
                 setCashAccountId(event.target.value);
                 setParsed(null);
                 setRows([]);
+                setTriageFilter("all");
               }}
               className="ea-form-select sm:w-64"
               aria-label="Банкны мөнгөн хөрөнгийн данс"
@@ -878,9 +1046,44 @@ export function BankStatementImport({
             </span>
           </div>
 
+          {/* Triage — Xero загвар: төлөвөөр шүүж, өндөр итгэлтэйг нэг товчоор */}
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterChips
+              options={[
+                { value: "all", label: "Бүгд", count: rows.length },
+                { value: "ready", label: "Бэлэн", count: triageCounts.ready },
+                {
+                  value: "suggested",
+                  label: "Саналтай",
+                  count: triageCounts.suggested,
+                  tone: "warning",
+                },
+                {
+                  value: "missing",
+                  label: "Данс дутуу",
+                  count: triageCounts.missing,
+                  tone: "warning",
+                },
+              ]}
+              value={triageFilter}
+              onChange={setTriageFilter}
+            />
+            {highConfidencePending.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={applyAllHighConfidence}
+              >
+                <Icon name="approveAll" size="sm" />
+                Хүчтэй саналыг бүгдийг ашиглах ({highConfidencePending.length})
+              </Button>
+            )}
+          </div>
+
           <DataGridDynamic<ParsedBankStatementRow>
             ref={gridRef}
-            rowData={rows}
+            rowData={displayedRows}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
             height={620}
@@ -939,6 +1142,10 @@ export function BankStatementImport({
               Импортын түүх
             </h2>
           </div>
+          <p className="mb-1.5 text-[11px] text-[var(--ea-text-4)]">
+            Мөр дээр давхар даралт — импортын мөрүүд, баримт руу очиж буцаах
+            боломжтой
+          </p>
           <DataGridDynamic<BankStatementSummary>
             rowData={statements}
             columnDefs={statementColumns}
@@ -946,9 +1153,24 @@ export function BankStatementImport({
             height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
+            onRowDoubleClicked={(event) => {
+              if (event.data) setLinesStatement(event.data);
+            }}
           />
         </section>
       )}
+
+      {/* Импортын мөрүүдийн drill — undo зам: мөр → кассын баримт → Буцаах */}
+      <Dialog
+        open={linesStatement !== null}
+        onOpenChange={(open) => !open && setLinesStatement(null)}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          {linesStatement && (
+            <StatementLinesBody statement={linesStatement} />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {rows.length === 0 && statements.length === 0 && (
         <div className="flex min-h-56 items-center justify-center rounded-md border border-dashed border-[var(--ea-border-strong)] text-sm text-[var(--ea-text-4)]">
@@ -1030,5 +1252,137 @@ export function BankStatementImport({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ── Импортын мөрүүдийн drill — түүхээс мөр бүрийн баримт руу ────────────────
+
+type StatementLineView = {
+  id: string;
+  rowNumber: number;
+  transactionDate: string;
+  description: string;
+  counterparty: string | null;
+  income: number;
+  expense: number;
+  cashDocumentId: string | null;
+  documentNo: string | null;
+  documentStatus: string | null;
+};
+
+const LINE_DOC_STATUS: Record<string, { label: string; tone: "success" | "danger" | "muted" }> = {
+  posted: { label: "Батлагдсан", tone: "success" },
+  reversed: { label: "Буцаагдсан", tone: "danger" },
+};
+
+function StatementLinesBody({
+  statement,
+}: {
+  statement: BankStatementSummary;
+}) {
+  const [loaded, setLoaded] = useState<
+    | { ok: true; lines: StatementLineView[] }
+    | { ok: false; message: string }
+    | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/cash/statements/${statement.id}/lines`)
+      .then(async (response) => {
+        const data = (await response.json()) as {
+          lines?: StatementLineView[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!response.ok || data.error || !data.lines)
+          setLoaded({ ok: false, message: data.error || "Ачаалж чадсангүй" });
+        else setLoaded({ ok: true, lines: data.lines });
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded({ ok: false, message: "Ачаалж чадсангүй" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [statement.id]);
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{statement.fileName} — импортын мөрүүд</DialogTitle>
+      </DialogHeader>
+      <p className="text-xs text-[var(--ea-text-3)]">
+        Мөр бүрийн «Баримт» товчоор кассын баримтыг нээж, шаардлагатай бол
+        тэндээсээ «Буцаах» хийнэ (undo).
+      </p>
+      {loaded === null ? (
+        <p className="py-4 text-center text-xs text-[var(--ea-text-4)]">
+          Ачаалж байна…
+        </p>
+      ) : !loaded.ok ? (
+        <p className="text-sm text-[var(--ea-danger-fg)]">{loaded.message}</p>
+      ) : (
+        <ul className="max-h-[55vh] space-y-1 overflow-y-auto">
+          {loaded.lines.map((line) => {
+            const status = line.documentStatus
+              ? LINE_DOC_STATUS[line.documentStatus] ?? {
+                  label: line.documentStatus,
+                  tone: "muted" as const,
+                }
+              : { label: "Баримт устгагдсан", tone: "muted" as const };
+            return (
+              <li
+                key={line.id}
+                className="flex items-center gap-2 rounded border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-2.5 py-1.5 text-xs"
+              >
+                <span className="w-8 shrink-0 font-mono text-[var(--ea-text-4)]">
+                  {line.rowNumber}
+                </span>
+                <span className="w-20 shrink-0 font-mono text-[var(--ea-text-4)]">
+                  {line.transactionDate}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[var(--ea-text-1)]">
+                  {line.description}
+                  {line.counterparty ? ` · ${line.counterparty}` : ""}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 font-mono",
+                    line.income > 0
+                      ? "text-[var(--ea-success-fg)]"
+                      : "text-[var(--ea-danger-fg)]"
+                  )}
+                >
+                  {line.income > 0
+                    ? fmtMnt(line.income)
+                    : `−${fmtMnt(line.expense)}`}
+                </span>
+                <StatusBadge
+                  tone={status.tone}
+                  className="!px-1.5 !py-0 !text-[10px] shrink-0"
+                >
+                  {status.label}
+                </StatusBadge>
+                {line.cashDocumentId && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openCashDocPanel(
+                        line.cashDocumentId!,
+                        line.documentNo ?? undefined
+                      )
+                    }
+                    className="shrink-0 rounded-md border border-[var(--ea-border)] px-2 py-0.5 text-xs font-medium text-[var(--ea-primary)] hover:bg-[var(--ea-primary-soft)]"
+                  >
+                    Баримт
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
   );
 }

@@ -67,6 +67,9 @@ export async function GET() {
           paidAmount: Number(invoice.paidAmount),
           documentType: invoice.documentType as "ar_invoice" | "ap_bill",
           controlAccountNumber: invoice.controlAccountNumber,
+          // Валют зөрсөн нэхэмжлэх санал болохгүй — client талд банкны
+          // дансны валютаар шүүнэ (save route мөн хориглодог).
+          currency: invoice.currency,
         }))
         .filter((invoice) => invoice.totalAmount - invoice.paidAmount > 0),
       historicalPatterns: buildHistoricalPatterns(

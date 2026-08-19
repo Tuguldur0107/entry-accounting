@@ -32,6 +32,8 @@ export type OpenInvoiceRef = {
   documentType: "ar_invoice" | "ap_bill";
   /** Нэхэмжлэхийн хяналтын данс (бүтэн сегмент код) — саналыг мөрөнд бөглөхөд ашиглана. */
   controlAccountNumber?: string;
+  /** Нэхэмжлэхийн валют — банкны дансны валюттай зөрвөл санал болохгүй. */
+  currency?: string;
 };
 
 export type HistoricalPattern = {

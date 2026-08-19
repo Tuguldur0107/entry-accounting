@@ -982,34 +982,22 @@ export async function reverseCashDocument(id: string) {
     for (const settlement of linkedSettlements) {
       if (settlement.organizationId !== orgId || !settlement.document)
         continue;
-      const total = Number(settlement.document.totalAmount);
-      const paid = Number(settlement.document.paidAmount);
-      const nextPaid = Math.max(
-        0,
-        Math.round((paid - Number(settlement.amount)) * 100) / 100
-      );
-      const nextBasePaid = Math.max(
-        0,
-        Math.round(
-          (Number(settlement.document.basePaidAmount) -
-            Number(settlement.baseAmount)) *
-            100
-        ) / 100
-      );
-      const nextStatus =
-        settlement.document.status === "reversed"
-          ? "reversed"
-          : nextPaid <= 0.005
-            ? "posted"
-            : nextPaid >= total - 0.005
-              ? "paid"
-              : "partially_paid";
+      // Атом SQL хасалт — транзакцын гадна уншсан paidAmount-аар абсолют
+      // бичвэл зэрэгцээ settlement (жишээ нь хуулгын импорт)-ийн нэмэгдлийг
+      // дарж устгана. SET доторх багана бүр ХУУЧИН утгаа хардаг тул статус
+      // CASE нь хасалтын дараах утгаар зөв бодогдоно.
+      const amountText = String(settlement.amount);
+      const baseText = String(settlement.baseAmount ?? settlement.amount);
       await tx
         .update(arApDocuments)
         .set({
-          paidAmount: String(nextPaid),
-          basePaidAmount: String(nextBasePaid),
-          status: nextStatus,
+          paidAmount: sql`GREATEST(${arApDocuments.paidAmount} - ${amountText}, 0)`,
+          basePaidAmount: sql`GREATEST(COALESCE(${arApDocuments.basePaidAmount}, ${arApDocuments.paidAmount}) - ${baseText}, 0)`,
+          status: sql`CASE
+            WHEN ${arApDocuments.status} NOT IN ('posted', 'partially_paid', 'paid') THEN ${arApDocuments.status}
+            WHEN ${arApDocuments.paidAmount} - ${amountText} <= 0.005 THEN 'posted'
+            WHEN ${arApDocuments.paidAmount} - ${amountText} >= ${arApDocuments.totalAmount} - 0.005 THEN 'paid'
+            ELSE 'partially_paid' END`,
         })
         .where(
           and(
@@ -1114,38 +1102,28 @@ export async function deleteCashDocument(id: string) {
       byInvoice.set(settlement.documentId, slot);
     }
     for (const [invoiceId, sums] of byInvoice) {
-      const invoice = await tx.query.arApDocuments.findFirst({
-        where: and(
-          eq(arApDocuments.id, invoiceId),
-          eq(arApDocuments.organizationId, orgId)
-        ),
-      });
-      if (!invoice) continue;
-      const newPaid = Math.max(
-        0,
-        Math.round((Number(invoice.paidAmount) - sums.amount) * 100) / 100
-      );
-      const newBasePaid = Math.max(
-        0,
-        Math.round(
-          (Number(invoice.basePaidAmount ?? invoice.paidAmount) - sums.baseAmount) *
-            100
-        ) / 100
-      );
-      const total = Number(invoice.totalAmount);
+      // Атом SQL хасалт — уншиж-бодож-бичих race-аас хамгаална (зэрэгцээ
+      // импорт/төлбөр paidAmount-ыг өөрчилсөн байж болно). SET доторх
+      // багана бүр хуучин утгаа хардаг.
+      const amountText = String(Math.round(sums.amount * 100) / 100);
+      const baseText = String(Math.round(sums.baseAmount * 100) / 100);
       await tx
         .update(arApDocuments)
         .set({
-          paidAmount: String(newPaid),
-          basePaidAmount: String(newBasePaid),
-          status:
-            newPaid <= 0.005
-              ? "posted"
-              : newPaid >= total - 0.005
-                ? "paid"
-                : "partially_paid",
+          paidAmount: sql`GREATEST(${arApDocuments.paidAmount} - ${amountText}, 0)`,
+          basePaidAmount: sql`GREATEST(COALESCE(${arApDocuments.basePaidAmount}, ${arApDocuments.paidAmount}) - ${baseText}, 0)`,
+          status: sql`CASE
+            WHEN ${arApDocuments.status} NOT IN ('posted', 'partially_paid', 'paid') THEN ${arApDocuments.status}
+            WHEN ${arApDocuments.paidAmount} - ${amountText} <= 0.005 THEN 'posted'
+            WHEN ${arApDocuments.paidAmount} - ${amountText} >= ${arApDocuments.totalAmount} - 0.005 THEN 'paid'
+            ELSE 'partially_paid' END`,
         })
-        .where(eq(arApDocuments.id, invoiceId));
+        .where(
+          and(
+            eq(arApDocuments.id, invoiceId),
+            eq(arApDocuments.organizationId, orgId)
+          )
+        );
     }
     if (settlements.length > 0)
       await tx
