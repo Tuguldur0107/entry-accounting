@@ -1,10 +1,13 @@
 "use client";
 
 // Глобал keyboard навигаци:
-//   "/"  — хурдан шилжих палитр (бүх модулийн хуудас + үүсгэх үйлдлүүд,
-//          MODULES бүртгэлээс — тусдаа жагсаалт хөтлөхгүй)
+//   "/", Cmd/Ctrl+K — хурдан шилжих палитр: хуудас + үүсгэх үйлдэл
+//          (MODULES бүртгэлээс) + ДАТА хайлт — данс/харилцагч/бараа
+//          клиент кэшээс (П5, network-гүй), баримтууд /api/search-ээс
+//          debounce-тэйгээр; баримт нь панелээрээ шууд нээгдэнэ (П10).
 //   "?"  — товчлолын тусламжийн overlay
-// Input/textarea/contenteditable дотор бичиж байхад идэвхгүй.
+// "/" ба "?" нь input/textarea/contenteditable дотор идэвхгүй;
+// Cmd/Ctrl+K хаанаас ч ажиллана.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -14,17 +17,41 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { HOME_MODULE_ID, MODULES } from "@/components/layout/modules";
 import { QUICK_CREATE_ACTIONS } from "@/components/layout/quick-create";
+import { getReferenceData } from "@/lib/reference/client-cache";
+import {
+  REFERENCE_MIN_QUERY,
+  searchReference,
+  type ReferenceData,
+} from "@/lib/reference/palette-search";
+import {
+  openArapDocPanel,
+  openCashDocPanel,
+  openVoucherPanel,
+} from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 
 type NavEntry = {
   key: string;
-  /** Хайлтад ашиглах бүтэн текст. */
+  /** Хайлтад ашиглах бүтэн текст (дата илэрцэд хоосон — аль хэдийн шүүгдсэн). */
   search: string;
   group: string;
   label: string;
+  /** Хажууд нь муутгаж үзүүлэх нэмэлт (дугаар, огноо, төлөв). */
+  sub?: string;
   icon: IconName;
   run: (router: ReturnType<typeof useRouter>) => void;
 };
+
+/** /api/search-ийн нэг бүлгийн илэрц. */
+type DocHit = {
+  id: string;
+  documentNo?: string;
+  documentType?: string;
+  label: string;
+  sub: string;
+};
+
+type DocSearchResult = { arap: DocHit[]; cash: DocHit[]; vouchers: DocHit[] };
 
 function buildEntries(): NavEntry[] {
   const pages: NavEntry[] = MODULES.flatMap((module) =>
@@ -50,7 +77,10 @@ function buildEntries(): NavEntry[] {
 
 /** Товчлолын тусламжид үзүүлэх жагсаалт. */
 const SHORTCUT_HELP: { keys: string; description: string }[] = [
-  { keys: "/", description: "Хурдан шилжих палитр (хуудас, үүсгэх үйлдэл)" },
+  {
+    keys: "/ · Cmd/Ctrl+K",
+    description: "Палитр: хуудас, үйлдэл + данс/харилцагч/бараа/баримт хайх",
+  },
   { keys: "?", description: "Энэ тусламжийг нээх" },
   { keys: "Esc", description: "Палитр/панель хаах, edit-ээс гарах" },
   { keys: "Enter / Shift+Enter", description: "Хүснэгтэд commit + доош / дээш" },
@@ -81,6 +111,16 @@ export function QuickNav() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // Cmd/Ctrl+K — бичиж байсан ч ажиллана (Linear/Superhuman конвенц).
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === "k"
+      ) {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       if (event.key === "/") {
@@ -144,11 +184,127 @@ function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // П5 — лавлах дата клиент кэшээс (нэг session-д нэг fetch).
+  const [reference, setReference] = useState<ReferenceData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getReferenceData().then((data) => {
+      if (!cancelled && data) setReference(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // П10 — баримтын хайлт: debounce + AbortController. Илэрц нь query-тэйгээ
+  // хамт хадгалагдаж render дээр тулгагдана — хуучирсан query-ийн илэрц
+  // харагдахгүй, effect дотор sync reset ч хэрэггүй.
+  const [docSearch, setDocSearch] = useState<{
+    q: string;
+    result: DocSearchResult;
+  } | null>(null);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < REFERENCE_MIN_QUERY) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+        signal: controller.signal,
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: (DocSearchResult & { error?: string }) | null) => {
+          if (data && !data.error) setDocSearch({ q, result: data });
+        })
+        .catch(() => {});
+    }, 250);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [query]);
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter((entry) => entry.search.includes(q));
-  }, [entries, query]);
+    const rawQuery = query.trim();
+    const q = rawQuery.toLowerCase();
+    const staticEntries = q
+      ? entries.filter((entry) => entry.search.includes(q))
+      : entries;
+    if (q.length < REFERENCE_MIN_QUERY) return staticEntries;
+    const docResult =
+      docSearch && docSearch.q === rawQuery ? docSearch.result : null;
+
+    // Лавлах илэрц — кэшээс шууд (network-гүй).
+    const referenceEntries: NavEntry[] = reference
+      ? searchReference(reference, q).map((hit) => ({
+          key: `${hit.kind}:${hit.id}`,
+          search: "",
+          group:
+            hit.kind === "account"
+              ? "Данс"
+              : hit.kind === "counterparty"
+                ? "Харилцагч"
+                : "Бараа",
+          label: hit.label,
+          sub: hit.sub,
+          icon:
+            hit.kind === "account"
+              ? "generalLedger"
+              : hit.kind === "counterparty"
+                ? "company"
+                : "inventory",
+          run: (router) =>
+            router.push(
+              hit.kind === "account"
+                ? "/settings/gl"
+                : hit.kind === "counterparty"
+                  ? hit.counterpartyType === "supplier"
+                    ? "/payables/counterparties"
+                    : "/receivables/counterparties"
+                  : "/inventory/items"
+            ),
+        }))
+      : [];
+
+    // Баримтын илэрц — панелээрээ шууд нээгдэнэ.
+    const documentEntries: NavEntry[] = docResult
+      ? [
+          ...docResult.arap.map((hit): NavEntry => ({
+            key: `arap:${hit.id}`,
+            search: "",
+            group: "АР/АП баримт",
+            label: hit.label,
+            sub: hit.sub,
+            icon: "document",
+            run: () =>
+              openArapDocPanel({
+                documentId: hit.id,
+                mode: hit.documentType === "ap_bill" ? "payable" : "receivable",
+                title: hit.documentNo,
+              }),
+          })),
+          ...docResult.cash.map((hit): NavEntry => ({
+            key: `cashdoc:${hit.id}`,
+            search: "",
+            group: "Кассын баримт",
+            label: hit.label,
+            sub: hit.sub,
+            icon: "cash",
+            run: () => openCashDocPanel(hit.id, hit.documentNo),
+          })),
+          ...docResult.vouchers.map((hit): NavEntry => ({
+            key: `voucher:${hit.id}`,
+            search: "",
+            group: "Журнал",
+            label: hit.label,
+            sub: hit.sub,
+            icon: "journal",
+            run: () => openVoucherPanel(hit.id),
+          })),
+        ]
+      : [];
+
+    return [...staticEntries, ...referenceEntries, ...documentEntries];
+  }, [entries, query, reference, docSearch]);
 
   // Шүүлт өөрчлөгдөхөд идэвхтэй мөр жагсаалтын хязгаарт байг.
   const active = Math.min(activeIndex, Math.max(0, filtered.length - 1));
@@ -184,7 +340,7 @@ function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
             setActiveIndex(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Хуудас, үйлдэл хайх…"
+          placeholder="Хуудас, үйлдэл, данс, харилцагч, бараа, баримт хайх…"
           className="border-none bg-transparent shadow-none focus-visible:ring-0"
         />
       </div>
@@ -209,7 +365,17 @@ function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
               )}
             >
               <Icon name={entry.icon} size="sm" className="shrink-0 text-[var(--ea-text-3)]" />
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+              <span className="min-w-0 flex-1 truncate">
+                {entry.label}
+                {entry.sub && (
+                  <span
+                    className="ml-2 text-[11px]"
+                    style={{ color: "var(--ea-text-4)" }}
+                  >
+                    {entry.sub}
+                  </span>
+                )}
+              </span>
               <span className="shrink-0 text-[11px]" style={{ color: "var(--ea-text-4)" }}>
                 {entry.group}
               </span>
