@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireRole } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
@@ -251,6 +251,59 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
     )
     .returning({ id: fixedAssets.id });
   if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
+  revalidateFa();
+}
+
+/**
+ * Идэвхжүүлэлтийг БУЦААХ (ҮХ-ийн орлогын буцаалт) — идэвхтэй картыг ноорог
+ * руу буцаана. Элэгдлийн идэвхтэй (ноорог/батлагдсан) бичилттэй бол хориглоно
+ * — эхлээд бичилтүүдийг нь устгаж/буцаана; буцаагдсан түүх саад болохгүй.
+ * Атом claim (active→draft) давхар буцаалтыг таслана.
+ */
+export async function deactivateFixedAsset(id: string) {
+  const { orgId, userId } = await requireAccountant();
+  const asset = await db.query.fixedAssets.findFirst({
+    where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
+    columns: { status: true, code: true, name: true },
+  });
+  if (!asset) throw new Error("Хөрөнгө олдсонгүй");
+  if (asset.status !== "active")
+    throw new Error("Зөвхөн идэвхтэй картын идэвхжүүлэлтийг буцаана");
+
+  const activeEntry = await db.query.faDepreciationEntries.findFirst({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.assetId, id),
+      inArray(faDepreciationEntries.status, ["draft", "posted"])
+    ),
+    columns: { id: true },
+  });
+  if (activeEntry)
+    throw new Error(
+      `${asset.code} хөрөнгө элэгдлийн бичилттэй — эхлээд бичилтүүдийг нь устгаж/буцаана уу (ҮХ → Элэгдэл)`
+    );
+
+  const [claimed] = await db
+    .update(fixedAssets)
+    .set({ status: "draft" })
+    .where(
+      and(
+        eq(fixedAssets.id, id),
+        eq(fixedAssets.organizationId, orgId),
+        eq(fixedAssets.status, "active")
+      )
+    )
+    .returning({ id: fixedAssets.id });
+  if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
+
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "deactivate",
+    entityType: "fa",
+    entityId: id,
+    summary: `ҮХ идэвхжүүлэлт буцаагдав — ${asset.code} ${asset.name}`,
+  });
   revalidateFa();
 }
 
@@ -568,4 +621,118 @@ export async function reverseDepreciationEntry(id: string) {
   });
 
   revalidateFa();
+}
+
+// ─── GL тулгалтын задаргаа (самбарын drill-down) ─────────────────────────────
+
+export type FaTieOutDetail = {
+  /** Тухайн дансанд нөлөөлсөн GL журналууд — мужид, нэт дүнгээр. */
+  gl: {
+    voucherId: string;
+    date: string;
+    description: string;
+    amount: number;
+  }[];
+  /** Subledger-ийн гүйлгээ — өртгийн дансанд картын өртөг, элэгдлийн дансанд батлагдсан элэгдэл. */
+  subledger: { id: string; date: string; label: string; amount: number }[];
+  glTotal: number;
+  subledgerTotal: number;
+};
+
+/**
+ * Самбарын GL тулгалтын нэг дансны задаргаа — СОНГОСОН МУЖИД (PTD default).
+ * Багануудын дүн нь бүх цагийн үлдэгдэл; энэ задаргаа нь мужийн гүйлгээг
+ * харуулж, их дата дээр бүх түүхийг нэг дор уншихаас сэргийлнэ.
+ */
+export async function getFaTieOutDetail(data: {
+  accountNumber: string;
+  from: string;
+  to: string;
+}): Promise<FaTieOutDetail> {
+  const { orgId } = await getActiveOrg();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.from) || !/^\d{4}-\d{2}-\d{2}$/.test(data.to))
+    throw new Error("Огнооны муж (YYYY-MM-DD) буруу байна");
+  if (data.to < data.from) throw new Error("Мужийн төгсгөл эхлэлээс өмнө байна");
+
+  const [vouchers, assets, entries] = await Promise.all([
+    db.query.journalVouchers.findMany({
+      where: and(
+        eq(journalVouchers.organizationId, orgId),
+        inArray(journalVouchers.status, ["posted", "reversed"]),
+        gte(journalVouchers.date, data.from),
+        lte(journalVouchers.date, data.to)
+      ),
+      with: { lines: true },
+    }),
+    db.query.fixedAssets.findMany({
+      where: eq(fixedAssets.organizationId, orgId),
+    }),
+    db.query.faDepreciationEntries.findMany({
+      where: and(
+        eq(faDepreciationEntries.organizationId, orgId),
+        eq(faDepreciationEntries.status, "posted"),
+        // periodMonth (YYYY-MM) мужид — сарын түвшинд харьцуулна.
+        gte(faDepreciationEntries.periodMonth, data.from.slice(0, 7)),
+        lte(faDepreciationEntries.periodMonth, data.to.slice(0, 7))
+      ),
+    }),
+  ]);
+
+  const mainOf = (accountNumber: string) => {
+    const parts = accountNumber.split(".");
+    return parts.length === 10 ? parts[2] : accountNumber;
+  };
+
+  const gl: FaTieOutDetail["gl"] = [];
+  for (const voucher of vouchers) {
+    let net = 0;
+    for (const line of voucher.lines) {
+      if (mainOf(line.accountNumber) !== data.accountNumber) continue;
+      net += Number(line.debit) - Number(line.credit);
+    }
+    if (Math.abs(net) < 0.005) continue;
+    gl.push({
+      voucherId: voucher.id,
+      date: voucher.date,
+      description: voucher.description,
+      amount: Math.round(net * 100) / 100,
+    });
+  }
+  gl.sort((a, b) => b.date.localeCompare(a.date));
+
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const subledger: FaTieOutDetail["subledger"] = [];
+  // Өртгийн данс: тухайн дансанд бүртгэлтэй ИДЭВХТЭЙ картууд, авсан огноогоор.
+  for (const asset of assets) {
+    if (asset.status !== "active") continue;
+    if (asset.assetAccountNumber !== data.accountNumber) continue;
+    if (asset.acquisitionDate < data.from || asset.acquisitionDate > data.to)
+      continue;
+    subledger.push({
+      id: `asset-${asset.id}`,
+      date: asset.acquisitionDate,
+      label: `${asset.code} · ${asset.name}`,
+      amount: Number(asset.cost),
+    });
+  }
+  // Хуримт. элэгдлийн данс: батлагдсан элэгдэл (кредит үлдэгдэл → сөрөг).
+  for (const entry of entries) {
+    const asset = assetById.get(entry.assetId);
+    if (!asset || asset.accumDepAccountNumber !== data.accountNumber) continue;
+    subledger.push({
+      id: `dep-${entry.id}`,
+      date: `${entry.periodMonth}-01`,
+      label: `Элэгдэл ${entry.periodMonth} · ${asset.code} ${asset.name}`,
+      amount: -Number(entry.amount),
+    });
+  }
+  subledger.sort((a, b) => b.date.localeCompare(a.date));
+
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  return {
+    gl,
+    subledger,
+    glTotal: round2(gl.reduce((sum, row) => sum + row.amount, 0)),
+    subledgerTotal: round2(subledger.reduce((sum, row) => sum + row.amount, 0)),
+  };
 }

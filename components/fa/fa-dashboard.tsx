@@ -1,12 +1,29 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon, type IconName } from "@/components/ui/icon";
 import Link from "next/link";
-import type { ColDef } from "ag-grid-community";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { LoadingInline } from "@/components/ui/loading";
+import { getFaTieOutDetail, type FaTieOutDetail } from "@/lib/actions/fa";
+import {
+  PERIOD_SCOPES,
+  PERIOD_SCOPE_LABELS,
+  scopeRange,
+  type PeriodScope,
+} from "@/lib/periods/scope";
 import { fmtMnt } from "@/lib/reports/balances";
+import { openVoucherPanel } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
 
 export type NbvRow = {
@@ -33,10 +50,23 @@ interface Props {
   draftEntryCount: number;
 }
 
+type TieOutMeasure = "subledger" | "gl" | "difference";
+
+const MEASURE_LABELS: Record<TieOutMeasure, string> = {
+  subledger: "Subledger задаргаа",
+  gl: "GL үлдэгдлийн задаргаа",
+  difference: "Зөрүүний задаргаа",
+};
+
 export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: Props) {
   const totalCost = rows.reduce((sum, row) => sum + row.cost, 0);
   const totalAccum = rows.reduce((sum, row) => sum + row.accumulated, 0);
   const totalNbv = rows.reduce((sum, row) => sum + row.nbv, 0);
+
+  const [detail, setDetail] = useState<{
+    row: FaTieOutRow;
+    measure: TieOutMeasure;
+  } | null>(null);
 
   const columns = useMemo<ColDef<NbvRow>[]>(
     () => [
@@ -70,8 +100,24 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
     []
   );
 
-  const tieOutColumns = useMemo<ColDef<FaTieOutRow>[]>(
-    () => [
+  const tieOutColumns = useMemo<ColDef<FaTieOutRow>[]>(() => {
+    // Багана бүрийн дүн — дархад задаргаа нээх clickable товч (кассын
+    // тулгалтын хэв маягтай ижил). setDetail нь тогтвортой тул deps хоосон.
+    const clickableAmount = (measure: TieOutMeasure) =>
+      function AmountCell(params: ICellRendererParams<FaTieOutRow>) {
+        if (params.value == null || !params.data) return "";
+        return (
+          <button
+            type="button"
+            onClick={() => setDetail({ row: params.data!, measure })}
+            title="Задаргааг харах"
+            className="w-full cursor-pointer text-right underline decoration-[var(--ea-border-strong)] decoration-dotted underline-offset-4 transition-colors hover:text-[var(--ea-primary)] hover:decoration-[var(--ea-primary)]"
+          >
+            {fmtMnt(Number(params.value))}
+          </button>
+        );
+      };
+    return [
       {
         headerName: "GL данс",
         colId: "account",
@@ -87,7 +133,7 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
         width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        cellRenderer: clickableAmount("subledger"),
       },
       {
         headerName: "GL үлдэгдэл",
@@ -95,7 +141,7 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
         width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        cellRenderer: clickableAmount("gl"),
       },
       {
         headerName: "Зөрүү",
@@ -107,11 +153,10 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
             "ag-right-aligned-cell font-mono font-semibold",
             Math.abs(Number(params.value ?? 0)) > 0.01 && "text-[var(--ea-danger)]"
           ),
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        cellRenderer: clickableAmount("difference"),
       },
-    ],
-    []
-  );
+    ];
+  }, [setDetail]);
 
   const metrics = [
     {
@@ -226,6 +271,243 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
           />
         )}
       </section>
+
+      <Dialog open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          {detail && (
+            <TieOutDetailBody
+              row={detail.row}
+              measure={detail.measure}
+              onNavigate={() => setDetail(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Задаргааны dialog — PTD default, QTD/YTD/гар мужаар солино ──────────────
+
+function TieOutDetailBody({
+  row,
+  measure,
+  onNavigate,
+}: {
+  row: FaTieOutRow;
+  measure: TieOutMeasure;
+  /** Журнал руу үсрэхэд dialog-оо хаана — панель нь ил гарна. */
+  onNavigate: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const currentMonth = today.slice(0, 7);
+  // Default PTD — их түүхтэй данс дээр ч хурдан нээгдэнэ.
+  const [scope, setScope] = useState<PeriodScope | "custom">("PTD");
+  const [range, setRange] = useState(() => scopeRange(currentMonth, "PTD", today));
+  // Sync setState-гүй ачаалалт: үр дүнг МУЖИЙН ТҮЛХҮҮРТЭЙ нь хадгалж,
+  // одоогийн түлхүүртэй таарахгүй бол "ачаалж байна" гэж үзнэ.
+  const key = `${row.accountNumber}|${range.from}|${range.to}`;
+  const [loaded, setLoaded] = useState<
+    | { key: string; ok: true; data: FaTieOutDetail }
+    | { key: string; ok: false; message: string }
+    | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getFaTieOutDetail({
+      accountNumber: row.accountNumber,
+      from: range.from,
+      to: range.to,
+    })
+      .then((result) => {
+        if (!cancelled) setLoaded({ key, ok: true, data: result });
+      })
+      .catch((caught) => {
+        if (!cancelled)
+          setLoaded({
+            key,
+            ok: false,
+            message:
+              caught instanceof Error ? caught.message : "Ачаалж чадсангүй",
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, row.accountNumber, range.from, range.to]);
+
+  const data = loaded?.key === key && loaded.ok ? loaded.data : null;
+  const error = loaded?.key === key && !loaded.ok ? loaded.message : "";
+
+  const showGl = measure === "gl" || measure === "difference";
+  const showSub = measure === "subledger" || measure === "difference";
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>
+          {row.accountNumber} {row.accountName} — {MEASURE_LABELS[measure]}
+        </DialogTitle>
+        <DialogDescription>
+          Баганын дүн нь бүх цагийн үлдэгдэл; доорх задаргаа нь СОНГОСОН
+          МУЖИЙН гүйлгээг харуулна (их дата дээр хурдан байлгахын тулд).
+        </DialogDescription>
+      </DialogHeader>
+
+      {/* Мужийн сонголт — PTD/QTD/YTD chip + гар муж */}
+      <div className="flex flex-wrap items-center gap-2">
+        {PERIOD_SCOPES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              setScope(option);
+              setRange(scopeRange(currentMonth, option, today));
+            }}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              scope === option
+                ? "border-[var(--ea-primary)] bg-[var(--ea-selected-bg)] text-[var(--ea-interactive)]"
+                : "border-[var(--ea-border)] text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
+            )}
+          >
+            {PERIOD_SCOPE_LABELS[option]}
+          </button>
+        ))}
+        <div className="flex items-center gap-1.5">
+          <Input
+            type="date"
+            value={range.from}
+            onChange={(event) => {
+              setScope("custom");
+              setRange((current) => ({ ...current, from: event.target.value }));
+            }}
+            className="h-7 w-36 text-xs"
+          />
+          <span className="text-xs text-[var(--ea-text-4)]">—</span>
+          <Input
+            type="date"
+            value={range.to}
+            onChange={(event) => {
+              setScope("custom");
+              setRange((current) => ({ ...current, to: event.target.value }));
+            }}
+            className="h-7 w-36 text-xs"
+          />
+        </div>
+      </div>
+
+      {error ? (
+        <p className="text-sm" style={{ color: "var(--ea-danger-fg)" }}>
+          {error}
+        </p>
+      ) : data === null ? (
+        <LoadingInline />
+      ) : (
+        <div className="grid gap-4">
+          {measure === "difference" && (
+            <div
+              className="rounded-md border px-3 py-2 font-mono text-sm"
+              style={{ borderColor: "var(--ea-border)", background: "var(--ea-bg-2)" }}
+            >
+              Мужид: GL {fmtMnt(data.glTotal)} − Subledger{" "}
+              {fmtMnt(data.subledgerTotal)} ={" "}
+              <span
+                className="font-semibold"
+                style={{
+                  color:
+                    Math.abs(data.glTotal - data.subledgerTotal) > 0.01
+                      ? "var(--ea-danger-fg)"
+                      : "var(--ea-success-fg)",
+                }}
+              >
+                {fmtMnt(Math.round((data.glTotal - data.subledgerTotal) * 100) / 100)}
+              </span>
+            </div>
+          )}
+
+          {showGl && (
+            <DetailList
+              title={`GL гүйлгээ (${data.gl.length}) · Σ ${fmtMnt(data.glTotal)}`}
+              empty="Энэ мужид GL гүйлгээ алга."
+              rows={data.gl.map((entry) => ({
+                id: entry.voucherId,
+                date: entry.date,
+                label: entry.description,
+                amount: entry.amount,
+                onOpen: () => {
+                  onNavigate();
+                  openVoucherPanel(entry.voucherId);
+                },
+              }))}
+            />
+          )}
+          {showSub && (
+            <DetailList
+              title={`Subledger гүйлгээ (${data.subledger.length}) · Σ ${fmtMnt(data.subledgerTotal)}`}
+              empty="Энэ мужид subledger гүйлгээ алга."
+              rows={data.subledger}
+            />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function DetailList({
+  title,
+  empty,
+  rows,
+}: {
+  title: string;
+  empty: string;
+  rows: {
+    id: string;
+    date: string;
+    label: string;
+    amount: number;
+    onOpen?: () => void;
+  }[];
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 text-xs font-semibold text-[var(--ea-text-2)]">
+        {title}
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-[var(--ea-text-4)]">{empty}</p>
+      ) : (
+        <ul className="max-h-56 space-y-1 overflow-y-auto">
+          {rows.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex items-center gap-2 rounded border px-2 py-1 text-xs"
+              style={{ borderColor: "var(--ea-border)", background: "var(--ea-bg-2)" }}
+            >
+              <span className="font-mono text-[var(--ea-text-4)]">{entry.date}</span>
+              {entry.onOpen ? (
+                <button
+                  type="button"
+                  onClick={entry.onOpen}
+                  className="min-w-0 flex-1 truncate text-left text-[var(--ea-primary)] hover:underline"
+                  title="Журналыг нээх"
+                >
+                  {entry.label}
+                </button>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-[var(--ea-text-1)]">
+                  {entry.label}
+                </span>
+              )}
+              <span className="font-mono text-[var(--ea-text-1)]">
+                {fmtMnt(entry.amount)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

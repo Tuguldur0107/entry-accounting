@@ -5,14 +5,17 @@
 // action-аар татна, refreshToken өсөх бүрд (сэргээх / дахин нээх) дахин
 // ачаална. Ноорог картад "Бөглөж идэвхжүүлэх" → openFaAssetFormPanel.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
+import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
+import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
-import { getFaAssetPanelData } from "@/lib/actions/fa";
+import { deactivateFixedAsset, getFaAssetPanelData } from "@/lib/actions/fa";
 import type {
   FaDepreciationEntryRow,
   FixedAssetView,
@@ -24,6 +27,7 @@ import {
 import { fmtMnt } from "@/lib/reports/balances";
 import {
   openFaAssetFormPanel,
+  refreshOpenPanels,
   usePanelStore,
   type PanelInstance,
 } from "@/lib/store/panel-store";
@@ -88,6 +92,10 @@ export function FaAssetPanel({
   requestClose: () => void;
 }) {
   const setTitle = usePanelStore((state) => state.setTitle);
+  const closePanel = usePanelStore((state) => state.closePanel);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const assetId = panel.payload.assetId as string | undefined;
   const refreshToken = panel.refreshToken;
@@ -302,10 +310,43 @@ export function FaAssetPanel({
             Бөглөж идэвхжүүлэх
           </Button>
         )}
+        {asset.status === "active" && (
+          <Button
+            variant="outline"
+            disabled={isPending}
+            onClick={() => {
+              void confirm({
+                title: "Идэвхжүүлэлт буцаах",
+                description: `${asset.code} · ${asset.name} картыг ноорог руу буцаах уу? (Элэгдлийн идэвхтэй бичилттэй бол татгалзана — эхлээд бичилтүүдийг буцаана.)`,
+                confirmText: "Буцаах",
+                danger: true,
+              }).then((ok) => {
+                if (!ok) return;
+                startTransition(async () => {
+                  try {
+                    await deactivateFixedAsset(asset.id);
+                    toast.success("Идэвхжүүлэлт буцаагдаж, карт ноорог боллоо");
+                    closePanel(panel.id);
+                    refreshOpenPanels();
+                    router.refresh();
+                  } catch (caught) {
+                    toast.error(
+                      caught instanceof Error ? caught.message : "Буцаах амжилтгүй"
+                    );
+                  }
+                });
+              });
+            }}
+          >
+            <Icon name="reset" size="sm" />
+            Идэвхжүүлэлт буцаах
+          </Button>
+        )}
         <Button variant="outline" onClick={requestClose}>
           Хаах
         </Button>
       </footer>
+      {confirmDialog}
     </div>
   );
 }
