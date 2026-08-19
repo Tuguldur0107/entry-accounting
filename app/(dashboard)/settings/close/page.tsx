@@ -1,34 +1,7 @@
-import { getMonthEndChecklist } from "@/lib/actions/month-end";
-import { getActiveOrg } from "@/lib/auth";
-import { runLedgerIntegrityCheck } from "@/lib/gl/integrity";
-import { getPeriodSelection } from "@/lib/periods/selection";
-import { isPeriodCode } from "@/lib/periods/period";
-import { CloseWizard } from "@/components/periods/close-wizard";
+import { redirect } from "next/navigation";
 
-// URL-ийн ил `period` параметр topbar-ийн сонголтыг дарна (deep link стандарт).
-type SearchParams = Promise<{ period?: string }>;
-
-export default async function MonthEndClosePage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
-  const { period } = await searchParams;
-  const selection = await getPeriodSelection();
-  const periodCode =
-    period && isPeriodCode(period) ? period : selection.periodCode;
-
-  const { orgId } = await getActiveOrg();
-  const [checklist, integrity] = await Promise.all([
-    getMonthEndChecklist(periodCode),
-    runLedgerIntegrityCheck(orgId),
-  ]);
-
-  return (
-    <CloseWizard
-      periodCode={periodCode}
-      checklist={checklist}
-      integrity={integrity}
-    />
-  );
+// Сар хаалт 2026-08-д Системийн хяналт модуль руу нүүсэн — хуучин
+// bookmark/линкүүд шинэ байрлал руу чиглэнэ.
+export default function LegacyClosePage() {
+  redirect("/close");
 }

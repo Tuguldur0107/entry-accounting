@@ -352,7 +352,7 @@ AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/too
 | Batch | create_{counterparties,arap_invoices,cash_transactions}_batch (max 100, partial success), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
 | НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
-| Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Тохиргоо → Сар хаалт `/settings/close`) | аль ч горимд |
+| Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
 | Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;

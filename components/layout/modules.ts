@@ -26,7 +26,11 @@ export const MODULES: Module[] = [
     label: "Системийн хяналт",
     matchPrefix: "/",
     defaultHref: "/",
-    items: [{ label: "Хяналтын самбар", href: "/", icon: "dashboard" }],
+    items: [
+      { label: "Хяналтын самбар", href: "/", icon: "dashboard" },
+      // Сар хаалт — бүх модулийг хамардаг систем-түвшний процесс тул энд.
+      { label: "Сар хаалт", href: "/close", icon: "reconciliation" },
+    ],
   },
   {
     id: "gl",
@@ -209,7 +213,6 @@ export const MODULES: Module[] = [
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
-      { label: "Сар хаалт", href: "/settings/close", icon: "reconciliation" },
       { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
     ],
   },
