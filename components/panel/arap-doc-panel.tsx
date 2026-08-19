@@ -33,6 +33,7 @@ import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
   createArApDocument,
   deleteArApDocument,
+  reverseArApDocument,
   getArapDocPanelData,
   postArApDocument,
   type ArapDocPanelData,
@@ -799,6 +800,28 @@ function ArapDocReadOnly({
     });
   }
 
+  function reversePosted() {
+    void confirm({
+      title: "Баримт буцаах",
+      description: `${document.documentNo} · ${document.counterpartyName} батлагдсан баримтыг буцаах уу? GL-д урвуу журнал бичигдэж, баримт «Буцаагдсан» төлөвт орно. (Төлөлттэй бол эхлээд төлөлтөө буцаана.)`,
+      confirmText: "Буцаах",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          await reverseArApDocument(document.id);
+          toast.success("Баримт буцаагдаж, GL-д урвуу журнал бичигдлээ");
+          closePanel(panel.id);
+          refreshOpenPanels();
+          router.refresh();
+        } catch (caught) {
+          toast.error(caught instanceof Error ? caught.message : "Буцаах амжилтгүй");
+        }
+      });
+    });
+  }
+
   function deleteDraft() {
     const posted = document.status !== "draft";
     void confirm({
@@ -1128,10 +1151,20 @@ function ArapDocReadOnly({
           </Button>
         )}
         {document.status === "posted" && (
-          <Button variant="outline" onClick={deleteDraft} disabled={isPending}>
-            <Icon name="delete" size="sm" />
-            Устгах
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              onClick={reversePosted}
+              disabled={isPending}
+            >
+              <Icon name="reset" size="sm" />
+              Буцаах
+            </Button>
+            <Button variant="outline" onClick={deleteDraft} disabled={isPending}>
+              <Icon name="delete" size="sm" />
+              Устгах
+            </Button>
+          </>
         )}
         {document.status === "draft" && (
           <>

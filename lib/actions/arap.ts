@@ -735,6 +735,162 @@ export async function postArApDocument(id: string) {
   revalidateArAp();
 }
 
+/**
+ * Батлагдсан АР/АП нэхэмжлэхийг БУЦААХ — GL журналыг нь урвуу мөртэй шинэ
+ * журналаар цэвэрлэж (нэт 0), баримт "reversed" төлөвт орно. Нэг баримт
+ * ЗӨВХӨН НЭГ удаа буцаагдана: транзакц доторх атом claim (posted→reversed)
+ * давхар буцаалтыг таслана — бусад модулийн reverse-тэй ИЖИЛ загвар.
+ * Хамгаалалт:
+ *   - төлөлттэй (paid/partially_paid эсвэл settlement) бол эхлээд төлөлтийн
+ *     кассын баримтыг буцаана
+ *   - үүсгэсэн бараа хөдөлгөөн БАТАЛГААЖСАН бол эхлээд цуцлуулна
+ *     (ноорог хөдөлгөөн нь хамт устна)
+ *   - период нээлттэй байх (буцаалт эх огноогоор бичигдэнэ)
+ */
+export async function reverseArApDocument(id: string) {
+  const { orgId, userId } = await requireAccountant();
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
+  });
+  if (!document) throw new Error("Баримт олдсонгүй");
+  if (document.status === "reversed")
+    throw new Error("Энэ баримт аль хэдийн буцаагдсан байна");
+  if (document.status === "partially_paid" || document.status === "paid")
+    throw new Error(
+      "Төлөлттэй нэхэмжлэх — эхлээд төлөлтийн кассын баримт(ууд)ыг буцаана уу"
+    );
+  if (document.status !== "posted" || !document.voucherId)
+    throw new Error("Зөвхөн батлагдсан нэхэмжлэхийг буцаана");
+  await assertPeriodOpen(orgId, document.date);
+
+  // Аюулгүйн давхар шалгалт — статус posted атлаа settlement үлдсэн байж болно.
+  const settlement = await db.query.arApSettlements.findFirst({
+    where: and(
+      eq(arApSettlements.organizationId, orgId),
+      eq(arApSettlements.documentId, id)
+    ),
+    columns: { id: true },
+  });
+  if (settlement || Number(document.paidAmount) > 0.005)
+    throw new Error(
+      "Төлөлттэй нэхэмжлэх — эхлээд төлөлтийн кассын баримт(ууд)ыг буцаана уу"
+    );
+
+  // Энэ баримтын мөрүүдээс үүссэн бараа хөдөлгөөнүүд (delete-тэй ижил дүрэм).
+  const lines = await db.query.arApDocumentLines.findMany({
+    where: eq(arApDocumentLines.documentId, id),
+    columns: { id: true },
+  });
+  const movements =
+    lines.length > 0
+      ? await db.query.inventoryMovements.findMany({
+          where: and(
+            eq(inventoryMovements.organizationId, orgId),
+            eq(inventoryMovements.sourceType, "arap_line"),
+            inArray(
+              inventoryMovements.sourceId,
+              lines.map((line) => line.id)
+            )
+          ),
+          columns: { id: true, status: true },
+        })
+      : [];
+  if (movements.some((movement) => movement.status === "confirmed"))
+    throw new Error(
+      "Энэ нэхэмжлэхээс үүссэн бараа хөдөлгөөн баталгаажсан байна — эхлээд хөдөлгөөнийг цуцлана уу"
+    );
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, document.voucherId),
+      eq(journalVouchers.organizationId, orgId)
+    ),
+    with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
+
+  await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, orgId, document.date);
+    // Атом claim — зэрэг дарсан хоёр буцаалтын нэг нь л амжина.
+    const [claimed] = await tx
+      .update(arApDocuments)
+      .set({ status: "reversed" })
+      .where(
+        and(
+          eq(arApDocuments.id, id),
+          eq(arApDocuments.organizationId, orgId),
+          eq(arApDocuments.status, "posted")
+        )
+      )
+      .returning({ id: arApDocuments.id });
+    if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+
+    const [reversal] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        organizationId: orgId,
+        date: document.date,
+        description: `Буцаалт [${document.documentNo}] ${document.description}`,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+
+    await tx.insert(journalLines).values(
+      voucher.lines.map((line, index) => ({
+        voucherId: reversal.id,
+        accountNumber: line.accountNumber,
+        debit: line.credit,
+        credit: line.debit,
+        description: line.description,
+        sortOrder: index,
+      }))
+    );
+
+    await tx
+      .update(journalVouchers)
+      .set({ status: "reversed" })
+      .where(
+        and(
+          eq(journalVouchers.id, voucher.id),
+          eq(journalVouchers.organizationId, orgId)
+        )
+      );
+
+    await tx
+      .update(arApDocuments)
+      .set({ reversalVoucherId: reversal.id })
+      .where(eq(arApDocuments.id, id));
+
+    // Батлагдмагц үүссэн НООРОГ бараа хөдөлгөөнүүд хамт устна (баталгаажсан
+    // байвал дээр аль хэдийн хориглосон).
+    for (const movement of movements) {
+      await tx
+        .delete(inventoryMovements)
+        .where(
+          and(
+            eq(inventoryMovements.id, movement.id),
+            eq(inventoryMovements.organizationId, orgId)
+          )
+        );
+    }
+
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "reverse",
+        entityType: "arap",
+        entityId: id,
+        summary: `${documentLabel(document.documentType as ArApDocumentType)} буцаагдав — ${document.documentNo}, ${document.date}, дүн ${Number(document.totalAmount).toLocaleString("en-US")} ${document.currency}`,
+      },
+      tx
+    );
+  });
+  revalidateArAp();
+}
+
 // Ноорог АР/АП баримтыг устгах — journal/cash-ийн delete-тэй ижил зан төлөв:
 // батлагдсан баримт устгагдахгүй (буцаалтыг reverse урсгалаар хийнэ).
 /**
