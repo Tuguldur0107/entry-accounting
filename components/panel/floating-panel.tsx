@@ -38,6 +38,17 @@ export function FloatingPanel({
   const toggleMaximize = usePanelStore((state) => state.toggleMaximize);
   const focus = usePanelStore((state) => state.focus);
   const closePanel = usePanelStore((state) => state.closePanel);
+  const navigatePanel = usePanelStore((state) => state.navigatePanel);
+
+  // Жагсаалтаас нээгдсэн панель — өмнөх/дараагийн баримт руу шилжих нав.
+  const navIds = panel.payload.navIds as string[] | undefined;
+  const navField = panel.payload.navField as string | undefined;
+  const navCurrent = navField
+    ? (panel.payload[navField] as string | undefined)
+    : undefined;
+  const navIndex =
+    navIds && navCurrent ? navIds.indexOf(navCurrent) : -1;
+  const hasNav = !!navIds && navIds.length > 1 && navIndex >= 0;
 
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +140,28 @@ export function FloatingPanel({
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--ea-text-1)]">
           {panel.title}
         </span>
+        {hasNav && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <PanelIconButton
+              label="Өмнөх баримт"
+              disabled={panel.dirty || navIndex <= 0}
+              onClick={() => navigatePanel(panel.id, -1)}
+              icon={<Icon name="chevronUp" size="sm" />}
+            />
+            <span
+              className="font-mono text-[11px] tabular-nums"
+              style={{ color: "var(--ea-text-4)" }}
+            >
+              {navIndex + 1}/{navIds!.length}
+            </span>
+            <PanelIconButton
+              label="Дараагийн баримт"
+              disabled={panel.dirty || navIndex >= navIds!.length - 1}
+              onClick={() => navigatePanel(panel.id, 1)}
+              icon={<Icon name="chevronDown" size="sm" />}
+            />
+          </div>
+        )}
         {panel.dirty && (
           <span
             className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
@@ -172,11 +205,13 @@ function PanelIconButton({
   icon,
   onClick,
   danger = false,
+  disabled = false,
 }: {
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -184,11 +219,13 @@ function PanelIconButton({
       title={label}
       aria-label={label}
       onClick={onClick}
+      disabled={disabled}
       className={cn(
         "flex size-6 shrink-0 items-center justify-center rounded transition-colors",
         danger
           ? "text-[var(--ea-text-3)] hover:bg-[var(--ea-danger)]/12 hover:text-[var(--ea-danger)]"
-          : "text-[var(--ea-text-3)] hover:bg-[var(--ea-border)] hover:text-[var(--ea-text-1)]"
+          : "text-[var(--ea-text-3)] hover:bg-[var(--ea-border)] hover:text-[var(--ea-text-1)]",
+        disabled && "pointer-events-none opacity-35"
       )}
     >
       {icon}

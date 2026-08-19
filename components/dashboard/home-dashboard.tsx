@@ -17,6 +17,15 @@ export type HomeTaxDeadline = TaxDeadline & {
   href: string;
 };
 
+/** Ажлын дарааллын карт — анхаарал шаардсан зүйлс (0 бол харагдахгүй). */
+export type HomeQueueItem = {
+  key: string;
+  label: string;
+  count: number;
+  href: string;
+  icon: IconName;
+};
+
 export type HomeClassSummary = {
   assets: number;
   liabilities: number;
@@ -82,6 +91,7 @@ export function HomeDashboard({
   modules,
   alerts,
   recent,
+  queue,
   taxDeadlines,
 }: {
   periodCode: string;
@@ -93,6 +103,7 @@ export function HomeDashboard({
   modules: HomeModuleTile[];
   alerts: HomeAlert[];
   recent: HomeRecentRow[];
+  queue: HomeQueueItem[];
   taxDeadlines: HomeTaxDeadline[];
 }) {
   const drCrBalanced = Math.abs(totalDebit - totalCredit) <= 0.01;
@@ -138,6 +149,59 @@ export function HomeDashboard({
           </StatusBadge>
         </div>
       </div>
+
+      {/* Ажлын дараалал — exception-first: анхаарал шаардсан зүйл л гарна */}
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+          <Icon name="pending" size="sm" className="text-[var(--ea-text-3)]" />
+          Ажлын дараалал
+        </h2>
+        {queue.length === 0 ? (
+          <p
+            className="rounded-[var(--ea-r-md)] border px-4 py-3 text-xs"
+            style={{
+              borderColor: "var(--ea-border)",
+              color: "var(--ea-success-fg)",
+              background: "var(--ea-surface)",
+            }}
+          >
+            ✓ Хүлээгдэж буй ажил алга — бүх бичилт батлагдсан, тулгагдсан.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+            {queue.map((item) => (
+              <Link
+                key={item.key}
+                href={item.href}
+                className="ea-interactive flex items-center gap-3 rounded-[var(--ea-r-md)] border px-3.5 py-3"
+                style={{
+                  borderColor: "var(--ea-border)",
+                  background: "var(--ea-surface)",
+                  textDecoration: "none",
+                }}
+              >
+                <span
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background: "var(--ea-warning-bg, var(--ea-bg-2))",
+                    color: "var(--ea-warning-fg)",
+                  }}
+                >
+                  <Icon name={item.icon} size="sm" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-mono text-base font-semibold text-[var(--ea-text-1)]">
+                    {item.count}
+                  </span>
+                  <span className="block truncate text-[11px] text-[var(--ea-text-3)]">
+                    {item.label}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Хурдан үйлдэл */}
       <div className="flex flex-wrap gap-2">

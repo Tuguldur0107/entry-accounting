@@ -186,7 +186,13 @@ export function FaAssetsView({ assets }: Props) {
   // дарсныг алгасна. Нэг даралт нь нүдний мужийн сонголтод үлдээгдсэн.
   function handleCellClicked(event: CellDoubleClickedEvent<FixedAssetView>) {
     if (event.colDef.colId === "actions") return;
-    if (event.data) openFaAssetPanel(event.data.id, event.data.name);
+    if (event.data)
+      openFaAssetPanel(
+        event.data.id,
+        event.data.name,
+        // Панель дотроос жагсаалтын өмнөх/дараагийн карт руу.
+        assets.map((asset) => asset.id)
+      );
   }
 
   const draftCount = assets.filter((asset) => asset.status === "draft").length;

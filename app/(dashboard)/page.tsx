@@ -8,7 +8,7 @@
 //   • AR/AP           — totalAmount − paidAmount, зөвхөн posted документ
 //   • Буцаалт         — "posted" + "reversed" хамт тоологдож харилцан цуцлагдана
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import {
   HomeDashboard,
@@ -16,6 +16,7 @@ import {
   type HomeClassSummary,
   type HomeModuleTile,
   type HomeRecentRow,
+  type HomeQueueItem,
   type HomeTaxDeadline,
 } from "@/components/dashboard/home-dashboard";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
@@ -25,6 +26,8 @@ import { db } from "@/lib/db";
 import {
   accountingPeriods,
   arApDocuments,
+  bankStatementLines,
+  bankStatements,
   cashAccounts,
   cashDocuments,
   chartOfAccounts,
@@ -76,6 +79,22 @@ export default async function HomePage() {
       where: eq(accountingPeriods.organizationId, orgId),
     }),
   ]);
+
+  // Тулгагдаагүй банкны мөр — ажлын дарааллын тоолуур (зөвхөн count).
+  const [bankUnmatchedRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(bankStatementLines)
+    .innerJoin(
+      bankStatements,
+      eq(bankStatementLines.statementId, bankStatements.id)
+    )
+    .where(
+      and(
+        eq(bankStatements.organizationId, orgId),
+        isNull(bankStatementLines.cashDocumentId)
+      )
+    );
+  const bankUnmatchedCount = bankUnmatchedRow?.n ?? 0;
 
   const nameByMain = new Map(accounts.map((a) => [a.number, a.name]));
 
@@ -349,6 +368,64 @@ export default async function HomePage() {
     };
   });
 
+  // Ажлын дараалал — exception-first: анхаарал шаардсаныг л үзүүлнэ,
+  // тоо нь 0 бол карт гарахгүй (Сар хаалт үргэлж харагдана).
+  const cashDraftCount = cashDocumentRows.filter(
+    (doc) => doc.status === "draft"
+  ).length;
+  const queueCandidates: HomeQueueItem[] = [
+    {
+      key: "gl-drafts",
+      label: "Ноорог журнал батлагдахыг хүлээж байна",
+      count: draftCount,
+      href: "/gl/journal",
+      icon: "journal",
+    },
+    {
+      key: "bank-unmatched",
+      label: "Тулгагдаагүй банкны мөр",
+      count: bankUnmatchedCount,
+      href: "/cash/statements",
+      icon: "bank",
+    },
+    {
+      key: "arap-drafts",
+      label: "Ноорог АР/АП баримт",
+      count: arApDraftCount,
+      href: "/receivables/documents",
+      icon: "document",
+    },
+    {
+      key: "cash-drafts",
+      label: "Ноорог кассын баримт",
+      count: cashDraftCount,
+      href: "/cash/transactions",
+      icon: "movement",
+    },
+    {
+      key: "inv-drafts",
+      label: "Ноорог бараа хөдөлгөөн",
+      count: draftMovementCount,
+      href: "/inventory/movements",
+      icon: "inventory",
+    },
+    {
+      key: "fa-drafts",
+      label: "Ноорог хөрөнгийн карт",
+      count: draftAssetCount,
+      href: "/fa/assets",
+      icon: "fixedAsset",
+    },
+    {
+      key: "overdue-ar",
+      label: "Хугацаа хэтэрсэн авлага",
+      count: arOverdue,
+      href: "/receivables/documents",
+      icon: "warning",
+    },
+  ];
+  const queue = queueCandidates.filter((item) => item.count > 0);
+
   // Татварын хуанли: НӨАТ/ХАОАТ-д системд мөрдөгддөг журналын marker бий
   // (vat-settlement:YYYY-MM, payroll:YYYY-MM) — "журнал үүссэн үү" төлөвийг
   // аль хэдийн ачаалсан vouchers жагсаалтаас шууд харна.
@@ -386,6 +463,7 @@ export default async function HomePage() {
       modules={modules}
       alerts={alerts}
       recent={recent}
+      queue={queue}
       taxDeadlines={taxDeadlines}
     />
   );

@@ -655,6 +655,9 @@ export function ArApWorkspace({
                     documentId: event.data.id,
                     mode,
                     title: `${event.data.documentNo} · ${event.data.counterpartyName}`,
+                    // Панель дотроос жагсаалтын өмнөх/дараагийн баримт руу
+                    // шилжих нав — одоогийн шүүлтийн дарааллаар.
+                    navIds: filteredDocuments.map((doc) => doc.id),
                   });
               }}
             />

@@ -189,6 +189,10 @@ export function JournalList({
     vouchersRef.current = vouchers;
   }, [vouchers]);
 
+  // Панелийн prev/next нав — grid callback-ууд memo-логддог тул шүүгдсэн
+  // жагсаалтыг мөн ref-ээр уншина (vouchersRef-тэй ижил шалтгаан).
+  const filteredRef = useRef<{ id: string }[]>([]);
+
   // Диалогийн текстэд аль журнал болохыг нь заана — зөвхөн id-гаар
   // баталгаажуулах нь буруу бичилт батлах эрсдэлтэй.
   function describeVoucher(id: string) {
@@ -262,7 +266,12 @@ export function JournalList({
   // удаа дарвал шинээр нээхгүй, байгааг нь фокуслоно (store дотор dedupe).
   function handleEdit(id: string) {
     const voucher = vouchersRef.current.find((entry) => entry.id === id);
-    openVoucherPanel(id, voucher?.description || "Журнал");
+    // Панель дотроос шүүгдсэн жагсаалтын өмнөх/дараагийн журнал руу шилжинэ.
+    openVoucherPanel(
+      id,
+      voucher?.description || "Журнал",
+      filteredRef.current.map((entry) => entry.id)
+    );
   }
 
   const filtered = useMemo(
@@ -274,6 +283,9 @@ export function JournalList({
       }),
     [vouchers, appliedStart, appliedEnd]
   );
+  useEffect(() => {
+    filteredRef.current = filtered;
+  }, [filtered]);
 
   const grandDebit = filtered.reduce(
     (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.debit), 0),

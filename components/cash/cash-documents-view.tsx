@@ -698,7 +698,12 @@ export function CashDocumentsView({
               const colId = event.column.getColId();
               if (colId === "actions" || colId.startsWith("ag-Grid")) return;
               if (event.data)
-                openCashDocPanel(event.data.id, event.data.documentNo);
+                openCashDocPanel(
+                  event.data.id,
+                  event.data.documentNo,
+                  // Панель дотроос жагсаалтын өмнөх/дараагийн баримт руу.
+                  visibleDocuments.map((doc) => doc.id)
+                );
             }}
           />
 

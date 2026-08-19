@@ -94,6 +94,12 @@ type PanelState = {
   setTitle: (id: string, title: string) => void;
   setDirty: (id: string, dirty: boolean) => void;
   refreshOpenPanels: () => void;
+  /**
+   * Жагсаалтын өмнөх/дараагийн баримт руу панель дотроосоо шилжих.
+   * payload-д navIds (жагсаалтын id-ууд) + navField (аль талбар нь id вэ)
+   * байвал л ажиллана; dirty панель шилжихгүй (бөглөсөн зүйл алдагдана).
+   */
+  navigatePanel: (id: string, direction: 1 | -1) => void;
 };
 
 let seq = 0;
@@ -290,6 +296,33 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
       ),
     })),
 
+  navigatePanel: (id, direction) =>
+    set((state) => {
+      const panel = state.panels.find((entry) => entry.id === id);
+      if (!panel || panel.dirty) return state;
+      const navIds = panel.payload.navIds as string[] | undefined;
+      const navField = panel.payload.navField as string | undefined;
+      if (!navIds?.length || !navField) return state;
+      const current = panel.payload[navField] as string | undefined;
+      const index = current ? navIds.indexOf(current) : -1;
+      const next = index >= 0 ? navIds[index + direction] : undefined;
+      if (!next) return state;
+      return {
+        panels: state.panels.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                // Dedupe key нь бизнес id агуулдаг тул хамт шинэчилнэ —
+                // эс бөгөөс жагсаалтаас мөн баримтыг дахин нээхэд давхар
+                // панель үүснэ.
+                key: current ? entry.key.replace(current, next) : entry.key,
+                payload: { ...entry.payload, [navField]: next },
+              }
+            : entry
+        ),
+      };
+    }),
+
   setDirty: (id, dirty) =>
     set((state) => {
       // Өөрчлөгдөөгүй бол state-ээ хэвээр буцаана — эс бөгөөс формын
@@ -314,13 +347,25 @@ export function refreshOpenPanels() {
   usePanelStore.getState().refreshOpenPanels();
 }
 
+/**
+ * Жагсаалтаас нээгдэх панелиудын prev/next навигацийн payload хэсэг —
+ * navIds өгвөл панелийн толгойд ‹ › сумнууд гарч жагсаалт дотор шилжинэ.
+ */
+function navPayload(navField: string, navIds?: string[]) {
+  return navIds && navIds.length > 1 ? { navIds, navField } : {};
+}
+
 /** Панель нээх богино туслахууд — callsite бүрд key/title давтахгүйн тулд. */
-export function openVoucherPanel(voucherId: string, title?: string) {
+export function openVoucherPanel(
+  voucherId: string,
+  title?: string,
+  navIds?: string[]
+) {
   return usePanelStore.getState().openPanel({
     key: `voucher:${voucherId}`,
     kind: "voucher",
     title: title || "Журнал",
-    payload: { voucherId },
+    payload: { voucherId, ...navPayload("voucherId", navIds) },
   });
 }
 
@@ -346,12 +391,16 @@ export function openDrillPanel(payload: DrillPanelPayload) {
 }
 
 /** Мөнгөн гүйлгээний баримтын дэлгэрэнгүй. */
-export function openCashDocPanel(documentId: string, title?: string) {
+export function openCashDocPanel(
+  documentId: string,
+  title?: string,
+  navIds?: string[]
+) {
   return usePanelStore.getState().openPanel({
     key: `cash-doc:${documentId}`,
     kind: "cash-doc",
     title: title || "Мөнгөн гүйлгээ",
-    payload: { documentId },
+    payload: { documentId, ...navPayload("documentId", navIds) },
   });
 }
 
@@ -384,12 +433,16 @@ export function openCostEntryPanel(entryId: string, title?: string) {
 }
 
 /** Үндсэн хөрөнгийн карт — дэлгэрэнгүй. */
-export function openFaAssetPanel(assetId: string, title?: string) {
+export function openFaAssetPanel(
+  assetId: string,
+  title?: string,
+  navIds?: string[]
+) {
   return usePanelStore.getState().openPanel({
     key: `fa-asset:${assetId}`,
     kind: "fa-asset",
     title: title || "Үндсэн хөрөнгө",
-    payload: { assetId },
+    payload: { assetId, ...navPayload("assetId", navIds) },
   });
 }
 
@@ -415,8 +468,9 @@ export function openArapDocPanel(init: {
   documentId?: string;
   mode: "receivable" | "payable" | "combined";
   title?: string;
+  navIds?: string[];
 }) {
-  const { documentId, mode, title } = init;
+  const { documentId, mode, title, navIds } = init;
   return usePanelStore.getState().openPanel({
     key: documentId
       ? `arap-doc:${documentId}`
@@ -429,7 +483,11 @@ export function openArapDocPanel(init: {
         : mode === "payable"
           ? "Шинэ нэхэмжлэх"
           : "Шинэ нэхэмжлэл"),
-    payload: { documentId, mode },
+    payload: {
+      documentId,
+      mode,
+      ...(documentId ? navPayload("documentId", navIds) : {}),
+    },
   });
 }
 
