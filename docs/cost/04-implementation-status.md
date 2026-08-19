@@ -149,11 +149,13 @@ behave somehow, it blocks or stays neutral and makes the gap visible.
 
 ## 4. Known gaps against the baseline
 
-1. **Running balances (§3.4)** are not implemented — the specification
-   leaves their ordering and opening point open.
-2. **Temporary Account Reconciliation (§6)** is not built; it becomes
-   mandatory only once a temporary-account design is approved beyond the
-   single clearing account ratified in 0.2.
+1. ~~Running balances (§3.4)~~ — **implemented in 0.5** (2026-07-30):
+   `lib/costing/running-balance.ts`, shown in the transaction detail
+   report; final row reconciles to C2, unvalued rows show an explicit "—".
+2. ~~Temporary Account Reconciliation (§6)~~ — **implemented in 0.5**
+   (2026-07-30): `lib/costing/clearing-reconciliation.ts`, reconciles by
+   Account + Business Object Type + ID (+ component); unknown-object
+   residuals surface explicitly and are never netted.
 3. **Export (§2.9)** relies on AG Grid's built-in CSV export; a two-level
    header export has not been verified.
 4. **Authorization (§7)** follows the platform's per-user data scoping.

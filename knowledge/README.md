@@ -43,14 +43,17 @@ Accounting_System_Chipmo (Entry) системээс авсан мэргэжли�
 | `segment-strategy.md` | 10-сегментийн стратеги: ашиглалт, validation, defaulting, reporting + Segment3 дансны бүрэн жагсаалт (§7.1.1–7.1.2) |
 | `segment-active-inactive-rule.md` | **Заавал мөрдөх стандарт** — идэвхтэй/идэвхгүй сегментийн UI харагдац, DB write (0-padded), DB read ("all" wildcard) дүрэм |
 | `05-event-flows.md` | Cross-module үйл явдлын урсгал |
-| `ui-standards/01-tables.md` | `<StandardTable>` стандарт — Excel-маягийн хүснэгт |
-| `ui-standards/02-search-filters.md` | Хайх/шүүлтүүр: CalendarRange, PeriodSelector, SegmentAccountInput гэх мэт |
-| `ui-standards/03-popups-modals.md` | Modal/Popup стандарт |
-| `ui-standards/04-theme-glass.md` | Glass UI theme tokens |
-| `ui-standards/05-i18n.md` | i18n стандарт (mn/en/zh/ru) |
+| `tech-stack.md` | Технологийн шийдвэрийн тэмдэглэл (2026-08 бодит стекээр шинэчлэгдсэн) |
+| `reports/01-line-mapping.md` | Тайлангийн мөрийн mapping (BS / IS / CF) |
+| `ui-standards/2026-ag-grid/` | **ОДООГИЙН хүснэгтийн стандарт** — AG Grid архитектур, column types, validators, keyboard/paste, undo/redo, surface inventory (6 файл) |
+| `ui-standards/01-tables.md` | ⚠️ SUPERSEDED — хуучин Chakra `<StandardTable>` спек |
+| `ui-standards/02-search-filters.md` | ⚠️ SUPERSEDED — хуучин хайх/шүүлтүүрийн спек |
+| `ui-standards/03-popups-modals.md` | Modal/Popup стандарт (Chakra-гаас shadcn Dialog-д шилжсэн) |
+| `ui-standards/04-theme-glass.md` | ⚠️ SUPERSEDED — хуучин Glass UI theme (одоо `--ea-*` токен, ui-kit/tokens.css) |
+| `ui-standards/05-i18n.md` | i18n стандарт (mn/en/zh/ru) — одоогийн код зөвхөн монгол |
 | `ui-standards/06-component-conventions.md` | Component бичих конвенц |
-| `ui-standards/07-table-inventory.md` | Бүх хүснэгтийн inventory |
-| `ui-standards/08-rollout-plan.md` | Стандарт хэрэгжилтийн төлөвлөгөө |
+| `ui-standards/07-table-inventory.md` | Хуучин хүснэгтийн inventory (шинэ нь 2026-ag-grid/06) |
+| `ui-standards/08-rollout-plan.md` | ⚠️ SUPERSEDED — Chakra спекийн rollout, AG Grid шилжилтээр хүчингүй |
 
 ---
 
@@ -75,8 +78,8 @@ Accounting_System_Chipmo (Entry) системээс авсан мэргэжли�
 
 | Бүлэг | Файлын тоо |
 |-------|-----------|
-| 01 Онол хууль стандарт | 50 |
+| 01 Онол хууль стандарт | 44 |
 | 02 Нягтлан бодох мэргэжлийн | 22 |
-| 03 Стандарт | 11 |
+| 03 Стандарт | 20 |
 | 04 AI Agent | 8 |
-| **Нийт** | **91** |
+| **Нийт** | **94** |

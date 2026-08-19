@@ -1,21 +1,29 @@
 # Tech Stack — Entry Accounting
 
-Шийдвэр гаргасан огноо: 2026-05-06
+Шийдвэр гаргасан огноо: 2026-05-06 · Шинэчилсэн: 2026-08-19
+
+> ⚠️ **UI давхаргын шийдвэр өөрчлөгдсөн (2026):** Ant Design-ийг СОНГООГҮЙ —
+> бодит хэрэгжилт нь **shadcn/ui (Base UI) + Tailwind CSS + AG Grid
+> Community v35**. Хүснэгтийн стандарт нь
+> [ui-standards/2026-ag-grid/](./ui-standards/2026-ag-grid/) болон
+> [CLAUDE.md](../../CLAUDE.md)-д баримтжсан. Доорх "Ant Design" хэсэг
+> түүхэн шийдвэрийн тэмдэглэл болж үлдсэн.
 
 ---
 
-## Бүрэн stack
+## Бүрэн stack (бодит, 2026-08)
 
 | Давхарга | Технологи | Хувилбар |
 |----------|-----------|----------|
-| Framework | Next.js (App Router) | 15+ |
-| UI | Ant Design | 5+ |
+| Framework | Next.js (App Router) | 16 |
+| UI | shadcn/ui (Base UI) + Tailwind CSS | — |
+| Хүснэгт | AG Grid Community (`DataGridDynamic` wrapper) | 35 |
 | State | Zustand | 5+ |
-| Database | PostgreSQL | 16+ |
+| Database | PostgreSQL (Railway) | 16+ |
 | ORM | Drizzle | latest |
 | Hosting | Railway | — |
-| Auth | NextAuth.js (Auth.js) | 5+ |
-| AI | Claude API (@anthropic-ai/sdk) | latest |
+| Auth | NextAuth.js (Auth.js) | 5 |
+| AI | Claude API (@anthropic-ai/sdk) + OpenAI adapter | latest |
 | Хэл | TypeScript | 5+ |
 | Build | Turbopack (Next.js built-in) | — |
 
@@ -38,9 +46,9 @@
 
 ---
 
-### Ant Design
+### Ant Design (ХЭРЭГЖЭЭГҮЙ — 2026-д shadcn/ui + AG Grid-ээр солигдсон)
 
-**Сонгосон шалтгаан:**
+**Анх сонгосон шалтгаан (түүхэн):**
 - Хүснэгт (Table), Form, DatePicker, Modal — нягтлан бодох аппд хэрэгтэй бүх компонент бэлэн
 - Тооны өгөгдөл, хүснэгт харуулахад хамгийн тохиромжтой UI сан
 - TypeScript дэмжлэг маш сайн
