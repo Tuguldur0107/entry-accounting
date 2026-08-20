@@ -214,11 +214,15 @@ export function JournalList({
     });
     if (!ok) return;
     try {
-      await deleteVoucher(id);
+      const result = await deleteVoucher(id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("Журнал устгагдлаа");
       refreshOpenPanels();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Устгах үед алдаа гарлаа");
+    } catch {
+      toast.error("Устгах үед алдаа гарлаа");
     }
   }
 
@@ -230,11 +234,15 @@ export function JournalList({
     });
     if (!ok) return;
     try {
-      await postVoucher(id);
+      const result = await postVoucher(id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("Журнал батлагдлаа");
       refreshOpenPanels();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Батлах үед алдаа гарлаа");
+    } catch {
+      toast.error("Батлах үед алдаа гарлаа");
     }
   }
 
@@ -246,11 +254,15 @@ export function JournalList({
     });
     if (!ok) return;
     try {
-      await unpostVoucher(id);
+      const result = await unpostVoucher(id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
       toast.success("Журнал ноорог болов");
       refreshOpenPanels();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Буцаах үед алдаа гарлаа");
+    } catch {
+      toast.error("Буцаах үед алдаа гарлаа");
     }
   }
 

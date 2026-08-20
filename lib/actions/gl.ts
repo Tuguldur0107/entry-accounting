@@ -38,6 +38,7 @@ import {
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { parseSegParts } from "@/lib/grid/segments";
 import { logAuditEvent } from "@/lib/audit";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 // Фаз 01 multi-tenancy: scope нь идэвхтэй байгууллага (orgId), userId нь
 // createdBy/audit утгаар үлддэг. Дансны/сегментийн тохиргоо — admin,
@@ -45,23 +46,31 @@ import { logAuditEvent } from "@/lib/audit";
 
 // ─── Chart of Accounts ───────────────────────────────────────────────────────
 
-export async function createAccount(data: { number: string; name: string }) {
-  const { orgId, userId } = await requireRole("admin");
+export async function createAccount(data: {
+  number: string;
+  name: string;
+}): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
 
-  const existing = await db.query.chartOfAccounts.findFirst({
-    where: and(
-      eq(chartOfAccounts.organizationId, orgId),
-      eq(chartOfAccounts.number, data.number)
-    ),
-  });
-  if (existing) return { error: "Энэ дугаартай данс аль хэдийн байна" };
+    const existing = await db.query.chartOfAccounts.findFirst({
+      where: and(
+        eq(chartOfAccounts.organizationId, orgId),
+        eq(chartOfAccounts.number, data.number)
+      ),
+    });
+    if (existing) return { error: "Энэ дугаартай данс аль хэдийн байна" };
 
-  await db.insert(chartOfAccounts).values({ userId, organizationId: orgId, ...data });
-  revalidatePath("/settings/gl");
-  revalidatePath("/gl/journal");
+    await db.insert(chartOfAccounts).values({ userId, organizationId: orgId, ...data });
+    revalidatePath("/settings/gl");
+    revalidatePath("/gl/journal");
+    return {};
+  } catch (caught) {
+    return actionError("createAccount", caught, "Данс нэмэгдсэнгүй");
+  }
 }
 
-export async function deleteAccount(id: string) {
+async function deleteAccountCore(id: string) {
   const { orgId } = await requireRole("admin");
 
   const account = await db.query.chartOfAccounts.findFirst({
@@ -98,6 +107,15 @@ export async function deleteAccount(id: string) {
   revalidatePath("/gl/journal");
 }
 
+export async function deleteAccount(id: string): Promise<ActionResult> {
+  try {
+    await deleteAccountCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("deleteAccount", caught, "Данс устгагдсангүй");
+  }
+}
+
 export async function toggleAccount(id: string, isEnabled: boolean) {
   const { orgId } = await requireRole("admin");
   await db
@@ -132,7 +150,21 @@ export async function updateAccountModules(id: string, modules: string[]) {
   revalidatePath("/settings/gl");
 }
 
-export async function syncStandardAccounts() {
+export async function syncStandardAccounts(): Promise<
+  ActionResult<{ added: number }>
+> {
+  try {
+    return await syncStandardAccountsCore();
+  } catch (caught) {
+    return actionError(
+      "syncStandardAccounts",
+      caught,
+      "Стандарт данс нэмэгдсэнгүй"
+    );
+  }
+}
+
+async function syncStandardAccountsCore() {
   const { orgId, userId } = await requireRole("admin");
 
   const existing = await db.query.chartOfAccounts.findMany({
@@ -189,6 +221,22 @@ export async function getSegmentConfigs() {
 export async function updateSegmentConfig(
   segmentId: number,
   data: { isEnabled?: boolean; modules?: string[] }
+): Promise<ActionResult> {
+  try {
+    await updateSegmentConfigCore(segmentId, data);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "updateSegmentConfig",
+      caught,
+      "Сегментийн тохиргоо хадгалагдсангүй"
+    );
+  }
+}
+
+async function updateSegmentConfigCore(
+  segmentId: number,
+  data: { isEnabled?: boolean; modules?: string[] }
 ) {
   const { orgId, userId } = await requireRole("admin");
   // modules заагаагүй insert-д тухайн сегментийн defaultModules-ийг өгнө —
@@ -218,6 +266,21 @@ export async function updateSegmentConfig(
 
 export async function batchSaveModuleConfigs(
   changes: { moduleKey: string; isEnabled: boolean }[]
+): Promise<ActionResult> {
+  try {
+    await batchSaveModuleConfigsCore(changes);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "batchSaveModuleConfigs",
+      caught,
+      "Модулийн тохиргоо хадгалагдсангүй"
+    );
+  }
+}
+
+async function batchSaveModuleConfigsCore(
+  changes: { moduleKey: string; isEnabled: boolean }[]
 ) {
   const { orgId, userId } = await requireRole("admin");
   await Promise.all(
@@ -236,12 +299,25 @@ export async function batchSaveModuleConfigs(
         })
     )
   );
-  revalidatePath("/settings/gl");
+  // Навигацийн харагдац layout-д уншигддаг тул бүх хуудсыг сэргээнэ.
+  revalidatePath("/", "layout");
 }
 
 // ─── Batch save (edit mode) ───────────────────────────────────────────────────
 
 export async function batchSaveSection2(
+  accountChanges: { id: string; isEnabled: boolean; modules: string }[],
+  svChanges: { id: string; isEnabled: boolean; modules: string }[]
+): Promise<ActionResult> {
+  try {
+    await batchSaveSection2Core(accountChanges, svChanges);
+    return {};
+  } catch (caught) {
+    return actionError("batchSaveSection2", caught, "Хадгалж чадсангүй");
+  }
+}
+
+async function batchSaveSection2Core(
   accountChanges: { id: string; isEnabled: boolean; modules: string }[],
   svChanges: { id: string; isEnabled: boolean; modules: string }[]
 ) {
@@ -284,6 +360,26 @@ export async function createSegmentValue(data: {
   code: string;
   name: string;
   modules: string[];
+}): Promise<ActionResult> {
+  try {
+    const code = data.code.trim();
+    const name = data.name.trim();
+    if (!code || !name) return { error: "Код, нэрийг бөглөнө үү" };
+    const def = SEGMENT_DEFS.find((d) => d.id === data.segmentId);
+    if (!def || def.id === 3) return { error: "Сегмент буруу байна" };
+    if (!/^\d+$/.test(code) || code.length !== def.length)
+      return { error: `Код ${def.length} оронтой тоо байна` };
+    return await createSegmentValueCore({ ...data, code, name });
+  } catch (caught) {
+    return actionError("createSegmentValue", caught, "Утга нэмэгдсэнгүй");
+  }
+}
+
+async function createSegmentValueCore(data: {
+  segmentId: number;
+  code: string;
+  name: string;
+  modules: string[];
 }) {
   const { orgId, userId } = await requireRole("admin");
   const existing = await db.query.segmentValues.findFirst({
@@ -304,14 +400,46 @@ export async function createSegmentValue(data: {
     modules: data.modules.join(","),
   });
   revalidatePath("/settings/gl");
+  return {};
 }
 
-export async function deleteSegmentValue(id: string) {
-  const { orgId } = await requireRole("admin");
-  await db
-    .delete(segmentValues)
-    .where(and(eq(segmentValues.id, id), eq(segmentValues.organizationId, orgId)));
-  revalidatePath("/settings/gl");
+export async function deleteSegmentValue(id: string): Promise<ActionResult> {
+  try {
+    const { orgId } = await requireRole("admin");
+    const value = await db.query.segmentValues.findFirst({
+      where: and(eq(segmentValues.id, id), eq(segmentValues.organizationId, orgId)),
+      columns: { segmentId: true, code: true },
+    });
+    if (!value) return {};
+
+    // Журналын мөрөнд ашиглагдсан утгыг устгавал тайлан нэргүй кодтой
+    // үлдэнэ — дансны устгалтай ижил дүрмээр идэвхгүй болгохыг зөвлөнө.
+    const [used] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          eq(
+            sql`split_part(${journalLines.accountNumber}, '.', ${value.segmentId})`,
+            value.code
+          )
+        )
+      );
+    if (Number(used?.count ?? 0) > 0)
+      return {
+        error: `${value.code} утга журналын бичилтэд ашиглагдсан тул устгах боломжгүй — идэвхгүй болгоно уу`,
+      };
+
+    await db
+      .delete(segmentValues)
+      .where(and(eq(segmentValues.id, id), eq(segmentValues.organizationId, orgId)));
+    revalidatePath("/settings/gl");
+    return {};
+  } catch (caught) {
+    return actionError("deleteSegmentValue", caught, "Утга устгагдсангүй");
+  }
 }
 
 export async function toggleSegmentValue(id: string, isEnabled: boolean) {
@@ -375,7 +503,14 @@ async function validateVoucherLines(orgId: string, lines: LineInput[]) {
   const bad = validLines.find(
     (l) => !enabledMains.has(parseSegParts(l.account, [3])[3] ?? "")
   );
-  if (bad) throw new Error(`"${bad.account}" данс идэвхтэй жагсаалтад алга`);
+  if (bad) {
+    // Алдаанд бүтэн 10 хэсэгт код биш үндсэн дансыг л үзүүлнэ — хэрэглэгч
+    // дансны дугаараараа таньдаг.
+    const badMain = parseSegParts(bad.account, [3])[3] ?? bad.account;
+    throw new Error(
+      `${badMain} данс идэвхтэй жагсаалтад алга — Тохиргоо → Ерөнхий журналын тохиргоо хэсгээс идэвхжүүлнэ үү`
+    );
+  }
 
   return validLines;
 }
@@ -389,7 +524,14 @@ function assertBalanced(lines: { debit: number; credit: number }[]) {
     throw new Error("Дебет ба кредит тэнцэхгүй байна");
 }
 
-export async function createVoucher(data: {
+// ── Журналын мутацууд ────────────────────────────────────────────────────────
+// *Core функцүүд алдааг ШИДДЭГ (транзакц rollback, server-талын дуудагчдад
+// хэрэгтэй); гадаад wrapper-ууд нь { error } УТГААР буцаана — Next.js
+// production дээр шидсэн алдааны мессежийг нуудаг (React #441) тул client
+// компонент зөвхөн wrapper-ыг дуудна. Server-талын дуудагч (lib/ai/tools.ts
+// г.м) unwrapAction-аар шидэлтээ сэргээнэ.
+
+async function createVoucherCore(data: {
   date: string;
   description: string;
   lines: LineInput[];
@@ -467,7 +609,17 @@ export async function createVoucher(data: {
   return { id: voucherId };
 }
 
-export async function postVoucher(id: string) {
+export async function createVoucher(
+  data: Parameters<typeof createVoucherCore>[0]
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    return await createVoucherCore(data);
+  } catch (caught) {
+    return actionError("createVoucher", caught, "Журнал хадгалагдсангүй");
+  }
+}
+
+async function postVoucherCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
 
   const voucher = await db.query.journalVouchers.findFirst({
@@ -538,6 +690,15 @@ export async function postVoucher(id: string) {
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
+}
+
+export async function postVoucher(id: string): Promise<ActionResult> {
+  try {
+    await postVoucherCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("postVoucher", caught, "Журнал батлагдсангүй");
+  }
 }
 
 /**
@@ -652,7 +813,7 @@ async function assertNotSubledgerOwned(
     );
 }
 
-export async function unpostVoucher(id: string) {
+async function unpostVoucherCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
 
   const voucher = await db.query.journalVouchers.findFirst({
@@ -735,7 +896,16 @@ export async function unpostVoucher(id: string) {
   revalidatePath("/gl/reports");
 }
 
-export async function updateVoucher(
+export async function unpostVoucher(id: string): Promise<ActionResult> {
+  try {
+    await unpostVoucherCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("unpostVoucher", caught, "Журнал буцаагдсангүй");
+  }
+}
+
+async function updateVoucherCore(
   id: string,
   data: {
     date: string;
@@ -808,6 +978,18 @@ export async function updateVoucher(
   revalidatePath("/gl/reports");
 }
 
+export async function updateVoucher(
+  id: string,
+  data: Parameters<typeof updateVoucherCore>[1]
+): Promise<ActionResult> {
+  try {
+    await updateVoucherCore(id, data);
+    return {};
+  } catch (caught) {
+    return actionError("updateVoucher", caught, "Журнал засварлагдсангүй");
+  }
+}
+
 /**
  * Журнал устгах. Ноорог — шууд. БАТЛАГДСАН журналыг мөн устгаж болно
  * (сторно биш — GL-ээс бүрмөсөн хасна), гэхдээ:
@@ -816,7 +998,7 @@ export async function updateVoucher(
  *     тэгшитгэл) холбоотой бол ЭХ БАРИМТААР нь устгуулахаар чиглүүлнэ —
  *     эс бөгөөс дэд дэвтэр GL хоёр зөрнө.
  */
-export async function deleteVoucher(id: string) {
+async function deleteVoucherCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
 
   const existing = await db.query.journalVouchers.findFirst({
@@ -888,12 +1070,21 @@ export async function deleteVoucher(id: string) {
   revalidatePath("/gl/reports");
 }
 
+export async function deleteVoucher(id: string): Promise<ActionResult> {
+  try {
+    await deleteVoucherCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("deleteVoucher", caught, "Журнал устгагдсангүй");
+  }
+}
+
 /**
  * Журналыг өнөөдрийн огноогоор НООРОГ болгон хуулбарлана — сар бүр давтагддаг
  * бичилтэд. Ноорог тул модулийн sync-үүд хөндөгдөхгүй (тэдгээр нь posted
  * журналаас л үүсдэг).
  */
-export async function duplicateVoucher(id: string) {
+async function duplicateVoucherCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
 
   const voucher = await db.query.journalVouchers.findFirst({
@@ -946,4 +1137,14 @@ export async function duplicateVoucher(id: string) {
   revalidatePath("/gl/journal");
   revalidatePath("/gl");
   return { id: copyId };
+}
+
+export async function duplicateVoucher(
+  id: string
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    return await duplicateVoucherCore(id);
+  } catch (caught) {
+    return actionError("duplicateVoucher", caught, "Журнал хуулбарлагдсангүй");
+  }
 }

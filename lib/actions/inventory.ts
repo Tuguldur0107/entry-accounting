@@ -20,6 +20,7 @@ import {
   type MovementType,
 } from "@/lib/inventory/balances";
 import { logAuditEvent } from "@/lib/audit";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 /** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
 async function requireAccountant() {
@@ -149,7 +150,13 @@ async function confirmedMovementRefs(
   }));
 }
 
-export async function createInventoryMovement(data: {
+// ── Хөдөлгөөний мутацууд ─────────────────────────────────────────────────────
+// *Core функцүүд алдааг ШИДДЭГ (транзакц rollback, дотоод дуудлагад хэрэгтэй);
+// гадаад wrapper-ууд нь { error } УТГААР буцаана — Next.js production дээр
+// шидсэн алдааны мессежийг нуудаг (React #441) тул client компонент зөвхөн
+// wrapper-ыг дуудна. Server-талын дуудагч unwrapAction-аар шидэлтээ сэргээнэ.
+
+async function createInventoryMovementCore(data: {
   movementType: MovementType;
   date: string;
   itemId: string;
@@ -249,9 +256,23 @@ export async function createInventoryMovement(data: {
     })
     .returning({ id: inventoryMovements.id });
 
-  if (data.confirmNow) await confirmInventoryMovement(movement.id);
+  if (data.confirmNow) await confirmInventoryMovementCore(movement.id);
   else revalidateInventory();
   return { id: movement.id };
+}
+
+export async function createInventoryMovement(
+  data: Parameters<typeof createInventoryMovementCore>[0]
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    return await createInventoryMovementCore(data);
+  } catch (caught) {
+    return actionError(
+      "createInventoryMovement",
+      caught,
+      "Хөдөлгөөн хадгалагдсангүй"
+    );
+  }
 }
 
 
@@ -281,7 +302,7 @@ async function resolveIssueTypeId(
 }
 
 // Ноорог хөдөлгөөнийг засах — sentinel (GL/касс) draft-ыг бөглөх гол зам.
-export async function updateInventoryMovement(
+async function updateInventoryMovementCore(
   id: string,
   data: {
     movementType: MovementType;
@@ -374,7 +395,23 @@ export async function updateInventoryMovement(
   revalidateInventory();
 }
 
-export async function confirmInventoryMovement(id: string) {
+export async function updateInventoryMovement(
+  id: string,
+  data: Parameters<typeof updateInventoryMovementCore>[1]
+): Promise<ActionResult> {
+  try {
+    await updateInventoryMovementCore(id, data);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "updateInventoryMovement",
+      caught,
+      "Хөдөлгөөн засварлагдсангүй"
+    );
+  }
+}
+
+async function confirmInventoryMovementCore(id: string) {
   const { orgId, userId } = await requireAccountant();
 
   // Шалгалт + claim нэг транзакцад, хэрэглэгч бүрийн advisory lock дор —
@@ -447,18 +484,34 @@ export async function confirmInventoryMovement(id: string) {
   revalidateInventory();
 }
 
+export async function confirmInventoryMovement(
+  id: string
+): Promise<ActionResult> {
+  try {
+    await confirmInventoryMovementCore(id);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "confirmInventoryMovement",
+      caught,
+      "Хөдөлгөөн батлагдсангүй"
+    );
+  }
+}
+
 // Олноор батлах — алдаатай нь алгасагдаж тайлан буцна.
 export async function confirmInventoryMovements(ids: string[]) {
   const failures: { id: string; error: string }[] = [];
   let confirmed = 0;
   for (const id of ids) {
     try {
-      await confirmInventoryMovement(id);
+      await confirmInventoryMovementCore(id);
       confirmed += 1;
     } catch (caught) {
       failures.push({
         id,
-        error: caught instanceof Error ? caught.message : "Батлагдсангүй",
+        error: actionError("confirmInventoryMovements", caught, "Батлагдсангүй")
+          .error,
       });
     }
   }
@@ -471,7 +524,7 @@ export async function confirmInventoryMovements(ids: string[]) {
  * бичилттэй бол блок (эхлээд өртгийг буцаана), устгаснаар аль нэг
  * бараа-агуулахын үлдэгдэл хасах болохоор бол блок.
  */
-export async function deleteInventoryMovement(id: string) {
+async function deleteInventoryMovementCore(id: string) {
   const { orgId, userId } = await requireAccountant();
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
@@ -538,9 +591,24 @@ export async function deleteInventoryMovement(id: string) {
   revalidateInventory();
 }
 
+export async function deleteInventoryMovement(
+  id: string
+): Promise<ActionResult> {
+  try {
+    await deleteInventoryMovementCore(id);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "deleteInventoryMovement",
+      caught,
+      "Хөдөлгөөн устгагдсангүй"
+    );
+  }
+}
+
 // Баталсан хөдөлгөөнийг цуцлах — зөвхөн идэвхтэй cost entry-гүй үед
 // (үнэлэгдсэн бол эхлээд costing талд буцаалт хийнэ — уялдааны гэрээ).
-export async function cancelInventoryMovement(id: string) {
+async function cancelInventoryMovementCore(id: string) {
   const { orgId, userId } = await requireAccountant();
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
@@ -606,6 +674,21 @@ export async function cancelInventoryMovement(id: string) {
   revalidateInventory();
 }
 
+export async function cancelInventoryMovement(
+  id: string
+): Promise<ActionResult> {
+  try {
+    await cancelInventoryMovementCore(id);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "cancelInventoryMovement",
+      caught,
+      "Хөдөлгөөн цуцлагдсангүй"
+    );
+  }
+}
+
 // ─── Тооллого ────────────────────────────────────────────────────────────────
 
 // Тооллогын хуудас: агуулах, огноо, бараа бүрийн тоолсон тоог хүлээж авч
@@ -615,7 +698,7 @@ export async function cancelInventoryMovement(id: string) {
 // costing_account_settings-д тохируулсан тохируулгын ашиг/алдагдлын
 // дансаар журналдана (JPR-006 — данс кодод хатуу бичигдэхгүй).
 // Advisory lock — батлах/цуцлахтай нэг цуваанд.
-export async function recordInventoryCount(data: {
+async function recordInventoryCountCore(data: {
   date: string;
   warehouseId: string;
   counts: { itemId: string; countedQty: number }[];
@@ -693,4 +776,18 @@ export async function recordInventoryCount(data: {
     revalidateInventory();
     return result;
   });
+}
+
+export async function recordInventoryCount(
+  data: Parameters<typeof recordInventoryCountCore>[0]
+): Promise<ActionResult<{ created: number }>> {
+  try {
+    return await recordInventoryCountCore(data);
+  } catch (caught) {
+    return actionError(
+      "recordInventoryCount",
+      caught,
+      "Тооллого бүртгэгдсэнгүй"
+    );
+  }
 }

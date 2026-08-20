@@ -51,6 +51,11 @@ interface Props {
   arApOpenDocuments: CashArApSettlementTarget[];
   /** Панелийн payload-оос ирсэн урьдчилан сонгогдсон төлөлтийн баримт. */
   initialSettlement?: CashArApSettlementTarget | null;
+  /** Татварын төлөлтийн prefill — зарлага, харилцах данс нь татварын өглөг. */
+  initialTaxPayment?: {
+    counterAccountNumber: string;
+    description: string;
+  } | null;
   onDirtyChange?: (dirty: boolean) => void;
   onSaved: () => void;
   onCancel: () => void;
@@ -110,6 +115,7 @@ export function CashNewForm({
   defaultSegments = {},
   arApOpenDocuments,
   initialSettlement = null,
+  initialTaxPayment = null,
   onDirtyChange,
   onSaved,
   onCancel,
@@ -117,7 +123,21 @@ export function CashNewForm({
   const [form, setForm] = useState(() =>
     initialSettlement
       ? settlementForm(initialSettlement, accounts, activeSegIds, defaultSegments)
-      : initialForm()
+      : initialTaxPayment
+        ? {
+            ...initialForm(),
+            documentType: "payment" as CashDocumentType,
+            fromCashAccountId:
+              (accounts.find((a) => a.isActive && a.currency === "MNT") ??
+                accounts.find((a) => a.isActive))?.id ?? "",
+            counterAccountNumber: buildSegCode(
+              { ...defaultSegments, 3: initialTaxPayment.counterAccountNumber },
+              activeSegIds,
+              defaultSegments
+            ),
+            description: initialTaxPayment.description,
+          }
+        : initialForm()
   );
   const [settlementTarget, setSettlementTarget] =
     useState<CashArApSettlementTarget | null>(initialSettlement);
@@ -142,7 +162,7 @@ export function CashNewForm({
     const amount = Number(form.amount.replaceAll(",", ""));
     startTransition(async () => {
       try {
-        await createCashDocument({
+        const result = await createCashDocument({
           documentType: form.documentType,
           date: form.date,
           fromCashAccountId: form.fromCashAccountId || undefined,
@@ -159,18 +179,20 @@ export function CashNewForm({
           postNow,
           arApDocumentId: settlementTarget?.id,
         });
+        if (result.error) {
+          // Формоо нээлттэй үлдээж inline алдаа — хэрэглэгч засаад дахин
+          // оролдоно.
+          setError(result.error);
+          return;
+        }
         toast.success(
           postNow
             ? "Гүйлгээ хадгалагдаж батлагдлаа"
             : "Ноорог гүйлгээ хадгалагдлаа"
         );
         onSaved();
-      } catch (caught) {
-        // Формоо нээлттэй үлдээж inline алдаа — хэрэглэгч засаад дахин
-        // оролдоно.
-        setError(
-          caught instanceof Error ? caught.message : "Баримт хадгалж чадсангүй"
-        );
+      } catch {
+        setError("Баримт хадгалж чадсангүй");
       }
     });
   }

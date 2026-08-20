@@ -173,12 +173,16 @@ export function CashDocPanel({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await postCashDocument(document.id);
+          const result = await postCashDocument(document.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success("Баримт батлагдаж GL-д бичигдлээ");
           refreshOpenPanels();
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Батлах амжилтгүй");
+        } catch {
+          toast.error("Батлах амжилтгүй");
         }
       });
     });
@@ -197,13 +201,17 @@ export function CashDocPanel({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await deleteCashDocument(document.id);
+          const result = await deleteCashDocument(document.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success("Ноорог баримт устгагдлаа");
           closePanel(panel.id);
           refreshOpenPanels();
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Устгах амжилтгүй");
+        } catch {
+          toast.error("Устгах амжилтгүй");
         }
       });
     });
@@ -219,12 +227,16 @@ export function CashDocPanel({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await reverseCashDocument(document.id);
+          const result = await reverseCashDocument(document.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success("Баримт буцаагдлаа — сторно журнал үүслээ");
           refreshOpenPanels();
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Буцаах амжилтгүй");
+        } catch {
+          toast.error("Буцаах амжилтгүй");
         }
       });
     });

@@ -23,6 +23,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { createVoucher } from "@/lib/actions/gl";
+import { unwrapAction } from "@/lib/action-result";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
@@ -449,13 +450,13 @@ export async function createPayrollVoucher(
   );
 
   const { endDate } = periodRange(periodMonth);
-  const { id } = await createVoucher({
+  const { id } = unwrapAction(await createVoucher({
     date: endDate,
     description: `Цалингийн бичилт ${periodMonth} (${run.lines.length} ажилтан)`,
     lines,
     status: "draft",
     externalRef: voucherRefOf(periodMonth),
-  });
+  }));
 
   await db
     .update(payrollRuns)

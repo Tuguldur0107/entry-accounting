@@ -21,6 +21,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { createVoucher } from "@/lib/actions/gl";
+import { unwrapAction } from "@/lib/action-result";
 import { loadVatSettings } from "@/lib/vat/settings";
 import { computeVatReturn, type VatReturnSummary } from "@/lib/vat/return";
 import { extractMainAccount } from "@/lib/reports/balances";
@@ -288,7 +289,7 @@ export async function createVatSettlementDraft(data: {
       );
   }
 
-  const { id } = await createVoucher({
+  const { id } = unwrapAction(await createVoucher({
     date: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10),
     description: `НӨАТ тооцоо ${data.periodCode}${
       summary.refundableVat > 0
@@ -298,9 +299,10 @@ export async function createVatSettlementDraft(data: {
     lines: lines.map((line) => ({ ...line })),
     status: "draft",
     externalRef: settlementRefOf(data.periodCode),
-  });
+  }));
 
   revalidatePath("/vat");
+  revalidatePath("/tax/vat");
   revalidatePath("/gl/journal");
   return { id };
 }

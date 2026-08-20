@@ -242,17 +242,21 @@ export function CashDocumentsView({
   );
 
   const runAction = useCallback(
-    (action: () => Promise<unknown>, successMessage: string) => {
+    (action: () => Promise<{ error?: string }>, successMessage: string) => {
       startTransition(async () => {
         try {
-          await action();
+          // Action алдааг шидэхгүй — { error } утгаар буцаана (production
+          // дээр Next.js шидсэн мессежийг нуудаг тул).
+          const result = await action();
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           refreshOpenPanels();
           router.refresh();
           toast.success(successMessage);
-        } catch (caught) {
-          toast.error(
-            caught instanceof Error ? caught.message : "Үйлдэл амжилтгүй"
-          );
+        } catch {
+          toast.error("Үйлдэл амжилтгүй");
         }
       });
     },

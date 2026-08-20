@@ -288,11 +288,15 @@ export function CashReconciliationWorkspace({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await postCashDocument(doc.id);
+          const result = await postCashDocument(doc.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success(`${doc.documentNo} батлагдлаа`);
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Батлах амжилтгүй");
+        } catch {
+          toast.error("Батлах амжилтгүй");
         }
       });
     });
@@ -532,7 +536,7 @@ export function CashReconciliationWorkspace({
     setError("");
     startTransition(async () => {
       try {
-        await postCashFxRevaluation({
+        const result = await postCashFxRevaluation({
           cashAccountId: postingTarget.id,
           valuationDate: asOf,
           closingRate: postingTarget.inputRate!,
@@ -546,15 +550,15 @@ export function CashReconciliationWorkspace({
           lossAccountNumber,
           replaceExisting: replacesExisting,
         });
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
         setPostingTarget(null);
         router.refresh();
         toast.success("Ханшийн тэгшитгэл GL-д бичигдлээ");
-      } catch (caught) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Ханшийн тэгшитгэл бичиж чадсангүй"
-        );
+      } catch {
+        setError("Ханшийн тэгшитгэл бичиж чадсангүй");
       }
     });
   }
@@ -571,14 +575,16 @@ export function CashReconciliationWorkspace({
       setError("");
       startTransition(async () => {
         try {
-          await reverseCashFxRevaluation(row.id);
+          const result = await reverseCashFxRevaluation(row.id);
+          if (result.error) {
+            setError(result.error);
+            toast.error(result.error);
+            return;
+          }
           router.refresh();
           toast.success("Тэгшитгэл буцаагдлаа");
-        } catch (caught) {
-          const message =
-            caught instanceof Error
-              ? caught.message
-              : "Тэгшитгэлийг буцаалт хийж чадсангүй";
+        } catch {
+          const message = "Тэгшитгэлийг буцаалт хийж чадсангүй";
           setError(message);
           toast.error(message);
         }

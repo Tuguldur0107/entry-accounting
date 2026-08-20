@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { PageTabs } from "@/components/ui/tabs";
 import { IconAction } from "@/components/ui/icon-action";
@@ -93,6 +94,7 @@ export function AccountsTable({
   segmentValues,
   moduleConfigs,
 }: Props) {
+  const router = useRouter();
   const [localConfigs, setLocalConfigs] = useState<SegmentConfigRow[]>(segmentConfigs);
 
   const enabledSegIds = localConfigs.filter((c) => c.isEnabled).map((c) => c.segmentId);
@@ -113,15 +115,30 @@ export function AccountsTable({
   }
   async function saveModEdit() {
     setModSaving(true);
-    const changed = modDraft.filter(
-      (d) =>
-        localMods.find((m) => m.moduleKey === d.moduleKey)?.isEnabled !== d.isEnabled
-    );
-    if (changed.length > 0) await batchSaveModuleConfigs(changed);
-    setLocalMods(modDraft);
-    setModDraft([]);
-    setModEditMode(false);
-    setModSaving(false);
+    try {
+      const changed = modDraft.filter(
+        (d) =>
+          localMods.find((m) => m.moduleKey === d.moduleKey)?.isEnabled !== d.isEnabled
+      );
+      if (changed.length > 0) {
+        const result = await batchSaveModuleConfigs(changed);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+      }
+      setLocalMods(modDraft);
+      setModDraft([]);
+      setModEditMode(false);
+      // Навигацийн харагдац (switcher, палитр, + Шинэ) layout-аас ирдэг тул
+      // серверийн өгөгдлийг сэргээнэ.
+      router.refresh();
+      toast.success("Модулийн тохиргоо хадгалагдлаа");
+    } catch {
+      toast.error("Модулийн тохиргоо хадгалагдсангүй");
+    } finally {
+      setModSaving(false);
+    }
   }
   function toggleModDraft(key: string) {
     setModDraft((prev) =>
@@ -152,15 +169,26 @@ export function AccountsTable({
   }
   async function saveSeg1Edit() {
     setSeg1Saving(true);
-    await Promise.all(
-      seg1Draft.map((d) =>
-        updateSegmentConfig(d.segmentId, { isEnabled: d.isEnabled })
-      )
-    );
-    setLocalConfigs(seg1Draft);
-    setSeg1Draft([]);
-    setSeg1EditMode(false);
-    setSeg1Saving(false);
+    try {
+      const results = await Promise.all(
+        seg1Draft.map((d) =>
+          updateSegmentConfig(d.segmentId, { isEnabled: d.isEnabled })
+        )
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) {
+        toast.error(failed.error);
+        return;
+      }
+      setLocalConfigs(seg1Draft);
+      setSeg1Draft([]);
+      setSeg1EditMode(false);
+      toast.success("Сегментийн тохиргоо хадгалагдлаа");
+    } catch {
+      toast.error("Сегментийн тохиргоо хадгалагдсангүй");
+    } finally {
+      setSeg1Saving(false);
+    }
   }
   function toggleSeg1Draft(segId: number) {
     setSeg1Draft((prev) =>
@@ -198,11 +226,18 @@ export function AccountsTable({
     setSaving(true);
     try {
       const deletes = [...pendingDeletes.entries()];
-      await Promise.all(
+      const deleteResults = await Promise.all(
         deletes.map(([id, type]) =>
           type === "account" ? deleteAccount(id) : deleteSegmentValue(id)
         )
       );
+      const deleteError = deleteResults.find((r) => r.error)?.error;
+      if (deleteError) {
+        // Аль нэг устгал татгалзвал (ашиглагдсан данс г.м) edit горимд
+        // үлдээж шалтгааныг үзүүлнэ — амжилттай нь аль хэдийн хийгдсэн.
+        toast.error(deleteError);
+        return;
+      }
       const accountChanges = accounts
         .filter((a) => drafts.has(a.id) && !pendingDeletes.has(a.id))
         .map((a) => ({ id: a.id, ...drafts.get(a.id)! }));
@@ -210,15 +245,18 @@ export function AccountsTable({
         .filter((sv) => drafts.has(sv.id) && !pendingDeletes.has(sv.id))
         .map((sv) => ({ id: sv.id, ...drafts.get(sv.id)! }));
       if (accountChanges.length > 0 || svChanges.length > 0) {
-        await batchSaveSection2(accountChanges, svChanges);
+        const result = await batchSaveSection2(accountChanges, svChanges);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
       }
       setDrafts(new Map());
       setPendingDeletes(new Map());
       setEditMode(false);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Хадгалж чадсангүй"
-      );
+      toast.success("Өөрчлөлт хадгалагдлаа");
+    } catch {
+      toast.error("Хадгалж чадсангүй");
     } finally {
       setSaving(false);
     }
@@ -558,6 +596,10 @@ export function AccountsTable({
     setSyncMsg("");
     const res = await syncStandardAccounts();
     setSyncing(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
     setSyncMsg(
       res.added === 0
         ? "Бүх стандарт данс аль хэдийн байна"

@@ -41,6 +41,7 @@ import {
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
 import { logAuditEvent } from "@/lib/audit";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -336,7 +337,13 @@ export async function toggleCashAccount(id: string, isActive: boolean) {
   revalidateCash();
 }
 
-export async function createCashDocument(data: {
+// ── Баримтын мутацууд ────────────────────────────────────────────────────────
+// *Core функцүүд алдааг ШИДДЭГ (транзакц rollback, дотоод дуудлагад хэрэгтэй);
+// гадаад wrapper-ууд нь { error } УТГААР буцаана — Next.js production дээр
+// шидсэн алдааны мессежийг нуудаг (React #441) тул client компонент зөвхөн
+// wrapper-ыг дуудна. Server-талын дуудагч unwrapAction-аар шидэлтээ сэргээнэ.
+
+async function createCashDocumentCore(data: {
   documentType: CashDocumentType;
   date: string;
   fromCashAccountId?: string;
@@ -466,9 +473,19 @@ export async function createCashDocument(data: {
     .returning({ id: cashDocuments.id });
 
   if (data.postNow) {
-    await postCashDocument(document.id);
+    await postCashDocumentCore(document.id);
   } else revalidateCash();
   return { id: document.id };
+}
+
+export async function createCashDocument(
+  data: Parameters<typeof createCashDocumentCore>[0]
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    return await createCashDocumentCore(data);
+  } catch (caught) {
+    return actionError("createCashDocument", caught, "Баримт хадгалагдсангүй");
+  }
 }
 
 // Batch-confirm drafts (month-end close): posts each id independently and
@@ -479,19 +496,19 @@ export async function postCashDocuments(ids: string[]) {
   let posted = 0;
   for (const id of ids) {
     try {
-      await postCashDocument(id);
+      await postCashDocumentCore(id);
       posted += 1;
     } catch (caught) {
       failures.push({
         id,
-        error: caught instanceof Error ? caught.message : "Батлагдсангүй",
+        error: actionError("postCashDocuments", caught, "Батлагдсангүй").error,
       });
     }
   }
   return { posted, failures };
 }
 
-export async function postCashDocument(
+async function postCashDocumentCore(
   id: string,
   options?: { exchangeRate?: number }
 ) {
@@ -794,7 +811,19 @@ export async function postCashDocument(
   revalidateCash();
 }
 
-export async function reverseCashDocument(id: string) {
+export async function postCashDocument(
+  id: string,
+  options?: { exchangeRate?: number }
+): Promise<ActionResult> {
+  try {
+    await postCashDocumentCore(id, options);
+    return {};
+  } catch (caught) {
+    return actionError("postCashDocument", caught, "Баримт батлагдсангүй");
+  }
+}
+
+async function reverseCashDocumentCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
 
   const document = await db.query.cashDocuments.findFirst({
@@ -932,13 +961,22 @@ export async function reverseCashDocument(id: string) {
   revalidateCash();
 }
 
+export async function reverseCashDocument(id: string): Promise<ActionResult> {
+  try {
+    await reverseCashDocumentCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("reverseCashDocument", caught, "Баримт буцаагдсангүй");
+  }
+}
+
 /**
  * Кассын баримт устгах. Ноорог — шууд. БАТЛАГДСАН/БУЦААГДСАН баримтыг
  * мөн устгаж болно — GL журнал(ууд) нь хамт устаж, нэхэмжлэхтэй холбоотой
  * байсан бол төлөлтийг нь буцааж (settlement rollback) нэхэмжлэхийн
  * үлдэгдэл, төлөв сэргэнэ. Период нээлттэй байх шаардлагатай.
  */
-export async function deleteCashDocument(id: string) {
+async function deleteCashDocumentCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
   const document = await db.query.cashDocuments.findFirst({
     where: and(
@@ -1067,6 +1105,15 @@ export async function deleteCashDocument(id: string) {
   });
 
   revalidateCash();
+}
+
+export async function deleteCashDocument(id: string): Promise<ActionResult> {
+  try {
+    await deleteCashDocumentCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("deleteCashDocument", caught, "Баримт устгагдсангүй");
+  }
 }
 
 export interface CashDocumentVoucherLine {
@@ -1249,7 +1296,7 @@ function fxPostingCode(template: string | undefined, mainAccount: string) {
   return parts.join(".");
 }
 
-export async function postCashFxRevaluation(data: {
+async function postCashFxRevaluationCore(data: {
   cashAccountId: string;
   valuationDate: string;
   closingRate: number;
@@ -1567,7 +1614,23 @@ export async function postCashFxRevaluation(data: {
   return result;
 }
 
-export async function reverseCashFxRevaluation(id: string) {
+export async function postCashFxRevaluation(
+  data: Parameters<typeof postCashFxRevaluationCore>[0]
+): Promise<
+  ActionResult<{ id: string; voucherId: string; adjustmentAmount: number }>
+> {
+  try {
+    return await postCashFxRevaluationCore(data);
+  } catch (caught) {
+    return actionError(
+      "postCashFxRevaluation",
+      caught,
+      "Ханшийн тэгшитгэл бичигдсэнгүй"
+    );
+  }
+}
+
+async function reverseCashFxRevaluationCore(id: string) {
   const { orgId, userId } = await requireRole("accountant");
   const revaluation = await db.query.cashFxRevaluations.findFirst({
     where: and(
@@ -1741,4 +1804,19 @@ export async function updateCashDocument(
 
   revalidateCash();
   return { documentNo: document.documentNo };
+}
+
+export async function reverseCashFxRevaluation(
+  id: string
+): Promise<ActionResult> {
+  try {
+    await reverseCashFxRevaluationCore(id);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "reverseCashFxRevaluation",
+      caught,
+      "Тэгшитгэл буцаагдсангүй"
+    );
+  }
 }

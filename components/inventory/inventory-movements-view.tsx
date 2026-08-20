@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Icon } from "@/components/ui/icon";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type {
@@ -136,6 +143,32 @@ export function InventoryMovementsView({
     ? (initialStatus as StatusTab)
     : "all";
 
+  // Топбарын "+ Шинэ" цэс (болон F2) ?new=1 параметртэй энэ хуудас руу
+  // үсэргэдэг — үүсгэх цонхыг шууд нээнэ. State-ээ render үед тохируулна
+  // (React-ийн "adjust state when props change" хэв маяг — effect дотор
+  // setState хийхийг lint хориглодог).
+  const wantsNew = searchParams.get("new") !== null;
+  const [prevWantsNew, setPrevWantsNew] = useState(false);
+  if (wantsNew !== prevWantsNew) {
+    setPrevWantsNew(wantsNew);
+    if (wantsNew) {
+      setForm(initialForm());
+      setError("");
+      setEditingId(null);
+      setOpen(true);
+    }
+  }
+
+  // Параметрыг URL-ээс цэвэрлэнэ — refresh/буцахад цонх дахин нээгдэхгүй.
+  useEffect(() => {
+    if (searchParams.get("new") === null) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("new");
+    router.replace(
+      `${pathname}${params.toString() ? `?${params.toString()}` : ""}`
+    );
+  }, [searchParams, pathname, router]);
+
   function changeParam(key: "type" | "status", next: string) {
     const params = new URLSearchParams(searchParams.toString());
     if (next === "all") params.delete(key);
@@ -182,16 +215,20 @@ export function InventoryMovementsView({
   );
 
   const runAction = useCallback(
-    (action: () => Promise<unknown>, successMessage: string) => {
+    (action: () => Promise<{ error?: string }>, successMessage: string) => {
       startTransition(async () => {
         try {
-          await action();
+          // Action алдааг шидэхгүй — { error } утгаар буцаана (production
+          // дээр Next.js шидсэн мессежийг нуудаг тул).
+          const result = await action();
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           router.refresh();
           toast.success(successMessage);
-        } catch (caught) {
-          toast.error(
-            caught instanceof Error ? caught.message : "Үйлдэл амжилтгүй"
-          );
+        } catch {
+          toast.error("Үйлдэл амжилтгүй");
         }
       });
     },
@@ -491,14 +528,28 @@ export function InventoryMovementsView({
           issueTypeId: form.issueTypeId || undefined,
         };
         if (editingId) {
-          await updateInventoryMovement(editingId, payload);
-          if (confirmNow) await confirmInventoryMovement(editingId);
+          const updated = await updateInventoryMovement(editingId, payload);
+          if (updated.error) {
+            setError(updated.error);
+            return;
+          }
+          if (confirmNow) {
+            const confirmed = await confirmInventoryMovement(editingId);
+            if (confirmed.error) {
+              setError(confirmed.error);
+              return;
+            }
+          }
         } else {
-          await createInventoryMovement({
+          const created = await createInventoryMovement({
             ...payload,
             documentNo: form.documentNo || undefined,
             confirmNow,
           });
+          if (created.error) {
+            setError(created.error);
+            return;
+          }
         }
         setOpen(false);
         setEditingId(null);
@@ -506,10 +557,8 @@ export function InventoryMovementsView({
         toast.success(
           confirmNow ? "Хөдөлгөөн бүртгэгдэж батлагдлаа" : "Ноорог хадгалагдлаа"
         );
-      } catch (caught) {
-        setError(
-          caught instanceof Error ? caught.message : "Хадгалж чадсангүй"
-        );
+      } catch {
+        setError("Хадгалж чадсангүй");
       }
     });
   }

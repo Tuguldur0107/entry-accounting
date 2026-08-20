@@ -132,6 +132,10 @@ export function InventoryCountingView({
           warehouseId: selectedWarehouseId,
           counts,
         });
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
         countsRef.current = {};
         router.refresh();
         if (result.created === 0)
@@ -140,10 +144,8 @@ export function InventoryCountingView({
           toast.success(
             `${result.created} тохируулгын ноорог үүслээ — Хөдөлгөөн хуудаснаас батална уу`
           );
-      } catch (caught) {
-        toast.error(
-          caught instanceof Error ? caught.message : "Тооллого бүртгэгдсэнгүй"
-        );
+      } catch {
+        toast.error("Тооллого бүртгэгдсэнгүй");
       }
     });
   }

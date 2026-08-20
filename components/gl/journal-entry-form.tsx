@@ -351,14 +351,18 @@ export function JournalEntryForm({
           description: l.description,
         })),
       };
-      if (isEdit && voucherId) {
-        await updateVoucher(voucherId, payload);
-      } else {
-        await createVoucher(payload);
+      const result =
+        isEdit && voucherId
+          ? await updateVoucher(voucherId, payload)
+          : await createVoucher(payload);
+      if (result.error) {
+        setError(result.error);
+        setSaving(null);
+        return;
       }
       finish();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Алдаа гарлаа");
+    } catch {
+      setError("Алдаа гарлаа");
       setSaving(null);
     }
   }
@@ -426,7 +430,11 @@ export function JournalEntryForm({
   async function handleDuplicate() {
     if (!voucherId) return;
     try {
-      const { id } = await duplicateVoucher(voucherId);
+      const { id, error } = await duplicateVoucher(voucherId);
+      if (error || !id) {
+        setError(error ?? "Хуулбарлаж чадсангүй");
+        return;
+      }
       if (embedded) {
         onOpenVoucher?.(id);
         onDone?.();
@@ -435,8 +443,8 @@ export function JournalEntryForm({
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = `/gl/journal/${id}/edit`;
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Хуулбарлаж чадсангүй");
+    } catch {
+      setError("Хуулбарлаж чадсангүй");
     }
   }
 
@@ -445,10 +453,14 @@ export function JournalEntryForm({
     if (!confirm("Энэ журналд буцаалтын бичилт үүсгэх үү? Эх журнал 'Буцаагдсан' төлөвт орно."))
       return;
     try {
-      await unpostVoucher(voucherId);
+      const result = await unpostVoucher(voucherId);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
       finish();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Буцааж чадсангүй");
+    } catch {
+      setError("Буцааж чадсангүй");
     }
   }
 
