@@ -34,6 +34,7 @@ import {
   createArApDocument,
   deleteArApDocument,
   reverseArApDocument,
+  reverseArApOffset,
   getArapDocPanelData,
   postArApDocument,
   type ArapDocPanelData,
@@ -369,7 +370,7 @@ function ArapDocForm({
     setError("");
     startTransition(async () => {
       try {
-        await createArApDocument({
+        const result = await createArApDocument({
           ...form,
           exchangeRate: Number(form.exchangeRate),
           postNow,
@@ -384,12 +385,16 @@ function ArapDocForm({
             })
           ),
         });
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
         toast.success(postNow ? "Баримт GL-д бичигдлээ" : "Ноорог хадгалагдлаа");
         closePanel(panel.id);
         refreshOpenPanels();
         router.refresh();
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Хадгалж чадсангүй");
+      } catch {
+        setError("Хадгалж чадсангүй");
       }
     });
   }
@@ -788,13 +793,17 @@ function ArapDocReadOnly({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await postArApDocument(document.id);
+          const result = await postArApDocument(document.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success("Баримт батлагдаж GL-д бичигдлээ");
           closePanel(panel.id);
           refreshOpenPanels();
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Батлах амжилтгүй");
+        } catch {
+          toast.error("Батлах амжилтгүй");
         }
       });
     });
@@ -810,13 +819,44 @@ function ArapDocReadOnly({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await reverseArApDocument(document.id);
+          const result = await reverseArApDocument(document.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success("Баримт буцаагдаж, GL-д урвуу журнал бичигдлээ");
           closePanel(panel.id);
           refreshOpenPanels();
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Буцаах амжилтгүй");
+        } catch {
+          toast.error("Буцаах амжилтгүй");
+        }
+      });
+    });
+  }
+
+  /** АР↔АП суутган тооцоог буцаана — хоёр талын үлдэгдэл сэргэнэ. */
+  function reverseOffset(voucherId: string) {
+    void confirm({
+      title: "Суутган тооцоо буцаах",
+      description:
+        "Энэ суутган тооцоог буцаах уу? GL-д урвуу журнал бичигдэж, хоёр талын нэхэмжлэхийн үлдэгдэл сэргэнэ.",
+      confirmText: "Буцаах",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        try {
+          const result = await reverseArApOffset(voucherId);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
+          toast.success("Суутган тооцоо буцаагдлаа");
+          refreshOpenPanels();
+          router.refresh();
+        } catch {
+          toast.error("Буцаах амжилтгүй");
         }
       });
     });
@@ -835,13 +875,17 @@ function ArapDocReadOnly({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await deleteArApDocument(document.id);
+          const result = await deleteArApDocument(document.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success("Ноорог баримт устгагдлаа");
           closePanel(panel.id);
           refreshOpenPanels();
           router.refresh();
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Устгах амжилтгүй");
+        } catch {
+          toast.error("Устгах амжилтгүй");
         }
       });
     });
@@ -1026,7 +1070,42 @@ function ArapDocReadOnly({
             Төлөлтүүд
           </div>
           <div className="space-y-1.5">
-            {payments.map((payment) => (
+            {payments.map((payment) =>
+              payment.kind === "offset" ? (
+                // Кассгүй хаалт — АР↔АП суутган тооцоо: нээх кассын баримт
+                // байхгүй тул мөр нь мэдээлэл + Буцаах товч.
+                <div
+                  key={payment.id}
+                  className="flex w-full items-center gap-2.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2"
+                >
+                  <Icon
+                    name="undo"
+                    size="sm"
+                    className="shrink-0 text-[var(--ea-primary)]"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium text-[var(--ea-text-1)]">
+                      {payment.documentNo}
+                    </span>
+                    <span className="font-mono text-[10px] text-[var(--ea-text-4)]">
+                      {payment.date}
+                    </span>
+                  </span>
+                  <span className="shrink-0 font-mono text-xs font-semibold text-[var(--ea-text-1)]">
+                    {fmtMnt(payment.baseAmount)}
+                  </span>
+                  {payment.voucherId && (
+                    <button
+                      type="button"
+                      className="shrink-0 text-[11px] font-medium text-[var(--ea-danger-fg)] hover:underline"
+                      disabled={isPending}
+                      onClick={() => reverseOffset(payment.voucherId!)}
+                    >
+                      Буцаах
+                    </button>
+                  )}
+                </div>
+              ) : (
               <button
                 key={payment.id}
                 type="button"
@@ -1065,7 +1144,8 @@ function ArapDocReadOnly({
                   <Icon name="openDetail" size="xs" />
                 </span>
               </button>
-            ))}
+              )
+            )}
           </div>
         </div>
       )}

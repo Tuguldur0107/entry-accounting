@@ -588,6 +588,12 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
   cashDocumentId: uuid("cash_document_id").references(() => cashDocuments.id, {
     onDelete: "set null",
   }),
+  // Кассгүй хаалт — харилцан суутган тооцоо (АР↔АП offset): GL воучертоо
+  // шууд холбогдоно. Нэг offset = хоёр settlement мөр (АР-д нэг, АП-д нэг)
+  // нэг voucherId-гаар холбогдоно; cashDocumentId null байна.
+  voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+    onDelete: "restrict",
+  }),
   settlementDate: text("settlement_date").notNull(),
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
   baseAmount: numeric("base_amount", { precision: 18, scale: 2 })
@@ -599,6 +605,9 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
   index("ar_ap_settlements_cash_document_ix")
     .on(t.cashDocumentId)
     .where(sql`${t.cashDocumentId} is not null`),
+  index("ar_ap_settlements_voucher_ix")
+    .on(t.voucherId)
+    .where(sql`${t.voucherId} is not null`),
 ]);
 
 // ─── Relations ────────────────────────────────────────────────────────────────

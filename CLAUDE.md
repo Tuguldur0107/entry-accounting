@@ -136,8 +136,9 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
   хаалт хийж эхлээгүй систем саадгүй ажиллана
 - Хаагдсан периодод бичилт хийх хориотой. Хамгаалалт орсон замууд: GL
   create/post/unpost/update, cash post/reverse, FX тэгшитгэл post/reverse,
-  AR/AP create/post, банкны хуулга импорт, FA элэгдэл post/reverse, өртөг
-  post/reverse, зардлын хуваарилалт, production confirm
+  AR/AP create/post, АР↔АП суутган тооцоо (offset + буцаалт), банкны
+  хуулга импорт, FA элэгдэл post/reverse, өртөг post/reverse, зардлын
+  хуваарилалт, production confirm
 - **Close/post race хамгаалалт:** post замууд транзакц дотроо
   `assertPeriodOpenInTx` (shared advisory lock, түлхүүр 5) дууддаг;
   `closePeriod` exclusive lock авч БҮХ дэд дэвтрийн ноорог (GL, өртөг,
@@ -344,7 +345,7 @@ AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/too
 |-------|-------|-------|
 | Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction (applyTo-гоор нэхэмжлэхэд холбоно), create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
-| Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
+| Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |

@@ -20,6 +20,7 @@ import {
   deleteArApDocument,
   postArApDocument,
   updateArApDocument,
+  settleArApOffset,
 } from "@/lib/actions/arap";
 import {
   createInvoiceLink,
@@ -94,6 +95,7 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliation";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
+import { unwrapAction } from "@/lib/action-result";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -957,6 +959,33 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["documentId", "cashAccount", "date"],
+    },
+  },
+  {
+    name: "settle_arap_offset",
+    description:
+      "Нэг харилцагчийн авлага, өглөгийн нэхэмжлэхийг мөнгө хөдөлгөлгүй хооронд нь хаана (харилцан суутган тооцоо) — GL-д Дт өглөгийн хяналтын данс / Кт авлагын хяналтын данс бичигдэнэ, НӨАТ-д нөлөөгүй. Зөвхөн MNT, нээлттэй (батлагдсан/хэсэгчлэн төлсөн) баримтууд; зөвхөн 'Шууд бичих' горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        arInvoice: {
+          type: "string",
+          description: "Авлагын нэхэмжлэлийн дугаар (AR-...) эсвэл ID",
+        },
+        apBill: {
+          type: "string",
+          description: "Өглөгийн нэхэмжлэхийн дугаар (AP-...) эсвэл ID",
+        },
+        amount: {
+          type: "number",
+          description: "Дүн ₮ (өгөхгүй бол хоёр үлдэгдлийн бага нь)",
+        },
+        date: {
+          type: "string",
+          description: "Тооцооны актын огноо YYYY-MM-DD (default: өнөөдөр)",
+        },
+      },
+      required: ["arInvoice", "apBill"],
     },
   },
 
@@ -1906,13 +1935,13 @@ async function runCreateJournal(
     else status = "posted";
   }
 
-  const { id } = await createVoucher({
+  const { id } = unwrapAction(await createVoucher({
     date: input.date,
     description: input.description,
     lines,
     status,
     externalRef,
-  });
+  }));
 
   return {
     resultText: `Журнал үүслээ. ID: ${id}, төлөв: ${status}, Дт ${fmt(totalDebit)}₮ / Кт ${fmt(totalCredit)}₮${note}`,
@@ -2102,7 +2131,7 @@ async function runCreateArap(
       return date.toISOString().slice(0, 10);
     })();
 
-  const { id, documentNo } = await createArApDocument({
+  const { id, documentNo } = unwrapAction(await createArApDocument({
     documentType: input.documentType,
     counterpartyId: counterparty.id,
     date: input.date,
@@ -2114,7 +2143,7 @@ async function runCreateArap(
     lines,
     postNow,
     externalRef,
-  });
+  }));
 
   const label = isAp ? "Өглөгийн нэхэмжлэх" : "Авлагын нэхэмжлэл";
   return {
@@ -2304,7 +2333,7 @@ async function runCreateCash(
     if (existingPart1) return dedupResult(existingPart1);
     const linked = allocations[0]?.document;
     const { postNow, note } = decidePost(totalAmount);
-    const { id } = await createCashDocument({
+    const { id } = unwrapAction(await createCashDocument({
       ...commonFields(totalAmount),
       counterAccountNumber:
         counterAccountNumber ?? (linked ? controlMainOf(linked) : undefined),
@@ -2312,7 +2341,7 @@ async function runCreateCash(
       postNow,
       arApDocumentId: linked?.id,
       externalRef,
-    });
+    }));
     return {
       resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
       action: {
@@ -2351,14 +2380,14 @@ async function runCreateCash(
       continue;
     }
     const { postNow, note } = totalDecision;
-    await createCashDocument({
+    unwrapAction(await createCashDocument({
       ...commonFields(alloc.amount),
       counterAccountNumber: controlMainOf(alloc.document),
       description: `${input.description} (${alloc.document.documentNo})`,
       postNow,
       arApDocumentId: alloc.document.id,
       externalRef: externalRef ? `${externalRef}#${part}` : undefined,
-    });
+    }));
     createdCount += 1;
     created.push(
       `${alloc.document.documentNo} · ${fmt(alloc.amount)}₮ · үүслээ (${postNow ? "батлагдсан" : "ноорог"})${note}`
@@ -2373,13 +2402,13 @@ async function runCreateCash(
       );
     } else {
       const { postNow, note } = totalDecision;
-      await createCashDocument({
+      unwrapAction(await createCashDocument({
         ...commonFields(remainder),
         counterAccountNumber,
         description: `${input.description} (хуваарилагдаагүй)`,
         postNow,
         externalRef: externalRef ? `${externalRef}#${part}` : undefined,
-      });
+      }));
       createdCount += 1;
       created.push(
         `хуваарилагдаагүй · ${fmt(remainder)}₮ · үүслээ (${postNow ? "батлагдсан" : "ноорог"})${note}`
@@ -2454,7 +2483,7 @@ async function runCreateMovement(
   }
 
   const confirmNow = mode === "post";
-  const { id } = await createInventoryMovement({
+  const { id } = unwrapAction(await createInventoryMovement({
     movementType: input.movementType,
     date: input.date,
     itemId: item.id,
@@ -2464,7 +2493,7 @@ async function runCreateMovement(
     description: input.description,
     issueTypeId,
     confirmNow,
-  });
+  }));
 
   const typeLabels: Record<string, string> = {
     receipt: "Орлого",
@@ -2600,7 +2629,7 @@ async function runPostJournal(
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
   assertPostLimit(total);
 
-  await postVoucher(voucher.id);
+  unwrapAction(await postVoucher(voucher.id));
   return {
     resultText: `Журнал батлагдлаа. ${voucher.date} · ${voucher.description} · ${fmt(total)}₮`,
     action: {
@@ -2635,7 +2664,7 @@ async function runDeleteJournal(
     });
     assertPostLimit(lines.reduce((sum, l) => sum + Number(l.debit), 0));
   }
-  await deleteVoucher(voucher.id);
+  unwrapAction(await deleteVoucher(voucher.id));
   return {
     resultText: `${voucher.status === "draft" ? "Ноорог журнал" : "Журнал GL-тэй нь хамт"} устгагдлаа: ${voucher.date} · ${voucher.description}`,
   };
@@ -2665,7 +2694,7 @@ async function runPostCash(
     throw new Error(`Баримт ноорог биш байна (төлөв: ${document.status})`);
   assertPostLimit(Number(document.baseAmount ?? document.amount));
 
-  await postCashDocument(document.id);
+  unwrapAction(await postCashDocument(document.id));
   return {
     resultText: `Мөнгөн хөрөнгийн баримт батлагдаж GL-д бичигдлээ. ${document.date} · ${document.description}`,
     action: {
@@ -2700,7 +2729,7 @@ async function runDeleteCash(
     assertPostMode(mode);
     assertPostLimit(Number(document.baseAmount ?? document.amount));
   }
-  await deleteCashDocument(document.id);
+  unwrapAction(await deleteCashDocument(document.id));
   return {
     resultText: `Ноорог кассын баримт устгагдлаа: ${document.date} · ${document.description}`,
   };
@@ -2737,13 +2766,70 @@ async function runPostArap(
     throw new Error(`Нэхэмжлэх ноорог биш байна (төлөв: ${document.status})`);
   assertPostLimit(Number(document.baseTotalAmount ?? document.totalAmount));
 
-  await postArApDocument(document.id);
+  unwrapAction(await postArApDocument(document.id));
   return {
     resultText: `Нэхэмжлэх батлагдаж GL-д бичигдлээ: ${document.documentNo}`,
     action: {
       kind: "arap",
       id: document.id,
       title: document.documentNo,
+      status: "posted",
+    },
+  };
+}
+
+/** АР↔АП харилцан суутган тооцоо — settleArApOffset action-ийг дуудна. */
+async function runSettleArApOffset(
+  orgId: string,
+  input: { arInvoice: string; apBill: string; amount?: number; date?: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const documents = await db.query.arApDocuments.findMany({
+    where: eq(arApDocuments.organizationId, orgId),
+    columns: {
+      id: true,
+      status: true,
+      documentNo: true,
+      documentType: true,
+      totalAmount: true,
+      paidAmount: true,
+    },
+    orderBy: [desc(arApDocuments.createdAt)],
+    limit: 500,
+  });
+  const resolveDocument = (ref: string, label: string) => {
+    const byNo = documents.filter(
+      (doc) => doc.documentNo.toLowerCase() === ref.trim().toLowerCase()
+    );
+    return byNo.length === 1 ? byNo[0] : resolveByIdPrefix(documents, ref, label);
+  };
+  const arDoc = resolveDocument(input.arInvoice, "авлагын нэхэмжлэл");
+  const apDoc = resolveDocument(input.apBill, "өглөгийн нэхэмжлэх");
+
+  const amount =
+    input.amount ??
+    Math.min(
+      Number(arDoc.totalAmount) - Number(arDoc.paidAmount),
+      Number(apDoc.totalAmount) - Number(apDoc.paidAmount)
+    );
+  assertPostLimit(amount);
+  const date = input.date?.trim() || new Date().toISOString().slice(0, 10);
+
+  unwrapAction(
+    await settleArApOffset({
+      arDocumentId: arDoc.id,
+      apDocumentId: apDoc.id,
+      amount: Math.round(amount * 100) / 100,
+      date,
+    })
+  );
+  return {
+    resultText: `Суутган тооцоо хийгдлээ: ${arDoc.documentNo} ↔ ${apDoc.documentNo}, дүн ${fmt(Math.round(amount * 100) / 100)}₮ — GL-д Дт өглөгийн данс / Кт авлагын данс бичигдэв. Хоёр талын үлдэгдэл энэ дүнгээр буурсан.`,
+    action: {
+      kind: "arap",
+      id: arDoc.id,
+      title: `${arDoc.documentNo} ↔ ${apDoc.documentNo}`,
       status: "posted",
     },
   };
@@ -3187,7 +3273,7 @@ async function runUpdateMovement(
     ).id;
   }
 
-  await updateInventoryMovement(movement.id, {
+  unwrapAction(await updateInventoryMovement(movement.id, {
     movementType: movement.movementType as
       | "receipt"
       | "issue"
@@ -3204,7 +3290,7 @@ async function runUpdateMovement(
     quantity: input.quantity != null ? Number(input.quantity) : Number(movement.quantity),
     description: input.description ?? movement.description ?? undefined,
     issueTypeId,
-  });
+  }));
   return { resultText: `Ноорог хөдөлгөөн шинэчлэгдлээ: ${movement.documentNo}` };
 }
 
@@ -3239,11 +3325,11 @@ async function runRecordCount(
     ).id,
     countedQty: Number(count.countedQty),
   }));
-  const result = await recordInventoryCount({
+  const result = unwrapAction(await recordInventoryCount({
     date: input.date,
     warehouseId: warehouse.id,
     counts,
-  });
+  }));
   const created = "created" in result ? result.created : 0;
   return {
     resultText:
@@ -3452,12 +3538,12 @@ async function runUpdateJournal(
         description: line.description ?? "",
       }));
 
-  await updateVoucher(voucher.id, {
+  unwrapAction(await updateVoucher(voucher.id, {
     date: input.date ?? voucher.date,
     description: input.description ?? voucher.description,
     lines,
     status: "draft",
-  });
+  }));
   return {
     resultText: `Ноорог журнал шинэчлэгдлээ (${input.date ?? voucher.date})`,
     action: {
@@ -3484,7 +3570,7 @@ async function runReverseJournal(
     throw new Error(`Зөвхөн батлагдсан журналыг буцаана (төлөв: ${voucher.status})`);
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
   assertPostLimit(total);
-  await unpostVoucher(voucher.id);
+  unwrapAction(await unpostVoucher(voucher.id));
   return {
     resultText: `Буцаалтын бичилт үүсч эх журнал "Буцаагдсан" боллоо: ${voucher.date} · ${voucher.description}`,
   };
@@ -3892,7 +3978,7 @@ async function runYearEndClosing(
 
   const created: string[] = [];
   if (revenue.length > 0) {
-    const { id } = await createVoucher({
+    const { id } = unwrapAction(await createVoucher({
       date: to,
       description: `${marker} 1/3: орлогын дансдыг хаав`,
       status: "draft",
@@ -3909,11 +3995,11 @@ async function runYearEndClosing(
           ...side(totalRevenue, "credit"),
         },
       ],
-    });
+    }));
     created.push(`1/3 орлого ${fmt(totalRevenue)} (ID ${id.slice(0, 8)})`);
   }
   if (expense.length > 0) {
-    const { id } = await createVoucher({
+    const { id } = unwrapAction(await createVoucher({
       date: to,
       description: `${marker} 2/3: зардлын дансдыг хаав`,
       status: "draft",
@@ -3930,11 +4016,11 @@ async function runYearEndClosing(
           ...side(entry.amount, "credit"),
         })),
       ],
-    });
+    }));
     created.push(`2/3 зардал ${fmt(totalExpense)} (ID ${id.slice(0, 8)})`);
   }
   if (Math.abs(net) > 0.005) {
-    const { id } = await createVoucher({
+    const { id } = unwrapAction(await createVoucher({
       date: to,
       description: `${marker} 3/3: цэвэр дүнг хуримтлагдсан ашигт`,
       status: "draft",
@@ -3951,7 +4037,7 @@ async function runYearEndClosing(
           ...side(net, "credit"),
         },
       ],
-    });
+    }));
     created.push(`3/3 цэвэр дүн ${fmt(net)} (ID ${id.slice(0, 8)})`);
   }
 
@@ -4089,7 +4175,7 @@ async function runPayArap(
     else postNow = true;
   }
 
-  const { id } = await createCashDocument({
+  const { id } = unwrapAction(await createCashDocument({
     documentType: isAr ? "receipt" : "payment",
     date: input.date,
     toCashAccountId: isAr ? cashAccount.id : undefined,
@@ -4102,7 +4188,7 @@ async function runPayArap(
     exchangeRate: input.exchangeRate,
     arApDocumentId: document.id,
     postNow,
-  });
+  }));
 
   return {
     resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}₮, ${cashAccount.name}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
@@ -4203,7 +4289,7 @@ async function runDeleteArap(
     assertPostMode(mode);
     assertPostLimit(Number(document.baseTotalAmount ?? document.totalAmount));
   }
-  await deleteArApDocument(document.id);
+  unwrapAction(await deleteArApDocument(document.id));
   return {
     resultText: `Ноорог нэхэмжлэх устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
   };
@@ -4469,7 +4555,7 @@ async function runReverseCash(
   if (document.status !== "posted")
     throw new Error(`Зөвхөн батлагдсан баримтыг буцаана (төлөв: ${document.status})`);
   assertPostLimit(Number(document.baseAmount ?? document.amount));
-  await reverseCashDocument(document.id);
+  unwrapAction(await reverseCashDocument(document.id));
   return {
     resultText: `Кассын баримт буцаагдлаа (сторно журнал үүссэн): ${document.date} · ${document.description}`,
   };
@@ -4528,7 +4614,7 @@ async function runConfirmMovement(
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft")
     throw new Error(`Зөвхөн ноорог хөдөлгөөнийг баталгаажуулна (төлөв: ${movement.status})`);
-  await confirmInventoryMovement(movement.id);
+  unwrapAction(await confirmInventoryMovement(movement.id));
   return {
     resultText: `Хөдөлгөөн баталгаажлаа: ${movement.documentNo}. Өртгийн үнэлгээ сар хаахад хийгдэнэ.`,
   };
@@ -4547,7 +4633,7 @@ async function runDeleteMovement(
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft") assertPostMode(mode);
-  await deleteInventoryMovement(movement.id);
+  unwrapAction(await deleteInventoryMovement(movement.id));
   return { resultText: `Ноорог хөдөлгөөн устгагдлаа: ${movement.documentNo}` };
 }
 
@@ -5982,6 +6068,8 @@ export async function executeAiTool(
         return await runDeleteCash(orgId, args, mode);
       case "post_arap_document":
         return await runPostArap(orgId, args, mode);
+      case "settle_arap_offset":
+        return await runSettleArApOffset(orgId, args, mode);
       case "list_gl_accounts":
         return await runListGlAccounts(orgId, args);
       case "list_cash_accounts":

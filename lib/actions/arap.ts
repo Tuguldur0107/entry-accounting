@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireRole } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
@@ -42,6 +42,7 @@ import { syncFixedAssetDraftForVoucher } from "@/lib/fa/sync-sources";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 /** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
 async function requireAccountant() {
@@ -120,13 +121,17 @@ export type ArapDocPanelData = {
   defaultAccountNumbers: { receivable: string; payable: string };
   /** documentId өгөгдсөн үед л — read-only харагдацын баримт. */
   document: ArApDocumentDetail | null;
-  /** Нэхэмжлэхтэй холбогдсон мөнгөн хөрөнгийн баримтууд (төлөлтүүд). */
+  /** Нэхэмжлэхтэй холбогдсон төлөлтүүд — кассын баримт болон суутган тооцоо. */
   payments: {
     id: string;
     documentNo: string;
     date: string;
     baseAmount: number;
     status: string;
+    /** "cash" — кассын баримт; "offset" — АР↔АП суутган тооцоо. */
+    kind: "cash" | "offset";
+    /** offset үед — буцаахад хэрэглэх GL воучерийн ID. */
+    voucherId: string | null;
   }[];
 };
 
@@ -148,6 +153,7 @@ export async function getArapDocPanelData(
     document,
     costingAccounts,
     paymentRows,
+    offsetRows,
   ] = await Promise.all([
     loadArApSegmentData(orgId),
     loadArApCounterparties(orgId),
@@ -173,7 +179,38 @@ export async function getArapDocPanelData(
           orderBy: (doc, { asc }) => [asc(doc.date)],
         })
       : Promise.resolve([]),
+    // Кассгүй хаалтууд — АР↔АП суутган тооцооны settlement мөрүүд.
+    documentId
+      ? db.query.arApSettlements.findMany({
+          where: and(
+            eq(arApSettlements.organizationId, orgId),
+            eq(arApSettlements.documentId, documentId),
+            isNull(arApSettlements.cashDocumentId)
+          ),
+          orderBy: (row, { asc }) => [asc(row.settlementDate)],
+        })
+      : Promise.resolve([]),
   ]);
+
+  // Суутган тооцооны мөр бүрд нөгөө талын баримтын дугаарыг олж хавсаргана
+  // (нэг voucherId-тай сettlement-ийн нөгөө нь).
+  const offsetVoucherIds = offsetRows
+    .map((row) => row.voucherId)
+    .filter((value): value is string => !!value);
+  const siblingRows =
+    offsetVoucherIds.length > 0
+      ? await db.query.arApSettlements.findMany({
+          where: and(
+            eq(arApSettlements.organizationId, orgId),
+            inArray(arApSettlements.voucherId, offsetVoucherIds),
+            ne(arApSettlements.documentId, documentId!)
+          ),
+          with: { document: { columns: { documentNo: true } } },
+        })
+      : [];
+  const siblingByVoucher = new Map(
+    siblingRows.map((row) => [row.voucherId, row.document?.documentNo ?? ""])
+  );
 
   if (documentId && !document) return { ok: false, code: "not-found" };
 
@@ -189,13 +226,26 @@ export async function getArapDocPanelData(
       clearingAccountNumber: costingAccounts.clearingAccountNumber,
       defaultAccountNumbers: segmentData.defaultAccountNumbers,
       document,
-      payments: paymentRows.map((row) => ({
-        id: row.id,
-        documentNo: row.documentNo,
-        date: row.date,
-        baseAmount: Number(row.baseAmount ?? row.amount),
-        status: row.status,
-      })),
+      payments: [
+        ...paymentRows.map((row) => ({
+          id: row.id,
+          documentNo: row.documentNo,
+          date: row.date,
+          baseAmount: Number(row.baseAmount ?? row.amount),
+          status: row.status,
+          kind: "cash" as const,
+          voucherId: null,
+        })),
+        ...offsetRows.map((row) => ({
+          id: row.id,
+          documentNo: `Суутган тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`,
+          date: row.settlementDate,
+          baseAmount: Number(row.baseAmount ?? row.amount),
+          status: "posted",
+          kind: "offset" as const,
+          voucherId: row.voucherId,
+        })),
+      ].sort((a, b) => a.date.localeCompare(b.date)),
     },
   };
 }
@@ -310,7 +360,13 @@ export async function toggleCounterparty(id: string, isActive: boolean) {
   revalidateArAp();
 }
 
-export async function createArApDocument(data: {
+// ── Баримтын мутацууд ────────────────────────────────────────────────────────
+// *Core функцүүд алдааг ШИДДЭГ (транзакц rollback, дотоод дуудлагад хэрэгтэй);
+// гадаад wrapper-ууд нь { error } УТГААР буцаана — Next.js production дээр
+// шидсэн алдааны мессежийг нуудаг (React #441) тул client компонент зөвхөн
+// wrapper-ыг дуудна. Server-талын дуудагч unwrapAction-аар шидэлтээ сэргээнэ.
+
+async function createArApDocumentCore(data: {
   documentType: ArApDocumentType;
   /** Гараар өгсөн нэхэмжлэхийн дугаар — хоосон бол автоматаар үүснэ. */
   documentNo?: string;
@@ -586,9 +642,19 @@ export async function createArApDocument(data: {
   return { id: createdDocumentId!, documentNo };
 }
 
+export async function createArApDocument(
+  data: Parameters<typeof createArApDocumentCore>[0]
+): Promise<ActionResult<{ id: string; documentNo: string }>> {
+  try {
+    return await createArApDocumentCore(data);
+  } catch (caught) {
+    return actionError("createArApDocument", caught, "Баримт хадгалагдсангүй");
+  }
+}
+
 // Ноорог АР/АП баримтыг батлах: create(postNow)-тэй ижил журналын бичилтийг
 // хадгалагдсан мөрүүдээс үүсгэнэ (base дүнг баримтын ханшаар дахин тооцно).
-export async function postArApDocument(id: string) {
+async function postArApDocumentCore(id: string) {
   const { orgId, userId } = await requireAccountant();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
@@ -735,6 +801,15 @@ export async function postArApDocument(id: string) {
   revalidateArAp();
 }
 
+export async function postArApDocument(id: string): Promise<ActionResult> {
+  try {
+    await postArApDocumentCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("postArApDocument", caught, "Баримт батлагдсангүй");
+  }
+}
+
 /**
  * Батлагдсан АР/АП нэхэмжлэхийг БУЦААХ — GL журналыг нь урвуу мөртэй шинэ
  * журналаар цэвэрлэж (нэт 0), баримт "reversed" төлөвт орно. Нэг баримт
@@ -747,7 +822,7 @@ export async function postArApDocument(id: string) {
  *     (ноорог хөдөлгөөн нь хамт устна)
  *   - период нээлттэй байх (буцаалт эх огноогоор бичигдэнэ)
  */
-export async function reverseArApDocument(id: string) {
+async function reverseArApDocumentCore(id: string) {
   const { orgId, userId } = await requireAccountant();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
@@ -893,6 +968,15 @@ export async function reverseArApDocument(id: string) {
   revalidateArAp();
 }
 
+export async function reverseArApDocument(id: string): Promise<ActionResult> {
+  try {
+    await reverseArApDocumentCore(id);
+    return {};
+  } catch (caught) {
+    return actionError("reverseArApDocument", caught, "Баримт буцаагдсангүй");
+  }
+}
+
 // Ноорог АР/АП баримтыг устгах — journal/cash-ийн delete-тэй ижил зан төлөв:
 // батлагдсан баримт устгагдахгүй (буцаалтыг reverse урсгалаар хийнэ).
 /**
@@ -904,7 +988,7 @@ export async function reverseArApDocument(id: string) {
  *     (ноорог хөдөлгөөн хамт устна)
  *   - период нээлттэй байх
  */
-export async function deleteArApDocument(id: string) {
+async function deleteArApDocumentCore(id: string) {
   const { orgId, userId } = await requireAccountant();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
@@ -1160,4 +1244,337 @@ export async function updateArApDocument(
 
   revalidateArAp();
   return { documentNo: document.documentNo };
+}
+
+export async function deleteArApDocument(
+  id: string
+): Promise<ActionResult<{ documentNo: string }>> {
+  try {
+    return await deleteArApDocumentCore(id);
+  } catch (caught) {
+    return actionError("deleteArApDocument", caught, "Баримт устгагдсангүй");
+  }
+}
+
+// ─── Харилцан суутган тооцоо (АР ↔ АП offset) ───────────────────────────────
+// Нэг харилцагчийн авлага, өглөгийг мөнгө хөдөлгөлгүй хооронд нь хаана
+// (харилцан суутган тооцооны акт). GL: Dr АП-ийн хяналтын данс / Cr АР-ийн
+// хяналтын данс — НӨАТ-д нөлөөгүй (татвар нь нэхэмжлэх дээр бүртгэгдсэн).
+// Нэг offset = НЭГ posted воучер + ХОЁР settlement мөр (voucherId-гаар
+// холбогдоно, cashDocumentId null). Эхний хувилбарт зөвхөн MNT баримтууд —
+// гадаад валютын түүхэн ханшны зөрүү (ханшийн олз/гарз) 2-р үе шатанд.
+
+export async function settleArApOffset(input: {
+  arDocumentId: string;
+  apDocumentId: string;
+  /** Валютаар; өгөхгүй бол хоёр үлдэгдлийн бага нь. */
+  amount?: number;
+  /** Тооцоо нийлсэн актын огноо. */
+  date: string;
+}): Promise<ActionResult<{ voucherId: string }>> {
+  try {
+    const voucherId = await settleArApOffsetCore(input);
+    return { voucherId };
+  } catch (caught) {
+    return actionError("settleArApOffset", caught, "Суутган тооцоо амжилтгүй");
+  }
+}
+
+async function settleArApOffsetCore(input: {
+  arDocumentId: string;
+  apDocumentId: string;
+  amount?: number;
+  date: string;
+}): Promise<string> {
+  const { orgId, userId } = await requireAccountant();
+  assertDate(input.date, "Огноо");
+  if (input.arDocumentId === input.apDocumentId)
+    throw new Error("Нэг баримтыг өөртэй нь хаах боломжгүй");
+
+  const [arDoc, apDoc] = await Promise.all([
+    db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.id, input.arDocumentId),
+        eq(arApDocuments.organizationId, orgId)
+      ),
+    }),
+    db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.id, input.apDocumentId),
+        eq(arApDocuments.organizationId, orgId)
+      ),
+    }),
+  ]);
+  if (!arDoc) throw new Error("Авлагын нэхэмжлэл олдсонгүй");
+  if (!apDoc) throw new Error("Өглөгийн нэхэмжлэх олдсонгүй");
+  if (arDoc.documentType !== "ar_invoice")
+    throw new Error(`${arDoc.documentNo} нь авлагын нэхэмжлэл биш байна`);
+  if (apDoc.documentType !== "ap_bill")
+    throw new Error(`${apDoc.documentNo} нь өглөгийн нэхэмжлэх биш байна`);
+  if (arDoc.counterpartyId !== apDoc.counterpartyId)
+    throw new Error(
+      "Хоёр баримт НЭГ харилцагчийнх байх ёстой — өөр харилцагч хоорондын (гурван талт) тооцоо дэмжигдэхгүй"
+    );
+  for (const doc of [arDoc, apDoc])
+    if (!["posted", "partially_paid"].includes(doc.status))
+      throw new Error(
+        `${doc.documentNo} баримт нээлттэй төлөвт биш байна (${doc.status})`
+      );
+  if (arDoc.currency !== "MNT" || apDoc.currency !== "MNT")
+    throw new Error(
+      "Гадаад валютын баримтын суутган тооцоо одоогоор дэмжигдэхгүй — зөвхөн MNT баримтууд хоорондоо хаагдана"
+    );
+
+  const arBalance =
+    Math.round((Number(arDoc.totalAmount) - Number(arDoc.paidAmount)) * 100) /
+    100;
+  const apBalance =
+    Math.round((Number(apDoc.totalAmount) - Number(apDoc.paidAmount)) * 100) /
+    100;
+  const amount =
+    input.amount != null
+      ? Math.round(Number(input.amount) * 100) / 100
+      : Math.min(arBalance, apBalance);
+  assertAmount(amount, "Суутган тооцооны дүн");
+  if (amount > arBalance + 0.005)
+    throw new Error(
+      `Дүн ${arDoc.documentNo}-ийн үлдэгдлээс (${arBalance.toLocaleString("en-US")}₮) их байна`
+    );
+  if (amount > apBalance + 0.005)
+    throw new Error(
+      `Дүн ${apDoc.documentNo}-ийн үлдэгдлээс (${apBalance.toLocaleString("en-US")}₮) их байна`
+    );
+
+  await assertEnabledMainAccount(orgId, arDoc.controlAccountNumber);
+  await assertEnabledMainAccount(orgId, apDoc.controlAccountNumber);
+  await assertPeriodOpen(orgId, input.date);
+
+  let voucherId = "";
+  const amountText = String(amount);
+  await db.transaction(async (tx) => {
+    // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
+    await assertPeriodOpenInTx(tx, orgId, input.date);
+
+    // Хоёр талын paidAmount-ыг атом нэмэгдүүлнэ — кассын хаалттай ижил
+    // optimistic guard: үлдэгдэл зэрэг өөрчлөгдсөн бол бүхэлдээ буцна.
+    // MNT тул baseAmount = amount.
+    for (const doc of [arDoc, apDoc]) {
+      const [updated] = await tx
+        .update(arApDocuments)
+        .set({
+          paidAmount: sql`${arApDocuments.paidAmount} + ${amountText}`,
+          basePaidAmount: sql`${arApDocuments.basePaidAmount} + ${amountText}`,
+          status: sql`CASE WHEN ${arApDocuments.paidAmount} + ${amountText} >= ${arApDocuments.totalAmount} - 0.005 THEN 'paid' ELSE 'partially_paid' END`,
+        })
+        .where(
+          and(
+            eq(arApDocuments.id, doc.id),
+            eq(arApDocuments.organizationId, orgId),
+            inArray(arApDocuments.status, ["posted", "partially_paid"]),
+            sql`${arApDocuments.totalAmount} - ${arApDocuments.paidAmount} >= ${amountText} - 0.005`
+          )
+        )
+        .returning({ id: arApDocuments.id });
+      if (!updated)
+        throw new Error(
+          `${doc.documentNo} — үлдэгдэл өөрчлөгдсөн байна, хуудсаа шинэчлээд дахин оролдоно уу`
+        );
+    }
+
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        organizationId: orgId,
+        date: input.date,
+        description: `Суутган тооцоо [${arDoc.documentNo} ↔ ${apDoc.documentNo}] ${arDoc.description}`,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+    voucherId = voucher.id;
+
+    await tx.insert(journalLines).values([
+      {
+        voucherId: voucher.id,
+        accountNumber: apDoc.controlAccountNumber,
+        debit: amountText,
+        credit: "0",
+        description: `Суутган тооцоо — ${apDoc.documentNo}`,
+        sortOrder: 0,
+      },
+      {
+        voucherId: voucher.id,
+        accountNumber: arDoc.controlAccountNumber,
+        debit: "0",
+        credit: amountText,
+        description: `Суутган тооцоо — ${arDoc.documentNo}`,
+        sortOrder: 1,
+      },
+    ]);
+
+    await tx.insert(arApSettlements).values([
+      {
+        userId,
+        organizationId: orgId,
+        documentId: arDoc.id,
+        cashDocumentId: null,
+        voucherId: voucher.id,
+        settlementDate: input.date,
+        amount: amountText,
+        baseAmount: amountText,
+      },
+      {
+        userId,
+        organizationId: orgId,
+        documentId: apDoc.id,
+        cashDocumentId: null,
+        voucherId: voucher.id,
+        settlementDate: input.date,
+        amount: amountText,
+        baseAmount: amountText,
+      },
+    ]);
+
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "offset",
+        entityType: "arap",
+        entityId: arDoc.id,
+        summary: `Суутган тооцоо — ${arDoc.documentNo} ↔ ${apDoc.documentNo}, дүн ${amount.toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
+  });
+
+  revalidateArAp();
+  return voucherId;
+}
+
+/**
+ * Суутган тооцоог буцаана — воучер нь урвуу мөртэй шинэ журналаар цэвэрлэгдэж
+ * (нэт 0), хоёр талын paidAmount/статус сэргэж, settlement мөрүүд устна.
+ * Кассын буцаалтын rollback-тай ижил атом SQL хэв маяг.
+ */
+export async function reverseArApOffset(
+  voucherId: string
+): Promise<ActionResult> {
+  try {
+    await reverseArApOffsetCore(voucherId);
+    return {};
+  } catch (caught) {
+    return actionError(
+      "reverseArApOffset",
+      caught,
+      "Суутган тооцоо буцаагдсангүй"
+    );
+  }
+}
+
+async function reverseArApOffsetCore(voucherId: string) {
+  const { orgId, userId } = await requireAccountant();
+
+  const settlements = await db.query.arApSettlements.findMany({
+    where: and(
+      eq(arApSettlements.organizationId, orgId),
+      eq(arApSettlements.voucherId, voucherId)
+    ),
+    with: { document: true },
+  });
+  if (settlements.length === 0)
+    throw new Error("Суутган тооцооны бичилт олдсонгүй");
+
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, voucherId),
+      eq(journalVouchers.organizationId, orgId)
+    ),
+    with: { lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] } },
+  });
+  if (!voucher) throw new Error("Холбоотой GL журнал олдсонгүй");
+  if (voucher.status !== "posted")
+    throw new Error("Зөвхөн батлагдсан суутган тооцоог буцаана");
+  await assertPeriodOpen(orgId, voucher.date);
+
+  await db.transaction(async (tx) => {
+    await assertPeriodOpenInTx(tx, orgId, voucher.date);
+    // Атом claim — давхар буцаалтын нэг нь л амжина.
+    const [claimed] = await tx
+      .update(journalVouchers)
+      .set({ status: "reversed" })
+      .where(
+        and(
+          eq(journalVouchers.id, voucherId),
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalVouchers.status, "posted")
+        )
+      )
+      .returning({ id: journalVouchers.id });
+    if (!claimed) throw new Error("Журналын төлөв өөрчлөгдсөн байна");
+
+    const [reversal] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        organizationId: orgId,
+        date: voucher.date,
+        description: `Буцаалт: ${voucher.description}`,
+        status: "posted",
+        reversalOfVoucherId: voucher.id,
+      })
+      .returning({ id: journalVouchers.id });
+
+    await tx.insert(journalLines).values(
+      voucher.lines.map((line, index) => ({
+        voucherId: reversal.id,
+        accountNumber: line.accountNumber,
+        debit: line.credit,
+        credit: line.debit,
+        description: line.description,
+        sortOrder: index,
+      }))
+    );
+
+    // Хоёр талын paidAmount-ыг атом хасалтаар сэргээнэ (кассын буцаалттай
+    // ижил — SET доторх багана бүр ХУУЧИН утгаа хардаг).
+    for (const settlement of settlements) {
+      const amountText = String(settlement.amount);
+      const baseText = String(settlement.baseAmount ?? settlement.amount);
+      await tx
+        .update(arApDocuments)
+        .set({
+          paidAmount: sql`GREATEST(${arApDocuments.paidAmount} - ${amountText}, 0)`,
+          basePaidAmount: sql`GREATEST(COALESCE(${arApDocuments.basePaidAmount}, ${arApDocuments.paidAmount}) - ${baseText}, 0)`,
+          status: sql`CASE
+            WHEN ${arApDocuments.status} NOT IN ('posted', 'partially_paid', 'paid') THEN ${arApDocuments.status}
+            WHEN ${arApDocuments.paidAmount} - ${amountText} <= 0.005 THEN 'posted'
+            WHEN ${arApDocuments.paidAmount} - ${amountText} >= ${arApDocuments.totalAmount} - 0.005 THEN 'paid'
+            ELSE 'partially_paid' END`,
+        })
+        .where(
+          and(
+            eq(arApDocuments.id, settlement.documentId),
+            eq(arApDocuments.organizationId, orgId)
+          )
+        );
+      await tx
+        .delete(arApSettlements)
+        .where(eq(arApSettlements.id, settlement.id));
+    }
+
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "reverse",
+        entityType: "arap",
+        entityId: settlements[0].documentId,
+        summary: `Суутган тооцоо буцаагдав — ${voucher.description}`,
+      },
+      tx
+    );
+  });
+
+  revalidateArAp();
 }

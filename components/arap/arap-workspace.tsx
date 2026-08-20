@@ -25,6 +25,7 @@ import {
   createCounterparty,
   deleteArApDocument,
   postArApDocument,
+  settleArApOffset,
   toggleCounterparty,
   updateCounterparty,
 } from "@/lib/actions/arap";
@@ -147,6 +148,10 @@ export function ArApWorkspace({
   const [editingCounterpartyId, setEditingCounterpartyId] = useState<
     string | null
   >(null);
+  // АР↔АП суутган тооцооны dialog — аль баримтын мөрөөс нээснийг хадгална.
+  const [offsetSource, setOffsetSource] = useState<ArApDocumentView | null>(
+    null
+  );
   function emptyCounterpartyForm() {
     return {
       name: "",
@@ -372,7 +377,7 @@ export function ArApWorkspace({
       {
         headerName: "Үйлдэл",
         colId: "payment",
-        width: 175,
+        width: 235,
         sortable: false,
         filter: false,
         cellRenderer: ({ data }: { data?: ArApDocumentView }) =>
@@ -386,6 +391,14 @@ export function ArApWorkspace({
                 onClick={() => openCashNewPanel({ arApDocumentId: data.id })}
               >
                 Мөнгөн хөрөнгөөр хаах
+              </button>
+              <button
+                type="button"
+                title="Нэг харилцагчийн авлага, өглөгийг хооронд нь хаана (суутган тооцоо)"
+                className="text-xs font-medium text-[var(--ea-primary)] hover:underline"
+                onClick={() => setOffsetSource(data)}
+              >
+                Тооцоогоор
               </button>
               {data.status === "posted" && (
                 <button
@@ -493,6 +506,29 @@ export function ArApWorkspace({
     setOpen: setCounterpartyOpen,
   });
 
+  /** АР↔АП суутган тооцоо — dialog-оос баталгаажсан утгаар action дуудна. */
+  function submitOffset(
+    source: ArApDocumentView,
+    input: { targetId: string; amount: number; date: string }
+  ) {
+    const sourceIsAr = source.documentType === "ar_invoice";
+    startTransition(async () => {
+      const result = await settleArApOffset({
+        arDocumentId: sourceIsAr ? source.id : input.targetId,
+        apDocumentId: sourceIsAr ? input.targetId : source.id,
+        amount: input.amount,
+        date: input.date,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Суутган тооцоо хийгдэж GL-д бичигдлээ");
+      setOffsetSource(null);
+      router.refresh();
+    });
+  }
+
   async function postDraftDocument(document: ArApDocumentView) {
     const ok = await confirm({
       title: "Баримт батлах",
@@ -502,13 +538,15 @@ export function ArApWorkspace({
     if (!ok) return;
     startTransition(async () => {
       try {
-        await postArApDocument(document.id);
+        const result = await postArApDocument(document.id);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
         router.refresh();
         toast.success("Баримт батлагдаж GL-д бичигдлээ");
-      } catch (caught) {
-        toast.error(
-          caught instanceof Error ? caught.message : "Батлах амжилтгүй"
-        );
+      } catch {
+        toast.error("Батлах амжилтгүй");
       }
     });
   }
@@ -526,13 +564,15 @@ export function ArApWorkspace({
     if (!ok) return;
     startTransition(async () => {
       try {
-        await deleteArApDocument(document.id);
+        const result = await deleteArApDocument(document.id);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
         router.refresh();
         toast.success("Ноорог баримт устгагдлаа");
-      } catch (caught) {
-        toast.error(
-          caught instanceof Error ? caught.message : "Устгах амжилтгүй"
-        );
+      } catch {
+        toast.error("Устгах амжилтгүй");
       }
     });
   }
@@ -702,6 +742,19 @@ export function ArApWorkspace({
             />
           )}
         </section>
+      )}
+
+      {offsetSource && (
+        <OffsetDialog
+          key={offsetSource.id}
+          source={offsetSource}
+          documents={documents}
+          isPending={isPending}
+          onOpenChange={(open) => {
+            if (!open) setOffsetSource(null);
+          }}
+          onSubmit={(input) => submitOffset(offsetSource, input)}
+        />
       )}
 
       <CounterpartyDialog
@@ -918,6 +971,141 @@ function ReportSection({
         />
       )}
     </section>
+  );
+}
+
+/**
+ * АР↔АП суутган тооцооны dialog. Эх баримтын эсрэг төрлийн, нэг харилцагчийн,
+ * нээлттэй MNT баримтуудаас сонгож хооронд нь хаана. GL: Дт өглөгийн данс /
+ * Кт авлагын данс — НӨАТ-д нөлөөгүй.
+ */
+function OffsetDialog({
+  source,
+  documents,
+  isPending,
+  onOpenChange,
+  onSubmit,
+}: {
+  source: ArApDocumentView;
+  documents: ArApDocumentView[];
+  isPending: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (input: { targetId: string; amount: number; date: string }) => void;
+}) {
+  const sourceIsAr = source.documentType === "ar_invoice";
+  const candidates = documents.filter(
+    (doc) =>
+      doc.documentType === (sourceIsAr ? "ap_bill" : "ar_invoice") &&
+      doc.counterpartyId === source.counterpartyId &&
+      (doc.status === "posted" || doc.status === "partially_paid") &&
+      doc.currency === "MNT" &&
+      doc.balance > 0.005
+  );
+  const [targetId, setTargetId] = useState(candidates[0]?.id ?? "");
+  const target = candidates.find((doc) => doc.id === targetId);
+  const [amountText, setAmountText] = useState(() =>
+    candidates[0] ? String(Math.min(source.balance, candidates[0].balance)) : ""
+  );
+  const [date, setDate] = useState(today());
+  const amount = Number(amountText);
+  const amountValid =
+    Number.isFinite(amount) &&
+    amount > 0 &&
+    !!target &&
+    amount <= source.balance + 0.005 &&
+    amount <= target.balance + 0.005;
+
+  const sourceNotOffsettable = source.currency !== "MNT";
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Тооцоогоор хаах — суутган тооцоо</DialogTitle>
+        </DialogHeader>
+        {sourceNotOffsettable ? (
+          <p className="text-sm text-[var(--ea-text-3)]">
+            Гадаад валютын баримтын суутган тооцоо одоогоор дэмжигдэхгүй —
+            зөвхөн MNT баримтууд хоорондоо хаагдана.
+          </p>
+        ) : candidates.length === 0 ? (
+          <p className="text-sm text-[var(--ea-text-3)]">
+            {source.counterpartyName} харилцагчид хаах боломжтой нээлттэй{" "}
+            {sourceIsAr ? "өглөгийн нэхэмжлэх" : "авлагын нэхэмжлэл"} алга.
+            Хоёр тал хоёулаа батлагдсан, үлдэгдэлтэй, MNT байх шаардлагатай.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <Field label={sourceIsAr ? "Авлагын нэхэмжлэл" : "Өглөгийн нэхэмжлэх"}>
+              <div className="rounded-md border border-[var(--ea-border)] px-3 py-2 text-sm">
+                <span className="font-mono text-xs">{source.documentNo}</span>
+                <span className="ml-2 text-xs text-[var(--ea-text-3)]">
+                  үлдэгдэл {fmtMnt(source.balance)}
+                </span>
+              </div>
+            </Field>
+            <Field
+              label={sourceIsAr ? "Хаах өглөгийн нэхэмжлэх" : "Хаах авлагын нэхэмжлэл"}
+            >
+              <select
+                className="ea-form-select"
+                value={targetId}
+                onChange={(event) => {
+                  const next = candidates.find(
+                    (doc) => doc.id === event.target.value
+                  );
+                  setTargetId(event.target.value);
+                  if (next)
+                    setAmountText(
+                      String(Math.min(source.balance, next.balance))
+                    );
+                }}
+              >
+                {candidates.map((doc) => (
+                  <option key={doc.id} value={doc.id}>
+                    {doc.documentNo} · үлдэгдэл {fmtMnt(doc.balance)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Дүн (₮)">
+                <Input
+                  inputMode="decimal"
+                  value={amountText}
+                  onChange={(event) => setAmountText(event.target.value)}
+                />
+              </Field>
+              <Field label="Тооцооны актын огноо">
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                />
+              </Field>
+            </div>
+            <p className="text-xs text-[var(--ea-text-3)]">
+              GL: Дт өглөгийн хяналтын данс / Кт авлагын хяналтын данс —
+              НӨАТ-д нөлөөгүй. Хоёр талын үлдэгдэл энэ дүнгээр хаагдана.
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Болих
+          </Button>
+          <Button
+            disabled={isPending || !amountValid || sourceNotOffsettable}
+            onClick={() =>
+              target &&
+              onSubmit({ targetId: target.id, amount, date })
+            }
+          >
+            Хаах
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

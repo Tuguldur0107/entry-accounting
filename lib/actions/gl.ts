@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import {
   arApDocuments,
+  arApSettlements,
   cashDocuments,
   cashFxRevaluations,
   chartOfAccounts,
@@ -559,7 +560,7 @@ async function assertNotSubledgerOwned(
       "Өртгийн модулиас үүссэн журнал — өртгийн бичилтийг нь буцааж/устгаж удирдана"
     );
 
-  const [cashRef, arapRef, faRef, costRef, fxRef] = await Promise.all([
+  const [cashRef, arapRef, faRef, costRef, fxRef, offsetRef] = await Promise.all([
     db.query.cashDocuments.findFirst({
       where: and(
         eq(cashDocuments.organizationId, orgId),
@@ -615,6 +616,15 @@ async function assertNotSubledgerOwned(
       ),
       columns: { id: true },
     }),
+    // АР↔АП суутган тооцооны воучер — хоёр талын paidAmount-тай уялдсан
+    // тул зөвхөн АР/АП модулийн "Суутган тооцоо буцаах"-аар удирдана.
+    db.query.arApSettlements.findFirst({
+      where: and(
+        eq(arApSettlements.organizationId, orgId),
+        eq(arApSettlements.voucherId, id)
+      ),
+      columns: { id: true },
+    }),
   ]);
   if (cashRef)
     throw new Error(
@@ -635,6 +645,10 @@ async function assertNotSubledgerOwned(
   if (fxRef)
     throw new Error(
       "Ханшийн тэгшитгэлийн журнал — Тулгалт, ханш хэсгээс буцаана"
+    );
+  if (offsetRef)
+    throw new Error(
+      "АР↔АП суутган тооцооны журнал — нэхэмжлэхийн панелийн Төлөлтүүд хэсгээс буцаана"
     );
 }
 
