@@ -12,8 +12,10 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import {
   HomeDashboard,
+  type HomeAging,
   type HomeAlert,
   type HomeClassSummary,
+  type HomeKpi,
   type HomeModuleTile,
   type HomeRecentRow,
   type HomeQueueItem,
@@ -70,7 +72,11 @@ export default async function HomePage() {
     }),
     db.query.cashAccounts.findMany({ where: eq(cashAccounts.organizationId, orgId) }),
     db.query.cashDocuments.findMany({ where: eq(cashDocuments.organizationId, orgId) }),
-    db.query.arApDocuments.findMany({ where: eq(arApDocuments.organizationId, orgId) }),
+    db.query.arApDocuments.findMany({
+      where: eq(arApDocuments.organizationId, orgId),
+      // П15: aging-ийн топ харилцагчийн төвлөрөлд нэр хэрэгтэй.
+      with: { counterparty: { columns: { name: true } } },
+    }),
     db.query.fixedAssets.findMany({ where: eq(fixedAssets.organizationId, orgId) }),
     db.query.inventoryMovements.findMany({
       where: eq(inventoryMovements.organizationId, orgId),
@@ -173,29 +179,146 @@ export default async function HomePage() {
     (a) => a.currency !== "MNT" && a.isActive
   ).length;
 
-  /* ── AR / AP: төлөгдөөгүй үлдэгдэл ба хугацаа хэтэрсэн ──────────────────── */
+  /* ── П15: мөнгөн байрлалын 30 хоногийн явц (MNT идэвхтэй данс) ──────────── */
+  // calculateCashBalances-тай ИЖИЛ дүрэм: зөвхөн posted, amount талбараар,
+  // transfer нь гарах данснаас хасагдаж орох дансанд нэмэгдэнэ.
+  const mntIds = new Set(mntAccounts.map((a) => a.id));
+  const netByDate = new Map<string, number>();
+  for (const doc of cashDocumentRows) {
+    if (doc.status !== "posted") continue;
+    const amount = Number(doc.amount);
+    let net = 0;
+    if (
+      (doc.documentType === "receipt" || doc.documentType === "transfer") &&
+      doc.toCashAccountId &&
+      mntIds.has(doc.toCashAccountId)
+    )
+      net += amount;
+    if (
+      (doc.documentType === "payment" || doc.documentType === "transfer") &&
+      doc.fromCashAccountId &&
+      mntIds.has(doc.fromCashAccountId)
+    )
+      net -= amount;
+    if (net !== 0) netByDate.set(doc.date, (netByDate.get(doc.date) ?? 0) + net);
+  }
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const todayMs = new Date(`${today}T00:00:00Z`).getTime();
+  const cashSeries: { date: string; value: number }[] = [];
+  {
+    // Өнөөдрөөс ухарч: өмнөх өдрийн үлдэгдэл = тухайн өдрийнх − өдрийн урсгал.
+    let running = cashTotal;
+    for (let index = 0; index < 30; index += 1) {
+      const date = new Date(todayMs - index * DAY_MS).toISOString().slice(0, 10);
+      cashSeries.unshift({ date, value: round2(running) });
+      running -= netByDate.get(date) ?? 0;
+    }
+  }
+
+  /* ── AR / AP: төлөгдөөгүй үлдэгдэл, хугацаа хэтэрсэн, aging (П15) ────────── */
+  // Хэсэгчлэн төлөгдсөн (partially_paid) нэхэмжлэх мөн нээлттэй үлдэгдэлтэй
+  // тул posted-той хамт тоологдоно.
+  const OPEN_STATUSES = new Set(["posted", "partially_paid"]);
   let arOutstanding = 0;
   let apOutstanding = 0;
   let arOverdue = 0;
   let apOverdue = 0;
   let arApDraftCount = 0;
+  const emptyAging = (): HomeAging => ({
+    total: 0,
+    current: 0,
+    d1_30: 0,
+    d31_60: 0,
+    d61plus: 0,
+    topName: null,
+    topShare: 0,
+  });
+  const arAging = emptyAging();
+  const apAging = emptyAging();
+  const arByCounterparty = new Map<string, number>();
+  const apByCounterparty = new Map<string, number>();
 
   for (const doc of arApRows) {
     if (doc.status === "draft") {
       arApDraftCount += 1;
       continue;
     }
-    if (doc.status !== "posted") continue;
+    if (!OPEN_STATUSES.has(doc.status)) continue;
     const open = Number(doc.totalAmount) - Number(doc.paidAmount);
     if (open <= 0.01) continue;
-    if (doc.documentType.startsWith("ar_")) {
+    const overdueDays = Math.floor(
+      (todayMs - new Date(`${doc.dueDate}T00:00:00Z`).getTime()) / DAY_MS
+    );
+    const isAr = doc.documentType.startsWith("ar_");
+    const aging = isAr ? arAging : apAging;
+    const byCounterparty = isAr ? arByCounterparty : apByCounterparty;
+    aging.total += open;
+    if (overdueDays <= 0) aging.current += open;
+    else if (overdueDays <= 30) aging.d1_30 += open;
+    else if (overdueDays <= 60) aging.d31_60 += open;
+    else aging.d61plus += open;
+    const name = doc.counterparty?.name ?? "?";
+    byCounterparty.set(name, (byCounterparty.get(name) ?? 0) + open);
+    if (isAr) {
       arOutstanding += open;
-      if (doc.dueDate < today) arOverdue += 1;
+      if (overdueDays > 0) arOverdue += 1;
     } else {
       apOutstanding += open;
-      if (doc.dueDate < today) apOverdue += 1;
+      if (overdueDays > 0) apOverdue += 1;
     }
   }
+  for (const [aging, byCounterparty] of [
+    [arAging, arByCounterparty],
+    [apAging, apByCounterparty],
+  ] as const) {
+    aging.total = round2(aging.total);
+    aging.current = round2(aging.current);
+    aging.d1_30 = round2(aging.d1_30);
+    aging.d31_60 = round2(aging.d31_60);
+    aging.d61plus = round2(aging.d61plus);
+    const top = [...byCounterparty.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top && aging.total > 0) {
+      aging.topName = top[0];
+      aging.topShare = Math.round((top[1] / aging.total) * 100);
+    }
+  }
+
+  /* ── П15: орлого/зардлын сүүлийн 6 сарын тренд ──────────────────────────── */
+  const trendMonths: string[] = [];
+  {
+    const [year, month] = today.split("-").map(Number);
+    for (let index = 5; index >= 0; index -= 1)
+      trendMonths.push(
+        new Date(Date.UTC(year, month - 1 - index, 1)).toISOString().slice(0, 7)
+      );
+  }
+  const trendByMonth = new Map(
+    trendMonths.map((code) => [code, { revenue: 0, expense: 0 }])
+  );
+  for (const voucher of vouchers) {
+    if (voucher.status === "draft") continue;
+    const slot = trendByMonth.get(voucher.date.slice(0, 7));
+    if (!slot) continue;
+    for (const line of voucher.lines) {
+      const cls = getAccountClass(extractMainAccount(line.accountNumber));
+      if (cls === "revenue")
+        slot.revenue += Number(line.credit) - Number(line.debit);
+      else if (cls === "expense")
+        slot.expense += Number(line.debit) - Number(line.credit);
+    }
+  }
+  const trend = trendMonths.map((code) => ({
+    month: code,
+    revenue: round2(trendByMonth.get(code)!.revenue),
+    expense: round2(trendByMonth.get(code)!.expense),
+  }));
+
+  const kpi: HomeKpi = {
+    cash: { total: cashTotal, series: cashSeries },
+    arAging,
+    apAging,
+    trend,
+  };
 
   /* ── Үндсэн хөрөнгө, Бараа материал ──────────────────────────────────────── */
   const activeAssets = assetRows.filter((a) => a.status === "active");
@@ -465,6 +588,7 @@ export default async function HomePage() {
       recent={recent}
       queue={queue}
       taxDeadlines={taxDeadlines}
+      kpi={kpi}
     />
   );
 }

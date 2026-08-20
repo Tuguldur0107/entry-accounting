@@ -35,6 +35,28 @@ export type HomeClassSummary = {
   monthNetIncome: number;
 };
 
+/** П15 — АР/АП aging: нээлттэй үлдэгдэл хугацааны сагсаар + төвлөрөл. */
+export type HomeAging = {
+  total: number;
+  /** Хугацаа болоогүй. */
+  current: number;
+  d1_30: number;
+  d31_60: number;
+  d61plus: number;
+  /** Хамгийн их үлдэгдэлтэй харилцагч ба түүний эзлэх хувь. */
+  topName: string | null;
+  topShare: number;
+};
+
+/** П15 — нүүрний KPI картуудын дата. */
+export type HomeKpi = {
+  cash: { total: number; series: { date: string; value: number }[] };
+  arAging: HomeAging;
+  apAging: HomeAging;
+  /** Сүүлийн 6 сар — бичигдсэн журналын орлого/зардал. */
+  trend: { month: string; revenue: number; expense: number }[];
+};
+
 export type HomeModuleTile = {
   key: string;
   label: string;
@@ -93,6 +115,7 @@ export function HomeDashboard({
   recent,
   queue,
   taxDeadlines,
+  kpi,
 }: {
   periodCode: string;
   periodStatus: "open" | "closed" | "missing";
@@ -105,6 +128,7 @@ export function HomeDashboard({
   recent: HomeRecentRow[];
   queue: HomeQueueItem[];
   taxDeadlines: HomeTaxDeadline[];
+  kpi: HomeKpi;
 }) {
   const drCrBalanced = Math.abs(totalDebit - totalCredit) <= 0.01;
   const bsGap =
@@ -306,6 +330,53 @@ export function HomeDashboard({
         </p>
       </section>
 
+      {/* П15 — Гол үзүүлэлт: мөнгөн байрлал, АР/АП aging, орлого-зардлын тренд */}
+      <section>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+          <Icon name="trendUp" size="sm" className="text-[var(--ea-text-3)]" />
+          Гол үзүүлэлт
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            href="/cash"
+            label="Мөнгөн байрлал (MNT)"
+            value={fmtMnt(kpi.cash.total)}
+            valueTone={kpi.cash.total < 0 ? "danger" : "default"}
+          >
+            <Sparkline series={kpi.cash.series} />
+            <p className="text-[11px] text-[var(--ea-text-4)]">
+              Сүүлийн 30 хоногийн үлдэгдэл
+            </p>
+          </KpiCard>
+          <KpiCard
+            href="/receivables/reports"
+            label="Авлагын насжилт"
+            value={fmtMnt(kpi.arAging.total)}
+          >
+            <AgingBar aging={kpi.arAging} />
+          </KpiCard>
+          <KpiCard
+            href="/payables/reports"
+            label="Өглөгийн насжилт"
+            value={fmtMnt(kpi.apAging.total)}
+          >
+            <AgingBar aging={kpi.apAging} />
+          </KpiCard>
+          <KpiCard
+            href="/gl/reports"
+            label="Орлого · Зардал (6 сар)"
+            value={
+              kpi.trend.length > 0
+                ? fmtMnt(kpi.trend[kpi.trend.length - 1].revenue)
+                : "—"
+            }
+            valueLabel="сүүлийн сарын орлого"
+          >
+            <TrendBars trend={kpi.trend} />
+          </KpiCard>
+        </div>
+      </section>
+
       {/* Модулиуд */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--ea-text-1)]">
@@ -496,5 +567,236 @@ function SummaryCell({
         {fmtMnt(value)}
       </div>
     </div>
+  );
+}
+
+/* ── П15 — KPI картын туслахууд (server-safe, зөвхөн SVG/div + --ea-* токен) ── */
+
+function KpiCard({
+  href,
+  label,
+  value,
+  valueLabel,
+  valueTone,
+  children,
+}: {
+  href: string;
+  label: string;
+  value: string;
+  valueLabel?: string;
+  valueTone?: "default" | "danger";
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="ea-card-interactive flex flex-col gap-2 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4"
+      style={{ textDecoration: "none" }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-[var(--ea-text-2)]">
+          {label}
+        </span>
+        <Icon name="arrowRight" size="sm" className="text-[var(--ea-text-4)]" />
+      </div>
+      <div
+        className={cn(
+          "font-mono text-xl font-semibold",
+          valueTone === "danger"
+            ? "text-[var(--ea-danger-fg)]"
+            : "text-[var(--ea-text-1)]"
+        )}
+      >
+        {value}
+      </div>
+      {valueLabel && (
+        <div className="-mt-1 text-[11px] text-[var(--ea-text-4)]">
+          {valueLabel}
+        </div>
+      )}
+      <div className="mt-auto flex flex-col gap-1.5">{children}</div>
+    </Link>
+  );
+}
+
+/** Нэг цуврал шугаман sparkline — легенд хэрэггүй, гарчиг нь нэрлэнэ. */
+function Sparkline({ series }: { series: { date: string; value: number }[] }) {
+  if (series.length < 2) return null;
+  const width = 220;
+  const height = 48;
+  const pad = 4;
+  const values = series.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const x = (index: number) =>
+    pad + (index * (width - pad * 2)) / (series.length - 1);
+  const y = (value: number) =>
+    height - pad - ((value - min) * (height - pad * 2)) / span;
+  const points = series
+    .map((point, index) => `${x(index).toFixed(1)},${y(point.value).toFixed(1)}`)
+    .join(" ");
+  const last = series[series.length - 1];
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-12 w-full"
+      role="img"
+      aria-label={`Мөнгөн үлдэгдэл ${series[0].date} — ${last.date}`}
+    >
+      <title>{`${series[0].date} → ${last.date}: ${fmtMnt(min)} … ${fmtMnt(max)}`}</title>
+      <polyline
+        points={points}
+        fill="none"
+        stroke="var(--ea-interactive)"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle
+        cx={x(series.length - 1)}
+        cy={y(last.value)}
+        r="3"
+        fill="var(--ea-interactive)"
+      />
+    </svg>
+  );
+}
+
+// Aging сагснууд: хугацаандаа = саарал (төлөв биш), хэтэрсэн нь warning
+// нэг өнгөний гүнзгийрэх шат, 60+ = danger (ноцтой төлөв). Өнгө дангаараа
+// утга илэрхийлэхгүй — legend мөр бүр нэр + дүнтэй.
+const AGING_SEGMENTS: {
+  key: "current" | "d1_30" | "d31_60" | "d61plus";
+  label: string;
+  color: string;
+}[] = [
+  { key: "current", label: "Хугацаандаа", color: "var(--ea-border-strong)" },
+  {
+    key: "d1_30",
+    label: "1–30 хоног",
+    color: "color-mix(in srgb, var(--ea-warning) 45%, var(--ea-surface))",
+  },
+  {
+    key: "d31_60",
+    label: "31–60 хоног",
+    color: "color-mix(in srgb, var(--ea-warning) 80%, var(--ea-surface))",
+  },
+  { key: "d61plus", label: "60+ хоног", color: "var(--ea-danger)" },
+];
+
+function AgingBar({ aging }: { aging: HomeAging }) {
+  if (aging.total <= 0)
+    return (
+      <p className="text-[11px] text-[var(--ea-text-4)]">
+        Нээлттэй үлдэгдэл алга.
+      </p>
+    );
+  return (
+    <>
+      <div className="flex h-2 w-full gap-[2px] overflow-hidden rounded-full">
+        {AGING_SEGMENTS.filter((segment) => aging[segment.key] > 0).map(
+          (segment) => (
+            <div
+              key={segment.key}
+              title={`${segment.label}: ${fmtMnt(aging[segment.key])}`}
+              style={{
+                background: segment.color,
+                width: `${Math.max((aging[segment.key] / aging.total) * 100, 3)}%`,
+              }}
+            />
+          )
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+        {AGING_SEGMENTS.map((segment) => (
+          <div
+            key={segment.key}
+            className="flex items-center gap-1.5 text-[11px] text-[var(--ea-text-3)]"
+          >
+            <span
+              className="size-2 shrink-0 rounded-sm"
+              style={{ background: segment.color }}
+            />
+            <span className="truncate">{segment.label}</span>
+            <span className="ml-auto font-mono text-[var(--ea-text-2)]">
+              {fmtMnt(aging[segment.key])}
+            </span>
+          </div>
+        ))}
+      </div>
+      {aging.topName && (
+        <p className="text-[11px] text-[var(--ea-text-4)]">
+          Топ: {aging.topName} · {aging.topShare}%
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Сүүлийн 6 сарын орлого/зардлын хос багана — 2 цуврал тул legend-тэй. */
+function TrendBars({
+  trend,
+}: {
+  trend: { month: string; revenue: number; expense: number }[];
+}) {
+  const max = Math.max(
+    1,
+    ...trend.flatMap((point) => [point.revenue, point.expense])
+  );
+  return (
+    <>
+      <div className="flex h-16 items-end gap-1.5">
+        {trend.map((point) => (
+          <div
+            key={point.month}
+            className="flex min-w-0 flex-1 items-end justify-center gap-[2px]"
+          >
+            <div
+              title={`${fmtPeriodCode(point.month)} орлого: ${fmtMnt(point.revenue)}`}
+              className="w-2/5 rounded-t-[3px]"
+              style={{
+                background: "var(--ea-success)",
+                height: `${Math.max((point.revenue / max) * 100, point.revenue > 0 ? 4 : 1)}%`,
+              }}
+            />
+            <div
+              title={`${fmtPeriodCode(point.month)} зардал: ${fmtMnt(point.expense)}`}
+              className="w-2/5 rounded-t-[3px]"
+              style={{
+                background: "var(--ea-danger)",
+                height: `${Math.max((point.expense / max) * 100, point.expense > 0 ? 4 : 1)}%`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        {trend.map((point) => (
+          <div
+            key={point.month}
+            className="flex-1 truncate text-center text-[10px] text-[var(--ea-text-4)]"
+          >
+            {fmtPeriodCode(point.month).slice(0, 3)}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-3 text-[11px] text-[var(--ea-text-3)]">
+        <span className="flex items-center gap-1.5">
+          <span
+            className="size-2 rounded-sm"
+            style={{ background: "var(--ea-success)" }}
+          />
+          Орлого
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            className="size-2 rounded-sm"
+            style={{ background: "var(--ea-danger)" }}
+          />
+          Зардал
+        </span>
+      </div>
+    </>
   );
 }
