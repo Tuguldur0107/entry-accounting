@@ -10,6 +10,8 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
+import { createHash, randomUUID } from "node:crypto";
+
 import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 
 import {
@@ -77,6 +79,7 @@ import {
   updateCompanySettings,
 } from "@/lib/actions/company";
 import { fetchMongolbankRates } from "@/lib/cash/exchange-rates";
+import { saveBankStatement } from "@/lib/cash/import-statement";
 import { latestClosingByItem } from "@/lib/costing/valuation";
 import { loadVatSettings } from "@/lib/vat/settings";
 import { applyInclusiveVatToLines } from "@/lib/vat/return";
@@ -1562,6 +1565,48 @@ export const AI_TOOLS: AiToolDef[] = [
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
         limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
       },
+    },
+  },
+  {
+    name: "import_bank_statement",
+    description:
+      "Банкны хуулгын мөрүүдийг импортлон мөр бүрд кассын баримт + GL журнал ШУУД бичнэ (вэбийн хуулга импорттой нэг зам). settleInvoice өгсөн мөр нэхэмжлэхтэй холбогдож төлсөн дүнг шинэчилнэ. Ижил мөрүүдийг дахин импортлохоос hash-аар хамгаална. Зөвхөн 'Шууд бичих' горимд; max 500 мөр.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cashAccount: { type: "string", description: "Банкны/кассын дансны нэр" },
+        bankName: { type: "string", description: "Банкны нэр (сонголтоор)" },
+        statementRef: {
+          type: "string",
+          description: "Хуулгын нэр/дугаар (давхардлын шалгалтад орно, сонголтоор)",
+        },
+        rows: {
+          type: "array",
+          description: "Хуулгын мөрүүд (max 500)",
+          items: {
+            type: "object",
+            properties: {
+              date: { type: "string", description: "Гүйлгээний огноо YYYY-MM-DD" },
+              description: { type: "string", description: "Гүйлгээний утга" },
+              counterparty: { type: "string", description: "Харилцагчийн нэр (текст)" },
+              counterAccount: { type: "string", description: "Харьцсан банкны данс (текст)" },
+              income: { type: "number", description: "Орлого ₮ (expense-тэй зэрэг биш)" },
+              expense: { type: "number", description: "Зарлага ₮" },
+              counterGlAccount: {
+                type: "string",
+                description: "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал",
+              },
+              exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
+              settleInvoice: {
+                type: "string",
+                description: "Хаагдах нэхэмжлэх (ID/дугаар/externalRef) — counterGlAccount нь хяналтын данс байх ёстой",
+              },
+            },
+            required: ["date", "counterGlAccount"],
+          },
+        },
+      },
+      required: ["cashAccount", "rows"],
     },
   },
   {
@@ -5411,6 +5456,110 @@ async function runInventoryValuation(orgId: string): Promise<AiToolResult> {
   };
 }
 
+async function runImportBankStatement(
+  orgId: string,
+  input: {
+    cashAccount: string;
+    bankName?: string;
+    statementRef?: string;
+    rows: {
+      date: string;
+      description?: string;
+      counterparty?: string;
+      counterAccount?: string;
+      income?: number;
+      expense?: number;
+      counterGlAccount: string;
+      exchangeRate?: number;
+      settleInvoice?: string;
+    }[];
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  if (!Array.isArray(input.rows) || input.rows.length === 0)
+    throw new Error("rows хоосон байна");
+  if (input.rows.length > 500)
+    throw new Error("MCP-ээр нэг удаад 500 хүртэл мөр импортолно");
+
+  const accounts = await db.query.cashAccounts.findMany({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
+  });
+  const account = requireSingle(
+    nameMatches(accounts, (entry) => entry.name, input.cashAccount),
+    (entry) => entry.name,
+    "мөнгөн данс",
+    input.cashAccount,
+    { allNames: accounts.map((entry) => entry.name) }
+  );
+
+  const ctx = await accountContext(orgId);
+  const bankCode = resolveAccount(account.glAccountNumber, ctx).code;
+
+  // settleInvoice лавлагаануудыг урьдчилан ID болгоно.
+  const settleIdByRef = new Map<string, string>();
+  for (const row of input.rows) {
+    const ref = row.settleInvoice?.trim();
+    if (ref && !settleIdByRef.has(ref))
+      settleIdByRef.set(ref, (await findArapDocument(orgId, ref)).id);
+  }
+
+  const dates = input.rows.map((row) => String(row.date)).sort();
+  const parsedRows = input.rows.map((row, index) => {
+    const income = Math.round(Number(row.income ?? 0) * 100) / 100;
+    const expense = Math.round(Number(row.expense ?? 0) * 100) / 100;
+    const counterCode = resolveAccount(row.counterGlAccount, ctx).code;
+    return {
+      id: randomUUID(),
+      rowNumber: index + 1,
+      transactionDate: String(row.date),
+      valueDate: "",
+      description: row.description?.trim() || "Банкны гүйлгээ",
+      counterparty: row.counterparty?.trim() || "",
+      counterAccount: row.counterAccount?.trim() || "",
+      income,
+      expense,
+      balance: null,
+      exchangeRate: row.exchangeRate != null ? Number(row.exchangeRate) : null,
+      baseAmount: null,
+      debitAccountNumber: income > 0 ? bankCode : counterCode,
+      creditAccountNumber: income > 0 ? counterCode : bankCode,
+      settleInvoiceId: row.settleInvoice?.trim()
+        ? settleIdByRef.get(row.settleInvoice.trim())
+        : null,
+      rawData: {} as Record<string, string>,
+    };
+  });
+
+  // Идемпотент hash — ижил данс + ижил мөрүүд хоёр дахь удаад импортлогдохгүй.
+  const fileHash = createHash("sha256")
+    .update(JSON.stringify({ cashAccountId: account.id, rows: input.rows }))
+    .digest("hex");
+
+  const result = await saveBankStatement({
+    cashAccountId: account.id,
+    fileName:
+      input.statementRef?.trim() ||
+      `MCP импорт · ${account.name} · ${dates[0]} — ${dates[dates.length - 1]}`,
+    fileHash,
+    bankName: input.bankName?.trim() || account.bankName || "",
+    periodStart: dates[0],
+    periodEnd: dates[dates.length - 1],
+    rows: parsedRows,
+  });
+
+  const settled = parsedRows.filter((row) => row.settleInvoiceId).length;
+  const totalIncome = parsedRows.reduce((sum, row) => sum + row.income, 0);
+  const totalExpense = parsedRows.reduce((sum, row) => sum + row.expense, 0);
+  return {
+    resultText: [
+      `Банкны хуулга импортлогдлоо: ${account.name}, ${result.rowCount} мөр (орлого ${fmt(totalIncome)}₮ / зарлага ${fmt(totalExpense)}₮)`,
+      `Мөр бүрд кассын баримт + GL журнал бичигдсэн${settled > 0 ? `; ${settled} мөр нэхэмжлэхтэй холбогдож төлсөн дүн шинэчлэгдсэн` : ""}.`,
+      `Statement ID: ${result.id.slice(0, 8)} — вэб: Мөнгөн хөрөнгө → Хуулгууд.`,
+    ].join("\n"),
+  };
+}
+
 // ── Нэгдсэн диспетчер ───────────────────────────────────────────────────────
 
 /**
@@ -5551,6 +5700,8 @@ export async function executeAiTool(
         return await runUpdateCompanySettings(args);
       case "list_audit_events":
         return await runListAuditEvents(orgId, args);
+      case "import_bank_statement":
+        return await runImportBankStatement(orgId, args, mode);
       case "get_inventory_valuation":
         return await runInventoryValuation(orgId);
       case "run_fa_depreciation":
