@@ -124,6 +124,14 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   get/update_company_settings (нэхэмжлэхийн толгой, банкны данс),
   create_journal_vouchers_batch, list_audit_events (аудитын мөр)
 
+- **Ноорог засах:** update_arap_document (мөрүүд бүхлээрээ солигдоно),
+  update_cash_document — устгаад дахин үүсгэх шаардлагагүй
+- **Банкны хуулга:** import_bank_statement — мөр бүрд кассын баримт + GL
+  журнал шууд бичигдэнэ, settleInvoice-оор нэхэмжлэх хаана (max 500 мөр,
+  hash-аар давхардлаас хамгаална)
+- **Өртгийн мастер дата:** get_costing_settings, save_issue_type,
+  save_cost_component, update_costing_accounts
+
 - **Тулгалт + урсгал:** reconcile_modules (модуль хоорондын зөрүү илрүүлэх),
   get_workflow_guide (даалгаврын зөв дараалал)
 

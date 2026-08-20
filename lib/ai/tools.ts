@@ -19,6 +19,7 @@ import {
   createCounterparty,
   deleteArApDocument,
   postArApDocument,
+  updateArApDocument,
 } from "@/lib/actions/arap";
 import {
   createInvoiceLink,
@@ -33,6 +34,7 @@ import {
   postCashFxRevaluation,
   reverseCashDocument,
   reverseCashFxRevaluation,
+  updateCashDocument,
 } from "@/lib/actions/cash";
 import {
   activateFixedAsset,
@@ -80,6 +82,11 @@ import {
 } from "@/lib/actions/company";
 import { fetchMongolbankRates } from "@/lib/cash/exchange-rates";
 import { saveBankStatement } from "@/lib/cash/import-statement";
+import {
+  saveCostComponent,
+  saveCostingAccountSettings,
+  saveIssueType,
+} from "@/lib/actions/costing-master";
 import { latestClosingByItem } from "@/lib/costing/valuation";
 import { loadVatSettings } from "@/lib/vat/settings";
 import { applyInclusiveVatToLines } from "@/lib/vat/return";
@@ -97,6 +104,7 @@ import {
   cashFxRevaluations,
   cashDocuments,
   chartOfAccounts,
+  costComponents,
   costEntries,
   counterparties,
   employees,
@@ -1564,6 +1572,117 @@ export const AI_TOOLS: AiToolDef[] = [
         from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
         limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
+      },
+    },
+  },
+  {
+    name: "update_arap_document",
+    description:
+      "НООРОГ АР/АП нэхэмжлэхийг засна (огноо, төлөх огноо, утга, хяналтын данс, мөрүүд). Мөрүүд өгвөл бүхлээрээ солигдоно — create-тэй ижил шалгалттай. Батлагдсаныг засахгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Баримтын ID, дугаар, эсвэл externalRef" },
+        date: { type: "string", description: "Шинэ огноо YYYY-MM-DD (сонголтоор)" },
+        dueDate: { type: "string", description: "Шинэ төлөх огноо (сонголтоор)" },
+        description: { type: "string", description: "Шинэ утга (сонголтоор)" },
+        controlAccount: { type: "string", description: "Шинэ хяналтын данс (сонголтоор)" },
+        lines: {
+          type: "array",
+          description: "Шинэ мөрүүд — өгвөл хуучин мөрүүд БҮГД солигдоно",
+          items: {
+            type: "object",
+            properties: {
+              account: { type: "string", description: "Мөрийн данс (АП-ийн бараатай мөрөнд орхино)" },
+              description: { type: "string" },
+              amount: { type: "number", description: "Мөрийн дүн (0-ээс их)" },
+              itemCode: { type: "string", description: "Барааны код (бараатай мөрөнд)" },
+              quantity: { type: "number", description: "Тоо хэмжээ (бараатай мөрөнд)" },
+              warehouseCode: { type: "string", description: "Агуулахын код (бараатай мөрөнд)" },
+            },
+            required: ["amount"],
+          },
+        },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "update_cash_document",
+    description:
+      "НООРОГ кассын баримтыг засна (огноо, дүн, утга, харьцах данс, харилцагч, ханш). Данс/төрөл солихгүй — тэр тохиолдолд устгаад шинээр үүсгэнэ. Нэхэмжлэхтэй холбоотой бол шинэ дүн үлдэгдлийн шалгалтаа дахин давна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Баримтын ID (бүтэн эсвэл 8+ тэмдэгт)" },
+        date: { type: "string", description: "Шинэ огноо YYYY-MM-DD (сонголтоор)" },
+        amount: { type: "number", description: "Шинэ дүн (сонголтоор)" },
+        description: { type: "string", description: "Шинэ утга (сонголтоор)" },
+        counterAccount: { type: "string", description: "Шинэ харьцах GL данс (сонголтоор)" },
+        counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
+        exchangeRate: { type: "number", description: "Шинэ ханш — валютын данс бол (сонголтоор)" },
+      },
+      required: ["documentId"],
+    },
+  },
+
+  // ── Өртгийн мастер дата ───────────────────────────────────────────────────
+  {
+    name: "get_costing_settings",
+    description:
+      "Өртгийн тохиргооны бүрэн зураг: дансны рольууд (клиринг, тооллогын илүүдэл/дутагдал, NRV), зарлагын төрлүүд (дебет чиглэлтэй нь), өртгийн бүрэлдэхүүнүүд.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "save_issue_type",
+    description:
+      "Зарлагын төрөл үүсгэх/засах (кодоор нь олж давхардвал шинэчилнэ). Дебет чиглэл: fixed=тогтмол данс, item_cogs=барааны COGS данс.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "Код (жишээ нь SALE, WRITEOFF)" },
+        name: { type: "string", description: "Нэр" },
+        destinationClass: {
+          type: "string",
+          description: "Тайлбар ангилал (default: 'Борлуулалтын өртөг (COGS)')",
+        },
+        debitAccountSource: {
+          type: "string",
+          enum: ["fixed", "item_cogs"],
+          description: "Дебет данс хаанаас: fixed=доорх данс, item_cogs=барааны тохиргооноос",
+        },
+        debitAccount: { type: "string", description: "Тогтмол дебет данс (fixed үед заавал)" },
+      },
+      required: ["code", "name", "debitAccountSource"],
+    },
+  },
+  {
+    name: "save_cost_component",
+    description:
+      "Өртгийн бүрэлдэхүүн үүсгэх/засах (тээвэр, гааль г.м — нэмэлт зардлын хуваарилалтад ашиглагдана).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "Код (жишээ нь FREIGHT)" },
+        name: { type: "string", description: "Нэр" },
+        classification: { type: "string", description: "Ангилал (сонголтоор)" },
+        account: { type: "string", description: "Холбогдох данс (сонголтоор)" },
+      },
+      required: ["code", "name"],
+    },
+  },
+  {
+    name: "update_costing_accounts",
+    description:
+      "Өртгийн дансны рольуудыг засна — зөвхөн өгсөн нь өөрчлөгдөнө (клиринг, тооллогын илүүдэл/дутагдал, NRV зардал/нөөц).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clearingAccount: { type: "string", description: "Клирингийн данс" },
+        adjustmentGainAccount: { type: "string", description: "Тооллогын илүүдлийн данс" },
+        adjustmentLossAccount: { type: "string", description: "Тооллогын дутагдлын данс" },
+        nrvExpenseAccount: { type: "string", description: "NRV зардлын данс" },
+        nrvReserveAccount: { type: "string", description: "NRV нөөцийн (contra) данс" },
       },
     },
   },
@@ -5456,6 +5575,263 @@ async function runInventoryValuation(orgId: string): Promise<AiToolResult> {
   };
 }
 
+async function runUpdateArapDocument(
+  orgId: string,
+  input: {
+    documentId: string;
+    date?: string;
+    dueDate?: string;
+    description?: string;
+    controlAccount?: string;
+    lines?: {
+      account?: string;
+      description?: string;
+      amount: number;
+      itemCode?: string;
+      quantity?: number;
+      warehouseCode?: string;
+    }[];
+  }
+): Promise<AiToolResult> {
+  const document = await findArapDocument(orgId, input.documentId);
+  const ctx = await accountContext(orgId);
+
+  let lines:
+    | {
+        account: string;
+        description: string;
+        amount: number;
+        itemId?: string;
+        quantity?: number;
+        warehouseId?: string;
+      }[]
+    | undefined;
+  if (input.lines) {
+    const [items, whList, costingAccounts] = await Promise.all([
+      db.query.inventoryItems.findMany({
+        where: and(
+          eq(inventoryItems.organizationId, orgId),
+          eq(inventoryItems.isActive, true)
+        ),
+      }),
+      db.query.warehouses.findMany({
+        where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
+      }),
+      loadCostingAccountSettings(orgId),
+    ]);
+    const itemsByCode = new Map(items.map((item) => [item.code.toLowerCase(), item]));
+    const whByCode = new Map(whList.map((wh) => [wh.code.toLowerCase(), wh]));
+    const isAp = document.documentType === "ap_bill";
+    lines = input.lines.map((line) => {
+      let itemId: string | undefined;
+      let warehouseId: string | undefined;
+      if (line.itemCode) {
+        const item = itemsByCode.get(line.itemCode.trim().toLowerCase());
+        if (!item)
+          throw new Error(`"${line.itemCode}" кодтой бараа олдсонгүй (list_inventory-оор шалгана уу)`);
+        itemId = item.id;
+        if (!(Number(line.quantity) > 0))
+          throw new Error(`"${item.name}" мөрөнд тоо хэмжээ 0-ээс их байх ёстой`);
+        const wh = line.warehouseCode
+          ? whByCode.get(line.warehouseCode.trim().toLowerCase())
+          : undefined;
+        if (!wh)
+          throw new Error("Бараатай мөрөнд агуулахын код заавал (list_inventory-оор шалгана уу)");
+        warehouseId = wh.id;
+      }
+      const accountRaw =
+        itemId && isAp ? costingAccounts.clearingAccountNumber : line.account?.trim();
+      if (!accountRaw)
+        throw new Error("Мөр бүрд данс хэрэгтэй (АП-ийн бараатай мөрөөс бусад)");
+      return {
+        account: resolveAccount(accountRaw, ctx).code,
+        description: line.description ?? "",
+        amount: Number(line.amount),
+        itemId,
+        quantity: itemId ? Number(line.quantity) : undefined,
+        warehouseId,
+      };
+    });
+  }
+
+  const { documentNo } = await updateArApDocument(document.id, {
+    date: input.date,
+    dueDate: input.dueDate,
+    description: input.description,
+    controlAccountNumber: input.controlAccount
+      ? resolveAccount(input.controlAccount, ctx).code
+      : undefined,
+    lines,
+  });
+  const changed = [
+    input.date && "огноо",
+    input.dueDate && "төлөх огноо",
+    input.description && "утга",
+    input.controlAccount && "хяналтын данс",
+    input.lines && `мөрүүд (${input.lines.length})`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return {
+    resultText: `Ноорог нэхэмжлэх шинэчлэгдлээ: ${documentNo}${changed ? ` — ${changed}` : ""}`,
+    action: { kind: "arap", id: document.id, title: documentNo, status: "draft" },
+  };
+}
+
+async function runUpdateCashDocument(
+  orgId: string,
+  input: {
+    documentId: string;
+    date?: string;
+    amount?: number;
+    description?: string;
+    counterAccount?: string;
+    counterparty?: string;
+    exchangeRate?: number;
+  }
+): Promise<AiToolResult> {
+  const documents = await db.query.cashDocuments.findMany({
+    where: eq(cashDocuments.organizationId, orgId),
+    columns: { id: true, status: true, description: true, date: true },
+    orderBy: [desc(cashDocuments.createdAt)],
+    limit: 500,
+  });
+  const found = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
+  let counterMain: string | undefined;
+  if (input.counterAccount != null) {
+    const ctx = await accountContext(orgId);
+    counterMain = resolveAccount(input.counterAccount, ctx).main;
+  }
+  const { documentNo } = await updateCashDocument(found.id, {
+    date: input.date,
+    amount: input.amount,
+    description: input.description,
+    counterAccountNumber: counterMain,
+    counterparty: input.counterparty,
+    exchangeRate: input.exchangeRate,
+  });
+  return {
+    resultText: `Ноорог кассын баримт шинэчлэгдлээ: ${documentNo}`,
+    action: { kind: "cash", id: found.id, title: input.description ?? found.description, status: "draft" },
+  };
+}
+
+// ── Өртгийн мастер датаны гүйцэтгэгчид ──────────────────────────────────────
+
+/** MasterDataResult-ийн алдааг тексттэй нь шиднэ. */
+function assertMasterDataOk(result: { ok: boolean; message?: string; code?: string }) {
+  if (!result.ok)
+    throw new Error(result.message || `Хадгалж чадсангүй (${result.code ?? "алдаа"})`);
+}
+
+async function runGetCostingSettings(orgId: string): Promise<AiToolResult> {
+  const [accounts, issueTypes, components] = await Promise.all([
+    loadCostingAccountSettings(orgId),
+    db.query.inventoryIssueTypes.findMany({
+      where: eq(inventoryIssueTypes.organizationId, orgId),
+    }),
+    db.query.costComponents.findMany({
+      where: eq(costComponents.organizationId, orgId),
+    }),
+  ]);
+  return {
+    resultText: [
+      "ДАНСНЫ РОЛЬУУД:",
+      `  Клиринг: ${accounts.clearingAccountNumber} · Тооллогын илүүдэл: ${accounts.adjustmentGainAccountNumber} · дутагдал: ${accounts.adjustmentLossAccountNumber}`,
+      `  NRV зардал: ${accounts.nrvExpenseAccountNumber} · NRV нөөц: ${accounts.nrvReserveAccountNumber}`,
+      `ЗАРЛАГЫН ТӨРӨЛ (${issueTypes.length}):`,
+      ...issueTypes.map(
+        (entry) =>
+          `  ${entry.code} · ${entry.name} · ${entry.debitAccountSource === "fixed" ? `тогтмол ${entry.debitAccountNumber}` : "барааны COGS данс"}${entry.isActive ? "" : " · ИДЭВХГҮЙ"}`
+      ),
+      `ӨРТГИЙН БҮРЭЛДЭХҮҮН (${components.length}):`,
+      ...components.map(
+        (entry) =>
+          `  ${entry.code} · ${entry.name}${entry.accountNumber ? ` · ${entry.accountNumber}` : ""}${entry.isActive ? "" : " · ИДЭВХГҮЙ"}`
+      ),
+    ].join("\n"),
+  };
+}
+
+async function runSaveIssueType(
+  orgId: string,
+  input: {
+    code: string;
+    name: string;
+    destinationClass?: string;
+    debitAccountSource: "fixed" | "item_cogs";
+    debitAccount?: string;
+  }
+): Promise<AiToolResult> {
+  const existing = await db.query.inventoryIssueTypes.findFirst({
+    where: and(
+      eq(inventoryIssueTypes.organizationId, orgId),
+      eq(inventoryIssueTypes.code, String(input.code ?? "").trim().toUpperCase())
+    ),
+    columns: { id: true },
+  });
+  const result = await saveIssueType({
+    id: existing?.id,
+    code: input.code,
+    name: input.name,
+    destinationClass: input.destinationClass?.trim() || "Борлуулалтын өртөг (COGS)",
+    debitAccountSource: input.debitAccountSource,
+    debitAccountNumber: input.debitAccount ?? "",
+  });
+  assertMasterDataOk(result);
+  return {
+    resultText: `Зарлагын төрөл ${existing ? "шинэчлэгдлээ" : "үүслээ"}: ${input.code.toUpperCase()} · ${input.name}`,
+  };
+}
+
+async function runSaveCostComponent(
+  orgId: string,
+  input: { code: string; name: string; classification?: string; account?: string }
+): Promise<AiToolResult> {
+  const existing = await db.query.costComponents.findFirst({
+    where: and(
+      eq(costComponents.organizationId, orgId),
+      eq(costComponents.code, String(input.code ?? "").trim().toUpperCase())
+    ),
+    columns: { id: true },
+  });
+  const result = await saveCostComponent({
+    id: existing?.id,
+    code: input.code,
+    name: input.name,
+    classification: input.classification?.trim() || "",
+    accountNumber: input.account ?? "",
+  });
+  assertMasterDataOk(result);
+  return {
+    resultText: `Өртгийн бүрэлдэхүүн ${existing ? "шинэчлэгдлээ" : "үүслээ"}: ${input.code.toUpperCase()} · ${input.name}`,
+  };
+}
+
+async function runUpdateCostingAccounts(
+  orgId: string,
+  input: {
+    clearingAccount?: string;
+    adjustmentGainAccount?: string;
+    adjustmentLossAccount?: string;
+    nrvExpenseAccount?: string;
+    nrvReserveAccount?: string;
+  }
+): Promise<AiToolResult> {
+  const current = await loadCostingAccountSettings(orgId);
+  const result = await saveCostingAccountSettings({
+    clearingAccountNumber: input.clearingAccount ?? current.clearingAccountNumber,
+    adjustmentGainAccountNumber:
+      input.adjustmentGainAccount ?? current.adjustmentGainAccountNumber,
+    adjustmentLossAccountNumber:
+      input.adjustmentLossAccount ?? current.adjustmentLossAccountNumber,
+    nrvExpenseAccountNumber: input.nrvExpenseAccount ?? current.nrvExpenseAccountNumber,
+    nrvReserveAccountNumber: input.nrvReserveAccount ?? current.nrvReserveAccountNumber,
+  });
+  assertMasterDataOk(result);
+  return { resultText: "Өртгийн дансны рольууд шинэчлэгдлээ" };
+}
+
 async function runImportBankStatement(
   orgId: string,
   input: {
@@ -5700,6 +6076,18 @@ export async function executeAiTool(
         return await runUpdateCompanySettings(args);
       case "list_audit_events":
         return await runListAuditEvents(orgId, args);
+      case "update_arap_document":
+        return await runUpdateArapDocument(orgId, args);
+      case "update_cash_document":
+        return await runUpdateCashDocument(orgId, args);
+      case "get_costing_settings":
+        return await runGetCostingSettings(orgId);
+      case "save_issue_type":
+        return await runSaveIssueType(orgId, args);
+      case "save_cost_component":
+        return await runSaveCostComponent(orgId, args);
+      case "update_costing_accounts":
+        return await runUpdateCostingAccounts(orgId, args);
       case "import_bank_statement":
         return await runImportBankStatement(orgId, args, mode);
       case "get_inventory_valuation":

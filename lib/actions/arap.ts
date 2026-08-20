@@ -1018,3 +1018,146 @@ export async function deleteArApDocument(id: string) {
   revalidateArAp();
   return { documentNo: document.documentNo };
 }
+
+
+// Ноорог АР/АП баримтыг засах — зөвхөн draft; өгсөн талбар л өөрчлөгдөнө.
+// Мөрүүд өгвөл БҮХЛЭЭРЭЭ солигдоно (create-тэй ИЖИЛ шалгалтууд: данс,
+// бараа/агуулах ownership, клирингийн сахилга).
+export async function updateArApDocument(
+  id: string,
+  data: {
+    date?: string;
+    dueDate?: string;
+    description?: string;
+    controlAccountNumber?: string;
+    lines?: ArApLineInput[];
+  }
+) {
+  const { orgId, userId } = await requireAccountant();
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
+  });
+  if (!document) throw new Error("Баримт олдсонгүй");
+  if (document.status !== "draft")
+    throw new Error("Зөвхөн ноорог баримтыг засна — батлагдсаныг буцаагаад шинээр бүртгэнэ");
+
+  const date = data.date?.trim() || document.date;
+  const dueDate = data.dueDate?.trim() || document.dueDate;
+  assertDate(date, "Огноо");
+  assertDate(dueDate, "Төлөх огноо");
+  if (dueDate < date)
+    throw new Error("Төлөх огноо баримтын огнооноос өмнө байж болохгүй");
+  // Ноорог хожим энэ огноогоор батлагдах тул хаагдсан сар руу зөөхийг таслана.
+  await assertPeriodOpen(orgId, date);
+  const description = data.description?.trim() || document.description;
+  const controlAccountNumber =
+    data.controlAccountNumber?.trim() || document.controlAccountNumber;
+  await assertEnabledMainAccount(orgId, controlAccountNumber);
+
+  const updateValues: Partial<typeof arApDocuments.$inferInsert> = {
+    date,
+    dueDate,
+    description,
+    controlAccountNumber,
+  };
+
+  let newLines:
+    | {
+        account: string;
+        description: string;
+        amount: number;
+        itemId: string | null;
+        quantity: number | null;
+        warehouseId: string | null;
+      }[]
+    | null = null;
+  if (data.lines) {
+    const validLines = data.lines
+      .map((line) => ({
+        account: line.account.trim(),
+        description: line.description.trim(),
+        amount: Number(line.amount),
+        itemId: line.itemId || null,
+        quantity: line.itemId ? Number(line.quantity ?? 0) : null,
+        warehouseId: line.itemId ? line.warehouseId || null : null,
+      }))
+      .filter((line) => line.account && line.amount > 0);
+    if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+    const clearingAccount = (await loadCostingAccountSettings(orgId, userId))
+      .clearingAccountNumber;
+    for (const line of validLines) {
+      assertAmount(line.amount, "Мөрийн дүн");
+      await assertEnabledMainAccount(orgId, line.account);
+      if (!line.itemId) continue;
+      if (!(line.quantity! > 0))
+        throw new Error("Бараатай мөрөнд тоо хэмжээ 0-ээс их байна");
+      const lineMain = extractMainAccount(line.account);
+      if (document.documentType === "ap_bill" && lineMain !== clearingAccount)
+        throw new Error(
+          `Бараатай мөрийн данс ${clearingAccount} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
+        );
+      if (document.documentType === "ar_invoice" && lineMain.startsWith("14"))
+        throw new Error(
+          "Борлуулалтын бараатай мөр орлогын дансанд суана — COGS бичилтийг өртгийн модуль хийнэ"
+        );
+      const item = await db.query.inventoryItems.findFirst({
+        where: and(
+          eq(inventoryItems.id, line.itemId),
+          eq(inventoryItems.organizationId, orgId),
+          eq(inventoryItems.isActive, true)
+        ),
+        columns: { id: true },
+      });
+      if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
+      if (line.warehouseId) {
+        const warehouse = await db.query.warehouses.findFirst({
+          where: and(
+            eq(warehouses.id, line.warehouseId),
+            eq(warehouses.organizationId, orgId),
+            eq(warehouses.isActive, true)
+          ),
+          columns: { id: true },
+        });
+        if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
+      }
+    }
+    const totalAmount =
+      Math.round(validLines.reduce((sum, line) => sum + line.amount, 0) * 100) /
+      100;
+    const exchangeRate = Number(document.exchangeRate);
+    updateValues.totalAmount = String(totalAmount);
+    updateValues.baseTotalAmount = String(
+      calculateBaseAmount(totalAmount, exchangeRate)
+    );
+    newLines = validLines;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(arApDocuments)
+      .set(updateValues)
+      .where(
+        and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId))
+      );
+    if (newLines) {
+      await tx
+        .delete(arApDocumentLines)
+        .where(eq(arApDocumentLines.documentId, id));
+      await tx.insert(arApDocumentLines).values(
+        newLines.map((line, index) => ({
+          documentId: id,
+          accountNumber: line.account,
+          description: line.description || description,
+          amount: String(line.amount),
+          itemId: line.itemId,
+          quantity: line.quantity != null ? String(line.quantity) : null,
+          warehouseId: line.warehouseId,
+          sortOrder: index,
+        }))
+      );
+    }
+  });
+
+  revalidateArAp();
+  return { documentNo: document.documentNo };
+}

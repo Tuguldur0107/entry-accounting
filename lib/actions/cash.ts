@@ -1661,3 +1661,84 @@ export async function reverseCashFxRevaluation(id: string) {
 
   revalidateCash();
 }
+
+
+// Ноорог кассын баримтыг засах — зөвхөн draft; өгсөн талбар л өөрчлөгдөнө.
+// Данс/төрөл солихыг дэмжихгүй (устгаад шинээр үүсгэнэ); нэхэмжлэхтэй
+// холбоотой бол шинэ дүнгээр settlement-ийн шалгалт дахин хийгдэнэ.
+export async function updateCashDocument(
+  id: string,
+  data: {
+    date?: string;
+    amount?: number;
+    description?: string;
+    counterAccountNumber?: string;
+    counterparty?: string;
+    exchangeRate?: number;
+  }
+) {
+  const { orgId } = await requireRole("accountant");
+  const document = await db.query.cashDocuments.findFirst({
+    where: and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId)),
+  });
+  if (!document) throw new Error("Баримт олдсонгүй");
+  if (document.status !== "draft")
+    throw new Error("Зөвхөн ноорог баримтыг засна — батлагдсаныг буцаалтаар засна");
+
+  const date = data.date?.trim() || document.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Огноо буруу байна");
+  const description = data.description?.trim() || document.description;
+  const amount =
+    data.amount != null ? Math.round(Number(data.amount) * 100) / 100 : Number(document.amount);
+  assertAmount(amount);
+  const exchangeRate =
+    document.currency === "MNT"
+      ? 1
+      : data.exchangeRate != null
+        ? Number(data.exchangeRate)
+        : Number(document.exchangeRate);
+  if (!Number.isFinite(exchangeRate) || exchangeRate <= 0)
+    throw new Error(`${document.currency} гүйлгээний ханш 0-ээс их байна`);
+  const baseAmount = Math.round(amount * exchangeRate * 100) / 100;
+
+  let counterAccountNumber = document.counterAccountNumber;
+  if (data.counterAccountNumber != null) {
+    counterAccountNumber = cleanText(data.counterAccountNumber);
+    if (document.documentType !== "transfer" && !counterAccountNumber)
+      throw new Error("Харилцах GL данс сонгоно уу");
+    if (counterAccountNumber)
+      await assertMainAccount(orgId, counterAccountNumber);
+  }
+
+  // Нэхэмжлэхтэй холбоотой ноорог — шинэ дүн/данс settlement дүрмээ давна.
+  if (document.arApDocumentId)
+    await validateArApSettlement(
+      orgId,
+      {
+        arApDocumentId: document.arApDocumentId,
+        documentType: document.documentType as CashDocumentType,
+        counterAccountNumber,
+        amount,
+      },
+      document.currency
+    );
+
+  await db
+    .update(cashDocuments)
+    .set({
+      date,
+      description,
+      amount: String(amount),
+      exchangeRate: String(exchangeRate),
+      baseAmount: String(baseAmount),
+      counterAccountNumber,
+      counterparty:
+        data.counterparty != null
+          ? cleanText(data.counterparty)
+          : document.counterparty,
+    })
+    .where(and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId)));
+
+  revalidateCash();
+  return { documentNo: document.documentNo };
+}
