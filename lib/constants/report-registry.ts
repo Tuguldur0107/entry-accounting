@@ -91,6 +91,18 @@ export const REPORT_REGISTRY: readonly ReportModule[] = [
     ],
   },
   {
+    moduleId: "fa",
+    moduleLabel: "Үндсэн хөрөнгө",
+    basePath: "/fa/reports",
+    entries: [
+      {
+        value: "fa-register",
+        label: "Хөрөнгийн бүртгэл, элэгдэл",
+        href: "/fa/reports",
+      },
+    ],
+  },
+  {
     moduleId: "costing",
     moduleLabel: "Өртөг",
     basePath: "/costing/reports",
