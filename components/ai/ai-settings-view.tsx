@@ -24,6 +24,7 @@ import {
   type ApiTokenView,
 } from "@/lib/actions/mcp-tokens";
 import { AI_EFFORT_OPTIONS, AI_MODELS, AI_PROVIDER_LABELS } from "@/lib/ai/models";
+import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
 
 type SettingsTab = "keys" | "mcp" | "chat";
 
@@ -168,20 +169,20 @@ export function AiSettingsView({
 
   function createToken() {
     startTransition(async () => {
-      try {
-        const { token } = await createApiToken(
-          tokenName,
-          tokenExpiry === "" ? null : Number(tokenExpiry)
-        );
-        setTokenName("");
-        setFreshToken(token);
-        router.refresh();
-        toast.success("Token үүслээ — доорх утгыг ОДОО хуулж авна уу");
-      } catch (caught) {
-        toast.error(
-          caught instanceof Error ? caught.message : "Үүсгэж чадсангүй"
-        );
+      // Алдаа нь action-аас утгаар ирдэг (production дээр шидсэн алдааны
+      // мессежийг Next нуудаг тул throw-д найдаж болохгүй).
+      const result = await createApiToken(
+        tokenName,
+        tokenExpiry === "" ? null : Number(tokenExpiry)
+      );
+      if (!result.token) {
+        toast.error(result.error ?? "Үүсгэж чадсангүй");
+        return;
       }
+      setTokenName("");
+      setFreshToken(result.token);
+      router.refresh();
+      toast.success("Token үүслээ — доорх утгыг ОДОО хуулж авна уу");
     });
   }
 
@@ -194,15 +195,13 @@ export function AiSettingsView({
     });
     if (!ok) return;
     startTransition(async () => {
-      try {
-        await revokeApiToken(id);
-        router.refresh();
-        toast.success("Token хүчингүй боллоо");
-      } catch (caught) {
-        toast.error(
-          caught instanceof Error ? caught.message : "Устгаж чадсангүй"
-        );
+      const result = await revokeApiToken(id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
       }
+      router.refresh();
+      toast.success("Token хүчингүй боллоо");
     });
   }
 
@@ -445,6 +444,13 @@ export function AiSettingsView({
             </div>
           )}
 
+          {/* Хязгаарт хүрсэн бол урьдчилан хааж, шалтгааныг ил хэлнэ. */}
+          {mcpTokens.length >= MAX_TOKENS_PER_USER && (
+            <p className="mt-3 rounded-md bg-[var(--ea-warning)]/10 px-3 py-2 text-xs text-[var(--ea-warning-fg)]">
+              Дээд тал нь {MAX_TOKENS_PER_USER} token байж болно — шинийг
+              үүсгэхийн тулд ашиглахаа больсон token-оо эхлээд устгана уу.
+            </p>
+          )}
           <div className="mt-3 flex items-end gap-2">
             <div className="grid flex-1 gap-1.5">
               <Label htmlFor="mcp-token-name">
@@ -455,6 +461,7 @@ export function AiSettingsView({
                 placeholder="Жишээ: Codex — ажлын компьютер"
                 value={tokenName}
                 maxLength={60}
+                disabled={mcpTokens.length >= MAX_TOKENS_PER_USER}
                 onChange={(event) => setTokenName(event.target.value)}
               />
             </div>
@@ -475,7 +482,11 @@ export function AiSettingsView({
             </div>
             <Button
               onClick={createToken}
-              disabled={isPending || !tokenName.trim()}
+              disabled={
+                isPending ||
+                !tokenName.trim() ||
+                mcpTokens.length >= MAX_TOKENS_PER_USER
+              }
             >
               Token үүсгэх
             </Button>
