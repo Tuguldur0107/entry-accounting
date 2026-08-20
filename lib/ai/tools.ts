@@ -28,15 +28,19 @@ import {
   createCashOpeningVoucher,
   deleteCashDocument,
   postCashDocument,
+  postCashFxRevaluation,
   reverseCashDocument,
+  reverseCashFxRevaluation,
 } from "@/lib/actions/cash";
 import {
   activateFixedAsset,
   createFixedAsset,
   deleteFixedAsset,
+  disposeFixedAsset,
   postDepreciationEntries,
   reverseDepreciationEntry,
   runDepreciation,
+  type FaDisposalType,
 } from "@/lib/actions/fa";
 import {
   createAccount,
@@ -68,6 +72,12 @@ import {
   getPayrollRunData,
   upsertEmployee,
 } from "@/lib/actions/payroll";
+import {
+  getCompanySettings,
+  updateCompanySettings,
+} from "@/lib/actions/company";
+import { fetchMongolbankRates } from "@/lib/cash/exchange-rates";
+import { latestClosingByItem } from "@/lib/costing/valuation";
 import { loadVatSettings } from "@/lib/vat/settings";
 import { applyInclusiveVatToLines } from "@/lib/vat/return";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
@@ -79,11 +89,14 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   arApSettlements,
+  auditEvents,
   cashAccounts,
+  cashFxRevaluations,
   cashDocuments,
   chartOfAccounts,
   costEntries,
   counterparties,
+  employees,
   faDepreciationEntries,
   fixedAssets,
   inventoryIssueTypes,
@@ -1382,6 +1395,180 @@ export const AI_TOOLS: AiToolDef[] = [
       },
       required: ["voucherIds"],
     },
+  },
+  {
+    name: "create_journal_vouchers_batch",
+    description:
+      "Олон журналын бичилтийг нэг дуудлагаар үүсгэнэ (max 100). Partial success + externalRef idempotency — түүхэн дата импортод.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_journal_voucher-ийн input-уудын жагсаалт",
+          items: { type: "object" },
+        },
+      },
+      required: ["items"],
+    },
+  },
+
+  // ── Валютын тэгшитгэл (сар хаалтын 2-р алхам) ─────────────────────────────
+  {
+    name: "run_fx_revaluation",
+    description:
+      "Валютын кассын/банкны дансдад ханшийн тэгшитгэл хийж GL журнал бичнэ (сар хаалтын 2-р алхам). Ханш өгөхгүй бол Монголбанкны албан ханшийг автоматаар татна. Зөвхөн 'Шууд бичих' горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        valuationDate: { type: "string", description: "Тэгшитгэлийн огноо YYYY-MM-DD (сарын эцэс)" },
+        cashAccount: {
+          type: "string",
+          description: "Дансны нэр — хоосон бол БҮХ валютын идэвхтэй данс",
+        },
+        rate: {
+          type: "number",
+          description: "Гар ханш (өгвөл cashAccount заавал; өгөхгүй бол Монголбанкнаас татна)",
+        },
+        manualReason: { type: "string", description: "Гар ханш ашигласан шалтгаан" },
+        gainAccount: { type: "string", description: "Ханшийн олзын данс (default 51800001)" },
+        lossAccount: { type: "string", description: "Ханшийн гарзын данс (default 87000003)" },
+        replaceExisting: {
+          type: "boolean",
+          description: "Тухайн өдрийн өмнөх тэгшитгэлийг буцааж шинээр хийх",
+        },
+      },
+      required: ["valuationDate"],
+    },
+  },
+  {
+    name: "reverse_fx_revaluation",
+    description: "Ханшийн тэгшитгэлийг буцаана (сторно журнал үүснэ). Зөвхөн 'Шууд бичих' горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cashAccount: { type: "string", description: "Дансны нэр" },
+        valuationDate: { type: "string", description: "Тэгшитгэлийн огноо YYYY-MM-DD" },
+      },
+      required: ["cashAccount", "valuationDate"],
+    },
+  },
+
+  // ── Үндсэн хөрөнгийн хасалт ───────────────────────────────────────────────
+  {
+    name: "dispose_fixed_asset",
+    description:
+      "Идэвхтэй үндсэн хөрөнгийг данснаас хасна (акталах/борлуулах/хандивлах) — үлдэгдэл өртөг, олз гарзын GL журнал бичигдэнэ. Зөвхөн 'Шууд бичих' горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        assetCode: { type: "string", description: "Хөрөнгийн код эсвэл нэр" },
+        disposalType: {
+          type: "string",
+          enum: ["scrap", "sale", "donation"],
+          description: "scrap=акталах, sale=борлуулах, donation=хандивлах",
+        },
+        date: { type: "string", description: "Хасалтын огноо YYYY-MM-DD" },
+        proceeds: { type: "number", description: "Борлуулсан үнэ (зөвхөн sale-д)" },
+        proceedsAccount: {
+          type: "string",
+          description: "Орлого хүлээн авах данс — мөнгө/авлага (зөвхөн sale-д)",
+        },
+        gainLossAccount: { type: "string", description: "Олз (гарз)-ын данс (8 оронтой)" },
+      },
+      required: ["assetCode", "disposalType", "date", "gainLossAccount"],
+    },
+  },
+
+  // ── Ажилтан (цалингийн мастер дата) ──────────────────────────────────────
+  {
+    name: "list_employees",
+    description: "Ажилтнуудын жагсаалт (нэр, албан тушаал, үндсэн цалин, ҮОМШӨ хувь, идэвх).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        includeInactive: { type: "boolean", description: "Идэвхгүйг ч оруулах (default false)" },
+      },
+    },
+  },
+  {
+    name: "update_employee",
+    description: "Ажилтны мэдээлэл засна (нэрээр олно) — зөвхөн өгсөн талбарууд өөрчлөгдөнө.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        employee: { type: "string", description: "Одоогийн нэр (олоход ашиглана)" },
+        newName: { type: "string", description: "Шинэ нэр (сонголтоор)" },
+        position: { type: "string", description: "Албан тушаал (сонголтоор)" },
+        baseSalary: { type: "number", description: "Үндсэн цалин ₮ (сонголтоор)" },
+        accidentRatePercent: { type: "number", description: "ҮОМШӨ хувь 0-5 (сонголтоор)" },
+        isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
+      },
+      required: ["employee"],
+    },
+  },
+
+  // ── Компанийн мэдээлэл ────────────────────────────────────────────────────
+  {
+    name: "get_company_settings",
+    description:
+      "Компанийн мэдээлэл (нэр, регистр, НӨАТ дугаар, хаяг, утас, и-мэйл, банкны данс) — нэхэмжлэхийн толгойд ордог.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "update_company_settings",
+    description:
+      "Компанийн мэдээлэл засна — зөвхөн өгсөн талбарууд өөрчлөгдөнө (лого/тамга/гарын үсэг вэбээс). Нэхэмжлэх и-мэйлээр илгээхэд компанийн нэр заавал байх ёстой.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Компанийн нэр" },
+        registerNo: { type: "string", description: "Регистрийн дугаар" },
+        vatPayerNo: { type: "string", description: "НӨАТ төлөгчийн дугаар" },
+        address: { type: "string", description: "Хаяг" },
+        phone: { type: "string", description: "Утас" },
+        email: { type: "string", description: "И-мэйл" },
+        bankAccounts: {
+          type: "array",
+          description: "Банкны данснууд — өгвөл жагсаалт БҮХЛЭЭРЭЭ солигдоно",
+          items: {
+            type: "object",
+            properties: {
+              bankName: { type: "string" },
+              accountNo: { type: "string" },
+              accountName: { type: "string" },
+            },
+            required: ["bankName", "accountNo", "accountName"],
+          },
+        },
+      },
+    },
+  },
+
+  // ── Аудит ба үнэлгээ ──────────────────────────────────────────────────────
+  {
+    name: "list_audit_events",
+    description:
+      "Аудитын мөр — батлах/буцаах/устгах/хаах зэрэг статус шилжилт бүрийн бүртгэл (хэн, хэзээ, юу). Шалгалт, мөрдөлтөд ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entityType: {
+          type: "string",
+          description: "journal | cash | arap | fa | cost | period | payroll | vat г.м",
+        },
+        action: { type: "string", description: "post | reverse | delete | close г.м" },
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
+      },
+    },
+  },
+  {
+    name: "get_inventory_valuation",
+    description:
+      "Бараа материалын мөнгөн үнэлгээ — бараа бүрийн хамгийн сүүлд тооцоологдсон сарын хаалтын үлдэгдэл (тоо, дүн, нэгж өртөг) cost_period_results-ээс. get_stock_balances нь зөвхөн ТОО; энэ нь ҮНЭЛГЭЭ.",
+    inputSchema: { type: "object", properties: {} },
   },
 ];
 
@@ -4883,6 +5070,347 @@ function runWorkflowGuide(input: { workflow: string }): AiToolResult {
   return { resultText: guide };
 }
 
+
+// ── Нэмэлт гүйцэтгэгчид: FX тэгшитгэл, ҮХ хасалт, ажилтан, компани, аудит ───
+
+async function runFxRevaluation(
+  orgId: string,
+  input: {
+    valuationDate: string;
+    cashAccount?: string;
+    rate?: number;
+    manualReason?: string;
+    gainAccount?: string;
+    lossAccount?: string;
+    replaceExisting?: boolean;
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.valuationDate ?? ""))
+    throw new Error("valuationDate огноо YYYY-MM-DD форматтай байна");
+
+  const accounts = await db.query.cashAccounts.findMany({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
+  });
+  let targets = accounts.filter((account) => account.currency !== "MNT");
+  if (input.cashAccount) {
+    const found = requireSingle(
+      nameMatches(targets, (entry) => entry.name, input.cashAccount),
+      (entry) => entry.name,
+      "валютын данс",
+      input.cashAccount,
+      { allNames: targets.map((entry) => entry.name) }
+    );
+    targets = [found];
+  }
+  if (targets.length === 0)
+    return { resultText: "Валютын идэвхтэй касс/банкны данс алга — тэгшитгэл хэрэггүй" };
+
+  const manualRate = input.rate != null ? Number(input.rate) : undefined;
+  if (manualRate != null && targets.length > 1)
+    throw new Error("Гар ханш өгөхдөө cashAccount-ыг заавал зааж өгнө (валют бүр өөр ханштай)");
+
+  const ctx = await accountContext(orgId);
+  const gainMain = resolveAccount(input.gainAccount?.trim() || "51800001", ctx).main;
+  const lossMain = resolveAccount(input.lossAccount?.trim() || "87000003", ctx).main;
+
+  // Монголбанкны албан ханш — гар ханшгүй үед л татна.
+  const rateByCurrency = new Map<string, { rate: number; date: string; url: string }>();
+  if (manualRate == null) {
+    const currencies = [...new Set(targets.map((entry) => entry.currency))];
+    const quotes = await fetchMongolbankRates(input.valuationDate, currencies).catch(
+      (caught: unknown) => {
+        throw new Error(
+          `Монголбанкны ханш татагдсангүй (${errorText(caught)}) — rate параметрээр гар ханш өгнө үү`
+        );
+      }
+    );
+    for (const quote of quotes)
+      if (quote.officialRate != null)
+        rateByCurrency.set(quote.currency, {
+          rate: quote.officialRate,
+          date: quote.date,
+          url: quote.sourceUrl,
+        });
+  }
+
+  const lines: string[] = [];
+  let done = 0;
+  for (const account of targets) {
+    try {
+      const quote = rateByCurrency.get(account.currency);
+      if (manualRate == null && !quote)
+        throw new Error(`${account.currency} ханш Монголбанкнаас олдсонгүй`);
+      await postCashFxRevaluation({
+        cashAccountId: account.id,
+        valuationDate: input.valuationDate,
+        closingRate: manualRate ?? quote!.rate,
+        rateSource: manualRate != null ? "manual" : "mongolbank",
+        rateBasis: "official",
+        sourceDate: manualRate != null ? null : quote!.date,
+        sourceUrl: manualRate != null ? null : quote!.url,
+        manualOverrideReason:
+          manualRate != null
+            ? input.manualReason?.trim() || "AI туслахаар өгсөн гар ханш"
+            : null,
+        gainAccountNumber: gainMain,
+        lossAccountNumber: lossMain,
+        replaceExisting: input.replaceExisting ?? false,
+      });
+      done += 1;
+      lines.push(
+        `  ${account.name} (${account.currency}) @ ${fmt(manualRate ?? quote!.rate)} — тэгшитгэгдэв`
+      );
+    } catch (caught) {
+      lines.push(`  ${account.name}: АЛДАА — ${errorText(caught)}`);
+    }
+  }
+  return {
+    resultText: [
+      `Ханшийн тэгшитгэл ${input.valuationDate}: ${done}/${targets.length} данс`,
+      ...lines,
+      "Журналууд шууд бичигдсэн — get_trial_balance-аар 51800001/87000003-ыг шалгаж болно.",
+    ].join("\n"),
+  };
+}
+
+async function runReverseFxRevaluation(
+  orgId: string,
+  input: { cashAccount: string; valuationDate: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const accounts = await db.query.cashAccounts.findMany({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
+  });
+  const account = requireSingle(
+    nameMatches(accounts, (entry) => entry.name, input.cashAccount),
+    (entry) => entry.name,
+    "мөнгөн данс",
+    input.cashAccount,
+    { allNames: accounts.map((entry) => entry.name) }
+  );
+  const rows = await db.query.cashFxRevaluations.findMany({
+    where: and(
+      eq(cashFxRevaluations.organizationId, orgId),
+      eq(cashFxRevaluations.cashAccountId, account.id),
+      eq(cashFxRevaluations.valuationDate, input.valuationDate),
+      eq(cashFxRevaluations.status, "posted")
+    ),
+  });
+  if (rows.length === 0)
+    throw new Error(
+      `${account.name} дансанд ${input.valuationDate}-ны идэвхтэй тэгшитгэл олдсонгүй`
+    );
+  const latest = rows.sort((a, b) => b.revision - a.revision)[0];
+  await reverseCashFxRevaluation(latest.id);
+  return {
+    resultText: `Ханшийн тэгшитгэл буцаагдлаа: ${account.name} · ${input.valuationDate} (сторно журнал үүссэн)`,
+  };
+}
+
+const DISPOSAL_TYPE_LABELS: Record<FaDisposalType, string> = {
+  scrap: "Акталсан",
+  sale: "Борлуулсан",
+  donation: "Хандивласан",
+};
+
+async function runDisposeFixedAsset(
+  orgId: string,
+  input: {
+    assetCode: string;
+    disposalType: FaDisposalType;
+    date: string;
+    proceeds?: number;
+    proceedsAccount?: string;
+    gainLossAccount: string;
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const asset = await findAssetByCode(orgId, input.assetCode);
+  const ctx = await accountContext(orgId);
+  await disposeFixedAsset(asset.id, {
+    disposalType: input.disposalType,
+    date: input.date,
+    proceeds: input.proceeds,
+    proceedsAccountNumber: input.proceedsAccount
+      ? resolveAccount(input.proceedsAccount, ctx).main
+      : undefined,
+    gainLossAccountNumber: resolveAccount(input.gainLossAccount, ctx).main,
+  });
+  return {
+    resultText: `Үндсэн хөрөнгө данснаас хасагдлаа: ${asset.code} · ${asset.name} — ${DISPOSAL_TYPE_LABELS[input.disposalType]}, ${input.date}${input.proceeds ? `, үнэ ${fmt(Number(input.proceeds))}₮` : ""} (GL журнал бичигдсэн)`,
+  };
+}
+
+async function runListEmployees(
+  orgId: string,
+  input: { includeInactive?: boolean }
+): Promise<AiToolResult> {
+  const rows = await db.query.employees.findMany({
+    where: eq(employees.organizationId, orgId),
+  });
+  const filtered = input.includeInactive ? rows : rows.filter((row) => row.isActive);
+  if (filtered.length === 0) return { resultText: "Ажилтан бүртгэлгүй байна" };
+  return {
+    resultText: filtered
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(
+        (row) =>
+          `${row.name}${row.position ? ` · ${row.position}` : ""} · цалин ${fmt(Number(row.baseSalary))}₮ · ҮОМШӨ ${Number(row.accidentRatePercent)}%${row.isActive ? "" : " · ИДЭВХГҮЙ"}`
+      )
+      .join("\n"),
+  };
+}
+
+async function runUpdateEmployee(
+  orgId: string,
+  input: {
+    employee: string;
+    newName?: string;
+    position?: string;
+    baseSalary?: number;
+    accidentRatePercent?: number;
+    isActive?: boolean;
+  }
+): Promise<AiToolResult> {
+  const rows = await db.query.employees.findMany({
+    where: eq(employees.organizationId, orgId),
+  });
+  const employee = requireSingle(
+    nameMatches(rows, (entry) => entry.name, input.employee),
+    (entry) => entry.name,
+    "ажилтан",
+    input.employee,
+    { allNames: rows.map((entry) => entry.name) }
+  );
+  await upsertEmployee({
+    id: employee.id,
+    name: input.newName?.trim() || employee.name,
+    position: input.position ?? employee.position ?? "",
+    baseSalary: input.baseSalary ?? Number(employee.baseSalary),
+    accidentRatePercent:
+      input.accidentRatePercent ?? Number(employee.accidentRatePercent),
+    isActive: input.isActive ?? employee.isActive,
+  });
+  return {
+    resultText: `Ажилтан шинэчлэгдлээ: ${employee.name}${input.newName ? ` → ${input.newName}` : ""}`,
+  };
+}
+
+async function runGetCompanySettings(): Promise<AiToolResult> {
+  const settings = await getCompanySettings();
+  if (!settings?.name)
+    return {
+      resultText:
+        "Компанийн мэдээлэл тохируулаагүй — update_company_settings-ээр нэрээ өгнө үү (нэхэмжлэх илгээхэд заавал)",
+    };
+  return {
+    resultText: [
+      `Нэр: ${settings.name}`,
+      `Регистр: ${settings.registerNo ?? "—"} · НӨАТ: ${settings.vatPayerNo ?? "—"}`,
+      `Хаяг: ${settings.address ?? "—"} · Утас: ${settings.phone ?? "—"} · И-мэйл: ${settings.email ?? "—"}`,
+      settings.bankAccounts.length > 0
+        ? `Банкны данс:\n${settings.bankAccounts.map((account) => `  ${account.bankName} · ${account.accountNo} · ${account.accountName}`).join("\n")}`
+        : "Банкны данс: бүртгэлгүй",
+      `Лого: ${settings.logo ? "бий" : "—"} · Тамга: ${settings.stamp ? "бий" : "—"} · Гарын үсэг: ${settings.signatures.length}`,
+    ].join("\n"),
+  };
+}
+
+async function runUpdateCompanySettings(input: {
+  name?: string;
+  registerNo?: string;
+  vatPayerNo?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  bankAccounts?: { bankName: string; accountNo: string; accountName: string }[];
+}): Promise<AiToolResult> {
+  const current = await getCompanySettings();
+  const name = input.name?.trim() || current?.name || "";
+  if (!name) throw new Error("Компанийн нэр заавал (одоо тохируулаагүй байна)");
+  await updateCompanySettings({
+    name,
+    registerNo: input.registerNo ?? current?.registerNo ?? null,
+    vatPayerNo: input.vatPayerNo ?? current?.vatPayerNo ?? null,
+    address: input.address ?? current?.address ?? null,
+    phone: input.phone ?? current?.phone ?? null,
+    email: input.email ?? current?.email ?? null,
+    bankAccounts: input.bankAccounts ?? current?.bankAccounts ?? [],
+    // Лого/тамга/гарын үсэг — undefined = хөндөхгүй (вэбээс удирдана).
+    signatures: current?.signatures ?? [],
+    autoStamp: current?.autoStamp ?? true,
+  });
+  return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}` };
+}
+
+async function runListAuditEvents(
+  orgId: string,
+  input: { entityType?: string; action?: string; from?: string; to?: string; limit?: number }
+): Promise<AiToolResult> {
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
+  const rows = await db.query.auditEvents.findMany({
+    where: eq(auditEvents.organizationId, orgId),
+    orderBy: [desc(auditEvents.createdAt)],
+    limit: 400,
+  });
+  const filtered = rows
+    .filter((row) => {
+      const date = row.createdAt.toISOString().slice(0, 10);
+      if (input.entityType && row.entityType !== input.entityType) return false;
+      if (input.action && row.action !== input.action) return false;
+      if (input.from && date < input.from) return false;
+      if (input.to && date > input.to) return false;
+      return true;
+    })
+    .slice(0, limit);
+  if (filtered.length === 0) return { resultText: "Тохирох аудитын бичлэг олдсонгүй" };
+  return {
+    resultText: filtered
+      .map(
+        (row) =>
+          `${row.createdAt.toISOString().replace("T", " ").slice(0, 16)} · ${row.entityType}/${row.action} · ${row.summary || row.entityId.slice(0, 8)}`
+      )
+      .join("\n"),
+  };
+}
+
+async function runInventoryValuation(orgId: string): Promise<AiToolResult> {
+  const [byItem, items] = await Promise.all([
+    latestClosingByItem(orgId),
+    db.query.inventoryItems.findMany({
+      where: eq(inventoryItems.organizationId, orgId),
+    }),
+  ]);
+  if (byItem.size === 0)
+    return {
+      resultText:
+        "Тооцоологдсон өртгийн үнэлгээ алга — эхлээд run_monthly_costing ажиллуулна уу",
+    };
+  const nameOf = new Map(items.map((item) => [item.id, `${item.code} ${item.name}`]));
+  let total = 0;
+  const lines: string[] = [];
+  for (const [itemId, closing] of byItem) {
+    if (Math.abs(closing.qty) < 0.0001 && Math.abs(closing.amount) < 0.01) continue;
+    total += closing.amount;
+    const unit = closing.qty > 0 ? closing.amount / closing.qty : 0;
+    lines.push(
+      `${nameOf.get(itemId) ?? itemId.slice(0, 8)} — ${fmt(closing.qty)} ш × ${fmt(unit)}₮ = ${fmt(closing.amount)}₮ (${closing.periodCode} хаалтаар)`
+    );
+  }
+  return {
+    resultText: [
+      "БАРАА МАТЕРИАЛЫН ҮНЭЛГЭЭ (сүүлийн тооцоологдсон сарын хаалтаар):",
+      ...lines.sort(),
+      `НИЙТ: ${fmt(total)}₮`,
+      "GL 14-бүлэгтэй тулгахад reconcile_modules ашиглана.",
+    ].join("\n"),
+  };
+}
+
 // ── Нэгдсэн диспетчер ───────────────────────────────────────────────────────
 
 /**
@@ -5003,6 +5531,28 @@ export async function executeAiTool(
         return await runGetStockBalances(orgId, args);
       case "list_fixed_assets":
         return await runListFixedAssets(orgId, args);
+      case "create_journal_vouchers_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateJournal(orgId, item as Parameters<typeof runCreateJournal>[1], mode)
+        );
+      case "run_fx_revaluation":
+        return await runFxRevaluation(orgId, args, mode);
+      case "reverse_fx_revaluation":
+        return await runReverseFxRevaluation(orgId, args, mode);
+      case "dispose_fixed_asset":
+        return await runDisposeFixedAsset(orgId, args, mode);
+      case "list_employees":
+        return await runListEmployees(orgId, args);
+      case "update_employee":
+        return await runUpdateEmployee(orgId, args);
+      case "get_company_settings":
+        return await runGetCompanySettings();
+      case "update_company_settings":
+        return await runUpdateCompanySettings(args);
+      case "list_audit_events":
+        return await runListAuditEvents(orgId, args);
+      case "get_inventory_valuation":
+        return await runInventoryValuation(orgId);
       case "run_fa_depreciation":
         return await runFaDepreciation(orgId, args);
       case "post_fa_depreciation":

@@ -116,6 +116,14 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   create_invoice_link (public линк). Харилцагчид и-мэйл байхгүй бол
   update_counterparty-гаар нэмнэ.
 
+- **Сар/жилийн хаалтын нэмэлт:** run_fx_revaluation (Монголбанкны ханш
+  автомат татна — сар хаалтын 2-р алхам), reverse_fx_revaluation,
+  dispose_fixed_asset (ҮХ акталах/борлуулах/хандивлах),
+  get_inventory_valuation (нөөцийн мөнгөн үнэлгээ)
+- **Мастер дата нэмэлт:** list_employees, update_employee,
+  get/update_company_settings (нэхэмжлэхийн толгой, банкны данс),
+  create_journal_vouchers_batch, list_audit_events (аудитын мөр)
+
 - **Тулгалт + урсгал:** reconcile_modules (модуль хоорондын зөрүү илрүүлэх),
   get_workflow_guide (даалгаврын зөв дараалал)
 
