@@ -1,51 +1,64 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-// Report-type selector rendered in the dashboard header. Only visible on
-// /gl/reports — every other path returns null so the header stays clean.
-// Selection is persisted in the URL via `?report=` so refresh and
-// shareable links remember the active report.
+import {
+  findActiveReportHref,
+  REPORT_REGISTRY,
+} from "@/lib/constants/report-registry";
 
-const REPORT_OPTIONS = [
-  { value: "gl-balance", label: "Гүйлгээ баланс" },
-  { value: "balance-sheet", label: "Баланс" },
-  { value: "income-statement", label: "Орлогын тайлан" },
-  { value: "cash-flow", label: "Мөнгөн гүйлгээний тайлан" },
-] as const;
+// Топбарын тайлангийн сонгогч — БҮХ модулийн тайлан нэг бүлэглэсэн
+// dropdown-д (эх сурвалж: lib/constants/report-registry.ts). Харагдах газар:
+//   • тайлангийн хуудас бүр — идэвхтэй тайлан нь сонгогдсон байна
+//   • Хяналтын самбар ("/") — "Тайлан руу очих…" placeholder-той
+// GL-ийн дотоод сонголт ?report= параметрээр (start/end хадгалагдана),
+// модуль хооронд бүтэн навигаци хийнэ.
 
-const DEFAULT_REPORT = "gl-balance";
-const VALID_VALUES = new Set(REPORT_OPTIONS.map((o) => o.value));
+const PLACEHOLDER = "__none__";
 
 export function HeaderReportSelect() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  if (pathname !== "/gl/reports") return null;
+  const activeHref = findActiveReportHref(pathname, searchParams.get("report"));
 
-  const raw = searchParams.get("report");
-  const current = raw && VALID_VALUES.has(raw as (typeof REPORT_OPTIONS)[number]["value"])
-    ? raw
-    : DEFAULT_REPORT;
+  // Тайлангийн хуудас эсвэл нүүр дээр л харагдана — бусад газар топбар цэвэр.
+  if (!activeHref && pathname !== "/") return null;
 
-  function handleChange(next: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("report", next);
-    router.replace(`${pathname}?${params.toString()}`);
+  function handleChange(nextHref: string) {
+    if (nextHref === PLACEHOLDER) return;
+    const [nextPath, nextQuery] = nextHref.split("?");
+    if (nextPath === pathname && nextQuery?.startsWith("report=")) {
+      // Нэг хуудсан доторх сонголт — бусад параметрыг (start/end) хадгална.
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("report", nextQuery.slice("report=".length));
+      router.replace(`${pathname}?${params.toString()}`);
+      return;
+    }
+    router.push(nextHref);
   }
 
   return (
     <select
-      value={current}
+      value={activeHref ?? PLACEHOLDER}
       onChange={(e) => handleChange(e.target.value)}
-      aria-label="Тайлангийн төрөл"
-      className="h-8 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
+      aria-label="Тайлан сонгох"
+      className="h-8 max-w-52 px-2 text-xs border border-[var(--ea-border)] rounded-md bg-[var(--ea-surface)] text-[var(--ea-text-1)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)] focus:border-[var(--ea-primary)]"
     >
-      {REPORT_OPTIONS.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
+      {!activeHref && (
+        <option value={PLACEHOLDER} disabled>
+          Тайлан руу очих…
         </option>
+      )}
+      {REPORT_REGISTRY.map((module) => (
+        <optgroup key={module.moduleId} label={module.moduleLabel}>
+          {module.entries.map((entry) => (
+            <option key={entry.value} value={entry.href}>
+              {entry.label}
+            </option>
+          ))}
+        </optgroup>
       ))}
     </select>
   );

@@ -10,11 +10,19 @@ import {
 } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { fmtMnt } from "@/lib/reports/balances";
-import type { CashDetailRow, CashMovementRow } from "@/lib/cash/balances";
+import type {
+  CashDetailRow,
+  CashFlowCodeRow,
+  CashMovementRow,
+} from "@/lib/cash/balances";
 
 interface Props {
   rows: CashMovementRow[];
   detailRows: CashDetailRow[];
+  /** S8 мөнгөн урсгалын кодоор нэгтгэсэн мөрүүд (сервер талд бодогдсон). */
+  flowRows: CashFlowCodeRow[];
+  /** S8 код → нэр (дэлгэрэнгүй тайлангийн баганад). */
+  cashFlowNames: Record<string, string>;
   periodStart: string;
   periodEnd: string;
 }
@@ -42,6 +50,8 @@ const TYPE_LABELS: Record<string, string> = {
 export function CashReportView({
   rows,
   detailRows,
+  flowRows,
+  cashFlowNames,
   periodStart,
   periodEnd,
 }: Props) {
@@ -120,8 +130,14 @@ export function CashReportView({
       {
         headerName: "CF ангилал",
         field: "cashFlowCode",
-        width: 120,
+        width: 170,
         cellClass: "font-mono text-xs",
+        valueFormatter: (params) => {
+          const code = params.value as string | null;
+          if (!code) return "";
+          const name = cashFlowNames[code];
+          return name ? `${code} · ${name}` : code;
+        },
       },
       { headerName: "Валют", field: "currency", width: 92 },
       {
@@ -170,8 +186,71 @@ export function CashReportView({
         cellClass: "font-mono text-xs",
       },
     ],
+    [cashFlowNames]
+  );
+
+  // S8 нэгтгэлийн баганууд — бүлэглэлийн түлхүүр нь данс биш S8 код.
+  const flowColumnDefs = useMemo<ColDef<CashFlowCodeRow>[]>(
+    () => [
+      {
+        headerName: "Код",
+        field: "code",
+        width: 100,
+        cellClass: "font-mono text-xs",
+        valueFormatter: (params) => {
+          const code = params.value as string | null;
+          // Pinned нийт мөрийн дотоод sentinel-ийг хэрэглэгчид үзүүлэхгүй.
+          if (code === "__total__") return "";
+          return code ?? "—";
+        },
+      },
+      { headerName: "Ангилал", field: "name", flex: 1, minWidth: 220 },
+      { headerName: "Баримт", field: "documentCount", width: 100 },
+      {
+        headerName: "Орлого (MNT)",
+        field: "receipts",
+        ...moneyCol<CashFlowCodeRow>(),
+        cellClass:
+          "ag-right-aligned-cell font-mono tabular-nums text-[var(--ea-success-fg)]",
+      },
+      {
+        headerName: "Зарлага (MNT)",
+        field: "payments",
+        ...moneyCol<CashFlowCodeRow>(),
+        cellClass:
+          "ag-right-aligned-cell font-mono tabular-nums text-[var(--ea-danger-fg)]",
+      },
+      {
+        headerName: "Цэвэр урсгал",
+        field: "net",
+        ...moneyCol<CashFlowCodeRow>(),
+        cellClass:
+          "ag-right-aligned-cell font-mono tabular-nums font-semibold",
+      },
+    ],
     []
   );
+
+  const flowPinnedBottom = useMemo<CashFlowCodeRow[]>(() => {
+    const totals = flowRows.reduce(
+      (acc, row) => ({
+        receipts: acc.receipts + row.receipts,
+        payments: acc.payments + row.payments,
+        documentCount: acc.documentCount + row.documentCount,
+      }),
+      { receipts: 0, payments: 0, documentCount: 0 }
+    );
+    return [
+      {
+        code: "__total__",
+        name: "Нийт",
+        receipts: totals.receipts,
+        payments: totals.payments,
+        net: totals.receipts - totals.payments,
+        documentCount: totals.documentCount,
+      },
+    ];
+  }, [flowRows]);
 
   // Pinned total row — sum per currency would be ideal, but for a single-
   // currency ledger a straight sum is the common case; we sum MNT rows and
@@ -286,6 +365,36 @@ export function CashReportView({
           suppressCellFocus
         />
       )}
+
+      {/* S8 нэгтгэл — мөнгөн урсгалыг ДАНСААР биш мөнгөн урсгалын кодоор
+          бүлэглэнэ (шууд аргын CF-ийн суурь; код нь Тохиргоо → GL-ийн
+          S8 сегментийн утга тул хэрэглэгч өөрөө засварладаг "mapping"). */}
+      <div className="flex flex-col gap-3 border-t border-[var(--ea-border)] pt-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+            Мөнгөн урсгалын ангилал (S8)
+          </h2>
+          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+            Орлого, зарлага мөнгөн урсгалын кодоор · MNT дүнгээр · дотоод
+            шилжүүлэг ороогүй
+          </p>
+        </div>
+        {flowRows.length === 0 ? (
+          <div className="flex min-h-32 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+            Тайлант үед орлого, зарлагын гүйлгээ байхгүй
+          </div>
+        ) : (
+          <DataGridDynamic<CashFlowCodeRow>
+            rowData={flowRows}
+            columnDefs={flowColumnDefs}
+            getRowId={(p) => p.data.code ?? "__none__"}
+            pinnedBottomRowData={flowPinnedBottom}
+            height={Math.min(420, 116 + flowRows.length * 38)}
+            wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+            suppressCellFocus
+          />
+        )}
+      </div>
 
       <div className="flex flex-col gap-3 border-t border-[var(--ea-border)] pt-4">
         <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">

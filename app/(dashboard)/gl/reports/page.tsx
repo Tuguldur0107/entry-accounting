@@ -22,7 +22,7 @@ export default async function ReportsPage({
   const { start, end, report } = await searchParams;
   const period = await getPeriodSelection();
 
-  const [vouchers, accounts, rawSegConfigs, balanceSheetMappings] = await Promise.all([
+  const [vouchers, accounts, rawSegConfigs, lineMappings] = await Promise.all([
     db.query.journalVouchers.findMany({
       where: and(
         eq(journalVouchers.organizationId, orgId),
@@ -37,10 +37,19 @@ export default async function ReportsPage({
     db.query.reportLineMappings.findMany({
       where: and(
         eq(reportLineMappings.organizationId, orgId),
-        eq(reportLineMappings.reportType, "balance-sheet")
+        inArray(reportLineMappings.reportType, [
+          "balance-sheet",
+          "income-statement",
+        ])
       ),
     }),
   ]);
+  const balanceSheetMappings = lineMappings.filter(
+    (m) => m.reportType === "balance-sheet"
+  );
+  const incomeStatementMappings = lineMappings.filter(
+    (m) => m.reportType === "income-statement"
+  );
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
   const activeSegIds = SEGMENT_DEFS
@@ -56,6 +65,7 @@ export default async function ReportsPage({
       initialEnd={end ?? period.to}
       initialReport={report}
       balanceSheetMappings={balanceSheetMappings}
+      incomeStatementMappings={incomeStatementMappings}
     />
   );
 }

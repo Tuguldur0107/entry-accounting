@@ -269,3 +269,65 @@ export function calculateCashBalances(
 
   return balances;
 }
+
+// ── S8 мөнгөн урсгалын кодоор нэгтгэл (шууд аргын CF-ийн суурь) ─────────────
+// Тайлангийн mapping-ийн "дансаар биш" жишээ: бүлэглэлийн түлхүүр нь дансны
+// код биш, S8 сегментийн УТГА (хэрэглэгчийн засварладаг лавлах) юм.
+// Дүрэм: зөвхөн posted; шилжүүлэг (transfer) нь дотоод хөдөлгөөн тул ОРОХГҮЙ;
+// валют харьцуулагдахуйц байлгаж baseAmount (MNT)-аар нэгтгэнэ.
+
+export interface CashFlowCodeRow {
+  /** S8 код — null бол ангилал бөглөгдөөгүй гүйлгээ. */
+  code: string | null;
+  name: string;
+  receipts: number;
+  payments: number;
+  net: number;
+  documentCount: number;
+}
+
+export function calculateCashFlowCodeSummary(
+  documents: CashDocument[],
+  periodStart: string,
+  periodEnd: string,
+  codeNames: Map<string, string>
+): CashFlowCodeRow[] {
+  const rows = new Map<string, CashFlowCodeRow>();
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+
+  for (const document of documents) {
+    if (document.status !== "posted") continue;
+    if (document.documentType === "transfer") continue;
+    if (document.date < periodStart || document.date > periodEnd) continue;
+    const code = document.cashFlowCode?.trim() || null;
+    const key = code ?? "__none__";
+    if (!rows.has(key)) {
+      rows.set(key, {
+        code,
+        name: code ? codeNames.get(code) ?? code : "Ангилалгүй",
+        receipts: 0,
+        payments: 0,
+        net: 0,
+        documentCount: 0,
+      });
+    }
+    const row = rows.get(key)!;
+    const base = Number(document.baseAmount ?? document.amount);
+    if (document.documentType === "receipt") row.receipts += base;
+    else if (document.documentType === "payment") row.payments += base;
+    row.documentCount += 1;
+  }
+
+  const out = [...rows.values()];
+  for (const row of out) {
+    row.receipts = round2(row.receipts);
+    row.payments = round2(row.payments);
+    row.net = round2(row.receipts - row.payments);
+  }
+  // Ангилалтай нь кодоороо эрэмбэлэгдэж, "Ангилалгүй" хамгийн сүүлд.
+  return out.sort((a, b) => {
+    if (a.code === null) return 1;
+    if (b.code === null) return -1;
+    return a.code.localeCompare(b.code);
+  });
+}

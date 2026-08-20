@@ -122,10 +122,16 @@ export function BalanceSheetView({
     // Built-in lines from BS_LINES, with any mapping overrides applied.
     BS_LINES.forEach((line, idx) => {
       const m = mappingByKey.get(line.key);
-      const override = m?.accountNumbers
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // Хоосон accountNumbers нь override БИШ — нуух/нэр солих үйлдэл mapping
+      // мөрийг хоосон дансаар үүсгэдэг тул "" -ийг default-даа үлдээнэ
+      // (эс бөгөөс нуусан мөр дүнгээ алдаж, БАЛАНС зөрдөг байсан).
+      const override =
+        m && m.accountNumbers.trim() !== ""
+          ? m.accountNumbers
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined;
       const accountNumbers =
         override !== undefined
           ? override
