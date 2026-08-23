@@ -1,12 +1,18 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 import { getActiveOrg } from "@/lib/auth";
+import type { BankRule, BankRuleMode, BankRuleSide } from "@/lib/cash/bank-rules";
 import {
   buildHistoricalPatterns,
   type MatchContext,
 } from "@/lib/cash/statement-matching";
 import { db } from "@/lib/db";
-import { arApDocuments, bankStatementLines, bankStatements } from "@/lib/db/schema";
+import {
+  arApDocuments,
+  bankRules,
+  bankStatementLines,
+  bankStatements,
+} from "@/lib/db/schema";
 
 export const runtime = "nodejs";
 
@@ -29,7 +35,7 @@ export async function GET() {
   }
 
   try {
-    const [invoices, historyLines] = await Promise.all([
+    const [invoices, historyLines, ruleRows] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
           eq(arApDocuments.organizationId, orgId),
@@ -55,9 +61,34 @@ export async function GET() {
         .where(eq(bankStatements.organizationId, orgId))
         .orderBy(desc(bankStatementLines.createdAt))
         .limit(HISTORY_LINE_LIMIT),
+      // П8 — хэрэглэгчийн идэвхтэй дүрмүүд: клиент талд мөр бүрд тулгаж
+      // (lib/cash/bank-rules.ts) нэхэмжлэх/түүхэн саналын ӨМНӨ давхарлана.
+      db.query.bankRules.findMany({
+        where: and(
+          eq(bankRules.organizationId, orgId),
+          eq(bankRules.isActive, true)
+        ),
+        orderBy: [asc(bankRules.priority), asc(bankRules.name)],
+      }),
     ]);
 
-    const context: MatchContext = {
+    const rules: BankRule[] = ruleRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      matchText: row.matchText,
+      side: row.side as BankRuleSide,
+      minAmount: row.minAmount == null ? null : Number(row.minAmount),
+      maxAmount: row.maxAmount == null ? null : Number(row.maxAmount),
+      counterAccountNumber: row.counterAccountNumber,
+      setCounterparty: row.setCounterparty,
+      setDescription: row.setDescription,
+      mode: row.mode as BankRuleMode,
+      priority: row.priority,
+      isActive: row.isActive,
+    }));
+
+    const context: MatchContext & { rules: BankRule[] } = {
+      rules,
       openInvoices: invoices
         .map((invoice) => ({
           id: invoice.id,

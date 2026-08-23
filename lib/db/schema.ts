@@ -395,6 +395,32 @@ export const bankStatementLines = pgTable(
   (table) => [unique().on(table.statementId, table.rowNumber)]
 );
 
+// П8 — Банкны хуулгын импортын хэрэглэгчийн дүрэм: нөхцөл (текст агуулна /
+// чиглэл / дүнгийн муж) → үйлдэл (харьцах данс, харилцагч, тайлбар бөглөх).
+// mode: suggest (санал болгох) | auto (уншигдмагц шууд бөглөх). Тулгалтын
+// цэвэр логик lib/cash/bank-rules.ts-д.
+export const bankRules = pgTable("bank_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  matchText: text("match_text").notNull(),
+  side: text("side").notNull().default("any"),
+  minAmount: numeric("min_amount", { precision: 18, scale: 2 }),
+  maxAmount: numeric("max_amount", { precision: 18, scale: 2 }),
+  counterAccountNumber: text("counter_account_number").notNull(),
+  setCounterparty: text("set_counterparty"),
+  setDescription: text("set_description"),
+  mode: text("mode").notNull().default("suggest"),
+  priority: integer("priority").notNull().default(100),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const cashFxRevaluations = pgTable(
   "cash_fx_revaluations",
   {

@@ -18,6 +18,10 @@ import type {
 } from "ag-grid-community";
 
 import { AccountSegmentPicker } from "@/components/account/account-segment-picker";
+import {
+  BankRulesDialog,
+  type BankRuleDraft,
+} from "@/components/cash/bank-rules-dialog";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { Button } from "@/components/ui/button";
@@ -36,6 +40,12 @@ import type {
   ParsedBankStatement,
   ParsedBankStatementRow,
 } from "@/lib/cash/bank-statement-types";
+import {
+  firstMatchingRule,
+  toRuleSuggestion,
+  type BankRule,
+  type RuleSuggestion,
+} from "@/lib/cash/bank-rules";
 import {
   suggestMatches,
   type MatchContext,
@@ -75,6 +85,12 @@ interface Props {
 
 type AssignmentSide = "debit" | "credit";
 type AssignmentScope = "selected" | "filtered";
+
+/** «Санал» баганы нэгдсэн төрөл — дүрэм → нэхэмжлэх → түүхэн загвар. */
+type AnySuggestion = RuleSuggestion | RowSuggestion;
+
+/** Саналын лавлах + П8 дүрмүүд — suggestions endpoint-ийн хариу. */
+type ImportContext = MatchContext & { rules?: BankRule[] };
 
 function emptyAccountCode(
   activeSegIds: number[],
@@ -127,7 +143,10 @@ export function BankStatementImport({
     useState<AssignmentScope>("selected");
   const [assignmentCode, setAssignmentCode] = useState("");
   const [assignmentOpen, setAssignmentOpen] = useState(false);
-  const [matchContext, setMatchContext] = useState<MatchContext | null>(null);
+  const [matchContext, setMatchContext] = useState<ImportContext | null>(null);
+  // П8 — дүрмийн диалог + мөрөөс урьдчилан бөглөх draft.
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [ruleDraft, setRuleDraft] = useState<BankRuleDraft | null>(null);
   const [linesStatement, setLinesStatement] =
     useState<BankStatementSummary | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -233,10 +252,41 @@ export function BankStatementImport({
     return suggestMatches(parsed.rows, context);
   }, [parsed, matchContext, cashCurrency]);
 
+  // П8 — мөр бүрд таарах ЭХНИЙ дүрэм (parse хийсэн эх мөрүүдээс, саналуудтай
+  // ижил зарчим — засвар хийхэд дахин тооцоолохгүй).
+  const rules = matchContext?.rules;
+  const ruleHits = useMemo<Record<string, BankRule>>(() => {
+    if (!parsed || !rules?.length) return {};
+    const hits: Record<string, BankRule> = {};
+    for (const row of parsed.rows) {
+      const rule = firstMatchingRule(row, rules);
+      if (rule) hits[row.id] = rule;
+    }
+    return hits;
+  }, [parsed, rules]);
+
+  // Нэгдсэн саналууд — дүрэм ЭХЭНД, дараа нь нэхэмжлэх/түүхэн загвар
+  // (батлагдсан дараалал: AI/тулгалтын санал rules-ийн ДАРАА давхарлана).
+  const allSuggestions = useMemo<Record<string, AnySuggestion[]>>(() => {
+    const merged: Record<string, AnySuggestion[]> = {};
+    const ids = new Set([
+      ...Object.keys(ruleHits),
+      ...Object.keys(suggestions),
+    ]);
+    for (const id of ids) {
+      const list: AnySuggestion[] = [];
+      const rule = ruleHits[id];
+      if (rule) list.push(toRuleSuggestion(rule));
+      list.push(...(suggestions[id] ?? []));
+      merged[id] = list;
+    }
+    return merged;
+  }, [ruleHits, suggestions]);
+
   // Саналын дансыг бүтэн 10-part сегмент код болгоно (хуучин дата ганц
   // 8 оронтой үндсэн данс хадгалсан байж болно).
   const suggestionCode = useCallback(
-    (suggestion: RowSuggestion) => {
+    (suggestion: AnySuggestion) => {
       const raw = suggestion.counterAccountNumber ?? "";
       if (!raw) return "";
       return raw.split(".").length === 10
@@ -250,21 +300,45 @@ export function BankStatementImport({
     [activeSegIds, defaultSegments]
   );
 
+  // Саналыг мөрөнд буулгах НЭГ зам: данс + (нэхэмжлэх бол) settlement
+  // холбоос + (дүрэм бол) харилцагч/тайлбар солих. «Ашиглах», batch,
+  // авто дүрэм гурвуулаа энийг ашиглана.
+  const patchRowWithSuggestion = useCallback(
+    (
+      row: ParsedBankStatementRow,
+      suggestion: AnySuggestion,
+      code: string
+    ): ParsedBankStatementRow => {
+      const settleInvoiceId =
+        suggestion.kind === "invoice" ? suggestion.invoiceId : null;
+      const patched =
+        row.income > 0
+          ? { ...row, creditAccountNumber: code, settleInvoiceId }
+          : { ...row, debitAccountNumber: code, settleInvoiceId };
+      if (suggestion.kind === "rule") {
+        if (suggestion.setCounterparty)
+          patched.counterparty = suggestion.setCounterparty;
+        if (suggestion.setDescription)
+          patched.description = suggestion.setDescription;
+      }
+      return patched;
+    },
+    []
+  );
+
   const applySuggestion = useCallback(
-    (rowId: string, suggestion: RowSuggestion) => {
+    (rowId: string, suggestion: AnySuggestion) => {
       const code = suggestionCode(suggestion);
       if (!code) return;
       // Нэхэмжлэхийн санал → хадгалахад settlement (төлбөрийн холбоос)
-      // үүсгэнэ; дансны загварын санал → зөвхөн данс бөглөнө.
+      // үүсгэнэ; дансны загвар/дүрмийн санал → мөрийн талбарууд бөглөнө.
       const settleInvoiceId =
         suggestion.kind === "invoice" ? suggestion.invoiceId : null;
       setError("");
       setRows((current) =>
         current.map((row) => {
           if (row.id === rowId)
-            return row.income > 0
-              ? { ...row, creditAccountNumber: code, settleInvoiceId }
-              : { ...row, debitAccountNumber: code, settleInvoiceId };
+            return patchRowWithSuggestion(row, suggestion, code);
           // Нэг нэхэмжлэх нэг л мөрөнд — өөр мөрөнд байсан холбоос энэ мөр
           // рүү ШИЛЖИНЭ (давхардал нь хадгалах үед бүх импортыг унагадаг).
           if (settleInvoiceId && row.settleInvoiceId === settleInvoiceId)
@@ -273,7 +347,7 @@ export function BankStatementImport({
         })
       );
     },
-    [suggestionCode]
+    [suggestionCode, patchRowWithSuggestion]
   );
 
   // Санал мөрөнд бүрэн хэрэгжсэн үү: данс таарсан БА (нэхэмжлэхийн санал
@@ -281,7 +355,7 @@ export function BankStatementImport({
   // оноох, paste) таарчихсан ч холбоогүй мөр "хэрэгжсэн" биш — холбох
   // боломж (товч) харагдана.
   const suggestionApplied = useCallback(
-    (row: ParsedBankStatementRow, top: RowSuggestion, code: string) => {
+    (row: ParsedBankStatementRow, top: AnySuggestion, code: string) => {
       const current =
         row.income > 0 ? row.creditAccountNumber : row.debitAccountNumber;
       return (
@@ -303,9 +377,9 @@ export function BankStatementImport({
         .map((row) => row.settleInvoiceId)
         .filter((value): value is string => !!value)
     );
-    const pending: { rowId: string; top: RowSuggestion }[] = [];
+    const pending: { rowId: string; top: AnySuggestion }[] = [];
     for (const row of rows) {
-      const top = suggestions[row.id]?.[0];
+      const top = allSuggestions[row.id]?.[0];
       if (!top || top.confidence !== "high") continue;
       const code = suggestionCode(top);
       if (!code || suggestionApplied(row, top, code)) continue;
@@ -316,7 +390,7 @@ export function BankStatementImport({
       pending.push({ rowId: row.id, top });
     }
     return pending;
-  }, [rows, suggestions, suggestionCode, suggestionApplied]);
+  }, [rows, allSuggestions, suggestionCode, suggestionApplied]);
 
   const applyAllHighConfidence = useCallback(() => {
     const pendingByRowId = new Map(
@@ -328,14 +402,51 @@ export function BankStatementImport({
         if (!top) return row;
         const code = suggestionCode(top);
         if (!code) return row;
-        const settleInvoiceId =
-          top.kind === "invoice" ? top.invoiceId : null;
-        return row.income > 0
-          ? { ...row, creditAccountNumber: code, settleInvoiceId }
-          : { ...row, debitAccountNumber: code, settleInvoiceId };
+        return patchRowWithSuggestion(row, top, code);
       })
     );
-  }, [highConfidencePending, suggestionCode]);
+  }, [highConfidencePending, suggestionCode, patchRowWithSuggestion]);
+
+  // Дүрэм өөрчлөгдсөний дараа саналын лавлахыг сэргээнэ (мөрүүд хөндөгдөхгүй —
+  // авто дүрэм зөвхөн шинэ parse дээр л шууд хэрэгжинэ).
+  const refreshMatchContext = useCallback(() => {
+    void fetch("/api/cash/statements/suggestions")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: (ImportContext & { error?: string }) | null) => {
+        if (data && !data.error) setMatchContext(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Xero-гийн "Create rule" урсгал: сонгосон мөрийн текст/чиглэл/дансаар
+  // шинэ дүрмийн формыг урьдчилан бөглөж нээнэ.
+  const createRuleFromSelection = useCallback(() => {
+    const selected =
+      (
+        gridRef.current?.api as GridApi<ParsedBankStatementRow> | undefined
+      )?.getSelectedRows() ?? [];
+    if (selected.length !== 1) {
+      setError("Дүрэм үүсгэхийн тулд яг нэг мөр сонгоно уу");
+      return;
+    }
+    const row = selected[0];
+    // Харьцах тал: орлогод кредит, зарлагад дебет данс.
+    const counterOfRow =
+      row.income > 0 ? row.creditAccountNumber : row.debitAccountNumber;
+    setError("");
+    setRuleDraft({
+      matchText: (row.counterparty || row.description).trim(),
+      side: row.income > 0 ? "income" : "expense",
+      counterAccountNumber: isCompleteAccountCode(
+        counterOfRow,
+        activeSegIds,
+        segmentOptions
+      )
+        ? counterOfRow
+        : "",
+    });
+    setRulesOpen(true);
+  }, [activeSegIds, segmentOptions]);
 
   const triageCounts = useMemo(() => {
     let ready = 0;
@@ -343,11 +454,11 @@ export function BankStatementImport({
     let missing = 0;
     for (const row of rows) {
       if (rowReady(row)) ready += 1;
-      else if (suggestions[row.id]?.length) suggested += 1;
+      else if (allSuggestions[row.id]?.length) suggested += 1;
       else missing += 1;
     }
     return { ready, suggested, missing };
-  }, [rows, rowReady, suggestions]);
+  }, [rows, rowReady, allSuggestions]);
 
   const displayedRows = useMemo(() => {
     if (triageFilter === "all") return rows;
@@ -355,10 +466,10 @@ export function BankStatementImport({
       const ready = rowReady(row);
       if (triageFilter === "ready") return ready;
       if (triageFilter === "suggested")
-        return !ready && (suggestions[row.id]?.length ?? 0) > 0;
-      return !ready && (suggestions[row.id]?.length ?? 0) === 0;
+        return !ready && (allSuggestions[row.id]?.length ?? 0) > 0;
+      return !ready && (allSuggestions[row.id]?.length ?? 0) === 0;
     });
-  }, [rows, triageFilter, rowReady, suggestions]);
+  }, [rows, triageFilter, rowReady, allSuggestions]);
 
   const columnDefs = useMemo<ColDef<ParsedBankStatementRow>[]>(
     () => [
@@ -520,28 +631,39 @@ export function BankStatementImport({
         ) => {
           const row = params.data;
           if (!row) return null;
-          const top = suggestions[row.id]?.[0];
+          const top = allSuggestions[row.id]?.[0];
           if (!top) return null;
           const targetCode = suggestionCode(top);
           const applied = suggestionApplied(row, top, targetCode);
           const label =
             top.kind === "invoice"
               ? top.documentNo
-              : `${fmtAccountDisplay(targetCode, activeSegIds)} · түгээмэл данс`;
+              : top.kind === "rule"
+                ? `${fmtAccountDisplay(targetCode, activeSegIds)} · ${top.ruleName}`
+                : `${fmtAccountDisplay(targetCode, activeSegIds)} · түгээмэл данс`;
           const hint =
             top.kind === "invoice"
               ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}. «Ашиглах» дарвал хадгалах үед энэ нэхэмжлэхтэй ШУУД холбогдож, төлсөн дүн нь шинэчлэгдэнэ.`
-              : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
+              : top.kind === "rule"
+                ? `«${top.ruleName}» дүрэм — данс${
+                    top.setCounterparty ? ", харилцагч" : ""
+                  }${top.setDescription ? ", тайлбар" : ""} бөглөнө.`
+                : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
           const settleLinked = applied && !!row.settleInvoiceId;
           return (
             <span className="flex h-full items-center gap-1.5">
-              {/* Итгэлийн түвшний дохио — QBO/Digits загвар: ногоон=хүчтэй */}
+              {/* Итгэлийн түвшний дохио — QBO/Digits загвар: ногоон=хүчтэй;
+                  дүрмийн санал эх сурвалжаа «Дүрэм» гэж ил зарлана */}
               <StatusBadge
                 tone={top.confidence === "high" ? "success" : "warning"}
                 size="sm"
                 className="shrink-0"
               >
-                {top.confidence === "high" ? "Хүчтэй" : "Дунд"}
+                {top.kind === "rule"
+                  ? "Дүрэм"
+                  : top.confidence === "high"
+                    ? "Хүчтэй"
+                    : "Дунд"}
               </StatusBadge>
               <span
                 title={hint}
@@ -633,7 +755,7 @@ export function BankStatementImport({
       segmentOptions,
       suggestionApplied,
       suggestionCode,
-      suggestions,
+      allSuggestions,
     ]
   );
 
@@ -693,12 +815,42 @@ export function BankStatementImport({
         // Өмнөх хуулгын chip шүүлт үлдвэл шинэ мөрүүд далдлагдана.
         setTriageFilter("all");
         applyQuickFilter("");
-        // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар) —
-        // фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
+        // Саналын лавлах дата (нээлттэй нэхэмжлэх + түүхэн загвар + П8
+        // дүрмүүд) — фонд ачаална; амжилтгүй бол саналгүйгээр үргэлжилнэ.
         void fetch("/api/cash/statements/suggestions")
           .then((response) => (response.ok ? response.json() : null))
-          .then((data: (MatchContext & { error?: string }) | null) => {
-            if (data && !data.error) setMatchContext(data);
+          .then((data: (ImportContext & { error?: string }) | null) => {
+            if (!data || data.error) return;
+            setMatchContext(data);
+            // «Шууд бөглөх» дүрэм уншигдмагц хэрэгжинэ — хэрэглэгч
+            // хадгалахаас өмнө хянаж засна (§9). Аль хэдийн бөглөгдсөн
+            // (хэрэглэгчийн засварласан) талыг дарж бичихгүй.
+            const autoRules = (data.rules ?? []).filter(
+              (rule) => rule.mode === "auto"
+            );
+            if (autoRules.length === 0) return;
+            const hits = new Map(
+              result.rows.flatMap((row) => {
+                const rule = firstMatchingRule(row, autoRules);
+                return rule ? [[row.id, rule] as const] : [];
+              })
+            );
+            if (hits.size === 0) return;
+            setRows((current) =>
+              current.map((row) => {
+                const rule = hits.get(row.id);
+                if (!rule) return row;
+                const counterField =
+                  row.income > 0
+                    ? ("creditAccountNumber" as const)
+                    : ("debitAccountNumber" as const);
+                if (row[counterField] !== blankCode) return row;
+                const suggestion = toRuleSuggestion(rule);
+                const code = suggestionCode(suggestion);
+                if (!code) return row;
+                return patchRowWithSuggestion(row, suggestion, code);
+              })
+            );
           })
           .catch(() => {});
       } catch (caught) {
@@ -919,6 +1071,17 @@ export function BankStatementImport({
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button
+              variant="outline"
+              className="h-8"
+              onClick={() => {
+                setRuleDraft(null);
+                setRulesOpen(true);
+              }}
+            >
+              <Icon name="settings" size="sm" />
+              Дүрэм{rules?.length ? ` (${rules.length})` : ""}
+            </Button>
             <a
               href="/examples/golomt-bank-statement-sample.xlsx"
               download
@@ -1025,6 +1188,15 @@ export function BankStatementImport({
               onClick={() => void pasteAssignments()}
             >
               <Icon name="paste" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Сонгосон мөрөөс дүрэм үүсгэх"
+              aria-label="Мөрөөс дүрэм үүсгэх"
+              onClick={createRuleFromSelection}
+            >
+              <Icon name="addDocument" />
             </Button>
             <span className="text-xs text-[var(--ea-text-3)]">
               {selectedCount > 0
@@ -1238,6 +1410,20 @@ export function BankStatementImport({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* П8 — банкны хуулгын дүрмийн удирдлага */}
+      <BankRulesDialog
+        open={rulesOpen}
+        onOpenChange={(open) => {
+          setRulesOpen(open);
+          if (!open) setRuleDraft(null);
+        }}
+        activeSegIds={activeSegIds}
+        segmentOptions={segmentOptions}
+        defaultSegments={defaultSegments}
+        draft={ruleDraft}
+        onRulesChanged={refreshMatchContext}
+      />
     </div>
   );
 }
