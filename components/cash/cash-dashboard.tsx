@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { EmptyState as SharedEmptyState } from "@/components/ui/empty-state";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
@@ -558,9 +559,6 @@ function HealthAmount({
 }
 
 function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="flex h-44 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-      {text}
-    </div>
-  );
+  // Нэгдсэн харагдац — components/ui/empty-state (П19).
+  return <SharedEmptyState icon="cash" title={text} />;
 }

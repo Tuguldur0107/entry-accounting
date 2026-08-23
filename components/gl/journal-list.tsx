@@ -12,6 +12,7 @@ import {
 import { importJournalVouchers } from "@/lib/actions/journal-import";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import { Button } from "@/components/ui/button";
@@ -583,9 +584,37 @@ export function JournalList({
       <>
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           {excelToolbar}
-          <div className="flex flex-1 items-center justify-center bg-[var(--ea-surface)] border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
-            Бичилт байхгүй
-          </div>
+          {vouchers.length === 0 ? (
+            // П19 — огт бичилтгүй: дараагийн алхмыг заана (шүүлтийн
+            // хоосонтой андуурахгүй).
+            <EmptyState
+              icon="journal"
+              title="Анхны журналаа бичээрэй"
+              description="Эхний үлдэгдэл эсвэл анхны гүйлгээгээ бичихэд тайлангууд шууд бодогдоно. Банкны хуулгаас ч эхэлж болно."
+              actions={[
+                {
+                  label: "Шинэ журнал",
+                  href: "/gl/journal/new",
+                  icon: "add",
+                  primary: true,
+                },
+                {
+                  label: "Excel импорт",
+                  onClick: () => setImportOpen(true),
+                  icon: "spreadsheet",
+                },
+                {
+                  label: "Банкны хуулга импорт",
+                  href: "/cash/statements",
+                  icon: "upload",
+                },
+              ]}
+            />
+          ) : (
+            <div className="flex flex-1 items-center justify-center bg-[var(--ea-surface)] border border-[var(--ea-border)] rounded-md py-16 text-center text-[var(--ea-text-4)] text-sm">
+              Бичилт байхгүй
+            </div>
+          )}
         </section>
         {importDialog}
         {confirmDialog}

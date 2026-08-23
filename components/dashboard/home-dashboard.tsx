@@ -4,6 +4,10 @@
 
 import Link from "next/link";
 import { DashboardQuickActions } from "@/components/dashboard/quick-actions";
+import {
+  SetupChecklist,
+  type SetupStep,
+} from "@/components/dashboard/setup-checklist";
 import { Icon, type IconName } from "@/components/ui/icon";
 
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -93,6 +97,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function HomeDashboard({
+  setupSteps,
   periodCode,
   periodStatus,
   totalDebit,
@@ -106,6 +111,7 @@ export function HomeDashboard({
   taxDeadlines,
   kpi,
 }: {
+  setupSteps: SetupStep[];
   periodCode: string;
   periodStatus: "open" | "closed" | "missing";
   totalDebit: number;
@@ -219,6 +225,9 @@ export function HomeDashboard({
 
       {/* Хурдан үйлдэл — топбарын "+ Шинэ" цэстэй нэг эх сурвалж */}
       <DashboardQuickActions />
+
+      {/* П19 — эхлэлийн тохиргооны checklist (бүгд хийгдмэгц нуугдана) */}
+      <SetupChecklist steps={setupSteps} />
 
       {/* Татварын хуанли — дараагийн тайлагналын хугацаанууд */}
       <section>

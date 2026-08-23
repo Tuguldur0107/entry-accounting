@@ -21,6 +21,7 @@ import {
   type HomeQueueItem,
   type HomeTaxDeadline,
 } from "@/components/dashboard/home-dashboard";
+import { type SetupStep } from "@/components/dashboard/setup-checklist";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
 import { getActiveOrg } from "@/lib/auth";
 import { calculateCashBalances } from "@/lib/cash/balances";
@@ -33,9 +34,13 @@ import {
   cashAccounts,
   cashDocuments,
   chartOfAccounts,
+  counterparties,
+  employees,
   fixedAssets,
   inventoryMovements,
   journalVouchers,
+  organizations,
+  vatSettings,
 } from "@/lib/db/schema";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
@@ -83,6 +88,36 @@ export default async function HomePage() {
     }),
     db.query.accountingPeriods.findMany({
       where: eq(accountingPeriods.organizationId, orgId),
+    }),
+  ]);
+
+  // П19 — setup checklist-ийн "хийгдсэн" илрүүлэлт (хөнгөн count/exists).
+  const [
+    [counterpartyCountRow],
+    [employeeCountRow],
+    [statementCountRow],
+    vatSettingsRow,
+    orgRow,
+  ] = await Promise.all([
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(counterparties)
+      .where(eq(counterparties.organizationId, orgId)),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(employees)
+      .where(eq(employees.organizationId, orgId)),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(bankStatements)
+      .where(eq(bankStatements.organizationId, orgId)),
+    db.query.vatSettings.findFirst({
+      where: eq(vatSettings.organizationId, orgId),
+      columns: { id: true },
+    }),
+    db.query.organizations.findFirst({
+      where: eq(organizations.id, orgId),
+      columns: { registryNo: true },
     }),
   ]);
 
@@ -575,8 +610,62 @@ export default async function HomePage() {
     }
   );
 
+  /* ── П19: setup checklist — өгөгдлөөс автоматаар "хийгдсэн" болно ───────── */
+  const setupSteps: SetupStep[] = [
+    {
+      key: "company",
+      label: "Компанийн мэдээлэл",
+      hint: "Нэр, ТТД — баримт, тайланд хэрэглэгдэнэ",
+      href: "/settings/company",
+      done: !!orgRow?.registryNo,
+    },
+    {
+      key: "cash-account",
+      label: "Мөнгөн хөрөнгийн данс",
+      hint: "Касс, банкны дансаа бүртгэнэ",
+      href: "/cash/accounts",
+      done: cashAccountRows.length > 0,
+    },
+    {
+      key: "counterparty",
+      label: "Харилцагч бүртгэх",
+      hint: "Нэхэмжлэх, төлбөрт ашиглагдана",
+      href: "/receivables/counterparties",
+      done: (counterpartyCountRow?.n ?? 0) > 0,
+    },
+    {
+      key: "first-voucher",
+      label: "Эхний журнал бичих",
+      hint: "Эхний үлдэгдэл эсвэл анхны гүйлгээ",
+      href: "/gl/journal/new",
+      done: vouchers.length > 0,
+    },
+    {
+      key: "bank-import",
+      label: "Банкны хуулга импортлох",
+      hint: "CSV/XLSX хуулгаас гүйлгээ татна",
+      href: "/cash/statements",
+      done: (statementCountRow?.n ?? 0) > 0,
+    },
+    {
+      key: "vat",
+      label: "НӨАТ тайлантай танилцах",
+      hint: "Данс, хувь тохиргоотойгоо танилцана",
+      href: "/tax/vat",
+      done: !!vatSettingsRow,
+    },
+    {
+      key: "employees",
+      label: "Ажилтан бүртгэх",
+      hint: "Цалин бодолтод ашиглагдана",
+      href: "/payroll",
+      done: (employeeCountRow?.n ?? 0) > 0,
+    },
+  ];
+
   return (
     <HomeDashboard
+      setupSteps={setupSteps}
       periodCode={periodCode}
       periodStatus={periodStatus}
       totalDebit={round2(totalDebit)}

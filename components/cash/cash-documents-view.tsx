@@ -23,6 +23,7 @@ import type {
 } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { FilterChips, PageTabs } from "@/components/ui/tabs";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
@@ -669,9 +670,32 @@ export function CashDocumentsView({
       )}
 
       {visibleDocuments.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Мөнгөн гүйлгээ байхгүй
-        </div>
+        documents.length === 0 ? (
+          // П19 — огт гүйлгээгүй: дараагийн алхмыг заана.
+          <EmptyState
+            icon="cash"
+            title="Мөнгөн гүйлгээгээ бүртгэж эхлээрэй"
+            description="Гараар бүртгэх эсвэл банкны хуулгаа импортлоход GL журнал автоматаар үүснэ."
+            actions={[
+              {
+                label: "Шинэ мөнгөн гүйлгээ",
+                onClick: () => openCashNewPanel(),
+                icon: "add",
+                primary: true,
+              },
+              {
+                label: "Хуулга импортлох",
+                href: "/cash/statements",
+                icon: "upload",
+              },
+              { label: "Данс нэмэх", href: "/cash/accounts", icon: "bank" },
+            ]}
+          />
+        ) : (
+          <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+            Мөнгөн гүйлгээ байхгүй
+          </div>
+        )
       ) : (
         <>
           <DataGridDynamic<CashDocumentView>

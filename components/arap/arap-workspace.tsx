@@ -11,6 +11,7 @@ import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { EmptyState as SharedEmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import { Button } from "@/components/ui/button";
@@ -1408,15 +1409,17 @@ function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
 }) {
+  // Нэгдсэн харагдац — components/ui/empty-state (П19); локал дуудлагын
+  // хэлбэрийг хадгалсан нимгэн wrapper.
   return (
-    <div className="flex min-h-36 flex-1 flex-col items-center justify-center rounded-md border border-[var(--ea-border)] px-4 text-center text-sm text-[var(--ea-text-4)]">
-      <span>{text}</span>
-      {actionLabel && onAction && (
-        <Button variant="outline" size="sm" className="mt-3" onClick={onAction}>
-          <Icon name="add" />
-          {actionLabel}
-        </Button>
-      )}
-    </div>
+    <SharedEmptyState
+      icon="document"
+      title={text}
+      actions={
+        actionLabel && onAction
+          ? [{ label: actionLabel, onClick: onAction, icon: "add", primary: true }]
+          : []
+      }
+    />
   );
 }
