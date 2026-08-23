@@ -143,8 +143,47 @@ export function ArApWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const config = MODE_CONFIG[mode];
+
+  // eBarimt файл → сервер задаргаа → АП НООРОГ; амжилтад панель нээнэ.
+  async function importEbarimtFile(file: File) {
+    setEbarimtBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/arap/ebarimt", {
+        method: "POST",
+        body: formData,
+      });
+      const result = (await response.json()) as {
+        id?: string | null;
+        title?: string | null;
+        dedup?: boolean;
+        error?: string;
+      };
+      if (!response.ok || result.error) {
+        toast.error(result.error || "eBarimt уншиж чадсангүй");
+        return;
+      }
+      toast.success(
+        result.dedup
+          ? "Энэ eBarimt өмнө нь орсон байна — байгаа баримтыг нээлээ"
+          : `АП ноорог үүслээ${result.title ? `: ${result.title}` : ""}`
+      );
+      if (result.id)
+        openArapDocPanel({ documentId: result.id, mode: "payable" });
+      router.refresh();
+    } catch {
+      toast.error("eBarimt уншиж чадсангүй — дахин оролдоно уу");
+    } finally {
+      setEbarimtBusy(false);
+      if (ebarimtFileRef.current) ebarimtFileRef.current.value = "";
+    }
+  }
 // П17 — баримтын жагсаалтын хадгалсан харагдац.
   const documentsGridRef = useRef<DataGridHandle>(null);
+  // П24 — eBarimt/PDF-ээс АП ноорог (зөвхөн payable горимд).
+  const ebarimtFileRef = useRef<HTMLInputElement>(null);
+  const [ebarimtBusy, setEbarimtBusy] = useState(false);
     const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
@@ -604,6 +643,33 @@ export function ArApWorkspace({
               Харилцагч
             </Button>
           )}
+          {mode === "payable" &&
+            (focus === "dashboard" || focus === "documents") && (
+              <>
+                <input
+                  ref={ebarimtFileRef}
+                  type="file"
+                  accept="application/pdf,image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void importEbarimtFile(file);
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  disabled={ebarimtBusy}
+                  onClick={() => ebarimtFileRef.current?.click()}
+                  title="eBarimt/PDF баримтаас АП нэхэмжлэхийн ноорог үүсгэнэ"
+                >
+                  <Icon
+                    name={ebarimtBusy ? "loading" : "upload"}
+                    className={ebarimtBusy ? "animate-spin" : undefined}
+                  />
+                  {ebarimtBusy ? "Уншиж байна…" : "eBarimt импорт"}
+                </Button>
+              </>
+            )}
           {(focus === "dashboard" || focus === "documents") && (
             <Button onClick={() => openArapDocPanel({ mode })}>
               <Icon name="addDocument" />
