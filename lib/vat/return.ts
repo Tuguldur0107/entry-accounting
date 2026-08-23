@@ -11,12 +11,11 @@
 // Тооцооны (settlement) журнал дараа сард бичигддэг тул тухайн сарын
 // эргэлтэд орохгүй — сар бүрийн тайлан бие даасан байна.
 
+import { roundMoney as round2 } from "@/lib/arap/accounting";
+
 export type VatMode = "exclusive" | "inclusive";
 
 /** Мөнгөн дүнг 2 орны нарийвчлалтай бөөрөнхийлнө. */
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
 
 /**
  * НӨАТ-ийн задаргаа. exclusive: өгсөн дүн нь ЦЭВЭР (НӨАТ-гүй) —

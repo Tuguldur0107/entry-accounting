@@ -30,6 +30,7 @@ import type {
   ClearingObjectRow,
   ClearingReconciliation,
 } from "./clearing-types";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export async function loadClearingReconciliation(
   orgId: string,
@@ -277,7 +278,6 @@ export async function loadClearingReconciliation(
     // Мужийн дараах мөр тооцогдохгүй.
   }
 
-  const round2 = (value: number) => Math.round(value * 100) / 100;
   const rows: ClearingObjectRow[] = [...buckets.values()]
     .map((bucket) => {
       const opening = round2(bucket.opening);

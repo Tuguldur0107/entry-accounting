@@ -39,8 +39,8 @@ import {
 } from "@/lib/db/schema";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
-const round2 = (x: number) => Math.round(x * 100) / 100;
 
 export default async function HomePage() {
   const { orgId } = await getActiveOrg();

@@ -1,3 +1,6 @@
+// Нэг эх сурвалж: үндсэн дансны салгагч. Хуучин нэрээр re-export.
+export { extractMainAccount as mainAccountOf } from "@/lib/reports/balances";
+import { extractMainAccount } from "@/lib/reports/balances";
 // Мөнгөн гүйлгээ бичихэд хэрэгтэй сонголтын өгөгдлийн НЭГДСЭН ачаалагч —
 // transactions хуудас (Server Component) болон cash-new панелийн server
 // action хоёулаа ЭНЭ функцийг дууддаг тул query давхардахгүй.
@@ -48,11 +51,6 @@ export interface CashTransactionOptions {
   arApOpenDocuments: CashArApSettlementTarget[];
 }
 
-/** 10-part dotted кодоос үндсэн дансыг салгана (энгийн код бол өөрийг нь). */
-export function mainAccountOf(accountNumber: string) {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
-}
 
 /** Хуудас + панелийн НЭГ мөрийн mapper — DB row → client view. */
 export function toCashDocumentView(
@@ -193,7 +191,7 @@ export async function loadCashTransactionOptions(
       counterpartyName: doc.counterparty.name,
       date: doc.date,
       currency: doc.currency,
-      controlAccountNumber: mainAccountOf(doc.controlAccountNumber),
+      controlAccountNumber: extractMainAccount(doc.controlAccountNumber),
       balance:
         Math.round(
           (Number(doc.totalAmount) - Number(doc.paidAmount)) * 100

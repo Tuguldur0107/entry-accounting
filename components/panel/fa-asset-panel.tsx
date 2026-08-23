@@ -52,6 +52,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
+import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
@@ -175,24 +176,17 @@ export function FaAssetPanel({
 
   if (!assetId)
     return (
-      <div className="flex min-h-40 flex-1 items-center justify-center px-6 text-center text-sm text-[var(--ea-danger)]">
-        {ERROR_MESSAGES["not-found"]}
-      </div>
+      <PanelError message={ERROR_MESSAGES["not-found"]} />
     );
 
   if (state.status === "loading")
     return (
-      <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Icon name="loading" className="animate-spin" />
-        Ачаалж байна…
-      </div>
+      <PanelLoading />
     );
 
   if (state.status === "error")
     return (
-      <div className="flex min-h-40 flex-1 items-center justify-center px-6 text-center text-sm text-[var(--ea-danger)]">
-        {state.message}
-      </div>
+      <PanelError message={state.message} />
     );
 
   const { asset, panelData } = state;

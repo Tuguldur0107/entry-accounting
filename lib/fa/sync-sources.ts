@@ -1,3 +1,4 @@
+import { extractMainAccount as mainAccountOf } from "@/lib/reports/balances";
 // FA картын ноорог — эх үүсвэрээс (plain server модуль, "use server" БИШ).
 //
 // АП нэхэмжлэх / касс / GL журнал FA ӨРТГИЙН данс руу цэвэр Dr бичмэгц
@@ -16,10 +17,6 @@ import { fixedAssets, journalVouchers } from "@/lib/db/schema";
 // contra (20000002, 21000099) болон түр данс (20000099) ОРОХГҮЙ.
 export const FA_COST_ACCOUNTS = new Set(["20000001", "21010000", "21000001"]);
 
-function mainAccountOf(accountNumber: string) {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
-}
 
 export async function syncFixedAssetDraftForVoucher(voucherId: string) {
   try {

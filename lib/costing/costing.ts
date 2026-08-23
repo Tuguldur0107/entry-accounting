@@ -17,6 +17,7 @@ import {
   sortChronologically,
   type MovementRef,
 } from "@/lib/inventory/balances";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 /**
  * Өртгийн модулийн дансны РОЛЬ-ууд. Дугаарууд нь хэрэглэгчийн тохиргооноос
@@ -85,7 +86,6 @@ export interface ValueAdjustmentRef {
   createdAt: string;
 }
 
-const round2 = (x: number) => Math.round(x * 100) / 100;
 const round4 = (x: number) => Math.round(x * 10000) / 10000;
 
 function applyReceipt(state: ItemCostState, qty: number, unitCost: number) {

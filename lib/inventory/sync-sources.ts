@@ -1,3 +1,4 @@
+import { extractMainAccount as mainAccountOf } from "@/lib/reports/balances";
 // Эх үүсвэрээс inventory-ийн ТОО ХЭМЖЭЭНИЙ draft үүсгэгч (plain server
 // модуль — "use server" БИШ: server-to-server дуудахад шууд ажиллана,
 // cash-ийн sync-voucher.ts-тэй ижил шалтгаанаар).
@@ -37,10 +38,6 @@ function revalidateInventoryPaths() {
   revalidatePath("/costing");
 }
 
-function mainAccountOf(accountNumber: string) {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
-}
 
 // Клирингийн данс — худалдан авалтын суваг бүр ЭНД бичих ёстой (өртгийн
 // модуль Dr бараа данс / Cr клиринг гэж капитализаци хийдэг). 14000001 г.м.

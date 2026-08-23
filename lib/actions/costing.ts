@@ -26,8 +26,8 @@ import {
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
+import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
-import { buildSegCode } from "@/lib/grid/segments";
 import {
   computeCostingRun,
   entryPostingAccounts,
@@ -84,7 +84,7 @@ function activeSegIdsOf(
   ).map((definition) => definition.id);
 }
 
-// Cash-ийн cashPostingCodeBuilder-ийн клон: S9 = "CO" (Өртгийн бүртгэл).
+// Цөм дүрэм нэг эх сурвалжтай (lib/gl/posting-code.ts); S9 = "CO".
 async function costingPostingCodeBuilder(orgId: string) {
   const [configs, values] = await Promise.all([
     db.query.segmentConfigs.findMany({
@@ -97,18 +97,7 @@ async function costingPostingCodeBuilder(orgId: string) {
       ),
     }),
   ]);
-  const activeSegIds = activeSegIdsOf(configs);
-  const defaults: Record<number, string> = {};
-  for (const segmentId of activeSegIds) {
-    const options = values.filter((value) => value.segmentId === segmentId);
-    if (options.length === 1) defaults[segmentId] = options[0].code;
-  }
-  if (activeSegIds.includes(9)) defaults[9] = "CO";
-  return (mainAccount: string) =>
-    buildSegCode({ ...defaults, 3: mainAccount }, activeSegIds, {
-      ...defaults,
-      9: "CO",
-    });
+  return postingCodeBuilderFromData({ configs, values, moduleTag: "CO" });
 }
 
 // ─── Тохиргоо (бараа бүрийн дансны mapping) ──────────────────────────────────

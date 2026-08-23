@@ -16,8 +16,8 @@ import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalVouchers } from "@/lib/db/schema";
 import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
-const round2 = (x: number) => Math.round(x * 100) / 100;
 
 /** S9 модулийн тэмдэглэгээ — legacy (10 биш хэсэгтэй) кодыг GL гэж үзнэ. */
 function sourceModuleOf(accountNumber: string): string {

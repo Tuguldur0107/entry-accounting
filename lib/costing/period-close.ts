@@ -25,6 +25,7 @@ import { periodRange } from "@/lib/periods/period";
 import type { CostEntryType } from "./costing";
 import { runPeriodicCosting } from "./period-run";
 import { scopeKey } from "./periodic";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 /** Сарын дундажаар үнэлэгдэх хөдөлгөөний entry төрөл. */
 function averageValuedEntryType(
@@ -63,7 +64,6 @@ export interface PeriodCostingSummary {
   blockers: PeriodCloseBlocker[];
 }
 
-const round2 = (value: number) => Math.round(value * 100) / 100;
 const round4 = (value: number) => Math.round(value * 10000) / 10000;
 
 /**

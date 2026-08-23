@@ -1,3 +1,6 @@
+// Нэг эх сурвалж: үндсэн дансны салгагч. Хуучин нэрээр re-export.
+export { extractMainAccount as mainAccountOf } from "@/lib/reports/balances";
+import { extractMainAccount } from "@/lib/reports/balances";
 // GL → Cash subledger sync.
 //
 // When a journal voucher is posted in the GL that touches a cash/bank
@@ -38,11 +41,6 @@ export interface DerivedCashDocument {
   description: string;
 }
 
-// Main account = segment 3 (parts[2]) of a 10-part code, else the bare code.
-export function mainAccountOf(accountNumber: string): string {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
-}
 
 // S8 cash-flow classification = segment 8 (parts[7]). Padding defaults
 // ("", "0", "0000"…) mean "unclassified" → null.
@@ -72,8 +70,8 @@ export function deriveCashDocumentFromVoucher(input: {
 
   const tagged = input.lines.map((l) => ({
     line: l,
-    main: mainAccountOf(l.accountNumber),
-    cash: byGl.get(mainAccountOf(l.accountNumber)) ?? null,
+    main: extractMainAccount(l.accountNumber),
+    cash: byGl.get(extractMainAccount(l.accountNumber)) ?? null,
   }));
 
   const cashLines = tagged.filter((t) => t.cash);

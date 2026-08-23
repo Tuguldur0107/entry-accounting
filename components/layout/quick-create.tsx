@@ -76,6 +76,16 @@ export const QUICK_CREATE_ACTIONS: {
   },
 ];
 
+/** Үйлдлийг гүйцэтгэнэ — href бол навигаци, үгүй бол панель. Цэс болон
+ * хяналтын самбарын "Хурдан үйлдэл" хоёул энэ нэг замаар явна. */
+export function runQuickCreateAction(
+  action: (typeof QUICK_CREATE_ACTIONS)[number],
+  router: { push: (href: string) => void }
+) {
+  if (action.href) router.push(action.href);
+  else action.run?.();
+}
+
 export function QuickCreate() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -93,10 +103,8 @@ export function QuickCreate() {
   );
 
   const runAction = useCallback(
-    (action: (typeof QUICK_CREATE_ACTIONS)[number]) => {
-      if (action.href) router.push(action.href);
-      else action.run?.();
-    },
+    (action: (typeof QUICK_CREATE_ACTIONS)[number]) =>
+      runQuickCreateAction(action, router),
     [router]
   );
 

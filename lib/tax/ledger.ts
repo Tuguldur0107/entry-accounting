@@ -7,6 +7,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalLines, journalVouchers } from "@/lib/db/schema";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export interface TaxAccountBalance {
   main: string;
@@ -32,7 +33,6 @@ export interface TaxLedgerData {
   entries: TaxLedgerEntry[];
 }
 
-const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export async function loadTaxLedger(
   orgId: string,

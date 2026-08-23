@@ -31,6 +31,7 @@ import {
   usePanelStore,
   type PanelInstance,
 } from "@/lib/store/panel-store";
+import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -156,17 +157,12 @@ export function FaAssetFormPanel({
 
   if (state.status === "loading")
     return (
-      <div className="flex min-h-40 flex-1 items-center justify-center gap-2 text-sm text-[var(--ea-text-3)]">
-        <Icon name="loading" className="animate-spin" />
-        Ачаалж байна…
-      </div>
+      <PanelLoading />
     );
 
   if (state.status === "error")
     return (
-      <div className="flex min-h-40 flex-1 items-center justify-center px-6 text-center text-sm text-[var(--ea-danger)]">
-        {state.message}
-      </div>
+      <PanelError message={state.message} />
     );
 
   return (

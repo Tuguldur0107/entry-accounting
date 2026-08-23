@@ -13,6 +13,7 @@
 // гаргаж чадахгүй суурь бүхэн ил алдаа болж зогсоно.
 
 import { allocate, type AllocationBase } from "./allocation";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export type ProductionAllocationBase = "sales_value" | "quantity" | "manual";
 
@@ -163,7 +164,6 @@ export interface StageResult {
   blockReason: string | null;
 }
 
-const round2 = (value: number) => Math.round(value * 100) / 100;
 
 const BASE_MAP: Record<ProductionAllocationBase, AllocationBase> = {
   sales_value: "value",

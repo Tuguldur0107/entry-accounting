@@ -3,6 +3,7 @@
 // Link болон CSS hover). Өнгө бүгд --ea-* токеноор.
 
 import Link from "next/link";
+import { DashboardQuickActions } from "@/components/dashboard/quick-actions";
 import { Icon, type IconName } from "@/components/ui/icon";
 
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -90,18 +91,6 @@ const STATUS_LABEL: Record<string, string> = {
   posted: "Бичигдсэн",
   reversed: "Буцаагдсан",
 };
-
-const QUICK_ACTIONS: {
-  href: string;
-  label: string;
-  icon: IconName;
-  primary?: boolean;
-}[] = [
-  { href: "/gl/journal/new", label: "Журнал бичих", icon: "add", primary: true },
-  { href: "/cash/statements", label: "Хуулга импорт", icon: "spreadsheet" },
-  { href: "/receivables/documents", label: "Нэхэмжлэл", icon: "document" },
-  { href: "/gl/reports", label: "Тайлан", icon: "report" },
-];
 
 export function HomeDashboard({
   periodCode,
@@ -228,25 +217,8 @@ export function HomeDashboard({
         )}
       </section>
 
-      {/* Хурдан үйлдэл */}
-      <div className="flex flex-wrap gap-2">
-        {QUICK_ACTIONS.map((action) => (
-          <Link
-            key={action.href}
-            href={action.href}
-            className={cn(
-              "flex h-9 items-center gap-2 rounded-md px-3.5 text-xs font-medium transition-colors",
-              action.primary
-                ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
-                : "ea-interactive border border-[var(--ea-border-strong)] text-[var(--ea-text-2)]"
-            )}
-            style={{ textDecoration: "none" }}
-          >
-            <Icon name={action.icon} size="sm" />
-            {action.label}
-          </Link>
-        ))}
-      </div>
+      {/* Хурдан үйлдэл — топбарын "+ Шинэ" цэстэй нэг эх сурвалж */}
+      <DashboardQuickActions />
 
       {/* Татварын хуанли — дараагийн тайлагналын хугацаанууд */}
       <section>

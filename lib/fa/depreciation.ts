@@ -4,6 +4,8 @@
 //                       хугацаа дуусмагц үлдэгдлийг бүтнээр нь элэгдүүлж хаана.
 // Аль ч аргад хуримтлагдсан нь (өртөг − үлдэх өртөг)-өөс хэтрэхгүй.
 
+import { roundMoney as round2 } from "@/lib/arap/accounting";
+
 export type DepreciationMethod = "straight_line" | "declining_balance";
 
 export const DEPRECIATION_METHODS: {
@@ -37,7 +39,6 @@ export interface FixedAssetRef {
   status: string;
 }
 
-const round2 = (x: number) => Math.round(x * 100) / 100;
 
 /** Шулуун шугамын тогтмол сарын дүн (мэдээлэл харуулахад). */
 export function monthlyDepreciation(asset: {

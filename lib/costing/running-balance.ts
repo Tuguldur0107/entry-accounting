@@ -16,6 +16,7 @@
 // болно — таамаг өртөг зохиохгүй. Running Qty үргэлж бодогдоно.
 
 import { scopeKey } from "./periodic";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export type RunningKind =
   | "priced-in" // худалдан авалт — бодит орлогын дүнтэй
@@ -49,7 +50,6 @@ export interface RunningValue {
   amount: number | null;
 }
 
-const round2 = (value: number) => Math.round(value * 100) / 100;
 const round4 = (value: number) => Math.round(value * 10000) / 10000;
 
 /**

@@ -15,8 +15,7 @@ import {
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
-import { buildSegCode } from "@/lib/grid/segments";
+import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import {
   computeMonthlyDepreciation,
   isDepreciationMethod,
@@ -31,6 +30,7 @@ import {
   type SegmentPickerData,
 } from "@/lib/gl/segment-picker-data";
 import { logAuditEvent } from "@/lib/audit";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 /** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
 async function requireAccountant() {
@@ -55,7 +55,7 @@ async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
     throw new Error(`${accountNumber} идэвхтэй GL данс олдсонгүй — тохиргоог шалгана уу`);
 }
 
-// cashPostingCodeBuilder-ийн клон: S9 = "FA".
+// Цөм дүрэм нэг эх сурвалжтай (lib/gl/posting-code.ts); S9 = "FA".
 async function faPostingCodeBuilder(orgId: string) {
   const [configs, values] = await Promise.all([
     db.query.segmentConfigs.findMany({ where: eq(segmentConfigs.organizationId, orgId) }),
@@ -63,22 +63,7 @@ async function faPostingCodeBuilder(orgId: string) {
       where: and(eq(segmentValues.organizationId, orgId), eq(segmentValues.isEnabled, true)),
     }),
   ]);
-  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-  const activeSegIds = SEGMENT_DEFS.filter(
-    (definition) =>
-      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
-  ).map((definition) => definition.id);
-  const defaults: Record<number, string> = {};
-  for (const segmentId of activeSegIds) {
-    const options = values.filter((value) => value.segmentId === segmentId);
-    if (options.length === 1) defaults[segmentId] = options[0].code;
-  }
-  if (activeSegIds.includes(9)) defaults[9] = "FA";
-  return (mainAccount: string) =>
-    buildSegCode({ ...defaults, 3: mainAccount }, activeSegIds, {
-      ...defaults,
-      9: "FA",
-    });
+  return postingCodeBuilderFromData({ configs, values, moduleTag: "FA" });
 }
 
 // ─── Панелийн өгөгдөл ────────────────────────────────────────────────────────
@@ -728,7 +713,6 @@ export async function getFaTieOutDetail(data: {
   }
   subledger.sort((a, b) => b.date.localeCompare(a.date));
 
-  const round2 = (value: number) => Math.round(value * 100) / 100;
   return {
     gl,
     subledger,
@@ -824,7 +808,6 @@ export async function disposeFixedAsset(
     ),
     columns: { amount: true },
   });
-  const round2 = (value: number) => Math.round(value * 100) / 100;
   const cost = round2(Number(asset.cost));
   const accum = round2(
     postedEntries.reduce((sum, entry) => sum + Number(entry.amount), 0)

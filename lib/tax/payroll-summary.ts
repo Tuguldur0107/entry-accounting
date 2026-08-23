@@ -6,6 +6,7 @@ import { desc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { payrollRuns } from "@/lib/db/schema";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export interface PayrollTaxMonth {
   /** YYYY-MM */
@@ -23,7 +24,6 @@ export interface PayrollTaxMonth {
   voucherCreated: boolean;
 }
 
-const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export async function loadPayrollTaxMonths(
   orgId: string

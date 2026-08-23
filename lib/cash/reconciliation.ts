@@ -1,3 +1,6 @@
+// Нэг эх сурвалж: үндсэн дансны салгагч. Хуучин нэрээр re-export.
+export { extractMainAccount as glMainNumber } from "@/lib/reports/balances";
+import { extractMainAccount } from "@/lib/reports/balances";
 import type { CashAccount, CashDocument } from "@/lib/db/schema";
 
 import { calculateCashBalances } from "@/lib/cash/balances";
@@ -47,11 +50,6 @@ export function calculateFxRevaluation(
 // дансны ДУГААРААР тоолж байсан г.м). Одоо хоёул ЭНЭ функцээс уншина —
 // шинэ дүрэм зөвхөн энд нэмэгдэнэ.
 
-/** 10 хэсэгт dotted кодоос үндсэн дансны дугаарыг салгана. */
-export function glMainNumber(accountNumber: string) {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
-}
 
 interface VoucherLike {
   lines: { accountNumber: string; debit: string | number; credit: string | number }[];
@@ -111,7 +109,7 @@ export function computeCashCoreRows<R extends FxRevaluationLike>(input: {
   const glByMain = new Map<string, number>();
   for (const voucher of vouchers) {
     for (const line of voucher.lines) {
-      const main = glMainNumber(line.accountNumber);
+      const main = extractMainAccount(line.accountNumber);
       glByMain.set(
         main,
         (glByMain.get(main) ?? 0) + Number(line.debit) - Number(line.credit)

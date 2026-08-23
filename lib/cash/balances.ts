@@ -1,4 +1,5 @@
 import type { CashAccount, CashDocument } from "@/lib/db/schema";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export interface CashMovementRow {
   accountId: string;
@@ -293,7 +294,6 @@ export function calculateCashFlowCodeSummary(
   codeNames: Map<string, string>
 ): CashFlowCodeRow[] {
   const rows = new Map<string, CashFlowCodeRow>();
-  const round2 = (value: number) => Math.round(value * 100) / 100;
 
   for (const document of documents) {
     if (document.status !== "posted") continue;

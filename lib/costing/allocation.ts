@@ -13,6 +13,8 @@
 // мөрд нэмнэ (largest-remainder). Ингэснээр мөрүүдийн нийлбэр нийт дүнтэй
 // ЯГ тэнцэж, §4.3-ын хяналт биелнэ — тайлбаргүй зөрүү үлдэхгүй.
 
+import { roundMoney as round2 } from "@/lib/arap/accounting";
+
 export type AllocationBase = "value" | "quantity" | "manual";
 
 export const ALLOCATION_BASE_LABELS: Record<AllocationBase, string> = {
@@ -42,7 +44,6 @@ export type AllocationResult =
   | { ok: true; lines: AllocationLine[] }
   | { ok: false; error: string };
 
-const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /**
  * Нийт дүнг мөрүүдэд хуваана. Нийлбэр нь нийт дүнтэй ЯГ тэнцэнэ.
