@@ -20,6 +20,10 @@ import {
   journalVouchers,
   inventoryMovements,
 } from "@/lib/db/schema";
+import {
+  deletePeriodSnapshot,
+  writePeriodSnapshot,
+} from "@/lib/periods/snapshot";
 import { PERIOD_GATE_LOCK_KEY } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange, type PeriodStatus } from "@/lib/periods/period";
 import { logAuditEvent } from "@/lib/audit";
@@ -256,6 +260,9 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
         target: [accountingPeriods.organizationId, accountingPeriods.code],
         set: { status: "closed", closedAt: new Date() },
       });
+    // П28 — хаагдсан агшны дансны үлдэгдлийн snapshot (lock дотор тул
+    // зэрэгцээ бичилтгүй үнэн төлөв). Дахин нээхэд устдаг.
+    await writePeriodSnapshot(tx, { orgId, userId, code, startDate, endDate });
     await logAuditEvent(
       {
         userId,
@@ -284,18 +291,24 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
 
   // Зөвхөн ХААЛТТАЙ периодыг дахин нээнэ — бүртгэлгүй/нээлттэй период
   // угаасаа нээлттэй тул "нээх" зүйл байхгүй (мөр статус update нь
-  // хийсвэр амжилт мэт харагдахаас сэргийлнэ).
-  const [reopened] = await db
-    .update(accountingPeriods)
-    .set({ status: "open", closedAt: null })
-    .where(
-      and(
-        eq(accountingPeriods.organizationId, orgId),
-        eq(accountingPeriods.code, code),
-        eq(accountingPeriods.status, "closed")
+  // хийсвэр амжилт мэт харагдахаас сэргийлнэ). Нэг транзакцад snapshot
+  // мөн устдаг (П28) — нээлттэй периодын snapshot худал мэдээлэл.
+  const reopened = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(accountingPeriods)
+      .set({ status: "open", closedAt: null })
+      .where(
+        and(
+          eq(accountingPeriods.organizationId, orgId),
+          eq(accountingPeriods.code, code),
+          eq(accountingPeriods.status, "closed")
+        )
       )
-    )
-    .returning({ code: accountingPeriods.code });
+      .returning({ code: accountingPeriods.code });
+    if (!row) return false;
+    await deletePeriodSnapshot(tx, { orgId, code });
+    return true;
+  });
   if (!reopened) return { ok: false, code: "not-closed" };
 
   // Аудитын мөр — хаагдсан периодыг нээх нь мэдрэг үйлдэл.

@@ -149,8 +149,30 @@ export function aggregateBalances(
     }
   }
 
+  return finalizeBalanceRows(Object.values(map), accounts, activeSegIds);
+}
+
+/** activeKey түвшний түүхий нийлбэр — finalizeBalanceRows-ийн оролт. */
+export interface ActiveKeySums {
+  activeKey: string;
+  openDebit: number;
+  openCredit: number;
+  periodDebit: number;
+  periodCredit: number;
+}
+
+/**
+ * Түүхий нийлбэрүүдийг BalanceRow болгоно — aggregateBalances (ваучераас)
+ * болон П28 snapshot-т суурилсан уншигч (lib/reports/period-balances.ts)
+ * хоёул ЭНЭ нэг хувиргалтыг ашиглана.
+ */
+export function finalizeBalanceRows(
+  entries: ActiveKeySums[],
+  accounts: ChartOfAccount[],
+  activeSegIds: number[]
+): BalanceRow[] {
   const out: BalanceRow[] = [];
-  for (const b of Object.values(map)) {
+  for (const b of entries) {
     const openNet = b.openDebit - b.openCredit;
     const closeNet = openNet + b.periodDebit - b.periodCredit;
 

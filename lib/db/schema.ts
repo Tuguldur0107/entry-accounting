@@ -154,6 +154,48 @@ export const accountingPeriods = pgTable(
   (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
 );
 
+// П28 — Периодын дансны үлдэгдлийн SNAPSHOT. Период хаагдахад бичигдэж
+// (lib/periods/snapshot.ts), дахин нээхэд устдаг. Хаагдсан период immutable
+// тул snapshot хуучирдаггүй — тайлангийн уншилт үүн дээр тулгуурлан
+// журналын бүрэн скан хийхгүй (lib/reports/period-balances.ts).
+// accountNumber нь journal_lines-тэй ИЖИЛ бүтэн сегмент код — дараа нь
+// аль ч activeSegIds бүлэглэлтээр дахин нэгтгэж болно.
+export const accountPeriodBalances = pgTable(
+  "account_period_balances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    periodCode: text("period_code").notNull(), // "YYYY-MM"
+    accountNumber: text("account_number").notNull(),
+    /** Кумулятив нээлт — периодын эхнээс ӨМНӨХ бүх posted/reversed бичилт. */
+    openingDebit: numeric("opening_debit", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    openingCredit: numeric("opening_credit", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    periodDebit: numeric("period_debit", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    periodCredit: numeric("period_credit", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.organizationId, t.periodCode, t.accountNumber),
+    index("account_period_balances_org_period_ix").on(
+      t.organizationId,
+      t.periodCode
+    ),
+  ]
+);
+
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
 
 export const journalVouchers = pgTable(

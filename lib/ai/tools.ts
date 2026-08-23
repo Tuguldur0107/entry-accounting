@@ -133,6 +133,7 @@ import {
   computeNetIncome,
   isBalanced,
 } from "@/lib/reports/balances";
+import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
 import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
 
 import type { AiWriteMode } from "./models";
@@ -3582,16 +3583,7 @@ async function runGetTrialBalance(
 ): Promise<AiToolResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.from ?? "") || !/^\d{4}-\d{2}-\d{2}$/.test(input.to ?? ""))
     throw new Error("from/to огноо YYYY-MM-DD форматтай байх ёстой");
-  const [vouchers, accounts, configs] = await Promise.all([
-    db.query.journalVouchers.findMany({
-      where: and(
-        eq(journalVouchers.organizationId, orgId),
-        // GL тайлангийн хуудастай ижил: reversed нь эх + буцаалт хосоороо
-        // тооцогдож нэт 0 болно.
-        inArray(journalVouchers.status, ["posted", "reversed"])
-      ),
-      with: { lines: true },
-    }),
+  const [accounts, configs] = await Promise.all([
     db.query.chartOfAccounts.findMany({
       where: eq(chartOfAccounts.organizationId, orgId),
     }),
@@ -3602,7 +3594,15 @@ async function runGetTrialBalance(
     (def) => def.id === 3 || configMap.get(def.id)?.isEnabled === true
   ).map((def) => def.id);
 
-  const rows = aggregateBalances(vouchers, accounts, activeSegIds, input.from, input.to);
+  // П28 — snapshot + SQL delta (статусын шүүлт ижил: posted/reversed);
+  // ваучерууд JS-д ачаалагдахгүй.
+  const rows = await loadBalanceRowsFast(
+    orgId,
+    input.from,
+    input.to,
+    accounts,
+    activeSegIds
+  );
   if (rows.length === 0) return { resultText: "Бичилт олдсонгүй" };
 
   const lines = rows.map(
@@ -3658,8 +3658,11 @@ async function runIncomeStatement(
   input: { from: string; to: string }
 ): Promise<AiToolResult> {
   assertDates(input.from, input.to);
-  const { vouchers, accounts } = await loadReportData(orgId);
-  const rows = aggregateBalances(vouchers, accounts, [3], input.from, input.to);
+  const accounts = await db.query.chartOfAccounts.findMany({
+    where: eq(chartOfAccounts.organizationId, orgId),
+  });
+  // П28 — snapshot + SQL delta; ваучер ачаалахгүй.
+  const rows = await loadBalanceRowsFast(orgId, input.from, input.to, accounts, [3]);
   const pnl = computeNetIncome(rows);
 
   const out: string[] = [`ОРЛОГЫН ТАЙЛАН ${input.from} — ${input.to}`, "Орлого:"];
@@ -3725,8 +3728,10 @@ async function runBalanceSheet(
   input: { asOf: string }
 ): Promise<AiToolResult> {
   assertDates(input.asOf);
-  const [{ vouchers, accounts }, mappings] = await Promise.all([
-    loadReportData(orgId),
+  const [accounts, mappings] = await Promise.all([
+    db.query.chartOfAccounts.findMany({
+      where: eq(chartOfAccounts.organizationId, orgId),
+    }),
     db.query.reportLineMappings.findMany({
       where: and(
         eq(reportLineMappings.organizationId, orgId),
@@ -3734,7 +3739,10 @@ async function runBalanceSheet(
       ),
     }),
   ]);
-  const rows = aggregateBalances(vouchers, accounts, [3], "1900-01-01", input.asOf);
+  // П28 — snapshot + SQL delta; asOf хүртэлх кумулятив (from маш эрт тул
+  // бүх дүн periodDebit/Credit-д хуримтлагдана — өмнөх aggregateBalances-тай
+  // яг ижил семантик).
+  const rows = await loadBalanceRowsFast(orgId, "1900-01-01", input.asOf, accounts, [3]);
   const byMain = new Map(rows.map((row) => [row.mainAccount, row]));
   const mappingByKey = new Map(mappings.map((row) => [row.lineKey, row]));
 
