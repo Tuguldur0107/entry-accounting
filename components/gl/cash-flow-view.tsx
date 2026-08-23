@@ -2,17 +2,24 @@
 
 import { useMemo } from "react";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
-import { buildCashFlow, type CashFlowLine } from "@/lib/reports/balances";
+import { buildCashFlowFromParts, type CashFlowLine } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
 import { ReportGrid, type ReportRow } from "./report-grid";
 
 interface Props {
+  /**
+   * П28: журнал бүрийн контра хослол шаардлагатай тул CF snapshot-оор
+   * орлуулагдахгүй — гэхдээ зөвхөн [from,to] доторх ваучерууд ирнэ;
+   * кассын нээлт/хаалт сервер талд [3] мөрүүдээс бодогдож ирдэг.
+   */
   vouchers: JournalVoucherWithLines[];
   accounts: ChartOfAccount[];
   activeSegIds: number[];
   activeSegments: SegmentDef[];
   appliedFrom: string;
   appliedTo: string;
+  cashOpenNet: number;
+  cashCloseNet: number;
 }
 
 export function CashFlowView({
@@ -22,10 +29,16 @@ export function CashFlowView({
   activeSegments,
   appliedFrom,
   appliedTo,
+  cashOpenNet,
+  cashCloseNet,
 }: Props) {
   const cf = useMemo(
-    () => buildCashFlow(vouchers, accounts, activeSegIds, appliedFrom, appliedTo),
-    [vouchers, accounts, activeSegIds, appliedFrom, appliedTo],
+    () =>
+      buildCashFlowFromParts(vouchers, accounts, activeSegIds, appliedFrom, appliedTo, {
+        openNet: cashOpenNet,
+        closeNet: cashCloseNet,
+      }),
+    [vouchers, accounts, activeSegIds, appliedFrom, appliedTo, cashOpenNet, cashCloseNet],
   );
 
   const openCash = cf.cashOpenDebit - cf.cashOpenCredit;

@@ -1,11 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import {
-  aggregateBalances,
   fmtMnt as fmt,
   isBalanced,
+  type BalanceRow,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -13,12 +12,9 @@ import { moneyValueFormatter } from "@/lib/grid/formatters";
 import type { ColDef, ColGroupDef } from "ag-grid-community";
 
 interface Props {
-  vouchers: JournalVoucherWithLines[];
-  accounts: ChartOfAccount[];
-  activeSegIds: number[];
+  /** П28: сервер талд нэгтгэгдсэн (snapshot + SQL delta) мөрүүд. */
+  rows: BalanceRow[];
   activeSegments: SegmentDef[];
-  appliedFrom: string;
-  appliedTo: string;
 }
 
 interface BalanceRowVM {
@@ -40,19 +36,7 @@ const NUM = {
   width: 120,
 } satisfies Partial<ColDef<BalanceRowVM>>;
 
-export function GlBalanceView({
-  vouchers,
-  accounts,
-  activeSegIds,
-  activeSegments,
-  appliedFrom,
-  appliedTo,
-}: Props) {
-  const rows = useMemo(
-    () => aggregateBalances(vouchers, accounts, activeSegIds, appliedFrom, appliedTo),
-    [vouchers, accounts, activeSegIds, appliedFrom, appliedTo],
-  );
-
+export function GlBalanceView({ rows, activeSegments }: Props) {
   const rowData: BalanceRowVM[] = useMemo(
     () =>
       rows.map((r) => ({

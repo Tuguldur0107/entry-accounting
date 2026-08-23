@@ -3,12 +3,14 @@
 // БҮХ модулийн нэгдсэн зураглал + анхаарах зүйлс + хурдан үйлдлийг өгнө.
 //
 // Тооцооллын дүрэм бүрийг модулийн хуудаснуудтай ижил байлгасан:
-//   • GL ангилал/баланс — extractMainAccount + getAccountClass (gl/page.tsx)
+//   • GL ангилал/баланс — loadVoucherSummaries-ийн ваучер-түвшний SQL нэгтгэл
+//     (П28: мөрүүд JS-д ачаалагдахгүй; задлалын дүрэм нь extractMainAccount +
+//     getAccountClass-тай ижил — gl/page.tsx-тэй нэг эх сурвалж)
 //   • Мөнгөн хөрөнгө   — calculateCashBalances, зөвхөн MNT актив данс (cash/page.tsx)
 //   • AR/AP           — totalAmount − paidAmount, зөвхөн posted документ
 //   • Буцаалт         — "posted" + "reversed" хамт тоологдож харилцан цуцлагдана
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import {
   HomeDashboard,
@@ -38,12 +40,11 @@ import {
   employees,
   fixedAssets,
   inventoryMovements,
-  journalVouchers,
   organizations,
   vatSettings,
 } from "@/lib/db/schema";
 import { getPeriodSelection } from "@/lib/periods/selection";
-import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
+import { loadVoucherSummaries } from "@/lib/reports/voucher-summaries";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 
@@ -61,14 +62,8 @@ export default async function HomePage() {
     movementRows,
     periodRows,
   ] = await Promise.all([
-    db.query.journalVouchers.findMany({
-      where: and(
-        eq(journalVouchers.organizationId, orgId),
-        inArray(journalVouchers.status, ["draft", "posted", "reversed"])
-      ),
-      with: { lines: true },
-      orderBy: (voucher, { desc }) => [desc(voucher.date), desc(voucher.createdAt)],
-    }),
+    // П28: ваучер-түвшний SQL нэгтгэл — мөрүүд JS-д ачаалагдахгүй.
+    loadVoucherSummaries(orgId),
     db.query.chartOfAccounts.findMany({
       where: and(
         eq(chartOfAccounts.organizationId, orgId),
@@ -159,36 +154,24 @@ export default async function HomePage() {
 
     if (voucher.status === "draft") {
       draftCount += 1;
-      let dr = 0;
-      let cr = 0;
-      for (const line of voucher.lines) {
-        dr += Number(line.debit);
-        cr += Number(line.credit);
-      }
-      if (Math.abs(dr - cr) > 0.01) unbalancedDraftCount += 1;
+      if (Math.abs(voucher.debit - voucher.credit) > 0.01)
+        unbalancedDraftCount += 1;
       continue;
     }
 
     if (voucher.status === "posted") postedCount += 1;
     if (inMonth) monthVoucherCount += 1;
 
-    for (const line of voucher.lines) {
-      const debit = Number(line.debit);
-      const credit = Number(line.credit);
-      totalDebit += debit;
-      totalCredit += credit;
-
-      const cls = getAccountClass(extractMainAccount(line.accountNumber));
-      if (cls === "asset") assets += debit - credit;
-      else if (cls === "liability") liabilities += credit - debit;
-      else if (cls === "equity") equity += credit - debit;
-      else if (cls === "revenue") {
-        cumRevenue += credit - debit;
-        if (inMonth) monthRevenue += credit - debit;
-      } else if (cls === "expense") {
-        cumExpense += debit - credit;
-        if (inMonth) monthExpense += debit - credit;
-      }
+    totalDebit += voucher.debit;
+    totalCredit += voucher.credit;
+    assets += voucher.cls.asset;
+    liabilities += voucher.cls.liability;
+    equity += voucher.cls.equity;
+    cumRevenue += voucher.cls.revenue;
+    cumExpense += voucher.cls.expense;
+    if (inMonth) {
+      monthRevenue += voucher.cls.revenue;
+      monthExpense += voucher.cls.expense;
     }
   }
 
@@ -334,13 +317,8 @@ export default async function HomePage() {
     if (voucher.status === "draft") continue;
     const slot = trendByMonth.get(voucher.date.slice(0, 7));
     if (!slot) continue;
-    for (const line of voucher.lines) {
-      const cls = getAccountClass(extractMainAccount(line.accountNumber));
-      if (cls === "revenue")
-        slot.revenue += Number(line.credit) - Number(line.debit);
-      else if (cls === "expense")
-        slot.expense += Number(line.debit) - Number(line.credit);
-    }
+    slot.revenue += voucher.cls.revenue;
+    slot.expense += voucher.cls.expense;
   }
   const trend = trendMonths.map((code) => ({
     month: code,
@@ -504,27 +482,19 @@ export default async function HomePage() {
     });
 
   /* ── Сүүлийн бичилтүүд ───────────────────────────────────────────────────── */
-  const recent: HomeRecentRow[] = vouchers.slice(0, 8).map((voucher) => {
-    const mains: string[] = [];
-    let amount = 0;
-    for (const line of voucher.lines) {
-      amount += Number(line.debit);
-      const main = extractMainAccount(line.accountNumber);
-      if (main && !mains.includes(main)) mains.push(main);
-    }
-    return {
-      id: voucher.id,
-      date: voucher.date,
-      description: voucher.description,
-      accounts:
-        mains
-          .slice(0, 2)
-          .map((m) => nameByMain.get(m) ?? m)
-          .join(", ") + (mains.length > 2 ? ` +${mains.length - 2}` : ""),
-      amount: round2(amount),
-      status: voucher.status,
-    };
-  });
+  const recent: HomeRecentRow[] = vouchers.slice(0, 8).map((voucher) => ({
+    id: voucher.id,
+    date: voucher.date,
+    description: voucher.description,
+    accounts:
+      voucher.mains
+        .slice(0, 2)
+        .map((m) => nameByMain.get(m) ?? m)
+        .join(", ") +
+      (voucher.mains.length > 2 ? ` +${voucher.mains.length - 2}` : ""),
+    amount: round2(voucher.debit),
+    status: voucher.status,
+  }));
 
   // Ажлын дараалал — exception-first: анхаарал шаардсаныг л үзүүлнэ,
   // тоо нь 0 бол карт гарахгүй (Сар хаалт үргэлж харагдана).

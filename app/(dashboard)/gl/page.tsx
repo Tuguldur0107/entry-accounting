@@ -1,4 +1,11 @@
-import { and, eq, inArray } from "drizzle-orm";
+// П28 үргэлжлэл — GL хяналтын самбарын нэгтгэл СЕРВЕР талд:
+//   • ваучер-түвшний бүх үзүүлэлт (Дт/Кт, ангиллын нөлөө, трэнд, модулийн
+//     урсгал, drill индекс) — loadVoucherSummaries-ийн SQL GROUP BY-гаас,
+//     мөрүүд JS-д ачаалагдахгүй
+//   • сарын топ данс — loadBalanceRowsFast-ийн period нийлбэрээс
+//     (snapshot + SQL delta)
+
+import { and, eq } from "drizzle-orm";
 
 import {
   GlDashboard,
@@ -14,16 +21,14 @@ import {
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
-import { chartOfAccounts, journalVouchers } from "@/lib/db/schema";
-import { extractMainAccount, getAccountClass } from "@/lib/reports/balances";
+import { chartOfAccounts } from "@/lib/db/schema";
+import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
+import {
+  loadVoucherSummaries,
+  type VoucherSummary,
+} from "@/lib/reports/voucher-summaries";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
-
-/** S9 модулийн тэмдэглэгээ — legacy (10 биш хэсэгтэй) кодыг GL гэж үзнэ. */
-function sourceModuleOf(accountNumber: string): string {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 && parts[8] ? parts[8] : "GL";
-}
 
 function monthShift(base: string, offset: number): string {
   const [year, month] = base.split("-").map(Number);
@@ -45,30 +50,32 @@ const MODULE_LABELS: Record<string, string> = {
   FA: "Үндсэн хөрөнгө",
 };
 
+/** Журналын гол эх сурвалж — GL биш тэмдэглэгээ давамгайлна. */
+function drillSourceOf(voucher: VoucherSummary): string {
+  return (
+    voucher.modules.find((entry) => entry !== "GL") ?? voucher.modules[0] ?? "GL"
+  );
+}
+
 export default async function GlDashboardPage() {
   const { orgId } = await getActiveOrg();
 
   // Самбарын сар = topbar-ийн периодын сонголтын зангуу сар.
   const month = (await getPeriodSelection()).periodCode;
+  const { start: monthStart, end: monthEnd } = monthRange(month);
 
-  // Тайлангийн хуудастай ижил ачаалалт: журналууд мөрүүдтэйгээ + дансны мод.
-  const [vouchers, accounts] = await Promise.all([
-    db.query.journalVouchers.findMany({
-      where: and(
-        eq(journalVouchers.organizationId, orgId),
-        inArray(journalVouchers.status, ["draft", "posted", "reversed"])
-      ),
-      with: { lines: true },
-      orderBy: (voucher, { desc }) => [desc(voucher.date), desc(voucher.createdAt)],
-    }),
-    db.query.chartOfAccounts.findMany({
-      where: and(
-        eq(chartOfAccounts.organizationId, orgId),
-        eq(chartOfAccounts.isEnabled, true)
-      ),
-    }),
+  const accounts = await db.query.chartOfAccounts.findMany({
+    where: and(
+      eq(chartOfAccounts.organizationId, orgId),
+      eq(chartOfAccounts.isEnabled, true)
+    ),
+  });
+
+  const [vouchers, monthRows] = await Promise.all([
+    loadVoucherSummaries(orgId),
+    // Энэ сарын идэвхтэй данс — үндсэн данс (S3) түвшний period эргэлт.
+    loadBalanceRowsFast(orgId, monthStart, monthEnd, accounts, [3]),
   ]);
-  const nameByMain = new Map(accounts.map((account) => [account.number, account.name]));
 
   // ── Нэгдсэн гүйлт: бүх нийлбэрийг нэг дамжилтаар ────────────────────────────
   let totalDebit = 0;
@@ -82,12 +89,11 @@ export default async function GlDashboardPage() {
   // Энэ сарын P&L
   let monthRevenue = 0;
   let monthExpense = 0;
-  // Трэнд (сүүлийн 6 сар), топ данс, модулийн урсгал
+  // Трэнд (сүүлийн 6 сар), модулийн урсгал
   const trendMonths = Array.from({ length: 6 }, (_, i) => monthShift(month, i - 5));
   const trendMap = new Map<string, { debit: number; count: number }>(
     trendMonths.map((m) => [m, { debit: 0, count: 0 }])
   );
-  const accountTurnover = new Map<string, number>();
   const moduleFlow = new Map<string, { count: number; debit: number }>();
   // Анхааруулга
   let draftCount = 0;
@@ -100,13 +106,7 @@ export default async function GlDashboardPage() {
   for (const voucher of vouchers) {
     if (voucher.status === "draft") {
       draftCount += 1;
-      let dr = 0;
-      let cr = 0;
-      for (const line of voucher.lines) {
-        dr += Number(line.debit);
-        cr += Number(line.credit);
-      }
-      const unbalanced = Math.abs(dr - cr) > 0.01;
+      const unbalanced = Math.abs(voucher.debit - voucher.credit) > 0.01;
       if (unbalanced) unbalancedDraftCount += 1;
       // vouchers огноогоор desc эрэмбэтэй тул эхний 5 нь хамгийн шинэ нь.
       if (draftItems.length < 5)
@@ -114,7 +114,7 @@ export default async function GlDashboardPage() {
           id: voucher.id,
           date: voucher.date,
           description: voucher.description,
-          amount: round2(dr),
+          amount: round2(voucher.debit),
           unbalanced,
         });
       drillVouchers.push({
@@ -124,8 +124,8 @@ export default async function GlDashboardPage() {
         status: voucher.status,
         moduleKey: "GL",
         mains: [],
-        lineCount: voucher.lines.length,
-        debit: round2(dr),
+        lineCount: voucher.lineCount,
+        debit: round2(voucher.debit),
         cls: { asset: 0, liability: 0, equity: 0, revenue: 0, expense: 0 },
       });
       continue;
@@ -137,76 +137,41 @@ export default async function GlDashboardPage() {
       reversedThisMonth += 1;
 
     const inMonth = voucher.date.startsWith(month);
-    const trendKey = voucher.date.slice(0, 7);
-    const trendCell = trendMap.get(trendKey);
-    let voucherDebit = 0;
-    const modules = new Set<string>();
-    const voucherMains: string[] = [];
-    const voucherCls = {
-      asset: 0,
-      liability: 0,
-      equity: 0,
-      revenue: 0,
-      expense: 0,
-    };
+    const trendCell = trendMap.get(voucher.date.slice(0, 7));
 
-    for (const line of voucher.lines) {
-      const debit = Number(line.debit);
-      const credit = Number(line.credit);
-      totalDebit += debit;
-      totalCredit += credit;
-      voucherDebit += debit;
-
-      const main = extractMainAccount(line.accountNumber);
-      if (main && !voucherMains.includes(main)) voucherMains.push(main);
-      modules.add(sourceModuleOf(line.accountNumber));
-      const cls = getAccountClass(main);
-      if (cls === "asset") voucherCls.asset += debit - credit;
-      else if (cls === "liability") voucherCls.liability += credit - debit;
-      else if (cls === "equity") voucherCls.equity += credit - debit;
-      else if (cls === "revenue") voucherCls.revenue += credit - debit;
-      else if (cls === "expense") voucherCls.expense += debit - credit;
-
-      if (inMonth) {
-        accountTurnover.set(
-          main,
-          (accountTurnover.get(main) ?? 0) + debit + credit
-        );
-      }
-    }
-
-    assets += voucherCls.asset;
-    liabilities += voucherCls.liability;
-    equity += voucherCls.equity;
-    cumRevenue += voucherCls.revenue;
-    cumExpense += voucherCls.expense;
+    totalDebit += voucher.debit;
+    totalCredit += voucher.credit;
+    assets += voucher.cls.asset;
+    liabilities += voucher.cls.liability;
+    equity += voucher.cls.equity;
+    cumRevenue += voucher.cls.revenue;
+    cumExpense += voucher.cls.expense;
     if (inMonth) {
-      monthRevenue += voucherCls.revenue;
-      monthExpense += voucherCls.expense;
+      monthRevenue += voucher.cls.revenue;
+      monthExpense += voucher.cls.expense;
     }
 
-    const drillSource =
-      [...modules].find((entry) => entry !== "GL") ?? [...modules][0] ?? "GL";
+    const drillSource = drillSourceOf(voucher);
     drillVouchers.push({
       id: voucher.id,
       date: voucher.date,
       description: voucher.description,
       status: voucher.status,
       moduleKey: drillSource,
-      mains: voucherMains,
-      lineCount: voucher.lines.length,
-      debit: round2(voucherDebit),
+      mains: voucher.mains,
+      lineCount: voucher.lineCount,
+      debit: round2(voucher.debit),
       cls: {
-        asset: round2(voucherCls.asset),
-        liability: round2(voucherCls.liability),
-        equity: round2(voucherCls.equity),
-        revenue: round2(voucherCls.revenue),
-        expense: round2(voucherCls.expense),
+        asset: round2(voucher.cls.asset),
+        liability: round2(voucher.cls.liability),
+        equity: round2(voucher.cls.equity),
+        revenue: round2(voucher.cls.revenue),
+        expense: round2(voucher.cls.expense),
       },
     });
 
     if (trendCell) {
-      trendCell.debit += voucherDebit;
+      trendCell.debit += voucher.debit;
       trendCell.count += 1;
     }
     if (inMonth) {
@@ -214,7 +179,7 @@ export default async function GlDashboardPage() {
       // давамгайлна — жишээ нь кассын журналд counter GL мөр байдаг).
       const cell = moduleFlow.get(drillSource) ?? { count: 0, debit: 0 };
       cell.count += 1;
-      cell.debit += voucherDebit;
+      cell.debit += voucher.debit;
       moduleFlow.set(drillSource, cell);
     }
   }
@@ -236,14 +201,15 @@ export default async function GlDashboardPage() {
     count: trendMap.get(m)!.count,
   }));
 
-  const topAccounts: GlTopAccountRow[] = [...accountTurnover.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([main, turnover]) => ({
-      main,
-      name: nameByMain.get(main) ?? "",
-      turnover: round2(turnover),
-    }));
+  const topAccounts: GlTopAccountRow[] = monthRows
+    .map((row) => ({
+      main: row.mainAccount,
+      name: row.name,
+      turnover: round2(row.totals.periodDebit + row.totals.periodCredit),
+    }))
+    .filter((row) => row.turnover > 0)
+    .sort((a, b) => b.turnover - a.turnover)
+    .slice(0, 8);
 
   const moduleRows: GlModuleFlowRow[] = [...moduleFlow.entries()]
     .sort((a, b) => b[1].debit - a[1].debit)
@@ -260,31 +226,18 @@ export default async function GlDashboardPage() {
     reversedThisMonth,
   };
 
-  const recent: GlRecentVoucherRow[] = vouchers.slice(0, 10).map((voucher) => {
-    const modules = new Set<string>();
-    const mains: string[] = [];
-    for (const line of voucher.lines) {
-      modules.add(sourceModuleOf(line.accountNumber));
-      const main = extractMainAccount(line.accountNumber);
-      if (main && !mains.includes(main)) mains.push(main);
-    }
-    const sourceKey =
-      [...modules].find((entry) => entry !== "GL") ?? [...modules][0] ?? "GL";
-    return {
-      id: voucher.id,
-      date: voucher.date,
-      description: voucher.description,
-      module: MODULE_LABELS[sourceKey] ?? sourceKey,
-      accounts:
-        mains.slice(0, 3).join(", ") +
-        (mains.length > 3 ? ` +${mains.length - 3}` : ""),
-      lineCount: voucher.lines.length,
-      amount: round2(
-        voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0)
-      ),
-      status: voucher.status,
-    };
-  });
+  const recent: GlRecentVoucherRow[] = vouchers.slice(0, 10).map((voucher) => ({
+    id: voucher.id,
+    date: voucher.date,
+    description: voucher.description,
+    module: MODULE_LABELS[drillSourceOf(voucher)] ?? drillSourceOf(voucher),
+    accounts:
+      voucher.mains.slice(0, 3).join(", ") +
+      (voucher.mains.length > 3 ? ` +${voucher.mains.length - 3}` : ""),
+    lineCount: voucher.lineCount,
+    amount: round2(voucher.debit),
+    status: voucher.status,
+  }));
 
   const postedCount = vouchers.filter((v) => v.status === "posted").length;
 
@@ -303,8 +256,8 @@ export default async function GlDashboardPage() {
       draftItems={draftItems}
       recent={recent}
       drillVouchers={drillVouchers}
-      monthStart={monthRange(month).start}
-      monthEnd={monthRange(month).end}
+      monthStart={monthStart}
+      monthEnd={monthEnd}
     />
   );
 }

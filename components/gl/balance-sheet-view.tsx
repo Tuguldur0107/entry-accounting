@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
-import type { ChartOfAccount, JournalVoucherWithLines, ReportLineMapping } from "@/lib/db/schema";
+import type { ChartOfAccount, ReportLineMapping } from "@/lib/db/schema";
 import {
-  aggregateBalances,
-  computeNetIncome,
+  computeCumulativeNetIncome,
   fmtMnt as fmt,
   isBalanced,
   type BalanceRow,
@@ -20,22 +19,17 @@ import {
   removeCustomLine,
 } from "@/lib/actions/report-mappings";
 
-const EPOCH = "1900-01-01";
-
 interface Props {
-  vouchers: JournalVoucherWithLines[];
+  /**
+   * П28: сервер талд үндсэн данс (S3) түвшинд нэгтгэгдсэн мөрүүд. Баланс
+   * зөвхөн close талыг ашигладаг тул мөрүүд ямар ч from-той мужаас ирж
+   * болно — close = нээлт + период нь `to` хүртэлх кумулятив.
+   */
+  rows: BalanceRow[];
   accounts: ChartOfAccount[];
-  activeSegIds: number[];
   activeSegments: SegmentDef[];
-  appliedFrom: string;
-  appliedTo: string;
   mappings: ReportLineMapping[];
 }
-
-// Balance Sheet is an entity-level statement — main-account aggregation
-// regardless of `activeSegIds`. Per-segment workpaper view lives in Trial
-// Balance.
-const BALANCE_SHEET_KEY: number[] = [3];
 
 // Group → section + sign lookup. Custom lines pick their sign from the
 // section their group belongs to.
@@ -96,10 +90,9 @@ const SECTION_LABEL: Record<BsSection, string> = {
 };
 
 export function BalanceSheetView({
-  vouchers,
+  rows,
   accounts,
   activeSegments,
-  appliedTo,
   mappings,
 }: Props) {
   // ── Toolbar / dialog state ────────────────────────────────────────────
@@ -180,12 +173,6 @@ export function BalanceSheetView({
     return out;
   }, [mappings, mappingByKey, accounts]);
 
-  // ── Raw balances at main-account level ────────────────────────────────
-  const rows = useMemo(
-    () => aggregateBalances(vouchers, accounts, BALANCE_SHEET_KEY, EPOCH, appliedTo),
-    [vouchers, accounts, appliedTo],
-  );
-
   // ── Per-account closing balances (for the MappingDialog) ──────────────
   const accountBalances = useMemo(() => {
     const map = new Map<string, number>();
@@ -250,7 +237,9 @@ export function BalanceSheetView({
     const liabilities = buildSection("liabilities");
     const equity = buildSection("equity");
 
-    const pnl = computeNetIncome(rows);
+    // Хуримтлагдсан (`to` хүртэлх) цэвэр ашиг — close-суурьтай тул мөрүүдийн
+    // from-оос үл хамаарна (өмнөх EPOCH-оос ачаалдаг хувилбартай ижил дүн).
+    const pnl = computeCumulativeNetIncome(rows);
     const totalEquity = equity.total + pnl.netIncome;
     const totalLiabAndEquity = liabilities.total + totalEquity;
 

@@ -227,6 +227,24 @@ export function computeNetIncome(rows: BalanceRow[]): PnL {
   return { revenue, expense, netIncome: revenue - expense };
 }
 
+/**
+ * ХУРИМТЛАГДСАН (эхнээс `to` хүртэлх) цэвэр ашиг — close талаас бодогдоно,
+ * тиймээс мөрүүд ямар ч `from`-оор нэгтгэгдсэн байсан үр дүн ижил
+ * (close = нээлт + период). Баланс тайлан үүгээр EPOCH-оос ачаалахгүйгээр
+ * snapshot зангуутай мөрүүдээс хуримтлагдсан ЦА-аа авна.
+ */
+export function computeCumulativeNetIncome(rows: BalanceRow[]): PnL {
+  let revenue = 0;
+  let expense = 0;
+  for (const r of rows) {
+    const cd = r.totals.closeDebit;
+    const cc = r.totals.closeCredit;
+    if (r.cls === "revenue") revenue += cc - cd;
+    else if (r.cls === "expense") expense += cd - cc;
+  }
+  return { revenue, expense, netIncome: revenue - expense };
+}
+
 // Cash accounts: main accounts beginning with "11" (касс, банк).
 export function isCashMainAccount(mainAccount: string): boolean {
   return mainAccount.startsWith("11");
@@ -266,12 +284,78 @@ export interface CashFlowReport {
   cashCloseCredit: number;
 }
 
+/** Кассын нээлт/хаалтын ЦЭВЭР үлдэгдэл (Дт−Кт) — buildCashFlowFromParts-ийн оролт. */
+export interface CashNets {
+  openNet: number;
+  closeNet: number;
+}
+
+/**
+ * Кассын нээлт/хаалтыг НЭГТГЭСЭН мөрүүдээс (жишээ нь loadBalanceRowsFast-ийн
+ * [from,to] үр дүнгээс) авна — open/close нь данс бүрд аль хэдийн цэвэрлэгдсэн
+ * тул нийлбэр нь buildCashFlow-ийн түүхий Дт/Кт гүйлтийн цэвэртэй ижил.
+ */
+export function cashNetsFromRows(rows: BalanceRow[]): CashNets {
+  let openNet = 0;
+  let closeNet = 0;
+  for (const r of rows) {
+    if (!isCashMainAccount(r.mainAccount)) continue;
+    openNet += r.totals.openDebit - r.totals.openCredit;
+    closeNet += r.totals.closeDebit - r.totals.closeCredit;
+  }
+  return { openNet, closeNet };
+}
+
 export function buildCashFlow(
   vouchers: JournalVoucherWithLines[],
   accounts: ChartOfAccount[],
   activeSegIds: number[],
   appliedFrom: string,
   appliedTo: string,
+): CashFlowReport {
+  // Кассын нээлт/хаалт — бүх ваучерын кумулятив гүйлтээс.
+  let cashOpenD = 0;
+  let cashOpenC = 0;
+  let cashCloseD = 0;
+  let cashCloseC = 0;
+  for (const v of vouchers) {
+    const beforePeriod = v.date < appliedFrom;
+    const upToEnd = v.date <= appliedTo;
+    for (const l of v.lines) {
+      const main = extractMainAccount(l.accountNumber);
+      if (!isCashMainAccount(main)) continue;
+      const d = Number(l.debit);
+      const c = Number(l.credit);
+      if (beforePeriod) {
+        cashOpenD += d;
+        cashOpenC += c;
+      }
+      if (upToEnd) {
+        cashCloseD += d;
+        cashCloseC += c;
+      }
+    }
+  }
+
+  return buildCashFlowFromParts(vouchers, accounts, activeSegIds, appliedFrom, appliedTo, {
+    openNet: cashOpenD - cashOpenC,
+    closeNet: cashCloseD - cashCloseC,
+  });
+}
+
+/**
+ * Мөнгөн урсгалын үндсэн хөдөлгүүр — секцүүд нь [appliedFrom, appliedTo]
+ * доторх ваучеруудаас (журнал бүрийн контра хослол шаардлагатай тул энэ
+ * хэсэг snapshot-оор орлуулагдахгүй), кассын нээлт/хаалт нь `cashNets`-ээс.
+ * Мужаас гаднах ваучер дамжуулах шаардлагагүй — өөрөө шүүнэ.
+ */
+export function buildCashFlowFromParts(
+  vouchers: JournalVoucherWithLines[],
+  accounts: ChartOfAccount[],
+  activeSegIds: number[],
+  appliedFrom: string,
+  appliedTo: string,
+  cashNets: CashNets,
 ): CashFlowReport {
   const lineMap: Record<
     string,
@@ -350,32 +434,8 @@ export function buildCashFlow(
   };
   totals.net = totals.operating + totals.investing + totals.financing;
 
-  // Cash account opening/closing balances
-  let cashOpenD = 0;
-  let cashOpenC = 0;
-  let cashCloseD = 0;
-  let cashCloseC = 0;
-  for (const v of vouchers) {
-    const beforePeriod = v.date < appliedFrom;
-    const upToEnd = v.date <= appliedTo;
-    for (const l of v.lines) {
-      const main = extractMainAccount(l.accountNumber);
-      if (!isCashMainAccount(main)) continue;
-      const d = Number(l.debit);
-      const c = Number(l.credit);
-      if (beforePeriod) {
-        cashOpenD += d;
-        cashOpenC += c;
-      }
-      if (upToEnd) {
-        cashCloseD += d;
-        cashCloseC += c;
-      }
-    }
-  }
   // Net presentation (debit balance = cash on hand)
-  const openNet = cashOpenD - cashOpenC;
-  const closeNet = cashCloseD - cashCloseC;
+  const { openNet, closeNet } = cashNets;
 
   return {
     operating,

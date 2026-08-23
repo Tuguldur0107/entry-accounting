@@ -7,13 +7,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
-import type {
-  ChartOfAccount,
-  JournalVoucherWithLines,
-  ReportLineMapping,
-} from "@/lib/db/schema";
+import type { ChartOfAccount, ReportLineMapping } from "@/lib/db/schema";
 import {
-  aggregateBalances,
   computeNetIncome,
   fmtMnt as fmt,
   type BalanceRow,
@@ -26,18 +21,16 @@ import { AddLineDialog } from "./add-line-dialog";
 import { setLineHidden, removeCustomLine } from "@/lib/actions/report-mappings";
 
 interface Props {
-  vouchers: JournalVoucherWithLines[];
+  /**
+   * П28: сервер талд үндсэн данс (S3) түвшинд [from,to] мужаар нэгтгэгдсэн
+   * мөрүүд — тайлант үеийн эргэлт нь period нийлбэрүүд (BS-тэй ижил зарчмаар
+   * байгууллагын түвшний тайлан; сегмент задаргаа Гүйлгээ балансад үлдэнэ).
+   */
+  rows: BalanceRow[];
   accounts: ChartOfAccount[];
-  activeSegIds: number[];
   activeSegments: SegmentDef[];
-  appliedFrom: string;
-  appliedTo: string;
   mappings: ReportLineMapping[];
 }
-
-// Орлогын тайлан мөн байгууллагын түвшний тайлан — үндсэн данс (S3)-аар
-// нэгтгэнэ; сегмент задаргаа Гүйлгээ балансад үлдэнэ (BS-тэй ижил зарчим).
-const INCOME_STATEMENT_KEY: number[] = [3];
 
 const GROUP_META: Record<
   string,
@@ -90,11 +83,9 @@ interface GroupComputed {
 }
 
 export function IncomeStatementView({
-  vouchers,
+  rows,
   accounts,
   activeSegments,
-  appliedFrom,
-  appliedTo,
   mappings,
 }: Props) {
   const [showHidden, setShowHidden] = useState(false);
@@ -167,19 +158,6 @@ export function IncomeStatementView({
     }
     return out;
   }, [mappings, mappingByKey, accounts]);
-
-  // Тайлант үеийн эргэлт — үндсэн дансны түвшинд.
-  const rows = useMemo(
-    () =>
-      aggregateBalances(
-        vouchers,
-        accounts,
-        INCOME_STATEMENT_KEY,
-        appliedFrom,
-        appliedTo
-      ),
-    [vouchers, accounts, appliedFrom, appliedTo]
-  );
 
   // MappingDialog-ийн данс бүрийн дүн — тайлант үеийн цэвэр эргэлт
   // (Dr − Cr: зардал эерэг, орлого сөрөг харагдана).

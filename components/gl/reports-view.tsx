@@ -2,35 +2,34 @@
 
 import { useMemo } from "react";
 import type { ChartOfAccount, JournalVoucherWithLines, ReportLineMapping } from "@/lib/db/schema";
-import { GL_REPORT_VALUES } from "@/lib/constants/report-registry";
+import type { BalanceRow } from "@/lib/reports/balances";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { GlBalanceView } from "@/components/gl/gl-balance-view";
 import { BalanceSheetView } from "@/components/gl/balance-sheet-view";
 import { IncomeStatementView } from "@/components/gl/income-statement-view";
 import { CashFlowView } from "@/components/gl/cash-flow-view";
 
-function defaultMonthRange() {
-  const today = new Date();
-  const y = today.getFullYear();
-  const m = String(today.getMonth() + 1).padStart(2, "0");
-  const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
-  return {
-    start: `${y}-${m}-01`,
-    end: `${y}-${m}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
-
-type ReportType = "gl-balance" | "balance-sheet" | "income-statement" | "cash-flow";
-// Хүчинтэй утгууд registry-ээс — header-ийн сонгогчтой НЭГ эх сурвалж.
-const VALID_REPORTS = new Set(GL_REPORT_VALUES);
+// П28: тайлан бүрийн өгөгдөл СЕРВЕРТ нэгтгэгдэж ирнэ (snapshot + SQL delta,
+// app/(dashboard)/gl/reports/page.tsx). Аль тайлан идэвхтэйг data.kind
+// шийднэ — сонголт өөрчлөгдөхөд URL солигдож server шинэ өгөгдөл өгнө.
+export type ReportData =
+  | { kind: "gl-balance"; rows: BalanceRow[] }
+  | { kind: "balance-sheet"; rows: BalanceRow[] }
+  | { kind: "income-statement"; rows: BalanceRow[] }
+  | {
+      kind: "cash-flow";
+      /** Зөвхөн [from,to] доторх ваучерууд — контра хослолд хэрэгтэй. */
+      vouchers: JournalVoucherWithLines[];
+      cashOpenNet: number;
+      cashCloseNet: number;
+    };
 
 interface Props {
-  vouchers: JournalVoucherWithLines[];
+  data: ReportData;
   accounts: ChartOfAccount[];
   activeSegIds: number[];
-  initialStart?: string;
-  initialEnd?: string;
-  initialReport?: string;
+  appliedFrom: string;
+  appliedTo: string;
   /** Per-line GL-account overrides loaded from `report_line_mappings`. */
   balanceSheetMappings: ReportLineMapping[];
   incomeStatementMappings: ReportLineMapping[];
@@ -39,26 +38,17 @@ interface Props {
 // All toolbar controls live in the dashboard header:
 //   - date range  → topbar-ийн PeriodFilter (cookie, PTD/QTD/YTD)
 //   - report type → HeaderReportSelect (only on /gl/reports)
-// This view simply receives the active range + report from URL search params
-// (via the page server component) and renders the matching report grid.
+// This view simply receives the server-aggregated data + active range from
+// the page server component and renders the matching report grid.
 export function ReportsView({
-  vouchers,
+  data,
   accounts,
   activeSegIds,
-  initialStart,
-  initialEnd,
-  initialReport,
+  appliedFrom,
+  appliedTo,
   balanceSheetMappings,
   incomeStatementMappings,
 }: Props) {
-  const defaults = defaultMonthRange();
-  const appliedFrom = initialStart ?? defaults.start;
-  const appliedTo = initialEnd ?? defaults.end;
-
-  const reportType: ReportType = VALID_REPORTS.has(initialReport ?? "")
-    ? (initialReport as ReportType)
-    : "gl-balance";
-
   const activeSegments = useMemo(
     () => SEGMENT_DEFS.filter((s) => activeSegIds.includes(s.id)),
     [activeSegIds],
@@ -66,50 +56,35 @@ export function ReportsView({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Танигдаагүй утга (registry-д нэмэгдсэн ч view нь хараахан байхгүй
-          шинэ тайлан) хоосон дэлгэц биш Гүйлгээ баланс руу унана. */}
-      {reportType !== "balance-sheet" &&
-        reportType !== "income-statement" &&
-        reportType !== "cash-flow" && (
-        <GlBalanceView
-          vouchers={vouchers}
-          accounts={accounts}
-          activeSegIds={activeSegIds}
-          activeSegments={activeSegments}
-          appliedFrom={appliedFrom}
-          appliedTo={appliedTo}
-        />
+      {data.kind === "gl-balance" && (
+        <GlBalanceView rows={data.rows} activeSegments={activeSegments} />
       )}
-      {reportType === "balance-sheet" && (
+      {data.kind === "balance-sheet" && (
         <BalanceSheetView
-          vouchers={vouchers}
+          rows={data.rows}
           accounts={accounts}
-          activeSegIds={activeSegIds}
           activeSegments={activeSegments}
-          appliedFrom={appliedFrom}
-          appliedTo={appliedTo}
           mappings={balanceSheetMappings}
         />
       )}
-      {reportType === "income-statement" && (
+      {data.kind === "income-statement" && (
         <IncomeStatementView
-          vouchers={vouchers}
+          rows={data.rows}
           accounts={accounts}
-          activeSegIds={activeSegIds}
           activeSegments={activeSegments}
-          appliedFrom={appliedFrom}
-          appliedTo={appliedTo}
           mappings={incomeStatementMappings}
         />
       )}
-      {reportType === "cash-flow" && (
+      {data.kind === "cash-flow" && (
         <CashFlowView
-          vouchers={vouchers}
+          vouchers={data.vouchers}
           accounts={accounts}
           activeSegIds={activeSegIds}
           activeSegments={activeSegments}
           appliedFrom={appliedFrom}
           appliedTo={appliedTo}
+          cashOpenNet={data.cashOpenNet}
+          cashCloseNet={data.cashCloseNet}
         />
       )}
     </div>
