@@ -5,6 +5,7 @@
 
 import Link from "next/link";
 
+import { DemoCompanyButton } from "@/components/dashboard/demo-company-button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 
@@ -93,6 +94,13 @@ export function SetupChecklist({ steps }: { steps: SetupStep[] }) {
           </li>
         ))}
       </ul>
+      {/* П20 — өөрийн дата оруулахаас өмнө бэлэн демо дээр турших зам */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ea-border)] pt-3">
+        <p className="text-xs text-[var(--ea-text-3)]">
+          Эхлээд турших уу? 2 сарын жишээ гүйлгээтэй демо компани бэлэн.
+        </p>
+        <DemoCompanyButton />
+      </div>
     </section>
   );
 }
