@@ -426,6 +426,7 @@ export function CashNewForm({
                   })),
                 ]}
                 placeholder="Нэхэмжлэх сонгох (заавал биш)..."
+              hideValue
               />
             </Field>
           )}

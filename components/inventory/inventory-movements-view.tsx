@@ -718,6 +718,7 @@ export function InventoryMovementsView({
                   hint: item.unit,
                 }))}
                 placeholder="Бараа сонгох..."
+              hideValue
               />
             </Field>
 
@@ -735,6 +736,7 @@ export function InventoryMovementsView({
                     label: `${warehouse.code} · ${warehouse.name}`,
                   }))}
                   placeholder="Агуулах сонгох..."
+                hideValue
                 />
               </Field>
               {form.movementType === "transfer" ? (
@@ -749,6 +751,7 @@ export function InventoryMovementsView({
                       label: `${warehouse.code} · ${warehouse.name}`,
                     }))}
                     placeholder="Агуулах сонгох..."
+                  hideValue
                   />
                 </Field>
               ) : (
@@ -803,6 +806,7 @@ export function InventoryMovementsView({
                     hint: type.destinationClass || undefined,
                   }))}
                   placeholder="Төрөл сонгох..."
+                hideValue
                 />
                 <p className="mt-1 text-[11px] text-[var(--ea-text-4)]">
                   Өртгийн бичилтийн ДЕБЕТ чиглэл эндээс шийдэгдэнэ. Сонгохгүй

@@ -423,6 +423,7 @@ export function ProductionRunView({ data }: Props) {
                                   }))}
                                   placeholder="Бараа..."
                                   disabled={readOnly}
+                                hideValue
                                 />
                               </div>
                               <input
@@ -570,6 +571,7 @@ export function ProductionRunView({ data }: Props) {
                                     }))}
                                     placeholder="Бүтээгдэхүүн..."
                                     disabled={readOnly}
+                                  hideValue
                                   />
                                 </div>
                                 <select

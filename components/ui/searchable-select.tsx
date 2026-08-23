@@ -219,10 +219,27 @@ export function SearchableSelect({
                     }}
                   >
                     <Icon name="approve" size="sm" className="shrink-0" style={{ opacity: o.value === value ? 1 : 0, color: "var(--ea-primary)" }} />
-                    <span className="font-mono font-medium shrink-0 text-[var(--ea-primary-500)]">
-                      {o.value}
+                    {/* hideValue: uuid маягийн дотоод түлхүүрийг нуугаад нэрийг
+                        нь үндсэн болгоно (данс шиг утга нь өөрөө код бол үзүүлнэ). */}
+                    {!hideValue && (
+                      <span className="font-mono font-medium shrink-0 text-[var(--ea-primary-500)]">
+                        {o.value}
+                      </span>
+                    )}
+                    <span
+                      className={
+                        hideValue
+                          ? "truncate text-[var(--ea-text-1)]"
+                          : "truncate text-[var(--ea-text-2)]"
+                      }
+                    >
+                      {o.label}
                     </span>
-                    <span className="truncate text-[var(--ea-text-2)]">{o.label}</span>
+                    {o.hint && (
+                      <span className="ml-auto shrink-0 text-[10px] text-[var(--ea-text-4)]">
+                        {o.hint}
+                      </span>
+                    )}
                   </button>
                 ))
               )}

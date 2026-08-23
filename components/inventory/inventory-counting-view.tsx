@@ -172,6 +172,7 @@ export function InventoryCountingView({
                 label: `${warehouse.code} · ${warehouse.name}`,
               }))}
               placeholder="Агуулах сонгох..."
+            hideValue
             />
           </div>
           <Input

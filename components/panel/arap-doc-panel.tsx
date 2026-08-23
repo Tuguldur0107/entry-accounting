@@ -302,12 +302,18 @@ function ArapDocForm({
         .map((item) => ({
           value: item.id,
           label: item.name,
-          hint:
+          // ТТД hint-д орсноор хайлт ТТД-гээр ч шүүнэ (SearchableSelect
+          // нь label/hint/value гурвуулангаар нь хайдаг).
+          hint: [
             item.counterpartyType === "both"
               ? "Авлага/Өглөг"
               : item.counterpartyType === "customer"
                 ? "Авлага"
                 : "Өглөг",
+            item.registerNo ? `ТТД ${item.registerNo}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
         })),
     [counterparties, mode]
   );
@@ -450,6 +456,7 @@ function ArapDocForm({
             }
             options={cpOptions}
             placeholder="Харилцагч сонгох..."
+            hideValue
           />
         </Field>
         <Field label="Огноо">

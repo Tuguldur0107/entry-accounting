@@ -264,6 +264,7 @@ export function CostAllocationView({
                     label: `${component.code} · ${component.name}`,
                   }))}
                   placeholder="Бүрэлдэхүүн сонгох..."
+                hideValue
                 />
               </div>
               <div className="grid gap-1.5">
