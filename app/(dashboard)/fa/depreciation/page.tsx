@@ -12,11 +12,15 @@ import { getPeriodSelection } from "@/lib/periods/selection";
 export default async function FaDepreciationPage() {
   const { orgId } = await getActiveOrg();
 
-  const entries = await db.query.faDepreciationEntries.findMany({
-    where: eq(faDepreciationEntries.organizationId, orgId),
-    with: { asset: true },
-    orderBy: (entry, { desc }) => [desc(entry.periodMonth), desc(entry.createdAt)],
-  });
+  // П2 — бие даасан fetch-үүд зэрэгцээ (waterfall арилгав).
+  const [entries, period] = await Promise.all([
+    db.query.faDepreciationEntries.findMany({
+      where: eq(faDepreciationEntries.organizationId, orgId),
+      with: { asset: true },
+      orderBy: (entry, { desc }) => [desc(entry.periodMonth), desc(entry.createdAt)],
+    }),
+    getPeriodSelection(),
+  ]);
 
   const views: DepreciationEntryView[] = entries.map((entry) => ({
     id: entry.id,
@@ -28,6 +32,5 @@ export default async function FaDepreciationPage() {
   }));
 
   // Элэгдлийн сар нь topbar-ийн периодын сонголтын зангуу сар.
-  const period = await getPeriodSelection();
   return <FaDepreciationView entries={views} defaultMonth={period.periodCode} />;
 }

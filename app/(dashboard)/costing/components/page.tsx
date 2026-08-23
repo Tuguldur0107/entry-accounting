@@ -18,17 +18,19 @@ export default async function ComponentAnalysisPage({
   const { period } = await searchParams;
 
   // Сонгох боломжтой сарууд — орлогын өртгийн бичилт байгаа сарууд.
-  const entries = await db.query.costEntries.findMany({
-    where: eq(costEntries.organizationId, orgId),
-    columns: { periodCode: true, date: true },
-  });
+  // П2 — periodSelection нь entries-ээс хамааралгүй тул зэрэгцээ.
+  const [entries, selection] = await Promise.all([
+    db.query.costEntries.findMany({
+      where: eq(costEntries.organizationId, orgId),
+      columns: { periodCode: true, date: true },
+    }),
+    getPeriodSelection(),
+  ]);
   const periodOptions = [
     ...new Set(
       entries.map((entry) => entry.periodCode ?? entry.date.slice(0, 7))
     ),
   ].sort((a, b) => (a < b ? 1 : -1));
-
-  const selection = await getPeriodSelection();
   const periodCode =
     period && periodOptions.includes(period)
       ? period

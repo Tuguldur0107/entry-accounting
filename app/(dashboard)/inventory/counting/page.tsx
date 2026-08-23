@@ -27,7 +27,17 @@ export default async function InventoryCountingPage({
     ? params.date!
     : today();
 
-  const { itemViews, warehouseViews } = await loadInventoryBase(orgId);
+  // П2 — хөдөлгөөний query агуулахын сонголтоос хамаардаггүй тул суурь
+  // дататай зэрэгцээ татна (waterfall арилгав).
+  const [{ itemViews, warehouseViews }, movements] = await Promise.all([
+    loadInventoryBase(orgId),
+    db.query.inventoryMovements.findMany({
+      where: and(
+        eq(inventoryMovements.organizationId, orgId),
+        eq(inventoryMovements.status, "confirmed")
+      ),
+    }),
+  ]);
   const activeWarehouses = warehouseViews.filter((w) => w.isActive);
   const selectedWarehouseId =
     activeWarehouses.find((w) => w.id === params.warehouse)?.id ??
@@ -36,12 +46,6 @@ export default async function InventoryCountingPage({
 
   let rows: CountSheetRow[] = [];
   if (selectedWarehouseId) {
-    const movements = await db.query.inventoryMovements.findMany({
-      where: and(
-        eq(inventoryMovements.organizationId, orgId),
-        eq(inventoryMovements.status, "confirmed")
-      ),
-    });
     const balances = calculateQtyBalances(
       toMovementRefs(movements).filter((ref) => ref.date <= asOfDate)
     );
