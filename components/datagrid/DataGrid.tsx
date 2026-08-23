@@ -108,7 +108,18 @@ function DataGridInner<TData>(
     if (api && !api.isDestroyed()) api.resetRowHeights();
   }, [density]);
 
-  useImperativeHandle(ref, () => ({ api: apiRef.current }), []);
+  // Getter — handle нэг удаа үүсдэг ч api нь grid бэлэн болмогц (мөн
+  // дахин үүсэхэд) ямагт СҮҮЛИЙН утгаа өгнө. Хуучин `{ api: apiRef.current }`
+  // хэлбэр mount үеийн null-ыг царцаадаг байв.
+  useImperativeHandle(
+    ref,
+    () => ({
+      get api() {
+        return apiRef.current;
+      },
+    }),
+    []
+  );
 
   const clearRange = useCallback(() => {
     if (!rangeRef.current) return;

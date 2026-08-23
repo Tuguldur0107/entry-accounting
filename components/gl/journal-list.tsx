@@ -12,6 +12,8 @@ import {
 import { importJournalVouchers } from "@/lib/actions/journal-import";
 import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import type { DataGridHandle } from "@/components/datagrid/DataGrid";
+import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
@@ -192,6 +194,8 @@ export function JournalList({
   // Панелийн prev/next нав — grid callback-ууд memo-логддог тул шүүгдсэн
   // жагсаалтыг мөн ref-ээр уншина (vouchersRef-тэй ижил шалтгаан).
   const filteredRef = useRef<{ id: string }[]>([]);
+  // П17 — SavedViewsMenu grid API-д хандахад.
+  const gridRef = useRef<DataGridHandle>(null);
 
   // Диалогийн текстэд аль журнал болохыг нь заана — зөвхөн id-гаар
   // баталгаажуулах нь буруу бичилт батлах эрсдэлтэй.
@@ -549,6 +553,8 @@ export function JournalList({
   // яг тэр үед хамгийн хэрэгтэй).
   const excelToolbar = (
     <div className="mb-3 flex items-center justify-end gap-2">
+      {/* П17 — шүүлт+эрэмбийг нэрлэж хадгалах, ?view= линкээр хуваалцах */}
+      <SavedViewsMenu surfaceId="gl-journal" gridRef={gridRef} />
       <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
         <Icon name="spreadsheet" size="sm" />
         Excel импорт (багц)
@@ -591,6 +597,7 @@ export function JournalList({
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {excelToolbar}
       <DataGridDynamic<VoucherRow>
+        ref={gridRef}
         rowData={filtered}
         columnDefs={columnDefs}
         getRowId={(p) => p.data.id}
