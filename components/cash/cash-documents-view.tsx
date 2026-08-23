@@ -25,6 +25,8 @@ import type {
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { FilterChips, PageTabs } from "@/components/ui/tabs";
+import type { DataGridHandle } from "@/components/datagrid/DataGrid";
+import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import {
   Dialog,
   DialogContent,
@@ -119,7 +121,9 @@ export function CashDocumentsView({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [isPending, startTransition] = useTransition();
+// П17 — SavedViewsMenu grid API-д хандахад.
+  const gridRef = useRef<DataGridHandle>(null);
+    const [isPending, startTransition] = useTransition();
   // GL-derived FX draft being confirmed — needs a rate before it can post.
   const [rateDoc, setRateDoc] = useState<CashDocumentView | null>(null);
   const [rateInput, setRateInput] = useState("");
@@ -647,6 +651,7 @@ export function CashDocumentsView({
               value={activeStatus}
               onChange={changeStatus}
             />
+            <SavedViewsMenu surfaceId="cash-documents" gridRef={gridRef} />
             {selectedDrafts.length > 0 && (
               <Button
                 size="sm"
@@ -670,6 +675,7 @@ export function CashDocumentsView({
       ) : (
         <>
           <DataGridDynamic<CashDocumentView>
+            ref={gridRef}
             rowData={visibleDocuments}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}

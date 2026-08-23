@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icon, type IconName } from "@/components/ui/icon";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -11,6 +11,8 @@ import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import type { DataGridHandle } from "@/components/datagrid/DataGrid";
+import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -140,7 +142,9 @@ export function ArApWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const config = MODE_CONFIG[mode];
-  const [isPending, startTransition] = useTransition();
+// П17 — баримтын жагсаалтын хадгалсан харагдац.
+  const documentsGridRef = useRef<DataGridHandle>(null);
+    const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
   const [reportDate, setReportDate] = useState(reportAsOf);
@@ -661,6 +665,10 @@ export function ArApWorkspace({
               <div className="text-[11px] text-[var(--ea-text-3)]">
                 Төлөлт нь Мөнгөн хөрөнгийн модулиар хаагдана
               </div>
+              <SavedViewsMenu
+                surfaceId={mode === "payable" ? "ap-documents" : "ar-documents"}
+                gridRef={documentsGridRef}
+              />
               <Button
                 variant="outline"
                 size="sm"
@@ -679,6 +687,7 @@ export function ArApWorkspace({
             />
           ) : (
             <DataGridDynamic<ArApDocumentView>
+              ref={documentsGridRef}
               rowData={filteredDocuments}
               columnDefs={documentColumns}
               getRowId={(params) => params.data.id}
