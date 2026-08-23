@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 import {
   findActiveReportHref,
   REPORT_REGISTRY,
@@ -20,6 +21,11 @@ export function HeaderReportSelect() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Унтраасан модулийн тайлан цэсэнд гарахгүй (модулийн тохиргоотой нийцнэ).
+  const disabledModuleIds = useDisabledModuleIds();
+  const visibleRegistry = REPORT_REGISTRY.filter(
+    (module) => !disabledModuleIds.includes(module.moduleId)
+  );
 
   const activeHref = findActiveReportHref(pathname, searchParams.get("report"));
 
@@ -51,7 +57,7 @@ export function HeaderReportSelect() {
           Тайлан руу очих…
         </option>
       )}
-      {REPORT_REGISTRY.map((module) => (
+      {visibleRegistry.map((module) => (
         <optgroup key={module.moduleId} label={module.moduleLabel}>
           {module.entries.map((entry) => (
             <option key={entry.value} value={entry.href}>

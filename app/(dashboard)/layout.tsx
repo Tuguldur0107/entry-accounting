@@ -14,7 +14,12 @@ import { DensityToggle } from "@/components/layout/density-toggle";
 import { QuickCreate } from "@/components/layout/quick-create";
 import { QuickNav } from "@/components/layout/quick-nav";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
+import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
+import { disabledNavModuleIds } from "@/components/layout/modules";
 import { PanelHost } from "@/components/panel/panel-host";
+import { db } from "@/lib/db";
+import { moduleConfigs } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export default async function DashboardLayout({
   children,
@@ -30,7 +35,16 @@ export default async function DashboardLayout({
   // байхгүй бол энд автоматаар үүснэ — getActiveOrg-ийн safety net).
   const { activeOrgId, orgs } = await getMyOrgs();
 
+  // Модулийн тохиргоо → навигацийн харагдац: унтраасан модуль switcher,
+  // палитр, "+ Шинэ" цэснээс нуугдана (Тохиргоо → Ерөнхий журналын тохиргоо).
+  const modConfigs = await db.query.moduleConfigs.findMany({
+    where: eq(moduleConfigs.organizationId, activeOrgId),
+    columns: { moduleKey: true, isEnabled: true },
+  });
+  const hiddenModuleIds = disabledNavModuleIds(modConfigs);
+
   return (
+    <NavVisibilityProvider disabledModuleIds={hiddenModuleIds}>
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
       <header
         className="ea-glass shrink-0"
@@ -106,5 +120,6 @@ export default async function DashboardLayout({
       {/* "/" палитр + "?" товчлолын тусламж — глобал keyboard навигаци */}
       <QuickNav />
     </div>
+    </NavVisibilityProvider>
   );
 }

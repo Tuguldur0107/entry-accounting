@@ -175,11 +175,23 @@ export const MODULES: Module[] = [
     ],
   },
   {
-    id: "vat",
-    label: "НӨАТ",
-    matchPrefix: "/vat",
-    defaultHref: "/vat",
-    items: [{ label: "Сарын тайлан", href: "/vat", icon: "report" }],
+    // Татварын нэгдсэн модуль. НӨАТ нь бүрэн тооцоолол-тайлантай; цалингийн
+    // татварууд (ХХОАТ, НДШ) payroll-ийн бодолтоос нэгтгэгдэнэ; бусад нь
+    // хууль-лавлагаа + GL бичилтийн заавар (тооцоолол нь тухайн модульд).
+    id: "tax",
+    label: "Татвар",
+    matchPrefix: "/tax",
+    defaultHref: "/tax",
+    items: [
+      { label: "Татварын самбар", href: "/tax", icon: "dashboard" },
+      { label: "НӨАТ", href: "/tax/vat", icon: "report" },
+      { label: "ХХОАТ (цалин)", href: "/tax/pit", icon: "user" },
+      { label: "НДШ", href: "/tax/ndsh", icon: "shield" },
+      { label: "ААНОАТ", href: "/tax/cit", icon: "company" },
+      { label: "Суутган татвар", href: "/tax/wht", icon: "document" },
+      { label: "Хөрөнгийн татвар", href: "/tax/property", icon: "fixedAsset" },
+      { label: "Гаалийн татвар", href: "/tax/customs", icon: "packageReceipt" },
+    ],
   },
   {
     id: "ai",
@@ -217,6 +229,31 @@ export const MODULES: Module[] = [
     ],
   },
 ];
+
+/**
+ * Тохиргооны модулийн түлхүүр (module_configs.moduleKey) → навигацийн
+ * модулийн id. Түлхүүргүй модулиуд (Татвар, Цалин, AI, Удирдлага, Тохиргоо,
+ * Нүүр) үргэлж харагдана; agis нь тусдаа nav модульгүй (S6 сегментээр GL-д).
+ */
+export const NAV_MODULE_BY_CONFIG_KEY: Record<string, string> = {
+  gl: "gl",
+  ar: "receivables",
+  ap: "payables",
+  fa: "fa",
+  inv: "inventory",
+  cost: "costing",
+  cash: "cash",
+};
+
+/** Унтраасан модулийн тохиргоо → навигациас нуух модулийн id-ууд. */
+export function disabledNavModuleIds(
+  configs: { moduleKey: string; isEnabled: boolean }[]
+): string[] {
+  return configs
+    .filter((config) => !config.isEnabled)
+    .map((config) => NAV_MODULE_BY_CONFIG_KEY[config.moduleKey])
+    .filter((id): id is string => !!id);
+}
 
 export function getActiveModule(pathname: string): Module {
   const home = MODULES.find((m) => m.id === HOME_MODULE_ID)!;

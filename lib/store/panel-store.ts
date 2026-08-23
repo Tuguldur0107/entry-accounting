@@ -404,12 +404,26 @@ export function openCashDocPanel(
   });
 }
 
+/** Татварын төлөлтийн prefill — Татвар модулийн "Төлөлт хийх" товчноос. */
+export interface CashTaxPaymentInit {
+  /** Татварын өглөгийн үндсэн данс (8 орон) — зарлагын харилцах данс. */
+  counterAccountNumber: string;
+  description: string;
+  /** Панелийн гарчиг (default "Татварын төлөлт"). */
+  title?: string;
+}
+
 /**
  * Шинэ мөнгөн гүйлгээ бичих. arApDocumentId өгвөл тухайн АР/АП баримтын
- * төлөлт болгож урьдчилан бөглөнө (АР/АП-ийн "Төлөлт" товчноос).
+ * төлөлт болгож урьдчилан бөглөнө (АР/АП-ийн "Төлөлт" товчноос);
+ * taxPayment өгвөл татварын өглөг рүү хийх зарлага болгож бөглөнө.
  */
-export function openCashNewPanel(init?: { arApDocumentId?: string }) {
+export function openCashNewPanel(init?: {
+  arApDocumentId?: string;
+  taxPayment?: CashTaxPaymentInit;
+}) {
   const settlement = init?.arApDocumentId;
+  const taxPayment = init?.taxPayment;
   return usePanelStore.getState().openPanel({
     // Төлөлт нь баримт бүрд тусдаа панель; энгийн шинэ гүйлгээ нь
     // дарах бүрд шинэ хоосон форм.
@@ -417,8 +431,12 @@ export function openCashNewPanel(init?: { arApDocumentId?: string }) {
       ? `cash-new:arap:${settlement}`
       : `cash-new:${++newVoucherSeq}`,
     kind: "cash-new",
-    title: settlement ? "АР/АП төлөлт" : "Шинэ мөнгөн гүйлгээ",
-    payload: { arApDocumentId: settlement },
+    title: settlement
+      ? "АР/АП төлөлт"
+      : taxPayment
+        ? taxPayment.title ?? "Татварын төлөлт"
+        : "Шинэ мөнгөн гүйлгээ",
+    payload: { arApDocumentId: settlement, taxPayment },
   });
 }
 

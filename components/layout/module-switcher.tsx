@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { Z } from "@/lib/ui/z-layers";
 import { MODULES, getActiveModule } from "./modules";
+import { useDisabledModuleIds } from "./nav-visibility";
 
 const MODULE_ICONS: Record<string, IconName> = {
   home: "dashboard",
@@ -19,7 +20,7 @@ const MODULE_ICONS: Record<string, IconName> = {
   costing: "costing",
   fa: "fixedAsset",
   payroll: "user",
-  vat: "report",
+  tax: "report",
   ai: "ai",
   settings: "settings",
 };
@@ -41,6 +42,7 @@ export function ModuleSwitcher({
 }: ModuleSwitcherProps) {
   const pathname = usePathname();
   const active = getActiveModule(pathname);
+  const disabledModuleIds = useDisabledModuleIds();
   const [open, setOpen] = useState(false);
   // Popup coordinates in viewport space — the menu is portalled to
   // document.body so the sidebar's overflow-y / width can't clip it.
@@ -187,7 +189,11 @@ export function ModuleSwitcher({
               gap: 4,
             }}
           >
-            {MODULES.map((m) => {
+            {MODULES.filter(
+              // Унтраасан модуль нуугдана; идэвхтэй (одоо байгаа) модуль
+              // хэрэглэгчийг гацаахгүйн тулд үргэлж харагдана.
+              (m) => m.id === active.id || !disabledModuleIds.includes(m.id)
+            ).map((m) => {
               const isActive = m.id === active.id;
               return (
                 <Link

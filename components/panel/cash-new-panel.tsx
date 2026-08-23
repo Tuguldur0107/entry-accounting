@@ -18,6 +18,7 @@ import type { CashTransactionOptions } from "@/lib/cash/load-options";
 import {
   refreshOpenPanels,
   usePanelStore,
+  type CashTaxPaymentInit,
   type PanelInstance,
 } from "@/lib/store/panel-store";
 
@@ -40,6 +41,9 @@ export function CashNewPanel({
   const setDirty = usePanelStore((state) => state.setDirty);
 
   const arApDocumentId = panel.payload.arApDocumentId as string | undefined;
+  const taxPayment = panel.payload.taxPayment as
+    | CashTaxPaymentInit
+    | undefined;
   const refreshToken = panel.refreshToken;
   const [state, setState] = useState<
     | { status: "loading" }
@@ -132,6 +136,7 @@ export function CashNewPanel({
         defaultSegments={data.defaultSegments}
         arApOpenDocuments={data.arApOpenDocuments}
         initialSettlement={settlementTarget}
+        initialTaxPayment={taxPayment ?? null}
         onDirtyChange={(dirty) => setDirty(panel.id, dirty)}
         onSaved={() => {
           // Бүтэн reload биш — зөвхөн серверийн өгөгдлийг сэргээнэ.

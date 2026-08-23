@@ -1,23 +1,14 @@
-import { getVatReturnData } from "@/lib/actions/vat";
-import { getPeriodSelection } from "@/lib/periods/selection";
-import { isPeriodCode } from "@/lib/periods/period";
-import { VatReturnView } from "@/components/vat/vat-return-view";
+import { redirect } from "next/navigation";
 
-// URL-ийн ил `period` параметр topbar-ийн сонголтыг ДАРНА (deep link) —
-// системийн периодын шүүлтүүрийн стандарт хэв маяг.
+// НӨАТ хуудас Татвар модуль руу нүүсэн (/tax/vat) — хуучин deep link,
+// хадгалсан хавчуурга, AI-ийн навигацийн зам хэвээр ажиллана.
 type SearchParams = Promise<{ period?: string }>;
 
-export default async function VatPage({
+export default async function VatRedirect({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
   const { period } = await searchParams;
-  const selection = await getPeriodSelection();
-  const periodCode =
-    period && isPeriodCode(period) ? period : selection.periodCode;
-
-  const data = await getVatReturnData(periodCode);
-
-  return <VatReturnView periodCode={periodCode} data={data} />;
+  redirect(period ? `/tax/vat?period=${period}` : "/tax/vat");
 }

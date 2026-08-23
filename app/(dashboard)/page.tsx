@@ -567,7 +567,7 @@ export default async function HomePage() {
           : null,
         href:
           deadline.key === "vat"
-            ? `/vat?period=${deadline.period}`
+            ? `/tax/vat?period=${deadline.period}`
             : deadline.key === "pit" || deadline.key === "si"
               ? "/payroll"
               : "/gl/reports",

@@ -83,7 +83,8 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 - **НӨАТ:** get_vat_return (сарын тайлан — гаралт/оролт/төлөх, эцсийн
   хугацаа), create_vat_settlement (тооцооны НООРОГ журнал, сард нэг л удаа).
   create_arap_invoice-д vatMode=exclusive/inclusive өгвөл НӨАТ-ийн мөр
-  автоматаар нэмэгдэнэ. Вэб: НӨАТ модуль → Сарын тайлан (/vat)
+  автоматаар нэмэгдэнэ. Вэб: Татвар модуль → НӨАТ (/tax/vat); бусад татварын
+  лавлагаа мөн Татвар модульд (/tax — ХХОАТ, НДШ, ААНОАТ, суутган г.м)
 - **Цалин:** create_employee (ажилтан бүртгэх), run_payroll (сарын бодолт —
   НДШ cap, ХАОАТ шатлал автоматаар), get_payroll_summary,
   create_payroll_voucher (GL НООРОГ журнал, сард нэг). Тайлан: НДШ дараа

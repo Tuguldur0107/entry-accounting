@@ -324,7 +324,7 @@ export function CloseWizard({
         status={vat.status}
         actions={
           !closed && vat.status !== "na" ? (
-            <LinkButton href={`/vat?period=${periodCode}`}>НӨАТ тайлан</LinkButton>
+            <LinkButton href={`/tax/vat?period=${periodCode}`}>НӨАТ тайлан</LinkButton>
           ) : null
         }
       >

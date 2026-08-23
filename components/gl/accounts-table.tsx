@@ -664,7 +664,9 @@ export function AccountsTable({
       <div className={cn(mainTab !== "modules" && "hidden")}>
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs text-[var(--ea-text-4)]">
-            Системд ашиглах модулиудыг идэвхжүүлнэ үү.
+            Системд ашиглах модулиудыг идэвхжүүлнэ үү. Унтраасан модуль
+            навигаци, палитр, «+ Шинэ» цэснээс нуугдана — өмнө нь бичсэн
+            дата болон шууд линкээр хандах боломж хэвээр үлдэнэ.
           </p>
           <div className="flex items-center gap-2">
             {modEditMode ? (

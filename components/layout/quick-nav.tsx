@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { HOME_MODULE_ID, MODULES } from "@/components/layout/modules";
+import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 import { QUICK_CREATE_ACTIONS } from "@/components/layout/quick-create";
 import { getReferenceData } from "@/lib/reference/client-cache";
 import {
@@ -53,8 +54,12 @@ type DocHit = {
 
 type DocSearchResult = { arap: DocHit[]; cash: DocHit[]; vouchers: DocHit[] };
 
-function buildEntries(): NavEntry[] {
-  const pages: NavEntry[] = MODULES.flatMap((module) =>
+function buildEntries(disabledModuleIds: string[]): NavEntry[] {
+  // Модулийн тохиргоогоор унтраасан модулийн хуудас, үүсгэх үйлдэл палитрт
+  // гарахгүй (Тохиргоо → Ерөнхий журналын тохиргоо → Модулийн тохиргоо).
+  const pages: NavEntry[] = MODULES.filter(
+    (module) => !disabledModuleIds.includes(module.id)
+  ).flatMap((module) =>
     module.items.map((item) => ({
       key: `page:${item.href}`,
       search: `${module.label} ${item.label}`.toLowerCase(),
@@ -64,13 +69,16 @@ function buildEntries(): NavEntry[] {
       run: (router) => router.push(item.href),
     }))
   );
-  const creates: NavEntry[] = QUICK_CREATE_ACTIONS.map((action) => ({
+  const creates: NavEntry[] = QUICK_CREATE_ACTIONS.filter(
+    (action) => !action.moduleId || !disabledModuleIds.includes(action.moduleId)
+  ).map((action) => ({
     key: `create:${action.key}`,
     search: `шинэ үүсгэх ${action.label}`.toLowerCase(),
     group: "Үүсгэх",
     label: action.label,
     icon: action.icon,
-    run: () => action.run(),
+    run: (router) =>
+      action.href ? router.push(action.href) : action.run?.(),
   }));
   return [...creates, ...pages];
 }
@@ -85,7 +93,7 @@ const SHORTCUT_HELP: { keys: string; description: string }[] = [
   { keys: "Esc", description: "Палитр/панель хаах, edit-ээс гарах" },
   { keys: "Enter / Shift+Enter", description: "Хүснэгтэд commit + доош / дээш" },
   { keys: "Tab / Shift+Tab", description: "Дараагийн / өмнөх editable нүд" },
-  { keys: "F2", description: "Нүдийг засах горимд оруулах" },
+  { keys: "F2", description: "Шинэ баримтын цэс нээх; хүснэгтэд — нүдийг засах горим" },
   { keys: "Ctrl/Cmd+C · V · X", description: "Мужийг хуулах / буулгах / таслах (Excel-рүү шууд)" },
   { keys: "Ctrl/Cmd+Z · Y", description: "Undo / Redo (хүснэгтийн засвар)" },
   { keys: "Shift+даралт", description: "Хүснэгтэд мужаар сонгох" },
@@ -179,7 +187,11 @@ export function QuickNav() {
 }
 
 function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
-  const entries = useMemo(() => buildEntries(), []);
+  const disabledModuleIds = useDisabledModuleIds();
+  const entries = useMemo(
+    () => buildEntries(disabledModuleIds),
+    [disabledModuleIds]
+  );
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
