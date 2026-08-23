@@ -38,11 +38,11 @@ jobs:
         run: npx eslint .
 
       - name: Нэгж тест (DB шаардахгүй)
-        run: npx tsx --test $(ls tests/*.test.ts | grep -v org-isolation)
+        run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow)
 
       - name: DB integration тест (DATABASE_URL secret тохируулсан үед)
         if: env.DATABASE_URL != ''
-        run: npx tsx --test tests/org-isolation.test.ts
+        run: npx tsx --test tests/org-isolation.test.ts tests/ai-tools-flow.test.ts
 
       - name: Хамаарлын аудит
         run: npm audit --audit-level=high
