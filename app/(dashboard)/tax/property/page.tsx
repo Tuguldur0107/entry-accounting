@@ -67,6 +67,11 @@ export default async function PropertyTaxPage() {
           description: "Хөрөнгийн татварын төлөлт",
           title: "Хөрөнгийн татварын төлөлт",
         }}
+        offset={{
+          debitMain: PROPERTY_PAYABLE_MAIN,
+          creditMain: "18000001",
+          description: "Хөрөнгийн татвар — илүү төлөлтөөр хаах",
+        }}
         accrual={{
           debitMain: "",
           creditMain: PROPERTY_PAYABLE_MAIN,

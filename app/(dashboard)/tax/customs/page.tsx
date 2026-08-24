@@ -67,6 +67,11 @@ export default async function CustomsTaxPage() {
           description: "Гаалийн татварын төлөлт",
           title: "Гаалийн татварын төлөлт",
         }}
+        offset={{
+          debitMain: CUSTOMS_PAYABLE_MAIN,
+          creditMain: "18000001",
+          description: "Гаалийн татвар — илүү төлөлтөөр хаах",
+        }}
       />
 
       <TaxSection title="Импортын татварын бүтэц">

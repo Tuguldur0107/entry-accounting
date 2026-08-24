@@ -67,6 +67,11 @@ export default async function NdshPage() {
           description: "НДШ төлөлт",
           title: "НДШ төлөлт",
         }}
+        offset={{
+          debitMain: settings.siPayableAccountNumber,
+          creditMain: "",
+          description: "НДШ — илүү төлөлтийн суутган тооцоо",
+        }}
       />
 
       <section className="space-y-2">

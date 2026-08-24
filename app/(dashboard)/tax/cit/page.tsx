@@ -74,6 +74,11 @@ export default async function CitPage() {
           creditMain: CIT_PAYABLE_MAIN,
           description: "ААНОАТ тооцоо",
         }}
+        offset={{
+          debitMain: CIT_PAYABLE_MAIN,
+          creditMain: "18000001",
+          description: "ААНОАТ — урьдчилж төлсөн татвараар хаах",
+        }}
       />
 
       <TaxSection title="Татвар ногдох орлогын бүтэц">

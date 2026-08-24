@@ -46,6 +46,11 @@ export default async function VatPage({
           description: "НӨАТ төлөлт",
           title: "НӨАТ төлөлт",
         }}
+        offset={{
+          debitMain: data.settings.outputVatAccountNumber,
+          creditMain: data.settings.inputVatAccountNumber,
+          description: "НӨАТ-ын суутган тооцоо — оролтын НӨАТ-аар хаах",
+        }}
       />
     </div>
   );

@@ -68,6 +68,11 @@ export default async function PitPage() {
           description: "ХХОАТ төлөлт",
           title: "ХХОАТ төлөлт",
         }}
+        offset={{
+          debitMain: settings.pitPayableAccountNumber,
+          creditMain: "",
+          description: "ХХОАТ — илүү төлөлтийн суутган тооцоо",
+        }}
       />
 
       <section className="space-y-2">

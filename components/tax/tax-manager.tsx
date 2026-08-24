@@ -24,6 +24,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createTaxAccrualVoucher } from "@/lib/actions/tax";
 import { fmtMnt, parseMntInput } from "@/lib/grid/formatters";
+import {
+  TaxOffsetButton,
+  type TaxOffsetDefaults,
+} from "@/components/tax/tax-offset-button";
 import { openCashNewPanel, openVoucherPanel } from "@/lib/store/panel-store";
 import type { TaxAccountBalance, TaxLedgerEntry } from "@/lib/tax/ledger";
 
@@ -44,6 +48,7 @@ export function TaxManager({
   entries,
   payment,
   accrual,
+  offset,
 }: {
   accounts: TaxManagerAccount[];
   entries: TaxLedgerEntry[];
@@ -55,6 +60,8 @@ export function TaxManager({
     creditMain: string;
     description: string;
   };
+  /** "Тооцоо хаах" (суутган тооцоо) товч — байвал өглөг↔авлага хаалтын диалог. */
+  offset?: TaxOffsetDefaults;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -135,6 +142,7 @@ export function TaxManager({
           Өр, төлөлтийн удирдлага
         </h2>
         <div className="flex gap-2">
+          {offset ? <TaxOffsetButton offset={offset} /> : null}
           {accrual ? (
             <Button variant="outline" onClick={() => setAccrualOpen(true)}>
               <Icon name="addDocument" />

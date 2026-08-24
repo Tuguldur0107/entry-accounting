@@ -67,6 +67,11 @@ export default async function WhtPage() {
           description: "Суутган татварын төлөлт",
           title: "Суутган татварын төлөлт",
         }}
+        offset={{
+          debitMain: WHT_PAYABLE_MAIN,
+          creditMain: "18000001",
+          description: "Суутган татвар — илүү төлөлтөөр хаах",
+        }}
       />
 
       <TaxSection title="Суутгалын хувь хэмжээ">
