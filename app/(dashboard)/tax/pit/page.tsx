@@ -1,6 +1,7 @@
 import { getActiveOrg } from "@/lib/auth";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
 import { loadTaxLedger } from "@/lib/tax/ledger";
+import { loadTaxSettings } from "@/lib/tax/settings";
 import { loadPayrollTaxMonths } from "@/lib/tax/payroll-summary";
 import { PayrollTaxGrid } from "@/components/tax/payroll-tax-grid";
 import { TaxManager } from "@/components/tax/tax-manager";
@@ -22,9 +23,12 @@ export default async function PitPage() {
   const { orgId, userId } = await getActiveOrg();
   // Өглөгийн данс тохиргооноос (payroll_settings, default 31430000).
   const settings = await loadPayrollSettings(orgId, userId);
+  // Авлагын данс tax_settings-ээс (default 13640000).
+  const taxAccounts = await loadTaxSettings(orgId, userId);
+  const receivableMain = taxAccounts.pitReceivableAccountNumber;
   const [months, ledger] = await Promise.all([
     loadPayrollTaxMonths(orgId),
-    loadTaxLedger(orgId, [settings.pitPayableAccountNumber]),
+    loadTaxLedger(orgId, [settings.pitPayableAccountNumber, receivableMain]),
   ]);
 
   return (
@@ -60,7 +64,11 @@ export default async function PitPage() {
       <TaxManager
         accounts={ledger.accounts.map((account) => ({
           ...account,
-          direction: "credit" as const,
+          // Өглөгийн данс Кт, авлагын данс Дт чиглэлтэй.
+          direction:
+            account.main === receivableMain
+              ? ("debit" as const)
+              : ("credit" as const),
         }))}
         entries={ledger.entries}
         payment={{

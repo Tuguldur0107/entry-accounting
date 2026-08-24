@@ -1,5 +1,6 @@
 import { getActiveOrg } from "@/lib/auth";
 import { loadTaxLedger } from "@/lib/tax/ledger";
+import { loadTaxSettings } from "@/lib/tax/settings";
 import { TaxManager } from "@/components/tax/tax-manager";
 import {
   TaxFactRow,
@@ -14,13 +15,13 @@ import {
 // Мөнгөн хөрөнгө модулиар бүртгэхдээ суутгалын мөрийг журналд оруулна.
 // Лавлагаа: knowledge/01-онол-хууль-стандарт/tax/wht.md.
 
-// Суутгасан татварын өглөг: стандарт дансны 31000003 "Татварын өр" —
-// prefill ил харагдаж, солигдох боломжтой.
-const WHT_PAYABLE_MAIN = "31000003";
-
 export default async function WhtPage() {
-  const { orgId } = await getActiveOrg();
-  const ledger = await loadTaxLedger(orgId, [WHT_PAYABLE_MAIN]);
+  const { orgId, userId } = await getActiveOrg();
+  // Өглөг + авлагын данс тохиргооноос (tax_settings, default 31000004/13660000).
+  const settings = await loadTaxSettings(orgId, userId);
+  const payableMain = settings.whtPayableAccountNumber;
+  const receivableMain = settings.whtReceivableAccountNumber;
+  const ledger = await loadTaxLedger(orgId, [payableMain, receivableMain]);
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -59,16 +60,20 @@ export default async function WhtPage() {
       <TaxManager
         accounts={ledger.accounts.map((account) => ({
           ...account,
-          direction: "credit" as const,
+          // Өглөгийн данс Кт, авлагын данс Дт чиглэлтэй.
+          direction:
+            account.main === receivableMain
+              ? ("debit" as const)
+              : ("credit" as const),
         }))}
         entries={ledger.entries}
         payment={{
-          counterMain: WHT_PAYABLE_MAIN,
+          counterMain: payableMain,
           description: "Суутган татварын төлөлт",
           title: "Суутган татварын төлөлт",
         }}
         offset={{
-          debitMain: WHT_PAYABLE_MAIN,
+          debitMain: payableMain,
           description: "Суутган татвар — илүү төлөлтөөр хаах",
         }}
       />
@@ -95,14 +100,14 @@ export default async function WhtPage() {
             title="Төлбөр хийхдээ 10% суутгана:"
             lines={[
               "Dr 73100001 Үйл ажиллагааны зардал  5,000,000",
-              "  Cr 31000003 Татварын өр (суутган)  500,000",
+              `  Cr ${payableMain} Суутган татварын өглөг  500,000`,
               "  Cr 11000001 Банк                 4,500,000",
             ]}
           />
           <TaxGlExample
             title="Суутгасан татвараа төлөх (сар бүр):"
             lines={[
-              "Dr 31000003 Татварын өр (суутган) / Cr 11000001 Банк",
+              `Dr ${payableMain} Суутган татварын өглөг / Cr 11000001 Банк`,
             ]}
           />
         </div>

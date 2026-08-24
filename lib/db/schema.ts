@@ -1361,6 +1361,52 @@ export const payrollRunLinesRelations = relations(payrollRunLines, ({ one }) => 
 // Дансны роль тохиргоо — кодод хатуу дугаар байхгүй (costing_account_settings-
 // тэй ижил ratified-seed хэв маяг). Default нь стандарт дансны схемээс.
 
+// Татварын дансны тохиргоо — НӨАТ-аас БУСАД татвар бүрийн өглөг + авлагын
+// данс (НӨАТ нь vat_settings, ХХОАТ/НДШ-ийн өглөг нь payroll_settings-д).
+// Ratified-seed: мөр байхгүй бол default-уудаар үүсдэг (lib/tax/settings.ts).
+export const taxSettings = pgTable("tax_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" })
+    .unique(),
+  citPayableAccountNumber: text("cit_payable_account_number")
+    .notNull()
+    .default("31000003"),
+  citReceivableAccountNumber: text("cit_receivable_account_number")
+    .notNull()
+    .default("13630000"),
+  whtPayableAccountNumber: text("wht_payable_account_number")
+    .notNull()
+    .default("31000004"),
+  whtReceivableAccountNumber: text("wht_receivable_account_number")
+    .notNull()
+    .default("13660000"),
+  propertyPayableAccountNumber: text("property_payable_account_number")
+    .notNull()
+    .default("31000005"),
+  propertyReceivableAccountNumber: text("property_receivable_account_number")
+    .notNull()
+    .default("13660000"),
+  customsPayableAccountNumber: text("customs_payable_account_number")
+    .notNull()
+    .default("31000006"),
+  customsReceivableAccountNumber: text("customs_receivable_account_number")
+    .notNull()
+    .default("13660000"),
+  /** ХХОАТ, НДШ-ийн ӨГЛӨГ нь payroll_settings-д — энд зөвхөн авлага тал. */
+  pitReceivableAccountNumber: text("pit_receivable_account_number")
+    .notNull()
+    .default("13640000"),
+  siReceivableAccountNumber: text("si_receivable_account_number")
+    .notNull()
+    .default("13650000"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const vatSettings = pgTable("vat_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")

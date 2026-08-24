@@ -1,5 +1,6 @@
 import { getActiveOrg } from "@/lib/auth";
 import { loadTaxLedger } from "@/lib/tax/ledger";
+import { loadTaxSettings } from "@/lib/tax/settings";
 import { TaxManager } from "@/components/tax/tax-manager";
 import {
   TaxFactRow,
@@ -14,13 +15,14 @@ import {
 // хамаардаг тул энд тогтмол хувь заагаагүй; импортын зардлууд барааны
 // өртөгт капитализацлагдана (Өглөг → Бараа материал → Өртөг урсгал).
 
-// Гаалийн татварын өглөг: стандарт дансны 31000003 "Татварын өр" —
-// шууд төлбөрт; импортын урсгалд татвар нь барааны өртөгт орно.
-const CUSTOMS_PAYABLE_MAIN = "31000003";
-
+// Өглөг/авлагын данс tax_settings тохиргооноос (default 31000006/13660000);
+// импортын урсгалд татвар нь барааны өртөгт орно.
 export default async function CustomsTaxPage() {
-  const { orgId } = await getActiveOrg();
-  const ledger = await loadTaxLedger(orgId, [CUSTOMS_PAYABLE_MAIN]);
+  const { orgId, userId } = await getActiveOrg();
+  const settings = await loadTaxSettings(orgId, userId);
+  const payableMain = settings.customsPayableAccountNumber;
+  const receivableMain = settings.customsReceivableAccountNumber;
+  const ledger = await loadTaxLedger(orgId, [payableMain, receivableMain]);
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -59,16 +61,20 @@ export default async function CustomsTaxPage() {
       <TaxManager
         accounts={ledger.accounts.map((account) => ({
           ...account,
-          direction: "credit" as const,
+          // Өглөгийн данс Кт, авлагын данс Дт чиглэлтэй.
+          direction:
+            account.main === receivableMain
+              ? ("debit" as const)
+              : ("credit" as const),
         }))}
         entries={ledger.entries}
         payment={{
-          counterMain: CUSTOMS_PAYABLE_MAIN,
+          counterMain: payableMain,
           description: "Гаалийн татварын төлөлт",
           title: "Гаалийн татварын төлөлт",
         }}
         offset={{
-          debitMain: CUSTOMS_PAYABLE_MAIN,
+          debitMain: payableMain,
           description: "Гаалийн татвар — илүү төлөлтөөр хаах",
         }}
       />

@@ -14,11 +14,8 @@ import { db } from "@/lib/db";
 import { chartOfAccounts } from "@/lib/db/schema";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
+import { loadTaxSettings } from "@/lib/tax/settings";
 import { loadVatSettings } from "@/lib/vat/settings";
-
-/** ААНОАТ/суутган/хөрөнгө/гаалийн өглөгийн данс — тохиргоожих хүртэл
- * татварын хуудсуудтай ИЖИЛ утга (app/(dashboard)/tax/... _PAYABLE_MAIN). */
-const OTHER_TAX_PAYABLE_MAIN = "31000003";
 
 export type TaxOffsetCandidate = {
   main: string;
@@ -32,13 +29,16 @@ export async function getTaxOffsetCandidates(
 ): Promise<ActionResult<{ candidates: TaxOffsetCandidate[] }>> {
   try {
     const { orgId, userId } = await getActiveOrg();
-    const [vat, payroll, accounts] = await Promise.all([
+    const [vat, payroll, tax] = await Promise.all([
       loadVatSettings(orgId, userId),
       loadPayrollSettings(orgId, userId),
-      db.query.chartOfAccounts.findMany({
-        where: eq(chartOfAccounts.organizationId, orgId),
-      }),
+      loadTaxSettings(orgId, userId),
     ]);
+    // Дансны жагсаалтыг тохиргооны ДАРАА уншина — loadTaxSettings шинэ
+    // дансдыг chart-д нэмсэн байж болзошгүй (нэр нь эхний дуудлагаас зөв).
+    const accounts = await db.query.chartOfAccounts.findMany({
+      where: eq(chartOfAccounts.organizationId, orgId),
+    });
 
     const mains = [
       ...new Set(
@@ -47,7 +47,16 @@ export async function getTaxOffsetCandidates(
           vat.inputVatAccountNumber,
           payroll.pitPayableAccountNumber,
           payroll.siPayableAccountNumber,
-          OTHER_TAX_PAYABLE_MAIN,
+          tax.citPayableAccountNumber,
+          tax.citReceivableAccountNumber,
+          tax.whtPayableAccountNumber,
+          tax.whtReceivableAccountNumber,
+          tax.propertyPayableAccountNumber,
+          tax.propertyReceivableAccountNumber,
+          tax.customsPayableAccountNumber,
+          tax.customsReceivableAccountNumber,
+          tax.pitReceivableAccountNumber,
+          tax.siReceivableAccountNumber,
           ...extraMains,
         ]
           .map((main) => (main ?? "").trim())

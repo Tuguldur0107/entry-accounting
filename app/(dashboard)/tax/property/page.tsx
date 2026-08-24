@@ -1,5 +1,6 @@
 import { getActiveOrg } from "@/lib/auth";
 import { loadTaxLedger } from "@/lib/tax/ledger";
+import { loadTaxSettings } from "@/lib/tax/settings";
 import { TaxManager } from "@/components/tax/tax-manager";
 import {
   TaxFactRow,
@@ -14,13 +15,14 @@ import {
 // Хөрөнгийн дансны үнэ Үндсэн хөрөнгө модульд бүртгэлтэй.
 // Лавлагаа: knowledge/01-онол-хууль-стандарт/tax/property.md.
 
-// Өглөгийн данс: стандарт дансны 31000003 "Татварын өр". Зардлын дансыг
-// диалог дээр хэрэглэгч сонгоно (стандарт chart-д тусгай данс байхгүй).
-const PROPERTY_PAYABLE_MAIN = "31000003";
-
+// Өглөг/авлагын данс tax_settings тохиргооноос (default 31000005/13660000).
+// Зардлын дансыг диалог дээр хэрэглэгч сонгоно.
 export default async function PropertyTaxPage() {
-  const { orgId } = await getActiveOrg();
-  const ledger = await loadTaxLedger(orgId, [PROPERTY_PAYABLE_MAIN]);
+  const { orgId, userId } = await getActiveOrg();
+  const settings = await loadTaxSettings(orgId, userId);
+  const payableMain = settings.propertyPayableAccountNumber;
+  const receivableMain = settings.propertyReceivableAccountNumber;
+  const ledger = await loadTaxLedger(orgId, [payableMain, receivableMain]);
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -59,21 +61,25 @@ export default async function PropertyTaxPage() {
       <TaxManager
         accounts={ledger.accounts.map((account) => ({
           ...account,
-          direction: "credit" as const,
+          // Өглөгийн данс Кт, авлагын данс Дт чиглэлтэй.
+          direction:
+            account.main === receivableMain
+              ? ("debit" as const)
+              : ("credit" as const),
         }))}
         entries={ledger.entries}
         payment={{
-          counterMain: PROPERTY_PAYABLE_MAIN,
+          counterMain: payableMain,
           description: "Хөрөнгийн татварын төлөлт",
           title: "Хөрөнгийн татварын төлөлт",
         }}
         offset={{
-          debitMain: PROPERTY_PAYABLE_MAIN,
+          debitMain: payableMain,
           description: "Хөрөнгийн татвар — илүү төлөлтөөр хаах",
         }}
         accrual={{
           debitMain: "",
-          creditMain: PROPERTY_PAYABLE_MAIN,
+          creditMain: payableMain,
           description: "Хөрөнгийн татварын тооцоо",
         }}
       />
@@ -93,12 +99,12 @@ export default async function PropertyTaxPage() {
           <TaxGlExample
             title="Жилийн эцэст тооцох:"
             lines={[
-              "Dr [зардлын данс — өөрөө сонгоно] / Cr 31000003 Татварын өглөг",
+              `Dr [зардлын данс — өөрөө сонгоно] / Cr ${payableMain} Хөрөнгийн татварын өглөг`,
             ]}
           />
           <TaxGlExample
             title="Төлөх:"
-            lines={["Dr 31000003 Татварын өглөг / Cr 11000001 Банк"]}
+            lines={[`Dr ${payableMain} Хөрөнгийн татварын өглөг / Cr 11000001 Банк`]}
           />
         </div>
       </TaxSection>

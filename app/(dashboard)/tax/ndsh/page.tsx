@@ -1,5 +1,6 @@
 import { getActiveOrg } from "@/lib/auth";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
+import { loadTaxSettings } from "@/lib/tax/settings";
 import { loadTaxLedger } from "@/lib/tax/ledger";
 import { loadPayrollTaxMonths } from "@/lib/tax/payroll-summary";
 import { PayrollTaxGrid } from "@/components/tax/payroll-tax-grid";
@@ -21,9 +22,12 @@ export default async function NdshPage() {
   const { orgId, userId } = await getActiveOrg();
   // Өглөгийн данс тохиргооноос (payroll_settings, default 31420000).
   const settings = await loadPayrollSettings(orgId, userId);
+  // Авлагын данс tax_settings-ээс (default 13650000).
+  const taxAccounts = await loadTaxSettings(orgId, userId);
+  const receivableMain = taxAccounts.siReceivableAccountNumber;
   const [months, ledger] = await Promise.all([
     loadPayrollTaxMonths(orgId),
-    loadTaxLedger(orgId, [settings.siPayableAccountNumber]),
+    loadTaxLedger(orgId, [settings.siPayableAccountNumber, receivableMain]),
   ]);
 
   return (
@@ -59,7 +63,11 @@ export default async function NdshPage() {
       <TaxManager
         accounts={ledger.accounts.map((account) => ({
           ...account,
-          direction: "credit" as const,
+          // Өглөгийн данс Кт, авлагын данс Дт чиглэлтэй.
+          direction:
+            account.main === receivableMain
+              ? ("debit" as const)
+              : ("credit" as const),
         }))}
         entries={ledger.entries}
         payment={{
