@@ -37,7 +37,10 @@ export function actionError(
       message
     );
   if (!message || isSqlState || looksSqlish) {
-    console.error(`${context}:`, caught);
+    // Drizzle алдаа жинхэнэ postgres алдаагаа cause-д нуудаг — оношилгоонд
+    // хоёуланг нь лог руу бичнэ.
+    const cause = (caught as { cause?: unknown } | null)?.cause;
+    console.error(`${context}:`, caught, cause ? `\ncause: ${String(cause)}` : "");
     return { error: fallback };
   }
   return { error: message };

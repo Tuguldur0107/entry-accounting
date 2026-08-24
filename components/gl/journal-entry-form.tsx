@@ -327,6 +327,10 @@ export function JournalEntryForm({
   }
 
   async function handleSave(status: "draft" | "posted") {
+    // Давхар дуудлагын хамгаалалт — товчны disabled render хоцорсон ч
+    // хоёр дахь submit орохгүй (зэрэг явсан 2 update нэг мөрүүд дээр
+    // мөргөлдөж DB түвшний алдаа өгч болзошгүй).
+    if (saving !== null) return;
     if (!date || !description.trim()) {
       setError("Огноо ба гүйлгээний утгыг бөглөнө үү");
       return;
