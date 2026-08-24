@@ -69,7 +69,7 @@ export default async function NdshPage() {
         }}
         offset={{
           debitMain: settings.siPayableAccountNumber,
-          creditMain: "",
+          creditMain: "18000001",
           description: "НДШ — илүү төлөлтийн суутган тооцоо",
         }}
       />

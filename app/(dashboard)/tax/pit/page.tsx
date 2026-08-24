@@ -70,7 +70,7 @@ export default async function PitPage() {
         }}
         offset={{
           debitMain: settings.pitPayableAccountNumber,
-          creditMain: "",
+          creditMain: "18000001",
           description: "ХХОАТ — илүү төлөлтийн суутган тооцоо",
         }}
       />
