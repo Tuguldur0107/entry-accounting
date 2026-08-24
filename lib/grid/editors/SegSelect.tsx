@@ -42,10 +42,15 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!triggerRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
+      const target = e.target as Node | null;
+      // Trigger болон portal доторх даралт (хайлтын талбар, жагсаалтын
+      // scroll г.м.) "дотор" — үгүй бол хайлтад дарангуут хаагдаж,
+      // сонгогч эвдэрсэн мэт ажилладаг байсан.
+      if (triggerRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-seg-portal]"))
+        return;
+      setOpen(false);
+      setQuery("");
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
