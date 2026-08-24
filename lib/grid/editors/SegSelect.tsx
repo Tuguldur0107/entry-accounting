@@ -110,6 +110,11 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
           <div
             data-seg-portal=""
             className="ag-custom-component-popup"
+            // Portal доторх даралт гадуур давхаргуудын (панель, editor,
+            // grid) "гадна дарлаа" гэсэн сонсогчдод хүрэхгүй — аль нэг
+            // давхарга үүнийг гадна гэж үзээд dropdown-ийг унтраахаас
+            // давхар хамгаална.
+            onMouseDown={(event) => event.stopPropagation()}
             style={{
               position: "fixed",
               top: pos.top,
@@ -129,6 +134,20 @@ export function SegSelect({ options, value, onChange, groups, width = 220, place
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter — эхний илэрцийг шууд сонгоно (бичээд сонгох урсгал).
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (filtered.length > 0) pick(filtered[0].code);
+                    return;
+                  }
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setOpen(false);
+                    setQuery("");
+                  }
+                }}
                 placeholder="Хайх..."
                 style={{
                   width: "100%",
