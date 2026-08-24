@@ -10,7 +10,6 @@ import { PeriodFilter } from "@/components/periods/period-filter";
 import { OrgSwitcher } from "@/components/layout/org-switcher";
 import { getMyOrgs } from "@/lib/actions/org";
 import { getPeriodSelection } from "@/lib/periods/selection";
-import { DensityToggle } from "@/components/layout/density-toggle";
 import { QuickCreate } from "@/components/layout/quick-create";
 import { QuickNav } from "@/components/layout/quick-nav";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
@@ -84,7 +83,6 @@ export default async function DashboardLayout({
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <QuickCreate />
             <AiChatButton />
-            <DensityToggle />
             <ThemeToggle />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--ea-text-3)" }}>
               {session.user.name}

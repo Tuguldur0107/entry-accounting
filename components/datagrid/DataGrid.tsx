@@ -22,8 +22,7 @@ import type {
 import { toast } from "sonner";
 
 import { ensureGridRegistered } from "@/lib/grid/registerGrid";
-import { densityHeights, gridThemeFor } from "@/lib/grid/theme";
-import { useGridDensity } from "@/lib/store/density-store";
+import { eaGridTheme } from "@/lib/grid/theme";
 import { ComboFilter } from "./ComboFilter";
 import "./datagrid.css";
 
@@ -98,15 +97,6 @@ function DataGridInner<TData>(
 
   const apiRef = useRef<GridApi | null>(null);
   const rangeRef = useRef<CellRange | null>(null);
-  // П16 — мөрийн нягтрал: глобал сонголт (топбарын DensityToggle) бүх
-  // grid-ийн theme-ийг нэг дор сэлгэнэ.
-  const density = useGridDensity((state) => state.density);
-  // Theme-ийн --ag-row-height солигдсоны дараа AG Grid мөрүүдээ дахин
-  // хэмждэггүй тул ил дуудна (анхны render-д api хараахан байхгүй — OK).
-  useEffect(() => {
-    const api = apiRef.current;
-    if (api && !api.isDestroyed()) api.resetRowHeights();
-  }, [density]);
 
   // Getter — handle нэг удаа үүсдэг ч api нь grid бэлэн болмогц (мөн
   // дахин үүсэхэд) ямагт СҮҮЛИЙН утгаа өгнө. Хуучин `{ api: apiRef.current }`
@@ -420,8 +410,7 @@ function DataGridInner<TData>(
       }
     >
       <AgGridReact<TData>
-        theme={gridThemeFor(density)}
-        {...densityHeights(density)}
+        theme={eaGridTheme}
         onGridReady={handleReady}
         onRowDataUpdated={handleRowDataUpdated}
         onCellClicked={handleCellClicked}
