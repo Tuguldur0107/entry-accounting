@@ -69,7 +69,6 @@ export default async function WhtPage() {
         }}
         offset={{
           debitMain: WHT_PAYABLE_MAIN,
-          creditMain: "18000001",
           description: "Суутган татвар — илүү төлөлтөөр хаах",
         }}
       />

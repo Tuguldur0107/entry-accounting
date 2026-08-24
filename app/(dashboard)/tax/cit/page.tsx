@@ -76,7 +76,6 @@ export default async function CitPage() {
         }}
         offset={{
           debitMain: CIT_PAYABLE_MAIN,
-          creditMain: "18000001",
           description: "ААНОАТ — урьдчилж төлсөн татвараар хаах",
         }}
       />

@@ -1,31 +1,50 @@
 "use client";
 
-// Татварын СУУТГАН ТООЦОО — өглөгийн дансыг авлага/илүү төлөлт, урьдчилгааны
-// данстай хооронд нь хаах (Дт өглөг / Кт авлага). Товч дарахад хоёр талын
-// үлдэгдлийг уншаад ЖУРНАЛЫН ЖИНХЭНЭ ФОРМЫГ (Шинэ журнал панель) бүрэн
-// бөглөгдсөн байдлаар нээнэ: огноо, дансууд, дүн (хоёр талын багынхаар),
-// гүйлгээний утга бэлэн — хэрэглэгч шалгаад хадгална/батална. Тусдаа
-// диалог, тусдаа бичилтийн зам байхгүй (бэлэн component-ийн дүрэм).
+// Татварын СУУТГАН ТООЦОО — татварын авлага, өглөгийн дансдын хооронд хаана.
+// Аль данс аль талд орохыг ҮЛДЭГДЛИЙН ТЭМДГЭЭС автоматаар сонгоно:
+//   • Кт үлдэгдэлтэй данс (өглөг) → ДЕБЕТ тал (хаагдана)
+//   • Дт үлдэгдэлтэй данс (авлага, илүү төлөлт) → КРЕДИТ тал (ашиглагдана)
+// Тухайн хуудасны татварын данс аль талд байхаас хамаарч нөгөө талд нь
+// системийн бусад татварын дансдаас хамгийн их үлдэгдэлтэйг нь сонгоно.
+// Дараа нь ЖУРНАЛЫН ЖИНХЭНЭ ФОРМ бүрэн бөглөгдсөн нээгдэж, хэрэглэгч
+// шалгаад хадгална/батална (§9 — тусдаа бичилтийн зам байхгүй).
 
 import { useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { getTaxAccountBalances } from "@/lib/actions/tax-offset";
+import {
+  getTaxOffsetCandidates,
+  type TaxOffsetCandidate,
+} from "@/lib/actions/tax-offset";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { openNewVoucherPanel } from "@/lib/store/panel-store";
 
 export type TaxOffsetDefaults = {
-  /** Хаагдах ӨГЛӨГИЙН данс (Дт тал). */
+  /** Тухайн хуудасны татварын үндсэн данс — талыг нь үлдэгдлээс нь тогтооно. */
   debitMain: string;
-  /** Ашиглах АВЛАГА/урьдчилгааны данс (Кт тал) — хоосон бол формд сонгоно. */
-  creditMain: string;
   description: string;
 };
 
+const EPS = 0.005;
+
 function localToday() {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** Хамгийн их Кт үлдэгдэлтэй (хамгийн сөрөг balance) данс. */
+function topPayable(pool: TaxOffsetCandidate[], excludeMain?: string) {
+  return pool
+    .filter((row) => row.balance < -EPS && row.main !== excludeMain)
+    .sort((a, b) => a.balance - b.balance)[0];
+}
+
+/** Хамгийн их Дт үлдэгдэлтэй данс. */
+function topReceivable(pool: TaxOffsetCandidate[], excludeMain?: string) {
+  return pool
+    .filter((row) => row.balance > EPS && row.main !== excludeMain)
+    .sort((a, b) => b.balance - a.balance)[0];
 }
 
 export function TaxOffsetButton({ offset }: { offset: TaxOffsetDefaults }) {
@@ -33,25 +52,37 @@ export function TaxOffsetButton({ offset }: { offset: TaxOffsetDefaults }) {
 
   function openOffsetJournal() {
     startTransition(async () => {
-      const result = await getTaxAccountBalances([
-        offset.debitMain,
-        offset.creditMain,
-      ]);
+      const result = await getTaxOffsetCandidates([offset.debitMain]);
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      const balances = result.balances ?? [];
-      const debitRow = balances.find((row) => row.main === offset.debitMain);
-      const creditRow = balances.find((row) => row.main === offset.creditMain);
-      // Өглөг данс Кт үлдэгдэлтэй (balance < 0), авлага данс Дт үлдэгдэлтэй.
-      const payable = debitRow ? Math.max(0, -debitRow.balance) : 0;
-      const receivable = creditRow ? Math.max(0, creditRow.balance) : 0;
-      // Хаах дүн — хоёр талын багынх. Кт данс сонгогдоогүй бол өглөгийн
-      // дүнгээр бөглөж, дансыг нь хэрэглэгч формд сонгоно.
-      const amount = offset.creditMain
-        ? Math.min(payable, receivable)
-        : payable;
+      const pool = result.candidates ?? [];
+      const page = pool.find((row) => row.main === offset.debitMain);
+
+      // Чиглэлийн автомат сонголт: хуудасны данс өглөгтэй бол тэр нь Дт тал,
+      // авлагатай бол Кт тал; нөгөө талд бусад татварын хамгийн их
+      // үлдэгдэлтэй данс. Хуудасны данс үлдэгдэлгүй бол хоёр талыг хоёуланг
+      // нь үлдэгдлээр нь сонгоно.
+      let drAcc: TaxOffsetCandidate | undefined;
+      let crAcc: TaxOffsetCandidate | undefined;
+      if (page && page.balance < -EPS) {
+        drAcc = page;
+        crAcc = topReceivable(pool, page.main);
+      } else if (page && page.balance > EPS) {
+        crAcc = page;
+        drAcc = topPayable(pool, page.main);
+      } else {
+        drAcc = topPayable(pool);
+        crAcc = topReceivable(pool, drAcc?.main);
+      }
+
+      const payable = drAcc ? -drAcc.balance : 0;
+      const receivable = crAcc ? crAcc.balance : 0;
+      const amount =
+        drAcc && crAcc
+          ? Math.min(payable, receivable)
+          : Math.max(payable, receivable);
 
       openNewVoucherPanel({
         title: "Суутган тооцоо",
@@ -59,13 +90,13 @@ export function TaxOffsetButton({ offset }: { offset: TaxOffsetDefaults }) {
         description: offset.description,
         lines: [
           {
-            account: offset.debitMain,
+            account: drAcc?.main ?? offset.debitMain,
             debit: amount,
             credit: 0,
             description: offset.description,
           },
           {
-            account: offset.creditMain,
+            account: crAcc?.main ?? "",
             debit: 0,
             credit: amount,
             description: offset.description,
@@ -73,23 +104,19 @@ export function TaxOffsetButton({ offset }: { offset: TaxOffsetDefaults }) {
         ],
       });
 
-      const parts = [
-        debitRow
-          ? `Өглөг ${debitRow.main}: ${fmtMnt(payable)}₮`
-          : null,
-        creditRow
-          ? `Авлага ${creditRow.main}: ${fmtMnt(receivable)}₮`
-          : null,
-      ].filter(Boolean);
-      if (amount <= 0)
+      const label = (row?: TaxOffsetCandidate) =>
+        row ? `${row.main}${row.name ? ` ${row.name}` : ""}` : null;
+      if (!drAcc || !crAcc)
         toast.warning(
-          `Хаах боломжит үлдэгдэл алга — дүнг формд гараар оруулна уу.${
-            parts.length ? ` (${parts.join(" · ")})` : ""
-          }`
+          !crAcc
+            ? "Дт үлдэгдэлтэй (авлага, илүү төлөлт) татварын данс олдсонгүй — Кт талын дансыг формд гараар сонгоно уу."
+            : "Кт үлдэгдэлтэй (өглөг) татварын данс олдсонгүй — Дт талын дансыг формд гараар сонгоно уу."
         );
       else
         toast.info(
-          `${fmtMnt(amount)}₮-өөр бөглөв — шалгаад хадгална уу. ${parts.join(" · ")}`
+          `Дт ${label(drAcc)} (${fmtMnt(payable)}₮) / Кт ${label(crAcc)} (${fmtMnt(
+            receivable
+          )}₮) — ${fmtMnt(amount)}₮-өөр бөглөв. Шалгаад хадгална уу.`
         );
     });
   }

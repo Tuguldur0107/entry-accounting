@@ -69,7 +69,6 @@ export default async function CustomsTaxPage() {
         }}
         offset={{
           debitMain: CUSTOMS_PAYABLE_MAIN,
-          creditMain: "18000001",
           description: "Гаалийн татвар — илүү төлөлтөөр хаах",
         }}
       />
