@@ -935,16 +935,10 @@ async function updateVoucherCore(
     if (existing.status !== "draft")
       throw new Error("Зөвхөн ноорог журналыг засах боломжтой");
 
-    await tx
-      .update(journalVouchers)
-      .set({ date: data.date, description: data.description, status: data.status })
-      .where(
-        and(
-          eq(journalVouchers.id, id),
-          eq(journalVouchers.organizationId, orgId)
-        )
-      );
-
+    // ДАРААЛАЛ ЧУХАЛ: мөрүүдийг ЭХЛЭЭД (воучер ноорог байх зуур) дахин
+    // бичнэ — ea_journal_lines_protect trigger батлагдсан воучерын мөрийг
+    // хамгаалдаг тул статусыг түрүүлж 'posted' болговол өөрийнх нь мөрийн
+    // бичилт хориглогдоно (ноорогоо шууд Хадгалах/post хийхэд унадаг байсан).
     await tx.delete(journalLines).where(eq(journalLines.voucherId, id));
     await tx.insert(journalLines).values(
       validLines.map((l, i) => ({
@@ -956,6 +950,16 @@ async function updateVoucherCore(
         sortOrder: i,
       }))
     );
+
+    await tx
+      .update(journalVouchers)
+      .set({ date: data.date, description: data.description, status: data.status })
+      .where(
+        and(
+          eq(journalVouchers.id, id),
+          eq(journalVouchers.organizationId, orgId)
+        )
+      );
   });
 
   // Засварын формоос шууд post хийхэд ч subledger sync-үүд ажиллана —
