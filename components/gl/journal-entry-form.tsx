@@ -357,6 +357,7 @@ export function JournalEntryForm({
           ? await updateVoucher(voucherId, payload)
           : await createVoucher(payload);
       if (result.error) {
+        feedback.error();
         setError(result.error);
         setSaving(null);
         return;

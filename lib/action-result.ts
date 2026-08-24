@@ -33,7 +33,7 @@ export function actionError(
   const code = (caught as { code?: unknown } | null)?.code;
   const isSqlState = typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
   const looksSqlish =
-    /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
+    /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key|failed query/i.test(
       message
     );
   if (!message || isSqlState || looksSqlish) {

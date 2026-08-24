@@ -95,6 +95,17 @@ function ensurePointerTracking() {
     "pointerdown",
     (event) => {
       lastPointer = { x: event.clientX, y: event.clientY };
+      // AudioContext-ийг ЭНД (хэрэглэгчийн жинхэнэ даралтын дотор) үүсгэж
+      // сэрээнэ — амжилтын дуу server хариуны ДАРАА тоглодог тул тэр үед
+      // үүсгэвэл browser autoplay бодлогоор suspended орхиж, дуу гардаггүй.
+      if (isSoundOn()) {
+        try {
+          audioContext ??= new AudioContext();
+          if (audioContext.state === "suspended") void audioContext.resume();
+        } catch {
+          // Дуу боломжгүй орчинд чимээгүй өнгөрнө.
+        }
+      }
     },
     { capture: true, passive: true }
   );
@@ -166,9 +177,10 @@ export const feedback = {
     pulseAtPointer();
     if (message) toast.success(message);
   },
-  /** Алдаа — намуухан бонк (+ toast). */
-  error(message: string) {
+  /** Алдаа — намуухан бонк; message өгвөл toast-оор ч харуулна (inline
+   *  алдаа үзүүлдэг формд message-гүй дуудаж зөвхөн дуугаргана). */
+  error(message?: string) {
     play("error");
-    toast.error(message);
+    if (message) toast.error(message);
   },
 };
