@@ -13,6 +13,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { feedback } from "@/lib/ui/feedback";
 import { Icon } from "@/components/ui/icon";
 
 import {
@@ -174,7 +175,7 @@ export function CashDocPanel({
             toast.error(result.error);
             return;
           }
-          toast.success("Баримт батлагдаж GL-д бичигдлээ");
+          feedback.posted("Баримт батлагдаж GL-д бичигдлээ");
           refreshOpenPanels();
           router.refresh();
         } catch {

@@ -16,6 +16,7 @@ import type {
   ICellRendererParams,
 } from "ag-grid-community";
 import { toast } from "sonner";
+import { feedback } from "@/lib/ui/feedback";
 
 import { AccountInput } from "@/components/account/account-input";
 import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
@@ -391,7 +392,8 @@ function ArapDocForm({
           setError(result.error);
           return;
         }
-        toast.success(postNow ? "Баримт GL-д бичигдлээ" : "Ноорог хадгалагдлаа");
+        if (postNow) feedback.posted("Баримт GL-д бичигдлээ");
+        else feedback.saved("Ноорог хадгалагдлаа");
         closePanel(panel.id);
         refreshOpenPanels();
         router.refresh();
@@ -801,7 +803,7 @@ function ArapDocReadOnly({
             toast.error(result.error);
             return;
           }
-          toast.success("Баримт батлагдаж GL-д бичигдлээ");
+          feedback.posted("Баримт батлагдаж GL-д бичигдлээ");
           closePanel(panel.id);
           refreshOpenPanels();
           router.refresh();

@@ -3,6 +3,7 @@ import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { EAMark, EAWordmark } from "@/components/auth/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SoundToggle } from "@/components/layout/sound-toggle";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { HeaderReportSelect } from "@/components/layout/header-report-select";
@@ -83,6 +84,7 @@ export default async function DashboardLayout({
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <QuickCreate />
             <AiChatButton />
+            <SoundToggle />
             <ThemeToggle />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--ea-text-3)" }}>
               {session.user.name}

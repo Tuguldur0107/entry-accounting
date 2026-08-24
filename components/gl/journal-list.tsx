@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
+import { feedback } from "@/lib/ui/feedback";
 import {
   deleteVoucher,
   postVoucher,
@@ -118,7 +119,7 @@ export function JournalList({
         : "Оруулахад алдаа гарлаа. Дахин оролдоно уу.";
 
     if (result.created > 0)
-      toast.success(`${result.created} журнал ноорог болж үүслээ`);
+      feedback.saved(`${result.created} журнал ноорог болж үүслээ`);
     for (const failure of [
       ...broken.map((entry) => ({
         voucherKey: entry.voucherKey,
@@ -244,7 +245,7 @@ export function JournalList({
         toast.error(result.error);
         return;
       }
-      toast.success("Журнал батлагдлаа");
+      feedback.posted("Журнал батлагдлаа");
       refreshOpenPanels();
     } catch {
       toast.error("Батлах үед алдаа гарлаа");

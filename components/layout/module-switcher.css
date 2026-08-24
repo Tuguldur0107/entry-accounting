@@ -1,0 +1,100 @@
+/* Модуль сонгогчийн micro-interaction-ууд.
+   - Tile hover: icon жижигхэн өргөгдөж, налж, гялтгар sheen гүйнэ
+   - Menu нээгдэхэд tile-ууд ээлжлэн орж ирнэ (stagger)
+   - Идэвхтэй модулийн icon дээр жижиг ✦ гялтгана
+   prefers-reduced-motion үед бүх хөдөлгөөн унтарна. */
+
+@keyframes ms-pop-grow {
+  from { opacity: 0; transform: translateY(-4px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes ms-tile-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ms-shimmer {
+  to { transform: translateX(130%) rotate(8deg); }
+}
+
+@keyframes ms-sparkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.7) rotate(0deg); }
+  50% { opacity: 0.95; transform: scale(1.1) rotate(25deg); }
+}
+
+.ms-menu {
+  animation: ms-pop-grow 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ms-tile {
+  animation: ms-tile-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: background-color 120ms;
+}
+
+.ms-icon-tile {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 170ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 170ms ease-out;
+}
+
+.ms-tile:hover .ms-icon-tile {
+  transform: translateY(-2px) scale(1.12) rotate(-4deg);
+  box-shadow: 0 8px 16px -8px
+    color-mix(in srgb, var(--ea-interactive) 55%, transparent);
+}
+
+/* Гялтгар sheen — hover бүрд нэг удаа зүүнээс баруун гүйнэ. */
+.ms-icon-tile::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  transform: translateX(-130%) rotate(8deg);
+  background: linear-gradient(
+    105deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.38) 50%,
+    transparent 58%
+  );
+  pointer-events: none;
+}
+
+.ms-tile:hover .ms-icon-tile::after {
+  animation: ms-shimmer 600ms ease-out;
+}
+
+/* Идэвхтэй модулийн жижиг гялтганах од. */
+.ms-sparkle {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: #fff;
+  pointer-events: none;
+  animation: ms-sparkle 1.9s ease-in-out infinite;
+}
+
+/* Trigger товчны icon мөн hover-т хөдөлнө. */
+.ms-trigger .ms-trigger-icon {
+  transition: transform 170ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ms-trigger:hover .ms-trigger-icon {
+  transform: scale(1.12) rotate(-5deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-menu,
+  .ms-tile,
+  .ms-icon-tile,
+  .ms-icon-tile::after,
+  .ms-sparkle,
+  .ms-trigger .ms-trigger-icon {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import { feedback } from "@/lib/ui/feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 import { createPortal } from "react-dom";
@@ -360,6 +361,8 @@ export function JournalEntryForm({
         setSaving(null);
         return;
       }
+      if (status === "posted") feedback.posted();
+      else feedback.saved();
       finish();
     } catch {
       setError("Алдаа гарлаа");

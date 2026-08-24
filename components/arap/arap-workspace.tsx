@@ -6,6 +6,7 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import { useMemo, useRef, useState, useTransition } from "react";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
+import { feedback } from "@/lib/ui/feedback";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 
@@ -567,7 +568,7 @@ export function ArApWorkspace({
         toast.error(result.error);
         return;
       }
-      toast.success("Суутган тооцоо хийгдэж GL-д бичигдлээ");
+      feedback.posted("Суутган тооцоо хийгдэж GL-д бичигдлээ");
       setOffsetSource(null);
       router.refresh();
     });
@@ -588,7 +589,7 @@ export function ArApWorkspace({
           return;
         }
         router.refresh();
-        toast.success("Баримт батлагдаж GL-д бичигдлээ");
+        feedback.posted("Баримт батлагдаж GL-д бичигдлээ");
       } catch {
         toast.error("Батлах амжилтгүй");
       }

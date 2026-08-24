@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Z } from "@/lib/ui/z-layers";
 import { MODULES, getActiveModule } from "./modules";
 import { useDisabledModuleIds } from "./nav-visibility";
+import "./module-switcher.css";
 
 const MODULE_ICONS: Record<string, IconName> = {
   home: "dashboard",
@@ -99,17 +100,11 @@ export function ModuleSwitcher({
       ref={rootRef}
       className={cn("relative", sidebar && "w-full", collapsed && "flex justify-center")}
     >
-      <style>{`
-        @keyframes ms-pop-grow {
-          from { opacity: 0; transform: translateY(-4px) scale(0.92) }
-          to { opacity: 1; transform: translateY(0) scale(1) }
-        }
-      `}</style>
       <button
         type="button"
         onClick={() => (open ? setOpen(false) : openMenu())}
         className={cn(
-          "ea-icon-action border-0",
+          "ea-icon-action ms-trigger border-0",
           variant === "header" &&
             "ea-primary-button flex size-9 items-center justify-center rounded-md text-[var(--primary-foreground)]",
           sidebar &&
@@ -137,10 +132,14 @@ export function ModuleSwitcher({
                 {active.label}
               </div>
             </div>
-            <ModuleIcon id={active.id} size="lg" />
+            <span className="ms-trigger-icon flex">
+              <ModuleIcon id={active.id} size="lg" />
+            </span>
           </>
         ) : (
-          <ModuleIcon id={active.id} size="xl" />
+          <span className="ms-trigger-icon flex">
+            <ModuleIcon id={active.id} size="xl" />
+          </span>
         )}
       </button>
 
@@ -166,8 +165,8 @@ export function ModuleSwitcher({
             padding: 8,
             zIndex: Z.moduleMenu,
             transformOrigin: "top left",
-            animation: "ms-pop-grow 140ms cubic-bezier(0.16, 1, 0.3, 1)",
           }}
+          className="ms-menu"
         >
           <div
             style={{
@@ -193,7 +192,7 @@ export function ModuleSwitcher({
               // Унтраасан модуль нуугдана; идэвхтэй (одоо байгаа) модуль
               // хэрэглэгчийг гацаахгүйн тулд үргэлж харагдана.
               (m) => m.id === active.id || !disabledModuleIds.includes(m.id)
-            ).map((m) => {
+            ).map((m, index) => {
               const isActive = m.id === active.id;
               return (
                 <Link
@@ -205,6 +204,7 @@ export function ModuleSwitcher({
                   }}
                   role="menuitem"
                   title={m.items.map((i) => i.label).join(" · ")}
+                  className="ms-tile"
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -218,7 +218,8 @@ export function ModuleSwitcher({
                     color: "var(--ea-text-1)",
                     textDecoration: "none",
                     textAlign: "center",
-                    transition: "background-color 120ms",
+                    // Stagger — мөр мөрөөрөө ээлжлэн орж ирнэ.
+                    animationDelay: `${index * 22}ms`,
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) e.currentTarget.style.background = "var(--ea-hover-subtle)";
@@ -228,6 +229,7 @@ export function ModuleSwitcher({
                   }}
                 >
                   <div
+                    className="ms-icon-tile"
                     style={{
                       width: 38,
                       height: 38,
@@ -245,6 +247,7 @@ export function ModuleSwitcher({
                     }}
                   >
                     <ModuleIcon id={m.id} size="lg" />
+                    {isActive && <span className="ms-sparkle">✦</span>}
                   </div>
                   <span
                     style={{

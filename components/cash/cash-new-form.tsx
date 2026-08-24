@@ -12,6 +12,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
 import { toast } from "sonner";
+import { feedback } from "@/lib/ui/feedback";
 
 import { AccountInput } from "@/components/account/account-input";
 import { Button } from "@/components/ui/button";
@@ -185,11 +186,8 @@ export function CashNewForm({
           setError(result.error);
           return;
         }
-        toast.success(
-          postNow
-            ? "Гүйлгээ хадгалагдаж батлагдлаа"
-            : "Ноорог гүйлгээ хадгалагдлаа"
-        );
+        if (postNow) feedback.posted("Гүйлгээ хадгалагдаж батлагдлаа");
+        else feedback.saved("Ноорог гүйлгээ хадгалагдлаа");
         onSaved();
       } catch {
         setError("Баримт хадгалж чадсангүй");
