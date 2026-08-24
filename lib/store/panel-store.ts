@@ -369,14 +369,28 @@ export function openVoucherPanel(
   });
 }
 
-export function openNewVoucherPanel() {
+/** Шинэ журналын формыг урьдчилан бөглөх утгууд (татварын суутган тооцоо
+ * г.м. урсгалууд) — account нь 8 оронтой үндсэн данс эсвэл бүтэн сегмент код. */
+export type NewVoucherPrefill = {
+  date: string;
+  description?: string;
+  title?: string;
+  lines?: {
+    account: string;
+    debit: number;
+    credit: number;
+    description?: string;
+  }[];
+};
+
+export function openNewVoucherPanel(prefill?: NewVoucherPrefill) {
   // Дарах бүрд ШИНЭ хоосон форм — тогтмол key байсан бол өмнөх хагас
   // бөглөсөн ноорог чимээгүй сэргэж, хэрэглэгчийг төөрөлдүүлнэ.
   return usePanelStore.getState().openPanel({
     key: `voucher:new:${++newVoucherSeq}`,
     kind: "voucher-new",
-    title: "Шинэ журнал",
-    payload: {},
+    title: prefill?.title ?? "Шинэ журнал",
+    payload: prefill ? { prefill } : {},
   });
 }
 

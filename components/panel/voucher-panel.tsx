@@ -8,6 +8,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
+import { buildSegCode } from "@/lib/grid/segments";
+import type { NewVoucherPrefill } from "@/lib/store/panel-store";
 import {
   getJournalEditorData,
   type JournalEditorData,
@@ -114,6 +116,32 @@ export function VoucherPanel({
 
   const { data } = state;
 
+  // Шинэ журналын урьдчилан бөглөлт (татварын суутган тооцоо г.м.) —
+  // 8 оронтой үндсэн дансыг идэвхтэй сегментүүдтэй бүтэн код болгоно.
+  const prefill = panel.payload.prefill as NewVoucherPrefill | undefined;
+  const toFullCode = (account: string) => {
+    const trimmed = account.trim();
+    if (!/^\d{8}$/.test(trimmed)) return trimmed;
+    return buildSegCode(
+      { ...data.defaultSegments, 3: trimmed },
+      data.activeSegIds,
+      data.defaultSegments
+    );
+  };
+  const prefillVoucher =
+    !data.voucher && prefill
+      ? {
+          date: prefill.date,
+          description: prefill.description ?? "",
+          lines: (prefill.lines ?? []).map((line) => ({
+            account: line.account ? toFullCode(line.account) : "",
+            debit: line.debit,
+            credit: line.credit,
+            description: line.description ?? prefill.description ?? "",
+          })),
+        }
+      : undefined;
+
   return (
     <JournalEntryForm
       // Шинэ өгөгдөл татагдмагц формыг цэвэрхэн remount хийнэ — доторх
@@ -137,7 +165,7 @@ export function VoucherPanel({
               description: data.voucher.description,
               lines: data.voucher.lines,
             }
-          : undefined
+          : prefillVoucher
       }
       // Ctrl+Enter — зөвхөн фокустай, хураагдаагүй панельд. Эс бөгөөс
       // нээлттэй бүх панель зэрэг хадгалчихна.
