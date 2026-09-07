@@ -18,8 +18,11 @@ import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
 import { disabledNavModuleIds } from "@/components/layout/modules";
 import { PanelHost } from "@/components/panel/panel-host";
 import { db } from "@/lib/db";
-import { moduleConfigs } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { memberships, moduleConfigs } from "@/lib/db/schema";
+import type { MembershipRole } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
+import { APP_MODULE_DEFS } from "@/lib/constants/app-modules";
+import { effectiveLevel } from "@/lib/permissions";
 
 export default async function DashboardLayout({
   children,
@@ -36,12 +39,37 @@ export default async function DashboardLayout({
   const { activeOrgId, orgs } = await getMyOrgs();
 
   // Модулийн тохиргоо → навигацийн харагдац: унтраасан модуль switcher,
-  // палитр, "+ Шинэ" цэснээс нуугдана (Тохиргоо → Ерөнхий журналын тохиргоо).
-  const modConfigs = await db.query.moduleConfigs.findMany({
-    where: eq(moduleConfigs.organizationId, activeOrgId),
-    columns: { moduleKey: true, isEnabled: true },
-  });
-  const hiddenModuleIds = disabledNavModuleIds(modConfigs);
+  // палитр, "+ Шинэ" цэснээс нуугдана (Тохиргоо → Модулийн тохиргоо).
+  // Дээр нь гишүүний "Байхгүй" эрхтэй модулиуд мөн нуугдана
+  // (Тохиргоо → Хэрэглэгчдийн эрх) — бодит хамгаалалт нь server action-ы
+  // requireModuleAction, энэ нь зөвхөн харагдац.
+  const [modConfigs, myMembership] = await Promise.all([
+    db.query.moduleConfigs.findMany({
+      where: eq(moduleConfigs.organizationId, activeOrgId),
+      columns: { moduleKey: true, isEnabled: true },
+    }),
+    db.query.memberships.findFirst({
+      where: and(
+        eq(memberships.organizationId, activeOrgId),
+        eq(memberships.userId, session.user.id!)
+      ),
+      columns: { role: true, permissions: true },
+    }),
+  ]);
+  const memberHiddenNavIds = myMembership
+    ? APP_MODULE_DEFS.filter(
+        (def) =>
+          def.navId &&
+          effectiveLevel(
+            myMembership.role as MembershipRole,
+            myMembership.permissions,
+            def.key
+          ) === "none"
+      ).map((def) => def.navId!)
+    : [];
+  const hiddenModuleIds = [
+    ...new Set([...disabledNavModuleIds(modConfigs), ...memberHiddenNavIds]),
+  ];
 
   return (
     <NavVisibilityProvider disabledModuleIds={hiddenModuleIds}>

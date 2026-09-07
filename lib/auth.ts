@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import { and, asc, eq, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { hasModuleLevel } from "@/lib/permissions";
 import authConfig from "@/lib/auth.config";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -199,6 +200,67 @@ export async function requireRole(
     throw new Error("Энэ үйлдэлд таны эрх хүрэлцэхгүй байна");
   return active;
 }
+
+/**
+ * Модулийн нарийн эрхийн шалгалт (lib/permissions.ts): owner/admin үргэлж
+ * бүрэн; accountant/viewer-ийн эрх memberships.permissions override +
+ * role default-аас гарна. Тухайн модульд шаардсан түвшинд хүрэхгүй бол
+ * монгол текстээр ШИДНЭ (action wrapper-ууд { error } болгож буцаадаг).
+ */
+export async function requireModuleAction(
+  moduleKey: string,
+  needed: "read" | "write" | "post"
+): Promise<ActiveOrg> {
+  const active = await getActiveOrg();
+  if (ROLE_ORDER[active.role] >= ROLE_ORDER.admin) return active;
+
+  const membership = await db.query.memberships.findFirst({
+    where: and(
+      eq(memberships.organizationId, active.orgId),
+      eq(memberships.userId, active.userId)
+    ),
+    columns: { permissions: true },
+  });
+  if (!hasModuleLevel(active.role, membership?.permissions, moduleKey, needed)) {
+    const label = MODULE_ACTION_LABELS[needed];
+    throw new Error(
+      `Танд энэ модульд ${label} эрх олгогдоогүй байна — Тохиргоо → Хэрэглэгчдийн эрх хэсгээс админ олгоно`
+    );
+  }
+  return active;
+}
+
+/** Аль нэг нь хүрэлцэхэд хангалттай (ж: харилцагч — АР эсвэл АП бичих эрх). */
+export async function requireAnyModuleAction(
+  checks: [string, "read" | "write" | "post"][]
+): Promise<ActiveOrg> {
+  const active = await getActiveOrg();
+  if (ROLE_ORDER[active.role] >= ROLE_ORDER.admin) return active;
+
+  const membership = await db.query.memberships.findFirst({
+    where: and(
+      eq(memberships.organizationId, active.orgId),
+      eq(memberships.userId, active.userId)
+    ),
+    columns: { permissions: true },
+  });
+  const ok = checks.some(([moduleKey, needed]) =>
+    hasModuleLevel(active.role, membership?.permissions, moduleKey, needed)
+  );
+  if (!ok) {
+    const label = MODULE_ACTION_LABELS[checks[0]?.[1] ?? "write"];
+    throw new Error(
+      `Танд энэ үйлдэлд ${label} эрх олгогдоогүй байна — Тохиргоо → Хэрэглэгчдийн эрх хэсгээс админ олгоно`
+    );
+  }
+  return active;
+}
+
+const MODULE_ACTION_LABELS: Record<"read" | "write" | "post", string> = {
+  read: "унших",
+  write: "бичих",
+  post: "батлах",
+};
 
 export const auth: typeof sessionAuth = ((
   ...args: Parameters<typeof sessionAuth>

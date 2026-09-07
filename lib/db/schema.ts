@@ -54,6 +54,11 @@ export const memberships = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("owner"), // MembershipRole
+    /**
+     * Модулийн нарийн эрх — JSON (moduleKey → "none"|"read"|"write"|"post").
+     * null = role-ийн default (lib/permissions.ts); owner/admin-д үйлчлэхгүй.
+     */
+    permissions: text("permissions"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [

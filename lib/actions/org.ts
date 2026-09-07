@@ -43,6 +43,8 @@ export type OrgMemberView = {
   email: string;
   role: MembershipRole;
   joinedAt: string;
+  /** Модулийн нарийн эрх (memberships.permissions JSON) — null = default. */
+  permissions: string | null;
 };
 
 export type OrgInvitationView = {
@@ -83,6 +85,7 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
           membershipId: memberships.id,
           userId: memberships.userId,
           role: memberships.role,
+          permissions: memberships.permissions,
           joinedAt: memberships.createdAt,
           name: users.name,
           email: users.email,
@@ -139,6 +142,7 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
       email: row.email,
       role: row.role as MembershipRole,
       joinedAt: row.joinedAt.toISOString().slice(0, 10),
+      permissions: row.permissions,
     })),
     invitations: invitationRows.map((row) => ({
       id: row.id,
