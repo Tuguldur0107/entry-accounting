@@ -90,12 +90,13 @@ jobs:
             --head "$BRANCH" \
             --base "${{ github.event.repository.default_branch }}" \
             --title "Upstream sync: ${REF}" \
-            --body "Core repo \`${UPSTREAM_REPO}\`-ийн \`${REF}\` (\`${{ steps.fetch.outputs.sha }}\`) шинэчлэлт.
-
-**Шалгах:**
-- [ ] CI ногоон
-- [ ] Conflict байвал \`custom/\` талаас биш core талаас ирсэн эсэхийг шалга (core файлыг өөрчилсөн бол custom/ руу нүүлгэ)
-- [ ] Staging дээр deploy хийж \`/api/health\` version шалга
-- [ ] Шинэ DDL байвал \`npm run db:push\` (Railway preDeployCommand автоматаар)
-
-Заавар: docs/deployment/README.md"
+            --body "$(printf '%s\n' \
+              "Core repo \`${UPSTREAM_REPO}\`-ийн \`${REF}\` (\`${{ steps.fetch.outputs.sha }}\`) шинэчлэлт." \
+              "" \
+              "**Шалгах:**" \
+              "- [ ] CI ногоон" \
+              "- [ ] Conflict байвал \`custom/\` талаас биш core талаас ирсэн эсэхийг шалга (core файлыг өөрчилсөн бол custom/ руу нүүлгэ)" \
+              "- [ ] Staging дээр deploy хийж \`/api/health\` version шалга" \
+              "- [ ] Шинэ DDL байвал \`npm run db:push\` (Railway preDeployCommand автоматаар)" \
+              "" \
+              "Заавар: docs/deployment/README.md")"
