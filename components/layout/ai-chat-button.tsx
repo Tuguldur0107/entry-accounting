@@ -6,10 +6,14 @@
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 
+import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 import { openAiChatPanel } from "@/lib/store/panel-store";
 
 export function AiChatButton() {
   const pathname = usePathname();
+  const disabledModuleIds = useDisabledModuleIds();
+  // Модулийн тохиргоогоор AI туслах унтраасан бол товч огт харагдахгүй.
+  if (disabledModuleIds.includes("ai")) return null;
   // /ai хуудсан дээр чат аль хэдийн дэлгэцээр нээлттэй — давхар панель
   // нээвэл нэг ярианы хоёр хуулбар зөрж явна.
   if (pathname === "/ai" || pathname.startsWith("/ai/")) return null;

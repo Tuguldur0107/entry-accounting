@@ -12,6 +12,8 @@ export type Module = {
   id: string;
   label: string;
   matchPrefix: string;
+  /** Нэмэлт зам — тухайн модульд харьяалагдах өөр prefix (ж: Тохиргоо → /admin). */
+  extraPrefixes?: string[];
   defaultHref: string;
   items: ModuleItem[];
 };
@@ -204,27 +206,22 @@ export const MODULES: Module[] = [
     ],
   },
   {
-    // Байгууллагын удирдлага — гишүүд, эрх, аудит. Нягтлан бодох тохиргооноос
-    // (Тохиргоо модуль) тусдаа: энд "хэн юу хийж болох"-ыг удирдана.
-    id: "admin",
-    label: "Удирдлага",
-    matchPrefix: "/admin",
-    defaultHref: "/admin/org",
-    items: [
-      { label: "Байгууллага, гишүүд", href: "/admin/org", icon: "company" },
-      { label: "Аудитын мөр", href: "/admin/audit", icon: "journal" },
-    ],
-  },
-  {
+    // Тохиргоо — хэрэглэгч, байгууллага, бүртгэлийн тохиргоо НЭГ дор
+    // (хуучин "Удирдлага" модуль энд нэгтгэгдсэн — /admin зам хэвээр).
     id: "settings",
     label: "Тохиргоо",
     matchPrefix: "/settings",
+    extraPrefixes: ["/admin"],
     defaultHref: "/settings/profile",
     items: [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: "user" },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
+      { label: "Байгууллага", href: "/admin/org", icon: "company" },
+      { label: "Хэрэглэгчдийн эрх", href: "/settings/permissions", icon: "shield" },
+      { label: "Модулийн тохиргоо", href: "/settings/modules", icon: "select" },
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
+      { label: "Аудитын мөр", href: "/admin/audit", icon: "journal" },
       { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
       { label: "Систем, хувилбар", href: "/settings/system", icon: "settings" },
     ],
@@ -244,6 +241,9 @@ export const NAV_MODULE_BY_CONFIG_KEY: Record<string, string> = {
   inv: "inventory",
   cost: "costing",
   cash: "cash",
+  tax: "tax",
+  payroll: "payroll",
+  ai: "ai",
 };
 
 /** Унтраасан модулийн тохиргоо → навигациас нуух модулийн id-ууд. */
@@ -252,6 +252,8 @@ export function disabledNavModuleIds(
 ): string[] {
   return configs
     .filter((config) => !config.isEnabled)
+    // GL нь цөм — тохиргооны мөр ямар ч байсан навигациас нуугдахгүй.
+    .filter((config) => config.moduleKey !== "gl")
     .map((config) => NAV_MODULE_BY_CONFIG_KEY[config.moduleKey])
     .filter((id): id is string => !!id);
 }
@@ -262,7 +264,10 @@ export function getActiveModule(pathname: string): Module {
   if (pathname === "/") return home;
   return (
     MODULES.find(
-      (m) => m.id !== HOME_MODULE_ID && pathname.startsWith(m.matchPrefix)
+      (m) =>
+        m.id !== HOME_MODULE_ID &&
+        (pathname.startsWith(m.matchPrefix) ||
+          m.extraPrefixes?.some((prefix) => pathname.startsWith(prefix)))
     ) ?? home
   );
 }
