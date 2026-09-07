@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Entry Accounting
 
-## Getting Started
+Монгол стандартад нийцсэн, AI-first нягтлан бодох бүртгэлийн систем —
+ерөнхий журнал, касс/банк, АР/АП, бараа материал (хугацааны жигнэсэн дундаж
+өртөг), үндсэн хөрөнгө, НӨАТ, цалин, сар хаалт, аудитын мөр, AI туслах
+(90+ tool, MCP + REST API).
 
-First, run the development server:
+## Fork-д суурилсан нэвтрүүлэлт
+
+Харилцагч бүр **өөрийн GitHub fork** дээр ажиллана:
+
+- Core шинэчлэлт → `Upstream sync` workflow PR-аар (`vX.Y.Z` tag)
+- Өргөтгөл → зөвхөн [`custom/`](custom/README.md) (tool, hook, theme) — conflict-гүй
+- Интеграци → [MCP + REST API v1](docs/deployment/api-integration.md), ижил token
+- Анхны мэдээлэл → Claude Cowork + [`master-data-import` skill](.claude/skills/master-data-import/SKILL.md)
+
+Бүрэн заавар: **[docs/deployment/README.md](docs/deployment/README.md)**
+
+## Quickstart (локал)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <fork-url> && cd entry-accounting
+npm ci
+cp .env.example .env.local      # DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL
+npm run db:push                 # Drizzle schema → PostgreSQL
+npm run dev                     # http://localhost:3000 → бүртгүүлэх
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Production: Railway (`railway.toml` — `db:push` preDeploy, `/api/health`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Шалгалт
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npx tsc --noEmit && npx eslint . && npm test
+```
 
-## Learn More
+## Хувилбар
 
-To learn more about Next.js, take a look at the following resources:
+`package.json` version = git tag (`v1.0.0`). Deploy дээр: `/api/health`,
+`/settings/system`. Өөрчлөлтүүд: [CHANGELOG.md](CHANGELOG.md).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Баримт бичиг
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| | |
+|--|--|
+| Хөгжүүлэгчийн дүрэм (Claude Code уншина) | [CLAUDE.md](CLAUDE.md) |
+| Нэвтрүүлэлт, fork, хувилбар | [docs/deployment/](docs/deployment/README.md) |
+| Өргөтгөл | [custom/README.md](custom/README.md), [custom/CLAUDE.md](custom/CLAUDE.md) |
+| Өртгийн бүртгэл | [docs/cost/](docs/cost/README.md) |
+| Open source стратеги | [docs/OPEN-SOURCE-STRATEGY.md](docs/OPEN-SOURCE-STRATEGY.md) |
+| Мэргэжлийн мэдлэгийн сан | `knowledge/` |

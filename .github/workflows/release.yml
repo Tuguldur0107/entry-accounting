@@ -1,0 +1,58 @@
+# Release — `vX.Y.Z` tag push бүрд шалгалт ажиллуулж GitHub Release үүсгэнэ.
+#
+# Урсгал (core repo):
+#   1. package.json version-ийг шинэчилнэ (npm version minor --no-git-tag-version)
+#   2. CHANGELOG.md-д тэмдэглэл нэмнэ, commit
+#   3. git tag vX.Y.Z && git push origin main --tags
+# Fork-ууд энэ tag-аар шинэчлэлт авна (upstream-sync.yml). Хувилбар нь
+# /api/health, MCP serverInfo, /settings/system-д харагдана (lib/version.ts).
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Зөвхөн core repo дээр — харилцагчийн repo-д tag push хийгдсэн ч release
+    # үүсгэхгүй (contains нь том/жижиг үсэг ялгахгүй).
+    if: ${{ contains(github.repository, 'tuguldur0107/entry-accounting') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Next.js төрлийн лавлагаа
+        run: |
+          printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
+
+      - name: Tag ба package.json version тохирох эсэх
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG ≠ package.json version $PKG — эхлээд package.json-оо шинэчилнэ үү"
+            exit 1
+          fi
+
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow)
+
+      - name: GitHub Release (авто тэмдэглэлтэй)
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            Fork дээрээ шинэчлэх: **Actions → Upstream sync → Run workflow** (ref: `${{ github.ref_name }}`),
+            эсвэл `git fetch upstream --tags && git merge ${{ github.ref_name }}`.
+            Дэлгэрэнгүй: docs/deployment/README.md

@@ -402,7 +402,9 @@ export function CloseWizard({
                     throw new Error(
                       result.code === "has-drafts"
                         ? "Ноорог бичилт үлдсэн байна — эхлээд цэвэрлэнэ үү"
-                        : `Хаагдсангүй (${result.code})`
+                        : result.code === "hook-rejected"
+                          ? result.reason
+                          : `Хаагдсангүй (${result.code})`
                     );
                   return `${periodCode} тайлант үе хаагдлаа`;
                 })

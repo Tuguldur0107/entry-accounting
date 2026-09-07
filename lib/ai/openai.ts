@@ -3,7 +3,7 @@
 // зөвхөн wire формат нь өөр. SDK нэмэлгүй, raw HTTP (fetch + SSE).
 
 import { createMarkerSanitizer } from "./action-markers";
-import { AI_TOOLS, executeAiTool, type AiToolResult } from "./tools";
+import { allAiTools, executeAiTool, type AiToolResult } from "./tools";
 import type { AiWriteMode } from "./models";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
@@ -146,7 +146,7 @@ export async function runOpenAiAgent(options: {
   onText: (text: string) => void;
   onToolResult: (result: AiToolResult) => void;
 }): Promise<void> {
-  const tools = AI_TOOLS.map((tool) => ({
+  const tools = allAiTools().map((tool) => ({
     type: "function" as const,
     function: {
       name: tool.name,

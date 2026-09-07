@@ -1,0 +1,10 @@
+/* custom/theme.css — таны өнгө/радиусын override.
+ * app/globals.css нь ui-kit/tokens.css-ийн ДАРАА энэ файлыг import хийдэг тул
+ * энд бичсэн --ea-* токен core-ийг дарна. Core энэ файлд хэзээ ч бичихгүй.
+ *
+ * Жишээ (брэндийн үндсэн өнгө):
+ *   :root { --ea-primary: #0f766e; }
+ *   .dark { --ea-primary: #2dd4bf; }
+ *
+ * Токенуудын бүрэн жагсаалт: ui-kit/tokens.css
+ */

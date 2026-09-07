@@ -18,7 +18,7 @@ import {
   type AiWriteMode,
 } from "@/lib/ai/models";
 import { OpenAiError, runOpenAiAgent, type OpenAiMessage } from "@/lib/ai/openai";
-import { AI_TOOLS, actionMarker, executeAiTool } from "@/lib/ai/tools";
+import { actionMarker, allAiTools, executeAiTool } from "@/lib/ai/tools";
 import {
   AI_STABLE_SYSTEM_PROMPT,
   buildDynamicContext,
@@ -408,7 +408,7 @@ export async function POST(request: Request) {
         } else {
           // ── Anthropic зам: tool-use agent давталт ──────────────────────
           const client = new Anthropic({ apiKey });
-          const tools: Anthropic.Tool[] = AI_TOOLS.map((tool) => ({
+          const tools: Anthropic.Tool[] = allAiTools().map((tool) => ({
             name: tool.name,
             description: tool.description,
             input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,

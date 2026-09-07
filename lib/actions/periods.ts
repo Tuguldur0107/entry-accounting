@@ -27,6 +27,7 @@ import {
 import { PERIOD_GATE_LOCK_KEY } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange, type PeriodStatus } from "@/lib/periods/period";
 import { logAuditEvent } from "@/lib/audit";
+import { runBeforePeriodClose } from "@/lib/custom/loader";
 
 export interface PeriodRow {
   code: string;
@@ -51,6 +52,12 @@ export type PeriodActionResult =
         | "has-drafts"
         | "exists"
         | "not-closed";
+    }
+  | {
+      ok: false;
+      /** custom/ hook хаалтыг зогсоосон — reason хэрэглэгчид харагдана. */
+      code: "hook-rejected";
+      reason: string;
     };
 
 // Период нээх/хаах/дахин нээх — admin+ эрхтэй гишүүн; жагсаалт унших —
@@ -245,6 +252,10 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     ]);
     if (draftCounts.some(([row]) => Number(row?.n ?? 0) > 0)) return true;
 
+    // custom/ hook — ноорог тооллогын ДАРАА, lock дотор.
+    const hook = await runBeforePeriodClose({ orgId, userId, code, startDate, endDate });
+    if (!hook.ok) return hook.reason || "Өргөтгөлийн hook хаалтыг зогсоолоо";
+
     await tx
       .insert(accountingPeriods)
       .values({
@@ -276,7 +287,9 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     );
     return false;
   });
-  if (hasDrafts) return { ok: false, code: "has-drafts" };
+  if (hasDrafts === true) return { ok: false, code: "has-drafts" };
+  if (typeof hasDrafts === "string")
+    return { ok: false, code: "hook-rejected", reason: hasDrafts };
 
   revalidatePath("/settings/periods");
   return { ok: true };

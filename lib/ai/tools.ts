@@ -139,6 +139,11 @@ import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
 import type { AiWriteMode } from "./models";
 
 import type { AiAction } from "./action-markers";
+import {
+  customToolDefs,
+  executeCustomTool,
+  findCustomTool,
+} from "@/lib/custom/loader";
 
 /** Post горимд ч үүнээс их дүнтэй бичилт НООРОГ үлдэнэ (§9). */
 export const AI_POST_LIMIT_MNT = 10_000_000;
@@ -1352,6 +1357,94 @@ export const AI_TOOLS: AiToolDef[] = [
             },
             required: ["name", "counterpartyType"],
           },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "create_gl_accounts_batch",
+    description:
+      "Олон GL данс нэг дуудлагаар нээнэ (max 100) — анхны нэвтрүүлэлтийн дансны мод импорт. Partial success: байгаа данс алгасагдаж, алдаатай мөр бусдад нөлөөлөхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_gl_account-ийн input-уудын жагсаалт",
+          items: {
+            type: "object",
+            properties: {
+              number: { type: "string", description: "8 оронтой дансны дугаар" },
+              name: { type: "string", description: "Дансны нэр" },
+            },
+            required: ["number", "name"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "create_inventory_items_batch",
+    description:
+      "Олон бараа нэг дуудлагаар бүртгэнэ (max 100) — анхны бараа материалын лавлах импорт. Partial success: давхардсан код алгасагдана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_inventory_item-ийн input-уудын жагсаалт",
+          items: {
+            type: "object",
+            properties: {
+              code: { type: "string" },
+              name: { type: "string" },
+              unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
+            },
+            required: ["code", "name"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "create_employees_batch",
+    description:
+      "Олон ажилтныг нэг дуудлагаар цалингийн модульд бүртгэнэ (max 100). Partial success — мөр бүрийн үр дүн тусдаа.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_employee-ийн input-уудын жагсаалт",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              position: { type: "string" },
+              baseSalary: { type: "number", description: "Сарын үндсэн цалин ₮" },
+              accidentRatePercent: { type: "number", description: "ҮОМШӨ % (default 0.8)" },
+            },
+            required: ["name", "baseSalary"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "create_fixed_assets_batch",
+    description:
+      "Олон үндсэн хөрөнгийн картыг нэг дуудлагаар үүсгэнэ (max 100) — анхны ҮХ бүртгэлийн импорт. Ноорог-first: хэрэглэгч шалгаад идэвхжүүлнэ ('Шууд бичих' горимд идэвхтэй үүснэ). Partial success.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          description: "create_fixed_asset-ийн input-уудын жагсаалт (ижил талбарууд)",
+          items: { type: "object" },
         },
       },
       required: ["items"],
@@ -6030,6 +6123,21 @@ async function runImportBankStatement(
   };
 }
 
+/**
+ * Core + custom/ tool-ийн нийлбэр — чат, OpenAI adapter, MCP, REST API
+ * БҮГД энийг ашиглана (AI_TOOLS нь зөвхөн core). Lazy: custom/index.ts
+ * core action-уудыг import хийдэг тул модулийн top-level-д дуудвал цикл үүснэ.
+ */
+let mergedTools: AiToolDef[] | null = null;
+export function allAiTools(): AiToolDef[] {
+  if (!mergedTools)
+    mergedTools = [
+      ...AI_TOOLS,
+      ...customToolDefs(AI_TOOLS.map((tool) => tool.name)),
+    ];
+  return mergedTools;
+}
+
 // ── Нэгдсэн диспетчер ───────────────────────────────────────────────────────
 
 /**
@@ -6048,7 +6156,7 @@ export async function executeAiTool(
     // runAsOrg (MCP token) контекстоос ирнэ; гишүүнчлэлийг getActiveOrg
     // ДАХИН баталгаажуулна. Хэрэглэгч өөрөө (createdBy) server action-ууд
     // дотроо auth()-оос авагдана.
-    const { orgId } = await getActiveOrg();
+    const { orgId, userId } = await getActiveOrg();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
     switch (name) {
@@ -6226,6 +6334,22 @@ export async function executeAiTool(
         return await runCreateBatch(args.items, (item) =>
           runCreateCounterparty(orgId, item as Parameters<typeof runCreateCounterparty>[1])
         );
+      case "create_gl_accounts_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateGlAccount(orgId, item as Parameters<typeof runCreateGlAccount>[1])
+        );
+      case "create_inventory_items_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateItem(orgId, item as Parameters<typeof runCreateItem>[1])
+        );
+      case "create_employees_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateEmployee(item as Parameters<typeof runCreateEmployee>[0])
+        );
+      case "create_fixed_assets_batch":
+        return await runCreateBatch(args.items, (item) =>
+          runCreateFixedAsset(orgId, item as Parameters<typeof runCreateFixedAsset>[1], mode)
+        );
       case "create_arap_invoices_batch":
         return await runCreateBatch(args.items, (item) =>
           runCreateArap(orgId, item as Parameters<typeof runCreateArap>[1], mode)
@@ -6246,8 +6370,12 @@ export async function executeAiTool(
         return await runPostBatch(args.voucherIds, mode, (id) =>
           runPostJournal(orgId, { voucherId: id }, mode)
         );
-      default:
-        return { resultText: `"${name}" гэдэг tool байхгүй` };
+      default: {
+        // custom/ багцын tool — core-той ИЖИЛ алдааны боловсруулалттай.
+        const custom = findCustomTool(name);
+        if (!custom) return { resultText: `"${name}" гэдэг tool байхгүй` };
+        return await executeCustomTool(custom, { orgId, userId, mode }, args);
+      }
     }
   } catch (caught) {
     const message = errorText(caught);

@@ -28,7 +28,8 @@ import {
   type AiWriteMode,
 } from "@/lib/ai/models";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
-import { AI_TOOLS, executeAiTool } from "@/lib/ai/tools";
+import { allAiTools, executeAiTool } from "@/lib/ai/tools";
+import { APP_VERSION } from "@/lib/version";
 
 const PROTOCOL_VERSION = "2025-06-18";
 /** Нэг JSON-RPC batch POST-д зөвшөөрөх дуудлагын дээд тоо. */
@@ -36,7 +37,7 @@ const MAX_BATCH_REQUESTS = 20;
 const SERVER_INFO = {
   name: "entry-accounting",
   title: "Entry Accounting",
-  version: "1.0.0",
+  version: APP_VERSION,
 };
 
 interface JsonRpcRequest {
@@ -92,7 +93,7 @@ export async function resolveApiToken(
 }
 
 /** Хэрэглэгчийн сонгосон бичилтийн горим (чатын toggle-тэй нэг тохиргоо) — org бүрд тусдаа. */
-async function writeModeOf(context: TokenContext): Promise<AiWriteMode> {
+export async function writeModeOf(context: TokenContext): Promise<AiWriteMode> {
   const settings = await db.query.aiSettings.findFirst({
     where: and(
       eq(aiSettings.userId, context.userId),
@@ -135,7 +136,7 @@ async function handleRequest(
       return rpcResult(id, {});
     case "tools/list":
       return rpcResult(id, {
-        tools: AI_TOOLS.map((tool) => ({
+        tools: allAiTools().map((tool) => ({
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
