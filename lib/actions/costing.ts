@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireRole, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { latestUnitCost } from "@/lib/costing/valuation";
 import {
@@ -38,11 +38,6 @@ import {
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { logAuditEvent } from "@/lib/audit";
-
-/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
-async function requireAccountant() {
-  return requireRole("accountant");
-}
 
 function revalidateCosting() {
   for (const path of [
@@ -187,7 +182,7 @@ export async function runCosting(data: {
   asOfDate: string;
   receiptCosts?: Record<string, number>;
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("cost", "write");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.asOfDate))
     throw new Error("Огноо буруу байна");
 
@@ -375,7 +370,7 @@ async function loadIssueTypeById(orgId: string, id: string) {
 }
 
 export async function postCostEntry(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: { with: { item: true } }, item: true },
@@ -563,7 +558,7 @@ export async function postCostEntries(ids: string[]) {
 }
 
 export async function deleteCostEntry(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: true },
@@ -637,7 +632,7 @@ export async function deleteCostEntry(id: string) {
 // Дараагийн costing run уг хөдөлгөөнийг дахин үнэлж болно (reversed entry
 // идэвхтэйд тооцогдохгүй).
 export async function reverseCostEntry(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: true },
@@ -751,7 +746,7 @@ export async function createNrvEntry(data: {
   date: string;
   nrvPerUnit: number;
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("cost", "write");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
   const nrvPerUnit = Number(data.nrvPerUnit);

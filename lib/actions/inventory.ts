@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { requireRole } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   costEntries,
@@ -21,11 +21,6 @@ import {
 } from "@/lib/inventory/balances";
 import { logAuditEvent } from "@/lib/audit";
 import { actionError, type ActionResult } from "@/lib/action-result";
-
-/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
-async function requireAccountant() {
-  return requireRole("accountant");
-}
 
 function revalidateInventory() {
   for (const path of [
@@ -52,7 +47,7 @@ export async function createInventoryItem(data: {
   name: string;
   unit: string;
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
   const unit = data.unit.trim() || "ш";
@@ -71,7 +66,7 @@ export async function updateInventoryItem(
   id: string,
   data: { name: string; unit: string }
 ) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Барааны нэр оруулна уу");
   await db
@@ -82,7 +77,7 @@ export async function updateInventoryItem(
 }
 
 export async function toggleInventoryItem(id: string, isActive: boolean) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("inv", "write");
   await db
     .update(inventoryItems)
     .set({ isActive })
@@ -91,7 +86,7 @@ export async function toggleInventoryItem(id: string, isActive: boolean) {
 }
 
 export async function createWarehouse(data: { code: string; name: string }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
   if (!code) throw new Error("Агуулахын код оруулна уу");
@@ -106,7 +101,7 @@ export async function createWarehouse(data: { code: string; name: string }) {
 }
 
 export async function toggleWarehouse(id: string, isActive: boolean) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("inv", "write");
   await db
     .update(warehouses)
     .set({ isActive })
@@ -169,7 +164,7 @@ async function createInventoryMovementCore(data: {
   issueTypeId?: string;
   confirmNow?: boolean;
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "write");
   if (!MOVEMENT_TYPES.includes(data.movementType))
     throw new Error("Хөдөлгөөний төрөл буруу байна");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
@@ -315,7 +310,7 @@ async function updateInventoryMovementCore(
     issueTypeId?: string;
   }
 ) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("inv", "write");
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),
@@ -412,7 +407,7 @@ export async function updateInventoryMovement(
 }
 
 async function confirmInventoryMovementCore(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "post");
 
   // Шалгалт + claim нэг транзакцад, хэрэглэгч бүрийн advisory lock дор —
   // хоёр ӨӨР ноорогийг зэрэг батлахад хоёулаа шалгалтыг давж үлдэгдлийг
@@ -525,7 +520,7 @@ export async function confirmInventoryMovements(ids: string[]) {
  * бараа-агуулахын үлдэгдэл хасах болохоор бол блок.
  */
 async function deleteInventoryMovementCore(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "write");
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),
@@ -534,6 +529,8 @@ async function deleteInventoryMovementCore(id: string) {
     columns: { status: true, documentNo: true, date: true },
   });
   if (!movement) return;
+  if (movement.status !== "draft")
+    await requireModuleAction("inv", "post");
 
   await db.transaction(async (tx) => {
     if (movement.status === "confirmed") {
@@ -609,7 +606,7 @@ export async function deleteInventoryMovement(
 // Баталсан хөдөлгөөнийг цуцлах — зөвхөн идэвхтэй cost entry-гүй үед
 // (үнэлэгдсэн бол эхлээд costing талд буцаалт хийнэ — уялдааны гэрээ).
 async function cancelInventoryMovementCore(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "post");
   const movement = await db.query.inventoryMovements.findFirst({
     where: and(
       eq(inventoryMovements.id, id),
@@ -703,7 +700,7 @@ async function recordInventoryCountCore(data: {
   warehouseId: string;
   counts: { itemId: string; countedQty: number }[];
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("inv", "write");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
   if (data.counts.length === 0)

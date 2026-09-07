@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireRole } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { computePeriodCosting } from "@/lib/costing/period-close";
 import { runPeriodicCosting } from "@/lib/costing/period-run";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
@@ -23,7 +23,7 @@ export type RecalculateResult =
   | { ok: false; code: "unauthenticated" | "failed"; message?: string };
 
 export async function recalculatePeriodicCosting(): Promise<RecalculateResult> {
-  const active = await requireRole("accountant").catch(() => null);
+  const active = await requireModuleAction("cost", "write").catch(() => null);
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId, userId } = active;
 
@@ -73,7 +73,7 @@ export type PeriodCostingActionResult =
 export async function computeMonthlyCosting(
   periodCode: string
 ): Promise<PeriodCostingActionResult> {
-  const active = await requireRole("accountant").catch(() => null);
+  const active = await requireModuleAction("cost", "write").catch(() => null);
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId, userId } = active;
   if (!isPeriodCode(periodCode)) return { ok: false, code: "invalid-period" };

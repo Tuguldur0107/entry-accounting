@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import {
+  getActiveOrg,
+  requireAnyModuleAction,
+  requireModuleAction,
+} from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -44,9 +48,9 @@ import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
-/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
-async function requireAccountant() {
-  return requireRole("accountant");
+/** Баримтын төрөл → эрхийн модулийн түлхүүр (АР/АП тусдаа тохирно). */
+function permissionModuleOf(documentType: string): string {
+  return documentType === "ar_invoice" ? "ar" : "ap";
 }
 
 function revalidateArAp() {
@@ -262,7 +266,10 @@ export async function createCounterparty(data: {
   phone?: string;
   address?: string;
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireAnyModuleAction([
+    ["ar", "write"],
+    ["ap", "write"],
+  ]);
   const name = data.name.trim();
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
@@ -319,7 +326,10 @@ export async function updateCounterparty(
     address?: string;
   }
 ) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireAnyModuleAction([
+    ["ar", "write"],
+    ["ap", "write"],
+  ]);
   const name = data.name.trim();
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
@@ -352,7 +362,10 @@ export async function updateCounterparty(
 }
 
 export async function toggleCounterparty(id: string, isActive: boolean) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireAnyModuleAction([
+    ["ar", "write"],
+    ["ap", "write"],
+  ]);
   await db
     .update(counterparties)
     .set({ isActive })
@@ -382,7 +395,10 @@ async function createArApDocumentCore(data: {
   /** Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency. */
   externalRef?: string;
 }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction(
+    permissionModuleOf(data.documentType),
+    data.postNow ? "post" : "write"
+  );
   if (!["ar_invoice", "ap_bill"].includes(data.documentType))
     throw new Error("Баримтын төрөл буруу байна");
   assertDate(data.date, "Огноо");
@@ -655,12 +671,13 @@ export async function createArApDocument(
 // Ноорог АР/АП баримтыг батлах: create(postNow)-тэй ижил журналын бичилтийг
 // хадгалагдсан мөрүүдээс үүсгэнэ (base дүнг баримтын ханшаар дахин тооцно).
 async function postArApDocumentCore(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
     with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
   });
   if (!document) throw new Error("Баримт олдсонгүй");
+  await requireModuleAction(permissionModuleOf(document.documentType), "post");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
   await assertPeriodOpen(orgId, document.date);
@@ -823,11 +840,12 @@ export async function postArApDocument(id: string): Promise<ActionResult> {
  *   - период нээлттэй байх (буцаалт эх огноогоор бичигдэнэ)
  */
 async function reverseArApDocumentCore(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
   });
   if (!document) throw new Error("Баримт олдсонгүй");
+  await requireModuleAction(permissionModuleOf(document.documentType), "post");
   if (document.status === "reversed")
     throw new Error("Энэ баримт аль хэдийн буцаагдсан байна");
   if (document.status === "partially_paid" || document.status === "paid")
@@ -989,11 +1007,16 @@ export async function reverseArApDocument(id: string): Promise<ActionResult> {
  *   - период нээлттэй байх
  */
 async function deleteArApDocumentCore(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
   });
   if (!document) throw new Error("Баримт олдсонгүй");
+  // Ноорог устгах — бичих; батлагдсаныг GL-тэй нь устгах — батлах түвшин.
+  await requireModuleAction(
+    permissionModuleOf(document.documentType),
+    document.status === "draft" ? "write" : "post"
+  );
 
   if (document.status !== "draft") {
     await assertPeriodOpen(orgId, document.date);
@@ -1117,11 +1140,12 @@ export async function updateArApDocument(
     lines?: ArApLineInput[];
   }
 ) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
     where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
   });
   if (!document) throw new Error("Баримт олдсонгүй");
+  await requireModuleAction(permissionModuleOf(document.documentType), "write");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг засна — батлагдсаныг буцаагаад шинээр бүртгэнэ");
 
@@ -1286,7 +1310,9 @@ async function settleArApOffsetCore(input: {
   amount?: number;
   date: string;
 }): Promise<string> {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await getActiveOrg();
+  await requireModuleAction("ar", "post");
+  await requireModuleAction("ap", "post");
   assertDate(input.date, "Огноо");
   if (input.arDocumentId === input.apDocumentId)
     throw new Error("Нэг баримтыг өөртэй нь хаах боломжгүй");
@@ -1473,7 +1499,9 @@ export async function reverseArApOffset(
 }
 
 async function reverseArApOffsetCore(voucherId: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await getActiveOrg();
+  await requireModuleAction("ar", "post");
+  await requireModuleAction("ap", "post");
 
   const settlements = await db.query.arApSettlements.findMany({
     where: and(

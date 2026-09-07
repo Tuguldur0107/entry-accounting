@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -170,7 +170,7 @@ export async function createCashAccount(data: {
   glAccountNumber: string;
   openingBalance?: number;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Дансны нэр оруулна уу");
   if (!["cash", "bank"].includes(data.accountType))
@@ -215,7 +215,7 @@ export async function createCashOpeningVoucher(data: {
   /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "write");
 
   const account = await db.query.cashAccounts.findFirst({
     where: and(
@@ -327,7 +327,7 @@ export async function createCashOpeningVoucher(data: {
 }
 
 export async function toggleCashAccount(id: string, isActive: boolean) {
-  const { orgId } = await requireRole("accountant");
+  const { orgId } = await requireModuleAction("cash", "write");
   await db
     .update(cashAccounts)
     .set({ isActive })
@@ -359,7 +359,10 @@ async function createCashDocumentCore(data: {
   /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
   externalRef?: string;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction(
+    "cash",
+    data.postNow ? "post" : "write"
+  );
   const description = data.description.trim();
   if (!description) throw new Error("Гүйлгээний утга оруулна уу");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
@@ -512,7 +515,7 @@ async function postCashDocumentCore(
   id: string,
   options?: { exchangeRate?: number }
 ) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "post");
 
   const document = await db.query.cashDocuments.findFirst({
     where: and(
@@ -824,7 +827,7 @@ export async function postCashDocument(
 }
 
 async function reverseCashDocumentCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "post");
 
   const document = await db.query.cashDocuments.findFirst({
     where: and(
@@ -977,7 +980,7 @@ export async function reverseCashDocument(id: string): Promise<ActionResult> {
  * үлдэгдэл, төлөв сэргэнэ. Период нээлттэй байх шаардлагатай.
  */
 async function deleteCashDocumentCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "write");
   const document = await db.query.cashDocuments.findFirst({
     where: and(
       eq(cashDocuments.id, id),
@@ -1004,6 +1007,8 @@ async function deleteCashDocumentCore(id: string) {
     return;
   }
 
+  // Батлагдсан баримтыг GL журналтай нь устгах нь батлах түвшний эрх.
+  await requireModuleAction("cash", "post");
   await assertPeriodOpen(orgId, document.date);
 
   const voucherIds = [
@@ -1310,7 +1315,7 @@ async function postCashFxRevaluationCore(data: {
   lossAccountNumber: string;
   replaceExisting?: boolean;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "post");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.valuationDate))
     throw new Error("Тэгшитгэлийн огноо буруу байна");
   const todayInUlaanbaatar = new Date(Date.now() + 8 * 60 * 60 * 1000)
@@ -1631,7 +1636,7 @@ export async function postCashFxRevaluation(
 }
 
 async function reverseCashFxRevaluationCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("cash", "post");
   const revaluation = await db.query.cashFxRevaluations.findFirst({
     where: and(
       eq(cashFxRevaluations.id, id),
@@ -1740,7 +1745,7 @@ export async function updateCashDocument(
     exchangeRate?: number;
   }
 ) {
-  const { orgId } = await requireRole("accountant");
+  const { orgId } = await requireModuleAction("cash", "write");
   const document = await db.query.cashDocuments.findFirst({
     where: and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId)),
   });

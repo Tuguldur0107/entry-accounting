@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
@@ -31,11 +31,6 @@ import {
 } from "@/lib/gl/segment-picker-data";
 import { logAuditEvent } from "@/lib/audit";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
-
-/** Бичилтийн эрхтэй (accountant+) гишүүний org контекст. */
-async function requireAccountant() {
-  return requireRole("accountant");
-}
 
 function revalidateFa() {
   for (const path of ["/fa", "/fa/assets", "/fa/depreciation", "/gl/journal", "/gl/reports"])
@@ -147,7 +142,7 @@ export async function createFixedAsset(
     asDraft?: boolean;
   }
 ) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "write");
   validateAssetInput(data);
   await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
   await assertEnabledMainAccount(orgId, data.accumDepAccountNumber.trim());
@@ -197,7 +192,7 @@ export async function createFixedAsset(
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж
 // идэвхжүүлнэ. GL бичилт хийхгүй — өртөг эх сувагтаа данслагдсан.
 export async function activateFixedAsset(id: string, data: FixedAssetInput) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("fa", "write");
   validateAssetInput(data);
   await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
   await assertEnabledMainAccount(orgId, data.accumDepAccountNumber.trim());
@@ -246,7 +241,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
  * Атом claim (active→draft) давхар буцаалтыг таслана.
  */
 export async function deactivateFixedAsset(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "write");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
     columns: { status: true, code: true, name: true },
@@ -298,7 +293,7 @@ export async function deactivateFixedAsset(id: string) {
  * бичилтүүдийг устгаж/буцааж байж картыг устгана (GL-тэй зөрөхөөс сэргийлнэ).
  */
 export async function deleteFixedAsset(id: string) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("fa", "write");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
     columns: { status: true, code: true },
@@ -328,7 +323,7 @@ export async function deleteFixedAsset(id: string) {
 // ─── Элэгдлийн run ───────────────────────────────────────────────────────────
 
 export async function runDepreciation(data: { month: string }) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "write");
   if (!/^\d{4}-\d{2}$/.test(data.month))
     throw new Error("Сар (YYYY-MM) буруу байна");
 
@@ -393,7 +388,7 @@ export async function runDepreciation(data: { month: string }) {
 }
 
 export async function postDepreciationEntry(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "post");
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),
@@ -497,7 +492,7 @@ export async function postDepreciationEntries(ids: string[]) {
 }
 
 export async function deleteDepreciationEntry(id: string) {
-  const { orgId } = await requireAccountant();
+  const { orgId } = await requireModuleAction("fa", "post");
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),
@@ -517,7 +512,7 @@ export async function deleteDepreciationEntry(id: string) {
 }
 
 export async function reverseDepreciationEntry(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "post");
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
       eq(faDepreciationEntries.id, id),
@@ -754,7 +749,7 @@ export async function disposeFixedAsset(
     gainLossAccountNumber: string;
   }
 ) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "post");
   if (!["scrap", "sale", "donation"].includes(data.disposalType))
     throw new Error("Хасалтын төрөл буруу байна");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) throw new Error("Огноо буруу байна");
@@ -901,7 +896,7 @@ export async function disposeFixedAsset(
  * таслана; буцаалт эх огноогоор бичигдэх тул тэр период нээлттэй байна.
  */
 export async function reverseFixedAssetDisposal(id: string) {
-  const { orgId, userId } = await requireAccountant();
+  const { orgId, userId } = await requireModuleAction("fa", "post");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
   });

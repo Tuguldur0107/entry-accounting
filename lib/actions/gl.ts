@@ -16,7 +16,7 @@ import {
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireModuleAction, requireRole } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { eq, and, ne, or, sql } from "drizzle-orm";
 import {
@@ -544,7 +544,10 @@ async function createVoucherCore(data: {
   /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
   externalRef?: string;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction(
+    "gl",
+    (data.status ?? "posted") === "posted" ? "post" : "write"
+  );
   const status = data.status ?? "posted";
   // Хаагдсан период руу шинэ бичилт хийхгүй (ноорог ч мөн адил — тэр нь
   // хожим батлагдах гэж гацна).
@@ -659,7 +662,7 @@ export async function createVoucher(
 }
 
 async function postVoucherCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("gl", "post");
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
@@ -872,7 +875,7 @@ async function assertNotSubledgerOwned(
 }
 
 async function unpostVoucherCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("gl", "post");
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(
@@ -972,7 +975,10 @@ async function updateVoucherCore(
     status: "draft" | "posted";
   }
 ) {
-  const { orgId } = await requireRole("accountant");
+  const { orgId } = await requireModuleAction(
+    "gl",
+    data.status === "posted" ? "post" : "write"
+  );
 
   await assertPeriodOpen(orgId, data.date);
 
@@ -1061,7 +1067,7 @@ export async function updateVoucher(
  *     эс бөгөөс дэд дэвтэр GL хоёр зөрнө.
  */
 async function deleteVoucherCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("gl", "write");
 
   const existing = await db.query.journalVouchers.findFirst({
     where: and(
@@ -1083,6 +1089,8 @@ async function deleteVoucherCore(id: string) {
     );
 
   if (existing.status !== "draft") {
+    // Батлагдсан журналыг устгах нь батлахтай ижил түвшний эрх.
+    await requireModuleAction("gl", "post");
     await assertPeriodOpen(orgId, existing.date);
     // Дэд дэвтрийн баримттай журнал — эх баримтаар нь устгуулна.
     // sourceVoucherId-тэй НООРОГ кассын баримт саад болохгүй (доор цэвэрлэнэ).
@@ -1147,7 +1155,7 @@ export async function deleteVoucher(id: string): Promise<ActionResult> {
  * журналаас л үүсдэг).
  */
 async function duplicateVoucherCore(id: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("gl", "write");
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(

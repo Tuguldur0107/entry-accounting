@@ -11,7 +11,7 @@
 import { revalidatePath } from "next/cache";
 import { and, asc, eq } from "drizzle-orm";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -54,7 +54,7 @@ export async function upsertEmployee(data: {
   accidentRatePercent: number;
   isActive?: boolean;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Ажилтны нэр оруулна уу");
   const baseSalary = Number(data.baseSalary);
@@ -91,7 +91,7 @@ export async function upsertEmployee(data: {
 }
 
 export async function toggleEmployee(id: string, isActive: boolean) {
-  const { orgId } = await requireRole("accountant");
+  const { orgId } = await requireModuleAction("payroll", "write");
   await db
     .update(employees)
     .set({ isActive })
@@ -218,7 +218,7 @@ function computeFor(
  * мөр нэмнэ. GL журнал үүссэн run-д дахин бодолт хийхгүй.
  */
 export async function calculatePayrollRun(periodMonth: string) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
   const { endDate } = periodRange(periodMonth);
   await assertPeriodOpen(orgId, endDate);
@@ -307,7 +307,7 @@ export async function updatePayrollLine(data: {
   earnings: number;
   otherDeductions: number;
 }) {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
   const line = await db.query.payrollRunLines.findFirst({
     where: eq(payrollRunLines.id, data.lineId),
     with: { run: true, employee: true },
@@ -378,7 +378,7 @@ async function payrollPostingCodeBuilder(orgId: string) {
 export async function createPayrollVoucher(
   periodMonth: string
 ): Promise<{ id: string; dedup?: boolean }> {
-  const { orgId, userId } = await requireRole("accountant");
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
 
   const existing = await db.query.journalVouchers.findFirst({

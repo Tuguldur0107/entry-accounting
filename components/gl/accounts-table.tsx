@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { PageTabs } from "@/components/ui/tabs";
 import { IconAction } from "@/components/ui/icon-action";
@@ -26,13 +25,11 @@ import {
   updateSegmentConfig,
   createSegmentValue,
   batchSaveSection2,
-  batchSaveModuleConfigs,
 } from "@/lib/actions/gl";
 import {
   SEGMENT_DEFS,
   ACCOUNT_GROUPS,
   MODULE_LABELS,
-  MODULE_DEFS,
   ALL_MODULES,
   getSegmentKey,
   type ModuleKey,
@@ -94,57 +91,12 @@ export function AccountsTable({
   segmentValues,
   moduleConfigs,
 }: Props) {
-  const router = useRouter();
   const [localConfigs, setLocalConfigs] = useState<SegmentConfigRow[]>(segmentConfigs);
 
   const enabledSegIds = localConfigs.filter((c) => c.isEnabled).map((c) => c.segmentId);
-  const [mainTab, setMainTab] = useState<"modules" | "config" | "values">("modules");
-
-  const [localMods, setLocalMods] = useState<ModuleConfigRow[]>(moduleConfigs);
-  const [modEditMode, setModEditMode] = useState(false);
-  const [modDraft, setModDraft] = useState<ModuleConfigRow[]>([]);
-  const [modSaving, setModSaving] = useState(false);
-
-  function enterModEdit() {
-    setModDraft(localMods.map((m) => ({ ...m })));
-    setModEditMode(true);
-  }
-  function cancelModEdit() {
-    setModDraft([]);
-    setModEditMode(false);
-  }
-  async function saveModEdit() {
-    setModSaving(true);
-    try {
-      const changed = modDraft.filter(
-        (d) =>
-          localMods.find((m) => m.moduleKey === d.moduleKey)?.isEnabled !== d.isEnabled
-      );
-      if (changed.length > 0) {
-        const result = await batchSaveModuleConfigs(changed);
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-      }
-      setLocalMods(modDraft);
-      setModDraft([]);
-      setModEditMode(false);
-      // Навигацийн харагдац (switcher, палитр, + Шинэ) layout-аас ирдэг тул
-      // серверийн өгөгдлийг сэргээнэ.
-      router.refresh();
-      toast.success("Модулийн тохиргоо хадгалагдлаа");
-    } catch {
-      toast.error("Модулийн тохиргоо хадгалагдсангүй");
-    } finally {
-      setModSaving(false);
-    }
-  }
-  function toggleModDraft(key: string) {
-    setModDraft((prev) =>
-      prev.map((m) => (m.moduleKey === key ? { ...m, isEnabled: !m.isEnabled } : m))
-    );
-  }
+  // Модулийн тохиргоо тусдаа хуудас болсон (/settings/modules) — энд зөвхөн
+  // сегмент, дансны тохиргоо үлдсэн.
+  const [mainTab, setMainTab] = useState<"config" | "values">("config");
 
   const [activeTab, setActiveTab] = useState<number>(() =>
     enabledSegIds.includes(3) ? 3 : enabledSegIds[0] ?? 1
@@ -265,7 +217,7 @@ export function AccountsTable({
   const dirtyCount = drafts.size + pendingDeletes.size;
 
   const activeModules = ALL_MODULES.filter(
-    (mod) => localMods.find((m) => m.moduleKey === mod)?.isEnabled ?? true
+    (mod) => moduleConfigs.find((m) => m.moduleKey === mod)?.isEnabled ?? true
   );
 
   const [deleteTarget, setDeleteTarget] = useState<
@@ -653,71 +605,12 @@ export function AccountsTable({
         className="mb-6"
         size="md"
         tabs={[
-          { value: "modules", label: "Модулийн тохиргоо" },
           { value: "config", label: "Сегментийн тохиргоо" },
           { value: "values", label: "Сегментийн утгуудын жагсаалт" },
         ]}
         value={mainTab}
         onChange={setMainTab}
       />
-
-      <div className={cn(mainTab !== "modules" && "hidden")}>
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-xs text-[var(--ea-text-4)]">
-            Системд ашиглах модулиудыг идэвхжүүлнэ үү. Унтраасан модуль
-            навигаци, палитр, «+ Шинэ» цэснээс нуугдана — өмнө нь бичсэн
-            дата болон шууд линкээр хандах боломж хэвээр үлдэнэ.
-          </p>
-          <div className="flex items-center gap-2">
-            {modEditMode ? (
-              <>
-                <Button variant="outline" size="sm" className="text-xs" onClick={cancelModEdit} disabled={modSaving}>
-                  Болих
-                </Button>
-                <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={saveModEdit} disabled={modSaving}>
-                  {modSaving ? "Хадгалж байна..." : "Хадгалах"}
-                </Button>
-              </>
-            ) : (
-              <Button variant="outline" size="sm" className="text-xs" onClick={enterModEdit}>
-                Засварлах
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="grid grid-cols-4 gap-3">
-          {MODULE_DEFS.map((def) => {
-            const source = modEditMode ? modDraft : localMods;
-            const on = source.find((m) => m.moduleKey === def.key)?.isEnabled ?? true;
-            const origOn = localMods.find((m) => m.moduleKey === def.key)?.isEnabled ?? true;
-            const isDirty = modEditMode && on !== origOn;
-            return (
-              <div
-                key={def.key}
-                className={cn(
-                  "bg-[var(--ea-surface)] border rounded-md px-4 py-3 transition-opacity",
-                  !on && "opacity-50",
-                  isDirty ? "border-[var(--ea-primary)]" : "border-[var(--ea-border)]"
-                )}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-xs font-bold text-[var(--ea-primary)] uppercase">
-                    {def.key}
-                  </span>
-                  <Switch
-                    checked={on}
-                    disabled={!modEditMode}
-                    onCheckedChange={() => toggleModDraft(def.key)}
-                  />
-                </div>
-                <div className="text-sm font-medium text-[var(--ea-text-2)] leading-tight">{def.nameMn}</div>
-                <div className="text-[11px] text-[var(--ea-text-4)] leading-tight mt-1">{def.name}</div>
-                <div className="text-[11px] text-[var(--ea-text-4)] leading-tight mt-1.5">{def.description}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
       <div className={cn("mb-6", mainTab !== "config" && "hidden")}>
         <div className="flex items-center justify-between mb-3">
