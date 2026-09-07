@@ -78,6 +78,12 @@ interface Props {
   onHideLine?: (lineKey: string) => void;
   onUnhideLine?: (lineKey: string) => void;
   onRemoveLine?: (lineKey: string) => void;
+  /**
+   * Дүнгийн нүдийг товч болгож задаргаа нээнэ. isAmountDrillable нь аль
+   * мөр даргдахыг шийднэ (өгөхгүй бол amount-тэй detail/subtotal/total бүгд).
+   */
+  onAmountClick?: (row: ReportRow) => void;
+  isAmountDrillable?: (row: ReportRow) => boolean;
 }
 
 const SECTION_LIKE: ReadonlySet<ReportRowKind> = new Set([
@@ -99,6 +105,8 @@ export function ReportGrid({
   onHideLine,
   onUnhideLine,
   onRemoveLine,
+  onAmountClick,
+  isAmountDrillable,
 }: Props) {
   // Drop rows whose parent section or group is collapsed. Section / group
   // rows themselves stay visible so the user always has a way to expand.
@@ -304,6 +312,33 @@ export function ReportGrid({
       suppressMovable: true,
     };
 
+    if (onAmountClick) {
+      amountCol.cellRenderer = (p: ICellRendererParams<ReportRow>) => {
+        const r = p.data;
+        if (!r) return null;
+        // Formatter-тэй ижил дүрэм: footnote дүнгээ харуулна, бусад
+        // section-төст мөр хоосон.
+        if (SECTION_LIKE.has(r.kind) && r.kind !== "footnote") return null;
+        const text = moneyValueFormatter({ value: r.amount });
+        const drillable =
+          r.amount != null &&
+          (isAmountDrillable
+            ? isAmountDrillable(r)
+            : r.kind === "detail" || r.kind === "subtotal" || r.kind === "total");
+        if (!drillable) return <span>{text}</span>;
+        return (
+          <button
+            type="button"
+            title="Задаргаа харах — бүрдүүлэгч данс, журналууд"
+            className="cursor-pointer underline-offset-2 hover:underline hover:text-[var(--ea-interactive)]"
+            onClick={() => onAmountClick(r)}
+          >
+            {text}
+          </button>
+        );
+      };
+    }
+
     const lineNumberCol: ColDef<ReportRow> = {
       headerName: "№",
       colId: "lineNumber",
@@ -431,6 +466,8 @@ export function ReportGrid({
     onUnhideLine,
     onRemoveLine,
     hasActionColumn,
+    onAmountClick,
+    isAmountDrillable,
   ]);
 
   const rowClassRules = useMemo(

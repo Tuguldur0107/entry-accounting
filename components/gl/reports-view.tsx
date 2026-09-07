@@ -65,6 +65,8 @@ export function ReportsView({
           accounts={accounts}
           activeSegments={activeSegments}
           mappings={balanceSheetMappings}
+          appliedFrom={appliedFrom}
+          appliedTo={appliedTo}
         />
       )}
       {data.kind === "income-statement" && (

@@ -20,6 +20,7 @@ export type PanelKind =
   | "voucher" // GL журнал — засах эсвэл харах
   | "voucher-new" // Шинэ журнал бичих
   | "drill" // Самбарын метрикийн задаргаа (журналуудын жагсаалт)
+  | "report-line" // Тайлангийн үзүүлэлтийн задаргаа (данс бүрийн үлдэгдэл)
   | "cash-doc" // Мөнгөн гүйлгээний баримтын дэлгэрэнгүй
   | "cash-new" // Шинэ мөнгөн гүйлгээ / АР-АП төлөлт бичих
   | "cost-entry" // Өртгийн бичилтийн дэлгэрэнгүй
@@ -37,6 +38,23 @@ export interface DrillPanelRow {
   lineCount: number;
   amount: number;
   status: string;
+}
+
+/** Тайлангийн үзүүлэлтийн задаргааны нэг мөр — нэг үндсэн данс. */
+export interface ReportLineAccountRow {
+  main: string;
+  name: string;
+  amount: number;
+}
+
+/** Тайлангийн үзүүлэлтийн задаргааны payload — тайлан дээр бодогдож ирнэ. */
+export interface ReportLineDrillPayload {
+  title: string;
+  from: string;
+  to: string;
+  rows: ReportLineAccountRow[];
+  total: number;
+  [key: string]: unknown;
 }
 
 /** Drill панелийн payload — самбар дээр бодогдсон мөрүүдийг шууд авч явна. */
@@ -391,6 +409,16 @@ export function openNewVoucherPanel(prefill?: NewVoucherPrefill) {
     kind: "voucher-new",
     title: prefill?.title ?? "Шинэ журнал",
     payload: prefill ? { prefill } : {},
+  });
+}
+
+/** Тайлангийн үзүүлэлтийн задаргаа — данс бүрийн үлдэгдэл, цааш хуулга руу. */
+export function openReportLinePanel(payload: ReportLineDrillPayload) {
+  return usePanelStore.getState().openPanel({
+    key: `report-line:${payload.title}`,
+    kind: "report-line",
+    title: payload.title,
+    payload,
   });
 }
 

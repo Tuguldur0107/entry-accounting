@@ -18,6 +18,10 @@ import {
   setLineHidden,
   removeCustomLine,
 } from "@/lib/actions/report-mappings";
+import {
+  openReportLinePanel,
+  type ReportLineAccountRow,
+} from "@/lib/store/panel-store";
 
 interface Props {
   /**
@@ -29,6 +33,9 @@ interface Props {
   accounts: ChartOfAccount[];
   activeSegments: SegmentDef[];
   mappings: ReportLineMapping[];
+  /** Идэвхтэй мужийн огноо — задаргааны дансны хуулгын хил. */
+  appliedFrom: string;
+  appliedTo: string;
 }
 
 // Group → section + sign lookup. Custom lines pick their sign from the
@@ -94,6 +101,8 @@ export function BalanceSheetView({
   accounts,
   activeSegments,
   mappings,
+  appliedFrom,
+  appliedTo,
 }: Props) {
   // ── Toolbar / dialog state ────────────────────────────────────────────
   const [showHidden, setShowHidden] = useState(false);
@@ -256,6 +265,85 @@ export function BalanceSheetView({
   }, [rows, resolvedLines]);
 
   const balanced = isBalanced(data.totalAssets, data.totalLiabAndEquity);
+
+  // ── Үзүүлэлтийн задаргаа — дүн дээр дарахад данс бүрийн үлдэгдэл ─────
+  // Мөр → бүрдүүлэгч ComputedLine-ууд → данс бүрийн sign-тэй цэвэр дүн.
+  const accountNameByMain = useMemo(
+    () => new Map(accounts.map((account) => [account.number, account.name])),
+    [accounts]
+  );
+
+  function collectAccountRows(lines: ComputedLine[]): ReportLineAccountRow[] {
+    const byMainAccount = new Map(rows.map((r) => [r.mainAccount, r]));
+    const acc = new Map<string, ReportLineAccountRow>();
+    for (const line of lines) {
+      for (const code of line.accountNumbers) {
+        const r = byMainAccount.get(code);
+        const net = !r
+          ? 0
+          : line.sign === "debit"
+            ? r.totals.closeDebit - r.totals.closeCredit
+            : r.totals.closeCredit - r.totals.closeDebit;
+        const existing = acc.get(code);
+        if (existing) existing.amount = Math.round((existing.amount + net) * 100) / 100;
+        else
+          acc.set(code, {
+            main: code,
+            name: r?.name ?? accountNameByMain.get(code) ?? "",
+            amount: Math.round(net * 100) / 100,
+          });
+      }
+    }
+    const all = [...acc.values()];
+    const nonZero = all.filter((row) => Math.abs(row.amount) > 0.005);
+    // Бүгд 0 бол бүрдүүлэгч дансуудаа 0 дүнтэйгээр нь харуулна.
+    return (nonZero.length > 0 ? nonZero : all).sort(
+      (a, b) => Math.abs(b.amount) - Math.abs(a.amount)
+    );
+  }
+
+  /** Аль мөр даргдахыг шийднэ — задаргаа нь бодогдож чадах мөрүүд л. */
+  function amountDrillable(row: ReportRow): boolean {
+    if (row.kind === "detail") return !!row.lineKey;
+    if (row.kind === "subtotal") return row.id.startsWith("sub-");
+    if (row.kind === "total")
+      return row.id === "tot-assets" || row.id === "tot-liabilities";
+    return false;
+  }
+
+  function handleAmountDrill(row: ReportRow) {
+    const allSections = [data.assets, data.liabilities, data.equity];
+    let lines: ComputedLine[] = [];
+    let title = "";
+    if (row.kind === "detail" && row.lineKey) {
+      for (const sec of allSections)
+        for (const g of sec.groups)
+          for (const line of g.lines)
+            if (line.key === row.lineKey) lines = [line];
+      title = row.name ?? row.lineKey;
+    } else if (row.kind === "subtotal") {
+      // id: sub-<sectionId>-<groupId>
+      const [, sectionId, ...groupParts] = row.id.split("-");
+      const groupId = groupParts.join("-");
+      const section = allSections.find((sec) => sec.sectionId === sectionId);
+      const group = section?.groups.find((g) => g.groupId === groupId);
+      if (group) lines = group.lines;
+      title = row.label ?? "Бүлгийн нийт";
+    } else if (row.kind === "total") {
+      const sectionId = row.id.replace("tot-", "");
+      const section = allSections.find((sec) => sec.sectionId === sectionId);
+      if (section) lines = section.groups.flatMap((g) => g.lines);
+      title = row.label ?? "Нийт";
+    }
+    if (lines.length === 0) return;
+    openReportLinePanel({
+      title: `${title} — задаргаа`,
+      from: appliedFrom,
+      to: appliedTo,
+      rows: collectAccountRows(lines),
+      total: Math.round((row.amount ?? 0) * 100) / 100,
+    });
+  }
 
   // ── Build the flat ReportRow[] ────────────────────────────────────────
   const reportRows = useMemo<ReportRow[]>(() => {
@@ -466,6 +554,8 @@ export function BalanceSheetView({
           onHideLine={handleHide}
           onUnhideLine={handleUnhide}
           onRemoveLine={handleRemove}
+          onAmountClick={handleAmountDrill}
+          isAmountDrillable={amountDrillable}
         />
       </div>
 

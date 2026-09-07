@@ -15,6 +15,7 @@ import { CashNewPanel } from "./cash-new-panel";
 import { CostEntryPanel } from "./cost-entry-panel";
 import { DrillPanel } from "./drill-panel";
 import { FaAssetPanel } from "./fa-asset-panel";
+import { ReportLinePanel } from "./report-line-panel";
 import { FaAssetFormPanel } from "./fa-asset-form-panel";
 import { VoucherPanel } from "./voucher-panel";
 
@@ -38,6 +39,7 @@ export const PANEL_REGISTRY: Record<PanelKind, PanelKindConfig> = {
   voucher: { component: VoucherPanel },
   "voucher-new": { component: VoucherPanel },
   drill: { component: DrillPanel },
+  "report-line": { component: ReportLinePanel },
   "cash-doc": { component: CashDocPanel },
   "cash-new": { component: CashNewPanel },
   "cost-entry": { component: CostEntryPanel },
