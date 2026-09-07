@@ -14,7 +14,7 @@ export const GIT_SHA: string | null =
   null;
 
 /** Upstream (core) repo — fork-ууд шинэчлэлтээ эндээс авна. */
-export const UPSTREAM_REPO = "tuguldur0107/entry-accounting";
+export const UPSTREAM_REPO = "Tuguldur0107/entry-accounting";
 
 export function versionLabel(): string {
   return GIT_SHA ? `v${APP_VERSION} (${GIT_SHA.slice(0, 7)})` : `v${APP_VERSION}`;

@@ -8,7 +8,7 @@ Entry-г харилцагч бүр **өөрийн GitHub fork** дээр ажи�
 REST API-аар холбогдоно; анхны мэдээллийг Claude Cowork-оор оруулна.
 
 ```
-tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounting (fork)
+Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounting (fork)
    main ──tag v1.0.0──▶ Release                 main ◀── PR "Upstream sync: v1.0.0"
    main ──tag v1.1.0──▶ Release                 main ◀── PR "Upstream sync: v1.1.0"
             │                                     │  custom/  ← харилцагчийн код
@@ -60,7 +60,7 @@ Run workflow → ref: `v1.1.0`**.
 Гараар:
 
 ```bash
-git remote add upstream https://github.com/tuguldur0107/entry-accounting.git
+git remote add upstream https://github.com/Tuguldur0107/entry-accounting.git
 git fetch upstream --tags
 git checkout -b upstream-sync/v1.1.0 && git merge v1.1.0
 ```

@@ -22,7 +22,7 @@ on:
         default: "main"
 
 env:
-  UPSTREAM_REPO: tuguldur0107/entry-accounting
+  UPSTREAM_REPO: Tuguldur0107/entry-accounting
 
 permissions:
   contents: write
@@ -30,7 +30,8 @@ permissions:
 
 jobs:
   sync:
-    if: github.repository != 'tuguldur0107/entry-accounting'
+    # Зөвхөн FORK дээр (schedule/dispatch payload-д repository.fork бий).
+    if: github.event.repository.fork == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
