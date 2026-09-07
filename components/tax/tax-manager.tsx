@@ -11,6 +11,8 @@ import type { CellDoubleClickedEvent, ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { EmptyState } from "@/components/ui/empty-state";
+import { TaxStatCard } from "@/components/tax/tax-info";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -171,38 +173,32 @@ export function TaxManager({
           const shown =
             account.direction === "credit" ? -account.balance : account.balance;
           return (
-            <div
+            <TaxStatCard
               key={account.main}
-              className="rounded-lg border p-4"
-              style={{
-                borderColor: "var(--ea-border)",
-                background: "var(--ea-surface)",
-              }}
-            >
-              <div className="text-xs" style={{ color: "var(--ea-text-3)" }}>
-                {account.label ??
-                  `${account.main}${account.name ? ` · ${account.name}` : ""}`}
-              </div>
-              <div className="mt-1 font-mono text-xl font-semibold text-[var(--ea-text-1)]">
-                {fmtMnt(shown)}₮
-              </div>
-              <div className="mt-1 text-xs" style={{ color: "var(--ea-text-3)" }}>
-                {account.direction === "credit"
+              label={
+                account.label ??
+                `${account.main}${account.name ? ` · ${account.name}` : ""}`
+              }
+              value={`${fmtMnt(shown)}₮`}
+              mono
+              hint={
+                account.direction === "credit"
                   ? shown >= 0
                     ? "Төлөх үлдэгдэл"
                     : "Илүү төлөлт / урьдчилгаа"
-                  : "Авлагын үлдэгдэл"}
-              </div>
-            </div>
+                  : "Авлагын үлдэгдэл"
+              }
+            />
           );
         })}
       </div>
 
       {entries.length === 0 ? (
-        <p className="rounded-md border border-[var(--ea-border)] px-3 py-8 text-center text-xs text-[var(--ea-text-3)]">
-          Энэ дансаар бичилт алга — тооцооны бичилт эсвэл төлөлт хийхэд энд
-          харагдана.
-        </p>
+        <EmptyState
+          icon="journal"
+          title="Энэ дансаар бичилт алга"
+          description="Тооцооны бичилт эсвэл төлөлт хийхэд энд харагдана."
+        />
       ) : (
         <DataGridDynamic<TaxLedgerEntry>
           rowData={entries}

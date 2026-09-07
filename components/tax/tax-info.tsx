@@ -4,9 +4,10 @@
 // (effective-date guardrail — бодит тооцоо тухайн модульдаа).
 
 import type { ReactNode } from "react";
-import Link from "next/link";
 
-import { Icon, type IconName } from "@/components/ui/icon";
+import { LinkButton } from "@/components/ui/link-button";
+import type { IconName } from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
 
 export function TaxPageHeader({
   title,
@@ -25,15 +26,23 @@ export function TaxPageHeader({
   );
 }
 
-/** Толгойн товч факт — хувь, хугацаа г.м (VAT-ийн SummaryCard-тай ижил хэлбэр). */
+/**
+ * Толгойн товч факт / дүнгийн карт — татварын хуудсууд, НӨАТ-ийн тайлан,
+ * үлдэгдлийн картуудын НЭГДСЭН хэлбэр (өмнө нь SummaryCard-аар давхардаж
+ * байсан). Мөнгөн дүнд mono, өр/ашигт tone хэрэглэнэ.
+ */
 export function TaxStatCard({
   label,
   value,
   hint,
+  tone,
+  mono = false,
 }: {
   label: string;
   value: string;
   hint?: string;
+  tone?: "danger" | "success";
+  mono?: boolean;
 }) {
   return (
     <div
@@ -43,7 +52,17 @@ export function TaxStatCard({
       <div className="text-xs" style={{ color: "var(--ea-text-3)" }}>
         {label}
       </div>
-      <div className="mt-1 text-xl font-semibold text-[var(--ea-text-1)]">
+      <div
+        className={cn("mt-1 text-xl font-semibold", mono && "font-mono")}
+        style={{
+          color:
+            tone === "danger"
+              ? "var(--ea-danger-fg)"
+              : tone === "success"
+                ? "var(--ea-success-fg)"
+                : "var(--ea-text-1)",
+        }}
+      >
         {value}
       </div>
       {hint ? (
@@ -118,7 +137,7 @@ export function TaxGlExample({
   );
 }
 
-/** Холбогдох модуль руу үсрэх жижиг линк товч. */
+/** Холбогдох модуль руу үсрэх линк товч — ui/link-button-ы thin wrapper. */
 export function TaxModuleLink({
   href,
   icon,
@@ -129,13 +148,8 @@ export function TaxModuleLink({
   children: ReactNode;
 }) {
   return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium text-[var(--ea-text-1)] hover:bg-[var(--ea-hover-subtle)]"
-      style={{ borderColor: "var(--ea-border)" }}
-    >
-      <Icon name={icon} size="sm" className="text-[var(--ea-text-3)]" />
+    <LinkButton href={href} icon={icon}>
       {children}
-    </Link>
+    </LinkButton>
   );
 }

@@ -9,54 +9,11 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { TaxStatCard } from "@/components/tax/tax-info";
 import { Label } from "@/components/ui/label";
 import { createVatSettlementDraft, type VatReturnData } from "@/lib/actions/vat";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { fmtPeriodCode } from "@/lib/periods/period";
-
-function SummaryCard({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: "danger" | "success";
-}) {
-  return (
-    <div
-      className="rounded-lg border p-4"
-      style={{
-        borderColor: "var(--ea-border)",
-        background: "var(--ea-surface)",
-      }}
-    >
-      <div className="text-xs" style={{ color: "var(--ea-text-3)" }}>
-        {label}
-      </div>
-      <div
-        className="mt-1 font-mono text-xl font-semibold"
-        style={{
-          color:
-            tone === "danger"
-              ? "var(--ea-danger-fg)"
-              : tone === "success"
-                ? "var(--ea-success-fg)"
-                : "var(--ea-text-1)",
-        }}
-      >
-        {value}
-      </div>
-      {hint ? (
-        <div className="mt-1 text-xs" style={{ color: "var(--ea-text-3)" }}>
-          {hint}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 export function VatReturnView({
   periodCode,
@@ -153,27 +110,31 @@ export function VatReturnView({
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <SummaryCard
+        <TaxStatCard
           label="Гаралтын НӨАТ (борлуулалт)"
           value={fmtMnt(summary.outputVat)}
+          mono
           hint={`${summary.outputLineCount} мөр`}
         />
-        <SummaryCard
+        <TaxStatCard
           label="Оролтын НӨАТ (худалдан авалт)"
           value={fmtMnt(summary.inputVat)}
+          mono
           hint={`${summary.inputLineCount} мөр`}
         />
         {summary.refundableVat > 0 ? (
-          <SummaryCard
+          <TaxStatCard
             label="Буцаан авах / шилжүүлэх"
             value={fmtMnt(summary.refundableVat)}
+            mono
             hint="Оролтын НӨАТ илүү — дараа сард шилжинэ"
             tone="success"
           />
         ) : (
-          <SummaryCard
+          <TaxStatCard
             label="Төлөх НӨАТ"
             value={fmtMnt(summary.payableVat)}
+            mono
             hint={`Эцсийн хугацаа ${summary.deadline} — хоцорвол 0.1%/хоног`}
             tone={summary.payableVat > 0 ? "danger" : undefined}
           />

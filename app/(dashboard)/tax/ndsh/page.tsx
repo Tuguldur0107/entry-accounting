@@ -4,6 +4,7 @@ import { loadTaxSettings } from "@/lib/tax/settings";
 import { loadTaxLedger } from "@/lib/tax/ledger";
 import { loadPayrollTaxMonths } from "@/lib/tax/payroll-summary";
 import { PayrollTaxGrid } from "@/components/tax/payroll-tax-grid";
+import { EmptyState } from "@/components/ui/empty-state";
 import { TaxManager } from "@/components/tax/tax-manager";
 import {
   TaxFactRow,
@@ -86,10 +87,14 @@ export default async function NdshPage() {
           Сарын шимтгэл (цалингийн бодолтоос)
         </h2>
         {months.length === 0 ? (
-          <p className="rounded-md border border-[var(--ea-border)] px-3 py-8 text-center text-xs text-[var(--ea-text-3)]">
-            Цалингийн бодолт хийгдээгүй байна — Цалин модульд сарын бодолт
-            хийхэд НДШ энд нэгтгэгдэнэ.
-          </p>
+          <EmptyState
+            icon="user"
+            title="Цалингийн бодолт хийгдээгүй байна"
+            description="Цалин модульд сарын бодолт хийхэд НДШ энд нэгтгэгдэнэ."
+            actions={[
+              { label: "Цалин бодолт руу", href: "/payroll", primary: true },
+            ]}
+          />
         ) : (
           <PayrollTaxGrid rows={months} variant="si" />
         )}

@@ -9,7 +9,8 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { LinkButton } from "@/components/ui/link-button";
 import { runDepreciation } from "@/lib/actions/fa";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
 import { closePeriod, reopenPeriod } from "@/lib/actions/periods";
@@ -66,18 +67,6 @@ function Step({
       </div>
       {actions ? <div className="mt-3 flex flex-wrap gap-2">{actions}</div> : null}
     </div>
-  );
-}
-
-function LinkButton({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className={buttonVariants({ variant: "outline", size: "sm" })}
-      style={{ textDecoration: "none" }}
-    >
-      {children}
-    </Link>
   );
 }
 
