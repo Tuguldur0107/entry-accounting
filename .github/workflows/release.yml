@@ -17,9 +17,9 @@ permissions:
 
 jobs:
   release:
-    # Зөвхөн core repo дээр — fork-д tag push хийгдсэн ч release үүсгэхгүй
-    # (repository нэрийг харьцуулбал том/жижиг үсэгт унадаг тул fork туг).
-    if: github.event.repository.fork == false
+    # Зөвхөн core repo дээр — харилцагчийн repo-д tag push хийгдсэн ч release
+    # үүсгэхгүй (contains нь том/жижиг үсэг ялгахгүй).
+    if: ${{ contains(github.repository, 'tuguldur0107/entry-accounting') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

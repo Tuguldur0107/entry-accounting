@@ -21,8 +21,8 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 | # | Алхам | Хэн | Хэрэгсэл |
 |---|-------|-----|----------|
-| 1 | GitHub дээр fork (харилцагчийн org-д, **private**) | Бид | GitHub → Fork |
-| 2 | Fork-ийн Settings → Actions → Workflow permissions: *Read and write* + *Allow GitHub Actions to create PRs* | Бид | GitHub |
+| 1 | Харилцагчийн **тусдаа private repo** үүсгэх (§1a) | Бид | `git push --mirror` |
+| 2 | Repo-ийн Settings → Actions → Workflow permissions: *Read and write* + *Allow GitHub Actions to create PRs*; Secrets → `UPSTREAM_TOKEN` (core-г унших PAT) | Бид | GitHub |
 | 3 | Railway төсөл: PostgreSQL + fork-ийг холбох, `.env.example`-ийн хувьсагчид (DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL) | Бид | Railway (`railway.toml` бэлэн: db:push + healthcheck) |
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
 | 5 | Эхний хэрэглэгч бүртгэх → байгууллага үүснэ → Тохиргоо → ЕЖ тохиргоо → стандарт данс sync | Харилцагч | Вэб |
@@ -31,6 +31,30 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 | 8 | Нээлтийн баланс тулгалт (`get_trial_balance`, `reconcile_modules`) | Нягтланч | Cowork/вэб |
 | 9 | Хэрэгтэй интеграци (POS, банк, CRM) — [api-integration.md](api-integration.md) | Харилцагч / бид | REST / MCP / custom hook |
 | 10 | Өргөтгөл хэрэгтэй бол `custom/` — [../../custom/README.md](../../custom/README.md) | Харилцагч + Claude Code | fork дээр |
+
+### 1a. Харилцагчийн repo хэрхэн үүсэх вэ
+
+Core repo **private** тул GitHub-ийн "Fork" товч харилцагчийн акаунтад
+ажиллахгүй (core-д унших эрх хэрэгтэй). "Fork" гэдэг нь энд **тусдаа repo +
+`upstream` remote** гэсэн бүтэц:
+
+```bash
+git clone --bare https://github.com/Tuguldur0107/entry-accounting.git
+cd entry-accounting.git
+git push --mirror https://github.com/<org>/entry-<харилцагч>.git   # шинэ хоосон private repo
+```
+
+Хаана байрлах вэ — хоёр сонголт:
+
+| | Бидний org-д (`entry-<харилцагч>`) | Харилцагчийн org-д |
+|--|--|--|
+| Эзэмшил | Бид; харилцагч collaborator | Харилцагч; бид collaborator |
+| Туршилтын үед | **Зөвлөж байна** — дэмжлэг, эрх, нууц удирдахад хялбар | Харилцагч DevOps-той бол |
+| Дараа нь | GitHub *Transfer ownership*-оор харилцагч руу шилжүүлнэ — upstream-sync URL-д суурилдаг тул ажилласаар байна | — |
+
+Хоёр тохиолдолд `upstream-sync.yml` ижил ажиллана: `UPSTREAM_TOKEN` secret
+(core-г унших fine-grained PAT) байвал private core-оос татна; core public
+болбол secret хэрэггүй.
 
 ## 2. Хувилбар (versioning)
 
@@ -52,7 +76,7 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 ## 3. Core шинэчлэлтийг fork-д авах
 
-`upstream-sync.yml` (fork дээр л ажиллана) Даваа гараг бүр core `main`-ийг
+`upstream-sync.yml` (харилцагчийн repo дээр л ажиллана) Даваа гараг бүр core `main`-ийг
 шалгаж, шинэ commit байвал `upstream-sync/<ref>` салбар push хийгээд fork-ийн
 `main` руу PR нээнэ. Тодорхой хувилбар авахдаа **Actions → Upstream sync →
 Run workflow → ref: `v1.1.0`**.

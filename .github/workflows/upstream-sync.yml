@@ -1,12 +1,19 @@
-# Upstream sync — FORK дээр ажиллана: core repo (tuguldur0107/entry-accounting)-ийн
-# шинэ хувилбарыг татаж `upstream-sync/<ref>` салбар үүсгээд fork-ийн main руу
-# PR нээнэ. Merge conflict гарвал PR дээр харагдана — custom/ дотор л
-# ажилласан бол conflict гарахгүй (docs/deployment/README.md §3).
+# Upstream sync — ХАРИЛЦАГЧИЙН repo дээр ажиллана: core repo
+# (Tuguldur0107/entry-accounting)-ийн шинэ хувилбарыг татаж `upstream-sync/<ref>`
+# салбар үүсгээд харилцагчийн main руу PR нээнэ. Merge conflict гарвал PR
+# дээр харагдана — custom/ дотор л ажилласан бол conflict гарахгүй
+# (docs/deployment/README.md §3).
 #
-# Fork дээр нэг удаа тохируулах:
+# Харилцагчийн repo = GitHub "Fork" товч ЭСВЭЛ гараар үүсгэсэн repo (core
+# private тул ихэвчлэн гараар: `git push --mirror`) — хоёуланд ажиллана.
+#
+# Харилцагчийн repo дээр нэг удаа тохируулах:
 #   Settings → Actions → General → Workflow permissions:
 #     ✓ Read and write permissions
 #     ✓ Allow GitHub Actions to create and approve pull requests
+#   Settings → Secrets → Actions → UPSTREAM_TOKEN:
+#     core repo-г УНШИХ эрхтэй fine-grained PAT (Contents: Read) — core
+#     private байх үед заавал; core public болбол хэрэггүй.
 #
 # Core repo дээр энэ workflow юу ч хийхгүй (if-шалгалт).
 name: Upstream sync
@@ -30,8 +37,8 @@ permissions:
 
 jobs:
   sync:
-    # Зөвхөн FORK дээр (schedule/dispatch payload-д repository.fork бий).
-    if: github.event.repository.fork == true
+    # Core repo дээр ажиллахгүй (contains нь том/жижиг үсэг ялгахгүй).
+    if: ${{ !contains(github.repository, 'tuguldur0107/entry-accounting') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,9 +47,15 @@ jobs:
 
       - name: Upstream татах
         id: fetch
+        env:
+          UPSTREAM_TOKEN: ${{ secrets.UPSTREAM_TOKEN }}
         run: |
           REF="${{ github.event.inputs.ref || 'main' }}"
-          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          if [ -n "$UPSTREAM_TOKEN" ]; then
+            git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM_REPO}.git"
+          else
+            git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          fi
           git fetch upstream --tags "$REF"
           SHA="$(git rev-parse FETCH_HEAD)"
           if git merge-base --is-ancestor "$SHA" HEAD; then
