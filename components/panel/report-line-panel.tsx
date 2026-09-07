@@ -45,12 +45,19 @@ export function ReportLinePanel({ panel }: { panel: PanelInstance }) {
     []
   );
 
+  // Балансын (өссөн дүнтэй) задаргаанд хуулга нь эхнээс `to` хүртэл —
+  // сонгосон сард гүйлгээгүй ч түүх нь бүрэн харагдана.
+  const ledgerFrom = payload.cumulative ? "1900-01-01" : payload.from;
+  const rangeLabel = payload.cumulative
+    ? `${payload.to}-ны байдлаар (өссөн дүн)`
+    : `${payload.from} — ${payload.to}`;
+
   async function openLedger(row: ReportLineAccountRow) {
     if (busyMain) return;
     setBusyMain(row.main);
     const result = await getAccountDrillRows({
       mainAccount: row.main,
-      from: payload.from,
+      from: ledgerFrom,
       to: payload.to,
     });
     setBusyMain(null);
@@ -60,7 +67,7 @@ export function ReportLinePanel({ panel }: { panel: PanelInstance }) {
     }
     openDrillPanel({
       title: `${row.main} · ${row.name}`,
-      note: `${payload.from} — ${payload.to} · Эхний үлдэгдэл ${fmtMnt(result.opening)} · Эцсийн үлдэгдэл ${fmtMnt(result.closing)}`,
+      note: `${rangeLabel} · Эхний үлдэгдэл ${fmtMnt(result.opening)} · Эцсийн үлдэгдэл ${fmtMnt(result.closing)}`,
       rows: result.rows,
     });
   }
@@ -68,8 +75,8 @@ export function ReportLinePanel({ panel }: { panel: PanelInstance }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 p-4">
       <p className="text-[11px] text-[var(--ea-text-4)]">
-        {payload.from} — {payload.to} · Мөр дээр давхар дарахад дансны хуулга
-        (журналуудын жагсаалт) нээгдэнэ
+        {rangeLabel} · Мөр дээр давхар дарахад дансны хуулга (журналуудын
+        жагсаалт) нээгдэнэ
         {busyMain ? ` · ${busyMain} ачаалж байна…` : ""}
       </p>
       <DataGridDynamic<ReportLineAccountRow>

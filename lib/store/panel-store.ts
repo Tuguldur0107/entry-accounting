@@ -52,6 +52,8 @@ export interface ReportLineDrillPayload {
   title: string;
   from: string;
   to: string;
+  /** true — балансын маягийн ӨССӨН дүн: хуулга нь эхнээс `to` хүртэл. */
+  cumulative?: boolean;
   rows: ReportLineAccountRow[];
   total: number;
   [key: string]: unknown;

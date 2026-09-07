@@ -340,6 +340,10 @@ export function BalanceSheetView({
       title: `${title} — задаргаа`,
       from: appliedFrom,
       to: appliedTo,
+      // Баланс = өссөн дүн (`to`-ны байдлаарх үлдэгдэл) тул дансны хуулга
+      // нь мужийн эхнээс биш, ЭХНЭЭС нь `to` хүртэл задарна — эс бөгөөс
+      // сонгосон сард гүйлгээгүй данс "Журнал олдсонгүй" гэж хоосон гардаг.
+      cumulative: true,
       rows: collectAccountRows(lines),
       total: Math.round((row.amount ?? 0) * 100) / 100,
     });
