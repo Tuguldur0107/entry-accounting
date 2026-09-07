@@ -1,0 +1,87 @@
+# Upstream sync — FORK дээр ажиллана: core repo (tuguldur0107/entry-accounting)-ийн
+# шинэ хувилбарыг татаж `upstream-sync/<ref>` салбар үүсгээд fork-ийн main руу
+# PR нээнэ. Merge conflict гарвал PR дээр харагдана — custom/ дотор л
+# ажилласан бол conflict гарахгүй (docs/deployment/README.md §3).
+#
+# Fork дээр нэг удаа тохируулах:
+#   Settings → Actions → General → Workflow permissions:
+#     ✓ Read and write permissions
+#     ✓ Allow GitHub Actions to create and approve pull requests
+#
+# Core repo дээр энэ workflow юу ч хийхгүй (if-шалгалт).
+name: Upstream sync
+
+on:
+  schedule:
+    - cron: "0 2 * * 1" # Даваа гараг бүр 02:00 UTC (10:00 УБ)
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Upstream ref (tag vX.Y.Z эсвэл main)"
+        required: false
+        default: "main"
+
+env:
+  UPSTREAM_REPO: tuguldur0107/entry-accounting
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    if: github.repository != 'tuguldur0107/entry-accounting'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Upstream татах
+        id: fetch
+        run: |
+          REF="${{ github.event.inputs.ref || 'main' }}"
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream --tags "$REF"
+          SHA="$(git rev-parse FETCH_HEAD)"
+          if git merge-base --is-ancestor "$SHA" HEAD; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "Fork аль хэдийн $REF ($SHA)-ийг агуулж байна — хийх зүйлгүй"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+          SAFE="$(echo "$REF" | tr '/' '-')"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "branch=upstream-sync/$SAFE" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Sync салбар push хийх
+        if: steps.fetch.outputs.up_to_date == 'false'
+        run: |
+          git push --force origin "${{ steps.fetch.outputs.sha }}:refs/heads/${{ steps.fetch.outputs.branch }}"
+
+      - name: PR нээх (байхгүй бол)
+        if: steps.fetch.outputs.up_to_date == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${{ steps.fetch.outputs.branch }}"
+          REF="${{ steps.fetch.outputs.ref }}"
+          EXISTING="$(gh pr list --head "$BRANCH" --base "${{ github.event.repository.default_branch }}" --state open --json number --jq '.[0].number')"
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING аль хэдийн нээлттэй — шинэчлэгдлээ"
+            exit 0
+          fi
+          gh pr create \
+            --head "$BRANCH" \
+            --base "${{ github.event.repository.default_branch }}" \
+            --title "Upstream sync: ${REF}" \
+            --body "Core repo \`${UPSTREAM_REPO}\`-ийн \`${REF}\` (\`${{ steps.fetch.outputs.sha }}\`) шинэчлэлт.
+
+**Шалгах:**
+- [ ] CI ногоон
+- [ ] Conflict байвал \`custom/\` талаас биш core талаас ирсэн эсэхийг шалга (core файлыг өөрчилсөн бол custom/ руу нүүлгэ)
+- [ ] Staging дээр deploy хийж \`/api/health\` version шалга
+- [ ] Шинэ DDL байвал \`npm run db:push\` (Railway preDeployCommand автоматаар)
+
+Заавар: docs/deployment/README.md"

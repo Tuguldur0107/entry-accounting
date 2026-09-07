@@ -20,6 +20,9 @@
 | Сар хаалтын wizard | ✅ | — |
 | Аудитын мөр (audit log) | ✅ | — |
 | Банкны хуулгын автомат тулгалт | ✅ | — |
+| `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
+| REST API v1 (гадаад интеграци) | ✅ | — |
+| Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
 
 ## Файлын бүтэц
 
@@ -42,6 +45,8 @@ entry-accounting/
 │   ├── db/schema.ts              # Drizzle schema
 │   ├── db/index.ts               # DB connection
 │   └── store/gl-store.ts         # Zustand UI state
+├── custom/                       # ХАРИЛЦАГЧИЙН өргөтгөл (fork) — core энд бичихгүй
+├── docs/deployment/              # Fork нэвтрүүлэлт, API, master data загвар
 ├── knowledge/                    # Мэргэжлийн мэдлэгийн сан
 ├── .env.local                    # DATABASE_URL, AUTH_SECRET
 └── drizzle.config.ts
@@ -338,7 +343,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/tools.ts, 89 tool)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 94 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -350,7 +355,7 @@ AI чат болон MCP хоёул НЭГ tool давхаргаар (lib/ai/too
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
-| Batch | create_{counterparties,arap_invoices,cash_transactions}_batch (max 100, partial success), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
+| Batch | create_{counterparties,arap_invoices,cash_transactions,journal_vouchers}_batch, master data: create_{gl_accounts,inventory_items,employees,fixed_assets}_batch (max 100, partial success — Cowork анхны импорт), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
 | НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
 | Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
@@ -439,6 +444,40 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   Cookie-той ердийн замд огт нөлөөгүй
 - Бичилтийн горим нь чатын toggle-тэй НЭГ тохиргоо (`ai_settings.write_mode`)
 - proxy.ts-ийн matcher `/api`-г алгасдаг тул энэ зам login redirect-д орохгүй
+
+### 9c. Fork нэвтрүүлэлт, custom/ өргөтгөл, REST API
+
+Баримт: `docs/deployment/README.md` (playbook), `docs/deployment/api-integration.md`,
+`custom/README.md`, `custom/CLAUDE.md`.
+
+- **Харилцагч = GitHub fork.** Core шинэчлэлт `upstream-sync.yml` PR-аар
+  (`vX.Y.Z` tag → `release.yml` GitHub Release). Хувилбарын эх сурвалж
+  `package.json` → `lib/version.ts`; `/api/health` → `{version, sha}`;
+  `/settings/system` хуудас; MCP `serverInfo.version`; REST `X-Entry-Version`
+- **custom/ гэрээ:** харилцагч ЗӨВХӨН `custom/`-д бичнэ, core `custom/`-д
+  ХЭЗЭЭ Ч бичихгүй. Entrypoint `custom/index.ts` → `mergeCustomizations(...)`;
+  interface `lib/custom/types.ts`; loader `lib/custom/loader.ts` (шалгалт
+  `lib/custom/validate.ts`, тесттэй). Core нь custom/-ийн тодорхой багцын
+  нэр/зам hardcode хийхгүй
+- **Tool нийлбэр:** `AI_TOOLS` = core; `allAiTools()` = core + custom — чат,
+  OpenAI adapter, MCP, REST БҮГД `allAiTools()` ашиглана. `executeAiTool`
+  default → custom tool. Шинэ consumer нэмбэл `allAiTools()`
+- **Hook цэгүүд** (guardrail-ийн ДАРАА, транзакц дотор): `postVoucherCore` /
+  `createVoucherCore(posted)` → `beforeJournalPost` (шидвэл rollback),
+  commit + subledger sync дараа `afterJournalPost` (алдаа залгина);
+  `closePeriod` → `beforePeriodClose` (`hook-rejected` код + reason). Hook
+  байгаа хоригийг сулруулж ЧАДАХГҮЙ
+- **Theme:** `app/globals.css` нь `ui-kit/tokens.css`-ийн ДАРАА
+  `custom/theme.css` import хийнэ
+- **REST API v1:** `lib/api/v1.ts` — `GET /api/v1/tools`, `POST
+  /api/v1/tools/<name>`; MCP-тэй ижил `resolveApiToken` + `writeModeOf` +
+  `runAsOrg` + rate limit; `[CODE]` алдаа → 422 `{ok:false, code, error}`.
+  Тусдаа логик ХОРИОТОЙ — tool давхаргаар л
+- **Cowork master data импорт:** `.claude/skills/master-data-import/SKILL.md`
+  (repo-д tracked — `.gitignore` `.claude/*` + `!.claude/skills/`), загвар
+  `docs/deployment/master-data/*.csv`. Дараалал: данс → харилцагч → бараа/
+  агуулах → касс → ажилтан → ҮХ → АР/АП нээлт → бараа нээлт → нээлтийн журнал
+  (НЭГ ноорог, `externalRef: opening-balance:<огноо>`) → тулгалт
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 

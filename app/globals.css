@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "../ui-kit/tokens.css";
+/* custom/ өргөтгөл — токен override (core энэ файлд бичихгүй) */
+@import "../custom/theme.css";
 
 @custom-variant dark (&:is(.dark *));
 

@@ -44,6 +44,7 @@ const ACTION_ERRORS: Record<string, string> = {
   "has-drafts":
     "Ноорог бичилт үлдсэн байна — хаагдсан тайлант үед ноорог батлагдахгүй тул эхлээд батлах эсвэл устгана уу.",
   exists: "Энэ тайлант үе аль хэдийн бүртгэлтэй байна.",
+  "hook-rejected": "Өргөтгөлийн дүрэм хаалтыг зогсоолоо.",
 };
 
 const STATUS_META: Record<
@@ -76,7 +77,11 @@ export function PeriodsView({ periods }: { periods: PeriodRow[] }) {
         const result = await closePeriod(row.code);
         setBusyCode(null);
         if (!result.ok) {
-          toast.error(ACTION_ERRORS[result.code] ?? "Хаах амжилтгүй");
+          toast.error(
+            result.code === "hook-rejected"
+              ? result.reason
+              : (ACTION_ERRORS[result.code] ?? "Хаах амжилтгүй")
+          );
           return;
         }
         toast.success(`${fmtPeriodCode(row.code)} тайлант үе хаагдлаа`);

@@ -38,6 +38,11 @@ import {
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { parseSegParts } from "@/lib/grid/segments";
 import { logAuditEvent } from "@/lib/audit";
+import type { JournalHookContext } from "@/lib/custom/types";
+import {
+  runAfterJournalPost,
+  runBeforeJournalPost,
+} from "@/lib/custom/loader";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
 // Фаз 01 multi-tenancy: scope нь идэвхтэй байгууллага (orgId), userId нь
@@ -573,6 +578,25 @@ async function createVoucherCore(data: {
         sortOrder: i,
       }))
     );
+    if (status === "posted") {
+      // custom/ hook — guardrail-ууд (баланс, период, эрх) ДАРАА; {ok:false}
+      // бол шидэж транзакцыг буцаана.
+      await runBeforeJournalPost({
+        orgId,
+        userId,
+        voucherId: voucher.id,
+        date: data.date,
+        description: data.description,
+        lines: validLines.map((l) => ({
+          account: l.account,
+          debit: Number(l.debit),
+          credit: Number(l.credit),
+          description: l.description ?? "",
+        })),
+        totalDebit: validLines.reduce((s, l) => s + Number(l.debit), 0),
+        source: "create_posted",
+      });
+    }
     if (status === "posted")
       await logAuditEvent(
         {
@@ -602,6 +626,21 @@ async function createVoucherCore(data: {
         caught
       );
     }
+    await runAfterJournalPost({
+      orgId,
+      userId,
+      voucherId,
+      date: data.date,
+      description: data.description,
+      lines: validLines.map((l) => ({
+        account: l.account,
+        debit: Number(l.debit),
+        credit: Number(l.credit),
+        description: l.description ?? "",
+      })),
+      totalDebit: validLines.reduce((s, l) => s + Number(l.debit), 0),
+      source: "create_posted",
+    });
   }
 
   revalidatePath("/gl/journal");
@@ -633,6 +672,7 @@ async function postVoucherCore(id: string) {
   if (voucher.status === "posted") return;
   await assertPeriodOpen(orgId, voucher.date);
 
+  let hookContext: JournalHookContext | null = null;
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, voucher.date);
@@ -656,11 +696,28 @@ async function postVoucherCore(id: string) {
       await assertPeriodOpenInTx(tx, orgId, claimed.date);
     const lines = await tx.query.journalLines.findMany({
       where: eq(journalLines.voucherId, id),
-      columns: { debit: true, credit: true },
+      columns: { accountNumber: true, debit: true, credit: true, description: true },
     });
     assertBalanced(
       lines.map((l) => ({ debit: Number(l.debit), credit: Number(l.credit) }))
     );
+    // custom/ hook — бүх guardrail-ийн ДАРАА, транзакц дотор.
+    hookContext = {
+      orgId,
+      userId,
+      voucherId: id,
+      date: claimed.date,
+      description: voucher.description,
+      lines: lines.map((l) => ({
+        account: l.accountNumber,
+        debit: Number(l.debit),
+        credit: Number(l.credit),
+        description: l.description ?? "",
+      })),
+      totalDebit: lines.reduce((s, l) => s + Number(l.debit), 0),
+      source: "post",
+    };
+    await runBeforeJournalPost(hookContext);
     await logAuditEvent(
       {
         userId,
@@ -687,6 +744,7 @@ async function postVoucherCore(id: string) {
       caught
     );
   }
+  if (hookContext) await runAfterJournalPost(hookContext);
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");

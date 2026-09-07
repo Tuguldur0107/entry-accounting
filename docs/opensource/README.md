@@ -17,8 +17,8 @@
 | # | Фаз | Файл | Хамаарал | Статус |
 |---|-----|------|----------|--------|
 | 01 | Multi-tenancy (байгууллага + гишүүнчлэл) | [01-multi-tenancy.md](01-multi-tenancy.md) | — | ✅ 2026-08-08 |
-| 02 | `custom/` өргөтгөлийн давхарга | [02-custom-extension-layer.md](02-custom-extension-layer.md) | 01 дууссаны дараа | ⬜ Эхлээгүй |
-| 03 | Лиценз + repo-г нээхэд бэлтгэх | [03-licensing-and-repo-prep.md](03-licensing-and-repo-prep.md) | Хамааралгүй (зэрэгцээд болно) | ⬜ Эхлээгүй |
+| 02 | `custom/` өргөтгөлийн давхарга | [02-custom-extension-layer.md](02-custom-extension-layer.md) | 01 дууссаны дараа | 🟡 2026-09-07 Шат 1, 2, 4 (registry, tools/hooks/theme, demo, README/CLAUDE). Үлдсэн: seed script, entry-package.json манифест, columnTypes |
+| 03 | Лиценз + repo-г нээхэд бэлтгэх | [03-licensing-and-repo-prep.md](03-licensing-and-repo-prep.md) | Хамааралгүй (зэрэгцээд болно) | 🟡 2026-09-07 `.env.example`, гадны README, CHANGELOG. Үлдсэн: LICENSE/CLA/SECURITY, нууц скан, knowledge/ ангилал |
 | 04 | Зохицуулалтын дата давхарга (regulatory) | [04-regulatory-data-layer.md](04-regulatory-data-layer.md) | Хамааралгүй | ⬜ Эхлээгүй |
 | 05 | SaaS багц + лимит (billing) | [05-saas-billing.md](05-saas-billing.md) | 01 ЗААВАЛ дууссан байх | ⬜ Эхлээгүй |
 | 06 | Marketplace фаз 0 (entry-packages) | [06-marketplace-phase0.md](06-marketplace-phase0.md) | 02 дууссаны дараа | ⬜ Эхлээгүй |

@@ -377,7 +377,9 @@ export function AiSettingsView({
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
             Claude Code, Cowork / claude.ai, ChatGPT, Codex зэрэг MCP клиент
             энэ системд шууд ажиллана. Бичилт таны сонгосон горимоор
-            (ноорог / шууд бичих) үүснэ.
+            (ноорог / шууд бичих) үүснэ. Ижил token-оор REST API ч ажиллана:
+            <code className="ml-1 font-mono">POST /api/v1/tools/&lt;name&gt;</code>
+            (жагсаалт: <code className="font-mono">GET /api/v1/tools</code>).
           </p>
 
           {/* OAuth зам — token огт хэрэггүй */}

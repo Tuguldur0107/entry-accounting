@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -40,5 +41,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# claude code
-.claude/
+# claude code — хувийн тохиргоо; repo-д ЗӨВХӨН skills/ ба launch.json орно
+.claude/*
+!.claude/skills/
+!.claude/launch.json
