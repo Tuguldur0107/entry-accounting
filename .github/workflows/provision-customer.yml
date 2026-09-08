@@ -1,0 +1,147 @@
+# Provision customer — ХАРИЛЦАГЧИЙН REPO үүсгэх (core repo дээр ажиллана).
+#
+# entry-console ("Харилцагч нэмэх" товч) эсвэл Actions → Run workflow-оос
+# дуудна. Хийх зүйлс (дахин ажиллуулахад аюулгүй — байгаа repo-г дахин
+# seed хийхгүй, зөвхөн тохиргоог нь шинэчилнэ):
+#   1. <OWNER>/entry-<slug> private repo үүсгэх, topic: entry-customer
+#   2. Core-ийн main (эсвэл заасан tag) + бүх tag-ийг push (бүтэн түүх —
+#      template биш, тэгж байж upstream-sync merge хийгдэнэ)
+#   3. Actions permission: write + PR үүсгэх зөвшөөрөл (upstream-sync-д хэрэгтэй)
+#   4. Secret UPSTREAM_TOKEN (core-г унших), variable ENTRY_DISPLAY_NAME /
+#      ENTRY_APP_URL / ENTRY_SEEDED_REF (console эдгээрийг уншина)
+#   5. Харилцагчийн GitHub хэрэглэгчдийг Write (push) эрхтэй урих
+#
+# Core repo-д нэг удаа тохируулах (Settings → Secrets and variables → Actions):
+#   secrets.PROVISION_TOKEN     repo үүсгэх/удирдах эрхтэй PAT (classic: repo,
+#                               workflow, admin:org — org-д үүсгэх бол)
+#   secrets.UPSTREAM_READ_TOKEN core-г ЗӨВХӨН унших PAT (fine-grained,
+#                               Contents: Read) — харилцагчийн repo-д очно
+#   vars.CUSTOMER_OWNER         (сонголтоор) харилцагчийн repo-уудын org;
+#                               байхгүй бол core repo-ийн эзэн
+name: Provision customer
+run-name: "Provision: ${{ inputs.slug }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Харилцагчийн код (latin, жишээ: govi) → repo entry-<slug>"
+        required: true
+      display_name:
+        description: "Харилцагчийн нэр (repo description, console-д харагдана)"
+        required: true
+      github_users:
+        description: "Урих GitHub хэрэглэгчид, таслалаар (Write эрх)"
+        required: false
+        default: ""
+      app_url:
+        description: "Deploy хийгдэх хаяг (https://…) — дараа ч засаж болно"
+        required: false
+        default: ""
+      ref:
+        description: "Core-ийн аль ref-ээс эхлүүлэх (main эсвэл vX.Y.Z)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    if: ${{ contains(github.repository, 'tuguldur0107/entry-accounting') }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PROVISION_TOKEN }}
+      OWNER: ${{ vars.CUSTOMER_OWNER || github.repository_owner }}
+      SLUG: ${{ inputs.slug }}
+    steps:
+      - name: Оролт шалгах
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::secrets.PROVISION_TOKEN тохируулаагүй — core repo Settings → Secrets"
+            exit 1
+          fi
+          if ! echo "$SLUG" | grep -Eq '^[a-z0-9][a-z0-9-]{1,30}$'; then
+            echo "::error::slug зөвхөн жижиг латин үсэг, тоо, зураас (2–31 тэмдэгт): $SLUG"
+            exit 1
+          fi
+          echo "REPO=$OWNER/entry-$SLUG" >> "$GITHUB_ENV"
+
+      - name: Core-ийн кодыг татах (${{ inputs.ref }})
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Repo үүсгэх (байхгүй бол)
+        id: create
+        run: |
+          if gh repo view "$REPO" --json name >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "$REPO аль хэдийн бий — seed алгасаж, тохиргоог л шинэчилнэ"
+          else
+            gh repo create "$REPO" --private \
+              --description "Entry Accounting — ${{ inputs.display_name }}"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          gh repo edit "$REPO" --add-topic entry-customer \
+            --enable-wiki=false --enable-projects=false \
+            --delete-branch-on-merge
+
+      - name: Core түүхийг push хийх (main + tags)
+        if: steps.create.outputs.exists == 'false'
+        run: |
+          git remote add customer "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git push customer HEAD:refs/heads/main
+          git push customer --tags
+          gh api -X PATCH "repos/$REPO" -f default_branch=main >/dev/null
+
+      - name: Actions permission (write + PR үүсгэх)
+        run: |
+          gh api -X PUT "repos/$REPO/actions/permissions/workflow" \
+            -f default_workflow_permissions=write \
+            -F can_approve_pull_request_reviews=true
+
+      - name: Secret ба variable
+        env:
+          UPSTREAM_READ_TOKEN: ${{ secrets.UPSTREAM_READ_TOKEN }}
+        run: |
+          if [ -n "$UPSTREAM_READ_TOKEN" ]; then
+            gh secret set UPSTREAM_TOKEN --repo "$REPO" --body "$UPSTREAM_READ_TOKEN"
+          else
+            echo "::warning::secrets.UPSTREAM_READ_TOKEN байхгүй — харилцагчийн upstream-sync private core-оос татаж чадахгүй"
+          fi
+          gh variable set ENTRY_DISPLAY_NAME --repo "$REPO" --body "${{ inputs.display_name }}"
+          gh variable set ENTRY_SEEDED_REF --repo "$REPO" --body "${{ inputs.ref }}"
+          if [ -n "${{ inputs.app_url }}" ]; then
+            gh variable set ENTRY_APP_URL --repo "$REPO" --body "${{ inputs.app_url }}"
+          fi
+
+      - name: Харилцагчийн хэрэглэгчдийг урих (Write)
+        if: inputs.github_users != ''
+        run: |
+          IFS=',' read -ra USERS <<< "${{ inputs.github_users }}"
+          for raw in "${USERS[@]}"; do
+            u="$(echo "$raw" | tr -d '[:space:]@')"
+            [ -z "$u" ] && continue
+            if gh api -X PUT "repos/$REPO/collaborators/$u" -f permission=push >/dev/null; then
+              echo "уригдлаа: $u"
+            else
+              echo "::warning::$u урьж чадсангүй (нэр буруу эсвэл аль хэдийн гишүүн)"
+            fi
+          done
+
+      - name: Тайлан
+        run: |
+          {
+            echo "## entry-$SLUG бэлэн"
+            echo ""
+            echo "- Repo: https://github.com/$REPO"
+            echo "- Seed: ${{ inputs.ref }} ($(git rev-parse --short HEAD))"
+            echo "- Шинэ repo: ${{ steps.create.outputs.exists == 'false' }}"
+            echo "- Уригдсан: ${{ inputs.github_users || '—' }}"
+            echo ""
+            echo "Дараагийн алхам: Railway дээр энэ repo-г холбож DATABASE_URL, AUTH_SECRET,"
+            echo "NEXT_PUBLIC_APP_URL өгнө → /api/health шалгана (docs/deployment/README.md §1)."
+          } >> "$GITHUB_STEP_SUMMARY"

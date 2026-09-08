@@ -473,6 +473,11 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   /api/v1/tools/<name>`; MCP-тэй ижил `resolveApiToken` + `writeModeOf` +
   `runAsOrg` + rate limit; `[CODE]` алдаа → 422 `{ok:false, code, error}`.
   Тусдаа логик ХОРИОТОЙ — tool давхаргаар л
+- **Харилцагчийн repo үүсгэх:** `.github/workflows/provision-customer.yml`
+  (workflow_dispatch; Entry Console — тусдаа `entry-console` repo — үүнийг
+  dispatch хийнэ). Харилцагч = topic `entry-customer`-тэй `entry-<slug>` repo;
+  тохиргоо repo variables (`ENTRY_DISPLAY_NAME`, `ENTRY_APP_URL`). Template
+  repo ХОРИОТОЙ (түүхгүй → sync merge хийгдэхгүй)
 - **Cowork master data импорт:** `.claude/skills/master-data-import/SKILL.md`
   (repo-д tracked — `.gitignore` `.claude/*` + `!.claude/skills/`), загвар
   `docs/deployment/master-data/*.csv`. Дараалал: данс → харилцагч → бараа/
