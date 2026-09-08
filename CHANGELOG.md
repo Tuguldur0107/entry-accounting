@@ -5,6 +5,11 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Нэмэгдсэн
+- `provision-customer.yml` — харилцагчийн repo-г нэг workflow-оор үүсгэх
+  (repo, core түүх push, Actions permission, secret/variable, урилга);
+  Entry Console (`entry-console` repo) энийг dispatch хийнэ
+
 ## [1.0.0] — 2026-09-07 — Анхны харилцагчийн туршилтын нэвтрүүлэлт
 
 ### Нэмэгдсэн

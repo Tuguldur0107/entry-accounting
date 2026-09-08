@@ -21,8 +21,8 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 | # | Алхам | Хэн | Хэрэгсэл |
 |---|-------|-----|----------|
-| 1 | Харилцагчийн **тусдаа private repo** үүсгэх (§1a) | Бид | `git push --mirror` |
-| 2 | Repo-ийн Settings → Actions → Workflow permissions: *Read and write* + *Allow GitHub Actions to create PRs*; Secrets → `UPSTREAM_TOKEN` (core-г унших PAT) | Бид | GitHub |
+| 1 | Харилцагчийн **тусдаа private repo** үүсгэх — Entry Console → «Харилцагч нэмэх» (§1a) | Бид | `provision-customer.yml` автоматаар |
+| 2 | Repo-ийн Actions permission + `UPSTREAM_TOKEN` secret + хэрэглэгчийн урилга — мөн автоматаар (1-р алхамд) | — | — |
 | 3 | Railway төсөл: PostgreSQL + fork-ийг холбох, `.env.example`-ийн хувьсагчид (DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL) | Бид | Railway (`railway.toml` бэлэн: db:push + healthcheck) |
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
 | 5 | Эхний хэрэглэгч бүртгэх → байгууллага үүснэ → Тохиргоо → ЕЖ тохиргоо → стандарт данс sync | Харилцагч | Вэб |
@@ -36,12 +36,23 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 Core repo **private** тул GitHub-ийн "Fork" товч харилцагчийн акаунтад
 ажиллахгүй (core-д унших эрх хэрэгтэй). "Fork" гэдэг нь энд **тусдаа repo +
-`upstream` remote** гэсэн бүтэц:
+`upstream` remote** гэсэн бүтэц. Template repo ашиглаж БОЛОХГҮЙ — түүхгүй
+(нэг commit) үүсдэг тул upstream-sync merge хийгдэхгүй.
+
+**Автомат зам (зөвлөж байна):** Entry Console (`entry-console` repo, Railway)
+→ «Харилцагч нэмэх» → core repo-ийн `.github/workflows/provision-customer.yml`
+ажиллаж: `entry-<slug>` private repo (topic `entry-customer`), core-ийн main +
+tag push (бүтэн түүх), Actions permission, `UPSTREAM_TOKEN` secret,
+`ENTRY_DISPLAY_NAME` / `ENTRY_APP_URL` variable, хэрэглэгчдийг Write эрхтэй
+урих — бүгд нэг дор. Core repo-д нэг удаа `PROVISION_TOKEN`,
+`UPSTREAM_READ_TOKEN` secret тавина (workflow-ийн толгойн тайлбар).
+
+Гараар (console-гүй):
 
 ```bash
 git clone --bare https://github.com/Tuguldur0107/entry-accounting.git
 cd entry-accounting.git
-git push --mirror https://github.com/<org>/entry-<харилцагч>.git   # шинэ хоосон private repo
+git push https://github.com/<org>/entry-<харилцагч>.git main --tags   # шинэ хоосон private repo
 ```
 
 Хаана байрлах вэ — хоёр сонголт:
