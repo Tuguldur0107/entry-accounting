@@ -18,6 +18,7 @@ import {
   createArApDocument,
   createCounterparty,
   deleteArApDocument,
+  deleteCounterparty,
   postArApDocument,
   updateArApDocument,
   settleArApOffset,
@@ -651,6 +652,18 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["documentId"],
+    },
+  },
+  {
+    name: "delete_counterparty",
+    description:
+      "Харилцагчийг устгана — зөвхөн АР/АП баримтад ашиглагдаагүй харилцагч устгагдана. Түүхтэй харилцагчийг update_counterparty isActive=false-аар идэвхгүй болгоно.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        counterparty: { type: "string", description: "Харилцагчийн нэр" },
+      },
+      required: ["counterparty"],
     },
   },
   {
@@ -3273,6 +3286,26 @@ async function runUpdateCounterparty(
     .where(and(eq(counterparties.id, counterparty.id), eq(counterparties.organizationId, orgId)));
   return {
     resultText: `Харилцагч шинэчлэгдлээ: ${counterparty.name}${input.newName ? ` → ${input.newName}` : ""} (${Object.keys(changes).join(", ")})`,
+  };
+}
+
+/** Харилцагч устгах — deleteCounterparty action (баримттай бол татгалзана). */
+async function runDeleteCounterparty(
+  orgId: string,
+  input: { counterparty: string }
+): Promise<AiToolResult> {
+  const list = await db.query.counterparties.findMany({
+    where: eq(counterparties.organizationId, orgId),
+  });
+  const counterparty = requireSingle(
+    nameMatches(list, (entry) => entry.name, input.counterparty),
+    (entry) => entry.name,
+    "харилцагч",
+    input.counterparty
+  );
+  const result = unwrapAction(await deleteCounterparty(counterparty.id));
+  return {
+    resultText: `Харилцагч устгагдлаа: ${result.name}`,
   };
 }
 
@@ -6202,6 +6235,8 @@ export async function executeAiTool(
         return await runCreateWarehouse(orgId, args);
       case "update_counterparty":
         return await runUpdateCounterparty(orgId, args);
+      case "delete_counterparty":
+        return await runDeleteCounterparty(orgId, args);
       case "update_inventory_item":
         return await runUpdateItem(orgId, args);
       case "update_inventory_movement":

@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label";
 import {
   createCounterparty,
   deleteArApDocument,
+  deleteCounterparty,
   postArApDocument,
   settleArApOffset,
   toggleCounterparty,
@@ -323,7 +324,7 @@ export function ArApWorkspace({
       {
         headerName: "",
         colId: "action",
-        width: 150,
+        width: 200,
         sortable: false,
         filter: false,
         cellRenderer: ({ data }: { data?: CounterpartyView }) =>
@@ -352,12 +353,20 @@ export function ArApWorkspace({
               >
                 {data.isActive ? "Идэвхгүй" : "Идэвхтэй"}
               </button>
+              <button
+                type="button"
+                className="text-xs font-medium text-[var(--ea-danger-fg)] hover:underline"
+                onClick={() => removeCounterparty(data)}
+              >
+                Устгах
+              </button>
             </div>
           ) : null,
       },
     ],
-    // openEditCounterparty нь зөвхөн тогтвортой setter-үүд ашигладаг тул
-    // хуучирсан хувилбар нь ч зөв ажиллана.
+    // openEditCounterparty / removeCounterparty нь зөвхөн тогтвортой
+    // setter, action ашигладаг тул хуучирсан хувилбар нь ч зөв ажиллана.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeSegIds]
   );
 
@@ -517,6 +526,27 @@ export function ArApWorkspace({
     setCounterpartyBaseline(JSON.stringify(filled));
     setError("");
     setCounterpartyOpen(true);
+  }
+
+  /** Харилцагч устгах — баримттай бол action тодорхой шалтгаанаар татгалзана. */
+  function removeCounterparty(counterparty: CounterpartyView) {
+    void confirm({
+      title: "Харилцагч устгах",
+      description: `${counterparty.name} харилцагчийг устгах уу? Зөвхөн АР/АП баримтгүй харилцагч устгагдана — түүхтэй бол идэвхгүй болгохыг зөвлөнө.`,
+      confirmText: "Устгах",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      startTransition(async () => {
+        const result = await deleteCounterparty(counterparty.id);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(`${counterparty.name} устгагдлаа`);
+        router.refresh();
+      });
+    });
   }
 
   function saveCounterparty() {

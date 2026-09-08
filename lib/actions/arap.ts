@@ -361,6 +361,69 @@ export async function updateCounterparty(
   revalidateArAp();
 }
 
+/**
+ * Харилцагч устгах — зөвхөн АР/АП баримтад ашиглагдаагүй харилцагч
+ * устгагдана (FK ч restrict — DB давхар хамгаална). Түүхтэй харилцагчийг
+ * устгавал баримтууд нь эзэнгүйдэж тайлан эвдэрдэг тул идэвхгүй болгохыг
+ * заана; заавал устгах бол эхлээд баримтуудыг нь устгана.
+ */
+export async function deleteCounterparty(
+  id: string
+): Promise<ActionResult<{ name: string }>> {
+  try {
+    return await deleteCounterpartyCore(id);
+  } catch (caught) {
+    return actionError("deleteCounterparty", caught, "Харилцагч устгагдсангүй");
+  }
+}
+
+async function deleteCounterpartyCore(id: string) {
+  const { orgId, userId } = await requireAnyModuleAction([
+    ["ar", "write"],
+    ["ap", "write"],
+  ]);
+  const counterparty = await db.query.counterparties.findFirst({
+    where: and(
+      eq(counterparties.id, id),
+      eq(counterparties.organizationId, orgId)
+    ),
+    columns: { id: true, name: true },
+  });
+  if (!counterparty) throw new Error("Харилцагч олдсонгүй");
+
+  const [usage] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(arApDocuments)
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.counterpartyId, id)
+      )
+    );
+  const documentCount = Number(usage?.count ?? 0);
+  if (documentCount > 0)
+    throw new Error(
+      `${counterparty.name} — ${documentCount} баримттай тул устгах боломжгүй. Түүхтэй харилцагчийг идэвхгүй болгоно уу; заавал устгах бол эхлээд баримтуудыг нь устгана.`
+    );
+
+  await db
+    .delete(counterparties)
+    .where(
+      and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId))
+    );
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "delete",
+    entityType: "counterparty",
+    entityId: id,
+    summary: `Харилцагч устгагдав — ${counterparty.name}`,
+  });
+
+  revalidateArAp();
+  return { name: counterparty.name };
+}
+
 export async function toggleCounterparty(id: string, isActive: boolean) {
   const { orgId } = await requireAnyModuleAction([
     ["ar", "write"],
