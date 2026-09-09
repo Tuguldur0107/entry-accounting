@@ -73,24 +73,35 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
           fetch-tags: true
+          # GITHUB_TOKEN-ийг git header-т үлдээвэл харилцагчийн repo руу push
+          # хийхэд тэр token давамгайлж "Repository not found" болдог.
+          persist-credentials: false
 
       - name: Repo үүсгэх (байхгүй бол)
         id: create
         run: |
           if gh repo view "$REPO" --json name >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "$REPO аль хэдийн бий — seed алгасаж, тохиргоог л шинэчилнэ"
+            echo "$REPO аль хэдийн бий"
           else
             gh repo create "$REPO" --private \
               --description "Entry Accounting — ${{ inputs.display_name }}"
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Seed хэрэгтэй юу: repo хоосон (нэг ч branch-гүй) бол тийм — өмнөх
+          # push унасан тохиолдолд дахин ажиллуулахад идемпотент.
+          BRANCHES="$(gh api "repos/$REPO/branches" --jq 'length' 2>/dev/null || echo 0)"
+          if [ "$BRANCHES" = "0" ]; then
+            echo "seed=true" >> "$GITHUB_OUTPUT"
+            echo "Repo хоосон — core түүхийг push хийнэ"
+          else
+            echo "seed=false" >> "$GITHUB_OUTPUT"
+            echo "Repo-д $BRANCHES branch бий — seed алгасаж, тохиргоог л шинэчилнэ"
           fi
           gh repo edit "$REPO" --add-topic entry-customer \
             --enable-wiki=false --enable-projects=false \
             --delete-branch-on-merge
 
       - name: Core түүхийг push хийх (main + tags)
-        if: steps.create.outputs.exists == 'false'
+        if: steps.create.outputs.seed == 'true'
         run: |
           git remote add customer "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
           git push customer HEAD:refs/heads/main
@@ -139,7 +150,7 @@ jobs:
             echo ""
             echo "- Repo: https://github.com/$REPO"
             echo "- Seed: ${{ inputs.ref }} ($(git rev-parse --short HEAD))"
-            echo "- Шинэ repo: ${{ steps.create.outputs.exists == 'false' }}"
+            echo "- Seed хийгдсэн: ${{ steps.create.outputs.seed }}"
             echo "- Уригдсан: ${{ inputs.github_users || '—' }}"
             echo ""
             echo "Дараагийн алхам: Railway дээр энэ repo-г холбож DATABASE_URL, AUTH_SECRET,"
