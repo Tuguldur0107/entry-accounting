@@ -23,7 +23,7 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 |---|-------|-----|----------|
 | 1 | Харилцагчийн **тусдаа private repo** үүсгэх — Entry Console → «Харилцагч нэмэх» (§1a) | Бид | `provision-customer.yml` автоматаар |
 | 2 | Repo-ийн Actions permission + `UPSTREAM_TOKEN` secret + хэрэглэгчийн урилга — мөн автоматаар (1-р алхамд) | — | — |
-| 3 | Railway төсөл: PostgreSQL + fork-ийг холбох, `.env.example`-ийн хувьсагчид (DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL) | Бид | Railway (`railway.toml` бэлэн: db:push + healthcheck) |
+| 3 | Railway deploy — Entry Console автоматаар (§1b): `entry-<slug>` app + `entry-<slug>-db` Postgres, хувьсагчид, domain. Гараар бол: Postgres + repo холбох, `.env.example`-ийн DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL | Бид | Console / Railway (`railway.toml` бэлэн: db:push + healthcheck) |
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
 | 5 | Эхний хэрэглэгч бүртгэх → байгууллага үүснэ → Тохиргоо → ЕЖ тохиргоо → стандарт данс sync | Харилцагч | Вэб |
 | 6 | Тохиргоо → AI туслах → MCP холболт → token үүсгэх (эсвэл Cowork-д OAuth-оор Connect) | Харилцагч | Вэб |
@@ -46,6 +46,27 @@ tag push (бүтэн түүх), Actions permission, `UPSTREAM_TOKEN` secret,
 `ENTRY_DISPLAY_NAME` / `ENTRY_APP_URL` variable, хэрэглэгчдийг Write эрхтэй
 урих — бүгд нэг дор. Core repo-д нэг удаа `PROVISION_TOKEN`,
 `UPSTREAM_READ_TOKEN` secret тавина (workflow-ийн толгойн тайлбар).
+
+### 1b. Railway deploy хэрхэн автоматжих вэ
+
+Console-д `RAILWAY_TOKEN` (account token) + `RAILWAY_PROJECT_ID` тавьсан бол
+харилцагч нэмэхэд «Repo бэлэн болмогц Railway-д автоматаар deploy» чагт
+(эсвэл харилцагчийн хуудасны «Railway-д deploy» товч) дараахыг хийнэ:
+
+1. `entry-<slug>-db` — `postgres:16-alpine` image + volume, `DATABASE_URL`
+   өөр дээрээ variable
+2. `entry-<slug>` — хоосон service → `*.up.railway.app` domain →
+   `DATABASE_URL=${{entry-<slug>-db.DATABASE_URL}}`, `AUTH_SECRET` (санамсаргүй),
+   `NEXT_PUBLIC_APP_URL`, `NODE_ENV` → healthcheck `/api/health`, preDeploy
+   `npm run db:push` → GitHub repo холбох (build эхэлнэ)
+3. Domain нь console-д харилцагчийн Deploy хаяг болж хувилбарын хяналт ажиллана
+
+Нэрээр байгаа service-ийг дахин ашигладаг тул унасан оролдлогыг аюулгүй
+давтана. **Шаардлага:** Railway-ийн GitHub app `Entry-mn` org-д суусан байх
+(github.com/apps/railway-app/installations/new); project token GitHub repo
+холбож чадахгүй тул account token хэрэгтэй — зөвхөн project token байвал
+service/DB/domain үүсээд repo-г Railway дээр гараар холбоно (console
+«repo холбогдоогүй» гэж анхааруулна).
 
 Гараар (console-гүй):
 
