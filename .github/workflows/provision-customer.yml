@@ -110,9 +110,23 @@ jobs:
 
       - name: Actions permission (write + PR үүсгэх)
         run: |
-          gh api -X PUT "repos/$REPO/actions/permissions/workflow" \
-            -f default_workflow_permissions=write \
-            -F can_approve_pull_request_reviews=true
+          set_repo_perm() {
+            gh api -X PUT "repos/$REPO/actions/permissions/workflow" \
+              -f default_workflow_permissions=write \
+              -F can_approve_pull_request_reviews=true
+          }
+          if ! set_repo_perm 2>/tmp/perm.err; then
+            if grep -q "disabled by the organization" /tmp/perm.err; then
+              # Org-ийн default нь read → org түвшинд write нээгээд (нэг удаа) дахин оролдоно
+              echo "Org workflow permission read байна — $OWNER org дээр write нээж байна"
+              gh api -X PUT "orgs/$OWNER/actions/permissions/workflow" \
+                -f default_workflow_permissions=write \
+                -F can_approve_pull_request_reviews=true
+              set_repo_perm
+            else
+              cat /tmp/perm.err; exit 1
+            fi
+          fi
 
       - name: Secret ба variable
         env:
