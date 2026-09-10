@@ -68,6 +68,12 @@ Console-д `RAILWAY_TOKEN` (account token) + `RAILWAY_PROJECT_ID` тавьсан
 service/DB/domain үүсээд repo-г Railway дээр гараар холбоно (console
 «repo холбогдоогүй» гэж анхааруулна).
 
+**Бүрэн устгах (гэрээ дуусах, туршилт цэвэрлэх):** харилцагчийн хуудасны
+«Аюултай бүс» → кодыг бичиж баталгаажуулна → Railway app + Postgres
+(volume-ийн өгөгдөлтэй), GitHub repo, console бүртгэл устна. GitHub token-д
+`delete_repo` scope хэрэгтэй; дутуу устсан бол «Архив» + тэмдэглэлтэй үлдэж
+дахин оролдож болно. REST: `DELETE /api/customers/<slug>?confirm=<slug>`.
+
 Гараар (console-гүй):
 
 ```bash
