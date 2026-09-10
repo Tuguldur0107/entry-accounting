@@ -68,6 +68,17 @@ Console-д `RAILWAY_TOKEN` (account token) + `RAILWAY_PROJECT_ID` тавьсан
 service/DB/domain үүсээд repo-г Railway дээр гараар холбоно (console
 «repo холбогдоогүй» гэж анхааруулна).
 
+**Deploy-тэй хамт автоматаар:** Postgres volume-д Railway backup хуваарь (өдөр +
+7 хоног бүр); console-д `CUSTOMER_BASE_DOMAIN` өгвөл `<slug>.<domain>` custom
+domain + DNS CNAME заавар (баталгаажмагц `NEXT_PUBLIC_APP_URL` солигдоно).
+**Хяналт:** console-ийн cron service 5 мин тутам health/deployment/backup
+шалгаж Telegram/webhook-оор мэдэгдэнэ. **Авто sync:** харилцагчийн toggle —
+шинэ release гармагц `upstream-sync.yml` PR нээж, merge-ийг туршиж tsc/lint/test
+ажиллуулаад `sync-checks-passed` label тавьсан бол console merge хийнэ (Railway
+main-аас deploy); conflict/шалгалт унасан бол label + анхаарах зүйл.
+**Түр зогсоох:** Railway app + DB deployment устгана (volume хэвээр), идэвхжүүлэхэд
+дахин deploy.
+
 **Бүрэн устгах (гэрээ дуусах, туршилт цэвэрлэх):** харилцагчийн хуудасны
 «Аюултай бүс» → кодыг бичиж баталгаажуулна → Railway app + Postgres
 (volume-ийн өгөгдөлтэй), GitHub repo, console бүртгэл устна. GitHub token-д
