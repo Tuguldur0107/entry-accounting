@@ -11,6 +11,7 @@ import {
   index,
   foreignKey,
   jsonb,
+  check,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
@@ -263,6 +264,11 @@ export const journalLines = pgTable(
       .default("0"),
     description: text("description").default(""),
     sortOrder: integer("sort_order").notNull().default(0),
+    // Клирингийн бизнес объектын түлхүүр — бичих МӨЧИД тавигдана
+    // (FR-PROC-003/004): 'purchase_order' + PO id. FK биш: объект устахад
+    // журналын мөр үлдэх ёстой (аудит).
+    businessObjectType: text("business_object_type"),
+    businessObjectId: uuid("business_object_id"),
   },
   (table) => [
     foreignKey({
@@ -270,6 +276,9 @@ export const journalLines = pgTable(
       foreignColumns: [cashAccounts.id],
     }).onDelete("set null"),
     index("journal_lines_voucher_ix").on(table.voucherId),
+    index("journal_lines_business_object_ix")
+      .on(table.businessObjectType, table.businessObjectId)
+      .where(sql`${table.businessObjectId} is not null`),
     index("journal_lines_cost_entry_ix")
       .on(table.costEntryId)
       .where(sql`${table.costEntryId} is not null`),
@@ -558,6 +567,10 @@ export const counterparties = pgTable(
     email: text("email"),
     phone: text("phone"),
     address: text("address"),
+    // Ханган нийлүүлэгчийн мэдээлэл (PO панелийн карт, төлбөрийн заавар).
+    contactPerson: text("contact_person"),
+    bankName: text("bank_name"),
+    bankAccountNo: text("bank_account_no"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -610,6 +623,13 @@ export const arApDocuments = pgTable(
     ),
     // Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м).
     externalRef: text("external_ref"),
+    // Хангамжийн захиалга — PO-той нэхэмжлэхийн бараа/бүрэлдэхүүн мөр нь
+    // ӨГЛӨГИЙН ТҮР ДАНС руу бичигдэж, орлого нь хүлээн авалтын баримтаас
+    // үүснэ (docs/procurement §3.3 ③④).
+    purchaseOrderId: uuid("purchase_order_id").references(
+      () => purchaseOrders.id,
+      { onDelete: "restrict" }
+    ),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -620,6 +640,9 @@ export const arApDocuments = pgTable(
       .where(sql`${table.externalRef} is not null`),
     index("ar_ap_documents_user_status_ix").on(table.userId, table.status), index("ar_ap_documents_org_status_ix").on(table.organizationId, table.status),
     index("ar_ap_documents_user_date_ix").on(table.userId, table.date), index("ar_ap_documents_org_date_ix").on(table.organizationId, table.date),
+    index("ar_ap_documents_po_ix")
+      .on(table.purchaseOrderId)
+      .where(sql`${table.purchaseOrderId} is not null`),
   ]
 );
 
@@ -641,9 +664,33 @@ export const arApDocumentLines = pgTable(
     warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
       onDelete: "set null",
     }),
+    // Хангамж: PO мөрийн холбоос + нэгж үнэ (PO валютаар). Бүрэлдэхүүнтэй
+    // мөр = барааны өртөгт капиталжих нэмэлт зардал (гааль, тээвэр …);
+    // бараатай мөртэй ЗЭРЭГ байж болохгүй (CHECK).
+    purchaseOrderLineId: uuid("purchase_order_line_id").references(
+      () => purchaseOrderLines.id,
+      { onDelete: "restrict" }
+    ),
+    unitPrice: numeric("unit_price", { precision: 18, scale: 4 }),
+    costComponentId: uuid("cost_component_id").references(
+      () => costComponents.id,
+      { onDelete: "restrict" }
+    ),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
-  }
+  },
+  (table) => [
+    check(
+      "ar_ap_document_lines_item_xor_component",
+      sql`not (${table.itemId} is not null and ${table.costComponentId} is not null)`
+    ),
+    index("ar_ap_document_lines_po_line_ix")
+      .on(table.purchaseOrderLineId)
+      .where(sql`${table.purchaseOrderLineId} is not null`),
+    index("ar_ap_document_lines_component_ix")
+      .on(table.costComponentId)
+      .where(sql`${table.costComponentId} is not null`),
+  ]
 );
 
 export const arApSettlements = pgTable("ar_ap_settlements", {
@@ -846,6 +893,10 @@ export const arApDocumentsRelations = relations(
       references: [journalVouchers.id],
       relationName: "arApDocumentReversalVoucher",
     }),
+    purchaseOrder: one(purchaseOrders, {
+      fields: [arApDocuments.purchaseOrderId],
+      references: [purchaseOrders.id],
+    }),
   })
 );
 
@@ -855,6 +906,14 @@ export const arApDocumentLinesRelations = relations(
     document: one(arApDocuments, {
       fields: [arApDocumentLines.documentId],
       references: [arApDocuments.id],
+    }),
+    purchaseOrderLine: one(purchaseOrderLines, {
+      fields: [arApDocumentLines.purchaseOrderLineId],
+      references: [purchaseOrderLines.id],
+    }),
+    costComponent: one(costComponents, {
+      fields: [arApDocumentLines.costComponentId],
+      references: [costComponents.id],
     }),
   })
 );
@@ -1077,7 +1136,8 @@ export const inventoryMovements = pgTable(
     issueTypeId: uuid("issue_type_id").references(() => inventoryIssueTypes.id, {
       onDelete: "restrict",
     }),
-    sourceType: text("source_type").notNull().default("manual"), // "manual" | "arap_line" | "gl_voucher" | "cash_document"
+    // "manual" | "arap_line" | "gl_voucher" | "cash_document" | "po_receipt"
+    sourceType: text("source_type").notNull().default("manual"),
     sourceId: uuid("source_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     confirmedAt: timestamp("confirmed_at"),
@@ -1198,8 +1258,15 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
     onDelete: "cascade",
   }),
-  /** Орлогын эсрэг тал — худалдан авалтын клиринг. */
+  /** Орлогын эсрэг тал — худалдан авалтын клиринг (бараа материалын түр данс). */
   clearingAccountNumber: text("clearing_account_number").notNull(),
+  /**
+   * Өглөгийн түр данс — PO-той нэхэмжлэх бүр Dr, PO хаалтад Cr
+   * (docs/procurement §3.1). Хоёр түр данс PO объектоор тэгширнэ.
+   */
+  apClearingAccountNumber: text("ap_clearing_account_number")
+    .notNull()
+    .default("31000099"),
   /** Тооллогын илүүдэл (орлого). */
   adjustmentGainAccountNumber: text("adjustment_gain_account_number").notNull(),
   /** Тооллогын дутагдал (зардал). */
@@ -1476,13 +1543,31 @@ export const costAllocations = pgTable(
       .notNull()
       .references(() => costComponents.id, { onDelete: "restrict" }),
     totalAmount: numeric("total_amount", { precision: 18, scale: 2 }).notNull(),
-    /** "value" | "quantity" | "manual" */
+    /** "value" | "quantity" | "manual" — хэрэглэгч баримт бүрд сонгоно (OD-017). */
     allocationBase: text("allocation_base").notNull(),
     description: text("description").notNull().default(""),
+    /** Хангамж: зардал гарсан АП нэхэмжлэхийн мөр (Σ ≤ мөрийн MNT дүн). */
+    sourceLineId: uuid("source_line_id").references(
+      () => arApDocumentLines.id,
+      { onDelete: "restrict" }
+    ),
+    /** Хангамж: хуваарилалт хамаарах захиалга. */
+    purchaseOrderId: uuid("purchase_order_id").references(
+      () => purchaseOrders.id,
+      { onDelete: "restrict" }
+    ),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo)]
+  (t) => [
+    unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo),
+    index("cost_allocations_source_line_ix")
+      .on(t.sourceLineId)
+      .where(sql`${t.sourceLineId} is not null`),
+    index("cost_allocations_po_ix")
+      .on(t.purchaseOrderId)
+      .where(sql`${t.purchaseOrderId} is not null`),
+  ]
 );
 
 export const costAllocationLines = pgTable("cost_allocation_lines", {
@@ -1771,7 +1856,9 @@ export const costEntries = pgTable("cost_entries", {
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
   unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(), // MNT
-  valuationSource: text("valuation_source").notNull(), // "manual" | "avg_cost"
+  // "manual" | "avg_cost" | "po_receipt" (PO үнэ × хүлээн авсан өдрийн МБ
+  // ханш) | "ap_line" (нэмэлт зардлын нэхэмжлэхийн мөрөөс хуваарилагдсан)
+  valuationSource: text("valuation_source").notNull(),
   // Хамрах хүрээ + период (OD-001 "бараа × агуулах × компани", OD-002 GL
   // период). Хуучин мөрүүдэд null — backfill хийгдэнэ.
   warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
@@ -1787,6 +1874,13 @@ export const costEntries = pgTable("cost_entries", {
     () => costComponents.id,
     { onDelete: "restrict" }
   ),
+  // Хангамжийн lineage: зардал гарсан АП нэхэмжлэхийн мөр + клирингийн
+  // бизнес объект (PO) — түр дансдын тэгшитгэлийг объектоор нэгтгэнэ.
+  sourceLineId: uuid("source_line_id").references(() => arApDocumentLines.id, {
+    onDelete: "set null",
+  }),
+  businessObjectType: text("business_object_type"),
+  businessObjectId: uuid("business_object_id"),
   // Бичих МӨЧИД шийдэгдсэн дансны хувилбар — хожим master data өөрчлөгдөхөд
   // түүхэн бичилт дахин бичигдэхгүй (JPR-005, FR-AUD-003).
   debitAccountNumber: text("debit_account_number"),
@@ -1810,7 +1904,283 @@ export const costEntries = pgTable("cost_entries", {
       sql`${t.movementId} is not null and ${t.status} <> 'reversed' and ${t.entryType} <> 'landed_cost'`
     ),
   index("cost_entries_user_status_ix").on(t.userId, t.status), index("cost_entries_org_status_ix").on(t.organizationId, t.status),
+  index("cost_entries_source_line_ix")
+    .on(t.sourceLineId)
+    .where(sql`${t.sourceLineId} is not null`),
+  index("cost_entries_business_object_ix")
+    .on(t.businessObjectType, t.businessObjectId)
+    .where(sql`${t.businessObjectId} is not null`),
 ]);
+
+// ─── Хангамж (Procurement — PO + хүлээн авалт) ───────────────────────────────
+// docs/procurement/00-proposal.md §3. PO нь GL бичилт үүсгэхгүй ХОЛБООСЫН
+// объект: бараа хүлээн авалт (Dr бараа / Cr бараа материалын түр данс),
+// нийлүүлэгчийн ба нэмэлт зардлын нэхэмжлэх (Dr өглөгийн түр данс / Cr өглөг),
+// зардлын хуваарилалт (Dr бараа / Cr бараа материалын түр данс), PO хаалт
+// (Dr бараа материалын түр данс / Cr өглөгийн түр данс + ханшийн зөрүү).
+
+export const purchaseOrders = pgTable(
+  "purchase_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    documentNo: text("document_no").notNull(),
+    /** Ханган нийлүүлэгч — counterpartyType "supplier" | "both". */
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id, { onDelete: "restrict" }),
+    date: text("date").notNull(), // YYYY-MM-DD
+    /** Хүлээгдэж буй хүргэлтийн огноо (мэдээлэл). */
+    expectedDate: text("expected_date"),
+    currency: text("currency").notNull().default("MNT"),
+    /** Мөр бүрийн агуулахын default. */
+    warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
+      onDelete: "restrict",
+    }),
+    description: text("description").notNull().default(""),
+    /** "draft" | "open" | "closed" | "cancelled" */
+    status: text("status").notNull().default("draft"),
+    totalAmount: numeric("total_amount", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    externalRef: text("external_ref"),
+    approvedAt: timestamp("approved_at"),
+    closedAt: timestamp("closed_at"),
+    /** Түр дансдыг тэгшитгэсэн хаалтын журнал. */
+    closeVoucherId: uuid("close_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
+    /** Хаасан өдрийн Монголбанкны ханш — мэдээллийн зорилгоор. */
+    closeExchangeRate: numeric("close_exchange_rate", {
+      precision: 18,
+      scale: 8,
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("purchase_orders_org_external_ref_uq")
+      .on(t.organizationId, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
+    index("purchase_orders_org_status_ix").on(t.organizationId, t.status),
+    index("purchase_orders_org_date_ix").on(t.organizationId, t.date),
+    index("purchase_orders_org_counterparty_ix").on(
+      t.organizationId,
+      t.counterpartyId
+    ),
+  ]
+);
+
+export const purchaseOrderLines = pgTable(
+  "purchase_order_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purchaseOrderId: uuid("purchase_order_id")
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "restrict" }),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    /** Нэгж үнэ PO валютаар — орлогдох нэгж өртгийн суурь. */
+    unitPrice: numeric("unit_price", { precision: 18, scale: 4 }).notNull(),
+    /** quantity × unitPrice (PO валют). */
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
+      onDelete: "restrict",
+    }),
+    description: text("description").notNull().default(""),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("purchase_order_lines_po_ix").on(t.purchaseOrderId)]
+);
+
+export const goodsReceipts = pgTable(
+  "goods_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    purchaseOrderId: uuid("purchase_order_id")
+      .notNull()
+      .references(() => purchaseOrders.id, { onDelete: "restrict" }),
+    documentNo: text("document_no").notNull(),
+    date: text("date").notNull(), // YYYY-MM-DD
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "restrict" }),
+    /** Хүлээн авсан өдрийн Монголбанкны албан ханш — БАРААНЫ ӨРТӨГ энүүгээр. */
+    exchangeRate: numeric("exchange_rate", { precision: 18, scale: 8 })
+      .notNull()
+      .default("1"),
+    rateSource: text("rate_source").notNull().default("mongolbank"),
+    rateDate: text("rate_date"),
+    description: text("description").notNull().default(""),
+    /** "draft" | "confirmed" | "reversed" */
+    status: text("status").notNull().default("draft"),
+    /** Капитализацийн журнал (Dr бараа / Cr бараа материалын түр данс). */
+    voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
+      onDelete: "set null",
+    }),
+    reversalVoucherId: uuid("reversal_voucher_id").references(
+      () => journalVouchers.id,
+      { onDelete: "set null" }
+    ),
+    confirmedAt: timestamp("confirmed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.organizationId, t.documentNo),
+    index("goods_receipts_org_status_ix").on(t.organizationId, t.status),
+    index("goods_receipts_po_date_ix").on(t.purchaseOrderId, t.date),
+    index("goods_receipts_org_date_ix").on(t.organizationId, t.date),
+  ]
+);
+
+export const goodsReceiptLines = pgTable(
+  "goods_receipt_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receiptId: uuid("receipt_id")
+      .notNull()
+      .references(() => goodsReceipts.id, { onDelete: "cascade" }),
+    purchaseOrderLineId: uuid("purchase_order_line_id")
+      .notNull()
+      .references(() => purchaseOrderLines.id, { onDelete: "restrict" }),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    /** Батлахад үүссэн бараа материалын орлого (sourceType "po_receipt"). */
+    movementId: uuid("movement_id").references(() => inventoryMovements.id, {
+      onDelete: "set null",
+    }),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [
+    index("goods_receipt_lines_receipt_ix").on(t.receiptId),
+    index("goods_receipt_lines_po_line_ix").on(t.purchaseOrderLineId),
+  ]
+);
+
+// ─── Хавсралт (нийтлэг) ──────────────────────────────────────────────────────
+// Үнийн санал, гэрээ, нэхэмжлэх, гаалийн мэдүүлэг г.м. баримт. Файл нь
+// base64-аар DB-д (ai_attachments / компанийн лого-той ИЖИЛ загвар).
+// entityType нь polymorphic тул FK байхгүй — устгалтыг модуль өөрөө хийнэ.
+
+export const documentAttachments = pgTable(
+  "document_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Хэн хавсаргасан. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    /** "purchase_order" — дараа "arap", "cash" г.м. */
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    /**
+     * quotation | proforma | contract | invoice | packing_list |
+     * bill_of_lading | customs_declaration | certificate | other —
+     * лавлах шошго, кодод хаалттай жагсаалт БИШ.
+     */
+    kind: text("kind").notNull().default("other"),
+    name: text("name").notNull(),
+    mediaType: text("media_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    data: text("data").notNull(), // base64
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("document_attachments_org_entity_ix").on(
+      t.organizationId,
+      t.entityType,
+      t.entityId
+    ),
+  ]
+);
+
+export const purchaseOrdersRelations = relations(
+  purchaseOrders,
+  ({ one, many }) => ({
+    user: one(users, {
+      fields: [purchaseOrders.userId],
+      references: [users.id],
+    }),
+    counterparty: one(counterparties, {
+      fields: [purchaseOrders.counterpartyId],
+      references: [counterparties.id],
+    }),
+    warehouse: one(warehouses, {
+      fields: [purchaseOrders.warehouseId],
+      references: [warehouses.id],
+    }),
+    lines: many(purchaseOrderLines),
+    receipts: many(goodsReceipts),
+  })
+);
+
+export const purchaseOrderLinesRelations = relations(
+  purchaseOrderLines,
+  ({ one, many }) => ({
+    purchaseOrder: one(purchaseOrders, {
+      fields: [purchaseOrderLines.purchaseOrderId],
+      references: [purchaseOrders.id],
+    }),
+    item: one(inventoryItems, {
+      fields: [purchaseOrderLines.itemId],
+      references: [inventoryItems.id],
+    }),
+    warehouse: one(warehouses, {
+      fields: [purchaseOrderLines.warehouseId],
+      references: [warehouses.id],
+    }),
+    receiptLines: many(goodsReceiptLines),
+  })
+);
+
+export const goodsReceiptsRelations = relations(
+  goodsReceipts,
+  ({ one, many }) => ({
+    purchaseOrder: one(purchaseOrders, {
+      fields: [goodsReceipts.purchaseOrderId],
+      references: [purchaseOrders.id],
+    }),
+    warehouse: one(warehouses, {
+      fields: [goodsReceipts.warehouseId],
+      references: [warehouses.id],
+    }),
+    lines: many(goodsReceiptLines),
+  })
+);
+
+export const goodsReceiptLinesRelations = relations(
+  goodsReceiptLines,
+  ({ one }) => ({
+    receipt: one(goodsReceipts, {
+      fields: [goodsReceiptLines.receiptId],
+      references: [goodsReceipts.id],
+    }),
+    purchaseOrderLine: one(purchaseOrderLines, {
+      fields: [goodsReceiptLines.purchaseOrderLineId],
+      references: [purchaseOrderLines.id],
+    }),
+    movement: one(inventoryMovements, {
+      fields: [goodsReceiptLines.movementId],
+      references: [inventoryMovements.id],
+    }),
+  })
+);
 
 export const inventoryItemsRelations = relations(inventoryItems, ({ one, many }) => ({
   user: one(users, { fields: [inventoryItems.userId], references: [users.id] }),
@@ -2377,6 +2747,11 @@ export type CostPoolRule = typeof costPoolRules.$inferSelect;
 export type ProductionRun = typeof productionRuns.$inferSelect;
 export type CostAllocation = typeof costAllocations.$inferSelect;
 export type CostAllocationLine = typeof costAllocationLines.$inferSelect;
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
+export type GoodsReceipt = typeof goodsReceipts.$inferSelect;
+export type GoodsReceiptLine = typeof goodsReceiptLines.$inferSelect;
+export type DocumentAttachment = typeof documentAttachments.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
 export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
 export type AiMessage = typeof aiMessages.$inferSelect;

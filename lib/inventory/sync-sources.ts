@@ -16,6 +16,7 @@ import { extractMainAccount as mainAccountOf } from "@/lib/reports/balances";
 import { and, eq, inArray, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
+import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { db } from "@/lib/db";
 import {
   arApDocumentLines,
@@ -42,8 +43,11 @@ function revalidateInventoryPaths() {
 // Клирингийн данс — худалдан авалтын суваг бүр ЭНД бичих ёстой (өртгийн
 // модуль Dr бараа данс / Cr клиринг гэж капитализаци хийдэг). 14000001 г.м.
 // бараа дансанд шууд бичсэн журналд sentinel ҮҮСГЭХГҮЙ — costing давхарлана;
-// тийм бичилт GL тулгалтын тайланд зөрүү болж илэрнэ.
-const CLEARING_MAIN = "14000099";
+// тийм бичилт GL тулгалтын тайланд зөрүү болж илэрнэ. Дугаар нь
+// costing_account_settings-ээс (JPR-006) — кодод хатуу бичихгүй.
+async function clearingMainOf(orgId: string) {
+  return (await loadCostingAccountSettings(orgId)).clearingAccountNumber;
+}
 
 /** АР/АП баримтын бараатай мөр бүрд тоо хэмжээний draft (идемпотент). */
 export async function createMovementDraftsForArApDocument(documentId: string) {
@@ -123,9 +127,10 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
     if (!orgId) return;
 
     // Клирингийн цэвэр Dr нөлөө (худалдан авалт клирингт суусан дүн)
+    const clearingMain = await clearingMainOf(orgId);
     let net = 0;
     for (const line of voucher.lines) {
-      if (mainAccountOf(line.accountNumber) !== CLEARING_MAIN) continue;
+      if (mainAccountOf(line.accountNumber) !== clearingMain) continue;
       net += Number(line.debit) - Number(line.credit);
     }
     net = Math.round(net * 100) / 100;
