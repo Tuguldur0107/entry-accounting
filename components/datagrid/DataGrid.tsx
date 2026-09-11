@@ -441,6 +441,13 @@ function DataGridInner<TData>(
       )}
       <AgGridReact<TData>
         theme={eaGridTheme}
+        // AG Grid нь root wrapper дээр `content-visibility: auto` тавьдаг —
+        // браузер тухайн хэсгийг "хэрэглэгчид хамааралгүй" гэж үзвэл дэд
+        // модны зурагдалтыг БҮРЭН алгасдаг. Панель/хуудас нээгдэх агшны
+        // layout, анимаци, гүйлгэдэг контейнерийн хослолоос болж хүснэгт
+        // АЛДААГҮЙГЭЭР хоосон харагдаж, дахин ачаалахад л гарч ирдэг байв.
+        // Энэ тохиргоо нь root-д `content-visibility: visible` тавина.
+        suppressContentVisibilityAuto
         onGridReady={handleReady}
         onRowDataUpdated={handleRowDataUpdated}
         onCellClicked={handleCellClicked}

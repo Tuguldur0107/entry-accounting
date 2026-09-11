@@ -180,3 +180,12 @@
   color: var(--ea-text-4);
   text-align: center;
 }
+
+/* AG Grid-ийн `content-visibility: auto` нь хүснэгтийг алдаагүйгээр хоосон
+   үлдээх эрсдэлтэй (дэд модны зурагдалтыг алгасдаг). Grid option-оор
+   унтраасан ч JS-ээр inject хийгддэг стайл дарагдах магадлалтай тул CSS
+   талаас нь БАТАЛГААЖУУЛНА. */
+.ea-data-grid .ag-root-wrapper,
+.ea-data-grid .ag-root-wrapper.ag-layout-normal {
+  content-visibility: visible !important;
+}
