@@ -358,8 +358,10 @@ export function GoodsReceiptsView({
         />
       )}
 
-      {visibleReceipts.length === 0 ? (
-        receipts.length === 0 ? (
+      {/* Шүүлтүүрээр 0 мөр болоход grid-ийг unmount хийхгүй (AG Grid өөрөө
+          "мөр алга" overlay харуулна) — эс бөгөөс хүснэгт анивчина. */}
+      {receipts.length === 0 ? (
+        (
           <EmptyState
             icon="packageReceipt"
             title="Хүлээн авалт бүртгэгдээгүй байна"
@@ -378,10 +380,6 @@ export function GoodsReceiptsView({
               },
             ]}
           />
-        ) : (
-          <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-            Шүүлтүүрт таарах хүлээн авалт байхгүй
-          </div>
         )
       ) : (
         <DataGridDynamic<GoodsReceiptView>

@@ -250,6 +250,11 @@ async function withDocumentNo<T>(
   throw new Error("Баримтын дугаар үүсгэж чадсангүй — дахин оролдоно уу");
 }
 
+/**
+ * Захиалгын харилцагч — ЗӨВХӨН ӨГЛӨГИЙН тал (нийлүүлэгч | хоёулаа).
+ * Захиалга нь худалдан авалт тул заавал өглөг үүсгэдэг; авлагын төрөлтэй
+ * харилцагчийг нийлүүлэгчээр бүртгэвэл АП сонгогч, өглөгийн тайлан зөрнө.
+ */
 async function loadSupplier(orgId: string, counterpartyId: string) {
   const counterparty = await db.query.counterparties.findFirst({
     where: and(
@@ -261,7 +266,7 @@ async function loadSupplier(orgId: string, counterpartyId: string) {
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
   if (!["supplier", "both"].includes(counterparty.counterpartyType))
     throw new Error(
-      `${counterparty.name} нь ханган нийлүүлэгч биш — харилцагчийн төрлийг шалгана уу`
+      `${counterparty.name} нь өглөгийн харилцагч биш — Харилцагчид хэсэгт төрлийг нь «Нийлүүлэгч» эсвэл «Хоёулаа» болгоно уу`
     );
   return counterparty;
 }

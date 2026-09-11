@@ -108,8 +108,11 @@ export function ArApLinesGrid({
       ? apClearingAccountNumber
       : clearingAccountNumber;
   const showItemColumns = inventoryItems.length > 0;
-  const showUnitPrice = showItemColumns;
-  const showComponents = (costComponents?.length ?? 0) > 0;
+  // Нэгж үнэ ба бүрэлдэхүүний багана нь ЗӨВХӨН PO-той нэхэмжлэхэд. Энгийн
+  // АР/АП баримтын харагдац өөрчлөгдөх ЁСГҮЙ (mode="arap" = хуучин зан
+  // төлөв) — эс бөгөөс тоо × нэгж үнэ нь гараар бичсэн дүнг дарж бичнэ.
+  const showUnitPrice = showItemColumns && poLinked;
+  const showComponents = poLinked && (costComponents?.length ?? 0) > 0;
 
   // "НӨАТ 10% нэмэх" — НӨАТ-гүй мөрүүдийн нийлбэрээс exclusive тооцож
   // тохиргооны НӨАТ дансанд нэг мөр нэмнэ (байвал дүнг нь шинэчилнэ).

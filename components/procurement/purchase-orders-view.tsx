@@ -392,8 +392,11 @@ export function PurchaseOrdersView({
         />
       )}
 
-      {visibleOrders.length === 0 ? (
-        orders.length === 0 ? (
+      {/* Grid-ийг ЗӨВХӨН өгөгдөл огт байхгүй үед л сольж харуулна: шүүлтүүрээр
+          0 мөр болоход unmount хийвэл AG Grid instance устаж (gridRef null),
+          дараа нь дахин mount хийгдэхэд хүснэгт хоосон анивчина. */}
+      {orders.length === 0 ? (
+        (
           <EmptyState
             icon="purchaseOrder"
             title="Худалдан авалтын захиалгаа бүртгэж эхлээрэй"
@@ -417,10 +420,6 @@ export function PurchaseOrdersView({
               },
             ]}
           />
-        ) : (
-          <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-            Шүүлтүүрт таарах захиалга байхгүй
-          </div>
         )
       ) : (
         <DataGridDynamic<PurchaseOrderView>

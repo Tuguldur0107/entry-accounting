@@ -1601,6 +1601,48 @@ test(
   }
 );
 
+test(
+  "зөвхөн ӨГЛӨГИЙН харилцагч — авлагын харилцагчаар захиалга үүсэхгүй",
+  { skip: !DB_READY },
+  async (t) => {
+    if (!needs(t, purchaseOrderId !== "", "PO үүсгэх")) return;
+
+    // Захиалга нь худалдан авалт тул заавал өглөг үүсгэдэг — авлагын
+    // төрөлтэй харилцагчийг нийлүүлэгчээр бүртгэвэл АП сонгогч ба
+    // өглөгийн тайлан зөрнө. createCounterparty нь ActionResult биш.
+    const customerOnly = await asOrg(() =>
+      createCounterparty({
+        name: `Зөвхөн авлагын харилцагч ${Date.now()}`,
+        counterpartyType: "customer",
+      })
+    );
+
+    const message = errorOf(
+      await asOrg(() =>
+        createPurchaseOrder({
+          counterpartyId: customerOnly.id,
+          // 2026-09 нь өмнөх тестээр хаагдсан тул НЭЭЛТТЭЙ сар.
+          date: "2026-10-05",
+          description: "Авлагын харилцагчийн шалгалт",
+          currency: "MNT",
+          lines: [
+            { itemId: ltItemId, quantity: 1, unitPrice: 1000, warehouseId },
+          ],
+        })
+      ),
+      "авлагын харилцагчтай PO"
+    );
+    assert.match(message, /өглөгийн харилцагч биш/);
+
+    // Төрөл нь ЧИМЭЭГҮЙ өөрчлөгдөөгүй байх ёстой (мастер дата хөндөгдөхгүй).
+    const after = await db.query.counterparties.findFirst({
+      where: eq(counterparties.id, customerOnly.id),
+      columns: { counterpartyType: true },
+    });
+    assert.equal(after?.counterpartyType, "customer");
+  }
+);
+
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {
   for (const fn of cleanup.reverse()) await fn();
   const leftoverOrg = await db.query.organizations.findMany({

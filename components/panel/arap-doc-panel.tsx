@@ -5,7 +5,7 @@
 // Сонголтын өгөгдлөө (харилцагч, сегмент, бараа/агуулах) server action-аар
 // татна; формын dirty төлвийг setDirty(panel.id, ...)-д мэдэгдэнэ.
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
@@ -325,6 +325,15 @@ function ArapDocForm({
     };
   });
 
+  // ТОГТВОРТОЙ identity — мөрийн хүснэгтийн columnDefs нь үүнээс хамаардаг
+  // тул render бүрт шинэ функц өгвөл AG Grid бүх баганаа дахин байгуулж,
+  // засварлаж буй нүд хаагдах/утга суухгүй байх "гацалт" үүсдэг.
+  const updateLines = useCallback(
+    (updater: (prev: LineRow[]) => LineRow[]) =>
+      setForm((current) => ({ ...current, lines: updater(current.lines) })),
+    []
+  );
+
   // Хадгалаагүй өөрчлөлтийн хамгаалалт — эхний render-ийн snapshot-той
   // харьцуулна (lazy useState нь ref-ээс ялгаатай render-цэвэр).
   const currentSnapshot = JSON.stringify(form);
@@ -629,9 +638,7 @@ function ArapDocForm({
         </div>
         <ArApLinesGrid
           lines={form.lines}
-          onChange={(updater) =>
-            setForm((current) => ({ ...current, lines: updater(current.lines) }))
-          }
+          onChange={updateLines}
           activeSegIds={activeSegIds}
           segmentOptions={segmentOptions}
           defaultSegments={defaultSegments}

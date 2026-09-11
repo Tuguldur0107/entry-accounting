@@ -245,6 +245,19 @@ function PurchaseOrderBody({
   const canEdit = status === "draft" || status === "open";
   const isNew = !detail;
 
+  // Захиалга = худалдан авалт тул ЗӨВХӨН ӨГЛӨГИЙН талын (нийлүүлэгч |
+  // хоёулаа) харилцагч сонгогдоно. Тийм харилцагч алга бол сонгогч хоосон
+  // харагдах тул ШАЛТГААНЫГ ил хэлнэ (эс бөгөөс хэрэглэгч системийн алдаа
+  // гэж ойлгоно).
+  const payableCount = useMemo(
+    () =>
+      counterparties.filter(
+        (row) =>
+          row.isActive &&
+          (row.counterpartyType === "supplier" || row.counterpartyType === "both")
+      ).length,
+    [counterparties]
+  );
   const [tab, setTab] = useState<PoTab>("lines");
   const [closeDate, setCloseDate] = useState(data.today);
   const [rateHint, setRateHint] = useState<{
@@ -1022,6 +1035,12 @@ function PurchaseOrderBody({
             // Хадгалагдсан захиалгын нийлүүлэгч солигдохгүй (сервер ч засдаггүй).
             disabled={!isNew}
           />
+          {isNew && payableCount === 0 && (
+            <p className="text-[11px] text-[var(--ea-warning-fg)]">
+              Өглөгийн харилцагч бүртгэгдээгүй байна — Харилцагчид хэсэгт
+              төрлийг нь «Нийлүүлэгч» эсвэл «Хоёулаа» болгож бүртгэнэ үү.
+            </p>
+          )}
         </Field>
         <Field label="Захиалгын дугаар">
           <Input

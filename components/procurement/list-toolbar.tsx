@@ -124,6 +124,11 @@ export function useListFilters<TRow, TStatus extends string>({
       const params = new URLSearchParams(searchParams.toString());
       if (!next || next === "all") params.delete(key);
       else params.set(key, next);
+      // Хадгалсан харагдац (?view=) нь grid-ийн ӨӨРИЙН шүүлтийг сэргээдэг
+      // тул chip/нийлүүлэгч солиход хүчингүй болно — эс бөгөөс шинэ
+      // шүүлтүүрийн мөрүүдийг хуучин харагдац дахин нууж, хүснэгт
+      // тайлбаргүй хоосорно.
+      if (key !== "view") params.delete("view");
       router.replace(
         `${pathname}${params.toString() ? `?${params.toString()}` : ""}`
       );
