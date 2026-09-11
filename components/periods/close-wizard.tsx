@@ -81,9 +81,22 @@ export function CloseWizard({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const { fa, fx, costing, payroll, vat, drafts, periodStatus, closedAt } =
-    checklist;
+  const {
+    fa,
+    fx,
+    costing,
+    payroll,
+    vat,
+    procurement,
+    drafts,
+    periodStatus,
+    closedAt,
+  } = checklist;
   const closed = periodStatus === "closed";
+  // Хангамжийн хориг (docs/procurement шийдвэр #7) — closePeriod мөн ижил
+  // нөхцөлөөр зогсоодог; энд товчийг урьдчилан идэвхгүй болгоно.
+  const poBlocked = procurement.openOrdersWithReceipts > 0;
+  const closeBlocked = drafts.total > 0 || poBlocked;
 
   function act(fn: () => Promise<string>) {
     startTransition(async () => {
@@ -103,6 +116,11 @@ export function CloseWizard({
     { label: "Бараа", n: drafts.inventory, href: "/inventory/movements" },
     { label: "Элэгдэл", n: drafts.faDep, href: "/fa/depreciation" },
     { label: "Өртөг", n: drafts.costEntries, href: "/costing/entries" },
+    {
+      label: "Хүлээн авалт",
+      n: drafts.goodsReceipts,
+      href: "/procurement/receipts",
+    },
   ];
 
   return (
@@ -334,6 +352,37 @@ export function CloseWizard({
 
       <Step
         index={6}
+        title="Хангамж — захиалгын хаалт"
+        status={procurement.status}
+        actions={
+          !closed && procurement.status !== "na" ? (
+            <>
+              <LinkButton href="/procurement/orders?status=open">
+                Нээлттэй захиалгууд
+              </LinkButton>
+              {procurement.unallocatedCostLines > 0 ? (
+                <LinkButton href="/procurement/costs">
+                  Хуваарилагдаагүй зардал
+                </LinkButton>
+              ) : null}
+              {procurement.draftReceipts > 0 ? (
+                <LinkButton href="/procurement/receipts">
+                  Хүлээн авалтууд
+                </LinkButton>
+              ) : null}
+            </>
+          ) : null
+        }
+      >
+        {procurement.status === "na"
+          ? "Энэ сард худалдан авалтын захиалга алга."
+          : poBlocked
+            ? `Энэ сард хүлээн авалттай нээлттэй захиалга (PO) ${procurement.openOrdersWithReceipts} байна — эхлээд PO-г хаана уу. Хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}, батлагдаагүй хүлээн авалт ${procurement.draftReceipts}.`
+            : `Хүлээн авалттай нээлттэй захиалга алга · хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines} · батлагдаагүй хүлээн авалт ${procurement.draftReceipts}.`}
+      </Step>
+
+      <Step
+        index={7}
         title="Ноорог цэвэрлэгээ"
         status={drafts.total === 0 ? "done" : "attention"}
       >
@@ -361,9 +410,9 @@ export function CloseWizard({
       </Step>
 
       <Step
-        index={7}
+        index={8}
         title="Тайлант үе хаах"
-        status={closed ? "done" : drafts.total === 0 ? "pending" : "attention"}
+        status={closed ? "done" : closeBlocked ? "attention" : "pending"}
         actions={
           closed ? (
             <Button
@@ -383,7 +432,7 @@ export function CloseWizard({
           ) : (
             <Button
               size="sm"
-              disabled={isPending || drafts.total > 0}
+              disabled={isPending || closeBlocked}
               onClick={() =>
                 act(async () => {
                   const result = await closePeriod(periodCode);
@@ -391,9 +440,11 @@ export function CloseWizard({
                     throw new Error(
                       result.code === "has-drafts"
                         ? "Ноорог бичилт үлдсэн байна — эхлээд цэвэрлэнэ үү"
-                        : result.code === "hook-rejected"
-                          ? result.reason
-                          : `Хаагдсангүй (${result.code})`
+                        : result.code === "open-purchase-orders"
+                          ? "Энэ сард хүлээн авалттай нээлттэй захиалга (PO) байна — эхлээд PO-г хаана уу."
+                          : result.code === "hook-rejected"
+                            ? result.reason
+                            : `Хаагдсангүй (${result.code})`
                     );
                   return `${periodCode} тайлант үе хаагдлаа`;
                 })
@@ -408,7 +459,9 @@ export function CloseWizard({
           ? "Хаагдсан — энэ сар руу шинэ бичилт орохгүй."
           : drafts.total > 0
             ? "Ноорог үлдсэн тул хаах товч идэвхгүй."
-            : "Хаасны дараа энэ сарын бичилт түгжигдэнэ (дахин нээх боломжтой)."}
+            : poBlocked
+              ? "Хүлээн авалттай нээлттэй захиалга (PO) үлдсэн тул хаах товч идэвхгүй."
+              : "Хаасны дараа энэ сарын бичилт түгжигдэнэ (дахин нээх боломжтой)."}
       </Step>
     </div>
   );

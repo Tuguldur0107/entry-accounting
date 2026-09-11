@@ -19,6 +19,7 @@ import {
 } from "@/lib/db/schema";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
+import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 import {
   computeRunningBalances,
   type RunningMovement,
@@ -59,6 +60,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   arap_line: "АР/АП баримт",
   gl_voucher: "GL журнал",
   cash_document: "Мөнгөн гүйлгээ",
+  [PO_SOURCE_TYPE]: "Хүлээн авалт (PO)",
 };
 
 export const movementTypeLabel = (type: string) =>

@@ -223,6 +223,87 @@ export async function fetchMongolbankRates(
   );
 }
 
+// ─── Системийн СУУРЬ ханш (Монголбанкны албан ханш огноогоор) ────────────────
+//
+// docs/procurement §3.5: хүлээн авалт, нэхэмжлэх, PO хаалт бүгд тухайн
+// өдрийн Монголбанкны АЛБАН ханшаар үнэлэгдэнэ (төлбөрт л арилжааны банкны
+// ханш). Ханш олдохгүй бол ҮНЭ ЗОХИОХГҮЙ — шидэж, хэрэглэгчээс гар ханш
+// авна (CLAUDE.md §10 effective date, docs/cost "үнэ хэзээ ч зохиохгүй").
+
+export type OfficialRateLookup = {
+  currency: string;
+  rate: number;
+  /** Монголбанкны бодит ханшны огноо — амралтын өдөр бол өмнөх ажлын өдөр. */
+  rateDate: string;
+  source: "mongolbank";
+  basis: "official";
+  sourceUrl: string;
+  fetchedAt: string;
+};
+
+/** ЦЭВЭР (тесттэй): quote жагсаалтаас тухайн валютын албан ханшийг сонгоно. */
+export function pickOfficialRate(
+  quotes: ExchangeRateQuote[],
+  currency: string
+): { rate: number; rateDate: string; sourceUrl: string } | null {
+  const code = currency.trim().toUpperCase();
+  const quote = quotes.find(
+    (candidate) =>
+      candidate.source === "mongolbank" && candidate.currency === code
+  );
+  const rate = quote ? rateForBasis(quote, "official") : null;
+  if (!quote || rate == null) return null;
+  return { rate, rateDate: quote.date, sourceUrl: quote.sourceUrl };
+}
+
+/**
+ * Системийн СУУРЬ ханш: Монголбанкны албан ханш тухайн огноогоор. MNT → 1.
+ * Олдохгүй бол ШИДНЭ (үнэ зохиохгүй — хэрэглэгч гараар оруулна).
+ */
+export async function getOfficialRateForDate(
+  currency: string,
+  date: string
+): Promise<OfficialRateLookup> {
+  const code = currency.trim().toUpperCase();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    throw new Error("Ханшийн огноо буруу байна");
+  const fetchedAt = new Date().toISOString();
+  const sourceUrl = SOURCE_DETAILS.mongolbank.sourceUrl;
+  if (code === "MNT")
+    return {
+      currency: code,
+      rate: 1,
+      rateDate: date,
+      source: "mongolbank",
+      basis: "official",
+      sourceUrl,
+      fetchedAt,
+    };
+  if (!/^[A-Z]{3}$/.test(code))
+    throw new Error(`Валютын код буруу байна: ${currency}`);
+
+  const quotes = await fetchMongolbankRates(date, [code]).catch(
+    (caught: unknown) => {
+      const text = caught instanceof Error ? caught.message : String(caught);
+      throw new Error(
+        `Монголбанкны ханш татагдсангүй (${text}) — ханшийг гараар оруулна уу`
+      );
+    }
+  );
+  const picked = pickOfficialRate(quotes, code);
+  if (!picked)
+    throw new Error(
+      `${code} валютын Монголбанкны албан ханш ${date}-нд олдсонгүй — ханшийг гараар оруулна уу`
+    );
+  return {
+    currency: code,
+    ...picked,
+    source: "mongolbank",
+    basis: "official",
+    fetchedAt,
+  };
+}
+
 export async function fetchTdbRates(asOf: string, currencies: string[]) {
   const formattedDate = asOf.replaceAll("-", "/");
   const response = await checkedFetch(

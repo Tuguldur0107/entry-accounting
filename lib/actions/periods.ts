@@ -17,8 +17,10 @@ import {
   cashDocuments,
   costEntries,
   faDepreciationEntries,
+  goodsReceipts,
   journalVouchers,
   inventoryMovements,
+  purchaseOrders,
 } from "@/lib/db/schema";
 import {
   deletePeriodSnapshot,
@@ -50,6 +52,8 @@ export type PeriodActionResult =
         | "unauthenticated"
         | "invalid-period"
         | "has-drafts"
+        /** Тухайн сард батлагдсан хүлээн авалттай НЭЭЛТТЭЙ PO үлдсэн. */
+        | "open-purchase-orders"
         | "exists"
         | "not-closed";
     }
@@ -169,6 +173,11 @@ export async function createPeriod(code: string): Promise<PeriodActionResult> {
  * Тайлант үе хаах. Ноорог бичилт үлдсэн бол ЗОГСОНО — ноорог нь хаагдсан
  * тайлант үед батлагдах боломжгүй болж "гацна" (CLAUDE.md §4: ноорог нь
  * period close-д ороогүй байх ёстой).
+ *
+ * Хангамж (docs/procurement §3.3 ⑧, шийдвэр #7): тухайн сард батлагдсан
+ * хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байвал мөн ЗОГСОНО — PO хаагдаагүй
+ * бол түр дансууд тэгшитгэгдээгүй, нэмэлт зардал хаалтын дараа ирэх
+ * боломжтой хэвээр байна.
  */
 export async function closePeriod(code: string): Promise<PeriodActionResult> {
   const active = await requireAdmin();
@@ -181,7 +190,10 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
   // Exclusive advisory lock: post замууд shared lock-оо транзакц дотроо
   // авдаг тул хаалт хийгдэж дуусах хүртэл шинэ бичилт хүлээнэ — ноорог
   // тооллого болон "closed" upsert хоёрын завсар бичилт орох боломжгүй.
-  const hasDrafts = await db.transaction(async (tx) => {
+  // Хангамжийн хориг ч ЭНЭ lock дотор шалгагдана: PO хаах / хүлээн авалт
+  // батлах замууд shared lock авдаг тул зэрэгцээ бичилт хоригийг гүйцэж
+  // чадахгүй.
+  const outcome = await db.transaction(async (tx) => {
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${PERIOD_GATE_LOCK_KEY})`
     );
@@ -249,12 +261,46 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
             eq(faDepreciationEntries.periodMonth, code)
           )
         ),
+      // Хангамж: батлагдаагүй хүлээн авалтын баримт — батлагдвал хаагдсан
+      // сар руу капитализацийн журнал бичих болно.
+      tx
+        .select({ n: count() })
+        .from(goodsReceipts)
+        .where(
+          and(
+            eq(goodsReceipts.organizationId, orgId),
+            eq(goodsReceipts.status, "draft"),
+            between(goodsReceipts.date, startDate, endDate)
+          )
+        ),
     ]);
-    if (draftCounts.some(([row]) => Number(row?.n ?? 0) > 0)) return true;
+    if (draftCounts.some(([row]) => Number(row?.n ?? 0) > 0))
+      return { kind: "drafts" as const };
+
+    // Хангамжийн хориг (docs/procurement шийдвэр #7): тухайн сард батлагдсан
+    // хүлээн авалттай, гэхдээ хаагдаагүй (open) захиалга байвал сар хаагдахгүй.
+    const [openPo] = await tx
+      .select({ n: count() })
+      .from(goodsReceipts)
+      .innerJoin(purchaseOrders, eq(purchaseOrders.id, goodsReceipts.purchaseOrderId))
+      .where(
+        and(
+          eq(goodsReceipts.organizationId, orgId),
+          eq(goodsReceipts.status, "confirmed"),
+          between(goodsReceipts.date, startDate, endDate),
+          eq(purchaseOrders.status, "open")
+        )
+      );
+    if (Number(openPo?.n ?? 0) > 0)
+      return { kind: "open-purchase-orders" as const };
 
     // custom/ hook — ноорог тооллогын ДАРАА, lock дотор.
     const hook = await runBeforePeriodClose({ orgId, userId, code, startDate, endDate });
-    if (!hook.ok) return hook.reason || "Өргөтгөлийн hook хаалтыг зогсоолоо";
+    if (!hook.ok)
+      return {
+        kind: "hook" as const,
+        reason: hook.reason || "Өргөтгөлийн hook хаалтыг зогсоолоо",
+      };
 
     await tx
       .insert(accountingPeriods)
@@ -285,11 +331,13 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
       },
       tx
     );
-    return false;
+    return { kind: "closed" as const };
   });
-  if (hasDrafts === true) return { ok: false, code: "has-drafts" };
-  if (typeof hasDrafts === "string")
-    return { ok: false, code: "hook-rejected", reason: hasDrafts };
+  if (outcome.kind === "drafts") return { ok: false, code: "has-drafts" };
+  if (outcome.kind === "open-purchase-orders")
+    return { ok: false, code: "open-purchase-orders" };
+  if (outcome.kind === "hook")
+    return { ok: false, code: "hook-rejected", reason: outcome.reason };
 
   revalidatePath("/settings/periods");
   return { ok: true };

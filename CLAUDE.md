@@ -12,6 +12,7 @@
 | Авлага / Өглөг (AR/AP) | ✅ | — |
 | Бараа материал (Inventory) | ✅ | — |
 | Өртөг (Costing) | ✅ | — |
+| Хангамж (Procurement — PO, хүлээн авалт, landed cost) | ✅ | хангамжийн тайлан, урьдчилгаа/LC, receipt type |
 | Үндсэн хөрөнгө (FA) | ✅ | — |
 | Period систем | ✅ | — |
 | AI туслах (expert accountant) | ✅ | — |
@@ -32,16 +33,26 @@ entry-accounting/
 │   ├── (auth)/login|register     # Нэвтрэх / бүртгүүлэх
 │   ├── (dashboard)/
 │   │   ├── layout.tsx            # Topbar + auth guard
-│   │   └── gl/
-│   │       ├── journal/          # Журналын жагсаалт
-│   │       ├── accounts/         # Дансны тохиргоо
-│   │       └── reports/          # GL тайлан
-│   └── api/auth/[...nextauth]/   # NextAuth handler
+│   │   ├── gl/
+│   │   │   ├── journal/          # Журналын жагсаалт
+│   │   │   ├── accounts/         # Дансны тохиргоо
+│   │   │   └── reports/          # GL тайлан
+│   │   └── procurement/          # Хангамж: самбар · orders · receipts · costs
+│   └── api/
+│       ├── auth/[...nextauth]/   # NextAuth handler
+│       └── attachments/          # Хавсралт: POST upload, GET [id] татах
 ├── components/gl/                # GL client components
+├── components/procurement/       # Хангамжийн client components
+├── components/attachments/       # Хавсралтын жагсаалт (нийтлэг, ui-kit-ээр)
 ├── lib/
 │   ├── auth.ts                   # NextAuth config
 │   ├── actions/gl.ts             # Server Actions
 │   ├── actions/auth.ts           # Register action
+│   ├── actions/procurement.ts    # PO / хүлээн авалтын Server Actions
+│   ├── actions/attachments.ts    # Хавсралт унших / устгах
+│   ├── procurement/              # Цэвэр логик: constants, close-lines, po-math,
+│   │                             #   types, load-data
+│   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
 │   ├── db/schema.ts              # Drizzle schema
 │   ├── db/index.ts               # DB connection
 │   └── store/gl-store.ts         # Zustand UI state
@@ -228,6 +239,119 @@ lib/costing/
 └── costing.ts           Орлогын капитализаци + "үнэ хүлээж байгаа" жагсаалт
 ```
 
+### 5a. Хангамж (Procurement — PO + landed cost) — ХЭРЭГЖСЭН
+
+**Баримт бичиг: `docs/procurement/` — хангамжийн код хөндөхийн ӨМНӨ заавал
+уншина.** `00-proposal.md` (дизайн §3–§5, БАТЛАГДСАН 2026-09-11) →
+`01-implementation-contract.md` (функцийн нэр/параметр — зөрөхийг хориглоно).
+Батлагдсан шийдвэрүүд `docs/cost/README.md` change-control **0.6**, норматив
+шаардлага `docs/cost/01-functional-specification.md` §11
+**FR-PROC-006 … FR-PROC-012**.
+
+Худалдан авалтыг НЭГ объект (PO) болгож, хоёр түр дансаар хаалтыг хянана.
+Өртгийн PWA хөдөлгөгч (`periodic.ts`, `period-run.ts`, `period-close.ts`)
+ӨӨРЧЛӨГДӨӨГҮЙ — хангамж нь зөвхөн Inbound-ыг бүрдүүлнэ.
+
+**Урсгал** (бичилт бүрийн Business Object = PO):
+
+```
+① PO үүсгэх (ноорог) → Батлах (open)        GL бичилт ҮГҮЙ (захиалга нь гүйлгээ биш)
+② Хүлээн авалт (GR) — PO панелиас; нэхэмжлэхээс ӨМНӨ ч ДАРАА ч, хэсэгчилсэн
+   Батлах → po_receipt орлого (confirmed) + АВТОМАТ receipt_capitalize
+   дүн = тоо × PO нэгж үнэ × ХҮЛЭЭН АВСАН ӨДРИЙН Монголбанкны ханш
+③ Нийлүүлэгчийн нэхэмжлэх (PO-той) — нэхэмжлэхийн өдрийн МБ ханш
+   хөдөлгөөн ҮҮСГЭХГҮЙ (орлого ②-оос); хаагдсан PO → [PO_CLOSED]
+④ Нэмэлт зардал (гааль, тээвэр, брокер…) — мөр бүрд бүрэлдэхүүн
+   гаалийн татвар КАПИТАЛЖИНА; импортын НӨАТ капиталжихгүй → НӨАТ авлага
+⑤ Хуваарилалт — "Хуваарилагдаагүй зардал" worklist; суурь 3, default СОНГОГДОХГҮЙ
+⑥ PO хаах — нөхцөл биелсэн үед түр дансуудыг тэгшитгэнэ, зөрүү → ханшийн олз/гарз
+⑦ Төлбөр — арилжааны банкны ханш (одоогийн касс логик, өөрчлөлтгүй)
+⑧ Сар хаалт — тэр сард хүлээн авалттай НЭЭЛТТЭЙ PO байвал ХОРИГЛОНО
+```
+
+**PO-гүй жижиг худалдан авалт** — одоогийн зам хэвээр: АП бараатай мөр →
+орлого → нэхэмжлэхийн дүнгээр капитализаци (нэг түр дансаар).
+
+**GL бичилт** (дугаар кодод байхгүй — тохиргооны РОЛЬ):
+
+```
+② Хүлээн авалт батлах   Dr Барааны нөөц  (costing_item_settings)
+                        Cr Бараа мат. түр данс (clearingAccountNumber)
+③④ PO-той нэхэмжлэх     Dr Өглөгийн түр данс (apClearingAccountNumber)
+                        Cr Өглөг (АР/АП-ийн одоогийн логик)
+   импортын НӨАТ        Dr НӨАТ авлага (бүрэлдэхүүнгүй мөр, данс ИЛ)
+⑤ Хуваарилалт          Dr Барааны нөөц / Cr Бараа мат. түр данс  (landed_cost)
+⑥ PO хаалт             Dr Бараа мат. түр данс / Cr Өглөгийн түр данс
+                        зөрүү → Dr Ханшийн гарз ЭСВЭЛ Cr Ханшийн олз
+                        (fxLoss/fxGainAccountNumber) → хоёр түр данс PO-гоор 0
+```
+
+Гол файлууд:
+
+```
+lib/procurement/
+├── constants.ts      PO_BUSINESS_OBJECT / PO_SOURCE_TYPE / PROCUREMENT_MODULE_KEY
+│                     — литералын ЦОРЫН ГАНЦ эх сурвалж
+├── close-lines.ts    buildPoCloseLines — ЦЭВЭР (тесттэй) хаалтын мөрүүд,
+│                     ханшийн олз/гарз; чиглэл буруу бол ШИДНЭ (нөхөж бичихгүй)
+├── po-math.ts        remainingToReceive / remainingToInvoice / poCloseBlockers
+│                     — хаалтын нөхцөл, шалтгаан нь МОНГОЛ текстээр
+├── types.ts          PurchaseOrderView / …Detail / GoodsReceiptView г.м. (plain)
+└── load-data.ts      loadPurchaseOrders / …Detail / loadGoodsReceipts /
+                      loadUnallocatedCostLines / loadProcurementDashboard
+
+lib/actions/procurement.ts   PO CRUD + approve/cancel/close/reopen, GR
+                             create/update/confirm/reverse/delete,
+                             createApInvoiceFromPo, панелийн getter-ууд,
+                             fetchOfficialRate, getLandedCostSummary
+lib/cash/exchange-rates.ts   pickOfficialRate (цэвэр) + getOfficialRateForDate
+                             — Монголбанкны албан ханш огноогоор (СУУРЬ ханш)
+lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг туслахууд
+                                (itemAccountsFor, costingPostingCodeBuilder…)
+```
+
+Хатуу дүрмүүд:
+
+- **Дансны дугаар кодод хатуу бичихийг хориглоно** — `clearingAccountNumber`
+  (бараа мат. түр данс), `apClearingAccountNumber` (өглөгийн түр данс, default
+  31000099), `fxGain/fxLossAccountNumber`, барааны нөөц/COGS нь
+  `costing_item_settings`-ээс (JPR-006)
+- **Бараа ХҮЛЭЭН АВСАН ӨДРИЙН албан ханшаар үнэлэгдэнэ** — нэхэмжлэх өөр
+  ханштай байсан ч өмнөх капитализаци хөндөгдөхгүй; зөрүү нь PO хаалтад
+  ханшийн олз/гарз болж ГАРНА (өртөгт шингэхгүй)
+- **Ханш ХЭЗЭЭ Ч зохиогдохгүй** — `getOfficialRateForDate` олдохгүй бол
+  ШИДНЭ, хэрэглэгч гараар оруулна
+- **`po_receipt` хөдөлгөөнийг бараа материалын модулиас засах/устгах/цуцлах
+  ХОРИОТОЙ** — зөвхөн Хангамж → Хүлээн авалт дээрээс буцаана. `/costing`-ийн
+  гар үнэ оруулах жагсаалтад ч, `runCosting`-ийн receiptCosts-д ч ОРОХГҮЙ
+  (аль хэдийн үнэлэгдсэн)
+- **Бүх бичилт `businessObjectType: "purchase_order"` + `businessObjectId`-тай**
+  байна (бичих мөчид, lineage-аас гаргаж авахгүй) — хоёр түр данс PO
+  объектоороо тэгширнэ (FR-PROC-004)
+- **Хуваарилалтын "үнийн дүнгээр" суурийн жин = PO мөрийн нийт үнэ** (D6 = (а)):
+  өмнө хуваарилсан `landed_cost` жинд ОРОХГҮЙ → дарааллаас хамаарахгүй.
+  Суурь урьдчилан СОНГОГДОХГҮЙ (OD-017), `manual`-д Σ таарахгүй бол хадгалахгүй
+- **PO хаалтын нөхцөл** (`poCloseBlockers`): Σ хүлээн авсан = захиалсан, Σ
+  нэхэмжилсэн тоо = захиалсан, Σ нэхэмжилсэн дүн (PO валют) = мөрийн дүн, бүх
+  нэмэлт зардал хуваарилагдсан. Зөрүүг АВТОМАТААР нөхөхийг хориглоно — UI-д
+  улаанаар харагдана
+- **Сар хаалт:** хүлээн авалттай нээлттэй PO байвал `closePeriod` код
+  `open-purchase-orders`-оор татгалзана; ноорог хүлээн авалт бусад ноорогтой
+  адил хаалтыг хориглоно (OD-011)
+- Бичилтийн зам бүрд `assertPeriodOpen(orgId, date)` + транзакц дотор
+  `assertPeriodOpenInTx` ПЕРВЫЙ; эрх `requireModuleAction("proc", …)`; статус
+  шилжилт бүрд `logAuditEvent`
+- **Хавсралт** нь нийтлэг `document_attachments` (entityType `purchase_order`,
+  дараа бусад модульд ч); унших/татах зам ЗААВАЛ org шалгалттай (ID нь эрх
+  олгохгүй); хаагдсан PO-д нэмж болно, устгахгүй
+- **UI:** модулийн түлхүүр `proc` (`lib/constants/app-modules.ts`), нав бүлэг
+  `procurement` (`components/layout/modules.ts` — самбар / Захиалга / Хүлээн
+  авалт / Хуваарилагдаагүй зардал), панель `purchase-order` ба `goods-receipt`
+  (`panel-registry.tsx`). Хүснэгт `DataGridDynamic`, статус `StatusBadge`,
+  шүүлтүүр `FilterChips` / `PageTabs`, хоосон `EmptyState`, icon `Icon` /
+  `IconAction`, батлах диалог `useConfirm` — шинэ component/icon бичихийг
+  ХОРИГЛОНО; жагсаалт дээр давхар даралт → панель
+
 ### 6. НӨАТ (VAT) — 10% — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
@@ -360,6 +484,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
 | Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
 | Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |
+| Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -702,6 +827,14 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Бүрэлдэхүүний задаргаа | [components/costing/component-analysis-report.tsx](components/costing/component-analysis-report.tsx) | Бараа × бүрэлдэхүүн, нэгжид нөлөө, хуваарилалтын лавлагаа |
 | Зардлын хуваарилалт | [components/costing/cost-allocation-view.tsx](components/costing/cost-allocation-view.tsx) | Сонголтын хүснэгт + хадгалахын өмнөх урьдчилсан хуваарь |
 | Нягтлан бодох период | [components/periods/periods-view.tsx](components/periods/periods-view.tsx) | Хаах / дахин нээх, сар бүрийн бичилтийн тоо |
+| Хангамжийн самбар | [components/procurement/procurement-dashboard.tsx](components/procurement/procurement-dashboard.tsx) | Түр дансдын үлдэгдэл, ноорог/нээлттэй/хаах боломжтой PO тоолол, сүүлийн захиалгууд |
+| Худалдан авалтын захиалга | [components/procurement/purchase-orders-view.tsx](components/procurement/purchase-orders-view.tsx) | `FilterChips` статус шүүлтүүр + хүлээн авсан/нэхэмжилсэн % багана; давхар даралт → PO панель |
+| Хүлээн авалт (GR) | [components/procurement/goods-receipts-view.tsx](components/procurement/goods-receipts-view.tsx) | Огноо/агуулах/МБ ханш/дүн; давхар даралт → хүлээн авалтын панель |
+| Хуваарилагдаагүй зардал | [components/procurement/unallocated-costs-view.tsx](components/procurement/unallocated-costs-view.tsx) | Нэхэмжлэхийн мөр × бүрэлдэхүүн worklist — хуваарилсан / үлдэгдэл MNT |
+| Нийлүүлэгчийн карт | [components/procurement/supplier-card.tsx](components/procurement/supplier-card.tsx) | Харилцагчийн бүртгэлээс уншина (PO-д хадгалахгүй) + нээлттэй өглөг, өмнөх захиалга |
+| АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
+| Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
+| Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
 
 ---
 
@@ -766,15 +899,38 @@ lib/actions/journal-import.ts              Багц журнал → НООРО�
 GL         journal_vouchers, journal_lines
              journal_lines.costEntryId / inventoryMovementId — дэд дэвтрийн
              эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
+             journal_lines.businessObjectType / businessObjectId — клирингийн
+             түлхүүр (PO), бичих МӨЧИД тавигдана
 Cash       cash_accounts, cash_documents, bank_statements,
            bank_statement_lines, cash_fx_revaluations
 AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
            ar_ap_settlements
+             documents.purchaseOrderId — PO-той нэхэмжлэх (→ өглөгийн түр данс)
+             lines.purchaseOrderLineId / unitPrice / costComponentId
+               (CHECK: itemId ба costComponentId зэрэг байж болохгүй)
+             counterparties.contactPerson / bankName / bankAccountNo
+Хангамж    purchase_orders, purchase_order_lines, goods_receipts,
+           goods_receipt_lines
+             orders.status draft|open|closed|cancelled; closeVoucherId —
+               түр дансдыг тэгшитгэсэн хаалтын журнал
+             receipts.exchangeRate / rateSource / rateDate — хүлээн авсан
+               өдрийн Монголбанкны албан ханш (барааны өртөг ҮҮГЭЭР)
+             receipt_lines.movementId — үүсгэсэн орлогын хөдөлгөөн
+Хавсралт   document_attachments — polymorphic (entityType `purchase_order`,
+           дараа АР/АП, касс…), файл base64-аар, FK байхгүй тул устгалтыг
+           модуль өөрөө хийнэ; унших зам ЗААВАЛ org шалгалттай
 Inventory  inventory_items, warehouses, inventory_movements
              movements.issueTypeId — зарлагын дебет чиглэл
+             movements.sourceType `po_receipt` — хүлээн авалтын мөрөөс үүссэн
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results
+             account_settings.apClearingAccountNumber — өглөгийн түр дансны
+               шинэ роль (default 31000099)
+             cost_entries.sourceLineId + businessObjectType/Id;
+               valuationSource `po_receipt` | `ap_line`
+             cost_allocations.sourceLineId / purchaseOrderId — нэхэмжлэхийн
+               мөрөөс хийсэн хуваарилалт (Σ ≤ мөрийн MNT дүн)
 FA         fixed_assets, fa_depreciation_entries
 VAT        vat_settings
 Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
@@ -808,6 +964,7 @@ Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
 | Нөхцөл | Унших файл |
 |--------|-----------|
 | **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
+| **Хангамж / PO (ЗААВАЛ)** | `docs/procurement/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.6, норматив §11 FR-PROC-006…012 |
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |

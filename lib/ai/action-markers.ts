@@ -3,10 +3,31 @@
 // маркер шигтгэдэг; чат UI үүгээр задалж карт болгож үзүүлнэ.
 
 export interface AiAction {
-  kind: "voucher" | "arap" | "cash" | "inventory" | "fa";
+  kind:
+    | "voucher"
+    | "arap"
+    | "cash"
+    | "inventory"
+    | "fa"
+    /** Хангамж: худалдан авалтын захиалга (PO). */
+    | "purchase_order"
+    /** Хангамж: барааны хүлээн авалт (GR). */
+    | "goods_receipt";
   id: string;
   title: string;
-  status: "draft" | "posted" | "confirmed" | "active";
+  status:
+    | "draft"
+    | "posted"
+    | "confirmed"
+    | "active"
+    /** PO батлагдаж нээлттэй болсон. */
+    | "open"
+    /** PO хаагдсан (түр дансууд тэгширсэн). */
+    | "closed"
+    /** Буцаагдсан баримт (хүлээн авалт, хуваарилалт). */
+    | "reversed"
+    /** Цуцлагдсан захиалга. */
+    | "cancelled";
 }
 
 export type AiContentSegment =

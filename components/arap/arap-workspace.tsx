@@ -214,6 +214,9 @@ export function ArApWorkspace({
       email: "",
       phone: "",
       address: "",
+      contactPerson: "",
+      bankName: "",
+      bankAccountNo: "",
     };
   }
   const [counterpartyForm, setCounterpartyForm] = useState(emptyCounterpartyForm);
@@ -520,6 +523,9 @@ export function ArApWorkspace({
       email: counterparty.email ?? "",
       phone: counterparty.phone ?? "",
       address: counterparty.address ?? "",
+      contactPerson: counterparty.contactPerson ?? "",
+      bankName: counterparty.bankName ?? "",
+      bankAccountNo: counterparty.bankAccountNo ?? "",
     };
     setEditingCounterpartyId(counterparty.id);
     setCounterpartyForm(filled);
@@ -1243,6 +1249,9 @@ function CounterpartyDialog({
     email: string;
     phone: string;
     address: string;
+    contactPerson: string;
+    bankName: string;
+    bankAccountNo: string;
   };
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
   activeSegIds: number[];
@@ -1348,6 +1357,37 @@ function CounterpartyDialog({
               value={form.address}
               onChange={(event) =>
                 setForm((current) => ({ ...current, address: event.target.value }))
+              }
+            />
+          </Field>
+          <Field label="Холбоо барих хүн">
+            <Input
+              value={form.contactPerson}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  contactPerson: event.target.value,
+                }))
+              }
+            />
+          </Field>
+          <Field label="Банк">
+            <Input
+              value={form.bankName}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, bankName: event.target.value }))
+              }
+              placeholder="Хаан банк"
+            />
+          </Field>
+          <Field label="Банкны данс">
+            <Input
+              value={form.bankAccountNo}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  bankAccountNo: event.target.value,
+                }))
               }
             />
           </Field>

@@ -6,10 +6,15 @@
 // объект бүр өөрийн Opening + Increase − Cleared = Ending мөртэй.
 //
 // Объектын шийдэл (GL мөрөөс):
+//   0. journal_lines.business_object_type/id — БИЧИХ МӨЧИД тавигдсан түлхүүр
+//        (FR-PROC-004, ж: "purchase_order" + PO id) → PO дугаараар нэрлэнэ.
+//        Хангамжийн Dr (өглөгийн түр данс) ба Cr (бараа мат. түр данс) НЭГ
+//        объектод буух цорын ганц найдвартай зам тул ЭНЭ нь ТЭРГҮҮН.
 //   1. journal_lines.cost_entry_id → өртгийн бичилт →
 //        хуваарилалтын мөр байвал → "Зардлын хуваарилалт" (баримтын №)
 //        эс бөгөөс хөдөлгөөнтэй бол → "Барааны хөдөлгөөн" (documentNo)
 //   2. воучер нь АР/АП баримтын voucherId бол → "АР/АП баримт"
+//        (PO-той баримт бол түлхүүргүй хуучин мөрийг ч PO объектод буулгана)
 //   3. воучер нь мөнгөн гүйлгээний voucherId бол → "Мөнгөн гүйлгээ"
 //   4. өөр юу ч биш → "Тодорхойгүй (гар журнал)" — ил үлдэгдэл, нуухгүй.
 
@@ -23,7 +28,9 @@ import {
   costEntries,
   inventoryMovements,
   journalVouchers,
+  purchaseOrders,
 } from "@/lib/db/schema";
+import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
 import { loadCostingAccountSettings } from "./master-data";
 import { extractMainAccount } from "@/lib/reports/balances";
 import type {
@@ -31,6 +38,11 @@ import type {
   ClearingReconciliation,
 } from "./clearing-types";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
+
+/** Бизнес объектын төрлийн монгол шошго (journal_lines-ийн түлхүүрээс). */
+const BUSINESS_OBJECT_LABELS: Record<string, string> = {
+  [PO_BUSINESS_OBJECT]: "Захиалга (PO)",
+};
 
 export async function loadClearingReconciliation(
   orgId: string,
@@ -44,11 +56,13 @@ export async function loadClearingReconciliation(
     }),
   ]);
 
-  // Тулгах данснууд: ерөнхий клиринг + бүрэлдэхүүнүүдийн өөрийн данс.
+  // Тулгах данснууд: бараа материалын түр данс + ӨГЛӨГИЙН түр данс
+  // (хангамж — docs/procurement §3.1) + бүрэлдэхүүнүүдийн өөрийн данс.
   const accounts = [
     ...new Set(
       [
         roles.clearingAccountNumber,
+        roles.apClearingAccountNumber,
         ...components.map((component) => component.accountNumber),
       ].filter((account): account is string => Boolean(account))
     ),
@@ -71,6 +85,8 @@ export async function loadClearingReconciliation(
     account: string;
     delta: number; // дебет − кредит
     costEntryId: string | null;
+    businessObjectType: string | null;
+    businessObjectId: string | null;
   };
   const raw: RawLine[] = [];
   for (const voucher of vouchers) {
@@ -84,6 +100,8 @@ export async function loadClearingReconciliation(
         account: main,
         delta: Number(line.debit) - Number(line.credit),
         costEntryId: line.costEntryId,
+        businessObjectType: line.businessObjectType,
+        businessObjectId: line.businessObjectId,
       });
     }
   }
@@ -126,7 +144,13 @@ export async function loadClearingReconciliation(
         eq(arApDocuments.organizationId, orgId),
         inArray(arApDocuments.voucherId, voucherIds)
       ),
-      columns: { voucherId: true, documentNo: true, documentType: true },
+      columns: {
+        voucherId: true,
+        documentNo: true,
+        documentType: true,
+        // Хангамж: түлхүүргүй хуучин мөрийг ч PO объектод буулгана.
+        purchaseOrderId: true,
+      },
     }),
     db.query.cashDocuments.findMany({
       where: and(
@@ -176,6 +200,30 @@ export async function loadClearingReconciliation(
       : [];
   const movementById = new Map(movements.map((row) => [row.id, row]));
 
+  // Захиалгын дугаарууд — объектын шошгод (мөрийн түлхүүр ба PO-той АР/АП
+  // баримт хоёуланг нэрлэнэ).
+  const orderIds = [
+    ...new Set(
+      [
+        ...raw
+          .filter((line) => line.businessObjectType === PO_BUSINESS_OBJECT)
+          .map((line) => line.businessObjectId),
+        ...apDocs.map((doc) => doc.purchaseOrderId),
+      ].filter((id): id is string => !!id)
+    ),
+  ];
+  const orders =
+    orderIds.length > 0
+      ? await db.query.purchaseOrders.findMany({
+          where: and(
+            eq(purchaseOrders.organizationId, orgId),
+            inArray(purchaseOrders.id, orderIds)
+          ),
+          columns: { id: true, documentNo: true },
+        })
+      : [];
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+
   // ── Мөр бүрийг объектод оноох ────────────────────────────────────────────
   interface Bucket {
     account: string;
@@ -199,7 +247,28 @@ export async function loadClearingReconciliation(
     let known = false;
 
     const entry = line.costEntryId ? entryById.get(line.costEntryId) : null;
-    if (entry) {
+
+    // 0. БИЧИХ МӨЧИД тавигдсан бизнес объектын түлхүүр — ТЭРГҮҮН (FR-PROC-004).
+    // Хангамжийн Dr (өглөгийн түр данс, АР/АП журналаас) ба Cr (бараа мат.
+    // түр данс, өртгийн журналаас) ингэж НЭГ объектод буудаг.
+    if (line.businessObjectType && line.businessObjectId) {
+      const order =
+        line.businessObjectType === PO_BUSINESS_OBJECT
+          ? orderById.get(line.businessObjectId)
+          : undefined;
+      objectType =
+        BUSINESS_OBJECT_LABELS[line.businessObjectType] ??
+        line.businessObjectType;
+      objectId = order?.documentNo ?? line.businessObjectId;
+      objectLabel = order?.documentNo ?? line.businessObjectId.slice(0, 8);
+      const component = entry?.costComponentId
+        ? componentById.get(entry.costComponentId)
+        : null;
+      componentLabel = component
+        ? `${component.code} · ${component.name}`
+        : null;
+      known = true;
+    } else if (entry) {
       const allocation = allocationByEntry.get(entry.id);
       if (allocation) {
         objectType = "Зардлын хуваарилалт";
@@ -231,12 +300,23 @@ export async function loadClearingReconciliation(
       const apDoc = apByVoucher.get(line.voucherId);
       const cashDoc = cashByVoucher.get(line.voucherId);
       if (apDoc) {
-        objectType =
-          apDoc.documentType === "ap_bill"
-            ? "Өглөгийн нэхэмжлэх"
-            : "Авлагын нэхэмжлэл";
-        objectId = apDoc.documentNo;
-        objectLabel = apDoc.documentNo;
+        // PO-той нэхэмжлэх — түлхүүргүй (хуучин) мөр ч ЗАХИАЛГЫН объектод
+        // буух ёстой, эс бөгөөс PO хэзээ ч тэгширэхгүй.
+        const order = apDoc.purchaseOrderId
+          ? orderById.get(apDoc.purchaseOrderId)
+          : undefined;
+        if (apDoc.purchaseOrderId) {
+          objectType = BUSINESS_OBJECT_LABELS[PO_BUSINESS_OBJECT];
+          objectId = order?.documentNo ?? apDoc.purchaseOrderId;
+          objectLabel = order?.documentNo ?? apDoc.documentNo;
+        } else {
+          objectType =
+            apDoc.documentType === "ap_bill"
+              ? "Өглөгийн нэхэмжлэх"
+              : "Авлагын нэхэмжлэл";
+          objectId = apDoc.documentNo;
+          objectLabel = apDoc.documentNo;
+        }
         known = true;
       } else if (cashDoc) {
         objectType = "Мөнгөн гүйлгээ";

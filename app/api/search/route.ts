@@ -6,16 +6,25 @@ import {
   arApDocuments,
   cashDocuments,
   journalVouchers,
+  purchaseOrders,
 } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
 
 const GROUP_LIMIT = 6;
 
+/** Захиалгын төлөв — палитрт монголоор харуулна. */
+const PO_STATUS_LABELS: Record<string, string> = {
+  draft: "ноорог",
+  open: "нээлттэй",
+  closed: "хаагдсан",
+  cancelled: "цуцлагдсан",
+};
+
 /**
- * П10 — палитрын баримтын хайлт: АР/АП нэхэмжлэх, кассын баримт, журналыг
- * дугаар/тайлбар/харилцагчаар. Лавлах дата (данс/харилцагч/бараа) клиент
- * кэшээс шүүгддэг тул энд ирэхгүй.
+ * П10 — палитрын баримтын хайлт: АР/АП нэхэмжлэх, кассын баримт, журнал,
+ * худалдан авалтын захиалга (PO) — дугаар/тайлбар/харилцагчаар. Лавлах дата
+ * (данс/харилцагч/бараа) клиент кэшээс шүүгддэг тул энд ирэхгүй.
  */
 export async function GET(request: Request) {
   let orgId: string;
@@ -27,12 +36,17 @@ export async function GET(request: Request) {
 
   const query = new URL(request.url).searchParams.get("q")?.trim() ?? "";
   if (query.length < 2)
-    return Response.json({ arap: [], cash: [], vouchers: [] });
+    return Response.json({
+      arap: [],
+      cash: [],
+      vouchers: [],
+      purchaseOrders: [],
+    });
   // ilike-ийн % ба _ тусгай тэмдэгтүүдийг literal болгоно.
   const pattern = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
 
   try {
-    const [arap, cash, vouchers] = await Promise.all([
+    const [arap, cash, vouchers, orders] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
           eq(arApDocuments.organizationId, orgId),
@@ -82,6 +96,26 @@ export async function GET(request: Request) {
         orderBy: [desc(journalVouchers.date)],
         limit: GROUP_LIMIT,
       }),
+      db.query.purchaseOrders.findMany({
+        where: and(
+          eq(purchaseOrders.organizationId, orgId),
+          or(
+            ilike(purchaseOrders.documentNo, pattern),
+            ilike(purchaseOrders.description, pattern),
+            ilike(purchaseOrders.externalRef, pattern)
+          )
+        ),
+        columns: {
+          id: true,
+          documentNo: true,
+          description: true,
+          date: true,
+          status: true,
+        },
+        with: { counterparty: { columns: { name: true } } },
+        orderBy: [desc(purchaseOrders.date)],
+        limit: GROUP_LIMIT,
+      }),
     ]);
 
     return Response.json({
@@ -102,6 +136,12 @@ export async function GET(request: Request) {
         id: voucher.id,
         label: voucher.description,
         sub: `${voucher.date} · ${voucher.status}`,
+      })),
+      purchaseOrders: orders.map((order) => ({
+        id: order.id,
+        documentNo: order.documentNo,
+        label: `${order.documentNo} · ${order.counterparty.name}`,
+        sub: `${order.date} · ${PO_STATUS_LABELS[order.status] ?? order.status}`,
       })),
     });
   } catch (caught) {

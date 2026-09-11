@@ -567,14 +567,26 @@ The item-level cost resulting from purchase-related components MUST feed
 Inbound Amount for the relevant costing period when it is eligible for that
 period.
 
+**Decided on 2026-09-11** (README change control 0.6) and now normative in
+FR-PROC-006 … FR-PROC-012:
+
+- timing rule for a late cost — a cost may not arrive after the receipt month is
+  closed; the period close blocks it instead (FR-PROC-012);
+- goods-received-not-invoiced and invoice-before-receipt treatment — both are
+  carried by two separate temporary/clearing roles (FR-PROC-008);
+- landed-cost document lifecycle — purchase order → goods receipt → supplier and
+  additional-cost invoices → allocation → order close (FR-PROC-006 … FR-PROC-009);
+- tax capitalization — customs duty capitalizes, import VAT does not
+  (FR-PROC-010);
+- multi-currency conversion date and rate — Bank of Mongolia official rate at
+  the receipt date for inventory and at the invoice date for the payable
+  (FR-PROC-007, FR-PROC-009).
+
 **Open Decisions:**
 
-- timing rule for whether a late invoice belongs to the current or prior period;
-- goods-received-not-invoiced treatment;
-- invoice-before-receipt treatment;
-- exact landed-cost document lifecycle;
-- tax capitalization rules;
-- multi-currency conversion date and exchange rate.
+- prior-period revaluation when a cost is recognized against an already closed
+  receipt month by a path other than procurement (OD-011 remainder);
+- receipt types (OD-018).
 
 ### FR-PROC-003 — Configurable clearing flow
 
@@ -628,6 +640,188 @@ Opening + Increase - Allocated/Cleared = Ending
 
 An ending balance MUST remain explainable by account, business object, source
 document, Cost Component, amount, and status/reason.
+
+### FR-PROC-006 — Purchase order as the business object
+
+**Approved Requirement:** A purchase order MUST exist as a first-class document
+that owns the whole purchase: a supplier, an order date, one currency, an
+optional default warehouse, and ordered lines of item × quantity × unit price
+in the order currency. The line total price (quantity × unit price) is the
+stated commitment for that line.
+
+The order MUST follow `draft → open → closed`, with `cancelled` available from
+`draft` or from an `open` order that has no receipt and no invoice. Approving an
+order MUST NOT generate a General Ledger entry; an order is a commitment, not a
+transaction.
+
+One purchase order MUST be able to carry several supplier invoices and several
+goods receipts, each of them partial. Every posting produced anywhere in the
+purchase MUST carry the purchase order as its `Business Object Type` +
+`Business Object ID` per FR-PROC-004, so the entire purchase reconciles as one
+object.
+
+A `closed` order MUST NOT accept a further receipt or invoice, and an invoice
+already attached to a closed order MUST NOT be reversed or deleted.
+
+### FR-PROC-007 — Goods receipt document
+
+**Approved Requirement:** Receiving goods MUST be recorded by its own document,
+independent of whether the supplier invoice has arrived. The receipt carries a
+date, a warehouse, the official exchange rate of the receipt date, and lines
+that reference purchase-order lines. It MUST follow `draft → confirmed`, with
+`reversed` available afterwards.
+
+Confirming a receipt MUST, in one transaction:
+
+1. create a confirmed inventory receipt movement per line, marked with a receipt
+   source type that identifies it as originating from a purchase order;
+2. value each line as `received quantity × purchase-order unit price ×
+   receipt-date official rate`, which is the approved conversion date of
+   OD-013 — the goods are valued at the rate of the day they were received;
+3. create the corresponding cost record as an immediate capitalization per
+   OD-019, and post it as
+   `Dr configured item inventory account / Cr configured inventory clearing
+   role`;
+4. carry the purchase order as the business-object key on the cost record and on
+   both journal lines.
+
+The receipt-date rate MUST be obtained from the official source for that date
+and stored on the document. It MAY be corrected by the user before
+confirmation, and it MUST NOT be invented when the source has no rate for that
+date.
+
+Received quantity MUST NOT exceed ordered quantity. A receipt movement created
+this way MUST NOT be editable, cancellable, or deletable through the inventory
+module; it is reversed through the receipt document that created it.
+
+### FR-PROC-008 — Two temporary/clearing roles
+
+**Approved Requirement:** A purchase settles through **two** configured
+temporary/clearing roles, not one, because the goods and the payable can be
+recognized on different dates and at different rates:
+
+```text
+Goods receipt            Dr item inventory account
+                         Cr inventory clearing role
+
+Supplier invoice         Dr payable clearing role
+  and additional-cost     Cr supplier payable
+  invoice lines
+
+Allocation of an         Dr item inventory account
+  additional cost         Cr inventory clearing role
+```
+
+Both roles MUST be read from configuration; neither number may be hardcoded
+(JPR-006). The payable clearing role is required for every line of an invoice
+that belongs to a purchase order, whether the line is an ordered item or a
+capitalizing Cost Component. A purchase without a purchase order keeps the
+existing single-role behaviour.
+
+An invoice attached to a purchase order MUST NOT create an inventory movement;
+the quantity was already received by FR-PROC-007.
+
+### FR-PROC-009 — Purchase-order close entry
+
+**Approved Requirement:** Closing a purchase order MUST post one journal that
+clears both temporary roles for that business object:
+
+```text
+Dr inventory clearing role   balance credited by the receipts and allocations
+Cr payable clearing role     balance debited by the invoices
+Difference                   Dr configured FX loss role, or
+                             Cr configured FX gain role
+```
+
+The difference is the realized exchange result of the purchase — the receipt
+date and the invoice date carry different official rates — and it MUST be posted
+to the configured gain/loss roles rather than to inventory, because the goods
+were already valued at the receipt-date rate (OD-013). After the close both
+roles MUST be zero for that purchase order.
+
+Closing MUST be refused, with the reasons shown to the user, while any of the
+following holds:
+
+- received quantity differs from ordered quantity on a line;
+- invoiced quantity differs from ordered quantity on a line;
+- invoiced amount in the order currency differs from the line total price;
+- an additional cost recognized against the order is not fully allocated.
+
+A balance whose direction is impossible (a debit inventory clearing balance or a
+credit payable clearing balance for the object) MUST stop the close with an
+explicit error. It MUST NOT be plugged automatically; §6 requires the residual
+to be visible.
+
+Reopening a closed order MUST reverse the close journal rather than delete it.
+
+### FR-PROC-010 — Allocation of purchase-related components
+
+**Approved Requirement:** An additional purchase cost — customs duty, freight,
+broker fee, or any other user-defined Cost Component — is recognized on an
+invoice line that names the component (FR-PROC-001) and is allocated to the
+confirmed receipts of the same purchase order with one of the three approved
+bases of OD-017, chosen per allocation and never pre-selected:
+
+| Basis | Weight |
+|---|---|
+| By value | The purchase-order line total price of the received line |
+| By quantity | Received quantity |
+| Manual | An amount entered per item; the sum MUST equal the cost being allocated |
+
+The "by value" weight is the purchase-order line total price only. Landed cost
+allocated by an earlier allocation MUST NOT be added to the weight, so the
+result of a second allocation is independent of the order in which the
+allocations were made (D6 = (a), README change control 0.6).
+
+The sum of all allocations of one invoice line MUST NOT exceed that line's
+amount in the reporting currency; a partial allocation MAY be completed later
+while the order is still open, and the unallocated remainder MUST be visible as
+a worklist and MUST block the order close per FR-PROC-009.
+
+A tax that does not capitalize MUST NOT be recorded as a Cost Component.
+Customs duty capitalizes and is a component; import VAT does not capitalize and
+is recorded on a component-less line posting directly to the configured
+VAT-receivable account, so it never reaches Inbound Amount (README change
+control 0.6, OD-012).
+
+Reversing an allocation MUST reverse its cost records; it MUST NOT silently
+rewrite the amount of a posted entry.
+
+### FR-PROC-011 — Procurement document attachments
+
+**Approved Requirement:** A purchase order MUST be able to carry source
+documents — quotation, proforma, contract, invoice, packing list, transport
+document, customs declaration, certificate of origin, and other — as
+attachments with a type label, a file name, a media type, a size, an uploader,
+and a timestamp.
+
+The type label is user-facing reference data and MUST NOT be a closed list in
+code. Reading an attachment MUST be authorized against the owning
+organization, so an attachment identifier alone never grants access. An
+attachment MAY be added to a closed order, because late evidence is an audit
+fact, and MUST NOT be deleted from one.
+
+Supplier identification shown with a purchase order — registration number,
+contact, address, bank account, payment terms — MUST be read from the
+counterparty record rather than copied onto the order, so one correction to the
+counterparty is enough.
+
+### FR-PROC-012 — Period-close control over open purchase orders
+
+**Approved Requirement:** A costing period MUST NOT be closed while a purchase
+order that has a confirmed goods receipt in that period is still `open`, and
+draft goods receipts MUST be counted with the other draft documents that block
+a close.
+
+The reason is the closed OD-011: an open order may still receive an additional
+cost, and that cost belongs to the month in which the goods were received. If
+the month were closed first, the cost would either be rejected or would have to
+revalue a closed period — neither is approved. Requiring the order to be closed
+first keeps every purchase-related cost inside the receipt month.
+
+The month-end checklist MUST expose the procurement state — open orders with
+receipts, draft receipts, and unallocated cost lines — and the close action MUST
+be disabled while an order with a receipt is still open.
 
 ## 12. Manufacturing relationship
 

@@ -17,6 +17,7 @@ const MODULE_ICONS: Record<string, IconName> = {
   cash: "cash",
   receivables: "cash",
   payables: "document",
+  procurement: "purchaseOrder",
   inventory: "inventory",
   costing: "costing",
   fa: "fixedAsset",

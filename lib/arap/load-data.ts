@@ -51,10 +51,16 @@ export interface ArApDocumentLineView {
   itemId: string | null;
   quantity: number | null;
   warehouseId: string | null;
+  /** Хангамж: PO мөрийн холбоос, нэгж үнэ, өртгийн бүрэлдэхүүн. */
+  purchaseOrderLineId: string | null;
+  unitPrice: number | null;
+  costComponentId: string | null;
 }
 
 export type ArApDocumentDetail = ArApDocumentView & {
   lines: ArApDocumentLineView[];
+  /** PO-той баримтын захиалгын дугаар (харагдацад). */
+  purchaseOrderNo: string | null;
 };
 
 function moduleEnabled(modules: string | null | undefined) {
@@ -168,6 +174,9 @@ export async function loadArApCounterparties(
     email: item.email,
     phone: item.phone,
     address: item.address,
+    contactPerson: item.contactPerson,
+    bankName: item.bankName,
+    bankAccountNo: item.bankAccountNo,
     isActive: item.isActive,
   }));
 }
@@ -235,6 +244,7 @@ function toDocumentView(
     status: item.status,
     voucherId: item.voucherId,
     reversalVoucherId: item.reversalVoucherId,
+    purchaseOrderId: item.purchaseOrderId,
   };
 }
 
@@ -277,12 +287,14 @@ export async function loadArApDocumentDetail(
     ),
     with: {
       counterparty: true,
+      purchaseOrder: { columns: { documentNo: true } },
       lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] },
     },
   });
   if (!row) return null;
   return {
     ...toDocumentView(row),
+    purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,
     lines: row.lines.map((line) => ({
       id: line.id,
       account: line.accountNumber,
@@ -291,6 +303,9 @@ export async function loadArApDocumentDetail(
       itemId: line.itemId,
       quantity: line.quantity != null ? Number(line.quantity) : null,
       warehouseId: line.warehouseId,
+      purchaseOrderLineId: line.purchaseOrderLineId,
+      unitPrice: line.unitPrice != null ? Number(line.unitPrice) : null,
+      costComponentId: line.costComponentId,
     })),
   };
 }

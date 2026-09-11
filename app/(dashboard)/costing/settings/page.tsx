@@ -86,6 +86,7 @@ export default async function CostingSettingsPage() {
       components={componentRows}
       accountRoles={{
         clearingAccountNumber: accountRoles.clearingAccountNumber,
+        apClearingAccountNumber: accountRoles.apClearingAccountNumber,
         adjustmentGainAccountNumber: accountRoles.adjustmentGainAccountNumber,
         adjustmentLossAccountNumber: accountRoles.adjustmentLossAccountNumber,
         nrvExpenseAccountNumber: accountRoles.nrvExpenseAccountNumber,

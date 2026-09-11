@@ -82,6 +82,15 @@ const ACTION_META: Record<
   cash: { icon: "cash", label: "Мөнгөн хөрөнгө" },
   inventory: { icon: "inventory", label: "Бараа материал" },
   fa: { icon: "fixedAsset", label: "Үндсэн хөрөнгө" },
+  purchase_order: { icon: "purchaseOrder", label: "Худалдан авалтын захиалга" },
+  goods_receipt: { icon: "packageReceipt", label: "Хүлээн авалт" },
+};
+
+/** Панельгүй объектын карт — модулийн жагсаалт руу холбоно. */
+const ACTION_LINKS: Partial<Record<AiAction["kind"], string>> = {
+  inventory: "/inventory/movements",
+  purchase_order: "/procurement/orders",
+  goods_receipt: "/procurement/receipts",
 };
 
 const ACTION_STATUS: Record<
@@ -103,6 +112,22 @@ const ACTION_STATUS: Record<
   active: {
     label: "Идэвхтэй",
     className: "text-[var(--ea-success-fg)] border-[var(--ea-success)]",
+  },
+  open: {
+    label: "Нээлттэй",
+    className: "text-[var(--ea-success-fg)] border-[var(--ea-success)]",
+  },
+  closed: {
+    label: "Хаагдсан",
+    className: "text-[var(--ea-text-3)] border-[var(--ea-border)]",
+  },
+  reversed: {
+    label: "Буцаагдсан",
+    className: "text-[var(--ea-text-3)] border-[var(--ea-border)]",
+  },
+  cancelled: {
+    label: "Цуцлагдсан",
+    className: "text-[var(--ea-text-3)] border-[var(--ea-border)]",
   },
 };
 
@@ -150,10 +175,12 @@ function ActionCard({ action }: { action: AiAction }) {
   const className =
     "my-1.5 flex w-full items-center gap-2.5 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-left transition-colors hover:border-[var(--ea-primary)]";
 
-  // Бараа материалын хөдөлгөөнд панель байхгүй — жагсаалт руу нь холбоно.
-  if (action.kind === "inventory")
+  // Панель байхгүй объектууд (бараа материалын хөдөлгөөн, захиалга, хүлээн
+  // авалт) — модулийн жагсаалт руу нь холбоно.
+  const href = ACTION_LINKS[action.kind];
+  if (href)
     return (
-      <Link href="/inventory/movements" className={className}>
+      <Link href={href} className={className}>
         {body}
       </Link>
     );

@@ -57,6 +57,11 @@ export async function createMovementDraftsForArApDocument(documentId: string) {
       with: { lines: true },
     });
     if (!document) return 0;
+    // PO-той нэхэмжлэх: барааны ОРЛОГО нь хүлээн авалтын баримтаас
+    // (sourceType "po_receipt") үүсдэг тул нэхэмжлэхийн мөрөөс draft
+    // ҮҮСГЭХГҮЙ — эс бөгөөс нэг бараа хоёр удаа орлогодоно
+    // (docs/procurement §3.3 ③).
+    if (document.purchaseOrderId) return 0;
     // Scope нь эх баримтын байгууллага (userId нь createdBy болж үлдэнэ).
     const orgId = document.organizationId;
     if (!orgId) return 0;

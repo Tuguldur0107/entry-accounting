@@ -21,6 +21,19 @@ import {
 } from "@/lib/inventory/balances";
 import { logAuditEvent } from "@/lib/audit";
 import { actionError, type ActionResult } from "@/lib/action-result";
+import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
+
+/**
+ * Хангамжийн хүлээн авалтаас үүссэн орлогыг бараа материалын дэлгэцээс
+ * УСТГАХ/ЦУЦЛАХ хориотой: хүлээн авсан тоо, капитализаци, түр дансны
+ * тэнцвэр гурвуул хүлээн авалтын баримтаар удирдагддаг (contract §9).
+ */
+function assertNotPoReceipt(sourceType: string) {
+  if (sourceType === PO_SOURCE_TYPE)
+    throw new Error(
+      "Хангамжийн хүлээн авалтаас үүссэн орлого — Хангамж → Хүлээн авалт дээр буцаана уу"
+    );
+}
 
 function revalidateInventory() {
   for (const path of [
@@ -526,9 +539,10 @@ async function deleteInventoryMovementCore(id: string) {
       eq(inventoryMovements.id, id),
       eq(inventoryMovements.organizationId, orgId)
     ),
-    columns: { status: true, documentNo: true, date: true },
+    columns: { status: true, documentNo: true, date: true, sourceType: true },
   });
   if (!movement) return;
+  assertNotPoReceipt(movement.sourceType);
   if (movement.status !== "draft")
     await requireModuleAction("inv", "post");
 
@@ -614,6 +628,7 @@ async function cancelInventoryMovementCore(id: string) {
     ),
   });
   if (!movement) throw new Error("Хөдөлгөөн олдсонгүй");
+  assertNotPoReceipt(movement.sourceType);
   if (movement.status !== "confirmed")
     throw new Error("Зөвхөн баталсан хөдөлгөөнийг цуцална");
 

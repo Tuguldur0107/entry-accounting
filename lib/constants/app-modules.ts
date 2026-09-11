@@ -104,6 +104,17 @@ export const APP_MODULE_DEFS: AppModuleDef[] = [
     accountModuleKey: "cost",
   },
   {
+    // Хангамж нь дансны per-account багана НЭМДЭГГҮЙ (ModuleKey union хаалттай)
+    // — өртөг/бараа материалын дансаараа бичилт хийдэг тул accountModuleKey-гүй.
+    key: "proc",
+    nameMn: "Хангамж",
+    name: "Procurement",
+    description:
+      "Худалдан авалтын захиалга, хүлээн авалт, нэмэлт зардлын хуваарилалт (landed cost)",
+    group: "accounting",
+    navId: "procurement",
+  },
+  {
     key: "fa",
     nameMn: "Үндсэн хөрөнгө",
     name: "Fixed Assets",

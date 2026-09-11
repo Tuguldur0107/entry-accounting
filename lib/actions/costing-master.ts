@@ -54,6 +54,11 @@ function revalidateCosting() {
 
 export async function saveCostingAccountSettings(data: {
   clearingAccountNumber: string;
+  /**
+   * Өглөгийн түр данс (хангамж) — docs/procurement §3.1. Өгөөгүй бол
+   * өөрчлөгдөхгүй (ролийг дэмжээгүй хуучин дуудлагууд эвдрэхгүй).
+   */
+  apClearingAccountNumber?: string;
   adjustmentGainAccountNumber: string;
   adjustmentLossAccountNumber: string;
   nrvExpenseAccountNumber: string;
@@ -65,6 +70,13 @@ export async function saveCostingAccountSettings(data: {
 
   const values = {
     clearingAccountNumber: extractMainAccount(data.clearingAccountNumber.trim()),
+    ...(data.apClearingAccountNumber === undefined
+      ? {}
+      : {
+          apClearingAccountNumber: extractMainAccount(
+            data.apClearingAccountNumber.trim()
+          ),
+        }),
     adjustmentGainAccountNumber: extractMainAccount(
       data.adjustmentGainAccountNumber.trim()
     ),

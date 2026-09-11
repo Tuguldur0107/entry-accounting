@@ -10,6 +10,10 @@ export type CounterpartyView = {
   email: string | null;
   phone: string | null;
   address: string | null;
+  /** Ханган нийлүүлэгчийн мэдээлэл — PO панелийн карт, төлбөрийн заавар. */
+  contactPerson: string | null;
+  bankName: string | null;
+  bankAccountNo: string | null;
   isActive: boolean;
 };
 
@@ -39,6 +43,12 @@ export type ArApDocumentView = {
   reversalVoucherId: string | null;
   /** АР нэхэмжлэхийн илгээлт: null = илгээгээгүй. */
   sendStatus: "sent" | "viewed" | null;
+  /**
+   * Хангамжийн захиалга (PO) — өгөгдсөн бол бараа/бүрэлдэхүүн мөр нь
+   * ӨГЛӨГИЙН ТҮР ДАНС руу бичигдэж, орлого нь хүлээн авалтын баримтаас
+   * үүснэ (docs/procurement §3.3 ③④).
+   */
+  purchaseOrderId: string | null;
 };
 
 export type ArApLineInput = {
@@ -49,4 +59,13 @@ export type ArApLineInput = {
   itemId?: string;
   quantity?: number;
   warehouseId?: string;
+  /** PO мөрийн холбоос — PO-той нэхэмжлэхийн бараатай мөр. */
+  purchaseOrderLineId?: string;
+  /** Нэгж үнэ (баримтын валютаар) — тоо × нэгж үнэ = мөрийн дүн. */
+  unitPrice?: number;
+  /**
+   * Өртгийн бүрэлдэхүүн (гааль, тээвэр …) — барааны өртөгт капиталжих
+   * нэмэлт зардлын мөр. Бараатай мөртэй ЗЭРЭГ байж болохгүй.
+   */
+  costComponentId?: string;
 };

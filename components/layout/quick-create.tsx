@@ -17,6 +17,7 @@ import {
   openCashNewPanel,
   openFaAssetFormPanel,
   openNewVoucherPanel,
+  openPurchaseOrderPanel,
 } from "@/lib/store/panel-store";
 
 export const QUICK_CREATE_ACTIONS: {
@@ -50,6 +51,13 @@ export const QUICK_CREATE_ACTIONS: {
     icon: "document",
     moduleId: "payables",
     run: () => openArapDocPanel({ mode: "payable" }),
+  },
+  {
+    key: "po",
+    label: "Шинэ худалдан авалтын захиалга",
+    icon: "purchaseOrder",
+    moduleId: "procurement",
+    run: () => openPurchaseOrderPanel(),
   },
   {
     key: "cash",

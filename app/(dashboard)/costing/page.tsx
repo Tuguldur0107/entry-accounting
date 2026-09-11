@@ -16,6 +16,7 @@ import {
 } from "@/lib/costing/costing";
 import { loadInventoryBase, toMovementRefs } from "@/lib/inventory/load-data";
 import type { PendingValuationView } from "@/lib/inventory/types";
+import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 
 function today() {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -90,6 +91,11 @@ export default async function CostingDashboardPage() {
     .map((p) => {
       const movement = movementById.get(p.movementId);
       if (!movement) return null;
+      // Хангамжийн хүлээн авалт гар үнэ хүлээхгүй — PO нэгж үнэ × хүлээн
+      // авсан өдрийн ханшаар батлагдмагцаа капиталжсан (contract §9).
+      // Капитализаци буцаагдсан тохиолдолд Хангамж → Хүлээн авалт дээр
+      // дахин батална, энд үнэ бичихгүй.
+      if (movement.sourceType === PO_SOURCE_TYPE) return null;
       const item = movement.itemId ? itemById.get(movement.itemId) : undefined;
       return {
         movementId: p.movementId,
@@ -147,6 +153,7 @@ export default async function CostingDashboardPage() {
       draftEntryCount={entries.filter((entry) => entry.status === "draft").length}
       postedEntryCount={entries.filter((entry) => entry.status === "posted").length}
       clearingBalance={clearingBalance}
+      clearingAccount={clearingAccount}
       tieOutDifference={tieOutDifference}
       defaultAsOf={today()}
     />

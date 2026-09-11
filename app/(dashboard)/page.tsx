@@ -44,6 +44,7 @@ import {
   vatSettings,
 } from "@/lib/db/schema";
 import { getPeriodSelection } from "@/lib/periods/selection";
+import { loadProcurementDashboard } from "@/lib/procurement/load-data";
 import { loadVoucherSummaries } from "@/lib/reports/voucher-summaries";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
@@ -61,6 +62,7 @@ export default async function HomePage() {
     assetRows,
     movementRows,
     periodRows,
+    procurement,
   ] = await Promise.all([
     // П28: ваучер-түвшний SQL нэгтгэл — мөрүүд JS-д ачаалагдахгүй.
     loadVoucherSummaries(orgId),
@@ -84,6 +86,9 @@ export default async function HomePage() {
     db.query.accountingPeriods.findMany({
       where: eq(accountingPeriods.organizationId, orgId),
     }),
+    // Хангамж — захиалгын тоолол, хаалтын хориг нь модулийн самбартай НЭГ
+    // loader-аас (гэрээ §4) уншигдана.
+    loadProcurementDashboard(orgId),
   ]);
 
   // П19 — setup checklist-ийн "хийгдсэн" илрүүлэлт (хөнгөн count/exists).
@@ -393,6 +398,22 @@ export default async function HomePage() {
       valueLabel: "төлөгдөөгүй",
       note: apOverdue > 0 ? `${apOverdue} хугацаа хэтэрсэн` : "хугацаа хэтэрсэнгүй",
       tone: apOverdue > 0 ? "warning" : "default",
+    },
+    {
+      key: "procurement",
+      label: "Хангамж",
+      href: "/procurement",
+      value: `${procurement.openOrders}`,
+      valueLabel: "нээлттэй захиалга",
+      note:
+        procurement.ordersBlocked > 0
+          ? `${procurement.ordersBlocked} захиалга хаалт хоригтой`
+          : procurement.ordersReadyToClose > 0
+            ? `${procurement.ordersReadyToClose} захиалга хаахад бэлэн`
+            : procurement.draftOrders > 0
+              ? `${procurement.draftOrders} ноорог захиалга`
+              : "хаах захиалга алга",
+      tone: procurement.ordersBlocked > 0 ? "warning" : "default",
     },
     {
       key: "inventory",

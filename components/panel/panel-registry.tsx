@@ -15,6 +15,8 @@ import { CashNewPanel } from "./cash-new-panel";
 import { CostEntryPanel } from "./cost-entry-panel";
 import { DrillPanel } from "./drill-panel";
 import { FaAssetPanel } from "./fa-asset-panel";
+import { GoodsReceiptPanel } from "./goods-receipt-panel";
+import { PurchaseOrderPanel } from "./purchase-order-panel";
 import { ReportLinePanel } from "./report-line-panel";
 import { FaAssetFormPanel } from "./fa-asset-form-panel";
 import { VoucherPanel } from "./voucher-panel";
@@ -46,5 +48,7 @@ export const PANEL_REGISTRY: Record<PanelKind, PanelKindConfig> = {
   "fa-asset": { component: FaAssetPanel },
   "fa-asset-form": { component: FaAssetFormPanel },
   "arap-doc": { component: ArapDocPanel },
+  "purchase-order": { component: PurchaseOrderPanel },
+  "goods-receipt": { component: GoodsReceiptPanel },
   "ai-chat": { component: AiChatPanel, keepMounted: true },
 };

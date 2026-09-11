@@ -106,6 +106,29 @@ export const MODULES: Module[] = [
     ],
   },
   {
+    // Хангамж — худалдан авалтын захиалга (PO), хүлээн авалт, landed cost.
+    // Өглөгийн ДАРАА, Бараа материалын ӨМНӨ: худалдан авалтын урсгалын дэс
+    // дараалал (нэхэмжлэх → захиалга/хүлээн авалт → бараа).
+    id: "procurement",
+    label: "Хангамж",
+    matchPrefix: "/procurement",
+    defaultHref: "/procurement",
+    items: [
+      { label: "Хяналтын самбар", href: "/procurement", icon: "dashboard" },
+      { label: "Захиалга", href: "/procurement/orders", icon: "purchaseOrder" },
+      {
+        label: "Хүлээн авалт",
+        href: "/procurement/receipts",
+        icon: "packageReceipt",
+      },
+      {
+        label: "Хуваарилагдаагүй зардал",
+        href: "/procurement/costs",
+        icon: "costing",
+      },
+    ],
+  },
+  {
     id: "inventory",
     label: "Бараа материал",
     matchPrefix: "/inventory",
@@ -240,6 +263,7 @@ export const NAV_MODULE_BY_CONFIG_KEY: Record<string, string> = {
   fa: "fa",
   inv: "inventory",
   cost: "costing",
+  proc: "procurement",
   cash: "cash",
   tax: "tax",
   payroll: "payroll",

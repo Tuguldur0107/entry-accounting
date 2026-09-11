@@ -8,10 +8,12 @@
 // зөвхөн ТОХИРГООНООС уншина. Кодод байгаа тогтмолууд нь зөвхөн seed-ийн
 // эх утга — posting үед хэрэглэгдэхгүй.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
+import { STANDARD_ACCOUNTS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import {
+  chartOfAccounts,
   costComponents,
   costingAccountSettings,
   inventoryIssueTypes,
@@ -40,6 +42,50 @@ async function seedCreatorUserId(
   return row.userId;
 }
 
+/**
+ * Тохиргоонд заагдсан данснуудаас chart-д байхгүйг нь стандарт нэрээр нэмнэ
+ * (lib/tax/settings.ts ensureAccountsExist-ийн хэв маяг). Шинэ роль
+ * (31000099 «Өглөгийн түр данс») нэмэгдэхэд syncStandardAccounts хүлээлгүй
+ * хуучин байгууллагад ч бичилт ажиллана.
+ *
+ * `resolveUserId` нь ЗАЛХУУ — дутуу данс байхгүй бол owner хайлт хийхгүй
+ * (loadCostingAccountSettings нь бичилтийн халуун замд байнга дуудагддаг).
+ */
+async function ensureAccountsExist(
+  orgId: string,
+  mains: string[],
+  resolveUserId: () => Promise<string>
+): Promise<void> {
+  const wanted = [...new Set(mains.filter((main) => /^\d{8}$/.test(main)))];
+  if (wanted.length === 0) return;
+  const existing = await db.query.chartOfAccounts.findMany({
+    where: and(
+      eq(chartOfAccounts.organizationId, orgId),
+      inArray(chartOfAccounts.number, wanted)
+    ),
+    columns: { number: true },
+  });
+  const have = new Set(existing.map((row) => row.number));
+  const missing = wanted.filter((main) => !have.has(main));
+  if (missing.length === 0) return;
+  const userId = await resolveUserId();
+  await db
+    .insert(chartOfAccounts)
+    .values(
+      missing.map((number) => ({
+        userId,
+        organizationId: orgId,
+        number,
+        name:
+          STANDARD_ACCOUNTS.find((account) => account.number === number)?.name ??
+          "Өртгийн данс",
+      }))
+    )
+    // Зэрэгцээ бичилт — (organizationId, number) unique тул нөгөөх нь ялж
+    // болно; давхардал алдаа болж бичилтийн урсгалыг унагахгүй.
+    .onConflictDoNothing();
+}
+
 /** Seed-ийн эх утгууд — 0.1 хувилбарт кодод хатуу бичигдсэн байсан дүрмүүд. */
 export const RATIFIED_ACCOUNT_SEED = {
   clearingAccountNumber: "14000099",
@@ -51,6 +97,12 @@ export const RATIFIED_ACCOUNT_SEED = {
   fxGainAccountNumber: "51800001",
   /** Валютын төлбөрийн (settlement) ханшийн гарз. */
   fxLossAccountNumber: "87000003",
+  /**
+   * Өглөгийн түр данс — PO-той АП нэхэмжлэх бүр Dr, PO хаалтад Cr
+   * (docs/procurement §3.1). Бараа материалын түр данстай PO объектоор
+   * тэгширнэ.
+   */
+  apClearingAccountNumber: "31000099",
 } as const;
 
 /**
@@ -72,25 +124,41 @@ export async function loadCostingAccountSettings(
   orgId: string,
   creatorUserId?: string
 ): Promise<CostingAccountSetting> {
+  const resolveUserId = () => seedCreatorUserId(orgId, creatorUserId);
+  /** Ролийн дансууд chart-д байгаа эсэхийг баталгаажуулаад мөрийг буцаана. */
+  const withAccounts = async (row: CostingAccountSetting) => {
+    await ensureAccountsExist(
+      orgId,
+      [
+        row.clearingAccountNumber,
+        row.apClearingAccountNumber,
+        row.fxGainAccountNumber,
+        row.fxLossAccountNumber,
+      ],
+      resolveUserId
+    );
+    return row;
+  };
+
   const existing = await db.query.costingAccountSettings.findFirst({
     where: eq(costingAccountSettings.organizationId, orgId),
   });
-  if (existing) return existing;
+  if (existing) return await withAccounts(existing);
 
-  const userId = await seedCreatorUserId(orgId, creatorUserId);
+  const userId = await resolveUserId();
   const [created] = await db
     .insert(costingAccountSettings)
     .values({ userId, organizationId: orgId, ...RATIFIED_ACCOUNT_SEED })
     .onConflictDoNothing()
     .returning();
-  if (created) return created;
+  if (created) return await withAccounts(created);
 
   // Зэрэгцээ insert — нөгөөх нь ялсан бол уншаад буцаана.
   const row = await db.query.costingAccountSettings.findFirst({
     where: eq(costingAccountSettings.organizationId, orgId),
   });
   if (!row) throw new Error("Өртгийн дансны тохиргоо үүсгэж чадсангүй");
-  return row;
+  return await withAccounts(row);
 }
 
 /** Зарлагын төрлүүд — хоосон бол анхны "COGS" төрлийг үүсгэнэ. */

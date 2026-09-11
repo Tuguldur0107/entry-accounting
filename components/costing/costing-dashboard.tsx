@@ -22,6 +22,8 @@ interface Props {
   draftEntryCount: number;
   postedEntryCount: number;
   clearingBalance: number;
+  /** Бараа материалын түр дансны дугаар — ТОХИРГООНООС (JPR-006). */
+  clearingAccount: string;
   tieOutDifference: number;
   /** Серверийн (UTC+8) өнөөдөр — клиентийн цагийн бүсээс хамаарахгүй. */
   defaultAsOf: string;
@@ -35,6 +37,7 @@ export function CostingDashboard({
   draftEntryCount,
   postedEntryCount,
   clearingBalance,
+  clearingAccount,
   tieOutDifference,
   defaultAsOf,
 }: Props) {
@@ -159,7 +162,7 @@ export function CostingDashboard({
       href: "/costing/entries?status=draft",
     },
     {
-      label: "Клирингийн үлдэгдэл (14000099)",
+      label: `Клирингийн үлдэгдэл (${clearingAccount})`,
       value: fmtMnt(clearingBalance),
       icon: "reconciliation" as IconName,
       color:

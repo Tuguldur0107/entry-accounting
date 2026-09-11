@@ -27,6 +27,8 @@ export type PanelKind =
   | "fa-asset" // Үндсэн хөрөнгийн карт — дэлгэрэнгүй
   | "fa-asset-form" // Хөрөнгө үүсгэх / картыг бөглөж идэвхжүүлэх
   | "arap-doc" // АР/АП баримт — үүсгэх эсвэл харах
+  | "purchase-order" // Худалдан авалтын захиалга (PO) — үүсгэх/харах/засах
+  | "goods-receipt" // Хүлээн авалтын баримт (PO-гийн үлдэгдлээс)
   | "ai-chat"; // AI туслах — глобал хөвөгч чат
 
 /** Самбарын задаргааны нэг мөр (drill панелийн payload-д). */
@@ -523,16 +525,51 @@ export function openFaAssetFormPanel(init?: { assetId?: string }) {
 }
 
 /**
+ * Хангамжийн захиалгаас (PO) АП нэхэмжлэхийн формыг урьдчилан бөглөх утгууд
+ * (docs/procurement §3.3 ③④). Мөрийн `account` нь 8 оронтой үндсэн данс
+ * эсвэл бүтэн сегмент код; бараа/бүрэлдэхүүнтэй мөрд хоосон байж болно —
+ * панель өглөгийн түр дансаар нөхнө.
+ */
+export type ArapDocPrefill = {
+  purchaseOrderId: string;
+  purchaseOrderNo: string;
+  counterpartyId: string;
+  /** PO валют — нэхэмжлэх валюттай таарах ёстой (сервер шалгана). */
+  currency: string;
+  /** Нэхэмжлэхийн өдрийн Монголбанкны албан ханш (хэрэглэгч засаж болно). */
+  exchangeRate?: number;
+  date?: string;
+  dueDate?: string;
+  description?: string;
+  /** Нийлүүлэгчийн нэхэмжлэхийн дугаар (хоосон бол автоматаар AP-…). */
+  documentNo?: string;
+  lines: {
+    purchaseOrderLineId?: string;
+    itemId?: string;
+    quantity?: number;
+    unitPrice?: number;
+    amount: number;
+    warehouseId?: string;
+    costComponentId?: string;
+    description: string;
+    account?: string;
+  }[];
+  title?: string;
+};
+
+/**
  * АР/АП баримт: documentId өгвөл харах, өгөхгүй бол шинээр үүсгэх.
  * mode нь receivable/payable/combined харагдацын аль нь болохыг заана.
+ * prefill өгвөл (PO-гоос) форм бөглөгдөж, захиалгатай холбогдоно.
  */
 export function openArapDocPanel(init: {
   documentId?: string;
   mode: "receivable" | "payable" | "combined";
   title?: string;
   navIds?: string[];
+  prefill?: ArapDocPrefill;
 }) {
-  const { documentId, mode, title, navIds } = init;
+  const { documentId, mode, title, navIds, prefill } = init;
   return usePanelStore.getState().openPanel({
     key: documentId
       ? `arap-doc:${documentId}`
@@ -540,15 +577,73 @@ export function openArapDocPanel(init: {
     kind: "arap-doc",
     title:
       title ||
+      prefill?.title ||
       (documentId
         ? "АР/АП баримт"
-        : mode === "payable"
-          ? "Шинэ нэхэмжлэх"
-          : "Шинэ нэхэмжлэл"),
+        : prefill
+          ? `Нэхэмжлэх — ${prefill.purchaseOrderNo}`
+          : mode === "payable"
+            ? "Шинэ нэхэмжлэх"
+            : "Шинэ нэхэмжлэл"),
     payload: {
       documentId,
       mode,
+      prefill,
       ...(documentId ? navPayload("documentId", navIds) : {}),
+    },
+  });
+}
+
+/**
+ * Худалдан авалтын захиалга (PO): purchaseOrderId өгвөл харах/засах, өгөхгүй
+ * бол ШИНЭ захиалга үүсгэх (дарах бүрд цэвэр форм — тогтмол key байсан бол
+ * өмнөх хагас бөглөсөн ноорог чимээгүй сэргэнэ).
+ */
+export function openPurchaseOrderPanel(init?: {
+  purchaseOrderId?: string;
+  title?: string;
+  navIds?: string[];
+}) {
+  const { purchaseOrderId, title, navIds } = init ?? {};
+  return usePanelStore.getState().openPanel({
+    key: purchaseOrderId
+      ? `purchase-order:${purchaseOrderId}`
+      : `purchase-order:new:${++newVoucherSeq}`,
+    kind: "purchase-order",
+    title:
+      title ||
+      (purchaseOrderId ? "Худалдан авалтын захиалга" : "Шинэ захиалга"),
+    payload: {
+      purchaseOrderId,
+      ...(purchaseOrderId ? navPayload("purchaseOrderId", navIds) : {}),
+    },
+  });
+}
+
+/**
+ * Хүлээн авалт: receiptId өгвөл тухайн баримтыг, өгөхгүй бол
+ * purchaseOrderId-ийн хүлээн аваагүй үлдэгдлээр ШИНЭ баримт бүртгэнэ
+ * (нэг захиалгын шинэ баримт нэг панелиар — давхар ноорог бөглөхөөс сэргийлнэ).
+ */
+export function openGoodsReceiptPanel(init: {
+  receiptId?: string;
+  purchaseOrderId?: string;
+  title?: string;
+  navIds?: string[];
+}) {
+  const { receiptId, purchaseOrderId, title, navIds } = init;
+  return usePanelStore.getState().openPanel({
+    key: receiptId
+      ? `goods-receipt:${receiptId}`
+      : purchaseOrderId
+        ? `goods-receipt:new:po:${purchaseOrderId}`
+        : `goods-receipt:new:${++newVoucherSeq}`,
+    kind: "goods-receipt",
+    title: title || (receiptId ? "Хүлээн авалт" : "Шинэ хүлээн авалт"),
+    payload: {
+      receiptId,
+      purchaseOrderId,
+      ...(receiptId ? navPayload("receiptId", navIds) : {}),
     },
   });
 }

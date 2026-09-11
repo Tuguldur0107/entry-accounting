@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import {
   getActiveOrg,
@@ -16,10 +16,13 @@ import {
   arApSettlements,
   cashDocuments,
   chartOfAccounts,
+  costComponents,
   counterparties,
   inventoryMovements,
   journalLines,
   journalVouchers,
+  purchaseOrderLines,
+  purchaseOrders,
 } from "@/lib/db/schema";
 import type {
   ArApDocumentType,
@@ -43,7 +46,11 @@ import {
   syncInventoryDraftForVoucher,
 } from "@/lib/inventory/sync-sources";
 import { syncFixedAssetDraftForVoucher } from "@/lib/fa/sync-sources";
-import { loadCostingAccountSettings } from "@/lib/costing/master-data";
+import {
+  loadCostComponents,
+  loadCostingAccountSettings,
+} from "@/lib/costing/master-data";
+import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { actionError, type ActionResult } from "@/lib/action-result";
@@ -51,6 +58,14 @@ import { actionError, type ActionResult } from "@/lib/action-result";
 /** Баримтын төрөл → эрхийн модулийн түлхүүр (АР/АП тусдаа тохирно). */
 function permissionModuleOf(documentType: string): string {
   return documentType === "ar_invoice" ? "ar" : "ap";
+}
+
+/** Транзакцийн handle (assertPeriodOpenInTx-тэй ижил дүгнэлт). */
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Тоо хэмжээний нарийвчлал — numeric(18,4). */
+function round4(value: number) {
+  return Math.round(value * 10_000) / 10_000;
 }
 
 function revalidateArAp() {
@@ -121,6 +136,13 @@ export type ArapDocPanelData = {
   warehouses: WarehouseOption[];
   /** Клирингийн данс (тохиргооноос) — бараатай АП мөр энд суана. */
   clearingAccountNumber: string;
+  /**
+   * Өглөгийн түр данс (тохиргооноос) — PO-той нэхэмжлэхийн бараа/
+   * бүрэлдэхүүн мөр энд суана (docs/procurement §3.1).
+   */
+  apClearingAccountNumber: string;
+  /** Өртгийн бүрэлдэхүүн (идэвхтэй) — PO-той нэмэлт зардлын мөрд. */
+  costComponents: { id: string; code: string; name: string }[];
   /** Системийн default хяналтын дансууд — харилцагчид default байхгүй үед. */
   defaultAccountNumbers: { receivable: string; payable: string };
   /** documentId өгөгдсөн үед л — read-only харагдацын баримт. */
@@ -156,6 +178,7 @@ export async function getArapDocPanelData(
     inventoryOptions,
     document,
     costingAccounts,
+    componentRows,
     paymentRows,
     offsetRows,
   ] = await Promise.all([
@@ -166,6 +189,7 @@ export async function getArapDocPanelData(
       ? loadArApDocumentDetail(orgId, documentId)
       : Promise.resolve(null),
     loadCostingAccountSettings(orgId),
+    loadCostComponents(orgId, { activeOnly: true }),
     documentId
       ? db.query.cashDocuments.findMany({
           where: and(
@@ -228,6 +252,12 @@ export async function getArapDocPanelData(
       inventoryItems: inventoryOptions.inventoryItems,
       warehouses: inventoryOptions.warehouses,
       clearingAccountNumber: costingAccounts.clearingAccountNumber,
+      apClearingAccountNumber: costingAccounts.apClearingAccountNumber,
+      costComponents: componentRows.map((component) => ({
+        id: component.id,
+        code: component.code,
+        name: component.name,
+      })),
       defaultAccountNumbers: segmentData.defaultAccountNumbers,
       document,
       payments: [
@@ -265,6 +295,9 @@ export async function createCounterparty(data: {
   email?: string;
   phone?: string;
   address?: string;
+  contactPerson?: string;
+  bankName?: string;
+  bankAccountNo?: string;
 }) {
   const { orgId, userId } = await requireAnyModuleAction([
     ["ar", "write"],
@@ -303,6 +336,9 @@ export async function createCounterparty(data: {
       email: cleanText(data.email),
       phone: cleanText(data.phone),
       address: cleanText(data.address),
+      contactPerson: cleanText(data.contactPerson),
+      bankName: cleanText(data.bankName),
+      bankAccountNo: cleanText(data.bankAccountNo),
     })
     .returning({ id: counterparties.id });
 
@@ -324,6 +360,9 @@ export async function updateCounterparty(
     email?: string;
     phone?: string;
     address?: string;
+    contactPerson?: string;
+    bankName?: string;
+    bankAccountNo?: string;
   }
 ) {
   const { orgId } = await requireAnyModuleAction([
@@ -353,6 +392,9 @@ export async function updateCounterparty(
       email: cleanText(data.email),
       phone: cleanText(data.phone),
       address: cleanText(data.address),
+      contactPerson: cleanText(data.contactPerson),
+      bankName: cleanText(data.bankName),
+      bankAccountNo: cleanText(data.bankAccountNo),
     })
     .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)))
     .returning({ id: counterparties.id });
@@ -442,6 +484,224 @@ export async function toggleCounterparty(id: string, isActive: boolean) {
 // шидсэн алдааны мессежийг нуудаг (React #441) тул client компонент зөвхөн
 // wrapper-ыг дуудна. Server-талын дуудагч unwrapAction-аар шидэлтээ сэргээнэ.
 
+// ── Хангамжийн захиалга (PO) — нэхэмжлэхийн шалгалтууд ──────────────────────
+// docs/procurement §3.3 ③④ ба контракт §8. PO-той нэхэмжлэх нь захиалгын
+// нэхэмжлээгүй үлдэгдлээс ИЛҮҮ гарч болохгүй; хаагдсан захиалгад нэхэмжлэх
+// нэмэгдэхгүй. Нэхэмжлэх бүр нь PO мөрүүдийг `for update`-оор цоожилдог тул
+// зэрэгцээ хоёр нэхэмжлэх цуваагаар шалгагдана (TOCTUO).
+
+type PoCheckLine = {
+  itemId: string | null;
+  quantity: number | null;
+  purchaseOrderLineId: string | null;
+  costComponentId: string | null;
+  amount: number;
+};
+
+async function assertPurchaseOrderLines(
+  tx: DbTx,
+  input: {
+    orgId: string;
+    purchaseOrderId: string;
+    documentType: ArApDocumentType;
+    counterpartyId: string;
+    currency: string;
+    lines: PoCheckLine[];
+    /** Ноорог засах/батлах үед — өөрийн хадгалагдсан мөрүүдийг хасна. */
+    excludeDocumentId?: string;
+  }
+) {
+  const { orgId, purchaseOrderId } = input;
+  if (input.documentType !== "ap_bill")
+    throw new Error(
+      "Захиалгатай (PO) нэхэмжлэх зөвхөн өглөгийн баримт байна"
+    );
+
+  // Захиалга + мөрүүдийг цоожилно — нэхэмжлэхүүд цуваагаар шалгагдана.
+  await tx.execute(
+    sql`select id from purchase_orders where id = ${purchaseOrderId} and organization_id = ${orgId} for update`
+  );
+  await tx.execute(
+    sql`select id from purchase_order_lines where purchase_order_id = ${purchaseOrderId} for update`
+  );
+
+  const po = await tx.query.purchaseOrders.findFirst({
+    where: and(
+      eq(purchaseOrders.id, purchaseOrderId),
+      eq(purchaseOrders.organizationId, orgId)
+    ),
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      currency: true,
+      counterpartyId: true,
+    },
+  });
+  if (!po) throw new Error("[PO_NOT_FOUND] Худалдан авалтын захиалга олдсонгүй");
+  if (po.status === "closed")
+    throw new Error(
+      `[PO_CLOSED] ${po.documentNo} захиалга хаагдсан — нэхэмжлэх нэмэх боломжгүй`
+    );
+  if (po.status !== "open")
+    throw new Error(
+      `[PO_NOT_OPEN] ${po.documentNo} захиалга нээлттэй биш — эхлээд батална уу`
+    );
+  // Харилцагч/валютын тааралт нь ЗӨВХӨН PO-гийн бараатай (захиалгын мөртэй
+  // холбогдсон) нэхэмжлэхэд хамаарна: гааль, тээвэр, брокер зэрэг НЭМЭЛТ
+  // ЗАРДЛЫН нэхэмжлэх нь өөр харилцагчаас, өөр валютаар (ихэвчлэн MNT)
+  // ирдэг ч мөн PO-д холбогдож өртөгт хуваарилагдана
+  // (docs/procurement §3.3 ④, §4 жишээний АП-002/АП-003).
+  const hasPoGoodsLines = input.lines.some(
+    (line) => line.itemId || line.purchaseOrderLineId
+  );
+  if (hasPoGoodsLines && po.counterpartyId !== input.counterpartyId)
+    throw new Error(
+      `Нэхэмжлэхийн харилцагч ${po.documentNo} захиалгын нийлүүлэгчтэй таарахгүй байна`
+    );
+  if (hasPoGoodsLines && po.currency !== input.currency)
+    throw new Error(
+      `Нэхэмжлэхийн валют (${input.currency}) захиалгын валюттай (${po.currency}) таарахгүй байна`
+    );
+
+  const poLines = await tx.query.purchaseOrderLines.findMany({
+    where: eq(purchaseOrderLines.purchaseOrderId, po.id),
+    columns: { id: true, itemId: true, quantity: true, amount: true },
+  });
+  const poLineById = new Map(poLines.map((line) => [line.id, line]));
+
+  // Бүрэлдэхүүн нь тухайн байгууллагын ИДЭВХТЭЙ лавлахаас байх ёстой.
+  const componentIds = [
+    ...new Set(
+      input.lines
+        .map((line) => line.costComponentId)
+        .filter((value): value is string => !!value)
+    ),
+  ];
+  if (componentIds.length > 0) {
+    const rows = await tx.query.costComponents.findMany({
+      where: and(
+        eq(costComponents.organizationId, orgId),
+        inArray(costComponents.id, componentIds),
+        eq(costComponents.isActive, true)
+      ),
+      columns: { id: true },
+    });
+    if (rows.length !== componentIds.length)
+      throw new Error("Идэвхтэй өртгийн бүрэлдэхүүн олдсонгүй");
+  }
+
+  // Энэ баримтын мөрүүдийг PO мөр тус бүрээр нэгтгэнэ.
+  const pending = new Map<string, { quantity: number; amount: number }>();
+  for (const line of input.lines) {
+    if (line.itemId && line.costComponentId)
+      throw new Error(
+        "Нэг мөрөнд бараа ба өртгийн бүрэлдэхүүн зэрэг байж болохгүй"
+      );
+    if (!line.itemId) {
+      if (line.purchaseOrderLineId)
+        throw new Error("Захиалгын мөртэй холбогдсон мөрөнд бараа заавал байна");
+      continue;
+    }
+    if (!line.purchaseOrderLineId)
+      throw new Error(
+        `${po.documentNo} захиалгатай нэхэмжлэхийн бараатай мөр бүр захиалгын мөртэй холбогдоно`
+      );
+    const poLine = poLineById.get(line.purchaseOrderLineId);
+    if (!poLine)
+      throw new Error(
+        `[PO_NOT_FOUND] Захиалгын мөр ${po.documentNo}-д хамаарахгүй байна`
+      );
+    if (poLine.itemId !== line.itemId)
+      throw new Error(
+        `Нэхэмжлэхийн бараа ${po.documentNo} захиалгын мөрийн бараатай таарахгүй байна`
+      );
+    const current = pending.get(poLine.id) ?? { quantity: 0, amount: 0 };
+    pending.set(poLine.id, {
+      quantity: current.quantity + (line.quantity ?? 0),
+      amount: current.amount + line.amount,
+    });
+  }
+  if (pending.size === 0) return;
+
+  // Өмнөх нэхэмжлэхүүдийн нийлбэр (ноорог ч тооцогдоно — контракт §4).
+  const priorRows = await tx
+    .select({
+      purchaseOrderLineId: arApDocumentLines.purchaseOrderLineId,
+      quantity: sql<string>`coalesce(sum(${arApDocumentLines.quantity}), 0)`,
+      amount: sql<string>`coalesce(sum(${arApDocumentLines.amount}), 0)`,
+    })
+    .from(arApDocumentLines)
+    .innerJoin(
+      arApDocuments,
+      eq(arApDocumentLines.documentId, arApDocuments.id)
+    )
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.purchaseOrderId, purchaseOrderId),
+        inArray(arApDocuments.status, [
+          "draft",
+          "posted",
+          "partially_paid",
+          "paid",
+        ]),
+        isNotNull(arApDocumentLines.purchaseOrderLineId),
+        input.excludeDocumentId
+          ? ne(arApDocuments.id, input.excludeDocumentId)
+          : undefined
+      )
+    )
+    .groupBy(arApDocumentLines.purchaseOrderLineId);
+  const priorByLine = new Map(
+    priorRows.map((row) => [
+      String(row.purchaseOrderLineId),
+      { quantity: Number(row.quantity), amount: Number(row.amount) },
+    ])
+  );
+
+  const tolerance = 0.005;
+  for (const [poLineId, add] of pending) {
+    const poLine = poLineById.get(poLineId)!;
+    const prior = priorByLine.get(poLineId) ?? { quantity: 0, amount: 0 };
+    const ordered = Number(poLine.quantity);
+    const orderedAmount = Number(poLine.amount);
+    const quantity = round4(prior.quantity + add.quantity);
+    const amount = roundMoney(prior.amount + add.amount);
+    if (quantity - ordered > tolerance)
+      throw new Error(
+        `[OVER_INVOICED] ${po.documentNo} захиалгын мөрийг илүү нэхэмжилж байна — захиалсан ${ordered}, нэхэмжилсэн ${quantity}`
+      );
+    if (amount - orderedAmount > tolerance)
+      throw new Error(
+        `[OVER_INVOICED] ${po.documentNo} захиалгын мөрийн дүнгээс илүү нэхэмжилж байна — захиалсан ${orderedAmount.toLocaleString("en-US")}, нэхэмжилсэн ${amount.toLocaleString("en-US")}`
+      );
+  }
+}
+
+/**
+ * PO-той нэхэмжлэхийг буцаах/устгахын өмнө — ХААГДСАН захиалгыг хөндөхийг
+ * таслана (хаалтын журнал Dr бараа мат. түр данс / Cr өглөгийн түр данс
+ * тэнцээгүй үлдэх байсан).
+ */
+async function assertPurchaseOrderNotClosed(
+  orgId: string,
+  purchaseOrderId: string,
+  action: string
+) {
+  const po = await db.query.purchaseOrders.findFirst({
+    where: and(
+      eq(purchaseOrders.id, purchaseOrderId),
+      eq(purchaseOrders.organizationId, orgId)
+    ),
+    columns: { documentNo: true, status: true },
+  });
+  if (po?.status !== "closed") return;
+  throw new Error(
+    `[PO_CLOSED] ${po.documentNo} захиалга хаагдсан — нэхэмжлэхийг ${action} бол эхлээд захиалгын хаалтыг буцаана уу`
+  );
+}
+
 async function createArApDocumentCore(data: {
   documentType: ArApDocumentType;
   /** Гараар өгсөн нэхэмжлэхийн дугаар — хоосон бол автоматаар үүснэ. */
@@ -457,6 +717,11 @@ async function createArApDocumentCore(data: {
   postNow?: boolean;
   /** Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency. */
   externalRef?: string;
+  /**
+   * Хангамжийн захиалга — өгөгдвөл бараа/бүрэлдэхүүн мөр нь ӨГЛӨГИЙН ТҮР
+   * ДАНСанд суух ба орлогын хөдөлгөөн ҮҮСЭХГҮЙ (хүлээн авалтын баримтаас).
+   */
+  purchaseOrderId?: string;
 }) {
   const { orgId, userId } = await requireModuleAction(
     permissionModuleOf(data.documentType),
@@ -485,35 +750,83 @@ async function createArApDocumentCore(data: {
   const controlAccountNumber = data.controlAccountNumber.trim();
   await assertEnabledMainAccount(orgId, controlAccountNumber);
 
+  const purchaseOrderId = data.purchaseOrderId?.trim() || null;
+  if (purchaseOrderId && data.documentType !== "ap_bill")
+    throw new Error("Захиалгатай (PO) нэхэмжлэх зөвхөн өглөгийн баримт байна");
+
   const validLines = data.lines
-    .map((line) => ({
-      account: line.account.trim(),
-      description: line.description.trim(),
-      amount: Number(line.amount),
-      itemId: line.itemId || null,
-      quantity: line.itemId ? Number(line.quantity ?? 0) : null,
-      warehouseId: line.itemId ? line.warehouseId || null : null,
-    }))
+    .map((line) => {
+      const quantity = line.itemId ? Number(line.quantity ?? 0) : null;
+      const rawUnitPrice = line.unitPrice != null ? Number(line.unitPrice) : null;
+      const unitPrice =
+        rawUnitPrice != null && Number.isFinite(rawUnitPrice) && rawUnitPrice > 0
+          ? rawUnitPrice
+          : null;
+      const given = Number(line.amount);
+      // Нэгж үнэ өгөгдсөн ба дүн хоосон бол тоо × нэгж үнэ (grid-тэй ИЖИЛ).
+      const amount =
+        given > 0
+          ? given
+          : quantity != null && quantity > 0 && unitPrice != null
+            ? roundMoney(quantity * unitPrice)
+            : given;
+      return {
+        account: line.account.trim(),
+        description: line.description.trim(),
+        amount,
+        itemId: line.itemId || null,
+        quantity,
+        warehouseId: line.itemId ? line.warehouseId || null : null,
+        purchaseOrderLineId: line.purchaseOrderLineId || null,
+        unitPrice,
+        costComponentId: line.costComponentId || null,
+      };
+    })
     .filter((line) => line.account && line.amount > 0);
   if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
-  // Клирингийн данс тохиргооноос (JPR-006) — кодод хатуу дугаар байхгүй.
-  const clearingAccount = (await loadCostingAccountSettings(orgId, userId))
-    .clearingAccountNumber;
+  // Клиринг + өглөгийн түр данс тохиргооноос (JPR-006) — кодод хатуу
+  // дугаар байхгүй.
+  const costingRoles = await loadCostingAccountSettings(orgId, userId);
+  const clearingAccount = costingRoles.clearingAccountNumber;
+  const apClearingAccount = costingRoles.apClearingAccountNumber;
   for (const line of validLines) {
     assertAmount(line.amount, "Мөрийн дүн");
     await assertEnabledMainAccount(orgId, line.account);
+    const lineMain = extractMainAccount(line.account);
+    if (line.itemId && line.costComponentId)
+      throw new Error(
+        "Нэг мөрөнд бараа ба өртгийн бүрэлдэхүүн зэрэг байж болохгүй"
+      );
+    // Нэмэлт зардлын (бүрэлдэхүүнтэй) мөр зөвхөн PO-той нэхэмжлэхэд —
+    // хуваарилалт нь барааны өртөгт капиталжина (docs/procurement §3.3 ④).
+    if (line.costComponentId) {
+      if (!purchaseOrderId)
+        throw new Error(
+          "Өртгийн бүрэлдэхүүнтэй мөр зөвхөн захиалгатай (PO) нэхэмжлэхэд бичигдэнэ"
+        );
+      if (lineMain !== apClearingAccount)
+        throw new Error(
+          `Бүрэлдэхүүнтэй мөрийн данс ${apClearingAccount} (өглөгийн түр данс) байх ёстой — хуваарилалт барааны өртөгт капиталжина`
+        );
+    }
     if (!line.itemId) continue;
     if (!(line.quantity! > 0))
       throw new Error("Бараатай мөрөнд тоо хэмжээ 0-ээс их байна");
     // Клирингийн сахилга: АП-ийн бараатай мөр ЗААВАЛ 14000099 клирингт
     // суана (капитализацийг өртгийн модуль Dr бараа данс / Cr клиринг гэж
     // бичдэг — шууд 14000001-д суулгавал GL давхарлана). АР-ийн бараатай
-    // мөр орлогын тал тул 14-бүлэгт огт суухгүй.
-    const lineMain = extractMainAccount(line.account);
-    if (data.documentType === "ap_bill" && lineMain !== clearingAccount)
-      throw new Error(
-        `Бараатай мөрийн данс ${clearingAccount} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
-      );
+    // мөр орлогын тал тул 14-бүлэгт огт суухгүй. PO-той нэхэмжлэхэд
+    // орлого нь хүлээн авалтаас бичигддэг тул ӨГЛӨГИЙН түр данс.
+    if (data.documentType === "ap_bill") {
+      if (purchaseOrderId && lineMain !== apClearingAccount)
+        throw new Error(
+          `PO-той нэхэмжлэхийн бараатай мөрийн данс ${apClearingAccount} (өглөгийн түр данс) байх ёстой — орлогын капитализаци хүлээн авалтын баримтаас бичигдэнэ`
+        );
+      if (!purchaseOrderId && lineMain !== clearingAccount)
+        throw new Error(
+          `Бараатай мөрийн данс ${clearingAccount} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
+        );
+    }
     if (data.documentType === "ar_invoice" && lineMain.startsWith("14"))
       throw new Error(
         "Борлуулалтын бараатай мөр орлогын дансанд суана — COGS бичилтийг өртгийн модуль хийнэ"
@@ -587,6 +900,25 @@ async function createArApDocumentCore(data: {
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, data.date);
+    // PO-той нэхэмжлэх: захиалга нээлттэй, харилцагч/валют таарсан, мөр
+    // бүр PO-д хамаарах, илүү нэхэмжлээгүй (PO мөрүүд цоожлогдоно).
+    if (purchaseOrderId)
+      await assertPurchaseOrderLines(tx, {
+        orgId,
+        purchaseOrderId,
+        documentType: data.documentType,
+        counterpartyId: data.counterpartyId,
+        currency,
+        lines: validLines,
+      });
+    // Клирингийн бизнес объект — PO-той үед журналын мөр бүрд тавигдана
+    // (FR-PROC-003/004: түр дансууд PO объектоор тэгширнэ).
+    const businessObject = purchaseOrderId
+      ? {
+          businessObjectType: PO_BUSINESS_OBJECT,
+          businessObjectId: purchaseOrderId,
+        }
+      : {};
     let voucherId: string | null = null;
 
     if (data.postNow) {
@@ -613,6 +945,7 @@ async function createArApDocumentCore(data: {
                 credit: "0",
                 description,
                 sortOrder: 0,
+                ...businessObject,
               },
               ...validLines.map((line, index) => ({
                 voucherId: createdVoucherId,
@@ -621,6 +954,7 @@ async function createArApDocumentCore(data: {
                 credit: String(baseLineAmounts[index]),
                 description: line.description || description,
                 sortOrder: index + 1,
+                ...businessObject,
               })),
             ]
           : [
@@ -631,6 +965,7 @@ async function createArApDocumentCore(data: {
                 credit: "0",
                 description: line.description || description,
                 sortOrder: index,
+                ...businessObject,
               })),
               {
                 voucherId: createdVoucherId,
@@ -639,6 +974,7 @@ async function createArApDocumentCore(data: {
                 credit: String(baseTotalAmount),
                 description,
                 sortOrder: validLines.length,
+                ...businessObject,
               },
             ];
 
@@ -667,6 +1003,7 @@ async function createArApDocumentCore(data: {
         status,
         voucherId,
         externalRef: cleanText(data.externalRef),
+        purchaseOrderId,
         postedAt: data.postNow ? new Date() : null,
       })
       .returning({ id: arApDocuments.id });
@@ -680,6 +1017,9 @@ async function createArApDocumentCore(data: {
         itemId: line.itemId,
         quantity: line.quantity != null ? String(line.quantity) : null,
         warehouseId: line.warehouseId,
+        purchaseOrderLineId: line.purchaseOrderLineId,
+        unitPrice: line.unitPrice != null ? String(line.unitPrice) : null,
+        costComponentId: line.costComponentId,
         sortOrder: index,
       }))
     );
@@ -704,7 +1044,10 @@ async function createArApDocumentCore(data: {
   // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
   if (data.postNow && createdDocumentId) {
     try {
-      await createMovementDraftsForArApDocument(createdDocumentId);
+      // PO-той нэхэмжлэхэд орлого нь хүлээн авалтын баримтаас үүсдэг тул
+      // мөрийн draft ҮҮСГЭХГҮЙ (sync дотор мөн хамгаалагдсан).
+      if (!purchaseOrderId)
+        await createMovementDraftsForArApDocument(createdDocumentId);
       if (createdVoucherId2) {
         await syncInventoryDraftForVoucher(createdVoucherId2);
         await syncFixedAssetDraftForVoucher(createdVoucherId2);
@@ -781,6 +1124,30 @@ async function postArApDocumentCore(id: string) {
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, document.date);
+    // PO-той ноорог батлагдахдаа захиалга нээлттэй, илүү нэхэмжлээгүй
+    // эсэхийг ДАХИН шалгана (ноорог хэвтэх зуур PO хаагдсан байж болно).
+    if (document.purchaseOrderId)
+      await assertPurchaseOrderLines(tx, {
+        orgId,
+        purchaseOrderId: document.purchaseOrderId,
+        documentType: document.documentType as ArApDocumentType,
+        counterpartyId: document.counterpartyId,
+        currency: document.currency,
+        lines: document.lines.map((line) => ({
+          itemId: line.itemId,
+          quantity: line.quantity != null ? Number(line.quantity) : null,
+          purchaseOrderLineId: line.purchaseOrderLineId,
+          costComponentId: line.costComponentId,
+          amount: Number(line.amount),
+        })),
+        excludeDocumentId: id,
+      });
+    const businessObject = document.purchaseOrderId
+      ? {
+          businessObjectType: PO_BUSINESS_OBJECT,
+          businessObjectId: document.purchaseOrderId,
+        }
+      : {};
     const [claimed] = await tx
       .update(arApDocuments)
       .set({ status: "posted", postedAt: new Date() })
@@ -816,6 +1183,7 @@ async function postArApDocumentCore(id: string) {
               credit: "0",
               description: document.description,
               sortOrder: 0,
+              ...businessObject,
             },
             ...document.lines.map((line, index) => ({
               voucherId: voucher.id,
@@ -824,6 +1192,7 @@ async function postArApDocumentCore(id: string) {
               credit: String(baseLineAmounts[index]),
               description: line.description || document.description,
               sortOrder: index + 1,
+              ...businessObject,
             })),
           ]
         : [
@@ -834,6 +1203,7 @@ async function postArApDocumentCore(id: string) {
               credit: "0",
               description: line.description || document.description,
               sortOrder: index,
+              ...businessObject,
             })),
             {
               voucherId: voucher.id,
@@ -842,6 +1212,7 @@ async function postArApDocumentCore(id: string) {
               credit: String(baseTotalAmount),
               description: document.description,
               sortOrder: document.lines.length,
+              ...businessObject,
             },
           ];
     await tx.insert(journalLines).values(lineValues);
@@ -866,7 +1237,10 @@ async function postArApDocumentCore(id: string) {
   // Sync унавал баримт аль хэдийн батлагдсан тул алдаа шидэхгүй —
   // reconcile_modules зөрүүг илрүүлж өөрөө засна (self-healing).
   try {
-    await createMovementDraftsForArApDocument(id);
+    // PO-той нэхэмжлэх: орлого нь хүлээн авалтын баримтаас (sync дотор мөн
+    // хамгаалагдсан).
+    if (!document.purchaseOrderId)
+      await createMovementDraftsForArApDocument(id);
     if (voucherId) {
       await syncInventoryDraftForVoucher(voucherId);
       await syncFixedAssetDraftForVoucher(voucherId);
@@ -918,6 +1292,9 @@ async function reverseArApDocumentCore(id: string) {
   if (document.status !== "posted" || !document.voucherId)
     throw new Error("Зөвхөн батлагдсан нэхэмжлэхийг буцаана");
   await assertPeriodOpen(orgId, document.date);
+  // Хаагдсан PO-гийн нэхэмжлэхийг буцаавал хаалтын журнал тэнцэхгүй.
+  if (document.purchaseOrderId)
+    await assertPurchaseOrderNotClosed(orgId, document.purchaseOrderId, "буцаах");
 
   // Аюулгүйн давхар шалгалт — статус posted атлаа settlement үлдсэн байж болно.
   const settlement = await db.query.arApSettlements.findFirst({
@@ -1003,6 +1380,10 @@ async function reverseArApDocumentCore(id: string) {
         credit: line.debit,
         description: line.description,
         sortOrder: index,
+        // Клирингийн бизнес объект урвуу мөрд ч дамжина — PO-гүй баримтад
+        // хоёулаа null тул хуучин зан төлөв өөрчлөгдөхгүй.
+        businessObjectType: line.businessObjectType,
+        businessObjectId: line.businessObjectId,
       }))
     );
 
@@ -1080,6 +1461,10 @@ async function deleteArApDocumentCore(id: string) {
     permissionModuleOf(document.documentType),
     document.status === "draft" ? "write" : "post"
   );
+  // Хаагдсан PO-гийн нэхэмжлэхийг устгавал хаалтын нөхцөл/журнал эвдэрнэ
+  // (ноорог нэхэмжлэх ч PO-гийн нэхэмжилсэн нийлбэрт тооцогддог).
+  if (document.purchaseOrderId)
+    await assertPurchaseOrderNotClosed(orgId, document.purchaseOrderId, "устгах");
 
   if (document.status !== "draft") {
     await assertPeriodOpen(orgId, document.date);
@@ -1232,6 +1617,9 @@ export async function updateArApDocument(
     controlAccountNumber,
   };
 
+  // PO-гийн холбоос ҮҮСГЭХ үед тогтдог — засварлаж сольдоггүй.
+  const purchaseOrderId = document.purchaseOrderId;
+
   let newLines:
     | {
         account: string;
@@ -1240,33 +1628,78 @@ export async function updateArApDocument(
         itemId: string | null;
         quantity: number | null;
         warehouseId: string | null;
+        purchaseOrderLineId: string | null;
+        unitPrice: number | null;
+        costComponentId: string | null;
       }[]
     | null = null;
   if (data.lines) {
     const validLines = data.lines
-      .map((line) => ({
-        account: line.account.trim(),
-        description: line.description.trim(),
-        amount: Number(line.amount),
-        itemId: line.itemId || null,
-        quantity: line.itemId ? Number(line.quantity ?? 0) : null,
-        warehouseId: line.itemId ? line.warehouseId || null : null,
-      }))
+      .map((line) => {
+        const quantity = line.itemId ? Number(line.quantity ?? 0) : null;
+        const rawUnitPrice =
+          line.unitPrice != null ? Number(line.unitPrice) : null;
+        const unitPrice =
+          rawUnitPrice != null &&
+          Number.isFinite(rawUnitPrice) &&
+          rawUnitPrice > 0
+            ? rawUnitPrice
+            : null;
+        const given = Number(line.amount);
+        const amount =
+          given > 0
+            ? given
+            : quantity != null && quantity > 0 && unitPrice != null
+              ? roundMoney(quantity * unitPrice)
+              : given;
+        return {
+          account: line.account.trim(),
+          description: line.description.trim(),
+          amount,
+          itemId: line.itemId || null,
+          quantity,
+          warehouseId: line.itemId ? line.warehouseId || null : null,
+          purchaseOrderLineId: line.purchaseOrderLineId || null,
+          unitPrice,
+          costComponentId: line.costComponentId || null,
+        };
+      })
       .filter((line) => line.account && line.amount > 0);
     if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
-    const clearingAccount = (await loadCostingAccountSettings(orgId, userId))
-      .clearingAccountNumber;
+    const costingRoles = await loadCostingAccountSettings(orgId, userId);
+    const clearingAccount = costingRoles.clearingAccountNumber;
+    const apClearingAccount = costingRoles.apClearingAccountNumber;
     for (const line of validLines) {
       assertAmount(line.amount, "Мөрийн дүн");
       await assertEnabledMainAccount(orgId, line.account);
+      const lineMain = extractMainAccount(line.account);
+      if (line.itemId && line.costComponentId)
+        throw new Error(
+          "Нэг мөрөнд бараа ба өртгийн бүрэлдэхүүн зэрэг байж болохгүй"
+        );
+      if (line.costComponentId) {
+        if (!purchaseOrderId)
+          throw new Error(
+            "Өртгийн бүрэлдэхүүнтэй мөр зөвхөн захиалгатай (PO) нэхэмжлэхэд бичигдэнэ"
+          );
+        if (lineMain !== apClearingAccount)
+          throw new Error(
+            `Бүрэлдэхүүнтэй мөрийн данс ${apClearingAccount} (өглөгийн түр данс) байх ёстой — хуваарилалт барааны өртөгт капиталжина`
+          );
+      }
       if (!line.itemId) continue;
       if (!(line.quantity! > 0))
         throw new Error("Бараатай мөрөнд тоо хэмжээ 0-ээс их байна");
-      const lineMain = extractMainAccount(line.account);
-      if (document.documentType === "ap_bill" && lineMain !== clearingAccount)
-        throw new Error(
-          `Бараатай мөрийн данс ${clearingAccount} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
-        );
+      if (document.documentType === "ap_bill") {
+        if (purchaseOrderId && lineMain !== apClearingAccount)
+          throw new Error(
+            `PO-той нэхэмжлэхийн бараатай мөрийн данс ${apClearingAccount} (өглөгийн түр данс) байх ёстой — орлогын капитализаци хүлээн авалтын баримтаас бичигдэнэ`
+          );
+        if (!purchaseOrderId && lineMain !== clearingAccount)
+          throw new Error(
+            `Бараатай мөрийн данс ${clearingAccount} (клиринг) байх ёстой — өртгийн модуль капитализацийг өөрөө бичнэ`
+          );
+      }
       if (document.documentType === "ar_invoice" && lineMain.startsWith("14"))
         throw new Error(
           "Борлуулалтын бараатай мөр орлогын дансанд суана — COGS бичилтийг өртгийн модуль хийнэ"
@@ -1304,6 +1737,18 @@ export async function updateArApDocument(
   }
 
   await db.transaction(async (tx) => {
+    // PO-той ноорогт мөр солигдвол захиалгын нөхцөл ДАХИН шалгагдана
+    // (өөрийн хадгалагдсан мөрүүд нийлбэрээс хасагдана).
+    if (purchaseOrderId && newLines)
+      await assertPurchaseOrderLines(tx, {
+        orgId,
+        purchaseOrderId,
+        documentType: document.documentType as ArApDocumentType,
+        counterpartyId: document.counterpartyId,
+        currency: document.currency,
+        lines: newLines,
+        excludeDocumentId: id,
+      });
     await tx
       .update(arApDocuments)
       .set(updateValues)
@@ -1323,6 +1768,9 @@ export async function updateArApDocument(
           itemId: line.itemId,
           quantity: line.quantity != null ? String(line.quantity) : null,
           warehouseId: line.warehouseId,
+          purchaseOrderLineId: line.purchaseOrderLineId,
+          unitPrice: line.unitPrice != null ? String(line.unitPrice) : null,
+          costComponentId: line.costComponentId,
           sortOrder: index,
         }))
       );

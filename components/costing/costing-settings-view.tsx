@@ -73,6 +73,7 @@ export type CostComponentRow = {
 
 export type CostingAccountRolesRow = {
   clearingAccountNumber: string;
+  apClearingAccountNumber: string;
   adjustmentGainAccountNumber: string;
   adjustmentLossAccountNumber: string;
   nrvExpenseAccountNumber: string;
@@ -208,6 +209,11 @@ const ROLE_FIELDS: {
     hint: "Орлогын эсрэг тал: Dr бараа / Cr клиринг. АП-ийн бараатай мөр энд суана.",
   },
   {
+    key: "apClearingAccountNumber",
+    label: "Өглөгийн түр данс (хангамж)",
+    hint: "Захиалгатай (PO) нэхэмжлэх бүр Dr; PO хаахад Cr — бараа материалын түр данстай захиалгаараа тэгширнэ.",
+  },
+  {
     key: "adjustmentGainAccountNumber",
     label: "Тооллогын илүүдэл",
     hint: "Тооллогоор илүү гарсан барааны эсрэг тал (орлого).",
@@ -260,6 +266,7 @@ function AccountRolesSection({
     startTransition(async () => {
       const result = await saveCostingAccountSettings({
         clearingAccountNumber: form.clearingAccountNumber,
+        apClearingAccountNumber: form.apClearingAccountNumber,
         adjustmentGainAccountNumber: form.adjustmentGainAccountNumber,
         adjustmentLossAccountNumber: form.adjustmentLossAccountNumber,
         nrvExpenseAccountNumber: form.nrvExpenseAccountNumber,

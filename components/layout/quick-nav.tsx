@@ -27,6 +27,7 @@ import {
 import {
   openArapDocPanel,
   openCashDocPanel,
+  openPurchaseOrderPanel,
   openVoucherPanel,
 } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,12 @@ type DocHit = {
   sub: string;
 };
 
-type DocSearchResult = { arap: DocHit[]; cash: DocHit[]; vouchers: DocHit[] };
+type DocSearchResult = {
+  arap: DocHit[];
+  cash: DocHit[];
+  vouchers: DocHit[];
+  purchaseOrders: DocHit[];
+};
 
 function buildEntries(disabledModuleIds: string[]): NavEntry[] {
   // Модулийн тохиргоогоор унтраасан модулийн хуудас, үүсгэх үйлдэл палитрт
@@ -311,6 +317,19 @@ function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
             sub: hit.sub,
             icon: "journal",
             run: () => openVoucherPanel(hit.id),
+          })),
+          ...docResult.purchaseOrders.map((hit): NavEntry => ({
+            key: `purchase-order:${hit.id}`,
+            search: "",
+            group: "Худалдан авалтын захиалга",
+            label: hit.label,
+            sub: hit.sub,
+            icon: "packageReceipt",
+            run: () =>
+              openPurchaseOrderPanel({
+                purchaseOrderId: hit.id,
+                title: hit.documentNo,
+              }),
           })),
         ]
       : [];

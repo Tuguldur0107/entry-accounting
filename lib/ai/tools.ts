@@ -68,6 +68,38 @@ import {
   updateInventoryMovement,
 } from "@/lib/actions/inventory";
 import { postCostEntries } from "@/lib/actions/costing";
+import {
+  createCostAllocation,
+  reverseCostAllocation,
+  loadPoAllocationTargets,
+} from "@/lib/actions/cost-allocation";
+import {
+  approvePurchaseOrder,
+  cancelPurchaseOrder,
+  closePurchaseOrder,
+  confirmGoodsReceipt,
+  createApInvoiceFromPo,
+  createGoodsReceipt,
+  createPurchaseOrder,
+  getLandedCostSummary,
+  reverseGoodsReceipt,
+  updatePurchaseOrder,
+} from "@/lib/actions/procurement";
+import {
+  loadGoodsReceiptDetail,
+  loadPurchaseOrderDetail,
+  loadPurchaseOrders,
+  loadUnallocatedCostLines,
+} from "@/lib/procurement/load-data";
+import {
+  ALLOCATION_BASE_LABELS,
+  type AllocationBase,
+} from "@/lib/costing/allocation";
+import type {
+  PurchaseOrderDetail,
+  PurchaseOrderLineView,
+  PurchaseOrderStatus,
+} from "@/lib/procurement/types";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
 import { closePeriod, listPeriods, reopenPeriod } from "@/lib/actions/periods";
 import { createVatSettlementDraft, getVatReturnData } from "@/lib/actions/vat";
@@ -107,17 +139,20 @@ import {
   cashFxRevaluations,
   cashDocuments,
   chartOfAccounts,
+  costAllocations,
   costComponents,
   costEntries,
   counterparties,
   employees,
   faDepreciationEntries,
   fixedAssets,
+  goodsReceipts,
   inventoryIssueTypes,
   inventoryItems,
   inventoryMovements,
   journalLines,
   journalVouchers,
+  purchaseOrders,
   reportLineMappings,
   segmentConfigs,
   segmentValues,
@@ -234,7 +269,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "create_arap_invoice",
     description:
-      "Авлагын нэхэмжлэл (ar_invoice) эсвэл өглөгийн нэхэмжлэх (ap_bill) үүсгэнэ. Харилцагчийг нэрээр нь заана — олдохгүй/олон таарвал алдаа буцаана (list_counterparties-оор шалгаж болно). Бараатай мөрөнд itemCode+quantity+warehouseCode өгвөл батлагдахад бараа материалын хөдөлгөөний ноорог автоматаар үүснэ.",
+      "Авлагын нэхэмжлэл (ar_invoice) эсвэл өглөгийн нэхэмжлэх (ap_bill) үүсгэнэ. Харилцагчийг нэрээр нь заана — олдохгүй/олон таарвал алдаа буцаана (list_counterparties-оор шалгаж болно). Бараатай мөрөнд itemCode+quantity+warehouseCode өгвөл батлагдахад бараа материалын хөдөлгөөний ноорог автоматаар үүснэ. Худалдан авалтын захиалгатай (PO) нэхэмжлэхийг create_ap_invoice_from_po-гоор үүсгэх нь хялбар (үлдэгдэл автоматаар бөглөгдөнө) — purchaseOrder талбар нь гараар мөр бүрийг заах хувилбар.",
     inputSchema: {
       type: "object",
       properties: {
@@ -253,6 +288,11 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         currency: { type: "string", description: "Валют (default: харилцагчийнх, ихэвчлэн MNT)" },
         exchangeRate: { type: "number", description: "Валют MNT биш үед ханш" },
+        purchaseOrder: {
+          type: "string",
+          description:
+            "Худалдан авалтын захиалга (PO дугаар, externalRef эсвэл 6+ тэмдэгтийн ID) — зөвхөн ap_bill. Өгвөл бараа/бүрэлдэхүүнтэй мөрүүд ӨГЛӨГИЙН ТҮР ДАНСанд суух ба орлогын хөдөлгөөн ҮҮСЭХГҮЙ (орлого нь хүлээн авалтын баримтаас). Захиалга хаагдсан бол [PO_CLOSED]",
+        },
         lines: {
           type: "array",
           items: {
@@ -261,13 +301,28 @@ export const AI_TOOLS: AiToolDef[] = [
               account: {
                 type: "string",
                 description:
-                  "Мөрийн данс (8 оронтой). АП-ийн БАРААТАЙ мөрөнд орхи — клирингийн данс автоматаар орно",
+                  "Мөрийн данс (8 оронтой). АП-ийн БАРААТАЙ мөрөнд орхи — клирингийн данс автоматаар орно (PO-той бол өглөгийн түр данс)",
               },
               description: { type: "string" },
-              amount: { type: "number", description: "Мөрийн дүн (0-ээс их)" },
+              amount: { type: "number", description: "Мөрийн дүн (0-ээс их). unitPrice+quantity өгвөл орхиж болно" },
               itemCode: { type: "string", description: "Барааны код (бараатай мөрөнд)" },
               quantity: { type: "number", description: "Тоо хэмжээ (бараатай мөрөнд заавал)" },
               warehouseCode: { type: "string", description: "Агуулахын код (бараатай мөрөнд заавал)" },
+              unitPrice: {
+                type: "number",
+                description:
+                  "Нэгж үнэ (баримтын валютаар) — тоо × нэгж үнэ = мөрийн дүн",
+              },
+              purchaseOrderLineId: {
+                type: "string",
+                description:
+                  "Захиалгын мөрийн ID (get_purchase_order-оос) — purchaseOrder өгсөн үед бараатай мөрийг PO мөртэй холбоно",
+              },
+              costComponentCode: {
+                type: "string",
+                description:
+                  "Өртгийн бүрэлдэхүүний код (гааль, тээвэр … — get_costing_settings). Зөвхөн PO-той нэхэмжлэхэд, бараатай мөртэй ЗЭРЭГ байж болохгүй; хуваарилалтаар барааны өртөгт капиталжина",
+              },
             },
             required: ["amount"],
           },
@@ -563,6 +618,11 @@ export const AI_TOOLS: AiToolDef[] = [
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (default MNT)" },
         paymentTermsDays: { type: "integer", description: "Төлбөрийн нөхцөл, хоногоор (default 30)" },
+        phone: { type: "string", description: "Утас (сонголтоор)" },
+        address: { type: "string", description: "Хаяг (сонголтоор)" },
+        contactPerson: { type: "string", description: "Холбоо барих хүн (сонголтоор)" },
+        bankName: { type: "string", description: "Банкны нэр — нийлүүлэгчийн төлбөрт (сонголтоор)" },
+        bankAccountNo: { type: "string", description: "Банкны дансны дугаар (сонголтоор)" },
       },
       required: ["name", "counterpartyType"],
     },
@@ -615,6 +675,9 @@ export const AI_TOOLS: AiToolDef[] = [
         email: { type: "string", description: "И-мэйл — нэхэмжлэх илгээхэд (сонголтоор)" },
         phone: { type: "string", description: "Утас (сонголтоор)" },
         address: { type: "string", description: "Хаяг (сонголтоор)" },
+        contactPerson: { type: "string", description: "Холбоо барих хүн (сонголтоор)" },
+        bankName: { type: "string", description: "Банкны нэр (сонголтоор)" },
+        bankAccountNo: { type: "string", description: "Банкны дансны дугаар (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
       },
       required: ["counterparty"],
@@ -1225,7 +1288,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "get_month_end_checklist",
     description:
-      "Сар хаалтын шалгах хуудас: элэгдэл, FX тэгшитгэл, өртөг тооцоо, НӨАТ тооцоо, үлдсэн ноорог, периодын төлөв — алхам бүрийн статустай. Сар хаахын өмнө юу дутууг харахад ашиглана (вэб: Системийн хяналт → Сар хаалт).",
+      "Сар хаалтын шалгах хуудас: элэгдэл, FX тэгшитгэл, өртөг тооцоо, цалин, НӨАТ тооцоо, ХАНГАМЖ (хүлээн авалттай нээлттэй захиалга сар хаалтыг хориглоно), үлдсэн ноорог, периодын төлөв — алхам бүрийн статустай. Сар хаахын өмнө юу дутууг харахад ашиглана (вэб: Системийн хяналт → Сар хаалт).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1305,6 +1368,7 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           enum: [
             "purchase_inventory",
+            "purchase_order",
             "sale",
             "payment",
             "month_end_close",
@@ -1313,7 +1377,7 @@ export const AI_TOOLS: AiToolDef[] = [
             "fixed_asset_lifecycle",
           ],
           description:
-            "purchase_inventory=бараатай худалдан авалт, sale=борлуулалт, payment=нэхэмжлэх төлөх, month_end_close=сар хаалт, fix_discrepancy=зөрүү засах, new_company_setup=шинэ компанийн тохиргоо, fixed_asset_lifecycle=ҮХ-ийн амьдралын мөчлөг",
+            "purchase_inventory=бараатай худалдан авалт (PO-гүй жижиг), purchase_order=захиалгатай худалдан авалт (импорт, нэмэлт зардал, PO хаалт), sale=борлуулалт, payment=нэхэмжлэх төлөх, month_end_close=сар хаалт, fix_discrepancy=зөрүү засах, new_company_setup=шинэ компанийн тохиргоо, fixed_asset_lifecycle=ҮХ-ийн амьдралын мөчлөг",
         },
       },
       required: ["workflow"],
@@ -1810,11 +1874,16 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "update_costing_accounts",
     description:
-      "Өртгийн дансны рольуудыг засна — зөвхөн өгсөн нь өөрчлөгдөнө (клиринг, тооллогын илүүдэл/дутагдал, NRV зардал/нөөц).",
+      "Өртгийн дансны рольуудыг засна — зөвхөн өгсөн нь өөрчлөгдөнө (бараа материалын түр данс, өглөгийн түр данс, тооллогын илүүдэл/дутагдал, NRV зардал/нөөц).",
     inputSchema: {
       type: "object",
       properties: {
-        clearingAccount: { type: "string", description: "Клирингийн данс" },
+        clearingAccount: { type: "string", description: "Бараа материалын түр (клиринг) данс" },
+        apClearingAccount: {
+          type: "string",
+          description:
+            "Өглөгийн түр данс — захиалгатай (PO) нэхэмжлэх Dr, PO хаалт Cr",
+        },
         adjustmentGainAccount: { type: "string", description: "Тооллогын илүүдлийн данс" },
         adjustmentLossAccount: { type: "string", description: "Тооллогын дутагдлын данс" },
         nrvExpenseAccount: { type: "string", description: "NRV зардлын данс" },
@@ -1869,6 +1938,413 @@ export const AI_TOOLS: AiToolDef[] = [
     description:
       "Бараа материалын мөнгөн үнэлгээ — бараа бүрийн хамгийн сүүлд тооцоологдсон сарын хаалтын үлдэгдэл (тоо, дүн, нэгж өртөг) cost_period_results-ээс. get_stock_balances нь зөвхөн ТОО; энэ нь ҮНЭЛГЭЭ.",
     inputSchema: { type: "object", properties: {} },
+  },
+
+  // ── Хангамж (PO + орлогдох өртөг) ─────────────────────────────────────────
+  {
+    name: "create_purchase_order",
+    description:
+      "Худалдан авалтын захиалга (PO) НООРОГ болж үүснэ — GL бичилт ҮГҮЙ (захиалга нь гүйлгээ биш). Нийлүүлэгчийг нэрээр (supplier/both төрөлтэй харилцагч), бараа/агуулахыг кодоор заана. Дараа нь approve_purchase_order-оор нээлттэй болгож, create_goods_receipt-ээр хүлээн авна. 'Шууд бичих' горимд ≤10 сая ₮ захиалга шууд батлагдана (валюттай бол exchangeRate ил өгсөн үед).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        supplier: { type: "string", description: "Нийлүүлэгчийн нэр (supplier эсвэл both төрөлтэй)" },
+        date: { type: "string", description: "Захиалгын огноо YYYY-MM-DD" },
+        expectedDate: { type: "string", description: "Хүргэх огноо YYYY-MM-DD (сонголтоор)" },
+        currency: { type: "string", description: "Валют (default MNT). Нэгж үнэ ЭНЭ валютаар" },
+        exchangeRate: {
+          type: "number",
+          description:
+            "1 валют = ? ₮ — ЗӨВХӨН 10 сая ₮-ийн хязгаарыг шалгахад хэрэглэгдэнэ (захиалгад хадгалагдахгүй; барааны өртөг нь хүлээн авсан өдрийн Монголбанкны ханшаар тодорхойлогдоно)",
+        },
+        warehouseCode: { type: "string", description: "Мөр бүрийн default агуулахын код" },
+        description: { type: "string", description: "Захиалгын утга" },
+        documentNo: { type: "string", description: "Захиалгын дугаар (хоосон бол автоматаар)" },
+        externalRef: EXTERNAL_REF_SCHEMA,
+        lines: {
+          type: "array",
+          description: "Захиалгын мөрүүд (дор хаяж 1)",
+          items: {
+            type: "object",
+            properties: {
+              itemCode: { type: "string", description: "Барааны код (list_inventory)" },
+              quantity: { type: "number", description: "Захиалсан тоо (0-ээс их)" },
+              unitPrice: { type: "number", description: "Нэгж үнэ захиалгын валютаар (0-ээс их)" },
+              warehouseCode: { type: "string", description: "Мөрийн агуулах (хоосон бол толгойн)" },
+              description: { type: "string", description: "Мөрийн тайлбар" },
+            },
+            required: ["itemCode", "quantity", "unitPrice"],
+          },
+        },
+      },
+      required: ["supplier", "date", "description", "lines"],
+    },
+  },
+  {
+    name: "update_purchase_order",
+    description:
+      "Ноорог эсвэл нээлттэй захиалгыг засна — мөрүүд өгвөл БҮХЭЛДЭЭ солигдоно (хүлээн авсан/нэхэмжилсэн тооноос доогуур болгож болохгүй). Хаагдсан захиалгыг засахгүй ([PO_CLOSED]).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+        date: { type: "string", description: "Огноо YYYY-MM-DD" },
+        expectedDate: { type: "string", description: "Хүргэх огноо YYYY-MM-DD" },
+        warehouseCode: { type: "string", description: "Default агуулахын код" },
+        description: { type: "string", description: "Захиалгын утга" },
+        lines: {
+          type: "array",
+          description:
+            "Мөрүүд БҮХЭЛДЭЭ (өгвөл хуучин мөрүүдийг ОРЛУУЛНА — жагсаалтад ороогүй мөр хасагдана). Байгаа мөрийг засахдаа purchaseOrderLineId-г өгнө (эсвэл ижил barааны код давхардаагүй бол автоматаар тааруулна) — эс бөгөөс хүлээн авсан/нэхэмжилсэн мөр хасагдаж [OVER_RECEIVED]/[OVER_INVOICED] гарна",
+          items: {
+            type: "object",
+            properties: {
+              purchaseOrderLineId: {
+                type: "string",
+                description:
+                  "Байгаа мөрийн ID (get_purchase_order-оос) — үнэ/тоо засахад",
+              },
+              itemCode: { type: "string", description: "Барааны код" },
+              quantity: { type: "number", description: "Тоо" },
+              unitPrice: { type: "number", description: "Нэгж үнэ (PO валют)" },
+              warehouseCode: { type: "string", description: "Мөрийн агуулах" },
+              description: { type: "string", description: "Мөрийн тайлбар" },
+            },
+            required: ["itemCode", "quantity", "unitPrice"],
+          },
+        },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "approve_purchase_order",
+    description:
+      "Ноорог захиалгыг баталж НЭЭЛТТЭЙ болгоно (GL бичилт үгүй — цаашид хүлээн авалт, нэхэмжлэх бүртгэх боломжтой болно). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд зөвшөөрөгдөнө.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+        exchangeRate: {
+          type: "number",
+          description:
+            "Валюттай захиалгад 1 валют = ? ₮ — ЗӨВХӨН 10 сая ₮-ийн хязгаарыг шалгахад (хадгалагдахгүй). Өгөхгүй бол [EXCHANGE_RATE_REQUIRED]",
+        },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "close_purchase_order",
+    description:
+      "Захиалгыг ХААНА — түр дансдыг тэгшитгэсэн батлагдсан журнал үүснэ (Dr бараа материалын түр данс / Cr өглөгийн түр данс; зөрүү нь ханшийн олз/гарз дансанд). Нөхцөл: Σ хүлээн авсан = захиалсан, Σ нэхэмжилсэн тоо ба дүн = захиалгын дүн, бүх нэмэлт зардал хуваарилагдсан ([PO_NOT_READY], шалтгааныг get_purchase_order харуулна). Зөвхөн 'Шууд бичих' горимд, хаалтын журналын дүн 10 сая ₮-с хэтрэхгүй үед — их дүнтэй импортыг нягтланч вэб дээрээс хаана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+        closeDate: {
+          type: "string",
+          description: "Хаах огноо YYYY-MM-DD (хоосон бол өнөөдөр) — хаалтын журналын огноо",
+        },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "cancel_purchase_order",
+    description:
+      "Ноорог эсвэл нээлттэй захиалгыг ЦУЦЛАНА (хүлээн авалт, нэхэмжлэхгүй байх ёстой — байвал эхлээд тэднийг буцаана). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+        exchangeRate: {
+          type: "number",
+          description:
+            "Валюттай захиалгад 1 валют = ? ₮ — зөвхөн хязгаарын шалгалтад (хадгалагдахгүй)",
+        },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "list_purchase_orders",
+    description:
+      "Худалдан авалтын захиалгуудын жагсаалт (огноо, дугаар, нийлүүлэгч, дүн+валют, хүлээн авсан/нэхэмжилсэн %, төлөв, ID).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        supplier: { type: "string", description: "Нийлүүлэгчийн нэрээр шүүх" },
+        status: {
+          type: "string",
+          enum: ["draft", "open", "closed", "cancelled"],
+          description: "Төлвөөр шүүх",
+        },
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        openOnly: { type: "boolean", description: "Зөвхөн нээлттэй (батлагдсан, хаагдаагүй)" },
+        limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
+      },
+    },
+  },
+  {
+    name: "get_purchase_order",
+    description:
+      "Захиалгын дэлгэрэнгүй: мөр бүрийн захиалсан / хүлээн авсан / нэхэмжилсэн тоо ба дүн, хүлээн авалтууд, нэхэмжлэхүүд, хуваарилагдаагүй нэмэлт зардал, хоёр түр дансны үлдэгдэл, хаалтын хориглолтын шалтгаанууд. Хүлээн авалт/нэхэмжлэх/хуваарилалт хийхийн ӨМНӨ мөрийн ID-г эндээс авна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+      },
+      required: ["purchaseOrderId"],
+    },
+  },
+  {
+    name: "create_goods_receipt",
+    description:
+      "Барааны ХҮЛЭЭН АВАЛТ (GR) ноорог үүсгэнэ — нээлттэй захиалгаас. Мөр өгөхгүй бол хүлээн аваагүй үлдэгдэл БҮХЭЛДЭЭ бөглөгдөнө. Ханш өгөхгүй бол тухайн өдрийн Монголбанкны албан ханш автоматаар татагдана (олдохгүй бол алдаа — ханш ЗОХИОГДОХГҮЙ). Батлахад бараа Dr барааны нөөц / Cr бараа материалын түр данс гэж АВТОМАТ капиталжина (тоо × PO нэгж үнэ × ханш). 'Шууд бичих' горимд ≤10 сая ₮ бол шууд баталгаажна (валюттай бол exchangeRate ил өгсөн үед).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+        date: { type: "string", description: "Хүлээн авсан огноо YYYY-MM-DD" },
+        warehouseCode: { type: "string", description: "Агуулахын код (хоосон бол захиалгын default)" },
+        exchangeRate: {
+          type: "number",
+          description:
+            "Хүлээн авсан өдрийн ханш (1 валют = ? ₮). Хоосон бол Монголбанкны албан ханш автоматаар",
+        },
+        documentNo: { type: "string", description: "Баримтын дугаар (хоосон бол автоматаар)" },
+        description: { type: "string", description: "Тайлбар" },
+        lines: {
+          type: "array",
+          description:
+            "Хүлээн авсан мөрүүд (хоосон бол хүлээн аваагүй үлдэгдэл бүхэлдээ). Илүү бол [OVER_RECEIVED]",
+          items: {
+            type: "object",
+            properties: {
+              purchaseOrderLineId: {
+                type: "string",
+                description: "Захиалгын мөрийн ID (get_purchase_order-оос, бүтэн/6+ тэмдэгт)",
+              },
+              itemCode: {
+                type: "string",
+                description: "Эсвэл барааны код (захиалгад нэг л мөр байх үед)",
+              },
+              quantity: { type: "number", description: "Хүлээн авсан тоо (0-ээс их)" },
+            },
+            required: ["quantity"],
+          },
+        },
+      },
+      required: ["purchaseOrderId", "date"],
+    },
+  },
+  {
+    name: "confirm_goods_receipt",
+    description:
+      "Ноорог хүлээн авалтыг БАТАЛНА — орлогын хөдөлгөөн баталгаажиж, receipt_capitalize өртгийн бичилт + батлагдсан журнал (Dr барааны нөөц / Cr бараа материалын түр данс) үүснэ. Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        receiptId: {
+          type: "string",
+          description: "Хүлээн авалтын дугаар (GR-…) эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+      },
+      required: ["receiptId"],
+    },
+  },
+  {
+    name: "reverse_goods_receipt",
+    description:
+      "Баталгаажсан хүлээн авалтыг БУЦААНА — капитализацийн журнал эсрэг мөрөөр буцааж, орлогын хөдөлгөөн цуцлагдана (хаагдсан захиалгад хийхгүй). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        receiptId: {
+          type: "string",
+          description: "Хүлээн авалтын дугаар (GR-…) эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+      },
+      required: ["receiptId"],
+    },
+  },
+  {
+    name: "create_ap_invoice_from_po",
+    description:
+      "Захиалгаас НИЙЛҮҮЛЭГЧИЙН (захиалгын харилцагчийн) АП нэхэмжлэх үүсгэнэ — мөр өгөхгүй бол нэхэмжлээгүй үлдэгдэл × PO нэгж үнэ бүхэлдээ автоматаар орно. Dr өглөгийн түр данс / Cr өглөг (хөдөлгөөн ҮҮСГЭХГҮЙ — орлого нь хүлээн авалтаас). costLines нь НИЙЛҮҮЛЭГЧ өөрөө нэхэмжилсэн нэмэлт зардал (тээвэр г.м), otherLines нь капиталжихгүй мөр (импортын НӨАТ). ГААЛЬ, тээврийн компани зэрэг ӨӨР харилцагчийн зардлын нэхэмжлэхийг create_arap_invoice {purchaseOrder, мөрийн costComponentCode}-оор бүртгэнэ. Хаагдсан захиалга → [PO_CLOSED]; илүү нэхэмжлэх → [OVER_INVOICED]. Ноорог болж үүсэх ба 'Шууд бичих' горимд ≤10 сая ₮ бол шууд батлагдана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+        date: { type: "string", description: "Нэхэмжлэхийн огноо YYYY-MM-DD" },
+        dueDate: { type: "string", description: "Төлөх огноо YYYY-MM-DD (хоосон бол нөхцөлөөр)" },
+        exchangeRate: {
+          type: "number",
+          description:
+            "Нэхэмжлэхийн өдрийн ханш (хоосон бол Монголбанкны албан ханш автоматаар)",
+        },
+        description: { type: "string", description: "Баримтын утга" },
+        documentNo: { type: "string", description: "Нэхэмжлэхийн дугаар (сонголтоор)" },
+        externalRef: EXTERNAL_REF_SCHEMA,
+        lines: {
+          type: "array",
+          description:
+            "Барааны мөрүүд. ХООСОН бол нэхэмжлээгүй үлдэгдэл БҮХЭЛДЭЭ нэхэмжлэгдэнэ — зөвхөн зардлын мөр бичих гэж байвал үүнийг анхаар (хэсэгчилсэн нэхэмжлэхэд мөрүүдээ ил өгнө)",
+          items: {
+            type: "object",
+            properties: {
+              purchaseOrderLineId: {
+                type: "string",
+                description: "Захиалгын мөрийн ID (get_purchase_order-оос)",
+              },
+              itemCode: { type: "string", description: "Эсвэл барааны код" },
+              quantity: { type: "number", description: "Нэхэмжилсэн тоо" },
+              unitPrice: { type: "number", description: "Нэгж үнэ (хоосон бол PO нэгж үнэ)" },
+            },
+            required: ["quantity"],
+          },
+        },
+        costLines: {
+          type: "array",
+          description:
+            "Нэмэлт зардлын мөрүүд — барааны өртөгт капиталжина (дараа нь create_cost_allocation-оор хуваарилагдана)",
+          items: {
+            type: "object",
+            properties: {
+              costComponentCode: {
+                type: "string",
+                description: "Өртгийн бүрэлдэхүүний код (get_costing_settings)",
+              },
+              amount: { type: "number", description: "Дүн баримтын валютаар (0-ээс их)" },
+              description: { type: "string", description: "Мөрийн тайлбар" },
+            },
+            required: ["costComponentCode", "amount"],
+          },
+        },
+        otherLines: {
+          type: "array",
+          description:
+            "Капиталжихгүй мөрүүд — данс ИЛ (импортын НӨАТ 13620000 г.м)",
+          items: {
+            type: "object",
+            properties: {
+              account: { type: "string", description: "Дансны 8 оронтой дугаар" },
+              amount: { type: "number", description: "Дүн баримтын валютаар (0-ээс их)" },
+              description: { type: "string", description: "Мөрийн тайлбар" },
+            },
+            required: ["account", "amount"],
+          },
+        },
+      },
+      required: ["purchaseOrderId", "date"],
+    },
+  },
+  {
+    name: "create_cost_allocation",
+    description:
+      "Нэмэлт зардлыг (гааль, тээвэр, брокер …) орлогуудад хуваарилж landed_cost НООРОГ өртгийн бичилт үүсгэнэ (Dr барааны нөөц / Cr бараа материалын түр данс; post_cost_entries-ээр батална). allocationBase-ийг ЗААВАЛ ил өгнө — default байхгүй (батлагдсан шийдвэр OD-017). Захиалгын зардлыг sourceLine-аар (АП нэхэмжлэхийн мөрийн ID, get_purchase_order/get_landed_cost_summary-аас) холбоно: бүрэлдэхүүн, захиалга, хуваарилах орлогууд автоматаар тодорхойлогдоно, Σ хуваарилалт мөрийн ₮ дүнгээс хэтэрвэл [ALLOCATION_EXCEEDS_LINE].",
+    inputSchema: {
+      type: "object",
+      properties: {
+        allocationBase: {
+          type: "string",
+          enum: ["value", "quantity", "manual"],
+          description:
+            "ЗААВАЛ: value=үнийн дүнгээр (жин нь захиалгын мөрийн нийт үнэ), quantity=тоо хэмжээгээр, manual=мөр бүрийн дүнг гараар (Σ = зардлын дүн байх ёстой)",
+        },
+        sourceLine: {
+          type: "string",
+          description:
+            "Зардал гарсан АП нэхэмжлэхийн МӨРИЙН ID (бүтэн/6+ тэмдэгт) — захиалгатай зардалд ЗААВАЛ",
+        },
+        date: { type: "string", description: "Хуваарилалтын огноо YYYY-MM-DD (хоосон бол нэхэмжлэхийн огноо)" },
+        totalAmount: {
+          type: "number",
+          description: "Хуваарилах дүн ₮ (хоосон бол мөрийн хуваарилагдаагүй үлдэгдэл)",
+        },
+        component: {
+          type: "string",
+          description:
+            "Өртгийн бүрэлдэхүүний код — ЗӨВХӨН sourceLine байхгүй (захиалгагүй) хуваарилалтад",
+        },
+        description: { type: "string", description: "Тайлбар" },
+        documentNo: { type: "string", description: "Баримтын дугаар (хоосон бол ALLOC-…)" },
+        targets: {
+          type: "array",
+          description:
+            "Хуваарилах орлогууд (хоосон бол тухайн захиалгын БҮХ баталгаажсан хүлээн авалт)",
+          items: {
+            type: "object",
+            properties: {
+              movementId: {
+                type: "string",
+                description:
+                  "Орлогын хөдөлгөөний ID (бүтэн эсвэл 6+ тэмдэгт) — get_purchase_order-ийн 'ХУВААРИЛАХ ЗОРИЛТУУД' хэсгээс эсвэл list_inventory_movements-ээс",
+              },
+              manualAmount: {
+                type: "number",
+                description: "manual суурьд энэ орлогод ноогдох дүн ₮",
+              },
+            },
+            required: ["movementId"],
+          },
+        },
+      },
+      required: ["allocationBase"],
+    },
+  },
+  {
+    name: "reverse_cost_allocation",
+    description:
+      "Зардлын хуваарилалтыг БУЦААНА — батлагдсан landed_cost бичилтүүд эсрэг журналаар буцаагдаж, ноорог бичилтүүд устаж, хуваарилалтын баримт хасагдана (мөрийн хуваарилагдаагүй дүн сэргэнэ). Хаагдсан захиалгад хийхгүй ([PO_CLOSED] — эхлээд захиалгыг дахин нээнэ). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        allocationId: {
+          type: "string",
+          description: "Хуваарилалтын дугаар (ALLOC-…) эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+      },
+      required: ["allocationId"],
+    },
+  },
+  {
+    name: "get_landed_cost_summary",
+    description:
+      "Захиалгын ОРЛОГДОХ ӨРТГИЙН хураангуй — бараа бүрээр: худалдан авалтын ₮ дүн, хуваарилагдсан нэмэлт зардлууд (бүрэлдэхүүнээр), нийт орлогдох өртөг ба нэгжид ноогдох өртөг.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        purchaseOrderId: {
+          type: "string",
+          description: "Захиалгын дугаар, externalRef эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+      },
+      required: ["purchaseOrderId"],
+    },
   },
 ];
 
@@ -2072,6 +2548,7 @@ async function runCreateArap(
     controlAccount?: string;
     currency?: string;
     exchangeRate?: number;
+    purchaseOrder?: string;
     lines: {
       account?: string;
       description?: string;
@@ -2079,6 +2556,9 @@ async function runCreateArap(
       itemCode?: string;
       quantity?: number;
       warehouseCode?: string;
+      unitPrice?: number;
+      purchaseOrderLineId?: string;
+      costComponentCode?: string;
     }[];
     vatMode?: "none" | "exclusive" | "inclusive";
     externalRef?: string;
@@ -2144,6 +2624,44 @@ async function runCreateArap(
   const itemsByCode = new Map(items.map((item) => [item.code.toLowerCase(), item]));
   const whByCode = new Map(whList.map((wh) => [wh.code.toLowerCase(), wh]));
 
+  // ── Хангамжийн захиалга (PO): бараа/бүрэлдэхүүн мөр нь ӨГЛӨГИЙН ТҮР
+  // ДАНСанд суух ба орлогын хөдөлгөөн ҮҮСЭХГҮЙ (орлого нь хүлээн авалтаас —
+  // docs/procurement §3.3 ③④).
+  let purchaseOrderId: string | undefined;
+  let purchaseOrderNo = "";
+  let poDetail: PurchaseOrderDetail | null = null;
+  if (input.purchaseOrder?.trim()) {
+    if (!isAp)
+      throw new Error(
+        "Захиалгатай (PO) нэхэмжлэх зөвхөн өглөгийн баримт (ap_bill) байна"
+      );
+    const order = await findPurchaseOrder(orgId, input.purchaseOrder);
+    if (order.status === "closed")
+      throw codedError(
+        "PO_CLOSED",
+        `${order.documentNo} хаагдсан захиалгад нэхэмжлэх нэмэгдэхгүй`
+      );
+    if (order.status !== "open")
+      throw codedError(
+        "PO_NOT_OPEN",
+        `${order.documentNo} захиалга нээлттэй биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — эхлээд approve_purchase_order`
+      );
+    purchaseOrderId = order.id;
+    purchaseOrderNo = order.documentNo;
+    // PO-той баримтын бараатай мөр бүр захиалгын мөртэй холбогдоно — мөрийн
+    // ID өгөөгүй бол барааны кодоор нь олж холбоно.
+    poDetail = await requirePurchaseOrderDetail(orgId, order.id);
+  }
+
+  // Бүрэлдэхүүний кодуудыг урьдчилан ID болгоно (мөрийн map синхрон).
+  const componentIdByCode = new Map<string, string>();
+  for (const line of input.lines ?? []) {
+    const code = line.costComponentCode?.trim();
+    if (!code || componentIdByCode.has(code.toUpperCase())) continue;
+    const component = await requireCostComponentByCode(orgId, code);
+    componentIdByCode.set(code.toUpperCase(), component.id);
+  }
+
   const lines = (input.lines ?? []).map((line) => {
     let itemId: string | undefined;
     let warehouseId: string | undefined;
@@ -2159,20 +2677,52 @@ async function runCreateArap(
       if (!wh) throw new Error(`Бараатай мөрөнд агуулахын код заавал (list_inventory-оор шалгана уу)`);
       warehouseId = wh.id;
     }
-    // АП-ийн бараатай мөр клирингт суана (JPR-006) — данс автоматаар.
+    const costComponentId = line.costComponentCode?.trim()
+      ? componentIdByCode.get(line.costComponentCode.trim().toUpperCase())
+      : undefined;
+    if (costComponentId && itemId)
+      throw new Error(
+        "Нэг мөрөнд бараа ба өртгийн бүрэлдэхүүн зэрэг байж болохгүй"
+      );
+    if (costComponentId && !purchaseOrderId)
+      throw new Error(
+        "Өртгийн бүрэлдэхүүнтэй мөр зөвхөн захиалгатай (PO) нэхэмжлэхэд бичигдэнэ — purchaseOrder талбарыг өгнө үү"
+      );
+    // АП-ийн бараатай мөр клирингт суана (JPR-006) — данс автоматаар;
+    // PO-той баримтын бараа/бүрэлдэхүүн мөр нь ӨГЛӨГИЙН түр дансанд.
     const accountRaw =
-      itemId && isAp
-        ? costingAccounts.clearingAccountNumber
+      (itemId || costComponentId) && isAp
+        ? purchaseOrderId
+          ? costingAccounts.apClearingAccountNumber
+          : costingAccounts.clearingAccountNumber
         : line.account?.trim();
     if (!accountRaw)
       throw new Error("Мөр бүрд данс хэрэгтэй (АП-ийн бараатай мөрөөс бусад)");
+    const unitPrice =
+      line.unitPrice != null && Number(line.unitPrice) > 0
+        ? Number(line.unitPrice)
+        : undefined;
     return {
       account: resolveAccount(accountRaw, ctx).code,
       description: line.description ?? "",
-      amount: Number(line.amount),
+      amount:
+        Number(line.amount) > 0
+          ? Number(line.amount)
+          : itemId && unitPrice
+            ? Math.round(Number(line.quantity) * unitPrice * 100) / 100
+            : Number(line.amount),
       itemId,
       quantity: itemId ? Number(line.quantity) : undefined,
       warehouseId,
+      purchaseOrderLineId:
+        purchaseOrderId && itemId && poDetail
+          ? resolvePurchaseOrderLine(poDetail, {
+              purchaseOrderLineId: line.purchaseOrderLineId,
+              itemCode: line.itemCode,
+            }).id
+          : undefined,
+      unitPrice,
+      costComponentId,
     };
   });
 
@@ -2211,15 +2761,21 @@ async function runCreateArap(
         itemId: undefined,
         quantity: undefined,
         warehouseId: undefined,
+        purchaseOrderLineId: undefined,
+        unitPrice: undefined,
+        costComponentId: undefined,
       });
       vatNote = `, НӨАТ ${fmt(vatAmount)}₮ (${input.vatMode})`;
     }
   }
 
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
+  // PO-той баримтын валют нь захиалгынхтай таарах ёстой — ил өгөөгүй бол
+  // захиалгынхаар (лимитийн хөрвүүлэлт мөн ҮҮГЭЭР).
+  const effectiveCurrency = input.currency || poDetail?.currency || "MNT";
   // Лимитийг ЗААВАЛ MNT-ээр шалгана — валютын баримтын дүн ханшаар үржинэ.
   const baseTotal =
-    input.currency && input.currency !== "MNT"
+    effectiveCurrency !== "MNT"
       ? total * (Number(input.exchangeRate) || 0)
       : total;
   let postNow = false;
@@ -2243,10 +2799,11 @@ async function runCreateArap(
     counterpartyId: counterparty.id,
     date: input.date,
     dueDate,
-    currency: input.currency,
+    currency: input.currency || poDetail?.currency,
     exchangeRate: input.exchangeRate,
     controlAccountNumber: control.code,
     description: input.description,
+    purchaseOrderId,
     lines,
     postNow,
     externalRef,
@@ -2254,7 +2811,7 @@ async function runCreateArap(
 
   const label = isAp ? "Өглөгийн нэхэмжлэх" : "Авлагын нэхэмжлэл";
   return {
-    resultText: `${label} үүслээ. Дугаар: ${documentNo}, харилцагч: ${counterparty.name}, дүн: ${fmt(total)}₮${vatNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+    resultText: `${label} үүслээ. Дугаар: ${documentNo}, харилцагч: ${counterparty.name}, дүн: ${fmt(total)}₮${vatNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${purchaseOrderNo ? ` · захиалга ${purchaseOrderNo} (Dr өглөгийн түр данс; орлого нь хүлээн авалтаас)` : ""}`,
     action: {
       kind: "arap",
       id,
@@ -3144,6 +3701,11 @@ async function runCreateCounterparty(
     defaultPayableAccount?: string;
     currency?: string;
     paymentTermsDays?: number;
+    phone?: string;
+    address?: string;
+    contactPerson?: string;
+    bankName?: string;
+    bankAccountNo?: string;
   }
 ): Promise<AiToolResult> {
   // Нэр нормчлол: trim + доторх давхар зайг нэг болгоно ("Би  Ти Эф " → "Би Ти Эф").
@@ -3187,6 +3749,11 @@ async function runCreateCounterparty(
     defaultPayableAccountNumber: payableCode,
     defaultCurrency: input.currency,
     paymentTermsDays: input.paymentTermsDays,
+    phone: input.phone,
+    address: input.address,
+    contactPerson: input.contactPerson,
+    bankName: input.bankName,
+    bankAccountNo: input.bankAccountNo,
   });
   return {
     resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${registerNo ? ` (ТТД ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
@@ -3227,6 +3794,9 @@ async function runUpdateCounterparty(
     email?: string;
     phone?: string;
     address?: string;
+    contactPerson?: string;
+    bankName?: string;
+    bankAccountNo?: string;
     isActive?: boolean;
   }
 ): Promise<AiToolResult> {
@@ -3261,6 +3831,11 @@ async function runUpdateCounterparty(
   }
   if (input.phone != null) changes.phone = input.phone.trim() || null;
   if (input.address != null) changes.address = input.address.trim() || null;
+  if (input.contactPerson != null)
+    changes.contactPerson = input.contactPerson.trim() || null;
+  if (input.bankName != null) changes.bankName = input.bankName.trim() || null;
+  if (input.bankAccountNo != null)
+    changes.bankAccountNo = input.bankAccountNo.trim() || null;
   if (input.isActive != null) changes.isActive = input.isActive;
   if (input.defaultReceivableAccount != null || input.defaultPayableAccount != null) {
     const ctx = await accountContext(orgId);
@@ -4926,6 +5501,10 @@ async function runClosePeriod(
       throw new Error(
         `${input.code} сард ноорог бичилт үлдсэн тул хаагдахгүй — эхлээд ноорогуудыг батлах эсвэл устгана`
       );
+    if (result.code === "open-purchase-orders")
+      throw new Error(
+        `${input.code} сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байгаа тул хаагдахгүй — list_purchase_orders openOnly=true-гээр олж, get_purchase_order-оор дутуугаа нөхөөд close_purchase_order-оор хаана`
+      );
     throw new Error(`Тайлант үе хаагдсангүй (${result.code})`);
   }
   return { resultText: `${input.code} тайлант үе ХААГДЛАА — цаашид энэ сар руу бичилт хийгдэхгүй` };
@@ -5032,7 +5611,7 @@ async function runMonthEndChecklist(input: {
         : status === "pending"
           ? "○ хийгдээгүй"
           : "— хамааралгүй";
-  const { fa, fx, costing, vat, drafts } = checklist;
+  const { fa, fx, costing, vat, procurement, drafts } = checklist;
   const fxDetail = fx.accounts
     .map(
       (account) =>
@@ -5046,6 +5625,7 @@ async function runMonthEndChecklist(input: {
     ["бараа", drafts.inventory],
     ["элэгдэл", drafts.faDep],
     ["өртөг", drafts.costEntries],
+    ["хүлээн авалт", drafts.goodsReceipts],
   ]
     .filter(([, n]) => Number(n) > 0)
     .map(([label, n]) => `${label} ${n}`)
@@ -5058,8 +5638,9 @@ async function runMonthEndChecklist(input: {
       `3. Өртөг тооцоо: ${statusLabel(costing.status)} — тооцогдсон ${costing.calculated}, блоклогдсон ${costing.blocked}, ноорог бичилт ${costing.draftEntries}`,
       `4. Цалин: ${statusLabel(checklist.payroll.status)} — идэвхтэй ажилтан ${checklist.payroll.activeEmployees}, бодолтын мөр ${checklist.payroll.lineCount}, GL журнал: ${checklist.payroll.voucherStatus === "none" ? "үүсээгүй" : checklist.payroll.voucherStatus}`,
       `5. НӨАТ: ${statusLabel(vat.status)} — гаралт ${fmt(vat.outputVat)}₮, оролт ${fmt(vat.inputVat)}₮, ${vat.payableVat > 0 ? `төлөх ${fmt(vat.payableVat)}₮ (${vat.deadline} дотор)` : `шилжүүлэх ${fmt(vat.refundableVat)}₮`}, тооцоо: ${vat.settlementStatus === "none" ? "үүсээгүй" : vat.settlementStatus}`,
-      `6. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
-      `7. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
+      `6. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
+      `7. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
+      `8. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
     ].join("\n"),
   };
 }
@@ -5393,13 +5974,30 @@ async function runReconcileModules(
 // ── Ажлын урсгалын заавар ───────────────────────────────────────────────────
 
 const WORKFLOW_GUIDES: Record<string, string> = {
-  purchase_inventory: `БАРААТАЙ ХУДАЛДАН АВАЛТ — зөв дараалал:
+  purchase_inventory: `БАРААТАЙ ХУДАЛДАН АВАЛТ (PO-гүй жижиг, дотоодын) — зөв дараалал:
+0. Захиалгатай (импорт, гааль/тээвэртэй, валюттай, олон нэхэмжлэхтэй) худалдан авалт бол ЭНЭ урсгал БИШ — get_workflow_guide purchase_order-ыг унш
 1. list_counterparties / list_inventory — нийлүүлэгч, барааны кодоо шалгах (байхгүй бол create_counterparty / create_inventory_item)
 2. create_arap_invoice (ap_bill, бараатай мөрөнд itemCode+quantity+warehouseCode) — данс автоматаар клирингт суана
 3. post_arap_document — батлахад: GL-д Кт өглөг бичигдэж, бараа ОРЛОГЫН НООРОГ хөдөлгөөн автоматаар үүснэ
 4. confirm_inventory_movement — орлого баталгаажиж үлдэгдэлд орно (өртөг нь худалдан авалтын үнээр шууд капиталжина)
 5. Төлбөр: pay_arap_document (касс автоматаар холбогдоно)
 Сар дуусахад run_monthly_costing клирингээс бараанд капиталжуулна — reconcile_modules-оор шалгана.`,
+  purchase_order: `ЗАХИАЛГАТАЙ ХУДАЛДАН АВАЛТ (PO — импорт, нэмэлт зардал, орлогдох өртөг) — зөв дараалал:
+① list_counterparties (нийлүүлэгч supplier/both) + list_inventory (бараа, агуулах) — кодуудаа шалгах
+② create_purchase_order {supplier, date, currency, lines:[{itemCode, quantity, unitPrice}]} — НООРОГ, GL бичилт ҮГҮЙ (захиалга нь гүйлгээ биш)
+③ approve_purchase_order — ноорог → НЭЭЛТТЭЙ (post горим; валюттай бол exchangeRate-ийг хязгаарын шалгалтад өг)
+④ create_goods_receipt {purchaseOrderId, date, exchangeRate} — бараа ирэхэд (нэхэмжлэхээс ӨМНӨ ч, ДАРАА ч, хэсэгчилсэн ч болно). Мөр өгөхгүй бол хүлээн аваагүй үлдэгдэл бүхэлдээ
+⑤ confirm_goods_receipt — АВТОМАТ капитализаци: тоо × PO нэгж үнэ × ХҮЛЭЭН АВСАН ӨДРИЙН Монголбанкны ханш → Dr барааны нөөц / Cr бараа материалын түр данс. Бараа ЭНЭ ханшаар үнэлэгдэнэ (нэхэмжлэх өөр ханштай байсан ч хөндөгдөхгүй)
+⑥ create_ap_invoice_from_po {purchaseOrderId, date, exchangeRate} — НИЙЛҮҮЛЭГЧИЙН нэхэмжлэх (үлдэгдэл автоматаар): Dr өглөгийн түр данс / Cr өглөг. Хөдөлгөөн ҮҮСГЭХГҮЙ (орлого ⑤-аас). Илүү бол [OVER_INVOICED]
+⑦ post_arap_document — ноорог үлдсэн бол батлах
+⑧ Гааль/тээвэр/брокер (ӨӨР харилцагч): create_arap_invoice {documentType:"ap_bill", counterparty:"Гааль", purchaseOrder:"PO-…", lines:[{amount, costComponentCode:"CUSTOMS"}, {amount, account:"НӨАТ авлагын данс"}]} — бүрэлдэхүүнтэй мөр өглөгийн түр дансанд суун капиталжина, импортын НӨАТ капиталжихгүй (дансыг ИЛ өгнө) → post_arap_document. Нийлүүлэгч ӨӨРӨӨ нэхэмжилсэн тээвэр бол create_ap_invoice_from_po-ийн costLines
+⑨ create_cost_allocation {sourceLine (зардлын мөрийн ID — get_purchase_order-оос), allocationBase} — суурийг ХЭРЭГЛЭГЧЭЭС асууна (value/quantity/manual, default БАЙХГҮЙ). Нэг мөрөөс хэсэгчлэн олон удаа хуваарилж болно (Σ ≤ мөрийн ₮ дүн)
+⑩ post_cost_entries {month} — landed_cost бичилтүүдийг GL-д (Dr барааны нөөц / Cr бараа материалын түр данс)
+⑪ get_landed_cost_summary — бараа бүрийн нэгжид ноогдох өртгийг шалгах; get_purchase_order — хаалтын нөхцөл (Σ хүлээн авсан = захиалсан, Σ нэхэмжилсэн тоо/дүн = захиалга, зардал бүгд хуваарилагдсан)
+⑫ close_purchase_order — түр дансдыг тэгшитгэнэ: Dr бараа материалын түр данс / Cr өглөгийн түр данс, ханшийн огнооны зөрүү → ханшийн олз/гарз → хоёр түр данс 0. Их дүнтэй импортыг нягтланч вэб дээрээс хаана
+⑬ pay_arap_document — төлбөр (арилжааны банкны ханш; зөрүү нь ханшийн олз/гарз)
+⑭ Сар хаалт: тэр сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга байвал close_period ХОРИГЛОГДОНО — эхлээд ⑫-г дуусгана (get_month_end_checklist-ээс харагдана)
+Ханш ХЭЗЭЭ Ч зохиогдохгүй: олдохгүй бол алдаа буцна, хэрэглэгчээс ханшийг асууна.`,
   sale: `БОРЛУУЛАЛТ — зөв дараалал:
 1. create_arap_invoice (ar_invoice) — орлогын данс мөрөнд (51100000), бараатай бол itemCode+quantity+warehouseCode
 2. post_arap_document — GL-д Дт авлага/Кт орлого бичигдэж, бараа ЗАРЛАГЫН НООРОГ үүснэ
@@ -5420,6 +6018,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 5. reconcile_modules {from: сарын 1, to: сарын сүүлч} — зөрүү 0 болтол засах
 6. get_trial_balance — эцсийн шалгалт (ΣДт=ΣКт)
 7. close_period {code} — хаах
+Хангамж: тухайн сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байвал close_period хоригдоно — get_month_end_checklist-ээс шалгаж, get_purchase_order-ийн дутуугаа нөхөөд close_purchase_order-оор хаана.
 Алхам бүрийн үр дүнг хэрэглэгчид тайлагнаж, дараагийнхыг эхлэхийн өмнө бататгана.`,
   fix_discrepancy: `ЗӨРҮҮ ЗАСАХ — оношилгооны дараалал:
 1. reconcile_modules — аль модульд, ямар дансанд, хэдээр зөрж байгааг тогтоох
@@ -5957,8 +6556,10 @@ async function runGetCostingSettings(orgId: string): Promise<AiToolResult> {
   return {
     resultText: [
       "ДАНСНЫ РОЛЬУУД:",
-      `  Клиринг: ${accounts.clearingAccountNumber} · Тооллогын илүүдэл: ${accounts.adjustmentGainAccountNumber} · дутагдал: ${accounts.adjustmentLossAccountNumber}`,
+      `  Бараа материалын түр (клиринг) данс: ${accounts.clearingAccountNumber} · Өглөгийн түр данс (PO-той нэхэмжлэх/PO хаалт): ${accounts.apClearingAccountNumber}`,
+      `  Тооллогын илүүдэл: ${accounts.adjustmentGainAccountNumber} · дутагдал: ${accounts.adjustmentLossAccountNumber}`,
       `  NRV зардал: ${accounts.nrvExpenseAccountNumber} · NRV нөөц: ${accounts.nrvReserveAccountNumber}`,
+      `  Ханшийн олз: ${accounts.fxGainAccountNumber} · гарз: ${accounts.fxLossAccountNumber} (PO хаалтын зөрүү)`,
       `ЗАРЛАГЫН ТӨРӨЛ (${issueTypes.length}):`,
       ...issueTypes.map(
         (entry) =>
@@ -6032,6 +6633,7 @@ async function runUpdateCostingAccounts(
   orgId: string,
   input: {
     clearingAccount?: string;
+    apClearingAccount?: string;
     adjustmentGainAccount?: string;
     adjustmentLossAccount?: string;
     nrvExpenseAccount?: string;
@@ -6041,6 +6643,8 @@ async function runUpdateCostingAccounts(
   const current = await loadCostingAccountSettings(orgId);
   const result = await saveCostingAccountSettings({
     clearingAccountNumber: input.clearingAccount ?? current.clearingAccountNumber,
+    apClearingAccountNumber:
+      input.apClearingAccount ?? current.apClearingAccountNumber,
     adjustmentGainAccountNumber:
       input.adjustmentGainAccount ?? current.adjustmentGainAccountNumber,
     adjustmentLossAccountNumber:
@@ -6152,6 +6756,1237 @@ async function runImportBankStatement(
       `Банкны хуулга импортлогдлоо: ${account.name}, ${result.rowCount} мөр (орлого ${fmt(totalIncome)}₮ / зарлага ${fmt(totalExpense)}₮)`,
       `Мөр бүрд кассын баримт + GL журнал бичигдсэн${settled > 0 ? `; ${settled} мөр нэхэмжлэхтэй холбогдож төлсөн дүн шинэчлэгдсэн` : ""}.`,
       `Statement ID: ${result.id.slice(0, 8)} — вэб: Мөнгөн хөрөнгө → Хуулгууд.`,
+    ].join("\n"),
+  };
+}
+
+// ── Хангамж (PO + орлогдох өртөг) гүйцэтгэгчид ──────────────────────────────
+//
+// Бүх бичилт lib/actions/procurement.ts ба lib/actions/cost-allocation.ts-ийн
+// server action-уудаар явна (шалгалт нэг газар — период, эрх, түр дансдын
+// сахилга, аудит тэнд). Энд зөвхөн лавлах унших + горим/хязгаарын хамгаалалт.
+
+const PO_STATUS_LABELS: Record<string, string> = {
+  draft: "ноорог",
+  open: "нээлттэй",
+  closed: "хаагдсан",
+  cancelled: "цуцлагдсан",
+};
+
+const GR_STATUS_LABELS: Record<string, string> = {
+  draft: "ноорог",
+  confirmed: "баталгаажсан",
+  reversed: "буцаагдсан",
+};
+
+const PO_STATUSES: PurchaseOrderStatus[] = [
+  "draft",
+  "open",
+  "closed",
+  "cancelled",
+];
+
+function poActionStatus(status: string): AiAction["status"] {
+  if (status === "open") return "open";
+  if (status === "closed") return "closed";
+  if (status === "cancelled") return "cancelled";
+  return "draft";
+}
+
+/** Захиалгыг дугаар, externalRef эсвэл ID-гаар олно (findArapDocument-тай ижил). */
+async function findPurchaseOrder(orgId: string, idOrNo: string) {
+  const orders = await db.query.purchaseOrders.findMany({
+    where: eq(purchaseOrders.organizationId, orgId),
+    columns: {
+      id: true,
+      documentNo: true,
+      externalRef: true,
+      status: true,
+      date: true,
+      currency: true,
+      totalAmount: true,
+    },
+    orderBy: [desc(purchaseOrders.createdAt)],
+    limit: 1000,
+  });
+  const raw = String(idOrNo ?? "");
+  const query = raw.trim().toLowerCase();
+  const byNo = orders.filter(
+    (order) => order.documentNo.toLowerCase() === query
+  );
+  if (byNo.length === 1) return byNo[0];
+  const byRef = orders.filter(
+    (order) =>
+      query.length > 0 && (order.externalRef ?? "").toLowerCase() === query
+  );
+  if (byRef.length === 1) return byRef[0];
+  return resolveByIdPrefix(orders, raw, "захиалга");
+}
+
+/** Хүлээн авалтыг дугаар (GR-…) эсвэл ID-гаар олно. */
+async function findGoodsReceipt(orgId: string, idOrNo: string) {
+  const receipts = await db.query.goodsReceipts.findMany({
+    where: eq(goodsReceipts.organizationId, orgId),
+    columns: { id: true, documentNo: true, status: true, date: true },
+    orderBy: [desc(goodsReceipts.createdAt)],
+    limit: 1000,
+  });
+  const raw = String(idOrNo ?? "");
+  const byNo = receipts.filter(
+    (receipt) => receipt.documentNo.toLowerCase() === raw.trim().toLowerCase()
+  );
+  if (byNo.length === 1) return byNo[0];
+  return resolveByIdPrefix(receipts, raw, "хүлээн авалт");
+}
+
+/** Хуваарилалтыг дугаар (ALLOC-…) эсвэл ID-гаар олно. */
+async function findCostAllocation(orgId: string, idOrNo: string) {
+  const rows = await db.query.costAllocations.findMany({
+    where: eq(costAllocations.organizationId, orgId),
+    columns: {
+      id: true,
+      documentNo: true,
+      date: true,
+      totalAmount: true,
+      allocationBase: true,
+    },
+    orderBy: [desc(costAllocations.createdAt)],
+    limit: 1000,
+  });
+  const raw = String(idOrNo ?? "");
+  const byNo = rows.filter(
+    (row) => row.documentNo.toLowerCase() === raw.trim().toLowerCase()
+  );
+  if (byNo.length === 1) return byNo[0];
+  return resolveByIdPrefix(rows, raw, "хуваарилалт");
+}
+
+/** Нийлүүлэгч (supplier|both), бараа, агуулахын лавлах — кодоор нь. */
+async function procurementRefs(orgId: string) {
+  const [cpList, items, whList] = await Promise.all([
+    db.query.counterparties.findMany({
+      where: and(
+        eq(counterparties.organizationId, orgId),
+        eq(counterparties.isActive, true)
+      ),
+      columns: { id: true, name: true, counterpartyType: true },
+    }),
+    db.query.inventoryItems.findMany({
+      where: and(
+        eq(inventoryItems.organizationId, orgId),
+        eq(inventoryItems.isActive, true)
+      ),
+      columns: { id: true, code: true, name: true },
+    }),
+    db.query.warehouses.findMany({
+      where: and(
+        eq(warehouses.organizationId, orgId),
+        eq(warehouses.isActive, true)
+      ),
+      columns: { id: true, code: true, name: true },
+    }),
+  ]);
+  return {
+    // Нийлүүлэгч = supplier эсвэл both (дизайн §3.6a).
+    suppliers: cpList.filter((entry) => entry.counterpartyType !== "customer"),
+    itemsByCode: new Map(items.map((item) => [item.code.toLowerCase(), item])),
+    warehousesByCode: new Map(whList.map((wh) => [wh.code.toLowerCase(), wh])),
+  };
+}
+
+type ProcurementRefs = Awaited<ReturnType<typeof procurementRefs>>;
+
+function requireWarehouseId(refs: ProcurementRefs, code: string): string {
+  const wh = refs.warehousesByCode.get(String(code).trim().toLowerCase());
+  if (!wh)
+    throw new Error(
+      `"${code}" кодтой агуулах олдсонгүй (list_inventory-оор шалгана уу)`
+    );
+  return wh.id;
+}
+
+type PoLineToolInput = {
+  itemCode: string;
+  quantity: number;
+  unitPrice: number;
+  warehouseCode?: string;
+  description?: string;
+};
+
+function purchaseOrderLineInputs(
+  refs: ProcurementRefs,
+  lines: PoLineToolInput[] | undefined
+) {
+  if (!Array.isArray(lines) || lines.length === 0)
+    throw new Error("Захиалгад дор хаяж нэг мөр хэрэгтэй");
+  return lines.map((line) => {
+    const item = refs.itemsByCode.get(
+      String(line.itemCode ?? "").trim().toLowerCase()
+    );
+    if (!item)
+      throw new Error(
+        `"${line.itemCode}" кодтой бараа олдсонгүй (list_inventory-оор шалгана уу)`
+      );
+    const quantity = Number(line.quantity);
+    const unitPrice = Number(line.unitPrice);
+    if (!(quantity > 0))
+      throw new Error(`${item.code}: тоо хэмжээ 0-ээс их байх ёстой`);
+    if (!(unitPrice > 0))
+      throw new Error(`${item.code}: нэгж үнэ 0-ээс их байх ёстой`);
+    return {
+      itemId: item.id,
+      quantity,
+      unitPrice,
+      warehouseId: line.warehouseCode
+        ? requireWarehouseId(refs, line.warehouseCode)
+        : undefined,
+      description: line.description?.trim() || undefined,
+    };
+  });
+}
+
+/**
+ * Хязгаарын шалгалт ЗААВАЛ ₮-ээр. Захиалга нь өөрийн валютаараа хадгалагддаг
+ * (ханш нь хүлээн авалт/нэхэмжлэх бүрд тусдаа) тул валюттай захиалгад ханшийг
+ * ил шаардана — ханш ЗОХИОХГҮЙ (дизайн §3.5).
+ */
+function purchaseOrderBaseTotal(
+  order: { currency: string; totalAmount: string; documentNo: string },
+  exchangeRate?: number
+): number {
+  const total = Number(order.totalAmount);
+  if (order.currency.toUpperCase() === "MNT") return total;
+  const rate = Number(exchangeRate);
+  if (!(rate > 0))
+    throw codedError(
+      "EXCHANGE_RATE_REQUIRED",
+      `${order.documentNo} нь ${order.currency} валюттай — 10 сая ₮-ийн хязгаарыг шалгахын тулд exchangeRate (1 ${order.currency} = ? ₮) өгнө үү, эсвэл вэб дээрээс батална уу`
+    );
+  return total * rate;
+}
+
+async function requirePurchaseOrderDetail(
+  orgId: string,
+  purchaseOrderId: string
+): Promise<PurchaseOrderDetail> {
+  const detail = await loadPurchaseOrderDetail(orgId, purchaseOrderId);
+  if (!detail) throw codedError("PO_NOT_FOUND", "Захиалга олдсонгүй");
+  return detail;
+}
+
+/** Захиалгын мөрийг ID эсвэл барааны кодоор нь олно. */
+function resolvePurchaseOrderLine(
+  detail: PurchaseOrderDetail,
+  line: { purchaseOrderLineId?: string; itemCode?: string }
+): PurchaseOrderLineView {
+  const lineId = line.purchaseOrderLineId?.trim();
+  if (lineId) {
+    const exact = detail.lines.filter(
+      (entry) => entry.id.toLowerCase() === lineId.toLowerCase()
+    );
+    if (exact.length === 1) return exact[0];
+    return resolveByIdPrefix(detail.lines, lineId, "захиалгын мөр");
+  }
+  const code = line.itemCode?.trim();
+  if (code) {
+    const matches = detail.lines.filter(
+      (entry) => entry.itemCode.toLowerCase() === code.toLowerCase()
+    );
+    if (matches.length === 1) return matches[0];
+    if (matches.length === 0)
+      throw new Error(
+        `"${code}" кодтой мөр ${detail.documentNo} захиалгад алга (get_purchase_order-оор шалгана уу)`
+      );
+    throw new Error(
+      `"${code}" кодтой ${matches.length} мөр байна — purchaseOrderLineId-гаар заана уу`
+    );
+  }
+  throw new Error("Мөр бүрд purchaseOrderLineId эсвэл itemCode хэрэгтэй");
+}
+
+/** Идэвхтэй өртгийн бүрэлдэхүүнийг КОДООР нь олно (лавлах — кодод хаалттай жагсаалт байхгүй). */
+async function requireCostComponentByCode(orgId: string, code: string) {
+  const trimmed = String(code ?? "").trim().toUpperCase();
+  if (!trimmed) throw new Error("Өртгийн бүрэлдэхүүний код хэрэгтэй");
+  const component = await db.query.costComponents.findFirst({
+    where: and(
+      eq(costComponents.organizationId, orgId),
+      eq(costComponents.code, trimmed),
+      eq(costComponents.isActive, true)
+    ),
+    columns: { id: true, code: true, name: true },
+  });
+  if (!component)
+    throw new Error(
+      `"${code}" кодтой идэвхтэй өртгийн бүрэлдэхүүн олдсонгүй (get_costing_settings-оор шалгана уу, эсвэл save_cost_component-оор нэмнэ)`
+    );
+  return component;
+}
+
+const QTY_TOLERANCE = 0.0001;
+
+async function runCreatePurchaseOrder(
+  orgId: string,
+  input: {
+    supplier: string;
+    date: string;
+    expectedDate?: string;
+    currency?: string;
+    exchangeRate?: number;
+    warehouseCode?: string;
+    description: string;
+    documentNo?: string;
+    externalRef?: string;
+    lines: PoLineToolInput[];
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  const externalRef = input.externalRef?.trim() || undefined;
+  if (externalRef) {
+    const existing = await db.query.purchaseOrders.findFirst({
+      where: and(
+        eq(purchaseOrders.organizationId, orgId),
+        eq(purchaseOrders.externalRef, externalRef)
+      ),
+    });
+    if (existing)
+      return {
+        resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${existing.id}, ${existing.documentNo}, ${fmt(Number(existing.totalAmount))} ${existing.currency}, төлөв: ${PO_STATUS_LABELS[existing.status] ?? existing.status}`,
+        action: {
+          kind: "purchase_order",
+          id: existing.id,
+          title: existing.documentNo,
+          status: poActionStatus(existing.status),
+        },
+        dedup: true,
+      };
+  }
+
+  const refs = await procurementRefs(orgId);
+  const supplier = requireSingle(
+    nameMatches(refs.suppliers, (entry) => entry.name, input.supplier),
+    (entry) => entry.name,
+    "нийлүүлэгч",
+    input.supplier,
+    {
+      codePrefix: "COUNTERPARTY",
+      allNames: refs.suppliers.map((entry) => entry.name),
+    }
+  );
+  const lines = purchaseOrderLineInputs(refs, input.lines);
+  const currency = input.currency?.trim().toUpperCase() || "MNT";
+  const total = lines.reduce(
+    (sum, line) => sum + line.quantity * line.unitPrice,
+    0
+  );
+  // Хязгаар ₮-ээр: валюттай захиалгад ханш ил өгөгдөөгүй бол ноорог үлдэнэ.
+  const baseTotal =
+    currency === "MNT" ? total : total * (Number(input.exchangeRate) || 0);
+  let approveNow = false;
+  let note = "";
+  if (mode === "post") {
+    if (!(baseTotal > 0))
+      note =
+        " (₮ дүн тодорхойгүй — exchangeRate ил өгөөгүй тул ноорог үлдэв; approve_purchase_order-оор батална)";
+    else if (baseTotal > AI_POST_LIMIT_MNT)
+      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    else approveNow = true;
+  }
+
+  const created = unwrapAction(
+    await createPurchaseOrder({
+      counterpartyId: supplier.id,
+      date: input.date,
+      expectedDate: input.expectedDate?.trim() || undefined,
+      currency,
+      warehouseId: input.warehouseCode
+        ? requireWarehouseId(refs, input.warehouseCode)
+        : undefined,
+      description: input.description,
+      documentNo: input.documentNo?.trim() || undefined,
+      externalRef,
+      lines,
+      approveNow,
+    })
+  );
+  if (created.dedup)
+    return {
+      resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${created.id}, ${created.documentNo}`,
+      action: {
+        kind: "purchase_order",
+        id: created.id,
+        title: created.documentNo,
+        status: "draft",
+      },
+      dedup: true,
+    };
+
+  return {
+    resultText: `Захиалга үүслээ. Дугаар: ${created.documentNo}, нийлүүлэгч: ${supplier.name}, дүн: ${fmt(total)} ${currency}, ${lines.length} мөр, төлөв: ${approveNow ? "нээлттэй" : "ноорог"}${note}`,
+    action: {
+      kind: "purchase_order",
+      id: created.id,
+      title: `${created.documentNo} · ${supplier.name}`,
+      status: approveNow ? "open" : "draft",
+    },
+  };
+}
+
+async function runUpdatePurchaseOrder(
+  orgId: string,
+  input: {
+    purchaseOrderId: string;
+    date?: string;
+    expectedDate?: string;
+    warehouseCode?: string;
+    description?: string;
+    lines?: (PoLineToolInput & { purchaseOrderLineId?: string })[];
+  }
+): Promise<AiToolResult> {
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  const refs = await procurementRefs(orgId);
+  let lines:
+    | (ReturnType<typeof purchaseOrderLineInputs>[number] & { id?: string })[]
+    | undefined;
+  if (input.lines) {
+    const prepared = purchaseOrderLineInputs(refs, input.lines);
+    // Байгаа мөрийн ID-г ХАДГАЛНА — эс бөгөөс хүлээн авсан/нэхэмжилсэн мөр
+    // хасагдаж [OVER_RECEIVED] гарна (үнэ засах нь хэвийн урсгал, §3.4).
+    const detail = await requirePurchaseOrderDetail(orgId, order.id);
+    const codeOf = (line: { itemCode?: string }) =>
+      String(line.itemCode ?? "").trim().toLowerCase();
+    const givenLines = input.lines;
+    lines = prepared.map((line, index) => {
+      const given = givenLines[index];
+      if (given.purchaseOrderLineId?.trim())
+        return {
+          ...line,
+          id: resolvePurchaseOrderLine(detail, {
+            purchaseOrderLineId: given.purchaseOrderLineId,
+          }).id,
+        };
+      const code = codeOf(given);
+      const existing = detail.lines.filter(
+        (entry) => entry.itemCode.toLowerCase() === code
+      );
+      const givenSameCode = givenLines.filter(
+        (entry) => codeOf(entry) === code
+      );
+      // Ижил бараа хоёр мөрөнд байвал таамаглахгүй — шинэ мөр болно.
+      if (existing.length === 1 && givenSameCode.length === 1)
+        return { ...line, id: existing[0].id };
+      return line;
+    });
+  }
+  unwrapAction(
+    await updatePurchaseOrder({
+      id: order.id,
+      date: input.date?.trim() || undefined,
+      expectedDate: input.expectedDate?.trim() || undefined,
+      warehouseId: input.warehouseCode
+        ? requireWarehouseId(refs, input.warehouseCode)
+        : undefined,
+      description: input.description?.trim() || undefined,
+      lines,
+    })
+  );
+  return {
+    resultText: `Захиалга шинэчлэгдлээ: ${order.documentNo}${lines ? `, ${lines.length} мөр` : ""} (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status})`,
+    action: {
+      kind: "purchase_order",
+      id: order.id,
+      title: order.documentNo,
+      status: poActionStatus(order.status),
+    },
+  };
+}
+
+async function runApprovePurchaseOrder(
+  orgId: string,
+  input: { purchaseOrderId: string; exchangeRate?: number },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  if (order.status !== "draft")
+    throw new Error(
+      `${order.documentNo} захиалга ноорог биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — батлах шаардлагагүй`
+    );
+  assertPostLimit(purchaseOrderBaseTotal(order, input.exchangeRate));
+  unwrapAction(await approvePurchaseOrder({ id: order.id }));
+  return {
+    resultText: `Захиалга батлагдаж НЭЭЛТТЭЙ болов: ${order.documentNo}, ${fmt(Number(order.totalAmount))} ${order.currency} — одооноос хүлээн авалт (create_goods_receipt) ба нэхэмжлэх (create_ap_invoice_from_po) бүртгэнэ. GL бичилт үүсээгүй (захиалга нь гүйлгээ биш)`,
+    action: {
+      kind: "purchase_order",
+      id: order.id,
+      title: order.documentNo,
+      status: "open",
+    },
+  };
+}
+
+async function runClosePurchaseOrder(
+  orgId: string,
+  input: { purchaseOrderId: string; closeDate?: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  if (order.status === "closed")
+    throw codedError(
+      "PO_CLOSED",
+      `${order.documentNo} захиалга аль хэдийн хаагдсан байна`
+    );
+  if (order.status !== "open")
+    throw codedError(
+      "PO_NOT_OPEN",
+      `${order.documentNo} захиалга нээлттэй биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — хаах боломжгүй`
+    );
+  const detail = await requirePurchaseOrderDetail(orgId, order.id);
+  if (detail.blockers.length > 0)
+    throw codedError(
+      "PO_NOT_READY",
+      `${order.documentNo} хаах нөхцөл биелээгүй: ${detail.blockers.join("; ")}`
+    );
+  // Хаалтын журналын дүн (түр дансдын үлдэгдэл) АЛЬ ХЭДИЙН ₮-ээр.
+  assertPostLimit(
+    Math.max(
+      Math.abs(detail.clearing.inventory),
+      Math.abs(detail.clearing.payable)
+    )
+  );
+  const closeDate =
+    input.closeDate?.trim() || new Date().toISOString().slice(0, 10);
+  const { voucherId } = unwrapAction(
+    await closePurchaseOrder({ id: order.id, closeDate })
+  );
+  return {
+    resultText: [
+      `Захиалга ХААГДЛАА: ${order.documentNo} (${closeDate}).`,
+      `Түр дансдыг тэгшитгэсэн журнал бичигдэв (ID ${voucherId.slice(0, 8)}): Dr бараа материалын түр данс ${fmt(Math.abs(detail.clearing.inventory))}₮ / Cr өглөгийн түр данс ${fmt(Math.abs(detail.clearing.payable))}₮; зөрүү нь ханшийн олз/гарз дансанд.`,
+      "Хоёр түр данс энэ захиалгаар 0 болов — reconcile_modules-оор шалгаж болно.",
+    ].join("\n"),
+    action: {
+      kind: "purchase_order",
+      id: order.id,
+      title: order.documentNo,
+      status: "closed",
+    },
+  };
+}
+
+async function runCancelPurchaseOrder(
+  orgId: string,
+  input: { purchaseOrderId: string; exchangeRate?: number },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  if (order.status === "closed")
+    throw codedError(
+      "PO_CLOSED",
+      `${order.documentNo} хаагдсан захиалгыг цуцлах боломжгүй`
+    );
+  if (order.status === "cancelled")
+    throw new Error(`${order.documentNo} захиалга аль хэдийн цуцлагдсан байна`);
+  assertPostLimit(purchaseOrderBaseTotal(order, input.exchangeRate));
+  unwrapAction(await cancelPurchaseOrder({ id: order.id }));
+  return {
+    resultText: `Захиалга цуцлагдлаа: ${order.documentNo}`,
+    action: {
+      kind: "purchase_order",
+      id: order.id,
+      title: order.documentNo,
+      status: "cancelled",
+    },
+  };
+}
+
+async function runListPurchaseOrders(
+  orgId: string,
+  input: {
+    supplier?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    openOnly?: boolean;
+    limit?: number;
+  }
+): Promise<AiToolResult> {
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
+  const status = PO_STATUSES.includes(input.status as PurchaseOrderStatus)
+    ? (input.status as PurchaseOrderStatus)
+    : undefined;
+  const orders = await loadPurchaseOrders(orgId, {
+    status,
+    from: input.from?.trim() || undefined,
+    to: input.to?.trim() || undefined,
+  });
+  const supplierQuery = input.supplier?.trim().toLowerCase();
+  const filtered = orders
+    .filter((order) => {
+      if (
+        supplierQuery &&
+        !order.counterpartyName.toLowerCase().includes(supplierQuery)
+      )
+        return false;
+      if (input.openOnly && order.status !== "open") return false;
+      return true;
+    })
+    .slice(0, limit);
+  if (filtered.length === 0)
+    return { resultText: "Тохирох захиалга олдсонгүй" };
+  return {
+    resultText: filtered
+      .map(
+        (order) =>
+          `${order.date} · ${order.documentNo} · ${order.counterpartyName} · ${fmt(order.totalAmount)} ${order.currency} · хүлээн авсан ${order.receivedPct}% · нэхэмжилсэн ${order.invoicedPct}% · ${PO_STATUS_LABELS[order.status] ?? order.status} · ID ${order.id.slice(0, 8)}`
+      )
+      .join("\n"),
+  };
+}
+
+async function runGetPurchaseOrder(
+  orgId: string,
+  input: { purchaseOrderId: string }
+): Promise<AiToolResult> {
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  const detail = await requirePurchaseOrderDetail(orgId, order.id);
+  const sections: string[] = [
+    [
+      `ЗАХИАЛГА ${detail.documentNo} · ${detail.counterpartyName} · ${detail.date}`,
+      `Төлөв: ${PO_STATUS_LABELS[detail.status] ?? detail.status} · дүн ${fmt(detail.totalAmount)} ${detail.currency} · хүлээн авсан ${detail.receivedPct}% · нэхэмжилсэн ${detail.invoicedPct}%${detail.warehouseName ? ` · агуулах ${detail.warehouseName}` : ""}`,
+      detail.description ? `Утга: ${detail.description}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    [
+      "МӨРҮҮД (захиалсан / хүлээн авсан / нэхэмжилсэн):",
+      ...detail.lines.map(
+        (line) =>
+          `  ${line.itemCode} ${line.itemName} — захиалсан ${fmt(line.quantity)} × ${fmt(line.unitPrice)} = ${fmt(line.amount)} ${detail.currency} · хүлээн авсан ${fmt(line.receivedQuantity)} · нэхэмжилсэн ${fmt(line.invoicedQuantity)} (${fmt(line.invoicedAmount)} ${detail.currency}) · мөрийн ID ${line.id.slice(0, 8)}`
+      ),
+    ].join("\n"),
+  ];
+  sections.push(
+    detail.receipts.length > 0
+      ? [
+          "ХҮЛЭЭН АВАЛТУУД:",
+          ...detail.receipts.map(
+            (receipt) =>
+              `  ${receipt.date} · ${receipt.documentNo} · ${receipt.warehouseName} · ханш ${fmt(receipt.exchangeRate)} · ${fmt(receipt.totalAmountMnt)}₮ · ${GR_STATUS_LABELS[receipt.status] ?? receipt.status} · ID ${receipt.id.slice(0, 8)}`
+          ),
+        ].join("\n")
+      : "ХҮЛЭЭН АВАЛТУУД: алга (create_goods_receipt)"
+  );
+  sections.push(
+    detail.invoices.length > 0
+      ? [
+          "НЭХЭМЖЛЭХҮҮД:",
+          ...detail.invoices.map(
+            (invoice) =>
+              `  ${invoice.date} · ${invoice.documentNo} · ${fmt(invoice.totalAmount)} ${detail.currency} (≈${fmt(invoice.baseTotalAmount)}₮) · ${ARAP_STATUS_LABELS[invoice.status] ?? invoice.status}${invoice.isCostInvoice ? " · нэмэлт зардал" : ""} · ID ${invoice.id.slice(0, 8)}`
+          ),
+        ].join("\n")
+      : "НЭХЭМЖЛЭХҮҮД: алга (create_ap_invoice_from_po)"
+  );
+  // Хуваарилах зорилтууд — "гараар" суурьд мөр бүрийн дүнг бичихэд
+  // movementId хэрэгтэй (үнийн дүнгийн жин нь D6=(а) дүрмээр).
+  if (detail.receipts.some((receipt) => receipt.status === "confirmed")) {
+    const options = await loadPoAllocationTargets(detail.id);
+    if (options.length > 0)
+      sections.push(
+        [
+          "ХУВААРИЛАХ ЗОРИЛТУУД (баталгаажсан орлогууд — create_cost_allocation-ийн targets):",
+          ...options.map(
+            (option) =>
+              `  ${option.date} · ${option.itemLabel} · ${option.warehouseLabel} · ${fmt(option.quantity)} ш · үнэлгээ ${fmt(option.value)}₮ · movementId ${option.movementId.slice(0, 8)}`
+          ),
+        ].join("\n")
+      );
+  }
+  if (detail.costLines.length > 0)
+    sections.push(
+      [
+        "ХУВААРИЛАГДААГҮЙ НЭМЭЛТ ЗАРДАЛ (create_cost_allocation-ийн sourceLine):",
+        ...detail.costLines.map(
+          (line) =>
+            `  ${line.documentNo} · ${line.costComponentName} · дүн ${fmt(line.amountMnt)}₮ · хуваарилсан ${fmt(line.allocatedMnt)}₮ · үлдэгдэл ${fmt(line.remainingMnt)}₮ · мөрийн ID ${line.lineId.slice(0, 8)}`
+        ),
+      ].join("\n")
+    );
+  sections.push(
+    `ТҮР ДАНСДЫН ҮЛДЭГДЭЛ (энэ захиалгаар): бараа материалын түр данс ${fmt(detail.clearing.inventory)}₮ · өглөгийн түр данс ${fmt(detail.clearing.payable)}₮ (хаалтад хоёул 0 болно)`
+  );
+  sections.push(
+    detail.blockers.length > 0
+      ? `ХААХАД ДУТУУ: ${detail.blockers.join("; ")}`
+      : detail.status === "open"
+        ? "ХААХАД БЭЛЭН — close_purchase_order"
+        : `Төлөв: ${PO_STATUS_LABELS[detail.status] ?? detail.status}`
+  );
+  return { resultText: sections.join("\n\n") };
+}
+
+async function runCreateGoodsReceipt(
+  orgId: string,
+  input: {
+    purchaseOrderId: string;
+    date: string;
+    warehouseCode?: string;
+    exchangeRate?: number;
+    documentNo?: string;
+    description?: string;
+    lines?: {
+      purchaseOrderLineId?: string;
+      itemCode?: string;
+      quantity: number;
+    }[];
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  if (order.status === "closed")
+    throw codedError(
+      "PO_CLOSED",
+      `${order.documentNo} хаагдсан захиалгад хүлээн авалт нэмэгдэхгүй`
+    );
+  if (order.status !== "open")
+    throw codedError(
+      "PO_NOT_OPEN",
+      `${order.documentNo} захиалга нээлттэй биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — эхлээд approve_purchase_order`
+    );
+  const detail = await requirePurchaseOrderDetail(orgId, order.id);
+  const refs = input.warehouseCode ? await procurementRefs(orgId) : null;
+
+  // Мөр өгөгдөөгүй бол үлдэгдлийг server action өөрөө бодно (бөөрөнхийлөл
+  // нэг газар) — энд зөвхөн ₮ дүнг тооцоолж горим/хязгаарыг шалгана.
+  const explicitLines = Array.isArray(input.lines) && input.lines.length > 0;
+  const requested = explicitLines
+    ? (input.lines ?? []).map((line) => {
+        const poLine = resolvePurchaseOrderLine(detail, line);
+        const quantity = Number(line.quantity);
+        if (!(quantity > 0))
+          throw new Error(`${poLine.itemCode}: тоо хэмжээ 0-ээс их байна`);
+        const remaining = poLine.quantity - poLine.receivedQuantity;
+        if (quantity > remaining + QTY_TOLERANCE)
+          throw codedError(
+            "OVER_RECEIVED",
+            `${poLine.itemCode}: хүлээн авах үлдэгдэл ${fmt(remaining)}, оруулсан ${fmt(quantity)}`
+          );
+        return {
+          purchaseOrderLineId: poLine.id,
+          quantity,
+          unitPrice: poLine.unitPrice,
+        };
+      })
+    : detail.lines
+        .map((line) => ({
+          purchaseOrderLineId: line.id,
+          quantity: line.quantity - line.receivedQuantity,
+          unitPrice: line.unitPrice,
+        }))
+        .filter((line) => line.quantity > QTY_TOLERANCE);
+  if (requested.length === 0)
+    throw new Error(
+      `${order.documentNo}: хүлээн авах үлдэгдэл алга — захиалга бүхэлдээ хүлээн авагдсан`
+    );
+
+  // Капитализацийн ₮ дүн = тоо × PO нэгж үнэ × ханш. Ханш ил өгөгдөөгүй
+  // валюттай захиалгад (МБ ханш нь action дотор татагдана) ноорог үлдэнэ —
+  // хязгаарыг ₮-гүйгээр шалгаж болохгүй.
+  const rate =
+    order.currency.toUpperCase() === "MNT"
+      ? 1
+      : Number(input.exchangeRate) || 0;
+  const baseTotal = requested.reduce(
+    (sum, line) => sum + line.quantity * line.unitPrice * rate,
+    0
+  );
+  let confirmNow = false;
+  let note = "";
+  if (mode === "post") {
+    if (!(baseTotal > 0))
+      note =
+        " (₮ дүн тодорхойгүй — exchangeRate ил өгөөгүй тул ноорог үлдэв; confirm_goods_receipt-оор батална)";
+    else if (baseTotal > AI_POST_LIMIT_MNT)
+      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    else confirmNow = true;
+  }
+
+  const created = unwrapAction(
+    await createGoodsReceipt({
+      purchaseOrderId: order.id,
+      date: input.date,
+      warehouseId:
+        refs && input.warehouseCode
+          ? requireWarehouseId(refs, input.warehouseCode)
+          : undefined,
+      exchangeRate:
+        input.exchangeRate != null ? Number(input.exchangeRate) : undefined,
+      documentNo: input.documentNo?.trim() || undefined,
+      description: input.description?.trim() || undefined,
+      lines: explicitLines
+        ? requested.map((line) => ({
+            purchaseOrderLineId: line.purchaseOrderLineId,
+            quantity: line.quantity,
+          }))
+        : undefined,
+      confirmNow,
+    })
+  );
+
+  return {
+    resultText: `Хүлээн авалт ${confirmNow ? "бүртгэгдэж БАТАЛГААЖЛАА" : "ноорог болж үүслээ"}: ${created.documentNo} (${order.documentNo}), ${input.date}, ${requested.length} мөр${baseTotal > 0 ? `, капиталжих дүн ~${fmt(baseTotal)}₮` : ""}${note}${confirmNow ? " — Dr барааны нөөц / Cr бараа материалын түр данс" : " — confirm_goods_receipt-оор батална"}`,
+    action: {
+      kind: "goods_receipt",
+      id: created.id,
+      title: `${created.documentNo} · ${order.documentNo}`,
+      status: confirmNow ? "confirmed" : "draft",
+    },
+  };
+}
+
+async function runConfirmGoodsReceipt(
+  orgId: string,
+  input: { receiptId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const receipt = await findGoodsReceipt(orgId, input.receiptId);
+  if (receipt.status !== "draft")
+    throw codedError(
+      "GR_NOT_DRAFT",
+      `${receipt.documentNo} хүлээн авалт ноорог биш (төлөв: ${GR_STATUS_LABELS[receipt.status] ?? receipt.status})`
+    );
+  const detail = await loadGoodsReceiptDetail(orgId, receipt.id);
+  if (!detail) throw new Error("Хүлээн авалт олдсонгүй");
+  assertPostLimit(detail.totalAmountMnt);
+  const result = unwrapAction(await confirmGoodsReceipt({ id: receipt.id }));
+  return {
+    resultText: `Хүлээн авалт БАТАЛГААЖЛАА: ${detail.documentNo} (${detail.purchaseOrderNo}), ${detail.lineCount} мөр, ханш ${fmt(detail.exchangeRate)} → капиталжсан дүн ${fmt(result.amountMnt)}₮ (Dr барааны нөөц / Cr бараа материалын түр данс). Бараа үлдэгдэлд орлоо.`,
+    action: {
+      kind: "goods_receipt",
+      id: receipt.id,
+      title: `${detail.documentNo} · ${detail.purchaseOrderNo}`,
+      status: "confirmed",
+    },
+  };
+}
+
+async function runReverseGoodsReceipt(
+  orgId: string,
+  input: { receiptId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const receipt = await findGoodsReceipt(orgId, input.receiptId);
+  if (receipt.status !== "confirmed")
+    throw codedError(
+      "GR_NOT_CONFIRMED",
+      `${receipt.documentNo} хүлээн авалт баталгаажаагүй (төлөв: ${GR_STATUS_LABELS[receipt.status] ?? receipt.status}) — буцаах шаардлагагүй`
+    );
+  const detail = await loadGoodsReceiptDetail(orgId, receipt.id);
+  if (!detail) throw new Error("Хүлээн авалт олдсонгүй");
+  assertPostLimit(detail.totalAmountMnt);
+  unwrapAction(await reverseGoodsReceipt({ id: receipt.id }));
+  return {
+    resultText: `Хүлээн авалт БУЦААГДЛАА: ${detail.documentNo} (${detail.purchaseOrderNo}), ${fmt(detail.totalAmountMnt)}₮ — капитализацийн журнал эсрэг мөрөөр буцаж, орлогын хөдөлгөөн цуцлагдав`,
+    action: {
+      kind: "goods_receipt",
+      id: receipt.id,
+      title: `${detail.documentNo} · ${detail.purchaseOrderNo}`,
+      status: "reversed",
+    },
+  };
+}
+
+async function runCreateApInvoiceFromPo(
+  orgId: string,
+  input: {
+    purchaseOrderId: string;
+    date: string;
+    dueDate?: string;
+    exchangeRate?: number;
+    description?: string;
+    documentNo?: string;
+    externalRef?: string;
+    lines?: {
+      purchaseOrderLineId?: string;
+      itemCode?: string;
+      quantity: number;
+      unitPrice?: number;
+    }[];
+    costLines?: {
+      costComponentCode: string;
+      amount: number;
+      description?: string;
+    }[];
+    otherLines?: { account: string; amount: number; description?: string }[];
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  const externalRef = input.externalRef?.trim() || undefined;
+  if (externalRef) {
+    const existing = await db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.externalRef, externalRef)
+      ),
+    });
+    if (existing)
+      return {
+        resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${existing.id}, ${existing.documentNo}, ${fmt(Number(existing.totalAmount))}₮, төлөв: ${ARAP_STATUS_LABELS[existing.status] ?? existing.status}`,
+        action: {
+          kind: "arap",
+          id: existing.id,
+          title: existing.documentNo,
+          status: existing.status === "draft" ? "draft" : "posted",
+        },
+        dedup: true,
+      };
+  }
+
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  if (order.status === "closed")
+    throw codedError(
+      "PO_CLOSED",
+      `${order.documentNo} хаагдсан захиалгад нэхэмжлэх нэмэгдэхгүй`
+    );
+  if (order.status !== "open")
+    throw codedError(
+      "PO_NOT_OPEN",
+      `${order.documentNo} захиалга нээлттэй биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — эхлээд approve_purchase_order`
+    );
+  const detail = await requirePurchaseOrderDetail(orgId, order.id);
+
+  // Мөр өгөгдөөгүй бол нэхэмжлээгүй үлдэгдлийг server action өөрөө бодно —
+  // энд зөвхөн ₮ дүнг тооцоолж горим/хязгаарыг шалгана.
+  const explicitLines = Array.isArray(input.lines) && input.lines.length > 0;
+  const itemLines = explicitLines
+    ? (input.lines ?? []).map((line) => {
+        const poLine = resolvePurchaseOrderLine(detail, line);
+        const quantity = Number(line.quantity);
+        if (!(quantity > 0))
+          throw new Error(`${poLine.itemCode}: тоо хэмжээ 0-ээс их байна`);
+        const remaining = poLine.quantity - poLine.invoicedQuantity;
+        if (quantity > remaining + QTY_TOLERANCE)
+          throw codedError(
+            "OVER_INVOICED",
+            `${poLine.itemCode}: нэхэмжлэх үлдэгдэл ${fmt(remaining)}, оруулсан ${fmt(quantity)}`
+          );
+        const unitPrice =
+          line.unitPrice != null ? Number(line.unitPrice) : poLine.unitPrice;
+        if (!(unitPrice > 0))
+          throw new Error(`${poLine.itemCode}: нэгж үнэ 0-ээс их байна`);
+        return {
+          purchaseOrderLineId: poLine.id,
+          quantity,
+          unitPrice,
+        };
+      })
+    : detail.lines
+        .map((line) => ({
+          purchaseOrderLineId: line.id,
+          quantity: line.quantity - line.invoicedQuantity,
+          unitPrice: line.unitPrice,
+        }))
+        .filter((line) => line.quantity > QTY_TOLERANCE);
+
+  const costLines: {
+    costComponentId: string;
+    amount: number;
+    description?: string;
+  }[] = [];
+  for (const line of input.costLines ?? []) {
+    const component = await requireCostComponentByCode(
+      orgId,
+      line.costComponentCode
+    );
+    const amount = Number(line.amount);
+    if (!(amount > 0))
+      throw new Error(`${component.code}: зардлын дүн 0-ээс их байна`);
+    costLines.push({
+      costComponentId: component.id,
+      amount,
+      description: line.description?.trim() || undefined,
+    });
+  }
+
+  const otherLines: { account: string; amount: number; description?: string }[] =
+    [];
+  if ((input.otherLines ?? []).length > 0) {
+    const ctx = await accountContext(orgId);
+    for (const line of input.otherLines ?? []) {
+      const amount = Number(line.amount);
+      if (!(amount > 0)) throw new Error("Мөрийн дүн 0-ээс их байна");
+      otherLines.push({
+        account: resolveAccount(line.account, ctx).code,
+        amount,
+        description: line.description?.trim() || undefined,
+      });
+    }
+  }
+
+  if (
+    itemLines.length === 0 &&
+    costLines.length === 0 &&
+    otherLines.length === 0
+  )
+    throw new Error(
+      `${order.documentNo}: нэхэмжлэх үлдэгдэл алга — нэмэлт зардлын мөрөөр (costLines) нэхэмжлэх үүсгэнэ`
+    );
+
+  const currencyTotal =
+    itemLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) +
+    costLines.reduce((sum, line) => sum + line.amount, 0) +
+    otherLines.reduce((sum, line) => sum + line.amount, 0);
+  const rate =
+    order.currency.toUpperCase() === "MNT"
+      ? 1
+      : Number(input.exchangeRate) || 0;
+  const baseTotal = currencyTotal * rate;
+  let postNow = false;
+  let note = "";
+  if (mode === "post") {
+    if (!(baseTotal > 0))
+      note =
+        " (₮ дүн тодорхойгүй — exchangeRate ил өгөөгүй тул ноорог үлдэв; post_arap_document-оор батална)";
+    else if (baseTotal > AI_POST_LIMIT_MNT)
+      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    else postNow = true;
+  }
+
+  const created = unwrapAction(
+    await createApInvoiceFromPo({
+      purchaseOrderId: order.id,
+      date: input.date,
+      dueDate: input.dueDate?.trim() || undefined,
+      exchangeRate:
+        input.exchangeRate != null ? Number(input.exchangeRate) : undefined,
+      description: input.description?.trim() || undefined,
+      documentNo: input.documentNo?.trim() || undefined,
+      externalRef,
+      postNow,
+      lines: explicitLines ? itemLines : undefined,
+      costLines: costLines.length > 0 ? costLines : undefined,
+      otherLines: otherLines.length > 0 ? otherLines : undefined,
+    })
+  );
+  if (created.dedup)
+    return {
+      resultText: `Аль хэдийн үүссэн байна (externalRef таарсан). ID: ${created.id}, ${created.documentNo}`,
+      action: {
+        kind: "arap",
+        id: created.id,
+        title: created.documentNo,
+        status: "draft",
+      },
+      dedup: true,
+    };
+
+  return {
+    resultText: `Захиалгын нэхэмжлэх үүслээ: ${created.documentNo} (${order.documentNo}), дүн ${fmt(currencyTotal)} ${order.currency}${costLines.length > 0 ? `, нэмэлт зардлын мөр ${costLines.length}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note} — Dr өглөгийн түр данс / Cr өглөг (хөдөлгөөн үүсэхгүй, орлого нь хүлээн авалтаас)${costLines.length > 0 ? ". Нэмэлт зардлыг create_cost_allocation-оор хуваарилна" : ""}`,
+    action: {
+      kind: "arap",
+      id: created.id,
+      title: `${created.documentNo} · ${detail.counterpartyName}`,
+      status: postNow ? "posted" : "draft",
+    },
+  };
+}
+
+async function runCreateCostAllocation(
+  orgId: string,
+  input: {
+    allocationBase?: string;
+    sourceLine?: string;
+    date?: string;
+    totalAmount?: number;
+    component?: string;
+    description?: string;
+    documentNo?: string;
+    targets?: { movementId: string; manualAmount?: number }[];
+  }
+): Promise<AiToolResult> {
+  const base = String(input.allocationBase ?? "").trim() as AllocationBase;
+  // OD-017: суурь урьдчилан СОНГОГДОХГҮЙ — default-д нуухгүй.
+  if (!["value", "quantity", "manual"].includes(base))
+    throw new Error(
+      "allocationBase-ийг ил өгнө үү: value (үнийн дүнгээр), quantity (тоо хэмжээгээр) эсвэл manual (гараар). Систем өөрөө сонгохгүй — хэрэглэгчээс асууна уу"
+    );
+
+  let sourceLineId: string | undefined;
+  let purchaseOrderId: string | undefined;
+  let date = input.date?.trim() || "";
+  let totalAmount = input.totalAmount != null ? Number(input.totalAmount) : NaN;
+  let componentId = "";
+  let label = "";
+
+  const sourceLine = input.sourceLine?.trim();
+  if (sourceLine) {
+    const query = sourceLine.toLowerCase();
+    if (query.length < 6)
+      throw new Error("Зардлын мөрийн ID дор хаяж 6 тэмдэгт байх ёстой");
+    const rows = await loadUnallocatedCostLines(orgId);
+    const matches = rows.filter(
+      (row) =>
+        row.lineId.toLowerCase() === query ||
+        row.lineId.toLowerCase().startsWith(query)
+    );
+    if (matches.length === 0)
+      throw new Error(
+        `"${sourceLine}" ID-тай хуваарилагдаагүй зардлын мөр олдсонгүй — get_purchase_order-оор шалгана уу (нэхэмжлэх БАТЛАГДСАН байх ёстой; бүхэлдээ хуваарилагдсан мөр энд харагдахгүй)`
+      );
+    if (matches.length > 1)
+      throw new Error(
+        `"${sourceLine}" гэхэд ${matches.length} мөр таарлаа — бүтэн мөрийн ID өгнө үү`
+      );
+    const row = matches[0];
+    sourceLineId = row.lineId;
+    purchaseOrderId = row.purchaseOrderId;
+    componentId = row.costComponentId;
+    if (!date) date = row.date;
+    if (!Number.isFinite(totalAmount)) totalAmount = row.remainingMnt;
+    label = `${row.documentNo} · ${row.costComponentName}`;
+    if (totalAmount > row.remainingMnt + 0.01)
+      throw codedError(
+        "ALLOCATION_EXCEEDS_LINE",
+        `${row.documentNo} мөрийн хуваарилагдаагүй үлдэгдэл ${fmt(row.remainingMnt)}₮ — ${fmt(totalAmount)}₮ хуваарилах боломжгүй`
+      );
+  } else {
+    if (!input.component?.trim())
+      throw new Error(
+        "sourceLine (зардлын нэхэмжлэхийн мөрийн ID) эсвэл component (бүрэлдэхүүний код) аль нэгийг өгнө үү"
+      );
+    const component = await requireCostComponentByCode(orgId, input.component);
+    componentId = component.id;
+    label = `${component.code} · ${component.name}`;
+  }
+  if (!date) throw new Error("Хуваарилалтын огноо (date) хэрэгтэй");
+  if (!(totalAmount > 0))
+    throw new Error("Хуваарилах дүн (totalAmount) 0-ээс их байх ёстой");
+
+  let targets = (input.targets ?? []).map((target) => ({
+    movementId: String(target.movementId ?? "").trim(),
+    manualAmount:
+      target.manualAmount != null ? Number(target.manualAmount) : undefined,
+  }));
+  if (targets.some((target) => !target.movementId))
+    throw new Error("Зорилт бүрд movementId хэрэгтэй");
+  if (targets.length > 0) {
+    // Угтвар ID-г бүтэн болгоно — server action бүтэн UUID шаарддаг.
+    const movements = await db.query.inventoryMovements.findMany({
+      where: eq(inventoryMovements.organizationId, orgId),
+      columns: { id: true },
+      orderBy: [desc(inventoryMovements.createdAt)],
+      limit: 1000,
+    });
+    targets = targets.map((target) => ({
+      ...target,
+      movementId: resolveByIdPrefix(
+        movements,
+        target.movementId,
+        "орлогын хөдөлгөөн"
+      ).id,
+    }));
+  }
+  if (targets.length === 0) {
+    if (!purchaseOrderId)
+      throw new Error(
+        "targets (хуваарилах орлогууд) өгнө үү — list_inventory_movements-ээс movementId авна"
+      );
+    const options = await loadPoAllocationTargets(purchaseOrderId);
+    if (options.length === 0)
+      throw new Error(
+        "Хуваарилах баталгаажсан хүлээн авалт алга — эхлээд confirm_goods_receipt"
+      );
+    targets = options.map((option) => ({
+      movementId: option.movementId,
+      manualAmount: undefined,
+    }));
+  }
+  if (base === "manual") {
+    // Σ таарах шалгалт нь хуваарилах хөдөлгөгчид (allocate) — энд зөвхөн
+    // дүн өгөгдсөн эсэх, сөрөг эсэхийг шалгана.
+    if (targets.every((target) => target.manualAmount == null))
+      throw new Error(
+        "manual суурьд зорилт бүрд manualAmount өгнө (Σ нь хуваарилах дүнтэй ТААРНА)"
+      );
+    if (targets.some((target) => Number(target.manualAmount ?? 0) < 0))
+      throw new Error("manual суурьд сөрөг дүн оруулж болохгүй");
+  }
+
+  const result = await createCostAllocation({
+    date,
+    costComponentId: componentId,
+    totalAmount,
+    allocationBase: base,
+    description: input.description?.trim() || undefined,
+    documentNo: input.documentNo?.trim() || undefined,
+    sourceLineId,
+    targets,
+  });
+  if (!result.ok)
+    throw new Error(
+      result.message ||
+        (result.code === "unauthenticated"
+          ? "Зардлын хуваарилалт хийхэд нягтлангийн эрх шаардлагатай"
+          : `Хуваарилалт хадгалагдсангүй (${result.code})`)
+    );
+  return {
+    resultText: `Зардлын хуваарилалт үүслээ: ${result.documentNo} · ${label} · ${ALLOCATION_BASE_LABELS[base]} · ${fmt(totalAmount)}₮ · ${result.lineCount} орлого — НООРОГ landed_cost бичилт (Dr барааны нөөц / Cr бараа материалын түр данс). post_cost_entries-ээр батална.`,
+  };
+}
+
+async function runReverseCostAllocation(
+  orgId: string,
+  input: { allocationId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const allocation = await findCostAllocation(orgId, input.allocationId);
+  assertPostLimit(Number(allocation.totalAmount));
+  const result = await reverseCostAllocation({ allocationId: allocation.id });
+  if (!result.ok)
+    throw new Error(
+      result.message ||
+        (result.code === "unauthenticated"
+          ? "Хуваарилалтыг буцаахад нягтлангийн эрх шаардлагатай"
+          : `Хуваарилалт буцаагдсангүй (${result.code})`)
+    );
+  return {
+    resultText: `Зардлын хуваарилалт БУЦААГДЛАА: ${allocation.documentNo}, ${fmt(Number(allocation.totalAmount))}₮ — батлагдсан бичилтүүд эсрэг журналаар буцаж, мөрийн хуваарилагдаагүй дүн сэргэв`,
+  };
+}
+
+async function runGetLandedCostSummary(
+  orgId: string,
+  input: { purchaseOrderId: string }
+): Promise<AiToolResult> {
+  const order = await findPurchaseOrder(orgId, input.purchaseOrderId);
+  const summary = unwrapAction(
+    await getLandedCostSummary({ purchaseOrderId: order.id })
+  );
+  if (summary.items.length === 0)
+    return {
+      resultText: `${order.documentNo}: баталгаажсан хүлээн авалт алга — орлогдох өртөг тооцоогдоогүй (confirm_goods_receipt)`,
+    };
+  const lines = summary.items.map((item) => {
+    const components =
+      item.components.length > 0
+        ? item.components
+            .map((component) => `${component.name} ${fmt(component.amount)}₮`)
+            .join(" + ")
+        : "нэмэлт зардал алга";
+    return `  ${item.itemCode} ${item.itemName} — ${fmt(item.quantity)} ш · худалдан авалт ${fmt(item.purchaseMnt)}₮ · ${components} → нийт ${fmt(item.landedTotal)}₮ · нэгжид ${fmt(item.unitLanded)}₮`;
+  });
+  const total = summary.items.reduce((sum, item) => sum + item.landedTotal, 0);
+  return {
+    resultText: [
+      `ОРЛОГДОХ ӨРТӨГ — ${order.documentNo} (валют ${summary.currency}):`,
+      ...lines,
+      `НИЙТ: ${fmt(total)}₮`,
     ].join("\n"),
   };
 }
@@ -6405,6 +8240,35 @@ export async function executeAiTool(
         return await runPostBatch(args.voucherIds, mode, (id) =>
           runPostJournal(orgId, { voucherId: id }, mode)
         );
+      // ── Хангамж (PO + орлогдох өртөг) ─────────────────────────────────────
+      case "create_purchase_order":
+        return await runCreatePurchaseOrder(orgId, args, mode);
+      case "update_purchase_order":
+        return await runUpdatePurchaseOrder(orgId, args);
+      case "approve_purchase_order":
+        return await runApprovePurchaseOrder(orgId, args, mode);
+      case "close_purchase_order":
+        return await runClosePurchaseOrder(orgId, args, mode);
+      case "cancel_purchase_order":
+        return await runCancelPurchaseOrder(orgId, args, mode);
+      case "list_purchase_orders":
+        return await runListPurchaseOrders(orgId, args);
+      case "get_purchase_order":
+        return await runGetPurchaseOrder(orgId, args);
+      case "create_goods_receipt":
+        return await runCreateGoodsReceipt(orgId, args, mode);
+      case "confirm_goods_receipt":
+        return await runConfirmGoodsReceipt(orgId, args, mode);
+      case "reverse_goods_receipt":
+        return await runReverseGoodsReceipt(orgId, args, mode);
+      case "create_ap_invoice_from_po":
+        return await runCreateApInvoiceFromPo(orgId, args, mode);
+      case "create_cost_allocation":
+        return await runCreateCostAllocation(orgId, args);
+      case "reverse_cost_allocation":
+        return await runReverseCostAllocation(orgId, args, mode);
+      case "get_landed_cost_summary":
+        return await runGetLandedCostSummary(orgId, args);
       default: {
         // custom/ багцын tool — core-той ИЖИЛ алдааны боловсруулалттай.
         const custom = findCustomTool(name);

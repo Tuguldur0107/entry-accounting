@@ -11,6 +11,14 @@ import {
   loadCostingAccountSettings,
   resolveIssueDebitAccount,
 } from "@/lib/costing/master-data";
+// Дансны шалгалт, сегментийн код, барааны дансны mapping — нийтлэг туслах
+// модульд (хангамжийн модуль мөн адил хэрэглэдэг тул зөөгдсөн).
+import {
+  activeSegIdsOf,
+  assertEnabledMainAccount,
+  costingPostingCodeBuilder,
+  itemAccountsFor,
+} from "@/lib/costing/posting-helpers";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -24,10 +32,7 @@ import {
   journalLines,
   journalVouchers,
   segmentConfigs,
-  segmentValues,
 } from "@/lib/db/schema";
-import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
-import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import {
   computeCostingRun,
   entryPostingAccounts,
@@ -38,6 +43,7 @@ import {
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { logAuditEvent } from "@/lib/audit";
+import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 
 function revalidateCosting() {
   for (const path of [
@@ -51,48 +57,6 @@ function revalidateCosting() {
     "/gl/reports",
   ])
     revalidatePath(path);
-}
-
-async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
-  const account = await db.query.chartOfAccounts.findFirst({
-    where: and(
-      eq(chartOfAccounts.organizationId, orgId),
-      eq(chartOfAccounts.number, accountNumber),
-      eq(chartOfAccounts.isEnabled, true)
-    ),
-    columns: { id: true },
-  });
-  if (!account)
-    throw new Error(`${accountNumber} идэвхтэй GL данс олдсонгүй — тохиргоог шалгана уу`);
-}
-
-// Идэвхтэй сегмент ID-ууд — тохиргооноос (S3 буюу ерөнхий данс үргэлж
-// идэвхтэй). Posting code builder болон панелийн дэлгэрэнгүй хоёулаа энэ
-// НЭГ хэрэгжилтийг ашиглана.
-function activeSegIdsOf(
-  configs: { segmentId: number; isEnabled: boolean }[]
-): number[] {
-  const configMap = new Map(configs.map((config) => [config.segmentId, config]));
-  return SEGMENT_DEFS.filter(
-    (definition) =>
-      definition.id === 3 || configMap.get(definition.id)?.isEnabled === true
-  ).map((definition) => definition.id);
-}
-
-// Цөм дүрэм нэг эх сурвалжтай (lib/gl/posting-code.ts); S9 = "CO".
-async function costingPostingCodeBuilder(orgId: string) {
-  const [configs, values] = await Promise.all([
-    db.query.segmentConfigs.findMany({
-      where: eq(segmentConfigs.organizationId, orgId),
-    }),
-    db.query.segmentValues.findMany({
-      where: and(
-        eq(segmentValues.organizationId, orgId),
-        eq(segmentValues.isEnabled, true)
-      ),
-    }),
-  ]);
-  return postingCodeBuilderFromData({ configs, values, moduleTag: "CO" });
 }
 
 // ─── Тохиргоо (бараа бүрийн дансны mapping) ──────────────────────────────────
@@ -231,8 +195,17 @@ export async function runCosting(data: {
       amount: Number(entry.amount),
     }));
 
+  // Хангамжийн хүлээн авалт (sourceType "po_receipt") нь PO нэгж үнэ ×
+  // хүлээн авсан өдрийн Монголбанкны ханшаар батлагдах мөчдөө АЛЬ ХЭДИЙН
+  // капиталжсан (docs/procurement §3.3 ②) — гар үнээр дахин үнэлэхийг
+  // ХОРИГЛОНО. Буцаагдсан капитализацийг Хангамж → Хүлээн авалтаас дахин
+  // батлан сэргээнэ (contract §9).
+  const movementSourceById = new Map(
+    movements.map((row) => [row.id, row.sourceType])
+  );
   const receiptCosts = new Map<string, number>();
   for (const [movementId, unitCost] of Object.entries(data.receiptCosts ?? {})) {
+    if (movementSourceById.get(movementId) === PO_SOURCE_TYPE) continue;
     const value = Number(unitCost);
     if (Number.isFinite(value) && value >= 0) receiptCosts.set(movementId, value);
   }
@@ -313,50 +286,6 @@ export async function runCosting(data: {
 
 // ─── Cost entry lifecycle ────────────────────────────────────────────────────
 
-async function itemAccountsFor(orgId: string, userId: string, itemId: string) {
-  const setting = await db.query.costingItemSettings.findFirst({
-    where: and(
-      eq(costingItemSettings.organizationId, orgId),
-      eq(costingItemSettings.itemId, itemId)
-    ),
-  });
-  if (setting)
-    return {
-      inventoryAccountNumber: setting.inventoryAccountNumber,
-      cogsAccountNumber: setting.cogsAccountNumber,
-    };
-
-  // Тохиргооны мөр байхгүй үед бичих мөчид ТОГТМОЛООР шийдэхгүй (docs/cost
-  // JPR-006 / CLAUDE.md: нээлттэй шийдвэрийг fallback дансанд нуухыг
-  // хориглодог). Оронд нь мөрийг schema-ийн default утгатай нь ҮҮСГЭНЭ —
-  // Тохиргоо → Өртөг → Барааны данс хуудсанд яг эдгээр утга аль хэдийн
-  // харагдаж, засагдах боломжтой тул энэ нь нуугдсан тогтмол биш, ИЛ
-  // хадгалагдсан тохиргоо болно (master-data.ts-ийн ratified-seed хэв
-  // маягтай ижил — README change-control 0.2/0.3: одоогийн дүрмийг нэг
-  // удаа seed хийж, түүнээс хойш зөвхөн тохиргооноос уншина).
-  const [created] = await db
-    .insert(costingItemSettings)
-    .values({ userId, organizationId: orgId, itemId })
-    .onConflictDoNothing()
-    .returning();
-  const row =
-    created ??
-    (await db.query.costingItemSettings.findFirst({
-      where: and(
-        eq(costingItemSettings.organizationId, orgId),
-        eq(costingItemSettings.itemId, itemId)
-      ),
-    }));
-  if (!row)
-    throw new Error(
-      "Барааны дансны тохиргоо олдсонгүй — Тохиргоо → Өртөг → Барааны данс хэсэгт бүртгэнэ үү"
-    );
-  return {
-    inventoryAccountNumber: row.inventoryAccountNumber,
-    cogsAccountNumber: row.cogsAccountNumber,
-  };
-}
-
 /** Нэг зарлагын төрөл — id-гаар (хэрэглэгчийн хүрээнд). */
 async function loadIssueTypeById(orgId: string, id: string) {
   return (
@@ -424,8 +353,17 @@ export async function postCostEntry(id: string) {
   // Бүрэлдэхүүнд ӨӨРИЙН clearing данс тохируулсан бол нэмэлт зардлын
   // бичилт ТЭР дансаар кредитлэгдэнэ (corrected baseline §4: Dr Inventory /
   // Cr the SAME component clearing) — эс бөгөөс ерөнхий клиринг.
+  //
+  // ХАНГАМЖ (contract §9): PO-той бичилт (businessObjectId бий) нь ҮРГЭЛЖ
+  // бараа материалын түр дансаар кредитлэгдэнэ — тэр зардлын нэхэмжлэх нь
+  // ӨГЛӨГИЙН түр дансыг дебетэлсэн тул бүрэлдэхүүний данс хэрэглэвэл хоёр
+  // данс хоёулаа хаагдалгүй үлдэнэ (FR-PROC-003/004 объектын тэгшитгэл).
   let componentClearing: string | null = null;
-  if (entry.entryType === "landed_cost" && entry.costComponentId) {
+  if (
+    entry.entryType === "landed_cost" &&
+    entry.costComponentId &&
+    !entry.businessObjectId
+  ) {
     const component = await db.query.costComponents.findFirst({
       where: and(
         eq(costComponents.id, entry.costComponentId),
@@ -497,6 +435,14 @@ export async function postCostEntry(id: string) {
       })
       .returning({ id: journalVouchers.id });
 
+    // Клирингийн бизнес объектын түлхүүр (FR-PROC-004) — өртгийн бичилтээс
+    // журналын мөрүүдэд ДАМЖИНА. Түр дансдын тулгалт объект бүрээр
+    // тэгширдэг тул түлхүүр нь бичих мөчид тавигдана.
+    const businessObject = {
+      businessObjectType: entry.businessObjectType,
+      businessObjectId: entry.businessObjectId,
+    };
+
     await tx.insert(journalLines).values([
       {
         voucherId: voucher.id,
@@ -507,6 +453,7 @@ export async function postCostEntry(id: string) {
         credit: "0",
         description,
         sortOrder: 0,
+        ...businessObject,
       },
       {
         voucherId: voucher.id,
@@ -517,6 +464,7 @@ export async function postCostEntry(id: string) {
         credit: String(amount),
         description,
         sortOrder: 1,
+        ...businessObject,
       },
     ]);
 
@@ -694,6 +642,11 @@ export async function reverseCostEntry(id: string) {
         credit: line.debit,
         description: line.description,
         sortOrder: index,
+        // Буцаалтын мөр ЭХ мөрийн бизнес объектыг үүрнэ — эс бөгөөс
+        // клирингийн тулгалтад PO-гийн буцаалт "Тодорхойгүй" болж объект
+        // хэзээ ч тэгширэхгүй (FR-PROC-004).
+        businessObjectType: line.businessObjectType,
+        businessObjectId: line.businessObjectId,
       }))
     );
 

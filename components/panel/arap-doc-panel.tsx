@@ -6,30 +6,28 @@
 // татна; формын dirty төлвийг setDirty(panel.id, ...)-д мэдэгдэнэ.
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { IconAction } from "@/components/ui/icon-action";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
-import type {
-  CellValueChangedEvent,
-  ColDef,
-  ICellRendererParams,
-} from "ag-grid-community";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { toast } from "sonner";
 import { feedback } from "@/lib/ui/feedback";
 
 import { AccountInput } from "@/components/account/account-input";
 import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { arapLinesSpec, type ArapLineImport } from "@/lib/excel/specs";
 import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
+import {
+  ArApLinesGrid,
+  emptyLine,
+  type LineRow,
+} from "@/components/arap/arap-lines-grid";
+import { CounterpartySelect } from "@/components/arap/counterparty-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
   createArApDocument,
@@ -40,21 +38,9 @@ import {
   postArApDocument,
   type ArapDocPanelData,
 } from "@/lib/actions/arap";
-import { getVatLineDefaults } from "@/lib/actions/vat";
-import type {
-  ArApDocumentDetail,
-  InventoryItemOption,
-  WarehouseOption,
-} from "@/lib/arap/load-data";
-import type { ArApDocumentType, ArApLineInput } from "@/lib/arap/types";
-import { AccountSegmentEditor } from "@/lib/grid/editors/AccountSegmentEditor";
-import type { SegOption } from "@/lib/grid/editors/SegSelect";
-import { parseMntInput } from "@/lib/grid/formatters";
-import {
-  buildSegCode,
-  fmtAccountDisplay,
-  normalizePastedAccount,
-} from "@/lib/grid/segments";
+import type { ArApDocumentDetail } from "@/lib/arap/load-data";
+import type { ArApDocumentType } from "@/lib/arap/types";
+import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
   openCashDocPanel,
@@ -62,12 +48,12 @@ import {
   openVoucherPanel,
   refreshOpenPanels,
   usePanelStore,
+  type ArapDocPrefill,
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 
 type ArApMode = "combined" | "receivable" | "payable";
-type LineRow = ArApLineInput & { id: string };
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -106,18 +92,6 @@ function addDays(date: string, days: number) {
   return value.toISOString().slice(0, 10);
 }
 
-function emptyLine(
-  activeSegIds: number[],
-  defaultSegments: Record<number, string>
-): LineRow {
-  return {
-    id: nanoid(),
-    account: buildSegCode({}, activeSegIds, defaultSegments),
-    description: "",
-    amount: 0,
-  };
-}
-
 export function ArapDocPanel({
   panel,
   requestClose,
@@ -130,6 +104,8 @@ export function ArapDocPanel({
 
   const documentId = panel.payload.documentId as string | undefined;
   const mode = (panel.payload.mode as ArApMode | undefined) ?? "combined";
+  // PO-гоос нээгдсэн бол форм захиалгын үлдэгдлээр бөглөгдөнө (шинэ баримт).
+  const prefill = panel.payload.prefill as ArapDocPrefill | undefined;
   const refreshToken = panel.refreshToken;
   const [state, setState] = useState<
     | { status: "loading" }
@@ -209,6 +185,7 @@ export function ArapDocPanel({
       panel={panel}
       data={data}
       mode={mode}
+      prefill={prefill}
       requestClose={requestClose}
     />
   );
@@ -216,15 +193,31 @@ export function ArapDocPanel({
 
 // ── Үүсгэх горим ────────────────────────────────────────────────────────────
 
+type ArapFormState = {
+  documentType: ArApDocumentType;
+  documentNo: string;
+  counterpartyId: string;
+  date: string;
+  dueDate: string;
+  currency: string;
+  exchangeRate: string;
+  controlAccountNumber: string;
+  description: string;
+  lines: LineRow[];
+};
+
 function ArapDocForm({
   panel,
   data,
   mode,
+  prefill,
   requestClose,
 }: {
   panel: PanelInstance;
   data: ArapDocPanelData;
   mode: ArApMode;
+  /** PO-гоос дамжсан урьдчилсан бөглөлт (АП нэхэмжлэх). */
+  prefill?: ArapDocPrefill;
   requestClose: () => void;
 }) {
   const router = useRouter();
@@ -241,6 +234,8 @@ function ArapDocForm({
     inventoryItems,
     warehouses,
     clearingAccountNumber,
+    apClearingAccountNumber,
+    costComponents,
     defaultAccountNumbers,
   } = data;
 
@@ -256,7 +251,62 @@ function ArapDocForm({
       : "";
   }
 
-  const [form, setForm] = useState(() => {
+  const [form, setForm] = useState<ArapFormState>(() => {
+    // PO-гоос prefill: захиалгын нэхэмжлээгүй үлдэгдэл × PO нэгж үнэ,
+    // валют/харилцагч захиалгаас (сервер мөн шалгана). Эхний snapshot тул
+    // хэрэглэгч гар хүрэх хүртэл dirty болохгүй.
+    if (prefill) {
+      const date = prefill.date ?? today();
+      const documentType: ArApDocumentType = "ap_bill";
+      const defaults = defaultsFor(prefill.counterpartyId, documentType, date);
+      const toFullCode = (account?: string) => {
+        const trimmed = account?.trim();
+        if (!trimmed) return "";
+        return /^\d{8}$/.test(trimmed)
+          ? buildSegCode({ 3: trimmed }, activeSegIds, defaultSegments)
+          : trimmed;
+      };
+      return {
+        documentType,
+        documentNo: prefill.documentNo ?? "",
+        counterpartyId: prefill.counterpartyId,
+        date,
+        dueDate: prefill.dueDate ?? defaults.dueDate ?? addDays(date, 30),
+        currency: prefill.currency,
+        exchangeRate:
+          prefill.currency === "MNT"
+            ? "1"
+            : prefill.exchangeRate
+              ? String(prefill.exchangeRate)
+              : "",
+        controlAccountNumber:
+          defaults.controlAccountNumber || moduleControlFor(documentType),
+        description:
+          prefill.description ??
+          `${prefill.purchaseOrderNo} — нийлүүлэгчийн нэхэмжлэх`,
+        lines: prefill.lines.map((line) => ({
+          id: nanoid(),
+          // Бараа/бүрэлдэхүүнтэй мөр → ӨГЛӨГИЙН ТҮР ДАНС (docs/procurement
+          // §3.3 ③④); бусад мөр (импортын НӨАТ г.м) prefill-ийн дансаар.
+          account:
+            line.itemId || line.costComponentId
+              ? buildSegCode(
+                  { 3: apClearingAccountNumber },
+                  activeSegIds,
+                  defaultSegments
+                )
+              : toFullCode(line.account),
+          description: line.description,
+          amount: line.amount,
+          itemId: line.itemId,
+          quantity: line.quantity,
+          warehouseId: line.warehouseId,
+          unitPrice: line.unitPrice,
+          purchaseOrderLineId: line.purchaseOrderLineId,
+          costComponentId: line.costComponentId,
+        })),
+      };
+    }
     const date = today();
     const documentType = (mode === "payable"
       ? "ap_bill"
@@ -285,36 +335,6 @@ function ArapDocForm({
     setDirty(panel.id, dirty);
   }, [dirty, panel.id, setDirty]);
 
-  const cpOptions = useMemo(
-    () =>
-      counterparties
-        .filter((item) => item.isActive)
-        .filter((item) =>
-          mode === "combined"
-            ? true
-            : mode === "receivable"
-              ? item.counterpartyType === "customer" || item.counterpartyType === "both"
-              : item.counterpartyType === "supplier" || item.counterpartyType === "both"
-        )
-        .map((item) => ({
-          value: item.id,
-          label: item.name,
-          // ТТД hint-д орсноор хайлт ТТД-гээр ч шүүнэ (SearchableSelect
-          // нь label/hint/value гурвуулангаар нь хайдаг).
-          hint: [
-            item.counterpartyType === "both"
-              ? "Авлага/Өглөг"
-              : item.counterpartyType === "customer"
-                ? "Авлага"
-                : "Өглөг",
-            item.registerNo ? `ТТД ${item.registerNo}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        })),
-    [counterparties, mode]
-  );
-
   const selectedCounterparty = counterparties.find(
     (item) => item.id === form.counterpartyId
   );
@@ -327,7 +347,12 @@ function ArapDocForm({
     counterpartyId: string,
     documentType: ArApDocumentType,
     date: string
-  ) {
+  ): {
+    currency?: string;
+    exchangeRate?: string;
+    dueDate?: string;
+    controlAccountNumber?: string;
+  } {
     const counterparty = counterparties.find((item) => item.id === counterpartyId);
     if (!counterparty) return {};
     const control =
@@ -377,14 +402,30 @@ function ArapDocForm({
           ...form,
           exchangeRate: Number(form.exchangeRate),
           postNow,
+          // PO-той бол баримт захиалгад холбогдож, мөрүүд өглөгийн түр
+          // дансанд бичигдэнэ (орлого нь хүлээн авалтаас).
+          purchaseOrderId: prefill?.purchaseOrderId,
           lines: form.lines.map(
-            ({ account, description, amount, itemId, quantity, warehouseId }) => ({
+            ({
+              account,
+              description,
+              amount,
+              itemId,
+              quantity,
+              warehouseId,
+              purchaseOrderLineId,
+              unitPrice,
+              costComponentId,
+            }) => ({
               account,
               description,
               amount,
               itemId: itemId || undefined,
               quantity: quantity || undefined,
               warehouseId: warehouseId || undefined,
+              purchaseOrderLineId: purchaseOrderLineId || undefined,
+              unitPrice: unitPrice || undefined,
+              costComponentId: costComponentId || undefined,
             })
           ),
         });
@@ -405,11 +446,27 @@ function ArapDocForm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      {prefill && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+          <Icon name="document" size="sm" className="text-[var(--ea-primary)]" />
+          <span className="text-xs text-[var(--ea-text-2)]">
+            Худалдан авалтын захиалга
+          </span>
+          <span className="font-mono text-xs font-semibold text-[var(--ea-text-1)]">
+            {prefill.purchaseOrderNo}
+          </span>
+          <span className="text-[11px] text-[var(--ea-text-3)]">
+            Бараа/бүрэлдэхүүн мөр өглөгийн түр дансанд бичигдэнэ; орлого нь
+            хүлээн авалтын баримтаас үүснэ.
+          </span>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Төрөл">
           <select
             className="ea-form-select"
             value={form.documentType}
+            disabled={!!prefill}
             onChange={(event) =>
               setForm((current) => {
                 const documentType = event.target.value as ArApDocumentType;
@@ -443,7 +500,7 @@ function ArapDocForm({
           />
         </Field>
         <Field label="Харилцагч">
-          <SearchableSelect
+          <CounterpartySelect
             value={form.counterpartyId}
             onChange={(value) =>
               setForm((current) => ({
@@ -452,9 +509,10 @@ function ArapDocForm({
                 ...defaultsFor(value, current.documentType, current.date),
               }))
             }
-            options={cpOptions}
-            placeholder="Харилцагч сонгох..."
-            hideValue
+            counterparties={counterparties}
+            mode={mode}
+            // PO-той нэхэмжлэхийн нийлүүлэгч захиалгаас тогтоогдоно.
+            disabled={!!prefill}
           />
         </Field>
         <Field label="Огноо">
@@ -462,15 +520,20 @@ function ArapDocForm({
             type="date"
             value={form.date}
             onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                date: event.target.value,
-                ...defaultsFor(
+              setForm((current) => {
+                const date = event.target.value;
+                const defaults = defaultsFor(
                   current.counterpartyId,
                   current.documentType,
-                  event.target.value
-                ),
-              }))
+                  date
+                );
+                // PO-той нэхэмжлэхийн ВАЛЮТ захиалгаас тогтоогдсон тул
+                // огноо солихдоо харилцагчийн default валютаар дарахгүй —
+                // зөвхөн төлөх огноог дахин бодно.
+                return prefill
+                  ? { ...current, date, dueDate: defaults.dueDate ?? current.dueDate }
+                  : { ...current, date, ...defaults };
+              })
             }
           />
         </Field>
@@ -504,6 +567,8 @@ function ArapDocForm({
         <Field label="Валют">
           <Input
             value={form.currency}
+            // PO-той нэхэмжлэх нь захиалгын валютаар байх ёстой (сервер шалгана).
+            disabled={!!prefill}
             onChange={(event) =>
               setForm((current) => {
                 const currency = event.target.value.toUpperCase();
@@ -574,6 +639,12 @@ function ArapDocForm({
           warehouses={warehouses}
           documentType={form.documentType}
           clearingAccountNumber={clearingAccountNumber}
+          // PO-той бол өглөгийн түр данс + бүрэлдэхүүний багана нэмэгдэж,
+          // захиалгаас бөглөгдсөн мөрийн бараа засагдахгүй болно.
+          mode={prefill ? "po_invoice" : "arap"}
+          apClearingAccountNumber={apClearingAccountNumber}
+          costComponents={prefill ? costComponents : undefined}
+          lockedItemLines={!!prefill}
         />
       </div>
 
@@ -616,9 +687,17 @@ function ArapDocReadOnly({
   // Нэхэмжлэх илгээх dialog (зөвхөн posted АР нэхэмжлэхэд).
   const [sendOpen, setSendOpen] = useState(false);
 
-  const { activeSegIds, segmentOptions, inventoryItems, warehouses, payments } =
-    data;
+  const {
+    activeSegIds,
+    segmentOptions,
+    inventoryItems,
+    warehouses,
+    costComponents,
+    payments,
+  } = data;
   const hasItems = document.lines.some((line) => line.itemId);
+  const hasUnitPrice = document.lines.some((line) => line.unitPrice != null);
+  const hasComponents = document.lines.some((line) => line.costComponentId);
 
   // Данс дээр дарахад журнал бичихтэй ижил сегментийн panel нээгдэнэ.
   const [segPanel, setSegPanel] = useState<{
@@ -654,6 +733,16 @@ function ArapDocReadOnly({
         ])
       ),
     [warehouses]
+  );
+  const componentLabelById = useMemo(
+    () =>
+      new Map(
+        costComponents.map((component) => [
+          component.id,
+          `${component.code} · ${component.name}`,
+        ])
+      ),
+    [costComponents]
   );
 
   type LineView = ArApDocumentDetail["lines"][number];
@@ -761,6 +850,37 @@ function ArapDocReadOnly({
             },
           ] as ColDef<LineView>[])
         : []),
+      // Хангамжийн мөрүүд: нэгж үнэ (тоо × нэгж үнэ = дүн) ба бүрэлдэхүүн.
+      ...(hasUnitPrice
+        ? ([
+            {
+              headerName: "Нэгж үнэ",
+              field: "unitPrice",
+              width: 120,
+              cellClass: "ag-right-aligned-cell font-mono",
+              headerClass: "ag-right-aligned-header",
+              valueFormatter: (params) =>
+                params.node?.rowPinned || params.value == null
+                  ? ""
+                  : fmtMnt(Number(params.value)),
+            },
+          ] as ColDef<LineView>[])
+        : []),
+      ...(hasComponents
+        ? ([
+            {
+              headerName: "Бүрэлдэхүүн",
+              field: "costComponentId",
+              minWidth: 160,
+              valueFormatter: (params) =>
+                params.node?.rowPinned
+                  ? ""
+                  : params.value
+                    ? componentLabelById.get(String(params.value)) ?? "—"
+                    : "—",
+            },
+          ] as ColDef<LineView>[])
+        : []),
       {
         headerName: "Тайлбар",
         field: "description",
@@ -770,7 +890,16 @@ function ArapDocReadOnly({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeSegIds, hasItems, itemLabelById, warehouseLabelById, accountNameByMain]
+    [
+      activeSegIds,
+      hasItems,
+      hasUnitPrice,
+      hasComponents,
+      itemLabelById,
+      warehouseLabelById,
+      componentLabelById,
+      accountNameByMain,
+    ]
   );
 
   const pinnedTotals = useMemo(
@@ -792,7 +921,9 @@ function ArapDocReadOnly({
   function postDraft() {
     void confirm({
       title: "Баримт батлах",
-      description: `${document.documentNo} ноорог баримтыг баталж GL журнал үүсгэх үү? Бараатай мөрүүд нь Бараа материалд тоо хэмжээний ноорог үүсгэнэ.`,
+      description: document.purchaseOrderId
+        ? `${document.documentNo} ноорог баримтыг баталж GL журнал үүсгэх үү? Мөрүүд өглөгийн түр дансанд бичигдэнэ — барааны орлого нь хүлээн авалтын баримтаас үүсдэг тул тоо хэмжээний ноорог үүсэхгүй.`
+        : `${document.documentNo} ноорог баримтыг баталж GL журнал үүсгэх үү? Бараатай мөрүүд нь Бараа материалд тоо хэмжээний ноорог үүсгэнэ.`,
       confirmText: "Батлах",
     }).then((ok) => {
       if (!ok) return;
@@ -1039,6 +1170,11 @@ function ArapDocReadOnly({
           {document.currency}
           {foreign ? ` · ханш ${document.exchangeRate}` : ""}
         </ReadField>
+        {document.purchaseOrderNo && (
+          <ReadField label="Худалдан авалтын захиалга">
+            <span className="font-mono">{document.purchaseOrderNo}</span>
+          </ReadField>
+        )}
         <div className="sm:col-span-2 lg:col-span-3">
           <ReadField label="Утга">{document.description}</ReadField>
         </div>
@@ -1282,358 +1418,6 @@ function ArapDocReadOnly({
           onOpenChange={setSendOpen}
         />
       )}
-    </div>
-  );
-}
-
-// ── Мөрийн хүснэгт (үүсгэх горим) ───────────────────────────────────────────
-// Урьд нь arap-workspace.tsx-ийн DocumentDialog дотор байсан — одоо цорын
-// ганц хэрэглэгч нь энэ панель.
-
-function ArApLinesGrid({
-  lines,
-  onChange,
-  activeSegIds,
-  segmentOptions,
-  defaultSegments,
-  inventoryItems,
-  warehouses,
-  documentType,
-  clearingAccountNumber,
-}: {
-  lines: LineRow[];
-  onChange: (updater: (prev: LineRow[]) => LineRow[]) => void;
-  activeSegIds: number[];
-  segmentOptions: Record<number, SegOption[]>;
-  defaultSegments: Record<number, string>;
-  inventoryItems: InventoryItemOption[];
-  warehouses: WarehouseOption[];
-  documentType: ArApDocumentType;
-  /** Клирингийн данс — тохиргооноос ирнэ (JPR-006). */
-  clearingAccountNumber: string;
-}) {
-  const total = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
-  const [importOpen, setImportOpen] = useState(false);
-  const [vatBusy, setVatBusy] = useState(false);
-
-  // "НӨАТ 10% нэмэх" — НӨАТ-гүй мөрүүдийн нийлбэрээс exclusive тооцож
-  // тохиргооны НӨАТ дансанд нэг мөр нэмнэ (байвал дүнг нь шинэчилнэ).
-  // АР → гаралтын НӨАТ (өглөг), АП → оролтын НӨАТ (авлага).
-  async function addVatLine() {
-    setVatBusy(true);
-    try {
-      const defaults = await getVatLineDefaults();
-      const account =
-        documentType === "ap_bill" ? defaults.inputCode : defaults.outputCode;
-      const label = `НӨАТ ${defaults.ratePercent}%`;
-      onChange((prev) => {
-        const isVatLine = (line: LineRow) =>
-          line.description.trim().startsWith("НӨАТ");
-        const base = prev
-          .filter((line) => !isVatLine(line))
-          .reduce((sum, line) => sum + Number(line.amount || 0), 0);
-        const vatAmount =
-          Math.round(base * defaults.ratePercent) / 100;
-        if (!(vatAmount > 0)) return prev;
-        const existing = prev.find(isVatLine);
-        if (existing)
-          return prev.map((line) =>
-            line === existing
-              ? { ...line, account, description: label, amount: vatAmount }
-              : line
-          );
-        return [
-          ...prev.filter(
-            (line) =>
-              Number(line.amount || 0) > 0 || line.description.trim() !== ""
-          ),
-          {
-            id: nanoid(),
-            account,
-            description: label,
-            amount: vatAmount,
-            itemId: undefined,
-            quantity: undefined,
-            warehouseId: undefined,
-          },
-        ];
-      });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "НӨАТ-ийн тохиргоо уншигдсангүй"
-      );
-    } finally {
-      setVatBusy(false);
-    }
-  }
-
-  // Excel импорт — олон бараатай нэхэмжлэхийг нэг файлаас (стандарт:
-  // зөвхөн зөв мөрүүд орж ирнэ; бараа/агуулах КОДООР танигдана).
-  const importSpec = useMemo(
-    () =>
-      arapLinesSpec({
-        accountsByMain: new Map(
-          (segmentOptions[3] ?? []).map((option) => [option.code, option.name])
-        ),
-        activeSegIds,
-        defaultSegments,
-        itemsByCode: new Map(
-          inventoryItems.map((item) => [
-            item.code,
-            { id: item.id, name: item.name },
-          ])
-        ),
-        warehousesByCode: new Map(
-          warehouses.map((warehouse) => [
-            warehouse.code,
-            { id: warehouse.id, name: warehouse.name },
-          ])
-        ),
-      }),
-    [segmentOptions, activeSegIds, defaultSegments, inventoryItems, warehouses]
-  );
-
-  function handleImportLines(values: ArapLineImport[]) {
-    onChange((prev) => {
-      // Хүрээгүй хоосон мөрүүдийг импорт орлоно.
-      const kept = prev.filter(
-        (line) => Number(line.amount || 0) > 0 || line.description.trim() !== ""
-      );
-      return [
-        ...kept,
-        ...values.map((value) => ({
-          id: nanoid(),
-          account: value.account,
-          description: value.description,
-          amount: value.amount,
-          itemId: value.itemId ?? undefined,
-          quantity: value.quantity ?? undefined,
-          warehouseId: value.warehouseId ?? undefined,
-        })),
-      ];
-    });
-  }
-
-  // Бараатай мөр: АП батлагдахад орлогын, АР батлагдахад зарлагын тоо
-  // хэмжээний draft inventory-д үүснэ (бараа бүртгэлтэй үед л харагдана).
-  const itemLabelById = useMemo(
-    () =>
-      new Map(
-        inventoryItems.map((item) => [item.id, `${item.code} · ${item.name}`])
-      ),
-    [inventoryItems]
-  );
-  const warehouseLabelById = useMemo(
-    () =>
-      new Map(
-        warehouses.map((warehouse) => [
-          warehouse.id,
-          `${warehouse.code} · ${warehouse.name}`,
-        ])
-      ),
-    [warehouses]
-  );
-  const columns = useMemo<ColDef<LineRow>[]>(
-    () => [
-      { headerName: "#", width: 48, valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1 },
-      {
-        headerName: "Данс",
-        field: "account",
-        minWidth: 240,
-        flex: 1,
-        editable: true,
-        cellEditor: AccountSegmentEditor,
-        cellEditorParams: {
-          activeSegIds,
-          segOptions: segmentOptions,
-          extraDefaults: defaultSegments,
-        },
-        valueFormatter: (params) =>
-          fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
-      },
-      {
-        headerName: "Тайлбар",
-        field: "description",
-        minWidth: 180,
-        flex: 1,
-        editable: true,
-      },
-      {
-        headerName: "Дүн",
-        field: "amount",
-        width: 150,
-        editable: true,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        valueParser: (params) => {
-          const value = parseMntInput(params.newValue);
-          return Number.isFinite(value) && value > 0 ? value : 0;
-        },
-        valueFormatter: (params) =>
-          params.value ? fmtMnt(Number(params.value)) : "",
-      },
-      ...(inventoryItems.length > 0
-        ? ([
-            {
-              headerName: "Бараа",
-              field: "itemId",
-              minWidth: 170,
-              editable: true,
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: ["", ...inventoryItems.map((item) => item.id)],
-              },
-              valueFormatter: (params) =>
-                params.value ? itemLabelById.get(String(params.value)) ?? "" : "—",
-            },
-            {
-              headerName: "Тоо",
-              field: "quantity",
-              width: 96,
-              editable: true,
-              cellClass: "ag-right-aligned-cell font-mono",
-              headerClass: "ag-right-aligned-header",
-              valueParser: (params) => {
-                const value = Number(String(params.newValue).replaceAll(",", ""));
-                return Number.isFinite(value) && value > 0 ? value : undefined;
-              },
-              valueFormatter: (params) =>
-                params.value ? String(params.value) : "",
-            },
-            {
-              headerName: "Агуулах",
-              field: "warehouseId",
-              minWidth: 140,
-              editable: true,
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: ["", ...warehouses.map((warehouse) => warehouse.id)],
-              },
-              valueFormatter: (params) =>
-                params.value
-                  ? warehouseLabelById.get(String(params.value)) ?? ""
-                  : "—",
-            },
-          ] as ColDef<LineRow>[])
-        : []),
-      {
-        headerName: "",
-        colId: "action",
-        width: 44,
-        sortable: false,
-        filter: false,
-        cellRenderer: ({ data }: { data?: LineRow }) => (
-          <IconAction
-            name="delete"
-            label="Мөр устгах"
-            size="sm"
-            variant="danger"
-            onClick={() =>
-              onChange((prev) =>
-                prev.length <= 1 ? prev : prev.filter((line) => line.id !== data?.id)
-              )
-            }
-          />
-        ),
-      },
-    ],
-    [
-      activeSegIds,
-      defaultSegments,
-      onChange,
-      segmentOptions,
-      inventoryItems,
-      warehouses,
-      itemLabelById,
-      warehouseLabelById,
-    ]
-  );
-
-  return (
-    <div className="space-y-2">
-      <DataGridDynamic<LineRow>
-        rowData={lines}
-        columnDefs={columns}
-        getRowId={(params) => params.data.id}
-        onCellValueChanged={(event: CellValueChangedEvent<LineRow>) => {
-          const field = event.colDef.field as keyof LineRow | undefined;
-          if (!field) return;
-          onChange((prev) =>
-            prev.map((line) => {
-              if (line.id !== event.data.id) return line;
-              const next = { ...line, [field]: event.newValue };
-              // АП-ийн бараатай мөр клирингийн дансанд суух ёстой (server
-              // талд мөн шалгадаг) — бараа сонгонгуут дансыг автоматаар
-              // 14000099 болгоно.
-              if (
-                field === "itemId" &&
-                event.newValue &&
-                documentType === "ap_bill"
-              )
-                next.account = buildSegCode(
-                  { 3: clearingAccountNumber },
-                  activeSegIds,
-                  defaultSegments
-                );
-              return next;
-            })
-          );
-        }}
-        processDataFromClipboard={(params) =>
-          (params.data ?? []).map((row) =>
-            row.map((cell, index) =>
-              index === 1
-                ? normalizePastedAccount(cell, activeSegIds, defaultSegments)
-                : cell
-            )
-          )
-        }
-        height={Math.min(360, 86 + lines.length * 38)}
-        wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-        singleClickEdit
-      />
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              onChange((prev) => [...prev, emptyLine(activeSegIds, defaultSegments)])
-            }
-          >
-            + Мөр нэмэх
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setImportOpen(true)}
-          >
-            <Icon name="spreadsheet" size="sm" />
-            Excel импорт
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={vatBusy}
-            onClick={addVatLine}
-          >
-            НӨАТ 10% нэмэх
-          </Button>
-        </div>
-        <span className="font-mono font-semibold text-[var(--ea-text-1)]">
-          Нийт: {fmtMnt(total)}
-        </span>
-      </div>
-      <ExcelImportDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        spec={importSpec}
-        title="Баримтын мөр импортлох"
-        onImport={handleImportLines}
-      />
     </div>
   );
 }
