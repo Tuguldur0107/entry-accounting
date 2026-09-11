@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { AgGridReact, type AgGridReactProps } from "ag-grid-react";
 import type {
@@ -181,8 +182,22 @@ function DataGridInner<TData>(
     [defaultColDef, isInRange]
   );
 
+  // Хүснэгт ЧИМЭЭГҮЙ хоосон харагдахаас хамгаална: AG Grid бэлэн болох
+  // дохио (onGridReady) тодорхой хугацаанд ирэхгүй бол (chunk ачаалагдаагүй,
+  // модуль бүртгэгдээгүй, layout-ын өндөр 0 …) хэрэглэгчид ИЛ хэлж,
+  // дахин ачаалах гарц өгнө.
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    if (apiRef.current) return;
+    const timer = setTimeout(() => {
+      if (!apiRef.current) setStalled(true);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, []);
+
   function handleReady(event: GridReadyEvent<TData>) {
     apiRef.current = event.api;
+    setStalled(false);
     onGridReady?.(event);
   }
 
@@ -409,6 +424,21 @@ function DataGridInner<TData>(
         } as React.CSSProperties
       }
     >
+      {stalled && (
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--ea-border)] bg-[var(--ea-warning-bg)] px-3 py-2 text-xs text-[var(--ea-warning-fg)]">
+          <span>
+            Хүснэгт ачаалагдсангүй. Хуудсыг дахин ачаалж үзнэ үү (шинэчлэлт
+            гарсан бол хуучин хувилбар кэшэд үлдсэн байж болно).
+          </span>
+          <button
+            type="button"
+            className="ea-btn ea-btn--sm"
+            onClick={() => window.location.reload()}
+          >
+            Дахин ачаалах
+          </button>
+        </div>
+      )}
       <AgGridReact<TData>
         theme={eaGridTheme}
         onGridReady={handleReady}

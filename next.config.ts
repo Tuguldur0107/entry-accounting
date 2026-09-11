@@ -9,7 +9,14 @@ const nextConfig: NextConfig = {
   experimental: {
     // Barrel файлтай том сангуудын import-ыг задалж dev compile болон
     // bundle-ийг хөнгөлнө (хуудас шилжихэд "rendering" удаан байсан асуудал).
-    optimizePackageImports: ["ag-grid-community", "ag-grid-react", "exceljs"],
+    //
+    // ⚠️ ag-grid-community / ag-grid-react-ыг ЭНД ОРУУЛАХГҮЙ: AG Grid v33+
+    // нь ModuleRegistry гэсэн НЭГ singleton дээр тулгуурладаг бөгөөд barrel
+    // задаргаа нь дуудлагын байрлалаас хамаарч өөр deep зам үүсгэж,
+    // бүртгэл хийсэн instance ба grid-ийн уншдаг instance зөрөх эрсдэлтэй
+    // (үр дүн: хүснэгт ХООСОН зурагдана). Chunk график өөрчлөгдөх бүрд
+    // дахин гарч ирж болзошгүй тул хасав.
+    optimizePackageImports: ["exceljs"],
   },
 };
 
