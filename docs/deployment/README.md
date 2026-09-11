@@ -21,7 +21,8 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 | # | Алхам | Хэн | Хэрэгсэл |
 |---|-------|-----|----------|
-| 1 | Харилцагчийн **тусдаа private repo** үүсгэх — Entry Console → «Харилцагч нэмэх» (§1a) | Бид | `provision-customer.yml` автоматаар |
+| 0 | Харилцагч **нээлттэй хуудсаар** хүсэлт илгээнэ (`<console>/signup`) → Console-д «Хүсэлт» төлөвтэй бүртгэл, Telegram мэдэгдэл. Repo/Railway хараахан үүсэхгүй | Харилцагч | Entry Console `/signup`, `POST /api/signup` |
+| 1 | Харилцагчийн **тусдаа private repo** үүсгэх — Entry Console → хүсэлтийг «Батлах» (эсвэл «Харилцагч нэмэх» маягт) (§1a) | Бид | `provision-customer.yml` автоматаар |
 | 2 | Repo-ийн Actions permission + `UPSTREAM_TOKEN` secret + хэрэглэгчийн урилга — мөн автоматаар (1-р алхамд) | — | — |
 | 3 | Railway deploy — Entry Console автоматаар (§1b): `entry-<slug>` app + `entry-<slug>-db` Postgres, хувьсагчид, domain. Гараар бол: Postgres + repo холбох, `.env.example`-ийн DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL | Бид | Console / Railway (`railway.toml` бэлэн: db:push + healthcheck) |
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
@@ -40,7 +41,8 @@ Core repo **private** тул GitHub-ийн "Fork" товч харилцагчи�
 (нэг commit) үүсдэг тул upstream-sync merge хийгдэхгүй.
 
 **Автомат зам (зөвлөж байна):** Entry Console (`entry-console` repo, Railway)
-→ «Харилцагч нэмэх» → core repo-ийн `.github/workflows/provision-customer.yml`
+→ хүсэлтийг «Батлах» (нээлттэй `/signup`-аас ирсэн) эсвэл «Харилцагч нэмэх»
+→ core repo-ийн `.github/workflows/provision-customer.yml`
 ажиллаж: `entry-<slug>` private repo (topic `entry-customer`), core-ийн main +
 tag push (бүтэн түүх), Actions permission, `UPSTREAM_TOKEN` secret,
 `ENTRY_DISPLAY_NAME` / `ENTRY_APP_URL` variable, хэрэглэгчдийг Write эрхтэй
