@@ -56,6 +56,9 @@ export function SavedViewsMenu({ surfaceId, gridRef }: Props) {
   const [saveName, setSaveName] = useState("");
   const [activeEncoded, setActiveEncoded] = useState<string | null>(null);
 
+  // applyState нь syncUrl-ээс ӨМНӨ зарлагддаг тул ref-ээр холбоно.
+  const syncUrlRef = useRef<((encoded: string | null) => void) | null>(null);
+
   const applyState = useCallback(
     (state: GridViewState) => {
       const api = gridRef.current?.api;
@@ -65,6 +68,27 @@ export function SavedViewsMenu({ surfaceId, gridRef }: Props) {
         state: state.c,
         defaultState: { sort: null },
       });
+      // Хадгалсан харагдац мөр НУУЖ болзошгүй (ялангуяа хожим үүссэн
+      // баримтууд). Хүснэгт тайлбаргүй хоосон харагдвал хэрэглэгч
+      // системийн алдаа гэж ойлгодог тул ҮРГЭЛЖ ил хэлнэ.
+      let total = 0;
+      api.forEachNode(() => {
+        total += 1;
+      });
+      const shown = api.getDisplayedRowCount();
+      if (shown < total)
+        toast.info(
+          `Хадгалсан харагдац идэвхтэй — ${total} мөрөөс ${shown} нь харагдаж байна`,
+          {
+            action: {
+              label: "Шүүлтийг арилгах",
+              onClick: () => {
+                api.setFilterModel(null);
+                syncUrlRef.current?.(null);
+              },
+            },
+          }
+        );
       return true;
     },
     [gridRef]
@@ -81,6 +105,10 @@ export function SavedViewsMenu({ surfaceId, gridRef }: Props) {
     },
     [router, pathname, searchParams]
   );
+
+  useEffect(() => {
+    syncUrlRef.current = syncUrl;
+  }, [syncUrl]);
 
   // ?view= deep link — grid бэлэн болмогц нэг удаа хэрэглэнэ (AG Grid
   // dynamic ачаалагддаг тул api гартал богино retry).
