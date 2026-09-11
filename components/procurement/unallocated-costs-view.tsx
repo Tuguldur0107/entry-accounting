@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { toast } from "sonner";
 
+import { AllocationTargetsTable } from "@/components/costing/allocation-targets-table";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,9 +52,6 @@ import {
   refreshOpenPanels,
 } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
-
-const fmtQty = (value: number) =>
-  value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 
 const BASE_OPTIONS = Object.keys(ALLOCATION_BASE_LABELS) as AllocationBase[];
 
@@ -486,102 +484,30 @@ export function UnallocatedCostsView({ rows, from, to }: Props) {
                   <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                     {targetState.message}
                   </p>
-                ) : targets.length === 0 ? (
-                  <p className="rounded-md border border-[var(--ea-border)] px-3 py-6 text-center text-xs text-[var(--ea-text-4)]">
-                    Энэ захиалгад батлагдсан хүлээн авалт алга — зардлыг
-                    хуваарилахын тулд эхлээд хүлээн авалтыг батална
-                  </p>
                 ) : (
-                  <div className="max-h-64 overflow-y-auto rounded-md border border-[var(--ea-border)]">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
-                        <tr>
-                          <th className="w-8 px-2 py-1.5" />
-                          <th className="px-2 py-1.5 text-left">Орлого</th>
-                          <th className="px-2 py-1.5 text-left">Бараа</th>
-                          <th className="px-2 py-1.5 text-right">Тоо</th>
-                          <th className="px-2 py-1.5 text-right">
-                            Капитализаци
-                          </th>
-                          <th className="px-2 py-1.5 text-right">
-                            {base === "manual" ? "Дүн бичих" : "Хуваарилах дүн"}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {targets.map((target) => {
-                          const isSelected = !!selected[target.movementId];
-                          const share = previewByMovement.get(
-                            target.movementId
-                          );
-                          return (
-                            <tr
-                              key={target.movementId}
-                              className={cn(
-                                "border-t border-[var(--ea-border)]",
-                                isSelected && "bg-[var(--ea-primary)]/6"
-                              )}
-                            >
-                              <td className="px-2 py-1.5">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={(event) =>
-                                    setSelected((current) => ({
-                                      ...current,
-                                      [target.movementId]:
-                                        event.target.checked,
-                                    }))
-                                  }
-                                />
-                              </td>
-                              <td className="px-2 py-1.5 font-mono">
-                                {target.documentNo}
-                                <span className="ml-1.5 text-[var(--ea-text-4)]">
-                                  {target.date}
-                                </span>
-                              </td>
-                              <td className="px-2 py-1.5">
-                                {target.itemLabel}
-                                <span className="ml-1.5 text-[var(--ea-text-4)]">
-                                  {target.warehouseLabel}
-                                </span>
-                              </td>
-                              <td className="px-2 py-1.5 text-right font-mono">
-                                {fmtQty(target.quantity)}
-                              </td>
-                              <td className="px-2 py-1.5 text-right font-mono">
-                                {fmtMnt(target.value)}
-                              </td>
-                              <td className="px-2 py-1.5 text-right font-mono">
-                                {base === "manual" ? (
-                                  <input
-                                    value={manual[target.movementId] ?? ""}
-                                    onChange={(event) =>
-                                      setManual((current) => ({
-                                        ...current,
-                                        [target.movementId]:
-                                          event.target.value,
-                                      }))
-                                    }
-                                    disabled={!isSelected}
-                                    placeholder="0"
-                                    className="h-6 w-24 rounded border border-[var(--ea-border)] bg-[var(--ea-surface)] px-1 text-right font-mono text-xs disabled:opacity-40"
-                                  />
-                                ) : isSelected && (share ?? 0) > 0 ? (
-                                  fmtMnt(share!)
-                                ) : isSelected ? (
-                                  "—"
-                                ) : (
-                                  ""
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  // Өртгийн модультай ИЖИЛ хүснэгт — давхардуулахгүй.
+                  <AllocationTargetsTable
+                    targets={targets}
+                    selected={selected}
+                    onToggle={(movementId, checked) =>
+                      setSelected((current) => ({
+                        ...current,
+                        [movementId]: checked,
+                      }))
+                    }
+                    base={base}
+                    manualAmounts={manual}
+                    onManualChange={(movementId, value) =>
+                      setManual((current) => ({
+                        ...current,
+                        [movementId]: value,
+                      }))
+                    }
+                    previewByMovement={previewByMovement}
+                    documentHeader="Орлого"
+                    valueHeader="Капитализаци"
+                    emptyMessage="Энэ захиалгад батлагдсан хүлээн авалт алга — зардлыг хуваарилахын тулд эхлээд хүлээн авалтыг батална"
+                  />
                 )}
               </div>
 

@@ -16,7 +16,9 @@ import {
   arApSettlements,
   cashDocuments,
   chartOfAccounts,
+  costAllocations,
   costComponents,
+  costEntries,
   counterparties,
   inventoryMovements,
   journalLines,
@@ -702,6 +704,77 @@ async function assertPurchaseOrderNotClosed(
   );
 }
 
+/**
+ * ЗАРДЛЫН нэхэмжлэхийг буцаах/устгахын өмнө — түүний мөрүүдээс үүссэн
+ * ИДЭВХТЭЙ зардлын хуваарилалт (`cost_allocations.sourceLineId`) болон
+ * өртгийн бичилт (`cost_entries.sourceLineId`) байвал таслана
+ * (docs/procurement §3.3 ④⑤, contract §9).
+ *
+ * Эс бөгөөс: нэхэмжлэх нь өглөгийн түр дансаас гарч ЗАМХАРНА (эсрэг мөр)
+ * атлаа `landed_cost` бичилтүүд барааны өртөгт үлдэж өртөг ХӨӨРӨГДӨНӨ; PO
+ * хаалтад хоёр түр дансны зөрүү нь хуурамч ханшийн олз болж гарна. Зөв
+ * дараалал: эхлээд хуваарилалтыг буцаах (reverseCostAllocation), дараа нь
+ * нэхэмжлэхийг.
+ */
+async function assertNoActiveCostAllocations(
+  orgId: string,
+  documentId: string
+) {
+  const [allocationRows, entryRows] = await Promise.all([
+    db
+      .select({
+        documentNo: costAllocations.documentNo,
+        date: costAllocations.date,
+        totalAmount: costAllocations.totalAmount,
+      })
+      .from(costAllocations)
+      .innerJoin(
+        arApDocumentLines,
+        eq(costAllocations.sourceLineId, arApDocumentLines.id)
+      )
+      .where(
+        and(
+          eq(costAllocations.organizationId, orgId),
+          eq(arApDocumentLines.documentId, documentId)
+        )
+      ),
+    // Хуваарилалтын баримт устсан ч (reverseCostAllocation түүнийг устгадаг)
+    // идэвхтэй бичилт үлдсэн тохиолдлыг мөн барина.
+    db
+      .select({ amount: costEntries.amount })
+      .from(costEntries)
+      .innerJoin(
+        arApDocumentLines,
+        eq(costEntries.sourceLineId, arApDocumentLines.id)
+      )
+      .where(
+        and(
+          eq(costEntries.organizationId, orgId),
+          eq(arApDocumentLines.documentId, documentId),
+          inArray(costEntries.status, ["draft", "posted"])
+        )
+      ),
+  ]);
+  if (allocationRows.length === 0 && entryRows.length === 0) return;
+
+  const detail =
+    allocationRows.length > 0
+      ? allocationRows
+          .map(
+            (row) =>
+              `${row.documentNo} (${row.date}, ${Number(
+                row.totalAmount
+              ).toLocaleString("en-US")}₮)`
+          )
+          .join(", ")
+      : `${entryRows.length} өртгийн бичилт (${entryRows
+          .reduce((sum, row) => sum + Number(row.amount), 0)
+          .toLocaleString("en-US")}₮)`;
+  throw new Error(
+    `[ALLOCATION_EXISTS] Эхлээд зардлын хуваарилалтыг буцаана уу (Хангамж → Хуваарилагдаагүй зардал) — ${detail}`
+  );
+}
+
 async function createArApDocumentCore(data: {
   documentType: ArApDocumentType;
   /** Гараар өгсөн нэхэмжлэхийн дугаар — хоосон бол автоматаар үүснэ. */
@@ -1295,6 +1368,9 @@ async function reverseArApDocumentCore(id: string) {
   // Хаагдсан PO-гийн нэхэмжлэхийг буцаавал хаалтын журнал тэнцэхгүй.
   if (document.purchaseOrderId)
     await assertPurchaseOrderNotClosed(orgId, document.purchaseOrderId, "буцаах");
+  // Зардлын мөрүүд нь аль хэдийн барааны өртөгт хуваарилагдсан бол
+  // нэхэмжлэхийг буцаахаас өмнө хуваарилалтыг буцаана.
+  await assertNoActiveCostAllocations(orgId, id);
 
   // Аюулгүйн давхар шалгалт — статус posted атлаа settlement үлдсэн байж болно.
   const settlement = await db.query.arApSettlements.findFirst({
@@ -1465,6 +1541,10 @@ async function deleteArApDocumentCore(id: string) {
   // (ноорог нэхэмжлэх ч PO-гийн нэхэмжилсэн нийлбэрт тооцогддог).
   if (document.purchaseOrderId)
     await assertPurchaseOrderNotClosed(orgId, document.purchaseOrderId, "устгах");
+  // Хуваарилагдсан зардлын нэхэмжлэхийг устгавал мөрүүд нь цуврал
+  // (cost_allocations FK restrict) эсвэл lineage тасарч (cost_entries
+  // sourceLineId → null) өртөг хөөрөгдөнө — ил монгол мессежээр таслана.
+  await assertNoActiveCostAllocations(orgId, id);
 
   if (document.status !== "draft") {
     await assertPeriodOpen(orgId, document.date);
@@ -1618,6 +1698,17 @@ export async function updateArApDocument(
   };
 
   // PO-гийн холбоос ҮҮСГЭХ үед тогтдог — засварлаж сольдоггүй.
+  //
+  // Гэрээ §8-д "updateArApDocument data += purchaseOrderId?" гэж бичсэн ч
+  // энэ функц уг параметрыг ЗОРИУД авахгүй бөгөөд зан төлөв нь ЗӨВ:
+  //   • updateValues-д purchaseOrderId ОГТ ордоггүй тул ноорог засахад
+  //     холбоос ХЭВЭЭР хадгалагдана;
+  //   • доорх assertPurchaseOrderLines нь баримтын ОДООГИЙН
+  //     purchaseOrderId-гаар (excludeDocumentId-тэй) дахин шалгагдана.
+  // Холбоосыг засварын үед солиулбал мөрүүд нь ХУУЧИН PO-гийн
+  // purchaseOrderLineId-г үүрсээр байхад шинэ PO-гийн OVER_INVOICED
+  // шалгалт тойрогдоно. Холбоос солих бол ноорогийг устгаад
+  // createApInvoiceFromPo-гоор дахин үүсгэнэ.
   const purchaseOrderId = document.purchaseOrderId;
 
   let newLines:

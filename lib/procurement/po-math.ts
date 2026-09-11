@@ -12,12 +12,24 @@ export type PoLineProgress = {
   ordered: number;
   /** Батлагдсан хүлээн авалтуудын нийлбэр тоо. */
   received: number;
-  /** Нэхэмжлэгдсэн нийлбэр тоо. */
+  /**
+   * Нэхэмжлэгдсэн нийлбэр тоо — НООРОГ нэхэмжлэх Ч ОРНО.
+   * Энэ нь ИЛҮҮ НЭХЭМЖЛЭХЭЭС хамгаалах (`OVER_INVOICED`) суурь.
+   */
   invoiced: number;
-  /** Нэхэмжлэгдсэн нийлбэр дүн (PO валют). */
+  /** Нэхэмжлэгдсэн нийлбэр дүн (PO валют) — ноорог Ч ОРНО. */
   invoicedAmount: number;
   /** Захиалгын мөрийн дүн (тоо × нэгж үнэ, PO валют). */
   orderedAmount: number;
+  /**
+   * ЗӨВХӨН БАТЛАГДСАН (posted | partially_paid | paid) нэхэмжлэхийн тоо.
+   * PO ХААЛТЫН нөхцөлд ЭНЭ хэрэглэгдэнэ — клирингийн үлдэгдэл нь зөвхөн
+   * posted журналаас бүрддэг тул ноорогтой PO хаагдвал тэнцэл эвдэрнэ.
+   * Өгөгдөөгүй бол `invoiced`-ээр орлоно (хуучин дуудагчид хэвээр ажиллана).
+   */
+  postedInvoiced?: number;
+  /** ЗӨВХӨН батлагдсан нэхэмжлэхийн нийлбэр дүн (PO валют). */
+  postedInvoicedAmount?: number;
 };
 
 /** Тоо хэмжээний нарийвчлал — numeric(18,4). */
@@ -50,6 +62,17 @@ export function poCloseBlockers(input: {
   lines: PoLineProgress[];
   /** Хуваарилагдаагүй нэмэлт зардлын мөрүүд (MNT). */
   unallocatedCostAmount: number;
+  /**
+   * PO-д холбогдсон НООРОГ нэхэмжлэхийн тоо. Ноорог нэхэмжлэх GL-д ороогүй
+   * тул түр дансдын үлдэгдэлд тусаагүй байдаг — хаавал хаалтын журнал бүтэн
+   * дүнг хуурамч ханшийн олз/гарз болгоно.
+   */
+  draftInvoiceCount?: number;
+  /**
+   * PO-гийн НООРОГ өртгийн бичилтийн тоо (`landed_cost` / `receipt_capitalize`)
+   * — батлагдаагүй тул GL-д ороогүй.
+   */
+  draftCostEntryCount?: number;
   tolerance?: number;
 }): string[] {
   const tolerance = input.tolerance ?? 0.005;
@@ -77,7 +100,13 @@ export function poCloseBlockers(input: {
       overReceivedQty += -receiveDiff;
     }
 
-    const invoiceDiff = round4(line.ordered - line.invoiced);
+    // ХААЛТЫН нөхцөлд ЗӨВХӨН батлагдсан нэхэмжлэх тоологдоно (ноорог нь
+    // GL-д ороогүй). `postedInvoiced` өгөгдөөгүй бол хуучин зан төлөв.
+    const postedInvoiced = line.postedInvoiced ?? line.invoiced;
+    const postedInvoicedAmount =
+      line.postedInvoicedAmount ?? line.invoicedAmount;
+
+    const invoiceDiff = round4(line.ordered - postedInvoiced);
     if (invoiceDiff > tolerance) {
       uninvoicedLines += 1;
       uninvoicedQty += invoiceDiff;
@@ -86,7 +115,7 @@ export function poCloseBlockers(input: {
       overInvoicedQty += -invoiceDiff;
     }
 
-    const lineAmountDiff = roundMoney(line.orderedAmount - line.invoicedAmount);
+    const lineAmountDiff = roundMoney(line.orderedAmount - postedInvoicedAmount);
     if (Math.abs(lineAmountDiff) > tolerance) {
       amountLines += 1;
       amountDiff += lineAmountDiff;
@@ -118,6 +147,18 @@ export function poCloseBlockers(input: {
   if (unallocated > tolerance)
     blockers.push(
       `Хуваарилагдаагүй нэмэлт зардал байна — ${fmtAmount(unallocated)}₮`
+    );
+
+  const draftInvoices = input.draftInvoiceCount ?? 0;
+  if (draftInvoices > 0)
+    blockers.push(
+      `Захиалгад холбогдсон НООРОГ нэхэмжлэх байна — ${draftInvoices} баримт (эхлээд нэхэмжлэхийг батална уу)`
+    );
+
+  const draftCostEntries = input.draftCostEntryCount ?? 0;
+  if (draftCostEntries > 0)
+    blockers.push(
+      `Батлагдаагүй өртгийн бичилт байна — ${draftCostEntries} бичилт (эхлээд өртгийн бичилтийг батална уу)`
     );
 
   return blockers;

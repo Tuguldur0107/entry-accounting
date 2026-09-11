@@ -323,7 +323,7 @@ export async function deleteAttachment(id: string): Promise<ActionResult>;
 ## 8. АР/АП өргөтгөл
 
 - `ArApLineInput` += `purchaseOrderLineId?`, `unitPrice?`, `costComponentId?`.
-- `createArApDocumentCore` / `updateArApDocument` data += `purchaseOrderId?`.
+- `createArApDocumentCore` data += `purchaseOrderId?`. **`updateArApDocument` нь PO холбоосыг ЗОРИУД хүлээж авахгүй** — холбоос үүсгэх мөчид тогтож, засварт өөрчлөгдөхгүй (шалгалт баримтын одоогийн `purchaseOrderId`-гаар явна).
 - PO-той баримтын бараа/бүрэлдэхүүн мөр нь `apClearingAccountNumber` байх
   ёстой (эс бөгөөс ШИДНЭ); PO-гүй баримтын бараатай мөр хуучин дүрмээр
   `clearingAccountNumber`.

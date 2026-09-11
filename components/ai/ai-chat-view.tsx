@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { saveAiChatPrefs } from "@/lib/actions/ai";
+import { fmtSize } from "@/lib/attachments/constants";
 import {
   parseAiContent,
   stripPartialMarker,
@@ -268,10 +269,6 @@ function resolveMediaType(file: File): string | null {
   return null;
 }
 
-function fmtSize(bytes: number) {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
 
 export function AiChatView({
   initialMessages,

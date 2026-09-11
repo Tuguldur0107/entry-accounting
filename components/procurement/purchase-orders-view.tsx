@@ -2,29 +2,31 @@
 
 // Худалдан авалтын захиалгын (PO) жагсаалт — docs/procurement §3.7, гэрээ §11.
 //
-// Хүснэгт нь DataGridDynamic, статус StatusBadge, шүүлтүүр FilterChips
-// (тоолуурын count-той), хоосон төлөв EmptyState, батлах диалог useConfirm —
-// шинэ component бичихийг ХОРИГЛОНО.
+// Хүснэгт нь DataGridDynamic, статус StatusBadge, хоосон төлөв EmptyState,
+// батлах диалог useConfirm — шинэ component бичихийг ХОРИГЛОНО. Шүүлтүүр,
+// тоолуур, URL параметр, үйлдлийн transition нь Хүлээн авалтын жагсаалттай
+// ХУВААЛЦСАН `components/procurement/list-toolbar.tsx`-д (давхардуулахгүй).
 //
 // ДАВХАР даралт → PO панель (нэг даралт нь Excel-маягийн мужийн зангуу тул
 // панель нээхгүй). Захиалга хаах / дахин нээх зэрэг ханшийн огноо шаардсан
 // үйлдлүүд панель дотор — жагсаалтаас зөвхөн огноогүй шилжилтүүд.
 
-import { useCallback, useMemo, useRef, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useRef } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { toast } from "sonner";
 
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
+import {
+  ListToolbar,
+  useListAction,
+  useListFilters,
+  type ListStatusChip,
+} from "@/components/procurement/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
-import { FilterChips } from "@/components/ui/tabs";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   approvePurchaseOrder,
   cancelPurchaseOrder,
@@ -35,32 +37,14 @@ import type {
   PurchaseOrderStatus,
   PurchaseOrderView,
 } from "@/lib/procurement/types";
-import { fmtMnt } from "@/lib/reports/balances";
 import {
-  openPurchaseOrderPanel,
-  refreshOpenPanels,
-} from "@/lib/store/panel-store";
+  PO_STATUS_LABELS,
+  PO_STATUS_TONES,
+  fmtCurrencyAmount,
+} from "@/lib/procurement/labels";
+import { openPurchaseOrderPanel } from "@/lib/store/panel-store";
 
-/** Панель, самбар мөн эдгээр шошгыг хэрэглэнэ — нэг л газар. */
-export const PO_STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
-  draft: "Ноорог",
-  open: "Нээлттэй",
-  closed: "Хаагдсан",
-  cancelled: "Цуцлагдсан",
-};
-
-// "Нээлттэй" нь анхаарал шаардсан төлөв: хүлээн авалттай нээлттэй захиалга
-// сарын хаалтыг ХОРИГЛОДОГ (docs/procurement ⑧) тул warning өнгөтэй.
-export const PO_STATUS_TONES: Record<PurchaseOrderStatus, StatusTone> = {
-  draft: "muted",
-  open: "warning",
-  closed: "success",
-  cancelled: "danger",
-};
-
-type StatusChip = "all" | PurchaseOrderStatus;
-
-const STATUS_CHIPS: { value: StatusChip; label: string }[] = [
+const STATUS_CHIPS: readonly ListStatusChip<PurchaseOrderStatus>[] = [
   { value: "all", label: "Бүх төлөв" },
   { value: "draft", label: PO_STATUS_LABELS.draft },
   { value: "open", label: PO_STATUS_LABELS.open },
@@ -68,13 +52,14 @@ const STATUS_CHIPS: { value: StatusChip; label: string }[] = [
   { value: "cancelled", label: PO_STATUS_LABELS.cancelled },
 ];
 
-/** Захиалгын дүн — PO валютаар (MNT бол мөнгөн формат). */
-function fmtOrderAmount(order: PurchaseOrderView) {
-  if (order.currency === "MNT") return fmtMnt(order.totalAmount);
-  return `${order.totalAmount.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-  })} ${order.currency}`;
-}
+const statusOf = (order: PurchaseOrderView) => order.status;
+
+// Нийлүүлэгчийн шүүлтүүр нь ЗАХИАЛГУУДААС гарна — тусдаа query хэрэггүй,
+// сонголт нь үргэлж бодит өгөгдөлтэй таарна.
+const supplierOf = (order: PurchaseOrderView) =>
+  order.counterpartyId
+    ? { value: order.counterpartyId, label: order.counterpartyName }
+    : null;
 
 interface Props {
   orders: PurchaseOrderView[];
@@ -89,79 +74,28 @@ export function PurchaseOrdersView({
   initialStatus,
   initialSupplier,
 }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const gridRef = useRef<DataGridHandle>(null);
-  const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const { isPending, runAction } = useListAction();
 
-  const activeStatus: StatusChip = STATUS_CHIPS.some(
-    (chip) => chip.value === initialStatus
-  )
-    ? (initialStatus as StatusChip)
-    : "all";
-
-  // Нийлүүлэгчийн шүүлтүүр нь ЗАХИАЛГУУДААС гарна — тусдаа query хэрэггүй,
-  // сонголт нь үргэлж бодит өгөгдөлтэй таарна.
-  const supplierOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const order of orders)
-      if (order.counterpartyId) byId.set(order.counterpartyId, order.counterpartyName);
-    return [
-      { value: "", label: "Бүх нийлүүлэгч" },
-      ...[...byId.entries()]
-        .map(([value, label]) => ({ value, label }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    ];
-  }, [orders]);
-
-  const activeSupplier =
-    initialSupplier && supplierOptions.some((o) => o.value === initialSupplier)
-      ? initialSupplier
-      : "";
-
-  const changeParam = useCallback(
-    (key: "status" | "supplier", next: string) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (!next || next === "all") params.delete(key);
-      else params.set(key, next);
-      router.replace(
-        `${pathname}${params.toString() ? `?${params.toString()}` : ""}`
-      );
-    },
-    [pathname, router, searchParams]
-  );
-
-  // Нийлүүлэгчийн шүүлтүүр эхэлж хэрэглэгдэнэ — статусын тоолуур нь тухайн
-  // нийлүүлэгчийн захиалгуудаас бодогдох ёстой.
-  const supplierFiltered = useMemo(
-    () =>
-      activeSupplier
-        ? orders.filter((order) => order.counterpartyId === activeSupplier)
-        : orders,
-    [orders, activeSupplier]
-  );
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<StatusChip, number> = {
-      all: supplierFiltered.length,
-      draft: 0,
-      open: 0,
-      closed: 0,
-      cancelled: 0,
-    };
-    for (const order of supplierFiltered) counts[order.status] += 1;
-    return counts;
-  }, [supplierFiltered]);
-
-  const visibleOrders = useMemo(
-    () =>
-      activeStatus === "all"
-        ? supplierFiltered
-        : supplierFiltered.filter((order) => order.status === activeStatus),
-    [supplierFiltered, activeStatus]
-  );
+  const {
+    activeStatus,
+    statusCounts,
+    secondaryOptions: supplierOptions,
+    activeSecondary: activeSupplier,
+    visibleRows: visibleOrders,
+    changeStatus,
+    changeSecondary,
+  } = useListFilters({
+    rows: orders,
+    statusChips: STATUS_CHIPS,
+    statusOf,
+    initialStatus,
+    secondaryParam: "supplier",
+    initialSecondary: initialSupplier,
+    secondaryOf: supplierOf,
+    secondaryAllLabel: "Бүх нийлүүлэгч",
+  });
 
   const navIds = useMemo(
     () => visibleOrders.map((order) => order.id),
@@ -176,26 +110,6 @@ export function PurchaseOrdersView({
         navIds,
       }),
     [navIds]
-  );
-
-  const runAction = useCallback(
-    (action: () => Promise<{ error?: string }>, successMessage: string) => {
-      startTransition(async () => {
-        try {
-          const result = await action();
-          if (result.error) {
-            toast.error(result.error);
-            return;
-          }
-          refreshOpenPanels();
-          router.refresh();
-          toast.success(successMessage);
-        } catch {
-          toast.error("Үйлдэл амжилтгүй");
-        }
-      });
-    },
-    [router]
   );
 
   const handleApprove = useCallback(
@@ -329,7 +243,7 @@ export function PurchaseOrdersView({
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
-          params.data ? fmtOrderAmount(params.data) : "",
+          params.data ? fmtCurrencyAmount(params.data.totalAmount, params.data.currency) : "",
       },
       {
         headerName: "Хүлээн авсан",
@@ -464,33 +378,18 @@ export function PurchaseOrdersView({
       </div>
 
       {orders.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterChips
-            options={STATUS_CHIPS.map((chip) => ({
-              value: chip.value,
-              label: chip.label,
-              count: chip.value !== "all" ? statusCounts[chip.value] : undefined,
-              tone:
-                chip.value === "draft" && statusCounts.draft > 0
-                  ? ("warning" as const)
-                  : undefined,
-            }))}
-            value={activeStatus}
-            onChange={(next) => changeParam("status", next)}
-          />
-          <div className="ml-auto flex items-center gap-1.5">
-            <div className="w-56">
-              <SearchableSelect
-                value={activeSupplier}
-                onChange={(next) => changeParam("supplier", next)}
-                options={supplierOptions}
-                placeholder="Бүх нийлүүлэгч"
-                hideValue
-              />
-            </div>
-            <SavedViewsMenu surfaceId="procurement-orders" gridRef={gridRef} />
-          </div>
-        </div>
+        <ListToolbar
+          statusChips={STATUS_CHIPS}
+          statusCounts={statusCounts}
+          activeStatus={activeStatus}
+          onStatusChange={changeStatus}
+          secondaryOptions={supplierOptions}
+          activeSecondary={activeSupplier}
+          onSecondaryChange={changeSecondary}
+          secondaryPlaceholder="Бүх нийлүүлэгч"
+          surfaceId="procurement-orders"
+          gridRef={gridRef}
+        />
       )}
 
       {visibleOrders.length === 0 ? (

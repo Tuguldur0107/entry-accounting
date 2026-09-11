@@ -13,7 +13,7 @@
 // loadCostingAccountSettings / itemAccountsFor-оос.
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
 
 import { actionError, type ActionResult, unwrapAction } from "@/lib/action-result";
 import { roundMoney } from "@/lib/arap/accounting";
@@ -39,7 +39,9 @@ import {
 } from "@/lib/costing/posting-helpers";
 import { db } from "@/lib/db";
 import {
+  arApDocumentLines,
   arApDocuments,
+  costAllocations,
   costEntries,
   counterparties,
   documentAttachments,
@@ -65,7 +67,11 @@ import {
 import {
   loadGoodsReceiptDetail,
   loadPurchaseOrderDetail,
+  PO_DRAFT_COST_ENTRY_TYPES,
+  PO_INVOICE_COUNTED_STATUSES,
+  PO_INVOICE_POSTED_STATUSES,
 } from "@/lib/procurement/load-data";
+import { poCloseBlockers, type PoLineProgress } from "@/lib/procurement/po-math";
 import { extractMainAccount } from "@/lib/reports/balances";
 import type {
   GoodsReceiptPanelData,
@@ -272,17 +278,58 @@ async function assertActiveWarehouse(orgId: string, warehouseId: string) {
   if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
 }
 
-async function assertActiveItem(orgId: string, itemId: string) {
-  const item = await db.query.inventoryItems.findFirst({
-    where: and(
-      eq(inventoryItems.id, itemId),
-      eq(inventoryItems.organizationId, orgId),
-      eq(inventoryItems.isActive, true)
-    ),
-    columns: { id: true, code: true, name: true },
-  });
-  if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
-  return item;
+/**
+ * Идэвхтэй барааг БАГЦААР шалгана (мөр бүрд нэг query = N+1 хориотой).
+ * Аль нэг нь олдохгүй бол ШИДНЭ; олдсоныг код/нэрээр нь буцаана.
+ */
+async function requireActiveItems(
+  orgId: string,
+  itemIds: string[]
+): Promise<Map<string, { id: string; code: string; name: string }>> {
+  const unique = [...new Set(itemIds)];
+  const result = new Map<string, { id: string; code: string; name: string }>();
+  if (unique.length === 0) return result;
+  const rows = await db
+    .select({
+      id: inventoryItems.id,
+      code: inventoryItems.code,
+      name: inventoryItems.name,
+    })
+    .from(inventoryItems)
+    .where(
+      and(
+        eq(inventoryItems.organizationId, orgId),
+        inArray(inventoryItems.id, unique),
+        eq(inventoryItems.isActive, true)
+      )
+    );
+  for (const row of rows) result.set(row.id, row);
+  if (result.size !== unique.length)
+    throw new Error("Идэвхтэй бараа олдсонгүй");
+  return result;
+}
+
+/** Идэвхтэй агуулахуудыг БАГЦААР шалгана (N+1 хориотой). */
+async function assertActiveWarehouses(
+  orgId: string,
+  warehouseIds: (string | null | undefined)[]
+) {
+  const unique = [
+    ...new Set(warehouseIds.filter((value): value is string => Boolean(value))),
+  ];
+  if (unique.length === 0) return;
+  const rows = await db
+    .select({ id: warehouses.id })
+    .from(warehouses)
+    .where(
+      and(
+        eq(warehouses.organizationId, orgId),
+        inArray(warehouses.id, unique),
+        eq(warehouses.isActive, true)
+      )
+    );
+  if (rows.length !== unique.length)
+    throw new Error("Идэвхтэй агуулах олдсонгүй");
 }
 
 /** PO-г org scope-оор уншина; олдохгүй бол [PO_NOT_FOUND]. */
@@ -324,6 +371,357 @@ async function resolveOfficialRate(
     rate: lookup.rate,
     rateDate: lookup.rateDate,
     rateSource: lookup.source,
+  };
+}
+
+// ── Транзакц дотор ЦООЖТОЙ уншилт (TOCTOU хамгаалалт) ───────────────────────
+//
+// Захиалгын төлөв, гүйцэтгэл, түр дансдын үлдэгдлийг транзакцийн ГАДНА
+// уншвал зэрэгцээ хүлээн авалт/нэхэмжлэх/буцаалт тухайн шийдвэрт ОРОХГҮЙ
+// (хаалтын журнал дутуу бичигдэнэ, OVER_* хамгаалалт тойрогдоно). Тиймээс
+// бичилтийн шийдвэр гаргах бүх тоог PO болон PO мөрүүдийг `for update`-оор
+// цоожилсны ДАРАА энэ туслахуудаар ДАХИН уншина.
+
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+type LockedPurchaseOrder = {
+  id: string;
+  documentNo: string;
+  status: string;
+  date: string;
+  currency: string;
+  warehouseId: string | null;
+  totalAmount: string;
+};
+
+type LockedPurchaseOrderLine = {
+  id: string;
+  itemId: string;
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+};
+
+/** PO толгойг `for update`-оор цоожилно. */
+async function lockPurchaseOrder(
+  tx: DbTx,
+  orgId: string,
+  id: string
+): Promise<LockedPurchaseOrder> {
+  const [row] = await tx
+    .select({
+      id: purchaseOrders.id,
+      documentNo: purchaseOrders.documentNo,
+      status: purchaseOrders.status,
+      date: purchaseOrders.date,
+      currency: purchaseOrders.currency,
+      warehouseId: purchaseOrders.warehouseId,
+      totalAmount: purchaseOrders.totalAmount,
+    })
+    .from(purchaseOrders)
+    .where(
+      and(eq(purchaseOrders.id, id), eq(purchaseOrders.organizationId, orgId))
+    )
+    .for("update");
+  if (!row) throw new Error("[PO_NOT_FOUND] Захиалга олдсонгүй");
+  return row;
+}
+
+/** PO мөрүүдийг `for update`-оор цоожилно (id-аар эрэмбэлсэн — deadlock-гүй). */
+async function lockPurchaseOrderLines(
+  tx: DbTx,
+  purchaseOrderId: string
+): Promise<LockedPurchaseOrderLine[]> {
+  return await tx
+    .select({
+      id: purchaseOrderLines.id,
+      itemId: purchaseOrderLines.itemId,
+      quantity: purchaseOrderLines.quantity,
+      unitPrice: purchaseOrderLines.unitPrice,
+      amount: purchaseOrderLines.amount,
+    })
+    .from(purchaseOrderLines)
+    .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+    .orderBy(asc(purchaseOrderLines.id))
+    .for("update");
+}
+
+/** Барааны код/нэр (алдааны текстэд) — багцаар, tx дотор. */
+async function itemLabelsInTx(
+  tx: DbTx,
+  orgId: string,
+  itemIds: string[]
+): Promise<Map<string, string>> {
+  const unique = [...new Set(itemIds)];
+  const result = new Map<string, string>();
+  if (unique.length === 0) return result;
+  const rows = await tx
+    .select({ id: inventoryItems.id, code: inventoryItems.code })
+    .from(inventoryItems)
+    .where(
+      and(
+        eq(inventoryItems.organizationId, orgId),
+        inArray(inventoryItems.id, unique)
+      )
+    );
+  for (const row of rows) result.set(row.id, row.code);
+  return result;
+}
+
+/** PO мөр бүрийн БАТЛАГДСАН хүлээн авалтын нийлбэр (tx дотор). */
+async function receivedByLineInTx(
+  tx: DbTx,
+  orgId: string,
+  purchaseOrderId: string,
+  options?: { excludeReceiptId?: string }
+): Promise<Map<string, number>> {
+  const conditions = [
+    eq(goodsReceipts.organizationId, orgId),
+    eq(goodsReceipts.purchaseOrderId, purchaseOrderId),
+    eq(goodsReceipts.status, "confirmed"),
+  ];
+  if (options?.excludeReceiptId)
+    conditions.push(ne(goodsReceipts.id, options.excludeReceiptId));
+  const rows = await tx
+    .select({
+      lineId: goodsReceiptLines.purchaseOrderLineId,
+      quantity: sql<string>`coalesce(sum(${goodsReceiptLines.quantity}), 0)`,
+    })
+    .from(goodsReceiptLines)
+    .innerJoin(goodsReceipts, eq(goodsReceipts.id, goodsReceiptLines.receiptId))
+    .where(and(...conditions))
+    .groupBy(goodsReceiptLines.purchaseOrderLineId);
+  const result = new Map<string, number>();
+  for (const row of rows)
+    result.set(row.lineId, round4(Number(row.quantity ?? 0)));
+  return result;
+}
+
+type InvoicedInTx = {
+  quantity: number;
+  amount: number;
+  postedQuantity: number;
+  postedAmount: number;
+};
+
+/**
+ * PO мөр бүрийн нэхэмжлэлийн гүйцэтгэл (tx дотор). Ноорог нь `quantity /
+ * amount`-д ОРНО (илүү нэхэмжлэхээс хамгаална), харин `postedQuantity /
+ * postedAmount`-д ЗӨВХӨН GL-д бичигдсэн нэхэмжлэх ордог (хаалтын нөхцөл).
+ */
+async function invoicedByLineInTx(
+  tx: DbTx,
+  orgId: string,
+  purchaseOrderId: string
+): Promise<Map<string, InvoicedInTx>> {
+  const posted = inArray(arApDocuments.status, PO_INVOICE_POSTED_STATUSES);
+  const rows = await tx
+    .select({
+      lineId: arApDocumentLines.purchaseOrderLineId,
+      quantity: sql<string>`coalesce(sum(${arApDocumentLines.quantity}), 0)`,
+      amount: sql<string>`coalesce(sum(${arApDocumentLines.amount}), 0)`,
+      postedQuantity: sql<string>`coalesce(sum(case when ${posted} then ${arApDocumentLines.quantity} else 0 end), 0)`,
+      postedAmount: sql<string>`coalesce(sum(case when ${posted} then ${arApDocumentLines.amount} else 0 end), 0)`,
+    })
+    .from(arApDocumentLines)
+    .innerJoin(arApDocuments, eq(arApDocuments.id, arApDocumentLines.documentId))
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.purchaseOrderId, purchaseOrderId),
+        inArray(arApDocuments.status, PO_INVOICE_COUNTED_STATUSES),
+        isNotNull(arApDocumentLines.purchaseOrderLineId)
+      )
+    )
+    .groupBy(arApDocumentLines.purchaseOrderLineId);
+  const result = new Map<string, InvoicedInTx>();
+  for (const row of rows) {
+    if (!row.lineId) continue;
+    result.set(row.lineId, {
+      quantity: round4(Number(row.quantity ?? 0)),
+      amount: roundMoney(Number(row.amount ?? 0)),
+      postedQuantity: round4(Number(row.postedQuantity ?? 0)),
+      postedAmount: roundMoney(Number(row.postedAmount ?? 0)),
+    });
+  }
+  return result;
+}
+
+/** Хуваарилагдаагүй нэмэлт зардлын үлдэгдэл, MNT (tx дотор). */
+async function unallocatedCostMntInTx(
+  tx: DbTx,
+  orgId: string,
+  purchaseOrderId: string
+): Promise<number> {
+  const rows = await tx
+    .select({
+      lineId: arApDocumentLines.id,
+      amount: arApDocumentLines.amount,
+      exchangeRate: arApDocuments.exchangeRate,
+    })
+    .from(arApDocumentLines)
+    .innerJoin(arApDocuments, eq(arApDocuments.id, arApDocumentLines.documentId))
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.purchaseOrderId, purchaseOrderId),
+        inArray(arApDocuments.status, PO_INVOICE_COUNTED_STATUSES),
+        isNotNull(arApDocumentLines.costComponentId)
+      )
+    );
+  if (rows.length === 0) return 0;
+
+  const allocationRows = await tx
+    .select({
+      lineId: costAllocations.sourceLineId,
+      amount: sql<string>`coalesce(sum(${costAllocations.totalAmount}), 0)`,
+    })
+    .from(costAllocations)
+    .where(
+      and(
+        eq(costAllocations.organizationId, orgId),
+        inArray(
+          costAllocations.sourceLineId,
+          rows.map((row) => row.lineId)
+        )
+      )
+    )
+    .groupBy(costAllocations.sourceLineId);
+  const allocated = new Map<string, number>();
+  for (const row of allocationRows)
+    if (row.lineId)
+      allocated.set(row.lineId, roundMoney(Number(row.amount ?? 0)));
+
+  let total = 0;
+  for (const row of rows) {
+    const amountMnt = roundMoney(
+      Number(row.amount) * Number(row.exchangeRate)
+    );
+    const remaining = roundMoney(amountMnt - (allocated.get(row.lineId) ?? 0));
+    if (remaining > MONEY_EPSILON) total += remaining;
+  }
+  return roundMoney(total);
+}
+
+/** Захиалгын ХААЛТЫН нөхцөлийн бүх тоо — ЗӨВХӨН цоожны дараа дуудна. */
+async function loadPoCloseStateInTx(
+  tx: DbTx,
+  orgId: string,
+  purchaseOrderId: string,
+  lines: LockedPurchaseOrderLine[],
+  accounts: { invClearing: string; apClearing: string }
+): Promise<{
+  blockers: string[];
+  invClearingBalance: number;
+  apClearingBalance: number;
+  latestActivityDate: string | null;
+}> {
+  // Транзакцийн НЭГ холболт дээр дараалан уншина (pipeline-д найдахгүй).
+  const received = await receivedByLineInTx(tx, orgId, purchaseOrderId);
+  const invoiced = await invoicedByLineInTx(tx, orgId, purchaseOrderId);
+  const unallocatedMnt = await unallocatedCostMntInTx(
+    tx,
+    orgId,
+    purchaseOrderId
+  );
+  const draftInvoiceRows = await tx
+    .select({ total: sql<string>`count(*)` })
+    .from(arApDocuments)
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.purchaseOrderId, purchaseOrderId),
+        eq(arApDocuments.status, "draft")
+      )
+    );
+  const draftCostEntryRows = await tx
+    .select({ total: sql<string>`count(*)` })
+    .from(costEntries)
+    .where(
+      and(
+        eq(costEntries.organizationId, orgId),
+        eq(costEntries.businessObjectType, PO_BUSINESS_OBJECT),
+        eq(costEntries.businessObjectId, purchaseOrderId),
+        eq(costEntries.status, "draft"),
+        inArray(costEntries.entryType, PO_DRAFT_COST_ENTRY_TYPES)
+      )
+    );
+  const latestReceiptRows = await tx
+    .select({ maxDate: sql<string | null>`max(${goodsReceipts.date})` })
+    .from(goodsReceipts)
+    .where(
+      and(
+        eq(goodsReceipts.organizationId, orgId),
+        eq(goodsReceipts.purchaseOrderId, purchaseOrderId),
+        eq(goodsReceipts.status, "confirmed")
+      )
+    );
+  const latestInvoiceRows = await tx
+    .select({ maxDate: sql<string | null>`max(${arApDocuments.date})` })
+    .from(arApDocuments)
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.purchaseOrderId, purchaseOrderId),
+        inArray(arApDocuments.status, PO_INVOICE_POSTED_STATUSES)
+      )
+    );
+  // Түр дансдын PO-гийн үлдэгдэл: posted + reversed (буцаалт нь эсрэг
+  // мөрөөр шинэ журналд бичигддэг тул хоёуланг нийлбэрлэнэ).
+  const journalRows = await tx
+    .select({
+      accountNumber: journalLines.accountNumber,
+      debit: journalLines.debit,
+      credit: journalLines.credit,
+    })
+    .from(journalLines)
+    .innerJoin(journalVouchers, eq(journalVouchers.id, journalLines.voucherId))
+    .where(
+      and(
+        eq(journalVouchers.organizationId, orgId),
+        inArray(journalVouchers.status, ["posted", "reversed"]),
+        eq(journalLines.businessObjectType, PO_BUSINESS_OBJECT),
+        eq(journalLines.businessObjectId, purchaseOrderId)
+      )
+    );
+
+  const progress: PoLineProgress[] = lines.map((line) => {
+    const invoicedLine = invoiced.get(line.id);
+    return {
+      ordered: round4(Number(line.quantity)),
+      received: received.get(line.id) ?? 0,
+      invoiced: invoicedLine?.quantity ?? 0,
+      invoicedAmount: invoicedLine?.amount ?? 0,
+      orderedAmount: roundMoney(Number(line.amount)),
+      postedInvoiced: invoicedLine?.postedQuantity ?? 0,
+      postedInvoicedAmount: invoicedLine?.postedAmount ?? 0,
+    };
+  });
+
+  let invClearingBalance = 0;
+  let apClearingBalance = 0;
+  for (const row of journalRows) {
+    const main = extractMainAccount(row.accountNumber);
+    const delta = Number(row.debit) - Number(row.credit);
+    if (main === accounts.invClearing) invClearingBalance += delta;
+    else if (main === accounts.apClearing) apClearingBalance += delta;
+  }
+
+  const dates = [
+    latestReceiptRows[0]?.maxDate ?? null,
+    latestInvoiceRows[0]?.maxDate ?? null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    blockers: poCloseBlockers({
+      lines: progress,
+      unallocatedCostAmount: unallocatedMnt,
+      draftInvoiceCount: Number(draftInvoiceRows[0]?.total ?? 0),
+      draftCostEntryCount: Number(draftCostEntryRows[0]?.total ?? 0),
+    }),
+    invClearingBalance,
+    apClearingBalance,
+    latestActivityDate: dates.length > 0 ? dates.sort().at(-1)! : null,
   };
 }
 
@@ -385,6 +783,15 @@ async function createPurchaseOrderCore(data: {
   if (headerWarehouseId) await assertActiveWarehouse(orgId, headerWarehouseId);
 
   if (data.lines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+  // Бараа/агуулахын шалгалт НЭГ багц query-гээр (мөр бүрд query = N+1).
+  await requireActiveItems(
+    orgId,
+    data.lines.map((line) => line.itemId)
+  );
+  await assertActiveWarehouses(
+    orgId,
+    data.lines.map((line) => line.warehouseId)
+  );
   const lines: {
     itemId: string;
     quantity: number;
@@ -401,9 +808,7 @@ async function createPurchaseOrderCore(data: {
     // Нэгж үнэ нь орлогдох өртгийн СУУРЬ тул 0 байж болохгүй (үнэ зохиохгүй).
     if (!Number.isFinite(unitPrice) || unitPrice <= 0)
       throw new Error("Нэгж үнэ 0-ээс их байна");
-    await assertActiveItem(orgId, line.itemId);
     const lineWarehouseId = line.warehouseId || headerWarehouseId;
-    if (line.warehouseId) await assertActiveWarehouse(orgId, line.warehouseId);
     lines.push({
       itemId: line.itemId,
       quantity,
@@ -530,9 +935,6 @@ async function updatePurchaseOrderCore(data: {
     data.description === undefined ? order.description : data.description.trim();
   if (!description) throw new Error("Захиалгын утга оруулна уу");
 
-  const detail = await requirePurchaseOrderDetail(orgId, order.id);
-  const existingById = new Map(detail.lines.map((line) => [line.id, line]));
-
   type PreparedLine = {
     id: string | null;
     itemId: string;
@@ -543,27 +945,18 @@ async function updatePurchaseOrderCore(data: {
     description: string;
   };
   let prepared: PreparedLine[] | null = null;
-  const removedIds: string[] = [];
 
   if (data.lines) {
     if (data.lines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
-    const keptIds = new Set(
-      data.lines
-        .map((line) => line.id)
-        .filter((id): id is string => Boolean(id))
+    // Бараа/агуулахын шалгалт НЭГ багц query-гээр (N+1 хориотой).
+    await requireActiveItems(
+      orgId,
+      data.lines.map((line) => line.itemId)
     );
-    for (const line of detail.lines) {
-      if (keptIds.has(line.id)) continue;
-      if (line.receivedQuantity > QTY_EPSILON)
-        throw new Error(
-          `[OVER_RECEIVED] ${line.itemCode}: хүлээн авсан мөрийг хасах боломжгүй (${line.receivedQuantity})`
-        );
-      if (line.invoicedQuantity > QTY_EPSILON)
-        throw new Error(
-          `[OVER_INVOICED] ${line.itemCode}: нэхэмжилсэн мөрийг хасах боломжгүй (${line.invoicedQuantity})`
-        );
-      removedIds.push(line.id);
-    }
+    await assertActiveWarehouses(
+      orgId,
+      data.lines.map((line) => line.warehouseId)
+    );
 
     prepared = [];
     for (const line of data.lines) {
@@ -573,33 +966,12 @@ async function updatePurchaseOrderCore(data: {
         throw new Error("Тоо хэмжээ 0-ээс их байна");
       if (!Number.isFinite(unitPrice) || unitPrice <= 0)
         throw new Error("Нэгж үнэ 0-ээс их байна");
-      const item = await assertActiveItem(orgId, line.itemId);
-      if (line.warehouseId) await assertActiveWarehouse(orgId, line.warehouseId);
-      const amount = roundMoney(quantity * unitPrice);
-
-      if (line.id) {
-        const current = existingById.get(line.id);
-        if (!current) throw new Error("Захиалгын мөр олдсонгүй");
-        // Хүлээн авсан/нэхэмжилсэн доогуур болгож болохгүй (§5).
-        if (quantity < current.receivedQuantity - QTY_EPSILON)
-          throw new Error(
-            `[OVER_RECEIVED] ${item.code}: хүлээн авсан ${current.receivedQuantity} — тоог түүнээс доогуур болгож болохгүй`
-          );
-        if (quantity < current.invoicedQuantity - QTY_EPSILON)
-          throw new Error(
-            `[OVER_INVOICED] ${item.code}: нэхэмжилсэн ${current.invoicedQuantity} — тоог түүнээс доогуур болгож болохгүй`
-          );
-        if (amount < current.invoicedAmount - MONEY_EPSILON)
-          throw new Error(
-            `[OVER_INVOICED] ${item.code}: нэхэмжилсэн дүн ${fmtMnt(current.invoicedAmount)} — мөрийн дүнг түүнээс доогуур болгож болохгүй`
-          );
-      }
       prepared.push({
         id: line.id ?? null,
         itemId: line.itemId,
         quantity,
         unitPrice,
-        amount,
+        amount: roundMoney(quantity * unitPrice),
         warehouseId: line.warehouseId || headerWarehouseId,
         description: line.description?.trim() ?? "",
       });
@@ -612,7 +984,80 @@ async function updatePurchaseOrderCore(data: {
 
   await db.transaction(async (tx) => {
     await assertPeriodOpenInTx(tx, orgId, date);
+    // Гүйцэтгэлийн шалгалт ЗААВАЛ цоожны ДАРАА — зэрэгцээ хүлээн авалт/
+    // нэхэмжлэх OVER_RECEIVED / OVER_INVOICED хамгаалалтыг тойрохгүй.
+    const locked = await lockPurchaseOrder(tx, orgId, order.id);
+    if (locked.status === "closed")
+      throw new Error("[PO_CLOSED] Хаагдсан захиалгыг засах боломжгүй");
+    if (locked.status !== "draft" && locked.status !== "open")
+      throw new Error("Захиалгын төлөв өөрчлөгдсөн байна");
+
     if (prepared) {
+      const lockedLines = await lockPurchaseOrderLines(tx, order.id);
+      const received = await receivedByLineInTx(tx, orgId, order.id);
+      const invoiced = await invoicedByLineInTx(tx, orgId, order.id);
+      const labels = await itemLabelsInTx(tx, orgId, [
+        ...lockedLines.map((line) => line.itemId),
+        ...prepared.map((line) => line.itemId),
+      ]);
+      const codeOf = (itemId: string) => labels.get(itemId) ?? "Мөр";
+      const progressOf = (lineId: string) => ({
+        received: received.get(lineId) ?? 0,
+        invoicedQuantity: invoiced.get(lineId)?.quantity ?? 0,
+        invoicedAmount: invoiced.get(lineId)?.amount ?? 0,
+      });
+
+      const keptIds = new Set(
+        prepared
+          .map((line) => line.id)
+          .filter((id): id is string => Boolean(id))
+      );
+      const removedIds: string[] = [];
+      for (const line of lockedLines) {
+        if (keptIds.has(line.id)) continue;
+        const current = progressOf(line.id);
+        if (current.received > QTY_EPSILON)
+          throw new Error(
+            `[OVER_RECEIVED] ${codeOf(line.itemId)}: хүлээн авсан мөрийг хасах боломжгүй (${current.received})`
+          );
+        if (current.invoicedQuantity > QTY_EPSILON)
+          throw new Error(
+            `[OVER_INVOICED] ${codeOf(line.itemId)}: нэхэмжилсэн мөрийг хасах боломжгүй (${current.invoicedQuantity})`
+          );
+        removedIds.push(line.id);
+      }
+
+      const lockedById = new Map(lockedLines.map((line) => [line.id, line]));
+      for (const line of prepared) {
+        if (!line.id) continue;
+        const current = lockedById.get(line.id);
+        if (!current) throw new Error("Захиалгын мөр олдсонгүй");
+        const progress = progressOf(line.id);
+        const touched =
+          progress.received > QTY_EPSILON ||
+          progress.invoicedQuantity > QTY_EPSILON ||
+          progress.invoicedAmount > MONEY_EPSILON;
+        // Хүлээн авсан/нэхэмжилсэн мөрийн БАРААГ солихыг хориглоно — эс
+        // бөгөөс орлого/өртгийн бичилт PO мөрөөсөө салж, орлогдох өртгийн
+        // тайлангаас унана (§5).
+        if (touched && line.itemId !== current.itemId)
+          throw new Error(
+            `[OVER_RECEIVED] ${codeOf(current.itemId)}: хүлээн авсан/нэхэмжилсэн мөрийн барааг солих боломжгүй`
+          );
+        // Хүлээн авсан/нэхэмжилсэн доогуур болгож болохгүй (§5).
+        if (line.quantity < progress.received - QTY_EPSILON)
+          throw new Error(
+            `[OVER_RECEIVED] ${codeOf(line.itemId)}: хүлээн авсан ${progress.received} — тоог түүнээс доогуур болгож болохгүй`
+          );
+        if (line.quantity < progress.invoicedQuantity - QTY_EPSILON)
+          throw new Error(
+            `[OVER_INVOICED] ${codeOf(line.itemId)}: нэхэмжилсэн ${progress.invoicedQuantity} — тоог түүнээс доогуур болгож болохгүй`
+          );
+        if (line.amount < progress.invoicedAmount - MONEY_EPSILON)
+          throw new Error(
+            `[OVER_INVOICED] ${codeOf(line.itemId)}: нэхэмжилсэн дүн ${fmtMnt(progress.invoicedAmount)} — мөрийн дүнг түүнээс доогуур болгож болохгүй`
+          );
+      }
       if (removedIds.length > 0)
         await tx
           .delete(purchaseOrderLines)
@@ -921,12 +1366,9 @@ async function closePurchaseOrderCore(input: {
   await assertPeriodOpen(orgId, input.closeDate);
 
   const order = await requirePurchaseOrder(orgId, input.id);
+  // UX-ийн ЭРТ шалгалт — жинхэнэ (цоожтой) шалгалт транзакц дотор давтагдана.
   if (order.status !== "open")
     throw new Error("[PO_NOT_OPEN] Зөвхөн нээлттэй захиалгыг хаана");
-
-  const detail = await requirePurchaseOrderDetail(orgId, order.id);
-  if (detail.blockers.length > 0)
-    throw new Error(`[PO_NOT_READY] ${detail.blockers.join("; ")}`);
 
   // Дансны рольууд тохиргооноос (JPR-006) — кодод дугаар байхгүй.
   const roles = await loadCostingAccountSettings(orgId, userId);
@@ -955,41 +1397,37 @@ async function closePurchaseOrderCore(input: {
 
   const result = await db.transaction(async (tx) => {
     await assertPeriodOpenInTx(tx, orgId, input.closeDate);
-    // Түр дансдын PO-гийн үлдэгдэл: posted + reversed (буцаалт нь эсрэг
-    // мөрөөр шинэ журналд бичигддэг тул хоёуланг нийлбэрлэнэ).
-    const rows = await tx
-      .select({
-        accountNumber: journalLines.accountNumber,
-        debit: journalLines.debit,
-        credit: journalLines.credit,
-      })
-      .from(journalLines)
-      .innerJoin(
-        journalVouchers,
-        eq(journalVouchers.id, journalLines.voucherId)
-      )
-      .where(
-        and(
-          eq(journalVouchers.organizationId, orgId),
-          inArray(journalVouchers.status, ["posted", "reversed"]),
-          eq(journalLines.businessObjectType, PO_BUSINESS_OBJECT),
-          eq(journalLines.businessObjectId, order.id)
-        )
+
+    // ЦООЖ ЭХЭЛНЭ: PO толгой + мөрүүд. Зөвхөн үүний ДАРАА гүйцэтгэл,
+    // хориглолт, түр дансдын үлдэгдлийг уншина — эс бөгөөс зэрэгцээ
+    // нэхэмжлэх/хүлээн авалт/буцаалт хаалтын журналд ОРОХГҮЙ үлдэнэ.
+    const locked = await lockPurchaseOrder(tx, orgId, order.id);
+    if (locked.status === "closed")
+      throw new Error("[PO_CLOSED] Захиалга аль хэдийн хаагдсан");
+    if (locked.status !== "open")
+      throw new Error("[PO_NOT_OPEN] Зөвхөн нээлттэй захиалгыг хаана");
+    const lockedLines = await lockPurchaseOrderLines(tx, order.id);
+
+    const state = await loadPoCloseStateInTx(tx, orgId, order.id, lockedLines, {
+      invClearing: roles.clearingAccountNumber,
+      apClearing: roles.apClearingAccountNumber,
+    });
+    if (state.blockers.length > 0)
+      throw new Error(`[PO_NOT_READY] ${state.blockers.join("; ")}`);
+    // Тэгшитгэл нь хамгийн хожуу гүйлгээний ДАРААХ огноогоор бичигдэнэ —
+    // эс бөгөөс түр данс өмнөх сард хаагдаж, тайлан зөрнө.
+    if (
+      state.latestActivityDate &&
+      input.closeDate < state.latestActivityDate
+    )
+      throw new Error(
+        `[PO_NOT_READY] Хаах огноо ${state.latestActivityDate}-аас өмнө байж болохгүй — хамгийн хожуу хүлээн авалт/нэхэмжлэхийн огноо`
       );
-    let invClearingBalance = 0;
-    let apClearingBalance = 0;
-    for (const row of rows) {
-      const main = extractMainAccount(row.accountNumber);
-      const delta = Number(row.debit) - Number(row.credit);
-      if (main === roles.clearingAccountNumber) invClearingBalance += delta;
-      else if (main === roles.apClearingAccountNumber)
-        apClearingBalance += delta;
-    }
 
     const lines = buildPoCloseLines({
       purchaseOrderId: order.id,
-      invClearingBalance,
-      apClearingBalance,
+      invClearingBalance: state.invClearingBalance,
+      apClearingBalance: state.apClearingBalance,
       accounts: {
         invClearing: roles.clearingAccountNumber,
         apClearing: roles.apClearingAccountNumber,
@@ -1506,7 +1944,6 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
   const planned: {
     lineId: string;
     purchaseOrderLineId: string;
-    orderedQuantity: number;
     itemId: string;
     itemCode: string;
     itemName: string;
@@ -1517,6 +1954,13 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
     debit: string;
     credit: string;
   }[] = [];
+
+  // Барааны данс ба идэвхтэй дансны шалгалтыг мөр бүрд давтахгүй (N+1).
+  const accountsByItem = new Map<
+    string,
+    { inventoryAccountNumber: string; cogsAccountNumber: string }
+  >();
+  const checkedAccounts = new Set<string>();
 
   for (const line of receipt.lines) {
     const quantity = Number(line.quantity);
@@ -1532,7 +1976,11 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
         `${item.code}: захиалгын нэгж үнэ 0 — үнэ зохиохгүй, захиалгыг засна уу`
       );
     const amount = roundMoney(quantity * unitPrice * exchangeRate);
-    const accounts = await itemAccountsFor(orgId, userId, item.id);
+    let accounts = accountsByItem.get(item.id);
+    if (!accounts) {
+      accounts = await itemAccountsFor(orgId, userId, item.id);
+      accountsByItem.set(item.id, accounts);
+    }
     const { debit, credit } = entryPostingAccounts(
       "receipt_capitalize",
       {
@@ -1547,12 +1995,14 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
         nrvReserve: roles.nrvReserveAccountNumber,
       }
     );
-    await assertEnabledMainAccount(orgId, debit);
-    await assertEnabledMainAccount(orgId, credit);
+    for (const account of [debit, credit])
+      if (!checkedAccounts.has(account)) {
+        await assertEnabledMainAccount(orgId, account);
+        checkedAccounts.add(account);
+      }
     planned.push({
       lineId: line.id,
       purchaseOrderLineId: poLine.id,
-      orderedQuantity: Number(poLine.quantity),
       itemId: item.id,
       itemCode: item.code,
       itemName: item.name,
@@ -1578,6 +2028,26 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 2)`);
 
+    // PO болон түүний мөрүүдийг ЦООЖЛОНО — захиалсан тоо, өмнөх хүлээн
+    // авалтыг ЗӨВХӨН үүний дараа уншина (tx-ийн гаднах утга хуучирсан байж
+    // болно → OVER_RECEIVED тойрогдоно).
+    const lockedOrder = await lockPurchaseOrder(
+      tx,
+      orgId,
+      receipt.purchaseOrderId
+    );
+    if (lockedOrder.status === "closed")
+      throw new Error("[PO_CLOSED] Хаагдсан захиалгад хүлээн авалт батлагдахгүй");
+    if (lockedOrder.status !== "open")
+      throw new Error("[PO_NOT_OPEN] Захиалга нээлттэй биш");
+    const lockedLines = await lockPurchaseOrderLines(
+      tx,
+      receipt.purchaseOrderId
+    );
+    const orderedByLine = new Map(
+      lockedLines.map((line) => [line.id, round4(Number(line.quantity))])
+    );
+
     const [claimed] = await tx
       .update(goodsReceipts)
       .set({ status: "confirmed", confirmedAt: new Date() })
@@ -1592,32 +2062,20 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
     if (!claimed) throw new Error("Хүлээн авалтын төлөв өөрчлөгдсөн байна");
 
     // OVER_RECEIVED: PO мөр бүрд Σ батлагдсан хүлээн авалт ≤ захиалсан.
+    // Өмнөх нийлбэрийг НЭГ багц query-гээр (мөр бүрд query = N+1).
+    const alreadyByLine = await receivedByLineInTx(
+      tx,
+      orgId,
+      receipt.purchaseOrderId,
+      { excludeReceiptId: receipt.id }
+    );
     for (const line of planned) {
-      await tx
-        .select({ id: purchaseOrderLines.id })
-        .from(purchaseOrderLines)
-        .where(eq(purchaseOrderLines.id, line.purchaseOrderLineId))
-        .for("update");
-      const [received] = await tx
-        .select({
-          quantity: sql<string>`coalesce(sum(${goodsReceiptLines.quantity}), 0)`,
-        })
-        .from(goodsReceiptLines)
-        .innerJoin(
-          goodsReceipts,
-          eq(goodsReceipts.id, goodsReceiptLines.receiptId)
-        )
-        .where(
-          and(
-            eq(goodsReceiptLines.purchaseOrderLineId, line.purchaseOrderLineId),
-            eq(goodsReceipts.status, "confirmed"),
-            ne(goodsReceipts.id, receipt.id)
-          )
-        );
-      const already = Number(received?.quantity ?? 0);
-      if (round4(already + line.quantity) > line.orderedQuantity + QTY_EPSILON)
+      const ordered = orderedByLine.get(line.purchaseOrderLineId);
+      if (ordered == null) throw new Error("Захиалгын мөр олдсонгүй");
+      const already = alreadyByLine.get(line.purchaseOrderLineId) ?? 0;
+      if (round4(already + line.quantity) > ordered + QTY_EPSILON)
         throw new Error(
-          `[OVER_RECEIVED] ${line.itemCode}: захиалсан ${line.orderedQuantity}, өмнө хүлээн авсан ${already}, одоо ${line.quantity}`
+          `[OVER_RECEIVED] ${line.itemCode}: захиалсан ${ordered}, өмнө хүлээн авсан ${already}, одоо ${line.quantity}`
         );
     }
 
@@ -1838,6 +2296,16 @@ async function reverseGoodsReceiptCore(input: {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 2)`);
 
+    // PO-г ЦООЖЛООД төлвийг ДАХИН шалгана — эс бөгөөс зэрэгцээ PO хаалттай
+    // уралдаж, хаагдсан захиалгын хүлээн авалт буцаагдана.
+    const lockedOrder = await lockPurchaseOrder(
+      tx,
+      orgId,
+      receipt.purchaseOrderId
+    );
+    if (lockedOrder.status === "closed")
+      throw new Error("[PO_CLOSED] Хаагдсан захиалгын хүлээн авалтыг буцаахгүй");
+
     const [claimed] = await tx
       .update(goodsReceipts)
       .set({ status: "reversed" })
@@ -1980,6 +2448,17 @@ async function deleteGoodsReceiptCore(input: { id: string }): Promise<void> {
     throw new Error("[GR_NOT_DRAFT] Зөвхөн ноорог хүлээн авалтыг устгана");
 
   await db.transaction(async (tx) => {
+    // Хавсралт нь polymorphic (FK-гүй) тул модуль өөрөө цэвэрлэнэ (§7) —
+    // эс бөгөөс өнчин мөр үлдэж, шинэ баримт хуучин файлыг "өвлөнө".
+    await tx
+      .delete(documentAttachments)
+      .where(
+        and(
+          eq(documentAttachments.organizationId, orgId),
+          eq(documentAttachments.entityType, "goods_receipt"),
+          eq(documentAttachments.entityId, receipt.id)
+        )
+      );
     const [claimed] = await tx
       .delete(goodsReceipts)
       .where(
@@ -2199,23 +2678,31 @@ async function createApInvoiceFromPoCore(data: {
     data.description?.trim() ||
     `[${order.documentNo}] ${counterparty.name} — нийлүүлэгчийн нэхэмжлэх`;
 
-  const created = unwrapAction(
-    await createArApDocument({
-      documentType: "ap_bill",
-      documentNo: cleanText(data.documentNo) ?? undefined,
-      counterpartyId: counterparty.id,
-      date: data.date,
-      dueDate,
-      currency: order.currency,
-      exchangeRate: rate.rate,
-      controlAccountNumber,
-      description,
-      purchaseOrderId: order.id,
-      lines,
-      postNow: data.postNow,
-      externalRef: externalRef ?? undefined,
-    })
-  );
+  // АР/АП модуль externalRef-ээр давхардлыг таньвал `dedup` тугтай буцаана —
+  // тэр тугийг ЗААВАЛ дамжуулна (эс бөгөөс давхардлыг "үүслээ" гэж мэдээлнэ).
+  const created: { id: string; documentNo: string; dedup?: boolean } =
+    unwrapAction(
+      await createArApDocument({
+        documentType: "ap_bill",
+        documentNo: cleanText(data.documentNo) ?? undefined,
+        counterpartyId: counterparty.id,
+        date: data.date,
+        dueDate,
+        currency: order.currency,
+        exchangeRate: rate.rate,
+        controlAccountNumber,
+        description,
+        purchaseOrderId: order.id,
+        lines,
+        postNow: data.postNow,
+        externalRef: externalRef ?? undefined,
+      })
+    );
+
+  // Давхардсан баримт — шинэ бичилт хийгдээгүй тул аудит бичихгүй, тугийг
+  // дамжуулна (дуудагч "үүслээ" гэж мэдээлэхгүй).
+  if (created.dedup === true)
+    return { id: created.id, documentNo: created.documentNo, dedup: true };
 
   await logAuditEvent({
     userId,
@@ -2250,7 +2737,12 @@ export async function getPurchaseOrderPanelData(purchaseOrderId?: string): Promi
   | { ok: true; data: PurchaseOrderPanelData }
   | { ok: false; code: "unauthenticated" | "not-found" }
 > {
-  const active = await getActiveOrg().catch(() => null);
+  // Панелийн өгөгдөл нь нийлүүлэгчийн банк/үлдэгдэл, мөрийн үнэ, хавсралтыг
+  // агуулдаг тул ЖАГСААЛТТАЙ ИЖИЛ эрх шаардана (модуль унтраасан эсвэл
+  // эрхгүй гишүүн панелийн замаар уншиж чадахгүй).
+  const active = await requireModuleAction(PROCUREMENT_MODULE_KEY, "read").catch(
+    () => null
+  );
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId } = active;
 
@@ -2344,7 +2836,9 @@ export async function getGoodsReceiptPanelData(input: {
   | { ok: true; data: GoodsReceiptPanelData }
   | { ok: false; code: "unauthenticated" | "not-found" }
 > {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction(PROCUREMENT_MODULE_KEY, "read").catch(
+    () => null
+  );
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId } = active;
 

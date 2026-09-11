@@ -10,9 +10,11 @@ import {
   costEntries,
   faDepreciationEntries,
   fixedAssets,
+  goodsReceipts,
   journalVouchers,
   journalLines,
   moduleConfigs,
+  purchaseOrders,
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
@@ -768,6 +770,10 @@ export async function postVoucher(id: string): Promise<ActionResult> {
  * хадгалж GL-тэй зөрнө). sourceVoucherId-тэй НООРОГ кассын баримт
  * (батлагдаагүй sync санал) саад болохгүй — дуудагч removeDraftCashDocsFor-
  * Voucher-ээр цэвэрлэнэ.
+ *
+ * Хангамж (docs/procurement §3.3 ②⑥): захиалгын ХААЛТЫН журнал ба хүлээн
+ * авалтын капитализаци/буцаалт мөн эзэмшигдсэн — GL-ээс хөндвөл PO нь
+ * "closed" хэвээр атлаа түр дансууд дахин нээгдэнэ.
  */
 async function assertNotSubledgerOwned(
   orgId: string,
@@ -777,12 +783,16 @@ async function assertNotSubledgerOwned(
     inventoryMovementId: string | null;
   }[]
 ) {
-  if (lines.some((line) => line.costEntryId || line.inventoryMovementId))
-    throw new Error(
-      "Өртгийн модулиас үүссэн журнал — өртгийн бичилтийг нь буцааж/устгаж удирдана"
-    );
-
-  const [cashRef, arapRef, faRef, costRef, fxRef, offsetRef] = await Promise.all([
+  const [
+    cashRef,
+    arapRef,
+    faRef,
+    costRef,
+    fxRef,
+    offsetRef,
+    poCloseRef,
+    receiptRef,
+  ] = await Promise.all([
     db.query.cashDocuments.findFirst({
       where: and(
         eq(cashDocuments.organizationId, orgId),
@@ -847,7 +857,46 @@ async function assertNotSubledgerOwned(
       ),
       columns: { id: true },
     }),
+    // ХАНГАМЖ: захиалгын ХААЛТЫН журнал — түр дансдыг PO объектоор
+    // тэгшитгэдэг (FR-PROC-004). GL талаас буцаавал/устгавал захиалга
+    // "closed" хэвээр атлаа түр дансууд дахин нээгдэж, дараагийн хаалт
+    // бүх дүнг ханшийн олз/гарз болгоно — зөвхөн "Захиалгыг дахин нээх"-ээр.
+    db.query.purchaseOrders.findFirst({
+      where: and(
+        eq(purchaseOrders.organizationId, orgId),
+        eq(purchaseOrders.closeVoucherId, id)
+      ),
+      columns: { documentNo: true },
+    }),
+    // ХАНГАМЖ: хүлээн авалтын капитализаци ба түүний буцаалт — орлогын
+    // хөдөлгөөн, өртгийн бичилттэй хамт л буцаагдана (contract §9).
+    db.query.goodsReceipts.findFirst({
+      where: and(
+        eq(goodsReceipts.organizationId, orgId),
+        or(
+          eq(goodsReceipts.voucherId, id),
+          eq(goodsReceipts.reversalVoucherId, id)
+        )
+      ),
+      columns: { documentNo: true },
+    }),
   ]);
+  // Хангамжийн шалгалтууд нь өртгийн ЕРӨНХИЙ мессежээс ӨМНӨ — хэрэглэгчийг
+  // зөв модуль руу (Хангамж) чиглүүлнэ.
+  if (poCloseRef)
+    throw new Error(
+      `${poCloseRef.documentNo} захиалгын хаалтын журнал — Хангамж модулиас удирдана (Хангамж → Захиалга дээрээс "Дахин нээх")`
+    );
+  if (receiptRef)
+    throw new Error(
+      `${receiptRef.documentNo} хүлээн авалтын журнал — Хангамж модулиас удирдана (Хангамж → Хүлээн авалт дээр буцаана)`
+    );
+
+  if (lines.some((line) => line.costEntryId || line.inventoryMovementId))
+    throw new Error(
+      "Өртгийн модулиас үүссэн журнал — өртгийн бичилтийг нь буцааж/устгаж удирдана"
+    );
+
   if (cashRef)
     throw new Error(
       `Кассын ${cashRef.documentNo} баримттай холбоотой журнал — Мөнгөн хөрөнгө хэсгээс баримтыг нь удирдана уу`

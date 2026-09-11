@@ -1,4 +1,6 @@
 import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { PO_STATUS_LABELS } from "@/lib/procurement/labels";
+import type { PurchaseOrderStatus } from "@/lib/procurement/types";
 
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -13,13 +15,11 @@ export const runtime = "nodejs";
 
 const GROUP_LIMIT = 6;
 
-/** Захиалгын төлөв — палитрт монголоор харуулна. */
-const PO_STATUS_LABELS: Record<string, string> = {
-  draft: "ноорог",
-  open: "нээлттэй",
-  closed: "хаагдсан",
-  cancelled: "цуцлагдсан",
-};
+function poStatusLabel(status: string) {
+  // Палитрт бусад илэрцтэй ижил жижиг үсгээр — шошго нь нэг эх сурвалжаас.
+  const label = PO_STATUS_LABELS[status as PurchaseOrderStatus];
+  return (label ?? status).toLowerCase();
+}
 
 /**
  * П10 — палитрын баримтын хайлт: АР/АП нэхэмжлэх, кассын баримт, журнал,
@@ -141,7 +141,7 @@ export async function GET(request: Request) {
         id: order.id,
         documentNo: order.documentNo,
         label: `${order.documentNo} · ${order.counterparty.name}`,
-        sub: `${order.date} · ${PO_STATUS_LABELS[order.status] ?? order.status}`,
+        sub: `${order.date} · ${poStatusLabel(order.status)}`,
       })),
     });
   } catch (caught) {

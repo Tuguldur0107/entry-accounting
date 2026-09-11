@@ -21,6 +21,7 @@ import {
   arApDocuments,
   costAllocations,
   costComponents,
+  costEntries,
   counterparties,
   documentAttachments,
   goodsReceiptLines,
@@ -46,11 +47,38 @@ import type {
 /**
  * PO-той нэхэмжлэхийн "тоологдох" төлвүүд — ноорог нь мөн PO-гийн
  * нэхэмжлэгдсэн дүнд орно (§4). Буцаагдсан (reversed) баримт ОРОХГҮЙ.
+ *
+ * ⚠️ Энэ жагсаалт нь ИЛҮҮ НЭХЭМЖЛЭХЭЭС хамгаалах (`OVER_INVOICED`) зорилготой.
+ * PO ХААЛТЫН нөхцөлд `PO_INVOICE_POSTED_STATUSES`-ийг Л ашиглана — ноорог
+ * нэхэмжлэх GL-д ороогүй тул хаавал хаалтын журнал бүтэн дүнг хуурамч
+ * ханшийн олз болгоно.
  */
-const PO_INVOICE_STATUSES = ["draft", "posted", "partially_paid", "paid"];
+export const PO_INVOICE_COUNTED_STATUSES = [
+  "draft",
+  "posted",
+  "partially_paid",
+  "paid",
+];
+
+/** PO ХААЛТАД тоологдох — ЗӨВХӨН GL-д бичигдсэн (батлагдсан) нэхэмжлэх. */
+export const PO_INVOICE_POSTED_STATUSES = [
+  "posted",
+  "partially_paid",
+  "paid",
+];
+
+/** Хаалтыг хориглох НООРОГ өртгийн бичилтийн төрлүүд. */
+export const PO_DRAFT_COST_ENTRY_TYPES = ["landed_cost", "receipt_capitalize"];
 
 /** Бөөрөнхийллийн шуугианы хязгаар (₮). */
 const MONEY_EPSILON = 0.005;
+
+/** Жагсаалтын дээд хязгаар — бүх түүхийг хязгааргүй ачаалахыг хориглоно. */
+const PURCHASE_ORDER_LIST_LIMIT = 500;
+
+/** Самбарын "сүүлийн захиалгууд" болон нээлттэй PO-гийн дээд хязгаар. */
+const DASHBOARD_RECENT_LIMIT = 50;
+const DASHBOARD_OPEN_LIMIT = 200;
 
 function round4(value: number): number {
   return Math.round(value * 10_000) / 10_000;
@@ -95,18 +123,37 @@ async function loadReceivedByLine(
   return result;
 }
 
-/** PO мөр бүрийн нэхэмжлэгдсэн тоо ба дүн (PO валютаар). */
+/** PO мөрийн нэхэмжлэлийн гүйцэтгэл — бүгд ба ЗӨВХӨН батлагдсан нь тусдаа. */
+type InvoicedProgress = {
+  quantity: number;
+  amount: number;
+  postedQuantity: number;
+  postedAmount: number;
+};
+
+/**
+ * PO мөр бүрийн нэхэмжлэгдсэн тоо ба дүн (PO валютаар).
+ * Хоёр ойлголтыг ТУСГААРЛАНА: `quantity/amount` нь ноорог+батлагдсан
+ * (илүү нэхэмжлэхээс хамгаална), `postedQuantity/postedAmount` нь
+ * ЗӨВХӨН GL-д бичигдсэн нэхэмжлэх (PO хаалтын нөхцөл).
+ */
 async function loadInvoicedByLine(
   orgId: string,
   purchaseOrderIds: string[]
-): Promise<Map<string, { quantity: number; amount: number }>> {
-  const result = new Map<string, { quantity: number; amount: number }>();
+): Promise<Map<string, InvoicedProgress>> {
+  const result = new Map<string, InvoicedProgress>();
   if (purchaseOrderIds.length === 0) return result;
+  const postedFilter = inArray(
+    arApDocuments.status,
+    PO_INVOICE_POSTED_STATUSES
+  );
   const rows = await db
     .select({
       lineId: arApDocumentLines.purchaseOrderLineId,
       quantity: sql<string>`coalesce(sum(${arApDocumentLines.quantity}), 0)`,
       amount: sql<string>`coalesce(sum(${arApDocumentLines.amount}), 0)`,
+      postedQuantity: sql<string>`coalesce(sum(case when ${postedFilter} then ${arApDocumentLines.quantity} else 0 end), 0)`,
+      postedAmount: sql<string>`coalesce(sum(case when ${postedFilter} then ${arApDocumentLines.amount} else 0 end), 0)`,
     })
     .from(arApDocumentLines)
     .innerJoin(
@@ -117,7 +164,7 @@ async function loadInvoicedByLine(
       and(
         eq(arApDocuments.organizationId, orgId),
         inArray(arApDocuments.purchaseOrderId, purchaseOrderIds),
-        inArray(arApDocuments.status, PO_INVOICE_STATUSES),
+        inArray(arApDocuments.status, PO_INVOICE_COUNTED_STATUSES),
         isNotNull(arApDocumentLines.purchaseOrderLineId)
       )
     )
@@ -127,8 +174,70 @@ async function loadInvoicedByLine(
     result.set(row.lineId, {
       quantity: round4(Number(row.quantity ?? 0)),
       amount: roundMoney(Number(row.amount ?? 0)),
+      postedQuantity: round4(Number(row.postedQuantity ?? 0)),
+      postedAmount: roundMoney(Number(row.postedAmount ?? 0)),
     });
   }
+  return result;
+}
+
+/** PO бүрд холбогдсон НООРОГ нэхэмжлэхийн тоо (хаалтыг хориглоно). */
+async function loadDraftInvoiceCounts(
+  orgId: string,
+  purchaseOrderIds: string[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (purchaseOrderIds.length === 0) return result;
+  const rows = await db
+    .select({
+      purchaseOrderId: arApDocuments.purchaseOrderId,
+      total: sql<string>`count(*)`,
+    })
+    .from(arApDocuments)
+    .where(
+      and(
+        eq(arApDocuments.organizationId, orgId),
+        inArray(arApDocuments.purchaseOrderId, purchaseOrderIds),
+        eq(arApDocuments.status, "draft")
+      )
+    )
+    .groupBy(arApDocuments.purchaseOrderId);
+  for (const row of rows)
+    if (row.purchaseOrderId)
+      result.set(row.purchaseOrderId, Number(row.total ?? 0));
+  return result;
+}
+
+/**
+ * PO бүрийн НООРОГ өртгийн бичилтийн тоо (`landed_cost` /
+ * `receipt_capitalize`) — батлагдаагүй бичилт GL-д ороогүй тул түр дансдын
+ * үлдэгдэл дутуу байна; хаавал зөрүү нь хуурамч ханшийн олз/гарз болно.
+ */
+async function loadDraftCostEntryCounts(
+  orgId: string,
+  purchaseOrderIds: string[]
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (purchaseOrderIds.length === 0) return result;
+  const rows = await db
+    .select({
+      purchaseOrderId: costEntries.businessObjectId,
+      total: sql<string>`count(*)`,
+    })
+    .from(costEntries)
+    .where(
+      and(
+        eq(costEntries.organizationId, orgId),
+        eq(costEntries.businessObjectType, PO_BUSINESS_OBJECT),
+        inArray(costEntries.businessObjectId, purchaseOrderIds),
+        eq(costEntries.status, "draft"),
+        inArray(costEntries.entryType, PO_DRAFT_COST_ENTRY_TYPES)
+      )
+    )
+    .groupBy(costEntries.businessObjectId);
+  for (const row of rows)
+    if (row.purchaseOrderId)
+      result.set(row.purchaseOrderId, Number(row.total ?? 0));
   return result;
 }
 
@@ -223,7 +332,7 @@ async function loadUnallocatedCostRows(
 
   const conditions = [
     eq(arApDocuments.organizationId, orgId),
-    inArray(arApDocuments.status, PO_INVOICE_STATUSES),
+    inArray(arApDocuments.status, PO_INVOICE_COUNTED_STATUSES),
     isNotNull(arApDocumentLines.costComponentId),
   ];
   if (filter?.purchaseOrderId)
@@ -323,6 +432,8 @@ type PurchaseOrderFilter = {
   counterpartyId?: string;
   from?: string;
   to?: string;
+  /** Дээд тал нь хэдэн захиалга уншихыг ил заана (default = жагсаалтын хязгаар). */
+  limit?: number;
 };
 
 type PurchaseOrderBundle = {
@@ -347,6 +458,12 @@ async function loadPurchaseOrderBundles(
   if (filter?.from) conditions.push(gte(purchaseOrders.date, filter.from));
   if (filter?.to) conditions.push(lte(purchaseOrders.date, filter.to));
 
+  // Бүх түүхийг хязгааргүй ачаалахыг хориглоно — нэг захиалга хүссэн үед 1,
+  // бусад үед ил хязгаар эсвэл жагсаалтын дээд хязгаар.
+  const limit = filter?.purchaseOrderId
+    ? 1
+    : Math.max(1, Math.trunc(filter?.limit ?? PURCHASE_ORDER_LIST_LIMIT));
+
   const rows = await db.query.purchaseOrders.findMany({
     where: and(...conditions),
     with: {
@@ -361,22 +478,32 @@ async function loadPurchaseOrderBundles(
       },
     },
     orderBy: [desc(purchaseOrders.date), desc(purchaseOrders.createdAt)],
+    limit,
   });
   if (rows.length === 0) return [];
 
   const purchaseOrderIds = rows.map((row) => row.id);
   const roles = await loadCostingAccountSettings(orgId);
-  const [received, invoiced, clearing, attachmentCounts, costLines] =
-    await Promise.all([
-      loadReceivedByLine(orgId, purchaseOrderIds),
-      loadInvoicedByLine(orgId, purchaseOrderIds),
-      loadClearingByPo(orgId, purchaseOrderIds, {
-        inventory: roles.clearingAccountNumber,
-        payable: roles.apClearingAccountNumber,
-      }),
-      loadAttachmentCounts(orgId, purchaseOrderIds),
-      loadUnallocatedCostRows(orgId, { purchaseOrderIds }),
-    ]);
+  const [
+    received,
+    invoiced,
+    clearing,
+    attachmentCounts,
+    costLines,
+    draftInvoices,
+    draftCostEntries,
+  ] = await Promise.all([
+    loadReceivedByLine(orgId, purchaseOrderIds),
+    loadInvoicedByLine(orgId, purchaseOrderIds),
+    loadClearingByPo(orgId, purchaseOrderIds, {
+      inventory: roles.clearingAccountNumber,
+      payable: roles.apClearingAccountNumber,
+    }),
+    loadAttachmentCounts(orgId, purchaseOrderIds),
+    loadUnallocatedCostRows(orgId, { purchaseOrderIds }),
+    loadDraftInvoiceCounts(orgId, purchaseOrderIds),
+    loadDraftCostEntryCounts(orgId, purchaseOrderIds),
+  ]);
 
   const unallocatedByPo = new Map<string, number>();
   for (const line of costLines)
@@ -407,13 +534,19 @@ async function loadPurchaseOrderBundles(
         invoicedAmount: invoicedLine?.amount ?? 0,
       };
     });
-    const progress: PoLineProgress[] = lines.map((line) => ({
-      ordered: line.quantity,
-      received: line.receivedQuantity,
-      invoiced: line.invoicedQuantity,
-      invoicedAmount: line.invoicedAmount,
-      orderedAmount: line.amount,
-    }));
+    const progress: PoLineProgress[] = lines.map((line) => {
+      const invoicedLine = invoiced.get(line.id);
+      return {
+        ordered: line.quantity,
+        received: line.receivedQuantity,
+        invoiced: line.invoicedQuantity,
+        invoicedAmount: line.invoicedAmount,
+        orderedAmount: line.amount,
+        // Хаалтын нөхцөлд ЗӨВХӨН батлагдсан нэхэмжлэх (ноорог GL-д ороогүй).
+        postedInvoiced: invoicedLine?.postedQuantity ?? 0,
+        postedInvoicedAmount: invoicedLine?.postedAmount ?? 0,
+      };
+    });
     const orderedQty = progress.reduce((sum, line) => sum + line.ordered, 0);
     const receivedQty = progress.reduce((sum, line) => sum + line.received, 0);
     const invoicedAmount = progress.reduce(
@@ -453,6 +586,8 @@ async function loadPurchaseOrderBundles(
       blockers: poCloseBlockers({
         lines: progress,
         unallocatedCostAmount: unallocatedMnt,
+        draftInvoiceCount: draftInvoices.get(row.id) ?? 0,
+        draftCostEntryCount: draftCostEntries.get(row.id) ?? 0,
       }),
     };
   });
@@ -663,27 +798,44 @@ export async function loadProcurementDashboard(orgId: string): Promise<{
   clearingPayable: number;
   recentOrders: PurchaseOrderView[];
 }> {
-  const [bundles, draftReceiptRows, unallocated] = await Promise.all([
-    loadPurchaseOrderBundles(orgId),
-    db
-      .select({ total: sql<string>`count(*)` })
-      .from(goodsReceipts)
-      .where(
-        and(
-          eq(goodsReceipts.organizationId, orgId),
-          eq(goodsReceipts.status, "draft")
-        )
-      ),
-    loadUnallocatedCostRows(orgId),
-  ]);
+  // Тоолуурууд SQL count-аар — бүх түүхийн PO-г санах ойд ачаалахгүй.
+  // Түр дансдын үлдэгдэл нь ЗӨВХӨН НЭЭЛТТЭЙ захиалгад үлддэг (хаагдсан PO
+  // тэгширсэн, ноорог/цуцлагдсанд бичилт байхгүй) тул багц ачааллыг
+  // нээлттэй захиалга + сүүлийн N захиалгаар хязгаарлана.
+  const [statusRows, draftReceiptRows, unallocated, openBundles, recentBundles] =
+    await Promise.all([
+      db
+        .select({
+          status: purchaseOrders.status,
+          total: sql<string>`count(*)`,
+        })
+        .from(purchaseOrders)
+        .where(eq(purchaseOrders.organizationId, orgId))
+        .groupBy(purchaseOrders.status),
+      db
+        .select({ total: sql<string>`count(*)` })
+        .from(goodsReceipts)
+        .where(
+          and(
+            eq(goodsReceipts.organizationId, orgId),
+            eq(goodsReceipts.status, "draft")
+          )
+        ),
+      loadUnallocatedCostRows(orgId),
+      loadPurchaseOrderBundles(orgId, {
+        status: "open",
+        limit: DASHBOARD_OPEN_LIMIT,
+      }),
+      loadPurchaseOrderBundles(orgId, { limit: DASHBOARD_RECENT_LIMIT }),
+    ]);
 
-  const openBundles = bundles.filter(
-    (bundle) => bundle.view.status === "open"
-  );
+  const countByStatus = new Map<string, number>();
+  for (const row of statusRows)
+    countByStatus.set(row.status, Number(row.total ?? 0));
+
   return {
-    draftOrders: bundles.filter((bundle) => bundle.view.status === "draft")
-      .length,
-    openOrders: openBundles.length,
+    draftOrders: countByStatus.get("draft") ?? 0,
+    openOrders: countByStatus.get("open") ?? 0,
     ordersReadyToClose: openBundles.filter(
       (bundle) => bundle.blockers.length === 0
     ).length,
@@ -695,11 +847,11 @@ export async function loadProcurementDashboard(orgId: string): Promise<{
       unallocated.reduce((sum, line) => sum + line.remainingMnt, 0)
     ),
     clearingInventory: roundMoney(
-      bundles.reduce((sum, bundle) => sum + bundle.clearing.inventory, 0)
+      openBundles.reduce((sum, bundle) => sum + bundle.clearing.inventory, 0)
     ),
     clearingPayable: roundMoney(
-      bundles.reduce((sum, bundle) => sum + bundle.clearing.payable, 0)
+      openBundles.reduce((sum, bundle) => sum + bundle.clearing.payable, 0)
     ),
-    recentOrders: bundles.slice(0, 8).map((bundle) => bundle.view),
+    recentOrders: recentBundles.slice(0, 8).map((bundle) => bundle.view),
   };
 }

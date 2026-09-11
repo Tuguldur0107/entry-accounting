@@ -11,22 +11,27 @@
 // буцаалт нь ЗӨВХӨН энэ дэлгэц (эсвэл хүлээн авалтын панель) дээрээс.
 //
 // ДАВХАР даралт → хүлээн авалтын панель.
+//
+// Шүүлтүүр / тоолуур / URL параметр / үйлдлийн transition нь Захиалгын
+// жагсаалттай ХУВААЛЦСАН `components/procurement/list-toolbar.tsx`-д —
+// хуудас бүрд давхардуулан бичихийг ХОРИГЛОНО.
 
-import { useCallback, useMemo, useRef, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useRef } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { toast } from "sonner";
 
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
+import {
+  ListToolbar,
+  useListAction,
+  useListFilters,
+  type ListStatusChip,
+} from "@/components/procurement/list-toolbar";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { LinkButton } from "@/components/ui/link-button";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
-import { FilterChips } from "@/components/ui/tabs";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   confirmGoodsReceipt,
   deleteGoodsReceipt,
@@ -38,30 +43,28 @@ import type {
 } from "@/lib/procurement/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
-  openGoodsReceiptPanel,
-  refreshOpenPanels,
-} from "@/lib/store/panel-store";
+  GR_STATUS_LABELS,
+  GR_STATUS_TONES,
+} from "@/lib/procurement/labels";
+import { openGoodsReceiptPanel } from "@/lib/store/panel-store";
 
-export const GR_STATUS_LABELS: Record<GoodsReceiptStatus, string> = {
-  draft: "Ноорог",
-  confirmed: "Батлагдсан",
-  reversed: "Буцаагдсан",
-};
-
-export const GR_STATUS_TONES: Record<GoodsReceiptStatus, StatusTone> = {
-  draft: "muted",
-  confirmed: "success",
-  reversed: "danger",
-};
-
-type StatusChip = "all" | GoodsReceiptStatus;
-
-const STATUS_CHIPS: { value: StatusChip; label: string }[] = [
+const STATUS_CHIPS: readonly ListStatusChip<GoodsReceiptStatus>[] = [
   { value: "all", label: "Бүх төлөв" },
   { value: "draft", label: GR_STATUS_LABELS.draft },
   { value: "confirmed", label: GR_STATUS_LABELS.confirmed },
   { value: "reversed", label: GR_STATUS_LABELS.reversed },
 ];
+
+const statusOf = (receipt: GoodsReceiptView) => receipt.status;
+
+// Захиалгын шүүлтүүр нь хүлээн авалтуудаас гарна — тусдаа query хэрэггүй.
+const orderOf = (receipt: GoodsReceiptView) =>
+  receipt.purchaseOrderId
+    ? {
+        value: receipt.purchaseOrderId,
+        label: `${receipt.purchaseOrderNo} · ${receipt.counterpartyName}`,
+      }
+    : null;
 
 interface Props {
   receipts: GoodsReceiptView[];
@@ -76,79 +79,28 @@ export function GoodsReceiptsView({
   initialStatus,
   initialPoId,
 }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const gridRef = useRef<DataGridHandle>(null);
-  const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const { isPending, runAction } = useListAction();
 
-  const activeStatus: StatusChip = STATUS_CHIPS.some(
-    (chip) => chip.value === initialStatus
-  )
-    ? (initialStatus as StatusChip)
-    : "all";
-
-  // Захиалгын шүүлтүүр нь хүлээн авалтуудаас гарна — тусдаа query хэрэггүй.
-  const orderOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const receipt of receipts)
-      if (receipt.purchaseOrderId)
-        byId.set(
-          receipt.purchaseOrderId,
-          `${receipt.purchaseOrderNo} · ${receipt.counterpartyName}`
-        );
-    return [
-      { value: "", label: "Бүх захиалга" },
-      ...[...byId.entries()]
-        .map(([value, label]) => ({ value, label }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    ];
-  }, [receipts]);
-
-  const activePoId =
-    initialPoId && orderOptions.some((option) => option.value === initialPoId)
-      ? initialPoId
-      : "";
-
-  const changeParam = useCallback(
-    (key: "status" | "po", next: string) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (!next || next === "all") params.delete(key);
-      else params.set(key, next);
-      router.replace(
-        `${pathname}${params.toString() ? `?${params.toString()}` : ""}`
-      );
-    },
-    [pathname, router, searchParams]
-  );
-
-  const orderFiltered = useMemo(
-    () =>
-      activePoId
-        ? receipts.filter((receipt) => receipt.purchaseOrderId === activePoId)
-        : receipts,
-    [receipts, activePoId]
-  );
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<StatusChip, number> = {
-      all: orderFiltered.length,
-      draft: 0,
-      confirmed: 0,
-      reversed: 0,
-    };
-    for (const receipt of orderFiltered) counts[receipt.status] += 1;
-    return counts;
-  }, [orderFiltered]);
-
-  const visibleReceipts = useMemo(
-    () =>
-      activeStatus === "all"
-        ? orderFiltered
-        : orderFiltered.filter((receipt) => receipt.status === activeStatus),
-    [orderFiltered, activeStatus]
-  );
+  const {
+    activeStatus,
+    statusCounts,
+    secondaryOptions: orderOptions,
+    activeSecondary: activePoId,
+    visibleRows: visibleReceipts,
+    changeStatus,
+    changeSecondary,
+  } = useListFilters({
+    rows: receipts,
+    statusChips: STATUS_CHIPS,
+    statusOf,
+    initialStatus,
+    secondaryParam: "po",
+    initialSecondary: initialPoId,
+    secondaryOf: orderOf,
+    secondaryAllLabel: "Бүх захиалга",
+  });
 
   const navIds = useMemo(
     () => visibleReceipts.map((receipt) => receipt.id),
@@ -164,26 +116,6 @@ export function GoodsReceiptsView({
         navIds,
       }),
     [navIds]
-  );
-
-  const runAction = useCallback(
-    (action: () => Promise<{ error?: string }>, successMessage: string) => {
-      startTransition(async () => {
-        try {
-          const result = await action();
-          if (result.error) {
-            toast.error(result.error);
-            return;
-          }
-          refreshOpenPanels();
-          router.refresh();
-          toast.success(successMessage);
-        } catch {
-          toast.error("Үйлдэл амжилтгүй");
-        }
-      });
-    },
-    [router]
   );
 
   const handleConfirm = useCallback(
@@ -411,36 +343,19 @@ export function GoodsReceiptsView({
       </div>
 
       {receipts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterChips
-            options={STATUS_CHIPS.map((chip) => ({
-              value: chip.value,
-              label: chip.label,
-              count: chip.value !== "all" ? statusCounts[chip.value] : undefined,
-              tone:
-                chip.value === "draft" && statusCounts.draft > 0
-                  ? ("warning" as const)
-                  : undefined,
-            }))}
-            value={activeStatus}
-            onChange={(next) => changeParam("status", next)}
-          />
-          <div className="ml-auto flex items-center gap-1.5">
-            <div className="w-64">
-              <SearchableSelect
-                value={activePoId}
-                onChange={(next) => changeParam("po", next)}
-                options={orderOptions}
-                placeholder="Бүх захиалга"
-                hideValue
-              />
-            </div>
-            <SavedViewsMenu
-              surfaceId="procurement-receipts"
-              gridRef={gridRef}
-            />
-          </div>
-        </div>
+        <ListToolbar
+          statusChips={STATUS_CHIPS}
+          statusCounts={statusCounts}
+          activeStatus={activeStatus}
+          onStatusChange={changeStatus}
+          secondaryOptions={orderOptions}
+          activeSecondary={activePoId}
+          onSecondaryChange={changeSecondary}
+          secondaryPlaceholder="Бүх захиалга"
+          secondaryWidthClass="w-64"
+          surfaceId="procurement-receipts"
+          gridRef={gridRef}
+        />
       )}
 
       {visibleReceipts.length === 0 ? (

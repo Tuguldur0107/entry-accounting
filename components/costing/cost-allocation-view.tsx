@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 
+import { AllocationTargetsTable } from "@/components/costing/allocation-targets-table";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +38,6 @@ import {
   type AllocationBase,
 } from "@/lib/costing/allocation";
 import { fmtMnt } from "@/lib/reports/balances";
-import { cn } from "@/lib/utils";
 
 interface Props {
   rows: AllocationRow[];
@@ -332,104 +332,23 @@ export function CostAllocationView({
                 </div>
               </div>
 
-              {targets.length === 0 ? (
-                <p className="rounded-md border border-[var(--ea-border)] px-3 py-6 text-center text-xs text-[var(--ea-text-4)]">
-                  Энэ хугацаанд батлагдсан орлого алга
-                </p>
-              ) : (
-                <div className="max-h-64 overflow-y-auto rounded-md border border-[var(--ea-border)]">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
-                      <tr>
-                        <th className="w-8 px-2 py-1.5" />
-                        <th className="px-2 py-1.5 text-left">Баримт</th>
-                        <th className="px-2 py-1.5 text-left">Бараа</th>
-                        <th className="px-2 py-1.5 text-right">Тоо</th>
-                        <th className="px-2 py-1.5 text-right">Өртөг</th>
-                        <th className="px-2 py-1.5 text-right">
-                          {form.allocationBase === "manual"
-                            ? "Дүн бичих"
-                            : "Хуваарилах дүн"}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {targets.map((target) => {
-                        const isSelected = !!selected[target.movementId];
-                        return (
-                          <tr
-                            key={target.movementId}
-                            className={cn(
-                              "border-t border-[var(--ea-border)]",
-                              isSelected && "bg-[var(--ea-primary)]/6"
-                            )}
-                          >
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={(event) =>
-                                  setSelected((current) => ({
-                                    ...current,
-                                    [target.movementId]: event.target.checked,
-                                  }))
-                                }
-                              />
-                            </td>
-                            <td className="px-2 py-1.5 font-mono">
-                              {target.documentNo}
-                              <span className="ml-1.5 text-[var(--ea-text-4)]">
-                                {target.date}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5">
-                              {target.itemLabel}
-                              <span className="ml-1.5 text-[var(--ea-text-4)]">
-                                {target.warehouseLabel}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-mono">
-                              {target.quantity.toLocaleString("en-US", {
-                                maximumFractionDigits: 4,
-                              })}
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-mono">
-                              {fmtMnt(target.value)}
-                            </td>
-                            <td className="px-2 py-1.5 text-right font-mono">
-                              {form.allocationBase === "manual" ? (
-                                <input
-                                  value={manual[target.movementId] ?? ""}
-                                  onChange={(event) =>
-                                    setManual((current) => ({
-                                      ...current,
-                                      [target.movementId]: event.target.value,
-                                    }))
-                                  }
-                                  disabled={!isSelected}
-                                  placeholder="0"
-                                  className="h-6 w-24 rounded border border-[var(--ea-border)] bg-[var(--ea-surface)] px-1 text-right font-mono text-xs disabled:opacity-40"
-                                />
-                              ) : isSelected ? (
-                                (previewByMovement.get(target.movementId) ??
-                                  0) > 0 ? (
-                                  fmtMnt(
-                                    previewByMovement.get(target.movementId)!
-                                  )
-                                ) : (
-                                  "—"
-                                )
-                              ) : (
-                                ""
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <AllocationTargetsTable
+                targets={targets}
+                selected={selected}
+                onToggle={(movementId, checked) =>
+                  setSelected((current) => ({
+                    ...current,
+                    [movementId]: checked,
+                  }))
+                }
+                base={form.allocationBase}
+                manualAmounts={manual}
+                onManualChange={(movementId, value) =>
+                  setManual((current) => ({ ...current, [movementId]: value }))
+                }
+                previewByMovement={previewByMovement}
+                emptyMessage="Энэ хугацаанд батлагдсан орлого алга"
+              />
             </div>
 
             {preview && !preview.ok && (

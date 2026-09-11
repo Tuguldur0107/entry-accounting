@@ -28,7 +28,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   confirmGoodsReceipt,
   createGoodsReceipt,
@@ -43,6 +43,11 @@ import type {
   GoodsReceiptPanelData,
   GoodsReceiptStatus,
 } from "@/lib/procurement/types";
+import {
+  GR_STATUS_LABELS,
+  GR_STATUS_TONES,
+} from "@/lib/procurement/labels";
+import { parseMntInput } from "@/lib/grid/formatters";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
   openPurchaseOrderPanel,
@@ -62,17 +67,6 @@ const ERROR_MESSAGES = {
   failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
 } as const;
 
-const STATUS_LABELS: Record<GoodsReceiptStatus, string> = {
-  draft: "Ноорог",
-  confirmed: "Батлагдсан",
-  reversed: "Буцаагдсан",
-};
-
-const STATUS_TONES: Record<GoodsReceiptStatus, StatusTone> = {
-  draft: "muted",
-  confirmed: "success",
-  reversed: "danger",
-};
 
 export function GoodsReceiptPanel({
   panel,
@@ -359,7 +353,8 @@ function GoodsReceiptBody({
             : "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         valueParser: (params) => {
-          const value = Number(String(params.newValue).replaceAll(",", ""));
+          // Paste contract (CLAUDE.md): ₮, зай, таслал, цэгийг НЭГ парсер танина.
+          const value = parseMntInput(params.newValue);
           return Number.isFinite(value) && value > 0 ? value : 0;
         },
         valueFormatter: (params) =>
@@ -619,8 +614,8 @@ function GoodsReceiptBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={STATUS_TONES[status]}>
-          {STATUS_LABELS[status]}
+        <StatusBadge tone={GR_STATUS_TONES[status]}>
+          {GR_STATUS_LABELS[status]}
         </StatusBadge>
         {receipt && (
           <span className="font-mono text-xs font-semibold text-[var(--ea-text-1)]">

@@ -22,7 +22,8 @@ import { openPurchaseOrderPanel } from "@/lib/store/panel-store";
 import {
   PO_STATUS_LABELS,
   PO_STATUS_TONES,
-} from "@/components/procurement/purchase-orders-view";
+  fmtCurrencyAmount,
+} from "@/lib/procurement/labels";
 
 interface Props {
   draftOrders: number;
@@ -161,14 +162,10 @@ export function ProcurementDashboard({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => {
-          const order = params.data;
-          if (!order) return "";
-          if (order.currency === "MNT") return fmtMnt(order.totalAmount);
-          return `${order.totalAmount.toLocaleString("en-US", {
-            maximumFractionDigits: 2,
-          })} ${order.currency}`;
-        },
+        valueFormatter: (params) =>
+          params.data
+            ? fmtCurrencyAmount(params.data.totalAmount, params.data.currency)
+            : "",
       },
       {
         headerName: "Хүлээн авсан",

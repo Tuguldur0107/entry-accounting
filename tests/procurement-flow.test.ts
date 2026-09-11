@@ -51,20 +51,31 @@ try {
   // патчлагдахгүй орчинд fallback ажиллана
 }
 
+import { GET as getAttachmentRoute } from "../app/api/attachments/[id]/route";
+import { POST as uploadAttachmentRoute } from "../app/api/attachments/route";
 import {
   createArApDocument,
   createCounterparty,
+  postArApDocument,
+  reverseArApDocument,
 } from "../lib/actions/arap";
+import { deleteAttachment, listAttachments } from "../lib/actions/attachments";
 import { runAsOrg } from "../lib/auth";
+import {
+  serializePermissions,
+  type PermissionLevel,
+} from "../lib/permissions";
+import { PROCUREMENT_MODULE_KEY } from "../lib/procurement/constants";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { createInventoryItem, createWarehouse } from "../lib/actions/inventory";
 import { saveCostComponent } from "../lib/actions/costing-master";
-import { postCostEntries } from "../lib/actions/costing";
+import { postCostEntries, reverseCostEntry } from "../lib/actions/costing";
 import {
   createCostAllocation,
   loadPoAllocationTargets,
 } from "../lib/actions/cost-allocation";
 import { closePeriod } from "../lib/actions/periods";
+import { unpostVoucher } from "../lib/actions/gl";
 import {
   approvePurchaseOrder,
   closePurchaseOrder,
@@ -73,6 +84,7 @@ import {
   createGoodsReceipt,
   createPurchaseOrder,
   getLandedCostSummary,
+  updatePurchaseOrder,
 } from "../lib/actions/procurement";
 import { loadCostingAccountSettings } from "../lib/costing/master-data";
 import {
@@ -88,6 +100,7 @@ import {
   costComponents,
   costEntries,
   counterparties,
+  documentAttachments,
   goodsReceiptLines,
   goodsReceipts,
   inventoryItems,
@@ -158,6 +171,23 @@ let allocationsDone = false;
 let costEntriesPosted = false;
 let poClosed = false;
 
+// ── Хоёр дахь (MNT) захиалга: НООРОГ баримт хаалтыг хориглох шалгалтад ───────
+// Ноорог нэхэмжлэх / ноорог өртгийн бичилт нь GL-д ОРООГҮЙ тул түр дансдын
+// үлдэгдэлд тусдаггүй. Ийм PO хаагдвал хаалтын журнал бүтэн дүнг ХУУРАМЧ
+// ханшийн олз/гарз болгоно — доорх тестүүд үүнийг хаалтад хүрэхээс өмнө
+// таслахыг батална.
+const SECOND_QTY = 10;
+const SECOND_PRICE = 1_000;
+const SECOND_TOTAL = SECOND_QTY * SECOND_PRICE; // 10,000₮
+const SECOND_FREIGHT = 1_000; // хуваарилагдах нэмэлт зардал
+
+let secondOrderId = "";
+let secondInvoiceId = "";
+let secondMovementId = "";
+let secondCostLineId = "";
+let secondInvoicePosted = false;
+let secondCostAllocated = false;
+
 const roles = {
   clearing: "",
   apClearing: "",
@@ -198,7 +228,9 @@ function needs(t: TestContext, ready: boolean, label: string): boolean {
  * тодорхойлогдоно; posted + reversed хоёулаа (буцаалт нь эсрэг мөрөөр шинэ
  * журналд бичигддэг тул эх журналыг хасахгүй).
  */
-async function poBalances(): Promise<Map<string, number>> {
+async function poBalances(
+  targetOrderId: string = purchaseOrderId
+): Promise<Map<string, number>> {
   const rows = await db
     .select({
       accountNumber: journalLines.accountNumber,
@@ -212,7 +244,7 @@ async function poBalances(): Promise<Map<string, number>> {
         eq(journalVouchers.organizationId, orgId),
         inArray(journalVouchers.status, ["posted", "reversed"]),
         eq(journalLines.businessObjectType, "purchase_order"),
-        eq(journalLines.businessObjectId, purchaseOrderId)
+        eq(journalLines.businessObjectId, targetOrderId)
       )
     );
   const balances = new Map<string, number>();
@@ -516,6 +548,75 @@ test(
     const balances = await poBalances();
     assert.equal(balances.get(roles.clearing), -RECEIPT_TOTAL);
     assert.equal(balances.get(INVENTORY_ACCOUNT), RECEIPT_TOTAL);
+  }
+);
+
+test(
+  "хүлээн авсан мөрийн БАРАА өөрчлөгдөхгүй, тоо нь доогуур болохгүй",
+  { skip: !DB_READY },
+  async (t) => {
+    if (!needs(t, !!ltMovementId, "хүлээн авалт")) return;
+
+    // Барааг солих → орлого/өртгийн бичилт PO мөрөөсөө салж, орлогдох
+    // өртгийн тайлангаас унана. Тиймээс хүлээн авсан мөрийн барааг солихыг
+    // ХОРИГЛОНО (тоо/үнэ нь бусад мөрөнд хэвээр өгөгдөнө).
+    const swapped = await asOrg(() =>
+      updatePurchaseOrder({
+        id: purchaseOrderId,
+        lines: [
+          {
+            id: ltLineId,
+            itemId: mnItemId,
+            quantity: LT_QTY,
+            unitPrice: LT_PRICE,
+          },
+          {
+            id: mnLineId,
+            itemId: mnItemId,
+            quantity: MN_QTY,
+            unitPrice: MN_PRICE,
+          },
+        ],
+      })
+    );
+    assert.match(
+      errorOf(swapped, "хүлээн авсан мөрийн бараа солих"),
+      /барааг солих боломжгүй/
+    );
+
+    // Хүлээн авсан тооноос доогуур болгохыг мөн хориглоно.
+    const shrunk = await asOrg(() =>
+      updatePurchaseOrder({
+        id: purchaseOrderId,
+        lines: [
+          {
+            id: ltLineId,
+            itemId: ltItemId,
+            quantity: LT_QTY - 1,
+            unitPrice: LT_PRICE,
+          },
+          {
+            id: mnLineId,
+            itemId: mnItemId,
+            quantity: MN_QTY,
+            unitPrice: MN_PRICE,
+          },
+        ],
+      })
+    );
+    assert.match(
+      errorOf(shrunk, "хүлээн авсанаас доогуур тоо"),
+      /\[OVER_RECEIVED\]/
+    );
+
+    // Захиалга ХЭВЭЭР — татгалзсан засвар хэсэгчлэн ч бичигдээгүй.
+    const detail = await loadPurchaseOrderDetail(orgId, purchaseOrderId);
+    assert.ok(detail);
+    const ltLine = detail.lines.find((line) => line.id === ltLineId);
+    assert.ok(ltLine, "LT мөр байх ёстой");
+    assert.equal(ltLine.itemId, ltItemId, "бараа хэвээр");
+    assert.equal(ltLine.quantity, LT_QTY, "тоо хэмжээ хэвээр");
+    assert.equal(detail.totalAmount, PO_USD_TOTAL, "захиалгын дүн хэвээр");
   }
 );
 
@@ -998,12 +1099,505 @@ test(
 );
 
 test(
-  "сар хаалт — PO хаагдсаны дараа 2026-09 хаагдана",
+  "НООРОГ нэхэмжлэхтэй PO хаагдахгүй — батлагдсаны дараа л нөхцөл биелнэ",
+  { skip: !DB_READY },
+  async (t) => {
+    if (!needs(t, !!ltItemId, "мастер дата")) return;
+
+    // MNT захиалга — ханшийн зөрүүгүй тул ЗӨВХӨН ноорог/батлагдсаны ялгаа
+    // шалгагдана.
+    const created = ok(
+      await asOrg(() =>
+        createPurchaseOrder({
+          counterpartyId: supplierId,
+          date: "2026-09-05",
+          currency: "MNT",
+          warehouseId,
+          description: "Дотоодын худалдан авалт (ноорог баримтын шалгалт)",
+          lines: [
+            { itemId: ltItemId, quantity: SECOND_QTY, unitPrice: SECOND_PRICE },
+          ],
+          approveNow: true,
+        })
+      ),
+      "createPurchaseOrder (2)"
+    );
+    secondOrderId = created.id;
+
+    ok(
+      await asOrg(() =>
+        createGoodsReceipt({
+          purchaseOrderId: secondOrderId,
+          date: "2026-09-06",
+          warehouseId,
+          exchangeRate: 1,
+          description: "Бүтэн хүлээн авалт",
+          confirmNow: true,
+        })
+      ),
+      "createGoodsReceipt (2)"
+    );
+
+    // НООРОГ нэхэмжлэх — GL бичилт гарахгүй.
+    const invoice = ok(
+      await asOrg(() =>
+        createApInvoiceFromPo({
+          purchaseOrderId: secondOrderId,
+          date: "2026-09-07",
+          exchangeRate: 1,
+          description: "Ноорог нэхэмжлэх",
+        })
+      ),
+      "createApInvoiceFromPo (ноорог)"
+    );
+    secondInvoiceId = invoice.id;
+    const [invoiceRow] = await db.query.arApDocuments.findMany({
+      where: eq(arApDocuments.id, secondInvoiceId),
+    });
+    assert.equal(invoiceRow.status, "draft", "нэхэмжлэх ноорог хэвээр");
+
+    // Ноорог нэхэмжлэх нь ДАХИН нэхэмжлэхээс хамгаалахад тоологдоно…
+    const draftDetail = await loadPurchaseOrderDetail(orgId, secondOrderId);
+    assert.ok(draftDetail, "PO дэлгэрэнгүй уншигдах ёстой");
+    const secondLineId = draftDetail.lines[0].id;
+    const overInvoiced = await asOrg(() =>
+      createApInvoiceFromPo({
+        purchaseOrderId: secondOrderId,
+        date: "2026-09-07",
+        exchangeRate: 1,
+        lines: [{ purchaseOrderLineId: secondLineId, quantity: 1 }],
+      })
+    );
+    assert.match(
+      errorOf(overInvoiced, "ноорогтой дээр дахин нэхэмжлэх"),
+      /\[OVER_INVOICED\]/,
+      "ноорог нэхэмжлэх нь илүү нэхэмжлэхээс хамгаална"
+    );
+
+    // …ХАРИН хаалтын нөхцөлд тоологдохгүй — GL-д ороогүй тул хаавал
+    // хаалтын журнал бүтэн дүнг хуурамч ханшийн олз болгоно.
+    assert.ok(
+      draftDetail.blockers.some((reason) => /НООРОГ нэхэмжлэх/.test(reason)),
+      `ноорог нэхэмжлэхийн хориг байх ёстой: ${JSON.stringify(draftDetail.blockers)}`
+    );
+    const premature = await asOrg(() =>
+      closePurchaseOrder({ id: secondOrderId, closeDate: "2026-09-20" })
+    );
+    const message = errorOf(premature, "ноорог нэхэмжлэхтэй PO хаах");
+    assert.match(message, /\[PO_NOT_READY\]/);
+    assert.match(message, /НООРОГ нэхэмжлэх/);
+
+    // Хаалтын журнал үүсээгүй, түр дансууд хөндөгдөөгүй.
+    const balances = await poBalances(secondOrderId);
+    assert.equal(balances.get(roles.apClearing) ?? 0, 0, "өглөгийн түр данс 0");
+    assert.equal(balances.get(roles.clearing), -SECOND_TOTAL);
+
+    // Нэхэмжлэхийг БАТАЛСНЫ дараа хоригууд арилна.
+    ok(
+      await asOrg(() => postArApDocument(secondInvoiceId)),
+      "postArApDocument"
+    );
+    const afterPost = await loadPurchaseOrderDetail(orgId, secondOrderId);
+    assert.ok(afterPost);
+    assert.deepEqual(
+      afterPost.blockers,
+      [],
+      "батлагдсаны дараа хаалтын нөхцөл биелнэ"
+    );
+    assert.equal(afterPost.clearing.payable, SECOND_TOTAL);
+    secondInvoicePosted = true;
+  }
+);
+
+test(
+  "НООРОГ өртгийн бичилттэй PO хаагдахгүй + хаах огноо гүйлгээнээс өмнө байхгүй",
+  { skip: !DB_READY },
+  async (t) => {
+    if (!needs(t, secondInvoicePosted, "ноорог нэхэмжлэхийн шалгалт")) return;
+
+    // Нэмэлт зардлын нэхэмжлэх (батлагдсан) → хуваарилагдаагүй үлдэгдэл.
+    const costInvoice = ok(
+      await asOrg(() =>
+        createArApDocument({
+          documentType: "ap_bill",
+          counterpartyId: freightCounterpartyId,
+          date: "2026-09-08",
+          dueDate: "2026-09-30",
+          currency: "MNT",
+          controlAccountNumber: AP_CONTROL_ACCOUNT,
+          description: "Тээвэр (ноорог өртгийн бичилтийн шалгалт)",
+          purchaseOrderId: secondOrderId,
+          lines: [
+            {
+              account: roles.apClearing,
+              description: "Тээвэр",
+              amount: SECOND_FREIGHT,
+              costComponentId: freightComponentId,
+            },
+          ],
+          postNow: true,
+        })
+      ),
+      "нэмэлт зардлын нэхэмжлэх (2)"
+    );
+    const [costLine] = await db
+      .select({ id: arApDocumentLines.id })
+      .from(arApDocumentLines)
+      .where(eq(arApDocumentLines.documentId, costInvoice.id));
+    secondCostLineId = costLine.id;
+
+    const targets = await asOrg(() => loadPoAllocationTargets(secondOrderId));
+    assert.equal(targets.length, 1, "нэг хүлээн авалт зорилт болно");
+    secondMovementId = targets[0].movementId;
+
+    // Хуваарилалт нь НООРОГ өртгийн бичилт үүсгэнэ (OD-019) — GL-д ОРООГҮЙ.
+    const allocated = await asOrg(() =>
+      createCostAllocation({
+        date: "2026-09-08",
+        costComponentId: freightComponentId,
+        totalAmount: SECOND_FREIGHT,
+        allocationBase: "quantity",
+        sourceLineId: secondCostLineId,
+        targets: [{ movementId: secondMovementId }],
+      })
+    );
+    assert.equal(
+      allocated.ok,
+      true,
+      `хуваарилалт: ${allocated.ok ? "" : allocated.message}`
+    );
+
+    const detail = await loadPurchaseOrderDetail(orgId, secondOrderId);
+    assert.ok(detail);
+    assert.ok(
+      detail.blockers.some((reason) =>
+        /Батлагдаагүй өртгийн бичилт/.test(reason)
+      ),
+      `ноорог өртгийн бичилтийн хориг байх ёстой: ${JSON.stringify(detail.blockers)}`
+    );
+    const premature = await asOrg(() =>
+      closePurchaseOrder({ id: secondOrderId, closeDate: "2026-09-20" })
+    );
+    const message = errorOf(premature, "ноорог өртгийн бичилттэй PO хаах");
+    assert.match(message, /\[PO_NOT_READY\]/);
+    assert.match(message, /Батлагдаагүй өртгийн бичилт/);
+
+    // Бичилтүүдийг батласны дараа нөхцөл биелнэ.
+    const drafts = await db.query.costEntries.findMany({
+      where: and(
+        eq(costEntries.organizationId, orgId),
+        eq(costEntries.businessObjectId, secondOrderId),
+        eq(costEntries.status, "draft")
+      ),
+      columns: { id: true },
+    });
+    assert.equal(drafts.length, 1, "нэг ноорог landed_cost бичилт");
+    const posted = await asOrg(() =>
+      postCostEntries(drafts.map((entry) => entry.id))
+    );
+    assert.deepEqual(posted.failures, []);
+
+    const ready = await loadPurchaseOrderDetail(orgId, secondOrderId);
+    assert.ok(ready);
+    assert.deepEqual(ready.blockers, [], JSON.stringify(ready?.blockers));
+
+    // Хаах огноо нь хамгийн хожуу гүйлгээнээс ӨМНӨ байж болохгүй.
+    const backdated = await asOrg(() =>
+      closePurchaseOrder({ id: secondOrderId, closeDate: "2026-09-01" })
+    );
+    assert.match(
+      errorOf(backdated, "гүйлгээнээс өмнөх хаалтын огноо"),
+      /Хаах огноо/
+    );
+
+    const closed = ok(
+      await asOrg(() =>
+        closePurchaseOrder({ id: secondOrderId, closeDate: "2026-09-20" })
+      ),
+      "closePurchaseOrder (2)"
+    );
+    assert.ok(closed.voucherId);
+
+    const balances = await poBalances(secondOrderId);
+    assert.equal(balances.get(roles.clearing), 0, "бараа мат. түр данс 0");
+    assert.equal(balances.get(roles.apClearing), 0, "өглөгийн түр данс 0");
+    assert.equal(
+      balances.get(roles.fxLoss) ?? 0,
+      0,
+      "MNT захиалгад ханшийн зөрүү гарахгүй"
+    );
+    assert.equal(
+      balances.get(INVENTORY_ACCOUNT),
+      SECOND_TOTAL + SECOND_FREIGHT,
+      "орлогдох өртөг = худалдан авалт + тээвэр"
+    );
+    secondCostAllocated = true;
+  }
+);
+
+test(
+  "модуль хоорондын хориг — хуваарилалттай зардлын нэхэмжлэх, капитализаци, хаалтын журнал хамгаалагдана",
   { skip: !DB_READY },
   async (t) => {
     if (!needs(t, poClosed, "PO хаах")) return;
+
+    // ① Хуваарилалт хийгдсэн зардлын нэхэмжлэхийг буцаах боломжгүй —
+    //    эс бөгөөс landed_cost бичилт эзэнгүйдэж өртөг хөөрөгдөнө.
+    const customsDoc = await db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.organizationId, orgId),
+        eq(arApDocuments.counterpartyId, customsCounterpartyId)
+      ),
+      columns: { id: true },
+    });
+    assert.ok(customsDoc, "гаалийн нэхэмжлэх байх ёстой");
+    const reverseMessage = errorOf(
+      await asOrg(() => reverseArApDocument(customsDoc.id)),
+      "хуваарилалттай нэхэмжлэхийг буцаах"
+    );
+    // Хоёр давхар хамгаалалт: PO хаагдсан бол [PO_CLOSED] эхэлж таарна,
+    // нээлттэй PO дээр хуваарилалтын хориг барина — аль нь ч байсан
+    // буцаалт ТОДОРХОЙ шалтгаанаар зогсох ёстой (чимээгүй өнгөрөхгүй).
+    assert.match(reverseMessage, /хуваарилалт|PO_CLOSED|хаалт/i);
+
+    // ② Хүлээн авалтын капитализацийг өртгийн модулиас буцаах боломжгүй —
+    //    зөвхөн Хангамж → Хүлээн авалт дээрээс буцаана.
+    const capitalize = await db.query.costEntries.findFirst({
+      where: and(
+        eq(costEntries.organizationId, orgId),
+        eq(costEntries.entryType, "receipt_capitalize")
+      ),
+      columns: { id: true },
+    });
+    assert.ok(capitalize, "капитализацийн бичилт байх ёстой");
+    await assert.rejects(
+      () => asOrg(() => reverseCostEntry(capitalize.id)),
+      /Хангамж|хүлээн авалт/i,
+      "капитализацийг өртгийн модулиас буцаахыг хориглоно"
+    );
+
+    // ③ PO хаалтын журналыг GL-ээс буцаах боломжгүй — түр дансууд дахин
+    //    нээгдэж, PO нь closed хэвээр үлдэх байсан.
+    const order = await db.query.purchaseOrders.findFirst({
+      where: eq(purchaseOrders.id, purchaseOrderId),
+      columns: { closeVoucherId: true },
+    });
+    assert.ok(order?.closeVoucherId, "хаалтын журнал байх ёстой");
+    const unpostMessage = errorOf(
+      await asOrg(() => unpostVoucher(order.closeVoucherId as string)),
+      "хаалтын журналыг GL-ээс буцаах"
+    );
+    assert.match(unpostMessage, /Хангамж|захиалг/i);
+  }
+);
+
+test(
+  "сар хаалт — PO хаагдсаны дараа 2026-09 хаагдана",
+  { skip: !DB_READY },
+  async (t) => {
+    if (!needs(t, poClosed && secondCostAllocated, "PO хаалтууд")) return;
     const result = await asOrg(() => closePeriod("2026-09"));
     assert.equal(result.ok, true, `сар хаагдах ёстой: ${JSON.stringify(result)}`);
+  }
+);
+
+// ── Хавсралт: замуудын эрхийн шалгалт (гэрээ §7) ────────────────────────────
+
+/** Татах route-ыг ШУУД дуудна — Next-ийн request context шаардахгүй. */
+function downloadAttachment(id: string): Promise<Response> {
+  return getAttachmentRoute(
+    new Request(`http://localhost/api/attachments/${id}`),
+    { params: Promise.resolve({ id }) }
+  );
+}
+
+/** Хуулах route (multipart). Агуулга нь PDF-ийн magic байтаар эхэлнэ. */
+function uploadAttachment(input: {
+  entityType: string;
+  entityId: string;
+  fileName: string;
+  content: string;
+  kind?: string;
+}): Promise<Response> {
+  const form = new FormData();
+  form.set(
+    "file",
+    new File(
+      [new Uint8Array(Buffer.from(input.content, "utf8"))],
+      input.fileName,
+      { type: "application/pdf" }
+    )
+  );
+  form.set("entityType", input.entityType);
+  form.set("entityId", input.entityId);
+  form.set("kind", input.kind ?? "other");
+  return uploadAttachmentRoute(
+    new Request("http://localhost/api/attachments", {
+      method: "POST",
+      body: form,
+    })
+  );
+}
+
+/** Хангамжийн тодорхой түвшинтэй гишүүн (accountant + нарийн эрх). */
+async function createProcMember(level: PermissionLevel): Promise<string> {
+  const [member] = await db
+    .insert(users)
+    .values({
+      name: `proc-${level}-${STAMP}`,
+      email: `proc-${level}-${STAMP}@test.local`,
+      passwordHash: "x",
+    })
+    .returning({ id: users.id });
+  await db.insert(memberships).values({
+    organizationId: orgId,
+    userId: member.id,
+    role: "accountant",
+    permissions: serializePermissions({ [PROCUREMENT_MODULE_KEY]: level }),
+  });
+  cleanup.push(async () => {
+    await db.delete(users).where(eq(users.id, member.id));
+  });
+  return member.id;
+}
+
+test(
+  "хавсралт — хуулах/жагсаах/татах бүгд `proc` модулийн эрх шалгана",
+  { skip: !DB_READY },
+  async (t) => {
+    if (!needs(t, poClosed, "PO хаах")) return;
+
+    const [receipt] = await db.query.goodsReceipts.findMany({
+      where: eq(goodsReceipts.organizationId, orgId),
+    });
+    assert.ok(receipt, "хүлээн авалт байх ёстой");
+
+    const PO_FILE = "%PDF-1.4 гэрээ";
+    const GR_FILE = "%PDF-1.4 хүлээн авалт";
+
+    // ① Хаагдсан PO-д хавсралт НЭМЖ болно (аудитын баримт).
+    const poUpload = await asOrg(() =>
+      uploadAttachment({
+        entityType: "purchase_order",
+        entityId: purchaseOrderId,
+        fileName: "Гэрээ №1.pdf",
+        content: PO_FILE,
+        kind: "contract",
+      })
+    );
+    assert.equal(poUpload.status, 200, "хаагдсан PO-д хавсралт нэмэгдэнэ");
+    const poAttachment = (await poUpload.json()) as { id: string; name: string };
+    assert.equal(poAttachment.name, "Гэрээ №1.pdf", "кирилл нэр хэвээр");
+
+    // ② goods_receipt мөн дэмжигдэнэ (хүлээн авалтын баримт).
+    const grUpload = await asOrg(() =>
+      uploadAttachment({
+        entityType: "goods_receipt",
+        entityId: receipt.id,
+        fileName: "Савлагаа.pdf",
+        content: GR_FILE,
+        kind: "packing_list",
+      })
+    );
+    assert.equal(grUpload.status, 200, "хүлээн авалтад хавсралт нэмэгдэнэ");
+    const grAttachment = (await grUpload.json()) as { id: string };
+
+    // ③ Өөр объектын ID (эсвэл өөр org-ийнх) — 404.
+    const orphan = await asOrg(() =>
+      uploadAttachment({
+        entityType: "goods_receipt",
+        entityId: purchaseOrderId, // хүлээн авалт БИШ
+        fileName: "Орфан.pdf",
+        content: PO_FILE,
+      })
+    );
+    assert.equal(orphan.status, 404, "тухайн org-ийн баримт биш бол 404");
+
+    // ④ Эзэн — жагсаалт ба татах хоёул нээлттэй.
+    const listed = ok(
+      await asOrg(() => listAttachments("purchase_order", purchaseOrderId)),
+      "listAttachments"
+    );
+    assert.equal(listed.items.length, 1);
+    assert.equal(listed.items[0].id, poAttachment.id);
+
+    const ownerDownload = await asOrg(() => downloadAttachment(poAttachment.id));
+    assert.equal(ownerDownload.status, 200);
+    assert.match(
+      ownerDownload.headers.get("content-disposition") ?? "",
+      /filename\*=UTF-8''/,
+      "кирилл нэр RFC 5987-ээр явна"
+    );
+    assert.equal(
+      Buffer.from(await ownerDownload.arrayBuffer()).toString("utf8"),
+      PO_FILE,
+      "агуулга бүрэн буцна"
+    );
+
+    // ⑤ proc = none гишүүн — ТАТАХ ч, жагсаах ч, хуулах ч болохгүй.
+    const outsiderId = await createProcMember("none");
+    const asOutsider = <T>(fn: () => Promise<T>) =>
+      runAsOrg({ userId: outsiderId, orgId }, fn);
+
+    const blockedDownload = await asOutsider(() =>
+      downloadAttachment(poAttachment.id)
+    );
+    assert.equal(blockedDownload.status, 403, "эрхгүй гишүүн татаж чадахгүй");
+    assert.match(await blockedDownload.text(), /эрх/, "монгол алдааны текст");
+
+    const blockedList = await asOutsider(() =>
+      listAttachments("purchase_order", purchaseOrderId)
+    );
+    assert.match(
+      errorOf(blockedList, "эрхгүй гишүүний жагсаалт"),
+      /эрх/,
+      "listAttachments мөн эрх шалгана"
+    );
+
+    const blockedUpload = await asOutsider(() =>
+      uploadAttachment({
+        entityType: "purchase_order",
+        entityId: purchaseOrderId,
+        fileName: "Хууль бус.pdf",
+        content: PO_FILE,
+      })
+    );
+    assert.equal(blockedUpload.status, 403, "эрхгүй гишүүн хуулж чадахгүй");
+
+    // ⑥ proc = read гишүүн — татна, гэхдээ УСТГАХГҮЙ (write шаардана).
+    const readerId = await createProcMember("read");
+    const asReader = <T>(fn: () => Promise<T>) =>
+      runAsOrg({ userId: readerId, orgId }, fn);
+
+    const readerDownload = await asReader(() =>
+      downloadAttachment(poAttachment.id)
+    );
+    assert.equal(readerDownload.status, 200, "унших эрхтэй гишүүн татна");
+    const readerDelete = await asReader(() => deleteAttachment(grAttachment.id));
+    assert.match(
+      errorOf(readerDelete, "унших эрхтэй гишүүний устгал"),
+      /эрх/,
+      "устгахад бичих эрх шаардана"
+    );
+
+    // ⑦ Хаагдсан PO-гийн хавсралт УСТАХГҮЙ; хүлээн авалтынх устана.
+    const closedDelete = await asOrg(() => deleteAttachment(poAttachment.id));
+    assert.match(
+      errorOf(closedDelete, "хаагдсан PO-гийн хавсралт"),
+      /хаагдсан/,
+      "аудитын мөр хэвээр үлдэнэ"
+    );
+    ok(await asOrg(() => deleteAttachment(grAttachment.id)), "deleteAttachment");
+    const grLeft = ok(
+      await asOrg(() => listAttachments("goods_receipt", receipt.id)),
+      "хүлээн авалтын хавсралт"
+    );
+    assert.equal(grLeft.items.length, 0);
+
+    const remaining = await db.query.documentAttachments.findMany({
+      where: eq(documentAttachments.organizationId, orgId),
+    });
+    assert.equal(remaining.length, 1, "зөвхөн PO-гийн хавсралт үлдэнэ");
   }
 );
 

@@ -41,11 +41,14 @@ export type LineRow = ArApLineInput & { id: string };
 
 /**
  * Хүснэгтийн горим:
- *   "arap"          — хуучин АР/АП баримт (зан төлөв өөрчлөгдөөгүй)
- *   "po_invoice"    — PO-той нэхэмжлэх (өглөгийн түр данс, бүрэлдэхүүн)
- *   "goods_receipt" — хүлээн авалт (зөвхөн бараа/тоо/агуулах; данс, дүн үгүй)
+ *   "arap"       — хуучин АР/АП баримт (зан төлөв өөрчлөгдөөгүй)
+ *   "po_invoice" — PO-той нэхэмжлэх (өглөгийн түр данс, бүрэлдэхүүний багана)
+ *
+ * Хүлээн авалтын баримт нь өөр өгөгдлийн загвартай (захиалсан / хүлээн авсан /
+ * үлдэгдэл гэсэн PO мөрийн ЯВЦ) тул өөрийн grid-тэй —
+ * components/panel/goods-receipt-panel.tsx.
  */
-export type ArApLinesGridMode = "arap" | "po_invoice" | "goods_receipt";
+export type ArApLinesGridMode = "arap" | "po_invoice";
 
 /** Хоосон мөр — дансны сегментүүд default-аар бөглөгдсөн. */
 export function emptyLine(
@@ -97,7 +100,6 @@ export function ArApLinesGrid({
   const [importOpen, setImportOpen] = useState(false);
   const [vatBusy, setVatBusy] = useState(false);
 
-  const isReceipt = mode === "goods_receipt";
   const poLinked = mode === "po_invoice" && !!apClearingAccountNumber;
   // Бараатай мөрийн клирингийн данс: PO-той бол ӨГЛӨГИЙН түр данс
   // (орлогын капитализаци хүлээн авалтын баримтаас бичигдэнэ).
@@ -106,8 +108,8 @@ export function ArApLinesGrid({
       ? apClearingAccountNumber
       : clearingAccountNumber;
   const showItemColumns = inventoryItems.length > 0;
-  const showUnitPrice = showItemColumns && !isReceipt;
-  const showComponents = !isReceipt && (costComponents?.length ?? 0) > 0;
+  const showUnitPrice = showItemColumns;
+  const showComponents = (costComponents?.length ?? 0) > 0;
 
   // "НӨАТ 10% нэмэх" — НӨАТ-гүй мөрүүдийн нийлбэрээс exclusive тооцож
   // тохиргооны НӨАТ дансанд нэг мөр нэмнэ (байвал дүнг нь шинэчилнэ).
@@ -239,9 +241,7 @@ export function ArApLinesGrid({
   const columns = useMemo<ColDef<LineRow>[]>(
     () => [
       { headerName: "#", width: 48, valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1 },
-      ...(isReceipt
-        ? []
-        : ([
+      ...([
             {
               headerName: "Данс",
               field: "account",
@@ -257,7 +257,7 @@ export function ArApLinesGrid({
               valueFormatter: (params) =>
                 fmtAccountDisplay(String(params.value ?? ""), activeSegIds),
             },
-          ] as ColDef<LineRow>[])),
+          ] as ColDef<LineRow>[]),
       {
         headerName: "Тайлбар",
         field: "description",
@@ -265,9 +265,7 @@ export function ArApLinesGrid({
         flex: 1,
         editable: true,
       },
-      ...(isReceipt
-        ? []
-        : ([
+      ...([
             {
               headerName: "Дүн",
               field: "amount",
@@ -282,7 +280,7 @@ export function ArApLinesGrid({
               valueFormatter: (params) =>
                 params.value ? fmtMnt(Number(params.value)) : "",
             },
-          ] as ColDef<LineRow>[])),
+          ] as ColDef<LineRow>[]),
       ...(showItemColumns
         ? ([
             {
@@ -401,7 +399,6 @@ export function ArApLinesGrid({
       warehouseLabelById,
       componentLabelById,
       costComponents,
-      isReceipt,
       showItemColumns,
       showUnitPrice,
       showComponents,
@@ -465,7 +462,7 @@ export function ArApLinesGrid({
         processDataFromClipboard={(params) =>
           (params.data ?? []).map((row) =>
             row.map((cell, index) =>
-              index === 1 && !isReceipt
+              index === 1
                 ? normalizePastedAccount(cell, activeSegIds, defaultSegments)
                 : cell
             )
@@ -521,11 +518,9 @@ export function ArApLinesGrid({
             </Button>
           )}
         </div>
-        {!isReceipt && (
-          <span className="font-mono font-semibold text-[var(--ea-text-1)]">
-            Нийт: {fmtMnt(total)}
-          </span>
-        )}
+        <span className="font-mono font-semibold text-[var(--ea-text-1)]">
+          Нийт: {fmtMnt(total)}
+        </span>
       </div>
       {mode === "arap" && (
         <ExcelImportDialog

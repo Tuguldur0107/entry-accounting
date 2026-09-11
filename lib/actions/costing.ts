@@ -505,6 +505,30 @@ export async function postCostEntries(ids: string[]) {
   return { posted, failures };
 }
 
+/**
+ * ХАНГАМЖ (contract §9, CLAUDE.md §5a): хүлээн авалтын КАПИТАЛИЗАЦИ
+ * (`receipt_capitalize` × `po_receipt` хөдөлгөөн) нь орлогын хөдөлгөөн,
+ * GL журналтайгаа НЭГ атом үйлдэл. Өртгийн дэлгэцээс дангаар нь буцаавал
+ * хөдөлгөөн `confirmed` хэвээр үлдэж (`cancelInventoryMovement` энэ
+ * sourceType-ыг хориглодог) систем гацна, PO хаалт нь бүх дүнг ханшийн
+ * гарз болгоно. Зөвхөн `reverseGoodsReceipt` замаар буцаана.
+ *
+ * Нэмэлт зардлын `landed_cost` бичилт нь мөн `po_receipt` хөдөлгөөнд
+ * холбогддог ч ТУСДАА амьдралтай (reverseCostAllocation) тул хамаарахгүй.
+ */
+function assertNotPoReceiptCapitalization(entry: {
+  entryType: string;
+  movement: { sourceType: string | null } | null;
+}) {
+  if (
+    entry.entryType === "receipt_capitalize" &&
+    entry.movement?.sourceType === PO_SOURCE_TYPE
+  )
+    throw new Error(
+      "Хүлээн авалтын капитализаци — Хангамж → Хүлээн авалт дээр буцаана уу"
+    );
+}
+
 export async function deleteCostEntry(id: string) {
   const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
@@ -514,6 +538,7 @@ export async function deleteCostEntry(id: string) {
   if (!entry) return;
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг устгана");
+  assertNotPoReceiptCapitalization(entry);
 
   // NRV бичилт дундажид нөлөөлдөггүй — шууд устгаж болно. Таних нь
   // entryType-оор (movementId=null нь устгагдсан хөдөлгөөний бичилт ч
@@ -587,6 +612,7 @@ export async function reverseCostEntry(id: string) {
   });
   if (!entry || entry.status !== "posted" || !entry.voucherId)
     throw new Error("Зөвхөн батлагдсан бичилтийг буцаана");
+  assertNotPoReceiptCapitalization(entry);
   await assertPeriodOpen(orgId, entry.date);
   // Хөдөлгөөнгүй бичилт заавал NRV биш (устгагдсан хөдөлгөөн байж болно) —
   // шошгыг entryType-оор ялгана.
