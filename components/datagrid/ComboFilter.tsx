@@ -27,7 +27,15 @@ interface ComboFilterModel {
   operator: Operator;
   value: string;
   valueTo: string;
+  /** Сонгосон утгууд (null = бүгд). */
   values: string[] | null;
+  /**
+   * Сонголт хийх МӨЧИД баганад БАЙСАН бүх утга. Хадгалсан харагдац (?view=)
+   * хожим сэргээгдэхэд тэр үед БАЙГААГҮЙ шинэ утгатай мөр (шинэ баримтын
+   * дугаар, шинэ төлөв …) ЧИМЭЭГҮЙ нуугдахаас сэргийлнэ — хэрэглэгч
+   * тэдгээрийг хасаж чадаагүй тул нуух үндэслэлгүй.
+   */
+  known?: string[] | null;
 }
 
 const OPERATORS: Array<{ value: Operator; label: string }> = [
@@ -188,7 +196,11 @@ export function ComboFilter(
   const doesFilterPass = useCallback(
     (params: IDoesFilterPassParams) => {
       const displayed = displayValue(api, params.node, colId, valueFormatter);
-      const selectedPass = !model?.values || model.values.includes(displayed);
+      const selectedPass =
+        !model?.values ||
+        model.values.includes(displayed) ||
+        // Шүүлт тавих үед БАЙГААГҮЙ утга = шинэ мөр → нэвтрүүлнэ.
+        (!!model.known && !model.known.includes(displayed));
       return (
         selectedPass &&
         passesOperator(
@@ -224,6 +236,7 @@ export function ComboFilter(
       value,
       valueTo,
       values: model?.values ?? null,
+      known: model?.known ?? null,
       ...patch,
     };
     const hasOperator = next.value !== "";
@@ -232,7 +245,11 @@ export function ComboFilter(
   }
 
   function commitSelection(next: Set<string>) {
-    update({ values: next.size === allValues.length ? null : [...next] });
+    const all = next.size === allValues.length;
+    update({
+      values: all ? null : [...next],
+      known: all ? null : [...allValues],
+    });
   }
 
   function toggleValue(item: string) {

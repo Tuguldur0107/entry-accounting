@@ -323,7 +323,7 @@ test(
   async () => {
     await setupOrg();
 
-    supplierId = (
+    supplierId = ok(
       await asOrg(() =>
         createCounterparty({
           name: `Shenzhen Tech ${STAMP}`,
@@ -331,24 +331,27 @@ test(
           defaultCurrency: "USD",
           paymentTermsDays: 15,
         })
-      )
+      ),
+      "харилцагч"
     ).id;
-    customsCounterpartyId = (
+    customsCounterpartyId = ok(
       await asOrg(() =>
         createCounterparty({
           name: `Гаалийн газар ${STAMP}`,
           counterpartyType: "supplier",
           defaultPayableAccountNumber: CUSTOMS_PAYABLE_ACCOUNT,
         })
-      )
+      ),
+      "харилцагч"
     ).id;
-    freightCounterpartyId = (
+    freightCounterpartyId = ok(
       await asOrg(() =>
         createCounterparty({
           name: `Монгол Транс ${STAMP}`,
           counterpartyType: "supplier",
         })
-      )
+      ),
+      "харилцагч"
     ).id;
 
     await asOrg(() =>
@@ -1609,12 +1612,15 @@ test(
 
     // Захиалга нь худалдан авалт тул заавал өглөг үүсгэдэг — авлагын
     // төрөлтэй харилцагчийг нийлүүлэгчээр бүртгэвэл АП сонгогч ба
-    // өглөгийн тайлан зөрнө. createCounterparty нь ActionResult биш.
-    const customerOnly = await asOrg(() =>
-      createCounterparty({
-        name: `Зөвхөн авлагын харилцагч ${Date.now()}`,
-        counterpartyType: "customer",
-      })
+    // өглөгийн тайлан зөрнө.
+    const customerOnly = ok(
+      await asOrg(() =>
+        createCounterparty({
+          name: `Зөвхөн авлагын харилцагч ${Date.now()}`,
+          counterpartyType: "customer",
+        })
+      ),
+      "зөвхөн авлагын харилцагч"
     );
 
     const message = errorOf(

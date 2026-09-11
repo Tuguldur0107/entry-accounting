@@ -3740,7 +3740,8 @@ async function runCreateCounterparty(
     if (input.defaultPayableAccount)
       payableCode = resolveAccount(input.defaultPayableAccount, ctx).code;
   }
-  const { id } = await createCounterparty({
+  const { id } = unwrapAction(
+    await createCounterparty({
     name,
     counterpartyType: input.counterpartyType,
     registerNo,
@@ -3754,7 +3755,8 @@ async function runCreateCounterparty(
     contactPerson: input.contactPerson,
     bankName: input.bankName,
     bankAccountNo: input.bankAccountNo,
-  });
+    })
+  );
   return {
     resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${registerNo ? ` (ТТД ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };

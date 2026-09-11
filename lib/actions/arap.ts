@@ -286,7 +286,18 @@ export async function getArapDocPanelData(
   };
 }
 
-export async function createCounterparty(data: {
+/** Харилцагчийн төрлийн монгол шошго — алдааны мессежид ойлгомжтой байхад. */
+function counterpartyTypeLabel(type: string) {
+  return type === "customer"
+    ? "Авлага"
+    : type === "supplier"
+      ? "Өглөг"
+      : type === "both"
+        ? "Авлага/Өглөг"
+        : type;
+}
+
+async function createCounterpartyCore(data: {
   name: string;
   counterpartyType: "customer" | "supplier" | "both";
   registerNo?: string;
@@ -323,6 +334,22 @@ export async function createCounterparty(data: {
   if (receivable) await assertEnabledMainAccount(orgId, receivable);
   if (payable) await assertEnabledMainAccount(orgId, payable);
 
+  // Нэр нь байгууллагын хүрээнд давтагдашгүй (DB unique). Түүхий DB
+  // алдаа нь production дээр React #441 болж нуугддаг тул ЭНД ойлгомжтой
+  // мессежээр барина — мөн ижил нэртэй нь ямар төрөлтэй байгааг хэлнэ
+  // (ихэвчлэн «Авлага»-аар бүртгэсэн харилцагчийг нийлүүлэгч болгох хэрэгтэй).
+  const duplicate = await db.query.counterparties.findFirst({
+    where: and(
+      eq(counterparties.organizationId, orgId),
+      sql`lower(${counterparties.name}) = lower(${name})`
+    ),
+    columns: { id: true, name: true, counterpartyType: true },
+  });
+  if (duplicate)
+    throw new Error(
+      `«${duplicate.name}» нэртэй харилцагч аль хэдийн бүртгэлтэй (${counterpartyTypeLabel(duplicate.counterpartyType)}). Түүнийг нээж төрлийг нь өөрчилнө үү.`
+    );
+
   const [created] = await db
     .insert(counterparties)
     .values({
@@ -348,8 +375,22 @@ export async function createCounterparty(data: {
   return { id: created.id };
 }
 
+/**
+ * Харилцагч үүсгэх — client нь `{ error }` УТГААР шалгана (production дээр
+ * шидсэн алдаа React #441 болж нуугддаг, lib/action-result.ts).
+ */
+export async function createCounterparty(
+  data: Parameters<typeof createCounterpartyCore>[0]
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    return await createCounterpartyCore(data);
+  } catch (caught) {
+    return actionError("createCounterparty", caught, "Харилцагч үүсгэж чадсангүй");
+  }
+}
+
 /** Бүртгэгдсэн харилцагчийн мэдээллийг бүхэлд нь засна (create-тэй ижил шалгалт). */
-export async function updateCounterparty(
+async function updateCounterpartyCore(
   id: string,
   data: {
     name: string;
@@ -403,6 +444,19 @@ export async function updateCounterparty(
   if (!updated) throw new Error("Харилцагч олдсонгүй");
 
   revalidateArAp();
+  return { id: updated.id };
+}
+
+/** Харилцагч засах — client нь `{ error }` утгаар шалгана. */
+export async function updateCounterparty(
+  id: string,
+  data: Parameters<typeof updateCounterpartyCore>[1]
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    return await updateCounterpartyCore(id, data);
+  } catch (caught) {
+    return actionError("updateCounterparty", caught, "Харилцагч хадгалагдсангүй");
+  }
 }
 
 /**

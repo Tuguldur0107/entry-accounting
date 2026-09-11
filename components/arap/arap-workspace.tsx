@@ -563,13 +563,18 @@ export function ArApWorkspace({
           ...counterpartyForm,
           paymentTermsDays: Number(counterpartyForm.paymentTermsDays) || 0,
         };
-        if (editingCounterpartyId) {
-          await updateCounterparty(editingCounterpartyId, payload);
-          toast.success("Харилцагч шинэчлэгдлээ");
-        } else {
-          await createCounterparty(payload);
-          toast.success("Харилцагч үүслээ");
+        // Server action нь алдааг УТГААР буцаана (production дээр шидсэн
+        // алдаа React #441 болж нуугддаг — lib/action-result.ts).
+        const result = editingCounterpartyId
+          ? await updateCounterparty(editingCounterpartyId, payload)
+          : await createCounterparty(payload);
+        if (result.error) {
+          setError(result.error);
+          return;
         }
+        toast.success(
+          editingCounterpartyId ? "Харилцагч шинэчлэгдлээ" : "Харилцагч үүслээ"
+        );
         setCounterpartyOpen(false);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Хадгалж чадсангүй");
