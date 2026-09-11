@@ -16,7 +16,7 @@
 // жагсаалттай ХУВААЛЦСАН `components/procurement/list-toolbar.tsx`-д —
 // хуудас бүрд давхардуулан бичихийг ХОРИГЛОНО.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
@@ -102,10 +102,12 @@ export function GoodsReceiptsView({
     secondaryAllLabel: "Бүх захиалга",
   });
 
-  const navIds = useMemo(
-    () => visibleReceipts.map((receipt) => receipt.id),
-    [visibleReceipts]
-  );
+  // columnDefs-ийн identity тогтвортой байх ёстой (AG Grid бүх баганаа
+  // дахин байгуулахаас сэргийлнэ) тул навигацийн дарааллыг ref-ээр барина.
+  const navIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    navIdsRef.current = visibleReceipts.map((receipt) => receipt.id);
+  }, [visibleReceipts]);
 
   const openPanel = useCallback(
     (receipt: GoodsReceiptView) =>
@@ -113,9 +115,9 @@ export function GoodsReceiptsView({
         receiptId: receipt.id,
         purchaseOrderId: receipt.purchaseOrderId,
         title: `${receipt.documentNo} · ${receipt.purchaseOrderNo}`,
-        navIds,
+        navIds: navIdsRef.current,
       }),
-    [navIds]
+    []
   );
 
   const handleConfirm = useCallback(

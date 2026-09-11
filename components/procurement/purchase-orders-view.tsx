@@ -11,7 +11,7 @@
 // панель нээхгүй). Захиалга хаах / дахин нээх зэрэг ханшийн огноо шаардсан
 // үйлдлүүд панель дотор — жагсаалтаас зөвхөн огноогүй шилжилтүүд.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
@@ -97,19 +97,23 @@ export function PurchaseOrdersView({
     secondaryAllLabel: "Бүх нийлүүлэгч",
   });
 
-  const navIds = useMemo(
-    () => visibleOrders.map((order) => order.id),
-    [visibleOrders]
-  );
+  // Панелийн ← → шилжилтийн дараалал нь ХАРАГДАЖ БУЙ мөрүүдээс гардаг ч
+  // үүнийг `openPanel`-ын хамаарал болговол мөр шинэчлэгдэх бүрд columnDefs
+  // дахин үүсч, AG Grid бүх баганаа дахин байгуулдаг (хүснэгт анивчина).
+  // Тиймээс ref-ээр барина — уншилт нь зөвхөн даралтын мөчид хэрэгтэй.
+  const navIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    navIdsRef.current = visibleOrders.map((order) => order.id);
+  }, [visibleOrders]);
 
   const openPanel = useCallback(
     (order: PurchaseOrderView) =>
       openPurchaseOrderPanel({
         purchaseOrderId: order.id,
         title: `${order.documentNo} · ${order.counterpartyName}`,
-        navIds,
+        navIds: navIdsRef.current,
       }),
-    [navIds]
+    []
   );
 
   const handleApprove = useCallback(
