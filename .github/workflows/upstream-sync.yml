@@ -41,6 +41,9 @@ env:
 permissions:
   contents: write
   pull-requests: write
+  # Label бол issues-ийн нөөц — үүнгүйгээр `gh label create` чимээгүй унаж,
+  # дараа нь `gh pr create --label` "not found" гэж алдаа өгдөг.
+  issues: write
 
 jobs:
   sync:
@@ -171,8 +174,9 @@ jobs:
             echo "PR #$EXISTING аль хэдийн нээлттэй — шинэчлэгдлээ ($LABEL)"
             exit 0
           fi
+          # Label тавих нь амжилтгүй болбол ч PR нээгдэх ёстой (label нь зөвхөн
+          # console-ийн авто merge-д хэрэгтэй; PR нь гараар merge хийгдэж болно).
           gh pr create \
-            --label "$LABEL" \
             --head "$BRANCH" \
             --base "${{ github.event.repository.default_branch }}" \
             --title "Upstream sync: ${REF}" \
@@ -187,3 +191,7 @@ jobs:
               "- [ ] Шинэ DDL байвал \`npm run db:push\` (Railway preDeployCommand автоматаар)" \
               "" \
               "Заавар: docs/deployment/README.md")"
+          NEW="$(gh pr list --head "$BRANCH" --base "${{ github.event.repository.default_branch }}" --state open --json number --jq '.[0].number')"
+          if [ -n "$NEW" ] && ! gh pr edit "$NEW" --add-label "$LABEL"; then
+            echo "::warning::PR #$NEW нээгдсэн ч '$LABEL' label тавигдсангүй — console-ийн авто merge ажиллахгүй, гараар merge хийнэ"
+          fi
