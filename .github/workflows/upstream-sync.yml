@@ -11,9 +11,12 @@
 #   Settings → Actions → General → Workflow permissions:
 #     ✓ Read and write permissions
 #     ✓ Allow GitHub Actions to create and approve pull requests
-#   Settings → Secrets → Actions → UPSTREAM_TOKEN:
-#     core repo-г УНШИХ эрхтэй fine-grained PAT (Contents: Read) — core
-#     private байх үед заавал; core public болбол хэрэггүй.
+#   Settings → Secrets → Actions → UPSTREAM_SSH_KEY:
+#     core repo-г УНШИХ эрхтэй SSH хувийн түлхүүр. Entry Console нь харилцагч
+#     бүрд тусдаа түлхүүр үүсгэж core repo дээр read-only deploy key болгон
+#     бүртгээд энэ secret-д хийдэг. Захиалга зогсоход console тэр нэг
+#     түлхүүрийг л цуцална — бусад харилцагчид хөндөгдөхгүй.
+#     (Хуучин суулгацууд: UPSTREAM_TOKEN PAT — SSH түлхүүр байхгүй үед ажиллана.)
 #
 # Core repo дээр энэ workflow юу ч хийхгүй (if-шалгалт).
 name: Upstream sync
@@ -48,15 +51,32 @@ jobs:
       - name: Upstream татах
         id: fetch
         env:
+          # Харилцагч тус бүрд тусдаа олгогддог унших эрх (core repo дээрх
+          # deploy key). Entry Console олгож/цуцалдаг — захиалга зогсвол
+          # цуцлагдана, байгаа код хэвээр (docs/licensing/README.md).
+          UPSTREAM_SSH_KEY: ${{ secrets.UPSTREAM_SSH_KEY }}
+          # Хуучин зам: бүх харилцагчид нийтлэг PAT. SSH түлхүүр байхгүй үед л
+          # хэрэглэнэ; шинэ харилцагчид энийг тавихаа больсон.
           UPSTREAM_TOKEN: ${{ secrets.UPSTREAM_TOKEN }}
         run: |
           REF="${{ github.event.inputs.ref || 'main' }}"
-          if [ -n "$UPSTREAM_TOKEN" ]; then
+          if [ -n "$UPSTREAM_SSH_KEY" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$UPSTREAM_SSH_KEY" > ~/.ssh/upstream_key
+            chmod 600 ~/.ssh/upstream_key
+            ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+            export GIT_SSH_COMMAND="ssh -i ~/.ssh/upstream_key -o IdentitiesOnly=yes"
+            echo "GIT_SSH_COMMAND=$GIT_SSH_COMMAND" >> "$GITHUB_ENV"
+            git remote add upstream "git@github.com:${UPSTREAM_REPO}.git"
+          elif [ -n "$UPSTREAM_TOKEN" ]; then
             git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM_REPO}.git"
           else
             git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           fi
-          git fetch upstream --tags "$REF"
+          if ! git fetch upstream --tags "$REF"; then
+            echo "::error::Upstream-ээс татаж чадсангүй — шинэчлэлт авах эрх цуцлагдсан эсвэл дуусан байж магадгүй. Entry Console-оор шалгана уу."
+            exit 1
+          fi
           SHA="$(git rev-parse FETCH_HEAD)"
           if git merge-base --is-ancestor "$SHA" HEAD; then
             echo "up_to_date=true" >> "$GITHUB_OUTPUT"

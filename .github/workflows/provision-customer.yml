@@ -7,15 +7,14 @@
 #   2. Core-ийн main (эсвэл заасан tag) + бүх tag-ийг push (бүтэн түүх —
 #      template биш, тэгж байж upstream-sync merge хийгдэнэ)
 #   3. Actions permission: write + PR үүсгэх зөвшөөрөл (upstream-sync-д хэрэгтэй)
-#   4. Secret UPSTREAM_TOKEN (core-г унших), variable ENTRY_DISPLAY_NAME /
-#      ENTRY_APP_URL / ENTRY_SEEDED_REF (console эдгээрийг уншина)
+#   4. Variable ENTRY_DISPLAY_NAME / ENTRY_APP_URL / ENTRY_SEEDED_REF (console
+#      эдгээрийг уншина). Шинэчлэлт авах эрхийг (UPSTREAM_SSH_KEY) Entry
+#      Console харилцагч бүрд ТУСДАА олгоно — энд тавихгүй.
 #   5. Харилцагчийн GitHub хэрэглэгчдийг Write (push) эрхтэй урих
 #
 # Core repo-д нэг удаа тохируулах (Settings → Secrets and variables → Actions):
 #   secrets.PROVISION_TOKEN     repo үүсгэх/удирдах эрхтэй PAT (classic: repo,
 #                               workflow, admin:org — org-д үүсгэх бол)
-#   secrets.UPSTREAM_READ_TOKEN core-г ЗӨВХӨН унших PAT (fine-grained,
-#                               Contents: Read) — харилцагчийн repo-д очно
 #   vars.CUSTOMER_OWNER         (сонголтоор) харилцагчийн repo-уудын org;
 #                               байхгүй бол core repo-ийн эзэн
 name: Provision customer
@@ -128,15 +127,11 @@ jobs:
             fi
           fi
 
-      - name: Secret ба variable
-        env:
-          UPSTREAM_READ_TOKEN: ${{ secrets.UPSTREAM_READ_TOKEN }}
+      # Шинэчлэлт авах эрх (UPSTREAM_SSH_KEY) ЭНД тавигдахгүй: Entry Console
+      # харилцагч бүрд тусдаа deploy key үүсгэж өгдөг тул захиалга зогсоход
+      # ганцхан харилцагчийнхыг цуцлах боломжтой (docs/licensing/README.md).
+      - name: Variable
         run: |
-          if [ -n "$UPSTREAM_READ_TOKEN" ]; then
-            gh secret set UPSTREAM_TOKEN --repo "$REPO" --body "$UPSTREAM_READ_TOKEN"
-          else
-            echo "::warning::secrets.UPSTREAM_READ_TOKEN байхгүй — харилцагчийн upstream-sync private core-оос татаж чадахгүй"
-          fi
           gh variable set ENTRY_DISPLAY_NAME --repo "$REPO" --body "${{ inputs.display_name }}"
           gh variable set ENTRY_SEEDED_REF --repo "$REPO" --body "${{ inputs.ref }}"
           if [ -n "${{ inputs.app_url }}" ]; then
