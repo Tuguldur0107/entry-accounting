@@ -5,10 +5,33 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-09-12 — Лиценз, харилцагч тус бүрийн шинэчлэлтийн эрх
+
 ### Нэмэгдсэн
+- **Лиценз: FSL-1.1-Apache-2.0** (`LICENSE`, `NOTICE`). Өөрийн бизнест ашиглах,
+  кодыг өөрчлөх, өөрийн серверт байршуулах чөлөөтэй; гуравдагч этгээдэд
+  бүтээгдэхүүн болгон санал болгох хориотой; хувилбар бүр 2 жилийн дараа
+  Apache 2.0 болно. Монгол тайлбар: `docs/licensing/README.md`
 - `provision-customer.yml` — харилцагчийн repo-г нэг workflow-оор үүсгэх
-  (repo, core түүх push, Actions permission, secret/variable, урилга);
+  (repo, core түүх push, Actions permission, variable, урилга);
   Entry Console (`entry-console` repo) энийг dispatch хийнэ
+
+### Өөрчлөгдсөн
+- `upstream-sync.yml` нь `UPSTREAM_SSH_KEY`-ээр core-оос татна — харилцагч
+  бүрд ТУСДАА олгогдсон deploy key. Нэгийг цуцлахад бусад нь хөндөгдөхгүй;
+  цуцлагдсан ч байгаа код, deploy хэвээр (зөвхөн шинэ хувилбар ирэхээ болино).
+  Хуучин нийтлэг `UPSTREAM_TOKEN` fallback хэвээр
+- `upstream-sync.yml` merge-ийг ТУРШИЖ (`--no-ff`) tsc/lint/тест ажиллуулаад
+  үр дүнг PR label болгоно (`sync-checks-passed` / `-failed` / `sync-conflict`)
+  — console-ийн авто merge үүнийг уншина
+- **`upstream-sync.yml` sync салбарыг SSH түлхүүрээр (`SYNC_PUSH_KEY`) push
+  хийнэ.** GITHUB_TOKEN нь `.github/workflows/` доторх файлыг push хийж чаддаггүй
+  («refusing to allow a GitHub App to create or update workflow … without
+  `workflows` permission») тул workflow хөндсөн шинэчлэлт бүр унадаг байсан.
+  Deploy key нь GitHub App биш тул энэ хязгаарлалтад ороогүй
+- `provision-customer.yml` нийтлэг `UPSTREAM_TOKEN` тавихаа больсон
+- `docs/deployment/README.md` — нээлттэй `/signup` хүсэлт → батлах алхам,
+  Railway автоматжилт §1b (backup, domain, хяналт, авто sync, устгах)
 
 ## [1.0.0] — 2026-09-07 — Анхны харилцагчийн туршилтын нэвтрүүлэлт
 
