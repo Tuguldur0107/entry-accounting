@@ -29,6 +29,9 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   («refusing to allow a GitHub App to create or update workflow … without
   `workflows` permission») тул workflow хөндсөн шинэчлэлт бүр унадаг байсан.
   Deploy key нь GitHub App биш тул энэ хязгаарлалтад ороогүй
+- `upstream-sync.yml`-д `issues: write` эрх — label бол issues-ийн нөөц тул
+  үүнгүйгээр `gh label create` чимээгүй унаж, PR нээх алхам «label not found»
+  гэж алдаа өгдөг байсан. Label тавигдахгүй байсан ч PR нээгдэнэ
 - `provision-customer.yml` нийтлэг `UPSTREAM_TOKEN` тавихаа больсон
 - `docs/deployment/README.md` — нээлттэй `/signup` хүсэлт → батлах алхам,
   Railway автоматжилт §1b (backup, domain, хяналт, авто sync, устгах)
