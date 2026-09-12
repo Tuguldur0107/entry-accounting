@@ -127,10 +127,38 @@ git push https://github.com/<org>/entry-<харилцагч>.git main --tags   #
 
 ## 3. Core шинэчлэлтийг fork-д авах
 
-`upstream-sync.yml` (харилцагчийн repo дээр л ажиллана) Даваа гараг бүр core `main`-ийг
-шалгаж, шинэ commit байвал `upstream-sync/<ref>` салбар push хийгээд fork-ийн
-`main` руу PR нээнэ. Тодорхой хувилбар авахдаа **Actions → Upstream sync →
-Run workflow → ref: `v1.1.0`**.
+Урсгалыг **Entry Console** удирддаг. Алхмууд:
+
+1. Console харилцагчийн `.github/workflows/` файлуудыг core-ийнхтэй тэнцүүлж,
+   Actions-ийн эрхийг шалгана (энэ хоёр нь sync ажиллах урьдчилсан нөхцөл —
+   доорх «Яагаад ингэсэн бэ»-г үзнэ үү)
+2. `upstream-sync.yml` ажиллаж: core-оос **SSH deploy key-ээр** татаж
+   (харилцагч бүрд тусдаа, console олгоно/цуцална), `upstream-sync/<ref>`
+   салбар push хийж, **merge туршилт** болон **tsc/eslint/тест** хийнэ
+3. Console ажиллагааны алхмуудын үр дүнг уншиж **PR нээгээд** label тавина:
+   `sync-checks-passed` / `sync-checks-failed` / `sync-conflict`
+4. `sync-checks-passed` бөгөөд merge хийх боломжтой бол console **автоматаар
+   merge** хийнэ (харилцагч дээр «Авто sync» асаалттай үед). Railway main-аас
+   deploy хийнэ
+
+Гараар эхлүүлэх: console → харилцагч → «Sync PR нээх», эсвэл
+`POST /api/customers/<slug>/sync {"ref":"v1.1.0"}`.
+
+### Яагаад PR-ыг console нээдэг вэ
+
+GitHub-ийн GITHUB_TOKEN нь хоёр зүйлийг хийж чаддаггүй бөгөөд хоёулаа амьд
+туршилтаар илэрсэн:
+
+| Хязгаарлалт | Үр дагавар | Шийдэл |
+|-------------|-----------|--------|
+| `.github/workflows/` доторх файлыг push хийхийг татгалздаг | Workflow хөндсөн БҮХ шинэчлэлт унана | Console файлуудыг урьдчилан тэнцүүлнэ — push-д өөрчлөлт үлдэхгүй |
+| Org-ийн repo дээр `createPullRequest` татгалздаг («Resource not accessible by integration») — эрх бүрэн байсан ч | PR хэзээ ч нээгдэхгүй | Console нь хэрэглэгчийн token-оор PR нээнэ |
+
+Тиймээс workflow-ийн эрх зөвхөн `contents: write` — салбар push хийх нь л
+түүний ажил.
+
+Тодорхой хувилбар авахдаа console-оос ref заана (эсвэл **Actions → Upstream
+sync → Run workflow → ref: `v1.1.0`**).
 
 Гараар:
 
