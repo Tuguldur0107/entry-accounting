@@ -17,6 +17,10 @@
 #     бүртгээд энэ secret-д хийдэг. Захиалга зогсоход console тэр нэг
 #     түлхүүрийг л цуцална — бусад харилцагчид хөндөгдөхгүй.
 #     (Хуучин суулгацууд: UPSTREAM_TOKEN PAT — SSH түлхүүр байхгүй үед ажиллана.)
+#   Settings → Secrets → Actions → SYNC_PUSH_KEY:
+#     ЭНЭ repo дээрх БИЧИХ эрхтэй deploy key-ийн хувийн түлхүүр. GITHUB_TOKEN нь
+#     `.github/workflows/` файл push хийж чаддаггүй тул sync салбарыг үүнээр
+#     push хийнэ. Console мөн адил олгож/цуцалдаг.
 #
 # Core repo дээр энэ workflow юу ч хийхгүй (if-шалгалт).
 name: Upstream sync
@@ -89,10 +93,35 @@ jobs:
           echo "branch=upstream-sync/$SAFE" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
+      # ЧУХАЛ: GITHUB_TOKEN нь `.github/workflows/` доторх файлыг push хийж
+      # ЧАДАХГҮЙ ("refusing to allow a GitHub App to create or update workflow
+      # ... without `workflows` permission"). Core-ийн шинэчлэлт workflow хөндсөн
+      # үед энэ алхам үргэлж унана. Тиймээс push-ыг SSH түлхүүрээр хийнэ —
+      # deploy key нь GitHub App биш тул тэр хязгаарлалтад ороогүй.
+      # `SYNC_PUSH_KEY` = Entry Console энэ repo дээр үүсгэсэн БИЧИХ эрхтэй
+      # deploy key (lib/upstream-access.ts).
       - name: Sync салбар push хийх
         if: steps.fetch.outputs.up_to_date == 'false'
+        env:
+          SYNC_PUSH_KEY: ${{ secrets.SYNC_PUSH_KEY }}
+          SHA: ${{ steps.fetch.outputs.sha }}
+          BRANCH: ${{ steps.fetch.outputs.branch }}
         run: |
-          git push --force origin "${{ steps.fetch.outputs.sha }}:refs/heads/${{ steps.fetch.outputs.branch }}"
+          if [ -n "$SYNC_PUSH_KEY" ]; then
+            mkdir -p ~/.ssh
+            printf '%s\n' "$SYNC_PUSH_KEY" > ~/.ssh/push_key
+            chmod 600 ~/.ssh/push_key
+            ssh-keyscan -t rsa,ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+            git remote remove pushtarget 2>/dev/null || true
+            git remote add pushtarget "git@github.com:${GITHUB_REPOSITORY}.git"
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/push_key -o IdentitiesOnly=yes" \
+              git push --force pushtarget "$SHA:refs/heads/$BRANCH"
+          elif git push --force origin "$SHA:refs/heads/$BRANCH"; then
+            echo "GITHUB_TOKEN-оор push хийгдлээ (энэ шинэчлэлт workflow хөндөөгүй)"
+          else
+            echo "::error::Push хийж чадсангүй. Шинэчлэлт .github/workflows/ доторх файл хөндсөн бол GITHUB_TOKEN хүрэхгүй — Entry Console → харилцагч → «Эрх сэргээх» дарж SYNC_PUSH_KEY-г тавина."
+            exit 1
+          fi
 
       # GITHUB_TOKEN-оор нээсэн PR дээр CI ажилладаггүй тул merge-ийн үр дүнг ЭНД
       # шалгана: түр merge → tsc, lint, нэгж тест. Үр дүн нь PR-ийн label болно —

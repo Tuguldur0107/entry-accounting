@@ -24,6 +24,11 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 - `upstream-sync.yml` merge-ийг ТУРШИЖ (`--no-ff`) tsc/lint/тест ажиллуулаад
   үр дүнг PR label болгоно (`sync-checks-passed` / `-failed` / `sync-conflict`)
   — console-ийн авто merge үүнийг уншина
+- **`upstream-sync.yml` sync салбарыг SSH түлхүүрээр (`SYNC_PUSH_KEY`) push
+  хийнэ.** GITHUB_TOKEN нь `.github/workflows/` доторх файлыг push хийж чаддаггүй
+  («refusing to allow a GitHub App to create or update workflow … without
+  `workflows` permission») тул workflow хөндсөн шинэчлэлт бүр унадаг байсан.
+  Deploy key нь GitHub App биш тул энэ хязгаарлалтад ороогүй
 - `provision-customer.yml` нийтлэг `UPSTREAM_TOKEN` тавихаа больсон
 - `docs/deployment/README.md` — нээлттэй `/signup` хүсэлт → батлах алхам,
   Railway автоматжилт §1b (backup, domain, хяналт, авто sync, устгах)
