@@ -5,6 +5,14 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Засагдсан
+- **Нэвтрэх / бүртгүүлэх нь proxy-ийн ард унадаг байсан.** NextAuth v5 нь
+  Vercel-ээс бусад орчинд host-оо анхнаасаа итгэдэггүй тул
+  `/api/auth/callback/credentials` нь `UntrustedHost` алдаа өгч, хэрэглэгчид
+  «There was a problem with the server configuration» гэж харагддаг байв.
+  `lib/auth.config.ts`-д `trustHost: true` — Railway, Nginx, харилцагчийн
+  өөрийн сервер аль ч дээр орчны хувьсагчгүйгээр ажиллана
+
 ### Өөрчлөгдсөн
 - **`/register` нь эхний хэрэглэгчийн дараа хаагдана.** Харилцагчийн апп
   нээлттэй интернэтэд байдаг тул хэн ч бүртгүүлж чаддаг байсан (дата нь
