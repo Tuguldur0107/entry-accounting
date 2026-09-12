@@ -1,7 +1,12 @@
 # Upstream sync — ХАРИЛЦАГЧИЙН repo дээр ажиллана: core repo
 # (Tuguldur0107/entry-accounting)-ийн шинэ хувилбарыг татаж `upstream-sync/<ref>`
-# салбар үүсгээд харилцагчийн main руу PR нээнэ. Merge conflict гарвал PR
-# дээр харагдана — custom/ дотор л ажилласан бол conflict гарахгүй
+# салбар үүсгэнэ. Merge-ийг ТУРШИЖ tsc/lint/тест ажиллуулна.
+#
+# PR-ыг ЭНЭ workflow нээхгүй — Entry Console нээнэ. Шалтгаан: GITHUB_TOKEN нь
+# `pull-requests: write` эрхтэй байсан ч org-ийн repo дээр createPullRequest-ийг
+# GitHub татгалздаг («Resource not accessible by integration»). Console нь
+# алхмуудын үр дүнг API-аар уншиж (conflict / failed / passed) PR-ыг зөв
+# label-тай нээнэ. custom/ дотор л ажилласан бол conflict гарахгүй
 # (docs/deployment/README.md §3).
 #
 # Харилцагчийн repo = GitHub "Fork" товч ЭСВЭЛ гараар үүсгэсэн repo (core
@@ -38,12 +43,9 @@ on:
 env:
   UPSTREAM_REPO: Tuguldur0107/entry-accounting
 
+# PR/label-ыг console хийдэг тул энд зөвхөн салбар push хийх эрх хангалттай.
 permissions:
   contents: write
-  pull-requests: write
-  # Label бол issues-ийн нөөц — үүнгүйгээр `gh label create` чимээгүй унаж,
-  # дараа нь `gh pr create --label` "not found" гэж алдаа өгдөг.
-  issues: write
 
 jobs:
   sync:
@@ -129,69 +131,42 @@ jobs:
       # GITHUB_TOKEN-оор нээсэн PR дээр CI ажилладаггүй тул merge-ийн үр дүнг ЭНД
       # шалгана: түр merge → tsc, lint, нэгж тест. Үр дүн нь PR-ийн label болно —
       # Entry Console «авто sync» нь sync-checks-passed label-тэй PR-ыг л merge хийнэ.
-      - name: Merge туршилт + шалгалт (tsc, lint, тест)
+      # Шалгалтыг ХОЁР тусдаа алхам болгов: алхам бүрийн үр дүнг GitHub API-аас
+      # уншиж болдог тул Entry Console нь conflict / шалгалт-унасан / давсан
+      # гурвыг ялгаж таньж чадна (step outputs нь API-аар уншигддаггүй).
+      - name: Merge туршилт (conflict эсэх)
         if: steps.fetch.outputs.up_to_date == 'false'
-        id: checks
+        id: mergetest
         continue-on-error: true
         run: |
           git config user.name "upstream-sync"
           git config user.email "upstream-sync@users.noreply.github.com"
-          if ! git merge --no-ff --no-edit "${{ steps.fetch.outputs.sha }}"; then
-            echo "result=conflict" >> "$GITHUB_OUTPUT"
-            git merge --abort || true
-            exit 0
-          fi
+          git merge --no-ff --no-edit "${{ steps.fetch.outputs.sha }}"
+
+      - name: Шалгалт (tsc, lint, тест)
+        if: steps.fetch.outputs.up_to_date == 'false' && steps.mergetest.outcome == 'success'
+        id: checks
+        continue-on-error: true
+        run: |
           npm ci
           printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
-          if npx tsc --noEmit && npx eslint . && npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow); then
-            echo "result=passed" >> "$GITHUB_OUTPUT"
-          else
-            echo "result=failed" >> "$GITHUB_OUTPUT"
-          fi
-          git reset --hard HEAD~1 >/dev/null 2>&1 || true
+          npx tsc --noEmit
+          npx eslint .
+          npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow)
 
-      - name: PR нээх (байхгүй бол)
+      - name: Дүгнэлт
         if: steps.fetch.outputs.up_to_date == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          BRANCH="${{ steps.fetch.outputs.branch }}"
-          REF="${{ steps.fetch.outputs.ref }}"
-          RESULT="${{ steps.checks.outputs.result || 'unknown' }}"
-          case "$RESULT" in
-            passed)   LABEL="sync-checks-passed";  COLOR="0e8a16"; DESC="Merge туршилт + tsc/lint/test давсан — авто merge болно" ;;
-            failed)   LABEL="sync-checks-failed";  COLOR="d93f0b"; DESC="Merge туршилтын шалгалт унасан — гараар шалгана" ;;
-            conflict) LABEL="sync-conflict";       COLOR="b60205"; DESC="Merge conflict — гараар шийднэ" ;;
-            *)        LABEL="sync-checks-unknown"; COLOR="cccccc"; DESC="Шалгалт ажиллаагүй" ;;
-          esac
-          for L in sync-checks-passed sync-checks-failed sync-conflict sync-checks-unknown; do
-            gh label create "$L" --force --color "$([ "$L" = "$LABEL" ] && echo "$COLOR" || echo cccccc)" --description "upstream-sync" >/dev/null 2>&1 || true
-          done
-          EXISTING="$(gh pr list --head "$BRANCH" --base "${{ github.event.repository.default_branch }}" --state open --json number --jq '.[0].number')"
-          if [ -n "$EXISTING" ]; then
-            gh pr edit "$EXISTING" --remove-label sync-checks-passed,sync-checks-failed,sync-conflict,sync-checks-unknown >/dev/null 2>&1 || true
-            gh pr edit "$EXISTING" --add-label "$LABEL"
-            echo "PR #$EXISTING аль хэдийн нээлттэй — шинэчлэгдлээ ($LABEL)"
-            exit 0
-          fi
-          # Label тавих нь амжилтгүй болбол ч PR нээгдэх ёстой (label нь зөвхөн
-          # console-ийн авто merge-д хэрэгтэй; PR нь гараар merge хийгдэж болно).
-          gh pr create \
-            --head "$BRANCH" \
-            --base "${{ github.event.repository.default_branch }}" \
-            --title "Upstream sync: ${REF}" \
-            --body "$(printf '%s\n' \
-              "Core repo \`${UPSTREAM_REPO}\`-ийн \`${REF}\` (\`${{ steps.fetch.outputs.sha }}\`) шинэчлэлт." \
-              "" \
-              "**Шалгалт (энэ workflow дотор merge туршиж ажиллуулсан):** \`${RESULT}\` — ${DESC}" \
-              "" \
-              "**Шалгах:**" \
-              "- [ ] Conflict байвал \`custom/\` талаас биш core талаас ирсэн эсэхийг шалга (core файлыг өөрчилсөн бол custom/ руу нүүлгэ)" \
-              "- [ ] Staging дээр deploy хийж \`/api/health\` version шалга" \
-              "- [ ] Шинэ DDL байвал \`npm run db:push\` (Railway preDeployCommand автоматаар)" \
-              "" \
-              "Заавар: docs/deployment/README.md")"
-          NEW="$(gh pr list --head "$BRANCH" --base "${{ github.event.repository.default_branch }}" --state open --json number --jq '.[0].number')"
-          if [ -n "$NEW" ] && ! gh pr edit "$NEW" --add-label "$LABEL"; then
-            echo "::warning::PR #$NEW нээгдсэн ч '$LABEL' label тавигдсангүй — console-ийн авто merge ажиллахгүй, гараар merge хийнэ"
-          fi
+          if [ "${{ steps.mergetest.outcome }}" != "success" ]; then RESULT=conflict
+          elif [ "${{ steps.checks.outcome }}" != "success" ]; then RESULT=failed
+          else RESULT=passed; fi
+          {
+            echo "## Upstream sync: ${{ steps.fetch.outputs.ref }}"
+            echo ""
+            echo "- Салбар: \`${{ steps.fetch.outputs.branch }}\`"
+            echo "- Core commit: \`${{ steps.fetch.outputs.sha }}\`"
+            echo "- Үр дүн: **$RESULT**"
+            echo ""
+            echo "Entry Console энэ үр дүнг уншиж PR нээж, label тавина."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Үр дүн: $RESULT"

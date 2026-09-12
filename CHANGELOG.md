@@ -29,9 +29,13 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   («refusing to allow a GitHub App to create or update workflow … without
   `workflows` permission») тул workflow хөндсөн шинэчлэлт бүр унадаг байсан.
   Deploy key нь GitHub App биш тул энэ хязгаарлалтад ороогүй
-- `upstream-sync.yml`-д `issues: write` эрх — label бол issues-ийн нөөц тул
-  үүнгүйгээр `gh label create` чимээгүй унаж, PR нээх алхам «label not found»
-  гэж алдаа өгдөг байсан. Label тавигдахгүй байсан ч PR нээгдэнэ
+- **`upstream-sync.yml` PR нээхээ больж, Entry Console нээдэг болов.**
+  GITHUB_TOKEN нь `pull-requests: write` эрхтэй байсан ч org-ийн repo дээр
+  `createPullRequest`-ийг GitHub татгалздаг («Resource not accessible by
+  integration») — амьд туршилтаар батлагдсан. Workflow нь салбар push хийж,
+  merge/шалгалтыг ХОЁР тусдаа нэртэй алхмаар гүйцэтгэнэ; console алхмуудын
+  үр дүнг API-аар уншиж conflict / failed / passed-ийг ялган PR-ыг зөв
+  label-тай нээнэ. Workflow-ийн эрх зөвхөн `contents: write` болж багасав
 - `provision-customer.yml` нийтлэг `UPSTREAM_TOKEN` тавихаа больсон
 - `docs/deployment/README.md` — нээлттэй `/signup` хүсэлт → батлах алхам,
   Railway автоматжилт §1b (backup, domain, хяналт, авто sync, устгах)
