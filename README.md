@@ -49,3 +49,11 @@ npx tsc --noEmit && npx eslint . && npm test
 | Өртгийн бүртгэл | [docs/cost/](docs/cost/README.md) |
 | Open source стратеги | [docs/OPEN-SOURCE-STRATEGY.md](docs/OPEN-SOURCE-STRATEGY.md) |
 | Мэргэжлийн мэдлэгийн сан | `knowledge/` |
+| Лиценз — юу зөвшөөрөгдөх вэ | [docs/licensing/](docs/licensing/README.md) |
+
+## Лиценз
+
+[FSL-1.1-Apache-2.0](LICENSE) — өөрийн бизнест ашиглах, өөрчлөх, өөрийн серверт
+байршуулах бүрэн чөлөөтэй. Зөвхөн үүнийг гуравдагч этгээдэд бүтээгдэхүүн болгон
+санал болгох нь хориотой. Хувилбар бүр хоёр жилийн дараа Apache 2.0 болж бүрэн
+нээгдэнэ. Энгийн тайлбар: [docs/licensing/README.md](docs/licensing/README.md).

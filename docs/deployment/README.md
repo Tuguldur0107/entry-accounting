@@ -21,9 +21,10 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 | # | Алхам | Хэн | Хэрэгсэл |
 |---|-------|-----|----------|
-| 1 | Харилцагчийн **тусдаа private repo** үүсгэх — Entry Console → «Харилцагч нэмэх» (§1a) | Бид | `provision-customer.yml` автоматаар |
+| 0 | Харилцагч **нээлттэй хуудсаар** хүсэлт илгээнэ (`<console>/signup`) → Console-д «Хүсэлт» төлөвтэй бүртгэл, Telegram мэдэгдэл. Repo/Railway хараахан үүсэхгүй | Харилцагч | Entry Console `/signup`, `POST /api/signup` |
+| 1 | Харилцагчийн **тусдаа private repo** үүсгэх — Entry Console → хүсэлтийг «Батлах» (эсвэл «Харилцагч нэмэх» маягт) (§1a) | Бид | `provision-customer.yml` автоматаар |
 | 2 | Repo-ийн Actions permission + `UPSTREAM_TOKEN` secret + хэрэглэгчийн урилга — мөн автоматаар (1-р алхамд) | — | — |
-| 3 | Railway төсөл: PostgreSQL + fork-ийг холбох, `.env.example`-ийн хувьсагчид (DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL) | Бид | Railway (`railway.toml` бэлэн: db:push + healthcheck) |
+| 3 | Railway deploy — Entry Console автоматаар (§1b): `entry-<slug>` app + `entry-<slug>-db` Postgres, хувьсагчид, domain. Гараар бол: Postgres + repo холбох, `.env.example`-ийн DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL | Бид | Console / Railway (`railway.toml` бэлэн: db:push + healthcheck) |
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
 | 5 | Эхний хэрэглэгч бүртгэх → байгууллага үүснэ → Тохиргоо → ЕЖ тохиргоо → стандарт данс sync | Харилцагч | Вэб |
 | 6 | Тохиргоо → AI туслах → MCP холболт → token үүсгэх (эсвэл Cowork-д OAuth-оор Connect) | Харилцагч | Вэб |
@@ -40,12 +41,51 @@ Core repo **private** тул GitHub-ийн "Fork" товч харилцагчи�
 (нэг commit) үүсдэг тул upstream-sync merge хийгдэхгүй.
 
 **Автомат зам (зөвлөж байна):** Entry Console (`entry-console` repo, Railway)
-→ «Харилцагч нэмэх» → core repo-ийн `.github/workflows/provision-customer.yml`
+→ хүсэлтийг «Батлах» (нээлттэй `/signup`-аас ирсэн) эсвэл «Харилцагч нэмэх»
+→ core repo-ийн `.github/workflows/provision-customer.yml`
 ажиллаж: `entry-<slug>` private repo (topic `entry-customer`), core-ийн main +
 tag push (бүтэн түүх), Actions permission, `UPSTREAM_TOKEN` secret,
 `ENTRY_DISPLAY_NAME` / `ENTRY_APP_URL` variable, хэрэглэгчдийг Write эрхтэй
 урих — бүгд нэг дор. Core repo-д нэг удаа `PROVISION_TOKEN`,
 `UPSTREAM_READ_TOKEN` secret тавина (workflow-ийн толгойн тайлбар).
+
+### 1b. Railway deploy хэрхэн автоматжих вэ
+
+Console-д `RAILWAY_TOKEN` (account token) + `RAILWAY_PROJECT_ID` тавьсан бол
+харилцагч нэмэхэд «Repo бэлэн болмогц Railway-д автоматаар deploy» чагт
+(эсвэл харилцагчийн хуудасны «Railway-д deploy» товч) дараахыг хийнэ:
+
+1. `entry-<slug>-db` — `postgres:16-alpine` image + volume, `DATABASE_URL`
+   өөр дээрээ variable
+2. `entry-<slug>` — хоосон service → `*.up.railway.app` domain →
+   `DATABASE_URL=${{entry-<slug>-db.DATABASE_URL}}`, `AUTH_SECRET` (санамсаргүй),
+   `NEXT_PUBLIC_APP_URL`, `NODE_ENV` → healthcheck `/api/health`, preDeploy
+   `npm run db:push` → GitHub repo холбох (build эхэлнэ)
+3. Domain нь console-д харилцагчийн Deploy хаяг болж хувилбарын хяналт ажиллана
+
+Нэрээр байгаа service-ийг дахин ашигладаг тул унасан оролдлогыг аюулгүй
+давтана. **Шаардлага:** Railway-ийн GitHub app `Entry-mn` org-д суусан байх
+(github.com/apps/railway-app/installations/new); project token GitHub repo
+холбож чадахгүй тул account token хэрэгтэй — зөвхөн project token байвал
+service/DB/domain үүсээд repo-г Railway дээр гараар холбоно (console
+«repo холбогдоогүй» гэж анхааруулна).
+
+**Deploy-тэй хамт автоматаар:** Postgres volume-д Railway backup хуваарь (өдөр +
+7 хоног бүр); console-д `CUSTOMER_BASE_DOMAIN` өгвөл `<slug>.<domain>` custom
+domain + DNS CNAME заавар (баталгаажмагц `NEXT_PUBLIC_APP_URL` солигдоно).
+**Хяналт:** console-ийн cron service 5 мин тутам health/deployment/backup
+шалгаж Telegram/webhook-оор мэдэгдэнэ. **Авто sync:** харилцагчийн toggle —
+шинэ release гармагц `upstream-sync.yml` PR нээж, merge-ийг туршиж tsc/lint/test
+ажиллуулаад `sync-checks-passed` label тавьсан бол console merge хийнэ (Railway
+main-аас deploy); conflict/шалгалт унасан бол label + анхаарах зүйл.
+**Түр зогсоох:** Railway app + DB deployment устгана (volume хэвээр), идэвхжүүлэхэд
+дахин deploy.
+
+**Бүрэн устгах (гэрээ дуусах, туршилт цэвэрлэх):** харилцагчийн хуудасны
+«Аюултай бүс» → кодыг бичиж баталгаажуулна → Railway app + Postgres
+(volume-ийн өгөгдөлтэй), GitHub repo, console бүртгэл устна. GitHub token-д
+`delete_repo` scope хэрэгтэй; дутуу устсан бол «Архив» + тэмдэглэлтэй үлдэж
+дахин оролдож болно. REST: `DELETE /api/customers/<slug>?confirm=<slug>`.
 
 Гараар (console-гүй):
 
