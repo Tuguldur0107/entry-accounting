@@ -37,6 +37,9 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   үр дүнг API-аар уншиж conflict / failed / passed-ийг ялган PR-ыг зөв
   label-тай нээнэ. Workflow-ийн эрх зөвхөн `contents: write` болж багасав
 - `provision-customer.yml` нийтлэг `UPSTREAM_TOKEN` тавихаа больсон
+- `release.yml` нь `workflow_dispatch`-ээр ч ажиллана — **Actions → Release →
+  Run workflow** дарахад tag + GitHub Release үүснэ (локал git хэрэггүй);
+  tag нь `package.json` version-той таарахгүй бол ажил унана
 - `docs/deployment/README.md` — нээлттэй `/signup` хүсэлт → батлах алхам,
   Railway автоматжилт §1b (backup, domain, хяналт, авто sync, устгах)
 

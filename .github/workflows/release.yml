@@ -1,16 +1,33 @@
-# Release — `vX.Y.Z` tag push бүрд шалгалт ажиллуулж GitHub Release үүсгэнэ.
+# Release — хувилбар гаргах цорын ганц зам.
 #
-# Урсгал (core repo):
-#   1. package.json version-ийг шинэчилнэ (npm version minor --no-git-tag-version)
-#   2. CHANGELOG.md-д тэмдэглэл нэмнэ, commit
-#   3. git tag vX.Y.Z && git push origin main --tags
-# Fork-ууд энэ tag-аар шинэчлэлт авна (upstream-sync.yml). Хувилбар нь
-# /api/health, MCP serverInfo, /settings/system-д харагдана (lib/version.ts).
+# Хоёр эхлүүлэлт:
+#   a) Actions → Release → «Run workflow» (гараар, локал git хэрэггүй)
+#      — tag-ийг өөрөө үүсгэнэ
+#   b) `git push origin vX.Y.Z` (локалаас tag түлхэх)
+#
+# Аль ч тохиолдолд tag нь package.json-ий version-той таарах ЁСТОЙ — зөрвөл
+# ажил унана. Fork-ууд энэ tag-аар шинэчлэлт авна (upstream-sync.yml);
+# хувилбар нь /api/health, MCP serverInfo, /settings/system-д харагдана
+# (lib/version.ts).
+#
+# Шинэ хувилбар гаргах дараалал:
+#   1. npm version minor --no-git-tag-version
+#   2. CHANGELOG.md-д тэмдэглэл нэмээд commit → main
+#   3. Actions → Release → Run workflow (ref: main)
 name: Release
 
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Аль commit / салбар дээр tag тавих"
+        default: main
+        required: true
+      version:
+        description: "Хувилбар (жишээ 1.1.0). Хоосон бол package.json-оос авна"
+        required: false
 
 permissions:
   contents: write
@@ -23,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -35,24 +54,37 @@ jobs:
         run: |
           printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
 
-      - name: Tag ба package.json version тохирох эсэх
+      - name: Tag тодорхойлж package.json-той тулгах
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
           PKG="$(node -p "require('./package.json').version")"
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::Tag v$TAG ≠ package.json version $PKG — эхлээд package.json-оо шинэчилнэ үү"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="v${INPUT_VERSION:-$PKG}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [ "${TAG#v}" != "$PKG" ]; then
+            echo "::error::Tag $TAG ≠ package.json version $PKG — эхлээд package.json-оо шинэчлэнэ үү"
             exit 1
           fi
+          SHA="$(git rev-parse HEAD)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Tag: $TAG · commit: $SHA"
 
       - run: npx tsc --noEmit
       - run: npx eslint .
       - run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow)
 
-      - name: GitHub Release (авто тэмдэглэлтэй)
+      - name: GitHub Release (tag байхгүй бол үүснэ)
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ steps.ver.outputs.sha }}
           generate_release_notes: true
           body: |
-            Fork дээрээ шинэчлэх: **Actions → Upstream sync → Run workflow** (ref: `${{ github.ref_name }}`),
-            эсвэл `git fetch upstream --tags && git merge ${{ github.ref_name }}`.
+            Fork дээрээ шинэчлэх: **Actions → Upstream sync → Run workflow** (ref: `${{ steps.ver.outputs.tag }}`),
+            эсвэл `git fetch upstream --tags && git merge ${{ steps.ver.outputs.tag }}`.
             Дэлгэрэнгүй: docs/deployment/README.md
