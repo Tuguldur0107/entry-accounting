@@ -12,6 +12,7 @@ import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import { createPersonalOrg, signIn } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { registrationMode } from "@/lib/registration";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 
 export async function registerUser(data: {
@@ -40,6 +41,25 @@ export async function registerUser(data: {
   });
   if (existing) return { error: "Энэ имэйл бүртгэлтэй байна" };
 
+  // Урилгыг хэрэглэгч үүсгэхийн ӨМНӨ шийднэ — бүртгэл хаалттай үед хүчингүй
+  // token-оор хэрэглэгч үүсчихээд дараа нь "гишүүн биш" болж үлдэхээс сэргийлнэ.
+  const invitation =
+    data.invite && /^[0-9a-f-]{36}$/.test(data.invite)
+      ? ((await db.query.orgInvitations.findFirst({
+          where: and(
+            eq(orgInvitations.token, data.invite),
+            sql`${orgInvitations.acceptedAt} is null`
+          ),
+        })) ?? null)
+      : null;
+
+  // «Эхний хэрэглэгч чөлөөтэй, дараа нь зөвхөн урилгаар» (lib/registration.ts).
+  if (!invitation && (await registrationMode()) === "invite")
+    return {
+      error:
+        "Бүртгэл хаалттай — байгууллагын админаас урилгын линк авна уу (Удирдлага → Байгууллага → Гишүүн урих).",
+    };
+
   const passwordHash = await bcrypt.hash(data.password, 12);
 
   const [user] = await db
@@ -56,37 +76,28 @@ export async function registerUser(data: {
     DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, organizationId: orgId, ...a }))
   );
 
-  // Урилгын линкээр ирсэн бол урьсан байгууллагад элсүүлж, түүнийг нь
-  // идэвхтэй байгууллага болгоно. Token буруу/ашиглагдсан бол чимээгүй
-  // алгасна — бүртгэл өөрөө хэвийн үргэлжилнэ.
-  if (data.invite && /^[0-9a-f-]{36}$/.test(data.invite)) {
-    const invitation = await db.query.orgInvitations.findFirst({
-      where: and(
-        eq(orgInvitations.token, data.invite),
-        sql`${orgInvitations.acceptedAt} is null`
-      ),
-    });
-    if (invitation) {
-      await db
-        .insert(memberships)
-        .values({
-          organizationId: invitation.organizationId,
-          userId: user.id,
-          role: invitation.role,
-        })
-        .onConflictDoNothing();
-      await db
-        .update(orgInvitations)
-        .set({ acceptedAt: new Date() })
-        .where(eq(orgInvitations.id, invitation.id));
-      try {
-        (await cookies()).set("ea-org", invitation.organizationId, {
-          path: "/",
-          maxAge: 60 * 60 * 24 * 365,
-        });
-      } catch {
-        // cookie тавигдахгүй бол switcher-ээс сонгоно — элсэлт хүчинтэй хэвээр.
-      }
+  // Урилгаар ирсэн бол урьсан байгууллагад элсүүлж, түүнийг нь идэвхтэй
+  // байгууллага болгоно (урилга дээр аль хэдийн шалгагдсан).
+  if (invitation) {
+    await db
+      .insert(memberships)
+      .values({
+        organizationId: invitation.organizationId,
+        userId: user.id,
+        role: invitation.role,
+      })
+      .onConflictDoNothing();
+    await db
+      .update(orgInvitations)
+      .set({ acceptedAt: new Date() })
+      .where(eq(orgInvitations.id, invitation.id));
+    try {
+      (await cookies()).set("ea-org", invitation.organizationId, {
+        path: "/",
+        maxAge: 60 * 60 * 24 * 365,
+      });
+    } catch {
+      // cookie тавигдахгүй бол switcher-ээс сонгоно — элсэлт хүчинтэй хэвээр.
     }
   }
 
