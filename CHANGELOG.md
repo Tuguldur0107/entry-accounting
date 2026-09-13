@@ -5,6 +5,15 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Засагдсан
+- **`db:push` → `drizzle-kit push --force`.** Энгийн `push` нь unique
+  constraint нэмэх/багана хасах зэрэг "data loss" өөрчлөлт дээр интерактив
+  асуулт тавьдаг тул Railway-ийн non-TTY preDeploy дээр crash хийж, схемийн
+  өөрчлөлт DB-д ОРОХГҮЙ үлддэг байв — үүний улмаас шинэ баганатай хуудас
+  (жишээ: цалин) `column … does not exist` 500 алдаа өгдөг. `--force` нь
+  preDeploy-д автоматаар хэрэглэгдэнэ. ⚠️ Хүснэгт truncate хийж болзошгүй тул
+  Railway нөөцлөлт идэвхтэй байх шаардлагатай; GA-д migration файл руу шилжинэ
+
 ## [1.4.0] — 2026-09-13 — Монголбанкны түүхэн ханш
 
 ### Нэмэгдсэн

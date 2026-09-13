@@ -1085,6 +1085,17 @@ Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
 хэрэгжүүлсэн хүснэгтүүд бий тул generate-ийн гаргасан файл бүхэлдээ
 ажиллуулбал "already exists" гэж унана — шинэ DDL-ийг л хэрэглэнэ.
 
+⚠️ **`db:push` нь `--force`-той (deploy-ийн preDeploy энийг дууддаг).** Энгийн
+`drizzle-kit push` нь unique constraint нэмэх, багана хасах зэрэг "data loss"
+өөрчлөлт дээр ИНТЕРАКТИВ асуулт тавьдаг — Railway-ийн non-TTY preDeploy дээр
+crash хийж, схемийн БҮХ өөрчлөлт DB-д ОГТ ОРОХГҮЙ үлддэг (дараа нь код шинэ
+баганыг асуухад "column does not exist" 500 алдаа өгнө). `--force` бүх
+өөрчлөлтийг автоматаар зөвшөөрнө — **гэхдээ хүснэгт truncate хийж болзошгүй**
+(одоо байгаа мөр дээр unique constraint нэмэх г.м.). Railway нөөцлөлт
+(DAILY/WEEKLY) идэвхтэй байх ЁСТОЙ. Бодит production өгөгдөлтэй GA-д
+`drizzle-kit generate` + `migrate` (батлагдсан migration файл) руу шилжинэ —
+push нь dev/pilot-д зориулагдсан.
+
 ## Анхдагч дансны мэдээлэл
 
 | Дугаар | Нэр |
