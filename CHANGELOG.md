@@ -5,6 +5,8 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-09-13 — Бүртгэлийн хаалт, нэвтрэлтийн засвар, хувь нэмрийн нөхцөл
+
 ### Нэмэгдсэн
 - **`CONTRIBUTING.md` — хувь нэмрийн нөхцөл.** Харилцагчийн `custom/` код
   харилцагчийнх; core-д орох хоёр зам: (А) public core-ыг fork → cherry-pick
