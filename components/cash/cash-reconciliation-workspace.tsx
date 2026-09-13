@@ -70,7 +70,7 @@ export type CashReconciliationRow = {
     cash: { id: string; date: string; label: string; amount: number }[];
     /** GL: энэ дансны дугаарт нөлөөлсөн журнал бүрийн цэвэр дүн (MNT). */
     gl: { id: string; date: string; label: string; amount: number }[];
-    /** Банкны хуулга бүрийн сүүлийн үлдэгдэл мөр. */
+    /** Банкны хуулга: нээлтийн үлдэгдэл + хуулга бүрийн цэвэр хөдөлгөөн (≤ asOf). */
     bank: { id: string; date: string; label: string; amount: number }[];
   };
   /** Дансанд хамаатай НООРОГ баримтууд — зөрүүний оношилгоонд. */
@@ -1663,7 +1663,7 @@ export function CashReconciliationWorkspace({
             const config = {
               bank: {
                 title: "Банкны хуулга — задаргаа",
-                note: `Импортолсон хуулга бүрийн ${asOf}-с өмнөх сүүлийн үлдэгдэл мөр · ${row.currency}`,
+                note: `Нээлтийн үлдэгдэл + импортолсон хуулга бүрийн ${asOf} хүртэлх цэвэр хөдөлгөөн (орлого − зарлага) · ${row.currency}`,
                 lines: row.details.bank,
                 total: row.bankBalance,
                 onOpen: null as ((id: string, label: string) => void) | null,

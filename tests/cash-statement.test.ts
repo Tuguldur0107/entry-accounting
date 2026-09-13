@@ -16,6 +16,7 @@ import {
 } from "../lib/cash/exchange-rates";
 import {
   calculateFxRevaluation,
+  computeCashCoreRows,
   reconciliationStatus,
 } from "../lib/cash/reconciliation";
 import { deriveCashDocumentFromVoucher } from "../lib/cash/gl-sync";
@@ -38,7 +39,6 @@ test("detects a semicolon-delimited statement below a title row", async () => {
 
   assert.equal(parsed.rows.length, 1);
   assert.equal(parsed.rows[0].transactionDate, "2026-06-01");
-  assert.equal(parsed.rows[0].valueDate, "2026-06-02");
   assert.equal(parsed.rows[0].income, 1250);
 });
 
@@ -55,7 +55,8 @@ test("parses FX statement rate and MNT equivalent columns", async () => {
 
   assert.equal(parsed.rows[0].exchangeRate, 3580.5);
   assert.equal(parsed.rows[0].baseAmount, 358050);
-  assert.equal(parsed.rows[0].balance, 1100);
+  // "Balance" багана импортлогдохгүй — мөрд ийм талбар байхгүй.
+  assert.equal("balance" in parsed.rows[0], false);
 });
 
 test("validates every active Cash segment and inactive defaults", () => {
@@ -444,4 +445,62 @@ test("keeps the account currency on a derived foreign-currency movement", () => 
   assert.ok(derived);
   assert.equal(derived.currency, "USD");
   assert.equal(derived.amount, 3450000);
+});
+
+test("банкны тал: хуулгын үлдэгдэл баганагүйгээр нээлт + Σ(орлого − зарлага)-аас бодогдоно", () => {
+  const account = {
+    id: "acc-1",
+    name: "Голомт",
+    currency: "MNT",
+    glAccountNumber: "11000001",
+    openingBalance: "9500000",
+    isActive: true,
+  } as unknown as CashAccount;
+  const rows = computeCashCoreRows({
+    accounts: [account],
+    documents: [],
+    vouchers: [],
+    statements: [
+      {
+        cashAccountId: "acc-1",
+        periodEnd: null,
+        lines: [
+          { transactionDate: "2026-06-02", rowNumber: 1, income: "0", expense: "450000" },
+          { transactionDate: "2026-06-03", rowNumber: 2, income: "780000", expense: "0" },
+          // asOf-оос хойшхи мөр тооцогдохгүй
+          { transactionDate: "2026-07-01", rowNumber: 3, income: "1000000", expense: "0" },
+        ],
+      },
+    ],
+    fxRevaluations: [],
+    // asOf = хуулгын сүүлийн мөрийн огноо: хуулга "одоогийн" тул зөрүү нь
+    // "exception" болж илэрнэ (asOf хожуу байвал "stale-statement" — байгаа дүрэм).
+    asOf: "2026-06-03",
+  });
+  const row = rows.get("acc-1")!;
+  assert.equal(row.bankBalance, 9500000 - 450000 + 780000);
+  assert.equal(row.bankBalanceDate, "2026-06-03");
+  // Касс талд баримт бичигдээгүй → 330,000-ийн зөрүү илэрнэ.
+  assert.equal(row.bankToCashDifference, 330000);
+  assert.equal(row.status, "exception");
+
+  // Хуулгаас хойшхи asOf — хөдөлгөөн ижил ч "хуучирсан хуулга" гэж сануулна.
+  const stale = computeCashCoreRows({
+    accounts: [account],
+    documents: [],
+    vouchers: [],
+    statements: [
+      {
+        cashAccountId: "acc-1",
+        periodEnd: null,
+        lines: [
+          { transactionDate: "2026-06-03", rowNumber: 1, income: "780000", expense: "0" },
+        ],
+      },
+    ],
+    fxRevaluations: [],
+    asOf: "2026-06-30",
+  }).get("acc-1")!;
+  assert.equal(stale.bankBalance, 9500000 + 780000);
+  assert.equal(stale.status, "stale-statement");
 });

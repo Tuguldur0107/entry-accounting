@@ -486,12 +486,6 @@ export function BankStatementImport({
         cellClass: "font-mono text-xs",
       },
       {
-        headerName: "Утгын огноо",
-        field: "valueDate",
-        width: 116,
-        cellClass: "font-mono text-xs",
-      },
-      {
         headerName: "Гүйлгээний утга",
         field: "description",
         minWidth: 240,
@@ -527,15 +521,6 @@ export function BankStatementImport({
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
           Number(params.value) > 0 ? fmtMnt(Number(params.value)) : "",
-      },
-      {
-        headerName: "Үлдэгдэл",
-        field: "balance",
-        width: 140,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) =>
-          params.value == null ? "" : fmtMnt(Number(params.value)),
       },
       {
         headerName: "Гүйлгээний ханш",

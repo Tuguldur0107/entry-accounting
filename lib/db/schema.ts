@@ -423,6 +423,8 @@ export const bankStatementLines = pgTable(
       .references(() => bankStatements.id, { onDelete: "cascade" }),
     rowNumber: integer("row_number").notNull(),
     transactionDate: text("transaction_date").notNull(),
+    /** @deprecated 2026-09: импортод хэрэггүй болсон — бичигдэхгүй. Багана нь
+     *  харилцагчийн DB дээр `db:push` DROP хийхээс сэргийлж хэвээр үлдэв. */
     valueDate: text("value_date"),
     description: text("description").notNull(),
     counterparty: text("counterparty"),
@@ -433,6 +435,8 @@ export const bankStatementLines = pgTable(
     expense: numeric("expense", { precision: 18, scale: 2 })
       .notNull()
       .default("0"),
+    /** @deprecated 2026-09: банкны үлдэгдэл импортлогдохгүй — тулгалт нь
+     *  нээлт + Σ(орлого − зарлага)-аас ӨӨРӨӨ тооцно. Багана DROP хийгдээгүй. */
     balance: numeric("balance", { precision: 18, scale: 2 }),
     exchangeRate: numeric("exchange_rate", { precision: 18, scale: 8 }),
     baseAmount: numeric("base_amount", { precision: 18, scale: 2 }),

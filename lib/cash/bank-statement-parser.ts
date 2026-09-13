@@ -15,7 +15,6 @@ const HEADER_HINTS = {
     "transaction date",
     "date",
   ],
-  valueDate: ["утгын огноо", "валютын огноо", "value date"],
   description: [
     "гүйлгээний утга",
     "гүйлгээний дэлгэрэнгүй",
@@ -28,7 +27,6 @@ const HEADER_HINTS = {
   income: ["орлого", "кредит", "credit", "орсон дүн", "deposit"],
   expense: ["зарлага", "дебит", "debit", "гарсан дүн", "withdrawal"],
   amount: ["гүйлгээний дүн", "дүн", "amount", "transaction amount"],
-  balance: ["эцсийн үлдэгдэл", "үлдэгдэл", "balance"],
   exchangeRate: [
     "гүйлгээний ханш",
     "валютын ханш",
@@ -177,7 +175,6 @@ function headerScore(map: HeaderMap) {
   if (map.income != null) score += 2;
   if (map.expense != null) score += 2;
   if (map.amount != null) score += 2;
-  if (map.balance != null) score += 1;
   if (map.counterAccount != null) score += 1;
   if (map.counterparty != null) score += 1;
   return score;
@@ -279,14 +276,11 @@ function normalizeRows(
       id: crypto.randomUUID(),
       rowNumber: headerIndex + offset + 2,
       transactionDate,
-      valueDate: parseDate(get(row, map, "valueDate")),
       description,
       counterparty: cellText(get(row, map, "counterparty")),
       counterAccount,
       income,
       expense,
-      balance:
-        map.balance == null ? null : parseMoney(get(row, map, "balance")),
       exchangeRate:
         map.exchangeRate == null
           ? null

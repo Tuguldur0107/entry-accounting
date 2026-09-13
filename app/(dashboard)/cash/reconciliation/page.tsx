@@ -137,7 +137,8 @@ export default async function CashReconciliationPage({
   // ── Тоон дээр дарахад гарах ЗАДАРГАА — данс бүрийн гурван эх сурвалж ──────
   //   cash: нээлт + батлагдсан баримт бүрийн чиглэлтэй дүн (дансны валютаар)
   //   gl:   энэ дансны GL дугаарт нөлөөлсөн журнал бүрийн цэвэр дүн (MNT)
-  //   bank: хуулга бүрийн asOf-оос өмнөх сүүлийн үлдэгдэл мөр
+  //   bank: нээлтийн үлдэгдэл + хуулга бүрийн asOf хүртэлх цэвэр хөдөлгөөн
+  //         (орлого − зарлага) — хуулгын «Үлдэгдэл» багана импортлогдохгүй
   const cashDetailByAccount = new Map<
     string,
     CashReconciliationRow["details"]["cash"]
@@ -190,27 +191,22 @@ export default async function CashReconciliationPage({
     CashReconciliationRow["details"]["bank"]
   >();
   for (const statement of statements) {
-    let latest: { date: string; rowNumber: number; balance: number } | null = null;
+    let movement = 0;
+    let latestDate = "";
+    let counted = 0;
     for (const line of statement.lines) {
-      if (line.transactionDate > asOf || line.balance == null) continue;
-      if (
-        !latest ||
-        line.transactionDate > latest.date ||
-        (line.transactionDate === latest.date && line.rowNumber > latest.rowNumber)
-      )
-        latest = {
-          date: line.transactionDate,
-          rowNumber: line.rowNumber,
-          balance: Number(line.balance),
-        };
+      if (line.transactionDate > asOf) continue;
+      movement += Number(line.income) - Number(line.expense);
+      counted += 1;
+      if (line.transactionDate > latestDate) latestDate = line.transactionDate;
     }
-    if (!latest) continue;
+    if (counted === 0) continue;
     const list = bankDetailByAccount.get(statement.cashAccountId) ?? [];
     list.push({
       id: statement.id,
-      date: latest.date,
-      label: `${statement.fileName}${statement.periodEnd ? ` · ${statement.periodStart ?? ""}–${statement.periodEnd}` : ""}`,
-      amount: latest.balance,
+      date: latestDate,
+      label: `${statement.fileName}${statement.periodEnd ? ` · ${statement.periodStart ?? ""}–${statement.periodEnd}` : ""} · ${counted} мөр`,
+      amount: Math.round(movement * 100) / 100,
     });
     bankDetailByAccount.set(statement.cashAccountId, list);
   }
@@ -260,7 +256,22 @@ export default async function CashReconciliationPage({
           ...(cashDetailByAccount.get(account.id) ?? []).sort(byDateDesc),
         ],
         gl: (glDetailByMain.get(account.glAccountNumber) ?? []).sort(byDateDesc),
-        bank: (bankDetailByAccount.get(account.id) ?? []).sort(byDateDesc),
+        // Банкны тал ч кассын талтай ижил зангуутай: нээлт + хуулгын хөдөлгөөн.
+        bank: bankDetailByAccount.has(account.id)
+          ? [
+              ...(Math.abs(Number(account.openingBalance ?? 0)) > 0.005
+                ? [
+                    {
+                      id: `bank-opening-${account.id}`,
+                      date: "",
+                      label: "Нээлтийн үлдэгдэл (дансны тохиргоо)",
+                      amount: Number(account.openingBalance ?? 0),
+                    },
+                  ]
+                : []),
+              ...(bankDetailByAccount.get(account.id) ?? []).sort(byDateDesc),
+            ]
+          : [],
       },
       status: core.status,
     };

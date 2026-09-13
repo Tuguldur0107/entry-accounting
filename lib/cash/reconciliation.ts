@@ -61,7 +61,8 @@ interface StatementLike {
   lines: {
     transactionDate: string;
     rowNumber: number;
-    balance: string | number | null;
+    income: string | number;
+    expense: string | number;
   }[];
 }
 
@@ -117,30 +118,39 @@ export function computeCashCoreRows<R extends FxRevaluationLike>(input: {
     }
   }
 
-  const latestBankBalance = new Map<
+  // Банкны тал: хуулгын "Үлдэгдэл" багана импортлогдохгүй (2026-09 — шаардлага
+  // байхгүй) тул банкны үлдэгдлийг КАССЫН ТАЛТАЙ ИЖИЛ зангуугаас бодно:
+  // дансны нээлтийн үлдэгдэл + Σ(орлого − зарлага) импортолсон мөр (≤ asOf).
+  // Ингэснээр bank↔cash зөрүү нь "банкны хөдөлгөөн vs бүртгэсэн хөдөлгөөн"
+  // болно — тулгалтын зорилго яг энэ. Таамаглал: нээлтийн огнооноос хойшхи
+  // бүх хуулга импортлогдсон (fileHash давхардлыг хаадаг).
+  const bankMovement = new Map<
     string,
-    { date: string; evidenceDate: string; rowNumber: number; balance: number }
+    { movement: number; date: string; evidenceDate: string; rowNumber: number }
   >();
   for (const statement of statements) {
     for (const line of statement.lines) {
-      if (line.transactionDate > asOf || line.balance == null) continue;
-      const current = latestBankBalance.get(statement.cashAccountId);
+      if (line.transactionDate > asOf) continue;
+      const current = bankMovement.get(statement.cashAccountId) ?? {
+        movement: 0,
+        date: "",
+        evidenceDate: "",
+        rowNumber: 0,
+      };
+      current.movement += Number(line.income) - Number(line.expense);
       if (
-        !current ||
         line.transactionDate > current.date ||
         (line.transactionDate === current.date &&
           line.rowNumber > current.rowNumber)
       ) {
-        latestBankBalance.set(statement.cashAccountId, {
-          date: line.transactionDate,
-          evidenceDate:
-            statement.periodEnd && statement.periodEnd <= asOf
-              ? statement.periodEnd
-              : line.transactionDate,
-          rowNumber: line.rowNumber,
-          balance: Number(line.balance),
-        });
+        current.date = line.transactionDate;
+        current.rowNumber = line.rowNumber;
+        current.evidenceDate =
+          statement.periodEnd && statement.periodEnd <= asOf
+            ? statement.periodEnd
+            : line.transactionDate;
       }
+      bankMovement.set(statement.cashAccountId, current);
     }
   }
 
@@ -156,7 +166,16 @@ export function computeCashCoreRows<R extends FxRevaluationLike>(input: {
     const cashBalance = cashBalanceMap.get(account.id) ?? 0;
     const glBalance =
       Math.round((glByMain.get(account.glAccountNumber) ?? 0) * 100) / 100;
-    const statementBalance = latestBankBalance.get(account.id);
+    const movement = bankMovement.get(account.id);
+    const statementBalance = movement
+      ? {
+          balance:
+            Math.round(
+              (Number(account.openingBalance) + movement.movement) * 100
+            ) / 100,
+          evidenceDate: movement.evidenceDate,
+        }
+      : undefined;
     const rateRow = latestFxRate.get(account.id) ?? null;
     const closingRate =
       account.currency === "MNT"
