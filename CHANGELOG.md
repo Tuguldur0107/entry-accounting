@@ -6,6 +6,17 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 ## [Unreleased]
 
 ### Засагдсан
+- **`exchange_rates`-ийн давхардлын хамгаалалт unique constraint → unique
+  INDEX** (`exchange_rates_source_currency_date_ux`). drizzle-kit 0.31.x-ийн
+  алдаа (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
+  `push` дараагийн удаа "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин нэмэх
+  гэж truncate асуулт тавьдаг — `--force` ч үүнийг алгасдаггүй тул preDeploy
+  crash хийж, ханшийн түүхтэй харилцагч бүрийн БҮХ migration зогсдог байв
+  (smartgps дээр илэрсэн). Unique index нь `pg_indexes`-ээс зөв танигдана,
+  `ON CONFLICT (source, currency, date)` хэвээр ажиллана. Нэр нь хуучин
+  `…_unique`-ээс зориуд өөр — өмнөх constraint байгаа DB-д давхцахгүй;
+  хуучин constraint-ыг хүсвэл гараар устгана
+  (`ALTER TABLE exchange_rates DROP CONSTRAINT exchange_rates_source_currency_date_unique`)
 - **`db:push` → `drizzle-kit push --force`.** Энгийн `push` нь unique
   constraint нэмэх/багана хасах зэрэг "data loss" өөрчлөлт дээр интерактив
   асуулт тавьдаг тул Railway-ийн non-TTY preDeploy дээр crash хийж, схемийн
