@@ -6,9 +6,12 @@ import {
   type CashReconciliationRow,
 } from "@/components/cash/cash-reconciliation-workspace";
 import { getActiveOrg } from "@/lib/auth";
+import { periodCodeOf, periodRange } from "@/lib/periods/period";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { computeCashCoreRows, glMainNumber } from "@/lib/cash/reconciliation";
 import { db } from "@/lib/db";
 import {
+  accountingPeriods,
   bankStatements,
   cashAccounts,
   cashDocuments,
@@ -19,12 +22,6 @@ import {
 
 type SearchParams = Promise<{ asOf?: string }>;
 
-function todayInUlaanbaatar() {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-}
-
 export default async function CashReconciliationPage({
   searchParams,
 }: {
@@ -32,9 +29,17 @@ export default async function CashReconciliationPage({
 }) {
   const { orgId } = await getActiveOrg();
   const params = await searchParams;
+  // Ханшийн тэгшитгэл нь ТАЙЛАНТ ҮЕИЙН хаалтын алхам тул огноо нь topbar-ийн
+  // сонгосон үеэс гарна (CLAUDE.md §4: URL-ийн ил параметр сонголтыг ДАРНА,
+  // байхгүй бол getPeriodSelection). Ингэснээр хэрэглэгч 2025-12 гэж сонгоод
+  // эхний үлдэгдлээ оруулаад сар бүрээр нөхөж явахад огноо нь автоматаар
+  // тухайн үеийнх болно — өнөөдрийнх БИШ.
+  const selection = await getPeriodSelection();
   const asOf = /^\d{4}-\d{2}-\d{2}$/.test(params.asOf ?? "")
     ? params.asOf!
-    : todayInUlaanbaatar();
+    : selection.to;
+  const periodCode = periodCodeOf(asOf);
+  const { endDate: periodEndDate } = periodRange(periodCode);
 
   const [
     accounts,
@@ -281,10 +286,33 @@ export default async function CashReconciliationPage({
     status: item.status,
   }));
 
+  // Тухайн огноо аль тайлант үед хамаарах, тэр үе НЭЭЛТТЭЙ эсэх — тэгшитгэл
+  // хаагдсан үед бичигдэхгүй тул хэрэглэгчид УРЬДЧИЛЖ хэлнэ (бүртгэлгүй сар
+  // = нээлттэй, lib/periods/period.ts isPeriodWritable-тай ижил дүрэм).
+  const periodRow = await db.query.accountingPeriods.findFirst({
+    where: and(
+      eq(accountingPeriods.organizationId, orgId),
+      eq(accountingPeriods.code, periodCode)
+    ),
+    columns: { status: true },
+  });
+  const periodStatus: "open" | "closed" =
+    periodRow?.status === "closed" ? "closed" : "open";
+  const periodRevaluedCount = fxRevaluations.filter(
+    (item) =>
+      item.status === "posted" &&
+      item.valuationDate >= `${periodCode}-01` &&
+      item.valuationDate <= periodEndDate
+  ).length;
+
   return (
     <CashReconciliationWorkspace
       key={`${asOf}:${history[0]?.id ?? "none"}`}
       asOf={asOf}
+      periodCode={periodCode}
+      periodEndDate={periodEndDate}
+      periodStatus={periodStatus}
+      periodRevaluedCount={periodRevaluedCount}
       rows={rows}
       history={history}
       fxAccountOptions={glAccounts.map((account) => ({

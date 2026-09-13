@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { fmtPeriodCode } from "@/lib/periods/period";
 import {
   createCashOpeningVoucher,
   postCashDocument,
@@ -179,11 +180,22 @@ function numberOrBlank(value: number | null) {
 
 export function CashReconciliationWorkspace({
   asOf,
+  periodCode,
+  periodEndDate,
+  periodStatus,
+  periodRevaluedCount,
   rows,
   history,
   fxAccountOptions,
 }: {
   asOf: string;
+  /** Тэгшитгэлийн огноо хамаарах тайлант үе — "2025-12". */
+  periodCode: string;
+  /** Тухайн үеийн сүүлийн өдөр — "сарын эцэс" товч үүн рүү үсэргэнэ. */
+  periodEndDate: string;
+  periodStatus: "open" | "closed";
+  /** Тухайн үед аль хэдийн бичигдсэн тэгшитгэлийн тоо. */
+  periodRevaluedCount: number;
   rows: CashReconciliationRow[];
   history: CashFxHistoryRow[];
   fxAccountOptions: Array<{ number: string; name: string }>;
@@ -970,18 +982,47 @@ export function CashReconciliationWorkspace({
             журнал. Зөрүү гарвал шалтгаан, засах алхам нь доор автоматаар гарна.
           </div>
         </div>
-        <div className="flex w-full items-center gap-2 sm:w-auto">
-          <Input
-            type="date"
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-            className="min-w-0 flex-1 sm:w-40 sm:flex-none"
-            aria-label="Тулгалтын огноо"
-          />
-          <Button variant="outline" onClick={applyDate}>
-            <Icon name="refresh" />
-            Шинэчлэх
-          </Button>
+        <div className="flex w-full flex-col items-stretch gap-1.5 sm:w-auto">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <Input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              className="min-w-0 flex-1 sm:w-40 sm:flex-none"
+              aria-label="Тэгшитгэлийн огноо"
+            />
+            {/* Тэгшитгэл нь ихэвчлэн САР ХААХАД хийгддэг тул нэг даралтаар
+                тухайн үеийн эцсийн өдөр рүү үсэргэнэ. */}
+            {date !== periodEndDate && (
+              <Button
+                variant="outline"
+                onClick={() => setDate(periodEndDate)}
+                title={`${periodEndDate} — тайлант үеийн эцсийн өдөр`}
+              >
+                Сарын эцэс
+              </Button>
+            )}
+            <Button variant="outline" onClick={applyDate}>
+              <Icon name="refresh" />
+              Шинэчлэх
+            </Button>
+          </div>
+          {/* АЛЬ тайлант үеийн тэгшитгэл болохыг ИЛ хэлнэ — өнөөдрийн огноо
+              автоматаар сонгогдчихвол буруу үеийн бичилт хийгдэх эрсдэлтэй. */}
+          <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px] text-[var(--ea-text-3)]">
+            <span>Тайлант үе {fmtPeriodCode(periodCode)}</span>
+            <StatusBadge
+              tone={periodStatus === "closed" ? "danger" : "success"}
+              size="sm"
+            >
+              {periodStatus === "closed" ? "Хаагдсан" : "Нээлттэй"}
+            </StatusBadge>
+            {periodRevaluedCount > 0 && (
+              <StatusBadge tone="muted" size="sm">
+                {periodRevaluedCount} тэгшитгэл бичигдсэн
+              </StatusBadge>
+            )}
+          </div>
         </div>
       </header>
 
@@ -1077,6 +1118,9 @@ export function CashReconciliationWorkspace({
               <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
                 Валютын ханшийн тэгшитгэл
               </h2>
+              <span className="text-xs text-[var(--ea-text-3)]">
+                · {fmtPeriodCode(periodCode)} үеийн хаалт · {asOf}-ний ханшаар
+              </span>
             </div>
             {fxRows.length > 0 && (
               <Button variant="outline" size="sm" onClick={openRateDialog}>
@@ -1085,6 +1129,18 @@ export function CashReconciliationWorkspace({
               </Button>
             )}
           </div>
+
+          {/* Хаагдсан үед бичилт хийгдэхгүй (assertPeriodOpen) — оролдохоос
+              нь ӨМНӨ хэлнэ, эс бөгөөс хэрэглэгч ханшаа сонгоод сая алдаа
+              хардаг. */}
+          {periodStatus === "closed" && fxRows.length > 0 && (
+            <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger-fg)]">
+              <Icon name="warning" size="xs" className="mr-1 inline-block" />
+              {fmtPeriodCode(periodCode)} тайлант үе ХААГДСАН — энэ огноогоор
+              тэгшитгэл бичигдэхгүй. Өөр үе сонгох, эсвэл Тохиргоо → Тайлант
+              үе хэсгээс дахин нээнэ үү.
+            </p>
+          )}
 
           {fxRows.length > 0 && (
             <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)]">
@@ -1283,9 +1339,11 @@ export function CashReconciliationWorkspace({
           <DialogHeader>
             <DialogTitle>Валютын ханшийн мэдээлэл</DialogTitle>
             <DialogDescription>
-              {asOf}-ний Монголбанкны албан ханш — харьцуулахаар арилжааны
-              банкны ханш мөн жагсаана. Тэгшитгэл нь СОНГОСОН огнооны ханшаар
-              хийгдэнэ.
+              <strong>{fmtPeriodCode(periodCode)}</strong> тайлант үеийн хаалт
+              — <strong>{asOf}</strong>-ний Монголбанкны албан ханшаар
+              тэгшитгэнэ. Харьцуулахаар арилжааны банкны ханш мөн жагсаана.
+              Өөр үеийн тэгшитгэл хийх бол дээрх огноогоо (эсвэл топбар дээрх
+              тайлант үеэ) солино уу.
             </DialogDescription>
           </DialogHeader>
 
