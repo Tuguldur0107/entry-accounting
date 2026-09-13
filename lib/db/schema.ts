@@ -543,6 +543,41 @@ export const cashFxRevaluations = pgTable(
   ]
 );
 
+// ─── Ханшийн түүх (нийтийн лавлах — байгууллагаар хуваагдахгүй) ─────────────
+// Монголбанкны албан ханш ба арилжааны банкуудын ханшийг ӨДРӨӨР хадгална.
+// Зорилго: (1) эхний үлдэгдэл, өмнөх үеийн бичилтэд ТУХАЙН ӨДРИЙН ханшийг
+// ашиглах, (2) эх сурвалж унтарсан ч тайлан дахин бодогдох, (3) ямар ханшаар
+// юу бичсэн нь аудитад мөрдөгдөх. Ханш нь нийтийн баримт тул org-оор
+// хуваахгүй; татсан хэрэглэгчийг мэдээллийн зорилгоор л үлдээнэ.
+export const exchangeRates = pgTable(
+  "exchange_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** "mongolbank" | "tdb" | "golomt" */
+    source: text("source").notNull(),
+    /** Ханшийн ӨӨРИЙН огноо (эх сурвалжийн RATE_DATE), YYYY-MM-DD. */
+    date: text("date").notNull(),
+    currency: text("currency").notNull(),
+    officialRate: numeric("official_rate", { precision: 18, scale: 8 }),
+    nonCashBuyRate: numeric("non_cash_buy_rate", { precision: 18, scale: 8 }),
+    nonCashSellRate: numeric("non_cash_sell_rate", { precision: 18, scale: 8 }),
+    cashBuyRate: numeric("cash_buy_rate", { precision: 18, scale: 8 }),
+    cashSellRate: numeric("cash_sell_rate", { precision: 18, scale: 8 }),
+    sourceUrl: text("source_url"),
+    /** Хэзээ татсан (сүүлийн шинэчлэлт). */
+    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+    /** Татсан хэрэглэгч — мэдээллийн зорилгоор (ханш нь нийтийн лавлах). */
+    fetchedBy: text("fetched_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    unique().on(t.source, t.currency, t.date),
+    index("exchange_rates_currency_date_ix").on(t.currency, t.date),
+    index("exchange_rates_source_date_ix").on(t.source, t.date),
+  ]
+);
+
 // ─── Counterparty AR/AP ──────────────────────────────────────────────────────
 
 export const counterparties = pgTable(
@@ -2747,6 +2782,7 @@ export type CostPoolRule = typeof costPoolRules.$inferSelect;
 export type ProductionRun = typeof productionRuns.$inferSelect;
 export type CostAllocation = typeof costAllocations.$inferSelect;
 export type CostAllocationLine = typeof costAllocationLines.$inferSelect;
+export type ExchangeRate = typeof exchangeRates.$inferSelect;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
 export type GoodsReceipt = typeof goodsReceipts.$inferSelect;
