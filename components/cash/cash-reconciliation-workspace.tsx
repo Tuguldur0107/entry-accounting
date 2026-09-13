@@ -6,6 +6,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import type {
@@ -26,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   createCashOpeningVoucher,
   postCashDocument,
@@ -125,6 +127,15 @@ type RateEvidence = {
   fetchedAt: string | null;
 };
 
+/**
+ * Ханшийн диалогийн мөр — `/api/cash/exchange-rates`-ийн хариу.
+ *
+ * `stored` нь тухайн ханш ХАДГАЛАГДСАН түүхээс ирсэн эсэхийг заана (үгүй бол
+ * банкны сайтаас шинээр татагдсан). Талбар байхгүй хариуг «Татсан» гэж үзнэ —
+ * ханшийг ХЭЗЭЭ Ч зохиохгүй, зөвхөн гарал үүслийг нь ил болгоно.
+ */
+type RateQuoteRow = ExchangeRateQuote & { stored?: boolean };
+
 type FxInputRow = CashReconciliationRow & {
   inputRate: number | null;
   rateEvidence: RateEvidence | null;
@@ -191,7 +202,7 @@ export function CashReconciliationWorkspace({
   const [ratesLoading, setRatesLoading] = useState(false);
   const [rateBasis, setRateBasis] =
     useState<ExchangeRateBasis>("official");
-  const [rateQuotes, setRateQuotes] = useState<ExchangeRateQuote[]>([]);
+  const [rateQuotes, setRateQuotes] = useState<RateQuoteRow[]>([]);
   const [rateErrors, setRateErrors] = useState<string[]>([]);
   const [rateFetchError, setRateFetchError] = useState("");
   const [postingTarget, setPostingTarget] = useState<FxInputRow | null>(null);
@@ -782,14 +793,14 @@ export function CashReconciliationWorkspace({
     [rateBasis]
   );
 
-  const rateColumns = useMemo<ColDef<ExchangeRateQuote>[]>(
+  const rateColumns = useMemo<ColDef<RateQuoteRow>[]>(
     () => [
       {
         headerName: "Эх сурвалж",
         field: "sourceName",
         minWidth: 190,
         flex: 1,
-        cellRenderer: (params: ICellRendererParams<ExchangeRateQuote>) => (
+        cellRenderer: (params: ICellRendererParams<RateQuoteRow>) => (
           <a
             href={params.data?.sourceUrl}
             target="_blank"
@@ -814,6 +825,23 @@ export function CashReconciliationWorkspace({
         field: "date",
         width: 112,
         cellClass: "font-mono text-xs",
+      },
+      {
+        // Ханшийн ГАРАЛ ҮҮСЭЛ ил байх ёстой: «Хадгалсан» бол Ханшийн түүхээс
+        // (өмнөх үеийн бичилтэд ч давтагдана), «Татсан» бол яг одоо банкны
+        // сайтаас уншсан утга.
+        headerName: "Хадгалалт",
+        colId: "stored",
+        width: 118,
+        valueGetter: (params) =>
+          params.data?.stored ? "Хадгалсан" : "Татсан",
+        cellRenderer: (params: ICellRendererParams<RateQuoteRow>) => (
+          <span className="flex h-full items-center">
+            <StatusBadge tone={params.data?.stored ? "success" : "muted"} size="sm">
+              {params.data?.stored ? "Хадгалсан" : "Татсан"}
+            </StatusBadge>
+          </span>
+        ),
       },
       {
         headerName: "Албан",
@@ -860,7 +888,7 @@ export function CashReconciliationWorkspace({
         pinned: "right",
         sortable: false,
         filter: false,
-        cellRenderer: (params: ICellRendererParams<ExchangeRateQuote>) => (
+        cellRenderer: (params: ICellRendererParams<RateQuoteRow>) => (
           <button
             type="button"
             className="ea-btn ea-btn--sm ea-btn--primary"
@@ -896,7 +924,7 @@ export function CashReconciliationWorkspace({
           try {
             const response = await fetch(`/api/cash/exchange-rates?${query}`);
             const payload = (await response.json()) as {
-              quotes?: ExchangeRateQuote[];
+              quotes?: RateQuoteRow[];
               errors?: string[];
               error?: string;
             };
@@ -1255,9 +1283,22 @@ export function CashReconciliationWorkspace({
           <DialogHeader>
             <DialogTitle>Валютын ханшийн мэдээлэл</DialogTitle>
             <DialogDescription>
-              {asOf} өдрийн төв банк болон арилжааны банкны ханш
+              {asOf}-ний Монголбанкны албан ханш — харьцуулахаар арилжааны
+              банкны ханш мөн жагсаана. Тэгшитгэл нь СОНГОСОН огнооны ханшаар
+              хийгдэнэ.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Өмнөх үеийн бичилтэд (эхний үлдэгдэл, хойшлуулсан тэгшитгэл)
+              тухайн ӨДРИЙН ханш хэрэгтэй — түүхийг нэг удаа татаж хадгална. */}
+          <Link
+            href="/cash/rates"
+            className="inline-flex w-fit items-center gap-1 text-xs font-medium text-[var(--ea-primary)] hover:underline"
+          >
+            <Icon name="bank" size="sm" />
+            Түүхэн ханш татах
+            <Icon name="chevronRight" size="xs" />
+          </Link>
 
           <div
             className="grid grid-cols-2 overflow-hidden rounded-md border border-[var(--ea-border)] md:grid-cols-4"
@@ -1295,7 +1336,7 @@ export function CashReconciliationWorkspace({
                 </div>
               )}
               <div className="hidden md:block">
-                <DataGridDynamic<ExchangeRateQuote>
+                <DataGridDynamic<RateQuoteRow>
                   rowData={rateQuotes}
                   columnDefs={rateColumns}
                   getRowId={(params) => params.data.id}
@@ -1320,8 +1361,16 @@ export function CashReconciliationWorkspace({
                             {quote.sourceName}
                             <Icon name="openExternal" size="xs" />
                           </a>
-                          <div className="text-xs text-[var(--ea-text-3)]">
-                            {quote.currency} · {quote.date}
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--ea-text-3)]">
+                            <span>
+                              {quote.currency} · {quote.date}
+                            </span>
+                            <StatusBadge
+                              tone={quote.stored ? "success" : "muted"}
+                              size="sm"
+                            >
+                              {quote.stored ? "Хадгалсан" : "Татсан"}
+                            </StatusBadge>
                           </div>
                         </div>
                         <div className="text-right">

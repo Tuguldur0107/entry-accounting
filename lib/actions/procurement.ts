@@ -26,7 +26,7 @@ import { createArApDocument } from "@/lib/actions/arap";
 import { listAttachments } from "@/lib/actions/attachments";
 import { logAuditEvent } from "@/lib/audit";
 import { getActiveOrg, requireModuleAction } from "@/lib/auth";
-import { getOfficialRateForDate } from "@/lib/cash/exchange-rates";
+import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { entryPostingAccounts } from "@/lib/costing/costing";
 import {
   loadCostComponents,

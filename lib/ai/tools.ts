@@ -114,7 +114,13 @@ import {
   getCompanySettings,
   updateCompanySettings,
 } from "@/lib/actions/company";
-import { fetchMongolbankRates } from "@/lib/cash/exchange-rates";
+import {
+  getStoredRateForDate,
+  syncMongolbankRates,
+} from "@/lib/actions/exchange-rates";
+// STORE-FIRST: ханшийг ХЭЗЭЭ Ч `fetch`-ээр шууд авахгүй (CLAUDE.md §5b) —
+// `getOfficialRateForDate` нь хадгалсан түүхээс → Монголбанкнаас → ШИДНЭ.
+import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { saveBankStatement } from "@/lib/cash/import-statement";
 import {
   saveCostComponent,
@@ -1628,7 +1634,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "run_fx_revaluation",
     description:
-      "Валютын кассын/банкны дансдад ханшийн тэгшитгэл хийж GL журнал бичнэ (сар хаалтын 2-р алхам). Ханш өгөхгүй бол Монголбанкны албан ханшийг автоматаар татна. Зөвхөн 'Шууд бичих' горимд.",
+      "Валютын кассын/банкны дансдад ханшийн тэгшитгэл хийж GL журнал бичнэ (сар хаалтын 2-р алхам). Ханш өгөхгүй бол тэгшитгэлийн огнооны Монголбанкны албан ханшийг ХАДГАЛСАН түүхээс, байхгүй бол Монголбанкнаас татаж хэрэглэнэ. Зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1639,7 +1645,8 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         rate: {
           type: "number",
-          description: "Гар ханш (өгвөл cashAccount заавал; өгөхгүй бол Монголбанкнаас татна)",
+          description:
+            "Гар ханш (өгвөл cashAccount заавал; өгөхгүй бол хадгалсан/Монголбанкны албан ханш хэрэглэгдэнэ)",
         },
         manualReason: { type: "string", description: "Гар ханш ашигласан шалтгаан" },
         gainAccount: { type: "string", description: "Ханшийн олзын данс (default 51800001)" },
@@ -1662,6 +1669,46 @@ export const AI_TOOLS: AiToolDef[] = [
         valuationDate: { type: "string", description: "Тэгшитгэлийн огноо YYYY-MM-DD" },
       },
       required: ["cashAccount", "valuationDate"],
+    },
+  },
+
+  // ── Валютын ханшийн түүх (НИЙТИЙН лавлах — GL бичилт үүсгэхгүй) ───────────
+  {
+    name: "sync_exchange_rates",
+    description:
+      "Монголбанкны ТҮҮХЭН албан ханшийг [from, to] мужаар татаж хадгална. Эхний үлдэгдэл, өмнөх хугацааны бичилт, ханшийн тэгшитгэлд ӨМНӨХ ҮЕИЙН ханш хэрэгтэй болоход эхлээд үүнийг дуудна — дараа нь ханшийн уншилт хадгалсан түүхээс шууд явна. Лавлах дата тул журнал/GL бичилт үүсгэхгүй, аль ч горимд ажиллана. Муж 2015-01-01-ээс хойш, дээд тал нь 5 жил; дахин дуудахад давхардахгүй (upsert).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: {
+          type: "string",
+          description: "Эхлэх огноо YYYY-MM-DD (2015-01-01-ээс хойш)",
+        },
+        to: {
+          type: "string",
+          description: "Дуусах огноо YYYY-MM-DD (ирээдүйд байж болохгүй)",
+        },
+        currencies: {
+          type: "array",
+          description:
+            "Валютын кодууд (жишээ нь [\"USD\",\"EUR\"]) — хоосон бол Монголбанкны нийтэлсэн БҮХ валют",
+          items: { type: "string" },
+        },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "get_exchange_rate",
+    description:
+      "Тухайн огнооны Монголбанкны албан ханшийг буцаана — эхлээд хадгалсан түүхээс, байхгүй бол Монголбанкнаас татаад хадгална. Ханш олдохгүй бол АЛДАА буцна: ханшийг ХЭЗЭЭ Ч зохиохгүй, хэрэглэгчээс гар ханш асууна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        currency: { type: "string", description: "Валютын код (USD, EUR, CNY ...)" },
+        date: { type: "string", description: "Ханшийн огноо YYYY-MM-DD" },
+      },
+      required: ["currency", "date"],
     },
   },
 
@@ -6102,24 +6149,29 @@ async function runFxRevaluation(
   const gainMain = resolveAccount(input.gainAccount?.trim() || "51800001", ctx).main;
   const lossMain = resolveAccount(input.lossAccount?.trim() || "87000003", ctx).main;
 
-  // Монголбанкны албан ханш — гар ханшгүй үед л татна.
+  // Монголбанкны албан ханш — гар ханшгүй үед л авна. STORE-FIRST
+  // (`getOfficialRateForDate`): хадгалсан түүх → Монголбанк → ШИДНЭ.
+  // Тиймээс өмнөх үеийн (эхний үлдэгдлийн) огноонд ч ажиллана.
   const rateByCurrency = new Map<string, { rate: number; date: string; url: string }>();
   if (manualRate == null) {
     const currencies = [...new Set(targets.map((entry) => entry.currency))];
-    const quotes = await fetchMongolbankRates(input.valuationDate, currencies).catch(
-      (caught: unknown) => {
-        throw new Error(
-          `Монголбанкны ханш татагдсангүй (${errorText(caught)}) — rate параметрээр гар ханш өгнө үү`
-        );
-      }
-    );
-    for (const quote of quotes)
-      if (quote.officialRate != null)
-        rateByCurrency.set(quote.currency, {
-          rate: quote.officialRate,
-          date: quote.date,
-          url: quote.sourceUrl,
+    const rateErrors: string[] = [];
+    for (const currency of currencies) {
+      try {
+        const lookup = await getOfficialRateForDate(currency, input.valuationDate);
+        rateByCurrency.set(currency, {
+          rate: lookup.rate,
+          date: lookup.rateDate,
+          url: lookup.sourceUrl,
         });
+      } catch (caught) {
+        rateErrors.push(`${currency}: ${errorText(caught)}`);
+      }
+    }
+    if (rateByCurrency.size === 0)
+      throw new Error(
+        `Монголбанкны ханш олдсонгүй (${rateErrors.join("; ")}) — түүхэн ханшийг Мөнгөн хөрөнгө → Ханшийн түүх хэсгээс татна уу (sync_exchange_rates), эсвэл rate параметрээр гар ханш өгнө үү`
+      );
   }
 
   const lines: string[] = [];
@@ -6128,7 +6180,9 @@ async function runFxRevaluation(
     try {
       const quote = rateByCurrency.get(account.currency);
       if (manualRate == null && !quote)
-        throw new Error(`${account.currency} ханш Монголбанкнаас олдсонгүй`);
+        throw new Error(
+          `${account.currency} ханш ${input.valuationDate}-нд олдсонгүй — түүхэн ханшийг Мөнгөн хөрөнгө → Ханшийн түүх хэсгээс татна уу (sync_exchange_rates), эсвэл rate параметрээр гар ханш өгнө үү`
+        );
       await postCashFxRevaluation({
         cashAccountId: account.id,
         valuationDate: input.valuationDate,
@@ -6194,6 +6248,49 @@ async function runReverseFxRevaluation(
   await reverseCashFxRevaluation(latest.id);
   return {
     resultText: `Ханшийн тэгшитгэл буцаагдлаа: ${account.name} · ${input.valuationDate} (сторно журнал үүссэн)`,
+  };
+}
+
+// ── Ханшийн түүх (нийтийн лавлах — GL хөндөхгүй тул горим шалгахгүй) ────────
+
+async function runSyncExchangeRates(input: {
+  from: string;
+  to: string;
+  currencies?: string[];
+}): Promise<AiToolResult> {
+  const result = unwrapAction(
+    await syncMongolbankRates({
+      from: input.from,
+      to: input.to,
+      currencies: Array.isArray(input.currencies) ? input.currencies : undefined,
+    })
+  );
+  return {
+    resultText: [
+      `Монголбанкны ханшийн түүх татагдлаа: ${result.from} — ${result.to} (${result.days} хоног)`,
+      `Хадгалагдсан мөр: ${fmt(result.saved)}`,
+      "Энэ нь нийтийн лавлах дата — журнал үүсээгүй. Одооноос get_exchange_rate / run_fx_revaluation нь энэ түүхээс шууд уншина.",
+    ].join("\n"),
+  };
+}
+
+async function runGetExchangeRate(input: {
+  currency: string;
+  date: string;
+}): Promise<AiToolResult> {
+  const result = unwrapAction(
+    await getStoredRateForDate({ currency: input.currency, date: input.date })
+  );
+  const code = String(input.currency ?? "").trim().toUpperCase();
+  // Хүссэн огноонд ханш нийтлэгдээгүй бол өмнөх ажлын өдрийнх гарна — ИЛ хэлнэ.
+  const shifted =
+    result.rateDate === String(input.date ?? "").trim()
+      ? ""
+      : ` (${input.date}-нд ханш нийтлэгдээгүй тул ${result.rateDate}-ны ханш)`;
+  return {
+    resultText: `${code} албан ханш ${result.rateDate}: ${fmt(result.rate)}₮ · эх сурвалж ${result.source} · ${
+      result.stored ? "хадгалсан түүхээс" : "эх сурвалжаас шинээр татав"
+    }${shifted}`,
   };
 }
 
@@ -8142,6 +8239,10 @@ export async function executeAiTool(
         return await runFxRevaluation(orgId, args, mode);
       case "reverse_fx_revaluation":
         return await runReverseFxRevaluation(orgId, args, mode);
+      case "sync_exchange_rates":
+        return await runSyncExchangeRates(args);
+      case "get_exchange_rate":
+        return await runGetExchangeRate(args);
       case "dispose_fixed_asset":
         return await runDisposeFixedAsset(orgId, args, mode);
       case "list_employees":

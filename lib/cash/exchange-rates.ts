@@ -35,10 +35,31 @@ const SOURCE_DETAILS = {
   },
 };
 
+/** ISO огноо (YYYY-MM-DD) — ханшийн огноо энэ хэлбэртэй л байна. */
+export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CURRENCY_RE = /^[A-Z]{3}$/;
+
 function numericRate(value: unknown) {
   if (value == null || value === "") return null;
   const parsed = Number(String(value).replaceAll(",", "").trim());
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** "2026-09-04" / "2026-09-04T00:00:00" → "2026-09-04"; бусад → null. */
+function isoDateOf(value: unknown) {
+  if (value == null) return null;
+  const text = String(value).trim().slice(0, 10);
+  return ISO_DATE_RE.test(text) ? text : null;
+}
+
+function normalizeCurrencies(currencies: string[]) {
+  return [
+    ...new Set(
+      currencies
+        .map((currency) => currency.trim().toUpperCase())
+        .filter((currency) => CURRENCY_RE.test(currency))
+    ),
+  ];
 }
 
 function quote(
@@ -67,8 +88,12 @@ function quote(
   };
 }
 
+/** Ханшийн суурь сонгох — quote эсвэл хадгалагдсан мөр аль нь ч болно. */
 export function rateForBasis(
-  value: ExchangeRateQuote,
+  value: Pick<
+    ExchangeRateQuote,
+    "officialRate" | "nonCashBuyRate" | "nonCashSellRate"
+  >,
   basis: ExchangeRateBasis
 ) {
   if (basis === "official") return value.officialRate;
@@ -108,6 +133,52 @@ export function parseMongolbankRates(
       }),
     ];
   });
+}
+
+/**
+ * ЦЭВЭР: Монголбанкны хариунаас өдөр БҮРИЙН мөрийг quote болгоно (түүх хадгалах
+ * зам). `parseMongolbankRates` нь зөвхөн сүүлийн хүчинтэй мөрийг өгдөг —
+ * тэр нь "тухайн өдрийн ханш" хайлтад, энэ нь ТҮҮХ татахад.
+ *
+ * `currencies` өгөөгүй бол мөрөнд байгаа БҮХ хүчинтэй валют (3 үсэгт багана,
+ * тоон утга > 0). Огноогүй / гажиг мөрийг чимээгүй алгасна — ханш ЗОХИОХГҮЙ.
+ */
+export function parseMongolbankHistory(
+  payload: MongolbankResponse,
+  currencies?: string[]
+): ExchangeRateQuote[] {
+  const wanted = currencies ? normalizeCurrencies(currencies) : null;
+  const results: ExchangeRateQuote[] = [];
+
+  for (const row of payload.data ?? []) {
+    if (!row || typeof row !== "object") continue;
+    const date = isoDateOf(row.RATE_DATE);
+    if (!date) continue;
+    const codes =
+      wanted ??
+      Object.keys(row).filter(
+        (key) => key !== "RATE_DATE" && CURRENCY_RE.test(key)
+      );
+    for (const currency of codes) {
+      const officialRate = numericRate(row[currency]);
+      if (officialRate == null) continue;
+      results.push(
+        quote("mongolbank", date, currency, {
+          officialRate,
+          nonCashBuyRate: null,
+          nonCashSellRate: null,
+          cashBuyRate: null,
+          cashSellRate: null,
+        })
+      );
+    }
+  }
+
+  return results.sort(
+    (left, right) =>
+      left.date.localeCompare(right.date) ||
+      left.currency.localeCompare(right.currency)
+  );
 }
 
 function textContent(html: string) {
@@ -204,22 +275,58 @@ async function checkedFetch(url: string, init?: RequestInit) {
   return response;
 }
 
+const MONGOLBANK_DATA_URL =
+  "https://www.mongolbank.mn/mn/currency-rates/data";
+
+/** Нэг хүсэлтээр татах дээд муж — МБ урт мужид ч хариулдаг ч жилээр хуваана. */
+const MONGOLBANK_MAX_RANGE_DAYS = 365;
+
+async function fetchMongolbankRange(startDate: string, endDate: string) {
+  const query = new URLSearchParams({ startDate, endDate });
+  const response = await checkedFetch(`${MONGOLBANK_DATA_URL}?${query}`, {
+    method: "POST",
+  });
+  return (await response.json()) as MongolbankResponse;
+}
+
 export async function fetchMongolbankRates(
   asOf: string,
   currencies: string[]
 ) {
-  const query = new URLSearchParams({
-    startDate: addDays(asOf, -10),
-    endDate: asOf,
-  });
-  const response = await checkedFetch(
-    `https://www.mongolbank.mn/mn/currency-rates/data?${query}`,
-    { method: "POST" }
-  );
-  return parseMongolbankRates(
-    (await response.json()) as MongolbankResponse,
-    currencies,
-    asOf
+  const payload = await fetchMongolbankRange(addDays(asOf, -10), asOf);
+  return parseMongolbankRates(payload, currencies, asOf);
+}
+
+/**
+ * ТҮҮХ: [from, to] мужийн өдөр тутмын албан ханш. Муж нь 1 жилээс урт бол
+ * жилээр ХУВААЖ дараалан татна (МБ-ыг зэрэг олон хүсэлтээр цохихгүй).
+ * Огноо буруу / муж урвуу бол ШИДНЭ.
+ */
+export async function fetchMongolbankHistory(
+  from: string,
+  to: string,
+  currencies?: string[]
+): Promise<ExchangeRateQuote[]> {
+  if (!ISO_DATE_RE.test(from) || !ISO_DATE_RE.test(to))
+    throw new Error("Ханшийн огноо буруу байна");
+  if (from > to)
+    throw new Error("Эхлэх огноо дуусах огнооноос хойш байж болохгүй");
+
+  const merged = new Map<string, ExchangeRateQuote>();
+  let start = from;
+  while (start <= to) {
+    const chunkEnd = addDays(start, MONGOLBANK_MAX_RANGE_DAYS - 1);
+    const end = chunkEnd < to ? chunkEnd : to;
+    const payload = await fetchMongolbankRange(start, end);
+    for (const value of parseMongolbankHistory(payload, currencies))
+      merged.set(`${value.date}|${value.currency}`, value);
+    start = addDays(end, 1);
+  }
+
+  return [...merged.values()].sort(
+    (left, right) =>
+      left.date.localeCompare(right.date) ||
+      left.currency.localeCompare(right.currency)
   );
 }
 
@@ -239,7 +346,53 @@ export type OfficialRateLookup = {
   basis: "official";
   sourceUrl: string;
   fetchedAt: string;
+  /** true = хадгалагдсан түүхээс уншсан, false = эх сурвалжаас шинээр татсан. */
+  stored: boolean;
 };
+
+// ─── Ханшийн агуулахын залгуур (rate-store.ts) ───────────────────────────────
+//
+// ЭНЭ ФАЙЛД `@/lib/db`-г import ХИЙХИЙГ ХОРИГЛОНО: client component ч эндээс
+// (`rateForBasis`, төрлүүд) уншдаг тул postgres драйвер browser bundle-д орж
+// build унана. Тиймээс хадгалалтын давхарга нь `lib/cash/rate-store.ts`-д
+// амьдарч, import хийгдэх мөчдөө ӨӨРИЙГӨӨ энд бүртгүүлнэ. Бүртгэгдээгүй
+// (жишээ нь цэвэр client / тест) орчинд getOfficialRateForDate нь урьдын
+// адил шууд Монголбанкнаас татна.
+
+export type StoredRateHit = {
+  rate: number;
+  rateDate: string;
+  source: string;
+  sourceUrl: string | null;
+  fetchedAt: string;
+};
+
+export type ExchangeRateStore = {
+  loadStoredRate(input: {
+    currency: string;
+    date: string;
+    source?: string;
+    basis?: ExchangeRateBasis;
+  }): Promise<StoredRateHit | null>;
+  saveExchangeRates(
+    quotes: ExchangeRateQuote[],
+    fetchedBy?: string
+  ): Promise<number>;
+};
+
+// globalThis дээр хадгална — Next нь route бүрд тусдаа bundle үүсгэдэг тул
+// модуль хэд ч хуулбарлагдсан НЭГ л агуулах ажиллана.
+const storeHolder = globalThis as typeof globalThis & {
+  __eaExchangeRateStore?: ExchangeRateStore;
+};
+
+export function registerExchangeRateStore(store: ExchangeRateStore) {
+  storeHolder.__eaExchangeRateStore = store;
+}
+
+export function getExchangeRateStore(): ExchangeRateStore | null {
+  return storeHolder.__eaExchangeRateStore ?? null;
+}
 
 /** ЦЭВЭР (тесттэй): quote жагсаалтаас тухайн валютын албан ханшийг сонгоно. */
 export function pickOfficialRate(
@@ -256,17 +409,34 @@ export function pickOfficialRate(
   return { rate, rateDate: quote.date, sourceUrl: quote.sourceUrl };
 }
 
+/** Эх сурвалж унасан үед хадгалсан ханшаар нөхөх дээд хугацаа (хоногоор). */
+const STALE_FALLBACK_DAYS = 10;
+
+function daysBetween(from: string, to: string) {
+  return (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+}
+
 /**
  * Системийн СУУРЬ ханш: Монголбанкны албан ханш тухайн огноогоор. MNT → 1.
- * Олдохгүй бол ШИДНЭ (үнэ зохиохгүй — хэрэглэгч гараар оруулна).
+ *
+ * Дараалал:
+ *   (а) ЯГ тэр өдрийн хадгалагдсан ханш → шууд буцаана (сүлжээ хөндөхгүй).
+ *   (б) байхгүй бол Монголбанкнаас татаад ХАДГАЛНА.
+ *   (в) татагдахгүй бол ≤10 хоногийн дотоод хадгалсан ханшаар нөхнө.
+ *   (г) бас олдохгүй бол ШИДНЭ — үнэ ЗОХИОХГҮЙ, хэрэглэгч гараар оруулна.
+ *
+ * (а)-д ЯГ таарсан огноог шаардаж байгаа нь санамсаргүй хуучин ханш
+ * хэрэглэхээс сэргийлнэ: агуулах тухайн огноог хүртэл дүүргэгдээгүй байхад
+ * "≤ date-ийн сүүлийнх" нь Монголбанкны бодит ханшнаас ЗӨРӨХ боломжтой
+ * (МБ амралтын өдөр ч мөр нийтэлдэг). Хүлээн авалт/тэгшитгэл нь ТУХАЙН
+ * ӨДРИЙН ханшаар үнэлэгдэх ёстой (docs/procurement §3.5).
  */
 export async function getOfficialRateForDate(
   currency: string,
   date: string
 ): Promise<OfficialRateLookup> {
   const code = currency.trim().toUpperCase();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
-    throw new Error("Ханшийн огноо буруу байна");
+  if (!ISO_DATE_RE.test(date)) throw new Error("Ханшийн огноо буруу байна");
   const fetchedAt = new Date().toISOString();
   const sourceUrl = SOURCE_DETAILS.mongolbank.sourceUrl;
   if (code === "MNT")
@@ -278,30 +448,71 @@ export async function getOfficialRateForDate(
       basis: "official",
       sourceUrl,
       fetchedAt,
+      stored: false,
     };
-  if (!/^[A-Z]{3}$/.test(code))
+  if (!CURRENCY_RE.test(code))
     throw new Error(`Валютын код буруу байна: ${currency}`);
 
-  const quotes = await fetchMongolbankRates(date, [code]).catch(
-    (caught: unknown) => {
-      const text = caught instanceof Error ? caught.message : String(caught);
-      throw new Error(
-        `Монголбанкны ханш татагдсангүй (${text}) — ханшийг гараар оруулна уу`
-      );
-    }
-  );
-  const picked = pickOfficialRate(quotes, code);
-  if (!picked)
-    throw new Error(
-      `${code} валютын Монголбанкны албан ханш ${date}-нд олдсонгүй — ханшийг гараар оруулна уу`
-    );
-  return {
+  // (а) Хадгалагдсан түүх — өмнөх үеийн эхний үлдэгдэл, FX тэгшитгэлд гол зам.
+  const store = getExchangeRateStore();
+  const hit = store
+    ? await store
+        .loadStoredRate({
+          currency: code,
+          date,
+          source: "mongolbank",
+          basis: "official",
+        })
+        .catch(() => null)
+    : null;
+  const storedLookup = (found: StoredRateHit): OfficialRateLookup => ({
     currency: code,
-    ...picked,
+    rate: found.rate,
+    rateDate: found.rateDate,
     source: "mongolbank",
     basis: "official",
-    fetchedAt,
-  };
+    sourceUrl: found.sourceUrl ?? sourceUrl,
+    fetchedAt: found.fetchedAt,
+    stored: true,
+  });
+  if (hit && hit.rateDate === date) return storedLookup(hit);
+
+  // (б) Эх сурвалжаас татаад хадгална.
+  let fetchError = "";
+  const quotes = await fetchMongolbankRates(date, [code]).catch(
+    (caught: unknown) => {
+      fetchError = caught instanceof Error ? caught.message : String(caught);
+      return [] as ExchangeRateQuote[];
+    }
+  );
+  // Хадгалалт унасан ч ханшийн уншилт зогсохгүй (агуулах нь кэш, эх сурвалж биш).
+  if (store && quotes.length)
+    await store.saveExchangeRates(quotes).catch(() => 0);
+
+  const picked = pickOfficialRate(quotes, code);
+  if (picked)
+    return {
+      currency: code,
+      ...picked,
+      source: "mongolbank",
+      basis: "official",
+      fetchedAt,
+      stored: false,
+    };
+
+  // (в) Эх сурвалж унасан — хадгалсан ханшаар нөхнө (зөвхөн 10 хоногийн дотор,
+  // fetchMongolbankRates-ийн хайх цонхтой ижил). Хэтэрвэл гар ханш шаардана.
+  if (hit && daysBetween(hit.rateDate, date) <= STALE_FALLBACK_DAYS)
+    return storedLookup(hit);
+
+  // (г) Ханш ЗОХИОХГҮЙ.
+  if (fetchError)
+    throw new Error(
+      `Монголбанкны ханш татагдсангүй (${fetchError}) — ханшийг гараар оруулна уу`
+    );
+  throw new Error(
+    `${code} валютын Монголбанкны албан ханш ${date}-нд олдсонгүй — ханшийг гараар оруулна уу`
+  );
 }
 
 export async function fetchTdbRates(asOf: string, currencies: string[]) {

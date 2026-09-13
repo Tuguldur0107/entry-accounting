@@ -63,6 +63,10 @@ export const MODULES: Module[] = [
         href: "/cash/statements",
         icon: "spreadsheet",
       },
+      // Ханшийн түүх — Монголбанкны хадгалагдсан ханш (нийтийн лавлах).
+      // Тулгалт/тэгшитгэлийн ӨМНӨ байрлана: эхний үлдэгдэл, өмнөх үеийн
+      // бичилтэд тухайн өдрийн ханш эндээс ирнэ.
+      { label: "Ханшийн түүх", href: "/cash/rates", icon: "bank" },
       {
         label: "Тулгалт, ханш",
         href: "/cash/reconciliation",

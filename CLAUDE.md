@@ -37,6 +37,7 @@ entry-accounting/
 │   │   │   ├── journal/          # Журналын жагсаалт
 │   │   │   ├── accounts/         # Дансны тохиргоо
 │   │   │   └── reports/          # GL тайлан
+│   │   ├── cash/rates/           # Валютын ханшийн түүх (татах + харах)
 │   │   └── procurement/          # Хангамж: самбар · orders · receipts · costs
 │   └── api/
 │       ├── auth/[...nextauth]/   # NextAuth handler
@@ -50,6 +51,9 @@ entry-accounting/
 │   ├── actions/auth.ts           # Register action
 │   ├── actions/procurement.ts    # PO / хүлээн авалтын Server Actions
 │   ├── actions/attachments.ts    # Хавсралт унших / устгах
+│   ├── actions/exchange-rates.ts # Ханш татах / түүх унших Server Actions
+│   ├── cash/exchange-rates.ts    # Ханш татагч + СУУРЬ ханш (getOfficialRateForDate)
+│   ├── cash/rate-store.ts        # Ханшийн ТҮҮХ: өдрөөр upsert / унших (store-first)
 │   ├── procurement/              # Цэвэр логик: constants, close-lines, po-math,
 │   │                             #   types, load-data
 │   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
@@ -352,6 +356,109 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
   `IconAction`, батлах диалог `useConfirm` — шинэ component/icon бичихийг
   ХОРИГЛОНО; жагсаалт дээр давхар даралт → панель
 
+### 5b. Валютын ханшийн түүх (Монголбанк) — ХЭРЭГЖСЭН
+
+Хэрэглэгч **эхний үлдэгдэл, өмнөх хугацааны бичилт** оруулахад ӨМНӨХ ҮЕИЙН
+ханш хэрэгтэй болдог тул Монголбанкны ханш нь "өнөөдрийн татагдац" биш —
+`exchange_rates` хүснэгтэд **ӨДРӨӨР** хадгалагдаж, дурын хуучин огноогоор
+уншигдана. Хүснэгт нь **НИЙТИЙН лавлах**: `organizationId` БАЙХГҮЙ (ханш нь
+нийтийн баримт), UNIQUE(source, currency, date).
+
+**Монголбанкны албан ханш = системийн СУУРЬ ханш** — хүлээн авалт, нэхэмжлэх,
+PO хаалт, FX тэгшитгэл бүгд албан ханшаар үнэлэгдэнэ (§5a, docs/procurement
+§3.5). Арилжааны банкны ханш ЗӨВХӨН төлбөрт.
+
+**Унших дараалал — STORE-FIRST** (`getOfficialRateForDate(currency, date)`):
+
+```
+(а) ЯГ тэр өдрийн хадгалагдсан ханш → шууд буцаана (сүлжээ хөндөхгүй)
+(б) байхгүй бол Монголбанкнаас татна → ХАДГАЛНА → буцаана
+(в) эх сурвалж унасан бол ≤10 хоногийн дотоод хадгалсан ханшаар нөхнө
+(г) бас олдохгүй бол ШИДНЭ — ханш ЗОХИОХГҮЙ, хэрэглэгч гараар оруулна
+```
+
+- (а) нь **ЯГ таарсан огноо** шаарддаг: агуулах тэр огноог хүртэл дүүрээгүй
+  байхад "≤ огнооны сүүлийнх" нь МБ-ийн бодит ханшнаас ЗӨРӨХ боломжтой
+  (МБ амралтын өдөр ч мөр нийтэлдэг)
+- **Амралтын / баярын өдөр:** `loadStoredRate` (ба цэвэр
+  `pickLatestOnOrBefore`) нь огноо **≤ asOf** мөрүүдийн ХАМГИЙН СҮҮЛИЙНХ-ийг
+  авна = өмнөх ажлын өдрийн ханш. Хүссэн огноо бүх мөрөөс өмнө бол `null`
+- `MNT` → ханш 1 (сүлжээ хөндөхгүй); валютын код гажиг бол ШИДНЭ
+
+**Түүх татах:** `POST mongolbank.mn/mn/currency-rates/data?startDate=&endDate=`
+нь мужийн **ӨДӨР ТУТМЫН** мөрүүдийг буцаана (нэг жил ≈ 365 мөр × ~50 валют;
+амралтын өдөр өмнөх ханшаар давтагдана). `fetchMongolbankHistory(from, to,
+currencies?)` нь мужийг **365 хоногоор хуваан ДАРААЛАН** татна (МБ-ыг зэрэг
+хүсэлтээр цохихгүй), огноо буруу / муж урвуу бол ШИДНЭ. Цэвэр
+`parseMongolbankHistory` нь мөр бүрийн бүх хүчинтэй валютыг quote болгоно;
+огноогүй / гажиг мөрийг чимээгүй алгасна — ханш ЗОХИОХГҮЙ.
+
+Гол файлууд:
+
+```
+lib/cash/exchange-rates.ts   Татагч + parser (цэвэр, тесттэй) +
+                             getOfficialRateForDate (СУУРЬ ханш, store-first).
+                             `@/lib/db`-г import ХИЙХИЙГ ХОРИГЛОНО — client
+                             component ч эндээс төрөл / rateForBasis уншдаг тул
+                             postgres драйвер browser bundle-д орно
+lib/cash/rate-store.ts       ТҮҮХИЙН давхарга (ЭНГИЙН модуль, "use server" БИШ —
+                             action, cron, script гурвуул шууд дуудна):
+                             saveExchangeRates (upsert), loadStoredRate (огноогоор),
+                             loadStoredRates (муж), storedRateCoverage (хамрах
+                             хүрээ), pickLatestOnOrBefore (ЦЭВЭР, тесттэй).
+                             Import хийгдэх мөчдөө registerExchangeRateStore-оор
+                             ӨӨРИЙГӨӨ бүртгэнэ (globalThis) — server талын дурын
+                             модуль үүнийг import хийсэн даруйд ханшийн хайлт
+                             ХАДГАЛСАНААС эхэлдэг болно
+lib/actions/exchange-rates.ts  Ханшийн Server Actions: муж + валютаар татаж
+                             хадгалах, хадгалагдсан түүх / хамрах хүрээ унших
+                             (Core + ActionResult wrapper, эрх нь cash модуль)
+app/(dashboard)/cash/rates   "Валютын ханш" хуудас: муж/валют сонгож татах,
+                             хамрах хүрээ, хадгалагдсан мөрүүд (DataGridDynamic)
+app/api/cash/exchange-rates/route.ts  ШУУД (live) 3 эх сурвалжийн (МБ / ХХБ /
+                             Голомт) тухайн өдрийн ханш — тулгалтын
+                             workspace-ийн quote хүснэгтэд; түүх БИЧИХГҮЙ
+tests/rate-store.test.ts     Амралтын өдөр, гажиг огноо, сар/жилийн хил
+tests/exchange-rates.test.ts parseMongolbank{Rates,History}, pickOfficialRate
+```
+
+Хатуу дүрмүүд:
+
+- **ХАНШ ХЭЗЭЭ Ч ЗОХИОГДОХГҮЙ** — олдохгүй бол ШИДНЭ, хэрэглэгч гараар
+  оруулна. Интерполяци, дундажлах, "сүүлд мэдэгдэж байсан ханшаар" чимээгүй
+  нөхөх ХОРИОТОЙ; (в) нөхөлт нь 10 хоногоор хязгаарлагдсан ба `stored: true`
+  гэж ИЛ тэмдэглэгдэнэ
+- **Ханшийн уншилт бүр `getOfficialRateForDate`-аар** — модуль дотроо МБ-ыг
+  `fetch`-ээр дуудахыг хориглоно (тэгвэл хадгалалт ба амралтын өдрийн дүрэм
+  алдагдана)
+- **upsert нь ХООСОН БИШ утгаар л дардаг** (`coalesce(excluded.…, одоогийн)`) —
+  албан ханш татсан нь арилжааны банкны buy/sell баганыг УСТГАХГҮЙ
+- **Нэг INSERT дотор ижил (source, currency, date) давхардвал урьдчилж
+  нэгтгэнэ** (Postgres "cannot affect row a second time"); 500 мөрөөр chunk
+- **`date` нь ханшийн ӨӨРИЙН огноо** (эх сурвалжийн `RATE_DATE`) — татсан
+  хугацаа нь `fetchedAt`. Хоёуланг андуурахгүй
+- Хүснэгт нийтийн лавлах тул **rate-store дотор эрхийн шалгалт БАЙХГҮЙ** —
+  дуудагч server action `requireModuleAction` дайруулна
+- Хадгалалт унасан ч ханшийн уншилт ЗОГСОХГҮЙ (агуулах нь кэш, эх сурвалж биш)
+
+**FX тэгшитгэл — хэрэглэгчийн сонгосон огнооны ханшаар:**
+
+- Хэрэглэгч тулгалтын workspace-д
+  (`components/cash/cash-reconciliation-workspace.tsx`) **огноогоо ГАРААР**
+  сонгоно → тэр огнооны quote-ууд гарч ирнэ → сонгосон quote нь мөрийн
+  хаалтын ханш + ханшийн баримт болно; ханш сонгоогүй мөр батлагдахгүй
+  ("хаалтын ханш оруулна"), гараар өгсөн ханшид шалтгаан ЗААВАЛ
+- `postCashFxRevaluation` (lib/actions/cash.ts) нь `valuationDate`,
+  `closingRate` дээр ханшийн баримтыг (`rateSource`, `rateBasis`, `sourceDate`,
+  `sourceUrl`, `fetchedAt`, `manualOverrideReason`) хамт хадгална —
+  тэгшитгэл бүр ямар огнооны ямар ханшаар бодогдсоныг дараа нь баталгаажуулна
+- Ирээдүйн огноонд тэгшитгэл хийхгүй (Улаанбаатарын өнөөдрөөр); огноо
+  `assertPeriodOpen` дайрна; журнал нь ТЭР огноогоор бичигдэнэ
+- Тооцоо цэвэр: `calculateFxRevaluation(foreignBalance, closingRate,
+  carryingAmount)` (lib/cash/reconciliation.ts) — зөрүү нь ханшийн олз/гарз
+- AI `run_fx_revaluation` нь гар ханш өгөөгүй үед тэгшитгэлийн огнооны албан
+  ханшийг татна; олдохгүй бол `rate` параметр шаардана (зохиохгүй)
+
 ### 6. НӨАТ (VAT) — 10% — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
@@ -485,6 +592,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
 | Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
+| Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -902,7 +1010,13 @@ GL         journal_vouchers, journal_lines
              journal_lines.businessObjectType / businessObjectId — клирингийн
              түлхүүр (PO), бичих МӨЧИД тавигдана
 Cash       cash_accounts, cash_documents, bank_statements,
-           bank_statement_lines, cash_fx_revaluations
+           bank_statement_lines, cash_fx_revaluations, exchange_rates
+             exchange_rates — НИЙТИЙН лавлах: organizationId БАЙХГҮЙ (ханш нь
+               нийтийн баримт), UNIQUE(source, currency, date); source
+               mongolbank|tdb|golomt, date = ханшийн ӨӨРИЙН огноо (RATE_DATE),
+               fetchedAt = хэзээ татсан (§5b)
+             fx_revaluations.closingRate / rateSource / rateBasis / sourceDate /
+               manualOverrideReason — тэгшитгэлийн ханшийн баримт
 AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
            ar_ap_settlements
              documents.purchaseOrderId — PO-той нэхэмжлэх (→ өглөгийн түр данс)
