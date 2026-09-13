@@ -275,7 +275,10 @@ export function CostControlReport({
       }
       toast.success(
         `${result.calculated} мөр тооцоологдлоо` +
-          (result.blocked > 0 ? `, ${result.blocked} мөр тооцоологдоогүй` : "")
+          (result.blocked > 0 ? `, ${result.blocked} мөр тооцоологдоогүй` : "") +
+          (result.anchorPeriod
+            ? ` (${result.anchorPeriod} хаагдсан үеийн үлдэгдлээс үргэлжлүүлэв)`
+            : "")
       );
       router.refresh();
     });

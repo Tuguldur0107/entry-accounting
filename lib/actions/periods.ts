@@ -6,7 +6,7 @@
 // нээлттэй. Тиймээс хэрэглэгч юу ч тохируулалгүй ажиллаж эхлээд, хаалт
 // хийхээр шийдсэн үедээ л энэ дэлгэцийг хэрэглэнэ.
 
-import { and, between, count, eq, sql } from "drizzle-orm";
+import { and, between, count, eq, gt, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getActiveOrg, requireRole } from "@/lib/auth";
@@ -27,11 +27,20 @@ import {
   writeCashPeriodSnapshot,
 } from "@/lib/cash/period-snapshot";
 import {
+  deleteInventoryPeriodSnapshot,
+  writeInventoryPeriodSnapshot,
+} from "@/lib/inventory/period-snapshot";
+import {
   deletePeriodSnapshot,
   writePeriodSnapshot,
 } from "@/lib/periods/snapshot";
 import { PERIOD_GATE_LOCK_KEY } from "@/lib/periods/guard";
-import { isPeriodCode, periodRange, type PeriodStatus } from "@/lib/periods/period";
+import {
+  isPeriodCode,
+  periodRange,
+  previousPeriodCode,
+  type PeriodStatus,
+} from "@/lib/periods/period";
 import { logAuditEvent } from "@/lib/audit";
 import { runBeforePeriodClose } from "@/lib/custom/loader";
 
@@ -59,7 +68,11 @@ export type PeriodActionResult =
         /** Тухайн сард батлагдсан хүлээн авалттай НЭЭЛТТЭЙ PO үлдсэн. */
         | "open-purchase-orders"
         | "exists"
-        | "not-closed";
+        | "not-closed"
+        /** Өмнөх сар нээлттэй — хаалт дарааллаар (snapshot-ын зангуу). */
+        | "previous-open"
+        /** Дараагийн сар хаалттай — эхлээд түүнийг дахин нээнэ. */
+        | "later-closed";
     }
   | {
       ok: false;
@@ -202,6 +215,33 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
       sql`select pg_advisory_xact_lock(hashtext(${orgId}), ${PERIOD_GATE_LOCK_KEY})`
     );
 
+    // ДАРААЛСАН хаалт: өмнөх сар нээлттэй (бүртгэлгүй ч) бол ЗОГСОНО —
+    // snapshot-ууд (П28 GL, касс, бараа, өртгийн зангуу) "зангуунаас өмнөх
+    // бүх үе хаагдсан, өөрчлөгдөхгүй" гэдэгт тулгуурладаг. Эхний тайлант
+    // үе (өмнө нь ямар ч бичилтгүй) чөлөөтэй хаагдана.
+    const previous = previousPeriodCode(code);
+    const [previousRow] = await tx
+      .select({ status: accountingPeriods.status })
+      .from(accountingPeriods)
+      .where(
+        and(
+          eq(accountingPeriods.organizationId, orgId),
+          eq(accountingPeriods.code, previous)
+        )
+      );
+    if (previousRow?.status !== "closed") {
+      const [earlier] = (await tx.execute(sql`
+        select (
+          exists (select 1 from journal_vouchers where organization_id = ${orgId} and date < ${startDate})
+          or exists (select 1 from cash_documents where organization_id = ${orgId} and date < ${startDate})
+          or exists (select 1 from inventory_movements where organization_id = ${orgId} and date < ${startDate})
+          or exists (select 1 from ar_ap_documents where organization_id = ${orgId} and date < ${startDate})
+          or exists (select 1 from cost_entries where organization_id = ${orgId} and date < ${startDate})
+        ) as found
+      `)) as unknown as { found: boolean }[];
+      if (earlier?.found) return { kind: "previous-open" as const };
+    }
+
     // Бүх дэд дэвтрийн ноорог энэ сард үлдсэн эсэх — хаасны дараа тэдгээр
     // ноорог батлагдах боломжгүй болж гацдаг тул бүгдийг шалгана.
     const draftCounts = await Promise.all([
@@ -326,6 +366,8 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     await writePeriodSnapshot(tx, { orgId, userId, code, startDate, endDate });
     // Кассын дансны хаалтын үлдэгдэл (дансны валютаар) — ижил lock дотор.
     await writeCashPeriodSnapshot(tx, { orgId, userId, code, endDate });
+    // Бараа × агуулахын тоо хэмжээний үлдэгдэл — ижил lock дотор.
+    await writeInventoryPeriodSnapshot(tx, { orgId, userId, code, endDate });
     await logAuditEvent(
       {
         userId,
@@ -340,6 +382,7 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     return { kind: "closed" as const };
   });
   if (outcome.kind === "drafts") return { ok: false, code: "has-drafts" };
+  if (outcome.kind === "previous-open") return { ok: false, code: "previous-open" };
   if (outcome.kind === "open-purchase-orders")
     return { ok: false, code: "open-purchase-orders" };
   if (outcome.kind === "hook")
@@ -361,6 +404,21 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
   // хийсвэр амжилт мэт харагдахаас сэргийлнэ). Нэг транзакцад snapshot
   // мөн устдаг (П28) — нээлттэй периодын snapshot худал мэдээлэл.
   const reopened = await db.transaction(async (tx) => {
+    // Зөвхөн ХАМГИЙН СҮҮЛИЙН хаалттай үеийг нээнэ — дунд нь нээлттэй үе
+    // үүсвэл дараагийн хаалтуудын snapshot худал болно (хаалт дараалсантай
+    // тэгш хэмтэй дүрэм).
+    const [later] = await tx
+      .select({ code: accountingPeriods.code })
+      .from(accountingPeriods)
+      .where(
+        and(
+          eq(accountingPeriods.organizationId, orgId),
+          eq(accountingPeriods.status, "closed"),
+          gt(accountingPeriods.code, code)
+        )
+      )
+      .limit(1);
+    if (later) return "later-closed" as const;
     const [row] = await tx
       .update(accountingPeriods)
       .set({ status: "open", closedAt: null })
@@ -375,8 +433,10 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
     if (!row) return false;
     await deletePeriodSnapshot(tx, { orgId, code });
     await deleteCashPeriodSnapshot(tx, { orgId, code });
+    await deleteInventoryPeriodSnapshot(tx, { orgId, code });
     return true;
   });
+  if (reopened === "later-closed") return { ok: false, code: "later-closed" };
   if (!reopened) return { ok: false, code: "not-closed" };
 
   // Аудитын мөр — хаагдсан периодыг нээх нь мэдрэг үйлдэл.

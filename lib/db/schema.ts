@@ -239,6 +239,41 @@ export const cashAccountPeriodBalances = pgTable(
   ]
 );
 
+// Бараа × агуулахын периодын хаалтын үлдэгдэл (тоо хэмжээ) — snapshot + delta
+// (П28-ын бараа материалын хувилбар). closePeriod-д бичигдэж, reopen-д устдаг.
+// Зөвхөн 0-ээс ялгаатай үлдэгдэл хадгалагдана; уншигч байхгүйг 0 гэж үзнэ.
+export const inventoryPeriodBalances = pgTable(
+  "inventory_period_balances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    periodCode: text("period_code").notNull(), // "YYYY-MM"
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "cascade" }),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "cascade" }),
+    /** Периодын эцсийн үлдэгдэл = Σ confirmed хөдөлгөөний нөлөө (≤ endDate). */
+    quantity: numeric("quantity", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.organizationId, t.periodCode, t.itemId, t.warehouseId),
+    index("inventory_period_balances_org_period_ix").on(
+      t.organizationId,
+      t.periodCode
+    ),
+  ]
+);
+
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
 
 export const journalVouchers = pgTable(
@@ -2825,6 +2860,7 @@ export type CostAllocation = typeof costAllocations.$inferSelect;
 export type CostAllocationLine = typeof costAllocationLines.$inferSelect;
 export type ExchangeRate = typeof exchangeRates.$inferSelect;
 export type CashAccountPeriodBalance = typeof cashAccountPeriodBalances.$inferSelect;
+export type InventoryPeriodBalance = typeof inventoryPeriodBalances.$inferSelect;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
 export type GoodsReceipt = typeof goodsReceipts.$inferSelect;

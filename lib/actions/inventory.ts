@@ -14,11 +14,14 @@ import {
 } from "@/lib/db/schema";
 import {
   balanceKey,
-  calculateQtyBalances,
   findNegativeStock,
-  type MovementRef,
   type MovementType,
 } from "@/lib/inventory/balances";
+import {
+  loadQtyBalancesFast,
+  loadQtyLedgerFast,
+} from "@/lib/inventory/period-balances";
+import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { logAuditEvent } from "@/lib/audit";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
@@ -133,30 +136,10 @@ const MOVEMENT_TYPES: MovementType[] = [
   "return_out",
 ];
 
-type DbHandle = Pick<typeof db, "query" | "select">;
-
-async function confirmedMovementRefs(
-  handle: DbHandle,
-  orgId: string
-): Promise<MovementRef[]> {
-  const rows = await handle.query.inventoryMovements.findMany({
-    where: and(
-      eq(inventoryMovements.organizationId, orgId),
-      eq(inventoryMovements.status, "confirmed")
-    ),
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    movementType: row.movementType as MovementType,
-    date: row.date,
-    // Confirmed мөрөнд null байх боломжгүй (confirm-ийн шалгалт).
-    itemId: row.itemId ?? "",
-    warehouseId: row.warehouseId ?? "",
-    toWarehouseId: row.toWarehouseId,
-    quantity: Number(row.quantity),
-    createdAt: row.createdAt.toISOString(),
-  }));
-}
+// Үлдэгдлийн replay нь хаагдсан үеийн snapshot-оос эхэлнэ
+// (lib/inventory/period-balances.ts) — бүх түүхийг JS-д ачаалахгүй. Тиймээс
+// хаагдсан период руу батлах/цуцлах/устгах ХОРИОТОЙ (assertPeriodOpenInTx):
+// snapshot хуучирдаггүй, бусад дэд дэвтэртэй ижил дүрэм.
 
 // ── Хөдөлгөөний мутацууд ─────────────────────────────────────────────────────
 // *Core функцүүд алдааг ШИДДЭГ (транзакц rollback, дотоод дуудлагад хэрэгтэй);
@@ -447,19 +430,26 @@ async function confirmInventoryMovementCore(id: string) {
     if (movement.movementType !== "adjustment" && movementQty <= 0)
       throw new Error("Тоо хэмжээ 0-ээс их байна");
 
+    await assertPeriodOpenInTx(tx, orgId, movement.date);
+
     // Хасах үлдэгдлийн шалгалт: он цагийн бүх цэг дээр ≥ 0 (энэ хөдөлгөөнийг
     // оруулаад, өмнөх огноогоор бичихэд дараагийн үлдэгдлүүд ч эвдрэхгүй).
-    const existing = await confirmedMovementRefs(tx, orgId);
-    const violation = findNegativeStock(existing, {
-      id: movement.id,
-      movementType: movement.movementType as MovementType,
-      date: movement.date,
-      itemId: movement.itemId,
-      warehouseId: movement.warehouseId,
-      toWarehouseId: movement.toWarehouseId,
-      quantity: movementQty,
-      createdAt: movement.createdAt.toISOString(),
-    });
+    // Replay нь хаагдсан үеийн snapshot-оос — хаагдсан үе дотор өөрчлөлт байхгүй.
+    const ledger = await loadQtyLedgerFast(orgId, undefined, tx);
+    const violation = findNegativeStock(
+      ledger.movements,
+      {
+        id: movement.id,
+        movementType: movement.movementType as MovementType,
+        date: movement.date,
+        itemId: movement.itemId,
+        warehouseId: movement.warehouseId,
+        toWarehouseId: movement.toWarehouseId,
+        quantity: movementQty,
+        createdAt: movement.createdAt.toISOString(),
+      },
+      ledger.opening
+    );
     if (violation)
       throw new Error(
         `Үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter}) — батлах боломжгүй`
@@ -563,11 +553,15 @@ async function deleteInventoryMovementCore(id: string) {
           "Энэ хөдөлгөөн үнэлэгдсэн байна — эхлээд өртгийн бичилтийг нь буцааж/устгана уу"
         );
 
+      await assertPeriodOpenInTx(tx, orgId, movement.date);
+
       // Устгаснаар бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой.
-      const existing = (await confirmedMovementRefs(tx, orgId)).filter(
-        (ref) => ref.id !== id
+      const ledger = await loadQtyLedgerFast(orgId, undefined, tx);
+      const violation = findNegativeStock(
+        ledger.movements.filter((ref) => ref.id !== id),
+        null,
+        ledger.opening
       );
-      const violation = findNegativeStock(existing);
       if (violation)
         throw new Error(
           `Устгавал үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter})`
@@ -648,12 +642,16 @@ async function cancelInventoryMovementCore(id: string) {
         "Энэ хөдөлгөөн үнэлэгдсэн байна — эхлээд өртгийн бичилтийг нь буцааж/устгана уу"
       );
 
+    await assertPeriodOpenInTx(tx, orgId, movement.date);
+
     // Цуцлахад бусад баталсан хөдөлгөөний үлдэгдэл эвдрэхгүй байх ёстой
     // (ж: орлогыг цуцлахад түүнээс хойшхи зарлага хасах болж болзошгүй).
-    const existing = (await confirmedMovementRefs(tx, orgId)).filter(
-      (ref) => ref.id !== id
+    const ledger = await loadQtyLedgerFast(orgId, undefined, tx);
+    const violation = findNegativeStock(
+      ledger.movements.filter((ref) => ref.id !== id),
+      null,
+      ledger.opening
     );
-    const violation = findNegativeStock(existing);
     if (violation)
       throw new Error(
         `Цуцалбал үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter})`
@@ -718,6 +716,8 @@ async function recordInventoryCountCore(data: {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
+  // Тохируулгын ноорог хаагдсан сард батлагдахгүй — эрт, ойлгомжтой зогсооно.
+  await assertPeriodOpen(orgId, data.date);
   if (data.counts.length === 0)
     throw new Error("Тоолсон бараа алга");
 
@@ -745,11 +745,8 @@ async function recordInventoryCountCore(data: {
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 1)`);
 
-    // Системийн үлдэгдэл тооллогын огнооны байдлаар (confirmed replay).
-    const refs = (await confirmedMovementRefs(tx, orgId)).filter(
-      (ref) => ref.date <= data.date
-    );
-    const balances = calculateQtyBalances(refs);
+    // Системийн үлдэгдэл тооллогын огнооны байдлаар (snapshot + replay).
+    const balances = await loadQtyBalancesFast(orgId, data.date, tx);
 
     const inserts: (typeof inventoryMovements.$inferInsert)[] = [];
     for (const count of data.counts) {

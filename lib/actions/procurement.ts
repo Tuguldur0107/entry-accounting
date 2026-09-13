@@ -56,7 +56,7 @@ import {
   warehouses,
 } from "@/lib/db/schema";
 import { findNegativeStock, type MovementRef } from "@/lib/inventory/balances";
-import { toMovementRefs } from "@/lib/inventory/load-data";
+import { loadQtyLedgerFast } from "@/lib/inventory/period-balances";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { buildPoCloseLines } from "@/lib/procurement/close-lines";
 import {
@@ -2084,15 +2084,9 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
         );
     }
 
-    // Хасах үлдэгдлийн replay — confirmInventoryMovementCore-той ИЖИЛ гэрээ.
-    const existing = toMovementRefs(
-      await tx.query.inventoryMovements.findMany({
-        where: and(
-          eq(inventoryMovements.organizationId, orgId),
-          eq(inventoryMovements.status, "confirmed")
-        ),
-      })
-    );
+    // Хасах үлдэгдлийн replay — confirmInventoryMovementCore-той ИЖИЛ гэрээ
+    // (хаагдсан үеийн snapshot-оос эхэлнэ).
+    const ledger = await loadQtyLedgerFast(orgId, undefined, tx);
     const nowIso = new Date().toISOString();
     const pending: MovementRef[] = planned.map((line, index) => ({
       id: `pending-gr-${index}`,
@@ -2104,7 +2098,11 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
       quantity: line.quantity,
       createdAt: nowIso,
     }));
-    const violation = findNegativeStock([...existing, ...pending]);
+    const violation = findNegativeStock(
+      [...ledger.movements, ...pending],
+      null,
+      ledger.opening
+    );
     if (violation)
       throw new Error(
         `Үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter}) — батлах боломжгүй`
@@ -2324,16 +2322,13 @@ async function reverseGoodsReceiptCore(input: {
       .returning({ id: goodsReceipts.id });
     if (!claimed) throw new Error("Хүлээн авалтын төлөв өөрчлөгдсөн байна");
 
-    // Цуцалснаар хожмын зарлагууд хасах болохгүй.
-    const remaining = toMovementRefs(
-      await tx.query.inventoryMovements.findMany({
-        where: and(
-          eq(inventoryMovements.organizationId, orgId),
-          eq(inventoryMovements.status, "confirmed")
-        ),
-      })
-    ).filter((ref) => !movementIds.includes(ref.id));
-    const violation = findNegativeStock(remaining);
+    // Цуцалснаар хожмын зарлагууд хасах болохгүй (snapshot + replay).
+    const ledger = await loadQtyLedgerFast(orgId, undefined, tx);
+    const violation = findNegativeStock(
+      ledger.movements.filter((ref) => !movementIds.includes(ref.id)),
+      null,
+      ledger.opening
+    );
     if (violation)
       throw new Error(
         `Буцаавал үлдэгдэл хасах болно (${violation.date}: ${violation.balanceAfter})`

@@ -12,7 +12,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
 
 import {
   createArApDocument,
@@ -5072,13 +5072,34 @@ async function runCounterpartyBalance(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf))
     throw new Error("asOf огноо YYYY-MM-DD форматтай байна");
 
+  // Зөвхөн asOf-д НЭЭЛТТЭЙ байж болох баримт: одоо үлдэгдэлтэй, эсвэл
+  // asOf-оос ХОЙШ төлөгдсөн (тэр үед нээлттэй байсан). Бүх түүх ачаалахгүй.
+  const openAsOfScope = and(
+    eq(arApDocuments.organizationId, orgId),
+    lte(arApDocuments.date, asOf),
+    notInArray(arApDocuments.status, ["draft", "reversed"]),
+    or(
+      sql`${arApDocuments.totalAmount} <> ${arApDocuments.paidAmount}`,
+      sql`exists (
+        select 1 from ${arApSettlements}
+        where ${arApSettlements.documentId} = ${arApDocuments.id}
+          and ${arApSettlements.settlementDate} > ${asOf}
+      )`
+    )
+  );
   const [documents, settlements] = await Promise.all([
     db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.organizationId, orgId),
+      where: openAsOfScope,
       with: { counterparty: { columns: { id: true, name: true } } },
     }),
     db.query.arApSettlements.findMany({
-      where: eq(arApSettlements.organizationId, orgId),
+      where: and(
+        eq(arApSettlements.organizationId, orgId),
+        inArray(
+          arApSettlements.documentId,
+          db.select({ id: arApDocuments.id }).from(arApDocuments).where(openAsOfScope)
+        )
+      ),
     }),
   ]);
   // asOf-оор түүхэн үлдэгдэл: paidAmount биш settlement-ийн огноогоор тоолно.
@@ -5556,6 +5577,10 @@ async function runClosePeriod(
       throw new Error(
         `${input.code} сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байгаа тул хаагдахгүй — list_purchase_orders openOnly=true-гээр олж, get_purchase_order-оор дутуугаа нөхөөд close_purchase_order-оор хаана`
       );
+    if (result.code === "previous-open")
+      throw new Error(
+        `${input.code}-ийн өмнөх тайлант үе нээлттэй тул хаагдахгүй — тайлант үеийг дарааллаар нь (өмнөх сараас эхлэн) хаана`
+      );
     throw new Error(`Тайлант үе хаагдсангүй (${result.code})`);
   }
   return { resultText: `${input.code} тайлант үе ХААГДЛАА — цаашид энэ сар руу бичилт хийгдэхгүй` };
@@ -5568,7 +5593,12 @@ async function runReopenPeriod(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const result = await reopenPeriod(input.code);
-  if (!result.ok) throw new Error(`Тайлант үе нээгдсэнгүй (${result.code})`);
+  if (!result.ok)
+    throw new Error(
+      result.code === "later-closed"
+        ? `${input.code}-ээс хойших тайлант үе хаалттай тул нээгдэхгүй — эхлээд сүүлийн хаалттай үеийг нээнэ`
+        : `Тайлант үе нээгдсэнгүй (${result.code})`
+    );
   return { resultText: `${input.code} тайлант үе дахин НЭЭГДЛЭЭ` };
 }
 

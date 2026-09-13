@@ -1,8 +1,9 @@
 "use server";
 
 // Периодын өртгийн тооцооллыг ажиллуулах.
-// Тооцоолол нь ЦУВАА (C2 → дараагийн C1) тул үргэлж БҮХ периодыг дахин
-// боддог — хэсэгчлэн шинэчлэх нь буруу үр дүн өгнө.
+// Тооцоолол нь ЦУВАА (C2 → дараагийн C1): хаагдсан үеийн хадгалагдсан үр
+// дүнг зангуу болгож, түүнээс хойшхи БҮХ периодыг дахин боддог
+// (lib/costing/period-anchor.ts) — зангууны дараахыг хэсэгчлэн шинэчлэхгүй.
 
 import { revalidatePath } from "next/cache";
 
@@ -19,6 +20,8 @@ export type RecalculateResult =
       blocked: number;
       scopeCount: number;
       periodCodes: string[];
+      /** Үргэлжлүүлсэн хаагдсан период; null = эхнээс нь тооцсон. */
+      anchorPeriod: string | null;
     }
   | { ok: false; code: "unauthenticated" | "failed"; message?: string };
 
@@ -38,6 +41,7 @@ export async function recalculatePeriodicCosting(): Promise<RecalculateResult> {
       blocked: summary.blocked,
       scopeCount: summary.scopeCount,
       periodCodes: summary.periodCodes,
+      anchorPeriod: summary.anchorPeriod,
     };
   } catch (caught) {
     return {

@@ -442,6 +442,8 @@ export function CloseWizard({
                         ? "Ноорог бичилт үлдсэн байна — эхлээд цэвэрлэнэ үү"
                         : result.code === "open-purchase-orders"
                           ? "Энэ сард хүлээн авалттай нээлттэй захиалга (PO) байна — эхлээд PO-г хаана уу."
+                          : result.code === "previous-open"
+                          ? "Өмнөх тайлант үе нээлттэй байна — тайлант үеийг дарааллаар нь хаана уу."
                           : result.code === "hook-rejected"
                             ? result.reason
                             : `Хаагдсангүй (${result.code})`

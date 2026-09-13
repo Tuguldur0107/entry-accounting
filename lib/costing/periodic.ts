@@ -284,8 +284,12 @@ export function computePeriodSeries(input: {
   warehouseId: string;
   /** Өсөх дарааллаар — lib/periods/periodCodesBetween. */
   periodCodes: string[];
-  /** Хамгийн эхний периодын өмнөх үлдэгдэл (ихэвчлэн 0/0). */
-  initialOpening?: OpeningBalance;
+  /**
+   * Хамгийн эхний периодын өмнөх үлдэгдэл (ихэвчлэн 0/0). `null` = өмнөх
+   * (хаагдсан) период энэ хүрээнд БЛОКЛОГДСОН байсан — C1 тодорхойгүй тул
+   * цуваа бүхэлдээ блоклогдоно (бүрэн дахин тооцоолсонтой ижил).
+   */
+  initialOpening?: OpeningBalance | null;
   /** Тухайн хамрах хүрээний БҮХ хөдөлгөөн — период дотор нь ангилагдана. */
   movements: PeriodicMovement[];
 }): PeriodicResult[] {
@@ -299,10 +303,8 @@ export function computePeriodSeries(input: {
   }
 
   const results: PeriodicResult[] = [];
-  let opening: OpeningBalance | null = input.initialOpening ?? {
-    qty: 0,
-    amount: 0,
-  };
+  let opening: OpeningBalance | null =
+    input.initialOpening === undefined ? { qty: 0, amount: 0 } : input.initialOpening;
 
   for (const periodCode of periodCodes) {
     const periodMovements = byPeriod.get(periodCode) ?? [];
@@ -379,10 +381,15 @@ export function computePeriodSeries(input: {
 export function computeAllScopes(input: {
   periodCodes: string[];
   movements: PeriodicMovement[];
-  /** scopeKey → эхний C1 (өмнө нь хаагдсан периодоос). */
-  openingByScope?: Map<string, OpeningBalance>;
+  /**
+   * scopeKey → эхний C1 (өмнө нь хаагдсан периодоос; null = тэнд блоклогдсон).
+   * Хөдөлгөөнгүй ч энд байгаа хүрээ мөн тооцогдоно — үлдэгдэл нь дараагийн
+   * периодуудад дамжина (бүрэн дахин тооцоололд ийм мөр үүсдэг).
+   */
+  openingByScope?: Map<string, OpeningBalance | null>;
 }): Map<string, PeriodicResult[]> {
   const byScope = new Map<string, PeriodicMovement[]>();
+  for (const key of input.openingByScope?.keys() ?? []) byScope.set(key, []);
   for (const movement of input.movements) {
     const key = scopeKey(movement.itemId, movement.warehouseId);
     const list = byScope.get(key);

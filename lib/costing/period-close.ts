@@ -80,7 +80,8 @@ export async function computePeriodCosting(
   userId: string,
   periodCode: string
 ): Promise<PeriodCostingSummary> {
-  // 1. Бүх сарыг дахин тооцно (C1 → C2 цуваа тул хэсэгчилж болохгүй).
+  // 1. Хаагдсан үеийн зангуунаас хойшхи бүх сарыг дахин тооцно (C1 → C2
+  //    цуваа тул зангууны дараахыг хэсэгчилж болохгүй; period-run.ts).
   await runPeriodicCosting(orgId, userId);
 
   // 2. Тухайн сарын үр дүн.

@@ -1,14 +1,11 @@
-import { and, eq } from "drizzle-orm";
-
 import {
   InventoryCountingView,
   type CountSheetRow,
 } from "@/components/inventory/inventory-counting-view";
 import { getActiveOrg } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { inventoryMovements } from "@/lib/db/schema";
-import { balanceKey, calculateQtyBalances } from "@/lib/inventory/balances";
-import { loadInventoryBase, toMovementRefs } from "@/lib/inventory/load-data";
+import { balanceKey } from "@/lib/inventory/balances";
+import { loadInventoryBase } from "@/lib/inventory/load-data";
+import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 
 type SearchParams = Promise<{ warehouse?: string; date?: string }>;
 
@@ -27,16 +24,11 @@ export default async function InventoryCountingPage({
     ? params.date!
     : today();
 
-  // П2 — хөдөлгөөний query агуулахын сонголтоос хамаардаггүй тул суурь
-  // дататай зэрэгцээ татна (waterfall арилгав).
-  const [{ itemViews, warehouseViews }, movements] = await Promise.all([
+  // П2 — үлдэгдлийн query агуулахын сонголтоос хамаардаггүй тул суурь
+  // дататай зэрэгцээ татна; snapshot + delta (asOf-оор).
+  const [{ itemViews, warehouseViews }, balances] = await Promise.all([
     loadInventoryBase(orgId),
-    db.query.inventoryMovements.findMany({
-      where: and(
-        eq(inventoryMovements.organizationId, orgId),
-        eq(inventoryMovements.status, "confirmed")
-      ),
-    }),
+    loadQtyBalancesFast(orgId, asOfDate),
   ]);
   const activeWarehouses = warehouseViews.filter((w) => w.isActive);
   const selectedWarehouseId =
@@ -46,9 +38,6 @@ export default async function InventoryCountingPage({
 
   let rows: CountSheetRow[] = [];
   if (selectedWarehouseId) {
-    const balances = calculateQtyBalances(
-      toMovementRefs(movements).filter((ref) => ref.date <= asOfDate)
-    );
     rows = itemViews
       .filter((item) => item.isActive)
       .map((item) => ({

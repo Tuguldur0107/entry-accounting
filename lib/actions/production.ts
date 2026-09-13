@@ -41,8 +41,8 @@ import { latestUnitCost } from "@/lib/costing/valuation";
 import {
   findNegativeStock,
   type MovementRef,
-  type MovementType,
 } from "@/lib/inventory/balances";
+import { loadQtyLedgerFast } from "@/lib/inventory/period-balances";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { extractMainAccount } from "@/lib/reports/balances";
@@ -597,23 +597,8 @@ export async function confirmProductionRun(
       // (findNegativeStock, он цагийн бүрэн replay): батлагдах гэж буй
       // орцын зарлагуудыг одоогийн батлагдсан хөдөлгөөний цуваан дээр
       // нэмж, аль нэг бараа×агуулахын үлдэгдэл хасах болбол зогсооно.
-      const confirmedRows = await tx.query.inventoryMovements.findMany({
-        where: and(
-          eq(inventoryMovements.organizationId, orgId),
-          eq(inventoryMovements.status, "confirmed")
-        ),
-      });
-      const existingRefs: MovementRef[] = confirmedRows.map((row) => ({
-        id: row.id,
-        movementType: row.movementType as MovementType,
-        date: row.date,
-        // Confirmed мөрөнд null байх боломжгүй (confirm-ийн шалгалт).
-        itemId: row.itemId ?? "",
-        warehouseId: row.warehouseId ?? "",
-        toWarehouseId: row.toWarehouseId,
-        quantity: Number(row.quantity),
-        createdAt: row.createdAt.toISOString(),
-      }));
+      // Хаагдсан үеийн snapshot + түүнээс хойшхи хөдөлгөөн (бүх түүх биш).
+      const ledger = await loadQtyLedgerFast(orgId, undefined, tx);
       const nowIso = new Date().toISOString();
       const pendingIssueRefs: MovementRef[] = run.inputs
         .filter((input) => !input.sourceStageId)
@@ -628,10 +613,11 @@ export async function confirmProductionRun(
           quantity: Number(input.quantity),
           createdAt: nowIso,
         }));
-      const violation = findNegativeStock([
-        ...existingRefs,
-        ...pendingIssueRefs,
-      ]);
+      const violation = findNegativeStock(
+        [...ledger.movements, ...pendingIssueRefs],
+        null,
+        ledger.opening
+      );
       if (violation) {
         const [item, warehouse] = await Promise.all([
           tx.query.inventoryItems.findFirst({

@@ -1,6 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, between, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 
 import { getActiveOrg } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import {
@@ -248,18 +249,47 @@ function toDocumentView(
   };
 }
 
-/** Бүх баримт (жагсаалт, тайлан, самбарт). */
+/**
+ * Баримтууд (жагсаалт, тайлан, самбарт). `bounds` өгвөл АЖЛЫН БАГЦ л
+ * ачаална — урт хугацаанд бүх түүхийг JS-д ачаалахгүй:
+ *   • сонгосон тайлант үеийн баримт (огноогоор),
+ *   • ҮЛДЭГДЭЛТЭЙ (нээлттэй) баримт — огноо хамаагүй (үлдэгдэл, насжилт,
+ *     тэгшитгэл бүгд үүнээс),
+ *   • ноорог — огноо хамаагүй (үйлдэл хүлээж буй).
+ * Хаагдсан (бүрэн төлөгдсөн/буцаагдсан) хуучин баримт тайлант үеэ сонговол
+ * харагдана. bounds-гүй бол бүгд (AI/экспорт зэрэг бүрэн жагсаалтад).
+ */
 export async function loadArApDocuments(
-  orgId: string
+  orgId: string,
+  bounds?: { from: string; to: string }
 ): Promise<ArApDocumentView[]> {
+  const scope = bounds
+    ? and(
+        eq(arApDocuments.organizationId, orgId),
+        or(
+          between(arApDocuments.date, bounds.from, bounds.to),
+          eq(arApDocuments.status, "draft"),
+          and(
+            ne(arApDocuments.status, "reversed"),
+            sql`${arApDocuments.totalAmount} <> ${arApDocuments.paidAmount}`
+          )
+        )
+      )
+    : eq(arApDocuments.organizationId, orgId);
   const [rows, sendRows] = await Promise.all([
     db.query.arApDocuments.findMany({
-      where: eq(arApDocuments.organizationId, orgId),
+      where: scope,
       with: { counterparty: true },
       orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
     }),
     db.query.arApInvoiceSends.findMany({
-      where: eq(arApInvoiceSends.organizationId, orgId),
+      where: and(
+        eq(arApInvoiceSends.organizationId, orgId),
+        inArray(
+          arApInvoiceSends.documentId,
+          db.select({ id: arApDocuments.id }).from(arApDocuments).where(scope)
+        )
+      ),
     }),
   ]);
   // Баримт бүрийн илгээлтийн ХАМГИЙН АХИСАН төлөв: үзсэн > илгээсэн > null.
@@ -312,11 +342,14 @@ export async function loadArApDocumentDetail(
 
 export async function loadArApWorkspaceData() {
   const { orgId } = await getActiveOrg();
+  // Topbar-ийн тайлант үе — баримтын ажлын багцын хил (нээлттэй/ноорог нь
+  // огноо хамаагүй орно).
+  const period = await getPeriodSelection();
 
   const [counterpartiesView, documentsView, segmentData, inventoryOptions] =
     await Promise.all([
       loadArApCounterparties(orgId),
-      loadArApDocuments(orgId),
+      loadArApDocuments(orgId, { from: period.from, to: period.to }),
       loadArApSegmentData(orgId),
       loadArApInventoryOptions(orgId),
     ]);

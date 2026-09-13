@@ -944,10 +944,16 @@ async function exportDocuments(
   });
 }
 
+/**
+ * Насжилт = ҮЛДЭГДЭЛТЭЙ баримтууд asOf-оор. Бүрэн төлөгдсөн баримт орохгүй —
+ * ажлын багц нь тайлант үе + нээлттэй баримт (lib/arap/load-data.ts) тул
+ * төлөгдсөнийг тоолбол тайлант үеийн сонголтоос хамаарч зөрөх байсан.
+ */
 function buildReportRows(documents: ArApDocumentView[], asOf: string): ReportRow[] {
   const rows = new Map<string, ReportRow>();
   for (const doc of documents) {
     if (doc.status === "reversed" || doc.date > asOf) continue;
+    if (Math.abs(doc.balance) < 0.005) continue;
     const key = `${doc.counterpartyId}:${doc.currency}`;
     const existing =
       rows.get(key) ??

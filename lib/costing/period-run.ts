@@ -12,17 +12,30 @@
 //     Inventory Ledger-т хэвийн хөдөлнө; өртгийн үр дүнд тусгагдахгүй тул
 //     энэ нь тайланд ил ЗӨРҮҮ болж харагдана.
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  accountingPeriods,
   costEntries,
   costPeriodResults,
   inventoryMovements,
 } from "@/lib/db/schema";
-import { periodCodeOf, periodCodesBetween } from "@/lib/periods/period";
+import {
+  nextPeriodCode,
+  periodCodeOf,
+  periodCodesBetween,
+  periodRange,
+} from "@/lib/periods/period";
+import {
+  contiguousClosedPrefix,
+  pickCostingAnchor,
+  seedOpeningFromResults,
+  type PeriodResultMeta,
+} from "./period-anchor";
 import {
   computeAllScopes,
+  type OpeningBalance,
   type PeriodicMovement,
   type PeriodicResult,
 } from "./periodic";
@@ -60,7 +73,13 @@ function directionOf(
 }
 
 export interface PeriodRunSummary {
+  /** Дахин тооцоологдсон периодууд (зангууны ДАРААХ). */
   periodCodes: string[];
+  /**
+   * Үргэлжлүүлсэн хаагдсан период — түүнээс өмнөх үр дүн хөндөгдөөгүй.
+   * null = зангуу байхгүй, бүх түүхийг эхнээс нь тооцсон.
+   */
+  anchorPeriod: string | null;
   scopeCount: number;
   calculated: number;
   blocked: number;
@@ -73,8 +92,84 @@ export interface PeriodRunSummary {
   }[];
 }
 
+const EMPTY_SUMMARY = (anchorPeriod: string | null): PeriodRunSummary => ({
+  periodCodes: [],
+  anchorPeriod,
+  scopeCount: 0,
+  calculated: 0,
+  blocked: 0,
+  blockedRows: [],
+});
+
 /**
- * Бүх (эсвэл заасан) периодын үр дүнг дахин тооцоолж хадгална.
+ * Хаагдсан үеийн ЭЦСИЙН үр дүнгээс үргэлжлүүлэх зангуу (period-anchor.ts):
+ * зангууны код, түүний эцсийн огноо, хүрээ бүрийн C1. Зангуугүй бол null.
+ */
+async function loadCostingAnchor(
+  orgId: string,
+  firstCode: string
+): Promise<{
+  code: string;
+  endDate: string;
+  openingByScope: Map<string, OpeningBalance | null>;
+} | null> {
+  const [closed, metaRows] = await Promise.all([
+    db.query.accountingPeriods.findMany({
+      where: and(
+        eq(accountingPeriods.organizationId, orgId),
+        eq(accountingPeriods.status, "closed")
+      ),
+      columns: { code: true, closedAt: true },
+    }),
+    db
+      .select({
+        code: costPeriodResults.periodCode,
+        rows: sql<number>`count(*)::int`,
+        minCalculatedAt: sql<Date>`min(${costPeriodResults.calculatedAt})`,
+      })
+      .from(costPeriodResults)
+      .where(eq(costPeriodResults.organizationId, orgId))
+      .groupBy(costPeriodResults.periodCode),
+  ]);
+  const prefix = contiguousClosedPrefix(firstCode, closed);
+  if (prefix.length === 0) return null;
+  const metaByCode = new Map<string, PeriodResultMeta>(
+    metaRows.map((row) => [
+      row.code,
+      { rows: Number(row.rows), minCalculatedAt: new Date(row.minCalculatedAt) },
+    ])
+  );
+  const code = pickCostingAnchor(prefix, metaByCode);
+  if (!code) return null;
+
+  // Хүрээ бүрийн зангуу хүртэлх СҮҮЛИЙН мөр — index (org, item, warehouse,
+  // period) дээрх DISTINCT ON; бүх түүхийн мөрийг ачаалахгүй.
+  const latest = (await db.execute(sql`
+    select distinct on (item_id, warehouse_id)
+      item_id as "itemId", warehouse_id as "warehouseId", status,
+      closing_qty as "closingQty", closing_amount as "closingAmount"
+    from cost_period_results
+    where organization_id = ${orgId} and period_code <= ${code}
+    order by item_id, warehouse_id, period_code desc
+  `)) as unknown as {
+    itemId: string;
+    warehouseId: string;
+    status: string;
+    closingQty: string;
+    closingAmount: string | null;
+  }[];
+  return {
+    code,
+    endDate: periodRange(code).endDate,
+    openingByScope: seedOpeningFromResults(latest),
+  };
+}
+
+/**
+ * Периодын үр дүнг тооцоолж хадгална — ЗАНГУУНААС хойш (хаагдсан үеийн
+ * хадгалагдсан C2-оос үргэлжлүүлнэ, тэдгээр мөр хөндөгдөхгүй); зангуу
+ * байхгүй бол бүх түүхийг эхнээс нь. Цуваа (C2 → дараагийн C1) хэвээр —
+ * зангууны дараах БҮХ периодыг дахин бичнэ, хэсэгчлэн шинэчлэхгүй.
  *
  * `throughPeriod` — үүнийг ОРУУЛААД хүртэл. Өгөхгүй бол хамгийн сүүлийн
  * хөдөлгөөний период хүртэл.
@@ -85,11 +180,26 @@ export async function runPeriodicCosting(
   userId: string,
   options?: { throughPeriod?: string }
 ): Promise<PeriodRunSummary> {
+  const [{ firstDate } = { firstDate: null }] = await db
+    .select({ firstDate: sql<string | null>`min(${inventoryMovements.date})` })
+    .from(inventoryMovements)
+    .where(
+      and(
+        eq(inventoryMovements.organizationId, orgId),
+        eq(inventoryMovements.status, "confirmed")
+      )
+    );
+  if (!firstDate) return EMPTY_SUMMARY(null);
+
+  const anchor = await loadCostingAnchor(orgId, periodCodeOf(firstDate));
+
+  const movementScope = [
+    eq(inventoryMovements.organizationId, orgId),
+    eq(inventoryMovements.status, "confirmed"),
+    ...(anchor ? [gt(inventoryMovements.date, anchor.endDate)] : []),
+  ];
   const movements = await db.query.inventoryMovements.findMany({
-    where: and(
-      eq(inventoryMovements.organizationId, orgId),
-      eq(inventoryMovements.status, "confirmed")
-    ),
+    where: and(...movementScope),
     columns: {
       id: true,
       date: true,
@@ -103,14 +213,6 @@ export async function runPeriodicCosting(
   const valued = movements.filter(
     (movement) => movement.itemId && movement.warehouseId
   );
-  if (valued.length === 0)
-    return {
-      periodCodes: [],
-      scopeCount: 0,
-      calculated: 0,
-      blocked: 0,
-      blockedRows: [],
-    };
 
   // Орлогын мөнгөн дүн: тухайн хөдөлгөөнд холбогдсон ИДЭВХТЭЙ (ноорог эсвэл
   // батлагдсан) ӨРТӨГТЭЙ бичилтээс — худалдан авалт ба нэмэлт зардал.
@@ -120,7 +222,15 @@ export async function runPeriodicCosting(
   const entries = await db.query.costEntries.findMany({
     where: and(
       eq(costEntries.organizationId, orgId),
-      inArray(costEntries.status, ["draft", "posted"])
+      inArray(costEntries.status, ["draft", "posted"]),
+      // Зангуутай бол зөвхөн зангууны дараах хөдөлгөөний бичилтүүд.
+      inArray(
+        costEntries.movementId,
+        db
+          .select({ id: inventoryMovements.id })
+          .from(inventoryMovements)
+          .where(and(...movementScope))
+      )
     ),
     columns: {
       movementId: true,
@@ -170,24 +280,24 @@ export async function runPeriodicCosting(
     });
   }
 
-  if (periodic.length === 0)
-    return {
-      periodCodes: [],
-      scopeCount: 0,
-      calculated: 0,
-      blocked: 0,
-      blockedRows: [],
-    };
-
   const codes = periodic.map((movement) => periodCodeOf(movement.date)).sort();
-  const first = codes[0];
-  const last = options?.throughPeriod ?? codes[codes.length - 1];
+  // Зангуутай бол дараагийн сараас (хөдөлгөөнгүй ч үлдэгдэл дамжина);
+  // зангуугүй бол эхний хөдөлгөөний сараас.
+  const first = anchor ? nextPeriodCode(anchor.code) : codes[0];
+  const last =
+    options?.throughPeriod ?? codes[codes.length - 1] ?? anchor?.code ?? null;
+  if (!first || !last) return EMPTY_SUMMARY(anchor?.code ?? null);
   const periodCodes = periodCodesBetween(first, last);
+  if (periodCodes.length === 0) return EMPTY_SUMMARY(anchor?.code ?? null);
 
-  const byScope = computeAllScopes({ periodCodes, movements: periodic });
+  const byScope = computeAllScopes({
+    periodCodes,
+    movements: periodic,
+    openingByScope: anchor?.openingByScope,
+  });
 
-  // Бичилт: хамрах хүрээ бүрийн БҮХ периодыг дахин бичнэ (тооцоолол нь
-  // цуваа тул хэсэгчлэн шинэчлэх нь буруу үр дүн өгнө).
+  // Бичилт: зангууны дараах БҮХ периодыг дахин бичнэ (тооцоолол нь цуваа
+  // тул хэсэгчлэн шинэчлэх нь буруу үр дүн өгнө); зангуу хүртэлх мөр хэвээр.
   const rows: (typeof costPeriodResults.$inferInsert)[] = [];
   const blockedRows: PeriodRunSummary["blockedRows"] = [];
   let calculated = 0;
@@ -220,7 +330,12 @@ export async function runPeriodicCosting(
   await db.transaction(async (tx) => {
     await tx
       .delete(costPeriodResults)
-      .where(eq(costPeriodResults.organizationId, orgId));
+      .where(
+        and(
+          eq(costPeriodResults.organizationId, orgId),
+          ...(anchor ? [gt(costPeriodResults.periodCode, anchor.code)] : [])
+        )
+      );
     // Багцлан оруулна — мөр олон байж болно.
     for (let index = 0; index < rows.length; index += 500)
       await tx.insert(costPeriodResults).values(rows.slice(index, index + 500));
@@ -228,6 +343,7 @@ export async function runPeriodicCosting(
 
   return {
     periodCodes,
+    anchorPeriod: anchor?.code ?? null,
     scopeCount: byScope.size,
     calculated,
     blocked,

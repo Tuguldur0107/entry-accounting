@@ -64,9 +64,16 @@ export function sortChronologically<T extends MovementRef>(movements: T[]): T[] 
   });
 }
 
-/** item|warehouse → on-hand quantity (confirmed movements only — caller filters). */
-export function calculateQtyBalances(movements: MovementRef[]) {
-  const balances = new Map<string, number>();
+/**
+ * item|warehouse → on-hand quantity (confirmed movements only — caller filters).
+ * `initial` — хаагдсан үеийн snapshot-ын үлдэгдэл; movements нь түүнээс
+ * ХОЙШХИ хөдөлгөөн (lib/inventory/period-balances.ts).
+ */
+export function calculateQtyBalances(
+  movements: MovementRef[],
+  initial?: Map<string, number>
+) {
+  const balances = new Map<string, number>(initial ?? []);
   for (const movement of movements) {
     for (const effect of movementEffects(movement)) {
       const key = balanceKey(effect.itemId, effect.warehouseId);
@@ -94,12 +101,14 @@ export interface NegativeStockViolation {
  */
 export function findNegativeStock(
   existing: MovementRef[],
-  candidate?: MovementRef | null
+  candidate?: MovementRef | null,
+  /** Хаагдсан үеийн snapshot — replay түүнээс эхэлнэ (хаагдсан үе хөдөлгөөнгүй). */
+  initial?: Map<string, number>
 ): NegativeStockViolation | null {
   const all = sortChronologically(
     candidate ? [...existing, candidate] : existing
   );
-  const balances = new Map<string, number>();
+  const balances = new Map<string, number>(initial ?? []);
   for (const movement of all) {
     for (const effect of movementEffects(movement)) {
       const key = balanceKey(effect.itemId, effect.warehouseId);
