@@ -385,7 +385,10 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
 ханш хэрэгтэй болдог тул Монголбанкны ханш нь "өнөөдрийн татагдац" биш —
 `exchange_rates` хүснэгтэд **ӨДРӨӨР** хадгалагдаж, дурын хуучин огноогоор
 уншигдана. Хүснэгт нь **НИЙТИЙН лавлах**: `organizationId` БАЙХГҮЙ (ханш нь
-нийтийн баримт), UNIQUE(source, currency, date).
+нийтийн баримт), давхардлыг **unique INDEX** `(source, currency, date)`
+хамгаална (`uniqueIndex`, constraint БИШ — drizzle-kit 0.31.x-ийн #5955 алдаа:
+`unique()` constraint-ыг push дараагийн удаа танихгүй, бөглөөтэй хүснэгтэд
+truncate асуулт тавьж preDeploy унагадаг).
 
 **Монголбанкны албан ханш = системийн СУУРЬ ханш** — хүлээн авалт, нэхэмжлэх,
 PO хаалт, FX тэгшитгэл бүгд албан ханшаар үнэлэгдэнэ (§5a, docs/procurement
@@ -1037,7 +1040,8 @@ Cash       cash_accounts, cash_documents, bank_statements,
              cash_account_period_balances — хаалтын үлдэгдэл (дансны валютаар),
                период хаахад бичигдэж дахин нээхэд устдаг (snapshot + delta), exchange_rates
              exchange_rates — НИЙТИЙН лавлах: organizationId БАЙХГҮЙ (ханш нь
-               нийтийн баримт), UNIQUE(source, currency, date); source
+               нийтийн баримт), unique INDEX (source, currency, date) —
+               constraint биш, drizzle-kit #5955-ийн улмаас (§5b); source
                mongolbank|tdb|golomt, date = ханшийн ӨӨРИЙН огноо (RATE_DATE),
                fetchedAt = хэзээ татсан (§5b)
              fx_revaluations.closingRate / rateSource / rateBasis / sourceDate /

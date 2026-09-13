@@ -648,7 +648,18 @@ export const exchangeRates = pgTable(
     }),
   },
   (t) => [
-    unique().on(t.source, t.currency, t.date),
+    // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн алдаа
+    // (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
+    // push нь дараагийн удаа "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
+    // нэмэх гэж truncate асуулт тавьж, non-TTY preDeploy дээр crash хийдэг.
+    // Unique index нь pg_indexes-ээс зөв танигдана; ON CONFLICT (source,
+    // currency, date) index-ээр ч ажиллана. Нэр нь хуучин constraint-ийн
+    // `…_unique`-ээс ЗОРИУД өөр — байгаа DB дээр давхцахгүй.
+    uniqueIndex("exchange_rates_source_currency_date_ux").on(
+      t.source,
+      t.currency,
+      t.date
+    ),
     index("exchange_rates_currency_date_ix").on(t.currency, t.date),
     index("exchange_rates_source_date_ix").on(t.source, t.date),
   ]
