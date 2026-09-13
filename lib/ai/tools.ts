@@ -4056,15 +4056,17 @@ async function runCreateCashAccount(
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  await createCashAccount({
-    name: input.name,
-    accountType: input.accountType,
-    bankName: input.bankName,
-    accountNumber: input.accountNumber,
-    currency: input.currency?.trim().toUpperCase() || "MNT",
-    glAccountNumber: resolveAccount(input.glAccount, ctx).main,
-    openingBalance: input.openingBalance,
-  });
+  unwrapAction(
+    await createCashAccount({
+      name: input.name,
+      accountType: input.accountType,
+      bankName: input.bankName,
+      accountNumber: input.accountNumber,
+      currency: input.currency?.trim().toUpperCase() || "MNT",
+      glAccountNumber: resolveAccount(input.glAccount, ctx).main,
+      openingBalance: input.openingBalance,
+    })
+  );
   return { resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}` };
 }
 

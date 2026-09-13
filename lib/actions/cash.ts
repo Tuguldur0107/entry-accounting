@@ -7,6 +7,7 @@ import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { db } from "@/lib/db";
 import {
+  bankStatements,
   cashAccounts,
   cashDocuments,
   cashFxRevaluations,
@@ -161,7 +162,7 @@ async function cashPostingCodeBuilder(
   });
 }
 
-export async function createCashAccount(data: {
+async function createCashAccountCore(data: {
   name: string;
   accountType: "cash" | "bank";
   bankName?: string;
@@ -197,6 +198,185 @@ export async function createCashAccount(data: {
   });
 
   revalidateCash();
+}
+
+export async function createCashAccount(
+  data: Parameters<typeof createCashAccountCore>[0]
+): Promise<ActionResult> {
+  try {
+    await createCashAccountCore(data);
+    return {};
+  } catch (caught) {
+    return actionError("createCashAccount", caught, "Данс үүсгэж чадсангүй");
+  }
+}
+
+/**
+ * Данс АШИГЛАГДСАН эсэх — баримт (орох/гарах тал), банкны хуулга, ханшийн
+ * тэгшитгэл, журналын мөр (нээлтийн журнал энд ордог). Ашиглагдсан дансны
+ * валют/GL холбоос/төрөл/нээлтийн үлдэгдлийг өөрчилбөл өмнөх бичилтүүдтэй
+ * тулгалт зөрөх тул түгжинэ; устгалт бүрэн хориглогдоно.
+ */
+async function cashAccountIsUsed(orgId: string, id: string): Promise<boolean> {
+  const [doc, statement, reval, line] = await Promise.all([
+    db.query.cashDocuments.findFirst({
+      where: and(
+        eq(cashDocuments.organizationId, orgId),
+        or(
+          eq(cashDocuments.fromCashAccountId, id),
+          eq(cashDocuments.toCashAccountId, id)
+        )
+      ),
+      columns: { id: true },
+    }),
+    db.query.bankStatements.findFirst({
+      where: and(
+        eq(bankStatements.organizationId, orgId),
+        eq(bankStatements.cashAccountId, id)
+      ),
+      columns: { id: true },
+    }),
+    db.query.cashFxRevaluations.findFirst({
+      where: and(
+        eq(cashFxRevaluations.organizationId, orgId),
+        eq(cashFxRevaluations.cashAccountId, id)
+      ),
+      columns: { id: true },
+    }),
+    db
+      .select({ id: journalLines.id })
+      .from(journalLines)
+      .innerJoin(
+        journalVouchers,
+        eq(journalLines.voucherId, journalVouchers.id)
+      )
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalLines.cashAccountId, id)
+        )
+      )
+      .limit(1),
+  ]);
+  return Boolean(doc || statement || reval || line.length);
+}
+
+export async function updateCashAccount(data: {
+  id: string;
+  name: string;
+  accountType: "cash" | "bank";
+  bankName?: string;
+  accountNumber?: string;
+  currency: string;
+  glAccountNumber: string;
+  openingBalance?: number;
+}): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await requireModuleAction("cash", "write");
+
+    const account = await db.query.cashAccounts.findFirst({
+      where: and(
+        eq(cashAccounts.id, data.id),
+        eq(cashAccounts.organizationId, orgId)
+      ),
+    });
+    if (!account) throw new Error("Мөнгөн хөрөнгийн данс олдсонгүй");
+
+    const name = data.name.trim();
+    if (!name) throw new Error("Дансны нэр оруулна уу");
+    if (!["cash", "bank"].includes(data.accountType))
+      throw new Error("Дансны төрөл буруу байна");
+
+    const glAccountNumber = data.glAccountNumber.trim();
+    const currency = data.currency.trim().toUpperCase() || "MNT";
+    const openingBalance = Number(data.openingBalance ?? 0);
+    if (!Number.isFinite(openingBalance))
+      throw new Error("Эхний үлдэгдэл буруу байна");
+
+    // Гүйлгээтэй дансны суурь шинжийг өөрчилбөл өмнөх бичилт, хуулга,
+    // тулгалт бүгд утгаа алдана — зөвхөн нэрийн талбаруудыг зөвшөөрнө.
+    const coreChanged =
+      data.accountType !== account.accountType ||
+      currency !== account.currency ||
+      glAccountNumber !== account.glAccountNumber ||
+      Math.abs(openingBalance - Number(account.openingBalance ?? 0)) > 0.005;
+    if (coreChanged && (await cashAccountIsUsed(orgId, data.id)))
+      throw new Error(
+        "Гүйлгээ, хуулга эсвэл журналын бичилттэй данс тул төрөл, валют, GL данс, эхний үлдэгдлийг өөрчлөх боломжгүй — зөвхөн нэр, банкны мэдээллийг засна"
+      );
+
+    if (glAccountNumber !== account.glAccountNumber)
+      await assertMainAccount(orgId, glAccountNumber);
+
+    await db
+      .update(cashAccounts)
+      .set({
+        name,
+        accountType: data.accountType,
+        bankName:
+          data.accountType === "bank" ? cleanText(data.bankName) : null,
+        accountNumber:
+          data.accountType === "bank" ? cleanText(data.accountNumber) : null,
+        currency,
+        glAccountNumber,
+        openingBalance: String(openingBalance),
+      })
+      .where(
+        and(eq(cashAccounts.id, data.id), eq(cashAccounts.organizationId, orgId))
+      );
+
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "cash_account",
+      entityId: data.id,
+      summary: `Мөнгөн хөрөнгийн данс засагдав — ${name}`,
+    });
+    revalidateCash();
+    return {};
+  } catch (caught) {
+    return actionError("updateCashAccount", caught, "Данс засаж чадсангүй");
+  }
+}
+
+export async function deleteCashAccount(id: string): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await requireModuleAction("cash", "write");
+
+    const account = await db.query.cashAccounts.findFirst({
+      where: and(
+        eq(cashAccounts.id, id),
+        eq(cashAccounts.organizationId, orgId)
+      ),
+      columns: { id: true, name: true },
+    });
+    if (!account) throw new Error("Мөнгөн хөрөнгийн данс олдсонгүй");
+
+    if (await cashAccountIsUsed(orgId, id))
+      throw new Error(
+        "Гүйлгээ, хуулга эсвэл журналын бичилттэй данс устгах боломжгүй — оронд нь идэвхгүй болгоно уу"
+      );
+
+    await db
+      .delete(cashAccounts)
+      .where(
+        and(eq(cashAccounts.id, id), eq(cashAccounts.organizationId, orgId))
+      );
+
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "delete",
+      entityType: "cash_account",
+      entityId: id,
+      summary: `Мөнгөн хөрөнгийн данс устгагдав — ${account.name}`,
+    });
+    revalidateCash();
+    return {};
+  } catch (caught) {
+    return actionError("deleteCashAccount", caught, "Данс устгаж чадсангүй");
+  }
 }
 
 /**

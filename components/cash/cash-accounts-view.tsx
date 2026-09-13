@@ -17,7 +17,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { createCashAccount, toggleCashAccount } from "@/lib/actions/cash";
+import {
+  createCashAccount,
+  deleteCashAccount,
+  toggleCashAccount,
+  updateCashAccount,
+} from "@/lib/actions/cash";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import type {
   CashAccountView,
   CashGlAccountOption,
@@ -44,9 +50,12 @@ const emptyForm = () => ({
 export function CashAccountsView({ accounts, glAccounts }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // null = шинэ данс үүсгэх; утгатай бол тухайн дансыг засах горим.
+  const [editing, setEditing] = useState<CashAccountView | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const glNameMap = useMemo(
     () => new Map(glAccounts.map((account) => [account.number, account.name])),
@@ -164,7 +173,23 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
   );
 
   function showDialog() {
+    setEditing(null);
     setForm(emptyForm());
+    setError("");
+    setOpen(true);
+  }
+
+  function showEditDialog(account: CashAccountView) {
+    setEditing(account);
+    setForm({
+      name: account.name,
+      accountType: account.accountType === "cash" ? "cash" : "bank",
+      bankName: account.bankName ?? "",
+      accountNumber: account.accountNumber ?? "",
+      currency: account.currency,
+      glAccountNumber: account.glAccountNumber,
+      openingBalance: String(account.openingBalance),
+    });
     setError("");
     setOpen(true);
   }
@@ -172,25 +197,50 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
   function save() {
     setError("");
     startTransition(async () => {
-      try {
-        await createCashAccount({
-          name: form.name,
-          accountType: form.accountType,
-          bankName: form.bankName,
-          accountNumber: form.accountNumber,
-          currency: form.currency,
-          glAccountNumber: form.glAccountNumber,
-          openingBalance: Number(form.openingBalance.replaceAll(",", "")),
-        });
+      const payload = {
+        name: form.name,
+        accountType: form.accountType,
+        bankName: form.bankName,
+        accountNumber: form.accountNumber,
+        currency: form.currency,
+        glAccountNumber: form.glAccountNumber,
+        openingBalance: Number(form.openingBalance.replaceAll(",", "")),
+      };
+      const result = editing
+        ? await updateCashAccount({ id: editing.id, ...payload })
+        : await createCashAccount(payload);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setOpen(false);
+      router.refresh();
+      toast.success(editing ? "Данс хадгалагдлаа" : "Данс үүслээ");
+    });
+  }
+
+  function remove() {
+    if (!editing) return;
+    const account = editing;
+    void (async () => {
+      const ok = await confirm({
+        title: "Данс устгах уу?",
+        description: `«${account.name}» данс бүрмөсөн устана. Гүйлгээтэй данс устгагдахгүй — түүнийг идэвхгүй болгоно.`,
+        confirmText: "Устгах",
+        danger: true,
+      });
+      if (!ok) return;
+      startTransition(async () => {
+        const result = await deleteCashAccount(account.id);
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
         setOpen(false);
         router.refresh();
-        toast.success("Данс үүслээ");
-      } catch (caught) {
-        setError(
-          caught instanceof Error ? caught.message : "Данс үүсгэж чадсангүй"
-        );
-      }
-    });
+        toast.success("Данс устгагдлаа");
+      });
+    })();
   }
 
   return (
@@ -219,6 +269,9 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
           rowData={accounts}
           columnDefs={columnDefs}
           getRowId={(params) => params.data.id}
+          onRowDoubleClicked={(event) => {
+            if (event.data) showEditDialog(event.data);
+          }}
           height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
@@ -228,7 +281,11 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Мөнгөн хөрөнгийн данс нэмэх</DialogTitle>
+            <DialogTitle>
+              {editing
+                ? "Мөнгөн хөрөнгийн данс засах"
+                : "Мөнгөн хөрөнгийн данс нэмэх"}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="grid gap-4">
@@ -365,20 +422,34 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
             )}
           </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isPending}
-            >
-              Болих
-            </Button>
-            <Button onClick={save} disabled={isPending}>
-              Данс үүсгэх
-            </Button>
+          <DialogFooter className={editing ? "sm:justify-between" : undefined}>
+            {editing && (
+              <Button
+                variant="destructive"
+                onClick={remove}
+                disabled={isPending}
+              >
+                <Icon name="delete" />
+                Устгах
+              </Button>
+            )}
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setOpen(false)}
+                disabled={isPending}
+              >
+                Болих
+              </Button>
+              <Button onClick={save} disabled={isPending}>
+                {editing ? "Хадгалах" : "Данс үүсгэх"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {confirmDialog}
     </section>
   );
 }
