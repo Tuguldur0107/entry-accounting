@@ -44,6 +44,8 @@ export const customization = mergeCustomizations(myPackage);
 - Core guardrail-ийг сулруулах (баланс, период, эрх, 10 сая ₮ хязгаар) — hook
   зөвхөн НЭМЭЛТ хориг тавьж чадна
 - `lib/`, `app/`, `components/` дотор өөрчлөлт — хэрэгтэй бол core руу PR
+  ([CONTRIBUTING.md](../CONTRIBUTING.md): fork → cherry-pick → PR, эсвэл
+  `custom/UPSTREAM-CONSENT.md`-ээр зөвшөөрөл өгнө)
 - Нууц, URL, дансны дугаар кодонд хатуу бичих — `process.env` / тохиргооны хүснэгт
 - Client-ээс DB руу шууд хандах — tool нь server талд ажилладаг
 

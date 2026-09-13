@@ -50,6 +50,7 @@ npx tsc --noEmit && npx eslint . && npm test
 | Open source стратеги | [docs/OPEN-SOURCE-STRATEGY.md](docs/OPEN-SOURCE-STRATEGY.md) |
 | Мэргэжлийн мэдлэгийн сан | `knowledge/` |
 | Лиценз — юу зөвшөөрөгдөх вэ | [docs/licensing/](docs/licensing/README.md) |
+| Хувь нэмэр — таны код core-д хэрхэн орох вэ | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Лиценз
 

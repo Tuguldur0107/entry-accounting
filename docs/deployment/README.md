@@ -35,10 +35,16 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 
 ### 1a. Харилцагчийн repo хэрхэн үүсэх вэ
 
-Core repo **private** тул GitHub-ийн "Fork" товч харилцагчийн акаунтад
-ажиллахгүй (core-д унших эрх хэрэгтэй). "Fork" гэдэг нь энд **тусдаа repo +
-`upstream` remote** гэсэн бүтэц. Template repo ашиглаж БОЛОХГҮЙ — түүхгүй
-(нэг commit) үүсдэг тул upstream-sync merge хийгдэхгүй.
+Харилцагчийн repo нь GitHub-ийн жинхэнэ fork БИШ, харин **тусдаа private
+repo + `upstream` remote** гэсэн бүтэц. Шалтгаан: GitHub дээр fork нь эх
+repo-гийнхоо харагдацыг өвлөдөг — core public тул түүний fork-ыг private
+болгож болдоггүй, гэтэл харилцагчийн repo (өөрийн `custom/` кодтой) заавал
+private байна. Template repo ашиглаж БОЛОХГҮЙ — түүхгүй (нэг commit) үүсдэг
+тул upstream-sync merge хийгдэхгүй.
+
+Харилцагч core руу хувь нэмэр оруулахдаа public core-ыг өөрийн акаунтдаа
+энгийнээр fork хийж cherry-pick → PR нээнэ, эсвэл repo-дээ зөвшөөрлийн файл
+commit хийнэ — [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 **Автомат зам (зөвлөж байна):** Entry Console (`entry-console` repo, Railway)
 → хүсэлтийг «Батлах» (нээлттэй `/signup`-аас ирсэн) эсвэл «Харилцагч нэмэх»
@@ -222,4 +228,4 @@ Hook нь core guardrail-ийг (баланс, период, эрх, 10 сая �
   одоо Cowork импорт орлож байна
 - `entry-package.json` манифест + `entryCompat` semver шалгалт (docs/opensource/02 Шат 3)
 - Multi-instance rate limit (Redis) — нэг сервер дээр хэрэггүй
-- FSL лиценз, CLA (docs/opensource/03) — fork private тул одоохондоо шаардлагагүй
+- ~~FSL лиценз, CLA~~ — хийгдсэн: `LICENSE` (v1.1.0), хувь нэмрийн нөхцөл `CONTRIBUTING.md`
