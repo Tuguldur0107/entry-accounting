@@ -5,7 +5,19 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Нэмэгдсэн
+- **`CONTRIBUTING.md` — хувь нэмрийн нөхцөл.** Харилцагчийн `custom/` код
+  харилцагчийнх; core-д орох хоёр зам: (А) public core-ыг fork → cherry-pick
+  → PR, DCO `Signed-off-by`; (Б) харилцагч өөрийн repo-д
+  `custom/UPSTREAM-CONSENT.md` commit хийнэ (загвар
+  `docs/licensing/UPSTREAM-CONSENT.template.md`) — Entry заасан хүрээнд авч
+  ерөнхий болгоно. Эрх нь онцгой бус, хугацаагүй; зохиогчийн эрх хэвээр.
+  Лавлагаа/сурталчилгааны зөвшөөрөл тусдаа, сонголтоор
+
 ### Засагдсан
+- `docs/deployment/README.md` §1a — «core private тул fork биш» гэсэн хоцорсон
+  шалтгааныг засав: core public; fork нь харагдацаа өвлөдөг тул харилцагчийн
+  private repo fork байж чадахгүй
 - **Нэвтрэх / бүртгүүлэх нь proxy-ийн ард унадаг байсан.** NextAuth v5 нь
   Vercel-ээс бусад орчинд host-оо анхнаасаа итгэдэггүй тул
   `/api/auth/callback/credentials` нь `UntrustedHost` алдаа өгч, хэрэглэгчид
