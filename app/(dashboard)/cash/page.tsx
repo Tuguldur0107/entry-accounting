@@ -1,7 +1,13 @@
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, gt, lte } from "drizzle-orm";
 
 import { CashDashboard } from "@/components/cash/cash-dashboard";
 import { getActiveOrg } from "@/lib/auth";
+import {
+  findCashSnapshotAnchor,
+  loadCashBalancesFast,
+  sumCashMovements,
+} from "@/lib/cash/period-balances";
+import { loadMainBalancesFast } from "@/lib/reports/period-balances";
 import {
   computeCashCoreRows,
   type CashCoreRow,
@@ -18,7 +24,6 @@ import {
   cashAccounts,
   cashDocuments,
   cashFxRevaluations,
-  journalVouchers,
 } from "@/lib/db/schema";
 
 function todayInUlaanbaatar() {
@@ -100,25 +105,28 @@ export default async function CashDashboardPage() {
   const { orgId } = await getActiveOrg();
   const asOf = todayInUlaanbaatar();
 
-  const [accounts, documents, vouchers, statements, fxRevaluations] =
+  const [accounts, documents, glBalances, statements, fxRevaluations] =
     await Promise.all([
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.organizationId, orgId),
       orderBy: (account, { asc }) => [asc(account.name)],
     }),
-    db.query.cashDocuments.findMany({
-      where: eq(cashDocuments.organizationId, orgId),
-      with: { fromAccount: true, toAccount: true },
-      orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
-    }),
-    db.query.journalVouchers.findMany({
-      where: and(
-        eq(journalVouchers.organizationId, orgId),
-        lte(journalVouchers.date, asOf),
-        inArray(journalVouchers.status, ["posted", "reversed"])
-      ),
-      with: { lines: true },
-    }),
+    // Зөвхөн СҮҮЛИЙН snapshot-оос ХОЙШХИ баримт (хаагдсан үеийнх snapshot-д
+    // нэгтгэгдсэн; ноорог хаагдсан үед үлдэж чадахгүй). Үлдэгдэл, GL тал нь
+    // доор snapshot + delta-гаар (loadCashBalancesFast / loadMainBalancesFast).
+    (async () => {
+      const anchor = await findCashSnapshotAnchor(orgId, asOf);
+      return db.query.cashDocuments.findMany({
+        where: and(
+          eq(cashDocuments.organizationId, orgId),
+          ...(anchor ? [gt(cashDocuments.date, anchor.endDate)] : [])
+        ),
+        with: { fromAccount: true, toAccount: true },
+        orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
+      });
+    })(),
+    // GL тал: ваучерыг JS-д ачаалахгүй — үндсэн дансаар snapshot + delta.
+    loadMainBalancesFast(orgId, asOf),
     db.query.bankStatements.findMany({
       where: eq(bankStatements.organizationId, orgId),
       with: { lines: true },
@@ -137,13 +145,20 @@ export default async function CashDashboardPage() {
 
   // Данс бүрийн үлдэгдэл/зөрүү/статус — тулгалт хуудастай ХАМТЫН цөм
   // (өмнө нь хоёр хуудас тус тусдаа тооцоод зөрдөг байсан).
+  // Кассын үлдэгдэл: snapshot + delta; бүх түүхийн орлого/зарлагын нийлбэр SQL-ээр.
+  const [cashBalances, lifetimeFlows] = await Promise.all([
+    loadCashBalancesFast(orgId, accounts, asOf),
+    sumCashMovements(orgId, { lteDate: asOf }),
+  ]);
   const coreRows = computeCashCoreRows({
     accounts,
     documents,
-    vouchers,
+    vouchers: [],
     statements,
     fxRevaluations,
     asOf,
+    cashBalances,
+    glBalances,
   });
 
   const accountViews: CashAccountView[] = accounts.map((account) => ({
@@ -206,22 +221,26 @@ export default async function CashDashboardPage() {
     });
 
   const healthRows: CashHealthRow[] = accounts.map((account) => {
-    let running = Number(account.openingBalance);
-    let receipts = 0;
-    let payments = 0;
+    // Сөрөг үлдэгдлийн анхны мөчийг snapshot-оос ХОЙШХИ баримтаас хайна
+    // (хаагдсан үеийн сөрөг нь тэр үед нээлттэй байхад илэрсэн). Эхлэл =
+    // үлдэгдэл − snapshot-оос хойшхи цэвэр хөдөлгөөн = snapshot-ын үлдэгдэл.
+    const finalBalance = coreRows.get(account.id)?.cashBalance ?? 0;
+    const postAnchorNet = chronologicalDocuments.reduce((sum, document) => {
+      let effect = 0;
+      if (document.toCashAccountId === account.id) effect += Number(document.amount);
+      if (document.fromCashAccountId === account.id) effect -= Number(document.amount);
+      return sum + effect;
+    }, 0);
+    let running = Math.round((finalBalance - postAnchorNet) * 100) / 100;
+    const receipts = lifetimeFlows.get(account.id)?.inflow ?? 0;
+    const payments = lifetimeFlows.get(account.id)?.outflow ?? 0;
     let negativeTrigger: CashHealthRow["negativeTrigger"] = null;
 
     for (const document of chronologicalDocuments) {
       let effect = 0;
       const amount = Number(document.amount);
-      if (document.toCashAccountId === account.id) {
-        effect += amount;
-        receipts += amount;
-      }
-      if (document.fromCashAccountId === account.id) {
-        effect -= amount;
-        payments += amount;
-      }
+      if (document.toCashAccountId === account.id) effect += amount;
+      if (document.fromCashAccountId === account.id) effect -= amount;
       if (effect === 0) continue;
       running = Math.round((running + effect) * 100) / 100;
       if (!negativeTrigger && running < -0.01) {

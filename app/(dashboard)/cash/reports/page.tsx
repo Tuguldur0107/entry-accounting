@@ -1,8 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 
 import { CashReportView } from "@/components/cash/cash-report-view";
 import { getActiveOrg } from "@/lib/auth";
+import { shiftDays } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
+import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import {
   calculateCashDetailRows,
   calculateCashFlowCodeSummary,
@@ -24,12 +26,20 @@ export default async function CashReportsPage({
   const periodStart = start ?? period.from;
   const periodEnd = end ?? period.to;
 
-  // The movement calc needs documents before + within the period (opening
-  // balance is carried from prior postings), so we load all posted-or-any
-  // documents and let the helper bucket them by date.
-  const [accounts, documents, s8Values] = await Promise.all([
-    db.query.cashAccounts.findMany({ where: eq(cashAccounts.organizationId, orgId) }),
-    db.query.cashDocuments.findMany({ where: eq(cashDocuments.organizationId, orgId) }),
+  // Нээлтийн үлдэгдэл = periodStart-ын өмнөх өдрийн snapshot + delta
+  // (баримтыг бүхэлд нь ачаалахгүй); мужийн баримтыг л татна.
+  const accounts = await db.query.cashAccounts.findMany({
+    where: eq(cashAccounts.organizationId, orgId),
+  });
+  const [openingBalances, documents, s8Values] = await Promise.all([
+    loadCashBalancesFast(orgId, accounts, shiftDays(periodStart, -1)),
+    db.query.cashDocuments.findMany({
+      where: and(
+        eq(cashDocuments.organizationId, orgId),
+        gte(cashDocuments.date, periodStart),
+        lte(cashDocuments.date, periodEnd)
+      ),
+    }),
     // S8 мөнгөн урсгалын кодын нэрс — нэгтгэлийн бүлгийн шошго.
     db.query.segmentValues.findMany({
       where: and(
@@ -40,12 +50,19 @@ export default async function CashReportsPage({
     }),
   ]);
 
-  const rows = calculateCashMovement(accounts, documents, periodStart, periodEnd);
+  const rows = calculateCashMovement(
+    accounts,
+    documents,
+    periodStart,
+    periodEnd,
+    openingBalances
+  );
   const detailRows = calculateCashDetailRows(
     accounts,
     documents,
     periodStart,
-    periodEnd
+    periodEnd,
+    openingBalances
   );
   const codeNames = new Map(s8Values.map((value) => [value.code, value.name]));
   const flowRows = calculateCashFlowCodeSummary(

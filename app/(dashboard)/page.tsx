@@ -10,7 +10,7 @@
 //   • AR/AP           — totalAmount − paidAmount, зөвхөн posted документ
 //   • Буцаалт         — "posted" + "reversed" хамт тоологдож харилцан цуцлагдана
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, or, sql } from "drizzle-orm";
 
 import {
   HomeDashboard,
@@ -26,7 +26,8 @@ import {
 import { type SetupStep } from "@/components/dashboard/setup-checklist";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
 import { getActiveOrg } from "@/lib/auth";
-import { calculateCashBalances } from "@/lib/cash/balances";
+import { loadCashBalancesFast } from "@/lib/cash/period-balances";
+import { shiftDays } from "@/lib/periods/period";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
@@ -73,7 +74,17 @@ export default async function HomePage() {
       ),
     }),
     db.query.cashAccounts.findMany({ where: eq(cashAccounts.organizationId, orgId) }),
-    db.query.cashDocuments.findMany({ where: eq(cashDocuments.organizationId, orgId) }),
+    // Зөвхөн сүүлийн 30 хоногийн баримт (мөнгөн байрлалын явцад) + ноорог
+    // (ажлын дарааллын тоолуурт). Үлдэгдэл нь snapshot + delta-гаар (доор).
+    db.query.cashDocuments.findMany({
+      where: and(
+        eq(cashDocuments.organizationId, orgId),
+        or(
+          gte(cashDocuments.date, shiftDays(today, -30)),
+          eq(cashDocuments.status, "draft")
+        )
+      ),
+    }),
     db.query.arApDocuments.findMany({
       where: eq(arApDocuments.organizationId, orgId),
       // П15: aging-ийн топ харилцагчийн төвлөрөлд нэр хэрэгтэй.
@@ -191,7 +202,7 @@ export default async function HomePage() {
   };
 
   /* ── Мөнгөн хөрөнгө: MNT актив дансны нийлбэр ────────────────────────────── */
-  const balanceMap = calculateCashBalances(cashAccountRows, cashDocumentRows);
+  const balanceMap = await loadCashBalancesFast(orgId, cashAccountRows);
   const mntAccounts = cashAccountRows.filter(
     (a) => a.currency === "MNT" && a.isActive
   );
@@ -203,7 +214,7 @@ export default async function HomePage() {
   ).length;
 
   /* ── П15: мөнгөн байрлалын 30 хоногийн явц (MNT идэвхтэй данс) ──────────── */
-  // calculateCashBalances-тай ИЖИЛ дүрэм: зөвхөн posted, amount талбараар,
+  // Үлдэгдлийн дүрэмтэй ИЖИЛ: зөвхөн posted, amount талбараар,
   // transfer нь гарах данснаас хасагдаж орох дансанд нэмэгдэнэ.
   const mntIds = new Set(mntAccounts.map((a) => a.id));
   const netByDate = new Map<string, number>();

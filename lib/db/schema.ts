@@ -202,6 +202,43 @@ export const accountPeriodBalances = pgTable(
   ]
 );
 
+// Кассын дансны периодын ХААЛТЫН ҮЛДЭГДЭЛ (П28-ын кассын хувилбар). Период
+// хаагдахад lib/cash/period-snapshot.ts бичиж, дахин нээхэд устдаг. Хаагдсан
+// период immutable тул хуучирдаггүй — үлдэгдэл = сүүлийн snapshot + дараах
+// баримтын SQL нийлбэр (lib/cash/period-balances.ts); баримт JS-д ачаалагдахгүй.
+// ДАНСНЫ ВАЛЮТААР хадгална (product owner 2026-09-13); MNT дүн нь тухайн
+// дансны GL дансны snapshot-д (account_period_balances) байгаа тул давхардуулахгүй.
+export const cashAccountPeriodBalances = pgTable(
+  "cash_account_period_balances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    periodCode: text("period_code").notNull(), // "YYYY-MM"
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "cascade" }),
+    currency: text("currency").notNull(),
+    /** Периодын эцсийн үлдэгдэл дансны валютаар = нээлт + Σ posted баримт (≤ endDate). */
+    closingBalance: numeric("closing_balance", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.organizationId, t.periodCode, t.cashAccountId),
+    index("cash_account_period_balances_org_account_ix").on(
+      t.organizationId,
+      t.cashAccountId,
+      t.periodCode
+    ),
+  ]
+);
+
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
 
 export const journalVouchers = pgTable(
@@ -2787,6 +2824,7 @@ export type ProductionRun = typeof productionRuns.$inferSelect;
 export type CostAllocation = typeof costAllocations.$inferSelect;
 export type CostAllocationLine = typeof costAllocationLines.$inferSelect;
 export type ExchangeRate = typeof exchangeRates.$inferSelect;
+export type CashAccountPeriodBalance = typeof cashAccountPeriodBalances.$inferSelect;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type PurchaseOrderLine = typeof purchaseOrderLines.$inferSelect;
 export type GoodsReceipt = typeof goodsReceipts.$inferSelect;

@@ -96,19 +96,28 @@ export function computeCashCoreRows<R extends FxRevaluationLike>(input: {
   /** valuationDate desc, createdAt desc эрэмбээр (query талдаа). */
   fxRevaluations: R[];
   asOf: string;
+  /**
+   * Snapshot + delta-гаар (lib/cash/period-balances.ts) урьдчилан бодсон
+   * кассын үлдэгдэл — өгвөл `documents`-ээс дахин нийлэхгүй (баримтыг JS-д
+   * бүхэлд нь ачаалахгүйн тулд).
+   */
+  cashBalances?: Map<string, number>;
+  /** Мөн адил GL: үндсэн данс → Σ(дебет − кредит) (lib/reports/period-balances.ts). */
+  glBalances?: Map<string, number>;
 }): Map<string, CashCoreRow<R>> {
   const { accounts, vouchers, statements, fxRevaluations, asOf } = input;
   const documents = input.documents.filter((doc) => doc.date <= asOf);
 
-  const cashBalanceMap = calculateCashBalances(accounts, documents);
+  const cashBalanceMap =
+    input.cashBalances ?? calculateCashBalances(accounts, documents);
 
   // GL үлдэгдлийг ДАНСНЫ ДУГААРААР тоолно (cashAccountId холбоосоор БИШ) —
   // гараар/AI-гаар бичсэн журнал холбоосгүй байдаг тул холбоосоор тоолбол
   // тэдгээр нь GL талд "алга болж" хий зөрүү үзүүлдэг. Дугаараар тоолсноор
   // reconcile_modules tool-той ИЖИЛ үнэн гарна. "Reversed" журнал GL-д
   // тооцогдсон хэвээр (эх + буцаалт нэт 0) — GL тайлантай ижил.
-  const glByMain = new Map<string, number>();
-  for (const voucher of vouchers) {
+  const glByMain = input.glBalances ?? new Map<string, number>();
+  for (const voucher of input.glBalances ? [] : vouchers) {
     for (const line of voucher.lines) {
       const main = extractMainAccount(line.accountNumber);
       glByMain.set(

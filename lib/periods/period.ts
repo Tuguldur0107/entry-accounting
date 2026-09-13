@@ -120,6 +120,13 @@ export function periodCodesBetween(from: string, to: string): string[] {
  * үзнэ — период бүртгэл нь хаалт хийхэд л үүсдэг, эс бөгөөс шинэ систем дээр
  * юу ч бичих боломжгүй болно.
  */
+/** Огноог n хоногоор шилжүүлнэ (UTC, YYYY-MM-DD). Сөрөг = ухарна. */
+export function shiftDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 export function isPeriodWritable(
   periods: Map<string, PeriodStatus>,
   date: string

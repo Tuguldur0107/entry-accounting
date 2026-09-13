@@ -45,7 +45,13 @@ export function calculateCashMovement(
   accounts: CashAccount[],
   documents: CashDocument[],
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  /**
+   * periodStart-ын өмнөх өдрийн үлдэгдэл (snapshot + delta-гаар, lib/cash/
+   * period-balances.ts). Өгвөл periodStart-аас ӨМНӨХ баримт ҮЛ ТООЦОГДОНО —
+   * дуудагч зөвхөн мужийн баримтыг л ачаална.
+   */
+  openingBalances?: Map<string, number>
 ): CashMovementRow[] {
   const rows = new Map<string, CashMovementRow>(
     accounts.map((a) => [
@@ -54,7 +60,7 @@ export function calculateCashMovement(
         accountId: a.id,
         accountName: a.name,
         currency: a.currency,
-        opening: Number(a.openingBalance),
+        opening: openingBalances?.get(a.id) ?? Number(a.openingBalance),
         receipts: 0,
         payments: 0,
         closing: 0,
@@ -81,6 +87,7 @@ export function calculateCashMovement(
         : undefined;
 
     if (before) {
+      if (openingBalances) continue; // нээлт аль хэдийн snapshot-оос ирсэн
       if (outAcc) outAcc.opening -= amount;
       if (inAcc) inAcc.opening += amount;
     } else {
@@ -98,11 +105,16 @@ export function calculateCashDetailRows(
   accounts: CashAccount[],
   documents: CashDocument[],
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  /** periodStart-ын өмнөх өдрийн үлдэгдэл (snapshot + delta) — өгвөл өмнөх баримт үл тооцогдоно. */
+  presetOpeningBalances?: Map<string, number>
 ): CashDetailRow[] {
   const accountMap = new Map(accounts.map((account) => [account.id, account]));
   const openingBalances = new Map(
-    accounts.map((account) => [account.id, Number(account.openingBalance)])
+    accounts.map((account) => [
+      account.id,
+      presetOpeningBalances?.get(account.id) ?? Number(account.openingBalance),
+    ])
   );
 
   const postedDocuments = documents
@@ -115,6 +127,7 @@ export function calculateCashDetailRows(
 
   for (const document of postedDocuments) {
     if (document.date >= periodStart) continue;
+    if (presetOpeningBalances) continue; // нээлт аль хэдийн snapshot-оос ирсэн
     const amount = Number(document.amount);
     if (
       (document.documentType === "payment" ||

@@ -23,6 +23,7 @@ import {
   type ChartOfAccount,
 } from "@/lib/db/schema";
 import {
+  extractMainAccount,
   finalizeBalanceRows,
   getActiveKey,
   type ActiveKeySums,
@@ -185,4 +186,61 @@ export function mergeBalanceSources(
   }
 
   return finalizeBalanceRows([...map.values()], accounts, activeSegIds);
+}
+
+/**
+ * ҮНДСЭН ДАНС (S3) бүрийн кумулятив цэвэр үлдэгдэл (Σдебет − Σкредит) asOf-оор —
+ * snapshot + delta. Кассын самбар/тулгалт GL талаа үүгээр авна: өмнө нь бүх
+ * ваучерыг мөртэй нь JS-д ачаалдаг байсан. asOf өгөөгүй бол бүх түүх.
+ * Статус тайлангуудтай ИЖИЛ: posted + reversed (буцаалт хосоороо нэт 0).
+ */
+export async function loadMainBalancesFast(
+  orgId: string,
+  asOf?: string
+): Promise<Map<string, number>> {
+  const anchorConditions = [
+    eq(accountingPeriods.organizationId, orgId),
+    eq(accountingPeriods.status, "closed"),
+    sql`exists (
+      select 1 from ${accountPeriodBalances}
+      where ${accountPeriodBalances.organizationId} = ${accountingPeriods.organizationId}
+        and ${accountPeriodBalances.periodCode} = ${accountingPeriods.code}
+    )`,
+  ];
+  if (asOf) anchorConditions.push(lte(accountingPeriods.endDate, asOf));
+  const [anchor] = await db
+    .select({ code: accountingPeriods.code, endDate: accountingPeriods.endDate })
+    .from(accountingPeriods)
+    .where(and(...anchorConditions))
+    .orderBy(desc(accountingPeriods.endDate))
+    .limit(1);
+
+  const [snapshotRows, delta] = await Promise.all([
+    anchor
+      ? db.query.accountPeriodBalances.findMany({
+          where: and(
+            eq(accountPeriodBalances.organizationId, orgId),
+            eq(accountPeriodBalances.periodCode, anchor.code)
+          ),
+        })
+      : Promise.resolve([]),
+    sumLines(orgId, { gtDate: anchor?.endDate, lteDate: asOf }),
+  ]);
+
+  const byMain = new Map<string, number>();
+  const add = (accountNumber: string, net: number) => {
+    const main = extractMainAccount(accountNumber);
+    byMain.set(main, (byMain.get(main) ?? 0) + net);
+  };
+  for (const row of snapshotRows)
+    add(
+      row.accountNumber,
+      Number(row.openingDebit) +
+        Number(row.periodDebit) -
+        Number(row.openingCredit) -
+        Number(row.periodCredit)
+    );
+  for (const row of delta) add(row.accountNumber, row.debit - row.credit);
+  for (const [main, net] of byMain) byMain.set(main, Math.round(net * 100) / 100);
+  return byMain;
 }

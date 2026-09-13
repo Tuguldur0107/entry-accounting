@@ -6,13 +6,12 @@ import {
 } from "@/components/cash/bank-statement-import";
 import { getActiveOrg } from "@/lib/auth";
 import { buildCashAccountCodeRules } from "@/lib/cash/account-code-validation";
-import { calculateCashBalances } from "@/lib/cash/balances";
+import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import type { CashAccountView } from "@/lib/cash/types";
 import { db } from "@/lib/db";
 import {
   bankStatements,
   cashAccounts,
-  cashDocuments,
   chartOfAccounts,
   segmentConfigs,
   segmentValues,
@@ -24,7 +23,6 @@ export default async function BankStatementsPage() {
 
   const [
     accounts,
-    cashDocumentRows,
     glAccounts,
     configs,
     values,
@@ -33,9 +31,6 @@ export default async function BankStatementsPage() {
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.organizationId, orgId),
       orderBy: (account, { asc }) => [asc(account.name)],
-    }),
-    db.query.cashDocuments.findMany({
-      where: eq(cashDocuments.organizationId, orgId),
     }),
     db.query.chartOfAccounts.findMany({
       where: and(
@@ -61,7 +56,7 @@ export default async function BankStatementsPage() {
     }),
   ]);
 
-  const balanceMap = calculateCashBalances(accounts, cashDocumentRows);
+  const balanceMap = await loadCashBalancesFast(orgId, accounts);
   const accountViews: CashAccountView[] = accounts.map((account) => ({
     ...account,
     openingBalance: Number(account.openingBalance),

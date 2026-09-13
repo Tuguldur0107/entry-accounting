@@ -186,6 +186,17 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
   2. FX дахин үнэлгээ (валют)
   3. Accrual бичилт
   4. Period хаах → snapshot үүсгэх
+- **Snapshot + delta (урт хугацааны хэмжээ):** хаалт бүрд GL
+  (`account_period_balances`, П28) ба КАСС (`cash_account_period_balances`,
+  дансны ВАЛЮТААР) хоёуланд хаалтын үлдэгдэл бичигдэж, дахин нээхэд устдаг.
+  Уншигчид (`lib/reports/period-balances.ts` `loadBalanceRowsFast` /
+  `loadMainBalancesFast`, `lib/cash/period-balances.ts` `loadCashBalancesFast`)
+  = сүүлийн хаагдсан үеийн snapshot + түүнээс хойшхи SQL нийлбэр — баримт/
+  ваучерыг JS-д ачаалахгүй. Snapshot байхгүй бол бүх түүхийг нийлж ЗӨВ (зөвхөн
+  удаан); хаагдсан үе immutable тул хуучирдаггүй. Кассын хуудсууд зөвхөн
+  snapshot-оос ХОЙШХИ баримтыг ачаална; задаргаанд «хаагдсан үеийн үлдэгдэл»
+  нэг мөр. Хуучин хаагдсан үеүдэд `scripts/backfill-period-snapshots.ts`
+  (идемпотент) нөхөж бичнэ — шинэ хувилбар deploy хийсний дараа ажиллуулна
 - **Year-end closing entries:**
   - `Dr 51100000 Орлого → Cr 44000099 Орлогын дүн`
   - `Dr 44000099 → Cr 6/7/8XXXXXXX Зардал`
@@ -1010,7 +1021,9 @@ GL         journal_vouchers, journal_lines
              journal_lines.businessObjectType / businessObjectId — клирингийн
              түлхүүр (PO), бичих МӨЧИД тавигдана
 Cash       cash_accounts, cash_documents, bank_statements,
-           bank_statement_lines, cash_fx_revaluations, exchange_rates
+           bank_statement_lines, cash_fx_revaluations
+             cash_account_period_balances — хаалтын үлдэгдэл (дансны валютаар),
+               период хаахад бичигдэж дахин нээхэд устдаг (snapshot + delta), exchange_rates
              exchange_rates — НИЙТИЙН лавлах: organizationId БАЙХГҮЙ (ханш нь
                нийтийн баримт), UNIQUE(source, currency, date); source
                mongolbank|tdb|golomt, date = ханшийн ӨӨРИЙН огноо (RATE_DATE),

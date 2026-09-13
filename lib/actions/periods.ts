@@ -23,6 +23,10 @@ import {
   purchaseOrders,
 } from "@/lib/db/schema";
 import {
+  deleteCashPeriodSnapshot,
+  writeCashPeriodSnapshot,
+} from "@/lib/cash/period-snapshot";
+import {
   deletePeriodSnapshot,
   writePeriodSnapshot,
 } from "@/lib/periods/snapshot";
@@ -320,6 +324,8 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     // П28 — хаагдсан агшны дансны үлдэгдлийн snapshot (lock дотор тул
     // зэрэгцээ бичилтгүй үнэн төлөв). Дахин нээхэд устдаг.
     await writePeriodSnapshot(tx, { orgId, userId, code, startDate, endDate });
+    // Кассын дансны хаалтын үлдэгдэл (дансны валютаар) — ижил lock дотор.
+    await writeCashPeriodSnapshot(tx, { orgId, userId, code, endDate });
     await logAuditEvent(
       {
         userId,
@@ -368,6 +374,7 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
       .returning({ code: accountingPeriods.code });
     if (!row) return false;
     await deletePeriodSnapshot(tx, { orgId, code });
+    await deleteCashPeriodSnapshot(tx, { orgId, code });
     return true;
   });
   if (!reopened) return { ok: false, code: "not-closed" };

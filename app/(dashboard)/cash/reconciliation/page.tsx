@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lte } from "drizzle-orm";
 
 import {
   CashReconciliationWorkspace,
@@ -8,7 +8,13 @@ import {
 import { getActiveOrg } from "@/lib/auth";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
+import {
+  findCashSnapshotAnchor,
+  loadCashBalancesFast,
+} from "@/lib/cash/period-balances";
 import { computeCashCoreRows, glMainNumber } from "@/lib/cash/reconciliation";
+import { loadMainBalancesFast } from "@/lib/reports/period-balances";
+import { fmtPeriodCode } from "@/lib/periods/period";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
@@ -41,6 +47,7 @@ export default async function CashReconciliationPage({
   const periodCode = periodCodeOf(asOf);
   const { endDate: periodEndDate } = periodRange(periodCode);
 
+  const anchor = await findCashSnapshotAnchor(orgId, asOf);
   const [
     accounts,
     documents,
@@ -54,15 +61,20 @@ export default async function CashReconciliationPage({
         where: eq(cashAccounts.organizationId, orgId),
         orderBy: (account, { asc }) => [asc(account.name)],
       }),
+      // Зөвхөн сүүлийн snapshot-оос ХОЙШХИ баримт/журнал — өмнөх түүх нь
+      // хаагдсан үеийн snapshot-д нэгтгэгдсэн (доорх anchor мөр). Ноорог
+      // хаагдсан үед үлдэж чадахгүй тул anchor-оос хойш бүгд орно.
       db.query.cashDocuments.findMany({
         where: and(
           eq(cashDocuments.organizationId, orgId),
+          ...(anchor ? [gt(cashDocuments.date, anchor.endDate)] : []),
           lte(cashDocuments.date, asOf)
         ),
       }),
       db.query.journalVouchers.findMany({
         where: and(
           eq(journalVouchers.organizationId, orgId),
+          ...(anchor ? [gt(journalVouchers.date, anchor.endDate)] : []),
           lte(journalVouchers.date, asOf),
           inArray(journalVouchers.status, ["posted", "reversed"])
         ),
@@ -93,10 +105,19 @@ export default async function CashReconciliationPage({
     ]);
 
   // Данс бүрийн үлдэгдэл/зөрүү/статус — хяналтын самбартай ХАМТЫН цөм.
+  // Үлдэгдэл: snapshot + delta (баримт/ваучер бүхэлдээ ачаалагдахгүй).
+  const [cashBalances, glBalances, anchorCash, anchorGl] = await Promise.all([
+    loadCashBalancesFast(orgId, accounts, asOf),
+    loadMainBalancesFast(orgId, asOf),
+    anchor ? loadCashBalancesFast(orgId, accounts, anchor.endDate) : null,
+    anchor ? loadMainBalancesFast(orgId, anchor.endDate) : null,
+  ]);
   const coreRows = computeCashCoreRows({
     accounts,
     documents,
     vouchers,
+    cashBalances,
+    glBalances,
     statements,
     fxRevaluations,
     asOf,
@@ -242,20 +263,42 @@ export default async function CashReconciliationPage({
       pendingDrafts: pendingDraftsByAccount.get(account.id) ?? [],
       details: {
         cash: [
-          // Нээлтийн үлдэгдэл — баримтгүй тул тусдаа мөр.
-          ...(Math.abs(Number(account.openingBalance ?? 0)) > 0.005
+          // Snapshot байвал: хаагдсан үеийн үлдэгдэл НЭГ мөр (нээлт + тэр
+          // үе хүртэлх бүх баримт); байхгүй бол нээлтийн үлдэгдэл.
+          ...(anchor && anchorCash
             ? [
                 {
-                  id: `opening-${account.id}`,
-                  date: "",
-                  label: "Нээлтийн үлдэгдэл",
-                  amount: Number(account.openingBalance ?? 0),
+                  id: `anchor-${account.id}`,
+                  date: anchor.endDate,
+                  label: `${fmtPeriodCode(anchor.code)} хаагдсан үеийн үлдэгдэл`,
+                  amount: anchorCash.get(account.id) ?? 0,
+                },
+              ]
+            : Math.abs(Number(account.openingBalance ?? 0)) > 0.005
+              ? [
+                  {
+                    id: `opening-${account.id}`,
+                    date: "",
+                    label: "Нээлтийн үлдэгдэл",
+                    amount: Number(account.openingBalance ?? 0),
+                  },
+                ]
+              : []),
+          ...(cashDetailByAccount.get(account.id) ?? []).sort(byDateDesc),
+        ],
+        gl: [
+          ...(anchor && anchorGl && (anchorGl.get(account.glAccountNumber) ?? 0) !== 0
+            ? [
+                {
+                  id: `anchor-gl-${account.id}`,
+                  date: anchor.endDate,
+                  label: `${fmtPeriodCode(anchor.code)} хаагдсан үеийн үлдэгдэл`,
+                  amount: anchorGl.get(account.glAccountNumber) ?? 0,
                 },
               ]
             : []),
-          ...(cashDetailByAccount.get(account.id) ?? []).sort(byDateDesc),
+          ...(glDetailByMain.get(account.glAccountNumber) ?? []).sort(byDateDesc),
         ],
-        gl: (glDetailByMain.get(account.glAccountNumber) ?? []).sort(byDateDesc),
         // Банкны тал ч кассын талтай ижил зангуутай: нээлт + хуулгын хөдөлгөөн.
         bank: bankDetailByAccount.has(account.id)
           ? [

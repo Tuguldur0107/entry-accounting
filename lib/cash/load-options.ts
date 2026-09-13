@@ -8,7 +8,7 @@ import { extractMainAccount } from "@/lib/reports/balances";
 // Balance нь БҮХ батлагдсан баримтаас бодогдоно (дансны сонголтод харагдана);
 // хуудасны жагсаалт огноогоор шүүгдсэн тусдаа query хэвээр.
 
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import type {
   CashAccountView,
@@ -16,10 +16,10 @@ import type {
   CashFlowOption,
   CashGlAccountOption,
 } from "@/lib/cash/types";
+import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
-  cashDocuments,
   cashAccounts,
   segmentValues,
   type CashAccount,
@@ -86,47 +86,12 @@ export function toCashDocumentView(
 export async function loadCashTransactionOptions(
   orgId: string
 ): Promise<CashTransactionOptions> {
-  const [accounts, outflows, inflows, cashFlowValues, openArApDocs, segmentData] =
+  const [accounts, cashFlowValues, openArApDocs, segmentData] =
     await Promise.all([
       db.query.cashAccounts.findMany({
         where: eq(cashAccounts.organizationId, orgId),
         orderBy: (account, { asc }) => [asc(account.name)],
       }),
-      // Balance = нээлт + орлого − зарлага. Баримт бүрийг клиент рүү татаж
-      // давтахын оронд SQL-ээр данс тус бүрд нийлбэрлэнэ (баримтын тоо
-      // өссөн ч энэ хоёр query тогтмол жинтэй). Семантик нь
-      // calculateCashBalances-тай яг ижил: payment/transfer → from дансаас
-      // хасна, receipt/transfer → to дансанд нэмнэ, зөвхөн posted.
-      db
-        .select({
-          accountId: cashDocuments.fromCashAccountId,
-          total: sql<string>`sum(${cashDocuments.amount})`,
-        })
-        .from(cashDocuments)
-        .where(
-          and(
-            eq(cashDocuments.organizationId, orgId),
-            eq(cashDocuments.status, "posted"),
-            inArray(cashDocuments.documentType, ["payment", "transfer"]),
-            isNotNull(cashDocuments.fromCashAccountId)
-          )
-        )
-        .groupBy(cashDocuments.fromCashAccountId),
-      db
-        .select({
-          accountId: cashDocuments.toCashAccountId,
-          total: sql<string>`sum(${cashDocuments.amount})`,
-        })
-        .from(cashDocuments)
-        .where(
-          and(
-            eq(cashDocuments.organizationId, orgId),
-            eq(cashDocuments.status, "posted"),
-            inArray(cashDocuments.documentType, ["receipt", "transfer"]),
-            isNotNull(cashDocuments.toCashAccountId)
-          )
-        )
-        .groupBy(cashDocuments.toCashAccountId),
       db.query.segmentValues.findMany({
         where: and(
           eq(segmentValues.organizationId, orgId),
@@ -147,23 +112,9 @@ export async function loadCashTransactionOptions(
       loadSegmentPickerData(orgId),
     ]);
 
-  const balanceMap = new Map(
-    accounts.map((account) => [account.id, Number(account.openingBalance)])
-  );
-  for (const row of outflows) {
-    if (!row.accountId) continue;
-    balanceMap.set(
-      row.accountId,
-      (balanceMap.get(row.accountId) ?? 0) - Number(row.total ?? 0)
-    );
-  }
-  for (const row of inflows) {
-    if (!row.accountId) continue;
-    balanceMap.set(
-      row.accountId,
-      (balanceMap.get(row.accountId) ?? 0) + Number(row.total ?? 0)
-    );
-  }
+  // Үлдэгдэл = snapshot + delta (lib/cash/period-balances.ts) — семантик
+  // calculateCashBalances-тай ижил, баримт JS-д ачаалагдахгүй.
+  const balanceMap = await loadCashBalancesFast(orgId, accounts);
 
   return {
     accounts: accounts.map((account) => ({
