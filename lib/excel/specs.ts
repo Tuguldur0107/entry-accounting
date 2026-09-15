@@ -340,3 +340,168 @@ export function groupVoucherRows(rows: VoucherRowImport[]): GroupedVoucher[] {
     };
   });
 }
+
+// ── Ажилтны бүртгэл (цалин) ─────────────────────────────────────────────────
+
+export interface EmployeeImport {
+  name: string;
+  lastName?: string;
+  registerNo?: string;
+  birthDate?: string;
+  phone?: string;
+  email?: string;
+  homeAddress?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  iban?: string;
+  hireDate?: string;
+  terminationDate?: string;
+  department?: string;
+  employmentType?: "primary" | "contract" | "hourly";
+  position?: string;
+  baseSalary: number;
+  accidentRatePercent: number;
+  isActive?: boolean;
+}
+
+const EMPLOYMENT_TYPE_LABELS: Record<string, "primary" | "contract" | "hourly"> = {
+  "үндсэн": "primary",
+  "гэрээт": "contract",
+  "цагийн": "hourly",
+  primary: "primary",
+  contract: "contract",
+  hourly: "hourly",
+};
+
+export const employmentTypeLabelOf = (
+  value: string
+): "Үндсэн" | "Гэрээт" | "Цагийн" =>
+  value === "contract" ? "Гэрээт" : value === "hourly" ? "Цагийн" : "Үндсэн";
+
+/** Ажилтны импорт — РД таарвал байгаа ажилтныг шинэчилнэ (round-trip). */
+export function employeesSpec(): ImportSpec<EmployeeImport> {
+  return {
+    slug: "entry-employees",
+    title: "Ажилтны бүртгэл — РД таарвал байгаа ажилтныг шинэчилнэ",
+    columns: [
+      { key: "lastName", header: "Овог", hint: "Ажилтны овог", example: "Бат" },
+      { key: "name", header: "Нэр", required: true, hint: "Ажилтны нэр", example: "Дорж" },
+      {
+        key: "registerNo",
+        header: "Регистр",
+        hint: "Байгууллага дотор давхцахгүй; өгвөл байгаа ажилтныг шинэчилнэ",
+        example: "УК88010101",
+      },
+      { key: "position", header: "Албан тушаал", hint: "Сонголтоор", example: "Нягтлан бодогч" },
+      { key: "department", header: "Хэлтэс", hint: "Сонголтоор", example: "Санхүү" },
+      {
+        key: "employmentType",
+        header: "Ажил эрхлэлт",
+        hint: "Үндсэн / Гэрээт / Цагийн (хоосон бол Үндсэн)",
+        example: "Үндсэн",
+      },
+      {
+        key: "hireDate",
+        header: "Ажилд орсон",
+        hint: "YYYY-MM-DD — ажилласан жил үүнээс автоматаар бодогдоно",
+        example: "2022-03-01",
+      },
+      {
+        key: "baseSalary",
+        header: "Үндсэн цалин",
+        required: true,
+        hint: "Сарын үндсэн цалин ₮ (0-ээс багагүй)",
+        example: "1500000",
+      },
+      {
+        key: "accidentRatePercent",
+        header: "ҮОМШӨ %",
+        hint: "оффис 0.8 · барилга 1.5 · уул уурхай 2.5–3 (хоосон бол 0.8)",
+        example: "0.8",
+      },
+      { key: "bankName", header: "Банк", hint: "Цалин олгох банк", example: "Хаан банк" },
+      { key: "bankAccountNo", header: "Дансны дугаар", hint: "Цалингийн данс", example: "5041234567" },
+      {
+        key: "iban",
+        header: "IBAN",
+        hint: "MN-ээр эхэлсэн 20 тэмдэгт (сонголтоор)",
+        example: "MN580005005041234567",
+      },
+      { key: "phone", header: "Утас", hint: "Холбогдох утас", example: "99112233" },
+      { key: "email", header: "И-мэйл", hint: "Сонголтоор", example: "dorj@company.mn" },
+      { key: "homeAddress", header: "Гэрийн хаяг", hint: "Сонголтоор", example: "БЗД, 26-р хороо ..." },
+      { key: "birthDate", header: "Төрсөн огноо", hint: "YYYY-MM-DD", example: "1988-01-01" },
+      {
+        key: "isActive",
+        header: "Идэвхтэй",
+        hint: "Тийм / Үгүй (хоосон бол Тийм)",
+        example: "Тийм",
+      },
+    ],
+    parseRow: (record) => {
+      const errors: string[] = [];
+      const name = record.name.trim();
+      if (!name) errors.push("Нэр хоосон байна");
+
+      const baseSalary = parseAmountCell(record.baseSalary);
+      if (baseSalary == null || !(baseSalary >= 0))
+        errors.push("Үндсэн цалин 0-ээс багагүй тоо байна");
+
+      let accidentRatePercent = 0.8;
+      if (record.accidentRatePercent.trim() !== "") {
+        const parsed = Number(record.accidentRatePercent.replaceAll(",", "."));
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 5)
+          errors.push("ҮОМШӨ хувь 0–5%-ийн хооронд байна");
+        else accidentRatePercent = parsed;
+      }
+
+      const parseOptionalDate = (raw: string, label: string) => {
+        if (raw.trim() === "") return undefined;
+        const parsed = parseDateCell(raw);
+        if (!parsed) {
+          errors.push(`${label} буруу огноотой байна (YYYY-MM-DD)`);
+          return undefined;
+        }
+        return parsed;
+      };
+      const hireDate = parseOptionalDate(record.hireDate, "Ажилд орсон");
+      const birthDate = parseOptionalDate(record.birthDate, "Төрсөн огноо");
+
+      let employmentType: "primary" | "contract" | "hourly" | undefined;
+      const employmentRaw = record.employmentType.trim().toLowerCase();
+      if (employmentRaw !== "") {
+        employmentType = EMPLOYMENT_TYPE_LABELS[employmentRaw];
+        if (!employmentType)
+          errors.push("Ажил эрхлэлт нь Үндсэн / Гэрээт / Цагийн байна");
+      }
+
+      const activeRaw = record.isActive.trim().toLowerCase();
+      const isActive =
+        activeRaw === "" ||
+        ["тийм", "yes", "true", "1", "идэвхтэй"].includes(activeRaw);
+
+      if (errors.length > 0) return { errors };
+      return {
+        value: {
+          name,
+          lastName: record.lastName.trim() || undefined,
+          registerNo: record.registerNo.trim() || undefined,
+          birthDate,
+          phone: record.phone.trim() || undefined,
+          email: record.email.trim() || undefined,
+          homeAddress: record.homeAddress.trim() || undefined,
+          bankName: record.bankName.trim() || undefined,
+          bankAccountNo: record.bankAccountNo.trim() || undefined,
+          iban: record.iban.trim() || undefined,
+          hireDate,
+          department: record.department.trim() || undefined,
+          employmentType,
+          position: record.position.trim() || undefined,
+          baseSalary: baseSalary as number,
+          accidentRatePercent,
+          isActive,
+        },
+      };
+    },
+  };
+}

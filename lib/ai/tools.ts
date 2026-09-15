@@ -109,6 +109,8 @@ import {
   createPayrollVoucher,
   getPayrollRunData,
   upsertEmployee,
+  type EmployeeInput,
+  type EmploymentType,
 } from "@/lib/actions/payroll";
 import {
   getCompanySettings,
@@ -1240,7 +1242,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "create_employee",
     description:
-      "Цалингийн модульд ажилтан бүртгэнэ (нэр, үндсэн цалин, ҮОМШӨ %). Мастер дата тул аль ч горимд.",
+      "Цалингийн модульд ажилтан бүртгэнэ — нэр/цалингаас гадна овог, регистр, банк, IBAN, ажилд орсон огноо зэрэг дэлгэрэнгүй талбартай. РД (өгвөл) байгууллага дотор давхцахгүй. Мастер дата тул аль ч горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1251,6 +1253,18 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "number",
           description: "ҮОМШӨ % (оффис 0.8, барилга 1.5, уул уурхай 2.5-3; default 0.8)",
         },
+        lastName: { type: "string", description: "Овог (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллага дотор давхцахгүй (сонголтоор)" },
+        department: { type: "string", description: "Хэлтэс (сонголтоор)" },
+        employmentType: { type: "string", enum: ["primary", "contract", "hourly"], description: "Ажил эрхлэлт: primary=Үндсэн, contract=Гэрээт, hourly=Цагийн (сонголтоор)" },
+        hireDate: { type: "string", description: "Ажилд орсон огноо YYYY-MM-DD (сонголтоор)" },
+        birthDate: { type: "string", description: "Төрсөн огноо YYYY-MM-DD (сонголтоор)" },
+        phone: { type: "string", description: "Утас (сонголтоор)" },
+        email: { type: "string", description: "И-мэйл (сонголтоор)" },
+        homeAddress: { type: "string", description: "Гэрийн хаяг (сонголтоор)" },
+        bankName: { type: "string", description: "Банк (сонголтоор)" },
+        bankAccountNo: { type: "string", description: "Дансны дугаар (сонголтоор)" },
+        iban: { type: "string", description: "IBAN (сонголтоор)" },
       },
       required: ["name", "baseSalary"],
     },
@@ -1501,12 +1515,21 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         items: {
           type: "array",
-          description: "create_employee-ийн input-уудын жагсаалт",
+          description:
+            "create_employee-ийн input-уудын жагсаалт (бүх дэлгэрэнгүй талбар дэмжигдэнэ: lastName, registerNo, bankName, iban, hireDate г.м.)",
           items: {
             type: "object",
             properties: {
               name: { type: "string" },
+              lastName: { type: "string" },
+              registerNo: { type: "string" },
               position: { type: "string" },
+              department: { type: "string" },
+              hireDate: { type: "string" },
+              bankName: { type: "string" },
+              bankAccountNo: { type: "string" },
+              iban: { type: "string" },
+              phone: { type: "string" },
               baseSalary: { type: "number", description: "Сарын үндсэн цалин ₮" },
               accidentRatePercent: { type: "number", description: "ҮОМШӨ % (default 0.8)" },
             },
@@ -1760,6 +1783,19 @@ export const AI_TOOLS: AiToolDef[] = [
         position: { type: "string", description: "Албан тушаал (сонголтоор)" },
         baseSalary: { type: "number", description: "Үндсэн цалин ₮ (сонголтоор)" },
         accidentRatePercent: { type: "number", description: "ҮОМШӨ хувь 0-5 (сонголтоор)" },
+        terminationDate: { type: "string", description: "Гарсан огноо YYYY-MM-DD (сонголтоор)" },
+        lastName: { type: "string", description: "Овог (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллага дотор давхцахгүй (сонголтоор)" },
+        department: { type: "string", description: "Хэлтэс (сонголтоор)" },
+        employmentType: { type: "string", enum: ["primary", "contract", "hourly"], description: "Ажил эрхлэлт: primary=Үндсэн, contract=Гэрээт, hourly=Цагийн (сонголтоор)" },
+        hireDate: { type: "string", description: "Ажилд орсон огноо YYYY-MM-DD (сонголтоор)" },
+        birthDate: { type: "string", description: "Төрсөн огноо YYYY-MM-DD (сонголтоор)" },
+        phone: { type: "string", description: "Утас (сонголтоор)" },
+        email: { type: "string", description: "И-мэйл (сонголтоор)" },
+        homeAddress: { type: "string", description: "Гэрийн хаяг (сонголтоор)" },
+        bankName: { type: "string", description: "Банк (сонголтоор)" },
+        bankAccountNo: { type: "string", description: "Дансны дугаар (сонголтоор)" },
+        iban: { type: "string", description: "IBAN (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
       },
       required: ["employee"],
@@ -5604,20 +5640,18 @@ async function runReopenPeriod(
 
 // ── Цалин гүйцэтгэгчид ──────────────────────────────────────────────────────
 
-async function runCreateEmployee(input: {
-  name: string;
-  position?: string;
-  baseSalary: number;
-  accidentRatePercent?: number;
-}): Promise<AiToolResult> {
+async function runCreateEmployee(
+  input: Omit<EmployeeInput, "accidentRatePercent"> & {
+    accidentRatePercent?: number;
+  }
+): Promise<AiToolResult> {
   await upsertEmployee({
-    name: input.name,
-    position: input.position,
-    baseSalary: input.baseSalary,
+    ...input,
+    id: undefined,
     accidentRatePercent: input.accidentRatePercent ?? 0.8,
   });
   return {
-    resultText: `Ажилтан бүртгэгдлээ: ${input.name}, үндсэн цалин ${fmt(input.baseSalary)}₮, ҮОМШӨ ${input.accidentRatePercent ?? 0.8}%`,
+    resultText: `Ажилтан бүртгэгдлээ: ${[input.lastName, input.name].filter(Boolean).join(" ")}, үндсэн цалин ${fmt(input.baseSalary)}₮, ҮОМШӨ ${input.accidentRatePercent ?? 0.8}%${input.registerNo ? `, РД ${input.registerNo}` : ""}`,
   };
 }
 
@@ -6381,13 +6415,9 @@ async function runListEmployees(
 
 async function runUpdateEmployee(
   orgId: string,
-  input: {
+  input: Partial<Omit<EmployeeInput, "id">> & {
     employee: string;
     newName?: string;
-    position?: string;
-    baseSalary?: number;
-    accidentRatePercent?: number;
-    isActive?: boolean;
   }
 ): Promise<AiToolResult> {
   const rows = await db.query.employees.findMany({
@@ -6403,6 +6433,22 @@ async function runUpdateEmployee(
   await upsertEmployee({
     id: employee.id,
     name: input.newName?.trim() || employee.name,
+    lastName: input.lastName ?? employee.lastName,
+    registerNo: input.registerNo ?? employee.registerNo ?? undefined,
+    birthDate: input.birthDate ?? employee.birthDate ?? undefined,
+    phone: input.phone ?? employee.phone ?? undefined,
+    email: input.email ?? employee.email ?? undefined,
+    homeAddress: input.homeAddress ?? employee.homeAddress ?? undefined,
+    bankName: input.bankName ?? employee.bankName ?? undefined,
+    bankAccountNo: input.bankAccountNo ?? employee.bankAccountNo ?? undefined,
+    iban: input.iban ?? employee.iban ?? undefined,
+    hireDate: input.hireDate ?? employee.hireDate ?? undefined,
+    terminationDate:
+      input.terminationDate ?? employee.terminationDate ?? undefined,
+    department: input.department ?? employee.department,
+    employmentType:
+      input.employmentType ??
+      (employee.employmentType as EmploymentType | undefined),
     position: input.position ?? employee.position ?? "",
     baseSalary: input.baseSalary ?? Number(employee.baseSalary),
     accidentRatePercent:

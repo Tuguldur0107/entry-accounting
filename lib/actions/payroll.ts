@@ -46,15 +46,45 @@ const voucherRefOf = (periodMonth: string) => `payroll:${periodMonth}`;
 
 // ── Ажилтан ─────────────────────────────────────────────────────────────────
 
-export async function upsertEmployee(data: {
+export type EmploymentType = "primary" | "contract" | "hourly";
+
+export interface EmployeeInput {
   id?: string;
   name: string;
+  lastName?: string;
+  registerNo?: string;
+  birthDate?: string;
+  phone?: string;
+  email?: string;
+  homeAddress?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  iban?: string;
+  hireDate?: string;
+  terminationDate?: string;
+  department?: string;
+  employmentType?: EmploymentType;
   position?: string;
   baseSalary: number;
   accidentRatePercent: number;
   isActive?: boolean;
-}) {
-  const { orgId, userId } = await requireModuleAction("payroll", "write");
+}
+
+const cleanOptional = (value: string | undefined) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+};
+
+const assertOptionalDate = (value: string | null, label: string) => {
+  if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    throw new Error(`${label} YYYY-MM-DD форматтай байна`);
+};
+
+/**
+ * Ажилтны талбаруудыг шалгаж DB-ийн утга болгоно. Нэр/овог давхцаж болно —
+ * зөвхөн РД (өгөгдсөн үед) байгууллага дотор давхцахгүй.
+ */
+function validateEmployeeInput(data: EmployeeInput) {
   const name = data.name.trim();
   if (!name) throw new Error("Ажилтны нэр оруулна уу");
   const baseSalary = Number(data.baseSalary);
@@ -64,13 +94,71 @@ export async function upsertEmployee(data: {
   if (!(accidentRatePercent >= 0) || accidentRatePercent > 5)
     throw new Error("ҮОМШӨ хувь 0–5%-ийн хооронд байна");
 
-  const values = {
+  const registerNo = cleanOptional(data.registerNo)?.toUpperCase() ?? null;
+  const iban = cleanOptional(data.iban)?.replaceAll(" ", "").toUpperCase() ?? null;
+  if (iban && !/^[A-Z]{2}[0-9A-Z]{13,32}$/.test(iban))
+    throw new Error("IBAN формат буруу байна (ж: MN...20 тэмдэгт)");
+  const email = cleanOptional(data.email);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    throw new Error("И-мэйл хаяг буруу байна");
+  const birthDate = cleanOptional(data.birthDate);
+  const hireDate = cleanOptional(data.hireDate);
+  const terminationDate = cleanOptional(data.terminationDate);
+  assertOptionalDate(birthDate, "Төрсөн огноо");
+  assertOptionalDate(hireDate, "Ажилд орсон огноо");
+  assertOptionalDate(terminationDate, "Гарсан огноо");
+  if (hireDate && terminationDate && terminationDate < hireDate)
+    throw new Error("Гарсан огноо ажилд орсон огнооноос өмнө байж болохгүй");
+  const employmentType: EmploymentType = data.employmentType ?? "primary";
+  if (!["primary", "contract", "hourly"].includes(employmentType))
+    throw new Error("Ажил эрхлэлтийн төрөл буруу байна");
+
+  return {
     name,
+    lastName: data.lastName?.trim() ?? "",
+    registerNo,
+    birthDate,
+    phone: cleanOptional(data.phone),
+    email,
+    homeAddress: cleanOptional(data.homeAddress),
+    bankName: cleanOptional(data.bankName),
+    bankAccountNo: cleanOptional(data.bankAccountNo),
+    iban,
+    hireDate,
+    terminationDate,
+    department: data.department?.trim() ?? "",
+    employmentType,
     position: data.position?.trim() ?? "",
     baseSalary: String(baseSalary),
     accidentRatePercent: String(accidentRatePercent),
     isActive: data.isActive ?? true,
   };
+}
+
+/** РД өгөгдсөн бол байгууллага дотор давхцаагүйг шалгана (өөрөөс нь бусад). */
+async function assertRegisterUnique(
+  orgId: string,
+  registerNo: string | null,
+  excludeId?: string
+) {
+  if (!registerNo) return;
+  const duplicate = await db.query.employees.findFirst({
+    where: and(
+      eq(employees.organizationId, orgId),
+      eq(employees.registerNo, registerNo)
+    ),
+    columns: { id: true, name: true, lastName: true },
+  });
+  if (duplicate && duplicate.id !== excludeId)
+    throw new Error(
+      `${registerNo} регистртэй ажилтан бүртгэлтэй байна: ${[duplicate.lastName, duplicate.name].filter(Boolean).join(" ")}`
+    );
+}
+
+export async function upsertEmployee(data: EmployeeInput) {
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
+  const values = validateEmployeeInput(data);
+  await assertRegisterUnique(orgId, values.registerNo, data.id);
 
   if (data.id) {
     const [updated] = await db
@@ -80,14 +168,64 @@ export async function upsertEmployee(data: {
       .returning({ id: employees.id });
     if (!updated) throw new Error("Ажилтан олдсонгүй");
   } else {
-    const duplicate = await db.query.employees.findFirst({
-      where: and(eq(employees.organizationId, orgId), eq(employees.name, name)),
-      columns: { id: true },
-    });
-    if (duplicate) throw new Error(`"${name}" нэртэй ажилтан бүртгэлтэй байна`);
     await db.insert(employees).values({ userId, organizationId: orgId, ...values });
   }
   revalidatePayroll();
+}
+
+/**
+ * Excel импорт — мөр бүр тусдаа шалгагдаж, РД таарвал байгаа ажилтныг
+ * ШИНЭЧИЛНЭ, үгүй бол шинээр үүсгэнэ (жагсаалт татах → Excel-д засах →
+ * буцааж оруулах round-trip). Мөр бүрд тусдаа амжилт/алдаа буцаана.
+ */
+export async function importEmployees(
+  rows: EmployeeInput[]
+): Promise<{ created: number; updated: number; errors: { index: number; message: string }[] }> {
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
+  if (rows.length === 0) return { created: 0, updated: 0, errors: [] };
+  if (rows.length > 500) throw new Error("Нэг удаад дээд тал нь 500 мөр");
+
+  let created = 0;
+  let updated = 0;
+  const errors: { index: number; message: string }[] = [];
+  for (const [index, row] of rows.entries()) {
+    try {
+      const values = validateEmployeeInput(row);
+      const existing = values.registerNo
+        ? await db.query.employees.findFirst({
+            where: and(
+              eq(employees.organizationId, orgId),
+              eq(employees.registerNo, values.registerNo)
+            ),
+            columns: { id: true },
+          })
+        : null;
+      if (existing) {
+        await db
+          .update(employees)
+          .set(values)
+          .where(
+            and(
+              eq(employees.id, existing.id),
+              eq(employees.organizationId, orgId)
+            )
+          );
+        updated += 1;
+      } else {
+        await db
+          .insert(employees)
+          .values({ userId, organizationId: orgId, ...values });
+        created += 1;
+      }
+    } catch (caught) {
+      errors.push({
+        index,
+        message: caught instanceof Error ? caught.message : "Алдаа гарлаа",
+      });
+    }
+  }
+  if (created + updated > 0) revalidatePayroll();
+  return { created, updated, errors };
 }
 
 export async function toggleEmployee(id: string, isActive: boolean) {

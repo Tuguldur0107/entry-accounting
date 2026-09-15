@@ -1425,6 +1425,23 @@ export const employees = pgTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
+    /** Овог — нэрээс тусдаа (харагдац: "Овог Нэр"). */
+    lastName: text("last_name").notNull().default(""),
+    /** Регистрийн дугаар — байгууллага дотор ДАВХЦАХГҮЙ цорын ганц талбар. */
+    registerNo: text("register_no"),
+    birthDate: text("birth_date"),
+    phone: text("phone"),
+    email: text("email"),
+    homeAddress: text("home_address"),
+    bankName: text("bank_name"),
+    bankAccountNo: text("bank_account_no"),
+    iban: text("iban"),
+    /** Ажилд орсон огноо — "ажилласан жил" үүнээс АВТОМАТААР бодогдоно. */
+    hireDate: text("hire_date"),
+    terminationDate: text("termination_date"),
+    department: text("department").notNull().default(""),
+    /** primary | contract | hourly. */
+    employmentType: text("employment_type").notNull().default("primary"),
     position: text("position").notNull().default(""),
     /** Сарын үндсэн цалин — бодолтод earnings-ийн default болно. */
     baseSalary: numeric("base_salary", { precision: 18, scale: 2 })
@@ -1440,7 +1457,12 @@ export const employees = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.name), unique().on(t.organizationId, t.name)]
+  // Нэр/овог давхцаж болно — зөвхөн РД (өгөгдсөн үед) давхцахгүй.
+  (t) => [
+    uniqueIndex("employees_org_register_ux")
+      .on(t.organizationId, t.registerNo)
+      .where(sql`${t.registerNo} is not null`),
+  ]
 );
 
 export const payrollSettings = pgTable("payroll_settings", {
