@@ -58,7 +58,7 @@ export interface EmployeeRow {
   employmentType: string;
   position: string;
   baseSalary: number;
-  accidentRatePercent: number;
+  employerSiPercent: number;
   isActive: boolean;
 }
 
@@ -84,7 +84,7 @@ interface FormState {
   employmentType: EmploymentType;
   position: string;
   baseSalary: string;
-  accidentRatePercent: string;
+  employerSiPercent: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -104,7 +104,7 @@ const EMPTY_FORM: FormState = {
   employmentType: "primary",
   position: "",
   baseSalary: "",
-  accidentRatePercent: "0.8",
+  employerSiPercent: "12.5",
 };
 
 function errorMessage(error: unknown): string {
@@ -162,7 +162,7 @@ export function EmployeesView({ rows }: Props) {
         : "primary") as EmploymentType,
       position: row.position,
       baseSalary: row.baseSalary.toLocaleString("en-US"),
-      accidentRatePercent: String(row.accidentRatePercent),
+      employerSiPercent: String(row.employerSiPercent),
     });
     setOpen(true);
   }
@@ -175,7 +175,7 @@ export function EmployeesView({ rows }: Props) {
 
   function save() {
     const baseSalary = parseMntInput(form.baseSalary);
-    const accidentRatePercent = Number(form.accidentRatePercent);
+    const employerSiPercent = Number(form.employerSiPercent);
     startTransition(async () => {
       try {
         await upsertEmployee({
@@ -196,7 +196,7 @@ export function EmployeesView({ rows }: Props) {
           employmentType: form.employmentType,
           position: form.position || undefined,
           baseSalary: Number.isFinite(baseSalary) ? baseSalary : NaN,
-          accidentRatePercent,
+          employerSiPercent,
         });
         toast.success(
           form.id ? "Ажилтны мэдээлэл хадгалагдлаа" : "Ажилтан бүртгэгдлээ"
@@ -253,7 +253,7 @@ export function EmployeesView({ rows }: Props) {
         header: column.header,
         width: column.key === "homeAddress" ? 30 : 16,
         kind:
-          column.key === "baseSalary" || column.key === "accidentRatePercent"
+          column.key === "baseSalary" || column.key === "employerSiPercent"
             ? "number"
             : "text",
       })),
@@ -266,7 +266,7 @@ export function EmployeesView({ rows }: Props) {
         employmentTypeLabelOf(row.employmentType),
         row.hireDate ?? "",
         row.baseSalary,
-        row.accidentRatePercent,
+        row.employerSiPercent,
         row.bankName ?? "",
         row.bankAccountNo ?? "",
         row.iban ?? "",
@@ -612,20 +612,21 @@ export function EmployeesView({ rows }: Props) {
                   className="font-mono"
                 />
               </Field>
-              <Field label="ҮОМШӨ %">
+              <Field label="АО-НДШ %">
                 <Input
-                  value={form.accidentRatePercent}
+                  value={form.employerSiPercent}
                   onChange={(event) =>
                     setForm((c) => ({
                       ...c,
-                      accidentRatePercent: event.target.value,
+                      employerSiPercent: event.target.value,
                     }))
                   }
-                  placeholder="0.8"
+                  placeholder="12.5"
                   className="font-mono"
                 />
                 <p className="text-xs text-[var(--ea-text-4)]">
-                  оффис 0.8 · барилга 1.5 · уул уурхай 2.5–3
+                  Ажил олгогчийн нийт НДШ (ҮОМШӨ багтсан): оффис 12.5 ·
+                  барилга 13.2 · уул уурхай 14.2–14.7. Ажилтны 11.5% тогтмол.
                 </p>
               </Field>
             </FormSection>

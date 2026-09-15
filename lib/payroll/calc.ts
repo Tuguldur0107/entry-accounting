@@ -57,8 +57,11 @@ export type PayrollInput = {
   earnings: number;
   /** Бусад суутгал (зээл г.м) — татварт нөлөөгүй, гарт олгохоос хасагдана. */
   otherDeductions?: number;
-  /** ҮОМШӨ % (0.8–3.0, салбараас). */
-  accidentRatePercent: number;
+  /**
+   * АО-НДШ % — ажил олгогчийн НИЙТ НДШ хувь (суурь 11.7 + ҮОМШӨ 0.8–3.0,
+   * ажилтан бүрд нэг тоо: оффис 12.5, барилга 13.2, уул уурхай 14.2–14.7).
+   */
+  employerSiPercent: number;
   /** Тооцооллын огноо YYYY-MM-DD — ХАОАТ-ын горимыг шийднэ. */
   date: string;
   /** Хөдөлмөрийн хөлсний доод хэмжээ (тохиргооноос). */
@@ -89,9 +92,9 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
   const otherDeductions = Math.round((input.otherDeductions ?? 0) * 100) / 100;
   if (!(otherDeductions >= 0))
     throw new Error("Бусад суутгал 0-ээс багагүй байна");
-  const accidentRate = input.accidentRatePercent / 100;
-  if (!(accidentRate >= 0) || accidentRate > 0.05)
-    throw new Error("ҮОМШӨ хувь 0–5%-ийн хооронд байна");
+  const employerRate = input.employerSiPercent / 100;
+  if (!(employerRate >= 0) || employerRate > 0.2)
+    throw new Error("АО-НДШ хувь 0–20%-ийн хооронд байна");
 
   const siCap = input.minimumWage * input.siCapMultiplier;
   const cappedBase = Math.min(earnings, siCap);
@@ -102,12 +105,9 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
     Math.round(cappedBase * 0.008) +
     Math.round(cappedBase * 0.002) +
     Math.round(cappedBase * 0.02);
-  const employerSi =
-    Math.round(cappedBase * 0.085) +
-    Math.round(cappedBase * 0.01) +
-    Math.round(cappedBase * 0.002) +
-    Math.round(cappedBase * 0.02) +
-    Math.round(cappedBase * accidentRate);
+  // АО тал НЭГДСЭН хувиар (ажилтан бүрд АО-НДШ % хадгалагдана) — бүрэлдэхүүн
+  // задаргаа шаардлагагүй: эцсийн дүнд зөвхөн нийт хувь нөлөөлдөг.
+  const employerSi = Math.round(cappedBase * employerRate);
 
   const taxFree = Math.max(0, input.monthlyTaxFree ?? 0);
   const taxableIncome = Math.max(0, earnings - employeeSi - taxFree);

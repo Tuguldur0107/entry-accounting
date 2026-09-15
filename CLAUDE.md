@@ -558,7 +558,12 @@ app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд
 | Ажилгүйдэл | 0.2% | 0.2% |
 | ЭМД | 2.0% | 2.0% |
 | ҮОМШӨ | — | 0.8–3.0% |
-| **Нийт** | **11.5%** | **12.5–14.5%** |
+| **Нийт** | **11.5% (тогтмол)** | **12.5–14.7%** |
+
+Ажил олгогчийн хувь нь ажилтан бүрд **АО-НДШ % нэг нэгдсэн тоо**
+(`employees.employerSiPercent`, суурь 11.7 + ҮОМШӨ) — кодод ҮОМШӨ тусдаа
+задардаггүй. Салбарын жишиг: оффис 12.5 (default), барилга 13.2, уул уурхай
+14.2–14.7.
 
 **НДШ дээд хязгаар:** Доод цалин × 10 (2025: 792,000 × 10 = 7,920,000₮)
 
@@ -566,7 +571,7 @@ app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд
 siCap = minimumWage × 10
 cappedBase = Math.min(totalEarnings, siCap)
 employeeSI = cappedBase × 11.5%
-employerSI = cappedBase × (12.5% + accidentRate)
+employerSI = cappedBase × employerSiPercent   // АО-НДШ % (ҮОМШӨ багтсан)
 taxableIncome = totalEarnings − employeeSI
 netSalary = totalEarnings − employeeSI − pit − otherDeductions
 ```

@@ -1447,13 +1447,16 @@ export const employees = pgTable(
     baseSalary: numeric("base_salary", { precision: 18, scale: 2 })
       .notNull()
       .default("0"),
-    /** ҮОМШӨ (%) — салбараас хамаарна: оффис 0.8 … уул уурхай 3.0. */
-    accidentRatePercent: numeric("accident_rate_percent", {
+    /**
+     * АО-НДШ (%) — ажил олгогчийн НИЙТ НДШ хувь (суурь 11.7 + ҮОМШӨ):
+     * оффис 12.5 · барилга 13.2 · уул уурхай 14.2–14.7.
+     */
+    employerSiPercent: numeric("employer_si_percent", {
       precision: 5,
       scale: 2,
     })
       .notNull()
-      .default("0.8"),
+      .default("12.5"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

@@ -72,7 +72,7 @@ export function PayrollRunView({ data }: Props) {
         employeeId: "",
         employeeName: "Нийт",
         position: "",
-        accidentRatePercent: 0,
+        employerSiPercent: 0,
         ...totals,
       } satisfies PayrollLineView,
     ],

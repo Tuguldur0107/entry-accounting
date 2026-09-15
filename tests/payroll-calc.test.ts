@@ -8,12 +8,12 @@ import {
   pitCreditOf,
 } from "../lib/payroll/calc";
 
-// worked-example.md-ийн Б.Болд жишээ (2,239,288₮ нийт олголт, ҮОМШӨ 0.8%,
-// бусад суутгал 50,000₮) — тоонууд ЯГ таарах ёстой.
+// worked-example.md-ийн Б.Болд жишээ (2,239,288₮ нийт олголт, АО-НДШ 12.5%
+// = суурь 11.7 + ҮОМШӨ 0.8, бусад суутгал 50,000₮) — тоонууд ЯГ таарах ёстой.
 const BOLD = {
   earnings: 2_239_288,
   otherDeductions: 50_000,
-  accidentRatePercent: 0.8,
+  employerSiPercent: 12.5,
   date: "2026-07-31",
   minimumWage: 792_000,
   siCapMultiplier: 10,

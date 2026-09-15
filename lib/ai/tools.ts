@@ -1249,9 +1249,10 @@ export const AI_TOOLS: AiToolDef[] = [
         name: { type: "string", description: "Ажилтны нэр" },
         position: { type: "string", description: "Албан тушаал" },
         baseSalary: { type: "number", description: "Сарын үндсэн цалин ₮" },
-        accidentRatePercent: {
+        employerSiPercent: {
           type: "number",
-          description: "ҮОМШӨ % (оффис 0.8, барилга 1.5, уул уурхай 2.5-3; default 0.8)",
+          description:
+            "АО-НДШ % — ажил олгогчийн нийт НДШ, ҮОМШӨ багтсан (оффис 12.5, барилга 13.2, уул уурхай 14.2-14.7; default 12.5)",
         },
         lastName: { type: "string", description: "Овог (сонголтоор)" },
         registerNo: { type: "string", description: "Регистрийн дугаар — байгууллага дотор давхцахгүй (сонголтоор)" },
@@ -1531,7 +1532,7 @@ export const AI_TOOLS: AiToolDef[] = [
               iban: { type: "string" },
               phone: { type: "string" },
               baseSalary: { type: "number", description: "Сарын үндсэн цалин ₮" },
-              accidentRatePercent: { type: "number", description: "ҮОМШӨ % (default 0.8)" },
+              employerSiPercent: { type: "number", description: "АО-НДШ % (default 12.5)" },
             },
             required: ["name", "baseSalary"],
           },
@@ -1764,7 +1765,7 @@ export const AI_TOOLS: AiToolDef[] = [
   // ── Ажилтан (цалингийн мастер дата) ──────────────────────────────────────
   {
     name: "list_employees",
-    description: "Ажилтнуудын жагсаалт (нэр, албан тушаал, үндсэн цалин, ҮОМШӨ хувь, идэвх).",
+    description: "Ажилтнуудын жагсаалт (нэр, албан тушаал, үндсэн цалин, АО-НДШ хувь, идэвх).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1782,7 +1783,7 @@ export const AI_TOOLS: AiToolDef[] = [
         newName: { type: "string", description: "Шинэ нэр (сонголтоор)" },
         position: { type: "string", description: "Албан тушаал (сонголтоор)" },
         baseSalary: { type: "number", description: "Үндсэн цалин ₮ (сонголтоор)" },
-        accidentRatePercent: { type: "number", description: "ҮОМШӨ хувь 0-5 (сонголтоор)" },
+        employerSiPercent: { type: "number", description: "АО-НДШ хувь 0-20 (сонголтоор)" },
         terminationDate: { type: "string", description: "Гарсан огноо YYYY-MM-DD (сонголтоор)" },
         lastName: { type: "string", description: "Овог (сонголтоор)" },
         registerNo: { type: "string", description: "Регистрийн дугаар — байгууллага дотор давхцахгүй (сонголтоор)" },
@@ -5641,17 +5642,17 @@ async function runReopenPeriod(
 // ── Цалин гүйцэтгэгчид ──────────────────────────────────────────────────────
 
 async function runCreateEmployee(
-  input: Omit<EmployeeInput, "accidentRatePercent"> & {
-    accidentRatePercent?: number;
+  input: Omit<EmployeeInput, "employerSiPercent"> & {
+    employerSiPercent?: number;
   }
 ): Promise<AiToolResult> {
   await upsertEmployee({
     ...input,
     id: undefined,
-    accidentRatePercent: input.accidentRatePercent ?? 0.8,
+    employerSiPercent: input.employerSiPercent ?? 12.5,
   });
   return {
-    resultText: `Ажилтан бүртгэгдлээ: ${[input.lastName, input.name].filter(Boolean).join(" ")}, үндсэн цалин ${fmt(input.baseSalary)}₮, ҮОМШӨ ${input.accidentRatePercent ?? 0.8}%${input.registerNo ? `, РД ${input.registerNo}` : ""}`,
+    resultText: `Ажилтан бүртгэгдлээ: ${[input.lastName, input.name].filter(Boolean).join(" ")}, үндсэн цалин ${fmt(input.baseSalary)}₮, АО-НДШ ${input.employerSiPercent ?? 12.5}%${input.registerNo ? `, РД ${input.registerNo}` : ""}`,
   };
 }
 
@@ -6407,7 +6408,7 @@ async function runListEmployees(
       .sort((a, b) => a.name.localeCompare(b.name))
       .map(
         (row) =>
-          `${row.name}${row.position ? ` · ${row.position}` : ""} · цалин ${fmt(Number(row.baseSalary))}₮ · ҮОМШӨ ${Number(row.accidentRatePercent)}%${row.isActive ? "" : " · ИДЭВХГҮЙ"}`
+          `${row.name}${row.position ? ` · ${row.position}` : ""} · цалин ${fmt(Number(row.baseSalary))}₮ · АО-НДШ ${Number(row.employerSiPercent)}%${row.isActive ? "" : " · ИДЭВХГҮЙ"}`
       )
       .join("\n"),
   };
@@ -6451,8 +6452,8 @@ async function runUpdateEmployee(
       (employee.employmentType as EmploymentType | undefined),
     position: input.position ?? employee.position ?? "",
     baseSalary: input.baseSalary ?? Number(employee.baseSalary),
-    accidentRatePercent:
-      input.accidentRatePercent ?? Number(employee.accidentRatePercent),
+    employerSiPercent:
+      input.employerSiPercent ?? Number(employee.employerSiPercent),
     isActive: input.isActive ?? employee.isActive,
   });
   return {

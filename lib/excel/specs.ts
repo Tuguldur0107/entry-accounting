@@ -360,7 +360,7 @@ export interface EmployeeImport {
   employmentType?: "primary" | "contract" | "hourly";
   position?: string;
   baseSalary: number;
-  accidentRatePercent: number;
+  employerSiPercent: number;
   isActive?: boolean;
 }
 
@@ -414,10 +414,10 @@ export function employeesSpec(): ImportSpec<EmployeeImport> {
         example: "1500000",
       },
       {
-        key: "accidentRatePercent",
-        header: "ҮОМШӨ %",
-        hint: "оффис 0.8 · барилга 1.5 · уул уурхай 2.5–3 (хоосон бол 0.8)",
-        example: "0.8",
+        key: "employerSiPercent",
+        header: "АО-НДШ %",
+        hint: "Ажил олгогчийн нийт НДШ, ҮОМШӨ багтсан: оффис 12.5 · барилга 13.2 · уул уурхай 14.2–14.7 (хоосон бол 12.5)",
+        example: "12.5",
       },
       { key: "bankName", header: "Банк", hint: "Цалин олгох банк", example: "Хаан банк" },
       { key: "bankAccountNo", header: "Дансны дугаар", hint: "Цалингийн данс", example: "5041234567" },
@@ -447,12 +447,12 @@ export function employeesSpec(): ImportSpec<EmployeeImport> {
       if (baseSalary == null || !(baseSalary >= 0))
         errors.push("Үндсэн цалин 0-ээс багагүй тоо байна");
 
-      let accidentRatePercent = 0.8;
-      if (record.accidentRatePercent.trim() !== "") {
-        const parsed = Number(record.accidentRatePercent.replaceAll(",", "."));
-        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 5)
-          errors.push("ҮОМШӨ хувь 0–5%-ийн хооронд байна");
-        else accidentRatePercent = parsed;
+      let employerSiPercent = 12.5;
+      if (record.employerSiPercent.trim() !== "") {
+        const parsed = Number(record.employerSiPercent.replaceAll(",", "."));
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 20)
+          errors.push("АО-НДШ хувь 0–20%-ийн хооронд байна");
+        else employerSiPercent = parsed;
       }
 
       const parseOptionalDate = (raw: string, label: string) => {
@@ -498,7 +498,7 @@ export function employeesSpec(): ImportSpec<EmployeeImport> {
           employmentType,
           position: record.position.trim() || undefined,
           baseSalary: baseSalary as number,
-          accidentRatePercent,
+          employerSiPercent,
           isActive,
         },
       };

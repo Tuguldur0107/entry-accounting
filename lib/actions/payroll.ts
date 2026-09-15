@@ -66,7 +66,7 @@ export interface EmployeeInput {
   employmentType?: EmploymentType;
   position?: string;
   baseSalary: number;
-  accidentRatePercent: number;
+  employerSiPercent: number;
   isActive?: boolean;
 }
 
@@ -90,9 +90,9 @@ function validateEmployeeInput(data: EmployeeInput) {
   const baseSalary = Number(data.baseSalary);
   if (!(baseSalary >= 0) || !Number.isFinite(baseSalary))
     throw new Error("Үндсэн цалин 0-ээс багагүй байна");
-  const accidentRatePercent = Number(data.accidentRatePercent);
-  if (!(accidentRatePercent >= 0) || accidentRatePercent > 5)
-    throw new Error("ҮОМШӨ хувь 0–5%-ийн хооронд байна");
+  const employerSiPercent = Number(data.employerSiPercent);
+  if (!(employerSiPercent >= 0) || employerSiPercent > 20)
+    throw new Error("АО-НДШ хувь 0–20%-ийн хооронд байна");
 
   const registerNo = cleanOptional(data.registerNo)?.toUpperCase() ?? null;
   const iban = cleanOptional(data.iban)?.replaceAll(" ", "").toUpperCase() ?? null;
@@ -130,7 +130,7 @@ function validateEmployeeInput(data: EmployeeInput) {
     employmentType,
     position: data.position?.trim() ?? "",
     baseSalary: String(baseSalary),
-    accidentRatePercent: String(accidentRatePercent),
+    employerSiPercent: String(employerSiPercent),
     isActive: data.isActive ?? true,
   };
 }
@@ -244,7 +244,7 @@ export type PayrollLineView = {
   employeeId: string;
   employeeName: string;
   position: string;
-  accidentRatePercent: number;
+  employerSiPercent: number;
   earnings: number;
   otherDeductions: number;
   employeeSi: number;
@@ -305,7 +305,7 @@ export async function getPayrollRunData(
       employeeId: line.employeeId,
       employeeName: line.employee.name,
       position: line.employee.position,
-      accidentRatePercent: Number(line.employee.accidentRatePercent),
+      employerSiPercent: Number(line.employee.employerSiPercent),
       earnings: Number(line.earnings),
       otherDeductions: Number(line.otherDeductions),
       employeeSi: Number(line.employeeSi),
@@ -333,7 +333,7 @@ export async function getPayrollRunData(
 function computeFor(
   earnings: number,
   otherDeductions: number,
-  accidentRatePercent: number,
+  employerSiPercent: number,
   periodMonth: string,
   settings: { minimumWage: number; siCapMultiplier: number; monthlyTaxFree: number }
 ): PayrollResult {
@@ -341,7 +341,7 @@ function computeFor(
   return computeEmployeePayroll({
     earnings,
     otherDeductions,
-    accidentRatePercent,
+    employerSiPercent,
     date: endDate,
     minimumWage: settings.minimumWage,
     siCapMultiplier: settings.siCapMultiplier,
@@ -405,7 +405,7 @@ export async function calculatePayrollRun(periodMonth: string) {
       const result = computeFor(
         earnings,
         otherDeductions,
-        Number(person.accidentRatePercent),
+        Number(person.employerSiPercent),
         periodMonth,
         settings
       );
@@ -458,7 +458,7 @@ export async function updatePayrollLine(data: {
   const result = computeFor(
     Number(data.earnings),
     Number(data.otherDeductions),
-    Number(line.employee.accidentRatePercent),
+    Number(line.employee.employerSiPercent),
     line.run.periodMonth,
     {
       minimumWage: Number(settingsRow.minimumWage),

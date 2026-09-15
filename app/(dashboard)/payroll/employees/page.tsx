@@ -31,7 +31,7 @@ export default async function PayrollEmployeesPage() {
     employmentType: person.employmentType,
     position: person.position,
     baseSalary: Number(person.baseSalary),
-    accidentRatePercent: Number(person.accidentRatePercent),
+    employerSiPercent: Number(person.employerSiPercent),
     isActive: person.isActive,
   }));
 
