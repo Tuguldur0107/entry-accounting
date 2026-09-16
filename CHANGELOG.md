@@ -5,7 +5,18 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Нэмэгдсэн
+- **Дарах бүрт клик дуу.** Товч, линк, таб, цэс, хүснэгтийн мөр/нүд болон
+  cursor:pointer-тэй дурын элемент дээр pointerdown-ы агшинд маш богино тик
+  дуугарна (`lib/ui/feedback.ts`). Хоосон зай, текст сонгох, талбарт бичихэд
+  дуугарахгүй. Топбарын чанга яригч товч (`ea-sound`) бүх дууг хамт унтраана
+
 ### Засагдсан
+- **Системийн дуу сонсогдохгүй байсан.** Дуунууд −20 dB, 90 мс байсан тул
+  Bluetooth чихэвч / лаптопын спикерийн "сэрэх" саатал бүхэлд нь залгидаг
+  байв — одоо ~2.5 дахин чанга, 160–320 мс; даралтын агшинд чимээгүй buffer-
+  ээр гаралтыг халаана; Safari-д `closed`/`interrupted` төлөвт гацсан
+  AudioContext-ийг шинээр үүсгэнэ
 - **`exchange_rates`-ийн давхардлын хамгаалалт unique constraint → unique
   INDEX** (`exchange_rates_source_currency_date_ux`). drizzle-kit 0.31.x-ийн
   алдаа (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
