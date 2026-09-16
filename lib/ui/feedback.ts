@@ -3,14 +3,21 @@
 // ажиллана) бөгөөд ҮРГЭЛЖ хэрэглэгчийн товч даралтын хариуд дуугардаг тул
 // browser-ийн autoplay хориод өртөхгүй.
 //
-// Гурван түвшин:
+// Дөрвөн түвшин:
+//   клик              — ДАРАХ БҮРТ (товч, линк, таб, мөр, cursor:pointer
+//                       элемент): маш богино зөөлөн "тик" — pointerdown-ы
+//                       дотор шууд тоглодог тул хамгийн найдвартай
 //   feedback.saved()  — ноорог хадгалагдлаа: зөөлөн нэг "тик"
 //   feedback.posted() — батлагдаж GL-д бичигдлээ: өгсөх хоёр нот + дарсан
 //                       цэг дээр ногоон ✓ pulse (сүүлийн pointerdown-оос)
 //   feedback.error()  — намуухан бүдүүн "бонк"
 //
-// Дуу localStorage-ийн "ea-sound"-оор унтарна (топбарын SoundToggle);
-// visual pulse нь prefers-reduced-motion үед гарахгүй.
+// Дуу localStorage-ийн "ea-sound"-оор унтарна (топбарын SoundToggle — клик
+// дуу ч мөн адил); visual pulse нь prefers-reduced-motion үед гарахгүй.
+//
+// Сонсогдохгүй байсан шалтгаан (2026-09): дуунууд −20 dB, 90 мс байсан тул
+// Bluetooth чихэвч / лаптопын спикерийн "сэрэх" саатал бүхэлд нь залгидаг
+// байв. Одоо чангалж, уртасгаж, даралтын агшинд гаралтыг халаадаг (warmUp).
 
 import { toast } from "sonner";
 
@@ -36,6 +43,37 @@ export function subscribeSound(listener: () => void) {
 // ── Дууны синтез ────────────────────────────────────────────────────────────
 
 let audioContext: AudioContext | null = null;
+let warmedUp = false;
+
+/** Ажиллах context буцаана; хаагдсан/тасалдсан бол шинээр үүсгэнэ. */
+function ensureContext(): AudioContext | null {
+  if (typeof window === "undefined" || typeof AudioContext === "undefined") return null;
+  // Safari аудио төхөөрөмж солигдоход "interrupted", зарим үед "closed"
+  // төлөвт гацдаг — resume() тэднийг сэргээхгүй тул шинээр үүсгэнэ.
+  const state = audioContext?.state as string | undefined;
+  if (!audioContext || state === "closed" || state === "interrupted") {
+    audioContext = new AudioContext();
+    warmedUp = false;
+  }
+  if (audioContext.state !== "running") void audioContext.resume();
+  return audioContext;
+}
+
+/**
+ * Гаралтын төхөөрөмжийг "халаана": Bluetooth чихэвч, зарим спикер чимээгүй
+ * байснаас сэрэхдээ эхний 100–300 мс-ийг залгидаг — богино тик бүхэлдээ алга
+ * болдог. Даралтын агшинд чимээгүй buffer тоглуулснаар (iOS unlock-ийн ч
+ * стандарт арга) дараагийн жинхэнэ дуу бүтэн сонсогдоно.
+ */
+function warmUp(ctx: AudioContext) {
+  if (warmedUp) return;
+  warmedUp = true;
+  const buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.start(0);
+}
 
 function tone(
   ctx: AudioContext,
@@ -59,23 +97,26 @@ function tone(
   osc.stop(start + duration + 0.05);
 }
 
-function play(kind: "saved" | "posted" | "error") {
-  if (typeof window === "undefined" || !isSoundOn()) return;
+function play(kind: "click" | "saved" | "posted" | "error") {
+  if (!isSoundOn()) return;
   try {
-    audioContext ??= new AudioContext();
-    if (audioContext.state === "suspended") void audioContext.resume();
-    const ctx = audioContext;
-    if (kind === "saved") {
+    const ctx = ensureContext();
+    if (!ctx) return;
+    warmUp(ctx);
+    if (kind === "click") {
+      // Маш богино өндөр тик — гар утасны товчлуурын дуу шиг.
+      tone(ctx, 1800, 0, 0.04, 0.16, "triangle");
+    } else if (kind === "saved") {
       // Нэг зөөлөн тик.
-      tone(ctx, 660, 0, 0.09, 0.09);
+      tone(ctx, 660, 0, 0.16, 0.22);
     } else if (kind === "posted") {
       // Өгсөх хоёр нот — C5 → G5 "дин-дон".
-      tone(ctx, 523.25, 0, 0.14, 0.1);
-      tone(ctx, 783.99, 0.09, 0.2, 0.1);
+      tone(ctx, 523.25, 0, 0.22, 0.25);
+      tone(ctx, 783.99, 0.12, 0.32, 0.25);
     } else {
       // Намуухан бүдүүн бонк.
-      tone(ctx, 220, 0, 0.12, 0.06, "square");
-      tone(ctx, 180, 0.06, 0.12, 0.05, "square");
+      tone(ctx, 220, 0, 0.16, 0.18, "square");
+      tone(ctx, 180, 0.08, 0.18, 0.15, "square");
     }
   } catch {
     // Дуу гаргаж чадаагүй нь үйлдлийг хэзээ ч унагахгүй.
@@ -88,6 +129,49 @@ let lastPointer = { x: 0, y: 0 };
 let pointerTracked = false;
 let pulseStyleInjected = false;
 
+const CLICKABLE_SELECTOR = [
+  "button",
+  "a[href]",
+  "summary",
+  "label",
+  "select",
+  "option",
+  'input[type="checkbox"]',
+  'input[type="radio"]',
+  'input[type="button"]',
+  'input[type="submit"]',
+  '[role="button"]',
+  '[role="link"]',
+  '[role="tab"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]',
+  '[role="option"]',
+  '[role="switch"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="row"]',
+  '[role="gridcell"]',
+  ".ag-cell",
+  ".ag-header-cell",
+  "[data-sound]",
+].join(",");
+
+/**
+ * Дарсан элемент "дарагдах зүйл" мөн үү — жагсаалтын элемент ЭСВЭЛ
+ * cursor:pointer-тэй (div onClick-тэй карт, панелийн мөр г.м.). Хоосон
+ * зай, текст сонгох, талбарт бичих дээр дуугарахгүй.
+ */
+function isClickable(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest(CLICKABLE_SELECTOR)) return true;
+  let el: Element | null = target;
+  for (let depth = 0; el && depth < 6; depth++, el = el.parentElement) {
+    if (getComputedStyle(el).cursor === "pointer") return true;
+  }
+  return false;
+}
+
 function ensurePointerTracking() {
   if (pointerTracked || typeof window === "undefined") return;
   pointerTracked = true;
@@ -95,16 +179,20 @@ function ensurePointerTracking() {
     "pointerdown",
     (event) => {
       lastPointer = { x: event.clientX, y: event.clientY };
-      // AudioContext-ийг ЭНД (хэрэглэгчийн жинхэнэ даралтын дотор) үүсгэж
-      // сэрээнэ — амжилтын дуу server хариуны ДАРАА тоглодог тул тэр үед
-      // үүсгэвэл browser autoplay бодлогоор suspended орхиж, дуу гардаггүй.
-      if (isSoundOn()) {
-        try {
-          audioContext ??= new AudioContext();
-          if (audioContext.state === "suspended") void audioContext.resume();
-        } catch {
-          // Дуу боломжгүй орчинд чимээгүй өнгөрнө.
-        }
+      if (!isSoundOn()) return;
+      // Дарах бүрийн клик дуу — ЭНД (хэрэглэгчийн жинхэнэ даралтын дотор)
+      // тоглох тул browser autoplay бодлогод орохгүй; мөн context үүсч,
+      // сэрж, халагдана — амжилтын дуу server хариуны ДАРАА тоглодог тул
+      // тэр үед үүсгэвэл suspended орхигдож дуу гардаггүй байв.
+      if (event.button <= 0 && isClickable(event.target)) {
+        play("click");
+        return;
+      }
+      try {
+        const ctx = ensureContext();
+        if (ctx) warmUp(ctx);
+      } catch {
+        // Дуу боломжгүй орчинд чимээгүй өнгөрнө.
       }
     },
     { capture: true, passive: true }

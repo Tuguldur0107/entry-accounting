@@ -19,7 +19,7 @@ export function SoundToggle() {
     <button
       type="button"
       className="ea-icon-action flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-[var(--ea-border)] text-[var(--ea-text-2)]"
-      title={soundOn ? "Үйлдлийн дууг унтраах" : "Үйлдлийн дууг асаах"}
+      title={soundOn ? "Системийн дууг унтраах" : "Системийн дууг асаах"}
       aria-label={soundOn ? "Дуу унтраах" : "Дуу асаах"}
       onClick={() => setSoundOn(!soundOn)}
     >
