@@ -229,3 +229,22 @@ Hook нь core guardrail-ийг (баланс, период, эрх, 10 сая �
 - `entry-package.json` манифест + `entryCompat` semver шалгалт (docs/opensource/02 Шат 3)
 - Multi-instance rate limit (Redis) — нэг сервер дээр хэрэггүй
 - ~~FSL лиценз, CLA~~ — хийгдсэн: `LICENSE` (v1.1.0), хувь нэмрийн нөхцөл `CONTRIBUTING.md`
+
+## Deployment-ийн лиценз (ENTRY_LICENSE)
+
+Console-оор provision хийгдээгүй хуулбар production горимд нэвтрэлт хүлээж
+авахгүй. Механизм (lib/licensing/license.ts):
+
+- Provision үед `scripts/issue-license.mjs`-ээр **гарын үсэгтэй token**
+  (`entl_…`, дотроо slug + appUrl + хугацаа) үүсгэж deployment-ийн
+  `ENTRY_LICENSE` env-д тавина. Нууц түлхүүр (`ENTRY_LICENSE_SIGNING_KEY`)
+  зөвхөн Console/CI secret-д — энэ repo-д ХЭЗЭЭ Ч орохгүй
+- App талд шалгалт бүрэн **offline** (embedded public key) — Console руу
+  сүлжээгээр хандахгүй, хэрэглэгчид үл мэдэгдэнэ; token нь appUrl-даа
+  уягдсан тул өөр домэйнд хуулагдахгүй
+- Лицензгүй/хүчингүй бол: нэвтрэлт (authorize) null, бүртгэл (registerUser)
+  алдаа, login хуудас тайлбар дэлгэц (/api/health-ийн `license` талбараас)
+- `next dev`-д шалгалтгүй — харилцагчийн локал vibecoding саадгүй
+- Хил хязгаар (ухамсартай): эх кодтой хэрэглэгч шалгалтыг өөрчилж чадна —
+  энэ бол шударга хэрэглээний хаалга; жинхэнэ хамгаалалт нь гэрээ, update
+  урсгал, сервер талын үйлчилгээнүүд

@@ -737,6 +737,10 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   /api/v1/tools/<name>`; MCP-тэй ижил `resolveApiToken` + `writeModeOf` +
   `runAsOrg` + rate limit; `[CODE]` алдаа → 422 `{ok:false, code, error}`.
   Тусдаа логик ХОРИОТОЙ — tool давхаргаар л
+- **Deployment-ийн лиценз:** production нэвтрэлт `ENTRY_LICENSE` (Console-оос
+  олгосон гарын үсэгтэй, appUrl-даа уягдсан token) шаардана — offline шалгалт
+  `lib/licensing/license.ts`, олгогч `scripts/issue-license.mjs` (нууц түлхүүр
+  repo-д байхгүй); `next dev`-д шалгалтгүй. Дэлгэрэнгүй docs/deployment/README.md
 - **Харилцагчийн repo үүсгэх:** `.github/workflows/provision-customer.yml`
   (workflow_dispatch; Entry Console — тусдаа `entry-console` repo — үүнийг
   dispatch хийнэ). Харилцагч = topic `entry-customer`-тэй `entry-<slug>` repo;

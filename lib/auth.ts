@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import { and, asc, eq, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { hasModuleLevel } from "@/lib/permissions";
 import authConfig from "@/lib/auth.config";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -26,6 +27,11 @@ const { handlers, auth: sessionAuth, signIn, signOut } = NextAuth({
         password: { label: "Нууц үг", type: "password" },
       },
       async authorize(credentials) {
+        // Deployment-ийн лиценз (offline шалгалт, dev-д үргэлж нээлттэй) —
+        // Console-оор provision хийгдээгүй хуулбар нэвтрэлт хүлээж авахгүй.
+        // Тайлбар текстийг login хуудас /api/health-ээс авч үзүүлнэ.
+        if (!deploymentLicenseStatus().ok) return null;
+
         if (!credentials?.identifier || !credentials?.password) return null;
 
         const id = (credentials.identifier as string).toLowerCase().trim();

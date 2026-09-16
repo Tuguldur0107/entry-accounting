@@ -11,6 +11,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import { createPersonalOrg, signIn } from "@/lib/auth";
+import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { registrationMode } from "@/lib/registration";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
@@ -22,6 +23,11 @@ export async function registerUser(data: {
   /** Урилгын token (/register?invite=...) — байвал урьсан байгууллагад шууд элсэнэ. */
   invite?: string;
 }) {
+  // Deployment-ийн лиценз — бүртгэлгүй хуулбар шинэ хэрэглэгч ч үүсгэхгүй.
+  const license = deploymentLicenseStatus();
+  if (!license.ok)
+    return { error: `${license.reason ?? "Энэ хувилбар Entry-д бүртгэлгүй байна"} — entry.mn-ээс лиценз аваарай` };
+
   // Server-side шалгалт — client формыг тойрч шууд дуудахад ч хүчинтэй.
   const name = data.name?.trim() ?? "";
   const email = data.email?.trim().toLowerCase() ?? "";
