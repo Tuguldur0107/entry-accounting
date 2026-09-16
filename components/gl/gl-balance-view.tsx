@@ -99,7 +99,8 @@ export function GlBalanceView({ rows, activeSegments }: Props) {
       {
         headerName: "Үндсэн дансны нэр",
         field: "name",
-        flex: 1,
+        // fitCellContents autoSize өргөнийг эзэмшинэ — flex:1 байвал colDefs
+        // дахин ирэх бүрд багана дэлгэц дүүртэл сунадаг (report-grid-тэй ижил).
         minWidth: 220,
         sortable: true,
       },
