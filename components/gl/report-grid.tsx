@@ -223,7 +223,9 @@ export function ReportGrid({
     const nameCol: ColDef<ReportRow> = {
       headerName: "Үндсэн дансны нэр",
       colId: "name",
-      flex: 1,
+      // flex ХЭРЭГЛЭХГҮЙ: өргөнийг fitCellContents autoSize бүрэн эзэмшдэг.
+      // flex байхад colDefs дахин ирэх бүрд (dialog нээх г.м. re-render)
+      // багана дэлгэц дүүртэл сунаж анхны авсаархан харагдац алдагдаж байв.
       minWidth: 220,
       valueGetter: (p) => {
         const r = p.data;

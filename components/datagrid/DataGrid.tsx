@@ -17,6 +17,7 @@ import type {
   ColGroupDef,
   GridApi,
   GridReadyEvent,
+  NewColumnsLoadedEvent,
   ProcessDataFromClipboardParams,
   RowDataUpdatedEvent,
 } from "ag-grid-community";
@@ -201,15 +202,28 @@ function DataGridInner<TData>(
     onGridReady?.(event);
   }
 
+  const isFitCellContents =
+    !!autoSizeStrategy &&
+    "type" in autoSizeStrategy &&
+    autoSizeStrategy.type === "fitCellContents";
+
   function handleRowDataUpdated(event: RowDataUpdatedEvent<TData>) {
-    if (
-      autoSizeStrategy &&
-      "type" in autoSizeStrategy &&
-      autoSizeStrategy.type === "fitCellContents"
-    ) {
+    if (isFitCellContents) {
       event.api.autoSizeAllColumns(false);
     }
     onRowDataUpdated?.(event);
+  }
+
+  // Parent дахин render хийж ШИНЭ columnDefs ирэхэд AG Grid баганын өргөнийг
+  // тодорхойлолтын анхны утга (flex / default width) руу БУЦААДАГ — жишээ нь
+  // тайлан дээр Mapping dialog нээгдэхэд inline callback-уудын identity
+  // өөрчлөгдөж colDefs шинэчлэгдээд, агуулгадаа таарсан өргөн дэлгэц дүүртэл
+  // сунадаг байв. fitCellContents стратегитай grid-д тодорхойлолт солигдох
+  // бүрд агуулгын өргөнийг дахин тооцож анхны харагдацыг хэвээр барина.
+  function handleNewColumnsLoaded(event: NewColumnsLoadedEvent<TData>) {
+    if (isFitCellContents && event.source === "gridOptionsChanged") {
+      event.api.autoSizeAllColumns(false);
+    }
   }
 
   function handleClipboard(params: ProcessDataFromClipboardParams<TData>) {
@@ -450,6 +464,7 @@ function DataGridInner<TData>(
         suppressContentVisibilityAuto
         onGridReady={handleReady}
         onRowDataUpdated={handleRowDataUpdated}
+        onNewColumnsLoaded={handleNewColumnsLoaded}
         onCellClicked={handleCellClicked}
         autoSizeStrategy={autoSizeStrategy}
         defaultColDef={mergedDefaultColDef}
