@@ -15,6 +15,7 @@ import type {
   CellClickedEvent,
   ColDef,
   ColGroupDef,
+  ColumnResizedEvent,
   GridApi,
   GridReadyEvent,
   NewColumnsLoadedEvent,
@@ -86,6 +87,7 @@ function DataGridInner<TData>(
     showSelectionCheckboxes = false,
     onGridReady,
     onRowDataUpdated,
+    onColumnResized,
     onCellClicked,
     processDataFromClipboard,
     defaultColDef,
@@ -207,9 +209,38 @@ function DataGridInner<TData>(
     "type" in autoSizeStrategy &&
     autoSizeStrategy.type === "fitCellContents";
 
+  // Хэрэглэгчийн ГАРААР чирч тохируулсан баганын өргөнүүд — autoSize дахин
+  // ажиллахад эдгээр баганыг алгасаж, өргөнийг нь буцааж тавина (эс бөгөөс
+  // диалог нээгдэх / өгөгдөл шинэчлэгдэх бүрд гарын тохиргоо арилна).
+  const userWidthsRef = useRef<Map<string, number>>(new Map());
+
+  function handleColumnResized(event: ColumnResizedEvent<TData>) {
+    if (event.finished && event.source === "uiColumnResized" && event.columns) {
+      for (const col of event.columns) {
+        userWidthsRef.current.set(col.getColId(), col.getActualWidth());
+      }
+    }
+    onColumnResized?.(event);
+  }
+
+  function autoSizeRespectingUserWidths(api: GridApi<TData>) {
+    const user = userWidthsRef.current;
+    if (user.size === 0) {
+      api.autoSizeAllColumns(false);
+      return;
+    }
+    const keys = (api.getColumns() ?? [])
+      .map((c) => c.getColId())
+      .filter((id) => !user.has(id));
+    if (keys.length > 0) api.autoSizeColumns(keys, false);
+    api.setColumnWidths(
+      [...user.entries()].map(([key, newWidth]) => ({ key, newWidth }))
+    );
+  }
+
   function handleRowDataUpdated(event: RowDataUpdatedEvent<TData>) {
     if (isFitCellContents) {
-      event.api.autoSizeAllColumns(false);
+      autoSizeRespectingUserWidths(event.api);
     }
     onRowDataUpdated?.(event);
   }
@@ -222,7 +253,7 @@ function DataGridInner<TData>(
   // бүрд агуулгын өргөнийг дахин тооцож анхны харагдацыг хэвээр барина.
   function handleNewColumnsLoaded(event: NewColumnsLoadedEvent<TData>) {
     if (isFitCellContents && event.source === "gridOptionsChanged") {
-      event.api.autoSizeAllColumns(false);
+      autoSizeRespectingUserWidths(event.api);
     }
   }
 
@@ -465,6 +496,7 @@ function DataGridInner<TData>(
         onGridReady={handleReady}
         onRowDataUpdated={handleRowDataUpdated}
         onNewColumnsLoaded={handleNewColumnsLoaded}
+        onColumnResized={handleColumnResized}
         onCellClicked={handleCellClicked}
         autoSizeStrategy={autoSizeStrategy}
         defaultColDef={mergedDefaultColDef}

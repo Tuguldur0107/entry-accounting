@@ -76,6 +76,11 @@ export function MappingDialog({
 
   const balanceOf = (code: string) => accountBalances?.get(code) ?? 0;
 
+  // Мөнгөн гүйлгээний тайлан (cfOptions өгөгдсөн) дээр дансны хажуугийн дүн
+  // нь ҮЛДЭГДЭЛ биш тайлант үеийн МӨНГӨН УРСГАЛ тул шошгууд өөр байна.
+  const flowMode = !!cfOptions;
+  const amountNoun = flowMode ? "урсгал" : "үлдэгдэл";
+
   // Sort + group by first-digit category. Within each group the codes
   // ascend numerically so the dialog mirrors the chart of accounts.
   const grouped = useMemo(() => {
@@ -266,8 +271,9 @@ export function MappingDialog({
           ) : (
             <>
           <p className="text-xs text-[var(--ea-text-3)]">
-            Энэ мөрийн дүнд оруулах GL дансуудыг сонгоно уу. Үлдэгдэл нь
-            тайлангийн он сар үед таны бичсэн журналаар тооцоологдов.
+            {flowMode
+              ? "Энэ мөрийн дүнд орох контра (харьцсан) дансуудыг сонгоно уу. Дүн нь тайлант үеийн мөнгөн урсгал."
+              : "Энэ мөрийн дүнд оруулах GL дансуудыг сонгоно уу. Үлдэгдэл нь тайлангийн он сар үед таны бичсэн журналаар тооцоологдов."}
           </p>
 
           {/* Toolbar — search + filters */}
@@ -286,7 +292,7 @@ export function MappingDialog({
                 onChange={(e) => setOnlyWithBalance(e.target.checked)}
                 className="w-3.5 h-3.5 accent-[var(--ea-primary)]"
               />
-              Зөвхөн үлдэгдэлтэй
+              {flowMode ? "Зөвхөн урсгалтай" : "Зөвхөн үлдэгдэлтэй"}
             </label>
           </div>
 
@@ -312,7 +318,7 @@ export function MappingDialog({
               </span>
               {accountBalances && (
                 <span className="text-[var(--ea-text-3)]">
-                  Нийт үлдэгдэл:{" "}
+                  Нийт {amountNoun}:{" "}
                   <span
                     className={`font-mono font-medium tabular-nums ${
                       selectedSum < 0
@@ -377,7 +383,15 @@ export function MappingDialog({
                               ? "text-[var(--ea-danger-fg)]"
                               : "text-[var(--ea-text-1)]"
                           }`}
-                          title={hasBal ? "Цэвэр үлдэгдэл (Дебет − Кредит)" : "Үлдэгдэлгүй"}
+                          title={
+                            hasBal
+                              ? flowMode
+                                ? "Тайлант үеийн мөнгөн урсгал (энэ данстай харьцсан)"
+                                : "Цэвэр үлдэгдэл (Дебет − Кредит)"
+                              : flowMode
+                              ? "Урсгалгүй"
+                              : "Үлдэгдэлгүй"
+                          }
                         >
                           {hasBal ? fmtMnt(bal) : "—"}
                         </span>
