@@ -855,3 +855,103 @@ export async function loadProcurementDashboard(orgId: string): Promise<{
     recentOrders: recentBundles.slice(0, 8).map((bundle) => bundle.view),
   };
 }
+
+// ─── Хангамжийн тайлан ───────────────────────────────────────────────────────
+
+export type ProcurementReportRow = {
+  id: string;
+  documentNo: string;
+  date: string;
+  counterpartyName: string;
+  currency: string;
+  status: PurchaseOrderStatus;
+  /** Захиалсан нийт дүн (PO валютаар). */
+  totalAmount: number;
+  /** Хүлээн авсан дүн = Σ хүлээн авсан тоо × PO нэгж үнэ (PO валютаар). */
+  receivedAmount: number;
+  /** Нэхэмжилсэн дүн (PO валютаар, мөрүүдээс). */
+  invoicedAmount: number;
+  receivedPct: number;
+  invoicedPct: number;
+  /** Хуваарилагдаагүй нэмэлт зардал (MNT). */
+  unallocatedMnt: number;
+};
+
+export type ProcurementSupplierRow = {
+  counterpartyName: string;
+  currency: string;
+  orderCount: number;
+  openCount: number;
+  totalAmount: number;
+  receivedAmount: number;
+  invoicedAmount: number;
+};
+
+/**
+ * Захиалгын гүйцэтгэлийн тайлан — огнооны мужид орох PO бүрийн дүнгийн
+ * гүйцэтгэл + нийлүүлэгч×валютын нэгтгэл. Дүн бүр PO валютаараа (олон
+ * валютын Σ нийлбэр утгагүй тул нэгтгэл валютаар тусдаа мөр).
+ */
+export async function loadProcurementReport(
+  orgId: string,
+  range: { from: string; to: string }
+): Promise<{ orders: ProcurementReportRow[]; suppliers: ProcurementSupplierRow[] }> {
+  const bundles = await loadPurchaseOrderBundles(orgId, range);
+
+  const orders: ProcurementReportRow[] = bundles.map((bundle) => {
+    const receivedAmount = roundMoney(
+      bundle.lines.reduce(
+        (sum, line) => sum + line.receivedQuantity * line.unitPrice,
+        0
+      )
+    );
+    const invoicedAmount = roundMoney(
+      bundle.lines.reduce((sum, line) => sum + line.invoicedAmount, 0)
+    );
+    return {
+      id: bundle.view.id,
+      documentNo: bundle.view.documentNo,
+      date: bundle.view.date,
+      counterpartyName: bundle.view.counterpartyName,
+      currency: bundle.view.currency,
+      status: bundle.view.status,
+      totalAmount: bundle.view.totalAmount,
+      receivedAmount,
+      invoicedAmount,
+      receivedPct: bundle.view.receivedPct,
+      invoicedPct: bundle.view.invoicedPct,
+      unallocatedMnt: bundle.unallocatedMnt,
+    };
+  });
+
+  const byKey = new Map<string, ProcurementSupplierRow>();
+  for (const order of orders) {
+    // Цуцлагдсан захиалга нэгтгэлийг гажуудуулахгүй.
+    if (order.status === "cancelled") continue;
+    const key = `${order.counterpartyName} · ${order.currency}`;
+    const row =
+      byKey.get(key) ??
+      ({
+        counterpartyName: order.counterpartyName,
+        currency: order.currency,
+        orderCount: 0,
+        openCount: 0,
+        totalAmount: 0,
+        receivedAmount: 0,
+        invoicedAmount: 0,
+      } satisfies ProcurementSupplierRow);
+    row.orderCount += 1;
+    if (order.status === "open") row.openCount += 1;
+    row.totalAmount = roundMoney(row.totalAmount + order.totalAmount);
+    row.receivedAmount = roundMoney(row.receivedAmount + order.receivedAmount);
+    row.invoicedAmount = roundMoney(row.invoicedAmount + order.invoicedAmount);
+    byKey.set(key, row);
+  }
+  const suppliers = [...byKey.values()].sort(
+    (a, b) =>
+      b.totalAmount - a.totalAmount ||
+      a.counterpartyName.localeCompare(b.counterpartyName)
+  );
+
+  return { orders, suppliers };
+}

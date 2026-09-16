@@ -3,7 +3,7 @@
 // Хуваарилалтын ЗОРИЛТУУДЫН сонголтын хүснэгт — НЭГ хэрэгжилт, хоёр хэрэглэгч:
 //   • components/costing/cost-allocation-view.tsx — өртгийн модулийн чөлөөт
 //     хуваарилалт (зорилт нь тухайн хугацааны батлагдсан орлогууд)
-//   • components/procurement/unallocated-costs-view.tsx — хангамжийн
+//   • components/costing/unallocated-costs-view.tsx — PO-ийн
 //     "Хуваарилагдаагүй зардал" worklist (зорилт нь тухайн PO-гийн
 //     батлагдсан хүлээн авалтууд)
 //

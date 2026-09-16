@@ -158,7 +158,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
   create/post/unpost/update, cash post/reverse, FX тэгшитгэл post/reverse,
   AR/AP create/post, АР↔АП суутган тооцоо (offset + буцаалт), банкны
   хуулга импорт, FA элэгдэл post/reverse, өртөг post/reverse, зардлын
-  хуваарилалт, production confirm
+  хуваарилалт
 - **Close/post race хамгаалалт:** post замууд транзакц дотроо
   `assertPeriodOpenInTx` (shared advisory lock, түлхүүр 5) дууддаг;
   `closePeriod` exclusive lock авч БҮХ дэд дэвтрийн ноорог (GL, өртөг,
@@ -373,7 +373,9 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
   олгохгүй); хаагдсан PO-д нэмж болно, устгахгүй
 - **UI:** модулийн түлхүүр `proc` (`lib/constants/app-modules.ts`), нав бүлэг
   `procurement` (`components/layout/modules.ts` — самбар / Захиалга / Хүлээн
-  авалт / Хуваарилагдаагүй зардал), панель `purchase-order` ба `goods-receipt`
+  авалт / Тайлан; "Хуваарилагдаагүй зардал" нь Өртөг модульд
+  `/costing/unallocated` — хуучин `/procurement/costs` redirect хийнэ),
+  панель `purchase-order` ба `goods-receipt`
   (`panel-registry.tsx`). Хүснэгт `DataGridDynamic`, статус `StatusBadge`,
   шүүлтүүр `FilterChips` / `PageTabs`, хоосон `EmptyState`, icon `Icon` /
   `IconAction`, батлах диалог `useConfirm` — шинэ component/icon бичихийг
@@ -973,7 +975,8 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Хангамжийн самбар | [components/procurement/procurement-dashboard.tsx](components/procurement/procurement-dashboard.tsx) | Түр дансдын үлдэгдэл, ноорог/нээлттэй/хаах боломжтой PO тоолол, сүүлийн захиалгууд |
 | Худалдан авалтын захиалга | [components/procurement/purchase-orders-view.tsx](components/procurement/purchase-orders-view.tsx) | `FilterChips` статус шүүлтүүр + хүлээн авсан/нэхэмжилсэн % багана; давхар даралт → PO панель |
 | Хүлээн авалт (GR) | [components/procurement/goods-receipts-view.tsx](components/procurement/goods-receipts-view.tsx) | Огноо/агуулах/МБ ханш/дүн; давхар даралт → хүлээн авалтын панель |
-| Хуваарилагдаагүй зардал | [components/procurement/unallocated-costs-view.tsx](components/procurement/unallocated-costs-view.tsx) | Нэхэмжлэхийн мөр × бүрэлдэхүүн worklist — хуваарилсан / үлдэгдэл MNT |
+| Хуваарилагдаагүй зардал (Өртөг модульд) | [components/costing/unallocated-costs-view.tsx](components/costing/unallocated-costs-view.tsx) | Нэхэмжлэхийн мөр × бүрэлдэхүүн worklist — хуваарилсан / үлдэгдэл MNT |
+| Хангамжийн тайлан | [components/procurement/procurement-report-view.tsx](components/procurement/procurement-report-view.tsx) | Захиалгаар / Нийлүүлэгчээр таб — гүйцэтгэлийн дүн, валют бүрийн pinned нийт |
 | Нийлүүлэгчийн карт | [components/procurement/supplier-card.tsx](components/procurement/supplier-card.tsx) | Харилцагчийн бүртгэлээс уншина (PO-д хадгалахгүй) + нээлттэй өглөг, өмнөх захиалга |
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |

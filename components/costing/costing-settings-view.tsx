@@ -37,10 +37,6 @@ import {
   toggleCostComponent,
   toggleIssueType,
 } from "@/lib/actions/costing-master";
-import {
-  ProductionConfigSection,
-  type ProductionConfigStage,
-} from "@/components/costing/production-config-section";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount } from "@/lib/reports/balances";
@@ -80,14 +76,13 @@ export type CostingAccountRolesRow = {
   nrvReserveAccountNumber: string;
 };
 
-type Tab = "accounts" | "issue-types" | "components" | "items" | "production";
+type Tab = "accounts" | "issue-types" | "components" | "items";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "accounts", label: "Дансны рольууд" },
   { value: "issue-types", label: "Зарлагын төрөл" },
   { value: "components", label: "Өртгийн бүрэлдэхүүн" },
   { value: "items", label: "Барааны данс" },
-  { value: "production", label: "Үйлдвэрлэл" },
 ];
 
 interface Props {
@@ -95,8 +90,6 @@ interface Props {
   issueTypes: IssueTypeRow[];
   components: CostComponentRow[];
   accountRoles: CostingAccountRolesRow;
-  productionStages: ProductionConfigStage[];
-  costCenters: { code: string; name: string }[];
   glAccounts: { number: string; name: string }[];
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
@@ -121,8 +114,6 @@ export function CostingSettingsView({
   issueTypes,
   components,
   accountRoles,
-  productionStages,
-  costCenters,
   glAccounts,
   activeSegIds,
   segmentOptions,
@@ -175,12 +166,6 @@ export function CostingSettingsView({
           segmentOptions={segmentOptions}
           defaultSegments={defaultSegments}
           glNameMap={glNameMap}
-        />
-      )}
-      {tab === "production" && (
-        <ProductionConfigSection
-          stages={productionStages}
-          costCenters={costCenters}
         />
       )}
       {tab === "items" && (

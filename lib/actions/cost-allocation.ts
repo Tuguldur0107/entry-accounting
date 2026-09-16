@@ -53,7 +53,7 @@ function revalidateAllocation() {
     "/costing/entries",
     "/costing/control",
     "/procurement",
-    "/procurement/costs",
+    "/costing/unallocated",
     "/procurement/orders",
   ])
     revalidatePath(path);

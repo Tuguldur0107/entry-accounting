@@ -321,35 +321,16 @@ export async function postCostEntry(id: string) {
     throw new Error("Бичилтийн бараа сонгогдоогүй байна");
   const accounts = await itemAccountsFor(orgId, userId, linkedItemId);
   const roleSettings = await loadCostingAccountSettings(orgId, userId);
-  // Үйлдвэрлэлийн ОРЦЫН зарлага мөн үү? confirmProductionRun орцоо
-  // issueTypeId-гүй, "PROD-…-INxx" дугаартай зарлага болгон үүсгэдэг.
-  const isProductionInput =
-    !isNrv &&
-    entry.movement?.movementType === "issue" &&
-    entry.movement.documentNo.startsWith("PROD-");
   // Зарлагын дебет чиглэл: бичилтэд оноогдсон төрөл, эс бөгөөс анхны
   // "COGS" төрөл (энэ нь барааны COGS данс руу шийддэг profile тул хуучин
   // зан төлөв хэвээр). FR-MD-IT-002 / FR-ISSUE-002.
-  //
-  // ҮЙЛДВЭРЛЭЛИЙН ОРЦОД COGS fallback ХОРИОТОЙ (JPR §7.1): орцын өртөг
-  // гаралтын receipt_capitalize-д аль хэдийн капитализацлагдсан тул COGS-д
-  // давхар бичвэл P&L ДАВХАРДАНА. Ил тохируулсан зарлагын төрөлгүй орц нь
-  // клиринг дансаар дебетлэгдэнэ (JPR-IN-002 cost source recognition:
-  // Dr клиринг / Cr түүхий эдийн нөөц), гаралт нь Dr бэлэн бүтээгдэхүүн /
-  // Cr мөн тэр клиринг (JPR-IN-003, README 0.4) — run бүрд клиринг 0-ээр
-  // тулна, орцын өртөг P&L-д огт хүрэхгүй. Данс нь JPR-006-гийн
-  // costing_account_settings.clearingAccountNumber тохиргооноос ирнэ.
   const entryIssueType = entry.issueTypeId
     ? await loadIssueTypeById(orgId, entry.issueTypeId)
     : null;
-  const resolvedIssueType =
-    entryIssueType ??
-    (isProductionInput ? null : await defaultIssueType(orgId));
+  const resolvedIssueType = entryIssueType ?? (await defaultIssueType(orgId));
   const issueDebitAccountNumber = resolvedIssueType
     ? resolveIssueDebitAccount(resolvedIssueType, accounts.cogsAccountNumber)
-    : isProductionInput
-      ? roleSettings.clearingAccountNumber
-      : accounts.cogsAccountNumber;
+    : accounts.cogsAccountNumber;
   // Бүрэлдэхүүнд ӨӨРИЙН clearing данс тохируулсан бол нэмэлт зардлын
   // бичилт ТЭР дансаар кредитлэгдэнэ (corrected baseline §4: Dr Inventory /
   // Cr the SAME component clearing) — эс бөгөөс ерөнхий клиринг.

@@ -106,7 +106,7 @@ export function ProcurementDashboard({
       value: String(unallocatedLines),
       icon: "costing",
       color: unallocatedLines > 0 ? "var(--ea-warning)" : "var(--ea-success)",
-      href: "/procurement/costs",
+      href: "/costing/unallocated",
       hint:
         unallocatedLines > 0
           ? `Үлдэгдэл ${fmtMnt(unallocatedAmountMnt)}`

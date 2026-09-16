@@ -361,7 +361,7 @@ export function CloseWizard({
                 Нээлттэй захиалгууд
               </LinkButton>
               {procurement.unallocatedCostLines > 0 ? (
-                <LinkButton href="/procurement/costs">
+                <LinkButton href="/costing/unallocated">
                   Хуваарилагдаагүй зардал
                 </LinkButton>
               ) : null}

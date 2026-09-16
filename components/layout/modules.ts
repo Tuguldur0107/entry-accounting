@@ -125,11 +125,7 @@ export const MODULES: Module[] = [
         href: "/procurement/receipts",
         icon: "packageReceipt",
       },
-      {
-        label: "Хуваарилагдаагүй зардал",
-        href: "/procurement/costs",
-        icon: "costing",
-      },
+      { label: "Тайлан", href: "/procurement/reports", icon: "reportDetailed" },
     ],
   },
   {
@@ -172,7 +168,11 @@ export const MODULES: Module[] = [
     items: [
       { label: "Хяналтын самбар", href: "/costing", icon: "dashboard" },
       { label: "Өртгийн бичилт", href: "/costing/entries", icon: "costing" },
-      { label: "Үйлдвэрлэл", href: "/costing/production", icon: "production" },
+      {
+        label: "Хуваарилагдаагүй зардал",
+        href: "/costing/unallocated",
+        icon: "costing",
+      },
       {
         label: "Зардлын хуваарилалт",
         href: "/costing/allocations",
