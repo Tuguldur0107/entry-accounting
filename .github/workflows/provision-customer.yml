@@ -107,6 +107,25 @@ jobs:
           git push customer --tags
           gh api -X PATCH "repos/$REPO" -f default_branch=main >/dev/null
 
+      # Гарал үүслийн тэмдэг — аль харилцагчийн repo болохыг git clone-оор дагадаг
+      # тэмдэг. Core-д БАЙХГҮЙ тул upstream-sync merge-д зөрчил үүсгэхгүй; хулгайлсан
+      # кодыг (env-гүй ч) beacon-оор танихад ашиглагдана (lib/licensing/beacon.ts).
+      - name: Гарал үүслийн тэмдэг бичих (.entry-origin)
+        run: |
+          CONTENT="$(printf '{\n  "slug": "%s",\n  "repo": "%s",\n  "issuedAt": "%s"\n}\n' \
+            "$SLUG" "$REPO" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | base64 -w0)"
+          EXISTING_SHA="$(gh api "repos/$REPO/contents/.entry-origin" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$EXISTING_SHA" ]; then
+            gh api -X PUT "repos/$REPO/contents/.entry-origin" \
+              -f message="chore: гарал үүслийн тэмдэг ($SLUG)" \
+              -f content="$CONTENT" -f sha="$EXISTING_SHA" >/dev/null
+          else
+            gh api -X PUT "repos/$REPO/contents/.entry-origin" \
+              -f message="chore: гарал үүслийн тэмдэг ($SLUG)" \
+              -f content="$CONTENT" >/dev/null
+          fi
+          echo "гарал үүслийн тэмдэг бичигдлээ: $REPO/.entry-origin"
+
       - name: Actions permission (write + PR үүсгэх)
         run: |
           set_repo_perm() {

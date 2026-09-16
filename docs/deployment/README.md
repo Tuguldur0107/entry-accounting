@@ -248,3 +248,19 @@ Console-оор provision хийгдээгүй хуулбар production гори
 - Хил хязгаар (ухамсартай): эх кодтой хэрэглэгч шалгалтыг өөрчилж чадна —
   энэ бол шударга хэрэглээний хаалга; жинхэнэ хамгаалалт нь гэрээ, update
   урсгал, сервер талын үйлчилгээнүүд
+
+### Beacon (илрүүлэлт)
+
+Deployment бүр асахдаа Entry Console руу чимээгүй дохио өгнө
+(`lib/licensing/beacon.ts`, `instrumentation.ts`) — зорилго нь зөвшөөрөлгүй
+хуулбарыг ИЛРҮҮЛЭХ (устгах биш):
+
+- Дохио: appUrl, ENTRY_LICENSE token (Console public key-ээр баталгаажна),
+  `.entry-origin` тэмдэг (аль харилцагчийн repo-оос clone хийснийг git-ээр
+  дагадаг — provision үед бичигдэнэ), version/sha/nodeEnv
+- Console (`/api/beacon`) ангилна: healthy (лицензтэй, домэйндоо) ·
+  mismatch (env хуулж өөр домэйнд) · leaked (лицензгүй ч тэмдэгтэй = код
+  алдагдсан) · unknown; healthy биш бол Telegram/webhook сэрэмжлүүлэг
+- Console URL код дотор baked (env устгасан ч дохио зогсохгүй); production-д
+  үргэлж, dev-д зөвхөн `.entry-origin` тэмдэгтэй (харилцагчийн repo) үед
+- Fire-and-forget — сүлжээ/Console унасан ч app-д огт нөлөөгүй
