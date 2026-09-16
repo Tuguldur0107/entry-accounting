@@ -384,7 +384,16 @@ export async function inviteMember(data: {
 
   const url = inviteUrl(invitation.token);
   let emailed = false;
-  if (process.env.RESEND_API_KEY) {
+  // Илгээгч хаяг env-ээс (sandbox fallback үгүй) — тохируулаагүй бол и-мэйл
+  // алгасаад урилгын линкийг буцаана (урилга өөрөө үүссэн хэвээр).
+  let inviteFrom: string | null = null;
+  try {
+    const { resolveInvoiceSender } = await import("@/lib/email/sender");
+    inviteFrom = resolveInvoiceSender(null, process.env).from;
+  } catch {
+    inviteFrom = null;
+  }
+  if (process.env.RESEND_API_KEY && inviteFrom) {
     const org = await db.query.organizations.findFirst({
       where: eq(organizations.id, orgId),
       columns: { name: true },
@@ -392,7 +401,7 @@ export async function inviteMember(data: {
     const { Resend } = await import("resend");
     const resend = new Resend(process.env.RESEND_API_KEY);
     const { error } = await resend.emails.send({
-      from: process.env.RESEND_FROM ?? "Entry Accounting <onboarding@resend.dev>",
+      from: inviteFrom,
       to: email,
       subject: `«${org?.name ?? "Байгууллага"}» таныг Entry Accounting-д урьж байна`,
       text: [

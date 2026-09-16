@@ -1158,6 +1158,13 @@ export const reportLineMappings = pgTable(
     lineKey: text("line_key").notNull(),
     /** Comma-separated 8-digit chart-of-accounts codes that roll into this line. */
     accountNumbers: text("account_numbers").notNull().default(""),
+    /**
+     * Comma-separated S8 (мөнгөн урсгалын) сегментийн кодууд — зөвхөн
+     * cash-flow тайланд: журналын мөрийн S8 код эдгээрийн аль нэгтэй таарвал
+     * урсгал ЭНЭ мөрөнд орно (дансны таарцаас түрүүлж шалгагдана).
+     * Хоосон/null = S8-аар шүүхгүй, зөвхөн дансаар.
+     */
+    cfCodes: text("cf_codes"),
     /** Hide the line from the rendered statement (built-in or custom). */
     isHidden: boolean("is_hidden").notNull().default(false),
     /** Override the built-in label, or set the display label for a custom line. */
@@ -2800,6 +2807,13 @@ export const companySettings = pgTable("company_settings", {
     .default([]),
   /** Нэхэмжлэхийн PDF-д тамга/гарын үсгийг автоматаар оруулах эсэх. */
   autoStamp: boolean("auto_stamp").notNull().default(true),
+  /** Нэхэмжлэх илгээгч и-мэйл (verify хийгдсэн домэйн) — null бол env default. */
+  invoiceFromEmail: text("invoice_from_email"),
+  /** Хариу очих хаяг — null бол env default. */
+  invoiceReplyTo: text("invoice_reply_to"),
+  /** Илгээгч домэйн Resend дээр verify хийгдсэнийг админ баталсан эсэх —
+      false үед tenant-ийн from хаягаар илгээхийг оролдохгүй (ил алдаа). */
+  emailDomainVerified: boolean("email_domain_verified").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [unique().on(t.organizationId)]);
 
@@ -2828,6 +2842,8 @@ export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
   sentAt: timestamp("sent_at").defaultNow().notNull(),
   /** Линк анх нээгдсэн мөч — "Үзсэн" төлөв. */
   viewedAt: timestamp("viewed_at"),
+  /** И-мэйл суваг: Resend-ийн message id — мөрдөлт/лавлагаанд. */
+  messageId: text("message_id"),
 });
 
 // ─── Audit log — хэн, хэзээ, юу хийснийг мөрдөх ──────────────────────────────

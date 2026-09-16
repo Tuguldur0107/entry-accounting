@@ -21,7 +21,7 @@ export async function GET(
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="invoice-${invoice.documentNo}.pdf"`,
+      "Content-Disposition": `inline; filename="${invoice.documentNo}.pdf"`,
     },
   });
 }

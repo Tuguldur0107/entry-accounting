@@ -134,6 +134,15 @@ export function CompanySettingsForm({
     initial?.signatures ?? []
   );
   const [autoStamp, setAutoStamp] = useState(initial?.autoStamp ?? true);
+  const [invoiceFromEmail, setInvoiceFromEmail] = useState(
+    initial?.invoiceFromEmail ?? ""
+  );
+  const [invoiceReplyTo, setInvoiceReplyTo] = useState(
+    initial?.invoiceReplyTo ?? ""
+  );
+  const [emailDomainVerified, setEmailDomainVerified] = useState(
+    initial?.emailDomainVerified ?? false
+  );
   const [isPending, startTransition] = useTransition();
 
   function save() {
@@ -161,6 +170,9 @@ export function CompanySettingsForm({
           stamp,
           signatures,
           autoStamp,
+          invoiceFromEmail: invoiceFromEmail || null,
+          invoiceReplyTo: invoiceReplyTo || null,
+          emailDomainVerified,
         });
         toast.success("Компанийн мэдээлэл хадгалагдлаа");
       } catch (caught) {
@@ -325,6 +337,58 @@ export function CompanySettingsForm({
               />
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ── Нэхэмжлэх илгээгч и-мэйл ── */}
+      <section className="ea-glass space-y-4 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+            Нэхэмжлэх илгээгч и-мэйл
+          </h2>
+          <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
+            Нэхэмжлэх и-мэйлээр илгээхэд «From» хаяг болно. Тохируулаагүй бол
+            серверийн default хаяг ашиглагдана. Хаягийн домэйныг эхлээд
+            resend.com/domains дээр verify хийсэн байх шаардлагатай.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="invoice-from-email">Илгээгч хаяг</Label>
+            <Input
+              id="invoice-from-email"
+              type="email"
+              value={invoiceFromEmail}
+              onChange={(e) => setInvoiceFromEmail(e.target.value)}
+              placeholder="billing@company.mn"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="invoice-reply-to">Хариу очих хаяг (reply-to)</Label>
+            <Input
+              id="invoice-reply-to"
+              type="email"
+              value={invoiceReplyTo}
+              onChange={(e) => setInvoiceReplyTo(e.target.value)}
+              placeholder="info@company.mn"
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Switch
+            id="email-domain-verified"
+            checked={emailDomainVerified}
+            onCheckedChange={setEmailDomainVerified}
+          />
+          <div>
+            <Label htmlFor="email-domain-verified">
+              Илгээгч домэйн баталгаажсан
+            </Label>
+            <p className="text-[11px]" style={{ color: "var(--ea-text-4)" }}>
+              resend.com/domains дээр verify хийсний дараа идэвхжүүлнэ —
+              идэвхжүүлээгүй үед дээрх хаягаар илгээхийг оролдохгүй.
+            </p>
+          </div>
         </div>
       </section>
 

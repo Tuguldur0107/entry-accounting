@@ -118,6 +118,10 @@ function SendDialogBody({
     startTransition(async () => {
       try {
         const result = await sendInvoiceEmail(documentId, email);
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(`№ ${result.documentNo} нэхэмжлэх ${result.sentTo} руу илгээгдлээ`);
         refresh();
       } catch (caught) {

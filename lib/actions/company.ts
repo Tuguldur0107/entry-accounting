@@ -49,6 +49,10 @@ export async function updateCompanySettings(data: {
   stamp?: string | null;
   signatures: { name: string; title: string; image: string }[];
   autoStamp: boolean;
+  /** Нэхэмжлэх илгээгч и-мэйл (verify хийгдсэн домэйн) — null бол env default. */
+  invoiceFromEmail?: string | null;
+  invoiceReplyTo?: string | null;
+  emailDomainVerified?: boolean;
 }) {
   // Компанийн мэдээлэл = тохиргоо — admin+.
   const { orgId, userId } = await requireRole("admin");
@@ -62,6 +66,14 @@ export async function updateCompanySettings(data: {
   if (data.signatures.length > 4)
     throw new Error("Дээд тал нь 4 гарын үсэг хадгална");
 
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const invoiceFromEmail = data.invoiceFromEmail?.trim() || null;
+  const invoiceReplyTo = data.invoiceReplyTo?.trim() || null;
+  if (invoiceFromEmail && !emailRe.test(invoiceFromEmail))
+    throw new Error("Илгээгч и-мэйл хаяг буруу байна");
+  if (invoiceReplyTo && !emailRe.test(invoiceReplyTo))
+    throw new Error("Reply-to и-мэйл хаяг буруу байна");
+
   const base = {
     name: data.name.trim(),
     registerNo: data.registerNo?.trim() || null,
@@ -72,6 +84,12 @@ export async function updateCompanySettings(data: {
     bankAccounts: data.bankAccounts.filter((account) => account.accountNo.trim()),
     signatures: data.signatures,
     autoStamp: data.autoStamp,
+    // undefined = хөндөхгүй (MCP хэсэгчилсэн update), null = цэвэрлэх.
+    ...(data.invoiceFromEmail !== undefined && { invoiceFromEmail }),
+    ...(data.invoiceReplyTo !== undefined && { invoiceReplyTo }),
+    ...(data.emailDomainVerified !== undefined && {
+      emailDomainVerified: data.emailDomainVerified,
+    }),
     updatedAt: new Date(),
   };
 

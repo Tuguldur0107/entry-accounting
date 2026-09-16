@@ -1836,6 +1836,20 @@ export const AI_TOOLS: AiToolDef[] = [
             required: ["bankName", "accountNo", "accountName"],
           },
         },
+        invoiceFromEmail: {
+          type: "string",
+          description:
+            "Нэхэмжлэх илгээгч и-мэйл (verify хийгдсэн домэйн) — хоосон string өгвөл цэвэрлэнэ",
+        },
+        invoiceReplyTo: {
+          type: "string",
+          description: "Хариу очих (reply-to) хаяг — хоосон string өгвөл цэвэрлэнэ",
+        },
+        emailDomainVerified: {
+          type: "boolean",
+          description:
+            "Илгээгч домэйн Resend дээр verify хийгдсэн эсэх — false үед tenant хаягаар илгээхгүй",
+        },
       },
     },
   },
@@ -5037,7 +5051,7 @@ async function runSendInvoiceEmail(
       );
   }
   // sendInvoiceEmail өөрөө "зөвхөн posted АР нэхэмжлэх" дүрмээ шалгана.
-  const result = await sendInvoiceEmail(document.id, recipient);
+  const result = unwrapAction(await sendInvoiceEmail(document.id, recipient));
   return {
     resultText: `Нэхэмжлэх и-мэйлээр илгээгдлээ: ${result.documentNo} → ${result.sentTo} (PDF хавсралт + онлайн линктэй)`,
   };
@@ -6477,6 +6491,7 @@ async function runGetCompanySettings(): Promise<AiToolResult> {
         ? `Банкны данс:\n${settings.bankAccounts.map((account) => `  ${account.bankName} · ${account.accountNo} · ${account.accountName}`).join("\n")}`
         : "Банкны данс: бүртгэлгүй",
       `Лого: ${settings.logo ? "бий" : "—"} · Тамга: ${settings.stamp ? "бий" : "—"} · Гарын үсэг: ${settings.signatures.length}`,
+      `Нэхэмжлэх илгээгч: ${settings.invoiceFromEmail ?? "— (env default)"}${settings.invoiceFromEmail ? (settings.emailDomainVerified ? " · домэйн баталгаажсан" : " · ⚠ домэйн БАТАЛГААЖААГҮЙ") : ""}${settings.invoiceReplyTo ? ` · reply-to: ${settings.invoiceReplyTo}` : ""}`,
     ].join("\n"),
   };
 }
@@ -6489,6 +6504,9 @@ async function runUpdateCompanySettings(input: {
   phone?: string;
   email?: string;
   bankAccounts?: { bankName: string; accountNo: string; accountName: string }[];
+  invoiceFromEmail?: string;
+  invoiceReplyTo?: string;
+  emailDomainVerified?: boolean;
 }): Promise<AiToolResult> {
   const current = await getCompanySettings();
   const name = input.name?.trim() || current?.name || "";
@@ -6504,6 +6522,10 @@ async function runUpdateCompanySettings(input: {
     // Лого/тамга/гарын үсэг — undefined = хөндөхгүй (вэбээс удирдана).
     signatures: current?.signatures ?? [],
     autoStamp: current?.autoStamp ?? true,
+    // undefined = хөндөхгүй; хоосон string = цэвэрлэх (action null болгоно).
+    invoiceFromEmail: input.invoiceFromEmail,
+    invoiceReplyTo: input.invoiceReplyTo,
+    emailDomainVerified: input.emailDomainVerified,
   });
   return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}` };
 }

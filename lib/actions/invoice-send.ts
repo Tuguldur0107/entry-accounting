@@ -8,10 +8,20 @@ import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { Resend } from "resend";
 
+import { actionError, type ActionResult } from "@/lib/action-result";
 import { getActiveOrg, requireRole } from "@/lib/auth";
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
 import { db } from "@/lib/db";
-import { arApDocuments, arApInvoiceSends } from "@/lib/db/schema";
+import {
+  arApDocuments,
+  arApInvoiceSends,
+  companySettings,
+} from "@/lib/db/schema";
+import {
+  buildInvoiceEmailPayload,
+  resolveInvoiceSender,
+  translateResendError,
+} from "@/lib/email/sender";
 import { renderInvoicePdf } from "@/lib/pdf/invoice-pdf";
 
 
@@ -73,8 +83,23 @@ export async function createInvoiceLink(
   return { url: `${appBaseUrl()}/invoice/${send.token}` };
 }
 
-/** И-мэйлээр илгээнэ — PDF хавсралт + public линк хоёулаа орно. */
-export async function sendInvoiceEmail(documentId: string, recipient: string) {
+/**
+ * И-мэйлээр илгээнэ — PDF хавсралт + public линк хоёулаа орно.
+ * ActionResult: production дээр throw-ийн мессеж нуугддаг тул хүлээгдэх
+ * алдаа бүр { error } утгаар буцна (Resend-ийн алдаа монгол орчуулгатай).
+ */
+export async function sendInvoiceEmail(
+  documentId: string,
+  recipient: string
+): Promise<ActionResult<{ sentTo: string; documentNo: string }>> {
+  try {
+    return await sendInvoiceEmailCore(documentId, recipient);
+  } catch (caught) {
+    return actionError("sendInvoiceEmail", caught, "И-мэйл илгээх амжилтгүй");
+  }
+}
+
+async function sendInvoiceEmailCore(documentId: string, recipient: string) {
   const { orgId, userId } = await requireRole("accountant");
   const document = await assertSendable(orgId, documentId);
 
@@ -95,6 +120,32 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
       "Компанийн нэр тохируулаагүй — Тохиргоо → Компанийн мэдээлэл хэсгийг бөглөнө үү"
     );
 
+  // Илгээгч хаяг: tenant тохиргоо → env → ил алдаа (sandbox fallback үгүй).
+  const settings = await db.query.companySettings.findFirst({
+    where: eq(companySettings.organizationId, orgId),
+    columns: {
+      invoiceFromEmail: true,
+      invoiceReplyTo: true,
+      emailDomainVerified: true,
+      name: true,
+    },
+  });
+  const sender = resolveInvoiceSender(
+    settings
+      ? {
+          invoiceFromEmail: settings.invoiceFromEmail,
+          invoiceReplyTo: settings.invoiceReplyTo,
+          emailDomainVerified: settings.emailDomainVerified,
+          companyName: settings.name,
+        }
+      : null,
+    process.env
+  );
+
+  // PDF-ийг бүртгэл үүсгэхээс ӨМНӨ — render унавал линк ч, и-мэйл ч үлдэхгүй
+  // (хагас илгээлт үүсгэхгүй).
+  const pdf = await renderInvoicePdf(invoice);
+
   // Линк + и-мэйлийг НЭГ бүртгэлээр — линк нь мэйл доторх "онлайнаар үзэх".
   const [send] = await db
     .insert(arApInvoiceSends)
@@ -102,40 +153,24 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
     .returning({ token: arApInvoiceSends.token });
   const viewUrl = `${appBaseUrl()}/invoice/${send.token}`;
 
-  const pdf = await renderInvoicePdf(invoice);
   const resend = new Resend(apiKey);
-  const from =
-    process.env.RESEND_FROM ?? "Entry Accounting <onboarding@resend.dev>";
-
-  const { error } = await resend.emails.send({
-    from,
-    to: email,
-    subject: `Нэхэмжлэх № ${invoice.documentNo} — ${invoice.company.name}`,
-    text: [
-      `Сайн байна уу,`,
-      ``,
-      `${invoice.company.name}-с илгээсэн № ${invoice.documentNo} нэхэмжлэхийг хавсаргав.`,
-      ``,
-      `Дүн: ${invoice.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${invoice.currency}`,
-      `Төлөх огноо: ${invoice.dueDate}`,
-      ``,
-      `Онлайнаар үзэх: ${viewUrl}`,
-      ``,
-      invoice.company.bankAccounts.length
-        ? `Төлбөр хүлээн авах данс:\n${invoice.company.bankAccounts
-            .map((account) => `  ${account.bankName} · ${account.accountNo} · ${account.accountName}`)
-            .join("\n")}`
-        : "",
-    ]
-      .filter((line) => line !== "")
-      .join("\n"),
-    attachments: [
-      {
-        filename: `invoice-${invoice.documentNo}.pdf`,
-        content: pdf.toString("base64"),
+  const { data, error } = await resend.emails.send(
+    buildInvoiceEmailPayload({
+      invoice: {
+        documentNo: invoice.documentNo,
+        companyName: invoice.company.name,
+        totalAmount: invoice.totalAmount,
+        currency: invoice.currency,
+        dueDate: invoice.dueDate,
+        bankAccounts: invoice.company.bankAccounts,
       },
-    ],
-  });
+      to: email,
+      from: sender.from,
+      replyTo: sender.replyTo,
+      viewUrl,
+      pdf,
+    })
+  );
 
   if (error) {
     // Илгээлт бүтэлгүйтвэл бүртгэлээ цуцалж, жинхэнэ төлөвөө үнэнчээр үлдээнэ.
@@ -143,8 +178,14 @@ export async function sendInvoiceEmail(documentId: string, recipient: string) {
       .update(arApInvoiceSends)
       .set({ revokedAt: new Date() })
       .where(eq(arApInvoiceSends.token, send.token));
-    throw new Error(`И-мэйл илгээгдсэнгүй: ${error.message}`);
+    throw new Error(translateResendError(error.message));
   }
+
+  if (data?.id)
+    await db
+      .update(arApInvoiceSends)
+      .set({ messageId: data.id })
+      .where(eq(arApInvoiceSends.token, send.token));
 
   revalidatePath("/receivables/documents");
   return { sentTo: email, documentNo: document.documentNo };
