@@ -18,6 +18,8 @@ import type {
 } from "ag-grid-community";
 import { toast } from "sonner";
 
+import { AttachmentList } from "@/components/attachments/attachment-list";
+import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { FilterChips, PageTabs } from "@/components/ui/tabs";
@@ -829,6 +831,17 @@ export function InventoryMovementsView({
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
               </p>
+            )}
+
+            {/* Хавсралт — зөвхөн хадгалагдсан хөдөлгөөнд (шинэд id алга). */}
+            {editingId && (
+              <Field label="Хавсралт">
+                <AttachmentList
+                  entityType="inventory"
+                  entityId={editingId}
+                  kinds={GENERIC_ATTACHMENT_KINDS}
+                />
+              </Field>
             )}
           </div>
           <DialogFooter>

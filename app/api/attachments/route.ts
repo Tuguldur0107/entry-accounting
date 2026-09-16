@@ -16,17 +16,22 @@ import {
   ATTACHMENT_MAX_BYTES,
   attachmentExtensionOf,
   attachmentKindLabel,
-  attachmentModuleKeyOf,
+  attachmentModuleKeysOf,
   isInlineAttachmentType,
   isUuidLike,
   resolveAttachmentMediaType,
 } from "@/lib/attachments/constants";
 import { logAuditEvent } from "@/lib/audit";
-import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { getActiveOrg, requireAnyModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  arApDocuments,
+  cashDocuments,
   documentAttachments,
+  fixedAssets,
   goodsReceipts,
+  inventoryMovements,
+  journalVouchers,
   purchaseOrders,
 } from "@/lib/db/schema";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
@@ -70,6 +75,56 @@ async function findEntityLabel(
       columns: { documentNo: true },
     });
     return row?.documentNo ?? null;
+  }
+  if (entityType === "journal") {
+    const row = await db.query.journalVouchers.findFirst({
+      where: and(
+        eq(journalVouchers.id, entityId),
+        eq(journalVouchers.organizationId, orgId)
+      ),
+      columns: { date: true, description: true },
+    });
+    return row ? `${row.date} · ${row.description.slice(0, 40)}` : null;
+  }
+  if (entityType === "cash") {
+    const row = await db.query.cashDocuments.findFirst({
+      where: and(
+        eq(cashDocuments.id, entityId),
+        eq(cashDocuments.organizationId, orgId)
+      ),
+      columns: { documentNo: true },
+    });
+    return row?.documentNo ?? null;
+  }
+  if (entityType === "arap") {
+    const row = await db.query.arApDocuments.findFirst({
+      where: and(
+        eq(arApDocuments.id, entityId),
+        eq(arApDocuments.organizationId, orgId)
+      ),
+      columns: { documentNo: true },
+    });
+    return row?.documentNo ?? null;
+  }
+  if (entityType === "inventory") {
+    const row = await db.query.inventoryMovements.findFirst({
+      where: and(
+        eq(inventoryMovements.id, entityId),
+        eq(inventoryMovements.organizationId, orgId)
+      ),
+      columns: { documentNo: true },
+    });
+    return row?.documentNo ?? null;
+  }
+  if (entityType === "fa") {
+    const row = await db.query.fixedAssets.findFirst({
+      where: and(
+        eq(fixedAssets.id, entityId),
+        eq(fixedAssets.organizationId, orgId)
+      ),
+      columns: { code: true, name: true },
+    });
+    return row ? `${row.code} · ${row.name}` : null;
   }
   return null;
 }
@@ -161,12 +216,14 @@ export async function POST(request: Request) {
     return errorJson("Файл уншигдсангүй");
   }
 
-  const moduleKey = attachmentModuleKeyOf(entityType);
-  if (!moduleKey) return errorJson("Хавсралт дэмжигдээгүй объект");
+  const moduleKeys = attachmentModuleKeysOf(entityType);
+  if (!moduleKeys) return errorJson("Хавсралт дэмжигдээгүй объект");
   if (!isUuidLike(entityId)) return errorJson("Баримт олдсонгүй", 404);
 
   try {
-    await requireModuleAction(moduleKey, "write");
+    await requireAnyModuleAction(
+      moduleKeys.map((key) => [key, "write"] as [string, "write"])
+    );
   } catch (caught) {
     return errorJson(
       caught instanceof Error ? caught.message : "Эрх хүрэлцэхгүй байна",

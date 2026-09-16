@@ -42,6 +42,7 @@ import {
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
 import { logAuditEvent } from "@/lib/audit";
+import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
@@ -1288,6 +1289,11 @@ async function deleteCashDocumentCore(id: string) {
       tx
     );
   });
+
+  // Хавсралт FK-гүй тул баримт + устгагдсан журналынхыг өөрсдөө цэвэрлэнэ.
+  await deleteAttachmentsFor(orgId, "cash", id);
+  for (const voucherId of voucherIds)
+    await deleteAttachmentsFor(orgId, "journal", voucherId);
 
   revalidateCash();
 }

@@ -17,11 +17,11 @@ import { and, desc, eq } from "drizzle-orm";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import {
   attachmentKindLabel,
-  attachmentModuleKeyOf,
+  attachmentModuleKeysOf,
   isUuidLike,
 } from "@/lib/attachments/constants";
 import { logAuditEvent } from "@/lib/audit";
-import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { getActiveOrg, requireAnyModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documentAttachments, purchaseOrders, users } from "@/lib/db/schema";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
@@ -63,9 +63,11 @@ export async function listAttachments(
   entityId: string
 ): Promise<ActionResult<{ items: AttachmentView[] }>> {
   try {
-    const moduleKey = attachmentModuleKeyOf(entityType);
-    if (!moduleKey) throw new Error("Хавсралт дэмжигдээгүй объект");
-    const { orgId } = await requireModuleAction(moduleKey, "read");
+    const moduleKeys = attachmentModuleKeysOf(entityType);
+    if (!moduleKeys) throw new Error("Хавсралт дэмжигдээгүй объект");
+    const { orgId } = await requireAnyModuleAction(
+      moduleKeys.map((key) => [key, "read"] as [string, "read"])
+    );
     if (!isUuidLike(entityId)) return { items: [] };
 
     const rows = await db
@@ -130,9 +132,11 @@ export async function deleteAttachment(id: string): Promise<ActionResult> {
     });
     if (!attachment) throw new Error("Хавсралт олдсонгүй");
 
-    const moduleKey = attachmentModuleKeyOf(attachment.entityType);
-    if (!moduleKey) throw new Error("Хавсралт дэмжигдээгүй объект");
-    const { userId } = await requireModuleAction(moduleKey, "write");
+    const moduleKeys = attachmentModuleKeysOf(attachment.entityType);
+    if (!moduleKeys) throw new Error("Хавсралт дэмжигдээгүй объект");
+    const { userId } = await requireAnyModuleAction(
+      moduleKeys.map((key) => [key, "write"] as [string, "write"])
+    );
 
     if (attachment.entityType === PO_BUSINESS_OBJECT) {
       const order = await db.query.purchaseOrders.findFirst({

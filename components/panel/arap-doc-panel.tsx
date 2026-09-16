@@ -15,6 +15,8 @@ import { feedback } from "@/lib/ui/feedback";
 
 import { AccountInput } from "@/components/account/account-input";
 import { AccountSegmentPanel } from "@/components/account/account-segment-panel";
+import { AttachmentList } from "@/components/attachments/attachment-list";
+import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -1327,6 +1329,22 @@ function ArapDocReadOnly({
             </ReadField>
           </>
         )}
+      </div>
+
+      <div className="space-y-2 border-t border-[var(--ea-border)] pt-3">
+        <h3 className="text-xs font-semibold text-[var(--ea-text-2)]">
+          Хавсралт
+        </h3>
+        <AttachmentList
+          entityType="arap"
+          entityId={document.id}
+          kinds={GENERIC_ATTACHMENT_KINDS}
+          refreshToken={panel.refreshToken}
+          onChanged={() => {
+            refreshOpenPanels();
+            router.refresh();
+          }}
+        />
       </div>
 
       <div className="mt-auto flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">

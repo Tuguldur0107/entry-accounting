@@ -54,8 +54,17 @@ export const ATTACHMENT_KIND_LABELS: Record<string, string> = {
   bill_of_lading: "Тээврийн баримт",
   customs_declaration: "Гаалийн мэдүүлэг",
   certificate: "Гарал үүслийн гэрчилгээ",
+  receipt: "Төлбөрийн баримт",
+  statement: "Хуулга",
   other: "Бусад",
 };
+
+/** Ерөнхий баримтуудад (журнал, касс, АР/АП, бараа, ҮХ) санал болгох төрлүүд. */
+export const GENERIC_ATTACHMENT_KINDS: readonly { value: string; label: string }[] =
+  ["invoice", "contract", "receipt", "statement", "other"].map((value) => ({
+    value,
+    label: ATTACHMENT_KIND_LABELS[value] ?? value,
+  }));
 
 /** Худалдан авалтын захиалгад санал болгох төрлүүд (сонгогчийн дараалал). */
 export const PO_ATTACHMENT_KINDS: readonly { value: string; label: string }[] = [
@@ -117,16 +126,25 @@ export function isInlineAttachmentType(mediaType: string): boolean {
 }
 
 /**
- * Хавсралт дэмждэг объектын төрөл → эрхийн модулийн түлхүүр.
- * (Аудитын entityType-тай ИЖИЛ утгууд — гэрээ §5.)
+ * Хавсралт дэмждэг объектын төрөл → эрхийн модулийн түлхүүр(үүд).
+ * (Аудитын entityType-тай ИЖИЛ утгууд — гэрээ §5.) АР/АП баримт нэг
+ * "arap" төрөлтэй тул ar/ap аль нэг эрхтэй хэрэглэгч хандана
+ * (requireAnyModuleAction).
  */
-export const ATTACHMENT_ENTITY_MODULE_KEYS: Record<string, string> = {
-  [PO_BUSINESS_OBJECT]: PROCUREMENT_MODULE_KEY,
-  goods_receipt: PROCUREMENT_MODULE_KEY,
+export const ATTACHMENT_ENTITY_MODULE_KEYS: Record<string, readonly string[]> = {
+  [PO_BUSINESS_OBJECT]: [PROCUREMENT_MODULE_KEY],
+  goods_receipt: [PROCUREMENT_MODULE_KEY],
+  journal: ["gl"],
+  cash: ["cash"],
+  arap: ["ar", "ap"],
+  inventory: ["inv"],
+  fa: ["fa"],
 };
 
 /** Дэмжигдээгүй объектод хавсралт хамааруулахгүй — null буцаана. */
-export function attachmentModuleKeyOf(entityType: string): string | null {
+export function attachmentModuleKeysOf(
+  entityType: string
+): readonly string[] | null {
   return ATTACHMENT_ENTITY_MODULE_KEYS[entityType] ?? null;
 }
 

@@ -7,19 +7,19 @@
 //
 // Байгууллагын шалгалт ХАНГАЛТТАЙ БИШ: `proc` модулийн эрхгүй гишүүн
 // захиалгын хавсралтыг татаж болохгүй тул объектын төрлөөс модулийн
-// түлхүүр (`attachmentModuleKeyOf` — ЦОРЫН ГАНЦ зураглал) гаргаж
-// `requireModuleAction(…, "read")` дайруулна.
+// түлхүүр (`attachmentModuleKeysOf` — ЦОРЫН ГАНЦ зураглал) гаргаж
+// `requireAnyModuleAction(…, "read")` дайруулна.
 //
 // Гэрээ: docs/procurement/01-implementation-contract.md §7.
 
 import { and, eq } from "drizzle-orm";
 
 import {
-  attachmentModuleKeyOf,
+  attachmentModuleKeysOf,
   isInlineAttachmentType,
   isUuidLike,
 } from "@/lib/attachments/constants";
-import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { getActiveOrg, requireAnyModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { documentAttachments } from "@/lib/db/schema";
 
@@ -64,11 +64,13 @@ export async function GET(
   });
   if (!meta) return new Response("Хавсралт олдсонгүй", { status: 404 });
 
-  const moduleKey = attachmentModuleKeyOf(meta.entityType);
-  if (!moduleKey)
+  const moduleKeys = attachmentModuleKeysOf(meta.entityType);
+  if (!moduleKeys)
     return new Response("Хавсралт дэмжигдээгүй объект", { status: 404 });
   try {
-    await requireModuleAction(moduleKey, "read");
+    await requireAnyModuleAction(
+      moduleKeys.map((key) => [key, "read"] as [string, "read"])
+    );
   } catch (caught) {
     return new Response(
       caught instanceof Error ? caught.message : "Эрх хүрэлцэхгүй байна",

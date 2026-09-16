@@ -7,7 +7,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AttachmentList } from "@/components/attachments/attachment-list";
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
+import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import { buildSegCode } from "@/lib/grid/segments";
 import type { NewVoucherPrefill } from "@/lib/store/panel-store";
 import {
@@ -143,7 +145,8 @@ export function VoucherPanel({
       : undefined;
 
   return (
-    <JournalEntryForm
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <JournalEntryForm
       // Шинэ өгөгдөл татагдмагц формыг цэвэрхэн remount хийнэ — доторх
       // draft state найдвартай шинэчлэгдэнэ.
       key={state.loadedToken}
@@ -180,8 +183,27 @@ export function VoucherPanel({
         refreshOpenPanels();
         router.refresh();
       }}
-      // Болих/Хаах — юу ч хадгалаагүй тул dirty-баталгаажуулалтаар дайрна.
-      onCancel={requestClose}
-    />
+        // Болих/Хаах — юу ч хадгалаагүй тул dirty-баталгаажуулалтаар дайрна.
+        onCancel={requestClose}
+      />
+      {/* Хавсралт — зөвхөн хадгалагдсан журналд (шинэ ноорогт id алга). */}
+      {data.voucher?.id && (
+        <div className="space-y-2 border-t border-[var(--ea-border)] pt-3">
+          <h3 className="text-xs font-semibold text-[var(--ea-text-2)]">
+            Хавсралт
+          </h3>
+          <AttachmentList
+            entityType="journal"
+            entityId={data.voucher.id}
+            kinds={GENERIC_ATTACHMENT_KINDS}
+            refreshToken={refreshToken}
+            onChanged={() => {
+              refreshOpenPanels();
+              router.refresh();
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }

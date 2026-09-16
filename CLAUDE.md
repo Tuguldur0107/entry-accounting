@@ -1069,9 +1069,13 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
              receipts.exchangeRate / rateSource / rateDate — хүлээн авсан
                өдрийн Монголбанкны албан ханш (барааны өртөг ҮҮГЭЭР)
              receipt_lines.movementId — үүсгэсэн орлогын хөдөлгөөн
-Хавсралт   document_attachments — polymorphic (entityType `purchase_order`,
-           дараа АР/АП, касс…), файл base64-аар, FK байхгүй тул устгалтыг
-           модуль өөрөө хийнэ; унших зам ЗААВАЛ org шалгалттай
+Хавсралт   document_attachments — polymorphic (entityType: `purchase_order`,
+           `goods_receipt`, `journal`, `cash`, `arap`, `inventory`, `fa` —
+           аудитын entityType-тай ижил; whitelist
+           lib/attachments/constants.ts ATTACHMENT_ENTITY_MODULE_KEYS),
+           файл base64-аар, FK байхгүй тул устгалтыг модулийн delete зам
+           deleteAttachmentsFor-оор ӨӨРӨӨ хийнэ; унших зам ЗААВАЛ org +
+           модулийн эрхийн шалгалттай (арап нь ar/ap аль нэг эрхээр)
 Inventory  inventory_items, warehouses, inventory_movements
              movements.issueTypeId — зарлагын дебет чиглэл
              movements.sourceType `po_receipt` — хүлээн авалтын мөрөөс үүссэн

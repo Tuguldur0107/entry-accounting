@@ -30,6 +30,7 @@ import {
   type SegmentPickerData,
 } from "@/lib/gl/segment-picker-data";
 import { logAuditEvent } from "@/lib/audit";
+import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 function revalidateFa() {
@@ -317,6 +318,8 @@ export async function deleteFixedAsset(id: string) {
   await db
     .delete(fixedAssets)
     .where(and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)));
+  // Хавсралт FK-гүй тул хөрөнгийнхийг өөрсдөө цэвэрлэнэ.
+  await deleteAttachmentsFor(orgId, "fa", id);
   revalidateFa();
 }
 

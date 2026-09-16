@@ -19,6 +19,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import { getActiveOrg, requireModuleAction, requireRole } from "@/lib/auth";
+import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { revalidatePath } from "next/cache";
 import { eq, and, ne, or, sql } from "drizzle-orm";
 import {
@@ -1175,6 +1176,10 @@ async function deleteVoucherCore(id: string) {
     )
     .returning({ id: journalVouchers.id });
   if (!deleted) throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна — дахин оролдоно уу");
+
+  // Хавсралт FK-гүй тул эх + буцаалтын журналынхыг өөрсдөө цэвэрлэнэ.
+  for (const voucherId of [id, ...reversals.map((r) => r.id)])
+    await deleteAttachmentsFor(orgId, "journal", voucherId);
 
   await logAuditEvent({
     userId,

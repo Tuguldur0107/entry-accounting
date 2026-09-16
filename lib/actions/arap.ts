@@ -55,6 +55,7 @@ import {
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
+import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
 /** Баримтын төрөл → эрхийн модулийн түлхүүр (АР/АП тусдаа тохирно). */
@@ -1686,6 +1687,11 @@ async function deleteArApDocumentCore(id: string) {
       );
     });
 
+    // Хавсралт FK-гүй тул баримт + устгагдсан журналынхыг өөрсдөө цэвэрлэнэ.
+    await deleteAttachmentsFor(orgId, "arap", id);
+    for (const voucherId of voucherIds)
+      await deleteAttachmentsFor(orgId, "journal", voucherId);
+
     revalidateArAp();
     return { documentNo: document.documentNo };
   }
@@ -1694,6 +1700,7 @@ async function deleteArApDocumentCore(id: string) {
   await db
     .delete(arApDocuments)
     .where(and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)));
+  await deleteAttachmentsFor(orgId, "arap", id);
 
   await logAuditEvent({
     userId,

@@ -23,6 +23,7 @@ import {
 } from "@/lib/inventory/period-balances";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { logAuditEvent } from "@/lib/audit";
+import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 
@@ -593,6 +594,8 @@ async function deleteInventoryMovementCore(id: string) {
       tx
     );
   });
+  // Хавсралт FK-гүй тул хөдөлгөөнийхийг өөрсдөө цэвэрлэнэ.
+  await deleteAttachmentsFor(orgId, "inventory", id);
   revalidateInventory();
 }
 
