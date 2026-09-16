@@ -88,6 +88,9 @@ export default async function ReportsPage({
     (m) => m.reportType === "cash-flow"
   );
   const cfSegmentValues = cfSegRows
+    // "0000" (бүх тэг) = кодгүй default — extractCfCode үүнийг хоосонд
+    // тооцдог тул сонгуулбал хэзээ ч таарахгүй, жагсаалтад оруулахгүй.
+    .filter((v) => !/^0*$/.test(v.code))
     .map((v) => ({ code: v.code, name: v.name }))
     .sort((a, b) => a.code.localeCompare(b.code));
 
