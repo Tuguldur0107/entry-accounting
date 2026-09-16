@@ -33,6 +33,9 @@ interface Props {
   /** Per-line GL-account overrides loaded from `report_line_mappings`. */
   balanceSheetMappings: ReportLineMapping[];
   incomeStatementMappings: ReportLineMapping[];
+  cashFlowMappings: ReportLineMapping[];
+  /** S8 мөнгөн урсгалын сегментийн идэвхтэй утгууд — CF mapping-ийн сонголт. */
+  cfSegmentValues: { code: string; name: string }[];
 }
 
 // All toolbar controls live in the dashboard header:
@@ -48,6 +51,8 @@ export function ReportsView({
   appliedTo,
   balanceSheetMappings,
   incomeStatementMappings,
+  cashFlowMappings,
+  cfSegmentValues,
 }: Props) {
   const activeSegments = useMemo(
     () => SEGMENT_DEFS.filter((s) => activeSegIds.includes(s.id)),
@@ -81,12 +86,13 @@ export function ReportsView({
         <CashFlowView
           vouchers={data.vouchers}
           accounts={accounts}
-          activeSegIds={activeSegIds}
           activeSegments={activeSegments}
           appliedFrom={appliedFrom}
           appliedTo={appliedTo}
           cashOpenNet={data.cashOpenNet}
           cashCloseNet={data.cashCloseNet}
+          mappings={cashFlowMappings}
+          cfSegmentValues={cfSegmentValues}
         />
       )}
     </div>

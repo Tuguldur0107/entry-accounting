@@ -15,6 +15,7 @@ import type { ChartOfAccount } from "@/lib/db/schema";
 import type { ReportType } from "@/lib/actions/report-mappings";
 import { ACCOUNT_GROUPS, getSegmentKey } from "@/lib/constants/standard-accounts";
 import { fmtMnt } from "@/lib/reports/balances";
+import { PageTabs } from "@/components/ui/tabs";
 
 interface Props {
   open: boolean;
@@ -33,6 +34,16 @@ interface Props {
    * names. Missing entries are treated as zero.
    */
   accountBalances?: Map<string, number>;
+  /**
+   * Мөнгөн гүйлгээний тайланд: S8 мөнгөн урсгалын сегментийн сонголтууд.
+   * Өгөгдсөн үед диалог "GL данс" / "CF сегмент" хоёр табтай болж, мөрийг
+   * данснаас ГАДНА S8 кодоор ч тохируулна (код нь данснаас түрүүлж таарна).
+   */
+  cfOptions?: { code: string; name: string }[];
+  /** Одоогийн сонгогдсон S8 кодууд. */
+  initialCfCodes?: string[];
+  /** S8 код бүрийн тайлант үеийн мөнгөн урсгал — сонголтын хажууд харагдана. */
+  cfFlows?: Map<string, number>;
 }
 
 // Modal for configuring which GL accounts roll up into a single report
@@ -49,8 +60,15 @@ export function MappingDialog({
   initialAccounts,
   allAccounts,
   accountBalances,
+  cfOptions,
+  initialCfCodes,
+  cfFlows,
 }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set(initialAccounts));
+  const [selectedCf, setSelectedCf] = useState<Set<string>>(
+    new Set(initialCfCodes ?? [])
+  );
+  const [tab, setTab] = useState<"accounts" | "cf">("accounts");
   const [query, setQuery] = useState("");
   const [onlyWithBalance, setOnlyWithBalance] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -116,10 +134,24 @@ export function MappingDialog({
     setSelected(new Set());
   }
 
+  function toggleCf(code: string) {
+    setSelectedCf((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  }
+
   function handleSave() {
     setError(null);
     startTransition(async () => {
-      const res = await saveReportMapping(reportType, lineKey, [...selected]);
+      const res = await saveReportMapping(
+        reportType,
+        lineKey,
+        [...selected],
+        cfOptions ? [...selectedCf] : undefined
+      );
       if ("error" in res && res.error) {
         setError(res.error);
         return;
@@ -135,6 +167,8 @@ export function MappingDialog({
         if (!o) onClose();
         else {
           setSelected(new Set(initialAccounts));
+          setSelectedCf(new Set(initialCfCodes ?? []));
+          setTab("accounts");
           setQuery("");
           setOnlyWithBalance(false);
         }
@@ -156,6 +190,81 @@ export function MappingDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {cfOptions && (
+            <PageTabs
+              tabs={[
+                { value: "accounts", label: `GL данс (${selected.size})` },
+                { value: "cf", label: `CF сегмент (${selectedCf.size})` },
+              ]}
+              value={tab}
+              onChange={setTab}
+              ariaLabel="Mapping-ийн хэмжигдэхүүн"
+            />
+          )}
+
+          {cfOptions && tab === "cf" ? (
+            <>
+              <p className="text-xs text-[var(--ea-text-3)]">
+                Энэ мөрөнд орох S8 мөнгөн урсгалын кодуудыг сонгоно уу.
+                Журналын мөрийн S8 код таарвал урсгал <b>дансны таарцаас
+                түрүүлж</b> энэ мөрөнд орно — данс, кодын аль алинаар нь
+                зэрэг тохируулж болно.
+              </p>
+              <div
+                className="border border-[var(--ea-border)] rounded-md max-h-[420px] overflow-y-auto"
+                style={{ background: "var(--ea-surface)" }}
+              >
+                {cfOptions.length === 0 ? (
+                  <div className="px-3 py-8 text-xs text-center text-[var(--ea-text-4)]">
+                    S8 мөнгөн урсгалын сегментийн утга бүртгэгдээгүй байна —
+                    Тохиргоо → Ерөнхий журналын тохиргоо хэсэгт нэмнэ үү
+                  </div>
+                ) : (
+                  cfOptions.map((option) => {
+                    const checked = selectedCf.has(option.code);
+                    const flow = cfFlows?.get(option.code) ?? 0;
+                    const hasFlow = flow !== 0;
+                    return (
+                      <label
+                        key={option.code}
+                        className="flex items-center gap-3 px-3 py-2 text-xs hover:bg-[var(--ea-bg-2)] cursor-pointer border-b border-[var(--ea-border)] last:border-b-0 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleCf(option.code)}
+                          className="w-3.5 h-3.5 accent-[var(--ea-primary)] shrink-0"
+                        />
+                        <span className="font-mono text-[var(--ea-primary-500)] w-[60px] shrink-0">
+                          {option.code}
+                        </span>
+                        <span className="flex-1 truncate text-[var(--ea-text-1)]">
+                          {option.name}
+                        </span>
+                        <span
+                          className={`font-mono tabular-nums text-right shrink-0 w-[140px] ${
+                            !hasFlow
+                              ? "text-[var(--ea-text-4)]"
+                              : flow < 0
+                              ? "text-[var(--ea-danger-fg)]"
+                              : "text-[var(--ea-text-1)]"
+                          }`}
+                          title={
+                            hasFlow
+                              ? "Тайлант үеийн мөнгөн урсгал (энэ кодтой мөрүүд)"
+                              : "Урсгалгүй"
+                          }
+                        >
+                          {hasFlow ? fmtMnt(flow) : "—"}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          ) : (
+            <>
           <p className="text-xs text-[var(--ea-text-3)]">
             Энэ мөрийн дүнд оруулах GL дансуудыг сонгоно уу. Үлдэгдэл нь
             тайлангийн он сар үед таны бичсэн журналаар тооцоологдов.
@@ -279,6 +388,8 @@ export function MappingDialog({
               ))
             )}
           </div>
+            </>
+          )}
 
           {error && (
             <p className="text-xs text-[var(--ea-danger)] bg-[var(--ea-danger-bg)] px-3 py-2 rounded">

@@ -17,6 +17,7 @@ import {
   journalVouchers,
   chartOfAccounts,
   segmentConfigs,
+  segmentValues,
   reportLineMappings,
 } from "@/lib/db/schema";
 import { getActiveOrg } from "@/lib/auth";
@@ -51,7 +52,7 @@ export default async function ReportsPage({
       ? report
       : "gl-balance";
 
-  const [accounts, rawSegConfigs, lineMappings] = await Promise.all([
+  const [accounts, rawSegConfigs, lineMappings, cfSegRows] = await Promise.all([
     db.query.chartOfAccounts.findMany({
       where: eq(chartOfAccounts.organizationId, orgId),
     }),
@@ -64,7 +65,16 @@ export default async function ReportsPage({
         inArray(reportLineMappings.reportType, [
           "balance-sheet",
           "income-statement",
+          "cash-flow",
         ])
+      ),
+    }),
+    // S8 = мөнгөн урсгалын код — CF mapping-ийн хоёр дахь хэмжигдэхүүн.
+    db.query.segmentValues.findMany({
+      where: and(
+        eq(segmentValues.organizationId, orgId),
+        eq(segmentValues.segmentId, 8),
+        eq(segmentValues.isEnabled, true)
       ),
     }),
   ]);
@@ -74,6 +84,12 @@ export default async function ReportsPage({
   const incomeStatementMappings = lineMappings.filter(
     (m) => m.reportType === "income-statement"
   );
+  const cashFlowMappings = lineMappings.filter(
+    (m) => m.reportType === "cash-flow"
+  );
+  const cfSegmentValues = cfSegRows
+    .map((v) => ({ code: v.code, name: v.name }))
+    .sort((a, b) => a.code.localeCompare(b.code));
 
   const segConfigMap = new Map(rawSegConfigs.map((c) => [c.segmentId, c]));
   const activeSegIds = SEGMENT_DEFS
@@ -121,6 +137,8 @@ export default async function ReportsPage({
       appliedTo={to}
       balanceSheetMappings={balanceSheetMappings}
       incomeStatementMappings={incomeStatementMappings}
+      cashFlowMappings={cashFlowMappings}
+      cfSegmentValues={cfSegmentValues}
     />
   );
 }

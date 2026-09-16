@@ -173,10 +173,15 @@ import {
 } from "@/lib/grid/segments";
 import {
   aggregateBalances,
-  buildCashFlow,
   computeNetIncome,
+  extractMainAccount,
   isBalanced,
+  isCashMainAccount,
 } from "@/lib/reports/balances";
+import {
+  buildMappedCashFlow,
+  resolveCfLines,
+} from "@/lib/reports/cf-lines";
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
 import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
 
@@ -4645,8 +4650,35 @@ async function runCashFlow(
   input: { from: string; to: string }
 ): Promise<AiToolResult> {
   assertDates(input.from, input.to);
-  const { vouchers, accounts } = await loadReportData(orgId);
-  const report = buildCashFlow(vouchers, accounts, [3], input.from, input.to);
+  // Вэбийн тайлантай НЭГ логик: cash-flow mapping (данс + S8 код) →
+  // resolveCfLines → buildMappedCashFlow (lib/reports/cf-lines.ts).
+  const [{ vouchers, accounts }, mappings] = await Promise.all([
+    loadReportData(orgId),
+    db.query.reportLineMappings.findMany({
+      where: and(
+        eq(reportLineMappings.organizationId, orgId),
+        eq(reportLineMappings.reportType, "cash-flow")
+      ),
+    }),
+  ]);
+  const resolved = resolveCfLines(mappings, accounts);
+  const report = buildMappedCashFlow(vouchers, input.from, input.to, resolved);
+
+  // Кассын (11x) нээлт/хаалт — ваучерын мөрүүдээс шууд.
+  let open = 0;
+  let periodNet = 0;
+  for (const voucher of vouchers) {
+    if (voucher.date > input.to) continue;
+    for (const line of voucher.lines) {
+      const main = extractMainAccount(line.accountNumber);
+      if (!isCashMainAccount(main)) continue;
+      const net = Number(line.debit) - Number(line.credit);
+      if (voucher.date < input.from) open += net;
+      else periodNet += net;
+    }
+  }
+  const close = open + periodNet;
+
   const sectionLabels = {
     operating: "Үндсэн үйл ажиллагаа",
     investing: "Хөрөнгө оруулалт",
@@ -4654,13 +4686,15 @@ async function runCashFlow(
   } as const;
   const out: string[] = [`МӨНГӨН ГҮЙЛГЭЭНИЙ ТАЙЛАН ${input.from} — ${input.to}`];
   for (const section of ["operating", "investing", "financing"] as const) {
-    const lines = report[section];
+    const sec = report.sections[section];
     out.push(`${sectionLabels[section]}: ${fmt(report.totals[section])}`);
-    for (const line of lines)
-      out.push(`  ${line.mainAccount} ${line.name} — ${fmt(line.amount)}`);
+    for (const line of sec.lines) {
+      if (Math.abs(line.amount) <= 0.005) continue;
+      out.push(`  ${line.label} — ${fmt(line.amount)}`);
+    }
+    if (Math.abs(sec.unmapped) > 0.005)
+      out.push(`  Ангилагдаагүй урсгал — ${fmt(sec.unmapped)}`);
   }
-  const open = report.cashOpenDebit - report.cashOpenCredit;
-  const close = report.cashCloseDebit - report.cashCloseCredit;
   out.push(`ЦЭВЭР МӨНГӨН УРСГАЛ: ${fmt(report.totals.net)}`);
   out.push(`Мөнгөний эхний үлдэгдэл: ${fmt(open)} · эцсийн үлдэгдэл: ${fmt(close)}`);
   out.push(

@@ -32,6 +32,7 @@ async function upsertLine(
   lineKey: string,
   patch: Partial<{
     accountNumbers: string;
+    cfCodes: string | null;
     isHidden: boolean;
     customLabel: string | null;
     customGroup: string | null;
@@ -61,6 +62,7 @@ async function upsertLine(
       reportType,
       lineKey,
       accountNumbers: patch.accountNumbers ?? "",
+      cfCodes: patch.cfCodes ?? null,
       isHidden: patch.isHidden ?? false,
       customLabel: patch.customLabel ?? null,
       customGroup: patch.customGroup ?? null,
@@ -73,12 +75,20 @@ async function upsertLine(
 export async function saveReportMapping(
   reportType: ReportType,
   lineKey: string,
-  accountNumbers: string[]
+  accountNumbers: string[],
+  /** Зөвхөн cash-flow: S8 мөнгөн урсгалын кодууд (дансны таарцаас түрүүнэ). */
+  cfCodes?: string[]
 ) {
   try {
     const { orgId, userId } = await ctx();
     const csv = accountNumbers.map((a) => a.trim()).filter(Boolean).join(",");
-    await upsertLine({ orgId, userId }, reportType, lineKey, { accountNumbers: csv });
+    await upsertLine({ orgId, userId }, reportType, lineKey, {
+      accountNumbers: csv,
+      ...(cfCodes !== undefined && {
+        cfCodes:
+          cfCodes.map((c) => c.trim()).filter(Boolean).join(",") || null,
+      }),
+    });
     revalidatePath("/gl/reports");
     return { ok: true };
   } catch (e) {
