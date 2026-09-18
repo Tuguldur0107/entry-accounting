@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildPayrollJournalLines,
+  computeEarnings,
   computeEmployeePayroll,
   pitBeforeCredit,
   pitCreditOf,
@@ -218,4 +219,68 @@ test("ажиллавал зохих цаг ажилтан бүрд өөр бай
   assert.ok(at168.advanceAmount > at176.advanceAmount);
   // Аль ч тохиолдолд тэнцэл хадгалагдана.
   assert.equal(at176.advanceAmount + at176.finalNet, at176.netSalary);
+});
+
+// ── Нийт олголтын задаргаа (цаг + ээлжийн амралт + бусад нэмэгдэл) ─────────
+
+test("бүтэн сар ажилласан бол үндсэн олголт = үндсэн цалин ЯГ таарна", () => {
+  // Бөөрөнхийлсөн цагийн хөлсөөр үржүүлбэл 2,976.19 × 168 = 499,999.92
+  // болж хазайх тул харьцаагаар бодно.
+  const result = computeEarnings({
+    baseSalary: 500_000,
+    standardHours: 168,
+    workedHours: 168,
+  });
+  assert.equal(result.baseEarnings, 500_000);
+  assert.equal(result.earnings, 500_000);
+  assert.equal(result.hourlyRate, 2_976.19);
+});
+
+test("дутуу ажилласан цаг: үндсэн олголт хувь тэнцүүлэн буурна", () => {
+  const result = computeEarnings({
+    baseSalary: 500_000,
+    standardHours: 176,
+    workedHours: 88,
+  });
+  assert.equal(result.baseEarnings, 250_000);
+});
+
+test("ээлжийн амралт, бусад нэмэгдэл нийт олголтод нэмэгдэнэ", () => {
+  const result = computeEarnings({
+    baseSalary: 1_000_000,
+    standardHours: 160,
+    workedHours: 120,
+    vacationPay: 250_000,
+    otherAdditions: 100_000,
+  });
+  assert.equal(result.baseEarnings, 750_000);
+  assert.equal(result.earnings, 1_100_000);
+});
+
+test("бусад суутгал нь ТАТВАРЫН СУУРЬТ ОРОХГҮЙ, гарт олгохоос хасагдана", () => {
+  const withoutDeduction = computeEmployeePayroll({
+    ...ADVANCE_BASE,
+    otherDeductions: 0,
+  });
+  const withDeduction = computeEmployeePayroll({
+    ...ADVANCE_BASE,
+    otherDeductions: 100_000,
+  });
+  // НДШ, татвар ӨӨРЧЛӨГДӨХГҮЙ — суутгал нь татварын дараа хасагдана.
+  assert.equal(withDeduction.employeeSi, withoutDeduction.employeeSi);
+  assert.equal(withDeduction.taxableIncome, withoutDeduction.taxableIncome);
+  assert.equal(withDeduction.pit, withoutDeduction.pit);
+  // Зөвхөн гарт олгох дүн суутгалын хэмжээгээр буурна.
+  assert.equal(
+    withDeduction.netSalary,
+    withoutDeduction.netSalary - 100_000
+  );
+});
+
+test("ажиллавал зохих цаг 0 бол олголт бодогдохгүй — ШИДНЭ", () => {
+  assert.throws(
+    () =>
+      computeEarnings({ baseSalary: 500_000, standardHours: 0, workedHours: 10 }),
+    /Ажиллавал зохих цаг/
+  );
 });

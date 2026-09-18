@@ -10,6 +10,16 @@ export const SALARY_BILL_LABEL: Record<SalaryBillKind, string> = {
   final: "Сүүл цалин",
 };
 
+/**
+ * Харьяалахын тийн ялгалын хэлбэр ("...ийн өглөг") — шошгонд залгавар
+ * ЗАЛГАЖ БОЛОХГҮЙ ("цалин" + "ы" нь буруу), тул бүтэн хэлбэрээр нь энд
+ * хадгална.
+ */
+export const SALARY_BILL_LABEL_GENITIVE: Record<SalaryBillKind, string> = {
+  advance: "Урьдчилгаа цалингийн",
+  final: "Сүүл цалингийн",
+};
+
 /** Нэхэмжлэх сард нэг л удаа үүснэ (idempotency — АР/АП-ийн externalRef). */
 export const salaryBillRefOf = (
   kind: SalaryBillKind,

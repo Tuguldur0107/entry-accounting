@@ -38,6 +38,7 @@ import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
 import {
   buildPayrollJournalLines,
+  computeEarnings,
   computeEmployeePayroll,
   type PayrollResult,
 } from "@/lib/payroll/calc";
@@ -261,6 +262,13 @@ export type PayrollLineView = {
   employerSiPercent: number;
   /** Урьдчилгааны цагийн хөлс тооцох суурь (ажилтны үндсэн цалин). */
   baseSalary: number;
+  /** Сард бодитоор ажилласан цаг (бүтэн сараар) — үндсэн олголтыг тогтооно. */
+  workedHours: number;
+  /** Үндсэн олголт = цалин × ажилласан / ажиллавал зохих цаг. */
+  baseEarnings: number;
+  vacationPay: number;
+  otherAdditions: number;
+  /** Нийт олголт = үндсэн олголт + ээлжийн амралт + бусад нэмэгдэл. */
   earnings: number;
   otherDeductions: number;
   employeeSi: number;
@@ -388,6 +396,16 @@ export async function getPayrollRunData(
         position: line.employee.position,
         employerSiPercent: Number(line.employee.employerSiPercent),
         baseSalary,
+        workedHours: Number(line.workedHours),
+        baseEarnings:
+          Math.round(
+            (Number(line.earnings) -
+              Number(line.vacationPay) -
+              Number(line.otherAdditions)) *
+              100
+          ) / 100,
+        vacationPay: Number(line.vacationPay),
+        otherAdditions: Number(line.otherAdditions),
         earnings: Number(line.earnings),
         otherDeductions: Number(line.otherDeductions),
         employeeSi: Number(line.employeeSi),
@@ -433,20 +451,33 @@ type PayrollComputeSettings = {
 
 function computeFor(
   input: {
-    earnings: number;
     otherDeductions: number;
     employerSiPercent: number;
     advanceHours: number;
     /** Мөрийн ажиллавал зохих цаг; 0 бол тохиргооны стандарт цаг. */
     standardHours: number;
+    workedHours: number;
+    vacationPay: number;
+    otherAdditions: number;
     baseSalary: number;
   },
   periodMonth: string,
   settings: PayrollComputeSettings
-): PayrollResult {
+): PayrollResult & { baseEarnings: number } {
   const { endDate } = periodRange(periodMonth);
-  return computeEmployeePayroll({
-    earnings: input.earnings,
+  const standardHours =
+    input.standardHours || settings.standardMonthlyHours;
+  // Нийт олголт нь ЦАГААС бодогдоно: үндсэн олголт + ээлжийн амралт +
+  // бусад нэмэгдэл. НДШ, ХАОАТ энэ дүн дээр тооцоологдоно.
+  const earned = computeEarnings({
+    baseSalary: input.baseSalary,
+    standardHours,
+    workedHours: input.workedHours,
+    vacationPay: input.vacationPay,
+    otherAdditions: input.otherAdditions,
+  });
+  const result = computeEmployeePayroll({
+    earnings: earned.earnings,
     otherDeductions: input.otherDeductions,
     employerSiPercent: input.employerSiPercent,
     date: endDate,
@@ -454,12 +485,12 @@ function computeFor(
     siCapMultiplier: settings.siCapMultiplier,
     monthlyTaxFree: settings.monthlyTaxFree,
     advanceHours: input.advanceHours,
-    standardMonthlyHours:
-      input.standardHours || settings.standardMonthlyHours,
-    // Урьдчилгаа нь ҮНДСЭН цалингаас цагаар бодогдоно — урамшуулал, илүү
-    // цагийг урьдчилгаанд оруулахгүй (сүүл цалинд бүтнээр орно).
+    standardMonthlyHours: standardHours,
+    // Урьдчилгаа нь ҮНДСЭН цалингаас цагаар бодогдоно — ээлжийн амралт,
+    // бусад нэмэгдлийг урьдчилгаанд оруулахгүй (сүүл цалинд бүтнээр орно).
     advanceBaseSalary: input.baseSalary,
   });
+  return { ...result, baseEarnings: earned.baseEarnings };
 }
 
 /**
@@ -514,22 +545,26 @@ export async function calculatePayrollRun(periodMonth: string) {
     let sortOrder = 0;
     for (const person of staff) {
       const existing = byEmployee.get(person.id);
-      const earnings = existing ? Number(existing.earnings) : Number(person.baseSalary);
       const otherDeductions = existing ? Number(existing.otherDeductions) : 0;
-      // Хэрэглэгчийн оруулсан цагууд дахин бодолтод ХАДГАЛАГДАНА; бөглөгдөөгүй
-      // бол ажиллавал зохих цагийг тохиргооны стандартаар бөглөнө (ингэснээр
-      // "Бодолт хийх" дарахад цагийн хөлс, урьдчилгаа шууд бодогдоно).
+      // Хэрэглэгчийн оруулсан цаг, олголтууд дахин бодолтод ХАДГАЛАГДАНА;
+      // бөглөгдөөгүй бол ажиллавал зохих цагийг тохиргооны стандартаар,
+      // ажилласан цагийг түүгээр нь бөглөнө (бүтэн сар ажилласан = үндсэн
+      // цалин яг таарна) — «Бодолт хийх» дарахад бүх багана шууд бодогдоно.
       const advanceHours = existing ? Number(existing.advanceHours) : 0;
       const standardHours =
         (existing ? Number(existing.standardHours) : 0) ||
         settings.standardMonthlyHours;
+      const workedHours =
+        (existing ? Number(existing.workedHours) : 0) || standardHours;
       const result = computeFor(
         {
-          earnings,
           otherDeductions,
           employerSiPercent: Number(person.employerSiPercent),
           advanceHours,
           standardHours,
+          workedHours,
+          vacationPay: existing ? Number(existing.vacationPay) : 0,
+          otherAdditions: existing ? Number(existing.otherAdditions) : 0,
           baseSalary: Number(person.baseSalary),
         },
         periodMonth,
@@ -539,6 +574,9 @@ export async function calculatePayrollRun(periodMonth: string) {
         earnings: String(result.earnings),
         otherDeductions: String(result.otherDeductions),
         standardHours: String(standardHours),
+        workedHours: String(workedHours),
+        vacationPay: String(existing ? Number(existing.vacationPay) : 0),
+        otherAdditions: String(existing ? Number(existing.otherAdditions) : 0),
         advanceHours: String(result.advanceHours),
         advanceAmount: String(result.advanceAmount),
         employeeSi: String(result.employeeSi),
@@ -571,10 +609,12 @@ export async function calculatePayrollRun(periodMonth: string) {
 /** Мөрийн олголт/суутгал/урьдчилгааны цагийг засаад тооцооллыг дахин бодно. */
 export async function updatePayrollLine(data: {
   lineId: string;
-  earnings: number;
   otherDeductions: number;
   advanceHours?: number;
   standardHours?: number;
+  workedHours?: number;
+  vacationPay?: number;
+  otherAdditions?: number;
 }) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const line = await db.query.payrollRunLines.findFirst({
@@ -586,13 +626,21 @@ export async function updatePayrollLine(data: {
     throw new Error("GL журнал үүссэн тул мөр засварлахгүй");
 
   const settingsRow = await loadPayrollSettings(orgId, userId);
+  const standardHours =
+    Number(data.standardHours ?? line.standardHours) ||
+    Number(settingsRow.standardMonthlyHours);
+  const workedHours = Number(data.workedHours ?? line.workedHours) || standardHours;
+  const vacationPay = Number(data.vacationPay ?? line.vacationPay);
+  const otherAdditions = Number(data.otherAdditions ?? line.otherAdditions);
   const result = computeFor(
     {
-      earnings: Number(data.earnings),
       otherDeductions: Number(data.otherDeductions),
       employerSiPercent: Number(line.employee.employerSiPercent),
       advanceHours: Number(data.advanceHours ?? line.advanceHours),
-      standardHours: Number(data.standardHours ?? line.standardHours),
+      standardHours,
+      workedHours,
+      vacationPay,
+      otherAdditions,
       baseSalary: Number(line.employee.baseSalary),
     },
     line.run.periodMonth,
@@ -608,10 +656,10 @@ export async function updatePayrollLine(data: {
     .set({
       earnings: String(result.earnings),
       otherDeductions: String(result.otherDeductions),
-      standardHours: String(
-        Number(data.standardHours ?? line.standardHours) ||
-          Number(settingsRow.standardMonthlyHours)
-      ),
+      standardHours: String(standardHours),
+      workedHours: String(workedHours),
+      vacationPay: String(vacationPay),
+      otherAdditions: String(otherAdditions),
       advanceHours: String(result.advanceHours),
       advanceAmount: String(result.advanceAmount),
       employeeSi: String(result.employeeSi),

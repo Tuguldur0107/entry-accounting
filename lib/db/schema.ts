@@ -1749,9 +1749,32 @@ export const payrollRunLines = pgTable("payroll_run_lines", {
   employeeId: uuid("employee_id")
     .notNull()
     .references(() => employees.id, { onDelete: "restrict" }),
-  /** Нийт олголт (үндсэн + илүү цаг + урамшуулал) — засварлагдана. */
+  /**
+   * Нийт олголт = үндсэн олголт (цалин × ажилласан/ажиллавал зохих цаг)
+   * + ээлжийн амралт + бусад нэмэгдэл. Server талд ДАХИН бодогдоно.
+   */
   earnings: numeric("earnings", { precision: 18, scale: 2 }).notNull(),
-  /** Бусад суутгал (зээл г.м) — засварлагдана. */
+  /**
+   * Сард бодитоор ажилласан цаг (БҮТЭН сараар) — үндсэн олголтыг тогтооно.
+   * Бодолт хийхэд ажиллавал зохих цагаар бөглөгдөнө (бүтэн сар ажилласан).
+   * Урьдчилгааны advanceHours-оос ТУСДАА: тэр нь зөвхөн урьдчилгаа олгох
+   * хүртэлх цаг.
+   */
+  workedHours: numeric("worked_hours", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Ээлжийн амралтын олголт — засварлагдана, нийт олголтод НЭМЭГДЭНЭ. */
+  vacationPay: numeric("vacation_pay", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Бусад нэмэгдэл (урамшуулал, илүү цаг г.м) — нийт олголтод НЭМЭГДЭНЭ. */
+  otherAdditions: numeric("other_additions", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /**
+   * Бусад суутгал (зээл г.м) — НДШ, ХАОАТ тооцоологдсоны ДАРАА гарт
+   * олгохоос хасагдана (татварын сууринд ОРОХГҮЙ).
+   */
   otherDeductions: numeric("other_deductions", { precision: 18, scale: 2 })
     .notNull()
     .default("0"),

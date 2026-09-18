@@ -33,7 +33,7 @@ import {
   type PayrollRunView as PayrollRunData,
 } from "@/lib/actions/payroll";
 import {
-  SALARY_BILL_LABEL,
+  SALARY_BILL_LABEL_GENITIVE,
   SALARY_BILL_STATUS_LABEL as BILL_STATUS_LABEL,
   type SalaryBillKind,
 } from "@/lib/payroll/bills";
@@ -76,6 +76,9 @@ export function PayrollRunView({ data }: Props) {
       lines.reduce(
         (sum, line) => ({
           earnings: sum.earnings + line.earnings,
+          baseEarnings: sum.baseEarnings + line.baseEarnings,
+          vacationPay: sum.vacationPay + line.vacationPay,
+          otherAdditions: sum.otherAdditions + line.otherAdditions,
           otherDeductions: sum.otherDeductions + line.otherDeductions,
           employeeSi: sum.employeeSi + line.employeeSi,
           employerSi: sum.employerSi + line.employerSi,
@@ -87,6 +90,9 @@ export function PayrollRunView({ data }: Props) {
         }),
         {
           earnings: 0,
+          baseEarnings: 0,
+          vacationPay: 0,
+          otherAdditions: 0,
           otherDeductions: 0,
           employeeSi: 0,
           employerSi: 0,
@@ -110,6 +116,7 @@ export function PayrollRunView({ data }: Props) {
         employerSiPercent: 0,
         baseSalary: 0,
         standardHours: 0,
+        workedHours: 0,
         hourlyRate: 0,
         ...totals,
       } satisfies PayrollLineView,
@@ -156,10 +163,12 @@ export function PayrollRunView({ data }: Props) {
           kind === "advance" ? advanceDate : undefined
         );
         if (result.dedup) {
-          toast.info(`${SALARY_BILL_LABEL[kind]}ы нэхэмжлэх аль хэдийн үүссэн`);
+          toast.info(
+            `${SALARY_BILL_LABEL_GENITIVE[kind]} нэхэмжлэх аль хэдийн үүссэн`
+          );
         } else {
           toast.success(
-            `${SALARY_BILL_LABEL[kind]}ы НООРОГ нэхэмжлэх үүслээ (${result.documentNo}) — Өглөг хэсгээс батална уу`
+            `${SALARY_BILL_LABEL_GENITIVE[kind]} НООРОГ нэхэмжлэх үүслээ (${result.documentNo}) — Өглөг хэсгээс батална уу`
           );
         }
         router.refresh();
@@ -173,22 +182,26 @@ export function PayrollRunView({ data }: Props) {
     event: CellValueChangedEvent<PayrollLineView>
   ) {
     const field = event.colDef.field;
-    if (
-      field !== "earnings" &&
-      field !== "otherDeductions" &&
-      field !== "advanceHours" &&
-      field !== "standardHours"
-    )
-      return;
+    const EDITABLE_FIELDS = [
+      "otherDeductions",
+      "advanceHours",
+      "standardHours",
+      "workedHours",
+      "vacationPay",
+      "otherAdditions",
+    ];
+    if (!field || !EDITABLE_FIELDS.includes(field)) return;
     if (!event.data || event.node.rowPinned) return;
     if (event.newValue === event.oldValue) return;
     try {
       await updatePayrollLine({
         lineId: event.data.id,
-        earnings: event.data.earnings,
         otherDeductions: event.data.otherDeductions,
         advanceHours: event.data.advanceHours,
         standardHours: event.data.standardHours,
+        workedHours: event.data.workedHours,
+        vacationPay: event.data.vacationPay,
+        otherAdditions: event.data.otherAdditions,
       });
       router.refresh();
     } catch (error) {
@@ -261,21 +274,52 @@ export function PayrollRunView({ data }: Props) {
         }),
       ];
 
+    // СҮҮЛ ЦАЛИН — тооцооллын дараалал зүүнээс баруун тийш:
+    //   цаг → үндсэн олголт (+ ээлжийн амралт, нэмэгдэл) → нийт олголт
+    //   → НДШ, ХАОАТ → БУСАД СУУТГАЛ (татварын ДАРАА) → гарт олгох
+    //   → урьдчилгаа хасагдаж сүүл цалин
     return [
       ...identity,
       col<PayrollLineView>({
+        eaType: "number-hours",
+        headerName: "Ажиллавал зохих цаг",
+        field: "standardHours",
+        width: 175,
+        editable,
+      }),
+      col<PayrollLineView>({
+        eaType: "number-hours",
+        headerName: "Ажилласан цаг",
+        field: "workedHours",
+        width: 145,
+        editable,
+      }),
+      col<PayrollLineView>({
+        eaType: "readonly-money",
+        headerName: "Үндсэн олголт",
+        field: "baseEarnings",
+        width: 145,
+      }),
+      col<PayrollLineView>({
         eaType: "number-money",
-        headerName: "Нийт олголт",
-        field: "earnings",
-        width: 140,
+        headerName: "Ээлжийн амралт",
+        field: "vacationPay",
+        width: 150,
         editable,
       }),
       col<PayrollLineView>({
         eaType: "number-money",
-        headerName: "Бусад суутгал",
-        field: "otherDeductions",
-        width: 130,
+        headerName: "Бусад нэмэгдэл",
+        field: "otherAdditions",
+        width: 150,
         editable,
+      }),
+      col<PayrollLineView>({
+        eaType: "readonly-money",
+        headerName: "Нийт олголт",
+        field: "earnings",
+        width: 145,
+        cellClass: "ag-right-aligned-cell font-mono font-medium",
       }),
       // АО НДШ нь ажилтнаас суутгах НДШ-ийн ЗҮҮН талд — ажил олгогчийн
       // зардал эхэлж, дараа нь ажилтнаас суутгагдах дүнгүүд эгнэнэ.
@@ -296,6 +340,15 @@ export function PayrollRunView({ data }: Props) {
         headerName: "ХАОАТ",
         field: "pit",
         width: 120,
+      }),
+      // Бусад суутгал нь татварын сууринд ОРОХГҮЙ — НДШ, ХАОАТ бодогдсоны
+      // ДАРАА гарт олгохоос хасагдана, тиймээс багана нь тэдний БАРУУН талд.
+      col<PayrollLineView>({
+        eaType: "number-money",
+        headerName: "Бусад суутгал",
+        field: "otherDeductions",
+        width: 140,
+        editable,
       }),
       col<PayrollLineView>({
         eaType: "readonly-money",
@@ -374,7 +427,7 @@ export function PayrollRunView({ data }: Props) {
         <p className="text-xs text-[var(--ea-text-3)]">
           {tab === "advance"
             ? "«Бодолт хийх» дарахад ажиллавал зохих цаг тохиргооноос бөглөгдөж цагийн хөлс бодогдоно (ажилтан бүрд засаж болно). Ажилласан цагийг оруулахад урьдчилгаа СУУТГАЛГҮЙ бодогдоно — цагийн хөлс = үндсэн цалин / ажиллавал зохих цаг."
-            : "Бүх нэмэгдэл, суутгал энд бодогдоно. НДШ, ХАОАТ суутгагдсаны ДАРАА урьдчилгаа хасагдаж сүүл цалин гарна — урьдчилгаа + сүүл цалин = сарын нийт гарт олгох."}
+            : "Нийт олголт = үндсэн олголт (цалин × ажилласан / ажиллавал зохих цаг) + ээлжийн амралт + бусад нэмэгдэл. НДШ, ХАОАТ энэ дүн дээр бодогдоно; бусад суутгал нь ТАТВАРЫН ДАРАА хасагдана. Эцэст нь урьдчилгаа хасагдаж сүүл цалин гарна."}
         </p>
       )}
 
@@ -422,7 +475,7 @@ export function PayrollRunView({ data }: Props) {
               disabled={isPending}
             >
               <Icon name="document" size="sm" />
-              {SALARY_BILL_LABEL[tab]}ы өглөг үүсгэх
+              {SALARY_BILL_LABEL_GENITIVE[tab]} өглөг үүсгэх
             </Button>
           )}
 

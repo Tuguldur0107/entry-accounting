@@ -52,6 +52,63 @@ export function pitBeforeCredit(taxableIncome: number, date: string): number {
   return Math.round(tax);
 }
 
+// ── Нийт олголтын задаргаа ─────────────────────────────────────────────────
+
+export type EarningsInput = {
+  /** Ажилтны сарын үндсэн цалин. */
+  baseSalary: number;
+  /** Тухайн сард ажиллавал зохих цаг (цагийн хөлсний хуваагч). */
+  standardHours: number;
+  /** Сард бодитоор ажилласан цаг (бүтэн сараар). */
+  workedHours: number;
+  /** Ээлжийн амралтын олголт. */
+  vacationPay?: number;
+  /** Бусад нэмэгдэл (урамшуулал, илүү цаг г.м). */
+  otherAdditions?: number;
+};
+
+export type EarningsResult = {
+  /** Цагийн хөлс — ЗӨВХӨН харуулахад (тооцоо нь харьцаагаар явна). */
+  hourlyRate: number;
+  /** Үндсэн олголт = үндсэн цалин × ажилласан / ажиллавал зохих цаг. */
+  baseEarnings: number;
+  vacationPay: number;
+  otherAdditions: number;
+  /** Нийт олголт — НДШ, ХАОАТ-ын суурь. */
+  earnings: number;
+};
+
+/**
+ * Цаг дээр суурилсан нийт олголт. Үндсэн олголтыг бөөрөнхийлсөн цагийн
+ * хөлсөөр БИШ, ХАРЬЦААГААР бодно: бүтэн сар ажилласан үед үндсэн цалин
+ * яг таарна (2,976.19 × 168 = 499,999.92 гэх мэт хазайлт гарахгүй).
+ */
+export function computeEarnings(input: EarningsInput): EarningsResult {
+  const baseSalary = Math.round(input.baseSalary * 100) / 100;
+  if (!(baseSalary >= 0) || !Number.isFinite(baseSalary))
+    throw new Error("Үндсэн цалин 0-ээс багагүй байна");
+  const standardHours = input.standardHours;
+  if (!(standardHours > 0))
+    throw new Error("Ажиллавал зохих цаг 0-ээс их байх ёстой");
+  const workedHours = Math.round(input.workedHours * 100) / 100;
+  if (!(workedHours >= 0) || !Number.isFinite(workedHours))
+    throw new Error("Ажилласан цаг 0-ээс багагүй байна");
+  const vacationPay = Math.round((input.vacationPay ?? 0) * 100) / 100;
+  const otherAdditions = Math.round((input.otherAdditions ?? 0) * 100) / 100;
+  if (!(vacationPay >= 0)) throw new Error("Ээлжийн амралт 0-ээс багагүй байна");
+  if (!(otherAdditions >= 0))
+    throw new Error("Бусад нэмэгдэл 0-ээс багагүй байна");
+
+  const baseEarnings = Math.round((baseSalary * workedHours) / standardHours);
+  return {
+    hourlyRate: Math.round((baseSalary / standardHours) * 100) / 100,
+    baseEarnings,
+    vacationPay,
+    otherAdditions,
+    earnings: Math.round((baseEarnings + vacationPay + otherAdditions) * 100) / 100,
+  };
+}
+
 export type PayrollInput = {
   /** Нийт олголт (үндсэн + илүү цаг + урамшуулал). */
   earnings: number;
@@ -158,7 +215,11 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
 
   const hourlyRate =
     standardHours > 0 ? Math.round((advanceBase / standardHours) * 100) / 100 : 0;
-  const advanceAmount = Math.round(hourlyRate * advanceHours);
+  // Харьцаагаар — бөөрөнхийлсөн цагийн хөлсөөр үржүүлбэл хазайлт гарна.
+  const advanceAmount =
+    standardHours > 0
+      ? Math.round((advanceBase * advanceHours) / standardHours)
+      : 0;
   if (advanceAmount > netSalary)
     throw new Error(
       "Урьдчилгаа нь сарын гарт олгох цалингаас их байна — ажилласан цагийг багасгана уу"
