@@ -92,6 +92,53 @@ async function main() {
     );
   }
 
+  // ── 1b. Өргөтгөлийн view-г public-оос гаргана ────────────────────────────
+  // Push нь схемд зарлагдаагүй public view бүрийг DROP хийх гэж оролддог.
+  // Railway-ийн `pg_stat_statements` нь public дотор view (…_info) үүсгэдэг тул
+  //   "cannot drop view pg_stat_statements_info because extension … requires it"
+  // гэж push БҮХЭЛДЭЭ унаж, схемийн өөрчлөлт дахиад DB-д орохгүй болно
+  // (2026-09-18: unique constraint-ын асуултыг зассаны ДАРАА гарч ирсэн
+  // дараагийн саад). Өргөтгөлийг `extensions` схем рүү зөөвөл drizzle-ийн
+  // харах талбарт (schemaFilter = public) орохгүй тул эх үндсээрээ таслагдана.
+  await run(
+    "pg_stat_statements → extensions схем",
+    `do $$
+     begin
+       if exists (
+         select 1 from pg_extension e
+         join pg_namespace n on n.oid = e.extnamespace
+         where e.extname = 'pg_stat_statements' and n.nspname = 'public'
+       ) then
+         create schema if not exists extensions;
+         execute 'alter extension pg_stat_statements set schema extensions';
+         -- Хаяглаагүй дуудлага (Railway-ийн query insights) ажилласаар байна
+         execute format(
+           'alter database %I set search_path = "$user", public, extensions',
+           current_database()
+         );
+       end if;
+     end $$;`
+  );
+
+  // Үлдсэн public view-үүдийг ЛОГ дээр ил гаргана — push дараагийн удаа ямар
+  // объект дээр унаж болзошгүйг урьдчилан харуулна (өөрчлөлт хийхгүй).
+  try {
+    const views = await sql`
+      select table_name from information_schema.views
+      where table_schema = 'public'
+      order by table_name
+    `;
+    if (views.length > 0) {
+      console.log(
+        `⚠ public схемд ${views.length} view үлдсэн: ${views
+          .map((row) => row.table_name)
+          .join(", ")}`
+      );
+    }
+  } catch (error) {
+    console.log(`✗ public view жагсаалт: ${error.message}`);
+  }
+
   // ── 2. segment_values.linked_organization_id (S1/S6 компанийн холбоос) ─────
   await run(
     "segment_values.linked_organization_id багана",

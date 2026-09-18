@@ -1182,6 +1182,19 @@ crash хийж, схемийн БҮХ өөрчлөлт DB-д ОГТ ОРОХГҮ
 `drizzle-kit generate` + `migrate` (батлагдсан migration файл) руу шилжинэ —
 push нь dev/pilot-д зориулагдсан.
 
+⚠️ **Схемд `unique()` constraint бичихийг ХОРИГЛОНО — зөвхөн
+`uniqueIndex("…_ux")`.** drizzle-kit 0.31.x нь DB-д БАЙГАА unique constraint-ыг
+танихгүй тул push бүрд "нэмэх үү, truncate хийх үү?" гэж дахин асууж non-TTY
+preDeploy-г унагаана (#5955 — composite ба баганы түвшний аль алинд). Unique
+INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталгаа өгнө.
+
+⚠️ **`public` схемд өргөтгөлийн view байвал push мөн унана** — схемд
+зарлагдаагүй view бүрийг DROP хийх гэж оролдоод
+`cannot drop view pg_stat_statements_info because extension … requires it`
+гэж таслагдана. Тиймээс `scripts/apply-pending-ddl.mjs` нь
+`pg_stat_statements`-ийг `extensions` схем рүү зөөж (search_path-д нэмнэ),
+үлдсэн public view-үүдийг логт ил бичдэг.
+
 ## Анхдагч дансны мэдээлэл
 
 | Дугаар | Нэр |
