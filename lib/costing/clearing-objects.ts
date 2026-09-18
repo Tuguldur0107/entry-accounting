@@ -220,8 +220,14 @@ export function resolveClearingObject(
 
 /**
  * Буцаалтын өвлөлттэй хувилбар — мөр өөрөө нотолгоогүй бол ЭХ журналынхаа
- * ижил данс дээрх мөрийн объектыг авна. Эх нь ч "гар журнал" бол хоёулаа
- * НЭГ бакетад орж тэгширнэ.
+ * ижил данс дээрх мөрийн объектыг авна.
+ *
+ * Гинжийг ҮНДЭС хүртэл алхана: буцаалтын буцаалт (V1 → V2 → V3 …) нь завсрын
+ * воучерын id-гаар биш, гинжний эхний воучерын объектоор бакетлагдана — эс
+ * бөгөөс дөрвөн мөр хоёр тусдаа "объектгүй" хос болж, нийт дүн 0 байхад
+ * худал улаан сэрэмжлүүлэг өгнө (unpostVoucher батлагдсан буцаалтыг дахин
+ * буцаахыг хоридоггүй тул энэ гинж бодитоор үүсэх боломжтой).
+ * Мэдэгдэх объект гинжний аль ч шатанд олдвол шууд түүнийг авна.
  */
 export function resolveClearingObjectWithReversal(
   line: ClearingRawLine,
@@ -235,14 +241,23 @@ export function resolveClearingObjectWithReversal(
 ): ClearingResolution {
   let resolution = resolveClearingObject(line, lookups);
   if (resolution.known) return resolution;
-  const originalId = context.reversalOf.get(line.voucherId);
-  if (!originalId) return resolution;
-  const originals =
-    context.linesByVoucherAccount.get(`${originalId}::${line.account}`) ?? [];
-  for (const original of originals) {
-    const inherited = resolveClearingObject(original, lookups);
-    resolution = inherited;
-    if (inherited.known) break;
+
+  // Гэмтсэн/мөчлөгтэй өгөгдөлд ч гацахгүй — үзсэн воучерыг тэмдэглэнэ.
+  const visited = new Set<string>([line.voucherId]);
+  let currentId: string = line.voucherId;
+  for (;;) {
+    const originalId = context.reversalOf.get(currentId);
+    if (!originalId || visited.has(originalId)) return resolution;
+    visited.add(originalId);
+    const originals =
+      context.linesByVoucherAccount.get(`${originalId}::${line.account}`) ?? [];
+    for (const original of originals) {
+      const inherited = resolveClearingObject(original, lookups);
+      // Мэдэгдэх объект олдвол шууд; үгүй бол гинжний ЭНЭ шатны утгыг
+      // түр авч, дээшээ үргэлжилнэ (үндэс нь эцсийн түлхүүр болно).
+      if (inherited.known) return inherited;
+      resolution = inherited;
+    }
+    currentId = originalId;
   }
-  return resolution;
 }

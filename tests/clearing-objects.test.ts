@@ -199,6 +199,75 @@ describe("resolveClearingObjectWithReversal", () => {
     assert.equal(b.known, true);
   });
 
+  it("буцаалтын БУЦААЛТ гинжний ҮНДЭС рүү бакетлагдана", () => {
+    // V1 (эх, гар журнал) → V2 (буцаалт) → V3 (буцаалтын буцаалт) → V4.
+    // Дөрвүүлээ V1-ийн бакетад орж Σ = 0 → "нээлттэй" гэж тоологдохгүй.
+    const v1 = line({ voucherId: "v1", delta: -5_000_000 });
+    const v2 = line({ voucherId: "v2", delta: 5_000_000 });
+    const v3 = line({ voucherId: "v3", delta: -5_000_000 });
+    const v4 = line({ voucherId: "v4", delta: 5_000_000 });
+    const ctx = {
+      reversalOf: new Map([
+        ["v2", "v1"],
+        ["v3", "v2"],
+        ["v4", "v3"],
+      ]),
+      linesByVoucherAccount: new Map([
+        ["v1::14000099", [v1]],
+        ["v2::14000099", [v2]],
+        ["v3::14000099", [v3]],
+        ["v4::14000099", [v4]],
+      ]),
+    };
+    const lookups = emptyLookups();
+    const keys = [v1, v2, v3, v4].map((entry) =>
+      keyOf(
+        "14000099",
+        resolveClearingObjectWithReversal(entry, lookups, ctx)
+      )
+    );
+    assert.equal(new Set(keys).size, 1, "дөрвүүлээ НЭГ бакетад орох ёстой");
+    assert.equal(keys[0], keyOf("14000099", { objectType: "Тодорхойгүй (гар журнал)", objectId: "v1" }));
+    assert.equal(v1.delta + v2.delta + v3.delta + v4.delta, 0);
+  });
+
+  it("гинжний дээд шатанд мэдэгдэх объект байвал түүнийг авна", () => {
+    const lookups = emptyLookups();
+    lookups.cashByVoucher.set("v1", { documentNo: "CASH-1" });
+    const v1 = line({ voucherId: "v1" });
+    const v2 = line({ voucherId: "v2" });
+    const v3 = line({ voucherId: "v3" });
+    const resolved = resolveClearingObjectWithReversal(v3, lookups, {
+      reversalOf: new Map([
+        ["v2", "v1"],
+        ["v3", "v2"],
+      ]),
+      linesByVoucherAccount: new Map([
+        ["v1::14000099", [v1]],
+        ["v2::14000099", [v2]],
+        ["v3::14000099", [v3]],
+      ]),
+    });
+    assert.equal(resolved.objectType, "Мөнгөн гүйлгээ");
+    assert.equal(resolved.objectId, "CASH-1");
+  });
+
+  it("мөчлөгтэй холбоос гацаахгүй", () => {
+    const a = line({ voucherId: "a" });
+    const b = line({ voucherId: "b" });
+    const resolved = resolveClearingObjectWithReversal(a, emptyLookups(), {
+      reversalOf: new Map([
+        ["a", "b"],
+        ["b", "a"],
+      ]),
+      linesByVoucherAccount: new Map([
+        ["a::14000099", [a]],
+        ["b::14000099", [b]],
+      ]),
+    });
+    assert.equal(resolved.known, false);
+  });
+
   it("буцаалт биш нотолгоогүй мөр өвлөхгүй — тайлбаргүй хэвээр", () => {
     const lone = line({ voucherId: "v-lone" });
     const resolved = resolveClearingObjectWithReversal(lone, emptyLookups(), {
