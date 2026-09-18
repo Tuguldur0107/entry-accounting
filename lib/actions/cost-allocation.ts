@@ -156,6 +156,97 @@ export async function loadAllocationTargets(range: {
     }));
 }
 
+/** Чөлөөт хуваарилалтын ЭХ СУРВАЛЖ болох нэхэмжлэхийн мөр. */
+export type AllocationSourceOption = {
+  lineId: string;
+  documentNo: string;
+  date: string;
+  counterpartyName: string;
+  description: string;
+  /** Мөрийн MNT дүн (баримтын ханшаар). */
+  lineAmountMnt: number;
+  /** Өмнө нь энэ мөрөөс хуваарилсан дүн. */
+  allocatedMnt: number;
+  /** Үлдэгдэл = хуваарилж болох дээд дүн. */
+  remainingMnt: number;
+};
+
+/**
+ * PO-ГҮЙ өглөгийн нэхэмжлэхийн ЗАРДЛЫН мөрүүд — чөлөөт хуваарилалтын эх
+ * сурвалж болгож сонгоно. Холбоос нь клирингийн тулгалтад зардлыг дансанд
+ * оруулсан Dr ба түүнийг хаасан хуваарилалтын Cr-ийг НЭГ объектод буулгаж
+ * тэгшитгэнэ (эс бөгөөс хоёулаа мөнхөд "нээлттэй" харагдана).
+ *
+ * Зөвхөн БАТЛАГДСАН, бараагүй (зардлын) мөр; үлдэгдэлгүй болсон мөр
+ * жагсаалтаас гарна. PO-той мөрүүд энд ОРОХГҮЙ — тэдгээр нь Хангамжийн
+ * "Хуваарилагдаагүй зардал" worklist-ээр явна.
+ */
+export async function loadAllocationSources(range: {
+  from: string;
+  to: string;
+}): Promise<AllocationSourceOption[]> {
+  const active = await getActiveOrg().catch(() => null);
+  if (!active) return [];
+  const { orgId } = active;
+
+  const lines = await db.query.arApDocumentLines.findMany({
+    with: { document: { with: { counterparty: { columns: { name: true } } } } },
+  });
+  const candidates = lines.filter(
+    (line) =>
+      line.document?.organizationId === orgId &&
+      line.document.documentType === "ap_bill" &&
+      !line.document.purchaseOrderId &&
+      !line.itemId &&
+      ["posted", "partially_paid", "paid"].includes(line.document.status) &&
+      line.document.date >= range.from &&
+      line.document.date <= range.to
+  );
+  if (candidates.length === 0) return [];
+
+  const allocations = await db
+    .select({
+      sourceLineId: costAllocations.sourceLineId,
+      totalAmount: costAllocations.totalAmount,
+    })
+    .from(costAllocations)
+    .where(
+      and(
+        eq(costAllocations.organizationId, orgId),
+        inArray(
+          costAllocations.sourceLineId,
+          candidates.map((line) => line.id)
+        )
+      )
+    );
+  const allocatedByLine = new Map<string, number>();
+  for (const row of allocations)
+    if (row.sourceLineId)
+      allocatedByLine.set(
+        row.sourceLineId,
+        (allocatedByLine.get(row.sourceLineId) ?? 0) + Number(row.totalAmount)
+      );
+
+  return candidates
+    .map((line) => {
+      const rate = Number(line.document!.exchangeRate);
+      const lineAmountMnt = roundMoney(Number(line.amount) * rate);
+      const allocatedMnt = roundMoney(allocatedByLine.get(line.id) ?? 0);
+      return {
+        lineId: line.id,
+        documentNo: line.document!.documentNo,
+        date: line.document!.date,
+        counterpartyName: line.document!.counterparty?.name ?? "",
+        description: line.description ?? "",
+        lineAmountMnt,
+        allocatedMnt,
+        remainingMnt: roundMoney(lineAmountMnt - allocatedMnt),
+      };
+    })
+    .filter((option) => option.remainingMnt > 0.005)
+    .sort((a, b) => (a.date === b.date ? a.documentNo.localeCompare(b.documentNo) : b.date.localeCompare(a.date)));
+}
+
 /**
  * ХАНГАМЖ: тухайн ЗАХИАЛГЫН (PO) хуваарилах боломжтой хүлээн авалтууд —
  * батлагдсан хүлээн авалтын мөрүүдээс үүссэн `po_receipt` орлогууд.
@@ -334,12 +425,6 @@ export async function createCostAllocation(data: {
         code: "validation",
         message: "Зөвхөн өглөгийн нэхэмжлэхийн мөрөөс хуваарилна",
       };
-    if (!document.purchaseOrderId)
-      return {
-        ok: false,
-        code: "validation",
-        message: "Нэхэмжлэх худалдан авалтын захиалгатай холбогдоогүй байна",
-      };
     if (!["posted", "partially_paid", "paid"].includes(document.status))
       return {
         ok: false,
@@ -347,45 +432,68 @@ export async function createCostAllocation(data: {
         message:
           "Нэхэмжлэх батлагдаагүй байна — эхлээд нэхэмжлэхийг батална уу",
       };
-    if (!sourceLine.costComponentId)
-      return {
-        ok: false,
-        code: "validation",
-        message: "Мөрд өртгийн бүрэлдэхүүн заагдаагүй байна",
-      };
-    if (
-      data.costComponentId &&
-      data.costComponentId !== sourceLine.costComponentId
-    )
-      return {
-        ok: false,
-        code: "validation",
-        message: "Бүрэлдэхүүн нэхэмжлэхийн мөрөөс ирнэ — сонголт зөрж байна",
-      };
-    // Хаагдсан/цуцлагдсан PO-д зардал нэмэхгүй (түр дансууд аль хэдийн
-    // тэгширсэн — шинэ хуваарилалт тэнцвэрийг эвдэнэ).
-    const order = await db.query.purchaseOrders.findFirst({
-      where: and(
-        eq(purchaseOrders.id, document.purchaseOrderId),
-        eq(purchaseOrders.organizationId, orgId)
-      ),
-      columns: { id: true, status: true, documentNo: true },
-    });
-    if (!order)
-      return {
-        ok: false,
-        code: "validation",
-        message: "[PO_NOT_FOUND] Захиалга олдсонгүй",
-      };
-    if (order.status !== "open")
-      return {
-        ok: false,
-        code: "validation",
-        message: `[PO_CLOSED] ${order.documentNo} захиалга нээлттэй биш — хуваарилалт нэмэх боломжгүй`,
-      };
-    purchaseOrderId = order.id;
     lineExchangeRate = Number(document.exchangeRate);
-    componentId = sourceLine.costComponentId;
+
+    if (document.purchaseOrderId) {
+      // ── ХАНГАМЖ: бүрэлдэхүүн МӨРӨӨС ирнэ, зорилт нь PO-гийн хүлээн авалт ──
+      if (!sourceLine.costComponentId)
+        return {
+          ok: false,
+          code: "validation",
+          message: "Мөрд өртгийн бүрэлдэхүүн заагдаагүй байна",
+        };
+      if (
+        data.costComponentId &&
+        data.costComponentId !== sourceLine.costComponentId
+      )
+        return {
+          ok: false,
+          code: "validation",
+          message: "Бүрэлдэхүүн нэхэмжлэхийн мөрөөс ирнэ — сонголт зөрж байна",
+        };
+      // Хаагдсан/цуцлагдсан PO-д зардал нэмэхгүй (түр дансууд аль хэдийн
+      // тэгширсэн — шинэ хуваарилалт тэнцвэрийг эвдэнэ).
+      const order = await db.query.purchaseOrders.findFirst({
+        where: and(
+          eq(purchaseOrders.id, document.purchaseOrderId),
+          eq(purchaseOrders.organizationId, orgId)
+        ),
+        columns: { id: true, status: true, documentNo: true },
+      });
+      if (!order)
+        return {
+          ok: false,
+          code: "validation",
+          message: "[PO_NOT_FOUND] Захиалга олдсонгүй",
+        };
+      if (order.status !== "open")
+        return {
+          ok: false,
+          code: "validation",
+          message: `[PO_CLOSED] ${order.documentNo} захиалга нээлттэй биш — хуваарилалт нэмэх боломжгүй`,
+        };
+      purchaseOrderId = order.id;
+      componentId = sourceLine.costComponentId;
+    } else {
+      // ── PO-ГҮЙ (чөлөөт) хуваарилалт: эх мөр нь ЗӨВХӨН объектын холбоос,
+      // дүнгийн таазыг өгнө. Бүрэлдэхүүнтэй мөр PO-гүй нэхэмжлэхэд
+      // бичигдэхийг arap.ts хоридог тул бүрэлдэхүүнийг хэрэглэгч сонгоно.
+      // Холбоос нь клирингийн тулгалтад Dr ба Cr-ийг НЭГ объектод буулгаж
+      // тэгшитгэнэ (clearing-objects.ts sourceLineId зам).
+      if (sourceLine.itemId)
+        return {
+          ok: false,
+          code: "validation",
+          message:
+            "Бараатай мөр эх сурвалж болохгүй — түүний өртөг орлогын капитализациар шингэнэ",
+        };
+      if (!data.costComponentId)
+        return {
+          ok: false,
+          code: "validation",
+          message: "Өртгийн бүрэлдэхүүн сонгоно уу",
+        };
+    }
   }
 
   const component = await db.query.costComponents.findFirst({

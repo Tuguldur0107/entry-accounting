@@ -2,6 +2,7 @@ import { CostAllocationView } from "@/components/costing/cost-allocation-view";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import {
+  loadAllocationSources,
   loadAllocationTargets,
   loadAllocations,
 } from "@/lib/actions/cost-allocation";
@@ -25,9 +26,10 @@ export default async function CostAllocationsPage({
     to: to && DATE_RE.test(to) ? to : period.to,
   };
 
-  const [rows, targets, components] = await Promise.all([
+  const [rows, targets, sources, components] = await Promise.all([
     loadAllocations(),
     loadAllocationTargets(range),
+    loadAllocationSources(range),
     loadCostComponents(orgId, { activeOnly: true }),
   ]);
 
@@ -35,6 +37,7 @@ export default async function CostAllocationsPage({
     <CostAllocationView
       rows={rows}
       targets={targets}
+      sources={sources}
       components={components.map((component) => ({
         id: component.id,
         code: component.code,

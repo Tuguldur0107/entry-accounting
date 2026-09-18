@@ -524,13 +524,15 @@ export const bankStatementLines = pgTable(
     }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  // unique CONSTRAINT БИШ, unique INDEX (exchange_rates-тай ижил шалтгаан,
-  // CLAUDE.md §5b): drizzle-kit 0.31.x-ийн push нь бөглөөтэй хүснэгтэд unique
-  // constraint нэмэхдээ "truncate хийх үү?" гэж ИНТЕРАКТИВ асууж, Railway-ийн
-  // non-TTY preDeploy-г унагаадаг → схемийн БҮХ өөрчлөлт DB-д орохгүй үлддэг.
-  // Индекс хэлбэрээр давхардлын хамгаалалт ЯГ ижил хэвээр.
   (table) => [
-    uniqueIndex("bank_statement_lines_statement_id_row_number_unique").on(
+    // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн алдаа
+    // (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
+    // push дараагийн удаа "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
+    // нэмэхийг оролдож «truncate хийх үү?» гэж асуудаг — non-TTY preDeploy
+    // дээр тэр асуулт crash болж, схемийн БҮХ өөрчлөлт DB-д ОРОХГҮЙ үлддэг
+    // (2026-09-18: 3 мөртэй болмогц үндсэн апп унаж, АР/АП хуудас 500 өгсөн).
+    // Нэр нь хуучин `…_unique` constraint-аас ЗОРИУД өөр — давхцахгүй.
+    uniqueIndex("bank_statement_lines_statement_row_ux").on(
       table.statementId,
       table.rowNumber
     ),
@@ -1547,6 +1549,24 @@ export const payrollSettings = pgTable("payroll_settings", {
   })
     .notNull()
     .default("168"),
+  /**
+   * Цалингийн нэхэмжлэхийн ӨГЛӨГИЙН ХЯНАЛТЫН данс — АР/АП модулийн
+   * ажилтанд өгөх өглөг энд суудаг (кассаас энэ өглөгийг хаана).
+   * Цалингийн өглөг (salaryPayable) нь КЛИРИНГ тал: нэхэмжлэх батлагдахад
+   * Dr Цалингийн өглөг / Cr энэ данс болж, §7-ийн нэгдсэн журналын
+   * кредитийг ажилтны өглөг рүү шилжүүлнэ (зардал давхар бичигдэхгүй).
+   */
+  employeePayableAccountNumber: text("employee_payable_account_number")
+    .notNull()
+    .default("31000001"),
+  /**
+   * Цалингийн нэхэмжлэхийн нэгтгэсэн харилцагч ("Ажилчид") — эхний
+   * нэхэмжлэх үүсгэхэд автоматаар бүртгэгдэнэ.
+   */
+  employeeCounterpartyId: uuid("employee_counterparty_id").references(
+    () => counterparties.id,
+    { onDelete: "set null" }
+  ),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [unique().on(t.organizationId)]);
 
@@ -1567,6 +1587,18 @@ export const payrollRuns = pgTable(
     voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
       onDelete: "set null",
     }),
+    /** Урьдчилгаа олгох огноо — хэрэглэгч бодолт бүрд сонгоно (сар дундуур). */
+    advanceDate: text("advance_date"),
+    /** Урьдчилгааны нэгтгэсэн өглөгийн нэхэмжлэх (АР/АП модульд). */
+    advanceDocumentId: uuid("advance_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "set null" }
+    ),
+    /** Сүүл цалингийн нэгтгэсэн өглөгийн нэхэмжлэх. */
+    finalDocumentId: uuid("final_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1585,6 +1617,15 @@ export const payrollRunLines = pgTable("payroll_run_lines", {
   earnings: numeric("earnings", { precision: 18, scale: 2 }).notNull(),
   /** Бусад суутгал (зээл г.м) — засварлагдана. */
   otherDeductions: numeric("other_deductions", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /**
+   * Тухайн сард ажиллавал зохих цаг — ажилтан бүрд засварлагдана (бүтэн бус
+   * цагийн ажилтан, сар бүрийн ажлын өдрийн зөрүү). Цагийн хөлсний
+   * ХУВААГЧ: цагийн хөлс = үндсэн цалин / ажиллавал зохих цаг.
+   * Бодолт хийхэд тохиргооны стандарт цагаар бөглөгдөнө.
+   */
+  standardHours: numeric("standard_hours", { precision: 8, scale: 2 })
     .notNull()
     .default("0"),
   /**
@@ -1612,6 +1653,16 @@ export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
   voucher: one(journalVouchers, {
     fields: [payrollRuns.voucherId],
     references: [journalVouchers.id],
+  }),
+  advanceDocument: one(arApDocuments, {
+    fields: [payrollRuns.advanceDocumentId],
+    references: [arApDocuments.id],
+    relationName: "payrollAdvanceDocument",
+  }),
+  finalDocument: one(arApDocuments, {
+    fields: [payrollRuns.finalDocumentId],
+    references: [arApDocuments.id],
+    relationName: "payrollFinalDocument",
   }),
   lines: many(payrollRunLines),
 }));
@@ -2552,7 +2603,16 @@ export const aiSettings = pgTable("ai_settings", {
   writeMode: text("write_mode").notNull().default("draft"),
   customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (t) => [unique().on(t.userId, t.organizationId)]);
+}, (t) => [
+  // UNIQUE CONSTRAINT биш, UNIQUE INDEX — bank_statement_lines-тай ИЖИЛ
+  // шалтгаан (drizzle-orm#5955): push нь `unique()` constraint-ыг "байхгүй"
+  // гэж үзээд бөглөөтэй хүснэгтэд дахин нэмэхийг оролдож «truncate хийх үү?»
+  // гэж асууж non-TTY preDeploy-г унагаана (2026-09-18: ai_settings 1 мөртэй
+  // болмогц энэ асуулт гарч схемийн БҮХ өөрчлөлт DB-д орохгүй үлдсэн).
+  // Нэр нь хуучин `…_unique` constraint-аас ЗОРИУД өөр — давхцахгүй.
+  // upsert-ийн `target: [userId, organizationId]` нь индекс дээр ч ажиллана.
+  uniqueIndex("ai_settings_user_org_ux").on(t.userId, t.organizationId),
+]);
 
 // ─── Компанийн мэдээлэл — нэхэмжлэх, хэвлэх маягтын толгой ───────────────────
 

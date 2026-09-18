@@ -5,6 +5,15 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Засагдсан
+- **`bank_statement_lines`-ийн давхардлын хамгаалалт unique constraint → unique
+  INDEX** (`bank_statement_lines_statement_row_ux`). drizzle-kit 0.31.x-ийн
+  алдаа (drizzle-team/drizzle-orm#5955) дахин цохив: хүснэгт 3 мөртэй болмогц
+  `push` нь constraint-ыг «байхгүй» гэж үзээд дахин нэмэхийг оролдож «truncate
+  хийх үү?» гэж асууж, non-TTY preDeploy дээр crash хийсэн. Улмаас схемийн БҮХ
+  өөрчлөлт DB-д орохгүй үлдэж, **АР/АП хуудас 500** алдаа өгсөн (2026-09-18).
+  `exchange_rates`-д хэрэглэсэн шийдлийг мөрдөв
+
 ### Нэмэгдсэн
 - **Дарах бүрт клик дуу.** Товч, линк, таб, цэс, хүснэгтийн мөр/нүд болон
   cursor:pointer-тэй дурын элемент дээр pointerdown-ы агшинд маш богино тик

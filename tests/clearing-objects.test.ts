@@ -123,6 +123,66 @@ describe("resolveClearingObject", () => {
     assert.equal(resolved.objectId, "PO-20260801-AAA111");
   });
 
+  it("хуваарилалт эх нэхэмжлэхийн мөртэй бол ТЭР БАРИМТЫН объектод буудаг", () => {
+    // Зардлыг дансанд оруулсан АП-ийн Dr ба түүнийг хаасан хуваарилалтын Cr
+    // НЭГ бакетад орох ёстой — эс бөгөөс хоёулаа мөнхөд "нээлттэй".
+    const lookups = emptyLookups();
+    lookups.entryById.set("ce-lc", {
+      id: "ce-lc",
+      movementId: null,
+      itemId: "item-1",
+      costComponentId: null,
+    });
+    lookups.allocationByEntry.set("ce-lc", {
+      documentNo: "ALLOC-1",
+      costComponentId: null,
+      sourceLineId: "apline-7",
+    });
+    lookups.apByArapLine.set("apline-7", {
+      documentNo: "AP-20260901-FREIGHT",
+      documentType: "ap_bill",
+      purchaseOrderId: null,
+    });
+    lookups.apByVoucher.set("v-ap", {
+      documentNo: "AP-20260901-FREIGHT",
+      documentType: "ap_bill",
+      purchaseOrderId: null,
+    });
+
+    const allocation = resolveClearingObject(
+      line({ voucherId: "v-alloc", costEntryId: "ce-lc", delta: -300_000 }),
+      lookups
+    );
+    const invoice = resolveClearingObject(
+      line({ voucherId: "v-ap", delta: 300_000 }),
+      lookups
+    );
+    assert.equal(allocation.objectType, "Өглөгийн нэхэмжлэх");
+    assert.equal(keyOf("14000099", allocation), keyOf("14000099", invoice));
+  });
+
+  it("эх сурвалжгүй хуваарилалт «Зардлын хуваарилалт» хэвээр", () => {
+    const lookups = emptyLookups();
+    lookups.entryById.set("ce-lc", {
+      id: "ce-lc",
+      movementId: null,
+      itemId: "item-1",
+      costComponentId: null,
+    });
+    lookups.allocationByEntry.set("ce-lc", {
+      documentNo: "ALLOC-2",
+      costComponentId: null,
+      sourceLineId: null,
+    });
+    const resolved = resolveClearingObject(
+      line({ costEntryId: "ce-lc" }),
+      lookups
+    );
+    // Холбоос БАЙХГҮЙ үед объектыг ЗОХИОХГҮЙ (§6.2) — ил үлдэнэ.
+    assert.equal(resolved.objectType, "Зардлын хуваарилалт");
+    assert.equal(resolved.objectId, "ALLOC-2");
+  });
+
   it("хөдөлгөөн устсан өртгийн бичилт барааны нэрээр объект болно", () => {
     const lookups = emptyLookups();
     lookups.entryById.set("ce-2", {
