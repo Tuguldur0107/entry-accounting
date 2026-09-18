@@ -2,7 +2,10 @@
 builder = "RAILPACK"
 
 [deploy]
-preDeployCommand = "npm run db:push"
+# Эхлээд идемпотент DDL (scripts/apply-pending-ddl.mjs), дараа нь push.
+# Push нь non-TTY дээр интерактив асуулт тулгарвал унадаг тул шинэ багана,
+# индексийг DDL скрипт ӨӨРӨӨ баталгаажуулна (2026-09-18 осол — CLAUDE.md).
+preDeployCommand = "npm run db:predeploy"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"

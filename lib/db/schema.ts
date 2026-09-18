@@ -524,7 +524,17 @@ export const bankStatementLines = pgTable(
     }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.statementId, table.rowNumber)]
+  // unique CONSTRAINT БИШ, unique INDEX (exchange_rates-тай ижил шалтгаан,
+  // CLAUDE.md §5b): drizzle-kit 0.31.x-ийн push нь бөглөөтэй хүснэгтэд unique
+  // constraint нэмэхдээ "truncate хийх үү?" гэж ИНТЕРАКТИВ асууж, Railway-ийн
+  // non-TTY preDeploy-г унагаадаг → схемийн БҮХ өөрчлөлт DB-д орохгүй үлддэг.
+  // Индекс хэлбэрээр давхардлын хамгаалалт ЯГ ижил хэвээр.
+  (table) => [
+    uniqueIndex("bank_statement_lines_statement_id_row_number_unique").on(
+      table.statementId,
+      table.rowNumber
+    ),
+  ]
 );
 
 // П8 — Банкны хуулгын импортын хэрэглэгчийн дүрэм: нөхцөл (текст агуулна /
