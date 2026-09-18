@@ -54,7 +54,12 @@ export interface ClearingLookups {
   >;
   allocationByEntry: Map<
     string,
-    { documentNo: string; costComponentId: string | null } | undefined
+    {
+      documentNo: string;
+      costComponentId: string | null;
+      /** Хуваарилалт нь АР/АП-ийн мөрөөс гарсан бол — тэр мөрийн id. */
+      sourceLineId?: string | null;
+    } | undefined
   >;
   movementById: Map<
     string,
@@ -119,9 +124,34 @@ export function resolveClearingObject(
     } else if (entry) {
       const allocation = lookups.allocationByEntry.get(entry.id);
       if (allocation) {
-        objectType = "Зардлын хуваарилалт";
-        objectId = allocation.documentNo;
-        objectLabel = allocation.documentNo;
+        // Эх сурвалжийн нэхэмжлэхийн мөр мэдэгдэж байвал ТЭР БАРИМТЫН
+        // объектод буулгана — зардлыг дансанд оруулсан Dr ба түүнийг хаасан
+        // Cr нэг бакетад орж тэгширнэ (PO-той бол 0-р салаа аль хэдийн
+        // барьдаг; PO-гүй хуваарилалтад энэ зам хэрэгтэй).
+        const sourceAp = allocation.sourceLineId
+          ? lookups.apByArapLine.get(allocation.sourceLineId)
+          : undefined;
+        if (sourceAp) {
+          const order = sourceAp.purchaseOrderId
+            ? lookups.orderById.get(sourceAp.purchaseOrderId)
+            : undefined;
+          if (sourceAp.purchaseOrderId) {
+            objectType = BUSINESS_OBJECT_LABELS[PO_BUSINESS_OBJECT];
+            objectId = order?.documentNo ?? sourceAp.purchaseOrderId;
+            objectLabel = order?.documentNo ?? sourceAp.documentNo;
+          } else {
+            objectType =
+              sourceAp.documentType === "ap_bill"
+                ? "Өглөгийн нэхэмжлэх"
+                : "Авлагын нэхэмжлэл";
+            objectId = sourceAp.documentNo;
+            objectLabel = sourceAp.documentNo;
+          }
+        } else {
+          objectType = "Зардлын хуваарилалт";
+          objectId = allocation.documentNo;
+          objectLabel = allocation.documentNo;
+        }
         const component = allocation.costComponentId
           ? lookups.componentById.get(allocation.costComponentId)
           : entry.costComponentId

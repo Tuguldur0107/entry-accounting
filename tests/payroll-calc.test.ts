@@ -194,3 +194,28 @@ test("урьдчилгаа нь ҮНДСЭН цалингаар бодогдон
   assert.equal(result.hourlyRate, 11_904.76);
   assert.equal(result.advanceAmount, Math.round(11_904.76 * 84));
 });
+
+test("ажиллавал зохих цаг ажилтан бүрд өөр байж болно (цагийн хөлсний хуваагч)", () => {
+  // Нэг үндсэн цалин, өөр стандарт цаг → өөр цагийн хөлс, өөр урьдчилгаа.
+  const at168 = computeEmployeePayroll({
+    ...ADVANCE_BASE,
+    earnings: 500_000,
+    advanceBaseSalary: 500_000,
+    standardMonthlyHours: 168,
+    advanceHours: 88,
+  });
+  const at176 = computeEmployeePayroll({
+    ...ADVANCE_BASE,
+    earnings: 500_000,
+    advanceBaseSalary: 500_000,
+    standardMonthlyHours: 176,
+    advanceHours: 88,
+  });
+  assert.equal(at168.hourlyRate, 2_976.19);
+  assert.equal(at176.hourlyRate, 2_840.91);
+  // 176 цагийн хуваарьтай ажилтны 88 цаг = яг хагас сарын үндсэн цалин.
+  assert.equal(at176.advanceAmount, 250_000);
+  assert.ok(at168.advanceAmount > at176.advanceAmount);
+  // Аль ч тохиолдолд тэнцэл хадгалагдана.
+  assert.equal(at176.advanceAmount + at176.finalNet, at176.netSalary);
+});

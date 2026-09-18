@@ -6,7 +6,6 @@ import {
   numeric,
   integer,
   boolean,
-  unique,
   uniqueIndex,
   index,
   foreignKey,
@@ -63,7 +62,10 @@ export const memberships = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.organizationId, t.userId),
+    uniqueIndex("memberships_organization_id_user_id_ux").on(
+      t.organizationId,
+      t.userId
+    ),
     index("memberships_user_ix").on(t.userId),
   ]
 );
@@ -128,7 +130,13 @@ export const chartOfAccounts = pgTable(
     modules: text("modules").notNull().default("gl,ar,ap,fa,cost,cash"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.number), unique().on(t.organizationId, t.number)]
+  (t) => [
+    uniqueIndex("chart_of_accounts_user_id_number_ux").on(t.userId, t.number),
+    uniqueIndex("chart_of_accounts_organization_id_number_ux").on(
+      t.organizationId,
+      t.number
+    ),
+  ]
 );
 
 // ─── Accounting periods (нягтлан бодох период) ───────────────────────────────
@@ -157,7 +165,13 @@ export const accountingPeriods = pgTable(
     closedAt: timestamp("closed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
+  (t) => [
+    uniqueIndex("accounting_periods_user_id_code_ux").on(t.userId, t.code),
+    uniqueIndex("accounting_periods_organization_id_code_ux").on(
+      t.organizationId,
+      t.code
+    ),
+  ]
 );
 
 // П28 — Периодын дансны үлдэгдлийн SNAPSHOT. Период хаагдахад бичигдэж
@@ -194,7 +208,11 @@ export const accountPeriodBalances = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.organizationId, t.periodCode, t.accountNumber),
+    uniqueIndex("account_period_balances_org_period_account_ux").on(
+      t.organizationId,
+      t.periodCode,
+      t.accountNumber
+    ),
     index("account_period_balances_org_period_ix").on(
       t.organizationId,
       t.periodCode
@@ -230,7 +248,11 @@ export const cashAccountPeriodBalances = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.organizationId, t.periodCode, t.cashAccountId),
+    uniqueIndex("cash_account_period_balances_org_period_acct_ux").on(
+      t.organizationId,
+      t.periodCode,
+      t.cashAccountId
+    ),
     index("cash_account_period_balances_org_account_ix").on(
       t.organizationId,
       t.cashAccountId,
@@ -266,7 +288,12 @@ export const inventoryPeriodBalances = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.organizationId, t.periodCode, t.itemId, t.warehouseId),
+    uniqueIndex("inventory_period_balances_org_period_item_wh_ux").on(
+      t.organizationId,
+      t.periodCode,
+      t.itemId,
+      t.warehouseId
+    ),
     index("inventory_period_balances_org_period_ix").on(
       t.organizationId,
       t.periodCode
@@ -444,7 +471,14 @@ export const cashDocuments = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("cash_documents_user_id_document_no_ux").on(
+      t.userId,
+      t.documentNo
+    ),
+    uniqueIndex("cash_documents_organization_id_document_no_ux").on(
+      t.organizationId,
+      t.documentNo
+    ),
     uniqueIndex("cash_documents_org_external_ref_uq")
       .on(t.organizationId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
@@ -483,7 +517,16 @@ export const bankStatements = pgTable(
     status: text("status").notNull().default("posted"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.userId, table.fileHash), unique().on(table.organizationId, table.fileHash)]
+  (table) => [
+    uniqueIndex("bank_statements_user_id_file_hash_ux").on(
+      table.userId,
+      table.fileHash
+    ),
+    uniqueIndex("bank_statements_organization_id_file_hash_ux").on(
+      table.organizationId,
+      table.fileHash
+    ),
+  ]
 );
 
 export const bankStatementLines = pgTable(
@@ -524,13 +567,15 @@ export const bankStatementLines = pgTable(
     }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  // unique CONSTRAINT БИШ, unique INDEX (exchange_rates-тай ижил шалтгаан,
-  // CLAUDE.md §5b): drizzle-kit 0.31.x-ийн push нь бөглөөтэй хүснэгтэд unique
-  // constraint нэмэхдээ "truncate хийх үү?" гэж ИНТЕРАКТИВ асууж, Railway-ийн
-  // non-TTY preDeploy-г унагаадаг → схемийн БҮХ өөрчлөлт DB-д орохгүй үлддэг.
-  // Индекс хэлбэрээр давхардлын хамгаалалт ЯГ ижил хэвээр.
   (table) => [
-    uniqueIndex("bank_statement_lines_statement_id_row_number_unique").on(
+    // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн алдаа
+    // (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
+    // push дараагийн удаа "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
+    // нэмэхийг оролдож «truncate хийх үү?» гэж асуудаг — non-TTY preDeploy
+    // дээр тэр асуулт crash болж, схемийн БҮХ өөрчлөлт DB-д ОРОХГҮЙ үлддэг
+    // (2026-09-18: 3 мөртэй болмогц үндсэн апп унаж, АР/АП хуудас 500 өгсөн).
+    // Нэр нь хуучин `…_unique` constraint-аас ЗОРИУД өөр — давхцахгүй.
+    uniqueIndex("bank_statement_lines_statement_row_ux").on(
       table.statementId,
       table.rowNumber
     ),
@@ -616,12 +661,12 @@ export const cashFxRevaluations = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    unique().on(
+    uniqueIndex("cash_fx_revaluations_user_acct_date_rev_ux").on(
       table.userId,
       table.cashAccountId,
       table.valuationDate,
       table.revision
-    ), unique().on(table.organizationId,
+    ), uniqueIndex("cash_fx_revaluations_org_acct_date_rev_ux").on(table.organizationId,
       table.cashAccountId,
       table.valuationDate,
       table.revision
@@ -706,7 +751,13 @@ export const counterparties = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.userId, table.name), unique().on(table.organizationId, table.name)]
+  (table) => [
+    uniqueIndex("counterparties_user_id_name_ux").on(table.userId, table.name),
+    uniqueIndex("counterparties_organization_id_name_ux").on(
+      table.organizationId,
+      table.name
+    ),
+  ]
 );
 
 export const arApDocuments = pgTable(
@@ -766,7 +817,14 @@ export const arApDocuments = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    unique().on(table.userId, table.documentNo), unique().on(table.organizationId, table.documentNo),
+    uniqueIndex("ar_ap_documents_user_id_document_no_ux").on(
+      table.userId,
+      table.documentNo
+    ),
+    uniqueIndex("ar_ap_documents_organization_id_document_no_ux").on(
+      table.organizationId,
+      table.documentNo
+    ),
     uniqueIndex("ar_ap_documents_org_external_ref_uq")
       .on(table.organizationId, table.externalRef)
       .where(sql`${table.externalRef} is not null`),
@@ -1085,7 +1143,13 @@ export const moduleConfigs = pgTable(
     isEnabled: boolean("is_enabled").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.moduleKey), unique().on(t.organizationId, t.moduleKey)]
+  (t) => [
+    uniqueIndex("module_configs_user_id_module_key_ux").on(t.userId, t.moduleKey),
+    uniqueIndex("module_configs_organization_id_module_key_ux").on(
+      t.organizationId,
+      t.moduleKey
+    ),
+  ]
 );
 
 export const moduleConfigsRelations = relations(moduleConfigs, ({ one }) => ({
@@ -1122,7 +1186,18 @@ export const segmentValues = pgTable(
     modules: text("modules").notNull().default(""),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.segmentId, t.code), unique().on(t.organizationId, t.segmentId, t.code)]
+  (t) => [
+    uniqueIndex("segment_values_user_id_segment_id_code_ux").on(
+      t.userId,
+      t.segmentId,
+      t.code
+    ),
+    uniqueIndex("segment_values_org_id_segment_id_code_ux").on(
+      t.organizationId,
+      t.segmentId,
+      t.code
+    ),
+  ]
 );
 
 export const segmentValuesRelations = relations(segmentValues, ({ one }) => ({
@@ -1147,7 +1222,13 @@ export const segmentConfigs = pgTable(
     modules: text("modules").notNull().default(""), // comma-separated: "gl,ar,ap,fa,cost,cash"
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.segmentId), unique().on(t.organizationId, t.segmentId)]
+  (t) => [
+    uniqueIndex("segment_configs_user_id_segment_id_ux").on(t.userId, t.segmentId),
+    uniqueIndex("segment_configs_organization_id_segment_id_ux").on(
+      t.organizationId,
+      t.segmentId
+    ),
+  ]
 );
 
 export const segmentConfigsRelations = relations(segmentConfigs, ({ one }) => ({
@@ -1198,7 +1279,18 @@ export const reportLineMappings = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.reportType, t.lineKey), unique().on(t.organizationId, t.reportType, t.lineKey)]
+  (t) => [
+    uniqueIndex("report_line_mappings_user_type_line_ux").on(
+      t.userId,
+      t.reportType,
+      t.lineKey
+    ),
+    uniqueIndex("report_line_mappings_org_type_line_ux").on(
+      t.organizationId,
+      t.reportType,
+      t.lineKey
+    ),
+  ]
 );
 
 export const reportLineMappingsRelations = relations(reportLineMappings, ({ one }) => ({
@@ -1227,7 +1319,13 @@ export const inventoryItems = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
+  (t) => [
+    uniqueIndex("inventory_items_user_id_code_ux").on(t.userId, t.code),
+    uniqueIndex("inventory_items_organization_id_code_ux").on(
+      t.organizationId,
+      t.code
+    ),
+  ]
 );
 
 export const warehouses = pgTable(
@@ -1246,7 +1344,13 @@ export const warehouses = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
+  (t) => [
+    uniqueIndex("warehouses_user_id_code_ux").on(t.userId, t.code),
+    uniqueIndex("warehouses_organization_id_code_ux").on(
+      t.organizationId,
+      t.code
+    ),
+  ]
 );
 
 export const inventoryMovements = pgTable(
@@ -1292,7 +1396,14 @@ export const inventoryMovements = pgTable(
     confirmedAt: timestamp("confirmed_at"),
   },
   (t) => [
-    unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("inventory_movements_user_id_document_no_ux").on(
+      t.userId,
+      t.documentNo
+    ),
+    uniqueIndex("inventory_movements_org_id_document_no_ux").on(
+      t.organizationId,
+      t.documentNo
+    ),
     index("inventory_movements_user_status_ix").on(t.userId, t.status), index("inventory_movements_org_status_ix").on(t.organizationId, t.status),
     index("inventory_movements_user_date_ix").on(t.userId, t.date), index("inventory_movements_org_date_ix").on(t.organizationId, t.date),
   ]
@@ -1322,7 +1433,13 @@ export const costingItemSettings = pgTable(
     cogsAccountNumber: text("cogs_account_number").notNull().default("61100000"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.itemId), unique().on(t.organizationId, t.itemId)]
+  (t) => [
+    uniqueIndex("costing_item_settings_user_id_item_id_ux").on(t.userId, t.itemId),
+    uniqueIndex("costing_item_settings_org_id_item_id_ux").on(
+      t.organizationId,
+      t.itemId
+    ),
+  ]
 );
 
 // ── Өртгийн master data (docs/cost FR-MD-CC-*, FR-MD-IT-*) ──────────────────
@@ -1355,7 +1472,13 @@ export const costComponents = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
+  (t) => [
+    uniqueIndex("cost_components_user_id_code_ux").on(t.userId, t.code),
+    uniqueIndex("cost_components_organization_id_code_ux").on(
+      t.organizationId,
+      t.code
+    ),
+  ]
 );
 
 export const inventoryIssueTypes = pgTable(
@@ -1389,7 +1512,13 @@ export const inventoryIssueTypes = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
+  (t) => [
+    uniqueIndex("inventory_issue_types_user_id_code_ux").on(t.userId, t.code),
+    uniqueIndex("inventory_issue_types_org_id_code_ux").on(
+      t.organizationId,
+      t.code
+    ),
+  ]
 );
 
 /**
@@ -1433,7 +1562,7 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
     .notNull()
     .default("87000003"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [unique().on(t.organizationId)]);
+}, (t) => [uniqueIndex("costing_account_settings_org_id_ux").on(t.organizationId)]);
 
 // ─── Payroll (Цалин) ─────────────────────────────────────────────────────────
 // Knowledge: knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/. Тооцооллын
@@ -1547,8 +1676,26 @@ export const payrollSettings = pgTable("payroll_settings", {
   })
     .notNull()
     .default("168"),
+  /**
+   * Цалингийн нэхэмжлэхийн ӨГЛӨГИЙН ХЯНАЛТЫН данс — АР/АП модулийн
+   * ажилтанд өгөх өглөг энд суудаг (кассаас энэ өглөгийг хаана).
+   * Цалингийн өглөг (salaryPayable) нь КЛИРИНГ тал: нэхэмжлэх батлагдахад
+   * Dr Цалингийн өглөг / Cr энэ данс болж, §7-ийн нэгдсэн журналын
+   * кредитийг ажилтны өглөг рүү шилжүүлнэ (зардал давхар бичигдэхгүй).
+   */
+  employeePayableAccountNumber: text("employee_payable_account_number")
+    .notNull()
+    .default("31000001"),
+  /**
+   * Цалингийн нэхэмжлэхийн нэгтгэсэн харилцагч ("Ажилчид") — эхний
+   * нэхэмжлэх үүсгэхэд автоматаар бүртгэгдэнэ.
+   */
+  employeeCounterpartyId: uuid("employee_counterparty_id").references(
+    () => counterparties.id,
+    { onDelete: "set null" }
+  ),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [unique().on(t.organizationId)]);
+}, (t) => [uniqueIndex("payroll_settings_org_id_ux").on(t.organizationId)]);
 
 export const payrollRuns = pgTable(
   "payroll_runs",
@@ -1567,10 +1714,31 @@ export const payrollRuns = pgTable(
     voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
       onDelete: "set null",
     }),
+    /** Урьдчилгаа олгох огноо — хэрэглэгч бодолт бүрд сонгоно (сар дундуур). */
+    advanceDate: text("advance_date"),
+    /** Урьдчилгааны нэгтгэсэн өглөгийн нэхэмжлэх (АР/АП модульд). */
+    advanceDocumentId: uuid("advance_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "set null" }
+    ),
+    /** Сүүл цалингийн нэгтгэсэн өглөгийн нэхэмжлэх. */
+    finalDocumentId: uuid("final_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.periodMonth), unique().on(t.organizationId, t.periodMonth)]
+  (t) => [
+    uniqueIndex("payroll_runs_user_id_period_month_ux").on(
+      t.userId,
+      t.periodMonth
+    ),
+    uniqueIndex("payroll_runs_org_id_period_month_ux").on(
+      t.organizationId,
+      t.periodMonth
+    ),
+  ]
 );
 
 export const payrollRunLines = pgTable("payroll_run_lines", {
@@ -1585,6 +1753,15 @@ export const payrollRunLines = pgTable("payroll_run_lines", {
   earnings: numeric("earnings", { precision: 18, scale: 2 }).notNull(),
   /** Бусад суутгал (зээл г.м) — засварлагдана. */
   otherDeductions: numeric("other_deductions", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /**
+   * Тухайн сард ажиллавал зохих цаг — ажилтан бүрд засварлагдана (бүтэн бус
+   * цагийн ажилтан, сар бүрийн ажлын өдрийн зөрүү). Цагийн хөлсний
+   * ХУВААГЧ: цагийн хөлс = үндсэн цалин / ажиллавал зохих цаг.
+   * Бодолт хийхэд тохиргооны стандарт цагаар бөглөгдөнө.
+   */
+  standardHours: numeric("standard_hours", { precision: 8, scale: 2 })
     .notNull()
     .default("0"),
   /**
@@ -1612,6 +1789,16 @@ export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
   voucher: one(journalVouchers, {
     fields: [payrollRuns.voucherId],
     references: [journalVouchers.id],
+  }),
+  advanceDocument: one(arApDocuments, {
+    fields: [payrollRuns.advanceDocumentId],
+    references: [arApDocuments.id],
+    relationName: "payrollAdvanceDocument",
+  }),
+  finalDocument: one(arApDocuments, {
+    fields: [payrollRuns.finalDocumentId],
+    references: [arApDocuments.id],
+    relationName: "payrollFinalDocument",
   }),
   lines: many(payrollRunLines),
 }));
@@ -1699,7 +1886,7 @@ export const vatSettings = pgTable("vat_settings", {
     .notNull()
     .default("10"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (t) => [unique().on(t.organizationId)]);
+}, (t) => [uniqueIndex("vat_settings_org_id_ux").on(t.organizationId)]);
 
 export const costingRuns = pgTable("costing_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1758,7 +1945,14 @@ export const costAllocations = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.userId, t.documentNo), unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("cost_allocations_user_id_document_no_ux").on(
+      t.userId,
+      t.documentNo
+    ),
+    uniqueIndex("cost_allocations_org_id_document_no_ux").on(
+      t.organizationId,
+      t.documentNo
+    ),
     index("cost_allocations_source_line_ix")
       .on(t.sourceLineId)
       .where(sql`${t.sourceLineId} is not null`),
@@ -1845,7 +2039,20 @@ export const costPeriodResults = pgTable(
     blockReason: text("block_reason"),
     calculatedAt: timestamp("calculated_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.periodCode, t.itemId, t.warehouseId), unique().on(t.organizationId, t.periodCode, t.itemId, t.warehouseId)]
+  (t) => [
+    uniqueIndex("cost_period_results_user_period_item_wh_ux").on(
+      t.userId,
+      t.periodCode,
+      t.itemId,
+      t.warehouseId
+    ),
+    uniqueIndex("cost_period_results_org_period_item_wh_ux").on(
+      t.organizationId,
+      t.periodCode,
+      t.itemId,
+      t.warehouseId
+    ),
+  ]
 );
 
 export const costEntries = pgTable("cost_entries", {
@@ -1984,7 +2191,10 @@ export const purchaseOrders = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("purchase_orders_org_id_document_no_ux").on(
+      t.organizationId,
+      t.documentNo
+    ),
     uniqueIndex("purchase_orders_org_external_ref_uq")
       .on(t.organizationId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
@@ -2060,7 +2270,10 @@ export const goodsReceipts = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    unique().on(t.organizationId, t.documentNo),
+    uniqueIndex("goods_receipts_org_id_document_no_ux").on(
+      t.organizationId,
+      t.documentNo
+    ),
     index("goods_receipts_org_status_ix").on(t.organizationId, t.status),
     index("goods_receipts_po_date_ix").on(t.purchaseOrderId, t.date),
     index("goods_receipts_org_date_ix").on(t.organizationId, t.date),
@@ -2357,7 +2570,13 @@ export const fixedAssets = pgTable(
     ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [unique().on(t.userId, t.code), unique().on(t.organizationId, t.code)]
+  (t) => [
+    uniqueIndex("fixed_assets_user_id_code_ux").on(t.userId, t.code),
+    uniqueIndex("fixed_assets_organization_id_code_ux").on(
+      t.organizationId,
+      t.code
+    ),
+  ]
 );
 
 export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
@@ -2552,7 +2771,12 @@ export const aiSettings = pgTable("ai_settings", {
   writeMode: text("write_mode").notNull().default("draft"),
   customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (t) => [unique().on(t.userId, t.organizationId)]);
+}, (t) => [
+  uniqueIndex("ai_settings_user_id_organization_id_ux").on(
+    t.userId,
+    t.organizationId
+  ),
+]);
 
 // ─── Компанийн мэдээлэл — нэхэмжлэх, хэвлэх маягтын толгой ───────────────────
 
@@ -2594,7 +2818,7 @@ export const companySettings = pgTable("company_settings", {
       false үед tenant-ийн from хаягаар илгээхийг оролдохгүй (ил алдаа). */
   emailDomainVerified: boolean("email_domain_verified").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (t) => [unique().on(t.organizationId)]);
+}, (t) => [uniqueIndex("company_settings_org_id_ux").on(t.organizationId)]);
 
 // ─── Нэхэмжлэх илгээлт — суваг бүрийн бүртгэл, төлөв мөрдөлт ─────────────────
 

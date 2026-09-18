@@ -56,6 +56,15 @@ async function main() {
     "bank_statement_lines (statement_id,row_number) → unique index",
     `do $$
      begin
+       -- ЭХЛЭЭД индексийг (schema.ts-ийн нэрээр) үүсгэнэ, ДАРАА нь хуучин
+       -- constraint-ыг тайлна — давхардлын хамгаалалт нэг ч агшинд тасрахгүй.
+       if not exists (
+         select 1 from pg_class
+         where relname = 'bank_statement_lines_statement_row_ux' and relkind = 'i'
+       ) then
+         create unique index bank_statement_lines_statement_row_ux
+           on bank_statement_lines (statement_id, row_number);
+       end if;
        if exists (
          select 1 from pg_constraint
          where conname = 'bank_statement_lines_statement_id_row_number_unique'
@@ -64,13 +73,32 @@ async function main() {
          alter table bank_statement_lines
            drop constraint bank_statement_lines_statement_id_row_number_unique;
        end if;
+     end $$;`
+  );
+
+  // ── 1b. ai_settings (user_id,organization_id) → unique index ───────────────
+  // 2026-09-18: bank_statement_lines зассаны дараа push ЭНЭ хүснэгт дээр
+  // (1 мөртэй) ижил асуултаар дахин унасан. schema.ts дахь БҮХ composite
+  // unique constraint одоо uniqueIndex болсон тул push цаашид асуухаа болино;
+  // энэ хоёр нь аль хэдийн бөглөөтэй байсан тул урьдчилж шилжүүлнэ.
+  await run(
+    "ai_settings (user_id,organization_id) → unique index",
+    `do $$
+     begin
        if not exists (
          select 1 from pg_class
-         where relname = 'bank_statement_lines_statement_id_row_number_unique'
-           and relkind = 'i'
+         where relname = 'ai_settings_user_id_organization_id_ux' and relkind = 'i'
        ) then
-         create unique index bank_statement_lines_statement_id_row_number_unique
-           on bank_statement_lines (statement_id, row_number);
+         create unique index ai_settings_user_id_organization_id_ux
+           on ai_settings (user_id, organization_id);
+       end if;
+       if exists (
+         select 1 from pg_constraint
+         where conname = 'ai_settings_user_id_organization_id_unique'
+           and conrelid = 'ai_settings'::regclass
+       ) then
+         alter table ai_settings
+           drop constraint ai_settings_user_id_organization_id_unique;
        end if;
      end $$;`
   );

@@ -188,6 +188,7 @@ export const MODULES: Module[] = [
     items: [
       { label: "Цалин бодолт", href: "/payroll", icon: "movement" },
       { label: "Ажилтнууд", href: "/payroll/employees", icon: "user" },
+      { label: "Тайлан", href: "/payroll/reports", icon: "report" },
     ],
   },
   {

@@ -14,15 +14,24 @@ import { and, asc, eq } from "drizzle-orm";
 import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  arApDocuments,
   chartOfAccounts,
+  counterparties,
   employees,
   journalVouchers,
   payrollRunLines,
   payrollRuns,
+  payrollSettings,
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
 import { createVoucher } from "@/lib/actions/gl";
+import { createArApDocument } from "@/lib/actions/arap";
+import {
+  SALARY_BILL_LABEL,
+  salaryBillRefOf,
+  type SalaryBillKind,
+} from "@/lib/payroll/bills";
 import { unwrapAction } from "@/lib/action-result";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
@@ -40,10 +49,14 @@ import { logAuditEvent } from "@/lib/audit";
 function revalidatePayroll() {
   revalidatePath("/payroll");
   revalidatePath("/payroll/employees");
+  revalidatePath("/payroll/reports");
   revalidatePath("/gl/journal");
+  revalidatePath("/payables");
 }
 
 const voucherRefOf = (periodMonth: string) => `payroll:${periodMonth}`;
+
+
 
 // ── Ажилтан ─────────────────────────────────────────────────────────────────
 
@@ -255,10 +268,21 @@ export type PayrollLineView = {
   pit: number;
   /** Сарын НИЙТ гарт олгох = урьдчилгаа + сүүл цалин. */
   netSalary: number;
+  /** Тухайн сард ажиллавал зохих цаг — цагийн хөлсний хуваагч. */
+  standardHours: number;
   hourlyRate: number;
   advanceHours: number;
   advanceAmount: number;
   finalNet: number;
+};
+
+export type SalaryBillView = {
+  id: string;
+  documentNo: string;
+  status: string;
+  date: string;
+  totalAmount: number;
+  paidAmount: number;
 };
 
 export type PayrollRunView = {
@@ -266,6 +290,9 @@ export type PayrollRunView = {
   runId: string | null;
   status: string;
   voucher: { id: string; status: string } | null;
+  /** Урьдчилгаа олгох огноо (хэрэглэгчийн сонгосон) — нэхэмжлэхтэй хамт. */
+  advanceDate: string | null;
+  bills: Record<SalaryBillKind, SalaryBillView | null>;
   lines: PayrollLineView[];
   settings: {
     minimumWage: number;
@@ -276,6 +303,36 @@ export type PayrollRunView = {
   };
   activeEmployeeCount: number;
 };
+
+const BILL_COLUMNS = {
+  id: true,
+  documentNo: true,
+  status: true,
+  date: true,
+  totalAmount: true,
+  paidAmount: true,
+} as const;
+
+type BillRow = {
+  id: string;
+  documentNo: string;
+  status: string;
+  date: string;
+  totalAmount: string;
+  paidAmount: string;
+};
+
+const toSalaryBillView = (row: BillRow | null): SalaryBillView | null =>
+  row
+    ? {
+        id: row.id,
+        documentNo: row.documentNo,
+        status: row.status,
+        date: row.date,
+        totalAmount: Number(row.totalAmount),
+        paidAmount: Number(row.paidAmount),
+      }
+    : null;
 
 export async function getPayrollRunData(
   periodMonth: string
@@ -292,6 +349,8 @@ export async function getPayrollRunData(
       ),
       with: {
         voucher: { columns: { id: true, status: true } },
+        advanceDocument: { columns: BILL_COLUMNS },
+        finalDocument: { columns: BILL_COLUMNS },
         lines: {
           orderBy: [asc(payrollRunLines.sortOrder)],
           with: { employee: true },
@@ -309,10 +368,18 @@ export async function getPayrollRunData(
     runId: run?.id ?? null,
     status: run?.status ?? "draft",
     voucher: run?.voucher ?? null,
+    advanceDate: run?.advanceDate ?? null,
+    bills: {
+      advance: toSalaryBillView(run?.advanceDocument ?? null),
+      final: toSalaryBillView(run?.finalDocument ?? null),
+    },
     lines: (run?.lines ?? []).map((line) => {
       const netSalary = Number(line.netSalary);
       const advanceAmount = Number(line.advanceAmount);
-      const standardHours = Number(settings.standardMonthlyHours);
+      // Мөрийн стандарт цаг (бодолт хийхэд тохиргооноос бөглөгддөг) —
+      // хуучин, бөглөгдөөгүй мөрүүдэд тохиргооны утга руу унана.
+      const standardHours =
+        Number(line.standardHours) || Number(settings.standardMonthlyHours);
       const baseSalary = Number(line.employee.baseSalary);
       return {
         id: line.id,
@@ -327,6 +394,7 @@ export async function getPayrollRunData(
         employerSi: Number(line.employerSi),
         pit: Number(line.pit),
         netSalary,
+        standardHours,
         hourlyRate:
           standardHours > 0
             ? Math.round((baseSalary / standardHours) * 100) / 100
@@ -369,6 +437,8 @@ function computeFor(
     otherDeductions: number;
     employerSiPercent: number;
     advanceHours: number;
+    /** Мөрийн ажиллавал зохих цаг; 0 бол тохиргооны стандарт цаг. */
+    standardHours: number;
     baseSalary: number;
   },
   periodMonth: string,
@@ -384,7 +454,8 @@ function computeFor(
     siCapMultiplier: settings.siCapMultiplier,
     monthlyTaxFree: settings.monthlyTaxFree,
     advanceHours: input.advanceHours,
-    standardMonthlyHours: settings.standardMonthlyHours,
+    standardMonthlyHours:
+      input.standardHours || settings.standardMonthlyHours,
     // Урьдчилгаа нь ҮНДСЭН цалингаас цагаар бодогдоно — урамшуулал, илүү
     // цагийг урьдчилгаанд оруулахгүй (сүүл цалинд бүтнээр орно).
     advanceBaseSalary: input.baseSalary,
@@ -445,14 +516,20 @@ export async function calculatePayrollRun(periodMonth: string) {
       const existing = byEmployee.get(person.id);
       const earnings = existing ? Number(existing.earnings) : Number(person.baseSalary);
       const otherDeductions = existing ? Number(existing.otherDeductions) : 0;
-      // Хэрэглэгчийн оруулсан урьдчилгааны цаг дахин бодолтод ХАДГАЛАГДАНА.
+      // Хэрэглэгчийн оруулсан цагууд дахин бодолтод ХАДГАЛАГДАНА; бөглөгдөөгүй
+      // бол ажиллавал зохих цагийг тохиргооны стандартаар бөглөнө (ингэснээр
+      // "Бодолт хийх" дарахад цагийн хөлс, урьдчилгаа шууд бодогдоно).
       const advanceHours = existing ? Number(existing.advanceHours) : 0;
+      const standardHours =
+        (existing ? Number(existing.standardHours) : 0) ||
+        settings.standardMonthlyHours;
       const result = computeFor(
         {
           earnings,
           otherDeductions,
           employerSiPercent: Number(person.employerSiPercent),
           advanceHours,
+          standardHours,
           baseSalary: Number(person.baseSalary),
         },
         periodMonth,
@@ -461,6 +538,7 @@ export async function calculatePayrollRun(periodMonth: string) {
       const derived = {
         earnings: String(result.earnings),
         otherDeductions: String(result.otherDeductions),
+        standardHours: String(standardHours),
         advanceHours: String(result.advanceHours),
         advanceAmount: String(result.advanceAmount),
         employeeSi: String(result.employeeSi),
@@ -496,6 +574,7 @@ export async function updatePayrollLine(data: {
   earnings: number;
   otherDeductions: number;
   advanceHours?: number;
+  standardHours?: number;
 }) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const line = await db.query.payrollRunLines.findFirst({
@@ -513,6 +592,7 @@ export async function updatePayrollLine(data: {
       otherDeductions: Number(data.otherDeductions),
       employerSiPercent: Number(line.employee.employerSiPercent),
       advanceHours: Number(data.advanceHours ?? line.advanceHours),
+      standardHours: Number(data.standardHours ?? line.standardHours),
       baseSalary: Number(line.employee.baseSalary),
     },
     line.run.periodMonth,
@@ -528,6 +608,10 @@ export async function updatePayrollLine(data: {
     .set({
       earnings: String(result.earnings),
       otherDeductions: String(result.otherDeductions),
+      standardHours: String(
+        Number(data.standardHours ?? line.standardHours) ||
+          Number(settingsRow.standardMonthlyHours)
+      ),
       advanceHours: String(result.advanceHours),
       advanceAmount: String(result.advanceAmount),
       employeeSi: String(result.employeeSi),
@@ -672,4 +756,297 @@ export async function createPayrollVoucher(
 
   revalidatePayroll();
   return { id };
+}
+
+// ── Цалингийн нэхэмжлэх (урьдчилгаа / сүүл) → АР/АП өглөг ──────────────────
+//
+// КЛИРИНГИЙН ЗАГВАР (PO-гийн түр дансны хэв маягтай ижил):
+//   §7-ийн нэгдсэн журнал:   … Cr Цалингийн өглөг (сарын НИЙТ гарт олгох)
+//   Нэхэмжлэх батлагдахад:   Dr Цалингийн өглөг / Cr Ажилтны өглөг (АП хяналт)
+//   Кассаас төлөхөд:         Dr Ажилтны өглөг / Cr Банк
+// Ингэснээр зардал НЭГ л удаа бичигдэж, Цалингийн өглөг тэгширч, ажилтанд
+// өгөх өглөг нь АР/АП-ийн дэд дэвтэрт хөтлөгдөнө (кассаас хаагдана).
+//
+// Нэхэмжлэх нь НООРОГ болж үүснэ (§9 human-in-the-loop) — нягтланч АР/АП
+// модулиас батална, тэр үед л GL журнал бичигдэнэ.
+
+/** Нэгтгэсэн "Ажилчид" харилцагчийг олж, байхгүй бол үүсгэнэ. */
+async function ensureEmployeeCounterparty(
+  orgId: string,
+  userId: string,
+  settingsId: string,
+  currentId: string | null
+): Promise<string> {
+  if (currentId) {
+    const existing = await db.query.counterparties.findFirst({
+      where: and(
+        eq(counterparties.id, currentId),
+        eq(counterparties.organizationId, orgId),
+        eq(counterparties.isActive, true)
+      ),
+      columns: { id: true },
+    });
+    if (existing) return existing.id;
+  }
+
+  const NAME = "Ажилчид";
+  const byName = await db.query.counterparties.findFirst({
+    where: and(
+      eq(counterparties.organizationId, orgId),
+      eq(counterparties.name, NAME)
+    ),
+    columns: { id: true, isActive: true },
+  });
+  let id = byName?.id ?? null;
+  if (byName && !byName.isActive)
+    await db
+      .update(counterparties)
+      .set({ isActive: true })
+      .where(eq(counterparties.id, byName.id));
+  if (!id) {
+    const [created] = await db
+      .insert(counterparties)
+      .values({
+        userId,
+        organizationId: orgId,
+        name: NAME,
+        counterpartyType: "supplier",
+      })
+      .returning({ id: counterparties.id });
+    id = created.id;
+  }
+  await db
+    .update(payrollSettings)
+    .set({ employeeCounterpartyId: id, updatedAt: new Date() })
+    .where(eq(payrollSettings.id, settingsId));
+  return id;
+}
+
+/**
+ * Урьдчилгаа / сүүл цалингийн НЭГТГЭСЭН өглөгийн нэхэмжлэх (ноорог).
+ * Сард төрөл тус бүрд нэг л удаа — давтан дуудахад байгааг нь буцаана.
+ */
+export async function createPayrollSalaryBill(
+  periodMonth: string,
+  kind: SalaryBillKind,
+  /** Урьдчилгаанд ЗААВАЛ (сар дундуур олгоно); сүүлд өгөөгүй бол сарын эцэс. */
+  date?: string
+): Promise<{ id: string; documentNo: string; dedup?: boolean }> {
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
+  if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
+  if (kind !== "advance" && kind !== "final")
+    throw new Error("Цалингийн нэхэмжлэхийн төрөл буруу байна");
+
+  const { endDate, startDate } = periodRange(periodMonth);
+  const billDate = (date ?? (kind === "final" ? endDate : "")).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(billDate))
+    throw new Error("Олгох огноо (YYYY-MM-DD) оруулна уу");
+  if (billDate < startDate || billDate > endDate)
+    throw new Error(`Олгох огноо ${periodMonth} сард багтах ёстой`);
+
+  const externalRef = salaryBillRefOf(kind, periodMonth);
+  const existing = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.organizationId, orgId),
+      eq(arApDocuments.externalRef, externalRef)
+    ),
+    columns: { id: true, documentNo: true },
+  });
+  if (existing) return { ...existing, dedup: true };
+
+  const run = await db.query.payrollRuns.findFirst({
+    where: and(
+      eq(payrollRuns.organizationId, orgId),
+      eq(payrollRuns.periodMonth, periodMonth)
+    ),
+    with: { lines: true },
+  });
+  if (!run || run.lines.length === 0)
+    throw new Error("Эхлээд сарын бодолт хийнэ үү (мөр алга)");
+
+  // Урьдчилгаа = Σ урьдчилгааны дүн; сүүл = Σ (гарт олгох − урьдчилгаа).
+  const total = run.lines.reduce((sum, line) => {
+    const advance = Number(line.advanceAmount);
+    return (
+      sum +
+      (kind === "advance" ? advance : Number(line.netSalary) - advance)
+    );
+  }, 0);
+  const amount = Math.round(total * 100) / 100;
+  if (!(amount > 0))
+    throw new Error(
+      kind === "advance"
+        ? "Урьдчилгааны дүн 0 байна — эхлээд ажилласан цагийг оруулна уу"
+        : "Сүүл цалингийн дүн 0 байна"
+    );
+
+  const settings = await loadPayrollSettings(orgId, userId);
+  // Клирингийн хоёр данс ЗӨРӨХ ёстой — эс бөгөөс бичилт өөрийгөө тэгшитгэнэ.
+  if (
+    settings.salaryPayableAccountNumber ===
+    settings.employeePayableAccountNumber
+  )
+    throw new Error(
+      "Цалингийн өглөг ба Ажилтны өглөгийн данс ижил байна — тохиргоог засна уу"
+    );
+  for (const main of [
+    settings.salaryPayableAccountNumber,
+    settings.employeePayableAccountNumber,
+  ]) {
+    const account = await db.query.chartOfAccounts.findFirst({
+      where: and(
+        eq(chartOfAccounts.organizationId, orgId),
+        eq(chartOfAccounts.number, main),
+        eq(chartOfAccounts.isEnabled, true)
+      ),
+      columns: { id: true },
+    });
+    if (!account)
+      throw new Error(
+        `${main} данс идэвхтэй жагсаалтад алга — Тохиргоо → Ерөнхий журналын тохиргоо хэсгээс нэмнэ үү`
+      );
+  }
+
+  const counterpartyId = await ensureEmployeeCounterparty(
+    orgId,
+    userId,
+    settings.id,
+    settings.employeeCounterpartyId
+  );
+
+  const label = SALARY_BILL_LABEL[kind];
+  const created = unwrapAction(
+    await createArApDocument({
+      documentType: "ap_bill",
+      counterpartyId,
+      date: billDate,
+      dueDate: billDate,
+      controlAccountNumber: settings.employeePayableAccountNumber,
+      description: `${label} ${periodMonth} (${run.lines.length} ажилтан)`,
+      lines: [
+        {
+          account: settings.salaryPayableAccountNumber,
+          description: `${label} ${periodMonth}`,
+          amount,
+        },
+      ],
+      externalRef,
+    })
+  );
+
+  await db
+    .update(payrollRuns)
+    .set({
+      ...(kind === "advance"
+        ? { advanceDocumentId: created.id, advanceDate: billDate }
+        : { finalDocumentId: created.id }),
+      updatedAt: new Date(),
+    })
+    .where(eq(payrollRuns.id, run.id));
+
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "create",
+    entityType: "payroll",
+    entityId: created.id,
+    summary: `${label} нэхэмжлэх үүсэв — ${periodMonth}, ${run.lines.length} ажилтан, ${amount.toLocaleString("en-US")}₮`,
+  });
+
+  revalidatePayroll();
+  return created;
+}
+
+// ── Цалин олгох тайлан (банкны жагсаалт) ───────────────────────────────────
+
+export type SalaryPaymentRow = {
+  employeeId: string;
+  employeeName: string;
+  registerNo: string;
+  position: string;
+  bankName: string;
+  bankAccountNo: string;
+  iban: string;
+  /** Сонгосон төрлөөр олгох дүн (урьдчилгаа эсвэл сүүл цалин). */
+  amount: number;
+};
+
+export type SalaryPaymentReport = {
+  periodMonth: string;
+  kind: SalaryBillKind;
+  /** Урьдчилгаа бол хэрэглэгчийн сонгосон олгох огноо. */
+  payDate: string | null;
+  bill: SalaryBillView | null;
+  rows: SalaryPaymentRow[];
+  total: number;
+  /** Банкны мэдээлэл дутуу ажилтны тоо — шилжүүлэг хийхэд саад болно. */
+  missingBankCount: number;
+};
+
+/**
+ * Сонгосон сар + төрлөөр ажилтан тус бүрийн ОЛГОХ дүнг банкны мэдээлэлтэй
+ * хамт гаргана — банкны багц шилжүүлгийн жагсаалт. Дүн нь мөрөнд
+ * хадгалагдсан тооцооноос (advanceAmount / netSalary − advanceAmount) гарна
+ * тул нэхэмжлэхийн нийт дүнтэй үргэлж тэнцэнэ.
+ */
+export async function getSalaryPaymentReport(
+  periodMonth: string,
+  kind: SalaryBillKind
+): Promise<SalaryPaymentReport> {
+  const { orgId } = await getActiveOrg();
+  if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
+
+  const run = await db.query.payrollRuns.findFirst({
+    where: and(
+      eq(payrollRuns.organizationId, orgId),
+      eq(payrollRuns.periodMonth, periodMonth)
+    ),
+    with: {
+      advanceDocument: { columns: BILL_COLUMNS },
+      finalDocument: { columns: BILL_COLUMNS },
+      lines: {
+        orderBy: [asc(payrollRunLines.sortOrder)],
+        with: { employee: true },
+      },
+    },
+  });
+
+  const rows: SalaryPaymentRow[] = [];
+  let missingBankCount = 0;
+  for (const line of run?.lines ?? []) {
+    const advance = Number(line.advanceAmount);
+    const amount =
+      kind === "advance" ? advance : Number(line.netSalary) - advance;
+    if (Math.abs(amount) <= 0.005) continue;
+    const bankAccountNo = line.employee.bankAccountNo ?? "";
+    const iban = line.employee.iban ?? "";
+    if (!bankAccountNo && !iban) missingBankCount += 1;
+    rows.push({
+      employeeId: line.employeeId,
+      employeeName: [line.employee.lastName, line.employee.name]
+        .filter(Boolean)
+        .join(" "),
+      registerNo: line.employee.registerNo ?? "",
+      position: line.employee.position,
+      bankName: line.employee.bankName ?? "",
+      bankAccountNo,
+      iban,
+      amount: Math.round(amount * 100) / 100,
+    });
+  }
+
+  return {
+    periodMonth,
+    kind,
+    payDate:
+      kind === "advance"
+        ? (run?.advanceDate ?? null)
+        : (run?.finalDocument?.date ?? periodRange(periodMonth).endDate),
+    bill: toSalaryBillView(
+      (kind === "advance" ? run?.advanceDocument : run?.finalDocument) ?? null
+    ),
+    rows,
+    total: Math.round(rows.reduce((sum, row) => sum + row.amount, 0) * 100) / 100,
+    missingBankCount,
+  };
 }

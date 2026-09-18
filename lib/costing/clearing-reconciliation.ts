@@ -157,7 +157,16 @@ export async function loadClearingReconciliation(
     db.query.costAllocationLines.findMany({
       with: {
         allocation: {
-          columns: { documentNo: true, organizationId: true, costComponentId: true },
+          // sourceLineId — хуваарилалт нь АР/АП-ийн МӨРӨӨС гарсан бол тэр
+          // баримтын объектод буух ёстой (хөдөлгөөний arap_line-тай ижил
+          // зарчим): эс бөгөөс зардлыг дансанд оруулсан нэхэмжлэх ба түүнийг
+          // хаасан хуваарилалт хоёр өөр объект болж хэзээ ч тэгширэхгүй.
+          columns: {
+            documentNo: true,
+            organizationId: true,
+            costComponentId: true,
+            sourceLineId: true,
+          },
         },
       },
     }),
@@ -233,9 +242,20 @@ export async function loadClearingReconciliation(
   // эс бөгөөс нэг худалдан авалт хоёр объект болж хэзээ ч тэгширэхгүй.
   const arapLineIds = [
     ...new Set(
-      movements
-        .filter((row) => row.sourceType === "arap_line" && row.sourceId)
-        .map((row) => row.sourceId as string)
+      [
+        // Хөдөлгөөний эх сурвалж (PO-гүй худалдан авалтын гинж)…
+        ...movements
+          .filter((row) => row.sourceType === "arap_line" && row.sourceId)
+          .map((row) => row.sourceId as string),
+        // …болон хуваарилалтын эх сурвалжийн нэхэмжлэхийн мөр.
+        ...allocationLines
+          .filter(
+            (row) =>
+              row.allocation?.organizationId === orgId &&
+              row.allocation?.sourceLineId
+          )
+          .map((row) => row.allocation!.sourceLineId as string),
+      ].filter((id): id is string => !!id)
     ),
   ];
   const arapLineDocs =
