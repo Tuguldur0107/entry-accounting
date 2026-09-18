@@ -107,22 +107,21 @@ export async function saveBankStatement(
         throw new Error(`${index + 1}-р мөрийн орлого/зарлагын дүн буруу`);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(row.transactionDate))
         throw new Error(`${index + 1}-р мөрийн огноо буруу`);
-      let debitMain: string;
-      let creditMain: string;
-      try {
-        debitMain = validateCashAccountCode(
-          row.debitAccountNumber,
-          accountCodeRules
-        );
-        creditMain = validateCashAccountCode(
-          row.creditAccountNumber,
-          accountCodeRules
-        );
-      } catch (caught) {
-        const reason =
-          caught instanceof Error ? caught.message : "дансны бүтэц буруу";
-        throw new Error(`${index + 1}-р мөрийн DR/CR ${reason}`);
-      }
+      // Алдаанд аль тал, ямар данс болохыг нэрлэнэ — засварыг олоход хялбар.
+      const validateSide = (side: "DR" | "CR", code: string) => {
+        try {
+          return validateCashAccountCode(code, accountCodeRules);
+        } catch (caught) {
+          const reason =
+            caught instanceof Error ? caught.message : "дансны бүтэц буруу";
+          const main = code.split(".").length === 10 ? code.split(".")[2] : code;
+          throw new Error(
+            `${index + 1}-р мөрийн ${side} (данс ${main || code}): ${reason}`
+          );
+        }
+      };
+      const debitMain = validateSide("DR", row.debitAccountNumber);
+      const creditMain = validateSide("CR", row.creditAccountNumber);
       if (income > 0 && debitMain !== cashAccount.glAccountNumber)
         throw new Error(`${index + 1}-р мөрийн DR тал банкны данс биш байна`);
       if (expense > 0 && creditMain !== cashAccount.glAccountNumber)

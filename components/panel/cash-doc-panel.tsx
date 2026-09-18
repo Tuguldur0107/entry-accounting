@@ -219,7 +219,7 @@ export function CashDocPanel({
   function handleReverse() {
     void confirm({
       title: "Баримт буцаах",
-      description: `${document.documentNo} батлагдсан баримтад буцаалтын (сторно) журнал үүсгэх үү?`,
+      description: `${document.documentNo} батлагдсан баримтад буцаалтын журнал үүсгэх үү?`,
       confirmText: "Буцаах",
       danger: true,
     }).then((ok) => {
@@ -231,7 +231,7 @@ export function CashDocPanel({
             toast.error(result.error);
             return;
           }
-          toast.success("Баримт буцаагдлаа — сторно журнал үүслээ");
+          toast.success("Баримт буцаагдлаа — буцаалтын журнал үүслээ");
           refreshOpenPanels();
           router.refresh();
         } catch {

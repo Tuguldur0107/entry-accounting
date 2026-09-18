@@ -257,3 +257,41 @@ export function reconciliationStatus(
   if (bankToCashDifference == null) return "no-statement" as const;
   return "balanced" as const;
 }
+
+/**
+ * Кассын тулгалтын ХҮЛЭЭГДЭХ GL үлдэгдэл — модулийн ₮ үлдэгдэл (түүхэн
+ * ханшаар) дээр батлагдсан (буцаагдаагүй, asOf хүртэлх) ханшийн
+ * тэгшитгэлийн Σ дүнг нэмнэ.
+ *
+ * ЯАГААД энэ хувилбар (Б биш А): тэгшитгэл ЗӨВХӨН GL-д журнал бичдэг,
+ * кассын баримт үүсгэдэггүй тул модулийн үлдэгдэл түүхэн ханшаараа үлддэг.
+ * Батлагдсан тэгшитгэлүүдийг нэмбэл GL-ийн carrying дүн ЯГ (бөөрөнхийлөлт
+ * хүртэл) сэргэнэ — «FC × сүүлийн ханш» хувилбар бол тэгшитгэл огт
+ * хийгээгүй/хэсэгчилсэн үед худал зөрүү үзүүлэх ба GL-д гараар бичсэн
+ * бичилтийг тэгшитгэлийн дүнтэй хольж илрүүлэхгүй байх эрсдэлтэй.
+ */
+export function expectedCashGlBalance(input: {
+  subledger: number;
+  revaluations: {
+    adjustmentAmount: number;
+    status: string;
+    valuationDate: string;
+  }[];
+  asOf: string;
+}): { expected: number; fxTotal: number } {
+  const fxTotal =
+    Math.round(
+      input.revaluations
+        .filter(
+          (revaluation) =>
+            revaluation.status === "posted" &&
+            revaluation.valuationDate <= input.asOf
+        )
+        .reduce((sum, revaluation) => sum + revaluation.adjustmentAmount, 0) *
+        100
+    ) / 100;
+  return {
+    fxTotal,
+    expected: Math.round((input.subledger + fxTotal) * 100) / 100,
+  };
+}

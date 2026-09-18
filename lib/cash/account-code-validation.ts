@@ -51,30 +51,35 @@ export function buildCashAccountCodeRules(
 
   const allowedValues = new Map<number, Set<string>>();
   for (const segmentId of activeSegIds) {
-    allowedValues.set(
-      segmentId,
-      new Set(
-        segmentId === 3
-          ? glAccounts
-              .filter(
-                (account) =>
-                  account.isEnabled && moduleEnabled(account.modules, "cash")
-              )
-              .map((account) => account.number)
-          : values
-              .filter(
-                (value) =>
-                  value.segmentId === segmentId &&
-                  value.isEnabled &&
-                  moduleEnabled(value.modules, "cash")
-              )
-              .map((value) => value.code)
-      )
+    const allowed = new Set(
+      segmentId === 3
+        ? glAccounts
+            .filter(
+              (account) =>
+                account.isEnabled && moduleEnabled(account.modules, "cash")
+            )
+            .map((account) => account.number)
+        : values
+            .filter(
+              (value) =>
+                value.segmentId === segmentId &&
+                value.isEnabled &&
+                moduleEnabled(value.modules, "cash")
+            )
+            .map((value) => value.code)
     );
+    // «Ерөнхий (default)» 0-утга — системийн сегмент дүрмээр сонгоогүй
+    // идэвхтэй сегмент 0-утга авдаг (picker бүрд автоматаар нэмэгддэг,
+    // posting builder ганц default олдохгүй үед мөн 0 бичдэг). S3-д үгүй.
+    if (segmentId !== 3) allowed.add(SEG_DEFAULTS[segmentId] ?? "");
+    allowedValues.set(segmentId, allowed);
   }
 
   return { activeSegIds, allowedValues };
 }
+
+/** Кассын бичилтийн S9 модулийн тэмдэг — идэвхгүй S9-д ч бичигддэг. */
+const CASH_MODULE_TAG = "CA";
 
 export function validateCashAccountCode(
   value: string,
@@ -88,10 +93,19 @@ export function validateCashAccountCode(
     const part = parts[segmentId - 1] ?? "";
     if (rules.activeSegIds.includes(segmentId)) {
       if (!part) throw new Error(`S${segmentId} сегмент сонгогдоогүй`);
+      // S9: кассын бичилт "CA" тэмдэгтэй — утгын лавлахад байхгүй ч зөв.
+      if (segmentId === 9 && part === CASH_MODULE_TAG) continue;
       if (!rules.allowedValues.get(segmentId)?.has(part))
-        throw new Error(`S${segmentId} сегментийн утга Cash-д идэвхгүй`);
-    } else if (part !== (SEG_DEFAULTS[segmentId] ?? "")) {
-      throw new Error(`S${segmentId} сегмент Cash-д идэвхгүй`);
+        throw new Error(
+          `S${segmentId} сегментийн "${part}" утга Cash модульд идэвхгүй — Тохиргоо → Данс, сегмент хэсэгт утгыг идэвхжүүлэх эсвэл Cash модульд нээнэ үү`
+        );
+    } else if (
+      part !== (SEG_DEFAULTS[segmentId] ?? "") &&
+      !(segmentId === 9 && part === CASH_MODULE_TAG)
+    ) {
+      throw new Error(
+        `S${segmentId} сегмент идэвхгүй атлаа "${part}" утгатай байна — default (${SEG_DEFAULTS[segmentId] ?? "хоосон"}) байх ёстой`
+      );
     }
   }
 

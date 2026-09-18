@@ -17,8 +17,10 @@ import {
 import {
   calculateFxRevaluation,
   computeCashCoreRows,
+  expectedCashGlBalance,
   reconciliationStatus,
 } from "../lib/cash/reconciliation";
+import { postingCodeBuilderFromData } from "../lib/gl/posting-code";
 import { deriveCashDocumentFromVoucher } from "../lib/cash/gl-sync";
 
 function bytes(value: string) {
@@ -103,7 +105,7 @@ test("validates every active Cash segment and inactive defaults", () => {
         "ENT.CC01.11000001.00.0000.000.0000.OPER.CA.0",
         rules
       ),
-    /S2 сегмент Cash-д идэвхгүй/
+    /S2 сегмент идэвхгүй атлаа "CC01" утгатай/
   );
   assert.throws(
     () =>
@@ -111,7 +113,7 @@ test("validates every active Cash segment and inactive defaults", () => {
         "ENT.000000.11000001.00.0000.000.0000.INVL.CA.0",
         rules
       ),
-    /S8 сегментийн утга Cash-д идэвхгүй/
+    /S8 сегментийн "INVL" утга Cash модульд идэвхгүй/
   );
 });
 
@@ -503,4 +505,92 @@ test("банкны тал: хуулгын үлдэгдэл баганагүйг�
   }).get("acc-1")!;
   assert.equal(stale.bankBalance, 9500000 + 780000);
   assert.equal(stale.status, "stale-statement");
+});
+
+// ── Bug 1: импортын сегмент шалгалт кассын posting builder-тэй нийцэх ёстой ──
+// Тенант S1-д ОЛОН идэвхтэй утгатай үед builder ганц default сонгож чадахгүй
+// тул "Ерөнхий (default)" 0-утга бичдэг (системийн сегмент дүрэм) — validation
+// үүнийг Cash-д идэвхгүй гэж унагаж болохгүй. S9 идэвхгүй ч кассын бичилт
+// "CA" тэмдэг бичдэг (postingCodeBuilderFromData) — мөн зөвшөөрөгдөнө.
+test("accepts the code the cash posting builder produces (multi-value S1, inactive S9)", () => {
+  const configs = [
+    { segmentId: 1, isEnabled: true, modules: "" },
+    { segmentId: 8, isEnabled: true, modules: "" },
+    // S9 settings-д асаагаагүй — гэхдээ кассын бичилт S9="CA" гэж бичдэг.
+  ];
+  const values = [
+    { segmentId: 1, code: "101", isEnabled: true, modules: "gl,cash" },
+    { segmentId: 1, code: "102", isEnabled: true, modules: "gl,cash" },
+    { segmentId: 1, code: "103", isEnabled: true, modules: "gl,cash" },
+    { segmentId: 8, code: "OPER", isEnabled: true, modules: "gl,cash" },
+  ];
+  const glAccounts = [{ number: "11000001", isEnabled: true, modules: "gl,cash" }];
+
+  const buildCode = postingCodeBuilderFromData({
+    configs,
+    values,
+    moduleTag: "CA",
+    cashFlowCode: null,
+  });
+  const code = buildCode("11000001");
+  const rules = buildCashAccountCodeRules(configs, values, glAccounts);
+
+  // create_cash_transaction яг энэ кодоор журнал бичдэг — импортын
+  // validation мөн адил хүлээж авах ёстой.
+  assert.equal(validateCashAccountCode(code, rules), "11000001");
+});
+
+test("still rejects a genuinely disabled segment value and names it", () => {
+  const configs = [{ segmentId: 1, isEnabled: true, modules: "" }];
+  const values = [
+    { segmentId: 1, code: "101", isEnabled: true, modules: "gl,cash" },
+    { segmentId: 1, code: "109", isEnabled: false, modules: "gl,cash" },
+  ];
+  const glAccounts = [{ number: "11000001", isEnabled: true, modules: "gl,cash" }];
+  const rules = buildCashAccountCodeRules(configs, values, glAccounts);
+
+  // Идэвхгүй "109" утга — алдаа нь утгаа нэрлэнэ.
+  assert.throws(
+    () =>
+      validateCashAccountCode(
+        "109.000000.11000001.00.0000.000.0000.0000.CA.0",
+        rules
+      ),
+    /S1 сегментийн "109" утга Cash/
+  );
+});
+
+// ── Bug 2: FX тэгшитгэлийн дараах кассын тулгалт ────────────────────────────
+// Модулийн ₮ үлдэгдэл ТҮҮХЭН ханшаар, GL нь тэгшитгэлээр залруулагдсан —
+// хүлээгдэх GL = модуль + батлагдсан (буцаагдаагүй) тэгшитгэлийн Σ дүн.
+test("expected cash GL adds posted revaluations, excludes reversed and future ones", () => {
+  const revaluations = [
+    { adjustmentAmount: 7285.75, status: "posted", valuationDate: "2026-09-16" },
+    { adjustmentAmount: 4932, status: "reversed", valuationDate: "2026-09-10" },
+    { adjustmentAmount: 999, status: "posted", valuationDate: "2026-09-30" },
+  ];
+  const result = expectedCashGlBalance({
+    subledger: 5_655_800,
+    revaluations,
+    asOf: "2026-09-16",
+  });
+  assert.equal(result.fxTotal, 7285.75);
+  assert.equal(result.expected, 5_663_085.75);
+
+  // GL яг тэгшитгэлтэйгээ таарвал зөрүүгүй.
+  assert.ok(Math.abs(result.expected - 5_663_085.75) <= 0.01);
+  // GL-д гараар бичилт нэмэгдвэл зөрүү хэвээр илэрнэ.
+  assert.ok(Math.abs(result.expected - (5_663_085.75 + 100_000)) > 0.01);
+});
+
+test("expected cash GL with all revaluations reversed equals the module balance", () => {
+  const result = expectedCashGlBalance({
+    subledger: 4_309_800,
+    revaluations: [
+      { adjustmentAmount: 4932, status: "reversed", valuationDate: "2026-09-16" },
+    ],
+    asOf: "2026-09-16",
+  });
+  assert.equal(result.fxTotal, 0);
+  assert.equal(result.expected, 4_309_800);
 });

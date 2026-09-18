@@ -124,6 +124,8 @@ import {
 // `getOfficialRateForDate` нь хадгалсан түүхээс → Монголбанкнаас → ШИДНЭ.
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { saveBankStatement } from "@/lib/cash/import-statement";
+import { expectedCashGlBalance } from "@/lib/cash/reconciliation";
+import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import {
   saveCostComponent,
   saveCostingAccountSettings,
@@ -852,7 +854,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "reverse_fa_depreciation",
     description:
-      "Тухайн сарын БАТЛАГДСАН элэгдлийн бичилтүүдийг буцаана (сторно). Зөвхөн 'Шууд бичих' горимд.",
+      "Тухайн сарын БАТЛАГДСАН элэгдлийн бичилтүүдийг буцаана (буцаалтын журнал үүснэ). Зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -896,7 +898,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "reverse_journal_voucher",
     description:
-      "Батлагдсан журналд буцаалтын (сторно) бичилт үүсгэнэ — эх журнал 'Буцаагдсан' төлөвт орно. Зөвхөн 'Шууд бичих' горимд.",
+      "Батлагдсан журналд буцаалтын бичилт үүсгэнэ — эх журнал 'Буцаагдсан' төлөвт орно. Зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1111,7 +1113,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "reverse_cash_document",
     description:
-      "Батлагдсан кассын баримтыг буцаана (сторно журнал үүснэ). Зөвхөн 'Шууд бичих' горимд.",
+      "Батлагдсан кассын баримтыг буцаана (буцаалтын журнал үүснэ). Зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1690,7 +1692,7 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "reverse_fx_revaluation",
-    description: "Ханшийн тэгшитгэлийг буцаана (сторно журнал үүснэ). Зөвхөн 'Шууд бичих' горимд.",
+    description: "Ханшийн тэгшитгэлийг буцаана (буцаалтын журнал үүснэ). Зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5423,7 +5425,7 @@ async function runReverseCash(
   assertPostLimit(Number(document.baseAmount ?? document.amount));
   unwrapAction(await reverseCashDocument(document.id));
   return {
-    resultText: `Кассын баримт буцаагдлаа (сторно журнал үүссэн): ${document.date} · ${document.description}`,
+    resultText: `Кассын баримт буцаагдлаа (буцаалтын журнал үүссэн): ${document.date} · ${document.description}`,
   };
 }
 
@@ -5996,45 +5998,106 @@ async function runReconcileModules(
   const glNet = await glNetByMain(orgId, input.to);
 
   // 1. Касс/банк: GL данс vs модулийн үлдэгдэл (нээлт + батлагдсан баримт).
+  // Валютын дансны модулийн ₮ үлдэгдэл ТҮҮХЭН ханшаараа хадгалагддаг бол
+  // FX тэгшитгэл ЗӨВХӨН GL-д журнал бичдэг — тиймээс хүлээгдэх GL =
+  // модуль + батлагдсан (буцаагдаагүй) тэгшитгэлийн Σ дүн
+  // (expectedCashGlBalance — яагаад энэ хувилбар болохыг тэнд тайлбарласан).
+  // GL-д гараар бичсэн бичилт expected-ээс зөрж ХЭВЭЭР илэрнэ.
   {
-    const [accounts, documents] = await Promise.all([
+    const [accounts, documents, draftDocuments, revaluations] = await Promise.all([
       db.query.cashAccounts.findMany({
         where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
       }),
       db.query.cashDocuments.findMany({
         where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.status, "posted")),
       }),
+      db.query.cashDocuments.findMany({
+        where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.status, "draft")),
+        columns: { fromCashAccountId: true, toCashAccountId: true, date: true },
+      }),
+      db.query.cashFxRevaluations.findMany({
+        where: eq(cashFxRevaluations.organizationId, orgId),
+      }),
     ]);
     const moduleBalance = new Map<string, number>(
       accounts.map((account) => [account.id, Number(account.openingBalance ?? 0)])
     );
+    // Валютын дүнгээр (FC) — тайлагналд харуулна.
+    const fcBalance = new Map<string, number>();
     for (const doc of documents) {
       if (doc.date > input.to) continue;
       const amount = Number(doc.baseAmount ?? doc.amount);
-      if (doc.toCashAccountId)
+      const fcAmount = Number(doc.amount);
+      if (doc.toCashAccountId) {
         moduleBalance.set(doc.toCashAccountId, (moduleBalance.get(doc.toCashAccountId) ?? 0) + amount);
-      if (doc.fromCashAccountId)
+        fcBalance.set(doc.toCashAccountId, (fcBalance.get(doc.toCashAccountId) ?? 0) + fcAmount);
+      }
+      if (doc.fromCashAccountId) {
         moduleBalance.set(doc.fromCashAccountId, (moduleBalance.get(doc.fromCashAccountId) ?? 0) - amount);
+        fcBalance.set(doc.fromCashAccountId, (fcBalance.get(doc.fromCashAccountId) ?? 0) - fcAmount);
+      }
+    }
+    const draftCount = new Map<string, number>();
+    for (const doc of draftDocuments) {
+      if (doc.date > input.to) continue;
+      for (const accountId of [doc.fromCashAccountId, doc.toCashAccountId])
+        if (accountId) draftCount.set(accountId, (draftCount.get(accountId) ?? 0) + 1);
     }
     const lines: string[] = [];
     for (const account of accounts) {
       const subledger = moduleBalance.get(account.id) ?? 0;
       const gl = glNet.get(account.glAccountNumber) ?? 0;
-      const diff = Math.round((subledger - gl) * 100) / 100;
+      const accountRevaluations = revaluations.filter(
+        (revaluation) => revaluation.cashAccountId === account.id
+      );
+      const { expected, fxTotal } = expectedCashGlBalance({
+        subledger,
+        revaluations: accountRevaluations.map((revaluation) => ({
+          adjustmentAmount: Number(revaluation.adjustmentAmount),
+          status: revaluation.status,
+          valuationDate: revaluation.valuationDate,
+        })),
+        asOf: input.to,
+      });
+      // Сүүлийн батлагдсан тэгшитгэл — FC үлдэгдэл, ханшийг үзүүлэхэд.
+      const latest = accountRevaluations
+        .filter(
+          (revaluation) =>
+            revaluation.status === "posted" &&
+            revaluation.valuationDate <= input.to
+        )
+        .sort(
+          (a, b) =>
+            b.valuationDate.localeCompare(a.valuationDate) ||
+            b.revision - a.revision
+        )[0];
+      const fxNote =
+        Math.abs(fxTotal) > 0.005 && latest
+          ? ` + тэгшитгэл ${fmt(fxTotal)} (FC ${fmt(fcBalance.get(account.id) ?? Number(latest.foreignBalance))} × ханш ${Number(latest.closingRate)})`
+          : "";
+      const diff = Math.round((expected - gl) * 100) / 100;
       if (Math.abs(diff) > EPS) {
         lines.push(
-          `  ЗӨРҮҮ ${account.name}: модуль ${fmt(subledger)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
+          `  ЗӨРҮҮ ${account.name}: модуль ${fmt(subledger)}${fxNote} = ${fmt(expected)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
         );
         const opening = Number(account.openingBalance ?? 0);
+        const drafts = draftCount.get(account.id) ?? 0;
         if (Math.abs(opening) > 0.005 && Math.abs(diff - opening) <= EPS)
           problems.push(
             `Касс "${account.name}": зөрүү нь НЭЭЛТИЙН үлдэгдэлтэй (${fmt(opening)}₮) тэнцүү — нээлтийн журнал GL-д бичигдээгүй. fix_cash_opening_balance tool-оор ноорог журнал үүсгээд батлана`
           );
+        else if (drafts > 0)
+          problems.push(
+            `Касс "${account.name}": ${drafts} ноорог кассын баримт батлагдаагүй байна — list_cash_documents status=draft шалгаад батлах/устгах; зөрүү үлдвэл GL-д гараар бичсэн бичилтийг шалгана`
+          );
         else
           problems.push(
-            `Касс "${account.name}": ноорог кассын баримт батлагдаагүй, эсвэл GL-д гараар бичсэн бичилт байж магадгүй — list_cash_documents status=draft шалгаад батлах/устгах`
+            `Касс "${account.name}": GL(${account.glAccountNumber})-д гараар бичсэн журнал байж магадгүй — get_account_ledger-ээр ${input.from} — ${input.to} мужийг мөр мөрөөр тулгана`
           );
-      } else lines.push(`  OK ${account.name}: ${fmt(subledger)}`);
+      } else
+        lines.push(
+          `  OK ${account.name}: ${fmt(subledger)}${fxNote}${Math.abs(fxTotal) > 0.005 ? ` = ${fmt(expected)}` : ""}`
+        );
     }
     sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
   }
@@ -6360,7 +6423,7 @@ async function runReverseFxRevaluation(
   const latest = rows.sort((a, b) => b.revision - a.revision)[0];
   await reverseCashFxRevaluation(latest.id);
   return {
-    resultText: `Ханшийн тэгшитгэл буцаагдлаа: ${account.name} · ${input.valuationDate} (сторно журнал үүссэн)`,
+    resultText: `Ханшийн тэгшитгэл буцаагдлаа: ${account.name} · ${input.valuationDate} (буцаалтын журнал үүссэн)`,
   };
 }
 
@@ -6927,8 +6990,29 @@ async function runImportBankStatement(
     { allNames: accounts.map((entry) => entry.name) }
   );
 
+  // Сегмент кодыг КАССЫН posting builder-ээр бүтээнэ (create_cash_transaction-
+  // тай ЯГ НЭГ цөм — lib/gl/posting-code.ts): идэвхтэй утгуудаас default,
+  // S9="CA". resolveAccount-ын түүхий 0-padding нь S9="GL" гэх мэт зөрүү
+  // үүсгэж импортын validation-д унадаг байсан (Bug: S1 idle default).
   const ctx = await accountContext(orgId);
-  const bankCode = resolveAccount(account.glAccountNumber, ctx).code;
+  const [segConfigs, enabledSegValues] = await Promise.all([
+    db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.organizationId, orgId),
+    }),
+    db.query.segmentValues.findMany({
+      where: and(
+        eq(segmentValues.organizationId, orgId),
+        eq(segmentValues.isEnabled, true)
+      ),
+    }),
+  ]);
+  const buildCashCode = postingCodeBuilderFromData({
+    configs: segConfigs,
+    values: enabledSegValues,
+    moduleTag: "CA",
+    cashFlowCode: null,
+  });
+  const bankCode = buildCashCode(account.glAccountNumber);
 
   // settleInvoice лавлагаануудыг урьдчилан ID болгоно.
   const settleIdByRef = new Map<string, string>();
@@ -6942,7 +7026,11 @@ async function runImportBankStatement(
   const parsedRows = input.rows.map((row, index) => {
     const income = Math.round(Number(row.income ?? 0) * 100) / 100;
     const expense = Math.round(Number(row.expense ?? 0) * 100) / 100;
-    const counterCode = resolveAccount(row.counterGlAccount, ctx).code;
+    // Харьцах данс: оршин буйг resolveAccount-оор шалгаад, кодыг кассын
+    // builder-ээр (create_cash_transaction-ий counterAccount-тай ижил).
+    const counterCode = buildCashCode(
+      resolveAccount(row.counterGlAccount, ctx).main
+    );
     return {
       id: randomUUID(),
       rowNumber: index + 1,
