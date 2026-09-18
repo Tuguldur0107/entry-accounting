@@ -136,7 +136,6 @@ export const chartOfAccounts = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("chart_of_accounts_user_id_number_ux").on(t.userId, t.number),
     uniqueIndex("chart_of_accounts_organization_id_number_ux").on(
       t.organizationId,
       t.number
@@ -171,7 +170,6 @@ export const accountingPeriods = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("accounting_periods_user_id_code_ux").on(t.userId, t.code),
     uniqueIndex("accounting_periods_organization_id_code_ux").on(
       t.organizationId,
       t.code
@@ -476,10 +474,6 @@ export const cashDocuments = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("cash_documents_user_id_document_no_ux").on(
-      t.userId,
-      t.documentNo
-    ),
     uniqueIndex("cash_documents_organization_id_document_no_ux").on(
       t.organizationId,
       t.documentNo
@@ -523,10 +517,6 @@ export const bankStatements = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("bank_statements_user_id_file_hash_ux").on(
-      table.userId,
-      table.fileHash
-    ),
     uniqueIndex("bank_statements_organization_id_file_hash_ux").on(
       table.organizationId,
       table.fileHash
@@ -666,12 +656,7 @@ export const cashFxRevaluations = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("cash_fx_revaluations_user_acct_date_rev_ux").on(
-      table.userId,
-      table.cashAccountId,
-      table.valuationDate,
-      table.revision
-    ), uniqueIndex("cash_fx_revaluations_org_acct_date_rev_ux").on(table.organizationId,
+    uniqueIndex("cash_fx_revaluations_org_acct_date_rev_ux").on(table.organizationId,
       table.cashAccountId,
       table.valuationDate,
       table.revision
@@ -757,7 +742,6 @@ export const counterparties = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("counterparties_user_id_name_ux").on(table.userId, table.name),
     uniqueIndex("counterparties_organization_id_name_ux").on(
       table.organizationId,
       table.name
@@ -822,10 +806,6 @@ export const arApDocuments = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("ar_ap_documents_user_id_document_no_ux").on(
-      table.userId,
-      table.documentNo
-    ),
     uniqueIndex("ar_ap_documents_organization_id_document_no_ux").on(
       table.organizationId,
       table.documentNo
@@ -1149,7 +1129,6 @@ export const moduleConfigs = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("module_configs_user_id_module_key_ux").on(t.userId, t.moduleKey),
     uniqueIndex("module_configs_organization_id_module_key_ux").on(
       t.organizationId,
       t.moduleKey
@@ -1192,11 +1171,6 @@ export const segmentValues = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("segment_values_user_id_segment_id_code_ux").on(
-      t.userId,
-      t.segmentId,
-      t.code
-    ),
     uniqueIndex("segment_values_org_id_segment_id_code_ux").on(
       t.organizationId,
       t.segmentId,
@@ -1228,7 +1202,6 @@ export const segmentConfigs = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("segment_configs_user_id_segment_id_ux").on(t.userId, t.segmentId),
     uniqueIndex("segment_configs_organization_id_segment_id_ux").on(
       t.organizationId,
       t.segmentId
@@ -1285,11 +1258,6 @@ export const reportLineMappings = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("report_line_mappings_user_type_line_ux").on(
-      t.userId,
-      t.reportType,
-      t.lineKey
-    ),
     uniqueIndex("report_line_mappings_org_type_line_ux").on(
       t.organizationId,
       t.reportType,
@@ -1325,7 +1293,6 @@ export const inventoryItems = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("inventory_items_user_id_code_ux").on(t.userId, t.code),
     uniqueIndex("inventory_items_organization_id_code_ux").on(
       t.organizationId,
       t.code
@@ -1350,7 +1317,6 @@ export const warehouses = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("warehouses_user_id_code_ux").on(t.userId, t.code),
     uniqueIndex("warehouses_organization_id_code_ux").on(
       t.organizationId,
       t.code
@@ -1401,10 +1367,6 @@ export const inventoryMovements = pgTable(
     confirmedAt: timestamp("confirmed_at"),
   },
   (t) => [
-    uniqueIndex("inventory_movements_user_id_document_no_ux").on(
-      t.userId,
-      t.documentNo
-    ),
     uniqueIndex("inventory_movements_org_id_document_no_ux").on(
       t.organizationId,
       t.documentNo
@@ -1439,7 +1401,6 @@ export const costingItemSettings = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("costing_item_settings_user_id_item_id_ux").on(t.userId, t.itemId),
     uniqueIndex("costing_item_settings_org_id_item_id_ux").on(
       t.organizationId,
       t.itemId
@@ -1478,7 +1439,6 @@ export const costComponents = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("cost_components_user_id_code_ux").on(t.userId, t.code),
     uniqueIndex("cost_components_organization_id_code_ux").on(
       t.organizationId,
       t.code
@@ -1518,7 +1478,6 @@ export const inventoryIssueTypes = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("inventory_issue_types_user_id_code_ux").on(t.userId, t.code),
     uniqueIndex("inventory_issue_types_org_id_code_ux").on(
       t.organizationId,
       t.code
@@ -1735,10 +1694,6 @@ export const payrollRuns = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("payroll_runs_user_id_period_month_ux").on(
-      t.userId,
-      t.periodMonth
-    ),
     uniqueIndex("payroll_runs_org_id_period_month_ux").on(
       t.organizationId,
       t.periodMonth
@@ -1972,10 +1927,6 @@ export const costAllocations = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("cost_allocations_user_id_document_no_ux").on(
-      t.userId,
-      t.documentNo
-    ),
     uniqueIndex("cost_allocations_org_id_document_no_ux").on(
       t.organizationId,
       t.documentNo
@@ -2067,12 +2018,6 @@ export const costPeriodResults = pgTable(
     calculatedAt: timestamp("calculated_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("cost_period_results_user_period_item_wh_ux").on(
-      t.userId,
-      t.periodCode,
-      t.itemId,
-      t.warehouseId
-    ),
     uniqueIndex("cost_period_results_org_period_item_wh_ux").on(
       t.organizationId,
       t.periodCode,
@@ -2598,7 +2543,6 @@ export const fixedAssets = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("fixed_assets_user_id_code_ux").on(t.userId, t.code),
     uniqueIndex("fixed_assets_organization_id_code_ux").on(
       t.organizationId,
       t.code
