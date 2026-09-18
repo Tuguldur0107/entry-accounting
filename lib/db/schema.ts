@@ -2603,7 +2603,16 @@ export const aiSettings = pgTable("ai_settings", {
   writeMode: text("write_mode").notNull().default("draft"),
   customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-}, (t) => [unique().on(t.userId, t.organizationId)]);
+}, (t) => [
+  // UNIQUE CONSTRAINT биш, UNIQUE INDEX — bank_statement_lines-тай ИЖИЛ
+  // шалтгаан (drizzle-orm#5955): push нь `unique()` constraint-ыг "байхгүй"
+  // гэж үзээд бөглөөтэй хүснэгтэд дахин нэмэхийг оролдож «truncate хийх үү?»
+  // гэж асууж non-TTY preDeploy-г унагаана (2026-09-18: ai_settings 1 мөртэй
+  // болмогц энэ асуулт гарч схемийн БҮХ өөрчлөлт DB-д орохгүй үлдсэн).
+  // Нэр нь хуучин `…_unique` constraint-аас ЗОРИУД өөр — давхцахгүй.
+  // upsert-ийн `target: [userId, organizationId]` нь индекс дээр ч ажиллана.
+  uniqueIndex("ai_settings_user_org_ux").on(t.userId, t.organizationId),
+]);
 
 // ─── Компанийн мэдээлэл — нэхэмжлэх, хэвлэх маягтын толгой ───────────────────
 
