@@ -2772,6 +2772,12 @@ export const aiSettings = pgTable("ai_settings", {
   customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
+  // UNIQUE CONSTRAINT биш, UNIQUE INDEX — бусад хүснэгттэй ИЖИЛ шалтгаан
+  // (drizzle-orm#5955): push нь `unique()` constraint-ыг "байхгүй" гэж үзээд
+  // бөглөөтэй хүснэгтэд дахин нэмэхийг оролдож «truncate хийх үү?» гэж асууж
+  // non-TTY preDeploy-г унагаана (2026-09-18: ai_settings 1 мөртэй болмогц
+  // энэ асуулт гарч схемийн БҮХ өөрчлөлт DB-д орохгүй үлдсэн).
+  // upsert-ийн `target: [userId, organizationId]` нь индекс дээр ч ажиллана.
   uniqueIndex("ai_settings_user_id_organization_id_ux").on(
     t.userId,
     t.organizationId

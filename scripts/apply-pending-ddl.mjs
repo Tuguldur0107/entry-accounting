@@ -45,63 +45,52 @@ async function run(label, statement) {
 }
 
 async function main() {
-  // ── 1. bank_statement_lines: unique CONSTRAINT → unique INDEX ──────────────
-  // Push энэ constraint-ыг DB-д БАЙСААР байтал "нэмэх үү, truncate хийх үү?"
-  // гэж асууж preDeploy-г унагадаг (exchange_rates дээр ч ижил шалтгаанаар
-  // uniqueIndex хэрэглэсэн — CLAUDE.md §5b, drizzle-kit #5955).
-  // Constraint ба түүний индекс нэг нэртэй тул НЭГ транзакцид: constraint-ыг
-  // тайлж (индекс хамт устана), дараа нь ижил нэрээр unique index үүсгэнэ —
+  // ── 1. unique CONSTRAINT → unique INDEX (push-ийн интерактив асуултын эх) ──
+  // Push нь `unique()` constraint-ыг DB-д БАЙСААР байтал "нэмэх үү, truncate
+  // хийх үү?" гэж асууж preDeploy-г унагаадаг (drizzle-orm#5955 — CLAUDE.md
+  // §5b; exchange_rates дээр ч ижил шалтгаанаар uniqueIndex хэрэглэсэн).
+  // schema.ts эдгээрийг uniqueIndex-ээр зарладаг тул DB-г НЭГ транзакцид
+  // тааруулна: шинэ индексийг үүсгээд ДАРАА нь хуучин constraint-ыг тайлна —
   // давхардлын хамгаалалт нэг ч агшинд алдагдахгүй.
-  await run(
-    "bank_statement_lines (statement_id,row_number) → unique index",
-    `do $$
-     begin
-       -- ЭХЛЭЭД индексийг (schema.ts-ийн нэрээр) үүсгэнэ, ДАРАА нь хуучин
-       -- constraint-ыг тайлна — давхардлын хамгаалалт нэг ч агшинд тасрахгүй.
-       if not exists (
-         select 1 from pg_class
-         where relname = 'bank_statement_lines_statement_row_ux' and relkind = 'i'
-       ) then
-         create unique index bank_statement_lines_statement_row_ux
-           on bank_statement_lines (statement_id, row_number);
-       end if;
-       if exists (
-         select 1 from pg_constraint
-         where conname = 'bank_statement_lines_statement_id_row_number_unique'
-           and conrelid = 'bank_statement_lines'::regclass
-       ) then
-         alter table bank_statement_lines
-           drop constraint bank_statement_lines_statement_id_row_number_unique;
-       end if;
-     end $$;`
-  );
-
-  // ── 1b. ai_settings (user_id,organization_id) → unique index ───────────────
-  // 2026-09-18: bank_statement_lines зассаны дараа push ЭНЭ хүснэгт дээр
-  // (1 мөртэй) ижил асуултаар дахин унасан. schema.ts дахь БҮХ composite
-  // unique constraint одоо uniqueIndex болсон тул push цаашид асуухаа болино;
-  // энэ хоёр нь аль хэдийн бөглөөтэй байсан тул урьдчилж шилжүүлнэ.
-  await run(
-    "ai_settings (user_id,organization_id) → unique index",
-    `do $$
-     begin
-       if not exists (
-         select 1 from pg_class
-         where relname = 'ai_settings_user_id_organization_id_ux' and relkind = 'i'
-       ) then
-         create unique index ai_settings_user_id_organization_id_ux
-           on ai_settings (user_id, organization_id);
-       end if;
-       if exists (
-         select 1 from pg_constraint
-         where conname = 'ai_settings_user_id_organization_id_unique'
-           and conrelid = 'ai_settings'::regclass
-       ) then
-         alter table ai_settings
-           drop constraint ai_settings_user_id_organization_id_unique;
-       end if;
-     end $$;`
-  );
+  for (const target of [
+    {
+      table: "bank_statement_lines",
+      columns: "statement_id, row_number",
+      oldConstraint: "bank_statement_lines_statement_id_row_number_unique",
+      index: "bank_statement_lines_statement_row_ux",
+    },
+    {
+      table: "ai_settings",
+      columns: "user_id, organization_id",
+      oldConstraint: "ai_settings_user_id_organization_id_unique",
+      index: "ai_settings_user_id_organization_id_ux",
+    },
+  ]) {
+    await run(
+      `${target.table} (${target.columns}) → ${target.index}`,
+      `do $$
+       begin
+         if to_regclass('${target.table}') is null then
+           return;
+         end if;
+         if not exists (
+           select 1 from pg_class
+           where relname = '${target.index}' and relkind = 'i'
+         ) then
+           execute 'create unique index ${target.index}
+             on ${target.table} (${target.columns})';
+         end if;
+         if exists (
+           select 1 from pg_constraint
+           where conname = '${target.oldConstraint}'
+             and conrelid = '${target.table}'::regclass
+         ) then
+           alter table ${target.table}
+             drop constraint ${target.oldConstraint};
+         end if;
+       end $$;`
+    );
+  }
 
   // ── 2. segment_values.linked_organization_id (S1/S6 компанийн холбоос) ─────
   await run(
