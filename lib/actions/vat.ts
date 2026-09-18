@@ -27,6 +27,7 @@ import { computeVatReturn, type VatReturnSummary } from "@/lib/vat/return";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
+import { canAutoDefaultSegment } from "@/lib/gl/posting-code";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 
 /** Идэвхтэй сегментүүдээр бүтэн posting код угсрагч (S9 default "GL"). */
@@ -49,6 +50,7 @@ async function vatPostingCodeBuilder(orgId: string) {
   ).map((definition) => definition.id);
   const defaults: Record<number, string> = {};
   for (const segmentId of activeSegIds) {
+    if (!canAutoDefaultSegment(segmentId)) continue;
     const options = values.filter((value) => value.segmentId === segmentId);
     if (options.length === 1) defaults[segmentId] = options[0].code;
   }

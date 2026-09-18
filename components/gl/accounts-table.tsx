@@ -25,7 +25,13 @@ import {
   updateSegmentConfig,
   createSegmentValue,
   batchSaveSection2,
+  syncSegmentDefaults,
+  syncAllSegmentDefaults,
 } from "@/lib/actions/gl";
+import {
+  hasSegmentDefaults,
+  isCompanySegment,
+} from "@/lib/constants/segment-defaults";
 import {
   SEGMENT_DEFS,
   ACCOUNT_GROUPS,
@@ -560,6 +566,45 @@ export function AccountsTable({
     setTimeout(() => setSyncMsg(""), 3000);
   }
 
+  // Сегментийн стандарт утга татах (S1/S6 — компанийн бүртгэлээс автомат).
+  const [svSyncing, setSvSyncing] = useState(false);
+  const [svSyncMsg, setSvSyncMsg] = useState("");
+
+  function showSvSyncMsg(text: string) {
+    setSvSyncMsg(text);
+    setTimeout(() => setSvSyncMsg(""), 4000);
+  }
+
+  function syncResultText(added: number, updated: number) {
+    if (added === 0 && updated === 0) return "Бүх стандарт утга аль хэдийн байна";
+    const parts: string[] = [];
+    if (added > 0) parts.push(`${added} утга нэмэгдлээ`);
+    if (updated > 0) parts.push(`${updated} утга шинэчлэгдлээ`);
+    return parts.join(", ");
+  }
+
+  async function handleSyncSegment() {
+    setSvSyncing(true);
+    const res = await syncSegmentDefaults(activeTab);
+    setSvSyncing(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    showSvSyncMsg(syncResultText(res.added ?? 0, res.updated ?? 0));
+  }
+
+  async function handleSyncAllSegments() {
+    setSvSyncing(true);
+    const res = await syncAllSegmentDefaults();
+    setSvSyncing(false);
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(syncResultText(res.added ?? 0, res.updated ?? 0));
+  }
+
   const [svAddOpen, setSvAddOpen] = useState(false);
   const [svAddCode, setSvAddCode] = useState("");
   const [svAddName, setSvAddName] = useState("");
@@ -629,9 +674,20 @@ export function AccountsTable({
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="sm" className="text-xs" onClick={enterSeg1Edit}>
-                Засварлах
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  onClick={handleSyncAllSegments}
+                  disabled={svSyncing}
+                >
+                  {svSyncing ? "Татаж байна..." : "Бүх сегментийн стандарт утга татах"}
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs" onClick={enterSeg1Edit}>
+                  Засварлах
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -691,6 +747,13 @@ export function AccountsTable({
               <div>
                 <span className="text-sm font-medium text-[var(--ea-text-2)]">{activeTabDef.nameMn}</span>
                 <span className="text-xs text-[var(--ea-text-4)] ml-2">{activeTabDef.description}</span>
+                {isCompanySegment(activeTab) && (
+                  <p className="text-xs text-[var(--ea-text-4)] mt-0.5">
+                    Компанийн бүртгэлээс АВТОМАТААР бүрдэнэ — S1 ба S6 ижил код,
+                    ижил нэртэй. Шинэ компани нэмэхэд өөрөө гарч ирнэ; нэр солиход
+                    дагаж шинэчлэгдэнэ (код хэвээр).
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {editMode ? (
@@ -722,9 +785,31 @@ export function AccountsTable({
                   </>
                 )}
                 {!editMode && activeTab !== 3 && (
-                  <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={openSvAdd}>
-                    + Утга нэмэх
-                  </Button>
+                  <>
+                    {svSyncMsg && (
+                      <span className="text-xs text-[var(--ea-success-fg)] bg-[var(--ea-success-bg)] px-2 py-1 rounded">
+                        {svSyncMsg}
+                      </span>
+                    )}
+                    {hasSegmentDefaults(activeTab) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={handleSyncSegment}
+                        disabled={svSyncing}
+                      >
+                        {svSyncing
+                          ? "Татаж байна..."
+                          : isCompanySegment(activeTab)
+                            ? "Компаниудаас шинэчлэх"
+                            : "Стандарт утга татах"}
+                      </Button>
+                    )}
+                    <Button size="sm" className="bg-[var(--ea-primary)] hover:bg-[var(--ea-primary-700)] text-xs" onClick={openSvAdd}>
+                      + Утга нэмэх
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
@@ -747,7 +832,11 @@ export function AccountsTable({
               )
             ) : svGridRows.length === 0 ? (
               <div className="flex flex-1 items-center justify-center py-10 text-center text-[var(--ea-text-4)] text-sm border border-[var(--ea-border)] rounded-md">
-                Утга байхгүй — + Утга нэмэх товч дарна уу
+                {hasSegmentDefaults(activeTab)
+                  ? isCompanySegment(activeTab)
+                    ? "Утга байхгүй — Компаниудаас шинэчлэх товч дарна уу"
+                    : "Утга байхгүй — Стандарт утга татах эсвэл + Утга нэмэх товч дарна уу"
+                  : "Утга байхгүй — + Утга нэмэх товч дарна уу"}
               </div>
             ) : (
               <DataGridDynamic<AcctGridRow>

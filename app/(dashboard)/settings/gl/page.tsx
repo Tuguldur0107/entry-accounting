@@ -4,9 +4,19 @@ import { getActiveOrg } from "@/lib/auth";
 import { eq } from "drizzle-orm";
 import { AccountsTable } from "@/components/gl/accounts-table";
 import { SEGMENT_DEFS, MODULE_DEFS } from "@/lib/constants/standard-accounts";
+import { syncCompanySegmentValues } from "@/lib/gl/segment-sync";
 
 export default async function GlSettingsPage() {
-  const { orgId } = await getActiveOrg();
+  const { orgId, userId } = await getActiveOrg();
+
+  // S1 (Компани) / S6 (Группын дотоод) нь байгууллагын бүртгэлээс АВТОМАТААР
+  // бүрддэг — хуудас нээх бүрд тэнцүүлнэ (идемпотент; өөрчлөлтгүй бол
+  // DB-д бичихгүй). Шинэ компани нэмэгдмэгц хоёр сегментэд ижил код, ижил
+  // нэрээр гарч ирнэ.
+  await syncCompanySegmentValues(orgId, userId).catch((caught) => {
+    // Сегментийн автомат бүрдүүлэлт унасан ч тохиргооны хуудас нээгдэнэ.
+    console.error("syncCompanySegmentValues:", caught);
+  });
 
   const [accounts, rawSegConfigs, rawSegValues, rawModConfigs] = await Promise.all([
     db.query.chartOfAccounts.findMany({

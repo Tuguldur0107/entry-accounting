@@ -18,6 +18,16 @@ type SegmentValueInput = {
   isEnabled: boolean;
 };
 
+/**
+ * Сегментийн ГАНЦ идэвхтэй утга автоматаар default болох эсэх.
+ * S6 (Группын дотоод) хэзээ ч болохгүй — жагсаалт нь S1-тэй ИЖИЛ (өөрийн
+ * компани ч багтана) тул өөрийгөө эсрэг тал болгон бичих эрсдэлтэй
+ * (knowledge/03-стандарт/segment-strategy.md §7.6.6 — s6 ≠ s1).
+ */
+export function canAutoDefaultSegment(segmentId: number): boolean {
+  return segmentId !== 6;
+}
+
 export function postingCodeBuilderFromData({
   configs,
   values,
@@ -38,6 +48,7 @@ export function postingCodeBuilderFromData({
 
   const defaults: Record<number, string> = {};
   for (const segmentId of activeSegIds) {
+    if (!canAutoDefaultSegment(segmentId)) continue;
     const options = values.filter(
       (value) => value.segmentId === segmentId && value.isEnabled
     );

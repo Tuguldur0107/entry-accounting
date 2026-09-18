@@ -2,6 +2,7 @@ import { and, between, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
+import { canAutoDefaultSegment } from "@/lib/gl/posting-code";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import {
@@ -135,6 +136,7 @@ export async function loadArApSegmentData(
 
   const defaultSegments: Record<number, string> = {};
   for (const id of activeSegIds) {
+    if (!canAutoDefaultSegment(id)) continue;
     const options = segmentOptions[id] ?? [];
     if (options.length === 1) defaultSegments[id] = options[0].code;
   }
