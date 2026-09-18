@@ -109,6 +109,7 @@ export function PayrollRunView({ data }: Props) {
         position: "",
         employerSiPercent: 0,
         baseSalary: 0,
+        standardHours: 0,
         hourlyRate: 0,
         ...totals,
       } satisfies PayrollLineView,
@@ -175,7 +176,8 @@ export function PayrollRunView({ data }: Props) {
     if (
       field !== "earnings" &&
       field !== "otherDeductions" &&
-      field !== "advanceHours"
+      field !== "advanceHours" &&
+      field !== "standardHours"
     )
       return;
     if (!event.data || event.node.rowPinned) return;
@@ -186,6 +188,7 @@ export function PayrollRunView({ data }: Props) {
         earnings: event.data.earnings,
         otherDeductions: event.data.otherDeductions,
         advanceHours: event.data.advanceHours,
+        standardHours: event.data.standardHours,
       });
       router.refresh();
     } catch (error) {
@@ -228,6 +231,13 @@ export function PayrollRunView({ data }: Props) {
           headerName: "Үндсэн цалин",
           field: "baseSalary",
           width: 140,
+        }),
+        col<PayrollLineView>({
+          eaType: "number-hours",
+          headerName: "Ажиллавал зохих цаг",
+          field: "standardHours",
+          width: 175,
+          editable,
         }),
         col<PayrollLineView>({
           eaType: "readonly-money",
@@ -363,7 +373,7 @@ export function PayrollRunView({ data }: Props) {
       {lines.length > 0 && (
         <p className="text-xs text-[var(--ea-text-3)]">
           {tab === "advance"
-            ? "Ажилласан цагийг оруулна — урьдчилгаа нь цагийн хөлсөөр бодогдож СУУТГАЛГҮЙ олгогдоно. Цагийн хөлс = үндсэн цалин / сарын стандарт ажлын цаг."
+            ? "«Бодолт хийх» дарахад ажиллавал зохих цаг тохиргооноос бөглөгдөж цагийн хөлс бодогдоно (ажилтан бүрд засаж болно). Ажилласан цагийг оруулахад урьдчилгаа СУУТГАЛГҮЙ бодогдоно — цагийн хөлс = үндсэн цалин / ажиллавал зохих цаг."
             : "Бүх нэмэгдэл, суутгал энд бодогдоно. НДШ, ХАОАТ суутгагдсаны ДАРАА урьдчилгаа хасагдаж сүүл цалин гарна — урьдчилгаа + сүүл цалин = сарын нийт гарт олгох."}
         </p>
       )}

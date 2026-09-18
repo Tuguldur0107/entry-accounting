@@ -22,6 +22,11 @@ const STATEMENTS: [string, string][] = [
        ADD COLUMN IF NOT EXISTS advance_hours numeric(8,2) NOT NULL DEFAULT '0'`,
   ],
   [
+    "payroll_run_lines.standard_hours",
+    `ALTER TABLE payroll_run_lines
+       ADD COLUMN IF NOT EXISTS standard_hours numeric(8,2) NOT NULL DEFAULT '0'`,
+  ],
+  [
     "payroll_run_lines.advance_amount",
     `ALTER TABLE payroll_run_lines
        ADD COLUMN IF NOT EXISTS advance_amount numeric(18,2) NOT NULL DEFAULT '0'`,
@@ -71,7 +76,8 @@ async function main() {
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE (table_name = 'payroll_run_lines'
-             AND column_name IN ('advance_hours', 'advance_amount'))
+             AND column_name IN ('advance_hours', 'advance_amount',
+                                 'standard_hours'))
        OR (table_name = 'payroll_settings'
              AND column_name IN ('standard_monthly_hours',
                                  'employee_payable_account_number',

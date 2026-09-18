@@ -268,6 +268,8 @@ export type PayrollLineView = {
   pit: number;
   /** Сарын НИЙТ гарт олгох = урьдчилгаа + сүүл цалин. */
   netSalary: number;
+  /** Тухайн сард ажиллавал зохих цаг — цагийн хөлсний хуваагч. */
+  standardHours: number;
   hourlyRate: number;
   advanceHours: number;
   advanceAmount: number;
@@ -374,7 +376,10 @@ export async function getPayrollRunData(
     lines: (run?.lines ?? []).map((line) => {
       const netSalary = Number(line.netSalary);
       const advanceAmount = Number(line.advanceAmount);
-      const standardHours = Number(settings.standardMonthlyHours);
+      // Мөрийн стандарт цаг (бодолт хийхэд тохиргооноос бөглөгддөг) —
+      // хуучин, бөглөгдөөгүй мөрүүдэд тохиргооны утга руу унана.
+      const standardHours =
+        Number(line.standardHours) || Number(settings.standardMonthlyHours);
       const baseSalary = Number(line.employee.baseSalary);
       return {
         id: line.id,
@@ -389,6 +394,7 @@ export async function getPayrollRunData(
         employerSi: Number(line.employerSi),
         pit: Number(line.pit),
         netSalary,
+        standardHours,
         hourlyRate:
           standardHours > 0
             ? Math.round((baseSalary / standardHours) * 100) / 100
@@ -431,6 +437,8 @@ function computeFor(
     otherDeductions: number;
     employerSiPercent: number;
     advanceHours: number;
+    /** Мөрийн ажиллавал зохих цаг; 0 бол тохиргооны стандарт цаг. */
+    standardHours: number;
     baseSalary: number;
   },
   periodMonth: string,
@@ -446,7 +454,8 @@ function computeFor(
     siCapMultiplier: settings.siCapMultiplier,
     monthlyTaxFree: settings.monthlyTaxFree,
     advanceHours: input.advanceHours,
-    standardMonthlyHours: settings.standardMonthlyHours,
+    standardMonthlyHours:
+      input.standardHours || settings.standardMonthlyHours,
     // Урьдчилгаа нь ҮНДСЭН цалингаас цагаар бодогдоно — урамшуулал, илүү
     // цагийг урьдчилгаанд оруулахгүй (сүүл цалинд бүтнээр орно).
     advanceBaseSalary: input.baseSalary,
@@ -507,14 +516,20 @@ export async function calculatePayrollRun(periodMonth: string) {
       const existing = byEmployee.get(person.id);
       const earnings = existing ? Number(existing.earnings) : Number(person.baseSalary);
       const otherDeductions = existing ? Number(existing.otherDeductions) : 0;
-      // Хэрэглэгчийн оруулсан урьдчилгааны цаг дахин бодолтод ХАДГАЛАГДАНА.
+      // Хэрэглэгчийн оруулсан цагууд дахин бодолтод ХАДГАЛАГДАНА; бөглөгдөөгүй
+      // бол ажиллавал зохих цагийг тохиргооны стандартаар бөглөнө (ингэснээр
+      // "Бодолт хийх" дарахад цагийн хөлс, урьдчилгаа шууд бодогдоно).
       const advanceHours = existing ? Number(existing.advanceHours) : 0;
+      const standardHours =
+        (existing ? Number(existing.standardHours) : 0) ||
+        settings.standardMonthlyHours;
       const result = computeFor(
         {
           earnings,
           otherDeductions,
           employerSiPercent: Number(person.employerSiPercent),
           advanceHours,
+          standardHours,
           baseSalary: Number(person.baseSalary),
         },
         periodMonth,
@@ -523,6 +538,7 @@ export async function calculatePayrollRun(periodMonth: string) {
       const derived = {
         earnings: String(result.earnings),
         otherDeductions: String(result.otherDeductions),
+        standardHours: String(standardHours),
         advanceHours: String(result.advanceHours),
         advanceAmount: String(result.advanceAmount),
         employeeSi: String(result.employeeSi),
@@ -558,6 +574,7 @@ export async function updatePayrollLine(data: {
   earnings: number;
   otherDeductions: number;
   advanceHours?: number;
+  standardHours?: number;
 }) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const line = await db.query.payrollRunLines.findFirst({
@@ -575,6 +592,7 @@ export async function updatePayrollLine(data: {
       otherDeductions: Number(data.otherDeductions),
       employerSiPercent: Number(line.employee.employerSiPercent),
       advanceHours: Number(data.advanceHours ?? line.advanceHours),
+      standardHours: Number(data.standardHours ?? line.standardHours),
       baseSalary: Number(line.employee.baseSalary),
     },
     line.run.periodMonth,
@@ -590,6 +608,10 @@ export async function updatePayrollLine(data: {
     .set({
       earnings: String(result.earnings),
       otherDeductions: String(result.otherDeductions),
+      standardHours: String(
+        Number(data.standardHours ?? line.standardHours) ||
+          Number(settingsRow.standardMonthlyHours)
+      ),
       advanceHours: String(result.advanceHours),
       advanceAmount: String(result.advanceAmount),
       employeeSi: String(result.employeeSi),
