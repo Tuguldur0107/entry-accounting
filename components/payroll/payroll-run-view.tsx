@@ -5,8 +5,16 @@
 // Урсгал: Бодолт хийх → мөрийн олголт/суутгал засах (тооцоолол server талд
 // дахин бодогдоно) → GL НООРОГ журнал үүсгэх → нягтланч GL журналаас батална
 // (human-in-the-loop §9 — энэ дэлгэц хэзээ ч шууд post хийхгүй).
+//
+// ХОЁР ТАБ = сарын гарт олгох цалинг ХОЁР удаа олгох хуваарь:
+//   Урьдчилгаа — ажилласан цагаар бодогдож СУУТГАЛГҮЙ олгоно
+//   Сүүл цалин — бүх нэмэгдэл/суутгал бодогдож, НДШ ба ХАОАТ суутгагдсаны
+//                ДАРАА урьдчилгаа хасагдана
+// Тэнцэл: урьдчилгаа + сүүл цалин = сарын нийт гарт олгох (нэмэлт олголт
+// үүсэхгүй) тул GL-ийн ноорог журнал ӨӨРЧЛӨГДӨХГҮЙ — цалингийн өглөг
+// бүтнээрээ кредитлэгдэж, хоёр төлбөр тэр өглөгийг хаана.
 
-import { useMemo, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CellValueChangedEvent, ColDef } from "ag-grid-community";
@@ -15,6 +23,7 @@ import { toast } from "sonner";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { PageTabs } from "@/components/ui/tabs";
 import {
   calculatePayrollRun,
   createPayrollVoucher,
@@ -34,9 +43,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Алдаа гарлаа";
 }
 
+type PayrollTab = "advance" | "final";
+
+const TABS = [
+  { value: "advance", label: "Урьдчилгаа цалин" },
+  { value: "final", label: "Сүүл цалин" },
+] as const satisfies readonly { value: PayrollTab; label: string }[];
+
 export function PayrollRunView({ data }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [tab, setTab] = useState<PayrollTab>("advance");
 
   const { periodMonth, voucher, lines, settings, activeEmployeeCount } = data;
   // GL журнал үүссэн run — мөр засварлах/дахин бодохыг server мөн хориглодог.
@@ -52,6 +69,9 @@ export function PayrollRunView({ data }: Props) {
           employerSi: sum.employerSi + line.employerSi,
           pit: sum.pit + line.pit,
           netSalary: sum.netSalary + line.netSalary,
+          advanceHours: sum.advanceHours + line.advanceHours,
+          advanceAmount: sum.advanceAmount + line.advanceAmount,
+          finalNet: sum.finalNet + line.finalNet,
         }),
         {
           earnings: 0,
@@ -60,6 +80,9 @@ export function PayrollRunView({ data }: Props) {
           employerSi: 0,
           pit: 0,
           netSalary: 0,
+          advanceHours: 0,
+          advanceAmount: 0,
+          finalNet: 0,
         }
       ),
     [lines]
@@ -73,6 +96,8 @@ export function PayrollRunView({ data }: Props) {
         employeeName: "Нийт",
         position: "",
         employerSiPercent: 0,
+        baseSalary: 0,
+        hourlyRate: 0,
         ...totals,
       } satisfies PayrollLineView,
     ],
@@ -113,7 +138,12 @@ export function PayrollRunView({ data }: Props) {
     event: CellValueChangedEvent<PayrollLineView>
   ) {
     const field = event.colDef.field;
-    if (field !== "earnings" && field !== "otherDeductions") return;
+    if (
+      field !== "earnings" &&
+      field !== "otherDeductions" &&
+      field !== "advanceHours"
+    )
+      return;
     if (!event.data || event.node.rowPinned) return;
     if (event.newValue === event.oldValue) return;
     try {
@@ -121,6 +151,7 @@ export function PayrollRunView({ data }: Props) {
         lineId: event.data.id,
         earnings: event.data.earnings,
         otherDeductions: event.data.otherDeductions,
+        advanceHours: event.data.advanceHours,
       });
       router.refresh();
     } catch (error) {
@@ -133,7 +164,9 @@ export function PayrollRunView({ data }: Props) {
   const columns = useMemo<ColDef<PayrollLineView>[]>(() => {
     const editable = (params: { node: { rowPinned?: string | null } }) =>
       !locked && !params.node.rowPinned;
-    return [
+
+    // Хоёр табын НИЙТЛЭГ эхний багануудыг нэг л газар тодорхойлно.
+    const identity: ColDef<PayrollLineView>[] = [
       col<PayrollLineView>({
         eaType: "readonly-text",
         headerName: "Ажилтан",
@@ -151,6 +184,41 @@ export function PayrollRunView({ data }: Props) {
         width: 130,
         cellClass: "text-xs text-[var(--ea-text-3)]",
       }),
+    ];
+
+    if (tab === "advance")
+      return [
+        ...identity,
+        col<PayrollLineView>({
+          eaType: "readonly-money",
+          headerName: "Үндсэн цалин",
+          field: "baseSalary",
+          width: 140,
+        }),
+        col<PayrollLineView>({
+          eaType: "readonly-money",
+          headerName: "Цагийн хөлс",
+          field: "hourlyRate",
+          width: 130,
+        }),
+        col<PayrollLineView>({
+          eaType: "number-hours",
+          headerName: "Ажилласан цаг",
+          field: "advanceHours",
+          width: 140,
+          editable,
+        }),
+        col<PayrollLineView>({
+          eaType: "readonly-money",
+          headerName: "Урьдчилгаа (гарт олгох)",
+          field: "advanceAmount",
+          width: 190,
+          cellClass: "ag-right-aligned-cell font-mono font-semibold",
+        }),
+      ];
+
+    return [
+      ...identity,
       col<PayrollLineView>({
         eaType: "number-money",
         headerName: "Нийт олголт",
@@ -164,6 +232,14 @@ export function PayrollRunView({ data }: Props) {
         field: "otherDeductions",
         width: 130,
         editable,
+      }),
+      // АО НДШ нь ажилтнаас суутгах НДШ-ийн ЗҮҮН талд — ажил олгогчийн
+      // зардал эхэлж, дараа нь ажилтнаас суутгагдах дүнгүүд эгнэнэ.
+      col<PayrollLineView>({
+        eaType: "readonly-money",
+        headerName: "АО НДШ",
+        field: "employerSi",
+        width: 120,
       }),
       col<PayrollLineView>({
         eaType: "readonly-money",
@@ -179,19 +255,26 @@ export function PayrollRunView({ data }: Props) {
       }),
       col<PayrollLineView>({
         eaType: "readonly-money",
-        headerName: "Гарт олгох",
+        headerName: "Нийт гарт олгох",
         field: "netSalary",
-        width: 140,
-        cellClass: "ag-right-aligned-cell font-mono font-semibold",
+        width: 150,
       }),
       col<PayrollLineView>({
         eaType: "readonly-money",
-        headerName: "АО НДШ",
-        field: "employerSi",
-        width: 120,
+        headerName: "Урьдчилгаа",
+        field: "advanceAmount",
+        width: 130,
+        cellClass: "ag-right-aligned-cell font-mono text-[var(--ea-text-3)]",
+      }),
+      col<PayrollLineView>({
+        eaType: "readonly-money",
+        headerName: "Сүүл цалин",
+        field: "finalNet",
+        width: 140,
+        cellClass: "ag-right-aligned-cell font-mono font-semibold",
       }),
     ];
-  }, [locked]);
+  }, [locked, tab]);
 
   const siCap = settings.minimumWage * settings.siCapMultiplier;
 
@@ -216,7 +299,9 @@ export function PayrollRunView({ data }: Props) {
                   {fmtMnt(settings.monthlyTaxFree)}
                 </span>
               </>
-            )}
+            )}{" "}
+            · Сарын стандарт ажлын цаг{" "}
+            <span className="font-mono">{settings.standardMonthlyHours}</span>
           </p>
         </div>
         <Button size="sm" onClick={calculate} disabled={isPending || locked}>
@@ -229,6 +314,23 @@ export function PayrollRunView({ data }: Props) {
         <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
           GL журнал үүссэн тул бодолт болон мөрийн засвар түгжигдсэн — дахин
           бодохын тулд эхлээд журналыг устгана.
+        </p>
+      )}
+
+      {lines.length > 0 && (
+        <PageTabs
+          tabs={TABS}
+          value={tab}
+          onChange={setTab}
+          ariaLabel="Цалин олголтын хуваарь"
+        />
+      )}
+
+      {lines.length > 0 && (
+        <p className="text-xs text-[var(--ea-text-3)]">
+          {tab === "advance"
+            ? "Ажилласан цагийг оруулна — урьдчилгаа нь цагийн хөлсөөр бодогдож СУУТГАЛГҮЙ олгогдоно. Цагийн хөлс = үндсэн цалин / сарын стандарт ажлын цаг."
+            : "Бүх нэмэгдэл, суутгал энд бодогдоно. НДШ, ХАОАТ суутгагдсаны ДАРАА урьдчилгаа хасагдаж сүүл цалин гарна — урьдчилгаа + сүүл цалин = сарын нийт гарт олгох."}
         </p>
       )}
 
@@ -263,18 +365,31 @@ export function PayrollRunView({ data }: Props) {
       {lines.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-[var(--ea-text-3)]">
-            {lines.length} ажилтан · Нийт олголт{" "}
-            <span className="font-mono font-medium text-[var(--ea-text-1)]">
-              {fmtMnt(totals.earnings)}
-            </span>{" "}
-            · Гарт олгох{" "}
+            {lines.length} ажилтан · Нийт гарт олгох{" "}
             <span className="font-mono font-medium text-[var(--ea-text-1)]">
               {fmtMnt(totals.netSalary)}
             </span>{" "}
-            · АО НДШ{" "}
+            = урьдчилгаа{" "}
             <span className="font-mono font-medium text-[var(--ea-text-1)]">
-              {fmtMnt(totals.employerSi)}
+              {fmtMnt(totals.advanceAmount)}
+            </span>{" "}
+            + сүүл цалин{" "}
+            <span className="font-mono font-medium text-[var(--ea-text-1)]">
+              {fmtMnt(totals.finalNet)}
             </span>
+            {tab === "final" && (
+              <>
+                {" "}
+                · Нийт олголт{" "}
+                <span className="font-mono font-medium text-[var(--ea-text-1)]">
+                  {fmtMnt(totals.earnings)}
+                </span>{" "}
+                · АО НДШ{" "}
+                <span className="font-mono font-medium text-[var(--ea-text-1)]">
+                  {fmtMnt(totals.employerSi)}
+                </span>
+              </>
+            )}
           </p>
 
           {voucher ? (

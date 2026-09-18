@@ -245,12 +245,19 @@ export type PayrollLineView = {
   employeeName: string;
   position: string;
   employerSiPercent: number;
+  /** Урьдчилгааны цагийн хөлс тооцох суурь (ажилтны үндсэн цалин). */
+  baseSalary: number;
   earnings: number;
   otherDeductions: number;
   employeeSi: number;
   employerSi: number;
   pit: number;
+  /** Сарын НИЙТ гарт олгох = урьдчилгаа + сүүл цалин. */
   netSalary: number;
+  hourlyRate: number;
+  advanceHours: number;
+  advanceAmount: number;
+  finalNet: number;
 };
 
 export type PayrollRunView = {
@@ -263,6 +270,7 @@ export type PayrollRunView = {
     minimumWage: number;
     siCapMultiplier: number;
     monthlyTaxFree: number;
+    standardMonthlyHours: number;
     accounts: Record<string, string>;
   };
   activeEmployeeCount: number;
@@ -300,23 +308,40 @@ export async function getPayrollRunData(
     runId: run?.id ?? null,
     status: run?.status ?? "draft",
     voucher: run?.voucher ?? null,
-    lines: (run?.lines ?? []).map((line) => ({
-      id: line.id,
-      employeeId: line.employeeId,
-      employeeName: line.employee.name,
-      position: line.employee.position,
-      employerSiPercent: Number(line.employee.employerSiPercent),
-      earnings: Number(line.earnings),
-      otherDeductions: Number(line.otherDeductions),
-      employeeSi: Number(line.employeeSi),
-      employerSi: Number(line.employerSi),
-      pit: Number(line.pit),
-      netSalary: Number(line.netSalary),
-    })),
+    lines: (run?.lines ?? []).map((line) => {
+      const netSalary = Number(line.netSalary);
+      const advanceAmount = Number(line.advanceAmount);
+      const standardHours = Number(settings.standardMonthlyHours);
+      const baseSalary = Number(line.employee.baseSalary);
+      return {
+        id: line.id,
+        employeeId: line.employeeId,
+        employeeName: line.employee.name,
+        position: line.employee.position,
+        employerSiPercent: Number(line.employee.employerSiPercent),
+        baseSalary,
+        earnings: Number(line.earnings),
+        otherDeductions: Number(line.otherDeductions),
+        employeeSi: Number(line.employeeSi),
+        employerSi: Number(line.employerSi),
+        pit: Number(line.pit),
+        netSalary,
+        hourlyRate:
+          standardHours > 0
+            ? Math.round((baseSalary / standardHours) * 100) / 100
+            : 0,
+        advanceHours: Number(line.advanceHours),
+        advanceAmount,
+        // Сүүл цалин = нийт гарт олгох − урьдчилгаа (хадгалагдсан дүнгээс
+        // гаргана — calc.ts-тэй ижил томьёо, давхар хадгалалт үүсгэхгүй).
+        finalNet: Math.round((netSalary - advanceAmount) * 100) / 100,
+      };
+    }),
     settings: {
       minimumWage: Number(settings.minimumWage),
       siCapMultiplier: settings.siCapMultiplier,
       monthlyTaxFree: Number(settings.monthlyTaxFree),
+      standardMonthlyHours: Number(settings.standardMonthlyHours),
       accounts: {
         salaryExpense: settings.salaryExpenseAccountNumber,
         employerSiExpense: settings.employerSiExpenseAccountNumber,
@@ -330,22 +355,38 @@ export async function getPayrollRunData(
   };
 }
 
+type PayrollComputeSettings = {
+  minimumWage: number;
+  siCapMultiplier: number;
+  monthlyTaxFree: number;
+  standardMonthlyHours: number;
+};
+
 function computeFor(
-  earnings: number,
-  otherDeductions: number,
-  employerSiPercent: number,
+  input: {
+    earnings: number;
+    otherDeductions: number;
+    employerSiPercent: number;
+    advanceHours: number;
+    baseSalary: number;
+  },
   periodMonth: string,
-  settings: { minimumWage: number; siCapMultiplier: number; monthlyTaxFree: number }
+  settings: PayrollComputeSettings
 ): PayrollResult {
   const { endDate } = periodRange(periodMonth);
   return computeEmployeePayroll({
-    earnings,
-    otherDeductions,
-    employerSiPercent,
+    earnings: input.earnings,
+    otherDeductions: input.otherDeductions,
+    employerSiPercent: input.employerSiPercent,
     date: endDate,
     minimumWage: settings.minimumWage,
     siCapMultiplier: settings.siCapMultiplier,
     monthlyTaxFree: settings.monthlyTaxFree,
+    advanceHours: input.advanceHours,
+    standardMonthlyHours: settings.standardMonthlyHours,
+    // Урьдчилгаа нь ҮНДСЭН цалингаас цагаар бодогдоно — урамшуулал, илүү
+    // цагийг урьдчилгаанд оруулахгүй (сүүл цалинд бүтнээр орно).
+    advanceBaseSalary: input.baseSalary,
   });
 }
 
@@ -370,10 +411,11 @@ export async function calculatePayrollRun(periodMonth: string) {
   ]);
   if (staff.length === 0)
     throw new Error("Идэвхтэй ажилтан алга — эхлээд Ажилтнууд хэсэгт бүртгэнэ үү");
-  const settings = {
+  const settings: PayrollComputeSettings = {
     minimumWage: Number(settingsRow.minimumWage),
     siCapMultiplier: settingsRow.siCapMultiplier,
     monthlyTaxFree: Number(settingsRow.monthlyTaxFree),
+    standardMonthlyHours: Number(settingsRow.standardMonthlyHours),
   };
 
   await db.transaction(async (tx) => {
@@ -402,16 +444,24 @@ export async function calculatePayrollRun(periodMonth: string) {
       const existing = byEmployee.get(person.id);
       const earnings = existing ? Number(existing.earnings) : Number(person.baseSalary);
       const otherDeductions = existing ? Number(existing.otherDeductions) : 0;
+      // Хэрэглэгчийн оруулсан урьдчилгааны цаг дахин бодолтод ХАДГАЛАГДАНА.
+      const advanceHours = existing ? Number(existing.advanceHours) : 0;
       const result = computeFor(
-        earnings,
-        otherDeductions,
-        Number(person.employerSiPercent),
+        {
+          earnings,
+          otherDeductions,
+          employerSiPercent: Number(person.employerSiPercent),
+          advanceHours,
+          baseSalary: Number(person.baseSalary),
+        },
         periodMonth,
         settings
       );
       const derived = {
         earnings: String(result.earnings),
         otherDeductions: String(result.otherDeductions),
+        advanceHours: String(result.advanceHours),
+        advanceAmount: String(result.advanceAmount),
         employeeSi: String(result.employeeSi),
         employerSi: String(result.employerSi),
         pit: String(result.pit),
@@ -439,11 +489,12 @@ export async function calculatePayrollRun(periodMonth: string) {
   revalidatePayroll();
 }
 
-/** Мөрийн олголт/суутгалыг засаад тооцооллыг дахин бодно. */
+/** Мөрийн олголт/суутгал/урьдчилгааны цагийг засаад тооцооллыг дахин бодно. */
 export async function updatePayrollLine(data: {
   lineId: string;
   earnings: number;
   otherDeductions: number;
+  advanceHours?: number;
 }) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const line = await db.query.payrollRunLines.findFirst({
@@ -456,14 +507,19 @@ export async function updatePayrollLine(data: {
 
   const settingsRow = await loadPayrollSettings(orgId, userId);
   const result = computeFor(
-    Number(data.earnings),
-    Number(data.otherDeductions),
-    Number(line.employee.employerSiPercent),
+    {
+      earnings: Number(data.earnings),
+      otherDeductions: Number(data.otherDeductions),
+      employerSiPercent: Number(line.employee.employerSiPercent),
+      advanceHours: Number(data.advanceHours ?? line.advanceHours),
+      baseSalary: Number(line.employee.baseSalary),
+    },
     line.run.periodMonth,
     {
       minimumWage: Number(settingsRow.minimumWage),
       siCapMultiplier: settingsRow.siCapMultiplier,
       monthlyTaxFree: Number(settingsRow.monthlyTaxFree),
+      standardMonthlyHours: Number(settingsRow.standardMonthlyHours),
     }
   );
   await db
@@ -471,6 +527,8 @@ export async function updatePayrollLine(data: {
     .set({
       earnings: String(result.earnings),
       otherDeductions: String(result.otherDeductions),
+      advanceHours: String(result.advanceHours),
+      advanceAmount: String(result.advanceAmount),
       employeeSi: String(result.employeeSi),
       employerSi: String(result.employerSi),
       pit: String(result.pit),

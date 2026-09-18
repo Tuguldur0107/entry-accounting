@@ -108,3 +108,89 @@ test("суутгал нийт олголтоос ихдвэл алдаа", () =>
     computeEmployeePayroll({ ...BOLD, earnings: 100_000, otherDeductions: 200_000 })
   );
 });
+
+// ── Урьдчилгаа цалин (ажилласан цагаар, суутгалгүй) ─────────────────────────
+// Урьдчилгаа нь НЭМЭЛТ олголт БИШ — сарын гарт олгох цалинг хоёр төлбөр
+// болгон хуваадаг тул НДШ/ХАОАТ/нийт гарт олгох дүн ӨӨРЧЛӨГДӨХГҮЙ байх ёстой.
+
+const ADVANCE_BASE = {
+  earnings: 2_000_000,
+  employerSiPercent: 12.5,
+  date: "2026-07-31",
+  minimumWage: 792_000,
+  siCapMultiplier: 10,
+  standardMonthlyHours: 168,
+  advanceBaseSalary: 2_000_000,
+};
+
+test("урьдчилгаа: цагийн хөлс = үндсэн цалин / стандарт цаг", () => {
+  const result = computeEmployeePayroll({ ...ADVANCE_BASE, advanceHours: 80 });
+  // 2,000,000 / 168 = 11,904.76₮/цаг
+  assert.equal(result.hourlyRate, 11_904.76);
+  assert.equal(result.advanceAmount, Math.round(11_904.76 * 80));
+  assert.equal(result.advanceHours, 80);
+});
+
+test("урьдчилгаа нь НДШ, ХАОАТ, нийт гарт олгохыг өөрчлөхгүй", () => {
+  const without = computeEmployeePayroll({ ...ADVANCE_BASE, advanceHours: 0 });
+  const withAdvance = computeEmployeePayroll({
+    ...ADVANCE_BASE,
+    advanceHours: 80,
+  });
+  assert.equal(withAdvance.employeeSi, without.employeeSi);
+  assert.equal(withAdvance.employerSi, without.employerSi);
+  assert.equal(withAdvance.pit, without.pit);
+  assert.equal(withAdvance.netSalary, without.netSalary);
+  assert.equal(withAdvance.earnings, without.earnings);
+});
+
+test("урьдчилгаа + сүүл цалин = сарын нийт гарт олгох", () => {
+  const result = computeEmployeePayroll({ ...ADVANCE_BASE, advanceHours: 80 });
+  assert.equal(result.advanceAmount + result.finalNet, result.netSalary);
+  assert.ok(result.finalNet > 0);
+});
+
+test("урьдчилгаагүй мөр: сүүл цалин = нийт гарт олгох", () => {
+  const result = computeEmployeePayroll(ADVANCE_BASE);
+  assert.equal(result.advanceAmount, 0);
+  assert.equal(result.hourlyRate, 11_904.76);
+  assert.equal(result.finalNet, result.netSalary);
+});
+
+test("урьдчилгаа нь гарт олгохоос их бол ШИДНЭ (сөрөг сүүл цалин)", () => {
+  assert.throws(
+    () => computeEmployeePayroll({ ...ADVANCE_BASE, advanceHours: 200 }),
+    /Урьдчилгаа нь сарын гарт олгох цалингаас их/
+  );
+});
+
+test("стандарт ажлын цаг 0 байхад урьдчилгаа бодохгүй — ШИДНЭ", () => {
+  assert.throws(
+    () =>
+      computeEmployeePayroll({
+        ...ADVANCE_BASE,
+        standardMonthlyHours: 0,
+        advanceHours: 10,
+      }),
+    /стандарт ажлын цаг/
+  );
+});
+
+test("сөрөг ажилласан цаг хориотой", () => {
+  assert.throws(
+    () => computeEmployeePayroll({ ...ADVANCE_BASE, advanceHours: -1 }),
+    /Ажилласан цаг/
+  );
+});
+
+test("урьдчилгаа нь ҮНДСЭН цалингаар бодогдоно (урамшуулал орохгүй)", () => {
+  // Нийт олголт урамшууллаар өссөн ч урьдчилгааны суурь нь үндсэн цалин.
+  const result = computeEmployeePayroll({
+    ...ADVANCE_BASE,
+    earnings: 3_000_000,
+    advanceBaseSalary: 2_000_000,
+    advanceHours: 84,
+  });
+  assert.equal(result.hourlyRate, 11_904.76);
+  assert.equal(result.advanceAmount, Math.round(11_904.76 * 84));
+});

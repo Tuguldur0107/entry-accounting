@@ -70,6 +70,19 @@ export type PayrollInput = {
   siCapMultiplier: number;
   /** Сарын татваргүй босго (2026: 800,000 — тохиргооноос; 0 = идэвхгүй). */
   monthlyTaxFree?: number;
+  /**
+   * Урьдчилгаанд тооцох ажилласан цаг (0 = урьдчилгаа олгоогүй). Урьдчилгаа
+   * нь НЭМЭЛТ олголт БИШ — сарын гарт олгох цалингийн урьдчилсан төлбөр тул
+   * earnings-д нэмэгдэхгүй, зөвхөн сүүл цалингаас хасагдана.
+   */
+  advanceHours?: number;
+  /** Сарын стандарт ажлын цаг (тохиргооноос; overtime.md: 22 × 8 = 168). */
+  standardMonthlyHours?: number;
+  /**
+   * Цагийн хөлс тооцох суурь сарын цалин — ихэвчлэн ажилтны ҮНДСЭН цалин
+   * (урамшуулал, илүү цагийг урьдчилгаанд тооцохгүй). Өгөөгүй бол earnings.
+   */
+  advanceBaseSalary?: number;
 };
 
 export type PayrollResult = {
@@ -80,7 +93,15 @@ export type PayrollResult = {
   taxableIncome: number;
   pit: number;
   otherDeductions: number;
+  /** Сарын НИЙТ гарт олгох = урьдчилгаа + сүүл цалин. */
   netSalary: number;
+  /** Цагийн хөлс = суурь цалин / стандарт ажлын цаг (0 = тооцох боломжгүй). */
+  hourlyRate: number;
+  advanceHours: number;
+  /** Урьдчилгаагаар олгох дүн — суутгалгүй (цагийн хөлс × ажилласан цаг). */
+  advanceAmount: number;
+  /** Сүүл цалин = нийт гарт олгох − урьдчилгаа. */
+  finalNet: number;
   /** Компанийн нийт хөдөлмөрийн зардал = earnings + employerSi. */
   totalCost: number;
 };
@@ -121,6 +142,29 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
   if (netSalary < 0)
     throw new Error("Суутгалууд нийт олголтоос их байна — гарт олгох сөрөг");
 
+  // ── Урьдчилгаа цалин ──────────────────────────────────────────────────
+  // Ажилласан цагаар бодогдож СУУТГАЛГҮЙ олгогдоно; НДШ, ХАОАТ нь сарын
+  // бүтэн олголтоос дээр аль хэдийн суутгагдсан тул урьдчилгаа нь тэдгээрийн
+  // ДАРАА гарсан цэвэр дүнгээс хасагдана → сүүл цалин.
+  const advanceHours = Math.round((input.advanceHours ?? 0) * 100) / 100;
+  if (!(advanceHours >= 0) || !Number.isFinite(advanceHours))
+    throw new Error("Ажилласан цаг 0-ээс багагүй байна");
+  const standardHours = input.standardMonthlyHours ?? 0;
+  if (advanceHours > 0 && !(standardHours > 0))
+    throw new Error("Сарын стандарт ажлын цаг 0-ээс их байх ёстой");
+  const advanceBase = input.advanceBaseSalary ?? earnings;
+  if (!(advanceBase >= 0) || !Number.isFinite(advanceBase))
+    throw new Error("Урьдчилгааны суурь цалин 0-ээс багагүй байна");
+
+  const hourlyRate =
+    standardHours > 0 ? Math.round((advanceBase / standardHours) * 100) / 100 : 0;
+  const advanceAmount = Math.round(hourlyRate * advanceHours);
+  if (advanceAmount > netSalary)
+    throw new Error(
+      "Урьдчилгаа нь сарын гарт олгох цалингаас их байна — ажилласан цагийг багасгана уу"
+    );
+  const finalNet = Math.round((netSalary - advanceAmount) * 100) / 100;
+
   return {
     earnings,
     cappedBase,
@@ -130,6 +174,10 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
     pit,
     otherDeductions,
     netSalary,
+    hourlyRate,
+    advanceHours,
+    advanceAmount,
+    finalNet,
     totalCost: Math.round((earnings + employerSi) * 100) / 100,
   };
 }

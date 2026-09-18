@@ -12,7 +12,8 @@ export type ColumnTypeId =
   | "switch"
   | "select"
   | "readonly-text"
-  | "readonly-money";
+  | "readonly-money"
+  | "number-hours";
 
 export interface CellValidationResult {
   ok: boolean;

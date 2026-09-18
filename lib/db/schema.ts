@@ -1515,6 +1515,18 @@ export const payrollSettings = pgTable("payroll_settings", {
   monthlyTaxFree: numeric("monthly_tax_free", { precision: 18, scale: 2 })
     .notNull()
     .default("0"),
+  /**
+   * Сарын стандарт ажлын цаг — цагийн хөлс = үндсэн цалин / энэ тоо
+   * (payroll/overtime.md: 22 ажлын өдөр × 8 цаг = 168; салбараас хамаарч
+   * 168–176 тул тохиргоогоор өөрчилнө). Урьдчилгаа цалинг ажилласан
+   * цагаар бодоход ашиглагдана.
+   */
+  standardMonthlyHours: numeric("standard_monthly_hours", {
+    precision: 8,
+    scale: 2,
+  })
+    .notNull()
+    .default("168"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [unique().on(t.organizationId)]);
 
@@ -1553,6 +1565,18 @@ export const payrollRunLines = pgTable("payroll_run_lines", {
   earnings: numeric("earnings", { precision: 18, scale: 2 }).notNull(),
   /** Бусад суутгал (зээл г.м) — засварлагдана. */
   otherDeductions: numeric("other_deductions", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /**
+   * Урьдчилгаа цалинд тооцох ажилласан цаг — засварлагдана. Урьдчилгаа нь
+   * сарын ГАРТ ОЛГОХ цалингийн урьдчилсан төлбөр (нэмэлт олголт БИШ):
+   * дүн нь суутгалгүйгээр олгогдож, сүүл цалингаас хасагдана.
+   */
+  advanceHours: numeric("advance_hours", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Урьдчилгаагаар олгосон дүн = цагийн хөлс × ажилласан цаг (server бодно). */
+  advanceAmount: numeric("advance_amount", { precision: 18, scale: 2 })
     .notNull()
     .default("0"),
   // Доорх багана server-д calc.ts-ээр ДАХИН бодогдож хадгалагдана (түүх).

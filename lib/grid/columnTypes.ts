@@ -37,6 +37,24 @@ export const columnTypeDefaults: Record<ColumnTypeId, Partial<ColDef>> = {
     valueFormatter: moneyValueFormatter,
   },
 
+  // Цаг / тоо хэмжээ — мөнгө БИШ тул бутархайг албадан 2 орон болгохгүй
+  // (168 нь "168", 7.5 нь "7.5"). Оролтыг мөнгөтэй ИЖИЛ тэвчээртэй уншина.
+  "number-hours": {
+    cellDataType: "number",
+    editable: true,
+    cellClass: "ag-right-aligned-cell font-mono",
+    headerClass: "ag-right-aligned-header",
+    valueParser: (p) => {
+      const n = parseMntInput(p.newValue);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    },
+    valueFormatter: (p) => {
+      const n = Number(p.value ?? 0);
+      if (!Number.isFinite(n) || n === 0) return "";
+      return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    },
+  },
+
   debit: {
     cellDataType: "number",
     editable: true,

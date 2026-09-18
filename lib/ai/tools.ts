@@ -5726,9 +5726,22 @@ async function runPayrollSummary(input: {
       employerSi: sum.employerSi + line.employerSi,
       pit: sum.pit + line.pit,
       net: sum.net + line.netSalary,
+      advance: sum.advance + line.advanceAmount,
+      finalNet: sum.finalNet + line.finalNet,
     }),
-    { earnings: 0, employeeSi: 0, employerSi: 0, pit: 0, net: 0 }
+    {
+      earnings: 0,
+      employeeSi: 0,
+      employerSi: 0,
+      pit: 0,
+      net: 0,
+      advance: 0,
+      finalNet: 0,
+    }
   );
+  // Урьдчилгаа олгосон сард гарт олгох дүн ХОЁР төлбөр болж хуваагдана —
+  // вэбийн дэлгэцтэй ижил задаргааг чатад ч харуулна.
+  const hasAdvance = totals.advance > 0;
   const voucherText = data.voucher
     ? `GL журнал: ${data.voucher.status === "draft" ? "ноорог (батлах хүлээгдэж буй)" : data.voucher.status === "posted" ? "батлагдсан" : data.voucher.status}`
     : "GL журнал үүсээгүй (create_payroll_voucher)";
@@ -5737,9 +5750,17 @@ async function runPayrollSummary(input: {
       `Цалингийн бодолт ${input.period} — ${data.lines.length} ажилтан:`,
       ...data.lines.map(
         (line) =>
-          `  ${line.employeeName}: олголт ${fmt(line.earnings)}₮, НДШ ${fmt(line.employeeSi)}₮, ХАОАТ ${fmt(line.pit)}₮ → гарт ${fmt(line.netSalary)}₮`
+          `  ${line.employeeName}: олголт ${fmt(line.earnings)}₮, НДШ ${fmt(line.employeeSi)}₮, ХАОАТ ${fmt(line.pit)}₮ → гарт ${fmt(line.netSalary)}₮` +
+          (line.advanceAmount > 0
+            ? ` (урьдчилгаа ${fmt(line.advanceAmount)}₮ / ${line.advanceHours} цаг + сүүл ${fmt(line.finalNet)}₮)`
+            : "")
       ),
       `Нийт: олголт ${fmt(totals.earnings)}₮ · НДШ (ажилтан) ${fmt(totals.employeeSi)}₮ · АО НДШ ${fmt(totals.employerSi)}₮ · ХАОАТ ${fmt(totals.pit)}₮ · гарт олгох ${fmt(totals.net)}₮`,
+      ...(hasAdvance
+        ? [
+            `Олголтын хуваарь: урьдчилгаа ${fmt(totals.advance)}₮ + сүүл цалин ${fmt(totals.finalNet)}₮ = ${fmt(totals.net)}₮`,
+          ]
+        : []),
       `Тайлан: НДШ дараа сарын 5, ХАОАТ дараа сарын 10 дотор. ${voucherText}`,
     ].join("\n"),
   };
