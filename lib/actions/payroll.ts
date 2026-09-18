@@ -34,6 +34,7 @@ import {
 } from "@/lib/payroll/calc";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
+import { canAutoDefaultSegment } from "@/lib/gl/posting-code";
 import { logAuditEvent } from "@/lib/audit";
 
 function revalidatePayroll() {
@@ -502,6 +503,7 @@ async function payrollPostingCodeBuilder(orgId: string) {
   ).map((definition) => definition.id);
   const defaults: Record<number, string> = {};
   for (const segmentId of activeSegIds) {
+    if (!canAutoDefaultSegment(segmentId)) continue;
     const options = values.filter((value) => value.segmentId === segmentId);
     if (options.length === 1) defaults[segmentId] = options[0].code;
   }

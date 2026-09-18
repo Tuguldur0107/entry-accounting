@@ -24,6 +24,20 @@ import {
   users,
   type MembershipRole,
 } from "@/lib/db/schema";
+import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
+
+/**
+ * Компанийн бүртгэл өөрчлөгдөхөд S1/S6 сегментийн утга дагаж шинэчлэгдэнэ
+ * (шинэ компани → шинэ код, нэр солих → нэр шинэчлэгдэнэ). Сегментийн
+ * шинэчлэлт унасан ч байгууллагын үйлдэл ЗОГСОХГҮЙ.
+ */
+async function refreshCompanySegments(orgId: string, userId: string) {
+  try {
+    await syncCompanySegmentValuesForGroup(orgId, userId);
+  } catch (caught) {
+    console.error("refreshCompanySegments:", caught);
+  }
+}
 
 const ORG_COOKIE = "ea-org";
 const ROLES: MembershipRole[] = ["owner", "admin", "accountant", "viewer"];
@@ -298,6 +312,9 @@ export async function createOrganization(data: {
     email: clean(data.email),
   });
 
+  // Шинэ компани = S1/S6 сегментийн шинэ утга (эзэмшигчийн БҮХ компанид).
+  await refreshCompanySegments(orgId, userId);
+
   (await cookies()).set(ORG_COOKIE, orgId, {
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
@@ -312,13 +329,16 @@ export async function updateOrganization(data: {
   name: string;
   registryNo?: string;
 }) {
-  const { orgId } = await requireRole("admin");
+  const { orgId, userId } = await requireRole("admin");
   const name = data.name.trim();
   if (!name) throw new Error("Байгууллагын нэр оруулна уу");
   await db
     .update(organizations)
     .set({ name, registryNo: data.registryNo?.trim() || null })
     .where(eq(organizations.id, orgId));
+  // Нэр солигдвол S1/S6 утгын НЭР дагана — код хэвээр (журнал хоцрохгүй).
+  await refreshCompanySegments(orgId, userId);
+  revalidatePath("/settings/gl");
   revalidatePath("/admin/org");
   revalidatePath("/", "layout");
 }

@@ -47,6 +47,11 @@ import {
   runBeforeJournalPost,
 } from "@/lib/custom/loader";
 import { actionError, type ActionResult } from "@/lib/action-result";
+import {
+  syncAllSegmentDefaultValues,
+  syncSegmentDefaultValues,
+  type SegmentSyncResult,
+} from "@/lib/gl/segment-sync";
 
 // Фаз 01 multi-tenancy: scope нь идэвхтэй байгууллага (orgId), userId нь
 // createdBy/audit утгаар үлддэг. Дансны/сегментийн тохиргоо — admin,
@@ -197,6 +202,57 @@ async function syncStandardAccountsCore() {
   revalidatePath("/settings/gl");
   revalidatePath("/gl/journal");
   return { added: toAdd.length };
+}
+
+// ─── Сегментийн стандарт утга татах (S1/S6 — компаниас автомат) ──────────────
+
+/**
+ * Нэг сегментийн стандарт утгуудыг татна. S1 (Компани) / S6 (Группын дотоод)
+ * бол компаниудын бүртгэлээс ИЖИЛ жагсаалт үүсгэнэ — код тогтвортой,
+ * нэр нь компанийн нэрийг дагана.
+ */
+export async function syncSegmentDefaults(
+  segmentId: number
+): Promise<ActionResult<SegmentSyncResult>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const result = await syncSegmentDefaultValues(orgId, userId, segmentId);
+    revalidatePath("/settings/gl");
+    revalidatePath("/gl/journal");
+    return result;
+  } catch (caught) {
+    return actionError("syncSegmentDefaults", caught, "Стандарт утга нэмэгдсэнгүй");
+  }
+}
+
+/** Идэвхтэй БҮХ сегментийн стандарт утгыг нэг дор татна (S3 дансыг оруулахгүй). */
+export async function syncAllSegmentDefaults(): Promise<
+  ActionResult<SegmentSyncResult>
+> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const configs = await db.query.segmentConfigs.findMany({
+      where: eq(segmentConfigs.organizationId, orgId),
+      columns: { segmentId: true, isEnabled: true },
+    });
+    const disabled = new Set(
+      configs.filter((config) => !config.isEnabled).map((config) => config.segmentId)
+    );
+    // Бүртгэлгүй сегмент = идэвхтэй (getSegmentConfigs-ийн seed дүрэмтэй ижил).
+    const enabled = SEGMENT_DEFS.filter((def) => !disabled.has(def.id)).map(
+      (def) => def.id
+    );
+    const result = await syncAllSegmentDefaultValues(orgId, userId, enabled);
+    revalidatePath("/settings/gl");
+    revalidatePath("/gl/journal");
+    return result;
+  } catch (caught) {
+    return actionError(
+      "syncAllSegmentDefaults",
+      caught,
+      "Стандарт утга нэмэгдсэнгүй"
+    );
+  }
 }
 
 // ─── Segment Configs ──────────────────────────────────────────────────────────

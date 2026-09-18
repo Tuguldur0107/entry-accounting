@@ -1098,6 +1098,16 @@ export const segmentValues = pgTable(
     segmentId: integer("segment_id").notNull(), // 1–10 (except 3, which uses chartOfAccounts)
     code: text("code").notNull(),
     name: text("name").notNull(),
+    /**
+     * S1 (Компани) / S6 (Группын дотоод) — автомат бүрдэх утгын эх байгууллага.
+     * Холбоос нь кодыг ТОГТВОРТОЙ байлгана: компанийн нэр солигдоход утгын
+     * нэр дагаж шинэчлэгдэнэ, код (журналд бичигдсэн) хэвээр үлдэнэ.
+     * null = хэрэглэгч гараар оруулсан утга.
+     */
+    linkedOrganizationId: uuid("linked_organization_id").references(
+      () => organizations.id,
+      { onDelete: "set null" }
+    ),
     isEnabled: boolean("is_enabled").notNull().default(true),
     modules: text("modules").notNull().default(""),
     createdAt: timestamp("created_at").defaultNow().notNull(),

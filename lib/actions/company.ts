@@ -13,6 +13,7 @@ import {
   organizations,
   type CompanySettings,
 } from "@/lib/db/schema";
+import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 
 
 /** ~1MB-аас том зураг татгалзана — PDF/DB-ийг дэмий бүдүүрүүлэхгүй. */
@@ -114,12 +115,20 @@ export async function updateCompanySettings(data: {
 
   // Байгууллагын нэр/ТТД = компанийн нэр/регистр — нэг эх сурвалж.
   // (Switcher, жагсаалт, Удирдлага хуудас бүгд organizations-оос уншдаг.)
-  if (base.name)
+  if (base.name) {
     await db
       .update(organizations)
       .set({ name: base.name, registryNo: base.registerNo })
       .where(eq(organizations.id, orgId));
+    // S1/S6 сегментийн утгын нэр нь компанийн нэрийг дагана — код хэвээр.
+    try {
+      await syncCompanySegmentValuesForGroup(orgId, userId);
+    } catch (caught) {
+      console.error("syncCompanySegmentValuesForGroup:", caught);
+    }
+  }
 
+  revalidatePath("/settings/gl");
   revalidatePath("/settings/company");
   revalidatePath("/admin/org");
   revalidatePath("/", "layout");
