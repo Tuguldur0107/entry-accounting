@@ -524,7 +524,19 @@ export const bankStatementLines = pgTable(
     }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.statementId, table.rowNumber)]
+  (table) => [
+    // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн алдаа
+    // (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
+    // push дараагийн удаа "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
+    // нэмэхийг оролдож «truncate хийх үү?» гэж асуудаг — non-TTY preDeploy
+    // дээр тэр асуулт crash болж, схемийн БҮХ өөрчлөлт DB-д ОРОХГҮЙ үлддэг
+    // (2026-09-18: 3 мөртэй болмогц үндсэн апп унаж, АР/АП хуудас 500 өгсөн).
+    // Нэр нь хуучин `…_unique` constraint-аас ЗОРИУД өөр — давхцахгүй.
+    uniqueIndex("bank_statement_lines_statement_row_ux").on(
+      table.statementId,
+      table.rowNumber
+    ),
+  ]
 );
 
 // П8 — Банкны хуулгын импортын хэрэглэгчийн дүрэм: нөхцөл (текст агуулна /
