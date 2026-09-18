@@ -30,6 +30,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   createCostAllocation,
   type AllocationRow,
+  type AllocationSourceOption,
   type AllocationTargetOption,
 } from "@/lib/actions/cost-allocation";
 import {
@@ -42,6 +43,8 @@ import { fmtMnt } from "@/lib/reports/balances";
 interface Props {
   rows: AllocationRow[];
   targets: AllocationTargetOption[];
+  /** Эх сурвалж болох PO-гүй өглөгийн нэхэмжлэхийн зардлын мөрүүд. */
+  sources: AllocationSourceOption[];
   components: { id: string; code: string; name: string }[];
   from: string;
   to: string;
@@ -50,6 +53,7 @@ interface Props {
 export function CostAllocationView({
   rows,
   targets,
+  sources,
   components,
   from,
   to,
@@ -62,6 +66,8 @@ export function CostAllocationView({
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
+    /** Сонгосон эх мөр — хоосон бол холбоосгүй (тулгалтад тусдаа объект). */
+    sourceLineId: "",
     costComponentId: "",
     totalAmount: "",
     allocationBase: "value" as AllocationBase,
@@ -109,6 +115,7 @@ export function CostAllocationView({
     startTransition(async () => {
       const result = await createCostAllocation({
         date: form.date,
+        sourceLineId: form.sourceLineId || undefined,
         costComponentId: form.costComponentId,
         totalAmount,
         allocationBase: form.allocationBase,
@@ -248,6 +255,37 @@ export function CostAllocationView({
                     setForm((c) => ({ ...c, date: event.target.value }))
                   }
                 />
+              </div>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label>Эх нэхэмжлэх (сонголтоор)</Label>
+                <SearchableSelect
+                  value={form.sourceLineId}
+                  onChange={(value) => {
+                    const picked = sources.find(
+                      (source) => source.lineId === value
+                    );
+                    setForm((c) => ({
+                      ...c,
+                      sourceLineId: value,
+                      // Үлдэгдлээр нь урьдчилж бөглөнө — хэрэглэгч засаж болно.
+                      totalAmount: picked
+                        ? String(picked.remainingMnt)
+                        : c.totalAmount,
+                    }));
+                  }}
+                  options={sources.map((source) => ({
+                    value: source.lineId,
+                    label: `${source.documentNo} · ${source.date}${source.counterpartyName ? ` · ${source.counterpartyName}` : ""}${source.description ? ` · ${source.description}` : ""} — үлдэгдэл ${fmtMnt(source.remainingMnt)}`,
+                  }))}
+                  placeholder="Зардлын нэхэмжлэхийн мөр сонгох (заавал биш)..."
+                  hideValue
+                />
+                <p className="text-[11px] text-[var(--ea-text-4)]">
+                  Сонговол хуваарилалт тэр нэхэмжлэхийн объектод холбогдож
+                  клирингийн дансанд тэгширнэ; Σ нь мөрийн үлдэгдлээс
+                  хэтрэхгүй. Сонгохгүй бол тулгалтад тусдаа "Зардлын
+                  хуваарилалт" объект болж үлдэнэ.
+                </p>
               </div>
               <div className="grid gap-1.5">
                 <Label>Өртгийн бүрэлдэхүүн</Label>
