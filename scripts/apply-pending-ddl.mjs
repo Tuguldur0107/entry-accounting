@@ -92,6 +92,40 @@ async function main() {
     );
   }
 
+  // ── 1a. Хуучин user-scoped unique индексүүдийг хасна ─────────────────────
+  // Фаз 01-ээс хойш scope нь БАЙГУУЛЛАГА, userId нь зөвхөн createdBy. Нэг
+  // хэрэглэгч хэд хэдэн компани эзэмшиж болдог тул (user_id, <код>) дээрх
+  // давхардлын хориг БУРУУ: жишээ нь хоёр компанийн аль алинд 44000099 данс
+  // байх нь ЗӨВ (2026-09-18 push яг үүн дээр `could not create unique index`
+  // гэж унасан). Байгууллагын хүрээний хос (organization_id, <код>) хэвээр
+  // хамгаална. Эдгээр нэр схемээс хасагдсан тул push өөрөө ч устгах ёстой —
+  // энд нь урьдчилж, ил тодорхой хийнэ (өмнөх push хагас үүсгэсэн байж болно).
+  for (const index of [
+    "accounting_periods_user_id_code_ux",
+    "ar_ap_documents_user_id_document_no_ux",
+    "bank_statements_user_id_file_hash_ux",
+    "cash_documents_user_id_document_no_ux",
+    "cash_fx_revaluations_user_acct_date_rev_ux",
+    "chart_of_accounts_user_id_number_ux",
+    "cost_allocations_user_id_document_no_ux",
+    "cost_components_user_id_code_ux",
+    "cost_period_results_user_period_item_wh_ux",
+    "costing_item_settings_user_id_item_id_ux",
+    "counterparties_user_id_name_ux",
+    "fixed_assets_user_id_code_ux",
+    "inventory_issue_types_user_id_code_ux",
+    "inventory_items_user_id_code_ux",
+    "inventory_movements_user_id_document_no_ux",
+    "module_configs_user_id_module_key_ux",
+    "payroll_runs_user_id_period_month_ux",
+    "report_line_mappings_user_type_line_ux",
+    "segment_configs_user_id_segment_id_ux",
+    "segment_values_user_id_segment_id_code_ux",
+    "warehouses_user_id_code_ux",
+  ]) {
+    await run(`${index} хасах (user-scoped)`, `drop index if exists ${index}`);
+  }
+
   // ── 1b. Өргөтгөлийн view-г public-оос гаргана ────────────────────────────
   // Push нь схемд зарлагдаагүй public view бүрийг DROP хийх гэж оролддог.
   // Railway-ийн `pg_stat_statements` нь public дотор view (…_info) үүсгэдэг тул
