@@ -21,10 +21,14 @@ export const users = pgTable("users", {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+  email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+},
+// UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн #5955 (§5b):
+// constraint-ыг push бүрд "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
+// нэмэхийг оролдож «truncate хийх үү?» гэж асууж non-TTY preDeploy-г унагаана.
+(t) => [uniqueIndex("users_email_ux").on(t.email)]);
 
 // ─── Organizations (Фаз 01 multi-tenancy) ────────────────────────────────────
 // Байгууллага = компани. Хэрэглэгч олон байгууллагад гишүүн байж болно
@@ -89,7 +93,7 @@ export const orgInvitations = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     role: text("role").notNull().default("accountant"), // MembershipRole (owner-гүй)
-    token: uuid("token").notNull().defaultRandom().unique(),
+    token: uuid("token").notNull().defaultRandom(),
     invitedBy: text("invited_by").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -101,6 +105,7 @@ export const orgInvitations = pgTable(
     uniqueIndex("org_invitations_pending_ux")
       .on(t.organizationId, t.email)
       .where(sql`${t.acceptedAt} is null`),
+    uniqueIndex("org_invitations_token_ux").on(t.token),
   ]
 );
 
@@ -1851,8 +1856,7 @@ export const taxSettings = pgTable("tax_settings", {
     .references(() => users.id, { onDelete: "cascade" }),
   organizationId: uuid("organization_id")
     .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" })
-    .unique(),
+    .references(() => organizations.id, { onDelete: "cascade" }),
   citPayableAccountNumber: text("cit_payable_account_number")
     .notNull()
     .default("31000003"),
@@ -1885,7 +1889,7 @@ export const taxSettings = pgTable("tax_settings", {
     .notNull()
     .default("13650000"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [uniqueIndex("tax_settings_org_id_ux").on(t.organizationId)]);
 
 export const vatSettings = pgTable("vat_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -2713,7 +2717,7 @@ export const oauthClients = pgTable("oauth_clients", {
 
 export const oauthCodes = pgTable("oauth_codes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  codeHash: text("code_hash").notNull().unique(),
+  codeHash: text("code_hash").notNull(),
   clientId: uuid("client_id")
     .notNull()
     .references(() => oauthClients.id, { onDelete: "cascade" }),
@@ -2728,7 +2732,7 @@ export const oauthCodes = pgTable("oauth_codes", {
   codeChallenge: text("code_challenge").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [uniqueIndex("oauth_codes_code_hash_ux").on(t.codeHash)]);
 
 export const oauthTokens = pgTable("oauth_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -2742,12 +2746,15 @@ export const oauthTokens = pgTable("oauth_tokens", {
   clientId: uuid("client_id")
     .notNull()
     .references(() => oauthClients.id, { onDelete: "cascade" }),
-  accessTokenHash: text("access_token_hash").notNull().unique(),
-  refreshTokenHash: text("refresh_token_hash").notNull().unique(),
+  accessTokenHash: text("access_token_hash").notNull(),
+  refreshTokenHash: text("refresh_token_hash").notNull(),
   accessExpiresAt: timestamp("access_expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastUsedAt: timestamp("last_used_at"),
-});
+}, (t) => [
+  uniqueIndex("oauth_tokens_access_token_hash_ux").on(t.accessTokenHash),
+  uniqueIndex("oauth_tokens_refresh_token_hash_ux").on(t.refreshTokenHash),
+]);
 
 // MCP холболтын Personal Access Token — Claude Code зэрэг гадны MCP клиент
 // Bearer token-оор нэвтэрнэ. Түлхүүр өөрөө хадгалагдахгүй, sha256 hash нь л
@@ -2762,14 +2769,14 @@ export const apiTokens = pgTable("api_tokens", {
     onDelete: "cascade",
   }),
   name: text("name").notNull(),
-  tokenHash: text("token_hash").notNull().unique(),
+  tokenHash: text("token_hash").notNull(),
   /** Сүүлийн 4 тэмдэгт — жагсаалтад таних зорилгоор. */
   tokenHint: text("token_hint").notNull(),
   /** Дуусах хугацаа — null бол хугацаагүй (хуучин токенууд хэвээр). */
   expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastUsedAt: timestamp("last_used_at"),
-});
+}, (t) => [uniqueIndex("api_tokens_token_hash_ux").on(t.tokenHash)]);
 
 // AI туслахын хэрэглэгч бүрийн тохиргоо. apiKey нь хэрэглэгчийн өөрийн
 // Anthropic түлхүүр — байхгүй бол серверийн ANTHROPIC_API_KEY-г ашиглана.
@@ -2864,7 +2871,7 @@ export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
   /** И-мэйл суваг: хүлээн авагчийн хаяг. Линк суваг: null. */
   recipient: text("recipient"),
   /** Public линкний токен — таамаглагдашгүй, хүчингүй болгож болно. */
-  token: uuid("token").notNull().defaultRandom().unique(),
+  token: uuid("token").notNull().defaultRandom(),
   revokedAt: timestamp("revoked_at"),
   /** Линкний дуусах хугацаа — null бол хугацаагүй (хуучин линкүүд хэвээр). */
   expiresAt: timestamp("expires_at"),
@@ -2873,7 +2880,7 @@ export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
   viewedAt: timestamp("viewed_at"),
   /** И-мэйл суваг: Resend-ийн message id — мөрдөлт/лавлагаанд. */
   messageId: text("message_id"),
-});
+}, (t) => [uniqueIndex("invoice_deliveries_token_ux").on(t.token)]);
 
 // ─── Audit log — хэн, хэзээ, юу хийснийг мөрдөх ──────────────────────────────
 // Батлах/буцаах/устгах/хаах зэрэг статус шилжилт бүрд НЭГ мөр. Бизнесийн
