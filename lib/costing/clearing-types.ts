@@ -33,5 +33,9 @@ export interface ClearingReconciliation {
   rows: ClearingObjectRow[];
   /** Объектгүй (гар журнал) мөрүүд — ил үлдэгдэл. */
   unknownCount: number;
+  /** Цэвэр нийлбэр — хоорондоо тэгширвэл 0 байж болно. */
   unknownAmount: number;
+  /** Σ|үлдэгдэл| — цэвэр 0 байлаа ч ЯМАР хэмжээний мөр тайлбаргүй байгааг
+      үзүүлнэ (цэвэр дүнг ганцаар харуулбал "асуудалгүй" мэт уншигдана). */
+  unknownGross: number;
 }

@@ -582,9 +582,13 @@ function ClearingPane({ clearing }: { clearing: ClearingReconciliation }) {
         <div className="flex items-start gap-2 rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger)]">
           <Icon name="warning" size="sm" className="mt-0.5 shrink-0" />
           <p>
-            {clearing.unknownCount} объектгүй (гар журналын) үлдэгдэл —{" "}
-            {fmtMnt(clearing.unknownAmount)}. Эдгээрийг бизнес объекттой нь
-            холбож тайлбарлах шаардлагатай; автоматаар шүүрдэхгүй.
+            {clearing.unknownCount} объектгүй (гар журналын) мөр — нийт{" "}
+            {fmtMnt(clearing.unknownGross)}
+            {Math.abs(clearing.unknownAmount) <= 0.01
+              ? " (хоорондоо тэгширч байгаа ч объекттой холбогдоогүй)"
+              : `, цэвэр ${fmtMnt(clearing.unknownAmount)}`}
+            . Эдгээрийг бизнес объекттой нь холбож тайлбарлах шаардлагатай;
+            автоматаар шүүрдэхгүй.
           </p>
         </div>
       )}
@@ -625,7 +629,14 @@ function ClearingPane({ clearing }: { clearing: ClearingReconciliation }) {
             ))}
           </div>
 
-          {/* Объект бүрийн мөрүүд — Данс + Төрөл + ID дотроо тулна (§6.2) */}
+          {/* Объект бүрийн мөрүүд — Данс + Төрөл + ID дотроо тулна (§6.2).
+              Бүгд тэгширсэн бол хүснэгт хоосон — үүнийг ИЛ хэлнэ, эс бөгөөс
+              "юу ч байхгүй" мэт уншигдана. */}
+          {clearing.rows.length === 0 ? (
+            <div className="rounded-md border border-[var(--ea-success)]/40 bg-[var(--ea-success)]/8 px-3 py-3 text-xs text-[var(--ea-success-fg)]">
+              ✓ Клирингийн бүх объект тэгширсэн — нээлттэй үлдэгдэл алга.
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-md border border-[var(--ea-border)]">
             <table className="w-full text-xs">
               <thead className="bg-[var(--ea-bg-2)] text-[var(--ea-text-3)]">
@@ -701,6 +712,7 @@ function ClearingPane({ clearing }: { clearing: ClearingReconciliation }) {
               </tbody>
             </table>
           </div>
+          )}
 
           {openRows.length === 0 && clearing.rows.length > 0 && (
             <p className="text-xs text-[var(--ea-success)]">

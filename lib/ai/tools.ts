@@ -6174,7 +6174,9 @@ async function runReconcileModules(
             `  ХААГДААГҮЙ ${row.account} · ${row.objectLabel}${row.componentLabel ? ` (${row.componentLabel})` : ""}: ${fmt(row.ending)}`
         ),
       ...(clearing.unknownCount > 0
-        ? [`  ОБЪЕКТГҮЙ (гар журнал): ${clearing.unknownCount} мөр, ${fmt(clearing.unknownAmount)}₮`]
+        ? [
+            `  ОБЪЕКТГҮЙ (гар журнал): ${clearing.unknownCount} мөр, нийт ${fmt(clearing.unknownGross)}₮${Math.abs(clearing.unknownAmount) > 0.01 ? ` (цэвэр ${fmt(clearing.unknownAmount)}₮)` : " (хоорондоо тэгширсэн)"}`,
+          ]
         : []),
     ];
     if (openRows.length > 0)

@@ -17,20 +17,30 @@
 //        (PO-той баримт бол түлхүүргүй хуучин мөрийг ч PO объектод буулгана)
 //   3. воучер нь мөнгөн гүйлгээний voucherId бол → "Мөнгөн гүйлгээ"
 //   4. өөр юу ч биш → "Тодорхойгүй (гар журнал)" — ил үлдэгдэл, нуухгүй.
+//
+// БУЦААЛТ: мөр өөрөө нотолгоогүй бол ЭХ журналынхаа (reversalOfVoucherId)
+// ижил данс дээрх мөрийн объектыг өвлөнө — эс бөгөөс эх + буцаалт хоёулаа
+// тусдаа "нээлттэй" объект болж, тэгширсэн хос нь худал сэрэмжлүүлэг өгнө.
 
 import { and, eq, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  arApDocumentLines,
   arApDocuments,
   cashDocuments,
   costComponents,
   costEntries,
+  inventoryItems,
   inventoryMovements,
   journalVouchers,
   purchaseOrders,
 } from "@/lib/db/schema";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
+import {
+  resolveClearingObjectWithReversal,
+  type ClearingLookups,
+} from "./clearing-objects";
 import { loadCostingAccountSettings } from "./master-data";
 import { extractMainAccount } from "@/lib/reports/balances";
 import type {
@@ -38,11 +48,6 @@ import type {
   ClearingReconciliation,
 } from "./clearing-types";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
-
-/** Бизнес объектын төрлийн монгол шошго (journal_lines-ийн түлхүүрээс). */
-const BUSINESS_OBJECT_LABELS: Record<string, string> = {
-  [PO_BUSINESS_OBJECT]: "Захиалга (PO)",
-};
 
 export async function loadClearingReconciliation(
   orgId: string,
@@ -75,8 +80,19 @@ export async function loadClearingReconciliation(
       inArray(journalVouchers.status, ["posted", "reversed"])
     ),
     with: { lines: true },
-    columns: { id: true, date: true, description: true },
+    columns: {
+      id: true,
+      date: true,
+      description: true,
+      reversalOfVoucherId: true,
+    },
   });
+  // Буцаалт → эх журнал (объект өвлүүлэхэд).
+  const reversalOf = new Map(
+    vouchers
+      .filter((voucher) => voucher.reversalOfVoucherId)
+      .map((voucher) => [voucher.id, voucher.reversalOfVoucherId!])
+  );
 
   type RawLine = {
     voucherId: string;
@@ -106,7 +122,13 @@ export async function loadClearingReconciliation(
     }
   }
   if (raw.length === 0)
-    return { accounts: [], rows: [], unknownCount: 0, unknownAmount: 0 };
+    return {
+      accounts: [],
+      rows: [],
+      unknownCount: 0,
+      unknownAmount: 0,
+      unknownGross: 0,
+    };
 
   // ── Объектын шийдэлд хэрэгтэй хайлтын хүснэгтүүд ──────────────────────────
   const entryIds = [
@@ -195,10 +217,72 @@ export async function loadClearingReconciliation(
             eq(inventoryMovements.organizationId, orgId),
             inArray(inventoryMovements.id, movementIds)
           ),
-          columns: { id: true, documentNo: true },
+          // sourceType/sourceId — PO-гүй худалдан авалтын гинжийг сэргээнэ
+          // (АП мөр Dr клиринг → түүнээс үүссэн хөдөлгөөн Cr клиринг).
+          columns: {
+            id: true,
+            documentNo: true,
+            sourceType: true,
+            sourceId: true,
+          },
         })
       : [];
   const movementById = new Map(movements.map((row) => [row.id, row]));
+
+  // Хөдөлгөөн нь АР/АП-ийн мөрөөс үүссэн бол тэр БАРИМТЫН объектод буулгана —
+  // эс бөгөөс нэг худалдан авалт хоёр объект болж хэзээ ч тэгширэхгүй.
+  const arapLineIds = [
+    ...new Set(
+      movements
+        .filter((row) => row.sourceType === "arap_line" && row.sourceId)
+        .map((row) => row.sourceId as string)
+    ),
+  ];
+  const arapLineDocs =
+    arapLineIds.length > 0
+      ? await db
+          .select({
+            lineId: arApDocumentLines.id,
+            documentNo: arApDocuments.documentNo,
+            documentType: arApDocuments.documentType,
+            purchaseOrderId: arApDocuments.purchaseOrderId,
+          })
+          .from(arApDocumentLines)
+          .innerJoin(
+            arApDocuments,
+            eq(arApDocumentLines.documentId, arApDocuments.id)
+          )
+          .where(
+            and(
+              eq(arApDocuments.organizationId, orgId),
+              inArray(arApDocumentLines.id, arapLineIds)
+            )
+          )
+      : [];
+  const apByArapLine = new Map(
+    arapLineDocs.map((row) => [row.lineId, row])
+  );
+
+  // Хөдөлгөөнгүй үлдсэн (устгагдсан хөдөлгөөний буцаагдсан) өртгийн бичилт —
+  // барааны нэрээр нэрлэнэ, "Тодорхойгүй" руу унагахгүй.
+  const orphanItemIds = [
+    ...new Set(
+      entries
+        .filter((entry) => !entry.movementId && entry.itemId)
+        .map((entry) => entry.itemId as string)
+    ),
+  ];
+  const orphanItems =
+    orphanItemIds.length > 0
+      ? await db.query.inventoryItems.findMany({
+          where: and(
+            eq(inventoryItems.organizationId, orgId),
+            inArray(inventoryItems.id, orphanItemIds)
+          ),
+          columns: { id: true, code: true, name: true },
+        })
+      : [];
+  const itemById = new Map(orphanItems.map((item) => [item.id, item]));
 
   // Захиалгын дугаарууд — объектын шошгод (мөрийн түлхүүр ба PO-той АР/АП
   // баримт хоёуланг нэрлэнэ).
@@ -239,92 +323,33 @@ export async function loadClearingReconciliation(
   }
   const buckets = new Map<string, Bucket>();
 
+  // Воучер + данс бүрийн түүхий мөрүүд — буцаалт эхийнхээ мөрийг олоход.
+  const rawByVoucherAccount = new Map<string, RawLine[]>();
   for (const line of raw) {
-    let objectType = "Тодорхойгүй (гар журнал)";
-    let objectId = line.voucherId;
-    let objectLabel = line.voucherDescription || line.voucherId.slice(0, 8);
-    let componentLabel: string | null = null;
-    let known = false;
+    const indexKey = `${line.voucherId}::${line.account}`;
+    const list = rawByVoucherAccount.get(indexKey);
+    if (list) list.push(line);
+    else rawByVoucherAccount.set(indexKey, [line]);
+  }
 
-    const entry = line.costEntryId ? entryById.get(line.costEntryId) : null;
+  const lookups: ClearingLookups = {
+    entryById,
+    allocationByEntry,
+    movementById,
+    apByArapLine,
+    apByVoucher,
+    cashByVoucher,
+    componentById,
+    orderById,
+    itemById,
+  };
 
-    // 0. БИЧИХ МӨЧИД тавигдсан бизнес объектын түлхүүр — ТЭРГҮҮН (FR-PROC-004).
-    // Хангамжийн Dr (өглөгийн түр данс, АР/АП журналаас) ба Cr (бараа мат.
-    // түр данс, өртгийн журналаас) ингэж НЭГ объектод буудаг.
-    if (line.businessObjectType && line.businessObjectId) {
-      const order =
-        line.businessObjectType === PO_BUSINESS_OBJECT
-          ? orderById.get(line.businessObjectId)
-          : undefined;
-      objectType =
-        BUSINESS_OBJECT_LABELS[line.businessObjectType] ??
-        line.businessObjectType;
-      objectId = order?.documentNo ?? line.businessObjectId;
-      objectLabel = order?.documentNo ?? line.businessObjectId.slice(0, 8);
-      const component = entry?.costComponentId
-        ? componentById.get(entry.costComponentId)
-        : null;
-      componentLabel = component
-        ? `${component.code} · ${component.name}`
-        : null;
-      known = true;
-    } else if (entry) {
-      const allocation = allocationByEntry.get(entry.id);
-      if (allocation) {
-        objectType = "Зардлын хуваарилалт";
-        objectId = allocation.documentNo;
-        objectLabel = allocation.documentNo;
-        const component = allocation.costComponentId
-          ? componentById.get(allocation.costComponentId)
-          : entry.costComponentId
-            ? componentById.get(entry.costComponentId)
-            : null;
-        componentLabel = component
-          ? `${component.code} · ${component.name}`
-          : null;
-        known = true;
-      } else if (entry.movementId) {
-        const movement = movementById.get(entry.movementId);
-        objectType = "Барааны хөдөлгөөн";
-        objectId = movement?.documentNo ?? entry.movementId;
-        objectLabel = movement?.documentNo ?? entry.movementId.slice(0, 8);
-        const component = entry.costComponentId
-          ? componentById.get(entry.costComponentId)
-          : null;
-        componentLabel = component
-          ? `${component.code} · ${component.name}`
-          : null;
-        known = true;
-      }
-    } else {
-      const apDoc = apByVoucher.get(line.voucherId);
-      const cashDoc = cashByVoucher.get(line.voucherId);
-      if (apDoc) {
-        // PO-той нэхэмжлэх — түлхүүргүй (хуучин) мөр ч ЗАХИАЛГЫН объектод
-        // буух ёстой, эс бөгөөс PO хэзээ ч тэгширэхгүй.
-        const order = apDoc.purchaseOrderId
-          ? orderById.get(apDoc.purchaseOrderId)
-          : undefined;
-        if (apDoc.purchaseOrderId) {
-          objectType = BUSINESS_OBJECT_LABELS[PO_BUSINESS_OBJECT];
-          objectId = order?.documentNo ?? apDoc.purchaseOrderId;
-          objectLabel = order?.documentNo ?? apDoc.documentNo;
-        } else {
-          objectType =
-            apDoc.documentType === "ap_bill"
-              ? "Өглөгийн нэхэмжлэх"
-              : "Авлагын нэхэмжлэл";
-          objectId = apDoc.documentNo;
-          objectLabel = apDoc.documentNo;
-        }
-        known = true;
-      } else if (cashDoc) {
-        objectType = "Мөнгөн гүйлгээ";
-        objectId = cashDoc.documentNo;
-        objectLabel = cashDoc.documentNo;
-        known = true;
-      }
-    }
+  for (const line of raw) {
+    const { objectType, objectId, objectLabel, componentLabel, known } =
+      resolveClearingObjectWithReversal(line, lookups, {
+        reversalOf,
+        linesByVoucherAccount: rawByVoucherAccount,
+      });
 
     const key = `${line.account}::${objectType}::${objectId}`;
     let bucket = buckets.get(key);
@@ -358,8 +383,7 @@ export async function loadClearingReconciliation(
     // Мужийн дараах мөр тооцогдохгүй.
   }
 
-  const rows: ClearingObjectRow[] = [...buckets.values()]
-    .map((bucket) => {
+  const allRows: ClearingObjectRow[] = [...buckets.values()].map((bucket) => {
       const opening = round2(bucket.opening);
       const increase = round2(bucket.increase);
       const cleared = round2(bucket.cleared);
@@ -382,9 +406,11 @@ export async function loadClearingReconciliation(
             : bucket.known
               ? ("open" as const)
               : ("unknown" as const),
-      };
-    })
-    // Идэвхгүй (бүх дүн 0) объектыг нуана — чимээ.
+    };
+  });
+
+  // Идэвхгүй (бүх дүн 0) объектыг хүснэгтээс нуана — чимээ.
+  const rows: ClearingObjectRow[] = allRows
     .filter(
       (row) =>
         Math.abs(row.opening) > 0.005 ||
@@ -399,7 +425,9 @@ export async function loadClearingReconciliation(
 
   const accountSummaries = accounts
     .map((account) => {
-      const accountRows = rows.filter((row) => row.account === account);
+      // Дүн нь БҮХ объектоос (тэгширсэн нь ч тооцогдоно) — данс үнэхээр
+      // тэнцсэн эсэхийг харуулах цорын ганц зөв тоо.
+      const accountRows = allRows.filter((row) => row.account === account);
       return {
         account,
         opening: round2(
@@ -412,15 +440,12 @@ export async function loadClearingReconciliation(
           accountRows.reduce((sum, row) => sum + row.cleared, 0)
         ),
         ending: round2(accountRows.reduce((sum, row) => sum + row.ending, 0)),
-        objectCount: accountRows.length,
+        // Хүснэгтэд харагдах (идэвхтэй) объектын тоо.
+        objectCount: rows.filter((row) => row.account === account).length,
       };
     })
-    .filter(
-      (summary) =>
-        summary.objectCount > 0 ||
-        Math.abs(summary.opening) > 0.005 ||
-        Math.abs(summary.ending) > 0.005
-    );
+    // Огт хөдөлгөөнгүй данс л хасагдана.
+    .filter((summary) => allRows.some((row) => row.account === summary.account));
 
   const unknownRows = rows.filter((row) => row.status === "unknown");
 
@@ -431,6 +456,9 @@ export async function loadClearingReconciliation(
     unknownAmount: round2(
       unknownRows.reduce((sum, row) => sum + row.ending, 0)
     ),
+    unknownGross: round2(
+      unknownRows.reduce((sum, row) => sum + Math.abs(row.ending), 0)
+    ),
   };
 }
 
@@ -440,4 +468,5 @@ export const EMPTY_CLEARING: ClearingReconciliation = {
   rows: [],
   unknownCount: 0,
   unknownAmount: 0,
+  unknownGross: 0,
 };
