@@ -6,6 +6,17 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 ## [Unreleased]
 
 ### Засагдсан
+- **Схемийн БҮХ composite `unique()` constraint → `uniqueIndex()` (53 ширхэг).**
+  drizzle-kit 0.31.x нь `unique()`-ээр үүссэн constraint-ыг push бүрд «байхгүй»
+  гэж үзээд бөглөөтэй хүснэгтэд дахин нэмэхийг оролдож «truncate хийх үү?» гэсэн
+  ИНТЕРАКТИВ асуулт тавьдаг (drizzle-team/drizzle-orm#5955). Non-TTY preDeploy
+  дээр тэр асуулт crash болж, схемийн БҮХ өөрчлөлт DB-д ОРОХГҮЙ үлддэг.
+  2026-09-18-нд `bank_statement_lines` (3 мөр) дээр анх унаж АР/АП хуудас 500
+  өгсөн; түүнийг зассаны дараа `ai_settings` (1 мөр) дээр ДАХИН унасан —
+  өөрөөр хэлбэл хүснэгт бүр бөглөгдмөгц дахин дэлбэрэх байсан. Unique index нь
+  `pg_indexes`-ээс зөв танигддаг тул энэ давталт бүрмөсөн таслагдав.
+  Давхардлын хамгаалалт ижил хэвээр; нэрс `…_ux` төгсгөлтэй, 63 тэмдэгтэд
+  багтсан, `onConflict`-д ашиглагддаггүй тул кодын өөрчлөлт шаардлагагүй
 - **`bank_statement_lines`-ийн давхардлын хамгаалалт unique constraint → unique
   INDEX** (`bank_statement_lines_statement_row_ux`). drizzle-kit 0.31.x-ийн
   алдаа (drizzle-team/drizzle-orm#5955) дахин цохив: хүснэгт 3 мөртэй болмогц
