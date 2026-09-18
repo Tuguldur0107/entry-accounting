@@ -31,6 +31,35 @@ const STATEMENTS: [string, string][] = [
     `ALTER TABLE payroll_settings
        ADD COLUMN IF NOT EXISTS standard_monthly_hours numeric(8,2) NOT NULL DEFAULT '168'`,
   ],
+  // ── Цалингийн нэхэмжлэх (урьдчилгаа / сүүл) → АР/АП өглөг ──────────────
+  [
+    "payroll_settings.employee_payable_account_number",
+    `ALTER TABLE payroll_settings
+       ADD COLUMN IF NOT EXISTS employee_payable_account_number text
+       NOT NULL DEFAULT '31000001'`,
+  ],
+  [
+    "payroll_settings.employee_counterparty_id",
+    `ALTER TABLE payroll_settings
+       ADD COLUMN IF NOT EXISTS employee_counterparty_id uuid
+       REFERENCES counterparties(id) ON DELETE SET NULL`,
+  ],
+  [
+    "payroll_runs.advance_date",
+    `ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS advance_date text`,
+  ],
+  [
+    "payroll_runs.advance_document_id",
+    `ALTER TABLE payroll_runs
+       ADD COLUMN IF NOT EXISTS advance_document_id uuid
+       REFERENCES ar_ap_documents(id) ON DELETE SET NULL`,
+  ],
+  [
+    "payroll_runs.final_document_id",
+    `ALTER TABLE payroll_runs
+       ADD COLUMN IF NOT EXISTS final_document_id uuid
+       REFERENCES ar_ap_documents(id) ON DELETE SET NULL`,
+  ],
 ];
 
 async function main() {
@@ -44,16 +73,22 @@ async function main() {
     WHERE (table_name = 'payroll_run_lines'
              AND column_name IN ('advance_hours', 'advance_amount'))
        OR (table_name = 'payroll_settings'
-             AND column_name = 'standard_monthly_hours')
+             AND column_name IN ('standard_monthly_hours',
+                                 'employee_payable_account_number',
+                                 'employee_counterparty_id'))
+       OR (table_name = 'payroll_runs'
+             AND column_name IN ('advance_date', 'advance_document_id',
+                                 'final_document_id'))
     ORDER BY table_name, column_name
   `;
+  const expected = STATEMENTS.length;
   console.log(
-    rows.length === 3
-      ? "✓ Урьдчилгаа цалингийн 3 багана бэлэн"
-      : `✗ Хүлээгдсэн 3 багана, олдсон ${rows.length}`
+    rows.length === expected
+      ? `✓ Цалингийн ${expected} багана бэлэн`
+      : `✗ Хүлээгдсэн ${expected} багана, олдсон ${rows.length}`
   );
   await sql.end();
-  process.exit(rows.length === 3 ? 0 : 1);
+  process.exit(rows.length === expected ? 0 : 1);
 }
 
 main().catch((e) => {

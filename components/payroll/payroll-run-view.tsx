@@ -26,11 +26,17 @@ import { Icon } from "@/components/ui/icon";
 import { PageTabs } from "@/components/ui/tabs";
 import {
   calculatePayrollRun,
+  createPayrollSalaryBill,
   createPayrollVoucher,
   updatePayrollLine,
   type PayrollLineView,
   type PayrollRunView as PayrollRunData,
 } from "@/lib/actions/payroll";
+import {
+  SALARY_BILL_LABEL,
+  SALARY_BILL_STATUS_LABEL as BILL_STATUS_LABEL,
+  type SalaryBillKind,
+} from "@/lib/payroll/bills";
 import { col } from "@/lib/grid/columnTypes";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { fmtPeriodCode } from "@/lib/periods/period";
@@ -55,7 +61,13 @@ export function PayrollRunView({ data }: Props) {
   const [isPending, startTransition] = useTransition();
   const [tab, setTab] = useState<PayrollTab>("advance");
 
-  const { periodMonth, voucher, lines, settings, activeEmployeeCount } = data;
+  const { periodMonth, voucher, lines, settings, activeEmployeeCount, bills } =
+    data;
+  // Урьдчилгааг сар дундуур олгодог тул огноог хэрэглэгч сонгоно; сүүл цалин
+  // нь сарын эцсийн огноогоор бичигдэнэ (server талд default).
+  const [advanceDate, setAdvanceDate] = useState(
+    data.advanceDate ?? `${periodMonth}-15`
+  );
   // GL журнал үүссэн run — мөр засварлах/дахин бодохыг server мөн хориглодог.
   const locked = voucher !== null;
 
@@ -125,6 +137,28 @@ export function PayrollRunView({ data }: Props) {
         } else {
           toast.success(
             "Цалингийн НООРОГ журнал үүслээ — GL журналаас шалгаад батална уу"
+          );
+        }
+        router.refresh();
+      } catch (error) {
+        toast.error(errorMessage(error));
+      }
+    });
+  }
+
+  function createBill(kind: SalaryBillKind) {
+    startTransition(async () => {
+      try {
+        const result = await createPayrollSalaryBill(
+          periodMonth,
+          kind,
+          kind === "advance" ? advanceDate : undefined
+        );
+        if (result.dedup) {
+          toast.info(`${SALARY_BILL_LABEL[kind]}ы нэхэмжлэх аль хэдийн үүссэн`);
+        } else {
+          toast.success(
+            `${SALARY_BILL_LABEL[kind]}ы НООРОГ нэхэмжлэх үүслээ (${result.documentNo}) — Өглөг хэсгээс батална уу`
           );
         }
         router.refresh();
@@ -332,6 +366,62 @@ export function PayrollRunView({ data }: Props) {
             ? "Ажилласан цагийг оруулна — урьдчилгаа нь цагийн хөлсөөр бодогдож СУУТГАЛГҮЙ олгогдоно. Цагийн хөлс = үндсэн цалин / сарын стандарт ажлын цаг."
             : "Бүх нэмэгдэл, суутгал энд бодогдоно. НДШ, ХАОАТ суутгагдсаны ДАРАА урьдчилгаа хасагдаж сүүл цалин гарна — урьдчилгаа + сүүл цалин = сарын нийт гарт олгох."}
         </p>
+      )}
+
+      {lines.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs">
+          {tab === "advance" && !bills.advance && (
+            <label className="flex items-center gap-1.5 text-[var(--ea-text-2)]">
+              Олгох огноо
+              <input
+                type="date"
+                value={advanceDate}
+                min={`${periodMonth}-01`}
+                onChange={(event) => setAdvanceDate(event.target.value)}
+                className="h-7 rounded border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 font-mono text-xs text-[var(--ea-text-1)]"
+              />
+            </label>
+          )}
+
+          {bills[tab] ? (
+            <span className="text-[var(--ea-text-3)]">
+              Өглөгийн нэхэмжлэх{" "}
+              <Link
+                href="/payables/documents"
+                className="font-medium text-[var(--ea-primary)] underline"
+              >
+                {bills[tab]!.documentNo}
+              </Link>{" "}
+              · {BILL_STATUS_LABEL[bills[tab]!.status] ?? bills[tab]!.status} ·{" "}
+              <span className="font-mono">{fmtMnt(bills[tab]!.totalAmount)}</span>
+              {bills[tab]!.paidAmount > 0 && (
+                <>
+                  {" "}
+                  · төлсөн{" "}
+                  <span className="font-mono">
+                    {fmtMnt(bills[tab]!.paidAmount)}
+                  </span>
+                </>
+              )}
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => createBill(tab)}
+              disabled={isPending}
+            >
+              <Icon name="document" size="sm" />
+              {SALARY_BILL_LABEL[tab]}ы өглөг үүсгэх
+            </Button>
+          )}
+
+          <span className="ml-auto text-[var(--ea-text-4)]">
+            {tab === "advance"
+              ? "Ажилтанд өгөх өглөг АР/АП модульд үүснэ — кассаас тэр өглөгийг хаана."
+              : "Нэхэмжлэх нь Dr Цалингийн өглөг / Cr Ажилтны өглөг — зардал §7-ийн журналд нэг л удаа бичигдэнэ."}
+          </span>
+        </div>
       )}
 
       {lines.length === 0 ? (

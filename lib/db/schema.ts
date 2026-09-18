@@ -1537,6 +1537,24 @@ export const payrollSettings = pgTable("payroll_settings", {
   })
     .notNull()
     .default("168"),
+  /**
+   * Цалингийн нэхэмжлэхийн ӨГЛӨГИЙН ХЯНАЛТЫН данс — АР/АП модулийн
+   * ажилтанд өгөх өглөг энд суудаг (кассаас энэ өглөгийг хаана).
+   * Цалингийн өглөг (salaryPayable) нь КЛИРИНГ тал: нэхэмжлэх батлагдахад
+   * Dr Цалингийн өглөг / Cr энэ данс болж, §7-ийн нэгдсэн журналын
+   * кредитийг ажилтны өглөг рүү шилжүүлнэ (зардал давхар бичигдэхгүй).
+   */
+  employeePayableAccountNumber: text("employee_payable_account_number")
+    .notNull()
+    .default("31000001"),
+  /**
+   * Цалингийн нэхэмжлэхийн нэгтгэсэн харилцагч ("Ажилчид") — эхний
+   * нэхэмжлэх үүсгэхэд автоматаар бүртгэгдэнэ.
+   */
+  employeeCounterpartyId: uuid("employee_counterparty_id").references(
+    () => counterparties.id,
+    { onDelete: "set null" }
+  ),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [unique().on(t.organizationId)]);
 
@@ -1557,6 +1575,18 @@ export const payrollRuns = pgTable(
     voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
       onDelete: "set null",
     }),
+    /** Урьдчилгаа олгох огноо — хэрэглэгч бодолт бүрд сонгоно (сар дундуур). */
+    advanceDate: text("advance_date"),
+    /** Урьдчилгааны нэгтгэсэн өглөгийн нэхэмжлэх (АР/АП модульд). */
+    advanceDocumentId: uuid("advance_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "set null" }
+    ),
+    /** Сүүл цалингийн нэгтгэсэн өглөгийн нэхэмжлэх. */
+    finalDocumentId: uuid("final_document_id").references(
+      () => arApDocuments.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1602,6 +1632,16 @@ export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
   voucher: one(journalVouchers, {
     fields: [payrollRuns.voucherId],
     references: [journalVouchers.id],
+  }),
+  advanceDocument: one(arApDocuments, {
+    fields: [payrollRuns.advanceDocumentId],
+    references: [arApDocuments.id],
+    relationName: "payrollAdvanceDocument",
+  }),
+  finalDocument: one(arApDocuments, {
+    fields: [payrollRuns.finalDocumentId],
+    references: [arApDocuments.id],
+    relationName: "payrollFinalDocument",
   }),
   lines: many(payrollRunLines),
 }));
