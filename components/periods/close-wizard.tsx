@@ -291,7 +291,7 @@ export function CloseWizard({
               </Button>
               <LinkButton href="/costing/entries">Өртгийн бичилтүүд</LinkButton>
               {costing.blocked > 0 ? (
-                <LinkButton href="/costing/control">Блокийн шалтгаан</LinkButton>
+                <LinkButton href="/costing/reports">Блокийн шалтгаан</LinkButton>
               ) : null}
             </>
           ) : null
@@ -361,7 +361,7 @@ export function CloseWizard({
                 Нээлттэй захиалгууд
               </LinkButton>
               {procurement.unallocatedCostLines > 0 ? (
-                <LinkButton href="/costing/unallocated">
+                <LinkButton href="/costing/allocations">
                   Хуваарилагдаагүй зардал
                 </LinkButton>
               ) : null}

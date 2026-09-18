@@ -90,7 +90,7 @@ function revalidateProcurement() {
     "/procurement",
     "/procurement/orders",
     "/procurement/receipts",
-    "/costing/unallocated",
+    "/costing/allocations",
     "/inventory",
     "/inventory/movements",
     "/costing",

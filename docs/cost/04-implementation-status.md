@@ -90,10 +90,10 @@ encoded an unapproved policy.
 
 | Report | Route | Notes |
 |---|---|---|
-| Inventory Cost Control (§2) | `/costing/control` | Fixed two-level headers as real column groups; totals exclude unit cost (§2.8); not-calculated and not-balanced states visible (§2.6, FR-UX-003) |
-| Transaction Detail with Cost & Account (§3) | `/costing/detail` | Includes unvalued and pending rows (§3.2); journal link opens the voucher panel; totals exclude unit cost (§3.8) |
-| Inventory-to-GL Reconciliation (§5) | `/costing/detail` → GL тулгалт | Subledger vs GL per account, difference shown, GL lines without a subledger reference counted separately (§5.4, §5.6) |
-| Cost Component Analysis (§4) | `/costing/components` | Per item/warehouse/component amount, unit-cost impact, source and allocation document, accounts and GL status; per-item totals shown for the §4.3 control |
+| Inventory Cost Control (§2) | `/costing/reports` | Fixed two-level headers as real column groups; totals exclude unit cost (§2.8); not-calculated and not-balanced states visible (§2.6, FR-UX-003) |
+| Transaction Detail with Cost & Account (§3) | `/costing/reports/detail` | Includes unvalued and pending rows (§3.2); journal link opens the voucher panel; totals exclude unit cost (§3.8) |
+| Inventory-to-GL Reconciliation (§5) | `/costing/reports/detail` → GL тулгалт | Subledger vs GL per account, difference shown, GL lines without a subledger reference counted separately (§5.4, §5.6) |
+| Cost Component Analysis (§4) | `/costing/reports/components` | Per item/warehouse/component amount, unit-cost impact, source and allocation document, accounts and GL status; per-item totals shown for the §4.3 control |
 
 ### Allocation and month-end costing (0.3)
 

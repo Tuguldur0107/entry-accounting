@@ -251,6 +251,17 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 - **Нээлттэй шийдвэрийг кодод, migration-д, enum default-д, fallback данс
   эсвэл UI default-д НУУХГҮЙ** — product owner-оос асууна
 
+**UI бүтэц (5 нав цэс):** Хяналтын самбар · Өртгийн бичилт · **Зардлын
+хуваарилалт** (`/costing/allocations` — 2 таб: PO-ийн зардлын worklist /
+чөлөөт хуваарилалт) · **Тайлан** (`/costing/reports` — 4 таб: Өртгийн
+хяналт / Үнэлгээ·NRV / Гүйлгээний дэлгэрэнгүй+GL тулгалт / Бүрэлдэхүүн) ·
+Тохиргоо. Таб бүр ӨӨРИЙН route хэвээр (өгөгдөл нь зөвхөн тэр хуудсанд
+ачаалагдана) — `components/costing/costing-section-tabs.tsx` нь layout-д
+суугаад `PageTabs`-ээр шилжүүлнэ; таб бүрийн `<h1>` ХАСАГДСАН (таб нэрлэдэг).
+Хуучин `/costing/{control,detail,components,unallocated}` redirect хийнэ.
+GL тулгалт ЗӨВХӨН "Гүйлгээний дэлгэрэнгүй" табд (үнэлгээний хуудсан дээрх
+хоёр дахь хэрэгжилт давхардал байсан тул хасагдсан).
+
 Гол файлууд:
 
 ```
@@ -373,9 +384,10 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
   олгохгүй); хаагдсан PO-д нэмж болно, устгахгүй
 - **UI:** модулийн түлхүүр `proc` (`lib/constants/app-modules.ts`), нав бүлэг
   `procurement` (`components/layout/modules.ts` — самбар / Захиалга / Хүлээн
-  авалт / Тайлан; "Хуваарилагдаагүй зардал" нь Өртөг модульд
-  `/costing/unallocated` — хуучин `/procurement/costs` redirect хийнэ),
-  панель `purchase-order` ба `goods-receipt`
+  авалт / Тайлан; "Хуваарилагдаагүй зардал" нь Өртөг модулийн Зардлын
+  хуваарилалт табд `/costing/allocations` — хуучин `/procurement/costs` ба
+  `/costing/unallocated` redirect хийнэ), панель `purchase-order` ба
+  `goods-receipt`
   (`panel-registry.tsx`). Хүснэгт `DataGridDynamic`, статус `StatusBadge`,
   шүүлтүүр `FilterChips` / `PageTabs`, хоосон `EmptyState`, icon `Icon` /
   `IconAction`, батлах диалог `useConfirm` — шинэ component/icon бичихийг
@@ -970,12 +982,13 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Өртгийн хяналт (C1/Орлого/Зарлага/C2) | [components/costing/cost-control-report.tsx](components/costing/cost-control-report.tsx) | **ТОГТМОЛ** 2 түвшний colGroup толгой (docs/cost §2.2) — дахин зохиогдохгүй; нэгж өртгийн багана нийлбэргүй |
 | Гүйлгээний дэлгэрэнгүй + GL тулгалт | [components/costing/transaction-detail-report.tsx](components/costing/transaction-detail-report.tsx) | colGroup + `columnGroupShow: "open"` — задарч нэмэлт багана гаргана |
 | Бүрэлдэхүүний задаргаа | [components/costing/component-analysis-report.tsx](components/costing/component-analysis-report.tsx) | Бараа × бүрэлдэхүүн, нэгжид нөлөө, хуваарилалтын лавлагаа |
-| Зардлын хуваарилалт | [components/costing/cost-allocation-view.tsx](components/costing/cost-allocation-view.tsx) | Сонголтын хүснэгт + хадгалахын өмнөх урьдчилсан хуваарь |
+| Зардлын хуваарилалт · чөлөөт (таб) | [components/costing/cost-allocation-view.tsx](components/costing/cost-allocation-view.tsx) | Сонголтын хүснэгт + хадгалахын өмнөх урьдчилсан хуваарь |
+| Өртгийн модулийн хэсгийн таб | [components/costing/costing-section-tabs.tsx](components/costing/costing-section-tabs.tsx) | Олон route-ыг НЭГ нав цэс дор — `PageTabs`, огнооны параметрийг дагуулна, layout-д Suspense-тэй |
 | Нягтлан бодох период | [components/periods/periods-view.tsx](components/periods/periods-view.tsx) | Хаах / дахин нээх, сар бүрийн бичилтийн тоо |
 | Хангамжийн самбар | [components/procurement/procurement-dashboard.tsx](components/procurement/procurement-dashboard.tsx) | Түр дансдын үлдэгдэл, ноорог/нээлттэй/хаах боломжтой PO тоолол, сүүлийн захиалгууд |
 | Худалдан авалтын захиалга | [components/procurement/purchase-orders-view.tsx](components/procurement/purchase-orders-view.tsx) | `FilterChips` статус шүүлтүүр + хүлээн авсан/нэхэмжилсэн % багана; давхар даралт → PO панель |
 | Хүлээн авалт (GR) | [components/procurement/goods-receipts-view.tsx](components/procurement/goods-receipts-view.tsx) | Огноо/агуулах/МБ ханш/дүн; давхар даралт → хүлээн авалтын панель |
-| Хуваарилагдаагүй зардал (Өртөг модульд) | [components/costing/unallocated-costs-view.tsx](components/costing/unallocated-costs-view.tsx) | Нэхэмжлэхийн мөр × бүрэлдэхүүн worklist — хуваарилсан / үлдэгдэл MNT |
+| Зардлын хуваарилалт · PO-ийн зардал (таб) | [components/costing/unallocated-costs-view.tsx](components/costing/unallocated-costs-view.tsx) | Нэхэмжлэхийн мөр × бүрэлдэхүүн worklist — хуваарилсан / үлдэгдэл MNT |
 | Хангамжийн тайлан | [components/procurement/procurement-report-view.tsx](components/procurement/procurement-report-view.tsx) | Захиалгаар / Нийлүүлэгчээр таб — гүйцэтгэлийн дүн, валют бүрийн pinned нийт |
 | Нийлүүлэгчийн карт | [components/procurement/supplier-card.tsx](components/procurement/supplier-card.tsx) | Харилцагчийн бүртгэлээс уншина (PO-д хадгалахгүй) + нээлттэй өглөг, өмнөх захиалга |
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |

@@ -108,20 +108,24 @@ export const REPORT_REGISTRY: readonly ReportModule[] = [
     basePath: "/costing/reports",
     entries: [
       {
-        value: "costing-valuation",
-        label: "Нөөцийн үнэлгээ, GL тулгалт",
+        value: "costing-control",
+        label: "Өртгийн хяналт",
         href: "/costing/reports",
       },
-      { value: "costing-control", label: "Өртгийн хяналт", href: "/costing/control" },
+      {
+        value: "costing-valuation",
+        label: "Нөөцийн үнэлгээ · NRV",
+        href: "/costing/reports/valuation",
+      },
       {
         value: "costing-detail",
         label: "Гүйлгээний дэлгэрэнгүй",
-        href: "/costing/detail",
+        href: "/costing/reports/detail",
       },
       {
         value: "costing-components",
         label: "Бүрэлдэхүүний задаргаа",
-        href: "/costing/components",
+        href: "/costing/reports/components",
       },
     ],
   },

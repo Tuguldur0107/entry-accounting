@@ -313,10 +313,7 @@ export function CostControlReport({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            Өртгийн хяналтын тайлан
-          </h1>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+          <p className="text-xs text-[var(--ea-text-3)]">
             Хугацааны жигнэсэн дундаж · бараа × агуулах · Зарлага нь сарын
             өртөг тооцоход л үнэлэгдэнэ (зөрүү үүсэхгүй)
             {calculatedAt ? ` · тооцоолсон: ${calculatedAt}` : ""}

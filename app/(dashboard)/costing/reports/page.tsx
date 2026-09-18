@@ -1,184 +1,117 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { CostingReportView } from "@/components/costing/costing-report-view";
-import { getActiveOrg } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
-  chartOfAccounts,
-  costEntries,
-  costingItemSettings,
-  inventoryMovements,
-  journalVouchers,
-} from "@/lib/db/schema";
-import { latestClosingByItem } from "@/lib/costing/valuation";
+  CostControlReport,
+  type CostControlRow,
+} from "@/components/costing/cost-control-report";
+import { getActiveOrg } from "@/lib/auth";
+import { getPeriodSelection } from "@/lib/periods/selection";
+import { db } from "@/lib/db";
+import { accountingPeriods, costPeriodResults } from "@/lib/db/schema";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
-import type { TieOutRow, ValuationRow } from "@/lib/inventory/types";
 
-function mainAccountOf(accountNumber: string) {
-  const parts = accountNumber.split(".");
-  return parts.length === 10 ? parts[2] : accountNumber;
-}
+type SearchParams = Promise<{ period?: string }>;
 
-export default async function CostingReportsPage() {
+export default async function CostControlPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   const { orgId } = await getActiveOrg();
+  const { period } = await searchParams;
 
-  const [{ itemViews }, movements, entries, settings, vouchers, accounts] =
+  const [allResults, { itemViews, warehouseViews }, periods] =
     await Promise.all([
+      db.query.costPeriodResults.findMany({
+        where: eq(costPeriodResults.organizationId, orgId),
+      }),
       loadInventoryBase(orgId),
-      db.query.inventoryMovements.findMany({
-        where: and(
-          eq(inventoryMovements.organizationId, orgId),
-          eq(inventoryMovements.status, "confirmed")
-        ),
-      }),
-      db.query.costEntries.findMany({ where: eq(costEntries.organizationId, orgId) }),
-      db.query.costingItemSettings.findMany({
-        where: eq(costingItemSettings.organizationId, orgId),
-      }),
-      db.query.journalVouchers.findMany({
-        where: and(
-          eq(journalVouchers.organizationId, orgId),
-          inArray(journalVouchers.status, ["posted", "reversed"])
-        ),
-        with: { lines: true },
-      }),
-      db.query.chartOfAccounts.findMany({
-        where: eq(chartOfAccounts.organizationId, orgId),
+      db.query.accountingPeriods.findMany({
+        where: eq(accountingPeriods.organizationId, orgId),
       }),
     ]);
 
-  // NRV нөөц бараагаар (идэвхтэй draft+posted — давхар бичилтээс сэргийлж
-  // draft-ыг мөн тооцно; GL тулгалтад зөвхөн posted).
-  const nrvReserveByItem = new Map<string, number>();
-  const nrvPostedByItem = new Map<string, number>();
-  for (const entry of entries) {
-    if (!entry.itemId) continue;
-    if (entry.status === "reversed") continue;
-    const sign =
-      entry.entryType === "nrv_writedown"
-        ? 1
-        : entry.entryType === "nrv_reversal"
-          ? -1
-          : 0;
-    if (sign === 0) continue;
-    const amount = sign * Number(entry.amount);
-    nrvReserveByItem.set(
-      entry.itemId,
-      (nrvReserveByItem.get(entry.itemId) ?? 0) + amount
-    );
-    if (entry.status === "posted")
-      nrvPostedByItem.set(
-        entry.itemId,
-        (nrvPostedByItem.get(entry.itemId) ?? 0) + amount
-      );
-  }
+  // Сонгох боломжтой периодууд — тооцоологдсон үр дүн байгаа сарууд.
+  const periodOptions = [
+    ...new Set(allResults.map((row) => row.periodCode)),
+  ].sort((a, b) => (a < b ? 1 : -1));
 
-  // Нөөцийн үнэлгээ нь ӨРТГИЙН ХЯНАЛТЫН тайлантай ИЖИЛ сууриас гарна:
-  // cost_period_results-ийн хамгийн сүүлийн тооцоологдсон сарын C2
-  // (docs/cost FR-PR-001 — нэг л арга; RPT-PR-001 — тайлангууд Cost Ledger-
-  // ээс гарна). Урьд нь энд perpetual дундаж бодогддог байсан нь одоо
-  // батлагдсан дүрэмтэй зөрчилдөнө.
-  const closingByItem = await latestClosingByItem(orgId);
+  // Зангуу сар: URL → topbar-ийн сонголт → үр дүнтэй сүүлийн сар.
+  const selection = await getPeriodSelection();
+  const periodCode =
+    period && periodOptions.includes(period)
+      ? period
+      : periodOptions.includes(selection.periodCode)
+        ? selection.periodCode
+        : (periodOptions[0] ?? selection.periodCode);
 
-  const valuation: ValuationRow[] = [];
-  for (const item of itemViews) {
-    const closing = closingByItem.get(item.id);
-    if (!closing || (closing.qty === 0 && closing.amount === 0)) continue;
-    const reserve =
-      Math.round((nrvReserveByItem.get(item.id) ?? 0) * 100) / 100;
-    const grossValue = Math.round(closing.amount * 100) / 100;
-    valuation.push({
-      itemId: item.id,
-      itemLabel: `${item.code} · ${item.name}`,
-      unit: item.unit,
-      quantity: closing.qty,
-      // Нэгж өртөг = C2 Дүн / C2 Тоо (сарын жигнэсэн дундаж).
-      avgCost: closing.qty !== 0 ? closing.amount / closing.qty : 0,
-      value: grossValue,
-      nrvReserve: reserve,
-      netValue: Math.round((grossValue - reserve) * 100) / 100,
-    });
-  }
-  valuation.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel));
+  const results = allResults.filter((row) => row.periodCode === periodCode);
 
-  // Tie-out: батлагдсан entry-ний данс тус бүрийн цэвэр нөлөө vs GL үлдэгдэл.
-  const settingByItem = new Map(settings.map((s) => [s.itemId, s]));
-  const subledgerByAccount = new Map<string, number>();
-  const movementItem = new Map(movements.map((m) => [m.id, m.itemId]));
-  for (const entry of entries) {
-    if (entry.status !== "posted") continue;
-    // NRV бичилт (movement-гүй) энд орохгүй — нөөцөө тусдаа мөрөөр нэмсэн.
-    if (entry.movementId == null) continue;
-    const itemId = movementItem.get(entry.movementId);
-    const account =
-      (itemId && settingByItem.get(itemId)?.inventoryAccountNumber) || "14000001";
-    const amount = Number(entry.amount);
-    const delta =
-      entry.entryType === "receipt_capitalize" ||
-      entry.entryType === "adjustment_gain" ||
-      entry.entryType === "return_in"
-        ? amount
-        : -amount;
-    subledgerByAccount.set(account, (subledgerByAccount.get(account) ?? 0) + delta);
-  }
+  const itemById = new Map(itemViews.map((item) => [item.id, item]));
+  const warehouseById = new Map(
+    warehouseViews.map((warehouse) => [warehouse.id, warehouse])
+  );
 
-  // Landed cost (movement-гүй, item-д оноогдсон) — барааны дансанд нэмэгдэнэ.
-  for (const entry of entries) {
-    if (entry.entryType !== "landed_cost" || entry.status !== "posted") continue;
-    if (!entry.itemId) continue;
-    const account =
-      settingByItem.get(entry.itemId)?.inventoryAccountNumber || "14000001";
-    subledgerByAccount.set(
-      account,
-      (subledgerByAccount.get(account) ?? 0) + Number(entry.amount)
-    );
-  }
-
-  // Дансны рольууд тохиргооноос (JPR-006).
-  const costingAccounts = await loadCostingAccountSettings(orgId);
-
-  // NRV-ийн posted нөлөө contra-нөөц дансанд (кредит үлдэгдэл → сөрөг).
-  let nrvPostedTotal = 0;
-  for (const amount of nrvPostedByItem.values()) nrvPostedTotal += amount;
-  if (Math.abs(nrvPostedTotal) > 0.005)
-    subledgerByAccount.set(
-      costingAccounts.nrvReserveAccountNumber,
-      Math.round(-nrvPostedTotal * 100) / 100
-    );
-
-  const glByAccount = new Map<string, number>();
-  for (const voucher of vouchers) {
-    for (const line of voucher.lines) {
-      const main = mainAccountOf(line.accountNumber);
-      if (!main.startsWith("14") || main === costingAccounts.clearingAccountNumber)
-        continue;
-      glByAccount.set(
-        main,
-        (glByAccount.get(main) ?? 0) + Number(line.debit) - Number(line.credit)
-      );
-    }
-  }
-
-  const accountName = new Map(accounts.map((a) => [a.number, a.name]));
-  const tieOutAccounts = new Set([
-    ...subledgerByAccount.keys(),
-    ...glByAccount.keys(),
-  ]);
-  const tieOut: TieOutRow[] = [...tieOutAccounts]
-    .sort()
-    .map((accountNumber) => {
-      const subledgerValue =
-        Math.round((subledgerByAccount.get(accountNumber) ?? 0) * 100) / 100;
-      const glBalance = Math.round((glByAccount.get(accountNumber) ?? 0) * 100) / 100;
+  const rows: CostControlRow[] = results
+    .map((row) => {
+      const item = itemById.get(row.itemId);
+      const warehouse = warehouseById.get(row.warehouseId);
+      const openingQty = Number(row.openingQty);
+      const openingAmount = Number(row.openingAmount);
+      const inboundQty = Number(row.inboundQty);
+      const inboundAmount = Number(row.inboundAmount);
       return {
-        accountNumber,
-        accountName: accountName.get(accountNumber) ?? "",
-        subledgerValue,
-        glBalance,
-        difference: Math.round((glBalance - subledgerValue) * 100) / 100,
+        id: `${row.itemId}:${row.warehouseId}`,
+        rowNo: 0,
+        itemCode: item?.code ?? "—",
+        itemName: item?.name ?? "—",
+        warehouseLabel: warehouse
+          ? `${warehouse.code} · ${warehouse.name}`
+          : "—",
+        openingQty,
+        openingUnitCost: openingQty !== 0 ? openingAmount / openingQty : null,
+        openingAmount,
+        inboundQty,
+        inboundUnitCost: inboundQty !== 0 ? inboundAmount / inboundQty : null,
+        inboundAmount,
+        outboundQty: Number(row.outboundQty),
+        averageUnitCost:
+          row.averageUnitCost === null ? null : Number(row.averageUnitCost),
+        outboundAmount:
+          row.outboundAmount === null ? null : Number(row.outboundAmount),
+        closingQty: Number(row.closingQty),
+        closingAmount:
+          row.closingAmount === null ? null : Number(row.closingAmount),
+        qtyBalanced: row.qtyBalanced,
+        amountBalanced: row.amountBalanced,
+        status: row.status,
+        blockReason: row.blockReason,
       };
-    });
+    })
+    .sort((a, b) =>
+      a.itemCode === b.itemCode
+        ? a.warehouseLabel.localeCompare(b.warehouseLabel)
+        : a.itemCode.localeCompare(b.itemCode)
+    )
+    .map((row, index) => ({ ...row, rowNo: index + 1 }));
 
-  return <CostingReportView valuation={valuation} tieOut={tieOut} />;
+  const closed = periods.some(
+    (row) => row.code === periodCode && row.status === "closed"
+  );
+  const calculatedAt =
+    results.length > 0
+      ? results[0].calculatedAt
+          .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
+          .slice(0, 16)
+      : null;
+
+  return (
+    <CostControlReport
+      periodCode={periodCode}
+      periodOptions={periodOptions}
+      rows={rows}
+      periodClosed={closed}
+      calculatedAt={calculatedAt}
+    />
+  );
 }

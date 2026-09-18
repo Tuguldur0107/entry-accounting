@@ -168,26 +168,13 @@ export const MODULES: Module[] = [
     items: [
       { label: "Хяналтын самбар", href: "/costing", icon: "dashboard" },
       { label: "Өртгийн бичилт", href: "/costing/entries", icon: "costing" },
-      {
-        label: "Хуваарилагдаагүй зардал",
-        href: "/costing/unallocated",
-        icon: "costing",
-      },
+      // Хуваарилалт (PO-ийн / чөлөөт) ба тайлангууд (хяналт / үнэлгээ /
+      // гүйлгээ / бүрэлдэхүүн) тус бүр НЭГ цэс дор табаар — route нь
+      // хэвээр тул дэд хуудсууд угтвараар идэвхжинэ.
       {
         label: "Зардлын хуваарилалт",
         href: "/costing/allocations",
         icon: "movement",
-      },
-      { label: "Өртгийн хяналт", href: "/costing/control", icon: "reconciliation" },
-      {
-        label: "Бүрэлдэхүүний задаргаа",
-        href: "/costing/components",
-        icon: "inventory",
-      },
-      {
-        label: "Гүйлгээний дэлгэрэнгүй",
-        href: "/costing/detail",
-        icon: "spreadsheet",
       },
       { label: "Тайлан", href: "/costing/reports", icon: "reportDetailed" },
       { label: "Тохиргоо", href: "/costing/settings", icon: "settings" },

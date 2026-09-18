@@ -184,10 +184,7 @@ export function CostAllocationView({
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            Нэмэлт зардлын хуваарилалт
-          </h1>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+          <p className="text-xs text-[var(--ea-text-3)]">
             Тээвэр, гааль, даатгал зэргийг орлогын хөдөлгөөнүүдэд хуваарилж
             барааны өртөгт шингээнэ (IAS 2.11). Хуваарийн суурийг баримт бүрд
             сонгоно.

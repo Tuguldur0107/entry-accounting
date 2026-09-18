@@ -268,13 +268,14 @@ function AccountRolesSection({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="grid max-w-3xl gap-4 pb-2">
+      {/* 6 роль — 2 баганаар (босоо жагсаалт дэлгэц дүүргэдэг байсан). */}
+      <div className="grid max-w-4xl gap-x-6 gap-y-4 pb-2 lg:grid-cols-2">
         {ROLE_FIELDS.map((field) => {
           const main = extractMainAccount(form[field.key] ?? "");
           const name = main ? glNameMap.get(main) : "";
           return (
             <div key={field.key} className="grid gap-1.5">
-              <Label>{field.label}</Label>
+              <Label title={field.hint}>{field.label}</Label>
               <AccountInput
                 value={form[field.key] ?? ""}
                 onChange={(value) =>
@@ -285,21 +286,25 @@ function AccountRolesSection({
                 defaultSegments={defaultSegments}
                 placeholder="Данс сонгох..."
               />
-              <p className="text-[11px] text-[var(--ea-text-4)]">
-                {field.hint}
-                {name ? ` · ${name}` : ""}
+              {/* Нэг мөрд багтана: данс сонгогдсон бол НЭР, үгүй бол
+                  тайлбар. Бүтэн тайлбар нь label-ын title-д. */}
+              <p
+                className="truncate text-[11px] text-[var(--ea-text-4)]"
+                title={field.hint}
+              >
+                {name || field.hint}
               </p>
             </div>
           );
         })}
 
         {error && (
-          <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
+          <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)] lg:col-span-2">
             {error}
           </p>
         )}
 
-        <div className="flex justify-end">
+        <div className="flex justify-end lg:col-span-2">
           <Button onClick={save} disabled={isPending}>
             Хадгалах
           </Button>

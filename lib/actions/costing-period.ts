@@ -34,7 +34,7 @@ export async function recalculatePeriodicCosting(): Promise<RecalculateResult> {
     const summary = await runPeriodicCosting(orgId, userId);
     revalidatePath("/costing");
     revalidatePath("/costing/reports");
-    revalidatePath("/costing/control");
+    revalidatePath("/costing/reports");
     return {
       ok: true,
       calculated: summary.calculated,
@@ -93,8 +93,8 @@ export async function computeMonthlyCosting(
 
     revalidatePath("/costing");
     revalidatePath("/costing/entries");
-    revalidatePath("/costing/control");
-    revalidatePath("/costing/detail");
+    revalidatePath("/costing/reports");
+    revalidatePath("/costing/reports/detail");
     return {
       ok: true,
       valued: summary.valued,

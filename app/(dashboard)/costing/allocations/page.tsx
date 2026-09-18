@@ -1,17 +1,20 @@
-import { CostAllocationView } from "@/components/costing/cost-allocation-view";
+// "Хуваарилагдаагүй зардал" worklist (Server Component) — өртгийн модульд.
+// (Өмнө /procurement/costs байсан — зардлын хуваарилалт нь өртгийн модулийн
+// ажил тул энд шилжсэн; хуучин зам redirect хийнэ.)
+//
+// Огнооны муж: URL-ийн ил `from`/`to` параметр топбарын периодын сонголтыг
+// ДАРНА (CLAUDE.md §4 дүрэм) — байхгүй бол `getPeriodSelection()`-ээс.
+
+import { UnallocatedCostsView } from "@/components/costing/unallocated-costs-view";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
-import {
-  loadAllocationTargets,
-  loadAllocations,
-} from "@/lib/actions/cost-allocation";
-import { loadCostComponents } from "@/lib/costing/master-data";
+import { loadUnallocatedCostLines } from "@/lib/procurement/load-data";
 
 type SearchParams = Promise<{ from?: string; to?: string }>;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-export default async function CostAllocationsPage({
+export default async function UnallocatedCostsPage({
   searchParams,
 }: {
   searchParams: SearchParams;
@@ -25,23 +28,7 @@ export default async function CostAllocationsPage({
     to: to && DATE_RE.test(to) ? to : period.to,
   };
 
-  const [rows, targets, components] = await Promise.all([
-    loadAllocations(),
-    loadAllocationTargets(range),
-    loadCostComponents(orgId, { activeOnly: true }),
-  ]);
+  const rows = await loadUnallocatedCostLines(orgId, range);
 
-  return (
-    <CostAllocationView
-      rows={rows}
-      targets={targets}
-      components={components.map((component) => ({
-        id: component.id,
-        code: component.code,
-        name: component.name,
-      }))}
-      from={range.from}
-      to={range.to}
-    />
-  );
+  return <UnallocatedCostsView rows={rows} from={range.from} to={range.to} />;
 }

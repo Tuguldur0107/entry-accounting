@@ -14,5 +14,5 @@ export default async function LegacyUnallocatedCostsPage({
   const params = new URLSearchParams();
   if (from) params.set("from", from);
   if (to) params.set("to", to);
-  redirect(`/costing/unallocated${params.size ? `?${params}` : ""}`);
+  redirect(`/costing/allocations${params.size ? `?${params}` : ""}`);
 }

@@ -303,10 +303,7 @@ export function UnallocatedCostsView({ rows, from, to }: Props) {
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end sm:gap-4">
         <div>
-          <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            Хуваарилагдаагүй зардал
-          </h1>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+          <p className="text-xs text-[var(--ea-text-3)]">
             Гааль, тээвэр, брокерын зэрэг нэмэлт зардал барааны өртөгт шингэтэл
             энд үлдэнэ — бүгд хуваарилагдаагүй бол захиалга ХААГДАХГҮЙ.
           </p>
