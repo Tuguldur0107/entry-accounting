@@ -12,10 +12,11 @@ import {
 } from "@/lib/actions/gl";
 import { importJournalVouchers } from "@/lib/actions/journal-import";
 import type { ChartOfAccount } from "@/lib/db/schema";
+// DB-гүй модуль — journal-list-data.ts (postgres) client bundle-д орохгүй.
 import {
   toSourceCurrency,
   type JournalListRow,
-} from "@/lib/gl/journal-list-data";
+} from "@/lib/gl/journal-list-types";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
