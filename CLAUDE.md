@@ -606,16 +606,20 @@ lib/pos/
 ├── discounts.ts        applyDiscounts — ЦЭВЭР (тесттэй): 9 дүрэм, stacking, pro-rata, approvalReasons
 ├── sale-math.ts        computeSaleTotals (inclusive НӨАТ), roundToCashUnit, discountNetOf, ulaanbaatarNow
 ├── payments.ts         planPayments / planRefund — ЦЭВЭР (тесттэй): хариулт, лимит, ханш, үлдэгдэл
-├── load-data.ts        ensurePosSettings (ratified-seed), view ачаалагч, loadCheckoutData
+├── load-data.ts        ensurePosSettings (ratified-seed), view ачаалагч, loadCheckoutData (бүлгүүд, lastShift)
+├── checkout-state.ts   Кассын дэлгэцийн ЦЭВЭР төлөв (тесттэй): addToCart, numpad буфер/apply,
+│                       filterCheckoutItems/resolveScan, парк (localStorage бүтэц, шалгалттай parse)
 └── reports.ts          loadSalesReport + ЦЭВЭР нэгтгэл (aggregateBy/summarize/aggregatePayments, тесттэй)
 lib/costing/provisional-cost.ts  явцын дундаж + trueUpDelta (ЦЭВЭР, тесттэй) + loadProvisionalUnitCosts
 lib/costing/period-close.ts      cogs_true_up залруулга (posted урьдчилсан бичилтэд)
 lib/actions/pos.ts               createPosSale (атомик) / returnPosSale / ээлж / бэлгийн карт /
                                  тохиргоо / төлбөрийн хэлбэр / хөнгөлөлтийн дүрэм / quotePosSale
-app/(dashboard)/inventory/pos    Кассын дэлгэц (сканнер = гар, F9 төлбөр, баримт хэвлэх)
+app/(dashboard)/inventory/pos    Кассын дэлгэц v2 — дэлгүүрийн POS (tile + ticket + numpad; сканнер = гар,
+                                 F9 төлбөр, нэг товчны ээлж, баримт хэвлэх) — docs/pos §4.1
 app/(dashboard)/inventory/sales  Борлуулалт · Ээлж · Бэлгийн карт·кредит · Тохиргоо (табууд)
 app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (6 таб, COGS cost_period_results-ээс)
-components/pos/                  pos-checkout-view (кассын дэлгэц), payment-dialog, receipt-preview
+components/pos/                  pos-checkout-view (orchestrator) + checkout/{product-panel, ticket-panel,
+                                 numpad, discount-dialog, parked-dialog}, payment-dialog, receipt-preview
                                  (80мм хэвлэлт, usePosPrint), sales-workspace (4 таб) → sales-list-view /
                                  shifts-view + shift-dialogs (нээх, хаах, Z-тайлан) / gift-cards-view /
                                  pos-settings-view (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
@@ -1464,7 +1468,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
-| POS кассын дэлгэц | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | Сагсны grid (Тоо/Үнэ/Хөнг %/Хөнг ₮ editable, хасах үлдэгдэл улбар шар), баркод/хайлт, `quotePosSale` debounce 250мс, F9/F2/F6/Esc, түр хадгалалт localStorage |
+| POS кассын дэлгэц (v2, дэлгүүрийн POS) | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | **Хүснэгт БИШ** — хүрэлцэх дэлгэцийн ticket (AG Grid стандарт хамаарахгүй, баримтын preview-тэй ижил ангилал): зүүн `checkout/product-panel` (сканнер/хайлт, бүлгийн `FilterChips`, барааны tile), баруун `checkout/ticket-panel` (мөр сонгох, −/+/×, дүн, `checkout/numpad` Тоо/Хөнг %/Үнэ, ТӨЛБӨР); `checkout/discount-dialog` (F4), `checkout/parked-dialog` (олон түр хадгалсан сагс); цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй); `quotePosSale` debounce 250мс; сканнер = гар (input үргэлж focus-той); F9/F2/F4/F6/↑↓/+−/Delete/Esc |
 | POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |

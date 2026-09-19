@@ -10,6 +10,7 @@ import {
   cashAccounts,
   counterparties,
   costEntries,
+  inventoryCategories,
   inventoryItems,
   posDiscountRules,
   posPaymentMethods,
@@ -670,11 +671,22 @@ export interface CheckoutCustomer {
   isWalkIn: boolean;
 }
 
+/** Кассын дэлгэцийн сүүлийн ээлжийн default-ууд (нэг товчны нээлт, §4.1). */
+export interface CheckoutLastShift {
+  cashAccountId: string;
+  warehouseId: string;
+  /** Сүүлийн ХААГДСАН ээлжийн тоолсон бэлэн — дараагийн эхний мөнгөний санал. */
+  countedCash: number | null;
+  closedAt: string | null;
+}
+
 export interface CheckoutData {
   settings: PosSettingsView;
   isVatPayer: boolean;
   vatRatePercent: number;
   items: CheckoutItem[];
+  /** Барааны бүлгүүд (tile-ийн шүүлтүүрийн chip) — идэвхтэй, кодоор эрэмбэлсэн. */
+  categories: { code: string; name: string }[];
   warehouses: { id: string; code: string; name: string }[];
   cashAccounts: { id: string; name: string; currency: string; accountType: string }[];
   customers: CheckoutCustomer[];
@@ -683,16 +695,34 @@ export interface CheckoutData {
   openShifts: PosShiftView[];
   /** "itemId|warehouseId" → үлдэгдэл (өнөөдөр). */
   stock: Record<string, number>;
+  /** Сүүлийн ээлж (нээлттэй эсвэл хаагдсан) — ээлж нээх диалогийн default. */
+  lastShift: CheckoutLastShift | null;
 }
 
 export async function loadCheckoutData(orgId: string, userId: string): Promise<CheckoutData> {
   const settings = await ensurePosSettings(orgId, userId);
-  const [vat, items, warehouseRows, cashRows, customerRows, methods, rules, openShifts, stock] =
-    await Promise.all([
+  const [
+    vat,
+    items,
+    categoryRows,
+    warehouseRows,
+    cashRows,
+    customerRows,
+    methods,
+    rules,
+    openShifts,
+    stock,
+    lastShiftRow,
+  ] = await Promise.all([
       loadVatSettings(orgId, userId),
       db.query.inventoryItems.findMany({
         where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
         orderBy: (item, { asc }) => [asc(item.code)],
+      }),
+      db.query.inventoryCategories.findMany({
+        where: and(eq(inventoryCategories.organizationId, orgId), eq(inventoryCategories.isActive, true)),
+        columns: { code: true, name: true },
+        orderBy: (category, { asc }) => [asc(category.code)],
       }),
       db.query.warehouses.findMany({
         where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
@@ -714,13 +744,26 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
       loadDiscountRuleViews(orgId),
       loadShiftViews(orgId, { openOnly: true }),
       loadQtyBalancesFast(orgId),
+      db.query.posShifts.findFirst({
+        where: eq(posShifts.organizationId, orgId),
+        columns: { cashAccountId: true, warehouseId: true, countedCash: true, closedAt: true, status: true },
+        orderBy: (shift, { desc: descOrder }) => [descOrder(shift.openedAt)],
+      }),
     ]);
   const stockRecord: Record<string, number> = {};
   for (const [key, qty] of stock) stockRecord[key] = qty;
+  // Бүлгийн лавлахад байхгүй кодтой бараа (импортоор орсон) — chip-д кодоороо гарна.
+  const categoryMap = new Map(categoryRows.map((row) => [row.code, row.name]));
+  for (const item of items)
+    if (item.categoryCode && !categoryMap.has(item.categoryCode))
+      categoryMap.set(item.categoryCode, item.categoryCode);
   return {
     settings: toPosSettingsView(settings),
     isVatPayer: vat.isVatPayer,
     vatRatePercent: Number(vat.vatRatePercent),
+    categories: [...categoryMap.entries()]
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.code.localeCompare(b.code)),
     items: items.map((item) => ({
       id: item.id,
       code: item.code,
@@ -754,6 +797,17 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
     rules,
     openShifts,
     stock: stockRecord,
+    lastShift: lastShiftRow
+      ? {
+          cashAccountId: lastShiftRow.cashAccountId,
+          warehouseId: lastShiftRow.warehouseId,
+          countedCash:
+            lastShiftRow.status === "closed" && lastShiftRow.countedCash != null
+              ? Number(lastShiftRow.countedCash)
+              : null,
+          closedAt: lastShiftRow.closedAt ? lastShiftRow.closedAt.toISOString() : null,
+        }
+      : null,
   };
 }
 
