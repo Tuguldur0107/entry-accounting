@@ -167,6 +167,10 @@ export function VoucherPanel({
           ? {
               date: data.voucher.date,
               description: data.voucher.description,
+              currency: data.voucher.currency,
+              exchangeRate: data.voucher.exchangeRate,
+              rateSource: data.voucher.rateSource,
+              rateDate: data.voucher.rateDate,
               lines: data.voucher.lines,
             }
           : prefillVoucher

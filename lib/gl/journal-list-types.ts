@@ -8,15 +8,21 @@
 
 import type { JournalVoucherWithLines } from "@/lib/db/schema";
 
-export type JournalListRow = JournalVoucherWithLines & {
+export type JournalListRow = Omit<JournalVoucherWithLines, "exchangeRate"> & {
   /** Эх баримтын харилцагч (касс: чөлөөт текст, АР/АП: харилцагчийн нэр). */
   counterpartyName: string | null;
-  /** Эх баримтын валют; эхгүй журнал → "MNT". */
-  currency: string;
-  /** Баримтын ханш (1 валют = N MNT); MNT эсвэл эхгүй → null. */
+  /**
+   * Баримтын ханш ТООГООР (schema-д numeric = string); MNT бол null.
+   * Журнал ӨӨРӨӨ валюттай бол түүнийх, үгүй бол эх баримтынх (хуучин бичилт).
+   */
   exchangeRate: number | null;
   /** Үүсгэсэн хэрэглэгчийн нэр (journal_vouchers.userId = createdBy). */
   createdByName: string;
+  /**
+   * Валютын дүн нь ЖУРНАЛЫН ӨӨРИЙН мөрөөс (debitFc/creditFc) гарч байгаа эсэх.
+   * false бол MNT ÷ ханш гэсэн ЛАВЛАГАА (хуучин, эх баримтаас гаргасан).
+   */
+  fcFromLines: boolean;
 };
 
 /**

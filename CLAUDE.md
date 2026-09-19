@@ -195,6 +195,42 @@ tests/voucher-no.test.ts  Жилийн хил, модуль тус бүрийн 
 **Шинэ бичилтийн зам нэмэхэд** `journalVouchers`-д insert хийх бүрд
 `documentNo: await nextVoucherNo(tx, orgId, "<модуль>", <огноо>)` ЗААВАЛ өгнө.
 
+### 2b. Журналын ВАЛЮТ (IAS 21) — ХЭРЭГЖСЭН
+
+Баримтад **НЭГ валют, НЭГ ханш** (касс, АР/АП-тай ИЖИЛ загвар —
+`journal_vouchers.currency` / `exchangeRate` / `rateSource` / `rateDate`).
+
+```
+Хэрэглэгч ВАЛЮТААР бичнэ  →  MNT нь ханшаар БОДОГДОНО  →  GL-д хоёулаа хадгалагдана
+  journal_lines.debitFc/creditFc          journal_lines.debit/credit (ДЭВТРИЙН валют)
+```
+
+- **MNT-г гараар бичихийг зөвшөөрөхгүй** — валютын журналд MNT багана нь
+  зөвхөн ХАРАХ (дүн ба ханш хэзээ ч зөрөхгүй). Баланс, тайлан, хаалт бүгд
+  `debit`/`credit` (MNT)-ээр л бодогдоно — өөрчлөгдөөгүй
+- **Сервер дахин бодно** (`resolveVoucherCurrency`, lib/actions/gl.ts):
+  client-ийн MNT дүнд НАЙДАХГҮЙ — trust boundary
+- **Тэнцэл ВАЛЮТААР** шалгагдана (`fcBalance`); мөр бүр тусдаа
+  бөөрөнхийлөгддөг тул MNT нийлбэр 1–2₮ зөрж болно → **батлах МӨЧИД**
+  зөрүүг ХАМГИЙН ТОМ мөрөнд ил шингээнэ (`convertLinesToBase`, НӨАТ
+  inclusive-ийн largest-line absorb-тай ИЖИЛ дүрэм). Ноорогт шингээхгүй
+- **Ханш огноогоор АВТОМАТ**: валют эсвэл огноо солигдоход тухайн өдрийн
+  Монголбанкны албан ханш татагдана (§5b store-first, `fetchOfficialRate`).
+  Олдохгүй бол ЗОХИОХГҮЙ — хэрэглэгч гараар оруулна; гараар өгсөн ханш
+  `rateSource: "manual"` гэж ИЛ тэмдэглэгдэнэ
+- **Журналын жагсаалт**: журнал ӨӨРӨӨ валюттай бол мөрд хадгалагдсан
+  ЖИНХЭНЭ валютын дүнг үзүүлнэ (`fcFromLines`); хуучин бичилтэд эх баримтын
+  ханшаар бодсон MNT ÷ ханш гэсэн ЛАВЛАГАА хэвээр
+
+```
+lib/gl/currency.ts        ЦЭВЭР (тесттэй): normalizeCurrency, assertRate,
+                          convertLinesToBase (бөөрөнхийллийн шингээлт), fcBalance
+lib/actions/gl.ts         resolveVoucherCurrency — create/update/post бүх зам
+components/gl/journal-entry-form.tsx  Валют + ханшийн талбар, автомат таталт
+components/journal/journal-lines-grid.tsx  Валютын Дт/Кт багана (MNT нь readonly)
+tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, гажиг оролт
+```
+
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
@@ -752,11 +788,15 @@ lib/payroll/settings.ts  payroll_settings loader (данс, доод цалин,
                          босго, коэффициент, сарын ажлын өдөр, дундажийн сар)
 lib/payroll/settings-input.ts  Тохиргооны ЦЭВЭР шалгалт (тесттэй): хуваагч 0
                          болохгүй, коэффициент ХУУЛИЙН доод хэмжээнээс доошгүй
+lib/payroll/payslip.ts   Ажилтны цалингийн хуудсын ЦЭВЭР бүтэц (тесттэй) —
+                         олголт/суутгал/татваргүй хэсэг, илүү цагийн задаргаа;
+                         Σолголт − Σсуутгал + ХЧТА ≠ гарт олгох бол ШИДНЭ
 lib/actions/payroll.ts   Ажилтан CRUD, calculatePayrollRun (мөр бүр дахин бодогдоно,
                          засвар хадгалагдана), createPayrollVoucher (НООРОГ,
                          externalRef `payroll:YYYY-MM` — сард нэг),
                          loadPayrollSettingsView / savePayrollCalculationSettings /
-                         savePayrollAccountSettings
+                         savePayrollAccountSettings, getSalaryPaymentReport /
+                         getPayslipReport
 app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд + Тайлан + Тохиргоо
 ```
 
@@ -774,6 +814,13 @@ app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд + Тайл
   (хуулийн баталгаажуулалтын дараа хэрэглэгч идэвхжүүлнэ — 2026-updates.md)
 - **GL журнал ЗААВАЛ ноорог** (§9: payroll post нягтланчийн баталгаажуулалт
   шаарддаг) — сарын эцсийн огноогоор, бусад суутгалтай бол 6 мөр
+- **Тайлан `/payroll/reports`** — 2 харагдац (`view` параметр, таб солигдоход
+  ЗӨВХӨН тухайн харагдацын өгөгдөл уншигдана): «Банкны олголт» (урьдчилгаа /
+  сүүл, Excel) ба «Цалингийн хуудас» (ажилтны сарын задаргаа, A4 хэвлэлт —
+  сонгосон нэг эсвэл бүгд; POS-ийн баримттай ИЖИЛ portal + body класс хэв маяг).
+  Хуудсын дүн бүр бодолтын ХАДГАЛАГДСАН мөрөөс гарна (`buildPayslip` дахин
+  бодохгүй) тул GL журнал, банкны олголттой үргэлж таарна; тэнцээгүй мөр
+  хуудас болохгүй — тэр ажилтан алгасагдаж шалтгаан нь UI-д улаанаар гарна
 
 **Нэмэгдэл, олговрууд — АВТОМАТ бодолт + гар засвар (нэг дүрэм):**
 
@@ -1274,6 +1321,24 @@ formatted) — MS Excel-д шууд paste хийгдэнэ. Нэг агшинд 
 даралт** — шинэ жагсаалтын grid нэмэхдээ `onCellDoubleClicked` /
 `onRowDoubleClicked` хэрэглэнэ, нэг даралтад panel нээхийг хориглоно.
 
+### Мөрийн өндөр (заавал мөрдөх)
+
+Нэг grid-д мөрийн өндрийг **НЭГ л эзэн** тогтооно:
+
+- Мөрүүдээ өөрөө өрдөг grid (журналын жагсаалт — мөр бүр журналын бүх
+  бичилтийг харуулдаг) → `getRowHeight`
+- Чөлөөт урт текст → баганын `autoHeight: true`
+
+**Хоёуланг ХАМТ хэрэглэхийг ХОРИГЛОНО.** AG Grid эхлээд `getRowHeight`-ээр
+мөрүүдээ байрлуулаад, дараа нь `autoHeight` баганыг хэмжиж өндрийг ДАХИН
+тааруулдаг — рендерийн дараа мөрүүд босоо чиглэлд ШИЛЖИНЭ. Улмаар хулганы
+доорх мөр өөр болж, хэрэглэгч дарсан мөрийнхөө ОРОНД хажуугийнхыг нээдэг
+(2026-09-19: журналын жагсаалтад яг ийм алдаа гарч, дарсан журналын оронд
+дараагийн журналын панель нээгдэж байв). Урт текстийг мөрийн ӨӨРИЙН өндөрт
+`-webkit-line-clamp`-аар багтаана, бүтнээр нь `title`-д.
+
+`tests/grid-row-height.test.ts` энэ зөрчлийг статикаар барина.
+
 ### Paste contract
 
 - TSV / CSV — Excel, Sheets-ээс шууд хуулна
@@ -1349,6 +1414,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
 | POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
 | Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 6 таб (хураангуй/бараа/өдөр/кассчин/хэлбэр/харилцагч+дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| Цалингийн хуудас (payslip) | [components/payroll/payslip-report-view.tsx](components/payroll/payslip-report-view.tsx) | Ажилтны жагсаалт (pinned нийт) + A4 хуудас: давхар даралт → нэг ажилтан, «Бүгдийг хэвлэх» → ажилтан бүр шинэ хуудсанд (`ea-printing-payslip`) |
 | POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
 ---
@@ -1423,6 +1489,9 @@ GL         journal_vouchers, journal_lines, document_counters
              эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
              journal_lines.businessObjectType / businessObjectId — клирингийн
              түлхүүр (PO), бичих МӨЧИД тавигдана
+             journal_vouchers.currency / exchangeRate / rateSource / rateDate +
+               journal_lines.debitFc / creditFc — баримтын ВАЛЮТ (§2b);
+               MNT баримтад "MNT" / 1 / 0
 Cash       cash_accounts, cash_documents, bank_statements,
            bank_statement_lines, cash_fx_revaluations
              cash_documents.counterpartyId — харилцагчийн БҮРТГЭЛИЙН холбоос
