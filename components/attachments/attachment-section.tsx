@@ -1,20 +1,27 @@
 "use client";
 
-// Хавсралтын КОМПАКТ мөр + popup — баримтын панелиудын НЭГДСЭН хэрэглээ.
+// Хавсралтын КОМПАКТ мөр — баримтын панелиудын НЭГДСЭН хэрэглээ.
 //
 // ШАЛТГААН: панель дотор хавсралтын бүтэн жагсаалт («Хавсралт алга» том
 // хоосон блок) 200+ пиксель эзэлж, гол агуулгыг (журналын мөрүүд, үйлдлийн
 // товчнууд) доош түлхдэг байв. Одоо панельд ЗӨВХӨН нэг мөр:
 //
-//     📎 Хавсралт · 2                          [Нэмэх]
+//     Хавсралт  [Бусад ▾] [⬆ Файл хавсаргах] [📎 Хавсралт харах · 2]
 //
-// Дарахад popup нээгдэж (`Dialog`) бүтэн жагсаалт — хуулах, татах, устгах —
-// `AttachmentList`-ээр гарна. Логик ДАВХАРДАХГҮЙ: жагсаалт/хуулалт/устгалт
-// нэг л газар (attachment-list.tsx), энэ файл нь зөвхөн БҮРХҮҮЛ.
+// Жагсаалт нь «Хавсралт харах» дарахад popup-д гарна; ХООСОН үед товч
+// идэвхгүй — хоосон блок ХЭЗЭЭ Ч панелийн зай эзлэхгүй.
+//
+// Логик ДАВХАРДАХГҮЙ: төлөв/хуулалт/устгалт нь `useAttachments` (нэг
+// controller — давхар fetch хийхгүй), харагдах хэсгүүд нь
+// `AttachmentUploadBar` / `AttachmentRows` (attachment-list.tsx).
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { AttachmentList } from "@/components/attachments/attachment-list";
+import {
+  AttachmentRows,
+  AttachmentUploadBar,
+  useAttachments,
+} from "@/components/attachments/attachment-list";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,7 +31,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
-import { listAttachments } from "@/lib/actions/attachments";
 import { PO_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +47,7 @@ export function AttachmentSection({
   entityType: string;
   entityId: string;
   canUpload?: boolean;
+  /** Хаагдсан/цуцлагдсан баримтад false (server тал мөн хориглоно). */
   canDelete?: boolean;
   kinds?: readonly { value: string; label: string }[];
   refreshToken?: number;
@@ -48,72 +55,55 @@ export function AttachmentSection({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [loadedCount, setLoadedCount] = useState<number | null>(null);
-  // Popup дотор өөрчлөгдөхөд тоолуур дахин уншина (жагсаалттай нэг эх).
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    // Хадгалагдаагүй баримт (entityId хоосон) — сервер рүү хандахгүй.
-    if (!entityId) return;
-    let cancelled = false;
-    listAttachments(entityType, entityId)
-      .then((result) => {
-        if (!cancelled) setLoadedCount(result.items?.length ?? 0);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadedCount(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [entityType, entityId, refreshToken, reloadKey]);
-
-  /** entityId хоосон бол тоолуур үргэлж 0 (жагсаалт мөн хоосон). */
-  const count = entityId ? loadedCount : 0;
-  const label = count ? `Хавсралт · ${count}` : "Хавсралт";
+  const ctl = useAttachments({
+    entityType,
+    entityId,
+    kinds,
+    refreshToken,
+    onChanged,
+  });
+  const count = ctl.count ?? 0;
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      <span className="text-xs font-semibold text-[var(--ea-text-2)]">
+        Хавсралт
+      </span>
+      {canUpload && <AttachmentUploadBar ctl={ctl} />}
       <Button
         variant="outline"
-        size="sm"
+        disabled={count === 0}
         onClick={() => setOpen(true)}
-        title="Хавсралтыг нээх (PDF, зураг, Excel, Word — 8MB хүртэл)"
+        title={
+          count === 0
+            ? "Хавсаргасан файл алга"
+            : "Хавсаргасан файлуудыг нээх"
+        }
       >
         <Icon name="attach" size="sm" />
-        {label}
+        {count > 0 ? `Хавсралт харах · ${count}` : "Хавсралт харах"}
       </Button>
-      {count === 0 && (
-        <span className="text-[11px] text-[var(--ea-text-4)]">
-          {entityId ? "Файл хавсаргаагүй" : "Хадгалсны дараа хавсаргана"}
-        </span>
-      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Хавсралт</DialogTitle>
             <DialogDescription>
-              Үнийн санал, гэрээ, нэхэмжлэх, гаалийн мэдүүлэг — PDF, зураг,
-              Excel, Word (8MB хүртэл)
+              Хавсаргасан файлыг нэрээр нь дарж нээх, ⬇ товчоор татах,
+              🗑 товчоор устгана
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto">
-            <AttachmentList
-              entityType={entityType}
-              entityId={entityId}
-              canUpload={canUpload}
+            <AttachmentRows
+              ctl={ctl}
               canDelete={canDelete}
-              kinds={kinds}
-              refreshToken={refreshToken}
-              onChanged={() => {
-                setReloadKey((value) => value + 1);
-                onChanged?.();
-              }}
+              showEmptyState={false}
             />
           </div>
         </DialogContent>
       </Dialog>
+
+      {ctl.confirmDialog}
     </div>
   );
 }
