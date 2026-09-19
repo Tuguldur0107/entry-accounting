@@ -4,6 +4,7 @@ import { CashDocumentsView } from "@/components/cash/cash-documents-view";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import {
+  CASH_DOCUMENT_LIST_WITH,
   loadCashTransactionOptions,
   toCashDocumentView,
 } from "@/lib/cash/load-options";
@@ -50,14 +51,20 @@ export default async function CashTransactionsPage({
     loadCashTransactionOptions(orgId),
     db.query.cashDocuments.findMany({
       where: and(eq(cashDocuments.organizationId, orgId), ...dateFilters),
-      with: { fromAccount: true, toAccount: true },
+      with: CASH_DOCUMENT_LIST_WITH,
       orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
     }),
   ]);
+  // МГ нэр багана — S8 утгын нэр кодоор.
+  const cashFlowNames = new Map(
+    options.cashFlowOptions.map((option) => [option.code, option.name])
+  );
 
   return (
     <CashDocumentsView
-      documents={documents.map(toCashDocumentView)}
+      documents={documents.map((document) =>
+        toCashDocumentView(document, cashFlowNames)
+      )}
       accounts={options.accounts}
       glAccounts={options.glAccounts}
       initialType={type}

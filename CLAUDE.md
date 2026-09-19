@@ -1063,7 +1063,8 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | `JournalLinesGrid` reuse — inline данс editor + Dr⊕Cr mutex + undo/redo |
 | Journal lines grid (shared) | [components/journal/journal-lines-grid.tsx](components/journal/journal-lines-grid.tsx) | Дахин ашиглагдах мөрийн хүснэгт — pinned totals, clipboard, min-мөр хамгаалалт |
 | Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination. Мөр = `JournalListRow` (`lib/gl/journal-list-data.ts`): ваучер + эх баримтын (касс / АР/АП) харилцагч, валют, ханш + үүсгэсэн хэрэглэгч; Дт/Кт MNT ба валютаар (MNT ÷ ханш — лавлагаа, MNT баримтад хоосон), Дансны нэр багана. "Журналын нэр" = `description` |
-| Cash баримтын панель | [components/panel/cash-doc-panel.tsx](components/panel/cash-doc-panel.tsx) | `JournalLinesGrid` reuse (readOnly) — сегмент panel, холбогдсон нэхэмжлэхийн линк, Батлах/Буцаах/Устгах |
+| Мөнгөн гүйлгээний жагсаалт | [components/cash/cash-documents-view.tsx](components/cash/cash-documents-view.tsx) | Veritech "Харилцахын баримт"-тай ижил багана: Дансны код (мөнгөн дансны GL) · Валют · **Дебит дүн / Кредит дүн** (MNT — орлого Дт, зарлага Кт, шилжүүлэг хоёулаа) · Ханш · Дебит/Кредит /валют/ · Харилцагчийн код (бүртгэлийн РД) · Харилцагчийн нэр · Харилцах GL данс · Журналын дугаар · МГ код / МГ нэр (S8). Дт/Кт задаргаа ЦЭВЭР `lib/cash/list-columns.ts` (тесттэй) |
+| Cash баримтын панель | [components/panel/cash-doc-panel.tsx](components/panel/cash-doc-panel.tsx) | `JournalLinesGrid` reuse (readOnly) — сегмент panel, харилцагч (код · нэр), МГ код · нэр, журналын дугаар, холбогдсон нэхэмжлэхийн линк, Батлах/Буцаах/Устгах |
 | Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
 | GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |
 | Balance sheet / IS / Cash flow | [components/gl/report-grid.tsx](components/gl/report-grid.tsx) | Section / group / subtotal / total мөртэй flat row model |
@@ -1157,6 +1158,15 @@ GL         journal_vouchers, journal_lines, document_counters
              түлхүүр (PO), бичих МӨЧИД тавигдана
 Cash       cash_accounts, cash_documents, bank_statements,
            bank_statement_lines, cash_fx_revaluations
+             cash_documents.counterpartyId — харилцагчийн БҮРТГЭЛИЙН холбоос
+               (задаргаа: код/РД + нэр); `counterparty` текст нь нэр (бүртгэлгүй
+               харилцагчид ч бичигдэнэ). Холбох дараалал `resolveCashCounterparty`
+               (lib/actions/cash.ts): ил ID → нэхэмжлэхийн харилцагч → чөлөөт
+               нэрээр ЯГ таарсан бүртгэл (`matchCounterpartyByName`, олон
+               таарвал холбохгүй — ХОЛБООС ЗОХИОХГҮЙ). Банкны хуулга импорт мөн
+               ижил дүрмээр холбоно. Харилцагч устгагдвал set null, нэр үлдэнэ
+             cash_documents.cashFlowCode — МГ код (S8); МГ нэр нь segment_values(8)-ээс
+               уншигдана, баримтад хадгалагдахгүй (нэр солигдвол дагана)
              cash_account_period_balances — хаалтын үлдэгдэл (дансны валютаар),
                период хаахад бичигдэж дахин нээхэд устдаг (snapshot + delta), exchange_rates
              exchange_rates — НИЙТИЙН лавлах: organizationId БАЙХГҮЙ (ханш нь

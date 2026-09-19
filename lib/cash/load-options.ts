@@ -10,6 +10,9 @@ import { extractMainAccount } from "@/lib/reports/balances";
 
 import { and, eq, inArray } from "drizzle-orm";
 
+import type { CounterpartyView } from "@/lib/arap/types";
+import { loadArApCounterparties } from "@/lib/arap/load-data";
+import { cashAccountGlLabel } from "@/lib/cash/list-columns";
 import type {
   CashAccountView,
   CashDocumentView,
@@ -33,6 +36,7 @@ export interface CashArApSettlementTarget {
   id: string;
   documentNo: string;
   documentType: "ar_invoice" | "ap_bill";
+  counterpartyId: string;
   counterpartyName: string;
   date: string;
   currency: string;
@@ -45,6 +49,8 @@ export interface CashTransactionOptions {
   accounts: CashAccountView[];
   glAccounts: CashGlAccountOption[];
   cashFlowOptions: CashFlowOption[];
+  /** Харилцагчийн бүртгэл — cash-new формын сонгогч (CounterpartySelect). */
+  counterparties: CounterpartyView[];
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
   defaultSegments: Record<number, string>;
@@ -52,12 +58,23 @@ export interface CashTransactionOptions {
 }
 
 
-/** Хуудас + панелийн НЭГ мөрийн mapper — DB row → client view. */
+/** Мөрийн mapper-ийн оролт — `with: { fromAccount, toAccount, counterpartyRef, voucher }`. */
+export type CashDocumentRow = CashDocument & {
+  fromAccount: CashAccount | null;
+  toAccount: CashAccount | null;
+  /** Харилцагчийн бүртгэл (сонголтоор — дашбоард ачаалахгүй байж болно). */
+  counterpartyRef?: { name: string; registerNo: string | null } | null;
+  /** Холбогдсон GL журнал — дугаар нь "Журналын дугаар" багана. */
+  voucher?: { documentNo: string | null } | null;
+};
+
+/**
+ * Хуудас + панелийн НЭГ мөрийн mapper — DB row → client view.
+ * `cashFlowNames` = S8 код → нэр (МГ нэр багана); өгөхгүй бол null.
+ */
 export function toCashDocumentView(
-  document: CashDocument & {
-    fromAccount: CashAccount | null;
-    toAccount: CashAccount | null;
-  }
+  document: CashDocumentRow,
+  cashFlowNames?: ReadonlyMap<string, string>
 ): CashDocumentView {
   return {
     id: document.id,
@@ -70,7 +87,18 @@ export function toCashDocumentView(
     toAccountName: document.toAccount?.name ?? null,
     counterAccountNumber: document.counterAccountNumber,
     cashFlowCode: document.cashFlowCode,
-    counterparty: document.counterparty,
+    cashFlowName:
+      (document.cashFlowCode && cashFlowNames?.get(document.cashFlowCode)) ||
+      null,
+    // Бүртгэлтэй харилцагчийн нэр нь бүртгэлээс (нэр солигдвол дагана).
+    counterparty: document.counterpartyRef?.name ?? document.counterparty,
+    counterpartyId: document.counterpartyId,
+    counterpartyCode: document.counterpartyRef?.registerNo ?? null,
+    cashAccountGlNumber: cashAccountGlLabel({
+      documentType: document.documentType,
+      fromGlNumber: document.fromAccount?.glAccountNumber ?? null,
+      toGlNumber: document.toAccount?.glAccountNumber ?? null,
+    }),
     description: document.description,
     amount: Number(document.amount),
     currency: document.currency,
@@ -78,15 +106,24 @@ export function toCashDocumentView(
     baseAmount: Number(document.baseAmount ?? document.amount),
     status: document.status,
     voucherId: document.voucherId,
+    voucherNo: document.voucher?.documentNo ?? null,
     sourceVoucherId: document.sourceVoucherId,
   };
 }
+
+/** Жагсаалтын query-д ӨГӨХ `with` — mapper-ийн шаарддаг холбоосууд НЭГ газар. */
+export const CASH_DOCUMENT_LIST_WITH = {
+  fromAccount: true,
+  toAccount: true,
+  counterpartyRef: { columns: { name: true, registerNo: true } },
+  voucher: { columns: { documentNo: true } },
+} as const;
 
 // Фаз 01 multi-tenancy: параметр нь идэвхтэй байгууллагын ID (orgId).
 export async function loadCashTransactionOptions(
   orgId: string
 ): Promise<CashTransactionOptions> {
-  const [accounts, cashFlowValues, openArApDocs, segmentData] =
+  const [accounts, cashFlowValues, openArApDocs, segmentData, counterpartyList] =
     await Promise.all([
       db.query.cashAccounts.findMany({
         where: eq(cashAccounts.organizationId, orgId),
@@ -110,6 +147,7 @@ export async function loadCashTransactionOptions(
         orderBy: (doc, { asc }) => [asc(doc.dueDate), asc(doc.date)],
       }),
       loadSegmentPickerData(orgId),
+      loadArApCounterparties(orgId),
     ]);
 
   // Үлдэгдэл = snapshot + delta (lib/cash/period-balances.ts) — семантик
@@ -132,6 +170,7 @@ export async function loadCashTransactionOptions(
       code: option.code,
       name: option.name,
     })),
+    counterparties: counterpartyList,
     activeSegIds: segmentData.activeSegIds,
     segmentOptions: segmentData.segmentOptions,
     defaultSegments: segmentData.defaultSegments,
@@ -139,6 +178,7 @@ export async function loadCashTransactionOptions(
       id: doc.id,
       documentNo: doc.documentNo,
       documentType: doc.documentType as "ar_invoice" | "ap_bill",
+      counterpartyId: doc.counterpartyId,
       counterpartyName: doc.counterparty.name,
       date: doc.date,
       currency: doc.currency,

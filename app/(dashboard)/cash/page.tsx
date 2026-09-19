@@ -18,6 +18,7 @@ import type {
   CashHealthRow,
   CashHealthStatus,
 } from "@/lib/cash/types";
+import { toCashDocumentView } from "@/lib/cash/load-options";
 import { db } from "@/lib/db";
 import {
   bankStatements,
@@ -166,27 +167,11 @@ export default async function CashDashboardPage() {
     openingBalance: Number(account.openingBalance),
     balance: coreRows.get(account.id)?.cashBalance ?? 0,
   }));
-  const documentViews: CashDocumentView[] = documents.map((document) => ({
-    id: document.id,
-    documentNo: document.documentNo,
-    documentType: document.documentType,
-    date: document.date,
-    fromCashAccountId: document.fromCashAccountId,
-    fromAccountName: document.fromAccount?.name ?? null,
-    toCashAccountId: document.toCashAccountId,
-    toAccountName: document.toAccount?.name ?? null,
-    counterAccountNumber: document.counterAccountNumber,
-    cashFlowCode: document.cashFlowCode,
-    counterparty: document.counterparty,
-    description: document.description,
-    amount: Number(document.amount),
-    currency: document.currency,
-    exchangeRate: Number(document.exchangeRate ?? 1),
-    baseAmount: Number(document.baseAmount ?? document.amount),
-    status: document.status,
-    voucherId: document.voucherId,
-    sourceVoucherId: document.sourceVoucherId,
-  }));
+  // Хуудас/панелтэй НЭГ mapper (lib/cash/load-options) — талбар нэмэгдэхэд
+  // дашбоард хоцрохгүй; харилцагч/журналын холбоосыг энд ачаалдаггүй.
+  const documentViews: CashDocumentView[] = documents.map((document) =>
+    toCashDocumentView(document)
+  );
 
   const mntAccountIds = new Set(
     accounts.filter((account) => account.currency === "MNT").map((account) => account.id)

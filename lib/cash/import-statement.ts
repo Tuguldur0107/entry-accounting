@@ -28,11 +28,13 @@ import {
   cashAccounts,
   cashDocuments,
   chartOfAccounts,
+  counterparties,
   journalLines,
   journalVouchers,
   segmentConfigs,
   segmentValues,
 } from "@/lib/db/schema";
+import { matchCounterpartyByName } from "@/lib/cash/list-columns";
 
 
 export type SavePayload = ParsedBankStatement & {
@@ -178,6 +180,34 @@ export async function saveBankStatement(
         })
       : [];
     const invoiceById = new Map(invoices.map((doc) => [doc.id, doc]));
+
+    // Харилцагчийн задаргаа: нэхэмжлэхтэй холбогдсон мөр нэхэмжлэхийн
+    // харилцагчийг, бусад мөр (банкны дүрмээс ирсэн) чөлөөт нэрээр ЯГ таарсан
+    // бүртгэлийг холбоно — жагсаалтын "Харилцагчийн код/нэр" багана бөглөгдөнө.
+    // Таараагүй нэр текстээрээ үлдэнэ (ХОЛБООС ЗОХИОХГҮЙ).
+    const counterpartyList = await db.query.counterparties.findMany({
+      where: eq(counterparties.organizationId, orgId),
+      columns: { id: true, name: true },
+    });
+    const counterpartyLinkFor = (row: {
+      settleInvoiceId?: string | null;
+      counterparty?: string | null;
+    }): { counterpartyId: string | null; counterparty: string | null } => {
+      const invoice = row.settleInvoiceId
+        ? invoiceById.get(row.settleInvoiceId)
+        : undefined;
+      if (invoice) {
+        const master = counterpartyList.find((c) => c.id === invoice.counterpartyId);
+        return {
+          counterpartyId: invoice.counterpartyId,
+          counterparty: master?.name ?? row.counterparty ?? null,
+        };
+      }
+      const match = matchCounterpartyByName(row.counterparty, counterpartyList);
+      return match
+        ? { counterpartyId: match.id, counterparty: match.name }
+        : { counterpartyId: null, counterparty: row.counterparty || null };
+    };
     // Нэхэмжлэх бүрийн нийлбэр (гүйлгээний валютаар + түүхэн ханшийн MNT) —
     // үлдэгдлийн шалгалт болон транзакц доторх нэг удаагийн update-д.
     const settleTotals = new Map<
@@ -458,7 +488,7 @@ export async function saveBankStatement(
               row.debitAccountNumber.split(".")[7] ||
               row.creditAccountNumber.split(".")[7] ||
               null,
-            counterparty: row.counterparty || null,
+            ...counterpartyLinkFor(row),
             description: row.description || "Банкны гүйлгээ",
             amount: String(row.amount),
             currency: cashAccount.currency,

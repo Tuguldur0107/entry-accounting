@@ -295,7 +295,21 @@ export function CashDocPanel({
         {document.counterparty && (
           <div>
             <span className="text-neutral-500">Харилцагч: </span>
+            {document.counterpartyCode ? `${document.counterpartyCode} · ` : ""}
             {document.counterparty}
+          </div>
+        )}
+        {document.cashFlowCode && (
+          <div>
+            <span className="text-neutral-500">МГ: </span>
+            {document.cashFlowCode}
+            {document.cashFlowName ? ` ${document.cashFlowName}` : ""}
+          </div>
+        )}
+        {document.voucherNo && (
+          <div>
+            <span className="text-neutral-500">Журнал: </span>
+            <span className="font-mono">{document.voucherNo}</span>
           </div>
         )}
         {linkedInvoice && (
@@ -378,19 +392,50 @@ export function CashDocPanel({
           <Row label="Дүн" value={amountLabel} mono strong />
           {document.documentType !== "transfer" && (
             <Row
-              label="Харилцагч / GL данс"
-              value={[
-                document.counterparty,
-                document.counterAccountNumber
-                  ? `${document.counterAccountNumber} ${glName(document.counterAccountNumber)}`
-                  : "",
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              label="Харилцагч"
+              value={
+                document.counterparty
+                  ? [document.counterpartyCode, document.counterparty]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "—"
+              }
             />
           )}
-          {document.cashFlowCode && (
-            <Row label="Мөнгөн урсгал (S8)" value={document.cashFlowCode} mono />
+          {document.documentType !== "transfer" && (
+            <Row
+              label="Харилцах GL данс"
+              value={
+                document.counterAccountNumber
+                  ? `${document.counterAccountNumber} ${glName(document.counterAccountNumber)}`
+                  : "—"
+              }
+            />
+          )}
+          <Row label="Дансны код" value={document.cashAccountGlNumber || "—"} mono />
+          {document.currency !== "MNT" && (
+            <Row
+              label="Ханш"
+              value={
+                document.exchangeRate > 0
+                  ? `${document.exchangeRate} ${document.currency}/MNT`
+                  : "тодорхойгүй"
+              }
+              mono
+            />
+          )}
+          <Row
+            label="Мөнгөн гүйлгээ (МГ, S8)"
+            value={
+              document.cashFlowCode
+                ? [document.cashFlowCode, document.cashFlowName]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "ангилалгүй"
+            }
+          />
+          {(document.voucherNo || document.voucherId) && (
+            <Row label="Журналын дугаар" value={document.voucherNo ?? "—"} mono />
           )}
           <Row label="Утга" value={document.description || "—"} span2 />
         </dl>
