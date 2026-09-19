@@ -49,7 +49,11 @@ interface AssetForm {
   usefulLifeMonths: string;
   depreciationMethod: string;
   custodian: string;
+  location: string;
+  subLocation: string;
   depreciationStartMonth: string;
+  depreciationStartDate: string;
+  taxUsefulLifeMonths: string;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
   depExpenseAccountNumber: string;
@@ -72,8 +76,13 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
       usefulLifeMonths: String(asset.usefulLifeMonths || 36),
       depreciationMethod: asset.depreciationMethod || "straight_line",
       custodian: asset.custodian ?? "",
+      location: asset.location ?? "",
+      subLocation: asset.subLocation ?? "",
       depreciationStartMonth:
         asset.depreciationStartMonth ?? asset.acquisitionDate.slice(0, 7),
+      depreciationStartDate: asset.depreciationStartDate ?? "",
+      taxUsefulLifeMonths:
+        asset.taxUsefulLifeMonths > 0 ? String(asset.taxUsefulLifeMonths) : "",
       assetAccountNumber: withSegs(asset.assetAccountNumber),
       accumDepAccountNumber: withSegs(asset.accumDepAccountNumber),
       depExpenseAccountNumber: withSegs(asset.depExpenseAccountNumber),
@@ -88,7 +97,11 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
     usefulLifeMonths: "36",
     depreciationMethod: "straight_line",
     custodian: "",
+    location: "",
+    subLocation: "",
     depreciationStartMonth: new Date().toISOString().slice(0, 7),
+    depreciationStartDate: "",
+    taxUsefulLifeMonths: "",
     assetAccountNumber: withSegs("21010000"),
     accumDepAccountNumber: withSegs("21000099"),
     depExpenseAccountNumber: withSegs("70000001"),
@@ -218,7 +231,11 @@ function FaAssetFormBody({
           usefulLifeMonths: Number(form.usefulLifeMonths),
           depreciationMethod: form.depreciationMethod,
           custodian: form.custodian,
+          location: form.location,
+          subLocation: form.subLocation,
           depreciationStartMonth: form.depreciationStartMonth,
+          depreciationStartDate: form.depreciationStartDate,
+          taxUsefulLifeMonths: Number(form.taxUsefulLifeMonths) || 0,
           // AccountInput бүтэн код буцаана — картад main дансыг хадгална.
           assetAccountNumber: extractMainAccount(form.assetAccountNumber),
           accumDepAccountNumber: extractMainAccount(form.accumDepAccountNumber),
@@ -289,6 +306,26 @@ function FaAssetFormBody({
                 }
               />
             </Field>
+            <Field label="Байршил">
+              <Input
+                value={form.location}
+                placeholder="Салбар, барилга, агуулах..."
+                maxLength={120}
+                onChange={(e) =>
+                  setForm((c) => ({ ...c, location: e.target.value }))
+                }
+              />
+            </Field>
+            <Field label="Дэд байршил">
+              <Input
+                value={form.subLocation}
+                placeholder="Давхар, өрөө, тасаг..."
+                maxLength={120}
+                onChange={(e) =>
+                  setForm((c) => ({ ...c, subLocation: e.target.value }))
+                }
+              />
+            </Field>
             <Field label="Авсан огноо">
               <Input
                 type="date"
@@ -333,6 +370,18 @@ function FaAssetFormBody({
                 }
               />
             </Field>
+            <Field label="Татварын ашиглалтын хугацаа (сар)">
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={form.taxUsefulLifeMonths}
+                placeholder="ААНОАТ-ын хуулийн хувиар (хоосон = бодохгүй)"
+                onChange={(e) =>
+                  setForm((c) => ({ ...c, taxUsefulLifeMonths: e.target.value }))
+                }
+              />
+            </Field>
             <Field label="Элэгдлийн арга">
               <SearchableSelect
                 value={form.depreciationMethod}
@@ -355,6 +404,27 @@ function FaAssetFormBody({
                   setForm((c) => ({
                     ...c,
                     depreciationStartMonth: e.target.value,
+                    // Сар солигдоход тэр сартай таарахгүй огноог цэвэрлэнэ.
+                    depreciationStartDate: c.depreciationStartDate.startsWith(
+                      e.target.value
+                    )
+                      ? c.depreciationStartDate
+                      : "",
+                  }))
+                }
+              />
+            </Field>
+            {/* ӨДРИЙН суурьт: сар дундуур ашиглалтад орсон хөрөнгө тэр сард
+                хувь тэнцүүлэн элэгдэнэ. Хоосон = сарын 1-ний өдөр. */}
+            <Field label="Элэгдэл эхлэх огноо (өдрийн суурьт)">
+              <Input
+                type="date"
+                value={form.depreciationStartDate}
+                min={`${form.depreciationStartMonth}-01`}
+                onChange={(e) =>
+                  setForm((c) => ({
+                    ...c,
+                    depreciationStartDate: e.target.value,
                   }))
                 }
               />

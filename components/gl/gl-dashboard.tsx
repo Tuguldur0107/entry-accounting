@@ -181,7 +181,7 @@ export function GlDashboard({
   const recentColumns = useMemo<ColDef<GlRecentVoucherRow>[]>(
     () => [
       { headerName: "Огноо", field: "date", width: 110, cellClass: "font-mono text-xs" },
-      { headerName: "Утга", field: "description", minWidth: 200, flex: 1 },
+      { headerName: "Журналын нэр", field: "description", minWidth: 200, flex: 1 },
       { headerName: "Модуль", field: "module", width: 140, cellClass: "text-xs" },
       { headerName: "Данс", field: "accounts", width: 210, cellClass: "font-mono text-xs" },
       {

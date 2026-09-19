@@ -18,6 +18,7 @@ import { buildSettlementPostingLines } from "@/lib/cash/settlement-lines";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import { assertPeriodsOpen } from "@/lib/periods/guard";
+import { nextVoucherNos } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
@@ -352,7 +353,21 @@ export async function saveBankStatement(
         cashDocumentId: randomUUID(),
       }));
 
-      for (const group of chunks(postingRows)) {
+      // Дугааруудыг НЭГ багцаар нөөцөлнө — мөр бүрд тусдаа хүсэлт явуулбал
+      // олон зуун мөртэй хуулга удаашрана (nextVoucherNos огноогоор бүлэглэнэ).
+      const voucherNos = await nextVoucherNos(
+        tx,
+        orgId,
+        "cash",
+        postingRows.map((row) => row.transactionDate)
+      );
+
+      for (const group of chunks(
+        postingRows.map((row, index) => ({
+          ...row,
+          documentNo: voucherNos[index],
+        }))
+      )) {
         await tx.insert(journalVouchers).values(
           group.map((row) => ({
             id: row.voucherId,
@@ -362,6 +377,7 @@ export async function saveBankStatement(
             description: `[BANK ${statement.id.slice(0, 8)}-${row.rowNumber}] ${
               row.description || row.counterparty || "Банкны гүйлгээ"
             }`,
+            documentNo: row.documentNo,
             status: "posted",
           }))
         );

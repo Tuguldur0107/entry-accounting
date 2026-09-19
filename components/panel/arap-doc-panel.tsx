@@ -396,7 +396,7 @@ function ArapDocForm({
       return;
     }
     if (!form.description.trim()) {
-      setError("Баримтын утга оруулна уу");
+      setError("Журналын нэр оруулна уу");
       return;
     }
     const hasValidLine = form.lines.some(
@@ -615,7 +615,7 @@ function ArapDocForm({
           </div>
         )}
         <div className="sm:col-span-2 lg:col-span-4">
-          <Field label="Утга">
+          <Field label="Журналын нэр">
             <Input
               value={form.description}
               onChange={(event) =>
@@ -1062,7 +1062,7 @@ function ArapDocReadOnly({
           <span className="font-mono">{document.dueDate}</span>
         </div>
         <div className="col-span-3">
-          <span className="text-neutral-500">Утга: </span>
+          <span className="text-neutral-500">Журналын нэр: </span>
           {document.description || "—"}
         </div>
       </div>
@@ -1185,7 +1185,7 @@ function ArapDocReadOnly({
           </ReadField>
         )}
         <div className="sm:col-span-2 lg:col-span-3">
-          <ReadField label="Утга">{document.description}</ReadField>
+          <ReadField label="Журналын нэр">{document.description}</ReadField>
         </div>
       </div>
 

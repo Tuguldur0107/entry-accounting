@@ -5,6 +5,7 @@ import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
   bankStatements,
@@ -483,6 +484,7 @@ export async function createCashOpeningVoucher(data: {
         organizationId: orgId,
         date: today,
         description: `Нээлтийн үлдэгдэл — ${account.name} ${marker}`,
+        documentNo: await nextVoucherNo(tx, orgId, "cash", today),
         status: "draft",
         externalRef,
       })
@@ -554,7 +556,7 @@ async function createCashDocumentCore(data: {
     data.postNow ? "post" : "write"
   );
   const description = data.description.trim();
-  if (!description) throw new Error("Гүйлгээний утга оруулна уу");
+  if (!description) throw new Error("Журналын нэр оруулна уу");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
   if (!["receipt", "payment", "transfer"].includes(data.documentType))
@@ -873,6 +875,7 @@ async function postCashDocumentCore(
         organizationId: orgId,
         date: document.date,
         description: `[${document.documentNo}] ${document.description}`,
+        documentNo: await nextVoucherNo(tx, orgId, "cash", document.date),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -1067,6 +1070,12 @@ async function reverseCashDocumentCore(id: string) {
         organizationId: orgId,
         date: document.date,
         description: `Буцаалт [${document.documentNo}] ${document.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "cash"),
+          document.date
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
         reversalOfVoucherId: voucher.id,
@@ -1692,6 +1701,12 @@ async function postCashFxRevaluationCore(data: {
           organizationId: orgId,
           date: data.valuationDate,
           description: `Буцаалт: ${replaceTarget.voucher.description}`,
+          documentNo: await nextVoucherNo(
+            tx,
+            orgId,
+            moduleOfVoucherNo(replaceTarget.voucher.documentNo, "fx"),
+            data.valuationDate
+          ),
           status: "posted",
           // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
           reversalOfVoucherId: replaceTarget.voucher.id,
@@ -1725,6 +1740,7 @@ async function postCashFxRevaluationCore(data: {
         organizationId: orgId,
         date: data.valuationDate,
         description: `[FX ${account.currency}] ${account.name} @ ${closingRate}`,
+        documentNo: await nextVoucherNo(tx, orgId, "fx", data.valuationDate),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -1887,6 +1903,12 @@ async function reverseCashFxRevaluationCore(id: string) {
         organizationId: orgId,
         date: revaluation.valuationDate,
         description: `Буцаалт: ${revaluation.voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(revaluation.voucher.documentNo, "fx"),
+          revaluation.valuationDate
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
         reversalOfVoucherId: revaluation.voucher.id,

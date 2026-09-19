@@ -43,7 +43,7 @@ import {
   createFixedAsset,
   deleteFixedAsset,
   disposeFixedAsset,
-  postDepreciationEntries,
+  postDepreciationMonth,
   reverseDepreciationEntry,
   runDepreciation,
   type FaDisposalType,
@@ -61,6 +61,7 @@ import {
   createInventoryItem,
   createInventoryMovement,
   createWarehouse,
+  deleteInventoryItem,
   deleteInventoryMovement,
   recordInventoryCount,
   toggleInventoryItem,
@@ -297,7 +298,7 @@ export const AI_TOOLS: AiToolDef[] = [
       type: "object",
       properties: {
         date: { type: "string", description: "Огноо YYYY-MM-DD" },
-        description: { type: "string", description: "Гүйлгээний утга" },
+        description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         lines: {
           type: "array",
           description: "Журналын мөрүүд (дор хаяж 2)",
@@ -346,7 +347,7 @@ export const AI_TOOLS: AiToolDef[] = [
                   "Мөрийн данс (8 оронтой). АП-ийн БАРААТАЙ мөрөнд орхи — клирингийн данс автоматаар орно (PO-той бол өглөгийн түр данс)",
               },
               description: { type: "string" },
-              amount: { type: "number", description: "Мөрийн дүн (0-ээс их). unitPrice+quantity өгвөл орхиж болно" },
+              amount: { type: "number", description: "Мөрийн дүн (0-ээс их). unitPrice+quantity өгвөл орхиж болно; АР-д бараа бүртгэлийн борлуулах үнэтэй бол quantity-ээр бодогдоно" },
               itemCode: { type: "string", description: "Барааны код (бараатай мөрөнд)" },
               quantity: { type: "number", description: "Тоо хэмжээ (бараатай мөрөнд заавал)" },
               warehouseCode: { type: "string", description: "Агуулахын код (бараатай мөрөнд заавал)" },
@@ -399,7 +400,7 @@ export const AI_TOOLS: AiToolDef[] = [
           description: "Харьцах GL данс (8 оронтой) — шилжүүлэгт хэрэггүй",
         },
         amount: { type: "number", description: "Дүн (0-ээс их)" },
-        description: { type: "string", description: "Гүйлгээний утга" },
+        description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
         exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
         externalRef: EXTERNAL_REF_SCHEMA,
@@ -542,7 +543,7 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         voucherId: {
           type: "string",
-          description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+          description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)",
         },
       },
       required: ["voucherId"],
@@ -557,7 +558,7 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         voucherId: {
           type: "string",
-          description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+          description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)",
         },
       },
       required: ["voucherId"],
@@ -783,6 +784,18 @@ export const AI_TOOLS: AiToolDef[] = [
     },
   },
   {
+    name: "delete_inventory_item",
+    description:
+      "Барааг устгана — зөвхөн хөдөлгөөн, АР/АП мөр, захиалга, өртгийн бичилтэд ашиглагдаагүй бараа устгагдана. Түүхтэй барааг update_inventory_item isActive=false-аар идэвхгүй болгоно.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemCode: { type: "string", description: "Барааны код" },
+      },
+      required: ["itemCode"],
+    },
+  },
+  {
     name: "update_inventory_item",
     description:
       "Барааны нэр, нэгж, идэвх болон POS-ийн талбаруудыг (борлуулах үнэ, доод үнэ, баркод, НӨАТ-ийн горим, бүлэг, орлогын данс) засна — кодоор нь олно. Зөвхөн өгсөн талбарууд өөрчлөгдөнө; үнэ өөрчлөгдвөл үнийн түүхэнд бичигдэнэ.",
@@ -793,7 +806,7 @@ export const AI_TOOLS: AiToolDef[] = [
         name: { type: "string", description: "Шинэ нэр (сонголтоор)" },
         unit: { type: "string", description: "Шинэ нэгж (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
-        salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
+        salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор; null өгвөл арилгана" },
         minSalesPrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
         barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
         vatMode: {
@@ -920,7 +933,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        voucherId: { type: "string", description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)" },
+        voucherId: { type: "string", description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)" },
       },
       required: ["voucherId"],
     },
@@ -932,7 +945,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        voucherId: { type: "string", description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)" },
+        voucherId: { type: "string", description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)" },
         date: { type: "string", description: "Шинэ огноо YYYY-MM-DD (сонголтоор)" },
         description: { type: "string", description: "Шинэ утга (сонголтоор)" },
         lines: {
@@ -951,7 +964,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        voucherId: { type: "string", description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)" },
+        voucherId: { type: "string", description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)" },
       },
       required: ["voucherId"],
     },
@@ -2988,10 +3001,15 @@ async function runCreateArap(
   const lines = (input.lines ?? []).map((line) => {
     let itemId: string | undefined;
     let warehouseId: string | undefined;
+    // АР: барааны бүртгэлийн борлуулах үнэ — нэгж үнэ/дүн өгөөгүй үед нөхнө
+    // (вэбийн АР панельтэй ИЖИЛ дүрэм; үнэ зохиохгүй — байхгүй бол алдаа).
+    let itemSalesPrice: number | undefined;
     if (line.itemCode) {
       const item = itemsByCode.get(line.itemCode.trim().toLowerCase());
       if (!item) throw new Error(`"${line.itemCode}" кодтой бараа олдсонгүй (list_inventory-оор шалгана уу)`);
       itemId = item.id;
+      if (!isAp && item.salesPrice != null && Number(item.salesPrice) > 0)
+        itemSalesPrice = Number(item.salesPrice);
       if (!(Number(line.quantity) > 0))
         throw new Error(`"${item.name}" мөрөнд тоо хэмжээ 0-ээс их байх ёстой`);
       const wh = line.warehouseCode
@@ -3024,7 +3042,9 @@ async function runCreateArap(
     const unitPrice =
       line.unitPrice != null && Number(line.unitPrice) > 0
         ? Number(line.unitPrice)
-        : undefined;
+        : !(Number(line.amount) > 0)
+          ? itemSalesPrice
+          : undefined;
     return {
       account: resolveAccount(accountRaw, ctx).code,
       description: line.description ?? "",
@@ -3580,6 +3600,20 @@ function resolveByIdPrefix<T extends { id: string }>(
   throw new Error(`"${idOrPrefix}" гэхэд ${matches.length} ${what} таарлаа — бүтэн ID өгнө үү`);
 }
 
+/**
+ * Журналыг ДУГААРААР (GL-26-000001) эсвэл ID-гаар олно. Хэрэглэгч чатад
+ * дугаараа бичдэг (жагсаалтад ч тэр гардаг) тул эхлээд түүгээр хайж, олдохгүй
+ * бол ID угтвар руу шилжинэ — хуучин, дугааргүй бичилт ч ажиллана.
+ */
+function resolveVoucherRef<
+  T extends { id: string; documentNo?: string | null },
+>(rows: T[], ref: string): T {
+  const query = ref.trim().toLowerCase();
+  const byNo = rows.filter((row) => row.documentNo?.toLowerCase() === query);
+  if (byNo.length === 1) return byNo[0];
+  return resolveByIdPrefix(rows, ref, "журнал");
+}
+
 /** Батлах үйлдэл зөвхөн "Шууд бичих" горимд — эс бөгөөс ойлгомжтой татгалзал. */
 function assertPostMode(mode: AiWriteMode) {
   if (mode !== "post")
@@ -3605,12 +3639,18 @@ async function runPostJournal(
   assertPostMode(mode);
   const vouchers = await db.query.journalVouchers.findMany({
     where: eq(journalVouchers.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true },
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      description: true,
+      date: true,
+    },
     with: { lines: { columns: { debit: true } } },
     orderBy: [desc(journalVouchers.createdAt)],
     limit: 500,
   });
-  const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
+  const voucher = resolveVoucherRef(vouchers, input.voucherId);
   if (voucher.status !== "draft")
     throw new Error(`Журнал ноорог биш байна (төлөв: ${voucher.status})`);
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
@@ -3635,11 +3675,17 @@ async function runDeleteJournal(
 ): Promise<AiToolResult> {
   const vouchers = await db.query.journalVouchers.findMany({
     where: eq(journalVouchers.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true },
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      description: true,
+      date: true,
+    },
     orderBy: [desc(journalVouchers.createdAt)],
     limit: 500,
   });
-  const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
+  const voucher = resolveVoucherRef(vouchers, input.voucherId);
   // Батлагдсан бичилтийг устгах нь эргэлт буцалтгүй — зөвхөн "Шууд бичих"
   // горимд, батлах/буцаахтай ИЖИЛ дүнгийн лимиттэй зөвшөөрнө (ноорог
   // устгалт аль ч горимд чөлөөтэй).
@@ -3972,7 +4018,10 @@ async function runListJournalVouchers(
           (sum, line) => sum + Number(line.debit),
           0
         );
-        return `${voucher.date} · ${voucher.description || "(утгагүй)"} · ${fmt(total)}₮ · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id.slice(0, 8)}`;
+        // Дугаартай бол ТҮҮГЭЭР нэрлэнэ (хэрэглэгч журналаа үүгээр таньдаг);
+        // дугааргүй хуучин бичилтэд ID-гаар. Бүтэн ID нь хэрэгтэй үед tool-д
+        // угтвараар ч дамждаг тул хоёулаа ажиллана.
+        return `${voucher.date} · ${voucher.documentNo ?? `ID ${voucher.id.slice(0, 8)}`} · ${voucher.description || "(утгагүй)"} · ${fmt(total)}₮ · ${statusLabels[voucher.status] ?? voucher.status}`;
       })
       .join("\n"),
   };
@@ -4251,6 +4300,24 @@ async function runDeleteCounterparty(
   return {
     resultText: `Харилцагч устгагдлаа: ${result.name}`,
   };
+}
+
+/** Бараа устгах — deleteInventoryItem action (түүхтэй бол татгалзана). */
+async function runDeleteItem(
+  orgId: string,
+  input: { itemCode: string }
+): Promise<AiToolResult> {
+  const items = await db.query.inventoryItems.findMany({
+    where: eq(inventoryItems.organizationId, orgId),
+  });
+  const item = requireSingle(
+    nameMatches(items, (entry) => entry.code, input.itemCode),
+    (entry) => `${entry.code} (${entry.name})`,
+    "бараа",
+    input.itemCode
+  );
+  const result = unwrapAction(await deleteInventoryItem(item.id));
+  return { resultText: `Бараа устгагдлаа: ${result.code} — ${result.name}` };
 }
 
 async function runUpdateItem(
@@ -4564,11 +4631,7 @@ async function runGetJournal(
   input: { voucherId: string }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  const voucher = resolveByIdPrefix(
-    await loadVouchers(orgId),
-    input.voucherId,
-    "журнал"
-  );
+  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
   const statusLabels: Record<string, string> = {
     draft: "ноорог",
     posted: "батлагдсан",
@@ -4580,7 +4643,7 @@ async function runGetJournal(
   );
   return {
     resultText: [
-      `${voucher.date} · ${voucher.description} · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id}`,
+      `${voucher.date} · ${voucher.documentNo ?? "(дугааргүй)"} · ${voucher.description} · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id}`,
       ...lines,
     ].join("\n"),
   };
@@ -4596,11 +4659,7 @@ async function runUpdateJournal(
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  const voucher = resolveByIdPrefix(
-    await loadVouchers(orgId),
-    input.voucherId,
-    "журнал"
-  );
+  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
   if (voucher.status !== "draft")
     throw new Error(`Зөвхөн ноорог журналыг засна (төлөв: ${voucher.status})`);
 
@@ -4643,11 +4702,7 @@ async function runReverseJournal(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
-  const voucher = resolveByIdPrefix(
-    await loadVouchers(orgId),
-    input.voucherId,
-    "журнал"
-  );
+  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
   if (voucher.status !== "posted")
     throw new Error(`Зөвхөн батлагдсан журналыг буцаана (төлөв: ${voucher.status})`);
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
@@ -5898,9 +5953,11 @@ async function runPostFaDepreciation(
     return { resultText: `${input.month} сард ноорог элэгдлийн бичилт алга` };
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  await postDepreciationEntries(entries.map((entry) => entry.id));
+  // Вэбийн дэлгэцтэй ИЖИЛ зам: сарын бүх элэгдэл НЭГ журналаар бичигдэнэ
+  // (хөрөнгө тус бүрд тусдаа журнал үүсгэхгүй).
+  const posted = await postDepreciationMonth(input.month);
   return {
-    resultText: `${input.month} сарын элэгдэл батлагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
+    resultText: `${input.month} сарын элэгдэл НЭГ журналаар батлагдлаа: ${posted.posted} хөрөнгө, нийт ${fmt(posted.amount)}₮`,
   };
 }
 
@@ -7122,7 +7179,13 @@ async function runUpdateCashDocument(
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
     where: eq(cashDocuments.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true },
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      description: true,
+      date: true,
+    },
     orderBy: [desc(cashDocuments.createdAt)],
     limit: 500,
   });
@@ -9101,6 +9164,8 @@ export async function executeAiTool(
         return await runDeleteCounterparty(orgId, args);
       case "update_inventory_item":
         return await runUpdateItem(orgId, args);
+      case "delete_inventory_item":
+        return await runDeleteItem(orgId, args);
       case "update_inventory_movement":
         return await runUpdateMovement(orgId, args);
       case "record_inventory_count":

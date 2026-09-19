@@ -40,6 +40,11 @@ import {
 } from "@/lib/fa/sync-sources";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { parseSegParts } from "@/lib/grid/segments";
+import {
+  moduleOfVoucherNo,
+  nextVoucherNo,
+  type JournalModule,
+} from "@/lib/gl/voucher-no";
 import { logAuditEvent } from "@/lib/audit";
 import type { JournalHookContext } from "@/lib/custom/types";
 import {
@@ -602,6 +607,11 @@ async function createVoucherCore(data: {
   status?: "draft" | "posted";
   /** Гадаад системийн давтагдашгүй дугаар — idempotency түлхүүр. */
   externalRef?: string;
+  /**
+   * Журналын дугаарын модуль (GL-26-000001). Өгөхгүй бол "gl" — энэ зам нь
+   * гар бичилт, Excel импорт, AI-д нийтлэг. Цалин/НӨАТ өөрийн кодоо өгнө.
+   */
+  module?: JournalModule;
 }) {
   const { orgId, userId } = await requireModuleAction(
     "gl",
@@ -625,6 +635,12 @@ async function createVoucherCore(data: {
         organizationId: orgId,
         date: data.date,
         description: data.description,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          data.module ?? "gl",
+          data.date
+        ),
         status,
         externalRef: data.externalRef?.trim() || null,
       })
@@ -1023,6 +1039,13 @@ async function unpostVoucherCore(id: string) {
         organizationId: orgId,
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
+        // Буцаалт нь эх журналынхаа модульд үлдэнэ (CM-ийн буцаалт CM-).
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "gl"),
+          voucher.date
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно: эхийг устгавал буцаалт FK cascade-аар
         // хамт устана; буцаалтыг дангаар устгахыг deleteVoucher хориглоно.
@@ -1298,6 +1321,13 @@ async function duplicateVoucherCore(id: string) {
         organizationId: orgId,
         date: today,
         description: voucher.description,
+        // Хуулбар нь шинэ бичилт тул ШИНЭ дугаар авна (эхийнхээ модульд).
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "gl"),
+          today
+        ),
         status: "draft",
       })
       .returning({ id: journalVouchers.id });

@@ -81,7 +81,7 @@ export function TaxManager({
   const columnDefs = useMemo<ColDef<TaxLedgerEntry>[]>(
     () => [
       { headerName: "Огноо", field: "date", width: 110 },
-      { headerName: "Утга", field: "description", flex: 1, minWidth: 220 },
+      { headerName: "Журналын нэр", field: "description", flex: 1, minWidth: 220 },
       { headerName: "Данс", field: "accountMain", width: 110 },
       {
         headerName: "Дебет",
@@ -273,7 +273,7 @@ export function TaxManager({
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="tax-accrual-description">Гүйлгээний утга</Label>
+              <Label htmlFor="tax-accrual-description">Журналын нэр</Label>
               <Input
                 id="tax-accrual-description"
                 value={accrualForm.description}

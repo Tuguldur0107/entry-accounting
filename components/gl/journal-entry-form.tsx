@@ -112,6 +112,12 @@ interface Props {
   segmentValues: SegmentValue[];
   defaultSegments?: Record<number, string>;
   voucherId?: string;
+  /**
+   * Журналын бичилтийн дугаар (GL-26-000001). Хэрэглэгч баримтаа ҮҮГЭЭР
+   * таньдаг тул толгойд ч, хэвлэмэлд ч энэ гарна; багана нэмэгдэхээс өмнөх
+   * бичилтэд байхгүй — тэр үед UUID руу буцаж унана.
+   */
+  voucherDocumentNo?: string | null;
   initialVoucher?: InitialVoucher;
   /** Зөвхөн харах — батлагдсан/буцаагдсан журналд засвар хийхгүй. */
   readOnly?: boolean;
@@ -151,6 +157,7 @@ export function JournalEntryForm({
   segmentValues,
   defaultSegments = {},
   voucherId,
+  voucherDocumentNo,
   initialVoucher,
   readOnly = false,
   voucherStatus,
@@ -422,10 +429,14 @@ export function JournalEntryForm({
     return () => clearTimeout(timer);
   }, [printing]);
 
+  // Хуулах нь ХАРАГДАЖ БУЙ утгыг авна — дугаартай бол дугаарыг (хүмүүс
+  // үүгээр ярьдаг), дугааргүй хуучин бичилтэд UUID-г.
+  const voucherRef = voucherDocumentNo ?? voucherId ?? null;
+
   async function copyId() {
-    if (!voucherId) return;
+    if (!voucherRef) return;
     try {
-      await navigator.clipboard.writeText(voucherId);
+      await navigator.clipboard.writeText(voucherRef);
       setCopyState("ok");
     } catch {
       // Зөвшөөрөлгүй/HTTP орчинд clipboard ажиллахгүй — хэрэглэгчид хэлнэ
@@ -486,7 +497,7 @@ export function JournalEntryForm({
         Журналын баримт
       </div>
       <div className="mb-5 text-center text-xs text-neutral-500">
-        № {voucherId ?? "—"}
+        № {voucherRef ?? "—"}
       </div>
       <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
         <div>
@@ -502,7 +513,7 @@ export function JournalEntryForm({
           <span className="font-mono">{lines.length}</span>
         </div>
         <div className="col-span-3">
-          <span className="text-neutral-500">Гүйлгээний утга: </span>
+          <span className="text-neutral-500">Журналын нэр: </span>
           {description || "—"}
         </div>
       </div>
@@ -684,7 +695,7 @@ export function JournalEntryForm({
                     )}
                   </HeaderField>
                   <HeaderField
-                    label="Гүйлгээний утга"
+                    label="Журналын нэр"
                     htmlFor="voucher-description"
                   >
                     {readOnly ? (
@@ -732,18 +743,21 @@ export function JournalEntryForm({
                     {voucherCreatedAt ?? "—"}
                   </span>
                 </HeaderField>
-                <HeaderField label="Дугаар" className="col-span-2">
-                  {voucherId ? (
+                <HeaderField label="Журналын бичилт" className="col-span-2">
+                  {voucherRef ? (
                     <span className="flex min-w-0 items-center gap-1.5">
                       {/* Сонгож хуулах боломжтой — товч нь зөвхөн хурдавчлал */}
-                      <span className="min-w-0 select-all truncate font-mono text-xs text-[var(--ea-text-2)]">
-                        {voucherId}
+                      <span
+                        className="min-w-0 select-all truncate font-mono text-xs text-[var(--ea-text-2)]"
+                        title={voucherDocumentNo ? voucherId : undefined}
+                      >
+                        {voucherRef}
                       </span>
                       <button
                         type="button"
                         onClick={copyId}
-                        title="ID хуулах"
-                        aria-label="Журналын ID хуулах"
+                        title="Дугаар хуулах"
+                        aria-label="Журналын бичилтийн дугаар хуулах"
                         className="shrink-0 text-[var(--ea-text-4)] transition-colors hover:text-[var(--ea-primary)]"
                       >
                         <Icon name="copy" size="xs" />

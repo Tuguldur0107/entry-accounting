@@ -54,6 +54,20 @@ export function FaAssetsView({ assets }: Props) {
         valueFormatter: (params) => String(params.value ?? "—"),
       },
       {
+        headerName: "Байршил",
+        field: "location",
+        width: 140,
+        cellClass: "text-xs",
+        valueFormatter: (params) => String(params.value ?? "—"),
+      },
+      {
+        headerName: "Дэд байршил",
+        field: "subLocation",
+        width: 140,
+        cellClass: "text-xs text-[var(--ea-text-3)]",
+        valueFormatter: (params) => String(params.value ?? "—"),
+      },
+      {
         headerName: "Арга",
         field: "depreciationMethod",
         width: 150,
@@ -84,6 +98,16 @@ export function FaAssetsView({ assets }: Props) {
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+      },
+      {
+        headerName: "Татварын хугацаа",
+        field: "taxUsefulLifeMonths",
+        width: 160,
+        cellClass: "text-xs text-[var(--ea-text-3)]",
+        headerTooltip:
+          "ААНОАТ-ын зорилгоорх ашиглалтын хугацаа — санхүүгийнхээс зөрөх нь хэвийн (IAS 12)",
+        valueFormatter: (params) =>
+          Number(params.value) > 0 ? `${params.value} сар` : "—",
       },
       {
         headerName: "Хугацаа",

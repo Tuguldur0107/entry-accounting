@@ -7,6 +7,7 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
+  arApDocumentLines,
   chartOfAccounts,
   counterparties,
   segmentConfigs,
@@ -27,6 +28,14 @@ export interface InventoryItemOption {
   code: string;
   name: string;
   unit: string;
+  /** Барааны бүртгэлийн борлуулах үнэ (MNT, нэгжид) — null = тогтоогоогүй. */
+  salesPrice: number | null;
+  /**
+   * Энэ барааг СҮҮЛД борлуулсан АР нэхэмжлэхийн нэгж үнэ (баримтын валютаар,
+   * буцаагдаагүй баримтаас) — бүртгэлд үнэ байхгүй үед АР мөрийн нэгж үнийг
+   * нөхөх fallback. null = өмнө нь нэгж үнэтэй борлуулаагүй.
+   */
+  lastSalesPrice: number | null;
 }
 
 export interface WarehouseOption {
@@ -191,7 +200,7 @@ export async function loadArApInventoryOptions(orgId: string): Promise<{
   inventoryItems: InventoryItemOption[];
   warehouses: WarehouseOption[];
 }> {
-  const [items, warehouseRows] = await Promise.all([
+  const [items, warehouseRows, lastSales] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: and(
         eq(inventoryItems.organizationId, orgId),
@@ -203,13 +212,44 @@ export async function loadArApInventoryOptions(orgId: string): Promise<{
       where: and(eq(warehouses.organizationId, orgId), eq(warehouses.isActive, true)),
       orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
     }),
+    // Бараа бүрийн СҮҮЛИЙН борлуулалтын нэгж үнэ — АР нэхэмжлэхийн мөрөөс
+    // (буцаагдсан баримт тооцохгүй). Бүртгэлийн борлуулах үнэ байхгүй үед
+    // нэгж үнийг нөхөх лавлагаа; үнэ ЗОХИОХГҮЙ — хоёулаа байхгүй бол гараар.
+    db
+      .selectDistinctOn([arApDocumentLines.itemId], {
+        itemId: arApDocumentLines.itemId,
+        unitPrice: arApDocumentLines.unitPrice,
+      })
+      .from(arApDocumentLines)
+      .innerJoin(arApDocuments, eq(arApDocuments.id, arApDocumentLines.documentId))
+      .where(
+        and(
+          eq(arApDocuments.organizationId, orgId),
+          eq(arApDocuments.documentType, "ar_invoice"),
+          ne(arApDocuments.status, "reversed"),
+          sql`${arApDocumentLines.itemId} is not null`,
+          sql`${arApDocumentLines.unitPrice} is not null`
+        )
+      )
+      .orderBy(
+        arApDocumentLines.itemId,
+        desc(arApDocuments.date),
+        desc(arApDocumentLines.createdAt)
+      ),
   ]);
+  const lastSalesPriceByItem = new Map(
+    lastSales
+      .filter((row) => row.itemId && row.unitPrice != null)
+      .map((row) => [row.itemId as string, Number(row.unitPrice)])
+  );
   return {
     inventoryItems: items.map((item) => ({
       id: item.id,
       code: item.code,
       name: item.name,
       unit: item.unit,
+      salesPrice: item.salesPrice != null ? Number(item.salesPrice) : null,
+      lastSalesPrice: lastSalesPriceByItem.get(item.id) ?? null,
     })),
     warehouses: warehouseRows.map((warehouse) => ({
       id: warehouse.id,

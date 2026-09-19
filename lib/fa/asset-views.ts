@@ -27,7 +27,14 @@ export interface FixedAssetView {
   usefulLifeMonths: number;
   depreciationMethod: string;
   custodian: string | null;
+  /** Байршил / дэд байршил — картын жагсаалт, тооллогод. */
+  location: string | null;
+  subLocation: string | null;
   depreciationStartMonth: string | null;
+  depreciationStartDate: string | null;
+  /** ТАТВАРЫН хугацаа/арга — санхүүгийнхээс зөрөх нь хэвийн (IAS 12). */
+  taxUsefulLifeMonths: number;
+  taxDepreciationMethod: string;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
   depExpenseAccountNumber: string;
@@ -111,7 +118,12 @@ export async function loadFixedAssetViews(
       usefulLifeMonths: asset.usefulLifeMonths,
       depreciationMethod: asset.depreciationMethod,
       custodian: asset.custodian,
+      location: asset.location,
+      subLocation: asset.subLocation,
       depreciationStartMonth: asset.depreciationStartMonth,
+      depreciationStartDate: asset.depreciationStartDate,
+      taxUsefulLifeMonths: asset.taxUsefulLifeMonths,
+      taxDepreciationMethod: asset.taxDepreciationMethod,
       assetAccountNumber: asset.assetAccountNumber,
       accumDepAccountNumber: asset.accumDepAccountNumber,
       depExpenseAccountNumber: asset.depExpenseAccountNumber,

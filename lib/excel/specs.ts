@@ -130,6 +130,8 @@ export interface ArapLineImport {
   itemId: string | null;
   quantity: number | null;
   warehouseId: string | null;
+  /** Нэгж үнэ (сонголтоор) — Дүн хоосон бол Тоо × Нэгж үнэ. */
+  unitPrice: number | null;
 }
 
 export function arapLinesSpec(
@@ -150,7 +152,7 @@ export function arapLinesSpec(
         key: "amount",
         header: "Дүн",
         required: true,
-        hint: "Мөрийн дүн (0-ээс их)",
+        hint: "Мөрийн дүн (0-ээс их). Бараатай мөрөнд хоосон орхивол Тоо × Нэгж үнэ",
         example: "2500000",
       },
       {
@@ -177,13 +179,37 @@ export function arapLinesSpec(
         hint: "Бараатай мөрөнд — хүлээн авах агуулахын код",
         example: "WH-01",
       },
+      {
+        key: "unitPrice",
+        header: "Нэгж үнэ",
+        hint: "Бараатай мөрөнд (сонголтоор) — Дүн хоосон бол Тоо × Нэгж үнэ болно",
+        example: "25000",
+      },
     ],
     parseRow: (record) => {
       const errors: string[] = [];
       const account = parseAccountCell(record.account, context);
       if ("error" in account) errors.push(account.error);
 
-      const amount = parseAmountCell(record.amount);
+      // "Нэгж үнэ" багана сонголтоор — record-д байхгүй бол хоосон гэж үзнэ.
+      let unitPrice: number | null = null;
+      const parsedUnitPrice = parseAmountCell(record.unitPrice ?? "");
+      if (parsedUnitPrice === undefined || (parsedUnitPrice != null && !(parsedUnitPrice > 0)))
+        errors.push("Нэгж үнэ 0-ээс их тоо байна");
+      else unitPrice = parsedUnitPrice;
+
+      let amount = parseAmountCell(record.amount ?? "");
+      const parsedQtyForAmount = parseAmountCell(record.quantity ?? "");
+      // Бараатай мөрөнд Дүн хоосон бол Тоо × Нэгж үнэ (grid-тэй ИЖИЛ дүрэм).
+      if (
+        amount === null &&
+        record.itemCode &&
+        unitPrice != null &&
+        parsedQtyForAmount != null &&
+        parsedQtyForAmount !== undefined &&
+        parsedQtyForAmount > 0
+      )
+        amount = Math.round(parsedQtyForAmount * unitPrice * 100) / 100;
       if (amount === undefined || amount === null)
         errors.push("Дүн шаардлагатай");
       else if (!(amount > 0)) errors.push("Дүн 0-ээс их байна");
@@ -196,7 +222,7 @@ export function arapLinesSpec(
         if (!item) errors.push(`"${record.itemCode}" бараа бүртгэлд алга`);
         else itemId = item.id;
 
-        const parsedQty = parseAmountCell(record.quantity);
+        const parsedQty = parseAmountCell(record.quantity ?? "");
         if (parsedQty === undefined || parsedQty === null || !(parsedQty > 0))
           errors.push("Бараатай мөрөнд Тоо (0-ээс их) шаардлагатай");
         else quantity = parsedQty;
@@ -218,6 +244,7 @@ export function arapLinesSpec(
           itemId,
           quantity,
           warehouseId,
+          unitPrice: itemId ? unitPrice : null,
         },
       };
     },
@@ -261,8 +288,10 @@ export function journalVouchersSpec(
       },
       {
         key: "voucherDescription",
-        header: "Гүйлгээний утга",
-        hint: "Журналын ерөнхий утга (баримтын эхний мөрөөс уншина)",
+        header: "Журналын нэр",
+        // Хуучин загвар/экспортын толгой — round-trip тасрахгүй.
+        aliases: ["Гүйлгээний утга"],
+        hint: "Журналын нэр — ерөнхий утга (баримтын эхний мөрөөс уншина)",
         example: "7 сарын түрээс",
       },
       ...lineSpec.columns.map((column) =>

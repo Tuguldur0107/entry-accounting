@@ -219,6 +219,16 @@ export function FaAssetPanel({
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
             <DetailItem label="Авсан огноо" value={asset.acquisitionDate} mono />
             <DetailItem label="Эзэмшигч" value={asset.custodian || "—"} />
+            <DetailItem label="Байршил" value={asset.location || "—"} />
+            <DetailItem label="Дэд байршил" value={asset.subLocation || "—"} />
+            <DetailItem
+              label="Татварын хугацаа"
+              value={
+                asset.taxUsefulLifeMonths > 0
+                  ? `${asset.taxUsefulLifeMonths} сар`
+                  : "— (бодохгүй)"
+              }
+            />
             <DetailItem
               label="Элэгдлийн арга"
               value={depreciationMethodLabel(asset.depreciationMethod)}

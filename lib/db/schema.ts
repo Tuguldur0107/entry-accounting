@@ -306,6 +306,33 @@ export const inventoryPeriodBalances = pgTable(
 
 // ─── Journal Vouchers ─────────────────────────────────────────────────────────
 
+// ─── Баримтын дугаарын тоолуур ───────────────────────────────────────────────
+//
+// Журналын дугаарыг `select max(...) + 1`-ээр бодвол зэрэгцээ хоёр транзакц
+// ИЖИЛ дугаар авч, нэг нь unique зөрчлөөр унах эрсдэлтэй (бичилт нь том
+// транзакцийн дотор тул дахин оролдоход бүх ажил буцна). Тиймээс тоолуурыг
+// `insert … on conflict do update set value = value + 1 returning value`-ээр
+// АТОМААР нэмэгдүүлнэ — мөрийн цоожинд зөвхөн тухайн scope л орно.
+//
+// scope = дугаарын "ишний" тогтмол хэсэг (ж: "GL-26") — жил солигдоход шинэ
+// мөр үүсч тоолуур 1-ээс эхэлнэ.
+
+export const documentCounters = pgTable(
+  "document_counters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull(),
+    value: integer("value").notNull().default(0),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("document_counters_org_scope_ux").on(t.organizationId, t.scope),
+  ]
+);
+
 export const journalVouchers = pgTable(
   "journal_vouchers",
   {
@@ -319,6 +346,11 @@ export const journalVouchers = pgTable(
     }),
     date: text("date").notNull(), // YYYY-MM-DD
     description: text("description").notNull(),
+    // Журналын бичилтийн ДУГААР: "<модуль>-<YY>-<NNNNNN>" (ж: GL-26-000001).
+    // Эх модулиа ил харуулж, жил бүр 1-ээс эхэлнэ (lib/gl/voucher-no.ts).
+    // NULL зөвшөөрөгдөнө — энэ багана нэмэгдэхээс ӨМНӨХ түүхэн бичилтүүд
+    // дугааргүй үлдэнэ (UI-д «—»); шинэ бичилт бүр дугаартай.
+    documentNo: text("document_no"),
     // Draft-first систем тул default нь draft — status-аа мартсан ямар ч
     // insert аюулгүй талдаа (ноорог) унана. Бүх код status-аа ил өгдөг.
     status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
@@ -336,6 +368,11 @@ export const journalVouchers = pgTable(
     uniqueIndex("journal_vouchers_org_external_ref_uq")
       .on(t.organizationId, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
+    // Дугаар нь байгууллага дотор давхардахгүй. Partial — дугааргүй түүхэн
+    // мөрүүд (NULL) хэдэн ч байж болно.
+    uniqueIndex("journal_vouchers_org_document_no_ux")
+      .on(t.organizationId, t.documentNo)
+      .where(sql`${t.documentNo} is not null`),
     index("journal_vouchers_user_date_ix").on(t.userId, t.date), index("journal_vouchers_org_date_ix").on(t.organizationId, t.date),
     index("journal_vouchers_user_status_ix").on(t.userId, t.status), index("journal_vouchers_org_status_ix").on(t.organizationId, t.status),
     foreignKey({
@@ -1303,7 +1340,7 @@ export const inventoryItems = pgTable(
     name: text("name").notNull(),
     unit: text("unit").notNull().default("ш"),
     // ── POS (docs/pos/00-proposal.md §3.2) — бүгд сонголтоор ──
-    /** Борлуулах үнэ (MNT). НӨАТ төлөгч байгууллагад НӨАТ ОРСОН үнэ. */
+    /** Борлуулах үнэ (MNT, нэгжид) — АР нэхэмжлэх/POS-д нэгж үнэ автоматаар. НӨАТ төлөгч байгууллагад НӨАТ ОРСОН үнэ; null = тогтоогоогүй. Өртөгтэй ХОЛБООГҮЙ. */
     salesPrice: numeric("sales_price", { precision: 18, scale: 4 }),
     /** Кассчны хөнгөлөлтийн доод хязгаар — үнэ − хөнгөлөлт ≥ энэ (эрхтэй нь давна). */
     minSalesPrice: numeric("min_sales_price", { precision: 18, scale: 2 }),
@@ -2609,8 +2646,30 @@ export const fixedAssets = pgTable(
       .default("straight_line"),
     // Хөрөнгө эзэмшигч / хариуцагч (ажилтан, хэлтэс)
     custodian: text("custodian"),
+    /** Байршил (салбар, барилга, агуулах) — картын жагсаалтад харагдана. */
+    location: text("location"),
+    /** Дэд байршил (давхар, өрөө, тасаг). */
+    subLocation: text("sub_location"),
     // Элэгдэл эхлэх сар (YYYY-MM); идэвхжүүлэхэд заавал бөглөнө.
     depreciationStartMonth: text("depreciation_start_month"),
+    /**
+     * Элэгдэл эхлэх ОГНОО (YYYY-MM-DD) — ӨДРИЙН суурьт заавал. Сар дундуур
+     * ашиглалтад орсон хөрөнгө тэр сард хувь тэнцүүлэн элэгдэнэ.
+     * Хоосон бол элэгдэл эхлэх сарын 1-ний өдөр гэж үзнэ.
+     */
+    depreciationStartDate: text("depreciation_start_date"),
+    /**
+     * ТАТВАРЫН зорилгоорх ашиглалтын хугацаа (сар) — ААНОАТ-ын хуулийн
+     * хувь хэмжээгээр (cit.md: барилга 5%, тоног төхөөрөмж/тээвэр 10%,
+     * компьютер 20%). 0 = татварын элэгдэл бодохгүй.
+     * Санхүүгийн (IAS 16) хугацаанаас ЗӨРӨХ нь хэвийн — зөрүү нь IAS 12
+     * хойшлогдсон татварын суурь болно. GL-д ЗӨВХӨН санхүүгийнх бичигдэнэ.
+     */
+    taxUsefulLifeMonths: integer("tax_useful_life_months").notNull().default(0),
+    /** Татварын элэгдлийн арга — ихэвчлэн шулуун шугам. */
+    taxDepreciationMethod: text("tax_depreciation_method")
+      .notNull()
+      .default("straight_line"),
     assetAccountNumber: text("asset_account_number")
       .notNull()
       .default("21010000"),
@@ -2657,7 +2716,17 @@ export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
     .notNull()
     .references(() => fixedAssets.id, { onDelete: "restrict" }),
   periodMonth: text("period_month").notNull(), // YYYY-MM — нэг сард 1 идэвхтэй бичилт (кодоор)
+  /** САНХҮҮГИЙН (IAS 16) элэгдэл — GL-д бичигдэх дүн. */
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  /**
+   * ТАТВАРЫН зорилгоорх элэгдэл — МЭМО (GL-д БИЧИГДЭХГҮЙ). ААНОАТ-ын
+   * тайлан ба IAS 12 хойшлогдсон татварын зөрүүг тооцоход ашиглагдана.
+   */
+  taxAmount: numeric("tax_amount", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Тухайн сард элэгдүүлсэн ӨДРИЙН тоо (өдрийн суурьт; сараар бол 0). */
+  depreciatedDays: integer("depreciated_days").notNull().default(0),
   status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
   voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
     onDelete: "set null",
@@ -2674,6 +2743,28 @@ export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
     .on(t.assetId, t.periodMonth)
     .where(sql`${t.status} <> 'reversed'`),
 ]);
+
+/**
+ * Үндсэн хөрөнгийн байгууллагын түвшний тохиргоо (ratified-seed хэв маяг —
+ * vat_settings / payroll_settings-тэй ижил).
+ */
+export const faSettings = pgTable("fa_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  /**
+   * Элэгдлийн суурь — БҮХ хөрөнгөд нэг мөр үйлчилнэ:
+   *   "monthly" — сарын тогтмол дүн (одоогийн, default)
+   *   "daily"   — өдрийн хөлсөөр: тухайн сард элэгдүүлэх ӨДРИЙН тоогоор
+   *               (ашиглалтад орсон/хугацаа дуусах сар хувь тэнцүүлэгдэнэ)
+   */
+  depreciationBasis: text("depreciation_basis").notNull().default("monthly"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("fa_settings_organization_id_ux").on(t.organizationId)]);
 
 export const fixedAssetsRelations = relations(fixedAssets, ({ one, many }) => ({
   user: one(users, { fields: [fixedAssets.userId], references: [users.id] }),

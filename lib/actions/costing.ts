@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireRole, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { latestUnitCost } from "@/lib/costing/valuation";
 import {
   defaultIssueType,
@@ -427,6 +428,7 @@ export async function postCostEntry(id: string) {
         organizationId: orgId,
         date: entry.date,
         description,
+        documentNo: await nextVoucherNo(tx, orgId, "cost", entry.date),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -661,6 +663,12 @@ export async function reverseCostEntry(id: string) {
         organizationId: orgId,
         date: entry.date,
         description: `Буцаалт [${entryLabel}] ${voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "cost"),
+          entry.date
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
         reversalOfVoucherId: voucher.id,
