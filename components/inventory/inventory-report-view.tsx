@@ -69,14 +69,11 @@ export function InventoryReportView({ rows, start, end }: Props) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            Тоо хэмжээний тайлан
-          </h1>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            {start} — {end} · зөвхөн баталсан хөдөлгөөнөөр
-          </p>
-        </div>
+        {/* Хуудасны <h1> нь тайлангийн хуудсанд (таб нэрлэдэг) — энд зөвхөн муж. */}
+        <p className="text-xs text-[var(--ea-text-3)]">
+          {start} — {end} · эхний үлдэгдэл + орлого − зарлага = эцсийн; зөвхөн
+          баталсан хөдөлгөөнөөр
+        </p>
         <div className="flex items-center gap-2">
           <Input
             type="date"

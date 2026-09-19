@@ -17,6 +17,7 @@ import {
   inArray,
   isNotNull,
   sql,
+  sum,
 } from "drizzle-orm";
 
 import { roundMoney } from "@/lib/arap/accounting";
@@ -39,9 +40,14 @@ import {
   inventoryMovements,
   journalVouchers,
   payrollRuns,
+  posSales,
+  posShifts,
   purchaseOrders,
 } from "@/lib/db/schema";
+import { countNegativeScopes } from "@/lib/inventory/negative-stock";
+import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
+import { PROVISIONAL_VALUATION_SOURCE } from "@/lib/pos/constants";
 import { getVatReturnData } from "@/lib/actions/vat";
 
 
@@ -106,6 +112,23 @@ export type MonthEndChecklist = {
     unallocatedCostLines: number;
     hasActivity: boolean;
   };
+  /**
+   * POS / бараа материал (docs/pos §3.9, §5 "Сар хаалтын checklist") —
+   * closePeriod-ийн `open-pos-shifts` ба `unvalued-movements` хоригийг
+   * урьдчилан харуулна; хасах үлдэгдэл, урьдчилсан COGS нь мэдээлэл.
+   */
+  pos: {
+    status: StepStatus;
+    /** Сарын эцэс хүртэл нээгдсэн, хаагдаагүй кассын ээлж. */
+    openShifts: number;
+    /** Сарын эцсийн өдрөөр хасах үлдэгдэлтэй бараа×агуулах. */
+    negativeStockScopes: number;
+    /** Сарын өртгийн тооцоололд "calculated" биш scope-той батлагдсан хөдөлгөөн. */
+    unvaluedMovements: number;
+    /** Батлагдсан урьдчилсан COGS Σ (сар хаалтын залруулгаар эцэслэнэ). */
+    provisionalCogs: number;
+    hasActivity: boolean;
+  };
   drafts: {
     journal: number;
     cash: number;
@@ -159,6 +182,11 @@ export async function getMonthEndChecklist(
     [ordersInPeriod],
     [receiptsInPeriod],
     costLineCandidates,
+    [openShiftRow],
+    unvaluedRows,
+    [provisionalRow],
+    [posSalesRow],
+    endBalances,
   ] = await Promise.all([
     db.query.accountingPeriods.findFirst({
       where: and(
@@ -305,6 +333,58 @@ export async function getMonthEndChecklist(
           isNotNull(arApDocumentLines.costComponentId)
         )
       ),
+    // POS — closePeriod-ийн `open-pos-shifts` шалгалттай ИЖИЛ: сарын эцэс
+    // хүртэл нээгдсэн, хаагдаагүй ээлж (lock дотор дахин шалгагдана).
+    db
+      .select({ n: count() })
+      .from(posShifts)
+      .where(
+        and(
+          eq(posShifts.organizationId, orgId),
+          eq(posShifts.status, "open"),
+          sql`${posShifts.openedAt} < (${endDate}::date + interval '1 day')`
+        )
+      ),
+    // C1 (docs/pos §2.1) — closePeriod-ийн `unvalued-movements`-тэй ИЖИЛ SQL:
+    // сарын дунджаар үнэлэгдэх батлагдсан хөдөлгөөн бүрийн бараа×агуулах
+    // тухайн сарын cost_period_results-д "calculated" байх ёстой.
+    db.execute(sql`
+      select count(*)::int as n
+      from inventory_movements m
+      where m.organization_id = ${orgId}
+        and m.status = 'confirmed'
+        and m.movement_type in ('issue', 'return_in', 'return_out', 'adjustment')
+        and m.item_id is not null and m.warehouse_id is not null
+        and m.date between ${startDate} and ${endDate}
+        and not exists (
+          select 1 from cost_period_results r
+          where r.organization_id = ${orgId}
+            and r.item_id = m.item_id and r.warehouse_id = m.warehouse_id
+            and r.period_code = ${periodCode} and r.status = 'calculated'
+        )
+    `) as unknown as Promise<{ n: number }[]>,
+    db
+      .select({ total: sum(costEntries.amount) })
+      .from(costEntries)
+      .where(
+        and(
+          eq(costEntries.organizationId, orgId),
+          eq(costEntries.valuationSource, PROVISIONAL_VALUATION_SOURCE),
+          eq(costEntries.status, "posted"),
+          between(costEntries.date, startDate, endDate)
+        )
+      ),
+    db
+      .select({ n: count() })
+      .from(posSales)
+      .where(
+        and(
+          eq(posSales.organizationId, orgId),
+          between(posSales.date, startDate, endDate)
+        )
+      ),
+    // Сарын эцсийн өдрөөрх үлдэгдэл (snapshot + delta) — хасах scope тоолоход.
+    loadQtyBalancesFast(orgId, endDate),
   ]);
 
   // ── FA элэгдэл ──
@@ -442,6 +522,21 @@ export async function getMonthEndChecklist(
       ? "attention"
       : "done";
 
+  // ── POS / бараа материал ──
+  // openShifts, unvaluedMovements нь closePeriod-ийн ХОРИГ; хасах үлдэгдэл нь
+  // ихэвчлэн unvalued-ийн шалтгаан (хөдөлгөгч зогсдог) тул мөн "анхаарах".
+  const openShifts = Number(openShiftRow?.n ?? 0);
+  const unvaluedMovements = Number(unvaluedRows?.[0]?.n ?? 0);
+  const negativeStockScopes = countNegativeScopes(endBalances);
+  const provisionalCogs = roundMoney(Number(provisionalRow?.total ?? 0));
+  const posHasActivity = Number(posSalesRow?.n ?? 0) > 0;
+  const posStatus: StepStatus =
+    openShifts > 0 || unvaluedMovements > 0 || negativeStockScopes > 0
+      ? "attention"
+      : posHasActivity
+        ? "done"
+        : "na";
+
   const drafts = {
     journal: Number(journalDrafts?.n ?? 0),
     cash: Number(cashDrafts?.n ?? 0),
@@ -493,6 +588,14 @@ export async function getMonthEndChecklist(
       draftReceipts,
       unallocatedCostLines,
       hasActivity: procurementHasActivity,
+    },
+    pos: {
+      status: posStatus,
+      openShifts,
+      negativeStockScopes,
+      unvaluedMovements,
+      provisionalCogs,
+      hasActivity: posHasActivity,
     },
     drafts: {
       ...drafts,

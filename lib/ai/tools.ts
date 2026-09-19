@@ -5935,6 +5935,14 @@ async function runClosePeriod(
       throw new Error(
         `${input.code} сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байгаа тул хаагдахгүй — list_purchase_orders openOnly=true-гээр олж, get_purchase_order-оор дутуугаа нөхөөд close_purchase_order-оор хаана`
       );
+    if (result.code === "open-pos-shifts")
+      throw new Error(
+        `${input.code} сард нээлттэй кассын ээлж байгаа тул хаагдахгүй — get_pos_status-оор олж close_pos_shift-ээр хаана`
+      );
+    if (result.code === "unvalued-movements")
+      throw new Error(
+        `${input.code} сарын өртгийн тооцоололд ороогүй буюу зогссон (хасах үлдэгдэл, өртөггүй орлого) бараа хөдөлгөөн байгаа тул хаагдахгүй — run_monthly_costing ажиллуулж, блоклогдсон барааг орлого/тооллогоор засаад дахин тооц`
+      );
     if (result.code === "previous-open")
       throw new Error(
         `${input.code}-ийн өмнөх тайлант үе нээлттэй тул хаагдахгүй — тайлант үеийг дарааллаар нь (өмнөх сараас эхлэн) хаана`
@@ -6069,7 +6077,7 @@ async function runMonthEndChecklist(input: {
         : status === "pending"
           ? "○ хийгдээгүй"
           : "— хамааралгүй";
-  const { fa, fx, costing, vat, procurement, drafts } = checklist;
+  const { fa, fx, costing, vat, procurement, pos, drafts } = checklist;
   const fxDetail = fx.accounts
     .map(
       (account) =>
@@ -6097,8 +6105,9 @@ async function runMonthEndChecklist(input: {
       `4. Цалин: ${statusLabel(checklist.payroll.status)} — идэвхтэй ажилтан ${checklist.payroll.activeEmployees}, бодолтын мөр ${checklist.payroll.lineCount}, GL журнал: ${checklist.payroll.voucherStatus === "none" ? "үүсээгүй" : checklist.payroll.voucherStatus}`,
       `5. НӨАТ: ${statusLabel(vat.status)} — гаралт ${fmt(vat.outputVat)}₮, оролт ${fmt(vat.inputVat)}₮, ${vat.payableVat > 0 ? `төлөх ${fmt(vat.payableVat)}₮ (${vat.deadline} дотор)` : `шилжүүлэх ${fmt(vat.refundableVat)}₮`}, тооцоо: ${vat.settlementStatus === "none" ? "үүсээгүй" : vat.settlementStatus}`,
       `6. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
-      `7. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
-      `8. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
+      `7. POS / бараа: ${statusLabel(pos.status)} — нээлттэй ээлж ${pos.openShifts}${pos.openShifts > 0 ? " (close_pos_shift — хаагдтал сар ХААГДАХГҮЙ)" : ""}, сарын өртгийн тооцоололд ороогүй/зогссон хөдөлгөөн ${pos.unvaluedMovements}${pos.unvaluedMovements > 0 ? " (run_monthly_costing; хасах үлдэгдлийг орлого/тооллогоор засах — засагдтал сар ХААГДАХГҮЙ)" : ""}, хасах үлдэгдэлтэй бараа×агуулах ${pos.negativeStockScopes}, урьдчилсан COGS ${fmt(pos.provisionalCogs)}₮ (сар хаалтад залруулагдана)`,
+      `8. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
+      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
     ].join("\n"),
   };
 }
