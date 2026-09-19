@@ -385,8 +385,26 @@ export function JournalList({
         flex: 1,
         minWidth: 180,
         sortable: true,
-        autoHeight: true,
-        cellClass: "text-xs font-medium",
+        // ⚠ `autoHeight: true` ЭНД БАЙЖ БОЛОХГҮЙ. Энэ grid-ийн мөрийн өндрийг
+        // `getRowHeight` (журналын мөрийн тоо × 22px) эзэмшдэг. Хоёуланг зэрэг
+        // хэрэглэвэл AG Grid эхлээд getRowHeight-ээр байрлуулж, дараа нь
+        // autoHeight-аар ДАХИН хэмжиж мөрүүдээ шилжүүлдэг — хулганы доорх мөр
+        // өөр болж, дарсан журналын ОРОНД хажуугийнх нь нээгддэг байв.
+        // Урт нэрийг мөрийн ӨӨРИЙН өндөрт багтаан таслана (бүтнээр нь tooltip-д).
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
+          <span
+            className="block py-2 text-xs font-medium leading-[22px] break-words"
+            style={{
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: Math.max(1, p.data?.lines.length ?? 1),
+              overflow: "hidden",
+            }}
+            title={p.data?.description}
+          >
+            {p.data?.description}
+          </span>
+        ),
       },
       {
         headerName: "Харилцагч",
