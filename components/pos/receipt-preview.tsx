@@ -8,7 +8,7 @@
 // үзүүлнэ (апп, диалог, бусад панель хэвлэгдэхгүй). Z-тайлан ч мөн
 // `usePosPrint`-ийг хэрэглэнэ.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,83 @@ const fmtTime = (iso: string) => {
 
 const fmtQty = (value: number) =>
   value.toLocaleString("en-US", { maximumFractionDigits: 4 });
+
+// ── eBarimt-ийн QR (ТЕГ-ийн `qrData`) ────────────────────────────────────────
+//
+// `qrcode-generator` (хамааралгүй, ~10KB) dynamic import-оор ачаалагдаж
+// МОДУЛИЙН МАТРИЦ inline SVG болж зурагдана — зураг татахгүй, хэвлэхэд ч
+// ижил. Хэвлэх агшинд portal шууд render хийгддэг тул үйлдвэр (factory) ба
+// матриц МОДУЛИЙН ТҮВШИНД кэшлэгдэнэ: диалог нэгэнт харагдсан бол хэвлэхэд
+// QR аль хэдийн бэлэн байна.
+
+interface QrCodeLike {
+  addData(data: string): void;
+  make(): void;
+  getModuleCount(): number;
+  isDark(row: number, col: number): boolean;
+}
+
+let qrFactory: ((typeNumber: 0, errorCorrectionLevel: "M") => QrCodeLike) | null = null;
+const qrPathCache = new Map<string, { path: string; count: number }>();
+
+function buildQrPath(value: string): { path: string; count: number } | null {
+  const cached = qrPathCache.get(value);
+  if (cached) return cached;
+  if (!qrFactory) return null;
+  try {
+    const code = qrFactory(0, "M");
+    code.addData(value);
+    code.make();
+    const count = code.getModuleCount();
+    let path = "";
+    for (let row = 0; row < count; row += 1)
+      for (let col = 0; col < count; col += 1)
+        if (code.isDark(row, col)) path += `M${col} ${row}h1v1h-1z`;
+    const result = { path, count };
+    qrPathCache.set(value, result);
+    return result;
+  } catch {
+    // QR үүсээгүй бол баримт QR-гүй хэвлэгдэнэ — борлуулалт зогсохгүй.
+    return null;
+  }
+}
+
+function ReceiptQr({ value }: { value: string }) {
+  const [, setLoaded] = useState(0);
+  const qr = useMemo(() => buildQrPath(value), [value]);
+
+  useEffect(() => {
+    if (qr || qrFactory) return;
+    let cancelled = false;
+    import("qrcode-generator")
+      .then((module) => {
+        if (cancelled) return;
+        qrFactory = module.default;
+        setLoaded((current) => current + 1);
+      })
+      .catch(() => {
+        // Ачаалагдаагүй — QR хэвлэгдэхгүй, ДДТД/сугалаа хэвээр.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [qr]);
+
+  if (!qr) return null;
+  return (
+    <div className="mt-1 flex justify-center">
+      <svg
+        viewBox={`-2 -2 ${qr.count + 4} ${qr.count + 4}`}
+        style={{ width: "36mm", height: "36mm" }}
+        shapeRendering="crispEdges"
+        role="img"
+        aria-label="eBarimt QR"
+      >
+        <path d={qr.path} fill="currentColor" />
+      </svg>
+    </div>
+  );
+}
 
 /** 80мм-ийн баримтын бие — дэлгэц дээр ч, хэвлэхэд ч ИЖИЛ markup. */
 export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
@@ -149,10 +226,25 @@ export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
         {receipt.change > 0 && <Row label="Хариулт" value={fmtMnt(receipt.change)} />}
       </div>
 
-      {(receipt.ebarimtId || receipt.ebarimtLottery) && (
+      {(receipt.ebarimtId ||
+        receipt.ebarimtLottery ||
+        receipt.ebarimtQrData ||
+        receipt.ebarimtStatus === "pending" ||
+        receipt.ebarimtStatus === "failed") && (
         <div className="mt-1 border-t border-dashed border-current pt-1">
           {receipt.ebarimtId && <div>ДДТД: {receipt.ebarimtId}</div>}
           {receipt.ebarimtLottery && <div>Сугалаа: {receipt.ebarimtLottery}</div>}
+          {receipt.ebarimtQrData && <ReceiptQr value={receipt.ebarimtQrData} />}
+          {receipt.ebarimtStatus === "pending" && (
+            <div className="text-[var(--ea-text-3)] print:text-black">
+              eBarimt: илгээж байна… (дараа нь дахин хэвлэнэ)
+            </div>
+          )}
+          {receipt.ebarimtStatus === "failed" && (
+            <div className="text-[var(--ea-danger-fg)] print:text-black">
+              eBarimt: илгээгдсэнгүй
+            </div>
+          )}
         </div>
       )}
 

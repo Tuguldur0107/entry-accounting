@@ -14,7 +14,7 @@ import { AttachmentList } from "@/components/attachments/attachment-list";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
-import { SALE_STATUS_TONES } from "@/components/pos/sales-list-view";
+import { EBARIMT_STATUS_TONES, SALE_STATUS_TONES } from "@/components/pos/sales-list-view";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
+import { getEbarimtSubmissions, resendEbarimt } from "@/lib/actions/ebarimt";
 import {
   getPaymentMethods,
   getPosReceipt,
@@ -39,6 +40,8 @@ import {
   type PosReceipt,
 } from "@/lib/actions/pos";
 import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
+import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
+import type { EbarimtSubmissionView } from "@/lib/ebarimt/types";
 import { PAYMENT_KIND_LABELS, POS_BUSINESS_OBJECT, SALE_STATUS_LABELS } from "@/lib/pos/constants";
 import type { PaymentInput, PaymentMethodView, PosSaleDetail, SaleLineView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -116,9 +119,6 @@ function PosSaleBody({
   const [returnOpen, setReturnOpen] = useState(false);
   /** Буцаалтын диалогийг нээх бүрд remount (форм цэвэр эхэлнэ). */
   const [returnSession, setReturnSession] = useState(0);
-  const [ebarimtEditing, setEbarimtEditing] = useState(false);
-  const [ebarimtId, setEbarimtId] = useState(sale.ebarimtId ?? "");
-  const [ebarimtLottery, setEbarimtLottery] = useState(sale.ebarimtLottery ?? "");
 
   const returnableQty = sale.lines.reduce((sum, line) => sum + Math.max(0, line.quantity - line.returnedQty), 0);
   const canReturn = !sale.isReturn && sale.status !== "voided" && returnableQty > 0;
@@ -215,20 +215,6 @@ function PosSaleBody({
     });
   }
 
-  function saveEbarimt() {
-    startTransition(async () => {
-      const result = await updateSaleEbarimt(sale.id, { ebarimtId, ebarimtLottery });
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("eBarimt мэдээлэл хадгалагдлаа");
-      setEbarimtEditing(false);
-      refreshOpenPanels();
-      router.refresh();
-    });
-  }
-
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -256,36 +242,7 @@ function PosSaleBody({
         {sale.note && <Fact label="Тэмдэглэл" value={sale.note} />}
       </div>
 
-      <div className="rounded-md border border-[var(--ea-border)] p-3">
-        <div className="mb-1 flex items-center justify-between">
-          <span className="text-sm font-semibold text-[var(--ea-text-1)]">eBarimt</span>
-          {!ebarimtEditing && !sale.isReturn && (
-            <IconAction name="edit" label="eBarimt засах" size="sm" onClick={() => setEbarimtEditing(true)} />
-          )}
-        </div>
-        {ebarimtEditing ? (
-          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-            <Input value={ebarimtId} placeholder="ДДТД" className="font-mono" onChange={(e) => setEbarimtId(e.target.value)} />
-            <Input value={ebarimtLottery} placeholder="Сугалааны дугаар" className="font-mono" onChange={(e) => setEbarimtLottery(e.target.value)} />
-            <div className="flex gap-1">
-              <Button size="sm" onClick={saveEbarimt} disabled={isPending}>
-                Хадгалах
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setEbarimtEditing(false)} disabled={isPending}>
-                Болих
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-[var(--ea-text-3)]">
-            ДДТД: <span className="font-mono text-[var(--ea-text-1)]">{sale.ebarimtId ?? "—"}</span> · Сугалаа:{" "}
-            <span className="font-mono text-[var(--ea-text-1)]">{sale.ebarimtLottery ?? "—"}</span>
-            {!sale.ebarimtId && !sale.isReturn && (
-              <span className="ml-2 text-[var(--ea-warning-fg)]">ТЕГ-ийн апп-аар олгоод ДДТД-г бичнэ үү</span>
-            )}
-          </div>
-        )}
-      </div>
+      <EbarimtSection sale={sale} />
 
       <div>
         <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Мөрүүд</div>
@@ -443,6 +400,150 @@ function Fact({ label, value, mono }: { label: string; value: string; mono?: boo
     <div className="flex justify-between gap-2 border-b border-[var(--ea-border)] py-0.5">
       <span className="text-[var(--ea-text-3)]">{label}</span>
       <span className={`truncate text-right ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
+    </div>
+  );
+}
+
+// ── eBarimt (docs/pos/03-ebarimt-integration-plan.md §4.5) ───────────────────
+//
+// Статус, ТЕГ-ийн хариу (ДДТД / сугалаа / огноо / төрөл), худалдан авагч,
+// [Дахин илгээх] (failed/pending), илгээлтийн түүх. Гараар ДДТД засах нь
+// ЗӨВХӨН илгээгдээгүй (sent биш) баримтад — server ч мөн хориглодог.
+
+function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [editing, setEditing] = useState(false);
+  const [ebarimtId, setEbarimtId] = useState(sale.ebarimtId ?? "");
+  const [ebarimtLottery, setEbarimtLottery] = useState(sale.ebarimtLottery ?? "");
+  const [submissions, setSubmissions] = useState<EbarimtSubmissionView[]>([]);
+
+  const status = sale.ebarimtStatus;
+  const isSent = status === "sent";
+  const canResend = status === "failed" || status === "pending";
+
+  useEffect(() => {
+    if (!status) return;
+    let cancelled = false;
+    getEbarimtSubmissions(sale.id).then((result) => {
+      if (cancelled || result.error || !result.submissions) return;
+      setSubmissions(result.submissions.slice(0, 5));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sale.id, status]);
+
+  function saveEbarimt() {
+    startTransition(async () => {
+      const result = await updateSaleEbarimt(sale.id, { ebarimtId, ebarimtLottery });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("eBarimt мэдээлэл хадгалагдлаа");
+      setEditing(false);
+      refreshOpenPanels();
+      router.refresh();
+    });
+  }
+
+  function resend() {
+    startTransition(async () => {
+      const result = await resendEbarimt(sale.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(
+        result.status === "sent" ? "ТЕГ-д илгээгдлээ" : "Дахин илгээх дараалалд орлоо"
+      );
+      refreshOpenPanels();
+      router.refresh();
+    });
+  }
+
+  const buyer = sale.ebarimtCustomerTin
+    ? `Байгууллага · ТТД ${sale.ebarimtCustomerTin}`
+    : sale.ebarimtConsumerNo
+      ? `Иргэн · ${sale.ebarimtConsumerNo}`
+      : "Иргэн (дугааргүй)";
+
+  return (
+    <div className="rounded-md border border-[var(--ea-border)] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-[var(--ea-text-1)]">eBarimt</span>
+          {status && (
+            <StatusBadge tone={EBARIMT_STATUS_TONES[status] ?? "muted"} size="sm">
+              {EBARIMT_STATUS_LABELS[status as EbarimtStatus] ?? status}
+            </StatusBadge>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {canResend && (
+            <Button size="sm" variant="outline" onClick={resend} disabled={isPending}>
+              <Icon name="send" size="sm" />
+              Дахин илгээх
+            </Button>
+          )}
+          {!editing && !isSent && !sale.isReturn && (
+            <IconAction name="edit" label="eBarimt засах" size="sm" onClick={() => setEditing(true)} />
+          )}
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <Input value={ebarimtId} placeholder="ДДТД" className="font-mono" onChange={(e) => setEbarimtId(e.target.value)} />
+          <Input value={ebarimtLottery} placeholder="Сугалааны дугаар" className="font-mono" onChange={(e) => setEbarimtLottery(e.target.value)} />
+          <div className="flex gap-1">
+            <Button size="sm" onClick={saveEbarimt} disabled={isPending}>
+              Хадгалах
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={isPending}>
+              Болих
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+          <Fact label="ДДТД" value={sale.ebarimtId ?? "—"} mono />
+          <Fact label="Сугалаа" value={sale.ebarimtLottery ?? "—"} mono />
+          <Fact label="Баримтын огноо" value={sale.ebarimtDate ?? "—"} mono />
+          <Fact label="Төрөл" value={sale.ebarimtType ?? "—"} mono />
+          <Fact label="Худалдан авагч" value={buyer} />
+        </div>
+      )}
+
+      {!editing && !sale.ebarimtId && !sale.isReturn && !status && (
+        <p className="mt-1 text-xs text-[var(--ea-warning-fg)]">
+          ТЕГ-ийн апп-аар олгоод ДДТД-г бичнэ үү (eBarimt автомат илгээлт унтраалттай)
+        </p>
+      )}
+
+      {submissions.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 text-xs font-semibold text-[var(--ea-text-1)]">Илгээлтийн түүх</div>
+          <ul className="space-y-0.5 text-[11px] text-[var(--ea-text-3)]">
+            {submissions.map((submission) => (
+              <li key={submission.id} className="flex flex-wrap items-center gap-x-2">
+                <span className="font-mono">
+                  {submission.kind === "cancel" ? "цуцлах" : "баримт"}
+                </span>
+                <StatusBadge tone={EBARIMT_STATUS_TONES[submission.status] ?? "muted"} size="sm">
+                  {EBARIMT_STATUS_LABELS[submission.status as EbarimtStatus] ?? submission.status}
+                </StatusBadge>
+                <span>оролдлого {submission.attempts}</span>
+                {submission.sentAt && <span className="font-mono">{fmtTime(submission.sentAt)}</span>}
+                {submission.lastError && (
+                  <span className="text-[var(--ea-danger-fg)]">{submission.lastError}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
