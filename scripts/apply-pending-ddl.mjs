@@ -376,6 +376,104 @@ async function main() {
        add column if not exists sick_benefit_percent numeric(5, 2)`
   );
 
+  // ── Цалин: урьдчилгаа / сүүл цалин, цаг дээр суурилсан олголт ──────────
+  for (const [column, type] of [
+    ["standard_hours", "numeric(8, 2) not null default '0'"],
+    ["worked_hours", "numeric(8, 2) not null default '0'"],
+    ["vacation_pay", "numeric(18, 2) not null default '0'"],
+    ["other_additions", "numeric(18, 2) not null default '0'"],
+    ["advance_hours", "numeric(8, 2) not null default '0'"],
+    ["advance_amount", "numeric(18, 2) not null default '0'"],
+  ]) {
+    await run(
+      `payroll_run_lines.${column} багана`,
+      `alter table payroll_run_lines
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  for (const [column, type] of [
+    ["standard_monthly_hours", "numeric(8, 2) not null default '168'"],
+    ["employee_payable_account_number", "text not null default '31000001'"],
+    [
+      "employee_counterparty_id",
+      "uuid references counterparties(id) on delete set null",
+    ],
+  ]) {
+    await run(
+      `payroll_settings.${column} багана`,
+      `alter table payroll_settings
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  for (const [column, type] of [
+    ["advance_date", "text"],
+    [
+      "advance_document_id",
+      "uuid references ar_ap_documents(id) on delete set null",
+    ],
+    [
+      "final_document_id",
+      "uuid references ar_ap_documents(id) on delete set null",
+    ],
+  ]) {
+    await run(
+      `payroll_runs.${column} багана`,
+      `alter table payroll_runs
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  // ── Мөнгөн гүйлгээний тайлангийн S8 mapping ────────────────────────────
+  await run(
+    "report_line_mappings.cf_codes багана",
+    `alter table report_line_mappings
+       add column if not exists cf_codes text`
+  );
+
+  // ── Үндсэн хөрөнгө: байршил, өдрийн суурь, татварын элэгдэл ────────────
+  for (const [column, type] of [
+    ["location", "text"],
+    ["sub_location", "text"],
+    ["depreciation_start_date", "text"],
+    ["tax_useful_life_months", "integer not null default 0"],
+    ["tax_depreciation_method", "text not null default 'straight_line'"],
+  ]) {
+    await run(
+      `fixed_assets.${column} багана`,
+      `alter table fixed_assets
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  for (const [column, type] of [
+    ["tax_amount", "numeric(18, 2) not null default '0'"],
+    ["depreciated_days", "integer not null default 0"],
+  ]) {
+    await run(
+      `fa_depreciation_entries.${column} багана`,
+      `alter table fa_depreciation_entries
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  await run(
+    "fa_settings хүснэгт",
+    `create table if not exists fa_settings (
+       id uuid primary key default gen_random_uuid(),
+       user_id text not null references users(id) on delete cascade,
+       organization_id uuid not null references organizations(id) on delete cascade,
+       depreciation_basis text not null default 'monthly',
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "fa_settings_organization_id_ux индекс",
+    `create unique index if not exists fa_settings_organization_id_ux
+       on fa_settings (organization_id)`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"
