@@ -4,6 +4,9 @@
 import type { EntryCustomization } from "./types";
 
 const TOOL_NAME_RE = /^[a-z][a-z0-9_]{2,63}$/;
+const CHANNEL_KEY_RE = /^[a-z][a-z0-9_]{1,31}$/;
+/** Core-ийн сувгийн түлхүүрүүд — custom суваг давхцаж болохгүй. */
+export const CORE_CHANNEL_KEYS = ["in_app", "email", "telegram"] as const;
 
 /**
  * Хэд хэдэн багцыг нэг customization болгон нийлүүлнэ (custom/index.ts-д
@@ -18,9 +21,11 @@ export function mergeCustomizations(
   const afters = packages.map((p) => p.hooks?.afterJournalPost).filter(isDefined);
   const closes = packages.map((p) => p.hooks?.beforePeriodClose).filter(isDefined);
   const names = packages.map((p) => p.name).filter(isDefined);
+  const notificationChannels = packages.flatMap((p) => p.notificationChannels ?? []);
   return {
     name: names.length > 0 ? names.join(" + ") : undefined,
     tools,
+    notificationChannels,
     hooks: {
       beforeJournalPost:
         befores.length > 0
@@ -96,6 +101,24 @@ export function validateCustomization(
     const value = hooks[key];
     if (value !== undefined && typeof value !== "function")
       errors.push(`hooks.${key}: функц байх ёстой`);
+  }
+
+  const channelKeys = new Set<string>();
+  for (const [index, channel] of (customization.notificationChannels ?? []).entries()) {
+    const label = `notificationChannels[${index}]`;
+    const key = typeof channel?.key === "string" ? channel.key : "";
+    if (!CHANNEL_KEY_RE.test(key))
+      errors.push(
+        `${label}: key "${key}" буруу — жижиг латин үсэг, тоо, _ (2–32 тэмдэгт, үсгээр эхэлнэ)`
+      );
+    else if ((CORE_CHANNEL_KEYS as readonly string[]).includes(key))
+      errors.push(`${label}: "${key}" нь core сувгийн түлхүүр — өөр нэр сонгоно уу`);
+    else if (channelKeys.has(key)) errors.push(`${label}: "${key}" түлхүүр давхардсан`);
+    channelKeys.add(key);
+    if (typeof channel?.label !== "string" || channel.label.trim().length < 2)
+      errors.push(`${label} (${key}): label дор хаяж 2 тэмдэгт байх ёстой`);
+    if (typeof channel?.deliver !== "function")
+      errors.push(`${label} (${key}): deliver функц дутуу`);
   }
 
   return errors;
