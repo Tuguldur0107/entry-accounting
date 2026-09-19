@@ -1,8 +1,9 @@
 "use client";
 
 // Ээлжийн формууд — docs/pos §3.3 ①⑥, §4.5:
-//   OpenShiftForm   касс + агуулах + эхний мөнгө + валютын ханш мөрүүд
-//                   (кассын дэлгэц дээр inline карт, Борлуулалт → Ээлж дээр диалог)
+//   OpenShiftForm   НЭГ ТОВЧНЫ нээлт: касс / агуулах / эхний мөнгө сүүлийн
+//                   ээлжээс default, валютын ханш хумигдсан (кассын дэлгэц дээр
+//                   диалог, Борлуулалт → Ээлж дээр OpenShiftDialog)
 //   CloseShiftDialog тоолсон бэлэн → closeShift → систем / зөрүү
 //   ZReportDialog   ээлжийн нэгтгэл + хэвлэх (`usePosPrint`, pos-receipt class)
 //
@@ -33,6 +34,8 @@ export interface ShiftCashAccount {
   id: string;
   name: string;
   currency: string;
+  /** cash_accounts.accountType — өгвөл зөвхөн "cash" төрлийг санал болгоно. */
+  accountType?: string;
 }
 
 export interface ShiftWarehouse {
@@ -58,40 +61,69 @@ const fmtTime = (iso: string | null) => {
 };
 
 // ── Ээлж нээх ────────────────────────────────────────────────────────────────
+//
+// НЭГ ТОВЧНЫ нээлт (docs/pos §4.1 v2): касс / агуулах / эхний мөнгө нь сүүлийн
+// ээлжээс default-оор бөглөгдөнө — кассчин ихэнхдээ зөвхөн «Ээлж нээх» дарна.
+// Валютын ханш хумигдсан (валютын касс байвал л товч гарна); ханш ЗОХИОГДОХГҮЙ.
 
 export function OpenShiftForm({
   cashAccounts,
   warehouses,
   defaultWarehouseId,
+  defaultCashAccountId,
+  defaultOpeningFloat,
+  openingHint,
+  autoFocus = false,
   onDone,
   onCancel,
 }: {
   cashAccounts: ShiftCashAccount[];
   warehouses: ShiftWarehouse[];
   defaultWarehouseId?: string | null;
+  /** Сүүлийн ээлжийн касс — жагсаалтад байвал сонгогдсон байна. */
+  defaultCashAccountId?: string | null;
+  /** Санал болгох эхний мөнгө (ж: сүүлийн хаагдсан ээлжийн тоолсон бэлэн). */
+  defaultOpeningFloat?: number | null;
+  /** Эхний мөнгөний тайлбар («Өмнөх ээлжийн тоолсон бэлэн» г.м.). */
+  openingHint?: string;
+  autoFocus?: boolean;
   onDone: (shift: { id: string; documentNo: string }) => void;
   onCancel?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const mntAccounts = useMemo(
-    () => cashAccounts.filter((account) => account.currency === "MNT"),
+    () =>
+      cashAccounts.filter(
+        (account) =>
+          account.currency === "MNT" && (account.accountType == null || account.accountType === "cash")
+      ),
     [cashAccounts]
   );
   const fxCurrencies = useMemo(
     () => [...new Set(cashAccounts.map((a) => a.currency).filter((c) => c !== "MNT"))],
     [cashAccounts]
   );
-  const [cashAccountId, setCashAccountId] = useState(mntAccounts[0]?.id ?? "");
+  const [cashAccountId, setCashAccountId] = useState(
+    defaultCashAccountId && mntAccounts.some((a) => a.id === defaultCashAccountId)
+      ? defaultCashAccountId
+      : (mntAccounts[0]?.id ?? "")
+  );
   const [warehouseId, setWarehouseId] = useState(
     defaultWarehouseId && warehouses.some((w) => w.id === defaultWarehouseId)
       ? defaultWarehouseId
       : (warehouses[0]?.id ?? "")
   );
-  const [openingFloat, setOpeningFloat] = useState("0");
+  const [openingFloat, setOpeningFloat] = useState(
+    defaultOpeningFloat != null && defaultOpeningFloat >= 0 ? String(defaultOpeningFloat) : "0"
+  );
   const [note, setNote] = useState("");
+  const [showNote, setShowNote] = useState(false);
+  const [showFx, setShowFx] = useState(false);
   const [rates, setRates] = useState<{ currency: string; rate: string }[]>(() =>
     fxCurrencies.map((currency) => ({ currency, rate: "" }))
   );
+
+  const singleChoice = mntAccounts.length === 1 && warehouses.length === 1;
 
   function submit() {
     if (!cashAccountId) return toast.error("Кассын данс сонгоно уу");
@@ -122,69 +154,90 @@ export function OpenShiftForm({
     });
   }
 
-  return (
-    <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Кассын данс (MNT)">
-          <select
-            className="ea-form-select"
-            value={cashAccountId}
-            onChange={(event) => setCashAccountId(event.target.value)}
-          >
-            <option value="">— Сонгох —</option>
-            {mntAccounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Агуулах">
-          <select
-            className="ea-form-select"
-            value={warehouseId}
-            onChange={(event) => setWarehouseId(event.target.value)}
-          >
-            <option value="">— Сонгох —</option>
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.code} · {warehouse.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Эхний мөнгө (₮)">
-          <Input
-            type="number"
-            min="0"
-            value={openingFloat}
-            onChange={(event) => setOpeningFloat(event.target.value)}
-            className="font-mono text-right"
-          />
-        </Field>
-        <Field label="Тэмдэглэл">
-          <Input value={note} onChange={(event) => setNote(event.target.value)} />
-        </Field>
-      </div>
+  const cashName = mntAccounts.find((a) => a.id === cashAccountId)?.name ?? "";
+  const warehouse = warehouses.find((w) => w.id === warehouseId);
 
-      <div>
-        <div className="mb-1 flex items-center justify-between">
-          <Label>Валютын ханш (бэлэн валют авбал)</Label>
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={() => setRates((current) => [...current, { currency: "", rate: "" }])}
-          >
-            <Icon name="add" size="sm" />
-            Валют нэмэх
-          </Button>
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!isPending) submit();
+      }}
+    >
+      {singleChoice ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
+          <span>
+            Касс: <span className="font-medium text-[var(--ea-text-1)]">{cashName}</span>
+          </span>
+          <span>
+            Агуулах:{" "}
+            <span className="font-medium text-[var(--ea-text-1)]">
+              {warehouse ? `${warehouse.code} · ${warehouse.name}` : "—"}
+            </span>
+          </span>
         </div>
-        {rates.length === 0 ? (
-          <p className="text-xs text-[var(--ea-text-3)]">
-            Валютын кассын данс алга — ханш шаардлагагүй.
-          </p>
-        ) : (
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Кассын данс (MNT)">
+            <select
+              className="ea-form-select"
+              value={cashAccountId}
+              onChange={(event) => setCashAccountId(event.target.value)}
+            >
+              <option value="">— Сонгох —</option>
+              {mntAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Агуулах">
+            <select
+              className="ea-form-select"
+              value={warehouseId}
+              onChange={(event) => setWarehouseId(event.target.value)}
+            >
+              <option value="">— Сонгох —</option>
+              {warehouses.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.code} · {entry.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      )}
+
+      <Field label="Эхний мөнгө — кассанд байгаа бэлэн (₮)">
+        <Input
+          type="number"
+          min="0"
+          inputMode="decimal"
+          autoFocus={autoFocus}
+          value={openingFloat}
+          onFocus={(event) => event.target.select()}
+          onChange={(event) => setOpeningFloat(event.target.value)}
+          className="h-11 font-mono text-right text-lg"
+        />
+        {openingHint && <p className="text-[11px] text-[var(--ea-text-3)]">{openingHint}</p>}
+      </Field>
+
+      {showFx ? (
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <Label>Валютын ханш (дэлгүүрийн)</Label>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => setRates((current) => [...current, { currency: "", rate: "" }])}
+            >
+              <Icon name="add" size="sm" />
+              Валют нэмэх
+            </Button>
+          </div>
           <div className="space-y-1.5">
             {rates.map((row, index) => (
               <div key={index} className="flex items-center gap-2">
@@ -225,21 +278,50 @@ export function OpenShiftForm({
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {showNote && (
+        <Field label="Тэмдэглэл">
+          <Input value={note} onChange={(event) => setNote(event.target.value)} />
+        </Field>
+      )}
+
+      <div className="flex flex-wrap gap-x-3 text-[11px]">
+        {!showFx && (
+          <button
+            type="button"
+            className="text-[var(--ea-primary)] hover:underline"
+            onClick={() => setShowFx(true)}
+          >
+            {fxCurrencies.length > 0
+              ? `+ Валютын ханш (${fxCurrencies.join(", ")} бэлэн авбал)`
+              : "+ Валютын ханш"}
+          </button>
+        )}
+        {!showNote && (
+          <button
+            type="button"
+            className="text-[var(--ea-primary)] hover:underline"
+            onClick={() => setShowNote(true)}
+          >
+            + Тэмдэглэл
+          </button>
         )}
       </div>
 
-      <div className="flex justify-end gap-2">
+      <div className="flex gap-2 pt-1">
         {onCancel && (
-          <Button variant="outline" onClick={onCancel} disabled={isPending}>
+          <Button variant="outline" type="button" onClick={onCancel} disabled={isPending}>
             Болих
           </Button>
         )}
-        <Button onClick={submit} disabled={isPending}>
-          <Icon name="unlocked" size="sm" />
-          Ээлж нээх
+        <Button type="submit" size="lg" className="h-11 flex-1 text-base font-semibold" disabled={isPending}>
+          <Icon name="unlocked" size="md" />
+          {isPending ? "Нээж байна…" : "Ээлж нээх"}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -255,6 +337,9 @@ export function OpenShiftDialog({
   cashAccounts: ShiftCashAccount[];
   warehouses: ShiftWarehouse[];
   defaultWarehouseId?: string | null;
+  defaultCashAccountId?: string | null;
+  defaultOpeningFloat?: number | null;
+  openingHint?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -262,7 +347,7 @@ export function OpenShiftDialog({
         <DialogHeader>
           <DialogTitle>Ээлж нээх</DialogTitle>
           <DialogDescription>
-            Касс, агуулах, эхний мөнгө. Валютын бэлэн авбал ханшийг гараар оруулна.
+            Кассанд байгаа бэлэн мөнгөө оруулаад нээнэ. Валютын бэлэн авбал ханшийг гараар оруулна.
           </DialogDescription>
         </DialogHeader>
         {open && (

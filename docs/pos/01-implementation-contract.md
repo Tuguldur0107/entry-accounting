@@ -129,6 +129,18 @@ Cr COGS, `provisional_avg`), буцаан олголт: касс/банк хэл
   `/inventory/sales` (`?tab=sales|shifts|cards|settings`), Тайлан
   `/inventory/reports?tab=sales` (6 таб). `ModuleItem.configKey="pos"` —
   модуль унтраавал/эрх none бол эдгээр цэс нуугдана. Панель `pos-sale`.
+- Кассын дэлгэц v2 (§4.1): `PosCheckoutView` orchestrator →
+  `components/pos/checkout/{product-panel,ticket-panel,numpad,discount-dialog,parked-dialog}.tsx`;
+  цэвэр төлөв `lib/pos/checkout-state.ts` — `addToCart`, `setLineQuantity`
+  (≤0 → мөр хасагдана), `setLinePrice` / `setLineDiscountPercent` /
+  `setLineDiscountAmount` (% ба ₮ харилцан арилгана), `pressNumpad` /
+  `numpadValue` / `applyNumpad(cart, key, mode, buffer)`, `filterCheckoutItems`
+  (бүлэг + хайлт, яг таарсан код эхэнд), `resolveScan` (barcode → код → эхний
+  илэрц), `parseStoredCart` / `parseParkedTickets` (localStorage-ийн шалгалттай
+  уншилт, устсан бараа хасагдана), `parkTicket` / `unparkTicket` (≤ 20).
+  `CheckoutData` нэмэлт: `categories[]`, `lastShift` (касс/агуулах/тоолсон бэлэн).
+  `OpenShiftForm` нэмэлт props: `defaultCashAccountId`, `defaultOpeningFloat`,
+  `openingHint`, `autoFocus`.
 - AI tools: `get_pos_status`, `open_pos_shift`, `close_pos_shift` (post),
   `create_pos_sale` (post, ≤10M), `return_pos_sale` (post), `list_pos_sales`,
   `get_pos_sale`, `get_pos_sales_report`; workflow guide `pos_sale`;
