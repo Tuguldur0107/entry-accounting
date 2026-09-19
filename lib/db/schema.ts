@@ -2831,6 +2831,8 @@ export const companySettings = pgTable("company_settings", {
   /** Илгээгч домэйн Resend дээр verify хийгдсэнийг админ баталсан эсэх —
       false үед tenant-ийн from хаягаар илгээхийг оролдохгүй (ил алдаа). */
   emailDomainVerified: boolean("email_domain_verified").notNull().default(false),
+  /** «Том дүн» мэдэгдлийн босго (MNT) — null = default (D2, 10 сая ₮). */
+  largeAmountAlertMnt: numeric("large_amount_alert_mnt", { precision: 18, scale: 2 }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [uniqueIndex("company_settings_org_id_ux").on(t.organizationId)]);
 
@@ -2958,8 +2960,10 @@ export const notificationPreferences = pgTable(
     channels: text("channels"),
     /** Өдрийн нэгтгэл (digest) илгээх цаг — Улаанбаатарын цагаар. */
     digestHour: integer("digest_hour").notNull().default(8),
-    /** Фаз 2 — Telegram суваг. */
+    /** Telegram суваг — холбогдсон chat (lib/notifications/channels/telegram.ts). */
     telegramChatId: text("telegram_chat_id"),
+    /** Холболтын түр код — хэрэглэгч bot-д `/start <код>` илгээж баталгаажуулна. */
+    telegramLinkCode: text("telegram_link_code"),
     /** Түр дуугүй — энэ хугацаа хүртэл мэдэгдэл үүсэхгүй. */
     mutedUntil: timestamp("muted_until"),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -2997,6 +3001,29 @@ export const notificationRuns = pgTable(
       t.job,
       t.periodKey,
       t.organizationId
+    ),
+  ]
+);
+
+// Суваг бүрийн хүргэлт (и-мэйлээс бусад: telegram, custom/) — нэг мэдэгдэл нэг
+// сувгаар нэг л удаа (unique INDEX). error = алдаа эсвэл "skipped:…" (дахин
+// оролдохгүй); deliveredAt = амжилттай.
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    notificationId: uuid("notification_id")
+      .notNull()
+      .references(() => notifications.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    deliveredAt: timestamp("delivered_at"),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("notification_deliveries_notification_channel_ux").on(
+      t.notificationId,
+      t.channel
     ),
   ]
 );

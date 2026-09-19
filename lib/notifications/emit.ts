@@ -21,7 +21,8 @@ import { isInAppEnabled, parseChannelPrefs } from "./preferences";
 import { selectRecipients } from "./recipients";
 import type { NotificationDraft } from "./types";
 
-export type NotificationExecutor = Pick<typeof db, "insert">;
+/** db эсвэл tx — tx дотор бичих/унших (commit-оос өмнөх мөрийг харна). */
+export type NotificationExecutor = Pick<typeof db, "insert" | "select">;
 
 export interface EmitOptions {
   /** Үйлдлийг хийсэн хүн — өөрт нь очихгүй. */

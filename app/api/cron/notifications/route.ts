@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { deliverPendingChannels } from "@/lib/notifications/channel-delivery";
 import { deliverPendingEmails } from "@/lib/notifications/email-delivery";
 import { runDailyNotifications } from "@/lib/notifications/scheduler";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
@@ -15,7 +16,8 @@ export const maxDuration = 120;
 // CRON_SECRET тохируулаагүй deployment-д зам хаалттай (503) — in-process
 // ticker (lib/notifications/ticker.ts) тэнд default-оор ажиллана.
 //
-// ?job=daily|email|all (default all) — өдрийн дүрмүүд / и-мэйлийн хүргэлт.
+// ?job=daily|email|channels|all (default all) — өдрийн дүрмүүд / и-мэйл /
+// нэмэлт сувгууд (Telegram, custom/).
 // ?date=YYYY-MM-DD — тухайн өдрийг (backfill/тест) дахин ажиллуулна;
 // байгууллага × өдөр нэг л удаа тул давхар дуудахад аюулгүй.
 
@@ -39,12 +41,17 @@ async function handle(request: Request) {
   const params = new URL(request.url).searchParams;
   const date = params.get("date") ?? todayInUlaanbaatar();
   const job = params.get("job") ?? "all";
-  if (!["daily", "email", "all"].includes(job))
-    return NextResponse.json({ ok: false, error: "job нь daily | email | all" }, { status: 400 });
+  if (!["daily", "email", "channels", "all"].includes(job))
+    return NextResponse.json(
+      { ok: false, error: "job нь daily | email | channels | all" },
+      { status: 400 }
+    );
   try {
-    const daily = job === "email" ? undefined : await runDailyNotifications(date);
-    const email = job === "daily" ? undefined : await deliverPendingEmails();
-    return NextResponse.json({ ok: true, daily, email });
+    const daily = job === "daily" || job === "all" ? await runDailyNotifications(date) : undefined;
+    const email = job === "email" || job === "all" ? await deliverPendingEmails() : undefined;
+    const channels =
+      job === "channels" || job === "all" ? await deliverPendingChannels() : undefined;
+    return NextResponse.json({ ok: true, daily, email, channels });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : String(error) },

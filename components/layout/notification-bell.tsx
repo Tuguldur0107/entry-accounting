@@ -5,9 +5,10 @@
 // шинэчлэгдэнэ (SSE хожим — docs/notifications §4.4). Дарахад уншсан гэж
 // тэмдэглээд панель/href руу очно (lib/notifications/open-entity.ts).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { Icon } from "@/components/ui/icon";
@@ -19,6 +20,7 @@ import {
   type NotificationRow,
 } from "@/lib/actions/notifications";
 import { openNotificationTarget } from "@/lib/notifications/open-entity";
+import { feedback } from "@/lib/ui/feedback";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60 * 1000;
@@ -53,13 +55,29 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
   const [rows, setRows] = useState<NotificationRow[] | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Polling-ийн хооронд шинэ мэдэгдэл ирвэл toast + зөөлөн дуу (ea-sound
+  // toggle хүндэтгэнэ) — хамгийн сүүлийн уншаагүйг л харуулна.
+  const knownUnread = useRef(initialUnread);
   const refreshCount = useCallback(async () => {
     try {
-      setUnread(await getUnreadNotificationCount());
+      const next = await getUnreadNotificationCount();
+      setUnread(next);
+      if (next > knownUnread.current) {
+        const { rows: latest } = await listNotifications({ limit: 1, unreadOnly: true });
+        const row = latest[0];
+        if (row) {
+          feedback.saved();
+          toast(row.title, {
+            description: row.body || undefined,
+            action: { label: "Нээх", onClick: () => openNotificationTarget(row, router) },
+          });
+        }
+      }
+      knownUnread.current = next;
     } catch {
       /* сүлжээ/сесс — дараагийн удаа */
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const timer = setInterval(() => void refreshCount(), POLL_MS);
@@ -89,6 +107,7 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
     setOpen(false);
     if (!row.readAt) {
       setUnread((n) => Math.max(0, n - 1));
+      knownUnread.current = Math.max(0, knownUnread.current - 1);
       void markNotificationsRead([row.id]);
     }
     openNotificationTarget(row, router);
@@ -96,6 +115,7 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
 
   async function readAll() {
     setUnread(0);
+    knownUnread.current = 0;
     setRows((current) =>
       current?.map((row) => ({ ...row, readAt: row.readAt ?? new Date().toISOString() })) ?? null
     );

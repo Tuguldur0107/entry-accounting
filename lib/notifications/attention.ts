@@ -51,6 +51,19 @@ export interface AttentionInput {
   licenseExpiresAt?: string | null;
   /** Хугацаатай API token-ууд (expiresAt YYYY-MM-DD). */
   tokens?: { id: string; name: string; userId: string; expiresAt: string }[];
+  /** Тулгагдаагүй мөртэй банкны хуулгууд (importedAt YYYY-MM-DD). */
+  bankUnmatched?: { statementId: string; fileName: string; count: number; importedAt: string }[];
+  /** Валют — тэгшитгэл/ханшийн сануулгад. */
+  fx?: {
+    /** Идэвхтэй валютын кассын данс (MNT-ээс бусад). */
+    foreignAccounts: number;
+    /** Энэ сарын сүүлийн өдрөөр батлагдсан тэгшитгэл бий эсэх. */
+    revaluedThisMonth: boolean;
+    /** Өнөөдрийн Монголбанкны ханш хадгалагдаагүй валютууд. */
+    missingRateCurrencies: string[];
+  };
+  /** Хасах үлдэгдэлтэй бараа × агуулах. */
+  negativeStock?: { itemId: string; itemName: string; warehouseId: string; warehouseName: string; qty: number }[];
 }
 
 export interface AttentionSignal {
@@ -85,6 +98,10 @@ export const TOKEN_ALERT_DAYS = 7;
 export const CLOSE_DUE_DAY_LIMIT = 5;
 /** Хугацаа хэтэрсэн татварыг хэдэн хоног сануулах вэ (нэг удаа, dedupe). */
 export const TAX_OVERDUE_WINDOW_DAYS = 20;
+/** Банкны хуулга импортолсноос хойш энэ хоногт тулгагдаагүй бол сануулна. */
+export const BANK_UNMATCHED_AFTER_DAYS = 3;
+/** Сарын сүүлийн энэ хоногт ханшийн тэгшитгэл сануулна. */
+export const FX_REVAL_DUE_LAST_DAYS = 3;
 
 const DRAFT_LABEL: Record<DraftModule, { title: string; href: string; action: string }> = {
   journal: { title: "ноорог журнал", href: "/gl/journal", action: "Журнал руу" },
@@ -444,6 +461,89 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
         dedupeKey: `token:${token.id}`,
         audience: { kind: "users", userIds: [token.userId] },
         payload: { tokenId: token.id, expiresAt: token.expiresAt },
+      },
+    });
+  }
+
+  // Тулгагдаагүй банкны хуулга — импортоос 3 хоног өнгөрсөн бол, хуулга бүрд нэг удаа.
+  for (const statement of input.bankUnmatched ?? []) {
+    if (statement.count <= 0) continue;
+    if (daysBetween(statement.importedAt, today) < BANK_UNMATCHED_AFTER_DAYS) continue;
+    signals.push({
+      key: `bank-unmatched-${statement.statementId}`,
+      tone: "warning",
+      title: `${statement.count} тулгагдаагүй банкны мөр — ${statement.fileName}`,
+      detail: `${statement.importedAt}-нд импортолсон хуулгын мөрүүд кассын баримттай тулгагдаагүй.`,
+      href: "/cash/statements",
+      action: "Хуулга руу",
+      surfaces: ["daily"],
+      notify: {
+        type: "bank.unmatched",
+        dedupeKey: `unmatched:${statement.statementId}`,
+        audience: { kind: "module", moduleKeys: ["cash"], minLevel: "write" },
+        payload: { statementId: statement.statementId, count: statement.count },
+      },
+    });
+  }
+
+  // Валют: сарын сүүлийн 3 хоногт тэгшитгэл хийгдээгүй бол; өнөөдрийн ханш алга бол.
+  if (input.fx && input.fx.foreignAccounts > 0) {
+    const period = today.slice(0, 7);
+    const [y, m] = period.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const dayOfMonth = Number(today.slice(8, 10));
+    if (!input.fx.revaluedThisMonth && dayOfMonth > lastDay - FX_REVAL_DUE_LAST_DAYS)
+      signals.push({
+        key: `fx-due-${period}`,
+        tone: "default",
+        title: `${period} — валютын дансны ханшийн тэгшитгэл хийгдээгүй`,
+        detail: `${input.fx.foreignAccounts} валютын данс. Сар хаахаас өмнө сарын эцсийн ханшаар тэгшитгэнэ.`,
+        href: "/cash/reconciliation",
+        action: "Тэгшитгэл рүү",
+        surfaces: ["daily"],
+        notify: {
+          type: "fx.reval_due",
+          dedupeKey: `fx-due:${period}`,
+          audience: { kind: "module", moduleKeys: ["cash"], minLevel: "post" },
+          payload: { period, foreignAccounts: input.fx.foreignAccounts },
+        },
+      });
+    const weekday = new Date(utcMs(today)).getUTCDay();
+    if (input.fx.missingRateCurrencies.length > 0 && weekday !== 0 && weekday !== 6)
+      signals.push({
+        key: `fx-missing-${today}`,
+        tone: "warning",
+        title: `Өнөөдрийн Монголбанкны ханш татагдаагүй (${input.fx.missingRateCurrencies.join(", ")})`,
+        detail: "Хүлээн авалт, нэхэмжлэх, тэгшитгэл албан ханшаар үнэлэгдэнэ — Валютын ханш хуудаснаас татна.",
+        href: "/cash/rates",
+        action: "Ханш руу",
+        surfaces: ["daily"],
+        notify: {
+          type: "fx.rate_missing",
+          dedupeKey: `fx-missing:${today}`,
+          audience: { kind: "module", moduleKeys: ["cash"], minLevel: "write" },
+          payload: { date: today, currencies: input.fx.missingRateCurrencies },
+        },
+      });
+  }
+
+  // Хасах үлдэгдэл — бараа × агуулах бүрд, долоо хоног тутам.
+  for (const stock of input.negativeStock ?? []) {
+    signals.push({
+      key: `neg-${stock.itemId}-${stock.warehouseId}`,
+      tone: "danger",
+      title: `${stock.itemName} — ${stock.warehouseName}: үлдэгдэл ${stock.qty}`,
+      detail: "Хасах үлдэгдэл: орлого дутуу эсвэл зарлага илүү бичигдсэн. Өртөг тооцоо энэ бараанд зогсоно.",
+      href: "/inventory",
+      action: "Бараа руу",
+      surfaces: ["daily"],
+      notify: {
+        type: "stock.negative",
+        dedupeKey: `neg:${stock.itemId}:${stock.warehouseId}:${week}`,
+        audience: { kind: "module", moduleKeys: ["inv"], minLevel: "write" },
+        severity: "danger",
+        entityType: "inventory",
+        payload: { itemId: stock.itemId, warehouseId: stock.warehouseId, qty: stock.qty },
       },
     });
   }

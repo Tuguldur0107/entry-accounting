@@ -3,12 +3,14 @@
 // эхэлнэ, `started` guard, unref (shutdown-д саад болохгүй).
 //
 // 15 минут тутам: (а) Улаанбаатарын цаг 08:00-оос хойш бол өдрийн дүрмүүд,
-// (б) tick бүрд и-мэйлийн хүргэлт (instant ≤15 мин, digest цагт нь).
+// (б) tick бүрд и-мэйлийн хүргэлт (instant ≤15 мин, digest цагт нь),
+// (в) tick бүрд нэмэлт сувгууд (Telegram, custom/).
 // Ажил бүр notification_runs-аар байгууллага × өдөрт НЭГ удаа л ажиллах тул
 // давтан tick, олон instance, cron route-тэй давхцал бүгд аюулгүй.
 //
 // Унтраах: NOTIFICATIONS_TICKER=off (гадны cron-оор л ажиллуулах бол).
 
+import { deliverPendingChannels } from "./channel-delivery";
 import { deliverPendingEmails } from "./email-delivery";
 import { runDailyNotifications } from "./scheduler";
 
@@ -53,6 +55,14 @@ export async function tick(): Promise<void> {
       );
     for (const failure of mail.errors)
       console.error("[notifications] и-мэйл", failure.organizationId, failure.userId ?? "", failure.error);
+    const channels = await deliverPendingChannels();
+    if (channels.sent > 0 || channels.errors.length > 0)
+      console.log(
+        `[notifications] суваг (${channels.channels.join(", ")}): ${channels.sent} илгээв` +
+          (channels.errors.length ? `, ${channels.errors.length} алдаа` : "")
+      );
+    for (const failure of channels.errors)
+      console.error("[notifications] суваг", failure.channel, failure.notificationId, failure.error);
   } catch (error) {
     console.error("[notifications] ticker:", error);
   } finally {

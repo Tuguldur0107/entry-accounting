@@ -16,6 +16,7 @@ import type {
   HookResult,
   JournalHookContext,
   PeriodHookContext,
+  NotificationChannel,
 } from "./types";
 import { validateCustomization } from "./validate";
 
@@ -37,6 +38,11 @@ export function customToolDefs(coreToolNames: Iterable<string>): AiToolDef[] {
   return (getCustomization(coreToolNames).tools ?? []).map(
     ({ name, description, inputSchema }) => ({ name, description, inputSchema })
   );
+}
+
+/** custom/ багцуудын мэдэгдлийн сувгууд (фаз 2) — core-ийн Telegram-ийн хажууд. */
+export function customNotificationChannels(): NotificationChannel[] {
+  return getCustomization().notificationChannels ?? [];
 }
 
 export function findCustomTool(name: string): CustomTool | undefined {

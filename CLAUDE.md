@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| Мэдэгдлийн систем (in-app хонх, и-мэйл instant/digest, тохиргоо, AI tools) | ✅ фаз 0–1 | Telegram/custom суваг, invoice.viewed, doc.large_amount (фаз 2) |
+| Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 
 ## Файлын бүтэц
 
@@ -832,6 +832,9 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
 - **Tool нийлбэр:** `AI_TOOLS` = core; `allAiTools()` = core + custom — чат,
   OpenAI adapter, MCP, REST БҮГД `allAiTools()` ашиглана. `executeAiTool`
   default → custom tool. Шинэ consumer нэмбэл `allAiTools()`
+- **Мэдэгдлийн суваг** (фаз 2): `EntryCustomization.notificationChannels[]` —
+  `NotificationChannel { key, label, deliver(ctx) }` (§9d); core Telegram-тай
+  нэг sweep-ээр хүргэгдэнэ, тохиргооны матрицад автоматаар багана болно
 - **Hook цэгүүд** (guardrail-ийн ДАРАА, транзакц дотор): `postVoucherCore` /
   `createVoucherCore(posted)` → `beforeJournalPost` (шидвэл rollback),
   commit + subledger sync дараа `afterJournalPost` (алдаа залгина);
@@ -858,7 +861,7 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   агуулах → касс → ажилтан → ҮХ → АР/АП нээлт → бараа нээлт → нээлтийн журнал
   (НЭГ ноорог, `externalRef: opening-balance:<огноо>`) → тулгалт
 
-### 9d. Мэдэгдлийн систем (Notifications) — фаз 0–1 ХЭРЭГЖСЭН
+### 9d. Мэдэгдлийн систем (Notifications) — фаз 0–2 ХЭРЭГЖСЭН
 
 Баримт: `docs/notifications/00-proposal.md` (D1–D7 батлагдсан 2026-09-19).
 Шинэ модуль биш — байгаа дохиог (аудит, нүүрний «Анхаарах», татварын
@@ -883,8 +886,17 @@ lib/notifications/
 ├── email-delivery.ts Resend-ээр хүргэнэ — emailedAt, digest булаалт
 │                     (notification_runs job="digest", periodKey="<өдөр>:<userId>");
 │                     илгээгч = нэхэмжлэхийн илгээгчтэй ИЖИЛ эрэмбэ (resolveInvoiceSender)
+├── channel-delivery.ts Нэмэлт сувгууд (Telegram + custom/) — notification_deliveries
+│                     (мэдэгдэл × суваг нэг мөр: deliveredAt / error / "skipped:…")
+├── channels/telegram.ts Core Telegram суваг (TELEGRAM_BOT_TOKEN; webhook ШААРДАХГҮЙ —
+│                     холболт getUpdates-аар: /start <код> → «Холболт шалгах»)
 └── open-entity.ts    CLIENT: entityType → панель / href dispatcher
 
+lib/custom/types.ts NotificationChannel { key, label, defaultEnabled?, deliver(ctx) →
+                    "sent"|"skipped" } — EntryCustomization.notificationChannels[]
+                    (validate: key ^[a-z][a-z0-9_]{1,31}$, core in_app/email/telegram-тэй
+                    давхцахгүй; loader customNotificationChannels)
+lib/actions/telegram-link.ts        start / verify / unlink (өөрийн тохиргоо)
 lib/email/notification-template.ts  ЦЭВЭР загвар (тесттэй): subject-д ДҮН БАЙХГҮЙ
                                     (stripAmounts хамгаалалт), text + HTML
 lib/actions/notifications.ts        list / unread count / markRead / markAllRead
@@ -927,11 +939,22 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   сонгоно. `emailedAt IS NULL` мөрүүд (3 хоногийн цонх) tick бүрд шалгагдана;
   instant ≤15 мин, digest хэрэглэгчийн `digestHour`-т өдөрт нэг. Гарчигт дүн
   бичихгүй; RESEND_API_KEY байхгүй бол суваг чимээгүй идэвхгүй (in-app хэвээр)
-- Env: `CRON_SECRET` (cron route нээнэ, байхгүй бол 503),
+- **Фаз 2 дүрмүүд:** `doc.large_amount` (D2 — босго
+  `company_settings.largeAmountAlertMnt`, default 10M₮; post/create_posted-д
+  гүүр дүнг tx executor-оор уншина — commit-оос өмнөх мөр харагдана; эзэн/админд),
+  `ai.drafts_created` (`executeAiTool` → `notifyAiDraft`: AI/MCP/REST-ээс ноорог
+  үүсвэл модулийн ≥post гишүүдэд, actor хасна), `invoice.viewed` (нэхэмжлэхийн
+  нээлттэй хуудас — аудитын үйл явдал биш тул шууд emit, ЦОРЫН ГАНЦ үл хамаарах),
+  `bank.unmatched` (импортоос 3 хоног), `fx.reval_due` (сарын сүүлийн 3 хоног),
+  `fx.rate_missing` (ажлын өдөр, МБ ханш алга), `stock.negative` (долоо хоног тутам)
+- **Нэмэлт суваг:** tick бүрд `deliverPendingChannels` — суваг × мэдэгдэл нэг л удаа;
+  тохиргоо категори бүрд `channels: { telegram: bool, <custom>: bool }`
+  (`isChannelEnabled`, default = сувгийн `defaultEnabled`); Telegram холбоогүй
+  хэрэглэгчид "skipped"
+- Env: `CRON_SECRET` (cron route нээнэ, байхгүй бол 503; `?job=daily|email|channels|all`),
   `NOTIFICATIONS_TICKER=off` (in-process ticker унтраана), `RESEND_API_KEY` +
-  `RESEND_FROM_EMAIL` (и-мэйл суваг)
-- Фаз 2 (Telegram, `EntryCustomization.notificationChannels`, invoice.viewed,
-  doc.large_amount) — саналын §8
+  `RESEND_FROM_EMAIL` (и-мэйл суваг), `TELEGRAM_BOT_TOKEN` (Telegram суваг)
+- Фаз 3 (SSE realtime, web push/PWA, approval workflow) — саналын §8
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 
@@ -1283,9 +1306,11 @@ Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
 Audit      audit_events — статус шилжилт бүрд lib/audit.ts logAuditEvent
            (бизнесийн урсгалыг хэзээ ч унагахгүй); /settings/audit хуудас
 Мэдэгдэл   notifications (хүлээн авагч × org, dedupeKey unique INDEX,
-           readAt), notification_preferences (user × org, channels JSON,
-           mutedUntil), notification_runs (job × periodKey × org unique —
-           scheduler-ийн идемпотент булаалт) — §9d
+           readAt, emailedAt), notification_preferences (user × org, channels
+           JSON, mutedUntil, telegramChatId/LinkCode), notification_runs (job ×
+           periodKey × org unique — scheduler/digest булаалт),
+           notification_deliveries (мэдэгдэл × суваг unique) — §9d;
+           company_settings.largeAmountAlertMnt (D2 босго)
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
 ```

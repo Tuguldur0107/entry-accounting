@@ -58,6 +58,11 @@ const ENTITY_LABEL: Record<string, string> = {
   inventory: "Барааны хөдөлгөөн",
 };
 
+/** D2: «том дүн» мэдэгдлийн default босго (MNT) — company_settings.largeAmountAlertMnt дарна. */
+export const DEFAULT_LARGE_AMOUNT_MNT = 10_000_000;
+
+const POST_ACTIONS = new Set(["post", "create_posted"]);
+
 const REVERSE_ACTIONS = new Set(["reverse", "unpost", "fx_reverse"]);
 const POSTABLE_ENTITIES = new Set(["journal", "arap", "cash"]);
 const REVERSIBLE_ENTITIES = new Set([
@@ -105,6 +110,33 @@ function draft(
     audience,
     ...extra,
   };
+}
+
+/**
+ * D2: батлагдсан баримтын MNT дүн босгоос ≥ бол эзэн/админд (actor-оос бусад).
+ * Дүнг гүүр (bridge.ts) DB-ээс уншиж өгнө — энд зөвхөн дүрэм.
+ */
+export function largeAmountNotification(
+  event: AuditLikeEvent,
+  amountMnt: number | null,
+  thresholdMnt: number,
+  now: Date = new Date()
+): NotificationDraft | null {
+  if (!POST_ACTIONS.has(event.action) || !POSTABLE_ENTITIES.has(event.entityType)) return null;
+  if (amountMnt === null || !Number.isFinite(amountMnt) || thresholdMnt <= 0) return null;
+  if (amountMnt < thresholdMnt) return null;
+  return draft(
+    event,
+    now,
+    "doc.large_amount",
+    `${ENTITY_LABEL[event.entityType]} — том дүн (${Math.round(amountMnt).toLocaleString("en-US")}₮)`,
+    { kind: "roles", roles: ["owner", "admin"] },
+    {
+      severity: "warning",
+      dedupeKey: `large:${event.entityType}:${event.entityId}`,
+      payload: { action: event.action, amountMnt, thresholdMnt },
+    }
+  );
 }
 
 /**

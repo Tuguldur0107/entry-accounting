@@ -3,18 +3,26 @@
 // өөрийн ачаалсан датанаасаа ижил бүтэц үүсгэдэг (app/(dashboard)/page.tsx);
 // дүрмүүд нь attention.ts-д НЭГ.
 
-import { and, eq, gte, inArray, isNotNull, lt, lte, min, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, min, or, sql } from "drizzle-orm";
 
+import { loadStoredRate } from "@/lib/cash/rate-store";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
   apiTokens,
   arApDocuments,
+  bankStatementLines,
+  bankStatements,
+  cashAccounts,
   cashDocuments,
+  cashFxRevaluations,
   fixedAssets,
+  inventoryItems,
   inventoryMovements,
   journalVouchers,
+  warehouses,
 } from "@/lib/db/schema";
+import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { periodCodeOf, periodRange, previousPeriodCode, shiftDays } from "@/lib/periods/period";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
@@ -39,6 +47,95 @@ async function draftSummary(
   return { module, count: row?.n ?? 0, oldestDate: row?.oldest ?? null };
 }
 
+/** Тулгагдаагүй мөртэй хуулгууд (импортын огноо УБ-аар). */
+async function loadBankUnmatched(orgId: string): Promise<AttentionInput["bankUnmatched"]> {
+  const rows = await db
+    .select({
+      statementId: bankStatements.id,
+      fileName: bankStatements.fileName,
+      createdAt: bankStatements.createdAt,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(bankStatementLines)
+    .innerJoin(bankStatements, eq(bankStatementLines.statementId, bankStatements.id))
+    .where(and(eq(bankStatements.organizationId, orgId), isNull(bankStatementLines.cashDocumentId)))
+    .groupBy(bankStatements.id, bankStatements.fileName, bankStatements.createdAt);
+  return rows.map((row) => ({
+    statementId: row.statementId,
+    fileName: row.fileName,
+    count: row.n,
+    importedAt: row.createdAt.toLocaleDateString("en-CA", { timeZone: "Asia/Ulaanbaatar" }),
+  }));
+}
+
+/** Валют: идэвхтэй валютын данс, сарын эцсийн тэгшитгэл, өнөөдрийн ханш. */
+async function loadFx(orgId: string, today: string): Promise<AttentionInput["fx"]> {
+  const foreign = await db.query.cashAccounts.findMany({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
+    columns: { id: true, currency: true },
+  });
+  const accounts = foreign.filter((a) => a.currency !== "MNT");
+  if (accounts.length === 0)
+    return { foreignAccounts: 0, revaluedThisMonth: true, missingRateCurrencies: [] };
+  const { endDate } = periodRange(periodCodeOf(today));
+  const [reval] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(cashFxRevaluations)
+    .where(
+      and(
+        eq(cashFxRevaluations.organizationId, orgId),
+        eq(cashFxRevaluations.valuationDate, endDate),
+        isNotNull(cashFxRevaluations.voucherId)
+      )
+    );
+  const currencies = [...new Set(accounts.map((a) => a.currency))];
+  const missing: string[] = [];
+  for (const currency of currencies) {
+    try {
+      const stored = await loadStoredRate({ currency, date: today, source: "mongolbank" });
+      if (!stored || stored.rateDate !== today) missing.push(currency);
+    } catch {
+      missing.push(currency);
+    }
+  }
+  return {
+    foreignAccounts: accounts.length,
+    revaluedThisMonth: (reval?.n ?? 0) > 0,
+    missingRateCurrencies: missing,
+  };
+}
+
+/** Хасах үлдэгдэлтэй бараа × агуулах (snapshot replay — lib/inventory/period-balances). */
+async function loadNegativeStock(orgId: string): Promise<AttentionInput["negativeStock"]> {
+  const balances = await loadQtyBalancesFast(orgId);
+  const negative = [...balances.entries()].filter(([, qty]) => qty < -0.00005);
+  if (negative.length === 0) return [];
+  const itemIds = [...new Set(negative.map(([key]) => key.split("|")[0]))];
+  const warehouseIds = [...new Set(negative.map(([key]) => key.split("|")[1]))];
+  const [items, whs] = await Promise.all([
+    db.query.inventoryItems.findMany({
+      where: inArray(inventoryItems.id, itemIds),
+      columns: { id: true, name: true },
+    }),
+    db.query.warehouses.findMany({
+      where: inArray(warehouses.id, warehouseIds),
+      columns: { id: true, name: true },
+    }),
+  ]);
+  const itemName = new Map(items.map((i) => [i.id, i.name]));
+  const whName = new Map(whs.map((w) => [w.id, w.name]));
+  return negative.map(([key, qty]) => {
+    const [itemId, warehouseId] = key.split("|");
+    return {
+      itemId,
+      itemName: itemName.get(itemId) ?? itemId,
+      warehouseId,
+      warehouseName: whName.get(warehouseId) ?? warehouseId,
+      qty: Math.round(qty * 10000) / 10000,
+    };
+  });
+}
+
 export async function loadAttentionInput(
   orgId: string,
   today: string
@@ -59,6 +156,9 @@ export async function loadAttentionInput(
     periodRows,
     [prevActivityRow],
     tokenRows,
+    bankUnmatched,
+    fx,
+    negativeStock,
   ] = await Promise.all([
     draftSummary(orgId, journalVouchers, "journal"),
     draftSummary(orgId, arApDocuments, "arap"),
@@ -123,6 +223,9 @@ export async function loadAttentionInput(
       ),
       columns: { id: true, name: true, userId: true, expiresAt: true },
     }),
+    loadBankUnmatched(orgId),
+    loadFx(orgId, today),
+    loadNegativeStock(orgId),
   ]);
 
   let arOverdue = 0;
@@ -162,6 +265,9 @@ export async function loadAttentionInput(
       hasActivity: (prevActivityRow?.n ?? 0) > 0,
     },
     licenseExpiresAt: license.expiresAt ?? null,
+    bankUnmatched,
+    fx,
+    negativeStock,
     tokens: tokenRows
       .filter((token) => token.expiresAt)
       .map((token) => ({

@@ -296,6 +296,32 @@ async function main() {
        on notification_runs (job, period_key, organization_id)`
   );
 
+  // ── 3a. Мэдэгдэл фаз 2: суваг бүрийн хүргэлт, Telegram, том дүнгийн босго ──
+  await run(
+    "notification_preferences.telegram_link_code багана",
+    `alter table notification_preferences add column if not exists telegram_link_code text`
+  );
+  await run(
+    "notification_deliveries хүснэгт",
+    `create table if not exists notification_deliveries (
+       id uuid primary key default gen_random_uuid(),
+       notification_id uuid not null references notifications(id) on delete cascade,
+       channel text not null,
+       delivered_at timestamp,
+       error text,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "notification_deliveries_notification_channel_ux индекс",
+    `create unique index if not exists notification_deliveries_notification_channel_ux
+       on notification_deliveries (notification_id, channel)`
+  );
+  await run(
+    "company_settings.large_amount_alert_mnt багана",
+    `alter table company_settings add column if not exists large_amount_alert_mnt numeric(18,2)`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

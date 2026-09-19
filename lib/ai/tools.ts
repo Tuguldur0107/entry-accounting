@@ -193,6 +193,8 @@ import {
   markNotificationsRead,
 } from "@/lib/actions/notifications";
 import { notificationTypeLabel } from "@/lib/notifications/catalog";
+import { emitNotification } from "@/lib/notifications/emit";
+import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
 
 import type { AiWriteMode } from "./models";
 
@@ -8479,6 +8481,86 @@ export async function executeAiTool(
     const { orgId, userId } = await getActiveOrg();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
+    const result = await dispatchAiTool(orgId, userId, name, args, mode);
+    await notifyAiDraft(orgId, userId, name, result);
+    return result;
+  } catch (caught) {
+    return aiToolErrorResult(name, caught);
+  }
+}
+
+/** AI/MCP/REST-ээс НООРОГ үүссэн бол батлах эрхтэй бусад гишүүнд мэдэгдэнэ
+ *  (docs/notifications §3.1 ai.drafts_created — §9 human-in-the-loop-ийг
+ *  «хэн ч анзаараагүй ноорог»-оос хамгаална). Хэзээ ч шидэхгүй. */
+async function notifyAiDraft(
+  orgId: string,
+  userId: string,
+  toolName: string,
+  result: AiToolResult
+): Promise<void> {
+  const action = result.action;
+  if (!action || result.dedup || action.status !== "draft") return;
+  const entityType = AI_ACTION_ENTITY[action.kind];
+  if (!entityType) return;
+  await emitNotification(
+    orgId,
+    {
+      type: "ai.drafts_created",
+      title: `AI ноорог үүсгэлээ — ${action.title}`,
+      body: `${toolName} tool-оор үүссэн ноорог батлагдахыг хүлээж байна — шалгаад батлана эсвэл устгана.`,
+      href: ENTITY_HREF[entityType],
+      entityType,
+      entityId: action.id,
+      dedupeKey: `ai-draft:${action.id}`,
+      audience: { kind: "module", moduleKeys: ENTITY_MODULE_KEYS[entityType] ?? [], minLevel: "post" },
+      payload: { tool: toolName, kind: action.kind, action: "create" },
+    },
+    { actorUserId: userId }
+  );
+}
+
+/** AiAction.kind → аудитын entityType (панель dispatcher / модулийн эрх). */
+const AI_ACTION_ENTITY: Record<AiAction["kind"], string> = {
+  voucher: "journal",
+  arap: "arap",
+  cash: "cash",
+  inventory: "inventory",
+  fa: "fa",
+  purchase_order: "purchase_order",
+  goods_receipt: "goods_receipt",
+};
+
+function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
+  {
+    const message = errorText(caught);
+    // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
+    // Postgres SQLSTATE кодтой (23505 г.м) эсвэл SQL-дотоод үг агуулсан
+    // мессежийг ерөнхий монгол текстээр орлуулж, жинхэнэ алдааг лог руу
+    // бичнэ. [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
+    const errorCode = (caught as { code?: unknown } | null)?.code;
+    const isSqlState =
+      typeof errorCode === "string" && /^[0-9A-Z]{5}$/.test(errorCode);
+    const looksSqlish =
+      /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
+        message
+      );
+    if (isSqlState || looksSqlish) {
+      console.error(`AI tool "${name}" internal error:`, caught);
+      return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
+    }
+    return { resultText: `Алдаа: ${message}` };
+  }
+}
+
+async function dispatchAiTool(
+  orgId: string,
+  userId: string,
+  name: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args: any,
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  {
     switch (name) {
       case "create_journal_voucher":
         return await runCreateJournal(orgId, args, mode);
@@ -8736,23 +8818,5 @@ export async function executeAiTool(
         return await executeCustomTool(custom, { orgId, userId, mode }, args);
       }
     }
-  } catch (caught) {
-    const message = errorText(caught);
-    // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
-    // Postgres SQLSTATE кодтой (23505 г.м) эсвэл SQL-дотоод үг агуулсан
-    // мессежийг ерөнхий монгол текстээр орлуулж, жинхэнэ алдааг лог руу
-    // бичнэ. [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
-    const errorCode = (caught as { code?: unknown } | null)?.code;
-    const isSqlState =
-      typeof errorCode === "string" && /^[0-9A-Z]{5}$/.test(errorCode);
-    const looksSqlish =
-      /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
-        message
-      );
-    if (isSqlState || looksSqlish) {
-      console.error(`AI tool "${name}" internal error:`, caught);
-      return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
-    }
-    return { resultText: `Алдаа: ${message}` };
   }
 }

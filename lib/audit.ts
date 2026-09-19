@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { auditEvents } from "@/lib/db/schema";
 import { notifyFromAudit } from "@/lib/notifications/bridge";
 
-type DbLike = Pick<typeof db, "insert">;
+type DbLike = Pick<typeof db, "insert" | "select">;
 
 export type AuditEventInput = {
   /** Хэн хийсэн (createdBy). */
