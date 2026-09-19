@@ -110,6 +110,15 @@ entry-accounting/
 - **Client Component:** `"use client"` зөвхөн state/event handler шаардагдах үед
 - **Монгол хэл:** UI текст бүгд монголоор
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
+- ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
+  import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
+  'net' / 'tls'` гэж `next build`-ийг унагаана (postgres драйвер browser
+  bundle-д орно). **`tsc` энэ алдааг ТАНИХГҮЙ** — 2026-09-19-нд яг ийм алдаа
+  CI-г давж production-ийн 3 deploy дараалан унасан.
+  **Хэв маяг:** цэвэр логик/төрлийг DB импортгүй тусдаа модульд гаргаж
+  (`lib/gl/journal-list-types.ts`, `lib/pos/report-math.ts`), DB-тэй файл нь
+  `export *`-ээр дахин гаргана — server талын дуудагчид хөндөгдөхгүй.
+  CI-д `next build` алхам ЭНЭ ангиллыг барина (`.github/workflows/ci.yml`)
 
 ---
 

@@ -1,4 +1,4 @@
-# CI — push/PR бүрд төрөл, lint, нэгж тест, хамаарлын аудит.
+# CI — push/PR бүрд төрөл, lint, нэгж тест, production build, хамаарлын аудит.
 #
 # DB integration тестүүд (org-isolation, ai-tools-flow, procurement-flow) нь
 # DATABASE_URL шаарддаг тул repo-ийн Settings → Secrets-д DATABASE_URL нэмсэн
@@ -24,6 +24,19 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Next.js-ийн build кэш — дараагийн ажиллалтад build мэдэгдэхүйц
+      # хурдасна. Кэш олдохгүй бол бүтэн build явна (алдаа болохгүй).
+      # `npm ci`-ийн ӨМНӨ: node_modules суусны дараа бол түлхүүрийн hashFiles
+      # хэдэн арван мянган файл хэшлэх болно.
+      - name: Build кэш
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+            next-${{ runner.os }}-
+
       - name: Хамаарал суулгах
         run: npm ci
 
@@ -40,6 +53,14 @@ jobs:
 
       - name: Нэгж тест (DB шаардахгүй)
         run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow -e procurement-flow)
+
+      # Railway-ийн deploy ЯГ энэ командаар build хийдэг. tsc нь client/server
+      # хилийн алдааг ТАНИХГҮЙ: "use client" component нь server-only модуль
+      # (жишээ нь @/lib/db → postgres драйвер) импортлоход төрөл нь зөв атлаа
+      # bundler `Can't resolve 'fs'` гэж унадаг. 2026-09-19-нд яг ийм алдаа CI-г
+      # давж, production-ийн 3 deploy дараалан унасан тул энэ алхам нэмэгдэв.
+      - name: Build (next build — client/server хилийн шалгалт)
+        run: npx next build
 
       - name: DB integration тест (DATABASE_URL secret тохируулсан үед)
         if: env.DATABASE_URL != ''
