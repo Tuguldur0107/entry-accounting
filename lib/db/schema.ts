@@ -2890,6 +2890,116 @@ export const auditEvents = pgTable(
   (t) => [index("audit_events_user_created_ix").on(t.userId, t.createdAt), index("audit_events_org_created_ix").on(t.organizationId, t.createdAt)]
 );
 
+// ─── Мэдэгдэл (docs/notifications/00-proposal.md) ────────────────────────────
+// Хэрэглэгч × байгууллага бүрд НЭГ мөр = нэг мэдэгдэл (in-app inbox). Аудитын
+// мөр нь баримт (устгагдахгүй), мэдэгдэл нь хүргэлт (90/180 хоногийн дараа
+// цэвэрлэгдэнэ) — тиймээс audit_events-ийг өргөтгөхгүй, тусдаа хүснэгт.
+// dedupeKey нь дүрэм бүрийн «байгалийн үе» (ж: tax:vat:2026-09:3) — scheduler
+// дахин ажилласан ч давхардахгүй (unique INDEX, constraint биш — #5955).
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** ХҮЛЭЭН АВАГЧ (createdBy биш). */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** lib/notifications/catalog.ts-ийн төрөл (doc.posted, tax.deadline …). */
+    type: text("type").notNull(),
+    category: text("category").notNull(),
+    severity: text("severity").notNull().default("info"), // info | warning | danger
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    /** Дарахад очих зам — панельгүй объектод. */
+    href: text("href"),
+    /** Панель нээх түлхүүр (аудитын entityType-тай ижил үгсийн сан). */
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    /** JSON — UI/AI-д нэмэлт (дүн, огноо, харилцагч). */
+    payload: text("payload"),
+    /** Үйлдлийг хийсэн хүн — өөрийн үйлдлээ өөртөө мэдэгдэхгүй. */
+    actorUserId: text("actor_user_id"),
+    dedupeKey: text("dedupe_key").notNull(),
+    readAt: timestamp("read_at"),
+    emailedAt: timestamp("emailed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("notifications_org_user_dedupe_ux").on(
+      t.organizationId,
+      t.userId,
+      t.dedupeKey
+    ),
+    index("notifications_user_org_created_ix").on(
+      t.userId,
+      t.organizationId,
+      t.createdAt
+    ),
+  ]
+);
+
+// Хэрэглэгч × байгууллагын мэдэгдлийн тохиргоо (ai_settings-тэй ИЖИЛ загвар).
+// Мөр байхгүй = каталогийн default (lib/notifications/catalog.ts).
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** JSON: category → { inApp: boolean, email: "off" | "instant" | "digest" }. */
+    channels: text("channels"),
+    /** Өдрийн нэгтгэл (digest) илгээх цаг — Улаанбаатарын цагаар. */
+    digestHour: integer("digest_hour").notNull().default(8),
+    /** Фаз 2 — Telegram суваг. */
+    telegramChatId: text("telegram_chat_id"),
+    /** Түр дуугүй — энэ хугацаа хүртэл мэдэгдэл үүсэхгүй. */
+    mutedUntil: timestamp("muted_until"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("notification_preferences_user_org_ux").on(
+      t.userId,
+      t.organizationId
+    ),
+  ]
+);
+
+// Хуваарьт ажлын бүртгэл — (job, periodKey, org) нэг л удаа: cron route,
+// in-process ticker, script гурвуул зэрэг дуудсан ч НЭГ нь л ажиллана
+// (insert … on conflict do nothing returning — ялагч нэг).
+export const notificationRuns = pgTable(
+  "notification_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** daily | digest */
+    job: text("job").notNull(),
+    /** YYYY-MM-DD (Улаанбаатарын өдөр). */
+    periodKey: text("period_key").notNull(),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    finishedAt: timestamp("finished_at"),
+    /** Үүссэн мэдэгдлийн тоо. */
+    emitted: integer("emitted").notNull().default(0),
+    error: text("error"),
+  },
+  (t) => [
+    uniqueIndex("notification_runs_job_period_org_ux").on(
+      t.job,
+      t.periodKey,
+      t.organizationId
+    ),
+  ]
+);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -2938,3 +3048,5 @@ export type AiAttachment = typeof aiAttachments.$inferSelect;
 export type AiSettings = typeof aiSettings.$inferSelect;
 export type CompanySettings = typeof companySettings.$inferSelect;
 export type ArApInvoiceSend = typeof arApInvoiceSends.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;

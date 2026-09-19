@@ -25,6 +25,10 @@ import {
 } from "@/components/dashboard/home-dashboard";
 import { type SetupStep } from "@/components/dashboard/setup-checklist";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
+import {
+  dashboardAlerts,
+  type AttentionInput,
+} from "@/lib/notifications/attention";
 import { getActiveOrg } from "@/lib/auth";
 import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { shiftDays } from "@/lib/periods/period";
@@ -446,72 +450,37 @@ export default async function HomePage() {
     },
   ];
 
-  /* ── Анхаарах шаардлагатай ───────────────────────────────────────────────── */
-  const alerts: HomeAlert[] = [];
-  if (unbalancedDraftCount > 0)
-    alerts.push({
-      tone: "danger",
-      title: `${unbalancedDraftCount} ноорог журнал тэнцэхгүй`,
-      detail: "Дебет ≠ Кредит — бичихээс өмнө засна.",
-      href: "/gl/journal",
-      action: "Журнал руу",
-    });
-  if (draftCount > 0)
-    alerts.push({
-      tone: "warning",
-      title: `${draftCount} ноорог журнал хүлээгдэж байна`,
-      detail: "Ноорог нь тайланд ороогүй — шалгаад бичнэ.",
-      href: "/gl/journal",
-      action: "Журнал руу",
-    });
-  if (periodStatus === "missing")
-    alerts.push({
-      tone: "warning",
-      title: `${periodCode} тайлант үе үүсээгүй`,
-      detail: "Тайлант үе үүсгэвэл хаалт, бичилтийн хяналт бүрэн ажиллана.",
-      href: "/settings/periods",
-      action: "Тайлант үе рүү",
-    });
-  if (periodStatus === "closed")
-    alerts.push({
-      tone: "default",
-      title: `${periodCode} тайлант үе хаагдсан`,
-      detail: "Хаагдсан тайлант үед шинэ бичилт хийхгүй.",
-      href: "/settings/periods",
-      action: "Тайлант үе рүү",
-    });
-  if (arOverdue > 0)
-    alerts.push({
-      tone: "warning",
-      title: `${arOverdue} авлагын хугацаа хэтэрсэн`,
-      detail: "Төлөгдөх хугацаа өнгөрсөн нэхэмжлэл.",
-      href: "/receivables/documents",
-      action: "Авлага руу",
-    });
-  if (apOverdue > 0)
-    alerts.push({
-      tone: "warning",
-      title: `${apOverdue} өглөгийн хугацаа хэтэрсэн`,
-      detail: "Төлөх хугацаа өнгөрсөн нэхэмжлэх.",
-      href: "/payables/documents",
-      action: "Өглөг руу",
-    });
-  if (arApDraftCount > 0)
-    alerts.push({
-      tone: "default",
-      title: `${arApDraftCount} ноорог нэхэмжлэл`,
-      detail: "Авлага/өглөгийн ноорог документ.",
-      href: "/receivables/documents",
-      action: "Харах",
-    });
-  if (draftMovementCount > 0)
-    alerts.push({
-      tone: "default",
-      title: `${draftMovementCount} ноорог барааны хөдөлгөөн`,
-      detail: "Бичигдээгүй хөдөлгөөн өртөгт ороогүй.",
-      href: "/inventory/movements",
-      action: "Хөдөлгөөн руу",
-    });
+  /* ── Анхаарах шаардлагатай — lib/notifications/attention.ts НЭГ эх ─────── */
+  // Дүрмүүд (ноорог, хугацаа хэтрэлт, период) өдөр тутмын мэдэгдлийн
+  // scheduler-тэй ИЖИЛ модулиас — хоёр өөр тодорхойлолт үүсэхгүй.
+  const cashDraftCount = cashDocumentRows.filter(
+    (doc) => doc.status === "draft"
+  ).length;
+  const attentionInput: AttentionInput = {
+    today,
+    periodCode,
+    periodStatus,
+    drafts: [
+      { module: "journal", count: draftCount, unbalanced: unbalancedDraftCount },
+      { module: "arap", count: arApDraftCount },
+      { module: "cash", count: cashDraftCount },
+      { module: "inventory", count: draftMovementCount },
+      { module: "fa", count: draftAssetCount },
+    ],
+    arOverdue,
+    apOverdue,
+    taxDeadlines: computeTaxDeadlines(today),
+    preparedMarkers: vouchers
+      .map((voucher) => voucher.externalRef)
+      .filter((ref): ref is string => !!ref),
+  };
+  const alerts: HomeAlert[] = dashboardAlerts(attentionInput).map((signal) => ({
+    tone: signal.tone,
+    title: signal.title,
+    detail: signal.detail,
+    href: signal.href,
+    action: signal.action,
+  }));
 
   /* ── Сүүлийн бичилтүүд ───────────────────────────────────────────────────── */
   const recent: HomeRecentRow[] = vouchers.slice(0, 8).map((voucher) => ({
@@ -530,9 +499,6 @@ export default async function HomePage() {
 
   // Ажлын дараалал — exception-first: анхаарал шаардсаныг л үзүүлнэ,
   // тоо нь 0 бол карт гарахгүй (Сар хаалт үргэлж харагдана).
-  const cashDraftCount = cashDocumentRows.filter(
-    (doc) => doc.status === "draft"
-  ).length;
   const queueCandidates: HomeQueueItem[] = [
     {
       key: "gl-drafts",

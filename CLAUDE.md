@@ -24,6 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
+| Мэдэгдлийн систем (in-app хонх + хуваарьт дүрэм) | ✅ фаз 0 | и-мэйл/digest + тохиргоо (фаз 1), Telegram/custom суваг (фаз 2) |
 
 ## Файлын бүтэц
 
@@ -57,6 +58,8 @@ entry-accounting/
 │   ├── procurement/              # Цэвэр логик: constants, close-lines, po-math,
 │   │                             #   types, load-data
 │   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
+│   ├── notifications/            # Мэдэгдэл: catalog · rules (аудит гүүр) · attention
+│   │                             #   (нүүр + scheduler НЭГ эх) · emit · scheduler · ticker
 │   ├── db/schema.ts              # Drizzle schema
 │   ├── db/index.ts               # DB connection
 │   └── store/gl-store.ts         # Zustand UI state
@@ -854,6 +857,65 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   агуулах → касс → ажилтан → ҮХ → АР/АП нээлт → бараа нээлт → нээлтийн журнал
   (НЭГ ноорог, `externalRef: opening-balance:<огноо>`) → тулгалт
 
+### 9d. Мэдэгдлийн систем (Notifications) — фаз 0 ХЭРЭГЖСЭН
+
+Баримт: `docs/notifications/00-proposal.md` (D1–D7 батлагдсан 2026-09-19).
+Шинэ модуль биш — байгаа дохиог (аудит, нүүрний «Анхаарах», татварын
+хуанли, лиценз/token) хэрэглэгчид ХҮРГЭДЭГ давхарга.
+
+```
+lib/notifications/
+├── catalog.ts        Төрөл → категори, severity, шошго, default суваг (ЦЭВЭР)
+├── types.ts          NotificationDraft, NotificationAudience (client-safe)
+├── rules.ts          АУДИТ → мэдэгдлийн гүүрийн дүрэм (ЦЭВЭР, тесттэй)
+├── attention.ts      «Анхаарах» дохионууд — НҮҮР + SCHEDULER НЭГ ЭХ (ЦЭВЭР, тесттэй)
+├── recipients.ts     Гишүүд × audience → userId[] (эрхээр, actor хасна; тесттэй)
+├── preferences.ts    channels JSON тайлбар (ЦЭВЭР, тесттэй)
+├── emit.ts           Бичих цэг — dedupe upsert, mutedUntil/in-app шүүлт; ШИДЭХГҮЙ
+├── bridge.ts         notifyFromAudit — logAuditEvent-ийн хажууд, entity-owner шийднэ
+├── load-attention.ts Scheduler-ийн оролт (SQL count/min — П28)
+├── scheduler.ts      runDailyNotifications — org × өдөр нэг удаа (notification_runs)
+├── ticker.ts         In-process default scheduler (instrumentation.ts, 15 мин)
+└── open-entity.ts    CLIENT: entityType → панель / href dispatcher
+
+lib/actions/notifications.ts        list / unread count / markRead / markAllRead
+app/api/cron/notifications/route.ts Bearer CRON_SECRET; ?date= backfill
+scripts/run-notifications.ts        Гараар ажиллуулах
+components/layout/notification-bell.tsx   Топбарын хонх (60 сек polling)
+app/(dashboard)/notifications             Inbox (DataGridDynamic, FilterChips)
+tests/notification-{rules,attention,recipients}.test.ts
+```
+
+Хатуу дүрмүүд:
+
+- **Call site-д `emit` ГАР дуудахгүй.** Шинэ бичилтийн зам `logAuditEvent`
+  дуудаж байвал мэдэгдэл автоматаар гүүрээр гарна — мэдэгдэл болгох эсэхийг
+  ЗӨВХӨН `rules.ts`-д (entityType × action → төрөл, audience) нэмнэ
+- **Анхаарлын/хугацааны дүрэм ЗӨВХӨН `attention.ts`-д** — нүүрний «Анхаарах»
+  блок (`dashboardAlerts`) ба өдөр тутмын scheduler (`dailyNotificationDrafts`)
+  хоёул нэг `attentionSignals`-аас; «хугацаа хэтэрсэн», «хуучирсан ноорог»
+  (7 хоног), татварын шат (7/3/1/0), лиценз (30/7/1/0)-ийн тодорхойлолтыг
+  хоёр газар давтахыг хориглоно
+- **Мэдэгдэл ХЭЗЭЭ Ч шидэхгүй** (`emit`, `bridge`) — бичилт унахаас мэдэгдэл
+  алдагдах нь дээр; tx дотор дуудагдвал ижил executor-оор бичигдэж хамт
+  commit/rollback болно
+- **dedupeKey ЗААВАЛ** — дүрмийн «байгалийн үе» (`tax:vat:2026-09:3`,
+  `overdue:ar:2026-W41`, `close-due:2026-09`); unique INDEX
+  `(organizationId, userId, dedupeKey)` — constraint биш (#5955)
+- **Actor өөртөө мэдэгдэхгүй**; хүлээн авагч нь модульд ≥ түвшний эрхтэй
+  гишүүд л (`selectRecipients` ↔ `lib/permissions.ts`); `doc.posted` зөвхөн
+  ноорог үүсгэсэн хүнд (D4); `period.closed/reopened` бүх гишүүнд (D5)
+- **Scheduler request scope-гүй:** `cookies()`, `revalidatePath()`,
+  `getActiveOrg()` дуудахгүй — org параметрээр; «өнөөдөр» Улаанбаатараар.
+  Идемпотент булаалт `notification_runs` (job, periodKey, org) unique —
+  cron route, ticker, script гурвуул зэрэг дуудсан ч НЭГ л ажиллана
+- **Хадгалалт:** уншсан 90, уншаагүй 180 хоног (D6) — өдрийн ажил цэвэрлэнэ
+- Env: `CRON_SECRET` (cron route нээнэ, байхгүй бол 503),
+  `NOTIFICATIONS_TICKER=off` (in-process ticker унтраана)
+- Фаз 1 (и-мэйл instant/digest, `/settings/notifications`, AI tools), фаз 2
+  (Telegram, `EntryCustomization.notificationChannels`, invoice.viewed,
+  doc.large_amount) — саналын §8
+
 ### 10. Effective date (татвар/цалины тооцоололд)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/effective-date.md`
@@ -1203,6 +1265,10 @@ VAT        vat_settings
 Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
 Audit      audit_events — статус шилжилт бүрд lib/audit.ts logAuditEvent
            (бизнесийн урсгалыг хэзээ ч унагахгүй); /settings/audit хуудас
+Мэдэгдэл   notifications (хүлээн авагч × org, dedupeKey unique INDEX,
+           readAt), notification_preferences (user × org, channels JSON,
+           mutedUntil), notification_runs (job × periodKey × org unique —
+           scheduler-ийн идемпотент булаалт) — §9d
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
 ```

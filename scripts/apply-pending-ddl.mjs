@@ -224,6 +224,78 @@ async function main() {
      end $$;`
   );
 
+  // ── 3. Мэдэгдлийн систем (docs/notifications/00-proposal.md фаз 0) ───────
+  // Код нь эдгээр хүснэгтийг ЗААВАЛ шаарддаг (logAuditEvent-ийн хажуугийн
+  // гүүр бүр бичнэ) тул push хожимдвол ч апп унахгүй байхаар урьдчилж нэмнэ.
+  await run(
+    "notifications хүснэгт",
+    `create table if not exists notifications (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       user_id text not null references users(id) on delete cascade,
+       type text not null,
+       category text not null,
+       severity text not null default 'info',
+       title text not null,
+       body text not null default '',
+       href text,
+       entity_type text,
+       entity_id text,
+       payload text,
+       actor_user_id text,
+       dedupe_key text not null,
+       read_at timestamp,
+       emailed_at timestamp,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "notifications_org_user_dedupe_ux индекс",
+    `create unique index if not exists notifications_org_user_dedupe_ux
+       on notifications (organization_id, user_id, dedupe_key)`
+  );
+  await run(
+    "notifications_user_org_created_ix индекс",
+    `create index if not exists notifications_user_org_created_ix
+       on notifications (user_id, organization_id, created_at)`
+  );
+  await run(
+    "notification_preferences хүснэгт",
+    `create table if not exists notification_preferences (
+       id uuid primary key default gen_random_uuid(),
+       user_id text not null references users(id) on delete cascade,
+       organization_id uuid not null references organizations(id) on delete cascade,
+       channels text,
+       digest_hour integer not null default 8,
+       telegram_chat_id text,
+       muted_until timestamp,
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "notification_preferences_user_org_ux индекс",
+    `create unique index if not exists notification_preferences_user_org_ux
+       on notification_preferences (user_id, organization_id)`
+  );
+  await run(
+    "notification_runs хүснэгт",
+    `create table if not exists notification_runs (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       job text not null,
+       period_key text not null,
+       started_at timestamp not null default now(),
+       finished_at timestamp,
+       emitted integer not null default 0,
+       error text
+     )`
+  );
+  await run(
+    "notification_runs_job_period_org_ux индекс",
+    `create unique index if not exists notification_runs_job_period_org_ux
+       on notification_runs (job, period_key, organization_id)`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

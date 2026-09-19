@@ -6,4 +6,8 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   const { startBeacon } = await import("@/lib/licensing/beacon");
   startBeacon();
+  // Хуваарьт мэдэгдлийн default ticker (docs/notifications §4.2, D7) —
+  // байгууллага × өдөрт нэг удаа; NOTIFICATIONS_TICKER=off бол унтарна.
+  const { startNotificationTicker } = await import("@/lib/notifications/ticker");
+  startNotificationTicker();
 }

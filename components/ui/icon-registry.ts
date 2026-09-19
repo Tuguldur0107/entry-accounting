@@ -10,6 +10,7 @@ import {
   Ban,
   BarChart3,
   BarChartBig,
+  Bell,
   BookOpen,
   Boxes,
   Building,
@@ -141,6 +142,7 @@ export const ICONS = {
   select: ChevronsUpDown,
 
   // State and feedback
+  bell: Bell,
   error: CircleAlert,
   help: HelpCircle,
   info: Info,
@@ -262,6 +264,7 @@ export const ICON_CATALOG: readonly IconCatalogItem[] = [
   { name: "expandSidebar", category: "navigation", label: "Sidebar нээх" },
   { name: "select", category: "navigation", label: "Сонголт нээх" },
 
+  { name: "bell", category: "status", label: "Мэдэгдэл" },
   { name: "error", category: "status", label: "Алдаа" },
   { name: "help", category: "status", label: "Тусламж" },
   { name: "info", category: "status", label: "Мэдээлэл" },
