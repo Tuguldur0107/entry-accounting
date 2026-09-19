@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { CompanySettingsForm } from "@/components/settings/company-settings-form";
+import { OrganizationProfileForm } from "@/components/settings/organization-profile-form";
 import {
   createOrganization,
   deleteOrganization,
@@ -31,16 +31,16 @@ import {
   switchOrganization,
   type OrgSettingsData,
 } from "@/lib/actions/org";
-import type { CompanySettings } from "@/lib/db/schema";
+import type { OrganizationProfile } from "@/lib/db/schema";
 import { ROLE_LABELS } from "@/lib/constants/roles";
 import { cn } from "@/lib/utils";
 
 export function OrgSettingsView({
   data,
-  companySettings,
+  organizationProfile,
 }: {
   data: OrgSettingsData;
-  companySettings: CompanySettings | null;
+  organizationProfile: OrganizationProfile | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -172,7 +172,7 @@ export function OrgSettingsView({
             /settings/company-тэй НЭГ форм. Нэр/регистр хадгалахад байгууллагын
             нэр/ТТД мөн шинэчлэгдэнэ. Байгууллага солиход key-гээр шинээр
             mount хийгдэж тухайн байгууллагын утга ачаална. */}
-        <CompanySettingsForm key={data.org.id} initial={companySettings} />
+        <OrganizationProfileForm key={data.org.id} initial={organizationProfile} />
 
         {/* Гишүүд, урилга, эрх — Хэрэглэгчдийн эрх хуудсанд нэгдсэн */}
         <div

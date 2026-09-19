@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
-  companySettings,
+  organizationProfile,
   inventoryItems,
 } from "@/lib/db/schema";
 
@@ -67,8 +67,8 @@ export async function loadInvoicePayload(
         lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] },
       },
     }),
-    db.query.companySettings.findFirst({
-      where: eq(companySettings.organizationId, orgId),
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
     }),
   ]);
   if (!document || document.documentType !== "ar_invoice") return null;

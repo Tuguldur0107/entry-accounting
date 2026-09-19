@@ -12,8 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { updateCompanySettings } from "@/lib/actions/company";
-import type { CompanySettings } from "@/lib/db/schema";
+import { updateOrganizationProfile } from "@/lib/actions/organization-profile";
+import type { OrganizationProfile } from "@/lib/db/schema";
 import { toast } from "sonner";
 
 type BankAccount = { bankName: string; accountNo: string; accountName: string };
@@ -112,10 +112,10 @@ function PngPicker({
   );
 }
 
-export function CompanySettingsForm({
+export function OrganizationProfileForm({
   initial,
 }: {
-  initial: CompanySettings | null;
+  initial: OrganizationProfile | null;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [registerNo, setRegisterNo] = useState(initial?.registerNo ?? "");
@@ -164,7 +164,7 @@ export function CompanySettingsForm({
     }
     startTransition(async () => {
       try {
-        const saved = await updateCompanySettings({
+        const saved = await updateOrganizationProfile({
           name,
           registerNo: registerNo || null,
           vatPayerNo: vatPayerNo || null,

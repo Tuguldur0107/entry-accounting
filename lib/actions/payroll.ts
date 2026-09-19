@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   chartOfAccounts,
-  companySettings,
+  organizationProfile,
   counterparties,
   employees,
   journalVouchers,
@@ -1743,8 +1743,8 @@ export async function getPayslipReport(periodMonth: string): Promise<PayslipRepo
       },
     }),
     loadPayrollSettings(orgId, userId),
-    db.query.companySettings.findFirst({
-      where: eq(companySettings.organizationId, orgId),
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
     }),
   ]);
 

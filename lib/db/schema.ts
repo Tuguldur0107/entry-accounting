@@ -3094,9 +3094,13 @@ export const aiSettings = pgTable("ai_settings", {
   uniqueIndex("ai_settings_user_org_ux").on(t.userId, t.organizationId),
 ]);
 
-// ─── Компанийн мэдээлэл — нэхэмжлэх, хэвлэх маягтын толгой ───────────────────
-
-export const companySettings = pgTable("company_settings", {
+// ─── Байгууллагын реквизит (organization profile) — нэхэмжлэх/хэвлэх толгой ──
+// organizations-ийн 1:1 дагавар (satellite): нэр, ТТД, НӨАТ дугаар, хаяг,
+// банкны данс, лого, тамга, гарын үсэг — зөвхөн баримт хэвлэхэд уншигдана
+// (халуун зам биш). Кодод organizationProfile; ФИЗИК хүснэгтийн нэр
+// "company_settings" ХЭВЭЭР — rename хийвэл drizzle-kit push нь drop+create
+// гэж үзэж бодит дата (лого/тамга/банк) устгах эрсдэлтэй тул зориуд үлдээв.
+export const organizationProfile = pgTable("company_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
     .notNull()
@@ -3899,7 +3903,7 @@ export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
 export type AiMessage = typeof aiMessages.$inferSelect;
 export type AiAttachment = typeof aiAttachments.$inferSelect;
 export type AiSettings = typeof aiSettings.$inferSelect;
-export type CompanySettings = typeof companySettings.$inferSelect;
+export type OrganizationProfile = typeof organizationProfile.$inferSelect;
 export type ArApInvoiceSend = typeof arApInvoiceSends.$inferSelect;
 export type InventoryCategory = typeof inventoryCategories.$inferSelect;
 export type ItemPriceHistory = typeof itemPriceHistory.$inferSelect;

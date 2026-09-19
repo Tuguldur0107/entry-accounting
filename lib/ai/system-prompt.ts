@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { chartOfAccounts, companySettings, notifications } from "@/lib/db/schema";
+import { chartOfAccounts, organizationProfile, notifications } from "@/lib/db/schema";
 import { resolveAiPostLimit } from "@/lib/ai/post-limit";
 import { and as andOp, count, eq as eqOp, isNull } from "drizzle-orm";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
@@ -277,8 +277,8 @@ export async function buildDynamicContext(
   // "энэ дүнг шууд баталж чадах уу" гэдэг тооцоолол бодит утгаар явна.
   const postLimit = resolveAiPostLimit(
     (
-      await db.query.companySettings.findFirst({
-        where: eq(companySettings.organizationId, orgId),
+      await db.query.organizationProfile.findFirst({
+        where: eq(organizationProfile.organizationId, orgId),
         columns: { aiPostLimitMnt: true },
       })
     )?.aiPostLimitMnt

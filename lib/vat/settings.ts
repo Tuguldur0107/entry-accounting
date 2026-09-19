@@ -5,7 +5,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { companySettings, memberships, vatSettings } from "@/lib/db/schema";
+import { organizationProfile, memberships, vatSettings } from "@/lib/db/schema";
 
 export type VatSetting = typeof vatSettings.$inferSelect;
 
@@ -28,8 +28,8 @@ async function orgOwnerUserId(orgId: string): Promise<string> {
  * мэдээлэл огт байхгүй бол default true (хуучин зан төлөв хэвээр).
  */
 async function inferIsVatPayer(orgId: string): Promise<boolean> {
-  const company = await db.query.companySettings.findFirst({
-    where: eq(companySettings.organizationId, orgId),
+  const company = await db.query.organizationProfile.findFirst({
+    where: eq(organizationProfile.organizationId, orgId),
     columns: { vatPayerNo: true },
   });
   if (!company) return true;

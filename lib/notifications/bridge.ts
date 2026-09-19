@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   cashDocuments,
-  companySettings,
+  organizationProfile,
   journalLines,
   journalVouchers,
   memberships,
@@ -120,8 +120,8 @@ async function resolveAmountMnt(
 }
 
 async function largeAmountThreshold(organizationId: string): Promise<number> {
-  const row = await db.query.companySettings.findFirst({
-    where: eq(companySettings.organizationId, organizationId),
+  const row = await db.query.organizationProfile.findFirst({
+    where: eq(organizationProfile.organizationId, organizationId),
     columns: { largeAmountAlertMnt: true },
   });
   const value = row?.largeAmountAlertMnt == null ? NaN : Number(row.largeAmountAlertMnt);

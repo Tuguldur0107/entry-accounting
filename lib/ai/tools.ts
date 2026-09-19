@@ -114,9 +114,9 @@ import {
   type EmploymentType,
 } from "@/lib/actions/payroll";
 import {
-  getCompanySettings,
-  updateCompanySettings,
-} from "@/lib/actions/company";
+  getOrganizationProfile,
+  updateOrganizationProfile,
+} from "@/lib/actions/organization-profile";
 import {
   getStoredRateForDate,
   syncMongolbankRates,
@@ -186,7 +186,7 @@ import {
   cashFxRevaluations,
   cashDocuments,
   chartOfAccounts,
-  companySettings,
+  organizationProfile,
   costAllocations,
   costComponents,
   costEntries,
@@ -7171,8 +7171,8 @@ async function runUpdateEmployee(
   };
 }
 
-async function runGetCompanySettings(): Promise<AiToolResult> {
-  const settings = await getCompanySettings();
+async function runGetOrganizationProfile(): Promise<AiToolResult> {
+  const settings = await getOrganizationProfile();
   if (!settings?.name)
     return {
       resultText:
@@ -7193,7 +7193,7 @@ async function runGetCompanySettings(): Promise<AiToolResult> {
   };
 }
 
-async function runUpdateCompanySettings(input: {
+async function runUpdateOrganizationProfile(input: {
   name?: string;
   registerNo?: string;
   vatPayerNo?: string;
@@ -7207,7 +7207,7 @@ async function runUpdateCompanySettings(input: {
   largeAmountAlertMnt?: number;
   aiPostLimitMnt?: number;
 }): Promise<AiToolResult> {
-  const current = await getCompanySettings();
+  const current = await getOrganizationProfile();
   const name = input.name?.trim() || current?.name || "";
   if (!name) throw new Error("Компанийн нэр заавал (одоо тохируулаагүй байна)");
 
@@ -7229,7 +7229,7 @@ async function runUpdateCompanySettings(input: {
       limitNote = ` · AI шууд батлах хязгаар: ${fmt(plan.effectiveMnt)}₮${plan.valueMnt === null ? " (default)" : ""}`;
   }
 
-  unwrapAction(await updateCompanySettings({
+  unwrapAction(await updateOrganizationProfile({
     name,
     registerNo: input.registerNo ?? current?.registerNo ?? null,
     vatPayerNo: input.vatPayerNo ?? current?.vatPayerNo ?? null,
@@ -9486,8 +9486,8 @@ export async function executeAiTool(
     // Шууд батлах хязгаарыг хүсэлт бүрд НЭГ л удаа уншиж контекстод тавина —
     // гүн дэх assertPostLimit sync хэвээр, зэрэгцээ хүсэлтүүд бие биенийхээ
     // утгыг харахгүй (lib/ai/post-limit.ts).
-    const settings = await db.query.companySettings.findFirst({
-      where: eq(companySettings.organizationId, orgId),
+    const settings = await db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
       columns: { aiPostLimitMnt: true },
     });
     return await runWithAiPostLimit(resolveAiPostLimit(settings?.aiPostLimitMnt), async () => {
@@ -9698,9 +9698,9 @@ async function dispatchAiTool(
       case "update_employee":
         return await runUpdateEmployee(orgId, args);
       case "get_company_settings":
-        return await runGetCompanySettings();
+        return await runGetOrganizationProfile();
       case "update_company_settings":
-        return await runUpdateCompanySettings(args);
+        return await runUpdateOrganizationProfile(args);
       case "list_audit_events":
         return await runListAuditEvents(orgId, args);
       case "update_arap_document":

@@ -17,7 +17,7 @@ import {
 import { db } from "@/lib/db";
 import {
   auditEvents,
-  companySettings,
+  organizationProfile,
   memberships,
   organizations,
   orgInvitations,
@@ -334,7 +334,7 @@ async function createOrganizationCore(data: {
 
   // Реквизитийг компанийн мэдээлэлд шууд суулгана — Тохиргоо → Компанийн
   // мэдээлэл хуудсанд бэлэн бөглөгдсөн байх ба нэхэмжлэхэд шууд хэрэглэгдэнэ.
-  await db.insert(companySettings).values({
+  await db.insert(organizationProfile).values({
     userId,
     organizationId: orgId,
     name,

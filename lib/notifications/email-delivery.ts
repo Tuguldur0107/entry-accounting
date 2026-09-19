@@ -12,7 +12,7 @@ import { and, eq, gte, inArray, isNull } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
-  companySettings,
+  organizationProfile,
   notificationPreferences,
   notificationRuns,
   notifications,
@@ -166,8 +166,8 @@ export async function deliverPendingEmailsForOrganization(
       where: eq(organizations.id, organizationId),
       columns: { name: true },
     }),
-    db.query.companySettings.findFirst({
-      where: eq(companySettings.organizationId, organizationId),
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, organizationId),
       columns: {
         invoiceFromEmail: true,
         invoiceReplyTo: true,

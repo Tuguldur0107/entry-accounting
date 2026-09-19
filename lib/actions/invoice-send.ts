@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   arApInvoiceSends,
-  companySettings,
+  organizationProfile,
 } from "@/lib/db/schema";
 import {
   buildInvoiceEmailPayload,
@@ -132,8 +132,8 @@ async function sendInvoiceEmailCore(documentId: string, recipient: string) {
     );
 
   // Илгээгч хаяг: tenant тохиргоо → env → ил алдаа (sandbox fallback үгүй).
-  const settings = await db.query.companySettings.findFirst({
-    where: eq(companySettings.organizationId, orgId),
+  const settings = await db.query.organizationProfile.findFirst({
+    where: eq(organizationProfile.organizationId, orgId),
     columns: {
       invoiceFromEmail: true,
       invoiceReplyTo: true,

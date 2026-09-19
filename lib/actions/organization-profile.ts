@@ -11,9 +11,9 @@ import { getActiveOrg, requireRole } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
 import {
-  companySettings,
+  organizationProfile,
   organizations,
-  type CompanySettings,
+  type OrganizationProfile,
 } from "@/lib/db/schema";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { emitNotification } from "@/lib/notifications/emit";
@@ -32,16 +32,16 @@ function validatePngBase64(image: string, label: string) {
     throw new Error(`${label}: зөвхөн PNG формат дэмжинэ`);
 }
 
-export async function getCompanySettings(): Promise<CompanySettings | null> {
+export async function getOrganizationProfile(): Promise<OrganizationProfile | null> {
   const { orgId } = await getActiveOrg();
   return (
-    (await db.query.companySettings.findFirst({
-      where: eq(companySettings.organizationId, orgId),
+    (await db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
     })) ?? null
   );
 }
 
-export async function updateCompanySettings(data: {
+export async function updateOrganizationProfile(data: {
   name: string;
   registerNo: string | null;
   vatPayerNo: string | null;
@@ -65,13 +65,13 @@ export async function updateCompanySettings(data: {
   aiPostLimitMnt?: number | null;
 }): Promise<ActionResult> {
   try {
-    return await updateCompanySettingsCore(data);
+    return await updateOrganizationProfileCore(data);
   } catch (caught) {
-    return actionError("updateCompanySettings", caught, "Тохиргоо хадгалагдсангүй");
+    return actionError("updateOrganizationProfile", caught, "Тохиргоо хадгалагдсангүй");
   }
 }
 
-async function updateCompanySettingsCore(data: {
+async function updateOrganizationProfileCore(data: {
   name: string;
   registerNo: string | null;
   vatPayerNo: string | null;
@@ -130,8 +130,8 @@ async function updateCompanySettingsCore(data: {
       ? null
       : resolveAiPostLimit(
           (
-            await db.query.companySettings.findFirst({
-              where: eq(companySettings.organizationId, orgId),
+            await db.query.organizationProfile.findFirst({
+              where: eq(organizationProfile.organizationId, orgId),
               columns: { aiPostLimitMnt: true },
             })
           )?.aiPostLimitMnt
@@ -165,7 +165,7 @@ async function updateCompanySettingsCore(data: {
   };
 
   await db
-    .insert(companySettings)
+    .insert(organizationProfile)
     .values({
       userId,
       organizationId: orgId,
@@ -174,7 +174,7 @@ async function updateCompanySettingsCore(data: {
       stamp: data.stamp ?? null,
     })
     .onConflictDoUpdate({
-      target: companySettings.organizationId,
+      target: organizationProfile.organizationId,
       set: {
         ...base,
         // undefined бол хуучин зургаа хадгална.
