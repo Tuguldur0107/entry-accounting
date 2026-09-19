@@ -126,6 +126,7 @@ export function CashNewPanel({
         accounts={data.accounts}
         glAccounts={data.glAccounts}
         cashFlowOptions={data.cashFlowOptions}
+        counterparties={data.counterparties}
         activeSegIds={data.activeSegIds}
         segmentOptions={data.segmentOptions}
         defaultSegments={data.defaultSegments}

@@ -14,7 +14,8 @@ description: Entry Accounting-д анхны нэвтрүүлэлтийн master 
    `create_gl_accounts_batch` (8 оронтой, эхний цифр = бүлэг: 1 хөрөнгө …
    8 санхүүгийн зардал).
 2. **Харилцагч** — `create_counterparties_batch` (`counterpartyType`
-   customer/supplier/both). ТТД, нэр давхардсан нь алгасагдана — алдаа биш.
+   customer/supplier/both; `code` = хуучин системийн харилцагчийн код,
+   РД-ээс тусдаа). Код, ТТД, нэр давхардсан нь алгасагдана — алдаа биш.
 3. **Бараа** — `create_inventory_items_batch`; **Агуулах** — `create_warehouse`.
 4. **Касс/банк** — `create_cash_account` (glAccount нь 1-р алхмын дансанд байх).
 5. **Ажилтан** — `create_employees_batch`.
@@ -50,7 +51,8 @@ description: Entry Accounting-д анхны нэвтрүүлэлтийн master 
 ## Хуучин системийн формат танигдахгүй бол
 
 Excel-ийн толгойг загварын баганад буулгах mapping хүснэгт санал болгож
-(жишээ: "Регистр" → registerNo, "Харилцагчийн нэр" → name) хэрэглэгчээр
+(жишээ: "Регистр" → registerNo, "Харилцагчийн код" → code, "Харилцагчийн
+нэр" → name) хэрэглэгчээр
 батлуулаад дараа нь оруул.
 
 ## Тайлан (дуусахад)

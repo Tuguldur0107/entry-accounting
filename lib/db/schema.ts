@@ -474,8 +474,18 @@ export const cashDocuments = pgTable(
       { onDelete: "restrict" }
     ),
     counterAccountNumber: text("counter_account_number"),
+    // S8 мөнгөн гүйлгээний ангилал (МГ код) — segment_values(8)-ийн код.
     cashFlowCode: text("cash_flow_code"),
+    // Харилцагчийн НЭР (чөлөөт текст — банкны хуулга, GL-ээс үүссэн ноорог
+    // г.м. бүртгэлгүй харилцагчид ч бичигдэнэ). Бүртгэлтэй харилцагч бол
+    // counterpartyId холбоос + нэр нь бүртгэлийнхтэй ижил.
     counterparty: text("counterparty"),
+    // Харилцагчийн БҮРТГЭЛТЭЙ холбоос (код/РД, нэр нь эндээс уншигдана).
+    // Харилцагч устгагдвал холбоос тасарч нэр текстээрээ үлдэнэ.
+    counterpartyId: uuid("counterparty_id").references(
+      () => counterparties.id,
+      { onDelete: "set null" }
+    ),
     description: text("description").notNull(),
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
     currency: text("currency").notNull().default("MNT"),
@@ -523,6 +533,7 @@ export const cashDocuments = pgTable(
       .where(sql`${t.externalRef} is not null`),
     index("cash_documents_user_status_ix").on(t.userId, t.status), index("cash_documents_org_status_ix").on(t.organizationId, t.status),
     index("cash_documents_user_date_ix").on(t.userId, t.date), index("cash_documents_org_date_ix").on(t.organizationId, t.date),
+    index("cash_documents_counterparty_ix").on(t.counterpartyId),
   ]
 );
 
@@ -764,6 +775,9 @@ export const counterparties = pgTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
+    // Харилцагчийн КОД — РД/ТТД-ээс тусдаа, байгууллага дотор давтагдашгүй
+    // танигдахуун (кассын "Харилцагчийн код" багана). Хоосон байж болно.
+    code: text("code"),
     counterpartyType: text("counterparty_type").notNull().default("both"), // "customer" | "supplier" | "both"
     registerNo: text("register_no"),
     defaultReceivableAccountNumber: text("default_receivable_account_number"),
@@ -790,6 +804,9 @@ export const counterparties = pgTable(
       table.organizationId,
       table.name
     ),
+    uniqueIndex("counterparties_organization_id_code_ux")
+      .on(table.organizationId, table.code)
+      .where(sql`${table.code} is not null`),
   ]
 );
 
@@ -1031,6 +1048,12 @@ export const cashDocumentsRelations = relations(cashDocuments, ({ one }) => ({
     references: [journalVouchers.id],
     relationName: "cashDocumentReversalVoucher",
   }),
+  // `counterparty` нэр нь текст баганатай давхцах тул холбоосыг `counterpartyRef`.
+  counterpartyRef: one(counterparties, {
+    fields: [cashDocuments.counterpartyId],
+    references: [counterparties.id],
+    relationName: "cashDocumentCounterparty",
+  }),
 }));
 
 export const bankStatementsRelations = relations(
@@ -1092,6 +1115,9 @@ export const counterpartiesRelations = relations(
       references: [users.id],
     }),
     documents: many(arApDocuments),
+    cashDocuments: many(cashDocuments, {
+      relationName: "cashDocumentCounterparty",
+    }),
   })
 );
 

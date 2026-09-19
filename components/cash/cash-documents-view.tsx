@@ -49,6 +49,7 @@ import type {
   CashDocumentView,
   CashGlAccountOption,
 } from "@/lib/cash/types";
+import { cashDebitCredit } from "@/lib/cash/list-columns";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
   openCashDocPanel,
@@ -100,6 +101,24 @@ const TYPE_TABS: { value: TypeTab; label: string }[] = [
   { value: "payment", label: "Зарлага" },
   { value: "transfer", label: "Шилжүүлэг" },
 ];
+
+/** Валютын дүн — MNT баримт эсвэл ханшгүй ноорогт хоосон. */
+function fmtFx(value: unknown, currency?: string) {
+  if (value == null || value === "" || !currency || currency === "MNT") return "";
+  return `${Number(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/** Дт/Кт (MNT) багана дээрх tooltip — валютын баримтад ханш/валютын дүн. */
+function rateTooltip(params: { data?: CashDocumentView }) {
+  const document = params.data;
+  if (!document || document.currency === "MNT") return null;
+  if (document.exchangeRate > 0)
+    return `${document.amount.toLocaleString("en-US")} ${document.currency} × ханш ${document.exchangeRate}`;
+  return "Валютын ханш тодорхойгүй — батлахад ханш асууна";
+}
 
 const STATUS_TABS: { value: StatusTab; label: string }[] = [
   { value: "all", label: "Бүх төлөв" },
@@ -457,6 +476,13 @@ export function CashDocumentsView({
         },
       },
       {
+        headerName: "Дансны код",
+        field: "cashAccountGlNumber",
+        width: 118,
+        cellClass: "font-mono text-xs",
+        tooltipValueGetter: () => "Мөнгөн хөрөнгийн дансны GL код",
+      },
+      {
         headerName: "Мөнгөн хөрөнгийн данс",
         colId: "cashAccount",
         minWidth: 180,
@@ -477,50 +503,127 @@ export function CashDocumentsView({
         },
       },
       {
-        headerName: "Харилцагч / GL данс",
-        colId: "counterparty",
-        minWidth: 190,
-        flex: 1,
-        valueGetter: (params) => {
-          const document = params.data;
-          if (!document || document.documentType === "transfer") return "";
-          const account = document.counterAccountNumber
-            ? `${document.counterAccountNumber} ${
-                glNameMap.get(document.counterAccountNumber) ?? ""
-              }`
-            : "";
-          return [document.counterparty, account].filter(Boolean).join(" · ");
-        },
-      },
-      {
         headerName: "Журналын нэр",
         field: "description",
         minWidth: 180,
         flex: 1,
       },
       {
-        headerName: "Дүн",
-        field: "amount",
-        width: 150,
-        cellClass: "ag-right-aligned-cell font-mono font-medium",
+        headerName: "Валют",
+        field: "currency",
+        width: 78,
+        cellClass: "font-mono text-xs",
+      },
+      // Дт/Кт (MNT) — Veritech-ийн "Дебит дүн / Кредит дүн"-тэй ижил утга:
+      // орлого мөнгөн дансыг дебетэлж, зарлага кредитэлнэ; шилжүүлэг хоёуланд.
+      {
+        headerName: "Дебит дүн",
+        colId: "debitBase",
+        width: 140,
+        cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        // Foreign-currency documents show currency units; a GL-derived FX
-        // draft has no rate yet, so only its MNT base figure is real.
+        valueGetter: (params) =>
+          params.data ? cashDebitCredit(params.data).debitBase : null,
+        valueFormatter: (params) =>
+          params.value ? fmtMnt(Number(params.value)) : "",
+        tooltipValueGetter: rateTooltip,
+      },
+      {
+        headerName: "Кредит дүн",
+        colId: "creditBase",
+        width: 140,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueGetter: (params) =>
+          params.data ? cashDebitCredit(params.data).creditBase : null,
+        valueFormatter: (params) =>
+          params.value ? fmtMnt(Number(params.value)) : "",
+        tooltipValueGetter: rateTooltip,
+      },
+      {
+        headerName: "Ханш",
+        field: "exchangeRate",
+        width: 96,
+        cellClass: "ag-right-aligned-cell font-mono text-xs",
+        headerClass: "ag-right-aligned-header",
         valueFormatter: (params) => {
           const document = params.data;
-          if (!document) return fmtMnt(Number(params.value ?? 0));
-          if (document.currency === "MNT") return fmtMnt(document.amount);
-          if (document.exchangeRate > 0 && document.amount > 0)
-            return `${document.amount.toLocaleString("en-US")} ${document.currency}`;
-          return `${fmtMnt(document.baseAmount)} · ханш?`;
+          if (!document) return "";
+          if (document.currency === "MNT") return "1.00";
+          return document.exchangeRate > 0
+            ? document.exchangeRate.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 4,
+              })
+            : "ханш?";
         },
-        tooltipValueGetter: (params) => {
+      },
+      {
+        headerName: "Дебит /валют/",
+        colId: "debitFx",
+        width: 130,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueGetter: (params) =>
+          params.data ? cashDebitCredit(params.data).debitFx : null,
+        valueFormatter: (params) => fmtFx(params.value, params.data?.currency),
+      },
+      {
+        headerName: "Кредит /валют/",
+        colId: "creditFx",
+        width: 130,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueGetter: (params) =>
+          params.data ? cashDebitCredit(params.data).creditFx : null,
+        valueFormatter: (params) => fmtFx(params.value, params.data?.currency),
+      },
+      {
+        headerName: "Харилцагчийн код",
+        field: "counterpartyCode",
+        width: 130,
+        cellClass: "font-mono text-xs",
+        headerTooltip: "Харилцагчийн бүртгэлийн код — бүртгэлтэй холбогдсон баримтад",
+      },
+      {
+        headerName: "Харилцагчийн нэр",
+        field: "counterparty",
+        minWidth: 160,
+        flex: 1,
+      },
+      {
+        headerName: "Харилцах GL данс",
+        colId: "counterAccount",
+        minWidth: 170,
+        flex: 1,
+        valueGetter: (params) => {
           const document = params.data;
-          if (!document || document.currency === "MNT") return null;
-          if (document.exchangeRate > 0)
-            return `MNT дүн: ${fmtMnt(document.baseAmount)} (ханш ${document.exchangeRate})`;
-          return "Валютын ханш тодорхойгүй — батлахад ханш асууна";
+          if (!document || !document.counterAccountNumber) return "";
+          return `${document.counterAccountNumber} ${
+            glNameMap.get(document.counterAccountNumber) ?? ""
+          }`;
         },
+      },
+      {
+        headerName: "Журналын дугаар",
+        field: "voucherNo",
+        width: 140,
+        cellClass: "font-mono text-xs",
+        valueFormatter: (params) =>
+          params.value ?? (params.data?.voucherId ? "—" : ""),
+      },
+      {
+        headerName: "МГ код",
+        field: "cashFlowCode",
+        width: 90,
+        cellClass: "font-mono text-xs",
+        headerTooltip: "Мөнгөн гүйлгээний ангилал (S8)",
+      },
+      {
+        headerName: "МГ нэр",
+        field: "cashFlowName",
+        minWidth: 170,
+        flex: 1,
       },
       {
         headerName: "Төлөв",

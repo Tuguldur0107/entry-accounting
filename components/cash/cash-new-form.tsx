@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { feedback } from "@/lib/ui/feedback";
 
 import { AccountInput } from "@/components/account/account-input";
+import { CounterpartySelect } from "@/components/arap/counterparty-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ import {
   createCashDocument,
   type CashDocumentType,
 } from "@/lib/actions/cash";
+import type { CounterpartyView } from "@/lib/arap/types";
 import type { CashArApSettlementTarget } from "@/lib/cash/load-options";
 import type {
   CashAccountView,
@@ -44,6 +46,8 @@ interface Props {
   accounts: CashAccountView[];
   glAccounts: CashGlAccountOption[];
   cashFlowOptions: CashFlowOption[];
+  /** Харилцагчийн бүртгэл — сонгоход код/РД, нэр нь баримтад холбогдоно. */
+  counterparties?: CounterpartyView[];
   activeSegIds: number[];
   /** AccountInput-ийн сегмент picker-т — байхгүй бол энгийн жагсаалт. */
   segmentOptions?: Record<number, SegOption[]>;
@@ -70,6 +74,7 @@ const initialForm = () => ({
   counterAccountNumber: "",
   cashFlowCode: "",
   counterparty: "",
+  counterpartyId: "",
   description: "",
   amount: "",
   exchangeRate: "",
@@ -102,6 +107,7 @@ function settlementForm(
       defaultSegments
     ),
     counterparty: target.counterpartyName,
+    counterpartyId: target.counterpartyId,
     description: `${target.documentNo} төлөлт`,
     amount: String(target.balance),
   };
@@ -111,6 +117,7 @@ export function CashNewForm({
   accounts,
   glAccounts,
   cashFlowOptions,
+  counterparties = [],
   activeSegIds,
   segmentOptions,
   defaultSegments = {},
@@ -173,6 +180,7 @@ export function CashNewForm({
             : undefined,
           cashFlowCode: form.cashFlowCode || undefined,
           counterparty: form.counterparty || undefined,
+          counterpartyId: form.counterpartyId || undefined,
           description: form.description,
           amount,
           exchangeRate:
@@ -464,16 +472,37 @@ export function CashNewForm({
                 )}
               </Field>
               <Field label="Харилцагч">
-                <Input
-                  value={form.counterparty}
-                  placeholder="Нэр эсвэл байгууллага"
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      counterparty: event.target.value,
-                    }))
-                  }
-                />
+                {/* Бүртгэлтэй харилцагч (код/РД, нэр нь баримтад холбогдоно);
+                    бүртгэлгүй бол чөлөөт нэрээ бичнэ — ЯГ таарсан бүртгэл
+                    байвал сервер автоматаар холбоно. */}
+                <div className="grid gap-1.5">
+                  <CounterpartySelect
+                    value={form.counterpartyId}
+                    counterparties={counterparties}
+                    mode={form.documentType === "receipt" ? "receivable" : "payable"}
+                    placeholder="Бүртгэлээс сонгох (заавал биш)..."
+                    onChange={(value) => {
+                      const picked = counterparties.find((c) => c.id === value);
+                      setForm((current) => ({
+                        ...current,
+                        counterpartyId: value,
+                        counterparty: picked ? picked.name : current.counterparty,
+                      }));
+                    }}
+                  />
+                  {!form.counterpartyId && (
+                    <Input
+                      value={form.counterparty}
+                      placeholder="Бүртгэлгүй бол нэрийг бичнэ"
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          counterparty: event.target.value,
+                        }))
+                      }
+                    />
+                  )}
+                </div>
               </Field>
             </div>
           )}

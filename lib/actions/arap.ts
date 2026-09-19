@@ -16,6 +16,10 @@ import {
 } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
+  assertCounterpartyCodeAvailable,
+  normalizeCounterpartyCode,
+} from "@/lib/arap/counterparty-code";
+import {
   arApDocumentLines,
   arApDocuments,
   arApSettlements,
@@ -333,6 +337,8 @@ function creditLimitValue(value: number | null | undefined): string | null {
 async function createCounterpartyCore(data: {
   name: string;
   counterpartyType: "customer" | "supplier" | "both";
+  /** Харилцагчийн код — org дотор давтагдашгүй (сонголтоор). */
+  code?: string;
   registerNo?: string;
   defaultReceivableAccountNumber?: string;
   defaultPayableAccountNumber?: string;
@@ -386,12 +392,16 @@ async function createCounterpartyCore(data: {
       `«${duplicate.name}» нэртэй харилцагч аль хэдийн бүртгэлтэй (${counterpartyTypeLabel(duplicate.counterpartyType)}). Түүнийг нээж төрлийг нь өөрчилнө үү.`
     );
 
+  const code = normalizeCounterpartyCode(data.code);
+  await assertCounterpartyCodeAvailable(orgId, code);
+
   const [created] = await db
     .insert(counterparties)
     .values({
       userId,
       organizationId: orgId,
       name,
+      code,
       counterpartyType: data.counterpartyType,
       registerNo: cleanText(data.registerNo),
       defaultReceivableAccountNumber: receivable,
@@ -433,6 +443,7 @@ async function updateCounterpartyCore(
   data: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
+    code?: string;
     registerNo?: string;
     defaultReceivableAccountNumber?: string;
     defaultPayableAccountNumber?: string;
@@ -462,10 +473,14 @@ async function updateCounterpartyCore(
   if (receivable) await assertEnabledMainAccount(orgId, receivable);
   if (payable) await assertEnabledMainAccount(orgId, payable);
 
+  const code = normalizeCounterpartyCode(data.code);
+  await assertCounterpartyCodeAvailable(orgId, code, id);
+
   const [updated] = await db
     .update(counterparties)
     .set({
       name,
+      code,
       counterpartyType: data.counterpartyType,
       registerNo: cleanText(data.registerNo),
       defaultReceivableAccountNumber: receivable,

@@ -201,6 +201,7 @@ export function ArApWorkspace({
   function emptyCounterpartyForm() {
     return {
       name: "",
+      code: "",
       counterpartyType: config.counterpartyType,
       registerNo: "",
       defaultReceivableAccountNumber: defaultAccountNumbers.receivable
@@ -293,6 +294,13 @@ export function ArApWorkspace({
 
   const counterpartyColumns = useMemo<ColDef<CounterpartyView>[]>(
     () => [
+      {
+        headerName: "Код",
+        field: "code",
+        width: 110,
+        cellClass: "font-mono text-xs",
+        headerTooltip: "Харилцагчийн код — РД-ээс тусдаа, давтагдашгүй",
+      },
       { headerName: "Нэр", field: "name", minWidth: 180, flex: 1 },
       {
         headerName: "Төрөл",
@@ -515,6 +523,7 @@ export function ArApWorkspace({
       )
         ? counterparty.counterpartyType
         : "both") as "customer" | "supplier" | "both",
+      code: counterparty.code ?? "",
       registerNo: counterparty.registerNo ?? "",
       defaultReceivableAccountNumber:
         counterparty.defaultReceivableAccountNumber ?? "",
@@ -1259,6 +1268,7 @@ function CounterpartyDialog({
   title: string;
   form: {
     name: string;
+    code: string;
     counterpartyType: "customer" | "supplier" | "both";
     registerNo: string;
     defaultReceivableAccountNumber: string;
@@ -1310,6 +1320,15 @@ function CounterpartyDialog({
               <option value="customer">Авлага</option>
               <option value="supplier">Өглөг</option>
             </select>
+          </Field>
+          <Field label="Код">
+            <Input
+              value={form.code}
+              placeholder="Ж: 10001 (заавал биш, давтагдахгүй)"
+              onChange={(event) =>
+                setForm((current) => ({ ...current, code: event.target.value }))
+              }
+            />
           </Field>
           <Field label="Регистр">
             <Input

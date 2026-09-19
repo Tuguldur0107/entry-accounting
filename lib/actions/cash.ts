@@ -15,6 +15,7 @@ import {
   arApDocuments,
   arApSettlements,
   chartOfAccounts,
+  counterparties,
   journalLines,
   journalVouchers,
   segmentConfigs,
@@ -24,11 +25,13 @@ import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { ALL_SEG_IDS, SEG_DEFAULTS } from "@/lib/grid/segments";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import {
+  CASH_DOCUMENT_LIST_WITH,
   loadCashTransactionOptions,
   mainAccountOf,
   toCashDocumentView,
   type CashTransactionOptions,
 } from "@/lib/cash/load-options";
+import { matchCounterpartyByName } from "@/lib/cash/list-columns";
 import type { CashDocumentView } from "@/lib/cash/types";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
@@ -124,6 +127,49 @@ async function validateArApSettlement(
   if (data.amount > balance + 0.005)
     throw new Error("Төлөх дүн авлага/өглөгийн үлдэгдлээс их байна");
   return { document, balance };
+}
+
+/**
+ * Кассын баримтын харилцагчийг БҮРТГЭЛТЭЙ холбоно (задаргаа: код/РД + нэр).
+ * Дараалал: ил өгсөн counterpartyId → нэхэмжлэхийн харилцагч → чөлөөт
+ * нэрээр ЯГ таарсан бүртгэл (matchCounterpartyByName — олон таарвал
+ * холбохгүй). Холбогдвол нэр нь бүртгэлийн нэрээр бичигдэнэ; холбогдоогүй
+ * бол чөлөөт нэр текстээрээ үлдэнэ (банкны хуулга, GL ноорог г.м.).
+ */
+async function resolveCashCounterparty(
+  orgId: string,
+  data: {
+    counterpartyId?: string | null;
+    counterpartyName?: string | null;
+    arApCounterpartyId?: string | null;
+  }
+): Promise<{ counterpartyId: string | null; counterparty: string | null }> {
+  const explicitId = cleanText(data.counterpartyId) ?? data.arApCounterpartyId;
+  if (explicitId) {
+    const row = await db.query.counterparties.findFirst({
+      where: and(
+        eq(counterparties.id, explicitId),
+        eq(counterparties.organizationId, orgId)
+      ),
+      columns: { id: true, name: true, isActive: true },
+    });
+    if (!row) throw new Error("Харилцагч олдсонгүй");
+    if (!row.isActive && cleanText(data.counterpartyId))
+      throw new Error(`${row.name} — идэвхгүй харилцагч`);
+    return { counterpartyId: row.id, counterparty: row.name };
+  }
+  const name = cleanText(data.counterpartyName);
+  if (!name) return { counterpartyId: null, counterparty: null };
+  // Таарууллыг JS-д хийнэ: Postgres lower()/ilike нь DB collation-оос
+  // хамаарч кирилл үсгийг хувиргахгүй байж болно; бүртгэл цөөн тул хямд.
+  const candidates = await db.query.counterparties.findMany({
+    where: eq(counterparties.organizationId, orgId),
+    columns: { id: true, name: true },
+  });
+  const match = matchCounterpartyByName(name, candidates);
+  return match
+    ? { counterpartyId: match.id, counterparty: match.name }
+    : { counterpartyId: null, counterparty: name };
 }
 
 async function assertMainAccount(orgId: string, accountNumber: string) {
@@ -542,7 +588,10 @@ async function createCashDocumentCore(data: {
   toCashAccountId?: string;
   counterAccountNumber?: string;
   cashFlowCode?: string;
+  /** Харилцагчийн нэр (чөлөөт) — бүртгэлтэй ЯГ таарвал автоматаар холбогдоно. */
   counterparty?: string;
+  /** Харилцагчийн бүртгэлийн ID — өгвөл нэр нь бүртгэлээс. */
+  counterpartyId?: string;
   description: string;
   amount: number;
   exchangeRate?: number;
@@ -633,7 +682,7 @@ async function createCashDocumentCore(data: {
     .toUpperCase()}`;
 
   const arApDocumentId = cleanText(data.arApDocumentId);
-  await validateArApSettlement(
+  const settlement = await validateArApSettlement(
     orgId,
     {
       arApDocumentId: arApDocumentId ?? undefined,
@@ -643,6 +692,15 @@ async function createCashDocumentCore(data: {
     },
     currency
   );
+  // Шилжүүлэгт харилцагч байхгүй.
+  const counterpartyLink =
+    data.documentType === "transfer"
+      ? { counterpartyId: null, counterparty: null }
+      : await resolveCashCounterparty(orgId, {
+          counterpartyId: data.counterpartyId,
+          counterpartyName: data.counterparty,
+          arApCounterpartyId: settlement?.document.counterpartyId ?? null,
+        });
 
   const [document] = await db
     .insert(cashDocuments)
@@ -656,7 +714,8 @@ async function createCashDocumentCore(data: {
       toCashAccountId,
       counterAccountNumber,
       cashFlowCode,
-      counterparty: cleanText(data.counterparty),
+      counterparty: counterpartyLink.counterparty,
+      counterpartyId: counterpartyLink.counterpartyId,
       description,
       amount: String(data.amount),
       currency,
@@ -1412,7 +1471,7 @@ export async function getCashDocPanelData(
       eq(cashDocuments.id, documentId),
       eq(cashDocuments.organizationId, orgId)
     ),
-    with: { fromAccount: true, toAccount: true },
+    with: CASH_DOCUMENT_LIST_WITH,
   });
   if (!document) return { ok: false, code: "not-found" };
 
@@ -1448,10 +1507,17 @@ export async function getCashDocPanelData(
     (def) => def.id === 3 || configMap.get(def.id)?.isEnabled === true
   ).map((def) => def.id);
 
+  // МГ нэр — S8 утгуудаас (segValues аль хэдийн ачаалагдсан).
+  const cashFlowNames = new Map(
+    segValues
+      .filter((value) => value.segmentId === 8)
+      .map((value) => [value.code, value.name])
+  );
+
   return {
     ok: true,
     data: {
-      document: toCashDocumentView(document),
+      document: toCashDocumentView(document, cashFlowNames),
       detail: {
         voucherId: document.voucherId,
         sourceVoucherId: document.sourceVoucherId,
@@ -1960,7 +2026,10 @@ export async function updateCashDocument(
     amount?: number;
     description?: string;
     counterAccountNumber?: string;
+    /** Чөлөөт нэр — бүртгэлтэй таарвал автоматаар холбогдоно; "" = арилгана. */
     counterparty?: string;
+    /** Бүртгэлийн ID — өгвөл нэр нь бүртгэлээс; null = холбоос тасална. */
+    counterpartyId?: string | null;
     exchangeRate?: number;
   }
 ) {
@@ -2011,6 +2080,24 @@ export async function updateCashDocument(
       document.currency
     );
 
+  // Харилцагч: ID эсвэл нэр өгсөн үед л дахин шийднэ (шилжүүлэгт байхгүй).
+  const counterpartyLink =
+    document.documentType !== "transfer" &&
+    (data.counterpartyId !== undefined || data.counterparty !== undefined)
+      ? await resolveCashCounterparty(orgId, {
+          counterpartyId: data.counterpartyId,
+          counterpartyName:
+            data.counterparty !== undefined
+              ? data.counterparty
+              : data.counterpartyId === null
+                ? null
+                : document.counterparty,
+        })
+      : {
+          counterpartyId: document.counterpartyId,
+          counterparty: document.counterparty,
+        };
+
   await db
     .update(cashDocuments)
     .set({
@@ -2020,10 +2107,8 @@ export async function updateCashDocument(
       exchangeRate: String(exchangeRate),
       baseAmount: String(baseAmount),
       counterAccountNumber,
-      counterparty:
-        data.counterparty != null
-          ? cleanText(data.counterparty)
-          : document.counterparty,
+      counterparty: counterpartyLink.counterparty,
+      counterpartyId: counterpartyLink.counterpartyId,
     })
     .where(and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId)));
 

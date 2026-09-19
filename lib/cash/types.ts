@@ -61,8 +61,18 @@ export type CashDocumentView = {
   toCashAccountId: string | null;
   toAccountName: string | null;
   counterAccountNumber: string | null;
+  /** S8 мөнгөн гүйлгээний ангилал — МГ код. */
   cashFlowCode: string | null;
+  /** МГ нэр — segment_values(8)-ээс; код байхгүй/олдохгүй бол null. */
+  cashFlowName: string | null;
+  /** Харилцагчийн нэр (бүртгэлтэй бол бүртгэлийн нэр, үгүй бол чөлөөт текст). */
   counterparty: string | null;
+  /** Харилцагчийн бүртгэлийн холбоос. */
+  counterpartyId: string | null;
+  /** Харилцагчийн код (counterparties.code); холбоосгүй / код оноогоогүй бол null. */
+  counterpartyCode: string | null;
+  /** Мөнгөн хөрөнгийн дансны GL код (шилжүүлэгт "эх → хүлээн авах"). */
+  cashAccountGlNumber: string;
   description: string;
   amount: number;
   currency: string;
@@ -72,6 +82,8 @@ export type CashDocumentView = {
   baseAmount: number;
   status: string;
   voucherId: string | null;
+  /** Холбогдсон GL журналын дугаар (§2a) — хуучин бичилтэд null. */
+  voucherNo: string | null;
   /** Set when the document was auto-derived from a GL voucher. */
   sourceVoucherId: string | null;
 };

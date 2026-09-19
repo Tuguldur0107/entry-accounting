@@ -1,6 +1,8 @@
 export type CounterpartyView = {
   id: string;
   name: string;
+  /** Харилцагчийн код — РД-ээс тусдаа, org дотор давтагдашгүй; null = оноогоогүй. */
+  code: string | null;
   counterpartyType: string;
   registerNo: string | null;
   defaultReceivableAccountNumber: string | null;

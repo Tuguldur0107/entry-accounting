@@ -177,6 +177,7 @@ export async function loadArApCounterparties(
   return rows.map((item) => ({
     id: item.id,
     name: item.name,
+    code: item.code,
     counterpartyType: item.counterpartyType,
     registerNo: item.registerNo,
     defaultReceivableAccountNumber: item.defaultReceivableAccountNumber,

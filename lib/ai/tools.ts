@@ -169,6 +169,10 @@ import type { PaymentInput } from "@/lib/pos/types";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  assertCounterpartyCodeAvailable,
+  normalizeCounterpartyCode,
+} from "@/lib/arap/counterparty-code";
+import {
   arApDocuments,
   arApSettlements,
   auditEvents,
@@ -664,6 +668,10 @@ export const AI_TOOLS: AiToolDef[] = [
           enum: ["customer", "supplier", "both"],
           description: "customer=авлагын, supplier=өглөгийн, both=хоёулаа",
         },
+        code: {
+          type: "string",
+          description: "Харилцагчийн код — РД-ээс тусдаа, байгууллага дотор давтагдашгүй (сонголтоор; ж: 10001)",
+        },
         registerNo: { type: "string", description: "Регистрийн дугаар (сонголтоор)" },
         email: { type: "string", description: "И-мэйл (нэхэмжлэх илгээхэд ашиглагдана)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
@@ -734,6 +742,7 @@ export const AI_TOOLS: AiToolDef[] = [
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (сонголтоор)" },
+        code: { type: "string", description: "Харилцагчийн код — давтагдашгүй; хоосон өгвөл арилна (сонголтоор)" },
         registerNo: { type: "string", description: "Регистр/ТТД (сонголтоор)" },
         email: { type: "string", description: "И-мэйл — нэхэмжлэх илгээхэд (сонголтоор)" },
         phone: { type: "string", description: "Утас (сонголтоор)" },
@@ -1550,6 +1559,7 @@ export const AI_TOOLS: AiToolDef[] = [
             properties: {
               name: { type: "string" },
               counterpartyType: { type: "string", enum: ["customer", "supplier", "both"] },
+              code: { type: "string", description: "Харилцагчийн код (давтагдашгүй, сонголтоор)" },
               registerNo: { type: "string" },
               defaultReceivableAccount: { type: "string" },
               defaultPayableAccount: { type: "string" },
@@ -3947,6 +3957,7 @@ async function runListCounterparties(
     ? list.filter(
         (entry) =>
           entry.name.toLowerCase().includes(q) ||
+          (entry.code ?? "").toLowerCase().includes(q) ||
           (entry.registerNo ?? "").toLowerCase().includes(q)
       )
     : list;
@@ -3963,6 +3974,7 @@ async function runListCounterparties(
         return [
           entry.id.slice(0, 8),
           entry.name,
+          entry.code ? `Код ${entry.code}` : null,
           entry.registerNo ? `ТТД ${entry.registerNo}` : null,
           entry.email || null,
           CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
@@ -4100,6 +4112,7 @@ async function runCreateCounterparty(
   input: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
+    code?: string;
     registerNo?: string;
     email?: string;
     defaultReceivableAccount?: string;
@@ -4117,20 +4130,22 @@ async function runCreateCounterparty(
   const name = String(input.name ?? "").trim().replace(/\s+/g, " ");
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   const registerNo = input.registerNo?.trim() || undefined;
+  const code = normalizeCounterpartyCode(input.code);
 
-  // Давхардлын шалгалт: нэр case-insensitive, ТТД яг таарлаар (идэвхгүйг ч
-  // оруулна — идэвхгүй харилцагчтай ижил нэр DB unique-д унана).
+  // Давхардлын шалгалт: нэр case-insensitive, ТТД / КОД яг таарлаар (идэвхгүйг
+  // ч оруулна — идэвхгүй харилцагчтай ижил нэр DB unique-д унана).
   const existingList = await db.query.counterparties.findMany({
     where: eq(counterparties.organizationId, orgId),
   });
   const duplicate = existingList.find(
     (entry) =>
       entry.name.toLowerCase() === name.toLowerCase() ||
-      (registerNo != null && entry.registerNo === registerNo)
+      (registerNo != null && entry.registerNo === registerNo) ||
+      (code != null && entry.code === code)
   );
   if (duplicate) {
     return {
-      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.registerNo ? ` (ТТД ${duplicate.registerNo})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
+      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.code ? ` (код ${duplicate.code})` : ""}${duplicate.registerNo ? ` (ТТД ${duplicate.registerNo})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
       dedup: true,
     };
   }
@@ -4149,6 +4164,7 @@ async function runCreateCounterparty(
     await createCounterparty({
     name,
     counterpartyType: input.counterpartyType,
+    code: code ?? undefined,
     registerNo,
     email: input.email,
     defaultReceivableAccountNumber: receivableCode,
@@ -4163,7 +4179,7 @@ async function runCreateCounterparty(
     })
   );
   return {
-    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${registerNo ? ` (ТТД ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (ТТД ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };
 }
 
@@ -4241,6 +4257,7 @@ async function runUpdateCounterparty(
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
     currency?: string;
+    code?: string;
     registerNo?: string;
     email?: string;
     phone?: string;
@@ -4272,6 +4289,11 @@ async function runUpdateCounterparty(
     changes.paymentTermsDays = Math.max(0, Math.round(input.paymentTermsDays));
   if (input.currency?.trim())
     changes.defaultCurrency = input.currency.trim().toUpperCase();
+  if (input.code != null) {
+    const code = normalizeCounterpartyCode(input.code);
+    await assertCounterpartyCodeAvailable(orgId, code, counterparty.id);
+    changes.code = code;
+  }
   if (input.registerNo != null)
     changes.registerNo = input.registerNo.trim() || null;
   if (input.email != null) {
