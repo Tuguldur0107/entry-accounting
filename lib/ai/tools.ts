@@ -188,6 +188,15 @@ import {
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
 import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
 
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationsRead,
+} from "@/lib/actions/notifications";
+import { notificationTypeLabel } from "@/lib/notifications/catalog";
+import { emitNotification } from "@/lib/notifications/emit";
+import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
+
 import type { AiWriteMode } from "./models";
 
 import type { AiAction } from "./action-markers";
@@ -1347,6 +1356,30 @@ export const AI_TOOLS: AiToolDef[] = [
         period: { type: "string", description: "Тайлант үе YYYY-MM" },
       },
       required: ["period"],
+    },
+  },
+  {
+    name: "list_notifications",
+    description:
+      "Хэрэглэгчийн мэдэгдлийн inbox — татварын хугацаа, хуучирсан ноорог, хэтэрсэн авлага/өглөг, хамт олны батлалт/буцаалт, сар хаалт, лиценз. Хэрэглэгч 'юу анхаарах вэ', 'мэдэгдэл', 'сануулга' гэвэл үүгээр (вэб: топбарын хонх, /notifications).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        unreadOnly: { type: "boolean", description: "Зөвхөн уншаагүй (default true)" },
+        limit: { type: "number", description: "Дээд тал нь (default 20, max 100)" },
+      },
+    },
+  },
+  {
+    name: "mark_notifications_read",
+    description:
+      "Мэдэгдлийг уншсан гэж тэмдэглэнэ — ids өгвөл тэдгээрийг, all=true бол бүгдийг. Журнал үүсгэхгүй, аль ч горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" }, description: "Мэдэгдлийн ID (бүтэн эсвэл 6+ тэмдэгтийн угтвар)" },
+        all: { type: "boolean", description: "Бүх уншаагүйг тэмдэглэх" },
+      },
     },
   },
   {
@@ -8434,6 +8467,61 @@ export function allAiTools(): AiToolDef[] {
   return mergedTools;
 }
 
+
+// ── Мэдэгдэл (docs/notifications §4.6) ──────────────────────────────────────
+
+async function runListNotifications(input: {
+  unreadOnly?: boolean;
+  limit?: number;
+}): Promise<AiToolResult> {
+  const { rows, unread } = await listNotifications({
+    unreadOnly: input.unreadOnly ?? true,
+    limit: Math.min(Math.max(Number(input.limit) || 20, 1), 100),
+  });
+  if (rows.length === 0)
+    return {
+      resultText:
+        input.unreadOnly === false
+          ? "Мэдэгдэл алга"
+          : "Уншаагүй мэдэгдэл алга — анхаарах зүйл байхгүй",
+    };
+  const lines = rows.map((row) => {
+    const mark = row.severity === "danger" ? "‼" : row.severity === "warning" ? "⚠" : "•";
+    const when = row.createdAt.slice(0, 16).replace("T", " ");
+    return (
+      `${mark} [${row.id.slice(0, 8)}] ${when} · ${notificationTypeLabel(row.type)} · ${row.title}` +
+      (row.body ? ` — ${row.body}` : "") +
+      (row.readAt ? "" : " (уншаагүй)")
+    );
+  });
+  return {
+    resultText: `Уншаагүй нийт: ${unread}\n` + lines.join("\n"),
+  };
+}
+
+async function runMarkNotificationsRead(input: {
+  ids?: string[];
+  all?: boolean;
+}): Promise<AiToolResult> {
+  if (input.all) {
+    const n = await markAllNotificationsRead();
+    return { resultText: `${n} мэдэгдэл уншсан гэж тэмдэглэгдлээ` };
+  }
+  const prefixes = (input.ids ?? []).map((id) => String(id).trim()).filter(Boolean);
+  if (prefixes.length === 0)
+    throw new Error("[VALIDATION] ids эсвэл all=true өгнө");
+  if (prefixes.some((prefix) => prefix.length < 6))
+    throw new Error("[VALIDATION] ID нь бүтэн эсвэл 6+ тэмдэгтийн угтвар байна");
+  // Угтварыг өөрийн inbox дотроос л тааруулна (org/user хамгаалалт server action-д).
+  const { rows } = await listNotifications({ limit: 500 });
+  const ids = rows
+    .filter((row) => prefixes.some((prefix) => row.id.startsWith(prefix)))
+    .map((row) => row.id);
+  if (ids.length === 0) throw new Error("[NOT_FOUND] Ийм ID-тэй мэдэгдэл олдсонгүй");
+  const n = await markNotificationsRead(ids);
+  return { resultText: `${n} мэдэгдэл уншсан гэж тэмдэглэгдлээ` };
+}
+
 // ── Нэгдсэн диспетчер ───────────────────────────────────────────────────────
 
 /**
@@ -8455,6 +8543,86 @@ export async function executeAiTool(
     const { orgId, userId } = await getActiveOrg();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
+    const result = await dispatchAiTool(orgId, userId, name, args, mode);
+    await notifyAiDraft(orgId, userId, name, result);
+    return result;
+  } catch (caught) {
+    return aiToolErrorResult(name, caught);
+  }
+}
+
+/** AI/MCP/REST-ээс НООРОГ үүссэн бол батлах эрхтэй бусад гишүүнд мэдэгдэнэ
+ *  (docs/notifications §3.1 ai.drafts_created — §9 human-in-the-loop-ийг
+ *  «хэн ч анзаараагүй ноорог»-оос хамгаална). Хэзээ ч шидэхгүй. */
+async function notifyAiDraft(
+  orgId: string,
+  userId: string,
+  toolName: string,
+  result: AiToolResult
+): Promise<void> {
+  const action = result.action;
+  if (!action || result.dedup || action.status !== "draft") return;
+  const entityType = AI_ACTION_ENTITY[action.kind];
+  if (!entityType) return;
+  await emitNotification(
+    orgId,
+    {
+      type: "ai.drafts_created",
+      title: `AI ноорог үүсгэлээ — ${action.title}`,
+      body: `${toolName} tool-оор үүссэн ноорог батлагдахыг хүлээж байна — шалгаад батлана эсвэл устгана.`,
+      href: ENTITY_HREF[entityType],
+      entityType,
+      entityId: action.id,
+      dedupeKey: `ai-draft:${action.id}`,
+      audience: { kind: "module", moduleKeys: ENTITY_MODULE_KEYS[entityType] ?? [], minLevel: "post" },
+      payload: { tool: toolName, kind: action.kind, action: "create" },
+    },
+    { actorUserId: userId }
+  );
+}
+
+/** AiAction.kind → аудитын entityType (панель dispatcher / модулийн эрх). */
+const AI_ACTION_ENTITY: Record<AiAction["kind"], string> = {
+  voucher: "journal",
+  arap: "arap",
+  cash: "cash",
+  inventory: "inventory",
+  fa: "fa",
+  purchase_order: "purchase_order",
+  goods_receipt: "goods_receipt",
+};
+
+function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
+  {
+    const message = errorText(caught);
+    // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
+    // Postgres SQLSTATE кодтой (23505 г.м) эсвэл SQL-дотоод үг агуулсан
+    // мессежийг ерөнхий монгол текстээр орлуулж, жинхэнэ алдааг лог руу
+    // бичнэ. [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
+    const errorCode = (caught as { code?: unknown } | null)?.code;
+    const isSqlState =
+      typeof errorCode === "string" && /^[0-9A-Z]{5}$/.test(errorCode);
+    const looksSqlish =
+      /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
+        message
+      );
+    if (isSqlState || looksSqlish) {
+      console.error(`AI tool "${name}" internal error:`, caught);
+      return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
+    }
+    return { resultText: `Алдаа: ${message}` };
+  }
+}
+
+async function dispatchAiTool(
+  orgId: string,
+  userId: string,
+  name: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args: any,
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  {
     switch (name) {
       case "create_journal_voucher":
         return await runCreateJournal(orgId, args, mode);
@@ -8618,6 +8786,10 @@ export async function executeAiTool(
         return await runPayrollSummary(args);
       case "create_payroll_voucher":
         return await runCreatePayrollVoucher(args);
+      case "list_notifications":
+        return await runListNotifications(args);
+      case "mark_notifications_read":
+        return await runMarkNotificationsRead(args);
       case "get_month_end_checklist":
         return await runMonthEndChecklist(args);
       case "get_vat_return":
@@ -8710,23 +8882,5 @@ export async function executeAiTool(
         return await executeCustomTool(custom, { orgId, userId, mode }, args);
       }
     }
-  } catch (caught) {
-    const message = errorText(caught);
-    // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
-    // Postgres SQLSTATE кодтой (23505 г.м) эсвэл SQL-дотоод үг агуулсан
-    // мессежийг ерөнхий монгол текстээр орлуулж, жинхэнэ алдааг лог руу
-    // бичнэ. [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
-    const errorCode = (caught as { code?: unknown } | null)?.code;
-    const isSqlState =
-      typeof errorCode === "string" && /^[0-9A-Z]{5}$/.test(errorCode);
-    const looksSqlish =
-      /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
-        message
-      );
-    if (isSqlState || looksSqlish) {
-      console.error(`AI tool "${name}" internal error:`, caught);
-      return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
-    }
-    return { resultText: `Алдаа: ${message}` };
   }
 }

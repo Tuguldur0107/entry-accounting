@@ -37,6 +37,7 @@ export const customization = mergeCustomizations(myPackage);
 | `beforeJournalPost` | `hooks` | Нэмэлт хориг: "тайлбаргүй/төсөл кодгүй журнал батлагдахгүй" |
 | `afterJournalPost` | `hooks` | Webhook, sync, мэдэгдэл (алдаа бичилтийг унагахгүй) |
 | `beforePeriodClose` | `hooks` | "Банкны тулгалт дуусаагүй бол сар хаахгүй" |
+| Мэдэгдлийн суваг | `notificationChannels[]` | Slack/webhook/SMS — `{ key, label, deliver(ctx) → "sent"\|"skipped" }`; тохиргооны хуудсанд автоматаар багана болно, мэдэгдэл бүр нэг л удаа хүргэгдэнэ |
 | Өнгө | `theme.css` | `:root { --ea-primary: #0f766e }` |
 
 ## Хийж БОЛОХГҮЙ

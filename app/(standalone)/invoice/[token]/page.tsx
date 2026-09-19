@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
 import { db } from "@/lib/db";
+import { emitNotification } from "@/lib/notifications/emit";
 import { arApInvoiceSends } from "@/lib/db/schema";
 
 export const metadata = { title: "Нэхэмжлэх" };
@@ -49,12 +50,24 @@ export default async function PublicInvoicePage({
   const invoice = await loadInvoicePayload(send.organizationId, send.documentId);
   if (!invoice) notFound();
 
-  // "Үзсэн" — зөвхөн анхны нээлтийг тэмдэглэнэ.
+  // "Үзсэн" — зөвхөн анхны нээлтийг тэмдэглэнэ + мэдэгдэл (invoice.viewed —
+  // аудитын үйл явдал биш тул шууд emit; хэзээ ч шидэхгүй).
   if (!send.viewedAt) {
     await db
       .update(arApInvoiceSends)
       .set({ viewedAt: new Date() })
       .where(eq(arApInvoiceSends.id, send.id));
+    await emitNotification(send.organizationId, {
+      type: "invoice.viewed",
+      title: `${invoice.counterparty.name} нэхэмжлэх ${invoice.documentNo} үзлээ`,
+      body: `Илгээсэн линкийг анх нээв — ${new Date().toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })}`,
+      href: "/receivables/documents",
+      entityType: "arap",
+      entityId: send.documentId,
+      dedupeKey: `viewed:${send.id}`,
+      audience: { kind: "module", moduleKeys: ["ar"], minLevel: "read" },
+      payload: { sendId: send.id, documentNo: invoice.documentNo },
+    });
   }
 
   const { company, counterparty } = invoice;

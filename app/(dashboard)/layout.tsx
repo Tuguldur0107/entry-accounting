@@ -14,13 +14,14 @@ import { getPeriodSelection } from "@/lib/periods/selection";
 import { QuickCreate } from "@/components/layout/quick-create";
 import { QuickNav } from "@/components/layout/quick-nav";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
 import { disabledNavModuleIds } from "@/components/layout/modules";
 import { PanelHost } from "@/components/panel/panel-host";
 import { db } from "@/lib/db";
-import { memberships, moduleConfigs } from "@/lib/db/schema";
+import { memberships, moduleConfigs, notifications } from "@/lib/db/schema";
 import type { MembershipRole } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { APP_MODULE_DEFS } from "@/lib/constants/app-modules";
 import { effectiveLevel } from "@/lib/permissions";
 
@@ -43,7 +44,7 @@ export default async function DashboardLayout({
   // Дээр нь гишүүний "Байхгүй" эрхтэй модулиуд мөн нуугдана
   // (Тохиргоо → Хэрэглэгчдийн эрх) — бодит хамгаалалт нь server action-ы
   // requireModuleAction, энэ нь зөвхөн харагдац.
-  const [modConfigs, myMembership] = await Promise.all([
+  const [modConfigs, myMembership, [unreadRow]] = await Promise.all([
     db.query.moduleConfigs.findMany({
       where: eq(moduleConfigs.organizationId, activeOrgId),
       columns: { moduleKey: true, isEnabled: true },
@@ -55,6 +56,17 @@ export default async function DashboardLayout({
       ),
       columns: { role: true, permissions: true },
     }),
+    // Топбарын хонхны анхны тоолуур — client 60 сек тутам шинэчилнэ.
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.organizationId, activeOrgId),
+          eq(notifications.userId, session.user.id!),
+          isNull(notifications.readAt)
+        )
+      ),
   ]);
   const memberHiddenNavIds = myMembership
     ? APP_MODULE_DEFS.filter(
@@ -112,6 +124,7 @@ export default async function DashboardLayout({
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <QuickCreate />
             <AiChatButton />
+            <NotificationBell initialUnread={unreadRow?.n ?? 0} />
             <SoundToggle />
             <ThemeToggle />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--ea-text-3)" }}>

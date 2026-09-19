@@ -334,7 +334,8 @@ export async function POST(request: Request) {
   const dynamicContext = await buildDynamicContext(
     orgId,
     settings?.customInstructions,
-    mode
+    mode,
+    userId
   );
 
   const encoder = new TextEncoder();

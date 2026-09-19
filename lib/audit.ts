@@ -7,8 +7,9 @@
 
 import { db } from "@/lib/db";
 import { auditEvents } from "@/lib/db/schema";
+import { notifyFromAudit } from "@/lib/notifications/bridge";
 
-type DbLike = Pick<typeof db, "insert">;
+type DbLike = Pick<typeof db, "insert" | "select">;
 
 export type AuditEventInput = {
   /** Хэн хийсэн (createdBy). */
@@ -39,5 +40,10 @@ export async function logAuditEvent(
     });
   } catch (error) {
     console.error("[audit] бичиж чадсангүй:", event.action, event.entityType, error);
+    return;
   }
+  // Мэдэгдлийн гүүр (docs/notifications §4): аудитын үйл явдал мэдэгдэл
+  // болох эсэхийг lib/notifications/rules.ts шийднэ. Ижил executor — tx
+  // дотор бол мэдэгдэл бичилттэйгээ хамт commit/rollback. Хэзээ ч шидэхгүй.
+  await notifyFromAudit(event, executor);
 }

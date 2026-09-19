@@ -71,6 +71,46 @@ export interface CustomHooks {
   beforePeriodClose?: (ctx: PeriodHookContext) => Promise<HookResult>;
 }
 
+/** Мэдэгдлийн сувагт өгөх контекст (docs/notifications §4.4). */
+export interface NotificationChannelContext {
+  organizationId: string;
+  userId: string;
+  userEmail: string;
+  notification: {
+    id: string;
+    type: string;
+    category: string;
+    severity: "info" | "warning" | "danger";
+    title: string;
+    body: string;
+    /** Програмын дотоод зам эсвэл null. */
+    href: string | null;
+    /** Бүтэн URL (NEXT_PUBLIC_APP_URL + href, эсвэл /notifications). */
+    url: string;
+    /** ISO. */
+    createdAt: string;
+  };
+  /** Хэрэглэгчийн мэдэгдлийн тохиргооны сувагт хамаарах хэсэг. */
+  preferences: { telegramChatId: string | null };
+}
+
+/**
+ * Мэдэгдлийн нэмэлт суваг (Telegram, Slack, webhook …). Core-ийн in-app ба
+ * и-мэйл сувгийн ХАЖУУД ажиллана: мэдэгдэл бүр суваг бүрд нэг л удаа
+ * (notification_deliveries). deliver нь "sent" (илгээв) эсвэл "skipped"
+ * (энэ хэрэглэгчид хамаарахгүй — дахин оролдохгүй) буцаана; шидвэл алдаа
+ * бүртгэгдэж дахин оролдохгүй. Мэдэгдлийн бичилтийг ХЭЗЭЭ Ч унагахгүй.
+ * key: ^[a-z][a-z0-9_]{1,31}$, "email" / "in_app" / core сувагтай давхцахгүй.
+ */
+export interface NotificationChannel {
+  key: string;
+  /** Тохиргооны хуудасны баганы шошго (монголоор). */
+  label: string;
+  /** Хэрэглэгч тохиргоогоор өөрчлөөгүй үед идэвхтэй эсэх (default false). */
+  defaultEnabled?: boolean;
+  deliver(ctx: NotificationChannelContext): Promise<"sent" | "skipped">;
+}
+
 /** Нэг багц (custom/packages/<name>) эсвэл custom/index.ts-ийн нийлбэр. */
 export interface EntryCustomization {
   /** /settings/system хуудсанд харагдах нэр, хувилбар (сонголтоор). */
@@ -78,4 +118,6 @@ export interface EntryCustomization {
   version?: string;
   tools?: CustomTool[];
   hooks?: CustomHooks;
+  /** Мэдэгдлийн нэмэлт сувгууд (фаз 2). */
+  notificationChannels?: NotificationChannel[];
 }

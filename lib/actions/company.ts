@@ -54,6 +54,8 @@ export async function updateCompanySettings(data: {
   invoiceFromEmail?: string | null;
   invoiceReplyTo?: string | null;
   emailDomainVerified?: boolean;
+  /** «Том дүн» мэдэгдлийн босго (MNT); null = default 10 сая ₮ (D2). */
+  largeAmountAlertMnt?: number | null;
 }) {
   // Компанийн мэдээлэл = тохиргоо — admin+.
   const { orgId, userId } = await requireRole("admin");
@@ -74,6 +76,11 @@ export async function updateCompanySettings(data: {
     throw new Error("Илгээгч и-мэйл хаяг буруу байна");
   if (invoiceReplyTo && !emailRe.test(invoiceReplyTo))
     throw new Error("Reply-to и-мэйл хаяг буруу байна");
+  if (
+    data.largeAmountAlertMnt != null &&
+    (!Number.isFinite(data.largeAmountAlertMnt) || data.largeAmountAlertMnt <= 0)
+  )
+    throw new Error("Том дүнгийн босго 0-ээс их тоо байна");
 
   const base = {
     name: data.name.trim(),
@@ -90,6 +97,10 @@ export async function updateCompanySettings(data: {
     ...(data.invoiceReplyTo !== undefined && { invoiceReplyTo }),
     ...(data.emailDomainVerified !== undefined && {
       emailDomainVerified: data.emailDomainVerified,
+    }),
+    ...(data.largeAmountAlertMnt !== undefined && {
+      largeAmountAlertMnt:
+        data.largeAmountAlertMnt == null ? null : String(Math.round(data.largeAmountAlertMnt)),
     }),
     updatedAt: new Date(),
   };

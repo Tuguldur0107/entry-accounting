@@ -143,6 +143,9 @@ export function CompanySettingsForm({
   const [emailDomainVerified, setEmailDomainVerified] = useState(
     initial?.emailDomainVerified ?? false
   );
+  const [largeAmountAlert, setLargeAmountAlert] = useState(
+    initial?.largeAmountAlertMnt != null ? String(Number(initial.largeAmountAlertMnt)) : ""
+  );
   const [isPending, startTransition] = useTransition();
 
   function save() {
@@ -173,6 +176,9 @@ export function CompanySettingsForm({
           invoiceFromEmail: invoiceFromEmail || null,
           invoiceReplyTo: invoiceReplyTo || null,
           emailDomainVerified,
+          largeAmountAlertMnt: largeAmountAlert.trim()
+            ? Number(largeAmountAlert.replace(/[^\d.]/g, ""))
+            : null,
         });
         toast.success("Компанийн мэдээлэл хадгалагдлаа");
       } catch (caught) {
@@ -389,6 +395,30 @@ export function CompanySettingsForm({
               идэвхжүүлээгүй үед дээрх хаягаар илгээхийг оролдохгүй.
             </p>
           </div>
+        </div>
+      </section>
+
+      {/* ── Мэдэгдэл — том дүнгийн босго (D2) ── */}
+      <section className="ea-glass space-y-4 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+            <Icon name="bell" size="sm" className="text-[var(--ea-text-3)]" />
+            Том дүнгийн мэдэгдэл
+          </h2>
+          <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
+            Энэ дүнгээс (MNT) их журнал, нэхэмжлэх, кассын баримт батлагдахад
+            эзэн/админд мэдэгдэнэ. Хоосон бол 10,000,000₮.
+          </p>
+        </div>
+        <div className="max-w-xs space-y-1.5">
+          <Label htmlFor="large-amount-alert">Босго (₮)</Label>
+          <Input
+            id="large-amount-alert"
+            inputMode="numeric"
+            value={largeAmountAlert}
+            onChange={(e) => setLargeAmountAlert(e.target.value)}
+            placeholder="10000000"
+          />
         </div>
       </section>
 

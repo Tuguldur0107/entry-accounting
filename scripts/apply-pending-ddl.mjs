@@ -224,7 +224,105 @@ async function main() {
      end $$;`
   );
 
-  // ── 3. inventory_items.sales_price (барааны борлуулах үнэ — АР нэгж үнэ) ──
+  // ── 3. Мэдэгдлийн систем (docs/notifications/00-proposal.md фаз 0) ───────
+  // Код нь эдгээр хүснэгтийг ЗААВАЛ шаарддаг (logAuditEvent-ийн хажуугийн
+  // гүүр бүр бичнэ) тул push хожимдвол ч апп унахгүй байхаар урьдчилж нэмнэ.
+  await run(
+    "notifications хүснэгт",
+    `create table if not exists notifications (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       user_id text not null references users(id) on delete cascade,
+       type text not null,
+       category text not null,
+       severity text not null default 'info',
+       title text not null,
+       body text not null default '',
+       href text,
+       entity_type text,
+       entity_id text,
+       payload text,
+       actor_user_id text,
+       dedupe_key text not null,
+       read_at timestamp,
+       emailed_at timestamp,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "notifications_org_user_dedupe_ux индекс",
+    `create unique index if not exists notifications_org_user_dedupe_ux
+       on notifications (organization_id, user_id, dedupe_key)`
+  );
+  await run(
+    "notifications_user_org_created_ix индекс",
+    `create index if not exists notifications_user_org_created_ix
+       on notifications (user_id, organization_id, created_at)`
+  );
+  await run(
+    "notification_preferences хүснэгт",
+    `create table if not exists notification_preferences (
+       id uuid primary key default gen_random_uuid(),
+       user_id text not null references users(id) on delete cascade,
+       organization_id uuid not null references organizations(id) on delete cascade,
+       channels text,
+       digest_hour integer not null default 8,
+       telegram_chat_id text,
+       muted_until timestamp,
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "notification_preferences_user_org_ux индекс",
+    `create unique index if not exists notification_preferences_user_org_ux
+       on notification_preferences (user_id, organization_id)`
+  );
+  await run(
+    "notification_runs хүснэгт",
+    `create table if not exists notification_runs (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       job text not null,
+       period_key text not null,
+       started_at timestamp not null default now(),
+       finished_at timestamp,
+       emitted integer not null default 0,
+       error text
+     )`
+  );
+  await run(
+    "notification_runs_job_period_org_ux индекс",
+    `create unique index if not exists notification_runs_job_period_org_ux
+       on notification_runs (job, period_key, organization_id)`
+  );
+
+  // ── 3a. Мэдэгдэл фаз 2: суваг бүрийн хүргэлт, Telegram, том дүнгийн босго ──
+  await run(
+    "notification_preferences.telegram_link_code багана",
+    `alter table notification_preferences add column if not exists telegram_link_code text`
+  );
+  await run(
+    "notification_deliveries хүснэгт",
+    `create table if not exists notification_deliveries (
+       id uuid primary key default gen_random_uuid(),
+       notification_id uuid not null references notifications(id) on delete cascade,
+       channel text not null,
+       delivered_at timestamp,
+       error text,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "notification_deliveries_notification_channel_ux индекс",
+    `create unique index if not exists notification_deliveries_notification_channel_ux
+       on notification_deliveries (notification_id, channel)`
+  );
+  await run(
+    "company_settings.large_amount_alert_mnt багана",
+    `alter table company_settings add column if not exists large_amount_alert_mnt numeric(18,2)`
+  );
+
+  // ── 4. inventory_items.sales_price (барааны борлуулах үнэ — АР нэгж үнэ) ──
   await run(
     "inventory_items.sales_price багана",
     `alter table inventory_items
