@@ -9,6 +9,7 @@ import {
   PO_BUSINESS_OBJECT,
   PROCUREMENT_MODULE_KEY,
 } from "@/lib/procurement/constants";
+import { POS_BUSINESS_OBJECT, POS_MODULE_KEY } from "@/lib/pos/constants";
 
 /** Файлын дээд хэмжээ — eBarimt хуулах route-тай ИЖИЛ хязгаар (8MB). */
 export const ATTACHMENT_MAX_BYTES = 8_000_000;
@@ -134,6 +135,7 @@ export function isInlineAttachmentType(mediaType: string): boolean {
 export const ATTACHMENT_ENTITY_MODULE_KEYS: Record<string, readonly string[]> = {
   [PO_BUSINESS_OBJECT]: [PROCUREMENT_MODULE_KEY],
   goods_receipt: [PROCUREMENT_MODULE_KEY],
+  [POS_BUSINESS_OBJECT]: [POS_MODULE_KEY],
   journal: ["gl"],
   cash: ["cash"],
   arap: ["ar", "ap"],

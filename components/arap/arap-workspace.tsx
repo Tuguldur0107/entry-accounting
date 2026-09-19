@@ -217,6 +217,8 @@ export function ArApWorkspace({
       contactPerson: "",
       bankName: "",
       bankAccountNo: "",
+      customerGroup: "",
+      creditLimit: "",
     };
   }
   const [counterpartyForm, setCounterpartyForm] = useState(emptyCounterpartyForm);
@@ -526,6 +528,8 @@ export function ArApWorkspace({
       contactPerson: counterparty.contactPerson ?? "",
       bankName: counterparty.bankName ?? "",
       bankAccountNo: counterparty.bankAccountNo ?? "",
+      customerGroup: counterparty.customerGroup ?? "",
+      creditLimit: counterparty.creditLimit == null ? "" : String(counterparty.creditLimit),
     };
     setEditingCounterpartyId(counterparty.id);
     setCounterpartyForm(filled);
@@ -562,6 +566,10 @@ export function ArApWorkspace({
         const payload = {
           ...counterpartyForm,
           paymentTermsDays: Number(counterpartyForm.paymentTermsDays) || 0,
+          creditLimit:
+            counterpartyForm.creditLimit.trim() === ""
+              ? null
+              : Number(counterpartyForm.creditLimit),
         };
         // Server action нь алдааг УТГААР буцаана (production дээр шидсэн
         // алдаа React #441 болж нуугддаг — lib/action-result.ts).
@@ -1263,6 +1271,8 @@ function CounterpartyDialog({
     contactPerson: string;
     bankName: string;
     bankAccountNo: string;
+    customerGroup: string;
+    creditLimit: string;
   };
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
   activeSegIds: number[];
@@ -1410,6 +1420,32 @@ function CounterpartyDialog({
                 setForm((current) => ({
                   ...current,
                   paymentTermsDays: event.target.value,
+                }))
+              }
+            />
+          </Field>
+          <Field label="Хөнгөлөлтийн бүлэг (VIP, ажилтан…)">
+            <Input
+              value={form.customerGroup}
+              placeholder="POS-ийн харилцагчийн бүлгийн дүрэмд"
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  customerGroup: event.target.value,
+                }))
+              }
+            />
+          </Field>
+          <Field label="Зээлийн лимит ₮">
+            <Input
+              type="number"
+              min="0"
+              value={form.creditLimit}
+              placeholder="Хоосон = хязгааргүй"
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  creditLimit: event.target.value,
                 }))
               }
             />

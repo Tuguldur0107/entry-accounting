@@ -180,6 +180,8 @@ export async function loadArApCounterparties(
     contactPerson: item.contactPerson,
     bankName: item.bankName,
     bankAccountNo: item.bankAccountNo,
+    customerGroup: item.customerGroup ?? null,
+    creditLimit: item.creditLimit == null ? null : Number(item.creditLimit),
     isActive: item.isActive,
   }));
 }

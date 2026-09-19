@@ -483,3 +483,31 @@ body::before {
     display: none !important;
   }
 }
+
+/* ─── POS баримт хэвлэх (80мм) ───────────────────────────────────────────── */
+/* ReceiptPreview нь хэвлэх агшинд .pos-receipt-ийг body-д portal-оор гаргаж
+   body-д ea-printing-pos class тавьдаг — зөвхөн баримт хэвлэгдэнэ. */
+@media print {
+  body.ea-printing-pos * {
+    visibility: hidden;
+  }
+  body.ea-printing-pos .pos-receipt,
+  body.ea-printing-pos .pos-receipt * {
+    visibility: visible;
+  }
+  body.ea-printing-pos .pos-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    margin: 0;
+    padding: 4mm;
+    background: #fff;
+    color: #000;
+    box-shadow: none;
+    border: 0;
+  }
+  @page {
+    margin: 0;
+  }
+}

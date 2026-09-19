@@ -312,6 +312,14 @@ function counterpartyTypeLabel(type: string) {
         : type;
 }
 
+/** Зээлийн лимит — хоосон/null = хязгааргүй; сөрөг утга хориотой. */
+function creditLimitValue(value: number | null | undefined): string | null {
+  if (value == null || (typeof value === "number" && Number.isNaN(value))) return null;
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit < 0) throw new Error("Зээлийн лимит 0-ээс багагүй тоо байна");
+  return String(limit);
+}
+
 async function createCounterpartyCore(data: {
   name: string;
   counterpartyType: "customer" | "supplier" | "both";
@@ -326,6 +334,9 @@ async function createCounterpartyCore(data: {
   contactPerson?: string;
   bankName?: string;
   bankAccountNo?: string;
+  /** POS: хөнгөлөлтийн бүлэг (VIP, ажилтан…) ба зээлийн лимит (MNT, null = хязгааргүй). */
+  customerGroup?: string;
+  creditLimit?: number | null;
 }) {
   const { orgId, userId } = await requireAnyModuleAction([
     ["ar", "write"],
@@ -383,6 +394,8 @@ async function createCounterpartyCore(data: {
       contactPerson: cleanText(data.contactPerson),
       bankName: cleanText(data.bankName),
       bankAccountNo: cleanText(data.bankAccountNo),
+      customerGroup: cleanText(data.customerGroup),
+      creditLimit: creditLimitValue(data.creditLimit),
     })
     .returning({ id: counterparties.id });
 
@@ -421,6 +434,8 @@ async function updateCounterpartyCore(
     contactPerson?: string;
     bankName?: string;
     bankAccountNo?: string;
+    customerGroup?: string;
+    creditLimit?: number | null;
   }
 ) {
   const { orgId } = await requireAnyModuleAction([
@@ -453,6 +468,8 @@ async function updateCounterpartyCore(
       contactPerson: cleanText(data.contactPerson),
       bankName: cleanText(data.bankName),
       bankAccountNo: cleanText(data.bankAccountNo),
+      customerGroup: cleanText(data.customerGroup),
+      creditLimit: creditLimitValue(data.creditLimit),
     })
     .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)))
     .returning({ id: counterparties.id });

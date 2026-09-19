@@ -441,7 +441,8 @@ export async function loadSaleViews(orgId: string, filter: SaleFilter = {}): Pro
       })
     : [];
   const originalNo = new Map(originals.map((row) => [row.id, row.documentNo]));
-  return rows.map((row) => toSaleView(row, originalNo.get(row.originalSaleId ?? "") ?? null));
+  const walkInId = await loadWalkInCounterpartyId(orgId);
+  return rows.map((row) => toSaleView(row, originalNo.get(row.originalSaleId ?? "") ?? null, walkInId));
 }
 
 type SaleRowWith = typeof posSales.$inferSelect & {
@@ -454,7 +455,20 @@ type SaleRowWith = typeof posSales.$inferSelect & {
   lines: { id: string }[];
 };
 
-function toSaleView(row: SaleRowWith, originalSaleNo: string | null): PosSaleView {
+/** Тохиргооны бэлэн худалдан авагчийн ID — тохиргоо үүсээгүй бол null (сонголт үүсгэхгүй). */
+async function loadWalkInCounterpartyId(orgId: string): Promise<string | null> {
+  const row = await db.query.posSettings.findFirst({
+    where: eq(posSettings.organizationId, orgId),
+    columns: { walkInCounterpartyId: true },
+  });
+  return row?.walkInCounterpartyId ?? null;
+}
+
+function toSaleView(
+  row: SaleRowWith,
+  originalSaleNo: string | null,
+  walkInCounterpartyId: string | null
+): PosSaleView {
   return {
     id: row.id,
     documentNo: row.documentNo,
@@ -466,6 +480,7 @@ function toSaleView(row: SaleRowWith, originalSaleNo: string | null): PosSaleVie
     warehouseName: row.warehouse?.name ?? "—",
     counterpartyId: row.counterpartyId,
     counterpartyName: row.counterparty?.name ?? "—",
+    isWalkIn: walkInCounterpartyId != null && row.counterpartyId === walkInCounterpartyId,
     cashierName: row.cashier?.name ?? "—",
     grossAmount: Number(row.grossAmount),
     discountTotal: Number(row.discountTotal),
@@ -557,7 +572,8 @@ export async function loadSaleDetail(orgId: string, saleId: string): Promise<Pos
 
   const base = toSaleView(
     { ...row, payments: row.payments.map((payment) => ({ ...payment, method: payment.method })) },
-    original?.documentNo ?? null
+    original?.documentNo ?? null,
+    await loadWalkInCounterpartyId(orgId)
   );
   return {
     ...base,

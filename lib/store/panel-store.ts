@@ -29,6 +29,7 @@ export type PanelKind =
   | "arap-doc" // АР/АП баримт — үүсгэх эсвэл харах
   | "purchase-order" // Худалдан авалтын захиалга (PO) — үүсгэх/харах/засах
   | "goods-receipt" // Хүлээн авалтын баримт (PO-гийн үлдэгдлээс)
+  | "pos-sale" // POS борлуулалт / буцаалт — дэлгэрэнгүй, буцаалт, дахин хэвлэх
   | "ai-chat"; // AI туслах — глобал хөвөгч чат
 
 /** Самбарын задаргааны нэг мөр (drill панелийн payload-д). */
@@ -645,6 +646,20 @@ export function openGoodsReceiptPanel(init: {
       purchaseOrderId,
       ...(receiptId ? navPayload("receiptId", navIds) : {}),
     },
+  });
+}
+
+/** POS борлуулалтын дэлгэрэнгүй (мөр, төлбөр, хөнгөлөлт, буцаалт, дахин хэвлэх). */
+export function openPosSalePanel(
+  saleId: string,
+  title?: string,
+  navIds?: string[]
+) {
+  return usePanelStore.getState().openPanel({
+    key: `pos-sale:${saleId}`,
+    kind: "pos-sale",
+    title: title || "POS борлуулалт",
+    payload: { saleId, ...navPayload("saleId", navIds) },
   });
 }
 

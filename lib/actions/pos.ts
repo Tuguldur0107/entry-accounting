@@ -2310,7 +2310,7 @@ export async function issueGiftCard(data: {
 export async function getGiftCardsAndCredits(): Promise<
   ActionResult<{
     giftCards: { id: string; code: string; initialAmount: number; balance: number; status: string; expiresAt: string | null; createdAt: string }[];
-    storeCredits: { id: string; counterpartyName: string; amount: number; balance: number; status: string; createdAt: string }[];
+    storeCredits: { id: string; counterpartyId: string; counterpartyName: string; amount: number; balance: number; status: string; createdAt: string }[];
   }>
 > {
   try {
@@ -2336,6 +2336,7 @@ export async function getGiftCardsAndCredits(): Promise<
       })),
       storeCredits: credits.map((credit) => ({
         id: credit.id,
+        counterpartyId: credit.counterpartyId,
         counterpartyName: cpName.get(credit.counterpartyId) ?? "—",
         amount: Number(credit.amount),
         balance: Number(credit.balance),

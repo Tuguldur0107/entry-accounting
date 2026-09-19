@@ -16,6 +16,7 @@ import { CostEntryPanel } from "./cost-entry-panel";
 import { DrillPanel } from "./drill-panel";
 import { FaAssetPanel } from "./fa-asset-panel";
 import { GoodsReceiptPanel } from "./goods-receipt-panel";
+import { PosSalePanel } from "./pos-sale-panel";
 import { PurchaseOrderPanel } from "./purchase-order-panel";
 import { ReportLinePanel } from "./report-line-panel";
 import { FaAssetFormPanel } from "./fa-asset-form-panel";
@@ -50,5 +51,6 @@ export const PANEL_REGISTRY: Record<PanelKind, PanelKindConfig> = {
   "arap-doc": { component: ArapDocPanel },
   "purchase-order": { component: PurchaseOrderPanel },
   "goods-receipt": { component: GoodsReceiptPanel },
+  "pos-sale": { component: PosSalePanel },
   "ai-chat": { component: AiChatPanel, keepMounted: true },
 };

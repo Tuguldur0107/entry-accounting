@@ -245,6 +245,8 @@ export interface PosSaleView {
   warehouseName: string;
   counterpartyId: string;
   counterpartyName: string;
+  /** Бэлэн худалдан авагч (pos_settings.walkInCounterpartyId) — дэлгүүрийн кредит олгохгүй. */
+  isWalkIn: boolean;
   cashierName: string;
   grossAmount: number;
   discountTotal: number;
