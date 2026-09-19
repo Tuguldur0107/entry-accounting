@@ -156,6 +156,7 @@ export function VoucherPanel({
       segmentValues={data.segmentValues}
       defaultSegments={data.defaultSegments}
       voucherId={data.voucher?.id}
+      voucherDocumentNo={data.voucher?.documentNo}
       voucherStatus={data.voucher?.status}
       voucherCreatedAt={data.voucher?.createdAt}
       reversalOfVoucherId={data.voucher?.reversalOfVoucherId}

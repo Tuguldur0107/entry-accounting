@@ -301,6 +301,7 @@ export async function createVatSettlementDraft(data: {
     lines: lines.map((line) => ({ ...line })),
     status: "draft",
     externalRef: settlementRefOf(data.periodCode),
+    module: "vat",
   }));
 
   revalidatePath("/vat");

@@ -325,16 +325,19 @@ export function JournalList({
         sortable: true,
       },
       {
-        headerName: "ID",
-        field: "id",
-        width: 80,
-        valueGetter: (p) => p.data?.id.slice(0, 8) ?? "",
+        headerName: "Журналын бичилт",
+        field: "documentNo",
+        width: 140,
+        // Дугаар нь эх модулиа ил хэлнэ (GL-26-000001, CM-26-000012…).
+        // Энэ багана нэмэгдэхээс ӨМНӨХ бичилт дугааргүй — «—» гарна, ID нь
+        // tooltip-д үлдэнэ (хуучин баримтыг хайх шаардлага гарвал).
+        valueGetter: (p) => p.data?.documentNo ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <span
-            className="font-mono text-[10px] text-[var(--ea-text-4)] select-all"
-            title={p.data?.id}
+            className="font-mono text-[11px] text-[var(--ea-text-2)] select-all"
+            title={p.data?.documentNo ?? p.data?.id}
           >
-            {p.data?.id?.slice(0, 8) ?? ""}
+            {p.data?.documentNo ?? "—"}
           </span>
         ),
         sortable: true,
@@ -653,12 +656,12 @@ export function JournalList({
           borderRadius: 6,
           display: "grid",
           gridTemplateColumns:
-            "110px 80px minmax(180px,1fr) minmax(160px,1fr) 130px 130px 160px 120px 120px",
+            "110px 140px minmax(180px,1fr) minmax(160px,1fr) 130px 130px 160px 120px 120px",
           alignItems: "center",
           padding: "10px 0",
         }}
       >
-        {/* Огноо + ID — "Нийт дүн" label spanning */}
+        {/* Огноо + Журналын бичилт — "Нийт дүн" label spanning */}
         <div className="pl-3 col-span-2 text-[var(--ea-text-3)] font-medium" style={{ gridColumn: "1 / span 2" }}>
           Нийт дүн
         </div>

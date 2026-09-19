@@ -5,6 +5,7 @@ import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -434,6 +435,12 @@ export async function postDepreciationEntry(id: string) {
         organizationId: orgId,
         date: `${entry.periodMonth}-28`,
         description,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          "fa",
+          `${entry.periodMonth}-28`
+        ),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -559,6 +566,12 @@ export async function reverseDepreciationEntry(id: string) {
         organizationId: orgId,
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "fa"),
+          voucher.date
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
         reversalOfVoucherId: voucher.id,
@@ -844,6 +857,7 @@ export async function disposeFixedAsset(
         organizationId: orgId,
         date: data.date,
         description: `ҮХ ${label.toLowerCase()}: ${asset.code} ${asset.name}`,
+        documentNo: await nextVoucherNo(tx, orgId, "fa", data.date),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -945,6 +959,12 @@ export async function reverseFixedAssetDisposal(id: string) {
         organizationId: orgId,
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "fa"),
+          voucher.date
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
         reversalOfVoucherId: voucher.id,
