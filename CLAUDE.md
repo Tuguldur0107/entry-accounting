@@ -752,11 +752,15 @@ lib/payroll/settings.ts  payroll_settings loader (данс, доод цалин,
                          босго, коэффициент, сарын ажлын өдөр, дундажийн сар)
 lib/payroll/settings-input.ts  Тохиргооны ЦЭВЭР шалгалт (тесттэй): хуваагч 0
                          болохгүй, коэффициент ХУУЛИЙН доод хэмжээнээс доошгүй
+lib/payroll/payslip.ts   Ажилтны цалингийн хуудсын ЦЭВЭР бүтэц (тесттэй) —
+                         олголт/суутгал/татваргүй хэсэг, илүү цагийн задаргаа;
+                         Σолголт − Σсуутгал + ХЧТА ≠ гарт олгох бол ШИДНЭ
 lib/actions/payroll.ts   Ажилтан CRUD, calculatePayrollRun (мөр бүр дахин бодогдоно,
                          засвар хадгалагдана), createPayrollVoucher (НООРОГ,
                          externalRef `payroll:YYYY-MM` — сард нэг),
                          loadPayrollSettingsView / savePayrollCalculationSettings /
-                         savePayrollAccountSettings
+                         savePayrollAccountSettings, getSalaryPaymentReport /
+                         getPayslipReport
 app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд + Тайлан + Тохиргоо
 ```
 
@@ -774,6 +778,13 @@ app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд + Тайл
   (хуулийн баталгаажуулалтын дараа хэрэглэгч идэвхжүүлнэ — 2026-updates.md)
 - **GL журнал ЗААВАЛ ноорог** (§9: payroll post нягтланчийн баталгаажуулалт
   шаарддаг) — сарын эцсийн огноогоор, бусад суутгалтай бол 6 мөр
+- **Тайлан `/payroll/reports`** — 2 харагдац (`view` параметр, таб солигдоход
+  ЗӨВХӨН тухайн харагдацын өгөгдөл уншигдана): «Банкны олголт» (урьдчилгаа /
+  сүүл, Excel) ба «Цалингийн хуудас» (ажилтны сарын задаргаа, A4 хэвлэлт —
+  сонгосон нэг эсвэл бүгд; POS-ийн баримттай ИЖИЛ portal + body класс хэв маяг).
+  Хуудсын дүн бүр бодолтын ХАДГАЛАГДСАН мөрөөс гарна (`buildPayslip` дахин
+  бодохгүй) тул GL журнал, банкны олголттой үргэлж таарна; тэнцээгүй мөр
+  хуудас болохгүй — тэр ажилтан алгасагдаж шалтгаан нь UI-д улаанаар гарна
 
 **Нэмэгдэл, олговрууд — АВТОМАТ бодолт + гар засвар (нэг дүрэм):**
 
@@ -1349,6 +1360,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
 | POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
 | Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 6 таб (хураангуй/бараа/өдөр/кассчин/хэлбэр/харилцагч+дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| Цалингийн хуудас (payslip) | [components/payroll/payslip-report-view.tsx](components/payroll/payslip-report-view.tsx) | Ажилтны жагсаалт (pinned нийт) + A4 хуудас: давхар даралт → нэг ажилтан, «Бүгдийг хэвлэх» → ажилтан бүр шинэ хуудсанд (`ea-printing-payslip`) |
 | POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
 ---
