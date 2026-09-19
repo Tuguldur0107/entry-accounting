@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { feedback } from "@/lib/ui/feedback";
 import { Icon } from "@/components/ui/icon";
-import { AttachmentList } from "@/components/attachments/attachment-list";
+import { AttachmentSection } from "@/components/attachments/attachment-section";
 import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 
 import {
@@ -544,22 +544,18 @@ export function CashDocPanel({
           </div>
         )}
 
-        {/* Хавсралт */}
-        <div className="space-y-2 border-t border-[var(--ea-border)] pt-3">
-          <h3 className="text-xs font-semibold text-[var(--ea-text-2)]">
-            Хавсралт
-          </h3>
-          <AttachmentList
-            entityType="cash"
-            entityId={document.id}
-            kinds={GENERIC_ATTACHMENT_KINDS}
-            refreshToken={panel.refreshToken}
-            onChanged={() => {
-              refreshOpenPanels();
-              router.refresh();
-            }}
-          />
-        </div>
+        {/* Хавсралт — компакт мөр, дэлгэрэнгүй нь popup */}
+        <AttachmentSection
+          entityType="cash"
+          entityId={document.id}
+          kinds={GENERIC_ATTACHMENT_KINDS}
+          refreshToken={panel.refreshToken}
+          className="border-t border-[var(--ea-border)] pt-3"
+          onChanged={() => {
+            refreshOpenPanels();
+            router.refresh();
+          }}
+        />
 
         {/* Үйлдлүүд — GL журналын харах дэлгэцтэй ижил зарчим */}
         <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">
