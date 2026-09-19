@@ -9,7 +9,7 @@
 // хэзээ ч шууд posted журнал бичихгүй.
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -42,6 +42,17 @@ import {
   computeEmployeePayroll,
   type PayrollResult,
 } from "@/lib/payroll/calc";
+import {
+  averageDailyWage,
+  averageMonthlyEarnings,
+  computeOvertimePay,
+  computeSickBenefit,
+  computeVacationPay,
+  previousPeriodCodes,
+  type AverageEarnings,
+  type EarningsHistoryRow,
+  type OvertimeCoefficients,
+} from "@/lib/payroll/additions";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
 import { canAutoDefaultSegment } from "@/lib/gl/posting-code";
@@ -82,6 +93,12 @@ export interface EmployeeInput {
   position?: string;
   baseSalary: number;
   employerSiPercent: number;
+  /**
+   * ХЧТА (хөдөлмөрийн чадвар түр алдалт)-ын тэтгэмжийн хувь — НД-ын шимтгэл
+   * төлсөн жилээс хамаарна. Тохируулаагүй (null) бол тэтгэмж АВТОМАТААР
+   * бодогдохгүй: хувийг ЗОХИОХГҮЙ, хэрэглэгч дүнг гараар оруулна.
+   */
+  sickBenefitPercent?: number | null;
   isActive?: boolean;
 }
 
@@ -124,6 +141,22 @@ function validateEmployeeInput(data: EmployeeInput) {
   assertOptionalDate(terminationDate, "Гарсан огноо");
   if (hireDate && terminationDate && terminationDate < hireDate)
     throw new Error("Гарсан огноо ажилд орсон огнооноос өмнө байж болохгүй");
+  // undefined = талбарыг ХӨНДӨХГҮЙ (Excel импорт энэ баганагүй), null =
+  // цэвэрлэх (автомат бодолт унтарна).
+  const sickBenefitPercent =
+    data.sickBenefitPercent === undefined
+      ? undefined
+      : data.sickBenefitPercent === null
+        ? null
+        : Number(data.sickBenefitPercent);
+  if (
+    sickBenefitPercent !== undefined &&
+    sickBenefitPercent !== null &&
+    (!Number.isFinite(sickBenefitPercent) ||
+      sickBenefitPercent < 0 ||
+      sickBenefitPercent > 100)
+  )
+    throw new Error("ХЧТА тэтгэмжийн хувь 0–100%-ийн хооронд байна");
   const employmentType: EmploymentType = data.employmentType ?? "primary";
   if (!["primary", "contract", "hourly"].includes(employmentType))
     throw new Error("Ажил эрхлэлтийн төрөл буруу байна");
@@ -146,6 +179,12 @@ function validateEmployeeInput(data: EmployeeInput) {
     position: data.position?.trim() ?? "",
     baseSalary: String(baseSalary),
     employerSiPercent: String(employerSiPercent),
+    ...(sickBenefitPercent === undefined
+      ? {}
+      : {
+          sickBenefitPercent:
+            sickBenefitPercent === null ? null : String(sickBenefitPercent),
+        }),
     isActive: data.isActive ?? true,
   };
 }
@@ -266,9 +305,30 @@ export type PayrollLineView = {
   workedHours: number;
   /** Үндсэн олголт = цалин × ажилласан / ажиллавал зохих цаг. */
   baseEarnings: number;
+  /** Ээлжийн амралтын олговор — хоног × өдрийн дундажаас автомат. */
   vacationPay: number;
+  /** Илүү цаг/шөнө/амралт-баярын нэмэгдэл — цагаас автомат. */
+  overtimePay: number;
   otherAdditions: number;
-  /** Нийт олголт = үндсэн олголт + ээлжийн амралт + бусад нэмэгдэл. */
+  // Нэмэгдлийн ОРЦ (хэрэглэгч бөглөнө → дүн автоматаар бодогдоно)
+  overtimeHours: number;
+  restDayHours: number;
+  holidayHours: number;
+  nightHours: number;
+  vacationDays: number;
+  sickDays: number;
+  /** ХЧТА тэтгэмж — татвар/НДШ-гүй, гарт олгоход нэмэгдэнэ. */
+  sickBenefit: number;
+  /** Дүнг гараар дарж бичсэн эсэх (дахин бодолт хөндөхгүй). */
+  vacationPayManual: boolean;
+  overtimePayManual: boolean;
+  sickBenefitManual: boolean;
+  /** Олговрын суурь дундаж — ил харуулах, аудитад. */
+  averageMonthlyEarnings: number;
+  averageMonthsUsed: number;
+  /** ХЧТА-ийн хувь тохируулаагүй бол null — автомат бодогдохгүй. */
+  sickBenefitPercent: number | null;
+  /** Нийт олголт = үндсэн олголт + ээлжийн амралт + илүү цаг + бусад нэмэгдэл. */
   earnings: number;
   otherDeductions: number;
   employeeSi: number;
@@ -307,6 +367,16 @@ export type PayrollRunView = {
     siCapMultiplier: number;
     monthlyTaxFree: number;
     standardMonthlyHours: number;
+    /** Ээлжийн амралт/ХЧТА-ийн өдрийн дундаж хөлсний хуваагч. */
+    monthlyWorkDays: number;
+    /** Дундаж цалин бодох өмнөх сарын тоо (ХЗ-ийн «дундаж цалин хөлс»). */
+    averageEarningsMonths: number;
+    coefficients: {
+      overtime: number;
+      restDay: number;
+      holiday: number;
+      nightBonus: number;
+    };
     accounts: Record<string, string>;
   };
   activeEmployeeCount: number;
@@ -401,11 +471,29 @@ export async function getPayrollRunData(
           Math.round(
             (Number(line.earnings) -
               Number(line.vacationPay) -
+              Number(line.overtimePay) -
               Number(line.otherAdditions)) *
               100
           ) / 100,
         vacationPay: Number(line.vacationPay),
+        overtimePay: Number(line.overtimePay),
         otherAdditions: Number(line.otherAdditions),
+        overtimeHours: Number(line.overtimeHours),
+        restDayHours: Number(line.restDayHours),
+        holidayHours: Number(line.holidayHours),
+        nightHours: Number(line.nightHours),
+        vacationDays: Number(line.vacationDays),
+        sickDays: Number(line.sickDays),
+        sickBenefit: Number(line.sickBenefit),
+        vacationPayManual: line.vacationPayManual,
+        overtimePayManual: line.overtimePayManual,
+        sickBenefitManual: line.sickBenefitManual,
+        averageMonthlyEarnings: Number(line.averageMonthlyEarnings),
+        averageMonthsUsed: line.averageMonthsUsed,
+        sickBenefitPercent:
+          line.employee.sickBenefitPercent === null
+            ? null
+            : Number(line.employee.sickBenefitPercent),
         earnings: Number(line.earnings),
         otherDeductions: Number(line.otherDeductions),
         employeeSi: Number(line.employeeSi),
@@ -429,6 +517,14 @@ export async function getPayrollRunData(
       siCapMultiplier: settings.siCapMultiplier,
       monthlyTaxFree: Number(settings.monthlyTaxFree),
       standardMonthlyHours: Number(settings.standardMonthlyHours),
+      monthlyWorkDays: Number(settings.monthlyWorkDays),
+      averageEarningsMonths: settings.averageEarningsMonths,
+      coefficients: {
+        overtime: Number(settings.overtimeMultiplier),
+        restDay: Number(settings.restDayMultiplier),
+        holiday: Number(settings.holidayMultiplier),
+        nightBonus: Number(settings.nightBonusRate),
+      },
       accounts: {
         salaryExpense: settings.salaryExpenseAccountNumber,
         employerSiExpense: settings.employerSiExpenseAccountNumber,
@@ -447,7 +543,196 @@ type PayrollComputeSettings = {
   siCapMultiplier: number;
   monthlyTaxFree: number;
   standardMonthlyHours: number;
+  /** Өдрийн дундаж хөлсний хуваагч (ээлжийн амралт, ХЧТА). */
+  monthlyWorkDays: number;
+  /** Дундаж цалинг хэдэн сараар бодох (ХЗ-ийн «дундаж цалин хөлс»). */
+  averageEarningsMonths: number;
+  coefficients: OvertimeCoefficients;
 };
+
+/** Мөрийн нэмэгдэл/олговрын ОРЦ ба гараар дарж бичсэн дүнгүүд. */
+type LineAdditionsInput = {
+  overtimeHours: number;
+  restDayHours: number;
+  holidayHours: number;
+  nightHours: number;
+  vacationDays: number;
+  sickDays: number;
+  /** Хадгалагдсан дүнгүүд — «гар» тэмдэгтэй бол ЭДГЭЭР нь хүчинтэй. */
+  vacationPay: number;
+  overtimePay: number;
+  sickBenefit: number;
+  vacationPayManual: boolean;
+  overtimePayManual: boolean;
+  sickBenefitManual: boolean;
+  /** Ажилтны ХЧТА-ийн хувь — null бол автомат бодогдохгүй. */
+  sickBenefitPercent: number | null;
+  /** Ээлжийн амралт/ХЧТА-ийн суурь дундаж (өмнөх N сараас). */
+  average: AverageEarnings;
+};
+
+/** Автомат бодогдсон (эсвэл гараар дарагдсан) олговруудын эцсийн дүн. */
+type ResolvedAdditions = {
+  vacationPay: number;
+  overtimePay: number;
+  sickBenefit: number;
+  averageMonthly: number;
+  averageMonthsUsed: number;
+};
+
+/**
+ * Цаг/хоногоос олговруудыг бодно. «Гар» тэмдэгтэй дүнг ХЭЗЭЭ Ч дарж бичихгүй
+ * — хэрэглэгчийн засвар давамгайлна (тэмдгийг арилгавал дахин автомат болно).
+ */
+function resolveAdditions(
+  input: LineAdditionsInput & { hourlyRate: number },
+  settings: PayrollComputeSettings
+): ResolvedAdditions {
+  const dailyWage = averageDailyWage(
+    input.average.monthly,
+    settings.monthlyWorkDays
+  );
+  const autoOvertime = computeOvertimePay({
+    hourlyRate: input.hourlyRate,
+    hours: {
+      overtimeHours: input.overtimeHours,
+      restDayHours: input.restDayHours,
+      holidayHours: input.holidayHours,
+      nightHours: input.nightHours,
+    },
+    coefficients: settings.coefficients,
+  }).total;
+  const autoVacation = computeVacationPay(dailyWage, input.vacationDays);
+  // Хувь тохируулаагүй бол null — дүнг ЗОХИОХГҮЙ, хадгалагдсаныг нь үлдээнэ.
+  const autoSick = computeSickBenefit(
+    dailyWage,
+    input.sickDays,
+    input.sickBenefitPercent
+  );
+  return {
+    vacationPay: input.vacationPayManual ? input.vacationPay : autoVacation,
+    overtimePay: input.overtimePayManual ? input.overtimePay : autoOvertime,
+    sickBenefit: input.sickBenefitManual
+      ? input.sickBenefit
+      : (autoSick ?? input.sickBenefit),
+    averageMonthly: input.average.monthly,
+    averageMonthsUsed: input.average.monthsUsed,
+  };
+}
+
+type PayrollSettingsRow = Awaited<ReturnType<typeof loadPayrollSettings>>;
+
+function computeSettingsOf(row: PayrollSettingsRow): PayrollComputeSettings {
+  return {
+    minimumWage: Number(row.minimumWage),
+    siCapMultiplier: row.siCapMultiplier,
+    monthlyTaxFree: Number(row.monthlyTaxFree),
+    standardMonthlyHours: Number(row.standardMonthlyHours),
+    monthlyWorkDays: Number(row.monthlyWorkDays),
+    averageEarningsMonths: row.averageEarningsMonths,
+    coefficients: {
+      overtime: Number(row.overtimeMultiplier),
+      restDay: Number(row.restDayMultiplier),
+      holiday: Number(row.holidayMultiplier),
+      nightBonus: Number(row.nightBonusRate),
+    },
+  };
+}
+
+/**
+ * Ажилтан бүрийн өмнөх N сарын бодит олголт — дундаж цалингийн суурь.
+ * Зөвхөн БОДОГДСОН сарууд орно (хоосон сар дундажийг бууруулахгүй).
+ */
+async function loadEarningsHistory(
+  orgId: string,
+  periodMonth: string,
+  months: number
+): Promise<Map<string, EarningsHistoryRow[]>> {
+  const codes = previousPeriodCodes(periodMonth, months);
+  const rows = await db
+    .select({
+      employeeId: payrollRunLines.employeeId,
+      periodMonth: payrollRuns.periodMonth,
+      earnings: payrollRunLines.earnings,
+    })
+    .from(payrollRunLines)
+    .innerJoin(payrollRuns, eq(payrollRunLines.runId, payrollRuns.id))
+    .where(
+      and(
+        eq(payrollRuns.organizationId, orgId),
+        inArray(payrollRuns.periodMonth, codes)
+      )
+    );
+  const byEmployee = new Map<string, EarningsHistoryRow[]>();
+  for (const row of rows) {
+    const list = byEmployee.get(row.employeeId) ?? [];
+    list.push({ periodMonth: row.periodMonth, earnings: Number(row.earnings) });
+    byEmployee.set(row.employeeId, list);
+  }
+  return byEmployee;
+}
+
+type PayrollLineRow = typeof payrollRunLines.$inferSelect;
+type EmployeeRow = typeof employees.$inferSelect;
+
+/** Мөрийн хадгалагдсан орц + ажилтны хувь + дундаж → нэмэгдлийн орц. */
+function lineAdditionsOf(
+  existing: PayrollLineRow | undefined,
+  person: EmployeeRow,
+  periodMonth: string,
+  history: EarningsHistoryRow[],
+  settings: PayrollComputeSettings
+): LineAdditionsInput {
+  const average = averageMonthlyEarnings({
+    periodMonth,
+    history,
+    months: settings.averageEarningsMonths,
+    baseSalary: Number(person.baseSalary),
+  });
+  const num = (value: string | null | undefined) => (value ? Number(value) : 0);
+  return {
+    overtimeHours: num(existing?.overtimeHours),
+    restDayHours: num(existing?.restDayHours),
+    holidayHours: num(existing?.holidayHours),
+    nightHours: num(existing?.nightHours),
+    vacationDays: num(existing?.vacationDays),
+    sickDays: num(existing?.sickDays),
+    vacationPay: num(existing?.vacationPay),
+    overtimePay: num(existing?.overtimePay),
+    sickBenefit: num(existing?.sickBenefit),
+    vacationPayManual: existing?.vacationPayManual ?? false,
+    overtimePayManual: existing?.overtimePayManual ?? false,
+    sickBenefitManual: existing?.sickBenefitManual ?? false,
+    sickBenefitPercent:
+      person.sickBenefitPercent === null || person.sickBenefitPercent === undefined
+        ? null
+        : Number(person.sickBenefitPercent),
+    average,
+  };
+}
+
+/** Нэмэгдлийн орц + бодогдсон дүн → DB-д бичих талбарууд. */
+function additionsDerived(
+  input: LineAdditionsInput,
+  resolved: ResolvedAdditions
+) {
+  return {
+    overtimeHours: String(input.overtimeHours),
+    restDayHours: String(input.restDayHours),
+    holidayHours: String(input.holidayHours),
+    nightHours: String(input.nightHours),
+    vacationDays: String(input.vacationDays),
+    sickDays: String(input.sickDays),
+    vacationPay: String(resolved.vacationPay),
+    overtimePay: String(resolved.overtimePay),
+    sickBenefit: String(resolved.sickBenefit),
+    vacationPayManual: input.vacationPayManual,
+    overtimePayManual: input.overtimePayManual,
+    sickBenefitManual: input.sickBenefitManual,
+    averageMonthlyEarnings: String(resolved.averageMonthly),
+    averageMonthsUsed: resolved.averageMonthsUsed,
+  };
+}
 
 function computeFor(
   input: {
@@ -457,28 +742,34 @@ function computeFor(
     /** Мөрийн ажиллавал зохих цаг; 0 бол тохиргооны стандарт цаг. */
     standardHours: number;
     workedHours: number;
-    vacationPay: number;
     otherAdditions: number;
     baseSalary: number;
-  },
+  } & LineAdditionsInput,
   periodMonth: string,
   settings: PayrollComputeSettings
-): PayrollResult & { baseEarnings: number } {
+): PayrollResult & { baseEarnings: number; additions: ResolvedAdditions } {
   const { endDate } = periodRange(periodMonth);
   const standardHours =
     input.standardHours || settings.standardMonthlyHours;
+  const additions = resolveAdditions(
+    { ...input, hourlyRate: input.baseSalary / standardHours },
+    settings
+  );
   // Нийт олголт нь ЦАГААС бодогдоно: үндсэн олголт + ээлжийн амралт +
-  // бусад нэмэгдэл. НДШ, ХАОАТ энэ дүн дээр тооцоологдоно.
+  // илүү цагийн нэмэгдэл + бусад нэмэгдэл. НДШ, ХАОАТ энэ дүн дээр
+  // тооцоологдоно (ХЧТА тэтгэмж нь ОРОХГҮЙ — татвар, шимтгэлгүй).
   const earned = computeEarnings({
     baseSalary: input.baseSalary,
     standardHours,
     workedHours: input.workedHours,
-    vacationPay: input.vacationPay,
+    vacationPay: additions.vacationPay,
+    overtimePay: additions.overtimePay,
     otherAdditions: input.otherAdditions,
   });
   const result = computeEmployeePayroll({
     earnings: earned.earnings,
     otherDeductions: input.otherDeductions,
+    sickBenefit: additions.sickBenefit,
     employerSiPercent: input.employerSiPercent,
     date: endDate,
     minimumWage: settings.minimumWage,
@@ -490,7 +781,7 @@ function computeFor(
     // бусад нэмэгдлийг урьдчилгаанд оруулахгүй (сүүл цалинд бүтнээр орно).
     advanceBaseSalary: input.baseSalary,
   });
-  return { ...result, baseEarnings: earned.baseEarnings };
+  return { ...result, baseEarnings: earned.baseEarnings, additions };
 }
 
 /**
@@ -514,12 +805,15 @@ export async function calculatePayrollRun(periodMonth: string) {
   ]);
   if (staff.length === 0)
     throw new Error("Идэвхтэй ажилтан алга — эхлээд Ажилтнууд хэсэгт бүртгэнэ үү");
-  const settings: PayrollComputeSettings = {
-    minimumWage: Number(settingsRow.minimumWage),
-    siCapMultiplier: settingsRow.siCapMultiplier,
-    monthlyTaxFree: Number(settingsRow.monthlyTaxFree),
-    standardMonthlyHours: Number(settingsRow.standardMonthlyHours),
-  };
+  const settings = computeSettingsOf(settingsRow);
+  // Ээлжийн амралт, ХЧТА-ийн суурь — өмнөх N сарын БОДИТ олголт (ХЗ-ийн
+  // «дундаж цалин хөлс»). Түүхгүй ажилтанд үндсэн цалин суурь болно
+  // (averageMonthlyEarnings нь basis-ыг ИЛ буцаана).
+  const history = await loadEarningsHistory(
+    orgId,
+    periodMonth,
+    settings.averageEarningsMonths
+  );
 
   await db.transaction(async (tx) => {
     let run = await tx.query.payrollRuns.findFirst({
@@ -556,6 +850,13 @@ export async function calculatePayrollRun(periodMonth: string) {
         settings.standardMonthlyHours;
       const workedHours =
         (existing ? Number(existing.workedHours) : 0) || standardHours;
+      const additionsInput = lineAdditionsOf(
+        existing,
+        person,
+        periodMonth,
+        history.get(person.id) ?? [],
+        settings
+      );
       const result = computeFor(
         {
           otherDeductions,
@@ -563,9 +864,9 @@ export async function calculatePayrollRun(periodMonth: string) {
           advanceHours,
           standardHours,
           workedHours,
-          vacationPay: existing ? Number(existing.vacationPay) : 0,
           otherAdditions: existing ? Number(existing.otherAdditions) : 0,
           baseSalary: Number(person.baseSalary),
+          ...additionsInput,
         },
         periodMonth,
         settings
@@ -575,7 +876,6 @@ export async function calculatePayrollRun(periodMonth: string) {
         otherDeductions: String(result.otherDeductions),
         standardHours: String(standardHours),
         workedHours: String(workedHours),
-        vacationPay: String(existing ? Number(existing.vacationPay) : 0),
         otherAdditions: String(existing ? Number(existing.otherAdditions) : 0),
         advanceHours: String(result.advanceHours),
         advanceAmount: String(result.advanceAmount),
@@ -584,6 +884,7 @@ export async function calculatePayrollRun(periodMonth: string) {
         pit: String(result.pit),
         netSalary: String(result.netSalary),
         sortOrder: sortOrder++,
+        ...additionsDerived(additionsInput, result.additions),
       };
       if (existing)
         await tx
@@ -613,8 +914,23 @@ export async function updatePayrollLine(data: {
   advanceHours?: number;
   standardHours?: number;
   workedHours?: number;
-  vacationPay?: number;
   otherAdditions?: number;
+  // Нэмэгдлийн ОРЦ — өөрчлөгдвөл харгалзах дүн ДАХИН автомат бодогдоно
+  // (гар тэмдэг арилна).
+  overtimeHours?: number;
+  restDayHours?: number;
+  holidayHours?: number;
+  nightHours?: number;
+  vacationDays?: number;
+  sickDays?: number;
+  /** Дүнг ГАРААР дарж бичих — «гар» тэмдэг асна (дахин бодолт дарахгүй). */
+  vacationPay?: number;
+  overtimePay?: number;
+  sickBenefit?: number;
+  /** Тэмдгийг арилгаж дахин АВТОМАТ болгох (дүн дахин бодогдоно). */
+  clearVacationPayManual?: boolean;
+  clearOvertimePayManual?: boolean;
+  clearSickBenefitManual?: boolean;
 }) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const line = await db.query.payrollRunLines.findFirst({
@@ -630,8 +946,57 @@ export async function updatePayrollLine(data: {
     Number(data.standardHours ?? line.standardHours) ||
     Number(settingsRow.standardMonthlyHours);
   const workedHours = Number(data.workedHours ?? line.workedHours) || standardHours;
-  const vacationPay = Number(data.vacationPay ?? line.vacationPay);
   const otherAdditions = Number(data.otherAdditions ?? line.otherAdditions);
+  const settings = computeSettingsOf(settingsRow);
+  const history = await loadEarningsHistory(
+    orgId,
+    line.run.periodMonth,
+    settings.averageEarningsMonths
+  );
+  const stored = lineAdditionsOf(
+    line,
+    line.employee,
+    line.run.periodMonth,
+    history.get(line.employeeId) ?? [],
+    settings
+  );
+  // Цаг/хоногийн ОРЦ өөрчлөгдвөл харгалзах дүн дахин АВТОМАТ болно — эс тэгвээс
+  // нэг удаа гараар дарж бичсэн дүн шинэ цагийг үл тоон үүрд гацна.
+  const overtimeInputChanged =
+    data.overtimeHours !== undefined ||
+    data.restDayHours !== undefined ||
+    data.holidayHours !== undefined ||
+    data.nightHours !== undefined;
+  const clearOvertimeManual =
+    data.clearOvertimePayManual || (overtimeInputChanged && data.overtimePay === undefined);
+  const clearVacationManual =
+    data.clearVacationPayManual ||
+    (data.vacationDays !== undefined && data.vacationPay === undefined);
+  const clearSickManual =
+    data.clearSickBenefitManual ||
+    (data.sickDays !== undefined && data.sickBenefit === undefined);
+  // Дүнг гараар өгвөл «гар» тэмдэг асна; тэмдгийг ил арилгавал дахин автомат.
+  const additionsInput: LineAdditionsInput = {
+    ...stored,
+    overtimeHours: data.overtimeHours ?? stored.overtimeHours,
+    restDayHours: data.restDayHours ?? stored.restDayHours,
+    holidayHours: data.holidayHours ?? stored.holidayHours,
+    nightHours: data.nightHours ?? stored.nightHours,
+    vacationDays: data.vacationDays ?? stored.vacationDays,
+    sickDays: data.sickDays ?? stored.sickDays,
+    vacationPay: data.vacationPay ?? stored.vacationPay,
+    overtimePay: data.overtimePay ?? stored.overtimePay,
+    sickBenefit: data.sickBenefit ?? stored.sickBenefit,
+    vacationPayManual: clearVacationManual
+      ? false
+      : data.vacationPay !== undefined || stored.vacationPayManual,
+    overtimePayManual: clearOvertimeManual
+      ? false
+      : data.overtimePay !== undefined || stored.overtimePayManual,
+    sickBenefitManual: clearSickManual
+      ? false
+      : data.sickBenefit !== undefined || stored.sickBenefitManual,
+  };
   const result = computeFor(
     {
       otherDeductions: Number(data.otherDeductions),
@@ -639,17 +1004,12 @@ export async function updatePayrollLine(data: {
       advanceHours: Number(data.advanceHours ?? line.advanceHours),
       standardHours,
       workedHours,
-      vacationPay,
       otherAdditions,
       baseSalary: Number(line.employee.baseSalary),
+      ...additionsInput,
     },
     line.run.periodMonth,
-    {
-      minimumWage: Number(settingsRow.minimumWage),
-      siCapMultiplier: settingsRow.siCapMultiplier,
-      monthlyTaxFree: Number(settingsRow.monthlyTaxFree),
-      standardMonthlyHours: Number(settingsRow.standardMonthlyHours),
-    }
+    settings
   );
   await db
     .update(payrollRunLines)
@@ -658,7 +1018,6 @@ export async function updatePayrollLine(data: {
       otherDeductions: String(result.otherDeductions),
       standardHours: String(standardHours),
       workedHours: String(workedHours),
-      vacationPay: String(vacationPay),
       otherAdditions: String(otherAdditions),
       advanceHours: String(result.advanceHours),
       advanceAmount: String(result.advanceAmount),
@@ -666,6 +1025,7 @@ export async function updatePayrollLine(data: {
       employerSi: String(result.employerSi),
       pit: String(result.pit),
       netSalary: String(result.netSalary),
+      ...additionsDerived(additionsInput, result.additions),
     })
     .where(eq(payrollRunLines.id, data.lineId));
   revalidatePayroll();
@@ -737,9 +1097,18 @@ export async function createPayrollVoucher(
       employerSi: sum.employerSi + Number(line.employerSi),
       pit: sum.pit + Number(line.pit),
       otherDeductions: sum.otherDeductions + Number(line.otherDeductions),
+      sickBenefit: sum.sickBenefit + Number(line.sickBenefit),
       netSalary: sum.netSalary + Number(line.netSalary),
     }),
-    { earnings: 0, employeeSi: 0, employerSi: 0, pit: 0, otherDeductions: 0, netSalary: 0 }
+    {
+      earnings: 0,
+      employeeSi: 0,
+      employerSi: 0,
+      pit: 0,
+      otherDeductions: 0,
+      sickBenefit: 0,
+      netSalary: 0,
+    }
   );
   if (!(totals.earnings > 0)) throw new Error("Нийт олголт 0 байна");
 
@@ -751,6 +1120,10 @@ export async function createPayrollVoucher(
     pitPayable: settings.pitPayableAccountNumber,
     salaryPayable: settings.salaryPayableAccountNumber,
     deduction: settings.deductionAccountNumber,
+    // ХЧТА тэтгэмжийн зардал — тохируулаагүй бол цалингийн зардлын данс
+    // (тохиргооны ил сонголт; нягтлан дараа нь ангилж болно).
+    sickBenefitExpense:
+      settings.sickBenefitAccountNumber || settings.salaryExpenseAccountNumber,
   };
   // Тохиргооны данс идэвхтэй эсэхийг эрт, ойлгомжтой шалгана (createVoucher
   // мөн ДАХИН шалгана).

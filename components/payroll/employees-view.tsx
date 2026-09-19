@@ -59,6 +59,8 @@ export interface EmployeeRow {
   position: string;
   baseSalary: number;
   employerSiPercent: number;
+  /** ХЧТА тэтгэмжийн хувь — null бол тэтгэмж автоматаар бодогдохгүй. */
+  sickBenefitPercent: number | null;
   isActive: boolean;
 }
 
@@ -85,6 +87,7 @@ interface FormState {
   position: string;
   baseSalary: string;
   employerSiPercent: string;
+  sickBenefitPercent: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -105,6 +108,7 @@ const EMPTY_FORM: FormState = {
   position: "",
   baseSalary: "",
   employerSiPercent: "12.5",
+  sickBenefitPercent: "",
 };
 
 function errorMessage(error: unknown): string {
@@ -163,6 +167,8 @@ export function EmployeesView({ rows }: Props) {
       position: row.position,
       baseSalary: row.baseSalary.toLocaleString("en-US"),
       employerSiPercent: String(row.employerSiPercent),
+      sickBenefitPercent:
+        row.sickBenefitPercent === null ? "" : String(row.sickBenefitPercent),
     });
     setOpen(true);
   }
@@ -176,6 +182,9 @@ export function EmployeesView({ rows }: Props) {
   function save() {
     const baseSalary = parseMntInput(form.baseSalary);
     const employerSiPercent = Number(form.employerSiPercent);
+    // Хоосон = тохируулаагүй (null) — ХЧТА тэтгэмж автоматаар бодогдохгүй.
+    const sickPercentRaw = form.sickBenefitPercent.trim();
+    const sickBenefitPercent = sickPercentRaw === "" ? null : Number(sickPercentRaw);
     startTransition(async () => {
       try {
         await upsertEmployee({
@@ -197,6 +206,7 @@ export function EmployeesView({ rows }: Props) {
           position: form.position || undefined,
           baseSalary: Number.isFinite(baseSalary) ? baseSalary : NaN,
           employerSiPercent,
+          sickBenefitPercent,
         });
         toast.success(
           form.id ? "Ажилтны мэдээлэл хадгалагдлаа" : "Ажилтан бүртгэгдлээ"
@@ -627,6 +637,25 @@ export function EmployeesView({ rows }: Props) {
                 <p className="text-xs text-[var(--ea-text-4)]">
                   Ажил олгогчийн нийт НДШ (ҮОМШӨ багтсан): оффис 12.5 ·
                   барилга 13.2 · уул уурхай 14.2–14.7. Ажилтны 11.5% тогтмол.
+                </p>
+              </Field>
+              <Field label="ХЧТА тэтгэмжийн %">
+                <Input
+                  value={form.sickBenefitPercent}
+                  onChange={(event) =>
+                    setForm((c) => ({
+                      ...c,
+                      sickBenefitPercent: event.target.value,
+                    }))
+                  }
+                  placeholder="Хоосон = автоматаар бодохгүй"
+                  className="font-mono"
+                />
+                <p className="text-xs text-[var(--ea-text-4)]">
+                  Хөдөлмөрийн чадвар түр алдалтын тэтгэмжийн хувь — НД-ын
+                  шимтгэл төлсөн жилээс хамаарна. Хоосон бол цалингийн
+                  бодолтод тэтгэмж АВТОМАТААР бодогдохгүй (хувийг зохиохгүй) —
+                  дүнг тухайн сарын мөрөнд гараар оруулна.
                 </p>
               </Field>
             </FormSection>

@@ -32,6 +32,10 @@ export default async function PayrollEmployeesPage() {
     position: person.position,
     baseSalary: Number(person.baseSalary),
     employerSiPercent: Number(person.employerSiPercent),
+    sickBenefitPercent:
+      person.sickBenefitPercent === null
+        ? null
+        : Number(person.sickBenefitPercent),
     isActive: person.isActive,
   }));
 

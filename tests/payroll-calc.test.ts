@@ -284,3 +284,72 @@ test("ажиллавал зохих цаг 0 бол олголт бодогдо�
     /Ажиллавал зохих цаг/
   );
 });
+
+// ── ХЧТА тэтгэмж — татвар, шимтгэлийн сууринд ОРОХГҮЙ ──────────────────────
+// ХАОАТ хууль 24: хөдөлмөрийн чадвар түр алдалтын тэтгэмж татвараас
+// чөлөөлөгдөнө; НДШ мөн ногдуулахгүй. Тиймээс нийт олголтод НЭМЭГДЭХГҮЙ,
+// зөвхөн ГАРТ ОЛГОХ дүнд нэмэгдэнэ.
+
+test("ХЧТА тэтгэмж: НДШ, ХАОАТ өөрчлөгдөхгүй, зөвхөн гарт олгох нэмэгдэнэ", () => {
+  const base = computeEmployeePayroll(BOLD);
+  const withSick = computeEmployeePayroll({ ...BOLD, sickBenefit: 300_000 });
+  assert.equal(withSick.employeeSi, base.employeeSi);
+  assert.equal(withSick.employerSi, base.employerSi);
+  assert.equal(withSick.taxableIncome, base.taxableIncome);
+  assert.equal(withSick.pit, base.pit);
+  assert.equal(withSick.sickBenefit, 300_000);
+  assert.equal(withSick.netSalary, base.netSalary + 300_000);
+});
+
+test("ХЧТА тэтгэмжтэй GL журнал: Dr = Cr тэнцэж, тусдаа зардлын мөр гарна", () => {
+  const withSick = computeEmployeePayroll({ ...BOLD, sickBenefit: 300_000 });
+  const totals = {
+    earnings: BOLD.earnings,
+    employeeSi: withSick.employeeSi,
+    employerSi: withSick.employerSi,
+    pit: withSick.pit,
+    otherDeductions: BOLD.otherDeductions,
+    netSalary: withSick.netSalary,
+    sickBenefit: 300_000,
+  };
+  const accounts = {
+    salaryExpense: "72100000",
+    employerSiExpense: "72100002",
+    siPayable: "31420000",
+    pitPayable: "31430000",
+    salaryPayable: "31500001",
+    deduction: "31900001",
+    sickBenefitExpense: "72100003",
+  };
+  const lines = buildPayrollJournalLines(totals, accounts, "2026-07");
+  const dr = lines.reduce((sum, line) => sum + line.debit, 0);
+  const cr = lines.reduce((sum, line) => sum + line.credit, 0);
+  assert.equal(dr, cr);
+  const sickLine = lines.find((line) => line.account === "72100003");
+  assert.equal(sickLine?.debit, 300_000);
+  // Данс тохируулаагүй бол цалингийн зардлын дансанд бичигдэнэ (мөр алдагдахгүй).
+  const fallback = buildPayrollJournalLines(
+    totals,
+    { ...accounts, sickBenefitExpense: undefined },
+    "2026-07"
+  );
+  assert.equal(
+    fallback.reduce((sum, line) => sum + line.debit - line.credit, 0),
+    0
+  );
+});
+
+// ── Нэмэгдлүүд нийт олголтод ЗӨВ нийлнэ ────────────────────────────────────
+
+test("computeEarnings: үндсэн олголт + ээлжийн амралт + илүү цаг + бусад", () => {
+  const earned = computeEarnings({
+    baseSalary: 2_000_000,
+    standardHours: 168,
+    workedHours: 168,
+    vacationPay: 300_000,
+    overtimePay: 89_286,
+    otherAdditions: 50_000,
+  });
+  assert.equal(earned.baseEarnings, 2_000_000);
+  assert.equal(earned.earnings, 2_439_286);
+});

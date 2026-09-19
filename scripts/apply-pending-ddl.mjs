@@ -231,6 +231,53 @@ async function main() {
        add column if not exists sales_price numeric(18, 4)`
   );
 
+  // ── 4. Цалингийн нэмэгдэл/олговрын АВТОМАТ бодолт (CLAUDE.md §7) ─────────
+  // Цаг/хоногийн ОРЦ, автоматаар бодогдсон дүн, «гар засвар» тэмдэг ба
+  // дундажийн баримт. Бүгд default-той тул байгаа мөрүүд 0-оор бөглөгдөнө.
+  for (const [column, type] of [
+    ["overtime_hours", "numeric(8, 2) not null default '0'"],
+    ["rest_day_hours", "numeric(8, 2) not null default '0'"],
+    ["holiday_hours", "numeric(8, 2) not null default '0'"],
+    ["night_hours", "numeric(8, 2) not null default '0'"],
+    ["vacation_days", "numeric(8, 2) not null default '0'"],
+    ["sick_days", "numeric(8, 2) not null default '0'"],
+    ["overtime_pay", "numeric(18, 2) not null default '0'"],
+    ["sick_benefit", "numeric(18, 2) not null default '0'"],
+    ["vacation_pay_manual", "boolean not null default false"],
+    ["overtime_pay_manual", "boolean not null default false"],
+    ["sick_benefit_manual", "boolean not null default false"],
+    ["average_monthly_earnings", "numeric(18, 2) not null default '0'"],
+    ["average_months_used", "integer not null default 0"],
+  ]) {
+    await run(
+      `payroll_run_lines.${column} багана`,
+      `alter table payroll_run_lines
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  for (const [column, type] of [
+    ["monthly_work_days", "numeric(6, 2) not null default '22'"],
+    ["average_earnings_months", "integer not null default 12"],
+    ["overtime_multiplier", "numeric(5, 2) not null default '1.5'"],
+    ["rest_day_multiplier", "numeric(5, 2) not null default '1.5'"],
+    ["holiday_multiplier", "numeric(5, 2) not null default '2'"],
+    ["night_bonus_rate", "numeric(5, 2) not null default '0.2'"],
+    ["sick_benefit_account_number", "text"],
+  ]) {
+    await run(
+      `payroll_settings.${column} багана`,
+      `alter table payroll_settings
+         add column if not exists ${column} ${type}`
+    );
+  }
+
+  await run(
+    "employees.sick_benefit_percent багана",
+    `alter table employees
+       add column if not exists sick_benefit_percent numeric(5, 2)`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

@@ -17,12 +17,18 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { CellValueChangedEvent, ColDef } from "ag-grid-community";
+import type {
+  CellValueChangedEvent,
+  ColDef,
+  ColGroupDef,
+  ICellRendererParams,
+} from "ag-grid-community";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { IconAction } from "@/components/ui/icon-action";
 import { PageTabs } from "@/components/ui/tabs";
 import {
   calculatePayrollRun,
@@ -78,6 +84,8 @@ export function PayrollRunView({ data }: Props) {
           earnings: sum.earnings + line.earnings,
           baseEarnings: sum.baseEarnings + line.baseEarnings,
           vacationPay: sum.vacationPay + line.vacationPay,
+          overtimePay: sum.overtimePay + line.overtimePay,
+          sickBenefit: sum.sickBenefit + line.sickBenefit,
           otherAdditions: sum.otherAdditions + line.otherAdditions,
           otherDeductions: sum.otherDeductions + line.otherDeductions,
           employeeSi: sum.employeeSi + line.employeeSi,
@@ -87,11 +95,19 @@ export function PayrollRunView({ data }: Props) {
           advanceHours: sum.advanceHours + line.advanceHours,
           advanceAmount: sum.advanceAmount + line.advanceAmount,
           finalNet: sum.finalNet + line.finalNet,
+          overtimeHours: sum.overtimeHours + line.overtimeHours,
+          restDayHours: sum.restDayHours + line.restDayHours,
+          holidayHours: sum.holidayHours + line.holidayHours,
+          nightHours: sum.nightHours + line.nightHours,
+          vacationDays: sum.vacationDays + line.vacationDays,
+          sickDays: sum.sickDays + line.sickDays,
         }),
         {
           earnings: 0,
           baseEarnings: 0,
           vacationPay: 0,
+          overtimePay: 0,
+          sickBenefit: 0,
           otherAdditions: 0,
           otherDeductions: 0,
           employeeSi: 0,
@@ -101,6 +117,12 @@ export function PayrollRunView({ data }: Props) {
           advanceHours: 0,
           advanceAmount: 0,
           finalNet: 0,
+          overtimeHours: 0,
+          restDayHours: 0,
+          holidayHours: 0,
+          nightHours: 0,
+          vacationDays: 0,
+          sickDays: 0,
         }
       ),
     [lines]
@@ -118,6 +140,13 @@ export function PayrollRunView({ data }: Props) {
         standardHours: 0,
         workedHours: 0,
         hourlyRate: 0,
+        // Нийлбэр мөрд «гар» тэмдэг утгагүй — дүнгүүд нь олон мөрийн нийлбэр.
+        vacationPayManual: false,
+        overtimePayManual: false,
+        sickBenefitManual: false,
+        averageMonthlyEarnings: 0,
+        averageMonthsUsed: 0,
+        sickBenefitPercent: null,
         ...totals,
       } satisfies PayrollLineView,
     ],
@@ -178,30 +207,43 @@ export function PayrollRunView({ data }: Props) {
     });
   }
 
+  // Засварласан НЭГ талбарыг л server рүү явуулна: олговрын дүнг (ээлжийн
+  // амралт / илүү цаг / ХЧТА) явуулах нь тэр мөрд «гар» тэмдэг АСААДАГ тул
+  // бүх утгыг сохроор давтвал хэрэглэгч хөндөөгүй дүн гараар түгжигдэнэ.
+  const EDITABLE_FIELDS = [
+    "otherDeductions",
+    "advanceHours",
+    "standardHours",
+    "workedHours",
+    "otherAdditions",
+    "overtimeHours",
+    "restDayHours",
+    "holidayHours",
+    "nightHours",
+    "vacationDays",
+    "sickDays",
+    "vacationPay",
+    "overtimePay",
+    "sickBenefit",
+  ] as const;
+
+  type EditableField = (typeof EDITABLE_FIELDS)[number];
+
   async function handleCellValueChanged(
     event: CellValueChangedEvent<PayrollLineView>
   ) {
-    const field = event.colDef.field;
-    const EDITABLE_FIELDS = [
-      "otherDeductions",
-      "advanceHours",
-      "standardHours",
-      "workedHours",
-      "vacationPay",
-      "otherAdditions",
-    ];
+    const field = event.colDef.field as EditableField | undefined;
     if (!field || !EDITABLE_FIELDS.includes(field)) return;
     if (!event.data || event.node.rowPinned) return;
     if (event.newValue === event.oldValue) return;
     try {
+      const edited = {
+        [field]: Number(event.newValue ?? 0),
+      } as Partial<Record<EditableField, number>>;
       await updatePayrollLine({
         lineId: event.data.id,
         otherDeductions: event.data.otherDeductions,
-        advanceHours: event.data.advanceHours,
-        standardHours: event.data.standardHours,
-        workedHours: event.data.workedHours,
-        vacationPay: event.data.vacationPay,
-        otherAdditions: event.data.otherAdditions,
+        ...edited,
       });
       router.refresh();
     } catch (error) {
@@ -211,9 +253,46 @@ export function PayrollRunView({ data }: Props) {
     }
   }
 
-  const columns = useMemo<ColDef<PayrollLineView>[]>(() => {
+  /** «Гар» тэмдгийг арилгаж мөрийн олговруудыг дахин АВТОМАТ болгоно. */
+  function restoreAuto(line: PayrollLineView) {
+    startTransition(async () => {
+      try {
+        await updatePayrollLine({
+          lineId: line.id,
+          otherDeductions: line.otherDeductions,
+          clearVacationPayManual: true,
+          clearOvertimePayManual: true,
+          clearSickBenefitManual: true,
+        });
+        toast.success("Олговрууд дахин автомат бодогдлоо");
+        router.refresh();
+      } catch (error) {
+        toast.error(errorMessage(error));
+      }
+    });
+  }
+
+  const columns = useMemo<(ColDef<PayrollLineView> | ColGroupDef<PayrollLineView>)[]>(() => {
     const editable = (params: { node: { rowPinned?: string | null } }) =>
       !locked && !params.node.rowPinned;
+
+    // Гараар дарж бичсэн дүнг ИЛ тэмдэглэнэ — дахин бодолт үүнийг хөндөхгүй.
+    const manualRules = (
+      flag: "vacationPayManual" | "overtimePayManual" | "sickBenefitManual"
+    ) => ({
+      "text-[var(--ea-warning-fg)]": (params: { data?: PayrollLineView; node: { rowPinned?: string | null } }) =>
+        !params.node.rowPinned && !!params.data?.[flag],
+      "font-semibold": (params: { data?: PayrollLineView; node: { rowPinned?: string | null } }) =>
+        !params.node.rowPinned && !!params.data?.[flag],
+    });
+
+    const manualTooltip = (
+      flag: "vacationPayManual" | "overtimePayManual" | "sickBenefitManual",
+      auto: string
+    ) => (params: { data?: PayrollLineView }) =>
+      params.data?.[flag]
+        ? "Гараар засварласан — дахин бодолт энэ дүнг хөндөхгүй. «Авто» товчоор буцаана."
+        : auto;
 
     // Хоёр табын НИЙТЛЭГ эхний багануудыг нэг л газар тодорхойлно.
     const identity: ColDef<PayrollLineView>[] = [
@@ -275,9 +354,10 @@ export function PayrollRunView({ data }: Props) {
       ];
 
     // СҮҮЛ ЦАЛИН — тооцооллын дараалал зүүнээс баруун тийш:
-    //   цаг → үндсэн олголт (+ ээлжийн амралт, нэмэгдэл) → нийт олголт
-    //   → НДШ, ХАОАТ → БУСАД СУУТГАЛ (татварын ДАРАА) → гарт олгох
-    //   → урьдчилгаа хасагдаж сүүл цалин
+    //   цаг → үндсэн олголт → нэмэгдлүүд (ЦАГ/ХОНОГ-оос АВТОМАТ бодогдоно,
+    //   дүнг гараар дарж бичиж болно) → нийт олголт → НДШ, ХАОАТ
+    //   → ХЧТА тэтгэмж (татваргүй) → БУСАД СУУТГАЛ (татварын ДАРАА)
+    //   → гарт олгох → урьдчилгаа хасагдаж сүүл цалин
     return [
       ...identity,
       col<PayrollLineView>({
@@ -300,13 +380,87 @@ export function PayrollRunView({ data }: Props) {
         field: "baseEarnings",
         width: 145,
       }),
-      col<PayrollLineView>({
-        eaType: "number-money",
+      {
+        headerName: "Илүү цаг ба шөнийн ажил",
+        marryChildren: true,
+        children: [
+          col<PayrollLineView>({
+            eaType: "number-hours",
+            headerName: "Илүү цаг",
+            field: "overtimeHours",
+            width: 110,
+            editable,
+            headerTooltip: "ХЗ 103 — 1.5×",
+            columnGroupShow: "open",
+          }),
+          col<PayrollLineView>({
+            eaType: "number-hours",
+            headerName: "Амралтын өдөр",
+            field: "restDayHours",
+            width: 140,
+            editable,
+            headerTooltip: "ХЗ 107 — 1.5×",
+            columnGroupShow: "open",
+          }),
+          col<PayrollLineView>({
+            eaType: "number-hours",
+            headerName: "Баярын өдөр",
+            field: "holidayHours",
+            width: 130,
+            editable,
+            headerTooltip: "ХЗ 108 — 2.0×",
+            columnGroupShow: "open",
+          }),
+          col<PayrollLineView>({
+            eaType: "number-hours",
+            headerName: "Шөнийн цаг",
+            field: "nightHours",
+            width: 125,
+            editable,
+            headerTooltip: "ХЗ 106 — цагийн хөлсний +20% нэмэгдэл",
+            columnGroupShow: "open",
+          }),
+          col<PayrollLineView>({
+            eaType: "number-money",
+            headerName: "Нэмэгдэл",
+            field: "overtimePay",
+            width: 140,
+            editable,
+            cellClassRules: manualRules("overtimePayManual"),
+            tooltipValueGetter: manualTooltip(
+              "overtimePayManual",
+              "Цагаас автоматаар бодогдсон — дүнг гараар дарж бичиж болно."
+            ),
+          }),
+        ],
+      },
+      {
         headerName: "Ээлжийн амралт",
-        field: "vacationPay",
-        width: 150,
-        editable,
-      }),
+        marryChildren: true,
+        children: [
+          col<PayrollLineView>({
+            eaType: "number-hours",
+            headerName: "Хоног",
+            field: "vacationDays",
+            width: 100,
+            editable,
+            columnGroupShow: "open",
+            headerTooltip: "ХЗ 109 — өдрийн дундаж хөлс × хоног",
+          }),
+          col<PayrollLineView>({
+            eaType: "number-money",
+            headerName: "Олговор",
+            field: "vacationPay",
+            width: 145,
+            editable,
+            cellClassRules: manualRules("vacationPayManual"),
+            tooltipValueGetter: manualTooltip(
+              "vacationPayManual",
+              "Дундаж цалингаас автоматаар бодогдсон — дүнг гараар дарж бичиж болно."
+            ),
+          }),
+        ],
+      },
       col<PayrollLineView>({
         eaType: "number-money",
         headerName: "Бусад нэмэгдэл",
@@ -341,6 +495,38 @@ export function PayrollRunView({ data }: Props) {
         field: "pit",
         width: 120,
       }),
+      // ХЧТА тэтгэмж нь НДШ, ХАОАТ-ын сууринд ОРОХГҮЙ (ХАОАТ хууль 24) —
+      // тиймээс татварын багануудын БАРУУН талд, гарт олгоход НЭМЭГДЭНЭ.
+      {
+        headerName: "ХЧТА тэтгэмж",
+        marryChildren: true,
+        children: [
+          col<PayrollLineView>({
+            eaType: "number-hours",
+            headerName: "Хоног",
+            field: "sickDays",
+            width: 100,
+            editable,
+            columnGroupShow: "open",
+            headerTooltip:
+              "Хөдөлмөрийн чадвар түр алдалт — өдрийн дундаж × хоног × тэтгэмжийн хувь (ажилтны картад)",
+          }),
+          col<PayrollLineView>({
+            eaType: "number-money",
+            headerName: "Тэтгэмж",
+            field: "sickBenefit",
+            width: 140,
+            editable,
+            cellClassRules: manualRules("sickBenefitManual"),
+            tooltipValueGetter: (params) =>
+              params.data?.sickBenefitManual
+                ? "Гараар засварласан — дахин бодолт энэ дүнг хөндөхгүй. «Авто» товчоор буцаана."
+                : params.data && params.data.sickDays > 0 && params.data.sickBenefitPercent === null
+                  ? "Ажилтны ХЧТА-ийн хувь тохируулаагүй тул автоматаар бодогдоогүй — Ажилтнууд хэсэгт хувийг оруулах эсвэл дүнг гараар бичнэ."
+                  : "Тэтгэмжийн хувиар автоматаар бодогдсон — дүнг гараар дарж бичиж болно.",
+          }),
+        ],
+      },
       // Бусад суутгал нь татварын сууринд ОРОХГҮЙ — НДШ, ХАОАТ бодогдсоны
       // ДАРАА гарт олгохоос хасагдана, тиймээс багана нь тэдний БАРУУН талд.
       col<PayrollLineView>({
@@ -370,8 +556,36 @@ export function PayrollRunView({ data }: Props) {
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
       }),
+      {
+        headerName: "",
+        colId: "restoreAuto",
+        width: 56,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        cellRenderer: (params: ICellRendererParams<PayrollLineView>) => {
+          const row = params.data;
+          if (!row || params.node.rowPinned) return null;
+          const manual =
+            row.vacationPayManual || row.overtimePayManual || row.sickBenefitManual;
+          if (!manual) return null;
+          return (
+            <IconAction
+              name="reset"
+              size="xs"
+              label="Дахин автомат бодуулах"
+              tooltip="Гараар засварласан олговруудыг дахин автомат бодуулна"
+              disabled={locked || isPending}
+              onClick={() => restoreAuto(row)}
+            />
+          );
+        },
+      },
     ];
-  }, [locked, tab]);
+    // restoreAuto/isPending нь товчны идэвхийг л тодорхойлно — багана дахин
+    // үүсгэх шаардлагагүй тул хамаарлыг зориудаар нарийсгав.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked, tab, isPending]);
 
   const siCap = settings.minimumWage * settings.siCapMultiplier;
 
@@ -400,6 +614,24 @@ export function PayrollRunView({ data }: Props) {
             · Сарын стандарт ажлын цаг{" "}
             <span className="font-mono">{settings.standardMonthlyHours}</span>
           </p>
+          <p className="mt-0.5 text-xs text-[var(--ea-text-4)]">
+            Нэмэгдлийн коэффициент: илүү цаг{" "}
+            <span className="font-mono">×{settings.coefficients.overtime}</span>{" "}
+            · амралтын өдөр{" "}
+            <span className="font-mono">×{settings.coefficients.restDay}</span>{" "}
+            · баярын өдөр{" "}
+            <span className="font-mono">×{settings.coefficients.holiday}</span>{" "}
+            · шөнө{" "}
+            <span className="font-mono">
+              +{Math.round(settings.coefficients.nightBonus * 100)}%
+            </span>{" "}
+            · дундаж цалин{" "}
+            <span className="font-mono">
+              {settings.averageEarningsMonths}
+            </span>{" "}
+            сараар, сарын ажлын өдөр{" "}
+            <span className="font-mono">{settings.monthlyWorkDays}</span>
+          </p>
         </div>
         <Button size="sm" onClick={calculate} disabled={isPending || locked}>
           <Icon name="costing" size="sm" />
@@ -427,7 +659,7 @@ export function PayrollRunView({ data }: Props) {
         <p className="text-xs text-[var(--ea-text-3)]">
           {tab === "advance"
             ? "«Бодолт хийх» дарахад ажиллавал зохих цаг тохиргооноос бөглөгдөж цагийн хөлс бодогдоно (ажилтан бүрд засаж болно). Ажилласан цагийг оруулахад урьдчилгаа СУУТГАЛГҮЙ бодогдоно — цагийн хөлс = үндсэн цалин / ажиллавал зохих цаг."
-            : "Нийт олголт = үндсэн олголт (цалин × ажилласан / ажиллавал зохих цаг) + ээлжийн амралт + бусад нэмэгдэл. НДШ, ХАОАТ энэ дүн дээр бодогдоно; бусад суутгал нь ТАТВАРЫН ДАРАА хасагдана. Эцэст нь урьдчилгаа хасагдаж сүүл цалин гарна."}
+            : "Нэмэгдэл бүр ЦАГ/ХОНОГ-оос АВТОМАТ бодогдоно (илүү цаг 1.5×, амралтын өдөр 1.5×, баярын өдөр 2.0×, шөнө +20%; ээлжийн амралт ба ХЧТА нь өмнөх 12 сарын дундаж цалингаас). Дүнг гараар дарж бичвэл шар өнгөөр тэмдэглэгдэж дахин бодолт түүнийг ХӨНДӨХГҮЙ — ⟲ товчоор автомат руу нь буцаана. НДШ, ХАОАТ нь нийт олголт дээр бодогдоно; ХЧТА тэтгэмж татваргүй, бусад суутгал нь ТАТВАРЫН ДАРАА хасагдана. Эцэст нь урьдчилгаа хасагдаж сүүл цалин гарна."}
         </p>
       )}
 
