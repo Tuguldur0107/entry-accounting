@@ -102,7 +102,16 @@ export async function processSubmission(
 ): Promise<"sent" | "failed" | "skipped"> {
   if (!(await claim(submission.id))) return "skipped";
   const prepared = await prepareSubmission(submission, settingsRow);
-  if (!prepared) return "failed";
+  if (!prepared) {
+    // prepare нь хоёр шалтгаанаар null өгдөг: (а) аль хэдийн илгээгдсэн
+    // (давхар enqueue — PosAPI дуудалгүй sent болгосон), (б) payload үүсэхгүй
+    // ([EBARIMT_*] → failed). Тоолуурт эдгээрийг ЯЛГАНА.
+    const after = await db.query.posEbarimtSubmissions.findFirst({
+      where: eq(posEbarimtSubmissions.id, submission.id),
+      columns: { status: true },
+    });
+    return after?.status === "sent" ? "skipped" : "failed";
+  }
   try {
     if (prepared.cancel) {
       const cancelResponse = await posApiDeleteReceipt(prepared.settings.posApiUrl, prepared.cancel);
