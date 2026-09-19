@@ -484,6 +484,36 @@ body::before {
   }
 }
 
+/* ─── Цалингийн хуудас хэвлэх (A4) ──────────────────────────────────────── */
+/* PayslipReportView нь хэвлэх агшинд .ea-payslip-sheets-ийг body-д portal-оор
+   гаргаж body-д ea-printing-payslip class тавьдаг — зөвхөн хуудсууд хэвлэгдэж,
+   ажилтан бүр ШИНЭ хуудсанд эхэлнэ. */
+@media print {
+  body.ea-printing-payslip * {
+    visibility: hidden;
+  }
+  body.ea-printing-payslip .ea-payslip-sheets,
+  body.ea-printing-payslip .ea-payslip-sheets * {
+    visibility: visible;
+  }
+  body.ea-printing-payslip .ea-payslip-sheets {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    background: #fff;
+    color: #000;
+  }
+  body.ea-printing-payslip .ea-payslip {
+    break-after: page;
+    padding: 10mm;
+  }
+  body.ea-printing-payslip .ea-payslip:last-child {
+    break-after: auto;
+  }
+}
+
 /* ─── POS баримт хэвлэх (80мм) ───────────────────────────────────────────── */
 /* ReceiptPreview нь хэвлэх агшинд .pos-receipt-ийг body-д portal-оор гаргаж
    body-д ea-printing-pos class тавьдаг — зөвхөн баримт хэвлэгдэнэ. */

@@ -357,6 +357,20 @@ export const journalVouchers = pgTable(
     // Гадаад системийн давтагдашгүй дугаар (eBarimt ДДТД г.м) — idempotency
     // түлхүүр: ижил ref-тэй хоёр дахь create шинэ баримт үүсгэхгүй.
     externalRef: text("external_ref"),
+    /**
+     * Баримтын ВАЛЮТ ба ханш (IAS 21) — баримтад НЭГ валют, НЭГ ханш (касс,
+     * АР/АП-тай ИЖИЛ загвар). MNT баримтад currency="MNT", exchangeRate=1.
+     * Мөрийн debit/credit нь ҮРГЭЛЖ ДЭВТРИЙН валют (MNT) — баланс, тайлан
+     * бүгд түүгээр бодогдоно; валютын дүн нь мөрийн debitFc/creditFc.
+     */
+    currency: text("currency").notNull().default("MNT"),
+    exchangeRate: numeric("exchange_rate", { precision: 18, scale: 8 })
+      .notNull()
+      .default("1"),
+    /** "mongolbank" — албан ханшаар автоматаар; "manual" — гараар дарж бичсэн. */
+    rateSource: text("rate_source"),
+    /** Хэрэглэсэн ханшийн ӨӨРИЙН огноо (амралтын өдөр — өмнөх ажлын өдрийнх). */
+    rateDate: text("rate_date"),
     // GL unpost-ийн буцаалтын журнал ЭХ журналдаа хамааралтай: эхийг устгавал
     // буцаалт нь хамт устана (cascade); буцаалтыг дангаар нь устгахыг
     // deleteVoucher хориглоно — эс бөгөөс эх нь "reversed" статустай атлаа
@@ -399,6 +413,18 @@ export const journalLines = pgTable(
     accountNumber: text("account_number").notNull(),
     debit: numeric("debit", { precision: 18, scale: 2 }).notNull().default("0"),
     credit: numeric("credit", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    /**
+     * ГАДААД валютын дүн — баримтын валют MNT БИШ үед л бөглөгдөнө (MNT
+     * баримтад 0). `debit`/`credit` нь эдгээрээс ханшаар бодогдсон ДЭВТРИЙН
+     * валютын дүн; бөөрөнхийллийн зөрүү хамгийн том мөрөнд шингэдэг
+     * (lib/gl/currency.ts convertLinesToBase).
+     */
+    debitFc: numeric("debit_fc", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    creditFc: numeric("credit_fc", { precision: 18, scale: 2 })
       .notNull()
       .default("0"),
     description: text("description").default(""),

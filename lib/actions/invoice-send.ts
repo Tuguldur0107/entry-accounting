@@ -59,6 +59,17 @@ const LINK_EXPIRY_DAYS = [7, 30, 90] as const;
 export async function createInvoiceLink(
   documentId: string,
   options?: { expiryDays?: number | null }
+): Promise<ActionResult<Awaited<ReturnType<typeof createInvoiceLinkCore>>>> {
+  try {
+    return await createInvoiceLinkCore(documentId, options);
+  } catch (caught) {
+    return actionError("createInvoiceLink", caught, "Холбоос үүсээгүй");
+  }
+}
+
+async function createInvoiceLinkCore(
+  documentId: string,
+  options?: { expiryDays?: number | null }
 ) {
   const { orgId, userId } = await requireRole("accountant");
   await assertSendable(orgId, documentId);
@@ -192,7 +203,15 @@ async function sendInvoiceEmailCore(documentId: string, recipient: string) {
 }
 
 /** Илгээх dialog-ийн контекст — харилцагчийн и-мэйл + илгээлтийн түүх. */
-export async function getInvoiceSendContext(documentId: string) {
+export async function getInvoiceSendContext(documentId: string): Promise<ActionResult<Awaited<ReturnType<typeof getInvoiceSendContextCore>>>> {
+  try {
+    return await getInvoiceSendContextCore(documentId);
+  } catch (caught) {
+    return actionError("getInvoiceSendContext", caught, "Мэдээлэл ачаалагдсангүй");
+  }
+}
+
+async function getInvoiceSendContextCore(documentId: string) {
   const { orgId } = await getActiveOrg();
   const document = await db.query.arApDocuments.findFirst({
     where: and(

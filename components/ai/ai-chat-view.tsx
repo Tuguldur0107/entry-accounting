@@ -326,6 +326,7 @@ export function AiChatView({
   function applyPrefs(nextModel: AiModelId, nextMode: AiWriteMode) {
     setModel(nextModel);
     setWriteMode(nextMode);
+    // Сонголт хадгалах нь чат зогсоохгүй — алдааг чимээгүй өнгөрөөнө.
     saveAiChatPrefs({ model: nextModel, writeMode: nextMode }).catch(() => {
       // Хадгалалт амжилтгүй ч сонголт энэ session-д хүчинтэй хэвээр.
     });

@@ -113,10 +113,19 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
   );
 
   const runAction = useCallback(
-    (action: () => Promise<unknown>, successMessage: string) => {
+    (
+      // Action-ууд алдааг { error } УТГААР буцаадаг (lib/action-result.ts) —
+      // шалгалт энд НЭГ газар.
+      action: () => Promise<{ error?: string } | unknown>,
+      successMessage: string
+    ) => {
       startTransition(async () => {
         try {
-          await action();
+          const result = (await action()) as { error?: string } | undefined;
+          if (result?.error !== undefined) {
+            toast.error(result.error);
+            return;
+          }
           refreshOpenPanels();
           router.refresh();
           toast.success(successMessage);
@@ -184,6 +193,10 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
     startTransition(async () => {
       try {
         const result = await postCostEntries(drafts.map((entry) => entry.id));
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         gridApiRef.current?.deselectAll();
         setSelectedDraftIds([]);
         refreshOpenPanels();

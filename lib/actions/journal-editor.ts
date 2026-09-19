@@ -37,10 +37,18 @@ export interface JournalEditorData {
     reversalOfVoucherId: string | null;
     /** Энэ журнал БУЦААГДСАН бол — буцаалтын журналын id. */
     reversedByVoucherId: string | null;
+    /** Баримтын валют ба ханш (CLAUDE.md §2b) — MNT баримтад "MNT" / 1. */
+    currency: string;
+    exchangeRate: string;
+    rateSource: string | null;
+    rateDate: string | null;
     lines: {
       account: string;
       debit: string;
       credit: string;
+      /** Гадаад валютын дүн — MNT баримтад "0". */
+      debitFc: string;
+      creditFc: string;
       description: string;
     }[];
   } | null;
@@ -133,12 +141,20 @@ export async function getJournalEditorData(
               .slice(0, 16),
             reversalOfVoucherId: voucher.reversalOfVoucherId ?? null,
             reversedByVoucherId: reversedBy?.id ?? null,
+            currency: voucher.currency,
+            exchangeRate: voucher.exchangeRate,
+            rateSource: voucher.rateSource,
+            rateDate: voucher.rateDate,
             lines: voucher.lines.map((line) => ({
               account: line.accountNumber,
               // Буцаалтын журналын дүн СӨРӨГ — 0-ээс ялгаатай бүгдийг дамжуулна.
               debit: Number(line.debit) !== 0 ? String(Number(line.debit)) : "",
               credit:
                 Number(line.credit) !== 0 ? String(Number(line.credit)) : "",
+              debitFc:
+                Number(line.debitFc) !== 0 ? String(Number(line.debitFc)) : "",
+              creditFc:
+                Number(line.creditFc) !== 0 ? String(Number(line.creditFc)) : "",
               description: line.description ?? "",
             })),
           }

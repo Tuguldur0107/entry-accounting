@@ -38,9 +38,13 @@ const NEGATIVE_CELL_RULE = {
 export interface JournalLineRow {
   id: string;
   account: string;
+  /** ДЭВТРИЙН валютын (MNT) дүн. Валютын журналд ханшаар БОДОГДОНО. */
   debit: number;
   credit: number;
   description: string;
+  /** Гадаад валютын дүн — баримтын валют MNT биш үед хэрэглэгч ЭНЭ хосыг бичнэ. */
+  debitFc?: number;
+  creditFc?: number;
 }
 
 export interface JournalLinesGridProps {
@@ -55,6 +59,12 @@ export interface JournalLinesGridProps {
   maxHeight?: number;
   /** Зөвхөн харах — засварлах, мөр устгах, paste идэвхгүй. */
   readOnly?: boolean;
+  /**
+   * Баримтын валют (default MNT). MNT биш бол ВАЛЮТЫН Дт/Кт багана
+   * засварлагдаж, MNT багана нь ханшаар бодогдсон ЗӨВХӨН ХАРАХ багана болно
+   * — дүн ба ханш хоёр хэзээ ч зөрөхгүй.
+   */
+  currency?: string;
 }
 
 export function JournalLinesGrid({
@@ -67,9 +77,13 @@ export function JournalLinesGrid({
   onError,
   maxHeight = 560,
   readOnly = false,
+  currency = "MNT",
 }: JournalLinesGridProps) {
+  const foreign = currency !== "MNT";
   const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
+  const totalDebitFc = lines.reduce((s, l) => s + (l.debitFc ?? 0), 0);
+  const totalCreditFc = lines.reduce((s, l) => s + (l.creditFc ?? 0), 0);
 
   // Харах горимд ДАНС нүд дээр дарахад — журнал бичихэд гардагтай ижил
   // сегментийн panel (readOnly).
@@ -97,7 +111,12 @@ export function JournalLinesGrid({
       const id = e.data.id;
       const field = e.colDef.field as keyof JournalLineRow | undefined;
       if (!field) return;
-      if (field === "debit" || field === "credit") {
+      if (
+        field === "debit" ||
+        field === "credit" ||
+        field === "debitFc" ||
+        field === "creditFc"
+      ) {
         onLinesChange((prev) =>
           applyJournalAmountSuggestion(prev, id, field, e.newValue)
         );
@@ -117,6 +136,33 @@ export function JournalLinesGrid({
   const accountNameByMain = useMemo(
     () => new Map((segOptions[3] ?? []).map((option) => [option.code, option.name])),
     [segOptions]
+  );
+
+  /** Дүнгийн багана — MNT ба валютын хос ИЖИЛ хэв маягаар. */
+  const amountColumn = useCallback(
+    (
+      headerName: string,
+      field: "debit" | "credit" | "debitFc" | "creditFc",
+      editable: boolean
+    ): ColDef<JournalLineRow> => ({
+      headerName,
+      field,
+      width: 150,
+      editable: (p) => editable && !p.node?.rowPinned,
+      cellClass: editable
+        ? "ag-right-aligned-cell font-mono"
+        : "ag-right-aligned-cell font-mono text-[var(--ea-text-3)]",
+      headerClass: "ag-right-aligned-header",
+      ...(editable ? { cellEditor: DebitCreditEditor } : {}),
+      valueParser: (p) => {
+        const n = parseMntInput(p.newValue);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+      },
+      valueFormatter: (p) =>
+        p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
+      cellClassRules: NEGATIVE_CELL_RULE,
+    }),
+    []
   );
 
   const columnDefs = useMemo<ColDef<JournalLineRow>[]>(() => {
@@ -195,38 +241,20 @@ export function JournalLinesGrid({
           return accountNameByMain.get(main) ?? "";
         },
       },
-      {
-        headerName: "Дебет",
-        field: "debit",
-        width: 150,
-        editable: (p) => !readOnly && !p.node?.rowPinned,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        cellEditor: DebitCreditEditor,
-        valueParser: (p) => {
-          const n = parseMntInput(p.newValue);
-          return Number.isFinite(n) && n > 0 ? n : 0;
-        },
-        valueFormatter: (p) =>
-          p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
-        cellClassRules: NEGATIVE_CELL_RULE,
-      },
-      {
-        headerName: "Кредит",
-        field: "credit",
-        width: 150,
-        editable: (p) => !readOnly && !p.node?.rowPinned,
-        cellClass: "ag-right-aligned-cell font-mono",
-        headerClass: "ag-right-aligned-header",
-        cellEditor: DebitCreditEditor,
-        valueParser: (p) => {
-          const n = parseMntInput(p.newValue);
-          return Number.isFinite(n) && n > 0 ? n : 0;
-        },
-        valueFormatter: (p) =>
-          p.value && p.value !== 0 ? fmtMnt(Number(p.value)) : "",
-        cellClassRules: NEGATIVE_CELL_RULE,
-      },
+      // ВАЛЮТЫН журналд хэрэглэгч ВАЛЮТААР бичнэ; MNT нь ханшаар бодогдсон
+      // ЗӨВХӨН ХАРАХ багана (дүн ба ханш хэзээ ч зөрөхгүй). MNT баримтад
+      // ердийн Дебет/Кредит хос хэвээр.
+      ...(foreign
+        ? [
+            amountColumn(`Дебет (${currency})`, "debitFc", !readOnly),
+            amountColumn(`Кредит (${currency})`, "creditFc", !readOnly),
+            amountColumn("Дебет (MNT)", "debit", false),
+            amountColumn("Кредит (MNT)", "credit", false),
+          ]
+        : [
+            amountColumn("Дебет", "debit", !readOnly),
+            amountColumn("Кредит", "credit", !readOnly),
+          ]),
       {
         headerName: "Тайлбар",
         field: "description",
@@ -272,7 +300,7 @@ export function JournalLinesGrid({
     // Дансны нэр хоёр горимд ч харагдана (нэг UX); харах горимд мөр
     // устгах багана хэрэггүй.
     return readOnly ? cols.filter((col) => col.colId !== "actions") : cols;
-  }, [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange, readOnly, accountNameByMain]);
+  }, [accountColWidth, activeSegIds, segOptions, defaultSegments, minLines, onError, onLinesChange, readOnly, accountNameByMain, amountColumn, currency, foreign]);
 
   const processDataFromClipboard = useCallback(
     (p: ProcessDataFromClipboardParams<JournalLineRow>) => {
@@ -308,10 +336,12 @@ export function JournalLinesGrid({
         account: "",
         debit: totalDebit,
         credit: totalCredit,
+        debitFc: totalDebitFc,
+        creditFc: totalCreditFc,
         description: "",
       } as JournalLineRow,
     ],
-    [totalDebit, totalCredit]
+    [totalDebit, totalCredit, totalDebitFc, totalCreditFc]
   );
 
   return (

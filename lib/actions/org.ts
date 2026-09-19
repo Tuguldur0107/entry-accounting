@@ -25,6 +25,7 @@ import {
   type MembershipRole,
 } from "@/lib/db/schema";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 /**
  * Компанийн бүртгэл өөрчлөгдөхөд S1/S6 сегментийн утга дагаж шинэчлэгдэнэ
@@ -176,7 +177,15 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
 }
 
 /** Гишүүний профайл — мэдээлэл + энэ байгууллага дахь сүүлийн үйлдлүүд. */
-export async function getMemberDetail(membershipId: string) {
+export async function getMemberDetail(membershipId: string): Promise<ActionResult<Awaited<ReturnType<typeof getMemberDetailCore>>>> {
+  try {
+    return await getMemberDetailCore(membershipId);
+  } catch (caught) {
+    return actionError("getMemberDetail", caught, "Гишүүний мэдээлэл ачаалагдсангүй");
+  }
+}
+
+async function getMemberDetailCore(membershipId: string) {
   const { orgId } = await getActiveOrg();
   const [row] = await db
     .select({
@@ -245,7 +254,15 @@ export async function getMyOrgs(): Promise<{
 }
 
 /** Байгууллага солих — гишүүнчлэлээ баталгаажуулж cookie-д хадгална. */
-export async function switchOrganization(orgId: string) {
+export async function switchOrganization(orgId: string): Promise<ActionResult> {
+  try {
+    return await switchOrganizationCore(orgId);
+  } catch (caught) {
+    return actionError("switchOrganization", caught, "Байгууллага солигдсонгүй");
+  }
+}
+
+async function switchOrganizationCore(orgId: string) {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) throw new Error("Нэвтрэх шаардлагатай");
@@ -265,6 +282,7 @@ export async function switchOrganization(orgId: string) {
     sameSite: "lax",
   });
   revalidatePath("/", "layout");
+  return {};
 }
 
 /** Шинэ байгууллага үүсгээд шууд түүн рүү шилжинэ. */
@@ -274,6 +292,21 @@ export async function switchOrganization(orgId: string) {
  * тайланд хэрэглэгддэг company_settings) хамт хадгалагдана.
  */
 export async function createOrganization(data: {
+  name: string;
+  registryNo?: string;
+  vatPayerNo?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+}): Promise<ActionResult> {
+  try {
+    return await createOrganizationCore(data);
+  } catch (caught) {
+    return actionError("createOrganization", caught, "Байгууллага үүссэнгүй");
+  }
+}
+
+async function createOrganizationCore(data: {
   name: string;
   registryNo?: string;
   vatPayerNo?: string;
@@ -322,10 +355,22 @@ export async function createOrganization(data: {
   });
   revalidatePath("/", "layout");
   return { id: orgId };
+  return {};
 }
 
 /** Нэр/ТТД засах — admin+. */
 export async function updateOrganization(data: {
+  name: string;
+  registryNo?: string;
+}): Promise<ActionResult> {
+  try {
+    return await updateOrganizationCore(data);
+  } catch (caught) {
+    return actionError("updateOrganization", caught, "Байгууллага шинэчлэгдсэнгүй");
+  }
+}
+
+async function updateOrganizationCore(data: {
   name: string;
   registryNo?: string;
 }) {
@@ -341,6 +386,7 @@ export async function updateOrganization(data: {
   revalidatePath("/settings/gl");
   revalidatePath("/admin/org");
   revalidatePath("/", "layout");
+  return {};
 }
 
 /**
@@ -357,6 +403,17 @@ export type InviteResult =
  * буцаана — админ өөрөө дамжуулна). Урилгын линкээр бүртгүүлмэгц идэвхжинэ.
  */
 export async function inviteMember(data: {
+  email: string;
+  role: MembershipRole;
+}): Promise<ActionResult<InviteResult>> {
+  try {
+    return await inviteMemberCore(data);
+  } catch (caught) {
+    return actionError("inviteMember", caught, "Урилга илгээгдсэнгүй");
+  }
+}
+
+async function inviteMemberCore(data: {
   email: string;
   role: MembershipRole;
 }): Promise<InviteResult> {
@@ -458,6 +515,17 @@ export async function cancelInvitation(invitationId: string) {
 export async function updateMemberRole(data: {
   membershipId: string;
   role: MembershipRole;
+}): Promise<ActionResult> {
+  try {
+    return await updateMemberRoleCore(data);
+  } catch (caught) {
+    return actionError("updateMemberRole", caught, "Эрх солигдсонгүй");
+  }
+}
+
+async function updateMemberRoleCore(data: {
+  membershipId: string;
+  role: MembershipRole;
 }) {
   const { orgId, role: myRole } = await requireRole("admin");
   if (!ROLES.includes(data.role)) throw new Error("Эрх буруу байна");
@@ -489,13 +557,22 @@ export async function updateMemberRole(data: {
     .set({ role: data.role })
     .where(eq(memberships.id, data.membershipId));
   revalidatePath("/admin/org");
+  return {};
 }
 
 /**
  * Байгууллага УСТГАХ — зөвхөн owner. Бүх дата (журнал, баримт, тохиргоо)
  * cascade-аар БУЦАЛТГҮЙ устана — баталгаажуулалтад нэрийг яг бичиж өгнө.
  */
-export async function deleteOrganization(confirmName: string) {
+export async function deleteOrganization(confirmName: string): Promise<ActionResult> {
+  try {
+    return await deleteOrganizationCore(confirmName);
+  } catch (caught) {
+    return actionError("deleteOrganization", caught, "Байгууллага устгагдсангүй");
+  }
+}
+
+async function deleteOrganizationCore(confirmName: string) {
   const { orgId, userId, role } = await getActiveOrg();
   if (role !== "owner")
     throw new Error("Байгууллагыг зөвхөн owner устгана");
@@ -534,13 +611,22 @@ export async function deleteOrganization(confirmName: string) {
     store.delete(ORG_COOKIE);
   }
   revalidatePath("/", "layout");
+  return {};
 }
 
 /**
  * Байгууллагаас ГАРАХ — өөрийн гишүүнчлэлийг хасна (owner биш гишүүнд;
  * сүүлчийн owner гарахын оронд устгах эсвэл owner эрхээ шилжүүлнэ).
  */
-export async function leaveOrganization() {
+export async function leaveOrganization(): Promise<ActionResult> {
+  try {
+    return await leaveOrganizationCore();
+  } catch (caught) {
+    return actionError("leaveOrganization", caught, "Гарах үйлдэл амжилтгүй");
+  }
+}
+
+async function leaveOrganizationCore() {
   const { orgId, userId, role } = await getActiveOrg();
   if (role === "owner") {
     const [{ n }] = await db
@@ -561,10 +647,19 @@ export async function leaveOrganization() {
     );
   (await cookies()).delete(ORG_COOKIE);
   revalidatePath("/", "layout");
+  return {};
 }
 
 /** Гишүүн хасах — admin+; сүүлчийн owner хасагдахгүй. */
-export async function removeMember(membershipId: string) {
+export async function removeMember(membershipId: string): Promise<ActionResult> {
+  try {
+    return await removeMemberCore(membershipId);
+  } catch (caught) {
+    return actionError("removeMember", caught, "Гишүүн хасагдсангүй");
+  }
+}
+
+async function removeMemberCore(membershipId: string) {
   const { orgId, role: myRole } = await requireRole("admin");
   const target = await db.query.memberships.findFirst({
     where: and(
@@ -586,4 +681,5 @@ export async function removeMember(membershipId: string) {
   }
   await db.delete(memberships).where(eq(memberships.id, membershipId));
   revalidatePath("/admin/org");
+  return {};
 }

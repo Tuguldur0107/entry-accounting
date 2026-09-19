@@ -245,6 +245,20 @@ export async function createInventoryItem(
     name: string;
     unit: string;
   } & InventoryItemPosFields
+): Promise<ActionResult> {
+  try {
+    return await createInventoryItemCore(data);
+  } catch (caught) {
+    return actionError("createInventoryItem", caught, "Бараа үүсгэж чадсангүй");
+  }
+}
+
+async function createInventoryItemCore(
+  data: {
+    code: string;
+    name: string;
+    unit: string;
+  } & InventoryItemPosFields
 ) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
@@ -286,9 +300,21 @@ export async function createInventoryItem(
     });
   });
   revalidateInventory();
+  return {};
 }
 
 export async function updateInventoryItem(
+  id: string,
+  data: { name: string; unit: string } & InventoryItemPosFields
+): Promise<ActionResult> {
+  try {
+    return await updateInventoryItemCore(id, data);
+  } catch (caught) {
+    return actionError("updateInventoryItem", caught, "Бараа шинэчлэгдсэнгүй");
+  }
+}
+
+async function updateInventoryItemCore(
   id: string,
   data: { name: string; unit: string } & InventoryItemPosFields
 ) {
@@ -344,6 +370,7 @@ export async function updateInventoryItem(
     });
   });
   revalidateInventory();
+  return {};
 }
 
 /** Барааны борлуулах үнийн түүх — шинэ нь эхэнд. */
@@ -453,7 +480,15 @@ async function deleteInventoryItemCore(id: string) {
   return { code: item.code, name: item.name };
 }
 
-export async function createWarehouse(data: { code: string; name: string }) {
+export async function createWarehouse(data: { code: string; name: string }): Promise<ActionResult> {
+  try {
+    return await createWarehouseCore(data);
+  } catch (caught) {
+    return actionError("createWarehouse", caught, "Агуулах үүсгэж чадсангүй");
+  }
+}
+
+async function createWarehouseCore(data: { code: string; name: string }) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
@@ -466,6 +501,7 @@ export async function createWarehouse(data: { code: string; name: string }) {
   if (duplicate) throw new Error(`"${code}" кодтой агуулах бүртгэгдсэн байна`);
   await db.insert(warehouses).values({ userId, organizationId: orgId, code, name });
   revalidateInventory();
+  return {};
 }
 
 export async function toggleWarehouse(id: string, isActive: boolean) {
@@ -479,11 +515,23 @@ export async function toggleWarehouse(id: string, isActive: boolean) {
 
 // ── Барааны бүлэг (POS: хөнгөлөлтийн дүрэм, тайлангийн бүлэглэл) ─────────────
 
-export async function createInventoryCategory(data: {
+type InventoryCategoryInput = {
   code: string;
   name: string;
   ebarimtClassificationCode?: string | null;
-}) {
+};
+
+export async function createInventoryCategory(
+  data: InventoryCategoryInput
+): Promise<ActionResult> {
+  try {
+    return await createInventoryCategoryCore(data);
+  } catch (caught) {
+    return actionError("createInventoryCategory", caught, "Ангилал үүсгэж чадсангүй");
+  }
+}
+
+async function createInventoryCategoryCore(data: InventoryCategoryInput) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
@@ -502,12 +550,26 @@ export async function createInventoryCategory(data: {
     .insert(inventoryCategories)
     .values({ userId, organizationId: orgId, code, name, ebarimtClassificationCode });
   revalidateInventory();
+  return {};
 }
+
+type InventoryCategoryUpdateInput = {
+  name: string;
+  ebarimtClassificationCode?: string | null;
+};
 
 export async function updateInventoryCategory(
   id: string,
-  data: { name: string; ebarimtClassificationCode?: string | null }
-) {
+  data: InventoryCategoryUpdateInput
+): Promise<ActionResult> {
+  try {
+    return await updateInventoryCategoryCore(id, data);
+  } catch (caught) {
+    return actionError("updateInventoryCategory", caught, "Ангилал шинэчлэгдсэнгүй");
+  }
+}
+
+async function updateInventoryCategoryCore(id: string, data: InventoryCategoryUpdateInput) {
   const { orgId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Бүлгийн нэр оруулна уу");
@@ -519,9 +581,18 @@ export async function updateInventoryCategory(
       and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
     );
   revalidateInventory();
+  return {};
 }
 
-export async function toggleInventoryCategory(id: string, isActive: boolean) {
+export async function toggleInventoryCategory(id: string, isActive: boolean): Promise<ActionResult> {
+  try {
+    return await toggleInventoryCategoryCore(id, isActive);
+  } catch (caught) {
+    return actionError("toggleInventoryCategory", caught, "Төлөв солигдсонгүй");
+  }
+}
+
+async function toggleInventoryCategoryCore(id: string, isActive: boolean) {
   const { orgId } = await requireModuleAction("inv", "write");
   await db
     .update(inventoryCategories)
@@ -530,6 +601,7 @@ export async function toggleInventoryCategory(id: string, isActive: boolean) {
       and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
     );
   revalidateInventory();
+  return {};
 }
 
 // ─── Хөдөлгөөн (зөвхөн тоо хэмжээ) ───────────────────────────────────────────
@@ -905,7 +977,15 @@ export async function confirmInventoryMovement(
 }
 
 // Олноор батлах — алдаатай нь алгасагдаж тайлан буцна.
-export async function confirmInventoryMovements(ids: string[]) {
+export async function confirmInventoryMovements(ids: string[]): Promise<ActionResult<Awaited<ReturnType<typeof confirmInventoryMovementsCore>>>> {
+  try {
+    return await confirmInventoryMovementsCore(ids);
+  } catch (caught) {
+    return actionError("confirmInventoryMovements", caught, "Хөдөлгөөн батлагдсангүй");
+  }
+}
+
+async function confirmInventoryMovementsCore(ids: string[]) {
   const failures: { id: string; error: string }[] = [];
   let confirmed = 0;
   for (const id of ids) {

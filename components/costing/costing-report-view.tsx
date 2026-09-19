@@ -60,6 +60,10 @@ export function CostingReportView({ valuation }: Props) {
           date: nrvDate,
           nrvPerUnit,
         });
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         setNrvRow(null);
         router.refresh();
         toast.success(

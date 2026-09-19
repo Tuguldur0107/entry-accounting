@@ -20,63 +20,21 @@ import { join } from "node:path";
 const ACTIONS_DIR = "lib/actions";
 const CLIENT_DIRS = ["components", "app"];
 
-/** Засагдаагүй хуучин өр — ЗӨВХӨН багасна (шинээр нэмэхгүй). */
+/**
+ * Засагдаагүй хуучин өр — ЗӨВХӨН багасна (шинээр нэмэхгүй).
+ *
+ * ОНЦГОЙ: панель/тохиргооны хэдэн loader ӨӨРИЙН үр дүнгийн хэв маягтай
+ * ({ ok, code, message }) бөгөөд throw-гоо дотроо барьдаг тул production-д
+ * аюулгүй — ActionResult руу хөрвүүлбэл давхар union үүсгэнэ. Эдгээр нь өр
+ * биш: getArapDocPanelData, getFaAssetPanelData, getCashNewPanelData,
+ * saveCostingAccountSettings.
+ */
 const KNOWN_UNGUARDED = new Set([
-  "ai.ts:saveAiChatPrefs",
-  "ai.ts:saveAiSettings",
-  "ai.ts:setAiApiKey",
-  "ai.ts:setAiOpenAiApiKey",
   "arap.ts:getArapDocPanelData",
-  "arap.ts:toggleCounterparty",
-  "cash.ts:createCashOpeningVoucher",
   "cash.ts:getCashNewPanelData",
-  "cash.ts:postCashDocuments",
-  "cash.ts:toggleCashAccount",
-  "company.ts:updateCompanySettings",
   "cost-allocation.ts:createCostAllocation",
   "costing-master.ts:saveCostingAccountSettings",
-  "costing.ts:createNrvEntry",
-  "costing.ts:deleteCostEntry",
-  "costing.ts:postCostEntries",
-  "costing.ts:postCostEntry",
-  "costing.ts:reverseCostEntry",
-  "costing.ts:runCosting",
-  "costing.ts:upsertCostingItemSetting",
-  "costing.ts:upsertIssueType",
-  "fa.ts:activateFixedAsset",
-  "fa.ts:createFixedAsset",
-  "fa.ts:deactivateFixedAsset",
-  "fa.ts:deleteDepreciationEntry",
-  "fa.ts:deleteFixedAsset",
-  "fa.ts:disposeFixedAsset",
   "fa.ts:getFaAssetPanelData",
-  "fa.ts:getFaTieOutDetail",
-  "fa.ts:reverseDepreciationEntry",
-  "fa.ts:reverseFixedAssetDisposal",
-  "inventory-import.ts:importInventoryItems",
-  "inventory.ts:confirmInventoryMovements",
-  "inventory.ts:createInventoryCategory",
-  "inventory.ts:createInventoryItem",
-  "inventory.ts:createWarehouse",
-  "inventory.ts:toggleInventoryCategory",
-  "inventory.ts:updateInventoryCategory",
-  "inventory.ts:updateInventoryItem",
-  "inventory.ts:updateWarehouse",
-  "invoice-send.ts:createInvoiceLink",
-  "invoice-send.ts:getInvoiceSendContext",
-  "notification-preferences.ts:saveNotificationPreferences",
-  "org.ts:createOrganization",
-  "org.ts:deleteOrganization",
-  "org.ts:getMemberDetail",
-  "org.ts:inviteMember",
-  "org.ts:leaveOrganization",
-  "org.ts:removeMember",
-  "org.ts:switchOrganization",
-  "org.ts:updateMemberRole",
-  "org.ts:updateOrganization",
-  "telegram-link.ts:startTelegramLink",
-  "telegram-link.ts:verifyTelegramLink",
-  "vat.ts:createVatSettlementDraft",
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

@@ -22,7 +22,11 @@ import {
   vatSettings,
 } from "@/lib/db/schema";
 import { createVoucher } from "@/lib/actions/gl";
-import { unwrapAction } from "@/lib/action-result";
+import {
+  actionError,
+  unwrapAction,
+  type ActionResult,
+} from "@/lib/action-result";
 import { loadVatSettings } from "@/lib/vat/settings";
 import { computeVatReturn, type VatReturnSummary } from "@/lib/vat/return";
 import { extractMainAccount } from "@/lib/reports/balances";
@@ -228,7 +232,21 @@ export async function updateVatPayerFlag(isVatPayer: boolean): Promise<void> {
  * Огноо нь ӨНӨӨДӨР (тооцоо дараа сард хийгддэг) — createVoucher периодын
  * хамгаалалтаа өөрөө хийнэ. Idempotent: нэг сард нэг л тооцоо (externalRef).
  */
-export async function createVatSettlementDraft(data: {
+export async function createVatSettlementDraft(
+  data: Parameters<typeof createVatSettlementDraftCore>[0]
+): Promise<ActionResult<{ id: string; dedup?: boolean }>> {
+  try {
+    return await createVatSettlementDraftCore(data);
+  } catch (caught) {
+    return actionError(
+      "createVatSettlementDraft",
+      caught,
+      "Тооцооны ноорог үүсээгүй"
+    );
+  }
+}
+
+async function createVatSettlementDraftCore(data: {
   periodCode: string;
   /** Төлөх дүнтэй үед заавал — төлбөр гарах банкны данс. */
   cashAccountId?: string;

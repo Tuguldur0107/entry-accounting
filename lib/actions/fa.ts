@@ -187,6 +187,21 @@ export async function createFixedAsset(
      * шалгаж идэвхжүүлнэ; АП sync-ийн draft карттай ижил урсгал). */
     asDraft?: boolean;
   }
+): Promise<ActionResult<{ id: string; code: string }>> {
+  try {
+    return await createFixedAssetCore(data, options);
+  } catch (caught) {
+    return actionError("createFixedAsset", caught, "Карт үүссэнгүй");
+  }
+}
+
+async function createFixedAssetCore(
+  data: FixedAssetInput,
+  options?: {
+    /** true бол "draft" төлөвтэй карт үүсгэнэ (AI туслах §9 — хэрэглэгч
+     * шалгаж идэвхжүүлнэ; АП sync-ийн draft карттай ижил урсгал). */
+    asDraft?: boolean;
+  }
 ) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
   validateAssetInput(data);
@@ -238,7 +253,15 @@ export async function createFixedAsset(
 
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж
 // идэвхжүүлнэ. GL бичилт хийхгүй — өртөг эх сувагтаа данслагдсан.
-export async function activateFixedAsset(id: string, data: FixedAssetInput) {
+export async function activateFixedAsset(id: string, data: FixedAssetInput): Promise<ActionResult> {
+  try {
+    return await activateFixedAssetCore(id, data);
+  } catch (caught) {
+    return actionError("activateFixedAsset", caught, "Карт идэвхжсэнгүй");
+  }
+}
+
+async function activateFixedAssetCore(id: string, data: FixedAssetInput) {
   const { orgId } = await requireModuleAction("fa", "write");
   validateAssetInput(data);
   await assertEnabledMainAccount(orgId, data.assetAccountNumber.trim());
@@ -280,6 +303,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
     .returning({ id: fixedAssets.id });
   if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
   revalidateFa();
+  return {};
 }
 
 /**
@@ -288,7 +312,15 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
  * — эхлээд бичилтүүдийг нь устгаж/буцаана; буцаагдсан түүх саад болохгүй.
  * Атом claim (active→draft) давхар буцаалтыг таслана.
  */
-export async function deactivateFixedAsset(id: string) {
+export async function deactivateFixedAsset(id: string): Promise<ActionResult> {
+  try {
+    return await deactivateFixedAssetCore(id);
+  } catch (caught) {
+    return actionError("deactivateFixedAsset", caught, "Карт ноорог болгогдсонгүй");
+  }
+}
+
+async function deactivateFixedAssetCore(id: string) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
@@ -333,6 +365,7 @@ export async function deactivateFixedAsset(id: string) {
     summary: `ҮХ идэвхжүүлэлт буцаагдав — ${asset.code} ${asset.name}`,
   });
   revalidateFa();
+  return {};
 }
 
 /**
@@ -340,13 +373,21 @@ export async function deactivateFixedAsset(id: string) {
  * гэхдээ элэгдлийн бичилттэй (аль ч төлөвийн) бол блок — эхлээд элэгдлийн
  * бичилтүүдийг устгаж/буцааж байж картыг устгана (GL-тэй зөрөхөөс сэргийлнэ).
  */
-export async function deleteFixedAsset(id: string) {
+export async function deleteFixedAsset(id: string): Promise<ActionResult> {
+  try {
+    return await deleteFixedAssetCore(id);
+  } catch (caught) {
+    return actionError("deleteFixedAsset", caught, "Карт устгагдсангүй");
+  }
+}
+
+async function deleteFixedAssetCore(id: string) {
   const { orgId } = await requireModuleAction("fa", "write");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
     columns: { status: true, code: true },
   });
-  if (!asset) return;
+  if (!asset) return {};
 
   if (asset.status !== "draft") {
     const entry = await db.query.faDepreciationEntries.findFirst({
@@ -368,6 +409,7 @@ export async function deleteFixedAsset(id: string) {
   // Хавсралт FK-гүй тул хөрөнгийнхийг өөрсдөө цэвэрлэнэ.
   await deleteAttachmentsFor(orgId, "fa", id);
   revalidateFa();
+  return {};
 }
 
 // ─── Элэгдлийн run ───────────────────────────────────────────────────────────
@@ -681,7 +723,15 @@ export async function postDepreciationEntries(ids: string[]) {
   return { posted, failures };
 }
 
-export async function deleteDepreciationEntry(id: string) {
+export async function deleteDepreciationEntry(id: string): Promise<ActionResult> {
+  try {
+    return await deleteDepreciationEntryCore(id);
+  } catch (caught) {
+    return actionError("deleteDepreciationEntry", caught, "Бичилт устгагдсангүй");
+  }
+}
+
+async function deleteDepreciationEntryCore(id: string) {
   const { orgId } = await requireModuleAction("fa", "post");
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
@@ -690,7 +740,7 @@ export async function deleteDepreciationEntry(id: string) {
     ),
     columns: { status: true },
   });
-  if (!entry) return;
+  if (!entry) return {};
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг устгана");
   await db
@@ -699,9 +749,18 @@ export async function deleteDepreciationEntry(id: string) {
       and(eq(faDepreciationEntries.id, id), eq(faDepreciationEntries.organizationId, orgId))
     );
   revalidateFa();
+  return {};
 }
 
-export async function reverseDepreciationEntry(id: string) {
+export async function reverseDepreciationEntry(id: string): Promise<ActionResult> {
+  try {
+    return await reverseDepreciationEntryCore(id);
+  } catch (caught) {
+    return actionError("reverseDepreciationEntry", caught, "Элэгдэл буцаагдсангүй");
+  }
+}
+
+async function reverseDepreciationEntryCore(id: string) {
   const { orgId, userId } = await requireModuleAction("fa", "post");
   const entry = await db.query.faDepreciationEntries.findFirst({
     where: and(
@@ -797,6 +856,7 @@ export async function reverseDepreciationEntry(id: string) {
   });
 
   revalidateFa();
+  return {};
 }
 
 // ─── GL тулгалтын задаргаа (самбарын drill-down) ─────────────────────────────
@@ -821,6 +881,18 @@ export type FaTieOutDetail = {
  * харуулж, их дата дээр бүх түүхийг нэг дор уншихаас сэргийлнэ.
  */
 export async function getFaTieOutDetail(data: {
+  accountNumber: string;
+  from: string;
+  to: string;
+}): Promise<ActionResult<FaTieOutDetail>> {
+  try {
+    return await getFaTieOutDetailCore(data);
+  } catch (caught) {
+    return actionError("getFaTieOutDetail", caught, "Задаргаа ачаалагдсангүй");
+  }
+}
+
+async function getFaTieOutDetailCore(data: {
   accountNumber: string;
   from: string;
   to: string;
@@ -933,6 +1005,26 @@ const DISPOSAL_LABELS: Record<FaDisposalType, string> = {
  * давхар хасалтыг таслана; период нээлттэй байх ёстой.
  */
 export async function disposeFixedAsset(
+  id: string,
+  data: {
+    disposalType: FaDisposalType;
+    date: string;
+    /** Борлуулсан үнэ — зөвхөн "sale"-д, 0-ээс их. */
+    proceeds?: number;
+    /** Орлого хүлээн авах данс (мөнгө/авлага) — зөвхөн "sale"-д. */
+    proceedsAccountNumber?: string;
+    /** Олз (гарз)-ын данс — бүх төрөлд заавал. */
+    gainLossAccountNumber: string;
+  }
+): Promise<ActionResult> {
+  try {
+    return await disposeFixedAssetCore(id, data);
+  } catch (caught) {
+    return actionError("disposeFixedAsset", caught, "Данснаас хасалт хийгдсэнгүй");
+  }
+}
+
+async function disposeFixedAssetCore(
   id: string,
   data: {
     disposalType: FaDisposalType;
@@ -1085,6 +1177,7 @@ export async function disposeFixedAsset(
     );
   });
   revalidateFa();
+  return {};
 }
 
 /**
@@ -1092,7 +1185,15 @@ export async function disposeFixedAsset(
  * журналаар цэвэрлэгдэнэ. Атом claim (disposed→active) давхар буцаалтыг
  * таслана; буцаалт эх огноогоор бичигдэх тул тэр период нээлттэй байна.
  */
-export async function reverseFixedAssetDisposal(id: string) {
+export async function reverseFixedAssetDisposal(id: string): Promise<ActionResult> {
+  try {
+    return await reverseFixedAssetDisposalCore(id);
+  } catch (caught) {
+    return actionError("reverseFixedAssetDisposal", caught, "Хасалт буцаагдсангүй");
+  }
+}
+
+async function reverseFixedAssetDisposalCore(id: string) {
   const { orgId, userId } = await requireModuleAction("fa", "post");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
@@ -1185,6 +1286,7 @@ export async function reverseFixedAssetDisposal(id: string) {
     );
   });
   revalidateFa();
+  return {};
 }
 
 // ── Сарын элэгдлийг НЭГ товчоор GL-д батлах ────────────────────────────────

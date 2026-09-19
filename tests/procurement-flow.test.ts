@@ -1373,8 +1373,13 @@ test(
       columns: { id: true },
     });
     assert.ok(capitalize, "капитализацийн бичилт байх ёстой");
-    await assert.rejects(
-      () => asOrg(() => reverseCostEntry(capitalize.id)),
+    // Action нь алдааг УТГААР буцаадаг (lib/action-result.ts) — шидэлт биш.
+    const capitalizeMessage = errorOf(
+      await asOrg(() => reverseCostEntry(capitalize.id)),
+      "капитализацийг өртгийн модулиас буцаах"
+    );
+    assert.match(
+      capitalizeMessage,
       /Хангамж|хүлээн авалт/i,
       "капитализацийг өртгийн модулиас буцаахыг хориглоно"
     );

@@ -451,6 +451,18 @@ export async function createCashOpeningVoucher(data: {
   cashAccountId: string;
   /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
+}): Promise<ActionResult<Awaited<ReturnType<typeof createCashOpeningVoucherCore>>>> {
+  try {
+    return await createCashOpeningVoucherCore(data);
+  } catch (caught) {
+    return actionError("createCashOpeningVoucher", caught, "Нээлтийн журнал үүсээгүй");
+  }
+}
+
+async function createCashOpeningVoucherCore(data: {
+  cashAccountId: string;
+  /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
+  counterAccountNumber?: string;
 }) {
   const { orgId, userId } = await requireModuleAction("cash", "write");
 
@@ -564,7 +576,15 @@ export async function createCashOpeningVoucher(data: {
   return { id: voucherId, counterAccountNumber: counter, amount };
 }
 
-export async function toggleCashAccount(id: string, isActive: boolean) {
+export async function toggleCashAccount(id: string, isActive: boolean): Promise<ActionResult> {
+  try {
+    return await toggleCashAccountCore(id, isActive);
+  } catch (caught) {
+    return actionError("toggleCashAccount", caught, "Төлөв солигдсонгүй");
+  }
+}
+
+async function toggleCashAccountCore(id: string, isActive: boolean) {
   const { orgId } = await requireModuleAction("cash", "write");
   await db
     .update(cashAccounts)
@@ -573,6 +593,7 @@ export async function toggleCashAccount(id: string, isActive: boolean) {
       and(eq(cashAccounts.id, id), eq(cashAccounts.organizationId, orgId))
     );
   revalidateCash();
+  return {};
 }
 
 // ── Баримтын мутацууд ────────────────────────────────────────────────────────
@@ -745,7 +766,15 @@ export async function createCashDocument(
 // Batch-confirm drafts (month-end close): posts each id independently and
 // reports per-document failures instead of aborting the whole batch, so one
 // bad draft (e.g. an FX draft missing its rate) doesn't block the rest.
-export async function postCashDocuments(ids: string[]) {
+export async function postCashDocuments(ids: string[]): Promise<ActionResult<Awaited<ReturnType<typeof postCashDocumentsCore>>>> {
+  try {
+    return await postCashDocumentsCore(ids);
+  } catch (caught) {
+    return actionError("postCashDocuments", caught, "Баримт батлагдсангүй");
+  }
+}
+
+async function postCashDocumentsCore(ids: string[]) {
   const failures: { id: string; error: string }[] = [];
   let posted = 0;
   for (const id of ids) {

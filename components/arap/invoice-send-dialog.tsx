@@ -96,6 +96,10 @@ function SendDialogBody({
     getInvoiceSendContext(documentId)
       .then((context) => {
         if (cancelled) return;
+        if (context.error !== undefined) {
+          toast.error(context.error);
+          return;
+        }
         setSends(context.sends);
         // Хэрэглэгч гараар бичээгүй л бол харилцагчийн и-мэйлийг бөглөнө.
         setEmail((current) => current || context.counterpartyEmail || "");
@@ -110,7 +114,9 @@ function SendDialogBody({
 
   function refresh() {
     getInvoiceSendContext(documentId)
-      .then((context) => setSends(context.sends))
+      .then((context) => {
+        if (context.error === undefined) setSends(context.sends);
+      })
       .catch(() => undefined);
   }
 
@@ -133,10 +139,16 @@ function SendDialogBody({
   function handleCreateLink() {
     startTransition(async () => {
       try {
-        const { url } = await createInvoiceLink(documentId, {
+        const created = await createInvoiceLink(documentId, {
           expiryDays: linkExpiry === "" ? null : Number(linkExpiry),
         });
-        await navigator.clipboard.writeText(url).catch(() => undefined);
+        if (created.error !== undefined) {
+          toast.error(created.error);
+          return;
+        }
+        await navigator.clipboard
+          .writeText(created.url)
+          .catch(() => undefined);
         toast.success("Линк үүсч, санах ойд хуулагдлаа");
         refresh();
       } catch (caught) {

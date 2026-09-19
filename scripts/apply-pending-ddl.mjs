@@ -474,7 +474,28 @@ async function main() {
        on fa_settings (organization_id)`
   );
 
-  // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1) ──────────
+  // ── 5. Журналын ВАЛЮТ (CLAUDE.md §2b) — баримтад нэг валют, нэг ханш ─────
+  for (const [column, type] of [
+    ["currency", "text not null default 'MNT'"],
+    ["exchange_rate", "numeric(18, 8) not null default '1'"],
+    ["rate_source", "text"],
+    ["rate_date", "text"],
+  ]) {
+    await run(
+      `journal_vouchers.${column} багана`,
+      `alter table journal_vouchers
+         add column if not exists ${column} ${type}`
+    );
+  }
+  for (const column of ["debit_fc", "credit_fc"]) {
+    await run(
+      `journal_lines.${column} багана`,
+      `alter table journal_lines
+         add column if not exists ${column} numeric(18, 2) not null default '0'`
+    );
+  }
+
+  // ── 6. eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1) ──────────
   // Бүгд default-той / null зөвшөөрдөг тул байгаа мөрүүд аюулгүй.
   for (const [table, column, type] of [
     ["inventory_items", "ebarimt_classification_code", "text"],

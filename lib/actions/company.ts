@@ -14,6 +14,7 @@ import {
   type CompanySettings,
 } from "@/lib/db/schema";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 
 /** ~1MB-аас том зураг татгалзана — PDF/DB-ийг дэмий бүдүүрүүлэхгүй. */
@@ -38,6 +39,33 @@ export async function getCompanySettings(): Promise<CompanySettings | null> {
 }
 
 export async function updateCompanySettings(data: {
+  name: string;
+  registerNo: string | null;
+  vatPayerNo: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  bankAccounts: { bankName: string; accountNo: string; accountName: string }[];
+  /** undefined = хөндөхгүй, null = устгах, string = шинэ PNG base64. */
+  logo?: string | null;
+  stamp?: string | null;
+  signatures: { name: string; title: string; image: string }[];
+  autoStamp: boolean;
+  /** Нэхэмжлэх илгээгч и-мэйл (verify хийгдсэн домэйн) — null бол env default. */
+  invoiceFromEmail?: string | null;
+  invoiceReplyTo?: string | null;
+  emailDomainVerified?: boolean;
+  /** «Том дүн» мэдэгдлийн босго (MNT); null = default 10 сая ₮ (D2). */
+  largeAmountAlertMnt?: number | null;
+}): Promise<ActionResult> {
+  try {
+    return await updateCompanySettingsCore(data);
+  } catch (caught) {
+    return actionError("updateCompanySettings", caught, "Тохиргоо хадгалагдсангүй");
+  }
+}
+
+async function updateCompanySettingsCore(data: {
   name: string;
   registerNo: string | null;
   vatPayerNo: string | null;
@@ -143,4 +171,5 @@ export async function updateCompanySettings(data: {
   revalidatePath("/settings/company");
   revalidatePath("/admin/org");
   revalidatePath("/", "layout");
+  return {};
 }
