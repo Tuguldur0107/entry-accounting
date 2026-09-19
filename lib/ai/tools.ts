@@ -201,6 +201,15 @@ import {
   warehouses,
 } from "@/lib/db/schema";
 import {
+  ONBOARDING_INTRO,
+  ONBOARDING_LIMITS,
+  ONBOARDING_SECTIONS,
+  extractSection,
+  formatOnboardingStatus,
+  type OnboardingSection,
+} from "@/lib/onboarding/guide";
+import { loadOnboardingStatus, readOnboardingDoc } from "@/lib/onboarding/status";
+import {
   fmtAccountDisplay,
   normalizePastedAccount,
   parseSegParts,
@@ -1514,6 +1523,23 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["workflow"],
+    },
+  },
+
+  {
+    name: "get_onboarding_guide",
+    description:
+      "АНХ ХОЛБОГДСОН эсвэл нэвтрүүлэлт хийж буй хэрэглэгчид: системийн танилцуулга, AI-ийн ажиллах хязгаар, ЭНЭ байгууллагын нэвтрүүлэлтийн шат (0 судалгаа … 5 хүлээлгэн өгсөн) + дараагийн алхмууд. section=checklist — бэлдэх материалын шалгах жагсаалт; rules — зөрүү шийдвэрлэх дүрэм R0–R9 (хураангуй бүртгэл, нээлтийн зөрүүний данс, залруулгын журнал); phases — шатууд ба 'дууссан' шалгуур; status — зөвхөн төлөв. Нэвтрүүлэлтийн ямар ч ажил эхлэхийн ӨМНӨ overview-г унш.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          enum: ["overview", "checklist", "rules", "phases", "status"],
+          description:
+            "overview (default) = танилцуулга + хязгаар + төлөв + дараагийн алхам; checklist = §2 материал; rules = §3 зөрүүний дүрэм; phases = §4 шатууд; status = зөвхөн байгууллагын төлөв",
+        },
+      },
     },
   },
 
@@ -6613,6 +6639,66 @@ async function runReconcileModules(
   };
 }
 
+// ── Анхны нэвтрүүлэлтийн туслах ─────────────────────────────────────────────
+// Агуулга docs/deployment/onboarding.md-ээс (product owner баталсан) —
+// §2/§3/§4-ийг толгойгоор нь үгчлэн өгнө; төлөв/шат lib/onboarding-оос.
+
+const ONBOARDING_DOC_SECTIONS: Record<
+  Exclude<OnboardingSection, "overview" | "status">,
+  { number: number; fallback: string }
+> = {
+  checklist: {
+    number: 2,
+    fallback:
+      "Материалын шалгах жагсаалт: docs/deployment/onboarding.md §2 (server дээр файл олдсонгүй). Заавал: cut-off өдрийн гүйлгээ баланс, дансны жагсаалт, банкны хуулга + үлдэгдэл, татварын байдал, компанийн мэдээлэл. Байвал: АР/АП задаргаа харилцагчаар, барааны үлдэгдэл тоо×өртөг, ҮХ бүртгэл, ажилтан, зээл/урьдчилгаа.",
+  },
+  rules: {
+    number: 3,
+    fallback:
+      "Зөрүү шийдвэрлэх дүрэм: docs/deployment/onboarding.md §3 (server дээр файл олдсонгүй). R0 TB байхгүй → нээлт хийхгүй; R2/R3/R5 задаргаагүй дүн → хураангуй бүртгэл ([ОНБ-ХУРААНГУЙ], externalRef opening-summary:*); R6 тайлбарлагдахгүй зөрүү → зөрүүний данс руу ноорог журнал (opening-diff:*), хуримтлагдсан ашигт хаахгүй; R7 залруулга шинэ журналаар (opening-adj:*); R8 дэд дэвтэр ба GL давхардуулахгүй; R9 бүх нээлт ноорог, идемпотент.",
+  },
+  phases: {
+    number: 4,
+    fallback:
+      "Шатууд: 0 судалгаа (gap тайлан, юу ч бичихгүй) → 1 master data → 2 нээлтийн үлдэгдэл (нэг ноорог журнал) → 3 тулгалт (TB мөр мөрөөр, reconcile_modules, зөрүү → R6) → 4 зэрэгцээ сар → 5 хүлээлгэн өгөх (зөрүүний данс 0, cut-off сар хаагдсан).",
+  },
+};
+
+async function runOnboardingGuide(
+  orgId: string,
+  input: { section?: string }
+): Promise<AiToolResult> {
+  const section = (input.section ?? "overview") as OnboardingSection;
+  if (!ONBOARDING_SECTIONS.includes(section))
+    return {
+      resultText: `Ийм хэсэг алга. Боломжит: ${ONBOARDING_SECTIONS.join(", ")}`,
+    };
+
+  if (section === "status") {
+    const status = await loadOnboardingStatus(orgId);
+    return { resultText: formatOnboardingStatus(status) };
+  }
+
+  if (section === "overview") {
+    const status = await loadOnboardingStatus(orgId);
+    return {
+      resultText: [
+        ONBOARDING_INTRO,
+        "",
+        "AI-ИЙН АЖИЛЛАХ ХЯЗГААР:",
+        ...ONBOARDING_LIMITS.map((limit, index) => `${index + 1}. ${limit}`),
+        "",
+        formatOnboardingStatus(status),
+      ].join("\n"),
+    };
+  }
+
+  const { number, fallback } = ONBOARDING_DOC_SECTIONS[section];
+  const doc = await readOnboardingDoc();
+  const text = doc ? extractSection(doc, number) : null;
+  return { resultText: text ?? fallback };
+}
+
 // ── Ажлын урсгалын заавар ───────────────────────────────────────────────────
 
 const WORKFLOW_GUIDES: Record<string, string> = {
@@ -9492,6 +9578,8 @@ async function dispatchAiTool(
         return await runReconcileModules(orgId, args);
       case "get_workflow_guide":
         return runWorkflowGuide(args);
+      case "get_onboarding_guide":
+        return await runOnboardingGuide(orgId, args);
       case "create_counterparties_batch":
         return await runCreateBatch(args.items, (item) =>
           runCreateCounterparty(orgId, item as Parameters<typeof runCreateCounterparty>[1])
