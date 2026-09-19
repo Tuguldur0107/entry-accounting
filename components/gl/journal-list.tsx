@@ -11,7 +11,11 @@ import {
   unpostVoucher,
 } from "@/lib/actions/gl";
 import { importJournalVouchers } from "@/lib/actions/journal-import";
-import type { ChartOfAccount, JournalVoucherWithLines } from "@/lib/db/schema";
+import type { ChartOfAccount } from "@/lib/db/schema";
+import {
+  toSourceCurrency,
+  type JournalListRow,
+} from "@/lib/gl/journal-list-data";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
@@ -37,7 +41,8 @@ import type {
 const PAGE_SIZE = 15;
 
 interface Props {
-  vouchers: JournalVoucherWithLines[];
+  /** Ваучер + мөр + эх баримтын харилцагч/валют/ханш + үүсгэсэн хэрэглэгч. */
+  vouchers: JournalListRow[];
   accounts: ChartOfAccount[];
   activeSegIds: number[];
   /** Excel импортын normalize — журналын редактортой ижил (S1 auto-fill). */
@@ -46,7 +51,19 @@ interface Props {
   initialEnd?: string;
 }
 
-type VoucherRow = JournalVoucherWithLines;
+type VoucherRow = JournalListRow;
+
+/** Мөрийн MNT дүнг баримтын валютаар (2 орон) — MNT баримтад хоосон. */
+function fmtSource(amount: number, rate: number | null): string {
+  const converted = toSourceCurrency(amount, rate);
+  return converted == null ? "" : fmtMnt(converted);
+}
+
+/** Мөрийн дансны S3 үндсэн код (10-part dotted эсвэл дан код). */
+function mainOf(accountNumber: string): string {
+  const parts = accountNumber.split(".");
+  return parts.length === 10 ? parts[2] : accountNumber;
+}
 
 const LINE_HEIGHT = 22;
 const ROW_PADDING = 16;
@@ -55,7 +72,7 @@ const ROW_PADDING = 16;
 // period-filter.tsx, cookie-д хадгалагдана) — хуудас нь сонголтыг
 // initialStart/initialEnd болгож дамжуулдаг тул энэ component toolbar
 // render хийхгүй. Доорх default нь зөвхөн аюулгүйн fallback.
-// `accounts` prop одоогоор ашиглагдахгүй (page-level shape хадгална).
+// `accounts` prop — "Дансны нэр" багана, экспорт, импортын спек.
 function defaultMonthRange() {
   const today = new Date();
   const y = today.getFullYear();
@@ -137,47 +154,66 @@ export function JournalList({
         .join(" · ");
   }
 
-  // Экспорт — багц импортын загвартай ИЖИЛ багана (+ Статус) тул экспортолсон
-  // файлыг шууд буцааж импортлож болно (round-trip).
+  // Дансны нэр — S3 үндсэн кодоор (жагсаалтын "Дансны нэр" багана + экспорт).
+  const nameByMain = useMemo(
+    () => new Map(accounts.map((a) => [a.number, a.name])),
+    [accounts]
+  );
+
+  // Экспорт — багц импортын загвартай ИЖИЛ багана (+ Статус, лавлагаа) тул
+  // экспортолсон файлыг шууд буцааж импортлож болно (round-trip).
   async function handleExport() {
     const rows = filtered;
     if (rows.length === 0) {
       toast.error("Экспортлох бичилт алга");
       return;
     }
-    const nameByMain = new Map(accounts.map((a) => [a.number, a.name]));
     await downloadWorkbook({
       slug: "entry-journal",
       sheetName: "Журнал",
       columns: [
         { header: "Баримт №", width: 12 },
         { header: "Огноо", width: 12 },
-        { header: "Гүйлгээний утга", width: 30 },
+        { header: "Журналын нэр", width: 30 },
         { header: "Данс", width: 22 },
         { header: "Дансны нэр", width: 26 },
         { header: "Дебет", width: 16, kind: "number" },
         { header: "Кредит", width: 16, kind: "number" },
         { header: "Мөрийн тайлбар", width: 26 },
         { header: "Статус", width: 12 },
+        // Лавлагааны баганууд — импортын спек нэрээр таньдаг тул илүүдэл
+        // багана round-trip-д саад болохгүй.
+        { header: "Харилцагч", width: 24 },
+        { header: "Валют", width: 8 },
+        { header: "Ханш", width: 12, kind: "number" },
+        { header: "Дебет (валют)", width: 16, kind: "number" },
+        { header: "Кредит (валют)", width: 16, kind: "number" },
+        { header: "Үүсгэсэн хэрэглэгч", width: 20 },
       ],
       rows: rows.flatMap((voucher) =>
         voucher.lines.map((line) => {
-          const parts = line.accountNumber.split(".");
-          const main = parts.length === 10 ? parts[2] : line.accountNumber;
+          const debit = Number(line.debit);
+          const credit = Number(line.credit);
           return [
             voucher.id.slice(0, 8),
             voucher.date,
             voucher.description,
             fmtAccountDisplay(line.accountNumber, activeSegIds),
-            nameByMain.get(main) ?? "",
-            Number(line.debit) || null,
-            Number(line.credit) || null,
+            nameByMain.get(mainOf(line.accountNumber)) ?? "",
+            debit || null,
+            credit || null,
             line.description,
             voucher.status === "posted"
               ? "Бичигдсэн"
               : voucher.status === "reversed"
                 ? "Буцаагдсан"
                 : "Ноорог",
+            voucher.counterpartyName ?? "",
+            voucher.currency,
+            voucher.exchangeRate,
+            debit ? toSourceCurrency(debit, voucher.exchangeRate) : null,
+            credit ? toSourceCurrency(credit, voucher.exchangeRate) : null,
+            voucher.createdByName,
           ];
         })
       ),
@@ -340,13 +376,48 @@ export function JournalList({
         sortable: true,
       },
       {
-        headerName: "Утга",
+        headerName: "Журналын нэр",
         field: "description",
         flex: 1,
         minWidth: 180,
         sortable: true,
         autoHeight: true,
         cellClass: "text-xs font-medium",
+      },
+      {
+        headerName: "Харилцагч",
+        field: "counterpartyName",
+        width: 150,
+        sortable: true,
+        valueGetter: (p) => p.data?.counterpartyName ?? "",
+        cellClass: "text-xs",
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) =>
+          p.data?.counterpartyName ? (
+            <span className="text-xs truncate" title={p.data.counterpartyName}>
+              {p.data.counterpartyName}
+            </span>
+          ) : (
+            <span className="text-xs text-[var(--ea-border-strong)]">—</span>
+          ),
+      },
+      {
+        headerName: "Валют",
+        field: "currency",
+        width: 80,
+        sortable: true,
+        cellClass: "font-mono text-xs",
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
+          <span
+            className="font-mono text-xs"
+            title={
+              p.data?.exchangeRate != null
+                ? `Ханш: 1 ${p.data.currency} = ${fmtMnt(p.data.exchangeRate)} ₮`
+                : undefined
+            }
+          >
+            {p.data?.currency ?? "MNT"}
+          </span>
+        ),
       },
       {
         headerName: "Данс",
@@ -369,7 +440,27 @@ export function JournalList({
         ),
       },
       {
-        headerName: "Дебет",
+        headerName: "Дансны нэр",
+        colId: "lines.accountName",
+        flex: 1,
+        minWidth: 150,
+        sortable: false,
+        valueGetter: (p) =>
+          p.data?.lines
+            .map((line) => nameByMain.get(mainOf(line.accountNumber)) ?? "")
+            .join(" · ") ?? "",
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
+          <div className="flex flex-col py-2 leading-[22px]">
+            {p.data?.lines.map((l) => (
+              <span key={l.id} className="text-xs text-[var(--ea-text-2)] truncate">
+                {nameByMain.get(mainOf(l.accountNumber)) ?? "—"}
+              </span>
+            ))}
+          </div>
+        ),
+      },
+      {
+        headerName: "Дебет (MNT)",
         colId: "lines.debit",
         width: 130,
         cellClass: "ag-right-aligned-cell",
@@ -399,7 +490,7 @@ export function JournalList({
         ),
       },
       {
-        headerName: "Кредит",
+        headerName: "Кредит (MNT)",
         colId: "lines.credit",
         width: 130,
         cellClass: "ag-right-aligned-cell",
@@ -428,6 +519,69 @@ export function JournalList({
           </div>
         ),
       },
+      // Эх баримтын валютын дүн — MNT ÷ ханш (лавлагаа); MNT баримтад хоосон.
+      {
+        headerName: "Дебет (валют)",
+        colId: "lines.debitSource",
+        width: 130,
+        cellClass: "ag-right-aligned-cell",
+        headerClass: "ag-right-aligned-header",
+        sortable: false,
+        valueGetter: (p) =>
+          p.data?.lines
+            .map((line) => Number(line.debit))
+            .filter((amount) => amount !== 0)
+            .map((amount) => fmtSource(amount, p.data?.exchangeRate ?? null))
+            .filter(Boolean)
+            .join(" · ") ?? "",
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
+          <div className="flex flex-col py-2 leading-[22px] items-end">
+            {p.data?.lines.map((l) => {
+              const text = fmtSource(Number(l.debit), p.data?.exchangeRate ?? null);
+              return text ? (
+                <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-text-2)]">
+                  {text}
+                </span>
+              ) : (
+                <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-border-strong)]">
+                  —
+                </span>
+              );
+            })}
+          </div>
+        ),
+      },
+      {
+        headerName: "Кредит (валют)",
+        colId: "lines.creditSource",
+        width: 130,
+        cellClass: "ag-right-aligned-cell",
+        headerClass: "ag-right-aligned-header",
+        sortable: false,
+        valueGetter: (p) =>
+          p.data?.lines
+            .map((line) => Number(line.credit))
+            .filter((amount) => amount !== 0)
+            .map((amount) => fmtSource(amount, p.data?.exchangeRate ?? null))
+            .filter(Boolean)
+            .join(" · ") ?? "",
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
+          <div className="flex flex-col py-2 leading-[22px] items-end">
+            {p.data?.lines.map((l) => {
+              const text = fmtSource(Number(l.credit), p.data?.exchangeRate ?? null);
+              return text ? (
+                <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-text-2)]">
+                  {text}
+                </span>
+              ) : (
+                <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-border-strong)]">
+                  —
+                </span>
+              );
+            })}
+          </div>
+        ),
+      },
       {
         headerName: "Тайлбар",
         colId: "lines.description",
@@ -444,6 +598,13 @@ export function JournalList({
             ))}
           </div>
         ),
+      },
+      {
+        headerName: "Үүсгэсэн хэрэглэгч",
+        field: "createdByName",
+        width: 150,
+        sortable: true,
+        cellClass: "text-xs text-[var(--ea-text-3)]",
       },
       {
         headerName: "Статус",
@@ -548,7 +709,7 @@ export function JournalList({
     // handleEdit нь vouchers-оос хамаарах ч мөрийн товч дарагдах үед л
     // дуудагддаг тул columnDefs-ийг дахин барих шаардлагагүй.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeSegIds]
+    [activeSegIds, nameByMain]
   );
 
   // Импорт/экспортын toolbar — жагсаалт хоосон үед ч харагдана (импорт нь
@@ -644,54 +805,47 @@ export function JournalList({
         onCellDoubleClicked={handleRowClick}
       />
 
-      {/* Footer — баганатай харалдаа. Grid template AG-Grid-н column width-тэй тааруулсан */}
+      {/* Footer — нийт дүн. Багана олон (валют, дансны нэр, хэрэглэгч) тул
+          баганатай харалдаа CSS grid БИШ, товч нэгтгэлийн мөр. */}
       <div
-        className="mt-3 text-xs"
+        className="mt-3 flex items-center justify-between gap-6 px-3 py-2.5 text-xs"
         style={{
           background: "var(--ea-bg-2)",
           border: "1px solid var(--ea-border)",
           borderRadius: 6,
-          display: "grid",
-          gridTemplateColumns:
-            "110px 80px minmax(180px,1fr) minmax(160px,1fr) 130px 130px 160px 120px 120px",
-          alignItems: "center",
-          padding: "10px 0",
         }}
       >
-        {/* Огноо + ID — "Нийт дүн" label spanning */}
-        <div className="pl-3 col-span-2 text-[var(--ea-text-3)] font-medium" style={{ gridColumn: "1 / span 2" }}>
-          Нийт дүн
+        <div className="text-[var(--ea-text-3)] font-medium">
+          Нийт дүн · {filtered.length} журнал
         </div>
-        {/* Утга, Данс — empty */}
-        <div />
-        <div />
-        {/* Дебет */}
-        <div className="text-right pr-3 tabular-nums font-mono font-semibold text-[var(--ea-text-1)]">
-          {fmtMnt(grandDebit)}
+        <div className="flex items-center gap-6">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[var(--ea-text-3)]">Дебет (MNT)</span>
+            <span className="tabular-nums font-mono font-semibold text-[var(--ea-text-1)]">
+              {fmtMnt(grandDebit)}
+            </span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[var(--ea-text-3)]">Кредит (MNT)</span>
+            <span className="tabular-nums font-mono font-semibold text-[var(--ea-text-1)]">
+              {fmtMnt(grandCredit)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"
+              }`}
+            />
+            <span
+              className={`font-medium ${
+                balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"
+              }`}
+            >
+              {balanced ? "Тэнцсэн" : `Зөрүү ${fmtMnt(Math.abs(grandDebit - grandCredit))}`}
+            </span>
+          </div>
         </div>
-        {/* Кредит */}
-        <div className="text-right pr-3 tabular-nums font-mono font-semibold text-[var(--ea-text-1)]">
-          {fmtMnt(grandCredit)}
-        </div>
-        {/* Тайлбар — empty */}
-        <div />
-        {/* Статус */}
-        <div className="flex items-center justify-end gap-1.5 pr-3">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${
-              balanced ? "bg-[var(--ea-success)]" : "bg-[var(--ea-danger)]"
-            }`}
-          />
-          <span
-            className={`font-medium ${
-              balanced ? "text-[var(--ea-success-fg)]" : "text-[var(--ea-danger-fg)]"
-            }`}
-          >
-            {balanced ? "Тэнцсэн" : `Зөрүү ${fmtMnt(Math.abs(grandDebit - grandCredit))}`}
-          </span>
-        </div>
-        {/* Үйлдэл — empty */}
-        <div />
       </div>
 
       {importDialog}

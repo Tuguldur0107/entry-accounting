@@ -14,6 +14,12 @@ export interface ImportColumn {
   key: string;
   /** Excel дэх толгойн нэр (загварт мөн энэ гарна). */
   header: string;
+  /**
+   * Хуучин загварын толгойн нэрс — багана нэрээ сольсон ч (жишээ нь
+   * "Гүйлгээний утга" → "Журналын нэр") өмнө татсан загвар/экспорт файл
+   * хэвээр импортлогдоно. Загварт ГАРАХГҮЙ, зөвхөн таниулахад.
+   */
+  aliases?: string[];
   required?: boolean;
   /** Загварын "Заавар" хуудсанд гарах тайлбар. */
   hint: string;
@@ -75,7 +81,11 @@ export function parseMatrix<T>(
   const headerErrors: string[] = [];
 
   for (const column of spec.columns) {
-    const index = headerRow.indexOf(normalizeHeader(column.header));
+    // Үндсэн нэр эхэлж таарна; олдохгүй бол хуучин нэрсээс (aliases) хайна.
+    const candidates = [column.header, ...(column.aliases ?? [])];
+    const index = candidates
+      .map((name) => headerRow.indexOf(normalizeHeader(name)))
+      .find((position) => position >= 0) ?? -1;
     if (index >= 0) indexByKey.set(column.key, index);
     else if (column.required)
       headerErrors.push(`"${column.header}" багана олдсонгүй`);

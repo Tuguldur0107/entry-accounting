@@ -328,7 +328,7 @@ export function UiKitView() {
       <Section title="Form элементүүд" hint="Input, Select, Switch, Skeleton.">
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="uikit-input">Гүйлгээний утга</Label>
+            <Label htmlFor="uikit-input">Журналын нэр</Label>
             <Input id="uikit-input" placeholder="Тайлбар оруулна уу" />
           </div>
           <div className="space-y-1.5">

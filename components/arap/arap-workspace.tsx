@@ -919,7 +919,7 @@ async function exportDocuments(
       { header: "Төлөх огноо", width: 12 },
       { header: "Валют", width: 8 },
       { header: "Хяналтын данс", width: 20 },
-      { header: "Утга", width: 30 },
+      { header: "Журналын нэр", width: 30 },
       { header: "Нийт дүн", width: 16, kind: "number" },
       { header: "Төлсөн", width: 16, kind: "number" },
       { header: "Үлдэгдэл", width: 16, kind: "number" },

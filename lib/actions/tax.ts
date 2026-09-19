@@ -37,7 +37,7 @@ export async function createTaxAccrualVoucher(data: {
     if (!Number.isFinite(amount) || amount <= 0)
       return { error: "Дүн 0-ээс их байна" };
     const description = data.description.trim();
-    if (!description) return { error: "Гүйлгээний утга оруулна уу" };
+    if (!description) return { error: "Журналын нэр оруулна уу" };
     const debitMain = data.debitMain.trim();
     const creditMain = data.creditMain.trim();
     if (!/^\d{8}$/.test(debitMain) || !/^\d{8}$/.test(creditMain))

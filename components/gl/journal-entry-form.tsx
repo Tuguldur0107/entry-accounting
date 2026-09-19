@@ -502,7 +502,7 @@ export function JournalEntryForm({
           <span className="font-mono">{lines.length}</span>
         </div>
         <div className="col-span-3">
-          <span className="text-neutral-500">Гүйлгээний утга: </span>
+          <span className="text-neutral-500">Журналын нэр: </span>
           {description || "—"}
         </div>
       </div>
@@ -684,7 +684,7 @@ export function JournalEntryForm({
                     )}
                   </HeaderField>
                   <HeaderField
-                    label="Гүйлгээний утга"
+                    label="Журналын нэр"
                     htmlFor="voucher-description"
                   >
                     {readOnly ? (
