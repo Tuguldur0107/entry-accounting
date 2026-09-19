@@ -162,7 +162,10 @@ export async function getEbarimtOutbox(): Promise<
   ActionResult<{ posApiUrl: string; items: EbarimtSubmissionView[] }>
 > {
   try {
-    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
+    // Унших эрхээр ч дуудагдана (кассын дэлгэц нээгдсэн бүрд polling) —
+    // илгээх эрхгүй бол ХООСОН дараалал, алдаа биш. Бичилт нь
+    // recordEbarimtResponse дээр "write" эрхээр шалгагдана.
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
     const settings = await ensurePosSettings(orgId, userId);
     if (!settings.ebarimtEnabled || settings.ebarimtMode !== "browser")
       return { posApiUrl: settings.ebarimtPosApiUrl, items: [] };
