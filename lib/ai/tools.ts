@@ -43,7 +43,7 @@ import {
   createFixedAsset,
   deleteFixedAsset,
   disposeFixedAsset,
-  postDepreciationEntries,
+  postDepreciationMonth,
   reverseDepreciationEntry,
   runDepreciation,
   type FaDisposalType,
@@ -5704,9 +5704,11 @@ async function runPostFaDepreciation(
     return { resultText: `${input.month} сард ноорог элэгдлийн бичилт алга` };
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  await postDepreciationEntries(entries.map((entry) => entry.id));
+  // Вэбийн дэлгэцтэй ИЖИЛ зам: сарын бүх элэгдэл НЭГ журналаар бичигдэнэ
+  // (хөрөнгө тус бүрд тусдаа журнал үүсгэхгүй).
+  const posted = await postDepreciationMonth(input.month);
   return {
-    resultText: `${input.month} сарын элэгдэл батлагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
+    resultText: `${input.month} сарын элэгдэл НЭГ журналаар батлагдлаа: ${posted.posted} хөрөнгө, нийт ${fmt(posted.amount)}₮`,
   };
 }
 

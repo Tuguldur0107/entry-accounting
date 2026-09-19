@@ -18,7 +18,13 @@ import {
 } from "@/lib/db/schema";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import {
+  basisOf,
+  loadFaSettings,
+  saveFaDepreciationBasis,
+} from "@/lib/fa/settings";
+import {
   computeMonthlyDepreciation,
+  isDepreciationBasis,
   isDepreciationMethod,
   type FixedAssetRef,
 } from "@/lib/fa/depreciation";
@@ -111,7 +117,15 @@ export interface FixedAssetInput {
   usefulLifeMonths: number;
   depreciationMethod: string;
   custodian: string;
+  /** Байршил / дэд байршил — картын жагсаалт, тооллогод. */
+  location?: string;
+  subLocation?: string;
   depreciationStartMonth: string;
+  /** Элэгдэл эхлэх ОГНОО (YYYY-MM-DD) — өдрийн суурьт хувь тэнцүүлэлтэд. */
+  depreciationStartDate?: string;
+  /** ТАТВАРЫН хугацаа/арга (cit.md); 0 = татварын элэгдэл бодохгүй. */
+  taxUsefulLifeMonths?: number;
+  taxDepreciationMethod?: string;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
   depExpenseAccountNumber: string;
@@ -134,6 +148,35 @@ function validateAssetInput(data: FixedAssetInput) {
     throw new Error("Элэгдлийн арга буруу байна");
   if (typeof data.custodian !== "string" || !data.custodian.trim())
     throw new Error("Хөрөнгө эзэмшигч (хариуцагч) оруулна уу");
+  if (
+    data.depreciationStartDate &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(data.depreciationStartDate)
+  )
+    throw new Error("Элэгдэл эхлэх огноо (YYYY-MM-DD) буруу байна");
+  if (
+    data.depreciationStartDate &&
+    !data.depreciationStartDate.startsWith(data.depreciationStartMonth)
+  )
+    throw new Error("Элэгдэл эхлэх огноо нь эхлэх сартайгаа таарахгүй байна");
+  const taxLife = Number(data.taxUsefulLifeMonths ?? 0);
+  if (!Number.isInteger(taxLife) || taxLife < 0)
+    throw new Error("Татварын ашиглалтын хугацаа сөрөг бус бүхэл тоо байна");
+  if (
+    data.taxDepreciationMethod &&
+    !isDepreciationMethod(data.taxDepreciationMethod)
+  )
+    throw new Error("Татварын элэгдлийн арга буруу байна");
+}
+
+/** Картын шинэ талбаруудыг DB-ийн утга болгоно (create/activate хоёуланд). */
+function assetExtraValues(data: FixedAssetInput) {
+  return {
+    location: data.location?.trim() || null,
+    subLocation: data.subLocation?.trim() || null,
+    depreciationStartDate: data.depreciationStartDate?.trim() || null,
+    taxUsefulLifeMonths: Number(data.taxUsefulLifeMonths ?? 0),
+    taxDepreciationMethod: data.taxDepreciationMethod?.trim() || "straight_line",
+  };
 }
 
 export async function createFixedAsset(
@@ -180,6 +223,7 @@ export async function createFixedAsset(
       usefulLifeMonths: data.usefulLifeMonths,
       depreciationMethod: data.depreciationMethod,
       custodian: data.custodian.trim().slice(0, 120),
+      ...assetExtraValues(data),
       depreciationStartMonth: data.depreciationStartMonth,
       assetAccountNumber: data.assetAccountNumber.trim(),
       accumDepAccountNumber: data.accumDepAccountNumber.trim(),
@@ -218,6 +262,7 @@ export async function activateFixedAsset(id: string, data: FixedAssetInput) {
       usefulLifeMonths: data.usefulLifeMonths,
       depreciationMethod: data.depreciationMethod,
       custodian: data.custodian.trim().slice(0, 120),
+      ...assetExtraValues(data),
       depreciationStartMonth: data.depreciationStartMonth,
       assetAccountNumber: data.assetAccountNumber.trim(),
       accumDepAccountNumber: data.accumDepAccountNumber.trim(),
@@ -326,69 +371,188 @@ export async function deleteFixedAsset(id: string) {
 
 // ─── Элэгдлийн run ───────────────────────────────────────────────────────────
 
+/**
+ * Тухайн САРЫН элэгдлийг бодно — САНХҮҮГИЙН (GL-д бичигдэх) ба ТАТВАРЫН
+ * (мэмо) дүнг зэрэг. Тохиргооны суурь (сар / өдөр) бүх картад үйлчилнэ.
+ *
+ * ДАХИН бодолт: тухайн сарын ноорог бичилтийг дарж бичнэ; БАТЛАГДСАН бол
+ * GL журналыг нь АВТОМАТААР буцаагаад (аудитын мөр бүрэн) шинээр бодно —
+ * ингэснээр журнал хэзээ ч ДАВХАРДАХГҮЙ.
+ */
 export async function runDepreciation(data: { month: string }) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
   if (!/^\d{4}-\d{2}$/.test(data.month))
     throw new Error("Сар (YYYY-MM) буруу байна");
+  const postingDate = `${data.month}-28`;
+  await assertPeriodOpen(orgId, postingDate);
 
-  return await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 3)`);
+  const settings = await loadFaSettings(orgId, userId);
+  const basis = basisOf(settings);
+  const buildCode = await faPostingCodeBuilder(orgId);
 
-    const [assets, entries] = await Promise.all([
-      tx.query.fixedAssets.findMany({
-        where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.status, "active")),
-      }),
-      tx.query.faDepreciationEntries.findMany({
-        where: and(
-          eq(faDepreciationEntries.organizationId, orgId),
-          inArray(faDepreciationEntries.status, ["draft", "posted"])
-        ),
-      }),
-    ]);
+  return await db
+    .transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 3)`);
+      await assertPeriodOpenInTx(tx, orgId, postingDate);
 
-    const assetRefs: FixedAssetRef[] = assets.map((asset) => ({
-      id: asset.id,
-      cost: Number(asset.cost),
-      salvageValue: Number(asset.salvageValue),
-      usefulLifeMonths: asset.usefulLifeMonths,
-      method: isDepreciationMethod(asset.depreciationMethod)
-        ? asset.depreciationMethod
-        : "straight_line",
-      depreciationStartMonth: asset.depreciationStartMonth,
-      status: asset.status,
-    }));
-    const postedAccum = new Map<string, number>();
-    const alreadyCharged = new Set<string>();
-    for (const entry of entries) {
-      postedAccum.set(
-        entry.assetId,
-        (postedAccum.get(entry.assetId) ?? 0) + Number(entry.amount)
+      const [assets, entries] = await Promise.all([
+        tx.query.fixedAssets.findMany({
+          where: and(
+            eq(fixedAssets.organizationId, orgId),
+            eq(fixedAssets.status, "active")
+          ),
+        }),
+        tx.query.faDepreciationEntries.findMany({
+          where: and(
+            eq(faDepreciationEntries.organizationId, orgId),
+            inArray(faDepreciationEntries.status, ["draft", "posted"])
+          ),
+          with: { asset: true },
+        }),
+      ]);
+
+      // ── Тухайн сарын байгаа бичилтийг цэвэрлэнэ ──────────────────────
+      const thisMonth = entries.filter((e) => e.periodMonth === data.month);
+      const postedVoucherIds = new Set(
+        thisMonth
+          .filter((e) => e.status === "posted" && e.voucherId)
+          .map((e) => e.voucherId as string)
       );
-      if (entry.periodMonth === data.month) alreadyCharged.add(entry.assetId);
-    }
+      let reversed = 0;
 
-    const computed = computeMonthlyDepreciation({
-      assets: assetRefs,
-      postedAccum,
-      alreadyCharged,
-      month: data.month,
+      for (const voucherId of postedVoucherIds) {
+        const voucher = await tx.query.journalVouchers.findFirst({
+          where: and(
+            eq(journalVouchers.id, voucherId),
+            eq(journalVouchers.organizationId, orgId)
+          ),
+          with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
+        });
+        if (!voucher) continue;
+        const [reversal] = await tx
+          .insert(journalVouchers)
+          .values({
+            userId,
+            organizationId: orgId,
+            date: voucher.date,
+            description: `Элэгдлийн буцаалт (дахин бодолт) — ${data.month}`,
+            status: "posted",
+            reversalOfVoucherId: voucher.id,
+          })
+          .returning({ id: journalVouchers.id });
+        await tx.insert(journalLines).values(
+          voucher.lines.map((line, index) => ({
+            voucherId: reversal.id,
+            accountNumber: line.accountNumber,
+            // Буцаалт = Дт/Кт солигдсон толин тусгал.
+            debit: line.credit,
+            credit: line.debit,
+            description: `Буцаалт: ${line.description}`,
+            sortOrder: index,
+          }))
+        );
+        await tx
+          .update(journalVouchers)
+          .set({ status: "reversed" })
+          .where(eq(journalVouchers.id, voucher.id));
+        await tx
+          .update(faDepreciationEntries)
+          .set({ status: "reversed", reversalVoucherId: reversal.id })
+          .where(
+            and(
+              eq(faDepreciationEntries.organizationId, orgId),
+              eq(faDepreciationEntries.periodMonth, data.month),
+              eq(faDepreciationEntries.voucherId, voucher.id),
+              eq(faDepreciationEntries.status, "posted")
+            )
+          );
+        reversed += 1;
+      }
+
+      // Ноорог бичилтийг устгана (дарж бичих).
+      await tx
+        .delete(faDepreciationEntries)
+        .where(
+          and(
+            eq(faDepreciationEntries.organizationId, orgId),
+            eq(faDepreciationEntries.periodMonth, data.month),
+            eq(faDepreciationEntries.status, "draft")
+          )
+        );
+
+      // ── Хуримтлагдсан элэгдэл (ӨМНӨХ сарууд, идэвхтэй бичилт) ────────
+      const postedAccum = new Map<string, number>();
+      const taxAccum = new Map<string, number>();
+      for (const entry of entries) {
+        if (entry.periodMonth >= data.month) continue; // энэ сарынх дахин бодогдоно
+        postedAccum.set(
+          entry.assetId,
+          (postedAccum.get(entry.assetId) ?? 0) + Number(entry.amount)
+        );
+        taxAccum.set(
+          entry.assetId,
+          (taxAccum.get(entry.assetId) ?? 0) + Number(entry.taxAmount)
+        );
+      }
+
+      const assetRefs: FixedAssetRef[] = assets.map((asset) => ({
+        id: asset.id,
+        cost: Number(asset.cost),
+        salvageValue: Number(asset.salvageValue),
+        usefulLifeMonths: asset.usefulLifeMonths,
+        method: isDepreciationMethod(asset.depreciationMethod)
+          ? asset.depreciationMethod
+          : "straight_line",
+        depreciationStartMonth: asset.depreciationStartMonth,
+        depreciationStartDate: asset.depreciationStartDate,
+        status: asset.status,
+        taxUsefulLifeMonths: asset.taxUsefulLifeMonths,
+        taxMethod: isDepreciationMethod(asset.taxDepreciationMethod)
+          ? asset.taxDepreciationMethod
+          : "straight_line",
+      }));
+
+      const computed = computeMonthlyDepreciation({
+        assets: assetRefs,
+        postedAccum,
+        taxAccum,
+        alreadyCharged: new Set(),
+        month: data.month,
+        basis,
+      });
+      if (computed.length === 0) return { created: 0, reversed };
+
+      await tx.insert(faDepreciationEntries).values(
+        computed.map((entry) => ({
+          userId,
+          organizationId: orgId,
+          assetId: entry.assetId,
+          periodMonth: data.month,
+          amount: String(entry.amount),
+          taxAmount: String(entry.taxAmount),
+          depreciatedDays: entry.days,
+        }))
+      );
+
+      await logAuditEvent(
+        {
+          userId,
+          organizationId: orgId,
+          action: "calculate",
+          entityType: "fa",
+          entityId: data.month,
+          summary: `Элэгдэл бодогдов — ${data.month}, ${computed.length} хөрөнгө, суурь: ${basis === "daily" ? "өдрөөр" : "сараар"}${reversed > 0 ? `, өмнөх ${reversed} журнал буцаагдав` : ""}`,
+        },
+        tx
+      );
+      // buildCode-ыг батлах алхамд ашиглана — энд зөвхөн тохиргоо шалгагдав.
+      void buildCode;
+      return { created: computed.length, reversed };
+    })
+    .then((result) => {
+      revalidateFa();
+      return result;
     });
-    if (computed.length === 0) return { created: 0 };
-
-    await tx.insert(faDepreciationEntries).values(
-      computed.map((entry) => ({
-        userId,
-        organizationId: orgId,
-        assetId: entry.assetId,
-        periodMonth: data.month,
-        amount: String(entry.amount),
-      }))
-    );
-    return { created: computed.length };
-  }).then((result) => {
-    revalidateFa();
-    return result;
-  });
 }
 
 export async function postDepreciationEntry(id: string) {
@@ -1003,6 +1167,165 @@ export async function reverseFixedAssetDisposal(id: string) {
       },
       tx
     );
+  });
+  revalidateFa();
+}
+
+// ── Сарын элэгдлийг НЭГ товчоор GL-д батлах ────────────────────────────────
+
+/**
+ * Тухайн сарын БҮХ ноорог элэгдлийг НЭГ журналаар батална (хөрөнгө тус бүрд
+ * тусдаа журнал үүсгэхгүй). Мөрүүд дансны хосоор нэгтгэгдэнэ:
+ *   Dr Элэгдлийн зардал / Cr Хуримтлагдсан элэгдэл
+ * ЗӨВХӨН санхүүгийн (IAS 16) дүн бичигдэнэ — татварын элэгдэл нь мэмо
+ * (cit.md: ААНОАТ-ын тайлан, IAS 12 хойшлогдсон татварт ашиглагдана).
+ *
+ * Дахин бодоход runDepreciation нь энэ журналыг автоматаар буцаадаг тул
+ * давхар бичилт үүсэхгүй.
+ */
+export async function postDepreciationMonth(month: string): Promise<{
+  voucherId: string | null;
+  posted: number;
+  amount: number;
+}> {
+  const { orgId, userId } = await requireModuleAction("fa", "post");
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Сар (YYYY-MM) буруу байна");
+  const postingDate = `${month}-28`;
+  await assertPeriodOpen(orgId, postingDate);
+
+  const drafts = await db.query.faDepreciationEntries.findMany({
+    where: and(
+      eq(faDepreciationEntries.organizationId, orgId),
+      eq(faDepreciationEntries.periodMonth, month),
+      eq(faDepreciationEntries.status, "draft")
+    ),
+    with: { asset: true },
+  });
+  if (drafts.length === 0)
+    throw new Error("Батлах ноорог элэгдэл алга — эхлээд бодолт хийнэ үү");
+
+  const payable = drafts.filter((entry) => Number(entry.amount) > 0);
+  if (payable.length === 0)
+    throw new Error("Элэгдлийн дүн 0 байна — GL бичилт үүсгэхгүй");
+
+  // Дансны хос бүрээр нэгтгэнэ — олон хөрөнгө нэг данс хуваалцвал нэг мөр.
+  const byPair = new Map<
+    string,
+    { expense: string; accum: string; amount: number; count: number }
+  >();
+  for (const entry of payable) {
+    const key = `${entry.asset.depExpenseAccountNumber}|${entry.asset.accumDepAccountNumber}`;
+    const current = byPair.get(key) ?? {
+      expense: entry.asset.depExpenseAccountNumber,
+      accum: entry.asset.accumDepAccountNumber,
+      amount: 0,
+      count: 0,
+    };
+    current.amount = round2(current.amount + Number(entry.amount));
+    current.count += 1;
+    byPair.set(key, current);
+  }
+
+  for (const pair of byPair.values()) {
+    await assertEnabledMainAccount(orgId, pair.expense);
+    await assertEnabledMainAccount(orgId, pair.accum);
+  }
+
+  const buildCode = await faPostingCodeBuilder(orgId);
+  const total = round2(
+    [...byPair.values()].reduce((sum, pair) => sum + pair.amount, 0)
+  );
+  const description = `Үндсэн хөрөнгийн элэгдэл ${month} (${payable.length} хөрөнгө)`;
+
+  const voucherId = await db.transaction(async (tx) => {
+    await assertPeriodOpenInTx(tx, orgId, postingDate);
+
+    const [voucher] = await tx
+      .insert(journalVouchers)
+      .values({
+        userId,
+        organizationId: orgId,
+        date: postingDate,
+        description,
+        status: "posted",
+      })
+      .returning({ id: journalVouchers.id });
+
+    const lines: {
+      voucherId: string;
+      accountNumber: string;
+      debit: string;
+      credit: string;
+      description: string;
+      sortOrder: number;
+    }[] = [];
+    let sortOrder = 0;
+    for (const pair of byPair.values()) {
+      lines.push({
+        voucherId: voucher.id,
+        accountNumber: buildCode(pair.expense),
+        debit: String(pair.amount),
+        credit: "0",
+        description: `Элэгдлийн зардал ${month} (${pair.count} хөрөнгө)`,
+        sortOrder: sortOrder++,
+      });
+      lines.push({
+        voucherId: voucher.id,
+        accountNumber: buildCode(pair.accum),
+        debit: "0",
+        credit: String(pair.amount),
+        description: `Хуримтлагдсан элэгдэл ${month} (${pair.count} хөрөнгө)`,
+        sortOrder: sortOrder++,
+      });
+    }
+    await tx.insert(journalLines).values(lines);
+
+    // Зөвхөн ноорог хэвээр байгаа мөрүүдийг л эзэмшинэ (уралдаанаас хамгаална).
+    const claimed = await tx
+      .update(faDepreciationEntries)
+      .set({ status: "posted", postedAt: new Date(), voucherId: voucher.id })
+      .where(
+        and(
+          eq(faDepreciationEntries.organizationId, orgId),
+          eq(faDepreciationEntries.periodMonth, month),
+          eq(faDepreciationEntries.status, "draft")
+        )
+      )
+      .returning({ id: faDepreciationEntries.id });
+    if (claimed.length === 0)
+      throw new Error("Бичилтийн төлөв өөрчлөгдсөн байна");
+
+    await logAuditEvent(
+      {
+        userId,
+        organizationId: orgId,
+        action: "post",
+        entityType: "fa",
+        entityId: voucher.id,
+        summary: `Элэгдэл нэг журналаар батлагдав — ${month}, ${payable.length} хөрөнгө, нийт ${total.toLocaleString("en-US")}₮`,
+      },
+      tx
+    );
+    return voucher.id;
+  });
+
+  revalidateFa();
+  return { voucherId, posted: payable.length, amount: total };
+}
+
+/** Элэгдлийн суурийг (сараар / өдрөөр) солино — БҮХ хөрөнгөд үйлчилнэ. */
+export async function setFaDepreciationBasis(basis: string) {
+  const { orgId, userId } = await requireModuleAction("fa", "write");
+  if (!isDepreciationBasis(basis))
+    throw new Error("Элэгдлийн суурь буруу байна");
+  await saveFaDepreciationBasis(orgId, userId, basis);
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "update",
+    entityType: "fa",
+    entityId: "settings",
+    summary: `Элэгдлийн суурь ${basis === "daily" ? "ӨДРӨӨР" : "САРААР"} болов`,
   });
   revalidateFa();
 }
