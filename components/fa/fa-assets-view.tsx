@@ -185,7 +185,11 @@ export function FaAssetsView({ assets }: Props) {
                   if (!ok) return;
                   startTransition(async () => {
                     try {
-                      await deleteFixedAsset(asset.id);
+                      const res = await deleteFixedAsset(asset.id);
+                      if (res.error !== undefined) {
+                        toast.error(res.error);
+                        return;
+                      }
                       router.refresh();
                       toast.success("Карт устгагдлаа");
                     } catch (caught) {

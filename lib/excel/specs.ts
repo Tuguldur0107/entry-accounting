@@ -548,6 +548,10 @@ export interface InventoryItemImport {
   barcode?: string | null;
   vatMode: ItemVatModeImport;
   categoryCode?: string | null;
+  /** eBarimt-ийн 7 оронтой ангилал (хоосон бол бүлгийнхийг өвлөнө). */
+  ebarimtClassificationCode?: string | null;
+  /** Татварын бүтээгдэхүүний код (3 орон) — НӨАТ-гүй / 0% бараанд. */
+  ebarimtTaxProductCode?: string | null;
   isActive: boolean;
 }
 
@@ -622,6 +626,18 @@ export function inventoryItemsSpec(context: {
         example: "",
       },
       {
+        key: "ebarimtClassificationCode",
+        header: "eBarimt ангилал",
+        hint: "ТЕГ-ийн 7 оронтой ангилал (сонголтоор; хоосон бол бүлгийнхийг өвлөнө)",
+        example: "",
+      },
+      {
+        key: "ebarimtTaxProductCode",
+        header: "Татварын код",
+        hint: "3 оронтой татварын бүтээгдэхүүний код — НӨАТ-гүй / 0% бараанд (сонголтоор)",
+        example: "",
+      },
+      {
         key: "isActive",
         header: "Идэвхтэй",
         hint: "Тийм / Үгүй (хоосон бол Тийм)",
@@ -663,6 +679,14 @@ export function inventoryItemsSpec(context: {
       if (categoryCode && !context.categoryCodes.has(categoryCode))
         errors.push(`"${categoryCode}" бүлэг бүртгэлд алга`);
 
+      const ebarimtClassificationCode = record.ebarimtClassificationCode.trim() || null;
+      if (ebarimtClassificationCode && !/^\d{7}$/.test(ebarimtClassificationCode))
+        errors.push("eBarimt ангилал 7 оронтой тоо байна");
+
+      const ebarimtTaxProductCode = record.ebarimtTaxProductCode.trim() || null;
+      if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
+        errors.push("Татварын код 3 оронтой тоо байна");
+
       const activeRaw = record.isActive.trim().toLowerCase();
       const isActive =
         activeRaw === "" ||
@@ -679,6 +703,8 @@ export function inventoryItemsSpec(context: {
           barcode: record.barcode.trim() || null,
           vatMode,
           categoryCode,
+          ebarimtClassificationCode,
+          ebarimtTaxProductCode,
           isActive,
         },
       };

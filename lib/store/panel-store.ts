@@ -16,6 +16,8 @@
 
 import { create } from "zustand";
 
+import type { PanelRect } from "@/lib/ui/panel-geometry";
+
 export type PanelKind =
   | "voucher" // GL журнал — засах эсвэл харах
   | "voucher-new" // Шинэ журнал бичих
@@ -92,6 +94,12 @@ export interface PanelInstance {
   order: number;
   /** Байрлалын тогтмол суудал (0..MAX-1) — шатласан офсет үүнээс. */
   slot: number;
+  /**
+   * Хэрэглэгчийн ЧИРСЭН/ТАТСАН байрлал (px). null бол `slot`-ийн анхны
+   * байрлал хүчинтэй. Нэг л эзэнтэй байх дүрэм: rect тавигдмагц байрлал
+   * бүхэлдээ эндээс тооцогдоно (slot-ийн CSS ХЭРЭГЛЭГДЭХГҮЙ).
+   */
+  rect: PanelRect | null;
   /** Хадгалаагүй өөрчлөлттэй эсэх — хаахад анхааруулна. */
   dirty: boolean;
 }
@@ -113,6 +121,10 @@ type PanelState = {
   minimize: (id: string) => void;
   restore: (id: string) => void;
   toggleMaximize: (id: string) => void;
+  /** Чирэлт/хэмжээ солилтын үр дүн — геометр нь panel-geometry-д бодогдоно. */
+  setRect: (id: string, rect: PanelRect) => void;
+  /** Анхны (slot) байрлал руу буцаана. */
+  resetRect: (id: string) => void;
   focus: (id: string) => void;
   setTitle: (id: string, title: string) => void;
   setDirty: (id: string, dirty: boolean) => void;
@@ -221,6 +233,7 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
             maximized: false,
             order: ++seq,
             slot: freeSlot(panels),
+            rect: null,
             dirty: false,
           },
         ],
@@ -280,6 +293,20 @@ export const usePanelStore = create<PanelState>()((set, get) => ({
         panel.id === id ? { ...panel, maximized: !panel.maximized } : panel
       ),
       activeId: id,
+    })),
+
+  setRect: (id, rect) =>
+    set((state) => ({
+      panels: state.panels.map((panel) =>
+        panel.id === id ? { ...panel, rect } : panel
+      ),
+    })),
+
+  resetRect: (id) =>
+    set((state) => ({
+      panels: state.panels.map((panel) =>
+        panel.id === id ? { ...panel, rect: null, maximized: false } : panel
+      ),
     })),
 
   focus: (id) =>

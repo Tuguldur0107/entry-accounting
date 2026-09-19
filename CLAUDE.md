@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан | ✅ | eBarimt 3.0 API, QPay API, камер barcode (Фаз 3) |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт** | ✅ | QPay API, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 
 ## Файлын бүтэц
@@ -62,6 +62,8 @@ entry-accounting/
 │   │                             #   types, load-data
 │   ├── pos/                      # POS: constants, types, discounts, sale-math, payments,
 │   │                             #   load-data, reports (§5c)
+│   ├── ebarimt/                  # eBarimt 3.0: receipt (ЦЭВЭР), client, lookup,
+│   │                             #   queue, worker, ticker (§5c)
 │   ├── actions/pos.ts            # POS Server Actions (createPosSale атомик, буцаалт, ээлж)
 │   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
 │   ├── notifications/            # Мэдэгдэл: catalog · rules (аудит гүүр) · attention
@@ -109,6 +111,16 @@ entry-accounting/
 - **Server Component by default:** Data fetch нь page.tsx дотор, mutation нь `lib/actions/` Server Action-аар
 - **Client Component:** `"use client"` зөвхөн state/event handler шаардагдах үед
 - **Монгол хэл:** UI текст бүгд монголоор
+- **Server action алдааг THROW ХИЙХГҮЙ** — client component-оос дуудагддаг
+  action нь алдаагаа `{ error }` УТГААР буцаана (`lib/action-result.ts`-ийн
+  `actionError`). Next.js PRODUCTION дээр шидсэн алдааны мессежийг далдалж
+  React #441 «An error occurred in the Server Components render…» болгодог
+  тул хэрэглэгч монгол тайлбарын оронд ойлгомжгүй код хардаг.
+  `tests/action-result.test.ts` энэ дүрмийг АВТОМАТААР сахиулна: хамгаалалтгүй
+  action нэмэгдвэл тест УНАНА. Онцгой тохиолдол нь өөрийн `{ ok, code }` үр
+  дүнгийн хэв маягтай панелийн loader-ууд (тестийн KNOWN_UNGUARDED-д ил
+  бүртгэлтэй). Server талын дуудагч (lib/ai/tools.ts) `unwrapAction`-оор
+  шидэлтээ хадгална.
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
 - ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
   import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
@@ -194,6 +206,42 @@ tests/voucher-no.test.ts  Жилийн хил, модуль тус бүрийн 
 
 **Шинэ бичилтийн зам нэмэхэд** `journalVouchers`-д insert хийх бүрд
 `documentNo: await nextVoucherNo(tx, orgId, "<модуль>", <огноо>)` ЗААВАЛ өгнө.
+
+### 2b. Журналын ВАЛЮТ (IAS 21) — ХЭРЭГЖСЭН
+
+Баримтад **НЭГ валют, НЭГ ханш** (касс, АР/АП-тай ИЖИЛ загвар —
+`journal_vouchers.currency` / `exchangeRate` / `rateSource` / `rateDate`).
+
+```
+Хэрэглэгч ВАЛЮТААР бичнэ  →  MNT нь ханшаар БОДОГДОНО  →  GL-д хоёулаа хадгалагдана
+  journal_lines.debitFc/creditFc          journal_lines.debit/credit (ДЭВТРИЙН валют)
+```
+
+- **MNT-г гараар бичихийг зөвшөөрөхгүй** — валютын журналд MNT багана нь
+  зөвхөн ХАРАХ (дүн ба ханш хэзээ ч зөрөхгүй). Баланс, тайлан, хаалт бүгд
+  `debit`/`credit` (MNT)-ээр л бодогдоно — өөрчлөгдөөгүй
+- **Сервер дахин бодно** (`resolveVoucherCurrency`, lib/actions/gl.ts):
+  client-ийн MNT дүнд НАЙДАХГҮЙ — trust boundary
+- **Тэнцэл ВАЛЮТААР** шалгагдана (`fcBalance`); мөр бүр тусдаа
+  бөөрөнхийлөгддөг тул MNT нийлбэр 1–2₮ зөрж болно → **батлах МӨЧИД**
+  зөрүүг ХАМГИЙН ТОМ мөрөнд ил шингээнэ (`convertLinesToBase`, НӨАТ
+  inclusive-ийн largest-line absorb-тай ИЖИЛ дүрэм). Ноорогт шингээхгүй
+- **Ханш огноогоор АВТОМАТ**: валют эсвэл огноо солигдоход тухайн өдрийн
+  Монголбанкны албан ханш татагдана (§5b store-first, `fetchOfficialRate`).
+  Олдохгүй бол ЗОХИОХГҮЙ — хэрэглэгч гараар оруулна; гараар өгсөн ханш
+  `rateSource: "manual"` гэж ИЛ тэмдэглэгдэнэ
+- **Журналын жагсаалт**: журнал ӨӨРӨӨ валюттай бол мөрд хадгалагдсан
+  ЖИНХЭНЭ валютын дүнг үзүүлнэ (`fcFromLines`); хуучин бичилтэд эх баримтын
+  ханшаар бодсон MNT ÷ ханш гэсэн ЛАВЛАГАА хэвээр
+
+```
+lib/gl/currency.ts        ЦЭВЭР (тесттэй): normalizeCurrency, assertRate,
+                          convertLinesToBase (бөөрөнхийллийн шингээлт), fcBalance
+lib/actions/gl.ts         resolveVoucherCurrency — create/update/post бүх зам
+components/gl/journal-entry-form.tsx  Валют + ханшийн талбар, автомат таталт
+components/journal/journal-lines-grid.tsx  Валютын Дт/Кт багана (MNT нь readonly)
+tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, гажиг оролт
+```
 
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
@@ -587,6 +635,59 @@ components/panel/pos-sale-panel  Борлуулалтын панель (буца
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
 ```
 
+**eBarimt 3.0 (PosAPI 3.0) — ХЭРЭГЖСЭН.** Баримт: `docs/pos/03-ebarimt-integration-plan.md`
+(дизайн, §3.1 Console-ийн үүрэг), `docs/deployment/ebarimt.md` (нэвтрүүлэлт).
+
+```
+борлуулалт батлагдав ──commit──▶ pos_ebarimt_submissions (pending)
+   worker (20 сек, server горим) / кассын дэлгэц (browser горим)
+        └─▶ POST {posApiUrl}/rest/receipt ──▶ ДДТД · сугалаа · QR → pos_sales
+буцаалт ──▶ DELETE /rest/receipt (эх ДДТД) [+ үлдсэн мөрөөр шинэ баримт]
+өдөр бүр 23:30 УБ ──▶ GET /rest/sendData (PosAPI-ийн дотоод сан → ТЕГ)
+```
+
+- **Борлуулалт ХЭЗЭЭ Ч илгээлтээс болж зогсохгүй** — enqueue нь commit-ийн
+  ДАРАА, async; амжилтгүй бол backoff (15с→1мин→5мин→30мин→2ц, max 20),
+  3 дараалсан алдаанд `ebarimt_failed` аудит → `pos.ebarimt_failed` мэдэгдэл
+- **Код ЗОХИОХГҮЙ** (ханшийн дүрэмтэй ижил зарчим): барааны ангилалын код
+  (7 орон, `inventoryItems.ebarimtClassificationCode`, хоосон бол
+  `inventoryCategories`-аас өвлөнө), НӨАТ-гүй/0%-ийн татварын бүтээгдэхүүний
+  код (3 орон), төлбөрийн хэлбэрийн `ebarimtCode` — аль нэг дутвал
+  `[EBARIMT_UNMAPPED_ITEM]` / `[EBARIMT_TAX_PRODUCT_CODE]` /
+  `[EBARIMT_UNMAPPED_PAYMENT]` гэж ШИДЭЖ, submission `failed` болж шалтгаан
+  UI-д ил гарна
+- **Идемпотент:** `pos_ebarimt_submissions` дээр (saleId, kind) partial unique
+  (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
+  worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг
+  илгээхээс сэргийлнэ (10 мин гацвал чөлөөлөгдөнө)
+- **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
+  гараар засах ХОРИОТОЙ (давхар баримт)
+- **taxType бүлэглэл:** НӨАТ төлөгч бус → бүх мөр `NOT_VAT`; төлөгч бол
+  барааны `vatMode` → `VAT_ABLE|VAT_FREE|VAT_ZERO`, мөрүүд дэд баримт
+  (`receipts[]`) болж бүлэглэгдэнэ. Хэсэгчилсэн буцаалтын дараа үлдсэн мөрөөр
+  л илгээгдэж, төлбөрүүд хувь тэнцүүлэн хуваарилагдана (Σ = баримтын дүн)
+- **Мерчантын тохиргоо харилцагчийн апп-д** (`pos_settings.ebarimt*`), Console-д
+  БИШ; `/api/health`-ийн `ebarimt` блокт зөвхөн ТООЛУУР (ТТД, нууц байхгүй)
+
+```
+lib/ebarimt/
+├── constants.ts   PosAPI-ийн литерал (төрөл, taxType, статус, алдааны код,
+│                  backoff) + EBARIMT_PAYMENT_CODE_SUGGESTIONS — CLIENT-SAFE
+├── types.ts       PosAPI JSON + Entry-ийн ЦЭВЭР оролт (EbarimtSaleInput)
+├── receipt.ts     buildEbarimtReceipt / allocatePayments / taxTypeOf /
+│                  ebarimtSettingsProblems — ЦЭВЭР (tests/ebarimt-receipt.test.ts)
+├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
+│                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
+├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo / getBranchInfo (24ц кэш)
+├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /
+│                  claimDueSubmissions / ebarimtStatusSummary
+├── worker.ts      claim → PosAPI → бичих; sendData; гацсан claim чөлөөлөх
+└── ticker.ts      In-process worker (20 сек) — EBARIMT_WORKER=off унтраана
+lib/actions/ebarimt.ts   Тохиргоо/холболт шалгах/дахин илгээх/лавлах/outbox
+app/api/cron/ebarimt     Гадаад cron (Bearer CRON_SECRET)
+tests/ebarimt-receipt.test.ts
+```
+
 ### 5b. Валютын ханшийн түүх (Монголбанк) — ХЭРЭГЖСЭН
 
 Хэрэглэгч **эхний үлдэгдэл, өмнөх хугацааны бичилт** оруулахад ӨМНӨХ ҮЕИЙН
@@ -752,11 +853,15 @@ lib/payroll/settings.ts  payroll_settings loader (данс, доод цалин,
                          босго, коэффициент, сарын ажлын өдөр, дундажийн сар)
 lib/payroll/settings-input.ts  Тохиргооны ЦЭВЭР шалгалт (тесттэй): хуваагч 0
                          болохгүй, коэффициент ХУУЛИЙН доод хэмжээнээс доошгүй
+lib/payroll/payslip.ts   Ажилтны цалингийн хуудсын ЦЭВЭР бүтэц (тесттэй) —
+                         олголт/суутгал/татваргүй хэсэг, илүү цагийн задаргаа;
+                         Σолголт − Σсуутгал + ХЧТА ≠ гарт олгох бол ШИДНЭ
 lib/actions/payroll.ts   Ажилтан CRUD, calculatePayrollRun (мөр бүр дахин бодогдоно,
                          засвар хадгалагдана), createPayrollVoucher (НООРОГ,
                          externalRef `payroll:YYYY-MM` — сард нэг),
                          loadPayrollSettingsView / savePayrollCalculationSettings /
-                         savePayrollAccountSettings
+                         savePayrollAccountSettings, getSalaryPaymentReport /
+                         getPayslipReport
 app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд + Тайлан + Тохиргоо
 ```
 
@@ -774,6 +879,13 @@ app/(dashboard)/payroll/ Цалин бодолт + Ажилтнууд + Тайл
   (хуулийн баталгаажуулалтын дараа хэрэглэгч идэвхжүүлнэ — 2026-updates.md)
 - **GL журнал ЗААВАЛ ноорог** (§9: payroll post нягтланчийн баталгаажуулалт
   шаарддаг) — сарын эцсийн огноогоор, бусад суутгалтай бол 6 мөр
+- **Тайлан `/payroll/reports`** — 2 харагдац (`view` параметр, таб солигдоход
+  ЗӨВХӨН тухайн харагдацын өгөгдөл уншигдана): «Банкны олголт» (урьдчилгаа /
+  сүүл, Excel) ба «Цалингийн хуудас» (ажилтны сарын задаргаа, A4 хэвлэлт —
+  сонгосон нэг эсвэл бүгд; POS-ийн баримттай ИЖИЛ portal + body класс хэв маяг).
+  Хуудсын дүн бүр бодолтын ХАДГАЛАГДСАН мөрөөс гарна (`buildPayslip` дахин
+  бодохгүй) тул GL журнал, банкны олголттой үргэлж таарна; тэнцээгүй мөр
+  хуудас болохгүй — тэр ажилтан алгасагдаж шалтгаан нь UI-д улаанаар гарна
 
 **Нэмэгдэл, олговрууд — АВТОМАТ бодолт + гар засвар (нэг дүрэм):**
 
@@ -848,6 +960,70 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 
 Тайлагнал: НДШ дараа сарын **5-нд**, ХАОАТ дараа сарын **10-нд**.
 
+**Урьдчилгаа / сүүл цалин — сарын гарт олгохыг ХОЁР төлбөр болгоно:**
+
+```
+Урьдчилгаа  ажилласан цагаар, СУУТГАЛГҮЙ олгоно (сар дундуур)
+Сүүл цалин  бүх нэмэгдэл/суутгал бодогдоод, НДШ ба ХАОАТ суутгагдсаны
+            ДАРАА урьдчилгаа хасагдана
+Тэнцэл:     урьдчилгаа + сүүл цалин = сарын нийт гарт олгох
+```
+
+- Нийт олголт нь ЦАГААС бодогдоно: үндсэн олголт (`цалин × ажилласан /
+  ажиллавал зохих цаг`, ХАРЬЦААГААР — бөөрөнхийлсөн цагийн хөлсөөр
+  үржүүлбэл хазайна) + ээлжийн амралт + бусад нэмэгдэл
+- **Бусад суутгал нь татварын сууринд ОРОХГҮЙ** — НДШ, ХАОАТ бодогдсоны
+  ДАРАА гарт олгохоос хасагдана (баганын дараалал үүнийг харуулна)
+- Төрөл тус бүр НЭГТГЭСЭН өглөгийн нэхэмжлэх (ноорог `ap_bill`) болно —
+  харилцагч нь авто-үүсэх «Ажилчид»; `externalRef` `payroll-{kind}:YYYY-MM`
+  тул сард нэг л удаа. **КЛИРИНГ:** §7-ийн журнал Cr Цалингийн өглөг,
+  нэхэмжлэх Dr Цалингийн өглөг / Cr Ажилтны өглөг, кассаас Dr Ажилтны
+  өглөг / Cr Банк — зардал НЭГ л удаа бичигдэнэ
+- Цалин олгох тайлан (`/payroll/reports`): сар + төрлөөр ажилтан тус бүрийн
+  банк, данс, IBAN, олгох дүн + Excel (банкны багц шилжүүлэг)
+- Тохиргоо (`/payroll/settings`): доод цалин, НДШ cap, **сарын татваргүй
+  босго** (2026: 800,000₮ — хуулийн баталгаажуулалт хүртэл 0), стандарт
+  ажлын цаг, нэмэгдлийн коэффициент, GL дансууд
+
+### 7a. Үндсэн хөрөнгийн элэгдэл — САНХҮҮ + ТАТВАР зэрэг
+
+Код: `lib/fa/depreciation.ts` (цэвэр, тесттэй), `lib/fa/settings.ts`,
+`lib/actions/fa.ts`, `app/(dashboard)/fa/depreciation`.
+
+**Хоёр элэгдэл ЗЭРЭГ бодогдоно** (`cit.md` §Татварын элэгдэл vs Нягтлан
+бодохын):
+
+| | Хугацаа | GL |
+|--|---------|-----|
+| Санхүүгийн (IAS 16) | `usefulLifeMonths` | **бичигдэнэ** |
+| Татварын (ААНОАТ) | `taxUsefulLifeMonths` | **БИЧИГДЭХГҮЙ** — мэмо |
+
+Татварын хувь хэмжээ хуулиас: барилга 5%/жил (240 сар), тоног төхөөрөмж
+ба тээвэр 10% (120), компьютер 20% (60), биет бус 10% (120) — **кодод
+зохиохгүй**, `scripts/backfill-fa-tax-life.ts` нь нэрээр ангилж чадаагүй
+картыг 0 хэвээр үлдээж анхааруулна. Хуримтлагдсан элэгдэл нь хоёр талдаа
+ТУСДАА хөтлөгдөнө; зөрүү нь IAS 12 хойшлогдсон татварын суурь болж
+дэлгэцэд ил гарна.
+
+**Элэгдлийн суурь** (`fa_settings.depreciationBasis`, БҮХ хөрөнгөд):
+
+- `monthly` — сарын тогтмол дүн (default)
+- `daily` — ашиглалтын НИЙТ өдрөөр хуваарилна: сар дундуур ашиглалтад
+  орсон хөрөнгө тэр сард хувь тэнцүүлэн, 28/30/31 хоногийн сарууд өөр
+  дүнтэй элэгдэнэ. Карт бүрийн `depreciationStartDate` (YYYY-MM-DD) нь
+  хуваарилалтын эхлэл; хоосон бол эхлэх сарын 1-ний өдөр
+
+**НЭГ товчоор GL:** сарын бүх элэгдэл НЭГ журнал болно (дансны хосоор
+нэгтгэсэн мөрүүд) — хөрөнгө тус бүрд журнал үүсгэхгүй. Дахин бодоход
+өмнөх журнал АВТОМАТААР буцаагдаж (буцаалтын журнал үлдэж аудитын мөр
+бүрэн) шинэ ноорог үүснэ — давхар бичилт үүсэхгүй. AI
+`post_fa_depreciation` мөн ижил замаар.
+
+Жагсаалт нь ЗӨВХӨН тайлант үеийнхийг харуулна (topbar-ийн периодын
+шүүлтүүр; URL-ийн `period` параметр дарна); багана: Dr/Cr данс, анхны
+үнэлгээ, хуримтлагдсан, үлдэх өртөг, сарын элэгдэл, татварын элэгдэл,
+элэгдсэн хоног, бодуулсан хэрэглэгч.
+
 ### 8. Domain separation (guardrail)
 
 - **IFRS treatment ≠ Татварын treatment** — ялгааг тодорхой тусгана
@@ -893,7 +1069,7 @@ tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргэ�
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 114 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 126 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -915,7 +1091,8 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 | Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
-| POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
+| POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
+| eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -1188,6 +1365,32 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
 (товч, линк, focus, сонгосон мөр). Цэнхэрийн ханалт 62% — тас хар дээр неон
 гэрэлтэхээс сэргийлнэ. Контраст 8.17:1 (AAA).
 
+### Хөвөгч ажлын панель (зөөх · хэмжээ · хавсралт)
+
+`components/panel/floating-panel.tsx` — панелийн ЦОРЫН ГАНЦ жааз.
+
+- **Зөөх:** гарчгаас чирнэ; **хэмжээ:** 4 ирмэг + 4 булангаас татна. Чирсэн
+  мөчид панелийн бодит тэгш өнцөгт `panel.rect`-д бүртгэгдэж, цаашид байрлал
+  ЗӨВХӨН түүнээс тооцогдоно (`slot`-ийн CSS хэрэглэгдэхгүй) — нэг байрлалд
+  хоёр эзэн байхгүй. ⟲ «Байрлалыг сэргээх» товч анхны суудалд буцаана
+- **Геометр нь ЦЭВЭР** `lib/ui/panel-geometry.ts` (тесттэй): анхны байрлал,
+  чирэлт, хэмжээ солилт, хил. Панель дэлгэцээс БҮРЭН гарахгүй
+  (`PANEL_KEEP_VISIBLE` = 160px гарчиг үргэлж харагдана), topbar-ын доогуур
+  орохгүй, `PANEL_MIN_WIDTH`/`HEIGHT`-ээс доош шахагдахгүй; цонх жижгэрэхэд
+  панель дотогш эргэж орно. Component дотор шинэ геометр бодохыг ХОРИГЛОНО
+- Чирэлт **3px хөдөлсний ДАРАА** эхэлнэ — гарчгийн давхар даралт (дэлгэц
+  дүүрэх) болон товчнуудтай мөргөлдөхгүй; дэлгэц дүүрэн үед чирэлт унтарна
+- **Хавсралт панельд НЭГ МӨР:** `components/attachments/attachment-section.tsx` —
+  `Хавсралт [төрөл ▾] [⬆ Файл хавсаргах] [📎 Хавсралт харах · N]`. Жагсаалт нь
+  ЗӨВХӨН popup-д; хавсралтгүй үед «харах» товч идэвхгүй бөгөөд **хоосон блок
+  (EmptyState) панельд ХЭЗЭЭ Ч гарахгүй** — гол агуулгыг доош түлхэхийг
+  хориглоно. Панель дотор `AttachmentList`-ийг ШУУД суулгахгүй; бүтэн таб
+  байгаа газарт л шууд (PO панелийн «Хавсралт» таб)
+- **Хавсралтын логик НЭГ л газар** (`attachment-list.tsx`): `useAttachments`
+  (төлөв + хуулах/устгах — дуудагч бүр НЭГ controller, давхар fetch хийхгүй) +
+  `AttachmentUploadBar` / `AttachmentRows` харагдах хэсгүүд. Шинэ байрлал
+  нэмэхдээ эдгээрийг compose хийнэ, хуулалт/устгалтыг дахин бичихийг ХОРИГЛОНО
+
 ### Таб ба шүүлтүүрийн chip
 
 `components/ui/tabs.tsx` — хуудас доторх таб/шүүлтүүрийн **ЦОРЫН ГАНЦ**
@@ -1306,6 +1509,24 @@ formatted) — MS Excel-д шууд paste хийгдэнэ. Нэг агшинд 
 даралт** — шинэ жагсаалтын grid нэмэхдээ `onCellDoubleClicked` /
 `onRowDoubleClicked` хэрэглэнэ, нэг даралтад panel нээхийг хориглоно.
 
+### Мөрийн өндөр (заавал мөрдөх)
+
+Нэг grid-д мөрийн өндрийг **НЭГ л эзэн** тогтооно:
+
+- Мөрүүдээ өөрөө өрдөг grid (журналын жагсаалт — мөр бүр журналын бүх
+  бичилтийг харуулдаг) → `getRowHeight`
+- Чөлөөт урт текст → баганын `autoHeight: true`
+
+**Хоёуланг ХАМТ хэрэглэхийг ХОРИГЛОНО.** AG Grid эхлээд `getRowHeight`-ээр
+мөрүүдээ байрлуулаад, дараа нь `autoHeight` баганыг хэмжиж өндрийг ДАХИН
+тааруулдаг — рендерийн дараа мөрүүд босоо чиглэлд ШИЛЖИНЭ. Улмаар хулганы
+доорх мөр өөр болж, хэрэглэгч дарсан мөрийнхөө ОРОНД хажуугийнхыг нээдэг
+(2026-09-19: журналын жагсаалтад яг ийм алдаа гарч, дарсан журналын оронд
+дараагийн журналын панель нээгдэж байв). Урт текстийг мөрийн ӨӨРИЙН өндөрт
+`-webkit-line-clamp`-аар багтаана, бүтнээр нь `title`-д.
+
+`tests/grid-row-height.test.ts` энэ зөрчлийг статикаар барина.
+
 ### Paste contract
 
 - TSV / CSV — Excel, Sheets-ээс шууд хуулна
@@ -1375,12 +1596,14 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
+| Хавсралт — компакт мөр + popup | [components/attachments/attachment-section.tsx](components/attachments/attachment-section.tsx) | Панелиудын НЭГДСЭН хэрэглээ: `📎 Хавсралт · N` товч → `Dialog` дотор бүтэн жагсаалт |
 | POS кассын дэлгэц | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | Сагсны grid (Тоо/Үнэ/Хөнг %/Хөнг ₮ editable, хасах үлдэгдэл улбар шар), баркод/хайлт, `quotePosSale` debounce 250мс, F9/F2/F6/Esc, түр хадгалалт localStorage |
 | POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
 | POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
 | Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 6 таб (хураангуй/бараа/өдөр/кассчин/хэлбэр/харилцагч+дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| Цалингийн хуудас (payslip) | [components/payroll/payslip-report-view.tsx](components/payroll/payslip-report-view.tsx) | Ажилтны жагсаалт (pinned нийт) + A4 хуудас: давхар даралт → нэг ажилтан, «Бүгдийг хэвлэх» → ажилтан бүр шинэ хуудсанд (`ea-printing-payslip`) |
 | POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
 ---
@@ -1455,6 +1678,9 @@ GL         journal_vouchers, journal_lines, document_counters
              эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
              journal_lines.businessObjectType / businessObjectId — клирингийн
              түлхүүр (PO), бичих МӨЧИД тавигдана
+             journal_vouchers.currency / exchangeRate / rateSource / rateDate +
+               journal_lines.debitFc / creditFc — баримтын ВАЛЮТ (§2b);
+               MNT баримтад "MNT" / 1 / 0
 Cash       cash_accounts, cash_documents, bank_statements,
            bank_statement_lines, cash_fx_revaluations
              cash_documents.counterpartyId — харилцагчийн БҮРТГЭЛИЙН холбоос
@@ -1517,6 +1743,14 @@ POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeI
            ar_ap_documents / cash_documents .sourceType ("pos") + sourceId;
            cost_entries.trueUpOfEntryId, valuationSource "provisional_avg",
            entryType "cogs_true_up" (ТЭМДЭГТЭЙ дүн)
+eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
+           PosApiUrl,Mode} (мерчантын тохиргоо — нууц БАЙХГҮЙ),
+           pos_payment_methods.ebarimtCode, inventory_items.ebarimt{Classification,
+           TaxProduct}Code, inventory_categories.ebarimtClassificationCode,
+           pos_sales.ebarimt{Id,Lottery,Status,QrData,Date,Type,ConsumerNo,CustomerTin},
+           pos_ebarimt_submissions (дараалал — kind send|cancel, status pending|
+           claimed|sent|failed|cancelled, payload/response jsonb, attempts,
+           nextAttemptAt; partial unique (saleId, kind) pending|claimed)
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results
@@ -1526,9 +1760,21 @@ Costing    cost_components, inventory_issue_types, costing_account_settings,
                valuationSource `po_receipt` | `ap_line`
              cost_allocations.sourceLineId / purchaseOrderId — нэхэмжлэхийн
                мөрөөс хийсэн хуваарилалт (Σ ≤ мөрийн MNT дүн)
-FA         fixed_assets, fa_depreciation_entries
+FA         fixed_assets, fa_depreciation_entries, fa_settings
+             fixed_assets.location / subLocation — байршил, дэд байршил
+             fixed_assets.depreciationStartDate — ӨДРИЙН суурийн эхлэл
+             fixed_assets.taxUsefulLifeMonths / taxDepreciationMethod — §7a
+             fa_depreciation_entries.taxAmount (мэмо) / depreciatedDays
+             fa_settings.depreciationBasis — "monthly" | "daily" (§7a)
 VAT        vat_settings
 Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
+             run_lines.standardHours / workedHours — цагт суурилсан олголт
+             run_lines.vacationPay / otherAdditions — нийт олголтод нэмэгдэнэ
+             run_lines.advanceHours / advanceAmount — урьдчилгаа (§7)
+             runs.advanceDate / advanceDocumentId / finalDocumentId — хоёр
+               нэгтгэсэн өглөгийн нэхэмжлэх
+             settings.standardMonthlyHours / employeePayableAccountNumber /
+               employeeCounterpartyId
 Audit      audit_events — статус шилжилт бүрд lib/audit.ts logAuditEvent
            (бизнесийн урсгалыг хэзээ ч унагахгүй); /settings/audit хуудас
 Мэдэгдэл   notifications (хүлээн авагч × org, dedupeKey unique INDEX,
@@ -1541,6 +1787,8 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
+             cfCodes — мөнгөн гүйлгээний тайлангийн S8 сегментийн кодууд
+               (дансны таарцаас ТҮРҮҮЛЖ шалгагдана)
 ```
 
 Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
@@ -1593,6 +1841,7 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 | **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
 | **Хангамж / PO (ЗААВАЛ)** | `docs/procurement/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.6, норматив §11 FR-PROC-006…012 |
 | **POS (ЗААВАЛ)** | `docs/pos/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.8 |
+| **eBarimt 3.0 (ЗААВАЛ)** | `docs/pos/03-ebarimt-integration-plan.md` → `docs/deployment/ebarimt.md`; төлөв `docs/pos/02-implementation-status.md` |
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |

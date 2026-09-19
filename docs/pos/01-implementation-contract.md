@@ -133,3 +133,65 @@ Cr COGS, `provisional_avg`), буцаан олголт: касс/банк хэл
   `create_pos_sale` (post, ≤10M), `return_pos_sale` (post), `list_pos_sales`,
   `get_pos_sale`, `get_pos_sales_report`; workflow guide `pos_sale`;
   action kind `pos_sale`.
+
+## 9. eBarimt 3.0 (PosAPI 3.0) — Фаз 3
+
+Дизайн `03-ebarimt-integration-plan.md`, нэвтрүүлэлт `docs/deployment/ebarimt.md`.
+Функцийн нэр/параметрээс ЗӨРӨХИЙГ ХОРИГЛОНО.
+
+**Цэвэр давхарга** (`lib/ebarimt/receipt.ts`, DB-гүй, тесттэй):
+
+```ts
+buildEbarimtReceipt(sale: EbarimtSaleInput, settings: EbarimtSettingsInput): EbarimtReceiptRequest
+allocatePayments(payments: EbarimtSalePaymentInput[], targetTotal: number): EbarimtPayment[]
+taxTypeOf(line: { vatMode }, isVatPayer: boolean): EbarimtTaxType
+ebarimtSettingsProblems(settings: EbarimtSettingsInput): string[]
+receiptResponseOutcome(response): { ok: true; id } | { ok: false; message }
+class EbarimtError extends Error  // message = `[CODE] текст`
+```
+
+Шидэх нөхцөл (payload ҮҮСЭХГҮЙ, submission `failed`): `EBARIMT_SETTINGS`
+(тохиргоо дутуу / ТТД, иргэний дугаарын формат), `EBARIMT_UNMAPPED_ITEM`
+(ангилалын код 7 орон биш), `EBARIMT_TAX_PRODUCT_CODE` (VAT_FREE|VAT_ZERO-д
+3 оронтой код алга), `EBARIMT_UNMAPPED_PAYMENT` (хэлбэрт `ebarimtCode` алга),
+`EBARIMT_TOTAL_MISMATCH` (илгээх мөр байхгүй / Σ төлбөр ≠ баримтын дүн).
+
+**PosAPI клиент** (`lib/ebarimt/client.ts`, DB-гүй — browser горимд ч дуудагдана):
+`posApiPutReceipt(url, request)`, `posApiDeleteReceipt(url, { id, date })`,
+`posApiInfo(url)`, `posApiSendData(url)`. Timeout 10с (sendData 60с), сүлжээний
+алдаа → `EBARIMT_POSAPI`.
+
+**Дараалал** (`lib/ebarimt/queue.ts`, DB давхарга, "use server" БИШ):
+`enqueueEbarimt(orgId, saleId, kind, handle?)` (ХЭЗЭЭ Ч шидэхгүй — false буцаана),
+`requeueEbarimt`, `prepareSubmission(submission, settingsRow)` → `PreparedSubmission | null`
+(payload үүсгэж хадгална; аль хэдийн `sent` бол PosAPI дуудахгүй `sent` болгоно),
+`markSent`, `markFailed(…) → attempts`, `claimDueSubmissions(limit)`,
+`listPendingForBrowser`, `loadSubmissionsForSale`, `ebarimtStatusSummary`,
+`settingsInputOf(row)`, `loadSaleForEbarimt(orgId, saleId, handle?)`
+(үлдсэн тоо/дүн, ангилалын өвлөлт, төлбөрийн код).
+
+**Worker** (`lib/ebarimt/worker.ts`): `processPendingEbarimt(limit?)`,
+`processSubmission(submission, settingsRow)`, `applyPosApiResponse(prepared, response, stage)`
+(browser горимын action мөн үүнийг дууддаг), `runEbarimtSendData()`,
+`releaseStaleClaims()`. `pending → claimed` атомик шилжилт = давхар илгээлтийн
+хамгаалалт; 10 мин гацвал чөлөөлөгдөнө.
+
+**Server Actions** (`lib/actions/ebarimt.ts`, бүгд `ActionResult`):
+`getEbarimtStatus`, `testEbarimtConnection` (pos:post), `resendEbarimt(saleId, kind?)`,
+`getEbarimtSubmissions(saleId)`, `lookupEbarimtTin(regNo)`, `getEbarimtBranchInfo`,
+`pushEbarimtData` (pos:post), `getEbarimtOutbox`, `recordEbarimtResponse`.
+
+**Интеграцийн цэгүүд** (ӨӨРЧЛӨГДӨХГҮЙ зан төлөв):
+- `createPosSale` — commit-ийн ДАРАА `enqueueEbarimt(send)` (`ebarimtEnabled` ба
+  гар ДДТД өгөөгүй үед); `ebarimtStatus: manual | pending | null`; server горимд
+  шууд нэг оролдлого (`void processPendingEbarimt(5)`) — борлуулалт ХҮЛЭЭХГҮЙ
+- `returnPosSale` — эх борлуулалт `sent` бол `enqueueEbarimt(cancel)`; worker
+  цуцлаад үлдсэн мөр байвал ижил submission дотор шинэ баримт илгээнэ
+- `updateSaleEbarimt` — `sent` баримтад ХОРИОТОЙ; гар ДДТД өгвөл хүлээгдэж буй
+  submission `cancelled` болно
+- `/api/health` → `ebarimt` блок (зөвхөн тоолуур), `app/api/cron/ebarimt`
+  (`?job=process|senddata|all`), `lib/ebarimt/ticker.ts` (20 сек, `EBARIMT_WORKER=off`)
+- Мэдэгдэл: аудит `pos_sale × ebarimt_failed` → `pos.ebarimt_failed`
+  (`lib/notifications/rules.ts`, POS-ийн `write` эрхтэнд, 3 дахь алдаанд нэг л удаа)
+- AI tools: `get_ebarimt_status`, `resend_ebarimt`, `lookup_tin`;
+  `create_pos_sale`-д `consumerNo` / `customerTin` / `customerRegNo`

@@ -64,6 +64,10 @@ export function CostingDashboard({
     startTransition(async () => {
       try {
         const result = await runCosting({ asOfDate, receiptCosts });
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         costInputsRef.current = {};
         router.refresh();
         const deferredNote =

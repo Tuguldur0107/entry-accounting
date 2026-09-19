@@ -45,6 +45,7 @@ import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { logAuditEvent } from "@/lib/audit";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
+import { actionError, type ActionResult } from "@/lib/action-result";
 import {
   COGS_TRUE_UP_ENTRY_TYPE,
   POS_MOVEMENT_SOURCE_TYPE,
@@ -68,6 +69,18 @@ function revalidateCosting() {
 // ─── Тохиргоо (бараа бүрийн дансны mapping) ──────────────────────────────────
 
 export async function upsertCostingItemSetting(data: {
+  itemId: string;
+  inventoryAccountNumber: string;
+  cogsAccountNumber: string;
+}): Promise<ActionResult> {
+  try {
+    return await upsertCostingItemSettingCore(data);
+  } catch (caught) {
+    return actionError("upsertCostingItemSetting", caught, "Тохиргоо хадгалагдсангүй");
+  }
+}
+
+async function upsertCostingItemSettingCore(data: {
   itemId: string;
   inventoryAccountNumber: string;
   cogsAccountNumber: string;
@@ -113,6 +126,7 @@ export async function upsertCostingItemSetting(data: {
       cogsAccountNumber,
     });
   revalidateCosting();
+  return {};
 }
 
 function postedLandedCosts(
@@ -149,6 +163,17 @@ function postedLandedCosts(
 // үүсгэнэ; үнэ хүлээгдэж буй орлого болон түүнд блоклогдсон хөдөлгөөнүүд
 // pending буцна.
 export async function runCosting(data: {
+  asOfDate: string;
+  receiptCosts?: Record<string, number>;
+}): Promise<ActionResult<Awaited<ReturnType<typeof runCostingCore>>>> {
+  try {
+    return await runCostingCore(data);
+  } catch (caught) {
+    return actionError("runCosting", caught, "Өртгийн тооцоо ажиллаагүй");
+  }
+}
+
+async function runCostingCore(data: {
   asOfDate: string;
   receiptCosts?: Record<string, number>;
 }) {
@@ -304,7 +329,15 @@ async function loadIssueTypeById(orgId: string, id: string) {
   );
 }
 
-export async function postCostEntry(id: string) {
+export async function postCostEntry(id: string): Promise<ActionResult> {
+  try {
+    return await postCostEntryCore(id);
+  } catch (caught) {
+    return actionError("postCostEntry", caught, "Өртгийн бичилт батлагдсангүй");
+  }
+}
+
+async function postCostEntryCore(id: string) {
   const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
@@ -484,9 +517,18 @@ export async function postCostEntry(id: string) {
   });
 
   revalidateCosting();
+  return {};
 }
 
-export async function postCostEntries(ids: string[]) {
+export async function postCostEntries(ids: string[]): Promise<ActionResult<Awaited<ReturnType<typeof postCostEntriesCore>>>> {
+  try {
+    return await postCostEntriesCore(ids);
+  } catch (caught) {
+    return actionError("postCostEntries", caught, "Бичилтүүд батлагдсангүй");
+  }
+}
+
+async function postCostEntriesCore(ids: string[]) {
   const failures: { id: string; error: string }[] = [];
   let posted = 0;
   for (const id of ids) {
@@ -538,13 +580,21 @@ function assertNotPoReceiptCapitalization(entry: {
     );
 }
 
-export async function deleteCostEntry(id: string) {
+export async function deleteCostEntry(id: string): Promise<ActionResult> {
+  try {
+    return await deleteCostEntryCore(id);
+  } catch (caught) {
+    return actionError("deleteCostEntry", caught, "Бичилт устгагдсангүй");
+  }
+}
+
+async function deleteCostEntryCore(id: string) {
   const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
     with: { movement: true },
   });
-  if (!entry) return;
+  if (!entry) return {};
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг устгана");
   assertNotPoReceiptCapitalization(entry);
@@ -568,7 +618,7 @@ export async function deleteCostEntry(id: string) {
       summary: `Өртгийн NRV бичилт устгагдав — ${entry.date}, дүн ${Number(entry.amount).toLocaleString("en-US")}₮`,
     });
     revalidateCosting();
-    return;
+    return {};
   }
 
   // Дундаж өртөг дараалсан бичилтүүдээр дамждаг: энэ бичилтээс ХОЙШХИ
@@ -608,12 +658,21 @@ export async function deleteCostEntry(id: string) {
     summary: `Өртгийн бичилт устгагдав — ${entry.movement?.documentNo ?? "—"}, ${entry.date}, дүн ${Number(entry.amount).toLocaleString("en-US")}₮`,
   });
   revalidateCosting();
+  return {};
 }
 
 // Буцаалт: журналыг эсрэг бичилтээр буцааж, entry-г reversed болгоно.
 // Дараагийн costing run уг хөдөлгөөнийг дахин үнэлж болно (reversed entry
 // идэвхтэйд тооцогдохгүй).
-export async function reverseCostEntry(id: string) {
+export async function reverseCostEntry(id: string): Promise<ActionResult> {
+  try {
+    return await reverseCostEntryCore(id);
+  } catch (caught) {
+    return actionError("reverseCostEntry", caught, "Бичилт буцаагдсангүй");
+  }
+}
+
+async function reverseCostEntryCore(id: string) {
   const { orgId, userId } = await requireModuleAction("cost", "post");
   const entry = await db.query.costEntries.findFirst({
     where: and(eq(costEntries.id, id), eq(costEntries.organizationId, orgId)),
@@ -727,6 +786,7 @@ export async function reverseCostEntry(id: string) {
   });
 
   revalidateCosting();
+  return {};
 }
 
 // ─── NRV бууруулалт / сэргээлт (IAS 2 §9, §28–33) ────────────────────────────
@@ -736,6 +796,18 @@ export async function reverseCostEntry(id: string) {
 // бууруулалт (Dr 87100005 / Cr 14900001) эсвэл сэргээлтийн (эсрэг) НООРОГ
 // бичилт үүсгэнэ. Сэргээлт өмнөх бууруулалтаас хэтрэхгүй (зорилтот ≥ 0).
 export async function createNrvEntry(data: {
+  itemId: string;
+  date: string;
+  nrvPerUnit: number;
+}): Promise<ActionResult<Awaited<ReturnType<typeof createNrvEntryCore>>>> {
+  try {
+    return await createNrvEntryCore(data);
+  } catch (caught) {
+    return actionError("createNrvEntry", caught, "NRV бичилт үүсээгүй");
+  }
+}
+
+async function createNrvEntryCore(data: {
   itemId: string;
   date: string;
   nrvPerUnit: number;

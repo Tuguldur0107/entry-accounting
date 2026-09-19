@@ -123,7 +123,15 @@ export function NotificationPreferencesForm({
     startTg(async () => {
       try {
         const result = await startTelegramLink();
-        setTg((current) => ({ ...current, code: result.code, botUsername: result.botUsername }));
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
+        setTg((current) => ({
+          ...current,
+          code: result.code,
+          botUsername: result.botUsername,
+        }));
       } catch (caught) {
         toast.error(caught instanceof Error ? caught.message : "Код үүсгэж чадсангүй");
       }
@@ -134,6 +142,10 @@ export function NotificationPreferencesForm({
     startTg(async () => {
       try {
         const result = await verifyTelegramLink();
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         if (result.linked) {
           setTg((current) => ({ ...current, linked: true, code: null }));
           toast.success("Telegram холбогдлоо");
@@ -167,7 +179,15 @@ export function NotificationPreferencesForm({
           if (option?.hours)
             mutedUntil = new Date(Date.now() + option.hours * 3_600_000).toISOString();
         }
-        await saveNotificationPreferences({ channels, digestHour, mutedUntil });
+        const r = await saveNotificationPreferences({
+          channels,
+          digestHour,
+          mutedUntil,
+        });
+        if (r.error !== undefined) {
+          toast.error(r.error);
+          return;
+        }
         toast.success("Мэдэгдлийн тохиргоо хадгалагдлаа");
       } catch (caught) {
         toast.error(caught instanceof Error ? caught.message : "Хадгалах амжилтгүй");

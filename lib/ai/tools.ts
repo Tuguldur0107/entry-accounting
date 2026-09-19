@@ -157,6 +157,11 @@ import {
   loadShiftViews,
 } from "@/lib/pos/load-data";
 import { PAYMENT_KIND_LABELS, SALE_STATUS_LABELS } from "@/lib/pos/constants";
+import { lookupEbarimtTin, resendEbarimt } from "@/lib/actions/ebarimt";
+import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
+import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
+import { ebarimtStatusSummary, settingsInputOf } from "@/lib/ebarimt/queue";
+import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import {
   aggregateBy,
   aggregatePayments,
@@ -2695,7 +2700,10 @@ export const AI_TOOLS: AiToolDef[] = [
         receiptDiscountPercent: { type: "number", description: "Баримтын түвшний гар хөнгөлөлт %" },
         receiptDiscountAmount: { type: "number", description: "Баримтын түвшний гар хөнгөлөлт ₮" },
         note: { type: "string", description: "Тайлбар" },
-        ebarimtId: { type: "string", description: "eBarimt ДДТД (ТЕГ-ийн апп-аар олгосон бол)" },
+        ebarimtId: { type: "string", description: "eBarimt ДДТД ГАРААР (ТЕГ-ийн апп-аар олгосон бол) — өгвөл автомат илгээлт хийгдэхгүй" },
+        consumerNo: { type: "string", description: "Иргэний eBarimt дугаар (8 орон) — B2C баримтад" },
+        customerTin: { type: "string", description: "Байгууллагын ТТД (11/14 орон) — өгвөл B2B баримт" },
+        customerRegNo: { type: "string", description: "Байгууллагын РД — ТТД-г ТЕГ-ийн лавлахаас автоматаар олно (customerTin-ийн оронд)" },
       },
       required: ["lines", "payments"],
     },
@@ -2768,6 +2776,36 @@ export const AI_TOOLS: AiToolDef[] = [
         limit: { type: "integer", description: "Мөрийн дээд тоо (default 30)" },
       },
       required: ["from", "to"],
+    },
+  },
+  // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md) ──────────────────
+  {
+    name: "get_ebarimt_status",
+    description:
+      "eBarimt 3.0-ийн байдал: автомат илгээлт асаалттай эсэх, горим (server/browser), тохиргооны дутуу зүйлс, дараалалд хүлээгдэж байгаа / алдаатай баримтын тоо, өнөөдөр илгээсэн, сүүлийн алдаа. Борлуулалтын дараа баримт ТЕГ-д очсон эсэхийг шалгахад.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "resend_ebarimt",
+    description:
+      "eBarimt-д илгээгдээгүй (алдаатай) баримтыг ДАХИН илгээнэ. Ангилалын код, төлбөрийн код зэрэг дутууг зассаны дараа хэрэглэнэ. kind=cancel бол эх ДДТД-г цуцлана (буцаалтын дараа). Аль хэдийн илгээгдсэн баримтыг дахин илгээхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sale: { type: "string", description: "Борлуулалтын дугаар (POS-…) эсвэл ID (бүтэн/6+ тэмдэгт)" },
+        kind: { type: "string", enum: ["send", "cancel"], description: "send (default) = баримт илгээх, cancel = ДДТД цуцлах" },
+      },
+      required: ["sale"],
+    },
+  },
+  {
+    name: "lookup_tin",
+    description:
+      "ТЕГ-ийн нийтийн лавлахаас регистрийн дугаараар байгууллагын ТТД ба нэрийг олно (B2B баримт, харилцагч бүртгэхэд). Олдохгүй бол алдаа — ТТД ЗОХИОХГҮЙ.",
+    inputSchema: {
+      type: "object",
+      properties: { regNo: { type: "string", description: "Байгууллагын регистрийн дугаар (эсвэл 7 оронтой ТТД)" } },
+      required: ["regNo"],
     },
   },
 ];
@@ -3638,21 +3676,24 @@ async function runCreateFixedAsset(
       return next;
     })();
 
-  const { id, code } = await createFixedAsset(
-    {
-      name: input.name,
-      acquisitionDate: input.acquisitionDate,
-      cost: Number(input.cost),
-      salvageValue: Number(input.salvageValue ?? 0),
-      usefulLifeMonths: Number(input.usefulLifeMonths),
-      depreciationMethod: input.depreciationMethod ?? "straight_line",
-      custodian: input.custodian,
-      depreciationStartMonth: startMonth,
-      assetAccountNumber: resolveAccount(input.assetAccountNumber, ctx).main,
-      accumDepAccountNumber: resolveAccount(input.accumDepAccountNumber, ctx).main,
-      depExpenseAccountNumber: resolveAccount(input.depExpenseAccountNumber, ctx).main,
-    },
-    { asDraft }
+  const { id, code } = unwrapAction(
+    await createFixedAsset(
+      {
+        name: input.name,
+        acquisitionDate: input.acquisitionDate,
+        cost: Number(input.cost),
+        salvageValue: Number(input.salvageValue ?? 0),
+        usefulLifeMonths: Number(input.usefulLifeMonths),
+        depreciationMethod: input.depreciationMethod ?? "straight_line",
+        custodian: input.custodian,
+        depreciationStartMonth: startMonth,
+        assetAccountNumber: resolveAccount(input.assetAccountNumber, ctx).main,
+        accumDepAccountNumber: resolveAccount(input.accumDepAccountNumber, ctx).main,
+        depExpenseAccountNumber: resolveAccount(input.depExpenseAccountNumber, ctx).main,
+      },
+      { asDraft }
+  
+    )
   );
 
   return {
@@ -4268,12 +4309,15 @@ async function runCreateItem(
   input: { code: string; name: string; unit?: string } & ItemPosInput
 ): Promise<AiToolResult> {
   const pos = itemPosFieldsOf(input);
-  await createInventoryItem({
-    code: input.code,
-    name: input.name,
-    unit: input.unit ?? "ш",
-    ...pos,
-  });
+  unwrapAction(
+    await createInventoryItem(  {
+      code: input.code,
+      name: input.name,
+      unit: input.unit ?? "ш",
+      ...pos,
+    }
+    )
+  );
   const extras = [
     pos.salesPrice != null ? `үнэ ${pos.salesPrice.toLocaleString()}₮` : null,
     pos.barcode ? `баркод ${pos.barcode}` : null,
@@ -4289,7 +4333,9 @@ async function runCreateWarehouse(
   _orgId: string,
   input: { code: string; name: string }
 ): Promise<AiToolResult> {
-  await createWarehouse({ code: input.code, name: input.name });
+  unwrapAction(
+    await createWarehouse({ code: input.code, name: input.name })
+  );
   return { resultText: `Агуулах бүртгэгдлээ: ${input.code} — ${input.name}` };
 }
 
@@ -4439,11 +4485,14 @@ async function runUpdateItem(
   if (input.name != null) changed.push("name");
   if (input.unit != null) changed.push("unit");
   if (changed.length > 0)
-    await updateInventoryItem(item.id, {
-      name: input.name ?? item.name,
-      unit: input.unit ?? item.unit,
-      ...pos,
-    });
+    unwrapAction(
+      await updateInventoryItem(  item.id, {
+        name: input.name ?? item.name,
+        unit: input.unit ?? item.unit,
+        ...pos,
+      }
+      )
+    );
   if (input.isActive != null) {
     await toggleInventoryItem(item.id, input.isActive);
     changed.push("isActive");
@@ -4645,37 +4694,40 @@ async function runActivateFixedAsset(
   if (asset.status !== "draft")
     throw new Error(`Зөвхөн ноорог картыг идэвхжүүлнэ (төлөв: ${asset.status})`);
 
-  await activateFixedAsset(asset.id, {
-    code: asset.code,
-    name: input.name ?? asset.name,
-    acquisitionDate: asset.acquisitionDate,
-    cost: input.cost ?? Number(asset.cost),
-    salvageValue: input.salvageValue ?? Number(asset.salvageValue),
-    usefulLifeMonths: input.usefulLifeMonths ?? asset.usefulLifeMonths,
-    depreciationMethod: asset.depreciationMethod as
-      | "straight_line"
-      | "declining_balance",
-    // Ноорог картад хариуцагч/эхлэх сар хоосон байж болно — идэвхжүүлэхэд
-    // заавал тул моделиос нөхөж өгөхийг шаардана.
-    custodian:
-      input.custodian ??
-      asset.custodian ??
-      (() => {
-        throw new Error("Хариуцагч (custodian) өгнө үү — ноорог картад хоосон байна");
-      })(),
-    depreciationStartMonth:
-      input.depreciationStartMonth ??
-      asset.depreciationStartMonth ??
-      (() => {
-        throw new Error(
-          "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
-        );
-      })(),
-    assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
-    accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
-    depExpenseAccountNumber:
-      input.depExpenseAccountNumber ?? asset.depExpenseAccountNumber,
-  });
+  unwrapAction(
+    await activateFixedAsset(  asset.id, {
+      code: asset.code,
+      name: input.name ?? asset.name,
+      acquisitionDate: asset.acquisitionDate,
+      cost: input.cost ?? Number(asset.cost),
+      salvageValue: input.salvageValue ?? Number(asset.salvageValue),
+      usefulLifeMonths: input.usefulLifeMonths ?? asset.usefulLifeMonths,
+      depreciationMethod: asset.depreciationMethod as
+        | "straight_line"
+        | "declining_balance",
+      // Ноорог картад хариуцагч/эхлэх сар хоосон байж болно — идэвхжүүлэхэд
+      // заавал тул моделиос нөхөж өгөхийг шаардана.
+      custodian:
+        input.custodian ??
+        asset.custodian ??
+        (() => {
+          throw new Error("Хариуцагч (custodian) өгнө үү — ноорог картад хоосон байна");
+        })(),
+      depreciationStartMonth:
+        input.depreciationStartMonth ??
+        asset.depreciationStartMonth ??
+        (() => {
+          throw new Error(
+            "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
+          );
+        })(),
+      assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
+      accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
+      depExpenseAccountNumber:
+        input.depExpenseAccountNumber ?? asset.depExpenseAccountNumber,
+    }
+    )
+  );
   return {
     resultText: `Хөрөнгө идэвхжлээ: ${asset.code} · ${input.name ?? asset.name} — элэгдэл ${input.depreciationStartMonth ?? asset.depreciationStartMonth} сараас бодогдоно`,
   };
@@ -4688,7 +4740,7 @@ async function runDeleteFixedAsset(
 ): Promise<AiToolResult> {
   const asset = await findAssetByCode(orgId, input.assetCode);
   if (asset.status !== "draft") assertPostMode(mode);
-  await deleteFixedAsset(asset.id);
+  unwrapAction(await deleteFixedAsset(asset.id));
   return { resultText: `Хөрөнгийн карт устгагдлаа: ${asset.code} · ${asset.name}` };
 }
 
@@ -4710,7 +4762,8 @@ async function runReverseFaDepreciation(
     return { resultText: `${input.month} сард батлагдсан элэгдлийн бичилт алга` };
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  for (const entry of entries) await reverseDepreciationEntry(entry.id);
+  for (const entry of entries)
+    unwrapAction(await reverseDepreciationEntry(entry.id));
   return {
     resultText: `${input.month} сарын элэгдэл буцаагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
   };
@@ -6133,18 +6186,20 @@ async function runCreateEmployee(
     employerSiPercent?: number;
   }
 ): Promise<AiToolResult> {
-  await upsertEmployee({
-    ...input,
-    id: undefined,
-    employerSiPercent: input.employerSiPercent ?? 12.5,
-  });
+  unwrapAction(
+    await upsertEmployee({
+      ...input,
+      id: undefined,
+      employerSiPercent: input.employerSiPercent ?? 12.5,
+    })
+  );
   return {
     resultText: `Ажилтан бүртгэгдлээ: ${[input.lastName, input.name].filter(Boolean).join(" ")}, үндсэн цалин ${fmt(input.baseSalary)}₮, АО-НДШ ${input.employerSiPercent ?? 12.5}%${input.registerNo ? `, РД ${input.registerNo}` : ""}`,
   };
 }
 
 async function runPayrollCalc(input: { period: string }): Promise<AiToolResult> {
-  await calculatePayrollRun(input.period);
+  unwrapAction(await calculatePayrollRun(input.period));
   return await runPayrollSummary(input);
 }
 
@@ -6206,7 +6261,7 @@ async function runPayrollSummary(input: {
 async function runCreatePayrollVoucher(input: {
   period: string;
 }): Promise<AiToolResult> {
-  const result = await createPayrollVoucher(input.period);
+  const result = unwrapAction(await createPayrollVoucher(input.period));
   return {
     resultText: result.dedup
       ? `${input.period} сарын цалингийн журнал аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`
@@ -6319,10 +6374,12 @@ async function runCreateVatSettlement(
       { allNames: accounts.map((entry) => entry.name) }
     ).id;
   }
-  const result = await createVatSettlementDraft({
-    periodCode: input.period,
-    cashAccountId,
-  });
+  const result = unwrapAction(
+    await createVatSettlementDraft({
+      periodCode: input.period,
+      cashAccountId,
+    })
+  );
   return {
     resultText: result.dedup
       ? `${input.period} сарын НӨАТ тооцоо аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`
@@ -6375,7 +6432,9 @@ async function runPostCostEntries(
     return { resultText: `${input.month} сард ноорог өртгийн бичилт алга` };
   const total = monthEntries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  const result = await postCostEntries(monthEntries.map((entry) => entry.id));
+  const result = unwrapAction(
+    await postCostEntries(monthEntries.map((entry) => entry.id))
+  );
   const failures =
     "failures" in result && Array.isArray(result.failures) ? result.failures : [];
   return {
@@ -6401,10 +6460,11 @@ async function runFixCashOpening(
     const ctx = await accountContext(orgId);
     counter = resolveAccount(input.counterAccount, ctx).main;
   }
-  const result = await createCashOpeningVoucher({
+  const result = unwrapAction(
+    await createCashOpeningVoucher({
     cashAccountId: account.id,
     counterAccountNumber: counter,
-  });
+  }));
   return {
     resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${fmt(result.amount)}₮, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
     action: {
@@ -6754,7 +6814,8 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 5. Сар хаалтад: run_monthly_costing → post_cost_entries — COGS бичигдэнэ
 НӨАТ-тай бол: авлага = нийт, орлого = нийт/1.1, НӨАТ өглөг 31410000 = нийт×10/110 гэж мөр хуваана.`,
   pos_sale: `ЖИЖИГЛЭН ХУДАЛДАА (POS — docs/pos) — зөв дараалал:
-0. Бараанд борлуулах үнэ (salesPrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch
+0. Бараанд борлуулах үнэ (salesPrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch.
+   eBarimt асаалттай бол бараа бүрд ТЕГ-ийн ангилалын код (7 орон) ба НӨАТ-гүй/0%-д татварын бүтээгдэхүүний код (3 орон), төлбөрийн хэлбэр бүрд eBarimt код ЗААВАЛ — эдгээргүй бол баримт илгээгдэхгүй (get_ebarimt_status алдааг нэрлэнэ)
 1. get_pos_status — нээлттэй ээлж, төлбөрийн хэлбэрийн кодууд (CASH, CARD, CREDIT …), НӨАТ төлөгч эсэх
 2. open_pos_shift {cashAccount, warehouseCode, openingFloat} — ээлж байхгүй бол (GL бичилтгүй)
 3. create_pos_sale {lines:[{itemCode, quantity}], payments:[{method:"CASH", amount}]} — НЭГ транзакцад: АР нэхэмжлэх posted + кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS. Хөнгөлөлтийн дүрэм автомат; купон couponCodes-оор; харилцагч өгвөл бүлгийн хөнгөлөлт/зээл. Зөвхөн 'Шууд бичих' горим, ≤10 сая ₮
@@ -6762,7 +6823,8 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 5. Ээлжийн төгсгөлд close_pos_shift {countedCash} — зөрүү кассын илүүдэл/дутагдалд
 6. get_pos_sales_report {from, to, groupBy} — борлуулалт, ахиуц (COGS сар хаагдаагүй бол 'урьдчилсан')
 Сар хаалт: нээлттэй ээлж (open-pos-shifts) эсвэл сарын өртгийн тооцоололд ороогүй/хасах үлдэгдэлтэй бараа (unvalued-movements) байвал close_period ХОРИГЛОГДОНО — run_monthly_costing нь урьдчилсан COGS-ийг сарын дунджаар залруулна (cogs_true_up ноорог → post_cost_entries).
-POS-оос үүссэн АР/касс/хөдөлгөөн/өртгийн бичилтийг тус тусад нь буцаах ХОРИОТОЙ ([POS_SOURCED]) — зөвхөн return_pos_sale.`,
+POS-оос үүссэн АР/касс/хөдөлгөөн/өртгийн бичилтийг тус тусад нь буцаах ХОРИОТОЙ ([POS_SOURCED]) — зөвхөн return_pos_sale.
+eBarimt (docs/pos/03): борлуулалт батлагдмагц баримт ТЕГ-д ASYNC илгээгдэнэ (борлуулалт хүлээхгүй) — ДДТД/сугалаа/QR дараа нь баримтад гарна. Байгууллагад зарвал create_pos_sale-д customerTin эсвэл customerRegNo (lookup_tin) өг; иргэнд consumerNo. Буцаалт нь эх ДДТД-г ЦУЦАЛЖ, үлдсэн мөрөөр шинэ баримт илгээнэ. Илгээгдээгүй бол get_ebarimt_status → шалтгааныг зас → resend_ebarimt.`,
   payment: `НЭХЭМЖЛЭХ ТӨЛӨХ/ХААХ:
 1. list_arap_documents status=posted (эсвэл partially_paid) — үлдэгдэлтэй баримтаа олох
 2. list_cash_accounts — аль данснаас/данс руу
@@ -7023,15 +7085,18 @@ async function runDisposeFixedAsset(
   assertPostMode(mode);
   const asset = await findAssetByCode(orgId, input.assetCode);
   const ctx = await accountContext(orgId);
-  await disposeFixedAsset(asset.id, {
-    disposalType: input.disposalType,
-    date: input.date,
-    proceeds: input.proceeds,
-    proceedsAccountNumber: input.proceedsAccount
-      ? resolveAccount(input.proceedsAccount, ctx).main
-      : undefined,
-    gainLossAccountNumber: resolveAccount(input.gainLossAccount, ctx).main,
-  });
+  unwrapAction(
+    await disposeFixedAsset(  asset.id, {
+      disposalType: input.disposalType,
+      date: input.date,
+      proceeds: input.proceeds,
+      proceedsAccountNumber: input.proceedsAccount
+        ? resolveAccount(input.proceedsAccount, ctx).main
+        : undefined,
+      gainLossAccountNumber: resolveAccount(input.gainLossAccount, ctx).main,
+    }
+    )
+  );
   return {
     resultText: `Үндсэн хөрөнгө данснаас хасагдлаа: ${asset.code} · ${asset.name} — ${DISPOSAL_TYPE_LABELS[input.disposalType]}, ${input.date}${input.proceeds ? `, үнэ ${fmt(Number(input.proceeds))}₮` : ""} (GL журнал бичигдсэн)`,
   };
@@ -7074,31 +7139,33 @@ async function runUpdateEmployee(
     input.employee,
     { allNames: rows.map((entry) => entry.name) }
   );
-  await upsertEmployee({
-    id: employee.id,
-    name: input.newName?.trim() || employee.name,
-    lastName: input.lastName ?? employee.lastName,
-    registerNo: input.registerNo ?? employee.registerNo ?? undefined,
-    birthDate: input.birthDate ?? employee.birthDate ?? undefined,
-    phone: input.phone ?? employee.phone ?? undefined,
-    email: input.email ?? employee.email ?? undefined,
-    homeAddress: input.homeAddress ?? employee.homeAddress ?? undefined,
-    bankName: input.bankName ?? employee.bankName ?? undefined,
-    bankAccountNo: input.bankAccountNo ?? employee.bankAccountNo ?? undefined,
-    iban: input.iban ?? employee.iban ?? undefined,
-    hireDate: input.hireDate ?? employee.hireDate ?? undefined,
-    terminationDate:
-      input.terminationDate ?? employee.terminationDate ?? undefined,
-    department: input.department ?? employee.department,
-    employmentType:
-      input.employmentType ??
-      (employee.employmentType as EmploymentType | undefined),
-    position: input.position ?? employee.position ?? "",
-    baseSalary: input.baseSalary ?? Number(employee.baseSalary),
-    employerSiPercent:
-      input.employerSiPercent ?? Number(employee.employerSiPercent),
-    isActive: input.isActive ?? employee.isActive,
-  });
+  unwrapAction(
+    await upsertEmployee({
+      id: employee.id,
+      name: input.newName?.trim() || employee.name,
+      lastName: input.lastName ?? employee.lastName,
+      registerNo: input.registerNo ?? employee.registerNo ?? undefined,
+      birthDate: input.birthDate ?? employee.birthDate ?? undefined,
+      phone: input.phone ?? employee.phone ?? undefined,
+      email: input.email ?? employee.email ?? undefined,
+      homeAddress: input.homeAddress ?? employee.homeAddress ?? undefined,
+      bankName: input.bankName ?? employee.bankName ?? undefined,
+      bankAccountNo: input.bankAccountNo ?? employee.bankAccountNo ?? undefined,
+      iban: input.iban ?? employee.iban ?? undefined,
+      hireDate: input.hireDate ?? employee.hireDate ?? undefined,
+      terminationDate:
+        input.terminationDate ?? employee.terminationDate ?? undefined,
+      department: input.department ?? employee.department,
+      employmentType:
+        input.employmentType ??
+        (employee.employmentType as EmploymentType | undefined),
+      position: input.position ?? employee.position ?? "",
+      baseSalary: input.baseSalary ?? Number(employee.baseSalary),
+      employerSiPercent:
+        input.employerSiPercent ?? Number(employee.employerSiPercent),
+      isActive: input.isActive ?? employee.isActive,
+    })
+  );
   return {
     resultText: `Ажилтан шинэчлэгдлээ: ${employee.name}${input.newName ? ` → ${input.newName}` : ""}`,
   };
@@ -7162,7 +7229,7 @@ async function runUpdateCompanySettings(input: {
       limitNote = ` · AI шууд батлах хязгаар: ${fmt(plan.effectiveMnt)}₮${plan.valueMnt === null ? " (default)" : ""}`;
   }
 
-  await updateCompanySettings({
+  unwrapAction(await updateCompanySettings({
     name,
     registerNo: input.registerNo ?? current?.registerNo ?? null,
     vatPayerNo: input.vatPayerNo ?? current?.vatPayerNo ?? null,
@@ -7184,7 +7251,7 @@ async function runUpdateCompanySettings(input: {
           ? Number(input.largeAmountAlertMnt)
           : null,
     aiPostLimitMnt,
-  });
+  }));
   return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}${limitNote}` };
 }
 
@@ -9020,6 +9087,11 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
         ? shifts.map((shift) => `${shift.documentNo} · ${shift.cashAccountName} · ${shift.warehouseName} · эхний ${fmt(shift.openingFloat)}₮ · борлуулалт ${shift.salesCount} (${fmt(shift.salesTotal)}₮)`).join("\n  ")
         : "байхгүй — open_pos_shift"
     }`,
+    `eBarimt: ${
+      settings.ebarimtEnabled
+        ? `автомат (${settings.ebarimtMode === "browser" ? "кассын PC" : "сервер"}), ТТД ${settings.ebarimtMerchantTin || "?"} · салбар ${settings.ebarimtBranchNo || "?"} · касс ${settings.ebarimtPosNo || "?"}`
+        : "унтраалттай — ДДТД гараар (get_ebarimt_status)"
+    }`,
     `Төлбөрийн хэлбэр: ${methods
       .filter((method) => method.isActive)
       .map((method) => `${method.code} (${PAYMENT_KIND_LABELS[method.kind]}${method.cashAccountName ? ` → ${method.cashAccountName}` : ""}${method.currency !== "MNT" ? `, ${method.currency}` : ""}${method.requiresReference ? ", лавлах заавал" : ""})`)
@@ -9118,6 +9190,9 @@ async function runCreatePosSale(
     receiptDiscountAmount?: number;
     note?: string;
     ebarimtId?: string;
+    consumerNo?: string;
+    customerTin?: string;
+    customerRegNo?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -9185,6 +9260,9 @@ async function runCreatePosSale(
       payments,
       note: input.note ?? null,
       ebarimtId: input.ebarimtId ?? null,
+      ebarimtConsumerNo: input.consumerNo ?? null,
+      ebarimtCustomerTin: input.customerTin ?? null,
+      ebarimtCustomerRegNo: input.customerRegNo ?? null,
     })
   );
   const receipt = result.receipt;
@@ -9197,6 +9275,11 @@ async function runCreatePosSale(
     receipt.negativeStock.length
       ? `⚠ Хасах үлдэгдэл: ${receipt.negativeStock.map((entry) => `${entry.itemName} (${entry.warehouseName}) ${entry.balanceAfter}`).join(", ")} — орлого/тооллого бүртгэтэл сар хаагдахгүй`
       : "",
+    receipt.ebarimtStatus === "pending"
+      ? "eBarimt: ТЕГ рүү илгээгдэж байна — ДДТД/сугалаа/QR хэдхэн секундын дараа баримтад гарна (get_ebarimt_status)."
+      : receipt.ebarimtId
+        ? `eBarimt ДДТД: ${receipt.ebarimtId}${receipt.ebarimtLottery ? ` · сугалаа ${receipt.ebarimtLottery}` : ""}`
+        : "",
     "GL: Dr Авлага / Cr Орлого (+НӨАТ); төлбөр бүрд Dr Касс|түр данс / Cr Авлага; урьдчилсан Dr COGS / Cr Бараа (сар хаалтад залруулагдана).",
   ].filter(Boolean);
   return {
@@ -9292,6 +9375,7 @@ async function runGetPosSale(orgId: string, input: { sale: string }): Promise<Ai
     `Нийт ${fmt(sale.grossAmount)} · хөнгөлөлт ${fmt(sale.discountTotal)} · цэвэр ${fmt(sale.netAmount)} · НӨАТ ${fmt(sale.vatAmount)} · төлөх ${fmt(sale.total)}₮`,
     `Төлбөр: ${sale.payments.map((payment) => `${payment.methodName} ${fmt(payment.baseAmount)}${payment.changeGiven ? ` (хариулт ${fmt(payment.changeGiven)})` : ""}${payment.reference ? ` реф ${payment.reference}` : ""}`).join(", ") || "—"}`,
     `АР нэхэмжлэх: ${sale.arApDocumentNo ?? "—"} (${sale.arApStatus ?? "—"}) · журнал ${sale.voucherIds.length} · буцаалт: ${sale.returns.map((ret) => `${ret.documentNo} ${fmt(ret.total)}₮`).join(", ") || "—"}${sale.ebarimtId ? ` · eBarimt ${sale.ebarimtId}` : ""}`,
+    `eBarimt: ${sale.ebarimtStatus ? EBARIMT_STATUS_LABELS[sale.ebarimtStatus as EbarimtStatus] ?? sale.ebarimtStatus : "илгээгдээгүй"}${sale.ebarimtLottery ? ` · сугалаа ${sale.ebarimtLottery}` : ""}${sale.ebarimtDate ? ` · ${sale.ebarimtDate}` : ""}${sale.ebarimtCustomerTin ? ` · худалдан авагч ТТД ${sale.ebarimtCustomerTin}` : sale.ebarimtConsumerNo ? ` · иргэн ${sale.ebarimtConsumerNo}` : ""}`,
   ];
   return { resultText: lines.join("\n") };
 }
@@ -9346,6 +9430,43 @@ async function runGetPosSalesReport(
       body = aggregatePayments(report.payments).map((row) => `  ${row.methodName}: ${fmt(row.amount)}₮`);
   }
   return { resultText: [header, ...body].join("\n") };
+}
+
+// ── eBarimt 3.0 ─────────────────────────────────────────────────────────────
+
+async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
+  const settings = await ensurePosSettings(orgId);
+  const status = await ebarimtStatusSummary(orgId, settings, todayInUlaanbaatar());
+  const problems = ebarimtSettingsProblems(settingsInputOf(settings));
+  const lines = [
+    `eBarimt автомат илгээлт: ${status.enabled ? `АСААЛТТАЙ (${status.mode === "browser" ? "кассын PC-ийн PosAPI" : "серверийн PosAPI"})` : "УНТРААЛТТАЙ — ДДТД гараар бичигдэнэ"}`,
+    problems.length ? `Тохиргооны дутуу: ${problems.join("; ")}` : "Тохиргоо бүрэн",
+    `Дараалал: хүлээгдэж байгаа ${status.pending} · алдаатай ${status.failed} · өнөөдөр илгээсэн ${status.sentToday}${status.lastSentAt ? ` · сүүлд ${status.lastSentAt.slice(0, 19).replace("T", " ")}` : ""}`,
+    status.lastError ? `Сүүлийн алдаа: ${status.lastError.slice(0, 300)}` : "",
+    status.failed > 0
+      ? "Алдаатай баримтыг: шалтгааныг зассаны дараа resend_ebarimt-аар дахин илгээнэ (ангилалын код — барааны карт, төлбөрийн код — Борлуулалт → Тохиргоо → Төлбөрийн хэлбэр)."
+      : "",
+  ].filter(Boolean);
+  return { resultText: lines.join("\n") };
+}
+
+async function runResendEbarimt(
+  orgId: string,
+  input: { sale: string; kind?: "send" | "cancel" }
+): Promise<AiToolResult> {
+  const found = await findPosSale(orgId, input.sale);
+  const kind = input.kind === "cancel" ? "cancel" : "send";
+  const result = unwrapAction(await resendEbarimt(found.id, kind));
+  return {
+    resultText: `${found.documentNo}: eBarimt ${kind === "cancel" ? "цуцлах" : "илгээх"} хүсэлт дараалалд орлоо — төлөв: ${
+      result.status ? EBARIMT_STATUS_LABELS[result.status as EbarimtStatus] ?? result.status : "—"
+    }. Илгээлт async тул хэдхэн секундын дараа get_ebarimt_status-аар шалгана.`,
+  };
+}
+
+async function runLookupTin(input: { regNo: string }): Promise<AiToolResult> {
+  const info = unwrapAction(await lookupEbarimtTin(input.regNo));
+  return { resultText: `РД ${info.info.regNo} → ТТД ${info.info.tin}${info.info.name ? ` · ${info.info.name}` : ""}` };
 }
 
 export async function executeAiTool(
@@ -9723,6 +9844,12 @@ async function dispatchAiTool(
         return await runGetPosSale(orgId, args);
       case "get_pos_sales_report":
         return await runGetPosSalesReport(orgId, args);
+      case "get_ebarimt_status":
+        return await runGetEbarimtStatus(orgId);
+      case "resend_ebarimt":
+        return await runResendEbarimt(orgId, args);
+      case "lookup_tin":
+        return await runLookupTin(args);
       default: {
         // custom/ багцын tool — core-той ИЖИЛ алдааны боловсруулалттай.
         const custom = findCustomTool(name);

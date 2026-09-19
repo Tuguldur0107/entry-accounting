@@ -478,6 +478,83 @@ async function main() {
        on fa_settings (organization_id)`
   );
 
+  // ── 5. Журналын ВАЛЮТ (CLAUDE.md §2b) — баримтад нэг валют, нэг ханш ─────
+  for (const [column, type] of [
+    ["currency", "text not null default 'MNT'"],
+    ["exchange_rate", "numeric(18, 8) not null default '1'"],
+    ["rate_source", "text"],
+    ["rate_date", "text"],
+  ]) {
+    await run(
+      `journal_vouchers.${column} багана`,
+      `alter table journal_vouchers
+         add column if not exists ${column} ${type}`
+    );
+  }
+  for (const column of ["debit_fc", "credit_fc"]) {
+    await run(
+      `journal_lines.${column} багана`,
+      `alter table journal_lines
+         add column if not exists ${column} numeric(18, 2) not null default '0'`
+    );
+  }
+
+  // ── 6. eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1) ──────────
+  // Бүгд default-той / null зөвшөөрдөг тул байгаа мөрүүд аюулгүй.
+  for (const [table, column, type] of [
+    ["inventory_items", "ebarimt_classification_code", "text"],
+    ["inventory_items", "ebarimt_tax_product_code", "text"],
+    ["inventory_categories", "ebarimt_classification_code", "text"],
+    ["pos_payment_methods", "ebarimt_code", "text"],
+    ["pos_settings", "ebarimt_enabled", "boolean not null default false"],
+    ["pos_settings", "ebarimt_merchant_tin", "text not null default ''"],
+    ["pos_settings", "ebarimt_branch_no", "text not null default ''"],
+    ["pos_settings", "ebarimt_district_code", "text not null default ''"],
+    ["pos_settings", "ebarimt_pos_no", "text not null default ''"],
+    ["pos_settings", "ebarimt_pos_api_url", "text not null default 'http://localhost:7080'"],
+    ["pos_settings", "ebarimt_mode", "text not null default 'server'"],
+    ["pos_sales", "ebarimt_qr_data", "text"],
+    ["pos_sales", "ebarimt_date", "text"],
+    ["pos_sales", "ebarimt_type", "text"],
+    ["pos_sales", "ebarimt_consumer_no", "text"],
+    ["pos_sales", "ebarimt_customer_tin", "text"],
+  ]) {
+    await run(
+      `${table}.${column} багана`,
+      `alter table ${table}
+         add column if not exists ${column} ${type}`
+    );
+  }
+  await run(
+    "pos_ebarimt_submissions хүснэгт",
+    `create table if not exists pos_ebarimt_submissions (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       sale_id uuid not null references pos_sales(id) on delete cascade,
+       kind text not null default 'send',
+       status text not null default 'pending',
+       payload jsonb,
+       response jsonb,
+       attempts integer not null default 0,
+       last_error text,
+       next_attempt_at timestamp not null default now(),
+       sent_at timestamp,
+       created_at timestamp not null default now(),
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "pos_ebarimt_submissions_active_ux индекс",
+    `create unique index if not exists pos_ebarimt_submissions_active_ux
+       on pos_ebarimt_submissions (sale_id, kind)
+       where status in ('pending', 'claimed')`
+  );
+  await run(
+    "pos_ebarimt_submissions_org_status_ix индекс",
+    `create index if not exists pos_ebarimt_submissions_org_status_ix
+       on pos_ebarimt_submissions (organization_id, status, next_attempt_at)`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

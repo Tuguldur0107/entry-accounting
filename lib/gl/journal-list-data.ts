@@ -1,7 +1,9 @@
 // Журналын жагсаалтын мөр — ваучер + мөрүүд дээр ЭХ БАРИМТЫН лавлагаа
 // (харилцагч, валют, ханш) ба үүсгэсэн хэрэглэгчийг нэмнэ.
 //
-// journal_vouchers хүснэгтэд валют/харилцагч БАЙХГҮЙ (GL нь зөвхөн MNT) —
+// Журнал ӨӨРӨӨ валют/ханштай (journal_vouchers.currency) — тэр нь ЭРХ
+// МЭДЭЛТЭЙ. Харин хуучин (валютын багана нэмэгдэхээс өмнөх) бичилт болон
+// харилцагчийн нэр нь эх баримтаас олдоно:
 // эдгээр нь кассын баримт (cash_documents) ба АР/АП баримтын (ar_ap_documents)
 // voucherId / reversalVoucherId холбоосоор олдоно. Бусад эх (ҮХ элэгдэл,
 // цалин, өртөг, FX тэгшитгэл, гар журнал) MNT-ээр, харилцагчгүй.
@@ -122,11 +124,20 @@ export async function loadJournalListRows(
 
   return vouchers.map((voucher) => {
     const meta = metaByVoucher.get(voucher.id);
+    // Журнал ӨӨРӨӨ валюттай бол ТЭР нь эрх мэдэлтэй (мөрүүд нь валютын
+    // дүнгээ өөрсдөө хадгалдаг); үгүй бол эх баримтаас гаргасан ЛАВЛАГАА.
+    const ownCurrency = voucher.currency !== "MNT";
+    const ownRate = Number(voucher.exchangeRate);
     return {
       ...voucher,
       counterpartyName: meta?.counterpartyName ?? null,
-      currency: meta?.currency ?? "MNT",
-      exchangeRate: meta?.exchangeRate ?? null,
+      currency: ownCurrency ? voucher.currency : (meta?.currency ?? "MNT"),
+      exchangeRate: ownCurrency
+        ? Number.isFinite(ownRate) && ownRate > 0
+          ? ownRate
+          : null
+        : (meta?.exchangeRate ?? null),
+      fcFromLines: ownCurrency,
       createdByName: userNameById.get(voucher.userId) ?? "—",
     };
   });

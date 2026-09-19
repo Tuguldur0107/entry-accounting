@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   chartOfAccounts,
+  companySettings,
   counterparties,
   employees,
   journalVouchers,
@@ -32,7 +33,11 @@ import {
   salaryBillRefOf,
   type SalaryBillKind,
 } from "@/lib/payroll/bills";
-import { unwrapAction } from "@/lib/action-result";
+import {
+  actionError,
+  unwrapAction,
+  type ActionResult,
+} from "@/lib/action-result";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
@@ -40,6 +45,7 @@ import {
   validatePayrollSettings,
   type PayrollSettingsInput,
 } from "@/lib/payroll/settings-input";
+import { buildPayslip, type Payslip } from "@/lib/payroll/payslip";
 import { extractMainAccount } from "@/lib/reports/balances";
 import {
   buildPayrollJournalLines,
@@ -214,7 +220,15 @@ async function assertRegisterUnique(
     );
 }
 
-export async function upsertEmployee(data: EmployeeInput) {
+export async function upsertEmployee(data: EmployeeInput): Promise<ActionResult> {
+  try {
+    return await upsertEmployeeCore(data);
+  } catch (caught) {
+    return actionError("upsertEmployee", caught, "Ажилтан хадгалагдсангүй");
+  }
+}
+
+async function upsertEmployeeCore(data: EmployeeInput) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const values = validateEmployeeInput(data);
   await assertRegisterUnique(orgId, values.registerNo, data.id);
@@ -230,6 +244,7 @@ export async function upsertEmployee(data: EmployeeInput) {
     await db.insert(employees).values({ userId, organizationId: orgId, ...values });
   }
   revalidatePayroll();
+  return {};
 }
 
 /**
@@ -238,6 +253,22 @@ export async function upsertEmployee(data: EmployeeInput) {
  * буцааж оруулах round-trip). Мөр бүрд тусдаа амжилт/алдаа буцаана.
  */
 export async function importEmployees(
+  rows: EmployeeInput[]
+): Promise<
+  ActionResult<{
+    created: number;
+    updated: number;
+    errors: { index: number; message: string }[];
+  }>
+> {
+  try {
+    return await importEmployeesCore(rows);
+  } catch (caught) {
+    return actionError("importEmployees", caught, "Импорт хийгдсэнгүй");
+  }
+}
+
+async function importEmployeesCore(
   rows: EmployeeInput[]
 ): Promise<{ created: number; updated: number; errors: { index: number; message: string }[] }> {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
@@ -795,7 +826,15 @@ function computeFor(
  * зөвхөн тооцооллын багануудыг дахин бодно; шинэ ажилтанд baseSalary-аар
  * мөр нэмнэ. GL журнал үүссэн run-д дахин бодолт хийхгүй.
  */
-export async function calculatePayrollRun(periodMonth: string) {
+export async function calculatePayrollRun(periodMonth: string): Promise<ActionResult> {
+  try {
+    return await calculatePayrollRunCore(periodMonth);
+  } catch (caught) {
+    return actionError("calculatePayrollRun", caught, "Бодолт хийгдсэнгүй");
+  }
+}
+
+async function calculatePayrollRunCore(periodMonth: string) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
   const { endDate } = periodRange(periodMonth);
@@ -910,10 +949,21 @@ export async function calculatePayrollRun(periodMonth: string) {
   });
 
   revalidatePayroll();
+  return {};
 }
 
 /** Мөрийн олголт/суутгал/урьдчилгааны цагийг засаад тооцооллыг дахин бодно. */
-export async function updatePayrollLine(data: {
+export async function updatePayrollLine(
+  data: Parameters<typeof updatePayrollLineCore>[0]
+): Promise<ActionResult> {
+  try {
+    return await updatePayrollLineCore(data);
+  } catch (caught) {
+    return actionError("updatePayrollLine", caught, "Мөр хадгалагдсангүй");
+  }
+}
+
+async function updatePayrollLineCore(data: {
   lineId: string;
   otherDeductions: number;
   advanceHours?: number;
@@ -1034,6 +1084,7 @@ export async function updatePayrollLine(data: {
     })
     .where(eq(payrollRunLines.id, data.lineId));
   revalidatePayroll();
+  return {};
 }
 
 // ── GL ноорог журнал ────────────────────────────────────────────────────────
@@ -1071,6 +1122,16 @@ async function payrollPostingCodeBuilder(orgId: string) {
  * огноогоор, externalRef `payroll:YYYY-MM`-ээр сард нэг л удаа.
  */
 export async function createPayrollVoucher(
+  periodMonth: string
+): Promise<ActionResult<{ id: string; dedup?: boolean }>> {
+  try {
+    return await createPayrollVoucherCore(periodMonth);
+  } catch (caught) {
+    return actionError("createPayrollVoucher", caught, "Журнал үүсээгүй");
+  }
+}
+
+async function createPayrollVoucherCore(
   periodMonth: string
 ): Promise<{ id: string; dedup?: boolean }> {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
@@ -1257,6 +1318,22 @@ export async function createPayrollSalaryBill(
   periodMonth: string,
   kind: SalaryBillKind,
   /** Урьдчилгаанд ЗААВАЛ (сар дундуур олгоно); сүүлд өгөөгүй бол сарын эцэс. */
+  date?: string
+): Promise<ActionResult<{ id: string; documentNo: string; dedup?: boolean }>> {
+  try {
+    return await createPayrollSalaryBillCore(periodMonth, kind, date);
+  } catch (caught) {
+    return actionError(
+      "createPayrollSalaryBill",
+      caught,
+      "Цалингийн нэхэмжлэх үүсээгүй"
+    );
+  }
+}
+
+async function createPayrollSalaryBillCore(
+  periodMonth: string,
+  kind: SalaryBillKind,
   date?: string
 ): Promise<{ id: string; documentNo: string; dedup?: boolean }> {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
@@ -1625,4 +1702,125 @@ export async function savePayrollAccountSettings(input: {
   });
   revalidatePayroll();
   revalidatePath("/payroll/settings");
+}
+
+// ── Цалингийн хуудас (payslip) ──────────────────────────────────────────────
+
+export type PayslipReport = {
+  periodMonth: string;
+  company: {
+    name: string;
+    registerNo: string;
+    address: string;
+    phone: string;
+  };
+  payslips: Payslip[];
+  /** Мөр нь тэнцээгүй тул алгасагдсан ажилтад (буруу хуудас гаргахгүй). */
+  errors: { employeeName: string; message: string }[];
+};
+
+/**
+ * Сарын бүх ажилтны цалингийн хуудас. Мөр бүрийн задаргаа нь ХАДГАЛАГДСАН
+ * дүнгээс гарна (`buildPayslip` дахин бодохгүй, зөвхөн бүтэцчилнэ). Нэг мөр
+ * тэнцэхгүй бол тэр АЖИЛТНЫГ алгасаад шалтгааныг буцаана — бусад ажилтны
+ * хуудас зогсохгүй.
+ */
+export async function getPayslipReport(periodMonth: string): Promise<PayslipReport> {
+  const { orgId, userId } = await requireModuleAction("payroll", "read");
+  if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
+
+  const [run, settingsRow, company] = await Promise.all([
+    db.query.payrollRuns.findFirst({
+      where: and(
+        eq(payrollRuns.organizationId, orgId),
+        eq(payrollRuns.periodMonth, periodMonth)
+      ),
+      with: {
+        lines: {
+          orderBy: [asc(payrollRunLines.sortOrder)],
+          with: { employee: true },
+        },
+      },
+    }),
+    loadPayrollSettings(orgId, userId),
+    db.query.companySettings.findFirst({
+      where: eq(companySettings.organizationId, orgId),
+    }),
+  ]);
+
+  const settings = computeSettingsOf(settingsRow);
+  const payslips: Payslip[] = [];
+  const errors: { employeeName: string; message: string }[] = [];
+
+  for (const line of run?.lines ?? []) {
+    const employeeName = [line.employee.lastName, line.employee.name]
+      .filter(Boolean)
+      .join(" ");
+    const netSalary = Number(line.netSalary);
+    const advanceAmount = Number(line.advanceAmount);
+    try {
+      payslips.push(
+        buildPayslip({
+          periodMonth,
+          coefficients: settings.coefficients,
+          monthlyWorkDays: settings.monthlyWorkDays,
+          line: {
+            employeeId: line.employeeId,
+            employeeName,
+            registerNo: line.employee.registerNo ?? "",
+            position: line.employee.position,
+            department: line.employee.department,
+            baseSalary: Number(line.employee.baseSalary),
+            standardHours: Number(line.standardHours),
+            workedHours: Number(line.workedHours),
+            baseEarnings:
+              Number(line.earnings) -
+              Number(line.vacationPay) -
+              Number(line.overtimePay) -
+              Number(line.otherAdditions),
+            overtimeHours: Number(line.overtimeHours),
+            restDayHours: Number(line.restDayHours),
+            holidayHours: Number(line.holidayHours),
+            nightHours: Number(line.nightHours),
+            overtimePay: Number(line.overtimePay),
+            overtimePayManual: line.overtimePayManual,
+            vacationDays: Number(line.vacationDays),
+            vacationPay: Number(line.vacationPay),
+            vacationPayManual: line.vacationPayManual,
+            otherAdditions: Number(line.otherAdditions),
+            earnings: Number(line.earnings),
+            employeeSi: Number(line.employeeSi),
+            pit: Number(line.pit),
+            otherDeductions: Number(line.otherDeductions),
+            sickDays: Number(line.sickDays),
+            sickBenefit: Number(line.sickBenefit),
+            sickBenefitManual: line.sickBenefitManual,
+            netSalary,
+            advanceAmount,
+            finalNet: Math.round((netSalary - advanceAmount) * 100) / 100,
+            employerSi: Number(line.employerSi),
+            averageMonthlyEarnings: Number(line.averageMonthlyEarnings),
+            averageMonthsUsed: line.averageMonthsUsed,
+          },
+        })
+      );
+    } catch (error) {
+      errors.push({
+        employeeName,
+        message: error instanceof Error ? error.message : "Хуудас бүтээж чадсангүй",
+      });
+    }
+  }
+
+  return {
+    periodMonth,
+    company: {
+      name: company?.name ?? "",
+      registerNo: company?.registerNo ?? "",
+      address: company?.address ?? "",
+      phone: company?.phone ?? "",
+    },
+    payslips,
+    errors,
+  };
 }

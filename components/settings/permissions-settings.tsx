@@ -115,10 +115,19 @@ export function PermissionsSettings({
   }
 
   /** Роль солих, хасах г.м шууд үйлдлүүд — амжилтад refresh. */
-  function act(fn: () => Promise<void>, success: string) {
+  // Action-ууд алдааг { error } УТГААР буцаадаг (lib/action-result.ts) —
+  // шалгалтыг энд НЭГ газар хийнэ.
+  function act(
+    fn: () => Promise<{ error?: string }>,
+    success: string
+  ) {
     startTransition(async () => {
       try {
-        await fn();
+        const result = await fn();
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(success);
         router.refresh();
       } catch (error) {
@@ -364,7 +373,13 @@ export function PermissionsSettings({
                     className="text-xs underline"
                     style={{ color: "var(--ea-danger-fg)" }}
                     onClick={() =>
-                      act(() => cancelInvitation(invitation.id), "Урилга цуцлагдлаа")
+                      act(
+                        async () => {
+                          await cancelInvitation(invitation.id);
+                          return {};
+                        },
+                        "Урилга цуцлагдлаа"
+                      )
                     }
                   >
                     Цуцлах
@@ -393,6 +408,10 @@ export function PermissionsSettings({
                 startTransition(async () => {
                   try {
                     const result = await inviteMember({ email, role });
+                    if (result.error !== undefined) {
+                      toast.error(result.error);
+                      return;
+                    }
                     if (result.outcome === "added") {
                       toast.success("Гишүүн нэмэгдлээ");
                     } else if (result.emailed) {
@@ -434,8 +453,10 @@ export function PermissionsSettings({
               isPending={isPending}
               onRemove={() =>
                 act(async () => {
-                  await removeMember(profileMember.membershipId);
+                  const res = await removeMember(profileMember.membershipId);
+                  if (res.error !== undefined) return res;
                   setProfileMember(null);
+                  return {};
                 }, "Гишүүн хасагдлаа")
               }
               onClose={() => setProfileMember(null)}
@@ -520,7 +541,10 @@ function InviteBody({
 
 // ── Гишүүний профайл ───────────────────────────────────────────────────────
 
-type MemberDetail = Awaited<ReturnType<typeof getMemberDetail>>;
+type MemberDetail = Extract<
+  Awaited<ReturnType<typeof getMemberDetail>>,
+  { error?: undefined }
+>;
 
 function MemberProfileBody({
   member,
@@ -543,7 +567,9 @@ function MemberProfileBody({
     let cancelled = false;
     getMemberDetail(member.membershipId)
       .then((result) => {
-        if (!cancelled) setDetail(result);
+        if (cancelled) return;
+        if (result.error !== undefined) setFailed(true);
+        else setDetail(result);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);

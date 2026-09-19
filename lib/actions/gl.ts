@@ -46,6 +46,12 @@ import {
   type JournalModule,
 } from "@/lib/gl/voucher-no";
 import { logAuditEvent } from "@/lib/audit";
+import {
+  assertRate,
+  BASE_CURRENCY,
+  convertLinesToBase,
+  normalizeCurrency,
+} from "@/lib/gl/currency";
 import type { JournalHookContext } from "@/lib/custom/types";
 import {
   runAfterJournalPost,
@@ -533,10 +539,82 @@ export async function updateSegmentValueModules(id: string, modules: string[]) {
 
 export type LineInput = {
   account: string;
+  /** Дэвтрийн валютын (MNT) дүн. Валютын баримтад ЭНЭ НЬ СЕРВЕРТ дахин бодогдоно. */
   debit: number;
   credit: number;
   description: string;
+  /** Гадаад валютын дүн — баримтын валют MNT биш үед л утгатай. */
+  debitFc?: number;
+  creditFc?: number;
 };
+
+/**
+ * Баримтын валютын оролт — бүх журнал бичих зам дээр НЭГ хэлбэрээр.
+ * ЭКСПОРТЛОХГҮЙ: "use server" файлаас зөвхөн async функц гарч болно
+ * (Next.js build-ийн шаардлага) — дуудагчид `Parameters<typeof …>`-оор өвлөнө.
+ */
+type VoucherCurrencyInput = {
+  /** Баримтын валют (default MNT). */
+  currency?: string;
+  /** 1 нэгж валют = N MNT. MNT баримтад 1. */
+  exchangeRate?: number;
+  /** "mongolbank" | "manual" — хаанаас авсныг аудитад үлдээнэ. */
+  rateSource?: string | null;
+  /** Хэрэглэсэн ханшийн ӨӨРИЙН огноо (МБ амралтын өдөр өмнөхийг өгдөг). */
+  rateDate?: string | null;
+};
+
+/**
+ * Баримтын валютыг шийдэж, ВАЛЮТЫН дүнгээс дэвтрийн валютын дүнг СЕРВЕРТ
+ * дахин бодно (client-ийн MNT дүнд НАЙДАХГҮЙ — trust boundary).
+ *
+ * MNT баримт → өөрчлөлтгүй (FC 0). Валютын баримт → мөр бүрийн debit/credit
+ * нь FC × ханш болж, батлагдах үед бөөрөнхийллийн зөрүү хамгийн том мөрөнд
+ * шингэнэ (lib/gl/currency.ts).
+ */
+function resolveVoucherCurrency(
+  lines: LineInput[],
+  input: VoucherCurrencyInput,
+  posted: boolean
+): {
+  currency: string;
+  exchangeRate: string;
+  rateSource: string | null;
+  rateDate: string | null;
+  lines: LineInput[];
+} {
+  const currency = normalizeCurrency(input.currency ?? BASE_CURRENCY);
+  if (currency === BASE_CURRENCY)
+    return {
+      currency,
+      exchangeRate: "1",
+      rateSource: null,
+      rateDate: null,
+      lines: lines.map((line) => ({ ...line, debitFc: 0, creditFc: 0 })),
+    };
+
+  const rate = assertRate(Number(input.exchangeRate), `${currency} ханш`);
+  const fcLines = lines.map((line) => ({
+    debitFc: Number(line.debitFc ?? 0) || 0,
+    creditFc: Number(line.creditFc ?? 0) || 0,
+  }));
+  const converted = convertLinesToBase(fcLines, rate, {
+    absorbRounding: posted,
+  });
+  return {
+    currency,
+    exchangeRate: String(rate),
+    rateSource: input.rateSource?.trim() || null,
+    rateDate: input.rateDate?.trim() || null,
+    lines: lines.map((line, index) => ({
+      ...line,
+      debitFc: fcLines[index].debitFc,
+      creditFc: fcLines[index].creditFc,
+      debit: converted.lines[index].debit,
+      credit: converted.lines[index].credit,
+    })),
+  };
+}
 
 /**
  * Мөрийн серверийн шалгалт — client validator-оос үл хамааран ЭНД дахин
@@ -600,7 +678,7 @@ function assertBalanced(lines: { debit: number; credit: number }[]) {
 // компонент зөвхөн wrapper-ыг дуудна. Server-талын дуудагч (lib/ai/tools.ts
 // г.м) unwrapAction-аар шидэлтээ сэргээнэ.
 
-async function createVoucherCore(data: {
+async function createVoucherCore(data: VoucherCurrencyInput & {
   date: string;
   description: string;
   lines: LineInput[];
@@ -622,7 +700,9 @@ async function createVoucherCore(data: {
   // хожим батлагдах гэж гацна).
   await assertPeriodOpen(orgId, data.date);
 
-  const validLines = await validateVoucherLines(orgId, data.lines);
+  // Валют → дэвтрийн валютын дүн СЕРВЕРТ дахин бодогдоно (client-д найдахгүй).
+  const money = resolveVoucherCurrency(data.lines, data, status === "posted");
+  const validLines = await validateVoucherLines(orgId, money.lines);
   if (status === "posted") assertBalanced(validLines);
 
   const voucherId = await db.transaction(async (tx) => {
@@ -643,6 +723,10 @@ async function createVoucherCore(data: {
         ),
         status,
         externalRef: data.externalRef?.trim() || null,
+        currency: money.currency,
+        exchangeRate: money.exchangeRate,
+        rateSource: money.rateSource,
+        rateDate: money.rateDate,
       })
       .returning();
 
@@ -652,6 +736,8 @@ async function createVoucherCore(data: {
         accountNumber: l.account,
         debit: String(l.debit),
         credit: String(l.credit),
+        debitFc: String(l.debitFc ?? 0),
+        creditFc: String(l.creditFc ?? 0),
         description: l.description,
         sortOrder: i,
       }))
@@ -754,6 +840,36 @@ async function postVoucherCore(id: string) {
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, voucher.date);
+
+    // ВАЛЮТЫН журнал: ноорогт мөр бүр дангаараа бөөрөнхийлөгдсөн тул Дт/Кт-ийн
+    // MNT нийлбэр 1–2 төгрөгөөр зөрж болно. Батлахын ӨМНӨ (мөр нь ноорог
+    // хэвээр — ea_journal_lines_protect зөвхөн батлагдсаныг хориглоно)
+    // валютын дүнгээс дахин бодож, зөрүүг хамгийн том мөрөнд шингээнэ —
+    // GL үргэлж тэнцэнэ (lib/gl/currency.ts).
+    if (voucher.currency !== BASE_CURRENCY) {
+      const draftLines = await tx.query.journalLines.findMany({
+        where: eq(journalLines.voucherId, id),
+        orderBy: (line, { asc }) => [asc(line.sortOrder)],
+        columns: { id: true, debit: true, credit: true, debitFc: true, creditFc: true },
+      });
+      const converted = convertLinesToBase(
+        draftLines.map((line) => ({
+          debitFc: Number(line.debitFc),
+          creditFc: Number(line.creditFc),
+        })),
+        Number(voucher.exchangeRate)
+      );
+      for (const [index, line] of draftLines.entries()) {
+        const base = converted.lines[index];
+        if (Number(line.debit) === base.debit && Number(line.credit) === base.credit)
+          continue;
+        await tx
+          .update(journalLines)
+          .set({ debit: String(base.debit), credit: String(base.credit) })
+          .where(eq(journalLines.id, line.id));
+      }
+    }
+
     // Atomic claim: давхар товшилт/зэрэгцээ post нэг л удаа sync ажиллуулна.
     const [claimed] = await tx
       .update(journalVouchers)
@@ -1097,7 +1213,7 @@ export async function unpostVoucher(id: string): Promise<ActionResult> {
 
 async function updateVoucherCore(
   id: string,
-  data: {
+  data: VoucherCurrencyInput & {
     date: string;
     description: string;
     lines: LineInput[];
@@ -1111,7 +1227,13 @@ async function updateVoucherCore(
 
   await assertPeriodOpen(orgId, data.date);
 
-  const validLines = await validateVoucherLines(orgId, data.lines);
+  // Валют → дэвтрийн валютын дүн СЕРВЕРТ дахин бодогдоно (create-тэй ижил).
+  const money = resolveVoucherCurrency(
+    data.lines,
+    data,
+    data.status === "posted"
+  );
+  const validLines = await validateVoucherLines(orgId, money.lines);
   if (data.status === "posted") assertBalanced(validLines);
 
   await db.transaction(async (tx) => {
@@ -1139,6 +1261,8 @@ async function updateVoucherCore(
         accountNumber: l.account,
         debit: String(l.debit),
         credit: String(l.credit),
+        debitFc: String(l.debitFc ?? 0),
+        creditFc: String(l.creditFc ?? 0),
         description: l.description,
         sortOrder: i,
       }))
@@ -1146,7 +1270,15 @@ async function updateVoucherCore(
 
     await tx
       .update(journalVouchers)
-      .set({ date: data.date, description: data.description, status: data.status })
+      .set({
+        date: data.date,
+        description: data.description,
+        status: data.status,
+        currency: money.currency,
+        exchangeRate: money.exchangeRate,
+        rateSource: money.rateSource,
+        rateDate: money.rateDate,
+      })
       .where(
         and(
           eq(journalVouchers.id, id),

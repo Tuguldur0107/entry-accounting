@@ -60,6 +60,28 @@ function fmtSource(amount: number, rate: number | null): string {
   return converted == null ? "" : fmtMnt(converted);
 }
 
+/**
+ * Мөрийн ВАЛЮТЫН дүн. Журнал ӨӨРӨӨ валюттай бол (шинэ бичилт) мөрд
+ * ХАДГАЛАГДСАН валютын дүнг шууд үзүүлнэ — энэ нь хэрэглэгчийн бичсэн
+ * ЖИНХЭНЭ дүн. Хуучин / эх баримтаас гаргасан журналд MNT ÷ ханш гэсэн
+ * ЛАВЛАГАА (бөөрөнхийллийн хэмжээгээр зөрж болно).
+ */
+function lineFcText(
+  voucher: VoucherRow | undefined,
+  line: VoucherRow["lines"][number],
+  side: "debit" | "credit"
+): string {
+  if (!voucher) return "";
+  if (voucher.fcFromLines) {
+    const raw = Number(side === "debit" ? line.debitFc : line.creditFc);
+    return raw !== 0 ? fmtMnt(raw) : "";
+  }
+  return fmtSource(
+    Number(side === "debit" ? line.debit : line.credit),
+    voucher.exchangeRate ?? null
+  );
+}
+
 /** Мөрийн дансны S3 үндсэн код (10-part dotted эсвэл дан код). */
 function mainOf(accountNumber: string): string {
   const parts = accountNumber.split(".");
@@ -212,8 +234,16 @@ export function JournalList({
             voucher.counterpartyName ?? "",
             voucher.currency,
             voucher.exchangeRate,
-            debit ? toSourceCurrency(debit, voucher.exchangeRate) : null,
-            credit ? toSourceCurrency(credit, voucher.exchangeRate) : null,
+            voucher.fcFromLines
+              ? Number(line.debitFc) || null
+              : debit
+                ? toSourceCurrency(debit, voucher.exchangeRate)
+                : null,
+            voucher.fcFromLines
+              ? Number(line.creditFc) || null
+              : credit
+                ? toSourceCurrency(credit, voucher.exchangeRate)
+                : null,
             voucher.createdByName,
           ];
         })
@@ -385,8 +415,26 @@ export function JournalList({
         flex: 1,
         minWidth: 180,
         sortable: true,
-        autoHeight: true,
-        cellClass: "text-xs font-medium",
+        // ⚠ `autoHeight: true` ЭНД БАЙЖ БОЛОХГҮЙ. Энэ grid-ийн мөрийн өндрийг
+        // `getRowHeight` (журналын мөрийн тоо × 22px) эзэмшдэг. Хоёуланг зэрэг
+        // хэрэглэвэл AG Grid эхлээд getRowHeight-ээр байрлуулж, дараа нь
+        // autoHeight-аар ДАХИН хэмжиж мөрүүдээ шилжүүлдэг — хулганы доорх мөр
+        // өөр болж, дарсан журналын ОРОНД хажуугийнх нь нээгддэг байв.
+        // Урт нэрийг мөрийн ӨӨРИЙН өндөрт багтаан таслана (бүтнээр нь tooltip-д).
+        cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
+          <span
+            className="block py-2 text-xs font-medium leading-[22px] break-words"
+            style={{
+              display: "-webkit-box",
+              WebkitBoxOrient: "vertical",
+              WebkitLineClamp: Math.max(1, p.data?.lines.length ?? 1),
+              overflow: "hidden",
+            }}
+            title={p.data?.description}
+          >
+            {p.data?.description}
+          </span>
+        ),
       },
       {
         headerName: "Харилцагч",
@@ -533,15 +581,13 @@ export function JournalList({
         sortable: false,
         valueGetter: (p) =>
           p.data?.lines
-            .map((line) => Number(line.debit))
-            .filter((amount) => amount !== 0)
-            .map((amount) => fmtSource(amount, p.data?.exchangeRate ?? null))
+            .map((line) => lineFcText(p.data, line, "debit"))
             .filter(Boolean)
             .join(" · ") ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px] items-end">
             {p.data?.lines.map((l) => {
-              const text = fmtSource(Number(l.debit), p.data?.exchangeRate ?? null);
+              const text = lineFcText(p.data, l, "debit");
               return text ? (
                 <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-text-2)]">
                   {text}
@@ -564,15 +610,13 @@ export function JournalList({
         sortable: false,
         valueGetter: (p) =>
           p.data?.lines
-            .map((line) => Number(line.credit))
-            .filter((amount) => amount !== 0)
-            .map((amount) => fmtSource(amount, p.data?.exchangeRate ?? null))
+            .map((line) => lineFcText(p.data, line, "credit"))
             .filter(Boolean)
             .join(" · ") ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <div className="flex flex-col py-2 leading-[22px] items-end">
             {p.data?.lines.map((l) => {
-              const text = fmtSource(Number(l.credit), p.data?.exchangeRate ?? null);
+              const text = lineFcText(p.data, l, "credit");
               return text ? (
                 <span key={l.id} className="tabular-nums text-xs font-mono text-[var(--ea-text-2)]">
                   {text}

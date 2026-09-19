@@ -1,10 +1,11 @@
 "use client";
 
 // POS тохиргооны таб — docs/pos §3.1 (дансны рольууд), §3.4 (төлбөрийн
-// хэлбэр), §3.5 (хөнгөлөлтийн дүрэм + симуляци). Дансны дугаар кодод байхгүй —
+// хэлбэр), §3.5 (хөнгөлөлтийн дүрэм + симуляци), eBarimt 3.0 (docs/pos/
+// 03-ebarimt-integration-plan.md §4.5). Дансны дугаар кодод байхгүй —
 // бүгд `pos_settings`-ээс; энд ЗӨВХӨН хэрэглэгч засна.
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { toast } from "sonner";
@@ -30,12 +31,20 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { PageTabs, type TabOption } from "@/components/ui/tabs";
 import {
+  getEbarimtBranchInfo,
+  getEbarimtStatus,
+  pushEbarimtData,
+  testEbarimtConnection,
+} from "@/lib/actions/ebarimt";
+import {
   deleteDiscountRule,
   quotePosSale,
   savePaymentMethod,
   updatePosSettings,
   type SaleQuote,
 } from "@/lib/actions/pos";
+import { EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import type { EbarimtStatusSummary } from "@/lib/ebarimt/types";
 import type { CheckoutData } from "@/lib/pos/load-data";
 import {
   DISCOUNT_RULE_TYPE_LABELS,
@@ -55,12 +64,13 @@ export interface IssueTypeOption {
   name: string;
 }
 
-type SettingsSection = "general" | "methods" | "rules";
+type SettingsSection = "general" | "methods" | "rules" | "ebarimt";
 
 const SECTIONS: readonly TabOption<SettingsSection>[] = [
   { value: "general", label: "Ерөнхий" },
   { value: "methods", label: "Төлбөрийн хэлбэр" },
   { value: "rules", label: "Хөнгөлөлтийн дүрэм" },
+  { value: "ebarimt", label: "eBarimt" },
 ];
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -115,6 +125,9 @@ export function PosSettingsView({
       )}
       {section === "methods" && <PaymentMethodsSection methods={checkout.methods} cashAccounts={checkout.cashAccounts} />}
       {section === "rules" && <DiscountRulesSection checkout={checkout} />}
+      {section === "ebarimt" && (
+        <EbarimtSection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />
+      )}
     </div>
   );
 }
@@ -321,6 +334,18 @@ function PaymentMethodsSection({
         valueFormatter: (p) => (p.value ? "✓" : ""),
       },
       {
+        headerName: "eBarimt код",
+        field: "ebarimtCode",
+        width: 140,
+        cellClass: "font-mono text-xs",
+        cellRenderer: (p: ICellRendererParams<PaymentMethodView>) =>
+          p.data?.ebarimtCode ? (
+            <span>{p.data.ebarimtCode}</span>
+          ) : (
+            <span className="text-[var(--ea-danger-fg)]">оноогоогүй</span>
+          ),
+      },
+      {
         headerName: "Шимтгэл %",
         field: "feePercent",
         width: 100,
@@ -395,6 +420,7 @@ interface MethodForm {
   allowsChange: boolean;
   allowsRefund: boolean;
   feePercent: string;
+  ebarimtCode: string;
   sortOrder: string;
   isActive: boolean;
 }
@@ -409,6 +435,7 @@ function toMethodForm(method: PaymentMethodView | null): MethodForm {
     allowsChange: method?.allowsChange ?? true,
     allowsRefund: method?.allowsRefund ?? true,
     feePercent: method?.feePercent == null ? "" : String(method.feePercent),
+    ebarimtCode: method?.ebarimtCode ?? "",
     sortOrder: String(method?.sortOrder ?? 0),
     isActive: method?.isActive ?? true,
   };
@@ -448,6 +475,7 @@ function PaymentMethodDialog({
         allowsChange: form.kind === "cash" ? form.allowsChange : false,
         allowsRefund: form.allowsRefund,
         feePercent: form.feePercent.trim() === "" ? null : Number(form.feePercent),
+        ebarimtCode: form.ebarimtCode.trim() || null,
         sortOrder: Number(form.sortOrder) || 0,
         isActive: form.isActive,
       });
@@ -498,6 +526,17 @@ function PaymentMethodDialog({
           )}
           <Field label="Шимтгэл % (мэдээлэл)">
             <Input type="number" min="0" step="0.01" value={form.feePercent} className="font-mono text-right" onChange={(e) => patch({ feePercent: e.target.value })} />
+          </Field>
+          <Field
+            label="eBarimt код"
+            hint="ТЕГ-ийн жагсаалтаас — хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй"
+          >
+            <Input
+              value={form.ebarimtCode}
+              className="font-mono uppercase"
+              placeholder={EBARIMT_PAYMENT_CODE_SUGGESTIONS[form.kind] ?? "ТЕГ-ийн код"}
+              onChange={(e) => patch({ ebarimtCode: e.target.value.toUpperCase() })}
+            />
           </Field>
           <Field label="Эрэмбэ">
             <Input type="number" value={form.sortOrder} className="font-mono text-right" onChange={(e) => patch({ sortOrder: e.target.value })} />
@@ -852,6 +891,315 @@ function DiscountSimulation({ checkout }: { checkout: CheckoutData }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── eBarimt 3.0 ──────────────────────────────────────────────────────────────
+//
+// Тохиргооны талбарууд нь мерчант порталаас олгогддог (ТТД, салбар, posNo,
+// дүүргийн код); дүүргийн лавлах нь ТЕГ-ийн нийтийн API — уншигдахгүй бол
+// гараар бичнэ (код ЗОХИОХГҮЙ). Горим: server = Railway-ийн posapi service,
+// browser = кассын PC-ийн localhost:7080 (§3).
+
+type EbarimtForm = Pick<
+  PosSettings,
+  | "ebarimtEnabled"
+  | "ebarimtMerchantTin"
+  | "ebarimtBranchNo"
+  | "ebarimtDistrictCode"
+  | "ebarimtPosNo"
+  | "ebarimtPosApiUrl"
+  | "ebarimtMode"
+>;
+
+const fmtDateTime = (iso: string | null) => {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" }).slice(0, 16);
+};
+
+/** PosAPI-ийн `info` хариуг 2–3 уншигдах мөр болгоно (`<pre>` ҮГҮЙ). */
+function infoLines(info: Record<string, unknown>): string[] {
+  const entries = Object.entries(info).filter(([, value]) => value !== null && value !== undefined);
+  if (entries.length === 0) return ["PosAPI хариулав (дэлгэрэнгүй мэдээлэл ирсэнгүй)"];
+  return entries.slice(0, 6).map(([key, value]) => {
+    const text =
+      typeof value === "object" ? JSON.stringify(value).slice(0, 120) : String(value).slice(0, 120);
+    return `${key}: ${text}`;
+  });
+}
+
+function EbarimtSection({ settings }: { settings: PosSettings }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [form, setForm] = useState<EbarimtForm>({
+    ebarimtEnabled: settings.ebarimtEnabled,
+    ebarimtMerchantTin: settings.ebarimtMerchantTin,
+    ebarimtBranchNo: settings.ebarimtBranchNo,
+    ebarimtDistrictCode: settings.ebarimtDistrictCode,
+    ebarimtPosNo: settings.ebarimtPosNo,
+    ebarimtPosApiUrl: settings.ebarimtPosApiUrl,
+    ebarimtMode: settings.ebarimtMode,
+  });
+  const patch = (changes: Partial<EbarimtForm>) => setForm((current) => ({ ...current, ...changes }));
+  const dirty =
+    JSON.stringify(form) !==
+    JSON.stringify({
+      ebarimtEnabled: settings.ebarimtEnabled,
+      ebarimtMerchantTin: settings.ebarimtMerchantTin,
+      ebarimtBranchNo: settings.ebarimtBranchNo,
+      ebarimtDistrictCode: settings.ebarimtDistrictCode,
+      ebarimtPosNo: settings.ebarimtPosNo,
+      ebarimtPosApiUrl: settings.ebarimtPosApiUrl,
+      ebarimtMode: settings.ebarimtMode,
+    });
+
+  const [status, setStatus] = useState<EbarimtStatusSummary | null>(null);
+  const [problems, setProblems] = useState<string[]>([]);
+  const [branches, setBranches] = useState<{ code: string; name: string }[] | null>(null);
+  const [branchFailed, setBranchFailed] = useState(false);
+  const [info, setInfo] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getEbarimtStatus().then((result) => {
+      if (cancelled) return;
+      if (result.error) {
+        setProblems([result.error]);
+        return;
+      }
+      setStatus(result.status ?? null);
+      setProblems(result.problems ?? []);
+    });
+    getEbarimtBranchInfo().then((result) => {
+      if (cancelled) return;
+      if (result.error || !result.branches || result.branches.length === 0) {
+        setBranchFailed(true);
+        return;
+      }
+      setBranches(result.branches);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function save() {
+    startTransition(async () => {
+      const result = await updatePosSettings(form);
+      if (result.error) {
+        feedback.error(result.error);
+        return;
+      }
+      feedback.saved("eBarimt тохиргоо хадгалагдлаа");
+      router.refresh();
+    });
+  }
+
+  function testConnection() {
+    startTransition(async () => {
+      const result = await testEbarimtConnection();
+      if (result.error || !result.info) {
+        setInfo(null);
+        feedback.error(result.error ?? "PosAPI-тай холбогдсонгүй");
+        return;
+      }
+      setInfo(infoLines(result.info));
+      toast.success("PosAPI-тай холбогдлоо");
+    });
+  }
+
+  function pushData() {
+    startTransition(async () => {
+      const result = await pushEbarimtData();
+      if (result.error) {
+        feedback.error(result.error);
+        return;
+      }
+      setInfo(infoLines(result.result ?? {}));
+      toast.success("ТЕГ рүү түлхэх хүсэлт илгээгдлээ");
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <p className="text-xs text-[var(--ea-text-3)]">
+        Мерчант порталаас олгогдсон ТТД, салбар, кассын дугаар, дүүргийн кодоор PosAPI 3.0
+        идэвхжинэ. Унтраалттай үед борлуулалт яг өмнөх шигээ бичигдэж, ДДТД-г гараар оруулна.
+      </p>
+
+      {problems.length > 0 && (
+        <div className="rounded-md border border-[var(--ea-border)] p-3">
+          <div className="text-xs font-semibold text-[var(--ea-warning-fg)]">
+            Идэвхжүүлэхээс өмнө:
+          </div>
+          <ul className="mt-1 space-y-0.5 text-xs text-[var(--ea-warning-fg)]">
+            {problems.map((problem, index) => (
+              <li key={index}>• {problem}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <SwitchField
+        label="eBarimt автомат баримт"
+        hint="Борлуулалт батлагдмагц ТЕГ-д илгээгдэж ДДТД / сугалаа / QR баримтад хэвлэгдэнэ"
+        checked={form.ebarimtEnabled}
+        onChange={(value) => patch({ ebarimtEnabled: value })}
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Field label="Мерчантын ТТД" hint="11 эсвэл 14 оронтой">
+          <Input
+            value={form.ebarimtMerchantTin}
+            maxLength={14}
+            inputMode="numeric"
+            className="font-mono"
+            placeholder="12345678901"
+            onChange={(e) => patch({ ebarimtMerchantTin: e.target.value.replace(/\D/g, "") })}
+          />
+        </Field>
+        <Field label="Салбарын дугаар" hint="Мерчант порталын branchNo">
+          <Input
+            value={form.ebarimtBranchNo}
+            className="font-mono"
+            placeholder="0001"
+            onChange={(e) => patch({ ebarimtBranchNo: e.target.value })}
+          />
+        </Field>
+        <Field
+          label="Дүүргийн код"
+          hint={branchFailed ? "Лавлах уншигдсангүй — 4 оронтой кодыг гараар бичнэ" : "4 оронтой (ТЕГ-ийн лавлах)"}
+        >
+          {branches ? (
+            <select
+              className="ea-form-select"
+              value={form.ebarimtDistrictCode}
+              onChange={(e) => patch({ ebarimtDistrictCode: e.target.value })}
+            >
+              <option value="">— Сонгох —</option>
+              {branches.map((branch) => (
+                <option key={branch.code} value={branch.code}>
+                  {branch.code} · {branch.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              value={form.ebarimtDistrictCode}
+              maxLength={4}
+              inputMode="numeric"
+              className="font-mono"
+              placeholder="3420"
+              onChange={(e) => patch({ ebarimtDistrictCode: e.target.value.replace(/\D/g, "") })}
+            />
+          )}
+        </Field>
+        <Field label="Кассын дугаар (posNo)" hint="Бүртгэгдсэн терминал — ээлжээс тусдаа">
+          <Input
+            value={form.ebarimtPosNo}
+            className="font-mono"
+            placeholder="10000001"
+            onChange={(e) => patch({ ebarimtPosNo: e.target.value })}
+          />
+        </Field>
+        <Field label="PosAPI URL" hint="http://posapi.railway.internal:7080 эсвэл http://localhost:7080">
+          <Input
+            value={form.ebarimtPosApiUrl}
+            className="font-mono"
+            placeholder="http://localhost:7080"
+            onChange={(e) => patch({ ebarimtPosApiUrl: e.target.value })}
+          />
+        </Field>
+        <Field
+          label="Горим"
+          hint="server — Railway-ийн posapi үйлчилгээ рүү сервер өөрөө илгээнэ; browser — кассын PC-ийн localhost руу кассын дэлгэц илгээнэ"
+        >
+          <select
+            className="ea-form-select"
+            value={form.ebarimtMode}
+            onChange={(e) => patch({ ebarimtMode: e.target.value as "server" | "browser" })}
+          >
+            <option value="server">Сервер (posapi service)</option>
+            <option value="browser">Кассын браузер (localhost)</option>
+          </select>
+        </Field>
+      </div>
+
+      <div>
+        <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Илгээлтийн байдал</div>
+        {status === null ? (
+          <p className="text-xs text-[var(--ea-text-4)]">Ачаалж байна…</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Counter label="Хүлээгдэж байгаа" value={String(status.pending)} warn={status.pending > 0} />
+            <Counter label="Алдаатай" value={String(status.failed)} danger={status.failed > 0} />
+            <Counter label="Өнөөдөр илгээсэн" value={String(status.sentToday)} />
+            <Counter label="Сүүлд илгээсэн" value={fmtDateTime(status.lastSentAt)} />
+          </div>
+        )}
+        {status?.lastError && (
+          <p className="mt-2 text-xs text-[var(--ea-danger-fg)]">
+            Сүүлийн алдаа: {status.lastError}
+          </p>
+        )}
+      </div>
+
+      {info && (
+        <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3">
+          <div className="mb-1 text-xs font-semibold text-[var(--ea-text-1)]">PosAPI-ийн хариу</div>
+          <div className="space-y-0.5 text-xs text-[var(--ea-text-3)]">
+            {info.map((line, index) => (
+              <div key={index} className="break-words font-mono">
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">
+        <Button variant="outline" onClick={pushData} disabled={isPending}>
+          <Icon name="send" size="sm" />
+          ТЕГ рүү түлхэх
+        </Button>
+        <Button variant="outline" onClick={testConnection} disabled={isPending}>
+          <Icon name="reconciliation" size="sm" />
+          Холболт шалгах
+        </Button>
+        <Button onClick={save} disabled={!dirty || isPending}>
+          <Icon name="save" size="sm" />
+          Хадгалах
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Counter({
+  label,
+  value,
+  warn,
+  danger,
+}: {
+  label: string;
+  value: string;
+  warn?: boolean;
+  danger?: boolean;
+}) {
+  const color = danger
+    ? "var(--ea-danger-fg)"
+    : warn
+      ? "var(--ea-warning-fg)"
+      : "var(--ea-text-1)";
+  return (
+    <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+      <div className="text-[11px] text-[var(--ea-text-3)]">{label}</div>
+      <div className="mt-0.5 font-mono text-base font-semibold" style={{ color }}>
+        {value}
       </div>
     </div>
   );

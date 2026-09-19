@@ -164,7 +164,7 @@ export function CompanySettingsForm({
     }
     startTransition(async () => {
       try {
-        await updateCompanySettings({
+        const saved = await updateCompanySettings({
           name,
           registerNo: registerNo || null,
           vatPayerNo: vatPayerNo || null,
@@ -186,6 +186,10 @@ export function CompanySettingsForm({
             ? Number(aiPostLimit.replace(/[^\d.]/g, ""))
             : null,
         });
+        if (saved.error !== undefined) {
+          toast.error(saved.error);
+          return;
+        }
         toast.success("Компанийн мэдээлэл хадгалагдлаа");
       } catch (caught) {
         toast.error(

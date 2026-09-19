@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AttachmentList } from "@/components/attachments/attachment-list";
+import { AttachmentSection } from "@/components/attachments/attachment-section";
 import { JournalEntryForm } from "@/components/gl/journal-entry-form";
 import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import { buildSegCode } from "@/lib/grid/segments";
@@ -167,6 +167,10 @@ export function VoucherPanel({
           ? {
               date: data.voucher.date,
               description: data.voucher.description,
+              currency: data.voucher.currency,
+              exchangeRate: data.voucher.exchangeRate,
+              rateSource: data.voucher.rateSource,
+              rateDate: data.voucher.rateDate,
               lines: data.voucher.lines,
             }
           : prefillVoucher
@@ -187,23 +191,20 @@ export function VoucherPanel({
         // Болих/Хаах — юу ч хадгалаагүй тул dirty-баталгаажуулалтаар дайрна.
         onCancel={requestClose}
       />
-      {/* Хавсралт — зөвхөн хадгалагдсан журналд (шинэ ноорогт id алга). */}
+      {/* Хавсралт — зөвхөн хадгалагдсан журналд (шинэ ноорогт id алга).
+          Панельд НЭГ мөр, дэлгэрэнгүй нь popup-д (attachment-section.tsx). */}
       {data.voucher?.id && (
-        <div className="space-y-2 border-t border-[var(--ea-border)] pt-3">
-          <h3 className="text-xs font-semibold text-[var(--ea-text-2)]">
-            Хавсралт
-          </h3>
-          <AttachmentList
-            entityType="journal"
-            entityId={data.voucher.id}
-            kinds={GENERIC_ATTACHMENT_KINDS}
-            refreshToken={refreshToken}
-            onChanged={() => {
-              refreshOpenPanels();
-              router.refresh();
-            }}
-          />
-        </div>
+        <AttachmentSection
+          entityType="journal"
+          entityId={data.voucher.id}
+          kinds={GENERIC_ATTACHMENT_KINDS}
+          refreshToken={refreshToken}
+          className="border-t border-[var(--ea-border)] pt-3"
+          onChanged={() => {
+            refreshOpenPanels();
+            router.refresh();
+          }}
+        />
       )}
     </div>
   );

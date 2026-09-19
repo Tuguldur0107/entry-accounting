@@ -17,6 +17,7 @@ import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { PageTabs } from "@/components/ui/tabs";
+import { PayrollReportTabs } from "@/components/payroll/payroll-report-tabs";
 import {
   type SalaryPaymentReport,
   type SalaryPaymentRow,
@@ -189,6 +190,8 @@ export function SalaryPaymentReportView({ data }: Props) {
           Excel татах
         </Button>
       </div>
+
+      <PayrollReportTabs value="payment" />
 
       <PageTabs
         tabs={TABS}

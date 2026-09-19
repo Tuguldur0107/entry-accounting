@@ -74,12 +74,18 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
       initialVoucher={{
         date: voucher.date,
         description: voucher.description,
+        currency: voucher.currency,
+        exchangeRate: voucher.exchangeRate,
+        rateSource: voucher.rateSource,
+        rateDate: voucher.rateDate,
         lines: voucher.lines.map((l) => ({
           account: l.accountNumber,
           // Буцаалтын журналын дүн СӨРӨГ хадгалагддаг тул зөвхөн эерэгийг
           // шүүхгүй — 0-ээс ялгаатай бүх дүнг дамжуулна.
           debit: Number(l.debit) !== 0 ? String(Number(l.debit)) : "",
           credit: Number(l.credit) !== 0 ? String(Number(l.credit)) : "",
+          debitFc: Number(l.debitFc) !== 0 ? String(Number(l.debitFc)) : "",
+          creditFc: Number(l.creditFc) !== 0 ? String(Number(l.creditFc)) : "",
           description: l.description ?? "",
         })),
       }}

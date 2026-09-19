@@ -68,6 +68,8 @@ type ItemForm = {
   vatMode: ItemVatMode;
   categoryCode: string;
   revenueAccountNumber: string;
+  ebarimtClassificationCode: string;
+  ebarimtTaxProductCode: string;
 };
 
 const emptyItemForm: ItemForm = {
@@ -81,9 +83,11 @@ const emptyItemForm: ItemForm = {
   vatMode: "standard",
   categoryCode: "",
   revenueAccountNumber: "",
+  ebarimtClassificationCode: "",
+  ebarimtTaxProductCode: "",
 };
 const emptyWarehouseForm = { code: "", name: "" };
-const emptyCategoryForm = { id: "", code: "", name: "" };
+const emptyCategoryForm = { id: "", code: "", name: "", ebarimtClassificationCode: "" };
 
 /** Хоосон текст → null, бусад нь тоо (server талд ДАХИН шалгагдана). */
 function priceInput(value: string): number | null {
@@ -136,7 +140,13 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
     setError("");
     startTransition(async () => {
       try {
-        await action();
+        // Action-ууд алдааг { error } УТГААР буцаадаг (lib/action-result.ts).
+        const result = (await action()) as { error?: string } | undefined;
+        if (result?.error !== undefined) {
+          if (close) setError(result.error);
+          else toast.error(result.error);
+          return;
+        }
         close?.();
         router.refresh();
         toast.success(success);
@@ -152,6 +162,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
   async function handleImport(values: InventoryItemImport[]) {
     try {
       const result = await importInventoryItems(values);
+      if (result.error !== undefined) return result.error;
       const parts = [
         result.created > 0 ? `${result.created} шинээр бүртгэгдэв` : null,
         result.updated > 0 ? `${result.updated} шинэчлэгдэв` : null,
@@ -219,6 +230,18 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
           params.value != null ? fmtMnt(Number(params.value)) : "—",
       },
       {
+        headerName: "eBarimt ангилал",
+        field: "ebarimtClassificationCode",
+        width: 140,
+        cellClass: "font-mono text-xs",
+        cellRenderer: (params: ICellRendererParams<InventoryItemView>) =>
+          params.data?.ebarimtClassificationCode ? (
+            <span>{params.data.ebarimtClassificationCode}</span>
+          ) : (
+            <span className="text-[var(--ea-warning-fg)]">—</span>
+          ),
+      },
+      {
         headerName: "Идэвхтэй",
         field: "isActive",
         width: 100,
@@ -264,6 +287,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   vatMode: data.vatMode,
                   categoryCode: data.categoryCode ?? "",
                   revenueAccountNumber: data.revenueAccountNumber ?? "",
+                  ebarimtClassificationCode: data.ebarimtClassificationCode ?? "",
+                  ebarimtTaxProductCode: data.ebarimtTaxProductCode ?? "",
                 });
                 setError("");
                 setItemOpen(true);
@@ -353,7 +378,12 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
             onClick={() => {
               const data = params.data;
               if (!data) return;
-              setCategoryForm({ id: data.id, code: data.code, name: data.name });
+              setCategoryForm({
+                id: data.id,
+                code: data.code,
+                name: data.name,
+                ebarimtClassificationCode: data.ebarimtClassificationCode ?? "",
+              });
               setError("");
               setCategoryOpen(true);
             }}
@@ -634,6 +664,45 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                 />
               </Field>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="eBarimt ангилал"
+                hint="ТЕГ-ийн 7 оронтой ангилал — хоосон бол бүлгийнхийг өвлөнө"
+              >
+                <Input
+                  value={itemForm.ebarimtClassificationCode}
+                  placeholder="7 орон, ж: 1234567"
+                  className="font-mono"
+                  maxLength={7}
+                  inputMode="numeric"
+                  onChange={(e) =>
+                    setItemForm((c) => ({
+                      ...c,
+                      ebarimtClassificationCode: e.target.value.replace(/\D/g, ""),
+                    }))
+                  }
+                />
+              </Field>
+              <Field
+                label="Татварын бүтээгдэхүүний код"
+                hint="3 орон — НӨАТ-гүй / 0% бараанд ЗААВАЛ"
+              >
+                <Input
+                  value={itemForm.ebarimtTaxProductCode}
+                  placeholder="3 орон, ж: 101"
+                  className="font-mono"
+                  maxLength={3}
+                  inputMode="numeric"
+                  disabled={itemForm.vatMode === "standard"}
+                  onChange={(e) =>
+                    setItemForm((c) => ({
+                      ...c,
+                      ebarimtTaxProductCode: e.target.value.replace(/\D/g, ""),
+                    }))
+                  }
+                />
+              </Field>
+            </div>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -654,6 +723,11 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   vatMode: itemForm.vatMode,
                   categoryCode: itemForm.categoryCode || null,
                   revenueAccountNumber: itemForm.revenueAccountNumber.trim() || null,
+                  ebarimtClassificationCode: itemForm.ebarimtClassificationCode.trim() || null,
+                  ebarimtTaxProductCode:
+                    itemForm.vatMode === "standard"
+                      ? null
+                      : itemForm.ebarimtTaxProductCode.trim() || null,
                 };
                 run(
                   () =>
@@ -761,6 +835,24 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                 }
               />
             </Field>
+            <Field
+              label="eBarimt ангилал"
+              hint="7 орон — бүлгийн бараанд ангилал хоосон бол ЭНЭ код өвлөгдөнө"
+            >
+              <Input
+                value={categoryForm.ebarimtClassificationCode}
+                placeholder="7 орон, ж: 1234567"
+                className="font-mono"
+                maxLength={7}
+                inputMode="numeric"
+                onChange={(e) =>
+                  setCategoryForm((c) => ({
+                    ...c,
+                    ebarimtClassificationCode: e.target.value.replace(/\D/g, ""),
+                  }))
+                }
+              />
+            </Field>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -783,10 +875,14 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     categoryForm.id
                       ? updateInventoryCategory(categoryForm.id, {
                           name: categoryForm.name,
+                          ebarimtClassificationCode:
+                            categoryForm.ebarimtClassificationCode.trim() || null,
                         })
                       : createInventoryCategory({
                           code: categoryForm.code,
                           name: categoryForm.name,
+                          ebarimtClassificationCode:
+                            categoryForm.ebarimtClassificationCode.trim() || null,
                         }),
                   categoryForm.id ? "Бүлэг шинэчлэгдлээ" : "Бүлэг нэмэгдлээ",
                   () => setCategoryOpen(false)

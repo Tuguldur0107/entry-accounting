@@ -313,6 +313,10 @@ export function InventoryMovementsView({
     startTransition(async () => {
       try {
         const result = await confirmInventoryMovements(drafts.map((d) => d.id));
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         gridApiRef.current?.deselectAll();
         setSelectedDraftIds([]);
         router.refresh();

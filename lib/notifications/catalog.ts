@@ -191,6 +191,13 @@ export const NOTIFICATION_CATALOG = {
     email: "digest",
     inApp: true,
   },
+  "pos.ebarimt_failed": {
+    category: "documents",
+    severity: "danger",
+    label: "eBarimt илгээгдсэнгүй",
+    email: "instant",
+    inApp: true,
+  },
   "license.expiring": {
     category: "security",
     severity: "warning",

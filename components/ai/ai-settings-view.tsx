@@ -96,7 +96,11 @@ export function AiSettingsView({
   function saveKey() {
     startTransition(async () => {
       try {
-        await setAiApiKey(keyInput);
+        const r = await setAiApiKey(keyInput);
+        if (r.error !== undefined) {
+          toast.error(r.error);
+          return;
+        }
         setKeyInput("");
         router.refresh();
         toast.success("API түлхүүр хадгалагдлаа");
@@ -111,7 +115,11 @@ export function AiSettingsView({
   function saveOpenaiKey() {
     startTransition(async () => {
       try {
-        await setAiOpenAiApiKey(openaiKeyInput);
+        const r = await setAiOpenAiApiKey(openaiKeyInput);
+        if (r.error !== undefined) {
+          toast.error(r.error);
+          return;
+        }
         setOpenaiKeyInput("");
         router.refresh();
         toast.success("OpenAI түлхүүр хадгалагдлаа");
@@ -227,7 +235,15 @@ export function AiSettingsView({
   function saveSettings() {
     startTransition(async () => {
       try {
-        await saveAiSettings({ model, effort, customInstructions: instructions });
+        const r = await saveAiSettings({
+          model,
+          effort,
+          customInstructions: instructions,
+        });
+        if (r.error !== undefined) {
+          toast.error(r.error);
+          return;
+        }
         router.refresh();
         toast.success("Тохиргоо хадгалагдлаа");
       } catch (caught) {

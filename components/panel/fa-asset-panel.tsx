@@ -9,7 +9,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
 import { useRouter } from "next/navigation";
 
-import { AttachmentList } from "@/components/attachments/attachment-list";
+import { AttachmentSection } from "@/components/attachments/attachment-section";
 import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
@@ -354,21 +354,17 @@ export function FaAssetPanel({
             )}
           </div>
 
-          <div className="space-y-2 border-t border-[var(--ea-border)] pt-3">
-            <p className="text-xs font-medium text-[var(--ea-text-2)]">
-              Хавсралт
-            </p>
-            <AttachmentList
-              entityType="fa"
-              entityId={asset.id}
-              kinds={GENERIC_ATTACHMENT_KINDS}
-              refreshToken={panel.refreshToken}
-              onChanged={() => {
-                refreshOpenPanels();
-                router.refresh();
-              }}
-            />
-          </div>
+          <AttachmentSection
+            entityType="fa"
+            entityId={asset.id}
+            kinds={GENERIC_ATTACHMENT_KINDS}
+            refreshToken={panel.refreshToken}
+            className="border-t border-[var(--ea-border)] pt-3"
+            onChanged={() => {
+              refreshOpenPanels();
+              router.refresh();
+            }}
+          />
         </div>
       </div>
 
@@ -418,7 +414,11 @@ export function FaAssetPanel({
                   if (!ok) return;
                   startTransition(async () => {
                     try {
-                      await reverseFixedAssetDisposal(asset.id);
+                      const res = await reverseFixedAssetDisposal(asset.id);
+                      if (res.error !== undefined) {
+                        toast.error(res.error);
+                        return;
+                      }
                       toast.success("Хасалт буцаагдаж, хөрөнгө идэвхтэй боллоо");
                       closePanel(panel.id);
                       refreshOpenPanels();
@@ -453,7 +453,11 @@ export function FaAssetPanel({
                 if (!ok) return;
                 startTransition(async () => {
                   try {
-                    await deactivateFixedAsset(asset.id);
+                    const res = await deactivateFixedAsset(asset.id);
+                    if (res.error !== undefined) {
+                      toast.error(res.error);
+                      return;
+                    }
                     toast.success("Идэвхжүүлэлт буцаагдаж, карт ноорог боллоо");
                     closePanel(panel.id);
                     refreshOpenPanels();
@@ -527,7 +531,7 @@ function DisposeBody({
   function submit() {
     startTransition(async () => {
       try {
-        await disposeFixedAsset(asset.id, {
+        const res = await disposeFixedAsset(asset.id, {
           disposalType,
           date,
           proceeds: proceedsValue,
@@ -536,6 +540,10 @@ function DisposeBody({
             : undefined,
           gainLossAccountNumber: extractMainAccount(gainLossAccount),
         });
+        if (res.error !== undefined) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(
           `${asset.code} данснаас хасагдаж, GL журнал бичигдлээ`
         );

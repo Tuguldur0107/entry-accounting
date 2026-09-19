@@ -1,12 +1,20 @@
 "use client";
 
-// Хавсралтын НЭГДСЭН жагсаалт — ханган нийлүүлэгчийн үнийн санал, гэрээ,
+// Хавсралтын НЭГДСЭН давхарга — ханган нийлүүлэгчийн үнийн санал, гэрээ,
 // нэхэмжлэх, гаалийн мэдүүлэг зэрэг файлыг баримтад хавсаргана.
 //
-// Дахин ашиглагдахуйц: `entityType`/`entityId`-гаар аль ч баримтад суулгана
-// (одоо худалдан авалтын захиалга ба хүлээн авалт). Бүх элемент ui-kit-ээс —
-// Button / IconAction / Icon / StatusBadge / EmptyState / LoadingRows /
-// useConfirm / `.ea-form-select`. Шинэ товч, диалог, icon бичихийг хориглоно.
+// Гурван түвшин (логик НЭГ л удаа бичигдэнэ):
+//   • `useAttachments`  — төлөв + үйлдэл (ачаалах, хуулах, устгах). Дуудагч
+//     бүр НЭГ controller авна: хоёр удаа fetch хийхгүй.
+//   • `AttachmentUploadBar` / `AttachmentRows` — харагдах хэсгүүд. Панелиуд
+//     эдгээрийг ӨӨР БАЙРЛАЛД (мөр нь панельд, жагсаалт нь popup-д) байрлуулна
+//     (`attachment-section.tsx`).
+//   • `AttachmentList` — хоёуланг нь дараалуулсан бүтэн харагдац (бүтэн таб
+//     байгаа газарт: PO панелийн «Хавсралт» таб).
+//
+// Бүх элемент ui-kit-ээс — Button / IconAction / Icon / StatusBadge /
+// EmptyState / LoadingRows / useConfirm / `.ea-form-select`. Шинэ товч,
+// диалог, icon бичихийг хориглоно.
 //
 // Хуулалт нь multipart route-аар (`/api/attachments`) явна — server action-ы
 // body 1MB-аар хязгаарлагдсан тул 8MB файл тэр замаар орохгүй. Жагсаах/
@@ -48,28 +56,46 @@ function iconFor(mediaType: string): IconName {
   return "file";
 }
 
-export function AttachmentList({
-  entityType,
-  entityId,
-  canUpload = true,
-  canDelete = true,
-  kinds = PO_ATTACHMENT_KINDS,
-  refreshToken,
-  onChanged,
-}: {
-  /** "purchase_order" | "goods_receipt" — аудитын entityType-тай ижил. */
+export interface AttachmentOptions {
+  /** "purchase_order" | "goods_receipt" | "journal" … — аудитын entityType-тай ижил. */
   entityType: string;
-  /** Хоосон бол баримт хадгалагдаагүй — хавсаргах боломжгүй гэдгийг үзүүлнэ. */
+  /** Хоосон бол баримт хадгалагдаагүй — хавсаргах боломжгүй. */
   entityId: string;
-  canUpload?: boolean;
-  /** Хаагдсан/цуцлагдсан баримтад false (server тал мөн хориглоно). */
-  canDelete?: boolean;
   kinds?: readonly { value: string; label: string }[];
   /** Гадна талаас дахин ачаалуулах (панелийн refreshToken). */
   refreshToken?: number;
   /** Хуулсан/устгасны дараа (host нь refreshOpenPanels + router.refresh дуудна). */
   onChanged?: () => void;
-}) {
+}
+
+export interface AttachmentController {
+  items: AttachmentView[] | null;
+  /** Ачаалагдсан тоо; ачаалж дуусаагүй бол null. */
+  count: number | null;
+  loadError: string | null;
+  busy: boolean;
+  pending: boolean;
+  kind: string;
+  setKind: (value: string) => void;
+  kinds: readonly { value: string; label: string }[];
+  entityId: string;
+  upload: (file: File) => Promise<void>;
+  remove: (item: AttachmentView) => Promise<void>;
+  /** Устгалтын баталгаажуулах диалог — controller-ийн ЭЗЭН render хийнэ. */
+  confirmDialog: React.ReactNode;
+}
+
+/**
+ * Хавсралтын төлөв + үйлдлүүд. Ачаалалт НЭГ газар: гадна талын refreshToken
+ * эсвэл дотоод reloadKey (хуулсан/устгасны дараа) өсөхөд дахин татна.
+ */
+export function useAttachments({
+  entityType,
+  entityId,
+  kinds = PO_ATTACHMENT_KINDS,
+  refreshToken,
+  onChanged,
+}: AttachmentOptions): AttachmentController {
   const [items, setItems] = useState<AttachmentView[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,14 +106,8 @@ export function AttachmentList({
       "other"
   );
   const [pending, startTransition] = useTransition();
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const { confirm, dialog: confirmDialog } = useConfirm();
-
-  // Ачаалалт НЭГ газар: гадна талын refreshToken эсвэл дотоод reloadKey
-  // (хуулсан/устгасны дараа) өсөхөд дахин татна. Панелийн ачаалалтын хэв
-  // маягтай ижил — .then дотор setState + cancelled хамгаалалт
-  // (components/panel/arap-doc-panel.tsx).
   const [reloadKey, setReloadKey] = useState(0);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   useEffect(() => {
     // Хадгалагдаагүй баримт (entityId хоосон) — сервер руу хандахгүй.
@@ -114,7 +134,7 @@ export function AttachmentList({
     };
   }, [entityType, entityId, refreshToken, reloadKey]);
 
-  /** entityId хоосон бол жагсаалт үргэлж хоосон (ачаалалт хийгдэхгүй). */
+  /** entityId хоосон бол жагсаалт үргэлж хоосон (ачаалалт хийгдээгүй). */
   const rows: AttachmentView[] | null = entityId ? items : [];
 
   async function upload(file: File) {
@@ -153,7 +173,6 @@ export function AttachmentList({
       toast.error("Хавсралт хуулж чадсангүй — дахин оролдоно уу");
     } finally {
       setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   }
 
@@ -177,63 +196,103 @@ export function AttachmentList({
     });
   }
 
-  const showUpload = canUpload && !!entityId;
+  return {
+    items: rows,
+    count: rows?.length ?? null,
+    loadError,
+    busy,
+    pending,
+    kind,
+    setKind,
+    kinds,
+    entityId,
+    upload,
+    remove,
+    confirmDialog,
+  };
+}
 
+/**
+ * Төрлийн сонгогч + «Файл хавсаргах» — баримт хадгалагдсан үед л гарна.
+ * Файлын input-ын ref нь ЭНД (controller-т ref хадгалахгүй: React compiler
+ * нь controller-ын бусад талбарыг ч "render дотор ref уншив" гэж үздэг).
+ */
+export function AttachmentUploadBar({ ctl }: { ctl: AttachmentController }) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  if (!ctl.entityId) return null;
+  return (
+    <>
+      <select
+        className="ea-form-select !w-auto min-w-44"
+        value={ctl.kind}
+        onChange={(event) => ctl.setKind(event.target.value)}
+        disabled={ctl.busy}
+        aria-label="Хавсралтын төрөл"
+      >
+        {ctl.kinds.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <input
+        ref={fileRef}
+        type="file"
+        accept={ATTACHMENT_ACCEPT}
+        className="hidden"
+        onChange={(event) => {
+          const input = event.target;
+          const file = input.files?.[0];
+          // Ижил файлыг дахин сонгоход onChange асахын тулд цэвэрлэнэ.
+          if (file) void ctl.upload(file).finally(() => (input.value = ""));
+        }}
+      />
+      <Button
+        variant="outline"
+        disabled={ctl.busy}
+        onClick={() => fileRef.current?.click()}
+        title="PDF, зураг, Excel, Word — 8MB хүртэл"
+      >
+        <Icon
+          name={ctl.busy ? "loading" : "upload"}
+          size="sm"
+          className={ctl.busy ? "animate-spin" : undefined}
+        />
+        {ctl.busy ? "Хуулж байна…" : "Файл хавсаргах"}
+      </Button>
+    </>
+  );
+}
+
+/** Хавсаргасан файлуудын мөрүүд (татах, устгах). */
+export function AttachmentRows({
+  ctl,
+  canDelete = true,
+  showEmptyState = true,
+}: {
+  ctl: AttachmentController;
+  /** Хаагдсан/цуцлагдсан баримтад false (server тал мөн хориглоно). */
+  canDelete?: boolean;
+  /** Хоосон үед EmptyState үзүүлэх эсэх — компакт мөрөнд ХЭРЭГГҮЙ. */
+  showEmptyState?: boolean;
+}) {
+  const rows = ctl.items;
   return (
     <div className="space-y-2">
-      {showUpload && (
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="ea-form-select !w-auto min-w-44"
-            value={kind}
-            onChange={(event) => setKind(event.target.value)}
-            disabled={busy}
-            aria-label="Хавсралтын төрөл"
-          >
-            {kinds.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <input
-            ref={fileRef}
-            type="file"
-            accept={ATTACHMENT_ACCEPT}
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void upload(file);
-            }}
-          />
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => fileRef.current?.click()}
-            title="PDF, зураг, Excel, Word — 8MB хүртэл"
-          >
-            <Icon
-              name={busy ? "loading" : "upload"}
-              size="sm"
-              className={busy ? "animate-spin" : undefined}
-            />
-            {busy ? "Хуулж байна…" : "Файл хавсаргах"}
-          </Button>
-        </div>
-      )}
-
       {rows === null ? (
         <LoadingRows count={2} />
       ) : rows.length === 0 ? (
-        <EmptyState
-          icon="attach"
-          title="Хавсралт алга"
-          description={
-            entityId
-              ? "Үнийн санал, гэрээ, нэхэмжлэх, гаалийн мэдүүлэг — PDF, зураг, Excel, Word (8MB хүртэл)"
-              : "Баримтыг хадгалсны дараа файл хавсаргана"
-          }
-        />
+        showEmptyState ? (
+          <EmptyState
+            icon="attach"
+            title="Хавсралт алга"
+            description={
+              ctl.entityId
+                ? "Үнийн санал, гэрээ, нэхэмжлэх, гаалийн мэдүүлэг — PDF, зураг, Excel, Word (8MB хүртэл)"
+                : "Баримтыг хадгалсны дараа файл хавсаргана"
+            }
+          />
+        ) : null
       ) : (
         <div className="space-y-1.5">
           {rows.map((item) => (
@@ -282,8 +341,8 @@ export function AttachmentList({
                   label="Хавсралт устгах"
                   size="sm"
                   variant="danger"
-                  disabled={pending}
-                  onClick={() => void remove(item)}
+                  disabled={ctl.pending}
+                  onClick={() => void ctl.remove(item)}
                 />
               )}
             </div>
@@ -291,10 +350,43 @@ export function AttachmentList({
         </div>
       )}
 
-      {loadError && (
-        <p className="text-xs text-[var(--ea-danger-fg)]">{loadError}</p>
+      {ctl.loadError && (
+        <p className="text-xs text-[var(--ea-danger-fg)]">{ctl.loadError}</p>
       )}
-      {confirmDialog}
+    </div>
+  );
+}
+
+/**
+ * Бүтэн харагдац: хуулах мөр + жагсаалт. Зай ХАНГАЛТТАЙ газарт л (PO
+ * панелийн «Хавсралт» таб) — панелиуд `AttachmentSection`-ыг хэрэглэнэ.
+ */
+export function AttachmentList({
+  entityType,
+  entityId,
+  canUpload = true,
+  canDelete = true,
+  kinds = PO_ATTACHMENT_KINDS,
+  refreshToken,
+  onChanged,
+}: AttachmentOptions & { canUpload?: boolean; canDelete?: boolean }) {
+  const ctl = useAttachments({
+    entityType,
+    entityId,
+    kinds,
+    refreshToken,
+    onChanged,
+  });
+
+  return (
+    <div className="space-y-2">
+      {canUpload && (
+        <div className="flex flex-wrap items-center gap-2">
+          <AttachmentUploadBar ctl={ctl} />
+        </div>
+      )}
+      <AttachmentRows ctl={ctl} canDelete={canDelete} />
+      {ctl.confirmDialog}
     </div>
   );
 }

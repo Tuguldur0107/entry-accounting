@@ -10,4 +10,7 @@ export async function register(): Promise<void> {
   // байгууллага × өдөрт нэг удаа; NOTIFICATIONS_TICKER=off бол унтарна.
   const { startNotificationTicker } = await import("@/lib/notifications/ticker");
   startNotificationTicker();
+  // eBarimt worker (server горим): 20 сек тутам PosAPI руу илгээнэ; EBARIMT_WORKER=off бол унтарна.
+  const { startEbarimtWorker } = await import("@/lib/ebarimt/ticker");
+  startEbarimtWorker();
 }

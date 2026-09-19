@@ -313,7 +313,10 @@ function TieOutDetailBody({
       to: range.to,
     })
       .then((result) => {
-        if (!cancelled) setLoaded({ key, ok: true, data: result });
+        if (cancelled) return;
+        if (result.error !== undefined)
+          setLoaded({ key, ok: false, message: result.error });
+        else setLoaded({ key, ok: true, data: result });
       })
       .catch((caught) => {
         if (!cancelled)

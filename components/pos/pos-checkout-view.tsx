@@ -23,7 +23,7 @@ import type {
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { PaymentDialog } from "@/components/pos/payment-dialog";
+import { PaymentDialog, type EbarimtBuyerInput } from "@/components/pos/payment-dialog";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { OpenShiftForm } from "@/components/pos/shift-dialogs";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LinkButton } from "@/components/ui/link-button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { getEbarimtOutbox, recordEbarimtResponse } from "@/lib/actions/ebarimt";
 import {
   createPosSale,
   quotePosSale,
@@ -42,6 +43,8 @@ import {
   type SaleLineInput,
   type SaleQuote,
 } from "@/lib/actions/pos";
+import { POSAPI_PATHS } from "@/lib/ebarimt/constants";
+import type { EbarimtReceiptResponse } from "@/lib/ebarimt/types";
 import { parseMntInput } from "@/lib/grid/formatters";
 import type { CheckoutData, CheckoutItem } from "@/lib/pos/load-data";
 import type { PaymentInput } from "@/lib/pos/types";
@@ -83,6 +86,28 @@ interface StoredCart {
 }
 
 const storageKey = (warehouseId: string) => `ea-pos-cart-${warehouseId}`;
+
+/** PosAPI 3.0 `/rest/receipt` — browser горимд кассын PC-ийн localhost руу. */
+async function callPosApiReceipt(
+  base: string,
+  method: "POST" | "DELETE",
+  body: unknown
+): Promise<EbarimtReceiptResponse> {
+  const response = await fetch(`${base}${POSAPI_PATHS.receipt}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const text = await response.text();
+  let parsed: EbarimtReceiptResponse;
+  try {
+    parsed = (text ? JSON.parse(text) : {}) as EbarimtReceiptResponse;
+  } catch {
+    parsed = { message: text.slice(0, 500) };
+  }
+  return { ...parsed, httpStatus: response.status };
+}
 
 const fmtQty = (value: number) =>
   value.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -640,7 +665,60 @@ export function PosCheckoutView({
     openPaymentRef.current = openPayment;
   }, [openPayment]);
 
-  async function confirmSale(payments: PaymentInput[]) {
+  // ── eBarimt browser горим (§3 B) ─────────────────────────────────────────
+  //
+  // Сервер PosAPI-д хүрэхгүй үед кассын дэлгэц өөрөө localhost:7080 рүү
+  // илгээж хариуг сервер рүү бичнэ. Алдаа нь борлуулалтыг ЗОГСООХГҮЙ —
+  // чимээгүй console.error, дараагийн tick-т дахин оролдоно.
+  const ebarimtBrowserMode =
+    data.settings.ebarimtEnabled && data.settings.ebarimtMode === "browser";
+
+  const flushEbarimtOutbox = useCallback(async () => {
+    if (!ebarimtBrowserMode) return;
+    try {
+      const result = await getEbarimtOutbox();
+      if (result.error || !result.items || result.items.length === 0) return;
+      const base = (result.posApiUrl ?? "").trim().replace(/\/+$/, "");
+      if (!base) return;
+      for (const item of result.items) {
+        try {
+          if (item.kind === "cancel") {
+            if (!item.cancel) continue;
+            const cancelResponse = await callPosApiReceipt(base, "DELETE", item.cancel);
+            const recorded = await recordEbarimtResponse({
+              submissionId: item.id,
+              stage: "cancel",
+              response: cancelResponse,
+            });
+            if (recorded.error || !recorded.ok || !item.payload) continue;
+            // Хэсэгчилсэн буцаалт: цуцлаад үлдсэн мөрөөр шинэ баримт.
+            const sendResponse = await callPosApiReceipt(base, "POST", item.payload);
+            await recordEbarimtResponse({
+              submissionId: item.id,
+              stage: "send",
+              response: sendResponse,
+            });
+            continue;
+          }
+          if (!item.payload) continue;
+          const response = await callPosApiReceipt(base, "POST", item.payload);
+          await recordEbarimtResponse({ submissionId: item.id, stage: "send", response });
+        } catch (caught) {
+          console.error("eBarimt (browser горим) илгээлт амжилтгүй", caught);
+        }
+      }
+    } catch (caught) {
+      console.error("eBarimt (browser горим) дараалал уншигдсангүй", caught);
+    }
+  }, [ebarimtBrowserMode]);
+
+  useEffect(() => {
+    if (!ebarimtBrowserMode) return;
+    const timer = setInterval(() => void flushEbarimtOutbox(), 30_000);
+    return () => clearInterval(timer);
+  }, [ebarimtBrowserMode, flushEbarimtOutbox]);
+
+  async function confirmSale(payments: PaymentInput[], buyer: EbarimtBuyerInput) {
     if (!shift) return false;
     setSaleBusy(true);
     try {
@@ -653,6 +731,9 @@ export function PosCheckoutView({
         receiptDiscountPercent,
         receiptDiscountAmount,
         payments,
+        ebarimtConsumerNo: buyer.ebarimtConsumerNo,
+        ebarimtCustomerTin: buyer.ebarimtCustomerTin,
+        ebarimtCustomerRegNo: buyer.ebarimtCustomerRegNo,
       });
       if (result.error || !result.receipt) {
         feedback.error(result.error ?? "Борлуулалт бичигдсэнгүй");
@@ -668,6 +749,8 @@ export function PosCheckoutView({
       resetCart();
       setReceipt(result.receipt);
       router.refresh();
+      // Browser горимд PosAPI нь кассын PC дээр — борлуулалтын дараа шууд түлхнэ.
+      void flushEbarimtOutbox();
       return true;
     } finally {
       setSaleBusy(false);
@@ -999,6 +1082,7 @@ export function PosCheckoutView({
         customer={customer}
         shift={shift}
         cashRoundingUnit={data.settings.cashRoundingUnit}
+        ebarimtEnabled={data.settings.ebarimtEnabled}
         busy={saleBusy}
         onConfirm={confirmSale}
       />
