@@ -198,6 +198,7 @@ export const MODULES: Module[] = [
       { label: "Цалин бодолт", href: "/payroll", icon: "movement" },
       { label: "Ажилтнууд", href: "/payroll/employees", icon: "user" },
       { label: "Тайлан", href: "/payroll/reports", icon: "report" },
+      { label: "Тохиргоо", href: "/payroll/settings", icon: "settings" },
     ],
   },
   {
