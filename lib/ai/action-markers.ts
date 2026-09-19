@@ -12,7 +12,9 @@ export interface AiAction {
     /** Хангамж: худалдан авалтын захиалга (PO). */
     | "purchase_order"
     /** Хангамж: барааны хүлээн авалт (GR). */
-    | "goods_receipt";
+    | "goods_receipt"
+    /** POS борлуулалт / буцаалт. */
+    | "pos_sale";
   id: string;
   title: string;
   status:

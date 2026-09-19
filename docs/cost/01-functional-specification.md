@@ -823,6 +823,66 @@ The month-end checklist MUST expose the procurement state — open orders with
 receipts, draft receipts, and unallocated cost lines — and the close action MUST
 be disabled while an order with a receipt is still open.
 
+## 11a. Point of sale (POS) — approved 2026-09-19
+
+Design: `docs/pos/00-proposal.md` (D1–D9, C1–C3). Change-control 0.8.
+
+### FR-POS-001 — One atomic sale
+
+**Approved Requirement:** A POS sale MUST create, in one database transaction,
+the posted AR invoice (`sourceType "pos"`), one confirmed `issue` movement per
+line (`sourceType "pos_sale"`, issue type = configured COGS type), the
+provisional COGS entry (FR-POS-002) and one posted cash document + settlement
+per cash-like payment (advance / gift card / store credit settle by voucher;
+credit leaves the receivable open). Any failure rolls everything back.
+
+### FR-POS-002 — Provisional COGS and month-end true-up
+
+**Approved Requirement (C2):** At the moment of sale the system MAY post a
+provisional COGS entry (`valuationSource = "provisional_avg"`) valued at the
+running average = last calculated period C2 + priced inbound since (the PWA
+formula "to date", never a moving average). No priced quantity → no entry, the
+line waits for the month-end run. OD-019 stays the policy: the monthly run
+writes a SIGNED draft `cogs_true_up` entry per movement so that
+Σ(posted provisional + posted true-ups + draft true-up) = quantity × final
+period average. Re-runs and reopen/close never duplicate a posted true-up.
+`periodic.ts` / `period-run.ts` are unchanged. Provisional entries cannot be
+reversed from the costing screen (`[POS_SOURCED]`).
+
+### FR-POS-003 — Negative stock (C1)
+
+**Approved Requirement:** POS sales MAY drive an item × warehouse balance
+below zero (`pos_settings.allowNegativeStock`), with a warning on the receipt,
+the inventory dashboard and the month-end checklist. Because the engine still
+blocks such a scope, the period close MUST reject the month
+(`unvalued-movements`) while any confirmed average-valued movement of the
+month belongs to a scope without a `calculated` result; it MUST also reject
+while a POS shift is still open (`open-pos-shifts`). No value is ever invented.
+
+### FR-POS-004 — Single source for margin
+
+**Approved Requirement:** Sales reports read COGS from `cost_period_results`
+(final when the period is closed, "computed" when not), else from the
+provisional entry plus its true-ups ("provisional"), else show "—". Margin is
+never derived from GL balances.
+
+### FR-POS-005 — Discounts and VAT
+
+**Approved Requirement (C3, D4, D5):** Discount rules are user configuration
+(nine rule types, stacking policy, manual limits with approval); VAT is split
+from the discounted, VAT-inclusive line amount only when the organization is a
+VAT payer (`vat_settings.isVatPayer`) and the item is `standard`. Default GL
+posting is net revenue; `discountPosting = "contra"` posts gross revenue plus a
+debit to the configured discount account in the GL only (AR lines stay net).
+
+### FR-POS-006 — Source protection
+
+**Approved Requirement:** AR invoices, cash documents, movements and provisional
+cost entries created by POS MUST NOT be edited, deleted or reversed from their
+own modules; the only correction path is the POS return, which mirrors the
+original line (AR credit, `return_in` at the original provisional unit cost,
+refund by an allowed payment method or store credit).
+
 ## 12. Manufacturing relationship
 
 The approved direction is that inventory issued to production can post to
