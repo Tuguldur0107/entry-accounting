@@ -1,317 +1,370 @@
-# POS (Борлуулалтын цэг) модуль — Судалгаа ба дизайны санал v1
+# POS (Борлуулалтын цэг) модуль — Судалгаа ба дизайны санал v2
 
-**Төлөв:** **САНАЛ — product owner-ийн батлалт хүлээж байна** · **Огноо:** 2026-09-19
-**Хамрах хүрээ:** жижиглэн худалдааны кассын дэлгэц (POS), барааны борлуулах үнэ, борлуулалт → авлага → касс → бараа → өртөг (COGS) бүрэн урсгал, борлуулалтын дэлгэрэнгүй тайлан.
-**Батлалт:** §2-ын шийдвэрүүд (D1–D9) product owner-ээр батлагдсаны дараа `01-implementation-contract.md` (функцийн нэр/параметр) бичигдэж хэрэгжилт эхэлнэ. Хангамжийн модультай (`docs/procurement/00-proposal.md`) ИЖИЛ хэв маяг.
+**Төлөв:** **Product owner-ийн 9 шийдвэр тусгагдсан (2026-09-19) — хэрэгжилтийн эцсийн зөвшөөрөл хүлээж байна** · **Огноо:** 2026-09-19
+**v2 өөрчлөлт:** D1–D9 шийдвэр (§2); хөнгөлөлтийн дүрмийн бүрэн судалгаа (§3.5); төлбөрийн бүх хэлбэр (§3.4); борлуулалтын үед **урьдчилсан COGS** журнал бичиж сар хаалтад сарын дунджаар **залруулах** (true-up) механизм (§3.7); хасах үлдэгдэлтэй борлуулалт + самбарын мэдэгдэл (§3.9); POS нь Бараа материал модулийн дотор (§4).
+**Батлалт:** §2-ын шийдвэрүүд батлагдсан; §2.1-ийн 3 үр дагаврыг зөвшөөрвөл `01-implementation-contract.md` бичигдэж Фаз 0 эхэлнэ. Хангамжийн модультай (`docs/procurement/00-proposal.md`) ИЖИЛ хэв маяг.
 
 ---
 
 ## 1. Хураангуй
 
-Одоогийн систем борлуулалтыг зөвхөн **АР нэхэмжлэх** (B2B, гараар мөр бичих) хэлбэрээр бүртгэдэг. Жижиглэн худалдаанд өдөрт олон арван бэлэн борлуулалт, картын төлбөр, буцаалт, ээлжийн касс тооцоо хэрэгтэй — үүнийг АР панелиар хийх нь бодитой биш. POS модуль нь **нэг товчоор** (Төлбөр авах) доорх бүх бүртгэлийг **нэг транзакцад** үүсгэнэ:
+Одоогийн систем борлуулалтыг зөвхөн **АР нэхэмжлэх** (B2B, гараар мөр бичих) хэлбэрээр бүртгэдэг. POS модуль нь Бараа материал модулийн дотор **кассын дэлгэц** нэмж, "Төлбөр авах" нэг товчоор доорх бүх бүртгэлийг **нэг транзакцад** үүсгэнэ:
 
 ```
-Кассчин бараа сонгоно (barcode / хайлт) → Төлбөр авах
-   → ① АР нэхэмжлэх (posted)        Dr Авлага / Cr Орлого (цэвэр) + Cr НӨАТ өглөг
-   → ② Кассын орлого (posted)       Dr Касс / Банк / Картын түр данс / Cr Авлага   (settlement)
-   → ③ Барааны зарлага (confirmed)  тоо хэмжээ, зарлагын төрөл = COGS (issueTypeId)
-   → ④ Сар хаалтад PWA дундаж → cost_entries "issue_cogs" → Dr COGS / Cr Бараа  (одоогийн хөдөлгөгч, ӨӨРЧЛӨЛТГҮЙ)
+Кассчин бараа сонгоно (barcode / хайлт) → хөнгөлөлт (дүрмээр автомат + гар) → Төлбөр авах
+   → ① АР нэхэмжлэх (posted)        Dr Авлага / Cr Орлого (цэвэр) [+ Cr НӨАТ өглөг — НӨАТ төлөгч бол]
+   → ② Төлбөр (posted)              Dr Касс | Валютын касс | Картын түр данс | QPay түр данс | Банк | Бэлгийн картын өглөг … / Cr Авлага
+                                    зээлээр → АР нээлттэй үлдэнэ
+   → ③ Барааны зарлага (confirmed)  тоо хэмжээ, зарлагын төрөл = COGS; хасах үлдэгдэл ЗӨВШӨӨРНӨ (самбарт мэдэгдэл)
+   → ④ УРЬДЧИЛСАН COGS (posted)     Dr COGS / Cr Бараа — тухайн үеийн явцын дундаж өртгөөр (provisional_avg)
+   → ⑤ Сар хаалт: PWA сарын дундаж → ④-ийг ЗАЛРУУЛНА (cogs_true_up = эцсийн − урьдчилсан), хөдөлгөгч өөрчлөлтгүй
 ```
 
-| Асуудал | Одоо | Санал |
+| Асуудал | Одоо | Санал v2 |
 |---|---|---|
-| Борлуулах үнэ | бараанд байхгүй (`inventory_items`: код, нэр, нэгж л) | `salePrice`, `barcode`, `vatMode` + үнийн түүх (`item_price_history`) |
-| Кассын дэлгэц | байхгүй | `/pos` — бүтэн дэлгэцийн checkout, barcode сканнер (keyboard wedge), сагс grid, төлбөрийн диалог |
-| Борлуулалт → АР | АР нэхэмжлэх гараар, мөр бүрд данс бичнэ | `pos_sales` → автомат АР нэхэмжлэх (`sourceType: "pos"`), данс `pos_settings`-ээс |
-| Борлуулалт → Касс | нэхэмжлэх батлагдсаны ДАРАА тусдаа кассын баримт | Нэг транзакцад settlement; төлбөрийн хэлбэр бүрд (бэлэн / карт / QPay / зээл) тусдаа мөр |
-| Борлуулалт → Бараа | АР-аас НООРОГ зарлага, гараар батлана, `issueTypeId = null` | Шууд **confirmed** зарлага, `issueTypeId` = COGS төрөл, хасах үлдэгдэл → борлуулалт ЗОГСОНО |
-| COGS | сар хаалтад (OD-019) | **ХЭВЭЭР** — сар хаалтад сарын жигнэсэн дунджаар (§3.6); тайланд урьдчилсан ахиуц ил тэмдэглэгээтэй |
-| Буцаалт | АР буцаалт + гар хөдөлгөөн | Борлуулалтаас "Буцаалт" — АР буцаалт + `return_in` + кассын зарлага, эх борлуулалттай холбоотой |
-| Ээлж / кассын тооцоо | байхгүй | Ээлж нээх (эхний мөнгө) → хаах (тоолсон vs системийн) → зөрүү Dr/Cr тохиргооны данс (Z-тайлан) |
-| Тайлан | борлуулалтын тайлан огт байхгүй | `/pos/reports` — 6 таб (§5): гүйлгээ / бараа / өдөр / кассчин / төлбөрийн хэлбэр / харилцагч, ахиуц (COGS-той) |
-| eBarimt | АП-ийн OCR л бий, борлуулалтад баримт ОЛГОДОГГҮЙ | v1: ДДТД/сугалааны талбар хадгална (гар); v2: eBarimt 3.0 API (§3.9) |
+| Борлуулах үнэ | бараанд байхгүй | `salePrice`, `barcode`, `vatMode`, `minSalePrice` + үнийн түүх; урамшууллын үнэ хөнгөлөлтийн дүрмээр (§3.5) |
+| Кассын дэлгэц | байхгүй | `/inventory/pos` — бүтэн дэлгэц, сканнер, сагс grid, төлбөрийн диалог |
+| Борлуулалт → АР | гараар | борлуулалт бүрд НЭГ АР нэхэмжлэх (`sourceType: "pos"`), данс тохиргооноос |
+| Борлуулалт → Төлбөр | нэхэмжлэх батлагдсаны дараа тусдаа | нэг транзакцад; **төлбөрийн хэлбэр = тохируулах лавлах** (`pos_payment_methods`, 10 төрөл §3.4), холимог, хариулт, бөөрөнхийлөл |
+| Хөнгөлөлт | байхгүй | **дүрмийн хөдөлгөгч** (`pos_discount_rules`, 9 төрөл §3.5) + гар хөнгөлөлт, эрхийн хязгаар, төлөх дүнд шууд нөлөөлнө |
+| Борлуулалт → Бараа | ноорог зарлага, гараар батлана | шууд confirmed, `sourceType: "pos_sale"`, хасах үлдэгдэл зөвшөөрнө |
+| COGS | зөвхөн сар хаалтад | **борлуулах мөчид урьдчилсан** + **сар хаалтад залруулга** (§3.7) — GL сар дундуур ч бодит ахиуц харуулна |
+| Буцаалт | АР буцаалт + гар хөдөлгөөн | борлуулалтаас буцаалт — АР credit + `return_in` + буцаан олголт (эх хэлбэрээр / дэлгүүрийн кредит) |
+| Ээлж | байхгүй | нээх / хаах / тоолсон мөнгө / зөрүү / Z-тайлан |
+| Тайлан | байхгүй | Бараа материал → Тайлан → "Борлуулалт" 6 таб + самбарын POS хэсэг |
+| eBarimt | АП OCR л | талбар л (ДДТД, сугалаа) — интеграци дараа (Фаз 3) |
 
-Хэмжээ: **L (~17–20 ажлын өдөр)** — §7 фазууд.
-
----
-
-## 2. Product owner-ийн шийдвэр шаардлагатай асуултууд
-
-Хэрэгжилт эхлэхийн өмнө доорх шийдвэрүүдийг батална. Зөвлөмж бүрийн шалтгааныг §3-ын холбогдох хэсэгт тайлбарлав.
-
-| # | Асуулт | Сонголтууд | Зөвлөмж |
-|---|---|---|---|
-| **D1** | Навигацийн байрлал | (а) тусдаа "Борлуулалт (POS)" модуль, тохиргооноос асаах/унтраах; (б) Бараа материал модулийн доор цэс | **(а)** — кассчин нь зөвхөн POS эрхтэй (бараа/GL үзэхгүй); жижиглэн худалдаагүй байгууллага унтраана. Борлуулах үнэ нь барааны картан дээр (Бараа материал) хэвээр |
-| **D2** | АР баримтын мөхлөг | (а) борлуулалт бүрд НЭГ АР нэхэмжлэх; (б) ээлж бүрд НЭГ нэгтгэсэн АР | **(а)** — буцаалт, eBarimt, харилцагчийн түүх бүгд борлуулалт бүрээр; АР жагсаалтад `sourceType=pos` шүүлтүүрээр тусгаарлана |
-| **D3** | COGS-ийн цаг хугацаа | (а) OD-019 ХЭВЭЭР: сар хаалтад сарын дунджаар; (б) борлуулалт бүрд шууд (perpetual moving average) | **(а)** — (б) нь `docs/cost/README.md` 0.3-ийн "Зөвхөн PWA" шийдвэрийг зөрчинө, хөдөлгөгчийг бүхэлд нь дахин бичнэ. Тайланд урьдчилсан ахиуцыг ил тэмдэглэнэ (§5.3) |
-| **D4** | Үнэ НӨАТ-той эсэх | (а) борлуулах үнэ НӨАТ ОРСОН (жижиглэн худалдааны практик, eBarimt inclusive); (б) НӨАТ-гүй үнэ + 10% нэмнэ | **(а)** — `salePrice` inclusive; бараа бүрд `vatMode`: `standard` / `exempt` / `zero`; НӨАТ төлөгч бус байгууллагад НӨАТ мөр үүсэхгүй (`pos_settings.vatPayer`) |
-| **D5** | Хөнгөлөлтийн бүртгэл | (а) орлого ЦЭВЭР дүнгээр (IFRS 15 — гүйлгээний үнэ), хөнгөлөлт тайланд л; (б) Cr Орлого бүтэн + Dr 51900001 Хөнгөлөлт (contra) | **(а)** v1-д — GL энгийн; хөнгөлөлтийн дүн `pos_sale_lines.discountAmount`-д хадгалагдаж тайланд гарна. (б)-г хожим тохиргоогоор нэмж болно |
-| **D6** | Картын төлбөрийн данс | (а) "Картын түр данс" (13xxxxxx) → банкны хуулга орж ирэхэд шимтгэлээ хасаад тэгшитгэнэ; (б) шууд банкны данс | **(а)** — банк маргааш нь шимтгэл хассан цэвэр дүнгээр шилжүүлдэг тул шууд банк руу бичвэл хуулгын тулгалт таарахгүй. QPay/SocialPay мөн (а) |
-| **D7** | Ээлж (shift) v1-д орох эсэх | (а) орно (нээх/хаах, тоолсон мөнгө, зөрүү); (б) v2 | **(а)** — кассын хяналтгүй POS мэргэжлийн түвшинд хүрэхгүй; хэмжээ +2 өдөр |
-| **D8** | eBarimt 3.0 интеграци | (а) v1-д ДДТД/сугалааны дугаар гараар (талбар л); (б) v1-д API интеграци | **(а)** — API нь ТЕГ-т мерчант бүртгэл, PosAPI суулгац шаарддаг (§3.9); интеграцийг Фаз 3 болгож тусад нь батална. **АНХААР:** НӨАТ төлөгч байгууллага борлуулалт бүрд eBarimt ОЛГОХ хуулийн үүрэгтэй — (а)-г сонговол баримтыг ТЕГ-ийн POS/апп-аар тусдаа олгож ДДТД-г системд бичнэ |
-| **D9** | Хасах үлдэгдэлтэй борлуулалт | (а) ХОРИГЛОНО (одоогийн `findNegativeStock` дүрэм); (б) зөвшөөрөөд сануулна | **(а)** — өртгийн хөдөлгөгч хасах үлдэгдэлд ЗОГСДОГ (docs/cost "Үнэ хэзээ ч зохиохгүй"); (б) сар хаалтыг гацаана |
+Хэмжээ: **L (~20–24 ажлын өдөр)** — хөнгөлөлтийн хөдөлгөгч, төлбөрийн лавлах, урьдчилсан COGS залруулга нэмэгдсэн тул v1-ээс +3–4 өдөр. §7.
 
 ---
 
-## 3. Дизайн
+## 2. Product owner-ийн шийдвэрүүд (2026-09-19)
+
+| # | Шийдвэр | Хэрэгжилт |
+|---|---|---|
+| **D1** | POS нь **Бараа материал модулийн дотор** | Нав: `/inventory/pos` (Касс), `/inventory/sales` (Борлуулалт + Ээлж таб), тайлан `/inventory/reports` дотор "Борлуулалт" таб, тохиргоо `/inventory/sales/settings`. Эрх: тусдаа түлхүүр `pos` (§3.10) |
+| **D2** | Борлуулалт бүрд НЭГ АР нэхэмжлэх | `ar_ap_documents.sourceType="pos"`; АР жагсаалтад шүүлтүүр |
+| **D3** | COGS сар хаахад хэвээр; **борлуулалтын үед тухайн үеийн өртгөөр журнал бичигдэж, сар хаагаад өртөг бодоход ШИНЭЧЛЭГДЭНЭ** | Урьдчилсан COGS (`provisional_avg`) + сар хаалтын залруулга `cogs_true_up` — §3.7-д алхам бүр, идемпотент, дахин нээх/хаах, буцаалт бүгд тусгагдсан |
+| **D4** | НӨАТ нь байгууллага **НӨАТ төлөгч эсэхээс** хамаарна | `vat_settings.isVatPayer` (шинэ, default = `organizations.vatPayerNo` бөглөгдсөн эсэхээр); төлөгч → үнэ НӨАТ орсон, мөр бүр задарна; төлөгч биш → НӨАТ мөр огт үүсэхгүй, үнэ = орлого (§3.8) |
+| **D5** | Хөнгөлөлт **маш уян хатан, тохиргоотой**, төлөх дүнд нөлөөлнө | `pos_discount_rules` (9 төрөл), `pos_settings.discountPosting` (цэвэр / contra данс), гар хөнгөлөлтийн эрхийн хязгаар, менежерийн PIN (§3.5) |
+| **D6** | Төлбөрийн **бүх боломжит хэлбэр** | `pos_payment_methods` лавлах (10 төрөл: бэлэн MNT, валютын бэлэн, карт, QPay/SocialPay/MonPay, дансны шилжүүлэг, зээл, урьдчилгаа, бэлгийн карт, дэлгүүрийн кредит, BNPL) (§3.4) |
+| **D7** | Ээлж v1-д орно | §3.6, §4.5 |
+| **D8** | eBarimt дараа холбоно | `pos_sales.ebarimt*` талбар + `pos_ebarimt_submissions` дарааллын схем зөвхөн зурагдана, код Фаз 3 (§3.11) |
+| **D9** | Хасах үлдэгдэлтэй борлуулалт **зөвшөөрнө**, самбарт мэдэгдэл | Борлуулалт зогсохгүй; самбар + POS дэлгэц + сар хаалтын checklist-д мэдэгдэл (§3.9) |
+
+### 2.1 Шийдвэрээс үүсэх 3 үр дагавар — зөвшөөрөл хүсэж байна
+
+| # | Үр дагавар | Санал |
+|---|---|---|
+| **C1** | **D9 ↔ өртгийн хөдөлгөгч (OD-005 нээлттэй).** `lib/costing/periodic.ts` нь боломжит/эцсийн үлдэгдэл сөрөг бол тухайн бараа×агуулах×сарыг **ЗОГСООДОГ** (`blocked-negative-closing`) — дараагийн сарууд ч C1 тодорхойгүй тул зогсоно. Одоо `closePeriod` зөвхөн НООРОГ шалгадаг тул зогссон бараа "COGS-гүй" хаагдах эрсдэлтэй | **(а)** Хөдөлгөгч ӨӨРЧЛӨГДӨХГҮЙ; борлуулалт зөвшөөрнө; сар хаалтад **шинэ хориг `unvalued-movements`**: сарын confirmed зарлага/буцаалт бүр `cost_period_results` "calculated" хамрах хүрээнд байх ёстой — хасах үлдэгдэлтэй бараа орлого/тооллогоор засагдтал сар хаагдахгүй, самбар яг аль бараа, хэдэн ширхэг гэдгийг заана. Үнэ зохиогдохгүй (docs/cost). **(б)** OD-005-ыг "сөрөг үлдэгдлээр ч сарын дунджаар үнэлнэ (C2 = сөрөг тоо × дундаж)" гэж шийдвэл хөдөлгөгч өөрчлөгдөнө — тусдаа change-control. **Зөвлөмж (а)** |
+| **C2** | **D3 нь docs/cost 0.3-ын "зарлага сар хаалтад л үнэлэгдэнэ" дүрмийг POS-д өргөтгөнө** — GL-д сар дундуур урьдчилсан COGS орно, сар хаалтад залруулга бичигдэнэ (§3.7). `computePeriodCosting`-ийн "posted бичилтийг дахин үнэлэхгүй" дүрэм → "posted **provisional** бичилтийг залруулна" болж өргөжнө | `docs/cost/README.md` change-control **0.8** мөрөөр бүртгэнэ; урьдчилсан COGS ЗӨВХӨН POS зарлагад (`pos_settings.provisionalCogs=true`, default true); АР/гар зарлага хэвээр сар хаалтад. Хүсвэл хожим бүх зарлагад тохиргоогоор өргөтгөнө |
+| **C3** | **Хөнгөлөлтийн GL default.** Орлого цэвэр дүнгээр (IFRS 15) эсвэл бүтэн орлого + contra "Хөнгөлөлт" данс (51900001) | `pos_settings.discountPosting`: `net` (default) / `contra` — тохиргоо, хоёуланг дэмжинэ; тайланд хөнгөлөлт аль ч горимд бүтнээрээ харагдана |
+
+---
+
+## 3. Дизайн v2
 
 ### 3.1 Дансны рольууд (тохиргооноос — кодод дугаар байхгүй)
 
-Шинэ `pos_settings` (байгууллагад нэг мөр, `vat_settings`-тэй ижил ratified-seed):
+`pos_settings` (байгууллагад нэг мөр, ratified-seed):
 
 | Роль | Талбар | Default | Хаана |
 |---|---|---|---|
-| Борлуулалтын орлого | `revenueAccountNumber` | 51100000 | АР нэхэмжлэхийн мөр Cr (бараа бүрд өөр орлогын данс хэрэгтэй бол `inventory_items.revenueAccountNumber` nullable override) |
-| Авлагын хяналтын данс | харилцагчийн `defaultReceivableAccountNumber` | 13110000 | АР нэхэмжлэх Dr (одоогийн логик) |
-| НӨАТ өглөг | `vat_settings.outputVatAccountNumber` | 31410000 | АР нэхэмжлэхийн НӨАТ мөр Cr (одоогийн `applyInclusiveVatToLines`) |
-| Кассын данс (бэлэн) | `cashAccountId` → `cash_accounts` (accountType `cash`) | — | кассын орлого Dr; ээлж бүрд өөр касс сонгож болно |
-| Картын түр данс | `cardClearingCashAccountId` → `cash_accounts` (accountType `bank`, нэр "Картын төлбөрийн түр данс", GL 13xxxxxx) | — | картын төлбөр Dr; банкны хуулгаар тэгшитгэнэ (D6) |
-| QPay / SocialPay түр данс | `qpayClearingCashAccountId` | — | D6-тай ижил |
-| Кассын илүүдэл / дутагдал | `cashOverAccountNumber` / `cashShortAccountNumber` | 51800002 «Кассын илүүдэл» / 87000006 «Кассын дутагдал» (стандарт дансанд НЭМНЭ — 87000004 нь ҮХ-ийн олз/гарзад ашиглагдсан) | ээлж хаалтын зөрүү (D7) |
-| Бэлэн худалдан авагч | `walkInCounterpartyId` → `counterparties` ("Бэлэн худалдан авагч", `customer`) | автоматаар үүснэ | харилцагч сонгоогүй борлуулалтын АР |
-| COGS зарлагын төрөл | `issueTypeId` → `inventory_issue_types` | `COGS` seed (`item_cogs`) | зарлагын хөдөлгөөн бүрд — COGS данс барааны `costing_item_settings`-ээс (одоогийн дүрэм) |
-| Бараа / COGS | `costing_item_settings` | 14000001 / 61100000 | сар хаалтын `issue_cogs` (өөрчлөлтгүй) |
-
-Бүх данс `assertEnabledMainAccount`-аар шалгагдана; POS тохиргооны хуудас (`/pos/settings`) дээр өөрчилнө.
+| Борлуулалтын орлого | `revenueAccountNumber` | 51100000 | АР мөр Cr; барааны `revenueAccountNumber` override |
+| Хөнгөлөлтийн contra данс | `discountAccountNumber` (C3 `contra` үед) | 51900001 «Борлуулалтын хөнгөлөлт» (стандарт дансанд нэмнэ) | Dr бүтэн хөнгөлөлт |
+| Авлагын хяналтын данс | харилцагчийн `defaultReceivableAccountNumber` | 13110000 | АР Dr |
+| НӨАТ өглөг | `vat_settings.outputVatAccountNumber` | 31410000 | НӨАТ мөр Cr (төлөгч бол) |
+| Төлбөрийн хэлбэр бүрийн данс | `pos_payment_methods.*` (§3.4) | — | төлбөрийн Dr |
+| Бэлгийн картын өглөг | `giftCardLiabilityAccountNumber` | 31600001 «Бэлгийн картын өглөг» (нэмнэ) | карт зарах Cr, ашиглах Dr |
+| Дэлгүүрийн кредит (буцаалт) | `storeCreditLiabilityAccountNumber` | 31600002 «Худалдан авагчийн кредит» (нэмнэ) | буцаалт Cr, дараагийн борлуулалтад Dr |
+| Худалдан авагчийн урьдчилгаа | `customerAdvanceAccountNumber` | 31300001 «Худалдан авагчийн урьдчилгаа» | урьдчилгаа Cr, ашиглах Dr |
+| Кассын илүүдэл / дутагдал | `cashOverAccountNumber` / `cashShortAccountNumber` | 51800002 / 87000006 (нэмнэ) | ээлж хаалтын зөрүү |
+| Бөөрөнхийллийн зөрүү | `roundingAccountNumber` | 87000007 «Бөөрөнхийллийн зөрүү» (нэмнэ; олз/гарз хоёулаа) | бэлэн төлбөрийг 10₮/100₮-д бөөрөнхийлөх зөрүү |
+| Бэлэн худалдан авагч | `walkInCounterpartyId` | автоматаар үүснэ | харилцагчгүй борлуулалт |
+| COGS зарлагын төрөл | `issueTypeId` | `COGS` seed (`item_cogs`) | зарлага бүр; COGS данс `costing_item_settings`-ээс |
+| Бараа / COGS | `costing_item_settings` | 14000001 / 61100000 | урьдчилсан COGS, залруулга, сар хаалт |
 
 ### 3.2 Өгөгдлийн бүтэц
 
-**`inventory_items` өргөтгөл (nullable — хуучин урсгал өөрчлөлтгүй):**
-
-| Багана | Төрөл | Зорилго |
-|---|---|---|
-| `salePrice` | numeric(18,2) | Борлуулах үнэ (D4: НӨАТ орсон), MNT |
-| `barcode` | text, unique per org (partial index, `_ux`) | Сканнер; хоосон байж болно |
-| `vatMode` | text default `standard` | `standard` (10%) / `exempt` (чөлөөлөгдсөн) / `zero` (0%) |
-| `revenueAccountNumber` | text nullable | Барааны орлогын дансны override (үйлчилгээ vs бараа) |
-| `minSalePrice` | numeric(18,2) nullable | Кассчны хөнгөлөлтийн доод хязгаар (эрхгүй бол хориглоно) |
+**`inventory_items` өргөтгөл (nullable):** `salePrice numeric(18,2)` (НӨАТ төлөгч бол орсон), `barcode text` (org-д unique partial index `_ux`), `vatMode text default "standard"` (`standard|exempt|zero`), `revenueAccountNumber text`, `minSalePrice numeric(18,2)`, `categoryCode text` (хөнгөлөлтийн дүрмийн бүлэглэлд — S4 барааны сегменттэй холбож болно, v1-д энгийн текст лавлах `inventory_categories`).
 
 **Шинэ хүснэгтүүд:**
 
 ```
-item_price_history      id, organizationId, itemId, salePrice, effectiveFrom (date), createdBy, createdAt
-                        — үнэ өөрчлөх бүрд мөр; борлуулалтын мөр үнээ ӨӨРТӨӨ хадгалдаг тул тайлан
-                          түүхээс хамаарахгүй, аудитад л
-pos_settings            organizationId (unique), §3.1 талбарууд, receiptHeader/Footer text,
-                        allowLineDiscount bool, maxDiscountPercent numeric(5,2), vatPayer bool, updatedAt
-pos_shifts              id, organizationId, documentNo (SH-YYMM-NNN), cashAccountId, warehouseId,
-                        openedBy, openedAt, openingFloat numeric(18,2),
-                        closedBy, closedAt, countedCash numeric(18,2), systemCash numeric(18,2),
-                        varianceAmount, varianceCashDocumentId (зөрүүний кассын баримт),
-                        status: open|closed
-pos_sales               id, organizationId, documentNo (POS-YYMM-NNNN, дараалсан — PO/GR-ийн nextNoFrom хэв маяг),
-                        shiftId?, warehouseId, counterpartyId (default walk-in), cashierUserId,
-                        soldAt (timestamptz), date (YYYY-MM-DD, УБ цаг — период guard ҮҮГЭЭР),
-                        subtotal (НӨАТ-гүй цэвэр), discountTotal, vatTotal, total (НӨАТ орсон, төлөх дүн),
-                        arApDocumentId (үүссэн АР нэхэмжлэх), status: posted|returned|partially_returned|voided,
-                        originalSaleId? (буцаалт бол эх борлуулалт), isReturn bool,
-                        ebarimtId text?, ebarimtLottery text?, ebarimtStatus text? (D8),
-                        note, createdAt
-pos_sale_lines          id, saleId, itemId, description (барааны нэр — тухайн үеийн), quantity(18,4),
-                        unitPrice(18,2) (НӨАТ орсон, тухайн үеийн), discountAmount(18,2),
-                        vatMode, netAmount, vatAmount, grossAmount,
-                        arApLineId (АР мөр), movementId (inventory_movements), sortOrder
-pos_payments            id, saleId, method: cash|card|qpay|credit|other, amount(18,2),
-                        cashAccountId? (credit-д null), cashDocumentId? (credit-д null — АР нээлттэй үлдэнэ),
-                        reference text? (картын гүйлгээний дугаар, QPay invoice)
+item_price_history      itemId, salePrice, effectiveFrom, createdBy, createdAt — аудит (борлуулалтын мөр үнээ өөртөө хадгална)
+inventory_categories    organizationId, code, name, parentCode?, isActive — барааны бүлэг (дүрэм, тайланд)
+pos_settings            organizationId (unique), §3.1 рольууд, discountPosting net|contra, provisionalCogs bool,
+                        maxManualDiscountPercent, managerPinRequiredAbovePercent, cashRoundingUnit (0|10|100),
+                        receiptHeader/Footer, defaultWarehouseId, updatedAt
+pos_payment_methods     id, organizationId, code, name, kind (§3.4), cashAccountId?, currency default MNT,
+                        requiresReference bool, allowsChange bool (зөвхөн бэлэн), allowsRefund bool,
+                        feePercent numeric(5,2)? (мэдээлэл — шимтгэл банкны тулгалтад бичигдэнэ),
+                        isActive, sortOrder
+pos_discount_rules      id, organizationId, code, name, ruleType (§3.5), scope: all|category|item|customer_group,
+                        scopeRef (categoryCode / itemId / customerGroup), valueType: percent|amount|fixed_price,
+                        value numeric(18,4), minQty?, minAmount?, buyQty?, getQty?, tiers jsonb? (шатлал),
+                        dateFrom?, dateTo?, timeFrom?, timeTo?, weekdays text? ("1,2,3"), couponCode?,
+                        maxUsesTotal?, maxUsesPerCustomer?, stackable bool, priority int, requiresApproval bool,
+                        isActive, createdAt
+pos_shifts              id, organizationId, documentNo (SH-YYMM-NNN), cashAccountId, warehouseId, openedBy, openedAt,
+                        openingFloat, closedBy?, closedAt?, countedCash?, systemCash?, varianceAmount?,
+                        varianceCashDocumentId?, fxRates jsonb? (тухайн ээлжийн валютын кассын ханш), status open|closed
+pos_sales               id, organizationId, documentNo (POS-YYMM-NNNN, дараалсан), shiftId?, warehouseId,
+                        counterpartyId, cashierUserId, soldAt timestamptz, date (УБ өдөр — период guard),
+                        grossAmount (хөнгөлөлтийн өмнөх), discountTotal, netAmount (НӨАТ-гүй), vatAmount,
+                        roundingAmount, total (төлөх), arApDocumentId, status posted|partially_returned|returned|voided,
+                        originalSaleId?, isReturn bool, ebarimtId?, ebarimtLottery?, ebarimtStatus?, note, createdAt
+pos_sale_lines          id, saleId, itemId, description, quantity, unitPrice (тухайн үеийн, НӨАТ орсон/төлөгч бус бол цэвэр),
+                        lineGross, discountAmount, discountDetail jsonb (дүрэм бүрийн задаргаа: ruleId, дүн, гар эсэх),
+                        vatMode, netAmount, vatAmount, lineTotal, arApLineId, movementId, provisionalCostEntryId?, sortOrder
+pos_sale_discounts      id, saleId, ruleId?, kind auto|manual|coupon|receipt, amount, approvedBy?, note — баримтын түвшний
+                        хөнгөлөлт (мөрүүдэд pro-rata хуваарилагдана, largest-line absorb)
+pos_payments            id, saleId, paymentMethodId, amount (төлбөрийн валютаар), currency, exchangeRate, baseAmount (MNT),
+                        cashDocumentId? (зээл/урьдчилгаа-д null), reference?, changeGiven? (бэлэн хариулт)
+pos_gift_cards          id, organizationId, code (unique), initialAmount, balance, issuedSaleId, expiresAt?, status
+pos_store_credits       id, organizationId, counterpartyId, amount, balance, sourceSaleId (буцаалт), expiresAt?
 ```
 
-**Одоогийн хүснэгтийн өргөтгөл:**
-
-| Хүснэгт | Багана / утга | Зорилго |
-|---|---|---|
-| `ar_ap_documents` | `sourceType text default "manual"` + `sourceId uuid` (`"pos"` → `pos_sales.id`) | АР жагсаалтад POS нэхэмжлэхийг шүүх/нуух; POS-оос үүссэн АР-ыг АР панелиас ЗАСАХ/УСТГАХ хориотой (зөвхөн POS буцаалт) |
-| `inventory_movements.sourceType` | `"pos_sale"` утга (шинэ багана биш) | `po_receipt`-тэй ижил дүрэм: бараа материалын модулиас засах/цуцлахыг хориглоно |
-| `cash_documents` | `sourceType`/`sourceId` (`"pos"`) | кассын жагсаалтад шүүх; POS-оос үүссэн баримтыг гараар буцаахыг хориглоно |
-| `journal_lines` | `businessObjectType: "pos_sale"`, `businessObjectId` | клирингийн түлхүүр (картын түр данс борлуулалт объектоор тэгширнэ — FR-PROC-004-тэй ижил хэв маяг) |
-| `audit_events.entityType` | `pos_sale`, `pos_shift` | `logAuditEvent` статус шилжилт бүрд |
-| `document_attachments.entityType` | `pos_sale` | картын слип, буцаалтын хүсэлт |
+**Одоогийн хүснэгтийн өргөтгөл:** `ar_ap_documents` + `cash_documents` → `sourceType`/`sourceId` (`"pos"`); `inventory_movements.sourceType` утга `"pos_sale"`; `journal_lines.businessObjectType="pos_sale"`; `cost_entries.valuationSource` утга `"provisional_avg"`, `entryType` утга `"cogs_true_up"`, шинэ багана `trueUpOfEntryId uuid` (partial unique index: нэг эх бичилтэд нэг ИДЭВХТЭЙ ноорог залруулга); `vat_settings.isVatPayer bool`; `counterparties.customerGroup text?` (хөнгөлөлтийн бүлэг: VIP, ажилтан, бөөний…), `creditLimit numeric?` (зээлийн борлуулалтын хязгаар); `audit_events.entityType` `pos_sale|pos_shift|pos_gift_card`; `document_attachments.entityType` `pos_sale`.
 
 ### 3.3 Урсгал — борлуулалт (Business Object = pos_sale)
 
 ```
-① Ээлж нээх (D7)  — касс, агуулах, эхний мөнгө (float). Нээлттэй ээлжгүй бол борлуулалт хориглоно
-② Сагс бүрдүүлэх — barcode сканнер (keyboard wedge: сканнер = гар, Enter → мөр нэмэгдэнэ) / нэрээр хайх
-   мөр: тоо, нэгж үнэ (НӨАТ орсон, барааны salePrice, эрхтэй бол засна), хөнгөлөлт (≤ maxDiscountPercent)
-   үлдэгдэл шалгалт: сагсанд нэмэх бүрд агуулахын боломжит үлдэгдлийг харуулна (loadQtyBalancesFast)
-③ Төлбөр авах — диалог: бэлэн / карт / QPay / зээл (харилцагч ЗААВАЛ, walk-in хориотой) / холимог
-   Σ төлбөр = total (бэлэн илүү өгвөл "хариулт" тооцно, зөвхөн бэлэн мөр = total − бусад)
-④ Батлах → НЭГ транзакц (advisory lock: бараа×агуулах, `assertPeriodOpenInTx(date)`):
-   (а) pos_sales + lines + payments INSERT
-   (б) АР нэхэмжлэх — createArApDocumentCore(tx, postNow=true, sourceType="pos"):
-         мөр бүр Cr revenueAccount (цэвэр дүн), НӨАТ мөр Cr outputVat (Σ vatAmount, standard мөрүүдээс),
-         Dr харилцагчийн авлагын данс = total
-         → GL: Dr 13110000 total / Cr 51100000 Σnet / Cr 31410000 Σvat
-   (в) Бараа — мөр бүрд inventory_movements(issue, status=confirmed, issueTypeId=pos_settings.issueTypeId,
-         sourceType="pos_sale", sourceId=line.id) — findNegativeStock(…) ШИДВЭЛ бүхэлдээ rollback (D9)
-   (г) Касс — төлбөрийн мөр бүрд (credit-ээс бусад) cash_documents(receipt, posted, arApDocumentId=АР.id,
-         counterAccountNumber = авлагын данс, fromCashAccountId = хэлбэрийн данс) + ar_ap_settlements
-         → GL: Dr Касс|Картын түр данс|QPay түр данс / Cr 13110000
-         credit мөр → settlement ҮГҮЙ, АР нэхэмжлэх нээлттэй (partially_paid / posted) — Авлага модулиас хураана
-   (д) logAuditEvent("create", "pos_sale"), баримт хэвлэх өгөгдөл буцаана
-⑤ Баримт — дэлгэцэн дээр урьдчилан харах + хэвлэх (браузерын print, 80мм загвар); eBarimt D8
-⑥ Ээлж хаах — тоолсон бэлэн мөнгө оруулна; systemCash = float + Σ бэлэн орлого − Σ бэлэн буцаалт;
-   зөрүү ≠ 0 → cash_documents (receipt/payment, counterAccount = илүүдэл/дутагдлын данс) → Z-тайлан
-⑦ Сар хаалт — computeMonthlyCosting: pos_sale зарлагууд бусад зарлагатай ИЖИЛ сарын дунджаар
-   → cost_entries issue_cogs → postCostEntries → Dr COGS / Cr Бараа (ӨӨРЧЛӨЛТГҮЙ)
+① Ээлж нээх — касс, агуулах, эхний мөнгө, (валютын кассын ханш өдөрт нэг удаа)
+② Сагс — сканнер/хайлт; мөр: тоо, нэгж үнэ (barааны salePrice; эрхтэй бол засна, ≥ minSalePrice)
+   хөнгөлөлтийн хөдөлгөгч (§3.5) мөр нэмэгдэх бүрд автоматаар ажиллаж, төлөх дүнг шинэчилнэ
+   үлдэгдэл: агуулахын боломжит үлдэгдэл харагдана; ХАСАХ болвол улбар шар анхааруулга (борлуулалт зогсохгүй, D9)
+③ Төлбөр — диалог (§3.4): нэг/олон хэлбэр; Σ baseAmount − хариулт + бөөрөнхийлөл = total; зээл/урьдчилгаа/кредит → харилцагч ЗААВАЛ
+④ Батлах → НЭГ транзакц (advisory lock бараа×агуулах; assertPeriodOpenInTx(date)):
+   (а) pos_sales + lines + discounts + payments INSERT
+   (б) АР нэхэмжлэх createArApDocumentCore(tx, postNow) — мөр: Cr орлого (цэвэр); [C3 contra: Cr орлого бүтэн + Dr хөнгөлөлт];
+       [НӨАТ төлөгч: Cr НӨАТ Σvat]; Dr авлага = total (бөөрөнхийллийн зөрүү тусдаа мөр Dr/Cr roundingAccount)
+   (в) зарлага бүр inventory_movements(issue, confirmed, issueTypeId, sourceType "pos_sale") — хасах үлдэгдэлд ЗОГСОХГҮЙ
+   (г) урьдчилсан COGS (§3.7): бараа×агуулахын явцын дундаж → cost_entries(issue_cogs, provisional_avg, posted) + журнал
+       Dr COGS / Cr Бараа; дундаж тодорхойгүй бол бичилт ҮГҮЙ, мөр "өртөг хүлээж байна" тэмдэгтэй
+   (д) төлбөр бүр (зээл/урьдчилгаа/кредитээс бусад) cash_documents(receipt, posted, arApDocumentId) + settlement
+       зээл → settlement үгүй (АР нээлттэй, dueDate = харилцагчийн paymentTermsDays); урьдчилгаа/бэлгийн карт/кредит →
+       journal (Dr өглөгийн данс / Cr авлага) + settlement voucherId-тэй (АР↔АП offset-ийн одоогийн загвар)
+   (е) logAuditEvent; баримтын өгөгдөл буцаана
+⑤ Баримт preview / хэвлэх (80мм); eBarimt талбар гараар (Фаз 3-д автомат)
+⑥ Ээлж хаах — тоолсон бэлэн; systemCash = float + Σбэлэн орлого − Σбэлэн буцаалт − Σбэлэн зарлага; зөрүү → кассын баримт → Z-тайлан
+⑦ Сар хаалт — computeMonthlyCosting: сарын дундаж → урьдчилсан бичилтүүдийг залруулна (§3.7) → postCostEntries → closePeriod
+   хориг: open-pos-shifts (нээлттэй ээлж), unvalued-movements (C1 (а))
 ```
 
-**Атомик хил:** (а)–(д) нэг DB транзакц — алдаа гарвал юу ч үлдэхгүй (мэдлэгийн сан `05-event-flows.md` E7-той нийцнэ; eBarimt нь E7-ийн адил async, Фаз 3).
+POS-оос үүссэн АР / касс / хөдөлгөөн / өртгийн бичилтийг эх модулиас нь засах/устгах/буцаахад `[POS_SOURCED]` — өөрчлөлт ЗӨВХӨН POS буцаалтаар.
 
-**Ямар нэг зам гараар засахгүй:** POS-оос үүссэн АР / касс / хөдөлгөөн гурвуулаа `sourceType` шалгалтаар АР, касс, бараа материалын панелиас засах/устгах/буцаахад `[POS_SOURCED]` алдаа өгнө — өөрчлөлт ЗӨВХӨН POS буцаалтаар (§3.5). Ингэснээр гурван дэвтэр хэзээ ч зөрөхгүй.
+### 3.4 Төлбөрийн хэлбэрүүд (D6) — `pos_payment_methods` лавлах
 
-### 3.4 Төлбөрийн хэлбэр ба картын тулгалт (D6)
+`kind` нь бүртгэлийн замыг шийднэ; байгууллага өөрийн нэр/дансаар олон мөр үүсгэнэ (жишээ: "Хаан банк терминал", "Голомт терминал" хоёулаа `card`).
 
-| Хэлбэр | Dr данс | Хаалт |
-|---|---|---|
-| Бэлэн | Ээлжийн касс (`cash_accounts` cash) | Ээлж хаалтаар |
-| Карт | Картын түр данс (`cash_accounts` bank, GL 13xxxxxx "Картын төлбөрийн авлага") | Банкны хуулга импорт: маргааш банкнаас цэвэр дүн ирэхэд `transfer` (түр данс → банк) + шимтгэл `payment` (Dr Банкны шимтгэлийн зардал) — одоогийн тулгалтын workspace дүрмээр, `businessObjectType=pos_sale`-аар объект бүрээр тэгширнэ |
-| QPay / SocialPay | QPay түр данс | Картын адил (T+1 цэвэр шилжүүлэг) |
-| Зээлээр | — (АР нээлттэй) | Авлага модулиас `pay_arap_document` / кассын орлого (одоогийн зам) |
+| kind | Жишээ | Dr данс (борлуулалтад) | Хаалт / онцлог |
+|---|---|---|---|
+| `cash` | Бэлэн MNT | ээлжийн кассын данс | хариулт зөвшөөрнө; `cashRoundingUnit` (10/100₮) — зөрүү бөөрөнхийллийн данс |
+| `cash_fx` | Бэлэн USD/CNY/RUB | тухайн валютын кассын данс (`cash_accounts.currency`) | ханш = ээлжийн `fxRates` (дэлгүүрийн ханш, гараар; МБ ханшаар default); baseAmount = amount × ханш; хариулт MNT-ээр; одоогийн валютын касс логик (exchangeRate/baseAmount) |
+| `card` | Банкны POS терминал | Картын түр данс (`cash_accounts` bank, GL 13xxxxxx) | лавлах дугаар (slip) заавал болгож болно; банкнаас T+1 цэвэр дүн → хуулга тулгалтад `transfer` + шимтгэл `payment`; объект `pos_sale`-аар тэгширнэ |
+| `ewallet` | QPay, SocialPay, MonPay, Toki | тухайн үйлчилгээний түр данс | картын адил T+1; v1 гараар "төлөгдсөн" гэж баталгаажуулна, Фаз 3 API (QPay invoice → callback) |
+| `transfer` | Дансны шилжүүлэг (харилцагч банкны апп-аар шууд) | Банкны данс (шууд) | лавлах = гүйлгээний утга; хуулга импортод автомат таарна (externalRef); ирээгүй бол тулгалтын workspace-д "хүлээгдэж буй" |
+| `credit` | Зээлээр (дараа төлөх) | — (АР нээлттэй) | харилцагч заавал, `creditLimit` шалгалт: нээлттэй авлага + энэ ≤ хязгаар, эс бол `[CREDIT_LIMIT]` (эрхтэй нь давна); dueDate = paymentTermsDays; Авлага модулиас хураана |
+| `advance` | Урьдчилгаа ашиглах | Урьдчилгааны өглөгийн данс | харилцагчийн урьдчилгааны үлдэгдэл (кассын орлого `counterAccount = advance` данс — одоогийн зам) ≥ дүн |
+| `gift_card` | Бэлгийн карт ашиглах | Бэлгийн картын өглөг | карт ЗАРАХ = тусдаа "бараа биш" мөр (Dr касс / Cr өглөг, орлого биш, НӨАТ ашиглах үед); `pos_gift_cards.balance` хасагдана |
+| `store_credit` | Буцаалтын дэлгүүрийн кредит | Худалдан авагчийн кредитийн өглөг | буцаалтаас үүснэ (§3.6), харилцагчтай холбоотой, хугацаатай |
+| `bnpl` | Хуваан төлөх (Pocket, LendMN, StorePay г.м.) | тухайн үйлчилгээний түр данс | картын адил: үйлчилгээ шимтгэл хасаад шилжүүлнэ; лавлах = гэрээний дугаар |
 
-### 3.5 Буцаалт (return / refund)
+Нийтлэг дүрэм: холимог төлбөр (олон мөр); Σ baseAmount ≥ total, илүү = хариулт (зөвхөн `allowsChange`); бүх Dr данс тохиргоо; нэг POS борлуулалт = нэг АР тул settlement бүр тэр АР-д; буцаалт эх хэлбэрээр (`allowsRefund`) эсвэл бэлэн/кредит.
 
-- Борлуулалтын панелиас "Буцаалт" → эх мөрүүдээс тоо сонгоно (Σ ≤ борлуулсан − өмнө буцаасан), шалтгаан ЗААВАЛ.
-- Нэг транзакцад: `pos_sales(isReturn=true, originalSaleId)` + АР **буцаалтын нэхэмжлэх** (credit note: Dr Орлого / Dr НӨАТ өглөг / Cr Авлага — одоогийн `reverseArApDocument`-ийн хэсэгчилсэн хувилбар, эсвэл сөрөг АР баримт — гэрээнд шийднэ) + `inventory_movements(return_in, confirmed, sourceType="pos_sale")` + кассын **зарлага** (Dr Авлага / Cr Касс) эсвэл зээлийн борлуулалт бол АР-ын үлдэгдлээс хасна.
-- `return_in` нь OD-019-оор **сарын дунджаар** үнэлэгдэнэ (docs/cost 0.3: "буцаж ирсэн бараа нь сарын дунджаар") — өртгийн хөдөлгөгч өөрчлөгдөхгүй.
-- Хаагдсан периодын борлуулалтын буцаалт → буцаалтын ОГНООГООР (өнөөдөр) бичигдэнэ; эх сар хөндөгдөхгүй.
-- Бүтэн буцаалт → эх борлуулалт `returned`, хэсэгчилсэн → `partially_returned`. "Цуцлах" (`voided`) ЗӨВХӨН ижил ээлж дотор, бүтэн буцаалттай адил бичилтээр (устгах биш — аудит).
+### 3.5 Хөнгөлөлт (D5) — дүрмийн хөдөлгөгч `lib/pos/discounts.ts` (ЦЭВЭР, тесттэй)
 
-### 3.6 COGS ба ахиуц (D3) — яагаад борлуулалт бүрд COGS бичихгүй вэ
+**Дүрмийн төрлүүд (`ruleType`):**
 
-Батлагдсан өртгийн арга нь **хугацааны жигнэсэн дундаж** (docs/cost README 0.3, OD-019): сарын дундаж нэгж өртөг = (эхний үлдэгдэл + сарын бүх өртөгтэй орлого) / тоо — энэ нь **сар дуустал мэдэгдэхгүй**. Борлуулалт бүрд COGS бичихийн тулд perpetual moving average хэрэгтэй бөгөөд энэ нь "Зөвхөн PWA, FIFO/perpetual хориотой" гэсэн батлагдсан шийдвэрийг зөрчинө, хөдөлгөгч (`periodic.ts`, `period-run.ts`, `period-close.ts`), тайлан, snapshot логикийг бүхэлд нь дахин бичнэ.
+| # | ruleType | Тайлбар | Талбар |
+|---|---|---|---|
+| 1 | `line_percent` / `line_amount` | Бараа/бүлгийн мөр бүрд % эсвэл ₮ | scope, value |
+| 2 | `fixed_price` | Урамшууллын үнэ (хугацаатай) — `salePrice`-ийг дарна | scope=item, value, dateFrom/To |
+| 3 | `qty_tier` | Тоо хэмжээний шатлал: 1–9ш 0%, 10–49ш 5%, 50+ 10% (эсвэл шатлал бүрд үнэ) | tiers jsonb `[{minQty, percent|price}]` |
+| 4 | `buy_x_get_y` | N авбал M үнэгүй (BOGO, 3+1): үнэгүй мөр = 100% хөнгөлөлттэй ТУСДАА мөр (тоо гардаг, орлого 0, COGS бичигдэнэ) | buyQty, getQty, scope |
+| 5 | `basket_threshold` | Сагсны нийт ≥ X → Y% / ₮ (баримтын түвшин, pro-rata) | minAmount, value |
+| 6 | `customer_group` | Харилцагчийн бүлэг (VIP 5%, ажилтан 20%, бөөний үнэ) | scopeRef=customerGroup |
+| 7 | `coupon` | Купон/промо код — нэг удаагийн эсвэл тоотой | couponCode, maxUses* |
+| 8 | `time_window` | Цаг/өдрийн цонх (happy hour, амралтын өдөр) — бусад дүрмийн НӨХЦӨЛ болж ч болно | timeFrom/To, weekdays |
+| 9 | `manual` | Кассчны гар хөнгөлөлт (мөр эсвэл баримт) — `maxManualDiscountPercent`, дээш бол менежерийн PIN (`requiresApproval`) | — |
 
-Тиймээс:
+**Хөдөлгөгчийн дүрэм:**
 
-- **GL-ийн COGS** — сар хаалтад одоогийн хөдөлгөгчөөр (өөрчлөлтгүй). Орлогын тайлан сар хаагдсаны дараа эцэслэгдэнэ — энэ нь одоо АР-ийн бараатай борлуулалтад ч ИЖИЛ.
-- **Борлуулалтын тайлангийн ахиуц** — `cost_period_results`-ээс (`lib/costing/valuation.ts` "нэг л үнэлгээний суурь" дүрэм). Хаагдсан сар → эцсийн дундаж; **хаагдаагүй сар** → `computeMonthlyCosting` (идемпотент, ноорог) ажиллуулсан сүүлийн үр дүнгийн дундаж, багана толгойд "**урьдчилсан**" тэмдэглэгээ + "Дахин тооцох" товч. Хэзээ ч GL-ээс, өмнөх сарын дунджаас чимээгүй нөхөхгүй; дундаж бодогдох боломжгүй бараа (өртөггүй орлого, хасах үлдэгдэл) → "—" + шалтгаан (docs/cost §5 "үнэ хэзээ ч зохиохгүй").
+- Оролт: сагс (мөр: item, category, qty, unitPrice), харилцагч (group), огноо/цаг, купон код(ууд), гар хөнгөлөлт. Гаралт: мөр бүрийн `discountAmount` + `discountDetail[]`, баримтын хөнгөлөлт, эцсийн `total`. **Төлөх дүнд шууд нөлөөлнө** — НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс задарна.
+- Дараалал: `fixed_price` → мөрийн дүрмүүд (`priority`-оор; `stackable=false` бол хамгийн их нэгийг л) → `buy_x_get_y` → харилцагчийн бүлэг → купон → сагсны босго → гар. Давхцах бодлого `pos_settings.discountStacking`: `best_single` (default — хэрэглэгчид хамгийн ашигтай нэг) / `cumulative` (stackable дүрмүүд нийлнэ, дээд хязгаар `maxTotalDiscountPercent`).
+- Баримтын түвшний хөнгөлөлт мөрүүдэд lineTotal-ын жингээр хуваарилагдана; бөөрөнхийллийг хамгийн том мөр шингээнэ (`applyInclusiveVatToLines`-тэй ижил зарчим) — АР/НӨАТ/тайлан мөрөөр таарна.
+- Хязгаар: мөрийн үнэ − хөнгөлөлт ≥ `minSalePrice` (эрхтэй нь давна, аудит); хөнгөлөлт > `managerPinRequiredAbovePercent` → менежерийн PIN/эрх (`pos:post`) — `pos_sale_discounts.approvedBy`.
+- GL (C3): `net` — орлого цэвэр; `contra` — Cr орлого бүтэн + Dr хөнгөлөлтийн данс (мөр бүрийн хөнгөлөлт), НӨАТ цэвэр дүнгээс. Тайланд хөнгөлөлт аль ч горимд бүтэн (дүрэм бүрээр: аль дүрэм хэдэн ₮ өгсөн — урамшууллын үр ашиг).
+- Тохиргооны UI: `/inventory/sales/settings` → "Хөнгөлөлтийн дүрэм" grid (idэвхтэй/хугацаа/priority), "Симуляци" — сагс оруулж дүрмийн үр дүнг урьдчилан харна.
 
-### 3.7 НӨАТ (D4)
+### 3.6 Буцаалт, цуцлалт
 
-- `salePrice` НӨАТ орсон. Мөр бүрд: `vatMode=standard` → `splitVat(gross, "inclusive", rate)` → net + vat; `exempt`/`zero` → vat 0, net = gross. Байгууллага НӨАТ төлөгч биш (`pos_settings.vatPayer=false`) → бүх мөр vat 0, НӨАТ мөр үүсэхгүй.
-- Хөнгөлөлт НӨАТ орсон дүнгээс хасагдаж ДАРАА нь задарна (хөнгөлөлт НӨАТ ногдох суурийг бууруулна — татвар ногдох дүн = бодит гүйлгээний үнэ).
-- Бөөрөнхийлөл: мөр бүрд 2 орон; баримтын Σvat нь мөрүүдийн нийлбэр (largest-line absorb `applyInclusiveVatToLines`-тэй ижил зарчим) — АР нэхэмжлэхийн НӨАТ мөр = Σ мөрийн vat, зөрүү үүсэхгүй.
-- `/tax/vat` сарын тайлан `computeVatReturn`-ээр GL-ээс уншдаг тул POS-ийн НӨАТ **автоматаар** гаралтын НӨАТ-д орно — тусдаа регистр хэрэггүй.
+- Борлуулалтын панелиас "Буцаалт": эх мөрүүдээс тоо (Σ ≤ борлуулсан − буцаасан), шалтгаан заавал, буцаан олгох хэлбэр: эх хэлбэрээр (`allowsRefund`) / бэлэн / **дэлгүүрийн кредит** (`pos_store_credits`).
+- Нэг транзакц: `pos_sales(isReturn, originalSaleId)`; АР credit note (Dr орлого [+Dr НӨАТ] / Cr авлага; contra горимд хөнгөлөлт урвуу); `inventory_movements(return_in, confirmed)`; кассын зарлага (Dr авлага / Cr касс) эсвэл кредит (Dr авлага / Cr кредитийн өглөг); **урьдчилсан COGS урвуу** — эх мөрийн урьдчилсан нэгж өртгөөр `return_in` бичилт (Dr Бараа / Cr COGS, `provisional_avg`), сар хаалтад залруулагдана (§3.7 — `return_in` OD-019-оор сарын дунджаар).
+- Хаагдсан сарын борлуулалт → буцаалт ӨНӨӨДРИЙН огноогоор. Цуцлалт (`voided`) зөвхөн ижил ээлжид, бүтэн буцаалттай ижил бичилтээр (устгахгүй).
 
-### 3.8 Эрх, аюулгүй байдал
+### 3.7 COGS: урьдчилсан бичилт + сар хаалтын залруулга (D3) — САЙТАР ХЯНАСАН дизайн
 
-- Модулийн түлхүүр `pos` (`lib/constants/app-modules.ts`, group `accounting`, navId `pos`, accountModuleKey үгүй). Эрх: `read` (тайлан), `write` (борлуулалт, буцаалт, ээлж), `post` (тохиргоо, ээлжийн зөрүү батлах, өнгөрсөн ээлжийн буцаалт). Кассчин = `write` л — GL/АР/бараа модульд эрхгүй байж болно; POS action-ууд дотроо `runAsOrg` хэвээр, харин АР/касс/бараа `requireModuleAction`-ыг ДАВАХГҮЙ — POS-ийн Server Action өөрөө `requireModuleAction("pos","write")` шалгаад core функцуудыг (`…Core`) шууд дуудна (одоогийн `createApInvoiceFromPo` хэв маяг).
-- Хөнгөлөлт `maxDiscountPercent`, `minSalePrice`-аас доош → `[DISCOUNT_LIMIT]`; үнэ өөрчлөх эрх `post`.
-- Огноо = серверийн УБ цагаар (`Asia/Ulaanbaatar`) — кассчин огноо сонгохгүй, өмнөх огноогоор борлуулалт бичихгүй (period guard + аудит). Хуучин борлуулалтыг АР модулиар (нягтлан) бүртгэнэ.
-- Хурд: сагсны үлдэгдэл шалгалт `loadQtyBalancesFast` (snapshot + delta); батлахад бараа×агуулах advisory lock — одоогийн `confirmInventoryMovementCore` дүрэм.
+**Зарчим:** Батлагдсан PWA дундаж (сарын эцэст л мэдэгдэнэ) ЭЦСИЙН өртөг хэвээр. Борлуулалтын мөчид **явцын дундаж** ("тухайн үеийн өртөг") -өөр GL-д бичиж, сар хаалтад эцсийн дундажтай зөрүүг **залруулгын бичилтээр** нөхнө. Posted журнал ХЭЗЭЭ Ч засагдахгүй (immutability, аудит) — залруулга тусдаа бичилт. Σ(урьдчилсан + залруулга) = эцсийн сарын дунджаар үнэлсэн дүн — тайлан, GL, `cost_period_results` гурвуулаа таарна.
 
-### 3.9 eBarimt 3.0 (D8 — Фаз 3, тусад нь батлагдана)
+**Явцын дундаж (`lib/costing/provisional-cost.ts`, цэвэр + snapshot-first ачаалагч):**
 
-ТЕГ-ийн eBarimt 3.0: мерчант бүртгэл (ТТД, салбар, POS дугаар), борлуулалт бүрд баримт илгээх REST дуудлага (мөр: бараа, ангиллын код, НӨАТ, НХАТ), хариу: ДДТД, сугалааны дугаар, QR. Зарим тохиргоонд орон нутгийн PosAPI сервис шаарддаг. Дизайн: `pos_ebarimt_submissions` дараалал (`pending|sent|failed`, retry 3×, 24 цаг), борлуулалт зогсохгүй (E7 async), баримтад QR/сугалаа хэвлэгдэнэ, буцаалт → баримт цуцлах дуудлага. Хуулийн үүрэг: НӨАТ төлөгч бүр борлуулалт бүрд баримт олгоно — v1-д (а)-г сонговол ТЕГ-ийн апп-аар олгоод ДДТД-г борлуулалтад бичнэ (талбар бэлэн).
+```
+scope = бараа × агуулах
+anchor = сүүлийн хаагдсан үеийн cost_period_results C2 (qty, amount)   — байхгүй бол (0, 0)
+inbound = anchor-оос хойшхи posted ӨРТӨГТЭЙ орлого: receipt_capitalize + landed_cost (cost_entries)
+provisionalAvg = (anchor.amount + inbound.amount) / (anchor.qty + inbound.qty)      — PWA-тай ИЖИЛ томьёо, өнөөдрийг хүртэлх
+   • pricedQty ≤ 0 → null (бичилт ҮГҮЙ — үнэ ЗОХИОХГҮЙ); мөр "өртөг хүлээж байна", самбарт тоологдоно; сар хаалтад л үнэлэгдэнэ
+   • Зарлагууд явцын дундажид НӨЛӨӨЛӨХГҮЙ (PWA-ийн адил: дундаж = эхний үлдэгдэл + өртөгтэй орлого) → moving average БИШ, OD-019-тэй нийцнэ
+```
+
+**Борлуулалтын мөчид (транзакц ④(г)):** `cost_entries { movementId, entryType: issue_cogs, valuationSource: "provisional_avg", unitCost: round4(provisionalAvg), amount: round2(qty × provisionalAvg), status: posted, voucherId, businessObjectType: pos_sale }` + журнал Dr COGS (зарлагын төрлөөр) / Cr Бараа — одоогийн `postCostEntry`-ийн core логик `tx` дотор (дансны snapshot JPR-005 хэвээр).
+
+**Сар хаалтад (`computePeriodCosting` өргөтгөл — алхам бүр):**
+
+```
+for movement in сарын confirmed зарлага/буцаалт:
+   final = qty × сарын эцсийн дундаж (cost_period_results, calculated)
+   entries = тухайн movement-ийн posted бичилтүүд (provisional + өмнөх posted true-up-ууд) ба идэвхтэй ноорог true-up
+   effectivePosted = Σ posted amount (тэмдэгтэй: issue_cogs +, return_in −; true-up өөрийн тэмдгээр)
+   delta = final − effectivePosted
+   if |delta| < 0.01 → ноорог true-up байвал устгана; continue          (идемпотент)
+   else → ноорог cogs_true_up upsert { trueUpOfEntryId: эх provisional.id, movementId, quantity: qty,
+            unitCost: эцсийн дундаж, amount: delta (тэмдэгтэй), date: movement.date, periodCode, valuationSource: avg_cost }
+   provisional-гүй movement (дундаж байгаагүй) → одоогийн зам: issue_cogs ноорог бүтэн дүнгээр
+postCostEntries: delta > 0 → Dr COGS / Cr Бараа; delta < 0 → Dr Бараа / Cr COGS (буцаалтад урвуу) — entryPostingAccounts-д cogs_true_up
+closePeriod: ноорог true-up = ноорог cost_entries → одоогийн `has-drafts` хориг ХЭВЭЭР ажиллана (батлахгүйгээр хаагдахгүй)
+```
+
+- **Идемпотент:** дахин тооцоход ноорог true-up дахин бодогдоно; posted true-up дахин бичигдэхгүй (effectivePosted-д тоологдоно). Partial unique index: нэг movement-д нэг ИДЭВХТЭЙ ноорог true-up.
+- **Дахин нээх → дахин хаах:** posted урьдчилсан + posted true-up хэвээр; шинэ дундаж → шинэ delta → шинэ true-up. Хэзээ ч давхар бичигдэхгүй.
+- **Буцаалт:** `return_in` урьдчилсан бичилт эх мөрийн урьдчилсан нэгж өртгөөр (хос тэгширнэ); сар хаалтад хоёулаа сарын дунджаар залруулагдана.
+- **Тайлан:** Гүйлгээний дэлгэрэнгүй + GL тулгалт (`transaction-detail.ts`) movement бүрд Σ(provisional + true-up) = эцсийн — багана "Урьдчилсан / Залруулга / Эцсийн". Өртгийн хяналтын тайлан `cost_period_results`-ээс — өөрчлөлтгүй. Клирингийн тулгалт — өөрчлөлтгүй (COGS клиринг биш).
+- **Сар дундуур GL:** орлогын тайлан урьдчилсан COGS-той (ил: `/costing` самбарт "урьдчилсан COGS Σ, залруулагдаагүй сар"); хаасны дараа эцсийн. Snapshot (`account_period_balances`) хаалтын ДАРАА бичигдэх тул true-up орсон эцсийн үлдэгдэл л хадгалагдана.
+- **Хөдөлгөгч (`periodic.ts`, `period-run.ts`) ӨӨРЧЛӨГДӨХГҮЙ** — зөвхөн `period-close.ts` (залруулга), `costing.ts` (`cogs_true_up` төрөл, posting accounts), `provisional-cost.ts` (шинэ), POS action. Тест: `tests/provisional-cost.test.ts` (томьёо, null нөхцөл), `tests/cogs-true-up.test.ts` (delta, идемпотент, дахин нээх, буцаалт, 0-delta).
+
+### 3.8 НӨАТ (D4)
+
+- `vat_settings.isVatPayer` (шинэ; default = `organizations.vatPayerNo` бөглөгдсөн бол true). Тохиргоо → НӨАТ хуудсанд switch.
+- **Төлөгч:** `salePrice` НӨАТ орсон; мөр бүрд хөнгөлөлтийн дараах дүнгээс `splitVat(gross,"inclusive",rate)`; `vatMode=exempt|zero` → vat 0; АР-д НӨАТ мөр Σvat → `/tax/vat` тайланд автоматаар (GL-ээс).
+- **Төлөгч биш:** `salePrice` = орлого; НӨАТ мөр, задаргаа ОГТ үгүй; баримтад "НӨАТ-гүй"; барааны `vatMode` талбар нуугдана.
+- Бөөрөнхийлөл мөр бүрд 2 орон, Σ таарна (largest-line absorb).
+
+### 3.9 Хасах үлдэгдэл (D9) + мэдэгдэл
+
+- Борлуулалт ба буцаалт `findNegativeStock`-оор ЗОГСОХГҮЙ (`allowNegative: true` POS замд л; бараа материалын гар хөдөлгөөн одоогийн хориг хэвээр — тохиргоо `pos_settings.allowNegativeStock`, default true).
+- **Мэдэгдэл 3 газар:** (1) POS дэлгэц — мөр улбар шар "Үлдэгдэл −3 ш (Дэлгүүр-1)"; (2) **Бараа материалын самбар** — "Хасах үлдэгдэлтэй бараа" карт: бараа × агуулах × тоо × хамгийн эртний борлуулалт × зассан эсэх, давхар даралт → орлого/тооллого үүсгэх; (3) Сар хаалтын checklist (`/close`) — "Хасах үлдэгдэл 0" мөр улаан + жагсаалт.
+- **Өртгийн үр дагавар (C1):** хасах үлдэгдэлтэй бараа×агуулах×сарыг хөдөлгөгч зогсооно; урьдчилсан COGS тэр борлуулалтад бичигдсэн байж болно (явцын дундаж байсан бол) — сар хаалт `unvalued-movements` хоригоор орлого/тооллого хийгдтэл хүлээнэ; засагдмагц дундаж гарч залруулга бичигдэнэ. Бараа ирээгүй бол тооллогын тохируулга (adjustment, сарын дунджаар) — үнэ зохиохгүй.
+
+### 3.10 Эрх, аюулгүй байдал
+
+- Эрхийн түлхүүр `pos` (`APP_MODULE_DEFS`, group `accounting`, navId ҮГҮЙ — нав нь Бараа материал; `module_configs` унтраавал Бараа материалын POS цэсүүд нуугдана — `ModuleItem.configKey` жижиг өргөтгөл). Түвшин: `read` тайлан; `write` борлуулалт/буцаалт/ээлж; `post` тохиргоо, дүрэм, хязгаараас давсан хөнгөлөлт, үнэ засах, өнгөрсөн ээлжийн буцаалт. Кассчин `pos:write` л — бараа/GL/АР эрхгүй байж болно; POS action `requireModuleAction("pos", …)` шалгаад core функцуудыг дуудна.
+- Огноо серверийн УБ цагаар; кассчин огноо сонгохгүй. Менежерийн PIN = тухайн хэрэглэгчийн нууц үг эсвэл `pos_settings.managerPin` (bcrypt) — v1 нууц үг.
+
+### 3.11 eBarimt (D8 — Фаз 3)
+
+Талбарууд бэлэн (`ebarimtId`, `ebarimtLottery`, `ebarimtStatus`); v1-д кассчин ТЕГ-ийн апп-аар олгоод ДДТД-г бичнэ (UI дээр анхааруулга — НӨАТ төлөгчийн хуулийн үүрэг). Фаз 3: `pos_ebarimt_submissions` дараалал (pending|sent|failed, retry), борлуулалт зогсохгүй (async), QR баримтад, буцаалт → цуцлах дуудлага.
 
 ---
 
-## 4. Хэрэглэгчид хэрхэн харагдах (UI)
+## 4. Хэрэглэгчид хэрхэн харагдах (UI) — Бараа материал модулийн дотор (D1)
 
-Бүх дэлгэц одоогийн ui-kit-ээр: `DataGridDynamic`, `PageTabs`, `FilterChips`, `StatusBadge`, `EmptyState`, `useConfirm`, `Icon`, панель — шинэ component/icon бичихгүй (CLAUDE.md дүрэм).
+**Нав (Бараа материал):** Хяналтын самбар · Хөдөлгөөн · Тооллого · **Касс (POS)** `/inventory/pos` · **Борлуулалт** `/inventory/sales` (`PageTabs`: Борлуулалт / Ээлж / Бэлгийн карт·кредит / Тохиргоо) · Тайлан `/inventory/reports` (таб: Тоо хэмжээний урсгал (одоогийн) / **Борлуулалт** §5) · Бараа, агуулах. Панель `pos-sale`, `pos-shift`. Бүгд одоогийн ui-kit (`DataGridDynamic`, `PageTabs`, `FilterChips`, `StatusBadge`, `EmptyState`, `useConfirm`, `Icon`).
 
-**Нав (D1 (а)):** Борлуулалт (POS) — Касс `/pos` · Борлуулалтууд `/pos/sales` · Ээлж `/pos/shifts` · Тайлан `/pos/reports` · Тохиргоо `/pos/settings`. Панель `pos-sale` (`panel-registry.tsx`).
-
-### 4.1 Кассын дэлгэц `/pos` (бүтэн дэлгэц, sidebar нуугдана)
+### 4.1 Кассын дэлгэц `/inventory/pos`
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│ Ээлж SH-2609-003 · Касс: Төв дэлгүүр · Агуулах: Дэлгүүр-1 · Кассчин: Б.Сарнай    [Ээлж хаах] │
-├───────────────────────────────────────────────┬──────────────────────────────────┤
-│ [🔍 Barcode / нэр / код ...            ] ⏎     │ Харилцагч: Бэлэн худалдан авагч ▾ │
-│                                               │                                  │
-│  #  Бараа              Тоо   Үнэ    Хөнг  Дүн  │  Дэд дүн (НӨАТ-гүй)   1,090,909  │
-│  1  Ноутбук LT-01       1  1,200,000  0  1,200,000 │  Хөнгөлөлт              −50,000 │
-│  2  Хулгана MN-01       2     25,000  0     50,000 │  НӨАТ 10%               109,091 │
-│  3  Кабель CB-07        3      5,000  5,000  10,000 │ ─────────────────────────────── │
-│                                               │  НИЙТ ТӨЛӨХ          1,210,000   │
-│  (мөр: тоо/үнэ/хөнгөлөлт inline засна,        │                                  │
-│   Delete → мөр хасна, үлдэгдэл: 12 ш)         │  [ Бэлэн ]  [ Карт ]  [ QPay ]   │
-│                                               │  [ Зээлээр ]  [ Холимог ]        │
-│                                               │                                  │
-│                                               │  [ Түр хадгалах ] [ Цэвэрлэх ]   │
-│                                               │  ██  ТӨЛБӨР АВАХ (F9)  ██        │
-└───────────────────────────────────────────────┴──────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ Ээлж SH-2609-003 · Касс: Төв дэлгүүр · Агуулах: Дэлгүүр-1 · Кассчин: Б.Сарнай  [Ээлж хаах] │
+├─────────────────────────────────────────────────┬────────────────────────────────────┤
+│ [🔍 Barcode / нэр / код …            ] ⏎         │ Харилцагч: Бэлэн худалдан авагч ▾  │
+│  #  Бараа            Тоо   Үнэ      Хөнг    Дүн  │ Бүлэг: VIP (−5% автомат)           │
+│  1  Ноутбук LT-01     1  1,650,000  82,500  1,567,500 │                                    │
+│  2  Хулгана MN-01     3     33,000  16,500   82,500 │ Нийт (хөнг. өмнө)     1,749,000    │
+│     └ 3+1: 4 дэх үнэгүй (мөр 3)                  │ Хөнгөлөлт             −132,000    │
+│  3  Хулгана MN-01     1     33,000  33,000        0 │   VIP 5%  · 3+1 · купон ...       │
+│  ⚠ MN-01 үлдэгдэл: −1 ш (Дэлгүүр-1)              │ НӨАТ 10% (орсон)        147,000    │
+│                                                 │ Бөөрөнхийлөл                 0     │
+│                                                 │ ═══ ТӨЛӨХ          1,617,000 ═══   │
+│                                                 │ [Купон] [Хөнгөлөлт F4] [Үнэ засах] │
+│                                                 │ [Түр хадгалах] [Цэвэрлэх]          │
+│                                                 │ ██  ТӨЛБӨР АВАХ (F9)  ██           │
+└─────────────────────────────────────────────────┴────────────────────────────────────┘
 ```
 
-- Сканнер = гар (keyboard wedge): барааны `barcode` таарвал мөр нэмэгдэнэ/тоо +1; олдохгүй → хайлтын жагсаалт (нэр/код, `SearchableSelect`).
-- Товчлуур: F9 төлбөр, F2 тоо засах, F4 хөнгөлөлт, Esc сагс цэвэрлэх (confirm), `+`/`−` тоо. Сагсны grid = `JournalLinesGrid`-тэй ижил `DataGridDynamic` (мөрийн validator: тоо > 0, үнэ ≥ minSalePrice).
-- "Түр хадгалах" — сагс browser-т (`localStorage`) — DB-д ноорог үүсгэхгүй (ноорог борлуулалт = ноорог АР ≠ хүсээгүй тоо).
+Сканнер = гар (keyboard wedge). Товчлуур: F9 төлбөр, F2 тоо, F4 хөнгөлөлт, F6 харилцагч, Esc цэвэрлэх. Сагс browser-т түр хадгалагдана (DB ноорог үүсгэхгүй). Хөнгөлөлтийн задаргаа мөр бүрд tooltip.
 
-### 4.2 Төлбөрийн диалог (shadcn `Dialog`)
+### 4.2 Төлбөрийн диалог
 
 ```
-┌ Төлбөр авах — POS-2609-0142 ──────────────────────────┐
-│ Нийт төлөх                                1,210,000 ₮  │
-│ ┌──────────┬────────────┬──────────┐                  │
-│ │ Бэлэн    │ 1,000,000  │ [×]      │  ← мөр нэмнэ     │
-│ │ Карт     │   210,000  │ реф: 8831│                  │
-│ └──────────┴────────────┴──────────┘  [+ хэлбэр нэмэх] │
-│ Төлсөн 1,210,000 · Үлдэгдэл 0 · Хариулт 0             │
-│ Зээлээр: харилцагч ЗААВАЛ (Бэлэн худалдан авагч → ✗)   │
-│                          [Болих]  [Батлаад хэвлэх ⏎]   │
-└────────────────────────────────────────────────────────┘
+┌ Төлбөр авах — POS-2609-0142 ── Төлөх 1,617,000 ₮ ─────────────────────┐
+│ [Бэлэн ₮] [Бэлэн $] [Карт] [QPay] [Шилжүүлэг] [Зээл] [Урьдчилгаа] [Бэлгийн карт] [Кредит] [BNPL] │
+│ ┌──────────────┬────────────┬───────────────────────┐                     │
+│ │ Бэлэн ₮      │ 1,000,000  │                       │ [×]                 │
+│ │ Карт (Хаан)  │   617,000  │ слип: 8831            │ [×]                 │
+│ └──────────────┴────────────┴───────────────────────┘                     │
+│ Төлсөн 1,617,000 · Үлдэгдэл 0 · Хариулт 0                                 │
+│ Зээл/урьдчилгаа/кредит → харилцагч заавал; зээлийн лимит 5,000,000 (нээлттэй 1,200,000) │
+│                                          [Болих]   [Батлаад хэвлэх ⏎]     │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
-Батлах → §3.3 ④ нэг транзакц → баримт preview (80мм, хэвлэх / PDF) → сагс хоослогдоно. Алдаа (`[NEGATIVE_STOCK] Кабель CB-07: агуулахад 2 ш, хүссэн 3`) → юу ч бичигдэхгүй, мөр улаанаар.
+Батлах → §3.3 ④ → баримт preview → сагс хоослогдоно. Алдаа → юу ч бичигдэхгүй.
 
-### 4.3 Борлуулалтын жагсаалт `/pos/sales` + панель
+### 4.3 Борлуулалт `/inventory/sales`
 
-Багана: Дугаар · Огноо/цаг · Ээлж · Кассчин · Харилцагч · Мөр · Дэд дүн · НӨАТ · Нийт · Төлбөр (бэлэн/карт/…) · Статус (`StatusBadge`: posted/returned/…) · eBarimt. `FilterChips` статус, огноо = topbar периодын сонголт (`getPeriodSelection`, URL `from/to` дарна). Давхар даралт → `pos-sale` панель: мөрүүд (`ArApLinesGrid` readOnly mode `pos`), төлбөрүүд, холбоосууд (АР нэхэмжлэх / кассын баримт / хөдөлгөөн / журнал — drill), [Буцаалт] [Дахин хэвлэх] [Хавсралт]. Excel экспорт — стандарт (`lib/excel`).
+Таб **Борлуулалт**: Дугаар · Огноо/цаг · Ээлж · Кассчин · Харилцагч · Нийт (хөнг. өмнө) · Хөнгөлөлт · НӨАТ · Төлөх · Төлбөр (хэлбэрүүд) · Статус · eBarimt · COGS (урьдчилсан/эцсийн). Давхар даралт → `pos-sale` панель (мөр, хөнгөлөлтийн задаргаа, төлбөр, холбоос: АР / касс / хөдөлгөөн / өртгийн бичилт / журнал; [Буцаалт] [Дахин хэвлэх] [Хавсралт]). Таб **Ээлж** (§4.5), **Бэлгийн карт · кредит** (үлдэгдэл, түүх), **Тохиргоо** (рольууд, төлбөрийн хэлбэр grid, хөнгөлөлтийн дүрэм grid + симуляци, баримтын толгой/хөл, бөөрөнхийлөл, хасах үлдэгдэл).
 
-### 4.4 Барааны карт (Бараа материал → Бараа, агуулах)
+### 4.4 Барааны карт (Бараа, агуулах)
 
-`InventoryItemsView`-д багана нэмэгдэнэ: **Борлуулах үнэ** (number-money, inline), **Barcode**, **НӨАТ** (select: 10% / чөлөөлөгдсөн / 0%), Орлогын данс (account-segment, optional). Үнэ өөрчлөхөд `item_price_history` мөр; панелд "Үнийн түүх" таб. Excel импорт: барааны спек одоо БАЙХГҮЙ — `inventoryItemsSpec` шинээр (одоогийн `lib/excel` стандарт: багана нэрээр, мөр бүр шалгагдана, загвар спекээс үүснэ) код/нэр/нэгж/борлуулах үнэ/barcode/НӨАТ баганатай. AI: `update_inventory_item` `salePrice/barcode/vatMode` талбар, `create_inventory_items_batch` мөн.
+Багана: Борлуулах үнэ · Barcode · НӨАТ (төлөгч бол) · Бүлэг · Доод үнэ · Орлогын данс (optional). Панелд "Үнийн түүх", "Идэвхтэй урамшуулал" таб. Excel импорт: барааны спек ШИНЭЭР (`inventoryItemsSpec`, `lib/excel` стандартаар). AI: `update_inventory_item`/`create_inventory_items_batch` шинэ талбар.
 
-### 4.5 Ээлж `/pos/shifts` (D7)
+### 4.5 Ээлж
 
-Жагсаалт: дугаар · нээсэн/хаасан · касс · кассчин · эхний мөнгө · бэлэн орлого · буцаалт · систем · тоолсон · зөрүү · статус. Хаах диалог: тоолсон мөнгө (дэвсгэртээр эсвэл нийт) → зөрүү → confirm → кассын баримт. **Z-тайлан** (панель, хэвлэх): борлуулалтын тоо, Σ, төлбөрийн хэлбэрээр, НӨАТ, буцаалт, хөнгөлөлт, кассын зөрүү.
+Жагсаалт + хаах диалог (тоолсон бэлэн — дэвсгэртээр эсвэл нийт; валютын касс тус бүр) → зөрүү → confirm → кассын баримт. **Z-тайлан** (панель, хэвлэх): борлуулалтын тоо/Σ, хэлбэрээр, НӨАТ, хөнгөлөлт (дүрмээр), буцаалт, кассын зөрүү, бэлгийн карт зарсан/ашигласан.
+
+### 4.6 Самбар (Бараа материалын самбар дээр POS хэсэг)
+
+Өнөөдөр: борлуулалт / чек / дундаж чек / хэлбэрийн задаргаа; 30 хоногийн чиг; топ-10 бараа; **Хасах үлдэгдэлтэй бараа** (D9, улаан карт, жагсаалт); нээлттэй ээлж; картын/QPay түр дансны тэгшитгэгдээгүй үлдэгдэл; "өртөг хүлээж буй" борлуулалтын мөр; урьдчилсан COGS Σ (залруулагдаагүй сар).
 
 ---
 
-## 5. Борлуулалтын дэлгэрэнгүй тайлан `/pos/reports` (6 таб, `PageTabs`, таб бүр өөрийн route)
+## 5. Борлуулалтын дэлгэрэнгүй тайлан — Бараа материал → Тайлан → "Борлуулалт" (6 дэд таб)
 
-Шүүлтүүр (бүх табд): огноо (периодын сонголт, PTD/QTD/YTD; URL `from/to`), агуулах, кассчин, харилцагч, төлбөрийн хэлбэр, бараа (multi). Бүгд `DataGridDynamic`, pinned нийт мөр, Excel экспорт, драйв-даун → борлуулалтын панель.
+Шүүлтүүр: огноо (периодын сонголт PTD/QTD/YTD, URL `from/to`), агуулах, кассчин, харилцагч/бүлэг, хэлбэр, бараа/бүлэг, дүрэм. `DataGridDynamic`, pinned нийт, Excel, драйв-даун → панель.
 
-| Таб | Мөр = | Багана |
+| Таб | Мөр | Багана |
 |---|---|---|
-| 5.1 Гүйлгээ | борлуулалтын **мөр** | Огноо/цаг · Дугаар · Кассчин · Харилцагч · Бараа · Тоо · Нэгж үнэ · Хөнгөлөлт · Цэвэр · НӨАТ · Нийт · Төлбөр · Буцаалт (сөрөг мөр) |
-| 5.2 Бараагаар | бараа (× агуулах сонголтоор) | Код · Нэр · Борлуулсан тоо · Буцаасан тоо · Цэвэр орлого · Хөнгөлөлт · НӨАТ · **COGS** (сарын дундаж × тоо) · **Ахиуц ₮ · Ахиуц %** · Үлдэгдэл (одоо) · эргэлт (хоног) |
-| 5.3 Өдрөөр | огноо | Борлуулалтын тоо · Мөр · Дундаж чек · Цэвэр · НӨАТ · Нийт · Бэлэн/Карт/QPay/Зээл · Буцаалт · COGS · Ахиуц |
-| 5.4 Кассчинаар | кассчин | Борлуулалт · Дундаж чек · Нийт · Хөнгөлөлт (Σ, %) · Буцаалт · Кассын зөрүү (ээлжээс) |
-| 5.5 Төлбөрийн хэлбэрээр | хэлбэр × огноо | Дүн · Тоо · Түр дансны үлдэгдэл (карт/QPay — банкнаас ирээгүй) |
-| 5.6 Харилцагчаар | харилцагч | Борлуулалт · Нийт · Зээлээр · Төлсөн · Нээлттэй авлага (АР-аас) · Сүүлийн худалдан авалт |
+| 5.1 Гүйлгээ | борлуулалтын мөр | Огноо/цаг · Дугаар · Кассчин · Харилцагч · Бараа · Тоо · Үнэ · Хөнгөлөлт (дүрэм) · Цэвэр · НӨАТ · Нийт · Хэлбэр · COGS (урьдчилсан→эцсийн) · Ахиуц |
+| 5.2 Бараагаар | бараа (× агуулах) | Код · Нэр · Бүлэг · Тоо · Буцаалт · Нийт (хөнг. өмнө) · Хөнгөлөлт · Цэвэр орлого · НӨАТ · **COGS · Ахиуц ₮ · %** · Үлдэгдэл · Эргэлт |
+| 5.3 Өдрөөр | огноо | Чек · Дундаж чек · Нийт · Хөнгөлөлт · Цэвэр · НӨАТ · хэлбэр бүрээр · Буцаалт · COGS · Ахиуц |
+| 5.4 Кассчин / ээлжээр | кассчин, ээлж | Чек · Нийт · Хөнгөлөлт (гар %, ямар дүрмээр) · Буцаалт · Цуцлалт · Кассын зөрүү |
+| 5.5 Төлбөрийн хэлбэрээр | хэлбэр × огноо | Дүн · Тоо · Түр дансны тэгшитгэгдээгүй үлдэгдэл · Шимтгэл (тулгалтаас) |
+| 5.6 Харилцагчаар | харилцагч | Чек · Нийт · Бүлгийн хөнгөлөлт · Зээлээр · Төлсөн · Нээлттэй авлага · Кредит үлдэгдэл · Сүүлийн худалдан авалт |
+| + Хөнгөлөлтийн үр ашиг | дүрэм | Хэрэглэсэн тоо · Σ хөнгөлөлт · тэр мөрүүдийн орлого · ахиуц — урамшуулал ашигтай эсэх |
 
-**COGS/ахиуцын дүрэм (§3.6):** `cost_period_results`-ээс, хаагдаагүй сард "урьдчилсан" шошго; бодогдоогүй бараа "—". Нэг мөр ч GL-ээс өртөг тооцохгүй.
-
-**Самбар `/pos` (кассын дэлгэц биш, модулийн самбар — эрхтэй хүнд):** өнөөдрийн борлуулалт / чекийн тоо / дундаж чек / төлбөрийн хэлбэрийн задаргаа, 30 хоногийн чиг хандлага (ui-kit chart), топ-10 бараа, нээлттэй ээлж, картын түр дансны тэгшитгэгдээгүй үлдэгдэл, сар хаалтын шаардлага ("COGS тооцоолоогүй" тоо).
-
-**Сар хаалтын checklist (`/close`):** мөр нэмэгдэнэ — "Нээлттэй ээлж байхгүй" (нээлттэй ээлжтэй сар хаагдахгүй, код `open-pos-shifts`), "Картын түр данс тэгшитгэгдсэн" (сануулга, хориг биш).
+**COGS-ийн эх сурвалж:** сар хаагдсан → `cost_period_results` эцсийн дундаж; хаагдаагүй → урьдчилсан бичилтийн дүн, багана "урьдчилсан" шошготой, `computeMonthlyCosting` ажилласан бол ноорог залруулгыг ч тусгаж "тооцоолсон" гэж үзүүлнэ; тодорхойгүй → "—" + шалтгаан. GL-ээс хэзээ ч тооцохгүй.
 
 ---
 
-## 6. Тоон жишээ (D3 (а), D4 (а), D5 (а), D6 (а))
+## 6. Тоон жишээ v2 (D3 урьдчилсан COGS + залруулга, D5 хөнгөлөлт, D6 холимог төлбөр, D9 хасах үлдэгдэл)
 
-**Таамаглал:** НӨАТ төлөгч; агуулах "Дэлгүүр-1"; 9-р сарын эхний үлдэгдэл LT-01 20ш × 1,470,000; MN-01 50ш × 410,780 (өмнөх сарын C2). 9-р сард LT-01 орлого 100ш × 1,464,000 (PO-2026-001, `docs/procurement` жишээ). Борлуулах үнэ: LT-01 1,650,000 (НӨАТ орсон), MN-01 33,000.
+**Таамаглал:** НӨАТ төлөгч; `discountPosting=net`; Дэлгүүр-1; 8-р сар хаагдсан C2: LT-01 20ш × 1,470,000 = 29,400,000; MN-01 2ш × 410,780 = 821,560. 9-р сард: 09-08 LT-01 орлого 100ш landed 146,400,000 (1,464,000/ш). Борлуулах үнэ LT-01 1,650,000, MN-01 33,000 (НӨАТ орсон). Дүрэм: VIP бүлэг −5% (бүх бараа), MN-01 "3+1".
 
-| Огноо | Үйл явдал | Бичилт (Business Object = POS-2609-0142) |
+**Явцын дундаж 09-19:** LT-01 = (29,400,000 + 146,400,000)/120 = **1,465,000**; MN-01 = 821,560/2 = **410,780** (орлогогүй).
+
+| Огноо | Үйл явдал | Бичилт |
 |---|---|---|
-| 09-19 10:32 | **POS-2609-0142**: LT-01 1ш 1,650,000; MN-01 2ш 66,000; хөнгөлөлт 16,000 (MN) → нийт **1,700,000**; бэлэн 1,000,000 + карт 700,000 | **АР-…** (posted, sourceType pos): Dr 13110000 Авлага 1,700,000 / Cr 51100000 Орлого 1,545,455 (1,500,000 + 45,455) / Cr 31410000 НӨАТ 154,545 |
-| | Кассын орлого ×2 (posted, settlement) | Dr 11210000 Касс 1,000,000 + Dr 13190001 Картын түр данс 700,000 / Cr 13110000 1,700,000 → АР `paid` |
-| | Зарлага ×2 (confirmed, issueType COGS) | GL ҮГҮЙ (тоо хэмжээ л: LT-01 −1, MN-01 −2) |
-| 09-20 | Банк: карт 700,000 − шимтгэл 0.8% = 694,400 ирэв (хуулга импорт) | Dr 11000001 Банк 694,400 + Dr 7xxxxxxx Банкны шимтгэлийн зардал 5,600 (тулгалтад сонгоно) / Cr 13190001 700,000 → түр данс объектоор **0** |
-| 09-21 | **Буцаалт** POS-2609-0150 (эх 0142): MN-01 1ш, 25,000 (хөнгөлөлттэй үнээр) | АР credit: Dr 51100000 22,727 + Dr 31410000 2,273 / Cr 13110000 25,000; касс: Dr 13110000 / Cr 11210000 25,000; `return_in` MN-01 +1 |
-| 09-30 | **Ээлж хаах**: систем 975,000, тоолсон 973,000 | Dr 87000006 Кассын дутагдал 2,000 / Cr 11210000 Касс 2,000 |
-| 09-30 | **Сар хаалт** — PWA: LT-01 дундаж (20×1,470,000 + 100×1,464,000)/120 = **1,465,000**; MN-01 (орлогогүй) = 410,780 | `issue_cogs`: Dr 61100000 COGS 1,465,000 / Cr 14000001 (LT-01); Dr 61100000 821,560 / Cr 14000001 (MN-01 2ш); `return_in` MN-01: Dr 14000001 410,780 / Cr 61100000 |
+| 09-19 | **POS-2609-0142** VIP харилцагч: LT-01 1ш; MN-01 4ш (3+1: 1ш үнэгүй). Нийт хөнг. өмнө 1,782,000; хөнгөлөлт VIP 5% 87,450 + 3+1 33,000 (VIP-ийн дараах үнээр 31,350) = 118,800; төлөх **1,663,200**; НӨАТ 151,200; цэвэр 1,512,000. Бэлэн 1,000,000 + Карт 663,200 | АР (posted): Dr 13110000 1,663,200 / Cr 51100000 1,512,000 / Cr 31410000 151,200. Касс: Dr 11210000 1,000,000 + Dr 13190001 Картын түр данс 663,200 / Cr 13110000 1,663,200 |
+| | Зарлага LT-01 −1, MN-01 −4 → MN-01 үлдэгдэл **−2** (D9: зөвшөөрөгдөнө, самбарт мэдэгдэл) | GL үгүй |
+| | **Урьдчилсан COGS** LT-01 1 × 1,465,000; MN-01 4 × 410,780 = 1,643,120 | Dr 61100000 3,108,120 / Cr 14000001 3,108,120 (`provisional_avg`, posted) |
+| 09-20 | Банк: карт 663,200 − 0.8% = 657,894 | Dr 11000001 657,894 + Dr Банкны шимтгэл 5,306 / Cr 13190001 663,200 → түр данс объект 0 |
+| 09-22 | Тооллого/орлого: MN-01 10ш ирэв (АП, 400,000/ш) → үлдэгдэл 8 | Dr 14000001 4,000,000 / Cr клиринг (одоогийн зам) |
+| 09-25 | **Буцаалт** POS-2609-0150: MN-01 1ш (29,700 = VIP-ийн дараах үнэ), бэлэн | АР credit: Dr 51100000 27,000 + Dr 31410000 2,700 / Cr 13110000 29,700; Dr 13110000 / Cr 11210000 29,700; `return_in` +1; урьдчилсан урвуу Dr 14000001 410,780 / Cr 61100000 410,780 |
+| 09-30 | **Сар хаалт** — PWA: LT-01 (29,400,000+146,400,000)/120 = 1,465,000 → delta 0 (залруулга үгүй). MN-01 (821,560 + 4,000,000)/12 = **401,797** → зарлага 4ш эцсийн 1,607,187, урьдчилсан 1,643,120 → **delta −35,933**; буцаалт 1ш эцсийн 401,797, урьдчилсан 410,780 → delta +8,983 | `cogs_true_up`: Dr 14000001 35,933 / Cr 61100000 35,933; Dr 61100000 8,983 / Cr 14000001 8,983 → COGS MN-01 цэвэр 3 × 401,797 = 1,205,390 ✓ = `cost_period_results` Outbound ✓ |
 
-**Тайлан (5.2 Бараагаар, 9-р сар, хаагдсаны дараа):**
-
-| Бараа | Тоо (цэвэр) | Цэвэр орлого | COGS | Ахиуц | % |
-|---|---|---|---|---|---|
-| LT-01 | 1 | 1,500,000 | 1,465,000 | 35,000 | 2.3% |
-| MN-01 | 1 (2 − 1) | 22,728 (45,455 − 22,727) | 410,780 | −388,052 | — |
-
-(MN-01-ийн сөрөг ахиуц нь жишээний өртөг > үнэ тул — тайлан ийм гажгийг шууд ил гаргана.) Сар хаагдаагүй бол ижил хүснэгт "урьдчилсан" шошготой, `computeMonthlyCosting`-ийн сүүлийн ноорог дунджаар.
+Хасах үлдэгдэл 09-22-нд арилсан тул хөдөлгөгч MN-01-ийг тооцсон; арилаагүй бол `unvalued-movements` хоригоор сар хаагдахгүй, самбар "MN-01 Дэлгүүр-1 −2 ш" гэж заана (C1).
 
 ---
 
@@ -319,24 +372,25 @@ pos_payments            id, saleId, method: cash|card|qpay|credit|other, amount(
 
 | Фаз | Агуулга | Хэмжээ |
 |---|---|---|
-| **0** | `inventory_items` өргөтгөл (salePrice, barcode, vatMode, revenueAccountNumber, minSalePrice) + `item_price_history`; барааны карт/grid/Excel спек/AI tool талбар; `createArApDocumentCore` / кассын орлого / хөдөлгөөн confirm-ийн core-уудыг НЭГ `tx`-д дуудагдахаар болгох (одоо АР → хөдөлгөөн нь транзакцаас гадуур best-effort — `lib/inventory/sync-sources.ts`) + `sourceType/sourceId` баганууд + `[POS_SOURCED]` хамгаалалт | 3–4 өдөр |
-| **1** | Schema (`pos_settings`, `pos_shifts`, `pos_sales`, `pos_sale_lines`, `pos_payments`); `lib/pos/` цэвэр логик (тесттэй): `sale-math.ts` (мөрийн НӨАТ задаргаа, хөнгөлөлт, бөөрөнхийлөл, төлбөрийн тэнцэл), `receipt.ts` (баримтын өгөгдөл), `numbering` (PO-ийн `nextNoFrom` дахин ашиглана); `lib/actions/pos.ts` (`createPosSale` атомик, `returnPosSale`, `openShift`/`closeShift`, тохиргоо); модуль/нав/эрх; кассын дэлгэц, төлбөрийн диалог, баримт preview/print; жагсаалт + панель; ээлж; `closePeriod` `open-pos-shifts`; audit; AI tools (`create_pos_sale`, `return_pos_sale`, `list_pos_sales`, `open/close_pos_shift`, `get_pos_sales_report`); тестүүд (`tests/pos-sale-math.test.ts`, `pos-flow.test.ts`) | ~9–10 өдөр |
-| **2** | Тайлан 6 таб + самбар (COGS `cost_period_results`-ээс, урьдчилсан шошго); картын түр дансны тулгалт (банкны хуулгын workspace-д объект таних); Z-тайлан; docs (`01-implementation-contract.md`, CLAUDE.md, `docs/cost/README.md` change-control мөр — OD-019-ийг POS-д баталгаажуулах) | 4–5 өдөр |
-| **3** (тусдаа батлалт) | eBarimt 3.0 API (дараалал, retry, QR, буцаалт), QPay нэхэмжлэх API, камер barcode, олон терминал/салбарын тохиргоо, үнийн жагсаалт (харилцагчийн бүлгээр), урамшуулал | дараа |
+| **0** | `inventory_items` өргөтгөл + `inventory_categories` + үнийн түүх; барааны карт/Excel/AI; `vat_settings.isVatPayer`; core функцуудыг нэг `tx`-д (АР create+post, кассын орлого, хөдөлгөөн confirm `allowNegative`, cost entry post) + `sourceType/sourceId` + `[POS_SOURCED]`; `pos` эрхийн түлхүүр + нав `configKey` | 4 өдөр |
+| **1** | Schema (§3.2); `lib/pos/` цэвэр: `sale-math.ts` (мөр/НӨАТ/бөөрөнхийлөл/төлбөрийн тэнцэл), `discounts.ts` (9 дүрэм, stacking, pro-rata), `payments.ts` (хэлбэрийн дүрэм, хариулт, лимит); `lib/costing/provisional-cost.ts` + `period-close.ts` залруулга + `cogs_true_up`; `lib/actions/pos.ts` (createPosSale атомик, returnPosSale, shift open/close, settings/methods/rules CRUD, gift card/credit); кассын дэлгэц, төлбөрийн диалог, баримт; борлуулалт/ээлж/тохиргоо табууд, панель; `closePeriod` `open-pos-shifts` + `unvalued-movements`; audit; AI tools (`create_pos_sale`, `return_pos_sale`, `list_pos_sales`, `open/close_pos_shift`, `save_pos_discount_rule`, `save_pos_payment_method`, `get_pos_sales_report`); тестүүд | ~11–13 өдөр |
+| **2** | Тайлан 6 таб + хөнгөлөлтийн үр ашиг; самбарын POS хэсэг + хасах үлдэгдлийн карт; түр дансны тулгалт (банкны хуулгын workspace-д `pos_sale` объект); Z-тайлан; docs (contract, CLAUDE.md, `docs/cost/README.md` 0.8, spec §12 FR-POS-*) | 5–6 өдөр |
+| **3** (тусдаа) | eBarimt 3.0, QPay/SocialPay API, BNPL API, камер barcode, олон терминал, лояалти оноо, урамшууллын нэмэлт төрөл (багц/комбо) | дараа |
 
-**v1-д хамрахгүй:** offline горим (вэб апп), олон валютын POS (MNT л), багц/комбо бараа, серийн дугаар, лояалти карт, дэлгүүр хоорондын шилжүүлэг (одоогийн `transfer` хөдөлгөөн ашиглана), ресторан/захиалгын горим.
+**v1-д хамрахгүй:** offline горим, олон валютын ҮНЭ (үнэ MNT, төлбөр л валютаар), багц/комбо бараа, серийн дугаар, лояалти оноо, ресторан/захиалгын горим.
 
-**Эрсдэл:** (1) core функцуудыг нэг транзакцад нэгтгэх refactor (Фаз 0) — одоогийн АР/касс/бараа тестүүд бүгд ногоон байх ёстой; (2) кассын дэлгэцийн хурд — сагсны үлдэгдэл snapshot+delta, барааны хайлт client-д кэштэй (барааны жагсаалт 1 удаа ачаална); (3) eBarimt-гүй v1 — НӨАТ төлөгч хэрэглэгчид хуулийн үүргээ ТЕГ-ийн апп-аар биелүүлж ДДТД-г бичнэ гэдгийг UI дээр ил анхааруулна.
+**Эрсдэл:** (1) Фаз 0 refactor — одоогийн АР/касс/бараа/өртгийн тестүүд бүгд ногоон байх ёстой; (2) урьдчилсан COGS — `transaction-detail` GL тулгалтын логик 3 бичилтийг нэг movement-д нэгтгэх; (3) хөнгөлөлтийн хөдөлгөгчийн stacking — симуляцийн UI + өргөн тест; (4) eBarimt-гүй v1 — хуулийн үүрэг UI дээр ил.
 
 ---
 
 ## 8. Батлагдсан дүрмүүдтэй нийцэл
 
-- **PWA only, OD-019:** зарлага сар хаалтад сарын дунджаар — хөдөлгөгч, `cost_entries`, `issue_cogs` замд өөрчлөлт ҮГҮЙ. `return_in` сарын дунджаар (0.3).
-- **Нэг үнэлгээний суурь:** тайлангийн COGS/ахиуц ЗӨВХӨН `cost_period_results`-ээс; GL-ээс тооцохгүй.
-- **Дансны дугаар кодод байхгүй** — бүх роль `pos_settings` / `vat_settings` / `costing_item_settings` / харилцагчийн default.
-- **Period guard:** борлуулалт, буцаалт, ээлж хаалт бүр `assertPeriodOpen` + `assertPeriodOpenInTx`; хаагдсан сарын буцаалт өнөөдрийн огноогоор.
-- **§9 draft-first:** POS борлуулалт нь кассчны бодит үйлдэл (мөнгө авсан) тул шууд posted — АР/касс/хөдөлгөөний "ноорог" алхам ҮГҮЙ; AI `create_pos_sale` нь харин ердийн дүрмээр: draft горимд ХОРИГЛОНО (ноорог борлуулалт гэж байхгүй), post горим + ≤10M л.
-- **Business-object clearing (FR-PROC-003/004 хэв маяг):** картын/QPay түр данс `pos_sale` объектоор тэгширнэ, клирингийн тулгалтын тайланд объект болж танигдана (`clearing-objects.ts`-д `pos_sale` эх сурвалж нэмнэ).
-- **`po_receipt` дүрэмтэй ижил:** `pos_sale` хөдөлгөөн/АР/касс гурвыг эх модулиас нь л буцаана.
-- **UI:** ui-kit л; хүснэгт `DataGridDynamic`; давхар даралт → панель; монгол хэл.
+- **PWA only, OD-019:** сарын эцсийн өртөг = сарын жигнэсэн дундаж хэвээр; урьдчилсан бичилт нь PWA-ийн ижил томьёогоор "өнөөдрийг хүртэл" бодогдож, сар хаалтад залруулагдана (C2 — change-control 0.8). Хөдөлгөгч өөрчлөлтгүй.
+- **Нэг үнэлгээний суурь:** тайлангийн эцсийн COGS `cost_period_results`; урьдчилсан нь ил шошготой; GL-ээс тооцохгүй.
+- **Үнэ хэзээ ч зохиогдохгүй:** явцын дундаж тодорхойгүй → бичилт үгүй; хасах үлдэгдэл → хөдөлгөгч зогсоно, сар хаалт хүлээнэ (C1 (а)).
+- **Дансны дугаар кодод байхгүй** — `pos_settings`, `pos_payment_methods`, `vat_settings`, `costing_item_settings`, харилцагчийн default.
+- **Period guard:** борлуулалт/буцаалт/ээлж/залруулга бүр `assertPeriodOpen` + `assertPeriodOpenInTx`.
+- **§9 draft-first:** POS = бодит мөнгөн үйлдэл тул шууд posted; AI `create_pos_sale` ЗӨВХӨН post горим + ≤10M.
+- **Business-object clearing:** картын/QPay/BNPL түр данс `pos_sale` объектоор тэгширнэ (`clearing-objects.ts`-д эх сурвалж нэмнэ).
+- **`po_receipt` дүрэмтэй ижил:** POS-ийн хөдөлгөөн/АР/касс/өртгийн бичилтийг эх модулиас нь л.
+- **UI:** ui-kit л; `DataGridDynamic`; давхар даралт → панель; монгол хэл.
