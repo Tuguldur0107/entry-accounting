@@ -12,7 +12,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
 
 import {
   createArApDocument,
@@ -118,6 +118,10 @@ import {
   updateOrganizationProfile,
 } from "@/lib/actions/organization-profile";
 import {
+  createOrganizationForUser,
+  deleteOrganizationForUser,
+} from "@/lib/actions/org";
+import {
   getStoredRateForDate,
   syncMongolbankRates,
 } from "@/lib/actions/exchange-rates";
@@ -200,6 +204,8 @@ import {
   inventoryMovements,
   journalLines,
   journalVouchers,
+  memberships,
+  organizations,
   purchaseOrders,
   reportLineMappings,
   segmentConfigs,
@@ -1962,6 +1968,52 @@ export const AI_TOOLS: AiToolDef[] = [
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
       },
       required: ["employee"],
+    },
+  },
+
+  // ── Компани (байгууллага) ─────────────────────────────────────────────────
+  {
+    name: "list_companies",
+    description:
+      "Энэ түлхүүрийн эзэн хандах эрхтэй компаниуд (id, нэр, регистр, эрх/role). Идэвхтэй компани тэмдэглэгдэнэ. Нэг хэрэглэгч олон компанид гишүүн байж болно.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_active_company",
+    description: "Энэ түлхүүр одоо ажиллаж буй компани (id, нэр, регистр, таны эрх).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_company",
+    description:
+      "ШИНЭ компани (байгууллага) үүсгэнэ — түлхүүрийн эзэн owner болно, стандарт дансны мод автоматаар суулгагдана. Идэвхтэй компанийг СОЛИХГҮЙ (энэ түлхүүр өөрийн компанидаа хэвээр ажиллана); шинэ компанид бичихийн тулд түүнд тусдаа түлхүүр гаргах эсвэл вэбээс сэлгэнэ. Валют/санхүүгийн жил нь системд хуанлийн сар + гүйлгээний валютаар тодорхойлогддог тул параметр байхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Компанийн нэр" },
+        registerNo: { type: "string", description: "Регистр / ТТД (сонголтоор)" },
+        vatPayerNo: { type: "string", description: "НӨАТ төлөгчийн дугаар (сонголтоор)" },
+        address: { type: "string", description: "Хаяг (сонголтоор)" },
+        phone: { type: "string", description: "Утас (сонголтоор)" },
+        email: { type: "string", description: "И-мэйл (сонголтоор)" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "delete_company",
+    description:
+      "Компани (байгууллага)-г БУЦАЛТГҮЙ устгана — журнал, баримт, тохиргоо, аудит зэрэг БҮХ дата cascade-аар устана. Зөвхөн тухайн компанийн OWNER; companyId ба компанийн нэрийг ЯГ давхар бичиж баталгаажуулна; зөвхөн 'Шууд бичих' (post) горимд. Сэргээх боломжгүй тул болгоомжтой.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        companyId: { type: "string", description: "Устгах компанийн бүтэн id (list_companies-ээс)" },
+        confirmName: {
+          type: "string",
+          description: "Компанийн нэрийг ЯГ бичиж баталгаажуулна (буруу бол устгахгүй)",
+        },
+      },
+      required: ["companyId", "confirmName"],
     },
   },
 
@@ -7255,6 +7307,112 @@ async function runUpdateOrganizationProfile(input: {
   return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}${limitNote}` };
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  owner: "Эзэн",
+  admin: "Админ",
+  accountant: "Нягтлан",
+  viewer: "Үзэгч",
+};
+
+async function runListCompanies(): Promise<AiToolResult> {
+  const { orgId, userId } = await getActiveOrg();
+  const rows = await db
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      registryNo: organizations.registryNo,
+      role: memberships.role,
+    })
+    .from(memberships)
+    .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
+    .where(eq(memberships.userId, userId))
+    .orderBy(asc(organizations.name));
+  if (rows.length === 0)
+    return { resultText: "Хандах эрхтэй компани алга." };
+  return {
+    resultText: rows
+      .map((row) => {
+        const active = row.id === orgId ? " ← идэвхтэй" : "";
+        return `${row.name} · ${ROLE_LABELS[row.role] ?? row.role} · рег: ${row.registryNo ?? "—"} · id: ${row.id}${active}`;
+      })
+      .join("\n"),
+  };
+}
+
+async function runGetActiveCompany(): Promise<AiToolResult> {
+  const { orgId, role } = await getActiveOrg();
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, orgId),
+    columns: { id: true, name: true, registryNo: true },
+  });
+  if (!org) return { resultText: "Идэвхтэй компани олдсонгүй." };
+  return {
+    resultText: [
+      `Нэр: ${org.name}`,
+      `Регистр: ${org.registryNo ?? "—"}`,
+      `Таны эрх: ${ROLE_LABELS[role] ?? role}`,
+      `id: ${org.id}`,
+    ].join("\n"),
+  };
+}
+
+async function runCreateCompany(input: {
+  name?: string;
+  registerNo?: string;
+  vatPayerNo?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+}): Promise<AiToolResult> {
+  const { userId } = await getActiveOrg();
+  const name = input.name?.trim();
+  if (!name) throw new Error("Компанийн нэр оруулна уу");
+  const { orgId } = await createOrganizationForUser({
+    userId,
+    name,
+    registryNo: input.registerNo ?? null,
+    vatPayerNo: input.vatPayerNo ?? null,
+    address: input.address ?? null,
+    phone: input.phone ?? null,
+    email: input.email ?? null,
+    seedAccounts: true,
+  });
+  return {
+    resultText: [
+      `Шинэ компани үүслээ: ${name}`,
+      `id: ${orgId}`,
+      "Та owner болсон · стандарт дансны мод суулгагдсан.",
+      "Идэвхтэй компани СОЛИГДООГҮЙ — энэ түлхүүр өмнөх компанидаа хэвээр ажиллана.",
+    ].join("\n"),
+  };
+}
+
+async function runDeleteCompany(
+  input: { companyId?: string; confirmName?: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const { orgId, userId } = await getActiveOrg();
+  const companyId = input.companyId?.trim();
+  if (!companyId) throw new Error("companyId шаардлагатай (list_companies-ээс аваарай)");
+  if (!input.confirmName?.trim())
+    throw new Error("Баталгаажуулахын тулд компанийн нэрийг бичнэ үү");
+  const { deletedName } = await deleteOrganizationForUser({
+    userId,
+    orgId: companyId,
+    confirmName: input.confirmName,
+  });
+  const activeNote =
+    companyId === orgId
+      ? "⚠ Энэ нь энэ түлхүүрийн ИДЭВХТЭЙ компани байсан — түлхүүр одоо хүчингүй, вэбээс өөр компани сонгоно уу."
+      : "Идэвхтэй компани хэвээр — энэ түлхүүр өмнөх компанидаа ажиллана.";
+  return {
+    resultText: [`Компани устгагдлаа: ${deletedName} (id: ${companyId})`, activeNote].join(
+      "\n"
+    ),
+  };
+}
+
 async function runListAuditEvents(
   orgId: string,
   input: { entityType?: string; action?: string; from?: string; to?: string; limit?: number }
@@ -9697,6 +9855,14 @@ async function dispatchAiTool(
         return await runListEmployees(orgId, args);
       case "update_employee":
         return await runUpdateEmployee(orgId, args);
+      case "list_companies":
+        return await runListCompanies();
+      case "get_active_company":
+        return await runGetActiveCompany();
+      case "create_company":
+        return await runCreateCompany(args);
+      case "delete_company":
+        return await runDeleteCompany(args, mode);
       case "get_company_settings":
         return await runGetOrganizationProfile();
       case "update_company_settings":

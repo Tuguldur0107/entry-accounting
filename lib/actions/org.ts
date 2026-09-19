@@ -17,6 +17,7 @@ import {
 import { db } from "@/lib/db";
 import {
   auditEvents,
+  chartOfAccounts,
   organizationProfile,
   memberships,
   organizations,
@@ -24,6 +25,7 @@ import {
   users,
   type MembershipRole,
 } from "@/lib/db/schema";
+import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
@@ -356,6 +358,110 @@ async function createOrganizationCore(data: {
   revalidatePath("/", "layout");
   return { id: orgId };
   return {};
+}
+
+/**
+ * Байгууллага үүсгэх ЦӨМ — session/cookie-гүй, userId-г ИЛ авдаг тул MCP/REST
+ * замаас (token-ий эзний нэрээр) дуудагдана. Атом транзакц: organizations +
+ * owner membership + organization_profile (+ сонголтоор стандарт дансны мод).
+ *
+ * Идэвхтэй байгууллага (cookie) СОЛИХГҮЙ — дуудагч (вэб) өөрөө шийднэ. Эрх:
+ * нэвтэрсэн дурын хэрэглэгч өөрийн шинэ байгууллага үүсгэж болно (web
+ * signup/switcher-тэй ижил), тиум role шалгалт энд байхгүй.
+ */
+export async function createOrganizationForUser(input: {
+  userId: string;
+  name: string;
+  registryNo?: string | null;
+  vatPayerNo?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  /** Стандарт дансны модыг (DEFAULT_ACCOUNTS) шинэ байгууллагад суулгах эсэх. */
+  seedAccounts?: boolean;
+}): Promise<{ orgId: string }> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Байгууллагын нэр оруулна уу");
+  const clean = (value?: string | null) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  };
+  const registryNo = clean(input.registryNo);
+
+  const orgId = await db.transaction(async (tx) => {
+    const [org] = await tx
+      .insert(organizations)
+      .values({ name, registryNo })
+      .returning({ id: organizations.id });
+    await tx.insert(memberships).values({
+      organizationId: org.id,
+      userId: input.userId,
+      role: "owner",
+    });
+    // Реквизит (organizations-ийн 1:1 дагавар) — нэхэмжлэхэд шууд хэрэглэгдэнэ.
+    await tx.insert(organizationProfile).values({
+      userId: input.userId,
+      organizationId: org.id,
+      name,
+      registerNo: registryNo,
+      vatPayerNo: clean(input.vatPayerNo),
+      address: clean(input.address),
+      phone: clean(input.phone),
+      email: clean(input.email),
+    });
+    if (input.seedAccounts)
+      await tx.insert(chartOfAccounts).values(
+        DEFAULT_ACCOUNTS.map((account) => ({
+          userId: input.userId,
+          organizationId: org.id,
+          ...account,
+        }))
+      );
+    return org.id;
+  });
+  return { orgId };
+}
+
+/**
+ * Байгууллага УСТГАХ ЦӨМ — session/cookie-гүй, userId + orgId-г ИЛ авдаг тул
+ * MCP/REST замаас дуудагдана. `deleteOrganization`-той ижил хамгаалалт: зөвхөн
+ * тухайн байгууллагын OWNER, нэрийг ЯГ давхар бичиж баталгаажуулна. Бүх дата
+ * (журнал, баримт, тохиргоо, audit) cascade-аар БУЦАЛТГҮЙ устана. Cookie
+ * хөндөхгүй (MCP-д session байхгүй) — дуудагч идэвхтэй компанийхаа cookie-г
+ * өөрөө удирдана.
+ */
+export async function deleteOrganizationForUser(input: {
+  userId: string;
+  orgId: string;
+  confirmName: string;
+}): Promise<{ deletedName: string }> {
+  const membership = await db.query.memberships.findFirst({
+    where: and(
+      eq(memberships.organizationId, input.orgId),
+      eq(memberships.userId, input.userId)
+    ),
+    columns: { role: true },
+  });
+  if (!membership) throw new Error("Байгууллагын гишүүнчлэл олдсонгүй");
+  if (membership.role !== "owner")
+    throw new Error("Байгууллагыг зөвхөн owner устгана");
+
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, input.orgId),
+    columns: { name: true },
+  });
+  if (!org) throw new Error("Байгууллага олдсонгүй");
+  if (input.confirmName.trim() !== org.name)
+    throw new Error(
+      `Баталгаажуулахын тулд байгууллагын нэрийг яг бичнэ үү: "${org.name}"`
+    );
+
+  // Cascade нь audit_events-ийг ч устгах тул сервер лог л үлдэнэ.
+  console.log(
+    `[org-audit] deleteOrganizationForUser org=${input.orgId} "${org.name}" by user=${input.userId} at=${new Date().toISOString()}`
+  );
+  await db.delete(organizations).where(eq(organizations.id, input.orgId));
+  return { deletedName: org.name };
 }
 
 /** Нэр/ТТД засах — admin+. */
