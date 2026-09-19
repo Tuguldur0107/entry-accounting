@@ -556,8 +556,13 @@ lib/actions/pos.ts               createPosSale (атомик) / returnPosSale / 
 app/(dashboard)/inventory/pos    Кассын дэлгэц (сканнер = гар, F9 төлбөр, баримт хэвлэх)
 app/(dashboard)/inventory/sales  Борлуулалт · Ээлж · Бэлгийн карт·кредит · Тохиргоо (табууд)
 app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (6 таб, COGS cost_period_results-ээс)
-components/pos/                  checkout, payment-dialog, receipt-preview, sales-workspace, sales-report-view
-components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт, дахин хэвлэх, холбоосууд)
+components/pos/                  pos-checkout-view (кассын дэлгэц), payment-dialog, receipt-preview
+                                 (80мм хэвлэлт, usePosPrint), sales-workspace (4 таб) → sales-list-view /
+                                 shifts-view + shift-dialogs (нээх, хаах, Z-тайлан) / gift-cards-view /
+                                 pos-settings-view (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
+                                 sales-report-view (/inventory/reports, 6 таб)
+components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт: мөр/дүн, буцаан олголт эсвэл
+                                 дэлгүүрийн кредит; дахин хэвлэх; eBarimt; АР/журнал/хавсралт)
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
 ```
 
@@ -1163,6 +1168,13 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
+| POS кассын дэлгэц | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | Сагсны grid (Тоо/Үнэ/Хөнг %/Хөнг ₮ editable, хасах үлдэгдэл улбар шар), баркод/хайлт, `quotePosSale` debounce 250мс, F9/F2/F6/Esc, түр хадгалалт localStorage |
+| POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
+| POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
+| POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
+| POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
+| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 6 таб (хураангуй/бараа/өдөр/кассчин/хэлбэр/харилцагч+дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
 ---
 
