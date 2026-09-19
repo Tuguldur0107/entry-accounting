@@ -583,7 +583,7 @@ export function CashDocumentsView({
         field: "counterpartyCode",
         width: 130,
         cellClass: "font-mono text-xs",
-        headerTooltip: "Харилцагчийн бүртгэлийн РД/ТТД — бүртгэлтэй холбогдсон баримтад",
+        headerTooltip: "Харилцагчийн бүртгэлийн код — бүртгэлтэй холбогдсон баримтад",
       },
       {
         headerName: "Харилцагчийн нэр",

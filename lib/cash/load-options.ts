@@ -63,7 +63,7 @@ export type CashDocumentRow = CashDocument & {
   fromAccount: CashAccount | null;
   toAccount: CashAccount | null;
   /** Харилцагчийн бүртгэл (сонголтоор — дашбоард ачаалахгүй байж болно). */
-  counterpartyRef?: { name: string; registerNo: string | null } | null;
+  counterpartyRef?: { name: string; code: string | null } | null;
   /** Холбогдсон GL журнал — дугаар нь "Журналын дугаар" багана. */
   voucher?: { documentNo: string | null } | null;
 };
@@ -93,7 +93,7 @@ export function toCashDocumentView(
     // Бүртгэлтэй харилцагчийн нэр нь бүртгэлээс (нэр солигдвол дагана).
     counterparty: document.counterpartyRef?.name ?? document.counterparty,
     counterpartyId: document.counterpartyId,
-    counterpartyCode: document.counterpartyRef?.registerNo ?? null,
+    counterpartyCode: document.counterpartyRef?.code ?? null,
     cashAccountGlNumber: cashAccountGlLabel({
       documentType: document.documentType,
       fromGlNumber: document.fromAccount?.glAccountNumber ?? null,
@@ -115,7 +115,7 @@ export function toCashDocumentView(
 export const CASH_DOCUMENT_LIST_WITH = {
   fromAccount: true,
   toAccount: true,
-  counterpartyRef: { columns: { name: true, registerNo: true } },
+  counterpartyRef: { columns: { name: true, code: true } },
   voucher: { columns: { documentNo: true } },
 } as const;
 

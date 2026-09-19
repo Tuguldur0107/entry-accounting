@@ -76,9 +76,19 @@ export function SupplierCard({
               </StatusBadge>
             )}
           </div>
-          {supplier.registerNo && (
+          {(supplier.code || supplier.registerNo) && (
             <div className="mt-0.5 text-[11px] text-[var(--ea-text-3)]">
-              ТТД <span className="font-mono">{supplier.registerNo}</span>
+              {supplier.code && (
+                <>
+                  Код <span className="font-mono">{supplier.code}</span>
+                  {supplier.registerNo ? " · " : ""}
+                </>
+              )}
+              {supplier.registerNo && (
+                <>
+                  ТТД <span className="font-mono">{supplier.registerNo}</span>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -69,7 +69,7 @@ export type CashDocumentView = {
   counterparty: string | null;
   /** Харилцагчийн бүртгэлийн холбоос. */
   counterpartyId: string | null;
-  /** Харилцагчийн код = бүртгэлийн РД/ТТД (registerNo); холбоосгүй бол null. */
+  /** Харилцагчийн код (counterparties.code); холбоосгүй / код оноогоогүй бол null. */
   counterpartyCode: string | null;
   /** Мөнгөн хөрөнгийн дансны GL код (шилжүүлэгт "эх → хүлээн авах"). */
   cashAccountGlNumber: string;

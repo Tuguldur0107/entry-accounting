@@ -772,6 +772,9 @@ export const counterparties = pgTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
+    // Харилцагчийн КОД — РД/ТТД-ээс тусдаа, байгууллага дотор давтагдашгүй
+    // танигдахуун (кассын "Харилцагчийн код" багана). Хоосон байж болно.
+    code: text("code"),
     counterpartyType: text("counterparty_type").notNull().default("both"), // "customer" | "supplier" | "both"
     registerNo: text("register_no"),
     defaultReceivableAccountNumber: text("default_receivable_account_number"),
@@ -794,6 +797,9 @@ export const counterparties = pgTable(
       table.organizationId,
       table.name
     ),
+    uniqueIndex("counterparties_organization_id_code_ux")
+      .on(table.organizationId, table.code)
+      .where(sql`${table.code} is not null`),
   ]
 );
 

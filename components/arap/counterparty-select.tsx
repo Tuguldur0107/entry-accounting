@@ -36,6 +36,7 @@ export function counterpartyOptions(
       // ТТД hint-д орсноор хайлт ТТД-гээр ч шүүнэ (SearchableSelect
       // нь label/hint/value гурвуулангаар нь хайдаг).
       hint: [
+        item.code ? `Код ${item.code}` : null,
         item.counterpartyType === "both"
           ? "Авлага/Өглөг"
           : item.counterpartyType === "customer"

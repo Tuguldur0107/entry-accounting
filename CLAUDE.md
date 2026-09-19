@@ -1063,7 +1063,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | `JournalLinesGrid` reuse — inline данс editor + Dr⊕Cr mutex + undo/redo |
 | Journal lines grid (shared) | [components/journal/journal-lines-grid.tsx](components/journal/journal-lines-grid.tsx) | Дахин ашиглагдах мөрийн хүснэгт — pinned totals, clipboard, min-мөр хамгаалалт |
 | Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination. Мөр = `JournalListRow` (`lib/gl/journal-list-data.ts`): ваучер + эх баримтын (касс / АР/АП) харилцагч, валют, ханш + үүсгэсэн хэрэглэгч; Дт/Кт MNT ба валютаар (MNT ÷ ханш — лавлагаа, MNT баримтад хоосон), Дансны нэр багана. "Журналын нэр" = `description` |
-| Мөнгөн гүйлгээний жагсаалт | [components/cash/cash-documents-view.tsx](components/cash/cash-documents-view.tsx) | Veritech "Харилцахын баримт"-тай ижил багана: Дансны код (мөнгөн дансны GL) · Валют · **Дебит дүн / Кредит дүн** (MNT — орлого Дт, зарлага Кт, шилжүүлэг хоёулаа) · Ханш · Дебит/Кредит /валют/ · Харилцагчийн код (бүртгэлийн РД) · Харилцагчийн нэр · Харилцах GL данс · Журналын дугаар · МГ код / МГ нэр (S8). Дт/Кт задаргаа ЦЭВЭР `lib/cash/list-columns.ts` (тесттэй) |
+| Мөнгөн гүйлгээний жагсаалт | [components/cash/cash-documents-view.tsx](components/cash/cash-documents-view.tsx) | Veritech "Харилцахын баримт"-тай ижил багана: Дансны код (мөнгөн дансны GL) · Валют · **Дебит дүн / Кредит дүн** (MNT — орлого Дт, зарлага Кт, шилжүүлэг хоёулаа) · Ханш · Дебит/Кредит /валют/ · Харилцагчийн код (`counterparties.code`) · Харилцагчийн нэр · Харилцах GL данс · Журналын дугаар · МГ код / МГ нэр (S8). Дт/Кт задаргаа ЦЭВЭР `lib/cash/list-columns.ts` (тесттэй) |
 | Cash баримтын панель | [components/panel/cash-doc-panel.tsx](components/panel/cash-doc-panel.tsx) | `JournalLinesGrid` reuse (readOnly) — сегмент panel, харилцагч (код · нэр), МГ код · нэр, журналын дугаар, холбогдсон нэхэмжлэхийн линк, Батлах/Буцаах/Устгах |
 | Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
 | GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |
@@ -1181,6 +1181,11 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
              documents.purchaseOrderId — PO-той нэхэмжлэх (→ өглөгийн түр данс)
              lines.purchaseOrderLineId / unitPrice / costComponentId
                (CHECK: itemId ба costComponentId зэрэг байж болохгүй)
+             counterparties.code — ХАРИЛЦАГЧИЙН КОД: РД/ТТД-ээс ТУСДАА, org дотор
+               давтагдашгүй (partial unique index, хоосон = давхардал биш),
+               `normalizeCounterpartyCode` (ТОМ үсэг, ≤32) — автомат дугаарлалт
+               ХИЙХГҮЙ (гараар / импортоор оноогдоно). Кассын "Харилцагчийн код"
+               багана, AI list/create/update_counterparty, master data CSV (`code`)
              counterparties.contactPerson / bankName / bankAccountNo
 Хангамж    purchase_orders, purchase_order_lines, goods_receipts,
            goods_receipt_lines

@@ -135,11 +135,11 @@ async function seedDemoData(userId: string): Promise<void> {
   // Харилцагчид (зохиомол нэрс)
   await tool(userId, "create_counterparties_batch", {
     items: [
-      { name: "Мөнх Трейд ХХК", counterpartyType: "customer", registerNo: "6183352" },
-      { name: "Хангай Маркет ХХК", counterpartyType: "customer", registerNo: "5527419" },
-      { name: "Түмэн Импекс ХХК", counterpartyType: "supplier", registerNo: "2074818" },
-      { name: "Оффис Плюс ХХК", counterpartyType: "supplier", registerNo: "6641937" },
-      { name: "Цахилгаан Түгээх ХХК", counterpartyType: "supplier", registerNo: "2550466" },
+      { name: "Мөнх Трейд ХХК", code: "10001", counterpartyType: "customer", registerNo: "6183352" },
+      { name: "Хангай Маркет ХХК", code: "10002", counterpartyType: "customer", registerNo: "5527419" },
+      { name: "Түмэн Импекс ХХК", code: "20001", counterpartyType: "supplier", registerNo: "2074818" },
+      { name: "Оффис Плюс ХХК", code: "20002", counterpartyType: "supplier", registerNo: "6641937" },
+      { name: "Цахилгаан Түгээх ХХК", code: "20003", counterpartyType: "supplier", registerNo: "2550466" },
     ],
   });
 
