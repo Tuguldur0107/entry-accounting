@@ -2,6 +2,7 @@ import { and, count, eq, isNull, ne, sql, sum } from "drizzle-orm";
 
 import {
   InventoryDashboard,
+  type InventoryEbarimtMetrics,
   type InventoryPosMetrics,
 } from "@/components/inventory/inventory-dashboard";
 import { getActiveOrg } from "@/lib/auth";
@@ -17,14 +18,16 @@ import { loadInventoryBase } from "@/lib/inventory/load-data";
 import { findNegativeBalances } from "@/lib/inventory/negative-stock";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import type { QtyBalanceRow } from "@/lib/inventory/types";
+import { ebarimtStatusSummary } from "@/lib/ebarimt/queue";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
+import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import { PROVISIONAL_VALUATION_SOURCE } from "@/lib/pos/constants";
-import { loadShiftViews } from "@/lib/pos/load-data";
+import { ensurePosSettings, loadShiftViews } from "@/lib/pos/load-data";
 import { loadSalesReport, summarize } from "@/lib/pos/reports";
 import { ulaanbaatarNow } from "@/lib/pos/sale-math";
 
 export default async function InventoryDashboardPage() {
-  const { orgId } = await getActiveOrg();
+  const { orgId, userId } = await getActiveOrg();
   const today = ulaanbaatarNow().date;
   const monthCode = periodCodeOf(today);
   const { startDate: monthStart, endDate: monthEnd } = periodRange(monthCode);
@@ -114,6 +117,15 @@ export default async function InventoryDashboardPage() {
   }
   balanceRows.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel));
 
+  // eBarimt (docs/pos/03 §4.5): асаалттай бол дарааллын тоолуур самбарт.
+  // Server Component тул дарааллын давхаргыг ШУУД уншина (action биш).
+  const posSettings = await ensurePosSettings(orgId, userId);
+  let ebarimt: InventoryEbarimtMetrics | undefined;
+  if (posSettings.ebarimtEnabled) {
+    const summary = await ebarimtStatusSummary(orgId, posSettings, todayInUlaanbaatar());
+    ebarimt = { pending: summary.pending, failed: summary.failed };
+  }
+
   const todaySummary = summarize(todayReport.lines);
   const pos: InventoryPosMetrics = {
     today,
@@ -133,6 +145,7 @@ export default async function InventoryDashboardPage() {
       draftCount={Number(draftRow?.n ?? 0)}
       unvaluedCount={Number(unvaluedRow?.n ?? 0)}
       pos={pos}
+      ebarimt={ebarimt}
       negativeStock={findNegativeBalances(balances, itemViews, warehouseViews)}
     />
   );

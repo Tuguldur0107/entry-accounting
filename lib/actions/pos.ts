@@ -30,6 +30,7 @@ import {
   journalLines,
   journalVouchers,
   posDiscountRules,
+  posEbarimtSubmissions,
   posGiftCards,
   posPaymentMethods,
   posPayments,
@@ -68,6 +69,11 @@ import { loadVatSettings } from "@/lib/vat/settings";
 import { applyDiscounts } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { planPayments, planRefund } from "@/lib/pos/payments";
+import { enqueueEbarimt } from "@/lib/ebarimt/queue";
+import { processPendingEbarimt } from "@/lib/ebarimt/worker";
+import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
+import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
+import { CONSUMER_NO_RE, DISTRICT_CODE_RE, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 import {
   DISCOUNT_RULE_TYPES,
   DISCOUNT_SCOPES,
@@ -241,6 +247,44 @@ export async function updatePosSettings(
     }
     if (data.receiptHeader != null) patch.receiptHeader = data.receiptHeader;
     if (data.receiptFooter != null) patch.receiptFooter = data.receiptFooter;
+    // ── eBarimt (docs/pos/03-ebarimt-integration-plan.md §4.1) ──
+    if (data.ebarimtMerchantTin != null) {
+      const tin = data.ebarimtMerchantTin.trim();
+      if (tin && !MERCHANT_TIN_RE.test(tin)) throw new Error("Мерчантын ТТД 11 эсвэл 14 оронтой тоо байна");
+      patch.ebarimtMerchantTin = tin;
+    }
+    if (data.ebarimtBranchNo != null) patch.ebarimtBranchNo = data.ebarimtBranchNo.trim();
+    if (data.ebarimtDistrictCode != null) {
+      const code = data.ebarimtDistrictCode.trim();
+      if (code && !DISTRICT_CODE_RE.test(code)) throw new Error("Дүүргийн код 4 оронтой байна");
+      patch.ebarimtDistrictCode = code;
+    }
+    if (data.ebarimtPosNo != null) patch.ebarimtPosNo = data.ebarimtPosNo.trim();
+    if (data.ebarimtPosApiUrl != null) {
+      const url = data.ebarimtPosApiUrl.trim();
+      if (url && !/^https?:\/\/\S+$/.test(url)) throw new Error("PosAPI URL http(s)://… хэлбэртэй байна");
+      patch.ebarimtPosApiUrl = url || "http://localhost:7080";
+    }
+    if (data.ebarimtMode != null) {
+      if (!["server", "browser"].includes(data.ebarimtMode)) throw new Error("eBarimt горим server эсвэл browser");
+      patch.ebarimtMode = data.ebarimtMode;
+    }
+    if (data.ebarimtEnabled != null) {
+      if (data.ebarimtEnabled) {
+        const merged = { ...current, ...patch };
+        const problems = ebarimtSettingsProblems({
+          enabled: true,
+          merchantTin: merged.ebarimtMerchantTin,
+          branchNo: merged.ebarimtBranchNo,
+          districtCode: merged.ebarimtDistrictCode,
+          posNo: merged.ebarimtPosNo,
+          posApiUrl: merged.ebarimtPosApiUrl,
+          mode: merged.ebarimtMode === "browser" ? "browser" : "server",
+        });
+        if (problems.length > 0) throw new Error(`eBarimt идэвхжүүлэхээс өмнө: ${problems.join("; ")}`);
+      }
+      patch.ebarimtEnabled = !!data.ebarimtEnabled;
+    }
     if (data.defaultWarehouseId !== undefined)
       patch.defaultWarehouseId = cleanText(data.defaultWarehouseId);
     if (data.issueTypeId !== undefined) {
@@ -306,6 +350,8 @@ export async function savePaymentMethod(data: {
   allowsChange?: boolean;
   allowsRefund?: boolean;
   feePercent?: number | null;
+  /** eBarimt төлбөрийн код (ТЕГ-ийн жагсаалтаас) — хоосон бол энэ хэлбэртэй борлуулалт илгээгдэхгүй. */
+  ebarimtCode?: string | null;
   isActive?: boolean;
   sortOrder?: number;
 }): Promise<ActionResult<{ id: string }>> {
@@ -351,6 +397,7 @@ export async function savePaymentMethod(data: {
       allowsChange: data.kind === "cash" ? !!data.allowsChange : false,
       allowsRefund: data.allowsRefund ?? true,
       feePercent: data.feePercent == null ? null : String(Number(data.feePercent)),
+      ebarimtCode: cleanText(data.ebarimtCode)?.toUpperCase() ?? null,
       isActive: data.isActive ?? true,
       sortOrder: Number(data.sortOrder ?? 0),
     };
@@ -693,8 +740,14 @@ export interface CreatePosSaleInput extends SaleQuoteInput {
   warehouseId?: string | null;
   payments: PaymentInput[];
   note?: string | null;
+  /** Гараар олгосон ДДТД (PosAPI-гүй үед) — өгвөл автомат илгээлт ҮГҮЙ. */
   ebarimtId?: string | null;
   ebarimtLottery?: string | null;
+  /** Иргэний eBarimt дугаар (8 орон) — B2C баримтад. */
+  ebarimtConsumerNo?: string | null;
+  /** Байгууллагын ТТД — өгвөл B2B баримт. РД өгвөл ТЕГ-ийн лавлахаас ТТД хайна. */
+  ebarimtCustomerTin?: string | null;
+  ebarimtCustomerRegNo?: string | null;
 }
 
 export interface PosReceipt {
@@ -720,6 +773,9 @@ export interface PosReceipt {
   negativeStock: { itemName: string; warehouseName: string; balanceAfter: number }[];
   ebarimtId: string | null;
   ebarimtLottery: string | null;
+  /** ТЕГ-ийн QR (илгээгдмэгц ирнэ; хэвлэх мөчид null байж болно → «Дахин хэвлэх»). */
+  ebarimtQrData: string | null;
+  ebarimtStatus: string | null;
 }
 
 export async function createPosSale(
@@ -747,6 +803,21 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   const { settings, customer, isWalkIn } = ctx;
   const date = quote.now.date;
   await assertPeriodOpen(orgId, date);
+
+  // eBarimt худалдан авагч (§4.5): ТТД ил → B2B; РД → ТЕГ-ийн лавлах; 8 оронтой → иргэн.
+  const manualEbarimtId = cleanText(input.ebarimtId);
+  let ebarimtCustomerTin = cleanText(input.ebarimtCustomerTin);
+  const ebarimtCustomerRegNo = cleanText(input.ebarimtCustomerRegNo);
+  if (!ebarimtCustomerTin && ebarimtCustomerRegNo) {
+    const info = await lookupTinByRegNo(ebarimtCustomerRegNo);
+    ebarimtCustomerTin = info.tin;
+  }
+  if (ebarimtCustomerTin && !MERCHANT_TIN_RE.test(ebarimtCustomerTin))
+    throw new Error("Худалдан авагчийн ТТД 11 эсвэл 14 оронтой тоо байна");
+  const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
+  if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
+    throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");
+  const autoEbarimt = settings.ebarimtEnabled && !manualEbarimtId;
 
   const shift = await db.query.posShifts.findFirst({
     where: and(
@@ -885,9 +956,11 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         total: String(payable),
         status: "posted",
         note: input.note?.trim() ?? "",
-        ebarimtId: cleanText(input.ebarimtId),
+        ebarimtId: manualEbarimtId,
         ebarimtLottery: cleanText(input.ebarimtLottery),
-        ebarimtStatus: cleanText(input.ebarimtId) ? "manual" : null,
+        ebarimtStatus: manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
+        ebarimtConsumerNo,
+        ebarimtCustomerTin,
       })
       .returning({ id: posSales.id });
     saleId = sale.id;
@@ -1395,6 +1468,13 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     );
   });
 
+  // eBarimt дараалал — commit-ийн ДАРАА, борлуулалтыг ХЭЗЭЭ Ч зогсоохгүй (§4.4).
+  if (autoEbarimt) {
+    await enqueueEbarimt(orgId, saleId, "send");
+    if (settings.ebarimtMode !== "browser")
+      void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] шууд илгээлт:", error));
+  }
+
   revalidatePos();
   const cashierRow = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { name: true } });
   const receipt: PosReceipt = {
@@ -1430,8 +1510,10 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     header: settings.receiptHeader,
     footer: settings.receiptFooter,
     negativeStock,
-    ebarimtId: cleanText(input.ebarimtId),
+    ebarimtId: manualEbarimtId,
     ebarimtLottery: cleanText(input.ebarimtLottery),
+    ebarimtQrData: null,
+    ebarimtStatus: manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
   };
   return { id: saleId, documentNo, receipt };
 }
@@ -2010,6 +2092,12 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
       tx
     );
   });
+  // Илгээгдсэн eBarimt-тэй эх борлуулалт → цуцлах (+ үлдсэн мөртэй бол дахин илгээх) — §4.4.
+  if (settings.ebarimtEnabled && original.ebarimtStatus === "sent" && original.ebarimtId) {
+    await enqueueEbarimt(orgId, original.id, "cancel");
+    if (settings.ebarimtMode !== "browser")
+      void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] цуцлах илгээлт:", error));
+  }
   revalidatePos();
   return { id: returnId, documentNo, refundTotal };
 }
@@ -2415,6 +2503,8 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
         negativeStock: [],
         ebarimtId: sale.ebarimtId,
         ebarimtLottery: sale.ebarimtLottery,
+        ebarimtQrData: sale.ebarimtQrData,
+        ebarimtStatus: sale.ebarimtStatus,
       },
     };
   } catch (caught) {
@@ -2429,10 +2519,22 @@ export async function updateSaleEbarimt(
   try {
     const { orgId } = await requireModuleAction(POS_MODULE_KEY, "write");
     const ebarimtId = cleanText(data.ebarimtId);
+    const sale = await db.query.posSales.findFirst({
+      where: and(eq(posSales.id, id), eq(posSales.organizationId, orgId)),
+      columns: { ebarimtStatus: true },
+    });
+    if (!sale) throw new Error("Борлуулалт олдсонгүй");
+    if (sale.ebarimtStatus === "sent") throw new Error("ТЕГ-д илгээгдсэн баримтын ДДТД-г гараар өөрчлөхгүй");
     await db
       .update(posSales)
       .set({ ebarimtId, ebarimtLottery: cleanText(data.ebarimtLottery), ebarimtStatus: ebarimtId ? "manual" : null })
       .where(and(eq(posSales.id, id), eq(posSales.organizationId, orgId)));
+    if (ebarimtId)
+      // Гараар олгосон бол хүлээгдэж буй автомат илгээлтийг зогсооно (давхар баримт үүсгэхгүй).
+      await db
+        .update(posEbarimtSubmissions)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(and(eq(posEbarimtSubmissions.saleId, id), inArray(posEbarimtSubmissions.status, ["pending", "failed"])));
     revalidatePos();
     return {};
   } catch (caught) {

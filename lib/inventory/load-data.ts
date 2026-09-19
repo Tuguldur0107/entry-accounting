@@ -58,6 +58,8 @@ export async function loadInventoryBase(orgId: string) {
     vatMode: toItemVatMode(item.vatMode),
     revenueAccountNumber: item.revenueAccountNumber ?? null,
     categoryCode: item.categoryCode ?? null,
+    ebarimtClassificationCode: item.ebarimtClassificationCode ?? null,
+    ebarimtTaxProductCode: item.ebarimtTaxProductCode ?? null,
   }));
   const warehouseViews: WarehouseView[] = warehouseRows.map((warehouse) => ({
     id: warehouse.id,
@@ -70,6 +72,7 @@ export async function loadInventoryBase(orgId: string) {
     code: category.code,
     name: category.name,
     isActive: category.isActive,
+    ebarimtClassificationCode: category.ebarimtClassificationCode ?? null,
   }));
   return { itemViews, warehouseViews, categoryViews };
 }

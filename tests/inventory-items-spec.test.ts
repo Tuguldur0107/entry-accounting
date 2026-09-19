@@ -13,6 +13,8 @@ const HEADER = [
   "Баркод",
   "НӨАТ",
   "Бүлэг",
+  "eBarimt ангилал",
+  "Татварын код",
   "Идэвхтэй",
 ];
 
@@ -22,7 +24,19 @@ test("inventoryItemsSpec: зөв мөр бүх талбартайгаа унши
   const result = parseMatrix(
     [
       HEADER,
-      ["BM-001", "Цаас А4", "боодол", "15000", "13500", "8651234567890", "10%", "OFFICE", "Тийм"],
+      [
+        "BM-001",
+        "Цаас А4",
+        "боодол",
+        "15000",
+        "13500",
+        "8651234567890",
+        "10%",
+        "OFFICE",
+        "1234567",
+        "",
+        "Тийм",
+      ],
     ],
     spec
   );
@@ -37,12 +51,14 @@ test("inventoryItemsSpec: зөв мөр бүх талбартайгаа унши
     barcode: "8651234567890",
     vatMode: "standard",
     categoryCode: "OFFICE",
+    ebarimtClassificationCode: "1234567",
+    ebarimtTaxProductCode: null,
     isActive: true,
   });
 });
 
 test("inventoryItemsSpec: хоосон нэгж/НӨАТ/идэвх default авна, сонголтот талбар null", () => {
-  const result = parseMatrix([HEADER, ["BM-002", "Үзэг", "", "", "", "", "", "", ""]], spec);
+  const result = parseMatrix([HEADER, ["BM-002", "Үзэг", "", "", "", "", "", "", "", "", ""]], spec);
   assert.equal(result.validCount, 1);
   const value = result.rows[0].value!;
   assert.equal(value.unit, "ш");
@@ -52,25 +68,45 @@ test("inventoryItemsSpec: хоосон нэгж/НӨАТ/идэвх default ав
   assert.equal(value.minSalesPrice, null);
   assert.equal(value.barcode, null);
   assert.equal(value.categoryCode, null);
+  assert.equal(value.ebarimtClassificationCode, null);
+  assert.equal(value.ebarimtTaxProductCode, null);
+});
+
+test("inventoryItemsSpec: eBarimt ангилал 7 орон, татварын код 3 орон байна", () => {
+  const bad = parseMatrix(
+    [HEADER, ["BM-010", "Ном", "ш", "", "", "", "Чөлөөлөгдсөн", "", "12345", "12", ""]],
+    spec
+  );
+  assert.equal(bad.errorCount, 1);
+  assert.ok(bad.rows[0].errors.some((error) => error.includes("eBarimt ангилал")));
+  assert.ok(bad.rows[0].errors.some((error) => error.includes("Татварын код")));
+
+  const ok = parseMatrix(
+    [HEADER, ["BM-011", "Ном", "ш", "", "", "", "Чөлөөлөгдсөн", "", "7654321", "101", ""]],
+    spec
+  );
+  assert.equal(ok.validCount, 1);
+  assert.equal(ok.rows[0].value!.ebarimtClassificationCode, "7654321");
+  assert.equal(ok.rows[0].value!.ebarimtTaxProductCode, "101");
 });
 
 test("inventoryItemsSpec: код дутуу мөр алдаатай", () => {
-  const result = parseMatrix([HEADER, ["", "Нэргүй код", "ш", "", "", "", "", "", ""]], spec);
+  const result = parseMatrix([HEADER, ["", "Нэргүй код", "ш", "", "", "", "", "", "", "", ""]], spec);
   assert.equal(result.errorCount, 1);
   assert.ok(result.rows[0].errors.some((error) => error.includes("Код")));
   assert.equal(result.rows[0].value, null);
 });
 
 test("inventoryItemsSpec: НӨАТ-ийн буруу шошго алдаа өгнө, англи түлхүүр ч болно", () => {
-  const bad = parseMatrix([HEADER, ["BM-003", "Сүү", "л", "", "", "", "20%", "", ""]], spec);
+  const bad = parseMatrix([HEADER, ["BM-003", "Сүү", "л", "", "", "", "20%", "", "", "", ""]], spec);
   assert.equal(bad.errorCount, 1);
   assert.ok(bad.rows[0].errors.some((error) => error.includes("НӨАТ")));
 
   const ok = parseMatrix(
     [
       HEADER,
-      ["BM-004", "Талх", "ш", "", "", "", "exempt", "FOOD", ""],
-      ["BM-005", "Экспорт", "ш", "", "", "", "0%", "", ""],
+      ["BM-004", "Талх", "ш", "", "", "", "exempt", "FOOD", "", "", ""],
+      ["BM-005", "Экспорт", "ш", "", "", "", "0%", "", "", "", ""],
     ],
     spec
   );
@@ -80,7 +116,7 @@ test("inventoryItemsSpec: НӨАТ-ийн буруу шошго алдаа өг�
 });
 
 test("inventoryItemsSpec: бүртгэлгүй бүлэг алдаа өгнө", () => {
-  const result = parseMatrix([HEADER, ["BM-006", "Жүүс", "ш", "", "", "", "", "DRINKS", ""]], spec);
+  const result = parseMatrix([HEADER, ["BM-006", "Жүүс", "ш", "", "", "", "", "DRINKS", "", "", ""]], spec);
   assert.equal(result.errorCount, 1);
   assert.ok(result.rows[0].errors.some((error) => error.includes("DRINKS")));
 });
@@ -89,8 +125,8 @@ test("inventoryItemsSpec: дүн ₮ ба таслалтай уншигдана,
   const result = parseMatrix(
     [
       HEADER,
-      ["BM-007", "Зөөврийн компьютер", "ш", "1,650,000₮", "1,500,000 ₮", "", "", "", ""],
-      ["BM-008", "Хямд", "ш", "1000", "2000", "", "", "", ""],
+      ["BM-007", "Зөөврийн компьютер", "ш", "1,650,000₮", "1,500,000 ₮", "", "", "", "", "", ""],
+      ["BM-008", "Хямд", "ш", "1000", "2000", "", "", "", "", "", ""],
     ],
     spec
   );

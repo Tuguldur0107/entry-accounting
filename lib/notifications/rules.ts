@@ -58,6 +58,7 @@ const ENTITY_LABEL: Record<string, string> = {
   cost: "Өртгийн бичилт",
   cost_allocation: "Зардлын хуваарилалт",
   inventory: "Барааны хөдөлгөөн",
+  pos_sale: "POS борлуулалт",
 };
 
 /** D2: «том дүн» мэдэгдлийн default босго (MNT) — company_settings.largeAmountAlertMnt дарна. */
@@ -221,6 +222,17 @@ export function notificationFromAudit(
       "payroll.voucher_created",
       "Цалингийн журнал (ноорог) үүслээ",
       { kind: "module", moduleKeys: ["payroll"], minLevel: "post" }
+    );
+
+  // eBarimt: 3 удаа дараалан амжилтгүй (lib/ebarimt/worker.ts) → POS-ийн бичих эрхтэй гишүүдэд.
+  if (entityType === "pos_sale" && action === "ebarimt_failed")
+    return draft(
+      event,
+      now,
+      "pos.ebarimt_failed",
+      "eBarimt баримт илгээгдсэнгүй",
+      { kind: "module", moduleKeys: ["pos"], minLevel: "write" },
+      { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
     );
 
   if (entityType === "membership" && action === "permissions")

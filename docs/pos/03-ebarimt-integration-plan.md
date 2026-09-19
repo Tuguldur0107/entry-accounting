@@ -1,6 +1,9 @@
 # eBarimt 3.0 (PosAPI 3.0) нэвтрүүлэлтийн төлөвлөгөө — POS Фаз 3
 
-**Төлөв:** САНАЛ (2026-09-19) — product owner-ийн батлалт хүлээж байна.
+**Төлөв:** ХЭРЭГЖСЭН (2026-09-19) — Фаз 3.1–3.4 кодонд орсон. Дэлгэрэнгүй
+хэрэгжилт: `02-implementation-status.md`, нэвтрүүлэлт: `docs/deployment/ebarimt.md`.
+Үлдсэн нээлттэй шийдвэрүүд: §7-ийн T3 (зээлийн борлуулалт INVOICE эсэх),
+T4 (хотын татвар) ба §8-ын мерчант багцын баталгаажуулалт.
 **Суурь:** `00-proposal.md` §3.11 (D8), `02-implementation-status.md` Фаз 3.
 **Эх сурвалж:** ТЕГ-ийн developer портал (`developer.itc.gov.mn/docs/ebarimt-api` — PosAPI 3.0
 системийн танилцуулга ба API холболтын заавар), нээлттэй SDK-уудын бүтэц
@@ -206,6 +209,7 @@ tests/ebarimt-receipt.test.ts     бүлэглэл, VAT/NOT_VAT, хэсэгчи�
 | **3.2 Payload** | `lib/ebarimt/receipt.ts` + тест (НӨАТ төлөгч/бус, exempt/zero, хөнгөлөлт, бөөрөнхийлөл, B2B, хэсэгчилсэн буцаалт), payment map | 371+ тест ногоон | 2 |
 | **3.3 Дараалал + worker** | `pos_ebarimt_submissions`, createPosSale/returnPosSale enqueue, worker (backoff, идемпотент), sendData cron, мэдэгдлийн дүрэм, `externalRef` sync | Staging-д бодит ДДТД буцаж ирнэ | 3 |
 | **3.4 UI** | Баримт QR/сугалаа, жагсаалт/панель статус + дахин илгээх, checkout-д худалдан авагч (иргэн/байгууллага), самбарын карт, checklist | Кассчин ямар ч нэмэлт алхамгүй | 2 |
+| ✅ 3.1–3.4 | Schema, `lib/ebarimt/*` (payload ЦЭВЭР+тесттэй, PosAPI клиент, лавлах, дараалал, worker), actions, ticker/cron, health, AI tools, UI (тохиргоо/QR/статус/дахин илгээх/ангилалын код) | Кассчин нэмэлт алхамгүй | ✅ |
 | **3.5 Deploy (A) + Console** | PosAPI Docker service (Railway) + volume, `EBARIMT_POSAPI_URL`, `/api/health.ebarimt`, `docs/deployment/ebarimt.md`, мерчант порталд бүртгэх алхам; **entry-console**: провижн алхам, мерчантын бүртгэл, monitor (§3.1) | Харилцагчийн Railway төсөлд Console-оос нэг товчоор; fleet-ийн eBarimt тойм | 3–4 |
 | **3.6 Хяналт** | Сарын тулгалт: `pos_sales` (sent) vs PosAPI `info`/ТЕГ портал; «илгээгдээгүй» тайлан; AI tools | Сар хаалтын checklist мөр | 1 |
 | | | **Нийт** | **15–16** |

@@ -89,6 +89,9 @@ export type InventoryItemPosFields = {
   vatMode?: ItemVatMode;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
+  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3 орон). */
+  ebarimtClassificationCode?: string | null;
+  ebarimtTaxProductCode?: string | null;
 };
 
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -103,6 +106,13 @@ function parseOptionalPrice(
   if (!Number.isFinite(parsed) || parsed < 0)
     throw new Error(`${label} 0-ээс багагүй тоо байна`);
   return parsed;
+}
+
+function parseClassificationCode(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const code = cleanText(value);
+  if (code && !/^\d{7}$/.test(code)) throw new Error("eBarimt ангилалын код 7 оронтой тоо байна");
+  return code;
 }
 
 /**
@@ -120,6 +130,8 @@ async function validateItemPosFields(
   vatMode?: ItemVatMode;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
+  ebarimtClassificationCode?: string | null;
+  ebarimtTaxProductCode?: string | null;
 }> {
   const salesPrice = parseOptionalPrice(data.salesPrice, "Борлуулах үнэ");
   const minSalesPrice = parseOptionalPrice(data.minSalesPrice, "Доод үнэ");
@@ -177,6 +189,19 @@ async function validateItemPosFields(
     }
   }
 
+  let ebarimtClassificationCode: string | null | undefined;
+  if (data.ebarimtClassificationCode !== undefined) {
+    ebarimtClassificationCode = cleanText(data.ebarimtClassificationCode);
+    if (ebarimtClassificationCode && !/^\d{7}$/.test(ebarimtClassificationCode))
+      throw new Error("eBarimt ангилалын код 7 оронтой тоо байна");
+  }
+  let ebarimtTaxProductCode: string | null | undefined;
+  if (data.ebarimtTaxProductCode !== undefined) {
+    ebarimtTaxProductCode = cleanText(data.ebarimtTaxProductCode);
+    if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
+      throw new Error("Татварын бүтээгдэхүүний код 3 оронтой тоо байна");
+  }
+
   return {
     salesPrice: salesPrice === undefined ? undefined : salesPrice == null ? null : String(salesPrice),
     minSalesPrice:
@@ -185,6 +210,8 @@ async function validateItemPosFields(
     vatMode: data.vatMode,
     revenueAccountNumber,
     categoryCode,
+    ebarimtClassificationCode,
+    ebarimtTaxProductCode,
   };
 }
 
@@ -260,6 +287,8 @@ async function createInventoryItemCore(
         vatMode: pos.vatMode ?? "standard",
         revenueAccountNumber: pos.revenueAccountNumber ?? null,
         categoryCode: pos.categoryCode ?? null,
+        ebarimtClassificationCode: pos.ebarimtClassificationCode ?? null,
+        ebarimtTaxProductCode: pos.ebarimtTaxProductCode ?? null,
       })
       .returning({ id: inventoryItems.id });
     await recordPriceHistory(tx, {
@@ -324,6 +353,12 @@ async function updateInventoryItemCore(
           ? { revenueAccountNumber: pos.revenueAccountNumber }
           : {}),
         ...(pos.categoryCode !== undefined ? { categoryCode: pos.categoryCode } : {}),
+        ...(pos.ebarimtClassificationCode !== undefined
+          ? { ebarimtClassificationCode: pos.ebarimtClassificationCode }
+          : {}),
+        ...(pos.ebarimtTaxProductCode !== undefined
+          ? { ebarimtTaxProductCode: pos.ebarimtTaxProductCode }
+          : {}),
       })
       .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
     await recordPriceHistory(tx, {
@@ -480,7 +515,15 @@ export async function toggleWarehouse(id: string, isActive: boolean) {
 
 // ── Барааны бүлэг (POS: хөнгөлөлтийн дүрэм, тайлангийн бүлэглэл) ─────────────
 
-export async function createInventoryCategory(data: { code: string; name: string }): Promise<ActionResult> {
+type InventoryCategoryInput = {
+  code: string;
+  name: string;
+  ebarimtClassificationCode?: string | null;
+};
+
+export async function createInventoryCategory(
+  data: InventoryCategoryInput
+): Promise<ActionResult> {
   try {
     return await createInventoryCategoryCore(data);
   } catch (caught) {
@@ -488,12 +531,13 @@ export async function createInventoryCategory(data: { code: string; name: string
   }
 }
 
-async function createInventoryCategoryCore(data: { code: string; name: string }) {
+async function createInventoryCategoryCore(data: InventoryCategoryInput) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
   if (!code) throw new Error("Бүлгийн код оруулна уу");
   if (!name) throw new Error("Бүлгийн нэр оруулна уу");
+  const ebarimtClassificationCode = parseClassificationCode(data.ebarimtClassificationCode) ?? null;
   const duplicate = await db.query.inventoryCategories.findFirst({
     where: and(
       eq(inventoryCategories.organizationId, orgId),
@@ -502,12 +546,22 @@ async function createInventoryCategoryCore(data: { code: string; name: string })
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой бүлэг бүртгэгдсэн байна`);
-  await db.insert(inventoryCategories).values({ userId, organizationId: orgId, code, name });
+  await db
+    .insert(inventoryCategories)
+    .values({ userId, organizationId: orgId, code, name, ebarimtClassificationCode });
   revalidateInventory();
   return {};
 }
 
-export async function updateInventoryCategory(id: string, data: { name: string }): Promise<ActionResult> {
+type InventoryCategoryUpdateInput = {
+  name: string;
+  ebarimtClassificationCode?: string | null;
+};
+
+export async function updateInventoryCategory(
+  id: string,
+  data: InventoryCategoryUpdateInput
+): Promise<ActionResult> {
   try {
     return await updateInventoryCategoryCore(id, data);
   } catch (caught) {
@@ -515,13 +569,14 @@ export async function updateInventoryCategory(id: string, data: { name: string }
   }
 }
 
-async function updateInventoryCategoryCore(id: string, data: { name: string }) {
+async function updateInventoryCategoryCore(id: string, data: InventoryCategoryUpdateInput) {
   const { orgId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Бүлгийн нэр оруулна уу");
+  const ebarimtClassificationCode = parseClassificationCode(data.ebarimtClassificationCode);
   await db
     .update(inventoryCategories)
-    .set({ name })
+    .set({ name, ...(ebarimtClassificationCode !== undefined ? { ebarimtClassificationCode } : {}) })
     .where(
       and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
     );

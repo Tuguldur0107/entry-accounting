@@ -52,6 +52,8 @@ export interface PaymentMethodView {
   allowsChange: boolean;
   allowsRefund: boolean;
   feePercent: number | null;
+  /** eBarimt төлбөрийн код (payments[].code) — хоосон бол eBarimt илгээгдэхгүй. */
+  ebarimtCode: string | null;
   isActive: boolean;
   sortOrder: number;
 }
@@ -264,6 +266,13 @@ export interface PosSaleView {
   arApStatus: string | null;
   ebarimtId: string | null;
   ebarimtLottery: string | null;
+  /** lib/ebarimt/constants.ts EbarimtStatus — null = илгээгдээгүй (eBarimt унтраалттай). */
+  ebarimtStatus: string | null;
+  ebarimtQrData: string | null;
+  ebarimtDate: string | null;
+  ebarimtType: string | null;
+  ebarimtConsumerNo: string | null;
+  ebarimtCustomerTin: string | null;
   note: string;
   /** Төлбөрийн хэлбэрийн товч (жишээ: "Бэлэн 1,000,000 · Карт 661,550"). */
   paymentSummary: string;
@@ -328,4 +337,12 @@ export interface PosSettingsView {
   cashRoundingUnit: number;
   receiptHeader: string;
   receiptFooter: string;
+  // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md) ──
+  ebarimtEnabled: boolean;
+  ebarimtMerchantTin: string;
+  ebarimtBranchNo: string;
+  ebarimtDistrictCode: string;
+  ebarimtPosNo: string;
+  ebarimtPosApiUrl: string;
+  ebarimtMode: "server" | "browser";
 }

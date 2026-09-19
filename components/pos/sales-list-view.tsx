@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { FilterChips, type ChipOption } from "@/components/ui/tabs";
+import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { SALE_STATUS_LABELS } from "@/lib/pos/constants";
 import type { PosSaleView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -21,12 +22,22 @@ import { openPosSalePanel } from "@/lib/store/panel-store";
 
 type StatusFilter = "all" | "posted" | "partially_returned" | "returned" | "voided";
 type KindFilter = "all" | "sales" | "returns";
+type EbarimtFilter = "all" | "failed";
 
 export const SALE_STATUS_TONES: Record<string, StatusTone> = {
   posted: "success",
   partially_returned: "warning",
   returned: "muted",
   voided: "danger",
+};
+
+/** eBarimt статусын өнгө (lib/ebarimt/constants.ts EbarimtStatus). */
+export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
+  sent: "success",
+  pending: "warning",
+  failed: "danger",
+  cancelled: "muted",
+  manual: "muted",
 };
 
 const STATUS_VALUES: StatusFilter[] = ["all", "posted", "partially_returned", "returned", "voided"];
@@ -55,6 +66,7 @@ export function SalesListView({
     STATUS_VALUES.includes(initialStatus as StatusFilter) ? (initialStatus as StatusFilter) : "all"
   );
   const [kind, setKind] = useState<KindFilter>("all");
+  const [ebarimt, setEbarimt] = useState<EbarimtFilter>("all");
   const [rangeFrom, setRangeFrom] = useState(from);
   // Муж өөрчлөгдөхөд эцэг `key`-ээр remount хийнэ (sales-workspace.tsx).
   const [rangeTo, setRangeTo] = useState(to);
@@ -87,9 +99,22 @@ export function SalesListView({
     [sales]
   );
 
+  const ebarimtChips = useMemo<ChipOption<EbarimtFilter>[]>(() => {
+    const failed = sales.filter((sale) => sale.ebarimtStatus === "failed").length;
+    return [
+      { value: "all", label: "eBarimt бүгд" },
+      { value: "failed", label: "eBarimt алдаатай", count: failed, tone: "warning" as const },
+    ];
+  }, [sales]);
+
   const visible = useMemo(
-    () => kindFiltered.filter((sale) => status === "all" || sale.status === status),
-    [kindFiltered, status]
+    () =>
+      kindFiltered.filter(
+        (sale) =>
+          (status === "all" || sale.status === status) &&
+          (ebarimt === "all" || sale.ebarimtStatus === "failed")
+      ),
+    [kindFiltered, status, ebarimt]
   );
 
   const navIdsRef = useRef<string[]>([]);
@@ -180,8 +205,28 @@ export function SalesListView({
       },
       {
         headerName: "eBarimt",
-        field: "ebarimtId",
+        field: "ebarimtStatus",
         width: 130,
+        valueGetter: (p) =>
+          p.data?.ebarimtStatus
+            ? EBARIMT_STATUS_LABELS[p.data.ebarimtStatus as EbarimtStatus] ?? p.data.ebarimtStatus
+            : "—",
+        cellRenderer: (p: ICellRendererParams<PosSaleView>) => {
+          const value = p.data?.ebarimtStatus;
+          if (!value) return <span className="text-[var(--ea-text-4)]">—</span>;
+          return (
+            <span className="flex h-full items-center">
+              <StatusBadge tone={EBARIMT_STATUS_TONES[value] ?? "muted"} size="sm">
+                {EBARIMT_STATUS_LABELS[value as EbarimtStatus] ?? value}
+              </StatusBadge>
+            </span>
+          );
+        },
+      },
+      {
+        headerName: "ДДТД",
+        field: "ebarimtId",
+        width: 140,
         cellClass: "font-mono text-xs",
         valueFormatter: (p) => String(p.value ?? ""),
       },
@@ -213,6 +258,7 @@ export function SalesListView({
         </div>
         <FilterChips options={kindChips} value={kind} onChange={setKind} />
         <FilterChips options={statusChips} value={status} onChange={setStatus} />
+        <FilterChips options={ebarimtChips} value={ebarimt} onChange={setEbarimt} />
       </div>
 
       {sales.length === 0 ? (
