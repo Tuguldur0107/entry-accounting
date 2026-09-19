@@ -3,7 +3,7 @@
 // Борлуулалтын дэлгэрэнгүй тайлан — docs/pos/00-proposal.md §5.
 // Бараа материал → Тайлан → "Борлуулалт" таб. Өгөгдөл нь page.tsx-ээс
 // (loadSalesReport) ирнэ; энд ЗӨВХӨН цэвэр нэгтгэл (aggregateBy / summarize /
-// aggregatePayments — lib/pos/reports.ts) + харуулалт. Шүүлтүүр бүр URL
+// aggregatePayments — lib/pos/sales-report.ts) + харуулалт. Шүүлтүүр бүр URL
 // параметр (wh, cashier, cp, method, item, cat) — хуудас сервер талд дахин
 // ачаална; дэд таб `view`, огноо `start`/`end` (тоо хэмжээний табтай нийтлэг).
 //
@@ -34,7 +34,7 @@ import {
   type SalesLineRow,
   type SalesReportData,
   type SalesSummary,
-} from "@/lib/pos/reports";
+} from "@/lib/pos/sales-report";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openPosSalePanel } from "@/lib/store/panel-store";
 
