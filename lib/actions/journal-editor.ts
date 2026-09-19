@@ -29,6 +29,8 @@ export interface JournalEditorData {
     id: string;
     date: string;
     description: string;
+    /** Журналын бичилтийн дугаар (GL-26-000001); хуучин бичилтэд null. */
+    documentNo: string | null;
     status: string;
     createdAt: string;
     /** Энэ журнал ӨӨРӨӨ буцаалт бол — эх журналын id. */
@@ -124,6 +126,7 @@ export async function getJournalEditorData(
             id: voucher.id,
             date: voucher.date,
             description: voucher.description,
+            documentNo: voucher.documentNo,
             status: voucher.status,
             createdAt: voucher.createdAt
               .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })

@@ -515,7 +515,7 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         voucherId: {
           type: "string",
-          description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+          description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)",
         },
       },
       required: ["voucherId"],
@@ -530,7 +530,7 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         voucherId: {
           type: "string",
-          description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)",
+          description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)",
         },
       },
       required: ["voucherId"],
@@ -882,7 +882,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        voucherId: { type: "string", description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)" },
+        voucherId: { type: "string", description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)" },
       },
       required: ["voucherId"],
     },
@@ -894,7 +894,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        voucherId: { type: "string", description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)" },
+        voucherId: { type: "string", description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)" },
         date: { type: "string", description: "Шинэ огноо YYYY-MM-DD (сонголтоор)" },
         description: { type: "string", description: "Шинэ утга (сонголтоор)" },
         lines: {
@@ -913,7 +913,7 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        voucherId: { type: "string", description: "Журналын ID (бүтэн эсвэл эхний 8+ тэмдэгт)" },
+        voucherId: { type: "string", description: "Журналын бичилтийн дугаар (ж: GL-26-000001) ЭСВЭЛ ID (бүтэн/эхний 8+ тэмдэгт)" },
       },
       required: ["voucherId"],
     },
@@ -3380,6 +3380,20 @@ function resolveByIdPrefix<T extends { id: string }>(
   throw new Error(`"${idOrPrefix}" гэхэд ${matches.length} ${what} таарлаа — бүтэн ID өгнө үү`);
 }
 
+/**
+ * Журналыг ДУГААРААР (GL-26-000001) эсвэл ID-гаар олно. Хэрэглэгч чатад
+ * дугаараа бичдэг (жагсаалтад ч тэр гардаг) тул эхлээд түүгээр хайж, олдохгүй
+ * бол ID угтвар руу шилжинэ — хуучин, дугааргүй бичилт ч ажиллана.
+ */
+function resolveVoucherRef<
+  T extends { id: string; documentNo?: string | null },
+>(rows: T[], ref: string): T {
+  const query = ref.trim().toLowerCase();
+  const byNo = rows.filter((row) => row.documentNo?.toLowerCase() === query);
+  if (byNo.length === 1) return byNo[0];
+  return resolveByIdPrefix(rows, ref, "журнал");
+}
+
 /** Батлах үйлдэл зөвхөн "Шууд бичих" горимд — эс бөгөөс ойлгомжтой татгалзал. */
 function assertPostMode(mode: AiWriteMode) {
   if (mode !== "post")
@@ -3405,12 +3419,18 @@ async function runPostJournal(
   assertPostMode(mode);
   const vouchers = await db.query.journalVouchers.findMany({
     where: eq(journalVouchers.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true },
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      description: true,
+      date: true,
+    },
     with: { lines: { columns: { debit: true } } },
     orderBy: [desc(journalVouchers.createdAt)],
     limit: 500,
   });
-  const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
+  const voucher = resolveVoucherRef(vouchers, input.voucherId);
   if (voucher.status !== "draft")
     throw new Error(`Журнал ноорог биш байна (төлөв: ${voucher.status})`);
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
@@ -3435,11 +3455,17 @@ async function runDeleteJournal(
 ): Promise<AiToolResult> {
   const vouchers = await db.query.journalVouchers.findMany({
     where: eq(journalVouchers.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true },
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      description: true,
+      date: true,
+    },
     orderBy: [desc(journalVouchers.createdAt)],
     limit: 500,
   });
-  const voucher = resolveByIdPrefix(vouchers, input.voucherId, "журнал");
+  const voucher = resolveVoucherRef(vouchers, input.voucherId);
   // Батлагдсан бичилтийг устгах нь эргэлт буцалтгүй — зөвхөн "Шууд бичих"
   // горимд, батлах/буцаахтай ИЖИЛ дүнгийн лимиттэй зөвшөөрнө (ноорог
   // устгалт аль ч горимд чөлөөтэй).
@@ -3772,7 +3798,10 @@ async function runListJournalVouchers(
           (sum, line) => sum + Number(line.debit),
           0
         );
-        return `${voucher.date} · ${voucher.description || "(утгагүй)"} · ${fmt(total)}₮ · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id.slice(0, 8)}`;
+        // Дугаартай бол ТҮҮГЭЭР нэрлэнэ (хэрэглэгч журналаа үүгээр таньдаг);
+        // дугааргүй хуучин бичилтэд ID-гаар. Бүтэн ID нь хэрэгтэй үед tool-д
+        // угтвараар ч дамждаг тул хоёулаа ажиллана.
+        return `${voucher.date} · ${voucher.documentNo ?? `ID ${voucher.id.slice(0, 8)}`} · ${voucher.description || "(утгагүй)"} · ${fmt(total)}₮ · ${statusLabels[voucher.status] ?? voucher.status}`;
       })
       .join("\n"),
   };
@@ -4322,11 +4351,7 @@ async function runGetJournal(
   input: { voucherId: string }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  const voucher = resolveByIdPrefix(
-    await loadVouchers(orgId),
-    input.voucherId,
-    "журнал"
-  );
+  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
   const statusLabels: Record<string, string> = {
     draft: "ноорог",
     posted: "батлагдсан",
@@ -4338,7 +4363,7 @@ async function runGetJournal(
   );
   return {
     resultText: [
-      `${voucher.date} · ${voucher.description} · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id}`,
+      `${voucher.date} · ${voucher.documentNo ?? "(дугааргүй)"} · ${voucher.description} · ${statusLabels[voucher.status] ?? voucher.status} · ID ${voucher.id}`,
       ...lines,
     ].join("\n"),
   };
@@ -4354,11 +4379,7 @@ async function runUpdateJournal(
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  const voucher = resolveByIdPrefix(
-    await loadVouchers(orgId),
-    input.voucherId,
-    "журнал"
-  );
+  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
   if (voucher.status !== "draft")
     throw new Error(`Зөвхөн ноорог журналыг засна (төлөв: ${voucher.status})`);
 
@@ -4401,11 +4422,7 @@ async function runReverseJournal(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
-  const voucher = resolveByIdPrefix(
-    await loadVouchers(orgId),
-    input.voucherId,
-    "журнал"
-  );
+  const voucher = resolveVoucherRef(await loadVouchers(orgId), input.voucherId);
   if (voucher.status !== "posted")
     throw new Error(`Зөвхөн батлагдсан журналыг буцаана (төлөв: ${voucher.status})`);
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
@@ -6860,7 +6877,13 @@ async function runUpdateCashDocument(
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
     where: eq(cashDocuments.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true },
+    columns: {
+      id: true,
+      documentNo: true,
+      status: true,
+      description: true,
+      date: true,
+    },
     orderBy: [desc(cashDocuments.createdAt)],
     limit: 500,
   });

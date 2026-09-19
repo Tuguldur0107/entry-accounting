@@ -195,7 +195,7 @@ export function JournalList({
           const debit = Number(line.debit);
           const credit = Number(line.credit);
           return [
-            voucher.id.slice(0, 8),
+            voucher.documentNo ?? voucher.id.slice(0, 8),
             voucher.date,
             voucher.description,
             fmtAccountDisplay(line.accountNumber, activeSegIds),
@@ -361,16 +361,19 @@ export function JournalList({
         sortable: true,
       },
       {
-        headerName: "ID",
-        field: "id",
-        width: 80,
-        valueGetter: (p) => p.data?.id.slice(0, 8) ?? "",
+        headerName: "Журналын бичилт",
+        field: "documentNo",
+        width: 140,
+        // Дугаар нь эх модулиа ил хэлнэ (GL-26-000001, CM-26-000012…).
+        // Энэ багана нэмэгдэхээс ӨМНӨХ бичилт дугааргүй — «—» гарна, ID нь
+        // tooltip-д үлдэнэ (хуучин баримтыг хайх шаардлага гарвал).
+        valueGetter: (p) => p.data?.documentNo ?? "",
         cellRenderer: (p: ICellRendererParams<VoucherRow>) => (
           <span
-            className="font-mono text-[10px] text-[var(--ea-text-4)] select-all"
-            title={p.data?.id}
+            className="font-mono text-[11px] text-[var(--ea-text-2)] select-all"
+            title={p.data?.documentNo ?? p.data?.id}
           >
-            {p.data?.id?.slice(0, 8) ?? ""}
+            {p.data?.documentNo ?? "—"}
           </span>
         ),
         sortable: true,
