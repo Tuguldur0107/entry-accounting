@@ -6,7 +6,9 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
+import { resolveAiPostLimit } from "@/lib/ai/post-limit";
 import { getActiveOrg, requireRole } from "@/lib/auth";
+import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
 import {
   companySettings,
@@ -14,6 +16,7 @@ import {
   type CompanySettings,
 } from "@/lib/db/schema";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
+import { emitNotification } from "@/lib/notifications/emit";
 
 
 /** ~1MB-аас том зураг татгалзана — PDF/DB-ийг дэмий бүдүүрүүлэхгүй. */
@@ -56,6 +59,9 @@ export async function updateCompanySettings(data: {
   emailDomainVerified?: boolean;
   /** «Том дүн» мэдэгдлийн босго (MNT); null = default 10 сая ₮ (D2). */
   largeAmountAlertMnt?: number | null;
+  /** AI/MCP-ийн шууд батлах дээд хязгаар (MNT); null = default 10 сая ₮ (§9).
+      Tool-оор өсгөх таазыг дуудагч (lib/ai/tools.ts) ӨМНӨӨ нь шалгана. */
+  aiPostLimitMnt?: number | null;
 }) {
   // Компанийн мэдээлэл = тохиргоо — admin+.
   const { orgId, userId } = await requireRole("admin");
@@ -81,6 +87,24 @@ export async function updateCompanySettings(data: {
     (!Number.isFinite(data.largeAmountAlertMnt) || data.largeAmountAlertMnt <= 0)
   )
     throw new Error("Том дүнгийн босго 0-ээс их тоо байна");
+  if (
+    data.aiPostLimitMnt != null &&
+    (!Number.isFinite(data.aiPostLimitMnt) || data.aiPostLimitMnt <= 0)
+  )
+    throw new Error("AI-ийн батлах хязгаар 0-ээс их тоо байна");
+
+  // Хязгаарын өөрчлөлтийг аудит + мэдэгдэлд гаргахын тулд ӨМНӨХ утгыг уншина.
+  const previousLimit =
+    data.aiPostLimitMnt === undefined
+      ? null
+      : resolveAiPostLimit(
+          (
+            await db.query.companySettings.findFirst({
+              where: eq(companySettings.organizationId, orgId),
+              columns: { aiPostLimitMnt: true },
+            })
+          )?.aiPostLimitMnt
+        );
 
   const base = {
     name: data.name.trim(),
@@ -101,6 +125,10 @@ export async function updateCompanySettings(data: {
     ...(data.largeAmountAlertMnt !== undefined && {
       largeAmountAlertMnt:
         data.largeAmountAlertMnt == null ? null : String(Math.round(data.largeAmountAlertMnt)),
+    }),
+    ...(data.aiPostLimitMnt !== undefined && {
+      aiPostLimitMnt:
+        data.aiPostLimitMnt == null ? null : String(Math.round(data.aiPostLimitMnt)),
     }),
     updatedAt: new Date(),
   };
@@ -123,6 +151,40 @@ export async function updateCompanySettings(data: {
         ...(data.stamp !== undefined && { stamp: data.stamp }),
       },
     });
+
+  // AI-ийн батлах хязгаар өөрчлөгдвөл — аудит + эзэн/админд мэдэгдэл.
+  // Actor-ыг ХАСАХГҮЙ (§9d-ийн ХОЁР ДАХЬ үл хамаарах): энэ нь аюулгүй
+  // байдлын хяналт тул өөрчилсөн хүнд өөрт нь ч баталгаа очих ёстой —
+  // AI/MCP-ээр өөрчлөгдсөн үед token-ий эзэн тэр даруй харна.
+  if (previousLimit !== null) {
+    const nextLimit = resolveAiPostLimit(data.aiPostLimitMnt ?? null);
+    if (nextLimit !== previousLimit) {
+      const summary = `AI батлах хязгаар: ${previousLimit.toLocaleString("en-US")}₮ → ${nextLimit.toLocaleString("en-US")}₮`;
+      await logAuditEvent({
+        userId,
+        organizationId: orgId,
+        action: "ai_post_limit",
+        entityType: "settings",
+        entityId: orgId,
+        summary,
+      });
+      await emitNotification(orgId, {
+        type: "settings.ai_limit_changed",
+        title:
+          nextLimit > previousLimit
+            ? "AI-ийн батлах хязгаар ӨСЛӨӨ"
+            : "AI-ийн батлах хязгаар буурлаа",
+        body: `${summary}. Энэ дүн хүртэлх бичилт «Шууд бичих» горимд нягтланчийн баталгаажуулалтгүй батлагдана.`,
+        href: "/settings/company",
+        entityType: "settings",
+        entityId: orgId,
+        dedupeKey: `ai-post-limit:${orgId}:${new Date().toISOString().slice(0, 16)}`,
+        severity: "warning",
+        audience: { kind: "roles", roles: ["owner", "admin"] },
+        payload: { previousMnt: previousLimit, nextMnt: nextLimit },
+      });
+    }
+  }
 
   // Байгууллагын нэр/ТТД = компанийн нэр/регистр — нэг эх сурвалж.
   // (Switcher, жагсаалт, Удирдлага хуудас бүгд organizations-оос уншдаг.)

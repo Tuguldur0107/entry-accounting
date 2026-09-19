@@ -3102,6 +3102,9 @@ export const companySettings = pgTable("company_settings", {
   emailDomainVerified: boolean("email_domain_verified").notNull().default(false),
   /** «Том дүн» мэдэгдлийн босго (MNT) — null = default (D2, 10 сая ₮). */
   largeAmountAlertMnt: numeric("large_amount_alert_mnt", { precision: 18, scale: 2 }),
+  /** AI/MCP/REST шууд батлах дээд хязгаар (MNT) — null = default 10 сая ₮ (§9).
+      Tool-оор өсгөхөд тааз (lib/ai/post-limit.ts); вэбээс админ чөлөөтэй. */
+  aiPostLimitMnt: numeric("ai_post_limit_mnt", { precision: 18, scale: 2 }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [uniqueIndex("company_settings_org_id_ux").on(t.organizationId)]);
 

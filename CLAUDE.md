@@ -859,10 +859,37 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/human-in-the-loop.md`
 
 - AI agent бичилт default-оор **ноорог** үүсгэнэ — хэрэглэгч баталгаажуулна
-- Хэрэглэгч чатнаас "Шууд бичих" горим ИЛ сонгосон үед л тэнцсэн, ≤10M₮
-  бичилт шууд батлагдана (`AI_POST_LIMIT_MNT`, lib/ai/tools.ts)
-- Том дүн (>10M₮), period хаалт, payroll post → нягтланч баталгаажуулалт
-  шаарддаг — post горимд ч ноорог үлдэнэ
+- Хэрэглэгч чатнаас "Шууд бичих" горим ИЛ сонгосон үед л тэнцсэн, **батлах
+  хязгаарын дотор** бичилт шууд батлагдана
+- Том дүн (хязгаараас их), period хаалт, payroll post → нягтланч
+  баталгаажуулалт шаарддаг — post горимд ч ноорог үлдэнэ
+
+**Батлах хязгаар нь БАЙГУУЛЛАГААР тохируулагдана** (`company_settings.
+aiPostLimitMnt`, null = default 10 сая ₮) — Тохиргоо → Компанийн мэдээлэл:
+
+```
+lib/ai/post-limit.ts   ЦЭВЭР (тесттэй): DEFAULT_AI_POST_LIMIT_MNT (10M),
+                       AI_POST_LIMIT_TOOL_CEILING_MNT (1 тэрбум — TOOL-оор
+                       ӨСГӨХ тааз), resolveAiPostLimit, planAiPostLimitChange
+                       + AsyncLocalStorage (runWithAiPostLimit / currentAiPostLimit)
+tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргээлт, зэрэгцээ хүсэлт
+```
+
+- **Хязгаарыг хүсэлт бүрд НЭГ л удаа уншина** — `executeAiTool` нь
+  `runWithAiPostLimit`-ээр контекстод тавьж, гүн дэх `assertPostLimit` (22
+  дуудах цэг) `currentAiPostLimit()`-ээр SYNC хэвээр уншина. Контекстгүй
+  дуудагдвал default (хамгийн болгоомжтой); зэрэгцээ хүсэлтүүд бие биенийхээ
+  утгыг ХАРАХГҮЙ (AsyncLocalStorage, module-level хувьсагч ХОРИОТОЙ)
+- **AI өөрийн таазыг хязгааргүй ӨРГӨХ нь ХОРИОТОЙ** — баримтанд суулгасан
+  «зааварчилгаа» (prompt injection) агентаар лимитээ өсгүүлээд дараа нь том
+  дүн батлуулах зам байж болно. `update_company_settings`-ийн
+  `aiPostLimitMnt` нь `planAiPostLimitChange({viaTool:true})`-ээр дайрна:
+  өсгөлт `AI_POST_LIMIT_TOOL_CEILING_MNT`-ээр тагласан (`[LIMIT_CEILING_EXCEEDED]`),
+  түүнээс дээш зөвхөн ВЭБЭЭС админ. **БУУРУУЛАХАД тааз хамаарахгүй**
+- Өөрчлөлт бүр `logAuditEvent` (`settings` / `ai_post_limit`) + эзэн/админд
+  `settings.ai_limit_changed` мэдэгдэл (instant и-мэйл)
+- `lib/payroll/calc.ts`-ийн `{ upTo: 10_000_000 }` нь ХАОАТ-ын шатлалын хил
+  (ХУУЛИЙН тоо) — үүнтэй хольж тохируулга болгохыг ХОРИГЛОНО
 
 ### 9a. AI туслах — tool-use agent
 
@@ -875,6 +902,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
+| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨХ нь 1 тэрбум ₮ таазтай; `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
@@ -1102,7 +1130,11 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   гүүр дүнг tx executor-оор уншина — commit-оос өмнөх мөр харагдана; эзэн/админд),
   `ai.drafts_created` (`executeAiTool` → `notifyAiDraft`: AI/MCP/REST-ээс ноорог
   үүсвэл модулийн ≥post гишүүдэд, actor хасна), `invoice.viewed` (нэхэмжлэхийн
-  нээлттэй хуудас — аудитын үйл явдал биш тул шууд emit, ЦОРЫН ГАНЦ үл хамаарах),
+  нээлттэй хуудас — аудитын үйл явдал биш тул шууд emit, үл хамаарах №1),
+  `settings.ai_limit_changed` (§9-ийн батлах хязгаар өөрчлөгдөх —
+  `updateCompanySettings`-ээс шууд emit, эзэн/админд; **actor-ыг ХАСАХГҮЙ** нь
+  үл хамаарах №2: аюулгүй байдлын хяналт тул AI/MCP-ээр өөрчлөгдсөн үед
+  token-ий эзэн өөрөө тэр даруй харах ёстой),
   `bank.unmatched` (импортоос 3 хоног), `fx.reval_due` (сарын сүүлийн 3 хоног),
   `fx.rate_missing` (ажлын өдөр, МБ ханш алга), `stock.negative` (долоо хоног тутам)
 - **Нэмэлт суваг:** tick бүрд `deliverPendingChannels` — суваг × мэдэгдэл нэг л удаа;
@@ -1505,6 +1537,8 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            periodKey × org unique — scheduler/digest булаалт),
            notification_deliveries (мэдэгдэл × суваг unique) — §9d;
            company_settings.largeAmountAlertMnt (D2 босго)
+Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
+           хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
 ```

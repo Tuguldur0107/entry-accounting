@@ -181,6 +181,7 @@ import {
   cashFxRevaluations,
   cashDocuments,
   chartOfAccounts,
+  companySettings,
   costAllocations,
   costComponents,
   costEntries,
@@ -238,6 +239,14 @@ import { emitNotification } from "@/lib/notifications/emit";
 import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
 
 import type { AiWriteMode } from "./models";
+import {
+  AI_POST_LIMIT_TOOL_CEILING_MNT,
+  currentAiPostLimit,
+  DEFAULT_AI_POST_LIMIT_MNT,
+  planAiPostLimitChange,
+  resolveAiPostLimit,
+  runWithAiPostLimit,
+} from "./post-limit";
 
 import type { AiAction } from "./action-markers";
 import {
@@ -246,8 +255,6 @@ import {
   findCustomTool,
 } from "@/lib/custom/loader";
 
-/** Post горимд ч үүнээс их дүнтэй бичилт НООРОГ үлдэнэ (§9). */
-export const AI_POST_LIMIT_MNT = 10_000_000;
 
 export type { AiAction };
 
@@ -2000,6 +2007,18 @@ export const AI_TOOLS: AiToolDef[] = [
           description:
             "Илгээгч домэйн Resend дээр verify хийгдсэн эсэх — false үед tenant хаягаар илгээхгүй",
         },
+        largeAmountAlertMnt: {
+          type: "number",
+          description:
+            "«Том дүн» мэдэгдлийн босго (₮) — үүнээс их баримт батлагдахад эзэн/админд мэдэгдэнэ. 0 өгвөл default (10 сая ₮)",
+        },
+        aiPostLimitMnt: {
+          type: "number",
+          description:
+            "AI/MCP/REST-ийн ШУУД БАТЛАХ дээд хязгаар (₮) — «Шууд бичих» горимд ч үүнээс их бичилт ноорог үлдэнэ. 0 өгвөл default " +
+            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ӨСГӨХ нь ${AI_POST_LIMIT_TOOL_CEILING_MNT.toLocaleString("en-US")}₮ таазтай — ` +
+            "түүнээс дээш хязгаарыг зөвхөн вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ тавина. Бууруулахад тааз хамаарахгүй",
+        },
       },
     },
   },
@@ -2918,8 +2937,8 @@ async function runCreateJournal(
   if (mode === "post") {
     if (!balanced)
       note = ` (тэнцээгүй тул ноорог үлдэв: Дт ${fmt(totalDebit)} ≠ Кт ${fmt(totalCredit)})`;
-    else if (totalDebit > AI_POST_LIMIT_MNT)
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв — нягтланч шалгаж батална)`;
+    else if (totalDebit > currentAiPostLimit())
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв — нягтланч шалгаж батална)`;
     else status = "posted";
   }
 
@@ -3193,8 +3212,8 @@ async function runCreateArap(
   let postNow = false;
   let note = "";
   if (mode === "post") {
-    if (baseTotal > AI_POST_LIMIT_MNT || !(baseTotal > 0))
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    if (baseTotal > currentAiPostLimit() || !(baseTotal > 0))
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else postNow = true;
   }
 
@@ -3365,10 +3384,10 @@ async function runCreateCash(
       primary.currency !== "MNT"
         ? amount * (Number(input.exchangeRate) || 0)
         : amount;
-    if (baseAmount > AI_POST_LIMIT_MNT || !(baseAmount > 0))
+    if (baseAmount > currentAiPostLimit() || !(baseAmount > 0))
       return {
         postNow: false,
-        note: ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`,
+        note: ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`,
       };
     return { postNow: true, note: "" };
   };
@@ -3693,10 +3712,11 @@ function assertPostMode(mode: AiWriteMode) {
 }
 
 function assertPostLimit(total: number) {
-  if (total > AI_POST_LIMIT_MNT)
+  const limit = currentAiPostLimit();
+  if (total > limit)
     throw codedError(
       "AMOUNT_LIMIT_EXCEEDED",
-      `${fmt(total)}₮ нь ${fmt(AI_POST_LIMIT_MNT)}₮-ийн хязгаараас их — нягтланч вэб дээрээс шалгаж батална уу`
+      `${fmt(total)}₮ нь ${fmt(limit)}₮-ийн хязгаараас их — нягтланч вэб дээрээс шалгаж батална уу`
     );
 }
 
@@ -5424,8 +5444,8 @@ async function runPayArap(
   let postNow = false;
   let note = "";
   if (mode === "post") {
-    if (baseAmount > AI_POST_LIMIT_MNT || !(baseAmount > 0))
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    if (baseAmount > currentAiPostLimit() || !(baseAmount > 0))
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else postNow = true;
   }
 
@@ -5766,7 +5786,7 @@ async function runPostBatch(
   ];
   if (needsManual.length > 0)
     summary.push(
-      `Вэб дээрээс нягтланч батлах шаардлагатай (${fmt(AI_POST_LIMIT_MNT)}₮-с их): ${needsManual.join(", ")}`
+      `Вэб дээрээс нягтланч батлах шаардлагатай (${fmt(currentAiPostLimit())}₮-с их): ${needsManual.join(", ")}`
     );
   return { resultText: summary.join("\n") };
 }
@@ -7101,6 +7121,7 @@ async function runGetCompanySettings(): Promise<AiToolResult> {
         : "Банкны данс: бүртгэлгүй",
       `Лого: ${settings.logo ? "бий" : "—"} · Тамга: ${settings.stamp ? "бий" : "—"} · Гарын үсэг: ${settings.signatures.length}`,
       `Нэхэмжлэх илгээгч: ${settings.invoiceFromEmail ?? "— (env default)"}${settings.invoiceFromEmail ? (settings.emailDomainVerified ? " · домэйн баталгаажсан" : " · ⚠ домэйн БАТАЛГААЖААГҮЙ") : ""}${settings.invoiceReplyTo ? ` · reply-to: ${settings.invoiceReplyTo}` : ""}`,
+      `AI шууд батлах хязгаар: ${fmt(resolveAiPostLimit(settings.aiPostLimitMnt))}₮${settings.aiPostLimitMnt == null ? " (default)" : ""} · Том дүнгийн мэдэгдэл: ${fmt(resolveAiPostLimit(settings.largeAmountAlertMnt))}₮${settings.largeAmountAlertMnt == null ? " (default)" : ""}`,
     ].join("\n"),
   };
 }
@@ -7116,10 +7137,31 @@ async function runUpdateCompanySettings(input: {
   invoiceFromEmail?: string;
   invoiceReplyTo?: string;
   emailDomainVerified?: boolean;
+  largeAmountAlertMnt?: number;
+  aiPostLimitMnt?: number;
 }): Promise<AiToolResult> {
   const current = await getCompanySettings();
   const name = input.name?.trim() || current?.name || "";
   if (!name) throw new Error("Компанийн нэр заавал (одоо тохируулаагүй байна)");
+
+  // AI өөрийн таазыг ХЯЗГААРГҮЙ өргөхийг хориглоно — баримтанд суулгасан
+  // зааварчилгаа (prompt injection) агентаар лимитээ өсгүүлэх замыг хаана.
+  // Бууруулах нь чөлөөтэй; өсгөх нь таазтай (lib/ai/post-limit.ts).
+  let aiPostLimitMnt: number | null | undefined;
+  let limitNote = "";
+  if (input.aiPostLimitMnt !== undefined) {
+    const requested = Number(input.aiPostLimitMnt) > 0 ? Number(input.aiPostLimitMnt) : null;
+    const plan = planAiPostLimitChange({
+      currentMnt: resolveAiPostLimit(current?.aiPostLimitMnt),
+      requestedMnt: requested,
+      viaTool: true,
+    });
+    if (!plan.ok) throw codedError(plan.code, plan.message);
+    aiPostLimitMnt = plan.valueMnt;
+    if (plan.direction !== "same")
+      limitNote = ` · AI шууд батлах хязгаар: ${fmt(plan.effectiveMnt)}₮${plan.valueMnt === null ? " (default)" : ""}`;
+  }
+
   await updateCompanySettings({
     name,
     registerNo: input.registerNo ?? current?.registerNo ?? null,
@@ -7135,8 +7177,15 @@ async function runUpdateCompanySettings(input: {
     invoiceFromEmail: input.invoiceFromEmail,
     invoiceReplyTo: input.invoiceReplyTo,
     emailDomainVerified: input.emailDomainVerified,
+    largeAmountAlertMnt:
+      input.largeAmountAlertMnt === undefined
+        ? undefined
+        : Number(input.largeAmountAlertMnt) > 0
+          ? Number(input.largeAmountAlertMnt)
+          : null,
+    aiPostLimitMnt,
   });
-  return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}` };
+  return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}${limitNote}` };
 }
 
 async function runListAuditEvents(
@@ -7926,8 +7975,8 @@ async function runCreatePurchaseOrder(
     if (!(baseTotal > 0))
       note =
         " (₮ дүн тодорхойгүй — exchangeRate ил өгөөгүй тул ноорог үлдэв; approve_purchase_order-оор батална)";
-    else if (baseTotal > AI_POST_LIMIT_MNT)
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    else if (baseTotal > currentAiPostLimit())
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else approveNow = true;
   }
 
@@ -8347,8 +8396,8 @@ async function runCreateGoodsReceipt(
     if (!(baseTotal > 0))
       note =
         " (₮ дүн тодорхойгүй — exchangeRate ил өгөөгүй тул ноорог үлдэв; confirm_goods_receipt-оор батална)";
-    else if (baseTotal > AI_POST_LIMIT_MNT)
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    else if (baseTotal > currentAiPostLimit())
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else confirmNow = true;
   }
 
@@ -8590,8 +8639,8 @@ async function runCreateApInvoiceFromPo(
     if (!(baseTotal > 0))
       note =
         " (₮ дүн тодорхойгүй — exchangeRate ил өгөөгүй тул ноорог үлдэв; post_arap_document-оор батална)";
-    else if (baseTotal > AI_POST_LIMIT_MNT)
-      note = ` (${fmt(AI_POST_LIMIT_MNT)}₮-с их тул ноорог үлдэв)`;
+    else if (baseTotal > currentAiPostLimit())
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else postNow = true;
   }
 
@@ -9313,9 +9362,18 @@ export async function executeAiTool(
     const { orgId, userId } = await getActiveOrg();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
-    const result = await dispatchAiTool(orgId, userId, name, args, mode);
-    await notifyAiDraft(orgId, userId, name, result);
-    return result;
+    // Шууд батлах хязгаарыг хүсэлт бүрд НЭГ л удаа уншиж контекстод тавина —
+    // гүн дэх assertPostLimit sync хэвээр, зэрэгцээ хүсэлтүүд бие биенийхээ
+    // утгыг харахгүй (lib/ai/post-limit.ts).
+    const settings = await db.query.companySettings.findFirst({
+      where: eq(companySettings.organizationId, orgId),
+      columns: { aiPostLimitMnt: true },
+    });
+    return await runWithAiPostLimit(resolveAiPostLimit(settings?.aiPostLimitMnt), async () => {
+      const result = await dispatchAiTool(orgId, userId, name, args, mode);
+      await notifyAiDraft(orgId, userId, name, result);
+      return result;
+    });
   } catch (caught) {
     return aiToolErrorResult(name, caught);
   }

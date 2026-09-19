@@ -146,6 +146,9 @@ export function CompanySettingsForm({
   const [largeAmountAlert, setLargeAmountAlert] = useState(
     initial?.largeAmountAlertMnt != null ? String(Number(initial.largeAmountAlertMnt)) : ""
   );
+  const [aiPostLimit, setAiPostLimit] = useState(
+    initial?.aiPostLimitMnt != null ? String(Number(initial.aiPostLimitMnt)) : ""
+  );
   const [isPending, startTransition] = useTransition();
 
   function save() {
@@ -178,6 +181,9 @@ export function CompanySettingsForm({
           emailDomainVerified,
           largeAmountAlertMnt: largeAmountAlert.trim()
             ? Number(largeAmountAlert.replace(/[^\d.]/g, ""))
+            : null,
+          aiPostLimitMnt: aiPostLimit.trim()
+            ? Number(aiPostLimit.replace(/[^\d.]/g, ""))
             : null,
         });
         toast.success("Компанийн мэдээлэл хадгалагдлаа");
@@ -417,6 +423,36 @@ export function CompanySettingsForm({
             inputMode="numeric"
             value={largeAmountAlert}
             onChange={(e) => setLargeAmountAlert(e.target.value)}
+            placeholder="10000000"
+          />
+        </div>
+      </section>
+
+      {/* ── AI туслахын шууд батлах хязгаар (§9 human-in-the-loop) ── */}
+      <section className="ea-glass space-y-4 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+            <Icon name="ai" size="sm" className="text-[var(--ea-text-3)]" />
+            AI-ийн шууд батлах хязгаар
+          </h2>
+          <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
+            AI туслах, MCP, REST-ээр «Шууд бичих» горимд батлагдах дээд дүн
+            (MNT). Үүнээс их бичилт ноорог үлдэж, нягтланч өөрөө батална.
+            Хоосон бол 10,000,000₮.
+          </p>
+          <p className="mt-1 text-xs text-[var(--ea-warning-fg)]">
+            AI өөрөө энэ хязгаарыг 1,000,000,000₮ хүртэл л өсгөж чадна —
+            түүнээс дээшийг зөвхөн эндээс тавина. Өөрчлөгдөх бүрд эзэн/админд
+            мэдэгдэл очиж, аудитын мөрд бүртгэгдэнэ.
+          </p>
+        </div>
+        <div className="max-w-xs space-y-1.5">
+          <Label htmlFor="ai-post-limit">Хязгаар (₮)</Label>
+          <Input
+            id="ai-post-limit"
+            inputMode="numeric"
+            value={aiPostLimit}
+            onChange={(e) => setAiPostLimit(e.target.value)}
             placeholder="10000000"
           />
         </div>

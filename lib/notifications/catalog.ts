@@ -205,6 +205,15 @@ export const NOTIFICATION_CATALOG = {
     email: "digest",
     inApp: true,
   },
+  // AI-ийн шууд батлах хязгаар өөрчлөгдсөн — эзэн/админд ЯГ ОДОО мэдэгдэнэ
+  // (агент өөрөө өсгөсөн бол хүн тэр даруй харна, lib/ai/post-limit.ts).
+  "settings.ai_limit_changed": {
+    category: "security",
+    severity: "warning",
+    label: "AI-ийн батлах хязгаар өөрчлөгдлөө",
+    email: "instant",
+    inApp: true,
+  },
 } as const satisfies Record<string, NotificationTypeDef>;
 
 export type NotificationType = keyof typeof NOTIFICATION_CATALOG;

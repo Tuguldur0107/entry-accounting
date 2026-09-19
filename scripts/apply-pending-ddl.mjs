@@ -321,6 +321,10 @@ async function main() {
     "company_settings.large_amount_alert_mnt багана",
     `alter table company_settings add column if not exists large_amount_alert_mnt numeric(18,2)`
   );
+  await run(
+    "company_settings.ai_post_limit_mnt багана",
+    `alter table company_settings add column if not exists ai_post_limit_mnt numeric(18,2)`
+  );
 
   // ── 4. inventory_items.sales_price (барааны борлуулах үнэ — АР нэгж үнэ) ──
   await run(
