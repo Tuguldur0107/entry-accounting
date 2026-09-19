@@ -45,3 +45,27 @@ test("editing the amount keeps debit and credit mutually exclusive", () => {
   assert.equal(result[0].debit, 500);
   assert.equal(result[0].credit, 0);
 });
+
+test("валютын хос дээр ижил логик — дараагийн мөрд эсрэг тал саналаар", () => {
+  const rows = [
+    { id: "a", debit: 0, credit: 0, debitFc: 0, creditFc: 0 },
+    { id: "b", debit: 0, credit: 0, debitFc: 0, creditFc: 0 },
+  ];
+  const next = applyJournalAmountSuggestion(rows, "a", "debitFc", 250.5);
+  assert.equal(next[0].debitFc, 250.5);
+  assert.equal(next[0].creditFc, 0);
+  assert.equal(next[1].creditFc, 250.5);
+  // MNT хос ХӨНДӨГДӨХГҮЙ — тэр нь ханшаар бодогддог
+  assert.equal(next[0].debit, 0);
+  assert.equal(next[1].credit, 0);
+});
+
+test("валютын мөрд утга байвал саналаар дарж бичихгүй", () => {
+  const rows = [
+    { id: "a", debit: 0, credit: 0, debitFc: 0, creditFc: 0 },
+    { id: "b", debit: 0, credit: 0, debitFc: 100, creditFc: 0 },
+  ];
+  const next = applyJournalAmountSuggestion(rows, "a", "debitFc", 50);
+  assert.equal(next[1].debitFc, 100);
+  assert.equal(next[1].creditFc, 0);
+});

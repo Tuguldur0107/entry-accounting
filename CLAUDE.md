@@ -195,6 +195,42 @@ tests/voucher-no.test.ts  Жилийн хил, модуль тус бүрийн 
 **Шинэ бичилтийн зам нэмэхэд** `journalVouchers`-д insert хийх бүрд
 `documentNo: await nextVoucherNo(tx, orgId, "<модуль>", <огноо>)` ЗААВАЛ өгнө.
 
+### 2b. Журналын ВАЛЮТ (IAS 21) — ХЭРЭГЖСЭН
+
+Баримтад **НЭГ валют, НЭГ ханш** (касс, АР/АП-тай ИЖИЛ загвар —
+`journal_vouchers.currency` / `exchangeRate` / `rateSource` / `rateDate`).
+
+```
+Хэрэглэгч ВАЛЮТААР бичнэ  →  MNT нь ханшаар БОДОГДОНО  →  GL-д хоёулаа хадгалагдана
+  journal_lines.debitFc/creditFc          journal_lines.debit/credit (ДЭВТРИЙН валют)
+```
+
+- **MNT-г гараар бичихийг зөвшөөрөхгүй** — валютын журналд MNT багана нь
+  зөвхөн ХАРАХ (дүн ба ханш хэзээ ч зөрөхгүй). Баланс, тайлан, хаалт бүгд
+  `debit`/`credit` (MNT)-ээр л бодогдоно — өөрчлөгдөөгүй
+- **Сервер дахин бодно** (`resolveVoucherCurrency`, lib/actions/gl.ts):
+  client-ийн MNT дүнд НАЙДАХГҮЙ — trust boundary
+- **Тэнцэл ВАЛЮТААР** шалгагдана (`fcBalance`); мөр бүр тусдаа
+  бөөрөнхийлөгддөг тул MNT нийлбэр 1–2₮ зөрж болно → **батлах МӨЧИД**
+  зөрүүг ХАМГИЙН ТОМ мөрөнд ил шингээнэ (`convertLinesToBase`, НӨАТ
+  inclusive-ийн largest-line absorb-тай ИЖИЛ дүрэм). Ноорогт шингээхгүй
+- **Ханш огноогоор АВТОМАТ**: валют эсвэл огноо солигдоход тухайн өдрийн
+  Монголбанкны албан ханш татагдана (§5b store-first, `fetchOfficialRate`).
+  Олдохгүй бол ЗОХИОХГҮЙ — хэрэглэгч гараар оруулна; гараар өгсөн ханш
+  `rateSource: "manual"` гэж ИЛ тэмдэглэгдэнэ
+- **Журналын жагсаалт**: журнал ӨӨРӨӨ валюттай бол мөрд хадгалагдсан
+  ЖИНХЭНЭ валютын дүнг үзүүлнэ (`fcFromLines`); хуучин бичилтэд эх баримтын
+  ханшаар бодсон MNT ÷ ханш гэсэн ЛАВЛАГАА хэвээр
+
+```
+lib/gl/currency.ts        ЦЭВЭР (тесттэй): normalizeCurrency, assertRate,
+                          convertLinesToBase (бөөрөнхийллийн шингээлт), fcBalance
+lib/actions/gl.ts         resolveVoucherCurrency — create/update/post бүх зам
+components/gl/journal-entry-form.tsx  Валют + ханшийн талбар, автомат таталт
+components/journal/journal-lines-grid.tsx  Валютын Дт/Кт багана (MNT нь readonly)
+tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, гажиг оролт
+```
+
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
@@ -1453,6 +1489,9 @@ GL         journal_vouchers, journal_lines, document_counters
              эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
              journal_lines.businessObjectType / businessObjectId — клирингийн
              түлхүүр (PO), бичих МӨЧИД тавигдана
+             journal_vouchers.currency / exchangeRate / rateSource / rateDate +
+               journal_lines.debitFc / creditFc — баримтын ВАЛЮТ (§2b);
+               MNT баримтад "MNT" / 1 / 0
 Cash       cash_accounts, cash_documents, bank_statements,
            bank_statement_lines, cash_fx_revaluations
              cash_documents.counterpartyId — харилцагчийн БҮРТГЭЛИЙН холбоос

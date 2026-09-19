@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtMnt } from "@/lib/reports/balances";
+import { convertLinesToBase, fcBalance } from "@/lib/gl/currency";
+import { fetchOfficialRate } from "@/lib/actions/procurement";
 import {
   buildSegCode,
   fmtAccountDisplay,
@@ -98,12 +100,20 @@ interface InitialLine {
   debit: string | number;
   credit: string | number;
   description: string;
+  /** Гадаад валютын дүн — валютын журналд хэрэглэгчийн бичсэн дүн. */
+  debitFc?: string | number;
+  creditFc?: string | number;
 }
 
 interface InitialVoucher {
   date: string;
   description: string;
   lines: InitialLine[];
+  /** Баримтын валют (default MNT) ба ханш — IAS 21, CLAUDE.md §2b. */
+  currency?: string;
+  exchangeRate?: string | number;
+  rateSource?: string | null;
+  rateDate?: string | null;
 }
 
 interface Props {
@@ -150,6 +160,13 @@ interface Props {
 }
 
 const fmt = (n: number) => fmtMnt(n);
+/** Ханшийг уншихад ойлгомжтой байдлаар — хоосон бол «—». */
+const fmtRate = (value: string) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0
+    ? n.toLocaleString("en-US", { maximumFractionDigits: 4 })
+    : "—";
+};
 
 export function JournalEntryForm({
   accounts,
@@ -182,12 +199,32 @@ export function JournalEntryForm({
       account: buildSegCode(parts, activeSegIds, defaultSegments),
       debit: 0,
       credit: 0,
+      debitFc: 0,
+      creditFc: 0,
       description: "",
     };
   }, [activeSegIds, defaultSegments]);
 
   const [date, setDate] = useState(initialVoucher?.date ?? today);
   const [description, setDescription] = useState(initialVoucher?.description ?? "");
+  // ── Баримтын валют ба ханш (баримтад НЭГ валют — CLAUDE.md §2b) ──────────
+  const [currency, setCurrency] = useState(
+    (initialVoucher?.currency ?? "MNT").toUpperCase()
+  );
+  const [rate, setRate] = useState(
+    String(initialVoucher?.exchangeRate ?? 1)
+  );
+  const [rateSource, setRateSource] = useState<string | null>(
+    initialVoucher?.rateSource ?? null
+  );
+  const [rateDate, setRateDate] = useState<string | null>(
+    initialVoucher?.rateDate ?? null
+  );
+  const [rateBusy, setRateBusy] = useState(false);
+  const [rateNote, setRateNote] = useState("");
+  const foreign = currency !== "MNT";
+  const rateNum = Number(rate);
+
   const [lines, setLines] = useState<JournalLineRow[]>(() => {
     if (initialVoucher?.lines && initialVoucher.lines.length >= 2) {
       return initialVoucher.lines.map((l) => ({
@@ -195,6 +232,14 @@ export function JournalEntryForm({
         account: l.account,
         debit: typeof l.debit === "number" ? l.debit : parseFloat(String(l.debit)) || 0,
         credit: typeof l.credit === "number" ? l.credit : parseFloat(String(l.credit)) || 0,
+        debitFc:
+          typeof l.debitFc === "number"
+            ? l.debitFc
+            : parseFloat(String(l.debitFc ?? 0)) || 0,
+        creditFc:
+          typeof l.creditFc === "number"
+            ? l.creditFc
+            : parseFloat(String(l.creditFc ?? 0)) || 0,
         description: l.description,
       }));
     }
@@ -207,14 +252,103 @@ export function JournalEntryForm({
   const linesRef = useRef(lines);
   // Формын root — панель горимд Ctrl+Enter фокус дотор нь байгааг шалгана.
   const formRootRef = useRef<HTMLDivElement>(null);
+  /**
+   * Валютын журналд ДЭВТРИЙН (MNT) дүнг валютын дүнгээс дахин бодно —
+   * хэрэглэгч MNT-г гараар бичихгүй тул дүн ба ханш хэзээ ч зөрөхгүй.
+   * Ноорог тэнцээгүй байж болох тул бөөрөнхийлөл шингээхгүй (батлах МӨЧИД
+   * сервер өөрөө шингээнэ — lib/gl/currency.ts).
+   */
+  const withBaseAmounts = useCallback(
+    (rows: JournalLineRow[]): JournalLineRow[] => {
+      if (!foreign || !(rateNum > 0)) return rows;
+      try {
+        const converted = convertLinesToBase(
+          rows.map((row) => ({
+            debitFc: row.debitFc ?? 0,
+            creditFc: row.creditFc ?? 0,
+          })),
+          rateNum,
+          { absorbRounding: false }
+        );
+        return rows.map((row, index) => ({
+          ...row,
+          debit: converted.lines[index].debit,
+          credit: converted.lines[index].credit,
+        }));
+      } catch {
+        // Гажиг мөр (хоёр тал зэрэг) — хэрэглэгч засаж байгаа явцад тохиолдоно.
+        return rows;
+      }
+    },
+    [foreign, rateNum]
+  );
+
   const updateLines = useCallback(
     (updater: (prev: JournalLineRow[]) => JournalLineRow[]) => {
-      const next = updater(linesRef.current);
+      const next = withBaseAmounts(updater(linesRef.current));
       linesRef.current = next;
       setLines(next);
     },
-    []
+    [withBaseAmounts]
   );
+
+  // Валют эсвэл ОГНОО солигдоход тухайн ӨДРИЙН Монголбанкны албан ханш
+  // автоматаар бөглөгдөнө (§5b store-first). Хэрэглэгч ханшаа дарж бичвэл
+  // "manual" болж, дараагийн валют/огнооны өөрчлөлт хүртэл ДАХИН татахгүй.
+  const autoRateKey = useRef<string>("");
+  useEffect(() => {
+    if (readOnly) return;
+    const key = `${currency}|${date}`;
+    // MNT руу буцахад талбаруудыг ТОХИРУУЛАХ нь валют солих ҮЙЛДЭЛД
+    // (onChange) хийгдэнэ — effect дотор setState хийхгүй.
+    if (!foreign) {
+      autoRateKey.current = key;
+      return;
+    }
+    if (!/^[A-Z]{3}$/.test(currency) || !date) return;
+    if (autoRateKey.current === key) return;
+    autoRateKey.current = key;
+    let cancelled = false;
+    setRateBusy(true);
+    setRateNote("");
+    fetchOfficialRate({ currency, date })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.error || !result.rate) {
+          // Ханш ЗОХИОХГҮЙ — хэрэглэгч гараар оруулна (CLAUDE.md §5b).
+          setRateNote(
+            result.error ?? "Албан ханш олдсонгүй — ханшаа гараар оруулна уу"
+          );
+          setRateSource("manual");
+          return;
+        }
+        setRate(String(result.rate));
+        setRateSource("mongolbank");
+        setRateDate(result.rateDate ?? date);
+        setRateNote(
+          result.rateDate && result.rateDate !== date
+            ? `Монголбанк — ${result.rateDate}-ны ханш (тухайн өдөр ханш нийтлэгдээгүй)`
+            : "Монголбанкны албан ханш"
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRateNote("Ханш татагдсангүй — гараар оруулна уу");
+        setRateSource("manual");
+      })
+      .finally(() => {
+        if (!cancelled) setRateBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currency, date, foreign, readOnly]);
+
+  // Ханш солигдоход бүх мөрийн MNT дүнг дахин бодно.
+  useEffect(() => {
+    if (!foreign || !(rateNum > 0)) return;
+    updateLines((prev) => prev);
+  }, [rateNum, foreign, updateLines]);
 
   const [saving, setSaving] = useState<"draft" | "posted" | null>(null);
   const [error, setError] = useState("");
@@ -246,7 +380,16 @@ export function JournalEntryForm({
   const currentSnapshot = JSON.stringify({
     date,
     description,
-    lines: lines.map((l) => [l.account, l.debit, l.credit, l.description]),
+    currency,
+    rate,
+    lines: lines.map((l) => [
+      l.account,
+      l.debit,
+      l.credit,
+      l.debitFc ?? 0,
+      l.creditFc ?? 0,
+      l.description,
+    ]),
   });
   const [initialSnapshot] = useState(currentSnapshot);
   const dirty = !readOnly && currentSnapshot !== initialSnapshot;
@@ -266,9 +409,15 @@ export function JournalEntryForm({
 
   const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
-  const diff = totalDebit - totalCredit;
-  const isEmpty = totalDebit === 0 && totalCredit === 0;
-  const balanced = !isEmpty && Math.abs(diff) <= 0.01;
+  // Валютын журналд ТЭНЦЛИЙГ ВАЛЮТААР шалгана — MNT нь ханшаар бодогддог
+  // тул түүний бөөрөнхийллийн 1–2₮ зөрүү тэнцлийн шалгуур болох ёсгүй
+  // (батлах мөчид сервер зөрүүг хамгийн том мөрөнд шингээнэ).
+  const fc = fcBalance(
+    lines.map((l) => ({ debitFc: l.debitFc ?? 0, creditFc: l.creditFc ?? 0 }))
+  );
+  const diff = foreign ? fc.difference : totalDebit - totalCredit;
+  const isEmpty = foreign ? fc.isEmpty : totalDebit === 0 && totalCredit === 0;
+  const balanced = foreign ? fc.balanced : !isEmpty && Math.abs(diff) <= 0.01;
 
   const segOptions = useMemo<Record<number, SegOption[]>>(() => {
     const map: Record<number, SegOption[]> = {};
@@ -342,12 +491,25 @@ export function JournalEntryForm({
       setError("Огноо ба гүйлгээний утгыг бөглөнө үү");
       return;
     }
+    if (foreign && !(Number(rate) > 0)) {
+      setError("Ханш оруулна уу — ханш зохиогдохгүй");
+      return;
+    }
     // Хамгийн сүүлийн (commit хийгдсэн) мөрүүдээр тэнцлийг дахин шалгана.
+    // Валютын журналд ВАЛЮТААР (MNT нь ханшаар бодогддог).
     const current = linesRef.current;
-    const dr = current.reduce((s, l) => s + l.debit, 0);
-    const cr = current.reduce((s, l) => s + l.credit, 0);
-    const balancedNow =
-      !(dr === 0 && cr === 0) && Math.abs(dr - cr) <= 0.01;
+    const balancedNow = foreign
+      ? fcBalance(
+          current.map((l) => ({
+            debitFc: l.debitFc ?? 0,
+            creditFc: l.creditFc ?? 0,
+          }))
+        ).balanced
+      : (() => {
+          const dr = current.reduce((s, l) => s + l.debit, 0);
+          const cr = current.reduce((s, l) => s + l.credit, 0);
+          return !(dr === 0 && cr === 0) && Math.abs(dr - cr) <= 0.01;
+        })();
     if (status === "posted" && !balancedNow) return;
     setSaving(status);
     setError("");
@@ -356,10 +518,16 @@ export function JournalEntryForm({
         date,
         description: description.trim(),
         status,
+        currency,
+        exchangeRate: foreign ? Number(rate) : 1,
+        rateSource: foreign ? rateSource : null,
+        rateDate: foreign ? rateDate : null,
         lines: current.map((l) => ({
           account: l.account,
           debit: l.debit,
           credit: l.credit,
+          debitFc: l.debitFc ?? 0,
+          creditFc: l.creditFc ?? 0,
           description: l.description,
         })),
       };
@@ -694,6 +862,57 @@ export function JournalEntryForm({
                       />
                     )}
                   </HeaderField>
+                  <HeaderField label="Валют" htmlFor="voucher-currency">
+                    {readOnly ? (
+                      <span className="font-mono text-sm text-[var(--ea-text-1)]">
+                        {currency}
+                        {foreign && ` · ханш ${fmtRate(rate)}`}
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="voucher-currency"
+                          className="h-8 w-20 font-mono uppercase"
+                          maxLength={3}
+                          value={currency}
+                          onChange={(e) => {
+                            const next = e.target.value.toUpperCase();
+                            setCurrency(next);
+                            // MNT рүү буцахад ханшийн талбарууд цэвэрлэгдэнэ.
+                            if (next === "MNT") {
+                              setRate("1");
+                              setRateSource(null);
+                              setRateDate(null);
+                              setRateNote("");
+                            }
+                          }}
+                          placeholder="MNT"
+                        />
+                        {foreign && (
+                          <Input
+                            id="voucher-rate"
+                            className="h-8 w-32 font-mono"
+                            inputMode="decimal"
+                            value={rate}
+                            placeholder="Ханш"
+                            title={`1 ${currency} = ? MNT`}
+                            onChange={(e) => {
+                              setRate(e.target.value);
+                              // Гараар дарж бичсэн — аудитад ИЛ үлдэнэ.
+                              setRateSource("manual");
+                              setRateDate(date);
+                              setRateNote("Гараар оруулсан ханш");
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {foreign && !readOnly && (rateBusy || rateNote) && (
+                      <span className="mt-0.5 block truncate text-[11px] text-[var(--ea-text-4)]">
+                        {rateBusy ? "Ханш татаж байна…" : rateNote}
+                      </span>
+                    )}
+                  </HeaderField>
                   <HeaderField
                     label="Журналын нэр"
                     htmlFor="voucher-description"
@@ -716,15 +935,31 @@ export function JournalEntryForm({
                 </div>
 
                 <div className="flex shrink-0 gap-6 text-right">
-                  <HeaderField label="Нийт дебет" align="right">
+                  <HeaderField
+                    label={foreign ? `Нийт дебет (${currency})` : "Нийт дебет"}
+                    align="right"
+                  >
                     <span className="font-mono text-lg font-semibold text-[var(--ea-text-1)]">
-                      {fmt(totalDebit)}
+                      {fmt(foreign ? fc.totalDebit : totalDebit)}
                     </span>
+                    {foreign && (
+                      <span className="block font-mono text-[11px] text-[var(--ea-text-4)]">
+                        {fmt(totalDebit)}₮
+                      </span>
+                    )}
                   </HeaderField>
-                  <HeaderField label="Нийт кредит" align="right">
+                  <HeaderField
+                    label={foreign ? `Нийт кредит (${currency})` : "Нийт кредит"}
+                    align="right"
+                  >
                     <span className="font-mono text-lg font-semibold text-[var(--ea-text-1)]">
-                      {fmt(totalCredit)}
+                      {fmt(foreign ? fc.totalCredit : totalCredit)}
                     </span>
+                    {foreign && (
+                      <span className="block font-mono text-[11px] text-[var(--ea-text-4)]">
+                        {fmt(totalCredit)}₮
+                      </span>
+                    )}
                   </HeaderField>
                 </div>
               </div>
@@ -800,6 +1035,7 @@ export function JournalEntryForm({
               defaultSegments={defaultSegments}
               onError={setError}
               readOnly={readOnly}
+              currency={currency}
             />
           </div>
         </div>
