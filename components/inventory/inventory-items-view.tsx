@@ -158,6 +158,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
   async function handleImport(values: InventoryItemImport[]) {
     try {
       const result = await importInventoryItems(values);
+      if (result.error !== undefined) return result.error;
       const parts = [
         result.created > 0 ? `${result.created} шинээр бүртгэгдэв` : null,
         result.updated > 0 ? `${result.updated} шинэчлэгдэв` : null,

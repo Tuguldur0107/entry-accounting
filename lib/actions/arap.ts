@@ -579,7 +579,15 @@ async function deleteCounterpartyCore(id: string) {
   return { name: counterparty.name };
 }
 
-export async function toggleCounterparty(id: string, isActive: boolean) {
+export async function toggleCounterparty(id: string, isActive: boolean): Promise<ActionResult> {
+  try {
+    return await toggleCounterpartyCore(id, isActive);
+  } catch (caught) {
+    return actionError("toggleCounterparty", caught, "Төлөв солигдсонгүй");
+  }
+}
+
+async function toggleCounterpartyCore(id: string, isActive: boolean) {
   const { orgId } = await requireAnyModuleAction([
     ["ar", "write"],
     ["ap", "write"],
@@ -589,6 +597,7 @@ export async function toggleCounterparty(id: string, isActive: boolean) {
     .set({ isActive })
     .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)));
   revalidateArAp();
+  return {};
 }
 
 // ── Баримтын мутацууд ────────────────────────────────────────────────────────

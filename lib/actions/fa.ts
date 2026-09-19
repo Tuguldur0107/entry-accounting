@@ -884,6 +884,18 @@ export async function getFaTieOutDetail(data: {
   accountNumber: string;
   from: string;
   to: string;
+}): Promise<ActionResult<FaTieOutDetail>> {
+  try {
+    return await getFaTieOutDetailCore(data);
+  } catch (caught) {
+    return actionError("getFaTieOutDetail", caught, "Задаргаа ачаалагдсангүй");
+  }
+}
+
+async function getFaTieOutDetailCore(data: {
+  accountNumber: string;
+  from: string;
+  to: string;
 }): Promise<FaTieOutDetail> {
   const { orgId } = await getActiveOrg();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.from) || !/^\d{4}-\d{2}-\d{2}$/.test(data.to))

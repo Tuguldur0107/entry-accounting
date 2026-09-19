@@ -17,6 +17,7 @@ import {
 } from "@/lib/ai/models";
 import { encryptSecret } from "@/lib/ai/crypto";
 import type { AiChatMessage } from "@/components/ai/ai-chat-view";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 export interface AiChatBootstrap {
   initialMessages: AiChatMessage[];
@@ -107,6 +108,17 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
 export async function saveAiChatPrefs(input: {
   model: string;
   writeMode: string;
+}): Promise<ActionResult> {
+  try {
+    return await saveAiChatPrefsCore(input);
+  } catch (caught) {
+    return actionError("saveAiChatPrefs", caught, "Тохиргоо хадгалагдсангүй");
+  }
+}
+
+async function saveAiChatPrefsCore(input: {
+  model: string;
+  writeMode: string;
 }) {
   const { userId, orgId } = await getActiveOrg();
   if (typeof input?.model !== "string" || !isAiModelId(input.model))
@@ -131,10 +143,23 @@ export async function saveAiChatPrefs(input: {
         updatedAt: new Date(),
       },
     });
+  return {};
 }
 
 /** Модель / хариултын гүн / нэмэлт заавар хадгална (түлхүүрт үл хамаарна). */
 export async function saveAiSettings(input: {
+  model: string;
+  effort: string;
+  customInstructions: string;
+}): Promise<ActionResult> {
+  try {
+    return await saveAiSettingsCore(input);
+  } catch (caught) {
+    return actionError("saveAiSettings", caught, "Тохиргоо хадгалагдсангүй");
+  }
+}
+
+async function saveAiSettingsCore(input: {
   model: string;
   effort: string;
   customInstructions: string;
@@ -174,10 +199,19 @@ export async function saveAiSettings(input: {
 
   revalidatePath("/ai");
   revalidatePath("/ai/settings");
+  return {};
 }
 
 /** Хэрэглэгчийн өөрийн Anthropic API түлхүүрийг хадгална. */
-export async function setAiApiKey(apiKey: string) {
+export async function setAiApiKey(apiKey: string): Promise<ActionResult> {
+  try {
+    return await setAiApiKeyCore(apiKey);
+  } catch (caught) {
+    return actionError("setAiApiKey", caught, "Түлхүүр хадгалагдсангүй");
+  }
+}
+
+async function setAiApiKeyCore(apiKey: string) {
   const { userId, orgId } = await getActiveOrg();
 
   const trimmed = typeof apiKey === "string" ? apiKey.trim() : "";
@@ -200,6 +234,7 @@ export async function setAiApiKey(apiKey: string) {
 
   revalidatePath("/ai");
   revalidatePath("/ai/settings");
+  return {};
 }
 
 /** Хадгалсан түлхүүрийг устгана — серверийн орчны түлхүүр рүү буцна. */
@@ -218,7 +253,15 @@ export async function removeAiApiKey() {
 }
 
 /** Хэрэглэгчийн өөрийн OpenAI API түлхүүрийг хадгална (шифрлэгдэнэ). */
-export async function setAiOpenAiApiKey(apiKey: string) {
+export async function setAiOpenAiApiKey(apiKey: string): Promise<ActionResult> {
+  try {
+    return await setAiOpenAiApiKeyCore(apiKey);
+  } catch (caught) {
+    return actionError("setAiOpenAiApiKey", caught, "Түлхүүр хадгалагдсангүй");
+  }
+}
+
+async function setAiOpenAiApiKeyCore(apiKey: string) {
   const { userId, orgId } = await getActiveOrg();
 
   const trimmed = typeof apiKey === "string" ? apiKey.trim() : "";
@@ -240,6 +283,7 @@ export async function setAiOpenAiApiKey(apiKey: string) {
 
   revalidatePath("/ai");
   revalidatePath("/ai/settings");
+  return {};
 }
 
 /** Хадгалсан OpenAI түлхүүрийг устгана. */

@@ -6316,10 +6316,12 @@ async function runCreateVatSettlement(
       { allNames: accounts.map((entry) => entry.name) }
     ).id;
   }
-  const result = await createVatSettlementDraft({
-    periodCode: input.period,
-    cashAccountId,
-  });
+  const result = unwrapAction(
+    await createVatSettlementDraft({
+      periodCode: input.period,
+      cashAccountId,
+    })
+  );
   return {
     resultText: result.dedup
       ? `${input.period} сарын НӨАТ тооцоо аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`

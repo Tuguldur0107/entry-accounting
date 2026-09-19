@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { notificationPreferences } from "@/lib/db/schema";
+import { actionError, type ActionResult } from "@/lib/action-result";
 import {
   findTelegramChatByCode,
   sendTelegramMessage,
@@ -54,7 +55,17 @@ export async function getTelegramLinkStatus(): Promise<TelegramLinkStatus> {
 }
 
 /** Шинэ код үүсгэж хадгална (хуучин кодыг дарна). */
-export async function startTelegramLink(): Promise<{ code: string; botUsername: string | null }> {
+export async function startTelegramLink(): Promise<
+  ActionResult<Awaited<ReturnType<typeof startTelegramLinkCore>>>
+> {
+  try {
+    return await startTelegramLinkCore();
+  } catch (caught) {
+    return actionError("startTelegramLink", caught, "Холболт эхлээгүй");
+  }
+}
+
+async function startTelegramLinkCore(): Promise<{ code: string; botUsername: string | null }> {
   const { orgId, userId } = await getActiveOrg();
   if (!telegramConfigured()) throw new Error("TELEGRAM_BOT_TOKEN серверт тохируулаагүй");
   const code = randomBytes(5).toString("base64url").replace(/[^A-Za-z0-9]/g, "").slice(0, 8).toUpperCase();
@@ -69,7 +80,17 @@ export async function startTelegramLink(): Promise<{ code: string; botUsername: 
 }
 
 /** Bot-ийн update-аас кодоо хайж холбоно. Олдоогүй бол linked=false. */
-export async function verifyTelegramLink(): Promise<{ linked: boolean }> {
+export async function verifyTelegramLink(): Promise<
+  ActionResult<Awaited<ReturnType<typeof verifyTelegramLinkCore>>>
+> {
+  try {
+    return await verifyTelegramLinkCore();
+  } catch (caught) {
+    return actionError("verifyTelegramLink", caught, "Баталгаажуулалт амжилтгүй");
+  }
+}
+
+async function verifyTelegramLinkCore(): Promise<{ linked: boolean }> {
   const { orgId, userId } = await getActiveOrg();
   const row = await prefRow(userId, orgId);
   if (!row?.telegramLinkCode) throw new Error("Холболтын код үүсгээгүй байна");

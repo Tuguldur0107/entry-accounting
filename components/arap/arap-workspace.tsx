@@ -356,7 +356,14 @@ export function ArApWorkspace({
                 onClick={() =>
                   startTransition(async () => {
                     try {
-                      await toggleCounterparty(data.id, !data.isActive);
+                      const r = await toggleCounterparty(
+                        data.id,
+                        !data.isActive
+                      );
+                      if (r.error !== undefined) {
+                        toast.error(r.error);
+                        return;
+                      }
                       toast.success("Харилцагчийн төлөв шинэчлэгдлээ");
                     } catch (caught) {
                       toast.error(caught instanceof Error ? caught.message : "Алдаа гарлаа");

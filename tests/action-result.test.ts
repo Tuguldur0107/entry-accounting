@@ -20,27 +20,21 @@ import { join } from "node:path";
 const ACTIONS_DIR = "lib/actions";
 const CLIENT_DIRS = ["components", "app"];
 
-/** Засагдаагүй хуучин өр — ЗӨВХӨН багасна (шинээр нэмэхгүй). */
+/**
+ * Засагдаагүй хуучин өр — ЗӨВХӨН багасна (шинээр нэмэхгүй).
+ *
+ * ОНЦГОЙ: панель/тохиргооны хэдэн loader ӨӨРИЙН үр дүнгийн хэв маягтай
+ * ({ ok, code, message }) бөгөөд throw-гоо дотроо барьдаг тул production-д
+ * аюулгүй — ActionResult руу хөрвүүлбэл давхар union үүсгэнэ. Эдгээр нь өр
+ * биш: getArapDocPanelData, getFaAssetPanelData, getCashNewPanelData,
+ * saveCostingAccountSettings.
+ */
 const KNOWN_UNGUARDED = new Set([
-  "ai.ts:saveAiChatPrefs",
-  "ai.ts:saveAiSettings",
-  "ai.ts:setAiApiKey",
-  "ai.ts:setAiOpenAiApiKey",
   "arap.ts:getArapDocPanelData",
-  "arap.ts:toggleCounterparty",
   "cash.ts:getCashNewPanelData",
-  "company.ts:updateCompanySettings",
   "cost-allocation.ts:createCostAllocation",
   "costing-master.ts:saveCostingAccountSettings",
   "fa.ts:getFaAssetPanelData",
-  "fa.ts:getFaTieOutDetail",
-  "inventory-import.ts:importInventoryItems",
-  "invoice-send.ts:createInvoiceLink",
-  "invoice-send.ts:getInvoiceSendContext",
-  "notification-preferences.ts:saveNotificationPreferences",
-  "telegram-link.ts:startTelegramLink",
-  "telegram-link.ts:verifyTelegramLink",
-  "vat.ts:createVatSettlementDraft",
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { notificationPreferences, users } from "@/lib/db/schema";
+import { actionError, type ActionResult } from "@/lib/action-result";
 import {
   NOTIFICATION_CATEGORY_LABELS,
   type NotificationCategory,
@@ -58,7 +59,20 @@ export async function saveNotificationPreferences(input: {
   digestHour: number;
   /** ISO эсвэл null (унтраах). */
   mutedUntil: string | null;
-}): Promise<void> {
+}): Promise<ActionResult> {
+  try {
+    return await saveNotificationPreferencesCore(input);
+  } catch (caught) {
+    return actionError("saveNotificationPreferences", caught, "Тохиргоо хадгалагдсангүй");
+  }
+}
+
+async function saveNotificationPreferencesCore(input: {
+  channels: ChannelPrefs;
+  digestHour: number;
+  /** ISO эсвэл null (унтраах). */
+  mutedUntil: string | null;
+}) {
   const { orgId, userId } = await getActiveOrg();
 
   const digestHour = Math.round(Number(input.digestHour));
@@ -86,4 +100,5 @@ export async function saveNotificationPreferences(input: {
       target: [notificationPreferences.userId, notificationPreferences.organizationId],
       set: { channels, digestHour, mutedUntil, updatedAt: new Date() },
     });
+  return {};
 }

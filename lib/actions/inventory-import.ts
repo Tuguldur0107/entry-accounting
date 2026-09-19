@@ -19,6 +19,7 @@ import {
   itemPriceHistory,
 } from "@/lib/db/schema";
 import type { InventoryItemImport } from "@/lib/excel/specs";
+import { actionError, type ActionResult } from "@/lib/action-result";
 
 export type InventoryItemsImportResult = {
   created: number;
@@ -43,6 +44,16 @@ function priceOrNull(value: number | null | undefined, label: string): string | 
 }
 
 export async function importInventoryItems(
+  rows: InventoryItemImport[]
+): Promise<ActionResult<InventoryItemsImportResult>> {
+  try {
+    return await importInventoryItemsCore(rows);
+  } catch (caught) {
+    return actionError("importInventoryItems", caught, "Импорт хийгдсэнгүй");
+  }
+}
+
+async function importInventoryItemsCore(
   rows: InventoryItemImport[]
 ): Promise<InventoryItemsImportResult> {
   const { orgId, userId } = await requireModuleAction("inv", "write");
