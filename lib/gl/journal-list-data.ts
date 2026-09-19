@@ -13,6 +13,9 @@
 
 import { and, eq, inArray, isNotNull, or } from "drizzle-orm";
 
+// ⚠ Энэ модуль `@/lib/db`-г import хийдэг — ЗӨВХӨН server (page.tsx) дуудна.
+// Client component-д хэрэгтэй төрөл/цэвэр функц journal-list-types.ts-д.
+
 import { db } from "@/lib/db";
 import {
   arApDocuments,
@@ -20,19 +23,10 @@ import {
   counterparties,
   journalVouchers,
   users,
-  type JournalVoucherWithLines,
 } from "@/lib/db/schema";
+import type { JournalListRow } from "@/lib/gl/journal-list-types";
 
-export type JournalListRow = JournalVoucherWithLines & {
-  /** Эх баримтын харилцагч (касс: чөлөөт текст, АР/АП: харилцагчийн нэр). */
-  counterpartyName: string | null;
-  /** Эх баримтын валют; эхгүй журнал → "MNT". */
-  currency: string;
-  /** Баримтын ханш (1 валют = N MNT); MNT эсвэл эхгүй → null. */
-  exchangeRate: number | null;
-  /** Үүсгэсэн хэрэглэгчийн нэр (journal_vouchers.userId = createdBy). */
-  createdByName: string;
-};
+export type { JournalListRow } from "@/lib/gl/journal-list-types";
 
 type SourceMeta = {
   counterpartyName: string | null;
@@ -136,16 +130,4 @@ export async function loadJournalListRows(
       createdByName: userNameById.get(voucher.userId) ?? "—",
     };
   });
-}
-
-/**
- * MNT дүнг баримтын валют руу лавлагааны зорилгоор хөрвүүлнэ (2 орон).
- * Ханшгүй (MNT) бол null — "валютын дүн" багана хоосон харагдана.
- */
-export function toSourceCurrency(
-  mntAmount: number,
-  exchangeRate: number | null
-): number | null {
-  if (exchangeRate == null || !(exchangeRate > 0)) return null;
-  return Math.round((mntAmount / exchangeRate) * 100) / 100;
 }
