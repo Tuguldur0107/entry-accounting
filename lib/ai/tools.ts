@@ -3619,21 +3619,24 @@ async function runCreateFixedAsset(
       return next;
     })();
 
-  const { id, code } = await createFixedAsset(
-    {
-      name: input.name,
-      acquisitionDate: input.acquisitionDate,
-      cost: Number(input.cost),
-      salvageValue: Number(input.salvageValue ?? 0),
-      usefulLifeMonths: Number(input.usefulLifeMonths),
-      depreciationMethod: input.depreciationMethod ?? "straight_line",
-      custodian: input.custodian,
-      depreciationStartMonth: startMonth,
-      assetAccountNumber: resolveAccount(input.assetAccountNumber, ctx).main,
-      accumDepAccountNumber: resolveAccount(input.accumDepAccountNumber, ctx).main,
-      depExpenseAccountNumber: resolveAccount(input.depExpenseAccountNumber, ctx).main,
-    },
-    { asDraft }
+  const { id, code } = unwrapAction(
+    await createFixedAsset(
+      {
+        name: input.name,
+        acquisitionDate: input.acquisitionDate,
+        cost: Number(input.cost),
+        salvageValue: Number(input.salvageValue ?? 0),
+        usefulLifeMonths: Number(input.usefulLifeMonths),
+        depreciationMethod: input.depreciationMethod ?? "straight_line",
+        custodian: input.custodian,
+        depreciationStartMonth: startMonth,
+        assetAccountNumber: resolveAccount(input.assetAccountNumber, ctx).main,
+        accumDepAccountNumber: resolveAccount(input.accumDepAccountNumber, ctx).main,
+        depExpenseAccountNumber: resolveAccount(input.depExpenseAccountNumber, ctx).main,
+      },
+      { asDraft }
+  
+    )
   );
 
   return {
@@ -4625,37 +4628,40 @@ async function runActivateFixedAsset(
   if (asset.status !== "draft")
     throw new Error(`Зөвхөн ноорог картыг идэвхжүүлнэ (төлөв: ${asset.status})`);
 
-  await activateFixedAsset(asset.id, {
-    code: asset.code,
-    name: input.name ?? asset.name,
-    acquisitionDate: asset.acquisitionDate,
-    cost: input.cost ?? Number(asset.cost),
-    salvageValue: input.salvageValue ?? Number(asset.salvageValue),
-    usefulLifeMonths: input.usefulLifeMonths ?? asset.usefulLifeMonths,
-    depreciationMethod: asset.depreciationMethod as
-      | "straight_line"
-      | "declining_balance",
-    // Ноорог картад хариуцагч/эхлэх сар хоосон байж болно — идэвхжүүлэхэд
-    // заавал тул моделиос нөхөж өгөхийг шаардана.
-    custodian:
-      input.custodian ??
-      asset.custodian ??
-      (() => {
-        throw new Error("Хариуцагч (custodian) өгнө үү — ноорог картад хоосон байна");
-      })(),
-    depreciationStartMonth:
-      input.depreciationStartMonth ??
-      asset.depreciationStartMonth ??
-      (() => {
-        throw new Error(
-          "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
-        );
-      })(),
-    assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
-    accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
-    depExpenseAccountNumber:
-      input.depExpenseAccountNumber ?? asset.depExpenseAccountNumber,
-  });
+  unwrapAction(
+    await activateFixedAsset(  asset.id, {
+      code: asset.code,
+      name: input.name ?? asset.name,
+      acquisitionDate: asset.acquisitionDate,
+      cost: input.cost ?? Number(asset.cost),
+      salvageValue: input.salvageValue ?? Number(asset.salvageValue),
+      usefulLifeMonths: input.usefulLifeMonths ?? asset.usefulLifeMonths,
+      depreciationMethod: asset.depreciationMethod as
+        | "straight_line"
+        | "declining_balance",
+      // Ноорог картад хариуцагч/эхлэх сар хоосон байж болно — идэвхжүүлэхэд
+      // заавал тул моделиос нөхөж өгөхийг шаардана.
+      custodian:
+        input.custodian ??
+        asset.custodian ??
+        (() => {
+          throw new Error("Хариуцагч (custodian) өгнө үү — ноорог картад хоосон байна");
+        })(),
+      depreciationStartMonth:
+        input.depreciationStartMonth ??
+        asset.depreciationStartMonth ??
+        (() => {
+          throw new Error(
+            "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
+          );
+        })(),
+      assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
+      accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
+      depExpenseAccountNumber:
+        input.depExpenseAccountNumber ?? asset.depExpenseAccountNumber,
+    }
+    )
+  );
   return {
     resultText: `Хөрөнгө идэвхжлээ: ${asset.code} · ${input.name ?? asset.name} — элэгдэл ${input.depreciationStartMonth ?? asset.depreciationStartMonth} сараас бодогдоно`,
   };
@@ -4668,7 +4674,7 @@ async function runDeleteFixedAsset(
 ): Promise<AiToolResult> {
   const asset = await findAssetByCode(orgId, input.assetCode);
   if (asset.status !== "draft") assertPostMode(mode);
-  await deleteFixedAsset(asset.id);
+  unwrapAction(await deleteFixedAsset(asset.id));
   return { resultText: `Хөрөнгийн карт устгагдлаа: ${asset.code} · ${asset.name}` };
 }
 
@@ -4690,7 +4696,8 @@ async function runReverseFaDepreciation(
     return { resultText: `${input.month} сард батлагдсан элэгдлийн бичилт алга` };
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  for (const entry of entries) await reverseDepreciationEntry(entry.id);
+  for (const entry of entries)
+    unwrapAction(await reverseDepreciationEntry(entry.id));
   return {
     resultText: `${input.month} сарын элэгдэл буцаагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
   };
@@ -6383,10 +6390,11 @@ async function runFixCashOpening(
     const ctx = await accountContext(orgId);
     counter = resolveAccount(input.counterAccount, ctx).main;
   }
-  const result = await createCashOpeningVoucher({
+  const result = unwrapAction(
+    await createCashOpeningVoucher({
     cashAccountId: account.id,
     counterAccountNumber: counter,
-  });
+  }));
   return {
     resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${fmt(result.amount)}₮, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
     action: {
@@ -7005,15 +7013,18 @@ async function runDisposeFixedAsset(
   assertPostMode(mode);
   const asset = await findAssetByCode(orgId, input.assetCode);
   const ctx = await accountContext(orgId);
-  await disposeFixedAsset(asset.id, {
-    disposalType: input.disposalType,
-    date: input.date,
-    proceeds: input.proceeds,
-    proceedsAccountNumber: input.proceedsAccount
-      ? resolveAccount(input.proceedsAccount, ctx).main
-      : undefined,
-    gainLossAccountNumber: resolveAccount(input.gainLossAccount, ctx).main,
-  });
+  unwrapAction(
+    await disposeFixedAsset(  asset.id, {
+      disposalType: input.disposalType,
+      date: input.date,
+      proceeds: input.proceeds,
+      proceedsAccountNumber: input.proceedsAccount
+        ? resolveAccount(input.proceedsAccount, ctx).main
+        : undefined,
+      gainLossAccountNumber: resolveAccount(input.gainLossAccount, ctx).main,
+    }
+    )
+  );
   return {
     resultText: `Үндсэн хөрөнгө данснаас хасагдлаа: ${asset.code} · ${asset.name} — ${DISPOSAL_TYPE_LABELS[input.disposalType]}, ${input.date}${input.proceeds ? `, үнэ ${fmt(Number(input.proceeds))}₮` : ""} (GL журнал бичигдсэн)`,
   };

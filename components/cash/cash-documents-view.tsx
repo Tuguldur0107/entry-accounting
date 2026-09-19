@@ -332,6 +332,10 @@ export function CashDocumentsView({
     startTransition(async () => {
       try {
         const result = await postCashDocuments(drafts.map((d) => d.id));
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         gridApiRef.current?.deselectAll();
         setSelectedDraftIds([]);
         refreshOpenPanels();

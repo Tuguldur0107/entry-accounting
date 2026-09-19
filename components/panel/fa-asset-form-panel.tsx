@@ -243,8 +243,13 @@ function FaAssetFormBody({
             form.depExpenseAccountNumber
           ),
         };
-        if (activatingId) await activateFixedAsset(activatingId, payload);
-        else await createFixedAsset(payload);
+        const res = activatingId
+          ? await activateFixedAsset(activatingId, payload)
+          : await createFixedAsset(payload);
+        if (res.error !== undefined) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(
           activatingId
             ? "Карт идэвхжлээ — элэгдэлд хамрагдана"
