@@ -739,6 +739,10 @@ export const counterparties = pgTable(
     address: text("address"),
     // Ханган нийлүүлэгчийн мэдээлэл (PO панелийн карт, төлбөрийн заавар).
     contactPerson: text("contact_person"),
+    // POS (docs/pos §3.2): хөнгөлөлтийн харилцагчийн бүлэг (VIP, ажилтан, бөөний…)
+    // ба зээлээр борлуулах лимит (MNT, null = хязгааргүй).
+    customerGroup: text("customer_group"),
+    creditLimit: numeric("credit_limit", { precision: 18, scale: 2 }),
     bankName: text("bank_name"),
     bankAccountNo: text("bank_account_no"),
     isActive: boolean("is_active").notNull().default(true),
@@ -2966,10 +2970,10 @@ export const posSettings = pgTable(
     discountPosting: text("discount_posting").notNull().default("net"),
     giftCardLiabilityAccountNumber: text("gift_card_liability_account_number")
       .notNull()
-      .default("31600001"),
+      .default("31600003"),
     storeCreditLiabilityAccountNumber: text("store_credit_liability_account_number")
       .notNull()
-      .default("31600002"),
+      .default("31600004"),
     customerAdvanceAccountNumber: text("customer_advance_account_number")
       .notNull()
       .default("31300001"),

@@ -28,7 +28,7 @@ import {
  * ихэвчлэн өөрийн userId-г дамжуулна; өгөөгүй үед байгууллагын хамгийн
  * эртний owner-ийг ашиглана (cross-batch дуудлагууд orgId-г л мэддэг).
  */
-async function seedCreatorUserId(
+export async function seedCreatorUserId(
   orgId: string,
   creatorUserId?: string
 ): Promise<string> {
@@ -51,7 +51,7 @@ async function seedCreatorUserId(
  * `resolveUserId` нь ЗАЛХУУ — дутуу данс байхгүй бол owner хайлт хийхгүй
  * (loadCostingAccountSettings нь бичилтийн халуун замд байнга дуудагддаг).
  */
-async function ensureAccountsExist(
+export async function ensureAccountsExist(
   orgId: string,
   mains: string[],
   resolveUserId: () => Promise<string>
