@@ -19,7 +19,7 @@ import { useRouter } from "next/navigation";
 import type { CellValueChangedEvent, ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 
-import { AttachmentList } from "@/components/attachments/attachment-list";
+import { AttachmentSection } from "@/components/attachments/attachment-section";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 import { Button } from "@/components/ui/button";
@@ -773,21 +773,16 @@ function GoodsReceiptBody({
       </div>
 
       {receipt && (
-        <div>
-          <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
-            Хавсралт
-          </div>
-          <AttachmentList
-            entityType={GR_ENTITY_TYPE}
-            entityId={receipt.id}
-            canDelete={status !== "reversed"}
-            refreshToken={panel.refreshToken}
-            onChanged={() => {
-              refreshOpenPanels();
-              router.refresh();
-            }}
-          />
-        </div>
+        <AttachmentSection
+          entityType={GR_ENTITY_TYPE}
+          entityId={receipt.id}
+          canDelete={status !== "reversed"}
+          refreshToken={panel.refreshToken}
+          onChanged={() => {
+            refreshOpenPanels();
+            router.refresh();
+          }}
+        />
       )}
 
       {error && <p className="text-xs text-[var(--ea-danger-fg)]">{error}</p>}

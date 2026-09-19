@@ -48,6 +48,7 @@ export const ENTITY_HREF: Record<string, string> = {
   pos_sale: "/inventory/sales",
   period: "/settings/periods",
   membership: "/settings/permissions",
+  settings: "/settings/company",
 };
 
 const ENTITY_LABEL: Record<string, string> = {

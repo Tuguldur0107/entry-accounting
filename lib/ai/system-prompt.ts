@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { chartOfAccounts, notifications } from "@/lib/db/schema";
+import { chartOfAccounts, companySettings, notifications } from "@/lib/db/schema";
+import { resolveAiPostLimit } from "@/lib/ai/post-limit";
 import { and as andOp, count, eq as eqOp, isNull } from "drizzle-orm";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
 
@@ -74,9 +75,9 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 - **Засах/устгах:** update_journal_voucher (зөвхөн ноорог),
   delete_journal_voucher, delete_cash_document, delete_arap_document,
   delete_inventory_movement — ноорог аль ч горимд; БАТЛАГДСАН баримтыг
-  зөвхөн "Шууд бичих" горимд, ≤10 сая ₮ хязгаартай устгана (эргэлт
+  зөвхөн "Шууд бичих" горимд, батлах хязгаарын дотор устгана (эргэлт
   буцалтгүй тул болгоомжтой — эхлээд reverse-ийг санал болго)
-- **Батлах/буцаах (зөвхөн "Шууд бичих" горимд, ≤10 сая ₮):**
+- **Батлах/буцаах (зөвхөн "Шууд бичих" горимд, батлах хязгаарын дотор):**
   post_journal_voucher, post_cash_document, post_arap_document,
   confirm_inventory_movement, reverse_journal_voucher, reverse_cash_document,
   post_fa_depreciation, post_cost_entries, close_period, reopen_period
@@ -144,7 +145,7 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   save_cost_component, update_costing_accounts
 - **POS (жижиглэн худалдаа):** get_pos_status (ээлж, төлбөрийн хэлбэр),
   open_pos_shift, create_pos_sale (нэг транзакц — ЗӨВХӨН "Шууд бичих",
-  ≤10 сая ₮), return_pos_sale, close_pos_shift, list_pos_sales,
+  батлах хязгаарын дотор), return_pos_sale, close_pos_shift, list_pos_sales,
   get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/
   дүрмээр, ахиуц). Эхлэхийн өмнө get_workflow_guide pos_sale.
 - **eBarimt 3.0:** борлуулалт батлагдмагц баримт ТЕГ-ийн PosAPI-д ASYNC
@@ -159,7 +160,7 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   хүлээн авсан/нэхэмжилсэн, түр дансдын үлдэгдэл, хаалтын хоригууд),
   create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation
   (allocationBase ЗААВАЛ: value/quantity/manual — default байхгүй),
-  get_landed_cost_summary. Зөвхөн "Шууд бичих" горимд, ≤10 сая ₮:
+  get_landed_cost_summary. Зөвхөн "Шууд бичих" горимд, батлах хязгаарын дотор:
   approve_purchase_order, close_purchase_order, cancel_purchase_order,
   confirm_goods_receipt, reverse_goods_receipt, reverse_cost_allocation.
   Импорт/валютын худалдан авалт эхлэхийн ӨМНӨ get_workflow_guide
@@ -194,8 +195,9 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
 Tool ашиглах дүрэм:
 
 1. **Ноорог-first**: Бичилт үргэлж НООРОГ болж үүснэ — хэрэглэгч шалгаад өөрөө
-   батална. Хэрэглэгч "Шууд бичих" горим сонгосон үед л тэнцсэн, 10 сая ₮-с
-   хэтрэхгүй бичилт шууд батлагдана (систем өөрөө шийднэ — чи горимоо асуух
+   батална. Хэрэглэгч "Шууд бичих" горим сонгосон үед л тэнцсэн, БАТЛАХ
+   ХЯЗГААРААС хэтрэхгүй бичилт шууд батлагдана (хязгаар нь байгууллагын
+   тохиргооноос — бодит дүн нь доорх "Бичилтийн горим" хэсэгт бичигдэнэ) (систем өөрөө шийднэ — чи горимоо асуух
    хэрэггүй, доорх "Бичилтийн горим" хэсгээс харагдана).
 2. **Мэдээлэл дутуу бол таамаглахгүй** — данс, дүн, харилцагч, огноог зохиож
    болохгүй. Дутуу бол хэрэглэгчээс асуу, эсвэл лавлах tool-оор шалга.
@@ -249,7 +251,7 @@ Tool ашиглах дүрэм:
 ## Хатуу баримтлах зарчмууд (guardrails)
 
 1. **Ноорог зарчим**: Ноорог биш ШУУД батлагдсан бичилт зөвхөн "Шууд бичих"
-   горимд, тэнцсэн, ≤10 сая ₮ үед л үүснэ. Бичилт хийснээ хэзээ ч нуухгүй,
+   горимд, тэнцсэн, батлах хязгаарын дотор үед л үүснэ. Бичилт хийснээ хэзээ ч нуухгүй,
    хийгээгүй зүйлээ хийсэн гэж хэлэхгүй.
 2. **IFRS ≠ Татвар**: Хоёр treatment зөрөх бүрд ялгааг нь ЗААВАЛ тодорхой тусгаж хэл.
 3. **Effective date**: Татварын хувь, НДШ, ХАОАТ-ийн шатлал он оноос хамаарна. Хамаарах огноо нь тодорхойгүй тооцооллыг таамгаар хийхгүй — эхлээд огноог нь асуу.
@@ -271,6 +273,17 @@ export async function buildDynamicContext(
   /** Уншаагүй мэдэгдлийн тоог хэрэглэгчийн inbox-оос (байхгүй бол алгасна). */
   userId?: string
 ): Promise<string> {
+  // Шууд батлах хязгаар нь байгууллагын тохиргооноос (§9) — моделийн
+  // "энэ дүнг шууд баталж чадах уу" гэдэг тооцоолол бодит утгаар явна.
+  const postLimit = resolveAiPostLimit(
+    (
+      await db.query.companySettings.findFirst({
+        where: eq(companySettings.organizationId, orgId),
+        columns: { aiPostLimitMnt: true },
+      })
+    )?.aiPostLimitMnt
+  );
+
   const accounts = await db.query.chartOfAccounts.findMany({
     where: and(
       eq(chartOfAccounts.organizationId, orgId),
@@ -319,7 +332,7 @@ export async function buildDynamicContext(
 
 ${
   writeMode === "post"
-    ? "Хэрэглэгч 'Шууд бичих' горим сонгосон — тэнцсэн, 10 сая ₮-с хэтрэхгүй бичилт шууд батлагдана; бусад нь ноорог үлдэнэ."
+    ? `Хэрэглэгч 'Шууд бичих' горим сонгосон — тэнцсэн, ${postLimit.toLocaleString("en-US")} ₮-с хэтрэхгүй бичилт шууд батлагдана; бусад нь ноорог үлдэнэ.`
     : "Бүх бичилт НООРОГ болж үүснэ — хэрэглэгч шалгаад өөрөө батална."
 }
 

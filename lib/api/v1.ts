@@ -1,7 +1,7 @@
 // REST API v1 — гадаад системүүд (ERP, CRM, POS, n8n/Make, өөрийн скрипт)
 // MCP клиент биш ч Entry-тэй холбогдох зам. Tools = чатын agent болон
 // MCP-тэй ЯГ ИЖИЛ давхарга (lib/ai/tools.ts + custom/) — ноорог-first,
-// 10 сая ₮ хязгаар, периодын хамгаалалт, externalRef idempotency бүгд
+// тохируулагддаг батлах хязгаар, периодын хамгаалалт, externalRef idempotency бүгд
 // үйлчилнэ. Нэвтрэлт: ижил Bearer token (eak_ PAT эсвэл eoat_ OAuth).
 //
 //   GET  /api/v1/tools          — tool жагсаалт + JSON schema

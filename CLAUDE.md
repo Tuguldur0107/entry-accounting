@@ -111,6 +111,16 @@ entry-accounting/
 - **Server Component by default:** Data fetch нь page.tsx дотор, mutation нь `lib/actions/` Server Action-аар
 - **Client Component:** `"use client"` зөвхөн state/event handler шаардагдах үед
 - **Монгол хэл:** UI текст бүгд монголоор
+- **Server action алдааг THROW ХИЙХГҮЙ** — client component-оос дуудагддаг
+  action нь алдаагаа `{ error }` УТГААР буцаана (`lib/action-result.ts`-ийн
+  `actionError`). Next.js PRODUCTION дээр шидсэн алдааны мессежийг далдалж
+  React #441 «An error occurred in the Server Components render…» болгодог
+  тул хэрэглэгч монгол тайлбарын оронд ойлгомжгүй код хардаг.
+  `tests/action-result.test.ts` энэ дүрмийг АВТОМАТААР сахиулна: хамгаалалтгүй
+  action нэмэгдвэл тест УНАНА. Онцгой тохиолдол нь өөрийн `{ ok, code }` үр
+  дүнгийн хэв маягтай панелийн loader-ууд (тестийн KNOWN_UNGUARDED-д ил
+  бүртгэлтэй). Server талын дуудагч (lib/ai/tools.ts) `unwrapAction`-оор
+  шидэлтээ хадгална.
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
 - ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
   import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
@@ -954,6 +964,70 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 
 Тайлагнал: НДШ дараа сарын **5-нд**, ХАОАТ дараа сарын **10-нд**.
 
+**Урьдчилгаа / сүүл цалин — сарын гарт олгохыг ХОЁР төлбөр болгоно:**
+
+```
+Урьдчилгаа  ажилласан цагаар, СУУТГАЛГҮЙ олгоно (сар дундуур)
+Сүүл цалин  бүх нэмэгдэл/суутгал бодогдоод, НДШ ба ХАОАТ суутгагдсаны
+            ДАРАА урьдчилгаа хасагдана
+Тэнцэл:     урьдчилгаа + сүүл цалин = сарын нийт гарт олгох
+```
+
+- Нийт олголт нь ЦАГААС бодогдоно: үндсэн олголт (`цалин × ажилласан /
+  ажиллавал зохих цаг`, ХАРЬЦААГААР — бөөрөнхийлсөн цагийн хөлсөөр
+  үржүүлбэл хазайна) + ээлжийн амралт + бусад нэмэгдэл
+- **Бусад суутгал нь татварын сууринд ОРОХГҮЙ** — НДШ, ХАОАТ бодогдсоны
+  ДАРАА гарт олгохоос хасагдана (баганын дараалал үүнийг харуулна)
+- Төрөл тус бүр НЭГТГЭСЭН өглөгийн нэхэмжлэх (ноорог `ap_bill`) болно —
+  харилцагч нь авто-үүсэх «Ажилчид»; `externalRef` `payroll-{kind}:YYYY-MM`
+  тул сард нэг л удаа. **КЛИРИНГ:** §7-ийн журнал Cr Цалингийн өглөг,
+  нэхэмжлэх Dr Цалингийн өглөг / Cr Ажилтны өглөг, кассаас Dr Ажилтны
+  өглөг / Cr Банк — зардал НЭГ л удаа бичигдэнэ
+- Цалин олгох тайлан (`/payroll/reports`): сар + төрлөөр ажилтан тус бүрийн
+  банк, данс, IBAN, олгох дүн + Excel (банкны багц шилжүүлэг)
+- Тохиргоо (`/payroll/settings`): доод цалин, НДШ cap, **сарын татваргүй
+  босго** (2026: 800,000₮ — хуулийн баталгаажуулалт хүртэл 0), стандарт
+  ажлын цаг, нэмэгдлийн коэффициент, GL дансууд
+
+### 7a. Үндсэн хөрөнгийн элэгдэл — САНХҮҮ + ТАТВАР зэрэг
+
+Код: `lib/fa/depreciation.ts` (цэвэр, тесттэй), `lib/fa/settings.ts`,
+`lib/actions/fa.ts`, `app/(dashboard)/fa/depreciation`.
+
+**Хоёр элэгдэл ЗЭРЭГ бодогдоно** (`cit.md` §Татварын элэгдэл vs Нягтлан
+бодохын):
+
+| | Хугацаа | GL |
+|--|---------|-----|
+| Санхүүгийн (IAS 16) | `usefulLifeMonths` | **бичигдэнэ** |
+| Татварын (ААНОАТ) | `taxUsefulLifeMonths` | **БИЧИГДЭХГҮЙ** — мэмо |
+
+Татварын хувь хэмжээ хуулиас: барилга 5%/жил (240 сар), тоног төхөөрөмж
+ба тээвэр 10% (120), компьютер 20% (60), биет бус 10% (120) — **кодод
+зохиохгүй**, `scripts/backfill-fa-tax-life.ts` нь нэрээр ангилж чадаагүй
+картыг 0 хэвээр үлдээж анхааруулна. Хуримтлагдсан элэгдэл нь хоёр талдаа
+ТУСДАА хөтлөгдөнө; зөрүү нь IAS 12 хойшлогдсон татварын суурь болж
+дэлгэцэд ил гарна.
+
+**Элэгдлийн суурь** (`fa_settings.depreciationBasis`, БҮХ хөрөнгөд):
+
+- `monthly` — сарын тогтмол дүн (default)
+- `daily` — ашиглалтын НИЙТ өдрөөр хуваарилна: сар дундуур ашиглалтад
+  орсон хөрөнгө тэр сард хувь тэнцүүлэн, 28/30/31 хоногийн сарууд өөр
+  дүнтэй элэгдэнэ. Карт бүрийн `depreciationStartDate` (YYYY-MM-DD) нь
+  хуваарилалтын эхлэл; хоосон бол эхлэх сарын 1-ний өдөр
+
+**НЭГ товчоор GL:** сарын бүх элэгдэл НЭГ журнал болно (дансны хосоор
+нэгтгэсэн мөрүүд) — хөрөнгө тус бүрд журнал үүсгэхгүй. Дахин бодоход
+өмнөх журнал АВТОМАТААР буцаагдаж (буцаалтын журнал үлдэж аудитын мөр
+бүрэн) шинэ ноорог үүснэ — давхар бичилт үүсэхгүй. AI
+`post_fa_depreciation` мөн ижил замаар.
+
+Жагсаалт нь ЗӨВХӨН тайлант үеийнхийг харуулна (topbar-ийн периодын
+шүүлтүүр; URL-ийн `period` параметр дарна); багана: Dr/Cr данс, анхны
+үнэлгээ, хуримтлагдсан, үлдэх өртөг, сарын элэгдэл, татварын элэгдэл,
+элэгдсэн хоног, бодуулсан хэрэглэгч.
+
 ### 8. Domain separation (guardrail)
 
 - **IFRS treatment ≠ Татварын treatment** — ялгааг тодорхой тусгана
@@ -965,10 +1039,37 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/human-in-the-loop.md`
 
 - AI agent бичилт default-оор **ноорог** үүсгэнэ — хэрэглэгч баталгаажуулна
-- Хэрэглэгч чатнаас "Шууд бичих" горим ИЛ сонгосон үед л тэнцсэн, ≤10M₮
-  бичилт шууд батлагдана (`AI_POST_LIMIT_MNT`, lib/ai/tools.ts)
-- Том дүн (>10M₮), period хаалт, payroll post → нягтланч баталгаажуулалт
-  шаарддаг — post горимд ч ноорог үлдэнэ
+- Хэрэглэгч чатнаас "Шууд бичих" горим ИЛ сонгосон үед л тэнцсэн, **батлах
+  хязгаарын дотор** бичилт шууд батлагдана
+- Том дүн (хязгаараас их), period хаалт, payroll post → нягтланч
+  баталгаажуулалт шаарддаг — post горимд ч ноорог үлдэнэ
+
+**Батлах хязгаар нь БАЙГУУЛЛАГААР тохируулагдана** (`company_settings.
+aiPostLimitMnt`, null = default 10 сая ₮) — Тохиргоо → Компанийн мэдээлэл:
+
+```
+lib/ai/post-limit.ts   ЦЭВЭР (тесттэй): DEFAULT_AI_POST_LIMIT_MNT (10M),
+                       AI_POST_LIMIT_TOOL_CEILING_MNT (1 тэрбум — TOOL-оор
+                       ӨСГӨХ тааз), resolveAiPostLimit, planAiPostLimitChange
+                       + AsyncLocalStorage (runWithAiPostLimit / currentAiPostLimit)
+tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргээлт, зэрэгцээ хүсэлт
+```
+
+- **Хязгаарыг хүсэлт бүрд НЭГ л удаа уншина** — `executeAiTool` нь
+  `runWithAiPostLimit`-ээр контекстод тавьж, гүн дэх `assertPostLimit` (22
+  дуудах цэг) `currentAiPostLimit()`-ээр SYNC хэвээр уншина. Контекстгүй
+  дуудагдвал default (хамгийн болгоомжтой); зэрэгцээ хүсэлтүүд бие биенийхээ
+  утгыг ХАРАХГҮЙ (AsyncLocalStorage, module-level хувьсагч ХОРИОТОЙ)
+- **AI өөрийн таазыг хязгааргүй ӨРГӨХ нь ХОРИОТОЙ** — баримтанд суулгасан
+  «зааварчилгаа» (prompt injection) агентаар лимитээ өсгүүлээд дараа нь том
+  дүн батлуулах зам байж болно. `update_company_settings`-ийн
+  `aiPostLimitMnt` нь `planAiPostLimitChange({viaTool:true})`-ээр дайрна:
+  өсгөлт `AI_POST_LIMIT_TOOL_CEILING_MNT`-ээр тагласан (`[LIMIT_CEILING_EXCEEDED]`),
+  түүнээс дээш зөвхөн ВЭБЭЭС админ. **БУУРУУЛАХАД тааз хамаарахгүй**
+- Өөрчлөлт бүр `logAuditEvent` (`settings` / `ai_post_limit`) + эзэн/админд
+  `settings.ai_limit_changed` мэдэгдэл (instant и-мэйл)
+- `lib/payroll/calc.ts`-ийн `{ upTo: 10_000_000 }` нь ХАОАТ-ын шатлалын хил
+  (ХУУЛИЙН тоо) — үүнтэй хольж тохируулга болгохыг ХОРИГЛОНО
 
 ### 9a. AI туслах — tool-use agent
 
@@ -981,6 +1082,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
+| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨХ нь 1 тэрбум ₮ таазтай; `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
@@ -1209,7 +1311,11 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   гүүр дүнг tx executor-оор уншина — commit-оос өмнөх мөр харагдана; эзэн/админд),
   `ai.drafts_created` (`executeAiTool` → `notifyAiDraft`: AI/MCP/REST-ээс ноорог
   үүсвэл модулийн ≥post гишүүдэд, actor хасна), `invoice.viewed` (нэхэмжлэхийн
-  нээлттэй хуудас — аудитын үйл явдал биш тул шууд emit, ЦОРЫН ГАНЦ үл хамаарах),
+  нээлттэй хуудас — аудитын үйл явдал биш тул шууд emit, үл хамаарах №1),
+  `settings.ai_limit_changed` (§9-ийн батлах хязгаар өөрчлөгдөх —
+  `updateCompanySettings`-ээс шууд emit, эзэн/админд; **actor-ыг ХАСАХГҮЙ** нь
+  үл хамаарах №2: аюулгүй байдлын хяналт тул AI/MCP-ээр өөрчлөгдсөн үед
+  token-ий эзэн өөрөө тэр даруй харах ёстой),
   `bank.unmatched` (импортоос 3 хоног), `fx.reval_due` (сарын сүүлийн 3 хоног),
   `fx.rate_missing` (ажлын өдөр, МБ ханш алга), `stock.negative` (долоо хоног тутам)
 - **Нэмэлт суваг:** tick бүрд `deliverPendingChannels` — суваг × мэдэгдэл нэг л удаа;
@@ -1262,6 +1368,32 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
 **Dark mode:** суурь нь тас хар (`--ea-bg: #000`), цэнхэр нь **зөвхөн accent**
 (товч, линк, focus, сонгосон мөр). Цэнхэрийн ханалт 62% — тас хар дээр неон
 гэрэлтэхээс сэргийлнэ. Контраст 8.17:1 (AAA).
+
+### Хөвөгч ажлын панель (зөөх · хэмжээ · хавсралт)
+
+`components/panel/floating-panel.tsx` — панелийн ЦОРЫН ГАНЦ жааз.
+
+- **Зөөх:** гарчгаас чирнэ; **хэмжээ:** 4 ирмэг + 4 булангаас татна. Чирсэн
+  мөчид панелийн бодит тэгш өнцөгт `panel.rect`-д бүртгэгдэж, цаашид байрлал
+  ЗӨВХӨН түүнээс тооцогдоно (`slot`-ийн CSS хэрэглэгдэхгүй) — нэг байрлалд
+  хоёр эзэн байхгүй. ⟲ «Байрлалыг сэргээх» товч анхны суудалд буцаана
+- **Геометр нь ЦЭВЭР** `lib/ui/panel-geometry.ts` (тесттэй): анхны байрлал,
+  чирэлт, хэмжээ солилт, хил. Панель дэлгэцээс БҮРЭН гарахгүй
+  (`PANEL_KEEP_VISIBLE` = 160px гарчиг үргэлж харагдана), topbar-ын доогуур
+  орохгүй, `PANEL_MIN_WIDTH`/`HEIGHT`-ээс доош шахагдахгүй; цонх жижгэрэхэд
+  панель дотогш эргэж орно. Component дотор шинэ геометр бодохыг ХОРИГЛОНО
+- Чирэлт **3px хөдөлсний ДАРАА** эхэлнэ — гарчгийн давхар даралт (дэлгэц
+  дүүрэх) болон товчнуудтай мөргөлдөхгүй; дэлгэц дүүрэн үед чирэлт унтарна
+- **Хавсралт панельд НЭГ МӨР:** `components/attachments/attachment-section.tsx` —
+  `Хавсралт [төрөл ▾] [⬆ Файл хавсаргах] [📎 Хавсралт харах · N]`. Жагсаалт нь
+  ЗӨВХӨН popup-д; хавсралтгүй үед «харах» товч идэвхгүй бөгөөд **хоосон блок
+  (EmptyState) панельд ХЭЗЭЭ Ч гарахгүй** — гол агуулгыг доош түлхэхийг
+  хориглоно. Панель дотор `AttachmentList`-ийг ШУУД суулгахгүй; бүтэн таб
+  байгаа газарт л шууд (PO панелийн «Хавсралт» таб)
+- **Хавсралтын логик НЭГ л газар** (`attachment-list.tsx`): `useAttachments`
+  (төлөв + хуулах/устгах — дуудагч бүр НЭГ controller, давхар fetch хийхгүй) +
+  `AttachmentUploadBar` / `AttachmentRows` харагдах хэсгүүд. Шинэ байрлал
+  нэмэхдээ эдгээрийг compose хийнэ, хуулалт/устгалтыг дахин бичихийг ХОРИГЛОНО
 
 ### Таб ба шүүлтүүрийн chip
 
@@ -1468,6 +1600,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
+| Хавсралт — компакт мөр + popup | [components/attachments/attachment-section.tsx](components/attachments/attachment-section.tsx) | Панелиудын НЭГДСЭН хэрэглээ: `📎 Хавсралт · N` товч → `Dialog` дотор бүтэн жагсаалт |
 | POS кассын дэлгэц (v2, дэлгүүрийн POS) | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | **Хүснэгт БИШ** — хүрэлцэх дэлгэцийн ticket (AG Grid стандарт хамаарахгүй, баримтын preview-тэй ижил ангилал): зүүн `checkout/product-panel` (сканнер/хайлт, бүлгийн `FilterChips`, барааны tile), баруун `checkout/ticket-panel` (мөр сонгох, −/+/×, дүн, `checkout/numpad` Тоо/Хөнг %/Үнэ, ТӨЛБӨР); `checkout/discount-dialog` (F4), `checkout/parked-dialog` (олон түр хадгалсан сагс); цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй); `quotePosSale` debounce 250мс; сканнер = гар (input үргэлж focus-той); F9/F2/F4/F6/↑↓/+−/Delete/Esc |
 | POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
@@ -1631,9 +1764,21 @@ Costing    cost_components, inventory_issue_types, costing_account_settings,
                valuationSource `po_receipt` | `ap_line`
              cost_allocations.sourceLineId / purchaseOrderId — нэхэмжлэхийн
                мөрөөс хийсэн хуваарилалт (Σ ≤ мөрийн MNT дүн)
-FA         fixed_assets, fa_depreciation_entries
+FA         fixed_assets, fa_depreciation_entries, fa_settings
+             fixed_assets.location / subLocation — байршил, дэд байршил
+             fixed_assets.depreciationStartDate — ӨДРИЙН суурийн эхлэл
+             fixed_assets.taxUsefulLifeMonths / taxDepreciationMethod — §7a
+             fa_depreciation_entries.taxAmount (мэмо) / depreciatedDays
+             fa_settings.depreciationBasis — "monthly" | "daily" (§7a)
 VAT        vat_settings
 Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
+             run_lines.standardHours / workedHours — цагт суурилсан олголт
+             run_lines.vacationPay / otherAdditions — нийт олголтод нэмэгдэнэ
+             run_lines.advanceHours / advanceAmount — урьдчилгаа (§7)
+             runs.advanceDate / advanceDocumentId / finalDocumentId — хоёр
+               нэгтгэсэн өглөгийн нэхэмжлэх
+             settings.standardMonthlyHours / employeePayableAccountNumber /
+               employeeCounterpartyId
 Audit      audit_events — статус шилжилт бүрд lib/audit.ts logAuditEvent
            (бизнесийн урсгалыг хэзээ ч унагахгүй); /settings/audit хуудас
 Мэдэгдэл   notifications (хүлээн авагч × org, dedupeKey unique INDEX,
@@ -1642,8 +1787,12 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            periodKey × org unique — scheduler/digest булаалт),
            notification_deliveries (мэдэгдэл × суваг unique) — §9d;
            company_settings.largeAmountAlertMnt (D2 босго)
+Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
+           хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
+             cfCodes — мөнгөн гүйлгээний тайлангийн S8 сегментийн кодууд
+               (дансны таарцаас ТҮРҮҮЛЖ шалгагдана)
 ```
 
 Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
