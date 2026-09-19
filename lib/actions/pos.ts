@@ -576,15 +576,15 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
     if (!item) throw new Error("Идэвхтэй бараа олдсонгүй");
     const quantity = Number(line.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`${item.name}: тоо хэмжээ 0-ээс их`);
-    const salePrice = item.salePrice === null ? null : Number(item.salePrice);
+    const salesPrice = item.salesPrice === null ? null : Number(item.salesPrice);
     const override = line.unitPrice == null ? null : Number(line.unitPrice);
     if (override != null && (!Number.isFinite(override) || override < 0))
       throw new Error(`${item.name}: нэгж үнэ буруу`);
-    const unitPrice = override ?? salePrice;
+    const unitPrice = override ?? salesPrice;
     if (unitPrice == null)
       throw new Error(`${item.code} · ${item.name}: борлуулах үнэ тохируулаагүй — Бараа, агуулах дээр оруулна уу`);
-    if (override != null && salePrice != null && Math.abs(override - salePrice) >= 0.01)
-      approvalExtra.push(`${item.name}: үнэ ${fmt(salePrice)} → ${fmt(override)} өөрчлөгдсөн`);
+    if (override != null && salesPrice != null && Math.abs(override - salesPrice) >= 0.01)
+      approvalExtra.push(`${item.name}: үнэ ${fmt(salesPrice)} → ${fmt(override)} өөрчлөгдсөн`);
     return {
       key: `${index}`,
       itemId: item.id,
@@ -595,7 +595,7 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
       quantity,
       unitPrice,
       vatMode: toItemVatMode(item.vatMode),
-      minSalePrice: item.minSalePrice === null ? null : Number(item.minSalePrice),
+      minSalesPrice: item.minSalesPrice === null ? null : Number(item.minSalesPrice),
       manualDiscountPercent: line.manualDiscountPercent ?? null,
       manualDiscountAmount: line.manualDiscountAmount ?? null,
     };

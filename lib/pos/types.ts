@@ -69,7 +69,7 @@ export interface CartLine {
   /** Нэгж үнэ (НӨАТ төлөгч бол орсон). */
   unitPrice: number;
   vatMode: VatMode;
-  minSalePrice: number | null;
+  minSalesPrice: number | null;
   /** Кассчны гар хөнгөлөлт — хувь ЭСВЭЛ дүн (мөрөнд). */
   manualDiscountPercent?: number | null;
   manualDiscountAmount?: number | null;

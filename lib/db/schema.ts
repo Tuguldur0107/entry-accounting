@@ -1304,9 +1304,9 @@ export const inventoryItems = pgTable(
     unit: text("unit").notNull().default("ш"),
     // ── POS (docs/pos/00-proposal.md §3.2) — бүгд сонголтоор ──
     /** Борлуулах үнэ (MNT). НӨАТ төлөгч байгууллагад НӨАТ ОРСОН үнэ. */
-    salePrice: numeric("sale_price", { precision: 18, scale: 2 }),
+    salesPrice: numeric("sales_price", { precision: 18, scale: 4 }),
     /** Кассчны хөнгөлөлтийн доод хязгаар — үнэ − хөнгөлөлт ≥ энэ (эрхтэй нь давна). */
-    minSalePrice: numeric("min_sale_price", { precision: 18, scale: 2 }),
+    minSalesPrice: numeric("min_sales_price", { precision: 18, scale: 2 }),
     /** Сканнерын код — байгууллага дотор давхцахгүй (partial unique index). */
     barcode: text("barcode"),
     /** "standard" (НӨАТ-тай) | "exempt" (чөлөөлөгдсөн) | "zero" (0%). */
@@ -1364,7 +1364,7 @@ export const itemPriceHistory = pgTable(
     itemId: uuid("item_id")
       .notNull()
       .references(() => inventoryItems.id, { onDelete: "cascade" }),
-    salePrice: numeric("sale_price", { precision: 18, scale: 2 }),
+    salesPrice: numeric("sales_price", { precision: 18, scale: 2 }),
     effectiveFrom: text("effective_from").notNull(), // YYYY-MM-DD
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),

@@ -8,9 +8,9 @@ export type InventoryItemView = {
   isActive: boolean;
   // ── POS (docs/pos/00-proposal.md §3.2) ──
   /** Борлуулах үнэ (MNT) — null = тогтоогоогүй. */
-  salePrice: number | null;
+  salesPrice: number | null;
   /** Кассчны хөнгөлөлтийн доод хязгаар. */
-  minSalePrice: number | null;
+  minSalesPrice: number | null;
   barcode: string | null;
   vatMode: ItemVatMode;
   /** Барааны орлогын дансны override — null бол POS тохиргооны данс. */

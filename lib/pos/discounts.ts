@@ -414,11 +414,11 @@ export function applyDiscounts(
   // Эцсийн дүн, доод үнэ, нийт хөнгөлөлтийн тааз.
   for (const line of lines) {
     line.lineTotal = round2(line.lineGross - line.discountAmount);
-    if (line.minSalePrice != null && line.quantity > 0) {
+    if (line.minSalesPrice != null && line.quantity > 0) {
       const unitAfter = line.lineTotal / line.quantity;
-      if (unitAfter + 1e-9 < line.minSalePrice)
+      if (unitAfter + 1e-9 < line.minSalesPrice)
         approvalReasons.push(
-          `${line.itemName}: хөнгөлөлтийн дараах үнэ ${round2(unitAfter).toLocaleString("en-US")}₮ нь доод үнэ ${line.minSalePrice.toLocaleString("en-US")}₮-өөс бага`
+          `${line.itemName}: хөнгөлөлтийн дараах үнэ ${round2(unitAfter).toLocaleString("en-US")}₮ нь доод үнэ ${line.minSalesPrice.toLocaleString("en-US")}₮-өөс бага`
         );
     }
   }

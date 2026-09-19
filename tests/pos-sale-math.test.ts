@@ -23,7 +23,7 @@ function priced(partial: Partial<PricedLine> & Pick<PricedLine, "key" | "lineTot
     quantity: 1,
     unitPrice: partial.lineTotal,
     vatMode: "standard",
-    minSalePrice: null,
+    minSalesPrice: null,
     lineGross: partial.lineTotal,
     discountAmount: 0,
     discountDetail: [],

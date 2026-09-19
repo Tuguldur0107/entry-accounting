@@ -45,7 +45,7 @@ function line(partial: Partial<CartLine> & Pick<CartLine, "key" | "itemId" | "qu
     unit: "ш",
     categoryCode: null,
     vatMode: "standard",
-    minSalePrice: null,
+    minSalesPrice: null,
     ...partial,
   };
 }
@@ -197,7 +197,7 @@ test("купон: код таарвал л; буруу код → approvalReason
 
 test("гар хөнгөлөлт: хязгаараас хэтэрвэл менежерийн зөвшөөрөл; доод үнэ", () => {
   const cart = [
-    line({ key: "a", itemId: "X", quantity: 1, unitPrice: 100_000, manualDiscountPercent: 15, minSalePrice: 90_000 }),
+    line({ key: "a", itemId: "X", quantity: 1, unitPrice: 100_000, manualDiscountPercent: 15, minSalesPrice: 90_000 }),
   ];
   const result = applyDiscounts(cart, [], ctx);
   assert.equal(result.discountTotal, 15_000);

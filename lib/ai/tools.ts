@@ -679,8 +679,8 @@ export const AI_TOOLS: AiToolDef[] = [
         code: { type: "string", description: "Барааны код (жишээ нь ITEM-010)" },
         name: { type: "string", description: "Барааны нэр" },
         unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
-        salePrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
-        minSalePrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
+        salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
+        minSalesPrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
         barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
         vatMode: {
           type: "string",
@@ -793,8 +793,8 @@ export const AI_TOOLS: AiToolDef[] = [
         name: { type: "string", description: "Шинэ нэр (сонголтоор)" },
         unit: { type: "string", description: "Шинэ нэгж (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
-        salePrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
-        minSalePrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
+        salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
+        minSalesPrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
         barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
         vatMode: {
           type: "string",
@@ -1550,15 +1550,15 @@ export const AI_TOOLS: AiToolDef[] = [
         items: {
           type: "array",
           description:
-            "create_inventory_item-ийн input-уудын жагсаалт (POS талбарууд: salePrice, minSalePrice, barcode, vatMode, categoryCode, revenueAccountNumber сонголтоор)",
+            "create_inventory_item-ийн input-уудын жагсаалт (POS талбарууд: salesPrice, minSalesPrice, barcode, vatMode, categoryCode, revenueAccountNumber сонголтоор)",
           items: {
             type: "object",
             properties: {
               code: { type: "string" },
               name: { type: "string" },
               unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
-              salePrice: { type: "number", description: "Борлуулах үнэ ₮ (сонголтоор)" },
-              minSalePrice: { type: "number", description: "Доод үнэ ₮ (сонголтоор)" },
+              salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (сонголтоор)" },
+              minSalesPrice: { type: "number", description: "Доод үнэ ₮ (сонголтоор)" },
               barcode: { type: "string", description: "Баркод (сонголтоор)" },
               vatMode: {
                 type: "string",
@@ -4087,8 +4087,8 @@ async function runCreateCounterparty(
 
 /** POS талбарууд — model-ийн input (сонголтоор, өгсөн нь л дамжина). */
 type ItemPosInput = {
-  salePrice?: number;
-  minSalePrice?: number;
+  salesPrice?: number;
+  minSalesPrice?: number;
   barcode?: string;
   vatMode?: "standard" | "exempt" | "zero";
   categoryCode?: string;
@@ -4098,15 +4098,15 @@ type ItemPosInput = {
 /** Зөвхөн ӨГӨГДСӨН POS талбарыг дамжуулна — өгөөгүй нь хөндөгдөхгүй (update-д чухал). */
 function itemPosFieldsOf(input: ItemPosInput) {
   const fields: {
-    salePrice?: number;
-    minSalePrice?: number;
+    salesPrice?: number;
+    minSalesPrice?: number;
     barcode?: string | null;
     vatMode?: "standard" | "exempt" | "zero";
     categoryCode?: string | null;
     revenueAccountNumber?: string | null;
   } = {};
-  if (input.salePrice != null) fields.salePrice = Number(input.salePrice);
-  if (input.minSalePrice != null) fields.minSalePrice = Number(input.minSalePrice);
+  if (input.salesPrice != null) fields.salesPrice = Number(input.salesPrice);
+  if (input.minSalesPrice != null) fields.minSalesPrice = Number(input.minSalesPrice);
   if (input.barcode != null) fields.barcode = input.barcode.trim() || null;
   if (input.vatMode != null) {
     if (!["standard", "exempt", "zero"].includes(input.vatMode))
@@ -4131,7 +4131,7 @@ async function runCreateItem(
     ...pos,
   });
   const extras = [
-    pos.salePrice != null ? `үнэ ${pos.salePrice.toLocaleString()}₮` : null,
+    pos.salesPrice != null ? `үнэ ${pos.salesPrice.toLocaleString()}₮` : null,
     pos.barcode ? `баркод ${pos.barcode}` : null,
     pos.vatMode && pos.vatMode !== "standard" ? `НӨАТ ${pos.vatMode}` : null,
     pos.categoryCode ? `бүлэг ${pos.categoryCode}` : null,
@@ -6536,7 +6536,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 5. Сар хаалтад: run_monthly_costing → post_cost_entries — COGS бичигдэнэ
 НӨАТ-тай бол: авлага = нийт, орлого = нийт/1.1, НӨАТ өглөг 31410000 = нийт×10/110 гэж мөр хуваана.`,
   pos_sale: `ЖИЖИГЛЭН ХУДАЛДАА (POS — docs/pos) — зөв дараалал:
-0. Бараанд борлуулах үнэ (salePrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch
+0. Бараанд борлуулах үнэ (salesPrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch
 1. get_pos_status — нээлттэй ээлж, төлбөрийн хэлбэрийн кодууд (CASH, CARD, CREDIT …), НӨАТ төлөгч эсэх
 2. open_pos_shift {cashAccount, warehouseCode, openingFloat} — ээлж байхгүй бол (GL бичилтгүй)
 3. create_pos_sale {lines:[{itemCode, quantity}], payments:[{method:"CASH", amount}]} — НЭГ транзакцад: АР нэхэмжлэх posted + кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS. Хөнгөлөлтийн дүрэм автомат; купон couponCodes-оор; харилцагч өгвөл бүлгийн хөнгөлөлт/зээл. Зөвхөн 'Шууд бичих' горим, ≤10 сая ₮
@@ -8781,7 +8781,7 @@ async function posItemByCode(orgId: string, code: string) {
       eq(inventoryItems.isActive, true),
       or(eq(inventoryItems.code, query), eq(inventoryItems.barcode, query))
     ),
-    columns: { id: true, code: true, name: true, salePrice: true },
+    columns: { id: true, code: true, name: true, salesPrice: true },
   });
   if (!item) throw codedError("ITEM_NOT_FOUND", `"${code}" кодтой/баркодтой идэвхтэй бараа олдсонгүй — list_inventory-оор шалгана уу`);
   return item;

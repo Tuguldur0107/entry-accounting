@@ -23,7 +23,7 @@
 
 | Асуудал | Одоо | Санал v2 |
 |---|---|---|
-| Борлуулах үнэ | бараанд байхгүй | `salePrice`, `barcode`, `vatMode`, `minSalePrice` + үнийн түүх; урамшууллын үнэ хөнгөлөлтийн дүрмээр (§3.5) |
+| Борлуулах үнэ | бараанд байхгүй | `salesPrice`, `barcode`, `vatMode`, `minSalesPrice` + үнийн түүх; урамшууллын үнэ хөнгөлөлтийн дүрмээр (§3.5) |
 | Кассын дэлгэц | байхгүй | `/inventory/pos` — бүтэн дэлгэц, сканнер, сагс grid, төлбөрийн диалог |
 | Борлуулалт → АР | гараар | борлуулалт бүрд НЭГ АР нэхэмжлэх (`sourceType: "pos"`), данс тохиргооноос |
 | Борлуулалт → Төлбөр | нэхэмжлэх батлагдсаны дараа тусдаа | нэг транзакцад; **төлбөрийн хэлбэр = тохируулах лавлах** (`pos_payment_methods`, 10 төрөл §3.4), холимог, хариулт, бөөрөнхийлөл |
@@ -87,12 +87,12 @@
 
 ### 3.2 Өгөгдлийн бүтэц
 
-**`inventory_items` өргөтгөл (nullable):** `salePrice numeric(18,2)` (НӨАТ төлөгч бол орсон), `barcode text` (org-д unique partial index `_ux`), `vatMode text default "standard"` (`standard|exempt|zero`), `revenueAccountNumber text`, `minSalePrice numeric(18,2)`, `categoryCode text` (хөнгөлөлтийн дүрмийн бүлэглэлд — S4 барааны сегменттэй холбож болно, v1-д энгийн текст лавлах `inventory_categories`).
+**`inventory_items` өргөтгөл (nullable):** `salesPrice numeric(18,2)` (НӨАТ төлөгч бол орсон), `barcode text` (org-д unique partial index `_ux`), `vatMode text default "standard"` (`standard|exempt|zero`), `revenueAccountNumber text`, `minSalesPrice numeric(18,2)`, `categoryCode text` (хөнгөлөлтийн дүрмийн бүлэглэлд — S4 барааны сегменттэй холбож болно, v1-д энгийн текст лавлах `inventory_categories`).
 
 **Шинэ хүснэгтүүд:**
 
 ```
-item_price_history      itemId, salePrice, effectiveFrom, createdBy, createdAt — аудит (борлуулалтын мөр үнээ өөртөө хадгална)
+item_price_history      itemId, salesPrice, effectiveFrom, createdBy, createdAt — аудит (борлуулалтын мөр үнээ өөртөө хадгална)
 inventory_categories    organizationId, code, name, parentCode?, isActive — барааны бүлэг (дүрэм, тайланд)
 pos_settings            organizationId (unique), §3.1 рольууд, discountPosting net|contra, provisionalCogs bool,
                         maxManualDiscountPercent, managerPinRequiredAbovePercent, cashRoundingUnit (0|10|100),
@@ -132,7 +132,7 @@ pos_store_credits       id, organizationId, counterpartyId, amount, balance, sou
 
 ```
 ① Ээлж нээх — касс, агуулах, эхний мөнгө, (валютын кассын ханш өдөрт нэг удаа)
-② Сагс — сканнер/хайлт; мөр: тоо, нэгж үнэ (barааны salePrice; эрхтэй бол засна, ≥ minSalePrice)
+② Сагс — сканнер/хайлт; мөр: тоо, нэгж үнэ (barааны salesPrice; эрхтэй бол засна, ≥ minSalesPrice)
    хөнгөлөлтийн хөдөлгөгч (§3.5) мөр нэмэгдэх бүрд автоматаар ажиллаж, төлөх дүнг шинэчилнэ
    үлдэгдэл: агуулахын боломжит үлдэгдэл харагдана; ХАСАХ болвол улбар шар анхааруулга (борлуулалт зогсохгүй, D9)
 ③ Төлбөр — диалог (§3.4): нэг/олон хэлбэр; Σ baseAmount − хариулт + бөөрөнхийлөл = total; зээл/урьдчилгаа/кредит → харилцагч ЗААВАЛ
@@ -181,7 +181,7 @@ POS-оос үүссэн АР / касс / хөдөлгөөн / өртгийн б
 | # | ruleType | Тайлбар | Талбар |
 |---|---|---|---|
 | 1 | `line_percent` / `line_amount` | Бараа/бүлгийн мөр бүрд % эсвэл ₮ | scope, value |
-| 2 | `fixed_price` | Урамшууллын үнэ (хугацаатай) — `salePrice`-ийг дарна | scope=item, value, dateFrom/To |
+| 2 | `fixed_price` | Урамшууллын үнэ (хугацаатай) — `salesPrice`-ийг дарна | scope=item, value, dateFrom/To |
 | 3 | `qty_tier` | Тоо хэмжээний шатлал: 1–9ш 0%, 10–49ш 5%, 50+ 10% (эсвэл шатлал бүрд үнэ) | tiers jsonb `[{minQty, percent|price}]` |
 | 4 | `buy_x_get_y` | N авбал M үнэгүй (BOGO, 3+1): үнэгүй мөр = 100% хөнгөлөлттэй ТУСДАА мөр (тоо гардаг, орлого 0, COGS бичигдэнэ) | buyQty, getQty, scope |
 | 5 | `basket_threshold` | Сагсны нийт ≥ X → Y% / ₮ (баримтын түвшин, pro-rata) | minAmount, value |
@@ -195,7 +195,7 @@ POS-оос үүссэн АР / касс / хөдөлгөөн / өртгийн б
 - Оролт: сагс (мөр: item, category, qty, unitPrice), харилцагч (group), огноо/цаг, купон код(ууд), гар хөнгөлөлт. Гаралт: мөр бүрийн `discountAmount` + `discountDetail[]`, баримтын хөнгөлөлт, эцсийн `total`. **Төлөх дүнд шууд нөлөөлнө** — НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс задарна.
 - Дараалал: `fixed_price` → мөрийн дүрмүүд (`priority`-оор; `stackable=false` бол хамгийн их нэгийг л) → `buy_x_get_y` → харилцагчийн бүлэг → купон → сагсны босго → гар. Давхцах бодлого `pos_settings.discountStacking`: `best_single` (default — хэрэглэгчид хамгийн ашигтай нэг) / `cumulative` (stackable дүрмүүд нийлнэ, дээд хязгаар `maxTotalDiscountPercent`).
 - Баримтын түвшний хөнгөлөлт мөрүүдэд lineTotal-ын жингээр хуваарилагдана; бөөрөнхийллийг хамгийн том мөр шингээнэ (`applyInclusiveVatToLines`-тэй ижил зарчим) — АР/НӨАТ/тайлан мөрөөр таарна.
-- Хязгаар: мөрийн үнэ − хөнгөлөлт ≥ `minSalePrice` (эрхтэй нь давна, аудит); хөнгөлөлт > `managerPinRequiredAbovePercent` → менежерийн PIN/эрх (`pos:post`) — `pos_sale_discounts.approvedBy`.
+- Хязгаар: мөрийн үнэ − хөнгөлөлт ≥ `minSalesPrice` (эрхтэй нь давна, аудит); хөнгөлөлт > `managerPinRequiredAbovePercent` → менежерийн PIN/эрх (`pos:post`) — `pos_sale_discounts.approvedBy`.
 - GL (C3): `net` — орлого цэвэр; `contra` — Cr орлого бүтэн + Dr хөнгөлөлтийн данс (мөр бүрийн хөнгөлөлт), НӨАТ цэвэр дүнгээс. Тайланд хөнгөлөлт аль ч горимд бүтэн (дүрэм бүрээр: аль дүрэм хэдэн ₮ өгсөн — урамшууллын үр ашиг).
 - Тохиргооны UI: `/inventory/sales/settings` → "Хөнгөлөлтийн дүрэм" grid (idэвхтэй/хугацаа/priority), "Симуляци" — сагс оруулж дүрмийн үр дүнг урьдчилан харна.
 
@@ -248,8 +248,8 @@ closePeriod: ноорог true-up = ноорог cost_entries → одоогий
 ### 3.8 НӨАТ (D4)
 
 - `vat_settings.isVatPayer` (шинэ; default = `organizations.vatPayerNo` бөглөгдсөн бол true). Тохиргоо → НӨАТ хуудсанд switch.
-- **Төлөгч:** `salePrice` НӨАТ орсон; мөр бүрд хөнгөлөлтийн дараах дүнгээс `splitVat(gross,"inclusive",rate)`; `vatMode=exempt|zero` → vat 0; АР-д НӨАТ мөр Σvat → `/tax/vat` тайланд автоматаар (GL-ээс).
-- **Төлөгч биш:** `salePrice` = орлого; НӨАТ мөр, задаргаа ОГТ үгүй; баримтад "НӨАТ-гүй"; барааны `vatMode` талбар нуугдана.
+- **Төлөгч:** `salesPrice` НӨАТ орсон; мөр бүрд хөнгөлөлтийн дараах дүнгээс `splitVat(gross,"inclusive",rate)`; `vatMode=exempt|zero` → vat 0; АР-д НӨАТ мөр Σvat → `/tax/vat` тайланд автоматаар (GL-ээс).
+- **Төлөгч биш:** `salesPrice` = орлого; НӨАТ мөр, задаргаа ОГТ үгүй; баримтад "НӨАТ-гүй"; барааны `vatMode` талбар нуугдана.
 - Бөөрөнхийлөл мөр бүрд 2 орон, Σ таарна (largest-line absorb).
 
 ### 3.9 Хасах үлдэгдэл (D9) + мэдэгдэл

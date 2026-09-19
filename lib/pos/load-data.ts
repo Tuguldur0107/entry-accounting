@@ -626,8 +626,8 @@ export interface CheckoutItem {
   unit: string;
   barcode: string | null;
   categoryCode: string | null;
-  salePrice: number | null;
-  minSalePrice: number | null;
+  salesPrice: number | null;
+  minSalesPrice: number | null;
   vatMode: "standard" | "exempt" | "zero";
 }
 
@@ -697,8 +697,8 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
       unit: item.unit,
       barcode: item.barcode,
       categoryCode: item.categoryCode,
-      salePrice: item.salePrice === null ? null : Number(item.salePrice),
-      minSalePrice: item.minSalePrice === null ? null : Number(item.minSalePrice),
+      salesPrice: item.salesPrice === null ? null : Number(item.salesPrice),
+      minSalesPrice: item.minSalesPrice === null ? null : Number(item.minSalesPrice),
       vatMode: toItemVatMode(item.vatMode),
     })),
     warehouses: warehouseRows.map((warehouse) => ({

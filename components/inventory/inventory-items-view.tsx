@@ -60,8 +60,8 @@ type ItemForm = {
   code: string;
   name: string;
   unit: string;
-  salePrice: string;
-  minSalePrice: string;
+  salesPrice: string;
+  minSalesPrice: string;
   barcode: string;
   vatMode: ItemVatMode;
   categoryCode: string;
@@ -73,8 +73,8 @@ const emptyItemForm: ItemForm = {
   code: "",
   name: "",
   unit: "ш",
-  salePrice: "",
-  minSalePrice: "",
+  salesPrice: "",
+  minSalesPrice: "",
   barcode: "",
   vatMode: "standard",
   categoryCode: "",
@@ -160,7 +160,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
       { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
       {
         headerName: "Борлуулах үнэ",
-        field: "salePrice",
+        field: "salesPrice",
         width: 130,
         type: "rightAligned",
         cellClass: "font-mono text-xs text-right",
@@ -231,8 +231,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                 code: data.code,
                 name: data.name,
                 unit: data.unit,
-                salePrice: data.salePrice == null ? "" : String(data.salePrice),
-                minSalePrice: data.minSalePrice == null ? "" : String(data.minSalePrice),
+                salesPrice: data.salesPrice == null ? "" : String(data.salesPrice),
+                minSalesPrice: data.minSalesPrice == null ? "" : String(data.minSalesPrice),
                 barcode: data.barcode ?? "",
                 vatMode: data.vatMode,
                 categoryCode: data.categoryCode ?? "",
@@ -504,10 +504,10 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   min={0}
                   step="0.01"
                   inputMode="decimal"
-                  value={itemForm.salePrice}
+                  value={itemForm.salesPrice}
                   placeholder="Тогтоогоогүй"
                   onChange={(e) =>
-                    setItemForm((c) => ({ ...c, salePrice: e.target.value }))
+                    setItemForm((c) => ({ ...c, salesPrice: e.target.value }))
                   }
                 />
               </Field>
@@ -517,10 +517,10 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   min={0}
                   step="0.01"
                   inputMode="decimal"
-                  value={itemForm.minSalePrice}
+                  value={itemForm.minSalesPrice}
                   placeholder="Хөнгөлөлтийн доод хязгаар"
                   onChange={(e) =>
-                    setItemForm((c) => ({ ...c, minSalePrice: e.target.value }))
+                    setItemForm((c) => ({ ...c, minSalesPrice: e.target.value }))
                   }
                 />
               </Field>
@@ -611,8 +611,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
               disabled={isPending}
               onClick={() => {
                 const posFields = {
-                  salePrice: priceInput(itemForm.salePrice),
-                  minSalePrice: priceInput(itemForm.minSalePrice),
+                  salesPrice: priceInput(itemForm.salesPrice),
+                  minSalesPrice: priceInput(itemForm.minSalesPrice),
                   barcode: itemForm.barcode.trim() || null,
                   vatMode: itemForm.vatMode,
                   categoryCode: itemForm.categoryCode || null,

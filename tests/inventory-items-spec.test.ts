@@ -32,8 +32,8 @@ test("inventoryItemsSpec: зөв мөр бүх талбартайгаа унши
     code: "BM-001",
     name: "Цаас А4",
     unit: "боодол",
-    salePrice: 15_000,
-    minSalePrice: 13_500,
+    salesPrice: 15_000,
+    minSalesPrice: 13_500,
     barcode: "8651234567890",
     vatMode: "standard",
     categoryCode: "OFFICE",
@@ -48,8 +48,8 @@ test("inventoryItemsSpec: хоосон нэгж/НӨАТ/идэвх default ав
   assert.equal(value.unit, "ш");
   assert.equal(value.vatMode, "standard");
   assert.equal(value.isActive, true);
-  assert.equal(value.salePrice, null);
-  assert.equal(value.minSalePrice, null);
+  assert.equal(value.salesPrice, null);
+  assert.equal(value.minSalesPrice, null);
   assert.equal(value.barcode, null);
   assert.equal(value.categoryCode, null);
 });
@@ -95,8 +95,8 @@ test("inventoryItemsSpec: дүн ₮ ба таслалтай уншигдана,
     spec
   );
   assert.equal(result.rows[0].errors.length, 0);
-  assert.equal(result.rows[0].value!.salePrice, 1_650_000);
-  assert.equal(result.rows[0].value!.minSalePrice, 1_500_000);
+  assert.equal(result.rows[0].value!.salesPrice, 1_650_000);
+  assert.equal(result.rows[0].value!.minSalesPrice, 1_500_000);
   assert.ok(result.rows[1].errors.some((error) => error.includes("Доод үнэ")));
 });
 

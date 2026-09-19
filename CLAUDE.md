@@ -481,7 +481,7 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
   тул `closePeriod` `unvalued-movements` хоригоор (сарын тооцоололд "calculated"
   биш scope-той батлагдсан зарлага/буцаалт/тохируулга) засагдтал хаагдахгүй;
   мөн `open-pos-shifts` (нээлттэй ээлж)
-- **НӨАТ `vat_settings.isVatPayer`-ээс** (D4): төлөгч → барааны `salePrice` НӨАТ
+- **НӨАТ `vat_settings.isVatPayer`-ээс** (D4): төлөгч → барааны `salesPrice` НӨАТ
   ОРСОН, мөр бүр `vatMode`-оор задарна; төлөгч биш → НӨАТ мөр огт үгүй
 - **Хөнгөлөлтийн хөдөлгөгч** (`lib/pos/discounts.ts`, 9 төрөл, тесттэй): төлөх
   дүнд шууд нөлөөлнө, НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс; `approvalReasons`
@@ -1234,7 +1234,7 @@ POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeI
            pos_shifts, pos_sales, pos_sale_lines (arApLineId / movementId /
            provisionalCostEntryId), pos_sale_discounts, pos_payments,
            pos_gift_cards, pos_store_credits; inventory_categories,
-           item_price_history; inventory_items.salePrice/barcode/vatMode…;
+           item_price_history; inventory_items.salesPrice/barcode/vatMode…;
            counterparties.customerGroup/creditLimit; vat_settings.isVatPayer;
            ar_ap_documents / cash_documents .sourceType ("pos") + sourceId;
            cost_entries.trueUpOfEntryId, valuationSource "provisional_avg",

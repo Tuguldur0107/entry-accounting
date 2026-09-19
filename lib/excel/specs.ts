@@ -514,8 +514,8 @@ export interface InventoryItemImport {
   code: string;
   name: string;
   unit: string;
-  salePrice?: number | null;
-  minSalePrice?: number | null;
+  salesPrice?: number | null;
+  minSalesPrice?: number | null;
   barcode?: string | null;
   vatMode: ItemVatModeImport;
   categoryCode?: string | null;
@@ -563,13 +563,13 @@ export function inventoryItemsSpec(context: {
         example: "ш",
       },
       {
-        key: "salePrice",
+        key: "salesPrice",
         header: "Борлуулах үнэ",
         hint: "POS-ийн борлуулах үнэ ₮ (НӨАТ төлөгч бол НӨАТ орсон); хоосон бол тогтоохгүй",
         example: "15000",
       },
       {
-        key: "minSalePrice",
+        key: "minSalesPrice",
         header: "Доод үнэ",
         hint: "Кассчны хөнгөлөлтийн доод хязгаар ₮ (борлуулах үнээс ихгүй)",
         example: "13500",
@@ -606,19 +606,19 @@ export function inventoryItemsSpec(context: {
       const name = record.name.trim();
       if (!name) errors.push("Нэр хоосон байна");
 
-      const salePrice = parseAmountCell(record.salePrice);
-      if (salePrice === undefined) errors.push("Борлуулах үнэ уншигдахгүй байна");
-      else if (salePrice != null && salePrice < 0)
+      const salesPrice = parseAmountCell(record.salesPrice);
+      if (salesPrice === undefined) errors.push("Борлуулах үнэ уншигдахгүй байна");
+      else if (salesPrice != null && salesPrice < 0)
         errors.push("Борлуулах үнэ сөрөг байж болохгүй");
 
-      const minSalePrice = parseAmountCell(record.minSalePrice);
-      if (minSalePrice === undefined) errors.push("Доод үнэ уншигдахгүй байна");
-      else if (minSalePrice != null && minSalePrice < 0)
+      const minSalesPrice = parseAmountCell(record.minSalesPrice);
+      if (minSalesPrice === undefined) errors.push("Доод үнэ уншигдахгүй байна");
+      else if (minSalesPrice != null && minSalesPrice < 0)
         errors.push("Доод үнэ сөрөг байж болохгүй");
       if (
-        salePrice != null &&
-        minSalePrice != null &&
-        minSalePrice > salePrice
+        salesPrice != null &&
+        minSalesPrice != null &&
+        minSalesPrice > salesPrice
       )
         errors.push("Доод үнэ борлуулах үнээс их байж болохгүй");
 
@@ -645,8 +645,8 @@ export function inventoryItemsSpec(context: {
           code,
           name,
           unit: record.unit.trim() || "ш",
-          salePrice: salePrice ?? null,
-          minSalePrice: minSalePrice ?? null,
+          salesPrice: salesPrice ?? null,
+          minSalesPrice: minSalesPrice ?? null,
           barcode: record.barcode.trim() || null,
           vatMode,
           categoryCode,

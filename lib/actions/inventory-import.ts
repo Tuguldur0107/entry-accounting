@@ -69,12 +69,12 @@ export async function importInventoryItems(
       const name = row.name.trim();
       if (!name) throw new Error("Нэр хоосон байна");
       const unit = row.unit.trim() || "ш";
-      const salePrice = priceOrNull(row.salePrice, "Борлуулах үнэ");
-      const minSalePrice = priceOrNull(row.minSalePrice, "Доод үнэ");
+      const salesPrice = priceOrNull(row.salesPrice, "Борлуулах үнэ");
+      const minSalesPrice = priceOrNull(row.minSalesPrice, "Доод үнэ");
       if (
-        salePrice != null &&
-        minSalePrice != null &&
-        Number(minSalePrice) > Number(salePrice)
+        salesPrice != null &&
+        minSalesPrice != null &&
+        Number(minSalesPrice) > Number(salesPrice)
       )
         throw new Error("Доод үнэ борлуулах үнээс их байж болохгүй");
       const vatMode = row.vatMode ?? "standard";
@@ -87,7 +87,7 @@ export async function importInventoryItems(
 
       const existing = await db.query.inventoryItems.findFirst({
         where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, code)),
-        columns: { id: true, salePrice: true },
+        columns: { id: true, salesPrice: true },
       });
 
       if (barcode) {
@@ -111,14 +111,14 @@ export async function importInventoryItems(
         let previousPrice: string | null = null;
         if (existing) {
           itemId = existing.id;
-          previousPrice = existing.salePrice;
+          previousPrice = existing.salesPrice;
           await tx
             .update(inventoryItems)
             .set({
               name,
               unit,
-              salePrice,
-              minSalePrice,
+              salesPrice,
+              minSalesPrice,
               barcode,
               vatMode,
               categoryCode,
@@ -136,8 +136,8 @@ export async function importInventoryItems(
               code,
               name,
               unit,
-              salePrice,
-              minSalePrice,
+              salesPrice,
+              minSalesPrice,
               barcode,
               vatMode,
               categoryCode,
@@ -148,13 +148,13 @@ export async function importInventoryItems(
         }
 
         const previous = previousPrice == null ? null : Number(previousPrice);
-        const next = salePrice == null ? null : Number(salePrice);
+        const next = salesPrice == null ? null : Number(salesPrice);
         // Шинэ бараа үнэгүй бол түүх бичихгүй; өөрчлөлт л мөр болно.
         if (previous !== next)
           await tx.insert(itemPriceHistory).values({
             organizationId: orgId,
             itemId,
-            salePrice,
+            salesPrice,
             effectiveFrom: todayUlaanbaatar(),
             createdBy: userId,
           });

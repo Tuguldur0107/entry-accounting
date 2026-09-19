@@ -6,7 +6,7 @@
 
 ## 0. Схем (`lib/db/schema.ts`)
 
-- `inventoryItems`: `salePrice`, `minSalePrice`, `barcode` (org-д partial unique
+- `inventoryItems`: `salesPrice`, `minSalesPrice`, `barcode` (org-д partial unique
   index `inventory_items_org_barcode_ux`), `vatMode` (`standard|exempt|zero`),
   `revenueAccountNumber`, `categoryCode`.
 - Шинэ: `inventoryCategories`, `itemPriceHistory`, `posSettings`,

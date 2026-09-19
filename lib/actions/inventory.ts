@@ -81,8 +81,8 @@ function todayUlaanbaatar() {
 
 /** POS-ийн сонголтот талбарууд (docs/pos §3.2) — create/update хоёулаа. */
 export type InventoryItemPosFields = {
-  salePrice?: number | null;
-  minSalePrice?: number | null;
+  salesPrice?: number | null;
+  minSalesPrice?: number | null;
   barcode?: string | null;
   vatMode?: ItemVatMode;
   revenueAccountNumber?: string | null;
@@ -110,20 +110,20 @@ function parseOptionalPrice(
 async function validateItemPosFields(
   orgId: string,
   data: InventoryItemPosFields,
-  options: { excludeItemId?: string; currentSalePrice?: number | null } = {}
+  options: { excludeItemId?: string; currentSalesPrice?: number | null } = {}
 ): Promise<{
-  salePrice?: string | null;
-  minSalePrice?: string | null;
+  salesPrice?: string | null;
+  minSalesPrice?: string | null;
   barcode?: string | null;
   vatMode?: ItemVatMode;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
 }> {
-  const salePrice = parseOptionalPrice(data.salePrice, "Борлуулах үнэ");
-  const minSalePrice = parseOptionalPrice(data.minSalePrice, "Доод үнэ");
+  const salesPrice = parseOptionalPrice(data.salesPrice, "Борлуулах үнэ");
+  const minSalesPrice = parseOptionalPrice(data.minSalesPrice, "Доод үнэ");
   const effectiveSale =
-    salePrice === undefined ? options.currentSalePrice ?? null : salePrice;
-  if (minSalePrice != null && effectiveSale != null && minSalePrice > effectiveSale)
+    salesPrice === undefined ? options.currentSalesPrice ?? null : salesPrice;
+  if (minSalesPrice != null && effectiveSale != null && minSalesPrice > effectiveSale)
     throw new Error("Доод үнэ борлуулах үнээс их байж болохгүй");
 
   if (data.vatMode !== undefined && !ITEM_VAT_MODES.includes(data.vatMode))
@@ -176,9 +176,9 @@ async function validateItemPosFields(
   }
 
   return {
-    salePrice: salePrice === undefined ? undefined : salePrice == null ? null : String(salePrice),
-    minSalePrice:
-      minSalePrice === undefined ? undefined : minSalePrice == null ? null : String(minSalePrice),
+    salesPrice: salesPrice === undefined ? undefined : salesPrice == null ? null : String(salesPrice),
+    minSalesPrice:
+      minSalesPrice === undefined ? undefined : minSalesPrice == null ? null : String(minSalesPrice),
     barcode,
     vatMode: data.vatMode,
     revenueAccountNumber,
@@ -204,7 +204,7 @@ async function recordPriceHistory(
   await tx.insert(itemPriceHistory).values({
     organizationId: params.orgId,
     itemId: params.itemId,
-    salePrice: params.next ?? null,
+    salesPrice: params.next ?? null,
     effectiveFrom: todayUlaanbaatar(),
     createdBy: params.userId,
   });
@@ -238,8 +238,8 @@ export async function createInventoryItem(
         code,
         name,
         unit,
-        salePrice: pos.salePrice ?? null,
-        minSalePrice: pos.minSalePrice ?? null,
+        salesPrice: pos.salesPrice ?? null,
+        minSalesPrice: pos.minSalesPrice ?? null,
         barcode: pos.barcode ?? null,
         vatMode: pos.vatMode ?? "standard",
         revenueAccountNumber: pos.revenueAccountNumber ?? null,
@@ -251,7 +251,7 @@ export async function createInventoryItem(
       userId,
       itemId: row.id,
       previous: null,
-      next: pos.salePrice ?? null,
+      next: pos.salesPrice ?? null,
     });
   });
   revalidateInventory();
@@ -266,19 +266,19 @@ export async function updateInventoryItem(
   if (!name) throw new Error("Барааны нэр оруулна уу");
   const existing = await db.query.inventoryItems.findFirst({
     where: and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)),
-    columns: { id: true, salePrice: true, minSalePrice: true },
+    columns: { id: true, salesPrice: true, minSalesPrice: true },
   });
   if (!existing) throw new Error("Бараа олдсонгүй");
   const pos = await validateItemPosFields(orgId, data, {
     excludeItemId: id,
-    currentSalePrice: existing.salePrice == null ? null : Number(existing.salePrice),
+    currentSalesPrice: existing.salesPrice == null ? null : Number(existing.salesPrice),
   });
   // Үнэ шинээр өгөгдөж, доод үнэ хөндөгдөөгүй бол хуучин доод үнэтэй тулгана.
   if (
-    pos.salePrice != null &&
-    pos.minSalePrice === undefined &&
-    existing.minSalePrice != null &&
-    Number(existing.minSalePrice) > Number(pos.salePrice)
+    pos.salesPrice != null &&
+    pos.minSalesPrice === undefined &&
+    existing.minSalesPrice != null &&
+    Number(existing.minSalesPrice) > Number(pos.salesPrice)
   )
     throw new Error("Доод үнэ борлуулах үнээс их байж болохгүй");
 
@@ -288,8 +288,8 @@ export async function updateInventoryItem(
       .set({
         name,
         unit: data.unit.trim() || "ш",
-        ...(pos.salePrice !== undefined ? { salePrice: pos.salePrice } : {}),
-        ...(pos.minSalePrice !== undefined ? { minSalePrice: pos.minSalePrice } : {}),
+        ...(pos.salesPrice !== undefined ? { salesPrice: pos.salesPrice } : {}),
+        ...(pos.minSalesPrice !== undefined ? { minSalesPrice: pos.minSalesPrice } : {}),
         ...(pos.barcode !== undefined ? { barcode: pos.barcode } : {}),
         ...(pos.vatMode !== undefined ? { vatMode: pos.vatMode } : {}),
         ...(pos.revenueAccountNumber !== undefined
@@ -302,8 +302,8 @@ export async function updateInventoryItem(
       orgId,
       userId,
       itemId: id,
-      previous: existing.salePrice,
-      next: pos.salePrice,
+      previous: existing.salesPrice,
+      next: pos.salesPrice,
     });
   });
   revalidateInventory();
@@ -312,7 +312,7 @@ export async function updateInventoryItem(
 /** Барааны борлуулах үнийн түүх — шинэ нь эхэнд. */
 export async function listItemPriceHistory(
   itemId: string
-): Promise<{ salePrice: number | null; effectiveFrom: string; createdAt: string }[]> {
+): Promise<{ salesPrice: number | null; effectiveFrom: string; createdAt: string }[]> {
   const { orgId } = await requireModuleAction("inv", "read");
   const rows = await db.query.itemPriceHistory.findMany({
     where: and(
@@ -322,7 +322,7 @@ export async function listItemPriceHistory(
     orderBy: [desc(itemPriceHistory.createdAt)],
   });
   return rows.map((row) => ({
-    salePrice: row.salePrice == null ? null : Number(row.salePrice),
+    salesPrice: row.salesPrice == null ? null : Number(row.salesPrice),
     effectiveFrom: row.effectiveFrom,
     createdAt: row.createdAt.toISOString(),
   }));
