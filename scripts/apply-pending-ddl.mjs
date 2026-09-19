@@ -322,6 +322,13 @@ async function main() {
     `alter table company_settings add column if not exists large_amount_alert_mnt numeric(18,2)`
   );
 
+  // ── 4. inventory_items.sales_price (барааны борлуулах үнэ — АР нэгж үнэ) ──
+  await run(
+    "inventory_items.sales_price багана",
+    `alter table inventory_items
+       add column if not exists sales_price numeric(18, 4)`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

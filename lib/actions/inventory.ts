@@ -6,10 +6,12 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  arApDocumentLines,
   costEntries,
   inventoryIssueTypes,
   inventoryItems,
   inventoryMovements,
+  purchaseOrderLines,
   warehouses,
 } from "@/lib/db/schema";
 import {
@@ -59,15 +61,30 @@ function cleanText(value: string | null | undefined) {
 
 // ─── Мастер дата ─────────────────────────────────────────────────────────────
 
+/**
+ * Борлуулах үнэ: хоосон / null → null (тогтоогоогүй); 0 буюу сөрөг, тоо биш
+ * бол алдаа — үнэ ЗОХИОХГҮЙ, чимээгүй 0 болгохгүй.
+ */
+function normalizeSalesPrice(value: number | string | null | undefined) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    throw new Error("Борлуулах үнэ 0-ээс их тоо байна (эсвэл хоосон орхино)");
+  return String(parsed);
+}
+
 export async function createInventoryItem(data: {
   code: string;
   name: string;
   unit: string;
+  /** Борлуулах үнэ (MNT, нэгжид) — сонголтоор. */
+  salesPrice?: number | string | null;
 }) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
   const unit = data.unit.trim() || "ш";
+  const salesPrice = normalizeSalesPrice(data.salesPrice);
   if (!code) throw new Error("Барааны код оруулна уу");
   if (!name) throw new Error("Барааны нэр оруулна уу");
   const duplicate = await db.query.inventoryItems.findFirst({
@@ -75,20 +92,33 @@ export async function createInventoryItem(data: {
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой бараа бүртгэгдсэн байна`);
-  await db.insert(inventoryItems).values({ userId, organizationId: orgId, code, name, unit });
+  await db
+    .insert(inventoryItems)
+    .values({ userId, organizationId: orgId, code, name, unit, salesPrice });
   revalidateInventory();
 }
 
 export async function updateInventoryItem(
   id: string,
-  data: { name: string; unit: string }
+  data: {
+    name: string;
+    unit: string;
+    /** undefined = хөндөхгүй; null / "" = үнийг арилгана. */
+    salesPrice?: number | string | null;
+  }
 ) {
   const { orgId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Барааны нэр оруулна уу");
   await db
     .update(inventoryItems)
-    .set({ name, unit: data.unit.trim() || "ш" })
+    .set({
+      name,
+      unit: data.unit.trim() || "ш",
+      ...(data.salesPrice !== undefined
+        ? { salesPrice: normalizeSalesPrice(data.salesPrice) }
+        : {}),
+    })
     .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
   revalidateInventory();
 }
@@ -100,6 +130,85 @@ export async function toggleInventoryItem(id: string, isActive: boolean) {
     .set({ isActive })
     .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
   revalidateInventory();
+}
+
+/**
+ * Барааг устгана — ЗӨВХӨН түүхгүй бараа (хөдөлгөөн, АР/АП мөр, PO мөр,
+ * өртгийн бичилтгүй). Түүхтэй барааг идэвхгүй болгоно (toggleInventoryItem) —
+ * delete_counterparty-тэй ИЖИЛ дүрэм. Cascade-аар зөвхөн тохиргоо
+ * (costing_item_settings) устана; үлдэгдлийн snapshot/өртгийн үр дүн нь
+ * хөдөлгөөнгүйгээр үүсэх боломжгүй тул шалгалт хамгаална.
+ */
+export async function deleteInventoryItem(
+  id: string
+): Promise<ActionResult<{ code: string; name: string }>> {
+  try {
+    return await deleteInventoryItemCore(id);
+  } catch (caught) {
+    return actionError("deleteInventoryItem", caught, "Бараа устгагдсангүй");
+  }
+}
+
+async function deleteInventoryItemCore(id: string) {
+  const { orgId, userId } = await requireModuleAction("inv", "write");
+  const item = await db.query.inventoryItems.findFirst({
+    where: and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)),
+    columns: { id: true, code: true, name: true },
+  });
+  if (!item) throw new Error("Бараа олдсонгүй");
+
+  const countOf = async (query: Promise<{ count: number }[]>) =>
+    Number((await query)[0]?.count ?? 0);
+  const [movements, arapLines, poLines, costs] = await Promise.all([
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventoryMovements)
+        .where(eq(inventoryMovements.itemId, id))
+    ),
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(arApDocumentLines)
+        .where(eq(arApDocumentLines.itemId, id))
+    ),
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(purchaseOrderLines)
+        .where(eq(purchaseOrderLines.itemId, id))
+    ),
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(costEntries)
+        .where(eq(costEntries.itemId, id))
+    ),
+  ]);
+  const usage = [
+    movements > 0 ? `${movements} хөдөлгөөн` : null,
+    arapLines > 0 ? `${arapLines} АР/АП мөр` : null,
+    poLines > 0 ? `${poLines} захиалгын мөр` : null,
+    costs > 0 ? `${costs} өртгийн бичилт` : null,
+  ].filter(Boolean);
+  if (usage.length > 0)
+    throw new Error(
+      `${item.code} — ${usage.join(", ")}-тэй тул устгах боломжгүй. Түүхтэй барааг идэвхгүй болгоно уу.`
+    );
+
+  await db
+    .delete(inventoryItems)
+    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "delete",
+    entityType: "inventory",
+    entityId: id,
+    summary: `Бараа устгагдав — ${item.code} · ${item.name}`,
+  });
+  revalidateInventory();
+  return { code: item.code, name: item.name };
 }
 
 export async function createWarehouse(data: { code: string; name: string }) {

@@ -115,7 +115,7 @@ export function CashReportView({
         minWidth: 170,
         cellClass: "font-mono text-xs",
       },
-      { headerName: "Утга", field: "description", minWidth: 220, flex: 1 },
+      { headerName: "Журналын нэр", field: "description", minWidth: 220, flex: 1 },
       {
         headerName: "Харилцагч",
         field: "counterparty",

@@ -1326,6 +1326,11 @@ export const inventoryItems = pgTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     unit: text("unit").notNull().default("ш"),
+    // Борлуулах үнэ (MNT, нэгжид) — АР нэхэмжлэхэд бараа сонгоход нэгж үнэ
+    // АВТОМАТААР бөглөгдөнө. null = үнэ тогтоогоогүй (сүүлийн борлуулалтын
+    // нэгж үнээр нөхнө, тэр ч байхгүй бол хэрэглэгч гараар бичнэ). Өртөгтэй
+    // (cost_period_results) ХОЛБООГҮЙ — зөвхөн борлуулалтын лавлах үнэ.
+    salesPrice: numeric("sales_price", { precision: 18, scale: 4 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -2552,8 +2557,30 @@ export const fixedAssets = pgTable(
       .default("straight_line"),
     // Хөрөнгө эзэмшигч / хариуцагч (ажилтан, хэлтэс)
     custodian: text("custodian"),
+    /** Байршил (салбар, барилга, агуулах) — картын жагсаалтад харагдана. */
+    location: text("location"),
+    /** Дэд байршил (давхар, өрөө, тасаг). */
+    subLocation: text("sub_location"),
     // Элэгдэл эхлэх сар (YYYY-MM); идэвхжүүлэхэд заавал бөглөнө.
     depreciationStartMonth: text("depreciation_start_month"),
+    /**
+     * Элэгдэл эхлэх ОГНОО (YYYY-MM-DD) — ӨДРИЙН суурьт заавал. Сар дундуур
+     * ашиглалтад орсон хөрөнгө тэр сард хувь тэнцүүлэн элэгдэнэ.
+     * Хоосон бол элэгдэл эхлэх сарын 1-ний өдөр гэж үзнэ.
+     */
+    depreciationStartDate: text("depreciation_start_date"),
+    /**
+     * ТАТВАРЫН зорилгоорх ашиглалтын хугацаа (сар) — ААНОАТ-ын хуулийн
+     * хувь хэмжээгээр (cit.md: барилга 5%, тоног төхөөрөмж/тээвэр 10%,
+     * компьютер 20%). 0 = татварын элэгдэл бодохгүй.
+     * Санхүүгийн (IAS 16) хугацаанаас ЗӨРӨХ нь хэвийн — зөрүү нь IAS 12
+     * хойшлогдсон татварын суурь болно. GL-д ЗӨВХӨН санхүүгийнх бичигдэнэ.
+     */
+    taxUsefulLifeMonths: integer("tax_useful_life_months").notNull().default(0),
+    /** Татварын элэгдлийн арга — ихэвчлэн шулуун шугам. */
+    taxDepreciationMethod: text("tax_depreciation_method")
+      .notNull()
+      .default("straight_line"),
     assetAccountNumber: text("asset_account_number")
       .notNull()
       .default("21010000"),
@@ -2600,7 +2627,17 @@ export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
     .notNull()
     .references(() => fixedAssets.id, { onDelete: "restrict" }),
   periodMonth: text("period_month").notNull(), // YYYY-MM — нэг сард 1 идэвхтэй бичилт (кодоор)
+  /** САНХҮҮГИЙН (IAS 16) элэгдэл — GL-д бичигдэх дүн. */
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+  /**
+   * ТАТВАРЫН зорилгоорх элэгдэл — МЭМО (GL-д БИЧИГДЭХГҮЙ). ААНОАТ-ын
+   * тайлан ба IAS 12 хойшлогдсон татварын зөрүүг тооцоход ашиглагдана.
+   */
+  taxAmount: numeric("tax_amount", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Тухайн сард элэгдүүлсэн ӨДРИЙН тоо (өдрийн суурьт; сараар бол 0). */
+  depreciatedDays: integer("depreciated_days").notNull().default(0),
   status: text("status").notNull().default("draft"), // "draft" | "posted" | "reversed"
   voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
     onDelete: "set null",
@@ -2617,6 +2654,28 @@ export const faDepreciationEntries = pgTable("fa_depreciation_entries", {
     .on(t.assetId, t.periodMonth)
     .where(sql`${t.status} <> 'reversed'`),
 ]);
+
+/**
+ * Үндсэн хөрөнгийн байгууллагын түвшний тохиргоо (ratified-seed хэв маяг —
+ * vat_settings / payroll_settings-тэй ижил).
+ */
+export const faSettings = pgTable("fa_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  /**
+   * Элэгдлийн суурь — БҮХ хөрөнгөд нэг мөр үйлчилнэ:
+   *   "monthly" — сарын тогтмол дүн (одоогийн, default)
+   *   "daily"   — өдрийн хөлсөөр: тухайн сард элэгдүүлэх ӨДРИЙН тоогоор
+   *               (ашиглалтад орсон/хугацаа дуусах сар хувь тэнцүүлэгдэнэ)
+   */
+  depreciationBasis: text("depreciation_basis").notNull().default("monthly"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("fa_settings_organization_id_ux").on(t.organizationId)]);
 
 export const fixedAssetsRelations = relations(fixedAssets, ({ one, many }) => ({
   user: one(users, { fields: [fixedAssets.userId], references: [users.id] }),

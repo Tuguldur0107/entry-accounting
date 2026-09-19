@@ -43,7 +43,7 @@ import {
   createFixedAsset,
   deleteFixedAsset,
   disposeFixedAsset,
-  postDepreciationEntries,
+  postDepreciationMonth,
   reverseDepreciationEntry,
   runDepreciation,
   type FaDisposalType,
@@ -61,6 +61,7 @@ import {
   createInventoryItem,
   createInventoryMovement,
   createWarehouse,
+  deleteInventoryItem,
   deleteInventoryMovement,
   recordInventoryCount,
   toggleInventoryItem,
@@ -279,7 +280,7 @@ export const AI_TOOLS: AiToolDef[] = [
       type: "object",
       properties: {
         date: { type: "string", description: "Огноо YYYY-MM-DD" },
-        description: { type: "string", description: "Гүйлгээний утга" },
+        description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         lines: {
           type: "array",
           description: "Журналын мөрүүд (дор хаяж 2)",
@@ -328,7 +329,7 @@ export const AI_TOOLS: AiToolDef[] = [
                   "Мөрийн данс (8 оронтой). АП-ийн БАРААТАЙ мөрөнд орхи — клирингийн данс автоматаар орно (PO-той бол өглөгийн түр данс)",
               },
               description: { type: "string" },
-              amount: { type: "number", description: "Мөрийн дүн (0-ээс их). unitPrice+quantity өгвөл орхиж болно" },
+              amount: { type: "number", description: "Мөрийн дүн (0-ээс их). unitPrice+quantity өгвөл орхиж болно; АР-д бараа бүртгэлийн борлуулах үнэтэй бол quantity-ээр бодогдоно" },
               itemCode: { type: "string", description: "Барааны код (бараатай мөрөнд)" },
               quantity: { type: "number", description: "Тоо хэмжээ (бараатай мөрөнд заавал)" },
               warehouseCode: { type: "string", description: "Агуулахын код (бараатай мөрөнд заавал)" },
@@ -381,7 +382,7 @@ export const AI_TOOLS: AiToolDef[] = [
           description: "Харьцах GL данс (8 оронтой) — шилжүүлэгт хэрэггүй",
         },
         amount: { type: "number", description: "Дүн (0-ээс их)" },
-        description: { type: "string", description: "Гүйлгээний утга" },
+        description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
         exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
         externalRef: EXTERNAL_REF_SCHEMA,
@@ -660,6 +661,11 @@ export const AI_TOOLS: AiToolDef[] = [
         code: { type: "string", description: "Барааны код (жишээ нь ITEM-010)" },
         name: { type: "string", description: "Барааны нэр" },
         unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
+        salesPrice: {
+          type: "number",
+          description:
+            "Борлуулах үнэ (MNT, нэгжид, сонголтоор) — АР нэхэмжлэхэд нэгж үнэ автоматаар бөглөгдөнө",
+        },
       },
       required: ["code", "name"],
     },
@@ -754,14 +760,32 @@ export const AI_TOOLS: AiToolDef[] = [
     },
   },
   {
+    name: "delete_inventory_item",
+    description:
+      "Барааг устгана — зөвхөн хөдөлгөөн, АР/АП мөр, захиалга, өртгийн бичилтэд ашиглагдаагүй бараа устгагдана. Түүхтэй барааг update_inventory_item isActive=false-аар идэвхгүй болгоно.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemCode: { type: "string", description: "Барааны код" },
+      },
+      required: ["itemCode"],
+    },
+  },
+  {
     name: "update_inventory_item",
-    description: "Барааны нэр, нэгж, идэвхийг засна (кодоор нь олно).",
+    description:
+      "Барааны нэр, нэгж, борлуулах үнэ, идэвхийг засна (кодоор нь олно).",
     inputSchema: {
       type: "object",
       properties: {
         itemCode: { type: "string", description: "Барааны код" },
         name: { type: "string", description: "Шинэ нэр (сонголтоор)" },
         unit: { type: "string", description: "Шинэ нэгж (сонголтоор)" },
+        salesPrice: {
+          type: "number",
+          description:
+            "Шинэ борлуулах үнэ MNT (сонголтоор; 0 өгвөл үнийг арилгана)",
+        },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
       },
       required: ["itemCode"],
@@ -2803,10 +2827,15 @@ async function runCreateArap(
   const lines = (input.lines ?? []).map((line) => {
     let itemId: string | undefined;
     let warehouseId: string | undefined;
+    // АР: барааны бүртгэлийн борлуулах үнэ — нэгж үнэ/дүн өгөөгүй үед нөхнө
+    // (вэбийн АР панельтэй ИЖИЛ дүрэм; үнэ зохиохгүй — байхгүй бол алдаа).
+    let itemSalesPrice: number | undefined;
     if (line.itemCode) {
       const item = itemsByCode.get(line.itemCode.trim().toLowerCase());
       if (!item) throw new Error(`"${line.itemCode}" кодтой бараа олдсонгүй (list_inventory-оор шалгана уу)`);
       itemId = item.id;
+      if (!isAp && item.salesPrice != null && Number(item.salesPrice) > 0)
+        itemSalesPrice = Number(item.salesPrice);
       if (!(Number(line.quantity) > 0))
         throw new Error(`"${item.name}" мөрөнд тоо хэмжээ 0-ээс их байх ёстой`);
       const wh = line.warehouseCode
@@ -2839,7 +2868,9 @@ async function runCreateArap(
     const unitPrice =
       line.unitPrice != null && Number(line.unitPrice) > 0
         ? Number(line.unitPrice)
-        : undefined;
+        : !(Number(line.amount) > 0)
+          ? itemSalesPrice
+          : undefined;
     return {
       account: resolveAccount(accountRaw, ctx).code,
       description: line.description ?? "",
@@ -3931,12 +3962,13 @@ async function runCreateCounterparty(
 
 async function runCreateItem(
   _orgId: string,
-  input: { code: string; name: string; unit?: string }
+  input: { code: string; name: string; unit?: string; salesPrice?: number }
 ): Promise<AiToolResult> {
   await createInventoryItem({
     code: input.code,
     name: input.name,
     unit: input.unit ?? "ш",
+    salesPrice: input.salesPrice ?? null,
   });
   return { resultText: `Бараа бүртгэгдлээ: ${input.code} — ${input.name}` };
 }
@@ -4053,9 +4085,10 @@ async function runDeleteCounterparty(
   };
 }
 
-async function runUpdateItem(
+/** Бараа устгах — deleteInventoryItem action (түүхтэй бол татгалзана). */
+async function runDeleteItem(
   orgId: string,
-  input: { itemCode: string; name?: string; unit?: string; isActive?: boolean }
+  input: { itemCode: string }
 ): Promise<AiToolResult> {
   const items = await db.query.inventoryItems.findMany({
     where: eq(inventoryItems.organizationId, orgId),
@@ -4066,10 +4099,37 @@ async function runUpdateItem(
     "бараа",
     input.itemCode
   );
-  if (input.name != null || input.unit != null)
+  const result = unwrapAction(await deleteInventoryItem(item.id));
+  return { resultText: `Бараа устгагдлаа: ${result.code} — ${result.name}` };
+}
+
+async function runUpdateItem(
+  orgId: string,
+  input: {
+    itemCode: string;
+    name?: string;
+    unit?: string;
+    salesPrice?: number;
+    isActive?: boolean;
+  }
+): Promise<AiToolResult> {
+  const items = await db.query.inventoryItems.findMany({
+    where: eq(inventoryItems.organizationId, orgId),
+  });
+  const item = requireSingle(
+    nameMatches(items, (entry) => entry.code, input.itemCode),
+    (entry) => `${entry.code} (${entry.name})`,
+    "бараа",
+    input.itemCode
+  );
+  if (input.name != null || input.unit != null || input.salesPrice != null)
     await updateInventoryItem(item.id, {
       name: input.name ?? item.name,
       unit: input.unit ?? item.unit,
+      // 0 = үнийг арилгана; өгөөгүй бол хөндөхгүй.
+      ...(input.salesPrice != null
+        ? { salesPrice: input.salesPrice > 0 ? input.salesPrice : null }
+        : {}),
     });
   if (input.isActive != null) await toggleInventoryItem(item.id, input.isActive);
   return { resultText: `Бараа шинэчлэгдлээ: ${item.code}` };
@@ -5677,9 +5737,11 @@ async function runPostFaDepreciation(
     return { resultText: `${input.month} сард ноорог элэгдлийн бичилт алга` };
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  await postDepreciationEntries(entries.map((entry) => entry.id));
+  // Вэбийн дэлгэцтэй ИЖИЛ зам: сарын бүх элэгдэл НЭГ журналаар бичигдэнэ
+  // (хөрөнгө тус бүрд тусдаа журнал үүсгэхгүй).
+  const posted = await postDepreciationMonth(input.month);
   return {
-    resultText: `${input.month} сарын элэгдэл батлагдлаа: ${entries.length} бичилт, нийт ${fmt(total)}₮`,
+    resultText: `${input.month} сарын элэгдэл НЭГ журналаар батлагдлаа: ${posted.posted} хөрөнгө, нийт ${fmt(posted.amount)}₮`,
   };
 }
 
@@ -8608,6 +8670,8 @@ async function dispatchAiTool(
         return await runDeleteCounterparty(orgId, args);
       case "update_inventory_item":
         return await runUpdateItem(orgId, args);
+      case "delete_inventory_item":
+        return await runDeleteItem(orgId, args);
       case "update_inventory_movement":
         return await runUpdateMovement(orgId, args);
       case "record_inventory_count":

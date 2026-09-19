@@ -305,7 +305,7 @@ export function CashDocPanel({
           </div>
         )}
         <div className="col-span-3">
-          <span className="text-neutral-500">Гүйлгээний утга: </span>
+          <span className="text-neutral-500">Журналын нэр: </span>
           {document.description || "—"}
         </div>
       </div>
