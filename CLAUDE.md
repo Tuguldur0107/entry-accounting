@@ -111,6 +111,16 @@ entry-accounting/
 - **Server Component by default:** Data fetch нь page.tsx дотор, mutation нь `lib/actions/` Server Action-аар
 - **Client Component:** `"use client"` зөвхөн state/event handler шаардагдах үед
 - **Монгол хэл:** UI текст бүгд монголоор
+- **Server action алдааг THROW ХИЙХГҮЙ** — client component-оос дуудагддаг
+  action нь алдаагаа `{ error }` УТГААР буцаана (`lib/action-result.ts`-ийн
+  `actionError`). Next.js PRODUCTION дээр шидсэн алдааны мессежийг далдалж
+  React #441 «An error occurred in the Server Components render…» болгодог
+  тул хэрэглэгч монгол тайлбарын оронд ойлгомжгүй код хардаг.
+  `tests/action-result.test.ts` энэ дүрмийг АВТОМАТААР сахиулна: хамгаалалтгүй
+  action нэмэгдвэл тест УНАНА. Онцгой тохиолдол нь өөрийн `{ ok, code }` үр
+  дүнгийн хэв маягтай панелийн loader-ууд (тестийн KNOWN_UNGUARDED-д ил
+  бүртгэлтэй). Server талын дуудагч (lib/ai/tools.ts) `unwrapAction`-оор
+  шидэлтээ хадгална.
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
 - ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
   import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
@@ -950,6 +960,70 @@ Dr 72100002 НДШ зардал (ажил олгогч)
 
 Тайлагнал: НДШ дараа сарын **5-нд**, ХАОАТ дараа сарын **10-нд**.
 
+**Урьдчилгаа / сүүл цалин — сарын гарт олгохыг ХОЁР төлбөр болгоно:**
+
+```
+Урьдчилгаа  ажилласан цагаар, СУУТГАЛГҮЙ олгоно (сар дундуур)
+Сүүл цалин  бүх нэмэгдэл/суутгал бодогдоод, НДШ ба ХАОАТ суутгагдсаны
+            ДАРАА урьдчилгаа хасагдана
+Тэнцэл:     урьдчилгаа + сүүл цалин = сарын нийт гарт олгох
+```
+
+- Нийт олголт нь ЦАГААС бодогдоно: үндсэн олголт (`цалин × ажилласан /
+  ажиллавал зохих цаг`, ХАРЬЦААГААР — бөөрөнхийлсөн цагийн хөлсөөр
+  үржүүлбэл хазайна) + ээлжийн амралт + бусад нэмэгдэл
+- **Бусад суутгал нь татварын сууринд ОРОХГҮЙ** — НДШ, ХАОАТ бодогдсоны
+  ДАРАА гарт олгохоос хасагдана (баганын дараалал үүнийг харуулна)
+- Төрөл тус бүр НЭГТГЭСЭН өглөгийн нэхэмжлэх (ноорог `ap_bill`) болно —
+  харилцагч нь авто-үүсэх «Ажилчид»; `externalRef` `payroll-{kind}:YYYY-MM`
+  тул сард нэг л удаа. **КЛИРИНГ:** §7-ийн журнал Cr Цалингийн өглөг,
+  нэхэмжлэх Dr Цалингийн өглөг / Cr Ажилтны өглөг, кассаас Dr Ажилтны
+  өглөг / Cr Банк — зардал НЭГ л удаа бичигдэнэ
+- Цалин олгох тайлан (`/payroll/reports`): сар + төрлөөр ажилтан тус бүрийн
+  банк, данс, IBAN, олгох дүн + Excel (банкны багц шилжүүлэг)
+- Тохиргоо (`/payroll/settings`): доод цалин, НДШ cap, **сарын татваргүй
+  босго** (2026: 800,000₮ — хуулийн баталгаажуулалт хүртэл 0), стандарт
+  ажлын цаг, нэмэгдлийн коэффициент, GL дансууд
+
+### 7a. Үндсэн хөрөнгийн элэгдэл — САНХҮҮ + ТАТВАР зэрэг
+
+Код: `lib/fa/depreciation.ts` (цэвэр, тесттэй), `lib/fa/settings.ts`,
+`lib/actions/fa.ts`, `app/(dashboard)/fa/depreciation`.
+
+**Хоёр элэгдэл ЗЭРЭГ бодогдоно** (`cit.md` §Татварын элэгдэл vs Нягтлан
+бодохын):
+
+| | Хугацаа | GL |
+|--|---------|-----|
+| Санхүүгийн (IAS 16) | `usefulLifeMonths` | **бичигдэнэ** |
+| Татварын (ААНОАТ) | `taxUsefulLifeMonths` | **БИЧИГДЭХГҮЙ** — мэмо |
+
+Татварын хувь хэмжээ хуулиас: барилга 5%/жил (240 сар), тоног төхөөрөмж
+ба тээвэр 10% (120), компьютер 20% (60), биет бус 10% (120) — **кодод
+зохиохгүй**, `scripts/backfill-fa-tax-life.ts` нь нэрээр ангилж чадаагүй
+картыг 0 хэвээр үлдээж анхааруулна. Хуримтлагдсан элэгдэл нь хоёр талдаа
+ТУСДАА хөтлөгдөнө; зөрүү нь IAS 12 хойшлогдсон татварын суурь болж
+дэлгэцэд ил гарна.
+
+**Элэгдлийн суурь** (`fa_settings.depreciationBasis`, БҮХ хөрөнгөд):
+
+- `monthly` — сарын тогтмол дүн (default)
+- `daily` — ашиглалтын НИЙТ өдрөөр хуваарилна: сар дундуур ашиглалтад
+  орсон хөрөнгө тэр сард хувь тэнцүүлэн, 28/30/31 хоногийн сарууд өөр
+  дүнтэй элэгдэнэ. Карт бүрийн `depreciationStartDate` (YYYY-MM-DD) нь
+  хуваарилалтын эхлэл; хоосон бол эхлэх сарын 1-ний өдөр
+
+**НЭГ товчоор GL:** сарын бүх элэгдэл НЭГ журнал болно (дансны хосоор
+нэгтгэсэн мөрүүд) — хөрөнгө тус бүрд журнал үүсгэхгүй. Дахин бодоход
+өмнөх журнал АВТОМАТААР буцаагдаж (буцаалтын журнал үлдэж аудитын мөр
+бүрэн) шинэ ноорог үүснэ — давхар бичилт үүсэхгүй. AI
+`post_fa_depreciation` мөн ижил замаар.
+
+Жагсаалт нь ЗӨВХӨН тайлант үеийнхийг харуулна (topbar-ийн периодын
+шүүлтүүр; URL-ийн `period` параметр дарна); багана: Dr/Cr данс, анхны
+үнэлгээ, хуримтлагдсан, үлдэх өртөг, сарын элэгдэл, татварын элэгдэл,
+элэгдсэн хоног, бодуулсан хэрэглэгч.
+
 ### 8. Domain separation (guardrail)
 
 - **IFRS treatment ≠ Татварын treatment** — ялгааг тодорхой тусгана
@@ -1654,9 +1728,21 @@ Costing    cost_components, inventory_issue_types, costing_account_settings,
                valuationSource `po_receipt` | `ap_line`
              cost_allocations.sourceLineId / purchaseOrderId — нэхэмжлэхийн
                мөрөөс хийсэн хуваарилалт (Σ ≤ мөрийн MNT дүн)
-FA         fixed_assets, fa_depreciation_entries
+FA         fixed_assets, fa_depreciation_entries, fa_settings
+             fixed_assets.location / subLocation — байршил, дэд байршил
+             fixed_assets.depreciationStartDate — ӨДРИЙН суурийн эхлэл
+             fixed_assets.taxUsefulLifeMonths / taxDepreciationMethod — §7a
+             fa_depreciation_entries.taxAmount (мэмо) / depreciatedDays
+             fa_settings.depreciationBasis — "monthly" | "daily" (§7a)
 VAT        vat_settings
 Payroll    employees, payroll_settings, payroll_runs, payroll_run_lines
+             run_lines.standardHours / workedHours — цагт суурилсан олголт
+             run_lines.vacationPay / otherAdditions — нийт олголтод нэмэгдэнэ
+             run_lines.advanceHours / advanceAmount — урьдчилгаа (§7)
+             runs.advanceDate / advanceDocumentId / finalDocumentId — хоёр
+               нэгтгэсэн өглөгийн нэхэмжлэх
+             settings.standardMonthlyHours / employeePayableAccountNumber /
+               employeeCounterpartyId
 Audit      audit_events — статус шилжилт бүрд lib/audit.ts logAuditEvent
            (бизнесийн урсгалыг хэзээ ч унагахгүй); /settings/audit хуудас
 Мэдэгдэл   notifications (хүлээн авагч × org, dedupeKey unique INDEX,
@@ -1667,6 +1753,8 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            company_settings.largeAmountAlertMnt (D2 босго)
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
+             cfCodes — мөнгөн гүйлгээний тайлангийн S8 сегментийн кодууд
+               (дансны таарцаас ТҮРҮҮЛЖ шалгагдана)
 ```
 
 Migration: `npx drizzle-kit generate` → `npx drizzle-kit push`
