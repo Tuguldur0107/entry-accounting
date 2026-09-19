@@ -88,6 +88,7 @@ export function CloseWizard({
     payroll,
     vat,
     procurement,
+    pos,
     drafts,
     periodStatus,
     closedAt,
@@ -96,7 +97,12 @@ export function CloseWizard({
   // Хангамжийн хориг (docs/procurement шийдвэр #7) — closePeriod мөн ижил
   // нөхцөлөөр зогсоодог; энд товчийг урьдчилан идэвхгүй болгоно.
   const poBlocked = procurement.openOrdersWithReceipts > 0;
-  const closeBlocked = drafts.total > 0 || poBlocked;
+  // POS хориг (docs/pos §3.3 ⑦, §2.1 C1) — closePeriod-ийн `open-pos-shifts` /
+  // `unvalued-movements`-тэй ижил нөхцөл; хасах үлдэгдэл нь өөрөө хориг биш
+  // (unvalued-ээр илэрнэ).
+  const posBlocked =
+    pos.status === "attention" && (pos.openShifts > 0 || pos.unvaluedMovements > 0);
+  const closeBlocked = drafts.total > 0 || poBlocked || posBlocked;
 
   function act(fn: () => Promise<string>) {
     startTransition(async () => {
@@ -383,6 +389,54 @@ export function CloseWizard({
 
       <Step
         index={7}
+        title="POS / Бараа материал"
+        status={pos.status}
+        actions={
+          !closed && pos.status !== "na" ? (
+            <>
+              {pos.openShifts > 0 ? (
+                <LinkButton href="/inventory/sales?tab=shifts">Нээлттэй ээлжүүд</LinkButton>
+              ) : null}
+              {pos.negativeStockScopes > 0 ? (
+                <LinkButton href="/inventory">Хасах үлдэгдэл</LinkButton>
+              ) : null}
+              {pos.unvaluedMovements > 0 || pos.provisionalCogs !== 0 ? (
+                <LinkButton href="/costing/reports">Өртгийн тайлан</LinkButton>
+              ) : null}
+            </>
+          ) : null
+        }
+      >
+        {pos.status === "na" ? (
+          "Энэ сард POS борлуулалт алга."
+        ) : (
+          <ul className="space-y-0.5">
+            <li>
+              {pos.openShifts > 0 ? "⚠" : "✓"} Нээлттэй ээлж {pos.openShifts}
+              {pos.openShifts > 0 ? " — эхлээд ээлжээ хаана уу (хаалтын хориг)." : "."}
+            </li>
+            <li>
+              {pos.negativeStockScopes > 0 ? "⚠" : "✓"} Хасах үлдэгдэлтэй бараа×агуулах{" "}
+              {pos.negativeStockScopes}
+              {pos.negativeStockScopes > 0
+                ? " — орлого эсвэл тооллого бүртгээд өртгөө дахин тооцно уу."
+                : "."}
+            </li>
+            <li>
+              {pos.unvaluedMovements > 0 ? "⚠" : "✓"} Сарын өртөгт үнэлэгдээгүй хөдөлгөөн{" "}
+              {pos.unvaluedMovements}
+              {pos.unvaluedMovements > 0 ? " — Өртөг тооцох алхмыг гүйцээнэ үү (хаалтын хориг)." : "."}
+            </li>
+            <li>
+              Урьдчилсан COGS {fmtMnt(pos.provisionalCogs)} — сар хаалтын залруулгаар
+              эцсийн дундажид тэнцүүлнэ.
+            </li>
+          </ul>
+        )}
+      </Step>
+
+      <Step
+        index={8}
         title="Ноорог цэвэрлэгээ"
         status={drafts.total === 0 ? "done" : "attention"}
       >
@@ -410,7 +464,7 @@ export function CloseWizard({
       </Step>
 
       <Step
-        index={8}
+        index={9}
         title="Тайлант үе хаах"
         status={closed ? "done" : closeBlocked ? "attention" : "pending"}
         actions={
@@ -442,6 +496,10 @@ export function CloseWizard({
                         ? "Ноорог бичилт үлдсэн байна — эхлээд цэвэрлэнэ үү"
                         : result.code === "open-purchase-orders"
                           ? "Энэ сард хүлээн авалттай нээлттэй захиалга (PO) байна — эхлээд PO-г хаана уу."
+                          : result.code === "open-pos-shifts"
+                            ? "Нээлттэй кассын ээлж байна — Бараа материал → Борлуулалт → Ээлж дээр хаана уу."
+                            : result.code === "unvalued-movements"
+                              ? "Сарын өртгийн тооцоололд ороогүй буюу зогссон (хасах үлдэгдэл г.м.) бараа хөдөлгөөн байна — Өртөг → Сарын өртөг тооцоод засна уу."
                           : result.code === "previous-open"
                           ? "Өмнөх тайлант үе нээлттэй байна — тайлант үеийг дарааллаар нь хаана уу."
                           : result.code === "hook-rejected"
@@ -463,7 +521,11 @@ export function CloseWizard({
             ? "Ноорог үлдсэн тул хаах товч идэвхгүй."
             : poBlocked
               ? "Хүлээн авалттай нээлттэй захиалга (PO) үлдсэн тул хаах товч идэвхгүй."
-              : "Хаасны дараа энэ сарын бичилт түгжигдэнэ (дахин нээх боломжтой)."}
+              : posBlocked
+                ? pos.openShifts > 0
+                  ? "Нээлттэй кассын ээлж үлдсэн тул хаах товч идэвхгүй."
+                  : "Сарын өртөгт үнэлэгдээгүй бараа хөдөлгөөн үлдсэн тул хаах товч идэвхгүй."
+                : "Хаасны дараа энэ сарын бичилт түгжигдэнэ (дахин нээх боломжтой)."}
       </Step>
     </div>
   );

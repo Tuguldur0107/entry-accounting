@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Icon, type IconName } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { HOME_MODULE_ID, MODULES } from "@/components/layout/modules";
-import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
+import { useDisabledModuleIds, isNavItemHidden } from "@/components/layout/nav-visibility";
 import { QUICK_CREATE_ACTIONS } from "@/components/layout/quick-create";
 import { getReferenceData } from "@/lib/reference/client-cache";
 import {
@@ -66,7 +66,9 @@ function buildEntries(disabledModuleIds: string[]): NavEntry[] {
   const pages: NavEntry[] = MODULES.filter(
     (module) => !disabledModuleIds.includes(module.id)
   ).flatMap((module) =>
-    module.items.map((item) => ({
+    module.items
+      .filter((item) => !isNavItemHidden(disabledModuleIds, item.configKey))
+      .map((item) => ({
       key: `page:${item.href}`,
       search: `${module.label} ${item.label}`.toLowerCase(),
       group: module.id === HOME_MODULE_ID ? "Нүүр" : module.label,

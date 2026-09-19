@@ -5,19 +5,34 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   costEntries,
+  inventoryCategories,
   inventoryItems,
   inventoryMovements,
   warehouses,
 } from "@/lib/db/schema";
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type {
+  InventoryCategoryView,
   InventoryItemView,
   InventoryMovementView,
+  ItemVatMode,
   WarehouseView,
 } from "@/lib/inventory/types";
 
+const ITEM_VAT_MODES: ItemVatMode[] = ["standard", "exempt", "zero"];
+
+/** DB-ийн vat_mode текстийг хаалттай төрөлд буулгана (гажиг утга → standard). */
+export function toItemVatMode(value: string | null | undefined): ItemVatMode {
+  return ITEM_VAT_MODES.includes(value as ItemVatMode)
+    ? (value as ItemVatMode)
+    : "standard";
+}
+
+const numberOrNull = (value: string | null) =>
+  value == null ? null : Number(value);
+
 export async function loadInventoryBase(orgId: string) {
-  const [items, warehouseRows] = await Promise.all([
+  const [items, warehouseRows, categoryRows] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: eq(inventoryItems.organizationId, orgId),
       orderBy: (item, { asc }) => [asc(item.code)],
@@ -26,14 +41,23 @@ export async function loadInventoryBase(orgId: string) {
       where: eq(warehouses.organizationId, orgId),
       orderBy: (warehouse, { asc }) => [asc(warehouse.code)],
     }),
+    db.query.inventoryCategories.findMany({
+      where: eq(inventoryCategories.organizationId, orgId),
+      orderBy: (category, { asc }) => [asc(category.code)],
+    }),
   ]);
   const itemViews: InventoryItemView[] = items.map((item) => ({
     id: item.id,
     code: item.code,
     name: item.name,
     unit: item.unit,
-    salesPrice: item.salesPrice != null ? Number(item.salesPrice) : null,
     isActive: item.isActive,
+    salesPrice: numberOrNull(item.salesPrice),
+    minSalesPrice: numberOrNull(item.minSalesPrice),
+    barcode: item.barcode ?? null,
+    vatMode: toItemVatMode(item.vatMode),
+    revenueAccountNumber: item.revenueAccountNumber ?? null,
+    categoryCode: item.categoryCode ?? null,
   }));
   const warehouseViews: WarehouseView[] = warehouseRows.map((warehouse) => ({
     id: warehouse.id,
@@ -41,7 +65,13 @@ export async function loadInventoryBase(orgId: string) {
     name: warehouse.name,
     isActive: warehouse.isActive,
   }));
-  return { itemViews, warehouseViews };
+  const categoryViews: InventoryCategoryView[] = categoryRows.map((category) => ({
+    id: category.id,
+    code: category.code,
+    name: category.name,
+    isActive: category.isActive,
+  }));
+  return { itemViews, warehouseViews, categoryViews };
 }
 
 export async function loadMovements(orgId: string) {

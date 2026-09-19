@@ -1,48 +1,102 @@
-import { and, count, eq, ne, sql } from "drizzle-orm";
+import { and, count, eq, isNull, ne, sql, sum } from "drizzle-orm";
 
-import { InventoryDashboard } from "@/components/inventory/inventory-dashboard";
+import {
+  InventoryDashboard,
+  type InventoryPosMetrics,
+} from "@/components/inventory/inventory-dashboard";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { costEntries, inventoryMovements } from "@/lib/db/schema";
+import {
+  costEntries,
+  inventoryMovements,
+  posSaleLines,
+  posSales,
+} from "@/lib/db/schema";
 import { balanceKey } from "@/lib/inventory/balances";
 import { loadInventoryBase } from "@/lib/inventory/load-data";
+import { findNegativeBalances } from "@/lib/inventory/negative-stock";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import type { QtyBalanceRow } from "@/lib/inventory/types";
+import { periodCodeOf, periodRange } from "@/lib/periods/period";
+import { PROVISIONAL_VALUATION_SOURCE } from "@/lib/pos/constants";
+import { loadShiftViews } from "@/lib/pos/load-data";
+import { loadSalesReport, summarize } from "@/lib/pos/reports";
+import { ulaanbaatarNow } from "@/lib/pos/sale-math";
 
 export default async function InventoryDashboardPage() {
   const { orgId } = await getActiveOrg();
+  const today = ulaanbaatarNow().date;
+  const monthCode = periodCodeOf(today);
+  const { startDate: monthStart, endDate: monthEnd } = periodRange(monthCode);
 
   // Үлдэгдэл = хаагдсан үеийн snapshot + түүнээс хойшхи хөдөлгөөн; тоолуурууд
   // SQL-д — хөдөлгөөний бүх түүх JS-д ачаалагдахгүй.
-  const [{ itemViews, warehouseViews }, balances, [draftRow], [unvaluedRow]] =
-    await Promise.all([
-      loadInventoryBase(orgId),
-      loadQtyBalancesFast(orgId),
-      db
-        .select({ n: count() })
-        .from(inventoryMovements)
-        .where(
-          and(
-            eq(inventoryMovements.organizationId, orgId),
-            eq(inventoryMovements.status, "draft")
-          )
-        ),
-      db
-        .select({ n: count() })
-        .from(inventoryMovements)
-        .where(
-          and(
-            eq(inventoryMovements.organizationId, orgId),
-            eq(inventoryMovements.status, "confirmed"),
-            ne(inventoryMovements.movementType, "transfer"),
-            sql`not exists (
-              select 1 from ${costEntries}
-              where ${costEntries.movementId} = ${inventoryMovements.id}
-                and ${costEntries.status} in ('draft', 'posted')
-            )`
-          )
-        ),
-    ]);
+  // POS (docs/pos §4.6): өнөөдрийн борлуулалт, нээлттэй ээлж, урьдчилсан
+  // COGS Σ (энэ сар), өртөг хүлээж буй мөр — мөн SQL-ээр.
+  const [
+    { itemViews, warehouseViews },
+    balances,
+    [draftRow],
+    [unvaluedRow],
+    todayReport,
+    openShifts,
+    [pendingCostRow],
+    [provisionalRow],
+  ] = await Promise.all([
+    loadInventoryBase(orgId),
+    loadQtyBalancesFast(orgId),
+    db
+      .select({ n: count() })
+      .from(inventoryMovements)
+      .where(
+        and(
+          eq(inventoryMovements.organizationId, orgId),
+          eq(inventoryMovements.status, "draft")
+        )
+      ),
+    db
+      .select({ n: count() })
+      .from(inventoryMovements)
+      .where(
+        and(
+          eq(inventoryMovements.organizationId, orgId),
+          eq(inventoryMovements.status, "confirmed"),
+          ne(inventoryMovements.movementType, "transfer"),
+          sql`not exists (
+            select 1 from ${costEntries}
+            where ${costEntries.movementId} = ${inventoryMovements.id}
+              and ${costEntries.status} in ('draft', 'posted')
+          )`
+        )
+      ),
+    loadSalesReport(orgId, { from: today, to: today }),
+    loadShiftViews(orgId, { openOnly: true }),
+    // Урьдчилсан өртөггүй борлуулалтын мөр (явцын дундаж байгаагүй — §3.7):
+    // энэ сарын цуцлагдаагүй борлуулалтууд.
+    db
+      .select({ n: count() })
+      .from(posSaleLines)
+      .innerJoin(posSales, eq(posSales.id, posSaleLines.saleId))
+      .where(
+        and(
+          eq(posSales.organizationId, orgId),
+          ne(posSales.status, "voided"),
+          sql`${posSales.date} between ${monthStart} and ${monthEnd}`,
+          isNull(posSaleLines.provisionalCostEntryId)
+        )
+      ),
+    db
+      .select({ total: sum(costEntries.amount) })
+      .from(costEntries)
+      .where(
+        and(
+          eq(costEntries.organizationId, orgId),
+          eq(costEntries.valuationSource, PROVISIONAL_VALUATION_SOURCE),
+          eq(costEntries.status, "posted"),
+          eq(costEntries.periodCode, monthCode)
+        )
+      ),
+  ]);
 
   const balanceRows: QtyBalanceRow[] = [];
   for (const item of itemViews) {
@@ -60,6 +114,17 @@ export default async function InventoryDashboardPage() {
   }
   balanceRows.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel));
 
+  const todaySummary = summarize(todayReport.lines);
+  const pos: InventoryPosMetrics = {
+    today,
+    todayTotal: todaySummary.total,
+    todayCount: todaySummary.salesCount,
+    todayAverageTicket: todaySummary.averageTicket,
+    openShifts: openShifts.length,
+    provisionalCogs: Math.round(Number(provisionalRow?.total ?? 0) * 100) / 100,
+    pendingCostLines: Number(pendingCostRow?.n ?? 0),
+  };
+
   return (
     <InventoryDashboard
       balances={balanceRows}
@@ -67,6 +132,8 @@ export default async function InventoryDashboardPage() {
       warehouseCount={warehouseViews.filter((w) => w.isActive).length}
       draftCount={Number(draftRow?.n ?? 0)}
       unvaluedCount={Number(unvaluedRow?.n ?? 0)}
+      pos={pos}
+      negativeStock={findNegativeBalances(balances, itemViews, warehouseViews)}
     />
   );
 }

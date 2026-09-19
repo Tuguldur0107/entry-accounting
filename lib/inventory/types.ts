@@ -1,10 +1,27 @@
+export type ItemVatMode = "standard" | "exempt" | "zero";
+
 export type InventoryItemView = {
   id: string;
   code: string;
   name: string;
   unit: string;
-  /** Борлуулах үнэ (MNT, нэгжид) — null = тогтоогоогүй. */
+  isActive: boolean;
+  // ── POS (docs/pos/00-proposal.md §3.2) ──
+  /** Борлуулах үнэ (MNT) — null = тогтоогоогүй. */
   salesPrice: number | null;
+  /** Кассчны хөнгөлөлтийн доод хязгаар. */
+  minSalesPrice: number | null;
+  barcode: string | null;
+  vatMode: ItemVatMode;
+  /** Барааны орлогын дансны override — null бол POS тохиргооны данс. */
+  revenueAccountNumber: string | null;
+  categoryCode: string | null;
+};
+
+export type InventoryCategoryView = {
+  id: string;
+  code: string;
+  name: string;
   isActive: boolean;
 };
 

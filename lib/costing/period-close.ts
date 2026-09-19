@@ -14,6 +14,16 @@
 
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
+import {
+  movementCostSign,
+  signedCostAmount,
+  trueUpDelta,
+} from "./provisional-cost";
+import {
+  COGS_TRUE_UP_ENTRY_TYPE,
+  PROVISIONAL_VALUATION_SOURCE,
+} from "@/lib/pos/constants";
+
 import { db } from "@/lib/db";
 import {
   costEntries,
@@ -57,6 +67,8 @@ export interface PeriodCostingSummary {
   periodCode: string;
   /** Дундаж дээр үндэслэн үнэлэгдсэн хөдөлгөөний тоо. */
   valued: number;
+  /** Урьдчилсан COGS-ийг залруулсан (ноорог cogs_true_up үүссэн/шинэчилсэн) тоо. */
+  trueUps: number;
   /** Аль хэдийн үнэлэгдсэн (дахин үнэлэгдээгүй) тоо. */
   alreadyValued: number;
   /** Дундаж 0 тул бичилт үүсээгүй тоо. */
@@ -129,6 +141,7 @@ export async function computePeriodCosting(
     return {
       periodCode,
       valued: 0,
+      trueUps: 0,
       alreadyValued: 0,
       zeroValued: 0,
       blockers,
@@ -145,12 +158,14 @@ export async function computePeriodCosting(
     return {
       periodCode,
       valued: 0,
+      trueUps: 0,
       alreadyValued: 0,
       zeroValued: 0,
       blockers,
     };
 
   let valued = 0;
+  let trueUps = 0;
   let alreadyValued = 0;
   let zeroValued = 0;
 
@@ -169,11 +184,20 @@ export async function computePeriodCosting(
         )
       ),
     });
+    // ҮНДСЭН үнэлгээний бичилт (нэг л идэвхтэй) ба залруулгууд тусдаа.
     const activeByMovement = new Map(
       existing
-        .filter((entry) => entry.movementId)
+        .filter((entry) => entry.movementId && entry.entryType !== COGS_TRUE_UP_ENTRY_TYPE)
         .map((entry) => [entry.movementId!, entry])
     );
+    const trueUpsByMovement = new Map<string, typeof existing>();
+    for (const entry of existing) {
+      if (!entry.movementId || entry.entryType !== COGS_TRUE_UP_ENTRY_TYPE) continue;
+      trueUpsByMovement.set(entry.movementId, [
+        ...(trueUpsByMovement.get(entry.movementId) ?? []),
+        entry,
+      ]);
+    }
 
     for (const movement of targets) {
       const entryType = averageValuedEntryType(movement)!;
@@ -188,11 +212,71 @@ export async function computePeriodCosting(
       const current = activeByMovement.get(movement.id);
 
       if (current?.status === "posted") {
-        // Аль хэдийн GL-д бичигдсэн (хуучин өгөгдөл) — түүхийг дарж
-        // бичихгүй. Зөрүү нь тулгалтын тайланд ил харагдана.
-        alreadyValued += 1;
+        if (current.valuationSource !== PROVISIONAL_VALUATION_SOURCE) {
+          // Аль хэдийн GL-д бичигдсэн (хуучин өгөгдөл) — түүхийг дарж
+          // бичихгүй. Зөрүү нь тулгалтын тайланд ил харагдана.
+          alreadyValued += 1;
+          continue;
+        }
+        // POS урьдчилсан COGS (docs/pos §3.7): posted бичилтийг ХӨНДӨХГҮЙ,
+        // эцсийн дунджаас зөрүүг ТЭМДЭГТЭЙ залруулгаар (cogs_true_up, ноорог)
+        // нөхнө. Σ(posted урьдчилсан + posted залруулга) + энэ ноорог = эцсийн.
+        // Идемпотент: ноорог залруулга дахин бодогдоно, posted-ыг давхардуулахгүй.
+        const sign = movementCostSign(movement.movementType);
+        const finalSigned = round2(sign * quantity * average);
+        const trueUpRows = trueUpsByMovement.get(movement.id) ?? [];
+        const postedSigned = [
+          signedCostAmount(current),
+          ...trueUpRows
+            .filter((row) => row.status === "posted")
+            .map((row) => signedCostAmount(row)),
+        ];
+        const delta = trueUpDelta(finalSigned, postedSigned);
+        const draftTrueUp = trueUpRows.find((row) => row.status === "draft") ?? null;
+        if (delta === 0) {
+          if (draftTrueUp)
+            await tx.delete(costEntries).where(eq(costEntries.id, draftTrueUp.id));
+          alreadyValued += 1;
+          continue;
+        }
+        const trueUpValues = {
+          userId,
+          organizationId: orgId,
+          movementId: movement.id,
+          itemId: movement.itemId,
+          warehouseId: movement.warehouseId,
+          periodCode,
+          issueTypeId: current.issueTypeId ?? movement.issueTypeId,
+          entryType: COGS_TRUE_UP_ENTRY_TYPE,
+          date: movement.date,
+          quantity: String(quantity),
+          unitCost: String(unitCost),
+          amount: String(delta),
+          valuationSource: "avg_cost" as const,
+          trueUpOfEntryId: current.id,
+          businessObjectType: current.businessObjectType,
+          businessObjectId: current.businessObjectId,
+        };
+        if (draftTrueUp)
+          await tx
+            .update(costEntries)
+            .set({
+              unitCost: trueUpValues.unitCost,
+              amount: trueUpValues.amount,
+              quantity: trueUpValues.quantity,
+              periodCode,
+              issueTypeId: trueUpValues.issueTypeId,
+              trueUpOfEntryId: current.id,
+            })
+            .where(eq(costEntries.id, draftTrueUp.id));
+        else await tx.insert(costEntries).values(trueUpValues);
+        trueUps += 1;
         continue;
       }
+      // Урьдчилсан бичилтгүй хөдөлгөөнд хуучин ноорог залруулга үлдсэн бол
+      // (урьдчилсан нь буцаагдсан) — хуучирсан тул устгана.
+      for (const stale of (trueUpsByMovement.get(movement.id) ?? []).filter((row) => row.status === "draft"))
+        await tx.delete(costEntries).where(eq(costEntries.id, stale.id));
 
       if (amount === 0) {
         zeroValued += 1;
@@ -240,5 +324,5 @@ export async function computePeriodCosting(
     }
   });
 
-  return { periodCode, valued, alreadyValued, zeroValued, blockers };
+  return { periodCode, valued, trueUps, alreadyValued, zeroValued, blockers };
 }

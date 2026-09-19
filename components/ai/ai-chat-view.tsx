@@ -85,6 +85,7 @@ const ACTION_META: Record<
   fa: { icon: "fixedAsset", label: "Үндсэн хөрөнгө" },
   purchase_order: { icon: "purchaseOrder", label: "Худалдан авалтын захиалга" },
   goods_receipt: { icon: "packageReceipt", label: "Хүлээн авалт" },
+  pos_sale: { icon: "cash", label: "POS борлуулалт" },
 };
 
 /** Панельгүй объектын карт — модулийн жагсаалт руу холбоно. */
@@ -92,6 +93,7 @@ const ACTION_LINKS: Partial<Record<AiAction["kind"], string>> = {
   inventory: "/inventory/movements",
   purchase_order: "/procurement/orders",
   goods_receipt: "/procurement/receipts",
+  pos_sale: "/inventory/sales",
 };
 
 const ACTION_STATUS: Record<

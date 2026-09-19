@@ -11,19 +11,50 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { TaxStatCard } from "@/components/tax/tax-info";
 import { Label } from "@/components/ui/label";
-import { createVatSettlementDraft, type VatReturnData } from "@/lib/actions/vat";
+import { Switch } from "@/components/ui/switch";
+import {
+  createVatSettlementDraft,
+  updateVatPayerFlag,
+  type VatReturnData,
+} from "@/lib/actions/vat";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { fmtPeriodCode } from "@/lib/periods/period";
 
 export function VatReturnView({
   periodCode,
   data,
+  isVatPayer,
 }: {
   periodCode: string;
   data: VatReturnData;
+  /** Байгууллага НӨАТ төлөгч эсэх — page.tsx тохиргооноос дамжуулна. */
+  isVatPayer: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [flagPending, startFlagTransition] = useTransition();
+  const [vatPayer, setVatPayer] = useState(isVatPayer);
+
+  function toggleVatPayer(next: boolean) {
+    const previous = vatPayer;
+    setVatPayer(next);
+    startFlagTransition(async () => {
+      try {
+        await updateVatPayerFlag(next);
+        toast.success(
+          next
+            ? "Байгууллага НӨАТ төлөгчөөр тэмдэглэгдлээ"
+            : "НӨАТ төлөгч биш — POS борлуулалтад НӨАТ мөр үүсэхгүй"
+        );
+        router.refresh();
+      } catch (error) {
+        setVatPayer(previous);
+        toast.error(
+          error instanceof Error ? error.message : "Тохиргоо хадгалж чадсангүй"
+        );
+      }
+    });
+  }
   const {
     summary,
     settings,
@@ -77,6 +108,25 @@ export function VatReturnView({
           Гаралтын данс {settings.outputVatAccountNumber} · Оролтын данс{" "}
           {settings.inputVatAccountNumber} · Хувь {settings.vatRatePercent}%
         </p>
+      </div>
+
+      <div
+        className="flex items-center gap-3 rounded-lg border p-4"
+        style={{ borderColor: "var(--ea-border)", background: "var(--ea-surface)" }}
+      >
+        <Switch
+          id="vat-payer-flag"
+          checked={vatPayer}
+          disabled={flagPending}
+          onCheckedChange={toggleVatPayer}
+        />
+        <div>
+          <Label htmlFor="vat-payer-flag">НӨАТ төлөгч байгууллага</Label>
+          <p className="text-[11px]" style={{ color: "var(--ea-text-4)" }}>
+            Унтраавал POS борлуулалтад НӨАТ мөр үүсэхгүй — барааны үнэ бүхэлдээ
+            орлого болно.
+          </p>
+        </div>
       </div>
 
       {thresholdOver ? (

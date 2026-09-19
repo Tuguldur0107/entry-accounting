@@ -43,6 +43,7 @@ import {
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
 import { logAuditEvent } from "@/lib/audit";
+import { POS_SOURCE_TYPE } from "@/lib/pos/constants";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
@@ -50,6 +51,14 @@ export type CashDocumentType = "receipt" | "payment" | "transfer";
 
 // Фаз 01 multi-tenancy: бүх бичилт accountant+ эрхээр, scope нь идэвхтэй
 // байгууллага (orgId); userId нь createdBy/audit утгаар үлддэг.
+
+/** POS-оос үүссэн кассын баримт — зөвхөн POS буцаалтаар (docs/pos §3.3). */
+function assertNotPosSourced(document: { sourceType: string | null }, verb: string) {
+  if (document.sourceType === POS_SOURCE_TYPE)
+    throw new Error(
+      `[POS_SOURCED] POS борлуулалтын төлбөрийг ${verb} боломжгүй — Бараа материал → Борлуулалт дээр буцаана уу`
+    );
+}
 
 function revalidateCash() {
   revalidatePath("/cash");
@@ -1021,6 +1030,7 @@ async function reverseCashDocumentCore(id: string) {
   });
   if (!document || document.status !== "posted" || !document.voucherId)
     throw new Error("Зөвхөн батлагдсан Cash баримтыг буцаана");
+  assertNotPosSourced(document, "буцаах");
   await assertPeriodOpen(orgId, document.date);
 
   const voucher = await db.query.journalVouchers.findFirst({
@@ -1178,6 +1188,7 @@ async function deleteCashDocumentCore(id: string) {
     ),
   });
   if (!document) return;
+  assertNotPosSourced(document, "устгах");
 
   if (document.status === "draft") {
     await db
@@ -1958,6 +1969,7 @@ export async function updateCashDocument(
     where: and(eq(cashDocuments.id, id), eq(cashDocuments.organizationId, orgId)),
   });
   if (!document) throw new Error("Баримт олдсонгүй");
+  assertNotPosSourced(document, "засах");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг засна — батлагдсаныг буцаалтаар засна");
 

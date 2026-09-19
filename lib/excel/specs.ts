@@ -534,3 +534,154 @@ export function employeesSpec(): ImportSpec<EmployeeImport> {
     },
   };
 }
+
+// ── Барааны бүртгэл (POS мастер дата) ───────────────────────────────────────
+
+export type ItemVatModeImport = "standard" | "exempt" | "zero";
+
+export interface InventoryItemImport {
+  code: string;
+  name: string;
+  unit: string;
+  salesPrice?: number | null;
+  minSalesPrice?: number | null;
+  barcode?: string | null;
+  vatMode: ItemVatModeImport;
+  categoryCode?: string | null;
+  isActive: boolean;
+}
+
+/** НӨАТ-ийн горимын шошго — экспорт/импорт хоёулаа ЭНЭ нэг лавлахаар (round-trip). */
+export const ITEM_VAT_MODE_LABELS: Record<ItemVatModeImport, string> = {
+  standard: "10%",
+  exempt: "Чөлөөлөгдсөн",
+  zero: "0%",
+};
+
+const ITEM_VAT_MODE_BY_LABEL: Record<string, ItemVatModeImport> = {
+  "10%": "standard",
+  "10": "standard",
+  "чөлөөлөгдсөн": "exempt",
+  "0%": "zero",
+  "0": "zero",
+  standard: "standard",
+  exempt: "exempt",
+  zero: "zero",
+};
+
+/** Барааны импорт — код таарвал байгаа бараа шинэчлэгдэнэ (round-trip). */
+export function inventoryItemsSpec(context: {
+  categoryCodes: Set<string>;
+}): ImportSpec<InventoryItemImport> {
+  return {
+    slug: "entry-inventory-items",
+    title: "Барааны бүртгэл — код таарвал байгаа барааг шинэчилнэ",
+    columns: [
+      {
+        key: "code",
+        header: "Код",
+        required: true,
+        hint: "Барааны код — байгууллага дотор давхцахгүй; таарвал шинэчилнэ",
+        example: "BM-001",
+      },
+      { key: "name", header: "Нэр", required: true, hint: "Барааны нэр", example: "Цаас А4" },
+      {
+        key: "unit",
+        header: "Хэмжих нэгж",
+        hint: "ш / кг / л / м (хоосон бол ш)",
+        example: "ш",
+      },
+      {
+        key: "salesPrice",
+        header: "Борлуулах үнэ",
+        hint: "POS-ийн борлуулах үнэ ₮ (НӨАТ төлөгч бол НӨАТ орсон); хоосон бол тогтоохгүй",
+        example: "15000",
+      },
+      {
+        key: "minSalesPrice",
+        header: "Доод үнэ",
+        hint: "Кассчны хөнгөлөлтийн доод хязгаар ₮ (борлуулах үнээс ихгүй)",
+        example: "13500",
+      },
+      {
+        key: "barcode",
+        header: "Баркод",
+        hint: "Сканнерын код — байгууллага дотор давхцахгүй (сонголтоор)",
+        example: "8651234567890",
+      },
+      {
+        key: "vatMode",
+        header: "НӨАТ",
+        hint: "10% / Чөлөөлөгдсөн / 0% (хоосон бол 10%)",
+        example: "10%",
+      },
+      {
+        key: "categoryCode",
+        header: "Бүлэг",
+        hint: "Барааны бүлгийн код — бүртгэлд байх ёстой (сонголтоор)",
+        example: "",
+      },
+      {
+        key: "isActive",
+        header: "Идэвхтэй",
+        hint: "Тийм / Үгүй (хоосон бол Тийм)",
+        example: "Тийм",
+      },
+    ],
+    parseRow: (record) => {
+      const errors: string[] = [];
+      const code = record.code.trim();
+      if (!code) errors.push("Код хоосон байна");
+      const name = record.name.trim();
+      if (!name) errors.push("Нэр хоосон байна");
+
+      const salesPrice = parseAmountCell(record.salesPrice);
+      if (salesPrice === undefined) errors.push("Борлуулах үнэ уншигдахгүй байна");
+      else if (salesPrice != null && salesPrice < 0)
+        errors.push("Борлуулах үнэ сөрөг байж болохгүй");
+
+      const minSalesPrice = parseAmountCell(record.minSalesPrice);
+      if (minSalesPrice === undefined) errors.push("Доод үнэ уншигдахгүй байна");
+      else if (minSalesPrice != null && minSalesPrice < 0)
+        errors.push("Доод үнэ сөрөг байж болохгүй");
+      if (
+        salesPrice != null &&
+        minSalesPrice != null &&
+        minSalesPrice > salesPrice
+      )
+        errors.push("Доод үнэ борлуулах үнээс их байж болохгүй");
+
+      let vatMode: ItemVatModeImport = "standard";
+      const vatRaw = record.vatMode.trim().toLowerCase();
+      if (vatRaw !== "") {
+        const parsed = ITEM_VAT_MODE_BY_LABEL[vatRaw];
+        if (!parsed) errors.push("НӨАТ нь 10% / Чөлөөлөгдсөн / 0% байна");
+        else vatMode = parsed;
+      }
+
+      const categoryCode = record.categoryCode.trim() || null;
+      if (categoryCode && !context.categoryCodes.has(categoryCode))
+        errors.push(`"${categoryCode}" бүлэг бүртгэлд алга`);
+
+      const activeRaw = record.isActive.trim().toLowerCase();
+      const isActive =
+        activeRaw === "" ||
+        ["тийм", "yes", "true", "1", "идэвхтэй"].includes(activeRaw);
+
+      if (errors.length > 0) return { errors };
+      return {
+        value: {
+          code,
+          name,
+          unit: record.unit.trim() || "ш",
+          salesPrice: salesPrice ?? null,
+          minSalesPrice: minSalesPrice ?? null,
+          barcode: record.barcode.trim() || null,
+          vatMode,
+          categoryCode,
+          isActive,
+        },
+      };
+    },
+  };
+}

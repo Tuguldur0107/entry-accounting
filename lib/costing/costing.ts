@@ -47,7 +47,10 @@ export type CostEntryType =
   // үнэлгээнд дундажийг өсгөнө.
   | "landed_cost"
   | "nrv_writedown"
-  | "nrv_reversal";
+  | "nrv_reversal"
+  // POS (docs/pos §3.7): урьдчилсан COGS-ийн сар хаалтын ЗАЛРУУЛГА. amount
+  // ТЭМДЭГТЭЙ — + бол Dr COGS / Cr Бараа (дутуу бичсэн), − бол урвуу.
+  | "cogs_true_up";
 
 export interface PostedEntryRef {
   movementId: string;
@@ -341,5 +344,12 @@ export function entryPostingAccounts(
       return { debit: roles.nrvExpense, credit: roles.nrvReserve };
     case "nrv_reversal":
       return { debit: roles.nrvReserve, credit: roles.nrvExpense };
+    case "cogs_true_up":
+      // Эерэг залруулга issue_cogs-той ижил чиглэл; сөрөгт бичигч Dr/Cr-ээ сольж
+      // абсолют дүнгээр бичнэ (lib/actions/costing.ts postCostEntry).
+      return {
+        debit: itemAccounts.issueDebitAccountNumber,
+        credit: itemAccounts.inventoryAccountNumber,
+      };
   }
 }

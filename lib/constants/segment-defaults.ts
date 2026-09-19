@@ -93,6 +93,7 @@ export const SEGMENT_DEFAULT_VALUES: Record<number, SegmentDefaultValue[]> = {
     { code: "FA", name: "Үндсэн хөрөнгө" },
     { code: "PR", name: "Цалин" },
     { code: "PO", name: "Хангамж" },
+    { code: "PS", name: "Борлуулалтын цэг (POS)" },
     { code: "TX", name: "Татвар, НӨАТ" },
     { code: "AG", name: "Группын дотоод тооцоо" },
   ],

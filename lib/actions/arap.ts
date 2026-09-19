@@ -58,10 +58,24 @@ import {
   loadCostingAccountSettings,
 } from "@/lib/costing/master-data";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
+import { POS_SOURCE_TYPE } from "@/lib/pos/constants";
+
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
+
+/**
+ * POS (docs/pos §3.3): борлуулалтаас үүссэн нэхэмжлэх нь касс, зарлага,
+ * урьдчилсан COGS-тэйгээ НЭГ атом үйлдэл — АР панелиас засах/устгах/буцаахад
+ * гурван дэвтэр зөрнө. Зөвхөн Бараа материал → Борлуулалт дээрх буцаалтаар.
+ */
+function assertNotPosSourced(document: { sourceType: string | null }, verb: string) {
+  if (document.sourceType === POS_SOURCE_TYPE)
+    throw new Error(
+      `[POS_SOURCED] POS борлуулалтын нэхэмжлэхийг ${verb} боломжгүй — Бараа материал → Борлуулалт дээр буцаана уу`
+    );
+}
 
 /** Баримтын төрөл → эрхийн модулийн түлхүүр (АР/АП тусдаа тохирно). */
 function permissionModuleOf(documentType: string): string {
@@ -308,6 +322,14 @@ function counterpartyTypeLabel(type: string) {
         : type;
 }
 
+/** Зээлийн лимит — хоосон/null = хязгааргүй; сөрөг утга хориотой. */
+function creditLimitValue(value: number | null | undefined): string | null {
+  if (value == null || (typeof value === "number" && Number.isNaN(value))) return null;
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit < 0) throw new Error("Зээлийн лимит 0-ээс багагүй тоо байна");
+  return String(limit);
+}
+
 async function createCounterpartyCore(data: {
   name: string;
   counterpartyType: "customer" | "supplier" | "both";
@@ -322,6 +344,9 @@ async function createCounterpartyCore(data: {
   contactPerson?: string;
   bankName?: string;
   bankAccountNo?: string;
+  /** POS: хөнгөлөлтийн бүлэг (VIP, ажилтан…) ба зээлийн лимит (MNT, null = хязгааргүй). */
+  customerGroup?: string;
+  creditLimit?: number | null;
 }) {
   const { orgId, userId } = await requireAnyModuleAction([
     ["ar", "write"],
@@ -379,6 +404,8 @@ async function createCounterpartyCore(data: {
       contactPerson: cleanText(data.contactPerson),
       bankName: cleanText(data.bankName),
       bankAccountNo: cleanText(data.bankAccountNo),
+      customerGroup: cleanText(data.customerGroup),
+      creditLimit: creditLimitValue(data.creditLimit),
     })
     .returning({ id: counterparties.id });
 
@@ -417,6 +444,8 @@ async function updateCounterpartyCore(
     contactPerson?: string;
     bankName?: string;
     bankAccountNo?: string;
+    customerGroup?: string;
+    creditLimit?: number | null;
   }
 ) {
   const { orgId } = await requireAnyModuleAction([
@@ -449,6 +478,8 @@ async function updateCounterpartyCore(
       contactPerson: cleanText(data.contactPerson),
       bankName: cleanText(data.bankName),
       bankAccountNo: cleanText(data.bankAccountNo),
+      customerGroup: cleanText(data.customerGroup),
+      creditLimit: creditLimitValue(data.creditLimit),
     })
     .where(and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)))
     .returning({ id: counterparties.id });
@@ -1433,6 +1464,7 @@ async function reverseArApDocumentCore(id: string) {
   });
   if (!document) throw new Error("Баримт олдсонгүй");
   await requireModuleAction(permissionModuleOf(document.documentType), "post");
+  assertNotPosSourced(document, "буцаах");
   if (document.status === "reversed")
     throw new Error("Энэ баримт аль хэдийн буцаагдсан байна");
   if (document.status === "partially_paid" || document.status === "paid")
@@ -1623,6 +1655,7 @@ async function deleteArApDocumentCore(id: string) {
     permissionModuleOf(document.documentType),
     document.status === "draft" ? "write" : "post"
   );
+  assertNotPosSourced(document, "устгах");
   // Хаагдсан PO-гийн нэхэмжлэхийг устгавал хаалтын нөхцөл/журнал эвдэрнэ
   // (ноорог нэхэмжлэх ч PO-гийн нэхэмжилсэн нийлбэрт тооцогддог).
   if (document.purchaseOrderId)
@@ -1766,6 +1799,7 @@ export async function updateArApDocument(
   });
   if (!document) throw new Error("Баримт олдсонгүй");
   await requireModuleAction(permissionModuleOf(document.documentType), "write");
+  assertNotPosSourced(document, "засах");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг засна — батлагдсаныг буцаагаад шинээр бүртгэнэ");
 

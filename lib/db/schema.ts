@@ -507,6 +507,9 @@ export const cashDocuments = pgTable(
     ),
     // Гадаад системийн давтагдашгүй дугаар (банкны гүйлгээний ID г.м).
     externalRef: text("external_ref"),
+    /** Эх модуль: "manual" | "pos" — POS-ийн баримтыг кассын панелиас буцаахгүй. */
+    sourceType: text("source_type").notNull().default("manual"),
+    sourceId: uuid("source_id"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -773,6 +776,10 @@ export const counterparties = pgTable(
     address: text("address"),
     // Ханган нийлүүлэгчийн мэдээлэл (PO панелийн карт, төлбөрийн заавар).
     contactPerson: text("contact_person"),
+    // POS (docs/pos §3.2): хөнгөлөлтийн харилцагчийн бүлэг (VIP, ажилтан, бөөний…)
+    // ба зээлээр борлуулах лимит (MNT, null = хязгааргүй).
+    customerGroup: text("customer_group"),
+    creditLimit: numeric("credit_limit", { precision: 18, scale: 2 }),
     bankName: text("bank_name"),
     bankAccountNo: text("bank_account_no"),
     isActive: boolean("is_active").notNull().default(true),
@@ -839,6 +846,12 @@ export const arApDocuments = pgTable(
       () => purchaseOrders.id,
       { onDelete: "restrict" }
     ),
+    /**
+     * Эх модуль: "manual" | "pos" (docs/pos §3.2). POS-оос үүссэн баримтыг
+     * АР панелиас засах/устгах/буцаах ХОРИОТОЙ — зөвхөн POS буцаалтаар.
+     */
+    sourceType: text("source_type").notNull().default("manual"),
+    sourceId: uuid("source_id"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -1326,11 +1339,19 @@ export const inventoryItems = pgTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     unit: text("unit").notNull().default("ш"),
-    // Борлуулах үнэ (MNT, нэгжид) — АР нэхэмжлэхэд бараа сонгоход нэгж үнэ
-    // АВТОМАТААР бөглөгдөнө. null = үнэ тогтоогоогүй (сүүлийн борлуулалтын
-    // нэгж үнээр нөхнө, тэр ч байхгүй бол хэрэглэгч гараар бичнэ). Өртөгтэй
-    // (cost_period_results) ХОЛБООГҮЙ — зөвхөн борлуулалтын лавлах үнэ.
+    // ── POS (docs/pos/00-proposal.md §3.2) — бүгд сонголтоор ──
+    /** Борлуулах үнэ (MNT, нэгжид) — АР нэхэмжлэх/POS-д нэгж үнэ автоматаар. НӨАТ төлөгч байгууллагад НӨАТ ОРСОН үнэ; null = тогтоогоогүй. Өртөгтэй ХОЛБООГҮЙ. */
     salesPrice: numeric("sales_price", { precision: 18, scale: 4 }),
+    /** Кассчны хөнгөлөлтийн доод хязгаар — үнэ − хөнгөлөлт ≥ энэ (эрхтэй нь давна). */
+    minSalesPrice: numeric("min_sales_price", { precision: 18, scale: 2 }),
+    /** Сканнерын код — байгууллага дотор давхцахгүй (partial unique index). */
+    barcode: text("barcode"),
+    /** "standard" (НӨАТ-тай) | "exempt" (чөлөөлөгдсөн) | "zero" (0%). */
+    vatMode: text("vat_mode").notNull().default("standard"),
+    /** Барааны орлогын дансны override — хоосон бол pos_settings.revenueAccountNumber. */
+    revenueAccountNumber: text("revenue_account_number"),
+    /** Барааны бүлэг (inventory_categories.code) — хөнгөлөлтийн дүрэм, тайлан. */
+    categoryCode: text("category_code"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -1339,7 +1360,53 @@ export const inventoryItems = pgTable(
       t.organizationId,
       t.code
     ),
+    uniqueIndex("inventory_items_org_barcode_ux")
+      .on(t.organizationId, t.barcode)
+      .where(sql`${t.barcode} is not null`),
   ]
+);
+
+/** Барааны бүлэг — хөнгөлөлтийн дүрмийн хамрах хүрээ, тайлангийн бүлэглэл. */
+export const inventoryCategories = pgTable(
+  "inventory_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("inventory_categories_org_code_ux").on(t.organizationId, t.code),
+  ]
+);
+
+/**
+ * Борлуулах үнийн ТҮҮХ — үнэ өөрчлөх бүрд мөр (аудит). Борлуулалтын мөр
+ * үнээ ӨӨРТӨӨ хадгалдаг тул тайлан энэ түүхээс хамаарахгүй.
+ */
+export const itemPriceHistory = pgTable(
+  "item_price_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "cascade" }),
+    salesPrice: numeric("sales_price", { precision: 18, scale: 2 }),
+    effectiveFrom: text("effective_from").notNull(), // YYYY-MM-DD
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("item_price_history_item_ix").on(t.itemId, t.createdAt)]
 );
 
 export const warehouses = pgTable(
@@ -1909,6 +1976,12 @@ export const vatSettings = pgTable("vat_settings", {
   vatRatePercent: numeric("vat_rate_percent", { precision: 5, scale: 2 })
     .notNull()
     .default("10"),
+  /**
+   * Байгууллага НӨАТ төлөгч эсэх (docs/pos §3.8, D4). Төлөгч биш бол POS
+   * борлуулалтад НӨАТ мөр огт үүсэхгүй, барааны үнэ = орлого. Мөр анх
+   * үүсэхэд company_settings.vatPayerNo бөглөгдсөн эсэхээр тавигдана.
+   */
+  isVatPayer: boolean("is_vat_payer").notNull().default(true),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("vat_settings_org_id_ux").on(t.organizationId)]);
 
@@ -2092,14 +2165,22 @@ export const costEntries = pgTable("cost_entries", {
   itemId: uuid("item_id").references(() => inventoryItems.id, {
     onDelete: "restrict",
   }),
-  entryType: text("entry_type").notNull(), // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss" | "landed_cost" | "nrv_writedown" | "nrv_reversal" | "return_in"
+  // "receipt_capitalize" | "issue_cogs" | "adjustment_gain" | "adjustment_loss"
+  // | "landed_cost" | "nrv_writedown" | "nrv_reversal" | "return_in" | "return_out"
+  // | "cogs_true_up" (docs/pos §3.7: урьдчилсан COGS-ийн сар хаалтын залруулга —
+  //   amount ТЭМДЭГТЭЙ: + → Dr COGS / Cr Бараа, − → урвуу)
+  entryType: text("entry_type").notNull(),
   date: text("date").notNull(), // movement date — the voucher date
   quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
   unitCost: numeric("unit_cost", { precision: 18, scale: 4 }).notNull(),
   amount: numeric("amount", { precision: 18, scale: 2 }).notNull(), // MNT
   // "manual" | "avg_cost" | "po_receipt" (PO үнэ × хүлээн авсан өдрийн МБ
   // ханш) | "ap_line" (нэмэлт зардлын нэхэмжлэхийн мөрөөс хуваарилагдсан)
+  // | "provisional_avg" (POS: борлуулах мөчийн явцын дундаж — сар хаалтад
+  //   cogs_true_up-аар залруулагдана, docs/pos §3.7)
   valuationSource: text("valuation_source").notNull(),
+  /** cogs_true_up: аль урьдчилсан бичилтийг залруулж байна. */
+  trueUpOfEntryId: uuid("true_up_of_entry_id"),
   // Хамрах хүрээ + период (OD-001 "бараа × агуулах × компани", OD-002 GL
   // период). Хуучин мөрүүдэд null — backfill хийгдэнэ.
   warehouseId: uuid("warehouse_id").references(() => warehouses.id, {
@@ -2139,10 +2220,18 @@ export const costEntries = pgTable("cost_entries", {
 }, (t) => [
   // 1:1 дүрмийн DB backstop: нэг хөдөлгөөнд идэвхтэй ҮНДСЭН үнэлгээний
   // бичилт нэг л байна (landed_cost нь нэмэлт давхарга тул хамаарахгүй).
+  // cogs_true_up нь ҮНДСЭН үнэлгээний давхарга биш — залруулга (олон байж
+  // болно: дахин нээх/хаах бүрд нэг) тул мөн хамаарахгүй.
   uniqueIndex("cost_entries_movement_active_uq")
     .on(t.movementId)
     .where(
-      sql`${t.movementId} is not null and ${t.status} <> 'reversed' and ${t.entryType} <> 'landed_cost'`
+      sql`${t.movementId} is not null and ${t.status} <> 'reversed' and ${t.entryType} not in ('landed_cost', 'cogs_true_up')`
+    ),
+  // Нэг хөдөлгөөнд нэг л ИДЭВХТЭЙ НООРОГ залруулга (идемпотент дахин тооцоолол).
+  uniqueIndex("cost_entries_true_up_draft_uq")
+    .on(t.movementId)
+    .where(
+      sql`${t.movementId} is not null and ${t.entryType} = 'cogs_true_up' and ${t.status} = 'draft'`
     ),
   index("cost_entries_user_status_ix").on(t.userId, t.status), index("cost_entries_org_status_ix").on(t.organizationId, t.status),
   index("cost_entries_source_line_ix")
@@ -2951,6 +3040,453 @@ export const auditEvents = pgTable(
   (t) => [index("audit_events_user_created_ix").on(t.userId, t.createdAt), index("audit_events_org_created_ix").on(t.organizationId, t.createdAt)]
 );
 
+// ─── POS (Борлуулалтын цэг) — docs/pos/00-proposal.md §3.2 ─────────────────────
+// Бараа материал модулийн дотор. Борлуулалт бүр АР нэхэмжлэх (sourceType
+// "pos") + кассын баримт(ууд) + confirmed зарлага + урьдчилсан COGS-ийг НЭГ
+// транзакцад үүсгэнэ. Дансны дугаар кодод байхгүй — pos_settings-ийн рольууд.
+
+export const posSettings = pgTable(
+  "pos_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    /** Борлуулалтын орлого (барааны revenueAccountNumber override-тэй). */
+    revenueAccountNumber: text("revenue_account_number").notNull().default("51100000"),
+    /** Хөнгөлөлтийн contra данс — discountPosting = "contra" үед Dr. */
+    discountAccountNumber: text("discount_account_number").notNull().default("51900001"),
+    /** "net" (орлого цэвэр дүнгээр, IFRS 15) | "contra" (бүтэн орлого + Dr хөнгөлөлт). C3. */
+    discountPosting: text("discount_posting").notNull().default("net"),
+    giftCardLiabilityAccountNumber: text("gift_card_liability_account_number")
+      .notNull()
+      .default("31600003"),
+    storeCreditLiabilityAccountNumber: text("store_credit_liability_account_number")
+      .notNull()
+      .default("31600004"),
+    customerAdvanceAccountNumber: text("customer_advance_account_number")
+      .notNull()
+      .default("31300001"),
+    cashOverAccountNumber: text("cash_over_account_number").notNull().default("51800002"),
+    cashShortAccountNumber: text("cash_short_account_number").notNull().default("87000006"),
+    roundingAccountNumber: text("rounding_account_number").notNull().default("87000007"),
+    /** Харилцагчгүй борлуулалтын "Бэлэн худалдан авагч" (counterparties). */
+    walkInCounterpartyId: uuid("walk_in_counterparty_id").references(() => counterparties.id, {
+      onDelete: "set null",
+    }),
+    /** Зарлагын төрөл (COGS-ийн дебет чиглэл) — хоосон бол анхны "COGS". */
+    issueTypeId: uuid("issue_type_id").references(() => inventoryIssueTypes.id, {
+      onDelete: "set null",
+    }),
+    /** Кассын дэлгэцийн анхдагч агуулах. */
+    defaultWarehouseId: uuid("default_warehouse_id").references(() => warehouses.id, {
+      onDelete: "set null",
+    }),
+    /** Борлуулах мөчид явцын дунджаар урьдчилсан COGS бичих эсэх (C2). */
+    provisionalCogs: boolean("provisional_cogs").notNull().default(true),
+    /** Хасах үлдэгдэлтэй борлуулалт зөвшөөрөх эсэх (D9). */
+    allowNegativeStock: boolean("allow_negative_stock").notNull().default(true),
+    /** Кассчны гар хөнгөлөлтийн дээд хувь (менежерийн зөвшөөрөлгүй). */
+    maxManualDiscountPercent: numeric("max_manual_discount_percent", { precision: 5, scale: 2 })
+      .notNull()
+      .default("10"),
+    /** Нийт хөнгөлөлтийн дээд хувь (stacking-ийн тааз). */
+    maxTotalDiscountPercent: numeric("max_total_discount_percent", { precision: 5, scale: 2 })
+      .notNull()
+      .default("50"),
+    /** "best_single" | "cumulative" — давхцах дүрмүүдийн бодлого. */
+    discountStacking: text("discount_stacking").notNull().default("best_single"),
+    /** Бэлэн төлбөрийн бөөрөнхийллийн нэгж: 0 | 10 | 100 ₮. */
+    cashRoundingUnit: integer("cash_rounding_unit").notNull().default(0),
+    receiptHeader: text("receipt_header").notNull().default(""),
+    receiptFooter: text("receipt_footer").notNull().default("Худалдан авалтад баярлалаа"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("pos_settings_org_id_ux").on(t.organizationId)]
+);
+
+/**
+ * Төлбөрийн хэлбэрийн лавлах (D6). `kind` бүртгэлийн замыг шийднэ:
+ *   cash | cash_fx | card | ewallet | transfer | credit | advance |
+ *   gift_card | store_credit | bnpl
+ */
+export const posPaymentMethods = pgTable(
+  "pos_payment_methods",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(),
+    /** Мөнгө хүлээн авах касс/банк/түр данс (credit, advance, gift_card, store_credit-д null). */
+    cashAccountId: uuid("cash_account_id").references(() => cashAccounts.id, {
+      onDelete: "set null",
+    }),
+    currency: text("currency").notNull().default("MNT"),
+    requiresReference: boolean("requires_reference").notNull().default(false),
+    /** Хариулт өгөх боломжтой эсэх — зөвхөн бэлэн. */
+    allowsChange: boolean("allows_change").notNull().default(false),
+    allowsRefund: boolean("allows_refund").notNull().default(true),
+    /** Мэдээллийн шимтгэл % — тайланд; бичилт банкны тулгалтаас. */
+    feePercent: numeric("fee_percent", { precision: 5, scale: 2 }),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("pos_payment_methods_org_code_ux").on(t.organizationId, t.code)]
+);
+
+/**
+ * Хөнгөлөлтийн дүрэм (D5). ruleType: line_percent | line_amount | fixed_price |
+ * qty_tier | buy_x_get_y | basket_threshold | customer_group | coupon |
+ * time_window. Хөдөлгөгч lib/pos/discounts.ts (цэвэр, тесттэй).
+ */
+export const posDiscountRules = pgTable(
+  "pos_discount_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    ruleType: text("rule_type").notNull(),
+    /** all | category | item | customer_group */
+    scope: text("scope").notNull().default("all"),
+    /** categoryCode / itemId / customerGroup — scope-оос хамаарна. */
+    scopeRef: text("scope_ref"),
+    /** percent | amount | fixed_price */
+    valueType: text("value_type").notNull().default("percent"),
+    value: numeric("value", { precision: 18, scale: 4 }).notNull().default("0"),
+    minQty: numeric("min_qty", { precision: 18, scale: 4 }),
+    minAmount: numeric("min_amount", { precision: 18, scale: 2 }),
+    buyQty: numeric("buy_qty", { precision: 18, scale: 4 }),
+    getQty: numeric("get_qty", { precision: 18, scale: 4 }),
+    /** qty_tier: [{ minQty, percent?, price? }] */
+    tiers: jsonb("tiers").$type<{ minQty: number; percent?: number; price?: number }[]>(),
+    dateFrom: text("date_from"),
+    dateTo: text("date_to"),
+    timeFrom: text("time_from"), // HH:MM
+    timeTo: text("time_to"),
+    /** "1,2,3,4,5" — 1 = Даваа … 7 = Ням; хоосон = бүх өдөр. */
+    weekdays: text("weekdays"),
+    couponCode: text("coupon_code"),
+    maxUsesTotal: integer("max_uses_total"),
+    maxUsesPerCustomer: integer("max_uses_per_customer"),
+    usedCount: integer("used_count").notNull().default(0),
+    stackable: boolean("stackable").notNull().default(false),
+    priority: integer("priority").notNull().default(100),
+    requiresApproval: boolean("requires_approval").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("pos_discount_rules_org_code_ux").on(t.organizationId, t.code)]
+);
+
+/** Ээлж (D7): нээх → борлуулалт → хаах (тоолсон vs системийн, зөрүү). */
+export const posShifts = pgTable(
+  "pos_shifts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    documentNo: text("document_no").notNull(), // SH-YYMM-NNN
+    cashAccountId: uuid("cash_account_id")
+      .notNull()
+      .references(() => cashAccounts.id, { onDelete: "restrict" }),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "restrict" }),
+    openedBy: text("opened_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+    openedAt: timestamp("opened_at").notNull().defaultNow(),
+    openingFloat: numeric("opening_float", { precision: 18, scale: 2 }).notNull().default("0"),
+    closedBy: text("closed_by").references(() => users.id, { onDelete: "set null" }),
+    closedAt: timestamp("closed_at"),
+    countedCash: numeric("counted_cash", { precision: 18, scale: 2 }),
+    systemCash: numeric("system_cash", { precision: 18, scale: 2 }),
+    varianceAmount: numeric("variance_amount", { precision: 18, scale: 2 }),
+    varianceCashDocumentId: uuid("variance_cash_document_id").references(() => cashDocuments.id, {
+      onDelete: "set null",
+    }),
+    /** Валютын кассын ээлжийн ханш — { USD: 3450 } */
+    fxRates: jsonb("fx_rates").$type<Record<string, number>>(),
+    status: text("status").notNull().default("open"), // "open" | "closed"
+    note: text("note").notNull().default(""),
+  },
+  (t) => [
+    uniqueIndex("pos_shifts_org_document_no_ux").on(t.organizationId, t.documentNo),
+    index("pos_shifts_org_status_ix").on(t.organizationId, t.status),
+  ]
+);
+
+export const posSales = pgTable(
+  "pos_sales",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    documentNo: text("document_no").notNull(), // POS-YYMM-NNNN (дараалсан)
+    shiftId: uuid("shift_id").references(() => posShifts.id, { onDelete: "restrict" }),
+    warehouseId: uuid("warehouse_id")
+      .notNull()
+      .references(() => warehouses.id, { onDelete: "restrict" }),
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id, { onDelete: "restrict" }),
+    cashierUserId: text("cashier_user_id").notNull().references(() => users.id, {
+      onDelete: "restrict",
+    }),
+    soldAt: timestamp("sold_at").notNull().defaultNow(),
+    /** УБ өдөр (YYYY-MM-DD) — периодын guard, тайлан ҮҮГЭЭР. */
+    date: text("date").notNull(),
+    /** Хөнгөлөлтийн өмнөх нийт (үнэ × тоо). */
+    grossAmount: numeric("gross_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    discountTotal: numeric("discount_total", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** НӨАТ-гүй цэвэр орлого. */
+    netAmount: numeric("net_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    vatAmount: numeric("vat_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    roundingAmount: numeric("rounding_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** Төлөх дүн = net + vat + rounding. */
+    total: numeric("total", { precision: 18, scale: 2 }).notNull().default("0"),
+    arApDocumentId: uuid("ar_ap_document_id").references(() => arApDocuments.id, {
+      onDelete: "restrict",
+    }),
+    // "posted" | "partially_returned" | "returned" | "voided"
+    status: text("status").notNull().default("posted"),
+    isReturn: boolean("is_return").notNull().default(false),
+    /** Буцаалт бол эх борлуулалт. */
+    originalSaleId: uuid("original_sale_id"),
+    returnReason: text("return_reason"),
+    ebarimtId: text("ebarimt_id"),
+    ebarimtLottery: text("ebarimt_lottery"),
+    /** null | "manual" | "pending" | "sent" | "failed" */
+    ebarimtStatus: text("ebarimt_status"),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pos_sales_org_document_no_ux").on(t.organizationId, t.documentNo),
+    index("pos_sales_org_date_ix").on(t.organizationId, t.date),
+    index("pos_sales_org_shift_ix").on(t.organizationId, t.shiftId),
+    index("pos_sales_original_ix")
+      .on(t.originalSaleId)
+      .where(sql`${t.originalSaleId} is not null`),
+  ]
+);
+
+export const posSaleLines = pgTable(
+  "pos_sale_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    saleId: uuid("sale_id")
+      .notNull()
+      .references(() => posSales.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => inventoryItems.id, { onDelete: "restrict" }),
+    /** Барааны нэр — борлуулах мөчийнх. */
+    description: text("description").notNull(),
+    quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull(),
+    /** Нэгж үнэ — борлуулах мөчийнх (НӨАТ төлөгч бол орсон). */
+    unitPrice: numeric("unit_price", { precision: 18, scale: 2 }).notNull(),
+    lineGross: numeric("line_gross", { precision: 18, scale: 2 }).notNull(),
+    discountAmount: numeric("discount_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** Дүрэм бүрийн задаргаа: [{ ruleId?, ruleCode?, kind, amount }] */
+    discountDetail: jsonb("discount_detail")
+      .$type<{ ruleId?: string | null; ruleCode?: string | null; kind: string; amount: number }[]>()
+      .notNull()
+      .default([]),
+    vatMode: text("vat_mode").notNull().default("standard"),
+    netAmount: numeric("net_amount", { precision: 18, scale: 2 }).notNull(),
+    vatAmount: numeric("vat_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** Хөнгөлөлтийн дараах, НӨАТ орсон мөрийн дүн. */
+    lineTotal: numeric("line_total", { precision: 18, scale: 2 }).notNull(),
+    /** Буцаалтын мөр бол эх борлуулалтын мөр. */
+    originalLineId: uuid("original_line_id"),
+    arApLineId: uuid("ar_ap_line_id").references(() => arApDocumentLines.id, {
+      onDelete: "set null",
+    }),
+    movementId: uuid("movement_id").references(() => inventoryMovements.id, {
+      onDelete: "set null",
+    }),
+    /** Урьдчилсан COGS бичилт (байхгүй бол "өртөг хүлээж байна"). */
+    provisionalCostEntryId: uuid("provisional_cost_entry_id").references(() => costEntries.id, {
+      onDelete: "set null",
+    }),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("pos_sale_lines_sale_ix").on(t.saleId), index("pos_sale_lines_item_ix").on(t.itemId)]
+);
+
+/** Баримтын түвшний хөнгөлөлт — мөрүүдэд pro-rata хуваарилагдсаны бүртгэл. */
+export const posSaleDiscounts = pgTable(
+  "pos_sale_discounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    saleId: uuid("sale_id")
+      .notNull()
+      .references(() => posSales.id, { onDelete: "cascade" }),
+    ruleId: uuid("rule_id").references(() => posDiscountRules.id, { onDelete: "set null" }),
+    /** auto | manual | coupon | receipt */
+    kind: text("kind").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
+    note: text("note").notNull().default(""),
+  },
+  (t) => [index("pos_sale_discounts_sale_ix").on(t.saleId)]
+);
+
+export const posPayments = pgTable(
+  "pos_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    saleId: uuid("sale_id")
+      .notNull()
+      .references(() => posSales.id, { onDelete: "cascade" }),
+    paymentMethodId: uuid("payment_method_id")
+      .notNull()
+      .references(() => posPaymentMethods.id, { onDelete: "restrict" }),
+    /** Төлбөрийн валютаарх дүн (буцаалтад сөрөг). */
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    currency: text("currency").notNull().default("MNT"),
+    exchangeRate: numeric("exchange_rate", { precision: 18, scale: 8 }).notNull().default("1"),
+    baseAmount: numeric("base_amount", { precision: 18, scale: 2 }).notNull(),
+    /** Бэлэн хариулт (MNT) — зөвхөн allowsChange хэлбэрт. */
+    changeGiven: numeric("change_given", { precision: 18, scale: 2 }).notNull().default("0"),
+    cashDocumentId: uuid("cash_document_id").references(() => cashDocuments.id, {
+      onDelete: "set null",
+    }),
+    /** Бэлэн бус (урьдчилгаа/бэлгийн карт/кредит) settlement-ийн журнал. */
+    voucherId: uuid("voucher_id").references(() => journalVouchers.id, { onDelete: "set null" }),
+    reference: text("reference"),
+    giftCardId: uuid("gift_card_id"),
+    storeCreditId: uuid("store_credit_id"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("pos_payments_sale_ix").on(t.saleId)]
+);
+
+export const posGiftCards = pgTable(
+  "pos_gift_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    code: text("code").notNull(),
+    initialAmount: numeric("initial_amount", { precision: 18, scale: 2 }).notNull(),
+    balance: numeric("balance", { precision: 18, scale: 2 }).notNull(),
+    issuedSaleId: uuid("issued_sale_id").references(() => posSales.id, { onDelete: "set null" }),
+    counterpartyId: uuid("counterparty_id").references(() => counterparties.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: text("expires_at"),
+    status: text("status").notNull().default("active"), // active | used | expired | void
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("pos_gift_cards_org_code_ux").on(t.organizationId, t.code)]
+);
+
+export const posStoreCredits = pgTable(
+  "pos_store_credits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id, { onDelete: "restrict" }),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    balance: numeric("balance", { precision: 18, scale: 2 }).notNull(),
+    sourceSaleId: uuid("source_sale_id").references(() => posSales.id, { onDelete: "set null" }),
+    expiresAt: text("expires_at"),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("pos_store_credits_cp_ix").on(t.organizationId, t.counterpartyId)]
+);
+
+export const posSalesRelations = relations(posSales, ({ one, many }) => ({
+  lines: many(posSaleLines),
+  payments: many(posPayments),
+  discounts: many(posSaleDiscounts),
+  shift: one(posShifts, { fields: [posSales.shiftId], references: [posShifts.id] }),
+  warehouse: one(warehouses, { fields: [posSales.warehouseId], references: [warehouses.id] }),
+  counterparty: one(counterparties, {
+    fields: [posSales.counterpartyId],
+    references: [counterparties.id],
+  }),
+  cashier: one(users, { fields: [posSales.cashierUserId], references: [users.id] }),
+  arApDocument: one(arApDocuments, {
+    fields: [posSales.arApDocumentId],
+    references: [arApDocuments.id],
+  }),
+}));
+
+export const posSaleLinesRelations = relations(posSaleLines, ({ one }) => ({
+  sale: one(posSales, { fields: [posSaleLines.saleId], references: [posSales.id] }),
+  item: one(inventoryItems, { fields: [posSaleLines.itemId], references: [inventoryItems.id] }),
+  movement: one(inventoryMovements, {
+    fields: [posSaleLines.movementId],
+    references: [inventoryMovements.id],
+  }),
+}));
+
+export const posSaleDiscountsRelations = relations(posSaleDiscounts, ({ one }) => ({
+  sale: one(posSales, { fields: [posSaleDiscounts.saleId], references: [posSales.id] }),
+  rule: one(posDiscountRules, {
+    fields: [posSaleDiscounts.ruleId],
+    references: [posDiscountRules.id],
+  }),
+}));
+
+export const posPaymentsRelations = relations(posPayments, ({ one }) => ({
+  sale: one(posSales, { fields: [posPayments.saleId], references: [posSales.id] }),
+  method: one(posPaymentMethods, {
+    fields: [posPayments.paymentMethodId],
+    references: [posPaymentMethods.id],
+  }),
+  cashDocument: one(cashDocuments, {
+    fields: [posPayments.cashDocumentId],
+    references: [cashDocuments.id],
+  }),
+}));
+
+export const posShiftsRelations = relations(posShifts, ({ one, many }) => ({
+  sales: many(posSales),
+  cashAccount: one(cashAccounts, { fields: [posShifts.cashAccountId], references: [cashAccounts.id] }),
+  warehouse: one(warehouses, { fields: [posShifts.warehouseId], references: [warehouses.id] }),
+  opener: one(users, { fields: [posShifts.openedBy], references: [users.id] }),
+}));
+
+export const posPaymentMethodsRelations = relations(posPaymentMethods, ({ one }) => ({
+  cashAccount: one(cashAccounts, {
+    fields: [posPaymentMethods.cashAccountId],
+    references: [cashAccounts.id],
+  }),
+}));
+
 // ─── Мэдэгдэл (docs/notifications/00-proposal.md) ────────────────────────────
 // Хэрэглэгч × байгууллага бүрд НЭГ мөр = нэг мэдэгдэл (in-app inbox). Аудитын
 // мөр нь баримт (устгагдахгүй), мэдэгдэл нь хүргэлт (90/180 хоногийн дараа
@@ -3135,5 +3671,17 @@ export type AiAttachment = typeof aiAttachments.$inferSelect;
 export type AiSettings = typeof aiSettings.$inferSelect;
 export type CompanySettings = typeof companySettings.$inferSelect;
 export type ArApInvoiceSend = typeof arApInvoiceSends.$inferSelect;
+export type InventoryCategory = typeof inventoryCategories.$inferSelect;
+export type ItemPriceHistory = typeof itemPriceHistory.$inferSelect;
+export type PosSettings = typeof posSettings.$inferSelect;
+export type PosPaymentMethod = typeof posPaymentMethods.$inferSelect;
+export type PosDiscountRule = typeof posDiscountRules.$inferSelect;
+export type PosShift = typeof posShifts.$inferSelect;
+export type PosSale = typeof posSales.$inferSelect;
+export type PosSaleLine = typeof posSaleLines.$inferSelect;
+export type PosSaleDiscount = typeof posSaleDiscounts.$inferSelect;
+export type PosPayment = typeof posPayments.$inferSelect;
+export type PosGiftCard = typeof posGiftCards.$inferSelect;
+export type PosStoreCredit = typeof posStoreCredits.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;

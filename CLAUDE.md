@@ -24,6 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан | ✅ | eBarimt 3.0 API, QPay API, камер barcode (Фаз 3) |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 
 ## Файлын бүтэц
@@ -39,12 +40,14 @@ entry-accounting/
 │   │   │   ├── accounts/         # Дансны тохиргоо
 │   │   │   └── reports/          # GL тайлан
 │   │   ├── cash/rates/           # Валютын ханшийн түүх (татах + харах)
-│   │   └── procurement/          # Хангамж: самбар · orders · receipts · costs
+│   │   ├── procurement/          # Хангамж: самбар · orders · receipts · costs
+│   │   └── inventory/pos, sales  # POS: кассын дэлгэц · борлуулалт/ээлж/тохиргоо
 │   └── api/
 │       ├── auth/[...nextauth]/   # NextAuth handler
 │       └── attachments/          # Хавсралт: POST upload, GET [id] татах
 ├── components/gl/                # GL client components
 ├── components/procurement/       # Хангамжийн client components
+├── components/pos/               # POS: checkout, payment-dialog, receipt, sales-workspace, sales-report-view
 ├── components/attachments/       # Хавсралтын жагсаалт (нийтлэг, ui-kit-ээр)
 ├── lib/
 │   ├── auth.ts                   # NextAuth config
@@ -57,6 +60,9 @@ entry-accounting/
 │   ├── cash/rate-store.ts        # Ханшийн ТҮҮХ: өдрөөр upsert / унших (store-first)
 │   ├── procurement/              # Цэвэр логик: constants, close-lines, po-math,
 │   │                             #   types, load-data
+│   ├── pos/                      # POS: constants, types, discounts, sale-math, payments,
+│   │                             #   load-data, reports (§5c)
+│   ├── actions/pos.ts            # POS Server Actions (createPosSale атомик, буцаалт, ээлж)
 │   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
 │   ├── notifications/            # Мэдэгдэл: catalog · rules (аудит гүүр) · attention
 │   │                             #   (нүүр + scheduler НЭГ эх) · emit · scheduler · ticker
@@ -484,6 +490,85 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
   `IconAction`, батлах диалог `useConfirm` — шинэ component/icon бичихийг
   ХОРИГЛОНО; жагсаалт дээр давхар даралт → панель
 
+### 5c. POS (Борлуулалтын цэг — Бараа материалын дотор) — ХЭРЭГЖСЭН
+
+**Баримт бичиг: `docs/pos/` — POS-ийн код хөндөхийн ӨМНӨ заавал уншина.**
+`00-proposal.md` (дизайн, БАТЛАГДСАН 2026-09-19: D1–D9, C1–C3) →
+`01-implementation-contract.md` (функцийн нэр/параметр — зөрөхийг хориглоно).
+Батлагдсан шийдвэр `docs/cost/README.md` change-control **0.8**.
+
+Борлуулалт = "Төлбөр авах" нэг товч = НЭГ транзакц (`createPosSale`):
+
+```
+pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага / Cr Орлого цэвэр [+ Cr НӨАТ — НӨАТ төлөгч бол])
+          → зарлага бүр confirmed (sourceType "pos_sale", зарлагын төрөл = COGS)
+          → УРЬДЧИЛСАН COGS (cost_entries valuationSource "provisional_avg", posted: Dr COGS / Cr Бараа явцын дунджаар)
+          → төлбөр бүрд: касс/банк/түр данс → cash_documents (posted) + settlement; урьдчилгаа/бэлгийн карт/кредит → журнал Dr өглөг / Cr Авлага; зээл → АР нээлттэй
+сар хаалт: computePeriodCosting posted урьдчилсан бичилтийг ЗАЛРУУЛНА — ноорог cogs_true_up (ТЭМДЭГТЭЙ) → postCostEntries; хөдөлгөгч (periodic.ts) ӨӨРЧЛӨГДӨӨГҮЙ
+```
+
+Хатуу дүрмүүд:
+
+- **Явцын дундаж = PWA-ийн томьёо "өнөөдрийг хүртэл"** (`lib/costing/provisional-cost.ts`):
+  сүүлийн тооцоологдсон сарын C2 + түүнээс хойшхи ӨРТӨГТЭЙ орлого; зарлага
+  нөлөөлөхгүй (moving average БИШ); өртөгтэй тоо ≤ 0 → бичилт ҮГҮЙ (үнэ
+  зохиохгүй), сар хаалтад л үнэлэгдэнэ. Σ(урьдчилсан + залруулга) = тоо × сарын
+  эцсийн дундаж — идемпотент, дахин нээх/хаахад давхардахгүй
+- **`[POS_SOURCED]`:** POS-оос үүссэн АР / касс / хөдөлгөөн / урьдчилсан өртгийн
+  бичилтийг эх модулиас нь засах/устгах/буцаахыг хориглоно — ЗӨВХӨН
+  `returnPosSale` (АР кредит + `return_in` + урьдчилсан урвуу + буцаан олголт)
+- **Хасах үлдэгдэл ЗӨВШӨӨРНӨ** (`pos_settings.allowNegativeStock`, D9) — баримт,
+  самбар, сар хаалтын checklist-д мэдэгдэл; хөдөлгөгч тэр бараа×сарыг зогсоодог
+  тул `closePeriod` `unvalued-movements` хоригоор (сарын тооцоололд "calculated"
+  биш scope-той батлагдсан зарлага/буцаалт/тохируулга) засагдтал хаагдахгүй;
+  мөн `open-pos-shifts` (нээлттэй ээлж)
+- **НӨАТ `vat_settings.isVatPayer`-ээс** (D4): төлөгч → барааны `salesPrice` НӨАТ
+  ОРСОН, мөр бүр `vatMode`-оор задарна; төлөгч биш → НӨАТ мөр огт үгүй
+- **Хөнгөлөлтийн хөдөлгөгч** (`lib/pos/discounts.ts`, 9 төрөл, тесттэй): төлөх
+  дүнд шууд нөлөөлнө, НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс; `approvalReasons`
+  хоосон биш → `pos:post` эрх (`[APPROVAL_REQUIRED]`); GL default цэвэр орлого,
+  `discountPosting=contra` бол GL-д Cr орлого бүтэн + Dr хөнгөлөлт (АР мөр цэвэр)
+- **Төлбөрийн хэлбэр = лавлах** (`pos_payment_methods`, 10 `kind`): карт/QPay/
+  BNPL нь ТҮР ДАНСТАЙ (`cash_accounts` bank) — банкны хуулгаар тэгшитгэнэ,
+  `businessObjectType "pos_sale"`-аар объект бүрээр
+- **Дансны дугаар кодод байхгүй** — `pos_settings` рольууд (ratified-seed
+  `ensurePosSettings`: данс, "Бэлэн худалдан авагч", COGS төрөл, CASH/CREDIT хэлбэр)
+- Огноо серверийн УБ цагаар, кассчин огноо сонгохгүй; `assertPeriodOpen` +
+  `assertPeriodOpenInTx`; advisory lock 1 (бараа) + 7 (дугаарлалт); эрх `pos`
+  (`read`/`write`/`post`) — кассчин `pos:write` л байж болно
+- Дараалсан дугаар `POS-YYMM-NNNN`, `RET-…`, `SH-YYMM-NNN`; АР нэхэмжлэх
+  `AR-<POS-№>`, кассын баримт `<POS-№>-P<n>` / `-R<n>` / `<SH-№>-V`
+
+Гол файлууд:
+
+```
+lib/pos/
+├── constants.ts        POS_MODULE_KEY/POS_SOURCE_TYPE/POS_MOVEMENT_SOURCE_TYPE/
+│                       POS_BUSINESS_OBJECT/PROVISIONAL_VALUATION_SOURCE/COGS_TRUE_UP_ENTRY_TYPE,
+│                       kind/дүрэм/НӨАТ шошго — литералын ЦОРЫН ГАНЦ эх сурвалж
+├── types.ts            plain төрлүүд (CartLine, DiscountRule, PaymentMethodView, PosSaleView…)
+├── discounts.ts        applyDiscounts — ЦЭВЭР (тесттэй): 9 дүрэм, stacking, pro-rata, approvalReasons
+├── sale-math.ts        computeSaleTotals (inclusive НӨАТ), roundToCashUnit, discountNetOf, ulaanbaatarNow
+├── payments.ts         planPayments / planRefund — ЦЭВЭР (тесттэй): хариулт, лимит, ханш, үлдэгдэл
+├── load-data.ts        ensurePosSettings (ratified-seed), view ачаалагч, loadCheckoutData
+└── reports.ts          loadSalesReport + ЦЭВЭР нэгтгэл (aggregateBy/summarize/aggregatePayments, тесттэй)
+lib/costing/provisional-cost.ts  явцын дундаж + trueUpDelta (ЦЭВЭР, тесттэй) + loadProvisionalUnitCosts
+lib/costing/period-close.ts      cogs_true_up залруулга (posted урьдчилсан бичилтэд)
+lib/actions/pos.ts               createPosSale (атомик) / returnPosSale / ээлж / бэлгийн карт /
+                                 тохиргоо / төлбөрийн хэлбэр / хөнгөлөлтийн дүрэм / quotePosSale
+app/(dashboard)/inventory/pos    Кассын дэлгэц (сканнер = гар, F9 төлбөр, баримт хэвлэх)
+app/(dashboard)/inventory/sales  Борлуулалт · Ээлж · Бэлгийн карт·кредит · Тохиргоо (табууд)
+app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (6 таб, COGS cost_period_results-ээс)
+components/pos/                  pos-checkout-view (кассын дэлгэц), payment-dialog, receipt-preview
+                                 (80мм хэвлэлт, usePosPrint), sales-workspace (4 таб) → sales-list-view /
+                                 shifts-view + shift-dialogs (нээх, хаах, Z-тайлан) / gift-cards-view /
+                                 pos-settings-view (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
+                                 sales-report-view (/inventory/reports, 6 таб)
+components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт: мөр/дүн, буцаан олголт эсвэл
+                                 дэлгүүрийн кредит; дахин хэвлэх; eBarimt; АР/журнал/хавсралт)
+tests/pos-*.test.ts, tests/provisional-cost.test.ts
+```
+
 ### 5b. Валютын ханшийн түүх (Монголбанк) — ХЭРЭГЖСЭН
 
 Хэрэглэгч **эхний үлдэгдэл, өмнөх хугацааны бичилт** оруулахад ӨМНӨХ ҮЕИЙН
@@ -730,6 +815,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 | Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
+| POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -1184,6 +1270,13 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
+| POS кассын дэлгэц | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | Сагсны grid (Тоо/Үнэ/Хөнг %/Хөнг ₮ editable, хасах үлдэгдэл улбар шар), баркод/хайлт, `quotePosSale` debounce 250мс, F9/F2/F6/Esc, түр хадгалалт localStorage |
+| POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
+| POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
+| POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
+| POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
+| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 6 таб (хураангуй/бараа/өдөр/кассчин/хэлбэр/харилцагч+дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
 ---
 
@@ -1294,6 +1387,17 @@ Inventory  inventory_items, warehouses, inventory_movements
                сүүлийн АР мөрийн unitPrice); өртөгтэй ХОЛБООГҮЙ, үнэ зохиохгүй
              movements.issueTypeId — зарлагын дебет чиглэл
              movements.sourceType `po_receipt` — хүлээн авалтын мөрөөс үүссэн
+POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeId,
+           provisionalCogs, allowNegativeStock, хөнгөлөлтийн хязгаар, бөөрөнхийлөл),
+           pos_payment_methods (kind × cashAccountId), pos_discount_rules,
+           pos_shifts, pos_sales, pos_sale_lines (arApLineId / movementId /
+           provisionalCostEntryId), pos_sale_discounts, pos_payments,
+           pos_gift_cards, pos_store_credits; inventory_categories,
+           item_price_history; inventory_items.salesPrice/barcode/vatMode…;
+           counterparties.customerGroup/creditLimit; vat_settings.isVatPayer;
+           ar_ap_documents / cash_documents .sourceType ("pos") + sourceId;
+           cost_entries.trueUpOfEntryId, valuationSource "provisional_avg",
+           entryType "cogs_true_up" (ТЭМДЭГТЭЙ дүн)
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results
@@ -1367,6 +1471,7 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 |--------|-----------|
 | **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
 | **Хангамж / PO (ЗААВАЛ)** | `docs/procurement/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.6, норматив §11 FR-PROC-006…012 |
+| **POS (ЗААВАЛ)** | `docs/pos/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.8 |
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |

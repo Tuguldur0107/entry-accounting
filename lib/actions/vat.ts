@@ -10,7 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { getActiveOrg, requireModuleAction, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   cashAccounts,
@@ -19,6 +19,7 @@ import {
   journalVouchers,
   segmentConfigs,
   segmentValues,
+  vatSettings,
 } from "@/lib/db/schema";
 import { createVoucher } from "@/lib/actions/gl";
 import { unwrapAction } from "@/lib/action-result";
@@ -88,6 +89,8 @@ export type VatReturnData = {
     inputVatAccountNumber: string;
     vatRatePercent: number;
   };
+  /** Байгууллага НӨАТ төлөгч эсэх (docs/pos §3.8) — унтраавал POS-д НӨАТ мөр үүсэхгүй. */
+  isVatPayer: boolean;
   /** Энэ сарын тооцооны журнал аль хэдийн үүссэн бол. */
   settlement: { id: string; status: string; date: string } | null;
   /** Тооцооны төлбөрийн мөрөнд сонгох банкны данс. */
@@ -191,11 +194,30 @@ export async function getVatReturnData(
       inputVatAccountNumber: settings.inputVatAccountNumber,
       vatRatePercent: Number(settings.vatRatePercent),
     },
+    isVatPayer: settings.isVatPayer,
     settlement: settlementVoucher ?? null,
     cashAccounts: accounts,
     yearSales,
     registrationThreshold: VAT_REGISTRATION_THRESHOLD_MNT,
   };
+}
+
+/**
+ * НӨАТ төлөгч эсэх туг (docs/pos §3.8, D4). Тохиргооны мөр байхгүй бол
+ * loadVatSettings default-аар үүсгээд дараа нь шинэчилнэ (upsert).
+ * Унтраавал POS борлуулалтад НӨАТ мөр үүсэхгүй — татварын тохиргооны
+ * шийдвэр тул `tax` модулийн post эрх шаардана.
+ */
+export async function updateVatPayerFlag(isVatPayer: boolean): Promise<void> {
+  const { orgId, userId } = await requireModuleAction("tax", "post");
+  const settings = await loadVatSettings(orgId, userId);
+  await db
+    .update(vatSettings)
+    .set({ isVatPayer: Boolean(isVatPayer), updatedAt: new Date() })
+    .where(and(eq(vatSettings.id, settings.id), eq(vatSettings.organizationId, orgId)));
+  revalidatePath("/vat");
+  revalidatePath("/tax/vat");
+  revalidatePath("/pos");
 }
 
 /**

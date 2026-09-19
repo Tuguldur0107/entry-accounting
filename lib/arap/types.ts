@@ -14,6 +14,10 @@ export type CounterpartyView = {
   contactPerson: string | null;
   bankName: string | null;
   bankAccountNo: string | null;
+  /** POS хөнгөлөлтийн бүлэг (VIP, ажилтан…) — null = бүлэггүй. */
+  customerGroup: string | null;
+  /** Зээлээр борлуулах дээд хязгаар (MNT) — null = хязгааргүй. */
+  creditLimit: number | null;
   isActive: boolean;
 };
 

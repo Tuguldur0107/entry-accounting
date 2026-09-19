@@ -30,6 +30,7 @@ export const ENTITY_MODULE_KEYS: Record<string, string[]> = {
   purchase_order: ["proc"],
   goods_receipt: ["proc"],
   payroll: ["payroll"],
+  pos_sale: ["pos"],
 };
 
 /** Панельгүй (эсвэл панель нээгдэхгүй) үед очих жагсаалтын зам. */
@@ -44,6 +45,7 @@ export const ENTITY_HREF: Record<string, string> = {
   purchase_order: "/procurement/orders",
   goods_receipt: "/procurement/receipts",
   payroll: "/payroll",
+  pos_sale: "/inventory/sales",
   period: "/settings/periods",
   membership: "/settings/permissions",
 };

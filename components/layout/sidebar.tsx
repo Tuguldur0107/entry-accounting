@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { getActiveModule } from "./modules";
 import { ModuleSwitcher } from "./module-switcher";
+import { isNavItemHidden, useDisabledModuleIds } from "./nav-visibility";
 import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
@@ -76,6 +77,7 @@ function SidebarLink({
 
 export function Sidebar() {
   const pathname = usePathname();
+  const disabledModuleIds = useDisabledModuleIds();
   const active = getActiveModule(pathname);
   const mobile = useMobile();
   const collapsed = useSidebarStore((s) => s.collapsed);
@@ -149,7 +151,9 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-1 px-2">
-        {active.items.map((item) => (
+        {active.items
+          .filter((item) => !isNavItemHidden(disabledModuleIds, item.configKey))
+          .map((item) => (
           <SidebarLink
             key={item.href}
             href={item.href}

@@ -140,6 +140,32 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
+import {
+  closeShift,
+  createPosSale,
+  getPosSaleDetail,
+  openShift,
+  quotePosSale,
+  returnPosSale,
+  type SaleLineInput,
+  type SaleQuoteInput,
+} from "@/lib/actions/pos";
+import {
+  ensurePosSettings,
+  loadPaymentMethodViews,
+  loadSaleViews,
+  loadShiftViews,
+} from "@/lib/pos/load-data";
+import { PAYMENT_KIND_LABELS, SALE_STATUS_LABELS } from "@/lib/pos/constants";
+import {
+  aggregateBy,
+  aggregatePayments,
+  COGS_BASIS_LABELS,
+  loadSalesReport,
+  summarize,
+  type AggRow,
+} from "@/lib/pos/reports";
+import type { PaymentInput } from "@/lib/pos/types";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -147,6 +173,7 @@ import {
   arApSettlements,
   auditEvents,
   cashAccounts,
+  posSales,
   cashFxRevaluations,
   cashDocuments,
   chartOfAccounts,
@@ -654,18 +681,24 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "create_inventory_item",
-    description: "Шинэ бараа бүртгэнэ (код нь давхардахгүй байх ёстой).",
+    description:
+      "Шинэ бараа бүртгэнэ (код нь давхардахгүй байх ёстой). POS-ийн талбарууд сонголтоор: борлуулах үнэ, доод үнэ, баркод, НӨАТ-ийн горим, бүлэг, орлогын данс.",
     inputSchema: {
       type: "object",
       properties: {
         code: { type: "string", description: "Барааны код (жишээ нь ITEM-010)" },
         name: { type: "string", description: "Барааны нэр" },
         unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
-        salesPrice: {
-          type: "number",
-          description:
-            "Борлуулах үнэ (MNT, нэгжид, сонголтоор) — АР нэхэмжлэхэд нэгж үнэ автоматаар бөглөгдөнө",
+        salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
+        minSalesPrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
+        barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
+        vatMode: {
+          type: "string",
+          enum: ["standard", "exempt", "zero"],
+          description: "НӨАТ-ийн горим: standard (10%) / exempt (чөлөөлөгдсөн) / zero (0%) — сонголтоор, default standard",
         },
+        categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
+        revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
       },
       required: ["code", "name"],
     },
@@ -774,19 +807,24 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "update_inventory_item",
     description:
-      "Барааны нэр, нэгж, борлуулах үнэ, идэвхийг засна (кодоор нь олно).",
+      "Барааны нэр, нэгж, идэвх болон POS-ийн талбаруудыг (борлуулах үнэ, доод үнэ, баркод, НӨАТ-ийн горим, бүлэг, орлогын данс) засна — кодоор нь олно. Зөвхөн өгсөн талбарууд өөрчлөгдөнө; үнэ өөрчлөгдвөл үнийн түүхэнд бичигдэнэ.",
     inputSchema: {
       type: "object",
       properties: {
         itemCode: { type: "string", description: "Барааны код" },
         name: { type: "string", description: "Шинэ нэр (сонголтоор)" },
         unit: { type: "string", description: "Шинэ нэгж (сонголтоор)" },
-        salesPrice: {
-          type: "number",
-          description:
-            "Шинэ борлуулах үнэ MNT (сонголтоор; 0 өгвөл үнийг арилгана)",
-        },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
+        salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор; null өгвөл арилгана" },
+        minSalesPrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
+        barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
+        vatMode: {
+          type: "string",
+          enum: ["standard", "exempt", "zero"],
+          description: "НӨАТ-ийн горим: standard (10%) / exempt (чөлөөлөгдсөн) / zero (0%) — сонголтоор, default standard",
+        },
+        categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
+        revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
       },
       required: ["itemCode"],
     },
@@ -1460,9 +1498,10 @@ export const AI_TOOLS: AiToolDef[] = [
             "fix_discrepancy",
             "new_company_setup",
             "fixed_asset_lifecycle",
+            "pos_sale",
           ],
           description:
-            "purchase_inventory=бараатай худалдан авалт (PO-гүй жижиг), purchase_order=захиалгатай худалдан авалт (импорт, нэмэлт зардал, PO хаалт), sale=борлуулалт, payment=нэхэмжлэх төлөх, month_end_close=сар хаалт, fix_discrepancy=зөрүү засах, new_company_setup=шинэ компанийн тохиргоо, fixed_asset_lifecycle=ҮХ-ийн амьдралын мөчлөг",
+            "purchase_inventory=бараатай худалдан авалт (PO-гүй жижиг), purchase_order=захиалгатай худалдан авалт (импорт, нэмэлт зардал, PO хаалт), sale=B2B борлуулалт (АР нэхэмжлэх), pos_sale=жижиглэн худалдаа (POS: ээлж → борлуулалт → буцаалт → ээлж хаалт), payment=нэхэмжлэх төлөх, month_end_close=сар хаалт, fix_discrepancy=зөрүү засах, new_company_setup=шинэ компанийн тохиргоо, fixed_asset_lifecycle=ҮХ-ийн амьдралын мөчлөг",
         },
       },
       required: ["workflow"],
@@ -1556,13 +1595,24 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         items: {
           type: "array",
-          description: "create_inventory_item-ийн input-уудын жагсаалт",
+          description:
+            "create_inventory_item-ийн input-уудын жагсаалт (POS талбарууд: salesPrice, minSalesPrice, barcode, vatMode, categoryCode, revenueAccountNumber сонголтоор)",
           items: {
             type: "object",
             properties: {
               code: { type: "string" },
               name: { type: "string" },
               unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
+              salesPrice: { type: "number", description: "Борлуулах үнэ ₮ (сонголтоор)" },
+              minSalesPrice: { type: "number", description: "Доод үнэ ₮ (сонголтоор)" },
+              barcode: { type: "string", description: "Баркод (сонголтоор)" },
+              vatMode: {
+                type: "string",
+                enum: ["standard", "exempt", "zero"],
+                description: "НӨАТ-ийн горим (сонголтоор, default standard)",
+              },
+              categoryCode: { type: "string", description: "Бүлгийн код (сонголтоор)" },
+              revenueAccountNumber: { type: "string", description: "Орлогын данс, 8 оронтой (сонголтоор)" },
             },
             required: ["code", "name"],
           },
@@ -2506,6 +2556,163 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["purchaseOrderId"],
+    },
+  },
+  // ── POS (Борлуулалтын цэг) — docs/pos/00-proposal.md §3.3, §3.10 ────────────
+  {
+    name: "get_pos_status",
+    description:
+      "POS-ийн одоогийн байдал: нээлттэй ээлжүүд (касс, агуулах, дугаар), идэвхтэй төлбөрийн хэлбэрүүд (код, төрөл), НӨАТ төлөгч эсэх, тохиргооны товч. Борлуулалт бүртгэхийн ӨМНӨ үүнийг уншиж ээлж нээлттэй эсэх, төлбөрийн хэлбэрийн кодыг мэднэ.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "open_pos_shift",
+    description:
+      "Кассын ЭЭЛЖ нээнэ (POS борлуулалт нээлттэй ээлжгүйгээр бүртгэгдэхгүй). GL бичилт үүсгэхгүй тул аль ч горимд. Нэг кассанд нэг л нээлттэй ээлж.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cashAccount: { type: "string", description: "Кассын дансны нэр (MNT бэлэн мөнгөний данс)" },
+        warehouseCode: { type: "string", description: "Агуулахын код (дэлгүүр)" },
+        openingFloat: { type: "number", description: "Эхний мөнгө ₮ (default 0)" },
+        fxRates: {
+          type: "object",
+          description: "Валютын бэлэн төлбөрт хэрэглэх ханш { USD: 3450 } (сонголтоор)",
+        },
+        note: { type: "string", description: "Тайлбар" },
+      },
+      required: ["cashAccount", "warehouseCode"],
+    },
+  },
+  {
+    name: "close_pos_shift",
+    description:
+      "Кассын ЭЭЛЖ хаана — тоолсон бэлэн мөнгийг системийнхтэй (эхний мөнгө + бэлэн орлого − бэлэн буцаалт) тулгаж зөрүүг кассын илүүдэл/дутагдлын дансанд бичнэ (Z-тайлан). Зөрүү GL-д бичигдэх тул ЗӨВХӨН 'Шууд бичих' горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        shift: { type: "string", description: "Ээлжийн дугаар (SH-…) эсвэл ID; хоосон бол цорын ганц нээлттэй ээлж" },
+        countedCash: { type: "number", description: "Тоолсон бэлэн мөнгө ₮" },
+        note: { type: "string", description: "Тайлбар" },
+      },
+      required: ["countedCash"],
+    },
+  },
+  {
+    name: "create_pos_sale",
+    description:
+      "POS БОРЛУУЛАЛТ бүртгэнэ — НЭГ транзакцад: АР нэхэмжлэх (posted) + төлбөр бүрд кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS (явцын дундаж; сар хаалтад залруулагдана). Хөнгөлөлтийн дүрмүүд автоматаар хэрэглэгдэнэ; НӨАТ төлөгч бол үнэ НӨАТ ОРСОН гэж задарна. Бодит мөнгөн үйлдэл тул ноорог байхгүй — ЗӨВХӨН 'Шууд бичих' горимд, ≤10 сая ₮. Нээлттэй ээлж шаардлагатай (get_pos_status). Харилцагч өгөхгүй бол 'Бэлэн худалдан авагч'. Зээлээр (credit) төлбөрт харилцагч ЗААВАЛ. Хасах үлдэгдэлтэй болсон бараа хариултад анхааруулга болж ирнэ (D9).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lines: {
+          type: "array",
+          description: "Борлуулсан бараанууд",
+          items: {
+            type: "object",
+            properties: {
+              itemCode: { type: "string", description: "Барааны код (эсвэл баркод)" },
+              quantity: { type: "number", description: "Тоо (0-ээс их)" },
+              unitPrice: { type: "number", description: "Нэгж үнэ — өгөхгүй бол барааны борлуулах үнэ; өөрчилбөл менежерийн эрх (pos post)" },
+              discountPercent: { type: "number", description: "Гар хөнгөлөлт % (сонголтоор)" },
+              discountAmount: { type: "number", description: "Гар хөнгөлөлт ₮ (сонголтоор)" },
+            },
+            required: ["itemCode", "quantity"],
+          },
+        },
+        payments: {
+          type: "array",
+          description: "Төлбөрүүд — Σ ≥ төлөх дүн (илүү бэлэн = хариулт)",
+          items: {
+            type: "object",
+            properties: {
+              method: { type: "string", description: "Төлбөрийн хэлбэрийн код эсвэл нэр (get_pos_status-оос: CASH, CARD, CREDIT …)" },
+              amount: { type: "number", description: "Дүн (хэлбэрийн валютаар)" },
+              reference: { type: "string", description: "Слип/гүйлгээний дугаар (карт, шилжүүлэгт)" },
+              giftCardCode: { type: "string", description: "Бэлгийн картын код (gift_card хэлбэрт)" },
+            },
+            required: ["method", "amount"],
+          },
+        },
+        customer: { type: "string", description: "Харилцагчийн нэр (хоосон бол бэлэн худалдан авагч)" },
+        warehouseCode: { type: "string", description: "Агуулах (хоосон бол ээлжийнх)" },
+        couponCodes: { type: "array", items: { type: "string" }, description: "Купоны кодууд" },
+        receiptDiscountPercent: { type: "number", description: "Баримтын түвшний гар хөнгөлөлт %" },
+        receiptDiscountAmount: { type: "number", description: "Баримтын түвшний гар хөнгөлөлт ₮" },
+        note: { type: "string", description: "Тайлбар" },
+        ebarimtId: { type: "string", description: "eBarimt ДДТД (ТЕГ-ийн апп-аар олгосон бол)" },
+      },
+      required: ["lines", "payments"],
+    },
+  },
+  {
+    name: "return_pos_sale",
+    description:
+      "POS борлуулалтын БУЦААЛТ — АР кредит (Dr орлого, Dr НӨАТ / Cr авлага), return_in хөдөлгөөн, урьдчилсан COGS урвуу, буцаан олголт (бэлэн/карт эсвэл дэлгүүрийн кредит). Өнөөдрийн огноогоор, нээлттэй ээлж дотор. ЗӨВХӨН 'Шууд бичих' горимд, ≤10 сая ₮.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sale: { type: "string", description: "Борлуулалтын дугаар (POS-…) эсвэл ID (бүтэн/6+ тэмдэгт)" },
+        lines: {
+          type: "array",
+          description: "Буцаах мөрүүд (хоосон бол БҮХ үлдсэн мөр бүтнээр)",
+          items: {
+            type: "object",
+            properties: {
+              itemCode: { type: "string", description: "Барааны код" },
+              quantity: { type: "number", description: "Буцаах тоо" },
+            },
+            required: ["itemCode", "quantity"],
+          },
+        },
+        reason: { type: "string", description: "Буцаалтын шалтгаан (заавал)" },
+        refundMethod: { type: "string", description: "Буцаан олгох хэлбэрийн код/нэр (хоосон бол эх борлуулалтын бэлэн хэлбэр)" },
+        storeCredit: { type: "boolean", description: "true бол мөнгө буцаахгүй, дэлгүүрийн кредит олгоно (бүртгэлтэй харилцагчид)" },
+      },
+      required: ["sale", "reason"],
+    },
+  },
+  {
+    name: "list_pos_sales",
+    description: "POS борлуулалт/буцаалтын жагсаалт — огноо, төлөв, харилцагчаар шүүнэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        status: { type: "string", enum: ["posted", "partially_returned", "returned", "voided"] },
+        customer: { type: "string", description: "Харилцагчийн нэр" },
+        limit: { type: "integer", description: "Дээд тал нь (default 30, max 100)" },
+      },
+    },
+  },
+  {
+    name: "get_pos_sale",
+    description: "Нэг POS борлуулалтын дэлгэрэнгүй: мөрүүд (хөнгөлөлтийн задаргаа, НӨАТ, урьдчилсан COGS), төлбөрүүд, буцаалтууд, холбоотой АР/касс/журнал.",
+    inputSchema: {
+      type: "object",
+      properties: { sale: { type: "string", description: "Дугаар (POS-…/RET-…) эсвэл ID (бүтэн/6+ тэмдэгт)" } },
+      required: ["sale"],
+    },
+  },
+  {
+    name: "get_pos_sales_report",
+    description:
+      "Борлуулалтын дэлгэрэнгүй тайлан (docs/pos §5): хураангуй, бараагаар, өдрөөр, кассчинаар, төлбөрийн хэлбэрээр, харилцагчаар, хөнгөлөлтийн дүрмээр. COGS/ахиуц нь cost_period_results-ээс — сар хаагдаагүй бол 'урьдчилсан'/'тооцоолсон' гэж ил тэмдэглэгдэнэ (GL-ээс тооцохгүй).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        groupBy: {
+          type: "string",
+          enum: ["summary", "item", "day", "cashier", "method", "customer", "rule"],
+          description: "Нэгтгэлийн түвшин (default summary)",
+        },
+        warehouseCode: { type: "string" },
+        limit: { type: "integer", description: "Мөрийн дээд тоо (default 30)" },
+      },
+      required: ["from", "to"],
     },
   },
 ];
@@ -3960,17 +4167,60 @@ async function runCreateCounterparty(
   };
 }
 
+/** POS талбарууд — model-ийн input (сонголтоор, өгсөн нь л дамжина). */
+type ItemPosInput = {
+  salesPrice?: number;
+  minSalesPrice?: number;
+  barcode?: string;
+  vatMode?: "standard" | "exempt" | "zero";
+  categoryCode?: string;
+  revenueAccountNumber?: string;
+};
+
+/** Зөвхөн ӨГӨГДСӨН POS талбарыг дамжуулна — өгөөгүй нь хөндөгдөхгүй (update-д чухал). */
+function itemPosFieldsOf(input: ItemPosInput) {
+  const fields: {
+    salesPrice?: number;
+    minSalesPrice?: number;
+    barcode?: string | null;
+    vatMode?: "standard" | "exempt" | "zero";
+    categoryCode?: string | null;
+    revenueAccountNumber?: string | null;
+  } = {};
+  if (input.salesPrice != null) fields.salesPrice = Number(input.salesPrice);
+  if (input.minSalesPrice != null) fields.minSalesPrice = Number(input.minSalesPrice);
+  if (input.barcode != null) fields.barcode = input.barcode.trim() || null;
+  if (input.vatMode != null) {
+    if (!["standard", "exempt", "zero"].includes(input.vatMode))
+      throw new Error("vatMode нь standard / exempt / zero байна");
+    fields.vatMode = input.vatMode;
+  }
+  if (input.categoryCode != null) fields.categoryCode = input.categoryCode.trim() || null;
+  if (input.revenueAccountNumber != null)
+    fields.revenueAccountNumber = input.revenueAccountNumber.trim() || null;
+  return fields;
+}
+
 async function runCreateItem(
   _orgId: string,
-  input: { code: string; name: string; unit?: string; salesPrice?: number }
+  input: { code: string; name: string; unit?: string } & ItemPosInput
 ): Promise<AiToolResult> {
+  const pos = itemPosFieldsOf(input);
   await createInventoryItem({
     code: input.code,
     name: input.name,
     unit: input.unit ?? "ш",
-    salesPrice: input.salesPrice ?? null,
+    ...pos,
   });
-  return { resultText: `Бараа бүртгэгдлээ: ${input.code} — ${input.name}` };
+  const extras = [
+    pos.salesPrice != null ? `үнэ ${pos.salesPrice.toLocaleString()}₮` : null,
+    pos.barcode ? `баркод ${pos.barcode}` : null,
+    pos.vatMode && pos.vatMode !== "standard" ? `НӨАТ ${pos.vatMode}` : null,
+    pos.categoryCode ? `бүлэг ${pos.categoryCode}` : null,
+  ].filter(Boolean);
+  return {
+    resultText: `Бараа бүртгэгдлээ: ${input.code} — ${input.name}${extras.length ? ` (${extras.join(", ")})` : ""}`,
+  };
 }
 
 async function runCreateWarehouse(
@@ -4105,13 +4355,7 @@ async function runDeleteItem(
 
 async function runUpdateItem(
   orgId: string,
-  input: {
-    itemCode: string;
-    name?: string;
-    unit?: string;
-    salesPrice?: number;
-    isActive?: boolean;
-  }
+  input: { itemCode: string; name?: string; unit?: string; isActive?: boolean } & ItemPosInput
 ): Promise<AiToolResult> {
   const items = await db.query.inventoryItems.findMany({
     where: eq(inventoryItems.organizationId, orgId),
@@ -4122,17 +4366,22 @@ async function runUpdateItem(
     "бараа",
     input.itemCode
   );
-  if (input.name != null || input.unit != null || input.salesPrice != null)
+  const pos = itemPosFieldsOf(input);
+  const changed = Object.keys(pos);
+  if (input.name != null) changed.push("name");
+  if (input.unit != null) changed.push("unit");
+  if (changed.length > 0)
     await updateInventoryItem(item.id, {
       name: input.name ?? item.name,
       unit: input.unit ?? item.unit,
-      // 0 = үнийг арилгана; өгөөгүй бол хөндөхгүй.
-      ...(input.salesPrice != null
-        ? { salesPrice: input.salesPrice > 0 ? input.salesPrice : null }
-        : {}),
+      ...pos,
     });
-  if (input.isActive != null) await toggleInventoryItem(item.id, input.isActive);
-  return { resultText: `Бараа шинэчлэгдлээ: ${item.code}` };
+  if (input.isActive != null) {
+    await toggleInventoryItem(item.id, input.isActive);
+    changed.push("isActive");
+  }
+  if (changed.length === 0) throw new Error("Өөрчлөх талбар өгөгдөөгүй байна");
+  return { resultText: `Бараа шинэчлэгдлээ: ${item.code} (${changed.join(", ")})` };
 }
 
 async function runUpdateMovement(
@@ -5776,6 +6025,14 @@ async function runClosePeriod(
       throw new Error(
         `${input.code} сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байгаа тул хаагдахгүй — list_purchase_orders openOnly=true-гээр олж, get_purchase_order-оор дутуугаа нөхөөд close_purchase_order-оор хаана`
       );
+    if (result.code === "open-pos-shifts")
+      throw new Error(
+        `${input.code} сард нээлттэй кассын ээлж байгаа тул хаагдахгүй — get_pos_status-оор олж close_pos_shift-ээр хаана`
+      );
+    if (result.code === "unvalued-movements")
+      throw new Error(
+        `${input.code} сарын өртгийн тооцоололд ороогүй буюу зогссон (хасах үлдэгдэл, өртөггүй орлого) бараа хөдөлгөөн байгаа тул хаагдахгүй — run_monthly_costing ажиллуулж, блоклогдсон барааг орлого/тооллогоор засаад дахин тооц`
+      );
     if (result.code === "previous-open")
       throw new Error(
         `${input.code}-ийн өмнөх тайлант үе нээлттэй тул хаагдахгүй — тайлант үеийг дарааллаар нь (өмнөх сараас эхлэн) хаана`
@@ -5910,7 +6167,7 @@ async function runMonthEndChecklist(input: {
         : status === "pending"
           ? "○ хийгдээгүй"
           : "— хамааралгүй";
-  const { fa, fx, costing, vat, procurement, drafts } = checklist;
+  const { fa, fx, costing, vat, procurement, pos, drafts } = checklist;
   const fxDetail = fx.accounts
     .map(
       (account) =>
@@ -5938,8 +6195,9 @@ async function runMonthEndChecklist(input: {
       `4. Цалин: ${statusLabel(checklist.payroll.status)} — идэвхтэй ажилтан ${checklist.payroll.activeEmployees}, бодолтын мөр ${checklist.payroll.lineCount}, GL журнал: ${checklist.payroll.voucherStatus === "none" ? "үүсээгүй" : checklist.payroll.voucherStatus}`,
       `5. НӨАТ: ${statusLabel(vat.status)} — гаралт ${fmt(vat.outputVat)}₮, оролт ${fmt(vat.inputVat)}₮, ${vat.payableVat > 0 ? `төлөх ${fmt(vat.payableVat)}₮ (${vat.deadline} дотор)` : `шилжүүлэх ${fmt(vat.refundableVat)}₮`}, тооцоо: ${vat.settlementStatus === "none" ? "үүсээгүй" : vat.settlementStatus}`,
       `6. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
-      `7. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
-      `8. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
+      `7. POS / бараа: ${statusLabel(pos.status)} — нээлттэй ээлж ${pos.openShifts}${pos.openShifts > 0 ? " (close_pos_shift — хаагдтал сар ХААГДАХГҮЙ)" : ""}, сарын өртгийн тооцоололд ороогүй/зогссон хөдөлгөөн ${pos.unvaluedMovements}${pos.unvaluedMovements > 0 ? " (run_monthly_costing; хасах үлдэгдлийг орлого/тооллогоор засах — засагдтал сар ХААГДАХГҮЙ)" : ""}, хасах үлдэгдэлтэй бараа×агуулах ${pos.negativeStockScopes}, урьдчилсан COGS ${fmt(pos.provisionalCogs)}₮ (сар хаалтад залруулагдана)`,
+      `8. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
+      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
     ].join("\n"),
   };
 }
@@ -6367,6 +6625,16 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 4. Төлбөр ирэхэд: pay_arap_document (орлогын кассын баримт үүснэ)
 5. Сар хаалтад: run_monthly_costing → post_cost_entries — COGS бичигдэнэ
 НӨАТ-тай бол: авлага = нийт, орлого = нийт/1.1, НӨАТ өглөг 31410000 = нийт×10/110 гэж мөр хуваана.`,
+  pos_sale: `ЖИЖИГЛЭН ХУДАЛДАА (POS — docs/pos) — зөв дараалал:
+0. Бараанд борлуулах үнэ (salesPrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch
+1. get_pos_status — нээлттэй ээлж, төлбөрийн хэлбэрийн кодууд (CASH, CARD, CREDIT …), НӨАТ төлөгч эсэх
+2. open_pos_shift {cashAccount, warehouseCode, openingFloat} — ээлж байхгүй бол (GL бичилтгүй)
+3. create_pos_sale {lines:[{itemCode, quantity}], payments:[{method:"CASH", amount}]} — НЭГ транзакцад: АР нэхэмжлэх posted + кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS. Хөнгөлөлтийн дүрэм автомат; купон couponCodes-оор; харилцагч өгвөл бүлгийн хөнгөлөлт/зээл. Зөвхөн 'Шууд бичих' горим, ≤10 сая ₮
+4. Буцаалт: return_pos_sale {sale, lines?, reason, refundMethod?|storeCredit}
+5. Ээлжийн төгсгөлд close_pos_shift {countedCash} — зөрүү кассын илүүдэл/дутагдалд
+6. get_pos_sales_report {from, to, groupBy} — борлуулалт, ахиуц (COGS сар хаагдаагүй бол 'урьдчилсан')
+Сар хаалт: нээлттэй ээлж (open-pos-shifts) эсвэл сарын өртгийн тооцоололд ороогүй/хасах үлдэгдэлтэй бараа (unvalued-movements) байвал close_period ХОРИГЛОГДОНО — run_monthly_costing нь урьдчилсан COGS-ийг сарын дунджаар залруулна (cogs_true_up ноорог → post_cost_entries).
+POS-оос үүссэн АР/касс/хөдөлгөөн/өртгийн бичилтийг тус тусад нь буцаах ХОРИОТОЙ ([POS_SOURCED]) — зөвхөн return_pos_sale.`,
   payment: `НЭХЭМЖЛЭХ ТӨЛӨХ/ХААХ:
 1. list_arap_documents status=posted (эсвэл partially_paid) — үлдэгдэлтэй баримтаа олох
 2. list_cash_accounts — аль данснаас/данс руу
@@ -6381,6 +6649,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 6. get_trial_balance — эцсийн шалгалт (ΣДт=ΣКт)
 7. close_period {code} — хаах
 Хангамж: тухайн сард баталгаажсан хүлээн авалттай НЭЭЛТТЭЙ захиалга (PO) байвал close_period хоригдоно — get_month_end_checklist-ээс шалгаж, get_purchase_order-ийн дутуугаа нөхөөд close_purchase_order-оор хаана.
+POS: нээлттэй ээлж (open-pos-shifts), сарын өртгийн тооцоололд ороогүй буюу хасах үлдэгдэлтэй бараа (unvalued-movements) байвал мөн ХОРИГЛОГДОНО — close_pos_shift, орлого/тооллого, run_monthly_costing (урьдчилсан COGS залруулга) → post_cost_entries.
 Алхам бүрийн үр дүнг хэрэглэгчид тайлагнаж, дараагийнхыг эхлэхийн өмнө бататгана.`,
   fix_discrepancy: `ЗӨРҮҮ ЗАСАХ — оношилгооны дараалал:
 1. reconcile_modules — аль модульд, ямар дансанд, хэдээр зөрж байгааг тогтоох
@@ -8529,6 +8798,399 @@ async function runMarkNotificationsRead(input: {
  * монгол текстээр буцаана (модель засаад дахин оролдох эсвэл хэрэглэгчээс
  * тодруулах боломжтой).
  */
+// ── POS гүйцэтгэгчид (docs/pos/00-proposal.md) — бүгд lib/actions/pos.ts-ийн
+// server action-уудыг дуудна (шалгалт нэг газар); борлуулалт/буцаалт/ээлж
+// хаалт нь GL-д шууд бичигддэг тул post горим + ≤10M.
+
+async function findPosSale(orgId: string, idOrNo: string) {
+  const query = idOrNo.trim();
+  if (!query) throw codedError("SALE_NOT_FOUND", "Борлуулалтын дугаар эсвэл ID өгнө үү");
+  const rows = await db.query.posSales.findMany({
+    where: eq(posSales.organizationId, orgId),
+    columns: { id: true, documentNo: true, isReturn: true, status: true, total: true, date: true },
+    orderBy: [desc(posSales.soldAt)],
+    limit: 1000,
+  });
+  const lower = query.toLowerCase();
+  const byNo = rows.filter((row) => row.documentNo.toLowerCase() === lower);
+  if (byNo.length === 1) return byNo[0];
+  if (query.length >= 6) {
+    const byId = rows.filter((row) => row.id.startsWith(lower));
+    if (byId.length === 1) return byId[0];
+    if (byId.length > 1)
+      throw codedError("SALE_AMBIGUOUS", `"${query}" угтвартай ${byId.length} борлуулалт таарлаа — бүтэн ID өгнө үү`);
+  }
+  throw codedError("SALE_NOT_FOUND", `"${query}" борлуулалт олдсонгүй (сүүлийн 1000 баримтаас хайв) — list_pos_sales-ээр шалгана уу`);
+}
+
+async function posShiftFor(orgId: string, warehouseCode?: string, shiftRef?: string) {
+  const shifts = await loadShiftViews(orgId, { openOnly: true });
+  if (shifts.length === 0)
+    throw codedError("NO_OPEN_SHIFT", "Нээлттэй кассын ээлж алга — эхлээд open_pos_shift-ээр ээлж нээнэ үү");
+  if (shiftRef?.trim()) {
+    const query = shiftRef.trim().toLowerCase();
+    const hit = shifts.find((shift) => shift.documentNo.toLowerCase() === query || shift.id.startsWith(query));
+    if (!hit) throw codedError("SHIFT_NOT_FOUND", `"${shiftRef}" нээлттэй ээлж олдсонгүй`);
+    return hit;
+  }
+  if (warehouseCode?.trim()) {
+    const warehouse = await db.query.warehouses.findFirst({
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.code, warehouseCode.trim())),
+      columns: { id: true },
+    });
+    const hit = warehouse ? shifts.find((shift) => shift.warehouseId === warehouse.id) : undefined;
+    if (hit) return hit;
+  }
+  if (shifts.length === 1) return shifts[0];
+  throw codedError(
+    "SHIFT_AMBIGUOUS",
+    `${shifts.length} нээлттэй ээлж байна: ${shifts.map((shift) => `${shift.documentNo} (${shift.cashAccountName} · ${shift.warehouseName})`).join(", ")} — shift эсвэл warehouseCode-оор заана уу`
+  );
+}
+
+async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
+  const [settings, methods, shifts, vat] = await Promise.all([
+    ensurePosSettings(orgId),
+    loadPaymentMethodViews(orgId),
+    loadShiftViews(orgId, { openOnly: true }),
+    loadVatSettings(orgId),
+  ]);
+  const lines = [
+    `НӨАТ төлөгч: ${vat.isVatPayer ? "тийм (үнэ НӨАТ орсон)" : "үгүй (НӨАТ мөр үүсэхгүй)"}`,
+    `Урьдчилсан COGS: ${settings.provisionalCogs ? "асаалттай" : "унтраалттай"} · Хасах үлдэгдэл: ${settings.allowNegativeStock ? "зөвшөөрнө (мэдэгдэлтэй)" : "хориглоно"} · Хөнгөлөлт: гар max ${Number(settings.maxManualDiscountPercent)}%, нийт max ${Number(settings.maxTotalDiscountPercent)}%, ${settings.discountStacking} · Бөөрөнхийлөл ${settings.cashRoundingUnit}₮`,
+    `Нээлттэй ээлж (${shifts.length}): ${
+      shifts.length
+        ? shifts.map((shift) => `${shift.documentNo} · ${shift.cashAccountName} · ${shift.warehouseName} · эхний ${fmt(shift.openingFloat)}₮ · борлуулалт ${shift.salesCount} (${fmt(shift.salesTotal)}₮)`).join("\n  ")
+        : "байхгүй — open_pos_shift"
+    }`,
+    `Төлбөрийн хэлбэр: ${methods
+      .filter((method) => method.isActive)
+      .map((method) => `${method.code} (${PAYMENT_KIND_LABELS[method.kind]}${method.cashAccountName ? ` → ${method.cashAccountName}` : ""}${method.currency !== "MNT" ? `, ${method.currency}` : ""}${method.requiresReference ? ", лавлах заавал" : ""})`)
+      .join(", ")}`,
+  ];
+  return { resultText: lines.join("\n") };
+}
+
+async function runOpenPosShift(
+  orgId: string,
+  input: { cashAccount: string; warehouseCode: string; openingFloat?: number; fxRates?: Record<string, number>; note?: string }
+): Promise<AiToolResult> {
+  const [accounts, warehouse] = await Promise.all([
+    db.query.cashAccounts.findMany({
+      where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
+      columns: { id: true, name: true, accountType: true, currency: true },
+    }),
+    db.query.warehouses.findFirst({
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.code, input.warehouseCode.trim()), eq(warehouses.isActive, true)),
+      columns: { id: true, name: true },
+    }),
+  ]);
+  if (!warehouse) throw codedError("WAREHOUSE_NOT_FOUND", `"${input.warehouseCode}" агуулах олдсонгүй`);
+  const account = requireSingle(
+    nameMatches(accounts, (entry) => entry.name, input.cashAccount),
+    (entry) => entry.name,
+    "кассын данс",
+    input.cashAccount,
+    { codePrefix: "CASH_ACCOUNT", allNames: accounts.map((entry) => entry.name) }
+  );
+  const result = unwrapAction(
+    await openShift({
+      cashAccountId: account.id,
+      warehouseId: warehouse.id,
+      openingFloat: Number(input.openingFloat ?? 0),
+      fxRates: input.fxRates,
+      note: input.note,
+    })
+  );
+  return {
+    resultText: `Ээлж нээгдлээ: ${result.documentNo} · ${account.name} · ${warehouse.name} · эхний мөнгө ${fmt(Number(input.openingFloat ?? 0))}₮`,
+  };
+}
+
+async function runClosePosShift(
+  orgId: string,
+  input: { shift?: string; countedCash: number; note?: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const shift = await posShiftFor(orgId, undefined, input.shift);
+  const expected = Math.round((shift.openingFloat + shift.cashReceipts - shift.cashRefunds) * 100) / 100;
+  assertPostLimit(Math.abs(Number(input.countedCash) - expected));
+  const result = unwrapAction(await closeShift(shift.id, { countedCash: Number(input.countedCash), note: input.note }));
+  return {
+    resultText: `Ээлж ${shift.documentNo} хаагдлаа. Систем ${fmt(result.systemCash)}₮, тоолсон ${fmt(Number(input.countedCash))}₮, зөрүү ${fmt(result.variance)}₮${
+      Math.abs(result.variance) >= 0.01 ? ` (${result.variance > 0 ? "илүүдэл" : "дутагдал"} — кассын баримт бичигдэв)` : ""
+    }. Борлуулалт ${shift.salesCount} (${fmt(shift.salesTotal)}₮), буцаалт ${fmt(shift.returnsTotal)}₮.`,
+  };
+}
+
+async function posItemByCode(orgId: string, code: string) {
+  const query = code.trim();
+  const item = await db.query.inventoryItems.findFirst({
+    where: and(
+      eq(inventoryItems.organizationId, orgId),
+      eq(inventoryItems.isActive, true),
+      or(eq(inventoryItems.code, query), eq(inventoryItems.barcode, query))
+    ),
+    columns: { id: true, code: true, name: true, salesPrice: true },
+  });
+  if (!item) throw codedError("ITEM_NOT_FOUND", `"${code}" кодтой/баркодтой идэвхтэй бараа олдсонгүй — list_inventory-оор шалгана уу`);
+  return item;
+}
+
+async function posMethodByRef(orgId: string, ref: string) {
+  const methods = (await loadPaymentMethodViews(orgId)).filter((method) => method.isActive);
+  const query = ref.trim().toLowerCase();
+  const byCode = methods.filter((method) => method.code.toLowerCase() === query);
+  if (byCode.length === 1) return byCode[0];
+  return requireSingle(nameMatches(methods, (entry) => entry.name, ref), (entry) => `${entry.code} ${entry.name}`, "төлбөрийн хэлбэр", ref, {
+    codePrefix: "PAYMENT_METHOD",
+    allNames: methods.map((entry) => `${entry.code} (${entry.name})`),
+  });
+}
+
+async function runCreatePosSale(
+  orgId: string,
+  input: {
+    lines: { itemCode: string; quantity: number; unitPrice?: number; discountPercent?: number; discountAmount?: number }[];
+    payments: { method: string; amount: number; reference?: string; giftCardCode?: string }[];
+    customer?: string;
+    warehouseCode?: string;
+    couponCodes?: string[];
+    receiptDiscountPercent?: number;
+    receiptDiscountAmount?: number;
+    note?: string;
+    ebarimtId?: string;
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  if (!Array.isArray(input.lines) || input.lines.length === 0) throw new Error("Борлуулах бараа өгнө үү");
+  const shift = await posShiftFor(orgId, input.warehouseCode);
+  let counterpartyId: string | null = null;
+  if (input.customer?.trim()) {
+    const cpList = await db.query.counterparties.findMany({
+      where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
+      columns: { id: true, name: true, counterpartyType: true },
+    });
+    const customer = requireSingle(
+      nameMatches(cpList.filter((cp) => cp.counterpartyType !== "supplier"), (entry) => entry.name, input.customer),
+      (entry) => entry.name,
+      "харилцагч",
+      input.customer,
+      { codePrefix: "COUNTERPARTY", allNames: cpList.map((entry) => entry.name) }
+    );
+    counterpartyId = customer.id;
+  }
+  const lines: SaleLineInput[] = [];
+  for (const line of input.lines) {
+    const item = await posItemByCode(orgId, line.itemCode);
+    lines.push({
+      itemId: item.id,
+      quantity: Number(line.quantity),
+      unitPrice: line.unitPrice == null ? null : Number(line.unitPrice),
+      manualDiscountPercent: line.discountPercent == null ? null : Number(line.discountPercent),
+      manualDiscountAmount: line.discountAmount == null ? null : Number(line.discountAmount),
+    });
+  }
+  const quoteInput: SaleQuoteInput = {
+    counterpartyId,
+    lines,
+    couponCodes: input.couponCodes ?? [],
+    receiptDiscountPercent: input.receiptDiscountPercent ?? null,
+    receiptDiscountAmount: input.receiptDiscountAmount ?? null,
+  };
+  const { quote } = unwrapAction(await quotePosSale(quoteInput));
+  assertPostLimit(quote.total);
+  const payments: PaymentInput[] = [];
+  for (const payment of input.payments ?? []) {
+    const method = await posMethodByRef(orgId, payment.method);
+    payments.push({
+      paymentMethodId: method.id,
+      amount: Number(payment.amount),
+      reference: payment.reference ?? null,
+      giftCardCode: payment.giftCardCode ?? null,
+    });
+  }
+  const warehouseId = input.warehouseCode?.trim()
+    ? (
+        await db.query.warehouses.findFirst({
+          where: and(eq(warehouses.organizationId, orgId), eq(warehouses.code, input.warehouseCode.trim())),
+          columns: { id: true },
+        })
+      )?.id ?? null
+    : null;
+  const result = unwrapAction(
+    await createPosSale({
+      ...quoteInput,
+      shiftId: shift.id,
+      warehouseId,
+      payments,
+      note: input.note ?? null,
+      ebarimtId: input.ebarimtId ?? null,
+    })
+  );
+  const receipt = result.receipt;
+  const text = [
+    `Борлуулалт ${receipt.documentNo} бүртгэгдлээ (${receipt.date}, ээлж ${shift.documentNo}).`,
+    ...receipt.lines.map((line) => `  ${line.name} × ${line.quantity} × ${fmt(line.unitPrice)}${line.discount ? ` − хөнг. ${fmt(line.discount)}` : ""} = ${fmt(line.total)}₮`),
+    `Нийт ${fmt(receipt.grossAmount)}₮ · хөнгөлөлт ${fmt(receipt.discountTotal)}₮ · цэвэр ${fmt(receipt.netAmount)}₮ · НӨАТ ${fmt(receipt.vatAmount)}₮${receipt.roundingAmount ? ` · бөөрөнхийлөл ${fmt(receipt.roundingAmount)}₮` : ""} · ТӨЛӨХ ${fmt(receipt.total)}₮`,
+    `Төлбөр: ${receipt.payments.map((payment) => `${payment.name} ${fmt(payment.baseAmount)}₮${payment.change ? ` (хариулт ${fmt(payment.change)}₮)` : ""}`).join(", ")}`,
+    quote.approvalReasons.length ? `Менежерийн зөвшөөрлөөр: ${quote.approvalReasons.join("; ")}` : "",
+    receipt.negativeStock.length
+      ? `⚠ Хасах үлдэгдэл: ${receipt.negativeStock.map((entry) => `${entry.itemName} (${entry.warehouseName}) ${entry.balanceAfter}`).join(", ")} — орлого/тооллого бүртгэтэл сар хаагдахгүй`
+      : "",
+    "GL: Dr Авлага / Cr Орлого (+НӨАТ); төлбөр бүрд Dr Касс|түр данс / Cr Авлага; урьдчилсан Dr COGS / Cr Бараа (сар хаалтад залруулагдана).",
+  ].filter(Boolean);
+  return {
+    resultText: text.join("\n"),
+    action: { kind: "pos_sale", id: result.id, title: `${receipt.documentNo} · ${fmt(receipt.total)}₮`, status: "posted" },
+  };
+}
+
+async function runReturnPosSale(
+  orgId: string,
+  input: { sale: string; lines?: { itemCode: string; quantity: number }[]; reason: string; refundMethod?: string; storeCredit?: boolean },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const found = await findPosSale(orgId, input.sale);
+  const { sale } = unwrapAction(await getPosSaleDetail(found.id));
+  const requested: { lineId: string; quantity: number }[] = [];
+  if (Array.isArray(input.lines) && input.lines.length > 0) {
+    for (const request of input.lines) {
+      const code = request.itemCode.trim().toLowerCase();
+      const line = sale.lines.find((entry) => entry.itemCode.toLowerCase() === code);
+      if (!line) throw codedError("LINE_NOT_FOUND", `${sale.documentNo}-д "${request.itemCode}" бараа алга`);
+      requested.push({ lineId: line.id, quantity: Number(request.quantity) });
+    }
+  } else
+    for (const line of sale.lines) {
+      const remaining = line.quantity - line.returnedQty;
+      if (remaining > 0) requested.push({ lineId: line.id, quantity: remaining });
+    }
+  if (requested.length === 0) throw new Error("Буцаах мөр алга — бүгд буцаагдсан байна");
+  const refundTotal = requested.reduce((sum, request) => {
+    const line = sale.lines.find((entry) => entry.id === request.lineId)!;
+    return sum + (line.lineTotal * request.quantity) / line.quantity;
+  }, 0);
+  assertPostLimit(refundTotal);
+  let refunds: PaymentInput[] = [];
+  if (!input.storeCredit) {
+    let method = input.refundMethod?.trim() ? await posMethodByRef(orgId, input.refundMethod) : null;
+    if (!method) {
+      const methods = (await loadPaymentMethodViews(orgId)).filter((entry) => entry.isActive && entry.allowsRefund);
+      const originalCash = sale.payments.find((payment) => payment.kind === "cash");
+      method = methods.find((entry) => entry.id === originalCash?.methodId) ?? methods.find((entry) => entry.kind === "cash") ?? null;
+    }
+    if (!method) throw codedError("REFUND_METHOD_REQUIRED", "Буцаан олгох хэлбэр олдсонгүй — refundMethod өгнө үү");
+    refunds = [{ paymentMethodId: method.id, amount: Math.round(refundTotal * 100) / 100 }];
+  }
+  const result = unwrapAction(
+    await returnPosSale({ saleId: sale.id, lines: requested, reason: input.reason, refunds, storeCredit: !!input.storeCredit })
+  );
+  return {
+    resultText: `Буцаалт ${result.documentNo} бүртгэгдлээ ← ${sale.documentNo}: ${fmt(result.refundTotal)}₮ ${input.storeCredit ? "дэлгүүрийн кредитээр" : "буцаан олгов"}. GL: Dr Орлого (+НӨАТ) / Cr Авлага; return_in хөдөлгөөн; урьдчилсан COGS урвуу.`,
+    action: { kind: "pos_sale", id: result.id, title: `${result.documentNo} · буцаалт ${fmt(result.refundTotal)}₮`, status: "posted" },
+  };
+}
+
+async function runListPosSales(
+  orgId: string,
+  input: { from?: string; to?: string; status?: string; customer?: string; limit?: number }
+): Promise<AiToolResult> {
+  const limit = Math.min(Math.max(Number(input.limit) || 30, 1), 100);
+  let counterpartyId: string | undefined;
+  if (input.customer?.trim()) {
+    const cpList = await db.query.counterparties.findMany({
+      where: eq(counterparties.organizationId, orgId),
+      columns: { id: true, name: true },
+    });
+    counterpartyId = requireSingle(nameMatches(cpList, (entry) => entry.name, input.customer), (entry) => entry.name, "харилцагч", input.customer, {
+      codePrefix: "COUNTERPARTY",
+      allNames: cpList.map((entry) => entry.name),
+    }).id;
+  }
+  const sales = await loadSaleViews(orgId, { from: input.from, to: input.to, status: input.status, counterpartyId, limit });
+  if (sales.length === 0) return { resultText: "Борлуулалт олдсонгүй" };
+  return {
+    resultText: sales
+      .map(
+        (sale) =>
+          `${sale.date} ${sale.soldAt.slice(11, 16)} · ${sale.documentNo}${sale.isReturn ? ` (буцаалт ← ${sale.originalSaleNo})` : ""} · ${sale.counterpartyName} · ${sale.lineCount} мөр · ${fmt(sale.total)}₮ · ${sale.paymentSummary} · ${SALE_STATUS_LABELS[sale.status] ?? sale.status} · ID ${sale.id.slice(0, 8)}`
+      )
+      .join("\n"),
+  };
+}
+
+async function runGetPosSale(orgId: string, input: { sale: string }): Promise<AiToolResult> {
+  const found = await findPosSale(orgId, input.sale);
+  const { sale } = unwrapAction(await getPosSaleDetail(found.id));
+  const lines = [
+    `${sale.documentNo}${sale.isReturn ? ` (буцаалт ← ${sale.originalSaleNo}: ${sale.returnReason ?? ""})` : ""} · ${sale.date} · ${sale.warehouseName} · ${sale.counterpartyName} · кассчин ${sale.cashierName} · ${SALE_STATUS_LABELS[sale.status] ?? sale.status}`,
+    ...sale.lines.map(
+      (line) =>
+        `  ${line.itemCode} ${line.itemName} × ${line.quantity} × ${fmt(line.unitPrice)} − хөнг. ${fmt(line.discountAmount)}${line.discountDetail.length ? ` [${line.discountDetail.map((detail) => `${detail.ruleCode ?? detail.kind} ${fmt(detail.amount)}`).join(", ")}]` : ""} = цэвэр ${fmt(line.netAmount)} + НӨАТ ${fmt(line.vatAmount)} = ${fmt(line.lineTotal)}₮${line.returnedQty ? ` · буцаасан ${line.returnedQty}` : ""} · урьдчилсан COGS ${line.provisionalCost == null ? "—" : fmt(line.provisionalCost)}`
+    ),
+    `Нийт ${fmt(sale.grossAmount)} · хөнгөлөлт ${fmt(sale.discountTotal)} · цэвэр ${fmt(sale.netAmount)} · НӨАТ ${fmt(sale.vatAmount)} · төлөх ${fmt(sale.total)}₮`,
+    `Төлбөр: ${sale.payments.map((payment) => `${payment.methodName} ${fmt(payment.baseAmount)}${payment.changeGiven ? ` (хариулт ${fmt(payment.changeGiven)})` : ""}${payment.reference ? ` реф ${payment.reference}` : ""}`).join(", ") || "—"}`,
+    `АР нэхэмжлэх: ${sale.arApDocumentNo ?? "—"} (${sale.arApStatus ?? "—"}) · журнал ${sale.voucherIds.length} · буцаалт: ${sale.returns.map((ret) => `${ret.documentNo} ${fmt(ret.total)}₮`).join(", ") || "—"}${sale.ebarimtId ? ` · eBarimt ${sale.ebarimtId}` : ""}`,
+  ];
+  return { resultText: lines.join("\n") };
+}
+
+async function runGetPosSalesReport(
+  orgId: string,
+  input: { from: string; to: string; groupBy?: string; warehouseCode?: string; limit?: number }
+): Promise<AiToolResult> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.from) || !/^\d{4}-\d{2}-\d{2}$/.test(input.to))
+    throw new Error("Огноо YYYY-MM-DD хэлбэртэй байна");
+  const limit = Math.min(Math.max(Number(input.limit) || 30, 1), 200);
+  let warehouseId: string | undefined;
+  if (input.warehouseCode?.trim()) {
+    const warehouse = await db.query.warehouses.findFirst({
+      where: and(eq(warehouses.organizationId, orgId), eq(warehouses.code, input.warehouseCode.trim())),
+      columns: { id: true },
+    });
+    if (!warehouse) throw codedError("WAREHOUSE_NOT_FOUND", `"${input.warehouseCode}" агуулах олдсонгүй`);
+    warehouseId = warehouse.id;
+  }
+  const report = await loadSalesReport(orgId, { from: input.from, to: input.to, warehouseId });
+  const summary = summarize(report.lines);
+  const header = `${input.from} … ${input.to}: борлуулалт ${summary.salesCount} (буцаалт ${summary.returnsCount}) · нийт ${fmt(summary.gross)} · хөнгөлөлт ${fmt(summary.discount)} · цэвэр ${fmt(summary.net)} · НӨАТ ${fmt(summary.vat)} · төлөх ${fmt(summary.total)}₮ · дундаж чек ${fmt(summary.averageTicket)}₮ · COGS ${summary.cogs == null ? "—" : fmt(summary.cogs)} · ахиуц ${summary.margin == null ? "—" : `${fmt(summary.margin)}₮ (${summary.marginPercent}%)`} [${COGS_BASIS_LABELS[summary.cogsBasis]}]`;
+  const groupBy = input.groupBy ?? "summary";
+  const money = (value: number | null) => (value == null ? "—" : fmt(value));
+  const rowText = (row: AggRow) =>
+    `${row.label}${row.sublabel ? ` (${row.sublabel})` : ""} · чек ${row.count} · тоо ${row.quantity} · нийт ${fmt(row.gross)} · хөнг. ${fmt(row.discount)} · цэвэр ${fmt(row.net)} · НӨАТ ${fmt(row.vat)} · төлөх ${fmt(row.total)} · COGS ${money(row.cogs)} · ахиуц ${money(row.margin)}${row.marginPercent == null ? "" : ` (${row.marginPercent}%)`}${row.cogsBasis !== "final" ? ` [${COGS_BASIS_LABELS[row.cogsBasis]}]` : ""}`;
+  let body: string[] = [];
+  switch (groupBy) {
+    case "item":
+      body = aggregateBy(report.lines, (line) => ({ key: line.itemId, label: `${line.itemCode} ${line.itemName}`, sublabel: line.categoryCode ?? undefined })).slice(0, limit).map(rowText);
+      break;
+    case "day":
+      body = aggregateBy(report.lines, (line) => ({ key: line.date, label: line.date })).sort((a, b) => a.label.localeCompare(b.label)).slice(0, limit).map(rowText);
+      break;
+    case "cashier":
+      body = aggregateBy(report.lines, (line) => ({ key: line.cashierName, label: line.cashierName })).slice(0, limit).map(rowText);
+      break;
+    case "customer":
+      body = aggregateBy(report.lines, (line) => ({ key: line.counterpartyId, label: line.counterpartyName, sublabel: line.customerGroup ?? undefined })).slice(0, limit).map(rowText);
+      break;
+    case "rule":
+      body = aggregateBy(
+        report.lines.filter((line) => line.discountRules.length > 0),
+        (line) => ({ key: line.discountRules.join("+"), label: line.discountRules.join(" + ") })
+      ).slice(0, limit).map(rowText);
+      break;
+    case "method":
+      body = aggregatePayments(report.payments).slice(0, limit).map((row) => `${row.methodName} (${PAYMENT_KIND_LABELS[row.kind]}) · гүйлгээ ${row.count} · ${fmt(row.amount)}₮`);
+      break;
+    default:
+      body = aggregatePayments(report.payments).map((row) => `  ${row.methodName}: ${fmt(row.amount)}₮`);
+  }
+  return { resultText: [header, ...body].join("\n") };
+}
+
 export async function executeAiTool(
   _userId: string,
   name: string,
@@ -8590,6 +9252,8 @@ const AI_ACTION_ENTITY: Record<AiAction["kind"], string> = {
   fa: "fa",
   purchase_order: "purchase_order",
   goods_receipt: "goods_receipt",
+  // POS борлуулалт ноорог байдаггүй (§5c) — notifyAiDraft хэзээ ч мэдэгдэхгүй, гэхдээ бүх kind-ийг бүрэн хамарна.
+  pos_sale: "pos_sale",
 };
 
 function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
@@ -8875,6 +9539,22 @@ async function dispatchAiTool(
         return await runReverseCostAllocation(orgId, args, mode);
       case "get_landed_cost_summary":
         return await runGetLandedCostSummary(orgId, args);
+      case "get_pos_status":
+        return await runGetPosStatus(orgId);
+      case "open_pos_shift":
+        return await runOpenPosShift(orgId, args);
+      case "close_pos_shift":
+        return await runClosePosShift(orgId, args, mode);
+      case "create_pos_sale":
+        return await runCreatePosSale(orgId, args, mode);
+      case "return_pos_sale":
+        return await runReturnPosSale(orgId, args, mode);
+      case "list_pos_sales":
+        return await runListPosSales(orgId, args);
+      case "get_pos_sale":
+        return await runGetPosSale(orgId, args);
+      case "get_pos_sales_report":
+        return await runGetPosSalesReport(orgId, args);
       default: {
         // custom/ багцын tool — core-той ИЖИЛ алдааны боловсруулалттай.
         const custom = findCustomTool(name);
