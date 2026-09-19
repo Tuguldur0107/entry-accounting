@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { aggregateBy, aggregatePayments, summarize, type SalesLineRow, type SalesPaymentRow } from "../lib/pos/reports";
+import { aggregateBy, aggregatePayments, summarize, type SalesLineRow, type SalesPaymentRow } from "../lib/pos/report-types";
 
 function line(partial: Partial<SalesLineRow> & Pick<SalesLineRow, "saleId" | "itemId" | "quantity" | "netAmount" | "lineTotal">): SalesLineRow {
   return {
