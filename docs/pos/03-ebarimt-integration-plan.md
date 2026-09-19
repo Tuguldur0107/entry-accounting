@@ -60,6 +60,38 @@ action-оор хадгална.
 
 ---
 
+### 3.1 Entry Console-ийн үүрэг — БАТЛАГДСАН (2026-09-19)
+
+Мерчантын тохиргоо харилцагчийн апп-д, дэд бүтэц ба хяналт Console-д. **Console
+нь борлуулалтын runtime хамаарал БИШ** — Console унтарсан ч касс, eBarimt илгээлт
+ажиллана.
+
+| Зүйл | Байрлал | Шалтгаан |
+|---|---|---|
+| ТТД, салбар, posNo, дүүргийн код, НХАТ %, горим | Харилцагчийн апп `pos_settings` (eBarimt таб) | Харилцагчийн өөрийн мэдээлэл; өгөгдлийн тусгаарлалт хэвээр |
+| PosAPI service үүсгэх (Docker image + volume + `EBARIMT_POSAPI_URL`) | **Console** — `provision-customer` урсгалд «eBarimt идэвхжүүлэх» алхам | Console харилцагчийн repo + Railway төслийг үүсгэдэг давхарга |
+| Мерчантын бүртгэл (харилцагч × ТТД × PosAPI хувилбар × идэвхтэй эсэх) | **Console** — read-only + провижн төлөв | Fleet-ийн тойм; ТЕГ-ийн PosAPI шинэчлэлтэд хэнийг шинэчлэхийг мэднэ |
+| Эрүүл мэнд: PosAPI `/rest/info`, илгээгдээгүй/алдаатай баримтын тоо, сүүлд илгээсэн цаг | **Console** — `entry-console-monitor` cron (5 мин); харилцагчийн `/api/health`-д `ebarimt` блок | Харилцагч мэдэхээс өмнө оператор мэднэ |
+| Мерчантын нууц (PosAPI API key, ТЕГ нэвтрэлт) | ЗӨВХӨН харилцагчийн Railway env | Console-д төвлөрүүлбэл нэг цоорхой = бүх харилцагч |
+
+**Хориглох:** Console-ийг олон мерчантын төвлөрсөн PosAPI hub болгох — суулгац
+мерчантын ТТД-д бүртгэгддэг, нэг суулгацад олон мерчант дэмжигдэх нь баталгаагүй
+(§8), ТЕГ-ийн зөвшөөрлийн асуудал. Харилцагч бүр өөрийн PosAPI-тай (fork загвар).
+
+**`entry-console` repo-д тусдаа PR-ын хамрах хүрээ** (Фаз 3.5, +2 өдөр):
+
+1. Провижн: `provision-customer` dispatch-д `ebarimt: true` сонголт → Railway
+   төсөлд `posapi` service (ТЕГ-ийн PosAPI 3.0 image, `data` volume, дотоод
+   сүлжээ) + харилцагчийн апп-д `EBARIMT_POSAPI_URL` env
+2. Бүртгэл: харилцагчийн картад eBarimt хэсэг — идэвхтэй эсэх, ТТД (апп-ын
+   `/api/health`-ээс уншина, Console-д гараар давхар бичихгүй), PosAPI хувилбар,
+   провижн огноо
+3. Хяналт: monitor cron-д `/api/health.ebarimt` (`{enabled, posApiReachable,
+   pending, failed, lastSentAt}`) — `failed > 0` эсвэл `posApiReachable=false`
+   30 минутаас удаан бол Console-ийн анхааруулга
+4. Харилцагчийн апп талд (энэ repo): `/api/health`-д `ebarimt` блок (лицензийн
+   token-оор л уншигдана), PosAPI Docker тодорхойлолт `docs/deployment/ebarimt.md`
+
 ## 4. Дизайн
 
 ### 4.1 Өгөгдлийн бүтэц (schema)
@@ -174,9 +206,9 @@ tests/ebarimt-receipt.test.ts     бүлэглэл, VAT/NOT_VAT, хэсэгчи�
 | **3.2 Payload** | `lib/ebarimt/receipt.ts` + тест (НӨАТ төлөгч/бус, exempt/zero, хөнгөлөлт, бөөрөнхийлөл, B2B, хэсэгчилсэн буцаалт), payment map | 371+ тест ногоон | 2 |
 | **3.3 Дараалал + worker** | `pos_ebarimt_submissions`, createPosSale/returnPosSale enqueue, worker (backoff, идемпотент), sendData cron, мэдэгдлийн дүрэм, `externalRef` sync | Staging-д бодит ДДТД буцаж ирнэ | 3 |
 | **3.4 UI** | Баримт QR/сугалаа, жагсаалт/панель статус + дахин илгээх, checkout-д худалдан авагч (иргэн/байгууллага), самбарын карт, checklist | Кассчин ямар ч нэмэлт алхамгүй | 2 |
-| **3.5 Deploy (A)** | PosAPI Docker service (Railway) + volume, `EBARIMT_POSAPI_URL`, health, `docs/deployment` заавар, мерчант порталд бүртгэх алхам | Харилцагчийн Railway төсөлд нэг товчоор | 1–2 |
+| **3.5 Deploy (A) + Console** | PosAPI Docker service (Railway) + volume, `EBARIMT_POSAPI_URL`, `/api/health.ebarimt`, `docs/deployment/ebarimt.md`, мерчант порталд бүртгэх алхам; **entry-console**: провижн алхам, мерчантын бүртгэл, monitor (§3.1) | Харилцагчийн Railway төсөлд Console-оос нэг товчоор; fleet-ийн eBarimt тойм | 3–4 |
 | **3.6 Хяналт** | Сарын тулгалт: `pos_sales` (sent) vs PosAPI `info`/ТЕГ портал; «илгээгдээгүй» тайлан; AI tools | Сар хаалтын checklist мөр | 1 |
-| | | **Нийт** | **13–14** |
+| | | **Нийт** | **15–16** |
 
 Дараагийн фаз (тусдаа санал): АР нэхэмжлэх → `B2B_INVOICE`; АП баримтын оролтын
 eBarimt тулгалт (ТЕГ-ийн нэвтрэлттэй API); easy registration QR.
@@ -200,6 +232,7 @@ eBarimt тулгалт (ТЕГ-ийн нэвтрэлттэй API); easy registra
 | # | Асуулт | Санал |
 |---|---|---|
 | **T1** | Байршуулалтын топологи | **A** (серверт PosAPI, Railway service) — Фаз 3.0-ийн туршилтаар баталгаажуулна |
+| **T1a** | Console-ийн үүрэг | **БАТЛАГДСАН** — §3.1: тохиргоо апп-д, провижн/бүртгэл/хяналт Console-д, runtime хамаарал биш, төвлөрсөн PosAPI hub ҮГҮЙ |
 | **T2** | Ангилалгүй бараа борлуулж болох уу | Болно (борлуулалт зогсохгүй), eBarimt `failed` + улаан; хэрэглэгч ангилал бөглөөд дахин илгээнэ |
 | **T3** | `credit` (зээлээр) төлбөртэй борлуулалт | RECEIPT биш `B2C/B2B_INVOICE` илгээх; төлөгдөхөд ТЕГ-ийн invoice→receipt урсгал (§8-д баталгаажуулна) |
 | **T4** | Хотын татвар (НХАТ) | Тохиргооны % (default 0) + өглөгийн данс роль; POS тооцоололд НӨАТ-тай зэрэгцээ мөр |
