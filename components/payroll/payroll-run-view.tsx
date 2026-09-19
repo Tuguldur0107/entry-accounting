@@ -633,10 +633,54 @@ export function PayrollRunView({ data }: Props) {
             <span className="font-mono">{settings.monthlyWorkDays}</span>
           </p>
         </div>
-        <Button size="sm" onClick={calculate} disabled={isPending || locked}>
-          <Icon name="costing" size="sm" />
-          Бодолт хийх
-        </Button>
+        {/* Үйлдлийн товчнууд НЭГ газар: бодолт → өглөг → GL журнал гэсэн
+            урсгалын дарааллаар (өмнө нь хуудсын гурван өөр хэсэгт тарсан
+            байв). Аль хэдийн үүссэн бол товч алга болж, доор нь статус
+            линкээр харагдана. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={calculate} disabled={isPending || locked}>
+            <Icon name="costing" size="sm" />
+            Бодолт хийх
+          </Button>
+
+          {lines.length > 0 && !bills[tab] && (
+            <>
+              {tab === "advance" && (
+                <label className="flex items-center gap-1.5 text-xs text-[var(--ea-text-2)]">
+                  Олгох огноо
+                  <input
+                    type="date"
+                    value={advanceDate}
+                    min={`${periodMonth}-01`}
+                    onChange={(event) => setAdvanceDate(event.target.value)}
+                    className="h-7 rounded border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 font-mono text-xs text-[var(--ea-text-1)]"
+                  />
+                </label>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => createBill(tab)}
+                disabled={isPending}
+              >
+                <Icon name="document" size="sm" />
+                {SALARY_BILL_LABEL_GENITIVE[tab]} өглөг үүсгэх
+              </Button>
+            </>
+          )}
+
+          {lines.length > 0 && !voucher && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={createVoucher}
+              disabled={isPending}
+            >
+              <Icon name="journal" size="sm" />
+              GL ноорог журнал үүсгэх
+            </Button>
+          )}
+        </div>
       </div>
 
       {locked && (
@@ -665,20 +709,7 @@ export function PayrollRunView({ data }: Props) {
 
       {lines.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs">
-          {tab === "advance" && !bills.advance && (
-            <label className="flex items-center gap-1.5 text-[var(--ea-text-2)]">
-              Олгох огноо
-              <input
-                type="date"
-                value={advanceDate}
-                min={`${periodMonth}-01`}
-                onChange={(event) => setAdvanceDate(event.target.value)}
-                className="h-7 rounded border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 font-mono text-xs text-[var(--ea-text-1)]"
-              />
-            </label>
-          )}
-
-          {bills[tab] ? (
+          {bills[tab] && (
             <span className="text-[var(--ea-text-3)]">
               Өглөгийн нэхэмжлэх{" "}
               <Link
@@ -699,16 +730,6 @@ export function PayrollRunView({ data }: Props) {
                 </>
               )}
             </span>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => createBill(tab)}
-              disabled={isPending}
-            >
-              <Icon name="document" size="sm" />
-              {SALARY_BILL_LABEL_GENITIVE[tab]} өглөг үүсгэх
-            </Button>
           )}
 
           <span className="ml-auto text-[var(--ea-text-4)]">
@@ -777,7 +798,7 @@ export function PayrollRunView({ data }: Props) {
             )}
           </p>
 
-          {voucher ? (
+          {voucher && (
             <p className="text-xs text-[var(--ea-text-3)]">
               GL журнал:{" "}
               <span className="font-medium text-[var(--ea-text-1)]">
@@ -797,16 +818,6 @@ export function PayrollRunView({ data }: Props) {
                 GL журналын жагсаалтаас харна уу
               </Link>
             </p>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={createVoucher}
-              disabled={isPending}
-            >
-              <Icon name="journal" size="sm" />
-              GL ноорог журнал үүсгэх
-            </Button>
           )}
         </div>
       )}
