@@ -108,6 +108,13 @@ function parseOptionalPrice(
   return parsed;
 }
 
+function parseClassificationCode(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const code = cleanText(value);
+  if (code && !/^\d{7}$/.test(code)) throw new Error("eBarimt ангилалын код 7 оронтой тоо байна");
+  return code;
+}
+
 /**
  * POS талбаруудыг шалгаад DB-д бичих утга болгоно. `undefined` = хөндөхгүй.
  * Баркод давхардал, орлогын данс, бүлэг — бүгд байгууллагын хүрээнд.
@@ -471,13 +478,6 @@ export async function toggleWarehouse(id: string, isActive: boolean) {
 }
 
 // ── Барааны бүлэг (POS: хөнгөлөлтийн дүрэм, тайлангийн бүлэглэл) ─────────────
-
-function parseClassificationCode(value: string | null | undefined): string | null | undefined {
-  if (value === undefined) return undefined;
-  const code = cleanText(value);
-  if (code && !/^\d{7}$/.test(code)) throw new Error("eBarimt ангилалын код 7 оронтой тоо байна");
-  return code;
-}
 
 export async function createInventoryCategory(data: {
   code: string;
