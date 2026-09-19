@@ -33,6 +33,9 @@ import { parseChannelPrefs } from "./preferences";
 const PENDING_WINDOW_DAYS = 3;
 
 let warnedNoApiKey = false;
+/** Илгээгч тохируулаагүй байгууллага бүрд процессод НЭГ л удаа анхааруулна
+ *  (tick бүрд 13 байгууллага × алдаа гэж лог бөглөхгүй — 2026-09-19 deploy). */
+const warnedNoSender = new Set<string>();
 
 function appBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
@@ -54,6 +57,8 @@ export interface EmailDeliveryResult {
   notifications: number;
   errors: { organizationId: string; userId?: string; error: string }[];
   skipped?: string;
+  /** Илгээгч тохируулаагүйгээс алгассан байгууллагын тоо. */
+  skippedOrganizations?: number;
 }
 
 async function sendBatch(args: {
@@ -111,8 +116,18 @@ async function sendBatch(args: {
 export async function deliverPendingEmailsForOrganization(
   organizationId: string,
   now = new Date()
-): Promise<{ emails: number; notifications: number; errors: EmailDeliveryResult["errors"] }> {
-  const result = { emails: 0, notifications: 0, errors: [] as EmailDeliveryResult["errors"] };
+): Promise<{
+  emails: number;
+  notifications: number;
+  errors: EmailDeliveryResult["errors"];
+  skippedReason?: "sender-not-configured";
+}> {
+  const result: {
+    emails: number;
+    notifications: number;
+    errors: EmailDeliveryResult["errors"];
+    skippedReason?: "sender-not-configured";
+  } = { emails: 0, notifications: 0, errors: [] };
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return result;
 
@@ -189,10 +204,19 @@ export async function deliverPendingEmailsForOrganization(
       process.env
     );
   } catch (error) {
-    result.errors.push({
-      organizationId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    // Илгээгч тохируулаагүй = тохиргооны асуудал (RESEND_FROM_EMAIL эсвэл
+    // компанийн мэдээлэл), ажлын алдаа биш — нэг удаа логлоод чимээгүй
+    // алгасна; мэдэгдэл in-app-д хэвээр, тохируулмагц 3 хоногийн цонхонд
+    // байгаа нь илгээгдэнэ.
+    if (!warnedNoSender.has(organizationId)) {
+      warnedNoSender.add(organizationId);
+      console.log(
+        `[notifications] и-мэйл алгаслаа (${organizationId}): ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    result.skippedReason = "sender-not-configured";
     return result;
   }
 
@@ -295,6 +319,8 @@ export async function deliverPendingEmails(now = new Date()): Promise<EmailDeliv
       result.emails += part.emails;
       result.notifications += part.notifications;
       result.errors.push(...part.errors);
+      if (part.skippedReason)
+        result.skippedOrganizations = (result.skippedOrganizations ?? 0) + 1;
     } catch (error) {
       result.errors.push({
         organizationId: org.id,
