@@ -136,7 +136,13 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
     setError("");
     startTransition(async () => {
       try {
-        await action();
+        // Action-ууд алдааг { error } УТГААР буцаадаг (lib/action-result.ts).
+        const result = (await action()) as { error?: string } | undefined;
+        if (result?.error !== undefined) {
+          if (close) setError(result.error);
+          else toast.error(result.error);
+          return;
+        }
         close?.();
         router.refresh();
         toast.success(success);

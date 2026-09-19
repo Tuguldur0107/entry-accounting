@@ -4251,12 +4251,15 @@ async function runCreateItem(
   input: { code: string; name: string; unit?: string } & ItemPosInput
 ): Promise<AiToolResult> {
   const pos = itemPosFieldsOf(input);
-  await createInventoryItem({
-    code: input.code,
-    name: input.name,
-    unit: input.unit ?? "ш",
-    ...pos,
-  });
+  unwrapAction(
+    await createInventoryItem(  {
+      code: input.code,
+      name: input.name,
+      unit: input.unit ?? "ш",
+      ...pos,
+    }
+    )
+  );
   const extras = [
     pos.salesPrice != null ? `үнэ ${pos.salesPrice.toLocaleString()}₮` : null,
     pos.barcode ? `баркод ${pos.barcode}` : null,
@@ -4272,7 +4275,9 @@ async function runCreateWarehouse(
   _orgId: string,
   input: { code: string; name: string }
 ): Promise<AiToolResult> {
-  await createWarehouse({ code: input.code, name: input.name });
+  unwrapAction(
+    await createWarehouse({ code: input.code, name: input.name })
+  );
   return { resultText: `Агуулах бүртгэгдлээ: ${input.code} — ${input.name}` };
 }
 
@@ -4422,11 +4427,14 @@ async function runUpdateItem(
   if (input.name != null) changed.push("name");
   if (input.unit != null) changed.push("unit");
   if (changed.length > 0)
-    await updateInventoryItem(item.id, {
-      name: input.name ?? item.name,
-      unit: input.unit ?? item.unit,
-      ...pos,
-    });
+    unwrapAction(
+      await updateInventoryItem(  item.id, {
+        name: input.name ?? item.name,
+        unit: input.unit ?? item.unit,
+        ...pos,
+      }
+      )
+    );
   if (input.isActive != null) {
     await toggleInventoryItem(item.id, input.isActive);
     changed.push("isActive");
@@ -6364,7 +6372,9 @@ async function runPostCostEntries(
     return { resultText: `${input.month} сард ноорог өртгийн бичилт алга` };
   const total = monthEntries.reduce((sum, entry) => sum + Number(entry.amount), 0);
   assertPostLimit(total);
-  const result = await postCostEntries(monthEntries.map((entry) => entry.id));
+  const result = unwrapAction(
+    await postCostEntries(monthEntries.map((entry) => entry.id))
+  );
   const failures =
     "failures" in result && Array.isArray(result.failures) ? result.failures : [];
   return {

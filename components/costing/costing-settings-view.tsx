@@ -908,13 +908,17 @@ function ItemAccountsSection({
     setError("");
     startTransition(async () => {
       try {
-        await upsertCostingItemSetting({
+        const result = await upsertCostingItemSetting({
           itemId: editRow.itemId,
           // AccountInput бүтэн 10 хэсэгт код буцаадаг — үндсэн дансыг нь
           // хадгална (mapping нь main-түвшний).
           inventoryAccountNumber: extractMainAccount(form.inventory),
           cogsAccountNumber: extractMainAccount(form.cogs),
         });
+        if (result.error !== undefined) {
+          setError(result.error);
+          return;
+        }
         toast.success("Дансны тохиргоо хадгалагдлаа");
         setEditRow(null);
         router.refresh();
