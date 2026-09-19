@@ -173,6 +173,35 @@ async function main() {
     console.log(`✗ public view жагсаалт: ${error.message}`);
   }
 
+  // ── 1c. Журналын бичилтийн дугаар + дугаарын тоолуур ─────────────────────
+  // Код нь эдгээрийг ЗААВАЛ шаарддаг (бичилт бүр дугаартай үүснэ) тул push
+  // ямар нэг шалтгаанаар хожимдвол ч апп унахгүй байхаар урьдчилж нэмнэ.
+  await run(
+    "journal_vouchers.document_no багана",
+    `alter table journal_vouchers add column if not exists document_no text`
+  );
+  await run(
+    "journal_vouchers_org_document_no_ux индекс",
+    `create unique index if not exists journal_vouchers_org_document_no_ux
+       on journal_vouchers (organization_id, document_no)
+       where document_no is not null`
+  );
+  await run(
+    "document_counters хүснэгт",
+    `create table if not exists document_counters (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       scope text not null,
+       value integer not null default 0,
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "document_counters_org_scope_ux индекс",
+    `create unique index if not exists document_counters_org_scope_ux
+       on document_counters (organization_id, scope)`
+  );
+
   // ── 2. segment_values.linked_organization_id (S1/S6 компанийн холбоос) ─────
   await run(
     "segment_values.linked_organization_id багана",

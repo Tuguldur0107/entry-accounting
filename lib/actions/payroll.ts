@@ -786,6 +786,7 @@ export async function createPayrollVoucher(
     lines,
     status: "draft",
     externalRef: voucherRefOf(periodMonth),
+    module: "payroll",
   }));
 
   await db

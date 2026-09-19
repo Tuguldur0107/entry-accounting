@@ -70,6 +70,7 @@ export default async function EditJournalPage({ params }: { params: Promise<{ id
       segmentValues={rawSegValues}
       defaultSegments={defaultSegments}
       voucherId={voucher.id}
+      voucherDocumentNo={voucher.documentNo}
       initialVoucher={{
         date: voucher.date,
         description: voucher.description,

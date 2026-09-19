@@ -58,6 +58,7 @@ import {
 import { findNegativeStock, type MovementRef } from "@/lib/inventory/balances";
 import { loadQtyLedgerFast } from "@/lib/inventory/period-balances";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { buildPoCloseLines } from "@/lib/procurement/close-lines";
 import {
   PO_BUSINESS_OBJECT,
@@ -1450,6 +1451,7 @@ async function closePurchaseOrderCore(input: {
         organizationId: orgId,
         date: input.closeDate,
         description,
+        documentNo: await nextVoucherNo(tx, orgId, "proc", input.closeDate),
         status: "posted",
         // Нэг захиалгад нэг ИДЭВХТЭЙ хаалтын журнал (partial unique index);
         // дахин нээхэд ref нь тайлагдана (reopenPurchaseOrderCore).
@@ -1545,6 +1547,12 @@ async function reopenPurchaseOrderCore(input: {
         organizationId: orgId,
         date: reversalDate,
         description: `Буцаалт [${order.documentNo}] ${voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "proc"),
+          reversalDate
+        ),
         status: "posted",
         reversalOfVoucherId: voucher.id,
       })
@@ -2115,6 +2123,7 @@ async function confirmGoodsReceiptCore(input: { id: string }): Promise<{
         organizationId: orgId,
         date: receipt.date,
         description,
+        documentNo: await nextVoucherNo(tx, orgId, "proc", receipt.date),
         status: "posted",
         externalRef: `gr-capitalize:${receipt.id}`,
       })
@@ -2341,6 +2350,12 @@ async function reverseGoodsReceiptCore(input: {
         organizationId: orgId,
         date: receipt.date,
         description: `Буцаалт [${receipt.documentNo}] ${voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "proc"),
+          receipt.date
+        ),
         status: "posted",
         reversalOfVoucherId: voucher.id,
       })

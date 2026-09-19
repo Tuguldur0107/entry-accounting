@@ -130,6 +130,44 @@ Draft үүсгэх → хэрэглэгч шалгана → Post дарах →
 - Post хийхэд journal_balance guardrail заавал давна
 - `adjustment_type`: `regular` | `prior_period` | `closing` | `reversing` | `fx_reval` | `accrual`
 
+### 2a. Журналын бичилтийн дугаар — ХЭРЭГЖСЭН
+
+Журнал нь БҮХ модулиас үүсдэг тул дугаар нь эх модулиа ил хэлнэ:
+
+```
+<МОДУЛЬ>-<YY>-<NNNNNN>     GL-26-000001 · CM-26-000042 · FX-26-000003
+```
+
+- **Жил бүр 1-ээс** эхэлнэ (сангийн жилийн дотор тасралтгүй); `NNNNNN` нь 6
+  оронгоор 0-дуулсан, байгууллага дотор давхардахгүй (partial unique index —
+  дугааргүй мөр хэдэн ч байж болно)
+- **Модулийн кодууд** (`JOURNAL_MODULE_CODES`, ӨӨРЧЛӨХИЙГ ХОРИГЛОНО — бичигдсэн
+  дугаар нь баримтын мөнхийн танигдахуун): GL · CM · FX · AR · AP · INV ·
+  COST · FA · PROC · PAY · VAT
+- **БУЦААЛТ эх журналынхаа модулийг ӨВЛӨНӨ** (`moduleOfVoucherNo`) — кассын
+  баримтын буцаалт "CM-", элэгдлийн буцаалт "FA-" болж хос нь нэг модульд үлдэнэ
+- **Тоолуур АТОМИК**: `document_counters` мөрийг
+  `on conflict do update set value = value + n returning value`-ээр нэмэгдүүлнэ.
+  `select max(...) + 1` ХОРИОТОЙ — зэрэгцээ транзакц ижил дугаар авна.
+  Дугаарлалт нь журналаа бичиж буй ТРАНЗАКЦ ДОТОР явагддаг тул бичилт унавал
+  тоолуур ч буцаж, цоорхой үүсэхгүй
+- **Олон журналыг нэг дор** бичихэд (банкны хуулга) `nextVoucherNos` — scope
+  бүрд НЭГ л хүсэлтээр блок нөөцөлнө (500 мөрт 500 биш)
+- **Багана нэмэгдэхээс ӨМНӨХ бичилт дугааргүй** (NULL) — UI-д «—», AI-д
+  "(дугааргүй)"; буцаан дугаарлах ажил хийгдээгүй (product owner-ийн шийдвэр)
+- AI/MCP-ийн журналын tools дугаараар ЧУ олдоно (`resolveVoucherRef`:
+  эхлээд documentNo, дараа нь ID угтвар)
+
+```
+lib/gl/voucher-no.ts   ЦЭВЭР (тесттэй): voucherNoScope, formatVoucherNo,
+                       parseVoucherNo, moduleOfVoucherNo + DB давхарга
+                       nextVoucherNo / nextVoucherNos
+tests/voucher-no.test.ts  Жилийн хил, модуль тус бүрийн тоолуур, багц нөөцлөлт
+```
+
+**Шинэ бичилтийн зам нэмэхэд** `journalVouchers`-д insert хийх бүрд
+`documentNo: await nextVoucherNo(tx, orgId, "<модуль>", <огноо>)` ЗААВАЛ өгнө.
+
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
@@ -1108,7 +1146,11 @@ lib/actions/journal-import.ts              Багц журнал → НООРО�
            module_configs, accounting_periods
              segment_values.linkedOrganizationId — S1/S6-ийн утга аль
                байгууллагаас автоматаар бүрдсэн бэ (§3a); null = гараар оруулсан
-GL         journal_vouchers, journal_lines
+GL         journal_vouchers, journal_lines, document_counters
+             journal_vouchers.documentNo — ЖУРНАЛЫН БИЧИЛТИЙН ДУГААР
+               "<МОДУЛЬ>-<YY>-<NNNNNN>" (§2a); хуучин бичилтэд NULL
+             document_counters (organization_id, scope) — дугаарын АТОМИК
+               тоолуур; scope = "GL-26" г.м.
              journal_lines.costEntryId / inventoryMovementId — дэд дэвтрийн
              эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
              journal_lines.businessObjectType / businessObjectId — клирингийн
