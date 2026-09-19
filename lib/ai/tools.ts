@@ -61,6 +61,7 @@ import {
   createInventoryItem,
   createInventoryMovement,
   createWarehouse,
+  deleteInventoryItem,
   deleteInventoryMovement,
   recordInventoryCount,
   toggleInventoryItem,
@@ -747,6 +748,18 @@ export const AI_TOOLS: AiToolDef[] = [
         counterparty: { type: "string", description: "Харилцагчийн нэр" },
       },
       required: ["counterparty"],
+    },
+  },
+  {
+    name: "delete_inventory_item",
+    description:
+      "Барааг устгана — зөвхөн хөдөлгөөн, АР/АП мөр, захиалга, өртгийн бичилтэд ашиглагдаагүй бараа устгагдана. Түүхтэй барааг update_inventory_item isActive=false-аар идэвхгүй болгоно.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemCode: { type: "string", description: "Барааны код" },
+      },
+      required: ["itemCode"],
     },
   },
   {
@@ -4037,6 +4050,24 @@ async function runDeleteCounterparty(
   return {
     resultText: `Харилцагч устгагдлаа: ${result.name}`,
   };
+}
+
+/** Бараа устгах — deleteInventoryItem action (түүхтэй бол татгалзана). */
+async function runDeleteItem(
+  orgId: string,
+  input: { itemCode: string }
+): Promise<AiToolResult> {
+  const items = await db.query.inventoryItems.findMany({
+    where: eq(inventoryItems.organizationId, orgId),
+  });
+  const item = requireSingle(
+    nameMatches(items, (entry) => entry.code, input.itemCode),
+    (entry) => `${entry.code} (${entry.name})`,
+    "бараа",
+    input.itemCode
+  );
+  const result = unwrapAction(await deleteInventoryItem(item.id));
+  return { resultText: `Бараа устгагдлаа: ${result.code} — ${result.name}` };
 }
 
 async function runUpdateItem(
@@ -8469,6 +8500,8 @@ export async function executeAiTool(
         return await runDeleteCounterparty(orgId, args);
       case "update_inventory_item":
         return await runUpdateItem(orgId, args);
+      case "delete_inventory_item":
+        return await runDeleteItem(orgId, args);
       case "update_inventory_movement":
         return await runUpdateMovement(orgId, args);
       case "record_inventory_count":

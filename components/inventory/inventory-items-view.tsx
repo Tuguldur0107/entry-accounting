@@ -18,9 +18,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   createInventoryItem,
   createWarehouse,
+  deleteInventoryItem,
   toggleInventoryItem,
   toggleWarehouse,
   updateInventoryItem,
@@ -44,6 +46,21 @@ export function InventoryItemsView({ items, warehouses }: Props) {
   const [warehouseOpen, setWarehouseOpen] = useState(false);
   const [warehouseForm, setWarehouseForm] = useState(emptyWarehouseForm);
   const [error, setError] = useState("");
+  const { confirm, dialog: confirmDialog } = useConfirm();
+
+  async function handleDeleteItem(item: InventoryItemView) {
+    const ok = await confirm({
+      title: "Бараа устгах",
+      description: `${item.code} · ${item.name} барааг бүрмөсөн устгах уу? Хөдөлгөөн, нэхэмжлэх, захиалгад ашиглагдсан бараа устгагдахгүй — идэвхгүй болгоно.`,
+      confirmText: "Устгах",
+      danger: true,
+    });
+    if (!ok) return;
+    run(async () => {
+      const result = await deleteInventoryItem(item.id);
+      if (result.error) throw new Error(result.error);
+    }, "Бараа устгагдлаа");
+  }
 
   function run(action: () => Promise<unknown>, success: string, close?: () => void) {
     setError("");
@@ -97,32 +114,43 @@ export function InventoryItemsView({ items, warehouses }: Props) {
       {
         headerName: "",
         colId: "actions",
-        width: 64,
+        width: 96,
         sortable: false,
         filter: false,
         cellClass: "flex items-center justify-end",
         cellRenderer: (params: ICellRendererParams<InventoryItemView>) => (
-          <button
-            type="button"
-            className="ea-btn ea-btn--icon"
-            title="Засах"
-            aria-label="Засах"
-            onClick={() => {
-              const data = params.data;
-              if (!data) return;
-              setItemForm({
-                id: data.id,
-                code: data.code,
-                name: data.name,
-                unit: data.unit,
-                salesPrice: data.salesPrice != null ? String(data.salesPrice) : "",
-              });
-              setError("");
-              setItemOpen(true);
-            }}
-          >
-            <Icon name="edit" />
-          </button>
+          <div className="flex items-center justify-end gap-1">
+            <button
+              type="button"
+              className="ea-btn ea-btn--icon"
+              title="Засах"
+              aria-label="Засах"
+              onClick={() => {
+                const data = params.data;
+                if (!data) return;
+                setItemForm({
+                  id: data.id,
+                  code: data.code,
+                  name: data.name,
+                  unit: data.unit,
+                  salesPrice: data.salesPrice != null ? String(data.salesPrice) : "",
+                });
+                setError("");
+                setItemOpen(true);
+              }}
+            >
+              <Icon name="edit" />
+            </button>
+            <button
+              type="button"
+              className="ea-btn ea-btn--icon ea-btn--danger"
+              title="Устгах (түүхгүй бараа)"
+              aria-label="Устгах"
+              onClick={() => params.data && handleDeleteItem(params.data)}
+            >
+              <Icon name="delete" />
+            </button>
+          </div>
         ),
       },
     ],
@@ -373,6 +401,7 @@ export function InventoryItemsView({ items, warehouses }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </section>
   );
 }
