@@ -84,6 +84,14 @@ export async function importInventoryItems(
       if (categoryCode && !activeCategories.has(categoryCode))
         throw new Error(`"${categoryCode}" бүлэг идэвхтэй жагсаалтад алга`);
       const barcode = row.barcode?.trim() || null;
+      // eBarimt: ангилал 7 орон, татварын бүтээгдэхүүний код 3 орон
+      // (docs/pos/03-ebarimt-integration-plan.md §4.1) — код ЗОХИОХГҮЙ.
+      const ebarimtClassificationCode = row.ebarimtClassificationCode?.trim() || null;
+      if (ebarimtClassificationCode && !/^\d{7}$/.test(ebarimtClassificationCode))
+        throw new Error("eBarimt ангилал 7 оронтой тоо байна");
+      const ebarimtTaxProductCode = row.ebarimtTaxProductCode?.trim() || null;
+      if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
+        throw new Error("Татварын код 3 оронтой тоо байна");
 
       const existing = await db.query.inventoryItems.findFirst({
         where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, code)),
@@ -122,6 +130,8 @@ export async function importInventoryItems(
               barcode,
               vatMode,
               categoryCode,
+              ebarimtClassificationCode,
+              ebarimtTaxProductCode,
               isActive: row.isActive,
             })
             .where(
@@ -141,6 +151,8 @@ export async function importInventoryItems(
               barcode,
               vatMode,
               categoryCode,
+              ebarimtClassificationCode,
+              ebarimtTaxProductCode,
               isActive: row.isActive,
             })
             .returning({ id: inventoryItems.id });
