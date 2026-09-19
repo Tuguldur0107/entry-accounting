@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан | ✅ | eBarimt 3.0 API, QPay API, камер barcode (Фаз 3) |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт** | ✅ | QPay API, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 
 ## Файлын бүтэц
@@ -62,6 +62,8 @@ entry-accounting/
 │   │                             #   types, load-data
 │   ├── pos/                      # POS: constants, types, discounts, sale-math, payments,
 │   │                             #   load-data, reports (§5c)
+│   ├── ebarimt/                  # eBarimt 3.0: receipt (ЦЭВЭР), client, lookup,
+│   │                             #   queue, worker, ticker (§5c)
 │   ├── actions/pos.ts            # POS Server Actions (createPosSale атомик, буцаалт, ээлж)
 │   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
 │   ├── notifications/            # Мэдэгдэл: catalog · rules (аудит гүүр) · attention
@@ -587,6 +589,59 @@ components/panel/pos-sale-panel  Борлуулалтын панель (буца
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
 ```
 
+**eBarimt 3.0 (PosAPI 3.0) — ХЭРЭГЖСЭН.** Баримт: `docs/pos/03-ebarimt-integration-plan.md`
+(дизайн, §3.1 Console-ийн үүрэг), `docs/deployment/ebarimt.md` (нэвтрүүлэлт).
+
+```
+борлуулалт батлагдав ──commit──▶ pos_ebarimt_submissions (pending)
+   worker (20 сек, server горим) / кассын дэлгэц (browser горим)
+        └─▶ POST {posApiUrl}/rest/receipt ──▶ ДДТД · сугалаа · QR → pos_sales
+буцаалт ──▶ DELETE /rest/receipt (эх ДДТД) [+ үлдсэн мөрөөр шинэ баримт]
+өдөр бүр 23:30 УБ ──▶ GET /rest/sendData (PosAPI-ийн дотоод сан → ТЕГ)
+```
+
+- **Борлуулалт ХЭЗЭЭ Ч илгээлтээс болж зогсохгүй** — enqueue нь commit-ийн
+  ДАРАА, async; амжилтгүй бол backoff (15с→1мин→5мин→30мин→2ц, max 20),
+  3 дараалсан алдаанд `ebarimt_failed` аудит → `pos.ebarimt_failed` мэдэгдэл
+- **Код ЗОХИОХГҮЙ** (ханшийн дүрэмтэй ижил зарчим): барааны ангилалын код
+  (7 орон, `inventoryItems.ebarimtClassificationCode`, хоосон бол
+  `inventoryCategories`-аас өвлөнө), НӨАТ-гүй/0%-ийн татварын бүтээгдэхүүний
+  код (3 орон), төлбөрийн хэлбэрийн `ebarimtCode` — аль нэг дутвал
+  `[EBARIMT_UNMAPPED_ITEM]` / `[EBARIMT_TAX_PRODUCT_CODE]` /
+  `[EBARIMT_UNMAPPED_PAYMENT]` гэж ШИДЭЖ, submission `failed` болж шалтгаан
+  UI-д ил гарна
+- **Идемпотент:** `pos_ebarimt_submissions` дээр (saleId, kind) partial unique
+  (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
+  worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг
+  илгээхээс сэргийлнэ (10 мин гацвал чөлөөлөгдөнө)
+- **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
+  гараар засах ХОРИОТОЙ (давхар баримт)
+- **taxType бүлэглэл:** НӨАТ төлөгч бус → бүх мөр `NOT_VAT`; төлөгч бол
+  барааны `vatMode` → `VAT_ABLE|VAT_FREE|VAT_ZERO`, мөрүүд дэд баримт
+  (`receipts[]`) болж бүлэглэгдэнэ. Хэсэгчилсэн буцаалтын дараа үлдсэн мөрөөр
+  л илгээгдэж, төлбөрүүд хувь тэнцүүлэн хуваарилагдана (Σ = баримтын дүн)
+- **Мерчантын тохиргоо харилцагчийн апп-д** (`pos_settings.ebarimt*`), Console-д
+  БИШ; `/api/health`-ийн `ebarimt` блокт зөвхөн ТООЛУУР (ТТД, нууц байхгүй)
+
+```
+lib/ebarimt/
+├── constants.ts   PosAPI-ийн литерал (төрөл, taxType, статус, алдааны код,
+│                  backoff) + EBARIMT_PAYMENT_CODE_SUGGESTIONS — CLIENT-SAFE
+├── types.ts       PosAPI JSON + Entry-ийн ЦЭВЭР оролт (EbarimtSaleInput)
+├── receipt.ts     buildEbarimtReceipt / allocatePayments / taxTypeOf /
+│                  ebarimtSettingsProblems — ЦЭВЭР (tests/ebarimt-receipt.test.ts)
+├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
+│                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
+├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo / getBranchInfo (24ц кэш)
+├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /
+│                  claimDueSubmissions / ebarimtStatusSummary
+├── worker.ts      claim → PosAPI → бичих; sendData; гацсан claim чөлөөлөх
+└── ticker.ts      In-process worker (20 сек) — EBARIMT_WORKER=off унтраана
+lib/actions/ebarimt.ts   Тохиргоо/холболт шалгах/дахин илгээх/лавлах/outbox
+app/api/cron/ebarimt     Гадаад cron (Bearer CRON_SECRET)
+tests/ebarimt-receipt.test.ts
+```
+
 ### 5b. Валютын ханшийн түүх (Монголбанк) — ХЭРЭГЖСЭН
 
 Хэрэглэгч **эхний үлдэгдэл, өмнөх хугацааны бичилт** оруулахад ӨМНӨХ ҮЕИЙН
@@ -866,7 +921,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 114 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 126 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -887,7 +942,8 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 | Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
-| POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
+| POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
+| eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -1485,6 +1541,14 @@ POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeI
            ar_ap_documents / cash_documents .sourceType ("pos") + sourceId;
            cost_entries.trueUpOfEntryId, valuationSource "provisional_avg",
            entryType "cogs_true_up" (ТЭМДЭГТЭЙ дүн)
+eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
+           PosApiUrl,Mode} (мерчантын тохиргоо — нууц БАЙХГҮЙ),
+           pos_payment_methods.ebarimtCode, inventory_items.ebarimt{Classification,
+           TaxProduct}Code, inventory_categories.ebarimtClassificationCode,
+           pos_sales.ebarimt{Id,Lottery,Status,QrData,Date,Type,ConsumerNo,CustomerTin},
+           pos_ebarimt_submissions (дараалал — kind send|cancel, status pending|
+           claimed|sent|failed|cancelled, payload/response jsonb, attempts,
+           nextAttemptAt; partial unique (saleId, kind) pending|claimed)
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,
            costing_runs, cost_entries, cost_period_results
@@ -1559,6 +1623,7 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 | **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
 | **Хангамж / PO (ЗААВАЛ)** | `docs/procurement/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.6, норматив §11 FR-PROC-006…012 |
 | **POS (ЗААВАЛ)** | `docs/pos/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.8 |
+| **eBarimt 3.0 (ЗААВАЛ)** | `docs/pos/03-ebarimt-integration-plan.md` → `docs/deployment/ebarimt.md`; төлөв `docs/pos/02-implementation-status.md` |
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |
