@@ -14,6 +14,7 @@ import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_MAX_ATTEMPTS } from "./constants"
 import { claimDueSubmissions, markFailed, markSent, prepareSubmission, type PreparedSubmission } from "./queue";
 import { EbarimtError, receiptResponseOutcome } from "./receipt";
 import type { EbarimtReceiptResponse } from "./types";
+import { isOrgVatPayer } from "@/lib/vat/settings";
 
 export interface EbarimtWorkerResult {
   claimed: number;
@@ -165,9 +166,13 @@ export async function processPendingEbarimt(limit = 50): Promise<EbarimtWorkerRe
 
 /** Өдөр бүр — PosAPI-ийн дотоод санд үлдсэнийг ТЕГ рүү түлхүүлнэ (server горим). */
 export async function runEbarimtSendData(): Promise<{ organizations: number; errors: string[] }> {
-  const orgs = await db.query.posSettings.findMany({
+  const enabledOrgs = await db.query.posSettings.findMany({
     where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtMode, "server")),
   });
+  // НӨАТ төлөгч бус болсон байгууллагыг ТЕГ рүү sendData-аас ХАСНА.
+  const orgs: typeof enabledOrgs = [];
+  for (const org of enabledOrgs)
+    if (await isOrgVatPayer(org.organizationId)) orgs.push(org);
   const errors: string[] = [];
   for (const org of orgs) {
     try {

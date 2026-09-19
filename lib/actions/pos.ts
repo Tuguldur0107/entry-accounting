@@ -65,7 +65,7 @@ import {
 } from "@/lib/costing/master-data";
 import { loadProvisionalUnitCosts } from "@/lib/costing/provisional-cost";
 import { scopeKey } from "@/lib/costing/periodic";
-import { loadVatSettings } from "@/lib/vat/settings";
+import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import { applyDiscounts } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { planPayments, planRefund } from "@/lib/pos/payments";
@@ -282,6 +282,11 @@ export async function updatePosSettings(
           mode: merged.ebarimtMode === "browser" ? "browser" : "server",
         });
         if (problems.length > 0) throw new Error(`eBarimt идэвхжүүлэхээс өмнө: ${problems.join("; ")}`);
+        // НӨАТ-д хатуу хамаарах feature — зөвхөн НӨАТ төлөгч байгууллага асаана.
+        if (!(await isOrgVatPayer(orgId)))
+          throw new Error(
+            "НӨАТ төлөгч бус байгууллага eBarimt идэвхжүүлэх боломжгүй — Тохиргоо → НӨАТ дээр НӨАТ төлөгчөөр бүртгүүлнэ үү"
+          );
       }
       patch.ebarimtEnabled = !!data.ebarimtEnabled;
     }
@@ -817,7 +822,8 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
   if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
     throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");
-  const autoEbarimt = settings.ebarimtEnabled && !manualEbarimtId;
+  // НӨАТ төлөгч бус байгууллагад eBarimt огт үүсгэхгүй (ctx.isVatPayer — vat_settings).
+  const autoEbarimt = settings.ebarimtEnabled && !manualEbarimtId && ctx.isVatPayer;
 
   const shift = await db.query.posShifts.findFirst({
     where: and(
@@ -2093,7 +2099,13 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     );
   });
   // Илгээгдсэн eBarimt-тэй эх борлуулалт → цуцлах (+ үлдсэн мөртэй бол дахин илгээх) — §4.4.
-  if (settings.ebarimtEnabled && original.ebarimtStatus === "sent" && original.ebarimtId) {
+  // НӨАТ төлөгч бус болсон бол шинэ илгээлт үүсгэхгүй (өмнө илгээгдсэн нь ТЕГ-д хэвээр).
+  if (
+    settings.ebarimtEnabled &&
+    original.ebarimtStatus === "sent" &&
+    original.ebarimtId &&
+    (await isOrgVatPayer(orgId))
+  ) {
     await enqueueEbarimt(orgId, original.id, "cancel");
     if (settings.ebarimtMode !== "browser")
       void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] цуцлах илгээлт:", error));

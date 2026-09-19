@@ -37,6 +37,21 @@ async function inferIsVatPayer(orgId: string): Promise<boolean> {
 }
 
 /**
+ * НӨАТ төлөгч эсэх — ЗӨВХӨН УНШИНА (мөр ҮҮСГЭХГҮЙ). `loadVatSettings`-тэй ижил
+ * утга буцаана (мөр байвал түүнээс, үгүй бол компанийн мэдээллээс таана), гэхдээ
+ * `vatSettings` мөр INSERT хийхгүй тул халуун зам / background job-д аюулгүй.
+ * eBarimt зэрэг НӨАТ-д хатуу хамаарах feature-ийн gate-д ашиглана.
+ */
+export async function isOrgVatPayer(orgId: string): Promise<boolean> {
+  const row = await db.query.vatSettings.findFirst({
+    where: eq(vatSettings.organizationId, orgId),
+    columns: { isVatPayer: true },
+  });
+  if (row) return row.isVatPayer;
+  return inferIsVatPayer(orgId);
+}
+
+/**
  * НӨАТ-ийн дансны тохиргоо — байхгүй бол default-аар (31410000/13620000,
  * 10%) үүсгэнэ. costing_account_settings-тэй ижил ratified-seed хэв маяг:
  * default нь НЭГ удаа ил тохиргоо болж хадгалагдана.

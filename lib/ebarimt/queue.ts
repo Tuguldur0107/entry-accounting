@@ -16,7 +16,7 @@ import {
   type PosSettings,
 } from "@/lib/db/schema";
 import { toItemVatMode } from "@/lib/inventory/load-data";
-import { loadVatSettings } from "@/lib/vat/settings";
+import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import type { PaymentKind } from "@/lib/pos/constants";
 
 import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
@@ -312,9 +312,13 @@ export async function markFailed(
 export async function claimDueSubmissions(limit = 50): Promise<
   { submission: typeof posEbarimtSubmissions.$inferSelect; settings: PosSettings }[]
 > {
-  const orgs = await db.query.posSettings.findMany({
+  const enabledOrgs = await db.query.posSettings.findMany({
     where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtMode, "server")),
   });
+  // НӨАТ төлөгч бус болсон байгууллагыг ТЕГ-ийн илгээлтээс ХАСНА (тоо цөөн — loop зүгээр).
+  const orgs: PosSettings[] = [];
+  for (const org of enabledOrgs)
+    if (await isOrgVatPayer(org.organizationId)) orgs.push(org);
   if (orgs.length === 0) return [];
   const rows = await db.query.posEbarimtSubmissions.findMany({
     where: and(
