@@ -6007,7 +6007,7 @@ async function runFaDepreciation(
   _orgId: string,
   input: { month: string }
 ): Promise<AiToolResult> {
-  const result = await runDepreciation({ month: input.month });
+  const result = unwrapAction(await runDepreciation({ month: input.month }));
   return {
     resultText:
       result.created === 0
@@ -6036,7 +6036,7 @@ async function runPostFaDepreciation(
   assertPostLimit(total);
   // Вэбийн дэлгэцтэй ИЖИЛ зам: сарын бүх элэгдэл НЭГ журналаар бичигдэнэ
   // (хөрөнгө тус бүрд тусдаа журнал үүсгэхгүй).
-  const posted = await postDepreciationMonth(input.month);
+  const posted = unwrapAction(await postDepreciationMonth(input.month));
   return {
     resultText: `${input.month} сарын элэгдэл НЭГ журналаар батлагдлаа: ${posted.posted} хөрөнгө, нийт ${fmt(posted.amount)}₮`,
   };

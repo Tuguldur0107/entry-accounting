@@ -71,13 +71,20 @@ interface Props {
   entries: DepreciationEntryView[];
   month: string;
   basis: DepreciationBasis;
+  /** Идэвхтэй хөрөнгийн карт байхгүй бол бодолт хийх боломжгүй. */
+  activeAssetCount: number;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Алдаа гарлаа";
 }
 
-export function FaDepreciationView({ entries, month, basis }: Props) {
+export function FaDepreciationView({
+  entries,
+  month,
+  basis,
+  activeAssetCount,
+}: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -126,7 +133,11 @@ export function FaDepreciationView({ entries, month, basis }: Props) {
   function changeBasis(next: DepreciationBasis) {
     startTransition(async () => {
       try {
-        await setFaDepreciationBasis(next);
+        const result = await setFaDepreciationBasis(next);
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(
           next === "daily"
             ? "Элэгдлийн суурь ӨДРӨӨР боллоо — дахин бодолт хийнэ үү"
@@ -143,12 +154,18 @@ export function FaDepreciationView({ entries, month, basis }: Props) {
     startTransition(async () => {
       try {
         const result = await runDepreciation({ month });
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         if (result.reversed > 0) {
           toast.success(
             `${fmtPeriodCode(month)} дахин бодогдлоо — өмнөх ${result.reversed} журнал буцаагдаж, ${result.created} мөр шинээр бодогдов`
           );
         } else if (result.created === 0) {
-          toast.info("Элэгдэл бодогдох хөрөнгө олдсонгүй");
+          toast.info(
+            "Энэ сард элэгдүүлэх хөрөнгө алга — бүрэн элэгдсэн эсвэл элэгдэл эхлэх сар нь хожим байна"
+          );
         } else {
           toast.success(`${result.created} хөрөнгийн элэгдэл бодогдлоо`);
         }
@@ -169,6 +186,10 @@ export function FaDepreciationView({ entries, month, basis }: Props) {
     startTransition(async () => {
       try {
         const result = await postDepreciationMonth(month);
+        if (result.error !== undefined) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(
           `${result.posted} хөрөнгийн элэгдэл нэг журналаар батлагдлаа — ${fmtMnt(result.amount)}`
         );
@@ -321,7 +342,17 @@ export function FaDepreciationView({ entries, month, basis }: Props) {
               <option value="daily">Өдрөөр</option>
             </select>
           </label>
-          <Button size="sm" variant="outline" onClick={calculate} disabled={isPending}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={calculate}
+            disabled={isPending || activeAssetCount === 0}
+            title={
+              activeAssetCount === 0
+                ? "Идэвхтэй хөрөнгийн карт алга"
+                : undefined
+            }
+          >
             <Icon name="costing" size="sm" />
             Элэгдэл бодох
           </Button>
@@ -348,10 +379,27 @@ export function FaDepreciationView({ entries, month, basis }: Props) {
 
       {entries.length === 0 ? (
         <div className="flex min-h-56 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          <p>
-            {fmtPeriodCode(month)} сард элэгдэл бодогдоогүй байна — «Элэгдэл
-            бодох» товчоор эхэлнэ.
-          </p>
+          {activeAssetCount === 0 ? (
+            <>
+              <p className="text-[var(--ea-text-3)]">
+                Идэвхтэй үндсэн хөрөнгө алга — элэгдэл бодох зүйл байхгүй.
+              </p>
+              <p className="text-xs">
+                <Link
+                  href="/fa/assets"
+                  className="font-medium text-[var(--ea-primary)] underline"
+                >
+                  Хөрөнгийн карт
+                </Link>{" "}
+                хэсэгт карт үүсгээд идэвхжүүлнэ үү.
+              </p>
+            </>
+          ) : (
+            <p>
+              {fmtPeriodCode(month)} сард элэгдэл бодогдоогүй байна — «Элэгдэл
+              бодох» товчоор эхэлнэ.
+            </p>
+          )}
         </div>
       ) : (
         <DataGridDynamic<DepreciationEntryView>

@@ -6,7 +6,7 @@ import {
 } from "@/components/fa/fa-depreciation-view";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { faDepreciationEntries, users } from "@/lib/db/schema";
+import { faDepreciationEntries, fixedAssets, users } from "@/lib/db/schema";
 import { basisOf, loadFaSettings } from "@/lib/fa/settings";
 import { isPeriodCode } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
@@ -28,7 +28,7 @@ export default async function FaDepreciationPage({
   const month =
     period && isPeriodCode(period) ? period : selection.periodCode;
 
-  const [entries, priorEntries, settings] = await Promise.all([
+  const [entries, priorEntries, settings, activeAssets] = await Promise.all([
     // Тайлант үеийн бичилтүүд (буцаагдсаныг ч харуулж түүхийг нуухгүй).
     db.query.faDepreciationEntries.findMany({
       where: and(
@@ -48,6 +48,16 @@ export default async function FaDepreciationPage({
       columns: { assetId: true, amount: true, taxAmount: true },
     }),
     loadFaSettings(orgId, userId),
+    // Идэвхтэй карт огт байхгүй үед дэлгэц нь шалтгааныг ИЛ хэлнэ.
+    db
+      .select({ id: fixedAssets.id })
+      .from(fixedAssets)
+      .where(
+        and(
+          eq(fixedAssets.organizationId, orgId),
+          eq(fixedAssets.status, "active")
+        )
+      ),
   ]);
 
   const priorAccum = new Map<string, number>();
@@ -109,6 +119,7 @@ export default async function FaDepreciationPage({
       entries={views}
       month={month}
       basis={basisOf(settings)}
+      activeAssetCount={activeAssets.length}
     />
   );
 }

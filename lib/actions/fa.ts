@@ -37,6 +37,7 @@ import {
   type SegmentPickerData,
 } from "@/lib/gl/segment-picker-data";
 import { logAuditEvent } from "@/lib/audit";
+import { actionError, type ActionResult } from "@/lib/action-result";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
@@ -379,7 +380,19 @@ export async function deleteFixedAsset(id: string) {
  * GL журналыг нь АВТОМАТААР буцаагаад (аудитын мөр бүрэн) шинээр бодно —
  * ингэснээр журнал хэзээ ч ДАВХАРДАХГҮЙ.
  */
-export async function runDepreciation(data: { month: string }) {
+export async function runDepreciation(data: {
+  month: string;
+}): Promise<ActionResult<{ created: number; reversed: number }>> {
+  try {
+    return await runDepreciationCore(data);
+  } catch (caught) {
+    // PRODUCTION дээр шидсэн алдааны мессеж далдлагддаг (React #441) тул
+    // хүлээгдэх алдааг УТГААР буцаана — lib/action-result.ts.
+    return actionError("runDepreciation", caught, "Элэгдэл бодогдсонгүй");
+  }
+}
+
+async function runDepreciationCore(data: { month: string }) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
   if (!/^\d{4}-\d{2}$/.test(data.month))
     throw new Error("Сар (YYYY-MM) буруу байна");
@@ -388,7 +401,6 @@ export async function runDepreciation(data: { month: string }) {
 
   const settings = await loadFaSettings(orgId, userId);
   const basis = basisOf(settings);
-  const buildCode = await faPostingCodeBuilder(orgId);
 
   return await db
     .transaction(async (tx) => {
@@ -495,6 +507,12 @@ export async function runDepreciation(data: { month: string }) {
         );
       }
 
+      // Ойлгомжтой шалтгаан — хоосон дэлгэц дээр "алдаа гарлаа" гэхгүй.
+      if (assets.length === 0)
+        throw new Error(
+          "Идэвхтэй үндсэн хөрөнгө алга — Хөрөнгийн карт хэсэгт карт үүсгээд идэвхжүүлнэ үү"
+        );
+
       const assetRefs: FixedAssetRef[] = assets.map((asset) => ({
         id: asset.id,
         cost: Number(asset.cost),
@@ -545,8 +563,6 @@ export async function runDepreciation(data: { month: string }) {
         },
         tx
       );
-      // buildCode-ыг батлах алхамд ашиглана — энд зөвхөн тохиргоо шалгагдав.
-      void buildCode;
       return { created: computed.length, reversed };
     })
     .then((result) => {
@@ -1183,11 +1199,17 @@ export async function reverseFixedAssetDisposal(id: string) {
  * Дахин бодоход runDepreciation нь энэ журналыг автоматаар буцаадаг тул
  * давхар бичилт үүсэхгүй.
  */
-export async function postDepreciationMonth(month: string): Promise<{
-  voucherId: string | null;
-  posted: number;
-  amount: number;
-}> {
+export async function postDepreciationMonth(
+  month: string
+): Promise<ActionResult<{ voucherId: string; posted: number; amount: number }>> {
+  try {
+    return await postDepreciationMonthCore(month);
+  } catch (caught) {
+    return actionError("postDepreciationMonth", caught, "Элэгдэл батлагдсангүй");
+  }
+}
+
+async function postDepreciationMonthCore(month: string) {
   const { orgId, userId } = await requireModuleAction("fa", "post");
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error("Сар (YYYY-MM) буруу байна");
   const postingDate = `${month}-28`;
@@ -1313,8 +1335,19 @@ export async function postDepreciationMonth(month: string): Promise<{
   return { voucherId, posted: payable.length, amount: total };
 }
 
+
 /** Элэгдлийн суурийг (сараар / өдрөөр) солино — БҮХ хөрөнгөд үйлчилнэ. */
-export async function setFaDepreciationBasis(basis: string) {
+export async function setFaDepreciationBasis(
+  basis: string
+): Promise<ActionResult> {
+  try {
+    return await setFaDepreciationBasisCore(basis);
+  } catch (caught) {
+    return actionError("setFaDepreciationBasis", caught, "Суурь солигдсонгүй");
+  }
+}
+
+async function setFaDepreciationBasisCore(basis: string) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
   if (!isDepreciationBasis(basis))
     throw new Error("Элэгдлийн суурь буруу байна");
@@ -1328,4 +1361,5 @@ export async function setFaDepreciationBasis(basis: string) {
     summary: `Элэгдлийн суурь ${basis === "daily" ? "ӨДРӨӨР" : "САРААР"} болов`,
   });
   revalidateFa();
+  return {};
 }

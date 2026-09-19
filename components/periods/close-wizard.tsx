@@ -224,6 +224,10 @@ export function CloseWizard({
                 onClick={() =>
                   act(async () => {
                     const result = await runDepreciation({ month: periodCode });
+                    // Хүлээгдэх алдаа нь УТГААР ирдэг (production дээр шидсэн
+                    // мессеж далдлагддаг — lib/action-result.ts).
+                    if (result.error !== undefined)
+                      throw new Error(result.error);
                     return result.created > 0
                       ? `${result.created} хөрөнгийн элэгдлийн ноорог үүслээ`
                       : "Шинээр бодох элэгдэл алга (бүгд бодогдсон)";
