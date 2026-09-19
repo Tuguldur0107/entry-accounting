@@ -547,7 +547,7 @@ async function createCashDocumentCore(data: {
     data.postNow ? "post" : "write"
   );
   const description = data.description.trim();
-  if (!description) throw new Error("Гүйлгээний утга оруулна уу");
+  if (!description) throw new Error("Журналын нэр оруулна уу");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date))
     throw new Error("Огноо буруу байна");
   if (!["receipt", "payment", "transfer"].includes(data.documentType))

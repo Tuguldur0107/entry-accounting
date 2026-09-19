@@ -1062,7 +1062,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 |---------|------|--------|
 | Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | `JournalLinesGrid` reuse — inline данс editor + Dr⊕Cr mutex + undo/redo |
 | Journal lines grid (shared) | [components/journal/journal-lines-grid.tsx](components/journal/journal-lines-grid.tsx) | Дахин ашиглагдах мөрийн хүснэгт — pinned totals, clipboard, min-мөр хамгаалалт |
-| Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination |
+| Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination. Мөр = `JournalListRow` (`lib/gl/journal-list-data.ts`): ваучер + эх баримтын (касс / АР/АП) харилцагч, валют, ханш + үүсгэсэн хэрэглэгч; Дт/Кт MNT ба валютаар (MNT ÷ ханш — лавлагаа, MNT баримтад хоосон), Дансны нэр багана. "Журналын нэр" = `description` |
 | Cash баримтын панель | [components/panel/cash-doc-panel.tsx](components/panel/cash-doc-panel.tsx) | `JournalLinesGrid` reuse (readOnly) — сегмент panel, холбогдсон нэхэмжлэхийн линк, Батлах/Буцаах/Устгах |
 | Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
 | GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |
@@ -1187,6 +1187,9 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
            deleteAttachmentsFor-оор ӨӨРӨӨ хийнэ; унших зам ЗААВАЛ org +
            модулийн эрхийн шалгалттай (арап нь ar/ap аль нэг эрхээр)
 Inventory  inventory_items, warehouses, inventory_movements
+             items.salesPrice — борлуулах үнэ (MNT, нэгжид, null = тогтоогоогүй):
+               АР нэхэмжлэхэд бараа сонгоход нэгж үнэ автоматаар (байхгүй бол
+               сүүлийн АР мөрийн unitPrice); өртөгтэй ХОЛБООГҮЙ, үнэ зохиохгүй
              movements.issueTypeId — зарлагын дебет чиглэл
              movements.sourceType `po_receipt` — хүлээн авалтын мөрөөс үүссэн
 Costing    cost_components, inventory_issue_types, costing_account_settings,

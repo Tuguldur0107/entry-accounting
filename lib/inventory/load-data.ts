@@ -32,6 +32,7 @@ export async function loadInventoryBase(orgId: string) {
     code: item.code,
     name: item.name,
     unit: item.unit,
+    salesPrice: item.salesPrice != null ? Number(item.salesPrice) : null,
     isActive: item.isActive,
   }));
   const warehouseViews: WarehouseView[] = warehouseRows.map((warehouse) => ({

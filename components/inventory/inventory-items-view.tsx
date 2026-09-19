@@ -26,13 +26,14 @@ import {
   updateInventoryItem,
 } from "@/lib/actions/inventory";
 import type { InventoryItemView, WarehouseView } from "@/lib/inventory/types";
+import { fmtMnt } from "@/lib/reports/balances";
 
 interface Props {
   items: InventoryItemView[];
   warehouses: WarehouseView[];
 }
 
-const emptyItemForm = { id: "", code: "", name: "", unit: "ш" };
+const emptyItemForm = { id: "", code: "", name: "", unit: "ш", salesPrice: "" };
 const emptyWarehouseForm = { code: "", name: "" };
 
 export function InventoryItemsView({ items, warehouses }: Props) {
@@ -67,6 +68,15 @@ export function InventoryItemsView({ items, warehouses }: Props) {
       { headerName: "Нэр", field: "name", minWidth: 200, flex: 1 },
       { headerName: "Хэмжих нэгж", field: "unit", width: 120 },
       {
+        headerName: "Борлуулах үнэ",
+        field: "salesPrice",
+        width: 140,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) =>
+          params.value != null ? fmtMnt(Number(params.value)) : "—",
+      },
+      {
         headerName: "Идэвхтэй",
         field: "isActive",
         width: 110,
@@ -100,7 +110,13 @@ export function InventoryItemsView({ items, warehouses }: Props) {
             onClick={() => {
               const data = params.data;
               if (!data) return;
-              setItemForm({ id: data.id, code: data.code, name: data.name, unit: data.unit });
+              setItemForm({
+                id: data.id,
+                code: data.code,
+                name: data.name,
+                unit: data.unit,
+                salesPrice: data.salesPrice != null ? String(data.salesPrice) : "",
+              });
               setError("");
               setItemOpen(true);
             }}
@@ -254,6 +270,18 @@ export function InventoryItemsView({ items, warehouses }: Props) {
                 }
               />
             </Field>
+            <Field label="Борлуулах үнэ (₮, нэгжид)">
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={itemForm.salesPrice}
+                placeholder="АР нэхэмжлэхэд нэгж үнэ автоматаар бөглөгдөнө"
+                onChange={(e) =>
+                  setItemForm((c) => ({ ...c, salesPrice: e.target.value }))
+                }
+              />
+            </Field>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -273,11 +301,13 @@ export function InventoryItemsView({ items, warehouses }: Props) {
                       ? updateInventoryItem(itemForm.id, {
                           name: itemForm.name,
                           unit: itemForm.unit,
+                          salesPrice: itemForm.salesPrice.trim() || null,
                         })
                       : createInventoryItem({
                           code: itemForm.code,
                           name: itemForm.name,
                           unit: itemForm.unit,
+                          salesPrice: itemForm.salesPrice.trim() || null,
                         }),
                   itemForm.id ? "Бараа шинэчлэгдлээ" : "Бараа нэмэгдлээ",
                   () => setItemOpen(false)

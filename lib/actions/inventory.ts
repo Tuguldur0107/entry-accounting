@@ -59,15 +59,30 @@ function cleanText(value: string | null | undefined) {
 
 // ─── Мастер дата ─────────────────────────────────────────────────────────────
 
+/**
+ * Борлуулах үнэ: хоосон / null → null (тогтоогоогүй); 0 буюу сөрөг, тоо биш
+ * бол алдаа — үнэ ЗОХИОХГҮЙ, чимээгүй 0 болгохгүй.
+ */
+function normalizeSalesPrice(value: number | string | null | undefined) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    throw new Error("Борлуулах үнэ 0-ээс их тоо байна (эсвэл хоосон орхино)");
+  return String(parsed);
+}
+
 export async function createInventoryItem(data: {
   code: string;
   name: string;
   unit: string;
+  /** Борлуулах үнэ (MNT, нэгжид) — сонголтоор. */
+  salesPrice?: number | string | null;
 }) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
   const unit = data.unit.trim() || "ш";
+  const salesPrice = normalizeSalesPrice(data.salesPrice);
   if (!code) throw new Error("Барааны код оруулна уу");
   if (!name) throw new Error("Барааны нэр оруулна уу");
   const duplicate = await db.query.inventoryItems.findFirst({
@@ -75,20 +90,33 @@ export async function createInventoryItem(data: {
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой бараа бүртгэгдсэн байна`);
-  await db.insert(inventoryItems).values({ userId, organizationId: orgId, code, name, unit });
+  await db
+    .insert(inventoryItems)
+    .values({ userId, organizationId: orgId, code, name, unit, salesPrice });
   revalidateInventory();
 }
 
 export async function updateInventoryItem(
   id: string,
-  data: { name: string; unit: string }
+  data: {
+    name: string;
+    unit: string;
+    /** undefined = хөндөхгүй; null / "" = үнийг арилгана. */
+    salesPrice?: number | string | null;
+  }
 ) {
   const { orgId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Барааны нэр оруулна уу");
   await db
     .update(inventoryItems)
-    .set({ name, unit: data.unit.trim() || "ш" })
+    .set({
+      name,
+      unit: data.unit.trim() || "ш",
+      ...(data.salesPrice !== undefined
+        ? { salesPrice: normalizeSalesPrice(data.salesPrice) }
+        : {}),
+    })
     .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
   revalidateInventory();
 }

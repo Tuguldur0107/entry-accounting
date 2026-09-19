@@ -65,7 +65,7 @@ export function VoucherLinesTable({ lines, activeSegIds, glName }: Props) {
         cellClass: "font-mono text-xs",
       },
       {
-        headerName: "Гүйлгээний утга",
+        headerName: "Тайлбар",
         field: "description",
         minWidth: 160,
         flex: 1,

@@ -3,6 +3,8 @@ export type InventoryItemView = {
   code: string;
   name: string;
   unit: string;
+  /** Борлуулах үнэ (MNT, нэгжид) — null = тогтоогоогүй. */
+  salesPrice: number | null;
   isActive: boolean;
 };
 

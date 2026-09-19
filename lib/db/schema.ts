@@ -1326,6 +1326,11 @@ export const inventoryItems = pgTable(
     code: text("code").notNull(),
     name: text("name").notNull(),
     unit: text("unit").notNull().default("ш"),
+    // Борлуулах үнэ (MNT, нэгжид) — АР нэхэмжлэхэд бараа сонгоход нэгж үнэ
+    // АВТОМАТААР бөглөгдөнө. null = үнэ тогтоогоогүй (сүүлийн борлуулалтын
+    // нэгж үнээр нөхнө, тэр ч байхгүй бол хэрэглэгч гараар бичнэ). Өртөгтэй
+    // (cost_period_results) ХОЛБООГҮЙ — зөвхөн борлуулалтын лавлах үнэ.
+    salesPrice: numeric("sales_price", { precision: 18, scale: 4 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
