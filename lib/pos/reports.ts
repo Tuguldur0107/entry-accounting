@@ -4,7 +4,7 @@
 // cost_period_results-ийн эцсийн дундаж; хаагдаагүй ч тооцоологдсон →
 // "тооцоолсон" (ноорог залруулгыг оруулаад); тооцоологдоогүй → урьдчилсан
 // бичилт байвал "урьдчилсан", байхгүй бол null ("—"). GL-ээс ХЭЗЭЭ Ч тооцохгүй.
-// Нэгтгэлүүд ЦЭВЭР функц — ./report-math.ts (тесттэй, client-safe).
+// Нэгтгэлүүд ЦЭВЭР функц (aggregateSalesReport, тесттэй).
 
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
@@ -17,20 +17,18 @@ import {
 } from "@/lib/db/schema";
 import { periodCodeOf } from "@/lib/periods/period";
 import { scopeKey } from "@/lib/costing/periodic";
-import { COGS_TRUE_UP_ENTRY_TYPE, PROVISIONAL_VALUATION_SOURCE } from "./constants";
-import type { PaymentKind } from "./constants";
+import { COGS_TRUE_UP_ENTRY_TYPE, PROVISIONAL_VALUATION_SOURCE, type PaymentKind } from "./constants";
 import type {
   CogsBasis,
   SalesLineRow,
   SalesPaymentRow,
   SalesReportData,
   SalesReportFilter,
-} from "./report-math";
+} from "./sales-report";
 
-// Төрлүүд, цэвэр нэгтгэлүүд (aggregateBy, aggregatePayments, summarize …)
-// ./report-math-д — server/client хоёулаа тэндээс; энд дахин экспортолно
-// (lib/ai/tools.ts, тест хуучин замаараа).
-export * from "./report-math";
+// Төрөл + цэвэр нэгтгэлүүд ./sales-report-оос — server хуудас, AI tool хуучин
+// замаараа (энэ файлаас) уншиж болно; client component ЗӨВХӨН ./sales-report.
+export * from "./sales-report";
 
 
 export async function loadSalesReport(orgId: string, filter: SalesReportFilter): Promise<SalesReportData> {

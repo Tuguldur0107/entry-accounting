@@ -1,7 +1,8 @@
-// Борлуулалтын тайлангийн ЦЭВЭР хэсэг — төрлүүд + нэгтгэлүүд (тесттэй),
-// client-safe: DB импорт БАЙХГҮЙ. components/pos/sales-report-view.tsx
-// («use client») ЭНДЭЭС уншина — lib/pos/reports.ts нь db-г татдаг тул client
-// bundle-д postgres драйвер орж build унадаг (#33-тай ижил ангиллын алдаа).
+// Борлуулалтын тайлангийн ЦЭВЭР давхарга — төрөл + нэгтгэлүүд (тесттэй).
+// DB, drizzle, postgres ЭНД ИМПОРТ ХИЙХИЙГ ХОРИГЛОНО: client component
+// (components/pos/sales-report-view.tsx) энэ файлаас уншдаг тул server-only
+// модуль орвол postgres драйвер browser bundle-д орж `next build` унана
+// (fs/net/tls олдохгүй). DB ачаалагч `lib/pos/reports.ts`-д (loadSalesReport).
 
 import type { PaymentKind } from "./constants";
 

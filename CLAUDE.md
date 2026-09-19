@@ -162,8 +162,17 @@ Draft үүсгэх → хэрэглэгч шалгана → Post дарах →
   тоолуур ч буцаж, цоорхой үүсэхгүй
 - **Олон журналыг нэг дор** бичихэд (банкны хуулга) `nextVoucherNos` — scope
   бүрд НЭГ л хүсэлтээр блок нөөцөлнө (500 мөрт 500 биш)
-- **Багана нэмэгдэхээс ӨМНӨХ бичилт дугааргүй** (NULL) — UI-д «—», AI-д
-  "(дугааргүй)"; буцаан дугаарлах ажил хийгдээгүй (product owner-ийн шийдвэр)
+- **Багана нэмэгдэхээс ӨМНӨХ бичилтүүд НӨХӨЖ дугаарлагдсан** —
+  `scripts/backfill-voucher-numbers.mjs` (идемпотент, preDeploy дууддаг).
+  Эх модулийг ТАЙЛБАРЫН ТЕКСТЭЭР ТААХГҮЙ: дэд дэвтрийн холбоосоор
+  (`cash_documents.voucher_id`, `ar_ap_documents.voucher_id`,
+  `fa_depreciation_entries.voucher_id`, `cost_entries`, `goods_receipts`,
+  `purchase_orders.close_voucher_id`, `payroll_runs`, `bank_statement_lines`,
+  `fixed_assets.disposal_voucher_id` …) → журналын мөрийн дэд дэвтрийн түлхүүр
+  → externalRef угтвар → буцаалтын эх журнал → үлдсэн нь "gl".
+  Дугаар нь ОГНООНЫ дарааллаар, аль хэдийн олгогдсоныг ХӨНДӨХГҮЙ
+  (scope бүрийн max-аас үргэлжилнэ). Шийдвэрийн цэвэр логик:
+  `scripts/lib/voucher-number-plan.mjs` (`tests/voucher-backfill.test.ts`)
 - AI/MCP-ийн журналын tools дугаараар ЧУ олдоно (`resolveVoucherRef`:
   эхлээд documentNo, дараа нь ID угтвар)
 
@@ -850,6 +859,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
 | Batch | create_{counterparties,arap_invoices,cash_transactions,journal_vouchers}_batch, master data: create_{gl_accounts,inventory_items,employees,fixed_assets}_batch (max 100, partial success — Cowork анхны импорт), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
+| Нэвтрүүлэлт | get_onboarding_guide (section: overview/checklist/rules/phases/status) — `docs/deployment/onboarding.md`-ийн §2/§3/§4-ийг үгчлэн + байгууллагын шат (0–5) ба дараагийн алхам (`lib/onboarding/`); MCP `instructions` анх холбогдоход үүнийг заана | унших, аль ч горимд |
 | НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
 | Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
 | Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |

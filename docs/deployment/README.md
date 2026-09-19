@@ -28,7 +28,7 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
 | 5 | Эхний хэрэглэгч бүртгэх → байгууллага үүснэ → Тохиргоо → ЕЖ тохиргоо → стандарт данс sync | Харилцагч | Вэб |
 | 6 | Тохиргоо → AI туслах → MCP холболт → token үүсгэх (эсвэл Cowork-д OAuth-оор Connect) | Харилцагч | Вэб |
-| 7 | Материал бэлдэх + gap тайлан — шалгах жагсаалт, зөрүү шийдвэрлэх дүрэм (R0–R9) | Харилцагч + Cowork | [onboarding.md](onboarding.md) |
+| 7 | Материал бэлдэх + gap тайлан — MCP `get_onboarding_guide` (танилцуулга, шалгах жагсаалт, зөрүү шийдвэрлэх дүрэм R0–R9, байгууллагын шат) + `entry-onboarding` skill | Харилцагч + Cowork | [onboarding.md](onboarding.md) |
 | 8 | Master data импорт — Cowork + `master-data-import` skill | Харилцагч + Cowork | [master-data/README.md](master-data/README.md) |
 | 8a | Нээлтийн баланс тулгалт (`get_trial_balance`, `reconcile_modules`); зөрүү → [onboarding.md](onboarding.md) §3 | Нягтланч | Cowork/вэб |
 | 9 | Хэрэгтэй интеграци (POS, банк, CRM) — [api-integration.md](api-integration.md) | Харилцагч / бид | REST / MCP / custom hook |
