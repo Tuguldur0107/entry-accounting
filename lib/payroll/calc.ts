@@ -61,9 +61,14 @@ export type EarningsInput = {
   standardHours: number;
   /** Сард бодитоор ажилласан цаг (бүтэн сараар). */
   workedHours: number;
-  /** Ээлжийн амралтын олголт. */
+  /** Ээлжийн амралтын олголт (хоног × өдрийн дундаж — lib/payroll/additions.ts). */
   vacationPay?: number;
-  /** Бусад нэмэгдэл (урамшуулал, илүү цаг г.м). */
+  /**
+   * Илүү цаг, амралт/баярын өдөр, шөнийн нэмэгдлийн НИЙЛБЭР
+   * (computeOvertimePay-аас; ХЗ 103·106·107·108).
+   */
+  overtimePay?: number;
+  /** Бусад нэмэгдэл (урамшуулал г.м) — гараар. */
   otherAdditions?: number;
 };
 
@@ -73,6 +78,7 @@ export type EarningsResult = {
   /** Үндсэн олголт = үндсэн цалин × ажилласан / ажиллавал зохих цаг. */
   baseEarnings: number;
   vacationPay: number;
+  overtimePay: number;
   otherAdditions: number;
   /** Нийт олголт — НДШ, ХАОАТ-ын суурь. */
   earnings: number;
@@ -94,8 +100,11 @@ export function computeEarnings(input: EarningsInput): EarningsResult {
   if (!(workedHours >= 0) || !Number.isFinite(workedHours))
     throw new Error("Ажилласан цаг 0-ээс багагүй байна");
   const vacationPay = Math.round((input.vacationPay ?? 0) * 100) / 100;
+  const overtimePay = Math.round((input.overtimePay ?? 0) * 100) / 100;
   const otherAdditions = Math.round((input.otherAdditions ?? 0) * 100) / 100;
   if (!(vacationPay >= 0)) throw new Error("Ээлжийн амралт 0-ээс багагүй байна");
+  if (!(overtimePay >= 0))
+    throw new Error("Илүү цагийн нэмэгдэл 0-ээс багагүй байна");
   if (!(otherAdditions >= 0))
     throw new Error("Бусад нэмэгдэл 0-ээс багагүй байна");
 
@@ -104,8 +113,12 @@ export function computeEarnings(input: EarningsInput): EarningsResult {
     hourlyRate: Math.round((baseSalary / standardHours) * 100) / 100,
     baseEarnings,
     vacationPay,
+    overtimePay,
     otherAdditions,
-    earnings: Math.round((baseEarnings + vacationPay + otherAdditions) * 100) / 100,
+    earnings:
+      Math.round(
+        (baseEarnings + vacationPay + overtimePay + otherAdditions) * 100
+      ) / 100,
   };
 }
 
@@ -114,6 +127,12 @@ export type PayrollInput = {
   earnings: number;
   /** Бусад суутгал (зээл г.м) — татварт нөлөөгүй, гарт олгохоос хасагдана. */
   otherDeductions?: number;
+  /**
+   * ХЧТА (хөдөлмөрийн чадвар түр алдалт)-ын тэтгэмж. ХАОАТ-аас
+   * ЧӨЛӨӨЛӨГДӨНӨ (ХАОАТ хууль 24 — «нөхөн олговор»), НДШ ногдуулах орлого
+   * ч БИШ тул `earnings`-д ОРОХГҮЙ: зөвхөн гарт олгох дүнд нэмэгдэнэ.
+   */
+  sickBenefit?: number;
   /**
    * АО-НДШ % — ажил олгогчийн НИЙТ НДШ хувь (суурь 11.7 + ҮОМШӨ 0.8–3.0,
    * ажилтан бүрд нэг тоо: оффис 12.5, барилга 13.2, уул уурхай 14.2–14.7).
@@ -150,6 +169,8 @@ export type PayrollResult = {
   taxableIncome: number;
   pit: number;
   otherDeductions: number;
+  /** ХЧТА тэтгэмж — татваргүй, гарт олгоход НЭМЭГДСЭН дүн. */
+  sickBenefit: number;
   /** Сарын НИЙТ гарт олгох = урьдчилгаа + сүүл цалин. */
   netSalary: number;
   /** Цагийн хөлс = суурь цалин / стандарт ажлын цаг (0 = тооцох боломжгүй). */
@@ -170,6 +191,8 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
   const otherDeductions = Math.round((input.otherDeductions ?? 0) * 100) / 100;
   if (!(otherDeductions >= 0))
     throw new Error("Бусад суутгал 0-ээс багагүй байна");
+  const sickBenefit = Math.round((input.sickBenefit ?? 0) * 100) / 100;
+  if (!(sickBenefit >= 0)) throw new Error("ХЧТА тэтгэмж 0-ээс багагүй байна");
   const employerRate = input.employerSiPercent / 100;
   if (!(employerRate >= 0) || employerRate > 0.2)
     throw new Error("АО-НДШ хувь 0–20%-ийн хооронд байна");
@@ -194,8 +217,13 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
     pitBeforeCredit(taxableIncome, input.date) - pitCreditOf(taxableIncome)
   );
 
+  // ХЧТА тэтгэмж нь татварын болон НДШ-ийн сууринд ОРОХГҮЙ (дээрх
+  // taxableIncome/cappedBase зөвхөн earnings дээр бодогдсон) — гарт олгоход л
+  // нэмэгдэнэ.
   const netSalary =
-    Math.round((earnings - employeeSi - pit - otherDeductions) * 100) / 100;
+    Math.round(
+      (earnings - employeeSi - pit - otherDeductions + sickBenefit) * 100
+    ) / 100;
   if (netSalary < 0)
     throw new Error("Суутгалууд нийт олголтоос их байна — гарт олгох сөрөг");
 
@@ -234,6 +262,7 @@ export function computeEmployeePayroll(input: PayrollInput): PayrollResult {
     taxableIncome,
     pit,
     otherDeductions,
+    sickBenefit,
     netSalary,
     hourlyRate,
     advanceHours,
@@ -251,6 +280,8 @@ export type PayrollTotals = {
   employerSi: number;
   pit: number;
   otherDeductions: number;
+  /** ХЧТА тэтгэмж — earnings-д ОРООГҮЙ, гарт олгох дүнд нэмэгдсэн. */
+  sickBenefit?: number;
   netSalary: number;
 };
 
@@ -261,6 +292,12 @@ export type PayrollAccountNumbers = {
   pitPayable: string;
   salaryPayable: string;
   deduction: string;
+  /**
+   * ХЧТА тэтгэмжийн зардлын данс. Тохируулаагүй бол цалингийн зардлын данс
+   * хэрэглэгдэнэ — нийгмийн даатгалын сангаас нөхөн авдаг хэсгийг нягтлан
+   * дараа нь дахин ангилна (тохиргооны ил сонголт).
+   */
+  sickBenefitExpense?: string;
 };
 
 export type PayrollJournalLine = {
@@ -314,6 +351,16 @@ export function buildPayrollJournalLines(
       description: `Цалингийн өглөг (нэт) ${periodMonth}`,
     },
   ];
+  // ХЧТА тэтгэмж нь earnings-д ОРООГҮЙ ч гарт олгох дүнд (salaryPayable)
+  // багтсан тул өөрийн дебет талтай байх ЁСТОЙ — эс бөгөөс журнал тэнцэхгүй.
+  const sickBenefit = totals.sickBenefit ?? 0;
+  if (sickBenefit > 0)
+    lines.push({
+      account: accounts.sickBenefitExpense || accounts.salaryExpense,
+      debit: sickBenefit,
+      credit: 0,
+      description: `ХЧТА тэтгэмж ${periodMonth}`,
+    });
   if (totals.otherDeductions > 0)
     lines.push({
       account: accounts.deduction,

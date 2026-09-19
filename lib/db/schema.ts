@@ -1712,6 +1712,15 @@ export const employees = pgTable(
     })
       .notNull()
       .default("12.5"),
+    /**
+     * ХЧТА тэтгэмжийн хувь (%) — НД-ын шимтгэл төлсөн ЖИЛЭЭС хамаарна тул
+     * ажилтан бүрд ил тохируулна. null = тохируулаагүй → тэтгэмж
+     * АВТОМАТААР бодогдохгүй (хувийг ЗОХИОХГҮЙ, нягтлан гараар оруулна).
+     */
+    sickBenefitPercent: numeric("sick_benefit_percent", {
+      precision: 5,
+      scale: 2,
+    }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -1775,6 +1784,38 @@ export const payrollSettings = pgTable("payroll_settings", {
   })
     .notNull()
     .default("168"),
+  /**
+   * Сарын ажлын өдрийн норм — ӨДРИЙН дундаж хөлсний хуваагч (ээлжийн амралт,
+   * ХЧТА-ийн олговорт). overtime.md: дундаж 22 өдөр.
+   */
+  monthlyWorkDays: numeric("monthly_work_days", { precision: 6, scale: 2 })
+    .notNull()
+    .default("22"),
+  /**
+   * Ээлжийн амралт / тэтгэмжийн дундаж цалинг хэдэн сараар бодох (ХЗ-ийн
+   * «дундаж цалин хөлс»). Тайлант сараас ӨМНӨХ N сарын бодит олголт.
+   */
+  averageEarningsMonths: integer("average_earnings_months").notNull().default(12),
+  /** Илүү цагийн коэффициентүүд — хуулийн доод хэмжээ (ХЗ 103·106·107·108). */
+  overtimeMultiplier: numeric("overtime_multiplier", { precision: 5, scale: 2 })
+    .notNull()
+    .default("1.5"),
+  restDayMultiplier: numeric("rest_day_multiplier", { precision: 5, scale: 2 })
+    .notNull()
+    .default("1.5"),
+  holidayMultiplier: numeric("holiday_multiplier", { precision: 5, scale: 2 })
+    .notNull()
+    .default("2"),
+  /** Шөнийн нэмэгдэл — цагийн хөлсний хувь (0.2 = +20%). */
+  nightBonusRate: numeric("night_bonus_rate", { precision: 5, scale: 2 })
+    .notNull()
+    .default("0.2"),
+  /**
+   * ХЧТА тэтгэмжийн зардлын данс — тохируулаагүй бол цалингийн зардлын данс
+   * хэрэглэгдэнэ (нийгмийн даатгалын сангаас нөхөн авдаг хэсгийг нягтлан
+   * дараа нь ангилна).
+   */
+  sickBenefitAccountNumber: text("sick_benefit_account_number"),
   /**
    * Цалингийн нэхэмжлэхийн ӨГЛӨГИЙН ХЯНАЛТЫН данс — АР/АП модулийн
    * ажилтанд өгөх өглөг энд суудаг (кассаас энэ өглөгийг хаана).
@@ -1894,6 +1935,60 @@ export const payrollRunLines = pgTable("payroll_run_lines", {
   advanceAmount: numeric("advance_amount", { precision: 18, scale: 2 })
     .notNull()
     .default("0"),
+  // ── Нэмэгдэл, олговрын ОРЦ (цаг / хоног) ───────────────────────────────
+  // Дүн нь эдгээрээс АВТОМАТААР бодогдоно (lib/payroll/additions.ts); дүнг
+  // гараар дарж бичвэл харгалзах `*Manual` тэмдэг асаж, дахин бодолт түүнийг
+  // ДАРАХГҮЙ (тэмдгийг арилгавал дахин автомат болно).
+  /** Ердийн илүү цаг (ХЗ 103 — 1.5×). */
+  overtimeHours: numeric("overtime_hours", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Амралтын өдөр ажилласан цаг (ХЗ 107 — 1.5×). */
+  restDayHours: numeric("rest_day_hours", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Баярын өдөр ажилласан цаг (ХЗ 108 — 2.0×). */
+  holidayHours: numeric("holiday_hours", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Шөнийн цаг 22:00–06:00 (ХЗ 106 — цагийн хөлсний +20% нэмэгдэл). */
+  nightHours: numeric("night_hours", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Ээлжийн амралтын хоног (ХЗ 109). */
+  vacationDays: numeric("vacation_days", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** ХЧТА (хөдөлмөрийн чадвар түр алдалт)-ын хоног. */
+  sickDays: numeric("sick_days", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Илүү цаг/шөнө/амралт-баярын нэмэгдлийн НИЙЛБЭР — нийт олголтод орно. */
+  overtimePay: numeric("overtime_pay", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /**
+   * ХЧТА тэтгэмж — ХАОАТ, НДШ-ийн сууринд ОРОХГҮЙ (ХАОАТ хууль 24), зөвхөн
+   * гарт олгох дүнд нэмэгдэнэ.
+   */
+  sickBenefit: numeric("sick_benefit", { precision: 18, scale: 2 })
+    .notNull()
+    .default("0"),
+  /** Дүнг гараар дарж бичсэн эсэх — дахин бодолт эдгээрийг хөндөхгүй. */
+  vacationPayManual: boolean("vacation_pay_manual").notNull().default(false),
+  overtimePayManual: boolean("overtime_pay_manual").notNull().default(false),
+  sickBenefitManual: boolean("sick_benefit_manual").notNull().default(false),
+  /**
+   * Ээлжийн амралт / ХЧТА-ийн суурь болсон дундаж (харуулах, аудитад):
+   * сарын дундаж олголт ба хэдэн сарын дата ашигласан.
+   */
+  averageMonthlyEarnings: numeric("average_monthly_earnings", {
+    precision: 18,
+    scale: 2,
+  })
+    .notNull()
+    .default("0"),
+  averageMonthsUsed: integer("average_months_used").notNull().default(0),
   // Доорх багана server-д calc.ts-ээр ДАХИН бодогдож хадгалагдана (түүх).
   employeeSi: numeric("employee_si", { precision: 18, scale: 2 }).notNull(),
   employerSi: numeric("employer_si", { precision: 18, scale: 2 }).notNull(),
