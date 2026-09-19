@@ -156,8 +156,17 @@ Draft үүсгэх → хэрэглэгч шалгана → Post дарах →
   тоолуур ч буцаж, цоорхой үүсэхгүй
 - **Олон журналыг нэг дор** бичихэд (банкны хуулга) `nextVoucherNos` — scope
   бүрд НЭГ л хүсэлтээр блок нөөцөлнө (500 мөрт 500 биш)
-- **Багана нэмэгдэхээс ӨМНӨХ бичилт дугааргүй** (NULL) — UI-д «—», AI-д
-  "(дугааргүй)"; буцаан дугаарлах ажил хийгдээгүй (product owner-ийн шийдвэр)
+- **Багана нэмэгдэхээс ӨМНӨХ бичилтүүд НӨХӨЖ дугаарлагдсан** —
+  `scripts/backfill-voucher-numbers.mjs` (идемпотент, preDeploy дууддаг).
+  Эх модулийг ТАЙЛБАРЫН ТЕКСТЭЭР ТААХГҮЙ: дэд дэвтрийн холбоосоор
+  (`cash_documents.voucher_id`, `ar_ap_documents.voucher_id`,
+  `fa_depreciation_entries.voucher_id`, `cost_entries`, `goods_receipts`,
+  `purchase_orders.close_voucher_id`, `payroll_runs`, `bank_statement_lines`,
+  `fixed_assets.disposal_voucher_id` …) → журналын мөрийн дэд дэвтрийн түлхүүр
+  → externalRef угтвар → буцаалтын эх журнал → үлдсэн нь "gl".
+  Дугаар нь ОГНООНЫ дарааллаар, аль хэдийн олгогдсоныг ХӨНДӨХГҮЙ
+  (scope бүрийн max-аас үргэлжилнэ). Шийдвэрийн цэвэр логик:
+  `scripts/lib/voucher-number-plan.mjs` (`tests/voucher-backfill.test.ts`)
 - AI/MCP-ийн журналын tools дугаараар ЧУ олдоно (`resolveVoucherRef`:
   эхлээд documentNo, дараа нь ID угтвар)
 
