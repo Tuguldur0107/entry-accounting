@@ -187,7 +187,7 @@ export function EmployeesView({ rows }: Props) {
     const sickBenefitPercent = sickPercentRaw === "" ? null : Number(sickPercentRaw);
     startTransition(async () => {
       try {
-        await upsertEmployee({
+        const saved = await upsertEmployee({
           id: form.id,
           name: form.name,
           lastName: form.lastName || undefined,
@@ -208,6 +208,10 @@ export function EmployeesView({ rows }: Props) {
           employerSiPercent,
           sickBenefitPercent,
         });
+        if (saved.error !== undefined) {
+          toast.error(saved.error);
+          return;
+        }
         toast.success(
           form.id ? "Ажилтны мэдээлэл хадгалагдлаа" : "Ажилтан бүртгэгдлээ"
         );
@@ -238,6 +242,7 @@ export function EmployeesView({ rows }: Props) {
   async function handleImport(values: EmployeeImport[]) {
     try {
       const result = await importEmployees(values);
+      if (result.error !== undefined) return result.error;
       const parts = [
         result.created > 0 ? `${result.created} шинээр бүртгэгдэв` : null,
         result.updated > 0 ? `${result.updated} шинэчлэгдэв` : null,

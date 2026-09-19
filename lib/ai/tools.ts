@@ -6113,18 +6113,20 @@ async function runCreateEmployee(
     employerSiPercent?: number;
   }
 ): Promise<AiToolResult> {
-  await upsertEmployee({
-    ...input,
-    id: undefined,
-    employerSiPercent: input.employerSiPercent ?? 12.5,
-  });
+  unwrapAction(
+    await upsertEmployee({
+      ...input,
+      id: undefined,
+      employerSiPercent: input.employerSiPercent ?? 12.5,
+    })
+  );
   return {
     resultText: `Ажилтан бүртгэгдлээ: ${[input.lastName, input.name].filter(Boolean).join(" ")}, үндсэн цалин ${fmt(input.baseSalary)}₮, АО-НДШ ${input.employerSiPercent ?? 12.5}%${input.registerNo ? `, РД ${input.registerNo}` : ""}`,
   };
 }
 
 async function runPayrollCalc(input: { period: string }): Promise<AiToolResult> {
-  await calculatePayrollRun(input.period);
+  unwrapAction(await calculatePayrollRun(input.period));
   return await runPayrollSummary(input);
 }
 
@@ -6186,7 +6188,7 @@ async function runPayrollSummary(input: {
 async function runCreatePayrollVoucher(input: {
   period: string;
 }): Promise<AiToolResult> {
-  const result = await createPayrollVoucher(input.period);
+  const result = unwrapAction(await createPayrollVoucher(input.period));
   return {
     resultText: result.dedup
       ? `${input.period} сарын цалингийн журнал аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`
@@ -7054,31 +7056,33 @@ async function runUpdateEmployee(
     input.employee,
     { allNames: rows.map((entry) => entry.name) }
   );
-  await upsertEmployee({
-    id: employee.id,
-    name: input.newName?.trim() || employee.name,
-    lastName: input.lastName ?? employee.lastName,
-    registerNo: input.registerNo ?? employee.registerNo ?? undefined,
-    birthDate: input.birthDate ?? employee.birthDate ?? undefined,
-    phone: input.phone ?? employee.phone ?? undefined,
-    email: input.email ?? employee.email ?? undefined,
-    homeAddress: input.homeAddress ?? employee.homeAddress ?? undefined,
-    bankName: input.bankName ?? employee.bankName ?? undefined,
-    bankAccountNo: input.bankAccountNo ?? employee.bankAccountNo ?? undefined,
-    iban: input.iban ?? employee.iban ?? undefined,
-    hireDate: input.hireDate ?? employee.hireDate ?? undefined,
-    terminationDate:
-      input.terminationDate ?? employee.terminationDate ?? undefined,
-    department: input.department ?? employee.department,
-    employmentType:
-      input.employmentType ??
-      (employee.employmentType as EmploymentType | undefined),
-    position: input.position ?? employee.position ?? "",
-    baseSalary: input.baseSalary ?? Number(employee.baseSalary),
-    employerSiPercent:
-      input.employerSiPercent ?? Number(employee.employerSiPercent),
-    isActive: input.isActive ?? employee.isActive,
-  });
+  unwrapAction(
+    await upsertEmployee({
+      id: employee.id,
+      name: input.newName?.trim() || employee.name,
+      lastName: input.lastName ?? employee.lastName,
+      registerNo: input.registerNo ?? employee.registerNo ?? undefined,
+      birthDate: input.birthDate ?? employee.birthDate ?? undefined,
+      phone: input.phone ?? employee.phone ?? undefined,
+      email: input.email ?? employee.email ?? undefined,
+      homeAddress: input.homeAddress ?? employee.homeAddress ?? undefined,
+      bankName: input.bankName ?? employee.bankName ?? undefined,
+      bankAccountNo: input.bankAccountNo ?? employee.bankAccountNo ?? undefined,
+      iban: input.iban ?? employee.iban ?? undefined,
+      hireDate: input.hireDate ?? employee.hireDate ?? undefined,
+      terminationDate:
+        input.terminationDate ?? employee.terminationDate ?? undefined,
+      department: input.department ?? employee.department,
+      employmentType:
+        input.employmentType ??
+        (employee.employmentType as EmploymentType | undefined),
+      position: input.position ?? employee.position ?? "",
+      baseSalary: input.baseSalary ?? Number(employee.baseSalary),
+      employerSiPercent:
+        input.employerSiPercent ?? Number(employee.employerSiPercent),
+      isActive: input.isActive ?? employee.isActive,
+    })
+  );
   return {
     resultText: `Ажилтан шинэчлэгдлээ: ${employee.name}${input.newName ? ` → ${input.newName}` : ""}`,
   };

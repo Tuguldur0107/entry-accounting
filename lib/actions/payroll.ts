@@ -32,7 +32,11 @@ import {
   salaryBillRefOf,
   type SalaryBillKind,
 } from "@/lib/payroll/bills";
-import { unwrapAction } from "@/lib/action-result";
+import {
+  actionError,
+  unwrapAction,
+  type ActionResult,
+} from "@/lib/action-result";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
@@ -214,7 +218,15 @@ async function assertRegisterUnique(
     );
 }
 
-export async function upsertEmployee(data: EmployeeInput) {
+export async function upsertEmployee(data: EmployeeInput): Promise<ActionResult> {
+  try {
+    return await upsertEmployeeCore(data);
+  } catch (caught) {
+    return actionError("upsertEmployee", caught, "Ажилтан хадгалагдсангүй");
+  }
+}
+
+async function upsertEmployeeCore(data: EmployeeInput) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   const values = validateEmployeeInput(data);
   await assertRegisterUnique(orgId, values.registerNo, data.id);
@@ -230,6 +242,7 @@ export async function upsertEmployee(data: EmployeeInput) {
     await db.insert(employees).values({ userId, organizationId: orgId, ...values });
   }
   revalidatePayroll();
+  return {};
 }
 
 /**
@@ -238,6 +251,22 @@ export async function upsertEmployee(data: EmployeeInput) {
  * буцааж оруулах round-trip). Мөр бүрд тусдаа амжилт/алдаа буцаана.
  */
 export async function importEmployees(
+  rows: EmployeeInput[]
+): Promise<
+  ActionResult<{
+    created: number;
+    updated: number;
+    errors: { index: number; message: string }[];
+  }>
+> {
+  try {
+    return await importEmployeesCore(rows);
+  } catch (caught) {
+    return actionError("importEmployees", caught, "Импорт хийгдсэнгүй");
+  }
+}
+
+async function importEmployeesCore(
   rows: EmployeeInput[]
 ): Promise<{ created: number; updated: number; errors: { index: number; message: string }[] }> {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
@@ -795,7 +824,15 @@ function computeFor(
  * зөвхөн тооцооллын багануудыг дахин бодно; шинэ ажилтанд baseSalary-аар
  * мөр нэмнэ. GL журнал үүссэн run-д дахин бодолт хийхгүй.
  */
-export async function calculatePayrollRun(periodMonth: string) {
+export async function calculatePayrollRun(periodMonth: string): Promise<ActionResult> {
+  try {
+    return await calculatePayrollRunCore(periodMonth);
+  } catch (caught) {
+    return actionError("calculatePayrollRun", caught, "Бодолт хийгдсэнгүй");
+  }
+}
+
+async function calculatePayrollRunCore(periodMonth: string) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
   const { endDate } = periodRange(periodMonth);
@@ -910,10 +947,21 @@ export async function calculatePayrollRun(periodMonth: string) {
   });
 
   revalidatePayroll();
+  return {};
 }
 
 /** Мөрийн олголт/суутгал/урьдчилгааны цагийг засаад тооцооллыг дахин бодно. */
-export async function updatePayrollLine(data: {
+export async function updatePayrollLine(
+  data: Parameters<typeof updatePayrollLineCore>[0]
+): Promise<ActionResult> {
+  try {
+    return await updatePayrollLineCore(data);
+  } catch (caught) {
+    return actionError("updatePayrollLine", caught, "Мөр хадгалагдсангүй");
+  }
+}
+
+async function updatePayrollLineCore(data: {
   lineId: string;
   otherDeductions: number;
   advanceHours?: number;
@@ -1034,6 +1082,7 @@ export async function updatePayrollLine(data: {
     })
     .where(eq(payrollRunLines.id, data.lineId));
   revalidatePayroll();
+  return {};
 }
 
 // ── GL ноорог журнал ────────────────────────────────────────────────────────
@@ -1071,6 +1120,16 @@ async function payrollPostingCodeBuilder(orgId: string) {
  * огноогоор, externalRef `payroll:YYYY-MM`-ээр сард нэг л удаа.
  */
 export async function createPayrollVoucher(
+  periodMonth: string
+): Promise<ActionResult<{ id: string; dedup?: boolean }>> {
+  try {
+    return await createPayrollVoucherCore(periodMonth);
+  } catch (caught) {
+    return actionError("createPayrollVoucher", caught, "Журнал үүсээгүй");
+  }
+}
+
+async function createPayrollVoucherCore(
   periodMonth: string
 ): Promise<{ id: string; dedup?: boolean }> {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
@@ -1257,6 +1316,22 @@ export async function createPayrollSalaryBill(
   periodMonth: string,
   kind: SalaryBillKind,
   /** Урьдчилгаанд ЗААВАЛ (сар дундуур олгоно); сүүлд өгөөгүй бол сарын эцэс. */
+  date?: string
+): Promise<ActionResult<{ id: string; documentNo: string; dedup?: boolean }>> {
+  try {
+    return await createPayrollSalaryBillCore(periodMonth, kind, date);
+  } catch (caught) {
+    return actionError(
+      "createPayrollSalaryBill",
+      caught,
+      "Цалингийн нэхэмжлэх үүсээгүй"
+    );
+  }
+}
+
+async function createPayrollSalaryBillCore(
+  periodMonth: string,
+  kind: SalaryBillKind,
   date?: string
 ): Promise<{ id: string; documentNo: string; dedup?: boolean }> {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
