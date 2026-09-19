@@ -2,12 +2,14 @@
 // ижил хэв маяг (lib/licensing/beacon.ts): instrumentation.ts-ээс нэг удаа
 // эхэлнэ, `started` guard, unref (shutdown-д саад болохгүй).
 //
-// 15 минут тутам: Улаанбаатарын цаг 08:00-оос хойш бол өдрийн ажлыг дуудна.
+// 15 минут тутам: (а) Улаанбаатарын цаг 08:00-оос хойш бол өдрийн дүрмүүд,
+// (б) tick бүрд и-мэйлийн хүргэлт (instant ≤15 мин, digest цагт нь).
 // Ажил бүр notification_runs-аар байгууллага × өдөрт НЭГ удаа л ажиллах тул
 // давтан tick, олон instance, cron route-тэй давхцал бүгд аюулгүй.
 //
 // Унтраах: NOTIFICATIONS_TICKER=off (гадны cron-оор л ажиллуулах бол).
 
+import { deliverPendingEmails } from "./email-delivery";
 import { runDailyNotifications } from "./scheduler";
 
 /** Өдрийн ажил эхлэх цаг — Улаанбаатарын цагаар. */
@@ -31,17 +33,26 @@ function hourInUlaanbaatar(now = new Date()): number {
 
 export async function tick(): Promise<void> {
   if (running) return;
-  if (hourInUlaanbaatar() < DAILY_JOB_HOUR_UB) return;
   running = true;
   try {
-    const result = await runDailyNotifications();
-    if (result.claimed > 0 || result.errors.length > 0)
+    if (hourInUlaanbaatar() >= DAILY_JOB_HOUR_UB) {
+      const result = await runDailyNotifications();
+      if (result.claimed > 0 || result.errors.length > 0)
+        console.log(
+          `[notifications] ${result.today}: ${result.claimed} байгууллага, ${result.emitted} мэдэгдэл` +
+            (result.errors.length ? `, ${result.errors.length} алдаа` : "")
+        );
+      for (const failure of result.errors)
+        console.error("[notifications] байгууллага", failure.organizationId, failure.error);
+    }
+    const mail = await deliverPendingEmails();
+    if (mail.emails > 0 || mail.errors.length > 0)
       console.log(
-        `[notifications] ${result.today}: ${result.claimed} байгууллага, ${result.emitted} мэдэгдэл` +
-          (result.errors.length ? `, ${result.errors.length} алдаа` : "")
+        `[notifications] и-мэйл: ${mail.emails} захиа, ${mail.notifications} мэдэгдэл` +
+          (mail.errors.length ? `, ${mail.errors.length} алдаа` : "")
       );
-    for (const failure of result.errors)
-      console.error("[notifications] байгууллага", failure.organizationId, failure.error);
+    for (const failure of mail.errors)
+      console.error("[notifications] и-мэйл", failure.organizationId, failure.userId ?? "", failure.error);
   } catch (error) {
     console.error("[notifications] ticker:", error);
   } finally {

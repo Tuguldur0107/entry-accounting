@@ -2924,6 +2924,7 @@ export const notifications = pgTable(
     actorUserId: text("actor_user_id"),
     dedupeKey: text("dedupe_key").notNull(),
     readAt: timestamp("read_at"),
+    /** И-мэйлээр илгээгдсэн цаг (instant/digest) — null: илгээгдээгүй/тохиргоо off. */
     emailedAt: timestamp("emailed_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

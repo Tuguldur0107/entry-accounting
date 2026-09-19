@@ -187,6 +187,13 @@ import {
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
 import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
 
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationsRead,
+} from "@/lib/actions/notifications";
+import { notificationTypeLabel } from "@/lib/notifications/catalog";
+
 import type { AiWriteMode } from "./models";
 
 import type { AiAction } from "./action-markers";
@@ -1323,6 +1330,30 @@ export const AI_TOOLS: AiToolDef[] = [
         period: { type: "string", description: "Тайлант үе YYYY-MM" },
       },
       required: ["period"],
+    },
+  },
+  {
+    name: "list_notifications",
+    description:
+      "Хэрэглэгчийн мэдэгдлийн inbox — татварын хугацаа, хуучирсан ноорог, хэтэрсэн авлага/өглөг, хамт олны батлалт/буцаалт, сар хаалт, лиценз. Хэрэглэгч 'юу анхаарах вэ', 'мэдэгдэл', 'сануулга' гэвэл үүгээр (вэб: топбарын хонх, /notifications).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        unreadOnly: { type: "boolean", description: "Зөвхөн уншаагүй (default true)" },
+        limit: { type: "number", description: "Дээд тал нь (default 20, max 100)" },
+      },
+    },
+  },
+  {
+    name: "mark_notifications_read",
+    description:
+      "Мэдэгдлийг уншсан гэж тэмдэглэнэ — ids өгвөл тэдгээрийг, all=true бол бүгдийг. Журнал үүсгэхгүй, аль ч горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" }, description: "Мэдэгдлийн ID (бүтэн эсвэл 6+ тэмдэгтийн угтвар)" },
+        all: { type: "boolean", description: "Бүх уншаагүйг тэмдэглэх" },
+      },
     },
   },
   {
@@ -8372,6 +8403,61 @@ export function allAiTools(): AiToolDef[] {
   return mergedTools;
 }
 
+
+// ── Мэдэгдэл (docs/notifications §4.6) ──────────────────────────────────────
+
+async function runListNotifications(input: {
+  unreadOnly?: boolean;
+  limit?: number;
+}): Promise<AiToolResult> {
+  const { rows, unread } = await listNotifications({
+    unreadOnly: input.unreadOnly ?? true,
+    limit: Math.min(Math.max(Number(input.limit) || 20, 1), 100),
+  });
+  if (rows.length === 0)
+    return {
+      resultText:
+        input.unreadOnly === false
+          ? "Мэдэгдэл алга"
+          : "Уншаагүй мэдэгдэл алга — анхаарах зүйл байхгүй",
+    };
+  const lines = rows.map((row) => {
+    const mark = row.severity === "danger" ? "‼" : row.severity === "warning" ? "⚠" : "•";
+    const when = row.createdAt.slice(0, 16).replace("T", " ");
+    return (
+      `${mark} [${row.id.slice(0, 8)}] ${when} · ${notificationTypeLabel(row.type)} · ${row.title}` +
+      (row.body ? ` — ${row.body}` : "") +
+      (row.readAt ? "" : " (уншаагүй)")
+    );
+  });
+  return {
+    resultText: `Уншаагүй нийт: ${unread}\n` + lines.join("\n"),
+  };
+}
+
+async function runMarkNotificationsRead(input: {
+  ids?: string[];
+  all?: boolean;
+}): Promise<AiToolResult> {
+  if (input.all) {
+    const n = await markAllNotificationsRead();
+    return { resultText: `${n} мэдэгдэл уншсан гэж тэмдэглэгдлээ` };
+  }
+  const prefixes = (input.ids ?? []).map((id) => String(id).trim()).filter(Boolean);
+  if (prefixes.length === 0)
+    throw new Error("[VALIDATION] ids эсвэл all=true өгнө");
+  if (prefixes.some((prefix) => prefix.length < 6))
+    throw new Error("[VALIDATION] ID нь бүтэн эсвэл 6+ тэмдэгтийн угтвар байна");
+  // Угтварыг өөрийн inbox дотроос л тааруулна (org/user хамгаалалт server action-д).
+  const { rows } = await listNotifications({ limit: 500 });
+  const ids = rows
+    .filter((row) => prefixes.some((prefix) => row.id.startsWith(prefix)))
+    .map((row) => row.id);
+  if (ids.length === 0) throw new Error("[NOT_FOUND] Ийм ID-тэй мэдэгдэл олдсонгүй");
+  const n = await markNotificationsRead(ids);
+  return { resultText: `${n} мэдэгдэл уншсан гэж тэмдэглэгдлээ` };
+}
+
 // ── Нэгдсэн диспетчер ───────────────────────────────────────────────────────
 
 /**
@@ -8554,6 +8640,10 @@ export async function executeAiTool(
         return await runPayrollSummary(args);
       case "create_payroll_voucher":
         return await runCreatePayrollVoucher(args);
+      case "list_notifications":
+        return await runListNotifications(args);
+      case "mark_notifications_read":
+        return await runMarkNotificationsRead(args);
       case "get_month_end_checklist":
         return await runMonthEndChecklist(args);
       case "get_vat_return":

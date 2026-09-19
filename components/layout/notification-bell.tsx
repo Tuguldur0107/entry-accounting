@@ -135,15 +135,26 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold text-[var(--ea-text-1)]">Мэдэгдэл</span>
-        {unread > 0 && (
-          <button
-            type="button"
-            onClick={() => void readAll()}
-            className="text-[11px] text-[var(--ea-interactive)] hover:underline"
+        <span className="flex items-center gap-2">
+          {unread > 0 && (
+            <button
+              type="button"
+              onClick={() => void readAll()}
+              className="text-[11px] text-[var(--ea-interactive)] hover:underline"
+            >
+              Бүгдийг уншсан
+            </button>
+          )}
+          <Link
+            href="/settings/notifications"
+            onClick={() => setOpen(false)}
+            title="Мэдэгдлийн тохиргоо"
+            aria-label="Мэдэгдлийн тохиргоо"
+            className="text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
           >
-            Бүгдийг уншсан
-          </button>
-        )}
+            <Icon name="settings" size="sm" />
+          </Link>
+        </span>
       </div>
       <DropdownSeparator />
       <div className="max-h-96 overflow-y-auto">

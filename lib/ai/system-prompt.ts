@@ -1,7 +1,9 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { chartOfAccounts } from "@/lib/db/schema";
+import { chartOfAccounts, notifications } from "@/lib/db/schema";
+import { and as andOp, count, eq as eqOp, isNull } from "drizzle-orm";
+import { computeTaxDeadlines } from "@/lib/tax/calendar";
 
 // AI туслахын system prompt хоёр хэсэгтэй:
 //   1. STABLE — нягтлангийн мэдлэг, дүрэм (prompt cache-д тогтвортой prefix)
@@ -90,6 +92,12 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   НДШ cap, ХАОАТ шатлал автоматаар), get_payroll_summary,
   create_payroll_voucher (GL НООРОГ журнал, сард нэг). Тайлан: НДШ дараа
   сарын 5, ХАОАТ 10. Вэб: Цалин модуль (/payroll)
+- **Мэдэгдэл:** list_notifications (inbox — татварын хугацаа, хуучирсан
+  ноорог, хэтэрсэн авлага/өглөг, хамт олны батлалт/буцаалт, сар хаалт,
+  лиценз), mark_notifications_read. Хэрэглэгч "юу анхаарах вэ", "сануулга"
+  гэвэл ЭХЛЭЭД үүгээр шалгаад холбогдох үйлдлийг санал болго (ж: НӨАТ-ын
+  хугацаа ойртсон бол create_vat_settlement). Вэб: топбарын хонх, /notifications,
+  тохиргоо /settings/notifications
 - **Сар хаалт:** get_month_end_checklist — элэгдэл/FX/өртөг/цалин/НӨАТ/
   хангамж/ноорог/хаалтын 8 алхмын статус. Хэрэглэгч "сар хаамаар байна" гэвэл ЭХЛЭЭД
   үүгээр дутууг шалгаад дараа нь алхмуудыг санал болго. Вэб: Системийн
@@ -235,7 +243,9 @@ Tool ашиглах дүрэм:
 export async function buildDynamicContext(
   orgId: string,
   customInstructions?: string | null,
-  writeMode: "draft" | "post" = "draft"
+  writeMode: "draft" | "post" = "draft",
+  /** Уншаагүй мэдэгдлийн тоог хэрэглэгчийн inbox-оос (байхгүй бол алгасна). */
+  userId?: string
 ): Promise<string> {
   const accounts = await db.query.chartOfAccounts.findMany({
     where: and(
@@ -255,6 +265,30 @@ export async function buildDynamicContext(
     .map((account) => `${account.number} ${account.name}`)
     .join("\n");
 
+  // Мэдэгдэл (docs/notifications §4.6): уншаагүй тоо + хамгийн ойрын татварын
+  // хугацаа — агент өөрөө "НӨАТ-ын тооцоо хийе үү?" гэж санал болгож чадна.
+  let unread = 0;
+  if (userId) {
+    const [row] = await db
+      .select({ n: count() })
+      .from(notifications)
+      .where(
+        andOp(
+          eqOp(notifications.organizationId, orgId),
+          eqOp(notifications.userId, userId),
+          isNull(notifications.readAt)
+        )
+      );
+    unread = Number(row?.n ?? 0);
+  }
+  const nearest = computeTaxDeadlines(today)[0];
+  const attention =
+    `## Анхаарах\n\nУншаагүй мэдэгдэл: ${unread}` +
+    (unread > 0 ? " (list_notifications-оор харна)" : "") +
+    (nearest
+      ? `. Хамгийн ойрын татварын хугацаа: ${nearest.label} (${nearest.period}) — ${nearest.dueDate}, ${nearest.daysLeft} хоног үлдсэн`
+      : "");
+
   return `## Өнөөдрийн огноо: ${today}
 
 ## Бичилтийн горим: ${writeMode === "post" ? "ШУУД БИЧИХ" : "НООРОГ"}
@@ -264,6 +298,8 @@ ${
     ? "Хэрэглэгч 'Шууд бичих' горим сонгосон — тэнцсэн, 10 сая ₮-с хэтрэхгүй бичилт шууд батлагдана; бусад нь ноорог үлдэнэ."
     : "Бүх бичилт НООРОГ болж үүснэ — хэрэглэгч шалгаад өөрөө батална."
 }
+
+${attention}
 
 ## Энэ хэрэглэгчийн идэвхтэй дансны мод
 

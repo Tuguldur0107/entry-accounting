@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| Мэдэгдлийн систем (in-app хонх + хуваарьт дүрэм) | ✅ фаз 0 | и-мэйл/digest + тохиргоо (фаз 1), Telegram/custom суваг (фаз 2) |
+| Мэдэгдлийн систем (in-app хонх, и-мэйл instant/digest, тохиргоо, AI tools) | ✅ фаз 0–1 | Telegram/custom суваг, invoice.viewed, doc.large_amount (фаз 2) |
 
 ## Файлын бүтэц
 
@@ -710,7 +710,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrai
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 94 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 113 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -728,6 +728,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
 | Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
+| Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
@@ -857,7 +858,7 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   агуулах → касс → ажилтан → ҮХ → АР/АП нээлт → бараа нээлт → нээлтийн журнал
   (НЭГ ноорог, `externalRef: opening-balance:<огноо>`) → тулгалт
 
-### 9d. Мэдэгдлийн систем (Notifications) — фаз 0 ХЭРЭГЖСЭН
+### 9d. Мэдэгдлийн систем (Notifications) — фаз 0–1 ХЭРЭГЖСЭН
 
 Баримт: `docs/notifications/00-proposal.md` (D1–D7 батлагдсан 2026-09-19).
 Шинэ модуль биш — байгаа дохиог (аудит, нүүрний «Анхаарах», татварын
@@ -875,15 +876,26 @@ lib/notifications/
 ├── bridge.ts         notifyFromAudit — logAuditEvent-ийн хажууд, entity-owner шийднэ
 ├── load-attention.ts Scheduler-ийн оролт (SQL count/min — П28)
 ├── scheduler.ts      runDailyNotifications — org × өдөр нэг удаа (notification_runs)
-├── ticker.ts         In-process default scheduler (instrumentation.ts, 15 мин)
+├── ticker.ts         In-process default scheduler (instrumentation.ts, 15 мин):
+│                     өдрийн дүрмүүд (08:00 УБ-аас) + tick бүрд и-мэйлийн хүргэлт
+├── email-plan.ts     И-мэйлийн хүргэлтийн ЦЭВЭР төлөвлөгч: instant / digest (цаг,
+│                     өдөрт нэг) / off (тесттэй)
+├── email-delivery.ts Resend-ээр хүргэнэ — emailedAt, digest булаалт
+│                     (notification_runs job="digest", periodKey="<өдөр>:<userId>");
+│                     илгээгч = нэхэмжлэхийн илгээгчтэй ИЖИЛ эрэмбэ (resolveInvoiceSender)
 └── open-entity.ts    CLIENT: entityType → панель / href dispatcher
 
+lib/email/notification-template.ts  ЦЭВЭР загвар (тесттэй): subject-д ДҮН БАЙХГҮЙ
+                                    (stripAmounts хамгаалалт), text + HTML
 lib/actions/notifications.ts        list / unread count / markRead / markAllRead
-app/api/cron/notifications/route.ts Bearer CRON_SECRET; ?date= backfill
-scripts/run-notifications.ts        Гараар ажиллуулах
+lib/actions/notification-preferences.ts  get / save (upsert user×org)
+app/api/cron/notifications/route.ts Bearer CRON_SECRET; ?job=daily|email|all; ?date=
+scripts/run-notifications.ts        Гараар ажиллуулах (дүрэм + и-мэйл)
 components/layout/notification-bell.tsx   Топбарын хонх (60 сек polling)
 app/(dashboard)/notifications             Inbox (DataGridDynamic, FilterChips)
-tests/notification-{rules,attention,recipients}.test.ts
+app/(dashboard)/settings/notifications    Тохиргоо: категори × (хонх Switch, и-мэйл
+                                          select off/instant/digest), digest цаг, түр дуугүй
+tests/notification-{rules,attention,recipients,email}.test.ts
 ```
 
 Хатуу дүрмүүд:
@@ -910,10 +922,15 @@ tests/notification-{rules,attention,recipients}.test.ts
   Идемпотент булаалт `notification_runs` (job, periodKey, org) unique —
   cron route, ticker, script гурвуул зэрэг дуудсан ч НЭГ л ажиллана
 - **Хадгалалт:** уншсан 90, уншаагүй 180 хоног (D6) — өдрийн ажил цэвэрлэнэ
+- **И-мэйл (D1):** default — хугацаа/аюулгүй байдал/хаалт instant, бусад
+  digest (каталогийн `email`); хэрэглэгч категори бүрд off/instant/digest
+  сонгоно. `emailedAt IS NULL` мөрүүд (3 хоногийн цонх) tick бүрд шалгагдана;
+  instant ≤15 мин, digest хэрэглэгчийн `digestHour`-т өдөрт нэг. Гарчигт дүн
+  бичихгүй; RESEND_API_KEY байхгүй бол суваг чимээгүй идэвхгүй (in-app хэвээр)
 - Env: `CRON_SECRET` (cron route нээнэ, байхгүй бол 503),
-  `NOTIFICATIONS_TICKER=off` (in-process ticker унтраана)
-- Фаз 1 (и-мэйл instant/digest, `/settings/notifications`, AI tools), фаз 2
-  (Telegram, `EntryCustomization.notificationChannels`, invoice.viewed,
+  `NOTIFICATIONS_TICKER=off` (in-process ticker унтраана), `RESEND_API_KEY` +
+  `RESEND_FROM_EMAIL` (и-мэйл суваг)
+- Фаз 2 (Telegram, `EntryCustomization.notificationChannels`, invoice.viewed,
   doc.large_amount) — саналын §8
 
 ### 10. Effective date (татвар/цалины тооцоололд)

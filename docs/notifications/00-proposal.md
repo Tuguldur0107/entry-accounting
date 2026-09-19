@@ -1,6 +1,6 @@
 # Мэдэгдлийн систем (Notifications) — Дизайны санал v1
 
-**Төлөв:** **БАТЛАГДСАН (2026-09-19) — D1–D7 бүгд саналын дагуу; фаз 0 хэрэгжсэн** · **Огноо:** 2026-09-19
+**Төлөв:** **БАТЛАГДСАН (2026-09-19) — D1–D7 бүгд саналын дагуу; фаз 0–1 хэрэгжсэн** · **Огноо:** 2026-09-19
 **Хамрах хүрээ:** in-app inbox (хонх) + и-мэйл + өдөр тутмын нэгтгэл (digest) + fork-д зориулсан суваг өргөтгөх цэг (Telegram, webhook). Web push / PWA хожим.
 **Суурь:** одоо байгаа `audit_events` (74 бичих цэг), нүүрний самбарын «Анхаарах» / «Ажлын дараалал» дүрмүүд, `lib/tax/calendar.ts`, сар хаалтын checklist, Resend илгээгч — **шинэ модуль биш, байгаа дохиог хэрэглэгчид ХҮРГЭДЭГ давхарга**.
 
@@ -272,7 +272,7 @@ tests/{notification-rules,notification-attention,notification-audience,notificat
 | Фаз | Агуулга | Хэмжээ |
 |---|---|---|
 | **0 — In-app цөм** ✅ ХЭРЭГЖСЭН | Schema 3 хүснэгт + pending DDL; `catalog/rules/attention/audience/emit/bridge/scheduler`; `notifyFromAudit` гүүр (post/reverse/close/approve/invite); daily дүрмүүд: tax.deadline, tax.overdue, arap.overdue, drafts.stale, close.due, license.expiring, token.expiring; хонх + popover + `/notifications` + `open-entity` dispatcher; `bell` icon; нүүрний «Анхаарах»-ыг `attention.ts` руу; cron route + ticker + script; тестүүд; CLAUDE.md §9d | 4–5 өдөр |
-| **1 — И-мэйл + тохиргоо** | `notification_preferences` UI (`/settings/notifications`), `resolveSender` ерөнхийлөх, HTML wrapper, instant + digest, `emailedAt`, `mutedUntil`; AI tools `list_notifications` / `mark_notifications_read`; system prompt мөр | 3 өдөр |
+| **1 — И-мэйл + тохиргоо** ✅ ХЭРЭГЖСЭН | `notification_preferences` UI (`/settings/notifications`), `resolveSender` ерөнхийлөх, HTML wrapper, instant + digest, `emailedAt`, `mutedUntil`; AI tools `list_notifications` / `mark_notifications_read`; system prompt мөр | 3 өдөр |
 | **2 — Сувгууд + нэмэлт дүрэм** | `NotificationChannel` interface (`lib/custom/types.ts`, validate, loader); Telegram суваг + холболт; `invoice.viewed`, `ai.drafts_created`, `bank.unmatched`, `fx.rate_missing`, `fx.reval_due`, `stock.negative`, `doc.large_amount` (D2); toast + дуу | 2–3 өдөр |
 | **3 — Хожим** | SSE realtime (polling-ийн оронд), Web push/PWA, «Approval pending» урсгал (05-event-flows.md Step 7 — тусдаа санал), Slack | шаардлага гарвал |
 
