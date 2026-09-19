@@ -37,6 +37,11 @@ import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
 import {
+  validatePayrollSettings,
+  type PayrollSettingsInput,
+} from "@/lib/payroll/settings-input";
+import { extractMainAccount } from "@/lib/reports/balances";
+import {
   buildPayrollJournalLines,
   computeEarnings,
   computeEmployeePayroll,
@@ -1471,4 +1476,153 @@ export async function getSalaryPaymentReport(
     total: Math.round(rows.reduce((sum, row) => sum + row.amount, 0) * 100) / 100,
     missingBankCount,
   };
+}
+
+// ── Цалингийн тохиргоо (Цалин → Тохиргоо) ───────────────────────────────────
+
+export type PayrollSettingsView = {
+  // Тооцооллын үзүүлэлт
+  minimumWage: number;
+  siCapMultiplier: number;
+  monthlyTaxFree: number;
+  standardMonthlyHours: number;
+  monthlyWorkDays: number;
+  averageEarningsMonths: number;
+  // Нэмэгдлийн коэффициент
+  overtimeMultiplier: number;
+  restDayMultiplier: number;
+  holidayMultiplier: number;
+  nightBonusRate: number;
+  // GL дансны рольууд (үндсэн 8 оронтой дугаар)
+  salaryExpenseAccountNumber: string;
+  employerSiExpenseAccountNumber: string;
+  siPayableAccountNumber: string;
+  pitPayableAccountNumber: string;
+  salaryPayableAccountNumber: string;
+  deductionAccountNumber: string;
+  employeePayableAccountNumber: string;
+  /** null = тохируулаагүй → цалингийн зардлын данс хэрэглэгдэнэ. */
+  sickBenefitAccountNumber: string | null;
+};
+
+/** Тохиргооны хуудсанд — байхгүй бол default-аар мөр үүснэ (ratified-seed). */
+export async function loadPayrollSettingsView(): Promise<PayrollSettingsView> {
+  const { orgId, userId } = await requireModuleAction("payroll", "read");
+  const row = await loadPayrollSettings(orgId, userId);
+  return {
+    minimumWage: Number(row.minimumWage),
+    siCapMultiplier: row.siCapMultiplier,
+    monthlyTaxFree: Number(row.monthlyTaxFree),
+    standardMonthlyHours: Number(row.standardMonthlyHours),
+    monthlyWorkDays: Number(row.monthlyWorkDays),
+    averageEarningsMonths: row.averageEarningsMonths,
+    overtimeMultiplier: Number(row.overtimeMultiplier),
+    restDayMultiplier: Number(row.restDayMultiplier),
+    holidayMultiplier: Number(row.holidayMultiplier),
+    nightBonusRate: Number(row.nightBonusRate),
+    salaryExpenseAccountNumber: row.salaryExpenseAccountNumber,
+    employerSiExpenseAccountNumber: row.employerSiExpenseAccountNumber,
+    siPayableAccountNumber: row.siPayableAccountNumber,
+    pitPayableAccountNumber: row.pitPayableAccountNumber,
+    salaryPayableAccountNumber: row.salaryPayableAccountNumber,
+    deductionAccountNumber: row.deductionAccountNumber,
+    employeePayableAccountNumber: row.employeePayableAccountNumber,
+    sickBenefitAccountNumber: row.sickBenefitAccountNumber,
+  };
+}
+
+/** Данс нь тухайн байгууллагын ИДЭВХТЭЙ бүртгэлд байгаа эсэх. */
+async function assertPayrollAccount(orgId: string, main: string, label: string) {
+  if (!main) throw new Error(`${label} — данс сонгоно уу`);
+  const row = await db.query.chartOfAccounts.findFirst({
+    where: and(
+      eq(chartOfAccounts.organizationId, orgId),
+      eq(chartOfAccounts.number, main),
+      eq(chartOfAccounts.isEnabled, true)
+    ),
+    columns: { id: true },
+  });
+  if (!row) throw new Error(`${label}: ${main} данс идэвхтэй бүртгэлд алга`);
+}
+
+/**
+ * Тооцооллын үзүүлэлт + нэмэгдлийн коэффициентүүдийг хадгална. Шалгалт нь
+ * ЦЭВЭР (lib/payroll/settings-input.ts) — хуулийн доод хэмжээнээс доош
+ * тавихыг хориглоно, хуваагч 0 болохоос сэргийлнэ.
+ *
+ * Тохиргоо нь БОДОЛТЫН суурь тул аль хэдийн бодогдсон сарууд ӨӨРЧЛӨГДӨХГҮЙ
+ * (мөр бүр хадгалагдсан дүнтэй) — шинэ утга нь дараагийн «Бодолт хийх»-ээс
+ * эхэлж үйлчилнэ.
+ */
+export async function savePayrollCalculationSettings(input: PayrollSettingsInput) {
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
+  const values = validatePayrollSettings(input);
+  await loadPayrollSettings(orgId, userId);
+  await db
+    .update(payrollSettings)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(payrollSettings.organizationId, orgId));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "update",
+    entityType: "payroll",
+    entityId: orgId,
+    summary: `Цалингийн тооцооллын тохиргоо шинэчлэгдлээ — доод цалин ${Number(values.minimumWage).toLocaleString("en-US")}₮, стандарт цаг ${values.standardMonthlyHours}, ажлын өдөр ${values.monthlyWorkDays}`,
+  });
+  revalidatePayroll();
+  revalidatePath("/payroll/settings");
+}
+
+/**
+ * GL дансны рольууд (§7 схем). Дугаарыг кодод хатуу бичихгүй — бүх бичилт
+ * эндээс уншина. ХЧТА-ийн данс нь СОНГОЛТООР: хоосон бол цалингийн зардлын
+ * данс хэрэглэгдэнэ.
+ */
+export async function savePayrollAccountSettings(input: {
+  salaryExpenseAccountNumber: string;
+  employerSiExpenseAccountNumber: string;
+  siPayableAccountNumber: string;
+  pitPayableAccountNumber: string;
+  salaryPayableAccountNumber: string;
+  deductionAccountNumber: string;
+  employeePayableAccountNumber: string;
+  sickBenefitAccountNumber?: string | null;
+}) {
+  const { orgId, userId } = await requireModuleAction("payroll", "write");
+  const required: [keyof typeof input, string][] = [
+    ["salaryExpenseAccountNumber", "Цалингийн зардал"],
+    ["employerSiExpenseAccountNumber", "АО НДШ-ийн зардал"],
+    ["siPayableAccountNumber", "НДШ өглөг"],
+    ["pitPayableAccountNumber", "ХАОАТ өглөг"],
+    ["salaryPayableAccountNumber", "Цалингийн өглөг"],
+    ["deductionAccountNumber", "Бусад суутгалын өглөг"],
+    ["employeePayableAccountNumber", "Ажилтны өглөг (нэхэмжлэх)"],
+  ];
+  const values: Record<string, string | null> = {};
+  for (const [key, label] of required) {
+    const main = extractMainAccount(String(input[key] ?? "").trim());
+    await assertPayrollAccount(orgId, main, label);
+    values[key] = main;
+  }
+  // ХЧТА — хоосон бол null (цалингийн зардлын данс руу унана).
+  const sick = extractMainAccount(String(input.sickBenefitAccountNumber ?? "").trim());
+  if (sick) await assertPayrollAccount(orgId, sick, "ХЧТА тэтгэмжийн зардал");
+  values.sickBenefitAccountNumber = sick || null;
+
+  await loadPayrollSettings(orgId, userId);
+  await db
+    .update(payrollSettings)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(payrollSettings.organizationId, orgId));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "update",
+    entityType: "payroll",
+    entityId: orgId,
+    summary: `Цалингийн GL дансны тохиргоо шинэчлэгдлээ — зардал ${values.salaryExpenseAccountNumber}, өглөг ${values.salaryPayableAccountNumber}`,
+  });
+  revalidatePayroll();
+  revalidatePath("/payroll/settings");
 }
