@@ -321,14 +321,28 @@ test("depreciation: declining balance (×2) — NBV-based, salvage cap, terminal
       month,
     });
 
+  // Зөвхөн хөрөнгө + дүнг шалгана (бичилт нь татварын мэмо, өдрийн тоо зэрэг
+  // нэмэлт талбартай — deepEqual нь тэдгээрээс болж хэврэг болно).
+  const amounts = (accum: number, month: string) =>
+    run(accum, month).map((row) => ({
+      assetId: row.assetId,
+      amount: row.amount,
+    }));
+
   // 1-р сар: NBV 1,200,000 × 2/24 = 100,000
-  assert.deepEqual(run(0, "2026-01"), [{ assetId: "d1", amount: 100000 }]);
+  assert.deepEqual(amounts(0, "2026-01"), [{ assetId: "d1", amount: 100000 }]);
   // 2-р сар: NBV 1,100,000 × 2/24 = 91,666.67
-  assert.deepEqual(run(100000, "2026-02"), [{ assetId: "d1", amount: 91666.67 }]);
+  assert.deepEqual(amounts(100000, "2026-02"), [
+    { assetId: "d1", amount: 91666.67 },
+  ]);
   // Хугацааны сүүлийн сар (24 дэх): үлдэгдлийг бүтнээр нь хаана
-  assert.deepEqual(run(1100000, "2027-12"), [{ assetId: "d1", amount: 100000 }]);
+  assert.deepEqual(amounts(1100000, "2027-12"), [
+    { assetId: "d1", amount: 100000 },
+  ]);
   // Хугацаа хэтэрсэн ч үлдэгдэлтэй бол мөн хаана
-  assert.deepEqual(run(1150000, "2028-03"), [{ assetId: "d1", amount: 50000 }]);
+  assert.deepEqual(amounts(1150000, "2028-03"), [
+    { assetId: "d1", amount: 50000 },
+  ]);
   // Бүрэн элэгдсэн бол бичилт үүсэхгүй
   assert.equal(run(1200000, "2028-04").length, 0);
 
@@ -350,5 +364,8 @@ test("depreciation: declining balance (×2) — NBV-based, salvage cap, terminal
     month: "2026-03",
   });
   // NBV 850,000 × 2/12 = 141,666.67 боловч үлдсэн суурь 50,000
-  assert.deepEqual(capped, [{ assetId: "d2", amount: 50000 }]);
+  assert.deepEqual(
+    capped.map((row) => ({ assetId: row.assetId, amount: row.amount })),
+    [{ assetId: "d2", amount: 50000 }]
+  );
 });

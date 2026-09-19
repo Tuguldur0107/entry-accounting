@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { chartOfAccounts, journalLines, journalVouchers } from "@/lib/db/schema";
 import { parseSegParts } from "@/lib/grid/segments";
 import { ClosedPeriodError, assertPeriodOpen } from "@/lib/periods/guard";
+import { nextVoucherNo } from "@/lib/gl/voucher-no";
 
 export interface VoucherImportInput {
   voucherKey: string;
@@ -100,6 +101,7 @@ export async function importJournalVouchers(
             organizationId: orgId,
             date: voucher.date,
             description: voucher.description,
+            documentNo: await nextVoucherNo(tx, orgId, "gl", voucher.date),
             status: "draft",
           })
           .returning();

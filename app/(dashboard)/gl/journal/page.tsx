@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
 import {
-  journalVouchers,
   chartOfAccounts,
   segmentConfigs,
   segmentValues,
@@ -8,9 +7,9 @@ import {
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { eq, and } from "drizzle-orm";
-import { desc } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { JournalList } from "@/components/gl/journal-list";
+import { loadJournalListRows } from "@/lib/gl/journal-list-data";
 
 type SearchParams = Promise<{ start?: string; end?: string }>;
 
@@ -25,11 +24,8 @@ export default async function JournalPage({
   const period = await getPeriodSelection();
 
   const [vouchers, accounts, rawSegConfigs, rawSegValues] = await Promise.all([
-    db.query.journalVouchers.findMany({
-      where: eq(journalVouchers.organizationId, orgId),
-      with: { lines: { orderBy: (l, { asc }) => [asc(l.sortOrder)] } },
-      orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
-    }),
+    // Ваучер + мөр + эх баримтын харилцагч/валют/ханш + үүсгэсэн хэрэглэгч.
+    loadJournalListRows(orgId),
     db.query.chartOfAccounts.findMany({
       where: and(eq(chartOfAccounts.organizationId, orgId), eq(chartOfAccounts.isEnabled, true)),
       orderBy: (a, { asc }) => [asc(a.number)],

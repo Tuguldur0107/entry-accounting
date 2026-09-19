@@ -1,40 +1,66 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
-import { Icon } from "@/components/ui/icon";
+// Элэгдлийн хуудас — ТАЙЛАНТ ҮЕИЙН (topbar-ийн периодын сонголт) элэгдэл.
+//
+// Урсгал: «Элэгдэл бодох» → мөрүүд ноорогоор гарна → «GL-д батлах» НЭГ
+// товчоор БҮХ мөр НЭГ журнал болж бичигдэнэ. Дахин бодоход өмнөх журнал
+// автоматаар буцаагдаад шинээр бодогддог тул ДАВХАРДАХГҮЙ.
+//
+// Татварын элэгдэл (cit.md-ийн хуулийн хувь) нь МЭМО — GL-д бичигдэхгүй,
+// зөвхөн ААНОАТ-ын тайлан ба IAS 12 хойшлогдсон татварын зөрүүд хэрэгтэй.
+
+import { useMemo, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type {
-  ColDef,
-  GridApi,
-  ICellRendererParams,
-  SelectionChangedEvent,
-} from "ag-grid-community";
+import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Icon } from "@/components/ui/icon";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { refreshOpenPanels } from "@/lib/store/panel-store";
 import {
-  deleteDepreciationEntry,
-  postDepreciationEntries,
-  postDepreciationEntry,
-  reverseDepreciationEntry,
+  postDepreciationMonth,
   runDepreciation,
+  setFaDepreciationBasis,
 } from "@/lib/actions/fa";
+import { col } from "@/lib/grid/columnTypes";
 import { fmtMnt } from "@/lib/reports/balances";
-import { cn } from "@/lib/utils";
+import { fmtPeriodCode } from "@/lib/periods/period";
+import type { DepreciationBasis } from "@/lib/fa/depreciation";
 
 export type DepreciationEntryView = {
   id: string;
   assetCode: string;
   assetName: string;
   periodMonth: string;
+  /** Dr — элэгдлийн зардлын данс. */
+  debitAccount: string;
+  /** Cr — хуримтлагдсан элэгдлийн данс. */
+  creditAccount: string;
+  /** Анхны үнэлгээ (өртөг). */
+  cost: number;
+  /** Хуримтлагдсан элэгдэл (энэ сарыг оролцуулж). */
+  accumulated: number;
+  /** Үлдэх өртөг = анхны үнэлгээ − хуримтлагдсан. */
+  netBookValue: number;
+  /** Тухайн сарын САНХҮҮГИЙН элэгдэл (GL-д бичигдэнэ). */
   amount: number;
+  /** Тухайн сарын ТАТВАРЫН элэгдэл (мэмо). */
+  taxAmount: number;
+  taxAccumulated: number;
+  depreciatedDays: number;
   status: string;
+  /** Элэгдэл бодуулсан хэрэглэгч. */
+  runBy: string;
 };
 
+const STATUS_TONE: Record<string, "success" | "danger" | "warning" | "muted"> = {
+  draft: "muted",
+  posted: "success",
+  reversed: "danger",
+};
 const STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
   posted: "Батлагдсан",
@@ -43,303 +69,322 @@ const STATUS_LABELS: Record<string, string> = {
 
 interface Props {
   entries: DepreciationEntryView[];
-  defaultMonth: string;
+  month: string;
+  basis: DepreciationBasis;
 }
 
-// Элэгдлийн хуудас: сар сонгож run — идэвхтэй карт бүрд шулуун шугамын
-// сарын НООРОГ бичилт; батлахад карт бүрд Dr зардал / Cr хуримт. элэгдэл.
-export function FaDepreciationView({ entries, defaultMonth }: Props) {
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Алдаа гарлаа";
+}
+
+export function FaDepreciationView({ entries, month, basis }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const [month, setMonth] = useState(defaultMonth);
-  const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
-  const gridApiRef = useRef<GridApi<DepreciationEntryView> | null>(null);
 
-  const selectedDrafts = useMemo(
+  const active = useMemo(
+    () => entries.filter((entry) => entry.status !== "reversed"),
+    [entries]
+  );
+  const draftCount = active.filter((entry) => entry.status === "draft").length;
+  const postedCount = active.filter((entry) => entry.status === "posted").length;
+
+  const totals = useMemo(
     () =>
-      entries.filter(
-        (entry) => entry.status === "draft" && selectedDraftIds.includes(entry.id)
+      active.reduce(
+        (sum, entry) => ({
+          cost: sum.cost + entry.cost,
+          accumulated: sum.accumulated + entry.accumulated,
+          netBookValue: sum.netBookValue + entry.netBookValue,
+          amount: sum.amount + entry.amount,
+          taxAmount: sum.taxAmount + entry.taxAmount,
+        }),
+        { cost: 0, accumulated: 0, netBookValue: 0, amount: 0, taxAmount: 0 }
       ),
-    [entries, selectedDraftIds]
+    [active]
   );
 
-  const runAction = useCallback(
-    (action: () => Promise<unknown>, successMessage: string) => {
-      startTransition(async () => {
-        try {
-          await action();
-          refreshOpenPanels();
-          router.refresh();
-          toast.success(successMessage);
-        } catch (caught) {
-          toast.error(caught instanceof Error ? caught.message : "Үйлдэл амжилтгүй");
-        }
-      });
-    },
-    [router]
+  const pinnedBottomRowData = useMemo<DepreciationEntryView[]>(
+    () => [
+      {
+        id: "__totals__",
+        assetCode: "",
+        assetName: "Нийт",
+        periodMonth: month,
+        debitAccount: "",
+        creditAccount: "",
+        taxAccumulated: 0,
+        depreciatedDays: 0,
+        status: "",
+        runBy: "",
+        ...totals,
+      },
+    ],
+    [totals, month]
   );
 
-  function handleRun() {
+  function changeBasis(next: DepreciationBasis) {
     startTransition(async () => {
       try {
-        const result = await runDepreciation({ month });
-        refreshOpenPanels();
+        await setFaDepreciationBasis(next);
+        toast.success(
+          next === "daily"
+            ? "Элэгдлийн суурь ӨДРӨӨР боллоо — дахин бодолт хийнэ үү"
+            : "Элэгдлийн суурь САРААР боллоо — дахин бодолт хийнэ үү"
+        );
         router.refresh();
-        if (result.created === 0)
-          toast.info("Элэгдүүлэх карт алга — бүгд тооцогдсон эсвэл эхлээгүй");
-        else toast.success(`${result.created} картын элэгдлийн ноорог үүслээ`);
-      } catch (caught) {
-        toast.error(caught instanceof Error ? caught.message : "Run амжилтгүй");
+      } catch (error) {
+        toast.error(errorMessage(error));
       }
     });
   }
 
-  const handleBatchPost = useCallback(async () => {
-    const drafts = selectedDrafts;
-    if (drafts.length === 0) return;
-    const total = drafts.reduce((sum, entry) => sum + entry.amount, 0);
+  function calculate() {
+    startTransition(async () => {
+      try {
+        const result = await runDepreciation({ month });
+        if (result.reversed > 0) {
+          toast.success(
+            `${fmtPeriodCode(month)} дахин бодогдлоо — өмнөх ${result.reversed} журнал буцаагдаж, ${result.created} мөр шинээр бодогдов`
+          );
+        } else if (result.created === 0) {
+          toast.info("Элэгдэл бодогдох хөрөнгө олдсонгүй");
+        } else {
+          toast.success(`${result.created} хөрөнгийн элэгдэл бодогдлоо`);
+        }
+        router.refresh();
+      } catch (error) {
+        toast.error(errorMessage(error));
+      }
+    });
+  }
+
+  async function postToGl() {
     const ok = await confirm({
-      title: "Элэгдэл олноор батлах",
-      description: `${drafts.length} бичилт (нийт ${fmtMnt(total)}) GL-д бичих үү?`,
-      confirmText: `Батлах (${drafts.length})`,
+      title: "GL-д батлах",
+      description: `${fmtPeriodCode(month)} сарын ${draftCount} мөрийн элэгдлийг НЭГ журналаар GL-д бичих үү? Нийт ${fmtMnt(totals.amount)}`,
+      confirmText: "Батлах",
     });
     if (!ok) return;
     startTransition(async () => {
       try {
-        const result = await postDepreciationEntries(drafts.map((e) => e.id));
-        gridApiRef.current?.deselectAll();
-        setSelectedDraftIds([]);
-        refreshOpenPanels();
-        router.refresh();
-        if (result.failures.length === 0)
-          toast.success(`${result.posted} бичилт батлагдлаа`);
-        else
-          toast.warning(
-            `${result.posted} батлагдаж, ${result.failures.length} алдаатай`,
-            { description: result.failures.map((f) => f.error).join("\n") }
-          );
-      } catch (caught) {
-        toast.error(
-          caught instanceof Error ? caught.message : "Олноор батлах амжилтгүй"
+        const result = await postDepreciationMonth(month);
+        toast.success(
+          `${result.posted} хөрөнгийн элэгдэл нэг журналаар батлагдлаа — ${fmtMnt(result.amount)}`
         );
+        router.refresh();
+      } catch (error) {
+        toast.error(errorMessage(error));
       }
     });
-  }, [selectedDrafts, confirm, router]);
+  }
 
   const columns = useMemo<ColDef<DepreciationEntryView>[]>(
     () => [
-      {
-        headerName: "Сар",
-        field: "periodMonth",
-        width: 100,
-        cellClass: "font-mono text-xs",
-      },
-      { headerName: "Код", field: "assetCode", width: 170, cellClass: "font-mono text-xs" },
-      { headerName: "Хөрөнгө", field: "assetName", minWidth: 200, flex: 1 },
-      {
-        headerName: "Дүн",
-        field: "amount",
+      col<DepreciationEntryView>({
+        eaType: "readonly-text",
+        headerName: "Код",
+        field: "assetCode",
         width: 150,
-        cellClass: "ag-right-aligned-cell font-mono font-medium",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
-      },
+        cellClass: "font-mono text-xs",
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-text",
+        headerName: "Хөрөнгө",
+        field: "assetName",
+        minWidth: 180,
+        flex: 1,
+        cellClassRules: {
+          "font-semibold": (params) => !!params.node.rowPinned,
+        },
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-text",
+        headerName: "Dr — Элэгдлийн зардал",
+        field: "debitAccount",
+        width: 180,
+        cellClass: "font-mono text-xs",
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-text",
+        headerName: "Cr — Хуримт. элэгдэл",
+        field: "creditAccount",
+        width: 180,
+        cellClass: "font-mono text-xs",
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-money",
+        headerName: "Анхны үнэлгээ",
+        field: "cost",
+        width: 150,
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-money",
+        headerName: "Хуримтлагдсан элэгдэл",
+        field: "accumulated",
+        width: 190,
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-money",
+        headerName: "Үлдэх өртөг",
+        field: "netBookValue",
+        width: 150,
+      }),
+      ...(basis === "daily"
+        ? [
+            col<DepreciationEntryView>({
+              eaType: "number-hours",
+              headerName: "Элэгдсэн хоног",
+              field: "depreciatedDays",
+              width: 150,
+              editable: false,
+            }),
+          ]
+        : []),
+      col<DepreciationEntryView>({
+        eaType: "readonly-money",
+        headerName: "Сарын элэгдэл",
+        field: "amount",
+        width: 160,
+        cellClass: "ag-right-aligned-cell font-mono font-semibold",
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-money",
+        headerName: "Татварын элэгдэл",
+        field: "taxAmount",
+        width: 170,
+        cellClass: "ag-right-aligned-cell font-mono text-[var(--ea-text-3)]",
+        headerTooltip:
+          "ААНОАТ-ын зорилгоор — GL-д БИЧИГДЭХГҮЙ (IAS 12 хойшлогдсон татварын суурь)",
+      }),
+      col<DepreciationEntryView>({
+        eaType: "readonly-text",
+        headerName: "Бодуулсан",
+        field: "runBy",
+        width: 150,
+        cellClass: "text-xs text-[var(--ea-text-3)]",
+      }),
       {
         headerName: "Төлөв",
         field: "status",
-        width: 118,
-        valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
-        cellRenderer: (params: ICellRendererParams<DepreciationEntryView>) => {
-          const status = params.data?.status ?? "";
-          return (
-            <div className="flex h-full items-center gap-1.5">
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{
-                  background:
-                    status === "posted"
-                      ? "var(--ea-success)"
-                      : status === "draft"
-                        ? "var(--ea-warning)"
-                        : "var(--ea-text-4)",
-                }}
-              />
-              <span className="text-xs">{STATUS_LABELS[status] ?? status}</span>
-            </div>
-          );
-        },
-      },
-      {
-        headerName: "Үйлдэл",
-        colId: "actions",
-        width: 100,
-        sortable: false,
-        filter: false,
-        cellClass: "flex items-center justify-end",
-        headerClass: "ag-right-aligned-header",
-        cellRenderer: (params: ICellRendererParams<DepreciationEntryView>) => {
-          const entry = params.data;
-          if (!entry) return null;
-          return (
-            <div className="flex items-center justify-end gap-1">
-              {entry.status === "draft" && (
-                <>
-                  <button
-                    type="button"
-                    className="ea-btn ea-btn--icon ea-btn--success"
-                    title="Баталж GL-д бичих"
-                    aria-label="Баталж GL-д бичих"
-                    onClick={() =>
-                      runAction(
-                        () => postDepreciationEntry(entry.id),
-                        "Элэгдэл GL-д бичигдлээ"
-                      )
-                    }
-                  >
-                    <Icon name="approve" />
-                  </button>
-                  <button
-                    type="button"
-                    className="ea-btn ea-btn--icon ea-btn--danger"
-                    title="Ноорог устгах"
-                    aria-label="Ноорог устгах"
-                    onClick={() =>
-                      runAction(
-                        () => deleteDepreciationEntry(entry.id),
-                        "Ноорог устгагдлаа"
-                      )
-                    }
-                  >
-                    <Icon name="delete" />
-                  </button>
-                </>
-              )}
-              {entry.status === "posted" && (
-                <button
-                  type="button"
-                  className="ea-btn ea-btn--icon ea-btn--warning"
-                  title="Буцаалт хийх"
-                  aria-label="Буцаалт хийх"
-                  onClick={async () => {
-                    const ok = await confirm({
-                      title: "Буцаалт бичих",
-                      description: `${entry.assetName} — ${entry.periodMonth} сарын элэгдлийг буцаалт хийх үү?`,
-                      confirmText: "Буцаалт хийх",
-                      danger: true,
-                    });
-                    if (!ok) return;
-                    runAction(
-                      () => reverseDepreciationEntry(entry.id),
-                      "Бичилт буцаагдлаа"
-                    );
-                  }}
-                >
-                  <Icon name="reset" />
-                </button>
-              )}
-            </div>
-          );
-        },
+        width: 130,
+        cellRenderer: (params: { value?: string; node: { rowPinned?: string | null } }) =>
+          params.node.rowPinned || !params.value ? null : (
+            <StatusBadge tone={STATUS_TONE[params.value] ?? "neutral"}>
+              {STATUS_LABELS[params.value] ?? params.value}
+            </StatusBadge>
+          ),
       },
     ],
-    [confirm, runAction]
+    [basis]
   );
 
-  const handleSelectionChanged = useCallback(
-    (event: SelectionChangedEvent<DepreciationEntryView>) => {
-      gridApiRef.current = event.api;
-      setSelectedDraftIds(
-        event.api
-          .getSelectedRows()
-          .filter((row) => row.status === "draft")
-          .map((row) => row.id)
-      );
-    },
-    []
-  );
-
-  const draftCount = entries.filter((entry) => entry.status === "draft").length;
+  const taxGap = Math.round((totals.amount - totals.taxAmount) * 100) / 100;
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <section className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            Элэгдэл
+            Үндсэн хөрөнгийн элэгдэл — {fmtPeriodCode(month)}
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Карт бүрийн сонгосон аргаар (шулуун шугам / үлдэгдэл буурах) — Dr
-            Элэгдлийн зардал / Cr Хуримтлагдсан элэгдэл. Checkbox-оор олныг
-            сонгож нэг дор GL-рүү бичнэ.
-            {draftCount > 0 && (
-              <span className="ml-1 font-medium text-[var(--ea-warning-fg)]">
-                · {draftCount} ноорог батлахыг хүлээж байна
-              </span>
-            )}
+            Элэгдлийн суурь:{" "}
+            <span className="font-medium text-[var(--ea-text-1)]">
+              {basis === "daily" ? "өдрөөр" : "сараар"}
+            </span>{" "}
+            · Сарыг дээд талын{" "}
+            <span className="font-medium text-[var(--ea-text-1)]">
+              тайлант үеийн шүүлтүүрээр
+            </span>{" "}
+            солино · Татварын элэгдэл нь мэмо (GL-д бичигдэхгүй)
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {draftCount > 0 && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-8"
-              onClick={handleBatchPost}
-              disabled={isPending || selectedDrafts.length === 0}
-              title={
-                selectedDrafts.length === 0
-                  ? "Эхний баганын checkbox-оор ноорог бичилтүүдээ сонгоно"
-                  : undefined
+          {/* Элэгдлийн суурь нь БҮХ хөрөнгөд үйлчилдэг байгууллагын бодлого. */}
+          <label className="flex items-center gap-1.5 text-xs text-[var(--ea-text-2)]">
+            Суурь
+            <select
+              value={basis}
+              onChange={(event) =>
+                changeBasis(event.target.value as DepreciationBasis)
               }
+              disabled={isPending || postedCount > 0}
+              title={
+                postedCount > 0
+                  ? "Энэ сард батлагдсан элэгдэл байна — суурийг солихын тулд эхлээд дахин бодолт хийж буцаана"
+                  : "Бүх хөрөнгөд үйлчилнэ"
+              }
+              className="h-7 rounded border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)] disabled:opacity-50"
             >
-              <Icon name="approveAll" />
-              GL-рүү батлах ({selectedDrafts.length})
-            </Button>
-          )}
-          <Input
-            type="month"
-            className="h-8 w-40"
-            value={month}
-            onChange={(event) => setMonth(event.target.value)}
-          />
-          <Button size="sm" onClick={handleRun} disabled={isPending}>
-            <Icon name="costing" />
-            Элэгдэл тооцох
+              <option value="monthly">Сараар</option>
+              <option value="daily">Өдрөөр</option>
+            </select>
+          </label>
+          <Button size="sm" variant="outline" onClick={calculate} disabled={isPending}>
+            <Icon name="costing" size="sm" />
+            Элэгдэл бодох
+          </Button>
+          <Button size="sm" onClick={postToGl} disabled={isPending || draftCount === 0}>
+            <Icon name="journal" size="sm" />
+            GL-д батлах ({draftCount})
           </Button>
         </div>
       </div>
 
+      {postedCount > 0 && draftCount === 0 && (
+        <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
+          Энэ сарын элэгдэл GL-д батлагдсан. Дахин «Элэгдэл бодох» дарвал өмнөх
+          журнал АВТОМАТААР буцаагдаж, шинэ ноорог үүснэ — давхар бичилт
+          үүсэхгүй.{" "}
+          <Link
+            href="/gl/journal"
+            className="font-medium text-[var(--ea-primary)] underline"
+          >
+            GL журналаас харах
+          </Link>
+        </p>
+      )}
+
       {entries.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Элэгдлийн бичилт байхгүй — сар сонгоод тооцоолуулна
+        <div className="flex min-h-56 flex-1 flex-col items-center justify-center gap-2 rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+          <p>
+            {fmtPeriodCode(month)} сард элэгдэл бодогдоогүй байна — «Элэгдэл
+            бодох» товчоор эхэлнэ.
+          </p>
         </div>
       ) : (
         <DataGridDynamic<DepreciationEntryView>
           rowData={entries}
           columnDefs={columns}
           getRowId={(params) => params.data.id}
+          pinnedBottomRowData={pinnedBottomRowData}
           height="flex"
-          pagination={entries.length > 25}
-          paginationPageSize={25}
-          paginationPageSizeSelector={false}
-          wrapperClassName={cn(
-            "rounded-md border border-[var(--ea-border)] overflow-hidden"
-          )}
-          suppressCellFocus
-          rowSelection={{
-            mode: "multiRow",
-            checkboxes: (params) => params.data?.status === "draft",
-            headerCheckbox: true,
-            hideDisabledCheckboxes: true,
-            isRowSelectable: (node) => node.data?.status === "draft",
-            enableClickSelection: false,
-          }}
-          onGridReady={(event) => {
-            gridApiRef.current = event.api;
-          }}
-          onSelectionChanged={handleSelectionChanged}
+          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
         />
+      )}
+
+      {active.length > 0 && (
+        <p className="text-xs text-[var(--ea-text-3)]">
+          {active.length} хөрөнгө · Сарын элэгдэл{" "}
+          <span className="font-mono font-medium text-[var(--ea-text-1)]">
+            {fmtMnt(totals.amount)}
+          </span>{" "}
+          · Татварын элэгдэл{" "}
+          <span className="font-mono font-medium text-[var(--ea-text-1)]">
+            {fmtMnt(totals.taxAmount)}
+          </span>
+          {taxGap !== 0 && (
+            <>
+              {" "}
+              · Зөрүү{" "}
+              <span className="font-mono font-medium text-[var(--ea-warning-fg)]">
+                {fmtMnt(taxGap)}
+              </span>{" "}
+              (IAS 12 хойшлогдсон татварын суурь)
+            </>
+          )}
+        </p>
       )}
 
       {confirmDialog}

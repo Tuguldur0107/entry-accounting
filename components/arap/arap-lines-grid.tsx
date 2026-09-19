@@ -5,8 +5,8 @@
 // Урьд нь components/panel/arap-doc-panel.tsx дотор private байсан; хангамжийн
 // модуль (PO-той нэхэмжлэх, хүлээн авалтын баримт) мөн ижил grid хэрэглэдэг тул
 // ЭНД зөөгдөв (давхардсан grid бичихийг хориглоно — CLAUDE.md хүснэгтийн
-// стандарт). Зан төлөв нь зөөлтийн дараа ИЖИЛ: `mode="arap"` үед хуучин АР/АП
-// формын харагдац, шинэ багана/товчнууд зөвхөн шинэ mode-уудад нэмэгдэнэ.
+// стандарт). `mode="arap"` = энгийн АР/АП баримт (бараа бүртгэлтэй бол Нэгж
+// үнэ багана мөн харагдана), бүрэлдэхүүний багана зөвхөн PO-той mode-д.
 
 import { useMemo, useState } from "react";
 import { nanoid } from "nanoid";
@@ -108,11 +108,17 @@ export function ArApLinesGrid({
       ? apClearingAccountNumber
       : clearingAccountNumber;
   const showItemColumns = inventoryItems.length > 0;
-  // Нэгж үнэ ба бүрэлдэхүүний багана нь ЗӨВХӨН PO-той нэхэмжлэхэд. Энгийн
-  // АР/АП баримтын харагдац өөрчлөгдөх ЁСГҮЙ (mode="arap" = хуучин зан
-  // төлөв) — эс бөгөөс тоо × нэгж үнэ нь гараар бичсэн дүнг дарж бичнэ.
-  const showUnitPrice = showItemColumns && poLinked;
+  // Нэгж үнэ — бараа бүртгэлтэй бүх баримтад (АР/АП, PO-той нэхэмжлэх):
+  // тоо × нэгж үнэ = мөрийн дүн (тоо эсвэл нэгж үнэ засагдах үед л дахин
+  // бодогдоно; дүнг гараар бичвэл хэвээр). АР нэхэмжлэхэд бараа сонгонгуут
+  // нэгж үнэ бүртгэлийн борлуулах үнээр (байхгүй бол сүүлийн борлуулалтын
+  // нэгж үнээр) АВТОМАТААР бөглөгдөнө. Бүрэлдэхүүн зөвхөн PO-той баримтад.
+  const showUnitPrice = showItemColumns;
   const showComponents = poLinked && (costComponents?.length ?? 0) > 0;
+  const itemById = useMemo(
+    () => new Map(inventoryItems.map((item) => [item.id, item])),
+    [inventoryItems]
+  );
 
   // "НӨАТ 10% нэмэх" — НӨАТ-гүй мөрүүдийн нийлбэрээс exclusive тооцож
   // тохиргооны НӨАТ дансанд нэг мөр нэмнэ (байвал дүнг нь шинэчилнэ).
@@ -207,6 +213,7 @@ export function ArApLinesGrid({
           itemId: value.itemId ?? undefined,
           quantity: value.quantity ?? undefined,
           warehouseId: value.warehouseId ?? undefined,
+          unitPrice: value.unitPrice ?? undefined,
         })),
       ];
     });
@@ -436,6 +443,24 @@ export function ArApLinesGrid({
                   defaultSegments
                 );
                 next.costComponentId = undefined;
+              }
+              // АР (борлуулалт): бараа сонгонгуут нэгж үнийг бүртгэлийн
+              // борлуулах үнээр, байхгүй бол сүүлийн борлуулалтын нэгж
+              // үнээр нөхнө; тоо хоосон бол 1 → дүн шууд бодогдоно. Аль нь
+              // ч байхгүй бол ХӨНДӨХГҮЙ (үнэ зохиохгүй — гараар бичнэ).
+              if (
+                field === "itemId" &&
+                event.newValue &&
+                documentType === "ar_invoice"
+              ) {
+                const item = itemById.get(String(event.newValue));
+                const suggested = item?.salesPrice ?? item?.lastSalesPrice ?? null;
+                if (suggested != null && suggested > 0) {
+                  next.unitPrice = suggested;
+                  const quantity = Number(next.quantity ?? 0);
+                  if (!(quantity > 0)) next.quantity = 1;
+                  next.amount = roundMoney(Number(next.quantity) * suggested);
+                }
               }
               // Бүрэлдэхүүнтэй мөр = капиталжих нэмэлт зардал: бараатай
               // ЗЭРЭГ байж болохгүй, данс нь өглөгийн түр данс.

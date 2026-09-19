@@ -207,6 +207,56 @@ test("arapLinesSpec: бараатай мөр — тоо, агуулах заав
   assert.ok("errors" in badItem && badItem.errors.some((e) => /бүртгэлд алга/.test(e)));
 });
 
+test("arapLinesSpec: Нэгж үнэ (сонголтоор) — Дүн хоосон бол Тоо × Нэгж үнэ", () => {
+  const spec = arapLinesSpec(arapContext);
+  const derived = spec.parseRow({
+    account: "14000099",
+    amount: "",
+    description: "",
+    itemCode: "ITEM-001",
+    quantity: "4",
+    warehouseCode: "WH-01",
+    unitPrice: "25,000",
+  });
+  assert.ok("value" in derived);
+  if ("value" in derived) {
+    assert.equal(derived.value.amount, 100_000);
+    assert.equal(derived.value.unitPrice, 25_000);
+  }
+
+  // Дүн өгсөн бол хэвээр (нэгж үнэ зөвхөн хадгалагдана).
+  const given = spec.parseRow({
+    account: "14000099",
+    amount: "90000",
+    description: "",
+    itemCode: "ITEM-001",
+    quantity: "4",
+    warehouseCode: "WH-01",
+    unitPrice: "25000",
+  });
+  assert.ok("value" in given);
+  if ("value" in given) assert.equal(given.value.amount, 90_000);
+
+  // Бараагүй мөрөнд нэгж үнэ хадгалагдахгүй; 0/сөрөг нэгж үнэ няцаагдана.
+  const noItem = spec.parseRow({
+    account: "72100000",
+    amount: "1000",
+    description: "",
+    unitPrice: "5",
+  });
+  assert.ok("value" in noItem && noItem.value.unitPrice === null);
+  const bad = spec.parseRow({
+    account: "14000099",
+    amount: "",
+    description: "",
+    itemCode: "ITEM-001",
+    quantity: "4",
+    warehouseCode: "WH-01",
+    unitPrice: "-3",
+  });
+  assert.ok("errors" in bad && bad.errors.some((e) => /Нэгж үнэ/.test(e)));
+});
+
 test("arapLinesSpec: 0 болон хоосон дүн няцаагдана", () => {
   const spec = arapLinesSpec(arapContext);
   const zero = spec.parseRow({
@@ -235,7 +285,7 @@ test("journalVouchersSpec + groupVoucherRows: Баримт №-оор бүлэг
   const spec = journalVouchersSpec(accountContext);
   const result = parseMatrix(
     [
-      ["Баримт №", "Огноо", "Гүйлгээний утга", "Данс", "Дебет", "Кредит", "Мөрийн тайлбар"],
+      ["Баримт №", "Огноо", "Журналын нэр", "Данс", "Дебет", "Кредит", "Мөрийн тайлбар"],
       ["JE-1", "2026-07-15", "Түрээс", "72100000", "100", "", "зардал"],
       ["JE-1", "2026-07-15", "", "11000001", "", "100", "банк"],
       ["JE-2", "2026-07-20", "Ганц мөр", "11000001", "50", "", ""],
@@ -297,4 +347,18 @@ test("journalVouchersSpec: огноо буруу бол мөр алдаатай"
     description: "",
   });
   assert.ok("errors" in parsed && parsed.errors.some((e) => /Огноо/.test(e)));
+});
+
+test("journalVouchersSpec: хуучин 'Гүйлгээний утга' толгойтой загвар мөн танигдана (alias)", () => {
+  const spec = journalVouchersSpec(accountContext);
+  const result = parseMatrix(
+    [
+      ["Баримт №", "Огноо", "Гүйлгээний утга", "Данс", "Дебет", "Кредит"],
+      ["JE-9", "2026-07-15", "Хуучин загвар", "72100000", "100", ""],
+    ],
+    spec
+  );
+  assert.deepEqual(result.headerErrors, []);
+  assert.equal(result.validCount, 1);
+  assert.equal(result.rows[0].value?.voucherDescription, "Хуучин загвар");
 });

@@ -9,6 +9,11 @@ import {
   requireModuleAction,
 } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  moduleOfVoucherNo,
+  nextVoucherNo,
+  type JournalModule,
+} from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
   arApDocumentLines,
@@ -127,6 +132,11 @@ async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
 
 function documentLabel(type: ArApDocumentType) {
   return type === "ar_invoice" ? "Авлагын нэхэмжлэл" : "Өглөгийн нэхэмжлэх";
+}
+
+/** Журналын дугаарын модуль: авлага → AR-, өглөг → AP-. */
+function voucherModuleOf(type: ArApDocumentType): JournalModule {
+  return type === "ar_invoice" ? "ar" : "ap";
 }
 
 function nextDocumentNo(type: ArApDocumentType, date: string) {
@@ -1071,6 +1081,12 @@ async function createArApDocumentCore(data: {
           organizationId: orgId,
           date: data.date,
           description: `${documentLabel(data.documentType)}: ${description}`,
+          documentNo: await nextVoucherNo(
+            tx,
+            orgId,
+            voucherModuleOf(data.documentType),
+            data.date
+          ),
           status: "posted",
         })
         .returning({ id: journalVouchers.id });
@@ -1310,6 +1326,12 @@ async function postArApDocumentCore(id: string) {
         organizationId: orgId,
         date: document.date,
         description: `${documentLabel(document.documentType as ArApDocumentType)}: ${document.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          voucherModuleOf(document.documentType as ArApDocumentType),
+          document.date
+        ),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -1512,6 +1534,15 @@ async function reverseArApDocumentCore(id: string) {
         organizationId: orgId,
         date: document.date,
         description: `Буцаалт [${document.documentNo}] ${document.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(
+            voucher.documentNo,
+            voucherModuleOf(document.documentType as ArApDocumentType)
+          ),
+          document.date
+        ),
         status: "posted",
         // Эх журналтайгаа хосолно — журналын харагдацад хоёр чигт холбоос гарна.
         reversalOfVoucherId: voucher.id,
@@ -2094,6 +2125,9 @@ async function settleArApOffsetCore(input: {
         organizationId: orgId,
         date: input.date,
         description: `Суутган тооцоо [${arDoc.documentNo} ↔ ${apDoc.documentNo}] ${arDoc.description}`,
+        // Суутган нь хоёр модулийг хамардаг — авлагын талаас дугаарлаж, хосыг
+        // нь утга дотор ил бичнэ (AR ба AP баримтын дугаар хоёулаа харагдана).
+        documentNo: await nextVoucherNo(tx, orgId, "ar", input.date),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -2228,6 +2262,12 @@ async function reverseArApOffsetCore(voucherId: string) {
         organizationId: orgId,
         date: voucher.date,
         description: `Буцаалт: ${voucher.description}`,
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          moduleOfVoucherNo(voucher.documentNo, "ar"),
+          voucher.date
+        ),
         status: "posted",
         reversalOfVoucherId: voucher.id,
       })

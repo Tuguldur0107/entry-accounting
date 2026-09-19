@@ -136,6 +136,44 @@ Draft үүсгэх → хэрэглэгч шалгана → Post дарах →
 - Post хийхэд journal_balance guardrail заавал давна
 - `adjustment_type`: `regular` | `prior_period` | `closing` | `reversing` | `fx_reval` | `accrual`
 
+### 2a. Журналын бичилтийн дугаар — ХЭРЭГЖСЭН
+
+Журнал нь БҮХ модулиас үүсдэг тул дугаар нь эх модулиа ил хэлнэ:
+
+```
+<МОДУЛЬ>-<YY>-<NNNNNN>     GL-26-000001 · CM-26-000042 · FX-26-000003
+```
+
+- **Жил бүр 1-ээс** эхэлнэ (сангийн жилийн дотор тасралтгүй); `NNNNNN` нь 6
+  оронгоор 0-дуулсан, байгууллага дотор давхардахгүй (partial unique index —
+  дугааргүй мөр хэдэн ч байж болно)
+- **Модулийн кодууд** (`JOURNAL_MODULE_CODES`, ӨӨРЧЛӨХИЙГ ХОРИГЛОНО — бичигдсэн
+  дугаар нь баримтын мөнхийн танигдахуун): GL · CM · FX · AR · AP · INV ·
+  COST · FA · PROC · PAY · VAT
+- **БУЦААЛТ эх журналынхаа модулийг ӨВЛӨНӨ** (`moduleOfVoucherNo`) — кассын
+  баримтын буцаалт "CM-", элэгдлийн буцаалт "FA-" болж хос нь нэг модульд үлдэнэ
+- **Тоолуур АТОМИК**: `document_counters` мөрийг
+  `on conflict do update set value = value + n returning value`-ээр нэмэгдүүлнэ.
+  `select max(...) + 1` ХОРИОТОЙ — зэрэгцээ транзакц ижил дугаар авна.
+  Дугаарлалт нь журналаа бичиж буй ТРАНЗАКЦ ДОТОР явагддаг тул бичилт унавал
+  тоолуур ч буцаж, цоорхой үүсэхгүй
+- **Олон журналыг нэг дор** бичихэд (банкны хуулга) `nextVoucherNos` — scope
+  бүрд НЭГ л хүсэлтээр блок нөөцөлнө (500 мөрт 500 биш)
+- **Багана нэмэгдэхээс ӨМНӨХ бичилт дугааргүй** (NULL) — UI-д «—», AI-д
+  "(дугааргүй)"; буцаан дугаарлах ажил хийгдээгүй (product owner-ийн шийдвэр)
+- AI/MCP-ийн журналын tools дугаараар ЧУ олдоно (`resolveVoucherRef`:
+  эхлээд documentNo, дараа нь ID угтвар)
+
+```
+lib/gl/voucher-no.ts   ЦЭВЭР (тесттэй): voucherNoScope, formatVoucherNo,
+                       parseVoucherNo, moduleOfVoucherNo + DB давхарга
+                       nextVoucherNo / nextVoucherNos
+tests/voucher-no.test.ts  Жилийн хил, модуль тус бүрийн тоолуур, багц нөөцлөлт
+```
+
+**Шинэ бичилтийн зам нэмэхэд** `journalVouchers`-д insert хийх бүрд
+`documentNo: await nextVoucherNo(tx, orgId, "<модуль>", <огноо>)` ЗААВАЛ өгнө.
+
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
@@ -755,7 +793,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Бүлэг | Tools | Горим |
 |-------|-------|-------|
 | Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction (applyTo-гоор нэхэмжлэхэд холбоно), create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
-| Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
+| Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
@@ -1105,7 +1143,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 |---------|------|--------|
 | Journal entry (бичих/засах) | [components/gl/journal-entry-form.tsx](components/gl/journal-entry-form.tsx) | `JournalLinesGrid` reuse — inline данс editor + Dr⊕Cr mutex + undo/redo |
 | Journal lines grid (shared) | [components/journal/journal-lines-grid.tsx](components/journal/journal-lines-grid.tsx) | Дахин ашиглагдах мөрийн хүснэгт — pinned totals, clipboard, min-мөр хамгаалалт |
-| Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination |
+| Journal list | [components/gl/journal-list.tsx](components/gl/journal-list.tsx) | Read-only, dynamic row height, pagination. Мөр = `JournalListRow` (`lib/gl/journal-list-data.ts`): ваучер + эх баримтын (касс / АР/АП) харилцагч, валют, ханш + үүсгэсэн хэрэглэгч; Дт/Кт MNT ба валютаар (MNT ÷ ханш — лавлагаа, MNT баримтад хоосон), Дансны нэр багана. "Журналын нэр" = `description` |
 | Cash баримтын панель | [components/panel/cash-doc-panel.tsx](components/panel/cash-doc-panel.tsx) | `JournalLinesGrid` reuse (readOnly) — сегмент panel, холбогдсон нэхэмжлэхийн линк, Батлах/Буцаах/Устгах |
 | Accounts config | [components/gl/accounts-table.tsx](components/gl/accounts-table.tsx) | Inline switches, batch save, group headers |
 | GL trial balance | [components/gl/gl-balance-view.tsx](components/gl/gl-balance-view.tsx) | Multi-header colGroup + pinned totals |
@@ -1189,7 +1227,11 @@ lib/actions/journal-import.ts              Багц журнал → НООРО�
            module_configs, accounting_periods
              segment_values.linkedOrganizationId — S1/S6-ийн утга аль
                байгууллагаас автоматаар бүрдсэн бэ (§3a); null = гараар оруулсан
-GL         journal_vouchers, journal_lines
+GL         journal_vouchers, journal_lines, document_counters
+             journal_vouchers.documentNo — ЖУРНАЛЫН БИЧИЛТИЙН ДУГААР
+               "<МОДУЛЬ>-<YY>-<NNNNNN>" (§2a); хуучин бичилтэд NULL
+             document_counters (organization_id, scope) — дугаарын АТОМИК
+               тоолуур; scope = "GL-26" г.м.
              journal_lines.costEntryId / inventoryMovementId — дэд дэвтрийн
              эх сурвалж (Source → Movement → Cost → GL мөр → Журнал)
              journal_lines.businessObjectType / businessObjectId — клирингийн
@@ -1226,6 +1268,9 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
            deleteAttachmentsFor-оор ӨӨРӨӨ хийнэ; унших зам ЗААВАЛ org +
            модулийн эрхийн шалгалттай (арап нь ar/ap аль нэг эрхээр)
 Inventory  inventory_items, warehouses, inventory_movements
+             items.salesPrice — борлуулах үнэ (MNT, нэгжид, null = тогтоогоогүй):
+               АР нэхэмжлэхэд бараа сонгоход нэгж үнэ автоматаар (байхгүй бол
+               сүүлийн АР мөрийн unitPrice); өртөгтэй ХОЛБООГҮЙ, үнэ зохиохгүй
              movements.issueTypeId — зарлагын дебет чиглэл
              movements.sourceType `po_receipt` — хүлээн авалтын мөрөөс үүссэн
 POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeId,

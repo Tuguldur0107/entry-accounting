@@ -498,7 +498,7 @@ export function CashNewForm({
             </select>
           </Field>
 
-          <Field label="Гүйлгээний утга">
+          <Field label="Журналын нэр">
             <Input
               value={form.description}
               placeholder="Баримтын тайлбар"

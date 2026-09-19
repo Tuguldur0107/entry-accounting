@@ -243,7 +243,7 @@ export function CashDashboard({
           typeLabels[params.data?.documentType ?? ""] ?? "",
       },
       {
-        headerName: "Утга",
+        headerName: "Журналын нэр",
         field: "description",
         minWidth: 180,
         flex: 1,
