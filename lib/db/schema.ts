@@ -1378,6 +1378,11 @@ export const inventoryItems = pgTable(
     revenueAccountNumber: text("revenue_account_number"),
     /** Барааны бүлэг (inventory_categories.code) — хөнгөлөлтийн дүрэм, тайлан. */
     categoryCode: text("category_code"),
+    // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1) ──
+    /** ТЕГ-ийн бараа/үйлчилгээний ангилал — 7 орон. Хоосон бол бүлгийнхийг өвлөнө; байхгүй бол eBarimt илгээгдэхгүй (ангилал ЗОХИОХГҮЙ). */
+    ebarimtClassificationCode: text("ebarimt_classification_code"),
+    /** НӨАТ-гүй / 0%-ийн барааны татварын бүтээгдэхүүний код — 3 орон (VAT_FREE / VAT_ZERO-д заавал). */
+    ebarimtTaxProductCode: text("ebarimt_tax_product_code"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -1405,6 +1410,8 @@ export const inventoryCategories = pgTable(
     }),
     code: text("code").notNull(),
     name: text("name").notNull(),
+    /** Бүлгийн eBarimt ангилалын код (7 орон) — бараанд хоосон бол өвлөгдөнө. */
+    ebarimtClassificationCode: text("ebarimt_classification_code"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -3224,6 +3231,22 @@ export const posSettings = pgTable(
     cashRoundingUnit: integer("cash_rounding_unit").notNull().default(0),
     receiptHeader: text("receipt_header").notNull().default(""),
     receiptFooter: text("receipt_footer").notNull().default("Худалдан авалтад баярлалаа"),
+    // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1, T1a) ──
+    // Мерчантын тохиргоо харилцагчийн апп-д (Console-д биш); нууц энд байхгүй.
+    /** Автомат илгээлт асаалттай эсэх — унтраалттай бол v1-ийн гар ДДТД хэвээр. */
+    ebarimtEnabled: boolean("ebarimt_enabled").notNull().default(false),
+    /** Мерчантын ТТД (11 эсвэл 14 орон) — ebarimt.mn порталаас. */
+    ebarimtMerchantTin: text("ebarimt_merchant_tin").notNull().default(""),
+    /** Салбарын дугаар (branchNo). */
+    ebarimtBranchNo: text("ebarimt_branch_no").notNull().default(""),
+    /** Дүүргийн код (4 орон, getBranchInfo лавлахаас). */
+    ebarimtDistrictCode: text("ebarimt_district_code").notNull().default(""),
+    /** Кассын дугаар (posNo) — бүртгэлтэй терминал; ээлжээс тусдаа. */
+    ebarimtPosNo: text("ebarimt_pos_no").notNull().default(""),
+    /** PosAPI 3.0 үйлчилгээний URL — "server" горимд серверээс, "browser" горимд кассын PC-ээс дуудагдана. */
+    ebarimtPosApiUrl: text("ebarimt_pos_api_url").notNull().default("http://localhost:7080"),
+    /** "server" (Railway-ийн posapi service, worker илгээнэ) | "browser" (кассын PC-ийн localhost, дэлгэц илгээнэ). */
+    ebarimtMode: text("ebarimt_mode").notNull().default("server"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("pos_settings_org_id_ux").on(t.organizationId)]
@@ -3258,6 +3281,8 @@ export const posPaymentMethods = pgTable(
     allowsRefund: boolean("allows_refund").notNull().default(true),
     /** Мэдээллийн шимтгэл % — тайланд; бичилт банкны тулгалтаас. */
     feePercent: numeric("fee_percent", { precision: 5, scale: 2 }),
+    /** eBarimt төлбөрийн код (payments[].code: CASH, PAYMENT_CARD …) — ТЕГ-ийн жагсаалтаас; хоосон бол тэр хэлбэртэй борлуулалт илгээгдэхгүй ([EBARIMT_UNMAPPED_PAYMENT]). Код ЗОХИОХГҮЙ. */
+    ebarimtCode: text("ebarimt_code"),
     isActive: boolean("is_active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -3400,8 +3425,15 @@ export const posSales = pgTable(
     returnReason: text("return_reason"),
     ebarimtId: text("ebarimt_id"),
     ebarimtLottery: text("ebarimt_lottery"),
-    /** null | "manual" | "pending" | "sent" | "failed" */
+    /** null | "manual" | "pending" | "sent" | "failed" | "cancelled" (lib/ebarimt/constants.ts EBARIMT_STATUSES) */
     ebarimtStatus: text("ebarimt_status"),
+    /** ТЕГ-ийн хариу — баримтын QR (qrData), хэвлэсэн огноо (yyyy-MM-dd HH:mm:ss), баримтын төрөл (B2C_RECEIPT …). */
+    ebarimtQrData: text("ebarimt_qr_data"),
+    ebarimtDate: text("ebarimt_date"),
+    ebarimtType: text("ebarimt_type"),
+    /** Худалдан авагч: иргэний eBarimt дугаар (B2C) эсвэл байгууллагын ТТД (B2B) — борлуулах мөчид бичигдэнэ. */
+    ebarimtConsumerNo: text("ebarimt_consumer_no"),
+    ebarimtCustomerTin: text("ebarimt_customer_tin"),
     note: text("note").notNull().default(""),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -3548,10 +3580,58 @@ export const posStoreCredits = pgTable(
   (t) => [index("pos_store_credits_cp_ix").on(t.organizationId, t.counterpartyId)]
 );
 
+/**
+ * eBarimt илгээлтийн ДАРААЛАЛ (docs/pos/03-ebarimt-integration-plan.md §4.4).
+ * Борлуулалт батлагдмагц commit-ийн ДАРАА мөр үүсч, worker (server горим)
+ * эсвэл кассын дэлгэц (browser горим) PosAPI-д илгээнэ. Борлуулалт ХЭЗЭЭ Ч
+ * илгээлтээс болж зогсохгүй; амжилтгүй бол backoff-оор дахин оролдоно,
+ * шалтгаан нь lastError-д ил.
+ *   kind:   "send" (баримт үүсгэх) | "cancel" (эх ДДТД-г цуцлах — буцаалт)
+ *   status: "pending" | "claimed" (worker авсан түр төлөв) | "sent" | "failed" | "cancelled"
+ * Идемпотент: нэг борлуулалтад нэг ХҮЛЭЭГДЭЖ БУЙ send / cancel (partial unique
+ * INDEX — constraint биш, #5955); аль хэдийн sent борлуулалтад send дахин
+ * ирвэл prepare үед дуудлагагүйгээр sent болно.
+ */
+export const posEbarimtSubmissions = pgTable(
+  "pos_ebarimt_submissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    saleId: uuid("sale_id")
+      .notNull()
+      .references(() => posSales.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("send"),
+    status: text("status").notNull().default("pending"),
+    /** PosAPI-д илгээх JSON (receipt.ts-ээр үүссэн) — дахин илгээхэд ижил. */
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    /** PosAPI-ийн сүүлийн хариу (амжилт/алдаа хоёуланд) — аудит. */
+    response: jsonb("response").$type<Record<string, unknown>>(),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pos_ebarimt_submissions_active_ux")
+      .on(t.saleId, t.kind)
+      .where(sql`${t.status} in ('pending', 'claimed')`),
+    index("pos_ebarimt_submissions_org_status_ix").on(t.organizationId, t.status, t.nextAttemptAt),
+  ]
+);
+
+export const posEbarimtSubmissionsRelations = relations(posEbarimtSubmissions, ({ one }) => ({
+  sale: one(posSales, { fields: [posEbarimtSubmissions.saleId], references: [posSales.id] }),
+}));
+
 export const posSalesRelations = relations(posSales, ({ one, many }) => ({
   lines: many(posSaleLines),
   payments: many(posPayments),
   discounts: many(posSaleDiscounts),
+  ebarimtSubmissions: many(posEbarimtSubmissions),
   shift: one(posShifts, { fields: [posSales.shiftId], references: [posShifts.id] }),
   warehouse: one(warehouses, { fields: [posSales.warehouseId], references: [warehouses.id] }),
   counterparty: one(counterparties, {
@@ -3804,5 +3884,6 @@ export type PosSaleDiscount = typeof posSaleDiscounts.$inferSelect;
 export type PosPayment = typeof posPayments.$inferSelect;
 export type PosGiftCard = typeof posGiftCards.$inferSelect;
 export type PosStoreCredit = typeof posStoreCredits.$inferSelect;
+export type PosEbarimtSubmission = typeof posEbarimtSubmissions.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;

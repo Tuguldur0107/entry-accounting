@@ -175,6 +175,7 @@ async function ensureDefaultPaymentMethods(
         currency: "MNT",
         allowsChange: true,
         allowsRefund: true,
+        ebarimtCode: "CASH",
         sortOrder: 0,
       },
       {
@@ -215,6 +216,13 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     cashRoundingUnit: row.cashRoundingUnit,
     receiptHeader: row.receiptHeader,
     receiptFooter: row.receiptFooter,
+    ebarimtEnabled: row.ebarimtEnabled,
+    ebarimtMerchantTin: row.ebarimtMerchantTin,
+    ebarimtBranchNo: row.ebarimtBranchNo,
+    ebarimtDistrictCode: row.ebarimtDistrictCode,
+    ebarimtPosNo: row.ebarimtPosNo,
+    ebarimtPosApiUrl: row.ebarimtPosApiUrl,
+    ebarimtMode: row.ebarimtMode === "browser" ? "browser" : "server",
   };
 }
 
@@ -239,6 +247,7 @@ export async function loadPaymentMethodViews(
     allowsChange: row.allowsChange,
     allowsRefund: row.allowsRefund,
     feePercent: row.feePercent === null ? null : Number(row.feePercent),
+    ebarimtCode: row.ebarimtCode ?? null,
     isActive: row.isActive,
     sortOrder: row.sortOrder,
   }));
@@ -498,6 +507,12 @@ function toSaleView(
     arApStatus: row.arApDocument?.status ?? null,
     ebarimtId: row.ebarimtId,
     ebarimtLottery: row.ebarimtLottery,
+    ebarimtStatus: row.ebarimtStatus,
+    ebarimtQrData: row.ebarimtQrData,
+    ebarimtDate: row.ebarimtDate,
+    ebarimtType: row.ebarimtType,
+    ebarimtConsumerNo: row.ebarimtConsumerNo,
+    ebarimtCustomerTin: row.ebarimtCustomerTin,
     note: row.note,
     paymentSummary: paymentSummaryOf(
       row.payments.map((payment) => ({

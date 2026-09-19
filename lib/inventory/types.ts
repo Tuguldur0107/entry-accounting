@@ -16,6 +16,10 @@ export type InventoryItemView = {
   /** Барааны орлогын дансны override — null бол POS тохиргооны данс. */
   revenueAccountNumber: string | null;
   categoryCode: string | null;
+  /** eBarimt: ТЕГ-ийн ангилалын код (7 орон) — хоосон бол бүлгийнх өвлөгдөнө. */
+  ebarimtClassificationCode: string | null;
+  /** eBarimt: НӨАТ-гүй/0% барааны татварын бүтээгдэхүүний код (3 орон). */
+  ebarimtTaxProductCode: string | null;
 };
 
 export type InventoryCategoryView = {
@@ -23,6 +27,8 @@ export type InventoryCategoryView = {
   code: string;
   name: string;
   isActive: boolean;
+  /** eBarimt: бүлгийн default ангилалын код (7 орон). */
+  ebarimtClassificationCode: string | null;
 };
 
 export type WarehouseView = {
