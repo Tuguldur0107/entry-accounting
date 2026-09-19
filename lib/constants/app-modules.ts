@@ -115,6 +115,18 @@ export const APP_MODULE_DEFS: AppModuleDef[] = [
     navId: "procurement",
   },
   {
+    // POS нь Бараа материал модулийн ДОТОР (docs/pos D1) — өөрийн nav
+    // модульгүй; унтраавал Бараа материалын "Касс (POS)" / "Борлуулалт"
+    // цэсүүд л нуугдана (ModuleItem.configKey). Эрх тусдаа: кассчин зөвхөн
+    // pos:write эрхтэй байж болно (бараа/GL/АР эрхгүй).
+    key: "pos",
+    nameMn: "Борлуулалтын цэг (POS)",
+    name: "Point of Sale",
+    description:
+      "Кассын дэлгэц, борлуулалт → авлага → касс → бараа → өртөг, ээлж, хөнгөлөлт, тайлан",
+    group: "accounting",
+  },
+  {
     key: "fa",
     nameMn: "Үндсэн хөрөнгө",
     name: "Fixed Assets",

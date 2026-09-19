@@ -20,6 +20,7 @@ import {
   goodsReceipts,
   journalVouchers,
   inventoryMovements,
+  posShifts,
   purchaseOrders,
 } from "@/lib/db/schema";
 import {
@@ -67,6 +68,14 @@ export type PeriodActionResult =
         | "has-drafts"
         /** Тухайн сард батлагдсан хүлээн авалттай НЭЭЛТТЭЙ PO үлдсэн. */
         | "open-purchase-orders"
+        /** POS: нээлттэй ээлж үлдсэн (docs/pos §3.3 ⑦). */
+        | "open-pos-shifts"
+        /**
+         * Тухайн сард батлагдсан зарлага/буцаалт/тохируулгатай бараа×агуулах
+         * бүр сарын өртгийн тооцоололд "calculated" байх ёстой — хасах
+         * үлдэгдэл г.м. шалтгаанаар зогссон бол сар хаагдахгүй (docs/pos §2.1 C1).
+         */
+        | "unvalued-movements"
         | "exists"
         | "not-closed"
         /** Өмнөх сар нээлттэй — хаалт дарааллаар (snapshot-ын зангуу). */
@@ -338,6 +347,42 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     if (Number(openPo?.n ?? 0) > 0)
       return { kind: "open-purchase-orders" as const };
 
+    // POS: энэ сард (эсвэл өмнө нь) нээгдсэн, хаагдаагүй ээлж байвал хаагдахгүй —
+    // ээлжийн зөрүү энэ сард бичигдэх ёстой (docs/pos §3.3 ⑥⑦).
+    const [openShift] = await tx
+      .select({ n: count() })
+      .from(posShifts)
+      .where(
+        and(
+          eq(posShifts.organizationId, orgId),
+          eq(posShifts.status, "open"),
+          sql`${posShifts.openedAt} < (${endDate}::date + interval '1 day')`
+        )
+      );
+    if (Number(openShift?.n ?? 0) > 0) return { kind: "open-pos-shifts" as const };
+
+    // C1 (docs/pos §2.1): сарын дунджаар үнэлэгдэх ёстой батлагдсан хөдөлгөөн
+    // (зарлага, буцаалт, тохируулга) бүрийн бараа×агуулах тухайн сарын
+    // cost_period_results-д "calculated" байх ёстой. Хасах үлдэгдэл, өртөггүй
+    // орлого зэргээр зогссон эсвэл тооцоолол огт хийгээгүй бол COGS дутуу
+    // хаагдахаас сэргийлнэ. Үнэ зохиохгүй — засаад дахин тооцно.
+    const [unvalued] = (await tx.execute(sql`
+      select count(*)::int as n
+      from inventory_movements m
+      where m.organization_id = ${orgId}
+        and m.status = 'confirmed'
+        and m.movement_type in ('issue', 'return_in', 'return_out', 'adjustment')
+        and m.item_id is not null and m.warehouse_id is not null
+        and m.date between ${startDate} and ${endDate}
+        and not exists (
+          select 1 from cost_period_results r
+          where r.organization_id = ${orgId}
+            and r.item_id = m.item_id and r.warehouse_id = m.warehouse_id
+            and r.period_code = ${code} and r.status = 'calculated'
+        )
+    `)) as unknown as { n: number }[];
+    if (Number(unvalued?.n ?? 0) > 0) return { kind: "unvalued-movements" as const };
+
     // custom/ hook — ноорог тооллогын ДАРАА, lock дотор.
     const hook = await runBeforePeriodClose({ orgId, userId, code, startDate, endDate });
     if (!hook.ok)
@@ -385,6 +430,9 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
   if (outcome.kind === "previous-open") return { ok: false, code: "previous-open" };
   if (outcome.kind === "open-purchase-orders")
     return { ok: false, code: "open-purchase-orders" };
+  if (outcome.kind === "open-pos-shifts") return { ok: false, code: "open-pos-shifts" };
+  if (outcome.kind === "unvalued-movements")
+    return { ok: false, code: "unvalued-movements" };
   if (outcome.kind === "hook")
     return { ok: false, code: "hook-rejected", reason: outcome.reason };
 

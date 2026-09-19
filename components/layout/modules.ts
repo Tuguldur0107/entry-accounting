@@ -6,6 +6,12 @@ export type ModuleItem = {
   label: string;
   href: string;
   icon: IconName;
+  /**
+   * Тохиргооны модулийн түлхүүр (module_configs.moduleKey) — унтраасан
+   * эсвэл гишүүнд "none" бол ЭНЭ цэс л нуугдана (модуль бүхэлдээ биш).
+   * POS нь Бараа материалын дотор амьдардаг тул ийм цэс.
+   */
+  configKey?: string;
 };
 
 export type Module = {
@@ -145,6 +151,9 @@ export const MODULES: Module[] = [
         href: "/inventory/counting",
         icon: "counting",
       },
+      // POS — Бараа материалын дотор (docs/pos D1): кассын дэлгэц + борлуулалт.
+      { label: "Касс (POS)", href: "/inventory/pos", icon: "cash", configKey: "pos" },
+      { label: "Борлуулалт", href: "/inventory/sales", icon: "document", configKey: "pos" },
       { label: "Тайлан", href: "/inventory/reports", icon: "reportDetailed" },
       { label: "Бараа, агуулах", href: "/inventory/items", icon: "inventory" },
     ],
@@ -261,6 +270,19 @@ export const NAV_MODULE_BY_CONFIG_KEY: Record<string, string> = {
   payroll: "payroll",
   ai: "ai",
 };
+
+/**
+ * Унтраасан модулийн тохиргоо → нуух ЦЭСНИЙ configKey-ууд (ModuleItem.configKey).
+ * Модуль бүхэлдээ биш, зөвхөн тэр түлхүүртэй цэсүүд нуугдана.
+ */
+export function disabledNavItemKeys(
+  configs: { moduleKey: string; isEnabled: boolean }[]
+): string[] {
+  return configs
+    .filter((config) => !config.isEnabled)
+    .map((config) => config.moduleKey)
+    .filter((key) => !(key in NAV_MODULE_BY_CONFIG_KEY));
+}
 
 /** Унтраасан модулийн тохиргоо → навигациас нуух модулийн id-ууд. */
 export function disabledNavModuleIds(

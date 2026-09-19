@@ -4,6 +4,12 @@ import { loadInventoryBase } from "@/lib/inventory/load-data";
 
 export default async function InventoryItemsPage() {
   const { orgId } = await getActiveOrg();
-  const { itemViews, warehouseViews } = await loadInventoryBase(orgId);
-  return <InventoryItemsView items={itemViews} warehouses={warehouseViews} />;
+  const { itemViews, warehouseViews, categoryViews } = await loadInventoryBase(orgId);
+  return (
+    <InventoryItemsView
+      items={itemViews}
+      warehouses={warehouseViews}
+      categories={categoryViews}
+    />
+  );
 }

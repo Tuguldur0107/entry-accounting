@@ -7,6 +7,7 @@ import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,30 +20,100 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
+  createInventoryCategory,
   createInventoryItem,
   createWarehouse,
+  toggleInventoryCategory,
   toggleInventoryItem,
   toggleWarehouse,
+  updateInventoryCategory,
   updateInventoryItem,
 } from "@/lib/actions/inventory";
-import type { InventoryItemView, WarehouseView } from "@/lib/inventory/types";
+import { importInventoryItems } from "@/lib/actions/inventory-import";
+import {
+  ITEM_VAT_MODE_LABELS,
+  inventoryItemsSpec,
+  type InventoryItemImport,
+} from "@/lib/excel/specs";
+import type {
+  InventoryCategoryView,
+  InventoryItemView,
+  ItemVatMode,
+  WarehouseView,
+} from "@/lib/inventory/types";
+import { fmtMnt } from "@/lib/reports/balances";
 
 interface Props {
   items: InventoryItemView[];
   warehouses: WarehouseView[];
+  categories: InventoryCategoryView[];
 }
 
-const emptyItemForm = { id: "", code: "", name: "", unit: "ш" };
-const emptyWarehouseForm = { code: "", name: "" };
+const VAT_MODE_OPTIONS: { value: ItemVatMode; label: string }[] = [
+  { value: "standard", label: "10% (НӨАТ-тай)" },
+  { value: "exempt", label: "Чөлөөлөгдсөн" },
+  { value: "zero", label: "0%" },
+];
 
-export function InventoryItemsView({ items, warehouses }: Props) {
+type ItemForm = {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  salePrice: string;
+  minSalePrice: string;
+  barcode: string;
+  vatMode: ItemVatMode;
+  categoryCode: string;
+  revenueAccountNumber: string;
+};
+
+const emptyItemForm: ItemForm = {
+  id: "",
+  code: "",
+  name: "",
+  unit: "ш",
+  salePrice: "",
+  minSalePrice: "",
+  barcode: "",
+  vatMode: "standard",
+  categoryCode: "",
+  revenueAccountNumber: "",
+};
+const emptyWarehouseForm = { code: "", name: "" };
+const emptyCategoryForm = { id: "", code: "", name: "" };
+
+/** Хоосон текст → null, бусад нь тоо (server талд ДАХИН шалгагдана). */
+function priceInput(value: string): number | null {
+  const trimmed = value.trim();
+  return trimmed === "" ? null : Number(trimmed.replaceAll(",", ""));
+}
+
+export function InventoryItemsView({ items, warehouses, categories }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [itemOpen, setItemOpen] = useState(false);
-  const [itemForm, setItemForm] = useState(emptyItemForm);
+  const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
   const [warehouseOpen, setWarehouseOpen] = useState(false);
   const [warehouseForm, setWarehouseForm] = useState(emptyWarehouseForm);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categoryForm, setCategoryForm] = useState(emptyCategoryForm);
+  const [importOpen, setImportOpen] = useState(false);
   const [error, setError] = useState("");
+
+  const categoryNameByCode = useMemo(
+    () => new Map(categories.map((category) => [category.code, category.name])),
+    [categories]
+  );
+  const importSpec = useMemo(
+    () =>
+      inventoryItemsSpec({
+        categoryCodes: new Set(
+          categories.filter((category) => category.isActive).map((category) => category.code)
+        ),
+      }),
+    [categories]
+  );
 
   function run(action: () => Promise<unknown>, success: string, close?: () => void) {
     setError("");
@@ -61,15 +132,70 @@ export function InventoryItemsView({ items, warehouses }: Props) {
     });
   }
 
+  async function handleImport(values: InventoryItemImport[]) {
+    try {
+      const result = await importInventoryItems(values);
+      const parts = [
+        result.created > 0 ? `${result.created} шинээр бүртгэгдэв` : null,
+        result.updated > 0 ? `${result.updated} шинэчлэгдэв` : null,
+      ].filter(Boolean);
+      if (result.failures.length > 0) {
+        router.refresh();
+        return `${parts.join(", ") || "Юу ч ороогүй"}. Алдаа: ${result.failures
+          .slice(0, 3)
+          .map((entry) => `${entry.code} — ${entry.error}`)
+          .join("; ")}${result.failures.length > 3 ? " …" : ""}`;
+      }
+      toast.success(parts.join(", ") || "Өөрчлөлт ороогүй");
+      router.refresh();
+    } catch (caught) {
+      return caught instanceof Error ? caught.message : "Импорт амжилтгүй";
+    }
+  }
+
   const itemColumns = useMemo<ColDef<InventoryItemView>[]>(
     () => [
-      { headerName: "Код", field: "code", width: 130, cellClass: "font-mono text-xs" },
-      { headerName: "Нэр", field: "name", minWidth: 200, flex: 1 },
-      { headerName: "Хэмжих нэгж", field: "unit", width: 120 },
+      { headerName: "Код", field: "code", width: 120, cellClass: "font-mono text-xs" },
+      { headerName: "Нэр", field: "name", minWidth: 180, flex: 1 },
+      { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
+      {
+        headerName: "Борлуулах үнэ",
+        field: "salePrice",
+        width: 130,
+        type: "rightAligned",
+        cellClass: "font-mono text-xs text-right",
+        valueFormatter: (params) =>
+          params.value == null ? "" : fmtMnt(Number(params.value)),
+      },
+      {
+        headerName: "Баркод",
+        field: "barcode",
+        width: 140,
+        cellClass: "font-mono text-xs",
+        valueFormatter: (params) => params.value ?? "",
+      },
+      {
+        headerName: "НӨАТ",
+        field: "vatMode",
+        width: 120,
+        valueFormatter: (params) =>
+          ITEM_VAT_MODE_LABELS[(params.value as ItemVatMode) ?? "standard"] ?? "",
+      },
+      {
+        headerName: "Бүлэг",
+        field: "categoryCode",
+        width: 130,
+        valueFormatter: (params) => {
+          const code = params.value as string | null;
+          if (!code) return "";
+          const name = categoryNameByCode.get(code);
+          return name ? `${code} · ${name}` : code;
+        },
+      },
       {
         headerName: "Идэвхтэй",
         field: "isActive",
-        width: 110,
+        width: 100,
         cellClass: "flex items-center",
         cellRenderer: (params: ICellRendererParams<InventoryItemView>) => (
           <Switch
@@ -100,7 +226,18 @@ export function InventoryItemsView({ items, warehouses }: Props) {
             onClick={() => {
               const data = params.data;
               if (!data) return;
-              setItemForm({ id: data.id, code: data.code, name: data.name, unit: data.unit });
+              setItemForm({
+                id: data.id,
+                code: data.code,
+                name: data.name,
+                unit: data.unit,
+                salePrice: data.salePrice == null ? "" : String(data.salePrice),
+                minSalePrice: data.minSalePrice == null ? "" : String(data.minSalePrice),
+                barcode: data.barcode ?? "",
+                vatMode: data.vatMode,
+                categoryCode: data.categoryCode ?? "",
+                revenueAccountNumber: data.revenueAccountNumber ?? "",
+              });
               setError("");
               setItemOpen(true);
             }}
@@ -111,7 +248,7 @@ export function InventoryItemsView({ items, warehouses }: Props) {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [categoryNameByCode]
   );
 
   const warehouseColumns = useMemo<ColDef<WarehouseView>[]>(
@@ -141,6 +278,58 @@ export function InventoryItemsView({ items, warehouses }: Props) {
     []
   );
 
+  const categoryColumns = useMemo<ColDef<InventoryCategoryView>[]>(
+    () => [
+      { headerName: "Код", field: "code", width: 130, cellClass: "font-mono text-xs" },
+      { headerName: "Нэр", field: "name", minWidth: 160, flex: 1 },
+      {
+        headerName: "Идэвхтэй",
+        field: "isActive",
+        width: 110,
+        cellClass: "flex items-center",
+        cellRenderer: (params: ICellRendererParams<InventoryCategoryView>) => (
+          <Switch
+            checked={params.data?.isActive ?? false}
+            onCheckedChange={(checked) =>
+              params.data &&
+              run(
+                () => toggleInventoryCategory(params.data!.id, checked),
+                checked ? "Бүлэг идэвхжлээ" : "Бүлэг идэвхгүй боллоо"
+              )
+            }
+          />
+        ),
+      },
+      {
+        headerName: "",
+        colId: "actions",
+        width: 64,
+        sortable: false,
+        filter: false,
+        cellClass: "flex items-center justify-end",
+        cellRenderer: (params: ICellRendererParams<InventoryCategoryView>) => (
+          <button
+            type="button"
+            className="ea-btn ea-btn--icon"
+            title="Засах"
+            aria-label="Засах"
+            onClick={() => {
+              const data = params.data;
+              if (!data) return;
+              setCategoryForm({ id: data.id, code: data.code, name: data.name });
+              setError("");
+              setCategoryOpen(true);
+            }}
+          >
+            <Icon name="edit" />
+          </button>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-6">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
@@ -150,28 +339,38 @@ export function InventoryItemsView({ items, warehouses }: Props) {
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
             Тоо хэмжээний бүртгэлийн мастер дата — дансны mapping өртгийн
-            модулийн тохиргоонд.
+            модулийн тохиргоонд. Борлуулах үнэ, баркод, НӨАТ-ийн горим нь POS-д.
           </p>
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-2">
-        <div className="flex min-h-0 min-w-0 flex-col">
-          <div className="mb-2 flex items-center justify-between">
+      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-3">
+        <div className="flex min-h-0 min-w-0 flex-col xl:col-span-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
               Бараа ({items.length})
             </h2>
-            <Button
-              size="sm"
-              onClick={() => {
-                setItemForm(emptyItemForm);
-                setError("");
-                setItemOpen(true);
-              }}
-            >
-              <Icon name="add" />
-              Бараа нэмэх
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setImportOpen(true)}
+              >
+                <Icon name="upload" size="sm" />
+                Excel импорт
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setItemForm(emptyItemForm);
+                  setError("");
+                  setItemOpen(true);
+                }}
+              >
+                <Icon name="add" />
+                Бараа нэмэх
+              </Button>
+            </div>
           </div>
           {items.length === 0 ? (
             <EmptyBox text="Бараа бүртгээгүй байна" />
@@ -187,55 +386,108 @@ export function InventoryItemsView({ items, warehouses }: Props) {
           )}
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-col">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
-              Агуулах ({warehouses.length})
-            </h2>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setWarehouseForm(emptyWarehouseForm);
-                setError("");
-                setWarehouseOpen(true);
-              }}
-            >
-              <Icon name="add" />
-              Агуулах нэмэх
-            </Button>
+        <div className="flex min-h-0 min-w-0 flex-col gap-6">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+                Агуулах ({warehouses.length})
+              </h2>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setWarehouseForm(emptyWarehouseForm);
+                  setError("");
+                  setWarehouseOpen(true);
+                }}
+              >
+                <Icon name="add" />
+                Агуулах нэмэх
+              </Button>
+            </div>
+            {warehouses.length === 0 ? (
+              <EmptyBox text="Агуулах бүртгээгүй байна" />
+            ) : (
+              <DataGridDynamic<WarehouseView>
+                rowData={warehouses}
+                columnDefs={warehouseColumns}
+                getRowId={(params) => params.data.id}
+                height="flex"
+                wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+                suppressCellFocus
+              />
+            )}
           </div>
-          {warehouses.length === 0 ? (
-            <EmptyBox text="Агуулах бүртгээгүй байна" />
-          ) : (
-            <DataGridDynamic<WarehouseView>
-              rowData={warehouses}
-              columnDefs={warehouseColumns}
-              getRowId={(params) => params.data.id}
-              height="flex"
-              wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-              suppressCellFocus
-            />
-          )}
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+                Барааны бүлэг ({categories.length})
+              </h2>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setCategoryForm(emptyCategoryForm);
+                  setError("");
+                  setCategoryOpen(true);
+                }}
+              >
+                <Icon name="add" />
+                Бүлэг нэмэх
+              </Button>
+            </div>
+            {categories.length === 0 ? (
+              <EmptyBox text="Бүлэг бүртгээгүй байна — хөнгөлөлтийн дүрэм, тайланд ашиглана" />
+            ) : (
+              <DataGridDynamic<InventoryCategoryView>
+                rowData={categories}
+                columnDefs={categoryColumns}
+                getRowId={(params) => params.data.id}
+                height="flex"
+                wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+                suppressCellFocus
+              />
+            )}
+          </div>
         </div>
       </div>
 
+      <ExcelImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        spec={importSpec}
+        title="Бараа Excel-ээс импортлох"
+        onImport={handleImport}
+      />
+
       <Dialog open={itemOpen} onOpenChange={setItemOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{itemForm.id ? "Бараа засах" : "Шинэ бараа"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
-            <Field label="Код">
-              <Input
-                value={itemForm.code}
-                disabled={!!itemForm.id}
-                placeholder="Ж: BM-001"
-                onChange={(e) =>
-                  setItemForm((c) => ({ ...c, code: e.target.value }))
-                }
-              />
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Код">
+                <Input
+                  value={itemForm.code}
+                  disabled={!!itemForm.id}
+                  placeholder="Ж: BM-001"
+                  onChange={(e) =>
+                    setItemForm((c) => ({ ...c, code: e.target.value }))
+                  }
+                />
+              </Field>
+              <Field label="Хэмжих нэгж">
+                <Input
+                  value={itemForm.unit}
+                  placeholder="ш / кг / л / м"
+                  onChange={(e) =>
+                    setItemForm((c) => ({ ...c, unit: e.target.value }))
+                  }
+                />
+              </Field>
+            </div>
             <Field label="Нэр">
               <Input
                 value={itemForm.name}
@@ -245,15 +497,106 @@ export function InventoryItemsView({ items, warehouses }: Props) {
                 }
               />
             </Field>
-            <Field label="Хэмжих нэгж">
-              <Input
-                value={itemForm.unit}
-                placeholder="ш / кг / л / м"
-                onChange={(e) =>
-                  setItemForm((c) => ({ ...c, unit: e.target.value }))
-                }
-              />
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Борлуулах үнэ (₮)">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={itemForm.salePrice}
+                  placeholder="Тогтоогоогүй"
+                  onChange={(e) =>
+                    setItemForm((c) => ({ ...c, salePrice: e.target.value }))
+                  }
+                />
+              </Field>
+              <Field label="Доод үнэ (₮)">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={itemForm.minSalePrice}
+                  placeholder="Хөнгөлөлтийн доод хязгаар"
+                  onChange={(e) =>
+                    setItemForm((c) => ({ ...c, minSalePrice: e.target.value }))
+                  }
+                />
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Баркод">
+                <Input
+                  value={itemForm.barcode}
+                  placeholder="Сканнерын код (сонголтоор)"
+                  className="font-mono"
+                  onChange={(e) =>
+                    setItemForm((c) => ({ ...c, barcode: e.target.value }))
+                  }
+                />
+              </Field>
+              <Field label="НӨАТ">
+                {/* Native select — Dialog доторх Base UI popup давхарга
+                    дарагддаг тул ea-form-select идиомыг дагана */}
+                <select
+                  className="ea-form-select"
+                  value={itemForm.vatMode}
+                  onChange={(e) =>
+                    setItemForm((c) => ({
+                      ...c,
+                      vatMode: e.target.value as ItemVatMode,
+                    }))
+                  }
+                >
+                  {VAT_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Бүлэг">
+                <select
+                  className="ea-form-select"
+                  value={itemForm.categoryCode}
+                  onChange={(e) =>
+                    setItemForm((c) => ({ ...c, categoryCode: e.target.value }))
+                  }
+                >
+                  <option value="">— Бүлэггүй —</option>
+                  {categories
+                    .filter(
+                      (category) =>
+                        category.isActive || category.code === itemForm.categoryCode
+                    )
+                    .map((category) => (
+                      <option key={category.id} value={category.code}>
+                        {category.code} · {category.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+              <Field
+                label="Орлогын данс"
+                hint="хоосон бол POS тохиргооны орлогын данс"
+              >
+                <Input
+                  value={itemForm.revenueAccountNumber}
+                  placeholder="8 оронтой данс, ж: 51100000"
+                  className="font-mono"
+                  maxLength={8}
+                  onChange={(e) =>
+                    setItemForm((c) => ({
+                      ...c,
+                      revenueAccountNumber: e.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            </div>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -266,23 +609,33 @@ export function InventoryItemsView({ items, warehouses }: Props) {
             </Button>
             <Button
               disabled={isPending}
-              onClick={() =>
+              onClick={() => {
+                const posFields = {
+                  salePrice: priceInput(itemForm.salePrice),
+                  minSalePrice: priceInput(itemForm.minSalePrice),
+                  barcode: itemForm.barcode.trim() || null,
+                  vatMode: itemForm.vatMode,
+                  categoryCode: itemForm.categoryCode || null,
+                  revenueAccountNumber: itemForm.revenueAccountNumber.trim() || null,
+                };
                 run(
                   () =>
                     itemForm.id
                       ? updateInventoryItem(itemForm.id, {
                           name: itemForm.name,
                           unit: itemForm.unit,
+                          ...posFields,
                         })
                       : createInventoryItem({
                           code: itemForm.code,
                           name: itemForm.name,
                           unit: itemForm.unit,
+                          ...posFields,
                         }),
                   itemForm.id ? "Бараа шинэчлэгдлээ" : "Бараа нэмэгдлээ",
                   () => setItemOpen(false)
-                )
-              }
+                );
+              }}
             >
               Хадгалах
             </Button>
@@ -343,22 +696,96 @@ export function InventoryItemsView({ items, warehouses }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {categoryForm.id ? "Бүлэг засах" : "Шинэ барааны бүлэг"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Field label="Код">
+              <Input
+                value={categoryForm.code}
+                disabled={!!categoryForm.id}
+                placeholder="Ж: FOOD"
+                onChange={(e) =>
+                  setCategoryForm((c) => ({ ...c, code: e.target.value }))
+                }
+              />
+            </Field>
+            <Field label="Нэр">
+              <Input
+                value={categoryForm.name}
+                placeholder="Бүлгийн нэр"
+                onChange={(e) =>
+                  setCategoryForm((c) => ({ ...c, name: e.target.value }))
+                }
+              />
+            </Field>
+            {error && (
+              <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
+                {error}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCategoryOpen(false)}
+              disabled={isPending}
+            >
+              Болих
+            </Button>
+            <Button
+              disabled={isPending}
+              onClick={() =>
+                run(
+                  () =>
+                    categoryForm.id
+                      ? updateInventoryCategory(categoryForm.id, {
+                          name: categoryForm.name,
+                        })
+                      : createInventoryCategory({
+                          code: categoryForm.code,
+                          name: categoryForm.name,
+                        }),
+                  categoryForm.id ? "Бүлэг шинэчлэгдлээ" : "Бүлэг нэмэгдлээ",
+                  () => setCategoryOpen(false)
+                )
+              }
+            >
+              Хадгалах
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="grid gap-1.5">
       <Label>{label}</Label>
       {children}
+      {hint && <p className="text-[11px] text-[var(--ea-text-4)]">{hint}</p>}
     </div>
   );
 }
 
 function EmptyBox({ text }: { text: string }) {
   return (
-    <div className="flex min-h-40 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
+    <div className="flex min-h-40 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] px-4 text-center text-sm text-[var(--ea-text-4)]">
       {text}
     </div>
   );

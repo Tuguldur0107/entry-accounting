@@ -27,3 +27,11 @@ export function NavVisibilityProvider({
 export function useDisabledModuleIds(): string[] {
   return useContext(NavVisibilityContext);
 }
+
+/** Тухайн цэс (ModuleItem.configKey) нуугдсан эсэх — "item:<key>" тэмдэглэгээ. */
+export function isNavItemHidden(
+  disabledModuleIds: string[],
+  configKey: string | undefined
+): boolean {
+  return !!configKey && disabledModuleIds.includes(`item:${configKey}`);
+}

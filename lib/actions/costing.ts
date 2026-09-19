@@ -44,6 +44,11 @@ import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { logAuditEvent } from "@/lib/audit";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
+import {
+  COGS_TRUE_UP_ENTRY_TYPE,
+  POS_MOVEMENT_SOURCE_TYPE,
+  PROVISIONAL_VALUATION_SOURCE,
+} from "@/lib/pos/constants";
 
 function revalidateCosting() {
   for (const path of [
@@ -308,8 +313,12 @@ export async function postCostEntry(id: string) {
   if (entry.status !== "draft")
     throw new Error("Зөвхөн ноорог бичилтийг батална");
   await assertPeriodOpen(orgId, entry.date);
-  const amount = Number(entry.amount);
-  if (!(amount > 0))
+  // Залруулга (cogs_true_up) ТЭМДЭГТЭЙ дүнтэй: сөрөг бол Dr/Cr солигдож
+  // абсолют дүнгээр бичигдэнэ (docs/pos §3.7); бусад төрөл эерэг л байна.
+  const isTrueUp = entry.entryType === COGS_TRUE_UP_ENTRY_TYPE;
+  const signedAmount = Number(entry.amount);
+  const amount = isTrueUp ? Math.abs(signedAmount) : signedAmount;
+  if (!(amount >= 0.01))
     throw new Error("0 дүнтэй бичилтийг GL-д бичихгүй — устгана уу");
 
   // NRV-ийг entryType-оор танина (movementId биш): устгагдсан хөдөлгөөний
@@ -354,7 +363,7 @@ export async function postCostEntry(id: string) {
     });
     componentClearing = component?.accountNumber ?? null;
   }
-  const { debit, credit } = entryPostingAccounts(
+  const natural = entryPostingAccounts(
     entry.entryType as CostEntryType,
     {
       inventoryAccountNumber: accounts.inventoryAccountNumber,
@@ -368,6 +377,10 @@ export async function postCostEntry(id: string) {
       nrvReserve: roleSettings.nrvReserveAccountNumber,
     }
   );
+  const { debit, credit } =
+    isTrueUp && signedAmount < 0
+      ? { debit: natural.credit, credit: natural.debit }
+      : natural;
   await assertEnabledMainAccount(orgId, debit);
   await assertEnabledMainAccount(orgId, credit);
   const buildCode = await costingPostingCodeBuilder(orgId);
@@ -375,7 +388,9 @@ export async function postCostEntry(id: string) {
   const itemName = entry.movement?.item?.name ?? entry.item?.name ?? "";
   const description = isNrv
     ? `[NRV] ${itemName} — цэвэр боломжит үнийн бууруулалт`
-    : entry.movement
+    : isTrueUp
+      ? `[Залруулга] ${entry.movement?.documentNo ?? ""} ${itemName} — урьдчилсан COGS-ийг сарын дунджаар залруулав`
+      : entry.movement
       ? `[${entry.movement.documentNo}] ${itemName} — ${entry.movement.description || "өртгийн бичилт"}`
       : entry.entryType === "landed_cost"
         ? `[Landed cost] ${itemName} — нэмэлт зардлын капитализаци`
@@ -499,6 +514,7 @@ export async function postCostEntries(ids: string[]) {
  */
 function assertNotPoReceiptCapitalization(entry: {
   entryType: string;
+  valuationSource?: string;
   movement: { sourceType: string | null } | null;
 }) {
   if (
@@ -507,6 +523,16 @@ function assertNotPoReceiptCapitalization(entry: {
   )
     throw new Error(
       "Хүлээн авалтын капитализаци — Хангамж → Хүлээн авалт дээр буцаана уу"
+    );
+  // POS (docs/pos §3.3): урьдчилсан COGS нь борлуулалттайгаа НЭГ атом
+  // үйлдэл — дангаар нь буцаавал борлуулалт/зарлага/өртөг зөрнө. Зөвхөн
+  // POS буцаалтаар; сар хаалтын залруулга (cogs_true_up) харин энгийн.
+  if (
+    entry.valuationSource === PROVISIONAL_VALUATION_SOURCE &&
+    entry.movement?.sourceType === POS_MOVEMENT_SOURCE_TYPE
+  )
+    throw new Error(
+      "[POS_SOURCED] Урьдчилсан COGS нь POS борлуулалтынх — Бараа материал → Борлуулалт дээр буцаана уу"
     );
 }
 

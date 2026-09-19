@@ -644,13 +644,24 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "create_inventory_item",
-    description: "Шинэ бараа бүртгэнэ (код нь давхардахгүй байх ёстой).",
+    description:
+      "Шинэ бараа бүртгэнэ (код нь давхардахгүй байх ёстой). POS-ийн талбарууд сонголтоор: борлуулах үнэ, доод үнэ, баркод, НӨАТ-ийн горим, бүлэг, орлогын данс.",
     inputSchema: {
       type: "object",
       properties: {
         code: { type: "string", description: "Барааны код (жишээ нь ITEM-010)" },
         name: { type: "string", description: "Барааны нэр" },
         unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
+        salePrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
+        minSalePrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
+        barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
+        vatMode: {
+          type: "string",
+          enum: ["standard", "exempt", "zero"],
+          description: "НӨАТ-ийн горим: standard (10%) / exempt (чөлөөлөгдсөн) / zero (0%) — сонголтоор, default standard",
+        },
+        categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
+        revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
       },
       required: ["code", "name"],
     },
@@ -746,7 +757,8 @@ export const AI_TOOLS: AiToolDef[] = [
   },
   {
     name: "update_inventory_item",
-    description: "Барааны нэр, нэгж, идэвхийг засна (кодоор нь олно).",
+    description:
+      "Барааны нэр, нэгж, идэвх болон POS-ийн талбаруудыг (борлуулах үнэ, доод үнэ, баркод, НӨАТ-ийн горим, бүлэг, орлогын данс) засна — кодоор нь олно. Зөвхөн өгсөн талбарууд өөрчлөгдөнө; үнэ өөрчлөгдвөл үнийн түүхэнд бичигдэнэ.",
     inputSchema: {
       type: "object",
       properties: {
@@ -754,6 +766,16 @@ export const AI_TOOLS: AiToolDef[] = [
         name: { type: "string", description: "Шинэ нэр (сонголтоор)" },
         unit: { type: "string", description: "Шинэ нэгж (сонголтоор)" },
         isActive: { type: "boolean", description: "Идэвхтэй эсэх (сонголтоор)" },
+        salePrice: { type: "number", description: "Борлуулах үнэ ₮ (POS; НӨАТ төлөгч бол НӨАТ орсон үнэ) — сонголтоор" },
+        minSalePrice: { type: "number", description: "Кассчны хөнгөлөлтийн доод үнэ ₮ (борлуулах үнээс ихгүй) — сонголтоор" },
+        barcode: { type: "string", description: "Баркод (байгууллага дотор давхцахгүй) — сонголтоор" },
+        vatMode: {
+          type: "string",
+          enum: ["standard", "exempt", "zero"],
+          description: "НӨАТ-ийн горим: standard (10%) / exempt (чөлөөлөгдсөн) / zero (0%) — сонголтоор, default standard",
+        },
+        categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
+        revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
       },
       required: ["itemCode"],
     },
@@ -1499,13 +1521,24 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         items: {
           type: "array",
-          description: "create_inventory_item-ийн input-уудын жагсаалт",
+          description:
+            "create_inventory_item-ийн input-уудын жагсаалт (POS талбарууд: salePrice, minSalePrice, barcode, vatMode, categoryCode, revenueAccountNumber сонголтоор)",
           items: {
             type: "object",
             properties: {
               code: { type: "string" },
               name: { type: "string" },
               unit: { type: "string", description: "Хэмжих нэгж (default ш)" },
+              salePrice: { type: "number", description: "Борлуулах үнэ ₮ (сонголтоор)" },
+              minSalePrice: { type: "number", description: "Доод үнэ ₮ (сонголтоор)" },
+              barcode: { type: "string", description: "Баркод (сонголтоор)" },
+              vatMode: {
+                type: "string",
+                enum: ["standard", "exempt", "zero"],
+                description: "НӨАТ-ийн горим (сонголтоор, default standard)",
+              },
+              categoryCode: { type: "string", description: "Бүлгийн код (сонголтоор)" },
+              revenueAccountNumber: { type: "string", description: "Орлогын данс, 8 оронтой (сонголтоор)" },
             },
             required: ["code", "name"],
           },
@@ -3867,16 +3900,60 @@ async function runCreateCounterparty(
   };
 }
 
+/** POS талбарууд — model-ийн input (сонголтоор, өгсөн нь л дамжина). */
+type ItemPosInput = {
+  salePrice?: number;
+  minSalePrice?: number;
+  barcode?: string;
+  vatMode?: "standard" | "exempt" | "zero";
+  categoryCode?: string;
+  revenueAccountNumber?: string;
+};
+
+/** Зөвхөн ӨГӨГДСӨН POS талбарыг дамжуулна — өгөөгүй нь хөндөгдөхгүй (update-д чухал). */
+function itemPosFieldsOf(input: ItemPosInput) {
+  const fields: {
+    salePrice?: number;
+    minSalePrice?: number;
+    barcode?: string | null;
+    vatMode?: "standard" | "exempt" | "zero";
+    categoryCode?: string | null;
+    revenueAccountNumber?: string | null;
+  } = {};
+  if (input.salePrice != null) fields.salePrice = Number(input.salePrice);
+  if (input.minSalePrice != null) fields.minSalePrice = Number(input.minSalePrice);
+  if (input.barcode != null) fields.barcode = input.barcode.trim() || null;
+  if (input.vatMode != null) {
+    if (!["standard", "exempt", "zero"].includes(input.vatMode))
+      throw new Error("vatMode нь standard / exempt / zero байна");
+    fields.vatMode = input.vatMode;
+  }
+  if (input.categoryCode != null) fields.categoryCode = input.categoryCode.trim() || null;
+  if (input.revenueAccountNumber != null)
+    fields.revenueAccountNumber = input.revenueAccountNumber.trim() || null;
+  return fields;
+}
+
 async function runCreateItem(
   _orgId: string,
-  input: { code: string; name: string; unit?: string }
+  input: { code: string; name: string; unit?: string } & ItemPosInput
 ): Promise<AiToolResult> {
+  const pos = itemPosFieldsOf(input);
   await createInventoryItem({
     code: input.code,
     name: input.name,
     unit: input.unit ?? "ш",
+    ...pos,
   });
-  return { resultText: `Бараа бүртгэгдлээ: ${input.code} — ${input.name}` };
+  const extras = [
+    pos.salePrice != null ? `үнэ ${pos.salePrice.toLocaleString()}₮` : null,
+    pos.barcode ? `баркод ${pos.barcode}` : null,
+    pos.vatMode && pos.vatMode !== "standard" ? `НӨАТ ${pos.vatMode}` : null,
+    pos.categoryCode ? `бүлэг ${pos.categoryCode}` : null,
+  ].filter(Boolean);
+  return {
+    resultText: `Бараа бүртгэгдлээ: ${input.code} — ${input.name}${extras.length ? ` (${extras.join(", ")})` : ""}`,
+  };
 }
 
 async function runCreateWarehouse(
@@ -3993,7 +4070,7 @@ async function runDeleteCounterparty(
 
 async function runUpdateItem(
   orgId: string,
-  input: { itemCode: string; name?: string; unit?: string; isActive?: boolean }
+  input: { itemCode: string; name?: string; unit?: string; isActive?: boolean } & ItemPosInput
 ): Promise<AiToolResult> {
   const items = await db.query.inventoryItems.findMany({
     where: eq(inventoryItems.organizationId, orgId),
@@ -4004,13 +4081,22 @@ async function runUpdateItem(
     "бараа",
     input.itemCode
   );
-  if (input.name != null || input.unit != null)
+  const pos = itemPosFieldsOf(input);
+  const changed = Object.keys(pos);
+  if (input.name != null) changed.push("name");
+  if (input.unit != null) changed.push("unit");
+  if (changed.length > 0)
     await updateInventoryItem(item.id, {
       name: input.name ?? item.name,
       unit: input.unit ?? item.unit,
+      ...pos,
     });
-  if (input.isActive != null) await toggleInventoryItem(item.id, input.isActive);
-  return { resultText: `Бараа шинэчлэгдлээ: ${item.code}` };
+  if (input.isActive != null) {
+    await toggleInventoryItem(item.id, input.isActive);
+    changed.push("isActive");
+  }
+  if (changed.length === 0) throw new Error("Өөрчлөх талбар өгөгдөөгүй байна");
+  return { resultText: `Бараа шинэчлэгдлээ: ${item.code} (${changed.join(", ")})` };
 }
 
 async function runUpdateMovement(

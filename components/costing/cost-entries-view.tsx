@@ -36,6 +36,7 @@ export const ENTRY_TYPE_LABELS: Record<string, string> = {
   landed_cost: "Landed cost",
   nrv_writedown: "NRV бууруулалт",
   nrv_reversal: "NRV сэргээлт",
+  cogs_true_up: "COGS залруулга (сар хаалт)",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

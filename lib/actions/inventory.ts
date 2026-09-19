@@ -1,17 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   costEntries,
+  inventoryCategories,
   inventoryIssueTypes,
   inventoryItems,
   inventoryMovements,
+  itemPriceHistory,
   warehouses,
 } from "@/lib/db/schema";
+import { assertEnabledMainAccount } from "@/lib/costing/posting-helpers";
+import type { ItemVatMode } from "@/lib/inventory/types";
 import {
   balanceKey,
   findNegativeStock,
@@ -26,6 +30,7 @@ import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
+import { POS_MOVEMENT_SOURCE_TYPE } from "@/lib/pos/constants";
 
 /**
  * Хангамжийн хүлээн авалтаас үүссэн орлогыг бараа материалын дэлгэцээс
@@ -36,6 +41,12 @@ function assertNotPoReceipt(sourceType: string) {
   if (sourceType === PO_SOURCE_TYPE)
     throw new Error(
       "Хангамжийн хүлээн авалтаас үүссэн орлого — Хангамж → Хүлээн авалт дээр буцаана уу"
+    );
+  // POS (docs/pos §3.3): борлуулалтын зарлага/буцаалт нь АР, касс, өртөгтэйгээ
+  // нэг атом үйлдэл — зөвхөн POS буцаалтаар өөрчлөгдөнө.
+  if (sourceType === POS_MOVEMENT_SOURCE_TYPE)
+    throw new Error(
+      "[POS_SOURCED] POS борлуулалтаас үүссэн хөдөлгөөн — Бараа материал → Борлуулалт дээр буцаана уу"
     );
 }
 
@@ -59,11 +70,153 @@ function cleanText(value: string | null | undefined) {
 
 // ─── Мастер дата ─────────────────────────────────────────────────────────────
 
-export async function createInventoryItem(data: {
-  code: string;
-  name: string;
-  unit: string;
-}) {
+const ITEM_VAT_MODES: ItemVatMode[] = ["standard", "exempt", "zero"];
+
+/** Улаанбаатарын өнөөдөр (YYYY-MM-DD) — үнийн түүхийн effectiveFrom. */
+function todayUlaanbaatar() {
+  return new Date()
+    .toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" })
+    .slice(0, 10);
+}
+
+/** POS-ийн сонголтот талбарууд (docs/pos §3.2) — create/update хоёулаа. */
+export type InventoryItemPosFields = {
+  salePrice?: number | null;
+  minSalePrice?: number | null;
+  barcode?: string | null;
+  vatMode?: ItemVatMode;
+  revenueAccountNumber?: string | null;
+  categoryCode?: string | null;
+};
+
+type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function parseOptionalPrice(
+  value: number | null | undefined,
+  label: string
+): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0)
+    throw new Error(`${label} 0-ээс багагүй тоо байна`);
+  return parsed;
+}
+
+/**
+ * POS талбаруудыг шалгаад DB-д бичих утга болгоно. `undefined` = хөндөхгүй.
+ * Баркод давхардал, орлогын данс, бүлэг — бүгд байгууллагын хүрээнд.
+ */
+async function validateItemPosFields(
+  orgId: string,
+  data: InventoryItemPosFields,
+  options: { excludeItemId?: string; currentSalePrice?: number | null } = {}
+): Promise<{
+  salePrice?: string | null;
+  minSalePrice?: string | null;
+  barcode?: string | null;
+  vatMode?: ItemVatMode;
+  revenueAccountNumber?: string | null;
+  categoryCode?: string | null;
+}> {
+  const salePrice = parseOptionalPrice(data.salePrice, "Борлуулах үнэ");
+  const minSalePrice = parseOptionalPrice(data.minSalePrice, "Доод үнэ");
+  const effectiveSale =
+    salePrice === undefined ? options.currentSalePrice ?? null : salePrice;
+  if (minSalePrice != null && effectiveSale != null && minSalePrice > effectiveSale)
+    throw new Error("Доод үнэ борлуулах үнээс их байж болохгүй");
+
+  if (data.vatMode !== undefined && !ITEM_VAT_MODES.includes(data.vatMode))
+    throw new Error("НӨАТ-ийн горим standard / exempt / zero байна");
+
+  let barcode: string | null | undefined;
+  if (data.barcode !== undefined) {
+    barcode = cleanText(data.barcode);
+    if (barcode) {
+      const conditions = [
+        eq(inventoryItems.organizationId, orgId),
+        eq(inventoryItems.barcode, barcode),
+      ];
+      if (options.excludeItemId)
+        conditions.push(ne(inventoryItems.id, options.excludeItemId));
+      const duplicate = await db.query.inventoryItems.findFirst({
+        where: and(...conditions),
+        columns: { id: true },
+      });
+      if (duplicate)
+        throw new Error(`"${barcode}" баркод өөр бараанд бүртгэгдсэн байна`);
+    }
+  }
+
+  let revenueAccountNumber: string | null | undefined;
+  if (data.revenueAccountNumber !== undefined) {
+    revenueAccountNumber = cleanText(data.revenueAccountNumber);
+    if (revenueAccountNumber) {
+      if (!/^\d{8}$/.test(revenueAccountNumber))
+        throw new Error("Орлогын данс 8 оронтой үндсэн данс байна");
+      await assertEnabledMainAccount(orgId, revenueAccountNumber);
+    }
+  }
+
+  let categoryCode: string | null | undefined;
+  if (data.categoryCode !== undefined) {
+    categoryCode = cleanText(data.categoryCode);
+    if (categoryCode) {
+      const category = await db.query.inventoryCategories.findFirst({
+        where: and(
+          eq(inventoryCategories.organizationId, orgId),
+          eq(inventoryCategories.code, categoryCode),
+          eq(inventoryCategories.isActive, true)
+        ),
+        columns: { id: true },
+      });
+      if (!category)
+        throw new Error(`"${categoryCode}" бүлэг идэвхтэй жагсаалтад алга`);
+    }
+  }
+
+  return {
+    salePrice: salePrice === undefined ? undefined : salePrice == null ? null : String(salePrice),
+    minSalePrice:
+      minSalePrice === undefined ? undefined : minSalePrice == null ? null : String(minSalePrice),
+    barcode,
+    vatMode: data.vatMode,
+    revenueAccountNumber,
+    categoryCode,
+  };
+}
+
+/** Борлуулах үнэ өөрчлөгдсөн бол түүхэнд мөр бичнэ (аудит, §3.2). */
+async function recordPriceHistory(
+  tx: DbOrTx,
+  params: {
+    orgId: string;
+    userId: string;
+    itemId: string;
+    previous: string | null | undefined;
+    next: string | null | undefined;
+  }
+) {
+  if (params.next === undefined) return;
+  const prev = params.previous == null ? null : Number(params.previous);
+  const next = params.next == null ? null : Number(params.next);
+  if (prev === next) return;
+  await tx.insert(itemPriceHistory).values({
+    organizationId: params.orgId,
+    itemId: params.itemId,
+    salePrice: params.next ?? null,
+    effectiveFrom: todayUlaanbaatar(),
+    createdBy: params.userId,
+  });
+}
+
+export async function createInventoryItem(
+  data: {
+    code: string;
+    name: string;
+    unit: string;
+  } & InventoryItemPosFields
+) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
@@ -75,22 +228,104 @@ export async function createInventoryItem(data: {
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой бараа бүртгэгдсэн байна`);
-  await db.insert(inventoryItems).values({ userId, organizationId: orgId, code, name, unit });
+  const pos = await validateItemPosFields(orgId, data);
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(inventoryItems)
+      .values({
+        userId,
+        organizationId: orgId,
+        code,
+        name,
+        unit,
+        salePrice: pos.salePrice ?? null,
+        minSalePrice: pos.minSalePrice ?? null,
+        barcode: pos.barcode ?? null,
+        vatMode: pos.vatMode ?? "standard",
+        revenueAccountNumber: pos.revenueAccountNumber ?? null,
+        categoryCode: pos.categoryCode ?? null,
+      })
+      .returning({ id: inventoryItems.id });
+    await recordPriceHistory(tx, {
+      orgId,
+      userId,
+      itemId: row.id,
+      previous: null,
+      next: pos.salePrice ?? null,
+    });
+  });
   revalidateInventory();
 }
 
 export async function updateInventoryItem(
   id: string,
-  data: { name: string; unit: string }
+  data: { name: string; unit: string } & InventoryItemPosFields
 ) {
-  const { orgId } = await requireModuleAction("inv", "write");
+  const { orgId, userId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Барааны нэр оруулна уу");
-  await db
-    .update(inventoryItems)
-    .set({ name, unit: data.unit.trim() || "ш" })
-    .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
+  const existing = await db.query.inventoryItems.findFirst({
+    where: and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)),
+    columns: { id: true, salePrice: true, minSalePrice: true },
+  });
+  if (!existing) throw new Error("Бараа олдсонгүй");
+  const pos = await validateItemPosFields(orgId, data, {
+    excludeItemId: id,
+    currentSalePrice: existing.salePrice == null ? null : Number(existing.salePrice),
+  });
+  // Үнэ шинээр өгөгдөж, доод үнэ хөндөгдөөгүй бол хуучин доод үнэтэй тулгана.
+  if (
+    pos.salePrice != null &&
+    pos.minSalePrice === undefined &&
+    existing.minSalePrice != null &&
+    Number(existing.minSalePrice) > Number(pos.salePrice)
+  )
+    throw new Error("Доод үнэ борлуулах үнээс их байж болохгүй");
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(inventoryItems)
+      .set({
+        name,
+        unit: data.unit.trim() || "ш",
+        ...(pos.salePrice !== undefined ? { salePrice: pos.salePrice } : {}),
+        ...(pos.minSalePrice !== undefined ? { minSalePrice: pos.minSalePrice } : {}),
+        ...(pos.barcode !== undefined ? { barcode: pos.barcode } : {}),
+        ...(pos.vatMode !== undefined ? { vatMode: pos.vatMode } : {}),
+        ...(pos.revenueAccountNumber !== undefined
+          ? { revenueAccountNumber: pos.revenueAccountNumber }
+          : {}),
+        ...(pos.categoryCode !== undefined ? { categoryCode: pos.categoryCode } : {}),
+      })
+      .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
+    await recordPriceHistory(tx, {
+      orgId,
+      userId,
+      itemId: id,
+      previous: existing.salePrice,
+      next: pos.salePrice,
+    });
+  });
   revalidateInventory();
+}
+
+/** Барааны борлуулах үнийн түүх — шинэ нь эхэнд. */
+export async function listItemPriceHistory(
+  itemId: string
+): Promise<{ salePrice: number | null; effectiveFrom: string; createdAt: string }[]> {
+  const { orgId } = await requireModuleAction("inv", "read");
+  const rows = await db.query.itemPriceHistory.findMany({
+    where: and(
+      eq(itemPriceHistory.organizationId, orgId),
+      eq(itemPriceHistory.itemId, itemId)
+    ),
+    orderBy: [desc(itemPriceHistory.createdAt)],
+  });
+  return rows.map((row) => ({
+    salePrice: row.salePrice == null ? null : Number(row.salePrice),
+    effectiveFrom: row.effectiveFrom,
+    createdAt: row.createdAt.toISOString(),
+  }));
 }
 
 export async function toggleInventoryItem(id: string, isActive: boolean) {
@@ -123,6 +358,50 @@ export async function toggleWarehouse(id: string, isActive: boolean) {
     .update(warehouses)
     .set({ isActive })
     .where(and(eq(warehouses.id, id), eq(warehouses.organizationId, orgId)));
+  revalidateInventory();
+}
+
+// ── Барааны бүлэг (POS: хөнгөлөлтийн дүрэм, тайлангийн бүлэглэл) ─────────────
+
+export async function createInventoryCategory(data: { code: string; name: string }) {
+  const { orgId, userId } = await requireModuleAction("inv", "write");
+  const code = data.code.trim();
+  const name = data.name.trim();
+  if (!code) throw new Error("Бүлгийн код оруулна уу");
+  if (!name) throw new Error("Бүлгийн нэр оруулна уу");
+  const duplicate = await db.query.inventoryCategories.findFirst({
+    where: and(
+      eq(inventoryCategories.organizationId, orgId),
+      eq(inventoryCategories.code, code)
+    ),
+    columns: { id: true },
+  });
+  if (duplicate) throw new Error(`"${code}" кодтой бүлэг бүртгэгдсэн байна`);
+  await db.insert(inventoryCategories).values({ userId, organizationId: orgId, code, name });
+  revalidateInventory();
+}
+
+export async function updateInventoryCategory(id: string, data: { name: string }) {
+  const { orgId } = await requireModuleAction("inv", "write");
+  const name = data.name.trim();
+  if (!name) throw new Error("Бүлгийн нэр оруулна уу");
+  await db
+    .update(inventoryCategories)
+    .set({ name })
+    .where(
+      and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
+    );
+  revalidateInventory();
+}
+
+export async function toggleInventoryCategory(id: string, isActive: boolean) {
+  const { orgId } = await requireModuleAction("inv", "write");
+  await db
+    .update(inventoryCategories)
+    .set({ isActive })
+    .where(
+      and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
+    );
   revalidateInventory();
 }
 

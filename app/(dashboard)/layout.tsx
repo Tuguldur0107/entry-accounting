@@ -15,7 +15,10 @@ import { QuickCreate } from "@/components/layout/quick-create";
 import { QuickNav } from "@/components/layout/quick-nav";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
 import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
-import { disabledNavModuleIds } from "@/components/layout/modules";
+import {
+  disabledNavItemKeys,
+  disabledNavModuleIds,
+} from "@/components/layout/modules";
 import { PanelHost } from "@/components/panel/panel-host";
 import { db } from "@/lib/db";
 import { memberships, moduleConfigs } from "@/lib/db/schema";
@@ -67,8 +70,27 @@ export default async function DashboardLayout({
           ) === "none"
       ).map((def) => def.navId!)
     : [];
+  // Модуль бүхэлдээ биш, ЦЭС нуух түлхүүрүүд (ModuleItem.configKey — POS нь
+  // Бараа материалын дотор): "item:<configKey>" хэлбэрээр нэг жагсаалтад.
+  const memberHiddenItemKeys = myMembership
+    ? APP_MODULE_DEFS.filter(
+        (def) =>
+          !def.navId &&
+          effectiveLevel(
+            myMembership.role as MembershipRole,
+            myMembership.permissions,
+            def.key
+          ) === "none"
+      ).map((def) => def.key)
+    : [];
   const hiddenModuleIds = [
-    ...new Set([...disabledNavModuleIds(modConfigs), ...memberHiddenNavIds]),
+    ...new Set([
+      ...disabledNavModuleIds(modConfigs),
+      ...memberHiddenNavIds,
+      ...[...disabledNavItemKeys(modConfigs), ...memberHiddenItemKeys].map(
+        (key) => `item:${key}`
+      ),
+    ]),
   ];
 
   return (

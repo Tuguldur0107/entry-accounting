@@ -5,7 +5,7 @@
 import { and, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { memberships, vatSettings } from "@/lib/db/schema";
+import { companySettings, memberships, vatSettings } from "@/lib/db/schema";
 
 export type VatSetting = typeof vatSettings.$inferSelect;
 
@@ -20,6 +20,20 @@ async function orgOwnerUserId(orgId: string): Promise<string> {
   });
   if (!owner) throw new Error("Байгууллагын owner гишүүнчлэл олдсонгүй");
   return owner.userId;
+}
+
+/**
+ * Мөр анх үүсэхэд НӨАТ төлөгч эсэхийг компанийн мэдээллээс таана
+ * (docs/pos §3.8, D4): vatPayerNo бөглөгдсөн бол төлөгч. Компанийн
+ * мэдээлэл огт байхгүй бол default true (хуучин зан төлөв хэвээр).
+ */
+async function inferIsVatPayer(orgId: string): Promise<boolean> {
+  const company = await db.query.companySettings.findFirst({
+    where: eq(companySettings.organizationId, orgId),
+    columns: { vatPayerNo: true },
+  });
+  if (!company) return true;
+  return (company.vatPayerNo ?? "").trim() !== "";
 }
 
 /**
@@ -39,10 +53,13 @@ export async function loadVatSettings(
   });
   if (existing) return existing;
 
-  const userId = creatorUserId ?? (await orgOwnerUserId(orgId));
+  const [userId, isVatPayer] = await Promise.all([
+    creatorUserId ?? orgOwnerUserId(orgId),
+    inferIsVatPayer(orgId),
+  ]);
   const [created] = await db
     .insert(vatSettings)
-    .values({ userId, organizationId: orgId })
+    .values({ userId, organizationId: orgId, isVatPayer })
     .onConflictDoNothing()
     .returning();
   if (created) return created;

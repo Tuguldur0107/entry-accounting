@@ -33,7 +33,11 @@ export default async function VatPage({
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
-      <VatReturnView periodCode={periodCode} data={data} />
+      <VatReturnView
+        periodCode={periodCode}
+        data={data}
+        isVatPayer={data.isVatPayer}
+      />
       <TaxManager
         accounts={ledger.accounts.map((account, index) => ({
           ...account,

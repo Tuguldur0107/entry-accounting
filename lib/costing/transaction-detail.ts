@@ -355,7 +355,9 @@ export async function loadTransactionDetail(
         costMethod:
           entry.valuationSource === "avg_cost"
             ? "Хугацааны жигнэсэн дундаж"
-            : "Гараар",
+            : entry.valuationSource === "provisional_avg"
+              ? "Урьдчилсан (явцын дундаж — сар хаалтад залруулагдана)"
+              : "Гараар",
         costComponent: entry.costComponentId
           ? (componentLabel.get(entry.costComponentId) ?? null)
           : null,
