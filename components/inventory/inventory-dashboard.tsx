@@ -27,6 +27,13 @@ export interface InventoryPosMetrics {
   pendingCostLines: number;
 }
 
+/** eBarimt-ийн дараалал (docs/pos/03-ebarimt-integration-plan.md §4.5) —
+ *  асаалттай үед л өгөгдөнө. */
+export interface InventoryEbarimtMetrics {
+  pending: number;
+  failed: number;
+}
+
 interface Props {
   balances: QtyBalanceRow[];
   itemCount: number;
@@ -34,6 +41,7 @@ interface Props {
   draftCount: number;
   unvaluedCount: number;
   pos?: InventoryPosMetrics;
+  ebarimt?: InventoryEbarimtMetrics;
   /** Хасах үлдэгдэлтэй бараа × агуулах (D9) — хоосон бол ногоон мөр. */
   negativeStock?: NegativeStockRow[];
 }
@@ -94,6 +102,7 @@ export function InventoryDashboard({
   draftCount,
   unvaluedCount,
   pos,
+  ebarimt,
   negativeStock = [],
 }: Props) {
   const columns = useMemo<ColDef<QtyBalanceRow>[]>(
@@ -231,6 +240,37 @@ export function InventoryDashboard({
             Борлуулалт (POS)
           </h2>
           <MetricTiles metrics={posMetrics} columns="6" />
+        </section>
+      ) : null}
+
+      {ebarimt ? (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">eBarimt</h2>
+            <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
+              Хүлээгдэж байгаа{" "}
+              <span
+                className="font-mono font-semibold"
+                style={{ color: ebarimt.pending > 0 ? "var(--ea-warning-fg)" : "var(--ea-text-1)" }}
+              >
+                {ebarimt.pending}
+              </span>{" "}
+              · Алдаатай{" "}
+              <span
+                className="font-mono font-semibold"
+                style={{ color: ebarimt.failed > 0 ? "var(--ea-danger-fg)" : "var(--ea-text-1)" }}
+              >
+                {ebarimt.failed}
+              </span>
+            </p>
+          </div>
+          <Link
+            href="/inventory/sales?tab=sales"
+            className="text-xs font-medium underline"
+            style={{ color: ebarimt.failed > 0 ? "var(--ea-danger-fg)" : "var(--ea-primary)" }}
+          >
+            Борлуулалт
+          </Link>
         </section>
       ) : null}
 
