@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
 
-import { AttachmentList } from "@/components/attachments/attachment-list";
+import { AttachmentSection } from "@/components/attachments/attachment-section";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
@@ -344,19 +344,16 @@ function PosSaleBody({
         ))}
       </div>
 
-      <div>
-        <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Хавсралт</div>
-        <AttachmentList
-          entityType={POS_BUSINESS_OBJECT}
-          entityId={sale.id}
-          kinds={GENERIC_ATTACHMENT_KINDS}
-          refreshToken={panel.refreshToken}
-          onChanged={() => {
-            refreshOpenPanels();
-            router.refresh();
-          }}
-        />
-      </div>
+      <AttachmentSection
+        entityType={POS_BUSINESS_OBJECT}
+        entityId={sale.id}
+        kinds={GENERIC_ATTACHMENT_KINDS}
+        refreshToken={panel.refreshToken}
+        onChanged={() => {
+          refreshOpenPanels();
+          router.refresh();
+        }}
+      />
 
       <div className="mt-auto flex flex-wrap justify-end gap-2 border-t border-[var(--ea-border)] pt-3">
         <Button variant="outline" onClick={requestClose} disabled={isPending}>

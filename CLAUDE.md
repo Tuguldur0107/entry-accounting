@@ -1259,6 +1259,27 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
 (товч, линк, focus, сонгосон мөр). Цэнхэрийн ханалт 62% — тас хар дээр неон
 гэрэлтэхээс сэргийлнэ. Контраст 8.17:1 (AAA).
 
+### Хөвөгч ажлын панель (зөөх · хэмжээ · хавсралт)
+
+`components/panel/floating-panel.tsx` — панелийн ЦОРЫН ГАНЦ жааз.
+
+- **Зөөх:** гарчгаас чирнэ; **хэмжээ:** 4 ирмэг + 4 булангаас татна. Чирсэн
+  мөчид панелийн бодит тэгш өнцөгт `panel.rect`-д бүртгэгдэж, цаашид байрлал
+  ЗӨВХӨН түүнээс тооцогдоно (`slot`-ийн CSS хэрэглэгдэхгүй) — нэг байрлалд
+  хоёр эзэн байхгүй. ⟲ «Байрлалыг сэргээх» товч анхны суудалд буцаана
+- **Геометр нь ЦЭВЭР** `lib/ui/panel-geometry.ts` (тесттэй): анхны байрлал,
+  чирэлт, хэмжээ солилт, хил. Панель дэлгэцээс БҮРЭН гарахгүй
+  (`PANEL_KEEP_VISIBLE` = 160px гарчиг үргэлж харагдана), topbar-ын доогуур
+  орохгүй, `PANEL_MIN_WIDTH`/`HEIGHT`-ээс доош шахагдахгүй; цонх жижгэрэхэд
+  панель дотогш эргэж орно. Component дотор шинэ геометр бодохыг ХОРИГЛОНО
+- Чирэлт **3px хөдөлсний ДАРАА** эхэлнэ — гарчгийн давхар даралт (дэлгэц
+  дүүрэх) болон товчнуудтай мөргөлдөхгүй; дэлгэц дүүрэн үед чирэлт унтарна
+- **Хавсралт панельд НЭГ МӨР:** `components/attachments/attachment-section.tsx`
+  (`📎 Хавсралт · N` товч → popup). Жагсаалт/хуулалт/устгалтын логик нь
+  `attachment-list.tsx`-д ХЭВЭЭР — section нь зөвхөн бүрхүүл. Панель дотор
+  `AttachmentList`-ийг ШУУД суулгахыг хориглоно (том хоосон блок гол агуулгыг
+  доош түлхдэг); бүтэн таб байгаа газарт л шууд (PO панелийн «Хавсралт» таб)
+
 ### Таб ба шүүлтүүрийн chip
 
 `components/ui/tabs.tsx` — хуудас доторх таб/шүүлтүүрийн **ЦОРЫН ГАНЦ**
@@ -1464,6 +1485,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | АР/АП мөрийн хүснэгт (shared) | [components/arap/arap-lines-grid.tsx](components/arap/arap-lines-grid.tsx) | `arap-doc-panel.tsx`-ээс ЗӨӨСӨН — `mode` prop (`arap` / `po_invoice` / `goods_receipt`), Нэгж үнэ + Бүрэлдэхүүн багана |
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
+| Хавсралт — компакт мөр + popup | [components/attachments/attachment-section.tsx](components/attachments/attachment-section.tsx) | Панелиудын НЭГДСЭН хэрэглээ: `📎 Хавсралт · N` товч → `Dialog` дотор бүтэн жагсаалт |
 | POS кассын дэлгэц | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | Сагсны grid (Тоо/Үнэ/Хөнг %/Хөнг ₮ editable, хасах үлдэгдэл улбар шар), баркод/хайлт, `quotePosSale` debounce 250мс, F9/F2/F6/Esc, түр хадгалалт localStorage |
 | POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |

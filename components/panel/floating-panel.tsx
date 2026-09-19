@@ -9,11 +9,26 @@
 // тооцогдоно — фокус солиход панель ХӨДЛӨХГҮЙ, зөвхөн дээшилнэ. Эс бөгөөс
 // идэвхгүй панелийн товчин дээр дарахад mousedown дээр байрлал нь сольчихоод
 // click нь өөр элемент дээр буудаг байсан.
+//
+// ЗӨӨХ / ХЭМЖЭЭ СОЛИХ: гарчгаас чирнэ, ирмэг/булангаас татна. Чирсэн мөчид
+// панелийн БОДИТ тэгш өнцөгт store-д бүртгэгдэж (panel.rect), цаашид байрлал
+// ЗӨВХӨН түүнээс тооцогдоно — нэг байрлалд хоёр эзэн байхгүй. Геометрийн
+// бүх тооцоо (хил, хамгийн бага хэмжээ) цэвэр `lib/ui/panel-geometry.ts`-д,
+// тесттэй. Гарчиг дээр 2 удаа дархад дэлгэц дүүрэх нь ХЭВЭЭР — чирэлт нь 3px
+// хөдөлсний ДАРАА эхэлдэг тул давхар даралттай мөргөлдөхгүй.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
 import { usePanelStore, type PanelInstance } from "@/lib/store/panel-store";
+import {
+  clampPanelRect,
+  defaultPanelRect,
+  movePanelRect,
+  resizePanelRect,
+  type PanelRect,
+  type ResizeEdge,
+} from "@/lib/ui/panel-geometry";
 import { panelZ } from "@/lib/ui/z-layers";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +54,8 @@ export function FloatingPanel({
   const focus = usePanelStore((state) => state.focus);
   const closePanel = usePanelStore((state) => state.closePanel);
   const navigatePanel = usePanelStore((state) => state.navigatePanel);
+  const setRect = usePanelStore((state) => state.setRect);
+  const resetRect = usePanelStore((state) => state.resetRect);
 
   // Жагсаалтаас нээгдсэн панель — өмнөх/дараагийн баримт руу шилжих нав.
   const navIds = panel.payload.navIds as string[] | undefined;
@@ -95,6 +112,83 @@ export function FloatingPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, panel.minimized, requestClose]);
 
+  // Чирэлт/татлагын үеийн төлөв — зөвхөн cursor-т нөлөөлнө (байрлал store-д).
+  const [dragging, setDragging] = useState<"move" | ResizeEdge | null>(null);
+
+  const viewport = () => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+
+  /** Одоогийн бодит тэгш өнцөгт — rect тавигдаагүй бол DOM-оос хэмжинэ. */
+  const currentRect = useCallback((): PanelRect => {
+    if (panel.rect) return panel.rect;
+    const box = rootRef.current?.getBoundingClientRect();
+    if (box)
+      return { x: box.left, y: box.top, width: box.width, height: box.height };
+    return defaultPanelRect(panel.slot, viewport());
+  }, [panel.rect, panel.slot]);
+
+  /**
+   * Заагчийн чирэлтийг нэг газраас удирдана (хулгана, хуруу, цөм хоёуланд
+   * pointer event). Босго 3px — товч дарах, давхар даралт зэрэг ЖИЖИГ
+   * хөдөлгөөнийг чирэлт гэж андуурахгүй.
+   */
+  const beginDrag = useCallback(
+    (event: React.PointerEvent, mode: "move" | ResizeEdge) => {
+      if (event.button !== 0 || panel.maximized) return;
+      event.preventDefault();
+      focus(panel.id);
+      const start = currentRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let moved = false;
+
+      const onMove = (move: PointerEvent) => {
+        const dx = move.clientX - startX;
+        const dy = move.clientY - startY;
+        if (!moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+        if (!moved) {
+          moved = true;
+          setDragging(mode);
+        }
+        setRect(
+          panel.id,
+          mode === "move"
+            ? movePanelRect(start, dx, dy, viewport())
+            : resizePanelRect(start, mode, dx, dy, viewport())
+        );
+      };
+      const onUp = () => {
+        setDragging(null);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [panel.id, panel.maximized, currentRect, focus, setRect]
+  );
+
+  // Цонх жижгэрэхэд чирсэн панель гадуур үлдэж болзошгүй — дотогш эргүүлнэ.
+  useEffect(() => {
+    if (!panel.rect) return;
+    const onResize = () => {
+      const next = clampPanelRect(panel.rect!, viewport());
+      if (
+        next.x !== panel.rect!.x ||
+        next.y !== panel.rect!.y ||
+        next.width !== panel.rect!.width ||
+        next.height !== panel.rect!.height
+      )
+        setRect(panel.id, next);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [panel.rect, panel.id, setRect]);
+
   // Шатласан офсет — ТОГТМОЛ суудлаас (фокусаар өөрчлөгдөхгүй).
   const offset = Math.min(panel.slot, 4) * 22;
 
@@ -121,20 +215,45 @@ export function FloatingPanel({
         boxShadow: active ? "var(--ea-shadow-3)" : "var(--ea-shadow-2)",
         ...(panel.maximized
           ? { inset: "12px 12px 60px 12px" }
-          : {
-              top: 72 + offset,
-              right: 24 + offset,
-              width: "min(1180px, calc(100vw - 48px))",
-              bottom: 72,
-            }),
+          : panel.rect
+            ? {
+                // Хэрэглэгчийн ЧИРСЭН байрлал — цорын ганц эзэн.
+                left: panel.rect.x,
+                top: panel.rect.y,
+                width: panel.rect.width,
+                height: panel.rect.height,
+              }
+            : {
+                top: 72 + offset,
+                right: 24 + offset,
+                width: "min(1180px, calc(100vw - 48px))",
+                bottom: 72,
+              }),
+        // Чирч байхад доторх текст сонгогдож, iframe-үүд заагчийг булаахгүй.
+        userSelect: dragging ? "none" : undefined,
       }}
     >
       <header
         onDoubleClick={() => toggleMaximize(panel.id)}
-        className="flex h-10 shrink-0 items-center gap-2 px-3"
+        onPointerDown={(event) => {
+          // Товч/линк дээрх даралт чирэлт БИШ.
+          if ((event.target as HTMLElement).closest("button,a,input")) return;
+          beginDrag(event, "move");
+        }}
+        className={cn(
+          "flex h-10 shrink-0 items-center gap-2 px-3",
+          panel.maximized
+            ? "cursor-default"
+            : dragging === "move"
+              ? "cursor-grabbing"
+              : "cursor-grab"
+        )}
+        title={panel.maximized ? undefined : "Чирж зөөнө · 2 дарвал дэлгэц дүүрэн"}
         style={{
           borderBottom: "1px solid var(--ea-border)",
           background: active ? "var(--ea-bg-2)" : "var(--ea-surface)",
+          // Хуруугаар чирэхэд хуудас гүйлгэхгүй (зөвхөн панель хөдөлнө).
+          touchAction: panel.maximized ? undefined : "none",
         }}
       >
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--ea-text-1)]">
@@ -173,6 +292,13 @@ export function FloatingPanel({
             Хадгалаагүй
           </span>
         )}
+        {panel.rect && !panel.maximized && (
+          <PanelIconButton
+            label="Байрлалыг сэргээх"
+            onClick={() => resetRect(panel.id)}
+            icon={<Icon name="reset" size="sm" />}
+          />
+        )}
         <PanelIconButton
           label="Хураах"
           onClick={() => minimize(panel.id)}
@@ -196,9 +322,39 @@ export function FloatingPanel({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {children}
       </div>
+
+      {!panel.maximized &&
+        RESIZE_HANDLES.map((handle) => (
+          <div
+            key={handle.edge}
+            onPointerDown={(event) => beginDrag(event, handle.edge)}
+            className={cn("absolute", handle.className)}
+            style={{ cursor: handle.cursor, touchAction: "none" }}
+            aria-hidden
+          />
+        ))}
     </div>
   );
 }
+
+/**
+ * Хэмжээ солих бариулууд — 4 ирмэг + 4 булан. Ирмэг 6px, булан 12px (булан
+ * нь ирмэгээс ДЭЭР байрлана: DOM-д сүүлд ирснээр давуу эрхтэй).
+ */
+const RESIZE_HANDLES: {
+  edge: ResizeEdge;
+  className: string;
+  cursor: string;
+}[] = [
+  { edge: "n", className: "left-0 right-0 top-0 h-1.5", cursor: "ns-resize" },
+  { edge: "s", className: "bottom-0 left-0 right-0 h-1.5", cursor: "ns-resize" },
+  { edge: "w", className: "bottom-0 left-0 top-0 w-1.5", cursor: "ew-resize" },
+  { edge: "e", className: "bottom-0 right-0 top-0 w-1.5", cursor: "ew-resize" },
+  { edge: "nw", className: "left-0 top-0 size-3", cursor: "nwse-resize" },
+  { edge: "ne", className: "right-0 top-0 size-3", cursor: "nesw-resize" },
+  { edge: "sw", className: "bottom-0 left-0 size-3", cursor: "nesw-resize" },
+  { edge: "se", className: "bottom-0 right-0 size-3", cursor: "nwse-resize" },
+];
 
 function PanelIconButton({
   label,
