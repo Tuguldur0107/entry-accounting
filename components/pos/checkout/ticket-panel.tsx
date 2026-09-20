@@ -162,14 +162,15 @@ export function TicketPanel({
       </div>
 
       {negativeLines.length > 0 && (
-        // Мөр бүр дээр «⚠ −n» аль хэдийн байгаа тул энд НЭГ мөр — задаргаа нь title-д (D9).
+        // Мөр бүр дээр анхааруулгын дүрс + үлдэгдэл аль хэдийн байгаа тул энд НЭГ мөр — задаргаа нь title-д (D9).
         <div
           className="shrink-0 truncate rounded-md border border-[var(--ea-warning)] bg-[color-mix(in_srgb,var(--ea-warning)_10%,transparent)] px-2.5 py-1 text-[11px] text-[var(--ea-warning-fg)]"
           title={negativeLines
             .map((line) => `${line.name}: ${fmtQty(line.stockAfter)} ${line.unit}`)
             .join("\n")}
         >
-          ⚠ {negativeLines.length} бараа {warehouseName ? `${warehouseName}-д ` : ""}хасах үлдэгдэлтэй болно
+          <Icon name="warning" size="xs" className="mr-1 inline-block align-[-2px]" />
+          {negativeLines.length} бараа {warehouseName ? `${warehouseName}-д ` : ""}хасах үлдэгдэлтэй болно
           {!allowNegativeStock ? " — хасах үлдэгдэл хориотой тохиргоотой" : " (борлуулалт зогсохгүй)"}
         </div>
       )}
@@ -323,7 +324,10 @@ function TicketLine({
             </span>
           )}
           {line.stockAfter < 0 && (
-            <span className="ml-1.5 text-[var(--ea-warning-fg)]">⚠ {fmtQty(line.stockAfter)}</span>
+            <span className="ml-1.5 inline-flex items-center gap-0.5 text-[var(--ea-warning-fg)]">
+              <Icon name="warning" size="xs" label="Хасах үлдэгдэл" />
+              {fmtQty(line.stockAfter)}
+            </span>
           )}
         </span>
         <span className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>

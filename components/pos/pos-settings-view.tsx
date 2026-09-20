@@ -25,11 +25,11 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Switch } from "@/components/ui/switch";
 import { PageTabs, type TabOption } from "@/components/ui/tabs";
+import { FormField, SwitchField } from "@/components/ui/form-field";
+import { IconAction } from "@/components/ui/icon-action";
 import {
   getEbarimtBranchInfo,
   getEbarimtStatus,
@@ -72,38 +72,6 @@ const SECTIONS: readonly TabOption<SettingsSection>[] = [
   { value: "rules", label: "Хөнгөлөлтийн дүрэм" },
   { value: "ebarimt", label: "eBarimt" },
 ];
-
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-[var(--ea-text-4)]">{hint}</p>}
-    </div>
-  );
-}
-
-function SwitchField({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint?: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="flex items-start gap-2">
-      <Switch checked={checked} onCheckedChange={(value) => onChange(!!value)} className="mt-0.5" />
-      <div>
-        <div className="text-sm">{label}</div>
-        {hint && <div className="text-[11px] text-[var(--ea-text-4)]">{hint}</div>}
-      </div>
-    </div>
-  );
-}
 
 const textareaClass =
   "min-h-20 w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
@@ -175,7 +143,7 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
         <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Дансны рольууд</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {ACCOUNT_FIELDS.map((field) => (
-            <Field key={field.key} label={field.label} hint={field.hint || "8 оронтой үндсэн данс"}>
+            <FormField key={field.key} label={field.label} hint={field.hint || "8 оронтой үндсэн данс"}>
               <Input
                 value={String(form[field.key] ?? "")}
                 maxLength={8}
@@ -184,7 +152,7 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
                 placeholder="XXXXXXXX"
                 onChange={(e) => patch({ [field.key]: e.target.value.replace(/\D/g, "") } as Partial<PosSettings>)}
               />
-            </Field>
+            </FormField>
           ))}
         </div>
       </div>
@@ -192,32 +160,32 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
       <div>
         <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Бичилт ба хөнгөлөлт</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Хөнгөлөлтийн бичилт" hint="net — орлого цэвэр; contra — орлого бүтэн + Dr хөнгөлөлт">
+          <FormField label="Хөнгөлөлтийн бичилт" hint="net — орлого цэвэр; contra — орлого бүтэн + Dr хөнгөлөлт">
             <select className="ea-form-select" value={form.discountPosting} onChange={(e) => patch({ discountPosting: e.target.value as "net" | "contra" })}>
               <option value="net">Цэвэр (net)</option>
               <option value="contra">Contra данс</option>
             </select>
-          </Field>
-          <Field label="Давхцах бодлого" hint="best_single — хамгийн ашигтай нэг; cumulative — stackable нийлнэ">
+          </FormField>
+          <FormField label="Давхцах бодлого" hint="best_single — хамгийн ашигтай нэг; cumulative — stackable нийлнэ">
             <select className="ea-form-select" value={form.discountStacking} onChange={(e) => patch({ discountStacking: e.target.value as "best_single" | "cumulative" })}>
               <option value="best_single">Хамгийн ашигтай нэг</option>
               <option value="cumulative">Нийлүүлнэ</option>
             </select>
-          </Field>
-          <Field label="Гар хөнгөлөлтийн дээд %" hint="Дээш бол менежерийн зөвшөөрөл (pos:post)">
+          </FormField>
+          <FormField label="Гар хөнгөлөлтийн дээд %" hint="Дээш бол менежерийн зөвшөөрөл (pos:post)">
             <Input type="number" min="0" max="100" value={form.maxManualDiscountPercent} className="font-mono text-right" onChange={(e) => patch({ maxManualDiscountPercent: Number(e.target.value) })} />
-          </Field>
-          <Field label="Нийт хөнгөлөлтийн тааз %">
+          </FormField>
+          <FormField label="Нийт хөнгөлөлтийн тааз %">
             <Input type="number" min="0" max="100" value={form.maxTotalDiscountPercent} className="font-mono text-right" onChange={(e) => patch({ maxTotalDiscountPercent: Number(e.target.value) })} />
-          </Field>
-          <Field label="Бэлэн бөөрөнхийлөл" hint="Зөвхөн бэлэн (₮) төлөх хэсэгт">
+          </FormField>
+          <FormField label="Бэлэн бөөрөнхийлөл" hint="Зөвхөн бэлэн (₮) төлөх хэсэгт">
             <select className="ea-form-select" value={form.cashRoundingUnit} onChange={(e) => patch({ cashRoundingUnit: Number(e.target.value) })}>
               <option value={0}>Бөөрөнхийлөхгүй</option>
               <option value={10}>10 ₮</option>
               <option value={100}>100 ₮</option>
             </select>
-          </Field>
-          <Field label="Анхдагч агуулах">
+          </FormField>
+          <FormField label="Анхдагч агуулах">
             <select className="ea-form-select" value={form.defaultWarehouseId ?? ""} onChange={(e) => patch({ defaultWarehouseId: e.target.value || null })}>
               <option value="">— Ээлжийнхээр —</option>
               {checkout.warehouses.map((warehouse) => (
@@ -226,8 +194,8 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Зарлагын төрөл (COGS чиглэл)">
+          </FormField>
+          <FormField label="Зарлагын төрөл (COGS чиглэл)">
             <select className="ea-form-select" value={form.issueTypeId ?? ""} onChange={(e) => patch({ issueTypeId: e.target.value || null })}>
               <option value="">— Анхдагч —</option>
               {issueTypes.map((type) => (
@@ -236,8 +204,8 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Бэлэн худалдан авагч">
+          </FormField>
+          <FormField label="Бэлэн худалдан авагч">
             <SearchableSelect
               value={form.walkInCounterpartyId ?? ""}
               onChange={(value) => patch({ walkInCounterpartyId: value || null })}
@@ -245,7 +213,7 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
               hideValue
               placeholder="Харилцагч сонгох…"
             />
-          </Field>
+          </FormField>
         </div>
         <div className="mt-3 flex flex-wrap gap-6">
           <SwitchField
@@ -266,12 +234,12 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
       <div>
         <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Баримт (80мм)</div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Толгой" hint="Компанийн нэр, хаяг, утас, РД — мөр бүр шинэ мөрөнд">
+          <FormField label="Толгой" hint="Компанийн нэр, хаяг, утас, РД — мөр бүр шинэ мөрөнд">
             <textarea className={textareaClass} rows={4} value={form.receiptHeader} onChange={(e) => patch({ receiptHeader: e.target.value })} />
-          </Field>
-          <Field label="Хөл" hint="Талархал, буцаалтын нөхцөл г.м.">
+          </FormField>
+          <FormField label="Хөл" hint="Талархал, буцаалтын нөхцөл г.м.">
             <textarea className={textareaClass} rows={4} value={form.receiptFooter} onChange={(e) => patch({ receiptFooter: e.target.value })} />
-          </Field>
+          </FormField>
         </div>
       </div>
 
@@ -497,13 +465,13 @@ function PaymentMethodDialog({
           <DialogDescription>Мөнгө хүлээн авах касс/банк/түр данс нь төрлөөс хамаарна (§3.4).</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Код">
+          <FormField label="Код">
             <Input value={form.code} className="font-mono uppercase" onChange={(e) => patch({ code: e.target.value })} />
-          </Field>
-          <Field label="Нэр">
+          </FormField>
+          <FormField label="Нэр">
             <Input value={form.name} placeholder="Хаан банк терминал" onChange={(e) => patch({ name: e.target.value })} />
-          </Field>
-          <Field label="Төрөл (kind)">
+          </FormField>
+          <FormField label="Төрөл (kind)">
             <select className="ea-form-select" value={form.kind} onChange={(e) => patch({ kind: e.target.value as PaymentKind, cashAccountId: "" })}>
               {PAYMENT_KINDS.map((kind) => (
                 <option key={kind} value={kind}>
@@ -511,9 +479,9 @@ function PaymentMethodDialog({
                 </option>
               ))}
             </select>
-          </Field>
+          </FormField>
           {needsAccount && (
-            <Field label="Касс / банк / түр данс" hint="Валют нь дансаас ирнэ">
+            <FormField label="Касс / банк / түр данс" hint="Валют нь дансаас ирнэ">
               <select className="ea-form-select" value={form.cashAccountId} onChange={(e) => patch({ cashAccountId: e.target.value })}>
                 <option value="">— Сонгох —</option>
                 {accountOptions.map((account) => (
@@ -522,12 +490,12 @@ function PaymentMethodDialog({
                   </option>
                 ))}
               </select>
-            </Field>
+            </FormField>
           )}
-          <Field label="Шимтгэл % (мэдээлэл)">
+          <FormField label="Шимтгэл % (мэдээлэл)">
             <Input type="number" min="0" step="0.01" value={form.feePercent} className="font-mono text-right" onChange={(e) => patch({ feePercent: e.target.value })} />
-          </Field>
-          <Field
+          </FormField>
+          <FormField
             label="eBarimt код"
             hint="ТЕГ-ийн жагсаалтаас — хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй"
           >
@@ -537,10 +505,10 @@ function PaymentMethodDialog({
               placeholder={EBARIMT_PAYMENT_CODE_SUGGESTIONS[form.kind] ?? "ТЕГ-ийн код"}
               onChange={(e) => patch({ ebarimtCode: e.target.value.toUpperCase() })}
             />
-          </Field>
-          <Field label="Эрэмбэ">
+          </FormField>
+          <FormField label="Эрэмбэ">
             <Input type="number" value={form.sortOrder} className="font-mono text-right" onChange={(e) => patch({ sortOrder: e.target.value })} />
-          </Field>
+          </FormField>
         </div>
         <div className="flex flex-wrap gap-4">
           <SwitchField label="Лавлах дугаар заавал" checked={form.requiresReference} onChange={(v) => patch({ requiresReference: v })} />
@@ -679,15 +647,13 @@ function DiscountRulesSection({ checkout }: { checkout: CheckoutData }) {
         cellClass: "flex items-center justify-end",
         cellRenderer: (p: ICellRendererParams<DiscountRule>) =>
           p.data ? (
-            <button
-              type="button"
-              className="ea-btn ea-btn--icon ea-btn--danger"
-              title="Устгах"
-              aria-label="Устгах"
+            <IconAction
+              name="delete"
+              label="Устгах"
+              variant="danger"
+              size="sm"
               onClick={() => void remove(p.data!)}
-            >
-              <Icon name="delete" />
-            </button>
+            />
           ) : null,
       },
     ],
@@ -1052,7 +1018,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Field label="Мерчантын ТТД" hint="11 эсвэл 14 оронтой">
+        <FormField label="Мерчантын ТТД" hint="11 эсвэл 14 оронтой">
           <Input
             value={form.ebarimtMerchantTin}
             maxLength={14}
@@ -1061,16 +1027,16 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
             placeholder="12345678901"
             onChange={(e) => patch({ ebarimtMerchantTin: e.target.value.replace(/\D/g, "") })}
           />
-        </Field>
-        <Field label="Салбарын дугаар" hint="Мерчант порталын branchNo">
+        </FormField>
+        <FormField label="Салбарын дугаар" hint="Мерчант порталын branchNo">
           <Input
             value={form.ebarimtBranchNo}
             className="font-mono"
             placeholder="0001"
             onChange={(e) => patch({ ebarimtBranchNo: e.target.value })}
           />
-        </Field>
-        <Field
+        </FormField>
+        <FormField
           label="Дүүргийн код"
           hint={branchFailed ? "Лавлах уншигдсангүй — 4 оронтой кодыг гараар бичнэ" : "4 оронтой (ТЕГ-ийн лавлах)"}
         >
@@ -1097,24 +1063,24 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
               onChange={(e) => patch({ ebarimtDistrictCode: e.target.value.replace(/\D/g, "") })}
             />
           )}
-        </Field>
-        <Field label="Кассын дугаар (posNo)" hint="Бүртгэгдсэн терминал — ээлжээс тусдаа">
+        </FormField>
+        <FormField label="Кассын дугаар (posNo)" hint="Бүртгэгдсэн терминал — ээлжээс тусдаа">
           <Input
             value={form.ebarimtPosNo}
             className="font-mono"
             placeholder="10000001"
             onChange={(e) => patch({ ebarimtPosNo: e.target.value })}
           />
-        </Field>
-        <Field label="PosAPI URL" hint="http://posapi.railway.internal:7080 эсвэл http://localhost:7080">
+        </FormField>
+        <FormField label="PosAPI URL" hint="http://posapi.railway.internal:7080 эсвэл http://localhost:7080">
           <Input
             value={form.ebarimtPosApiUrl}
             className="font-mono"
             placeholder="http://localhost:7080"
             onChange={(e) => patch({ ebarimtPosApiUrl: e.target.value })}
           />
-        </Field>
-        <Field
+        </FormField>
+        <FormField
           label="Горим"
           hint="server — Railway-ийн posapi үйлчилгээ рүү сервер өөрөө илгээнэ; browser — кассын PC-ийн localhost руу кассын дэлгэц илгээнэ"
         >
@@ -1126,7 +1092,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
             <option value="server">Сервер (posapi service)</option>
             <option value="browser">Кассын браузер (localhost)</option>
           </select>
-        </Field>
+        </FormField>
       </div>
 
       <div>

@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { getEbarimtOutbox, recordEbarimtResponse } from "@/lib/actions/ebarimt";
 import {
   createPosSale,
@@ -887,14 +888,16 @@ function Header({
                 ))}
               </select>
             ) : (
-              <span className="rounded-full border border-[var(--ea-success)] bg-[var(--ea-success-bg)] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--ea-success-fg)]">
+              <StatusBadge tone="success" size="sm" className="font-mono">
                 {shift.documentNo}
-              </span>
+              </StatusBadge>
             )}
             <span>Касс: {shift.cashAccountName}</span>
           </>
         ) : (
-          <span className="rounded-full border border-[var(--ea-border)] px-2 py-0.5 text-[11px]">Ээлж нээгээгүй</span>
+          <StatusBadge tone="muted" size="sm">
+            Ээлж нээгээгүй
+          </StatusBadge>
         )}
         <label className="flex items-center gap-1">
           <span>Агуулах:</span>

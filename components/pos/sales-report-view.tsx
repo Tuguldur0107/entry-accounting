@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { PageTabs } from "@/components/ui/tabs";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { downloadWorkbook, type ExportColumn } from "@/lib/excel/core";
 import { PAYMENT_KIND_LABELS, type PaymentKind } from "@/lib/pos/constants";
 import {
@@ -675,6 +676,8 @@ export function SalesReportView({
     }
   }
 
+  const basisStatus: StatusTone =
+    summary.cogsBasis === "none" ? "muted" : summary.cogsBasis === "final" ? "success" : "warning";
   const basisTone =
     summary.cogsBasis === "none"
       ? "var(--ea-text-3)"
@@ -825,15 +828,9 @@ export function SalesReportView({
           ))}
           <div className="col-span-2 flex min-w-0 items-center gap-2 border-b border-[var(--ea-border)] px-3 py-2 sm:col-span-4 xl:col-span-1">
             <span className="text-[11px] text-[var(--ea-text-3)]">COGS суурь:</span>
-            <span
-              className="truncate rounded-full border px-2 py-0.5 text-[11px] font-medium"
-              style={{
-                color: basisTone,
-                borderColor: "color-mix(in srgb, currentColor 35%, transparent)",
-              }}
-            >
+            <StatusBadge tone={basisStatus} size="sm" className="truncate">
               {COGS_BASIS_LABELS[summary.cogsBasis]}
-            </span>
+            </StatusBadge>
           </div>
         </div>
         <p className="px-3 py-1.5 text-[11px] text-[var(--ea-text-4)]">

@@ -26,6 +26,7 @@ import { Icon } from "@/components/ui/icon";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/ui/form-field";
 import { closeShift, openShift } from "@/lib/actions/pos";
 import type { PosShiftView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -42,15 +43,6 @@ export interface ShiftWarehouse {
   id: string;
   code: string;
   name: string;
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
 }
 
 const fmtTime = (iso: string | null) => {
@@ -179,7 +171,7 @@ export function OpenShiftForm({
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Кассын данс (MNT)">
+          <FormField label="Кассын данс (MNT)">
             <select
               className="ea-form-select"
               value={cashAccountId}
@@ -192,8 +184,8 @@ export function OpenShiftForm({
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Агуулах">
+          </FormField>
+          <FormField label="Агуулах">
             <select
               className="ea-form-select"
               value={warehouseId}
@@ -206,11 +198,11 @@ export function OpenShiftForm({
                 </option>
               ))}
             </select>
-          </Field>
+          </FormField>
         </div>
       )}
 
-      <Field label="Эхний мөнгө — кассанд байгаа бэлэн (₮)">
+      <FormField label="Эхний мөнгө — кассанд байгаа бэлэн (₮)">
         <Input
           type="number"
           min="0"
@@ -222,7 +214,7 @@ export function OpenShiftForm({
           className="h-11 font-mono text-right text-lg"
         />
         {openingHint && <p className="text-[11px] text-[var(--ea-text-3)]">{openingHint}</p>}
-      </Field>
+      </FormField>
 
       {showFx ? (
         <div>
@@ -282,31 +274,25 @@ export function OpenShiftForm({
       ) : null}
 
       {showNote && (
-        <Field label="Тэмдэглэл">
+        <FormField label="Тэмдэглэл">
           <Input value={note} onChange={(event) => setNote(event.target.value)} />
-        </Field>
+        </FormField>
       )}
 
       <div className="flex flex-wrap gap-x-3 text-[11px]">
         {!showFx && (
-          <button
-            type="button"
-            className="text-[var(--ea-primary)] hover:underline"
-            onClick={() => setShowFx(true)}
-          >
+          <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={() => setShowFx(true)}>
+            <Icon name="add" size="xs" />
             {fxCurrencies.length > 0
-              ? `+ Валютын ханш (${fxCurrencies.join(", ")} бэлэн авбал)`
-              : "+ Валютын ханш"}
-          </button>
+              ? `Валютын ханш (${fxCurrencies.join(", ")} бэлэн авбал)`
+              : "Валютын ханш"}
+          </Button>
         )}
         {!showNote && (
-          <button
-            type="button"
-            className="text-[var(--ea-primary)] hover:underline"
-            onClick={() => setShowNote(true)}
-          >
-            + Тэмдэглэл
-          </button>
+          <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={() => setShowNote(true)}>
+            <Icon name="add" size="xs" />
+            Тэмдэглэл
+          </Button>
         )}
       </div>
 
@@ -460,7 +446,7 @@ export function CloseShiftDialog({
               </div>
             ) : (
               <>
-                <Field label="Тоолсон бэлэн мөнгө (₮)">
+                <FormField label="Тоолсон бэлэн мөнгө (₮)">
                   <Input
                     type="number"
                     min="0"
@@ -472,10 +458,10 @@ export function CloseShiftDialog({
                       if (event.key === "Enter") submit();
                     }}
                   />
-                </Field>
-                <Field label="Тэмдэглэл">
+                </FormField>
+                <FormField label="Тэмдэглэл">
                   <Input value={note} onChange={(event) => setNote(event.target.value)} />
-                </Field>
+                </FormField>
               </>
             )}
           </div>
