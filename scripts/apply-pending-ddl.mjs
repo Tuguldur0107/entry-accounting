@@ -22,6 +22,8 @@
 import { config } from "dotenv";
 import postgres from "postgres";
 
+import { REMOVED_COLUMNS, REMOVED_TABLES } from "./lib/removed-schema-objects.mjs";
+
 config({ path: ".env.local" });
 
 const url = process.env.DATABASE_URL;
@@ -39,12 +41,73 @@ async function run(label, statement) {
     await sql.unsafe(statement);
     console.log(`✓ ${label}`);
   } catch (error) {
+    // 42P01 = undefined_table. Хуучин DB дээр шинэ хүснэгт хараахан байхгүй
+    // байж болно (энэ скрипт push-ээс ӨМНӨ ажилладаг) — тэгвэл push тэр
+    // хүснэгтийг схемээс БҮТНЭЭР нь үүсгэх тул энд хийх зүйл алга. Алдаа гэж
+    // тоолбол хуучин DB бүр дээр preDeploy хуурамч улаан лог гаргана.
+    if (error.code === "42P01") {
+      console.log(`⊘ ${label}: хүснэгт хараахан үүсээгүй — push үүсгэнэ`);
+      return;
+    }
     failures += 1;
     console.log(`✗ ${label}: ${error.message}`);
   }
 }
 
 async function main() {
+  // ── 0. Схемээс хасагдсан хүснэгтүүдийг archive схем рүү зөөнө ────────────
+  await run("archive схем", `create schema if not exists archive`);
+  for (const table of REMOVED_TABLES) {
+    await run(
+      `${table} → archive схем`,
+      `do $$
+       declare
+         fk record;
+       begin
+         if to_regclass('public.${table}') is null then
+           return;
+         end if;
+         if to_regclass('archive.${table}') is not null then
+           raise notice 'archive.${table} аль хэдийн байна — public.${table} хөндөгдсөнгүй';
+           return;
+         end if;
+         alter table public.${table} set schema archive;
+         -- Архивын хуулбар нь ЛАВЛАХ, амьд холбоос биш: public хүснэгтүүд рүү
+         -- заасан FK-уудыг тайлна (эс бөгөөс дараагийн push тэдгээр хүснэгтийг
+         -- өөрчлөхөд саад болно).
+         for fk in
+           select conname from pg_constraint
+           where conrelid = 'archive.${table}'::regclass and contype = 'f'
+         loop
+           execute format('alter table archive.${table} drop constraint %I', fk.conname);
+         end loop;
+       end $$;`
+    );
+  }
+
+  // ── 0a. Схемээс хасагдсан баганыг хөрвүүлээд хасна ──────────────────────
+  for (const { table, column, migrate = [] } of REMOVED_COLUMNS) {
+    const steps = migrate
+      .map((statement) => `execute $mig$${statement}$mig$;`)
+      .join("\n         ");
+    await run(
+      `${table}.${column} хасах (утгыг нь хөрвүүлээд)`,
+      `do $$
+       begin
+         if not exists (
+           select 1 from information_schema.columns
+           where table_schema = 'public'
+             and table_name = '${table}'
+             and column_name = '${column}'
+         ) then
+           return;
+         end if;
+         ${steps}
+         execute 'alter table public.${table} drop column ${column}';
+       end $$;`
+    );
+  }
+
   // ── 1. unique CONSTRAINT → unique INDEX (push-ийн интерактив асуултын эх) ──
   // Push нь `unique()` constraint-ыг DB-д БАЙСААР байтал "нэмэх үү, truncate
   // хийх үү?" гэж асууж preDeploy-г унагаадаг (drizzle-orm#5955 — CLAUDE.md
