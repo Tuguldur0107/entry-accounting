@@ -19,6 +19,10 @@ import { SALE_STATUS_LABELS } from "@/lib/pos/constants";
 import type { PosSaleView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openPosSalePanel } from "@/lib/store/panel-store";
+import { cancelQpayIntent, finalizeQpayIntent, listPendingQpayIntents } from "@/lib/actions/qpay";
+import { QPAY_INTENT_STATUS_LABELS } from "@/lib/qpay/constants";
+import type { QpayIntentView } from "@/lib/qpay/types";
+import { feedback } from "@/lib/ui/feedback";
 
 type StatusFilter = "all" | "posted" | "partially_returned" | "returned" | "voided";
 type KindFilter = "all" | "sales" | "returns";
@@ -69,6 +73,36 @@ export function SalesListView({
   const [kind, setKind] = useState<KindFilter>("all");
   const [ebarimt, setEbarimt] = useState<EbarimtFilter>("all");
   const [rangeFrom, setRangeFrom] = useState(from);
+  // QPay intent — төлөгдсөн ч борлуулалт бүртгэгдээгүй / нээлттэй / алдаатай (docs/pos/04 §3.3, D3).
+  const [qpayPending, setQpayPending] = useState<QpayIntentView[]>([]);
+  const [qpayBusy, setQpayBusy] = useState<string | null>(null);
+  const loadQpayPending = useCallback(() => {
+    listPendingQpayIntents().then((result) => {
+      if (!result.error && result.intents) setQpayPending(result.intents);
+    });
+  }, []);
+  useEffect(loadQpayPending, [loadQpayPending]);
+
+  async function finalizeIntent(intent: QpayIntentView) {
+    setQpayBusy(intent.id);
+    const result = await finalizeQpayIntent(intent.id);
+    setQpayBusy(null);
+    if (result.error) {
+      feedback.error(result.error);
+      return;
+    }
+    feedback.posted(`${result.documentNo} батлагдлаа (QPay)`);
+    loadQpayPending();
+    onRangeChange(rangeFrom, rangeTo);
+  }
+
+  async function cancelIntent(intent: QpayIntentView) {
+    setQpayBusy(intent.id);
+    const result = await cancelQpayIntent(intent.id);
+    setQpayBusy(null);
+    if (result.error) feedback.error(result.error);
+    loadQpayPending();
+  }
   // Муж өөрчлөгдөхөд эцэг `key`-ээр remount хийнэ (sales-workspace.tsx).
   const [rangeTo, setRangeTo] = useState(to);
 
@@ -263,6 +297,45 @@ export function SalesListView({
         <FilterChips options={statusChips} value={status} onChange={setStatus} />
         <FilterChips options={ebarimtChips} value={ebarimt} onChange={setEbarimt} />
       </div>
+
+      {qpayPending.length > 0 && (
+        <div className="rounded-md border border-[var(--ea-warning)] bg-[var(--ea-surface)] p-2 text-xs">
+          <div className="mb-1 font-semibold text-[var(--ea-warning-fg)]">
+            QPay хүлээгдэж буй · {qpayPending.length}
+            <span className="ml-2 font-normal text-[var(--ea-text-3)]">
+              Төлөгдсөн ч борлуулалт бүртгэгдээгүй бол «Борлуулалт болгох» — сагс тухайн үеийнхээрээ бичигдэнэ
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {qpayPending.map((intent) => (
+              <li key={intent.id} className="flex flex-wrap items-center gap-2">
+                <StatusBadge
+                  tone={intent.status === "paid" ? "danger" : intent.status === "open" ? "warning" : "muted"}
+                  size="sm"
+                >
+                  {QPAY_INTENT_STATUS_LABELS[intent.status]}
+                </StatusBadge>
+                <span className="font-mono">{fmtMnt(intent.amount)}₮</span>
+                <span className="text-[var(--ea-text-3)]">
+                  {fmtTime(intent.paidAt ?? intent.createdAt)} · {intent.cashierName || "—"} · {intent.lineCount} мөр
+                  {intent.qpayInvoiceId ? ` · ${intent.qpayInvoiceId.slice(0, 8)}…` : ""}
+                </span>
+                {intent.lastError && <span className="text-[var(--ea-danger-fg)]">{intent.lastError}</span>}
+                {intent.status === "paid" && (
+                  <Button size="xs" disabled={qpayBusy === intent.id} onClick={() => finalizeIntent(intent)}>
+                    Борлуулалт болгох
+                  </Button>
+                )}
+                {intent.status === "open" && (
+                  <Button size="xs" variant="outline" disabled={qpayBusy === intent.id} onClick={() => cancelIntent(intent)}>
+                    Цуцлах
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {sales.length === 0 ? (
         <EmptyState

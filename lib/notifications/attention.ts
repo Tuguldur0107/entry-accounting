@@ -90,6 +90,12 @@ export interface AttentionInput {
     /** Сүүлийн 3 хоногт илгээгдсэн баримт бий эсэх — байхгүй бол хоцролт биш. */
     sentRecently: boolean;
   };
+  /** QPay — `paid` боловч `saleId` null intent-үүд (≥ QPAY_PAID_UNFINALIZED_MINUTES). */
+  qpay?: {
+    paidUnfinalized: number;
+    /** Хамгийн эртийнх төлөгдсөнөөс хойш хэдэн минут (null = байхгүй). */
+    oldestMinutes: number | null;
+  };
 }
 
 export interface AttentionSignal {
@@ -693,6 +699,28 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
         },
       });
     }
+  }
+
+  const qpay = input.qpay;
+  if (qpay && qpay.paidUnfinalized > 0) {
+    const posAudience: NotificationAudience = { kind: "module", moduleKeys: ["pos"], minLevel: "write" };
+    signals.push({
+      key: "qpay-paid-unfinalized",
+      tone: "danger",
+      title: `QPay төлбөр ${qpay.paidUnfinalized} орсон ч борлуулалт бүртгэгдээгүй`,
+      detail: `Мөнгө харилцагчийн данс руу орсон боловч бараа хасагдаагүй, eBarimt үүсээгүй${
+        qpay.oldestMinutes != null ? ` (хамгийн эртийнх ${qpay.oldestMinutes} мин)` : ""
+      }. Борлуулалт → «QPay хүлээгдэж буй» → Борлуулалт болгох.`,
+      href: "/inventory/sales?tab=sales",
+      action: "QPay хүлээгдэж буй",
+      surfaces: ["dashboard", "daily"],
+      notify: {
+        type: "pos.qpay_paid_unfinalized",
+        dedupeKey: `qpay:unfinalized:${input.today}`,
+        audience: posAudience,
+        severity: "danger",
+      },
+    });
   }
 
   return signals;

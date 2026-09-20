@@ -24,6 +24,7 @@ import {
   posSettings,
   warehouses,
 } from "@/lib/db/schema";
+import { countPaidUnfinalized } from "@/lib/qpay/store";
 import { fetchPosApiHealth } from "@/lib/ebarimt/client";
 import { hoursSince } from "@/lib/ebarimt/posapi-info";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
@@ -175,6 +176,16 @@ async function loadEbarimt(orgId: string, today: string): Promise<AttentionInput
   };
 }
 
+async function loadQpay(orgId: string): Promise<AttentionInput["qpay"]> {
+  const settings = await db.query.posSettings.findFirst({
+    where: eq(posSettings.organizationId, orgId),
+    columns: { qpayEnabled: true },
+  });
+  if (!settings?.qpayEnabled) return undefined;
+  const { count, oldestMinutes } = await countPaidUnfinalized(orgId);
+  return { paidUnfinalized: count, oldestMinutes };
+}
+
 export async function loadAttentionInput(
   orgId: string,
   today: string
@@ -199,6 +210,7 @@ export async function loadAttentionInput(
     fx,
     negativeStock,
     ebarimt,
+    qpay,
   ] = await Promise.all([
     draftSummary(orgId, journalVouchers, "journal"),
     draftSummary(orgId, arApDocuments, "arap"),
@@ -267,6 +279,7 @@ export async function loadAttentionInput(
     loadFx(orgId, today),
     loadNegativeStock(orgId),
     loadEbarimt(orgId, today),
+    loadQpay(orgId),
   ]);
 
   let arOverdue = 0;
@@ -323,6 +336,7 @@ export async function loadAttentionInput(
     fx,
     negativeStock,
     ebarimt,
+    qpay,
     tokens: tokenRows
       .filter((token) => token.expiresAt)
       .map((token) => ({

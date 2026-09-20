@@ -3376,6 +3376,20 @@ export const posSettings = pgTable(
     ebarimtPosApiUrl: text("ebarimt_pos_api_url").notNull().default("http://localhost:7080"),
     /** "server" (Railway-ийн posapi service, worker илгээнэ) | "browser" (кассын PC-ийн localhost, дэлгэц илгээнэ). */
     ebarimtMode: text("ebarimt_mode").notNull().default("server"),
+    // ── QPay (docs/pos/04-qpay-integration-plan.md §3.4) — qpay-dashboard хаалгаар ──
+    // Мерчантын API key / webhook secret нь ШИФРТЭЙ (lib/ai/crypto.ts encryptSecret),
+    // лог/аудит/health-д ХЭЗЭЭ Ч гарахгүй. Console-д БИШ — харилцагчийн апп-д.
+    qpayEnabled: boolean("qpay_enabled").notNull().default(false),
+    /** qpay-dashboard-ын суурь URL (интеграторын REST v1). */
+    qpayApiUrl: text("qpay_api_url").notNull().default("https://qpay-dashboard-production.up.railway.app"),
+    /** Мерчантын `qpd_live_…` API key — AES-256-GCM (enc:v1:). null = тохируулаагүй. */
+    qpayApiKeyEnc: text("qpay_api_key_enc"),
+    /** Webhook HMAC secret (`whsec_…`) — AES-256-GCM. null = тохируулаагүй. */
+    qpayWebhookSecretEnc: text("qpay_webhook_secret_enc"),
+    /** Dashboard-оос уншсан мерчант id — зөвхөн харуулах (холболт шалгахад бөглөгдөнө). */
+    qpayMerchantId: text("qpay_merchant_id"),
+    /** Нэхэмжлэхийн хүчинтэй хугацаа (сек) — хэтэрвэл intent expired, QPay-д DELETE. */
+    qpayInvoiceTtlSec: integer("qpay_invoice_ttl_sec").notNull().default(180),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("pos_settings_org_id_ux").on(t.organizationId)]
@@ -3412,6 +3426,8 @@ export const posPaymentMethods = pgTable(
     feePercent: numeric("fee_percent", { precision: 5, scale: 2 }),
     /** eBarimt төлбөрийн код (payments[].code: CASH, PAYMENT_CARD …) — ТЕГ-ийн жагсаалтаас; хоосон бол тэр хэлбэртэй борлуулалт илгээгдэхгүй ([EBARIMT_UNMAPPED_PAYMENT]). Код ЗОХИОХГҮЙ. */
     ebarimtCode: text("ebarimt_code"),
+    /** `ewallet` kind-ийн ПРОВАЙДЕР — "qpay" бол төлбөр QPay intent-ээр (QR) л батлагдана; null = гар лавлагаатай ewallet. */
+    provider: text("provider"),
     isActive: boolean("is_active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -3755,6 +3771,58 @@ export const posEbarimtSubmissions = pgTable(
   ]
 );
 
+/**
+ * QPay төлбөрийн INTENT (docs/pos/04-qpay-integration-plan.md §3.3) — борлуулалт
+ * төлбөр батлагдтал ҮҮСДЭГГҮЙ тул QPay нэхэмжлэх, QR, сагсны snapshot энд түр
+ * амьдарна: open → paid (webhook / check) → finalized (createPosSale) | cancelled |
+ * expired | failed. `paid` боловч `saleId` null = мөнгө орсон ч борлуулалт
+ * бүртгэгдээгүй — attention дохио, жагсаалтын «QPay хүлээгдэж буй».
+ */
+export const posQpayIntents = pgTable(
+  "pos_qpay_intents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    shiftId: uuid("shift_id").references(() => posShifts.id, { onDelete: "set null" }),
+    cashierUserId: text("cashier_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** QPay-ээр төлөх дүн (MNT, бүхэл). */
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    /** createPosSale-ийн бүтэн оролт (payments, buyer орсон) — дараа нь finalize хийхэд replay. */
+    cartSnapshot: jsonb("cart_snapshot").$type<Record<string, unknown>>().notNull(),
+    status: text("status").notNull().default("open"),
+    /** Dashboard/QPay нэхэмжлэхийн id (Quick QR `id`). */
+    qpayInvoiceId: text("qpay_invoice_id"),
+    qrText: text("qr_text"),
+    /** base64 PNG — finalized/expired/cancelled болмогц null-дана (хэмжээ). */
+    qrImage: text("qr_image"),
+    /** Банкны deeplink-үүд [{name, logo, link}]. */
+    urls: jsonb("urls").$type<{ name: string; logo: string; link: string }[]>(),
+    paymentId: text("payment_id"),
+    paidAmount: numeric("paid_amount", { precision: 18, scale: 2 }),
+    paidAt: timestamp("paid_at"),
+    expiresAt: timestamp("expires_at").notNull(),
+    saleId: uuid("sale_id").references(() => posSales.id, { onDelete: "set null" }),
+    /** Сүүлийн гар/автомат `payments/check` дуудлага — QPay-руу ≤ 1/10 сек. */
+    lastCheckAt: timestamp("last_check_at"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pos_qpay_intents_org_invoice_ux")
+      .on(t.organizationId, t.qpayInvoiceId)
+      .where(sql`${t.qpayInvoiceId} is not null`),
+    index("pos_qpay_intents_org_status_ix").on(t.organizationId, t.status, t.createdAt),
+  ]
+);
+
+export const posQpayIntentsRelations = relations(posQpayIntents, ({ one }) => ({
+  sale: one(posSales, { fields: [posQpayIntents.saleId], references: [posSales.id] }),
+  shift: one(posShifts, { fields: [posQpayIntents.shiftId], references: [posShifts.id] }),
+}));
+
 export const posEbarimtSubmissionsRelations = relations(posEbarimtSubmissions, ({ one }) => ({
   sale: one(posSales, { fields: [posEbarimtSubmissions.saleId], references: [posSales.id] }),
 }));
@@ -4017,5 +4085,6 @@ export type PosPayment = typeof posPayments.$inferSelect;
 export type PosGiftCard = typeof posGiftCards.$inferSelect;
 export type PosStoreCredit = typeof posStoreCredits.$inferSelect;
 export type PosEbarimtSubmission = typeof posEbarimtSubmissions.$inferSelect;
+export type PosQpayIntent = typeof posQpayIntents.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;

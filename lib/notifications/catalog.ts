@@ -222,6 +222,15 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // QPay: мөнгө орсон ч борлуулалт бүртгэгдээгүй (кассчин диалог хаасан, цахилгаан
+  // тасарсан) — бараа хасагдаагүй, eBarimt үүсээгүй (docs/pos/04 §3.3, D3).
+  "pos.qpay_paid_unfinalized": {
+    category: "documents",
+    severity: "danger",
+    label: "QPay төлбөр орсон ч борлуулалт бүртгэгдээгүй",
+    email: "instant",
+    inApp: true,
+  },
   "license.expiring": {
     category: "security",
     severity: "warning",

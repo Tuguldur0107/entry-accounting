@@ -44,6 +44,7 @@ import {
   segmentValues,
   users,
   warehouses,
+  type PosQpayIntent,
 } from "@/lib/db/schema";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
@@ -70,6 +71,9 @@ import { applyDiscounts } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { planPayments, planRefund } from "@/lib/pos/payments";
 import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
+import { QPAY_ERRORS, QPAY_INTENT_STATUS_LABELS, QPAY_PROVIDER, type QpayIntentStatus } from "@/lib/qpay/constants";
+import { amountMatches as qpayAmountMatches } from "@/lib/qpay/intent";
+import { finalizeIntentInTx, loadIntent as loadQpayIntent } from "@/lib/qpay/store";
 import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
 import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
@@ -351,6 +355,15 @@ export async function getPaymentMethods(): Promise<ActionResult<{ methods: Payme
   }
 }
 
+/** Провайдер зөвхөн ewallet-д, зөвхөн мэдэгдэх утга (QPAY_PROVIDER); бусад бүх тохиолдолд null. */
+function resolvePaymentProvider(kind: PaymentKind, provider: string | null | undefined): string | null {
+  const value = cleanText(provider)?.toLowerCase() ?? null;
+  if (!value) return null;
+  if (kind !== "ewallet") throw new Error("Провайдер (QPay) зөвхөн «QPay / SocialPay / MonPay» төрлийн хэлбэрт");
+  if (value !== QPAY_PROVIDER) throw new Error("Дэмжигдэх провайдер: qpay");
+  return value;
+}
+
 export async function savePaymentMethod(data: {
   id?: string | null;
   code: string;
@@ -364,6 +377,8 @@ export async function savePaymentMethod(data: {
   feePercent?: number | null;
   /** eBarimt төлбөрийн код (ТЕГ-ийн жагсаалтаас) — хоосон бол энэ хэлбэртэй борлуулалт илгээгдэхгүй. */
   ebarimtCode?: string | null;
+  /** ewallet-ийн провайдер ("qpay") — QR intent-ээр батлагдах хэлбэр; бусад kind-д null. */
+  provider?: string | null;
   isActive?: boolean;
   sortOrder?: number;
 }): Promise<ActionResult<{ id: string }>> {
@@ -410,6 +425,7 @@ export async function savePaymentMethod(data: {
       allowsRefund: data.allowsRefund ?? true,
       feePercent: data.feePercent == null ? null : String(Number(data.feePercent)),
       ebarimtCode: cleanText(data.ebarimtCode)?.toUpperCase() ?? null,
+      provider: resolvePaymentProvider(data.kind, data.provider),
       isActive: data.isActive ?? true,
       sortOrder: Number(data.sortOrder ?? 0),
     };
@@ -765,6 +781,12 @@ export interface CreatePosSaleInput extends SaleQuoteInput {
    * [Илгээх]-ээр дараа нь илгээж болно. eBarimt унтраалттай бол нөлөөгүй.
    */
   skipEbarimt?: boolean | null;
+  /**
+   * QPay intent (lib/qpay) — QPay провайдертай төлбөрийн мөр байвал ЗААВАЛ:
+   * intent `paid`, дүн нь тэр мөртэй таарна; борлуулалттай нэг транзакцад
+   * `finalized` болно (давхар борлуулалт үгүй). Гараар «төлсөн» тэмдэглэх зам ҮГҮЙ.
+   */
+  qpayIntentId?: string | null;
 }
 
 export interface PosReceipt {
@@ -807,6 +829,37 @@ export async function createPosSale(
   } catch (caught) {
     return actionError("createPosSale", caught, "Борлуулалт бүртгэгдсэнгүй");
   }
+}
+
+/**
+ * QPay провайдертай төлбөрийн мөр → intent-ийг баталгаажуулна (docs/pos/04 §3.5):
+ * intent өгөөгүй / олдохгүй / `paid` биш / дүн зөрсөн бол ШИДНЭ. Intent өгсөн
+ * ч QPay мөр байхгүй бол мөн шиднэ (мөнгө орсон боловч бүртгэгдэхгүй үлдэхээс сэргийлнэ).
+ */
+async function resolveQpayIntentForSale(
+  orgId: string,
+  input: CreatePosSaleInput,
+  methods: PaymentMethodView[]
+): Promise<PosQpayIntent | null> {
+  const qpayRows = (input.payments ?? []).filter(
+    (payment) => methods.find((m) => m.id === payment.paymentMethodId)?.provider === QPAY_PROVIDER
+  );
+  const intentId = cleanText(input.qpayIntentId);
+  if (qpayRows.length === 0) {
+    if (intentId) throw new Error(`[${QPAY_ERRORS.intentRequired}] QPay intent өгсөн ч QPay төлбөрийн мөр алга`);
+    return null;
+  }
+  if (qpayRows.length > 1) throw new Error(`[${QPAY_ERRORS.intentRequired}] Нэг борлуулалтад нэг л QPay мөр`);
+  if (!intentId)
+    throw new Error(`[${QPAY_ERRORS.intentRequired}] QPay төлбөр QR-аар л батлагдана — [QR үүсгэх] дараад төлөгдсөний дараа батална`);
+  const intent = await loadQpayIntent(orgId, intentId);
+  if (!intent) throw new Error(`[${QPAY_ERRORS.intentRequired}] QPay intent олдсонгүй`);
+  if (intent.status !== "paid")
+    throw new Error(`[${QPAY_ERRORS.intentNotPaid}] QPay төлбөр батлагдаагүй (${QPAY_INTENT_STATUS_LABELS[intent.status as QpayIntentStatus] ?? intent.status})`);
+  if (intent.saleId) throw new Error(`[${QPAY_ERRORS.alreadyFinalized}] Энэ QPay төлбөр аль хэдийн борлуулалтад холбогдсон`);
+  if (!qpayAmountMatches(Number(intent.amount), Number(qpayRows[0].amount)))
+    throw new Error(`[${QPAY_ERRORS.amountMismatch}] QPay-ээр төлсөн ${fmt(Number(intent.amount))}₮ ≠ мөрийн ${fmt(Number(qpayRows[0].amount))}₮`);
+  return intent;
 }
 
 async function createPosSaleCore(input: CreatePosSaleInput) {
@@ -881,7 +934,14 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
       });
   const openReceivable = isWalkIn ? 0 : await loadOpenReceivable(db, orgId, customer.id);
   const advanceBalance = isWalkIn ? 0 : await loadAdvanceBalance(orgId, customer.name, settings.customerAdvanceAccountNumber);
-  const plan = planPayments(input.payments ?? [], methods, quote.totals.total, {
+  // QPay: провайдертай мөр → intent заавал, paid, дүн таарна; reference = QPay нэхэмжлэхийн id.
+  const qpayIntent = await resolveQpayIntentForSale(orgId, input, methods);
+  const paymentInputs = (input.payments ?? []).map((payment) =>
+    qpayIntent && methods.find((m) => m.id === payment.paymentMethodId)?.provider === QPAY_PROVIDER
+      ? { ...payment, reference: qpayIntent.qpayInvoiceId ?? payment.reference ?? null }
+      : payment
+  );
+  const plan = planPayments(paymentInputs, methods, quote.totals.total, {
     isWalkIn,
     creditLimit: customer.creditLimit === null ? null : Number(customer.creditLimit),
     openReceivable,
@@ -963,6 +1023,8 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
 
     documentNo = await nextSequentialNo(tx, posSales, orgId, POS_SALE_NO_PREFIX, date, 4);
     const payable = plan.payable;
+    // QPay intent → finalized + saleId — борлуулалттай НЭГ commit (0 мөр бол шиднэ).
+    const qpayFinalize = async (id: string) => finalizeIntentInTx(tx, orgId, qpayIntent!.id, id);
 
     // ① pos_sales
     const [sale] = await tx
@@ -992,6 +1054,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
       })
       .returning({ id: posSales.id });
     saleId = sale.id;
+    if (qpayIntent) await qpayFinalize(saleId);
     const businessObject = { businessObjectType: POS_BUSINESS_OBJECT, businessObjectId: saleId };
     const tag = `[${documentNo}]`;
 

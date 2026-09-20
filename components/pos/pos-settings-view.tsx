@@ -44,6 +44,10 @@ import {
   type SaleQuote,
 } from "@/lib/actions/pos";
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import { getQpayStatus, saveQpaySettings, testQpayConnection } from "@/lib/actions/qpay";
+import { QPAY_INVOICE_TTL_MAX_SEC, QPAY_INVOICE_TTL_MIN_SEC, QPAY_PROVIDER } from "@/lib/qpay/constants";
+import type { QpayReadiness } from "@/lib/qpay/readiness";
+import type { QpayStatusSummary } from "@/lib/qpay/types";
 import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type { EbarimtStatusSummary } from "@/lib/ebarimt/types";
 import type { CheckoutData } from "@/lib/pos/load-data";
@@ -65,13 +69,14 @@ export interface IssueTypeOption {
   name: string;
 }
 
-type SettingsSection = "general" | "methods" | "rules" | "ebarimt";
+type SettingsSection = "general" | "methods" | "rules" | "ebarimt" | "qpay";
 
 const SECTIONS: readonly TabOption<SettingsSection>[] = [
   { value: "general", label: "Ерөнхий" },
   { value: "methods", label: "Төлбөрийн хэлбэр" },
   { value: "rules", label: "Хөнгөлөлтийн дүрэм" },
   { value: "ebarimt", label: "eBarimt" },
+  { value: "qpay", label: "QPay" },
 ];
 
 const textareaClass =
@@ -97,6 +102,7 @@ export function PosSettingsView({
       {section === "ebarimt" && (
         <EbarimtSection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />
       )}
+      {section === "qpay" && <QpaySection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />}
     </div>
   );
 }
@@ -279,6 +285,13 @@ function PaymentMethodsSection({
         width: 190,
         valueFormatter: (p) => PAYMENT_KIND_LABELS[p.value as PaymentKind] ?? String(p.value ?? ""),
       },
+      {
+        headerName: "Провайдер",
+        field: "provider",
+        width: 100,
+        cellClass: "font-mono text-xs",
+        valueFormatter: (p) => (p.value ? String(p.value).toUpperCase() : ""),
+      },
       { headerName: "Касс / данс", field: "cashAccountName", minWidth: 150, flex: 1, valueFormatter: (p) => String(p.value ?? "—") },
       { headerName: "Валют", field: "currency", width: 80, cellClass: "font-mono text-xs" },
       {
@@ -390,6 +403,8 @@ interface MethodForm {
   allowsRefund: boolean;
   feePercent: string;
   ebarimtCode: string;
+  /** ewallet-ийн провайдер: "" (гар лавлагаа) | "qpay" (QR intent). */
+  provider: string;
   sortOrder: string;
   isActive: boolean;
 }
@@ -405,6 +420,7 @@ function toMethodForm(method: PaymentMethodView | null): MethodForm {
     allowsRefund: method?.allowsRefund ?? true,
     feePercent: method?.feePercent == null ? "" : String(method.feePercent),
     ebarimtCode: method?.ebarimtCode ?? "",
+    provider: method?.provider ?? "",
     sortOrder: String(method?.sortOrder ?? 0),
     isActive: method?.isActive ?? true,
   };
@@ -445,6 +461,7 @@ function PaymentMethodDialog({
         allowsRefund: form.allowsRefund,
         feePercent: form.feePercent.trim() === "" ? null : Number(form.feePercent),
         ebarimtCode: form.ebarimtCode.trim() || null,
+        provider: form.kind === "ewallet" ? form.provider || null : null,
         sortOrder: Number(form.sortOrder) || 0,
         isActive: form.isActive,
       });
@@ -481,6 +498,14 @@ function PaymentMethodDialog({
               ))}
             </select>
           </FormField>
+          {form.kind === "ewallet" && (
+            <FormField label="Провайдер" hint="QPay бол төлбөр QR-аар л батлагдана (Тохиргоо → QPay)">
+              <select className="ea-form-select" value={form.provider} onChange={(e) => patch({ provider: e.target.value })}>
+                <option value="">— Гар лавлагаа (SocialPay, MonPay …) —</option>
+                <option value={QPAY_PROVIDER}>QPay (QR intent)</option>
+              </select>
+            </FormField>
+          )}
           {needsAccount && (
             <FormField label="Касс / банк / түр данс" hint="Валют нь дансаас ирнэ">
               <select className="ea-form-select" value={form.cashAccountId} onChange={(e) => patch({ cashAccountId: e.target.value })}>
@@ -1269,6 +1294,227 @@ function Counter({
       <div className="text-[11px] text-[var(--ea-text-3)]">{label}</div>
       <div className="mt-0.5 font-mono text-base font-semibold" style={{ color }}>
         {value}
+      </div>
+    </div>
+  );
+}
+
+// ── QPay (qpay-dashboard хаалга) ─────────────────────────────────────────────
+//
+// docs/pos/04-qpay-integration-plan.md §3.1, §3.4. Харилцагч qpay-dashboard дээр
+// бүртгүүлж онбординг хийгээд API key + webhook secret-ээ энд буулгана. Нууц
+// WRITE-ONLY: серверт шифртэй хадгалагдаж дахин харагдахгүй («тохируулсан»).
+
+interface QpayForm {
+  enabled: boolean;
+  apiUrl: string;
+  apiKey: string;
+  webhookSecret: string;
+  invoiceTtlSec: string;
+}
+
+function QpaySection({ settings }: { settings: PosSettings }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [form, setForm] = useState<QpayForm>({
+    enabled: settings.qpayEnabled,
+    apiUrl: settings.qpayApiUrl,
+    apiKey: "",
+    webhookSecret: "",
+    invoiceTtlSec: String(settings.qpayInvoiceTtlSec),
+  });
+  const patch = (changes: Partial<QpayForm>) => setForm((current) => ({ ...current, ...changes }));
+  const [status, setStatus] = useState<QpayStatusSummary | null>(null);
+  const [readiness, setReadiness] = useState<QpayReadiness | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [probe, setProbe] = useState<{ merchantId: string | null; recentInvoices: number } | null>(null);
+
+  const load = () => {
+    getQpayStatus().then((result) => {
+      if (result.error) {
+        setLoadError(result.error);
+        return;
+      }
+      setLoadError(null);
+      setStatus(result.status ?? null);
+      setReadiness(result.readiness ?? null);
+    });
+  };
+  useEffect(load, []);
+
+  // Асаах нь readiness бүрэн (эсвэл формд key/secret шинээр бичсэн) үед л.
+  const keySet = settings.qpayApiKeySet || form.apiKey.trim().length > 0;
+  const secretSet = settings.qpayWebhookSecretSet || form.webhookSecret.trim().length > 0;
+  const remainingProblems = (readiness?.problems ?? []).filter(
+    (problem) => !(keySet && problem.includes("API key")) && !(secretSet && problem.includes("secret"))
+  );
+  const canEnable = readiness != null && remainingProblems.length === 0;
+
+  function save() {
+    startTransition(async () => {
+      const result = await saveQpaySettings({
+        enabled: form.enabled,
+        apiUrl: form.apiUrl,
+        apiKey: form.apiKey.trim() || null,
+        webhookSecret: form.webhookSecret.trim() || null,
+        invoiceTtlSec: Number(form.invoiceTtlSec),
+      });
+      if (result.error) {
+        feedback.error(result.error);
+        return;
+      }
+      feedback.saved("QPay тохиргоо хадгалагдлаа");
+      patch({ apiKey: "", webhookSecret: "" });
+      load();
+      router.refresh();
+    });
+  }
+
+  function test() {
+    startTransition(async () => {
+      const result = await testQpayConnection();
+      if (result.error) {
+        setProbe(null);
+        feedback.error(result.error);
+        return;
+      }
+      setProbe({ merchantId: result.merchantId ?? null, recentInvoices: result.recentInvoices ?? 0 });
+      toast.success("QPay dashboard-тай холбогдлоо");
+      load();
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-xs text-[var(--ea-text-3)]">
+        <b className="text-[var(--ea-text-1)]">Хэрхэн холбох:</b> qpay-dashboard дээр бүртгүүлж онбординг
+        (РД, MCC, банкны данс) хийнэ → Merchants → API хөгжүүлэлт → API key ба webhook secret-ээ доор
+        буулгана → «Төлбөрийн хэлбэр» табд ewallet хэлбэрт провайдер QPay, түр данс оноогоод → асаана.
+        Төлбөр харилцагчийн банкны данс руу шууд орно (ККТТ шимтгэл 1%); буцаалт QPay-ээр
+        боломжгүй (бэлэн / дэлгүүрийн кредитээр).
+      </div>
+
+      {loadError && <p className="text-sm text-[var(--ea-danger-fg)]">{loadError}</p>}
+
+      {status && (
+        <div className="grid gap-2 sm:grid-cols-4">
+          <Counter label="Төлөв" value={status.enabled ? "асаалттай" : status.configured ? "тохируулсан" : "тохируулаагүй"} />
+          <Counter label="Хүлээгдэж буй QR" value={String(status.openIntents)} />
+          <Counter label="Төлөгдсөн, бүртгэгдээгүй" value={String(status.paidUnfinalized)} danger={status.paidUnfinalized > 0} />
+          <Counter label="Өнөөдөр QPay-ээр" value={String(status.finalizedToday)} />
+        </div>
+      )}
+
+      {readiness && (remainingProblems.length > 0 || readiness.warnings.length > 0) && (
+        <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-xs">
+          {remainingProblems.length > 0 && (
+            <>
+              <div className="mb-1 font-semibold text-[var(--ea-danger-fg)]">Асаахаас өмнө</div>
+              <ul className="space-y-0.5 text-[var(--ea-text-2)]">
+                {remainingProblems.map((problem) => (
+                  <li key={problem}>• {problem}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {readiness.warnings.map((warning) => (
+            <p key={warning} className="mt-1 text-[var(--ea-warning-fg)]">
+              ⚠ {warning}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <SwitchField
+        label="QPay төлбөр"
+        hint={
+          canEnable
+            ? "Кассын төлбөрийн диалогт QPay хэлбэр сонгоход QR гарч, төлөгдмөгц борлуулалт батлагдана"
+            : "Дээрх дутууг цэгцэлсний дараа идэвхжинэ"
+        }
+        checked={form.enabled}
+        disabled={!form.enabled && !canEnable}
+        onChange={(value) => patch({ enabled: value })}
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <FormField label="Dashboard URL" hint="qpay-dashboard-ын суурь хаяг">
+          <Input value={form.apiUrl} className="font-mono" onChange={(e) => patch({ apiUrl: e.target.value })} />
+        </FormField>
+        <FormField
+          label="Нэхэмжлэхийн хугацаа (сек)"
+          hint={`${QPAY_INVOICE_TTL_MIN_SEC}–${QPAY_INVOICE_TTL_MAX_SEC}; хэтэрвэл QR хүчингүй, QPay-д цуцлагдана`}
+        >
+          <Input
+            type="number"
+            min={QPAY_INVOICE_TTL_MIN_SEC}
+            max={QPAY_INVOICE_TTL_MAX_SEC}
+            value={form.invoiceTtlSec}
+            className="font-mono text-right"
+            onChange={(e) => patch({ invoiceTtlSec: e.target.value })}
+          />
+        </FormField>
+        <FormField
+          label="API key"
+          hint={settings.qpayApiKeySet ? "Тохируулсан — солихдоо шинийг бичнэ (дахин харагдахгүй)" : "qpd_live_… (нэг л удаа харагдана)"}
+        >
+          <Input
+            type="password"
+            autoComplete="off"
+            value={form.apiKey}
+            placeholder={settings.qpayApiKeySet ? "••••••••" : "qpd_live_…"}
+            className="font-mono"
+            onChange={(e) => patch({ apiKey: e.target.value })}
+          />
+        </FormField>
+        <FormField
+          label="Webhook secret"
+          hint={settings.qpayWebhookSecretSet ? "Тохируулсан — солихдоо шинийг бичнэ" : "whsec_… (API key-тэй нэг дэлгэцэнд)"}
+        >
+          <Input
+            type="password"
+            autoComplete="off"
+            value={form.webhookSecret}
+            placeholder={settings.qpayWebhookSecretSet ? "••••••••" : "whsec_…"}
+            className="font-mono"
+            onChange={(e) => patch({ webhookSecret: e.target.value })}
+          />
+        </FormField>
+      </div>
+
+      {status && (
+        <div className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+          <div>
+            <span className="text-[var(--ea-text-3)]">Мерчант id: </span>
+            <span className="font-mono">{status.merchantId ?? probe?.merchantId ?? "— (холболт шалгахад бөглөгдөнө)"}</span>
+          </div>
+          <div>
+            <span className="text-[var(--ea-text-3)]">Webhook: </span>
+            <span className="font-mono break-all">
+              {status.webhookUrl ?? "нийтийн URL алга — зөвхөн [Шалгах] товчоор"}
+            </span>
+            <span className="block text-[var(--ea-text-4)]">
+              Нэхэмжлэх бүрд автоматаар өгөгдөнө — dashboard дээр гараар тохируулах шаардлагагүй
+            </span>
+          </div>
+          {probe && (
+            <div className="sm:col-span-2 text-[var(--ea-success-fg)]">
+              Холбогдлоо · сүүлийн {probe.recentInvoices} нэхэмжлэх уншигдав
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={save} disabled={isPending}>
+          Хадгалах
+        </Button>
+        <Button variant="outline" onClick={test} disabled={isPending || (!settings.qpayApiKeySet && !form.apiKey.trim())}>
+          Холболт шалгах
+        </Button>
+        {!settings.qpayApiKeySet && form.apiKey.trim() && (
+          <span className="self-center text-xs text-[var(--ea-text-3)]">Эхлээд хадгалаад дараа нь шалгана</span>
+        )}
       </div>
     </div>
   );

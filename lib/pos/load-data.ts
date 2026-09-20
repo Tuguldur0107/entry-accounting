@@ -224,6 +224,12 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     ebarimtPosNo: row.ebarimtPosNo,
     ebarimtPosApiUrl: row.ebarimtPosApiUrl,
     ebarimtMode: row.ebarimtMode === "browser" ? "browser" : "server",
+    qpayEnabled: row.qpayEnabled,
+    qpayApiUrl: row.qpayApiUrl,
+    qpayApiKeySet: !!row.qpayApiKeyEnc,
+    qpayWebhookSecretSet: !!row.qpayWebhookSecretEnc,
+    qpayMerchantId: row.qpayMerchantId,
+    qpayInvoiceTtlSec: row.qpayInvoiceTtlSec,
   };
 }
 
@@ -249,6 +255,7 @@ export async function loadPaymentMethodViews(
     allowsRefund: row.allowsRefund,
     feePercent: row.feePercent === null ? null : Number(row.feePercent),
     ebarimtCode: row.ebarimtCode ?? null,
+    provider: row.provider ?? null,
     isActive: row.isActive,
     sortOrder: row.sortOrder,
   }));

@@ -9,7 +9,9 @@
 | 2 | Урьдчилсан COGS → сар хаалтад `cogs_true_up` залруулга (идемпотент, дахин нээх/хаах); борлуулалтын тайлан 6 таб; самбарын POS хэсэг; хасах үлдэгдлийн карт; сар хаалтын checklist POS алхам (`open-pos-shifts`, `unvalued-movements`) | ✅ |
 | 2b | **Кассын дэлгэц v2** — дэлгүүрийн POS загвар (§4.1): барааны tile + бүлгийн chip, баримтын ticket + numpad (Тоо/Хөнг %/Үнэ), олон түр хадгалсан сагс, нэг товчны ээлж нээх (сүүлийн ээлжийн default), ээлж хаах дэлгэц дээрээ; `lib/pos/checkout-state.ts` цэвэр (тесттэй) | ✅ |
 | 3 | **eBarimt 3.0 (PosAPI 3.0)** — автомат баримт: дараалал + worker, ДДТД/сугалаа/QR баримтад, буцаалт → цуцлалт, тохиргоо/ангилалын код/төлбөрийн код UI, AI tools, `/api/health.ebarimt` | ✅ |
-| 3+ | QPay/SocialPay API (одоо лавлагааны дугаар гараар), камерын баркод, офлайн горим, B2B нэхэмжлэх (INVOICE), оролтын eBarimt тулгалт | — |
+| 3b | **QPay Quick QR** (`04-qpay-integration-plan.md`) — Фаз 1 Entry цөм: `pos_qpay_intents` intent машин, `qpay-dashboard` клиент (x-api-key, нууц AES), HMAC webhook, QR диалог (Entry DB polling, гар шалгалт 10 сек), `createPosSale` intent холболт (paid ЗААВАЛ, дүн тулгана, транзакцад finalize), тохиргооны QPay таб + readiness, хүлээгдэж буй intent баннер + гар finalize (D3), attention `pos.qpay_paid_unfinalized`, `/api/health.qpay` | ✅ Фаз 1 |
+| 3b Фаз 2 | Борлуулалтын тайланд provider багана, AI `get_qpay_status`, `docs/deployment/qpay.md`, webhook-failing дохио | — |
+| 3+ | SocialPay/MonPay provider, камерын баркод, офлайн горим, B2B нэхэмжлэх (INVOICE), оролтын eBarimt тулгалт | — |
 
 ## eBarimt 3.0 — товч
 
@@ -43,6 +45,21 @@
   `/rest/info`-оос сугалааны нөөц / ТЕГ рүү илгээлтийн хоцролт / PosAPI хүрэлцээ
   → самбар + мэдэгдэл; татварын кодын албан лавлах (3 орон) сонгогч
 
+## QPay — товч
+
+```
+QPay мөр сонгов → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → dashboard POST /api/v1/invoices
+   → QR + deeplink → диалог Entry DB-ээс 2 сек тутам (QPay polling ҮГҮЙ — ККТТ хориг)
+   ← webhook payment.paid (HMAC) ЭСВЭЛ [Шалгах] (10 сек-д нэг) → paid
+→ Төлбөр авах → createPosSale({ qpayIntentId }) → транзакцад finalized
+   унавал → paid & saleId null → жагсаалтын баннер [Борлуулалт болгох] (snapshot-оос) / 10 мин → мэдэгдэл
+```
+
+- GL ӨӨРЧЛӨЛТГҮЙ: `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ, 1% шимтгэл settlement-д)
+- Нууц (API key, webhook secret) `encryptSecret`-ээр, `getQpayStatus` зөвхөн `*Set: boolean`;
+  `/api/health.qpay` зөвхөн тоолуур
+- Буцаалт QPay-ээр ҮГҮЙ (Quick QR refund-гүй) — бэлэн / дэлгүүрийн кредит
+
 ## Мэдэгдэж буй хязгаарлалт
 
 - Төлбөрийн диалог Төлсөн/Үлдэгдэл/Хариултыг локал бодно — эцсийн шалгалт server `planPayments`
@@ -56,8 +73,16 @@
   хараахан хэрэглэгдээгүй) — ТЕГ-ийн зөвлөмжийг мерчант багцаас тулгах (§8 T3).
 - eBarimt: ТЕГ-ийн ангилалын кодын бүрэн лавлах татагддаггүй — хэрэглэгч кодоо
   гараар / Excel-ээр оруулна (код ЗОХИОХГҮЙ).
+- QPay: нэг борлуулалтад QPay мөр НЭГ л байна (хоёр QR нэг сагсанд ҮГҮЙ); QPay
+  буцаалт байхгүй; webhook `NEXT_PUBLIC_APP_URL` нийтэд хүрэхгүй бол зөвхөн гар
+  [Шалгах]-аар төлөгдсөнийг мэднэ (readiness анхааруулна). eBarimt `payments[].code`
+  QPay-д ямар код байх нь ТЕГ-ээс тодорхойгүй (plan T1) — хэлбэрийн `ebarimtCode`-оор.
 
 ## Deploy
+
+QPay (Фаз 3b): preDeploy `pos_settings.qpay_*` (6 багана), `pos_payment_methods.provider`,
+`pos_qpay_intents` хүснэгт + 2 индекс нэмнэ (идемпотент). Env: `NEXT_PUBLIC_APP_URL`
+(webhook-ийн нийтийн URL) — байхгүй бол QPay идэвхжихгүй (readiness problem).
 
 `db:push --force` шинэ хүснэгт/баганыг үүсгэнэ; `inventory_items.sales_price` main-д
 аль хэдийн байгаа (`scripts/apply-pending-ddl.mjs`). Шинэ данс (51900001, 31600003,

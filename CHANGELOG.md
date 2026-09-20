@@ -7,6 +7,17 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **POS: QPay Quick QR төлбөр (Фаз 1)** — `docs/pos/04-qpay-integration-plan.md`.
+  Entry = ХСН, QPay-тэй `qpay-dashboard` REST v1-ээр (x-api-key, нууц AES-ээр
+  шифртэй, хэзээ ч ил гарахгүй). Төлбөрийн хэлбэрт «Провайдер: QPay» (ewallet);
+  кассын дэлгэцэд [QR үүсгэх] → `pos_qpay_intents` (сагсны snapshot-той) →
+  QR + банкны deeplink; төлөгдсөнийг webhook (HMAC-SHA256) эсвэл гар [Шалгах]
+  (10 сек-д нэг) — QPay-руу polling ҮГҮЙ (ККТТ хориг). Борлуулалт intent
+  `paid` + дүн таарсан үед л батлагдана, транзакцад finalize; унавал
+  борлуулалтын жагсаалтын баннераас [Борлуулалт болгох] (D3). Тохиргоо → POS →
+  QPay таб (readiness шалгалтгүйгээр асахгүй), мэдэгдэл `pos.qpay_paid_unfinalized`
+  (10 мин), `/api/health.qpay` тоолуур. GL өөрчлөлтгүй (ewallet түр данс).
+  Цэвэр `lib/qpay/intent.ts`, `readiness.ts` (тесттэй)
 - **POS: борлуулалт бүрд eBarimt-гүй явуулах** — төлбөрийн диалогт «eBarimt
   баримт илгээх» switch (default асаалттай). Унтраавал борлуулалт `skipped`
   статустай бичигдэж ТЕГ-д илгээгдэхгүй; жагсаалтад «eBarimt илгээгээгүй»
@@ -20,6 +31,10 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   B2B-ээр урьдчилан бөглөнө; AI `create/update_counterparty`, batch, CSV
   `entityKind`. Цэвэр `lib/arap/counterparty-kind.ts` (тесттэй)
 
+> **Deploy (QPay):** preDeploy `pos_settings.qpay_*` (6 багана),
+> `pos_payment_methods.provider`, `pos_qpay_intents` хүснэгт + индексүүдийг
+> нэмнэ (идемпотент). Webhook-д `NEXT_PUBLIC_APP_URL` нийтийн URL байх ЁСТОЙ.
+>
 > **Deploy:** preDeploy `counterparties.entity_kind` багана нэмж, иргэний РД
 > хэлбэртэй (УУ12345678) хуучин мөрийг «Хувь хүн» болгож нөхнө (идемпотент).
 
