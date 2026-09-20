@@ -156,7 +156,7 @@ entry-accounting/
   `lib/billing/`): багц кодод (`plans.ts`: trial/standard/platform/enterprise/
   dedicated — боломж, хязгаар, үнэ), байгууллагын ялгаа
   `organization_subscriptions` (planId, status, seats, trialEndsAt,
-  currentPeriodEnd, overrides JSON). ЦЭВЭР шийдвэр `entitlements.ts`
+  currentPeriodEnd, overrides JSON, pricePerSeatMnt). ЦЭВЭР шийдвэр `entitlements.ts`
   (`resolveEntitlements`, тесттэй), DB `load.ts`, **шалгах цэг ЗӨВХӨН
   `guards.ts`**: `assertWritesAllowed` (requireModuleAction write/post-д НЭГ
   цэгээс — read-only багцад `[SUBSCRIPTION_READ_ONLY]`), `requireFeature`
@@ -170,9 +170,18 @@ entry-accounting/
   хөндөхгүй). UI: `/settings/billing` (гишүүн бүр ХАРНА, засахгүй), топбарын
   баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`),
   AI/MCP/REST `get_billing_overview` (унших — ижил loader).
-  **Багц ЗАСАХ нь апп дотор БАЙХГҮЙ** — Entry Console `GET/PUT
-  /api/platform/subscriptions` (Bearer `ENTRY_PLATFORM_API_KEY`, timing-safe,
-  зөвхөн saas; цөм `lib/billing/platform.ts`); SaaS харилцагч ба dedicated
+  **ҮНЭ — ГУРВАН давхарга** (`pricing.ts` ЦЭВЭР, тесттэй; доошоо дардаг):
+  `plans.ts`-ийн default → `platform_plan_prices` (Console-оос, платформ даяар
+  нэг) → `organization_subscriptions.pricePerSeatMnt` (харилцагчийн тусгай үнэ).
+  `null` = ТОГТООГООГҮЙ (хэлэлцээрээр), 0₮ БИШ; хадгалагдсан null нь ИЛ
+  цэвэрлэлт тул default руу БУЦАХГҮЙ. `/settings/billing`, `get_billing_overview`,
+  Console гурвуул `resolveSeatPrice`-ээр НЭГ утга хардаг; сарын дүн =
+  суудал × үнэ (`monthlyAmountMnt`, тодорхойгүй бол null — таамаглахгүй).
+  **Багц ба ҮНЭ ЗАСАХ нь апп дотор БАЙХГҮЙ** — Entry Console `GET/PUT
+  /api/platform/subscriptions` ба `/api/platform/plan-prices` (Bearer
+  `ENTRY_PLATFORM_API_KEY`, timing-safe, зөвхөн saas; хаалга
+  `lib/api/platform-auth.ts`, цөм `lib/billing/platform.ts` ба
+  `lib/billing/pricing-store.ts`); SaaS харилцагч ба dedicated
   харилцагчийн удирдлага хоёулаа Console-д, апп дотор platform admin эрх
   ҮҮСГЭХГҮЙ (хольж хутгахгүй).
   Өөрчлөлт бүр аудитын мөрд (`subscription`). Төлбөрийн гарц — фаз 2
@@ -1906,6 +1915,11 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            periodKey × org unique — scheduler/digest булаалт),
            notification_deliveries (мэдэгдэл × суваг unique) — §9d;
            company_settings.largeAmountAlertMnt (D2 босго)
+Багц       organization_subscriptions (planId, status, seats, trialEndsAt,
+           currentPeriodEnd, overrides, pricePerSeatMnt — харилцагчийн ТУСГАЙ үнэ)
+             platform_plan_prices — багцын үнэ, ПЛАТФОРМЫН лавлах
+               (organizationId БАЙХГҮЙ, unique INDEX plan_id); мөргүй багц нь
+               lib/billing/plans.ts-ийн default үнээрээ; price null = хэлэлцээрээр
 Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
            хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings

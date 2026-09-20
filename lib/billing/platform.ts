@@ -15,6 +15,8 @@ import {
   type PlanId,
   type SubscriptionStatus,
 } from "@/lib/billing/plans";
+import { monthlyAmountMnt, parsePlanPriceInput, resolveSeatPrice } from "@/lib/billing/pricing";
+import { loadPlanPrices } from "@/lib/billing/pricing-store";
 import { db } from "@/lib/db";
 import { memberships, organizationSubscriptions, organizations, users } from "@/lib/db/schema";
 
@@ -29,6 +31,12 @@ export type PlatformSubscriptionRow = {
   status: SubscriptionStatus;
   seats: number | null;
   seatsUsed: number;
+  /** Бодит суудлын үнэ: тусгай үнэ → багцын үнэ (null = хэлэлцээрээр). */
+  pricePerSeatMnt: number | null;
+  /** ЗӨВХӨН энэ байгууллагад тогтоосон тусгай үнэ (null = багцын үнэ дагана). */
+  pricePerSeatOverrideMnt: number | null;
+  /** Суудал × үнэ; аль нэг нь тодорхойгүй бол null. */
+  monthlyAmountMnt: number | null;
   writable: boolean;
   readOnlyReason: string | null;
   daysLeft: number | null;
@@ -50,6 +58,8 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
     })
     .from(organizations)
     .orderBy(asc(organizations.createdAt));
+  // Үнэ нь платформын хэмжээнд нэг — давталтын ГАДНА нэг л удаа уншина.
+  const planPrices = await loadPlanPrices();
   const rows: PlatformSubscriptionRow[] = [];
   for (const org of orgs) {
     const [ent, seatsUsed, [members], owner, sub] = await Promise.all([
@@ -67,6 +77,7 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
         where: eq(organizationSubscriptions.organizationId, org.id),
       }),
     ]);
+    const pricePerSeatMnt = resolveSeatPrice(ent.planId, sub?.pricePerSeatMnt, planPrices);
     rows.push({
       organizationId: org.id,
       orgName: org.name,
@@ -78,6 +89,9 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
       status: ent.status,
       seats: sub?.seats ?? null,
       seatsUsed,
+      pricePerSeatMnt,
+      pricePerSeatOverrideMnt: sub?.pricePerSeatMnt ?? null,
+      monthlyAmountMnt: monthlyAmountMnt(sub?.seats ?? null, pricePerSeatMnt),
       writable: ent.writable,
       readOnlyReason: ent.readOnlyReason,
       daysLeft: ent.daysLeft,
@@ -97,6 +111,8 @@ export type SavePlatformSubscriptionInput = {
   planId: string;
   status: string;
   seats?: number | null;
+  /** Тусгай үнэ ₮/суудал/сар; хоосон → багцын үнэ дагана. */
+  pricePerSeatMnt?: number | string | null;
   trialEndsAt?: string | null;
   currentPeriodEnd?: string | null;
   overrides?: unknown;
@@ -123,6 +139,7 @@ export async function savePlatformSubscription(
     if (Number.isNaN(date.getTime())) throw new Error(`Огноо буруу: ${value}`);
     return date;
   };
+  const pricePerSeatMnt = parsePlanPriceInput(input.pricePerSeatMnt, "Тусгай үнэ");
   const overrides = input.overrides === undefined || input.overrides === null ? null : parseOverrides(input.overrides);
   if (input.overrides && !overrides) throw new Error("overrides буруу — { features?: {…}, limits?: {…} } объект байна");
 
@@ -136,6 +153,7 @@ export async function savePlatformSubscription(
     planId: input.planId,
     status: input.status,
     seats,
+    pricePerSeatMnt,
     trialEndsAt: parseDate(input.trialEndsAt),
     currentPeriodEnd: parseDate(input.currentPeriodEnd),
     overrides,
@@ -148,7 +166,9 @@ export async function savePlatformSubscription(
     .values({ organizationId: org.id, ...values })
     .onConflictDoUpdate({ target: organizationSubscriptions.organizationId, set: values });
 
-  const summary = `Багц шинэчлэв — ${input.planId} / ${input.status}${seats ? ` / ${seats} суудал` : ""} (${actor.label})`;
+  const summary = `Багц шинэчлэв — ${input.planId} / ${input.status}${seats ? ` / ${seats} суудал` : ""}${
+    pricePerSeatMnt === null ? "" : ` / тусгай үнэ ${pricePerSeatMnt.toLocaleString("en-US")}₮`
+  } (${actor.label})`;
   if (actor.userId)
     await logAuditEvent({
       userId: actor.userId,

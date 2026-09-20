@@ -98,12 +98,34 @@ export const organizationSubscriptions = pgTable(
     currentPeriodEnd: timestamp("current_period_end"),
     /** { features?: {key: bool}, limits?: {seats?, companies?} } — байгууллагын онцгой тохиргоо. */
     overrides: jsonb("overrides"),
+    /** Тусгай үнэ ₮/суудал/сар (null = багцын үнэ) — enterprise хэлэлцээр, хөнгөлөлт. */
+    pricePerSeatMnt: integer("price_per_seat_mnt"),
     note: text("note"),
     updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("organization_subscriptions_org_ux").on(t.organizationId)]
+);
+
+/**
+ * Багцын ҮНЭ — ПЛАТФОРМЫН лавлах (organizationId БАЙХГҮЙ: үнэ бүх харилцагчид
+ * нэг). Entry Console `/api/platform/plan-prices`-ээр тохируулна; мөр байхгүй
+ * багц нь `lib/billing/plans.ts`-ийн default үнээрээ. price_per_seat_mnt null =
+ * хэлэлцээрээр (0₮ БИШ).
+ */
+export const platformPlanPrices = pgTable(
+  "platform_plan_prices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** lib/billing/plans.ts PlanId */
+    planId: text("plan_id").notNull(),
+    /** MNT / суудал / сар; null = хэлэлцээрээр */
+    pricePerSeatMnt: integer("price_per_seat_mnt"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("platform_plan_prices_plan_ux").on(t.planId)]
 );
 
 export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";

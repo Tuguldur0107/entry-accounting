@@ -397,6 +397,26 @@ async function main() {
     console.log(`✗ organization_subscriptions: ${error.message}`);
   }
 
+  // ── 2d. Багцын ҮНЭ: платформын лавлах + байгууллагын тусгай үнэ ──────────
+  await run(
+    "platform_plan_prices хүснэгт",
+    `create table if not exists platform_plan_prices (
+       id uuid primary key default gen_random_uuid(),
+       plan_id text not null,
+       price_per_seat_mnt integer,
+       created_at timestamp not null default now(),
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "platform_plan_prices_plan_ux индекс",
+    "create unique index if not exists platform_plan_prices_plan_ux on platform_plan_prices (plan_id)"
+  );
+  await run(
+    "organization_subscriptions.price_per_seat_mnt багана",
+    "alter table organization_subscriptions add column if not exists price_per_seat_mnt integer"
+  );
+
   // ── 2b. org_invitations.expires_at — урилгын линкийн хугацаа ─────────────
   // Хуучин мөрүүд default-аар (now + 7 хоног) хугацаатай болно; код нь
   // registerUser-д ЗААВАЛ шалгадаг тул push хожимдвол ч апп унахгүй.
