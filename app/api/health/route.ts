@@ -51,7 +51,7 @@ async function qpayHealth() {
     const [intents] = await db
       .select({
         open: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'open')`,
-        paidUnfinalized: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'paid' and ${posQpayIntents.saleId} is null and ${posQpayIntents.paidAt} < ${cutoff})`,
+        paidUnfinalized: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'paid' and ${posQpayIntents.saleId} is null and ${posQpayIntents.paidAt} < ${cutoff.toISOString()}::timestamptz)`,
         lastPaidAt: sql<Date | null>`max(${posQpayIntents.paidAt})`,
       })
       .from(posQpayIntents);

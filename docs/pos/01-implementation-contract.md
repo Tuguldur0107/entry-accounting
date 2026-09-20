@@ -323,6 +323,27 @@ raw body → `verifyWebhookSignature` (`x-webhook-signature`, 401) → `parseWeb
 Аудит `pos_qpay_intent` (`paid` / `webhook_rejected`). Нэвтрэлтгүй (proxy `/api` алгасна),
 org нь intent-ээс — ID нь эрх олгохгүй, нууц гарын үсэг л олгоно.
 
+**Нэг товчны холболт + автомат seed (Фаз 2):**
+
+```ts
+// lib/qpay/seed.ts (ЦЭВЭР, тесттэй) — асаахад «QPay» хэлбэр + «QPay түр данс» (GL 11000099)
+planQpaySeed({ methods, cashAccounts }): { createAccount, createMethod, updateMethod, notes }
+  // байгааг хөндөхгүй; QPay нэртэй идэвхтэй MNT банкны данс байвал дахин үүсгэхгүй; идемпотент
+ensureQpayPaymentMethod(orgId, creatorUserId?): Promise<string[]>   // store.ts — DB давхарга, notes буцна
+qpayReadiness({ …, seedOnEnable? = true })   // true: хэлбэр/данс дутуу = warning (асаахад seed); false: хатуу
+// lib/qpay/connect.ts (SERVER)
+buildConnectState({ orgId, userId, apiUrl }): string      // AES-GCM + base64url, 15 мин, nonce
+parseConnectState(state): QpayConnectState | null        // хуучирсан / засварласан → null
+connectUrl(apiUrl, { callback, state, org }): string     // {dashboard}/connect?app=entry&…
+exchangeConnectCode(apiUrl, code, state): Promise<{ merchantId, merchantName, apiKey, webhookSecret }>
+  // POST /api/connect/exchange; 410 → [QPAY_CONNECT_EXPIRED]
+// lib/actions/qpay.ts
+startQpayConnect({ apiUrl? })   // post: нийтийн URL ЗААВАЛ; → { url } (browser assign); аудит connect_started
+saveQpaySettings(…)             // enabled=true → ensureQpayPaymentMethod → readiness(хатуу) → асаана; → { ok, seeded[] }
+// app/api/pos/qpay/connect/callback/route.ts — GET ?state&code → exchange → encryptSecret → seed → readiness
+//   → асаана (бэлэн бол) → 303 /inventory/sales?tab=settings&section=qpay&qpay=connected|connected-off|error&reason=
+```
+
 **UI:** `components/pos/checkout/qpay-dialog.tsx` (QR `qrText` → `components/ui/qr-code.tsx`
 SVG, банкны deeplink, countdown, [Шалгах] 10 сек cooldown, [Цуцлах]); төлбөрийн диалог QPay
 мөр «QR үүсгэх» → «Төлөгдсөн» (дүн түгжигдэнэ); тохиргооны «QPay» дэд таб; хэлбэрийн

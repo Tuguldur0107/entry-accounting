@@ -6,11 +6,14 @@ import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 
 import { decryptSecret } from "@/lib/ai/crypto";
 import { db } from "@/lib/db";
-import { posPaymentMethods, posQpayIntents, posSales, posSettings, users, type PosQpayIntent, type PosSettings } from "@/lib/db/schema";
+import { cashAccounts, posPaymentMethods, posQpayIntents, posSales, users, type PosQpayIntent, type PosSettings } from "@/lib/db/schema";
+import { ensureAccountsExist, seedCreatorUserId } from "@/lib/costing/master-data";
 import { QPAY_ERRORS, QPAY_PAID_UNFINALIZED_MINUTES, QPAY_WEBHOOK_PATH, type QpayIntentStatus } from "./constants";
 import { QpayError, type QpayClientConfig } from "./client";
 import { amountMatches, canTransition, clampInvoiceTtl } from "./intent";
 import { qpayReadiness, type QpayReadiness } from "./readiness";
+import { planQpaySeed } from "./seed";
+import { QPAY_PROVIDER } from "./constants";
 import type { QpayIntentView, QpayStatusSummary } from "./types";
 
 type Executor = Pick<typeof db, "update" | "select" | "insert" | "query" | "execute">;
@@ -38,7 +41,11 @@ export function resolveQpayWebhookSecret(settings: Pick<PosSettings, "qpayWebhoo
   return settings.qpayWebhookSecretEnc ? decryptSecret(settings.qpayWebhookSecretEnc) : null;
 }
 
-export async function loadQpayReadiness(orgId: string, settings: PosSettings): Promise<QpayReadiness> {
+export async function loadQpayReadiness(
+  orgId: string,
+  settings: PosSettings,
+  options: { seedOnEnable?: boolean } = {}
+): Promise<QpayReadiness> {
   const methods = await db.query.posPaymentMethods.findMany({
     where: eq(posPaymentMethods.organizationId, orgId),
     columns: { name: true, kind: true, provider: true, cashAccountId: true, isActive: true },
@@ -49,7 +56,78 @@ export async function loadQpayReadiness(orgId: string, settings: PosSettings): P
     webhookSecretSet: !!settings.qpayWebhookSecretEnc,
     publicUrl: publicAppUrl(),
     paymentMethods: methods,
+    seedOnEnable: options.seedOnEnable,
   });
+}
+
+/**
+ * QPay асаахад «QPay» хэлбэр (ewallet, provider qpay) + «QPay түр данс» (банк,
+ * GL 11000099)-ыг АВТОМАТААР бүрдүүлнэ — ratified-seed (ensurePosSettings-тэй
+ * ижил): байгааг хөндөхгүй, зөвхөн дутууг нэмнэ; идемпотент. Шийдвэр ЦЭВЭР
+ * `planQpaySeed` (тесттэй). Буцаах `notes` нь хэрэглэгчид ил (feedback).
+ */
+export async function ensureQpayPaymentMethod(orgId: string, creatorUserId?: string): Promise<string[]> {
+  const [methods, accounts] = await Promise.all([
+    db.query.posPaymentMethods.findMany({
+      where: eq(posPaymentMethods.organizationId, orgId),
+      columns: { id: true, code: true, kind: true, provider: true, cashAccountId: true, isActive: true },
+    }),
+    db.query.cashAccounts.findMany({
+      where: eq(cashAccounts.organizationId, orgId),
+      columns: { id: true, name: true, accountType: true, currency: true, isActive: true },
+    }),
+  ]);
+  const plan = planQpaySeed({ methods, cashAccounts: accounts });
+  if (!plan.createAccount && !plan.createMethod && !plan.updateMethod) return plan.notes;
+  const userId = await seedCreatorUserId(orgId, creatorUserId);
+
+  let accountId: string | null = plan.createMethod?.cashAccountId ?? plan.updateMethod?.cashAccountId ?? null;
+  if (plan.createAccount) {
+    await ensureAccountsExist(orgId, [plan.createAccount.glAccountNumber], async () => userId);
+    const [account] = await db
+      .insert(cashAccounts)
+      .values({
+        userId,
+        organizationId: orgId,
+        name: plan.createAccount.name,
+        accountType: "bank",
+        bankName: "QPay",
+        currency: "MNT",
+        glAccountNumber: plan.createAccount.glAccountNumber,
+        openingBalance: "0",
+      })
+      .returning({ id: cashAccounts.id });
+    accountId = account.id;
+  }
+  if (plan.createMethod) {
+    const maxSort = methods.length; // сүүлд, харин «Зээлээр» (90)-ээс өмнө
+    await db
+      .insert(posPaymentMethods)
+      .values({
+        userId,
+        organizationId: orgId,
+        code: plan.createMethod.code,
+        name: plan.createMethod.name,
+        kind: "ewallet",
+        provider: QPAY_PROVIDER,
+        cashAccountId: accountId,
+        currency: "MNT",
+        requiresReference: false,
+        allowsChange: false,
+        allowsRefund: false,
+        // eBarimt код ЗОХИОХГҮЙ (plan T1: QPay-ийн албан код ТЕГ-ээс тодорхойгүй) — хэрэглэгч оноож болно.
+        ebarimtCode: null,
+        sortOrder: Math.min(10 + maxSort, 89),
+      })
+      .onConflictDoNothing();
+  } else if (plan.updateMethod) {
+    const patch: Partial<typeof posPaymentMethods.$inferInsert> = {};
+    if ("cashAccountId" in plan.updateMethod) patch.cashAccountId = accountId;
+    if (plan.updateMethod.isActive) patch.isActive = true;
+    if (Object.keys(patch).length > 0)
+      await db.update(posPaymentMethods).set(patch).where(and(eq(posPaymentMethods.id, plan.updateMethod.id), eq(posPaymentMethods.organizationId, orgId)));
+  }
+  return plan.notes;
 }
 
 export function toIntentView(row: PosQpayIntent & { sale?: { documentNo: string } | null; cashierName?: string | null }): QpayIntentView {
@@ -199,11 +277,13 @@ export async function listPendingIntents(orgId: string): Promise<QpayIntentView[
 }
 
 export async function qpayStatusSummary(orgId: string, settings: PosSettings, todayUb: string): Promise<QpayStatusSummary> {
+  // Raw `sql` template-д Date объект ШУУД параметр болохгүй (postgres драйвер
+  // string/Buffer шаардана) — ISO текст + ::timestamptz. tests/sql-date-params.test.ts
   const cutoff = new Date(Date.now() - QPAY_PAID_UNFINALIZED_MINUTES * 60_000);
   const [counts] = await db
     .select({
       open: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'open')`,
-      paidUnfinalized: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'paid' and ${posQpayIntents.saleId} is null and ${posQpayIntents.paidAt} < ${cutoff})`,
+      paidUnfinalized: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'paid' and ${posQpayIntents.saleId} is null and ${posQpayIntents.paidAt} < ${cutoff.toISOString()}::timestamptz)`,
     })
     .from(posQpayIntents)
     .where(eq(posQpayIntents.organizationId, orgId));

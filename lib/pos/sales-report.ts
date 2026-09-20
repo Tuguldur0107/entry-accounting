@@ -50,6 +50,8 @@ export interface SalesPaymentRow {
   methodId: string;
   methodName: string;
   kind: PaymentKind;
+  /** ewallet-ийн провайдер ("qpay") — null = гар лавлагаа / бусад төрөл. */
+  provider?: string | null;
   /** Тэмдэгтэй MNT (хариулт хасагдсан; буцаалт сөрөг). */
   baseAmount: number;
 }
@@ -172,6 +174,7 @@ export interface MethodAggRow {
   methodId: string;
   methodName: string;
   kind: PaymentKind;
+  provider: string | null;
   count: number;
   amount: number;
 }
@@ -181,7 +184,15 @@ export function aggregatePayments(payments: SalesPaymentRow[]): MethodAggRow[] {
   for (const payment of payments) {
     let row = map.get(payment.methodId);
     if (!row) {
-      row = { methodId: payment.methodId, methodName: payment.methodName, kind: payment.kind, count: 0, amount: 0, saleIds: new Set() };
+      row = {
+        methodId: payment.methodId,
+        methodName: payment.methodName,
+        kind: payment.kind,
+        provider: payment.provider ?? null,
+        count: 0,
+        amount: 0,
+        saleIds: new Set(),
+      };
       map.set(payment.methodId, row);
     }
     if (!payment.isReturn) row.saleIds.add(payment.saleId);

@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (Фаз 1)** | ✅ | QPay Фаз 2 (тайлан, AI, deployment doc), камер barcode, B2B нэхэмжлэх, хотын татвар |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 
 ## Файлын бүтэц
@@ -810,12 +810,16 @@ app/api/cron/ebarimt     Гадаад cron (Bearer CRON_SECRET)
 tests/ebarimt-receipt.test.ts
 ```
 
-**QPay Quick QR (Фаз 3b, Фаз 1 ХЭРЭГЖСЭН).** Баримт:
-`docs/pos/04-qpay-integration-plan.md` (D1–D8 БАТЛАГДСАН 2026-09-20), гэрээ
-`docs/pos/01-implementation-contract.md` §10. **Entry = ХСН — QPay-тэй ШУУД
+**QPay Quick QR (Фаз 3b, Фаз 1–2 ХЭРЭГЖСЭН).** Баримт:
+`docs/pos/04-qpay-integration-plan.md` (D1–D8 БАТЛАГДСАН 2026-09-20, §3.6 нэг
+товчны холболт), гэрээ `docs/pos/01-implementation-contract.md` §10,
+нэвтрүүлэлт `docs/deployment/qpay.md`. **Entry = ХСН — QPay-тэй ШУУД
 харьцахгүй**, `Tuguldur0107/qpay-dashboard` REST v1 (x-api-key) хаалгаар.
 
 ```
+Холбох: [QPay холбох] → state (AES-GCM, 15 мин) → {dashboard}/connect (бүртгэл/онбординг/consent)
+   → callback?state&code → Entry сервер POST /api/connect/exchange → key+secret (НЭГ удаа) → шифртэй хадгална
+   → «QPay» хэлбэр + «QPay түр данс» (GL 11000099) seed → readiness → асна   (гар зам: key хуулах хэвээр)
 QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → dashboard POST /api/v1/invoices
    → QR + deeplink; диалог ENTRY DB-ээс 2 сек тутам (QPay polling ҮГҮЙ — ККТТ гэрээ хориглодог)
    ← webhook POST /api/pos/qpay/webhook?intent= (HMAC-SHA256 x-webhook-signature) ЭСВЭЛ [Шалгах] 10 сек-д нэг
@@ -841,7 +845,23 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   ХЭЗЭЭ Ч гарахгүй. Console мерчантын нууц хадгалахгүй
 - **Идэвхжүүлэхээс ӨМНӨ readiness** (`lib/qpay/readiness.ts` ЦЭВЭР, тесттэй): API URL,
   key, webhook secret, `NEXT_PUBLIC_APP_URL` (нийтийн webhook URL) — дутуу бол
-  switch идэвхгүй, `saveQpaySettings` ШИДНЭ; QPay хэлбэр алга / localhost → анхааруулга
+  switch идэвхгүй, `saveQpaySettings` ШИДНЭ; localhost → анхааруулга
+- **Асаахад хэлбэр + данс АВТОМАТ** (`lib/qpay/seed.ts` ЦЭВЭР төлөвлөгч, тесттэй;
+  `ensureQpayPaymentMethod` DB) — ratified-seed: «QPay» (ewallet, provider qpay) +
+  «QPay түр данс» (банк, GL 11000099) дутуу бол л үүснэ, байгааг хөндөхгүй;
+  readiness `seedOnEnable` (default) хэлбэр/данс дутууг warning гэж үзнэ, seed-ийн
+  ДАРАА `seedOnEnable:false` хатуу шалгана. eBarimt код ЗОХИОХГҮЙ (plan T1)
+- **Нэг товчны холболт** (`lib/qpay/connect.ts` SERVER, тесттэй; `startQpayConnect`;
+  `app/api/pos/qpay/connect/callback`): state нь authenticated шифр (org, user,
+  apiUrl, 15 мин) — өөр байгууллагын нэрээр зохиох боломжгүй; code нэг удаагийн
+  (5 мин), солилцоо СЕРВЕР-СЕРВЕР — нууц URL/browser/лог/аудитад ХЭЗЭЭ Ч орохгүй.
+  Дахин холбоход dashboard-ын key СОЛИГДОНО (UI анхааруулна). Нийтийн URL-гүй
+  бол товч идэвхгүй, гар зам хэвээр. Dashboard тал: `src/app/connect`,
+  `src/app/api/connect/{approve,exchange}`, `src/lib/connect-grants.ts`
+- **Raw `sql` template-д Date объект ШУУД параметр болохгүй** — postgres драйвер
+  string/Buffer шаардана (`${date.toISOString()}::timestamptz` эсвэл drizzle
+  operator). 2026-09-20: `/api/health.qpay` null, QPay таб production-д
+  уншигдахгүй байв; `tests/sql-date-params.test.ts` статикаар барина
 - **Client/server хил:** `intent.ts` `crypto`-гүй (кассын диалог import хийдэг);
   HMAC нь `webhook-signature.ts` (зөвхөн route). Webhook нэвтрэлтгүй — org нь
   intent-ээс, эрх нь гарын үсгээс (401/422/409 кодоор татгалзана, аудит
@@ -856,17 +876,21 @@ lib/qpay/
 ├── types.ts            Dashboard JSON + QpayIntentView / QpayStatusSummary
 ├── intent.ts           canTransition, clampInvoiceTtl, isExpired, checkAllowed,
 │                       amountMatches, parseWebhookPayload, secondsLeft — ЦЭВЭР (тесттэй)
-├── readiness.ts        qpayReadiness — ЦЭВЭР (тесттэй)
+├── readiness.ts        qpayReadiness (seedOnEnable) — ЦЭВЭР (тесттэй)
+├── seed.ts             planQpaySeed — асаахад хэлбэр + түр данс (ЦЭВЭР, тесттэй)
+├── connect.ts          buildConnectState / parseConnectState / connectUrl / exchangeConnectCode — SERVER (тесттэй)
 ├── webhook-signature.ts verifyWebhookSignature (node:crypto, timing-safe) — SERVER
 ├── client.ts           Dashboard REST: create/cancel/check/list (8 сек timeout, QpayError)
 └── store.ts            DB давхарга: config (decrypt), intent CRUD, markIntentPaid,
                         finalizeIntentInTx, expireStaleIntents, summary, countPaidUnfinalized
-lib/actions/qpay.ts     getQpayStatus / saveQpaySettings / testQpayConnection /
-                        createQpayIntent / getQpayIntent / checkQpayIntent /
+lib/actions/qpay.ts     getQpayStatus / saveQpaySettings (seed) / testQpayConnection /
+                        startQpayConnect / createQpayIntent / getQpayIntent / checkQpayIntent /
                         cancelQpayIntent / listPendingQpayIntents / finalizeQpayIntent
-app/api/pos/qpay/webhook/route.ts   payment.paid webhook
+app/api/pos/qpay/webhook/route.ts            payment.paid webhook
+app/api/pos/qpay/connect/callback/route.ts   нэг товчны холболтын буцах зам (exchange → хадгалах → асаах)
 components/pos/checkout/qpay-dialog.tsx  QR диалог; components/ui/qr-code.tsx SVG QR
-tests/qpay-intent.test.ts, tests/qpay-readiness.test.ts
+lib/ai/tools.ts get_qpay_status (унших — getQpayStatus-тай НЭГ loader)
+tests/qpay-{intent,readiness,seed,connect}.test.ts, tests/sql-date-params.test.ts
 ```
 
 ### 5b. Валютын ханшийн түүх (Монголбанк) — ХЭРЭГЖСЭН
@@ -1275,6 +1299,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
 | POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
 | eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
+| QPay | get_qpay_status (асаалттай/тохируулсан эсэх, бэлэн байдлын дутуу, мерчант id, нээлттэй QR, төлөгдсөн ч борлуулалт болоогүй — нууц буцахгүй); холбох нь ЗӨВХӨН вэбээс [QPay холбох] | аль ч горимд (унших) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
