@@ -23,12 +23,43 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(),
+  /**
+   * И-мэйл баталгаажсан мөч. null = баталгаажаагүй (баннер + дахин илгээх).
+   * Багана нэмэгдэхээс ӨМНӨХ хэрэглэгчид preDeploy-д createdAt-аар нөхөгдөнө
+   * (харилцагчийн deploy дээр ажиллаж буй хүмүүс түгжигдэхгүй); урилгаар
+   * бүртгүүлсэн, и-мэйл тохируулаагүй deploy-д бүртгүүлсэн хэрэглэгч мөн
+   * шууд баталгаажсан гэж тооцогдоно — баталгаажуулалт хэзээ ч нэвтрэлтийг
+   * ХААХГҮЙ (lib/actions/account-recovery.ts).
+   */
+  emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 },
 // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн #5955 (§5b):
 // constraint-ыг push бүрд "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
 // нэмэхийг оролдож «truncate хийх үү?» гэж асууж non-TTY preDeploy-г унагаана.
 (t) => [uniqueIndex("users_email_ux").on(t.email)]);
+
+// ─── Нэг удаагийн нууц token (нууц үг сэргээх, и-мэйл баталгаажуулах) ───────
+// Зөвхөн sha256 hash хадгална (lib/account/tokens.ts); хугацаатай, нэг удаа.
+export const authTokens = pgTable(
+  "auth_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** password_reset | email_verify (AuthTokenKind) */
+    kind: text("kind").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("auth_tokens_token_hash_ux").on(t.tokenHash),
+    index("auth_tokens_user_kind_ix").on(t.userId, t.kind),
+  ]
+);
 
 // ─── Organizations (Фаз 01 multi-tenancy) ────────────────────────────────────
 // Байгууллага = компани. Хэрэглэгч олон байгууллагад гишүүн байж болно

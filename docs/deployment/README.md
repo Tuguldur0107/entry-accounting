@@ -231,6 +231,22 @@ Hook нь core guardrail-ийг (баланс, период, эрх, 10 сая �
 - Multi-instance rate limit (Redis) — нэг сервер дээр хэрэггүй
 - ~~FSL лиценз, CLA~~ — хийгдсэн: `LICENSE` (v1.1.0), хувь нэмрийн нөхцөл `CONTRIBUTING.md`
 
+## Deployment-ийн горим (ENTRY_DEPLOYMENT_MODE)
+
+Хоёр төрлийн хэрэглэгч хоёр өөр сервис дээр амьдарна — хольж хутгахгүй:
+
+| | `saas` | `dedicated` (default) |
+|---|---|---|
+| Хэн | Entry-ийн үндсэн сервис (entry.mn, Railway `entry-accounting`) | Эх код авсан харилцагчийн тусдаа сервис + тусдаа DB |
+| Бүртгэл | Үргэлж нээлттэй — шинэ харилцагч өөрөө бүртгүүлж байгууллагаа үүсгэнэ | Эхний хэрэглэгч чөлөөтэй, дараа нь зөвхөн урилгаар |
+| И-мэйл баталгаажуулалт | Resend тохируулсан тул бодитой (баннер, линк) | Resend байхгүй бол шинэ хэрэглэгч шууд баталгаажсан |
+| Нууц үг сэргээх | И-мэйлээр линк | Resend байвал линк, үгүй бол админ урилгаар |
+
+Үндсэн SaaS сервис дээр `ENTRY_DEPLOYMENT_MODE=saas` ИЛ тавина (env
+байхгүй = dedicated — харилцагчийн deploy-ууд өөрчлөлт мэдрэхгүй).
+`/api/health`-ийн `deploymentMode` талбар ба `/settings/system` хуудас
+горимоо харуулна. Код: `lib/deployment-mode.ts`, `lib/registration.ts`.
+
 ## Deployment-ийн лиценз (ENTRY_LICENSE)
 
 Console-оор provision хийгдээгүй хуулбар production горимд нэвтрэлт хүлээж

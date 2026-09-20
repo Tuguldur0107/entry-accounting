@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { posEbarimtSubmissions, posSettings } from "@/lib/db/schema";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
+import { deploymentMode } from "@/lib/deployment-mode";
 import { APP_VERSION, GIT_SHA } from "@/lib/version";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,7 @@ export async function GET() {
     version: APP_VERSION,
     sha: GIT_SHA,
     license: { ok: license.ok, mode: license.mode, reason: license.reason },
+    deploymentMode: deploymentMode(),
   };
   try {
     await db.execute(sql`select 1`);

@@ -287,6 +287,53 @@ async function main() {
      end $$;`
   );
 
+  // ── 2a. users.email_verified_at + auth_tokens (нууц үг сэргээх / и-мэйл) ──
+  // Багана АНХ нэмэгдэх үед л одоо байгаа бүх хэрэглэгчийг «баталгаажсан»
+  // гэж нөхнө (харилцагчийн deploy дээр ажиллаж буй хүмүүс баннер/хориг
+  // харахгүй). Дараагийн deploy-уудад багана байгаа тул нөхөлт ДАХИН
+  // ажиллахгүй — шинэ бүртгэлийн баталгаажаагүй төлөв хадгалагдана.
+  try {
+    const [{ exists: hadColumn }] = await sql`
+      select exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'users'
+          and column_name = 'email_verified_at'
+      ) as exists
+    `;
+    await run(
+      "users.email_verified_at багана",
+      `alter table users add column if not exists email_verified_at timestamp`
+    );
+    if (!hadColumn) {
+      await run(
+        "users.email_verified_at — өмнөх хэрэглэгчдийг баталгаажсан гэж нөхөв",
+        `update users set email_verified_at = created_at where email_verified_at is null`
+      );
+    }
+  } catch (error) {
+    console.log(`✗ users.email_verified_at: ${error.message}`);
+  }
+  await run(
+    "auth_tokens хүснэгт",
+    `create table if not exists auth_tokens (
+       id uuid primary key default gen_random_uuid(),
+       user_id text not null references users(id) on delete cascade,
+       kind text not null,
+       token_hash text not null,
+       expires_at timestamp not null,
+       used_at timestamp,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "auth_tokens_token_hash_ux индекс",
+    `create unique index if not exists auth_tokens_token_hash_ux on auth_tokens (token_hash)`
+  );
+  await run(
+    "auth_tokens_user_kind_ix индекс",
+    `create index if not exists auth_tokens_user_kind_ix on auth_tokens (user_id, kind)`
+  );
+
   // ── 2b. org_invitations.expires_at — урилгын линкийн хугацаа ─────────────
   // Хуучин мөрүүд default-аар (now + 7 хоног) хугацаатай болно; код нь
   // registerUser-д ЗААВАЛ шалгадаг тул push хожимдвол ч апп унахгүй.

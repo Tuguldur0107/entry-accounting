@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { LoginShell, type AuthHandlers } from '@/components/auth/LoginShell';
+import { requestPasswordReset } from '@/lib/actions/account-recovery';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,8 +52,11 @@ export default function LoginPage() {
       router.push('/');
     },
 
-    sendResetEmail: async () => {
-      // TODO: implement password reset
+    sendResetEmail: async (email) => {
+      // Server action: и-мэйл байгаа бол сэргээх линк (1 цаг) илгээнэ;
+      // байхгүй хаягт ч «илгээлээ» гэж хариулна (enumeration хаалттай).
+      const res = await requestPasswordReset(email);
+      if (res.error) throw new Error(res.error);
     },
   };
 

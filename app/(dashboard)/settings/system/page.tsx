@@ -1,6 +1,7 @@
 import { allAiTools, AI_TOOLS } from "@/lib/ai/tools";
 import { customizationSummary } from "@/lib/custom/loader";
 import { APP_VERSION, GIT_SHA, UPSTREAM_REPO } from "@/lib/version";
+import { DEPLOYMENT_MODE_LABELS, deploymentMode } from "@/lib/deployment-mode";
 
 export const metadata = { title: "Систем, хувилбар — Entry Accounting" };
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export default function SystemPage() {
     ["Хувилбар", `v${APP_VERSION}`],
     ["Commit", GIT_SHA ? GIT_SHA.slice(0, 12) : "— (GIT_SHA орчны хувьсагч тохируулаагүй)"],
     ["Upstream (core)", `github.com/${UPSTREAM_REPO}`],
+    ["Deployment горим", `${deploymentMode()} — ${DEPLOYMENT_MODE_LABELS[deploymentMode()]}`],
     ["AI / MCP / REST tools", `${total} (core ${AI_TOOLS.length} + custom ${custom.toolCount})`],
     ["custom/ багц", custom.name ? `${custom.name}${custom.version ? ` v${custom.version}` : ""}` : "— (бүртгэлгүй, custom/index.ts)"],
     ["custom/ hooks", custom.hooks.length > 0 ? custom.hooks.join(", ") : "—"],

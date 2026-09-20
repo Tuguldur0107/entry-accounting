@@ -10,8 +10,12 @@ export default auth((req) => {
   const { pathname, search } = req.nextUrl;
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
+  // Нэвтрэлтгүй нээгддэг бусад хуудас — сэргээх/баталгаажуулах линкүүд
+  // (нэвтэрсэн хэрэглэгч ч нээж болно, redirect хийхгүй).
+  const isPublicAccountPage =
+    pathname === "/reset-password" || pathname === "/verify-email";
 
-  if (!isLoggedIn && !isAuthPage) {
+  if (!isLoggedIn && !isAuthPage && !isPublicAccountPage) {
     const login = new URL("/login", req.nextUrl);
     // Нэвтэрснийхээ дараа очих гэж байсан хуудас руугаа буцна (OAuth
     // authorize зэрэг параметртэй урсгалд заавал хэрэгтэй).

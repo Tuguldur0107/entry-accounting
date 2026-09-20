@@ -15,6 +15,8 @@ import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { registrationMode } from "@/lib/registration";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
+import { sendVerificationEmail } from "@/lib/account/emails";
+import { transactionalEmailConfigured } from "@/lib/email/transactional";
 
 export async function registerUser(data: {
   name: string;
@@ -78,10 +80,24 @@ export async function registerUser(data: {
 
   const passwordHash = await bcrypt.hash(data.password, 12);
 
+  // И-мэйл баталгаажуулалт: урилгаар ирсэн (админ энэ хаяг руу илгээсэн)
+  // эсвэл и-мэйл тохируулаагүй deploy бол ШУУД баталгаажсан — нэвтрэлт
+  // хэзээ ч хаагдахгүй; бусад тохиолдолд баталгаажуулах линк илгээнэ.
+  const verifiedNow = Boolean(invitation) || !transactionalEmailConfigured();
+
   const [user] = await db
     .insert(users)
-    .values({ name, email, passwordHash })
+    .values({ name, email, passwordHash, emailVerifiedAt: verifiedNow ? new Date() : null })
     .returning();
+
+  if (!verifiedNow) {
+    // Илгээлт унасан ч бүртгэл зогсохгүй — баннерын «Дахин илгээх» нөхнө.
+    try {
+      await sendVerificationEmail({ id: user.id, email, name });
+    } catch (caught) {
+      console.error("[account] баталгаажуулах и-мэйл илгээгдсэнгүй:", caught);
+    }
+  }
 
   // Фаз 01: шинэ хэрэглэгч бүр personal байгууллагатай төрнө — org гэдэг
   // ойлголтыг анзааралгүйгээр ажиллаж чадна (спекийн хатуу дүрэм).

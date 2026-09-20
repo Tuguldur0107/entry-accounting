@@ -12,10 +12,16 @@
 //
 // Нийтийн демо зэрэг зориуд нээлттэй байлгах шаардлагатай бол
 // `ENTRY_OPEN_REGISTRATION=1` орчны хувьсагчаар дахин нээнэ.
+//
+// SaaS горимд (ENTRY_DEPLOYMENT_MODE=saas — Entry-ийн үндсэн сервис) бүртгэл
+// ҮРГЭЛЖ нээлттэй: шинэ харилцагч бүр өөрөө бүртгүүлж өөрийн байгууллагаа
+// (tenant) үүсгэнэ. Дээрх хаалт зөвхөн эх код авсан харилцагчийн тусдаа
+// сервист (dedicated) үйлчилнэ — lib/deployment-mode.ts.
 import { sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { deploymentMode, resolveRegistrationMode } from "@/lib/deployment-mode";
 
 export type RegistrationMode = "open" | "invite";
 
@@ -27,7 +33,13 @@ export function openRegistrationForced(): boolean {
 
 /** `open` = хэн ч бүртгүүлж болно · `invite` = зөвхөн хүчинтэй урилгын линкээр. */
 export async function registrationMode(): Promise<RegistrationMode> {
-  if (openRegistrationForced()) return "open";
+  const mode = deploymentMode();
+  if (mode === "saas" || openRegistrationForced())
+    return resolveRegistrationMode({ mode, forcedOpen: openRegistrationForced(), userCount: 1 });
   const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
-  return (row?.count ?? 0) === 0 ? "open" : "invite";
+  return resolveRegistrationMode({
+    mode,
+    forcedOpen: false,
+    userCount: row?.count ?? 0,
+  });
 }

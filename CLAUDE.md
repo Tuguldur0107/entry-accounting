@@ -141,6 +141,28 @@ entry-accounting/
     урилгын ЛИНК зөвхөн admin+ хардаг (`getOrgSettingsData`). Байгууллага/
     гишүүн/урилгын үйлдэл бүр `logAuditEvent` (`organization` / `membership` /
     `invitation`) — байгууллага устгах нь cascade тул зөвхөн сервер лог
+- **Deployment-ийн ХОЁР горим — хольж хутгахгүй** (`lib/deployment-mode.ts`,
+  env `ENTRY_DEPLOYMENT_MODE`):
+  - `saas` — Entry-ийн ҮНДСЭН сервис (Railway `entry-accounting`): олон
+    байгууллага нэг DB-д, **бүртгэл үргэлж нээлттэй** (шинэ харилцагч бүр
+    өөрөө бүртгүүлж өөрийн tenant-аа үүсгэнэ), и-мэйл баталгаажуулалт бодитой
+  - `dedicated` (default, env байхгүй үед) — эх код авсан харилцагчийн тусдаа
+    сервис + тусдаа DB: эхний хэрэглэгч чөлөөтэй, дараа нь зөвхөн урилгаар
+    (`lib/registration.ts`); `ENTRY_OPEN_REGISTRATION=1` демод дардаг
+  - Өгөгдлийн тусгаарлалт (`organizationId`) хоёр горимд ИЖИЛ; горим зөвхөн
+    бүртгэл/баталгаажуулалтын зан төлөвт. `/api/health` ба `/settings/system`
+    горимоо ил харуулна. Тест `tests/deployment-mode.test.ts`
+- **Нууц үг сэргээх, и-мэйл баталгаажуулалт** (`lib/actions/account-recovery.ts`,
+  `lib/account/`): token нь DB-д sha256 hash, нэг удаагийн, хугацаатай
+  (сэргээх 1 цаг, баталгаажуулах 24 цаг — `AUTH_TOKEN_TTL_MS`); хуучин
+  token дахин олгоход хүчингүй. **Баталгаажуулалт нэвтрэлтийг ХЭЗЭЭ Ч
+  хаахгүй** — зөвхөн баннер + «Дахин илгээх»; багана нэмэгдэхээс өмнөх
+  хэрэглэгч preDeploy-д нөхөгдсөн, урилгаар ирсэн / и-мэйл тохируулаагүй
+  deploy-д бүртгүүлсэн хүн шууд баталгаажсан. Сэргээх хүсэлт хаяг
+  байгаа эсэхийг задлахгүй (enumeration); rate limit 3/15 мин. Хуудас
+  `/reset-password`, `/verify-email` нэвтрэлтгүй (proxy.ts
+  `isPublicAccountPage`); системийн и-мэйл `lib/email/transactional.ts`
+  (Resend тохируулаагүй бол `unconfigured`, шидэхгүй)
 - ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
   import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
   'net' / 'tls'` гэж `next build`-ийг унагаана (postgres драйвер browser
