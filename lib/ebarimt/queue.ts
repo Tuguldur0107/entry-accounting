@@ -9,6 +9,7 @@ import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   inventoryCategories,
+  inventoryItems,
   posEbarimtSubmissions,
   posPaymentMethods,
   posSales,
@@ -20,6 +21,7 @@ import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import type { PaymentKind } from "@/lib/pos/constants";
 
 import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
+import { ebarimtReadiness, type EbarimtReadiness } from "./readiness";
 import { buildEbarimtReceipt, EbarimtError } from "./receipt";
 import type {
   EbarimtDeleteRequest,
@@ -387,6 +389,46 @@ export async function loadSubmissionsForSale(orgId: string, saleId: string): Pro
       payload: payload.request ?? null,
       cancel: payload.cancel ?? null,
     };
+  });
+}
+
+/**
+ * Идэвхжүүлэхийн ӨМНӨХ бэлэн байдал — барааны ангилалын код, НӨАТ-гүй/0%-ийн
+ * татварын код, төлбөрийн хэлбэрийн код (docs/deployment/ebarimt.md §3).
+ * Зөвхөн ИДЭВХТЭЙ мөрийг шалгана — архивласан бараа зарагдахгүй.
+ */
+export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadiness> {
+  const [items, categories, methods] = await Promise.all([
+    db.query.inventoryItems.findMany({
+      where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
+      columns: {
+        name: true,
+        categoryCode: true,
+        vatMode: true,
+        ebarimtClassificationCode: true,
+        ebarimtTaxProductCode: true,
+      },
+    }),
+    db.query.inventoryCategories.findMany({
+      where: eq(inventoryCategories.organizationId, orgId),
+      columns: { code: true, name: true, ebarimtClassificationCode: true },
+    }),
+    db.query.posPaymentMethods.findMany({
+      where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.isActive, true)),
+      columns: { name: true, ebarimtCode: true },
+    }),
+  ]);
+
+  return ebarimtReadiness({
+    items: items.map((item) => ({
+      name: item.name,
+      categoryCode: item.categoryCode,
+      vatMode: toItemVatMode(item.vatMode),
+      ebarimtClassificationCode: item.ebarimtClassificationCode,
+      ebarimtTaxProductCode: item.ebarimtTaxProductCode,
+    })),
+    categories,
+    paymentMethods: methods,
   });
 }
 

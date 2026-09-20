@@ -164,7 +164,7 @@ import { PAYMENT_KIND_LABELS, SALE_STATUS_LABELS } from "@/lib/pos/constants";
 import { lookupEbarimtTin, resendEbarimt } from "@/lib/actions/ebarimt";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
-import { ebarimtStatusSummary, settingsInputOf } from "@/lib/ebarimt/queue";
+import { ebarimtStatusSummary, loadEbarimtReadiness, settingsInputOf } from "@/lib/ebarimt/queue";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import {
   aggregateBy,
@@ -9594,11 +9594,17 @@ async function runGetPosSalesReport(
 
 async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   const settings = await ensurePosSettings(orgId);
-  const status = await ebarimtStatusSummary(orgId, settings, todayInUlaanbaatar());
+  const [status, readiness] = await Promise.all([
+    ebarimtStatusSummary(orgId, settings, todayInUlaanbaatar()),
+    loadEbarimtReadiness(orgId),
+  ]);
   const problems = ebarimtSettingsProblems(settingsInputOf(settings));
   const lines = [
     `eBarimt автомат илгээлт: ${status.enabled ? `АСААЛТТАЙ (${status.mode === "browser" ? "кассын PC-ийн PosAPI" : "серверийн PosAPI"})` : "УНТРААЛТТАЙ — ДДТД гараар бичигдэнэ"}`,
     problems.length ? `Тохиргооны дутуу: ${problems.join("; ")}` : "Тохиргоо бүрэн",
+    readiness.ready
+      ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
+      : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,
     `Дараалал: хүлээгдэж байгаа ${status.pending} · алдаатай ${status.failed} · өнөөдөр илгээсэн ${status.sentToday}${status.lastSentAt ? ` · сүүлд ${status.lastSentAt.slice(0, 19).replace("T", " ")}` : ""}`,
     status.lastError ? `Сүүлийн алдаа: ${status.lastError.slice(0, 300)}` : "",
     status.failed > 0

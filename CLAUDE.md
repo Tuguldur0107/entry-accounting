@@ -672,6 +672,12 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   л илгээгдэж, төлбөрүүд хувь тэнцүүлэн хуваарилагдана (Σ = баримтын дүн)
 - **Мерчантын тохиргоо харилцагчийн апп-д** (`pos_settings.ebarimt*`), Console-д
   БИШ; `/api/health`-ийн `ebarimt` блокт зөвхөн ТООЛУУР (ТТД, нууц байхгүй)
+- **АСААХААС ӨМНӨ бэлэн байдал шалгагдана** (`readiness.ts` ЦЭВЭР, тесттэй):
+  ангилалын кодгүй идэвхтэй бараа (бүлгээс өвлөх нь тооцогдоно), татварын
+  бүтээгдэхүүний кодгүй НӨАТ-гүй/0% бараа, eBarimt кодгүй идэвхтэй төлбөрийн
+  хэлбэр — тоо + эхний нэрсээр. Үлдсэн бол switch идэвхгүй бөгөөд
+  `updatePosSettings` ШИДНЭ. Эдгээр алдаа урьд нь зөвхөн борлуулалтын ДАРАА
+  async гарч ирдэг байв
 
 ```
 lib/ebarimt/
@@ -680,6 +686,9 @@ lib/ebarimt/
 ├── types.ts       PosAPI JSON + Entry-ийн ЦЭВЭР оролт (EbarimtSaleInput)
 ├── receipt.ts     buildEbarimtReceipt / allocatePayments / taxTypeOf /
 │                  ebarimtSettingsProblems — ЦЭВЭР (tests/ebarimt-receipt.test.ts)
+├── readiness.ts   ebarimtReadiness — ЦЭВЭР (tests/ebarimt-readiness.test.ts):
+│                  идэвхжүүлэхийн ӨМНӨХ кодын дутуу; DB давхарга нь
+│                  queue.ts `loadEbarimtReadiness`
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
 ├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo / getBranchInfo (24ц кэш)

@@ -69,7 +69,7 @@ import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import { applyDiscounts } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { planPayments, planRefund } from "@/lib/pos/payments";
-import { enqueueEbarimt } from "@/lib/ebarimt/queue";
+import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
 import { processPendingEbarimt } from "@/lib/ebarimt/worker";
 import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
@@ -287,6 +287,12 @@ export async function updatePosSettings(
           throw new Error(
             "НӨАТ төлөгч бус байгууллага eBarimt идэвхжүүлэх боломжгүй — Тохиргоо → НӨАТ дээр НӨАТ төлөгчөөр бүртгүүлнэ үү"
           );
+        // Кодын бэлэн байдал (docs/deployment/ebarimt.md §3 алхам 2–4): код
+        // дутуу бараа/хэлбэр байвал тэр борлуулалт БОЛСНЫ ДАРАА л алдаж,
+        // үйлчлүүлэгч баримтгүй үлдэнэ — иймд АСААХААС ӨМНӨ таслана.
+        const readiness = await loadEbarimtReadiness(orgId);
+        if (!readiness.ready)
+          throw new Error(`eBarimt идэвхжүүлэхээс өмнө: ${readiness.problems.join("; ")}`);
       }
       patch.ebarimtEnabled = !!data.ebarimtEnabled;
     }

@@ -44,6 +44,7 @@ import {
   type SaleQuote,
 } from "@/lib/actions/pos";
 import { EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type { EbarimtStatusSummary } from "@/lib/ebarimt/types";
 import type { CheckoutData } from "@/lib/pos/load-data";
 import {
@@ -887,6 +888,12 @@ const fmtDateTime = (iso: string | null) => {
   return date.toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" }).slice(0, 16);
 };
 
+/** Дутуугийн жишээ нэрс — үлдсэнийг нь тоогоор (бүхэл жагсаалт энд гарахгүй). */
+function sampleText(gap: { count: number; sample: string[] }): string {
+  const more = gap.count - gap.sample.length;
+  return gap.sample.join(", ") + (more > 0 ? ` … (+${more})` : "");
+}
+
 /** PosAPI-ийн `info` хариуг 2–3 уншигдах мөр болгоно (`<pre>` ҮГҮЙ). */
 function infoLines(info: Record<string, unknown>): string[] {
   const entries = Object.entries(info).filter(([, value]) => value !== null && value !== undefined);
@@ -925,9 +932,12 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
 
   const [status, setStatus] = useState<EbarimtStatusSummary | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
+  const [readiness, setReadiness] = useState<EbarimtReadiness | null>(null);
   const [branches, setBranches] = useState<{ code: string; name: string }[] | null>(null);
   const [branchFailed, setBranchFailed] = useState(false);
   const [info, setInfo] = useState<string[] | null>(null);
+  /** Switch зөвхөн бүх дутуу цэгцэрсэн үед асна (server тал мөн ижил хоригтой). */
+  const canEnable = problems.length === 0 && (readiness?.ready ?? false);
 
   useEffect(() => {
     let cancelled = false;
@@ -939,6 +949,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       }
       setStatus(result.status ?? null);
       setProblems(result.problems ?? []);
+      setReadiness(result.readiness ?? null);
     });
     getEbarimtBranchInfo().then((result) => {
       if (cancelled) return;
@@ -1010,10 +1021,50 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
         </div>
       )}
 
+      {readiness && !readiness.ready && (
+        <div className="rounded-md border border-[var(--ea-border)] p-3">
+          <div className="text-xs font-semibold text-[var(--ea-warning-fg)]">
+            Кодын бэлэн байдал — эдгээргүйгээр баримт ИЛГЭЭГДЭХГҮЙ:
+          </div>
+          <ul className="mt-1 space-y-1 text-xs text-[var(--ea-warning-fg)]">
+            {readiness.items.count > 0 && (
+              <li>
+                • <b>{readiness.items.count}</b> бараанд ТЕГ-ийн ангилалын код (7 орон) алга —{" "}
+                {sampleText(readiness.items)}
+                <span className="block text-[var(--ea-text-3)]">
+                  Бараа материал → Бараа: карт эсвэл БҮЛЭГ дээр нэг удаа оновол бараа нь өвлөнө
+                  (Excel импортоор багцаар ч оруулна)
+                </span>
+              </li>
+            )}
+            {readiness.taxProduct.count > 0 && (
+              <li>
+                • <b>{readiness.taxProduct.count}</b> НӨАТ-гүй / 0% бараанд татварын
+                бүтээгдэхүүний код (3 орон) алга — {sampleText(readiness.taxProduct)}
+              </li>
+            )}
+            {readiness.payments.count > 0 && (
+              <li>
+                • <b>{readiness.payments.count}</b> төлбөрийн хэлбэрт eBarimt код алга —{" "}
+                {sampleText(readiness.payments)}
+                <span className="block text-[var(--ea-text-3)]">
+                  Энэ хуудсын «Төлбөрийн хэлбэр» табаас ононо (CASH, PAYMENT_CARD …)
+                </span>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
       <SwitchField
         label="eBarimt автомат баримт"
-        hint="Борлуулалт батлагдмагц ТЕГ-д илгээгдэж ДДТД / сугалаа / QR баримтад хэвлэгдэнэ"
+        hint={
+          canEnable
+            ? "Борлуулалт батлагдмагц ТЕГ-д илгээгдэж ДДТД / сугалаа / QR баримтад хэвлэгдэнэ"
+            : "Дээрх дутууг цэгцэлсний дараа идэвхжинэ"
+        }
         checked={form.ebarimtEnabled}
+        disabled={!form.ebarimtEnabled && !canEnable}
         onChange={(value) => patch({ ebarimtEnabled: value })}
       />
 
