@@ -10,8 +10,33 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 > **Deploy:** preDeploy `pos_sales.ebarimt_lottery` / `ebarimt_qr_data` баганыг УСТГАЖ,
 > `pos_ebarimt_submissions.response`-оос сугалаа/QR-ийг цэвэрлэнэ (албан зааврын
 > шаардлага — хадгалахыг хориглодог). Буцаах боломжгүй, идемпотент.
+> Мөн `auth_tokens`, `organization_subscriptions` хүснэгт, `users.email_verified_at`,
+> `org_invitations.expires_at` нэмэгдэнэ (идемпотент; байгаа хэрэглэгч баталгаажсан,
+> байгаа байгууллага standard/active гэж нөхөгдөнө — хэн ч түгжигдэхгүй).
 
 ### Нэмэгдсэн
+
+- **SaaS / админ аудит (#59):**
+  - **Эрхийн хаалт** — «байхгүй» (none) эрх уншилтыг ч хаана: модулийн хавтас
+    бүрд `ModuleGuard` layout, admin/permissions хуудсанд `RoleGuard`, 20 уншилтын
+    loader + 4 API route-д `requireModuleAction(key, "read")`; урилгын линк 7
+    хоногийн хугацаатай; байгууллага/гишүүн/роль/урилгын админ үйлдэл бүр
+    аудитын мөрд; viewer урилгын линк харахгүй
+  - **Нууц үг сэргээх, и-мэйл баталгаажуулалт** — `lib/account/tokens.ts`
+    (нэг удаагийн hash token: сэргээх 1 цаг, баталгаажуулах 24 цаг),
+    `/reset-password`, `/verify-email`; баталгаажаагүй хэрэглэгчид баннер —
+    нэвтрэлт хэзээ ч хаагдахгүй; системийн и-мэйл Resend-ээр (байхгүй бол
+    чимээгүй)
+  - **Deployment-ийн горим** `ENTRY_DEPLOYMENT_MODE` — `saas` (бүртгэл үргэлж
+    нээлттэй, шинэ харилцагч өөрөө tenant үүсгэнэ) / `dedicated` (default,
+    одоогийн зан төлөв); `/api/health` `deploymentMode`
+  - **Billing / entitlement** (docs/billing) — багц (trial/standard/platform/
+    enterprise/dedicated), суудал, 14 хоногийн trial, past_due grace, read-only;
+    `assertWritesAllowed` бүх бичилтийн ГАНЦ шалгах цэг, `requireFeature`
+    (REST 402, MCP -32003, eBarimt enqueue алгасна); унших/тайлан/сар хаах хэзээ
+    ч хаагдахгүй; `/settings/billing` зөвхөн харах; багцын удирдлага Entry
+    Console-д (`/api/platform/subscriptions`, Bearer `ENTRY_PLATFORM_API_KEY`,
+    зөвхөн saas)
 
 - **eBarimt — идэвхжүүлэхийн өмнөх бэлэн байдлын шалгалт** (`lib/ebarimt/readiness.ts`):
   ангилалын кодгүй бараа (бүлгээс өвлөх нь тооцогдоно), татварын кодгүй

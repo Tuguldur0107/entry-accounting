@@ -155,7 +155,7 @@ export async function enqueueEbarimt(
     const ent = await getEntitlements(orgId);
     if (!ent.features.ebarimt) {
       console.warn(`[ebarimt] багцад ороогүй — org=${orgId} sale=${saleId} ${kind} алгаслаа`);
-      return false;
+      return null;
     }
     const [row] = await handle
       .insert(posEbarimtSubmissions)
