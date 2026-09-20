@@ -10,7 +10,7 @@
 | 2b | **Кассын дэлгэц v2** — дэлгүүрийн POS загвар (§4.1): барааны tile + бүлгийн chip, баримтын ticket + numpad (Тоо/Хөнг %/Үнэ), олон түр хадгалсан сагс, нэг товчны ээлж нээх (сүүлийн ээлжийн default), ээлж хаах дэлгэц дээрээ; `lib/pos/checkout-state.ts` цэвэр (тесттэй) | ✅ |
 | 3 | **eBarimt 3.0 (PosAPI 3.0)** — автомат баримт: дараалал + worker, ДДТД/сугалаа/QR баримтад, буцаалт → цуцлалт, тохиргоо/ангилалын код/төлбөрийн код UI, AI tools, `/api/health.ebarimt` | ✅ |
 | 3b | **QPay Quick QR** (`04-qpay-integration-plan.md`) — Фаз 1 Entry цөм: `pos_qpay_intents` intent машин, `qpay-dashboard` клиент (x-api-key, нууц AES), HMAC webhook, QR диалог (Entry DB polling, гар шалгалт 10 сек), `createPosSale` intent холболт (paid ЗААВАЛ, дүн тулгана, транзакцад finalize), тохиргооны QPay таб + readiness, хүлээгдэж буй intent баннер + гар finalize (D3), attention `pos.qpay_paid_unfinalized`, `/api/health.qpay` | ✅ Фаз 1 |
-| 3b Фаз 2 | Борлуулалтын тайланд provider багана, AI `get_qpay_status`, `docs/deployment/qpay.md`, webhook-failing дохио | — |
+| 3b Фаз 2 | **Нэг товчны холболт** (Entry [QPay холбох] → dashboard consent → code солилцоо → key/secret автомат), асаахад «QPay» хэлбэр + түр данс автомат seed (`lib/qpay/seed.ts`), тайланд провайдер багана, AI `get_qpay_status`, `docs/deployment/qpay.md` | ✅ |
 | 3+ | SocialPay/MonPay provider, камерын баркод, офлайн горим, B2B нэхэмжлэх (INVOICE), оролтын eBarimt тулгалт | — |
 
 ## eBarimt 3.0 — товч
@@ -48,6 +48,8 @@
 ## QPay — товч
 
 ```
+Холбох: [QPay холбох] → dashboard (бүртгэл/онбординг/consent) → callback?state&code → сервер-сервер exchange
+        → key/secret шифртэй + «QPay» хэлбэр/түр данс автомат → асна (гар зам: key хуулах хэвээр)
 QPay мөр сонгов → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → dashboard POST /api/v1/invoices
    → QR + deeplink → диалог Entry DB-ээс 2 сек тутам (QPay polling ҮГҮЙ — ККТТ хориг)
    ← webhook payment.paid (HMAC) ЭСВЭЛ [Шалгах] (10 сек-д нэг) → paid

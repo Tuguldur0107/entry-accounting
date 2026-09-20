@@ -558,6 +558,12 @@ export function SalesReportView({
         valueFormatter: (params) =>
           params.value ? (PAYMENT_KIND_LABELS[params.value as PaymentKind] ?? String(params.value)) : "",
       },
+      {
+        headerName: "Провайдер",
+        field: "provider",
+        width: 120,
+        valueFormatter: (params) => (params.value === "qpay" ? "QPay" : params.value ? String(params.value) : ""),
+      },
       { headerName: "Гүйлгээний тоо", field: "count", width: 130, ...numberCell },
       { headerName: "Дүн", field: "amount", width: 160, ...moneyCell },
     ],

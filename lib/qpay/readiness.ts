@@ -10,6 +10,12 @@ export interface QpayReadinessInput {
   /** NEXT_PUBLIC_APP_URL — webhook хүрэх нийтийн URL (dedicated on-prem-д байхгүй байж болно). */
   publicUrl: string | null;
   paymentMethods: { name: string; kind: string; provider: string | null; cashAccountId: string | null; isActive: boolean }[];
+  /**
+   * true (default) = асаах мөчид `ensureQpayPaymentMethod` хэлбэр + түр дансыг
+   * АВТОМАТААР бүрдүүлнэ — дутуу нь хориг биш, тайлбар (warning). false = хатуу
+   * шалгалт (seed-ийн ДАРАА, saveQpaySettings дотор).
+   */
+  seedOnEnable?: boolean;
 }
 
 export interface QpayReadiness {
@@ -25,12 +31,18 @@ export function qpayReadiness(input: QpayReadinessInput): QpayReadiness {
   if (!/^https?:\/\/\S+$/.test(input.apiUrl.trim())) problems.push("Dashboard URL http(s)://… хэлбэртэй байна");
   if (!input.apiKeySet) problems.push("API key оруулаагүй (dashboard → Merchants → API хөгжүүлэлт)");
   if (!input.webhookSecretSet) problems.push("Webhook secret оруулаагүй (API key-тэй нэг дэлгэцэнд)");
+  const seed = input.seedOnEnable ?? true;
   const qpayMethods = input.paymentMethods.filter((m) => m.provider === QPAY_PROVIDER && m.isActive);
-  if (qpayMethods.length === 0)
-    problems.push("QPay төлбөрийн хэлбэр алга — «Төлбөрийн хэлбэр» табд ewallet + провайдер QPay нэмнэ");
+  if (qpayMethods.length === 0) {
+    if (seed) warnings.push("QPay төлбөрийн хэлбэр («QPay», ewallet) ба «QPay түр данс» асаахад автоматаар үүснэ");
+    else problems.push("QPay төлбөрийн хэлбэр алга — «Төлбөрийн хэлбэр» табд ewallet + провайдер QPay нэмнэ");
+  }
   for (const method of qpayMethods) {
     if (method.kind !== "ewallet") problems.push(`«${method.name}»: QPay провайдер зөвхөн ewallet төрөлд`);
-    if (!method.cashAccountId) problems.push(`«${method.name}»: QPay түр данс (касс/банк) оноогоогүй`);
+    if (!method.cashAccountId) {
+      if (seed) warnings.push(`«${method.name}»: түр данс оноогоогүй — асаахад «QPay түр данс» автоматаар оноогдоно`);
+      else problems.push(`«${method.name}»: QPay түр данс (касс/банк) оноогоогүй`);
+    }
   }
   if (!input.publicUrl)
     warnings.push(
