@@ -1,6 +1,4 @@
 // Багц, төлбөр — байгууллагын харагдац (server component, ui-kit-ээр).
-import Link from "next/link";
-
 import { Icon } from "@/components/ui/icon";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import type { BillingOverview } from "@/lib/actions/billing";
@@ -106,13 +104,6 @@ export function BillingOverviewView({ overview }: { overview: BillingOverview })
           Компанийн тоо: {ent.limits.companies === null ? "хязгааргүй" : ent.limits.companies}. Багц солих, суудал нэмэх бол{" "}
           <a href="mailto:support@entry.mn" className="text-[var(--ea-primary)]">support@entry.mn</a> — төлбөрийн онлайн гарц дараагийн шатанд.
         </p>
-        {overview.isPlatformAdmin ? (
-          <p className="text-[11px]">
-            <Link href="/admin/platform" className="text-[var(--ea-primary)]">
-              Платформ: бүх байгууллагын багц удирдах →
-            </Link>
-          </p>
-        ) : null}
       </section>
     </div>
   );

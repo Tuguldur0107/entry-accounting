@@ -167,10 +167,13 @@ entry-accounting/
   хаах (`requireRole`) үргэлж. Мөргүй SaaS байгууллага = trial 14 хоног;
   past_due grace 14 хоног; хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагыг
   standard/active нөхнө. dedicated горимд бүх боломж, хязгааргүй (DB
-  хөндөхгүй). UI: `/settings/billing` (гишүүн бүр), `/admin/platform`
-  (platform admin — `ENTRY_PLATFORM_ADMIN_EMAILS`, зөвхөн saas; байгууллагын
-  owner/admin-тай ХОЛИЛДОХГҮЙ тусдаа эрх, `lib/platform-admin.ts`), топбарын
+  хөндөхгүй). UI: `/settings/billing` (гишүүн бүр ХАРНА, засахгүй), топбарын
   баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`).
+  **Багц ЗАСАХ нь апп дотор БАЙХГҮЙ** — Entry Console `GET/PUT
+  /api/platform/subscriptions` (Bearer `ENTRY_PLATFORM_API_KEY`, timing-safe,
+  зөвхөн saas; цөм `lib/billing/platform.ts`); SaaS харилцагч ба dedicated
+  харилцагчийн удирдлага хоёулаа Console-д, апп дотор platform admin эрх
+  ҮҮСГЭХГҮЙ (хольж хутгахгүй).
   Өөрчлөлт бүр аудитын мөрд (`subscription`). Төлбөрийн гарц — фаз 2
 - **Нууц үг сэргээх, и-мэйл баталгаажуулалт** (`lib/actions/account-recovery.ts`,
   `lib/account/`): token нь DB-д sha256 hash, нэг удаагийн, хугацаатай

@@ -18,7 +18,6 @@ import { NotificationBell } from "@/components/layout/notification-bell";
 import { EmailVerifyBanner } from "@/components/layout/email-verify-banner";
 import { SubscriptionBanner } from "@/components/layout/subscription-banner";
 import { getEntitlements } from "@/lib/billing/load";
-import { isPlatformAdminEmail } from "@/lib/platform-admin";
 import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
 import {
   disabledNavItemKeys,
@@ -82,8 +81,7 @@ export default async function DashboardLayout({
     // Багцын баннер (trial/grace/read-only) — dedicated горимд DB хөндөхгүй.
     getEntitlements(activeOrgId),
   ]);
-  // Platform admin цэс — зөвхөн ENTRY_PLATFORM_ADMIN_EMAILS (saas) хэрэглэгчид.
-  const platformHidden = isPlatformAdminEmail(me?.email) ? [] : ["item:platform"];
+
   const memberHiddenNavIds = myMembership
     ? APP_MODULE_DEFS.filter(
         (def) =>
@@ -115,7 +113,6 @@ export default async function DashboardLayout({
       ...[...disabledNavItemKeys(modConfigs), ...memberHiddenItemKeys].map(
         (key) => `item:${key}`
       ),
-      ...platformHidden,
     ]),
   ];
 

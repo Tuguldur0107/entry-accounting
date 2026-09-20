@@ -247,9 +247,12 @@ Hook нь core guardrail-ийг (баланс, период, эрх, 10 сая �
 `/api/health`-ийн `deploymentMode` талбар ба `/settings/system` хуудас
 горимоо харуулна. Код: `lib/deployment-mode.ts`, `lib/registration.ts`.
 
-SaaS сервист нэмэлт: `ENTRY_PLATFORM_ADMIN_EMAILS` (таслалаар) — Entry-ийн
-ажилтнууд `/admin/platform` дээр бүх байгууллагын багц/subscription-ыг удирдана
-(`docs/billing/00-proposal.md`). Dedicated сервист энэ хувьсагч хэрэггүй.
+SaaS сервист нэмэлт: `ENTRY_PLATFORM_API_KEY` — Entry Console энэ түлхүүрээр
+`GET/PUT /api/platform/subscriptions` дуудаж бүх байгууллагын
+багц/subscription-ыг удирдана (`docs/billing/00-proposal.md` §5). Апп дотор
+platform admin UI байхгүй — удирдлага Console-д. Console талд ижил түлхүүр
+`ENTRY_SAAS_API_KEY` + `ENTRY_SAAS_API_URL` (SaaS аппын origin). Dedicated
+сервист энэ хувьсагч хэрэггүй (зам 404).
 
 ## Deployment-ийн лиценз (ENTRY_LICENSE)
 

@@ -84,11 +84,14 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
 - **Байгууллагын эзэн/админ** — `/settings/billing`: багц, статус, суудал
   (ашиглаж буй / төлсөн), trial-ийн үлдсэн хоног, боломжуудын жагсаалт, холбоо
   барих. Өөрөө багц солихгүй (төлбөрийн гарц фаз 2).
-- **Platform admin** (Entry-ийн ажилтан) — `/admin/platform`, env
-  `ENTRY_PLATFORM_ADMIN_EMAILS` (таслалаар), ЗӨВХӨН saas горимд: бүх байгууллагын
-  жагсаалт (багц, статус, суудал, гишүүд, үүссэн огноо), subscription засах
-  (багц, статус, суудал, хугацаа, override, тэмдэглэл). Өөрчлөлт бүр аудитын
-  мөрд (`subscription` entityType, тухайн байгууллагад) + сервер лог.
+- **Entry Console** (Entry-ийн ажилтан — одоогоор эзэн өөрөө) — апп дотор platform
+  admin UI БАЙХГҮЙ; Console `GET/PUT /api/platform/subscriptions` (Bearer
+  `ENTRY_PLATFORM_API_KEY`, timing-safe, зөвхөн saas горимд, dedicated-д 404)
+  дуудаж бүх байгууллагын жагсаалт (багц, статус, суудал, гишүүд, үүссэн огноо)
+  авч subscription засна (багц, статус, суудал, хугацаа, override, тэмдэглэл,
+  `actor`). Цөм `lib/billing/platform.ts`; өөрчлөлт сервер логт (аудитын мөр
+  users FK-тай тул Console-ийн үйлдэл аудитад ордоггүй — `updated_by` null,
+  `note`/лог). Console талын UI тусдаа repo-д.
 - **Самбар/мэдэгдэл** — topbar-ийн доор баннер (trial ≤7 хоног, past_due,
   read-only) ба `attention.ts`-ийн `subscription.trial_ending` /
   `subscription.read_only` дохио (нүүр + өдөр тутмын мэдэгдэл, эзэн/админд).
@@ -97,7 +100,7 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
 
 - Төлбөрийн гарц (QPay/карт) — статусыг автоматаар `active`/`past_due` болгох
 - Usage metering (MCP дуудлага, extension ажиллалт) — үнэ тогтооход
-- Entry Console-оос subscription удирдах (webhook) — одоо platform admin апп дотор
+- Console талын UI (жагсаалт + засах форм) — `entry-console` repo-д, дээрх API-гаар
 - Нэхэмжлэх үүсгэх (суудал × үнэ) — Entry өөрийн АР-аараа
 
 ## 7. Шийдвэр шаардсан асуултууд
