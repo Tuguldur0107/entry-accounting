@@ -1,6 +1,6 @@
 # QPay нэвтрүүлэлтийн төлөвлөгөө — POS Фаз 3b (`ewallet` → QPay Quick QR)
 
-**Төлөв:** САНАЛ (2026-09-20) — D1–D8 батлагдсаны дараа хэрэгжинэ.
+**Төлөв:** **БАТЛАГДСАН** (2026-09-20, D1–D8 санал болгосноор) — Фаз 0 эхэлсэн.
 **Суурь:** `00-proposal.md` §3.4 (`ewallet` kind — «Фаз 3 API (QPay invoice → callback)»),
 `03-ebarimt-integration-plan.md` (ижил бүтэц: дараалал, readiness, attention).
 **Эх сурвалж:** `Tuguldur0107/qpay-dashboard` repo (код + `PROGRESS.md` 2026-08-10,
