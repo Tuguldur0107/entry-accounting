@@ -170,9 +170,16 @@ entry-accounting/
   хөндөхгүй). UI: `/settings/billing` (гишүүн бүр ХАРНА, засахгүй), топбарын
   баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`),
   AI/MCP/REST `get_billing_overview` (унших — ижил loader).
-  **ҮНЭ — ГУРВАН давхарга** (`pricing.ts` ЦЭВЭР, тесттэй; доошоо дардаг):
-  `plans.ts`-ийн default → `platform_plan_prices` (Console-оос, платформ даяар
-  нэг) → `organization_subscriptions.pricePerSeatMnt` (харилцагчийн тусгай үнэ).
+  **ҮНЭ — ОГНООТОЙ, ГУРВАН давхарга** (`pricing.ts` ЦЭВЭР, тесттэй; доошоо
+  дардаг): `plans.ts`-ийн default → `platform_plan_prices` ҮЕҮҮД (Console-оос,
+  платформ даяар нэг) → `organization_subscriptions.pricePerSeatMnt`
+  (харилцагчийн тусгай үнэ). Үе бүр `effectiveFrom … effectiveTo`
+  (ХАМРУУЛСАН; null = хугацаагүй) мужтай тул анхны үнэ түүхэндээ үлдэж,
+  ирээдүйн үнийг урьдчилан оруулна; `priceAtDate` нь тухайн өдрийг хамрах үеийг
+  олно, БАЙХГҮЙ бол default руу шилжинэ (цоорхойг ЗОХИОЖ нөхөхгүй). Давхцлыг
+  `planPriceChange` УРЬДЧИЛЖ барина: хугацаагүй өмнөх үе дээр шинэ үе хожуу
+  эхэлбэл өмнөхийг автоматаар өмнөх өдрөөр хааж ИЛ мэдэгдэнэ, бусад давхцлыг
+  ТАТГАЛЗАНА.
   `null` = ТОГТООГООГҮЙ (хэлэлцээрээр), 0₮ БИШ; хадгалагдсан null нь ИЛ
   цэвэрлэлт тул default руу БУЦАХГҮЙ. `/settings/billing`, `get_billing_overview`,
   Console гурвуул `resolveSeatPrice`-ээр НЭГ утга хардаг; сарын дүн =
@@ -1917,9 +1924,11 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            company_settings.largeAmountAlertMnt (D2 босго)
 Багц       organization_subscriptions (planId, status, seats, trialEndsAt,
            currentPeriodEnd, overrides, pricePerSeatMnt — харилцагчийн ТУСГАЙ үнэ)
-             platform_plan_prices — багцын үнэ, ПЛАТФОРМЫН лавлах
-               (organizationId БАЙХГҮЙ, unique INDEX plan_id); мөргүй багц нь
-               lib/billing/plans.ts-ийн default үнээрээ; price null = хэлэлцээрээр
+             platform_plan_prices — багцын үнийн ТҮҮХ, ПЛАТФОРМЫН лавлах
+               (organizationId БАЙХГҮЙ). Мөр бүр = ОГНООНЫ МУЖ: effective_from
+               (YYYY-MM-DD text) … effective_to (null = хугацаагүй), note;
+               unique INDEX (plan_id, effective_from). Тухайн өдрийг хамрах үе
+               байхгүй бол lib/billing/plans.ts-ийн default; price null = хэлэлцээрээр
 Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
            хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings

@@ -11,7 +11,7 @@ import { getActiveOrg } from "@/lib/auth";
 import type { Entitlements } from "@/lib/billing/entitlements";
 import { countSeatsUsed, getEntitlements } from "@/lib/billing/load";
 import { resolveSeatPrice } from "@/lib/billing/pricing";
-import { loadPlanPrices } from "@/lib/billing/pricing-store";
+import { loadPlanPricesAt } from "@/lib/billing/pricing-store";
 import { db } from "@/lib/db";
 import { memberships, organizationSubscriptions, organizations } from "@/lib/db/schema";
 
@@ -36,7 +36,7 @@ export async function getBillingOverview(): Promise<BillingOverview> {
       where: eq(organizationSubscriptions.organizationId, orgId),
       columns: { note: true, pricePerSeatMnt: true },
     }),
-    loadPlanPrices(),
+    loadPlanPricesAt(),
   ]);
   return {
     orgName: org?.name ?? "",

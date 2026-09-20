@@ -110,9 +110,11 @@ export const organizationSubscriptions = pgTable(
 
 /**
  * Багцын ҮНЭ — ПЛАТФОРМЫН лавлах (organizationId БАЙХГҮЙ: үнэ бүх харилцагчид
- * нэг). Entry Console `/api/platform/plan-prices`-ээр тохируулна; мөр байхгүй
- * багц нь `lib/billing/plans.ts`-ийн default үнээрээ. price_per_seat_mnt null =
- * хэлэлцээрээр (0₮ БИШ).
+ * нэг). Мөр бүр нь ОГНООНЫ МУЖ тул багцын үнийн ТҮҮХ энд хадгалагдана: анхны
+ * үнэ, дараагийн шинэчлэлт, ирээдүйн үнэ бүгд тусдаа мөр. Тухайн өдрийг хамрах
+ * үе БАЙХГҮЙ бол `lib/billing/plans.ts`-ийн default үнэ үйлчилнэ.
+ * price_per_seat_mnt null = хэлэлцээрээр (0₮ БИШ).
+ * Entry Console `/api/platform/plan-prices`-ээр удирдана.
  */
 export const platformPlanPrices = pgTable(
   "platform_plan_prices",
@@ -122,10 +124,16 @@ export const platformPlanPrices = pgTable(
     planId: text("plan_id").notNull(),
     /** MNT / суудал / сар; null = хэлэлцээрээр */
     pricePerSeatMnt: integer("price_per_seat_mnt"),
+    /** Мөрдөж эхлэх өдөр (YYYY-MM-DD) */
+    effectiveFrom: text("effective_from").notNull(), // YYYY-MM-DD
+    /** Мөрдөх сүүлийн өдөр (ХАМРУУЛСАН); null = хугацаагүй */
+    effectiveTo: text("effective_to"), // YYYY-MM-DD
+    note: text("note"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("platform_plan_prices_plan_ux").on(t.planId)]
+  // Нэг багцад нэг өдрөөс хоёр үе эхлэхгүй; давхцлыг planPriceChange барина.
+  (t) => [uniqueIndex("platform_plan_prices_period_ux").on(t.planId, t.effectiveFrom)]
 );
 
 export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";
