@@ -241,3 +241,91 @@ loadEbarimtReadiness(orgId): Promise<EbarimtReadiness>
   (`lib/notifications/rules.ts`, POS-ийн `write` эрхтэнд, 3 дахь алдаанд нэг л удаа)
 - AI tools: `get_ebarimt_status`, `resend_ebarimt`, `lookup_tin`;
   `create_pos_sale`-д `consumerNo` / `customerTin` / `customerRegNo`
+
+## 10. QPay Quick QR (`ewallet` provider) — Фаз 3b
+
+Дизайн `04-qpay-integration-plan.md` (D1–D8 БАТЛАГДСАН). Entry = ХСН, QPay-тэй
+ШУУД харьцахгүй — `qpay-dashboard` REST v1 (`x-api-key`)-ээр. Функцийн
+нэр/параметрээс ЗӨРӨХИЙГ ХОРИГЛОНО.
+
+**Цэвэр давхарга** (`lib/qpay/intent.ts`, `readiness.ts` — DB-гүй, `crypto`-гүй,
+client component ч import хийдэг; тесттэй):
+
+```ts
+canTransition(from: QpayIntentStatus, to: QpayIntentStatus): boolean
+  // open → paid | cancelled | expired | failed; paid → finalized | failed; бусад ТЕРМИНАЛ
+isTerminalStatus(status): boolean
+clampInvoiceTtl(value: unknown): number            // 60…900 сек, default 180
+isExpired(intent: { status, expiresAt }, now: Date): boolean   // зөвхөн open
+checkAllowed(lastCheckAt: Date | null, now: Date, minIntervalMs = 10_000): boolean
+amountMatches(intentAmount: number, paidAmount: number | null | undefined): boolean  // |Δ| < 1₮
+parseWebhookPayload(body: unknown): QpayWebhookPayload | null   // event="payment.paid" ЗААВАЛ
+secondsLeft(expiresAt, now): number
+qpayReadiness({ apiUrl, apiKeySet, webhookSecretSet, publicUrl, paymentMethods }): { problems, warnings, ready }
+  // problems → идэвхжүүлэхийг ХОРИГЛОНО; warnings (QPay хэлбэр алга, webhook URL localhost) → зөвхөн анхааруулга
+// lib/qpay/webhook-signature.ts (SERVER — node:crypto)
+verifyWebhookSignature(rawBody: string, signature: string | null | undefined, secret: string): boolean
+  // hex HMAC-SHA256(rawBody, secret), timing-safe
+```
+
+**Dashboard клиент** (`lib/qpay/client.ts`, DB-гүй, 8 сек timeout, `QpayError(code, message, status)`):
+`createDashboardInvoice(config, { amount, description, sender_invoice_no, callback_url })`,
+`cancelDashboardInvoice(config, invoiceId)`, `checkDashboardPayment(config, invoiceId)`,
+`listDashboardInvoices(config, { limit })` (холболт шалгах + мерчант id).
+
+**Store** (`lib/qpay/store.ts`, DB-тэй, "use server" БИШ):
+
+```ts
+resolveQpayConfig(settings): QpayClientConfig        // API key decryptSecret — ЭНД л задардаг
+resolveQpayWebhookSecret(settings): string | null
+qpayWebhookUrl(intentId?): string | null             // NEXT_PUBLIC_APP_URL + /api/pos/qpay/webhook?intent=
+loadQpayReadiness(orgId, settings): Promise<QpayReadiness>
+loadIntent / loadIntentView(orgId, intentId)
+expireStaleIntents(orgId, now): Promise<string[]>    // open & expiresAt < now → expired
+markIntentPaid(orgId, intentId, { paymentId, paidAmount, paidAt }, source): Promise<{ intent, changed }>
+  // ИДЕМПОТЕНТ: open → paid нэг л удаа (webhook ба гар шалгалт хоёулаа); дүн зөрвөл → failed + lastError
+finalizeIntentInTx(tx, orgId, intentId, saleId): Promise<void>
+  // paid & saleId IS NULL → finalized; өөр бол [QPAY_ALREADY_FINALIZED] ШИДНЭ (createPosSale транзакц дотор)
+setIntentStatus(orgId, intentId, status, patch?)
+listPendingIntents(orgId): QpayIntentView[]          // open | paid (борлуулалтгүй) | failed
+qpayStatusSummary(orgId, settings, todayUb): QpayStatusSummary
+countPaidUnfinalized(orgId, olderThanMinutes = 10): { count, oldestMinutes }
+```
+
+**Server Actions** (`lib/actions/qpay.ts`, бүгд `ActionResult`; эрх `pos`):
+
+```ts
+getQpayStatus()                                       // read — тохиргоо (нууц БАЙХГҮЙ, зөвхөн *Set) + readiness + тоолуур
+saveQpaySettings({ enabled, apiUrl, apiKey?, webhookSecret?, invoiceTtlSec })  // write, admin+
+  // apiKey `^qpd_(live|test)_[A-Za-z0-9_-]{16,}$`, encryptSecret; enabled=true → readiness.problems хоосон ЗААВАЛ
+  // аудит `pos_settings` / `qpay_settings` — нууцын УТГА хэзээ ч бичигдэхгүй (зөвхөн «солигдсон»)
+testQpayConnection()                                  // list limit 5 → merchantId хадгална
+createQpayIntent({ shiftId, amount, saleInput })      // write: DB мөр ЭХЛЭЭД → dashboard нэхэмжлэх
+  // sender_invoice_no = intent.id, callback_url = qpayWebhookUrl(intent.id); dashboard унавал intent failed
+getQpayIntent(intentId)                               // ЗӨВХӨН Entry DB (QPay-д хүрэхгүй — 2 сек polling үүгээр)
+checkQpayIntent(intentId)                             // QPay-руу ГАР шалгалт, 10 сек-д нэг ([QPAY_CHECK_THROTTLED])
+cancelQpayIntent(intentId)                            // open → dashboard DELETE → cancelled
+listPendingQpayIntents()                              // борлуулалтын жагсаалтын баннер
+finalizeQpayIntent(intentId)                          // post: paid intent-ийн cartSnapshot → createPosSale({ ...snapshot, qpayIntentId })
+```
+
+**`createPosSale` холболт** (`lib/actions/pos.ts`): `CreatePosSaleInput.qpayIntentId?`.
+Төлбөрийн мөрийн хэлбэр `provider = "qpay"` бол `resolveQpayIntentForSale`:
+intent ЗААВАЛ, статус `paid`, `saleId IS NULL`, дүн таарна, QPay мөр НЭГ л
+байна — эс бөгөөс `[QPAY_INTENT_REQUIRED]` / `[QPAY_INTENT_NOT_PAID]` /
+`[QPAY_AMOUNT_MISMATCH]`. Мөрийн `reference` = QPay нэхэмжлэхийн id; транзакц
+дотор `finalizeIntentInTx` (борлуулалт унавал intent `paid` хэвээр → D3 гар finalize).
+`savePaymentMethod.provider` — зөвхөн `ewallet` kind, зөвхөн `"qpay"` (`resolvePaymentProvider`).
+
+**Webhook** `POST /api/pos/qpay/webhook?intent=<uuid>` (`app/api/pos/qpay/webhook/route.ts`):
+raw body → `verifyWebhookSignature` (`x-webhook-signature`, 401) → `parseWebhookPayload`
+(422) → `invoice_id` intent-тэй таарна (409) → `markIntentPaid` → 200 `{ ok, status, changed }`.
+Аудит `pos_qpay_intent` (`paid` / `webhook_rejected`). Нэвтрэлтгүй (proxy `/api` алгасна),
+org нь intent-ээс — ID нь эрх олгохгүй, нууц гарын үсэг л олгоно.
+
+**UI:** `components/pos/checkout/qpay-dialog.tsx` (QR `qrText` → `components/ui/qr-code.tsx`
+SVG, банкны deeplink, countdown, [Шалгах] 10 сек cooldown, [Цуцлах]); төлбөрийн диалог QPay
+мөр «QR үүсгэх» → «Төлөгдсөн» (дүн түгжигдэнэ); тохиргооны «QPay» дэд таб; хэлбэрийн
+«Провайдер» багана; борлуулалтын жагсаалтын «QPay хүлээгдэж буй» баннер ([Борлуулалт болгох] /
+[Цуцлах]). Attention `pos.qpay_paid_unfinalized` (10 мин, өдөрт нэг); `/api/health.qpay` тоолуур.
+

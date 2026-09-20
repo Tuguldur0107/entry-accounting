@@ -749,6 +749,14 @@ async function main() {
     ["pos_sales", "ebarimt_customer_tin", "text"],
     // Харилцагчийн субъектийн төрөл (байгууллага / хувь хүн) — lib/arap/counterparty-kind.ts
     ["counterparties", "entity_kind", "text not null default 'organization'"],
+    // QPay (docs/pos/04-qpay-integration-plan.md §3.4) — нууц шифртэй, default-той/null
+    ["pos_settings", "qpay_enabled", "boolean not null default false"],
+    ["pos_settings", "qpay_api_url", "text not null default 'https://qpay-dashboard-production.up.railway.app'"],
+    ["pos_settings", "qpay_api_key_enc", "text"],
+    ["pos_settings", "qpay_webhook_secret_enc", "text"],
+    ["pos_settings", "qpay_merchant_id", "text"],
+    ["pos_settings", "qpay_invoice_ttl_sec", "integer not null default 180"],
+    ["pos_payment_methods", "provider", "text"],
   ]) {
     await run(
       `${table}.${column} багана`,
@@ -797,6 +805,44 @@ async function main() {
     "pos_ebarimt_submissions_org_status_ix индекс",
     `create index if not exists pos_ebarimt_submissions_org_status_ix
        on pos_ebarimt_submissions (organization_id, status, next_attempt_at)`
+  );
+
+  // ── 7. QPay intent (docs/pos/04-qpay-integration-plan.md §3.3–3.4) ────────
+  await run(
+    "pos_qpay_intents хүснэгт",
+    `create table if not exists pos_qpay_intents (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       shift_id uuid references pos_shifts(id) on delete set null,
+       cashier_user_id text references users(id) on delete set null,
+       amount numeric(18,2) not null,
+       cart_snapshot jsonb not null,
+       status text not null default 'open',
+       qpay_invoice_id text,
+       qr_text text,
+       qr_image text,
+       urls jsonb,
+       payment_id text,
+       paid_amount numeric(18,2),
+       paid_at timestamp,
+       expires_at timestamp not null,
+       sale_id uuid references pos_sales(id) on delete set null,
+       last_check_at timestamp,
+       last_error text,
+       created_at timestamp not null default now(),
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "pos_qpay_intents_org_invoice_ux индекс",
+    `create unique index if not exists pos_qpay_intents_org_invoice_ux
+       on pos_qpay_intents (organization_id, qpay_invoice_id)
+       where qpay_invoice_id is not null`
+  );
+  await run(
+    "pos_qpay_intents_org_status_ix индекс",
+    `create index if not exists pos_qpay_intents_org_status_ix
+       on pos_qpay_intents (organization_id, status, created_at)`
   );
 
   console.log(

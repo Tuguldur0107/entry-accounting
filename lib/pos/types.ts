@@ -54,6 +54,8 @@ export interface PaymentMethodView {
   feePercent: number | null;
   /** eBarimt төлбөрийн код (payments[].code) — хоосон бол eBarimt илгээгдэхгүй. */
   ebarimtCode: string | null;
+  /** ewallet-ийн провайдер: "qpay" = QR intent-ээр батлагдана (lib/qpay); null = гар лавлагаа. */
+  provider: string | null;
   isActive: boolean;
   sortOrder: number;
 }
@@ -344,4 +346,11 @@ export interface PosSettingsView {
   ebarimtPosNo: string;
   ebarimtPosApiUrl: string;
   ebarimtMode: "server" | "browser";
+  // ── QPay (docs/pos/04-qpay-integration-plan.md) — нууц нь view-д ОРОХГҮЙ, зөвхөн «тохируулсан» туг ──
+  qpayEnabled: boolean;
+  qpayApiUrl: string;
+  qpayApiKeySet: boolean;
+  qpayWebhookSecretSet: boolean;
+  qpayMerchantId: string | null;
+  qpayInvoiceTtlSec: number;
 }

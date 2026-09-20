@@ -276,3 +276,19 @@ test("eBarimt: PosAPI хүрэхгүй / сугалаа бага / илгээл�
   // eBarimt өгөгдөлгүй (унтраалттай / browser горим) → дохиогүй.
   assert.deepEqual(attentionSignals(input("2026-09-20")).filter((s) => s.key.startsWith("ebarimt")), []);
 });
+
+test("QPay — төлөгдсөн ч бүртгэгдээгүй intent → danger дохио, өдөрт нэг dedupe", () => {
+  const none = attentionSignals(input("2026-09-20", { qpay: { paidUnfinalized: 0, oldestMinutes: null } })).filter((s) =>
+    s.key.startsWith("qpay")
+  );
+  assert.deepEqual(none, []);
+  const some = attentionSignals(input("2026-09-20", { qpay: { paidUnfinalized: 2, oldestMinutes: 35 } })).filter((s) =>
+    s.key.startsWith("qpay")
+  );
+  assert.equal(some.length, 1);
+  assert.equal(some[0].tone, "danger");
+  assert.equal(some[0].notify?.type, "pos.qpay_paid_unfinalized");
+  assert.equal(some[0].notify?.dedupeKey, "qpay:unfinalized:2026-09-20");
+  assert.match(some[0].detail ?? "", /35 мин/);
+  assert.deepEqual(some[0].surfaces, ["dashboard", "daily"]);
+});

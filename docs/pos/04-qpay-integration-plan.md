@@ -1,6 +1,6 @@
 # QPay нэвтрүүлэлтийн төлөвлөгөө — POS Фаз 3b (`ewallet` → QPay Quick QR)
 
-**Төлөв:** **БАТЛАГДСАН** (2026-09-20, D1–D8 санал болгосноор) — Фаз 0 эхэлсэн.
+**Төлөв:** **БАТЛАГДСАН** (2026-09-20, D1–D8 санал болгосноор) — Фаз 0 (dashboard PR #1) хүлээгдэж байна; **Фаз 1 (Entry цөм) ХЭРЭГЖСЭН** — гэрээ `01-implementation-contract.md` §10, байдал `02-implementation-status.md`.
 **Суурь:** `00-proposal.md` §3.4 (`ewallet` kind — «Фаз 3 API (QPay invoice → callback)»),
 `03-ebarimt-integration-plan.md` (ижил бүтэц: дараалал, readiness, attention).
 **Эх сурвалж:** `Tuguldur0107/qpay-dashboard` repo (код + `PROGRESS.md` 2026-08-10,
@@ -228,7 +228,7 @@ lib/ai/tools.ts                           get_qpay_status (унших), list_qpa
 | Фаз | Ажил | Хугацаа | Гарц |
 |---|---|---|---|
 | **0 — Dashboard бэлтгэл** (эхлээд, Entry-гүй) | (1) Repo-оос нууц файл хасах + ККТТ-ээс production нууц үг солиулах; (2) FAILED deploy (ee5aba0) засах — build лог хоосон, дахин deploy/шалгах; (3) **Хос Хас-ын тест sub-merchant дээр 100₮-ийн БОДИТ төлбөр** — callback GET/POST, `ref`, webhook → таны туршилтын URL (webhook.site) хүрсэн эсэх; (4) D8 (а)(б) жижиг өөрчлөлт; (5) API гэрээг «v1 хөлдөөсөн» гэж `docs/`-д тэмдэглэх | 1 өдөр | PAID урсгал production-д батлагдсан |
-| **1 — Entry цөм** | Схем + preDeploy; `lib/qpay/*` (intent машин, HMAC, client — тесттэй); actions; webhook route; QPay диалог; `createPosSale` intent холболт; тохиргооны таб + readiness; «хүлээгдэж буй» chip + finalize | 3 өдөр | Кассын дэлгэцээс QPay-ээр борлуулалт |
+| **1 — Entry цөм** ✅ | Схем + preDeploy; `lib/qpay/*` (intent машин, HMAC, client — тесттэй); actions; webhook route; QPay диалог; `createPosSale` intent холболт; тохиргооны таб + readiness; «хүлээгдэж буй» баннер + finalize; (Фаз 2-оос урьдчилж) attention `pos.qpay_paid_unfinalized` + `/api/health.qpay` | 3 өдөр | Кассын дэлгэцээс QPay-ээр борлуулалт |
 | **2 — Ажиллагаа** | attention дохио (paid-unfinalized, webhook failing), health тоолуур, борлуулалтын тайланд provider багана, AI `get_qpay_status`, `docs/deployment/qpay.md` (харилцагчид: dashboard-д бүртгүүлэх → key → Entry), CLAUDE.md §5c, CHANGELOG | 1 өдөр | Харилцагчид өгөх заавар бэлэн |
 | **Пилот** | Хос Хас-ын дэлгүүр (eBarimt пилоттой ХАМТ — нэг борлуулалт хоёуланг шалгана) | 1 долоо хоног | v1.6.0 |
 | 3c (дараа) | АР нэхэмжлэх QPay QR (и-мэйл/нээлттэй хуудсанд), SocialPay/MonPay provider, refund (эрх авбал) | — | — |

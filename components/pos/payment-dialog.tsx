@@ -31,6 +31,10 @@ import { PAYMENT_KIND_LABELS } from "@/lib/pos/constants";
 import { roundToCashUnit } from "@/lib/pos/sale-math";
 import type { PaymentInput, PaymentMethodView, PosShiftView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
+import { QpayDialog } from "@/components/pos/checkout/qpay-dialog";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { QPAY_PROVIDER } from "@/lib/qpay/constants";
+import type { CreatePosSaleInput } from "@/lib/actions/pos";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const EPS = 0.005;
@@ -42,6 +46,13 @@ interface PaymentRow {
   reference: string;
   giftCardCode: string;
   storeCreditId: string;
+  /** QPay провайдертай мөр — төлөгдсөн intent (мөр түгжигдэнэ, дүн өөрчлөгдөхгүй). */
+  qpayIntentId: string | null;
+}
+
+/** Батлахад дамжих нэмэлт (QPay intent) — createPosSale.qpayIntentId. */
+export interface PaymentConfirmExtra {
+  qpayIntentId: string | null;
 }
 
 interface StoreCreditOption {
@@ -81,6 +92,7 @@ export function PaymentDialog({
   ebarimtEnabled = false,
   busy,
   onConfirm,
+  saleDraft,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -95,10 +107,17 @@ export function PaymentDialog({
   ebarimtEnabled?: boolean;
   busy: boolean;
   /** Батлах — амжилттай бол true (эцэг диалогийг хаана). */
-  onConfirm: (payments: PaymentInput[], buyer: EbarimtBuyerInput) => Promise<boolean>;
+  onConfirm: (payments: PaymentInput[], buyer: EbarimtBuyerInput, extra: PaymentConfirmExtra) => Promise<boolean>;
+  /**
+   * QPay intent-ийн snapshot-д орох борлуулалтын СУУРЬ оролт (мөр, харилцагч,
+   * хөнгөлөлт, агуулах, ээлж) — payments/buyer-ыг диалог өөрөө нэмнэ.
+   */
+  saleDraft: Omit<CreatePosSaleInput, "payments" | "ebarimtConsumerNo" | "ebarimtCustomerTin" | "ebarimtCustomerRegNo" | "skipEbarimt" | "qpayIntentId">;
 }) {
   const [rows, setRows] = useState<PaymentRow[]>([]);
   const [seq, setSeq] = useState(1);
+  /** Нээлттэй QPay диалог — аль мөрийнх. */
+  const [qpayRowKey, setQpayRowKey] = useState<number | null>(null);
   const [storeCredits, setStoreCredits] = useState<StoreCreditOption[] | null>(null);
   // ── eBarimt худалдан авагч (§4.5) ───────────────────────────────────────
   // Сонгосон харилцагч БАЙГУУЛЛАГА (entityKind) бөгөөд РД/ТТД-тэй бол B2B
@@ -264,9 +283,35 @@ export function PaymentDialog({
         reference: "",
         giftCardCode: "",
         storeCreditId: "",
+        qpayIntentId: null,
       },
     ]);
     setSeq((value) => value + 1);
+  }
+
+  const isQpayMethod = (method: PaymentMethodView | undefined) => method?.provider === QPAY_PROVIDER;
+  const qpayRows = rows.filter((row) => isQpayMethod(methodById.get(row.paymentMethodId)));
+  const qpayUnpaid = qpayRows.some((row) => !row.qpayIntentId);
+  const qpayRow = qpayRowKey == null ? null : rows.find((row) => row.key === qpayRowKey) ?? null;
+
+  /** QPay intent-ийн snapshot = суурь оролт + одоогийн мөрүүд + худалдан авагч. */
+  function buildSaleInput(): CreatePosSaleInput {
+    return {
+      ...saleDraft,
+      payments: rows
+        .filter((row) => Number(row.amount) > 0)
+        .map((row) => ({
+          paymentMethodId: row.paymentMethodId,
+          amount: Number(row.amount),
+          reference: row.reference.trim() || null,
+          giftCardCode: row.giftCardCode.trim() || null,
+          storeCreditId: row.storeCreditId || null,
+        })),
+      ebarimtConsumerNo: buyer.ebarimtConsumerNo,
+      ebarimtCustomerTin: buyer.ebarimtCustomerTin,
+      ebarimtCustomerRegNo: buyer.ebarimtCustomerRegNo,
+      skipEbarimt: buyer.skipEbarimt,
+    };
   }
 
   function patchRow(key: number, patch: Partial<PaymentRow>) {
@@ -291,7 +336,9 @@ export function PaymentDialog({
     );
   }
 
-  const canSubmit = rows.length > 0 && plan.remaining <= EPS && !busy && !consumerNoInvalid;
+  // QPay мөр бүр төлөгдсөн intent-тэй байх ёстой (сервер ч мөн шаардана); нэг л QPay мөр.
+  const canSubmit =
+    rows.length > 0 && plan.remaining <= EPS && !busy && !consumerNoInvalid && !qpayUnpaid && qpayRows.length <= 1;
 
   async function submit() {
     if (!canSubmit) return;
@@ -304,7 +351,7 @@ export function PaymentDialog({
         giftCardCode: row.giftCardCode.trim() || null,
         storeCreditId: row.storeCreditId || null,
       }));
-    const ok = await onConfirm(payments, buyer);
+    const ok = await onConfirm(payments, buyer, { qpayIntentId: qpayRows[0]?.qpayIntentId ?? null });
     if (ok) setRows([]);
   }
 
@@ -483,6 +530,7 @@ export function PaymentDialog({
                     autoFocus
                     value={row.amount}
                     placeholder={currency}
+                    readOnly={!!row.qpayIntentId}
                     onChange={(event) => patchRow(row.key, { amount: event.target.value })}
                     className="font-mono text-right"
                   />
@@ -496,7 +544,25 @@ export function PaymentDialog({
                   )}
                 </div>
                 <div>
-                  {method.kind === "gift_card" ? (
+                  {isQpayMethod(method) ? (
+                    row.qpayIntentId ? (
+                      <div className="flex items-center gap-2 text-xs">
+                        <StatusBadge tone="success" size="sm">
+                          Төлөгдсөн
+                        </StatusBadge>
+                        {row.reference && <span className="truncate font-mono text-[var(--ea-text-3)]">{row.reference}</span>}
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!(Number(row.amount) > 0) || busy}
+                        onClick={() => setQpayRowKey(row.key)}
+                      >
+                        QR үүсгэх
+                      </Button>
+                    )
+                  ) : method.kind === "gift_card" ? (
                     <Input
                       value={row.giftCardCode}
                       placeholder="Картын код"
@@ -570,6 +636,23 @@ export function PaymentDialog({
               <li key={index}>• {warning}</li>
             ))}
           </ul>
+        )}
+
+        {qpayRow && shift && (
+          <QpayDialog
+            open
+            amount={Number(qpayRow.amount)}
+            shiftId={shift.id}
+            saleInput={buildSaleInput()}
+            onPaid={(intent) => {
+              patchRow(qpayRow.key, {
+                qpayIntentId: intent.id,
+                amount: String(intent.amount),
+                reference: intent.qpayInvoiceId ?? "",
+              });
+            }}
+            onClose={() => setQpayRowKey(null)}
+          />
         )}
 
         <DialogFooter>

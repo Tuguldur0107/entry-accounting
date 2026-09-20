@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { posEbarimtSubmissions, posSettings } from "@/lib/db/schema";
+import { posEbarimtSubmissions, posQpayIntents, posSettings } from "@/lib/db/schema";
+import { QPAY_PAID_UNFINALIZED_MINUTES } from "@/lib/qpay/constants";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { deploymentMode } from "@/lib/deployment-mode";
 import { APP_VERSION, GIT_SHA } from "@/lib/version";
@@ -40,6 +41,31 @@ async function ebarimtHealth() {
   }
 }
 
+/** QPay — зөвхөн тоолуур (нууц, мерчант id БАЙХГҮЙ). */
+async function qpayHealth() {
+  try {
+    const [orgs] = await db
+      .select({ enabled: sql<number>`count(*) filter (where ${posSettings.qpayEnabled})` })
+      .from(posSettings);
+    const cutoff = new Date(Date.now() - QPAY_PAID_UNFINALIZED_MINUTES * 60_000);
+    const [intents] = await db
+      .select({
+        open: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'open')`,
+        paidUnfinalized: sql<number>`count(*) filter (where ${posQpayIntents.status} = 'paid' and ${posQpayIntents.saleId} is null and ${posQpayIntents.paidAt} < ${cutoff})`,
+        lastPaidAt: sql<Date | null>`max(${posQpayIntents.paidAt})`,
+      })
+      .from(posQpayIntents);
+    return {
+      enabledOrganizations: Number(orgs?.enabled ?? 0),
+      openIntents: Number(intents?.open ?? 0),
+      paidUnfinalized: Number(intents?.paidUnfinalized ?? 0),
+      lastPaidAt: intents?.lastPaidAt ? new Date(intents.lastPaidAt).toISOString() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   const license = deploymentLicenseStatus();
   const meta = {
@@ -51,7 +77,8 @@ export async function GET() {
   try {
     await db.execute(sql`select 1`);
     const ebarimt = await ebarimtHealth();
-    return NextResponse.json({ ok: true, ...meta, ebarimt });
+    const qpay = await qpayHealth();
+    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay });
   } catch (err) {
     return NextResponse.json(
       { ok: false, ...meta, error: err instanceof Error ? err.message : String(err) },

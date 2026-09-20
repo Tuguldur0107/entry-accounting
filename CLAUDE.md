@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт** | ✅ | QPay API, камер barcode, B2B нэхэмжлэх, хотын татвар |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (Фаз 1)** | ✅ | QPay Фаз 2 (тайлан, AI, deployment doc), камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 
 ## Файлын бүтэц
@@ -64,6 +64,8 @@ entry-accounting/
 │   │                             #   load-data, reports (§5c)
 │   ├── ebarimt/                  # eBarimt 3.0: receipt (ЦЭВЭР), client, lookup,
 │   │                             #   queue, worker, ticker (§5c)
+│   ├── qpay/                     # QPay Quick QR (dashboard-аар): constants, intent
+│   │                             #   (ЦЭВЭР), readiness (ЦЭВЭР), client, store (§5c)
 │   ├── actions/pos.ts            # POS Server Actions (createPosSale атомик, буцаалт, ээлж)
 │   ├── attachments/constants.ts  # Хэмжээний хязгаар, төрлийн шошго
 │   ├── notifications/            # Мэдэгдэл: catalog · rules (аудит гүүр) · attention
@@ -808,6 +810,65 @@ app/api/cron/ebarimt     Гадаад cron (Bearer CRON_SECRET)
 tests/ebarimt-receipt.test.ts
 ```
 
+**QPay Quick QR (Фаз 3b, Фаз 1 ХЭРЭГЖСЭН).** Баримт:
+`docs/pos/04-qpay-integration-plan.md` (D1–D8 БАТЛАГДСАН 2026-09-20), гэрээ
+`docs/pos/01-implementation-contract.md` §10. **Entry = ХСН — QPay-тэй ШУУД
+харьцахгүй**, `Tuguldur0107/qpay-dashboard` REST v1 (x-api-key) хаалгаар.
+
+```
+QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → dashboard POST /api/v1/invoices
+   → QR + deeplink; диалог ENTRY DB-ээс 2 сек тутам (QPay polling ҮГҮЙ — ККТТ гэрээ хориглодог)
+   ← webhook POST /api/pos/qpay/webhook?intent= (HMAC-SHA256 x-webhook-signature) ЭСВЭЛ [Шалгах] 10 сек-д нэг
+→ paid → «Төлбөр авах» → createPosSale({ qpayIntentId }) → транзакц дотор finalizeIntentInTx
+```
+
+- **Intent машин ЦЭВЭР** (`lib/qpay/intent.ts`, тесттэй): open → paid | cancelled |
+  expired | failed; paid → finalized | failed. `markIntentPaid` ИДЕМПОТЕНТ (webhook ба
+  гар шалгалт хоёулаа нэг зам), дүн зөрвөл `failed` + шалтгаан — төлбөр ЗОХИОХГҮЙ
+- **Борлуулалт intent-ээс салахгүй:** QPay мөртэй `createPosSale` нь intent `paid`,
+  `saleId IS NULL`, дүн таарсан (|Δ|<1₮), QPay мөр НЭГ — эс бөгөөс
+  `[QPAY_INTENT_REQUIRED]` / `[QPAY_INTENT_NOT_PAID]` / `[QPAY_AMOUNT_MISMATCH]`.
+  Төлөгдсөн ч борлуулалт унавал (D3) intent `paid` хэвээр → борлуулалтын
+  жагсаалтын баннер [Борлуулалт болгох] `finalizeQpayIntent` (snapshot-оос ижил
+  оролтоор) — мөнгө орсон ч бараа хасагдаагүй ХЭЗЭЭ Ч чимээгүй үлдэхгүй; 10 мин
+  хэтэрвэл `pos.qpay_paid_unfinalized` мэдэгдэл (`attention.ts`, өдөрт нэг)
+- **GL ӨӨРЧЛӨЛТГҮЙ:** `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ,
+  ККТТ 1% шимтгэл settlement-д гарна); QPay буцаалт БАЙХГҮЙ (Quick QR refund-гүй) —
+  бэлэн / дэлгүүрийн кредитээр
+- **Нууц:** API key (`qpd_live_…`/`qpd_test_…`) ба webhook secret `encryptSecret`-ээр
+  (`pos_settings.qpayApiKeyEnc/qpayWebhookSecretEnc`), зөвхөн `lib/qpay/store.ts`
+  задална; `getQpayStatus` → `*Set: boolean`; аудит, лог, `/api/health.qpay`-д УТГА
+  ХЭЗЭЭ Ч гарахгүй. Console мерчантын нууц хадгалахгүй
+- **Идэвхжүүлэхээс ӨМНӨ readiness** (`lib/qpay/readiness.ts` ЦЭВЭР, тесттэй): API URL,
+  key, webhook secret, `NEXT_PUBLIC_APP_URL` (нийтийн webhook URL) — дутуу бол
+  switch идэвхгүй, `saveQpaySettings` ШИДНЭ; QPay хэлбэр алга / localhost → анхааруулга
+- **Client/server хил:** `intent.ts` `crypto`-гүй (кассын диалог import хийдэг);
+  HMAC нь `webhook-signature.ts` (зөвхөн route). Webhook нэвтрэлтгүй — org нь
+  intent-ээс, эрх нь гарын үсгээс (401/422/409 кодоор татгалзана, аудит
+  `pos_qpay_intent`)
+- Хэлбэрийн `provider` зөвхөн `ewallet` kind-д, зөвхөн `"qpay"`
+  (`resolvePaymentProvider`); нэг борлуулалтад QPay мөр НЭГ
+
+```
+lib/qpay/
+├── constants.ts        QPAY_PROVIDER/статус/TTL (60–900, default 180)/шалгалтын
+│                       интервал/алдааны код — CLIENT-SAFE
+├── types.ts            Dashboard JSON + QpayIntentView / QpayStatusSummary
+├── intent.ts           canTransition, clampInvoiceTtl, isExpired, checkAllowed,
+│                       amountMatches, parseWebhookPayload, secondsLeft — ЦЭВЭР (тесттэй)
+├── readiness.ts        qpayReadiness — ЦЭВЭР (тесттэй)
+├── webhook-signature.ts verifyWebhookSignature (node:crypto, timing-safe) — SERVER
+├── client.ts           Dashboard REST: create/cancel/check/list (8 сек timeout, QpayError)
+└── store.ts            DB давхарга: config (decrypt), intent CRUD, markIntentPaid,
+                        finalizeIntentInTx, expireStaleIntents, summary, countPaidUnfinalized
+lib/actions/qpay.ts     getQpayStatus / saveQpaySettings / testQpayConnection /
+                        createQpayIntent / getQpayIntent / checkQpayIntent /
+                        cancelQpayIntent / listPendingQpayIntents / finalizeQpayIntent
+app/api/pos/qpay/webhook/route.ts   payment.paid webhook
+components/pos/checkout/qpay-dialog.tsx  QR диалог; components/ui/qr-code.tsx SVG QR
+tests/qpay-intent.test.ts, tests/qpay-readiness.test.ts
+```
+
 ### 5b. Валютын ханшийн түүх (Монголбанк) — ХЭРЭГЖСЭН
 
 Хэрэглэгч **эхний үлдэгдэл, өмнөх хугацааны бичилт** оруулахад ӨМНӨХ ҮЕИЙН
@@ -1433,6 +1494,7 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   `updateCompanySettings`-ээс шууд emit, эзэн/админд; **actor-ыг ХАСАХГҮЙ** нь
   үл хамаарах №2: аюулгүй байдлын хяналт тул AI/MCP-ээр өөрчлөгдсөн үед
   token-ий эзэн өөрөө тэр даруй харах ёстой),
+  `pos.qpay_paid_unfinalized` (QPay төлөгдсөн ч борлуулалт болоогүй ≥10 мин, pos write),
   `bank.unmatched` (импортоос 3 хоног), `fx.reval_due` (сарын сүүлийн 3 хоног),
   `fx.rate_missing` (ажлын өдөр, МБ ханш алга), `stock.negative` (долоо хоног тутам)
 - **Нэмэлт суваг:** tick бүрд `deliverPendingChannels` — суваг × мэдэгдэл нэг л удаа;
@@ -1882,6 +1944,13 @@ POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeI
            ar_ap_documents / cash_documents .sourceType ("pos") + sourceId;
            cost_entries.trueUpOfEntryId, valuationSource "provisional_avg",
            entryType "cogs_true_up" (ТЭМДЭГТЭЙ дүн)
+QPay       pos_settings.qpay{Enabled,ApiUrl,ApiKeyEnc,WebhookSecretEnc,MerchantId,
+           InvoiceTtlSec} (нууц ШИФРТЭЙ), pos_payment_methods.provider ("qpay" |
+           null — зөвхөн ewallet), pos_qpay_intents (org, shift, cashier, amount,
+           cartSnapshot jsonb, status open|paid|finalized|cancelled|expired|failed,
+           qpayInvoiceId/qrText/qrImage/urls, paymentId/paidAmount/paidAt,
+           expiresAt, saleId, lastCheckAt, lastError; unique INDEX (org,
+           qpayInvoiceId) where not null)
 eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
            PosApiUrl,Mode} (мерчантын тохиргоо — нууц БАЙХГҮЙ),
            pos_payment_methods.ebarimtCode, inventory_items.ebarimt{Classification,

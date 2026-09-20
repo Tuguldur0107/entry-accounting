@@ -26,7 +26,7 @@ import { DiscountDialog } from "@/components/pos/checkout/discount-dialog";
 import { ParkedDialog } from "@/components/pos/checkout/parked-dialog";
 import { ProductPanel } from "@/components/pos/checkout/product-panel";
 import { TicketPanel, type TicketLineView } from "@/components/pos/checkout/ticket-panel";
-import { PaymentDialog, type EbarimtBuyerInput } from "@/components/pos/payment-dialog";
+import { PaymentDialog, type EbarimtBuyerInput, type PaymentConfirmExtra } from "@/components/pos/payment-dialog";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { CloseShiftDialog, OpenShiftForm } from "@/components/pos/shift-dialogs";
 import { Button } from "@/components/ui/button";
@@ -646,23 +646,33 @@ export function PosCheckoutView({
     return () => clearInterval(timer);
   }, [ebarimtBrowserMode, flushEbarimtOutbox]);
 
-  async function confirmSale(payments: PaymentInput[], buyer: EbarimtBuyerInput) {
+  /** Борлуулалтын СУУРЬ оролт — createPosSale ба QPay intent-ийн snapshot хоёуланд (нэг эх). */
+  const saleDraft = useMemo(
+    () => ({
+      shiftId: shift?.id ?? "",
+      warehouseId,
+      counterpartyId: customer && !customer.isWalkIn ? customer.id : null,
+      lines: lineInputs,
+      couponCodes,
+      receiptDiscountPercent,
+      receiptDiscountAmount,
+    }),
+    [shift?.id, warehouseId, customer, lineInputs, couponCodes, receiptDiscountPercent, receiptDiscountAmount]
+  );
+
+  async function confirmSale(payments: PaymentInput[], buyer: EbarimtBuyerInput, extra: PaymentConfirmExtra) {
     if (!shift) return false;
     setSaleBusy(true);
     try {
       const result = await createPosSale({
+        ...saleDraft,
         shiftId: shift.id,
-        warehouseId,
-        counterpartyId: customer && !customer.isWalkIn ? customer.id : null,
-        lines: lineInputs,
-        couponCodes,
-        receiptDiscountPercent,
-        receiptDiscountAmount,
         payments,
         ebarimtConsumerNo: buyer.ebarimtConsumerNo,
         ebarimtCustomerTin: buyer.ebarimtCustomerTin,
         ebarimtCustomerRegNo: buyer.ebarimtCustomerRegNo,
         skipEbarimt: buyer.skipEbarimt,
+        qpayIntentId: extra.qpayIntentId,
       });
       if (result.error || !result.receipt) {
         feedback.error(result.error ?? "Борлуулалт бичигдсэнгүй");
@@ -836,6 +846,7 @@ export function PosCheckoutView({
         ebarimtEnabled={data.settings.ebarimtEnabled}
         busy={saleBusy}
         onConfirm={confirmSale}
+        saleDraft={saleDraft}
       />
       <ReceiptPreview
         receipt={receipt}

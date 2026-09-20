@@ -84,6 +84,7 @@ test("ulaanbaatarNow: УБ-ын огноо/цаг/гараг", () => {
 const cash: PaymentMethodView = {
   id: "cash", code: "CASH", name: "Бэлэн", kind: "cash", cashAccountId: "acc-cash", cashAccountName: "Касс",
   currency: "MNT", requiresReference: false, allowsChange: true, allowsRefund: true, feePercent: null, ebarimtCode: "CASH", isActive: true, sortOrder: 0,
+  provider: null,
 };
 const card: PaymentMethodView = { ...cash, id: "card", code: "CARD", name: "Карт", kind: "card", allowsChange: false, requiresReference: true };
 const usd: PaymentMethodView = { ...cash, id: "usd", code: "USD", name: "Бэлэн $", kind: "cash_fx", currency: "USD", allowsChange: false };
