@@ -17,9 +17,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormField } from "@/components/ui/form-field";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   createInventoryCategory,
   createInventoryItem,
@@ -440,7 +441,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
             </div>
           </div>
           {items.length === 0 ? (
-            <EmptyBox text="Бараа бүртгээгүй байна" />
+            <EmptyState icon="inventory" title="Бараа бүртгээгүй байна" />
           ) : (
             <DataGridDynamic<InventoryItemView>
               rowData={items}
@@ -473,7 +474,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
               </Button>
             </div>
             {warehouses.length === 0 ? (
-              <EmptyBox text="Агуулах бүртгээгүй байна" />
+              <EmptyState icon="warehouse" title="Агуулах бүртгээгүй байна" />
             ) : (
               <DataGridDynamic<WarehouseView>
                 rowData={warehouses}
@@ -505,7 +506,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
               </Button>
             </div>
             {categories.length === 0 ? (
-              <EmptyBox text="Бүлэг бүртгээгүй байна — хөнгөлөлтийн дүрэм, тайланд ашиглана" />
+              <EmptyState icon="list" title="Бүлэг бүртгээгүй байна" description="Хөнгөлөлтийн дүрэм, тайланд ашиглана." />
             ) : (
               <DataGridDynamic<InventoryCategoryView>
                 rowData={categories}
@@ -535,7 +536,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Код">
+              <FormField label="Код">
                 <Input
                   value={itemForm.code}
                   disabled={!!itemForm.id}
@@ -544,8 +545,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     setItemForm((c) => ({ ...c, code: e.target.value }))
                   }
                 />
-              </Field>
-              <Field label="Хэмжих нэгж">
+              </FormField>
+              <FormField label="Хэмжих нэгж">
                 <Input
                   value={itemForm.unit}
                   placeholder="ш / кг / л / м"
@@ -553,9 +554,9 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     setItemForm((c) => ({ ...c, unit: e.target.value }))
                   }
                 />
-              </Field>
+              </FormField>
             </div>
-            <Field label="Нэр">
+            <FormField label="Нэр">
               <Input
                 value={itemForm.name}
                 placeholder="Барааны нэр"
@@ -563,9 +564,9 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   setItemForm((c) => ({ ...c, name: e.target.value }))
                 }
               />
-            </Field>
+            </FormField>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Борлуулах үнэ (₮)">
+              <FormField label="Борлуулах үнэ (₮)">
                 <Input
                   type="number"
                   min={0}
@@ -577,8 +578,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     setItemForm((c) => ({ ...c, salesPrice: e.target.value }))
                   }
                 />
-              </Field>
-              <Field label="Доод үнэ (₮)">
+              </FormField>
+              <FormField label="Доод үнэ (₮)">
                 <Input
                   type="number"
                   min={0}
@@ -590,10 +591,10 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     setItemForm((c) => ({ ...c, minSalesPrice: e.target.value }))
                   }
                 />
-              </Field>
+              </FormField>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Баркод">
+              <FormField label="Баркод">
                 <Input
                   value={itemForm.barcode}
                   placeholder="Сканнерын код (сонголтоор)"
@@ -602,8 +603,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     setItemForm((c) => ({ ...c, barcode: e.target.value }))
                   }
                 />
-              </Field>
-              <Field label="НӨАТ">
+              </FormField>
+              <FormField label="НӨАТ">
                 {/* Native select — Dialog доторх Base UI popup давхарга
                     дарагддаг тул ea-form-select идиомыг дагана */}
                 <select
@@ -622,10 +623,10 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     </option>
                   ))}
                 </select>
-              </Field>
+              </FormField>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Бүлэг">
+              <FormField label="Бүлэг">
                 <select
                   className="ea-form-select"
                   value={itemForm.categoryCode}
@@ -645,8 +646,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                       </option>
                     ))}
                 </select>
-              </Field>
-              <Field
+              </FormField>
+              <FormField
                 label="Орлогын данс"
                 hint="хоосон бол POS тохиргооны орлогын данс"
               >
@@ -662,10 +663,10 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     }))
                   }
                 />
-              </Field>
+              </FormField>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field
+              <FormField
                 label="eBarimt ангилал"
                 hint="ТЕГ-ийн 7 оронтой ангилал — хоосон бол бүлгийнхийг өвлөнө"
               >
@@ -682,8 +683,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     }))
                   }
                 />
-              </Field>
-              <Field
+              </FormField>
+              <FormField
                 label="Татварын бүтээгдэхүүний код"
                 hint="3 орон — НӨАТ-гүй / 0% бараанд ЗААВАЛ"
               >
@@ -701,7 +702,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     }))
                   }
                 />
-              </Field>
+              </FormField>
             </div>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
@@ -760,7 +761,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
             <DialogTitle>Шинэ агуулах</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
-            <Field label="Код">
+            <FormField label="Код">
               <Input
                 value={warehouseForm.code}
                 placeholder="Ж: AG-01"
@@ -768,8 +769,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   setWarehouseForm((c) => ({ ...c, code: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Нэр">
+            </FormField>
+            <FormField label="Нэр">
               <Input
                 value={warehouseForm.name}
                 placeholder="Агуулахын нэр"
@@ -777,7 +778,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   setWarehouseForm((c) => ({ ...c, name: e.target.value }))
                 }
               />
-            </Field>
+            </FormField>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -816,7 +817,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
-            <Field label="Код">
+            <FormField label="Код">
               <Input
                 value={categoryForm.code}
                 disabled={!!categoryForm.id}
@@ -825,8 +826,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   setCategoryForm((c) => ({ ...c, code: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Нэр">
+            </FormField>
+            <FormField label="Нэр">
               <Input
                 value={categoryForm.name}
                 placeholder="Бүлгийн нэр"
@@ -834,8 +835,8 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   setCategoryForm((c) => ({ ...c, name: e.target.value }))
                 }
               />
-            </Field>
-            <Field
+            </FormField>
+            <FormField
               label="eBarimt ангилал"
               hint="7 орон — бүлгийн бараанд ангилал хоосон бол ЭНЭ код өвлөгдөнө"
             >
@@ -852,7 +853,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                   }))
                 }
               />
-            </Field>
+            </FormField>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -899,28 +900,3 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-[var(--ea-text-4)]">{hint}</p>}
-    </div>
-  );
-}
-
-function EmptyBox({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-40 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] px-4 text-center text-sm text-[var(--ea-text-4)]">
-      {text}
-    </div>
-  );
-}

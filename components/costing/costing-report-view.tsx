@@ -16,7 +16,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/ui/form-field";
+import { EmptyState } from "@/components/ui/empty-state";
 import { createNrvEntry } from "@/lib/actions/costing";
 import type { ValuationRow } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -171,7 +172,7 @@ export function CostingReportView({ valuation }: Props) {
 
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {valuation.length === 0 ? (
-          <EmptyBox text="Батлагдсан өртгийн бичилт байхгүй" className="flex-1" />
+          <EmptyState icon="costing" title="Батлагдсан өртгийн бичилт байхгүй" />
         ) : (
           <DataGridDynamic<ValuationRow>
             rowData={valuation}
@@ -203,14 +204,14 @@ export function CostingReportView({ valuation }: Props) {
                 бууруулалтын хэмжээнд сэргээлт үүснэ.
               </p>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Огноо">
+                <FormField label="Огноо">
                   <Input
                     type="date"
                     value={nrvDate}
                     onChange={(event) => setNrvDate(event.target.value)}
                   />
-                </Field>
-                <Field label="NRV / нэгж (MNT)">
+                </FormField>
+                <FormField label="NRV / нэгж (MNT)">
                   <Input
                     type="number"
                     min="0"
@@ -223,7 +224,7 @@ export function CostingReportView({ valuation }: Props) {
                       if (event.key === "Enter") submitNrv();
                     }}
                   />
-                </Field>
+                </FormField>
               </div>
               {Number(nrvInput) >= 0 && nrvInput.trim() !== "" && (
                 <p className="rounded-md bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-2)]">
@@ -273,24 +274,3 @@ export function CostingReportView({ valuation }: Props) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-function EmptyBox({ text, className }: { text: string; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "flex min-h-40 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]",
-        className
-      )}
-    >
-      {text}
-    </div>
-  );
-}

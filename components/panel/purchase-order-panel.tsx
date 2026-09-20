@@ -34,9 +34,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PageTabs, type TabOption } from "@/components/ui/tabs";
+import { FormField } from "@/components/ui/form-field";
 import {
   approvePurchaseOrder,
   cancelPurchaseOrder,
@@ -1015,7 +1015,7 @@ function PurchaseOrderBody({
       {detail && <SupplierCard supplier={supplier} />}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Нийлүүлэгч">
+        <FormField label="Нийлүүлэгч">
           <CounterpartySelect
             value={form.counterpartyId}
             onChange={(value) =>
@@ -1041,8 +1041,8 @@ function PurchaseOrderBody({
               төрлийг нь «Нийлүүлэгч» эсвэл «Хоёулаа» болгож бүртгэнэ үү.
             </p>
           )}
-        </Field>
-        <Field label="Захиалгын дугаар">
+        </FormField>
+        <FormField label="Захиалгын дугаар">
           <Input
             value={form.documentNo}
             placeholder="Хоосон бол автоматаар үүснэ"
@@ -1055,8 +1055,8 @@ function PurchaseOrderBody({
               }))
             }
           />
-        </Field>
-        <Field label="Огноо">
+        </FormField>
+        <FormField label="Огноо">
           <Input
             type="date"
             value={form.date}
@@ -1065,8 +1065,8 @@ function PurchaseOrderBody({
               setForm((current) => ({ ...current, date: event.target.value }))
             }
           />
-        </Field>
-        <Field label="Хүргэх огноо">
+        </FormField>
+        <FormField label="Хүргэх огноо">
           <Input
             type="date"
             value={form.expectedDate}
@@ -1078,8 +1078,8 @@ function PurchaseOrderBody({
               }))
             }
           />
-        </Field>
-        <Field label="Валют">
+        </FormField>
+        <FormField label="Валют">
           <Input
             value={form.currency}
             maxLength={3}
@@ -1092,8 +1092,8 @@ function PurchaseOrderBody({
               }))
             }
           />
-        </Field>
-        <Field label="Агуулах">
+        </FormField>
+        <FormField label="Агуулах">
           <select
             className="ea-form-select"
             value={form.warehouseId}
@@ -1112,10 +1112,10 @@ function PurchaseOrderBody({
               </option>
             ))}
           </select>
-        </Field>
+        </FormField>
         {foreign && (
           <div className="sm:col-span-2">
-            <Field label="Албан ханш (мэдээлэл)">
+            <FormField label="Албан ханш (мэдээлэл)">
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -1136,11 +1136,11 @@ function PurchaseOrderBody({
                     : "Барааны өртөг нь ХҮЛЭЭН АВСАН өдрийн ханшаар үнэлэгдэнэ"}
                 </span>
               </div>
-            </Field>
+            </FormField>
           </div>
         )}
         <div className="sm:col-span-2 lg:col-span-4">
-          <Field label="Утга">
+          <FormField label="Утга">
             <Input
               value={form.description}
               disabled={!canEdit}
@@ -1154,7 +1154,7 @@ function PurchaseOrderBody({
                 }))
               }
             />
-          </Field>
+          </FormField>
         </div>
       </div>
 
@@ -1466,11 +1466,3 @@ function PurchaseOrderBody({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}

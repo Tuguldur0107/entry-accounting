@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/ui/form-field";
 import {
   importEmployees,
   toggleEmployee,
@@ -456,7 +456,7 @@ export function EmployeesView({ rows }: Props) {
 
           <div className="grid gap-5">
             <FormSection title="Хувийн мэдээлэл">
-              <Field label="Овог">
+              <FormField label="Овог">
                 <Input
                   value={form.lastName}
                   onChange={(event) =>
@@ -464,8 +464,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="Бат"
                 />
-              </Field>
-              <Field label="Нэр">
+              </FormField>
+              <FormField label="Нэр">
                 <Input
                   value={form.name}
                   onChange={(event) =>
@@ -473,8 +473,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="Дорж"
                 />
-              </Field>
-              <Field label="Регистрийн дугаар">
+              </FormField>
+              <FormField label="Регистрийн дугаар">
                 <Input
                   value={form.registerNo}
                   onChange={(event) =>
@@ -483,8 +483,8 @@ export function EmployeesView({ rows }: Props) {
                   placeholder="УК88010101"
                   className="font-mono"
                 />
-              </Field>
-              <Field label="Төрсөн огноо">
+              </FormField>
+              <FormField label="Төрсөн огноо">
                 <Input
                   type="date"
                   value={form.birthDate}
@@ -492,8 +492,8 @@ export function EmployeesView({ rows }: Props) {
                     setForm((c) => ({ ...c, birthDate: event.target.value }))
                   }
                 />
-              </Field>
-              <Field label="Утас">
+              </FormField>
+              <FormField label="Утас">
                 <Input
                   value={form.phone}
                   onChange={(event) =>
@@ -501,8 +501,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="99112233"
                 />
-              </Field>
-              <Field label="И-мэйл">
+              </FormField>
+              <FormField label="И-мэйл">
                 <Input
                   type="email"
                   value={form.email}
@@ -511,8 +511,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="dorj@company.mn"
                 />
-              </Field>
-              <Field label="Гэрийн хаяг" wide>
+              </FormField>
+              <FormField label="Гэрийн хаяг" className="sm:col-span-2">
                 <Input
                   value={form.homeAddress}
                   onChange={(event) =>
@@ -520,11 +520,11 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="БЗД, 26-р хороо ..."
                 />
-              </Field>
+              </FormField>
             </FormSection>
 
             <FormSection title="Хөдөлмөрийн харилцаа">
-              <Field label="Албан тушаал">
+              <FormField label="Албан тушаал">
                 <Input
                   value={form.position}
                   onChange={(event) =>
@@ -532,8 +532,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="Нягтлан бодогч"
                 />
-              </Field>
-              <Field label="Хэлтэс">
+              </FormField>
+              <FormField label="Хэлтэс">
                 <Input
                   value={form.department}
                   onChange={(event) =>
@@ -541,8 +541,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="Санхүү"
                 />
-              </Field>
-              <Field label="Ажил эрхлэлт">
+              </FormField>
+              <FormField label="Ажил эрхлэлт">
                 <select
                   className="ea-form-select"
                   value={form.employmentType}
@@ -557,8 +557,8 @@ export function EmployeesView({ rows }: Props) {
                   <option value="contract">Гэрээт</option>
                   <option value="hourly">Цагийн</option>
                 </select>
-              </Field>
-              <Field label="Ажилд орсон огноо">
+              </FormField>
+              <FormField label="Ажилд орсон огноо">
                 <Input
                   type="date"
                   value={form.hireDate}
@@ -566,8 +566,8 @@ export function EmployeesView({ rows }: Props) {
                     setForm((c) => ({ ...c, hireDate: event.target.value }))
                   }
                 />
-              </Field>
-              <Field label="Гарсан огноо">
+              </FormField>
+              <FormField label="Гарсан огноо">
                 <Input
                   type="date"
                   value={form.terminationDate}
@@ -578,11 +578,11 @@ export function EmployeesView({ rows }: Props) {
                     }))
                   }
                 />
-              </Field>
+              </FormField>
             </FormSection>
 
             <FormSection title="Банк">
-              <Field label="Банк">
+              <FormField label="Банк">
                 <Input
                   value={form.bankName}
                   onChange={(event) =>
@@ -590,8 +590,8 @@ export function EmployeesView({ rows }: Props) {
                   }
                   placeholder="Хаан банк"
                 />
-              </Field>
-              <Field label="Дансны дугаар">
+              </FormField>
+              <FormField label="Дансны дугаар">
                 <Input
                   value={form.bankAccountNo}
                   onChange={(event) =>
@@ -603,8 +603,8 @@ export function EmployeesView({ rows }: Props) {
                   placeholder="5041234567"
                   className="font-mono"
                 />
-              </Field>
-              <Field label="IBAN" wide>
+              </FormField>
+              <FormField label="IBAN" className="sm:col-span-2">
                 <Input
                   value={form.iban}
                   onChange={(event) =>
@@ -613,11 +613,11 @@ export function EmployeesView({ rows }: Props) {
                   placeholder="MN580005005041234567"
                   className="font-mono"
                 />
-              </Field>
+              </FormField>
             </FormSection>
 
             <FormSection title="Цалин">
-              <Field label="Үндсэн цалин">
+              <FormField label="Үндсэн цалин">
                 <Input
                   value={form.baseSalary}
                   onChange={(event) =>
@@ -626,8 +626,8 @@ export function EmployeesView({ rows }: Props) {
                   placeholder="1,500,000"
                   className="font-mono"
                 />
-              </Field>
-              <Field label="АО-НДШ %">
+              </FormField>
+              <FormField label="АО-НДШ %">
                 <Input
                   value={form.employerSiPercent}
                   onChange={(event) =>
@@ -643,8 +643,8 @@ export function EmployeesView({ rows }: Props) {
                   Ажил олгогчийн нийт НДШ (ҮОМШӨ багтсан): оффис 12.5 ·
                   барилга 13.2 · уул уурхай 14.2–14.7. Ажилтны 11.5% тогтмол.
                 </p>
-              </Field>
-              <Field label="ХЧТА тэтгэмжийн %">
+              </FormField>
+              <FormField label="ХЧТА тэтгэмжийн %">
                 <Input
                   value={form.sickBenefitPercent}
                   onChange={(event) =>
@@ -662,7 +662,7 @@ export function EmployeesView({ rows }: Props) {
                   бодолтод тэтгэмж АВТОМАТААР бодогдохгүй (хувийг зохиохгүй) —
                   дүнг тухайн сарын мөрөнд гараар оруулна.
                 </p>
-              </Field>
+              </FormField>
             </FormSection>
           </div>
 
@@ -701,19 +701,3 @@ function FormSection({
   );
 }
 
-function Field({
-  label,
-  wide = false,
-  children,
-}: {
-  label: string;
-  wide?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={`grid gap-1.5 ${wide ? "sm:col-span-2" : ""}`}>
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}

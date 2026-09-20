@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { LoadingInline } from "@/components/ui/loading";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getFaTieOutDetail, type FaTieOutDetail } from "@/lib/actions/fa";
 import {
   PERIOD_SCOPES,
@@ -228,7 +229,7 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
           NBV бүртгэл (идэвхтэй хөрөнгө)
         </h2>
         {rows.length === 0 ? (
-          <EmptyBox text="Идэвхтэй хөрөнгө алга — карт бүртгэж идэвхжүүлнэ" />
+          <EmptyState icon="fixedAsset" title="Идэвхтэй хөрөнгө алга" description="Карт бүртгэж идэвхжүүлнэ." actions={[{ label: "Хөрөнгө бүртгэх", href: "/fa/assets", icon: "add", primary: true }]} />
         ) : (
           <DataGridDynamic<NbvRow>
             rowData={rows}
@@ -251,7 +252,7 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
           бичсэн журналыг илтгэнэ.
         </p>
         {tieOut.length === 0 ? (
-          <EmptyBox text="FA данс ашиглагдаагүй байна" />
+          <EmptyState icon="generalLedger" title="FA данс ашиглагдаагүй байна" />
         ) : (
           <DataGridDynamic<FaTieOutRow>
             rowData={tieOut}
@@ -500,10 +501,3 @@ function DetailList({
   );
 }
 
-function EmptyBox({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-40 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-      {text}
-    </div>
-  );
-}

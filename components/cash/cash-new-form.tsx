@@ -17,8 +17,8 @@ import { AccountInput } from "@/components/account/account-input";
 import { CounterpartySelect } from "@/components/arap/counterparty-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { FormField } from "@/components/ui/form-field";
 import {
   createCashDocument,
   type CashDocumentType,
@@ -307,7 +307,7 @@ export function CashNewForm({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Огноо">
+            <FormField label="Огноо">
               <Input
                 type="date"
                 value={form.date}
@@ -318,8 +318,8 @@ export function CashNewForm({
                   }))
                 }
               />
-            </Field>
-            <Field label="Дүн">
+            </FormField>
+            <FormField label="Дүн">
               <Input
                 type="number"
                 min="0.01"
@@ -333,12 +333,12 @@ export function CashNewForm({
                   }))
                 }
               />
-            </Field>
+            </FormField>
           </div>
 
           {(form.documentType === "payment" ||
             form.documentType === "transfer") && (
-            <Field label="Гаргах данс">
+            <FormField label="Гаргах данс">
               <CashAccountSelect
                 value={form.fromCashAccountId}
                 accounts={activeAccounts}
@@ -350,12 +350,12 @@ export function CashNewForm({
                   }))
                 }
               />
-            </Field>
+            </FormField>
           )}
 
           {(form.documentType === "receipt" ||
             form.documentType === "transfer") && (
-            <Field label="Хүлээн авах данс">
+            <FormField label="Хүлээн авах данс">
               <CashAccountSelect
                 value={form.toCashAccountId}
                 accounts={activeAccounts}
@@ -367,12 +367,12 @@ export function CashNewForm({
                   }))
                 }
               />
-            </Field>
+            </FormField>
           )}
 
           {selectedCurrency !== "MNT" && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label={`${selectedCurrency}/MNT гүйлгээний ханш`}>
+              <FormField label={`${selectedCurrency}/MNT гүйлгээний ханш`}>
                 <Input
                   type="number"
                   min="0.00000001"
@@ -386,8 +386,8 @@ export function CashNewForm({
                     }))
                   }
                 />
-              </Field>
-              <Field label="GL-д бичигдэх MNT дүн">
+              </FormField>
+              <FormField label="GL-д бичигдэх MNT дүн">
                 <Input
                   value={
                     Number(form.amount) > 0 && Number(form.exchangeRate) > 0
@@ -403,12 +403,12 @@ export function CashNewForm({
                   readOnly
                   placeholder="0.00"
                 />
-              </Field>
+              </FormField>
             </div>
           )}
 
           {arApOptionsForType.length > 0 && (
-            <Field
+            <FormField
               label={
                 form.documentType === "receipt"
                   ? "Авлагын нэхэмжлэлээс сонгох"
@@ -433,12 +433,12 @@ export function CashNewForm({
                 placeholder="Нэхэмжлэх сонгох (заавал биш)..."
               hideValue
               />
-            </Field>
+            </FormField>
           )}
 
           {form.documentType !== "transfer" && (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Харилцах GL данс">
+              <FormField label="Харилцах GL данс">
                 {segmentOptions ? (
                   <AccountInput
                     value={form.counterAccountNumber}
@@ -469,8 +469,8 @@ export function CashNewForm({
                     placeholder="GL данс сонгох..."
                   />
                 )}
-              </Field>
-              <Field label="Харилцагч">
+              </FormField>
+              <FormField label="Харилцагч">
                 {/* Бүртгэлтэй харилцагч (код/РД, нэр нь баримтад холбогдоно);
                     бүртгэлгүй бол чөлөөт нэрээ бичнэ — ЯГ таарсан бүртгэл
                     байвал сервер автоматаар холбоно. */}
@@ -502,11 +502,11 @@ export function CashNewForm({
                     />
                   )}
                 </div>
-              </Field>
+              </FormField>
             </div>
           )}
 
-          <Field label="Мөнгөн гүйлгээний ангилал (S8)">
+          <FormField label="Мөнгөн гүйлгээний ангилал (S8)">
             <select
               value={form.cashFlowCode}
               onChange={(event) =>
@@ -524,9 +524,9 @@ export function CashNewForm({
                 </option>
               ))}
             </select>
-          </Field>
+          </FormField>
 
-          <Field label="Журналын нэр">
+          <FormField label="Журналын нэр">
             <Input
               value={form.description}
               placeholder="Баримтын тайлбар"
@@ -537,7 +537,7 @@ export function CashNewForm({
                 }))
               }
             />
-          </Field>
+          </FormField>
 
           {error && (
             <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
@@ -566,21 +566,6 @@ export function CashNewForm({
           Хадгалж батлах
         </Button>
       </footer>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
-      {children}
     </div>
   );
 }

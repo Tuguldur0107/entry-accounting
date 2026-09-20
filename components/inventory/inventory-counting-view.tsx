@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { recordInventoryCount } from "@/lib/actions/inventory";
 import type { WarehouseView } from "@/lib/inventory/types";
 
@@ -190,9 +191,9 @@ export function InventoryCountingView({
       </div>
 
       {activeWarehouses.length === 0 ? (
-        <EmptyBox text="Идэвхтэй агуулах алга — эхлээд агуулах бүртгэнэ" />
+        <EmptyState icon="warehouse" title="Идэвхтэй агуулах алга" description="Эхлээд агуулах бүртгэнэ." actions={[{ label: "Агуулах бүртгэх", href: "/inventory/items", icon: "add", primary: true }]} />
       ) : rows.length === 0 ? (
-        <EmptyBox text="Идэвхтэй бараа алга — эхлээд бараа бүртгэнэ" />
+        <EmptyState icon="inventory" title="Идэвхтэй бараа алга" description="Эхлээд бараа бүртгэнэ." actions={[{ label: "Бараа бүртгэх", href: "/inventory/items", icon: "add", primary: true }]} />
       ) : (
         <DataGridDynamic<CountSheetRow>
           rowData={rows}
@@ -209,10 +210,3 @@ export function InventoryCountingView({
   );
 }
 
-function EmptyBox({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-      {text}
-    </div>
-  );
-}
