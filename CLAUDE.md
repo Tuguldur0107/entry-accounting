@@ -122,6 +122,25 @@ entry-accounting/
   бүртгэлтэй). Server талын дуудагч (lib/ai/tools.ts) `unwrapAction`-оор
   шидэлтээ хадгална.
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
+- **Гишүүний эрх — ХОЁР давхарга** (`lib/permissions.ts` цэвэр, `lib/auth.ts` DB):
+  - **Route guard:** модулийн хавтас бүрийн `layout.tsx`-д
+    `<ModuleGuard moduleKeys="…">` (`components/layout/access-guard.tsx`) —
+    эрх «Байхгүй» (none) гишүүнд URL-ээр ч нээгдэхгүй; admin+ хуудас
+    (`/admin/*`, `/settings/permissions`) `<RoleGuard minRole="admin">`.
+    `tests/module-route-guards.test.ts` хавтас бүрд guard байгааг статикаар
+    шалгана — шинэ модулийн хавтас нэмбэл тестийн `EXPECTED`-д бүртгэнэ.
+    POS нь Бараа материалын дотор боловч `pos` түлхүүрээр тусдаа (кассчин
+    `inv`-гүй байж болно): `inventory/layout` inv|pos, дэд хавтас бүр өөрийнхөө
+  - **Action guard:** бичилт/батлах `requireModuleAction(key, "write"|"post")`,
+    УНШИЛТЫН loader (панелийн өгөгдөл, тайлан, API route) мөн
+    `requireModuleAction(key, "read")` — `getActiveOrg()` дангаараа эрх
+    шалгадаггүй (зөвхөн scope). Хоёр модулийн аль нэг нь хүрэлцэх бол
+    `requireAnyModuleAction`. Лавлах өгөгдөл (сегмент, период, ханш) шалгалтгүй
+  - **Урилга** (`org_invitations`) 7 хоног хүчинтэй (`expiresAt`,
+    `ORG_INVITATION_TTL_DAYS`); дахин урихад token + хугацаа шинэчлэгдэнэ;
+    урилгын ЛИНК зөвхөн admin+ хардаг (`getOrgSettingsData`). Байгууллага/
+    гишүүн/урилгын үйлдэл бүр `logAuditEvent` (`organization` / `membership` /
+    `invitation`) — байгууллага устгах нь cascade тул зөвхөн сервер лог
 - ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
   import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
   'net' / 'tls'` гэж `next build`-ийг унагаана (postgres драйвер browser

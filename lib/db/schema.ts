@@ -82,8 +82,13 @@ export const membershipsRelations = relations(memberships, ({ one }) => ({
   user: one(users, { fields: [memberships.userId], references: [users.id] }),
 }));
 
+/** Урилгын линкийн хүчинтэй хугацаа (хоног) — дуусвал шинээр урина. */
+export const ORG_INVITATION_TTL_DAYS = 7;
+
 // Бүртгэлгүй и-мэйл рүү илгээсэн урилга. Хүлээн авагч token-той линкээр
 // бүртгүүлмэгц гишүүнчлэл идэвхжиж acceptedAt тавигдана; цуцлах = мөр устгах.
+// Линк ХУГАЦААТАЙ (expiresAt, default 7 хоног) — хуучин линк үүрд хүчинтэй
+// үлдэхгүй; дахин урихад хугацаа шинэчлэгдэнэ.
 export const orgInvitations = pgTable(
   "org_invitations",
   {
@@ -98,6 +103,10 @@ export const orgInvitations = pgTable(
       onDelete: "set null",
     }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    /** Линк хүчингүй болох мөч — үүнээс хойш бүртгүүлэх боломжгүй. */
+    expiresAt: timestamp("expires_at")
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
     acceptedAt: timestamp("accepted_at"),
   },
   (t) => [

@@ -14,7 +14,7 @@ import {
 import { and, asc, eq, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
-import { hasModuleLevel } from "@/lib/permissions";
+import { effectiveLevel, hasModuleLevel, ROLE_RANK, type PermissionLevel } from "@/lib/permissions";
 import authConfig from "@/lib/auth.config";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -102,12 +102,7 @@ export type ActiveOrg = {
 
 const ORG_COOKIE = "ea-org";
 
-const ROLE_ORDER: Record<MembershipRole, number> = {
-  viewer: 0,
-  accountant: 1,
-  admin: 2,
-  owner: 3,
-};
+const ROLE_ORDER = ROLE_RANK;
 
 /** Хэрэглэгчид personal байгууллага үүсгэнэ (нэр = хэрэглэгчийн нэр). */
 export async function createPersonalOrg(
@@ -234,6 +229,31 @@ export async function requireModuleAction(
     );
   }
   return active;
+}
+
+/**
+ * Модулиудын БОДИТ түвшин — ШИДЭХГҮЙ. Route guard (модулийн layout) ба
+ * навигаци үүгээр "none" модулийг хаана; server action-ууд харин
+ * requireModuleAction-оор ШИДЭЖ хаадаг хэвээр (давхар хамгаалалт).
+ */
+export async function moduleAccess(
+  moduleKeys: string[]
+): Promise<{ active: ActiveOrg; levels: Record<string, PermissionLevel> }> {
+  const active = await getActiveOrg();
+  const membership =
+    ROLE_ORDER[active.role] >= ROLE_ORDER.admin
+      ? null
+      : await db.query.memberships.findFirst({
+          where: and(
+            eq(memberships.organizationId, active.orgId),
+            eq(memberships.userId, active.userId)
+          ),
+          columns: { permissions: true },
+        });
+  const levels: Record<string, PermissionLevel> = {};
+  for (const key of moduleKeys)
+    levels[key] = effectiveLevel(active.role, membership?.permissions, key);
+  return { active, levels };
 }
 
 /** Аль нэг нь хүрэлцэхэд хангалттай (ж: харилцагч — АР эсвэл АП бичих эрх). */

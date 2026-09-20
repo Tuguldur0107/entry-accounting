@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 
-import { getActiveOrg } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { bankStatementLines, bankStatements } from "@/lib/db/schema";
 
@@ -16,9 +16,9 @@ export async function GET(
 ) {
   let orgId: string;
   try {
-    ({ orgId } = await getActiveOrg());
+    ({ orgId } = await requireModuleAction("cash", "read"));
   } catch {
-    return Response.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
+    return Response.json({ error: "Нэвтрэх эсвэл унших эрх шаардлагатай" }, { status: 401 });
   }
 
   const { statementId } = await params;

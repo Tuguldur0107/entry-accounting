@@ -9,7 +9,7 @@
 import { eq } from "drizzle-orm";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
-import { getActiveOrg } from "@/lib/auth";
+import { requireAnyModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { chartOfAccounts } from "@/lib/db/schema";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
@@ -28,7 +28,7 @@ export async function getTaxOffsetCandidates(
   extraMains: string[]
 ): Promise<ActionResult<{ candidates: TaxOffsetCandidate[] }>> {
   try {
-    const { orgId, userId } = await getActiveOrg();
+    const { orgId, userId } = await requireAnyModuleAction([["ar", "read"], ["ap", "read"]]);
     const [vat, payroll, tax] = await Promise.all([
       loadVatSettings(orgId, userId),
       loadPayrollSettings(orgId, userId),

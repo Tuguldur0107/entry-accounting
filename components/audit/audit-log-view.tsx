@@ -35,6 +35,15 @@ const ACTION_LABELS: Record<string, string> = {
   fx_reverse: "FX буцаалт",
   attach: "Хавсралт нэмсэн",
   detach: "Хавсралт устгасан",
+  create: "Үүсгэсэн",
+  update: "Өөрчилсөн",
+  permissions: "Эрх тохируулсан",
+  member_added: "Гишүүн нэмсэн",
+  member_removed: "Гишүүн хассан",
+  member_left: "Гишүүн гарсан",
+  role_changed: "Роль солисон",
+  invited: "Урилга илгээсэн",
+  invitation_cancelled: "Урилга цуцалсан",
 };
 
 // Объектын төрөл → монгол шошго.
@@ -49,6 +58,9 @@ const ENTITY_LABELS: Record<string, string> = {
   payroll: "Цалин",
   purchase_order: "Захиалга (PO)",
   goods_receipt: "Хүлээн авалт",
+  organization: "Байгууллага",
+  membership: "Гишүүнчлэл",
+  invitation: "Урилга",
 };
 
 // "YYYY-MM-DD HH:mm" — Улаанбаатарын цагаар. sv-SE locale яг энэ форматыг өгдөг.

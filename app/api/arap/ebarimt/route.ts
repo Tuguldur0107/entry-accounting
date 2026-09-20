@@ -9,7 +9,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { and, eq } from "drizzle-orm";
 
-import { getActiveOrg } from "@/lib/auth";
+import { requireAnyModuleAction } from "@/lib/auth";
 import { decryptSecret } from "@/lib/ai/crypto";
 import { executeAiTool } from "@/lib/ai/tools";
 import {
@@ -37,9 +37,9 @@ export async function POST(request: Request) {
   let orgId: string;
   let userId: string;
   try {
-    ({ orgId, userId } = await getActiveOrg());
+    ({ orgId, userId } = await requireAnyModuleAction([["ar", "write"], ["ap", "write"]]));
   } catch {
-    return errorJson("Нэвтрэх шаардлагатай", 401);
+    return errorJson("Нэвтрэх эсвэл бичих эрх шаардлагатай", 401);
   }
 
   let file: File | null = null;

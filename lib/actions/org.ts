@@ -28,6 +28,9 @@ import {
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { actionError, type ActionResult } from "@/lib/action-result";
+import { logAuditEvent } from "@/lib/audit";
+import { ORG_INVITATION_TTL_DAYS } from "@/lib/db/schema";
+import { roleAtLeast } from "@/lib/permissions";
 
 /**
  * Компанийн бүртгэл өөрчлөгдөхөд S1/S6 сегментийн утга дагаж шинэчлэгдэнэ
@@ -69,6 +72,8 @@ export type OrgInvitationView = {
   email: string;
   role: MembershipRole;
   createdAt: string;
+  /** Линк хүчингүй болох өдөр (YYYY-MM-DD). */
+  expiresAt: string;
   url: string;
 };
 
@@ -122,13 +127,17 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
         .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
         .where(eq(memberships.userId, userId))
         .orderBy(asc(memberships.createdAt)),
-      db.query.orgInvitations.findMany({
-        where: and(
-          eq(orgInvitations.organizationId, orgId),
-          sql`${orgInvitations.acceptedAt} is null`
-        ),
-        orderBy: [asc(orgInvitations.createdAt)],
-      }),
+      // Урилга (линктэй!) — ЗӨВХӨН admin+ харна; хугацаа дууссаныг харуулахгүй.
+      roleAtLeast(role, "admin")
+        ? db.query.orgInvitations.findMany({
+            where: and(
+              eq(orgInvitations.organizationId, orgId),
+              sql`${orgInvitations.acceptedAt} is null`,
+              sql`${orgInvitations.expiresAt} > now()`
+            ),
+            orderBy: [asc(orgInvitations.createdAt)],
+          })
+        : Promise.resolve([]),
       // Миний байгууллага бүрийн гишүүдийн тоо — зүүн жагсаалтад.
       db
         .select({
@@ -166,6 +175,7 @@ export async function getOrgSettingsData(): Promise<OrgSettingsData> {
       email: row.email,
       role: row.role as MembershipRole,
       createdAt: row.createdAt.toISOString().slice(0, 10),
+      expiresAt: row.expiresAt.toISOString().slice(0, 10),
       url: inviteUrl(row.token),
     })),
     myOrgs: myMemberships.map((row) => ({
@@ -349,6 +359,14 @@ async function createOrganizationCore(data: {
 
   // Шинэ компани = S1/S6 сегментийн шинэ утга (эзэмшигчийн БҮХ компанид).
   await refreshCompanySegments(orgId, userId);
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "create",
+    entityType: "organization",
+    entityId: orgId,
+    summary: `Байгууллага үүсгэв — ${name}`,
+  });
 
   (await cookies()).set(ORG_COOKIE, orgId, {
     path: "/",
@@ -357,7 +375,6 @@ async function createOrganizationCore(data: {
   });
   revalidatePath("/", "layout");
   return { id: orgId };
-  return {};
 }
 
 /**
@@ -418,6 +435,14 @@ export async function createOrganizationForUser(input: {
         }))
       );
     return org.id;
+  });
+  await logAuditEvent({
+    userId: input.userId,
+    organizationId: orgId,
+    action: "create",
+    entityType: "organization",
+    entityId: orgId,
+    summary: `Байгууллага үүсгэв (API/MCP) — ${name}`,
   });
   return { orgId };
 }
@@ -487,6 +512,14 @@ async function updateOrganizationCore(data: {
     .update(organizations)
     .set({ name, registryNo: data.registryNo?.trim() || null })
     .where(eq(organizations.id, orgId));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "update",
+    entityType: "organization",
+    entityId: orgId,
+    summary: `Байгууллагын мэдээлэл өөрчлөв — ${name}${data.registryNo?.trim() ? ` (${data.registryNo.trim()})` : ""}`,
+  });
   // Нэр солигдвол S1/S6 утгын НЭР дагана — код хэвээр (журнал хоцрохгүй).
   await refreshCompanySegments(orgId, userId);
   revalidatePath("/settings/gl");
@@ -545,25 +578,47 @@ async function inviteMemberCore(data: {
     });
     if (existing) throw new Error("Энэ хэрэглэгч аль хэдийн гишүүн байна");
 
-    await db.insert(memberships).values({
+    const [created] = await db
+      .insert(memberships)
+      .values({
+        organizationId: orgId,
+        userId: user.id,
+        role: data.role,
+      })
+      .returning({ id: memberships.id });
+    await logAuditEvent({
+      userId: invitedBy,
       organizationId: orgId,
-      userId: user.id,
-      role: data.role,
+      action: "member_added",
+      entityType: "membership",
+      entityId: created.id,
+      summary: `Гишүүн нэмэв — ${email} (${data.role})`,
     });
     revalidatePath("/admin/org");
     return { outcome: "added" };
   }
 
   // Бүртгэлгүй — урилга. Давхар илгээвэл хуучныг шинэчилнэ (нэг pending/и-мэйл).
+  // Дахин урихад хугацаа ба token ШИНЭЧЛЭГДЭНЭ — хуучин (магадгүй алдагдсан)
+  // линк хүчингүй болж, шинэ линк дахин 7 хоног хүчинтэй.
+  const expiresAt = new Date(Date.now() + ORG_INVITATION_TTL_DAYS * 24 * 60 * 60_000);
   const [invitation] = await db
     .insert(orgInvitations)
-    .values({ organizationId: orgId, email, role: data.role, invitedBy })
+    .values({ organizationId: orgId, email, role: data.role, invitedBy, expiresAt })
     .onConflictDoUpdate({
       target: [orgInvitations.organizationId, orgInvitations.email],
       targetWhere: sql`accepted_at is null`,
-      set: { role: data.role, invitedBy },
+      set: { role: data.role, invitedBy, expiresAt, token: sql`gen_random_uuid()` },
     })
-    .returning({ token: orgInvitations.token });
+    .returning({ id: orgInvitations.id, token: orgInvitations.token });
+  await logAuditEvent({
+    userId: invitedBy,
+    organizationId: orgId,
+    action: "invited",
+    entityType: "invitation",
+    entityId: invitation.id,
+    summary: `Урилга илгээв — ${email} (${data.role}), ${ORG_INVITATION_TTL_DAYS} хоног хүчинтэй`,
+  });
 
   const url = inviteUrl(invitation.token);
   let emailed = false;
@@ -604,17 +659,32 @@ async function inviteMemberCore(data: {
 }
 
 /** Хүлээгдэж буй урилгыг цуцлах — линк нь хүчингүй болно. */
-export async function cancelInvitation(invitationId: string) {
-  const { orgId } = await requireRole("admin");
-  await db
-    .delete(orgInvitations)
-    .where(
-      and(
-        eq(orgInvitations.id, invitationId),
-        eq(orgInvitations.organizationId, orgId)
+export async function cancelInvitation(invitationId: string): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    const [removed] = await db
+      .delete(orgInvitations)
+      .where(
+        and(
+          eq(orgInvitations.id, invitationId),
+          eq(orgInvitations.organizationId, orgId)
+        )
       )
-    );
-  revalidatePath("/admin/org");
+      .returning({ email: orgInvitations.email });
+    if (removed)
+      await logAuditEvent({
+        userId,
+        organizationId: orgId,
+        action: "invitation_cancelled",
+        entityType: "invitation",
+        entityId: invitationId,
+        summary: `Урилга цуцлав — ${removed.email}`,
+      });
+    revalidatePath("/admin/org");
+    return {};
+  } catch (caught) {
+    return actionError("cancelInvitation", caught, "Урилга цуцлагдсангүй");
+  }
 }
 
 /** Гишүүний эрх өөрчлөх — admin+; сүүлчийн owner-ыг бууруулахгүй. */
@@ -633,7 +703,7 @@ async function updateMemberRoleCore(data: {
   membershipId: string;
   role: MembershipRole;
 }) {
-  const { orgId, role: myRole } = await requireRole("admin");
+  const { orgId, userId, role: myRole } = await requireRole("admin");
   if (!ROLES.includes(data.role)) throw new Error("Эрх буруу байна");
   // owner эрх олгох/хасахыг зөвхөн owner хийнэ.
   const target = await db.query.memberships.findFirst({
@@ -662,6 +732,14 @@ async function updateMemberRoleCore(data: {
     .update(memberships)
     .set({ role: data.role })
     .where(eq(memberships.id, data.membershipId));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "role_changed",
+    entityType: "membership",
+    entityId: data.membershipId,
+    summary: `Гишүүний роль өөрчлөв — ${target.role} → ${data.role}`,
+  });
   revalidatePath("/admin/org");
   return {};
 }
@@ -746,6 +824,14 @@ async function leaveOrganizationCore() {
         "Сүүлчийн owner гарах боломжгүй — owner эрхээ шилжүүлэх эсвэл байгууллагаа устгана уу"
       );
   }
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "member_left",
+    entityType: "membership",
+    entityId: userId,
+    summary: `Гишүүн байгууллагаас гарав (${role})`,
+  });
   await db
     .delete(memberships)
     .where(
@@ -766,13 +852,13 @@ export async function removeMember(membershipId: string): Promise<ActionResult> 
 }
 
 async function removeMemberCore(membershipId: string) {
-  const { orgId, role: myRole } = await requireRole("admin");
+  const { orgId, userId, role: myRole } = await requireRole("admin");
   const target = await db.query.memberships.findFirst({
     where: and(
       eq(memberships.id, membershipId),
       eq(memberships.organizationId, orgId)
     ),
-    columns: { id: true, role: true },
+    columns: { id: true, role: true, userId: true },
   });
   if (!target) throw new Error("Гишүүн олдсонгүй");
   if (target.role === "owner") {
@@ -786,6 +872,14 @@ async function removeMemberCore(membershipId: string) {
     if (Number(n) <= 1) throw new Error("Сүүлчийн owner-ыг хасаж болохгүй");
   }
   await db.delete(memberships).where(eq(memberships.id, membershipId));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "member_removed",
+    entityType: "membership",
+    entityId: membershipId,
+    summary: `Гишүүн хасав — ${target.userId} (${target.role})`,
+  });
   revalidatePath("/admin/org");
   return {};
 }

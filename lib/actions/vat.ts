@@ -111,7 +111,7 @@ const VAT_REGISTRATION_THRESHOLD_MNT = 400_000_000;
 export async function getVatReturnData(
   periodCode: string
 ): Promise<VatReturnData> {
-  const { orgId, userId } = await getActiveOrg();
+  const { orgId, userId } = await requireModuleAction("tax", "read");
   if (!isPeriodCode(periodCode)) throw new Error("Тайлант үеийн код буруу байна");
 
   const settings = await loadVatSettings(orgId, userId);

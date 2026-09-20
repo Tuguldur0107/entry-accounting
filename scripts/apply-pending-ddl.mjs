@@ -287,6 +287,16 @@ async function main() {
      end $$;`
   );
 
+  // ── 2b. org_invitations.expires_at — урилгын линкийн хугацаа ─────────────
+  // Хуучин мөрүүд default-аар (now + 7 хоног) хугацаатай болно; код нь
+  // registerUser-д ЗААВАЛ шалгадаг тул push хожимдвол ч апп унахгүй.
+  await run(
+    "org_invitations.expires_at багана",
+    `alter table org_invitations
+       add column if not exists expires_at timestamp not null
+       default (now() + interval '7 days')`
+  );
+
   // ── 3. Мэдэгдлийн систем (docs/notifications/00-proposal.md фаз 0) ───────
   // Код нь эдгээр хүснэгтийг ЗААВАЛ шаарддаг (logAuditEvent-ийн хажуугийн
   // гүүр бүр бичнэ) тул push хожимдвол ч апп унахгүй байхаар урьдчилж нэмнэ.

@@ -54,10 +54,20 @@ export async function registerUser(data: {
       ? ((await db.query.orgInvitations.findFirst({
           where: and(
             eq(orgInvitations.token, data.invite),
-            sql`${orgInvitations.acceptedAt} is null`
+            sql`${orgInvitations.acceptedAt} is null`,
+            // Хугацаа дууссан линк = урилга байхгүй (доор ойлгомжтой алдаа).
+            sql`${orgInvitations.expiresAt} > now()`
           ),
         })) ?? null)
       : null;
+
+  // Линк өгсөн ч олдсонгүй — хугацаа дууссан, цуцлагдсан эсвэл аль хэдийн
+  // ашигласан. Ялгааг тодруулж хэлнэ (шинэ урилга авах нь шийдэл).
+  if (data.invite && !invitation)
+    return {
+      error:
+        "Урилгын линк хүчингүй байна — хугацаа нь дууссан (7 хоног), цуцлагдсан эсвэл аль хэдийн ашиглагдсан. Админаас шинэ урилга авна уу.",
+    };
 
   // «Эхний хэрэглэгч чөлөөтэй, дараа нь зөвхөн урилгаар» (lib/registration.ts).
   if (!invitation && (await registrationMode()) === "invite")

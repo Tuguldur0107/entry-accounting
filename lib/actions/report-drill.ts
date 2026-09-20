@@ -8,7 +8,7 @@
 
 import { and, eq, inArray, lte, or, sql } from "drizzle-orm";
 
-import { getActiveOrg } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { journalLines, journalVouchers } from "@/lib/db/schema";
 import type { DrillPanelRow } from "@/lib/store/panel-store";
@@ -38,7 +38,7 @@ async function getAccountDrillRowsCore(input: {
   from: string;
   to: string;
 }) {
-  const { orgId } = await getActiveOrg();
+  const { orgId } = await requireModuleAction("gl", "read");
   const main = input.mainAccount.trim();
   if (!/^\d{8}$/.test(main)) throw new Error("Үндсэн дансны дугаар буруу");
   if (

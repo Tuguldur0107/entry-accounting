@@ -1,7 +1,7 @@
 // Нэхэмжлэхийн PDF — нэвтэрсэн хэрэглэгч өөрийн баримтаа татна.
 // Public хувилбар нь /invoice/[token] замаар (токеноор) явдаг.
 
-import { getActiveOrg } from "@/lib/auth";
+import { requireAnyModuleAction } from "@/lib/auth";
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
 import { renderInvoicePdf } from "@/lib/pdf/invoice-pdf";
 
@@ -9,9 +9,12 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ documentId: string }> }
 ) {
-  const active = await getActiveOrg().catch(() => null);
+  // Нэвтрэлт + АР/АП-ийн аль нэгд унших эрх (эрхгүй гишүүн PDF татахгүй).
+  const active = await requireAnyModuleAction([["ar", "read"], ["ap", "read"]]).catch(
+    () => null
+  );
   if (!active)
-    return new Response("Нэвтрэх шаардлагатай", { status: 401 });
+    return new Response("Нэвтрэх эсвэл унших эрх шаардлагатай", { status: 401 });
 
   const { documentId } = await params;
   const invoice = await loadInvoicePayload(active.orgId, documentId);

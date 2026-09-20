@@ -199,7 +199,7 @@ export type ArapDocPanelResult =
 export async function getArapDocPanelData(
   documentId?: string
 ): Promise<ArapDocPanelResult> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireAnyModuleAction([["ar", "read"], ["ap", "read"]]).catch(() => null);
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId } = active;
 

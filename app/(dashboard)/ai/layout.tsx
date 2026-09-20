@@ -1,6 +1,6 @@
 import { ModuleGuard } from "@/components/layout/access-guard";
 
 // Модулийн уншилтын эрх — «Байхгүй» гишүүнд URL-ээр ч нээгдэхгүй (components/layout/access-guard.tsx).
-export default function CashLayout({ children }: { children: React.ReactNode }) {
-  return <ModuleGuard moduleKeys="cash">{children}</ModuleGuard>;
+export default function AiLayout({ children }: { children: React.ReactNode }) {
+  return <ModuleGuard moduleKeys="ai">{children}</ModuleGuard>;
 }
