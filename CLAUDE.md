@@ -168,7 +168,8 @@ entry-accounting/
   past_due grace 14 хоног; хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагыг
   standard/active нөхнө. dedicated горимд бүх боломж, хязгааргүй (DB
   хөндөхгүй). UI: `/settings/billing` (гишүүн бүр ХАРНА, засахгүй), топбарын
-  баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`).
+  баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`),
+  AI/MCP/REST `get_billing_overview` (унших — ижил loader).
   **Багц ЗАСАХ нь апп дотор БАЙХГҮЙ** — Entry Console `GET/PUT
   /api/platform/subscriptions` (Bearer `ENTRY_PLATFORM_API_KEY`, timing-safe,
   зөвхөн saas; цөм `lib/billing/platform.ts`); SaaS харилцагч ба dedicated
@@ -1166,7 +1167,7 @@ tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргэ�
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 126 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 131 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -1176,6 +1177,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
 | Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨХ нь 1 тэрбум ₮ таазтай; `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
+| Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
