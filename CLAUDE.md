@@ -1821,6 +1821,17 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
                `normalizeCounterpartyCode` (ТОМ үсэг, ≤32) — автомат дугаарлалт
                ХИЙХГҮЙ (гараар / импортоор оноогдоно). Кассын "Харилцагчийн код"
                багана, AI list/create/update_counterparty, master data CSV (`code`)
+             counterparties.entityKind — СУБЪЕКТ: "organization" (Байгууллага,
+               default) | "individual" (Хувь хүн) — `counterpartyType` (авлага/
+               өглөгийн ЧИГЛЭЛ)-ээс ТУСДАА хэмжээс. ЦЭВЭР `lib/arap/counterparty-kind.ts`
+               (тесттэй): шошго, `inferEntityKindFromRegisterNo` (иргэний РД
+               = 2 кирилл + 8 орон → individual; 7/11/14 орон → organization;
+               бусад null — таамаглахгүй), `registerNoMismatch` ЗӨВЛӨМЖ (хориг
+               биш — гадаадын харилцагч). Форм: «Төрөл» = субъект, «Тооцоо» =
+               чиглэл; регистрийн шошго төрлөөр. POS төлбөрийн диалог байгууллага
+               харилцагчийн РД/ТТД-г eBarimt B2B-ээр урьдчилан бөглөнө. AI
+               create/update/batch `entityKind`; CSV `entityKind`; preDeploy
+               иргэний РД хэлбэртэй хуучин мөрийг individual болгож нөхнө
              counterparties.contactPerson / bankName / bankAccountNo
 Хангамж    purchase_orders, purchase_order_lines, goods_receipts,
            goods_receipt_lines

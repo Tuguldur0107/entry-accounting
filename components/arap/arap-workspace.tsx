@@ -34,6 +34,17 @@ import {
   toggleCounterparty,
   updateCounterparty,
 } from "@/lib/actions/arap";
+import {
+  COUNTERPARTY_ENTITY_KINDS,
+  COUNTERPARTY_ENTITY_KIND_LABELS,
+  DEFAULT_COUNTERPARTY_ENTITY_KIND,
+  entityKindLabel,
+  normalizeEntityKind,
+  registerNoLabel,
+  registerNoMismatch,
+  registerNoPlaceholder,
+  type CounterpartyEntityKind,
+} from "@/lib/arap/counterparty-kind";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import { downloadWorkbook } from "@/lib/excel/core";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -203,6 +214,7 @@ export function ArApWorkspace({
       name: "",
       code: "",
       counterpartyType: config.counterpartyType,
+      entityKind: DEFAULT_COUNTERPARTY_ENTITY_KIND as CounterpartyEntityKind,
       registerNo: "",
       defaultReceivableAccountNumber: defaultAccountNumbers.receivable
         ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
@@ -304,6 +316,12 @@ export function ArApWorkspace({
       { headerName: "Нэр", field: "name", minWidth: 180, flex: 1 },
       {
         headerName: "Төрөл",
+        field: "entityKind",
+        width: 110,
+        valueGetter: (params) => entityKindLabel(params.data?.entityKind),
+      },
+      {
+        headerName: "Тооцоо",
         field: "counterpartyType",
         width: 120,
         valueGetter: (params) =>
@@ -530,6 +548,7 @@ export function ArApWorkspace({
       )
         ? counterparty.counterpartyType
         : "both") as "customer" | "supplier" | "both",
+      entityKind: normalizeEntityKind(counterparty.entityKind),
       code: counterparty.code ?? "",
       registerNo: counterparty.registerNo ?? "",
       defaultReceivableAccountNumber:
@@ -1279,6 +1298,7 @@ function CounterpartyDialog({
     name: string;
     code: string;
     counterpartyType: "customer" | "supplier" | "both";
+    entityKind: CounterpartyEntityKind;
     registerNo: string;
     defaultReceivableAccountNumber: string;
     defaultPayableAccountNumber: string;
@@ -1317,6 +1337,24 @@ function CounterpartyDialog({
           <FormField label="Төрөл">
             <select
               className="ea-form-select"
+              value={form.entityKind}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  entityKind: normalizeEntityKind(event.target.value),
+                }))
+              }
+            >
+              {COUNTERPARTY_ENTITY_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {COUNTERPARTY_ENTITY_KIND_LABELS[kind]}
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Тооцоо">
+            <select
+              className="ea-form-select"
               value={form.counterpartyType}
               onChange={(event) =>
                 setForm((current) => ({
@@ -1339,9 +1377,13 @@ function CounterpartyDialog({
               }
             />
           </FormField>
-          <FormField label="Регистр">
+          <FormField
+            label={registerNoLabel(form.entityKind)}
+            hint={registerNoMismatch(form.entityKind, form.registerNo) ?? undefined}
+          >
             <Input
               value={form.registerNo}
+              placeholder={registerNoPlaceholder(form.entityKind)}
               onChange={(event) =>
                 setForm((current) => ({ ...current, registerNo: event.target.value }))
               }

@@ -4,6 +4,8 @@ export type CounterpartyView = {
   /** Харилцагчийн код — РД-ээс тусдаа, org дотор давтагдашгүй; null = оноогоогүй. */
   code: string | null;
   counterpartyType: string;
+  /** Субъект: "organization" | "individual" (lib/arap/counterparty-kind.ts). */
+  entityKind: string;
   registerNo: string | null;
   defaultReceivableAccountNumber: string | null;
   defaultPayableAccountNumber: string | null;

@@ -20,6 +20,11 @@ import {
   normalizeCounterpartyCode,
 } from "@/lib/arap/counterparty-code";
 import {
+  DEFAULT_COUNTERPARTY_ENTITY_KIND,
+  isCounterpartyEntityKind,
+  type CounterpartyEntityKind,
+} from "@/lib/arap/counterparty-kind";
+import {
   arApDocumentLines,
   arApDocuments,
   arApSettlements,
@@ -315,6 +320,14 @@ export async function getArapDocPanelData(
   };
 }
 
+/** Субъектийн төрөл — хоосон бол default (байгууллага), буруу утга бол ШИДНЭ. */
+function resolveEntityKind(value: unknown): CounterpartyEntityKind {
+  if (value == null || value === "") return DEFAULT_COUNTERPARTY_ENTITY_KIND;
+  if (!isCounterpartyEntityKind(value))
+    throw new Error("Харилцагчийн субъектийн төрөл «Байгууллага» эсвэл «Хувь хүн» байна");
+  return value;
+}
+
 /** Харилцагчийн төрлийн монгол шошго — алдааны мессежид ойлгомжтой байхад. */
 function counterpartyTypeLabel(type: string) {
   return type === "customer"
@@ -337,6 +350,8 @@ function creditLimitValue(value: number | null | undefined): string | null {
 async function createCounterpartyCore(data: {
   name: string;
   counterpartyType: "customer" | "supplier" | "both";
+  /** Субъект: байгууллага (default) / хувь хүн — lib/arap/counterparty-kind.ts. */
+  entityKind?: CounterpartyEntityKind | null;
   /** Харилцагчийн код — org дотор давтагдашгүй (сонголтоор). */
   code?: string;
   registerNo?: string;
@@ -362,6 +377,7 @@ async function createCounterpartyCore(data: {
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
     throw new Error("Харилцагчийн төрөл буруу байна");
+  const entityKind = resolveEntityKind(data.entityKind);
 
   let receivable = cleanText(data.defaultReceivableAccountNumber);
   let payable = cleanText(data.defaultPayableAccountNumber);
@@ -403,6 +419,7 @@ async function createCounterpartyCore(data: {
       name,
       code,
       counterpartyType: data.counterpartyType,
+      entityKind,
       registerNo: cleanText(data.registerNo),
       defaultReceivableAccountNumber: receivable,
       defaultPayableAccountNumber: payable,
@@ -443,6 +460,7 @@ async function updateCounterpartyCore(
   data: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
+    entityKind?: CounterpartyEntityKind | null;
     code?: string;
     registerNo?: string;
     defaultReceivableAccountNumber?: string;
@@ -467,6 +485,7 @@ async function updateCounterpartyCore(
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
     throw new Error("Харилцагчийн төрөл буруу байна");
+  const entityKind = resolveEntityKind(data.entityKind);
 
   const receivable = cleanText(data.defaultReceivableAccountNumber);
   const payable = cleanText(data.defaultPayableAccountNumber);
@@ -482,6 +501,7 @@ async function updateCounterpartyCore(
       name,
       code,
       counterpartyType: data.counterpartyType,
+      entityKind,
       registerNo: cleanText(data.registerNo),
       defaultReceivableAccountNumber: receivable,
       defaultPayableAccountNumber: payable,

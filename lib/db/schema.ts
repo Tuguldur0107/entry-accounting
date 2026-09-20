@@ -875,6 +875,10 @@ export const counterparties = pgTable(
     // танигдахуун (кассын "Харилцагчийн код" багана). Хоосон байж болно.
     code: text("code"),
     counterpartyType: text("counterparty_type").notNull().default("both"), // "customer" | "supplier" | "both"
+    // СУБЪЕКТИЙН төрөл — "organization" | "individual" (lib/arap/counterparty-kind.ts);
+    // тооцооны чиглэлээс (counterpartyType) ТУСДАА хэмжээс.
+    entityKind: text("entity_kind").notNull().default("organization"),
+    // Байгууллагад РД (7) / ТТД (11/14), хувь хүнд иргэний РД (УУ12345678).
     registerNo: text("register_no"),
     defaultReceivableAccountNumber: text("default_receivable_account_number"),
     defaultPayableAccountNumber: text("default_payable_account_number"),

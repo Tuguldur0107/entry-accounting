@@ -700,6 +700,8 @@ async function main() {
     ["pos_sales", "ebarimt_type", "text"],
     ["pos_sales", "ebarimt_consumer_no", "text"],
     ["pos_sales", "ebarimt_customer_tin", "text"],
+    // Харилцагчийн субъектийн төрөл (байгууллага / хувь хүн) — lib/arap/counterparty-kind.ts
+    ["counterparties", "entity_kind", "text not null default 'organization'"],
   ]) {
     await run(
       `${table}.${column} багана`,
@@ -707,6 +709,19 @@ async function main() {
          add column if not exists ${column} ${type}`
     );
   }
+  // Багана нэмэгдэхээс өмнөх мөр: регистр нь иргэний РД хэлбэртэй (2 кирилл
+  // үсэг + 8 орон) бол «Хувь хүн» — зөвхөн default утгатай мөрийг хөндөнө
+  // (хэрэглэгчийн сонгосон утгыг дарахгүй, идемпотент).
+  await run(
+    "counterparties.entity_kind нөхөлт (иргэний РД)",
+    `update counterparties
+        set entity_kind = 'individual'
+      where entity_kind = 'organization'
+        and upper(trim(register_no)) ~ '^[А-ЯЁӨҮ]{2}[0-9]{8}$'
+        and not exists (
+          select 1 from counterparties c2
+           where c2.id = counterparties.id and c2.entity_kind <> 'organization')`
+  );
   await run(
     "pos_ebarimt_submissions хүснэгт",
     `create table if not exists pos_ebarimt_submissions (

@@ -101,9 +101,16 @@ export function PaymentDialog({
   const [seq, setSeq] = useState(1);
   const [storeCredits, setStoreCredits] = useState<StoreCreditOption[] | null>(null);
   // ── eBarimt худалдан авагч (§4.5) ───────────────────────────────────────
-  const [buyerType, setBuyerType] = useState<"citizen" | "org">("citizen");
+  // Сонгосон харилцагч БАЙГУУЛЛАГА (entityKind) бөгөөд РД/ТТД-тэй бол B2B
+  // баримтаар урьдчилан бөглөнө — кассчин дахин бичихгүй (диалог төлбөр бүрд
+  // шинээр mount болдог тул анхны утга хангалттай).
+  const orgCustomerRegNo =
+    customer && !customer.isWalkIn && customer.entityKind === "organization" && customer.registerNo?.trim()
+      ? customer.registerNo.trim().toUpperCase()
+      : "";
+  const [buyerType, setBuyerType] = useState<"citizen" | "org">(orgCustomerRegNo ? "org" : "citizen");
   const [consumerNo, setConsumerNo] = useState("");
-  const [orgNo, setOrgNo] = useState("");
+  const [orgNo, setOrgNo] = useState(orgCustomerRegNo);
   const [orgName, setOrgName] = useState("");
   const [orgTin, setOrgTin] = useState("");
   const [orgLookupBusy, setOrgLookupBusy] = useState(false);
