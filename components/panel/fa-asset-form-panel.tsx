@@ -15,8 +15,8 @@ import { toast } from "sonner";
 import { AccountInput } from "@/components/account/account-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { FormField } from "@/components/ui/form-field";
 import {
   activateFixedAsset,
   createFixedAsset,
@@ -281,7 +281,7 @@ function FaAssetFormBody({
             </p>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Код">
+            <FormField label="Код">
               <Input
                 value={form.code}
                 disabled={!!activatingId}
@@ -291,8 +291,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, code: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Нэр">
+            </FormField>
+            <FormField label="Нэр">
               <Input
                 value={form.name}
                 placeholder="Хөрөнгийн нэр"
@@ -300,8 +300,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, name: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Эзэмшигч (хариуцагч)">
+            </FormField>
+            <FormField label="Эзэмшигч (хариуцагч)">
               <Input
                 value={form.custodian}
                 placeholder="Ажилтан, хэлтэс..."
@@ -310,8 +310,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, custodian: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Байршил">
+            </FormField>
+            <FormField label="Байршил">
               <Input
                 value={form.location}
                 placeholder="Салбар, барилга, агуулах..."
@@ -320,8 +320,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, location: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Дэд байршил">
+            </FormField>
+            <FormField label="Дэд байршил">
               <Input
                 value={form.subLocation}
                 placeholder="Давхар, өрөө, тасаг..."
@@ -330,8 +330,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, subLocation: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Авсан огноо">
+            </FormField>
+            <FormField label="Авсан огноо">
               <Input
                 type="date"
                 value={form.acquisitionDate}
@@ -339,8 +339,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, acquisitionDate: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Өртөг (MNT)">
+            </FormField>
+            <FormField label="Өртөг (MNT)">
               <Input
                 type="number"
                 min="0.01"
@@ -352,8 +352,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, cost: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Үлдэх өртөг (MNT)">
+            </FormField>
+            <FormField label="Үлдэх өртөг (MNT)">
               <Input
                 type="number"
                 min="0"
@@ -363,8 +363,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, salvageValue: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Ашиглалтын хугацаа (сар)">
+            </FormField>
+            <FormField label="Ашиглалтын хугацаа (сар)">
               <Input
                 type="number"
                 min="1"
@@ -374,8 +374,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, usefulLifeMonths: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Татварын ашиглалтын хугацаа (сар)">
+            </FormField>
+            <FormField label="Татварын ашиглалтын хугацаа (сар)">
               <Input
                 type="number"
                 min="0"
@@ -386,8 +386,8 @@ function FaAssetFormBody({
                   setForm((c) => ({ ...c, taxUsefulLifeMonths: e.target.value }))
                 }
               />
-            </Field>
-            <Field label="Элэгдлийн арга">
+            </FormField>
+            <FormField label="Элэгдлийн арга">
               <SearchableSelect
                 value={form.depreciationMethod}
                 onChange={(value) =>
@@ -400,8 +400,8 @@ function FaAssetFormBody({
                 placeholder="Арга сонгох..."
                 hideValue
               />
-            </Field>
-            <Field label="Элэгдэл эхлэх сар">
+            </FormField>
+            <FormField label="Элэгдэл эхлэх сар">
               <Input
                 type="month"
                 value={form.depreciationStartMonth}
@@ -418,10 +418,10 @@ function FaAssetFormBody({
                   }))
                 }
               />
-            </Field>
+            </FormField>
             {/* ӨДРИЙН суурьт: сар дундуур ашиглалтад орсон хөрөнгө тэр сард
                 хувь тэнцүүлэн элэгдэнэ. Хоосон = сарын 1-ний өдөр. */}
-            <Field label="Элэгдэл эхлэх огноо (өдрийн суурьт)">
+            <FormField label="Элэгдэл эхлэх огноо (өдрийн суурьт)">
               <Input
                 type="date"
                 value={form.depreciationStartDate}
@@ -433,9 +433,9 @@ function FaAssetFormBody({
                   }))
                 }
               />
-            </Field>
+            </FormField>
           </div>
-          <Field label="Өртгийн данс (2Х)">
+          <FormField label="Өртгийн данс (2Х)">
             <AccountInput
               value={form.assetAccountNumber}
               onChange={(value) =>
@@ -446,9 +446,9 @@ function FaAssetFormBody({
               defaultSegments={data.defaultSegments}
               placeholder="Өртгийн данс..."
             />
-          </Field>
+          </FormField>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Хуримтлагдсан элэгдлийн данс">
+            <FormField label="Хуримтлагдсан элэгдлийн данс">
               <AccountInput
                 value={form.accumDepAccountNumber}
                 onChange={(value) =>
@@ -459,8 +459,8 @@ function FaAssetFormBody({
                 defaultSegments={data.defaultSegments}
                 placeholder="Хуримт. элэгдлийн данс..."
               />
-            </Field>
-            <Field label="Элэгдлийн зардлын данс">
+            </FormField>
+            <FormField label="Элэгдлийн зардлын данс">
               <AccountInput
                 value={form.depExpenseAccountNumber}
                 onChange={(value) =>
@@ -471,7 +471,7 @@ function FaAssetFormBody({
                 defaultSegments={data.defaultSegments}
                 placeholder="Зардлын данс..."
               />
-            </Field>
+            </FormField>
           </div>
           {error && (
             <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
@@ -497,17 +497,3 @@ function FaAssetFormBody({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}

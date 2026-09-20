@@ -27,8 +27,8 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { FormField } from "@/components/ui/form-field";
 import {
   confirmGoodsReceipt,
   createGoodsReceipt,
@@ -637,7 +637,7 @@ function GoodsReceiptBody({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Баримтын дугаар">
+        <FormField label="Баримтын дугаар">
           <Input
             value={form.documentNo}
             placeholder="Хоосон бол автоматаар үүснэ"
@@ -650,8 +650,8 @@ function GoodsReceiptBody({
               }))
             }
           />
-        </Field>
-        <Field label="Хүлээн авсан огноо">
+        </FormField>
+        <FormField label="Хүлээн авсан огноо">
           <Input
             type="date"
             value={form.date}
@@ -660,8 +660,8 @@ function GoodsReceiptBody({
               setForm((current) => ({ ...current, date: event.target.value }))
             }
           />
-        </Field>
-        <Field label="Агуулах">
+        </FormField>
+        <FormField label="Агуулах">
           <select
             className="ea-form-select"
             value={form.warehouseId}
@@ -680,8 +680,8 @@ function GoodsReceiptBody({
               </option>
             ))}
           </select>
-        </Field>
-        <Field label={`${currency}/MNT албан ханш`}>
+        </FormField>
+        <FormField label={`${currency}/MNT албан ханш`}>
           <div className="flex items-center gap-1.5">
             <Input
               type="number"
@@ -714,9 +714,9 @@ function GoodsReceiptBody({
               </Button>
             )}
           </div>
-        </Field>
+        </FormField>
         <div className="sm:col-span-2 lg:col-span-4">
-          <Field label="Утга">
+          <FormField label="Утга">
             <Input
               value={form.description}
               disabled={!canEdit}
@@ -728,7 +728,7 @@ function GoodsReceiptBody({
                 }))
               }
             />
-          </Field>
+          </FormField>
         </div>
       </div>
 
@@ -837,11 +837,3 @@ function GoodsReceiptBody({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}

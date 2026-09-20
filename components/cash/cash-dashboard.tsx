@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { EmptyState as SharedEmptyState } from "@/components/ui/empty-state";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
@@ -373,7 +373,7 @@ export function CashDashboard({
             Үлдэгдлийн онош
           </h2>
           {orderedHealthRows.length === 0 ? (
-            <EmptyState text="Мөнгөн хөрөнгийн данс үүсгээгүй байна" />
+            <EmptyState icon="cash" title="Мөнгөн хөрөнгийн данс үүсгээгүй байна" />
           ) : (
             <>
               <div className="hidden xl:block">
@@ -440,7 +440,7 @@ export function CashDashboard({
             Сүүлийн гүйлгээ
           </h2>
           {recentDocuments.length === 0 ? (
-            <EmptyState text="Мөнгөн гүйлгээ байхгүй" />
+            <EmptyState icon="cash" title="Мөнгөн гүйлгээ байхгүй" />
           ) : (
             <DataGridDynamic<CashDocumentView>
               rowData={recentDocuments}
@@ -558,7 +558,3 @@ function HealthAmount({
   );
 }
 
-function EmptyState({ text }: { text: string }) {
-  // Нэгдсэн харагдац — components/ui/empty-state (П19).
-  return <SharedEmptyState icon="cash" title={text} />;
-}

@@ -36,7 +36,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   deleteCashDocument,
   postCashDocument,
@@ -59,6 +58,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormField } from "@/components/ui/form-field";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -918,7 +918,7 @@ export function CashDocumentsView({
                 {rateDoc.currency} дансны гүйлгээний ханшийг оруулбал валютын
                 дүн тооцогдож баталгаажна.
               </p>
-              <Field label={`${rateDoc.currency}/MNT гүйлгээний ханш`}>
+              <FormField label={`${rateDoc.currency}/MNT гүйлгээний ханш`}>
                 <Input
                   type="number"
                   min="0.00000001"
@@ -931,8 +931,8 @@ export function CashDocumentsView({
                     if (event.key === "Enter") submitRatePost();
                   }}
                 />
-              </Field>
-              <Field label={`Тооцоолсон ${rateDoc.currency} дүн`}>
+              </FormField>
+              <FormField label={`Тооцоолсон ${rateDoc.currency} дүн`}>
                 <Input
                   readOnly
                   placeholder="0.00"
@@ -946,7 +946,7 @@ export function CashDocumentsView({
                       : ""
                   }
                 />
-              </Field>
+              </FormField>
             </div>
           )}
           <DialogFooter>
@@ -973,17 +973,3 @@ export function CashDocumentsView({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}

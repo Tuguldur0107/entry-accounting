@@ -29,8 +29,8 @@ import {
 } from "@/components/arap/arap-lines-grid";
 import { CounterpartySelect } from "@/components/arap/counterparty-select";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { FormField } from "@/components/ui/form-field";
 import {
   createArApDocument,
   deleteArApDocument,
@@ -473,7 +473,7 @@ function ArapDocForm({
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Төрөл">
+        <FormField label="Төрөл">
           <select
             className="ea-form-select"
             value={form.documentType}
@@ -496,8 +496,8 @@ function ArapDocForm({
               <option value="ap_bill">Өглөгийн нэхэмжлэх</option>
             )}
           </select>
-        </Field>
-        <Field label="Нэхэмжлэхийн дугаар">
+        </FormField>
+        <FormField label="Нэхэмжлэхийн дугаар">
           <Input
             value={form.documentNo}
             placeholder="Хоосон бол автоматаар үүснэ"
@@ -509,8 +509,8 @@ function ArapDocForm({
               }))
             }
           />
-        </Field>
-        <Field label="Харилцагч">
+        </FormField>
+        <FormField label="Харилцагч">
           <CounterpartySelect
             value={form.counterpartyId}
             onChange={(value) =>
@@ -525,8 +525,8 @@ function ArapDocForm({
             // PO-той нэхэмжлэхийн нийлүүлэгч захиалгаас тогтоогдоно.
             disabled={!!prefill}
           />
-        </Field>
-        <Field label="Огноо">
+        </FormField>
+        <FormField label="Огноо">
           <Input
             type="date"
             value={form.date}
@@ -547,8 +547,8 @@ function ArapDocForm({
               })
             }
           />
-        </Field>
-        <Field label="Төлөх огноо">
+        </FormField>
+        <FormField label="Төлөх огноо">
           <Input
             type="date"
             value={form.dueDate}
@@ -556,9 +556,9 @@ function ArapDocForm({
               setForm((current) => ({ ...current, dueDate: event.target.value }))
             }
           />
-        </Field>
+        </FormField>
         <div className="sm:col-span-2">
-          <Field label="Хяналтын данс">
+          <FormField label="Хяналтын данс">
             <AccountInput
               value={form.controlAccountNumber}
               onChange={(value) =>
@@ -573,9 +573,9 @@ function ArapDocForm({
                   : "Өглөгийн данс..."
               }
             />
-          </Field>
+          </FormField>
         </div>
-        <Field label="Валют">
+        <FormField label="Валют">
           <Input
             value={form.currency}
             // PO-той нэхэмжлэх нь захиалгын валютаар байх ёстой (сервер шалгана).
@@ -592,9 +592,9 @@ function ArapDocForm({
             }
             maxLength={3}
           />
-        </Field>
+        </FormField>
         {form.currency !== "MNT" && (
-          <Field label={`${form.currency || "Валют"}/MNT ханш`}>
+          <FormField label={`${form.currency || "Валют"}/MNT ханш`}>
             <Input
               type="number"
               min="0.00000001"
@@ -607,7 +607,7 @@ function ArapDocForm({
                 }))
               }
             />
-          </Field>
+          </FormField>
         )}
         {form.currency !== "MNT" && Number(form.exchangeRate) > 0 && (
           <div className="flex items-end pb-2 text-xs text-[var(--ea-text-3)]">
@@ -615,7 +615,7 @@ function ArapDocForm({
           </div>
         )}
         <div className="sm:col-span-2 lg:col-span-4">
-          <Field label="Журналын нэр">
+          <FormField label="Журналын нэр">
             <Input
               value={form.description}
               onChange={(event) =>
@@ -630,7 +630,7 @@ function ArapDocForm({
                   : "Баримтын тайлбар"
               }
             />
-          </Field>
+          </FormField>
         </div>
       </div>
 
@@ -1439,15 +1439,6 @@ function ArapDocReadOnly({
           onOpenChange={setSendOpen}
         />
       )}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { EmptyState as SharedEmptyState } from "@/components/ui/empty-state";
+import { EmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField } from "@/components/ui/form-field";
 import {
   createCounterparty,
   deleteArApDocument,
@@ -814,9 +814,11 @@ export function ArApWorkspace({
           </div>
           {filteredDocuments.length === 0 ? (
             <EmptyState
-              text={config.emptyDocuments}
-              actionLabel={config.createLabel}
-              onAction={() => openArapDocPanel({ mode })}
+              icon="document"
+              title={config.emptyDocuments}
+              actions={[
+                { label: config.createLabel, onClick: () => openArapDocPanel({ mode }), icon: "add", primary: true },
+              ]}
             />
           ) : (
             <DataGridDynamic<ArApDocumentView>
@@ -864,9 +866,9 @@ export function ArApWorkspace({
           </h2>
           {filteredCounterparties.length === 0 ? (
             <EmptyState
-              text="Харилцагч үүсгээгүй байна"
-              actionLabel="Харилцагч нэмэх"
-              onAction={openCounterpartyDialog}
+              icon="document"
+              title="Харилцагч үүсгээгүй байна"
+              actions={[{ label: "Харилцагч нэмэх", onClick: openCounterpartyDialog, icon: "add", primary: true }]}
             />
           ) : (
             <DataGridDynamic<CounterpartyView>
@@ -1096,18 +1098,18 @@ function ReportSection({
           </p>
         </div>
         <div className="flex items-end gap-2">
-          <Field label="Тайлант огноо">
+          <FormField label="Тайлант огноо">
             <Input
               type="date"
               value={asOf}
               onChange={(event) => onAsOfChange(event.target.value)}
             />
-          </Field>
+          </FormField>
           <Button variant="outline" onClick={onRefresh}>Шинэчлэх</Button>
         </div>
       </div>
       {rows.length === 0 ? (
-        <EmptyState text="Тайланд харуулах үлдэгдэл алга" />
+        <EmptyState icon="document" title="Тайланд харуулах үлдэгдэл алга" />
       ) : (
         <DataGridDynamic<ReportRow>
           rowData={rows}
@@ -1184,15 +1186,15 @@ function OffsetDialog({
           </p>
         ) : (
           <div className="space-y-3">
-            <Field label={sourceIsAr ? "Авлагын нэхэмжлэл" : "Өглөгийн нэхэмжлэх"}>
+            <FormField label={sourceIsAr ? "Авлагын нэхэмжлэл" : "Өглөгийн нэхэмжлэх"}>
               <div className="rounded-md border border-[var(--ea-border)] px-3 py-2 text-sm">
                 <span className="font-mono text-xs">{source.documentNo}</span>
                 <span className="ml-2 text-xs text-[var(--ea-text-3)]">
                   үлдэгдэл {fmtMnt(source.balance)}
                 </span>
               </div>
-            </Field>
-            <Field
+            </FormField>
+            <FormField
               label={sourceIsAr ? "Хаах өглөгийн нэхэмжлэх" : "Хаах авлагын нэхэмжлэл"}
             >
               <select
@@ -1215,22 +1217,22 @@ function OffsetDialog({
                   </option>
                 ))}
               </select>
-            </Field>
+            </FormField>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Дүн (₮)">
+              <FormField label="Дүн (₮)">
                 <Input
                   inputMode="decimal"
                   value={amountText}
                   onChange={(event) => setAmountText(event.target.value)}
                 />
-              </Field>
-              <Field label="Тооцооны актын огноо">
+              </FormField>
+              <FormField label="Тооцооны актын огноо">
                 <Input
                   type="date"
                   value={date}
                   onChange={(event) => setDate(event.target.value)}
                 />
-              </Field>
+              </FormField>
             </div>
             <p className="text-xs text-[var(--ea-text-3)]">
               GL: Дт өглөгийн хяналтын данс / Кт авлагын хяналтын данс —
@@ -1306,13 +1308,13 @@ function CounterpartyDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Нэр">
+          <FormField label="Нэр">
             <Input
               value={form.name}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             />
-          </Field>
-          <Field label="Төрөл">
+          </FormField>
+          <FormField label="Төрөл">
             <select
               className="ea-form-select"
               value={form.counterpartyType}
@@ -1327,8 +1329,8 @@ function CounterpartyDialog({
               <option value="customer">Авлага</option>
               <option value="supplier">Өглөг</option>
             </select>
-          </Field>
-          <Field label="Код">
+          </FormField>
+          <FormField label="Код">
             <Input
               value={form.code}
               placeholder="Ж: 10001 (заавал биш, давтагдахгүй)"
@@ -1336,24 +1338,24 @@ function CounterpartyDialog({
                 setForm((current) => ({ ...current, code: event.target.value }))
               }
             />
-          </Field>
-          <Field label="Регистр">
+          </FormField>
+          <FormField label="Регистр">
             <Input
               value={form.registerNo}
               onChange={(event) =>
                 setForm((current) => ({ ...current, registerNo: event.target.value }))
               }
             />
-          </Field>
-          <Field label="Валют">
+          </FormField>
+          <FormField label="Валют">
             <Input
               value={form.defaultCurrency}
               onChange={(event) =>
                 setForm((current) => ({ ...current, defaultCurrency: event.target.value }))
               }
             />
-          </Field>
-          <Field label="Авлагын default данс">
+          </FormField>
+          <FormField label="Авлагын default данс">
             <AccountInput
               value={form.defaultReceivableAccountNumber}
               onChange={(value) =>
@@ -1366,8 +1368,8 @@ function CounterpartyDialog({
               segmentOptions={segmentOptions}
               defaultSegments={defaultSegments}
             />
-          </Field>
-          <Field label="Өглөгийн default данс">
+          </FormField>
+          <FormField label="Өглөгийн default данс">
             <AccountInput
               value={form.defaultPayableAccountNumber}
               onChange={(value) =>
@@ -1380,8 +1382,8 @@ function CounterpartyDialog({
               segmentOptions={segmentOptions}
               defaultSegments={defaultSegments}
             />
-          </Field>
-          <Field label="И-мэйл (нэхэмжлэх илгээхэд)">
+          </FormField>
+          <FormField label="И-мэйл (нэхэмжлэх илгээхэд)">
             <Input
               type="email"
               value={form.email}
@@ -1390,24 +1392,24 @@ function CounterpartyDialog({
               }
               placeholder="billing@company.mn"
             />
-          </Field>
-          <Field label="Утас">
+          </FormField>
+          <FormField label="Утас">
             <Input
               value={form.phone}
               onChange={(event) =>
                 setForm((current) => ({ ...current, phone: event.target.value }))
               }
             />
-          </Field>
-          <Field label="Хаяг">
+          </FormField>
+          <FormField label="Хаяг">
             <Input
               value={form.address}
               onChange={(event) =>
                 setForm((current) => ({ ...current, address: event.target.value }))
               }
             />
-          </Field>
-          <Field label="Холбоо барих хүн">
+          </FormField>
+          <FormField label="Холбоо барих хүн">
             <Input
               value={form.contactPerson}
               onChange={(event) =>
@@ -1417,8 +1419,8 @@ function CounterpartyDialog({
                 }))
               }
             />
-          </Field>
-          <Field label="Банк">
+          </FormField>
+          <FormField label="Банк">
             <Input
               value={form.bankName}
               onChange={(event) =>
@@ -1426,8 +1428,8 @@ function CounterpartyDialog({
               }
               placeholder="Хаан банк"
             />
-          </Field>
-          <Field label="Банкны данс">
+          </FormField>
+          <FormField label="Банкны данс">
             <Input
               value={form.bankAccountNo}
               onChange={(event) =>
@@ -1437,8 +1439,8 @@ function CounterpartyDialog({
                 }))
               }
             />
-          </Field>
-          <Field label="Төлбөрийн нөхцөл /хоног/">
+          </FormField>
+          <FormField label="Төлбөрийн нөхцөл /хоног/">
             <Input
               type="number"
               value={form.paymentTermsDays}
@@ -1449,8 +1451,8 @@ function CounterpartyDialog({
                 }))
               }
             />
-          </Field>
-          <Field label="Хөнгөлөлтийн бүлэг (VIP, ажилтан…)">
+          </FormField>
+          <FormField label="Хөнгөлөлтийн бүлэг (VIP, ажилтан…)">
             <Input
               value={form.customerGroup}
               placeholder="POS-ийн харилцагчийн бүлгийн дүрэмд"
@@ -1461,8 +1463,8 @@ function CounterpartyDialog({
                 }))
               }
             />
-          </Field>
-          <Field label="Зээлийн лимит ₮">
+          </FormField>
+          <FormField label="Зээлийн лимит ₮">
             <Input
               type="number"
               min="0"
@@ -1475,7 +1477,7 @@ function CounterpartyDialog({
                 }))
               }
             />
-          </Field>
+          </FormField>
         </div>
         {error && <p className="text-xs text-[var(--ea-danger)]">{error}</p>}
         <DialogFooter>
@@ -1488,15 +1490,6 @@ function CounterpartyDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
   );
 }
 
@@ -1610,26 +1603,3 @@ function Metric({
   );
 }
 
-function EmptyState({
-  text,
-  actionLabel,
-  onAction,
-}: {
-  text: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  // Нэгдсэн харагдац — components/ui/empty-state (П19); локал дуудлагын
-  // хэлбэрийг хадгалсан нимгэн wrapper.
-  return (
-    <SharedEmptyState
-      icon="document"
-      title={text}
-      actions={
-        actionLabel && onAction
-          ? [{ label: actionLabel, onClick: onAction, icon: "add", primary: true }]
-          : []
-      }
-    />
-  );
-}

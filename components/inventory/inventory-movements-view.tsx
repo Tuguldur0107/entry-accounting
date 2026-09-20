@@ -31,9 +31,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormField } from "@/components/ui/form-field";
 import {
   cancelInventoryMovement,
   confirmInventoryMovement,
@@ -694,14 +694,14 @@ export function InventoryMovementsView({
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Огноо">
+              <FormField label="Огноо">
                 <Input
                   type="date"
                   value={form.date}
                   onChange={(e) => setForm((c) => ({ ...c, date: e.target.value }))}
                 />
-              </Field>
-              <Field label="Баримтын дугаар">
+              </FormField>
+              <FormField label="Баримтын дугаар">
                 <Input
                   value={form.documentNo}
                   placeholder="Хоосон бол автоматаар үүснэ"
@@ -711,10 +711,10 @@ export function InventoryMovementsView({
                     setForm((c) => ({ ...c, documentNo: e.target.value }))
                   }
                 />
-              </Field>
+              </FormField>
             </div>
 
-            <Field label="Бараа">
+            <FormField label="Бараа">
               <SearchableSelect
                 value={form.itemId}
                 onChange={(value) => setForm((c) => ({ ...c, itemId: value }))}
@@ -726,10 +726,10 @@ export function InventoryMovementsView({
                 placeholder="Бараа сонгох..."
               hideValue
               />
-            </Field>
+            </FormField>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field
+              <FormField
                 label={form.movementType === "transfer" ? "Гаргах агуулах" : "Агуулах"}
               >
                 <SearchableSelect
@@ -744,9 +744,9 @@ export function InventoryMovementsView({
                   placeholder="Агуулах сонгох..."
                 hideValue
                 />
-              </Field>
+              </FormField>
               {form.movementType === "transfer" ? (
-                <Field label="Хүлээн авах агуулах">
+                <FormField label="Хүлээн авах агуулах">
                   <SearchableSelect
                     value={form.toWarehouseId}
                     onChange={(value) =>
@@ -759,9 +759,9 @@ export function InventoryMovementsView({
                     placeholder="Агуулах сонгох..."
                   hideValue
                   />
-                </Field>
+                </FormField>
               ) : (
-                <Field
+                <FormField
                   label={`Тоо хэмжээ${selectedItem ? ` (${selectedItem.unit})` : ""}`}
                 >
                   <Input
@@ -777,12 +777,12 @@ export function InventoryMovementsView({
                       setForm((c) => ({ ...c, quantity: e.target.value }))
                     }
                   />
-                </Field>
+                </FormField>
               )}
             </div>
 
             {form.movementType === "transfer" && (
-              <Field
+              <FormField
                 label={`Тоо хэмжээ${selectedItem ? ` (${selectedItem.unit})` : ""}`}
               >
                 <Input
@@ -795,12 +795,12 @@ export function InventoryMovementsView({
                     setForm((c) => ({ ...c, quantity: e.target.value }))
                   }
                 />
-              </Field>
+              </FormField>
             )}
 
             {(form.movementType === "issue" ||
               form.movementType === "return_out") && (
-              <Field label="Зарлагын төрөл">
+              <FormField label="Зарлагын төрөл">
                 <SearchableSelect
                   value={form.issueTypeId}
                   onChange={(value) =>
@@ -818,10 +818,10 @@ export function InventoryMovementsView({
                   Өртгийн бичилтийн ДЕБЕТ чиглэл эндээс шийдэгдэнэ. Сонгохгүй
                   бол анхдагч төрөл (COGS) хэрэглэгдэнэ.
                 </p>
-              </Field>
+              </FormField>
             )}
 
-            <Field label="Тайлбар">
+            <FormField label="Тайлбар">
               <Input
                 value={form.description}
                 placeholder="Хөдөлгөөний утга"
@@ -829,7 +829,7 @@ export function InventoryMovementsView({
                   setForm((c) => ({ ...c, description: e.target.value }))
                 }
               />
-            </Field>
+            </FormField>
 
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
@@ -839,13 +839,13 @@ export function InventoryMovementsView({
 
             {/* Хавсралт — зөвхөн хадгалагдсан хөдөлгөөнд (шинэд id алга). */}
             {editingId && (
-              <Field label="Хавсралт">
+              <FormField label="Хавсралт">
                 <AttachmentList
                   entityType="inventory"
                   entityId={editingId}
                   kinds={GENERIC_ATTACHMENT_KINDS}
                 />
-              </Field>
+              </FormField>
             )}
           </div>
           <DialogFooter>
@@ -868,11 +868,3 @@ export function InventoryMovementsView({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-1.5">
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}
