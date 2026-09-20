@@ -860,15 +860,17 @@ export function CashDocumentsView({
                 </span>
               </span>
               {summary.draftCount > 0 && (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="xs"
                   onClick={() => changeStatus("draft")}
-                  className="rounded-full border border-[var(--ea-warning)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--ea-warning-fg)] transition-colors hover:bg-[var(--ea-bg-3)]"
+                  className="rounded-full border-[var(--ea-warning)] text-[var(--ea-warning-fg)]"
                   title="Ноорог баримтуудыг шүүж харах"
                 >
                   Ноорог {summary.draftCount} ·{" "}
                   <span className="font-mono">{fmtMnt(summary.draftBase)}</span>
-                </button>
+                </Button>
               )}
               <span className="text-[var(--ea-text-3)]">
                 Орлого{" "}

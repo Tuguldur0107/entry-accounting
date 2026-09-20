@@ -22,7 +22,7 @@ import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Switch } from "@/components/ui/switch";
+import { FormField, SwitchField } from "@/components/ui/form-field";
 import { saveDiscountRule } from "@/lib/actions/pos";
 import {
   DISCOUNT_RULE_TYPE_LABELS,
@@ -119,33 +119,6 @@ function toForm(rule: DiscountRule | null): RuleForm {
 
 const optionalNumber = (value: string) => (value.trim() === "" ? null : Number(value));
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      {children}
-      {hint && <p className="text-[11px] text-[var(--ea-text-4)]">{hint}</p>}
-    </div>
-  );
-}
-
-function SwitchField({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 text-sm">
-      <Switch checked={checked} onCheckedChange={(value) => onChange(!!value)} />
-      {label}
-    </label>
-  );
-}
-
 export function DiscountRuleDialog({
   rule,
   open,
@@ -241,13 +214,13 @@ export function DiscountRuleDialog({
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Код">
+          <FormField label="Код">
             <Input value={form.code} className="font-mono uppercase" disabled={!!rule} onChange={(e) => patch({ code: e.target.value })} />
-          </Field>
-          <Field label="Нэр">
+          </FormField>
+          <FormField label="Нэр">
             <Input value={form.name} onChange={(e) => patch({ name: e.target.value })} />
-          </Field>
-          <Field label="Дүрмийн төрөл">
+          </FormField>
+          <FormField label="Дүрмийн төрөл">
             <select
               className="ea-form-select"
               value={form.ruleType}
@@ -266,13 +239,13 @@ export function DiscountRuleDialog({
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Давуу эрэмбэ (priority)" hint="Бага тоо түрүүлж ажиллана">
+          </FormField>
+          <FormField label="Давуу эрэмбэ (priority)" hint="Бага тоо түрүүлж ажиллана">
             <Input type="number" value={form.priority} className="font-mono" onChange={(e) => patch({ priority: e.target.value })} />
-          </Field>
+          </FormField>
 
           {!isCustomerGroup && (
-            <Field label="Хамрах хүрээ">
+            <FormField label="Хамрах хүрээ">
               <select
                 className="ea-form-select"
                 value={form.scope}
@@ -284,33 +257,33 @@ export function DiscountRuleDialog({
                   </option>
                 ))}
               </select>
-            </Field>
+            </FormField>
           )}
           {(isCustomerGroup || form.scope === "customer_group") && (
-            <Field label="Харилцагчийн бүлэг" hint="Харилцагчийн картын «Хөнгөлөлтийн бүлэг» талбартай ЯГ таарна (VIP, ажилтан…)">
+            <FormField label="Харилцагчийн бүлэг" hint="Харилцагчийн картын «Хөнгөлөлтийн бүлэг» талбартай ЯГ таарна (VIP, ажилтан…)">
               <Input value={form.scopeRef} onChange={(e) => patch({ scopeRef: e.target.value })} />
-            </Field>
+            </FormField>
           )}
           {!isCustomerGroup && form.scope === "category" && (
-            <Field label="Барааны бүлгийн код">
+            <FormField label="Барааны бүлгийн код">
               <Input value={form.scopeRef} className="font-mono" onChange={(e) => patch({ scopeRef: e.target.value })} />
-            </Field>
+            </FormField>
           )}
           {!isCustomerGroup && form.scope === "item" && (
-            <Field label="Бараа">
+            <FormField label="Бараа">
               <SearchableSelect
                 value={selectedItemCode}
                 onChange={(code) => patch({ scopeRef: items.find((item) => item.code === code)?.id ?? "" })}
                 options={itemOptions}
                 placeholder="Бараа сонгох…"
               />
-            </Field>
+            </FormField>
           )}
 
           {showValue && (
             <>
               {!isFixedPrice && (
-                <Field label="Утгын төрөл">
+                <FormField label="Утгын төрөл">
                   <select
                     className="ea-form-select"
                     value={form.valueType}
@@ -319,45 +292,45 @@ export function DiscountRuleDialog({
                     <option value="percent">Хувь (%)</option>
                     <option value="amount">Дүн (₮)</option>
                   </select>
-                </Field>
+                </FormField>
               )}
-              <Field label={isFixedPrice ? "Урамшууллын үнэ (₮)" : form.valueType === "percent" ? "Хувь (%)" : "Дүн (₮)"}>
+              <FormField label={isFixedPrice ? "Урамшууллын үнэ (₮)" : form.valueType === "percent" ? "Хувь (%)" : "Дүн (₮)"}>
                 <Input type="number" min="0" value={form.value} className="font-mono text-right" onChange={(e) => patch({ value: e.target.value })} />
-              </Field>
+              </FormField>
             </>
           )}
 
           {isBogo && (
             <>
-              <Field label="N авбал (buyQty)">
+              <FormField label="N авбал (buyQty)">
                 <Input type="number" min="1" value={form.buyQty} className="font-mono" onChange={(e) => patch({ buyQty: e.target.value })} />
-              </Field>
-              <Field label="M үнэгүй (getQty)">
+              </FormField>
+              <FormField label="M үнэгүй (getQty)">
                 <Input type="number" min="1" value={form.getQty} className="font-mono" onChange={(e) => patch({ getQty: e.target.value })} />
-              </Field>
+              </FormField>
             </>
           )}
 
           {!isBogo && !isTier && (
-            <Field label="Доод тоо (minQty)">
+            <FormField label="Доод тоо (minQty)">
               <Input type="number" min="0" value={form.minQty} className="font-mono" onChange={(e) => patch({ minQty: e.target.value })} />
-            </Field>
+            </FormField>
           )}
-          <Field label={isBasket ? "Сагсны босго (₮)" : "Доод дүн (minAmount)"}>
+          <FormField label={isBasket ? "Сагсны босго (₮)" : "Доод дүн (minAmount)"}>
             <Input type="number" min="0" value={form.minAmount} className="font-mono" onChange={(e) => patch({ minAmount: e.target.value })} />
-          </Field>
+          </FormField>
 
           {isCoupon && (
             <>
-              <Field label="Купоны код">
+              <FormField label="Купоны код">
                 <Input value={form.couponCode} className="font-mono uppercase" onChange={(e) => patch({ couponCode: e.target.value })} />
-              </Field>
-              <Field label="Нийт хэрэглээний хязгаар">
+              </FormField>
+              <FormField label="Нийт хэрэглээний хязгаар">
                 <Input type="number" min="0" value={form.maxUsesTotal} className="font-mono" onChange={(e) => patch({ maxUsesTotal: e.target.value })} />
-              </Field>
-              <Field label="Харилцагч бүрийн хязгаар">
+              </FormField>
+              <FormField label="Харилцагч бүрийн хязгаар">
                 <Input type="number" min="0" value={form.maxUsesPerCustomer} className="font-mono" onChange={(e) => patch({ maxUsesPerCustomer: e.target.value })} />
-              </Field>
+              </FormField>
             </>
           )}
         </div>
@@ -429,18 +402,18 @@ export function DiscountRuleDialog({
         )}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Огноо (эхлэх)">
+          <FormField label="Огноо (эхлэх)">
             <Input type="date" value={form.dateFrom} onChange={(e) => patch({ dateFrom: e.target.value })} />
-          </Field>
-          <Field label="Огноо (дуусах)">
+          </FormField>
+          <FormField label="Огноо (дуусах)">
             <Input type="date" value={form.dateTo} onChange={(e) => patch({ dateTo: e.target.value })} />
-          </Field>
-          <Field label={isTimeWindow ? "Цаг (эхлэх)" : "Цаг (эхлэх, сонголтоор)"}>
+          </FormField>
+          <FormField label={isTimeWindow ? "Цаг (эхлэх)" : "Цаг (эхлэх, сонголтоор)"}>
             <Input type="time" value={form.timeFrom} onChange={(e) => patch({ timeFrom: e.target.value })} />
-          </Field>
-          <Field label={isTimeWindow ? "Цаг (дуусах)" : "Цаг (дуусах, сонголтоор)"}>
+          </FormField>
+          <FormField label={isTimeWindow ? "Цаг (дуусах)" : "Цаг (дуусах, сонголтоор)"}>
             <Input type="time" value={form.timeTo} onChange={(e) => patch({ timeTo: e.target.value })} />
-          </Field>
+          </FormField>
         </div>
 
         <div>

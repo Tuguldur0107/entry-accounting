@@ -11,7 +11,6 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Icon } from "@/components/ui/icon";
-import { toast } from "sonner";
 import { feedback } from "@/lib/ui/feedback";
 
 import { AccountInput } from "@/components/account/account-input";

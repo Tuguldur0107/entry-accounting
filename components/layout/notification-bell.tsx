@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { Dropdown, DropdownSeparator } from "@/components/ui/dropdown";
 import { Icon } from "@/components/ui/icon";
+import { IconAction } from "@/components/ui/icon-action";
 import {
   getUnreadNotificationCount,
   listNotifications,
@@ -128,29 +129,31 @@ export function NotificationBell({ initialUnread }: { initialUnread: number }) {
       onOpenChange={setOpen}
       panelClassName="w-80 p-0"
       trigger={
-        <button
-          type="button"
-          className="ea-icon-action relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-[var(--ea-border)] text-[var(--ea-text-2)]"
-          title="Мэдэгдэл"
-          aria-label={unread > 0 ? `Мэдэгдэл — ${unread} уншаагүй` : "Мэдэгдэл"}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => {
-            const next = !open;
-            setOpen(next);
-            if (next) void load();
-          }}
-        >
-          <Icon name="bell" size="lg" className="pointer-events-none" />
+        <span className="relative inline-flex">
+          <IconAction
+            name="bell"
+            label={unread > 0 ? `Мэдэгдэл — ${unread} уншаагүй` : "Мэдэгдэл"}
+            tooltip="Мэдэгдэл"
+            size="lg"
+            variant="outline"
+            aria-haspopup="menu"
+            aria-expanded={open}
+            onClick={() => {
+              const next = !open;
+              setOpen(next);
+              if (next) void load();
+            }}
+          />
           {unread > 0 && (
             <span
-              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 font-mono text-[10px] font-semibold"
-              style={{ background: "var(--ea-danger)", color: "#fff" }}
+              aria-hidden
+              className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 font-mono text-[10px] font-semibold"
+              style={{ background: "var(--ea-danger)", color: "var(--primary-foreground)" }}
             >
               {unread > 99 ? "99+" : unread}
             </span>
           )}
-        </button>
+        </span>
       }
     >
       <div className="flex items-center justify-between px-3 py-2">

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
+import { Icon, type IconName } from "@/components/ui/icon";
 import { runDepreciation } from "@/lib/actions/fa";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
 import { closePeriod, reopenPeriod } from "@/lib/actions/periods";
@@ -19,12 +20,44 @@ import type { LedgerIntegrityResult } from "@/lib/gl/integrity";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { fmtPeriodCode } from "@/lib/periods/period";
 
-const STATUS_META: Record<StepStatus, { label: string; symbol: string; color: string }> = {
-  done: { label: "Бэлэн", symbol: "✓", color: "var(--ea-success-fg)" },
-  attention: { label: "Анхаарах", symbol: "⚠", color: "var(--ea-warning-fg)" },
-  pending: { label: "Хийгдээгүй", symbol: "○", color: "var(--ea-text-3)" },
-  na: { label: "Хамааралгүй", symbol: "—", color: "var(--ea-text-3)" },
+// Алхмын статус — Icon Kit-ийн semantic дүрс (текст glyph ✓/⚠ бичихгүй).
+const STATUS_META: Record<StepStatus, { label: string; icon: IconName; color: string }> = {
+  done: { label: "Бэлэн", icon: "success", color: "var(--ea-success-fg)" },
+  attention: { label: "Анхаарах", icon: "warning", color: "var(--ea-warning-fg)" },
+  pending: { label: "Хийгдээгүй", icon: "pending", color: "var(--ea-text-3)" },
+  na: { label: "Хамааралгүй", icon: "minus", color: "var(--ea-text-3)" },
 };
+
+/**
+ * Мөрийн урд «бэлэн / анхаарах / хүлээгдэж буй» дүрс. `inherit` — эцэг элемент
+ * өнгөө аль хэдийн тавьсан (амжилт/аюулын текст) үед тэр өнгийг өвлөнө.
+ */
+function CheckMark({
+  ok,
+  pending = false,
+  inherit = false,
+}: {
+  ok: boolean;
+  /** false үед анхааруулга биш «хийгдээгүй» (бүдэг) дүрс. */
+  pending?: boolean;
+  inherit?: boolean;
+}) {
+  const name = ok ? "success" : pending ? "pending" : "warning";
+  const color = ok
+    ? "var(--ea-success-fg)"
+    : pending
+      ? "var(--ea-text-3)"
+      : "var(--ea-warning-fg)";
+  return (
+    <Icon
+      name={name}
+      size="xs"
+      className="mr-1 inline-block align-[-2px]"
+      style={inherit ? undefined : { color }}
+      label={ok ? "Бэлэн" : pending ? "Хийгдээгүй" : "Анхаарах"}
+    />
+  );
+}
 
 function Step({
   index,
@@ -47,13 +80,7 @@ function Step({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <span
-            className="font-mono text-lg font-semibold"
-            style={{ color: meta.color }}
-            aria-label={meta.label}
-          >
-            {meta.symbol}
-          </span>
+          <Icon name={meta.icon} size="md" style={{ color: meta.color }} label={meta.label} />
           <h2 className="text-sm font-semibold">
             {index}. {title}
           </h2>
@@ -150,7 +177,8 @@ export function CloseWizard({
           }}
         >
           <span style={{ color: "var(--ea-success-fg)" }}>
-            ✓ Энэ тайлант үе {closedAt ?? ""} хаагдсан.
+            <CheckMark ok inherit />
+            Энэ тайлант үе {closedAt ?? ""} хаагдсан.
           </span>{" "}
           Дахин нээх нь ил үйлдэл — зөвхөн засварын зайлшгүй шаардлагад.
         </div>
@@ -179,7 +207,8 @@ export function CloseWizard({
                 : "var(--ea-danger-fg)",
             }}
           >
-            {integrity.ok ? "✓ Зөрчилгүй" : "⚠ Зөрчилтэй"}
+            <CheckMark ok={integrity.ok} inherit />
+            {integrity.ok ? "Зөрчилгүй" : "Зөрчилтэй"}
           </span>
         </div>
         <p className="mt-1 text-xs" style={{ color: "var(--ea-text-3)" }}>
@@ -262,7 +291,8 @@ export function CloseWizard({
           <ul className="space-y-0.5">
             {fx.accounts.map((account) => (
               <li key={account.id}>
-                {account.done ? "✓" : "○"} {account.name} ({account.currency}) —{" "}
+                <CheckMark ok={account.done} pending />
+                {account.name} ({account.currency}) —{" "}
                 {account.done
                   ? "сарын эцсээр тэгшитгэсэн"
                   : account.lastValuationDate
@@ -416,18 +446,21 @@ export function CloseWizard({
         ) : (
           <ul className="space-y-0.5">
             <li>
-              {pos.openShifts > 0 ? "⚠" : "✓"} Нээлттэй ээлж {pos.openShifts}
+              <CheckMark ok={pos.openShifts === 0} />
+              Нээлттэй ээлж {pos.openShifts}
               {pos.openShifts > 0 ? " — эхлээд ээлжээ хаана уу (хаалтын хориг)." : "."}
             </li>
             <li>
-              {pos.negativeStockScopes > 0 ? "⚠" : "✓"} Хасах үлдэгдэлтэй бараа×агуулах{" "}
+              <CheckMark ok={pos.negativeStockScopes === 0} />
+              Хасах үлдэгдэлтэй бараа×агуулах{" "}
               {pos.negativeStockScopes}
               {pos.negativeStockScopes > 0
                 ? " — орлого эсвэл тооллого бүртгээд өртгөө дахин тооцно уу."
                 : "."}
             </li>
             <li>
-              {pos.unvaluedMovements > 0 ? "⚠" : "✓"} Сарын өртөгт үнэлэгдээгүй хөдөлгөөн{" "}
+              <CheckMark ok={pos.unvaluedMovements === 0} />
+              Сарын өртөгт үнэлэгдээгүй хөдөлгөөн{" "}
               {pos.unvaluedMovements}
               {pos.unvaluedMovements > 0 ? " — Өртөг тооцох алхмыг гүйцээнэ үү (хаалтын хориг)." : "."}
             </li>

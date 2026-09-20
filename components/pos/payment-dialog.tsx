@@ -554,13 +554,8 @@ export function PaymentDialog({
 
 function QuickButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      className="ea-btn h-6 px-1.5 font-mono text-[11px]"
-      onClick={onClick}
-      tabIndex={-1}
-    >
+    <Button type="button" variant="outline" size="xs" className="font-mono" onClick={onClick} tabIndex={-1}>
       {children}
-    </button>
+    </Button>
   );
 }

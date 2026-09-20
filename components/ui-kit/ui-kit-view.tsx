@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { FormField, SwitchField } from "@/components/ui/form-field";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -139,6 +140,7 @@ export function UiKitView() {
   const [account, setAccount] = useState("100..11210000...000.0000..GL.0");
   const [pickerCode, setPickerCode] = useState("");
   const [switchOn, setSwitchOn] = useState(true);
+  const [switchFieldOn, setSwitchFieldOn] = useState(true);
 
   return (
     <div className="max-w-screen-xl mx-auto space-y-4 pb-10">
@@ -325,8 +327,17 @@ export function UiKitView() {
       </Section>
 
       {/* 5. Form elements */}
-      <Section title="Form элементүүд" hint="Input, Select, Switch, Skeleton.">
+      <Section title="Form элементүүд" hint="Input, Select, Switch, Skeleton. Талбарын жааз — FormField / SwitchField (components/ui/form-field.tsx): Label + input + hint; форм бүрд өөрийн Field бичихгүй.">
         <div className="grid gap-5 md:grid-cols-2">
+          <FormField label="FormField — Тайлбар" hint="hint prop — талбарын доорх бүдэг тайлбар." htmlFor="uikit-formfield">
+            <Input id="uikit-formfield" placeholder="Label + input + hint нэг жаазанд" />
+          </FormField>
+          <SwitchField
+            label="SwitchField — Хасах үлдэгдэл зөвшөөрөх"
+            hint="Switch + гарчиг + тайлбар нэг label дотор."
+            checked={switchFieldOn}
+            onChange={setSwitchFieldOn}
+          />
           <div className="space-y-1.5">
             <Label htmlFor="uikit-input">Журналын нэр</Label>
             <Input id="uikit-input" placeholder="Тайлбар оруулна уу" />

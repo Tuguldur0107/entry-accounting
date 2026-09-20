@@ -1407,6 +1407,13 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
 Хэрэглэгдэж буй газрууд: AI тохиргоо, касс/бараа жагсаалт, дансны тохиргоо
 (2 түвшин), өртгийн тохиргоо. Амьд жишээ: `/settings/ui-kit`.
 
+### Формын талбар (FormField / SwitchField)
+
+`components/ui/form-field.tsx` — Label + input + hint жааз, Switch + гарчиг +
+тайлбар. Форм/диалог бүрд өөрийн `Field`, `SwitchField` бичихийг ХОРИГЛОНО
+(POS тохиргоо, хөнгөлөлтийн дүрэм, ээлжийн диалог үүгээр). Амьд жишээ
+`/settings/ui-kit` → «Form элементүүд».
+
 ### Popup / Modal
 
 ```
