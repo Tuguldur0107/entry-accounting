@@ -86,7 +86,7 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
   барих. Өөрөө багц солихгүй (төлбөрийн гарц фаз 2).
 - **Entry Console** (Entry-ийн ажилтан — одоогоор эзэн өөрөө) — апп дотор platform
   admin UI БАЙХГҮЙ; Console `GET/PUT /api/platform/subscriptions` ба
-  `GET/PUT /api/platform/plan-prices` (Bearer
+  `GET/POST/DELETE /api/platform/plan-prices` (Bearer
   `ENTRY_PLATFORM_API_KEY`, timing-safe, зөвхөн saas горимд, dedicated-д 404;
   хаалга нь `lib/api/platform-auth.ts`)
   дуудаж бүх байгууллагын жагсаалт (багц, статус, суудал, гишүүд, үүссэн огноо)
@@ -94,9 +94,9 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
   `actor`). Цөм `lib/billing/platform.ts`; өөрчлөлт сервер логт (аудитын мөр
   users FK-тай тул Console-ийн үйлдэл аудитад ордоггүй — `updated_by` null,
   `note`/лог). Console талын UI тусдаа repo-д.
-- **Үнэ — ГУРВАН давхарга** (`lib/billing/pricing.ts` ЦЭВЭР, тесттэй; доошоо
-  дардаг): ① `plans.ts`-ийн default (кодод, deploy-д л өөрчлөгдөнө) →
-  ② `platform_plan_prices` (Console-оос, БҮХ харилцагчид нэг — deploy хэрэггүй) →
+- **Үнэ — ОГНООТОЙ, ГУРВАН давхарга** (`lib/billing/pricing.ts` ЦЭВЭР, тесттэй;
+  доошоо дардаг): ① `plans.ts`-ийн default (кодод, deploy-д л өөрчлөгдөнө) →
+  ② `platform_plan_prices` ҮЕҮҮД (Console-оос, БҮХ харилцагчид нэг — deploy хэрэггүй) →
   ③ `organization_subscriptions.price_per_seat_mnt` (тухайн харилцагчийн тусгай
   үнэ: enterprise хэлэлцээр, хөнгөлөлт). `null` = үнэ ТОГТООГООГҮЙ
   (хэлэлцээрээр), **0₮ гэсэн үг БИШ**; хадгалагдсан мөрийн null нь ИЛ
@@ -104,6 +104,17 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
   `get_billing_overview`, Console-ийн жагсаалт гурвуулаа `resolveSeatPrice`-ээр
   НЭГ утга хардаг; сарын дүн = төлсөн суудал × үнэ (`monthlyAmountMnt`,
   аль нэг нь тодорхойгүй бол null — таамаглахгүй).
+- **Үнийн ТҮҮХ (огноо).** Багцын үе бүр `effectiveFrom … effectiveTo`
+  (ХАМРУУЛСАН; хоосон = хугацаагүй) мужтай: анх ямар үнэ тогтоосон нь
+  хэвээр үлдэж, ирээдүйн үнийг урьдчилан оруулна. `priceAtDate(огноо)` нь
+  тухайн өдрийг хамрах үеийг өгнө; хамрах үе БАЙХГҮЙ (цоорхой, эсвэл эхний
+  үеэс өмнөх өдөр) бол кодын default үйлчилнэ — үнэ ЗОХИОХГҮЙ.
+  Давхцлыг `planPriceChange` урьдчилж барина: (а) хугацаагүй байсан өмнөх үе
+  дээр шинэ үе ХОЖУУ эхэлбэл өмнөхийг автоматаар өмнөх өдрөөр хааж үр дүнд ИЛ
+  мэдэгдэнэ; (б) бусад ямар ч давхцлыг мөргөлдсөн үеийг нэрлэж ТАТГАЛЗАНА.
+  Буруу оруулсныг `DELETE`-ээр устгана (түүх засах цорын ганц зам).
+  API: `GET` (үеүд + өнөөдрийн үнэ + default), `POST` (үе нэмэх),
+  `DELETE` (үе устгах).
 - **Самбар/мэдэгдэл** — topbar-ийн доор баннер (trial ≤7 хоног, past_due,
   read-only) ба `attention.ts`-ийн `subscription.trial_ending` /
   `subscription.read_only` дохио (нүүр + өдөр тутмын мэдэгдэл, эзэн/админд).

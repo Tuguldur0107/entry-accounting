@@ -1,9 +1,11 @@
-// Багцын ҮНИЙН тохиргоо — Entry Console эндээс уншиж, бичнэ (docs/billing §2).
-// Үнэ нь ПЛАТФОРМЫН хэмжээнд нэг; байгууллагын тусгай үнэ нь subscriptions
-// route-ийн `pricePerSeatMnt`.
+// Багцын ҮНИЙН ТҮҮХ — Entry Console эндээс уншиж, шинэ үе нэмж, устгана
+// (docs/billing/00-proposal.md §5). Үнэ нь ОГНООНЫ МУЖТАЙ: багц бүрийн анхны
+// үнэ, дараагийн шинэчлэлт, ирээдүйн үнэ тус тусдаа мөр.
+// Байгууллагын тусгай үнэ нь subscriptions route-ийн `pricePerSeatMnt`.
 //
-//   GET  /api/platform/plan-prices   → { ok, prices, defaults }
-//   PUT  /api/platform/plan-prices   body: { prices: [{planId, pricePerSeatMnt}], actor? }
+//   GET    /api/platform/plan-prices  → { ok, periods, prices (өнөөдрийн), defaults, today }
+//   POST   /api/platform/plan-prices  body: { planId, pricePerSeatMnt, effectiveFrom, effectiveTo?, note?, actor? }
+//   DELETE /api/platform/plan-prices  body: { id, actor? }
 import { NextResponse } from "next/server";
 
 import {
@@ -11,8 +13,14 @@ import {
   platformFailure,
   platformGate,
 } from "@/lib/api/platform-auth";
-import { DEFAULT_PLAN_PRICES } from "@/lib/billing/pricing";
-import { loadPlanPrices, savePlanPrices, type PlanPriceInput } from "@/lib/billing/pricing-store";
+import { DEFAULT_PLAN_PRICES, resolvePlanPricesAt } from "@/lib/billing/pricing";
+import {
+  addPlanPricePeriod,
+  deletePlanPricePeriod,
+  loadPlanPricePeriods,
+  todayInUlaanbaatar,
+  type AddPlanPriceInput,
+} from "@/lib/billing/pricing-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,26 +28,65 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const blocked = platformGate(request);
   if (blocked) return blocked;
-  const prices = await loadPlanPrices();
-  return NextResponse.json({ ok: true, prices, defaults: DEFAULT_PLAN_PRICES });
+  const periods = await loadPlanPricePeriods();
+  const today = todayInUlaanbaatar();
+  return NextResponse.json({
+    ok: true,
+    periods,
+    prices: resolvePlanPricesAt(periods, today),
+    defaults: DEFAULT_PLAN_PRICES,
+    today,
+  });
 }
 
-export async function PUT(request: Request) {
+export async function POST(request: Request) {
   const blocked = platformGate(request);
   if (blocked) return blocked;
-  let body: { prices?: PlanPriceInput[]; actor?: string } | null = null;
+  let body: (AddPlanPriceInput & { actor?: string }) | null = null;
   try {
-    body = (await request.json()) as { prices?: PlanPriceInput[]; actor?: string };
+    body = (await request.json()) as AddPlanPriceInput & { actor?: string };
   } catch {
     return NextResponse.json({ ok: false, error: "JSON задлагдсангүй" }, { status: 400 });
   }
-  if (!body || !Array.isArray(body.prices))
-    return NextResponse.json({ ok: false, error: "prices массив шаардлагатай" }, { status: 400 });
+  if (!body || typeof body.planId !== "string" || typeof body.effectiveFrom !== "string")
+    return NextResponse.json(
+      { ok: false, error: "planId ба effectiveFrom шаардлагатай" },
+      { status: 400 }
+    );
   try {
-    const { prices, changes } = await savePlanPrices(body.prices, {
-      label: platformActorLabel(body.actor),
+    const result = await addPlanPricePeriod(body, { label: platformActorLabel(body.actor) });
+    const today = todayInUlaanbaatar();
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      prices: resolvePlanPricesAt(result.periods, today),
+      today,
     });
-    return NextResponse.json({ ok: true, prices, changes, defaults: DEFAULT_PLAN_PRICES });
+  } catch (caught) {
+    return platformFailure(caught);
+  }
+}
+
+export async function DELETE(request: Request) {
+  const blocked = platformGate(request);
+  if (blocked) return blocked;
+  let body: { id?: string; actor?: string } | null = null;
+  try {
+    body = (await request.json()) as { id?: string; actor?: string };
+  } catch {
+    return NextResponse.json({ ok: false, error: "JSON задлагдсангүй" }, { status: 400 });
+  }
+  if (!body || typeof body.id !== "string")
+    return NextResponse.json({ ok: false, error: "id шаардлагатай" }, { status: 400 });
+  try {
+    const result = await deletePlanPricePeriod(body.id, { label: platformActorLabel(body.actor) });
+    const today = todayInUlaanbaatar();
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      prices: resolvePlanPricesAt(result.periods, today),
+      today,
+    });
   } catch (caught) {
     return platformFailure(caught);
   }

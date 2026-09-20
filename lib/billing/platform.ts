@@ -16,7 +16,7 @@ import {
   type SubscriptionStatus,
 } from "@/lib/billing/plans";
 import { monthlyAmountMnt, parsePlanPriceInput, resolveSeatPrice } from "@/lib/billing/pricing";
-import { loadPlanPrices } from "@/lib/billing/pricing-store";
+import { loadPlanPricesAt } from "@/lib/billing/pricing-store";
 import { db } from "@/lib/db";
 import { memberships, organizationSubscriptions, organizations, users } from "@/lib/db/schema";
 
@@ -59,7 +59,7 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
     .from(organizations)
     .orderBy(asc(organizations.createdAt));
   // Үнэ нь платформын хэмжээнд нэг — давталтын ГАДНА нэг л удаа уншина.
-  const planPrices = await loadPlanPrices();
+  const planPrices = await loadPlanPricesAt();
   const rows: PlatformSubscriptionRow[] = [];
   for (const org of orgs) {
     const [ent, seatsUsed, [members], owner, sub] = await Promise.all([

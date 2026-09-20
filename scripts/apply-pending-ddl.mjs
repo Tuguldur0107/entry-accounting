@@ -408,9 +408,36 @@ async function main() {
        updated_at timestamp not null default now()
      )`
   );
+  // Үнэ нь ОГНООТОЙ болов: багц бүр үеүдийн түүхтэй (хуучин нэг мөр = нэг багц
+  // индексийг хасна, эс бөгөөс хоёр дахь үе нэмэгдэхгүй).
   await run(
-    "platform_plan_prices_plan_ux индекс",
-    "create unique index if not exists platform_plan_prices_plan_ux on platform_plan_prices (plan_id)"
+    "platform_plan_prices.effective_from багана",
+    "alter table platform_plan_prices add column if not exists effective_from text"
+  );
+  await run(
+    "platform_plan_prices.effective_to багана",
+    "alter table platform_plan_prices add column if not exists effective_to text"
+  );
+  await run(
+    "platform_plan_prices.note багана",
+    "alter table platform_plan_prices add column if not exists note text"
+  );
+  await run(
+    "platform_plan_prices: огноогүй хуучин мөрийг нөхнө",
+    "update platform_plan_prices set effective_from = '2020-01-01' where effective_from is null"
+  );
+  await run(
+    "platform_plan_prices.effective_from not null",
+    "alter table platform_plan_prices alter column effective_from set not null"
+  );
+  await run(
+    "platform_plan_prices_plan_ux индексийг хасна (нэг багц = олон үе)",
+    "drop index if exists platform_plan_prices_plan_ux"
+  );
+  await run(
+    "platform_plan_prices_period_ux индекс",
+    `create unique index if not exists platform_plan_prices_period_ux
+       on platform_plan_prices (plan_id, effective_from)`
   );
   await run(
     "organization_subscriptions.price_per_seat_mnt багана",
