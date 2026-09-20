@@ -154,12 +154,40 @@ Cr COGS, `provisional_avg`), буцаан олголт: касс/банк хэл
 **Цэвэр давхарга** (`lib/ebarimt/receipt.ts`, DB-гүй, тесттэй):
 
 ```ts
-buildEbarimtReceipt(sale: EbarimtSaleInput, settings: EbarimtSettingsInput): EbarimtReceiptRequest
+buildEbarimtReceipt(sale: EbarimtSaleInput, settings: EbarimtSettingsInput,
+                    options?: { inactiveId?: string | null }): EbarimtReceiptRequest
+  // inactiveId = засварлах (хэсэгчилсэн буцаалт) баримтын СҮҮЛИЙН ДДТД — албан заавар §5
 allocatePayments(payments: EbarimtSalePaymentInput[], targetTotal: number): EbarimtPayment[]
 taxTypeOf(line: { vatMode }, isVatPayer: boolean): EbarimtTaxType
 ebarimtSettingsProblems(settings: EbarimtSettingsInput): string[]
 receiptResponseOutcome(response): { ok: true; id } | { ok: false; message }
+stripReceiptSecrets(raw: Record<string, unknown>): Record<string, unknown>
+  // lottery, qrData-г (дэд баримтаас ч) хасна — DB-д бичигдэх хариу ҮҮГЭЭР л дамжина
 class EbarimtError extends Error  // message = `[CODE] текст`
+
+// lib/ebarimt/readiness.ts (ЦЭВЭР)
+ebarimtReadiness(input: { items, categories, paymentMethods }): EbarimtReadiness
+// lib/ebarimt/posapi-info.ts (ЦЭВЭР)
+parsePosApiInfo(body: PosApiInfo): PosApiHealth
+isMerchantRegistered(info: PosApiHealth, merchantTin: string): boolean | null
+hoursSince(lastSentDate: string | null, nowUlaanbaatar: string): number | null
+// lib/ebarimt/tax-product-codes.ts (ЦЭВЭР, албан лавлах)
+taxProductCodesFor(vatMode): readonly TaxProductCode[]; taxProductCodeName(code): string | null
+```
+
+**Дараалал / worker** (`lib/ebarimt/queue.ts`, `worker.ts`, DB-тэй):
+
+```ts
+enqueueEbarimt(orgId, saleId, kind: "send" | "cancel", tx?): Promise<string | null>  // submission id
+prepareSubmission(submission, settingsRow): Promise<PreparedSubmission | null>
+  // kind=send: request; kind=cancel: БҮТЭН буцаалт → cancel (DELETE), ХЭСЭГЧИЛСЭН →
+  // request{inactiveId} — хоёулаа зэрэг ХЭЗЭЭ Ч биш; ТЕГ-д бүртгэх зүйлгүй бол PosAPI дуудалгүй sent
+markSent(submissionId, saleId, kind, response, { id, date, type })  // сугалаа/QR бичихгүй
+sendSubmissionNow(submissionId, settingsRow, timeoutMs): Promise<EbarimtSaleResult | null>
+  // борлуулалтын мөчид шууд илгээж ТҮР үр дүн (сугалаа/QR-тай) — createPosSale хэвлэхэд
+processSubmission(submission, settingsRow): Promise<{ outcome, result }>
+ebarimtStatusWithPosApi(orgId, settingsRow, todayUb): Promise<EbarimtStatusSummary>  // + /rest/info
+loadEbarimtReadiness(orgId): Promise<EbarimtReadiness>
 ```
 
 Шидэх нөхцөл (payload ҮҮСЭХГҮЙ, submission `failed`): `EBARIMT_SETTINGS`

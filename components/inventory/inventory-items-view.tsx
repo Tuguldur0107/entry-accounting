@@ -33,6 +33,7 @@ import {
   updateInventoryItem,
 } from "@/lib/actions/inventory";
 import { importInventoryItems } from "@/lib/actions/inventory-import";
+import { taxProductCodeName, taxProductCodesFor } from "@/lib/ebarimt/tax-product-codes";
 import {
   ITEM_VAT_MODE_LABELS,
   inventoryItemsSpec,
@@ -686,14 +687,18 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
               </FormField>
               <FormField
                 label="Татварын бүтээгдэхүүний код"
-                hint="3 орон — НӨАТ-гүй / 0% бараанд ЗААВАЛ"
+                hint={
+                  taxProductCodeName(itemForm.ebarimtTaxProductCode) ??
+                  "3 орон — НӨАТ-гүй / 0% бараанд ЗААВАЛ; ТЕГ-ийн албан жагсаалтаас сонгоно"
+                }
               >
                 <Input
                   value={itemForm.ebarimtTaxProductCode}
-                  placeholder="3 орон, ж: 101"
+                  placeholder={itemForm.vatMode === "zero" ? "501–507" : "305–446"}
                   className="font-mono"
                   maxLength={3}
                   inputMode="numeric"
+                  list="ebarimt-tax-product-codes"
                   disabled={itemForm.vatMode === "standard"}
                   onChange={(e) =>
                     setItemForm((c) => ({
@@ -702,6 +707,14 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
                     }))
                   }
                 />
+                {/* ТЕГ-ийн албан жагсаалт (lib/ebarimt/tax-product-codes.ts) — санал, хориглолт биш. */}
+                <datalist id="ebarimt-tax-product-codes">
+                  {taxProductCodesFor(itemForm.vatMode).map((entry) => (
+                    <option key={entry.code} value={entry.code}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </datalist>
               </FormField>
             </div>
             {error && (

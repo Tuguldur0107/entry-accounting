@@ -22,7 +22,9 @@ import type { PaymentKind } from "@/lib/pos/constants";
 
 import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
 import { ebarimtReadiness, type EbarimtReadiness } from "./readiness";
-import { buildEbarimtReceipt, EbarimtError } from "./receipt";
+import { fetchPosApiHealth } from "./client";
+import { isMerchantRegistered } from "./posapi-info";
+import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets } from "./receipt";
 import type {
   EbarimtDeleteRequest,
   EbarimtReceiptRequest,
@@ -136,23 +138,26 @@ export async function loadSaleForEbarimt(
   };
 }
 
-/** Дараалалд мөр нэмнэ (partial unique index давхардлыг хаана). Шидэхгүй. */
+/**
+ * Дараалалд мөр нэмнэ (partial unique index давхардлыг хаана). Шидэхгүй.
+ * Буцаана: шинэ submission-ийн id; давхардсан / унасан бол null.
+ */
 export async function enqueueEbarimt(
   orgId: string,
   saleId: string,
   kind: SubmissionKind,
   handle: DbHandle = db
-): Promise<boolean> {
+): Promise<string | null> {
   try {
     const [row] = await handle
       .insert(posEbarimtSubmissions)
       .values({ organizationId: orgId, saleId, kind, status: "pending", nextAttemptAt: new Date() })
       .onConflictDoNothing()
       .returning({ id: posEbarimtSubmissions.id });
-    return !!row;
+    return row?.id ?? null;
   } catch (error) {
     console.error("[ebarimt] enqueue унав:", saleId, kind, error);
-    return false;
+    return null;
   }
 }
 
@@ -188,7 +193,11 @@ export interface PreparedSubmission {
   kind: SubmissionKind;
   attempts: number;
   settings: EbarimtSettingsInput;
-  /** kind=send: илгээх баримт. kind=cancel: цуцлах хүсэлт + үлдсэн мөртэй бол дахин илгээх баримт. */
+  /**
+   * kind=send: илгээх баримт. kind=cancel (буцаалтын дараа): БҮТЭН буцаалт →
+   * `cancel` (DELETE, албан спек §6); ХЭСЭГЧИЛСЭН → `request` нь `inactiveId`-тай
+   * засварын бичилт (§5 — сугалаа дахин олгохгүй). Хоёулаа зэрэг ХЭЗЭЭ Ч байхгүй.
+   */
   request: EbarimtReceiptRequest | null;
   cancel: EbarimtDeleteRequest | null;
 }
@@ -203,30 +212,51 @@ export async function prepareSubmission(
 ): Promise<PreparedSubmission | null> {
   const settings = settingsInputOf(settingsRow);
   const kind: SubmissionKind = submission.kind === "cancel" ? "cancel" : "send";
+  // PosAPI дуудалгүй хаах — давхар enqueue, эсвэл ТЕГ-д бүртгэх зүйл үлдээгүй.
+  const settle = async (saleStatus: "cancelled" | null) => {
+    const now = new Date();
+    await db
+      .update(posEbarimtSubmissions)
+      .set({ status: "sent", sentAt: now, updatedAt: now, lastError: null })
+      .where(eq(posEbarimtSubmissions.id, submission.id));
+    if (saleStatus)
+      await db.update(posSales).set({ ebarimtStatus: saleStatus }).where(eq(posSales.id, submission.saleId));
+    return null;
+  };
   try {
     const sale = await db.query.posSales.findFirst({
       where: eq(posSales.id, submission.saleId),
       columns: { ebarimtId: true, ebarimtDate: true, ebarimtStatus: true },
     });
     if (!sale) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Борлуулалт олдсонгүй");
-    if (kind === "send" && sale.ebarimtId && sale.ebarimtStatus === "sent") {
-      // Аль хэдийн илгээгдсэн (давхар enqueue) — PosAPI дуудахгүй.
-      await db
-        .update(posEbarimtSubmissions)
-        .set({ status: "sent", sentAt: new Date(), updatedAt: new Date(), lastError: null })
-        .where(eq(posEbarimtSubmissions.id, submission.id));
-      return null;
-    }
-    let cancel: EbarimtDeleteRequest | null = null;
-    if (kind === "cancel") {
-      if (!sale.ebarimtId || !sale.ebarimtDate)
-        throw new EbarimtError(EBARIMT_ERRORS.notSent, "Цуцлах ДДТД/огноо байхгүй (эх баримт илгээгдээгүй)");
-      cancel = { id: sale.ebarimtId, date: sale.ebarimtDate };
-    }
     const input = await loadSaleForEbarimt(submission.organizationId, submission.saleId);
     if (!input) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Буцаалтын баримт өөрөө илгээгдэхгүй");
+    // Буцаалт бүр loadSaleForEbarimt-д тооцогддог тул хожуу илгээгдэх баримт
+    // ч үлдсэн мөрөөр л явна.
     const hasRemaining = input.lines.some((line) => line.quantity > 1e-9);
-    const request = kind === "send" || hasRemaining ? buildEbarimtReceipt(input, settings) : null;
+    const alreadySent = !!sale.ebarimtId && sale.ebarimtStatus === "sent";
+
+    let request: EbarimtReceiptRequest | null = null;
+    let cancel: EbarimtDeleteRequest | null = null;
+    if (kind === "send") {
+      if (alreadySent) return settle(null); // давхар enqueue
+      if (!hasRemaining) return settle("cancelled"); // илгээхээс өмнө бүгд буцаагдсан
+      request = buildEbarimtReceipt(input, settings);
+    } else if (!alreadySent) {
+      // Эх нь ТЕГ-д очоогүй байхад буцаагдав — цуцлах/засах зүйл алга; хүлээгдэж
+      // буй илгээлт (байвал) буцаалтыг тооцсон үлдсэн мөрөөр өөрөө явна.
+      return settle(hasRemaining ? null : "cancelled");
+    } else if (hasRemaining) {
+      // ХЭСЭГЧИЛСЭН буцаалт — албан спек §5: inactiveId = сүүлийн ДДТД, шинэ
+      // бичилт эхийг орлоно, сугалаа ДАХИН олгогдохгүй (DELETE + шинэ бол
+      // үйлчлүүлэгч хоёр дахь сугалаа авах зөрчил байсан).
+      request = buildEbarimtReceipt(input, settings, { inactiveId: sale.ebarimtId });
+    } else {
+      // БҮТЭН буцаалт — §6 DELETE.
+      if (!sale.ebarimtDate)
+        throw new EbarimtError(EBARIMT_ERRORS.notSent, "Цуцлах баримтын огноо байхгүй");
+      cancel = { id: sale.ebarimtId!, date: sale.ebarimtDate };
+    }
     await db
       .update(posEbarimtSubmissions)
       .set({ payload: { ...(request ? { request } : {}), ...(cancel ? { cancel } : {}) }, updatedAt: new Date() })
@@ -238,37 +268,40 @@ export async function prepareSubmission(
   }
 }
 
-/** Амжилт: submission sent + борлуулалтын eBarimt талбарууд. */
+/**
+ * Амжилт: submission sent + борлуулалтын eBarimt талбарууд. Сугалаа ба QR
+ * ХАДГАЛАГДАХГҮЙ (албан спек §5 хориглодог) — хариу jsonb ч
+ * `stripReceiptSecrets`-ээр дамжина; тэдгээр нь дуудагчид ТҮР л буцна.
+ */
 export async function markSent(
   submissionId: string,
   saleId: string,
   kind: SubmissionKind,
   response: Record<string, unknown>,
-  result: { id: string | null; lottery: string | null; qrData: string | null; date: string | null; type: string | null }
+  result: { id: string | null; date: string | null; type: string | null }
 ): Promise<void> {
   const now = new Date();
   await db
     .update(posEbarimtSubmissions)
-    .set({ status: "sent", response, sentAt: now, updatedAt: now, lastError: null, attempts: sql`${posEbarimtSubmissions.attempts} + 1` })
+    .set({
+      status: "sent",
+      response: stripReceiptSecrets(response),
+      sentAt: now,
+      updatedAt: now,
+      lastError: null,
+      attempts: sql`${posEbarimtSubmissions.attempts} + 1`,
+    })
     .where(eq(posEbarimtSubmissions.id, submissionId));
   if (kind === "cancel" && !result.id) {
     // Бүтэн цуцлагдсан — ДДТД хүчингүй.
-    await db
-      .update(posSales)
-      .set({ ebarimtStatus: "cancelled", ebarimtQrData: null, ebarimtLottery: null })
-      .where(eq(posSales.id, saleId));
+    await db.update(posSales).set({ ebarimtStatus: "cancelled" }).where(eq(posSales.id, saleId));
     return;
   }
+  // Хэсэгчилсэн буцаалтын засвар (inactiveId) → ДДТД ШИНЭЧЛЭГДЭНЭ — дараагийн
+  // засвар энэ сүүлийн ДДТД-г inactiveId болгоно (гинж).
   await db
     .update(posSales)
-    .set({
-      ebarimtStatus: "sent",
-      ebarimtId: result.id,
-      ebarimtLottery: result.lottery,
-      ebarimtQrData: result.qrData,
-      ebarimtDate: result.date,
-      ebarimtType: result.type,
-    })
+    .set({ ebarimtStatus: "sent", ebarimtId: result.id, ebarimtDate: result.date, ebarimtType: result.type })
     .where(eq(posSales.id, saleId));
 }
 
@@ -298,7 +331,7 @@ export async function markFailed(
       status: stop ? "failed" : "pending",
       attempts,
       lastError: message.slice(0, 2000),
-      response: options.response ?? undefined,
+      response: options.response ? stripReceiptSecrets(options.response) : undefined,
       nextAttemptAt: stop ? now : new Date(now.getTime() + backoffMs(attempts)),
       updatedAt: now,
     })
@@ -459,7 +492,30 @@ export async function ebarimtStatusSummary(orgId: string, settingsRow: PosSettin
     sentToday: Number(sentToday?.count ?? 0),
     lastSentAt: counts?.lastSentAt ? new Date(counts.lastSentAt).toISOString() : null,
     lastError: lastFailed?.lastError ?? null,
+    // Амьд PosAPI-ийн мэдээллийг ACTION давхарга (getEbarimtStatus) нэмнэ —
+    // /api/health энэ тоймыг байгууллага бүрд дууддаг тул энд сүлжээ хөндөхгүй.
+    posApi: null,
   };
 }
 
 export { posPaymentMethods };
+
+/**
+ * Тойм + PosAPI-ийн амьд байдал (`/rest/info`, ≤5 сек, шидэхгүй) — тохиргооны
+ * таб, AI/MCP статус. Server горимд л сүлжээ хөндөнө (browser горимд PosAPI
+ * кассын PC дээр — серверээс хүрэхгүй).
+ */
+export async function ebarimtStatusWithPosApi(
+  orgId: string,
+  settingsRow: PosSettings,
+  todayUb: string
+): Promise<EbarimtStatusSummary> {
+  const summary = await ebarimtStatusSummary(orgId, settingsRow, todayUb);
+  if (summary.mode !== "server" || !settingsRow.ebarimtPosApiUrl.trim()) return summary;
+  const health = await fetchPosApiHealth(settingsRow.ebarimtPosApiUrl);
+  if (!health) return summary;
+  return {
+    ...summary,
+    posApi: { ...health, merchantRegistered: isMerchantRegistered(health, settingsRow.ebarimtMerchantTin) },
+  };
+}

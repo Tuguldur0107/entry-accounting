@@ -64,4 +64,16 @@ export const REMOVED_COLUMNS = [
           and employer_si_percent = 12.5`,
     ],
   },
+  {
+    // v1.6.0 — eBarimt: сугалааны дугаар ба QR-ийг хэрэглэгчийн системд
+    // ХАДГАЛАХЫГ PosAPI 3.0-ийн албан заавар хориглодог («lottery болон qrData
+    // талбаруудын мэдээллийг … хадгалахыг хориглоно»). Хөрвүүлэх зүйлгүй —
+    // устгах нь өөрөө зорилго (хуримтлагдсан утгыг цэвэрлэнэ).
+    table: "pos_sales",
+    column: "ebarimt_lottery",
+  },
+  {
+    table: "pos_sales",
+    column: "ebarimt_qr_data",
+  },
 ];

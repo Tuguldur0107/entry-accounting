@@ -164,7 +164,7 @@ import { PAYMENT_KIND_LABELS, SALE_STATUS_LABELS } from "@/lib/pos/constants";
 import { lookupEbarimtTin, resendEbarimt } from "@/lib/actions/ebarimt";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
-import { ebarimtStatusSummary, loadEbarimtReadiness, settingsInputOf } from "@/lib/ebarimt/queue";
+import { ebarimtStatusWithPosApi, loadEbarimtReadiness, settingsInputOf } from "@/lib/ebarimt/queue";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import {
   aggregateBy,
@@ -9434,9 +9434,9 @@ async function runCreatePosSale(
       ? `⚠ Хасах үлдэгдэл: ${receipt.negativeStock.map((entry) => `${entry.itemName} (${entry.warehouseName}) ${entry.balanceAfter}`).join(", ")} — орлого/тооллого бүртгэтэл сар хаагдахгүй`
       : "",
     receipt.ebarimtStatus === "pending"
-      ? "eBarimt: ТЕГ рүү илгээгдэж байна — ДДТД/сугалаа/QR хэдхэн секундын дараа баримтад гарна (get_ebarimt_status)."
+      ? "eBarimt: ТЕГ рүү илгээгдэж байна — ДДТД хэдхэн секундын дараа баримтад гарна (get_ebarimt_status)."
       : receipt.ebarimtId
-        ? `eBarimt ДДТД: ${receipt.ebarimtId}${receipt.ebarimtLottery ? ` · сугалаа ${receipt.ebarimtLottery}` : ""}`
+        ? `eBarimt ДДТД: ${receipt.ebarimtId}${receipt.ebarimtLottery ? ` · сугалаа ${receipt.ebarimtLottery} (зөвхөн энэ мөчид — хадгалагдахгүй)` : ""}`
         : "",
     "GL: Dr Авлага / Cr Орлого (+НӨАТ); төлбөр бүрд Dr Касс|түр данс / Cr Авлага; урьдчилсан Dr COGS / Cr Бараа (сар хаалтад залруулагдана).",
   ].filter(Boolean);
@@ -9533,7 +9533,7 @@ async function runGetPosSale(orgId: string, input: { sale: string }): Promise<Ai
     `Нийт ${fmt(sale.grossAmount)} · хөнгөлөлт ${fmt(sale.discountTotal)} · цэвэр ${fmt(sale.netAmount)} · НӨАТ ${fmt(sale.vatAmount)} · төлөх ${fmt(sale.total)}₮`,
     `Төлбөр: ${sale.payments.map((payment) => `${payment.methodName} ${fmt(payment.baseAmount)}${payment.changeGiven ? ` (хариулт ${fmt(payment.changeGiven)})` : ""}${payment.reference ? ` реф ${payment.reference}` : ""}`).join(", ") || "—"}`,
     `АР нэхэмжлэх: ${sale.arApDocumentNo ?? "—"} (${sale.arApStatus ?? "—"}) · журнал ${sale.voucherIds.length} · буцаалт: ${sale.returns.map((ret) => `${ret.documentNo} ${fmt(ret.total)}₮`).join(", ") || "—"}${sale.ebarimtId ? ` · eBarimt ${sale.ebarimtId}` : ""}`,
-    `eBarimt: ${sale.ebarimtStatus ? EBARIMT_STATUS_LABELS[sale.ebarimtStatus as EbarimtStatus] ?? sale.ebarimtStatus : "илгээгдээгүй"}${sale.ebarimtLottery ? ` · сугалаа ${sale.ebarimtLottery}` : ""}${sale.ebarimtDate ? ` · ${sale.ebarimtDate}` : ""}${sale.ebarimtCustomerTin ? ` · худалдан авагч ТТД ${sale.ebarimtCustomerTin}` : sale.ebarimtConsumerNo ? ` · иргэн ${sale.ebarimtConsumerNo}` : ""}`,
+    `eBarimt: ${sale.ebarimtStatus ? EBARIMT_STATUS_LABELS[sale.ebarimtStatus as EbarimtStatus] ?? sale.ebarimtStatus : "илгээгдээгүй"}${sale.ebarimtDate ? ` · ${sale.ebarimtDate}` : ""}${sale.ebarimtCustomerTin ? ` · худалдан авагч ТТД ${sale.ebarimtCustomerTin}` : sale.ebarimtConsumerNo ? ` · иргэн ${sale.ebarimtConsumerNo}` : ""}`,
   ];
   return { resultText: lines.join("\n") };
 }
@@ -9595,7 +9595,7 @@ async function runGetPosSalesReport(
 async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   const settings = await ensurePosSettings(orgId);
   const [status, readiness] = await Promise.all([
-    ebarimtStatusSummary(orgId, settings, todayInUlaanbaatar()),
+    ebarimtStatusWithPosApi(orgId, settings, todayInUlaanbaatar()),
     loadEbarimtReadiness(orgId),
   ]);
   const problems = ebarimtSettingsProblems(settingsInputOf(settings));
@@ -9605,6 +9605,11 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
     readiness.ready
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,
+    status.enabled && status.mode === "server"
+      ? status.posApi
+        ? `PosAPI: ${status.posApi.operatorName ?? "оператор ?"} · posNo ${status.posApi.posNo ?? "?"} · үлдсэн сугалаа ${status.posApi.leftLotteries ?? "?"} · ТЕГ рүү сүүлд ${status.posApi.lastSentDate ?? "?"} · мерчант бүртгэлтэй: ${status.posApi.merchantRegistered == null ? "тодорхойгүй" : status.posApi.merchantRegistered ? "тийм" : "ҮГҮЙ — operator.ebarimt.mn-ээс хүсэлт илгээж харилцагчаар батлуулна"}`
+        : "PosAPI: ХҮРЭХГҮЙ байна (/rest/info хариулсангүй) — URL, сүлжээ, үйлчилгээ ажиллаж буйг шалгана"
+      : "",
     `Дараалал: хүлээгдэж байгаа ${status.pending} · алдаатай ${status.failed} · өнөөдөр илгээсэн ${status.sentToday}${status.lastSentAt ? ` · сүүлд ${status.lastSentAt.slice(0, 19).replace("T", " ")}` : ""}`,
     status.lastError ? `Сүүлийн алдаа: ${status.lastError.slice(0, 300)}` : "",
     status.failed > 0

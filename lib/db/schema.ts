@@ -3456,12 +3456,15 @@ export const posSales = pgTable(
     /** Буцаалт бол эх борлуулалт. */
     originalSaleId: uuid("original_sale_id"),
     returnReason: text("return_reason"),
+    /** ДДТД — хэсэгчилсэн буцаалтын засвар (inactiveId гинж) бүрд СҮҮЛИЙН ДДТД руу шинэчлэгдэнэ. */
     ebarimtId: text("ebarimt_id"),
-    ebarimtLottery: text("ebarimt_lottery"),
     /** null | "manual" | "pending" | "sent" | "failed" | "cancelled" (lib/ebarimt/constants.ts EBARIMT_STATUSES) */
     ebarimtStatus: text("ebarimt_status"),
-    /** ТЕГ-ийн хариу — баримтын QR (qrData), хэвлэсэн огноо (yyyy-MM-dd HH:mm:ss), баримтын төрөл (B2C_RECEIPT …). */
-    ebarimtQrData: text("ebarimt_qr_data"),
+    /**
+     * ТЕГ-ийн хариу — хэвлэсэн огноо (yyyy-MM-dd HH:mm:ss), баримтын төрөл (B2C_RECEIPT …).
+     * Сугалаа (lottery) ба QR (qrData) ХАДГАЛАГДАХГҮЙ — албан спек §5 хориглодог
+     * (scripts/lib/removed-schema-objects.mjs: ebarimt_lottery, ebarimt_qr_data).
+     */
     ebarimtDate: text("ebarimt_date"),
     ebarimtType: text("ebarimt_type"),
     /** Худалдан авагч: иргэний eBarimt дугаар (B2C) эсвэл байгууллагын ТТД (B2B) — борлуулах мөчид бичигдэнэ. */

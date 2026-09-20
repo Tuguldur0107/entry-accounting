@@ -5,7 +5,8 @@
 
 import { EBARIMT_ERRORS, POSAPI_PATHS, POSAPI_TIMEOUT_MS } from "./constants";
 import { EbarimtError } from "./receipt";
-import type { EbarimtDeleteRequest, EbarimtReceiptRequest, EbarimtReceiptResponse, PosApiInfo } from "./types";
+import { parsePosApiInfo } from "./posapi-info";
+import type { EbarimtDeleteRequest, EbarimtReceiptRequest, EbarimtReceiptResponse, PosApiHealth, PosApiInfo } from "./types";
 
 function baseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
@@ -62,4 +63,17 @@ export async function posApiInfo(posApiUrl: string): Promise<PosApiInfo> {
 export async function posApiSendData(posApiUrl: string): Promise<PosApiInfo> {
   const { body } = await call<PosApiInfo>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.sendData}`, { method: "GET" }, 60_000);
   return body ?? {};
+}
+
+/**
+ * `/rest/info`-г уншиж ойлгомжтой болгоно; PosAPI-д хүрэхгүй бол null — ХЭЗЭЭ Ч
+ * шидэхгүй (самбар, scheduler, статус гурвуул дуудна; хяналт нь борлуулалтыг
+ * зогсоох ёсгүй).
+ */
+export async function fetchPosApiHealth(posApiUrl: string): Promise<PosApiHealth | null> {
+  try {
+    return parsePosApiInfo(await posApiInfo(posApiUrl));
+  } catch {
+    return null;
+  }
 }

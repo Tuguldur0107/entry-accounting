@@ -607,23 +607,30 @@ export function PosCheckoutView({
       if (!base) return;
       for (const item of result.items) {
         try {
-          if (item.kind === "cancel") {
-            if (!item.cancel) continue;
+          if (item.cancel) {
+            // Бүтэн буцаалт — DELETE (албан спек §6).
             const cancelResponse = await callPosApiReceipt(base, "DELETE", item.cancel);
-            const recorded = await recordEbarimtResponse({
-              submissionId: item.id,
-              stage: "cancel",
-              response: cancelResponse,
-            });
-            if (recorded.error || !recorded.ok || !item.payload) continue;
-            // Хэсэгчилсэн буцаалт: цуцлаад үлдсэн мөрөөр шинэ баримт.
-            const sendResponse = await callPosApiReceipt(base, "POST", item.payload);
-            await recordEbarimtResponse({ submissionId: item.id, stage: "send", response: sendResponse });
+            await recordEbarimtResponse({ submissionId: item.id, stage: "cancel", response: cancelResponse });
             continue;
           }
           if (!item.payload) continue;
+          // Шинэ баримт, эсвэл хэсэгчилсэн буцаалтын засвар (payload.inactiveId — §5).
           const response = await callPosApiReceipt(base, "POST", item.payload);
-          await recordEbarimtResponse({ submissionId: item.id, stage: "send", response });
+          const recorded = await recordEbarimtResponse({ submissionId: item.id, stage: "send", response });
+          // Сугалаа/QR DB-д хадгалагдахгүй (албан спек) — дэлгэц дээр байгаа ЭНЭ
+          // борлуулалтын баримт бол хариуг шууд түүнд оноож нэг удаа хэвлүүлнэ.
+          if (!recorded.error && recorded.ok && typeof response.id === "string")
+            setReceipt((current) =>
+              current && current.saleId === item.saleId
+                ? {
+                    ...current,
+                    ebarimtId: response.id ?? current.ebarimtId,
+                    ebarimtLottery: typeof response.lottery === "string" ? response.lottery : null,
+                    ebarimtQrData: typeof response.qrData === "string" ? response.qrData : null,
+                    ebarimtStatus: "sent",
+                  }
+                : current
+            );
         } catch (caught) {
           console.error("eBarimt (browser горим) илгээлт амжилтгүй", caught);
         }

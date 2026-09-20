@@ -13,7 +13,7 @@ import { posApiDeleteReceipt, posApiPutReceipt, posApiSendData } from "./client"
 import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_MAX_ATTEMPTS } from "./constants";
 import { claimDueSubmissions, markFailed, markSent, prepareSubmission, type PreparedSubmission } from "./queue";
 import { EbarimtError, receiptResponseOutcome } from "./receipt";
-import type { EbarimtReceiptResponse } from "./types";
+import type { EbarimtReceiptResponse, EbarimtSaleResult } from "./types";
 import { isOrgVatPayer } from "@/lib/vat/settings";
 
 export interface EbarimtWorkerResult {
@@ -42,14 +42,26 @@ async function release(submissionId: string): Promise<void> {
     .where(and(eq(posEbarimtSubmissions.id, submissionId), eq(posEbarimtSubmissions.status, "claimed")));
 }
 
-export function resultOf(response: EbarimtReceiptResponse, type: string | null) {
+/**
+ * PosAPI-ийн хариу → ТҮР үр дүн (баримтыг НЭГ удаа хэвлэхэд). Сугалаа/QR энд л
+ * амьдарна — DB-д бичигдэхгүй (markSent stripReceiptSecrets).
+ */
+export function resultOf(response: EbarimtReceiptResponse, type: string | null): EbarimtSaleResult {
   return {
-    id: typeof response.id === "string" ? response.id : null,
-    lottery: typeof response.lottery === "string" ? response.lottery : null,
-    qrData: typeof response.qrData === "string" ? response.qrData : null,
-    date: typeof response.date === "string" ? response.date : null,
-    type,
+    ebarimtId: typeof response.id === "string" ? response.id : null,
+    ebarimtLottery: typeof response.lottery === "string" ? response.lottery : null,
+    ebarimtQrData: typeof response.qrData === "string" ? response.qrData : null,
+    ebarimtDate: typeof response.date === "string" ? response.date : null,
+    ebarimtType: type as EbarimtSaleResult["ebarimtType"],
+    ebarimtStatus: "sent",
   };
+}
+
+export interface ApplyResult {
+  ok: boolean;
+  attempts: number;
+  /** Амжилттай илгээлтийн түр үр дүн (цуцлалтад null). */
+  result: EbarimtSaleResult | null;
 }
 
 /** Бэлтгэсэн submission-ийг PosAPI-д илгээж үр дүнг бичнэ (server + browser хоёуланд нийтлэг). */
@@ -57,28 +69,30 @@ export async function applyPosApiResponse(
   prepared: Pick<PreparedSubmission, "id" | "saleId" | "kind" | "request">,
   response: EbarimtReceiptResponse,
   stage: "send" | "cancel"
-): Promise<{ ok: boolean; attempts: number }> {
+): Promise<ApplyResult> {
   const raw = response as Record<string, unknown>;
   if (stage === "cancel") {
     const status = typeof response.status === "string" ? response.status.toUpperCase() : "";
     const ok = status !== "ERROR" && (raw.httpStatus == null || Number(raw.httpStatus) < 400);
     if (!ok) {
       const attempts = await markFailed(prepared.id, prepared.saleId, new EbarimtError("EBARIMT_REJECTED", response.message ?? "Цуцлах хүсэлт татгалзагдав"), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
-      return { ok: false, attempts };
+      return { ok: false, attempts, result: null };
     }
-    if (!prepared.request) {
-      await markSent(prepared.id, prepared.saleId, "cancel", raw, { id: null, lottery: null, qrData: null, date: null, type: null });
-      return { ok: true, attempts: 0 };
-    }
-    return { ok: true, attempts: 0 };
+    await markSent(prepared.id, prepared.saleId, "cancel", raw, { id: null, date: null, type: null });
+    return { ok: true, attempts: 0, result: null };
   }
   const outcome = receiptResponseOutcome(response);
   if (!outcome.ok) {
     const attempts = await markFailed(prepared.id, prepared.saleId, new EbarimtError("EBARIMT_REJECTED", outcome.message), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
-    return { ok: false, attempts };
+    return { ok: false, attempts, result: null };
   }
-  await markSent(prepared.id, prepared.saleId, prepared.kind, raw, resultOf(response, prepared.request?.type ?? null));
-  return { ok: true, attempts: 0 };
+  const result = resultOf(response, prepared.request?.type ?? null);
+  await markSent(prepared.id, prepared.saleId, prepared.kind, raw, {
+    id: result.ebarimtId,
+    date: result.ebarimtDate,
+    type: result.ebarimtType,
+  });
+  return { ok: true, attempts: 0, result };
 }
 
 async function alertIfNeeded(orgId: string, saleId: string, attempts: number, error: string): Promise<void> {
@@ -96,45 +110,85 @@ async function alertIfNeeded(orgId: string, saleId: string, attempts: number, er
   });
 }
 
+export interface ProcessOutcome {
+  outcome: "sent" | "failed" | "skipped";
+  /** Амжилттай илгээлтийн түр үр дүн — зөвхөн дуудагч хэвлэхэд, DB-д ҮГҮЙ. */
+  result: EbarimtSaleResult | null;
+}
+
 /** Нэг submission-ийг бүрэн боловсруулна (claim → prepare → PosAPI → бичих). */
 export async function processSubmission(
   submission: typeof posEbarimtSubmissions.$inferSelect,
   settingsRow: typeof posSettings.$inferSelect
-): Promise<"sent" | "failed" | "skipped"> {
-  if (!(await claim(submission.id))) return "skipped";
+): Promise<ProcessOutcome> {
+  if (!(await claim(submission.id))) return { outcome: "skipped", result: null };
   const prepared = await prepareSubmission(submission, settingsRow);
   if (!prepared) {
-    // prepare нь хоёр шалтгаанаар null өгдөг: (а) аль хэдийн илгээгдсэн
-    // (давхар enqueue — PosAPI дуудалгүй sent болгосон), (б) payload үүсэхгүй
-    // ([EBARIMT_*] → failed). Тоолуурт эдгээрийг ЯЛГАНА.
+    // prepare нь хоёр шалтгаанаар null өгдөг: (а) PosAPI дуудалгүй хаасан
+    // (давхар enqueue, бүгд буцаагдсан, эх нь илгээгдээгүй — sent), (б) payload
+    // үүсэхгүй ([EBARIMT_*] → failed). Тоолуурт эдгээрийг ЯЛГАНА.
     const after = await db.query.posEbarimtSubmissions.findFirst({
       where: eq(posEbarimtSubmissions.id, submission.id),
       columns: { status: true },
     });
-    return after?.status === "sent" ? "skipped" : "failed";
+    return { outcome: after?.status === "sent" ? "skipped" : "failed", result: null };
   }
   try {
     if (prepared.cancel) {
+      // Бүтэн буцаалт — DELETE (§6). request ХЭЗЭЭ Ч зэрэг байхгүй.
       const cancelResponse = await posApiDeleteReceipt(prepared.settings.posApiUrl, prepared.cancel);
       const cancelResult = await applyPosApiResponse(prepared, cancelResponse, "cancel");
       if (!cancelResult.ok) {
         await alertIfNeeded(prepared.orgId, prepared.saleId, cancelResult.attempts, String(cancelResponse.message ?? ""));
-        return "failed";
+        return { outcome: "failed", result: null };
       }
-      if (!prepared.request) return "sent";
+      return { outcome: "sent", result: null };
     }
+    // Шинэ баримт, эсвэл хэсэгчилсэн буцаалтын засвар (inactiveId-тай) — хоёулаа POST.
     const response = await posApiPutReceipt(prepared.settings.posApiUrl, prepared.request!);
-    const result = await applyPosApiResponse(prepared, response, "send");
-    if (!result.ok) {
-      await alertIfNeeded(prepared.orgId, prepared.saleId, result.attempts, String(response.message ?? ""));
-      return "failed";
+    const applied = await applyPosApiResponse(prepared, response, "send");
+    if (!applied.ok) {
+      await alertIfNeeded(prepared.orgId, prepared.saleId, applied.attempts, String(response.message ?? ""));
+      return { outcome: "failed", result: null };
     }
-    return "sent";
+    return { outcome: "sent", result: applied.result };
   } catch (error) {
     // Сүлжээ / timeout — дахин оролдоно (backoff).
     const attempts = await markFailed(prepared.id, prepared.saleId, error, { maxAttempts: EBARIMT_MAX_ATTEMPTS });
     await alertIfNeeded(prepared.orgId, prepared.saleId, attempts, error instanceof Error ? error.message : String(error));
-    return "failed";
+    return { outcome: "failed", result: null };
+  }
+}
+
+/**
+ * Борлуулалт батлагдмагц ШУУД илгээж, хариуг (сугалаа/QR-тай) баримт хэвлэхэд
+ * ТҮР буцаана — DB-д хадгалахгүй тул зөвхөн энэ мөчид л гарна. `timeoutMs`
+ * хэтэрвэл null (баримт QR-гүй хэвлэгдэнэ); илгээлт нь ард үргэлжилж дуусна,
+ * дуусахгүй бол claim 10 минутын дараа чөлөөлөгдөж worker дахин оролдоно.
+ * Хэзээ ч шидэхгүй — борлуулалт илгээлтээс болж унахгүй (§4.4).
+ */
+export async function sendSubmissionNow(
+  submissionId: string,
+  settingsRow: typeof posSettings.$inferSelect,
+  timeoutMs: number
+): Promise<EbarimtSaleResult | null> {
+  try {
+    const submission = await db.query.posEbarimtSubmissions.findFirst({ where: eq(posEbarimtSubmissions.id, submissionId) });
+    if (!submission) return null;
+    const work = processSubmission(submission, settingsRow).catch((error) => {
+      console.error("[ebarimt] шууд илгээлт:", error);
+      return { outcome: "failed", result: null } as ProcessOutcome;
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    const winner = await Promise.race([work, timeout]);
+    if (timer) clearTimeout(timer);
+    return winner && winner.outcome === "sent" ? winner.result : null;
+  } catch (error) {
+    console.error("[ebarimt] шууд илгээлт:", error);
+    return null;
   }
 }
 
@@ -148,7 +202,7 @@ export async function processPendingEbarimt(limit = 50): Promise<EbarimtWorkerRe
     for (const { submission, settings } of due) {
       result.claimed += 1;
       try {
-        const outcome = await processSubmission(submission, settings);
+        const { outcome } = await processSubmission(submission, settings);
         if (outcome === "sent") result.sent += 1;
         else if (outcome === "failed") result.failed += 1;
       } catch (error) {

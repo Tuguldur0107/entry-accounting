@@ -240,3 +240,39 @@ test("туслахууд: isoWeekKey оны зааг, alertBucket", () => {
   assert.equal(alertBucket(8, [7, 3, 1, 0]), null);
   assert.equal(alertBucket(-1, [7, 3, 1, 0]), null);
 });
+
+test("eBarimt: PosAPI хүрэхгүй / сугалаа бага / илгээлт хоцорсон — өдөрт нэг dedupe, POS бичих эрхтэйд", () => {
+  const down = attentionSignals(
+    input("2026-09-20", { ebarimt: { posApiReachable: false, leftLotteries: null, hoursSinceLastSent: null, sentRecently: true } })
+  ).filter((s) => s.key.startsWith("ebarimt"));
+  assert.deepEqual(down.map((s) => s.notify?.type), ["pos.ebarimt_posapi_down"]);
+  assert.equal(down[0].notify?.dedupeKey, "ebarimt:posapi:2026-09-20");
+  assert.deepEqual(down[0].notify?.audience, { kind: "module", moduleKeys: ["pos"], minLevel: "write" });
+
+  const low = attentionSignals(
+    input("2026-09-20", { ebarimt: { posApiReachable: true, leftLotteries: 150, hoursSinceLastSent: 2, sentRecently: true } })
+  ).filter((s) => s.key.startsWith("ebarimt"));
+  assert.deepEqual(low.map((s) => [s.notify?.type, s.tone]), [["pos.ebarimt_lottery_low", "warning"]]);
+  const exhausted = attentionSignals(
+    input("2026-09-20", { ebarimt: { posApiReachable: true, leftLotteries: 0, hoursSinceLastSent: 2, sentRecently: true } })
+  ).find((s) => s.key === "ebarimt-lottery-low");
+  assert.equal(exhausted?.tone, "danger");
+
+  // Хоцролт: 48ц → warning, 72ц+ → danger; сүүлийн 3 хоногт баримт байхгүй бол дохиогүй.
+  const stale = attentionSignals(
+    input("2026-09-20", { ebarimt: { posApiReachable: true, leftLotteries: 1000, hoursSinceLastSent: 50, sentRecently: true } })
+  ).find((s) => s.key === "ebarimt-send-stale");
+  assert.equal(stale?.tone, "warning");
+  assert.equal(stale?.notify?.dedupeKey, "ebarimt:stale:2026-09-20");
+  const over = attentionSignals(
+    input("2026-09-20", { ebarimt: { posApiReachable: true, leftLotteries: 1000, hoursSinceLastSent: 80, sentRecently: true } })
+  ).find((s) => s.key === "ebarimt-send-stale");
+  assert.equal(over?.tone, "danger");
+  const idle = attentionSignals(
+    input("2026-09-20", { ebarimt: { posApiReachable: true, leftLotteries: 1000, hoursSinceLastSent: 500, sentRecently: false } })
+  ).filter((s) => s.key.startsWith("ebarimt"));
+  assert.deepEqual(idle, []);
+
+  // eBarimt өгөгдөлгүй (унтраалттай / browser горим) → дохиогүй.
+  assert.deepEqual(attentionSignals(input("2026-09-20")).filter((s) => s.key.startsWith("ebarimt")), []);
+});

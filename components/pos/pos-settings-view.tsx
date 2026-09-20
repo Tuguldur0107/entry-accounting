@@ -43,7 +43,7 @@ import {
   updatePosSettings,
   type SaleQuote,
 } from "@/lib/actions/pos";
-import { EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
 import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type { EbarimtStatusSummary } from "@/lib/ebarimt/types";
 import type { CheckoutData } from "@/lib/pos/load-data";
@@ -1162,6 +1162,58 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
           <p className="mt-2 text-xs text-[var(--ea-danger-fg)]">
             Сүүлийн алдаа: {status.lastError}
           </p>
+        )}
+        {/* PosAPI /rest/info — операторын PosAPI-д энэ мерчант бүртгэлтэй эсэх, сугалаа, ТЕГ рүү сүүлд илгээсэн */}
+        {status?.enabled && status.mode === "server" && (
+          <div className="mt-3">
+            <div className="mb-1 text-xs font-semibold text-[var(--ea-text-1)]">PosAPI</div>
+            {status.posApi ? (
+              <div className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <span className="text-[var(--ea-text-3)]">Оператор: </span>
+                  {status.posApi.operatorName ?? "—"}
+                  {status.posApi.operatorTin ? ` (${status.posApi.operatorTin})` : ""}
+                </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">PosAPI дугаар: </span>
+                  <span className="font-mono">{status.posApi.posNo ?? "—"}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">Үлдсэн сугалаа: </span>
+                  <span
+                    className={
+                      status.posApi.leftLotteries != null && status.posApi.leftLotteries < EBARIMT_LOTTERY_LOW_THRESHOLD
+                        ? "font-semibold text-[var(--ea-warning-fg)]"
+                        : "font-mono"
+                    }
+                  >
+                    {status.posApi.leftLotteries ?? "—"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">ТЕГ рүү сүүлд: </span>
+                  <span className="font-mono">{status.posApi.lastSentDate ?? "—"}</span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-[var(--ea-text-3)]">Мерчант бүртгэл: </span>
+                  {status.posApi.merchantRegistered == null ? (
+                    "тодорхойгүй (PosAPI жагсаалт өгөөгүй)"
+                  ) : status.posApi.merchantRegistered ? (
+                    <span className="text-[var(--ea-success-fg)]">бүртгэлтэй</span>
+                  ) : (
+                    <span className="text-[var(--ea-danger-fg)]">
+                      ҮГҮЙ — operator.ebarimt.mn дээр «Мерчант нэмэх» хүсэлт илгээж, харилцагч
+                      e-invoice.ebarimt.mn → Хүсэлт → Pos api хүсэлт → Операторын холболт дээр батална
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--ea-warning-fg)]">
+                PosAPI-д хүрэхгүй байна (/rest/info хариулсангүй) — URL, сүлжээ, үйлчилгээ ажиллаж буйг шалгана.
+              </p>
+            )}
+          </div>
         )}
       </div>
 

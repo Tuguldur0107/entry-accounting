@@ -108,6 +108,19 @@ async function main() {
     );
   }
 
+  // ── 0b. eBarimt: хадгалсан хариунаас сугалаа / QR-ийг цэвэрлэнэ ──────────
+  // PosAPI 3.0-ийн албан заавар §5: lottery, qrData-г хэрэглэгчийн системд
+  // хадгалахыг хориглоно. Шинэ код бичихээ больсон (stripReceiptSecrets);
+  // өмнө бичигдсэн мөрийг нэг удаа цэвэрлэнэ. Идемпотент; хүснэгт байхгүй
+  // (хуучин DB) бол run() 42P01-ийг алгасна.
+  await run(
+    "pos_ebarimt_submissions.response: lottery/qrData цэвэрлэх",
+    `update public.pos_ebarimt_submissions
+        set response = (response - 'lottery') - 'qrData'
+      where response is not null
+        and (response ? 'lottery' or response ? 'qrData')`
+  );
+
   // ── 1. unique CONSTRAINT → unique INDEX (push-ийн интерактив асуултын эх) ──
   // Push нь `unique()` constraint-ыг DB-д БАЙСААР байтал "нэмэх үү, truncate
   // хийх үү?" гэж асууж preDeploy-г унагаадаг (drizzle-orm#5955 — CLAUDE.md

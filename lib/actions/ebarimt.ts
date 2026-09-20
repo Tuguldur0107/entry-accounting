@@ -22,7 +22,7 @@ import { EBARIMT_ERRORS } from "@/lib/ebarimt/constants";
 import { lookupBranchInfo, lookupTinByRegNo, type BranchInfoEntry, type TinInfo } from "@/lib/ebarimt/lookup";
 import { EbarimtError, ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
 import {
-  ebarimtStatusSummary,
+  ebarimtStatusWithPosApi,
   listPendingForBrowser,
   loadEbarimtReadiness,
   loadSubmissionsForSale,
@@ -56,7 +56,7 @@ export async function getEbarimtStatus(): Promise<
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
     const settings = await ensurePosSettings(orgId, userId);
     const [status, readiness] = await Promise.all([
-      ebarimtStatusSummary(orgId, settings, todayInUlaanbaatar()),
+      ebarimtStatusWithPosApi(orgId, settings, todayInUlaanbaatar()),
       loadEbarimtReadiness(orgId),
     ]);
     const problems = ebarimtSettingsProblems(settingsInputOf(settings));
