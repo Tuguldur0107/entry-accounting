@@ -300,6 +300,113 @@ async function main() {
      end $$;`
   );
 
+  // ── 2a. users.email_verified_at + auth_tokens (нууц үг сэргээх / и-мэйл) ──
+  // Багана АНХ нэмэгдэх үед л одоо байгаа бүх хэрэглэгчийг «баталгаажсан»
+  // гэж нөхнө (харилцагчийн deploy дээр ажиллаж буй хүмүүс баннер/хориг
+  // харахгүй). Дараагийн deploy-уудад багана байгаа тул нөхөлт ДАХИН
+  // ажиллахгүй — шинэ бүртгэлийн баталгаажаагүй төлөв хадгалагдана.
+  try {
+    const [{ exists: hadColumn }] = await sql`
+      select exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'users'
+          and column_name = 'email_verified_at'
+      ) as exists
+    `;
+    await run(
+      "users.email_verified_at багана",
+      `alter table users add column if not exists email_verified_at timestamp`
+    );
+    if (!hadColumn) {
+      await run(
+        "users.email_verified_at — өмнөх хэрэглэгчдийг баталгаажсан гэж нөхөв",
+        `update users set email_verified_at = created_at where email_verified_at is null`
+      );
+    }
+  } catch (error) {
+    console.log(`✗ users.email_verified_at: ${error.message}`);
+  }
+  await run(
+    "auth_tokens хүснэгт",
+    `create table if not exists auth_tokens (
+       id uuid primary key default gen_random_uuid(),
+       user_id text not null references users(id) on delete cascade,
+       kind text not null,
+       token_hash text not null,
+       expires_at timestamp not null,
+       used_at timestamp,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "auth_tokens_token_hash_ux индекс",
+    `create unique index if not exists auth_tokens_token_hash_ux on auth_tokens (token_hash)`
+  );
+  await run(
+    "auth_tokens_user_kind_ix индекс",
+    `create index if not exists auth_tokens_user_kind_ix on auth_tokens (user_id, kind)`
+  );
+
+  // ── 2c. organization_subscriptions (billing/entitlement) ─────────────────
+  // Хүснэгт АНХ үүсэхэд одоо байгаа бүх байгууллагад standard / active /
+  // суудал = гишүүдийн тоо (хугацаагүй) нөхнө — ажиллаж буй хэн ч trial
+  // дууссан гэж read-only болохгүй; platform admin дараа нь тааруулна.
+  try {
+    const [{ exists: hadTable }] = await sql`
+      select exists (
+        select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'organization_subscriptions'
+      ) as exists
+    `;
+    await run(
+      "organization_subscriptions хүснэгт",
+      `create table if not exists organization_subscriptions (
+         id uuid primary key default gen_random_uuid(),
+         organization_id uuid not null references organizations(id) on delete cascade,
+         plan_id text not null default 'standard',
+         status text not null default 'active',
+         seats integer,
+         trial_ends_at timestamp,
+         current_period_end timestamp,
+         overrides jsonb,
+         note text,
+         updated_by text references users(id) on delete set null,
+         created_at timestamp not null default now(),
+         updated_at timestamp not null default now()
+       )`
+    );
+    await run(
+      "organization_subscriptions_org_ux индекс",
+      `create unique index if not exists organization_subscriptions_org_ux
+         on organization_subscriptions (organization_id)`
+    );
+    if (!hadTable) {
+      await run(
+        "organization_subscriptions — өмнөх байгууллагуудыг standard/active гэж нөхөв",
+        `insert into organization_subscriptions (organization_id, plan_id, status, seats, note)
+         select o.id, 'standard', 'active',
+                greatest((select count(*) from memberships m where m.organization_id = o.id), 1),
+                'Хүснэгт үүсэхээс өмнөх байгууллага — автоматаар нөхөгдсөн'
+         from organizations o
+         where not exists (
+           select 1 from organization_subscriptions s where s.organization_id = o.id
+         )`
+      );
+    }
+  } catch (error) {
+    console.log(`✗ organization_subscriptions: ${error.message}`);
+  }
+
+  // ── 2b. org_invitations.expires_at — урилгын линкийн хугацаа ─────────────
+  // Хуучин мөрүүд default-аар (now + 7 хоног) хугацаатай болно; код нь
+  // registerUser-д ЗААВАЛ шалгадаг тул push хожимдвол ч апп унахгүй.
+  await run(
+    "org_invitations.expires_at багана",
+    `alter table org_invitations
+       add column if not exists expires_at timestamp not null
+       default (now() + interval '7 days')`
+  );
+
   // ── 3. Мэдэгдлийн систем (docs/notifications/00-proposal.md фаз 0) ───────
   // Код нь эдгээр хүснэгтийг ЗААВАЛ шаарддаг (logAuditEvent-ийн хажуугийн
   // гүүр бүр бичнэ) тул push хожимдвол ч апп унахгүй байхаар урьдчилж нэмнэ.

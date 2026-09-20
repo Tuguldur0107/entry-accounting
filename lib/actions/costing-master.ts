@@ -8,7 +8,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { requireModuleAction, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -334,7 +334,7 @@ export async function toggleCostComponent(
 export async function issueTypeUsage(
   id: string
 ): Promise<{ movements: number; entries: number }> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("cost", "read").catch(() => null);
   if (!active) return { movements: 0, entries: 0 };
   const { orgId } = active;
 

@@ -5,6 +5,7 @@ import {
   type InventoryEbarimtMetrics,
   type InventoryPosMetrics,
 } from "@/components/inventory/inventory-dashboard";
+import { ModuleGuard } from "@/components/layout/access-guard";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -137,7 +138,9 @@ export default async function InventoryDashboardPage() {
     pendingCostLines: Number(pendingCostRow?.n ?? 0),
   };
 
+  // Хавтасны layout inv ЭСВЭЛ pos-оор нээгддэг (кассчин) — самбар нь inv.
   return (
+    <ModuleGuard moduleKeys="inv">
     <InventoryDashboard
       balances={balanceRows}
       itemCount={itemViews.filter((item) => item.isActive).length}
@@ -148,5 +151,6 @@ export default async function InventoryDashboardPage() {
       ebarimt={ebarimt}
       negativeStock={findNegativeBalances(balances, itemViews, warehouseViews)}
     />
+    </ModuleGuard>
   );
 }

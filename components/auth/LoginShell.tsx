@@ -47,11 +47,15 @@ export function LoginShell({
     }
   };
 
+  const [forgotError, setForgotError] = useState('');
   const sendReset = async () => {
     setLoading(true);
+    setForgotError('');
     try {
       await handlers.sendResetEmail(email);
       setMode('forgot-sent');
+    } catch (err) {
+      setForgotError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -73,7 +77,7 @@ export function LoginShell({
             <h1 style={titleStyle}>{lt.forgotTitle}</h1>
             <p style={subStyle}>{lt.forgotSub}</p>
           </div>
-          <EAField label={t.email} value={email} onChange={setEmail} placeholder={t.emailPh} icon={<Icon name="mail" />} autoComplete="email" autoFocus />
+          <EAField label={t.email} value={email} onChange={setEmail} placeholder={t.emailPh} icon={<Icon name="mail" />} autoComplete="email" autoFocus error={forgotError} />
           <div style={{ marginTop: 22 }}>
             <EAButton type="submit" loading={loading} fullWidth>
               {loading ? t.loading : lt.sendLink}

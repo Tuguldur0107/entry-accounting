@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireRole, requireModuleAction } from "@/lib/auth";
+import { requireRole, requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { latestUnitCost } from "@/lib/costing/valuation";
@@ -934,7 +934,7 @@ export type CostEntryPanelResult =
 export async function getCostEntryPanelData(
   entryId: string
 ): Promise<CostEntryPanelResult> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("cost", "read").catch(() => null);
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId } = active;
 

@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import { Resend } from "resend";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
-import { getActiveOrg, requireRole } from "@/lib/auth";
+import { requireModuleAction, requireRole } from "@/lib/auth";
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
 import { db } from "@/lib/db";
 import {
@@ -212,7 +212,7 @@ export async function getInvoiceSendContext(documentId: string): Promise<ActionR
 }
 
 async function getInvoiceSendContextCore(documentId: string) {
-  const { orgId } = await getActiveOrg();
+  const { orgId } = await requireModuleAction("ar", "read");
   const document = await db.query.arApDocuments.findFirst({
     where: and(
       eq(arApDocuments.id, documentId),
@@ -230,7 +230,7 @@ async function getInvoiceSendContextCore(documentId: string) {
 
 /** Баримтын илгээлтийн түүх — panel-д үзүүлнэ. */
 export async function listInvoiceSends(documentId: string) {
-  const { orgId } = await getActiveOrg();
+  const { orgId } = await requireModuleAction("ar", "read");
   const rows = await db.query.arApInvoiceSends.findMany({
     where: and(
       eq(arApInvoiceSends.documentId, documentId),

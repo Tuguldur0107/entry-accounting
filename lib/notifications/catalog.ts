@@ -229,6 +229,20 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  "subscription.trial_ending": {
+    category: "deadlines",
+    severity: "warning",
+    label: "Багцын туршилт / төлбөрийн хугацаа дуусах гэж байна",
+    email: "instant",
+    inApp: true,
+  },
+  "subscription.read_only": {
+    category: "deadlines",
+    severity: "danger",
+    label: "Багц бичилт хаасан (read-only)",
+    email: "instant",
+    inApp: true,
+  },
   "token.expiring": {
     category: "security",
     severity: "info",

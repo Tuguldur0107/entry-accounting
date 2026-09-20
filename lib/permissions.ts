@@ -46,6 +46,19 @@ function isLevel(value: unknown): value is PermissionLevel {
   );
 }
 
+/** Role-ийн шатлал — route/UI guard-д (server auth.ts-ийн requireRole-той ИЖИЛ эрэмбэ). */
+export const ROLE_RANK: Record<MembershipRole, number> = {
+  viewer: 0,
+  accountant: 1,
+  admin: 2,
+  owner: 3,
+};
+
+/** `role` нь `minRole`-оос доошгүй үү (owner ≥ admin ≥ accountant ≥ viewer). */
+export function roleAtLeast(role: MembershipRole, minRole: MembershipRole): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK[minRole];
+}
+
 /** Role-ийн default түвшин — override байхгүй модульд үйлчилнэ. */
 export function defaultLevelForRole(role: MembershipRole): PermissionLevel {
   // accountant — одоогийн зан төлөвтэй ижил (бүх модульд бичиж батална);

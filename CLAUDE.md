@@ -122,6 +122,70 @@ entry-accounting/
   бүртгэлтэй). Server талын дуудагч (lib/ai/tools.ts) `unwrapAction`-оор
   шидэлтээ хадгална.
 - **Нэмэх модулиуд:** periods/, vat/, payroll/ — тус бүрийн үед `app/(dashboard)/` доор нэмнэ
+- **Гишүүний эрх — ХОЁР давхарга** (`lib/permissions.ts` цэвэр, `lib/auth.ts` DB):
+  - **Route guard:** модулийн хавтас бүрийн `layout.tsx`-д
+    `<ModuleGuard moduleKeys="…">` (`components/layout/access-guard.tsx`) —
+    эрх «Байхгүй» (none) гишүүнд URL-ээр ч нээгдэхгүй; admin+ хуудас
+    (`/admin/*`, `/settings/permissions`) `<RoleGuard minRole="admin">`.
+    `tests/module-route-guards.test.ts` хавтас бүрд guard байгааг статикаар
+    шалгана — шинэ модулийн хавтас нэмбэл тестийн `EXPECTED`-д бүртгэнэ.
+    POS нь Бараа материалын дотор боловч `pos` түлхүүрээр тусдаа (кассчин
+    `inv`-гүй байж болно): `inventory/layout` inv|pos, дэд хавтас бүр өөрийнхөө
+  - **Action guard:** бичилт/батлах `requireModuleAction(key, "write"|"post")`,
+    УНШИЛТЫН loader (панелийн өгөгдөл, тайлан, API route) мөн
+    `requireModuleAction(key, "read")` — `getActiveOrg()` дангаараа эрх
+    шалгадаггүй (зөвхөн scope). Хоёр модулийн аль нэг нь хүрэлцэх бол
+    `requireAnyModuleAction`. Лавлах өгөгдөл (сегмент, период, ханш) шалгалтгүй
+  - **Урилга** (`org_invitations`) 7 хоног хүчинтэй (`expiresAt`,
+    `ORG_INVITATION_TTL_DAYS`); дахин урихад token + хугацаа шинэчлэгдэнэ;
+    урилгын ЛИНК зөвхөн admin+ хардаг (`getOrgSettingsData`). Байгууллага/
+    гишүүн/урилгын үйлдэл бүр `logAuditEvent` (`organization` / `membership` /
+    `invitation`) — байгууллага устгах нь cascade тул зөвхөн сервер лог
+- **Deployment-ийн ХОЁР горим — хольж хутгахгүй** (`lib/deployment-mode.ts`,
+  env `ENTRY_DEPLOYMENT_MODE`):
+  - `saas` — Entry-ийн ҮНДСЭН сервис (Railway `entry-accounting`): олон
+    байгууллага нэг DB-д, **бүртгэл үргэлж нээлттэй** (шинэ харилцагч бүр
+    өөрөө бүртгүүлж өөрийн tenant-аа үүсгэнэ), и-мэйл баталгаажуулалт бодитой
+  - `dedicated` (default, env байхгүй үед) — эх код авсан харилцагчийн тусдаа
+    сервис + тусдаа DB: эхний хэрэглэгч чөлөөтэй, дараа нь зөвхөн урилгаар
+    (`lib/registration.ts`); `ENTRY_OPEN_REGISTRATION=1` демод дардаг
+  - Өгөгдлийн тусгаарлалт (`organizationId`) хоёр горимд ИЖИЛ; горим зөвхөн
+    бүртгэл/баталгаажуулалтын зан төлөвт. `/api/health` ба `/settings/system`
+    горимоо ил харуулна. Тест `tests/deployment-mode.test.ts`
+- **Billing / entitlement** (`docs/billing/00-proposal.md` — ЗААВАЛ уншина;
+  `lib/billing/`): багц кодод (`plans.ts`: trial/standard/platform/enterprise/
+  dedicated — боломж, хязгаар, үнэ), байгууллагын ялгаа
+  `organization_subscriptions` (planId, status, seats, trialEndsAt,
+  currentPeriodEnd, overrides JSON). ЦЭВЭР шийдвэр `entitlements.ts`
+  (`resolveEntitlements`, тесттэй), DB `load.ts`, **шалгах цэг ЗӨВХӨН
+  `guards.ts`**: `assertWritesAllowed` (requireModuleAction write/post-д НЭГ
+  цэгээс — read-only багцад `[SUBSCRIPTION_READ_ONLY]`), `requireFeature`
+  (REST `api.rest` → 402, MCP `mcp` → -32003, AI чат `ai`, eBarimt enqueue
+  алгасна), `assertSeatAvailable` (урилга), `assertCompanyCreatable`
+  (multi_company + компанийн тоо). Код даяар `if plan === …` ХОРИОТОЙ.
+  **Нягтлан бодох ажлыг дунд нь блоклохгүй**: унших, тайлан, экспорт, сар
+  хаах (`requireRole`) үргэлж. Мөргүй SaaS байгууллага = trial 14 хоног;
+  past_due grace 14 хоног; хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагыг
+  standard/active нөхнө. dedicated горимд бүх боломж, хязгааргүй (DB
+  хөндөхгүй). UI: `/settings/billing` (гишүүн бүр ХАРНА, засахгүй), топбарын
+  баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`).
+  **Багц ЗАСАХ нь апп дотор БАЙХГҮЙ** — Entry Console `GET/PUT
+  /api/platform/subscriptions` (Bearer `ENTRY_PLATFORM_API_KEY`, timing-safe,
+  зөвхөн saas; цөм `lib/billing/platform.ts`); SaaS харилцагч ба dedicated
+  харилцагчийн удирдлага хоёулаа Console-д, апп дотор platform admin эрх
+  ҮҮСГЭХГҮЙ (хольж хутгахгүй).
+  Өөрчлөлт бүр аудитын мөрд (`subscription`). Төлбөрийн гарц — фаз 2
+- **Нууц үг сэргээх, и-мэйл баталгаажуулалт** (`lib/actions/account-recovery.ts`,
+  `lib/account/`): token нь DB-д sha256 hash, нэг удаагийн, хугацаатай
+  (сэргээх 1 цаг, баталгаажуулах 24 цаг — `AUTH_TOKEN_TTL_MS`); хуучин
+  token дахин олгоход хүчингүй. **Баталгаажуулалт нэвтрэлтийг ХЭЗЭЭ Ч
+  хаахгүй** — зөвхөн баннер + «Дахин илгээх»; багана нэмэгдэхээс өмнөх
+  хэрэглэгч preDeploy-д нөхөгдсөн, урилгаар ирсэн / и-мэйл тохируулаагүй
+  deploy-д бүртгүүлсэн хүн шууд баталгаажсан. Сэргээх хүсэлт хаяг
+  байгаа эсэхийг задлахгүй (enumeration); rate limit 3/15 мин. Хуудас
+  `/reset-password`, `/verify-email` нэвтрэлтгүй (proxy.ts
+  `isPublicAccountPage`); системийн и-мэйл `lib/email/transactional.ts`
+  (Resend тохируулаагүй бол `unconfigured`, шидэхгүй)
 - ⚠️ **Client/server хил: `"use client"` component нь `@/lib/db` татдаг модулийг
   import хийж БОЛОХГҮЙ.** Төрөл нь зөв байсан ч bundler `Can't resolve 'fs' /
   'net' / 'tls'` гэж `next build`-ийг унагаана (postgres драйвер browser

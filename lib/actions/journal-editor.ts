@@ -8,7 +8,7 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { getActiveOrg } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   chartOfAccounts,
@@ -66,7 +66,7 @@ export async function getJournalEditorData(
 ): Promise<JournalEditorResult> {
   let orgId: string;
   try {
-    ({ orgId } = await getActiveOrg());
+    ({ orgId } = await requireModuleAction("gl", "read"));
   } catch {
     return { ok: false, code: "unauthenticated" };
   }

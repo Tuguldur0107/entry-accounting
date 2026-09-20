@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
@@ -93,7 +93,7 @@ export type FaAssetPanelResult =
 export async function getFaAssetPanelData(
   assetId?: string
 ): Promise<FaAssetPanelResult> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("fa", "read").catch(() => null);
   if (!active) return { ok: false, code: "unauthenticated" };
   const { orgId } = active;
 
@@ -897,7 +897,7 @@ async function getFaTieOutDetailCore(data: {
   from: string;
   to: string;
 }): Promise<FaTieOutDetail> {
-  const { orgId } = await getActiveOrg();
+  const { orgId } = await requireModuleAction("fa", "read");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data.from) || !/^\d{4}-\d{2}-\d{2}$/.test(data.to))
     throw new Error("Огнооны муж (YYYY-MM-DD) буруу байна");
   if (data.to < data.from) throw new Error("Мужийн төгсгөл эхлэлээс өмнө байна");

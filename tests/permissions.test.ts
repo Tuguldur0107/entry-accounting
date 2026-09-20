@@ -8,6 +8,7 @@ import {
   hasModuleLevel,
   hiddenModuleKeys,
   parsePermissions,
+  roleAtLeast,
   serializePermissions,
 } from "../lib/permissions";
 
@@ -66,4 +67,12 @@ test("hiddenModuleKeys: зөвхөн none модулиуд", () => {
   );
   // owner-д юу ч нуугдахгүй
   assert.deepEqual(hiddenModuleKeys("owner", raw, ["gl", "cash"]), []);
+});
+
+test("roleAtLeast: owner ≥ admin ≥ accountant ≥ viewer", () => {
+  assert.equal(roleAtLeast("owner", "admin"), true);
+  assert.equal(roleAtLeast("admin", "admin"), true);
+  assert.equal(roleAtLeast("accountant", "admin"), false);
+  assert.equal(roleAtLeast("viewer", "accountant"), false);
+  assert.equal(roleAtLeast("viewer", "viewer"), true);
 });

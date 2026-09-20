@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
-import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
 import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
@@ -1490,7 +1490,7 @@ export async function getCashDocPanelData(
 ): Promise<CashDocPanelResult> {
   let orgId: string;
   try {
-    ({ orgId } = await getActiveOrg());
+    ({ orgId } = await requireModuleAction("cash", "read"));
   } catch {
     return { ok: false, code: "unauthenticated" };
   }
@@ -1583,7 +1583,7 @@ export type CashNewPanelResult =
 export async function getCashNewPanelData(): Promise<CashNewPanelResult> {
   let orgId: string;
   try {
-    ({ orgId } = await getActiveOrg());
+    ({ orgId } = await requireModuleAction("cash", "read"));
   } catch {
     return { ok: false, code: "unauthenticated" };
   }

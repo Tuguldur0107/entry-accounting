@@ -18,7 +18,7 @@ import { revalidatePath } from "next/cache";
 
 import { roundMoney } from "@/lib/arap/accounting";
 import { logAuditEvent } from "@/lib/audit";
-import { getActiveOrg, requireModuleAction, requireRole } from "@/lib/auth";
+import { requireModuleAction, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   arApDocumentLines,
@@ -97,7 +97,7 @@ export async function loadAllocationTargets(range: {
   from: string;
   to: string;
 }): Promise<AllocationTargetOption[]> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("cost", "read").catch(() => null);
   if (!active) return [];
   const { orgId } = active;
 
@@ -185,7 +185,7 @@ export async function loadAllocationSources(range: {
   from: string;
   to: string;
 }): Promise<AllocationSourceOption[]> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("cost", "read").catch(() => null);
   if (!active) return [];
   const { orgId } = active;
 
@@ -258,7 +258,7 @@ export async function loadAllocationSources(range: {
 export async function loadPoAllocationTargets(
   purchaseOrderId: string
 ): Promise<AllocationTargetOption[]> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("cost", "read").catch(() => null);
   if (!active) return [];
   const { orgId } = active;
 
@@ -335,7 +335,7 @@ export async function loadPoAllocationTargets(
 
 /** Бүртгэгдсэн хуваарилалтууд. */
 export async function loadAllocations(): Promise<AllocationRow[]> {
-  const active = await getActiveOrg().catch(() => null);
+  const active = await requireModuleAction("cost", "read").catch(() => null);
   if (!active) return [];
   const { orgId } = active;
 

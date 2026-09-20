@@ -248,6 +248,7 @@ export const MODULES: Module[] = [
       { label: "Ерөнхий журналын тохиргоо", href: "/settings/gl", icon: "settings" },
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
       { label: "Аудитын мөр", href: "/admin/audit", icon: "journal" },
+      { label: "Багц, төлбөр", href: "/settings/billing", icon: "cash" },
       { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
       { label: "Систем, хувилбар", href: "/settings/system", icon: "settings" },
     ],

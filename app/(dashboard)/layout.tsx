@@ -15,6 +15,9 @@ import { QuickCreate } from "@/components/layout/quick-create";
 import { QuickNav } from "@/components/layout/quick-nav";
 import { AiChatButton } from "@/components/layout/ai-chat-button";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { EmailVerifyBanner } from "@/components/layout/email-verify-banner";
+import { SubscriptionBanner } from "@/components/layout/subscription-banner";
+import { getEntitlements } from "@/lib/billing/load";
 import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
 import {
   disabledNavItemKeys,
@@ -22,7 +25,7 @@ import {
 } from "@/components/layout/modules";
 import { PanelHost } from "@/components/panel/panel-host";
 import { db } from "@/lib/db";
-import { memberships, moduleConfigs, notifications } from "@/lib/db/schema";
+import { memberships, moduleConfigs, notifications, users } from "@/lib/db/schema";
 import type { MembershipRole } from "@/lib/db/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { APP_MODULE_DEFS } from "@/lib/constants/app-modules";
@@ -47,7 +50,7 @@ export default async function DashboardLayout({
   // Дээр нь гишүүний "Байхгүй" эрхтэй модулиуд мөн нуугдана
   // (Тохиргоо → Хэрэглэгчдийн эрх) — бодит хамгаалалт нь server action-ы
   // requireModuleAction, энэ нь зөвхөн харагдац.
-  const [modConfigs, myMembership, [unreadRow]] = await Promise.all([
+  const [modConfigs, myMembership, [unreadRow], me, entitlements] = await Promise.all([
     db.query.moduleConfigs.findMany({
       where: eq(moduleConfigs.organizationId, activeOrgId),
       columns: { moduleKey: true, isEnabled: true },
@@ -70,7 +73,15 @@ export default async function DashboardLayout({
           isNull(notifications.readAt)
         )
       ),
+    // И-мэйл баталгаажуулалтын баннер (нэвтрэлтийг хаахгүй).
+    db.query.users.findFirst({
+      where: eq(users.id, session.user.id!),
+      columns: { email: true, emailVerifiedAt: true },
+    }),
+    // Багцын баннер (trial/grace/read-only) — dedicated горимд DB хөндөхгүй.
+    getEntitlements(activeOrgId),
   ]);
+
   const memberHiddenNavIds = myMembership
     ? APP_MODULE_DEFS.filter(
         (def) =>
@@ -174,6 +185,8 @@ export default async function DashboardLayout({
           </div>
         </div>
       </header>
+      {me && !me.emailVerifiedAt ? <EmailVerifyBanner email={me.email} /> : null}
+      <SubscriptionBanner entitlements={entitlements} />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 md:px-6 md:py-8">{children}</main>

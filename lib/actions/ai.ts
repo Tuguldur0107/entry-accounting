@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, desc, eq } from "drizzle-orm";
 
-import { auth, getActiveOrg } from "@/lib/auth";
+import { auth, getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { aiMessages, aiSettings } from "@/lib/db/schema";
 import {
@@ -46,7 +46,7 @@ export async function getAiChatBootstrap(): Promise<AiChatBootstrapResult> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return { ok: false, code: "unauthenticated" };
-  const { orgId } = await getActiveOrg();
+  const { orgId } = await requireModuleAction("ai", "read");
 
   const [history, settings] = await Promise.all([
     // Түүх хязгааргүй ургадаг — панель нээх бүрд бүгдийг татахгүйн тулд

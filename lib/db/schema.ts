@@ -23,12 +23,43 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull(),
   passwordHash: text("password_hash").notNull(),
+  /**
+   * И-мэйл баталгаажсан мөч. null = баталгаажаагүй (баннер + дахин илгээх).
+   * Багана нэмэгдэхээс ӨМНӨХ хэрэглэгчид preDeploy-д createdAt-аар нөхөгдөнө
+   * (харилцагчийн deploy дээр ажиллаж буй хүмүүс түгжигдэхгүй); урилгаар
+   * бүртгүүлсэн, и-мэйл тохируулаагүй deploy-д бүртгүүлсэн хэрэглэгч мөн
+   * шууд баталгаажсан гэж тооцогдоно — баталгаажуулалт хэзээ ч нэвтрэлтийг
+   * ХААХГҮЙ (lib/actions/account-recovery.ts).
+   */
+  emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 },
 // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн #5955 (§5b):
 // constraint-ыг push бүрд "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
 // нэмэхийг оролдож «truncate хийх үү?» гэж асууж non-TTY preDeploy-г унагаана.
 (t) => [uniqueIndex("users_email_ux").on(t.email)]);
+
+// ─── Нэг удаагийн нууц token (нууц үг сэргээх, и-мэйл баталгаажуулах) ───────
+// Зөвхөн sha256 hash хадгална (lib/account/tokens.ts); хугацаатай, нэг удаа.
+export const authTokens = pgTable(
+  "auth_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** password_reset | email_verify (AuthTokenKind) */
+    kind: text("kind").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("auth_tokens_token_hash_ux").on(t.tokenHash),
+    index("auth_tokens_user_kind_ix").on(t.userId, t.kind),
+  ]
+);
 
 // ─── Organizations (Фаз 01 multi-tenancy) ────────────────────────────────────
 // Байгууллага = компани. Хэрэглэгч олон байгууллагад гишүүн байж болно
@@ -44,6 +75,36 @@ export const organizations = pgTable("organizations", {
   planId: text("plan_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ─── Billing / entitlement (docs/billing/00-proposal.md) ─────────────────────
+// SaaS горимд байгууллага бүрийн багц; мөр байхгүй = trial (үүссэнээс 14 хоног).
+// Хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагад standard/active нөхнө
+// (ажиллаж буй хэн ч read-only болохгүй). dedicated горимд уншигдахгүй.
+export const organizationSubscriptions = pgTable(
+  "organization_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** lib/billing/plans.ts PlanId */
+    planId: text("plan_id").notNull().default("standard"),
+    /** trialing | active | past_due | suspended | cancelled */
+    status: text("status").notNull().default("active"),
+    /** Төлсөн суудал (null = багцын default / хязгааргүй). */
+    seats: integer("seats"),
+    trialEndsAt: timestamp("trial_ends_at"),
+    /** Төлбөр төлөгдсөн хугацааны эцэс — past_due-ийн grace эндээс тоологдоно. */
+    currentPeriodEnd: timestamp("current_period_end"),
+    /** { features?: {key: bool}, limits?: {seats?, companies?} } — байгууллагын онцгой тохиргоо. */
+    overrides: jsonb("overrides"),
+    note: text("note"),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("organization_subscriptions_org_ux").on(t.organizationId)]
+);
 
 export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";
 
@@ -82,8 +143,13 @@ export const membershipsRelations = relations(memberships, ({ one }) => ({
   user: one(users, { fields: [memberships.userId], references: [users.id] }),
 }));
 
+/** Урилгын линкийн хүчинтэй хугацаа (хоног) — дуусвал шинээр урина. */
+export const ORG_INVITATION_TTL_DAYS = 7;
+
 // Бүртгэлгүй и-мэйл рүү илгээсэн урилга. Хүлээн авагч token-той линкээр
 // бүртгүүлмэгц гишүүнчлэл идэвхжиж acceptedAt тавигдана; цуцлах = мөр устгах.
+// Линк ХУГАЦААТАЙ (expiresAt, default 7 хоног) — хуучин линк үүрд хүчинтэй
+// үлдэхгүй; дахин урихад хугацаа шинэчлэгдэнэ.
 export const orgInvitations = pgTable(
   "org_invitations",
   {
@@ -98,6 +164,10 @@ export const orgInvitations = pgTable(
       onDelete: "set null",
     }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    /** Линк хүчингүй болох мөч — үүнээс хойш бүртгүүлэх боломжгүй. */
+    expiresAt: timestamp("expires_at")
+      .notNull()
+      .default(sql`now() + interval '7 days'`),
     acceptedAt: timestamp("accepted_at"),
   },
   (t) => [

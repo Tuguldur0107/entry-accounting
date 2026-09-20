@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
-import { getActiveOrg } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import type { BankRule, BankRuleMode, BankRuleSide } from "@/lib/cash/bank-rules";
 import {
   buildHistoricalPatterns,
@@ -29,9 +29,9 @@ const HISTORY_LINE_LIMIT = 5000;
 export async function GET() {
   let orgId: string;
   try {
-    ({ orgId } = await getActiveOrg());
+    ({ orgId } = await requireModuleAction("cash", "read"));
   } catch {
-    return Response.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
+    return Response.json({ error: "Нэвтрэх эсвэл унших эрх шаардлагатай" }, { status: 401 });
   }
 
   try {

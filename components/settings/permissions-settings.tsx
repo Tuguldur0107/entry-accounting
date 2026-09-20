@@ -352,7 +352,7 @@ export function PermissionsSettings({
                 >
                   {invitation.email}
                   <span className="ml-2" style={{ color: "var(--ea-text-4)" }}>
-                    {ROLE_LABELS[invitation.role]} · {invitation.createdAt}
+                    {ROLE_LABELS[invitation.role]} · {invitation.createdAt} · {invitation.expiresAt} хүртэл
                   </span>
                 </span>
                 <button
@@ -373,13 +373,7 @@ export function PermissionsSettings({
                     className="text-xs underline"
                     style={{ color: "var(--ea-danger-fg)" }}
                     onClick={() =>
-                      act(
-                        async () => {
-                          await cancelInvitation(invitation.id);
-                          return {};
-                        },
-                        "Урилга цуцлагдлаа"
-                      )
+                      act(() => cancelInvitation(invitation.id), "Урилга цуцлагдлаа")
                     }
                   >
                     Цуцлах

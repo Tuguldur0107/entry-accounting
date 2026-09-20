@@ -11,7 +11,7 @@
 import { revalidatePath } from "next/cache";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
-import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   arApDocuments,
@@ -451,7 +451,7 @@ const toSalaryBillView = (row: BillRow | null): SalaryBillView | null =>
 export async function getPayrollRunData(
   periodMonth: string
 ): Promise<PayrollRunView> {
-  const { orgId, userId } = await getActiveOrg();
+  const { orgId, userId } = await requireModuleAction("payroll", "read");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
 
   const [settings, run, activeEmployees] = await Promise.all([
@@ -1497,7 +1497,7 @@ export async function getSalaryPaymentReport(
   periodMonth: string,
   kind: SalaryBillKind
 ): Promise<SalaryPaymentReport> {
-  const { orgId } = await getActiveOrg();
+  const { orgId } = await requireModuleAction("payroll", "read");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
 
   const run = await db.query.payrollRuns.findFirst({

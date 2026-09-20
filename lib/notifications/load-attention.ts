@@ -28,6 +28,7 @@ import { fetchPosApiHealth } from "@/lib/ebarimt/client";
 import { hoursSince } from "@/lib/ebarimt/posapi-info";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
+import { getEntitlements } from "@/lib/billing/load";
 import { periodCodeOf, periodRange, previousPeriodCode, shiftDays } from "@/lib/periods/period";
 import { computeTaxDeadlines } from "@/lib/tax/calendar";
 
@@ -281,6 +282,8 @@ export async function loadAttentionInput(
   };
 
   const license = deploymentLicenseStatus();
+  const entitlements = await getEntitlements(orgId);
+  const endsAt = entitlements.trialEndsAt ?? entitlements.graceEndsAt;
 
   return {
     today,
@@ -305,6 +308,17 @@ export async function loadAttentionInput(
       hasActivity: (prevActivityRow?.n ?? 0) > 0,
     },
     licenseExpiresAt: license.expiresAt ?? null,
+    subscription:
+      entitlements.mode === "saas"
+        ? {
+            planId: entitlements.planId,
+            status: entitlements.status,
+            endsAt: endsAt
+              ? endsAt.toLocaleDateString("en-CA", { timeZone: "Asia/Ulaanbaatar" })
+              : null,
+            readOnlyReason: entitlements.readOnlyReason,
+          }
+        : undefined,
     bankUnmatched,
     fx,
     negativeStock,
