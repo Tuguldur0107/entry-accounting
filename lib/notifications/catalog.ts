@@ -268,6 +268,16 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // Платформын дэмжлэгийн хандалт — ГАДНЫ хүн (Entry-ийн оператор) энэ
+  // байгууллагын өгөгдөл дээр орлоо. Эзэн/админд ЯГ ОДОО (аюулгүй байдал):
+  // харилцагч хэзээ ч мэдэхгүй үлдэхгүй (lib/platform/support.ts).
+  "security.support_access": {
+    category: "security",
+    severity: "warning",
+    label: "Дэмжлэгийн хандалт нээгдлээ",
+    email: "instant",
+    inApp: true,
+  },
 } as const satisfies Record<string, NotificationTypeDef>;
 
 export type NotificationType = keyof typeof NOTIFICATION_CATALOG;

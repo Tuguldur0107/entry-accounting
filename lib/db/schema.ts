@@ -136,6 +136,49 @@ export const platformPlanPrices = pgTable(
   (t) => [uniqueIndex("platform_plan_prices_period_ux").on(t.planId, t.effectiveFrom)]
 );
 
+/**
+ * ДЭМЖЛЭГИЙН ХАНДАЛТ — платформын оператор харилцагчийн байгууллагад ТҮР
+ * хугацаагаар орох сесс (lib/platform/support.ts). Апп дотор "супер админ"
+ * РОЛЬ БАЙХГҮЙ: линкийг ЗӨВХӨН Entry Console (Bearer ENTRY_PLATFORM_API_KEY)
+ * олгоно, эрх нь хэрэглэгчид биш СЕССЭД уягдаж хугацаа дуусмагц унтарна.
+ * Орох/гарах бүр аудитад бичигдэнэ — харилцагч /settings/audit дээрээ хардаг.
+ */
+export const platformSupportSessions = pgTable(
+  "platform_support_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Линкийг ашиглах ЭРХТЭЙ Entry данс (операторын өөрийн хэрэглэгч). */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** sha256(raw) — DB алдагдсан ч линк/cookie хүчинтэй болохгүй. */
+    tokenHash: text("token_hash").notNull(),
+    /** viewer (зөвхөн унших, default) | admin — owner ХЭЗЭЭ Ч олгогдохгүй. */
+    role: text("role").notNull().default("viewer"),
+    /** Console-д бичсэн шалтгаан — аудитын тайлбарт ил гарна. */
+    reason: text("reason"),
+    /** "Entry Console · <actor>" — логт л ордог, эрх олгохгүй. */
+    issuedBy: text("issued_by"),
+    /** Ашиглагдаагүй ЛИНК хүчингүй болох мөч. */
+    expiresAt: timestamp("expires_at").notNull(),
+    /** Линк идэвхжсэн (хэрэглэгч орсон) мөч. */
+    startedAt: timestamp("started_at"),
+    /** Сесс автоматаар унтрах мөч (startedAt + TTL). */
+    endsAt: timestamp("ends_at"),
+    /** Гараар гарсан / Console-оос тасалсан мөч. */
+    endedAt: timestamp("ended_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_support_sessions_token_ux").on(t.tokenHash),
+    index("platform_support_sessions_org_ix").on(t.organizationId),
+    index("platform_support_sessions_user_ix").on(t.userId),
+  ]
+);
+
 export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";
 
 export const memberships = pgTable(

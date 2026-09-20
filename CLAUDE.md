@@ -194,6 +194,24 @@ entry-accounting/
   харилцагчийн удирдлага хоёулаа Console-д, апп дотор platform admin эрх
   ҮҮСГЭХГҮЙ (хольж хутгахгүй).
   Өөрчлөлт бүр аудитын мөрд (`subscription`). Төлбөрийн гарц — фаз 2
+- **Дэмжлэгийн хандалт** (`docs/deployment/support-access.md` — ЗААВАЛ уншина;
+  `lib/platform/support.ts` ЦЭВЭР + `support-store.ts` DB): платформын оператор
+  харилцагчийн байгууллагад ТҮР орох цорын ганц зам. Эрх нь ХЭРЭГЛЭГЧИД биш
+  **СЕССЭД** уягдана — апп дотор супер админ РОЛЬ, платформын хуудас БАЙХГҮЙ
+  (дээрх дүрэм хэвээр). Линкийг ЗӨВХӨН Console олгоно (`POST /api/platform/
+  support-sessions`, Bearer + saas-only), НЭГ хэрэглэгчид и-мэйлээр уягдана
+  (данс ЗОХИОХГҮЙ), DB-д зөвхөн sha256 hash. Хоёр хугацаа: ашиглагдаагүй линк
+  15 мин, идэвхжсэн сесс 1 цаг (дахин орох СУНГАХГҮЙ). Түвшин `viewer` (default,
+  зөвхөн унших) | `admin`; **`owner` ХЭЗЭЭ Ч олгогдохгүй** тул байгууллага
+  устгах / эзэмшил шилжүүлэх нь харилцагчийнхаа мэдэлд үлдэнэ; багцын
+  read-only давамгайлна. `getActiveOrg` нь cookie (`ea-support`) хүчинтэй үед
+  scope-оо ТЭР байгууллага болгоно; `getMyOrgs` ганц мөр (өөрийн байгууллага
+  руу санамсаргүй бичихээс); MCP/REST token-ий зам ХЭРЭГЛЭХГҮЙ. Орох/гарах
+  бүр `audit_events` (`support_session`) + эзэн/админд `security.support_access`
+  instant мэдэгдэл — **дэмжлэгийн хандалт ХЭЗЭЭ Ч чимээгүй болохгүй**; топбарт
+  ил баннер. Console-ийн байгууллагын дэлгэрэнгүй `GET /api/platform/
+  organizations?id=` (`lib/platform/org-detail.ts`) — ЗӨВХӨН унших, нууц үг /
+  token / лого / бизнесийн бичилт буцаахгүй. Тест `tests/support-session.test.ts`
 - **Нууц үг сэргээх, и-мэйл баталгаажуулалт** (`lib/actions/account-recovery.ts`,
   `lib/account/`): token нь DB-д sha256 hash, нэг удаагийн, хугацаатай
   (сэргээх 1 цаг, баталгаажуулах 24 цаг — `AUTH_TOKEN_TTL_MS`); хуучин
@@ -1998,6 +2016,10 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
                (YYYY-MM-DD text) … effective_to (null = хугацаагүй), note;
                unique INDEX (plan_id, effective_from). Тухайн өдрийг хамрах үе
                байхгүй бол lib/billing/plans.ts-ийн default; price null = хэлэлцээрээр
+Дэмжлэг   platform_support_sessions — платформын операторын ТҮР хандалт:
+           token_hash (sha256, unique INDEX), user_id (линк НЭГ хүнд уягдана),
+           role viewer|admin (owner БАЙХГҮЙ), expires_at (линк) · started_at →
+           ends_at (сесс) · ended_at (гарсан), reason/issued_by — Console
 Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
            хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings

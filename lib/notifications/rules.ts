@@ -236,6 +236,23 @@ export function notificationFromAudit(
       { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
     );
 
+  // Платформын дэмжлэгийн хандалт — ГАДНЫ хүн орсон/гарсан. Эзэн/админд
+  // ЗААВАЛ мэдэгдэнэ (D-дүрмийн «actor-ыг хасах» нь хамаарахгүй: оператор нь
+  // энэ байгууллагын гишүүн биш тул хүлээн авагчийн жагсаалтад ч байхгүй).
+  if (entityType === "support_session" && action === "support_entered")
+    return draft(
+      event,
+      now,
+      "security.support_access",
+      "Дэмжлэгийн хандалт нээгдлээ",
+      { kind: "roles", roles: ["owner", "admin"] },
+      {
+        severity: "warning",
+        href: "/settings/audit",
+        dedupeKey: `support:${event.entityId}`,
+      }
+    );
+
   if (entityType === "membership" && action === "permissions")
     return draft(
       event,
