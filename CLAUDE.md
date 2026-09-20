@@ -1812,6 +1812,19 @@ crash хийж, схемийн БҮХ өөрчлөлт DB-д ОГТ ОРОХГҮ
 `drizzle-kit generate` + `migrate` (батлагдсан migration файл) руу шилжинэ —
 push нь dev/pilot-д зориулагдсан.
 
+⚠️ **Схемээс хүснэгт эсвэл багана ХАСАХ бүрд
+`scripts/lib/removed-schema-objects.mjs`-д бүртгэнэ.** drizzle-kit-ийн push нь
+diff-д УСТГАГДАХ ба ҮҮСЭХ объект ЗЭРЭГ байвал «нэр солигдсон уу?» гэж
+ИНТЕРАКТИВ асуудаг (`tablesResolver` / `columnsResolver`) — `--force` үүнийг
+ХАМРАХГҮЙ (тэр нь зөвхөн өгөгдөл алдах statement-ийг зөвшөөрнө). Railway-ийн
+non-TTY preDeploy дээр `Interactive prompts require a TTY terminal` гэж унаж,
+схемийн БҮХ өөрчлөлт DB-д ОРОХГҮЙ үлддэг. 2026-09-19: v1.5.0 нь 8 хүснэгт
+хасаж 15 нэмсэн тул v1.4.0-ийн DB-тэй харилцагчийн deploy яг ингэж унасан.
+preDeploy нь хасагдсан ХҮСНЭГТИЙГ `archive` схем рүү ЗӨӨНӨ (өгөгдөл үлдэнэ,
+drop хийхгүй), хасагдсан БАГАНЫГ утгыг нь шинэ талбарт хөрвүүлсний дараа л
+устгана. `tests/removed-schema-objects.test.ts` нь амьд объектыг санамсаргүй
+бүртгэхээс сэргийлнэ.
+
 ⚠️ **Схемд `unique()` constraint бичихийг ХОРИГЛОНО — зөвхөн
 `uniqueIndex("…_ux")`.** drizzle-kit 0.31.x нь DB-д БАЙГАА unique constraint-ыг
 танихгүй тул push бүрд "нэмэх үү, truncate хийх үү?" гэж дахин асууж non-TTY
