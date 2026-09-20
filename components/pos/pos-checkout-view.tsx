@@ -662,6 +662,7 @@ export function PosCheckoutView({
         ebarimtConsumerNo: buyer.ebarimtConsumerNo,
         ebarimtCustomerTin: buyer.ebarimtCustomerTin,
         ebarimtCustomerRegNo: buyer.ebarimtCustomerRegNo,
+        skipEbarimt: buyer.skipEbarimt,
       });
       if (result.error || !result.receipt) {
         feedback.error(result.error ?? "Борлуулалт бичигдсэнгүй");

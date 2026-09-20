@@ -223,7 +223,13 @@ loadEbarimtReadiness(orgId): Promise<EbarimtReadiness>
 
 **Интеграцийн цэгүүд** (ӨӨРЧЛӨГДӨХГҮЙ зан төлөв):
 - `createPosSale` — commit-ийн ДАРАА `enqueueEbarimt(send)` (`ebarimtEnabled` ба
-  гар ДДТД өгөөгүй үед); `ebarimtStatus: manual | pending | null`; server горимд
+  гар ДДТД өгөөгүй, `skipEbarimt` биш үед); `ebarimtStatus: manual | pending |
+  skipped | null` — ЦЭВЭР `initialSaleEbarimtStatus({enabled, isVatPayer,
+  manualId, skip})` (`receipt.ts`, тесттэй). `skipEbarimt: true` = кассчин
+  төлбөрийн диалогийн «eBarimt баримт илгээх» switch-ийг унтраасан (борлуулалт
+  бүрд, default асаалттай) → дараалалд орохгүй, аудитын хураангуйд ил, панелиас
+  [eBarimt илгээх] (`resendEbarimt`) — `resendEbarimt` `skipped`-ийг `failed`/
+  `pending`-тэй адил хүлээн авна; server горимд
   шууд нэг оролдлого (`void processPendingEbarimt(5)`) — борлуулалт ХҮЛЭЭХГҮЙ
 - `returnPosSale` — эх борлуулалт `sent` бол `enqueueEbarimt(cancel)`; worker
   цуцлаад үлдсэн мөр байвал ижил submission дотор шинэ баримт илгээнэ

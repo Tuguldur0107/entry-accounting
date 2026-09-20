@@ -73,7 +73,7 @@ import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
 import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
 import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
-import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
+import { ebarimtSettingsProblems, initialSaleEbarimtStatus } from "@/lib/ebarimt/receipt";
 import { CONSUMER_NO_RE, DISTRICT_CODE_RE, EBARIMT_INLINE_SEND_TIMEOUT_MS, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 import {
   DISCOUNT_RULE_TYPES,
@@ -759,6 +759,12 @@ export interface CreatePosSaleInput extends SaleQuoteInput {
   /** Байгууллагын ТТД — өгвөл B2B баримт. РД өгвөл ТЕГ-ийн лавлахаас ТТД хайна. */
   ebarimtCustomerTin?: string | null;
   ebarimtCustomerRegNo?: string | null;
+  /**
+   * Кассчин ЭНЭ борлуулалтыг eBarimt-гүй явуулна (төлбөрийн диалогийн «eBarimt
+   * илгээх» унтраалттай) — статус `skipped`, дараалалд орохгүй; панелиас
+   * [Илгээх]-ээр дараа нь илгээж болно. eBarimt унтраалттай бол нөлөөгүй.
+   */
+  skipEbarimt?: boolean | null;
 }
 
 export interface PosReceipt {
@@ -832,8 +838,15 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
   if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
     throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");
-  // НӨАТ төлөгч бус байгууллагад eBarimt огт үүсгэхгүй (ctx.isVatPayer — vat_settings).
-  const autoEbarimt = settings.ebarimtEnabled && !manualEbarimtId && ctx.isVatPayer;
+  // НӨАТ төлөгч бус байгууллагад eBarimt огт үүсгэхгүй (ctx.isVatPayer — vat_settings);
+  // кассчин «eBarimt илгээх»-ийг унтраасан бол skipped (ЦЭВЭР дүрэм — receipt.ts).
+  const ebarimtPlan = initialSaleEbarimtStatus({
+    enabled: settings.ebarimtEnabled,
+    isVatPayer: ctx.isVatPayer,
+    manualId: manualEbarimtId,
+    skip: !!input.skipEbarimt,
+  });
+  const autoEbarimt = ebarimtPlan.autoSend;
 
   const shift = await db.query.posShifts.findFirst({
     where: and(
@@ -973,7 +986,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         status: "posted",
         note: input.note?.trim() ?? "",
         ebarimtId: manualEbarimtId,
-        ebarimtStatus: manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
+        ebarimtStatus: ebarimtPlan.status,
         ebarimtConsumerNo,
         ebarimtCustomerTin,
       })
@@ -1477,7 +1490,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         action: "create_posted",
         entityType: "pos_sale",
         entityId: saleId,
-        summary: `POS борлуулалт — ${documentNo}, ${date}, ${customer.name}, ${quote.totals.lines.length} мөр, төлөх ${fmt(payable)}₮ (${plan.payments.map((payment) => `${payment.method.name} ${fmt(payment.baseAmount - payment.changeGiven)}`).join(", ")})`,
+        summary: `POS борлуулалт — ${documentNo}, ${date}, ${customer.name}, ${quote.totals.lines.length} мөр, төлөх ${fmt(payable)}₮ (${plan.payments.map((payment) => `${payment.method.name} ${fmt(payment.baseAmount - payment.changeGiven)}`).join(", ")})${ebarimtPlan.status === "skipped" ? " — eBarimt илгээгээгүй (кассчин)" : ""}`,
       },
       tx
     );
@@ -1535,7 +1548,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     ebarimtId: liveEbarimt?.ebarimtId ?? manualEbarimtId,
     ebarimtLottery: liveEbarimt?.ebarimtLottery ?? null,
     ebarimtQrData: liveEbarimt?.ebarimtQrData ?? null,
-    ebarimtStatus: liveEbarimt ? "sent" : manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
+    ebarimtStatus: liveEbarimt ? "sent" : ebarimtPlan.status,
   };
   return { id: saleId, documentNo, receipt };
 }

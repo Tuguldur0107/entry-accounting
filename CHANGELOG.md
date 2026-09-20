@@ -5,6 +5,15 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Added
+
+- **POS: борлуулалт бүрд eBarimt-гүй явуулах** — төлбөрийн диалогт «eBarimt
+  баримт илгээх» switch (default асаалттай). Унтраавал борлуулалт `skipped`
+  статустай бичигдэж ТЕГ-д илгээгдэхгүй; жагсаалтад «eBarimt илгээгээгүй»
+  шүүлтүүр, панелиас [eBarimt илгээх]-ээр дараа нь илгээнэ; AI
+  `create_pos_sale.skipEbarimt`. Анхны статусын дүрэм цэвэр
+  `initialSaleEbarimtStatus` (тесттэй)
+
 ## [1.5.2] — 2026-09-20
 
 > **Deploy:** preDeploy `pos_sales.ebarimt_lottery` / `ebarimt_qr_data` баганыг УСТГАЖ,

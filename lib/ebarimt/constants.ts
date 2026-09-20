@@ -7,8 +7,12 @@
 
 import type { PaymentKind } from "@/lib/pos/constants";
 
-/** pos_sales.ebarimtStatus */
-export const EBARIMT_STATUSES = ["manual", "pending", "sent", "failed", "cancelled"] as const;
+/**
+ * pos_sales.ebarimtStatus. `skipped` = кассчин төлбөрийн диалогт «eBarimt илгээх»-ийг
+ * унтраасан (eBarimt асаалттай байсан ч энэ борлуулалт ТЕГ-д илгээгдээгүй) —
+ * панелиас [Илгээх]-ээр дараа нь илгээж болно. null = eBarimt огт унтраалттай.
+ */
+export const EBARIMT_STATUSES = ["manual", "pending", "sent", "failed", "cancelled", "skipped"] as const;
 export type EbarimtStatus = (typeof EBARIMT_STATUSES)[number];
 export const EBARIMT_STATUS_LABELS: Record<EbarimtStatus, string> = {
   manual: "Гараар (ДДТД)",
@@ -16,6 +20,7 @@ export const EBARIMT_STATUS_LABELS: Record<EbarimtStatus, string> = {
   sent: "Илгээгдсэн",
   failed: "Алдаатай",
   cancelled: "Цуцлагдсан",
+  skipped: "Илгээгээгүй (кассчин)",
 };
 
 /** pos_ebarimt_submissions.kind / status */
