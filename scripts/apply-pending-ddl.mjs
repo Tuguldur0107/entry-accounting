@@ -589,7 +589,6 @@ async function main() {
     ["pos_settings", "ebarimt_pos_no", "text not null default ''"],
     ["pos_settings", "ebarimt_pos_api_url", "text not null default 'http://localhost:7080'"],
     ["pos_settings", "ebarimt_mode", "text not null default 'server'"],
-    ["pos_sales", "ebarimt_qr_data", "text"],
     ["pos_sales", "ebarimt_date", "text"],
     ["pos_sales", "ebarimt_type", "text"],
     ["pos_sales", "ebarimt_consumer_no", "text"],
