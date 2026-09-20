@@ -39,7 +39,7 @@
 | Багц | Хэнд | Боломж | Хязгаар |
 |---|---|---|---|
 | `trial` | Шинэ SaaS байгууллага (14 хоног) | platform-тай ижил (бүгдийг туршина) | суудал 3, компани 1 |
-| `standard` | SaaS Standard (100,000₮/хэрэглэгч/сар) | ebarimt, ai, mcp | суудал = төлсөн тоо, компани 1 |
+| `standard` | SaaS Standard (default 100,000₮/хэрэглэгч/сар — §5-ийн үнийн давхаргаар тохируулагдана) | ebarimt, ai, mcp | суудал = төлсөн тоо, компани 1 |
 | `platform` | Нягтлангийн фирм, интеграцитай | standard + api.rest, multi_company, custom_extensions | суудал = төлсөн, компани 10 |
 | `enterprise` | Гэрээт | бүгд | хязгааргүй |
 | `dedicated` | Эх код авсан (dedicated deploy) | бүгд | хязгааргүй — энэ давхарга шалгахгүй |
@@ -85,13 +85,25 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
   (ашиглаж буй / төлсөн), trial-ийн үлдсэн хоног, боломжуудын жагсаалт, холбоо
   барих. Өөрөө багц солихгүй (төлбөрийн гарц фаз 2).
 - **Entry Console** (Entry-ийн ажилтан — одоогоор эзэн өөрөө) — апп дотор platform
-  admin UI БАЙХГҮЙ; Console `GET/PUT /api/platform/subscriptions` (Bearer
-  `ENTRY_PLATFORM_API_KEY`, timing-safe, зөвхөн saas горимд, dedicated-д 404)
+  admin UI БАЙХГҮЙ; Console `GET/PUT /api/platform/subscriptions` ба
+  `GET/PUT /api/platform/plan-prices` (Bearer
+  `ENTRY_PLATFORM_API_KEY`, timing-safe, зөвхөн saas горимд, dedicated-д 404;
+  хаалга нь `lib/api/platform-auth.ts`)
   дуудаж бүх байгууллагын жагсаалт (багц, статус, суудал, гишүүд, үүссэн огноо)
   авч subscription засна (багц, статус, суудал, хугацаа, override, тэмдэглэл,
   `actor`). Цөм `lib/billing/platform.ts`; өөрчлөлт сервер логт (аудитын мөр
   users FK-тай тул Console-ийн үйлдэл аудитад ордоггүй — `updated_by` null,
   `note`/лог). Console талын UI тусдаа repo-д.
+- **Үнэ — ГУРВАН давхарга** (`lib/billing/pricing.ts` ЦЭВЭР, тесттэй; доошоо
+  дардаг): ① `plans.ts`-ийн default (кодод, deploy-д л өөрчлөгдөнө) →
+  ② `platform_plan_prices` (Console-оос, БҮХ харилцагчид нэг — deploy хэрэггүй) →
+  ③ `organization_subscriptions.price_per_seat_mnt` (тухайн харилцагчийн тусгай
+  үнэ: enterprise хэлэлцээр, хөнгөлөлт). `null` = үнэ ТОГТООГООГҮЙ
+  (хэлэлцээрээр), **0₮ гэсэн үг БИШ**; хадгалагдсан мөрийн null нь ИЛ
+  «цэвэрлэсэн» тул default руу буцахгүй. `/settings/billing`, AI-ийн
+  `get_billing_overview`, Console-ийн жагсаалт гурвуулаа `resolveSeatPrice`-ээр
+  НЭГ утга хардаг; сарын дүн = төлсөн суудал × үнэ (`monthlyAmountMnt`,
+  аль нэг нь тодорхойгүй бол null — таамаглахгүй).
 - **Самбар/мэдэгдэл** — topbar-ийн доор баннер (trial ≤7 хоног, past_due,
   read-only) ба `attention.ts`-ийн `subscription.trial_ending` /
   `subscription.read_only` дохио (нүүр + өдөр тутмын мэдэгдэл, эзэн/админд).
@@ -100,7 +112,6 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
 
 - Төлбөрийн гарц (QPay/карт) — статусыг автоматаар `active`/`past_due` болгох
 - Usage metering (MCP дуудлага, extension ажиллалт) — үнэ тогтооход
-- Console талын UI (жагсаалт + засах форм) — `entry-console` repo-д, дээрх API-гаар
 - Нэхэмжлэх үүсгэх (суудал × үнэ) — Entry өөрийн АР-аараа
 
 ## 7. Шийдвэр шаардсан асуултууд

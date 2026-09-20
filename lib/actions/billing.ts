@@ -10,7 +10,8 @@ import { eq, sql } from "drizzle-orm";
 import { getActiveOrg } from "@/lib/auth";
 import type { Entitlements } from "@/lib/billing/entitlements";
 import { countSeatsUsed, getEntitlements } from "@/lib/billing/load";
-import { PLANS } from "@/lib/billing/plans";
+import { resolveSeatPrice } from "@/lib/billing/pricing";
+import { loadPlanPrices } from "@/lib/billing/pricing-store";
 import { db } from "@/lib/db";
 import { memberships, organizationSubscriptions, organizations } from "@/lib/db/schema";
 
@@ -26,22 +27,23 @@ export type BillingOverview = {
 /** Идэвхтэй байгууллагын багц — гишүүн бүр харна (засах эрх platform admin-д). */
 export async function getBillingOverview(): Promise<BillingOverview> {
   const { orgId } = await getActiveOrg();
-  const [org, entitlements, seatsUsed, [members], sub] = await Promise.all([
+  const [org, entitlements, seatsUsed, [members], sub, planPrices] = await Promise.all([
     db.query.organizations.findFirst({ where: eq(organizations.id, orgId), columns: { name: true } }),
     getEntitlements(orgId),
     countSeatsUsed(orgId),
     db.select({ n: sql<number>`count(*)::int` }).from(memberships).where(eq(memberships.organizationId, orgId)),
     db.query.organizationSubscriptions.findFirst({
       where: eq(organizationSubscriptions.organizationId, orgId),
-      columns: { note: true },
+      columns: { note: true, pricePerSeatMnt: true },
     }),
+    loadPlanPrices(),
   ]);
   return {
     orgName: org?.name ?? "",
     entitlements,
     seatsUsed,
     membersCount: members?.n ?? 0,
-    pricePerSeatMnt: PLANS[entitlements.planId].pricePerSeatMnt,
+    pricePerSeatMnt: resolveSeatPrice(entitlements.planId, sub?.pricePerSeatMnt, planPrices),
     note: sub?.note ?? null,
   };
 }
