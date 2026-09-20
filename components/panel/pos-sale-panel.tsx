@@ -416,7 +416,8 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
 
   const status = sale.ebarimtStatus;
   const isSent = status === "sent";
-  const canResend = status === "failed" || status === "pending";
+  const isSkipped = status === "skipped";
+  const canResend = status === "failed" || status === "pending" || isSkipped;
 
   useEffect(() => {
     if (!status) return;
@@ -452,7 +453,7 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
         return;
       }
       toast.success(
-        result.status === "sent" ? "ТЕГ-д илгээгдлээ" : "Дахин илгээх дараалалд орлоо"
+        result.status === "sent" ? "ТЕГ-д илгээгдлээ" : "Илгээх дараалалд орлоо"
       );
       refreshOpenPanels();
       router.refresh();
@@ -480,7 +481,7 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
           {canResend && (
             <Button size="sm" variant="outline" onClick={resend} disabled={isPending}>
               <Icon name="send" size="sm" />
-              Дахин илгээх
+              {isSkipped ? "eBarimt илгээх" : "Дахин илгээх"}
             </Button>
           )}
           {!editing && !isSent && !sale.isReturn && (

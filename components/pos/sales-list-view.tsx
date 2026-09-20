@@ -22,7 +22,7 @@ import { openPosSalePanel } from "@/lib/store/panel-store";
 
 type StatusFilter = "all" | "posted" | "partially_returned" | "returned" | "voided";
 type KindFilter = "all" | "sales" | "returns";
-type EbarimtFilter = "all" | "failed";
+type EbarimtFilter = "all" | "failed" | "skipped";
 
 export const SALE_STATUS_TONES: Record<string, StatusTone> = {
   posted: "success",
@@ -38,6 +38,7 @@ export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
   failed: "danger",
   cancelled: "muted",
   manual: "muted",
+  skipped: "warning",
 };
 
 const STATUS_VALUES: StatusFilter[] = ["all", "posted", "partially_returned", "returned", "voided"];
@@ -101,9 +102,11 @@ export function SalesListView({
 
   const ebarimtChips = useMemo<ChipOption<EbarimtFilter>[]>(() => {
     const failed = sales.filter((sale) => sale.ebarimtStatus === "failed").length;
+    const skipped = sales.filter((sale) => sale.ebarimtStatus === "skipped").length;
     return [
       { value: "all", label: "eBarimt бүгд" },
       { value: "failed", label: "eBarimt алдаатай", count: failed, tone: "warning" as const },
+      { value: "skipped", label: "eBarimt илгээгээгүй", count: skipped, tone: "warning" as const },
     ];
   }, [sales]);
 
@@ -112,7 +115,7 @@ export function SalesListView({
       kindFiltered.filter(
         (sale) =>
           (status === "all" || sale.status === status) &&
-          (ebarimt === "all" || sale.ebarimtStatus === "failed")
+          (ebarimt === "all" || sale.ebarimtStatus === ebarimt)
       ),
     [kindFiltered, status, ebarimt]
   );

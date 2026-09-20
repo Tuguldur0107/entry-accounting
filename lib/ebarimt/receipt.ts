@@ -23,6 +23,7 @@ import {
   EBARIMT_ERRORS,
   MERCHANT_TIN_RE,
   TAX_PRODUCT_CODE_RE,
+  type EbarimtStatus,
   type EbarimtTaxType,
 } from "./constants";
 import type {
@@ -43,6 +44,26 @@ export class EbarimtError extends Error {
     super(`[${code}] ${message}`);
     this.name = "EbarimtError";
   }
+}
+
+/**
+ * Борлуулалт бүртгэх МӨЧИД eBarimt-ийн анхны статус ба автомат илгээх эсэх
+ * (createPosSale + AI create_pos_sale нэг дүрэм):
+ *  - eBarimt унтраалттай / НӨАТ төлөгч бус → null, илгээхгүй
+ *  - гар ДДТД өгсөн → manual (ТЕГ-ийн апп-аар олгосон), илгээхгүй
+ *  - кассчин «eBarimt илгээх»-ийг унтраасан → skipped (дараа панелиас илгээж болно)
+ *  - бусад → pending, дараалалд орно
+ */
+export function initialSaleEbarimtStatus(input: {
+  enabled: boolean;
+  isVatPayer: boolean;
+  manualId: string | null;
+  skip: boolean;
+}): { status: EbarimtStatus | null; autoSend: boolean } {
+  if (input.manualId) return { status: "manual", autoSend: false };
+  if (!input.enabled || !input.isVatPayer) return { status: null, autoSend: false };
+  if (input.skip) return { status: "skipped", autoSend: false };
+  return { status: "pending", autoSend: true };
 }
 
 /** Тохиргооны бүрэн байдал — дутуу бол шалтгааны жагсаалт (UI + worker хоёулаа). */

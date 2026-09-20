@@ -2756,6 +2756,7 @@ export const AI_TOOLS: AiToolDef[] = [
         consumerNo: { type: "string", description: "Иргэний eBarimt дугаар (8 орон) — B2C баримтад" },
         customerTin: { type: "string", description: "Байгууллагын ТТД (11/14 орон) — өгвөл B2B баримт" },
         customerRegNo: { type: "string", description: "Байгууллагын РД — ТТД-г ТЕГ-ийн лавлахаас автоматаар олно (customerTin-ийн оронд)" },
+        skipEbarimt: { type: "boolean", description: "true бол ЭНЭ борлуулалтыг eBarimt-гүй бүртгэнэ (ТЕГ-д илгээхгүй, статус «Илгээгээгүй») — хэрэглэгч ил хүссэн үед л; дараа нь resend_ebarimt-ээр илгээж болно" },
       },
       required: ["lines", "payments"],
     },
@@ -9351,6 +9352,7 @@ async function runCreatePosSale(
     consumerNo?: string;
     customerTin?: string;
     customerRegNo?: string;
+    skipEbarimt?: boolean;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -9421,6 +9423,7 @@ async function runCreatePosSale(
       ebarimtConsumerNo: input.consumerNo ?? null,
       ebarimtCustomerTin: input.customerTin ?? null,
       ebarimtCustomerRegNo: input.customerRegNo ?? null,
+      skipEbarimt: input.skipEbarimt === true,
     })
   );
   const receipt = result.receipt;
@@ -9435,6 +9438,8 @@ async function runCreatePosSale(
       : "",
     receipt.ebarimtStatus === "pending"
       ? "eBarimt: ТЕГ рүү илгээгдэж байна — ДДТД хэдхэн секундын дараа баримтад гарна (get_ebarimt_status)."
+      : receipt.ebarimtStatus === "skipped"
+        ? "eBarimt: илгээгээгүй (skipEbarimt) — шаардлагатай бол resend_ebarimt-ээр илгээнэ."
       : receipt.ebarimtId
         ? `eBarimt ДДТД: ${receipt.ebarimtId}${receipt.ebarimtLottery ? ` · сугалаа ${receipt.ebarimtLottery} (зөвхөн энэ мөчид — хадгалагдахгүй)` : ""}`
         : "",
