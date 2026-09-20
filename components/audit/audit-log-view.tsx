@@ -44,6 +44,8 @@ const ACTION_LABELS: Record<string, string> = {
   role_changed: "Роль солисон",
   invited: "Урилга илгээсэн",
   invitation_cancelled: "Урилга цуцалсан",
+  support_entered: "Дэмжлэг орсон",
+  support_exited: "Дэмжлэг гарсан",
 };
 
 // Объектын төрөл → монгол шошго.
@@ -62,6 +64,7 @@ const ENTITY_LABELS: Record<string, string> = {
   membership: "Гишүүнчлэл",
   invitation: "Урилга",
   subscription: "Багц, төлбөр",
+  support_session: "Дэмжлэгийн хандалт",
 };
 
 // "YYYY-MM-DD HH:mm" — Улаанбаатарын цагаар. sv-SE locale яг энэ форматыг өгдөг.

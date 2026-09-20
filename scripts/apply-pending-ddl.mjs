@@ -845,7 +845,41 @@ async function main() {
        on pos_qpay_intents (organization_id, status, created_at)`
   );
 
-  // ── AI санал → үр дүнгийн бүртгэл (docs/ai-logging.md) ──────────────────
+  // ── 8. Дэмжлэгийн хандалт (lib/platform/support.ts) ───────────────────────
+  await run(
+    "platform_support_sessions хүснэгт",
+    `create table if not exists platform_support_sessions (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       user_id text not null references users(id) on delete cascade,
+       token_hash text not null,
+       role text not null default 'viewer',
+       reason text,
+       issued_by text,
+       expires_at timestamp not null,
+       started_at timestamp,
+       ends_at timestamp,
+       ended_at timestamp,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "platform_support_sessions_token_ux индекс",
+    `create unique index if not exists platform_support_sessions_token_ux
+       on platform_support_sessions (token_hash)`
+  );
+  await run(
+    "platform_support_sessions_org_ix индекс",
+    `create index if not exists platform_support_sessions_org_ix
+       on platform_support_sessions (organization_id)`
+  );
+  await run(
+    "platform_support_sessions_user_ix индекс",
+    `create index if not exists platform_support_sessions_user_ix
+       on platform_support_sessions (user_id)`
+  );
+
+  // ── 9. AI санал → үр дүнгийн бүртгэл (docs/ai-logging.md) ────────────────
   // ЗӨВХӨН НЭМЭЛТ: байгаа хүснэгт хөндөгдөхгүй, багана хасагдахгүй →
   // migration нь backward compatible бөгөөд downtime ШААРДАХГҮЙ. Хуучин
   // код шинэ хүснэгтийг мэдэхгүй ч асуудалгүй ажиллана; шинэ код хуучин

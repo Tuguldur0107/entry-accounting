@@ -16,6 +16,11 @@ import bcrypt from "bcryptjs";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { effectiveLevel, hasModuleLevel, ROLE_RANK, type PermissionLevel } from "@/lib/permissions";
 import authConfig from "@/lib/auth.config";
+import { SUPPORT_COOKIE, type SupportRole } from "@/lib/platform/support";
+import {
+  loadActiveSupportSession,
+  type SupportSessionRow,
+} from "@/lib/platform/support-store";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { assertWritesAllowed } from "@/lib/billing/guards";
 
@@ -124,6 +129,46 @@ export async function createPersonalOrg(
   });
 }
 
+// ── Дэмжлэгийн хандалт (Console-оос олгогдсон түр сесс) ─────────────────────
+// Гишүүнчлэлгүй ч ТУХАЙН нэг байгууллагад, ХУГАЦААТАЙ, cookie-д байгаа token
+// хүчинтэй үед л. Эрх нь хэрэглэгчид биш СЕССЭД уягдана (lib/platform/support.ts):
+// viewer = зөвхөн унших (default), admin = бичих; owner ХЭЗЭЭ Ч олгогдохгүй тул
+// байгууллага устгах / эзэмшил шилжүүлэх нь харилцагчийнхаа мэдэлд үлдэнэ.
+
+async function supportCookie(): Promise<string | null> {
+  try {
+    return (await cookies()).get(SUPPORT_COOKIE)?.value ?? null;
+  } catch {
+    // cookies() зөвхөн request context-д — scheduler/script-аас дуудвал үгүй.
+    return null;
+  }
+}
+
+/** Идэвхтэй дэмжлэгийн сесс (cookie + DB шалгалт) эсвэл null — ШИДЭХГҮЙ. */
+export async function currentSupportSession(
+  userId?: string
+): Promise<SupportSessionRow | null> {
+  // Token-оор танигдсан зам (MCP/REST) дэмжлэгийн сессийг ХЭРЭГЛЭХГҮЙ —
+  // API token өөрийн scope-той, support нь зөвхөн браузерын сесст.
+  if (impersonation.getStore()) return null;
+  const raw = await supportCookie();
+  if (!raw) return null;
+  const who = userId ?? (await sessionAuth())?.user?.id;
+  if (!who) return null;
+  return await loadActiveSupportSession(raw, who);
+}
+
+/** Топбарын баннерт — идэвхтэй сессийн товч мэдээлэл. */
+export async function getSupportBanner(): Promise<{
+  orgName: string;
+  role: SupportRole;
+  endsAt: string;
+} | null> {
+  const row = await currentSupportSession();
+  if (!row || !row.endsAt) return null;
+  return { orgName: row.orgName, role: row.role, endsAt: row.endsAt.toISOString() };
+}
+
 export async function getActiveOrg(): Promise<ActiveOrg> {
   // 1. Token-оор танигдсан зам (MCP): store-д orgId нь шууд байна.
   const store = impersonation.getStore();
@@ -146,6 +191,17 @@ export async function getActiveOrg(): Promise<ActiveOrg> {
   const session = await auth();
   const userId = store?.userId ?? session?.user?.id;
   if (!userId) throw new Error("Нэвтрэх шаардлагатай");
+
+  // 2. Дэмжлэгийн сесс — гишүүнчлэлээс ӨМНӨ шалгана: идэвхтэй үед scope нь
+  //    ТЭР байгууллага болж, оператор өөрийн байгууллага руугаа санамсаргүй
+  //    бичихээс сэргийлнэ. Гарах = cookie цэвэрлэх (/api/support/exit).
+  const support = await currentSupportSession(userId);
+  if (support)
+    return {
+      orgId: support.organizationId,
+      userId,
+      role: support.role as MembershipRole,
+    };
 
   const rows = await db.query.memberships.findMany({
     where: eq(memberships.userId, userId),
