@@ -117,6 +117,15 @@ import {
   getOrganizationProfile,
   updateOrganizationProfile,
 } from "@/lib/actions/organization-profile";
+import { getBillingOverview } from "@/lib/actions/billing";
+import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
+import {
+  FEATURE_KEYS,
+  FEATURE_LABELS,
+  PLAN_LABELS as BILLING_PLAN_LABELS,
+  STATUS_LABELS as SUBSCRIPTION_STATUS_LABELS,
+} from "@/lib/billing/plans";
+import { DEPLOYMENT_MODE_LABELS } from "@/lib/deployment-mode";
 import {
   createOrganizationForUser,
   deleteOrganizationForUser,
@@ -2078,6 +2087,14 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
     },
+  },
+
+  // ── Багц, төлбөр (billing / entitlement) ─────────────────────────────────
+  {
+    name: "get_billing_overview",
+    description:
+      "Идэвхтэй байгууллагын багц (trial/standard/platform/enterprise), статус, бичих эрх нээлттэй эсэх ба шалтгаан, суудал (ашигласан/хязгаар), боломжууд (eBarimt, AI, MCP, REST API, олон компани, custom/), trial/grace-ийн үлдсэн хоног. ЗӨВХӨН УНШИНА — багц засах нь апп дотор байхгүй (Entry Console-оос). Хэрэглэгч [SUBSCRIPTION_READ_ONLY] / [FEATURE_NOT_IN_PLAN] / [SEAT_LIMIT] алдаа авсан, «яагаад бичиж чадахгүй», «багц маань юу вэ» гэвэл ЭХЛЭЭД үүгээр шалгана.",
+    inputSchema: { type: "object", properties: {} },
   },
 
   // ── Аудит ба үнэлгээ ──────────────────────────────────────────────────────
@@ -7246,6 +7263,52 @@ async function runGetOrganizationProfile(): Promise<AiToolResult> {
   };
 }
 
+/** Багц, төлбөр — гишүүн бүр уншина (docs/billing §5); засах нь Console-д. */
+async function runGetBillingOverview(): Promise<AiToolResult> {
+  const overview = await getBillingOverview();
+  const ent = overview.entitlements;
+  const day = (date: Date | null) => (date ? date.toISOString().slice(0, 10) : null);
+  const limit = (value: number | null) => (value === null ? "хязгааргүй" : String(value));
+  const lines: string[] = [];
+  lines.push(`Байгууллага: ${overview.orgName || "—"} · Горим: ${DEPLOYMENT_MODE_LABELS[ent.mode]}`);
+  if (ent.mode === "dedicated") {
+    lines.push("Тусдаа сервис — багцын хязгаар хамаарахгүй, бүх боломж нээлттэй (лицензээр удирдагдана).");
+    lines.push(`Гишүүд: ${overview.membersCount} · суудал ашигласан: ${overview.seatsUsed}`);
+    return { resultText: lines.join("\n") };
+  }
+  lines.push(
+    `Багц: ${BILLING_PLAN_LABELS[ent.planId]} · Статус: ${SUBSCRIPTION_STATUS_LABELS[ent.status]}` +
+      (overview.pricePerSeatMnt !== null && overview.pricePerSeatMnt > 0
+        ? ` · ${fmt(overview.pricePerSeatMnt)}₮ / суудал / сар`
+        : "")
+  );
+  lines.push(
+    ent.writable
+      ? "Бичих эрх: НЭЭЛТТЭЙ"
+      : `Бичих эрх: ЗӨВХӨН УНШИХ — ${ent.readOnlyReason ? READ_ONLY_MESSAGES[ent.readOnlyReason] : "шалтгаан тодорхойгүй"}`
+  );
+  if (ent.status === "trialing" && ent.trialEndsAt)
+    lines.push(
+      `Trial дуусах: ${day(ent.trialEndsAt)}` +
+        (ent.daysLeft !== null ? ` (${ent.daysLeft <= 0 ? "өнөөдөр" : `${ent.daysLeft} хоног үлдсэн`})` : "")
+    );
+  if (ent.status === "past_due" && ent.graceEndsAt)
+    lines.push(
+      `Төлбөр хоцорсон — grace дуусах: ${day(ent.graceEndsAt)}` +
+        (ent.daysLeft !== null ? ` (${ent.daysLeft <= 0 ? "өнөөдөр" : `${ent.daysLeft} хоног үлдсэн`})` : "")
+    );
+  lines.push(
+    `Суудал: ${overview.seatsUsed} / ${limit(ent.limits.seats)} (гишүүд ${overview.membersCount}) · Компани: ${limit(ent.limits.companies)}`
+  );
+  lines.push(
+    "Боломжууд: " +
+      FEATURE_KEYS.map((key) => `${ent.features[key] ? "✓" : "✗"} ${FEATURE_LABELS[key]}`).join(" · ")
+  );
+  if (overview.note) lines.push(`Тэмдэглэл: ${overview.note}`);
+  lines.push("Багц солих, суудал нэмэх, төлбөр — Entry-ийн платформын админтай холбогдоно (апп дотор засагдахгүй). Вэб: Тохиргоо → Багц, төлбөр (/settings/billing).");
+  return { resultText: lines.join("\n") };
+}
+
 async function runUpdateOrganizationProfile(input: {
   name?: string;
   registerNo?: string;
@@ -9883,6 +9946,8 @@ async function dispatchAiTool(
         return await runGetOrganizationProfile();
       case "update_company_settings":
         return await runUpdateOrganizationProfile(args);
+      case "get_billing_overview":
+        return await runGetBillingOverview();
       case "list_audit_events":
         return await runListAuditEvents(orgId, args);
       case "update_arap_document":
