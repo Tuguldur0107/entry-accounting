@@ -142,6 +142,14 @@ export async function enqueueEbarimt(
   handle: DbHandle = db
 ): Promise<boolean> {
   try {
+    // Багц: eBarimt боломжгүй бол дараалалд ОРУУЛАХГҮЙ — борлуулалт зогсохгүй
+    // (docs/billing §4; хуучин `sent` баримтын цуцлалт ч мөн алгасна).
+    const { getEntitlements } = await import("@/lib/billing/load");
+    const ent = await getEntitlements(orgId);
+    if (!ent.features.ebarimt) {
+      console.warn(`[ebarimt] багцад ороогүй — org=${orgId} sale=${saleId} ${kind} алгаслаа`);
+      return false;
+    }
     const [row] = await handle
       .insert(posEbarimtSubmissions)
       .values({ organizationId: orgId, saleId, kind, status: "pending", nextAttemptAt: new Date() })

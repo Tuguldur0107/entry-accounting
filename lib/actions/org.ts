@@ -29,6 +29,7 @@ import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
+import { assertCompanyCreatable, assertSeatAvailable } from "@/lib/billing/guards";
 import { ORG_INVITATION_TTL_DAYS } from "@/lib/db/schema";
 import { roleAtLeast } from "@/lib/permissions";
 
@@ -331,6 +332,9 @@ async function createOrganizationCore(data: {
   if (!userId) throw new Error("Нэвтрэх шаардлагатай");
   const name = data.name.trim();
   if (!name) throw new Error("Байгууллагын нэр оруулна уу");
+  // Багцын хязгаар — идэвхтэй байгууллагын entitlement-ээр (multi_company, компанийн тоо).
+  const current = await getActiveOrg();
+  await assertCompanyCreatable(current.orgId, userId);
 
   const clean = (value?: string) => {
     const trimmed = value?.trim();
@@ -399,6 +403,14 @@ export async function createOrganizationForUser(input: {
 }): Promise<{ orgId: string }> {
   const name = input.name.trim();
   if (!name) throw new Error("Байгууллагын нэр оруулна уу");
+  // API/MCP зам — token-ий байгууллагын entitlement-ээр шалгана (runAsOrg
+  // контекстгүй дуудагдвал шалгалт алгасна: script/seed).
+  try {
+    const current = await getActiveOrg();
+    await assertCompanyCreatable(current.orgId, input.userId);
+  } catch (caught) {
+    if (caught instanceof Error && caught.message.startsWith("[")) throw caught;
+  }
   const clean = (value?: string | null) => {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
@@ -560,6 +572,8 @@ async function inviteMemberCore(data: {
   const email = data.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     throw new Error("И-мэйл хаяг буруу байна");
+  // Суудлын хязгаар (гишүүд + хүлээгдэж буй урилга) — хатуу.
+  await assertSeatAvailable(orgId);
   if (!ROLES.includes(data.role) || data.role === "owner")
     throw new Error("Эрх нь admin/accountant/viewer байна (owner шилжүүлэхгүй)");
 

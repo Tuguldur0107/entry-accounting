@@ -334,6 +334,56 @@ async function main() {
     `create index if not exists auth_tokens_user_kind_ix on auth_tokens (user_id, kind)`
   );
 
+  // ── 2c. organization_subscriptions (billing/entitlement) ─────────────────
+  // Хүснэгт АНХ үүсэхэд одоо байгаа бүх байгууллагад standard / active /
+  // суудал = гишүүдийн тоо (хугацаагүй) нөхнө — ажиллаж буй хэн ч trial
+  // дууссан гэж read-only болохгүй; platform admin дараа нь тааруулна.
+  try {
+    const [{ exists: hadTable }] = await sql`
+      select exists (
+        select 1 from information_schema.tables
+        where table_schema = 'public' and table_name = 'organization_subscriptions'
+      ) as exists
+    `;
+    await run(
+      "organization_subscriptions хүснэгт",
+      `create table if not exists organization_subscriptions (
+         id uuid primary key default gen_random_uuid(),
+         organization_id uuid not null references organizations(id) on delete cascade,
+         plan_id text not null default 'standard',
+         status text not null default 'active',
+         seats integer,
+         trial_ends_at timestamp,
+         current_period_end timestamp,
+         overrides jsonb,
+         note text,
+         updated_by text references users(id) on delete set null,
+         created_at timestamp not null default now(),
+         updated_at timestamp not null default now()
+       )`
+    );
+    await run(
+      "organization_subscriptions_org_ux индекс",
+      `create unique index if not exists organization_subscriptions_org_ux
+         on organization_subscriptions (organization_id)`
+    );
+    if (!hadTable) {
+      await run(
+        "organization_subscriptions — өмнөх байгууллагуудыг standard/active гэж нөхөв",
+        `insert into organization_subscriptions (organization_id, plan_id, status, seats, note)
+         select o.id, 'standard', 'active',
+                greatest((select count(*) from memberships m where m.organization_id = o.id), 1),
+                'Хүснэгт үүсэхээс өмнөх байгууллага — автоматаар нөхөгдсөн'
+         from organizations o
+         where not exists (
+           select 1 from organization_subscriptions s where s.organization_id = o.id
+         )`
+      );
+    }
+  } catch (error) {
+    console.log(`✗ organization_subscriptions: ${error.message}`);
+  }
+
   // ── 2b. org_invitations.expires_at — урилгын линкийн хугацаа ─────────────
   // Хуучин мөрүүд default-аар (now + 7 хоног) хугацаатай болно; код нь
   // registerUser-д ЗААВАЛ шалгадаг тул push хожимдвол ч апп унахгүй.

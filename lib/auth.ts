@@ -17,6 +17,7 @@ import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { effectiveLevel, hasModuleLevel, ROLE_RANK, type PermissionLevel } from "@/lib/permissions";
 import authConfig from "@/lib/auth.config";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { assertWritesAllowed } from "@/lib/billing/guards";
 
 const { handlers, auth: sessionAuth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -213,6 +214,9 @@ export async function requireModuleAction(
   needed: "read" | "write" | "post"
 ): Promise<ActiveOrg> {
   const active = await getActiveOrg();
+  // Багцын read-only (trial дууссан, төлбөр хоцорсон…) — бичилт/батлалтыг
+  // НЭГ цэгээс хаана (docs/billing §4); унших хамаарахгүй, dedicated-д давна.
+  if (needed !== "read") await assertWritesAllowed(active.orgId);
   if (ROLE_ORDER[active.role] >= ROLE_ORDER.admin) return active;
 
   const membership = await db.query.memberships.findFirst({
@@ -261,6 +265,7 @@ export async function requireAnyModuleAction(
   checks: [string, "read" | "write" | "post"][]
 ): Promise<ActiveOrg> {
   const active = await getActiveOrg();
+  if (checks.some(([, needed]) => needed !== "read")) await assertWritesAllowed(active.orgId);
   if (ROLE_ORDER[active.role] >= ROLE_ORDER.admin) return active;
 
   const membership = await db.query.memberships.findFirst({

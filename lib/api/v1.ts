@@ -8,6 +8,7 @@
 //   POST /api/v1/tools/<name>   — body = tool input → { ok, result, action?, code? }
 
 import { runAsOrg } from "@/lib/auth";
+import { requireFeature } from "@/lib/billing/guards";
 import { allAiTools, executeAiTool } from "@/lib/ai/tools";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { resolveApiToken, writeModeOf } from "@/lib/mcp/server";
@@ -99,6 +100,15 @@ export async function callTool(
     }
   }
 
+  // Багц: REST API нь Platform+ боломж (docs/billing §4) — 402.
+  try {
+    await requireFeature(context.orgId, "api.rest");
+  } catch (caught) {
+    return Response.json(
+      { ok: false, code: "FEATURE_NOT_IN_PLAN", error: caught instanceof Error ? caught.message : String(caught) },
+      { status: 402, headers: VERSION_HEADER }
+    );
+  }
   const mode = await writeModeOf(context);
   const result = await runAsOrg(context, () =>
     executeAiTool(context.userId, name, input, mode)

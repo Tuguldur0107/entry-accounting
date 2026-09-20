@@ -76,6 +76,36 @@ export const organizations = pgTable("organizations", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ─── Billing / entitlement (docs/billing/00-proposal.md) ─────────────────────
+// SaaS горимд байгууллага бүрийн багц; мөр байхгүй = trial (үүссэнээс 14 хоног).
+// Хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагад standard/active нөхнө
+// (ажиллаж буй хэн ч read-only болохгүй). dedicated горимд уншигдахгүй.
+export const organizationSubscriptions = pgTable(
+  "organization_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** lib/billing/plans.ts PlanId */
+    planId: text("plan_id").notNull().default("standard"),
+    /** trialing | active | past_due | suspended | cancelled */
+    status: text("status").notNull().default("active"),
+    /** Төлсөн суудал (null = багцын default / хязгааргүй). */
+    seats: integer("seats"),
+    trialEndsAt: timestamp("trial_ends_at"),
+    /** Төлбөр төлөгдсөн хугацааны эцэс — past_due-ийн grace эндээс тоологдоно. */
+    currentPeriodEnd: timestamp("current_period_end"),
+    /** { features?: {key: bool}, limits?: {seats?, companies?} } — байгууллагын онцгой тохиргоо. */
+    overrides: jsonb("overrides"),
+    note: text("note"),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("organization_subscriptions_org_ux").on(t.organizationId)]
+);
+
 export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";
 
 export const memberships = pgTable(

@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
 import { runAsOrg } from "@/lib/auth";
+import { requireFeature } from "@/lib/billing/guards";
 import { db } from "@/lib/db";
 import { aiSettings, apiTokens } from "@/lib/db/schema";
 import {
@@ -160,6 +161,12 @@ async function handleRequest(
         );
       const name = String(message.params?.name ?? "");
       const args = message.params?.arguments ?? {};
+      // Багц: MCP боломж (docs/billing §4) — JSON-RPC алдаагаар.
+      try {
+        await requireFeature(context.orgId, "mcp");
+      } catch (caught) {
+        return rpcError(id, -32003, caught instanceof Error ? caught.message : String(caught));
+      }
       const mode = await writeModeOf(context);
       // runAsOrg: fn доторх auth() нь token-ий эзнээр, getActiveOrg() нь
       // token-д уягдсан байгууллагаар хариулна (гишүүнчлэл ДАХИН шалгагдана).

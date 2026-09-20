@@ -152,6 +152,26 @@ entry-accounting/
   - Өгөгдлийн тусгаарлалт (`organizationId`) хоёр горимд ИЖИЛ; горим зөвхөн
     бүртгэл/баталгаажуулалтын зан төлөвт. `/api/health` ба `/settings/system`
     горимоо ил харуулна. Тест `tests/deployment-mode.test.ts`
+- **Billing / entitlement** (`docs/billing/00-proposal.md` — ЗААВАЛ уншина;
+  `lib/billing/`): багц кодод (`plans.ts`: trial/standard/platform/enterprise/
+  dedicated — боломж, хязгаар, үнэ), байгууллагын ялгаа
+  `organization_subscriptions` (planId, status, seats, trialEndsAt,
+  currentPeriodEnd, overrides JSON). ЦЭВЭР шийдвэр `entitlements.ts`
+  (`resolveEntitlements`, тесттэй), DB `load.ts`, **шалгах цэг ЗӨВХӨН
+  `guards.ts`**: `assertWritesAllowed` (requireModuleAction write/post-д НЭГ
+  цэгээс — read-only багцад `[SUBSCRIPTION_READ_ONLY]`), `requireFeature`
+  (REST `api.rest` → 402, MCP `mcp` → -32003, AI чат `ai`, eBarimt enqueue
+  алгасна), `assertSeatAvailable` (урилга), `assertCompanyCreatable`
+  (multi_company + компанийн тоо). Код даяар `if plan === …` ХОРИОТОЙ.
+  **Нягтлан бодох ажлыг дунд нь блоклохгүй**: унших, тайлан, экспорт, сар
+  хаах (`requireRole`) үргэлж. Мөргүй SaaS байгууллага = trial 14 хоног;
+  past_due grace 14 хоног; хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагыг
+  standard/active нөхнө. dedicated горимд бүх боломж, хязгааргүй (DB
+  хөндөхгүй). UI: `/settings/billing` (гишүүн бүр), `/admin/platform`
+  (platform admin — `ENTRY_PLATFORM_ADMIN_EMAILS`, зөвхөн saas; байгууллагын
+  owner/admin-тай ХОЛИЛДОХГҮЙ тусдаа эрх, `lib/platform-admin.ts`), топбарын
+  баннер, `attention.ts` дохио (`subscription.trial_ending` / `read_only`).
+  Өөрчлөлт бүр аудитын мөрд (`subscription`). Төлбөрийн гарц — фаз 2
 - **Нууц үг сэргээх, и-мэйл баталгаажуулалт** (`lib/actions/account-recovery.ts`,
   `lib/account/`): token нь DB-д sha256 hash, нэг удаагийн, хугацаатай
   (сэргээх 1 цаг, баталгаажуулах 24 цаг — `AUTH_TOKEN_TTL_MS`); хуучин

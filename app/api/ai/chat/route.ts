@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { and, desc, eq } from "drizzle-orm";
 
 import { auth, getActiveOrg } from "@/lib/auth";
+import { requireFeature } from "@/lib/billing/guards";
 import { db } from "@/lib/db";
 import { aiAttachments, aiMessages, aiSettings } from "@/lib/db/schema";
 import { createMarkerSanitizer } from "@/lib/ai/action-markers";
@@ -204,6 +205,15 @@ export async function POST(request: Request) {
 
   // Фаз 01: тохиргоо (модель, түлхүүр, горим) байгууллага бүрд тусдаа.
   const { orgId } = await getActiveOrg();
+  // Багц: AI туслах боломж (docs/billing §4).
+  try {
+    await requireFeature(orgId, "ai");
+  } catch (caught) {
+    return Response.json(
+      { error: caught instanceof Error ? caught.message : String(caught) },
+      { status: 402 }
+    );
+  }
   const settings = await db.query.aiSettings.findFirst({
     where: and(
       eq(aiSettings.userId, userId),

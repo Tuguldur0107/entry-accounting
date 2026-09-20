@@ -49,6 +49,18 @@ export interface AttentionInput {
   };
   /** deploymentLicenseStatus().expiresAt (YYYY-MM-DD) — байхгүй бол null. */
   licenseExpiresAt?: string | null;
+  /**
+   * Багц (SaaS горим, lib/billing): trial/grace-ийн үлдсэн хоног ба read-only
+   * шалтгаан. dedicated горимд undefined. Дохио: 7/3/1/0 хоногт сануулга,
+   * read-only болсон өдөр бүр (эзэн/админд).
+   */
+  subscription?: {
+    planId: string;
+    status: string;
+    /** Trial/grace дуусах өдөр (YYYY-MM-DD) — байхгүй бол null. */
+    endsAt: string | null;
+    readOnlyReason: string | null;
+  };
   /** Хугацаатай API token-ууд (expiresAt YYYY-MM-DD). */
   tokens?: { id: string; name: string; userId: string; expiresAt: string }[];
   /** Тулгагдаагүй мөртэй банкны хуулгууд (importedAt YYYY-MM-DD). */
@@ -94,6 +106,8 @@ export const TAX_ALERT_BUCKETS = [7, 3, 1, 0] as const;
 export const LICENSE_ALERT_BUCKETS = [30, 7, 1, 0] as const;
 /** API token дуусахаас өмнөх сануулгын хоног. */
 export const TOKEN_ALERT_DAYS = 7;
+/** Багцын trial/grace сануулгын шат (хоног) — 7/3/1/0. */
+export const SUBSCRIPTION_ALERT_DAYS = [7, 3, 1, 0] as const;
 /** Сарын хэд хүртэл «өмнөх сараа хаа» гэж сануулах вэ. */
 export const CLOSE_DUE_DAY_LIMIT = 5;
 /** Хугацаа хэтэрсэн татварыг хэдэн хоног сануулах вэ (нэг удаа, dedupe). */
@@ -442,6 +456,52 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           payload: { expiresAt: input.licenseExpiresAt, daysLeft },
         },
       });
+  }
+
+  // Багц (SaaS) — trial/grace дуусахаас 7/3/1/0 хоногийн өмнө эзэн/админд; read-only бол өдөр бүр.
+  if (input.subscription) {
+    const sub = input.subscription;
+    if (sub.readOnlyReason) {
+      signals.push({
+        key: "subscription-read-only",
+        tone: "danger",
+        title: "Багц бичилтийг хаасан байна (read-only)",
+        detail:
+          sub.readOnlyReason === "trial_expired"
+            ? "Туршилтын хугацаа дууссан. Унших, тайлан, экспорт нээлттэй; бичилт хийхийн тулд багцаа идэвхжүүлнэ."
+            : "Төлбөр/статусын улмаас бичилт түр хаагдсан. Унших, тайлан, экспорт нээлттэй.",
+        href: "/settings/billing",
+        action: "Багц, төлбөр руу",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "subscription.read_only",
+          dedupeKey: `subscription:read-only:${today}`,
+          audience: { kind: "roles", roles: ["owner", "admin"] },
+          payload: { reason: sub.readOnlyReason, planId: sub.planId },
+        },
+      });
+    } else if (sub.endsAt) {
+      const daysLeft = daysBetween(today, sub.endsAt);
+      const bucket = SUBSCRIPTION_ALERT_DAYS.find((d) => daysLeft <= d);
+      if (daysLeft >= 0 && bucket !== undefined) {
+        const what = sub.status === "trialing" ? "Туршилтын хугацаа" : "Төлбөрийн хоцрогдлын хугацаа";
+        signals.push({
+          key: "subscription-ending",
+          tone: daysLeft <= 1 ? "danger" : "warning",
+          title: `${what} ${daysLeft === 0 ? "өнөөдөр" : `${daysLeft} хоногийн дараа`} дуусна`,
+          detail: `${sub.endsAt}-нд бичилт хаагдана (унших, тайлан хэвээр). Багцаа идэвхжүүлж / төлбөрөө төлж үргэлжлүүлнэ.`,
+          href: "/settings/billing",
+          action: "Багц, төлбөр руу",
+          surfaces: ["dashboard", "daily"],
+          notify: {
+            type: "subscription.trial_ending",
+            dedupeKey: `subscription:${sub.status}:${sub.endsAt}:${bucket}`,
+            audience: { kind: "roles", roles: ["owner", "admin"] },
+            payload: { endsAt: sub.endsAt, daysLeft, planId: sub.planId },
+          },
+        });
+      }
+    }
   }
 
   // API token — эзэнд нь, дуусахаас 7 хоногийн өмнөөс нэг удаа.
