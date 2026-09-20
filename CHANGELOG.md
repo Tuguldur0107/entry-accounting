@@ -5,6 +5,12 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-09-20
+
+> **Deploy:** preDeploy `pos_sales.ebarimt_lottery` / `ebarimt_qr_data` баганыг УСТГАЖ,
+> `pos_ebarimt_submissions.response`-оос сугалаа/QR-ийг цэвэрлэнэ (албан зааврын
+> шаардлага — хадгалахыг хориглодог). Буцаах боломжгүй, идемпотент.
+
 ### Нэмэгдсэн
 
 - **eBarimt — идэвхжүүлэхийн өмнөх бэлэн байдлын шалгалт** (`lib/ebarimt/readiness.ts`):
