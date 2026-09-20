@@ -11,6 +11,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import {
   auth,
   createPersonalOrg,
+  currentSupportSession,
   getActiveOrg,
   requireRole,
 } from "@/lib/auth";
@@ -245,7 +246,16 @@ export async function getMyOrgs(): Promise<{
   activeOrgId: string;
   orgs: OrgSummary[];
 }> {
-  const { orgId, userId } = await getActiveOrg();
+  const { orgId, userId, role } = await getActiveOrg();
+  // Дэмжлэгийн сесс идэвхтэй үед сонголт БАЙХГҮЙ: зөвхөн зочилж буй
+  // байгууллага харагдана — өөрийн байгууллага руу буцах зам нь топбарын
+  // «Дэмжлэгээс гарах» (cookie цэвэрлэгдэж ердийн жагсаалт сэргэнэ).
+  const support = await currentSupportSession(userId);
+  if (support)
+    return {
+      activeOrgId: orgId,
+      orgs: [{ id: orgId, name: support.orgName, role }],
+    };
   const rows = await db
     .select({
       id: organizations.id,

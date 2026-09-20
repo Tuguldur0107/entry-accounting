@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { auth, signOut } from "@/lib/auth";
+import { auth, getSupportBanner, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { EAMark, EAWordmark } from "@/components/auth/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,6 +17,7 @@ import { AiChatButton } from "@/components/layout/ai-chat-button";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { EmailVerifyBanner } from "@/components/layout/email-verify-banner";
 import { SubscriptionBanner } from "@/components/layout/subscription-banner";
+import { SupportBanner } from "@/components/layout/support-banner";
 import { getEntitlements } from "@/lib/billing/load";
 import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
 import {
@@ -44,6 +45,9 @@ export default async function DashboardLayout({
   // Фаз 01: идэвхтэй байгууллага + сонголтын жагсаалт (personal org
   // байхгүй бол энд автоматаар үүснэ — getActiveOrg-ийн safety net).
   const { activeOrgId, orgs } = await getMyOrgs();
+  // Платформын дэмжлэгийн сесс (Console-оос олгогдсон) — идэвхтэй үед
+  // топбарын доор ил баннер гарна (lib/platform/support.ts).
+  const support = await getSupportBanner();
 
   // Модулийн тохиргоо → навигацийн харагдац: унтраасан модуль switcher,
   // палитр, "+ Шинэ" цэснээс нуугдана (Тохиргоо → Модулийн тохиргоо).
@@ -186,6 +190,9 @@ export default async function DashboardLayout({
         </div>
       </header>
       {me && !me.emailVerifiedAt ? <EmailVerifyBanner email={me.email} /> : null}
+      {support ? (
+        <SupportBanner orgName={support.orgName} role={support.role} endsAt={support.endsAt} />
+      ) : null}
       <SubscriptionBanner entitlements={entitlements} />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
