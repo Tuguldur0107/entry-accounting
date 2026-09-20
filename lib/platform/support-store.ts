@@ -4,7 +4,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -295,25 +295,6 @@ export async function listSupportSessions(options?: {
     .orderBy(desc(platformSupportSessions.createdAt))
     .limit(Math.min(Math.max(options?.limit ?? 20, 1), 100));
   return rows.map((row) => toView({ ...row, role: row.role as SupportRole } as SupportSessionRow, now));
-}
-
-/**
- * Операторын одоогийн идэвхтэй сессүүд — cookie байхгүй ч баннер/гарах
- * товчинд хэрэгтэй биш; Console-ийн "идэвхтэй" тоололд ашиглагдана.
- */
-export async function countActiveSupportSessions(organizationId?: string): Promise<number> {
-  const now = new Date();
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(platformSupportSessions)
-    .where(
-      and(
-        isNull(platformSupportSessions.endedAt),
-        sql`${platformSupportSessions.endsAt} > ${now}`,
-        organizationId ? eq(platformSupportSessions.organizationId, organizationId) : undefined
-      )
-    );
-  return row?.n ?? 0;
 }
 
 /** Байгууллагын гишүүнчлэл (Console-ийн дэлгэрэнгүйд). */
