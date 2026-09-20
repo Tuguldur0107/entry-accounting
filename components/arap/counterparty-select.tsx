@@ -42,7 +42,8 @@ export function counterpartyOptions(
           : item.counterpartyType === "customer"
             ? "Авлага"
             : "Өглөг",
-        item.registerNo ? `ТТД ${item.registerNo}` : null,
+        item.entityKind === "individual" ? "Хувь хүн" : null,
+        item.registerNo ? `${item.entityKind === "individual" ? "РД" : "ТТД"} ${item.registerNo}` : null,
       ]
         .filter(Boolean)
         .join(" · "),

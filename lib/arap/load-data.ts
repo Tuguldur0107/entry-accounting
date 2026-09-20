@@ -179,6 +179,7 @@ export async function loadArApCounterparties(
     name: item.name,
     code: item.code,
     counterpartyType: item.counterpartyType,
+    entityKind: item.entityKind,
     registerNo: item.registerNo,
     defaultReceivableAccountNumber: item.defaultReceivableAccountNumber,
     defaultPayableAccountNumber: item.defaultPayableAccountNumber,

@@ -664,6 +664,9 @@ export interface CheckoutItem {
 export interface CheckoutCustomer {
   id: string;
   name: string;
+  /** Субъект — байгууллага бол eBarimt худалдан авагчийн блок B2B-ээр урьдчилан бөглөгдөнө. */
+  entityKind: string;
+  registerNo: string | null;
   customerGroup: string | null;
   creditLimit: number | null;
   isWalkIn: boolean;
@@ -787,6 +790,8 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
     customers: customerRows.map((cp) => ({
       id: cp.id,
       name: cp.name,
+      entityKind: cp.entityKind,
+      registerNo: cp.registerNo,
       customerGroup: cp.customerGroup,
       creditLimit: cp.creditLimit === null ? null : Number(cp.creditLimit),
       isWalkIn: cp.id === settings.walkInCounterpartyId,

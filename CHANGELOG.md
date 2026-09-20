@@ -13,6 +13,15 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   шүүлтүүр, панелиас [eBarimt илгээх]-ээр дараа нь илгээнэ; AI
   `create_pos_sale.skipEbarimt`. Анхны статусын дүрэм цэвэр
   `initialSaleEbarimtStatus` (тесттэй)
+- **Харилцагч: Байгууллага / Хувь хүн** — `counterparties.entityKind`
+  (default байгууллага; тооцооны чиглэлээс тусдаа). Формд «Төрөл» сонголт,
+  регистрийн шошго төрлөөр (РД/ТТД ↔ иргэний РД), зөрвөл зөвлөмж; жагсаалт,
+  сонгогчид ил; POS төлбөрийн диалог байгууллага харилцагчийн РД-г eBarimt
+  B2B-ээр урьдчилан бөглөнө; AI `create/update_counterparty`, batch, CSV
+  `entityKind`. Цэвэр `lib/arap/counterparty-kind.ts` (тесттэй)
+
+> **Deploy:** preDeploy `counterparties.entity_kind` багана нэмж, иргэний РД
+> хэлбэртэй (УУ12345678) хуучин мөрийг «Хувь хүн» болгож нөхнө (идемпотент).
 
 ## [1.5.2] — 2026-09-20
 

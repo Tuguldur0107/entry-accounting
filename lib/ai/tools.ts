@@ -173,6 +173,14 @@ import { PAYMENT_KIND_LABELS, SALE_STATUS_LABELS } from "@/lib/pos/constants";
 import { lookupEbarimtTin, resendEbarimt } from "@/lib/actions/ebarimt";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
+import {
+  COUNTERPARTY_ENTITY_KIND_LABELS,
+  DEFAULT_COUNTERPARTY_ENTITY_KIND,
+  inferEntityKindFromRegisterNo,
+  isCounterpartyEntityKind,
+  normalizeEntityKind,
+  type CounterpartyEntityKind,
+} from "@/lib/arap/counterparty-kind";
 import { ebarimtStatusWithPosApi, loadEbarimtReadiness, settingsInputOf } from "@/lib/ebarimt/queue";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import {
@@ -704,11 +712,16 @@ export const AI_TOOLS: AiToolDef[] = [
           enum: ["customer", "supplier", "both"],
           description: "customer=авлагын, supplier=өглөгийн, both=хоёулаа",
         },
+        entityKind: {
+          type: "string",
+          enum: ["organization", "individual"],
+          description: "Субъект: organization=Байгууллага (default), individual=Хувь хүн — иргэний РД (УУ12345678) өгвөл individual",
+        },
         code: {
           type: "string",
           description: "Харилцагчийн код — РД-ээс тусдаа, байгууллага дотор давтагдашгүй (сонголтоор; ж: 10001)",
         },
-        registerNo: { type: "string", description: "Регистрийн дугаар (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллагад РД (7 орон) / ТТД (11/14), хувь хүнд иргэний РД (сонголтоор)" },
         email: { type: "string", description: "И-мэйл (нэхэмжлэх илгээхэд ашиглагдана)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
@@ -773,6 +786,11 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           enum: ["customer", "supplier", "both"],
           description: "Шинэ төрөл (сонголтоор)",
+        },
+        entityKind: {
+          type: "string",
+          enum: ["organization", "individual"],
+          description: "Субъект: Байгууллага / Хувь хүн (сонголтоор)",
         },
         paymentTermsDays: { type: "integer", description: "Төлбөрийн нөхцөл, хоног (сонголтоор)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
@@ -1612,6 +1630,7 @@ export const AI_TOOLS: AiToolDef[] = [
             properties: {
               name: { type: "string" },
               counterpartyType: { type: "string", enum: ["customer", "supplier", "both"] },
+              entityKind: { type: "string", enum: ["organization", "individual"], description: "Байгууллага (default) / Хувь хүн" },
               code: { type: "string", description: "Харилцагчийн код (давтагдашгүй, сонголтоор)" },
               registerNo: { type: "string" },
               defaultReceivableAccount: { type: "string" },
@@ -4132,8 +4151,9 @@ async function runListCounterparties(
           entry.id.slice(0, 8),
           entry.name,
           entry.code ? `Код ${entry.code}` : null,
-          entry.registerNo ? `ТТД ${entry.registerNo}` : null,
+          entry.registerNo ? `${normalizeEntityKind(entry.entityKind) === "individual" ? "РД" : "ТТД"} ${entry.registerNo}` : null,
           entry.email || null,
+          cpKindNote(entry.entityKind),
           CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
           entry.defaultCurrency,
           `${entry.paymentTermsDays} хоног`,
@@ -4264,11 +4284,17 @@ const CP_TYPE_LABELS: Record<string, string> = {
   both: "Авлага/Өглөг",
 };
 
+/** Субъектийн төрөл — «Хувь хүн» бол л ил бичнэ (байгууллага default тул чимээгүй). */
+function cpKindNote(entityKind: string | null | undefined): string | null {
+  return normalizeEntityKind(entityKind) === "individual" ? "Хувь хүн" : null;
+}
+
 async function runCreateCounterparty(
   orgId: string,
   input: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
+    entityKind?: "organization" | "individual";
     code?: string;
     registerNo?: string;
     email?: string;
@@ -4288,6 +4314,12 @@ async function runCreateCounterparty(
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   const registerNo = input.registerNo?.trim() || undefined;
   const code = normalizeCounterpartyCode(input.code);
+  if (input.entityKind != null && !isCounterpartyEntityKind(input.entityKind))
+    throw new Error("entityKind нь organization эсвэл individual байна");
+  // Төрөл өгөөгүй ч регистр нь иргэний РД хэлбэртэй бол «Хувь хүн» (таамаглал
+  // биш — хэлбэр нь тодорхой); байгууллагын дугаар / тодорхойгүй бол default.
+  const entityKind: CounterpartyEntityKind =
+    input.entityKind ?? (inferEntityKindFromRegisterNo(registerNo) === "individual" ? "individual" : DEFAULT_COUNTERPARTY_ENTITY_KIND);
 
   // Давхардлын шалгалт: нэр case-insensitive, ТТД / КОД яг таарлаар (идэвхгүйг
   // ч оруулна — идэвхгүй харилцагчтай ижил нэр DB unique-д унана).
@@ -4321,6 +4353,7 @@ async function runCreateCounterparty(
     await createCounterparty({
     name,
     counterpartyType: input.counterpartyType,
+    entityKind,
     code: code ?? undefined,
     registerNo,
     email: input.email,
@@ -4336,7 +4369,7 @@ async function runCreateCounterparty(
     })
   );
   return {
-    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (ТТД ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${entityKind === "individual" ? "РД" : "ТТД"} ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${COUNTERPARTY_ENTITY_KIND_LABELS[entityKind]}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };
 }
 
@@ -4415,6 +4448,7 @@ async function runUpdateCounterparty(
     counterparty: string;
     newName?: string;
     counterpartyType?: "customer" | "supplier" | "both";
+    entityKind?: "organization" | "individual";
     paymentTermsDays?: number;
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
@@ -4446,6 +4480,11 @@ async function runUpdateCounterparty(
     if (!["customer", "supplier", "both"].includes(input.counterpartyType))
       throw new Error("Харилцагчийн төрөл буруу байна");
     changes.counterpartyType = input.counterpartyType;
+  }
+  if (input.entityKind != null) {
+    if (!isCounterpartyEntityKind(input.entityKind))
+      throw new Error("entityKind нь organization эсвэл individual байна");
+    changes.entityKind = input.entityKind;
   }
   if (input.paymentTermsDays != null)
     changes.paymentTermsDays = Math.max(0, Math.round(input.paymentTermsDays));
