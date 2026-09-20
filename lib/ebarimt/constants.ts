@@ -104,6 +104,17 @@ export const EBARIMT_MAX_ATTEMPTS = 20;
 export const EBARIMT_ALERT_AFTER_ATTEMPTS = 3;
 /** PosAPI-ийн HTTP timeout. */
 export const POSAPI_TIMEOUT_MS = 10_000;
+/**
+ * Борлуулалт батлагдмагц КАССЫН ДЭЛГЭЦ хариуг ХҮЛЭЭХ дээд хугацаа — сугалаа/QR
+ * нь DB-д хадгалагдахгүй (албан спек) тул зөвхөн ЭНЭ цонхонд ирсэн хариу л
+ * баримт дээр хэвлэгдэнэ; хэтэрвэл баримт QR-гүй гарч, илгээлт дараалалд
+ * үргэлжилнэ (ДДТД дахин хэвлэхэд гарна).
+ */
+export const EBARIMT_INLINE_SEND_TIMEOUT_MS = 8_000;
+/** Сугалаа энэ тооноос доош үлдвэл анхааруулна (тестийн checklist). */
+export const EBARIMT_LOTTERY_LOW_THRESHOLD = 200;
+/** ТЕГ рүү сүүлд илгээснээс хойш энэ цагаас удвал анхааруулна (хуулийн 72ц-ийн 2/3). */
+export const EBARIMT_SEND_STALE_HOURS = 48;
 
 export function backoffMs(attempts: number): number {
   const index = Math.min(Math.max(attempts, 1), EBARIMT_BACKOFF_MS.length) - 1;

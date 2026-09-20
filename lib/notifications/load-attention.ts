@@ -20,8 +20,12 @@ import {
   inventoryItems,
   inventoryMovements,
   journalVouchers,
+  posSales,
+  posSettings,
   warehouses,
 } from "@/lib/db/schema";
+import { fetchPosApiHealth } from "@/lib/ebarimt/client";
+import { hoursSince } from "@/lib/ebarimt/posapi-info";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { periodCodeOf, periodRange, previousPeriodCode, shiftDays } from "@/lib/periods/period";
@@ -136,6 +140,40 @@ async function loadNegativeStock(orgId: string): Promise<AttentionInput["negativ
   });
 }
 
+/**
+ * eBarimt — PosAPI-ийн амьд байдал (server горим, асаалттай үед л; browser
+ * горимд PosAPI кассын PC дээр тул серверээс хүрэхгүй). ≤5 сек, шидэхгүй.
+ */
+async function loadEbarimt(orgId: string, today: string): Promise<AttentionInput["ebarimt"]> {
+  const settings = await db.query.posSettings.findFirst({
+    where: eq(posSettings.organizationId, orgId),
+    columns: { ebarimtEnabled: true, ebarimtMode: true, ebarimtPosApiUrl: true },
+  });
+  if (!settings?.ebarimtEnabled || settings.ebarimtMode === "browser" || !settings.ebarimtPosApiUrl.trim())
+    return undefined;
+  const [health, [recent]] = await Promise.all([
+    fetchPosApiHealth(settings.ebarimtPosApiUrl),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(posSales)
+      .where(
+        and(
+          eq(posSales.organizationId, orgId),
+          eq(posSales.ebarimtStatus, "sent"),
+          gte(posSales.date, shiftDays(today, -3))
+        )
+      ),
+  ]);
+  // PosAPI-ийн lastSentDate нь УБ-ын цагаар — «одоо»-г мөн УБ-аар.
+  const nowUb = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" });
+  return {
+    posApiReachable: health != null,
+    leftLotteries: health?.leftLotteries ?? null,
+    hoursSinceLastSent: hoursSince(health?.lastSentDate ?? null, nowUb),
+    sentRecently: (recent?.n ?? 0) > 0,
+  };
+}
+
 export async function loadAttentionInput(
   orgId: string,
   today: string
@@ -159,6 +197,7 @@ export async function loadAttentionInput(
     bankUnmatched,
     fx,
     negativeStock,
+    ebarimt,
   ] = await Promise.all([
     draftSummary(orgId, journalVouchers, "journal"),
     draftSummary(orgId, arApDocuments, "arap"),
@@ -226,6 +265,7 @@ export async function loadAttentionInput(
     loadBankUnmatched(orgId),
     loadFx(orgId, today),
     loadNegativeStock(orgId),
+    loadEbarimt(orgId, today),
   ]);
 
   let arOverdue = 0;
@@ -268,6 +308,7 @@ export async function loadAttentionInput(
     bankUnmatched,
     fx,
     negativeStock,
+    ebarimt,
     tokens: tokenRows
       .filter((token) => token.expiresAt)
       .map((token) => ({

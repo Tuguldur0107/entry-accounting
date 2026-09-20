@@ -237,7 +237,7 @@ export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
           {receipt.ebarimtQrData && <ReceiptQr value={receipt.ebarimtQrData} />}
           {receipt.ebarimtStatus === "pending" && (
             <div className="text-[var(--ea-text-3)] print:text-black">
-              eBarimt: илгээж байна… (дараа нь дахин хэвлэнэ)
+              eBarimt: илгээж байна… (ДДТД дахин хэвлэхэд гарна)
             </div>
           )}
           {receipt.ebarimtStatus === "failed" && (

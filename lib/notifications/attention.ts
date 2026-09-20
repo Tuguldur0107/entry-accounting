@@ -8,6 +8,7 @@
 //
 // Хатуу дүрэм: дүн, дугаар ЗОХИОХГҮЙ — оролтод ирснийг л уншина.
 
+import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_SEND_STALE_HOURS } from "@/lib/ebarimt/constants";
 import type { TaxDeadline, TaxDeadlineKey } from "@/lib/tax/calendar";
 
 import type { NotificationSeverity, NotificationType } from "./catalog";
@@ -64,6 +65,19 @@ export interface AttentionInput {
   };
   /** Хасах үлдэгдэлтэй бараа × агуулах. */
   negativeStock?: { itemId: string; itemName: string; warehouseId: string; warehouseName: string; qty: number }[];
+  /**
+   * eBarimt (server горим, асаалттай үед л) — PosAPI `/rest/info`-оос. ТЕГ-ийн
+   * тестийн checklist: сугалаа дуусах, 72 цагийн илгээлт хоцрохыг анхааруулна.
+   */
+  ebarimt?: {
+    /** `/rest/info` хариулсан эсэх. */
+    posApiReachable: boolean;
+    leftLotteries: number | null;
+    /** ТЕГ рүү сүүлд илгээснээс хойш өнгөрсөн цаг (null = мэдэхгүй). */
+    hoursSinceLastSent: number | null;
+    /** Сүүлийн 3 хоногт илгээгдсэн баримт бий эсэх — байхгүй бол хоцролт биш. */
+    sentRecently: boolean;
+  };
 }
 
 export interface AttentionSignal {
@@ -100,6 +114,9 @@ export const CLOSE_DUE_DAY_LIMIT = 5;
 export const TAX_OVERDUE_WINDOW_DAYS = 20;
 /** Банкны хуулга импортолсноос хойш энэ хоногт тулгагдаагүй бол сануулна. */
 export const BANK_UNMATCHED_AFTER_DAYS = 3;
+
+/** eBarimt: хуулийн илгээх хугацаа (гэрээ 3.6 — 72 цаг); үүнээс дээш бол danger. */
+export const EBARIMT_SEND_LIMIT_HOURS = 72;
 /** Сарын сүүлийн энэ хоногт ханшийн тэгшитгэл сануулна. */
 export const FX_REVAL_DUE_LAST_DAYS = 3;
 
@@ -546,6 +563,76 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
         payload: { itemId: stock.itemId, warehouseId: stock.warehouseId, qty: stock.qty },
       },
     });
+  }
+
+  // eBarimt — PosAPI-ийн байдал (өдөрт нэг). Тестийн checklist-ийн шаардлага.
+  const ebarimt = input.ebarimt;
+  if (ebarimt) {
+    const posAudience: NotificationAudience = { kind: "module", moduleKeys: ["pos"], minLevel: "write" };
+    if (!ebarimt.posApiReachable) {
+      signals.push({
+        key: "ebarimt-posapi-down",
+        tone: "danger",
+        title: "PosAPI-д хүрэхгүй байна — eBarimt баримт илгээгдэхгүй",
+        detail: "Борлуулалт бичигдэж байгаа ч ТЕГ-ийн баримт дараалалд хуримтлагдана. PosAPI үйлчилгээ, URL, сүлжээг шалгана.",
+        href: "/inventory/sales?tab=settings",
+        action: "eBarimt тохиргоо",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "pos.ebarimt_posapi_down",
+          dedupeKey: `ebarimt:posapi:${input.today}`,
+          audience: posAudience,
+          severity: "danger",
+        },
+      });
+    }
+    if (ebarimt.leftLotteries != null && ebarimt.leftLotteries < EBARIMT_LOTTERY_LOW_THRESHOLD) {
+      const exhausted = ebarimt.leftLotteries <= 0;
+      signals.push({
+        key: "ebarimt-lottery-low",
+        tone: exhausted ? "danger" : "warning",
+        title: exhausted
+          ? "eBarimt сугалаа ДУУССАН — баримт сугалаагүй хэвлэгдэнэ"
+          : `eBarimt сугалаа ${ebarimt.leftLotteries} үлдлээ`,
+        detail: "PosAPI ТЕГ рүү илгээх бүрд шинэ сугалаа авдаг — PosAPI сүлжээнд холбогдож буйг, sendData ажиллаж буйг шалгана.",
+        href: "/inventory/sales?tab=settings",
+        action: "eBarimt тохиргоо",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "pos.ebarimt_lottery_low",
+          dedupeKey: `ebarimt:lottery:${input.today}`,
+          audience: posAudience,
+          severity: exhausted ? "danger" : "warning",
+          payload: { leftLotteries: ebarimt.leftLotteries },
+        },
+      });
+    }
+    if (
+      ebarimt.sentRecently &&
+      ebarimt.hoursSinceLastSent != null &&
+      ebarimt.hoursSinceLastSent >= EBARIMT_SEND_STALE_HOURS
+    ) {
+      const overLimit = ebarimt.hoursSinceLastSent >= EBARIMT_SEND_LIMIT_HOURS;
+      const hours = Math.floor(ebarimt.hoursSinceLastSent);
+      signals.push({
+        key: "ebarimt-send-stale",
+        tone: overLimit ? "danger" : "warning",
+        title: overLimit
+          ? `eBarimt: ТЕГ рүү ${hours} цаг илгээгдээгүй — хуулийн 72 цаг ХЭТЭРЛЭЭ`
+          : `eBarimt: ТЕГ рүү ${hours} цаг илгээгдээгүй (хязгаар 72 цаг)`,
+        detail: "PosAPI дотоод сандаа хуримтлуулж байна. Тохиргооноос «ТЕГ рүү түлхэх» (sendData) дарж, сүлжээг шалгана.",
+        href: "/inventory/sales?tab=settings",
+        action: "ТЕГ рүү түлхэх",
+        surfaces: ["dashboard", "daily"],
+        notify: {
+          type: "pos.ebarimt_send_stale",
+          dedupeKey: `ebarimt:stale:${input.today}`,
+          audience: posAudience,
+          severity: overLimit ? "danger" : "warning",
+          payload: { hoursSinceLastSent: hours },
+        },
+      });
+    }
   }
 
   return signals;

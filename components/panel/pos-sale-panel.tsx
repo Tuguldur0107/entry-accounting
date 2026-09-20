@@ -412,7 +412,6 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [ebarimtId, setEbarimtId] = useState(sale.ebarimtId ?? "");
-  const [ebarimtLottery, setEbarimtLottery] = useState(sale.ebarimtLottery ?? "");
   const [submissions, setSubmissions] = useState<EbarimtSubmissionView[]>([]);
 
   const status = sale.ebarimtStatus;
@@ -433,7 +432,7 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
 
   function saveEbarimt() {
     startTransition(async () => {
-      const result = await updateSaleEbarimt(sale.id, { ebarimtId, ebarimtLottery });
+      const result = await updateSaleEbarimt(sale.id, { ebarimtId });
       if (result.error) {
         toast.error(result.error);
         return;
@@ -491,9 +490,8 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
       </div>
 
       {editing ? (
-        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
           <Input value={ebarimtId} placeholder="ДДТД" className="font-mono" onChange={(e) => setEbarimtId(e.target.value)} />
-          <Input value={ebarimtLottery} placeholder="Сугалааны дугаар" className="font-mono" onChange={(e) => setEbarimtLottery(e.target.value)} />
           <div className="flex gap-1">
             <Button size="sm" onClick={saveEbarimt} disabled={isPending}>
               Хадгалах
@@ -506,7 +504,6 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
       ) : (
         <div className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
           <Fact label="ДДТД" value={sale.ebarimtId ?? "—"} mono />
-          <Fact label="Сугалаа" value={sale.ebarimtLottery ?? "—"} mono />
           <Fact label="Баримтын огноо" value={sale.ebarimtDate ?? "—"} mono />
           <Fact label="Төрөл" value={sale.ebarimtType ?? "—"} mono />
           <Fact label="Худалдан авагч" value={buyer} />

@@ -69,11 +69,12 @@ import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import { applyDiscounts } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { planPayments, planRefund } from "@/lib/pos/payments";
-import { enqueueEbarimt } from "@/lib/ebarimt/queue";
-import { processPendingEbarimt } from "@/lib/ebarimt/worker";
+import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
+import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
+import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
-import { CONSUMER_NO_RE, DISTRICT_CODE_RE, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
+import { CONSUMER_NO_RE, DISTRICT_CODE_RE, EBARIMT_INLINE_SEND_TIMEOUT_MS, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 import {
   DISCOUNT_RULE_TYPES,
   DISCOUNT_SCOPES,
@@ -287,6 +288,12 @@ export async function updatePosSettings(
           throw new Error(
             "НӨАТ төлөгч бус байгууллага eBarimt идэвхжүүлэх боломжгүй — Тохиргоо → НӨАТ дээр НӨАТ төлөгчөөр бүртгүүлнэ үү"
           );
+        // Кодын бэлэн байдал (docs/deployment/ebarimt.md §3 алхам 2–4): код
+        // дутуу бараа/хэлбэр байвал тэр борлуулалт БОЛСНЫ ДАРАА л алдаж,
+        // үйлчлүүлэгч баримтгүй үлдэнэ — иймд АСААХААС ӨМНӨ таслана.
+        const readiness = await loadEbarimtReadiness(orgId);
+        if (!readiness.ready)
+          throw new Error(`eBarimt идэвхжүүлэхээс өмнө: ${readiness.problems.join("; ")}`);
       }
       patch.ebarimtEnabled = !!data.ebarimtEnabled;
     }
@@ -747,7 +754,6 @@ export interface CreatePosSaleInput extends SaleQuoteInput {
   note?: string | null;
   /** Гараар олгосон ДДТД (PosAPI-гүй үед) — өгвөл автомат илгээлт ҮГҮЙ. */
   ebarimtId?: string | null;
-  ebarimtLottery?: string | null;
   /** Иргэний eBarimt дугаар (8 орон) — B2C баримтад. */
   ebarimtConsumerNo?: string | null;
   /** Байгууллагын ТТД — өгвөл B2B баримт. РД өгвөл ТЕГ-ийн лавлахаас ТТД хайна. */
@@ -777,8 +783,12 @@ export interface PosReceipt {
   /** Хасах үлдэгдэлд орсон бараанууд (D9 мэдэгдэл). */
   negativeStock: { itemName: string; warehouseName: string; balanceAfter: number }[];
   ebarimtId: string | null;
+  /**
+   * Сугалаа ба QR — ЗӨВХӨН борлуулалтын мөчид PosAPI-ийн хариунаас (түр, нэг
+   * удаагийн хэвлэлт). DB-д хадгалагдахгүй (албан спек §5) тул дахин хэвлэхэд
+   * үргэлж null — зөвхөн ДДТД гарна.
+   */
   ebarimtLottery: string | null;
-  /** ТЕГ-ийн QR (илгээгдмэгц ирнэ; хэвлэх мөчид null байж болно → «Дахин хэвлэх»). */
   ebarimtQrData: string | null;
   ebarimtStatus: string | null;
 }
@@ -963,7 +973,6 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         status: "posted",
         note: input.note?.trim() ?? "",
         ebarimtId: manualEbarimtId,
-        ebarimtLottery: cleanText(input.ebarimtLottery),
         ebarimtStatus: manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
         ebarimtConsumerNo,
         ebarimtCustomerTin,
@@ -1475,10 +1484,17 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   });
 
   // eBarimt дараалал — commit-ийн ДАРАА, борлуулалтыг ХЭЗЭЭ Ч зогсоохгүй (§4.4).
+  // Server горимд хариуг ХҮЛЭЭЖ (≤ EBARIMT_INLINE_SEND_TIMEOUT_MS) баримт дээр
+  // сугалаа/QR-ийг НЭГ удаа хэвлүүлнэ — DB-д хадгалагдахгүй (албан спек §5).
+  // Хэтэрвэл баримт QR-гүй гарч, илгээлт ард үргэлжилнэ (ДДТД дахин хэвлэхэд).
+  let liveEbarimt: EbarimtSaleResult | null = null;
   if (autoEbarimt) {
-    await enqueueEbarimt(orgId, saleId, "send");
-    if (settings.ebarimtMode !== "browser")
-      void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] шууд илгээлт:", error));
+    const submissionId = await enqueueEbarimt(orgId, saleId, "send");
+    if (settings.ebarimtMode !== "browser") {
+      if (submissionId) liveEbarimt = await sendSubmissionNow(submissionId, settings, EBARIMT_INLINE_SEND_TIMEOUT_MS);
+      if (!liveEbarimt)
+        void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] шууд илгээлт:", error));
+    }
   }
 
   revalidatePos();
@@ -1516,10 +1532,10 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     header: settings.receiptHeader,
     footer: settings.receiptFooter,
     negativeStock,
-    ebarimtId: manualEbarimtId,
-    ebarimtLottery: cleanText(input.ebarimtLottery),
-    ebarimtQrData: null,
-    ebarimtStatus: manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
+    ebarimtId: liveEbarimt?.ebarimtId ?? manualEbarimtId,
+    ebarimtLottery: liveEbarimt?.ebarimtLottery ?? null,
+    ebarimtQrData: liveEbarimt?.ebarimtQrData ?? null,
+    ebarimtStatus: liveEbarimt ? "sent" : manualEbarimtId ? "manual" : autoEbarimt ? "pending" : null,
   };
   return { id: saleId, documentNo, receipt };
 }
@@ -2098,7 +2114,8 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
       tx
     );
   });
-  // Илгээгдсэн eBarimt-тэй эх борлуулалт → цуцлах (+ үлдсэн мөртэй бол дахин илгээх) — §4.4.
+  // Илгээгдсэн eBarimt-тэй эх борлуулалт → бүтэн буцаалт бол DELETE, хэсэгчилсэн
+  // бол inactiveId-тай засварын бичилт (сугалаа дахин олгохгүй) — prepareSubmission шийднэ.
   // НӨАТ төлөгч бус болсон бол шинэ илгээлт үүсгэхгүй (өмнө илгээгдсэн нь ТЕГ-д хэвээр).
   if (
     settings.ebarimtEnabled &&
@@ -2514,8 +2531,9 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
         footer: settings.receiptFooter,
         negativeStock: [],
         ebarimtId: sale.ebarimtId,
-        ebarimtLottery: sale.ebarimtLottery,
-        ebarimtQrData: sale.ebarimtQrData,
+        // Дахин хэвлэхэд сугалаа/QR ҮГҮЙ — хадгалагддаггүй (албан спек §5).
+        ebarimtLottery: null,
+        ebarimtQrData: null,
         ebarimtStatus: sale.ebarimtStatus,
       },
     };
@@ -2526,7 +2544,7 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
 
 export async function updateSaleEbarimt(
   id: string,
-  data: { ebarimtId?: string | null; ebarimtLottery?: string | null }
+  data: { ebarimtId?: string | null }
 ): Promise<ActionResult> {
   try {
     const { orgId } = await requireModuleAction(POS_MODULE_KEY, "write");
@@ -2539,7 +2557,7 @@ export async function updateSaleEbarimt(
     if (sale.ebarimtStatus === "sent") throw new Error("ТЕГ-д илгээгдсэн баримтын ДДТД-г гараар өөрчлөхгүй");
     await db
       .update(posSales)
-      .set({ ebarimtId, ebarimtLottery: cleanText(data.ebarimtLottery), ebarimtStatus: ebarimtId ? "manual" : null })
+      .set({ ebarimtId, ebarimtStatus: ebarimtId ? "manual" : null })
       .where(and(eq(posSales.id, id), eq(posSales.organizationId, orgId)));
     if (ebarimtId)
       // Гараар олгосон бол хүлээгдэж буй автомат илгээлтийг зогсооно (давхар баримт үүсгэхгүй).

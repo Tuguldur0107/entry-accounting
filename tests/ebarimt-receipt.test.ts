@@ -6,6 +6,7 @@ import {
   buildEbarimtReceipt,
   ebarimtSettingsProblems,
   receiptResponseOutcome,
+  stripReceiptSecrets,
   taxTypeOf,
 } from "../lib/ebarimt/receipt";
 import type { EbarimtSaleInput, EbarimtSaleLineInput, EbarimtSettingsInput } from "../lib/ebarimt/types";
@@ -168,4 +169,37 @@ test("receiptResponseOutcome: ДДТД ирвэл амжилт, үгүй бол 
   const failed = receiptResponseOutcome({ status: "ERROR", message: "Мерчант олдсонгүй" });
   assert.equal(failed.ok, false);
   assert.match(failed.ok ? "" : failed.message, /Мерчант/);
+});
+
+test("хэсэгчилсэн буцаалтын засвар: inactiveId = сүүлийн ДДТД (DELETE + шинэ БИШ)", () => {
+  const request = buildEbarimtReceipt(
+    sale({ lines: [line({ itemName: "А", quantity: 1, lineTotal: 1100 })] }),
+    settings,
+    { inactiveId: "  123456789012345678901234567890123 " }
+  );
+  assert.equal(request.inactiveId, "123456789012345678901234567890123");
+  // Энгийн баримтад талбар огт байхгүй (PosAPI-д хоосон утга явуулахгүй).
+  const plain = buildEbarimtReceipt(sale({ lines: [line({ itemName: "А", quantity: 1, lineTotal: 1100 })] }), settings);
+  assert.equal("inactiveId" in plain, false);
+  assert.equal(buildEbarimtReceipt(sale({ lines: [line({ itemName: "А", quantity: 1, lineTotal: 1100 })] }), settings, { inactiveId: "  " }).inactiveId, undefined);
+});
+
+test("stripReceiptSecrets: сугалаа ба QR хадгалагдахгүй — дэд баримтаас ч; эх объект хөндөгдөхгүй", () => {
+  const raw = {
+    id: "1".repeat(33),
+    status: "SUCCESS",
+    lottery: "AB 12345678",
+    qrData: "9999",
+    date: "2026-09-20 12:00:00",
+    receipts: [{ id: "2".repeat(33), lottery: "x", qrData: "y", taxType: "VAT_ABLE" }, null],
+  };
+  const stripped = stripReceiptSecrets(raw);
+  assert.deepEqual(stripped, {
+    id: "1".repeat(33),
+    status: "SUCCESS",
+    date: "2026-09-20 12:00:00",
+    receipts: [{ id: "2".repeat(33), taxType: "VAT_ABLE" }, null],
+  });
+  assert.equal(raw.lottery, "AB 12345678", "эх хөндөгдөөгүй");
+  assert.equal(JSON.stringify(stripped).includes("qrData"), false);
 });

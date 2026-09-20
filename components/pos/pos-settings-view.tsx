@@ -43,7 +43,8 @@ import {
   updatePosSettings,
   type SaleQuote,
 } from "@/lib/actions/pos";
-import { EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type { EbarimtStatusSummary } from "@/lib/ebarimt/types";
 import type { CheckoutData } from "@/lib/pos/load-data";
 import {
@@ -887,6 +888,12 @@ const fmtDateTime = (iso: string | null) => {
   return date.toLocaleString("sv-SE", { timeZone: "Asia/Ulaanbaatar" }).slice(0, 16);
 };
 
+/** Дутуугийн жишээ нэрс — үлдсэнийг нь тоогоор (бүхэл жагсаалт энд гарахгүй). */
+function sampleText(gap: { count: number; sample: string[] }): string {
+  const more = gap.count - gap.sample.length;
+  return gap.sample.join(", ") + (more > 0 ? ` … (+${more})` : "");
+}
+
 /** PosAPI-ийн `info` хариуг 2–3 уншигдах мөр болгоно (`<pre>` ҮГҮЙ). */
 function infoLines(info: Record<string, unknown>): string[] {
   const entries = Object.entries(info).filter(([, value]) => value !== null && value !== undefined);
@@ -925,9 +932,12 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
 
   const [status, setStatus] = useState<EbarimtStatusSummary | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
+  const [readiness, setReadiness] = useState<EbarimtReadiness | null>(null);
   const [branches, setBranches] = useState<{ code: string; name: string }[] | null>(null);
   const [branchFailed, setBranchFailed] = useState(false);
   const [info, setInfo] = useState<string[] | null>(null);
+  /** Switch зөвхөн бүх дутуу цэгцэрсэн үед асна (server тал мөн ижил хоригтой). */
+  const canEnable = problems.length === 0 && (readiness?.ready ?? false);
 
   useEffect(() => {
     let cancelled = false;
@@ -939,6 +949,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       }
       setStatus(result.status ?? null);
       setProblems(result.problems ?? []);
+      setReadiness(result.readiness ?? null);
     });
     getEbarimtBranchInfo().then((result) => {
       if (cancelled) return;
@@ -1010,10 +1021,50 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
         </div>
       )}
 
+      {readiness && !readiness.ready && (
+        <div className="rounded-md border border-[var(--ea-border)] p-3">
+          <div className="text-xs font-semibold text-[var(--ea-warning-fg)]">
+            Кодын бэлэн байдал — эдгээргүйгээр баримт ИЛГЭЭГДЭХГҮЙ:
+          </div>
+          <ul className="mt-1 space-y-1 text-xs text-[var(--ea-warning-fg)]">
+            {readiness.items.count > 0 && (
+              <li>
+                • <b>{readiness.items.count}</b> бараанд ТЕГ-ийн ангилалын код (7 орон) алга —{" "}
+                {sampleText(readiness.items)}
+                <span className="block text-[var(--ea-text-3)]">
+                  Бараа материал → Бараа: карт эсвэл БҮЛЭГ дээр нэг удаа оновол бараа нь өвлөнө
+                  (Excel импортоор багцаар ч оруулна)
+                </span>
+              </li>
+            )}
+            {readiness.taxProduct.count > 0 && (
+              <li>
+                • <b>{readiness.taxProduct.count}</b> НӨАТ-гүй / 0% бараанд татварын
+                бүтээгдэхүүний код (3 орон) алга — {sampleText(readiness.taxProduct)}
+              </li>
+            )}
+            {readiness.payments.count > 0 && (
+              <li>
+                • <b>{readiness.payments.count}</b> төлбөрийн хэлбэрт eBarimt код алга —{" "}
+                {sampleText(readiness.payments)}
+                <span className="block text-[var(--ea-text-3)]">
+                  Энэ хуудсын «Төлбөрийн хэлбэр» табаас ононо (CASH, PAYMENT_CARD …)
+                </span>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
       <SwitchField
         label="eBarimt автомат баримт"
-        hint="Борлуулалт батлагдмагц ТЕГ-д илгээгдэж ДДТД / сугалаа / QR баримтад хэвлэгдэнэ"
+        hint={
+          canEnable
+            ? "Борлуулалт батлагдмагц ТЕГ-д илгээгдэж ДДТД / сугалаа / QR баримтад хэвлэгдэнэ"
+            : "Дээрх дутууг цэгцэлсний дараа идэвхжинэ"
+        }
         checked={form.ebarimtEnabled}
+        disabled={!form.ebarimtEnabled && !canEnable}
         onChange={(value) => patch({ ebarimtEnabled: value })}
       />
 
@@ -1111,6 +1162,58 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
           <p className="mt-2 text-xs text-[var(--ea-danger-fg)]">
             Сүүлийн алдаа: {status.lastError}
           </p>
+        )}
+        {/* PosAPI /rest/info — операторын PosAPI-д энэ мерчант бүртгэлтэй эсэх, сугалаа, ТЕГ рүү сүүлд илгээсэн */}
+        {status?.enabled && status.mode === "server" && (
+          <div className="mt-3">
+            <div className="mb-1 text-xs font-semibold text-[var(--ea-text-1)]">PosAPI</div>
+            {status.posApi ? (
+              <div className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <span className="text-[var(--ea-text-3)]">Оператор: </span>
+                  {status.posApi.operatorName ?? "—"}
+                  {status.posApi.operatorTin ? ` (${status.posApi.operatorTin})` : ""}
+                </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">PosAPI дугаар: </span>
+                  <span className="font-mono">{status.posApi.posNo ?? "—"}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">Үлдсэн сугалаа: </span>
+                  <span
+                    className={
+                      status.posApi.leftLotteries != null && status.posApi.leftLotteries < EBARIMT_LOTTERY_LOW_THRESHOLD
+                        ? "font-semibold text-[var(--ea-warning-fg)]"
+                        : "font-mono"
+                    }
+                  >
+                    {status.posApi.leftLotteries ?? "—"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">ТЕГ рүү сүүлд: </span>
+                  <span className="font-mono">{status.posApi.lastSentDate ?? "—"}</span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-[var(--ea-text-3)]">Мерчант бүртгэл: </span>
+                  {status.posApi.merchantRegistered == null ? (
+                    "тодорхойгүй (PosAPI жагсаалт өгөөгүй)"
+                  ) : status.posApi.merchantRegistered ? (
+                    <span className="text-[var(--ea-success-fg)]">бүртгэлтэй</span>
+                  ) : (
+                    <span className="text-[var(--ea-danger-fg)]">
+                      ҮГҮЙ — operator.ebarimt.mn дээр «Мерчант нэмэх» хүсэлт илгээж, харилцагч
+                      e-invoice.ebarimt.mn → Хүсэлт → Pos api хүсэлт → Операторын холболт дээр батална
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--ea-warning-fg)]">
+                PosAPI-д хүрэхгүй байна (/rest/info хариулсангүй) — URL, сүлжээ, үйлчилгээ ажиллаж буйг шалгана.
+              </p>
+            )}
+          </div>
         )}
       </div>
 

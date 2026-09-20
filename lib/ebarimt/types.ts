@@ -51,6 +51,12 @@ export interface EbarimtReceiptRequest {
   type: EbarimtReceiptType;
   customerTin?: string;
   consumerNo?: string;
+  /**
+   * Засварлах (хэсэгчилсэн буцаалт) баримтын ДДТД — албан спек §5 «Баримтын
+   * засвар»: шинэ бичилт эхийг ОРЛОНО, сугалаа дахин олгогдохгүй; дараагийн
+   * засварт ӨМНӨХ (сүүлийн) ДДТД-г өгч гинжлэнэ. DELETE нь зөвхөн БҮТЭН буцаалт.
+   */
+  inactiveId?: string;
   receipts: EbarimtSubReceipt[];
   payments: EbarimtPayment[];
 }
@@ -74,6 +80,23 @@ export interface EbarimtDeleteRequest {
 
 export interface PosApiInfo {
   [key: string]: unknown;
+}
+
+/**
+ * `GET /rest/info`-ийн уншигдахуйц хэлбэр (parsePosApiInfo, ЦЭВЭР). Албан спек
+ * §6: operatorName/operatorTIN, posNo (8 орон), lastSentDate, leftLotteries,
+ * merchants[]. Сугалаа дуусах, илгээлт хоцрох анхааруулгын ЭХ.
+ */
+export interface PosApiHealth {
+  operatorName: string | null;
+  operatorTin: string | null;
+  posNo: string | null;
+  /** Сүүлд ТЕГ рүү илгээсэн огноо "yyyy-MM-dd HH:mm:ss" (PosAPI-ийн цаг). */
+  lastSentDate: string | null;
+  /** Үлдсэн сугалааны тоо — null бол PosAPI өгөөгүй. */
+  leftLotteries: number | null;
+  /** PosAPI-д бүртгэлтэй (операторын хүсэлтийг батласан) мерчантууд. */
+  merchants: { name: string; tin: string }[];
 }
 
 // ── Entry-ийн оролт (борлуулалтаас ЦЭВЭР) ─────────────────────────────────
@@ -134,6 +157,12 @@ export interface EbarimtStatusSummary {
   sentToday: number;
   lastSentAt: string | null;
   lastError: string | null;
+  /**
+   * PosAPI-ийн амьд байдал (`/rest/info`, server горим, ≤5 сек) — хүрэхгүй бол
+   * null. Мерчант нь энэ PosAPI-д бүртгэлтэй эсэх (`merchantRegistered`) нь
+   * операторын хүсэлтийг харилцагч батласан эсэхийг ИЛ харуулна.
+   */
+  posApi: (PosApiHealth & { merchantRegistered: boolean | null }) | null;
 }
 
 export interface EbarimtSubmissionView {
@@ -151,6 +180,12 @@ export interface EbarimtSubmissionView {
   cancel: EbarimtDeleteRequest | null;
 }
 
+/**
+ * Илгээлтийн ТҮР үр дүн — зөвхөн тухайн баримтыг НЭГ удаа хэвлэхэд. Сугалаа ба
+ * QR-ийг DB-д ХАДГАЛАХЫГ албан спек хориглодог («lottery болон qrData … хэрэглэгчийн
+ * системд хадгалахыг хориглоно») тул эдгээр нь `pos_sales`-д ОРОХГҮЙ; дахин
+ * хэвлэхэд зөвхөн ДДТД гарна.
+ */
 export interface EbarimtSaleResult {
   ebarimtId: string | null;
   ebarimtLottery: string | null;

@@ -22,13 +22,15 @@ import { EBARIMT_ERRORS } from "@/lib/ebarimt/constants";
 import { lookupBranchInfo, lookupTinByRegNo, type BranchInfoEntry, type TinInfo } from "@/lib/ebarimt/lookup";
 import { EbarimtError, ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
 import {
-  ebarimtStatusSummary,
+  ebarimtStatusWithPosApi,
   listPendingForBrowser,
+  loadEbarimtReadiness,
   loadSubmissionsForSale,
   requeueEbarimt,
   settingsInputOf,
 } from "@/lib/ebarimt/queue";
 import { applyPosApiResponse, processPendingEbarimt } from "@/lib/ebarimt/worker";
+import type { EbarimtReadiness } from "@/lib/ebarimt/readiness";
 import type {
   EbarimtReceiptResponse,
   EbarimtStatusSummary,
@@ -41,20 +43,28 @@ function revalidateEbarimt() {
   revalidatePath("/inventory");
 }
 
-/** Тохиргооны байдал + PosAPI-ийн хүрэлцээ + дарааллын тоолуур (тохиргооны таб, самбар). */
+/**
+ * Тохиргооны байдал + PosAPI-ийн хүрэлцээ + дарааллын тоолуур (тохиргооны таб,
+ * самбар). `problems` нь МЕРЧАНТЫН тохиргоо, `readiness` нь бараа / төлбөрийн
+ * хэлбэрийн КОДЫН бэлэн байдал — хоёулаа цэвэрлэгдтэл switch асаахгүй
+ * (docs/deployment/ebarimt.md §3).
+ */
 export async function getEbarimtStatus(): Promise<
-  ActionResult<{ status: EbarimtStatusSummary; problems: string[] }>
+  ActionResult<{ status: EbarimtStatusSummary; problems: string[]; readiness: EbarimtReadiness }>
 > {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
     const settings = await ensurePosSettings(orgId, userId);
-    const status = await ebarimtStatusSummary(orgId, settings, todayInUlaanbaatar());
+    const [status, readiness] = await Promise.all([
+      ebarimtStatusWithPosApi(orgId, settings, todayInUlaanbaatar()),
+      loadEbarimtReadiness(orgId),
+    ]);
     const problems = ebarimtSettingsProblems(settingsInputOf(settings));
     if (!(await isOrgVatPayer(orgId)))
       problems.unshift(
         "Байгууллага НӨАТ төлөгчөөр бүртгэгдээгүй — eBarimt идэвхгүй (Тохиргоо → НӨАТ)"
       );
-    return { status, problems };
+    return { status, problems, readiness };
   } catch (caught) {
     return actionError("getEbarimtStatus", caught, "eBarimt-ийн байдал уншигдсангүй");
   }

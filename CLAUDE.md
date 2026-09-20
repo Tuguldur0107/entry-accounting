@@ -639,15 +639,17 @@ components/panel/pos-sale-panel  Борлуулалтын панель (буца
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
 ```
 
-**eBarimt 3.0 (PosAPI 3.0) — ХЭРЭГЖСЭН.** Баримт: `docs/pos/03-ebarimt-integration-plan.md`
-(дизайн, §3.1 Console-ийн үүрэг), `docs/deployment/ebarimt.md` (нэвтрүүлэлт).
+**eBarimt 3.0 (PosAPI 3.0) — ХЭРЭГЖСЭН (v2, албан баримттай тулгасан).** Баримт:
+`docs/pos/03-ebarimt-integration-plan.md` (дизайн v2, §8 хаагдсан),
+`docs/deployment/ebarimt.md` (ОПЕРАТОРЫН загвар — нэг PosAPI, олон мерчант).
 
 ```
 борлуулалт батлагдав ──commit──▶ pos_ebarimt_submissions (pending)
-   worker (20 сек, server горим) / кассын дэлгэц (browser горим)
-        └─▶ POST {posApiUrl}/rest/receipt ──▶ ДДТД · сугалаа · QR → pos_sales
-буцаалт ──▶ DELETE /rest/receipt (эх ДДТД) [+ үлдсэн мөрөөр шинэ баримт]
-өдөр бүр 23:30 УБ ──▶ GET /rest/sendData (PosAPI-ийн дотоод сан → ТЕГ)
+   server горим: ШУУД илгээж ≤8 сек хүлээнэ (sendSubmissionNow) → баримт ДДТД+сугалаа+QR-тай
+   хэтэрвэл worker (20 сек) ард үргэлжилнэ; browser горим: кассын дэлгэц илгээнэ
+        └─▶ POST {операторын posApiUrl}/rest/receipt ──▶ ДДТД → pos_sales (сугалаа/QR ХАДГАЛАХГҮЙ)
+буцаалт ──▶ БҮТЭН: DELETE /rest/receipt · ХЭСЭГЧИЛСЭН: POST + inactiveId=сүүлийн ДДТД (гинж)
+өдөр бүр 23:30 УБ ──▶ GET /rest/sendData; scheduler: /rest/info → сугалаа/хоцролт/хүрэлцээ
 ```
 
 - **Борлуулалт ХЭЗЭЭ Ч илгээлтээс болж зогсохгүй** — enqueue нь commit-ийн
@@ -660,6 +662,19 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   `[EBARIMT_UNMAPPED_ITEM]` / `[EBARIMT_TAX_PRODUCT_CODE]` /
   `[EBARIMT_UNMAPPED_PAYMENT]` гэж ШИДЭЖ, submission `failed` болж шалтгаан
   UI-д ил гарна
+- **Сугалаа (lottery) ба QR (qrData) ХЭЗЭЭ Ч ХАДГАЛАГДАХГҮЙ** — албан заавар §5
+  хориглодог. Зөвхөн илгээлтийн хариуны мөчид (`EbarimtSaleResult`, action
+  result / browser fetch) баримт дээр НЭГ удаа хэвлэгдэнэ; дахин хэвлэхэд ДДТД.
+  `pos_ebarimt_submissions.response` `stripReceiptSecrets`-ээр; хуучин мөрийг
+  preDeploy цэвэрлэнэ; `pos_sales.ebarimt_lottery/qr_data` REMOVED_COLUMNS-д
+- **Хэсэгчилсэн буцаалт = `inactiveId` гинж** (§5 «Баримтын засвар»): сүүлийн
+  ДДТД-г өгч ШИНЭ бичилт, сугалаа дахин олгогдохгүй, `pos_sales.ebarimtId`
+  шинэ ДДТД болно. DELETE зөвхөн БҮТЭН буцаалт. `prepareSubmission` шийднэ —
+  `request` ба `cancel` зэрэг ХЭЗЭЭ Ч байхгүй
+- **PosAPI-ийн байдал** (`/rest/info`, `posapi-info.ts` ЦЭВЭР): үлдсэн сугалаа
+  < 200, ТЕГ рүү ≥48ц илгээгдээгүй (72ц хуулийн хязгаар), хүрэхгүй → `attention.ts`
+  (`pos.ebarimt_lottery_low` / `send_stale` / `posapi_down`, өдөрт нэг); статуст
+  «Мерчант бүртгэл» = операторын хүсэлтийг харилцагч батласан эсэх
 - **Идемпотент:** `pos_ebarimt_submissions` дээр (saleId, kind) partial unique
   (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
   worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг
@@ -672,6 +687,12 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   л илгээгдэж, төлбөрүүд хувь тэнцүүлэн хуваарилагдана (Σ = баримтын дүн)
 - **Мерчантын тохиргоо харилцагчийн апп-д** (`pos_settings.ebarimt*`), Console-д
   БИШ; `/api/health`-ийн `ebarimt` блокт зөвхөн ТООЛУУР (ТТД, нууц байхгүй)
+- **АСААХААС ӨМНӨ бэлэн байдал шалгагдана** (`readiness.ts` ЦЭВЭР, тесттэй):
+  ангилалын кодгүй идэвхтэй бараа (бүлгээс өвлөх нь тооцогдоно), татварын
+  бүтээгдэхүүний кодгүй НӨАТ-гүй/0% бараа, eBarimt кодгүй идэвхтэй төлбөрийн
+  хэлбэр — тоо + эхний нэрсээр. Үлдсэн бол switch идэвхгүй бөгөөд
+  `updatePosSettings` ШИДНЭ. Эдгээр алдаа урьд нь зөвхөн борлуулалтын ДАРАА
+  async гарч ирдэг байв
 
 ```
 lib/ebarimt/
@@ -680,12 +701,20 @@ lib/ebarimt/
 ├── types.ts       PosAPI JSON + Entry-ийн ЦЭВЭР оролт (EbarimtSaleInput)
 ├── receipt.ts     buildEbarimtReceipt / allocatePayments / taxTypeOf /
 │                  ebarimtSettingsProblems — ЦЭВЭР (tests/ebarimt-receipt.test.ts)
+├── readiness.ts   ebarimtReadiness — ЦЭВЭР (tests/ebarimt-readiness.test.ts):
+│                  идэвхжүүлэхийн ӨМНӨХ кодын дутуу; DB давхарга нь
+│                  queue.ts `loadEbarimtReadiness`
+├── posapi-info.ts parsePosApiInfo / isMerchantRegistered / hoursSince — ЦЭВЭР
+│                  (tests/ebarimt-posapi-info.test.ts); client.ts fetchPosApiHealth
+├── tax-product-codes.ts  НӨАТ-гүй (305–446) / 0% (501–507) кодын АЛБАН лавлах —
+│                  барааны картын сонгогч; хориглолт биш (ТЕГ код нэмж болно)
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
 ├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo / getBranchInfo (24ц кэш)
 ├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /
 │                  claimDueSubmissions / ebarimtStatusSummary
-├── worker.ts      claim → PosAPI → бичих; sendData; гацсан claim чөлөөлөх
+├── worker.ts      claim → PosAPI → бичих; sendSubmissionNow (шууд, timeout-тэй,
+│                  түр үр дүн); sendData; гацсан claim чөлөөлөх
 └── ticker.ts      In-process worker (20 сек) — EBARIMT_WORKER=off унтраана
 lib/actions/ebarimt.ts   Тохиргоо/холболт шалгах/дахин илгээх/лавлах/outbox
 app/api/cron/ebarimt     Гадаад cron (Bearer CRON_SECRET)

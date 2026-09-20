@@ -198,6 +198,30 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // ТЕГ-ийн тестийн checklist: «сугалааны дугаар дуусаж буй, мэдээ илгээх 3
+  // өдрийн хугацаа дуусаж буйг анхааруулах» — эх нь PosAPI /rest/info
+  // (lib/notifications/attention.ts, өдөр тутам).
+  "pos.ebarimt_lottery_low": {
+    category: "documents",
+    severity: "warning",
+    label: "eBarimt сугалаа дуусах гэж байна",
+    email: "instant",
+    inApp: true,
+  },
+  "pos.ebarimt_send_stale": {
+    category: "documents",
+    severity: "warning",
+    label: "eBarimt ТЕГ рүү илгээлт хоцорч байна",
+    email: "instant",
+    inApp: true,
+  },
+  "pos.ebarimt_posapi_down": {
+    category: "documents",
+    severity: "danger",
+    label: "PosAPI-д хүрэхгүй байна",
+    email: "instant",
+    inApp: true,
+  },
   "license.expiring": {
     category: "security",
     severity: "warning",

@@ -143,10 +143,15 @@ export function allocatePayments(
   return [...merged.values()].filter((payment) => payment.paidAmount > 0.005);
 }
 
-/** Борлуулалт → PosAPI 3.0 хүсэлт. Шидвэл payload зохиогдохгүй. */
+/**
+ * Борлуулалт → PosAPI 3.0 хүсэлт. Шидвэл payload зохиогдохгүй.
+ * `inactiveId` = засварлах (хэсэгчилсэн буцаалт) баримтын ДДТД — албан спек §5:
+ * эх баримт солигдоно, сугалаа дахин олгогдохгүй. Бүтэн буцаалт бол DELETE (§6).
+ */
 export function buildEbarimtReceipt(
   sale: EbarimtSaleInput,
-  settings: EbarimtSettingsInput
+  settings: EbarimtSettingsInput,
+  options: { inactiveId?: string | null } = {}
 ): EbarimtReceiptRequest {
   const problems = ebarimtSettingsProblems(settings);
   if (problems.length > 0) throw new EbarimtError(EBARIMT_ERRORS.settings, problems.join("; "));
@@ -196,6 +201,8 @@ export function buildEbarimtReceipt(
   };
   if (customerTin) request.customerTin = customerTin;
   else if (consumerNo) request.consumerNo = consumerNo;
+  const inactiveId = options.inactiveId?.trim();
+  if (inactiveId) request.inactiveId = inactiveId;
 
   const paid = round2(request.payments.reduce((sum, payment) => sum + payment.paidAmount, 0));
   if (Math.abs(paid - totalAmount) > 0.011)
@@ -219,4 +226,25 @@ export function receiptResponseOutcome(response: {
     ok: false,
     message: (typeof response.message === "string" && response.message.trim()) || `PosAPI татгалзав (status: ${status || "?"})`,
   };
+}
+
+/**
+ * PosAPI-ийн хариунаас ХАДГАЛЖ БОЛОХГҮЙ талбарыг хасна (албан спек §5:
+ * «lottery болон qrData талбаруудын мэдээллийг хэрэглэгчийн системд хадгалахыг
+ * хориглоно»). Дараалал / аудитад үлдэх `response` jsonb ҮҮГЭЭР дамжина;
+ * дэд баримт (`receipts[]`) дотор ч мөн адил. Эх объектыг хөндөхгүй.
+ */
+export function stripReceiptSecrets(raw: Record<string, unknown>): Record<string, unknown> {
+  const rest: Record<string, unknown> = { ...raw };
+  delete rest.lottery;
+  delete rest.qrData;
+  const receipts = rest.receipts;
+  if (Array.isArray(receipts)) {
+    rest.receipts = receipts.map((entry) =>
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? stripReceiptSecrets(entry as Record<string, unknown>)
+        : entry
+    );
+  }
+  return rest;
 }

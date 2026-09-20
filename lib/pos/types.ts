@@ -264,11 +264,10 @@ export interface PosSaleView {
   arApDocumentId: string | null;
   arApDocumentNo: string | null;
   arApStatus: string | null;
+  /** Сүүлийн ДДТД (хэсэгчилсэн буцаалтын засвар бүрд шинэчлэгдэнэ). Сугалаа/QR хадгалагдахгүй (албан спек). */
   ebarimtId: string | null;
-  ebarimtLottery: string | null;
   /** lib/ebarimt/constants.ts EbarimtStatus — null = илгээгдээгүй (eBarimt унтраалттай). */
   ebarimtStatus: string | null;
-  ebarimtQrData: string | null;
   ebarimtDate: string | null;
   ebarimtType: string | null;
   ebarimtConsumerNo: string | null;
