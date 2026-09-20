@@ -52,7 +52,7 @@ jobs:
         run: npx eslint .
 
       - name: Нэгж тест (DB шаардахгүй)
-        run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow -e procurement-flow)
+        run: npx tsx --test $(ls tests/*.test.ts | grep -v -e org-isolation -e ai-tools-flow -e procurement-flow -e ai-logging-isolation)
 
       # Railway-ийн deploy ЯГ энэ командаар build хийдэг. tsc нь client/server
       # хилийн алдааг ТАНИХГҮЙ: "use client" component нь server-only модуль
@@ -64,7 +64,7 @@ jobs:
 
       - name: DB integration тест (DATABASE_URL secret тохируулсан үед)
         if: env.DATABASE_URL != ''
-        run: npx tsx --test tests/org-isolation.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts
+        run: npx tsx --test tests/org-isolation.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts
 
       - name: Хамаарлын аудит
         run: npm audit --audit-level=high

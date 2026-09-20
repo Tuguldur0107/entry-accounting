@@ -4075,6 +4075,146 @@ export const notificationDeliveries = pgTable(
   ]
 );
 
+// ─── AI санал → бодит үр дүн (docs/ai-logging.md) ────────────────────────────
+// Ирээдүйн ML сургалтын ШОШГОТОЙ өгөгдлийн суурь. ОДОО ML хийхгүй — зөвхөн
+// бүртгэл. Бичих зам ЗӨВХӨН lib/ai-logging/service.ts (tests/ai-logging-
+// direct-db.test.ts үүнийг статикаар сахиулна) — RLS-гүй тул scope нь кодын
+// сахилгаар хамгаалагдана.
+//
+// Partition ХИЙГЭЭГҮЙ (docs/ai-logging.md §5): drizzle-kit push declarative
+// partitioning дэмждэггүй бөгөөд сар бүрийн partition үүсгэх нь background
+// job шаардана. Гаднаас ЭНЭ хоёр хүснэгт рүү FK үүсгэхийг ХОРИГЛОНО —
+// ирээдүйд partition руу шилжих замыг нээлттэй үлдээнэ.
+
+export const aiSuggestionLog = pgTable(
+  "ai_suggestion_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Tenant — ЗААВАЛ. Байгууллага устахад бүртгэл нь цуг устана.
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** "mcp" | "internal_agent" | "ui_assist" | "rest_api" (lib/ai-logging/constants.ts) */
+    source: text("source").notNull(),
+    // Хэн — хэрэглэгч устахад санал нь үлдэнэ (шошго нь баримтад холбоотой,
+    // хүнд биш) тул set null.
+    actorUserId: text("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    modelName: text("model_name"),
+    modelVersion: text("model_version"),
+    /** Нэг харилцан яриа (чатын thread / MCP session) — бүлэглэх түлхүүр. */
+    sessionId: text("session_id"),
+    /** Нэг модель-ээлжийн хүсэлт — олон tool дуудлагыг бүлэглэнэ. */
+    requestId: text("request_id"),
+    /** MCP/REST-ээр ирсэн бол аль tool (lib/ai/tools.ts нэр). */
+    toolName: text("tool_name"),
+    /** Асуултын контекст — ТҮҮХИЙ (tenant-ийн өөрийн өгөгдөл). */
+    inputPayload: jsonb("input_payload"),
+    /** AI юу санал болгосон — ТҮҮХИЙ. */
+    suggestedValue: jsonb("suggested_value"),
+    confidence: numeric("confidence", { precision: 6, scale: 5 }),
+    latencyMs: integer("latency_ms"),
+    /**
+     * "tenant_only" (default) | "industry" | "global" — ХЭЗЭЭ Ч автоматаар
+     * өргөгдөхгүй (lib/ai-logging/redact.ts planTrainingScope).
+     */
+    trainingScope: text("training_scope").notNull().default("tenant_only"),
+    /** Хүссэн scope нь PII-гаас болж бууруулагдсан бол шалтгаан. */
+    scopeDowngradeReason: text("scope_downgrade_reason"),
+  },
+  (t) => [
+    // Хамгийн халуун зам: байгууллагын сүүлийн саналууд.
+    index("ai_suggestion_log_org_created_ix").on(t.organizationId, t.createdAt),
+    // Нэг харилцан ярианы бүх санал.
+    index("ai_suggestion_log_org_session_ix").on(t.organizationId, t.sessionId),
+    // Сургалтын түүвэр — scope-оор.
+    index("ai_suggestion_log_org_scope_ix").on(t.organizationId, t.trainingScope),
+  ]
+);
+
+// 1:1 — санал бүрд НЭГ үр дүн, байрандаа шинэчлэгдэнэ (uniqueIndex доор).
+// Шилжилтийн ТҮҮХ нь audit_events-д үлдэнэ; шилжилтийн ХҮЧИНТЭЙ БАЙДЛЫГ
+// цэвэр canTransition() хамгаална (lib/ai-logging/resolution.ts).
+export const aiSuggestionOutcome = pgTable(
+  "ai_suggestion_outcome",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Tenant — log-той ижил org. Денормчлагдсан: сургалтын шүүлтүүр энэ
+    // хүснэгтийг ДАНГААР нь уншдаг (join-гүй) тул scope нь энд БАЙХ ёстой.
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    suggestionId: uuid("suggestion_id")
+      .notNull()
+      .references(() => aiSuggestionLog.id, { onDelete: "cascade" }),
+    /** "accepted" | "modified" | "rejected" | "no_action" */
+    resolution: text("resolution").notNull().default("no_action"),
+    /** Эцэст нь юу бичигдсэн — ТҮҮХИЙ. */
+    finalValue: jsonb("final_value"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: text("resolved_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // POLYMORPHIC холбоос — FK БАЙХГҮЙ (document_attachments, audit_events-тэй
+    // ИЖИЛ хэв маяг). Үгсийн сан нь AiAction.kind ба аудитын entityType:
+    // journal | arap | cash | inventory | fa | purchase_order |
+    // goods_receipt | pos_sale.
+    linkedDocumentType: text("linked_document_type"),
+    linkedDocumentId: uuid("linked_document_id"),
+    /** Баримтын ӨӨРИЙН огноо (YYYY-MM-DD) — периодын хаалтын шүүлтүүр. */
+    linkedDocumentDate: text("linked_document_date"),
+    /** Бичилт батлагдсан эсэх — аудитын гүүрээр (lib/audit.ts). */
+    isPosted: boolean("is_posted").notNull().default(false),
+    /** Тайлант үе хаагдсан эсэх — closePeriod/reopenPeriod batch update. */
+    isPeriodClosed: boolean("is_period_closed").notNull().default(false),
+    /**
+     * Баримт хожим буцаагдсан / устгагдсан / цуцлагдсан эсэх.
+     * ЧУХАЛ: батлагдаж, үе хаагдсаны ДАРАА илэрсэн буцаалт нь «AI зөв
+     * санал болгосон» гэсэн ХУДАЛ эерэг шошгыг үүсгэдэг — сургалтын
+     * шүүлтүүр үүнийг ЗААВАЛ хасна (docs/ai-logging.md §6).
+     */
+    hasReversal: boolean("has_reversal").notNull().default(false),
+    /** "reverse" | "delete" | "return" | "cancel" | "dispose" | "fx_reverse" */
+    invalidatedReason: text("invalidated_reason"),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // 1:1 — санал бүрд НЭГ үр дүн. unique() БИШ uniqueIndex (drizzle-kit #5955).
+    uniqueIndex("ai_suggestion_outcome_suggestion_ux").on(t.suggestionId),
+    index("ai_suggestion_outcome_org_resolution_ix").on(
+      t.organizationId,
+      t.resolution
+    ),
+    // Сургалтын шүүлтүүр: is_posted && is_period_closed && !has_reversal.
+    index("ai_suggestion_outcome_training_ix").on(
+      t.organizationId,
+      t.isPosted,
+      t.isPeriodClosed,
+      t.hasReversal
+    ),
+    // Аудитын гүүр: entityType+entityId-гаар мөр олох (post / reverse / delete).
+    index("ai_suggestion_outcome_linked_ix").on(
+      t.linkedDocumentType,
+      t.linkedDocumentId
+    ),
+    // Периодын хаалт: org + огнооны мужаар batch update.
+    index("ai_suggestion_outcome_org_docdate_ix").on(
+      t.organizationId,
+      t.linkedDocumentDate
+    ),
+  ]
+);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -4139,3 +4279,5 @@ export type PosEbarimtSubmission = typeof posEbarimtSubmissions.$inferSelect;
 export type PosQpayIntent = typeof posQpayIntents.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type AiSuggestionLog = typeof aiSuggestionLog.$inferSelect;
+export type AiSuggestionOutcome = typeof aiSuggestionOutcome.$inferSelect;
