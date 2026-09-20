@@ -14,7 +14,7 @@ import { encryptSecret } from "@/lib/ai/crypto";
 import { requireModuleAction } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { posQpayIntents, posSettings, posShifts } from "@/lib/db/schema";
+import { organizations, posQpayIntents, posSettings, posShifts } from "@/lib/db/schema";
 import { createPosSale, type CreatePosSaleInput, type PosReceipt } from "@/lib/actions/pos";
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
@@ -27,6 +27,7 @@ import {
   QpayError,
 } from "@/lib/qpay/client";
 import { QPAY_ERRORS, type QpayIntentStatus } from "@/lib/qpay/constants";
+import { QPAY_CONNECT_CALLBACK_PATH, buildConnectState, connectUrl } from "@/lib/qpay/connect";
 import { checkAllowed, clampInvoiceTtl, invoiceAmountOf, isExpired } from "@/lib/qpay/intent";
 import type { QpayReadiness } from "@/lib/qpay/readiness";
 import {
@@ -34,8 +35,10 @@ import {
   listPendingIntents,
   loadIntent,
   loadIntentView,
+  ensureQpayPaymentMethod,
   loadQpayReadiness,
   markIntentPaid,
+  publicAppUrl,
   qpayStatusSummary,
   qpayWebhookUrl,
   resolveQpayConfig,
@@ -84,11 +87,12 @@ export async function saveQpaySettings(data: {
   apiKey?: string | null;
   webhookSecret?: string | null;
   invoiceTtlSec?: number;
-}): Promise<ActionResult<{ ok: true }>> {
+}): Promise<ActionResult<{ ok: true; seeded: string[] }>> {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
     const current = await ensurePosSettings(orgId, userId);
     const patch: Partial<typeof posSettings.$inferInsert> = {};
+    let seeded: string[] = [];
     if (data.apiUrl !== undefined) {
       const url = data.apiUrl.trim().replace(/\/$/, "");
       if (!/^https?:\/\/\S+$/.test(url)) throw new Error("Dashboard URL http(s)://… хэлбэртэй байна");
@@ -109,7 +113,9 @@ export async function saveQpaySettings(data: {
     if (data.enabled != null) {
       if (data.enabled) {
         const merged = { ...current, ...patch };
-        const readiness = await loadQpayReadiness(orgId, merged);
+        // Хэлбэр + түр данс автоматаар (идемпотент), дараа нь ХАТУУ readiness.
+        seeded = await ensureQpayPaymentMethod(orgId, userId);
+        const readiness = await loadQpayReadiness(orgId, merged, { seedOnEnable: false });
         if (!readiness.ready) throw new Error(`QPay идэвхжүүлэхээс өмнө: ${readiness.problems.join("; ")}`);
       }
       patch.qpayEnabled = !!data.enabled;
@@ -123,10 +129,10 @@ export async function saveQpaySettings(data: {
       entityType: "pos_settings",
       entityId: current.id,
       // Нууцын УТГА хэзээ ч аудитад орохгүй — зөвхөн талбарын нэр.
-      summary: `QPay тохиргоо шинэчлэгдэв — ${Object.keys(patch).filter((key) => key !== "updatedAt").join(", ")}`,
+      summary: `QPay тохиргоо шинэчлэгдэв — ${Object.keys(patch).filter((key) => key !== "updatedAt").join(", ")}${seeded.length ? `; ${seeded.join("; ")}` : ""}`,
     });
     revalidateQpay();
-    return { ok: true };
+    return { ok: true, seeded };
   } catch (caught) {
     return actionError("saveQpaySettings", caught, "QPay тохиргоо хадгалагдсангүй");
   }
@@ -146,6 +152,40 @@ export async function testQpayConnection(): Promise<
     return { merchantId: result.merchantId, recentInvoices: result.invoices.length, webhookUrl: qpayWebhookUrl() };
   } catch (caught) {
     return actionError("testQpayConnection", caught, "QPay dashboard-тай холбогдсонгүй");
+  }
+}
+
+/**
+ * Нэг товчны холболт эхлүүлэх — dashboard-ын consent хуудасны URL буцаана
+ * (client `window.location.assign`). Нууц энд ҮГҮЙ: state нь шифрлэсэн
+ * (org, user, apiUrl, 15 мин), callback нь `/api/pos/qpay/connect/callback`.
+ * Нийтийн URL (NEXT_PUBLIC_APP_URL) байхгүй бол боломжгүй — гар зам үлдэнэ.
+ */
+export async function startQpayConnect(data: { apiUrl?: string } = {}): Promise<ActionResult<{ url: string }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    const settings = await ensurePosSettings(orgId, userId);
+    const base = publicAppUrl();
+    if (!base)
+      throw new Error("Нийтийн URL (NEXT_PUBLIC_APP_URL) тохируулаагүй — нэг товчны холболт боломжгүй, key-ээ гараар оруулна");
+    const apiUrl = (data.apiUrl?.trim() || settings.qpayApiUrl).replace(/\/$/, "");
+    if (!/^https?:\/\/\S+$/.test(apiUrl)) throw new Error("Dashboard URL http(s)://… хэлбэртэй байна");
+    if (apiUrl !== settings.qpayApiUrl)
+      await db.update(posSettings).set({ qpayApiUrl: apiUrl, updatedAt: new Date() }).where(eq(posSettings.id, settings.id));
+    const org = await db.query.organizations.findFirst({ where: eq(organizations.id, orgId), columns: { name: true } });
+    const state = buildConnectState({ orgId, userId, apiUrl });
+    const url = connectUrl(apiUrl, { callback: `${base}${QPAY_CONNECT_CALLBACK_PATH}`, state, org: org?.name ?? "" });
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "connect_started",
+      entityType: "pos_settings",
+      entityId: settings.id,
+      summary: `QPay нэг товчны холболт эхлэв — ${apiUrl}`,
+    });
+    return { url };
+  } catch (caught) {
+    return actionError("startQpayConnect", caught, "QPay холболт эхэлсэнгүй");
   }
 }
 

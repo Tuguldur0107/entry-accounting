@@ -48,7 +48,7 @@ export async function loadSalesReport(orgId: string, filter: SalesReportFilter):
       counterparty: { columns: { name: true, customerGroup: true } },
       cashier: { columns: { name: true } },
       lines: { with: { item: { columns: { code: true, name: true, categoryCode: true } } } },
-      payments: { with: { method: { columns: { name: true, kind: true } } } },
+      payments: { with: { method: { columns: { name: true, kind: true, provider: true } } } },
     },
     orderBy: (sale, { asc }) => [asc(sale.soldAt)],
   });
@@ -117,6 +117,7 @@ export async function loadSalesReport(orgId: string, filter: SalesReportFilter):
         methodId: payment.paymentMethodId,
         methodName: payment.method?.name ?? "—",
         kind: (payment.method?.kind ?? "cash") as PaymentKind,
+        provider: payment.method?.provider ?? null,
         baseAmount: sign * (Number(payment.baseAmount) - Number(payment.changeGiven)),
       });
     }

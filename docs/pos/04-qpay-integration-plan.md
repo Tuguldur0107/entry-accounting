@@ -1,6 +1,6 @@
 # QPay нэвтрүүлэлтийн төлөвлөгөө — POS Фаз 3b (`ewallet` → QPay Quick QR)
 
-**Төлөв:** **БАТЛАГДСАН** (2026-09-20, D1–D8 санал болгосноор) — Фаз 0 (dashboard PR #1) хүлээгдэж байна; **Фаз 1 (Entry цөм) ХЭРЭГЖСЭН** — гэрээ `01-implementation-contract.md` §10, байдал `02-implementation-status.md`.
+**Төлөв:** **БАТЛАГДСАН** (2026-09-20, D1–D8 санал болгосноор) — Фаз 0 (dashboard) ✅, **Фаз 1 (Entry цөм) ✅**, **Фаз 2 (нэг товчны холболт §3.6, ажиллагаа) ✅** — гэрээ `01-implementation-contract.md` §10, байдал `02-implementation-status.md`, нэвтрүүлэлт `docs/deployment/qpay.md`. Дараагийн: пилот (Хос Хас, 100₮ бодит тест).
 **Суурь:** `00-proposal.md` §3.4 (`ewallet` kind — «Фаз 3 API (QPay invoice → callback)»),
 `03-ebarimt-integration-plan.md` (ижил бүтэц: дараалал, readiness, attention).
 **Эх сурвалж:** `Tuguldur0107/qpay-dashboard` repo (код + `PROGRESS.md` 2026-08-10,
@@ -206,6 +206,31 @@ lib/ai/tools.ts                           get_qpay_status (унших), list_qpa
 - Intent бүр `logAuditEvent` (`pos_qpay_intent`: create/paid/finalize/cancel/
   expire) — мэдэгдэл `rules.ts`-ээр (гар emit үгүй).
 
+### 3.6 Нэг товчны холболт (Фаз 2, БАТЛАГДСАН 2026-09-20)
+
+Харилцагч key хуулахгүй — OAuth-ийн «authorization code» загвар:
+
+```
+Entry [QPay холбох] → state (AES-GCM: org, user, apiUrl, nonce, 15 мин; lib/qpay/connect.ts)
+  → {dashboard}/connect?app=entry&callback={entry}/api/pos/qpay/connect/callback&state&org
+  → dashboard: нэвтрэлт / бүртгэл / онбординг (post-auth.ts хадгалсан замаар буцна) → consent
+  → POST /api/connect/approve (session+CSRF): API хандалт нээгдэнэ, key ҮҮСНЭ / байгаа бол СОЛИГДОНО,
+    secret байгаа бол хэвээр → connect_grants (code sha256, 5 мин) → callback?state&code
+  → Entry callback: state тайлна → сервер-сервер POST {dashboard}/api/connect/exchange {code,state}
+    → key + secret (НЭГ удаа) → encryptSecret → хэлбэр/данс seed (ensureQpayPaymentMethod)
+    → readiness (хатуу) → асаана → тохиргооны QPay таб (?qpay=connected|connected-off|error)
+```
+
+- Нууц URL / browser / лог / аудитад ХЭЗЭЭ Ч орохгүй; state нь authenticated
+  шифр тул өөр байгууллагын нэрээр холболт зохиох боломжгүй; code нэг удаагийн
+- Асаахад **«QPay» хэлбэр + «QPay түр данс» (GL 11000099) автоматаар**
+  (`lib/qpay/seed.ts` ЦЭВЭР төлөвлөгч, ratified-seed) — байгааг хөндөхгүй;
+  eBarimt код ЗОХИОХГҮЙ (T1) — хэрэглэгч оноож өгнө
+- Гар зам (key хуулах) хэвээр — нийтийн URL-гүй dedicated суулгацад
+- Dashboard: `src/lib/connect-grants.ts`, `src/app/connect`, `src/app/api/connect/{approve,exchange}`,
+  `src/lib/post-auth.ts`; `docs/API.md` «Connect» (v1 ӨӨРЧЛӨГДӨӨГҮЙ)
+- Нэвтрүүлэлтийн заавар: `docs/deployment/qpay.md`
+
 ---
 
 ## 4. Шийдвэрлэх асуултууд (батлах)
@@ -229,7 +254,7 @@ lib/ai/tools.ts                           get_qpay_status (унших), list_qpa
 |---|---|---|---|
 | **0 — Dashboard бэлтгэл** (эхлээд, Entry-гүй) | (1) Repo-оос нууц файл хасах + ККТТ-ээс production нууц үг солиулах; (2) FAILED deploy (ee5aba0) засах — build лог хоосон, дахин deploy/шалгах; (3) **Хос Хас-ын тест sub-merchant дээр 100₮-ийн БОДИТ төлбөр** — callback GET/POST, `ref`, webhook → таны туршилтын URL (webhook.site) хүрсэн эсэх; (4) D8 (а)(б) жижиг өөрчлөлт; (5) API гэрээг «v1 хөлдөөсөн» гэж `docs/`-д тэмдэглэх | 1 өдөр | PAID урсгал production-д батлагдсан |
 | **1 — Entry цөм** ✅ | Схем + preDeploy; `lib/qpay/*` (intent машин, HMAC, client — тесттэй); actions; webhook route; QPay диалог; `createPosSale` intent холболт; тохиргооны таб + readiness; «хүлээгдэж буй» баннер + finalize; (Фаз 2-оос урьдчилж) attention `pos.qpay_paid_unfinalized` + `/api/health.qpay` | 3 өдөр | Кассын дэлгэцээс QPay-ээр борлуулалт |
-| **2 — Ажиллагаа** | attention дохио (paid-unfinalized, webhook failing), health тоолуур, борлуулалтын тайланд provider багана, AI `get_qpay_status`, `docs/deployment/qpay.md` (харилцагчид: dashboard-д бүртгүүлэх → key → Entry), CLAUDE.md §5c, CHANGELOG | 1 өдөр | Харилцагчид өгөх заавар бэлэн |
+| **2 — Ажиллагаа** ✅ | **Нэг товчны холболт** (§3.6 — dashboard connect + Entry callback), асаахад хэлбэр/данс автомат seed, борлуулалтын тайланд provider багана, AI `get_qpay_status`, `docs/deployment/qpay.md`, CLAUDE.md §5c, CHANGELOG. (webhook-failing дохио — пилотын дараа, хэрэгцээ гарвал) | 1 өдөр | Харилцагчид өгөх заавар бэлэн |
 | **Пилот** | Хос Хас-ын дэлгүүр (eBarimt пилоттой ХАМТ — нэг борлуулалт хоёуланг шалгана) | 1 долоо хоног | v1.6.0 |
 | 3c (дараа) | АР нэхэмжлэх QPay QR (и-мэйл/нээлттэй хуудсанд), SocialPay/MonPay provider, refund (эрх авбал) | — | — |
 

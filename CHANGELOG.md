@@ -7,6 +7,22 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **POS: QPay нэг товчны холболт (Фаз 2)** — Борлуулалт → Тохиргоо → QPay →
+  [QPay холбох]: qpay-dashboard нээгдэж (бүртгэл/онбординг шаардлагатай бол
+  тэнд), зөвшөөрмөгц API key + webhook secret Entry-д АВТОМАТААР (OAuth-ийн code
+  загвар — нууц URL/browser-т орохгүй, сервер-сервер солилцоо), «QPay» төлбөрийн
+  хэлбэр + «QPay түр данс» (GL 11000099) үүсээд асна — key хуулах шаардлагагүй.
+  Гар зам хэвээр. Мөн: асаахад хэлбэр/данс автомат seed (`lib/qpay/seed.ts`),
+  борлуулалтын тайлангийн «Хэлбэрээр» табд провайдер багана, AI `get_qpay_status`,
+  `docs/deployment/qpay.md`. Dashboard тал: `qpay-dashboard` «Connect» (docs/API.md)
+
+### Fixed
+
+- **QPay төлөв production-д уншигдахгүй байв** — raw `sql` template-д Date
+  объектыг шууд параметр болгосноор postgres драйвер унаж `/api/health.qpay`
+  null, тохиргооны QPay таб алдаа өгч байв. ISO текст + `::timestamptz`;
+  `tests/sql-date-params.test.ts` дахин давтахаас сэргийлнэ
+
 - **POS: QPay Quick QR төлбөр (Фаз 1)** — `docs/pos/04-qpay-integration-plan.md`.
   Entry = ХСН, QPay-тэй `qpay-dashboard` REST v1-ээр (x-api-key, нууц AES-ээр
   шифртэй, хэзээ ч ил гарахгүй). Төлбөрийн хэлбэрт «Провайдер: QPay» (ewallet);

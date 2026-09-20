@@ -182,6 +182,7 @@ import {
   type CounterpartyEntityKind,
 } from "@/lib/arap/counterparty-kind";
 import { ebarimtStatusWithPosApi, loadEbarimtReadiness, settingsInputOf } from "@/lib/ebarimt/queue";
+import { loadQpayReadiness, qpayStatusSummary } from "@/lib/qpay/store";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import {
   aggregateBy,
@@ -2896,6 +2897,13 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: { regNo: { type: "string", description: "Байгууллагын регистрийн дугаар (эсвэл 7 оронтой ТТД)" } },
       required: ["regNo"],
     },
+  },
+  // ── QPay Quick QR (docs/pos/04-qpay-integration-plan.md) ──────────────────
+  {
+    name: "get_qpay_status",
+    description:
+      "QPay төлбөрийн байдал: асаалттай/тохируулсан эсэх, бэлэн байдлын дутуу (key, secret, нийтийн URL, QPay хэлбэр), мерчант id, нээлттэй QR-ийн тоо, төлөгдсөн ч борлуулалт болоогүй intent (≥10 мин — ЯАРАЛТАЙ), өнөөдөр QPay-ээр батлагдсан тоо. Нууц (key, secret) ХЭЗЭЭ Ч буцахгүй. Холбох нь вэбээс: Борлуулалт → Тохиргоо → QPay → [QPay холбох].",
+    inputSchema: { type: "object", properties: {} },
   },
 ];
 
@@ -9726,6 +9734,27 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   return { resultText: lines.join("\n") };
 }
 
+/** QPay — getQpayStatus action-тай НЭГ loader (qpayStatusSummary + readiness); нууц буцахгүй. */
+async function runGetQpayStatus(orgId: string): Promise<AiToolResult> {
+  const settings = await ensurePosSettings(orgId);
+  const [status, readiness] = await Promise.all([
+    qpayStatusSummary(orgId, settings, todayInUlaanbaatar()),
+    loadQpayReadiness(orgId, settings),
+  ]);
+  const lines = [
+    `QPay төлбөр: ${status.enabled ? "АСААЛТТАЙ" : status.configured ? "тохируулсан, УНТРААЛТТАЙ" : "ТОХИРУУЛААГҮЙ — Борлуулалт → Тохиргоо → QPay → [QPay холбох]"}`,
+    `Dashboard: ${status.apiUrl}${status.merchantId ? ` · мерчант ${status.merchantId}` : ""}`,
+    readiness.ready ? "Бэлэн байдал: бүрэн" : `Бэлэн байдлын дутуу: ${readiness.problems.join("; ")}`,
+    readiness.warnings.length ? `Анхааруулга: ${readiness.warnings.join("; ")}` : "",
+    `Webhook: ${status.webhookUrl ?? "нийтийн URL алга — төлбөр зөвхөн [Шалгах] товчоор баталгаажина"}`,
+    `Нээлттэй QR: ${status.openIntents} · төлөгдсөн ч борлуулалт болоогүй (≥10 мин): ${status.paidUnfinalized} · өнөөдөр QPay-ээр: ${status.finalizedToday} · QR хугацаа ${status.invoiceTtlSec} сек`,
+    status.paidUnfinalized > 0
+      ? "ЯАРАЛТАЙ: мөнгө орсон ч бараа хасагдаагүй борлуулалт байна — Борлуулалт → жагсаалтын «QPay хүлээгдэж буй» баннераас [Борлуулалт болгох] (эсвэл шалтгаан тодорхой бол [Цуцлах])."
+      : "",
+  ].filter(Boolean);
+  return { resultText: lines.join("\n") };
+}
+
 async function runResendEbarimt(
   orgId: string,
   input: { sale: string; kind?: "send" | "cancel" }
@@ -10136,6 +10165,8 @@ async function dispatchAiTool(
         return await runResendEbarimt(orgId, args);
       case "lookup_tin":
         return await runLookupTin(args);
+      case "get_qpay_status":
+        return await runGetQpayStatus(orgId);
       default: {
         // custom/ багцын tool — core-той ИЖИЛ алдааны боловсруулалттай.
         const custom = findCustomTool(name);

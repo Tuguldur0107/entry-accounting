@@ -48,4 +48,6 @@ export const QPAY_ERRORS = {
   checkThrottled: "QPAY_CHECK_THROTTLED",
   dashboard: "QPAY_DASHBOARD",
   webhookSignature: "QPAY_WEBHOOK_SIGNATURE",
+  /** Нэг товчны холболт: state / code хуучирсан, ашиглагдсан эсвэл таарахгүй. */
+  connectExpired: "QPAY_CONNECT_EXPIRED",
 } as const;

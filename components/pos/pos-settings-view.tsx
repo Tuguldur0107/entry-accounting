@@ -6,7 +6,7 @@
 // бүгд `pos_settings`-ээс; энд ЗӨВХӨН хэрэглэгч засна.
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { toast } from "sonner";
 
@@ -44,7 +44,7 @@ import {
   type SaleQuote,
 } from "@/lib/actions/pos";
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
-import { getQpayStatus, saveQpaySettings, testQpayConnection } from "@/lib/actions/qpay";
+import { getQpayStatus, saveQpaySettings, startQpayConnect, testQpayConnection } from "@/lib/actions/qpay";
 import { QPAY_INVOICE_TTL_MAX_SEC, QPAY_INVOICE_TTL_MIN_SEC, QPAY_PROVIDER } from "@/lib/qpay/constants";
 import type { QpayReadiness } from "@/lib/qpay/readiness";
 import type { QpayStatusSummary } from "@/lib/qpay/types";
@@ -89,7 +89,12 @@ export function PosSettingsView({
   checkout: CheckoutData;
   issueTypes: IssueTypeOption[];
 }) {
-  const [section, setSection] = useState<SettingsSection>("general");
+  // URL `section=` (QPay connect callback энд буцаадаг) → эхний дэд таб.
+  const searchParams = useSearchParams();
+  const requested = searchParams.get("section");
+  const [section, setSection] = useState<SettingsSection>(
+    SECTIONS.some((option) => option.value === requested) ? (requested as SettingsSection) : "general"
+  );
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       <PageTabs tabs={SECTIONS} value={section} onChange={setSection} />
@@ -1313,9 +1318,48 @@ interface QpayForm {
   invoiceTtlSec: string;
 }
 
+const QPAY_CONNECT_MESSAGES: Record<string, { ok: boolean; text: string }> = {
+  connected: { ok: true, text: "QPay холбогдож асаалттай боллоо — кассын төлбөрийн диалогт QPay хэлбэр гарна" },
+  "connected-off": { ok: true, text: "QPay холбогдлоо (key, secret хадгалагдсан) — асаахаас өмнө доорх дутууг цэгцэлнэ" },
+  error: { ok: false, text: "QPay холболт амжилтгүй" },
+};
+const QPAY_CONNECT_REASONS: Record<string, string> = {
+  state: "холболтын хугацаа (15 мин) дууссан эсвэл линк буруу — дахин эхлүүлнэ үү",
+  code: "dashboard-аас буцсан code буруу",
+  expired: "нэг удаагийн code хугацаа дууссан (5 мин) эсвэл ашиглагдсан — дахин эхлүүлнэ үү",
+  exchange: "dashboard-тай нууц солилцож чадсангүй — дахин оролдоно уу",
+};
+
 function QpaySection({ settings }: { settings: PosSettings }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+
+  // Connect callback-аас буцсан үр дүн (?qpay=connected|connected-off|error&reason=) — нэг удаа.
+  useEffect(() => {
+    const outcome = searchParams.get("qpay");
+    if (!outcome || !QPAY_CONNECT_MESSAGES[outcome]) return;
+    const message = QPAY_CONNECT_MESSAGES[outcome];
+    const reason = searchParams.get("reason");
+    if (message.ok) feedback.saved(message.text);
+    else feedback.error(`${message.text}: ${QPAY_CONNECT_REASONS[reason ?? ""] ?? reason ?? "тодорхойгүй"}`);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("qpay");
+    next.delete("reason");
+    router.replace(`${window.location.pathname}?${next.toString()}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function connect() {
+    startTransition(async () => {
+      const result = await startQpayConnect({ apiUrl: form.apiUrl });
+      if (result.error || !result.url) {
+        feedback.error(result.error ?? "QPay холболт эхэлсэнгүй");
+        return;
+      }
+      window.location.assign(result.url);
+    });
+  }
   const [form, setForm] = useState<QpayForm>({
     enabled: settings.qpayEnabled,
     apiUrl: settings.qpayApiUrl,
@@ -1363,7 +1407,11 @@ function QpaySection({ settings }: { settings: PosSettings }) {
         feedback.error(result.error);
         return;
       }
-      feedback.saved("QPay тохиргоо хадгалагдлаа");
+      feedback.saved(
+        result.seeded && result.seeded.length > 0
+          ? `QPay тохиргоо хадгалагдлаа — ${result.seeded.join("; ")}`
+          : "QPay тохиргоо хадгалагдлаа"
+      );
       patch({ apiKey: "", webhookSecret: "" });
       load();
       router.refresh();
@@ -1387,11 +1435,25 @@ function QpaySection({ settings }: { settings: PosSettings }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-xs text-[var(--ea-text-3)]">
-        <b className="text-[var(--ea-text-1)]">Хэрхэн холбох:</b> qpay-dashboard дээр бүртгүүлж онбординг
-        (РД, MCC, банкны данс) хийнэ → Merchants → API хөгжүүлэлт → API key ба webhook secret-ээ доор
-        буулгана → «Төлбөрийн хэлбэр» табд ewallet хэлбэрт провайдер QPay, түр данс оноогоод → асаана.
-        Төлбөр харилцагчийн банкны данс руу шууд орно (ККТТ шимтгэл 1%); буцаалт QPay-ээр
+        <b className="text-[var(--ea-text-1)]">Хэрхэн холбох:</b> [QPay холбох] дарахад qpay-dashboard
+        нээгдэж (бүртгэлгүй бол бүртгүүлж онбординг — РД, MCC, банкны данс — хийнэ) та зөвшөөрмөгц API
+        key, webhook secret Entry-д АВТОМАТААР ирж, «QPay» төлбөрийн хэлбэр ба «QPay түр данс» (GL
+        11000099) үүсээд асна — key хуулах шаардлагагүй (eBarimt кодыг та «Төлбөрийн хэлбэр» табд
+        оноож өгнө). Гар зам: dashboard → Merchants → API хөгжүүлэлт → key/secret-ээ доор буулгаад
+        асаана. Төлбөр харилцагчийн банкны данс руу шууд орно (ККТТ шимтгэл 1%); буцаалт QPay-ээр
         боломжгүй (бэлэн / дэлгүүрийн кредитээр).
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={connect} disabled={isPending || !status?.webhookUrl}>
+          <Icon name="send" size="sm" />
+          {settings.qpayApiKeySet ? "QPay дахин холбох (key солигдоно)" : "QPay холбох"}
+        </Button>
+        {status && !status.webhookUrl && (
+          <span className="text-xs text-[var(--ea-warning-fg)]">
+            Нийтийн URL (NEXT_PUBLIC_APP_URL) тохируулаагүй — нэг товчны холболт боломжгүй, key-ээ гараар оруулна
+          </span>
+        )}
       </div>
 
       {loadError && <p className="text-sm text-[var(--ea-danger-fg)]">{loadError}</p>}

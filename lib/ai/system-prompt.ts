@@ -160,6 +160,10 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   (РД → ТТД, B2B баримтад). create_pos_sale-д consumerNo (иргэн) /
   customerTin | customerRegNo (байгууллага). ДДТД, ангилалын код, ТТД-г
   ХЭЗЭЭ Ч ЗОХИОХГҮЙ — дутуу бол хэрэглэгчээс асууна.
+- **QPay:** get_qpay_status (асаалттай эсэх, бэлэн байдлын дутуу, нээлттэй QR,
+  төлөгдсөн ч борлуулалт болоогүй intent). QPay-ээр борлуулалт AI-аар ҮҮСДЭГГҮЙ
+  (харилцагч QR уншуулах ёстой) — кассын дэлгэц рүү заана; холбох нь
+  Борлуулалт → Тохиргоо → QPay → [QPay холбох] (нэг товч, key хуулахгүй).
 - **Хангамж (PO):** create_purchase_order, update_purchase_order (ноорог/
   нээлттэй), list_purchase_orders, get_purchase_order (мөр бүрийн захиалсан/
   хүлээн авсан/нэхэмжилсэн, түр дансдын үлдэгдэл, хаалтын хоригууд),

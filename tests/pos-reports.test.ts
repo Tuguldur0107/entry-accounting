@@ -89,9 +89,12 @@ test("aggregatePayments: хэлбэрээр нийлбэр, буцаалт ха�
     { saleId: "s1", date: "2026-09-19", isReturn: false, methodId: "cash", methodName: "Бэлэн", kind: "cash", baseAmount: 1_000_000 },
     { saleId: "s1", date: "2026-09-19", isReturn: false, methodId: "card", methodName: "Карт", kind: "card", baseAmount: 661_550 },
     { saleId: "r1", date: "2026-09-25", isReturn: true, methodId: "cash", methodName: "Бэлэн", kind: "cash", baseAmount: -31_350 },
+    { saleId: "s2", date: "2026-09-20", isReturn: false, methodId: "qpay", methodName: "QPay", kind: "ewallet", provider: "qpay", baseAmount: 15_000 },
   ];
   const rows = aggregatePayments(payments);
   assert.equal(rows.find((row) => row.methodId === "cash")?.amount, 968_650);
   assert.equal(rows.find((row) => row.methodId === "cash")?.count, 1);
   assert.equal(rows.find((row) => row.methodId === "card")?.amount, 661_550);
+  assert.equal(rows.find((row) => row.methodId === "cash")?.provider, null);
+  assert.equal(rows.find((row) => row.methodId === "qpay")?.provider, "qpay");
 });
