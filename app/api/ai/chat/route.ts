@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import Anthropic from "@anthropic-ai/sdk";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -20,6 +22,7 @@ import {
 } from "@/lib/ai/models";
 import { OpenAiError, runOpenAiAgent, type OpenAiMessage } from "@/lib/ai/openai";
 import { actionMarker, allAiTools, executeAiTool } from "@/lib/ai/tools";
+import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import {
   AI_STABLE_SYSTEM_PROMPT,
   buildDynamicContext,
@@ -349,6 +352,10 @@ export async function POST(request: Request) {
   );
 
   const encoder = new TextEncoder();
+  // AI бүртгэлийн ээлжийн танигдахуун — стримийн дотоод tool дуудлагууд
+  // бүгд үүгээр бүлэглэгдэнэ (docs/ai-logging.md §2).
+  const logTurnId = randomUUID();
+
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       let full = "";
@@ -478,11 +485,11 @@ export async function POST(request: Request) {
             const results: Anthropic.ToolResultBlockParam[] = [];
             for (const block of final.content) {
               if (block.type !== "tool_use") continue;
-              const result = await executeAiTool(
-                userId,
-                block.name,
-                block.input,
-                mode
+              // AI бүртгэлийн контекст — нэг ээлжийн бүх tool дуудлага
+              // НЭГ requestId-гаар бүлэглэгдэнэ (docs/ai-logging.md §2).
+              const result = await runWithAiLogContext(
+                { source: "ui_assist", modelName: model, requestId: logTurnId },
+                () => executeAiTool(userId, block.name, block.input, mode)
               );
               if (result.action) emit(actionMarker(result.action));
               results.push({

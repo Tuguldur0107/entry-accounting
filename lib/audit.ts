@@ -8,8 +8,10 @@
 import { db } from "@/lib/db";
 import { auditEvents } from "@/lib/db/schema";
 import { notifyFromAudit } from "@/lib/notifications/bridge";
+import { applyAuditToOutcomes } from "@/lib/ai-logging/service";
 
-type DbLike = Pick<typeof db, "insert" | "select">;
+// "update" нь AI бүртгэлийн гүүрт хэрэгтэй (applyAuditToOutcomes).
+type DbLike = Pick<typeof db, "insert" | "select" | "update">;
 
 export type AuditEventInput = {
   /** Хэн хийсэн (createdBy). */
@@ -42,6 +44,20 @@ export async function logAuditEvent(
     console.error("[audit] бичиж чадсангүй:", event.action, event.entityType, error);
     return;
   }
+  // AI бүртгэлийн гүүр (docs/ai-logging.md §6): батлалт / буцаалт / устгалт
+  // нь AI-ийн саналын ҮР ДҮНГИЙН шошгыг өөрчилнө. Энд дэгээдсэнээр 20 гаруй
+  // post зам, 8 хүснэгтийн буцаалтыг тус тусад нь хөөх шаардлагагүй —
+  // зам бүр аль хэдийн logAuditEvent дууддаг. Ижил executor: tx дотор бол
+  // бичилттэйгээ хамт commit/rollback. Хэзээ ч шидэхгүй.
+  await applyAuditToOutcomes(
+    {
+      organizationId: event.organizationId,
+      action: event.action,
+      entityType: event.entityType,
+      entityId: event.entityId,
+    },
+    executor
+  );
   // Мэдэгдлийн гүүр (docs/notifications §4): аудитын үйл явдал мэдэгдэл
   // болох эсэхийг lib/notifications/rules.ts шийднэ. Ижил executor — tx
   // дотор бол мэдэгдэл бичилттэйгээ хамт commit/rollback. Хэзээ ч шидэхгүй.

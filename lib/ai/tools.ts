@@ -278,6 +278,7 @@ import {
 } from "./post-limit";
 
 import type { AiAction } from "./action-markers";
+import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import {
   customToolDefs,
   executeCustomTool,
@@ -9796,8 +9797,23 @@ export async function executeAiTool(
       columns: { aiPostLimitMnt: true },
     });
     return await runWithAiPostLimit(resolveAiPostLimit(settings?.aiPostLimitMnt), async () => {
+      const startedAt = Date.now();
       const result = await dispatchAiTool(orgId, userId, name, args, mode);
       await notifyAiDraft(orgId, userId, name, result);
+      // AI санал → үр дүнгийн бүртгэл (docs/ai-logging.md). Эх сурвалж
+      // (MCP / REST / чат) нь runWithAiLogContext-оос ирнэ; бүртгэл нь
+      // ХЭЗЭЭ Ч шидэхгүй тул tool-ийн үр дүнд нөлөөлөхгүй.
+      await recordAiToolCall(
+        { orgId, userId },
+        {
+          toolName: name,
+          args,
+          mode,
+          action: result.action,
+          dedup: result.dedup,
+          latencyMs: Date.now() - startedAt,
+        }
+      );
       return result;
     });
   } catch (caught) {

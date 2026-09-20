@@ -10,6 +10,7 @@
 import { runAsOrg } from "@/lib/auth";
 import { requireFeature } from "@/lib/billing/guards";
 import { allAiTools, executeAiTool } from "@/lib/ai/tools";
+import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { resolveApiToken, writeModeOf } from "@/lib/mcp/server";
 import { publicOrigin, type TokenContext } from "@/lib/oauth/server";
@@ -110,8 +111,11 @@ export async function callTool(
     );
   }
   const mode = await writeModeOf(context);
-  const result = await runAsOrg(context, () =>
-    executeAiTool(context.userId, name, input, mode)
+  // AI бүртгэлийн контекст — REST нь MCP-ээс ТУСДАА эх сурвалж
+  // (docs/ai-logging.md §2). Session нь дуудагчийн өгсөн толгойгоос.
+  const result = await runWithAiLogContext(
+    { source: "rest_api", sessionId: request.headers.get("x-entry-session") },
+    () => runAsOrg(context, () => executeAiTool(context.userId, name, input, mode))
   );
   if (result.resultText.startsWith("Алдаа:")) {
     const { code, message } = parseError(result.resultText);

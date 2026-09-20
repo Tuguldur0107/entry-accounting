@@ -845,6 +845,99 @@ async function main() {
        on pos_qpay_intents (organization_id, status, created_at)`
   );
 
+  // ── AI санал → үр дүнгийн бүртгэл (docs/ai-logging.md) ──────────────────
+  // ЗӨВХӨН НЭМЭЛТ: байгаа хүснэгт хөндөгдөхгүй, багана хасагдахгүй →
+  // migration нь backward compatible бөгөөд downtime ШААРДАХГҮЙ. Хуучин
+  // код шинэ хүснэгтийг мэдэхгүй ч асуудалгүй ажиллана; шинэ код хуучин
+  // DB дээр ажиллахад энэ DDL хүснэгтийг урьдчилан үүсгэнэ (push-аас ӨМНӨ).
+  await run(
+    "ai_suggestion_log хүснэгт",
+    `create table if not exists ai_suggestion_log (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       created_at timestamptz not null default now(),
+       source text not null,
+       actor_user_id text references users(id) on delete set null,
+       model_name text,
+       model_version text,
+       session_id text,
+       request_id text,
+       tool_name text,
+       input_payload jsonb,
+       suggested_value jsonb,
+       confidence numeric(6,5),
+       latency_ms integer,
+       training_scope text not null default 'tenant_only',
+       scope_downgrade_reason text
+     )`
+  );
+  await run(
+    "ai_suggestion_outcome хүснэгт",
+    `create table if not exists ai_suggestion_outcome (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       suggestion_id uuid not null references ai_suggestion_log(id) on delete cascade,
+       resolution text not null default 'no_action',
+       final_value jsonb,
+       resolved_at timestamptz,
+       resolved_by_user_id text references users(id) on delete set null,
+       linked_document_type text,
+       linked_document_id uuid,
+       linked_document_date text,
+       is_posted boolean not null default false,
+       is_period_closed boolean not null default false,
+       has_reversal boolean not null default false,
+       invalidated_reason text,
+       invalidated_at timestamptz,
+       created_at timestamptz not null default now(),
+       updated_at timestamptz not null default now()
+     )`
+  );
+  // Индексүүд — unique нь CONSTRAINT биш INDEX (drizzle-kit #5955).
+  for (const [label, statement] of [
+    [
+      "ai_suggestion_log_org_created_ix",
+      `create index if not exists ai_suggestion_log_org_created_ix
+         on ai_suggestion_log (organization_id, created_at)`,
+    ],
+    [
+      "ai_suggestion_log_org_session_ix",
+      `create index if not exists ai_suggestion_log_org_session_ix
+         on ai_suggestion_log (organization_id, session_id)`,
+    ],
+    [
+      "ai_suggestion_log_org_scope_ix",
+      `create index if not exists ai_suggestion_log_org_scope_ix
+         on ai_suggestion_log (organization_id, training_scope)`,
+    ],
+    [
+      "ai_suggestion_outcome_suggestion_ux",
+      `create unique index if not exists ai_suggestion_outcome_suggestion_ux
+         on ai_suggestion_outcome (suggestion_id)`,
+    ],
+    [
+      "ai_suggestion_outcome_org_resolution_ix",
+      `create index if not exists ai_suggestion_outcome_org_resolution_ix
+         on ai_suggestion_outcome (organization_id, resolution)`,
+    ],
+    [
+      "ai_suggestion_outcome_training_ix",
+      `create index if not exists ai_suggestion_outcome_training_ix
+         on ai_suggestion_outcome (organization_id, is_posted, is_period_closed, has_reversal)`,
+    ],
+    [
+      "ai_suggestion_outcome_linked_ix",
+      `create index if not exists ai_suggestion_outcome_linked_ix
+         on ai_suggestion_outcome (linked_document_type, linked_document_id)`,
+    ],
+    [
+      "ai_suggestion_outcome_org_docdate_ix",
+      `create index if not exists ai_suggestion_outcome_org_docdate_ix
+         on ai_suggestion_outcome (organization_id, linked_document_date)`,
+    ],
+  ])
+    await run(`${label} индекс`, statement);
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

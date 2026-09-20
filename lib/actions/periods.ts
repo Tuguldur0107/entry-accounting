@@ -43,6 +43,7 @@ import {
   type PeriodStatus,
 } from "@/lib/periods/period";
 import { logAuditEvent } from "@/lib/audit";
+import { markPeriodTrainingFlags } from "@/lib/ai-logging/service";
 import { runBeforePeriodClose } from "@/lib/custom/loader";
 
 export interface PeriodRow {
@@ -413,6 +414,14 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
     await writeCashPeriodSnapshot(tx, { orgId, userId, code, endDate });
     // Бараа × агуулахын тоо хэмжээний үлдэгдэл — ижил lock дотор.
     await writeInventoryPeriodSnapshot(tx, { orgId, userId, code, endDate });
+    // AI бүртгэл (docs/ai-logging.md §6): энэ мужид багтах баримтуудын
+    // сургалтын шошго ИДЭВХЖИНЭ. Хаагдсан үеийн бичилт immutable тул
+    // шошго нь тогтвортой — сургалтын шүүлтүүрийн 2 дахь нөхцөл.
+    await markPeriodTrainingFlags(
+      { orgId },
+      { startDate, endDate, closed: true },
+      tx
+    );
     await logAuditEvent(
       {
         userId,
@@ -482,6 +491,18 @@ export async function reopenPeriod(code: string): Promise<PeriodActionResult> {
     await deletePeriodSnapshot(tx, { orgId, code });
     await deleteCashPeriodSnapshot(tx, { orgId, code });
     await deleteInventoryPeriodSnapshot(tx, { orgId, code });
+    // Үе дахин нээгдэв — бичилт өөрчлөгдөж болох болсон тул сургалтын
+    // шошгыг БУЦААНА (тэгш хэмтэй дүрэм; дахин хаахад сэргэнэ).
+    const reopenRange = periodRange(code);
+    await markPeriodTrainingFlags(
+      { orgId },
+      {
+        startDate: reopenRange.startDate,
+        endDate: reopenRange.endDate,
+        closed: false,
+      },
+      tx
+    );
     return true;
   });
   if (reopened === "later-closed") return { ok: false, code: "later-closed" };

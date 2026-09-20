@@ -4,6 +4,9 @@
 
 import { createMarkerSanitizer } from "./action-markers";
 import { allAiTools, executeAiTool, type AiToolResult } from "./tools";
+import { randomUUID } from "node:crypto";
+
+import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import type { AiWriteMode } from "./models";
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
@@ -155,6 +158,9 @@ export async function runOpenAiAgent(options: {
     },
   }));
 
+  // AI бүртгэлийн ээлжийн танигдахуун (docs/ai-logging.md §2).
+  const logTurnId = randomUUID();
+
   const convo: OpenAiMessage[] = [
     { role: "system", content: options.system },
     ...options.messages,
@@ -203,7 +209,11 @@ export async function runOpenAiAgent(options: {
       } catch {
         input = {};
       }
-      const result = await executeAiTool(options.userId, call.name, input, options.mode);
+      // Нэг ээлжийн бүх tool дуудлага НЭГ requestId-гаар бүлэглэгдэнэ.
+      const result = await runWithAiLogContext(
+        { source: "ui_assist", modelName: options.model, requestId: logTurnId },
+        () => executeAiTool(options.userId, call.name, input, options.mode)
+      );
       options.onToolResult(result);
       convo.push({
         role: "tool",

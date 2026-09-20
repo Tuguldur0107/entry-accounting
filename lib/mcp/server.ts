@@ -30,6 +30,7 @@ import {
 } from "@/lib/ai/models";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { allAiTools, executeAiTool } from "@/lib/ai/tools";
+import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import { APP_VERSION } from "@/lib/version";
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -109,7 +110,9 @@ export async function writeModeOf(context: TokenContext): Promise<AiWriteMode> {
 
 async function handleRequest(
   context: TokenContext,
-  message: JsonRpcRequest
+  message: JsonRpcRequest,
+  /** MCP клиентийн Mcp-Session-Id толгой — AI бүртгэлд харилцан яриаг бүлэглэнэ. */
+  mcpSessionId: string | null = null
 ): Promise<Record<string, unknown> | null> {
   const id = message.id ?? null;
   const method = message.method ?? "";
@@ -170,8 +173,13 @@ async function handleRequest(
       const mode = await writeModeOf(context);
       // runAsOrg: fn доторх auth() нь token-ий эзнээр, getActiveOrg() нь
       // token-д уягдсан байгууллагаар хариулна (гишүүнчлэл ДАХИН шалгагдана).
-      const result = await runAsOrg(context, () =>
-        executeAiTool(context.userId, name, args, mode)
+      // AI бүртгэлийн контекст (docs/ai-logging.md §2): эх сурвалжийг
+      // executeAiTool доторх бүртгэл ЭНДЭЭС уншина — tool давхарга
+      // өөрчлөгдөхгүй. Session нь MCP клиентийн Mcp-Session-Id толгойгоос
+      // (байвал) — нэг харилцан ярианы дуудлагууд бүлэглэгдэнэ.
+      const result = await runWithAiLogContext(
+        { source: "mcp", sessionId: mcpSessionId },
+        () => runAsOrg(context, () => executeAiTool(context.userId, name, args, mode))
       );
       return rpcResult(id, {
         content: [{ type: "text", text: result.resultText }],
@@ -188,6 +196,7 @@ export async function handleMcpPost(
   context: TokenContext,
   request: Request
 ): Promise<Response> {
+  const mcpSessionId = request.headers.get("mcp-session-id");
   let body: unknown;
   try {
     body = await request.json();
@@ -211,14 +220,14 @@ export async function handleMcpPost(
         );
       const responses = [];
       for (const entry of body) {
-        const response = await handleRequest(context, entry as JsonRpcRequest);
+        const response = await handleRequest(context, entry as JsonRpcRequest, mcpSessionId);
         if (response) responses.push(response);
       }
       if (responses.length === 0) return new Response(null, { status: 202 });
       return Response.json(responses);
     }
 
-    const response = await handleRequest(context, body as JsonRpcRequest);
+    const response = await handleRequest(context, body as JsonRpcRequest, mcpSessionId);
     // Notification — 202 Accepted, биегүй.
     if (!response) return new Response(null, { status: 202 });
     return Response.json(response);
