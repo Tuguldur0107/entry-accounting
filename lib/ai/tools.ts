@@ -273,7 +273,8 @@ import {
   resolveCfLines,
 } from "@/lib/reports/cf-lines";
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
-import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
+import { type BsSection } from "@/lib/reports/bs-lines";
+import { resolveBsLines, type ResolvedBsLine } from "@/lib/reports/bs-resolve";
 
 import {
   listNotifications,
@@ -5172,31 +5173,6 @@ async function runIncomeStatement(
   return { resultText: out.join("\n") };
 }
 
-// balance-sheet-view.tsx-ийн GROUP_META-тай ижил: custom мөрийн бүлэг →
-// хэсэг + тэмдэг.
-const BS_GROUP_META: Record<
-  string,
-  { section: BsSection; groupLabel: string; sign: BsSign }
-> = {
-  "current-assets": { section: "assets", groupLabel: "Эргэлтийн хөрөнгө", sign: "debit" },
-  "non-current-assets": {
-    section: "assets",
-    groupLabel: "Эргэлтийн бус хөрөнгө",
-    sign: "debit",
-  },
-  "current-liabilities": {
-    section: "liabilities",
-    groupLabel: "Богино хугацаат өр төлбөр",
-    sign: "credit",
-  },
-  "non-current-liabilities": {
-    section: "liabilities",
-    groupLabel: "Урт хугацаат өр төлбөр",
-    sign: "credit",
-  },
-  equity: { section: "equity", groupLabel: "Эздийн өмч", sign: "credit" },
-};
-
 async function runBalanceSheet(
   orgId: string,
   input: { asOf: string }
@@ -5218,52 +5194,11 @@ async function runBalanceSheet(
   // яг ижил семантик).
   const rows = await loadBalanceRowsFast(orgId, "1900-01-01", input.asOf, accounts, [3]);
   const byMain = new Map(rows.map((row) => [row.mainAccount, row]));
-  const mappingByKey = new Map(mappings.map((row) => [row.lineKey, row]));
-
-  // Вэбийн resolvedLines-тай ижил: built-in мөр + override + custom мөрүүд.
-  type Line = {
-    section: BsSection;
-    groupLabel: string;
-    label: string;
-    accountNumbers: string[];
-    sign: BsSign;
-  };
-  const lines: Line[] = BS_LINES.map((line) => {
-    const mapping = mappingByKey.get(line.key);
-    const override = mapping?.accountNumbers
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    return {
-      section: line.section,
-      groupLabel: line.groupLabel,
-      label: mapping?.customLabel?.trim() || line.label,
-      accountNumbers:
-        override !== undefined
-          ? override
-          : accounts
-              .filter((account) =>
-                line.defaultPrefixes.some((prefix) => account.number.startsWith(prefix))
-              )
-              .map((account) => account.number),
-      sign: line.sign,
-    };
-  });
-  for (const mapping of mappings) {
-    if (!mapping.lineKey.startsWith("custom-")) continue;
-    const meta = BS_GROUP_META[mapping.customGroup ?? "current-assets"];
-    if (!meta) continue;
-    lines.push({
-      section: meta.section,
-      groupLabel: meta.groupLabel,
-      label: mapping.customLabel?.trim() || "Нэргүй мөр",
-      accountNumbers: mapping.accountNumbers
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-      sign: meta.sign,
-    });
-  }
+  // Вэбийн балансын тайлантай НЭГ функц (lib/reports/bs-resolve.ts): хоосон
+  // override нь default-даа үлдэнэ, аль ч мөрөнд ороогүй данс «Ангилагдаагүй»
+  // мөрөнд ил гарна (ENT-072).
+  type Line = ResolvedBsLine;
+  const lines = resolveBsLines(accounts, mappings);
 
   const amountOf = (line: Line) =>
     line.accountNumbers.reduce((sum, code) => {
@@ -5330,7 +5265,7 @@ async function runCashFlow(
   const resolved = resolveCfLines(mappings, accounts);
   const report = buildMappedCashFlow(vouchers, input.from, input.to, resolved);
 
-  // Кассын (11x) нээлт/хаалт — ваучерын мөрүүдээс шууд.
+  // Мөнгөн хөрөнгийн (10x/11x) нээлт/хаалт — ваучерын мөрүүдээс шууд.
   let open = 0;
   let periodNet = 0;
   for (const voucher of vouchers) {
@@ -5362,11 +5297,14 @@ async function runCashFlow(
       out.push(`  Ангилагдаагүй урсгал — ${fmt(sec.unmapped)}`);
   }
   out.push(`ЦЭВЭР МӨНГӨН УРСГАЛ: ${fmt(report.totals.net)}`);
+  if (Math.abs(report.totals.fxEffect) > 0.005)
+    out.push(`Валютын ханшийн өөрчлөлтийн нөлөө: ${fmt(report.totals.fxEffect)}`);
   out.push(`Мөнгөний эхний үлдэгдэл: ${fmt(open)} · эцсийн үлдэгдэл: ${fmt(close)}`);
+  const reconciled = open + report.totals.net + report.totals.fxEffect;
   out.push(
-    isBalanced(open + report.totals.net, close)
-      ? "Тулгалт: ✓ эхний + урсгал = эцсийн"
-      : `Тулгалт: ✗ зөрүү ${fmt(open + report.totals.net - close)}`
+    isBalanced(reconciled, close)
+      ? "Тулгалт: ✓ эхний + урсгал + ханшийн нөлөө = эцсийн"
+      : `Тулгалт: ✗ зөрүү ${fmt(reconciled - close)}`
   );
   return { resultText: out.join("\n") };
 }
@@ -5838,21 +5776,28 @@ async function runCounterpartyBalance(
       )`
     )
   );
-  const [documents, settlements] = await Promise.all([
-    db.query.arApDocuments.findMany({
-      where: openAsOfScope,
-      with: { counterparty: { columns: { id: true, name: true } } },
-    }),
-    db.query.arApSettlements.findMany({
-      where: and(
-        eq(arApSettlements.organizationId, orgId),
-        inArray(
-          arApSettlements.documentId,
-          db.select({ id: arApDocuments.id }).from(arApDocuments).where(openAsOfScope)
-        )
-      ),
-    }),
-  ]);
+  // Raw `exists` нь гадна хүснэгтийг «ar_ap_documents» нэрээр иш татдаг —
+  // relational query API (db.query) хүснэгтийг alias-аар нэрлэдэг тул
+  // «missing FROM-clause entry» болж tool ҮРГЭЛЖ унадаг байв (ENT-069).
+  // Шүүлтийг core select-ээр НЭГ удаа гүйцэтгэж ID-гаар ачаална.
+  const openIds = (
+    await db.select({ id: arApDocuments.id }).from(arApDocuments).where(openAsOfScope)
+  ).map((row) => row.id);
+  const [documents, settlements] =
+    openIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db.query.arApDocuments.findMany({
+            where: inArray(arApDocuments.id, openIds),
+            with: { counterparty: { columns: { id: true, name: true } } },
+          }),
+          db.query.arApSettlements.findMany({
+            where: and(
+              eq(arApSettlements.organizationId, orgId),
+              inArray(arApSettlements.documentId, openIds)
+            ),
+          }),
+        ]);
   // asOf-оор түүхэн үлдэгдэл: paidAmount биш settlement-ийн огноогоор тоолно.
   // Хоёр хэмжүүрээр: nominal (баримтын валютаар — нээлттэй эсэхийг шийднэ)
   // болон base (₮ — нийлбэр/aging-д валют хольж болохгүй тул MNT-ээр нэгтгэнэ).

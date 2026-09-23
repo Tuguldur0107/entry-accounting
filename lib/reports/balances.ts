@@ -245,9 +245,12 @@ export function computeCumulativeNetIncome(rows: BalanceRow[]): PnL {
   return { revenue, expense, netIncome: revenue - expense };
 }
 
-// Cash accounts: main accounts beginning with "11" (касс, банк).
+// Мөнгөн хөрөнгийн данс: 10 (касс) ба 11 (харилцах/банк). Стандарт дансны
+// төлөвлөгөөнд касс нь 10000001 тул урьд «11»-ээр л шалгахад кассын гүйлгээ
+// мөнгөн гүйлгээний тайланд огт орохгүй, касс↔банкны шилжүүлэг «эргэлтийн
+// хөрөнгийн өөрчлөлт» болж байв (ENT-047).
 export function isCashMainAccount(mainAccount: string): boolean {
-  return mainAccount.startsWith("11");
+  return mainAccount.startsWith("10") || mainAccount.startsWith("11");
 }
 
 export type CashFlowSection = "operating" | "investing" | "financing";
@@ -260,7 +263,10 @@ export function classifyCashFlow(contraMainAccount: string): CashFlowSection {
     // 2XXX non-current → investing.
     return contraMainAccount.startsWith("2") ? "investing" : "operating";
   }
-  // liability + equity → financing
+  // Богино хугацаат өглөг (нийлүүлэгч, татвар, цалин, урьдчилгаа — 30/31/
+  // 34–39) нь ҮЙЛ АЖИЛЛАГААНЫ урсгал (IAS 7.14); зээл (32/33) ба эздийн өмч
+  // (4) л санхүүгийн (ENT-047).
+  if (cls === "liability" && !/^3[23]/.test(contraMainAccount)) return "operating";
   return "financing";
 }
 

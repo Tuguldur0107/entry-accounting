@@ -132,7 +132,9 @@ export const BS_LINES: readonly BsLine[] = [
     group: "current-liabilities",
     groupLabel: "Богино хугацаат өр төлбөр",
     label: "Татварын өр",
-    defaultPrefixes: ["3141", "31000003"],
+    // 31000004/05/06 (суутган, хөрөнгийн, гаалийн татвар) урьд аль ч мөрөнд
+    // ордоггүй байсан тул баланс тэнцэхгүй байв (ENT-072).
+    defaultPrefixes: ["3141", "31000003", "31000004", "31000005", "31000006"],
     sign: "credit",
   },
   {
@@ -159,7 +161,8 @@ export const BS_LINES: readonly BsLine[] = [
     group: "current-liabilities",
     groupLabel: "Богино хугацаат өр төлбөр",
     label: "Бусад богино хугацаат өр төлбөр",
-    defaultPrefixes: ["316", "319"],
+    // 313 — худалдан авагчийн урьдчилгаа (ENT-072).
+    defaultPrefixes: ["313", "316", "319"],
     sign: "credit",
   },
 

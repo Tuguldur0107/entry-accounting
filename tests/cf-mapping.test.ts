@@ -57,6 +57,7 @@ const ACCOUNTS = [
   "11210000",
   "21010000",
   "31000001",
+  "32000001",
   "41100000",
   "51100000",
   "61100000",
@@ -83,10 +84,10 @@ const VOUCHERS: Voucher[] = [
     [acct("21010000"), 400000, 0],
     [acct("11000001"), 0, 400000],
   ]),
-  // Зээл авсан: fin-debt +120,000
+  // Зээл авсан: fin-debt +120,000 (32 — богино хугацаат зээл)
   voucher("2026-07-15", [
     [acct("11000001"), 120000, 0],
-    [acct("31000001"), 0, 120000],
+    [acct("32000001"), 0, 120000],
   ]),
   // Цалин төлсөн, контра мөр S8 "2110" кодтой: op-payroll −50,000
   voucher("2026-07-20", [
@@ -278,8 +279,74 @@ test("computeContraFlows: данс болон S8 кодын урсгалын н�
   assert.equal(byAccount.get("61100000"), -150000);
   assert.equal(byAccount.get("72100000"), -50000);
   assert.equal(byAccount.get("21010000"), -400000);
-  assert.equal(byAccount.get("31000001"), 120000);
+  assert.equal(byAccount.get("32000001"), 120000);
   assert.equal(byCfCode.get("2110"), -50000);
   // Кассын нөлөөгүй журналын 61100000 мөр (45,000) нэгтгэлд ОРООГҮЙ.
   assert.equal(byCfCode.size, 1);
+});
+
+test("ENT-047: касс (10x) мөнгө гэж тооцогдоно — касс↔банк урсгал биш", () => {
+  const accounts = [{ number: "10000001" }, { number: "11000001" }, { number: "51100000" }];
+  const vouchers = [
+    voucher("2026-07-02", [
+      [acct("10000001"), 300000, 0],
+      [acct("51100000"), 0, 300000],
+    ]),
+    voucher("2026-07-03", [
+      [acct("11000001"), 200000, 0],
+      [acct("10000001"), 0, 200000],
+    ]),
+  ] as unknown as Parameters<typeof buildMappedCashFlow>[0];
+  const mapped = buildMappedCashFlow(vouchers, FROM, TO, resolveCfLines([], accounts));
+  assert.equal(mapped.totals.operating, 300000);
+  assert.equal(mapped.totals.net, 300000);
+  assert.equal(mapped.sections.operating.unmapped, 0);
+});
+
+test("ENT-047: нийлүүлэгч/татвар/цалингийн өглөгийн төлбөр ҮЙЛ АЖИЛЛАГАА, зээл санхүү", () => {
+  const accounts = ["11000001", "31000001", "31410000", "31500001", "32000001"].map((number) => ({ number }));
+  const vouchers = [
+    voucher("2026-07-05", [
+      [acct("31000001"), 100000, 0],
+      [acct("11000001"), 0, 100000],
+    ]),
+    voucher("2026-07-06", [
+      [acct("31410000"), 30000, 0],
+      [acct("31500001"), 20000, 0],
+      [acct("11000001"), 0, 50000],
+    ]),
+    voucher("2026-07-07", [
+      [acct("32000001"), 70000, 0],
+      [acct("11000001"), 0, 70000],
+    ]),
+  ] as unknown as Parameters<typeof buildMappedCashFlow>[0];
+  const mapped = buildMappedCashFlow(vouchers, FROM, TO, resolveCfLines([], accounts));
+  assert.equal(mapped.totals.operating, -150000);
+  assert.equal(mapped.totals.financing, -70000);
+  const payables = mapped.sections.operating.lines.find((l) => l.key === "op-payables")!;
+  assert.equal(payables.amount, -150000);
+});
+
+test("ENT-047: ханшийн тэгшитгэл (FX-) урсгалд орохгүй, ханшийн нөлөө болж тусдаа", () => {
+  const accounts = ["11000002", "51800001", "51100000"].map((number) => ({ number }));
+  const fx = {
+    ...voucher("2026-07-31", [
+      [acct("11000002"), 41378880, 0],
+      [acct("51800001"), 0, 41378880],
+    ]),
+    documentNo: "FX-26-000001",
+  };
+  const sale = voucher("2026-07-10", [
+    [acct("11000002"), 500000, 0],
+    [acct("51100000"), 0, 500000],
+  ]);
+  const mapped = buildMappedCashFlow(
+    [fx, sale] as unknown as Parameters<typeof buildMappedCashFlow>[0],
+    FROM,
+    TO,
+    resolveCfLines([], accounts)
+  );
+  assert.equal(mapped.totals.operating, 500000);
+  assert.equal(mapped.totals.net, 500000);
+  assert.equal(mapped.totals.fxEffect, 41378880);
 });

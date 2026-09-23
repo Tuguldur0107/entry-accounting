@@ -2,10 +2,11 @@
 // Мөр бүр default prefix-ээр данс татаж, хэрэглэгч report_line_mappings
 // (reportType="income-statement")-ээр мөр бүрийн дансыг override хийнэ.
 //
-// ХАТУУ ДҮРЭМ (knowledge/03-стандарт/reports/01-line-mapping.md): нэг ангиллын
-// доторх defaultPrefixes хоорондоо ДАВХЦАХГҮЙ — нэг данс хоёр мөрөнд орвол
-// тайлан давхар тоологдоно. Доорх багц 5/6/7/8 ангиллыг бүрэн хамарсан,
-// давхцалгүй (721 ↔ 720,722-729 гэх мэтээр салгасан).
+// ХАТУУ ДҮРЭМ (knowledge/03-стандарт/reports/01-line-mapping.md): нэг данс
+// НЭГ л мөрөнд орно. Угтварууд давхцаж болох бөгөөд данс нь ХАМГИЙН УРТ
+// таарсан угтвартай мөрөнд очно (`isDefaultLineKeyOf`) — ингэснээр
+// «87000001 хүү», «87000003 ханшийн гарз» зэрэг стандарт дансыг бүлгээс нь
+// ялгаж болно (ENT-048: 870/871-ийн угтвар хүү, ханшийг сольж харуулдаг байв).
 
 export type IsSection = "revenue" | "expense";
 export type IsSign = "credit" | "debit";
@@ -39,7 +40,8 @@ export const IS_LINES: readonly IsLine[] = [
     group: "revenue",
     groupLabel: "Үйл ажиллагааны орлого",
     label: "Ханшийн олз",
-    defaultPrefixes: ["518"],
+    // 518-ын бусад данс (тооллогын илүүдэл, кассын илүүдэл, IC) ханшийн олз биш.
+    defaultPrefixes: ["51800001"],
     sign: "credit",
   },
   {
@@ -57,6 +59,7 @@ export const IS_LINES: readonly IsLine[] = [
       "515",
       "516",
       "517",
+      "518",
       "519",
       "52",
       "53",
@@ -124,6 +127,8 @@ export const IS_LINES: readonly IsLine[] = [
       "77",
       "78",
       "79",
+      // 871 — тооллогын дутагдал, NRV бууруулалт, торгууль: үйл ажиллагааны.
+      "871",
     ],
     sign: "debit",
   },
@@ -135,7 +140,7 @@ export const IS_LINES: readonly IsLine[] = [
     group: "finex",
     groupLabel: "Санхүүгийн зардал",
     label: "Хүүгийн зардал",
-    defaultPrefixes: ["871"],
+    defaultPrefixes: ["87000001"],
     sign: "debit",
   },
   {
@@ -144,7 +149,7 @@ export const IS_LINES: readonly IsLine[] = [
     group: "finex",
     groupLabel: "Санхүүгийн зардал",
     label: "Ханшийн гарз",
-    defaultPrefixes: ["870"],
+    defaultPrefixes: ["87000003"],
     sign: "debit",
   },
   {
@@ -161,6 +166,7 @@ export const IS_LINES: readonly IsLine[] = [
       "84",
       "85",
       "86",
+      "870",
       "872",
       "873",
       "874",
@@ -175,3 +181,13 @@ export const IS_LINES: readonly IsLine[] = [
     sign: "debit",
   },
 ];
+
+/** Данс анхдагчаар аль мөрөнд орох вэ — ХАМГИЙН УРТ таарсан угтвар ялна. */
+export function isDefaultLineKeyOf(accountNumber: string): string | null {
+  let best: { key: string; length: number } | null = null;
+  for (const line of IS_LINES)
+    for (const prefix of line.defaultPrefixes)
+      if (accountNumber.startsWith(prefix) && (!best || prefix.length > best.length))
+        best = { key: line.key, length: prefix.length };
+  return best?.key ?? null;
+}
