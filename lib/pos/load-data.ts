@@ -77,7 +77,9 @@ export async function ensurePosSettings(
     const userId = await resolveUserId();
     const [created] = await db
       .insert(posSettings)
-      .values({ userId, organizationId: orgId })
+      // Шинэ байгууллагад хасах үлдэгдэл АНХДАГЧААР хаалттай (ENT-054) —
+      // хэрэглэгч тохиргооноос ил асаана. Хуучин байгууллагын утга хэвээр.
+      .values({ userId, organizationId: orgId, allowNegativeStock: false })
       .onConflictDoNothing()
       .returning();
     row =

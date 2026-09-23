@@ -28,7 +28,7 @@ import {
   isAiWriteMode,
   type AiWriteMode,
 } from "@/lib/ai/models";
-import { checkAiRateLimit } from "@/lib/ai/rate-limit";
+import { aiRateLimitMessage, aiToolRateKind, checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { aiToolsForSurface, executeAiTool } from "@/lib/ai/tools";
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import { APP_VERSION } from "@/lib/version";
@@ -159,13 +159,10 @@ async function handleRequest(
       // Чатын route-тай ИЖИЛ хэрэглэгч-бүрийн sliding-window хязгаар — MCP
       // клиент tool-давхаргыг хязгааргүй цохихоос хамгаална. HTTP 500 биш
       // JSON-RPC алдаагаар буцаана (клиент retry-гээ өөрөө удирдана).
-      if (!checkAiRateLimit(context.userId))
-        return rpcError(
-          id,
-          -32000,
-          "Хэт олон хүсэлт — 1 минут хүлээгээд дахин оролдоно уу"
-        );
       const name = String(message.params?.name ?? "");
+      const rateKind = aiToolRateKind(name);
+      if (!checkAiRateLimit(context.userId, rateKind))
+        return rpcError(id, -32000, aiRateLimitMessage(rateKind));
       const args = message.params?.arguments ?? {};
       // Багц: MCP боломж (docs/billing §4) — JSON-RPC алдаагаар.
       try {

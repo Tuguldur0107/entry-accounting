@@ -709,7 +709,9 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
 - **`[POS_SOURCED]`:** POS-оос үүссэн АР / касс / хөдөлгөөн / урьдчилсан өртгийн
   бичилтийг эх модулиас нь засах/устгах/буцаахыг хориглоно — ЗӨВХӨН
   `returnPosSale` (АР кредит + `return_in` + урьдчилсан урвуу + буцаан олголт)
-- **Хасах үлдэгдэл ЗӨВШӨӨРНӨ** (`pos_settings.allowNegativeStock`, D9) — баримт,
+- **Хасах үлдэгдэл — тохиргоогоор** (`pos_settings.allowNegativeStock`, D9;
+  ШИНЭ байгууллагад анхдагч ХААЛТТАЙ — SIM ENT-054, хуучин байгууллагын утга
+  хэвээр). Асаалттай үед — баримт,
   самбар, сар хаалтын checklist-д мэдэгдэл; хөдөлгөгч тэр бараа×сарыг зогсоодог
   тул `closePeriod` `unvalued-movements` хоригоор (сарын тооцоололд "calculated"
   биш scope-той батлагдсан зарлага/буцаалт/тохируулга) засагдтал хаагдахгүй;
@@ -719,7 +721,9 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
 - **Хөнгөлөлтийн хөдөлгөгч** (`lib/pos/discounts.ts`, 9 төрөл, тесттэй): төлөх
   дүнд шууд нөлөөлнө, НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс; `approvalReasons`
   хоосон биш → `pos:post` эрх (`[APPROVAL_REQUIRED]`); GL default цэвэр орлого,
-  `discountPosting=contra` бол GL-д Cr орлого бүтэн + Dr хөнгөлөлт (АР мөр цэвэр)
+  `discountPosting=contra` бол GL-д Cr орлого бүтэн + Dr хөнгөлөлт (АР мөр цэвэр).
+  **AI/MCP-ийн `create_pos_sale`** зөвшөөрөл шаардсан борлуулалтад эрхтэй token
+  байсан ч ИЛ `managerApproval: true`-гүйгээр `[APPROVAL_REQUIRED]` (ENT-054)
 - **Төлбөрийн хэлбэр = лавлах** (`pos_payment_methods`, 10 `kind`): карт/QPay/
   BNPL нь ТҮР ДАНСТАЙ (`cash_accounts` bank) — банкны хуулгаар тэгшитгэнэ,
   `businessObjectType "pos_sale"`-аар объект бүрээр

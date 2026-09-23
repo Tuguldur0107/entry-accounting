@@ -1,7 +1,8 @@
 "use server";
 
 // Нэхэмжлэх илгээх — и-мэйл (Resend, PDF хавсралттай) эсвэл public линк.
-// Зөвхөн БИЧИГДСЭН (posted) нэхэмжлэх илгээнэ — ноорог илгээхийг хориглоно
+// Зөвхөн БАТЛАГДСАН нэхэмжлэх (posted / хэсэгчлэн / бүрэн төлөгдсөн) илгээнэ —
+// ноорог, буцаагдсан илгээхийг хориглоно
 // (human-in-the-loop зарчим). Илгээлт бүр arApInvoiceSends-д бүртгэгдэнэ.
 
 import { and, desc, eq } from "drizzle-orm";
@@ -44,10 +45,18 @@ async function assertSendable(orgId: string, documentId: string) {
   if (!document) throw new Error("Нэхэмжлэх олдсонгүй");
   if (document.documentType !== "ar_invoice")
     throw new Error("Зөвхөн авлагын нэхэмжлэх илгээнэ");
-  if (document.status !== "posted")
-    throw new Error("Зөвхөн бичигдсэн (posted) нэхэмжлэх илгээнэ — эхлээд батална уу");
+  // Төлөгдсөн нэхэмжлэлийг ч (баримт/төлбөрийн нотолгоо болгон) илгээж болно
+  // (ENT-057 — «Зөвхөн posted» гэж татгалздаг байв).
+  if (!SENDABLE_STATUSES.has(document.status))
+    throw new Error(
+      document.status === "draft"
+        ? "Ноорог нэхэмжлэх илгээхгүй — эхлээд батална уу"
+        : `Энэ төлөвтэй (${document.status}) нэхэмжлэх илгээхгүй`
+    );
   return document;
 }
+
+const SENDABLE_STATUSES = new Set(["posted", "partially_paid", "paid"]);
 
 /** Линкний хугацааны зөвшөөрөгдсөн сонголтууд (хоногоор). */
 const LINK_EXPIRY_DAYS = [7, 30, 90] as const;

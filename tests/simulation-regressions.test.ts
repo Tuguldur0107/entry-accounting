@@ -517,6 +517,64 @@ test("ENT-068: AI шууд батлах хязгаараа өсгөж чадах
   assert.match(raiseBack.resultText, /HUMAN_REQUIRED/);
 });
 
+test("ENT-013/014/045/030/057: валютын журнал, кассын үлдэгдэл, хөдөлгөөний шүүлт, мөрийн алдаа, линк", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // ENT-013: USD журнал — мөрийн дүн валютаар, ₮ ханшаар
+  const fx = await tool(
+    "create_journal_voucher",
+    {
+      date: "2025-02-10", description: "USD зардал", currency: "USD", exchangeRate: 3450,
+      externalRef: `sim-${STAMP}-fxj`,
+      lines: [
+        { account: "73100001", debit: 100, description: "Зардал" },
+        { account: "11000002", credit: 100, description: "Банк USD" },
+      ],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(fx.resultText), fx.resultText);
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `sim-${STAMP}-fxj`)),
+    with: { lines: true },
+  });
+  assert.equal(voucher?.currency, "USD");
+  assert.equal(voucher?.status, "posted");
+  const expense = voucher!.lines.find((line) => line.accountNumber.includes("73100001"));
+  assert.equal(Number(expense?.debit), 345_000);
+  assert.equal(Number(expense?.debitFc), 100);
+
+  // ENT-014: үлдэгдэл харагдана
+  const listed = await tool("list_cash_accounts", {});
+  assert.match(listed.resultText, /Хаан банк USD — .*үлдэгдэл .* USD .*нээлт 1,000 USD \(2024-12-31\) · GL 11000002/);
+
+  // ENT-045: огноо + төрөл + бараагаар шүүнэ
+  const filtered = await tool("list_inventory_movements", {
+    from: "2025-03-01", to: "2025-03-31", itemCode: "ITM-A", movementType: "receipt",
+  });
+  assert.ok(!filtered.resultText.startsWith("Алдаа"), filtered.resultText);
+  for (const line of filtered.resultText.split("\n")) assert.match(line, /^2025-03-\d\d · .* · орлого · ITM-A/);
+
+  // ENT-030: 0 / сөрөг мөр индекстэй алдаа
+  const bad = await tool("create_arap_invoice", {
+    documentType: "ar_invoice", counterparty: "Скай Трэйдинг", date: "2025-05-05", description: "Сөрөг",
+    lines: [
+      { account: "51100000", amount: 100_000, description: "Зөв" },
+      { account: "51100000", amount: -118_000, description: "Хасалт" },
+    ],
+  });
+  assert.match(bad.resultText, /INVALID_LINE\] Мөр #2 \(«Хасалт»\)/);
+
+  // ENT-057: төлөгдсөн нэхэмжлэлд ч линк үүснэ (undefined биш)
+  const ar = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-ar1`)),
+  });
+  await db.update(arApDocuments).set({ status: "paid" }).where(eq(arApDocuments.id, ar!.id));
+  const link = await tool("create_invoice_link", { documentId: ar!.documentNo });
+  assert.doesNotMatch(link.resultText, /undefined/);
+  assert.match(link.resultText, /\/invoice\//);
+  await db.update(arApDocuments).set({ status: ar!.status }).where(eq(arApDocuments.id, ar!.id));
+});
+
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {
   for (const fn of cleanup.reverse()) await fn();
 });

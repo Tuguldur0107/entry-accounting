@@ -11,7 +11,7 @@ import { runAsOrg } from "@/lib/auth";
 import { requireFeature } from "@/lib/billing/guards";
 import { aiToolsForSurface, executeAiTool } from "@/lib/ai/tools";
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
-import { checkAiRateLimit } from "@/lib/ai/rate-limit";
+import { aiRateLimitMessage, aiToolRateKind, checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { resolveApiToken, writeModeOf } from "@/lib/mcp/server";
 import { publicOrigin, type TokenContext } from "@/lib/oauth/server";
 import { APP_VERSION } from "@/lib/version";
@@ -83,9 +83,10 @@ export async function callTool(
       { ok: false, code: "TOOL_NOT_FOUND", error: `"${name}" гэдэг tool байхгүй — GET /api/v1/tools` },
       { status: 404, headers: VERSION_HEADER }
     );
-  if (!checkAiRateLimit(context.userId))
+  const rateKind = aiToolRateKind(name);
+  if (!checkAiRateLimit(context.userId, rateKind))
     return Response.json(
-      { ok: false, code: "RATE_LIMITED", error: "Хэт олон хүсэлт — 1 минут хүлээгээд дахин оролдоно уу" },
+      { ok: false, code: "RATE_LIMITED", error: aiRateLimitMessage(rateKind) },
       { status: 429, headers: { ...VERSION_HEADER, "Retry-After": "60" } }
     );
 
