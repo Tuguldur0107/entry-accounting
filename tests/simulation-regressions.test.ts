@@ -22,15 +22,21 @@ import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { db } from "../lib/db";
 import {
+  arApDocuments,
   cashAccounts,
+  cashDocuments,
+  cashFxRevaluations,
+  exchangeRates,
   costEntries,
   faDepreciationEntries,
   fixedAssets,
+  goodsReceipts,
   inventoryMovements,
   journalLines,
   journalVouchers,
   memberships,
   organizations,
+  purchaseOrders,
   users,
 } from "../lib/db/schema";
 
@@ -57,6 +63,15 @@ async function setupOrg() {
     .returning({ id: organizations.id });
   await db.insert(memberships).values({ organizationId: org.id, userId: user.id, role: "owner" });
   cleanup.push(async () => {
+    // PO-той байгууллагын cascade устгалт RESTRICT FK-ийн дарааллаас болж
+    // унадаг (purchase_order_lines.item_id, ar_ap_documents.purchase_order_id)
+    // тул PO-гийн гинжийг эхлээд устгана.
+    await db.transaction(async (tx) => {
+      await tx.delete(cashDocuments).where(eq(cashDocuments.organizationId, org.id));
+      await tx.delete(arApDocuments).where(eq(arApDocuments.organizationId, org.id));
+      await tx.delete(goodsReceipts).where(eq(goodsReceipts.organizationId, org.id));
+      await tx.delete(purchaseOrders).where(eq(purchaseOrders.organizationId, org.id));
+    });
     await db.delete(organizations).where(eq(organizations.id, org.id));
     await db.delete(users).where(eq(users.id, user.id));
   });
@@ -357,6 +372,102 @@ test("ENT-002/049/066/046/001: ҮХ-ийн нээлтийн хуримтлагд
       .reduce((sum, line) => sum + Number(line.debit) - Number(line.credit), 0);
   assert.equal(byMain("20000002"), 12_000_000, "нээлт + системийн хуримтлагдсан хоёулаа хаагдана");
   assert.equal(byMain("87000004"), -500_000, "олз 500,000 (хиймэл гарз биш)");
+});
+
+test("ENT-023/020: ханшийн тэгшитгэл тэмдэггүй нээлтийн журналыг тооцно, тулгалт FC-г ₮-тэй хольохгүй", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const created = await tool("create_cash_account", {
+    name: "Хаан банк USD", accountType: "bank", currency: "USD", glAccount: "11000002",
+    openingBalance: 1_000, openingDate: "2024-12-31", openingRate: 3420.46,
+  });
+  assert.ok(okOrRevalidate(created.resultText), created.resultText);
+  // Нээлтийг ГАРААР (cashAccountId тэмдэггүй) GL журналаар бичсэн — SIM-ийн хувилбар
+  const opening = await tool(
+    "create_journal_voucher",
+    {
+      date: "2024-12-31", description: "Нээлт USD", externalRef: `sim-${STAMP}-usd-open`,
+      lines: [
+        { account: "11000002", debit: 3_420_460, description: "Хаан USD 1,000 × 3,420.46" },
+        { account: "41000001", credit: 3_420_460, description: "Эздийн өмч" },
+      ],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(opening.resultText), opening.resultText);
+
+  const reconcile = await tool("reconcile_modules", { from: "2024-12-01", to: "2024-12-31" });
+  assert.match(reconcile.resultText, /OK Хаан банк USD \[1,000 USD\]: 3,420,460/);
+
+  const reval = await tool(
+    "run_fx_revaluation",
+    { valuationDate: "2025-01-31", cashAccount: "Хаан банк USD", rate: 3448.24, manualReason: "Регресс тест" },
+    "post"
+  );
+  assert.ok(okOrRevalidate(reval.resultText), reval.resultText);
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.name, "Хаан банк USD")),
+  });
+  const row = await db.query.cashFxRevaluations.findFirst({
+    where: eq(cashFxRevaluations.cashAccountId, account!.id),
+  });
+  assert.equal(Number(row?.carryingAmount), 3_420_460);
+  assert.equal(Number(row?.adjustmentAmount), 27_780, "зөв зөрүү 1,000 × (3,448.24 − 3,420.46)");
+});
+
+test("ENT-038/071/037: USD PO-гийн ₮ гаалийн нэхэмжлэх MNT, валютын данснаас төлөхөд ханш автомат", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // Store-first: тухайн өдрийн албан ханшийг агуулахад бэлдэнэ (сүлжээ хөндөхгүй).
+  const inserted = await db
+    .insert(exchangeRates)
+    .values({ source: "mongolbank", date: "2025-02-10", currency: "USD", officialRate: "3450" })
+    .onConflictDoNothing()
+    .returning({ id: exchangeRates.id });
+  cleanup.push(async () => {
+    for (const row of inserted) await db.delete(exchangeRates).where(eq(exchangeRates.id, row.id));
+  });
+
+  assert.ok(okOrRevalidate((await tool("create_counterparty", { name: "USD Нийлүүлэгч", counterpartyType: "supplier", currency: "USD" })).resultText));
+  assert.ok(okOrRevalidate((await tool("create_counterparty", { name: "Гаалийн газар", counterpartyType: "supplier" })).resultText));
+  assert.ok(okOrRevalidate((await tool("save_cost_component", { code: "CUSTOMS", name: "Гаалийн татвар" })).resultText));
+  const po = await tool("create_purchase_order", {
+    supplier: "USD Нийлүүлэгч", date: "2025-02-05", currency: "USD", exchangeRate: 3440,
+    description: "Импорт", documentNo: `PO-SIM-${STAMP}`, warehouseCode: "WH1",
+    lines: [{ itemCode: "ITM-A", quantity: 10, unitPrice: 100 }],
+  });
+  assert.ok(okOrRevalidate(po.resultText), po.resultText);
+  const approved = await tool("approve_purchase_order", { purchaseOrderId: `PO-SIM-${STAMP}`, exchangeRate: 3440 }, "post");
+  assert.ok(okOrRevalidate(approved.resultText), approved.resultText);
+
+  const customs = await tool("create_arap_invoice", {
+    documentType: "ap_bill", counterparty: "Гаалийн газар", date: "2025-02-10",
+    purchaseOrder: `PO-SIM-${STAMP}`, description: "Гаалийн татвар", externalRef: `sim-${STAMP}-customs`,
+    lines: [{ amount: 500_000, costComponentCode: "CUSTOMS", description: "Гааль" }],
+  });
+  assert.ok(okOrRevalidate(customs.resultText), customs.resultText);
+  const doc = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-customs`)),
+  });
+  assert.equal(doc?.currency, "MNT", "гаалийн ₮ нэхэмжлэх PO-гийн USD-г өвлөхгүй");
+
+  // ENT-037: USD нэхэмжлэхийг USD данснаас ханшгүйгээр төлөхөд албан ханш автомат
+  const bill = await tool(
+    "create_arap_invoice",
+    {
+      documentType: "ap_bill", counterparty: "USD Нийлүүлэгч", date: "2025-02-10", currency: "USD",
+      exchangeRate: 3450, description: "Үйлчилгээ", externalRef: `sim-${STAMP}-usd-bill`,
+      lines: [{ account: "73100001", amount: 100, description: "Үйлчилгээ" }],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(bill.resultText), bill.resultText);
+  const usdBill = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-usd-bill`)),
+  });
+  const paid = await tool("pay_arap_document", {
+    documentId: usdBill!.documentNo, cashAccount: "Хаан банк USD", date: "2025-02-10",
+  });
+  assert.ok(okOrRevalidate(paid.resultText), paid.resultText);
+  assert.match(paid.resultText, /ханш 3450/);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

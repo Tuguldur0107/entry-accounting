@@ -299,6 +299,7 @@ import type { AiAction } from "./action-markers";
 import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
 import { isFuturePeriodDate, ulaanbaatarToday } from "@/lib/periods/document-date";
 import { accumDepAccountFor, DEFAULT_FA_ASSET_ACCOUNT } from "@/lib/fa/opening";
+import { cashOpeningMnt } from "@/lib/cash/opening";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import {
   customToolDefs,
@@ -3461,13 +3462,36 @@ async function runCreateArap(
   }
 
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
-  // PO-той баримтын валют нь захиалгынхтай таарах ёстой — ил өгөөгүй бол
-  // захиалгынхаар (лимитийн хөрвүүлэлт мөн ҮҮГЭЭР).
-  const effectiveCurrency = input.currency || poDetail?.currency || "MNT";
+  // Валют: ил өгсөн → PO-гийн БАРААНЫ нэхэмжлэх бол захиалгынх → PO-гийн
+  // нэмэлт зардлын нэхэмжлэх бол харилцагчийн анхдагч → MNT. Гааль/тээврийн НЭМЭЛТ ЗАРДЛЫН нэхэмжлэх PO-гийн валютыг
+  // өвлөхгүй (ENT-038/071: USD PO-д холбосон ₮ гаалийн нэхэмжлэх USD болж,
+  // «USD ханш 0-ээс их» алдаа өгдөг байв).
+  const hasPoGoodsLines = lines.some((line) => line.itemId || line.purchaseOrderLineId);
+  const effectiveCurrency = (
+    input.currency?.trim() ||
+    (poDetail ? (hasPoGoodsLines ? poDetail.currency : counterparty.defaultCurrency) : "MNT") ||
+    "MNT"
+  ).toUpperCase();
+  // Валютын баримтад ханш өгөөгүй бол баримтын ӨДРИЙН албан ханш (зохиохгүй —
+  // олдохгүй бол exchangeRate-ийг шаардана).
+  let exchangeRate = input.exchangeRate;
+  let rateNote = "";
+  if (effectiveCurrency !== "MNT" && !(Number(exchangeRate) > 0)) {
+    try {
+      const lookup = await getOfficialRateForDate(effectiveCurrency, input.date);
+      exchangeRate = lookup.rate;
+      rateNote = `, ханш ${lookup.rate} (Монголбанк ${lookup.rateDate})`;
+    } catch {
+      throw codedError(
+        "RATE_REQUIRED",
+        `${input.date}-ны ${effectiveCurrency} албан ханш олдсонгүй — exchangeRate (1 ${effectiveCurrency} = ? ₮) өгнө үү`
+      );
+    }
+  }
   // Лимитийг ЗААВАЛ MNT-ээр шалгана — валютын баримтын дүн ханшаар үржинэ.
   const baseTotal =
     effectiveCurrency !== "MNT"
-      ? total * (Number(input.exchangeRate) || 0)
+      ? total * (Number(exchangeRate) || 0)
       : total;
   let postNow = false;
   let note = "";
@@ -3492,8 +3516,8 @@ async function runCreateArap(
     counterpartyId: counterparty.id,
     date: input.date,
     dueDate,
-    currency: input.currency || poDetail?.currency,
-    exchangeRate: input.exchangeRate,
+    currency: effectiveCurrency,
+    exchangeRate: effectiveCurrency === "MNT" ? undefined : exchangeRate,
     controlAccountNumber: control.code,
     description: input.description,
     purchaseOrderId,
@@ -3504,7 +3528,7 @@ async function runCreateArap(
 
   const label = isAp ? "Өглөгийн нэхэмжлэх" : "Авлагын нэхэмжлэл";
   return {
-    resultText: `${label} үүслээ. Дугаар: ${documentNo}, харилцагч: ${counterparty.name}, дүн: ${fmt(total)}₮${vatNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${purchaseOrderNo ? ` · захиалга ${purchaseOrderNo} (Dr өглөгийн түр данс; орлого нь хүлээн авалтаас)` : ""}`,
+    resultText: `${label} үүслээ. Дугаар: ${documentNo}, харилцагч: ${counterparty.name}, дүн: ${fmt(total)} ${effectiveCurrency === "MNT" ? "₮" : effectiveCurrency}${rateNote}${vatNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${purchaseOrderNo ? ` · захиалга ${purchaseOrderNo} (Dr өглөгийн түр данс; орлого нь хүлээн авалтаас)` : ""}`,
     action: {
       kind: "arap",
       id,
@@ -5722,6 +5746,24 @@ async function runPayArap(
     else postNow = true;
   }
 
+  // ENT-037: валютын данснаас төлөхөд ханш өгөөгүй бол төлбөрийн ӨДРИЙН
+  // албан ханш (ИЛ тэмдэглэнэ — банкны бодит ханш өөр бол exchangeRate өгнө).
+  // Олдохгүй бол ЗОХИОХГҮЙ — аль параметр дутууг нэрлэж татгалзана.
+  let exchangeRate = input.exchangeRate;
+  let rateNote = "";
+  if (cashAccount.currency !== "MNT" && !(Number(exchangeRate) > 0)) {
+    try {
+      const lookup = await getOfficialRateForDate(cashAccount.currency, input.date);
+      exchangeRate = lookup.rate;
+      rateNote = `, ханш ${lookup.rate} (Монголбанкны албан ханш ${lookup.rateDate} — банкны бодит ханш өөр бол exchangeRate-ээр дахин)`;
+    } catch {
+      throw codedError(
+        "RATE_REQUIRED",
+        `${cashAccount.name} (${cashAccount.currency}) данснаас төлөхөд ${input.date}-ны ханш олдсонгүй — exchangeRate (1 ${cashAccount.currency} = ? ₮) параметрийг өгнө үү`
+      );
+    }
+  }
+
   const { id } = unwrapAction(await createCashDocument({
     documentType: isAr ? "receipt" : "payment",
     date: input.date,
@@ -5732,13 +5774,14 @@ async function runPayArap(
     description: `${document.documentNo} төлөлт`,
     amount,
     // Валютын данснаас төлөхөд createCashDocument ханш (>0) шаарддаг.
-    exchangeRate: input.exchangeRate,
+    exchangeRate,
     arApDocumentId: document.id,
     postNow,
   }));
 
+  const unit = document.currency === "MNT" ? "₮" : ` ${document.currency}`;
   return {
-    resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}₮, ${cashAccount.name}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+    resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}${unit}, ${cashAccount.name}${rateNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
     action: {
       kind: "cash",
       id,
@@ -6776,11 +6819,62 @@ async function runReconcileModules(
         where: eq(cashFxRevaluations.organizationId, orgId),
       }),
     ]);
+    // ENT-020: валютын дансны нээлт нь ВАЛЮТААР — ₮-өөр нэмэхийн тулд
+    // нээлтийн журналын бодит ₮ эсвэл нээлтийн ханш хэрэгтэй (зохиохгүй).
+    const openingVouchers = await db
+      .select({
+        cashAccountId: journalLines.cashAccountId,
+        debit: journalLines.debit,
+        credit: journalLines.credit,
+        date: journalVouchers.date,
+        currency: journalVouchers.currency,
+        documentNo: journalVouchers.documentNo,
+      })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          inArray(journalVouchers.status, ["posted", "reversed"]),
+          sql`${journalVouchers.externalRef} like 'cash-opening:%'`
+        )
+      );
+    const openingVoucherMnt = new Map<string, number>();
+    const accountCurrency = new Map(accounts.map((account) => [account.id, account.currency]));
+    for (const row of openingVouchers) {
+      if (!row.cashAccountId || row.date > input.to) continue;
+      // ENT-011-ийн өмнөх журнал: валютын дансны нээлтийг ханшгүй ₮ гэж бичсэн
+      // — түүний ₮-ийг үнэн гэж тооцвол тулгалт «OK» мэт худал харагдана.
+      const currency = accountCurrency.get(row.cashAccountId) ?? "MNT";
+      if (currency !== "MNT" && row.currency === "MNT") {
+        problems.push(
+          `Касс: ${row.documentNo ?? "нээлтийн журнал"} нь ${currency} дансны нээлтийг ханшгүй ₮-өөр бичсэн — буцаагаад fix_cash_opening_balance {date, exchangeRate}-ээр FC × ханшаар дахин бичнэ`
+        );
+        continue;
+      }
+      openingVoucherMnt.set(
+        row.cashAccountId,
+        (openingVoucherMnt.get(row.cashAccountId) ?? 0) + Number(row.debit) - Number(row.credit)
+      );
+    }
+    const openingMnt = new Map<string, number | null>(
+      accounts.map((account) => [
+        account.id,
+        cashOpeningMnt({
+          currency: account.currency,
+          openingBalance: Number(account.openingBalance ?? 0),
+          openingRate: account.openingRate === null ? null : Number(account.openingRate),
+          openingVoucherMnt: openingVoucherMnt.get(account.id) ?? null,
+        }),
+      ])
+    );
     const moduleBalance = new Map<string, number>(
+      accounts.map((account) => [account.id, openingMnt.get(account.id) ?? 0])
+    );
+    // Валютын дүнгээр (FC) — тайлагналд харуулна (нээлт нь валютаар).
+    const fcBalance = new Map<string, number>(
       accounts.map((account) => [account.id, Number(account.openingBalance ?? 0)])
     );
-    // Валютын дүнгээр (FC) — тайлагналд харуулна.
-    const fcBalance = new Map<string, number>();
     for (const doc of documents) {
       if (doc.date > input.to) continue;
       const amount = Number(doc.baseAmount ?? doc.amount);
@@ -6833,11 +6927,22 @@ async function runReconcileModules(
           ? ` + тэгшитгэл ${fmt(fxTotal)} (FC ${fmt(fcBalance.get(account.id) ?? Number(latest.foreignBalance))} × ханш ${Number(latest.closingRate)})`
           : "";
       const diff = Math.round((expected - gl) * 100) / 100;
+      const fcText =
+        account.currency === "MNT" ? "" : ` [${fmt(fcBalance.get(account.id) ?? 0)} ${account.currency}]`;
+      if (openingMnt.get(account.id) === null) {
+        lines.push(
+          `  ТОДОРХОЙГҮЙ ${account.name}${fcText}: нээлтийн үлдэгдэл ${fmt(Number(account.openingBalance))} ${account.currency}-ийн ₮ дүн/ханш алга — ₮-өөр тулгах боломжгүй`
+        );
+        problems.push(
+          `Касс "${account.name}": валютын нээлт (${fmt(Number(account.openingBalance))} ${account.currency}) ханшгүй — fix_cash_opening_balance {date, exchangeRate}-ээр нээлтийн журналыг FC × ханшаар бичнэ (ханш өгөөгүй бол нээлтийн огнооны албан ханш)`
+        );
+        continue;
+      }
       if (Math.abs(diff) > EPS) {
         lines.push(
-          `  ЗӨРҮҮ ${account.name}: модуль ${fmt(subledger)}${fxNote} = ${fmt(expected)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
+          `  ЗӨРҮҮ ${account.name}${fcText}: модуль ${fmt(subledger)}${fxNote} = ${fmt(expected)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
         );
-        const opening = Number(account.openingBalance ?? 0);
+        const opening = openingMnt.get(account.id) ?? 0;
         const drafts = draftCount.get(account.id) ?? 0;
         if (Math.abs(opening) > 0.005 && Math.abs(diff - opening) <= EPS)
           problems.push(
@@ -6853,7 +6958,7 @@ async function runReconcileModules(
           );
       } else
         lines.push(
-          `  OK ${account.name}: ${fmt(subledger)}${fxNote}${Math.abs(fxTotal) > 0.005 ? ` = ${fmt(expected)}` : ""}`
+          `  OK ${account.name}${fcText}: ${fmt(subledger)}${fxNote}${Math.abs(fxTotal) > 0.005 ? ` = ${fmt(expected)}` : ""}`
         );
     }
     sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
@@ -8779,7 +8884,7 @@ async function runGetPurchaseOrder(
           "НЭХЭМЖЛЭХҮҮД:",
           ...detail.invoices.map(
             (invoice) =>
-              `  ${invoice.date} · ${invoice.documentNo} · ${fmt(invoice.totalAmount)} ${detail.currency} (≈${fmt(invoice.baseTotalAmount)}₮) · ${ARAP_STATUS_LABELS[invoice.status] ?? invoice.status}${invoice.isCostInvoice ? " · нэмэлт зардал" : ""} · ID ${invoice.id.slice(0, 8)}`
+              `  ${invoice.date} · ${invoice.documentNo} · ${fmt(invoice.totalAmount)} ${invoice.currency} (≈${fmt(invoice.baseTotalAmount)}₮) · ${ARAP_STATUS_LABELS[invoice.status] ?? invoice.status}${invoice.isCostInvoice ? " · нэмэлт зардал" : ""} · ID ${invoice.id.slice(0, 8)}`
           ),
         ].join("\n")
       : "НЭХЭМЖЛЭХҮҮД: алга (create_ap_invoice_from_po)"

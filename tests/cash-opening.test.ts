@@ -59,3 +59,34 @@ test("ENT-012: эхний үлдэгдэлтэй дансанд нээлтийн
     /эерэг/
   );
 });
+
+import { cashOpeningMnt } from "../lib/cash/opening";
+import { fxCarryingAmount } from "../lib/cash/reconciliation";
+
+test("ENT-020: валютын нээлтийн ₮ — журнал → ханш → тодорхойгүй (зохиохгүй)", () => {
+  assert.equal(cashOpeningMnt({ currency: "MNT", openingBalance: 1_500_000 }), 1_500_000);
+  assert.equal(
+    cashOpeningMnt({ currency: "USD", openingBalance: 12_000, openingVoucherMnt: 41_045_520, openingRate: 1 }),
+    41_045_520
+  );
+  assert.equal(cashOpeningMnt({ currency: "USD", openingBalance: 12_000, openingRate: 3420.46 }), 41_045_520);
+  assert.equal(cashOpeningMnt({ currency: "USD", openingBalance: 12_000 }), null);
+  assert.equal(cashOpeningMnt({ currency: "USD", openingBalance: 0 }), 0);
+});
+
+test("ENT-023: тэгшитгэлийн carrying — ганц дансанд GL-ийн бүх мөр, хуваалцсан бол тэмдэгтэй л", () => {
+  const lines = [
+    { accountNumber: "000.000000.11000002.00.0000.000.000.00.GL.000", cashAccountId: null, debit: 41_045_520, credit: 0 },
+    { accountNumber: "11000002", cashAccountId: "usd", debit: 100_000, credit: 0 },
+    { accountNumber: "11000002", cashAccountId: "other", debit: 5_000, credit: 0 },
+    { accountNumber: "41000001", cashAccountId: null, debit: 0, credit: 41_045_520 },
+  ];
+  assert.deepEqual(
+    fxCarryingAmount({ lines, cashAccountId: "usd", glAccountNumber: "11000002", glSharedWithOtherCashAccounts: false }),
+    { carryingAmount: 41_145_520, untaggedAmount: 0, untaggedLines: 0 }
+  );
+  assert.deepEqual(
+    fxCarryingAmount({ lines, cashAccountId: "usd", glAccountNumber: "11000002", glSharedWithOtherCashAccounts: true }),
+    { carryingAmount: 100_000, untaggedAmount: 41_045_520, untaggedLines: 1 }
+  );
+});

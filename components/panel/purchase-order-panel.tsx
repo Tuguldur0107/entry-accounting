@@ -898,12 +898,15 @@ function PurchaseOrderBody({
       { headerName: "Дугаар", field: "documentNo", minWidth: 150, cellClass: "font-mono text-xs" },
       { headerName: "Огноо", field: "date", width: 110, cellClass: "font-mono text-xs" },
       {
-        headerName: `Дүн (${detail?.currency ?? "MNT"})`,
+        headerName: "Дүн (валют)",
         field: "totalAmount",
-        width: 140,
+        width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        // Нэхэмжлэх бүр ӨӨРИЙН валюттай (ENT-071 — гаалийн ₮ нэхэмжлэх USD
+        // гэж харагддаг байв).
+        valueFormatter: (params) =>
+          `${fmtMnt(Number(params.value ?? 0))} ${params.data?.currency ?? ""}`.trim(),
       },
       {
         headerName: "Дүн (MNT)",
@@ -929,7 +932,7 @@ function PurchaseOrderBody({
           String(params.value ?? ""),
       },
     ],
-    [detail?.currency]
+    []
   );
 
   const costColumns = useMemo<ColDef<PurchaseOrderDetail["costLines"][number]>[]>(

@@ -83,3 +83,26 @@ export function planCashOpeningVoucher(input: {
     cashIsDebit: opening > 0,
   };
 }
+
+/**
+ * Кассын дансны нээлтийн үлдэгдлийн ₮ дүн (тулгалтад, ENT-020). Валютын
+ * дансны `openingBalance` нь ВАЛЮТААР тул ₮-тэй шууд нэмэхгүй:
+ *   нээлтийн журнал (бодит бичигдсэн ₮) → гараар өгсөн нээлтийн ханш → null
+ * null = тодорхойгүй — ханш ЗОХИОХГҮЙ, дуудагч ИЛ мэдэгдэнэ.
+ */
+export function cashOpeningMnt(input: {
+  currency: string;
+  openingBalance: number;
+  openingRate?: number | null;
+  /** Нээлтийн журналын кассын мөрийн ₮ (Дт − Кт) — байхгүй бол null. */
+  openingVoucherMnt?: number | null;
+}): number | null {
+  const opening = Number(input.openingBalance) || 0;
+  const currency = input.currency.trim().toUpperCase() || "MNT";
+  if (currency === "MNT" || Math.abs(opening) < 0.005) return opening;
+  if (input.openingVoucherMnt !== null && input.openingVoucherMnt !== undefined)
+    return round2(input.openingVoucherMnt);
+  const rate = Number(input.openingRate);
+  if (Number.isFinite(rate) && rate > 0) return round2(opening * rate);
+  return null;
+}

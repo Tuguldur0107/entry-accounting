@@ -42,7 +42,12 @@ import {
   planCashOpeningVoucher,
 } from "@/lib/cash/opening";
 import type { CashDocumentView } from "@/lib/cash/types";
-import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
+import {
+  cashDocumentEffect,
+  calculateFxRevaluation,
+  fxCarryingAmount,
+  glMainNumber,
+} from "@/lib/cash/reconciliation";
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
 import { buildSettlementPostingLines } from "@/lib/cash/settlement-lines";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
@@ -1835,15 +1840,38 @@ async function postCashFxRevaluationCore(data: {
       (sum, document) => sum + cashDocumentEffect(document, account.id),
       0
     );
-  let carryingAmount = 0;
+  // ENT-023: GL-ийн ₮ дүн — тэмдэггүй нээлтийн журнал ч тооцогдоно.
+  const sharingAccounts = await db.query.cashAccounts.findMany({
+    where: and(
+      eq(cashAccounts.organizationId, orgId),
+      eq(cashAccounts.glAccountNumber, account.glAccountNumber)
+    ),
+    columns: { id: true },
+  });
+  const relevantLines = vouchers
+    .filter((voucher) => !(replaceTarget && voucher.id === replaceTarget.voucherId))
+    .flatMap((voucher) => voucher.lines);
+  const carrying = fxCarryingAmount({
+    lines: relevantLines.map((line) => ({
+      accountNumber: line.accountNumber,
+      cashAccountId: line.cashAccountId,
+      debit: Number(line.debit),
+      credit: Number(line.credit),
+    })),
+    cashAccountId: account.id,
+    glAccountNumber: account.glAccountNumber,
+    glSharedWithOtherCashAccounts: sharingAccounts.length > 1,
+  });
+  if (carrying.untaggedLines > 0 && Math.abs(carrying.untaggedAmount) > 0.005)
+    throw new Error(
+      `[UNTAGGED_CASH_LINES] ${account.glAccountNumber} GL дансыг ${sharingAccounts.length} мөнгөн данс хуваалцдаг бөгөөд кассын дансгүй ${carrying.untaggedLines} мөр (${carrying.untaggedAmount}₮) байна — аль дансных нь тодорхойгүй тул тэгшитгэл бодохгүй. Тэдгээр журналыг кассын баримтаар (эсвэл тусдаа GL дансаар) бүртгэнэ үү`
+    );
+  const carryingAmount = carrying.carryingAmount;
   let templateCode: string | undefined;
-  for (const voucher of vouchers) {
-    if (replaceTarget && voucher.id === replaceTarget.voucherId) continue;
-    for (const line of voucher.lines) {
-      if (line.cashAccountId !== account.id) continue;
-      carryingAmount += Number(line.debit) - Number(line.credit);
-      templateCode ??= line.accountNumber;
-    }
+  for (const line of relevantLines) {
+    if (line.cashAccountId !== account.id && glMainNumber(line.accountNumber) !== account.glAccountNumber)
+      continue;
+    templateCode ??= line.accountNumber;
   }
 
   const { revaluedAmount, adjustmentAmount } = calculateFxRevaluation(
