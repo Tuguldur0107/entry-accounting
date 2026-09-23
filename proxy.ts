@@ -32,6 +32,11 @@ export default auth((req) => {
 
 export const config = {
   // .well-known — OAuth discovery. /invoice/[token] — харилцагчид илгээсэн
-  // нэхэмжлэхийн НЭЭЛТТЭЙ линк тул нэвтрэлт шаардахгүй.
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|\\.well-known|invoice).*)"],
+  // нэхэмжлэхийн НЭЭЛТТЭЙ линк тул нэвтрэлт шаардахгүй. Таб/апп дүрс
+  // (favicon.ico, icon.svg, apple-icon.png) нэвтрэлтгүй хуудсанд ч
+  // (/login, /register) ачаалагдах ёстой — редирект хийвэл browser
+  // login HTML-ийг дүрс гэж авч таб дүрсгүй үлддэг.
+  matcher: [
+    "/((?!api|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|\\.well-known|invoice).*)",
+  ],
 };
