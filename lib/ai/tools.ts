@@ -173,10 +173,12 @@ import { unwrapAction } from "@/lib/action-result";
 import {
   closeShift,
   createPosSale,
+  deletePaymentMethod,
   getPosSaleDetail,
   openShift,
   quotePosSale,
   returnPosSale,
+  savePaymentMethod,
   type SaleLineInput,
   type SaleQuoteInput,
 } from "@/lib/actions/pos";
@@ -186,7 +188,7 @@ import {
   loadSaleViews,
   loadShiftViews,
 } from "@/lib/pos/load-data";
-import { PAYMENT_KIND_LABELS, SALE_STATUS_LABELS } from "@/lib/pos/constants";
+import { PAYMENT_KIND_LABELS, PAYMENT_KINDS, SALE_STATUS_LABELS, type PaymentKind } from "@/lib/pos/constants";
 import { lookupEbarimtTin, resendEbarimt } from "@/lib/actions/ebarimt";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
@@ -2772,6 +2774,42 @@ export const AI_TOOLS: AiToolDef[] = [
     description:
       "POS-ийн одоогийн байдал: нээлттэй ээлжүүд (касс, агуулах, дугаар), идэвхтэй төлбөрийн хэлбэрүүд (код, төрөл), НӨАТ төлөгч эсэх, тохиргооны товч. Борлуулалт бүртгэхийн ӨМНӨ үүнийг уншиж ээлж нээлттэй эсэх, төлбөрийн хэлбэрийн кодыг мэднэ.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "save_pos_payment_method",
+    description:
+      "POS-ийн ТӨЛБӨРИЙН ХЭЛБЭР үүсгэх / засах (лавлах өгөгдөл — GL бичилт үүсгэхгүй). Кодоор олдвол ЗАСНА, үгүй бол ШИНЭЭР үүснэ. Зөвхөн өгсөн талбар өөрчлөгдөнө. eBarimt код оноох, буруу хэлбэрийг идэвхгүй болгох, QPay-ийн провайдер тавихад ашиглана. Хэлбэрийн жагсаалт get_pos_status-д.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "Хэлбэрийн код (ТОМ үсэг) — байвал засна, үгүй бол үүсгэнэ" },
+        name: { type: "string", description: "Нэр (шинээр үүсгэхэд ЗААВАЛ)" },
+        kind: {
+          type: "string",
+          enum: [...PAYMENT_KINDS],
+          description: "Бүртгэлийн замыг шийднэ (шинээр үүсгэхэд ЗААВАЛ) — cash=бэлэн, card/ewallet/bnpl=түр данстай, credit=зээл",
+        },
+        cashAccount: { type: "string", description: "Мөнгө хүлээн авах касс/банк/түр дансны НЭР (cash/cash_fx/card/ewallet/bnpl/bank_transfer төрөлд ЗААВАЛ)" },
+        ebarimtCode: { type: "string", description: "eBarimt-ийн төлбөрийн код (ТЕГ: CASH, PAYMENT_CARD, QPAY …) — хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй" },
+        provider: { type: "string", description: "ewallet-ийн провайдер: \"qpay\" бол төлбөр QR intent-ээр батлагдана; бусад төрөлд хоосон" },
+        requiresReference: { type: "boolean", description: "Лавлах дугаар заавал эсэх (терминалын слип)" },
+        allowsRefund: { type: "boolean", description: "Буцаалтад ашиглах эсэх" },
+        isActive: { type: "boolean", description: "Идэвхтэй эсэх — false бол кассын дэлгэцэд гарахгүй" },
+        sortOrder: { type: "number", description: "Эрэмбэ (бага нь урд)" },
+        feePercent: { type: "number", description: "Шимтгэл % (зөвхөн мэдээлэл)" },
+      },
+      required: ["code"],
+    },
+  },
+  {
+    name: "delete_pos_payment_method",
+    description:
+      "POS-ийн ТӨЛБӨРИЙН ХЭЛБЭР устгана (буруу үүсгэсэн, давхардсан мөр). Түүхэн борлуулалтад ашиглагдсан хэлбэр УСТАХГҮЙ — тайлан/баримт эвдрэхээс сэргийлж ИДЭВХГҮЙ болно (хариултад ил хэлнэ).",
+    inputSchema: {
+      type: "object",
+      properties: { code: { type: "string", description: "Хэлбэрийн код (get_pos_status-оос)" } },
+      required: ["code"],
+    },
   },
   {
     name: "open_pos_shift",
@@ -9483,6 +9521,88 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
   return { resultText: lines.join("\n") };
 }
 
+async function runSavePosPaymentMethod(
+  orgId: string,
+  input: {
+    code: string;
+    name?: string;
+    kind?: string;
+    cashAccount?: string;
+    ebarimtCode?: string;
+    provider?: string;
+    requiresReference?: boolean;
+    allowsRefund?: boolean;
+    isActive?: boolean;
+    sortOrder?: number;
+    feePercent?: number;
+  }
+): Promise<AiToolResult> {
+  const code = input.code.trim().toUpperCase();
+  if (!code) throw codedError("VALIDATION", "Хэлбэрийн код оруулна уу");
+  const methods = await loadPaymentMethodViews(orgId);
+  const existing = methods.find((method) => method.code === code) ?? null;
+  if (!existing && !input.name?.trim())
+    throw codedError("VALIDATION", `"${code}" хэлбэр байхгүй — шинээр үүсгэхэд name ЗААВАЛ`);
+  const kind = (input.kind?.trim() || existing?.kind) as PaymentKind | undefined;
+  if (!kind || !PAYMENT_KINDS.includes(kind))
+    throw codedError("VALIDATION", `Төлбөрийн төрөл буруу — ${PAYMENT_KINDS.join(" | ")}`);
+
+  // Касс/банк/түр дансыг НЭРЭЭР олно — ID таамаглахгүй (лавлах дүрэм).
+  let cashAccountId = existing?.cashAccountId ?? null;
+  if (input.cashAccount?.trim()) {
+    const accounts = await db.query.cashAccounts.findMany({
+      where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
+      columns: { id: true, name: true },
+    });
+    cashAccountId = requireSingle(
+      nameMatches(accounts, (entry) => entry.name, input.cashAccount),
+      (entry) => entry.name,
+      "касс/банкны данс",
+      input.cashAccount
+    ).id;
+  }
+
+  unwrapAction(
+    await savePaymentMethod({
+      id: existing?.id ?? null,
+      code,
+      name: input.name?.trim() || existing?.name || code,
+      kind,
+      cashAccountId,
+      requiresReference: input.requiresReference ?? existing?.requiresReference ?? false,
+      allowsChange: existing?.allowsChange ?? true,
+      allowsRefund: input.allowsRefund ?? existing?.allowsRefund ?? true,
+      feePercent: input.feePercent ?? existing?.feePercent ?? null,
+      ebarimtCode:
+        input.ebarimtCode === undefined ? (existing?.ebarimtCode ?? null) : input.ebarimtCode.trim() || null,
+      provider: input.provider === undefined ? (existing?.provider ?? null) : input.provider.trim() || null,
+      isActive: input.isActive ?? existing?.isActive ?? true,
+      sortOrder: input.sortOrder ?? existing?.sortOrder ?? 0,
+    })
+  );
+  return {
+    resultText: `${existing ? "Шинэчлэгдлээ" : "Үүслээ"}: ${code} · ${PAYMENT_KIND_LABELS[kind]}${
+      input.ebarimtCode ? ` · eBarimt ${input.ebarimtCode.trim().toUpperCase()}` : ""
+    }${input.isActive === false ? " · ИДЭВХГҮЙ" : ""}`,
+  };
+}
+
+async function runDeletePosPaymentMethod(
+  orgId: string,
+  input: { code: string }
+): Promise<AiToolResult> {
+  const code = input.code.trim().toUpperCase();
+  const methods = await loadPaymentMethodViews(orgId);
+  const method = methods.find((entry) => entry.code === code);
+  if (!method) throw codedError("NOT_FOUND", `"${input.code}" төлбөрийн хэлбэр олдсонгүй`);
+  const { deactivated } = unwrapAction(await deletePaymentMethod(method.id));
+  return {
+    resultText: deactivated
+      ? `${code} (${method.name}) нь түүхэн борлуулалтад ашиглагдсан тул устгаагүй — ИДЭВХГҮЙ болголоо (тайлан, баримт хэвээр)`
+      : `${code} (${method.name}) төлбөрийн хэлбэр устлаа`,
+  };
+}
+
 async function runOpenPosShift(
   orgId: string,
   input: { cashAccount: string; warehouseCode: string; openingFloat?: number; fxRates?: Record<string, number>; note?: string }
@@ -10284,6 +10404,10 @@ async function dispatchAiTool(
         return await runGetLandedCostSummary(orgId, args);
       case "get_pos_status":
         return await runGetPosStatus(orgId);
+      case "save_pos_payment_method":
+        return await runSavePosPaymentMethod(orgId, args);
+      case "delete_pos_payment_method":
+        return await runDeletePosPaymentMethod(orgId, args);
       case "open_pos_shift":
         return await runOpenPosShift(orgId, args);
       case "close_pos_shift":
