@@ -179,6 +179,64 @@ export const platformSupportSessions = pgTable(
   ]
 );
 
+/**
+ * МЭДЛЭГИЙН САН — IFRS / татвар / цалин / workflow (docs/knowledge/00-proposal.md).
+ * organizationId БАЙХГҮЙ: нийтийн лавлах (exchange_rates-тэй ижил зарчим).
+ * Мөр = нэг сэдвийн НЭГ хэсэг (`## ` толгой бүр); AI tool хэсгээр л уншдаг
+ * тул сэдэв бүтнээрээ нэг хариунд хэзээ ч гардаггүй (D3). Эх сурвалж нь
+ * preDeploy-д scripts/seed-knowledge.mjs (KNOWLEDGE_DIR) — markdown файл
+ * хэрэглэгчид хэзээ ч очихгүй; хандалтыг Console `knowledge` боломжоор
+ * байгууллага бүрд асаана (D2).
+ */
+export const knowledgeArticles = pgTable(
+  "knowledge_articles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Сэдэв — `ifrs/ias-16`, `tax/vat`, `workflow/vat-return` */
+    slug: text("slug").notNull(),
+    /** Хэсэг — `overview` эсвэл `## ` толгойн slug */
+    section: text("section").notNull(),
+    /** ifrs | tax | mapping | payroll | workflow | guardrail | practice | skill */
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    heading: text("heading").notNull(),
+    body: text("body").notNull(),
+    /** «IAS 16 / НББОУС 16», хуулийн нэр — null бол ишлэлгүй */
+    citation: text("citation"),
+    /** Хамаарах модулиуд (frontmatter `modules`) */
+    modules: jsonb("modules").$type<string[]>().notNull().default([]),
+    sourcePath: text("source_path").notNull(),
+    /** Эх файлын sha256 — seed өөрчлөгдөөгүй файлыг алгасна */
+    checksum: text("checksum").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("knowledge_articles_slug_section_ux").on(t.slug, t.section),
+    index("knowledge_articles_category_ix").on(t.category),
+  ]
+);
+
+/**
+ * Хэсэг унших бүрийн бүртгэл — өдрийн квот (D5, DB суурьтай тул олон
+ * instance-д ч зөв) + бөөнөөр татах оролдлогыг илрүүлэх (D6). Аудит БИШ:
+ * харилцагчийн /settings/audit-ыг AI-ийн уншилтаар бөглөхгүй.
+ */
+export const knowledgeReads = pgTable(
+  "knowledge_reads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    slug: text("slug").notNull(),
+    section: text("section").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("knowledge_reads_org_time_ix").on(t.organizationId, t.createdAt)]
+);
+
 export type MembershipRole = "owner" | "admin" | "accountant" | "viewer";
 
 export const memberships = pgTable(
@@ -4281,3 +4339,5 @@ export type Notification = typeof notifications.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type AiSuggestionLog = typeof aiSuggestionLog.$inferSelect;
 export type AiSuggestionOutcome = typeof aiSuggestionOutcome.$inferSelect;
+export type KnowledgeArticle = typeof knowledgeArticles.$inferSelect;
+export type KnowledgeRead = typeof knowledgeReads.$inferSelect;

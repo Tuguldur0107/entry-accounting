@@ -119,6 +119,23 @@ import {
 } from "@/lib/actions/organization-profile";
 import { getBillingOverview } from "@/lib/actions/billing";
 import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
+import { requireFeature } from "@/lib/billing/guards";
+import {
+  KNOWLEDGE_CATEGORIES,
+  KNOWLEDGE_DAILY_READ_LIMIT,
+  KNOWLEDGE_FEATURE,
+  formatSection,
+  formatTopicIndex,
+  isKnowledgeCategory,
+  normalizeSectionSlug,
+  normalizeTopicSlug,
+} from "@/lib/knowledge/catalog";
+import {
+  countKnowledgeReadsToday,
+  listKnowledgeTopics,
+  readKnowledgeSection,
+  recordKnowledgeRead,
+} from "@/lib/knowledge/store";
 import {
   FEATURE_KEYS,
   FEATURE_LABELS,
@@ -309,10 +326,19 @@ function codedError(code: string, message: string): Error {
   return new Error(`[${code}] ${message}`);
 }
 
+/** Tool аль замаар нээгдэх вэ — өгөөгүй бол бүгдэд (чат, MCP, REST). */
+export type AiToolSurface = "chat" | "mcp" | "rest";
+
 export interface AiToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /**
+   * Хязгаарлагдсан зам — ж: мэдлэгийн сан зөвхөн ["chat", "mcp"]
+   * (docs/knowledge/00-proposal.md D4: REST нь скриптээр бөөнөөр татах зам).
+   * Undefined = бүх замд. Шүүлт: aiToolsForSurface().
+   */
+  surfaces?: AiToolSurface[];
 }
 
 /**
@@ -2116,6 +2142,38 @@ export const AI_TOOLS: AiToolDef[] = [
     description:
       "Идэвхтэй байгууллагын багц (trial/standard/platform/enterprise), статус, бичих эрх нээлттэй эсэх ба шалтгаан, суудал (ашигласан/хязгаар), боломжууд (eBarimt, AI, MCP, REST API, олон компани, custom/), trial/grace-ийн үлдсэн хоног. ЗӨВХӨН УНШИНА — багц засах нь апп дотор байхгүй (Entry Console-оос). Хэрэглэгч [SUBSCRIPTION_READ_ONLY] / [FEATURE_NOT_IN_PLAN] / [SEAT_LIMIT] алдаа авсан, «яагаад бичиж чадахгүй», «багц маань юу вэ» гэвэл ЭХЛЭЭД үүгээр шалгана.",
     inputSchema: { type: "object", properties: {} },
+  },
+
+  // ── Мэдлэгийн сан (docs/knowledge/00-proposal.md) — зөвхөн чат + MCP ─────
+  {
+    name: "list_knowledge_topics",
+    description:
+      "Entry-ийн мэргэжлийн мэдлэгийн сангийн СЭДВИЙН ЖАГСААЛТ — IFRS/НББОУС стандартууд (IAS 1…IFRS 16), Монголын татварын хууль (НӨАТ, ААНОАТ, ХАОАТ, суутган…), цалин/НДШ, ажлын урсгал, хамгаалалтын дүрэм, стандарт↔модулийн уялдаа. Зөвхөн гарчиг + хэсгийн нэрс буцаана (агуулга биш). Нягтлан бодох, IFRS, татварын онолын асуултад ЭХЛЭЭД үүгээр сэдвээ олоод read_knowledge_section-оор уншина. Багцад ороогүй бол [FEATURE_NOT_IN_PLAN].",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: ["ifrs", "tax", "mapping", "payroll", "workflow", "guardrail", "practice", "skill"],
+          description: "Ангиллаар шүүх (сонголтоор)",
+        },
+      },
+    },
+    surfaces: ["chat", "mcp"],
+  },
+  {
+    name: "read_knowledge_section",
+    description:
+      "Мэдлэгийн сангийн НЭГ хэсгийг уншина — эх сурвалжийн ишлэлтэй (ж: «IAS 16 / НББОУС 16»). topic = list_knowledge_topics-ийн slug (ifrs/ias-16, tax/vat, workflow/vat-return…), section = тэр сэдвийн хэсгийн нэр (өгөөгүй бол overview). Хариултдаа ишлэлээ ЗААВАЛ дурд; IFRS ≠ татварын treatment зөрвөл ялгааг ил хэл. Байгууллагад өдөрт " + String(200) + " хэсэг уншина — хэтэрвэл [KNOWLEDGE_LIMIT].",
+    inputSchema: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "Сэдвийн slug — ifrs/ias-16, tax/vat" },
+        section: { type: "string", description: "Хэсгийн нэр (list_knowledge_topics-оос); хоосон = overview" },
+      },
+      required: ["topic"],
+    },
+    surfaces: ["chat", "mcp"],
   },
 
   // ── Аудит ба үнэлгээ ──────────────────────────────────────────────────────
@@ -7312,6 +7370,56 @@ async function runGetOrganizationProfile(): Promise<AiToolResult> {
 }
 
 /** Багц, төлбөр — гишүүн бүр уншина (docs/billing §5); засах нь Console-д. */
+// ── Мэдлэгийн сан (docs/knowledge/00-proposal.md) ──────────────────────────
+// Хандалт = Console-оос асаасан `knowledge` боломж (D2); хэсгээр л уншина (D3);
+// өдрийн квот DB-д тоологдоно (D5); уншилт бүр knowledge_reads-д (D6) —
+// аудит БИШ (харилцагчийн /settings/audit-ыг бөглөхгүй).
+
+async function assertKnowledgeAccess(orgId: string): Promise<void> {
+  await requireFeature(orgId, KNOWLEDGE_FEATURE);
+}
+
+async function runListKnowledgeTopics(
+  orgId: string,
+  args: { category?: unknown }
+): Promise<AiToolResult> {
+  await assertKnowledgeAccess(orgId);
+  const category = isKnowledgeCategory(args?.category) ? args.category : undefined;
+  if (args?.category !== undefined && args?.category !== "" && !category)
+    throw new Error(
+      `[VALIDATION] category танигдсангүй: ${String(args.category)} — ${KNOWLEDGE_CATEGORIES.join(" | ")}`
+    );
+  const topics = await listKnowledgeTopics(category);
+  return { resultText: formatTopicIndex(topics, category) };
+}
+
+async function runReadKnowledgeSection(
+  orgId: string,
+  userId: string,
+  args: { topic?: unknown; section?: unknown }
+): Promise<AiToolResult> {
+  await assertKnowledgeAccess(orgId);
+  const slug = normalizeTopicSlug(args?.topic);
+  if (!slug) throw new Error("[VALIDATION] topic шаардлагатай — list_knowledge_topics-ийн slug (ж: ifrs/ias-16)");
+  const section = normalizeSectionSlug(args?.section);
+  if (args?.section && !section)
+    throw new Error("[VALIDATION] section нь хэсгийн нэр байна (ж: overview, элэгдэл-depreciation)");
+
+  const used = await countKnowledgeReadsToday(orgId);
+  if (used >= KNOWLEDGE_DAILY_READ_LIMIT)
+    throw new Error(
+      `[KNOWLEDGE_LIMIT] Энэ байгууллага сүүлийн 24 цагт ${KNOWLEDGE_DAILY_READ_LIMIT} хэсэг уншсан — өдрийн квот дууслаа, маргааш үргэлжилнэ`
+    );
+
+  const view = await readKnowledgeSection(slug, section);
+  if (!view)
+    throw new Error(
+      `[KNOWLEDGE_NOT_FOUND] «${slug}${section ? `#${section}` : ""}» олдсонгүй — list_knowledge_topics-оор зөв slug/хэсгээ шалга`
+    );
+  await recordKnowledgeRead({ organizationId: orgId, userId, slug: view.slug, section: view.section });
+  return { resultText: formatSection(view) };
+}
+
 async function runGetBillingOverview(): Promise<AiToolResult> {
   const overview = await getBillingOverview();
   const ent = overview.entitlements;
@@ -9230,6 +9338,11 @@ export function allAiTools(): AiToolDef[] {
   return mergedTools;
 }
 
+/** Тухайн замд нээлттэй tools — surfaces өгөөгүй tool бүх замд (D4). */
+export function aiToolsForSurface(surface: AiToolSurface): AiToolDef[] {
+  return allAiTools().filter((tool) => !tool.surfaces || tool.surfaces.includes(surface));
+}
+
 
 // ── Мэдэгдэл (docs/notifications §4.6) ──────────────────────────────────────
 
@@ -9882,7 +9995,13 @@ function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
       console.error(`AI tool "${name}" internal error:`, caught);
       return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
     }
-    return { resultText: `Алдаа: ${message}` };
+    // EntitlementError г.м `code`-той алдаа: [CODE] угтварыг баталгаажуулна
+    // (REST parseError, модель хоёулаа үүнд найддаг — CLAUDE.md §9a).
+    const bracketed =
+      typeof errorCode === "string" && /^[A-Z][A-Z_]+$/.test(errorCode) && !message.startsWith("[")
+        ? `[${errorCode}] ${message}`
+        : message;
+    return { resultText: `Алдаа: ${bracketed}` };
   }
 }
 
@@ -10032,6 +10151,10 @@ async function dispatchAiTool(
         return await runUpdateOrganizationProfile(args);
       case "get_billing_overview":
         return await runGetBillingOverview();
+      case "list_knowledge_topics":
+        return await runListKnowledgeTopics(orgId, args);
+      case "read_knowledge_section":
+        return await runReadKnowledgeSection(orgId, userId, args);
       case "list_audit_events":
         return await runListAuditEvents(orgId, args);
       case "update_arap_document":

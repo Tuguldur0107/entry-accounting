@@ -29,7 +29,7 @@ import {
   type AiWriteMode,
 } from "@/lib/ai/models";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
-import { allAiTools, executeAiTool } from "@/lib/ai/tools";
+import { aiToolsForSurface, executeAiTool } from "@/lib/ai/tools";
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import { APP_VERSION } from "@/lib/version";
 
@@ -139,14 +139,17 @@ async function handleRequest(
           "батлах хязгаар (default 10 сая ₮, get_company_settings-ээс харагдана) " +
           "хүртэлх бичилт шууд батлагдана (нээлт/залруулга үргэлж ноорог). " +
           "Данс, харилцагч, бараа нэрээ мэдэхгүй бол эхлээд list_* tools-оор " +
-          "шалгана. Олон модуль дамнасан ажилд get_workflow_guide.",
+          "шалгана. Олон модуль дамнасан ажилд get_workflow_guide. IFRS, Монголын " +
+          "татвар, цалин, ажлын урсгалын ОНОЛЫН асуултад list_knowledge_topics → " +
+          "read_knowledge_section (эх сурвалжийн ишлэлтэй мэдлэгийн сан; багцад " +
+          "ороогүй бол [FEATURE_NOT_IN_PLAN] — Entry Console-оос нээнэ).",
       });
     }
     case "ping":
       return rpcResult(id, {});
     case "tools/list":
       return rpcResult(id, {
-        tools: allAiTools().map((tool) => ({
+        tools: aiToolsForSurface("mcp").map((tool) => ({
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,

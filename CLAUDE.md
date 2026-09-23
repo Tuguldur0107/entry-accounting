@@ -26,6 +26,7 @@
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
 | POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
+| Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д, Console-оос байгууллага бүрд нээнэ | ✅ фаз 1 | fork-ын хамгаалалт: хувийн repo (фаз 2), dedicated sync |
 
 ## Файлын бүтэц
 
@@ -1292,7 +1293,7 @@ tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргэ�
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 131 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 134 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -1318,6 +1319,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
 | eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
 | QPay | get_qpay_status (асаалттай/тохируулсан эсэх, бэлэн байдлын дутуу, мерчант id, нээлттэй QR, төлөгдсөн ч борлуулалт болоогүй — нууц буцахгүй); холбох нь ЗӨВХӨН вэбээс [QPay холбох] | аль ч горимд (унших) |
+| Мэдлэгийн сан | list_knowledge_topics (сэдвийн индекс — гарчиг + хэсгийн нэрс, ангиллаар), read_knowledge_section (НЭГ хэсэг, ≤3000 тэмдэгт, ишлэлтэй) — §9e; `surfaces: ["chat","mcp"]` тул REST-д ГАРАХГҮЙ; `requireFeature("knowledge")` (Console-оос байгууллага бүрд), 24ц/200 квот `[KNOWLEDGE_LIMIT]` | аль ч горимд (унших; журнал үүсгэхгүй) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -1548,6 +1550,42 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   `NOTIFICATIONS_TICKER=off` (in-process ticker унтраана), `RESEND_API_KEY` +
   `RESEND_FROM_EMAIL` (и-мэйл суваг), `TELEGRAM_BOT_TOKEN` (Telegram суваг)
 - Фаз 3 (SSE realtime, web push/PWA, approval workflow) — саналын §8
+
+### 9e. Мэдлэгийн сан — хэрэглэгчид хүргэх (Фаз 1 ХЭРЭГЖСЭН)
+
+Баримт: `docs/knowledge/00-proposal.md` (D1–D7 БАТЛАГДСАН 2026-09-23) — ЗААВАЛ уншина.
+`knowledge/` нь хөгжүүлэлтийн лавлагаа хэвээр; үүнээс гадна `01`, `02`,
+`04/skills` хавтас preDeploy-д `knowledge_articles`-д ачаалагдаж хэрэглэгчийн
+AI чат + MCP-д **хэсгээр** уншигдана. Хэрэглэгчид файл хэзээ ч очихгүй.
+
+```
+scripts/lib/knowledge-parse.mjs  ЦЭВЭР parser (тесттэй): frontmatter, `## ` = хэсэг,
+                                 slug (`ifrs/ias-16`), ангилал замаас, хамрах хүрээ
+scripts/seed-knowledge.mjs       preDeploy сүүлийн алхам: upsert (slug, section),
+                                 sha256 алгасалт, устсан файлын хэсэг хасагдана;
+                                 KNOWLEDGE_DIR байхгүй бол ЧИМЭЭГҮЙ алгасна (fork)
+lib/knowledge/catalog.ts         ЦЭВЭР (тесттэй): тогтмол, clampSection, formatTopicIndex /
+                                 formatSection, normalizeTopicSlug (path traversal татгалзана)
+lib/knowledge/store.ts           DB: list/read/countReadsToday/recordRead/stats — эрхийн
+                                 шалгалт БАЙХГҮЙ (нийтийн лавлах), дуудагч шалгана
+lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
+```
+
+Хатуу дүрмүүд:
+
+- **Хандалт ЗӨВХӨН багцын `knowledge` боломжоор** (`plans.ts`, аль ч багцад
+  default OFF, dedicated-д ч) — Entry Console `overrides.features.knowledge`
+  асаана. Кодод `if plan === …` ХОРИОТОЙ (billing дүрэм хэвээр)
+- **Хэсгээр л** — «бүгдийг буцаах» параметр, сэдвийг бүтнээр өгөх зам НЭМЭХГҮЙ;
+  хэсэг `KNOWLEDGE_MAX_SECTION_CHARS`-аар таслагдвал ИЛ хэлнэ
+- **`surfaces: ["chat", "mcp"]`** — REST-д ГАРАХГҮЙ (`aiToolsForSurface("rest")`
+  жагсаалт ба дуудлага хоёуланд шүүнэ). Шинэ tool consumer нэмбэл
+  `aiToolsForSurface(<зам>)`, `allAiTools()` шууд БИШ
+- Уншилт бүр `knowledge_reads` (аудит БИШ); 24ц квот `KNOWLEDGE_DAILY_READ_LIMIT`
+  DB-ээс тоологдоно — in-memory rate limit ХЭРЭГЛЭХГҮЙ (олон instance)
+- AI хариултдаа ишлэлээ ЗААВАЛ дурдана; санах ойгоос таахгүй (system prompt)
+- **Фаз 2 (хүний шийдвэр):** `knowledge/01,02,04` хувийн repo руу зөөж core-оос
+  хасах — үүнийг хийтэл fork харилцагчийн preDeploy агуулгыг ачаална
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 
@@ -2045,6 +2083,11 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            token_hash (sha256, unique INDEX), user_id (линк НЭГ хүнд уягдана),
            role viewer|admin (owner БАЙХГҮЙ), expires_at (линк) · started_at →
            ends_at (сесс) · ended_at (гарсан), reason/issued_by — Console
+Мэдлэг     knowledge_articles — НИЙТИЙН лавлах (organizationId БАЙХГҮЙ): slug ×
+           section unique INDEX, category, title/heading/body, citation, modules
+           jsonb, source_path, checksum (sha256 — seed алгасалт), sort_order.
+           knowledge_reads (org, user, slug, section, created_at; org+time index)
+           — 24ц квот + бөөнөөр татах илрүүлэлт, аудит БИШ (§9e)
 Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
            хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
 AI         ai_messages, ai_attachments, ai_settings
@@ -2117,6 +2160,7 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 | **Хангамж / PO (ЗААВАЛ)** | `docs/procurement/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.6, норматив §11 FR-PROC-006…012 |
 | **POS (ЗААВАЛ)** | `docs/pos/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.8 |
 | **eBarimt 3.0 (ЗААВАЛ)** | `docs/pos/03-ebarimt-integration-plan.md` → `docs/deployment/ebarimt.md`; төлөв `docs/pos/02-implementation-status.md` |
+| **Мэдлэгийн сан хэрэглэгчид (ЗААВАЛ)** | `docs/knowledge/00-proposal.md` — D1–D7; хэсэглэлт/квот/surfaces-ийн дүрэм §9e |
 | Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
 | Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
 | Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |
