@@ -522,6 +522,23 @@ A manual GL entry to an inventory account must not change the Inventory Ledger
 or Cost Ledger. The reconciliation report must show it as an unlinked GL amount
 or equivalent difference.
 
+### 5.7 Purchase order close journals
+
+The PO close journal (procurement §6) clears the inventory and AP temporary
+accounts. It is a GL entry with no Cost Ledger link, but it is NOT a manual
+entry: it is a system posting whose whole purpose is to leave the temporary
+account at zero. It must therefore be reported in its OWN column and removed
+from the difference:
+
+```text
+Difference = Subledger Amount + PO Close Amount - GL Amount
+```
+
+Counting it as an unlinked manual line reports a false difference equal to the
+capitalized amount on every closed purchase order. The close amount is named
+explicitly rather than silently netted, so §5.6 still holds for real manual
+entries.
+
 ## 6. Temporary Account Reconciliation
 
 This is a mandatory bridge report for configured inventory and production

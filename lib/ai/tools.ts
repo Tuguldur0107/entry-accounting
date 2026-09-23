@@ -6783,7 +6783,7 @@ async function runReconcileModules(
     });
     const lines = recon.rows.map((row) =>
       Math.abs(row.difference) > EPS
-        ? `  ЗӨРҮҮ ${row.accountNumber} ${row.accountName}: дэд дэвтэр ${fmt(row.subledgerAmount)} vs GL ${fmt(row.glAmount)} → ${fmt(row.difference)}${row.unlinkedGlLines > 0 ? ` (гараар бичсэн ${row.unlinkedGlLines} мөр ${fmt(row.unlinkedGlAmount)})` : ""}`
+        ? `  ЗӨРҮҮ ${row.accountNumber} ${row.accountName}: дэд дэвтэр ${fmt(row.subledgerAmount)}${row.poCloseAmount !== 0 ? ` + PO хаалт ${fmt(row.poCloseAmount)}` : ""} vs GL ${fmt(row.glAmount)} → ${fmt(row.difference)}${row.unlinkedGlLines > 0 ? ` (гараар бичсэн ${row.unlinkedGlLines} мөр ${fmt(row.unlinkedGlAmount)})` : ""}`
         : `  OK ${row.accountNumber} ${row.accountName}: ${fmt(row.glAmount)}`
     );
     for (const row of recon.rows)
