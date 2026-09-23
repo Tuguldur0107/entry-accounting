@@ -49,6 +49,7 @@ import type { QpayIntentView, QpayStatusSummary } from "@/lib/qpay/types";
 
 function revalidateQpay() {
   revalidatePath("/inventory/sales");
+  revalidatePath("/inventory/pos-settings");
   revalidatePath("/inventory/pos");
   revalidatePath("/inventory");
 }

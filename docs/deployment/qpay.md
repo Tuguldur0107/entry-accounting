@@ -53,7 +53,7 @@ API хөгжүүлэлт → API key + webhook secret хуулж Entry-ийн QP
 [QPay холбох] → state (AES-GCM: org, user, dashboard URL, 15 мин) → {dashboard}/connect?app=entry&callback&state&org
    → нэвтрэлт / онбординг → consent → POST /api/connect/approve → GET {entry}/api/pos/qpay/connect/callback?state&code
    → Entry сервер POST {dashboard}/api/connect/exchange {code, state} → {api_key, webhook_secret} (НЭГ удаа, 5 мин)
-   → pos_settings (encryptSecret) + хэлбэр/данс seed + readiness → асаана → /inventory/sales?tab=settings&section=qpay&qpay=connected
+   → pos_settings (encryptSecret) + хэлбэр/данс seed + readiness → асаана → /inventory/pos-settings?section=qpay&qpay=connected
 
 Борлуулалт:  QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → dashboard POST /api/v1/invoices
    → QR + deeplink; диалог Entry DB-ээс 2 сек тутам (QPay-руу polling ҮГҮЙ — ККТТ хориг)

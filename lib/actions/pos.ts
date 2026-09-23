@@ -132,6 +132,8 @@ function revalidatePos() {
     "/inventory",
     "/inventory/pos",
     "/inventory/sales",
+    "/inventory/shifts",
+    "/inventory/gift-cards",
     "/inventory/movements",
     "/inventory/reports",
     "/receivables",
@@ -448,6 +450,52 @@ export async function savePaymentMethod(data: {
     return { id };
   } catch (caught) {
     return actionError("savePaymentMethod", caught, "Төлбөрийн хэлбэр хадгалагдсангүй");
+  }
+}
+
+/**
+ * Төлбөрийн хэлбэр УСТГАХ. Түүхэн борлуулалтад ашиглагдсан хэлбэрийг устгахгүй
+ * (`pos_payments` FK restrict — тайлан, баримт эвдэрнэ): тэр тохиолдолд
+ * ИДЭВХГҮЙ болгоно. Ашиглагдаагүй бол мөрөөр нь устгана — буруу үүсгэсэн,
+ * давхардсан хэлбэр кассын дэлгэцэнд үлдэхгүй.
+ */
+export async function deletePaymentMethod(
+  id: string
+): Promise<ActionResult<{ deactivated: boolean }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    const method = await db.query.posPaymentMethods.findFirst({
+      where: and(eq(posPaymentMethods.id, id), eq(posPaymentMethods.organizationId, orgId)),
+      columns: { id: true, code: true, name: true },
+    });
+    if (!method) throw new Error("Төлбөрийн хэлбэр олдсонгүй");
+    const used = await db.query.posPayments.findFirst({
+      where: eq(posPayments.paymentMethodId, id),
+      columns: { id: true },
+    });
+    if (used)
+      await db
+        .update(posPaymentMethods)
+        .set({ isActive: false })
+        .where(and(eq(posPaymentMethods.id, id), eq(posPaymentMethods.organizationId, orgId)));
+    else
+      await db
+        .delete(posPaymentMethods)
+        .where(and(eq(posPaymentMethods.id, id), eq(posPaymentMethods.organizationId, orgId)));
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: used ? "update" : "delete",
+      entityType: "pos_payment_method",
+      entityId: id,
+      summary: used
+        ? `Төлбөрийн хэлбэр идэвхгүй болов (түүхэнд ашиглагдсан) — ${method.code} ${method.name}`
+        : `Төлбөрийн хэлбэр устлаа — ${method.code} ${method.name}`,
+    });
+    revalidatePos();
+    return { deactivated: !!used };
+  } catch (caught) {
+    return actionError("deletePaymentMethod", caught, "Төлбөрийн хэлбэр устгагдсангүй");
   }
 }
 

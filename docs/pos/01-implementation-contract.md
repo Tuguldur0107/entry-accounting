@@ -126,7 +126,8 @@ Cr COGS, `provisional_avg`), буцаан олголт: касс/банк хэл
 ## 8. UI, AI
 
 - Нав (Бараа материал): Касс (POS) `/inventory/pos`, Борлуулалт
-  `/inventory/sales` (`?tab=sales|shifts|cards|settings`), Тайлан
+  `/inventory/sales` · `/inventory/shifts` · `/inventory/gift-cards` ·
+  `/inventory/pos-settings` (тус бүр нав цэс), Тайлан
   `/inventory/reports?tab=sales` (6 таб). `ModuleItem.configKey="pos"` —
   модуль унтраавал/эрх none бол эдгээр цэс нуугдана. Панель `pos-sale`.
 - Кассын дэлгэц v2 (§4.1): `PosCheckoutView` orchestrator →
@@ -341,7 +342,7 @@ exchangeConnectCode(apiUrl, code, state): Promise<{ merchantId, merchantName, ap
 startQpayConnect({ apiUrl? })   // post: нийтийн URL ЗААВАЛ; → { url } (browser assign); аудит connect_started
 saveQpaySettings(…)             // enabled=true → ensureQpayPaymentMethod → readiness(хатуу) → асаана; → { ok, seeded[] }
 // app/api/pos/qpay/connect/callback/route.ts — GET ?state&code → exchange → encryptSecret → seed → readiness
-//   → асаана (бэлэн бол) → 303 /inventory/sales?tab=settings&section=qpay&qpay=connected|connected-off|error&reason=
+//   → асаана (бэлэн бол) → 303 /inventory/pos-settings?section=qpay&qpay=connected|connected-off|error&reason=
 ```
 
 **UI:** `components/pos/checkout/qpay-dialog.tsx` (QR `qrText` → `components/ui/qr-code.tsx`

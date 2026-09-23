@@ -583,16 +583,17 @@ export function PaymentDialog({
                         </option>
                       ))}
                     </select>
-                  ) : (
+                  ) : method.requiresReference ? (
+                    // Лавлах дугаар нь ЗААВАЛ гэж тохируулсан хэлбэрт л гарна
+                    // (терминалын слип г.м.). Сонголттой чөлөөт талбар байхгүй —
+                    // кассчинд утга нь ойлгомжгүй, хоосон үлддэг байв.
                     <Input
                       value={row.reference}
-                      placeholder={
-                        method.requiresReference
-                          ? "Лавлах дугаар (заавал)"
-                          : "Лавлах / слип / гүйлгээний утга"
-                      }
+                      placeholder="Лавлах дугаар (заавал)"
                       onChange={(event) => patchRow(row.key, { reference: event.target.value })}
                     />
+                  ) : (
+                    <span />
                   )}
                 </div>
                 <IconAction

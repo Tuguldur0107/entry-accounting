@@ -641,7 +641,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
         tone: "danger",
         title: "PosAPI-д хүрэхгүй байна — eBarimt баримт илгээгдэхгүй",
         detail: "Борлуулалт бичигдэж байгаа ч ТЕГ-ийн баримт дараалалд хуримтлагдана. PosAPI үйлчилгээ, URL, сүлжээг шалгана.",
-        href: "/inventory/sales?tab=settings",
+        href: "/inventory/pos-settings",
         action: "eBarimt тохиргоо",
         surfaces: ["dashboard", "daily"],
         notify: {
@@ -661,7 +661,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           ? "eBarimt сугалаа ДУУССАН — баримт сугалаагүй хэвлэгдэнэ"
           : `eBarimt сугалаа ${ebarimt.leftLotteries} үлдлээ`,
         detail: "PosAPI ТЕГ рүү илгээх бүрд шинэ сугалаа авдаг — PosAPI сүлжээнд холбогдож буйг, sendData ажиллаж буйг шалгана.",
-        href: "/inventory/sales?tab=settings",
+        href: "/inventory/pos-settings",
         action: "eBarimt тохиргоо",
         surfaces: ["dashboard", "daily"],
         notify: {
@@ -687,7 +687,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
           ? `eBarimt: ТЕГ рүү ${hours} цаг илгээгдээгүй — хуулийн 72 цаг ХЭТЭРЛЭЭ`
           : `eBarimt: ТЕГ рүү ${hours} цаг илгээгдээгүй (хязгаар 72 цаг)`,
         detail: "PosAPI дотоод сандаа хуримтлуулж байна. Тохиргооноос «ТЕГ рүү түлхэх» (sendData) дарж, сүлжээг шалгана.",
-        href: "/inventory/sales?tab=settings",
+        href: "/inventory/pos-settings",
         action: "ТЕГ рүү түлхэх",
         surfaces: ["dashboard", "daily"],
         notify: {
@@ -711,7 +711,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
       detail: `Мөнгө харилцагчийн данс руу орсон боловч бараа хасагдаагүй, eBarimt үүсээгүй${
         qpay.oldestMinutes != null ? ` (хамгийн эртийнх ${qpay.oldestMinutes} мин)` : ""
       }. Борлуулалт → «QPay хүлээгдэж буй» → Борлуулалт болгох.`,
-      href: "/inventory/sales?tab=sales",
+      href: "/inventory/sales",
       action: "QPay хүлээгдэж буй",
       surfaces: ["dashboard", "daily"],
       notify: {

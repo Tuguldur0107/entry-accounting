@@ -48,7 +48,7 @@ entry-accounting/
 │       └── attachments/          # Хавсралт: POST upload, GET [id] татах
 ├── components/gl/                # GL client components
 ├── components/procurement/       # Хангамжийн client components
-├── components/pos/               # POS: checkout, payment-dialog, receipt, sales-workspace, sales-report-view
+├── components/pos/               # POS: checkout, payment-dialog, receipt, sales-page-view, sales-report-view
 ├── components/attachments/       # Хавсралтын жагсаалт (нийтлэг, ui-kit-ээр)
 ├── lib/
 │   ├── auth.ts                   # NextAuth config
@@ -734,13 +734,18 @@ lib/actions/pos.ts               createPosSale (атомик) / returnPosSale / 
                                  тохиргоо / төлбөрийн хэлбэр / хөнгөлөлтийн дүрэм / quotePosSale
 app/(dashboard)/inventory/pos    Кассын дэлгэц v2 — дэлгүүрийн POS (tile + ticket + numpad; сканнер = гар,
                                  F9 төлбөр, нэг товчны ээлж, баримт хэвлэх) — docs/pos §4.1
-app/(dashboard)/inventory/sales  Борлуулалт · Ээлж · Бэлгийн карт·кредит · Тохиргоо (табууд)
+app/(dashboard)/inventory/sales  Борлуулалт (жагсаалт) — Ээлж `/inventory/shifts`,
+                                 Бэлгийн карт·кредит `/inventory/gift-cards`,
+                                 POS тохиргоо `/inventory/pos-settings` нь ТУСДАА нав цэс
+                                 (хуудас бүр зөвхөн ӨӨРИЙН өгөгдлөө ачаална; хуучин
+                                 `/inventory/sales?tab=` линк redirect хийнэ)
 app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (6 таб, COGS cost_period_results-ээс)
 components/pos/                  pos-checkout-view (orchestrator) + checkout/{product-panel, ticket-panel,
                                  numpad, discount-dialog, parked-dialog}, payment-dialog, receipt-preview
-                                 (80мм хэвлэлт, usePosPrint), sales-workspace (4 таб) → sales-list-view /
-                                 shifts-view + shift-dialogs (нээх, хаах, Z-тайлан) / gift-cards-view /
-                                 pos-settings-view (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
+                                 (80мм хэвлэлт, usePosPrint); хуудас бүрийн харагдац ТУСДАА —
+                                 sales-page-view → sales-list-view / shifts-view + shift-dialogs
+                                 (нээх, хаах, Z-тайлан) / gift-cards-view / pos-settings-view
+                                 (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
                                  sales-report-view (/inventory/reports, 6 таб)
 components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт: мөр/дүн, буцаан олголт эсвэл
                                  дэлгүүрийн кредит; дахин хэвлэх; eBarimt; АР/журнал/хавсралт)

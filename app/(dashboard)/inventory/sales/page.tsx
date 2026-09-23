@@ -1,50 +1,63 @@
 // Борлуулалт `/inventory/sales` — docs/pos/00-proposal.md §4.3, §4.5.
-// 4 таб (Борлуулалт / Ээлж / Бэлгийн карт·кредит / Тохиргоо) — URL `?tab=`.
+// Ээлж · Бэлгийн карт·кредит · Тохиргоо нь ТУСДАА нав цэс болсон
+// (`/inventory/shifts`, `/inventory/gift-cards`, `/inventory/pos-settings`) —
+// хуудас бүр ЗӨВХӨН өөрийн өгөгдлөө ачаална. Хуучин `?tab=` линк redirect.
 // Огнооны муж: URL `from`/`to` → байхгүй бол topbar-ын периодын сонголт
 // (CLAUDE.md §4 — ил параметр cookie-г дарна).
 
-import { SalesWorkspace, type SalesTab } from "@/components/pos/sales-workspace";
-import { getGiftCardsAndCredits } from "@/lib/actions/pos";
+import { redirect } from "next/navigation";
+
+import { SalesPageView } from "@/components/pos/sales-page-view";
 import { requireModuleAction } from "@/lib/auth";
-import { loadIssueTypes } from "@/lib/costing/master-data";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
-import { loadCheckoutData, loadSaleViews, loadShiftViews } from "@/lib/pos/load-data";
+import { loadSaleViews } from "@/lib/pos/load-data";
 
-type SearchParams = Promise<{ tab?: string; from?: string; to?: string; status?: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-const TABS: SalesTab[] = ["sales", "shifts", "cards", "settings"];
-const isDate = (value: string | undefined): value is string =>
-  /^\d{4}-\d{2}-\d{2}$/.test(value ?? "");
+/** Хуучин `?tab=` → шинэ зам (бусад параметр дагаж явна). */
+const LEGACY_TAB_PATHS: Record<string, string> = {
+  shifts: "/inventory/shifts",
+  cards: "/inventory/gift-cards",
+  settings: "/inventory/pos-settings",
+};
+
+const isDate = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 export default async function SalesPage({ searchParams }: { searchParams: SearchParams }) {
-  const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
+  const { orgId } = await requireModuleAction(POS_MODULE_KEY, "read");
   const params = await searchParams;
+
+  const tab = typeof params.tab === "string" ? params.tab : undefined;
+  const legacy = tab ? LEGACY_TAB_PATHS[tab] : undefined;
+  if (legacy) {
+    const forwarded = new URLSearchParams();
+    for (const [key, value] of Object.entries(params))
+      if (key !== "tab" && typeof value === "string") forwarded.set(key, value);
+    const query = forwarded.toString();
+    redirect(query ? `${legacy}?${query}` : legacy);
+  }
+
   const period = await getPeriodSelection();
   const from = isDate(params.from) ? params.from : period.from;
   const to = isDate(params.to) ? params.to : period.to;
-  const tab = TABS.includes(params.tab as SalesTab) ? (params.tab as SalesTab) : "sales";
-
-  const [checkout, sales, shifts, cards, issueTypes] = await Promise.all([
-    loadCheckoutData(orgId, userId),
-    loadSaleViews(orgId, { from, to }),
-    loadShiftViews(orgId),
-    getGiftCardsAndCredits(),
-    loadIssueTypes(orgId, { activeOnly: true }),
-  ]);
+  const sales = await loadSaleViews(orgId, { from, to });
 
   return (
-    <SalesWorkspace
-      initialTab={tab}
-      from={from}
-      to={to}
-      initialStatus={params.status}
-      sales={sales}
-      shifts={shifts}
-      giftCards={cards.error ? [] : (cards.giftCards ?? [])}
-      storeCredits={cards.error ? [] : (cards.storeCredits ?? [])}
-      checkout={checkout}
-      issueTypes={issueTypes.map((entry) => ({ id: entry.id, code: entry.code, name: entry.name }))}
-    />
+    <section className="flex min-h-0 flex-1 flex-col gap-3">
+      <div>
+        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">Борлуулалт</h1>
+        <p className="mt-1 text-xs text-[var(--ea-text-3)]">
+          POS борлуулалт ба буцаалт. Давхар даралт → дэлгэрэнгүй панель.
+        </p>
+      </div>
+      <SalesPageView
+        from={from}
+        to={to}
+        initialStatus={typeof params.status === "string" ? params.status : undefined}
+        sales={sales}
+      />
+    </section>
   );
 }

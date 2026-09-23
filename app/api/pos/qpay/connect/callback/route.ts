@@ -23,7 +23,7 @@ import { ensureQpayPaymentMethod, loadQpayReadiness, publicAppUrl } from "@/lib/
 
 export const dynamic = "force-dynamic";
 
-const SETTINGS_PATH = "/inventory/sales?tab=settings&section=qpay";
+const SETTINGS_PATH = "/inventory/pos-settings?section=qpay";
 
 function redirectTo(request: Request, params: Record<string, string>) {
   const base = publicAppUrl() ?? new URL(request.url).origin;

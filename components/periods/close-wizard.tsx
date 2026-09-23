@@ -429,7 +429,7 @@ export function CloseWizard({
           !closed && pos.status !== "na" ? (
             <>
               {pos.openShifts > 0 ? (
-                <LinkButton href="/inventory/sales?tab=shifts">Нээлттэй ээлжүүд</LinkButton>
+                <LinkButton href="/inventory/shifts">Нээлттэй ээлжүүд</LinkButton>
               ) : null}
               {pos.negativeStockScopes > 0 ? (
                 <LinkButton href="/inventory">Хасах үлдэгдэл</LinkButton>
