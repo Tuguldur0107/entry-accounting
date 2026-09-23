@@ -12,7 +12,7 @@ import { FormField, SwitchField } from "@/components/ui/form-field";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
 import { FilterChips, PageTabs } from "@/components/ui/tabs";
 import {
   LoadingBlock,
@@ -313,8 +313,23 @@ export function UiKitView() {
             <StatusBadge tone="muted">Дүн оруулаагүй</StatusBadge>
           </div>
           <p className="text-xs" style={{ color: "var(--ea-text-4)" }}>
-            <code>components/ui/status-badge.tsx</code> — <code>&lt;StatusBadge tone=&quot;success|danger|warning|muted&quot;&gt;</code>
+            <code>components/ui/status-badge.tsx</code> — <code>&lt;StatusBadge tone=&quot;success|danger|warning|muted|reversed&quot; icon shape&gt;</code>
           </p>
+          {/* Баримтын төлөв — lib/status.ts-ийн НЭГ бүртгэл (UI гайдын карт 1).
+              Өнгө + дүрс + ХЭЛБЭР (ноорог = тасархай, буцаагдсан = зураастай). */}
+          <div className="flex flex-wrap items-center gap-2">
+            {["posted", "draft", "reversed", "partially_paid", "overdue", "cancelled"].map((status) => (
+              <DocumentStatusBadge key={status} status={status} size="md" />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {["posted", "draft", "reversed"].map((status) => (
+              <DocumentStatusBadge key={status} status={status} variant="icon" />
+            ))}
+            <span className="text-xs" style={{ color: "var(--ea-text-4)" }}>
+              ← жагсаалтын багана (<code>col({"{"} eaType: &quot;status&quot; {"}"})</code>): зөвхөн дүрс, tooltip + aria-label
+            </span>
+          </div>
         </div>
       </Section>
 

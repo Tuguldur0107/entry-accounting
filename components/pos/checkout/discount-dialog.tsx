@@ -60,7 +60,7 @@ export function DiscountDialog({
         <DialogHeader>
           <DialogTitle>Хөнгөлөлт</DialogTitle>
           <DialogDescription>
-            Купон код эсвэл баримтын нийт дүнгийн хөнгөлөлт. Мөрийн хөнгөлөлтийг numpad-ийн «Хөнг %»-аар өгнө.
+            Купон код эсвэл баримтын нийт дүнгийн хөнгөлөлт. Мөрийн хөнгөлөлтийг тоон товчлуурын «Хөнг %»-аар өгнө.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
   approvePurchaseOrder,
   cancelPurchaseOrder,
@@ -39,10 +38,10 @@ import type {
 } from "@/lib/procurement/types";
 import {
   PO_STATUS_LABELS,
-  PO_STATUS_TONES,
   fmtCurrencyAmount,
 } from "@/lib/procurement/labels";
 import { openPurchaseOrderPanel } from "@/lib/store/panel-store";
+import { col } from "@/lib/grid/columnTypes";
 
 const STATUS_CHIPS: readonly ListStatusChip<PurchaseOrderStatus>[] = [
   { value: "all", label: "Бүх төлөв" },
@@ -271,24 +270,8 @@ export function PurchaseOrdersView({
             <ProgressCell pct={params.data.invoicedPct} status={params.data.status} />
           ) : null,
       },
-      {
-        headerName: "Төлөв",
-        field: "status",
-        width: 124,
-        valueGetter: (params) =>
-          params.data ? PO_STATUS_LABELS[params.data.status] : "",
-        cellRenderer: (params: ICellRendererParams<PurchaseOrderView>) => {
-          const order = params.data;
-          if (!order) return null;
-          return (
-            <span className="flex h-full items-center">
-              <StatusBadge tone={PO_STATUS_TONES[order.status]} size="sm">
-                {PO_STATUS_LABELS[order.status]}
-              </StatusBadge>
-            </span>
-          );
-        },
-      },
+      // Төлөв — зүүн талд бэхэлсэн дүрс (lib/status.ts, UI гайдын карт 1).
+      col<PurchaseOrderView>({ eaType: "status", field: "status" }),
       {
         headerName: "Үйлдэл",
         colId: "actions",

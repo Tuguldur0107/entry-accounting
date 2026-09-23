@@ -105,7 +105,7 @@ export function AddLineDialog({
             </select>
           </div>
           <p className="text-xs text-[var(--ea-text-3)]">
-            Нэмсний дараа Mapping товчоор ямар дансууд орохыг тохируулна уу.
+            Нэмсний дараа «Дансны холболт» товчоор ямар дансууд орохыг тохируулна уу.
           </p>
           {error && (
             <p className="text-xs text-[var(--ea-danger)] bg-[var(--ea-danger-bg)] px-3 py-2 rounded">

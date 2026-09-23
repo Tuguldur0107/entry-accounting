@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 import { Icon } from "@/components/ui/icon";
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+
+const noopSubscribe = () => () => {};
 import Link from 'next/link';
 import { EAMark, EAWordmark } from '@/components/auth/brand';
 import { EAField, EAButton } from '@/components/auth/fields';
@@ -13,6 +15,15 @@ import { ThemeToggle } from '@/components/theme-toggle';
 export default function RegisterForm() {
   // registerUser амжилттай бол server action өөрөө redirect хийдэг тул router хэрэггүй
   const [name, setName]         = useState('');
+  // ENT-007: байгууллага хэрэглэгчийн нэрээр үүсдэг байв — компанийн нэрийг асууна.
+  const [companyName, setCompanyName] = useState('');
+  // Урилгаар ирсэн бол урьсан байгууллагад элсэнэ — компанийн нэр хэрэггүй.
+  // SSR-тэй зөрөхгүйн тулд mount-ийн дараа уншина.
+  const hasInvite = useSyncExternalStore(
+    noopSubscribe,
+    () => new URLSearchParams(window.location.search).has('invite'),
+    () => false
+  );
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
@@ -27,7 +38,7 @@ export default function RegisterForm() {
       // бүртгэл дуусмагц урьсан байгууллагад шууд элсэнэ.
       const invite =
         new URLSearchParams(window.location.search).get('invite') ?? undefined;
-      const res = await registerUser({ name, email, password, invite });
+      const res = await registerUser({ name, email, password, invite, companyName });
       if (res?.error) { setError(res.error); setLoading(false); }
       // redirects on success
     } catch {
@@ -92,6 +103,9 @@ export default function RegisterForm() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <EAField label="Нэр" value={name} onChange={setName} placeholder="Овог нэр" icon={<Icon name="user" />} autoComplete="name" autoFocus />
+                {hasInvite ? null : (
+                  <EAField label="Компанийн нэр" value={companyName} onChange={setCompanyName} placeholder="ж: Монгол Трейд ХХК" icon={<Icon name="company" />} autoComplete="organization" />
+                )}
                 <EAField label="И-мэйл" value={email} onChange={setEmail} placeholder="name@company.mn" icon={<Icon name="mail" />} autoComplete="email" />
                 <EAField label="Нууц үг" type="password" value={password} onChange={(v) => { setPassword(v); setError(''); }} placeholder="8+ тэмдэгт"
                   icon={<Icon name="locked" />} autoComplete="new-password" error={error || undefined} />

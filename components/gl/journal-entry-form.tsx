@@ -37,6 +37,14 @@ import {
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { cn } from "@/lib/utils";
 import { currentDocumentDate } from "@/lib/periods/document-date";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { usePeriodDateWarning } from "@/lib/periods/use-selected-period";
+
+/**
+ * Үүнээс их дүнтэй журналыг «Батлах»-д баталгаажуулах цонх (UI гайдын карт 2,
+ * ENT-015 — 438 сая ₮-ийн нээлтийн журнал асуулт, мэдэгдэлгүй батлагдаж байв).
+ */
+const LARGE_POST_CONFIRM_MNT = 10_000_000;
 
 /**
  * Толгойн НЭГ талбар: жижиг саарал шошго + тогтмол өндөртэй утгын нүд.
@@ -208,6 +216,7 @@ export function JournalEntryForm({
   }, [activeSegIds, defaultSegments]);
 
   const [date, setDate] = useState(initialVoucher?.date ?? today);
+  const dateWarning = usePeriodDateWarning(date);
   const [description, setDescription] = useState(initialVoucher?.description ?? "");
   // ── Баримтын валют ба ханш (баримтад НЭГ валют — CLAUDE.md §2b) ──────────
   const [currency, setCurrency] = useState(
@@ -353,6 +362,7 @@ export function JournalEntryForm({
   }, [rateNum, foreign, updateLines]);
 
   const [saving, setSaving] = useState<"draft" | "posted" | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [error, setError] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
@@ -485,6 +495,24 @@ export function JournalEntryForm({
   }
 
   async function handleSave(status: "draft" | "posted") {
+    if (status === "posted" && saving === null) {
+      const current = linesRef.current;
+      const totalMnt = foreign
+        ? current.reduce((sum, line) => sum + (line.debitFc ?? 0), 0) * (Number(rate) || 0)
+        : current.reduce((sum, line) => sum + line.debit, 0);
+      if (totalMnt > LARGE_POST_CONFIRM_MNT) {
+        const ok = await confirm({
+          title: "Том дүнтэй журнал батлах",
+          description: `${fmtMnt(totalMnt)} ₮-ийн журналыг батлах уу? Батлагдсан журнал GL-д бичигдэж тайланд шууд орно (засахдаа буцаалт хийнэ).`,
+          confirmText: "Батлах",
+        });
+        if (!ok) return;
+      }
+    }
+    return saveNow(status);
+  }
+
+  async function saveNow(status: "draft" | "posted") {
     // Давхар дуудлагын хамгаалалт — товчны disabled render хоцорсон ч
     // хоёр дахь submit орохгүй (зэрэг явсан 2 update нэг мөрүүд дээр
     // мөргөлдөж DB түвшний алдаа өгч болзошгүй).
@@ -543,8 +571,12 @@ export function JournalEntryForm({
         setSaving(null);
         return;
       }
-      if (status === "posted") feedback.posted();
-      else feedback.saved();
+      // Баримтын дугаартай мэдэгдэл (UI гайдын карт 2).
+      const documentNo =
+        "documentNo" in result && typeof result.documentNo === "string" ? result.documentNo : null;
+      if (status === "posted")
+        feedback.posted(documentNo ? `${documentNo} батлагдлаа` : "Журнал батлагдлаа");
+      else feedback.saved(documentNo ? `${documentNo} ноорог хадгалагдлаа` : "Ноорог хадгалагдлаа");
       finish();
     } catch {
       setError("Алдаа гарлаа");
@@ -637,10 +669,15 @@ export function JournalEntryForm({
     }
   }
 
-  async function handleStorno() {
+  async function handleReverse() {
     if (!voucherId) return;
-    if (!confirm("Энэ журналд буцаалтын бичилт үүсгэх үү? Эх журнал 'Буцаагдсан' төлөвт орно."))
-      return;
+    const ok = await confirm({
+      title: "Журнал буцаах",
+      description: "Энэ журналд буцаалтын бичилт үүсгэх үү? Эх журнал «Буцаагдсан» төлөвт орно.",
+      confirmText: "Буцаах",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const result = await unpostVoucher(voucherId);
       if (result.error) {
@@ -855,13 +892,20 @@ export function JournalEntryForm({
                         {date}
                       </span>
                     ) : (
-                      <Input
-                        id="voucher-date"
-                        type="date"
-                        className="h-8 w-full"
-                        value={date}
-                        onChange={(e) => setDate(e.target.value)}
-                      />
+                      <>
+                        <Input
+                          id="voucher-date"
+                          type="date"
+                          className="h-8 w-full"
+                          value={date}
+                          onChange={(e) => setDate(e.target.value)}
+                        />
+                        {dateWarning ? (
+                          <span className="mt-1 block text-[11px] text-[var(--ea-warning-fg)]">
+                            {dateWarning}
+                          </span>
+                        ) : null}
+                      </>
                     )}
                   </HeaderField>
                   <HeaderField label="Валют" htmlFor="voucher-currency">
@@ -1076,7 +1120,7 @@ export function JournalEntryForm({
                 Хуулбарлах
               </Button>
               {voucherStatus === "posted" && (
-                <Button variant="outline" onClick={handleStorno}>
+                <Button variant="outline" onClick={handleReverse}>
                   <Icon name="reset" size="sm" />
                   Буцаалт хийх
                 </Button>
@@ -1102,19 +1146,22 @@ export function JournalEntryForm({
               <Button variant="outline" onClick={cancel}>
                 Болих
               </Button>
+              {/* Бүх маягтад ижил: Болих · Ноорог хадгалах · Батлах (UI гайдын
+                  карт 2, ENT-015/042 — «Хадгалах» нь батлах гэдгийг нууж байв). */}
               <Button
                 variant="outline"
                 onClick={() => handleSave("draft")}
                 disabled={saving !== null}
               >
-                {saving === "draft" ? "Хадгалж байна..." : "Ноорог"}
+                {saving === "draft" ? "Хадгалж байна..." : "Ноорог хадгалах"}
               </Button>
               <Button
                 onClick={() => handleSave("posted")}
                 disabled={!balanced || saving !== null}
-                title="Ctrl+Enter"
+                title="Батлах (Ctrl+Enter) — GL-д бичигдэнэ"
               >
-                {saving === "posted" ? "Хадгалж байна..." : "Хадгалах"}
+                <Icon name="approve" size="sm" />
+                {saving === "posted" ? "Батлаж байна..." : "Батлах"}
               </Button>
             </>
           )}
@@ -1131,6 +1178,7 @@ export function JournalEntryForm({
           createPortal(printSheet, document.body)
         : printSheet}
 
+      {confirmDialog}
       {!readOnly && (
         <ExcelImportDialog
           open={importOpen}

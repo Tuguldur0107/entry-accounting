@@ -45,6 +45,8 @@ import {
   users,
   warehouses,
   type PosQpayIntent,
+  organizationProfile,
+  organizations,
 } from "@/lib/db/schema";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
@@ -856,6 +858,11 @@ export interface PosReceipt {
   change: number;
   header: string;
   footer: string;
+  /**
+   * Борлуулагчийн толгой (ENT-053 — eBarimt унтраалттай үед хэрэглэгчид очих
+   * цорын ганц баримтад нэр, ТТД, хаяг байгаагүй). Компанийн мэдээллээс.
+   */
+  seller: ReceiptSeller | null;
   /** Хасах үлдэгдэлд орсон бараанууд (D9 мэдэгдэл). */
   negativeStock: { itemName: string; warehouseName: string; balanceAfter: number }[];
   ebarimtId: string | null;
@@ -867,6 +874,36 @@ export interface PosReceipt {
   ebarimtLottery: string | null;
   ebarimtQrData: string | null;
   ebarimtStatus: string | null;
+}
+
+export interface ReceiptSeller {
+  name: string;
+  registerNo: string | null;
+  vatPayerNo: string | null;
+  address: string | null;
+  phone: string | null;
+}
+
+async function loadReceiptSeller(orgId: string): Promise<ReceiptSeller | null> {
+  const [profile, organization] = await Promise.all([
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
+      columns: { name: true, registerNo: true, vatPayerNo: true, address: true, phone: true },
+    }),
+    db.query.organizations.findFirst({
+      where: eq(organizations.id, orgId),
+      columns: { name: true },
+    }),
+  ]);
+  const name = profile?.name?.trim() || organization?.name?.trim();
+  if (!name) return null;
+  return {
+    name,
+    registerNo: profile?.registerNo ?? null,
+    vatPayerNo: profile?.vatPayerNo ?? null,
+    address: profile?.address ?? null,
+    phone: profile?.phone ?? null,
+  };
 }
 
 export async function createPosSale(
@@ -1655,6 +1692,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     change: plan.change,
     header: settings.receiptHeader,
     footer: settings.receiptFooter,
+    seller: await loadReceiptSeller(orgId),
     negativeStock,
     ebarimtId: liveEbarimt?.ebarimtId ?? manualEbarimtId,
     ebarimtLottery: liveEbarimt?.ebarimtLottery ?? null,
@@ -2653,6 +2691,7 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
         change: sale.payments.reduce((sum, payment) => sum + payment.changeGiven, 0),
         header: settings.receiptHeader,
         footer: settings.receiptFooter,
+        seller: await loadReceiptSeller(orgId),
         negativeStock: [],
         ebarimtId: sale.ebarimtId,
         // Дахин хэвлэхэд сугалаа/QR ҮГҮЙ — хадгалагддаггүй (албан спек §5).

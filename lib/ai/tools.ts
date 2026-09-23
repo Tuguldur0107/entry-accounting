@@ -118,6 +118,7 @@ import {
   getOrganizationProfile,
   updateOrganizationProfile,
 } from "@/lib/actions/organization-profile";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { getBillingOverview } from "@/lib/actions/billing";
 import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
 import { requireFeature } from "@/lib/billing/guards";
@@ -8074,7 +8075,7 @@ async function runListAuditEvents(
     resultText: filtered
       .map(
         (row) =>
-          `${row.createdAt.toISOString().replace("T", " ").slice(0, 16)} · ${row.entityType}/${row.action} · ${row.summary || row.entityId.slice(0, 8)}`
+          `${fmtDateTimeUb(row.createdAt)} · ${row.entityType}/${row.action} · ${row.summary || row.entityId.slice(0, 8)}`
       )
       .join("\n"),
   };

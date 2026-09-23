@@ -156,8 +156,15 @@ function DataGridInner<TData>(
           };
         }
         const col = def as ColDef<TData>;
+        // ENT-076: таслагдсан гарчиг бүтнээрээ tooltip-оор уншигдана; мөнгөн
+        // (баруун зэрэгцүүлсэн) багана 120px-ээс нарийсахгүй (UI гайдын карт 9).
+        const rightAligned =
+          typeof col.cellClass === "string" && col.cellClass.includes("ag-right-aligned-cell");
         return {
           ...col,
+          headerTooltip:
+            col.headerTooltip ?? (typeof col.headerName === "string" && col.headerName ? col.headerName : undefined),
+          ...(rightAligned && col.minWidth === undefined && !col.flex ? { minWidth: 120 } : {}),
           cellClassRules: {
             ...col.cellClassRules,
             "ea-range-cell": isInRange,
@@ -176,6 +183,9 @@ function DataGridInner<TData>(
       suppressHeaderFilterButton: false,
       suppressMovable: true,
       minWidth: 90,
+      // Урт гарчиг 2 мөрөнд буугдана (таслагдахгүй) — ENT-076.
+      wrapHeaderText: true,
+      autoHeaderHeight: true,
       ...defaultColDef,
       cellClassRules: {
         ...defaultColDef?.cellClassRules,
@@ -510,6 +520,7 @@ function DataGridInner<TData>(
         singleClickEdit={false}
         suppressClickEdit={false}
         columnHoverHighlight
+        tooltipShowDelay={300}
         rowSelection={selection}
         pagination={resolvedPagination}
         paginationPageSize={resolvedPageSize}

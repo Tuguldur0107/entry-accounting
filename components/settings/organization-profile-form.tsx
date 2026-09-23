@@ -369,8 +369,8 @@ export function OrganizationProfileForm({
           </h2>
           <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
             Нэхэмжлэх и-мэйлээр илгээхэд «From» хаяг болно. Тохируулаагүй бол
-            серверийн default хаяг ашиглагдана. Хаягийн домэйныг эхлээд
-            resend.com/domains дээр verify хийсэн байх шаардлагатай.
+            серверийн анхдагч хаяг ашиглагдана. Хаягийн домэйныг эхлээд
+            resend.com/domains дээр баталгаажуулсан байх шаардлагатай.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -406,7 +406,7 @@ export function OrganizationProfileForm({
               Илгээгч домэйн баталгаажсан
             </Label>
             <p className="text-[11px]" style={{ color: "var(--ea-text-4)" }}>
-              resend.com/domains дээр verify хийсний дараа идэвхжүүлнэ —
+              resend.com/domains дээр баталгаажуулсны (verify) дараа идэвхжүүлнэ —
               идэвхжүүлээгүй үед дээрх хаягаар илгээхийг оролдохгүй.
             </p>
           </div>

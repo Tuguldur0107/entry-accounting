@@ -728,7 +728,7 @@ export function AiChatView({
             className={cn(
               "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
               writeMode === "draft"
-                ? "bg-[var(--ea-primary)] text-white"
+                ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                 : "text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
             )}
           >
@@ -918,7 +918,7 @@ function ModelPicker({
                     className={cn(
                       "flex w-full flex-col items-start rounded px-2 py-1.5 text-left transition-colors disabled:opacity-40",
                       entry.id === model
-                        ? "bg-[var(--ea-primary)] text-white"
+                        ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                         : "text-[var(--ea-text-1)] hover:bg-[var(--ea-bg-2)]"
                     )}
                   >

@@ -710,6 +710,7 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
   const validLines = await validateVoucherLines(orgId, money.lines);
   if (status === "posted") assertBalanced(validLines);
 
+  let documentNo: string | null = null;
   const voucherId = await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, data.date);
@@ -778,6 +779,7 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
         },
         tx
       );
+    documentNo = voucher.documentNo;
     return voucher.id;
   });
 
@@ -814,12 +816,12 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
-  return { id: voucherId };
+  return { id: voucherId, documentNo };
 }
 
 export async function createVoucher(
   data: Parameters<typeof createVoucherCore>[0]
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; documentNo: string | null }>> {
   try {
     return await createVoucherCore(data);
   } catch (caught) {

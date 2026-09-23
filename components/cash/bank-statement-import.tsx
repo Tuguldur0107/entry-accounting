@@ -1272,7 +1272,7 @@ export function BankStatementImport({
               disabled={isPending || totals.invalid > 0}
             >
               <Icon name="approve" />
-              Хуулга хадгалж GL-д бичих
+              Хуулга хадгалж батлах
             </Button>
           </div>
         </section>

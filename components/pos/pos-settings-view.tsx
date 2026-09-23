@@ -175,8 +175,8 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <FormField label="Хөнгөлөлтийн бичилт" hint="net — орлого цэвэр; contra — орлого бүтэн + Dr хөнгөлөлт">
             <select className="ea-form-select" value={form.discountPosting} onChange={(e) => patch({ discountPosting: e.target.value as "net" | "contra" })}>
-              <option value="net">Цэвэр (net)</option>
-              <option value="contra">Contra данс</option>
+              <option value="net">Цэвэр (хөнгөлөлтийн дараах)</option>
+              <option value="contra">Хөнгөлөлтийн тусдаа данс</option>
             </select>
           </FormField>
           <FormField label="Давхцах бодлого" hint="best_single — хамгийн ашигтай нэг; cumulative — stackable нийлнэ">
@@ -533,7 +533,7 @@ function PaymentMethodDialog({
             <FormField label="Провайдер" hint="QPay бол төлбөр QR-аар л батлагдана (Тохиргоо → QPay)">
               <select className="ea-form-select" value={form.provider} onChange={(e) => patch({ provider: e.target.value })}>
                 <option value="">— Гар лавлагаа (SocialPay, MonPay …) —</option>
-                <option value={QPAY_PROVIDER}>QPay (QR intent)</option>
+                <option value={QPAY_PROVIDER}>QPay (QR нэхэмжлэх)</option>
               </select>
             </FormField>
           )}
@@ -1476,7 +1476,7 @@ function QpaySection({ settings }: { settings: PosSettings }) {
         нээгдэж (бүртгэлгүй бол бүртгүүлж онбординг — РД, MCC, банкны данс — хийнэ) та зөвшөөрмөгц API
         key, webhook secret Entry-д АВТОМАТААР ирж, «QPay» төлбөрийн хэлбэр ба «QPay түр данс» (GL
         11000099) үүсээд асна — key хуулах шаардлагагүй (eBarimt кодыг та «Төлбөрийн хэлбэр» табд
-        оноож өгнө). Гар зам: dashboard → Merchants → API хөгжүүлэлт → key/secret-ээ доор буулгаад
+        оноож өгнө). Гар зам: QPay самбар → Merchants → API хөгжүүлэлт → key/secret-ээ доор буулгаад
         асаана. Төлбөр харилцагчийн банкны данс руу шууд орно (ККТТ шимтгэл 1%); буцаалт QPay-ээр
         боломжгүй (бэлэн / дэлгүүрийн кредитээр).
       </div>
@@ -1593,7 +1593,7 @@ function QpaySection({ settings }: { settings: PosSettings }) {
               {status.webhookUrl ?? "нийтийн URL алга — зөвхөн [Шалгах] товчоор"}
             </span>
             <span className="block text-[var(--ea-text-4)]">
-              Нэхэмжлэх бүрд автоматаар өгөгдөнө — dashboard дээр гараар тохируулах шаардлагагүй
+              Нэхэмжлэх бүрд автоматаар өгөгдөнө — QPay самбар дээр гараар тохируулах шаардлагагүй
             </span>
           </div>
           {probe && (

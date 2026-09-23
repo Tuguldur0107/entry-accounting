@@ -17,6 +17,7 @@ import {
   segmentValues,
 } from "@/lib/db/schema";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 
 export default async function BankStatementsPage() {
   const { orgId } = await getActiveOrg();
@@ -108,13 +109,8 @@ export default async function BankStatementsPage() {
       rowCount: statement.rowCount,
       totalIncome: Number(statement.totalIncome),
       totalExpense: Number(statement.totalExpense),
-      createdAt: statement.createdAt.toLocaleString("mn-MN", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      // Серверийн (UTC) бүсээр биш — Улаанбаатараар (ENT-055).
+      createdAt: fmtDateTimeUb(statement.createdAt) ?? "",
     })
   );
 

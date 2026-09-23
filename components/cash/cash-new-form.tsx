@@ -35,6 +35,7 @@ import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount, fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 import { currentDocumentDate } from "@/lib/periods/document-date";
+import { usePeriodDateWarning } from "@/lib/periods/use-selected-period";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -147,6 +148,7 @@ export function CashNewForm({
           }
         : initialForm()
   );
+  const dateWarning = usePeriodDateWarning(form.date);
   const [settlementTarget, setSettlementTarget] =
     useState<CashArApSettlementTarget | null>(initialSettlement);
   const [error, setError] = useState("");
@@ -308,7 +310,7 @@ export function CashNewForm({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Огноо">
+            <FormField label="Огноо" hint={dateWarning} hintTone="warning">
               <Input
                 type="date"
                 value={form.date}

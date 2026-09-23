@@ -178,6 +178,7 @@ export function InventoryCountingView({
           </div>
           <Input
             type="date"
+              aria-label="Огноо"
             className="h-8 w-40"
             value={dateInput}
             onChange={(event) => setDateInput(event.target.value)}

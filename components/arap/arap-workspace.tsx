@@ -53,6 +53,7 @@ import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
 import { currentDocumentDate } from "@/lib/periods/document-date";
 import { arapKpis } from "@/lib/arap/kpis";
+import { col } from "@/lib/grid/columnTypes";
 
 type Focus = "dashboard" | "counterparties" | "documents" | "reports";
 type ArApMode = "combined" | "receivable" | "payable";
@@ -434,12 +435,8 @@ export function ArApWorkspace({
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
       },
-      {
-        headerName: "Төлөв",
-        field: "status",
-        width: 130,
-        valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
-      },
+      // Төлөв — зүүн талд бэхэлсэн дүрс (lib/status.ts, UI гайдын карт 1).
+      col<ArApDocumentView>({ eaType: "status", field: "status" }),
       {
         headerName: "Илгээлт",
         field: "sendStatus",

@@ -56,7 +56,7 @@ interface Props {
 type TieOutMeasure = "subledger" | "gl" | "difference";
 
 const MEASURE_LABELS: Record<TieOutMeasure, string> = {
-  subledger: "Subledger задаргаа",
+  subledger: "Дэд дэвтрийн задаргаа",
   gl: "GL үлдэгдлийн задаргаа",
   difference: "Зөрүүний задаргаа",
 };
@@ -121,7 +121,7 @@ export function FaDashboard({ rows, tieOut, draftAssetCount, draftEntryCount }: 
         cellClass: "font-mono text-xs",
       },
       {
-        headerName: "Subledger",
+        headerName: "Дэд дэвтэр",
         field: "subledgerValue",
         width: 160,
         cellClass: "ag-right-aligned-cell font-mono",
@@ -367,6 +367,7 @@ function TieOutDetailBody({
         <div className="flex items-center gap-1.5">
           <Input
             type="date"
+              aria-label="Эхлэх огноо"
             value={range.from}
             onChange={(event) => {
               setScope("custom");
@@ -377,6 +378,7 @@ function TieOutDetailBody({
           <span className="text-xs text-[var(--ea-text-4)]">—</span>
           <Input
             type="date"
+              aria-label="Дуусах огноо"
             value={range.to}
             onChange={(event) => {
               setScope("custom");
@@ -400,7 +402,7 @@ function TieOutDetailBody({
               className="rounded-md border px-3 py-2 font-mono text-sm"
               style={{ borderColor: "var(--ea-border)", background: "var(--ea-bg-2)" }}
             >
-              Мужид: GL {fmtMnt(data.glTotal)} − Subledger{" "}
+              Мужид: GL {fmtMnt(data.glTotal)} − Дэд дэвтэр{" "}
               {fmtMnt(data.subledgerTotal)} ={" "}
               <span
                 className="font-semibold"
@@ -434,7 +436,7 @@ function TieOutDetailBody({
           )}
           {showSub && (
             <DetailList
-              title={`Subledger гүйлгээ (${data.subledger.length}) · Σ ${fmtMnt(data.subledgerTotal)}`}
+              title={`Дэд дэвтрийн гүйлгээ (${data.subledger.length}) · Σ ${fmtMnt(data.subledgerTotal)}`}
               empty="Энэ мужид subledger гүйлгээ алга."
               rows={data.subledger}
             />

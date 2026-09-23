@@ -34,6 +34,7 @@ import { assertCompanyCreatable, assertSeatAvailable } from "@/lib/billing/guard
 import { inheritSubscriptionForNewOrg } from "@/lib/billing/inherit";
 import { ORG_INVITATION_TTL_DAYS } from "@/lib/db/schema";
 import { roleAtLeast } from "@/lib/permissions";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 
 /**
  * Компанийн бүртгэл өөрчлөгдөхөд S1/S6 сегментийн утга дагаж шинэчлэгдэнэ
@@ -237,7 +238,7 @@ async function getMemberDetailCore(membershipId: string) {
       action: event.action,
       entityType: event.entityType,
       summary: event.summary,
-      at: event.createdAt.toISOString().slice(0, 16).replace("T", " "),
+      at: fmtDateTimeUb(event.createdAt) ?? "",
     })),
   };
 }

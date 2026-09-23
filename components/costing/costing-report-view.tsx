@@ -207,6 +207,7 @@ export function CostingReportView({ valuation }: Props) {
                 <FormField label="Огноо">
                   <Input
                     type="date"
+              aria-label="Огноо"
                     value={nrvDate}
                     onChange={(event) => setNrvDate(event.target.value)}
                   />

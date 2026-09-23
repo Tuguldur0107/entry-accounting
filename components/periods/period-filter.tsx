@@ -136,7 +136,7 @@ export function PeriodFilter({ initialPeriodCode, initialScope, today }: Props) 
                   className={cn(
                     "flex w-full items-center justify-between rounded px-2 py-1.5 font-mono text-xs transition-colors",
                     selected
-                      ? "bg-[var(--ea-primary)] text-white"
+                      ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                       : "text-[var(--ea-text-1)] hover:bg-[var(--ea-bg-2)]"
                   )}
                 >
@@ -176,7 +176,7 @@ export function PeriodFilter({ initialPeriodCode, initialScope, today }: Props) 
             className={cn(
               "rounded px-2 py-1 font-mono text-[11px] font-semibold transition-colors",
               scope === entry
-                ? "bg-[var(--ea-primary)] text-white"
+                ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                 : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
             )}
           >

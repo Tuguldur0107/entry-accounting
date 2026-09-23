@@ -59,17 +59,12 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { FormField } from "@/components/ui/form-field";
+import { col } from "@/lib/grid/columnTypes";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
   payment: "Зарлага",
   transfer: "Шилжүүлэг",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Ноорог",
-  posted: "Батлагдсан",
-  reversed: "Буцаагдсан",
 };
 
 interface Props {
@@ -629,34 +624,8 @@ export function CashDocumentsView({
         minWidth: 170,
         flex: 1,
       },
-      {
-        headerName: "Төлөв",
-        field: "status",
-        width: 122,
-        valueGetter: (params) =>
-          STATUS_LABELS[params.data?.status ?? ""] ?? "",
-        cellRenderer: (params: ICellRendererParams<CashDocumentView>) => {
-          const status = params.data?.status ?? "";
-          return (
-            <div className="flex h-full items-center gap-1.5">
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{
-                  background:
-                    status === "posted"
-                      ? "var(--ea-success)"
-                      : status === "draft"
-                        ? "var(--ea-warning)"
-                        : "var(--ea-text-4)",
-                }}
-              />
-              <span className="text-xs">
-                {STATUS_LABELS[status] ?? status}
-              </span>
-            </div>
-          );
-        },
-      },
+      // Төлөв — зүүн талд бэхэлсэн дүрс (lib/status.ts, UI гайдын карт 1).
+      col<CashDocumentView>({ eaType: "status", field: "status" }),
       {
         headerName: "Үйлдэл",
         colId: "actions",
@@ -674,8 +643,8 @@ export function CashDocumentsView({
                 <button
                   type="button"
                   className="ea-btn ea-btn--icon ea-btn--success"
-                  title="Баталж GL-д бичих"
-                  aria-label="Баталж GL-д бичих"
+                  title="Батлах"
+                  aria-label="Батлах"
                   onClick={() => handlePost(document)}
                 >
                   <Icon name="approve" />

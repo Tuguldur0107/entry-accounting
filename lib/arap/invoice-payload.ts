@@ -31,6 +31,8 @@ export interface InvoicePayload {
     description: string;
     itemName: string | null;
     quantity: number | null;
+    /** Нэгж үнэ (баримтын валютаар) — ENT-059: хэвлэмэл нэхэмжлэхэд байгаагүй. */
+    unitPrice: number | null;
     amount: number;
   }[];
   company: {
@@ -106,6 +108,12 @@ export async function loadInvoicePayload(
       description: line.description,
       itemName: line.itemId ? (itemNameById.get(line.itemId) ?? null) : null,
       quantity: line.quantity != null ? Number(line.quantity) : null,
+      unitPrice:
+        line.unitPrice != null
+          ? Number(line.unitPrice)
+          : line.quantity != null && Number(line.quantity) > 0
+            ? Math.round((Number(line.amount) / Number(line.quantity)) * 100) / 100
+            : null,
       amount: Number(line.amount),
     })),
     company: {

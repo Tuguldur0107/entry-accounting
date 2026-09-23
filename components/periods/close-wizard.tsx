@@ -200,7 +200,7 @@ export function CloseWizard({
       >
         <div className="flex items-center justify-between gap-3">
           <span className="font-semibold text-[var(--ea-text-1)]">
-            Ledger-ийн бүрэн бүтэн байдал
+            Дэвтрийн бүрэн бүтэн байдал
           </span>
           <span
             className="text-xs font-semibold"

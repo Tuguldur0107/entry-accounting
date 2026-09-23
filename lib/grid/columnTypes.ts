@@ -5,6 +5,8 @@
 import type { ColDef } from "ag-grid-community";
 import type { ColumnTypeId } from "./types";
 import { moneyValueFormatter, parseMntInput } from "./formatters";
+import { StatusCellRenderer } from "./editors/StatusCellRenderer";
+import { statusMeta } from "@/lib/status";
 
 export const columnTypeDefaults: Record<ColumnTypeId, Partial<ColDef>> = {
   text: {
@@ -100,6 +102,23 @@ export const columnTypeDefaults: Record<ColumnTypeId, Partial<ColDef>> = {
     cellDataType: "text",
     editable: true,
     cellEditor: "agSelectCellEditor",
+  },
+
+  // Баримтын төлөв — ЭХНИЙ багана, зүүн талд бэхэлсэн, зөвхөн дүрс (UI гайдын
+  // карт 1, ENT-016). Утга = түүхий төлөв ("posted"); шүүлт/хуулалт/экспортод
+  // монгол шошго (lib/status.ts).
+  status: {
+    headerName: "",
+    headerTooltip: "Төлөв",
+    width: 52,
+    minWidth: 52,
+    pinned: "left",
+    editable: false,
+    sortable: true,
+    resizable: false,
+    cellRenderer: StatusCellRenderer,
+    valueFormatter: (p) => statusMeta(p.value).label,
+    filterValueGetter: (p) => statusMeta(p.data?.status).label,
   },
 };
 

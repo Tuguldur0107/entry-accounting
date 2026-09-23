@@ -645,6 +645,22 @@ type PoCheckLine = {
   amount: number;
 };
 
+/**
+ * Бараатай мөр бүр АГУУЛАХТАЙ (ENT-039: вэб маягт агуулахгүй мөрийг батлуулж,
+ * агуулахгүй ноорог зарлага үүсч сар хаалтыг хориглодог байв; MCP заавал
+ * шаарддаг — дүрэм нэг болов). Server бол trust boundary.
+ */
+function assertItemLinesHaveWarehouse(
+  lines: { itemId: string | null; warehouseId: string | null; description: string }[]
+) {
+  lines.forEach((line, index) => {
+    if (line.itemId && !line.warehouseId)
+      throw new Error(
+        `Мөр #${index + 1}${line.description ? ` («${line.description}»)` : ""}: бараатай мөрөнд агуулах заавал сонгоно`
+      );
+  });
+}
+
 async function assertPurchaseOrderLines(
   tx: DbTx,
   input: {
@@ -1008,6 +1024,7 @@ async function createArApDocumentCore(data: {
     })
     .filter((line) => line.account && line.amount > 0);
   if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+  assertItemLinesHaveWarehouse(validLines);
   // Клиринг + өглөгийн түр данс тохиргооноос (JPR-006) — кодод хатуу
   // дугаар байхгүй.
   const costingRoles = await loadCostingAccountSettings(orgId, userId);
@@ -1946,6 +1963,7 @@ export async function updateArApDocument(
       })
       .filter((line) => line.account && line.amount > 0);
     if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+    assertItemLinesHaveWarehouse(validLines);
     const costingRoles = await loadCostingAccountSettings(orgId, userId);
     const clearingAccount = costingRoles.clearingAccountNumber;
     const apClearingAccount = costingRoles.apClearingAccountNumber;

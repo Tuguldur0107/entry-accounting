@@ -49,7 +49,9 @@ export const MODULES: Module[] = [
       { label: "Хяналтын самбар", href: "/gl", icon: "dashboard" },
       { label: "Журналын жагсаалт", href: "/gl/journal", icon: "journal" },
       { label: "Тайлан", href: "/gl/reports", icon: "report" },
-      // GL-ийн тохиргоо (сегмент, данс) Тохиргоо модульд байрладаг.
+      // Дансны төлөвлөгөө — S3 сегментийн утгууд (ENT-006: Тохиргоо → ... → S3
+      // табд 3 түвшин доош нуугдаж байв). Засвар нь Тохиргоо модульд хэвээр.
+      { label: "Дансны төлөвлөгөө", href: "/settings/gl?tab=values&seg=3", icon: "list" },
     ],
   },
   {
@@ -262,7 +264,7 @@ export const MODULES: Module[] = [
       { label: "Тайлант үе", href: "/settings/periods", icon: "period" },
       { label: "Аудитын мөр", href: "/admin/audit", icon: "journal" },
       { label: "Багц, төлбөр", href: "/settings/billing", icon: "cash" },
-      { label: "UI Kit", href: "/settings/ui-kit", icon: "theme" },
+      { label: "Интерфейсийн загвар (UI Kit)", href: "/settings/ui-kit", icon: "theme" },
       { label: "Систем, хувилбар", href: "/settings/system", icon: "settings" },
     ],
   },

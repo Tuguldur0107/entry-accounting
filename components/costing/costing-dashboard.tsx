@@ -90,7 +90,7 @@ export function CostingDashboard({
           );
       } catch (caught) {
         toast.error(
-          caught instanceof Error ? caught.message : "Costing run амжилтгүй"
+          caught instanceof Error ? caught.message : "Өртгийн тооцоо амжилтгүй"
         );
       }
     });
@@ -198,6 +198,7 @@ export function CostingDashboard({
         <div className="flex items-center gap-2">
           <Input
             type="date"
+              aria-label="Огноо"
             className="h-8 w-40"
             value={asOfDate}
             onChange={(event) => setAsOfDate(event.target.value)}
@@ -216,7 +217,7 @@ export function CostingDashboard({
           </Button>
           <Button size="sm" onClick={handleRun} disabled={isPending}>
             <Icon name="costing" />
-            Costing run
+            Өртгийн тооцоо ажиллуулах
           </Button>
         </div>
       </div>
@@ -267,7 +268,7 @@ export function CostingDashboard({
           </h2>
           {receiptsNeedingCost.length > 0 && (
             <span className="text-[11px] text-[var(--ea-text-3)]">
-              Орлогод нэгж өртөг оруулаад Costing run дарна
+              Орлогод нэгж өртөг оруулаад «Өртгийн тооцоо ажиллуулах» дарна
               {blockedCount > 0 && ` · ${blockedCount} блоклогдсон`}
             </span>
           )}

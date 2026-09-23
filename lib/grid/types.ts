@@ -13,7 +13,8 @@ export type ColumnTypeId =
   | "select"
   | "readonly-text"
   | "readonly-money"
-  | "number-hours";
+  | "number-hours"
+  | "status";
 
 export interface CellValidationResult {
   ok: boolean;

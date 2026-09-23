@@ -50,6 +50,7 @@ import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { PROVISIONAL_VALUATION_SOURCE } from "@/lib/pos/constants";
 import { getVatReturnData } from "@/lib/actions/vat";
 import { loadOnboardingStatus } from "@/lib/onboarding/status";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 
 
 /** Алхмын нэгдсэн статус: done ✓ · attention ⚠ · pending ○ · na —. */
@@ -569,7 +570,7 @@ export async function getMonthEndChecklist(
   return {
     periodCode,
     periodStatus: period?.status === "closed" ? "closed" : "open",
-    closedAt: period?.closedAt?.toISOString().slice(0, 16) ?? null,
+    closedAt: fmtDateTimeUb(period?.closedAt),
     fa: {
       status: faStatus,
       activeAssets: activeAssetCount,

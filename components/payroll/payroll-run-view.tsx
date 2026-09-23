@@ -650,6 +650,7 @@ export function PayrollRunView({ data }: Props) {
                   Олгох огноо
                   <input
                     type="date"
+              aria-label="Огноо"
                     value={advanceDate}
                     min={`${periodMonth}-01`}
                     onChange={(event) => setAdvanceDate(event.target.value)}
