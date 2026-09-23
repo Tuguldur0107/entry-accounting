@@ -295,6 +295,7 @@ import {
 } from "./post-limit";
 
 import type { AiAction } from "./action-markers";
+import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import {
   customToolDefs,
@@ -2969,7 +2970,14 @@ export const AI_TOOLS: AiToolDef[] = [
 // ── Туслах ──────────────────────────────────────────────────────────────────
 
 function errorText(caught: unknown): string {
-  return caught instanceof Error ? caught.message : "Тодорхойгүй алдаа";
+  // Batch-ийн мөр бүрийн алдаа ч гадны клиентэд очдог — DB-ийн дотоод
+  // мессежийг (SQL, UUID параметр) ЗАДЛАХГҮЙ (ENT-070).
+  const classified = classifyToolError(caught);
+  if (classified.internal) {
+    console.error(`AI tool internal error [${classified.logId}]:`, caught);
+    return internalErrorText(classified.logId);
+  }
+  return classified.message;
 }
 
 const fmt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n * 100) / 100);
@@ -9978,31 +9986,25 @@ const AI_ACTION_ENTITY: Record<AiAction["kind"], string> = {
 };
 
 function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
-  {
-    const message = errorText(caught);
-    // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
-    // Postgres SQLSTATE кодтой (23505 г.м) эсвэл SQL-дотоод үг агуулсан
-    // мессежийг ерөнхий монгол текстээр орлуулж, жинхэнэ алдааг лог руу
-    // бичнэ. [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
-    const errorCode = (caught as { code?: unknown } | null)?.code;
-    const isSqlState =
-      typeof errorCode === "string" && /^[0-9A-Z]{5}$/.test(errorCode);
-    const looksSqlish =
-      /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
-        message
-      );
-    if (isSqlState || looksSqlish) {
-      console.error(`AI tool "${name}" internal error:`, caught);
-      return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
-    }
-    // EntitlementError г.м `code`-той алдаа: [CODE] угтварыг баталгаажуулна
-    // (REST parseError, модель хоёулаа үүнд найддаг — CLAUDE.md §9a).
-    const bracketed =
-      typeof errorCode === "string" && /^[A-Z][A-Z_]+$/.test(errorCode) && !message.startsWith("[")
-        ? `[${errorCode}] ${message}`
-        : message;
-    return { resultText: `Алдаа: ${bracketed}` };
+  // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
+  // SQLSTATE код (cause гинжинд ч), DrizzleQueryError («Failed query: …
+  // params: <UUID>») эсвэл SQL-ийн үг агуулсан мессежийг ерөнхий монгол
+  // текст + лавлах кодоор орлуулж, жинхэнэ алдааг лог руу бичнэ (ENT-070).
+  // [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
+  const classified = classifyToolError(caught);
+  if (classified.internal) {
+    console.error(`AI tool "${name}" internal error [${classified.logId}]:`, caught);
+    return { resultText: `Алдаа: ${internalErrorText(classified.logId)}` };
   }
+  const message = classified.message;
+  // EntitlementError г.м `code`-той алдаа: [CODE] угтварыг баталгаажуулна
+  // (REST parseError, модель хоёулаа үүнд найддаг — CLAUDE.md §9a).
+  const errorCode = (caught as { code?: unknown } | null)?.code;
+  const bracketed =
+    typeof errorCode === "string" && /^[A-Z][A-Z_]+$/.test(errorCode) && !message.startsWith("[")
+      ? `[${errorCode}] ${message}`
+      : message;
+  return { resultText: `Алдаа: ${bracketed}` };
 }
 
 async function dispatchAiTool(
