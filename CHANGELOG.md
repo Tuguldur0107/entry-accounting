@@ -5,6 +5,16 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Changed
+
+- **POS: Ээлж · Бэлгийн карт·кредит · POS тохиргоо нь SIDEBAR-ын тусдаа цэс** —
+  урьд нь Борлуулалт хуудасны таб байсан. Одоо `/inventory/shifts`,
+  `/inventory/gift-cards`, `/inventory/pos-settings` — хуудас бүр ЗӨВХӨН өөрийн
+  өгөгдлөө ачаална (борлуулалтын жагсаалт нээхэд ээлж/карт/тохиргооны өгөгдөл
+  дагаж уншигдахгүй). Хуучин `/inventory/sales?tab=shifts|cards|settings` линк
+  бусад параметрээ хадгалан redirect хийнэ (QPay холболтын callback, мэдэгдлийн
+  линк, сар хаалтын wizard бүгд ажиллана)
+
 ### Added
 
 - **POS: QPay нэг товчны холболт (Фаз 2)** — Борлуулалт → Тохиргоо → QPay →

@@ -154,8 +154,21 @@ export const MODULES: Module[] = [
       // POS — Бараа материалын дотор (docs/pos D1): кассын дэлгэц + борлуулалт.
       { label: "Касс (POS)", href: "/inventory/pos", icon: "cash", configKey: "pos" },
       { label: "Борлуулалт", href: "/inventory/sales", icon: "document", configKey: "pos" },
+      { label: "Ээлж", href: "/inventory/shifts", icon: "period", configKey: "pos" },
+      {
+        label: "Бэлгийн карт · кредит",
+        href: "/inventory/gift-cards",
+        icon: "key",
+        configKey: "pos",
+      },
       { label: "Тайлан", href: "/inventory/reports", icon: "reportDetailed" },
       { label: "Бараа, агуулах", href: "/inventory/items", icon: "inventory" },
+      {
+        label: "POS тохиргоо",
+        href: "/inventory/pos-settings",
+        icon: "settings",
+        configKey: "pos",
+      },
     ],
   },
   {

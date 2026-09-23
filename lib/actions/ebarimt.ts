@@ -39,6 +39,7 @@ import type {
 
 function revalidateEbarimt() {
   revalidatePath("/inventory/sales");
+  revalidatePath("/inventory/pos-settings");
   revalidatePath("/inventory/pos");
   revalidatePath("/inventory");
 }

@@ -200,7 +200,7 @@ export function InventoryDashboard({
           value: String(pos.openShifts),
           icon: "pending",
           color: pos.openShifts > 0 ? "var(--ea-warning)" : "var(--ea-success)",
-          href: "/inventory/sales?tab=shifts",
+          href: "/inventory/shifts",
         },
         {
           label: "Урьдчилсан COGS (энэ сар)",
@@ -265,7 +265,7 @@ export function InventoryDashboard({
             </p>
           </div>
           <Link
-            href="/inventory/sales?tab=sales"
+            href="/inventory/sales"
             className="text-xs font-medium underline"
             style={{ color: ebarimt.failed > 0 ? "var(--ea-danger-fg)" : "var(--ea-primary)" }}
           >

@@ -132,6 +132,8 @@ function revalidatePos() {
     "/inventory",
     "/inventory/pos",
     "/inventory/sales",
+    "/inventory/shifts",
+    "/inventory/gift-cards",
     "/inventory/movements",
     "/inventory/reports",
     "/receivables",
