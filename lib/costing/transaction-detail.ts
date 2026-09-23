@@ -5,7 +5,7 @@
 // батлагдсан, буцаагдсан БҮХ хөдөлгөөн харагдана. Эс бөгөөс GL-д ороогүй
 // дэд дэвтрийн хөдөлгөөн нуугдана.
 
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -16,10 +16,12 @@ import {
   inventoryIssueTypes,
   inventoryMovements,
   journalVouchers,
+  purchaseOrders,
 } from "@/lib/db/schema";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
+import { buildInventoryReconciliationRows } from "./reconciliation-math";
 import {
   computeRunningBalances,
   type RunningMovement,
@@ -384,6 +386,8 @@ export async function loadTransactionDetail(
  *
  * Дэд дэвтрийн тал: батлагдсан өртгийн бичилтүүдийн нөлөө данс тус бүрээр.
  * GL тал: тухайн дансанд БҮХ journal мөр (гараар бичсэн нь ч орно).
+ * PO хаалтын журнал (§5a ⑥) нь өртгийн бичилт БИШ тул тусдаа баганаар ил
+ * гарч зөрүүнээс хасагдана — эс бөгөөс хаагдсан PO бүр худал зөрүү үүсгэнэ.
  * Зөрүү нь ил гарна — автоматаар нөхөхгүй (§5.6, AC-005).
  */
 export async function loadInventoryGlReconciliation(
@@ -450,45 +454,38 @@ export async function loadInventoryGlReconciliation(
     }
   }
 
-  // GL тал — дэд дэвтрийн лавлагаатай/лавлагаагүйг ялгана (§5.4).
-  const gl = new Map<string, number>();
-  const unlinkedLines = new Map<string, number>();
-  const unlinkedAmount = new Map<string, number>();
-  for (const voucher of vouchers) {
-    if (voucher.status === "draft") continue;
-    for (const line of voucher.lines) {
-      const main = extractMainAccount(line.accountNumber);
-      const delta = Number(line.debit) - Number(line.credit);
-      gl.set(main, (gl.get(main) ?? 0) + delta);
-      if (!line.costEntryId) {
-        unlinkedLines.set(main, (unlinkedLines.get(main) ?? 0) + 1);
-        unlinkedAmount.set(main, (unlinkedAmount.get(main) ?? 0) + delta);
-      }
-    }
-  }
+  // PO хаалтын журналууд — огнооны мужаар хязгаарлахгүй (хаалт нь хожим
+  // хийгдсэн ч тэр мужийн түр дансны үлдэгдлийг тэгшитгэдэг).
+  const closedOrders = await db.query.purchaseOrders.findMany({
+    where: and(
+      eq(purchaseOrders.organizationId, orgId),
+      isNotNull(purchaseOrders.closeVoucherId)
+    ),
+    columns: { closeVoucherId: true },
+  });
+  const poCloseVouchers = new Set(
+    closedOrders
+      .map((order) => order.closeVoucherId)
+      .filter((id): id is string => Boolean(id))
+  );
 
-  const codes = new Set([...subledger.keys()]);
-  // GL талаас зөвхөн ХОЛБООТОЙ данснуудыг нэмнэ — бүх GL данс энэ тайланд
-  // хамаарахгүй (§5.5: зөвхөн харьцуулах олонлогоо тодорхой байлгана).
-  for (const [code, count] of unlinkedLines)
-    if (subledger.has(code) && count > 0) codes.add(code);
+  // GL тал — дэд дэвтрийн лавлагаатай / PO хаалт / гараар бичсэнийг ялгана (§5.4).
+  const glLines = vouchers
+    .filter((voucher) => voucher.status !== "draft")
+    .flatMap((voucher) =>
+      voucher.lines.map((line) => ({
+        accountNumber: extractMainAccount(line.accountNumber),
+        delta: Number(line.debit) - Number(line.credit),
+        linked: Boolean(line.costEntryId),
+        poClose: poCloseVouchers.has(voucher.id),
+      }))
+    );
 
-  const rows: ReconciliationRow[] = [...codes]
-    .map((code) => {
-      const subledgerAmount = Math.round((subledger.get(code) ?? 0) * 100) / 100;
-      const glAmount = Math.round((gl.get(code) ?? 0) * 100) / 100;
-      return {
-        accountNumber: code,
-        accountName: accountName.get(code) ?? "",
-        subledgerAmount,
-        glAmount,
-        difference: Math.round((subledgerAmount - glAmount) * 100) / 100,
-        unlinkedGlLines: unlinkedLines.get(code) ?? 0,
-        unlinkedGlAmount:
-          Math.round((unlinkedAmount.get(code) ?? 0) * 100) / 100,
-      };
-    })
-    .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
+  const rows = buildInventoryReconciliationRows({
+    subledger,
+    glLines,
+    accountName,
+  });
 
   return {
     rows,

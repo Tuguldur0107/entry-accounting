@@ -69,6 +69,12 @@ export interface ReconciliationRow {
   accountName: string;
   subledgerAmount: number;
   glAmount: number;
+  /**
+   * PO хаалтын журналын нөлөө (§5a ⑥) — түр дансыг тэгшитгэсэн дүн. Өртгийн
+   * бичилт БИШ тул дэд дэвтэрт байхгүй; зөрүүнээс ИЛ нэрлэж хасна.
+   */
+  poCloseAmount: number;
+  /** Дэд дэвтэр + PO хаалт − GL. */
   difference: number;
   /** GL мөрүүдийн хэд нь дэд дэвтрийн лавлагаагүй вэ (гараар бичсэн). */
   unlinkedGlLines: number;

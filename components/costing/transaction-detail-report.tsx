@@ -401,6 +401,17 @@ export function TransactionDetailReport({
         valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
       },
       {
+        headerName: "PO хаалт",
+        field: "poCloseAmount",
+        width: 150,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) =>
+          Number(params.value ?? 0) === 0 ? "" : fmtMnt(Number(params.value)),
+        headerTooltip:
+          "PO хаалтын журналаар түр дансыг тэгшитгэсэн дүн — өртгийн бичилт биш",
+      },
+      {
         headerName: "Зөрүү",
         field: "difference",
         width: 150,
