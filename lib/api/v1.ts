@@ -9,7 +9,7 @@
 
 import { runAsOrg } from "@/lib/auth";
 import { requireFeature } from "@/lib/billing/guards";
-import { allAiTools, executeAiTool } from "@/lib/ai/tools";
+import { aiToolsForSurface, executeAiTool } from "@/lib/ai/tools";
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import { checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { resolveApiToken, writeModeOf } from "@/lib/mcp/server";
@@ -52,7 +52,8 @@ export function listTools(): Response {
     {
       ok: true,
       version: APP_VERSION,
-      tools: allAiTools().map((tool) => ({
+      // Зөвхөн REST-д нээлттэй tools (мэдлэгийн сан г.м. чат/MCP-д л — D4).
+      tools: aiToolsForSurface("rest").map((tool) => ({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema,
@@ -77,7 +78,7 @@ export async function callTool(
   name: string,
   request: Request
 ): Promise<Response> {
-  if (!allAiTools().some((tool) => tool.name === name))
+  if (!aiToolsForSurface("rest").some((tool) => tool.name === name))
     return Response.json(
       { ok: false, code: "TOOL_NOT_FOUND", error: `"${name}" гэдэг tool байхгүй — GET /api/v1/tools` },
       { status: 404, headers: VERSION_HEADER }

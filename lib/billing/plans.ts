@@ -9,7 +9,8 @@ export type FeatureKey =
   | "mcp"
   | "api.rest"
   | "multi_company"
-  | "custom_extensions";
+  | "custom_extensions"
+  | "knowledge";
 
 export type LimitKey = "seats" | "companies";
 
@@ -22,6 +23,7 @@ export const FEATURE_KEYS: FeatureKey[] = [
   "api.rest",
   "multi_company",
   "custom_extensions",
+  "knowledge",
 ];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
@@ -31,6 +33,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   "api.rest": "REST API (гадаад интеграци)",
   multi_company: "Олон компани (групп / нягтлангийн фирм)",
   custom_extensions: "custom/ өргөтгөл",
+  knowledge: "Мэдлэгийн сан (IFRS, татвар, цалин — AI/MCP)",
 };
 
 export const PLAN_LABELS: Record<PlanId, string> = {
@@ -64,6 +67,11 @@ const ALL_ON: Record<FeatureKey, boolean> = {
   "api.rest": true,
   multi_company: true,
   custom_extensions: true,
+  // Мэдлэгийн сан нь АЛЬ Ч багцад default-оор ОРОХГҮЙ — Entry Console
+  // байгууллага бүрд `overrides.features.knowledge` асаана
+  // (docs/knowledge/00-proposal.md D2). dedicated-д ч ижил: агуулга нь
+  // Entry-ээс л ирдэг тул fork өөрөө нээж чадахгүй.
+  knowledge: false,
 };
 
 export const PLANS: Record<PlanId, PlanDef> = {
