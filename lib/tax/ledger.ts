@@ -3,7 +3,7 @@
 // буцаагдсан журнал — тайлангийн конвенцтой ижил); orgId параметртэй тул
 // "use server" файлд БИШ (lib/vat/settings.ts-тэй ижил шалтгаанаар).
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { chartOfAccounts, journalLines, journalVouchers } from "@/lib/db/schema";
@@ -37,7 +37,13 @@ export interface TaxLedgerData {
 export async function loadTaxLedger(
   orgId: string,
   mains: string[],
-  entryLimit = 100
+  entryLimit = 100,
+  /**
+   * Тайлант үе: үлдэгдэл нь `to` хүртэлх, хуулга нь [from, to] доторх мөр.
+   * Өгөхгүй бол бүх түүх (өнөөдрийн байдлаар). НӨАТ-ын сарын хуудас нь
+   * сонгосон сараас гадуурх мөрийг харуулдаг байв (ENT-051).
+   */
+  range?: { from: string; to: string }
 ): Promise<TaxLedgerData> {
   if (mains.length === 0) return { accounts: [], entries: [] };
 
@@ -47,8 +53,10 @@ export async function loadTaxLedger(
   const scope = and(
     eq(journalVouchers.organizationId, orgId),
     inArray(journalVouchers.status, ["posted", "reversed"]),
-    inArray(mainExpr, mains)
+    inArray(mainExpr, mains),
+    ...(range ? [lte(journalVouchers.date, range.to)] : [])
   );
+  const entryScope = range ? and(scope, gte(journalVouchers.date, range.from)) : scope;
 
   const [totals, rows, names] = await Promise.all([
     db
@@ -75,7 +83,7 @@ export async function loadTaxLedger(
       })
       .from(journalLines)
       .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
-      .where(scope)
+      .where(entryScope)
       .orderBy(desc(journalVouchers.date), desc(journalVouchers.createdAt))
       .limit(entryLimit),
     db.query.chartOfAccounts.findMany({

@@ -24,6 +24,7 @@ import { db } from "../lib/db";
 import {
   costEntries,
   inventoryMovements,
+  journalVouchers,
   memberships,
   organizations,
   users,
@@ -160,6 +161,49 @@ test("ENT-018 + ENT-043: PO-гүй АП орлого автоматаар кап
   });
   assert.equal(issues.length, 1, costing.resultText);
   assert.equal(Number(issues[0].amount), 128000);
+});
+
+test("ENT-035/024: НӨАТ тооцооны журнал ҮЕИЙН СҮҮЛИЙН огноогоор, тайлан өөрчлөгдөхгүй", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  assert.ok(okOrRevalidate((await tool("create_counterparty", { name: "НӨАТ Харилцагч", counterpartyType: "both" })).resultText));
+  const sale = await tool(
+    "create_arap_invoice",
+    {
+      documentType: "ar_invoice", counterparty: "НӨАТ Харилцагч", date: "2025-04-10",
+      description: "НӨАТ-тай борлуулалт", externalRef: `sim-${STAMP}-vat-ar`, vatMode: "exclusive",
+      lines: [{ account: "51100000", description: "Үйлчилгээ", amount: 1_000_000 }],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(sale.resultText), sale.resultText);
+  const buy = await tool(
+    "create_arap_invoice",
+    {
+      documentType: "ap_bill", counterparty: "НӨАТ Харилцагч", date: "2025-04-12",
+      description: "НӨАТ-тай худалдан авалт", externalRef: `sim-${STAMP}-vat-ap`, vatMode: "exclusive",
+      lines: [{ account: "73100001", description: "Зардал", amount: 2_000_000 }],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(buy.resultText), buy.resultText);
+
+  const before = await tool("get_vat_return", { period: "2025-04" });
+  assert.match(before.resultText, /Гаралтын НӨАТ \(борлуулалт\): 100,000/);
+  const settle = await tool("create_vat_settlement", { period: "2025-04" });
+  assert.ok(okOrRevalidate(settle.resultText), settle.resultText);
+  const [voucher] = await db.query.journalVouchers.findMany({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, "vat-settlement:2025-04")),
+  });
+  assert.ok(voucher, "тооцооны ноорог үүссэн байх ёстой");
+  assert.equal(voucher.date, "2025-04-30");
+  const posted = await tool("post_journal_voucher", { voucherId: voucher.id }, "post");
+  assert.ok(okOrRevalidate(posted.resultText), posted.resultText);
+  const after = await tool("get_vat_return", { period: "2025-04" });
+  assert.match(after.resultText, /Гаралтын НӨАТ \(борлуулалт\): 100,000/);
+  assert.match(after.resultText, /Дараа сард шилжүүлэх: 100,000/);
+  // ENT-052: дараагийн сард 100,000 кредит шилжинэ
+  const next = await tool("get_vat_return", { period: "2025-05" });
+  assert.match(next.resultText, /шилжсэн оролтын НӨАТ: 100,000/);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

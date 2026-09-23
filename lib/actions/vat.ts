@@ -8,7 +8,7 @@
 // шалгаад GL журналаас Post дарна.
 
 import { revalidatePath } from "next/cache";
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireModuleAction, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -28,7 +28,11 @@ import {
   type ActionResult,
 } from "@/lib/action-result";
 import { loadVatSettings } from "@/lib/vat/settings";
-import { computeVatReturn, type VatReturnSummary } from "@/lib/vat/return";
+import {
+  carriedInputVat,
+  computeVatReturn,
+  type VatReturnSummary,
+} from "@/lib/vat/return";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { buildSegCode } from "@/lib/grid/segments";
@@ -119,9 +123,11 @@ export async function getVatReturnData(
   // Бүртгэлийн босгын хяналт — хуанлийн оны эхнээс тайлант үеийн эцэс хүртэл.
   const yearStart = `${periodCode.slice(0, 4)}-01-01`;
 
-  const [rows, settlementVoucher, accounts, yearRows] = await Promise.all([
+  const mainExpr = sql<string>`case when position('.' in ${journalLines.accountNumber}) > 0 then split_part(${journalLines.accountNumber}, '.', 3) else ${journalLines.accountNumber} end`;
+  const [rows, settlementVoucher, accounts, yearRows, openingRows] = await Promise.all([
     db
       .select({
+        voucherId: journalLines.voucherId,
         accountNumber: journalLines.accountNumber,
         debit: journalLines.debit,
         credit: journalLines.credit,
@@ -165,7 +171,33 @@ export async function getVatReturnData(
           inArray(journalVouchers.status, ["posted", "reversed"])
         )
       ),
+    // Тайлант үеийн ЭХЭН дэх НӨАТ-ын дансны үлдэгдэл — шилжсэн кредит (ENT-052).
+    db
+      .select({
+        main: mainExpr,
+        debit: sql<string>`coalesce(sum(${journalLines.debit}), 0)`,
+        credit: sql<string>`coalesce(sum(${journalLines.credit}), 0)`,
+      })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          lt(journalVouchers.date, startDate),
+          inArray(journalVouchers.status, ["posted", "reversed"]),
+          inArray(mainExpr, [settings.outputVatAccountNumber, settings.inputVatAccountNumber])
+        )
+      )
+      .groupBy(mainExpr),
   ]);
+  const openingNet = (main: string) => {
+    const row = openingRows.find((entry) => entry.main === main);
+    return row ? Number(row.debit) - Number(row.credit) : 0;
+  };
+  const carriedInVat = carriedInputVat({
+    inputDebitBalance: openingNet(settings.inputVatAccountNumber),
+    outputCreditBalance: -openingNet(settings.outputVatAccountNumber),
+  });
 
   // Орлогын данс (5XXXXXXX) — оны борлуулалт = Σ(Кт − Дт).
   const yearSales = yearRows.reduce(
@@ -178,6 +210,7 @@ export async function getVatReturnData(
 
   const summary = computeVatReturn(
     rows.map((row) => ({
+      voucherId: row.voucherId,
       mainAccount: extractMainAccount(row.accountNumber),
       debit: Number(row.debit),
       credit: Number(row.credit),
@@ -188,6 +221,7 @@ export async function getVatReturnData(
       periodCode,
       outputVatAccount: settings.outputVatAccountNumber,
       inputVatAccount: settings.inputVatAccountNumber,
+      carriedInVat,
     }
   );
 
@@ -229,8 +263,11 @@ export async function updateVatPayerFlag(isVatPayer: boolean): Promise<void> {
  *   Төлөх:        Dr Гаралтын НӨАТ / Cr Оролтын НӨАТ / Cr Банк (зөрүү)
  *   Буцаан авах:  Dr Гаралтын НӨАТ / Cr Оролтын НӨАТ (гаралтын дүнгээр
  *                 offset — үлдэгдэл оролтын дансанд дараа сард шилжинэ)
- * Огноо нь ӨНӨӨДӨР (тооцоо дараа сард хийгддэг) — createVoucher периодын
- * хамгаалалтаа өөрөө хийнэ. Idempotent: нэг сард нэг л тооцоо (externalRef).
+ * Оролтын хаалт нь энэ сарын оролт + өмнөх саруудаас шилжсэн кредитээс
+ * гаралтаас ихгүй дүн. Огноо нь ТАЙЛАНТ ҮЕИЙН СҮҮЛИЙН ӨДӨР (ENT-035: урьд
+ * өнөөдрийн огноогоор бичигдэж 2025-02-ын тооцоо 2026-09-д орж байв);
+ * тэр үе хаагдсан бол createVoucher-ийн периодын хамгаалалт татгалзана.
+ * Idempotent: нэг сард нэг л тооцоо (externalRef).
  */
 export async function createVatSettlementDraft(
   data: Parameters<typeof createVatSettlementDraftCore>[0]
@@ -281,8 +318,12 @@ async function createVatSettlementDraftCore(data: {
       description: `Гаралтын НӨАТ ${data.periodCode}`,
     },
   ];
-  // Оролтын НӨАТ-ийг гаралтаас ихгүй дүнгээр хаана (илүү нь дараа сард).
-  const inputOffset = Math.min(summary.inputVat, summary.outputVat);
+  // Оролтын НӨАТ-ийг (энэ сарын + шилжсэн кредит) гаралтаас ихгүй дүнгээр
+  // хаана (илүү нь дараа сард). Төлөх = гаралт − хаалт = summary.payableVat.
+  const inputOffset = Math.min(
+    Math.round((summary.inputVat + summary.carriedInVat) * 100) / 100,
+    summary.outputVat
+  );
   if (inputOffset > 0)
     lines.push({
       account: code(settings.inputVatAccountNumber),
@@ -332,7 +373,7 @@ async function createVatSettlementDraftCore(data: {
   }
 
   const { id } = unwrapAction(await createVoucher({
-    date: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    date: periodRange(data.periodCode).endDate,
     description: `НӨАТ тооцоо ${data.periodCode}${
       summary.refundableVat > 0
         ? ` (буцаан авах ${summary.refundableVat.toLocaleString()}₮ дараа сард шилжинэ)`

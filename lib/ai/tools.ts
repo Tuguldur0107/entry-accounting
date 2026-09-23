@@ -6471,13 +6471,17 @@ async function runGetVatReturn(
     summary.payableVat > 0
       ? `ТӨЛӨХ: ${fmt(summary.payableVat)}₮ (${summary.deadline} дотор; хоцорвол 0.1%/хоног алданги)`
       : summary.refundableVat > 0
-        ? `Буцаан авах / дараа сард шилжүүлэх: ${fmt(summary.refundableVat)}₮`
+        ? `Дараа сард шилжүүлэх: ${fmt(summary.refundableVat)}₮`
         : "Төлөх дүн 0";
+  const carriedText =
+    summary.carriedInVat > 0
+      ? `\n  Өмнөх саруудаас шилжсэн оролтын НӨАТ: ${fmt(summary.carriedInVat)}₮`
+      : "";
   return {
     resultText: [
       `НӨАТ тайлан ${summary.periodCode}:`,
       `  Гаралтын НӨАТ (борлуулалт): ${fmt(summary.outputVat)}₮ (${summary.outputLineCount} мөр, данс ${data.settings.outputVatAccountNumber})`,
-      `  Оролтын НӨАТ (худалдан авалт): ${fmt(summary.inputVat)}₮ (${summary.inputLineCount} мөр, данс ${data.settings.inputVatAccountNumber})`,
+      `  Оролтын НӨАТ (худалдан авалт): ${fmt(summary.inputVat)}₮ (${summary.inputLineCount} мөр, данс ${data.settings.inputVatAccountNumber})${carriedText}`,
       `  ${balanceText}${settlementText}`,
     ].join("\n"),
   };

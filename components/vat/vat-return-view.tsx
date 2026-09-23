@@ -170,14 +170,18 @@ export function VatReturnView({
           label="Оролтын НӨАТ (худалдан авалт)"
           value={fmtMnt(summary.inputVat)}
           mono
-          hint={`${summary.inputLineCount} мөр`}
+          hint={
+            summary.carriedInVat > 0
+              ? `${summary.inputLineCount} мөр · өмнөх сараас шилжсэн ${fmtMnt(summary.carriedInVat)}`
+              : `${summary.inputLineCount} мөр`
+          }
         />
         {summary.refundableVat > 0 ? (
           <TaxStatCard
-            label="Буцаан авах / шилжүүлэх"
+            label="Дараа сард шилжүүлэх"
             value={fmtMnt(summary.refundableVat)}
             mono
-            hint="Оролтын НӨАТ илүү — дараа сард шилжинэ"
+            hint="Оролтын НӨАТ (шилжсэн кредит орсон) гаралтаас илүү"
             tone="success"
           />
         ) : (

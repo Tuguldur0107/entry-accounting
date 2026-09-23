@@ -1,7 +1,7 @@
 import { getVatReturnData } from "@/lib/actions/vat";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
-import { isPeriodCode } from "@/lib/periods/period";
+import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { loadTaxLedger } from "@/lib/tax/ledger";
 import { TaxManager } from "@/components/tax/tax-manager";
 import { VatReturnView } from "@/components/vat/vat-return-view";
@@ -24,12 +24,15 @@ export default async function VatPage({
     period && isPeriodCode(period) ? period : selection.periodCode;
 
   const data = await getVatReturnData(periodCode);
-  // НӨАТ-ийн гаралт/оролтын дансны нийт үлдэгдэл + хуулга — тохиргооны
-  // данснуудаар (сарын тайлангаас тусдаа, өнөөдрийн байдлаар).
-  const ledger = await loadTaxLedger(orgId, [
-    data.settings.outputVatAccountNumber,
-    data.settings.inputVatAccountNumber,
-  ]);
+  // НӨАТ-ийн гаралт/оролтын дансны үлдэгдэл (сарын эцсийн байдлаар) + ТУХАЙН
+  // САРЫН хуулга (ENT-051: урьд сараас гадуурх мөр холилдож байв).
+  const { startDate, endDate } = periodRange(periodCode);
+  const ledger = await loadTaxLedger(
+    orgId,
+    [data.settings.outputVatAccountNumber, data.settings.inputVatAccountNumber],
+    100,
+    { from: startDate, to: endDate }
+  );
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
