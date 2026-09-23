@@ -31,6 +31,7 @@ import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
 import { assertCompanyCreatable, assertSeatAvailable } from "@/lib/billing/guards";
+import { inheritSubscriptionForNewOrg } from "@/lib/billing/inherit";
 import { ORG_INVITATION_TTL_DAYS } from "@/lib/db/schema";
 import { roleAtLeast } from "@/lib/permissions";
 
@@ -371,6 +372,11 @@ async function createOrganizationCore(data: {
     email: clean(data.email),
   });
 
+  // Группын багц ӨВЛӨЛТ: эх байгууллагын багцыг шинэ компанид хуулна
+  // (үнэ 0 — төлбөр эх дээрээ). Энэгүйгээр 2 дахь компани мөргүй үүсч,
+  // өөрийн 14 хоногийн trial дуусмагц БИЧИХ ЭРХГҮЙ болдог байв.
+  await inheritSubscriptionForNewOrg(current.orgId, orgId, userId);
+
   // Шинэ компани = S1/S6 сегментийн шинэ утга (эзэмшигчийн БҮХ компанид).
   await refreshCompanySegments(orgId, userId);
   await logAuditEvent({
@@ -415,8 +421,11 @@ export async function createOrganizationForUser(input: {
   if (!name) throw new Error("Байгууллагын нэр оруулна уу");
   // API/MCP зам — token-ий байгууллагын entitlement-ээр шалгана (runAsOrg
   // контекстгүй дуудагдвал шалгалт алгасна: script/seed).
+  // Эх байгууллага — хязгаарын шалгалтад ба доорх багцын ӨВЛӨЛТӨД хоёуланд.
+  let sourceOrgId: string | null = null;
   try {
     const current = await getActiveOrg();
+    sourceOrgId = current.orgId;
     await assertCompanyCreatable(current.orgId, input.userId);
   } catch (caught) {
     if (caught instanceof Error && caught.message.startsWith("[")) throw caught;
@@ -458,6 +467,8 @@ export async function createOrganizationForUser(input: {
       );
     return org.id;
   });
+  // Группын багц ӨВЛӨЛТ — вэбийн замтай ИЖИЛ (docs/billing §6).
+  if (sourceOrgId) await inheritSubscriptionForNewOrg(sourceOrgId, orgId, input.userId);
   await logAuditEvent({
     userId: input.userId,
     organizationId: orgId,
