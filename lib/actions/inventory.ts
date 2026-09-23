@@ -734,8 +734,25 @@ async function createInventoryMovementCore(data: {
     })
     .returning({ id: inventoryMovements.id });
 
-  if (data.confirmNow) await confirmInventoryMovementCore(movement.id);
-  else revalidateInventory();
+  if (data.confirmNow) {
+    try {
+      await confirmInventoryMovementCore(movement.id);
+    } catch (caught) {
+      // «Үүсгээд шууд батлах» нь НЭГ үйлдэл: батлалт унавал (үлдэгдэл хасах
+      // г.м.) ноорог ҮЛДЭЭХГҮЙ — эс бөгөөс давтах бүрд нууц ноорог нэмэгдэж
+      // сар хаалтыг «ноорог үлдсэн» гэж блоклодог байв (ENT-036).
+      await db
+        .delete(inventoryMovements)
+        .where(
+          and(
+            eq(inventoryMovements.id, movement.id),
+            eq(inventoryMovements.organizationId, orgId),
+            eq(inventoryMovements.status, "draft")
+          )
+        );
+      throw caught;
+    }
+  } else revalidateInventory();
   return { id: movement.id };
 }
 

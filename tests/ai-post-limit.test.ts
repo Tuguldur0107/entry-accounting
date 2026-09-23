@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  AI_POST_LIMIT_TOOL_CEILING_MNT,
   currentAiPostLimit,
   DEFAULT_AI_POST_LIMIT_MNT,
   planAiPostLimitChange,
@@ -24,42 +23,53 @@ test("resolveAiPostLimit — numeric багана string-ээр ирдэг", () 
   assert.equal(resolveAiPostLimit(50_000_000), 50_000_000);
 });
 
-test("вэбээс (viaTool=false) хязгаарыг тааз хамаарахгүй тавина", () => {
+test("вэбээс (viaTool=false, хүн) хязгаарыг өсгөж болно", () => {
   const plan = planAiPostLimitChange({
     currentMnt: DEFAULT_AI_POST_LIMIT_MNT,
-    requestedMnt: AI_POST_LIMIT_TOOL_CEILING_MNT * 5,
+    requestedMnt: 5_000_000_000,
     viaTool: false,
   });
   assert.equal(plan.ok, true);
   assert.deepEqual(plan.ok && { value: plan.valueMnt, dir: plan.direction }, {
-    value: AI_POST_LIMIT_TOOL_CEILING_MNT * 5,
+    value: 5_000_000_000,
     dir: "raise",
   });
 });
 
-test("tool-оор таазнаас дээш ӨСГӨХ хориотой", () => {
-  const plan = planAiPostLimitChange({
-    currentMnt: DEFAULT_AI_POST_LIMIT_MNT,
-    requestedMnt: AI_POST_LIMIT_TOOL_CEILING_MNT + 1,
-    viaTool: true,
-  });
-  assert.equal(plan.ok, false);
-  assert.equal(plan.ok === false && plan.code, "LIMIT_CEILING_EXCEEDED");
+test("ENT-068: tool-оор ӨСГӨХ нь бага дүнгээр ч хориотой", () => {
+  for (const requestedMnt of [DEFAULT_AI_POST_LIMIT_MNT + 1, 50_000_000, 1_000_000_000]) {
+    const plan = planAiPostLimitChange({
+      currentMnt: DEFAULT_AI_POST_LIMIT_MNT,
+      requestedMnt,
+      viaTool: true,
+    });
+    assert.equal(plan.ok, false);
+    assert.equal(plan.ok === false && plan.code, "HUMAN_REQUIRED");
+  }
 });
 
-test("tool-оор таазтай тэнцүү хүртэл өсгөж болно", () => {
+test("ENT-068: default руу буцаах нь ӨСГӨЛТ бол tool-оор хориотой", () => {
   const plan = planAiPostLimitChange({
-    currentMnt: DEFAULT_AI_POST_LIMIT_MNT,
-    requestedMnt: AI_POST_LIMIT_TOOL_CEILING_MNT,
+    currentMnt: 1_000_000,
+    requestedMnt: null,
     viaTool: true,
   });
-  assert.equal(plan.ok, true);
+  assert.equal(plan.ok === false && plan.code, "HUMAN_REQUIRED");
 });
 
-test("tool-оор БУУРУУЛАХАД тааз хамаарахгүй — таазнаас дээш байснаас ч", () => {
+test("tool-оор ижил утга тавих нь өөрчлөлтгүй — зөвшөөрнө", () => {
   const plan = planAiPostLimitChange({
-    currentMnt: AI_POST_LIMIT_TOOL_CEILING_MNT * 10,
-    requestedMnt: AI_POST_LIMIT_TOOL_CEILING_MNT * 2,
+    currentMnt: 20_000_000,
+    requestedMnt: 20_000_000,
+    viaTool: true,
+  });
+  assert.equal(plan.ok && plan.direction, "same");
+});
+
+test("tool-оор БУУРУУЛАХ чөлөөтэй", () => {
+  const plan = planAiPostLimitChange({
+    currentMnt: 10_000_000_000,
+    requestedMnt: 2_000_000_000,
     viaTool: true,
   });
   assert.equal(plan.ok, true);
@@ -78,11 +88,11 @@ test("null = default рүү буцаах (tool-оос ч чөлөөтэй)", () 
   assert.equal(plan.ok && plan.direction, "lower");
 });
 
-test("default-оос доош байхад null өгвөл ӨСГӨЛТ гэж тооцогдоно", () => {
+test("default-оос доош байхад null өгвөл ӨСГӨЛТ гэж тооцогдоно (вэбээс)", () => {
   const plan = planAiPostLimitChange({
     currentMnt: 1_000_000,
     requestedMnt: null,
-    viaTool: true,
+    viaTool: false,
   });
   assert.equal(plan.ok, true);
   assert.equal(plan.ok && plan.direction, "raise");

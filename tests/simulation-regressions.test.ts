@@ -470,6 +470,53 @@ test("ENT-038/071/037: USD PO-гийн ₮ гаалийн нэхэмжлэх MNT
   assert.match(paid.resultText, /ханш 3450/);
 });
 
+test("ENT-031/036/033/010: чиглэл, унасан батлалт ноорог үлдээхгүй, дугаараар хайх, мессеж", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // ENT-031: «Авлага» төрөлтэй харилцагч дээр АП нэхэмжлэх үүсэхгүй
+  const wrong = await tool("create_arap_invoice", {
+    documentType: "ap_bill", counterparty: "Скай Трэйдинг", date: "2025-05-05", description: "Буруу чиглэл",
+    externalRef: `sim-${STAMP}-dir`, lines: [{ account: "73100001", amount: 10_000, description: "x" }],
+  });
+  assert.match(wrong.resultText, /COUNTERPARTY_DIRECTION/);
+
+  // ENT-036: батлагдах боломжгүй зарлага ноорог үлдээхгүй
+  const before = await db.query.inventoryMovements.findMany({ where: eq(inventoryMovements.organizationId, orgId) });
+  const issue = await tool(
+    "create_inventory_movement",
+    { movementType: "issue", date: "2025-05-06", itemCode: "ITM-B", warehouseCode: "WH1", quantity: 99_999 },
+    "post"
+  );
+  assert.ok(issue.resultText.startsWith("Алдаа"), issue.resultText);
+  const after = await db.query.inventoryMovements.findMany({ where: eq(inventoryMovements.organizationId, orgId) });
+  assert.equal(after.length, before.length, "унасан батлалт ноорог үлдээх ёсгүй");
+
+  // ENT-033: ДУГААРААР олно (ID угтвар биш), ENT-010: мессеж төлөвөөр
+  const receipt = await tool("create_inventory_movement", {
+    movementType: "receipt", date: "2025-05-06", itemCode: "ITM-B", warehouseCode: "WH1", quantity: 3,
+  });
+  assert.ok(okOrRevalidate(receipt.resultText), receipt.resultText);
+  const draft = (await db.query.inventoryMovements.findMany({
+    where: and(eq(inventoryMovements.organizationId, orgId), eq(inventoryMovements.status, "draft")),
+  })).find((row) => row.date === "2025-05-06");
+  assert.ok(draft);
+  const confirmed = await tool("confirm_inventory_movement", { movementId: draft.documentNo }, "post");
+  assert.ok(okOrRevalidate(confirmed.resultText), confirmed.resultText);
+  const deleted = await tool("delete_inventory_movement", { movementId: draft.documentNo }, "post");
+  assert.match(deleted.resultText, /^Баталгаажсан хөдөлгөөн устгагдлаа/);
+});
+
+test("ENT-068: AI шууд батлах хязгаараа өсгөж чадахгүй, бууруулж болно", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const named = await tool("update_company_settings", { name: "SIM Trade ХХК" });
+  assert.ok(okOrRevalidate(named.resultText), named.resultText);
+  const raise = await tool("update_company_settings", { aiPostLimitMnt: 50_000_000 });
+  assert.match(raise.resultText, /HUMAN_REQUIRED/);
+  const lower = await tool("update_company_settings", { aiPostLimitMnt: 5_000_000 });
+  assert.ok(okOrRevalidate(lower.resultText), lower.resultText);
+  const raiseBack = await tool("update_company_settings", { aiPostLimitMnt: 10_000_000 });
+  assert.match(raiseBack.resultText, /HUMAN_REQUIRED/);
+});
+
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {
   for (const fn of cleanup.reverse()) await fn();
 });

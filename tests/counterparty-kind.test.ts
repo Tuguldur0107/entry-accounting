@@ -41,3 +41,14 @@ test("registerNoMismatch — зөрсөн үед зөвлөмж, таарсан 
   assert.equal(registerNoMismatch("organization", ""), null);
   assert.equal(registerNoLabel("individual"), "Регистрийн дугаар");
 });
+
+import { counterpartyDirectionError } from "../lib/arap/counterparty-kind";
+
+test("ENT-031: харилцагчийн чиглэл ба баримтын төрөл", () => {
+  assert.match(counterpartyDirectionError("ap_bill", "customer") ?? "", /COUNTERPARTY_DIRECTION/);
+  assert.match(counterpartyDirectionError("ar_invoice", "supplier") ?? "", /COUNTERPARTY_DIRECTION/);
+  assert.equal(counterpartyDirectionError("ap_bill", "supplier"), null);
+  assert.equal(counterpartyDirectionError("ap_bill", "both"), null);
+  assert.equal(counterpartyDirectionError("ar_invoice", "customer"), null);
+  assert.equal(counterpartyDirectionError("ar_invoice", null), null);
+});

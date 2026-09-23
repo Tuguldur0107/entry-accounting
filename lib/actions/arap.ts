@@ -24,6 +24,7 @@ import {
   normalizeCounterpartyCode,
 } from "@/lib/arap/counterparty-code";
 import {
+  counterpartyDirectionError,
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
   isCounterpartyEntityKind,
   type CounterpartyEntityKind,
@@ -963,6 +964,12 @@ async function createArApDocumentCore(data: {
     ),
   });
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
+  const directionError = counterpartyDirectionError(
+    data.documentType,
+    counterparty.counterpartyType,
+    counterparty.name
+  );
+  if (directionError) throw new Error(directionError);
 
   const controlAccountNumber = data.controlAccountNumber.trim();
   await assertEnabledMainAccount(orgId, controlAccountNumber);
@@ -1319,9 +1326,16 @@ async function postArApDocumentCore(id: string) {
       eq(counterparties.organizationId, orgId),
       eq(counterparties.isActive, true)
     ),
-    columns: { id: true },
+    columns: { id: true, name: true, counterpartyType: true },
   });
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
+  // Ноорог засвараар харилцагч солигдсон ч батлахад дахин шалгана (ENT-031).
+  const directionError = counterpartyDirectionError(
+    document.documentType,
+    counterparty.counterpartyType,
+    counterparty.name
+  );
+  if (directionError) throw new Error(directionError);
 
   await assertEnabledMainAccount(orgId, document.controlAccountNumber);
   for (const line of document.lines)

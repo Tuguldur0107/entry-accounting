@@ -12,7 +12,8 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, asc, desc, eq, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, lte, notInArray, or, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import {
   createArApDocument,
@@ -287,7 +288,6 @@ import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
 
 import type { AiWriteMode } from "./models";
 import {
-  AI_POST_LIMIT_TOOL_CEILING_MNT,
   currentAiPostLimit,
   DEFAULT_AI_POST_LIMIT_MNT,
   planAiPostLimitChange,
@@ -2176,8 +2176,8 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "number",
           description:
             "AI/MCP/REST-ийн ШУУД БАТЛАХ дээд хязгаар (₮) — «Шууд бичих» горимд ч үүнээс их бичилт ноорог үлдэнэ. 0 өгвөл default " +
-            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ӨСГӨХ нь ${AI_POST_LIMIT_TOOL_CEILING_MNT.toLocaleString("en-US")}₮ таазтай — ` +
-            "түүнээс дээш хязгаарыг зөвхөн вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ тавина. Бууруулахад тааз хамаарахгүй",
+            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ЗӨВХӨН БУУРУУЛНА — ` +
+            "өсгөлт [HUMAN_REQUIRED]: вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн тавина",
         },
       },
     },
@@ -3981,21 +3981,40 @@ async function runCreateFixedAsset(
 // ── Батлах / устгах гүйцэтгэгчид ────────────────────────────────────────────
 
 /** ID-г бүтэн эсвэл угтвараар нь ГАНЦ тохирол болгож шийднэ. */
-function resolveByIdPrefix<T extends { id: string }>(
-  rows: T[],
-  idOrPrefix: string,
-  what: string
-): T {
+/**
+ * Баримтыг ЛАВЛАГААГААР шууд DB-ээс шүүх нөхцөл — ID угтвар, дугаар
+ * (documentNo), externalRef (ENT-033: сүүлийн 500–1000 бичлэгийн цонхонд
+ * хайдаг байсан тул том байгууллагад хуучин баримт олдохгүй байв).
+ */
+function refCondition(
+  columns: { id: AnyPgColumn; documentNo?: AnyPgColumn; externalRef?: AnyPgColumn },
+  ref: string
+): SQL {
+  const query = ref.trim().toLowerCase();
+  const prefix = query.replace(/[\\%_]/g, "");
+  const conditions: SQL[] = [];
+  if (prefix.length >= 6) conditions.push(sql`${columns.id}::text like ${`${prefix}%`}`);
+  if (columns.documentNo) conditions.push(sql`lower(${columns.documentNo}) = ${query}`);
+  if (columns.externalRef) conditions.push(sql`lower(${columns.externalRef}) = ${query}`);
+  return conditions.length > 0 ? or(...conditions)! : sql`false`;
+}
+
+function resolveByIdPrefix<
+  T extends { id: string; documentNo?: string | null; externalRef?: string | null },
+>(rows: T[], idOrPrefix: string, what: string): T {
   const query = idOrPrefix.trim().toLowerCase();
+  // Дугаар / externalRef-ээр ЯГ таарвал (мөрөнд тэр багана байвал).
+  const byNo = rows.filter((row) => row.documentNo?.toLowerCase() === query);
+  if (byNo.length === 1) return byNo[0];
+  const byRef = rows.filter((row) => row.externalRef?.toLowerCase() === query);
+  if (byRef.length === 1) return byRef[0];
   if (query.length < 6)
-    throw new Error(`${what}-ийн ID дор хаяж 6 тэмдэгт байх ёстой`);
+    throw new Error(`${what}-ийн ID дор хаяж 6 тэмдэгт байх ёстой (эсвэл баримтын дугаар өгнө)`);
   const matches = rows.filter((row) => row.id.toLowerCase().startsWith(query));
   if (matches.length === 1) return matches[0];
   if (matches.length === 0)
-    // Lookup-ууд зөвхөн сүүлийн 500–1000 бичлэгийн цонхонд хайдаг тул
-    // хуучин баримт энд орж ирэхгүй — модельд шалтгааныг нь хэлж өгнө.
     throw new Error(
-      `"${idOrPrefix}" ID-тай ${what} олдсонгүй (сүүлийн ${rows.length} баримтаас хайв — хуучин баримтыг бүтэн ID-гаар өгнө үү)`
+      `"${idOrPrefix}" гэсэн ID/дугаартай ${what} олдсонгүй — list_* tool-оор шалгана уу`
     );
   throw new Error(`"${idOrPrefix}" гэхэд ${matches.length} ${what} таарлаа — бүтэн ID өгнө үү`);
 }
@@ -4111,7 +4130,8 @@ async function runPostCash(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -4119,9 +4139,11 @@ async function runPostCash(
       date: true,
       amount: true,
       baseAmount: true,
+      documentNo: true,
+      externalRef: true,
     },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   if (document.status !== "draft")
@@ -4146,7 +4168,8 @@ async function runDeleteCash(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -4154,9 +4177,11 @@ async function runDeleteCash(
       date: true,
       amount: true,
       baseAmount: true,
+      documentNo: true,
+      externalRef: true,
     },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   if (document.status !== "draft") {
@@ -4165,7 +4190,7 @@ async function runDeleteCash(
   }
   unwrapAction(await deleteCashDocument(document.id));
   return {
-    resultText: `Ноорог кассын баримт устгагдлаа: ${document.date} · ${document.description}`,
+    resultText: `${document.status === "draft" ? "Ноорог кассын баримт" : "Батлагдсан кассын баримт GL-тэй нь хамт"} устгагдлаа: ${document.date} · ${document.description}`,
   };
 }
 
@@ -4176,7 +4201,8 @@ async function runPostArap(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -4184,9 +4210,10 @@ async function runPostArap(
       description: true,
       totalAmount: true,
       baseTotalAmount: true,
+      externalRef: true,
     },
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   // Нэхэмжлэхийн дугаараар ч, ID-гаар ч олно.
   const byNo = documents.filter(
@@ -4219,8 +4246,17 @@ async function runSettleArApOffset(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
+  const refColumns = {
+    id: arApDocuments.id,
+    documentNo: arApDocuments.documentNo,
+    externalRef: arApDocuments.externalRef,
+  };
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — хоёр лавлагаагаар шууд (ENT-033).
+    where: and(
+      eq(arApDocuments.organizationId, orgId),
+      or(refCondition(refColumns, input.arInvoice), refCondition(refColumns, input.apBill))
+    ),
     columns: {
       id: true,
       status: true,
@@ -4230,7 +4266,7 @@ async function runSettleArApOffset(
       paidAmount: true,
     },
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 100,
   });
   const resolveDocument = (ref: string, label: string) => {
     const byNo = documents.filter(
@@ -4806,9 +4842,10 @@ async function runUpdateMovement(
   }
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(inventoryMovements.organizationId, orgId), refCondition({ id: inventoryMovements.id, documentNo: inventoryMovements.documentNo }, input.movementId)),
     orderBy: [desc(inventoryMovements.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft")
@@ -5700,9 +5737,10 @@ async function runPayArap(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const byNo = documents.filter(
     (doc) => doc.documentNo.toLowerCase() === input.documentId.trim().toLowerCase()
@@ -5794,9 +5832,10 @@ async function runPayArap(
 /** АР/АП баримтыг ID, дугаар, эсвэл externalRef-ээр олно. */
 async function findArapDocument(orgId: string, idOrNo: string) {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, idOrNo)),
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 1000,
+    limit: 50,
   });
   const query = idOrNo.trim().toLowerCase();
   const byNo = documents.filter((doc) => doc.documentNo.toLowerCase() === query);
@@ -5853,7 +5892,8 @@ async function runDeleteArap(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -5861,9 +5901,10 @@ async function runDeleteArap(
       date: true,
       totalAmount: true,
       baseTotalAmount: true,
+      externalRef: true,
     },
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const byNo = documents.filter(
     (doc) => doc.documentNo.toLowerCase() === input.documentId.trim().toLowerCase()
@@ -5881,7 +5922,8 @@ async function runDeleteArap(
   }
   unwrapAction(await deleteArApDocument(document.id));
   return {
-    resultText: `Ноорог нэхэмжлэх устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
+    // ENT-032: батлагдсан нэхэмжлэхийг «ноорог» гэж буруу мэдэгддэг байв.
+    resultText: `${document.status === "draft" ? "Ноорог нэхэмжлэх" : "Батлагдсан нэхэмжлэх GL-тэй нь хамт"} устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
   };
 }
 
@@ -6164,10 +6206,11 @@ async function runReverseCash(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true, amount: true, baseAmount: true },
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
+    columns: { id: true, status: true, description: true, date: true, amount: true, baseAmount: true, documentNo: true, externalRef: true },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   if (document.status !== "posted")
@@ -6224,10 +6267,11 @@ async function runConfirmMovement(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(inventoryMovements.organizationId, orgId), refCondition({ id: inventoryMovements.id, documentNo: inventoryMovements.documentNo }, input.movementId)),
     columns: { id: true, status: true, documentNo: true },
     orderBy: [desc(inventoryMovements.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft")
@@ -6244,15 +6288,19 @@ async function runDeleteMovement(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(inventoryMovements.organizationId, orgId), refCondition({ id: inventoryMovements.id, documentNo: inventoryMovements.documentNo }, input.movementId)),
     columns: { id: true, status: true, documentNo: true },
     orderBy: [desc(inventoryMovements.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft") assertPostMode(mode);
   unwrapAction(await deleteInventoryMovement(movement.id));
-  return { resultText: `Ноорог хөдөлгөөн устгагдлаа: ${movement.documentNo}` };
+  // ENT-010: баталгаажсан хөдөлгөөнийг «ноорог» гэж буруу мэдэгддэг байв.
+  return {
+    resultText: `${movement.status === "draft" ? "Ноорог хөдөлгөөн" : "Баталгаажсан хөдөлгөөн"} устгагдлаа: ${movement.documentNo}`,
+  };
 }
 
 async function runGetStockBalances(
@@ -6532,10 +6580,16 @@ async function runCreatePayrollVoucher(input: {
   period: string;
 }): Promise<AiToolResult> {
   const result = unwrapAction(await createPayrollVoucher(input.period));
+  // ENT-026: журналын ДУГААРЫГ буцаана (post_journal_voucher шууд авна).
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: eq(journalVouchers.id, result.id),
+    columns: { documentNo: true, status: true },
+  });
+  const ref = voucher?.documentNo ?? result.id.slice(0, 8);
   return {
     resultText: result.dedup
-      ? `${input.period} сарын цалингийн журнал аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`
-      : `${input.period} сарын цалингийн НООРОГ журнал үүслээ — GL журналаас шалгаад батална уу`,
+      ? `${input.period} сарын цалингийн журнал аль хэдийн үүссэн байна: ${ref} (${voucher?.status ?? "?"})`
+      : `${input.period} сарын цалингийн НООРОГ журнал үүслээ: ${ref} — шалгаад post_journal_voucher {voucherId: "${ref}"}-ээр батална`,
     action: {
       kind: "voucher",
       id: result.id,
@@ -7980,16 +8034,18 @@ async function runUpdateCashDocument(
   }
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       documentNo: true,
       status: true,
       description: true,
       date: true,
+      externalRef: true,
     },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const found = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   let counterMain: string | undefined;

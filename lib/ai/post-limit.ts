@@ -4,20 +4,18 @@
 // үлдэж, нягтланч вэб дээрээсээ батална. Хязгаар нь
 // `company_settings.ai_post_limit_mnt`-д хадгалагдана; null = 10 сая ₮ default.
 //
-// АЮУЛГҮЙ БАЙДАЛ: агент өөрийн таазыг хязгааргүй өргөхийг хориглоно —
-// баримтанд суулгасан «зааварчилгаа» (prompt injection) агентаар лимитээ
-// өсгүүлээд дараа нь том дүн батлуулах зам байж болно. Тиймээс TOOL-оор
-// өсгөх нь AI_POST_LIMIT_TOOL_CEILING_MNT-ээр тагласан; түүнээс дээш зөвхөн
-// вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаар (админ хүн) тавигдана.
-// Бууруулахад тааз хамаарахгүй (болгоомжтой тал руу үргэлж чөлөөтэй).
+// АЮУЛГҮЙ БАЙДАЛ: хамгаалагдаж буй агент ӨӨРИЙН хязгаарыг ӨСГӨЖ ЧАДАХГҮЙ
+// (SIM ENT-068: симуляцид AI PO хаах гацааг тойрохын тулд лимитээ 50 сая
+// болгож өсгөсөн; баримтанд суулгасан «зааварчилгаа» (prompt injection)
+// агентаар лимитээ өсгүүлээд том дүн батлуулах зам ч болно). TOOL-оор
+// (AI/MCP/REST) зөвхөн БУУРУУЛНА — өсгөлт `[HUMAN_REQUIRED]`, вэбийн
+// Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн л тавина.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Тохируулаагүй байгууллагын хязгаар (§9). */
 export const DEFAULT_AI_POST_LIMIT_MNT = 10_000_000;
 
-/** Tool-оор ӨСГӨХ дээд тааз — түүнээс дээш зөвхөн вэбээс (хүн). */
-export const AI_POST_LIMIT_TOOL_CEILING_MNT = 1_000_000_000;
 
 /** Хадгалагдсан утга (numeric → string) → бодит хязгаар. Гажиг/хоосон бол default. */
 export function resolveAiPostLimit(stored: string | number | null | undefined): number {
@@ -58,14 +56,14 @@ export function planAiPostLimitChange(args: {
   const direction =
     effectiveMnt > currentMnt ? "raise" : effectiveMnt < currentMnt ? "lower" : "same";
 
-  if (viaTool && direction === "raise" && effectiveMnt > AI_POST_LIMIT_TOOL_CEILING_MNT)
+  if (viaTool && direction === "raise")
     return {
       ok: false,
-      code: "LIMIT_CEILING_EXCEEDED",
+      code: "HUMAN_REQUIRED",
       message:
-        `${effectiveMnt.toLocaleString("en-US")}₮ нь tool-оор өсгөх таазнаас ` +
-        `(${AI_POST_LIMIT_TOOL_CEILING_MNT.toLocaleString("en-US")}₮) их — ` +
-        "үүнээс дээш хязгаарыг Тохиргоо → Компанийн мэдээлэл хуудсаас админ өөрөө тавина",
+        `AI/MCP шууд батлах хязгаараа ӨСГӨЖ чадахгүй (одоо ${currentMnt.toLocaleString("en-US")}₮ → ` +
+        `${effectiveMnt.toLocaleString("en-US")}₮) — Тохиргоо → Компанийн мэдээлэл хуудсаас админ ` +
+        "хүн өөрөө тавина. Хязгаараас их бичилт ноорог үлдэж вэбээс батлагдана",
     };
 
   return { ok: true, valueMnt: requestedMnt, effectiveMnt, direction };

@@ -1326,10 +1326,10 @@ aiPostLimitMnt`, null = default 10 сая ₮) — Тохиргоо → Комп
 
 ```
 lib/ai/post-limit.ts   ЦЭВЭР (тесттэй): DEFAULT_AI_POST_LIMIT_MNT (10M),
-                       AI_POST_LIMIT_TOOL_CEILING_MNT (1 тэрбум — TOOL-оор
-                       ӨСГӨХ тааз), resolveAiPostLimit, planAiPostLimitChange
+                       resolveAiPostLimit, planAiPostLimitChange (tool-оор
+                       ӨСГӨЛТ [HUMAN_REQUIRED])
                        + AsyncLocalStorage (runWithAiPostLimit / currentAiPostLimit)
-tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргээлт, зэрэгцээ хүсэлт
+tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт, default сэргээлт, зэрэгцээ хүсэлт
 ```
 
 - **Хязгаарыг хүсэлт бүрд НЭГ л удаа уншина** — `executeAiTool` нь
@@ -1337,12 +1337,12 @@ tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргэ�
   дуудах цэг) `currentAiPostLimit()`-ээр SYNC хэвээр уншина. Контекстгүй
   дуудагдвал default (хамгийн болгоомжтой); зэрэгцээ хүсэлтүүд бие биенийхээ
   утгыг ХАРАХГҮЙ (AsyncLocalStorage, module-level хувьсагч ХОРИОТОЙ)
-- **AI өөрийн таазыг хязгааргүй ӨРГӨХ нь ХОРИОТОЙ** — баримтанд суулгасан
-  «зааварчилгаа» (prompt injection) агентаар лимитээ өсгүүлээд дараа нь том
-  дүн батлуулах зам байж болно. `update_company_settings`-ийн
-  `aiPostLimitMnt` нь `planAiPostLimitChange({viaTool:true})`-ээр дайрна:
-  өсгөлт `AI_POST_LIMIT_TOOL_CEILING_MNT`-ээр тагласан (`[LIMIT_CEILING_EXCEEDED]`),
-  түүнээс дээш зөвхөн ВЭБЭЭС админ. **БУУРУУЛАХАД тааз хамаарахгүй**
+- **AI өөрийн хязгаарыг ӨСГӨЖ ЧАДАХГҮЙ** (SIM ENT-068 — симуляцид агент PO
+  хаах гацааг тойрохын тулд лимитээ 50 сая болгосон; prompt injection-ийн зам
+  ч болно). `update_company_settings`-ийн `aiPostLimitMnt` нь
+  `planAiPostLimitChange({viaTool:true})`-ээр дайрна: өсгөлт БҮРЭН хориотой
+  (`[HUMAN_REQUIRED]`), зөвхөн ВЭБЭЭС админ хүн. **БУУРУУЛАХ / default руу
+  буцаах (бууралт бол) чөлөөтэй**
 - Өөрчлөлт бүр `logAuditEvent` (`settings` / `ai_post_limit`) + эзэн/админд
   `settings.ai_limit_changed` мэдэгдэл (instant и-мэйл)
 - `lib/payroll/calc.ts`-ийн `{ upTo: 10_000_000 }` нь ХАОАТ-ын шатлалын хил
@@ -1359,7 +1359,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
-| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨХ нь 1 тэрбум ₮ таазтай; `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
+| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨЛТ зөвхөн вэбээс хүн (`[HUMAN_REQUIRED]`); `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |

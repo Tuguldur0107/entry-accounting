@@ -67,3 +67,21 @@ export function registerNoMismatch(kind: CounterpartyEntityKind, registerNo: str
     ? "Регистр нь иргэний РД хэлбэртэй байна — «Хувь хүн» гэж бүртгэх үү?"
     : "Регистр нь байгууллагын РД/ТТД хэлбэртэй байна — «Байгууллага» гэж бүртгэх үү?";
 }
+
+/**
+ * Харилцагчийн ЧИГЛЭЛ ба баримтын төрлийн тааралт (SIM ENT-031 — «Авлага»
+ * төрөлтэй харилцагч дээр АП нэхэмжлэх батлагдаж байв). Авлагын нэхэмжлэл →
+ * customer|both, өглөгийн нэхэмжлэх → supplier|both. null = таарсан.
+ */
+export function counterpartyDirectionError(
+  documentType: string,
+  counterpartyType: string | null | undefined,
+  counterpartyName = "Харилцагч"
+): string | null {
+  const type = counterpartyType ?? "both";
+  if (documentType === "ap_bill" && type === "customer")
+    return `[COUNTERPARTY_DIRECTION] ${counterpartyName} нь зөвхөн «Авлага» (худалдан авагч) төрөлтэй — өглөгийн нэхэмжлэх үүсгэхгүй. Харилцагчийн «Тооцоо»-г «Авлага/Өглөг» (both) болгоно уу`;
+  if (documentType === "ar_invoice" && type === "supplier")
+    return `[COUNTERPARTY_DIRECTION] ${counterpartyName} нь зөвхөн «Өглөг» (нийлүүлэгч) төрөлтэй — авлагын нэхэмжлэл үүсгэхгүй. Харилцагчийн «Тооцоо»-г «Авлага/Өглөг» (both) болгоно уу`;
+  return null;
+}
