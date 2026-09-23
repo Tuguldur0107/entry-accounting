@@ -81,7 +81,7 @@ export function LoadingRows({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-2 p-3", className)} aria-label="Уншиж байна">
+    <div role="status" className={cn("flex flex-col gap-2 p-3", className)} aria-label="Уншиж байна">
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}

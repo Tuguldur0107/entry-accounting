@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Icon, type IconName } from "@/components/ui/icon";
+import { Icon } from "@/components/ui/icon";
 import { useMemo, useRef, useState, useTransition } from "react";
 import type { ColDef } from "ag-grid-community";
 import { toast } from "sonner";
@@ -52,7 +52,9 @@ import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
 import { currentDocumentDate } from "@/lib/periods/document-date";
-import { arapKpis } from "@/lib/arap/kpis";
+import { arapBalanceSummary, arapKpis } from "@/lib/arap/kpis";
+import { ArapBalanceHero } from "@/components/arap/arap-balance-hero";
+import { MobileCardList, useIsMobileViewport } from "@/components/datagrid/mobile-card-list";
 import { col } from "@/lib/grid/columnTypes";
 
 type Focus = "dashboard" | "counterparties" | "documents" | "reports";
@@ -268,15 +270,15 @@ export function ArApWorkspace({
   );
 
   // Ноорог нь өр биш — KPI зөвхөн батлагдсан баримтаар (ENT-017).
-  const {
-    arBalance,
-    apBalance,
-    openBalance,
-    overdueBalance,
-    overdueCount,
-    draftCount,
-    draftAmount,
-  } = arapKpis(filteredDocuments, reportAsOf);
+  const { draftCount, draftAmount } = arapKpis(filteredDocuments, reportAsOf);
+  const arBalanceSummary = useMemo(
+    () => arapBalanceSummary(filteredDocuments, reportAsOf, "ar_invoice"),
+    [filteredDocuments, reportAsOf]
+  );
+  const apBalanceSummary = useMemo(
+    () => arapBalanceSummary(filteredDocuments, reportAsOf, "ap_bill"),
+    [filteredDocuments, reportAsOf]
+  );
   const reportRows = useMemo(
     () => buildReportRows(filteredDocuments, reportAsOf),
     [filteredDocuments, reportAsOf]
@@ -695,6 +697,7 @@ export function ArApWorkspace({
     });
   }
 
+  const isMobile = useIsMobileViewport();
   const showCounterparties = focus === "counterparties";
   const showDocuments = focus === "documents";
   const showReports = focus === "reports";
@@ -753,31 +756,26 @@ export function ArApWorkspace({
         </div>
       </div>
 
-      <section className="grid grid-cols-2 border-y border-[var(--ea-border)] lg:grid-cols-4">
-        <Metric
-          label={
-            mode === "payable"
-              ? "Нийт өглөг (MNT)"
-              : "Нийт авлага (MNT)"
-          }
-          value={fmtMnt(mode === "payable" ? apBalance : arBalance)}
-          icon={mode === "payable" ? "document" : "cash"}
-        />
-        <Metric
-          label={mode === "combined" ? "Нийт өглөг (MNT)" : "Нээлттэй (MNT)"}
-          value={fmtMnt(mode === "combined" ? apBalance : openBalance)}
-          icon={mode === "combined" ? "document" : "cash"}
-        />
-        <Metric
-          label={`Хэтэрсэн (MNT) · ${overdueCount}`}
-          value={fmtMnt(overdueBalance)}
-          icon="warning"
-        />
-        <Metric
-          label={draftCount > 0 ? `Харилцагч · ноорог ${draftCount} (${fmtMnt(draftAmount)})` : "Харилцагч"}
-          value={String(filteredCounterparties.length)}
-          icon="company"
-        />
+      {/* Нэг гол тоо + насжилтын зурвас (UI гайдын карт 6) — ноорог нь өр биш. */}
+      <section className="flex flex-col divide-y divide-[var(--ea-border)] border-y border-[var(--ea-border)] lg:flex-row lg:divide-x lg:divide-y-0">
+        {mode !== "payable" && (
+          <ArapBalanceHero
+            title="Авлага"
+            summary={arBalanceSummary}
+            reportHref="/receivables/reports"
+            draftCount={mode === "receivable" ? draftCount : undefined}
+            draftAmount={draftAmount}
+          />
+        )}
+        {mode !== "receivable" && (
+          <ArapBalanceHero
+            title="Өглөг"
+            summary={apBalanceSummary}
+            reportHref="/payables/reports"
+            draftCount={draftCount}
+            draftAmount={draftAmount}
+          />
+        )}
       </section>
 
       {focus === "dashboard" &&
@@ -831,6 +829,28 @@ export function ArApWorkspace({
               actions={[
                 { label: config.createLabel, onClick: () => openArapDocPanel({ mode }), icon: "add", primary: true },
               ]}
+            />
+          ) : isMobile ? (
+            // Утсан дээр карт (UI гайдын карт 12).
+            <MobileCardList
+              rows={filteredDocuments}
+              ariaLabel={config.documentTitle}
+              toCard={(doc) => ({
+                id: doc.id,
+                status: doc.status,
+                corner: doc.date.replaceAll("-", "."),
+                title: doc.counterpartyName,
+                meta: `${doc.documentNo} · төлөх ${doc.dueDate.replaceAll("-", ".")}`,
+                amount: `${fmtMnt(doc.balance)} ${doc.currency}`,
+              })}
+              onOpen={(doc) =>
+                openArapDocPanel({
+                  documentId: doc.id,
+                  mode,
+                  title: `${doc.documentNo} · ${doc.counterpartyName}`,
+                  navIds: filteredDocuments.map((entry) => entry.id),
+                })
+              }
             />
           ) : (
             <DataGridDynamic<ArApDocumentView>
@@ -1616,27 +1636,4 @@ function OnboardingState({
   );
 }
 
-function Metric({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: IconName;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3 border-b border-r border-[var(--ea-border)] px-4 py-4 last:border-r-0 lg:border-b-0">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--ea-bg-2)] text-[var(--ea-primary)]">
-        <Icon name={icon} />
-      </div>
-      <div className="min-w-0">
-        <div className="truncate text-[11px] text-[var(--ea-text-3)]">{label}</div>
-        <div className="mt-0.5 truncate font-mono text-base font-semibold text-[var(--ea-text-1)]">
-          {value}
-        </div>
-      </div>
-    </div>
-  );
-}
 

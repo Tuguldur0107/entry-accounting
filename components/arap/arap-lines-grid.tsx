@@ -40,6 +40,10 @@ import {
   type SearchSelectOption,
 } from "@/lib/grid/editors/SearchSelectCellEditor";
 
+// Маягтын дотор 1–20 мөр л байдаг — баганын шүүлтүүр, эрэмбэлэлт хэрэггүй
+// бөгөөд мөрийн дарааллыг санамсаргүй өөрчилнө (UI гайдын карт 10).
+const FORM_GRID_COL_DEF = { filter: false, sortable: false } as const;
+
 /** Grid-ийн мөр — сервер рүү явах input + client талын түлхүүр. */
 export type LineRow = ArApLineInput & { id: string };
 
@@ -445,6 +449,7 @@ export function ArApLinesGrid({
     <div className="space-y-2">
       <DataGridDynamic<LineRow>
         rowData={lines}
+        defaultColDef={FORM_GRID_COL_DEF}
         columnDefs={columns}
         getRowId={(params) => params.data.id}
         onCellValueChanged={(event: CellValueChangedEvent<LineRow>) => {
@@ -574,8 +579,9 @@ export function ArApLinesGrid({
             </Button>
           )}
         </div>
-        <span className="font-mono font-semibold text-[var(--ea-text-1)]">
-          Нийт: {fmtMnt(total)}
+        <span className="flex items-baseline gap-2 text-[var(--ea-text-1)]">
+          <span className="text-xs text-[var(--ea-text-3)]">Нийт</span>
+          <span className="font-mono text-base font-semibold tabular-nums">{fmtMnt(total)}</span>
         </span>
       </div>
       {mode === "arap" && (

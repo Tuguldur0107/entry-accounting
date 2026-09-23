@@ -170,29 +170,36 @@ export function TableKitView() {
     Array<ColDef<CostControlRow> | ColGroupDef<CostControlRow>>
   >(
     () => [
+      // Pinned баганууд бүлэгтэй — AG Grid-ийн pinned толгойн бүлгийн мөр
+      // хоосон үлдэж axe aria-required-children алдаа өгдөг байв.
       {
-        headerName: "#",
-        width: 54,
-        minWidth: 54,
-        sortable: false,
-        filter: false,
-        pinned: "left",
-        valueGetter: (params) =>
-          params.node?.rowPinned ? "" : (params.node?.rowIndex ?? 0) + 1,
-      },
-      {
-        field: "itemCode",
-        headerName: "Item code",
-        width: 110,
-        pinned: "left",
-        cellClass: "font-mono",
-      },
-      {
-        field: "itemName",
-        headerName: "Item description",
-        minWidth: 180,
-        flex: 1,
-        pinned: "left",
+        headerName: "Бараа",
+        children: [
+          {
+            headerName: "#",
+            width: 54,
+            minWidth: 54,
+            sortable: false,
+            filter: false,
+            pinned: "left",
+            valueGetter: (params) =>
+              params.node?.rowPinned ? "" : (params.node?.rowIndex ?? 0) + 1,
+          },
+          {
+            field: "itemCode",
+            headerName: "Барааны код",
+            width: 110,
+            pinned: "left",
+            cellClass: "font-mono",
+          },
+          {
+            field: "itemName",
+            headerName: "Барааны нэр",
+            minWidth: 180,
+            flex: 1,
+            pinned: "left",
+          },
+        ],
       },
       {
         headerName: "C1",
@@ -258,7 +265,7 @@ export function TableKitView() {
         ),
       },
       {
-        headerName: "",
+        headerName: "Үйлдэл",
         colId: "actions",
         width: 82,
         sortable: false,

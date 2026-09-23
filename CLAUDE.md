@@ -433,8 +433,12 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 
 **Системийн хэмжээний периодын шүүлтүүр (topbar):**
 
-- `components/periods/period-filter.tsx` — сарын сонгогч ("JAN-26" формат,
-  `fmtPeriodCode`) + **PTD / QTD / YTD** горим. Layout-д НЭГ л удаа суусан
+- `components/periods/period-filter.tsx` — сарын сонгогч (топбарт монгол нэр
+  «2026 · 9-р сар» — `fmtPeriodLabelMn`; дотоод код "JAN-26" `fmtPeriodCode`
+  хэвээр) + муж (**Сар / Улирлын эхнээс / Оны эхнээс** = PTD / QTD / YTD —
+  `PERIOD_SCOPE_NAMES_MN`) нь сонгогч цонхон ДОТОР. Layout-д НЭГ л удаа суусан.
+  Дуу, горим, гарах нь профайл цэсэнд (`components/layout/user-menu.tsx`) —
+  топбарын удирдлага ≤ 7 (UI гайдын карт 8)
 - Сонголт cookie-д (`ea-period`) хадгалагдаж бүх хуудсанд дагаж явна;
   server хуудас `getPeriodSelection()`-оор уншина (`lib/periods/selection.ts`)
 - Мужийн тооцоо: `lib/periods/scope.ts` `scopeRange(code, scope, today)` —
@@ -1715,6 +1719,23 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
   (төлөв + хуулах/устгах — дуудагч бүр НЭГ controller, давхар fetch хийхгүй) +
   `AttachmentUploadBar` / `AttachmentRows` харагдах хэсгүүд. Шинэ байрлал
   нэмэхдээ эдгээрийг compose хийнэ, хуулалт/устгалтыг дахин бичихийг ХОРИГЛОНО
+
+### Баримтын төлөв, тоо, утасны карт (UI гайд)
+
+- **Төлөв** — `lib/status.ts` `DOCUMENT_STATUS` ЦОРЫН ГАНЦ бүртгэл (шошго, өнгө,
+  дүрс, хэлбэр: ноорог тасархай, буцаагдсан зураастай, `--ea-reversed*` токен).
+  Жагсаалтад `col({ eaType: "status", field: "status" })` (зөвхөн дүрс, tooltip +
+  aria-label), дэлгэрэнгүйд `DocumentStatusBadge`. Хуудас бүрд өөрийн
+  STATUS_LABELS/tone map бичихийг ХОРИГЛОНО
+- **Үйлдлийн нэр:** «Ноорог хадгалах» / «Батлах»; «сторно» БИШ «буцаалт»
+- **Тоо:** `readonly-money` 0 → «—», сөрөг «−» + улаан (`ea-negative`); хуудасны
+  гол тоо `fmtMntCompact` («13.95 сая ₮», title-д бүтэн дүн) — НЭГ л ширхэг
+- **Маягтын мөрийн grid** (`journal-lines-grid`, `arap-lines-grid`) шүүлтүүр,
+  эрэмбэлэлтгүй (`FORM_GRID_COL_DEF`)
+- **Утас (<640px):** жагсаалт хүснэгтийн оронд `MobileCardList`
+  (`useIsMobileViewport`) — төлөв · нэр · дүн, дарахад десктопын давхар даралттай
+  ижил панель. Одоо: журнал, АР/АП баримт
+- **Латин UI текст** `tests/ui-latin-text.test.ts`-ээр сахиулагдана (allowlist-тэй)
 
 ### Таб ба шүүлтүүрийн chip
 

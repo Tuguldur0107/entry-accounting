@@ -71,7 +71,7 @@
   --ea-danger-solid:    #DC2626;
   --ea-danger-solid-fg: #FFFFFF;
   --ea-warning:    #F59E0B;
-  --ea-warning-fg: #B45309;
+  --ea-warning-fg: #A84D08;  /* AA: 4.9:1 тинттэй badge дэвсгэр дээр ч (axe, UI гайд) — өмнө #B45309 4.4 */
   --ea-warning-bg: #FFFBEB;
   /* Буцаагдсан (хүчингүй) баримт — ногоон/улаан/шараас ялгаатай нил ягаан
      (өнгө ялгадаггүй хүнд хэлбэрээр ч ялгарна — lib/status.ts) */

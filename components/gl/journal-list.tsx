@@ -34,7 +34,8 @@ import {
   type VoucherRowImport,
 } from "@/lib/excel/specs";
 import { openVoucherPanel, refreshOpenPanels } from "@/lib/store/panel-store";
-import { fmtMnt } from "@/lib/reports/balances";
+import { extractMainAccount, fmtMnt } from "@/lib/reports/balances";
+import { MobileCardList, useIsMobileViewport, type MobileCard } from "@/components/datagrid/mobile-card-list";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
   CellDoubleClickedEvent,
@@ -56,6 +57,29 @@ interface Props {
 }
 
 type VoucherRow = JournalListRow;
+
+/** Утасны карт: төлөв · огноо / тайлбар / Дт → Кт үндсэн данс · дүн. */
+function voucherMobileCard(voucher: VoucherRow): MobileCard {
+  const debitMains = new Set<string>();
+  const creditMains = new Set<string>();
+  let total = 0;
+  for (const line of voucher.lines) {
+    const debit = Number(line.debit ?? 0);
+    const credit = Number(line.credit ?? 0);
+    if (debit > 0) debitMains.add(extractMainAccount(line.accountNumber));
+    if (credit > 0) creditMains.add(extractMainAccount(line.accountNumber));
+    total += debit;
+  }
+  const accounts = `${[...debitMains].join(", ")} → ${[...creditMains].join(", ")}`;
+  return {
+    id: voucher.id,
+    status: voucher.status,
+    corner: voucher.date.replaceAll("-", "."),
+    title: voucher.description || voucher.documentNo || "Журнал",
+    meta: [voucher.documentNo, accounts].filter(Boolean).join(" · "),
+    amount: fmtMnt(total),
+  };
+}
 
 /** Мөрийн MNT дүнг баримтын валютаар (2 орон) — MNT баримтад хоосон. */
 function fmtSource(amount: number, rate: number | null): string {
@@ -268,6 +292,8 @@ export function JournalList({
   const filteredRef = useRef<{ id: string }[]>([]);
   // П17 — SavedViewsMenu grid API-д хандахад.
   const gridRef = useRef<DataGridHandle>(null);
+  // Утсан дээр хүснэгтийн оронд карт (UI гайдын карт 12).
+  const isMobile = useIsMobileViewport();
 
   // Диалогийн текстэд аль журнал болохыг нь заана — зөвхөн id-гаар
   // баталгаажуулах нь буруу бичилт батлах эрсдэлтэй.
@@ -839,6 +865,14 @@ export function JournalList({
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {excelToolbar}
+      {isMobile ? (
+        <MobileCardList
+          rows={filtered}
+          toCard={voucherMobileCard}
+          onOpen={(row) => handleEdit(row.id)}
+          ariaLabel="Журналын жагсаалт"
+        />
+      ) : (
       <DataGridDynamic<VoucherRow>
         ref={gridRef}
         rowData={filtered}
@@ -856,6 +890,7 @@ export function JournalList({
         cellSelection={false}
         onCellDoubleClicked={handleRowClick}
       />
+      )}
 
       {/* Footer — нийт дүн. Багана олон (валют, дансны нэр, хэрэглэгч) тул
           баганатай харалдаа CSS grid БИШ, товч нэгтгэлийн мөр. */}

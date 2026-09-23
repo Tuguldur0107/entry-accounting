@@ -3,6 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
 
+/** Цайвар ↔ харанхуй горим солих (топбарын профайл цэс ч үүнийг дуудна). */
+export function toggleTheme() {
+  const root = document.documentElement;
+  const next = !root.classList.contains("dark");
+  root.classList.toggle("dark", next);
+  root.style.colorScheme = next ? "dark" : "light";
+  try {
+    localStorage.setItem("theme", next ? "dark" : "light");
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Theme toggle — works WITH or WITHOUT React hydration.
  * Attaches an `addEventListener('click')` on mount so even if React's
@@ -30,17 +43,7 @@ export function ThemeToggle() {
   useEffect(() => {
     const btn = ref.current;
     if (!btn) return;
-    const handler = () => {
-      const root = document.documentElement;
-      const next = !root.classList.contains("dark");
-      root.classList.toggle("dark", next);
-      root.style.colorScheme = next ? "dark" : "light";
-      try {
-        localStorage.setItem("theme", next ? "dark" : "light");
-      } catch {
-        /* ignore */
-      }
-    };
+    const handler = () => toggleTheme();
     btn.addEventListener("click", handler);
     return () => btn.removeEventListener("click", handler);
   }, []);
@@ -52,7 +55,7 @@ export function ThemeToggle() {
       suppressHydrationWarning
       className="ea-icon-action flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-[var(--ea-border)] text-[var(--ea-text-2)]"
       title={isDark ? "Цайвар горим" : "Харанхуй горим"}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={isDark ? "Цайвар горим руу шилжих" : "Харанхуй горим руу шилжих"}
     >
       {isDark
         ? <Icon name="lightMode" size="lg" className="transition-transform pointer-events-none" />

@@ -52,3 +52,74 @@ export function arapKpis(documents: ArapKpiDocument[], asOf: string) {
     draftAmount: round(draftAmount),
   };
 }
+
+// ── Насжилтын зурвас (UI гайдын карт 6, ENT-060) ────────────────────────
+// «Нийт / Нээлттэй / Хэтэрсэн» гэсэн гурван ИЖИЛ тооны оронд нэг гол тоо +
+// хугацаа хэтэрсэн хоногоор ангилсан зурвас. Хугацаа нь болоогүй баримт
+// «0–30» хэсэгт орно (Σ хэсгүүд = гол тоо — зурвас бүхэлдээ дүүрнэ).
+
+export type ArapAgingBucketKey = "0-30" | "31-60" | "60+";
+
+export interface ArapAgingBucket {
+  key: ArapAgingBucketKey;
+  label: string;
+  amount: number;
+  count: number;
+}
+
+export interface ArapBalanceSummary {
+  total: number;
+  documentCount: number;
+  counterpartyCount: number;
+  buckets: ArapAgingBucket[];
+}
+
+const AGING_BUCKETS: { key: ArapAgingBucketKey; label: string; maxDays: number }[] = [
+  { key: "0-30", label: "0–30 хоног", maxDays: 30 },
+  { key: "31-60", label: "31–60 хоног", maxDays: 60 },
+  { key: "60+", label: "60+ хоног", maxDays: Number.POSITIVE_INFINITY },
+];
+
+function daysPastDue(asOf: string, dueDate: string): number {
+  const diff = Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${dueDate}T00:00:00Z`);
+  return Number.isFinite(diff) ? Math.floor(diff / 86_400_000) : 0;
+}
+
+/**
+ * Нэг чиглэлийн (ar_invoice ЭСВЭЛ ap_bill) батлагдсан үлдэгдлийн хураангуй —
+ * ноорог тоологдохгүй (arapKpis-тэй ижил дүрэм).
+ */
+export function arapBalanceSummary(
+  documents: (ArapKpiDocument & { counterpartyId?: string })[],
+  asOf: string,
+  documentType: "ar_invoice" | "ap_bill"
+): ArapBalanceSummary {
+  const buckets = AGING_BUCKETS.map((bucket) => ({
+    key: bucket.key,
+    label: bucket.label,
+    amount: 0,
+    count: 0,
+  }));
+  const counterparties = new Set<string>();
+  let total = 0;
+  let documentCount = 0;
+  for (const doc of documents) {
+    if (doc.documentType !== documentType) continue;
+    if (!isOutstandingStatus(doc.status) || doc.baseBalance <= 0.005) continue;
+    const days = daysPastDue(asOf, doc.dueDate);
+    const index = AGING_BUCKETS.findIndex((bucket) => days <= bucket.maxDays);
+    const bucket = buckets[index === -1 ? buckets.length - 1 : index];
+    bucket.amount += doc.baseBalance;
+    bucket.count += 1;
+    total += doc.baseBalance;
+    documentCount += 1;
+    if (doc.counterpartyId) counterparties.add(doc.counterpartyId);
+  }
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return {
+    total: round(total),
+    documentCount,
+    counterpartyCount: counterparties.size,
+    buckets: buckets.map((bucket) => ({ ...bucket, amount: round(bucket.amount) })),
+  };
+}

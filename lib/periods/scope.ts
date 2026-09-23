@@ -22,6 +22,13 @@ export const PERIOD_SCOPE_LABELS: Record<PeriodScope, string> = {
   YTD: "YTD · Жил",
 };
 
+/** Топбарын сонгогчийн монгол нэр — PTD/QTD/YTD товчлол ойлгомжгүй (карт 8). */
+export const PERIOD_SCOPE_NAMES_MN: Record<PeriodScope, string> = {
+  PTD: "Сар",
+  QTD: "Улирлын эхнээс",
+  YTD: "Оны эхнээс",
+};
+
 export function isPeriodScope(value: string): value is PeriodScope {
   return value === "PTD" || value === "QTD" || value === "YTD";
 }

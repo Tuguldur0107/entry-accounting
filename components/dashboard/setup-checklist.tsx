@@ -53,8 +53,9 @@ export function SetupChecklist({ steps }: { steps: SetupStep[] }) {
               href={step.href}
               title={step.hint}
               className={cn(
-                "ea-interactive flex items-center gap-2.5 rounded-md border border-transparent px-2.5 py-2",
-                step.done && "opacity-60"
+                // opacity-г хэрэглэхгүй — дууссан алхмын текст AA контрастаас
+                // доош орж байв (axe color-contrast); line-through + text-3 хангалттай.
+                "ea-interactive flex items-center gap-2.5 rounded-md border border-transparent px-2.5 py-2"
               )}
               style={{ textDecoration: "none" }}
             >

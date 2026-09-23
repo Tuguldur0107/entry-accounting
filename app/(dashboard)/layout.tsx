@@ -2,8 +2,7 @@ import Link from "next/link";
 import { auth, getSupportBanner, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { EAMark, EAWordmark } from "@/components/auth/brand";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { SoundToggle } from "@/components/layout/sound-toggle";
+import { UserMenu } from "@/components/layout/user-menu";
 import { Sidebar } from "@/components/layout/sidebar";
 import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { HeaderReportSelect } from "@/components/layout/header-report-select";
@@ -162,30 +161,15 @@ export default async function DashboardLayout({
             <QuickCreate />
             <AiChatButton />
             <NotificationBell initialUnread={unreadRow?.n ?? 0} />
-            <SoundToggle />
-            <ThemeToggle />
-            <span className="hidden text-sm sm:inline" style={{ color: "var(--ea-text-3)" }}>
-              {session.user.name}
-            </span>
-            <form
-              action={async () => {
+            {/* Дуу, горим, гарах — профайл цэсэнд (UI гайдын карт 8, ENT-061). */}
+            <UserMenu
+              name={session.user.name ?? session.user.email ?? "Хэрэглэгч"}
+              email={session.user.email}
+              signOutAction={async () => {
                 "use server";
                 await signOut({ redirectTo: "/login" });
               }}
-            >
-              <button
-                type="submit"
-                className="ea-interactive rounded border border-transparent px-3 py-1.5 text-sm"
-                style={{
-                  color: "var(--ea-text-3)",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Гарах
-              </button>
-            </form>
+            />
           </div>
         </div>
       </header>

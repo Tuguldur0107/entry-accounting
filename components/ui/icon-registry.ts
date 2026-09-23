@@ -15,6 +15,7 @@ import {
   Boxes,
   Building,
   Building2,
+  LogOut,
   Calculator,
   CalendarClock,
   Check,
@@ -192,6 +193,7 @@ export const ICONS = {
   trendDown: TrendingDown,
   trendUp: TrendingUp,
   user: User,
+  signOut: LogOut,
   warehouse: Warehouse,
 
   // Import and clipboard
@@ -317,6 +319,7 @@ export const ICON_CATALOG: readonly IconCatalogItem[] = [
   { name: "trendDown", category: "module", label: "Бууралт" },
   { name: "trendUp", category: "module", label: "Өсөлт" },
   { name: "user", category: "module", label: "Хэрэглэгч" },
+  { name: "signOut", category: "action", label: "Гарах" },
   { name: "warehouse", category: "module", label: "Агуулах" },
 
   { name: "darkMode", category: "theme", label: "Харанхуй горим" },
