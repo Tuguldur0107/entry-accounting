@@ -11,9 +11,11 @@
 // орлого (тооллогын илүүдэл, буцаж ирсэн) болон БҮХ зарлага нэг л PWA-г
 // хэрэглэнэ — moving average ДАХИН БОДОХГҮЙ (§3.4).
 //
-// Период тооцоологдоогүй, мөр үнэлэгдээгүй, эсвэл шилжүүлэг (OD-014 —
-// үнэлгээгүй) таарвал Running Amount тэр мөрөөс хойш ТОДОРХОЙГҮЙ (null)
-// болно — таамаг өртөг зохиохгүй. Running Qty үргэлж бодогдоно.
+// Период тооцоологдоогүй эсвэл мөр үнэлэгдээгүй таарвал Running Amount тэр
+// мөрөөс хойш ТОДОРХОЙГҮЙ (null) болно — таамаг өртөг зохиохгүй. Running Qty
+// үргэлж бодогдоно. Агуулах хоорондын шилжүүлэг (OD-014, 0.9) нь дуудагч
+// талд "avg-out" (эх) + "priced-in" (хүлээн авагч, эхийн дундажаар) болж
+// ирнэ; "transfer" төрөл нь зөвхөн үнэлэгдэх боломжгүй хуучин өгөгдөлд.
 
 import { scopeKey } from "./periodic";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
@@ -22,7 +24,7 @@ export type RunningKind =
   | "priced-in" // худалдан авалт — бодит орлогын дүнтэй
   | "avg-in" // илүүдэл, буцаж ирсэн — PWA-гаар
   | "avg-out" // зарлага, дутагдал, буцаалт — PWA-гаар
-  | "transfer"; // тоо хөдөлнө, үнэлгээгүй (OD-014)
+  | "transfer"; // тоо хөдөлнө, дүн тодорхойгүй (үнэлэгдэх боломжгүй)
 
 export interface RunningMovement {
   movementId: string;
@@ -94,7 +96,7 @@ export function computeRunningBalances(
               : round2(current.amount + movement.quantityDelta * average);
           break;
         case "transfer":
-          // Шилжүүлгийн үнэлгээ батлагдаагүй (OD-014) — дүн үл мэдэгдэнэ.
+          // Үнэлэгдэх боломжгүй шилжүүлэг — дүн үл мэдэгдэнэ.
           current.amount = null;
           break;
       }

@@ -51,7 +51,8 @@ function averageValuedEntryType(
       return "return_in";
     case "adjustment":
       return quantity >= 0 ? "adjustment_gain" : "adjustment_loss";
-    // Худалдан авалт нь өртөгтэй ирдэг, шилжүүлэг үнэлэгдэхгүй (OD-014).
+    // Худалдан авалт нь өртөгтэй ирдэг; шилжүүлэг хүрээ хооронд дүн шилжүүлэх
+    // боловч бараа материалын данс нэг тул GL бичилтгүй (OD-014, 0.9).
     default:
       return null;
   }
@@ -73,6 +74,8 @@ export interface PeriodCostingSummary {
   alreadyValued: number;
   /** Дундаж 0 тул бичилт үүсээгүй тоо. */
   zeroValued: number;
+  /** Блоклогдсон хүрээнд хамаарч ҮНЭЛЭГДЭЭГҮЙ хөдөлгөөний тоо. */
+  blockedMovements: number;
   blockers: PeriodCloseBlocker[];
 }
 
@@ -144,27 +147,21 @@ export async function computePeriodCosting(
       trueUps: 0,
       alreadyValued: 0,
       zeroValued: 0,
+      blockedMovements: 0,
       blockers,
     };
 
-  // Блоклогдсон хамрах хүрээтэй хөдөлгөөн байвал ямар ч бичилт үүсгэхгүй.
+  // Блоклогдсон хүрээ нь ЗӨВХӨН өөрийн хөдөлгөөнийг зогсооно — бусад
+  // бараа-агуулахыг үргэлжлүүлэн үнэлнэ (ENT-043: урьд нэг блок сарын БҮХ
+  // COGS-ыг 0 болгодог байв). Сар хаалт нь closePeriod-ийн
+  // `unvalued-movements` хоригоор блоклогдсон хүрээг засагдтал хориглосон
+  // хэвээр тул дутуу үнэлгээ GL-д чимээгүй үлдэхгүй.
   const blockedScopes = new Set(
     blockers.map((entry) => scopeKey(entry.itemId, entry.warehouseId))
   );
-  const blockedTarget = targets.find((movement) =>
-    blockedScopes.has(scopeKey(movement.itemId!, movement.warehouseId!))
-  );
-  if (blockedTarget)
-    return {
-      periodCode,
-      valued: 0,
-      trueUps: 0,
-      alreadyValued: 0,
-      zeroValued: 0,
-      blockers,
-    };
 
   let valued = 0;
+  let blockedMovements = 0;
   let trueUps = 0;
   let alreadyValued = 0;
   let zeroValued = 0;
@@ -201,10 +198,24 @@ export async function computePeriodCosting(
 
     for (const movement of targets) {
       const entryType = averageValuedEntryType(movement)!;
-      const average = averageByScope.get(
-        scopeKey(movement.itemId!, movement.warehouseId!)
-      );
-      if (average === undefined || average === null) continue;
+      const key = scopeKey(movement.itemId!, movement.warehouseId!);
+      const average = averageByScope.get(key);
+      if (blockedScopes.has(key) || average === undefined || average === null) {
+        if (blockedScopes.has(key)) {
+          blockedMovements += 1;
+          // Өмнөх тооцооны НООРОГ дүн хуучирсан — дундаж тодорхойгүй болсон
+          // тул хуучин дүнгээрээ батлагдахаас сэргийлж устгана (posted-ыг
+          // хөндөхгүй).
+          const stale = activeByMovement.get(movement.id);
+          if (stale?.status === "draft")
+            await tx.delete(costEntries).where(eq(costEntries.id, stale.id));
+          for (const row of (trueUpsByMovement.get(movement.id) ?? []).filter(
+            (entry) => entry.status === "draft"
+          ))
+            await tx.delete(costEntries).where(eq(costEntries.id, row.id));
+        }
+        continue;
+      }
 
       const quantity = Math.abs(Number(movement.quantity));
       const unitCost = round4(average);
@@ -324,5 +335,13 @@ export async function computePeriodCosting(
     }
   });
 
-  return { periodCode, valued, trueUps, alreadyValued, zeroValued, blockers };
+  return {
+    periodCode,
+    valued,
+    trueUps,
+    alreadyValued,
+    zeroValued,
+    blockedMovements,
+    blockers,
+  };
 }

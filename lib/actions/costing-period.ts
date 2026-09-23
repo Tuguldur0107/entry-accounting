@@ -58,6 +58,8 @@ export type PeriodCostingActionResult =
       valued: number;
       alreadyValued: number;
       zeroValued: number;
+      /** Блоклогдсон хүрээнд хамаарч үнэлэгдээгүй хөдөлгөөн (ENT-043). */
+      blockedMovements: number;
       blockers: { label: string; reason: string }[];
     }
   | {
@@ -71,8 +73,8 @@ export type PeriodCostingActionResult =
  * сарын жигнэсэн дундажаар үнэлж НООРОГ бичилт болгоно. GL-д бичих нь
  * дараагийн тусдаа алхам (нягтланчийн баталгаажуулалт).
  *
- * Блоклогдсон бараа-агуулах байвал ямар ч бичилт үүсгэхгүй — өртгийг
- * зохиохгүй, шалтгааныг нь буцаана.
+ * Блоклогдсон бараа-агуулах нь ЗӨВХӨН өөрийн хөдөлгөөнийг зогсооно — бусад
+ * нь үнэлэгдэнэ (ENT-043); блоклогдсоны шалтгааныг ил буцаана.
  */
 export async function computeMonthlyCosting(
   periodCode: string
@@ -100,6 +102,7 @@ export async function computeMonthlyCosting(
       valued: summary.valued,
       alreadyValued: summary.alreadyValued,
       zeroValued: summary.zeroValued,
+      blockedMovements: summary.blockedMovements,
       blockers: labels,
     };
   } catch (caught) {

@@ -323,7 +323,7 @@ export function CloseWizard({
                         ("message" in result ? result.message : undefined) ??
                           `Өртөг тооцоо амжилтгүй (${result.code})`
                       );
-                    return `Өртөг тооцогдлоо: шинээр ${result.valued}, өмнө нь ${result.alreadyValued}, тэг ${result.zeroValued}${result.blockers.length > 0 ? `, блоклогдсон ${result.blockers.length}` : ""}`;
+                    return `Өртөг тооцогдлоо: шинээр ${result.valued}, өмнө нь ${result.alreadyValued}, тэг ${result.zeroValued}${result.blockers.length > 0 ? `, блоклогдсон ${result.blockers.length} (${result.blockedMovements} хөдөлгөөн үнэлэгдээгүй)` : ""}`;
                   })
                 }
               >

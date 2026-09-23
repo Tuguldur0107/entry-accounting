@@ -44,6 +44,10 @@ import {
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
 import type { CostEntryView } from "@/lib/inventory/types";
 import { logAuditEvent } from "@/lib/audit";
+import {
+  ARAP_LINE_SOURCE_TYPE,
+  capitalizeArapLineReceipts,
+} from "@/lib/costing/arap-receipt-capitalize";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import {
@@ -186,6 +190,23 @@ async function runCostingCore(data: {
   // хоёр удаа үнэлж GL-ийг давхарлахаас сэргийлнэ).
   return await db.transaction(async (tx) => {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}), 2)`);
+  // PO-гүй АП нэхэмжлэхийн орлого — нэхэмжлэхийн мөрийн дүнгээр (ENT-018).
+  // Энэ засвараас өмнө батлагдсан орлогыг ч нөхнө; гараар өгсөн үнэтэй
+  // хөдөлгөөн нь receiptCosts-оор доор үнэлэгдэх тул эндээс алгасна.
+  const manuallyPriced = new Set(Object.keys(data.receiptCosts ?? {}));
+  const arapCandidates = (
+    await tx.query.inventoryMovements.findMany({
+      where: and(
+        eq(inventoryMovements.organizationId, orgId),
+        eq(inventoryMovements.status, "confirmed"),
+        eq(inventoryMovements.sourceType, ARAP_LINE_SOURCE_TYPE)
+      ),
+      columns: { id: true },
+    })
+  )
+    .map((row) => row.id)
+    .filter((id) => !manuallyPriced.has(id));
+  await capitalizeArapLineReceipts(tx, orgId, userId, arapCandidates);
 
   const [movements, activeEntries] = await Promise.all([
     tx.query.inventoryMovements.findMany({

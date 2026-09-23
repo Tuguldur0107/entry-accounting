@@ -17,6 +17,10 @@ import {
   warehouses,
 } from "@/lib/db/schema";
 import { assertEnabledMainAccount } from "@/lib/costing/posting-helpers";
+import {
+  ARAP_LINE_SOURCE_TYPE,
+  capitalizeArapLineReceipts,
+} from "@/lib/costing/arap-receipt-capitalize";
 import type { ItemVatMode } from "@/lib/inventory/types";
 import {
   balanceKey,
@@ -946,6 +950,10 @@ async function confirmInventoryMovementCore(id: string) {
       )
       .returning({ id: inventoryMovements.id });
     if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
+    // PO-гүй АП нэхэмжлэхийн орлого — нэхэмжлэхийн мөрийн дүнгээр
+    // капитализацийн НООРОГ (ENT-018); гараар өгсөн үнэ байвал хөндөхгүй.
+    if (movement.movementType === "receipt" && movement.sourceType === ARAP_LINE_SOURCE_TYPE)
+      await capitalizeArapLineReceipts(tx, orgId, userId, [id]);
     await logAuditEvent(
       {
         userId,

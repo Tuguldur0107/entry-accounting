@@ -9,8 +9,10 @@ import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  arApDocuments,
   chartOfAccounts,
   costComponents,
+  costingAccountSettings,
   costEntries,
   costPeriodResults,
   inventoryIssueTypes,
@@ -27,6 +29,7 @@ import {
   type RunningMovement,
 } from "./running-balance";
 import { scopeKey } from "./periodic";
+import { roundMoney as round2 } from "@/lib/arap/accounting";
 import type {
   GlBoundStatus,
   ReconciliationRow,
@@ -245,23 +248,30 @@ export async function loadTransactionDetail(
           quantityDelta: quantity,
         });
         break;
-      case "transfer":
-        // Гаргах агуулахын scope — дэлгэцэнд ЭНЭ утга харагдана.
+      case "transfer": {
+        // OD-014 (0.9): эх агуулахаас сарын дунджаар гарч, хүлээн авагчид
+        // ТЭР дунджаар орно. Гаргах агуулахын утга дэлгэцэнд харагдана.
         runningEvents.push({
           ...shared,
           movementId: movement.id,
-          kind: "transfer",
+          kind: "avg-out",
           quantityDelta: -absQty,
         });
-        if (movement.toWarehouseId)
+        if (movement.toWarehouseId) {
+          const sourceAverage =
+            runningBasis.get(`${scopeKey(movement.itemId!, movement.warehouseId!)}::${shared.periodCode}`)
+              ?.average ?? null;
           runningEvents.push({
             ...shared,
             warehouseId: movement.toWarehouseId,
             movementId: `${movement.id}::in`,
-            kind: "transfer",
+            kind: "priced-in",
             quantityDelta: absQty,
+            inboundAmount: sourceAverage === null ? null : round2(absQty * sourceAverage),
           });
+        }
         break;
+      }
     }
   }
   const runningByMovement = computeRunningBalances(runningEvents, runningBasis);
@@ -469,6 +479,34 @@ export async function loadInventoryGlReconciliation(
       .filter((id): id is string => Boolean(id))
   );
 
+  // КЛИРИНГ рольтой данснууд ба АР/АП баримтын журналууд (ENT-021).
+  const [roleSettings, components, arapVoucherRows] = await Promise.all([
+    db.query.costingAccountSettings.findFirst({
+      where: eq(costingAccountSettings.organizationId, orgId),
+      columns: { clearingAccountNumber: true, apClearingAccountNumber: true },
+    }),
+    db.query.costComponents.findMany({
+      where: eq(costComponents.organizationId, orgId),
+      columns: { accountNumber: true },
+    }),
+    db
+      .select({ voucherId: arApDocuments.voucherId })
+      .from(arApDocuments)
+      .where(and(eq(arApDocuments.organizationId, orgId), isNotNull(arApDocuments.voucherId))),
+  ]);
+  const clearingAccounts = new Set(
+    [
+      roleSettings?.clearingAccountNumber,
+      roleSettings?.apClearingAccountNumber,
+      ...components.map((component) => component.accountNumber),
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => extractMainAccount(value))
+  );
+  const arapVouchers = new Set(
+    arapVoucherRows.map((row) => row.voucherId).filter((id): id is string => Boolean(id))
+  );
+
   // GL тал — дэд дэвтрийн лавлагаатай / PO хаалт / гараар бичсэнийг ялгана (§5.4).
   const glLines = vouchers
     .filter((voucher) => voucher.status !== "draft")
@@ -478,6 +516,10 @@ export async function loadInventoryGlReconciliation(
         delta: Number(line.debit) - Number(line.credit),
         linked: Boolean(line.costEntryId),
         poClose: poCloseVouchers.has(voucher.id),
+        sourceDoc:
+          !line.costEntryId &&
+          arapVouchers.has(voucher.id) &&
+          clearingAccounts.has(extractMainAccount(line.accountNumber)),
       }))
     );
 

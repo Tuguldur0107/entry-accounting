@@ -412,6 +412,17 @@ export function TransactionDetailReport({
           "PO хаалтын журналаар түр дансыг тэгшитгэсэн дүн — өртгийн бичилт биш",
       },
       {
+        headerName: "АР/АП баримт",
+        field: "sourceDocAmount",
+        width: 150,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) =>
+          Number(params.value ?? 0) === 0 ? "" : fmtMnt(Number(params.value)),
+        headerTooltip:
+          "Клирингийн дансан дахь нэхэмжлэхийн тал (PO-гүй АП г.м.) — капитализаци түүнийг хаадаг",
+      },
+      {
         headerName: "Зөрүү",
         field: "difference",
         width: 150,

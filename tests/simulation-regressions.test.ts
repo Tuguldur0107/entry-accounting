@@ -7,7 +7,7 @@ import "./helpers/load-env";
 import { createRequire } from "node:module";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 const requireCjs = createRequire(import.meta.url);
 try {
@@ -21,7 +21,13 @@ import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { db } from "../lib/db";
-import { memberships, organizations, users } from "../lib/db/schema";
+import {
+  costEntries,
+  inventoryMovements,
+  memberships,
+  organizations,
+  users,
+} from "../lib/db/schema";
 
 const DB_READY = !!process.env.DATABASE_URL;
 const STAMP = Date.now().toString(36);
@@ -89,6 +95,71 @@ test("ENT-069: get_counterparty_balance SQL алдаагүй, asOf-оор үлд
   const before = await tool("get_counterparty_balance", { asOf: "2025-01-05" });
   assert.ok(!before.resultText.startsWith("Алдаа"), before.resultText);
   assert.doesNotMatch(before.resultText, /2,750,000/);
+});
+
+test("ENT-018 + ENT-043: PO-гүй АП орлого автоматаар капиталжиж, нэг блок бусдыг зогсоохгүй", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  for (const [code, name] of [["WH1", "Төв агуулах"]])
+    assert.ok(okOrRevalidate((await tool("create_warehouse", { code, name })).resultText));
+  for (const [code, name] of [["ITM-A", "Цэнэглэгч 20W"], ["ITM-B", "Утасны гэр"]])
+    assert.ok(okOrRevalidate((await tool("create_inventory_item", { code, name, unit: "ш" })).resultText));
+  assert.ok(okOrRevalidate((await tool("create_counterparty", { name: "Нийлүүлэгч А", counterpartyType: "supplier" })).resultText));
+
+  // PO-гүй АП нэхэмжлэх: 10 ш × 32,000
+  const bill = await tool(
+    "create_arap_invoice",
+    {
+      documentType: "ap_bill",
+      counterparty: "Нийлүүлэгч А",
+      date: "2025-03-05",
+      description: "Бараа татан авалт",
+      externalRef: `sim-${STAMP}-ap1`,
+      lines: [{ itemCode: "ITM-A", warehouseCode: "WH1", quantity: 10, unitPrice: 32000, description: "Цэнэглэгч" }],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(bill.resultText), bill.resultText);
+
+  const [draftMovement] = await db.query.inventoryMovements.findMany({
+    where: and(eq(inventoryMovements.organizationId, orgId), eq(inventoryMovements.sourceType, "arap_line")),
+  });
+  assert.ok(draftMovement, "АП мөрөөс орлогын ноорог үүссэн байх ёстой");
+  const confirm = await tool("confirm_inventory_movement", { movementId: draftMovement.id }, "post");
+  assert.ok(okOrRevalidate(confirm.resultText), confirm.resultText);
+
+  const [capitalized] = await db.query.costEntries.findMany({
+    where: and(eq(costEntries.movementId, draftMovement.id), eq(costEntries.entryType, "receipt_capitalize")),
+  });
+  assert.ok(capitalized, "ENT-018: батлахад капитализацийн ноорог автоматаар үүснэ");
+  assert.equal(Number(capitalized.unitCost), 32000);
+  assert.equal(Number(capitalized.amount), 320000);
+  assert.equal(capitalized.valuationSource, "ap_line");
+
+  // ITM-B: өртөггүй гар орлого → тэр хүрээ блоклогдоно
+  const manualIn = await tool(
+    "create_inventory_movement",
+    { movementType: "receipt", date: "2025-03-06", itemCode: "ITM-B", warehouseCode: "WH1", quantity: 5 },
+    "post"
+  );
+  assert.ok(okOrRevalidate(manualIn.resultText), manualIn.resultText);
+  for (const [itemCode, quantity] of [["ITM-A", 4], ["ITM-B", 2]] as const) {
+    const out = await tool(
+      "create_inventory_movement",
+      { movementType: "issue", date: "2025-03-20", itemCode, warehouseCode: "WH1", quantity },
+      "post"
+    );
+    assert.ok(okOrRevalidate(out.resultText), out.resultText);
+  }
+
+  const costing = await tool("run_monthly_costing", { period: "2025-03" });
+  assert.ok(!costing.resultText.startsWith("Алдаа"), costing.resultText);
+  assert.match(costing.resultText, /БЛОКЛОГДСОН/);
+  // ENT-043: ITM-A-ийн зарлага 4 × 32,000 үнэлэгдэнэ (урьд нь 0)
+  const issues = await db.query.costEntries.findMany({
+    where: and(eq(costEntries.organizationId, orgId), eq(costEntries.entryType, "issue_cogs")),
+  });
+  assert.equal(issues.length, 1, costing.resultText);
+  assert.equal(Number(issues[0].amount), 128000);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {
