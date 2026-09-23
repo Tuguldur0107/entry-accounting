@@ -3,7 +3,7 @@
 // зөвхөн wire формат нь өөр. SDK нэмэлгүй, raw HTTP (fetch + SSE).
 
 import { createMarkerSanitizer } from "./action-markers";
-import { allAiTools, executeAiTool, type AiToolResult } from "./tools";
+import { aiToolsForSurface, executeAiTool, type AiToolResult } from "./tools";
 import { randomUUID } from "node:crypto";
 
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
@@ -149,7 +149,7 @@ export async function runOpenAiAgent(options: {
   onText: (text: string) => void;
   onToolResult: (result: AiToolResult) => void;
 }): Promise<void> {
-  const tools = allAiTools().map((tool) => ({
+  const tools = aiToolsForSurface("chat").map((tool) => ({
     type: "function" as const,
     function: {
       name: tool.name,

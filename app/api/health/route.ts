@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { posEbarimtSubmissions, posQpayIntents, posSettings } from "@/lib/db/schema";
 import { QPAY_PAID_UNFINALIZED_MINUTES } from "@/lib/qpay/constants";
+import { knowledgeStats } from "@/lib/knowledge/store";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { deploymentMode } from "@/lib/deployment-mode";
 import { APP_VERSION, GIT_SHA } from "@/lib/version";
@@ -42,6 +43,15 @@ async function ebarimtHealth() {
 }
 
 /** QPay — зөвхөн тоолуур (нууц, мерчант id БАЙХГҮЙ). */
+/** Мэдлэгийн сан — зөвхөн тоолуур (seed ажилласан эсэхийг deploy-ийн дараа шалгана). */
+async function knowledgeHealth() {
+  try {
+    return await knowledgeStats();
+  } catch {
+    return null;
+  }
+}
+
 async function qpayHealth() {
   try {
     const [orgs] = await db
@@ -77,8 +87,8 @@ export async function GET() {
   try {
     await db.execute(sql`select 1`);
     const ebarimt = await ebarimtHealth();
-    const qpay = await qpayHealth();
-    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay });
+    const [qpay, knowledge] = await Promise.all([qpayHealth(), knowledgeHealth()]);
+    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay, knowledge });
   } catch (err) {
     return NextResponse.json(
       { ok: false, ...meta, error: err instanceof Error ? err.message : String(err) },

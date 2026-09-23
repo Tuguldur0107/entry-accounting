@@ -971,6 +971,53 @@ async function main() {
     ],
   ])
     await run(`${label} индекс`, statement);
+  // ── 10. Мэдлэгийн сан (docs/knowledge/00-proposal.md) ─────────────────────
+  // knowledge_articles нь org-гүй нийтийн лавлах; агуулгыг push-ийн ДАРАА
+  // scripts/seed-knowledge.mjs бөглөнө. knowledge_reads = өдрийн квот + мөрдлөг.
+  await run(
+    "knowledge_articles хүснэгт",
+    `create table if not exists knowledge_articles (
+       id uuid primary key default gen_random_uuid(),
+       slug text not null,
+       section text not null,
+       category text not null,
+       title text not null,
+       heading text not null,
+       body text not null,
+       citation text,
+       modules jsonb not null default '[]'::jsonb,
+       source_path text not null,
+       checksum text not null,
+       sort_order integer not null default 0,
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "knowledge_articles_slug_section_ux индекс",
+    `create unique index if not exists knowledge_articles_slug_section_ux
+       on knowledge_articles (slug, section)`
+  );
+  await run(
+    "knowledge_articles_category_ix индекс",
+    `create index if not exists knowledge_articles_category_ix
+       on knowledge_articles (category)`
+  );
+  await run(
+    "knowledge_reads хүснэгт",
+    `create table if not exists knowledge_reads (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       user_id text references users(id) on delete set null,
+       slug text not null,
+       section text not null,
+       created_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "knowledge_reads_org_time_ix индекс",
+    `create index if not exists knowledge_reads_org_time_ix
+       on knowledge_reads (organization_id, created_at)`
+  );
 
   console.log(
     failures === 0
