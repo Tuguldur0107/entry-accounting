@@ -38,6 +38,7 @@ import {
 } from "@/lib/actions/ebarimt";
 import {
   deleteDiscountRule,
+  deletePaymentMethod,
   quotePosSale,
   savePaymentMethod,
   updatePosSettings,
@@ -445,6 +446,7 @@ function PaymentMethodDialog({
   onSaved: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   // Нээх бүрд эцэг `key`-ээр remount хийдэг тул initializer хангалттай.
   const [form, setForm] = useState<MethodForm>(() => toMethodForm(method));
   const patch = (changes: Partial<MethodForm>) => setForm((current) => ({ ...current, ...changes }));
@@ -452,6 +454,30 @@ function PaymentMethodDialog({
   const accountOptions = cashAccounts.filter((account) =>
     form.kind === "cash" ? account.currency === "MNT" : form.kind === "cash_fx" ? account.currency !== "MNT" : true
   );
+
+  async function remove() {
+    if (!method) return;
+    const ok = await confirm({
+      title: `${method.code} — төлбөрийн хэлбэр устгах уу?`,
+      description:
+        "Түүхэн борлуулалтад ашиглагдсан бол устгахын оронд ИДЭВХГҮЙ болно (тайлан, баримт хэвээр).",
+      confirmText: "Устгах",
+      danger: true,
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const result = await deletePaymentMethod(method.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(
+        result.deactivated ? "Түүхэнд ашиглагдсан тул идэвхгүй болголоо" : "Төлбөрийн хэлбэр устлаа"
+      );
+      onOpenChange(false);
+      onSaved();
+    });
+  }
 
   function submit() {
     startTransition(async () => {
@@ -549,15 +575,26 @@ function PaymentMethodDialog({
           <SwitchField label="Буцаалтад ашиглана" checked={form.allowsRefund} onChange={(v) => patch({ allowsRefund: v })} />
           <SwitchField label="Идэвхтэй" checked={form.isActive} onChange={(v) => patch({ isActive: v })} />
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
-            Болих
-          </Button>
-          <Button onClick={submit} disabled={isPending}>
-            <Icon name="save" size="sm" />
-            Хадгалах
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          {method ? (
+            <Button variant="destructive" onClick={remove} disabled={isPending}>
+              <Icon name="delete" size="sm" />
+              Устгах
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
+              Болих
+            </Button>
+            <Button onClick={submit} disabled={isPending}>
+              <Icon name="save" size="sm" />
+              Хадгалах
+            </Button>
+          </div>
         </DialogFooter>
+        {confirmDialog}
       </DialogContent>
     </Dialog>
   );
