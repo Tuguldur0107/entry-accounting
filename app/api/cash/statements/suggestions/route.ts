@@ -101,6 +101,8 @@ export async function GET() {
           // Валют зөрсөн нэхэмжлэх санал болохгүй — client талд банкны
           // дансны валютаар шүүнэ (save route мөн хориглодог).
           currency: invoice.currency,
+          // Огнооны зөрүүгээр санал сулруулна (ENT-056).
+          dueDate: invoice.dueDate,
         }))
         .filter((invoice) => invoice.totalAmount - invoice.paidAmount > 0),
       historicalPatterns: buildHistoricalPatterns(

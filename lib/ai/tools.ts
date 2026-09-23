@@ -504,6 +504,11 @@ export const AI_TOOLS: AiToolDef[] = [
         description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
         exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
+        cashFlowCode: {
+          type: "string",
+          description:
+            "Мөнгөн гүйлгээний ангилал — S8 сегментийн код (IAS 7; жишээ нь үйл ажиллагааны орлого/зарлага). Мөнгөн гүйлгээний тайланд ангилагдахын тулд өгнө",
+        },
         externalRef: EXTERNAL_REF_SCHEMA,
         applyTo: {
           type: "array",
@@ -1607,7 +1612,7 @@ export const AI_TOOLS: AiToolDef[] = [
         cashAccount: { type: "string", description: "Кассын/банкны дансны нэр" },
         counterAccount: {
           type: "string",
-          description: "Харьцах данс (default: 41100000 эздийн өмч)",
+          description: "Харьцах данс (default: 41000001 эздийн өмч)",
         },
         date: {
           type: "string",
@@ -3619,6 +3624,23 @@ async function runCreateArap(
   };
 }
 
+/**
+ * Зарлагын дараа мөнгөн данс хасах үлдэгдэлтэй болсон бол анхааруулга
+ * (ENT-062 — зөвхөн самбарт харагддаг байв). Хориг биш: банкны овердрафт
+ * байж болно, гэхдээ ИЛ хэлнэ.
+ */
+async function negativeCashBalanceNote(orgId: string, cashAccountId: string | undefined) {
+  if (!cashAccountId) return "";
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.id, cashAccountId)),
+  });
+  if (!account) return "";
+  const balance = (await loadCashBalancesFast(orgId, [account])).get(account.id) ?? 0;
+  if (balance >= -0.005) return "";
+  const unit = account.currency === "MNT" ? "₮" : ` ${account.currency}`;
+  return ` ⚠ ${account.name} ХАСАХ үлдэгдэлтэй болов: ${fmt(balance)}${unit} — орлого дутуу бүртгэгдсэн эсвэл буруу данснаас төлсөн эсэхийг шалгана уу`;
+}
+
 async function runCreateCash(
   orgId: string,
   input: {
@@ -3631,6 +3653,7 @@ async function runCreateCash(
     description: string;
     counterparty?: string;
     exchangeRate?: number;
+    cashFlowCode?: string;
     externalRef?: string;
     applyTo?: { documentId: string; amount: number }[];
   },
@@ -3776,6 +3799,8 @@ async function runCreateCash(
     counterparty: input.counterparty,
     amount,
     exchangeRate: input.exchangeRate,
+    // ENT-050: S8 ангилал — MCP-ээр оноох зам байгаагүй.
+    cashFlowCode: input.cashFlowCode?.trim() || undefined,
   });
   const typeLabel =
     input.documentType === "receipt"
@@ -3806,8 +3831,12 @@ async function runCreateCash(
       arApDocumentId: linked?.id,
       externalRef,
     }));
+    const balanceNote =
+      postNow && input.documentType !== "receipt"
+        ? await negativeCashBalanceNote(orgId, primary.id)
+        : "";
     return {
-      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${balanceNote}`,
       action: {
         kind: "cash",
         id,
@@ -5937,8 +5966,9 @@ async function runPayArap(
   }));
 
   const unit = document.currency === "MNT" ? "₮" : ` ${document.currency}`;
+  const balanceNote = postNow && !isAr ? await negativeCashBalanceNote(orgId, cashAccount.id) : "";
   return {
-    resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}${unit}, ${cashAccount.name}${rateNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+    resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}${unit}, ${cashAccount.name}${rateNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${balanceNote}`,
     action: {
       kind: "cash",
       id,
@@ -6773,7 +6803,7 @@ async function runMonthEndChecklist(input: {
         : status === "pending"
           ? "○ хийгдээгүй"
           : "— хамааралгүй";
-  const { fa, fx, costing, vat, procurement, pos, drafts } = checklist;
+  const { fa, fx, costing, vat, procurement, pos, drafts, opening } = checklist;
   const fxDetail = fx.accounts
     .map(
       (account) =>
@@ -6803,7 +6833,12 @@ async function runMonthEndChecklist(input: {
       `6. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
       `7. POS / бараа: ${statusLabel(pos.status)} — нээлттэй ээлж ${pos.openShifts}${pos.openShifts > 0 ? " (close_pos_shift — хаагдтал сар ХААГДАХГҮЙ)" : ""}, сарын өртгийн тооцоололд ороогүй/зогссон хөдөлгөөн ${pos.unvaluedMovements}${pos.unvaluedMovements > 0 ? " (run_monthly_costing; хасах үлдэгдлийг орлого/тооллогоор засах — засагдтал сар ХААГДАХГҮЙ)" : ""}, хасах үлдэгдэлтэй бараа×агуулах ${pos.negativeStockScopes}, урьдчилсан COGS ${fmt(pos.provisionalCogs)}₮ (сар хаалтад залруулагдана)`,
       `8. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
-      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
+      ...(opening
+        ? [
+            `   Нээлтийн зөрүүний данс ${opening.differenceAccount}: ${Math.abs(opening.balance) > 0.005 ? `⚠ ${fmt(opening.balance)}₮ — 0 болтол cut-off сарыг хаахгүй (R6)` : "✓ 0"}`,
+          ]
+        : []),
+      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : opening && Math.abs(opening.balance) > 0.005 ? "нээлтийн зөрүүг залруулсны дараа хаана (R6)" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
     ].join("\n"),
   };
 }
@@ -7414,11 +7449,12 @@ POS: нээлттэй ээлж (open-pos-shifts), сарын өртгийн то
 5. Эхний үлдэгдлүүд: create_journal_voucher-оор нээлтийн баланс (харьцах данс нь эздийн өмч 4XXXXXXX)
 6. get_trial_balance — нээлтийн баланс тэнцэж буйг шалгах`,
   fixed_asset_lifecycle: `ҮНДСЭН ХӨРӨНГИЙН МӨЧЛӨГ:
-1. Худалдан авалт: create_arap_invoice (ap_bill, хөрөнгийн данс 21XXXXXX мөртэй) → post — ноорог ҮХ карт автоматаар үүснэ; ЭСВЭЛ create_fixed_asset-ээр шууд
+1. Худалдан авалт: create_arap_invoice (ap_bill, хөрөнгийн данс 20000001 мөртэй) → post — ноорог ҮХ карт автоматаар үүснэ; ЭСВЭЛ create_fixed_asset-ээр шууд
+   Хуучин системээс шилжүүлсэн хөрөнгө: create_fixed_asset {openingAccumulatedDepreciation, openingAsOf} — нээлтийн журнал (opening-*) карт үүсгэхгүй
 2. activate_fixed_asset — картыг бөглөж идэвхжүүлэх (хариуцагч, элэгдэл эхлэх сар заавал)
-3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 20000002 — картын хуримтлагдсан элэгдлийн данс)
+3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 20000002 — картын хуримтлагдсан элэгдлийн данс); ашиглалтын хугацаа дуусмагц элэгдэл зогсоно
 4. Алдаатай бол: reverse_fa_depreciation {month}
-Анхаар: актлах/борлуулах (disposal) функц системд одоогоор байхгүй — гарын журналаар шийдэж, хөрөнгөө идэвхгүй болгохыг хэрэглэгчид зөвлө.`,
+5. Данснаас хасах (актлах/борлуулах/хандивлах): dispose_fixed_asset {assetCode, disposalType, date, proceeds, proceedsAccount, gainLossAccount} — нээлтийн + системийн хуримтлагдсан элэгдлийг хамт хааж олз/гарзыг бичнэ (Шууд бичих горим). Тухайн сарын ноорог элэгдлийг эхлээд батална.`,
 };
 
 function runWorkflowGuide(input: { workflow: string }): AiToolResult {

@@ -16,6 +16,7 @@ import {
   employees,
   fixedAssets,
   inventoryItems,
+  journalLines,
   journalVouchers,
   organizations,
   warehouses,
@@ -167,6 +168,23 @@ export async function loadOnboardingStatus(orgId: string): Promise<OnboardingSta
   ]);
 
   const cutoffCode = openingVoucher?.date.slice(0, 7) ?? null;
+  // Зөрүүний дансны батлагдсан GL үлдэгдэл (ENT-019) — SQL нийлбэр.
+  let differenceBalance = 0;
+  if (differenceAccount) {
+    const mainExpr = sql`case when position('.' in ${journalLines.accountNumber}) > 0 then split_part(${journalLines.accountNumber}, '.', 3) else ${journalLines.accountNumber} end`;
+    const [row] = await db
+      .select({ net: sql<string>`coalesce(sum(${journalLines.debit} - ${journalLines.credit}), 0)` })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          sql`${journalVouchers.status} in ('posted', 'reversed')`,
+          sql`${mainExpr} = ${differenceAccount.number}`
+        )
+      );
+    differenceBalance = Number(row?.net ?? 0);
+  }
   return {
     organizationName: organization?.name ?? "—",
     counts: {
@@ -192,6 +210,7 @@ export async function loadOnboardingStatus(orgId: string): Promise<OnboardingSta
     differenceAccount: differenceAccount
       ? { number: differenceAccount.number, name: differenceAccount.name }
       : null,
+    differenceBalance,
     cutoffPeriodClosed:
       cutoffCode != null && closedPeriods.some((period) => period.code === cutoffCode),
     latestClosedPeriod: closedPeriods[0]?.code ?? null,

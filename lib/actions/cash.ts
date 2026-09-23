@@ -493,7 +493,7 @@ export async function deleteCashAccount(id: string): Promise<ActionResult> {
  */
 export async function createCashOpeningVoucher(data: {
   cashAccountId: string;
-  /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
+  /** Харьцах данс — хоосон бол 41000001 эздийн өмч (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
   /** Нээлтийн огноо — дансанд хадгалагдаагүй үед ЗААВАЛ (ENT-012). */
   date?: string;
@@ -509,7 +509,7 @@ export async function createCashOpeningVoucher(data: {
 
 async function createCashOpeningVoucherCore(data: {
   cashAccountId: string;
-  /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
+  /** Харьцах данс — хоосон бол 41000001 эздийн өмч (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
   date?: string;
   exchangeRate?: number;
@@ -563,6 +563,7 @@ async function createCashOpeningVoucherCore(data: {
       orderBy: (a, { asc }) => [asc(a.number)],
     });
     counter =
+      equity.find((a) => a.number === "41000001")?.number ??
       equity.find((a) => a.number === "41100000")?.number ??
       equity[0]?.number ??
       null;

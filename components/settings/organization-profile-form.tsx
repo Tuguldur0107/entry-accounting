@@ -124,9 +124,9 @@ export function OrganizationProfileForm({
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(
-    initial?.bankAccounts?.length
-      ? initial.bankAccounts
-      : [{ bankName: "", accountNo: "", accountName: "" }]
+    // Хоосон бол мөр рендерлэхгүй — placeholder-оор дүүрсэн мөр бодит данс
+    // мэт харагддаг байв (ENT-008). «Данс нэмэх»-ээр нэмнэ.
+    initial?.bankAccounts?.length ? initial.bankAccounts : []
   );
   const [logo, setLogo] = useState<string | null>(initial?.logo ?? null);
   const [stamp, setStamp] = useState<string | null>(initial?.stamp ?? null);
@@ -218,7 +218,7 @@ export function OrganizationProfileForm({
               id="company-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Жишээ ХХК"
+              placeholder="ж: Монгол Трейд ХХК"
             />
           </div>
           <div className="space-y-1.5">
@@ -227,7 +227,7 @@ export function OrganizationProfileForm({
               id="company-register"
               value={registerNo}
               onChange={(e) => setRegisterNo(e.target.value)}
-              placeholder="1234567"
+              placeholder="ж: 1234567"
             />
           </div>
           <div className="space-y-1.5">
@@ -244,7 +244,7 @@ export function OrganizationProfileForm({
               id="company-address"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Улаанбаатар хот, ..."
+              placeholder="ж: Улаанбаатар хот, ..."
             />
           </div>
           <div className="space-y-1.5">
@@ -262,7 +262,7 @@ export function OrganizationProfileForm({
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="info@company.mn"
+              placeholder="ж: info@company.mn"
             />
           </div>
         </div>
@@ -294,6 +294,11 @@ export function OrganizationProfileForm({
           </Button>
         </div>
         <div className="space-y-2">
+          {bankAccounts.length === 0 ? (
+            <p className="text-xs text-[var(--ea-text-4)]">
+              Банкны данс бүртгэгдээгүй — «Данс нэмэх» товчоор нэмнэ.
+            </p>
+          ) : null}
           {bankAccounts.map((account, index) => (
             <div
               key={index}
@@ -310,7 +315,7 @@ export function OrganizationProfileForm({
                       )
                     )
                   }
-                  placeholder="Хаан банк"
+                  placeholder="ж: Хаан банк"
                 />
               </div>
               <div className="space-y-1">
@@ -325,7 +330,7 @@ export function OrganizationProfileForm({
                     )
                   }
                   className="font-mono"
-                  placeholder="5000000000"
+                  placeholder="ж: 5000000000"
                 />
               </div>
               <div className="space-y-1">
@@ -339,7 +344,7 @@ export function OrganizationProfileForm({
                       )
                     )
                   }
-                  placeholder="Жишээ ХХК"
+                  placeholder="ж: Монгол Трейд ХХК"
                 />
               </div>
               <IconAction
@@ -376,7 +381,7 @@ export function OrganizationProfileForm({
               type="email"
               value={invoiceFromEmail}
               onChange={(e) => setInvoiceFromEmail(e.target.value)}
-              placeholder="billing@company.mn"
+              placeholder="ж: billing@company.mn"
             />
           </div>
           <div className="space-y-1.5">
@@ -386,7 +391,7 @@ export function OrganizationProfileForm({
               type="email"
               value={invoiceReplyTo}
               onChange={(e) => setInvoiceReplyTo(e.target.value)}
-              placeholder="info@company.mn"
+              placeholder="ж: info@company.mn"
             />
           </div>
         </div>
@@ -542,7 +547,7 @@ export function OrganizationProfileForm({
                           )
                         )
                       }
-                      placeholder="Захирал"
+                      placeholder="ж: Захирал"
                     />
                   </div>
                   <div className="space-y-1">
@@ -556,7 +561,7 @@ export function OrganizationProfileForm({
                           )
                         )
                       }
-                      placeholder="Д. Дорж"
+                      placeholder="ж: Д. Дорж"
                     />
                   </div>
                   <IconAction

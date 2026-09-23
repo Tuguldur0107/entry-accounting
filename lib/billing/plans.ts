@@ -28,7 +28,8 @@ export const FEATURE_KEYS: FeatureKey[] = [
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   ebarimt: "eBarimt автомат баримт",
-  ai: "AI туслах",
+  // ENT-063: чат нь байгууллагын ӨӨРИЙН API түлхүүрээр ажилладаг (BYO key).
+  ai: "AI туслах (өөрийн API түлхүүрээр)",
   mcp: "MCP холболт (Claude)",
   "api.rest": "REST API (гадаад интеграци)",
   multi_company: "Олон компани (групп / нягтлангийн фирм)",

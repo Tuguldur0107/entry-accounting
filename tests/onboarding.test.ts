@@ -163,6 +163,21 @@ test("шат 4 → 5: зөрүү 0, cut-off сар нээлттэй → зэрэ
   assert.ok(done.reason.includes("2026-09"));
 });
 
+test("ENT-019: ноорог 0 ч зөрүүний данс үлдэгдэлтэй бол шат 3", () => {
+  const phase = deriveOnboardingPhase(
+    status({
+      counts: { ...status().counts, cashAccounts: 1 },
+      openingVoucher: { date: "2024-12-31", status: "posted", documentNo: "GL-24-000001" },
+      differenceAccount: { number: "44000098", name: OPENING_DIFFERENCE_ACCOUNT.name },
+      differenceBalance: -41_045_520,
+      openingDiffDrafts: 0,
+    })
+  );
+  assert.equal(phase.phase, 3);
+  assert.ok(phase.reason.includes("44000098"));
+  assert.ok(phase.reason.includes("-41,045,520"));
+});
+
 test("formatOnboardingStatus: шат, тоолол, дараагийн алхам агуулна", () => {
   const text = formatOnboardingStatus(
     status({

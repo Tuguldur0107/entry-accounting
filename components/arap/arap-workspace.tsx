@@ -52,6 +52,7 @@ import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
 import { currentDocumentDate } from "@/lib/periods/document-date";
+import { arapKpis } from "@/lib/arap/kpis";
 
 type Focus = "dashboard" | "counterparties" | "documents" | "reports";
 type ArApMode = "combined" | "receivable" | "payable";
@@ -265,26 +266,16 @@ export function ArApWorkspace({
     [counterparties, mode]
   );
 
-  const arBalance = filteredDocuments
-    .filter((doc) => doc.documentType === "ar_invoice" && doc.status !== "reversed")
-    .reduce((sum, doc) => sum + doc.baseBalance, 0);
-  const apBalance = filteredDocuments
-    .filter((doc) => doc.documentType === "ap_bill" && doc.status !== "reversed")
-    .reduce((sum, doc) => sum + doc.baseBalance, 0);
-  const openBalance = filteredDocuments
-    .filter((doc) => doc.status !== "reversed")
-    .reduce((sum, doc) => sum + doc.baseBalance, 0);
-  const overdueCount = filteredDocuments.filter(
-    (doc) => doc.status !== "paid" && doc.status !== "reversed" && doc.dueDate < reportAsOf
-  ).length;
-  const overdueBalance = filteredDocuments
-    .filter(
-      (doc) =>
-        doc.status !== "paid" &&
-        doc.status !== "reversed" &&
-        doc.dueDate < reportAsOf
-    )
-    .reduce((sum, doc) => sum + doc.baseBalance, 0);
+  // Ноорог нь өр биш — KPI зөвхөн батлагдсан баримтаар (ENT-017).
+  const {
+    arBalance,
+    apBalance,
+    openBalance,
+    overdueBalance,
+    overdueCount,
+    draftCount,
+    draftAmount,
+  } = arapKpis(filteredDocuments, reportAsOf);
   const reportRows = useMemo(
     () => buildReportRows(filteredDocuments, reportAsOf),
     [filteredDocuments, reportAsOf]
@@ -785,7 +776,11 @@ export function ArApWorkspace({
           value={fmtMnt(overdueBalance)}
           icon="warning"
         />
-        <Metric label="Харилцагч" value={String(filteredCounterparties.length)} icon="company" />
+        <Metric
+          label={draftCount > 0 ? `Харилцагч · ноорог ${draftCount} (${fmtMnt(draftAmount)})` : "Харилцагч"}
+          value={String(filteredCounterparties.length)}
+          icon="company"
+        />
       </section>
 
       {focus === "dashboard" &&
@@ -998,7 +993,9 @@ async function exportDocuments(
 function buildReportRows(documents: ArApDocumentView[], asOf: string): ReportRow[] {
   const rows = new Map<string, ReportRow>();
   for (const doc of documents) {
-    if (doc.status === "reversed" || doc.date > asOf) continue;
+    // Ноорог нь насжилтад орохгүй (ENT-017); төлөгдсөнийг огноогоор нь
+    // (asOf-ийн дараа төлсөн бол тэр өдөр нээлттэй байсан) тооцно.
+    if (doc.status === "reversed" || doc.status === "draft" || doc.date > asOf) continue;
     if (Math.abs(doc.balance) < 0.005) continue;
     const key = `${doc.counterpartyId}:${doc.currency}`;
     const existing =
