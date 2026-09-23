@@ -334,7 +334,11 @@ export function CashReconciliationWorkspace({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await createCashOpeningVoucher({ cashAccountId: row.id });
+          const result = await createCashOpeningVoucher({ cashAccountId: row.id });
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success(
             "Нээлтийн ноорог журнал үүслээ — GL журналын жагсаалтаас шалгаж батална уу"
           );

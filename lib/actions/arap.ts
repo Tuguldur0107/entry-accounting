@@ -8,7 +8,11 @@ import {
   requireAnyModuleAction,
   requireModuleAction,
 } from "@/lib/auth";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import {
   moduleOfVoucherNo,
   nextVoucherNo,
@@ -1306,6 +1310,7 @@ async function postArApDocumentCore(id: string) {
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
   await assertPeriodOpen(orgId, document.date);
+  assertNotFuturePeriod(document.date);
   if (document.lines.length === 0) throw new Error("Баримтад мөр алга");
 
   const counterparty = await db.query.counterparties.findFirst({

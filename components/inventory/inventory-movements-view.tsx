@@ -49,6 +49,7 @@ import type {
 } from "@/lib/inventory/types";
 import type { MovementType } from "@/lib/inventory/balances";
 import { cn } from "@/lib/utils";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -90,7 +91,7 @@ const fmtQty = (value: number) =>
 
 const initialForm = () => ({
   movementType: "receipt" as MovementType,
-  date: new Date().toISOString().slice(0, 10),
+  date: currentDocumentDate(),
   itemId: "",
   warehouseId: "",
   toWarehouseId: "",

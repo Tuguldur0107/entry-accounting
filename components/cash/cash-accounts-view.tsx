@@ -45,6 +45,8 @@ const emptyForm = () => ({
   currency: "MNT",
   glAccountNumber: "",
   openingBalance: "0",
+  openingDate: "",
+  openingRate: "",
 });
 
 export function CashAccountsView({ accounts, glAccounts }: Props) {
@@ -189,6 +191,8 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
       currency: account.currency,
       glAccountNumber: account.glAccountNumber,
       openingBalance: String(account.openingBalance),
+      openingDate: account.openingDate ?? "",
+      openingRate: account.openingRate == null ? "" : String(account.openingRate),
     });
     setError("");
     setOpen(true);
@@ -205,6 +209,11 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         currency: form.currency,
         glAccountNumber: form.glAccountNumber,
         openingBalance: Number(form.openingBalance.replaceAll(",", "")),
+        openingDate: form.openingDate || null,
+        openingRate:
+          form.currency === "MNT" || !form.openingRate.trim()
+            ? null
+            : Number(form.openingRate.replaceAll(",", "")),
       };
       const result = editing
         ? await updateCashAccount({ id: editing.id, ...payload })
@@ -396,6 +405,42 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
                   }
                 />
               </FormField>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                label="Нээлтийн огноо"
+                hint="Эхний үлдэгдэлтэй бол заавал — нээлтийн журнал энэ огноогоор бичигдэнэ"
+              >
+                <Input
+                  type="date"
+                  value={form.openingDate}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      openingDate: event.target.value,
+                    }))
+                  }
+                />
+              </FormField>
+              {form.currency !== "MNT" ? (
+                <FormField
+                  label="Нээлтийн ханш"
+                  hint="Хоосон бол нээлтийн огнооны Монголбанкны албан ханш"
+                >
+                  <Input
+                    type="number"
+                    step="0.0001"
+                    value={form.openingRate}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        openingRate: event.target.value,
+                      }))
+                    }
+                  />
+                </FormField>
+              ) : null}
             </div>
 
             <FormField label="Холбох GL данс">

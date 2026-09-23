@@ -32,6 +32,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -91,7 +92,7 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
   return {
     code: "",
     name: "",
-    acquisitionDate: new Date().toISOString().slice(0, 10),
+    acquisitionDate: currentDocumentDate(),
     cost: "",
     salvageValue: "0",
     usefulLifeMonths: "36",

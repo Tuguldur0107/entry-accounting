@@ -54,6 +54,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 type ArApMode = "combined" | "receivable" | "payable";
 
@@ -83,10 +84,6 @@ const STATUS_TONES: Record<string, StatusTone> = {
   paid: "success",
   reversed: "danger",
 };
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function addDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00`);
@@ -258,7 +255,7 @@ function ArapDocForm({
     // валют/харилцагч захиалгаас (сервер мөн шалгана). Эхний snapshot тул
     // хэрэглэгч гар хүрэх хүртэл dirty болохгүй.
     if (prefill) {
-      const date = prefill.date ?? today();
+      const date = prefill.date ?? currentDocumentDate();
       const documentType: ArApDocumentType = "ap_bill";
       const defaults = defaultsFor(prefill.counterpartyId, documentType, date);
       const toFullCode = (account?: string) => {
@@ -309,7 +306,7 @@ function ArapDocForm({
         })),
       };
     }
-    const date = today();
+    const date = currentDocumentDate();
     const documentType = (mode === "payable"
       ? "ap_bill"
       : "ar_invoice") as ArApDocumentType;

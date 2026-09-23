@@ -674,6 +674,16 @@ export const cashAccounts = pgTable("cash_accounts", {
   openingBalance: numeric("opening_balance", { precision: 18, scale: 2 })
     .notNull()
     .default("0"),
+  /**
+   * Нээлтийн (нэвтрүүлэлтийн cut-off) огноо YYYY-MM-DD — нээлтийн журнал
+   * ЗӨВХӨН энэ огноогоор бичигдэнэ (ENT-012). Хуучин дансанд null.
+   */
+  openingDate: text("opening_date"),
+  /**
+   * Валютын дансны нээлтийн ханш (гараар өгсөн). null бол нээлтийн огнооны
+   * Монголбанкны албан ханш татагдана (ENT-011, lib/cash/opening.ts).
+   */
+  openingRate: numeric("opening_rate", { precision: 18, scale: 8 }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -39,6 +39,7 @@ import {
   type AllocationBase,
 } from "@/lib/costing/allocation";
 import { fmtMnt } from "@/lib/reports/balances";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 interface Props {
   rows: AllocationRow[];
@@ -65,7 +66,7 @@ export function CostAllocationView({
   const [range, setRange] = useState({ from, to });
 
   const [form, setForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    date: currentDocumentDate(),
     /** Сонгосон эх мөр — хоосон бол холбоосгүй (тулгалтад тусдаа объект). */
     sourceLineId: "",
     costComponentId: "",

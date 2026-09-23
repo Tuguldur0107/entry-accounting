@@ -297,6 +297,7 @@ import {
 
 import type { AiAction } from "./action-markers";
 import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
+import { isFuturePeriodDate, ulaanbaatarToday } from "@/lib/periods/document-date";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import {
   customToolDefs,
@@ -978,7 +979,20 @@ export const AI_TOOLS: AiToolDef[] = [
         accountNumber: { type: "string", description: "Банкны дансны дугаар (сонголтоор)" },
         currency: { type: "string", description: "Валют (default MNT)" },
         glAccount: { type: "string", description: "Холбогдох GL данс (8 оронтой)" },
-        openingBalance: { type: "number", description: "Нээлтийн үлдэгдэл (сонголтоор)" },
+        openingBalance: {
+          type: "number",
+          description: "Нээлтийн үлдэгдэл ДАНСНЫ ВАЛЮТААР (сонголтоор)",
+        },
+        openingDate: {
+          type: "string",
+          description:
+            "Нээлтийн (cut-off) огноо YYYY-MM-DD — openingBalance ≠ 0 бол ЗААВАЛ; нээлтийн журнал энэ огноогоор бичигдэнэ",
+        },
+        openingRate: {
+          type: "number",
+          description:
+            "Валютын дансны нээлтийн ханш (сонголтоор — хоосон бол нээлтийн огнооны Монголбанкны албан ханш)",
+        },
       },
       required: ["name", "accountType", "glAccount"],
     },
@@ -1545,7 +1559,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "fix_cash_opening_balance",
     description:
-      "Кассын дансны НЭЭЛТИЙН үлдэгдлийг GL-д бичих ноорог журнал үүсгэнэ (Дт данс / Кт эздийн өмч; сөрөгт эсрэгээр). reconcile_modules-д кассын зөрүү нь нээлтийн үлдэгдэлтэй тэнцүү гарсан үед ашиглана — журнал батлагдмагц зөрүү арилна.",
+      "Кассын дансны НЭЭЛТИЙН үлдэгдлийг GL-д бичих ноорог журнал үүсгэнэ (Дт данс / Кт эздийн өмч; сөрөгт эсрэгээр). reconcile_modules-д кассын зөрүү нь нээлтийн үлдэгдэлтэй тэнцүү гарсан үед ашиглана — журнал батлагдмагц зөрүү арилна. Журнал дансны НЭЭЛТИЙН ОГНООГООР (өнөөдрөөр биш) бичигдэнэ; валютын данс FC × нээлтийн огнооны ханшаар (валютын дүн хадгалагдана).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1553,6 +1567,16 @@ export const AI_TOOLS: AiToolDef[] = [
         counterAccount: {
           type: "string",
           description: "Харьцах данс (default: 41100000 эздийн өмч)",
+        },
+        date: {
+          type: "string",
+          description:
+            "Нээлтийн огноо YYYY-MM-DD — дансанд нээлтийн огноо хадгалагдаагүй үед ЗААВАЛ",
+        },
+        exchangeRate: {
+          type: "number",
+          description:
+            "Валютын дансны нээлтийн ханш (сонголтоор — хоосон бол дансны нээлтийн ханш, түүнгүй бол албан ханш)",
         },
       },
       required: ["cashAccount"],
@@ -2981,6 +3005,17 @@ function errorText(caught: unknown): string {
   return classified.message;
 }
 
+/**
+ * Ирээдүйн тайлант үеийн огноотой бичилт post горимд ч НООРОГ үлдэнэ
+ * (ENT-028: 2027-06-ны журнал сануулгагүй батлагдаж байв). null = саадгүй.
+ */
+function futurePeriodDraftNote(date: string): string | null {
+  const today = ulaanbaatarToday();
+  return isFuturePeriodDate(date, today)
+    ? ` (${date.slice(0, 7)} нь ирээдүйн тайлант үе — өнөөдөр ${today} тул ноорог үлдэв; тэр сар эхэлсний дараа батална)`
+    : null;
+}
+
 const fmt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n * 100) / 100);
 
 /** Журналын редактортой ижил сегментийн контекст. */
@@ -3138,7 +3173,9 @@ async function runCreateJournal(
   let status: "draft" | "posted" = "draft";
   let note = "";
   if (mode === "post") {
-    if (!balanced)
+    const futureNote = futurePeriodDraftNote(input.date);
+    if (futureNote) note = futureNote;
+    else if (!balanced)
       note = ` (тэнцээгүй тул ноорог үлдэв: Дт ${fmt(totalDebit)} ≠ Кт ${fmt(totalCredit)})`;
     else if (totalDebit > currentAiPostLimit())
       note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв — нягтланч шалгаж батална)`;
@@ -3415,7 +3452,9 @@ async function runCreateArap(
   let postNow = false;
   let note = "";
   if (mode === "post") {
-    if (baseTotal > currentAiPostLimit() || !(baseTotal > 0))
+    const futureNote = futurePeriodDraftNote(input.date);
+    if (futureNote) note = futureNote;
+    else if (baseTotal > currentAiPostLimit() || !(baseTotal > 0))
       note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else postNow = true;
   }
@@ -3581,6 +3620,8 @@ async function runCreateCash(
 
   const decidePost = (amount: number) => {
     if (mode !== "post") return { postNow: false, note: "" };
+    const futureNote = futurePeriodDraftNote(input.date);
+    if (futureNote) return { postNow: false, note: futureNote };
     // Лимит ЗААВАЛ MNT-ээр: валютын дансны дүн ханшаар үржинэ (ханш
     // байхгүй бол аюулгүй тал руу — ноорог үлдээнэ).
     const baseAmount =
@@ -4831,6 +4872,8 @@ async function runCreateCashAccount(
     currency?: string;
     glAccount: string;
     openingBalance?: number;
+    openingDate?: string;
+    openingRate?: number;
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
@@ -4843,6 +4886,8 @@ async function runCreateCashAccount(
       currency: input.currency?.trim().toUpperCase() || "MNT",
       glAccountNumber: resolveAccount(input.glAccount, ctx).main,
       openingBalance: input.openingBalance,
+      openingDate: input.openingDate,
+      openingRate: input.openingRate,
     })
   );
   return { resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}` };
@@ -6577,7 +6622,7 @@ async function runPostCostEntries(
 
 async function runFixCashOpening(
   orgId: string,
-  input: { cashAccount: string; counterAccount?: string }
+  input: { cashAccount: string; counterAccount?: string; date?: string; exchangeRate?: number }
 ): Promise<AiToolResult> {
   const accounts = await db.query.cashAccounts.findMany({
     where: eq(cashAccounts.organizationId, orgId),
@@ -6595,11 +6640,18 @@ async function runFixCashOpening(
   }
   const result = unwrapAction(
     await createCashOpeningVoucher({
-    cashAccountId: account.id,
-    counterAccountNumber: counter,
-  }));
+      cashAccountId: account.id,
+      counterAccountNumber: counter,
+      date: input.date,
+      exchangeRate: input.exchangeRate,
+    })
+  );
+  const fcText =
+    result.currency === "MNT"
+      ? ""
+      : ` (${fmt(result.amountFc)} ${result.currency} × ${result.rate})`;
   return {
-    resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${fmt(result.amount)}₮, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
+    resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${result.date}, ${fmt(result.amount)}₮${fcText}, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
     action: {
       kind: "voucher",
       id: result.id,

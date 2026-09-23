@@ -31,7 +31,11 @@ import {
   loadQtyBalancesFast,
   loadQtyLedgerFast,
 } from "@/lib/inventory/period-balances";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
@@ -914,6 +918,7 @@ async function confirmInventoryMovementCore(id: string) {
       throw new Error("Тоо хэмжээ 0-ээс их байна");
 
     await assertPeriodOpenInTx(tx, orgId, movement.date);
+    assertNotFuturePeriod(movement.date);
 
     // Хасах үлдэгдлийн шалгалт: он цагийн бүх цэг дээр ≥ 0 (энэ хөдөлгөөнийг
     // оруулаад, өмнөх огноогоор бичихэд дараагийн үлдэгдлүүд ч эвдрэхгүй).

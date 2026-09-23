@@ -22,8 +22,10 @@ import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { db } from "../lib/db";
 import {
+  cashAccounts,
   costEntries,
   inventoryMovements,
+  journalLines,
   journalVouchers,
   memberships,
   organizations,
@@ -204,6 +206,76 @@ test("ENT-035/024: НӨАТ тооцооны журнал ҮЕИЙН СҮҮЛИ�
   // ENT-052: дараагийн сард 100,000 кредит шилжинэ
   const next = await tool("get_vat_return", { period: "2025-05" });
   assert.match(next.resultText, /шилжсэн оролтын НӨАТ: 100,000/);
+});
+
+test("ENT-027/028: байхгүй огноо татгалзаж, ирээдүйн сар ноорог үлдэнэ", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const lines = [
+    { account: "73100001", debit: 50_000, description: "Зардал" },
+    { account: "11000001", credit: 50_000, description: "Банк" },
+  ];
+  const invalid = await tool(
+    "create_journal_voucher",
+    { date: "2025-02-30", description: "Байхгүй огноо", externalRef: `sim-${STAMP}-bad-date`, lines },
+    "post"
+  );
+  assert.match(invalid.resultText, /хуанлид байхгүй/);
+  const bad = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `sim-${STAMP}-bad-date`)),
+  });
+  assert.equal(bad, undefined, "буруу огноотой журнал үүсэх ёсгүй");
+
+  const future = await tool(
+    "create_journal_voucher",
+    { date: "2099-06-01", description: "Ирээдүйн", externalRef: `sim-${STAMP}-future`, lines },
+    "post"
+  );
+  assert.ok(okOrRevalidate(future.resultText), future.resultText);
+  assert.match(future.resultText, /ирээдүйн тайлант үе/);
+  const draft = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `sim-${STAMP}-future`)),
+  });
+  assert.equal(draft?.status, "draft");
+  const post = await tool("post_journal_voucher", { voucherId: draft!.id }, "post");
+  assert.match(post.resultText, /ирээдүйн тайлант үе/);
+  const still = await db.query.journalVouchers.findFirst({ where: eq(journalVouchers.id, draft!.id) });
+  assert.equal(still?.status, "draft");
+});
+
+test("ENT-011/012: валютын кассын нээлт — нээлтийн огноо, FC × ханш", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const missingDate = await tool("create_cash_account", {
+    name: "Голомт USD огноогүй", accountType: "bank", currency: "USD", glAccount: "11000001", openingBalance: 12_000,
+  });
+  assert.match(missingDate.resultText, /НЭЭЛТИЙН ОГНОО/);
+
+  const created = await tool("create_cash_account", {
+    name: "Голомт банк USD", accountType: "bank", currency: "USD", glAccount: "11000001",
+    openingBalance: 12_000, openingDate: "2024-12-31", openingRate: 3420.46,
+  });
+  assert.ok(okOrRevalidate(created.resultText), created.resultText);
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.name, "Голомт банк USD")),
+  });
+  assert.equal(account?.openingDate, "2024-12-31");
+
+  const fixed = await tool("fix_cash_opening_balance", { cashAccount: "Голомт банк USD" });
+  assert.ok(okOrRevalidate(fixed.resultText), fixed.resultText);
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `cash-opening:${account!.id}`)),
+  });
+  assert.ok(voucher);
+  assert.equal(voucher.date, "2024-12-31");
+  assert.equal(voucher.currency, "USD");
+  assert.equal(Number(voucher.exchangeRate), 3420.46);
+  assert.equal(voucher.rateSource, "manual");
+  const lines = await db.query.journalLines.findMany({ where: eq(journalLines.voucherId, voucher.id) });
+  const cashLine = lines.find((line) => line.cashAccountId === account!.id);
+  assert.equal(Number(cashLine?.debit), 41_045_520);
+  assert.equal(Number(cashLine?.debitFc), 12_000);
+  const counter = lines.find((line) => line.cashAccountId !== account!.id);
+  assert.equal(Number(counter?.credit), 41_045_520);
+  assert.equal(Number(counter?.creditFc), 12_000);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

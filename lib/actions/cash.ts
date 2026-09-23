@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { requireModuleAction } from "@/lib/auth";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import { moduleOfVoucherNo, nextVoucherNo } from "@/lib/gl/voucher-no";
 import { db } from "@/lib/db";
 import {
@@ -32,6 +36,11 @@ import {
   type CashTransactionOptions,
 } from "@/lib/cash/load-options";
 import { matchCounterpartyByName } from "@/lib/cash/list-columns";
+import { getOfficialRateForDate } from "@/lib/cash/official-rate";
+import {
+  normalizeCashOpeningFields,
+  planCashOpeningVoucher,
+} from "@/lib/cash/opening";
 import type { CashDocumentView } from "@/lib/cash/types";
 import { cashDocumentEffect, calculateFxRevaluation } from "@/lib/cash/reconciliation";
 import { calculateSettlementExchangeEffect } from "@/lib/arap/accounting";
@@ -227,6 +236,10 @@ async function createCashAccountCore(data: {
   currency: string;
   glAccountNumber: string;
   openingBalance?: number;
+  /** Нээлтийн огноо (YYYY-MM-DD) — эхний үлдэгдэлтэй бол ЗААВАЛ (ENT-012). */
+  openingDate?: string | null;
+  /** Валютын дансны нээлтийн ханш (хоосон бол албан ханш татагдана). */
+  openingRate?: number | null;
 }) {
   const { orgId, userId } = await requireModuleAction("cash", "write");
   const name = data.name.trim();
@@ -240,6 +253,13 @@ async function createCashAccountCore(data: {
   const openingBalance = Number(data.openingBalance ?? 0);
   if (!Number.isFinite(openingBalance))
     throw new Error("Эхний үлдэгдэл буруу байна");
+  const currency = data.currency.trim().toUpperCase() || "MNT";
+  const openingFields = normalizeCashOpeningFields({
+    openingBalance,
+    currency,
+    openingDate: data.openingDate,
+    openingRate: data.openingRate,
+  });
 
   await db.insert(cashAccounts).values({
     userId,
@@ -249,9 +269,12 @@ async function createCashAccountCore(data: {
     bankName: data.accountType === "bank" ? cleanText(data.bankName) : null,
     accountNumber:
       data.accountType === "bank" ? cleanText(data.accountNumber) : null,
-    currency: data.currency.trim().toUpperCase() || "MNT",
+    currency,
     glAccountNumber,
     openingBalance: String(openingBalance),
+    openingDate: openingFields.openingDate,
+    openingRate:
+      openingFields.openingRate === null ? null : String(openingFields.openingRate),
   });
 
   revalidateCash();
@@ -327,6 +350,8 @@ export async function updateCashAccount(data: {
   currency: string;
   glAccountNumber: string;
   openingBalance?: number;
+  openingDate?: string | null;
+  openingRate?: number | null;
 }): Promise<ActionResult> {
   try {
     const { orgId, userId } = await requireModuleAction("cash", "write");
@@ -350,16 +375,27 @@ export async function updateCashAccount(data: {
     if (!Number.isFinite(openingBalance))
       throw new Error("Эхний үлдэгдэл буруу байна");
 
+    // Нээлтийн огноо/ханшийг өгөөгүй бол (хуучин дуудагч) хадгалсан утга хэвээр.
+    const openingFields = normalizeCashOpeningFields({
+      openingBalance,
+      currency,
+      openingDate: data.openingDate === undefined ? account.openingDate : data.openingDate,
+      openingRate: data.openingRate === undefined ? account.openingRate : data.openingRate,
+    });
+    const storedRate = account.openingRate === null ? null : Number(account.openingRate);
+
     // Гүйлгээтэй дансны суурь шинжийг өөрчилбөл өмнөх бичилт, хуулга,
     // тулгалт бүгд утгаа алдана — зөвхөн нэрийн талбаруудыг зөвшөөрнө.
     const coreChanged =
       data.accountType !== account.accountType ||
       currency !== account.currency ||
       glAccountNumber !== account.glAccountNumber ||
-      Math.abs(openingBalance - Number(account.openingBalance ?? 0)) > 0.005;
+      Math.abs(openingBalance - Number(account.openingBalance ?? 0)) > 0.005 ||
+      openingFields.openingDate !== account.openingDate ||
+      openingFields.openingRate !== storedRate;
     if (coreChanged && (await cashAccountIsUsed(orgId, data.id)))
       throw new Error(
-        "Гүйлгээ, хуулга эсвэл журналын бичилттэй данс тул төрөл, валют, GL данс, эхний үлдэгдлийг өөрчлөх боломжгүй — зөвхөн нэр, банкны мэдээллийг засна"
+        "Гүйлгээ, хуулга эсвэл журналын бичилттэй данс тул төрөл, валют, GL данс, эхний үлдэгдэл, нээлтийн огноо/ханшийг өөрчлөх боломжгүй — зөвхөн нэр, банкны мэдээллийг засна"
       );
 
     if (glAccountNumber !== account.glAccountNumber)
@@ -377,6 +413,9 @@ export async function updateCashAccount(data: {
         currency,
         glAccountNumber,
         openingBalance: String(openingBalance),
+        openingDate: openingFields.openingDate,
+        openingRate:
+          openingFields.openingRate === null ? null : String(openingFields.openingRate),
       })
       .where(
         and(eq(cashAccounts.id, data.id), eq(cashAccounts.organizationId, orgId))
@@ -451,6 +490,10 @@ export async function createCashOpeningVoucher(data: {
   cashAccountId: string;
   /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
+  /** Нээлтийн огноо — дансанд хадгалагдаагүй үед ЗААВАЛ (ENT-012). */
+  date?: string;
+  /** Валютын дансны ханш — өгөөгүй бол дансны / албан ханш (ENT-011). */
+  exchangeRate?: number;
 }): Promise<ActionResult<Awaited<ReturnType<typeof createCashOpeningVoucherCore>>>> {
   try {
     return await createCashOpeningVoucherCore(data);
@@ -463,6 +506,8 @@ async function createCashOpeningVoucherCore(data: {
   cashAccountId: string;
   /** Харьцах данс — хоосон бол 41100000 (эсвэл эхний идэвхтэй 4XXXXXXX). */
   counterAccountNumber?: string;
+  date?: string;
+  exchangeRate?: number;
 }) {
   const { orgId, userId } = await requireModuleAction("cash", "write");
 
@@ -524,15 +569,43 @@ async function createCashOpeningVoucherCore(data: {
     await assertMainAccount(orgId, counter);
   }
 
-  const today = new Date(Date.now() + 8 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-  await assertPeriodOpen(orgId, today);
+  // ENT-012: ӨНӨӨДРИЙН огноо ХЭЗЭЭ Ч биш — нэвтрүүлэлтийн cut-off огноо.
+  const date = data.date?.trim() || account.openingDate;
+  if (!date)
+    throw new Error(
+      "[OPENING_DATE_REQUIRED] Нээлтийн огноо тодорхойгүй — дансны «Нээлтийн огноо»-г бөглөх эсвэл огноо өгнө үү"
+    );
+  await assertPeriodOpen(orgId, date);
+
+  // ENT-011: валютын данс — FC × нээлтийн огнооны ханш. Ханш ЗОХИОХГҮЙ.
+  const currency = account.currency.trim().toUpperCase() || "MNT";
+  let rate = 1;
+  let rateSource: string | null = null;
+  let rateDate: string | null = null;
+  if (currency !== "MNT") {
+    const manual = data.exchangeRate ?? (account.openingRate === null ? null : Number(account.openingRate));
+    if (manual !== null && manual !== undefined) {
+      rate = Number(manual);
+      rateSource = "manual";
+      rateDate = date;
+    } else {
+      const official = await getOfficialRateForDate(currency, date).catch(() => null);
+      if (!official)
+        throw new Error(
+          `[RATE_REQUIRED] ${date}-ны ${currency} албан ханш олдсонгүй — нээлтийн ханшаа гараар оруулна уу`
+        );
+      rate = official.rate;
+      rateSource = "mongolbank";
+      rateDate = official.rateDate;
+    }
+  }
+  const plan = planCashOpeningVoucher({ openingBalance: opening, currency, rate });
 
   const buildCode = await cashPostingCodeBuilder(orgId, null);
   const bankCode = buildCode(account.glAccountNumber);
   const counterCode = buildCode(counter);
-  const amount = Math.round(Math.abs(opening) * 100) / 100;
+  const amount = plan.amountMnt;
+  const fc = String(plan.amountFc);
 
   const voucherId = await db.transaction(async (tx) => {
     const [voucher] = await tx
@@ -540,11 +613,15 @@ async function createCashOpeningVoucherCore(data: {
       .values({
         userId,
         organizationId: orgId,
-        date: today,
+        date,
         description: `Нээлтийн үлдэгдэл — ${account.name} ${marker}`,
-        documentNo: await nextVoucherNo(tx, orgId, "cash", today),
+        documentNo: await nextVoucherNo(tx, orgId, "cash", date),
         status: "draft",
         externalRef,
+        currency: plan.currency,
+        exchangeRate: String(plan.rate),
+        rateSource,
+        rateDate,
       })
       .returning({ id: journalVouchers.id });
 
@@ -554,6 +631,7 @@ async function createCashOpeningVoucherCore(data: {
         accountNumber: opening > 0 ? bankCode : counterCode,
         debit: String(amount),
         credit: "0",
+        debitFc: fc,
         description: "Нээлтийн үлдэгдэл",
         sortOrder: 0,
         cashAccountId: opening > 0 ? account.id : null,
@@ -563,6 +641,7 @@ async function createCashOpeningVoucherCore(data: {
         accountNumber: opening > 0 ? counterCode : bankCode,
         debit: "0",
         credit: String(amount),
+        creditFc: fc,
         description: "Нээлтийн үлдэгдэл",
         sortOrder: 1,
         cashAccountId: opening > 0 ? null : account.id,
@@ -573,7 +652,15 @@ async function createCashOpeningVoucherCore(data: {
 
   revalidateCash();
   revalidatePath("/gl/journal");
-  return { id: voucherId, counterAccountNumber: counter, amount };
+  return {
+    id: voucherId,
+    counterAccountNumber: counter,
+    amount,
+    date,
+    currency: plan.currency,
+    rate: plan.rate,
+    amountFc: plan.amountFc,
+  };
 }
 
 export async function toggleCashAccount(id: string, isActive: boolean): Promise<ActionResult> {
@@ -808,6 +895,7 @@ async function postCashDocumentCore(
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
   await assertPeriodOpen(orgId, document.date);
+  assertNotFuturePeriod(document.date);
 
   // GL-derived draft: the ledger already has this entry. Confirming it just
   // adopts the source voucher — do NOT create a second one (double-count).

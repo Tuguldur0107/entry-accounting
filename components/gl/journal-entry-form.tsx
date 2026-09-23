@@ -36,6 +36,7 @@ import {
 } from "@/lib/excel/specs";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { cn } from "@/lib/utils";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 /**
  * Толгойн НЭГ талбар: жижиг саарал шошго + тогтмол өндөртэй утгын нүд.
@@ -188,7 +189,8 @@ export function JournalEntryForm({
   onOpenVoucher,
   shortcutsEnabled = true,
 }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+  // Шинэ журнал topbar-ийн сонгосон сараар (ENT-041) — хуучин сарын ажил.
+  const today = currentDocumentDate();
   const isEdit = !!voucherId;
 
   const makeEmptyLine = useCallback((): JournalLineRow => {

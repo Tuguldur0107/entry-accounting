@@ -34,6 +34,7 @@ import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount, fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -67,7 +68,7 @@ interface Props {
 
 const initialForm = () => ({
   documentType: "receipt" as CashDocumentType,
-  date: new Date().toISOString().slice(0, 10),
+  date: currentDocumentDate(),
   fromCashAccountId: "",
   toCashAccountId: "",
   counterAccountNumber: "",

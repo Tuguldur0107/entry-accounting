@@ -7,6 +7,10 @@ export type CashAccountView = {
   currency: string;
   glAccountNumber: string;
   openingBalance: number;
+  /** Нээлтийн (cut-off) огноо — хуучин дансанд null (ENT-012). */
+  openingDate?: string | null;
+  /** Валютын дансны гараар өгсөн нээлтийн ханш (ENT-011). */
+  openingRate?: number | null;
   isActive: boolean;
   balance: number;
 };

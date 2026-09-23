@@ -51,6 +51,7 @@ import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 type Focus = "dashboard" | "counterparties" | "documents" | "reports";
 type ArApMode = "combined" | "receivable" | "payable";
@@ -1175,7 +1176,7 @@ function OffsetDialog({
   const [amountText, setAmountText] = useState(() =>
     candidates[0] ? String(Math.min(source.balance, candidates[0].balance)) : ""
   );
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(currentDocumentDate);
   const amount = Number(amountText);
   const amountValid =
     Number.isFinite(amount) &&

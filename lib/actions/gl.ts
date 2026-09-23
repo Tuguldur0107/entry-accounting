@@ -38,7 +38,11 @@ import {
   removeDraftAssetsForVoucher,
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import { parseSegParts } from "@/lib/grid/segments";
 import {
   moduleOfVoucherNo,
@@ -699,6 +703,7 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
   // Хаагдсан период руу шинэ бичилт хийхгүй (ноорог ч мөн адил — тэр нь
   // хожим батлагдах гэж гацна).
   await assertPeriodOpen(orgId, data.date);
+  if (status === "posted") assertNotFuturePeriod(data.date);
 
   // Валют → дэвтрийн валютын дүн СЕРВЕРТ дахин бодогдоно (client-д найдахгүй).
   const money = resolveVoucherCurrency(data.lines, data, status === "posted");
@@ -835,6 +840,7 @@ async function postVoucherCore(id: string) {
   if (!voucher) throw new Error("Бичилт олдсонгүй");
   if (voucher.status === "posted") return;
   await assertPeriodOpen(orgId, voucher.date);
+  assertNotFuturePeriod(voucher.date);
 
   let hookContext: JournalHookContext | null = null;
   await db.transaction(async (tx) => {
