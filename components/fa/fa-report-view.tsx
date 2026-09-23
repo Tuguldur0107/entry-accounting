@@ -83,6 +83,11 @@ export function FaReportView({ assets }: Props) {
       },
       { headerName: "Өртөг", field: "cost", ...moneyCol<FixedAssetView>() },
       {
+        headerName: "Нээлтийн хуримт. элэгдэл",
+        field: "openingAccumulated",
+        ...moneyCol<FixedAssetView>(),
+      },
+      {
         headerName: "Хуримт. элэгдэл",
         field: "accumulated",
         ...moneyCol<FixedAssetView>(),
@@ -154,6 +159,9 @@ export function FaReportView({ assets }: Props) {
         disposalDate: null,
         disposalProceeds: null,
         disposalVoucherId: null,
+        openingAccumulated: sum((a) => a.openingAccumulated),
+        openingTaxAccumulated: sum((a) => a.openingTaxAccumulated),
+        openingAsOf: null,
         accumulated: sum((a) => a.accumulated),
         netBookValue: sum((a) => a.netBookValue),
         entries: [],

@@ -298,6 +298,7 @@ import {
 import type { AiAction } from "./action-markers";
 import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
 import { isFuturePeriodDate, ulaanbaatarToday } from "@/lib/periods/document-date";
+import { accumDepAccountFor, DEFAULT_FA_ASSET_ACCOUNT } from "@/lib/fa/opening";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import {
   customToolDefs,
@@ -540,7 +541,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "create_fixed_asset",
     description:
-      "Үндсэн хөрөнгийн карт үүсгэнэ (ноорог — хэрэглэгч шалгаад идэвхжүүлнэ; 'Шууд бичих' горимд идэвхтэй үүснэ). Данснуудыг идэвхтэй дансны жагсаалтаас өгнө (хөрөнгө 2101…, хуримтлагдсан элэгдэл 2100…, элэгдлийн зардал 7000…).",
+      "Үндсэн хөрөнгийн карт үүсгэнэ (ноорог — хэрэглэгч шалгаад идэвхжүүлнэ; 'Шууд бичих' горимд идэвхтэй үүснэ). Данс өгөөгүй бол биет ҮХ-ийн анхдагч: хөрөнгө 20000001, хуримтлагдсан элэгдэл 20000002, элэгдлийн зардал 70000001. Нэвтрүүлэлтийн өмнө элэгдэж эхэлсэн хөрөнгөд openingAccumulatedDepreciation + openingAsOf (cut-off) ЗААВАЛ — эс бөгөөс систем дахин бүтэн хугацаагаар элэгдүүлнэ; нээлтийн дүн GL-д нээлтийн журналаар (Кт 20000002) орно.",
     inputSchema: {
       type: "object",
       properties: {
@@ -559,20 +560,34 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "Элэгдэл эхлэх сар YYYY-MM (default: авсан сарын дараах сар)",
         },
-        assetAccountNumber: { type: "string", description: "Хөрөнгийн данс (8 оронтой)" },
-        accumDepAccountNumber: { type: "string", description: "Хуримтлагдсан элэгдлийн данс" },
-        depExpenseAccountNumber: { type: "string", description: "Элэгдлийн зардлын данс" },
+        openingAccumulatedDepreciation: {
+          type: "number",
+          description:
+            "Нээлтийн (нэвтрүүлэлтийн өмнөх) хуримтлагдсан элэгдэл ₮ — ≤ өртөг − үлдэх өртөг",
+        },
+        openingTaxAccumulated: {
+          type: "number",
+          description: "Татварын нээлтийн хуримтлагдсан элэгдэл ₮ (мэмо, сонголтоор)",
+        },
+        openingAsOf: {
+          type: "string",
+          description:
+            "Нээлтийн cut-off огноо YYYY-MM-DD — энэ сар хүртэлх элэгдэл нээлтийн дүнд багтсан (систем дараагийн сараас элэгдүүлнэ)",
+        },
+        assetAccountNumber: {
+          type: "string",
+          description: "Хөрөнгийн данс (8 оронтой, default 20000001)",
+        },
+        accumDepAccountNumber: {
+          type: "string",
+          description: "Хуримтлагдсан элэгдлийн данс (default: хөрөнгийн дансанд харгалзах — 20000002)",
+        },
+        depExpenseAccountNumber: {
+          type: "string",
+          description: "Элэгдлийн зардлын данс (default 70000001)",
+        },
       },
-      required: [
-        "name",
-        "acquisitionDate",
-        "cost",
-        "usefulLifeMonths",
-        "custodian",
-        "assetAccountNumber",
-        "accumDepAccountNumber",
-        "depExpenseAccountNumber",
-      ],
+      required: ["name", "acquisitionDate", "cost", "usefulLifeMonths", "custodian"],
     },
   },
   {
@@ -1011,6 +1026,11 @@ export const AI_TOOLS: AiToolDef[] = [
         usefulLifeMonths: { type: "integer" },
         custodian: { type: "string", description: "Хариуцагч" },
         depreciationStartMonth: { type: "string", description: "YYYY-MM" },
+        openingAccumulatedDepreciation: {
+          type: "number",
+          description: "Нээлтийн хуримтлагдсан элэгдэл ₮ (нэвтрүүлэлтийн өмнөх)",
+        },
+        openingAsOf: { type: "string", description: "Нээлтийн cut-off огноо YYYY-MM-DD" },
         assetAccountNumber: { type: "string" },
         accumDepAccountNumber: { type: "string" },
         depExpenseAccountNumber: { type: "string" },
@@ -3864,14 +3884,25 @@ async function runCreateFixedAsset(
     depreciationMethod?: "straight_line" | "declining_balance";
     custodian: string;
     depreciationStartMonth?: string;
-    assetAccountNumber: string;
-    accumDepAccountNumber: string;
-    depExpenseAccountNumber: string;
+    openingAccumulatedDepreciation?: number;
+    openingTaxAccumulated?: number;
+    openingAsOf?: string;
+    assetAccountNumber?: string;
+    accumDepAccountNumber?: string;
+    depExpenseAccountNumber?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
   const asDraft = mode !== "post";
+  const assetAccount = resolveAccount(
+    input.assetAccountNumber?.trim() || DEFAULT_FA_ASSET_ACCOUNT,
+    ctx
+  ).main;
+  const accumAccount = resolveAccount(
+    input.accumDepAccountNumber?.trim() || accumDepAccountFor(assetAccount),
+    ctx
+  ).main;
 
   // Default: авсан сарын ДАРААХ сараас элэгдүүлж эхэлнэ.
   const startMonth =
@@ -3893,17 +3924,27 @@ async function runCreateFixedAsset(
         depreciationMethod: input.depreciationMethod ?? "straight_line",
         custodian: input.custodian,
         depreciationStartMonth: startMonth,
-        assetAccountNumber: resolveAccount(input.assetAccountNumber, ctx).main,
-        accumDepAccountNumber: resolveAccount(input.accumDepAccountNumber, ctx).main,
-        depExpenseAccountNumber: resolveAccount(input.depExpenseAccountNumber, ctx).main,
+        openingAccumulatedDepreciation: input.openingAccumulatedDepreciation,
+        openingTaxAccumulated: input.openingTaxAccumulated,
+        openingAsOf: input.openingAsOf,
+        assetAccountNumber: assetAccount,
+        accumDepAccountNumber: accumAccount,
+        depExpenseAccountNumber: resolveAccount(
+          input.depExpenseAccountNumber?.trim() || "70000001",
+          ctx
+        ).main,
       },
       { asDraft }
-  
     )
   );
 
+  const opening = Number(input.openingAccumulatedDepreciation ?? 0);
+  const openingText =
+    opening > 0
+      ? `, нээлтийн хуримт. элэгдэл ${fmt(opening)}₮ (${input.openingAsOf}) — үлдэгдэл өртөг ${fmt(Number(input.cost) - opening)}₮`
+      : "";
   return {
-    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}`,
+    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮${openingText}, данс ${assetAccount}/${accumAccount}, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}`,
     action: {
       kind: "fa",
       id,
@@ -4915,6 +4956,8 @@ async function runActivateFixedAsset(
     usefulLifeMonths?: number;
     custodian?: string;
     depreciationStartMonth?: string;
+    openingAccumulatedDepreciation?: number;
+    openingAsOf?: string;
     assetAccountNumber?: string;
     accumDepAccountNumber?: string;
     depExpenseAccountNumber?: string;
@@ -4951,6 +4994,16 @@ async function runActivateFixedAsset(
             "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
           );
         })(),
+      // Картын бусад утга хэвээр үлдэнэ (идэвхжүүлэлт тэдгээрийг арилгахгүй).
+      location: asset.location ?? undefined,
+      subLocation: asset.subLocation ?? undefined,
+      depreciationStartDate: asset.depreciationStartDate ?? undefined,
+      taxUsefulLifeMonths: asset.taxUsefulLifeMonths,
+      taxDepreciationMethod: asset.taxDepreciationMethod,
+      openingAccumulatedDepreciation:
+        input.openingAccumulatedDepreciation ?? Number(asset.openingAccumulatedDepreciation ?? 0),
+      openingTaxAccumulated: Number(asset.openingTaxAccumulated ?? 0),
+      openingAsOf: input.openingAsOf ?? asset.openingAsOf,
       assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
       accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
       depExpenseAccountNumber:
@@ -7045,7 +7098,7 @@ POS: нээлттэй ээлж (open-pos-shifts), сарын өртгийн то
   fixed_asset_lifecycle: `ҮНДСЭН ХӨРӨНГИЙН МӨЧЛӨГ:
 1. Худалдан авалт: create_arap_invoice (ap_bill, хөрөнгийн данс 21XXXXXX мөртэй) → post — ноорог ҮХ карт автоматаар үүснэ; ЭСВЭЛ create_fixed_asset-ээр шууд
 2. activate_fixed_asset — картыг бөглөж идэвхжүүлэх (хариуцагч, элэгдэл эхлэх сар заавал)
-3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 21000099)
+3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 20000002 — картын хуримтлагдсан элэгдлийн данс)
 4. Алдаатай бол: reverse_fa_depreciation {month}
 Анхаар: актлах/борлуулах (disposal) функц системд одоогоор байхгүй — гарын журналаар шийдэж, хөрөнгөө идэвхгүй болгохыг хэрэглэгчид зөвлө.`,
 };

@@ -270,12 +270,12 @@ test("depreciation: straight line with final-month cap and start gating", () => 
       status: "active",
     },
     {
-      id: "a3", // бараг бүрэн элэгдсэн — сүүлийн сард үлдэгдлээр
+      id: "a3", // хугацааны СҮҮЛИЙН (10 дахь) сар — үлдэгдлээр хаагдана
       cost: 500000,
       salvageValue: 50000,
       usefulLifeMonths: 10,
       method: "straight_line" as const,
-      depreciationStartMonth: "2025-01",
+      depreciationStartMonth: "2025-10",
       status: "active",
     },
   ];
@@ -339,10 +339,9 @@ test("depreciation: declining balance (×2) — NBV-based, salvage cap, terminal
   assert.deepEqual(amounts(1100000, "2027-12"), [
     { assetId: "d1", amount: 100000 },
   ]);
-  // Хугацаа хэтэрсэн ч үлдэгдэлтэй бол мөн хаана
-  assert.deepEqual(amounts(1150000, "2028-03"), [
-    { assetId: "d1", amount: 50000 },
-  ]);
+  // Хугацаа хэтэрсэн бол үлдэгдэлтэй ч элэгдэл ЗОГСОНО (IAS 16.55, ENT-002 —
+  // өмнө нь хугацаа дууссан хөрөнгө дахин элэгддэг байв)
+  assert.equal(run(1150000, "2028-03").length, 0);
   // Бүрэн элэгдсэн бол бичилт үүсэхгүй
   assert.equal(run(1200000, "2028-04").length, 0);
 

@@ -24,6 +24,8 @@ import { db } from "../lib/db";
 import {
   cashAccounts,
   costEntries,
+  faDepreciationEntries,
+  fixedAssets,
   inventoryMovements,
   journalLines,
   journalVouchers,
@@ -276,6 +278,85 @@ test("ENT-011/012: валютын кассын нээлт — нээлтийн �
   const counter = lines.find((line) => line.cashAccountId !== account!.id);
   assert.equal(Number(counter?.credit), 41_045_520);
   assert.equal(Number(counter?.creditFc), 12_000);
+});
+
+test("ENT-002/049/066/046/001: ҮХ-ийн нээлтийн хуримтлагдсан элэгдэл", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // ENT-046: нээлтийн журналын ҮХ-ийн мөр ноорог карт үүсгэхгүй
+  const opening = await tool(
+    "create_journal_voucher",
+    {
+      date: "2024-12-31",
+      description: "[ОНБ] Нээлтийн үлдэгдэл 2024-12-31",
+      externalRef: `opening-balance:2024-12-31-${STAMP}`,
+      lines: [
+        { account: "20000001", debit: 12_000_000, description: "ҮХ" },
+        { account: "20000002", credit: 11_250_000, description: "Хуримт. элэгдэл" },
+        { account: "41000001", credit: 750_000, description: "Эздийн өмч" },
+      ],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(opening.resultText), opening.resultText);
+  const drafts = await db.query.fixedAssets.findMany({
+    where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.status, "draft")),
+  });
+  assert.equal(drafts.length, 0, "нээлтийн журнал ноорог карт үүсгэх ёсгүй");
+
+  const created = await tool(
+    "create_fixed_asset",
+    {
+      name: "Дэлгүүрийн тавиур", acquisitionDate: "2021-03-20", cost: 12_000_000, usefulLifeMonths: 48,
+      custodian: "Б.Бат", depreciationStartMonth: "2021-04",
+      openingAccumulatedDepreciation: 11_250_000, openingAsOf: "2024-12-31",
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(created.resultText), created.resultText);
+  const asset = await db.query.fixedAssets.findFirst({
+    where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.name, "Дэлгүүрийн тавиур")),
+  });
+  assert.ok(asset);
+  // ENT-001: биет ҮХ-ийн анхдагч хос
+  assert.equal(asset.assetAccountNumber, "20000001");
+  assert.equal(asset.accumDepAccountNumber, "20000002");
+
+  for (const month of ["2025-01", "2025-02", "2025-03", "2025-04"]) {
+    const ran = await tool("run_fa_depreciation", { month });
+    assert.ok(okOrRevalidate(ran.resultText), ran.resultText);
+    if (month !== "2025-04") {
+      const posted = await tool("post_fa_depreciation", { month }, "post");
+      assert.ok(okOrRevalidate(posted.resultText), posted.resultText);
+    }
+  }
+  const entries = await db.query.faDepreciationEntries.findMany({
+    where: eq(faDepreciationEntries.assetId, asset.id),
+  });
+  assert.deepEqual(
+    entries.map((entry) => [entry.periodMonth, Number(entry.amount)]).sort(),
+    [["2025-01", 250_000], ["2025-02", 250_000], ["2025-03", 250_000]],
+    "хугацаа дууссан 2025-04-д элэгдэхгүй"
+  );
+
+  const disposed = await tool(
+    "dispose_fixed_asset",
+    {
+      assetCode: asset.code, disposalType: "sale", date: "2025-10-15", proceeds: 500_000,
+      proceedsAccount: "11000001", gainLossAccount: "87000004",
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(disposed.resultText), disposed.resultText);
+  const after = await db.query.fixedAssets.findFirst({ where: eq(fixedAssets.id, asset.id) });
+  const lines = await db.query.journalLines.findMany({
+    where: eq(journalLines.voucherId, after!.disposalVoucherId!),
+  });
+  const byMain = (main: string) =>
+    lines
+      .filter((line) => line.accountNumber.split(".")[2] === main || line.accountNumber === main)
+      .reduce((sum, line) => sum + Number(line.debit) - Number(line.credit), 0);
+  assert.equal(byMain("20000002"), 12_000_000, "нээлт + системийн хуримтлагдсан хоёулаа хаагдана");
+  assert.equal(byMain("87000004"), -500_000, "олз 500,000 (хиймэл гарз биш)");
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

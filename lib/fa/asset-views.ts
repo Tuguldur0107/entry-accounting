@@ -44,6 +44,11 @@ export interface FixedAssetView {
   disposalDate: string | null;
   disposalProceeds: number | null;
   disposalVoucherId: string | null;
+  /** Нэвтрүүлэлтийн өмнөх хуримтлагдсан элэгдэл (accumulated-д багтсан). */
+  openingAccumulated: number;
+  openingTaxAccumulated: number;
+  openingAsOf: string | null;
+  /** Нээлтийн + системийн батлагдсан элэгдэл. */
   accumulated: number;
   netBookValue: number;
   entries: FaDepreciationEntryRow[];
@@ -106,8 +111,11 @@ export async function loadFixedAssetViews(
   }
 
   return assets.map((asset) => {
+    // Нээлтийн хуримтлагдсан элэгдэл + системийн батлагдсан (ENT-049 —
+    // бүртгэлийн тайлан нээлтийг харуулахгүй тул GL-тэй тулгардаггүй байв).
+    const openingAccumulated = Number(asset.openingAccumulatedDepreciation ?? 0);
     const accumulated =
-      Math.round((accumByAsset.get(asset.id) ?? 0) * 100) / 100;
+      Math.round((openingAccumulated + (accumByAsset.get(asset.id) ?? 0)) * 100) / 100;
     return {
       id: asset.id,
       code: asset.code,
@@ -133,6 +141,9 @@ export async function loadFixedAssetViews(
       disposalProceeds:
         asset.disposalProceeds != null ? Number(asset.disposalProceeds) : null,
       disposalVoucherId: asset.disposalVoucherId,
+      openingAccumulated,
+      openingTaxAccumulated: Number(asset.openingTaxAccumulated ?? 0),
+      openingAsOf: asset.openingAsOf,
       accumulated,
       netBookValue: Math.round((Number(asset.cost) - accumulated) * 100) / 100,
       entries: entriesByAsset.get(asset.id) ?? [],

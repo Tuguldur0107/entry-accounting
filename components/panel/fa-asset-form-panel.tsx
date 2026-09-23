@@ -33,6 +33,7 @@ import {
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 import { currentDocumentDate } from "@/lib/periods/document-date";
+import { DEFAULT_FA_ACCUM_DEP_ACCOUNT, DEFAULT_FA_ASSET_ACCOUNT } from "@/lib/fa/opening";
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -55,6 +56,8 @@ interface AssetForm {
   depreciationStartMonth: string;
   depreciationStartDate: string;
   taxUsefulLifeMonths: string;
+  openingAccumulatedDepreciation: string;
+  openingAsOf: string;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
   depExpenseAccountNumber: string;
@@ -84,6 +87,9 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
       depreciationStartDate: asset.depreciationStartDate ?? "",
       taxUsefulLifeMonths:
         asset.taxUsefulLifeMonths > 0 ? String(asset.taxUsefulLifeMonths) : "",
+      openingAccumulatedDepreciation:
+        asset.openingAccumulated > 0 ? String(asset.openingAccumulated) : "",
+      openingAsOf: asset.openingAsOf ?? "",
       assetAccountNumber: withSegs(asset.assetAccountNumber),
       accumDepAccountNumber: withSegs(asset.accumDepAccountNumber),
       depExpenseAccountNumber: withSegs(asset.depExpenseAccountNumber),
@@ -103,8 +109,11 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
     depreciationStartMonth: new Date().toISOString().slice(0, 7),
     depreciationStartDate: "",
     taxUsefulLifeMonths: "",
-    assetAccountNumber: withSegs("21010000"),
-    accumDepAccountNumber: withSegs("21000099"),
+    openingAccumulatedDepreciation: "",
+    openingAsOf: "",
+    // Биет ҮХ-ийн анхдагч хос (ENT-001).
+    assetAccountNumber: withSegs(DEFAULT_FA_ASSET_ACCOUNT),
+    accumDepAccountNumber: withSegs(DEFAULT_FA_ACCUM_DEP_ACCOUNT),
     depExpenseAccountNumber: withSegs("70000001"),
   };
 }
@@ -237,6 +246,9 @@ function FaAssetFormBody({
           depreciationStartMonth: form.depreciationStartMonth,
           depreciationStartDate: form.depreciationStartDate,
           taxUsefulLifeMonths: Number(form.taxUsefulLifeMonths) || 0,
+          openingAccumulatedDepreciation:
+            Number(form.openingAccumulatedDepreciation.replaceAll(",", "")) || 0,
+          openingAsOf: form.openingAsOf || null,
           // AccountInput бүтэн код буцаана — картад main дансыг хадгална.
           assetAccountNumber: extractMainAccount(form.assetAccountNumber),
           accumDepAccountNumber: extractMainAccount(form.accumDepAccountNumber),
@@ -432,6 +444,36 @@ function FaAssetFormBody({
                     ...c,
                     depreciationStartDate: e.target.value,
                   }))
+                }
+              />
+            </FormField>
+            {/* Нэвтрүүлэлтийн өмнө элэгдэж эхэлсэн хөрөнгө: хуримтлагдсан
+                элэгдэл GL-д нээлтийн журналаар орсон, cut-off сар хүртэл
+                систем элэгдүүлэхгүй (ENT-002). */}
+            <FormField
+              label="Нээлтийн хуримтлагдсан элэгдэл (MNT)"
+              hint="Хуучин системээс шилжүүлсэн хөрөнгөд — шинэ хөрөнгөд хоосон"
+            >
+              <Input
+                inputMode="decimal"
+                value={form.openingAccumulatedDepreciation}
+                onChange={(e) =>
+                  setForm((c) => ({
+                    ...c,
+                    openingAccumulatedDepreciation: e.target.value,
+                  }))
+                }
+              />
+            </FormField>
+            <FormField
+              label="Нээлтийн огноо (cut-off)"
+              hint="Энэ сар хүртэлх элэгдэл нээлтийн дүнд багтсан"
+            >
+              <Input
+                type="date"
+                value={form.openingAsOf}
+                onChange={(e) =>
+                  setForm((c) => ({ ...c, openingAsOf: e.target.value }))
                 }
               />
             </FormField>

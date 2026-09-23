@@ -39,7 +39,10 @@ export default async function FaDashboardPage() {
     }),
   ]);
 
+  // Нээлтийн хуримтлагдсан элэгдлээс эхэлнэ (ENT-002/049).
   const postedAccum = new Map<string, number>();
+  for (const asset of assets)
+    postedAccum.set(asset.id, Number(asset.openingAccumulatedDepreciation ?? 0));
   for (const entry of entries) {
     if (entry.status !== "posted") continue;
     postedAccum.set(
@@ -73,7 +76,9 @@ export default async function FaDashboardPage() {
       asset.assetAccountNumber,
       (subledgerByAccount.get(asset.assetAccountNumber) ?? 0) + Number(asset.cost)
     );
-  for (const asset of assets) {
+  // Хасагдсан картын өртөг ба хуримтлагдсан элэгдэл хоёулаа данснаас
+  // хаагдсан тул тулгалтад зөвхөн ИДЭВХТЭЙ карт (өртгийн талтай ижил).
+  for (const asset of active) {
     const accum = postedAccum.get(asset.id) ?? 0;
     if (accum === 0) continue;
     subledgerByAccount.set(

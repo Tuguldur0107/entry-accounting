@@ -40,6 +40,7 @@ import { logAuditEvent } from "@/lib/audit";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
+import { computeFaDisposal, normalizeFaOpening } from "@/lib/fa/opening";
 
 function revalidateFa() {
   for (const path of ["/fa", "/fa/assets", "/fa/depreciation", "/gl/journal", "/gl/reports"])
@@ -127,6 +128,11 @@ export interface FixedAssetInput {
   /** ТАТВАРЫН хугацаа/арга (cit.md); 0 = татварын элэгдэл бодохгүй. */
   taxUsefulLifeMonths?: number;
   taxDepreciationMethod?: string;
+  /** Нэвтрүүлэлтийн өмнөх хуримтлагдсан элэгдэл (ENT-002) — GL-д нээлтийн журналаар. */
+  openingAccumulatedDepreciation?: number | null;
+  openingTaxAccumulated?: number | null;
+  /** Нээлтийн cut-off огноо — нээлтийн дүнтэй бол ЗААВАЛ. */
+  openingAsOf?: string | null;
   assetAccountNumber: string;
   accumDepAccountNumber: string;
   depExpenseAccountNumber: string;
@@ -167,11 +173,22 @@ function validateAssetInput(data: FixedAssetInput) {
     !isDepreciationMethod(data.taxDepreciationMethod)
   )
     throw new Error("Татварын элэгдлийн арга буруу байна");
+  assetExtraValues(data);
 }
 
 /** Картын шинэ талбаруудыг DB-ийн утга болгоно (create/activate хоёуланд). */
 function assetExtraValues(data: FixedAssetInput) {
+  const opening = normalizeFaOpening({
+    cost: Number(data.cost),
+    salvageValue: Number(data.salvageValue),
+    openingAccumulatedDepreciation: data.openingAccumulatedDepreciation,
+    openingTaxAccumulated: data.openingTaxAccumulated,
+    openingAsOf: data.openingAsOf,
+  });
   return {
+    openingAccumulatedDepreciation: String(opening.openingAccumulatedDepreciation),
+    openingTaxAccumulated: String(opening.openingTaxAccumulated),
+    openingAsOf: opening.openingAsOf,
     location: data.location?.trim() || null,
     subLocation: data.subLocation?.trim() || null,
     depreciationStartDate: data.depreciationStartDate?.trim() || null,
@@ -535,8 +552,14 @@ async function runDepreciationCore(data: { month: string }) {
         );
 
       // ── Хуримтлагдсан элэгдэл (ӨМНӨХ сарууд, идэвхтэй бичилт) ────────
+      // Нээлтийн хуримтлагдсан элэгдлээс эхэлнэ (ENT-002) — үгүй бол
+      // нэвтрүүлэлтийн өмнө элэгдсэн хөрөнгө дахин бүтнээр элэгддэг байв.
       const postedAccum = new Map<string, number>();
       const taxAccum = new Map<string, number>();
+      for (const asset of assets) {
+        postedAccum.set(asset.id, Number(asset.openingAccumulatedDepreciation ?? 0));
+        taxAccum.set(asset.id, Number(asset.openingTaxAccumulated ?? 0));
+      }
       for (const entry of entries) {
         if (entry.periodMonth >= data.month) continue; // энэ сарынх дахин бодогдоно
         postedAccum.set(
@@ -570,6 +593,7 @@ async function runDepreciationCore(data: { month: string }) {
         taxMethod: isDepreciationMethod(asset.taxDepreciationMethod)
           ? asset.taxDepreciationMethod
           : "straight_line",
+        openingAsOf: asset.openingAsOf,
       }));
 
       const computed = computeMonthlyDepreciation({
@@ -963,6 +987,20 @@ async function getFaTieOutDetailCore(data: {
       amount: Number(asset.cost),
     });
   }
+  // Нээлтийн хуримтлагдсан элэгдэл — cut-off огноогоор (нээлтийн журналтай тулгана).
+  for (const asset of assets) {
+    if (asset.status !== "active") continue;
+    if (asset.accumDepAccountNumber !== data.accountNumber) continue;
+    const opening = Number(asset.openingAccumulatedDepreciation ?? 0);
+    if (!opening || !asset.openingAsOf) continue;
+    if (asset.openingAsOf < data.from || asset.openingAsOf > data.to) continue;
+    subledger.push({
+      id: `opening-${asset.id}`,
+      date: asset.openingAsOf,
+      label: `Нээлтийн хуримт. элэгдэл · ${asset.code} ${asset.name}`,
+      amount: -opening,
+    });
+  }
   // Хуримт. элэгдлийн данс: батлагдсан элэгдэл (кредит үлдэгдэл → сөрөг).
   for (const entry of entries) {
     const asset = assetById.get(entry.assetId);
@@ -1092,11 +1130,15 @@ async function disposeFixedAssetCore(
     columns: { amount: true },
   });
   const cost = round2(Number(asset.cost));
-  const accum = round2(
-    postedEntries.reduce((sum, entry) => sum + Number(entry.amount), 0)
-  );
+  // ENT-066: нээлтийн хуримтлагдсан элэгдлийг ХАМТ хаана — эс бөгөөс тэр
+  // нь дансанд «өнчин» үлдэж, хиймэл гарз бичигддэг байв.
+  const { accumulated: accum, gainLoss } = computeFaDisposal({
+    cost,
+    openingAccum: Number(asset.openingAccumulatedDepreciation ?? 0),
+    postedAccum: postedEntries.reduce((sum, entry) => sum + Number(entry.amount), 0),
+    proceeds,
+  });
   // Тэнцвэржүүлэгч: эерэг = гарз (Dr), сөрөг = олз (Cr).
-  const gainLoss = round2(cost - accum - proceeds);
   const label = DISPOSAL_LABELS[data.disposalType];
 
   const buildCode = await faPostingCodeBuilder(orgId);
