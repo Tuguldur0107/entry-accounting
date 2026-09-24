@@ -301,10 +301,17 @@ import {
 import type { AiAction } from "./action-markers";
 import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
 import { isFuturePeriodDate, ulaanbaatarToday } from "@/lib/periods/document-date";
-import { accumDepAccountFor, DEFAULT_FA_ASSET_ACCOUNT } from "@/lib/fa/opening";
+import {
+  accumDepAccountFor,
+  computeFaDisposal,
+  DEFAULT_FA_ASSET_ACCOUNT,
+  faDisposalJournalTotal,
+} from "@/lib/fa/opening";
 import { cashOpeningMnt } from "@/lib/cash/opening";
 import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
+import { logAuditEvent } from "@/lib/audit";
+import { approvalAuditNote } from "@/lib/pos/discounts";
 import {
   customToolDefs,
   executeCustomTool,
@@ -7717,6 +7724,25 @@ async function runDisposeFixedAsset(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const asset = await findAssetByCode(orgId, input.assetCode);
+  // Хасалтын журналын нийт дүнгээр (анхны өртөг + олз) бусад шууд батлах
+  // замтай ИЖИЛ хязгаар (аудит M: энэ tool хязгааргүй байсан).
+  const postedAccum = (
+    await db.query.faDepreciationEntries.findMany({
+      where: and(
+        eq(faDepreciationEntries.organizationId, orgId),
+        eq(faDepreciationEntries.assetId, asset.id),
+        eq(faDepreciationEntries.status, "posted")
+      ),
+      columns: { amount: true },
+    })
+  ).reduce((sum, entry) => sum + Number(entry.amount), 0);
+  const { gainLoss } = computeFaDisposal({
+    cost: Number(asset.cost),
+    openingAccum: Number(asset.openingAccumulatedDepreciation ?? 0),
+    postedAccum,
+    proceeds: Number(input.proceeds ?? 0),
+  });
+  assertPostLimit(faDisposalJournalTotal({ cost: Number(asset.cost), gainLoss }));
   const ctx = await accountContext(orgId);
   unwrapAction(
     await disposeFixedAsset(  asset.id, {
@@ -10200,6 +10226,19 @@ async function runCreatePosSale(
     })
   );
   const receipt = result.receipt;
+  // Аудит M: AI/MCP/REST-ийн ИЛ managerApproval нь хүний шийдвэрийг орлох тул
+  // аудитын мөрд ТУСДАА үлдэнэ (эрхтэй token-ий эзэн хэн болохыг хамт).
+  if (quote.approvalReasons.length > 0) {
+    const { userId } = await getActiveOrg();
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "manager_approval",
+      entityType: "pos_sale",
+      entityId: result.id,
+      summary: `POS борлуулалт ${receipt.documentNo}${approvalAuditNote(quote.approvalReasons, "ai")}`,
+    });
+  }
   const text = [
     `Борлуулалт ${receipt.documentNo} бүртгэгдлээ (${receipt.date}, ээлж ${shift.documentNo}).`,
     ...receipt.lines.map((line) => `  ${line.name} × ${line.quantity} × ${fmt(line.unitPrice)}${line.discount ? ` − хөнг. ${fmt(line.discount)}` : ""} = ${fmt(line.total)}₮`),

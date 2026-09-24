@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   allocateReceiptDiscount,
   applyDiscounts,
+  approvalAuditNote,
   ruleWindowMatches,
 } from "../lib/pos/discounts";
 import type { CartContext, CartLine, DiscountRule } from "../lib/pos/types";
@@ -243,4 +244,13 @@ test("allocateReceiptDiscount: суурьаас хэтрэхгүй, нийлбэ
   assert.equal(lines[0].discountAmount + lines[1].discountAmount, 1_000);
   const capped = allocateReceiptDiscount(lines, 1_000_000, { ruleId: null, ruleCode: null, kind: "receipt" });
   assert.equal(capped, 34_000);
+});
+
+test("Аудит: менежерийн зөвшөөрлийн аудитын тэмдэглэл", () => {
+  assert.equal(approvalAuditNote([]), "");
+  assert.equal(
+    approvalAuditNote(["15% нь 10%-иас их"]),
+    " — менежерийн зөвшөөрөл (pos:post эрхээр): 15% нь 10%-иас их"
+  );
+  assert.match(approvalAuditNote(["a", "b"], "ai"), /AI\/MCP-ийн managerApproval-аар\): a; b$/);
 });
