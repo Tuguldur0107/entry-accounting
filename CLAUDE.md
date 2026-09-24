@@ -1368,7 +1368,7 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 139 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 140 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -1391,7 +1391,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 | Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
-| POS | get_pos_status, open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц), save_pos_payment_method / delete_pos_payment_method (төлбөрийн хэлбэрийн ЛАВЛАХ — eBarimt код оноох, буруу/давхардсан мөр цэвэрлэх; ашиглагдсан хэлбэр устахгүй, идэвхгүй болно) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
+| POS | get_pos_status, update_pos_settings (үйл ажиллагааны тохиргоо — `allowNegativeStock` унтраах, хөнгөлөлтийн хязгаар, бөөрөнхийлөл, дансны рольууд; eBarimt/QPay энд БАЙХГҮЙ), open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц), save_pos_payment_method / delete_pos_payment_method (төлбөрийн хэлбэрийн ЛАВЛАХ — eBarimt код оноох, буруу/давхардсан мөр цэвэрлэх; ашиглагдсан хэлбэр устахгүй, идэвхгүй болно) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
 | eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
 | QPay | get_qpay_status (асаалттай/тохируулсан эсэх, бэлэн байдлын дутуу, мерчант id, нээлттэй QR, төлөгдсөн ч борлуулалт болоогүй — нууц буцахгүй); холбох нь ЗӨВХӨН вэбээс [QPay холбох] | аль ч горимд (унших) |
 | Мэдлэгийн сан | list_knowledge_topics (сэдвийн индекс — гарчиг + хэсгийн нэрс, ангиллаар), read_knowledge_section (НЭГ хэсэг, ≤3000 тэмдэгт, ишлэлтэй) — §9e; `surfaces: ["chat","mcp"]` тул REST-д ГАРАХГҮЙ; `requireFeature("knowledge")` (Console-оос байгууллага бүрд), 24ц/200 квот `[KNOWLEDGE_LIMIT]` | аль ч горимд (унших; журнал үүсгэхгүй) |
@@ -2066,6 +2066,14 @@ Cash       cash_accounts, cash_documents, bank_statements,
                manualOverrideReason — тэгшитгэлийн ханшийн баримт
 AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
            ar_ap_settlements
+             settlements.cashDocumentId нь `on delete set null` тул кассын
+               баримт rollback-гүй устсан үед мөр ӨНЧИН үлдэж нэхэмжлэх «төлөгдсөн»
+               мэт харагддаг байв (хяналтын дансны ТОГТМОЛ зөрүү). Бичилтийн
+               замууд (deleteCashDocument / reverseCashDocument /
+               reverseArApOffset) rollback хийдэг; ӨМНӨХ мөрүүдийг preDeploy-ийн
+               `scripts/cleanup-orphan-settlements.mjs` (идемпотент) нөхнө —
+               өнчин = cashDocumentId ба voucherId ХОЁУЛАА null; цэвэр логик
+               `scripts/lib/settlement-cleanup-plan.mjs` (тесттэй), GL хөндөхгүй
              documents.purchaseOrderId — PO-той нэхэмжлэх (→ өглөгийн түр данс)
              lines.purchaseOrderLineId / unitPrice / costComponentId
                (CHECK: itemId ба costComponentId зэрэг байж болохгүй)
