@@ -39,6 +39,7 @@ import { matchCounterpartyByName } from "@/lib/cash/list-columns";
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import {
   normalizeCashOpeningFields,
+  planCashOpeningRef,
   planCashOpeningVoucher,
 } from "@/lib/cash/opening";
 import type { CashDocumentView } from "@/lib/cash/types";
@@ -541,22 +542,24 @@ async function createCashOpeningVoucherCore(data: {
   // partial unique index уралдаант давхар insert-ийг DB түвшинд хаана.
   // Тайлбар доторх [НЭЭЛТ:id] тэмдэг нь харагдац + хуучин дата.
   const marker = `[НЭЭЛТ:${account.id}]`;
-  const externalRef = `cash-opening:${account.id}`;
-  const existing = await db.query.journalVouchers.findFirst({
+  // Буцаагдсан хуучин нээлт (ба түүний буцаалт) дахин үүсгэхийг хаахгүй —
+  // reconcile_modules-ийн «буцаагаад дахин бичнэ» зам ажиллана (аудит M1).
+  const prior = await db.query.journalVouchers.findMany({
     where: and(
       eq(journalVouchers.organizationId, orgId),
       or(
-        eq(journalVouchers.externalRef, externalRef),
+        sql`${journalVouchers.externalRef} like ${`cash-opening:${account.id}%`}`,
         sql`${journalVouchers.description} LIKE ${"%" + marker + "%"}`
       )
     ),
-    columns: { id: true, status: true },
+    columns: { externalRef: true, status: true, reversalOfVoucherId: true },
   });
-  if (existing)
+  const { blockedBy, externalRef } = planCashOpeningRef(account.id, prior);
+  if (blockedBy)
     throw new Error(
-      existing.status === "draft"
+      blockedBy === "draft"
         ? "Нээлтийн журнал аль хэдийн ноорогоор үүссэн — журналын жагсаалтаас баталгаажуулна уу"
-        : "Нээлтийн журнал аль хэдийн батлагдсан байна"
+        : "Нээлтийн журнал аль хэдийн батлагдсан байна — засах бол эхлээд буцаана уу"
     );
 
   // Харьцах данс: default нь эздийн өмч.

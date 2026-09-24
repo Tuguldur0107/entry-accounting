@@ -91,3 +91,18 @@ export function ulaanbaatarNow(now = new Date()): {
   const weekday = jsDay === 0 ? 7 : jsDay;
   return { date, time, weekday, iso: now.toISOString() };
 }
+
+/**
+ * POS-ийн зарлагын төрөл барааны COGS дансанд бичдэг эсэх (аудит M6, ENT-022).
+ * Хуучин байгууллагад `pos_settings.issueTypeId` нь тогтмол зардлын төрөлд
+ * оноогдсон байж болно — тохиргоог ЧИМЭЭГҮЙ солихгүй, ИЛ анхааруулна.
+ * Асуудалгүй бол null.
+ */
+export function posIssueTypeWarning(
+  issueType: { name: string; debitAccountSource: string; debitAccountNumber: string | null } | null
+): string | null {
+  if (!issueType)
+    return "POS-ийн зарлагын төрөл тохируулаагүй — POS тохиргооноос «Борлуулалтын өртөг» (барааны COGS) төрлийг сонгоно уу";
+  if (issueType.debitAccountSource === "item_cogs") return null;
+  return `POS-ийн зарлагын төрөл «${issueType.name}» нь тогтмол данс${issueType.debitAccountNumber ? ` ${issueType.debitAccountNumber}` : ""}-д бичдэг — борлуулсан барааны өртөг барааны COGS дансанд орохгүй. POS тохиргооноос COGS төрлийг сонгоно уу (өмнөх бичилтийг засахгүй)`;
+}

@@ -5,6 +5,7 @@ import {
   computeSaleTotals,
   discountNetOf,
   lineVat,
+  posIssueTypeWarning,
   roundToCashUnit,
   ulaanbaatarNow,
 } from "../lib/pos/sale-math";
@@ -191,4 +192,13 @@ test("planRefund: allowsRefund, нийлбэр таарах", () => {
   assert.ok(wrong.errors.some((error) => error.includes("таарахгүй")));
   const noRefund = planRefund([{ paymentMethodId: "card", amount: 31_350 }], [{ ...card, allowsRefund: false }], 31_350, {});
   assert.ok(noRefund.errors.some((error) => error.includes("боломжгүй")));
+});
+
+test("Аудит M6: POS-ийн зарлагын төрөл COGS биш бол ИЛ анхааруулна", () => {
+  assert.equal(posIssueTypeWarning({ name: "Борлуулалтын өртөг", debitAccountSource: "item_cogs", debitAccountNumber: null }), null);
+  assert.match(
+    posIssueTypeWarning({ name: "Бичиг хэрэг", debitAccountSource: "fixed", debitAccountNumber: "72500000" }) ?? "",
+    /«Бичиг хэрэг» нь тогтмол данс 72500000-д/
+  );
+  assert.match(posIssueTypeWarning(null) ?? "", /тохируулаагүй/);
 });
