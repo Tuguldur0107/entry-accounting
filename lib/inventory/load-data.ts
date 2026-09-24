@@ -6,11 +6,13 @@ import { db } from "@/lib/db";
 import {
   costEntries,
   inventoryCategories,
+  inventoryCategoryLevels,
   inventoryItems,
   inventoryMovements,
   warehouses,
 } from "@/lib/db/schema";
 import type { MovementRef, MovementType } from "@/lib/inventory/balances";
+import { resolveCategoryLevels } from "@/lib/inventory/category-tree";
 import type {
   InventoryCategoryView,
   InventoryItemView,
@@ -60,6 +62,11 @@ export async function loadInventoryBase(orgId: string) {
     categoryCode: item.categoryCode ?? null,
     ebarimtClassificationCode: item.ebarimtClassificationCode ?? null,
     ebarimtTaxProductCode: item.ebarimtTaxProductCode ?? null,
+    barcodeType: item.barcodeType ?? null,
+    description: item.description ?? null,
+    brand: item.brand ?? null,
+    manufacturer: item.manufacturer ?? null,
+    originCountry: item.originCountry ?? null,
   }));
   const warehouseViews: WarehouseView[] = warehouseRows.map((warehouse) => ({
     id: warehouse.id,
@@ -71,10 +78,20 @@ export async function loadInventoryBase(orgId: string) {
     id: category.id,
     code: category.code,
     name: category.name,
+    parentId: category.parentId ?? null,
     isActive: category.isActive,
     ebarimtClassificationCode: category.ebarimtClassificationCode ?? null,
   }));
   return { itemViews, warehouseViews, categoryViews };
+}
+
+/** Ангиллын түвшний нэрс (дээрээс доош) — мөргүй бол default. */
+export async function loadCategoryLevels(orgId: string): Promise<string[]> {
+  const rows = await db.query.inventoryCategoryLevels.findMany({
+    where: eq(inventoryCategoryLevels.organizationId, orgId),
+    columns: { depth: true, name: true },
+  });
+  return resolveCategoryLevels(rows);
 }
 
 export async function loadMovements(orgId: string) {

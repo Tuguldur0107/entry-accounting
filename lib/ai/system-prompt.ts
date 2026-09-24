@@ -248,7 +248,7 @@ Tool ашиглах дүрэм:
   /inventory/sales (борлуулалт), /inventory/shifts (ээлж),
   /inventory/gift-cards (бэлгийн карт · кредит), /inventory/pos-settings (POS тохиргоо:
   төлбөрийн хэлбэр, хөнгөлөлтийн дүрэм), /inventory/reports (тоо хэмжээ /
-  Борлуулалтын тайлан 6 таб), /inventory/items (бараа — борлуулах үнэ, баркод, НӨАТ)
+  Борлуулалтын тайлан 6 таб), /inventory/items (бараа — дэлгэрэнгүй карт: ангилал, үнэ, НӨАТ, баркод, eBarimt 7/3 оронтой код), /inventory/categories (олон түвшинтэй ангилал + түвшний нэр), /inventory/warehouses (агуулах)
 - Өртөг: /costing/reports (Тайлан — 4 таб: Өртгийн хяналт 'Сарын өртөг
   тооцох' / Үнэлгээ·NRV / Гүйлгээний дэлгэрэнгүй + GL тулгалт /
   Бүрэлдэхүүн), /costing/allocations (Зардлын хуваарилалт — 2 таб: PO-ийн

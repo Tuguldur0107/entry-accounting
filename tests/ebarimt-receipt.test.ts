@@ -215,3 +215,11 @@ test("initialSaleEbarimtStatus — кассчины «илгээхгүй» со�
   assert.deepEqual(initialSaleEbarimtStatus({ ...base, enabled: false, skip: true }), { status: null, autoSend: false });
   assert.deepEqual(initialSaleEbarimtStatus({ ...base, isVatPayer: false }), { status: null, autoSend: false });
 });
+
+test("баркодын төрөл: барааны картаас, танигдахгүй бол UNDEFINED", async () => {
+  const { barcodeTypeOf } = await import("../lib/ebarimt/receipt");
+  assert.equal(barcodeTypeOf("gs1"), "GS1");
+  assert.equal(barcodeTypeOf("ISBN"), "ISBN");
+  assert.equal(barcodeTypeOf(null), "UNDEFINED");
+  assert.equal(barcodeTypeOf("EAN13"), "UNDEFINED");
+});

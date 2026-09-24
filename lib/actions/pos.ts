@@ -25,6 +25,7 @@ import {
   cashDocuments,
   costEntries,
   counterparties,
+  inventoryCategories,
   inventoryItems,
   inventoryMovements,
   journalLines,
@@ -57,6 +58,7 @@ import { roundMoney as round2 } from "@/lib/arap/accounting";
 import { findNegativeStock, balanceKey, type MovementRef } from "@/lib/inventory/balances";
 import { loadQtyLedgerFast } from "@/lib/inventory/period-balances";
 import { toItemVatMode } from "@/lib/inventory/load-data";
+import { ancestorCodes } from "@/lib/inventory/category-tree";
 import {
   assertEnabledMainAccount,
   itemAccountsFor,
@@ -695,6 +697,15 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
     ),
   });
   const itemById = new Map(items.map((item) => [item.id, item]));
+  // Олон түвшинтэй ангилал — хөнгөлөлтийн дүрэм эцэг ангиллаар ч тулгагдана.
+  const categoryNodes = items.some((item) => item.categoryCode)
+    ? (
+        await db.query.inventoryCategories.findMany({
+          where: eq(inventoryCategories.organizationId, ctx.orgId),
+          columns: { id: true, code: true, name: true, parentId: true, isActive: true },
+        })
+      ).map((row) => ({ ...row, parentId: row.parentId ?? null }))
+    : [];
   const approvalExtra: string[] = [];
   const cart: CartLine[] = input.lines.map((line, index) => {
     const item = itemById.get(line.itemId);
@@ -707,7 +718,7 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
       throw new Error(`${item.name}: нэгж үнэ буруу`);
     const unitPrice = override ?? salesPrice;
     if (unitPrice == null)
-      throw new Error(`${item.code} · ${item.name}: борлуулах үнэ тохируулаагүй — Бараа, агуулах дээр оруулна уу`);
+      throw new Error(`${item.code} · ${item.name}: борлуулах үнэ тохируулаагүй — Бараа материал → Бараа дээр оруулна уу`);
     if (override != null && salesPrice != null && Math.abs(override - salesPrice) >= 0.01)
       approvalExtra.push(`${item.name}: үнэ ${fmt(salesPrice)} → ${fmt(override)} өөрчлөгдсөн`);
     return {
@@ -717,6 +728,7 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
       itemName: item.name,
       unit: item.unit,
       categoryCode: item.categoryCode,
+      categoryPath: item.categoryCode ? ancestorCodes(item.categoryCode, categoryNodes) : [],
       quantity,
       unitPrice,
       vatMode: toItemVatMode(item.vatMode),

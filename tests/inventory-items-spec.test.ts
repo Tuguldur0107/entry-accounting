@@ -53,8 +53,34 @@ test("inventoryItemsSpec: зөв мөр бүх талбартайгаа унши
     categoryCode: "OFFICE",
     ebarimtClassificationCode: "1234567",
     ebarimtTaxProductCode: null,
+    // Хуучин загвар (дэлгэрэнгүй баганагүй, «Бүлэг» толгойтой) — хэвээр уншигдана;
+    // дэлгэрэнгүй талбар null = импорт байгаа утгыг ӨӨРЧЛӨХГҮЙ.
+    barcodeType: null,
+    brand: null,
+    manufacturer: null,
+    originCountry: null,
+    description: null,
     isActive: true,
   });
+});
+
+test("inventoryItemsSpec: дэлгэрэнгүй баганууд (Ангилал, баркодын төрөл, брэнд…)", () => {
+  const result = parseMatrix(
+    [
+      ["Код", "Нэр", "Ангилал", "Баркодын төрөл", "Брэнд", "Үйлдвэрлэгч", "Гарал үүсэл", "Тайлбар"],
+      ["T-1", "Тараг", "FOOD", "gs1", "Сүү ХК", "Сүү ХК", "Монгол", "Хөргөгчинд"],
+      ["T-2", "Буруу", "FOOD", "EAN13", "", "", "", ""],
+    ],
+    spec
+  );
+  assert.equal(result.validCount, 1);
+  const value = result.rows[0].value!;
+  assert.equal(value.categoryCode, "FOOD");
+  assert.equal(value.barcodeType, "GS1");
+  assert.equal(value.brand, "Сүү ХК");
+  assert.equal(value.originCountry, "Монгол");
+  assert.equal(value.description, "Хөргөгчинд");
+  assert.match(result.rows[1].errors.join(" "), /Баркодын төрөл/);
 });
 
 test("inventoryItemsSpec: хоосон нэгж/НӨАТ/идэвх default авна, сонголтот талбар null", () => {

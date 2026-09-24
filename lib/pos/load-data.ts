@@ -30,6 +30,9 @@ import {
 import { loadVatSettings } from "@/lib/vat/settings";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { toItemVatMode } from "@/lib/inventory/load-data";
+import { ancestorCodes, buildCategoryTree } from "@/lib/inventory/category-tree";
+import { baseKindOf } from "@/lib/arap/counterparty-kind";
+import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import type { PaymentKind } from "./constants";
 import type {
   DiscountRule,
@@ -665,6 +668,8 @@ export interface CheckoutItem {
   unit: string;
   barcode: string | null;
   categoryCode: string | null;
+  /** Ангиллын өвөг кодууд [өөр, эцэг, …] (олон түвшинтэй ангилал). */
+  categoryPath: string[];
   salesPrice: number | null;
   minSalesPrice: number | null;
   vatMode: "standard" | "exempt" | "zero";
@@ -673,7 +678,11 @@ export interface CheckoutItem {
 export interface CheckoutCustomer {
   id: string;
   name: string;
-  /** Субъект — байгууллага бол eBarimt худалдан авагчийн блок B2B-ээр урьдчилан бөглөгдөнө. */
+  /**
+   * СУУРЬ субъект ("organization" | "individual") — динамик төрлөөс
+   * `baseKindOf`-оор. Байгууллага бол eBarimt худалдан авагчийн блок B2B-ээр
+   * урьдчилан бөглөгдөнө.
+   */
   entityKind: string;
   registerNo: string | null;
   customerGroup: string | null;
@@ -695,7 +704,11 @@ export interface CheckoutData {
   isVatPayer: boolean;
   vatRatePercent: number;
   items: CheckoutItem[];
-  /** Барааны бүлгүүд (tile-ийн шүүлтүүрийн chip) — идэвхтэй, кодоор эрэмбэлсэн. */
+  /**
+   * Барааны ангиллууд (tile-ийн шүүлтүүрийн chip) — ЭХНИЙ ТҮВШНИЙ идэвхтэй
+   * ангилал, кодоор эрэмбэлсэн. Chip нь дэд ангиллын барааг ч багтаана
+   * (`CheckoutItem.categoryPath`).
+   */
   categories: { code: string; name: string }[];
   warehouses: { id: string; code: string; name: string }[];
   cashAccounts: { id: string; name: string; currency: string; accountType: string }[];
@@ -711,6 +724,7 @@ export interface CheckoutData {
 
 export async function loadCheckoutData(orgId: string, userId: string): Promise<CheckoutData> {
   const settings = await ensurePosSettings(orgId, userId);
+  const entityKinds = await loadEntityKinds(orgId);
   const [
     vat,
     items,
@@ -731,7 +745,7 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
       }),
       db.query.inventoryCategories.findMany({
         where: and(eq(inventoryCategories.organizationId, orgId), eq(inventoryCategories.isActive, true)),
-        columns: { code: true, name: true },
+        columns: { id: true, code: true, name: true, parentId: true, isActive: true },
         orderBy: (category, { asc }) => [asc(category.code)],
       }),
       db.query.warehouses.findMany({
@@ -762,10 +776,17 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
     ]);
   const stockRecord: Record<string, number> = {};
   for (const [key, qty] of stock) stockRecord[key] = qty;
-  // Бүлгийн лавлахад байхгүй кодтой бараа (импортоор орсон) — chip-д кодоороо гарна.
-  const categoryMap = new Map(categoryRows.map((row) => [row.code, row.name]));
+  // Олон түвшинтэй ангилал: chip = эхний түвшин (эцэг нь идэвхгүй/алга бол
+  // тухайн идэвхтэй ангилал өөрөө эхний түвшин болно — buildCategoryTree).
+  const categoryNodes = categoryRows.map((row) => ({ ...row, parentId: row.parentId ?? null }));
+  const categoryMap = new Map(
+    buildCategoryTree(categoryNodes)
+      .filter((row) => row.depth === 1)
+      .map((row) => [row.node.code, row.node.name])
+  );
+  // Ангиллын лавлахад байхгүй кодтой бараа (импортоор орсон) — chip-д кодоороо гарна.
   for (const item of items)
-    if (item.categoryCode && !categoryMap.has(item.categoryCode))
+    if (item.categoryCode && !categoryNodes.some((node) => node.code === item.categoryCode))
       categoryMap.set(item.categoryCode, item.categoryCode);
   return {
     settings: toPosSettingsView(settings),
@@ -781,6 +802,7 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
       unit: item.unit,
       barcode: item.barcode,
       categoryCode: item.categoryCode,
+      categoryPath: item.categoryCode ? ancestorCodes(item.categoryCode, categoryNodes) : [],
       salesPrice: item.salesPrice === null ? null : Number(item.salesPrice),
       minSalesPrice: item.minSalesPrice === null ? null : Number(item.minSalesPrice),
       vatMode: toItemVatMode(item.vatMode),
@@ -799,7 +821,7 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
     customers: customerRows.map((cp) => ({
       id: cp.id,
       name: cp.name,
-      entityKind: cp.entityKind,
+      entityKind: baseKindOf(cp.entityKind, entityKinds),
       registerNo: cp.registerNo,
       customerGroup: cp.customerGroup,
       creditLimit: cp.creditLimit === null ? null : Number(cp.creditLimit),

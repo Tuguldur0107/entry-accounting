@@ -42,8 +42,9 @@ export function counterpartyOptions(
           : item.counterpartyType === "customer"
             ? "Авлага"
             : "Өглөг",
-        item.entityKind === "individual" ? "Хувь хүн" : null,
-        item.registerNo ? `${item.entityKind === "individual" ? "РД" : "ТТД"} ${item.registerNo}` : null,
+        // Байгууллага (default) нэрийг бичихгүй — бусад төрлийн нэрийг ил.
+        item.entityKind !== "organization" ? item.entityKindName : null,
+        item.registerNo ? `${item.entityKindBase === "individual" ? "РД" : "ТТД"} ${item.registerNo}` : null,
       ]
         .filter(Boolean)
         .join(" · "),

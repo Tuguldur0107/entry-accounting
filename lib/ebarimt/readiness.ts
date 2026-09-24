@@ -10,13 +10,37 @@
 //
 // Код ЗОХИОХГҮЙ (CLAUDE.md §5c) — зөвхөн дутууг НЭРЛЭНЭ.
 
+import { effectiveCategoryClassification } from "@/lib/inventory/category-tree";
 import { CLASSIFICATION_CODE_RE, TAX_PRODUCT_CODE_RE } from "./constants";
 
-/** Бүлгийн лавлах — барааны код хоосон бол ЭНДЭЭС өвлөнө (queue.ts prepare-тай ИЖИЛ дүрэм). */
+/**
+ * Ангиллын лавлах — барааны код хоосон бол ЭНДЭЭС өвлөнө (queue.ts prepare-тай
+ * ИЖИЛ дүрэм). `id`/`parentId` өгвөл ангилал хоосон үед ЭЦЭГ рүү өгсөнө
+ * (олон түвшинтэй мод — lib/inventory/category-tree.ts).
+ */
 export interface ReadinessCategory {
   code: string;
   name: string;
   ebarimtClassificationCode: string | null;
+  id?: string;
+  parentId?: string | null;
+}
+
+/** Ангиллын код → өвлөгдсөн (өөр → эцэг → …) eBarimt ангилал. */
+export function categoryClassificationMap(
+  categories: readonly ReadinessCategory[]
+): Map<string, string | null> {
+  const nodes = categories.map((category) => ({
+    id: category.id ?? `code:${category.code}`,
+    code: category.code,
+    name: category.name,
+    parentId: category.parentId ?? null,
+    isActive: true,
+    ebarimtClassificationCode: category.ebarimtClassificationCode,
+  }));
+  return new Map(
+    categories.map((category) => [category.code, effectiveCategoryClassification(category.code, nodes)])
+  );
 }
 
 export interface ReadinessItem {
@@ -89,9 +113,7 @@ function sampleText(entry: ReadinessGap): string {
  * Зөвхөн ИДЭВХТЭЙ бараа / хэлбэрийг дуудагч өгнө — архивласан бараа зарагдахгүй.
  */
 export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness {
-  const categoryClassification = new Map(
-    input.categories.map((category) => [category.code, category.ebarimtClassificationCode])
-  );
+  const categoryClassification = categoryClassificationMap(input.categories);
 
   const missingClassification: string[] = [];
   const missingTaxProduct: string[] = [];

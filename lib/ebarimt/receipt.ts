@@ -20,9 +20,11 @@ import {
   CLASSIFICATION_CODE_RE,
   CONSUMER_NO_RE,
   DISTRICT_CODE_RE,
+  EBARIMT_BARCODE_TYPES,
   EBARIMT_ERRORS,
   MERCHANT_TIN_RE,
   TAX_PRODUCT_CODE_RE,
+  type EbarimtBarcodeType,
   type EbarimtStatus,
   type EbarimtTaxType,
 } from "./constants";
@@ -89,6 +91,14 @@ export function taxTypeOf(line: Pick<EbarimtSaleLineInput, "vatMode">, isVatPaye
   }
 }
 
+/** Барааны картын баркодын төрөл → PosAPI `barCodeType` (танигдахгүй бол UNDEFINED). */
+export function barcodeTypeOf(value: string | null | undefined): EbarimtBarcodeType {
+  const upper = value?.trim().toUpperCase();
+  return (EBARIMT_BARCODE_TYPES as readonly string[]).includes(upper ?? "")
+    ? (upper as EbarimtBarcodeType)
+    : "UNDEFINED";
+}
+
 function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtItem {
   const classification = line.classificationCode?.trim() ?? "";
   if (!CLASSIFICATION_CODE_RE.test(classification))
@@ -117,7 +127,7 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
   };
   if (line.barcode) {
     item.barCode = line.barcode;
-    item.barCodeType = "UNDEFINED";
+    item.barCodeType = barcodeTypeOf(line.barcodeType);
   }
   if (taxType === "VAT_FREE" || taxType === "VAT_ZERO") item.taxProductCode = taxProductCode;
   return item;

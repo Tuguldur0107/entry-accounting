@@ -65,14 +65,18 @@ export function ruleWindowMatches(
 /** Дүрэм тухайн мөрөнд хамаарах эсэх (scope). */
 export function ruleAppliesToLine(
   rule: Pick<DiscountRule, "scope" | "scopeRef">,
-  line: Pick<CartLine, "itemId" | "categoryCode">,
+  line: Pick<CartLine, "itemId" | "categoryCode" | "categoryPath">,
   customerGroup: string | null
 ): boolean {
   switch (rule.scope) {
     case "all":
       return true;
     case "category":
-      return !!rule.scopeRef && line.categoryCode === rule.scopeRef;
+      // Олон түвшинтэй ангилал: эцэг ангиллын дүрэм дэд ангиллын бараанд ч.
+      if (!rule.scopeRef) return false;
+      return line.categoryPath
+        ? line.categoryPath.includes(rule.scopeRef)
+        : line.categoryCode === rule.scopeRef;
     case "item":
       return !!rule.scopeRef && line.itemId === rule.scopeRef;
     case "customer_group":

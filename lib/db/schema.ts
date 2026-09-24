@@ -1051,6 +1051,34 @@ export const counterparties = pgTable(
   ]
 );
 
+/**
+ * Харилцагчийн СУБЪЕКТИЙН төрөл — байгууллага бүр НЭМЖ болно
+ * (lib/arap/counterparty-kind.ts). «Байгууллага» / «Хувь хүн» нь СИСТЕМИЙН
+ * төрөл (мөргүй байсан ч үргэлж бий, устгагдахгүй — нэрийг нь л засна).
+ * Шинэ төрөл бүр `baseKind`-тай: регистрийн шалгалт, eBarimt B2B зэрэг
+ * бизнесийн логик нь ЗӨВХӨН baseKind-аар ажиллана (код даяар шинэ төрлийн
+ * нэрийг hardcode хийхгүй). `counterparties.entityKind` = энэ хүснэгтийн `code`.
+ */
+export const counterpartyEntityKinds = pgTable(
+  "counterparty_entity_kinds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    /** "organization" | "individual" — бизнесийн логикийн суурь. */
+    baseKind: text("base_kind").notNull().default("organization"),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("counterparty_entity_kinds_org_code_ux").on(t.organizationId, t.code),
+  ]
+);
+
 export const arApDocuments = pgTable(
   "ar_ap_documents",
   {
@@ -1624,6 +1652,17 @@ export const inventoryItems = pgTable(
     ebarimtClassificationCode: text("ebarimt_classification_code"),
     /** НӨАТ-гүй / 0%-ийн барааны татварын бүтээгдэхүүний код — 3 орон (VAT_FREE / VAT_ZERO-д заавал). */
     ebarimtTaxProductCode: text("ebarimt_tax_product_code"),
+    /** Баркодын төрөл — PosAPI `barCodeType` ("GS1" | "ISBN" | "UNDEFINED"); null = UNDEFINED. */
+    barcodeType: text("barcode_type"),
+    // ── Дэлгэрэнгүй мэдээлэл (барааны карт) — бүгд сонголтоор, тооцоонд нөлөөгүй ──
+    /** Барааны тайлбар / онцлог. */
+    description: text("description"),
+    /** Брэнд (худалдааны тэмдэг). */
+    brand: text("brand"),
+    /** Үйлдвэрлэгч. */
+    manufacturer: text("manufacturer"),
+    /** Гарал үүслийн улс. */
+    originCountry: text("origin_country"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -1638,7 +1677,14 @@ export const inventoryItems = pgTable(
   ]
 );
 
-/** Барааны бүлэг — хөнгөлөлтийн дүрмийн хамрах хүрээ, тайлангийн бүлэглэл. */
+/**
+ * Барааны АНГИЛАЛ — ОЛОН ТҮВШИНТЭЙ мод (lib/inventory/category-tree.ts).
+ * `parentId` null = эхний түвшин (ж: «Ерөнхий ангилал»); түвшний нэр ба
+ * дээд гүн нь `inventory_category_levels`-ээс. Бараа ангилалдаа КОДООР
+ * холбогдоно (`inventory_items.categoryCode`) — код өөрчлөгдөхгүй.
+ * Хөнгөлөлтийн дүрэм, POS шүүлт, тайлан нь УДАМШЛААР (дэд ангиллын бараа ч
+ * эцэг ангилалд тооцогдоно); eBarimt ангилал нь өвөг рүү өвлөгдөнө.
+ */
 export const inventoryCategories = pgTable(
   "inventory_categories",
   {
@@ -1651,6 +1697,13 @@ export const inventoryCategories = pgTable(
     }),
     code: text("code").notNull(),
     name: text("name").notNull(),
+    /**
+     * Эцэг ангилал — null бол эхний түвшин. FK нь NO ACTION (мөрийн төгсгөлд
+     * шалгана): байгууллага/хэрэглэгч устгах cascade нь бүх модыг НЭГ мөрөөр
+     * устгаж чадна; ганц эцгийг хүүхэдтэйгээр устгахыг DB ч, action ч
+     * (categoryDeleteBlocker) хориглоно.
+     */
+    parentId: uuid("parent_id"),
     /** Бүлгийн eBarimt ангилалын код (7 орон) — бараанд хоосон бол өвлөгдөнө. */
     ebarimtClassificationCode: text("ebarimt_classification_code"),
     isActive: boolean("is_active").notNull().default(true),
@@ -1658,6 +1711,32 @@ export const inventoryCategories = pgTable(
   },
   (t) => [
     uniqueIndex("inventory_categories_org_code_ux").on(t.organizationId, t.code),
+    foreignKey({
+      columns: [t.parentId],
+      foreignColumns: [t.id],
+    }),
+    index("inventory_categories_parent_ix").on(t.parentId),
+  ]
+);
+
+/**
+ * Ангиллын ТҮВШНИЙ нэр (байгууллага бүрд) — depth 1 = хамгийн дээд.
+ * Мөргүй байгууллагад default («Ерөнхий ангилал» → «Үндсэн ангилал» →
+ * «Дэд ангилал»); хамгийн багадаа 1 түвшин. Түвшний тоо = модны дээд гүн.
+ */
+export const inventoryCategoryLevels = pgTable(
+  "inventory_category_levels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    depth: integer("depth").notNull(),
+    name: text("name").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("inventory_category_levels_org_depth_ux").on(t.organizationId, t.depth),
   ]
 );
 

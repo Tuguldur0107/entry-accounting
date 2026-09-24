@@ -1,15 +1,12 @@
 import { InventoryItemsView } from "@/components/inventory/inventory-items-view";
-import { getActiveOrg } from "@/lib/auth";
-import { loadInventoryBase } from "@/lib/inventory/load-data";
+import { requireModuleAction } from "@/lib/auth";
+import { loadCategoryLevels, loadInventoryBase } from "@/lib/inventory/load-data";
 
 export default async function InventoryItemsPage() {
-  const { orgId } = await getActiveOrg();
-  const { itemViews, warehouseViews, categoryViews } = await loadInventoryBase(orgId);
-  return (
-    <InventoryItemsView
-      items={itemViews}
-      warehouses={warehouseViews}
-      categories={categoryViews}
-    />
-  );
+  const { orgId } = await requireModuleAction("inv", "read");
+  const [{ itemViews, categoryViews }, levels] = await Promise.all([
+    loadInventoryBase(orgId),
+    loadCategoryLevels(orgId),
+  ]);
+  return <InventoryItemsView items={itemViews} categories={categoryViews} levels={levels} />;
 }

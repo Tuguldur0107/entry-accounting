@@ -5,6 +5,8 @@ import { getPeriodSelection } from "@/lib/periods/selection";
 import { canAutoDefaultSegment } from "@/lib/gl/posting-code";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
+import { baseKindOf, entityKindName } from "@/lib/arap/counterparty-kind";
+import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import {
   arApDocuments,
   arApDocumentLines,
@@ -170,16 +172,21 @@ export async function loadArApSegmentData(
 export async function loadArApCounterparties(
   orgId: string
 ): Promise<CounterpartyView[]> {
-  const rows = await db.query.counterparties.findMany({
-    where: eq(counterparties.organizationId, orgId),
-    orderBy: (item, { asc }) => [asc(item.name)],
-  });
+  const [rows, kinds] = await Promise.all([
+    db.query.counterparties.findMany({
+      where: eq(counterparties.organizationId, orgId),
+      orderBy: (item, { asc }) => [asc(item.name)],
+    }),
+    loadEntityKinds(orgId),
+  ]);
   return rows.map((item) => ({
     id: item.id,
     name: item.name,
     code: item.code,
     counterpartyType: item.counterpartyType,
     entityKind: item.entityKind,
+    entityKindName: entityKindName(item.entityKind, kinds),
+    entityKindBase: baseKindOf(item.entityKind, kinds),
     registerNo: item.registerNo,
     defaultReceivableAccountNumber: item.defaultReceivableAccountNumber,
     defaultPayableAccountNumber: item.defaultPayableAccountNumber,
@@ -392,16 +399,18 @@ export async function loadArApWorkspaceData() {
   // огноо хамаагүй орно).
   const period = await getPeriodSelection();
 
-  const [counterpartiesView, documentsView, segmentData, inventoryOptions] =
+  const [counterpartiesView, documentsView, segmentData, inventoryOptions, entityKinds] =
     await Promise.all([
       loadArApCounterparties(orgId),
       loadArApDocuments(orgId, { from: period.from, to: period.to }),
       loadArApSegmentData(orgId),
       loadArApInventoryOptions(orgId),
+      loadEntityKinds(orgId),
     ]);
 
   return {
     counterparties: counterpartiesView,
+    entityKinds,
     documents: documentsView,
     activeSegIds: segmentData.activeSegIds,
     segmentOptions: segmentData.segmentOptions,

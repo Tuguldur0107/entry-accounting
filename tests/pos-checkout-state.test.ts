@@ -180,3 +180,14 @@ test("cartQuantityByItem: мөрүүд бараагаар нэгтгэгдэнэ
   cart = addToCart(cart, cola, next, 2)!.cart;
   assert.equal(cartQuantityByItem(cart).get("i-cola"), 3);
 });
+
+test("ангиллын chip дэд ангиллын барааг ч харуулна (categoryPath)", async () => {
+  const { filterCheckoutItems } = await import("../lib/pos/checkout-state");
+  const items = [
+    { id: "1", code: "T1", name: "Тараг", unit: "ш", salesPrice: 1, categoryCode: "TARAG", categoryPath: ["TARAG", "DAIRY", "FOOD"] },
+    { id: "2", code: "S1", name: "Саван", unit: "ш", salesPrice: 1, categoryCode: "HOME", categoryPath: ["HOME"] },
+  ];
+  assert.deepEqual(filterCheckoutItems(items, "", "FOOD").map((item) => item.id), ["1"]);
+  assert.deepEqual(filterCheckoutItems(items, "", "DAIRY").map((item) => item.id), ["1"]);
+  assert.deepEqual(filterCheckoutItems(items, "", "HOME").map((item) => item.id), ["2"]);
+});

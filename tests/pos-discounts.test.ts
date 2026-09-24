@@ -244,3 +244,26 @@ test("allocateReceiptDiscount: суурьаас хэтрэхгүй, нийлбэ
   const capped = allocateReceiptDiscount(lines, 1_000_000, { ruleId: null, ruleCode: null, kind: "receipt" });
   assert.equal(capped, 34_000);
 });
+
+test("олон түвшинтэй ангилал: ЭЦЭГ ангиллын дүрэм дэд ангиллын бараанд хамаарна", () => {
+  const rules = [rule({ id: "food10", ruleType: "line_percent", scope: "category", scopeRef: "FOOD", value: 10 })];
+  const cart = [
+    // Тараг → Сүү → Хүнс
+    line({ key: "a", itemId: "TARAG-1", quantity: 1, unitPrice: 10_000, categoryCode: "TARAG", categoryPath: ["TARAG", "DAIRY", "FOOD"] }),
+    // Ахуйн бараа — Хүнсэнд хамаарахгүй
+    line({ key: "b", itemId: "SOAP-1", quantity: 1, unitPrice: 10_000, categoryCode: "HOME", categoryPath: ["HOME"] }),
+  ];
+  const result = applyDiscounts(cart, rules, ctx);
+  assert.equal(result.lines.find((entry) => entry.itemId === "TARAG-1")!.discountAmount, 1_000);
+  assert.equal(result.lines.find((entry) => entry.itemId === "SOAP-1")!.discountAmount, 0);
+});
+
+test("categoryPath-гүй хуучин мөр: зөвхөн яг ангиллын кодоор тулгана", () => {
+  const rules = [rule({ id: "food10", ruleType: "line_percent", scope: "category", scopeRef: "FOOD", value: 10 })];
+  const result = applyDiscounts(
+    [line({ key: "a", itemId: "TARAG-1", quantity: 1, unitPrice: 10_000, categoryCode: "TARAG" })],
+    rules,
+    ctx
+  );
+  assert.equal(result.lines[0].discountAmount, 0);
+});

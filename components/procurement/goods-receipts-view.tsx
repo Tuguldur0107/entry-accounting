@@ -376,8 +376,8 @@ export function GoodsReceiptsView({
                 primary: true,
               },
               {
-                label: "Бараа, агуулах",
-                href: "/inventory/items",
+                label: "Агуулах",
+                href: "/inventory/warehouses",
                 icon: "warehouse",
               },
             ]}

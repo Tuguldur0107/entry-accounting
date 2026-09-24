@@ -10,6 +10,7 @@ import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  inventoryCategories,
   accountingPeriods,
   costEntries,
   costPeriodResults,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { periodCodeOf } from "@/lib/periods/period";
 import { scopeKey } from "@/lib/costing/periodic";
+import { descendantCodes } from "@/lib/inventory/category-tree";
 import { COGS_TRUE_UP_ENTRY_TYPE, PROVISIONAL_VALUATION_SOURCE, type PaymentKind } from "./constants";
 import type {
   CogsBasis,
@@ -53,6 +55,18 @@ export async function loadSalesReport(orgId: string, filter: SalesReportFilter):
     orderBy: (sale, { asc }) => [asc(sale.soldAt)],
   });
   const active = sales.filter((sale) => sale.status !== "voided");
+  // Ангиллын шүүлт УДАМШЛААР — эцэг ангилал сонгоход дэд ангиллын бараа ч орно.
+  const categoryScope = filter.categoryCode
+    ? descendantCodes(
+        filter.categoryCode,
+        (
+          await db.query.inventoryCategories.findMany({
+            where: eq(inventoryCategories.organizationId, orgId),
+            columns: { id: true, code: true, name: true, parentId: true, isActive: true },
+          })
+        ).map((row) => ({ ...row, parentId: row.parentId ?? null }))
+      )
+    : null;
 
   // COGS: period results (scope × сар) + хаагдсан үе + урьдчилсан/залруулгын бичилт.
   const periodCodes = [...new Set(active.map((sale) => periodCodeOf(sale.date)))];
@@ -125,7 +139,7 @@ export async function loadSalesReport(orgId: string, filter: SalesReportFilter):
     for (const line of sale.lines) {
       if (filter.itemId && line.itemId !== filter.itemId) continue;
       const categoryCode = line.item?.categoryCode ?? null;
-      if (filter.categoryCode && categoryCode !== filter.categoryCode) continue;
+      if (categoryScope && !(categoryCode && categoryScope.has(categoryCode))) continue;
       const quantity = Number(line.quantity);
       // ТЭМДЭГТЭЙ COGS (буцаалт сөрөг): эцсийн дундаж → sign × тоо × дундаж;
       // урьдчилсан → sign × |урьдчилсан| + Σ залруулга (залруулга COGS-ийн

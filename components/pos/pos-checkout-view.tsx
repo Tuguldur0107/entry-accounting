@@ -334,7 +334,7 @@ export function PosCheckoutView({
   const addItem = useCallback(
     (item: CheckoutItem) => {
       if (item.salesPrice == null) {
-        toast.error(`${item.name}: борлуулах үнэ тохируулаагүй — Бараа, агуулах дээр оруулна уу`);
+        toast.error(`${item.name}: борлуулах үнэ тохируулаагүй — Бараа материал → Бараа дээр оруулна уу`);
         return;
       }
       setCart((current) => addToCart(current, item, nextLineKey)?.cart ?? current);
@@ -777,7 +777,7 @@ export function PosCheckoutView({
               description="Эхлээд Мөнгөн хөрөнгө → Данс болон Бараа материал → Агуулах бүртгэнэ үү."
               actions={[
                 { label: "Кассын данс", href: "/cash/accounts", icon: "cash" },
-                { label: "Агуулах", href: "/inventory/items", icon: "warehouse", primary: true },
+                { label: "Агуулах", href: "/inventory/warehouses", icon: "warehouse", primary: true },
               ]}
             />
           ) : (

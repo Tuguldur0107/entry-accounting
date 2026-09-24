@@ -552,6 +552,12 @@ export interface InventoryItemImport {
   ebarimtClassificationCode?: string | null;
   /** Татварын бүтээгдэхүүний код (3 орон) — НӨАТ-гүй / 0% бараанд. */
   ebarimtTaxProductCode?: string | null;
+  // ── Дэлгэрэнгүй (сонголтоор) — хоосон нүд байгаа утгыг ӨӨРЧЛӨХГҮЙ ──
+  barcodeType?: string | null;
+  brand?: string | null;
+  manufacturer?: string | null;
+  originCountry?: string | null;
+  description?: string | null;
   isActive: boolean;
 }
 
@@ -621,14 +627,15 @@ export function inventoryItemsSpec(context: {
       },
       {
         key: "categoryCode",
-        header: "Бүлэг",
-        hint: "Барааны бүлгийн код — бүртгэлд байх ёстой (сонголтоор)",
+        header: "Ангилал",
+        aliases: ["Бүлэг"],
+        hint: "Барааны ангиллын код (аль ч түвшний) — бүртгэлд байх ёстой (сонголтоор)",
         example: "",
       },
       {
         key: "ebarimtClassificationCode",
         header: "eBarimt ангилал",
-        hint: "ТЕГ-ийн 7 оронтой ангилал (сонголтоор; хоосон бол бүлгийнхийг өвлөнө)",
+        hint: "ТЕГ/ҮСХ-ын 7 оронтой ангилал (сонголтоор; хоосон бол ангиллаас өвлөнө)",
         example: "",
       },
       {
@@ -637,6 +644,16 @@ export function inventoryItemsSpec(context: {
         hint: "3 оронтой татварын бүтээгдэхүүний код — НӨАТ-гүй / 0% бараанд (сонголтоор)",
         example: "",
       },
+      {
+        key: "barcodeType",
+        header: "Баркодын төрөл",
+        hint: "GS1 / ISBN / UNDEFINED (сонголтоор; хоосон бол өөрчлөхгүй)",
+        example: "GS1",
+      },
+      { key: "brand", header: "Брэнд", hint: "Сонголтоор; хоосон бол өөрчлөхгүй", example: "" },
+      { key: "manufacturer", header: "Үйлдвэрлэгч", hint: "Сонголтоор; хоосон бол өөрчлөхгүй", example: "" },
+      { key: "originCountry", header: "Гарал үүсэл", hint: "Улс — сонголтоор; хоосон бол өөрчлөхгүй", example: "Монгол" },
+      { key: "description", header: "Тайлбар", hint: "Барааны тайлбар — сонголтоор; хоосон бол өөрчлөхгүй", example: "" },
       {
         key: "isActive",
         header: "Идэвхтэй",
@@ -677,7 +694,7 @@ export function inventoryItemsSpec(context: {
 
       const categoryCode = record.categoryCode.trim() || null;
       if (categoryCode && !context.categoryCodes.has(categoryCode))
-        errors.push(`"${categoryCode}" бүлэг бүртгэлд алга`);
+        errors.push(`"${categoryCode}" ангилал бүртгэлд алга`);
 
       const ebarimtClassificationCode = record.ebarimtClassificationCode.trim() || null;
       if (ebarimtClassificationCode && !/^\d{7}$/.test(ebarimtClassificationCode))
@@ -686,6 +703,19 @@ export function inventoryItemsSpec(context: {
       const ebarimtTaxProductCode = record.ebarimtTaxProductCode.trim() || null;
       if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
         errors.push("Татварын код 3 оронтой тоо байна");
+
+      const barcodeType = record.barcodeType.trim().toUpperCase() || null;
+      if (barcodeType && !["GS1", "ISBN", "UNDEFINED"].includes(barcodeType))
+        errors.push("Баркодын төрөл GS1 / ISBN / UNDEFINED байна");
+      const text = (value: string, limit: number, label: string) => {
+        const cleaned = value.trim() || null;
+        if (cleaned && cleaned.length > limit) errors.push(`${label} ${limit} тэмдэгтээс ихгүй`);
+        return cleaned;
+      };
+      const brand = text(record.brand, 120, "Брэнд");
+      const manufacturer = text(record.manufacturer, 160, "Үйлдвэрлэгч");
+      const originCountry = text(record.originCountry, 80, "Гарал үүсэл");
+      const description = text(record.description, 2000, "Тайлбар");
 
       const activeRaw = record.isActive.trim().toLowerCase();
       const isActive =
@@ -705,6 +735,11 @@ export function inventoryItemsSpec(context: {
           categoryCode,
           ebarimtClassificationCode,
           ebarimtTaxProductCode,
+          barcodeType,
+          brand,
+          manufacturer,
+          originCountry,
+          description,
           isActive,
         },
       };

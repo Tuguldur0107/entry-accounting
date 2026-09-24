@@ -69,6 +69,12 @@ export interface CartLine {
   itemName: string;
   unit: string;
   categoryCode: string | null;
+  /**
+   * Ангиллын ӨВӨГ кодууд [өөр, эцэг, …] — олон түвшинтэй ангилалд эцэг
+   * ангиллын хөнгөлөлтийн дүрэм дэд ангиллын бараанд хамаарна. Байхгүй бол
+   * зөвхөн categoryCode-оор тулгана (хуучин зан төлөв).
+   */
+  categoryPath?: string[];
   quantity: number;
   /** Нэгж үнэ (НӨАТ төлөгч бол орсон). */
   unitPrice: number;

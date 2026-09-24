@@ -195,13 +195,14 @@ import { lookupEbarimtTin, resendEbarimt } from "@/lib/actions/ebarimt";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
 import {
-  COUNTERPARTY_ENTITY_KIND_LABELS,
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
+  baseKindOf,
+  entityKindName,
   inferEntityKindFromRegisterNo,
-  isCounterpartyEntityKind,
-  normalizeEntityKind,
-  type CounterpartyEntityKind,
+  resolveEntityKindCode,
+  type EntityKindOption,
 } from "@/lib/arap/counterparty-kind";
+import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import { ebarimtStatusWithPosApi, loadEbarimtReadiness, settingsInputOf } from "@/lib/ebarimt/queue";
 import { loadQpayReadiness, qpayStatusSummary } from "@/lib/qpay/store";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
@@ -780,8 +781,7 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         entityKind: {
           type: "string",
-          enum: ["organization", "individual"],
-          description: "Субъект: organization=Байгууллага (default), individual=Хувь хүн — иргэний РД (УУ12345678) өгвөл individual",
+          description: "Субъектийн төрөл — код эсвэл нэр: organization=Байгууллага (default), individual=Хувь хүн, эсвэл байгууллагын НЭМСЭН төрөл (ж: «Төрийн байгууллага», kind_1). Иргэний РД (УУ12345678) өгвөл individual. Бүртгэлд байхгүй төрөл өгвөл алдаа + жагсаалт буцна",
         },
         code: {
           type: "string",
@@ -822,6 +822,13 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
+        ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
+        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3 орон — exempt/zero бараанд заавал" },
+        barcodeType: { type: "string", enum: ["GS1", "ISBN", "UNDEFINED"], description: "Баркодын төрөл (eBarimt barCodeType) — сонголтоор" },
+        description: { type: "string", description: "Барааны тайлбар (≤2000) — сонголтоор" },
+        brand: { type: "string", description: "Брэнд — сонголтоор" },
+        manufacturer: { type: "string", description: "Үйлдвэрлэгч — сонголтоор" },
+        originCountry: { type: "string", description: "Гарал үүслийн улс — сонголтоор" },
       },
       required: ["code", "name"],
     },
@@ -855,8 +862,7 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         entityKind: {
           type: "string",
-          enum: ["organization", "individual"],
-          description: "Субъект: Байгууллага / Хувь хүн (сонголтоор)",
+          description: "Субъектийн төрөл — код эсвэл нэр: organization=Байгууллага (default), individual=Хувь хүн, эсвэл байгууллагын НЭМСЭН төрөл (ж: «Төрийн байгууллага», kind_1). Иргэний РД (УУ12345678) өгвөл individual. Бүртгэлд байхгүй төрөл өгвөл алдаа + жагсаалт буцна",
         },
         paymentTermsDays: { type: "integer", description: "Төлбөрийн нөхцөл, хоног (сонголтоор)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
@@ -954,6 +960,13 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
+        ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
+        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3 орон — exempt/zero бараанд заавал" },
+        barcodeType: { type: "string", enum: ["GS1", "ISBN", "UNDEFINED"], description: "Баркодын төрөл (eBarimt barCodeType) — сонголтоор" },
+        description: { type: "string", description: "Барааны тайлбар (≤2000) — сонголтоор" },
+        brand: { type: "string", description: "Брэнд — сонголтоор" },
+        manufacturer: { type: "string", description: "Үйлдвэрлэгч — сонголтоор" },
+        originCountry: { type: "string", description: "Гарал үүслийн улс — сонголтоор" },
       },
       required: ["itemCode"],
     },
@@ -1733,7 +1746,7 @@ export const AI_TOOLS: AiToolDef[] = [
             properties: {
               name: { type: "string" },
               counterpartyType: { type: "string", enum: ["customer", "supplier", "both"] },
-              entityKind: { type: "string", enum: ["organization", "individual"], description: "Байгууллага (default) / Хувь хүн" },
+              entityKind: { type: "string", description: "Төрөл — organization (default) / individual / байгууллагын нэмсэн төрлийн код эсвэл нэр" },
               code: { type: "string", description: "Харилцагчийн код (давтагдашгүй, сонголтоор)" },
               registerNo: { type: "string" },
               defaultReceivableAccount: { type: "string" },
@@ -4492,6 +4505,7 @@ async function runListCounterparties(
   input: { query?: string; includeInactive?: boolean; limit?: number }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
+  const kinds = await loadEntityKinds(orgId);
   const list = await db.query.counterparties.findMany({
     where: input.includeInactive
       ? eq(counterparties.organizationId, orgId)
@@ -4520,9 +4534,9 @@ async function runListCounterparties(
           entry.id.slice(0, 8),
           entry.name,
           entry.code ? `Код ${entry.code}` : null,
-          entry.registerNo ? `${normalizeEntityKind(entry.entityKind) === "individual" ? "РД" : "ТТД"} ${entry.registerNo}` : null,
+          entry.registerNo ? `${baseKindOf(entry.entityKind, kinds) === "individual" ? "РД" : "ТТД"} ${entry.registerNo}` : null,
           entry.email || null,
-          cpKindNote(entry.entityKind),
+          cpKindNote(entry.entityKind, kinds),
           CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
           entry.defaultCurrency,
           `${entry.paymentTermsDays} хоног`,
@@ -4692,8 +4706,9 @@ const CP_TYPE_LABELS: Record<string, string> = {
 };
 
 /** Субъектийн төрөл — «Хувь хүн» бол л ил бичнэ (байгууллага default тул чимээгүй). */
-function cpKindNote(entityKind: string | null | undefined): string | null {
-  return normalizeEntityKind(entityKind) === "individual" ? "Хувь хүн" : null;
+function cpKindNote(entityKind: string | null | undefined, kinds: EntityKindOption[]): string | null {
+  // Default (байгууллага)-ыг бичихгүй — бусад төрлийн НЭРИЙГ ил.
+  return entityKind && entityKind !== DEFAULT_COUNTERPARTY_ENTITY_KIND ? entityKindName(entityKind, kinds) : null;
 }
 
 async function runCreateCounterparty(
@@ -4701,7 +4716,7 @@ async function runCreateCounterparty(
   input: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
-    entityKind?: "organization" | "individual";
+    entityKind?: string;
     code?: string;
     registerNo?: string;
     email?: string;
@@ -4721,12 +4736,17 @@ async function runCreateCounterparty(
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   const registerNo = input.registerNo?.trim() || undefined;
   const code = normalizeCounterpartyCode(input.code);
-  if (input.entityKind != null && !isCounterpartyEntityKind(input.entityKind))
-    throw new Error("entityKind нь organization эсвэл individual байна");
-  // Төрөл өгөөгүй ч регистр нь иргэний РД хэлбэртэй бол «Хувь хүн» (таамаглал
-  // биш — хэлбэр нь тодорхой); байгууллагын дугаар / тодорхойгүй бол default.
-  const entityKind: CounterpartyEntityKind =
-    input.entityKind ?? (inferEntityKindFromRegisterNo(registerNo) === "individual" ? "individual" : DEFAULT_COUNTERPARTY_ENTITY_KIND);
+  // Төрөл: байгууллагын жагсаалтаас (систем + нэмсэн) код эсвэл нэрээр.
+  // Өгөөгүй ч регистр нь иргэний РД хэлбэртэй бол «Хувь хүн» (таамаглал биш —
+  // хэлбэр нь тодорхой); байгууллагын дугаар / тодорхойгүй бол default.
+  const kinds = await loadEntityKinds(orgId);
+  const kindResult = resolveEntityKindCode(
+    input.entityKind?.trim() ||
+      (inferEntityKindFromRegisterNo(registerNo) === "individual" ? "individual" : DEFAULT_COUNTERPARTY_ENTITY_KIND),
+    kinds
+  );
+  if ("error" in kindResult) throw new Error(`[VALIDATION] ${kindResult.error}`);
+  const entityKind = kindResult.code;
 
   // Давхардлын шалгалт: нэр case-insensitive, ТТД / КОД яг таарлаар (идэвхгүйг
   // ч оруулна — идэвхгүй харилцагчтай ижил нэр DB unique-д унана).
@@ -4776,7 +4796,7 @@ async function runCreateCounterparty(
     })
   );
   return {
-    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${entityKind === "individual" ? "РД" : "ТТД"} ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${COUNTERPARTY_ENTITY_KIND_LABELS[entityKind]}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${baseKindOf(entityKind, kinds) === "individual" ? "РД" : "ТТД"} ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${entityKindName(entityKind, kinds)}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };
 }
 
@@ -4788,6 +4808,13 @@ type ItemPosInput = {
   vatMode?: "standard" | "exempt" | "zero";
   categoryCode?: string;
   revenueAccountNumber?: string;
+  ebarimtClassificationCode?: string;
+  ebarimtTaxProductCode?: string;
+  barcodeType?: string;
+  description?: string;
+  brand?: string;
+  manufacturer?: string;
+  originCountry?: string;
 };
 
 /** Зөвхөн ӨГӨГДСӨН POS талбарыг дамжуулна — өгөөгүй нь хөндөгдөхгүй (update-д чухал). */
@@ -4799,7 +4826,27 @@ function itemPosFieldsOf(input: ItemPosInput) {
     vatMode?: "standard" | "exempt" | "zero";
     categoryCode?: string | null;
     revenueAccountNumber?: string | null;
+    ebarimtClassificationCode?: string | null;
+    ebarimtTaxProductCode?: string | null;
+    barcodeType?: string | null;
+    description?: string | null;
+    brand?: string | null;
+    manufacturer?: string | null;
+    originCountry?: string | null;
   } = {};
+  // Текст талбарууд — хоосон мөр = арилгах (server action ДАХИН шалгана).
+  for (const key of [
+    "ebarimtClassificationCode",
+    "ebarimtTaxProductCode",
+    "barcodeType",
+    "description",
+    "brand",
+    "manufacturer",
+    "originCountry",
+  ] as const) {
+    const value = input[key];
+    if (value != null) fields[key] = String(value).trim() || null;
+  }
   if (input.salesPrice != null) fields.salesPrice = Number(input.salesPrice);
   if (input.minSalesPrice != null) fields.minSalesPrice = Number(input.minSalesPrice);
   if (input.barcode != null) fields.barcode = input.barcode.trim() || null;
@@ -4855,7 +4902,7 @@ async function runUpdateCounterparty(
     counterparty: string;
     newName?: string;
     counterpartyType?: "customer" | "supplier" | "both";
-    entityKind?: "organization" | "individual";
+    entityKind?: string;
     paymentTermsDays?: number;
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
@@ -4888,10 +4935,10 @@ async function runUpdateCounterparty(
       throw new Error("Харилцагчийн төрөл буруу байна");
     changes.counterpartyType = input.counterpartyType;
   }
-  if (input.entityKind != null) {
-    if (!isCounterpartyEntityKind(input.entityKind))
-      throw new Error("entityKind нь organization эсвэл individual байна");
-    changes.entityKind = input.entityKind;
+  if (input.entityKind != null && input.entityKind.trim()) {
+    const kindResult = resolveEntityKindCode(input.entityKind, await loadEntityKinds(orgId), counterparty.entityKind);
+    if ("error" in kindResult) throw new Error(`[VALIDATION] ${kindResult.error}`);
+    changes.entityKind = kindResult.code;
   }
   if (input.paymentTermsDays != null)
     changes.paymentTermsDays = Math.max(0, Math.round(input.paymentTermsDays));

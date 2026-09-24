@@ -111,12 +111,12 @@ export const ProductPanel = forwardRef<HTMLInputElement, ProductPanelProps>(func
             title={items.length === 0 ? "Борлуулах бараа алга" : "Бараа олдсонгүй"}
             description={
               items.length === 0
-                ? "Бараа, агуулах дээр бараа бүртгээд борлуулах үнийг нь оруулна уу."
+                ? "Бараа материал → Бараа дээр бараа бүртгээд борлуулах үнийг нь оруулна уу."
                 : "Хайлтаа өөрчлөх эсвэл «Бүгд» бүлгийг сонгоно уу."
             }
             actions={
               items.length === 0
-                ? [{ label: "Бараа, агуулах", href: "/inventory/items", icon: "inventory", primary: true }]
+                ? [{ label: "Бараа", href: "/inventory/items", icon: "inventory", primary: true }]
                 : []
             }
           />

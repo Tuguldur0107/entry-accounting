@@ -93,7 +93,7 @@ async function importInventoryItemsCore(
         throw new Error("НӨАТ-ийн горим standard / exempt / zero байна");
       const categoryCode = row.categoryCode?.trim() || null;
       if (categoryCode && !activeCategories.has(categoryCode))
-        throw new Error(`"${categoryCode}" бүлэг идэвхтэй жагсаалтад алга`);
+        throw new Error(`"${categoryCode}" ангилал идэвхтэй жагсаалтад алга`);
       const barcode = row.barcode?.trim() || null;
       // eBarimt: ангилал 7 орон, татварын бүтээгдэхүүний код 3 орон
       // (docs/pos/03-ebarimt-integration-plan.md §4.1) — код ЗОХИОХГҮЙ.
@@ -103,6 +103,22 @@ async function importInventoryItemsCore(
       const ebarimtTaxProductCode = row.ebarimtTaxProductCode?.trim() || null;
       if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
         throw new Error("Татварын код 3 оронтой тоо байна");
+
+      const barcodeType = row.barcodeType?.trim().toUpperCase() || null;
+      if (barcodeType && !["GS1", "ISBN", "UNDEFINED"].includes(barcodeType))
+        throw new Error("Баркодын төрөл GS1 / ISBN / UNDEFINED байна");
+      // Дэлгэрэнгүй талбар: хоосон нүд = ӨӨРЧЛӨХГҮЙ (хуучин загвараар дахин
+      // импортлоход брэнд/тайлбар арчигдахгүй).
+      const detail = {
+        barcodeType,
+        brand: row.brand?.trim().slice(0, 120) || null,
+        manufacturer: row.manufacturer?.trim().slice(0, 160) || null,
+        originCountry: row.originCountry?.trim().slice(0, 80) || null,
+        description: row.description?.trim().slice(0, 2000) || null,
+      };
+      const detailChanges = Object.fromEntries(
+        Object.entries(detail).filter(([, value]) => value != null)
+      ) as Partial<typeof detail>;
 
       const existing = await db.query.inventoryItems.findFirst({
         where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, code)),
@@ -143,6 +159,7 @@ async function importInventoryItemsCore(
               categoryCode,
               ebarimtClassificationCode,
               ebarimtTaxProductCode,
+              ...detailChanges,
               isActive: row.isActive,
             })
             .where(
@@ -164,6 +181,7 @@ async function importInventoryItemsCore(
               categoryCode,
               ebarimtClassificationCode,
               ebarimtTaxProductCode,
+              ...detail,
               isActive: row.isActive,
             })
             .returning({ id: inventoryItems.id });
@@ -194,7 +212,7 @@ async function importInventoryItemsCore(
   }
 
   if (created > 0 || updated > 0) {
-    for (const path of ["/inventory", "/inventory/items", "/inventory/movements", "/costing"])
+    for (const path of ["/inventory", "/inventory/items", "/inventory/categories", "/inventory/movements", "/costing"])
       revalidatePath(path);
   }
   return { created, updated, failures };
