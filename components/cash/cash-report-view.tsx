@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import type { ColDef } from "ag-grid-community";
 
@@ -49,6 +50,8 @@ interface Props {
   cashFlowNames: Record<string, string>;
   periodStart: string;
   periodEnd: string;
+  /** Зүсэлт — URL-ийн `?view=` (page.tsx шалгасан). */
+  view: CashReportView;
 }
 
 function moneyCol<T>(): Partial<ColDef<T>> {
@@ -78,11 +81,20 @@ export function CashReportView({
   cashFlowNames,
   periodStart,
   periodEnd,
+  view,
 }: Props) {
   const detailGridRef = useRef<DataGridHandle>(null);
   const [quickFilter, setQuickFilter] = useState("");
-  // Нэг тайлангийн 3 зүсэлт — огноо нь ЗӨВХӨН топбарын периодоос.
-  const [view, setView] = useState<CashReportView>("accounts");
+  // Нэг тайлангийн 3 зүсэлт — URL-д (`?view=`), огноо ЗӨВХӨН топбарын периодоос.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const setView = (next: CashReportView) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "accounts") params.delete("view");
+    else params.set("view", next);
+    router.replace(params.size ? `${pathname}?${params}` : pathname);
+  };
 
   const movementColumnDefs = useMemo<ColDef<CashMovementRow>[]>(
     () => [

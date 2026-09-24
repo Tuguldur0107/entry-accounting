@@ -578,24 +578,24 @@ export function SalesReportView({
       .sort((a, b) => b.discount - a.discount || a.rule.localeCompare(b.rule));
   }, [lines]);
   // Хөл дүн: нэг мөр ХЭД ХЭДЭН дүрэмд тоологддог тул баганын нийлбэр
-  // ДАВХАРДАНА — тиймээс мужийн ДАВХАРДАЛГҮЙ нийт дүнг (summarize) харуулна.
-  // Энэ нь дээрх мөрүүдийн нийлбэрээс БАГА байж болно, шошго нь үүнийг хэлнэ.
-  const rulePinned = useMemo<RuleRow[]>(
-    () =>
-      ruleRows.length === 0
-        ? []
-        : [
-            {
-              rule: `Нийт (давхардалгүй, ${lines.length} мөр)`,
-              lineCount: lines.length,
-              discount: summary.discount,
-              net: summary.net,
-              margin: summary.margin,
-              cogsBasis: summary.cogsBasis,
-            },
-          ],
-    [ruleRows.length, lines.length, summary]
-  );
+  // ДАВХАРДАНА — тиймээс ДҮРЭМ ХЭРЭГЛЭГДСЭН мөрүүдийн ДАВХАРДАЛГҮЙ нийтийг
+  // (summarize) харуулна. Дүрэмгүй мөр (гар хөнгөлөлт, хөнгөлөлтгүй) энд ОРОХГҮЙ
+  // — мужийн бүх борлуулалтын нийт нь дээрх нэгтгэлийн зурваст.
+  const rulePinned = useMemo<RuleRow[]>(() => {
+    if (ruleRows.length === 0) return [];
+    const ruled = lines.filter((line) => line.discountRules.length > 0);
+    const ruledSummary = summarize(ruled);
+    return [
+      {
+        rule: `Нийт (давхардалгүй, ${ruled.length} мөр)`,
+        lineCount: ruled.length,
+        discount: ruledSummary.discount,
+        net: ruledSummary.net,
+        margin: ruledSummary.margin,
+        cogsBasis: ruledSummary.cogsBasis,
+      },
+    ];
+  }, [ruleRows.length, lines]);
   const ruleColumns = useMemo<ColDef<RuleRow>[]>(
     () => [
       { headerName: "Дүрэм", field: "rule", minWidth: 180, flex: 1, cellClass: "font-mono" },

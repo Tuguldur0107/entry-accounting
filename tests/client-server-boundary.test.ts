@@ -32,14 +32,24 @@ function walk(dir: string, out: string[] = []): string[] {
 const files = SOURCE_DIRS.flatMap((dir) => walk(path.join(ROOT, dir)));
 const sourceOf = new Map(files.map((file) => [file, readFileSync(file, "utf8")]));
 
+// «use client» нь файлын ЭХНИЙ мэдэгдэл — тэргүүлэх тайлбар (// … эсвэл /* … */)
+// хоосон мөрийн дараа ч байж болно.
 const isClientModule = (file: string) =>
-  /^\s*(["'])use client\1/.test(sourceOf.get(file) ?? "");
+  /^(?:\s|\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)*(["'])use client\1/.test(sourceOf.get(file) ?? "");
 
-/** `@/lib/...` → бодит зам (аль өргөтгөлтэй нь олдвол). */
-function resolveAlias(spec: string): string | null {
-  if (!spec.startsWith("@/")) return null;
-  const base = path.join(ROOT, spec.slice(2));
-  for (const candidate of [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")])
+/** `@/lib/...` эсвэл `./`, `../` харьцангуй зам → бодит файл (олдвол). */
+function resolveImport(fromFile: string, spec: string): string | null {
+  let base: string;
+  if (spec.startsWith("@/")) base = path.join(ROOT, spec.slice(2));
+  else if (spec.startsWith(".")) base = path.resolve(path.dirname(fromFile), spec);
+  else return null;
+  for (const candidate of [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    path.join(base, "index.ts"),
+    path.join(base, "index.tsx"),
+  ])
     if (sourceOf.has(candidate)) return candidate;
   return null;
 }
@@ -65,12 +75,16 @@ test("server модуль «use client» файлаас ФУНКЦ импорт�
 
   for (const [file, source] of sourceOf) {
     if (isClientModule(file)) continue; // client → client зүгээр
-    // `import type { … }` блокийг бүхэлд нь алгасна.
-    const importRe = /import\s+(?!type\s)\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+    // `import { … }` ба `import Default, { … }` хоёулаа; `import type { … }`
+    // блокийг бүхэлд нь алгасна. Default импорт нь component (Том үсэг) эсвэл
+    // функц байж болно — нэрсийн жагсаалтад нэмнэ.
+    const importRe =
+      /import\s+(?!type\s)(?:([A-Za-z_$][\w$]*)\s*,\s*)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
     for (const match of source.matchAll(importRe)) {
-      const target = resolveAlias(match[2]);
+      const target = resolveImport(file, match[3]);
       if (!target || !isClientModule(target)) continue;
-      for (const name of valueBindings(match[1])) {
+      const names = [...(match[1] ? [match[1]] : []), ...valueBindings(match[2])];
+      for (const name of names) {
         // Component (Том үсгээр эхэлсэн) нь рендерлэгдэнэ — дуудагдахгүй.
         if (/^[A-Z]/.test(name)) continue;
         // Тухайн нэрийг ҮНЭХЭЭР дуудаж байгаа эсэх (`name(`).

@@ -1106,7 +1106,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Үлдэгдэл",
@@ -1142,22 +1142,55 @@ function ReportSection({
     []
   );
 
-  // Хөл дүн: мөр бүр ӨӨР валюттай байж болох тул валютын багануудыг
-  // НИЙЛБЭРЛЭХГҮЙ (100 USD + 100 ₮ гэсэн утгагүй тоо гарна) — зөвхөн
-  // баримтын ТОО ба «Үлдэгдэл (MNT)» нийлнэ. Бусад нүд ХООСОН үлдэнэ.
+  // Хөл дүн (тайлангийн стандарт №5): валют холимог байж болох тул ВАЛЮТ
+  // БҮРД тусдаа нийт мөр — валютын дүн, үлдэгдэл, насжилтын шат бүр тэр
+  // валютаараа нийлнэ. Олон валюттай бол сүүлд НЭГ «Нийт (MNT)» мөр —
+  // зөвхөн баримтын тоо ба MNT үлдэгдэл (валютын нүд хоосон, NaN → «»).
   const pinnedBottom = useMemo<ReportRow[]>(() => {
     if (rows.length === 0) return [];
-    const sum = (pick: (row: ReportRow) => number) =>
-      Math.round(rows.reduce((total, row) => total + pick(row), 0) * 100) / 100;
+    const round = (value: number) => Math.round(value * 100) / 100;
+    const byCurrency = new Map<string, ReportRow>();
+    for (const row of rows) {
+      const total =
+        byCurrency.get(row.currency) ??
+        ({
+          counterpartyName: `Нийт · ${row.currency}`,
+          currency: row.currency,
+          documentCount: 0,
+          totalAmount: 0,
+          paidAmount: 0,
+          balance: 0,
+          baseBalance: 0,
+          currentAmount: 0,
+          days1To30: 0,
+          days31To60: 0,
+          days61To90: 0,
+          daysOver90: 0,
+        } satisfies ReportRow);
+      total.documentCount += row.documentCount;
+      total.totalAmount = round(total.totalAmount + row.totalAmount);
+      total.paidAmount = round(total.paidAmount + row.paidAmount);
+      total.balance = round(total.balance + row.balance);
+      total.baseBalance = round(total.baseBalance + row.baseBalance);
+      total.currentAmount = round(total.currentAmount + row.currentAmount);
+      total.days1To30 = round(total.days1To30 + row.days1To30);
+      total.days31To60 = round(total.days31To60 + row.days31To60);
+      total.days61To90 = round(total.days61To90 + row.days61To90);
+      total.daysOver90 = round(total.daysOver90 + row.daysOver90);
+      byCurrency.set(row.currency, total);
+    }
+    const perCurrency = [...byCurrency.values()];
+    if (perCurrency.length <= 1) return perCurrency;
     return [
+      ...perCurrency,
       {
         counterpartyName: `Нийт (${rows.length} мөр)`,
         currency: "",
-        documentCount: sum((row) => row.documentCount),
+        documentCount: rows.reduce((sum, row) => sum + row.documentCount, 0),
         totalAmount: Number.NaN,
         paidAmount: Number.NaN,
         balance: Number.NaN,
-        baseBalance: sum((row) => row.baseBalance),
+        baseBalance: round(rows.reduce((sum, row) => sum + row.baseBalance, 0)),
         currentAmount: Number.NaN,
         days1To30: Number.NaN,
         days31To60: Number.NaN,

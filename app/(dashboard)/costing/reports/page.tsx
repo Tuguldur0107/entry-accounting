@@ -1,10 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import {
   CostControlReport,
   type CostControlRow,
 } from "@/components/costing/cost-control-report";
 import { getActiveOrg } from "@/lib/auth";
+import { isPeriodCode } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
 import { accountingPeriods, costPeriodResults } from "@/lib/db/schema";
@@ -20,25 +21,29 @@ export default async function CostControlPage({
   const { orgId } = await getActiveOrg();
   const { period } = await searchParams;
 
-  const [allResults, { itemViews, warehouseViews }, periods] =
-    await Promise.all([
-      db.query.costPeriodResults.findMany({
-        where: eq(costPeriodResults.organizationId, orgId),
-      }),
-      loadInventoryBase(orgId),
-      db.query.accountingPeriods.findMany({
-        where: eq(accountingPeriods.organizationId, orgId),
-      }),
-    ]);
-
   // Зангуу сар: URL-ийн `period` (deep link) → topbar-ийн сонголт. Үр дүнгүй
   // сар руу ЧИМЭЭГҮЙ шилжихгүй — хоосон төлөв «Дахин тооцоолох»-ыг заана
   // (тайлангийн стандарт: огноо зөвхөн топбарын периодоос).
   const selection = await getPeriodSelection();
-  const periodCode =
-    period && /^\d{4}-\d{2}$/.test(period) ? period : selection.periodCode;
+  const periodCode = period && isPeriodCode(period) ? period : selection.periodCode;
 
-  const results = allResults.filter((row) => row.periodCode === periodCode);
+  // ЗӨВХӨН тухайн сарын үр дүн — бүх сарын мөрийг ачаалж JS-д шүүхгүй (П28).
+  const [results, { itemViews, warehouseViews }, periods] = await Promise.all([
+    db.query.costPeriodResults.findMany({
+      where: and(
+        eq(costPeriodResults.organizationId, orgId),
+        eq(costPeriodResults.periodCode, periodCode)
+      ),
+    }),
+    loadInventoryBase(orgId),
+    db.query.accountingPeriods.findMany({
+      where: and(
+        eq(accountingPeriods.organizationId, orgId),
+        eq(accountingPeriods.code, periodCode)
+      ),
+      columns: { code: true, status: true },
+    }),
+  ]);
 
   const itemById = new Map(itemViews.map((item) => [item.id, item]));
   const warehouseById = new Map(

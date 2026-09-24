@@ -69,5 +69,10 @@ export default async function CostingValuationPage() {
   }
   valuation.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel));
 
-  return <CostingReportView valuation={valuation} />;
+  // Тайлан нь бараа × агуулах бүрийн ХАМГИЙН СҮҮЛД тооцоологдсон сарын C2
+  // (топбарын периодоос ХАМААРАХГҮЙ) — гарчигт ил хэлнэ.
+  const latestPeriod =
+    [...closingByItem.values()].map((row) => row.periodCode).sort().at(-1) ?? null;
+
+  return <CostingReportView valuation={valuation} latestPeriod={latestPeriod} />;
 }
