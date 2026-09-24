@@ -42,10 +42,22 @@
 | `standard` | SaaS Standard (default 100,000₮/хэрэглэгч/сар — §5-ийн үнийн давхаргаар тохируулагдана) | ebarimt, ai, mcp | суудал = төлсөн тоо, компани 1 |
 | `platform` | Нягтлангийн фирм, интеграцитай | standard + api.rest, multi_company, custom_extensions | суудал = төлсөн, компани 10 |
 | `enterprise` | Гэрээт | бүгд | хязгааргүй |
-| `dedicated` | Эх код авсан (dedicated deploy) | бүгд | хязгааргүй — энэ давхарга шалгахгүй |
+| `dedicated` | Эх код авсан (dedicated deploy) | бүгд, **мэдлэгийн сангаас бусад** | хязгааргүй — энэ давхарга шалгахгүй |
+| `skills` | **«AI нягтлан»** — систем ашиглахгүй, мэдлэгийн санг өөрийн ChatGPT / Claude-д MCP-ээр (29,000₮/сар, trial **24 цаг**, 2026-09-24) | `knowledge`, `mcp` л — `accounting` ХААЛТТАЙ | суудал 1, компани 1 |
 
 Боломжийн түлхүүрүүд (`FeatureKey`): `ebarimt` · `ai` · `mcp` · `api.rest` ·
-`multi_company` · `custom_extensions`. Хязгаар (`LimitKey`): `seats` · `companies`.
+`multi_company` · `custom_extensions` · `knowledge` · `accounting`. Хязгаар (`LimitKey`): `seats` · `companies`.
+
+**Мэдлэгийн сан, «AI нягтлан» (2026-09-24):** `knowledge` нь SaaS-ийн нягтлан
+бодох багц бүрд (trial/standard/platform/enterprise) ҮНЭГҮЙ дагалдана;
+dedicated-д ОРОХГҮЙ (docs/knowledge D2′). `accounting` = нягтлан бодох систем
+өөрөө — зөвхөн `skills` багцад унтраалттай: `requireModuleAction` (уншилт ч),
+`ModuleGuard`, AI/MCP tool (`lib/billing/tool-scope.ts` — `tools/list` шүүгдэнэ,
+`executeAiTool` хаана) бүгд хаагдаж, нүүр хуудас нь холбох заавар болно.
+Мэдлэг нь захиалгын бүтээгдэхүүн тул read-only төлөвт (trial дууссан, төлбөр
+хоцорсон…) ХААГДАНА (`featureUsable`). Бүртгэл: `/register?plan=skills` (зөвхөн
+saas) → `organization_subscriptions` skills/trialing/+24ц. Trial-ийн дуусалт
+ЯГ цагаар (`trialExpired`) — өмнө нь өдрөөр бөөрөнхийлж ~1 өдөр сунгадаг байв.
 
 Статус (`SubscriptionStatus`): `trialing` · `active` · `past_due` · `suspended` ·
 `cancelled`. Бичих эрх: `trialing` (хугацаанд), `active`, `past_due` (grace

@@ -22,7 +22,7 @@ import {
   type SupportSessionRow,
 } from "@/lib/platform/support-store";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { assertWritesAllowed } from "@/lib/billing/guards";
+import { assertModuleEntitlements } from "@/lib/billing/guards";
 
 const { handlers, auth: sessionAuth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -270,9 +270,10 @@ export async function requireModuleAction(
   needed: "read" | "write" | "post"
 ): Promise<ActiveOrg> {
   const active = await getActiveOrg();
-  // Багцын read-only (trial дууссан, төлбөр хоцорсон…) — бичилт/батлалтыг
-  // НЭГ цэгээс хаана (docs/billing §4); унших хамаарахгүй, dedicated-д давна.
-  if (needed !== "read") await assertWritesAllowed(active.orgId);
+  // Багц (docs/billing §4) НЭГ цэгээс: нягтлан бодох систем багцад байх
+  // («AI нягтлан» багцад уншилт ч хаалттай) + read-only (trial дууссан,
+  // төлбөр хоцорсон…) үед бичилт/батлалт хаалттай; dedicated-д давна.
+  await assertModuleEntitlements(active.orgId, needed !== "read");
   if (ROLE_ORDER[active.role] >= ROLE_ORDER.admin) return active;
 
   const membership = await db.query.memberships.findFirst({
@@ -321,7 +322,7 @@ export async function requireAnyModuleAction(
   checks: [string, "read" | "write" | "post"][]
 ): Promise<ActiveOrg> {
   const active = await getActiveOrg();
-  if (checks.some(([, needed]) => needed !== "read")) await assertWritesAllowed(active.orgId);
+  await assertModuleEntitlements(active.orgId, checks.some(([, needed]) => needed !== "read"));
   if (ROLE_ORDER[active.role] >= ROLE_ORDER.admin) return active;
 
   const membership = await db.query.memberships.findFirst({

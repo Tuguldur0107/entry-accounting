@@ -125,7 +125,9 @@ import {
 import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { getBillingOverview } from "@/lib/actions/billing";
 import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
-import { requireFeature } from "@/lib/billing/guards";
+import { EntitlementError, requireFeature } from "@/lib/billing/guards";
+import { getEntitlements } from "@/lib/billing/load";
+import { toolInPlan } from "@/lib/billing/tool-scope";
 import {
   KNOWLEDGE_CATEGORIES,
   KNOWLEDGE_DAILY_READ_LIMIT,
@@ -10851,6 +10853,13 @@ export async function executeAiTool(
     // ДАХИН баталгаажуулна. Хэрэглэгч өөрөө (createdBy) server action-ууд
     // дотроо auth()-оос авагдана.
     const { orgId, userId } = await getActiveOrg();
+    // «AI нягтлан» (skills) багц: зөвхөн мэдлэгийн tool — tools/list-ийг
+    // тойрч нэрээр нь шууд дуудсан ч энд хаагдана (lib/billing/tool-scope.ts).
+    if (!toolInPlan(await getEntitlements(orgId), name))
+      throw new EntitlementError(
+        "FEATURE_NOT_IN_PLAN",
+        "«AI нягтлан» багцад зөвхөн мэдлэгийн сан (list_knowledge_topics, read_knowledge_section) нээлттэй — нягтлан бодох системийн үйлдэлд Standard багц хэрэгтэй"
+      );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
     // Шууд батлах хязгаарыг хүсэлт бүрд НЭГ л удаа уншиж контекстод тавина —

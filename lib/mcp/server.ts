@@ -16,6 +16,9 @@ import { and, eq } from "drizzle-orm";
 
 import { runAsOrg } from "@/lib/auth";
 import { requireFeature } from "@/lib/billing/guards";
+import { hasFeature } from "@/lib/billing/entitlements";
+import { getEntitlements } from "@/lib/billing/load";
+import { toolInPlan } from "@/lib/billing/tool-scope";
 import { db } from "@/lib/db";
 import { aiSettings, apiTokens } from "@/lib/db/schema";
 import {
@@ -108,6 +111,34 @@ export async function writeModeOf(context: TokenContext): Promise<AiWriteMode> {
     : DEFAULT_AI_WRITE_MODE;
 }
 
+/** Нягтлан бодох систем багцад байгаа үед (ердийн Entry харилцагч). */
+const ACCOUNTING_INSTRUCTIONS =
+  "Монгол нягтлан бодох бүртгэлийн систем (Entry Accounting). АНХ УДАА " +
+  "холбогдож байгаа эсвэл нэвтрүүлэлт (анхны мэдээлэл, нээлтийн үлдэгдэл) " +
+  "хийх бол ЭХЛЭЭД get_onboarding_guide-ийг дууд — танилцуулга, " +
+  "материалын шалгах жагсаалт, зөрүү шийдвэрлэх дүрэм, энэ байгууллагын " +
+  "шат ба дараагийн алхам. Бичилт үүсгэх tools нь ноорог-first: " +
+  "хэрэглэгч 'Шууд бичих' горим сонгосон үед л тэнцсэн, байгууллагын " +
+  "батлах хязгаар (default 10 сая ₮, get_company_settings-ээс харагдана) " +
+  "хүртэлх бичилт шууд батлагдана (нээлт/залруулга үргэлж ноорог). " +
+  "Данс, харилцагч, бараа нэрээ мэдэхгүй бол эхлээд list_* tools-оор " +
+  "шалгана. Олон модуль дамнасан ажилд get_workflow_guide. IFRS, Монголын " +
+  "татвар, цалин, ажлын урсгалын ОНОЛЫН асуултад list_knowledge_topics → " +
+  "read_knowledge_section (эх сурвалжийн ишлэлтэй мэдлэгийн сан; багцад " +
+  "ороогүй бол [FEATURE_NOT_IN_PLAN] — Entry Console-оос нээнэ).";
+
+/** «AI нягтлан» (skills) багц — зөвхөн мэдлэгийн сан (lib/billing/tool-scope.ts). */
+const SKILLS_INSTRUCTIONS =
+  "Entry-ийн «AI нягтлан» — Монголын нягтлан бодох бүртгэл, IFRS, татвар " +
+  "(НӨАТ, ААНОАТ, ХАОАТ), НДШ, цалин, ажлын урсгалын мэргэжлийн мэдлэгийн сан. " +
+  "Эдгээр сэдвийн асуултад санах ойгоосоо ТААХГҮЙ: эхлээд list_knowledge_topics-оор " +
+  "сэдвээ олж, read_knowledge_section-оор холбогдох хэсгийг уншаад хариулна; " +
+  "хариултдаа эх сурвалжийн ишлэлийг (стандарт, хуулийн зүйл) ЗААВАЛ дурдана. " +
+  "Хэсэг таслагдсан бол ил хэлнэ. Татварын хувь, босго огноогоор өөрчлөгддөг тул " +
+  "тухайн огноо/жилийг хэрэглэгчээс тодруулна. Энэ холболтоор нягтлан бодох " +
+  "бичилт хийхгүй — хэрэглэгч Entry Accounting системийг ашиглавал бүртгэл, " +
+  "тайлан ч мөн боломжтой болно.";
+
 async function handleRequest(
   context: TokenContext,
   message: JsonRpcRequest,
@@ -124,37 +155,31 @@ async function handleRequest(
   switch (method) {
     case "initialize": {
       const requested = message.params?.protocolVersion;
+      const ent = await getEntitlements(context.orgId);
       return rpcResult(id, {
         protocolVersion:
           typeof requested === "string" ? requested : PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions:
-          "Монгол нягтлан бодох бүртгэлийн систем (Entry Accounting). АНХ УДАА " +
-          "холбогдож байгаа эсвэл нэвтрүүлэлт (анхны мэдээлэл, нээлтийн үлдэгдэл) " +
-          "хийх бол ЭХЛЭЭД get_onboarding_guide-ийг дууд — танилцуулга, " +
-          "материалын шалгах жагсаалт, зөрүү шийдвэрлэх дүрэм, энэ байгууллагын " +
-          "шат ба дараагийн алхам. Бичилт үүсгэх tools нь ноорог-first: " +
-          "хэрэглэгч 'Шууд бичих' горим сонгосон үед л тэнцсэн, байгууллагын " +
-          "батлах хязгаар (default 10 сая ₮, get_company_settings-ээс харагдана) " +
-          "хүртэлх бичилт шууд батлагдана (нээлт/залруулга үргэлж ноорог). " +
-          "Данс, харилцагч, бараа нэрээ мэдэхгүй бол эхлээд list_* tools-оор " +
-          "шалгана. Олон модуль дамнасан ажилд get_workflow_guide. IFRS, Монголын " +
-          "татвар, цалин, ажлын урсгалын ОНОЛЫН асуултад list_knowledge_topics → " +
-          "read_knowledge_section (эх сурвалжийн ишлэлтэй мэдлэгийн сан; багцад " +
-          "ороогүй бол [FEATURE_NOT_IN_PLAN] — Entry Console-оос нээнэ).",
+        instructions: hasFeature(ent, "accounting") ? ACCOUNTING_INSTRUCTIONS : SKILLS_INSTRUCTIONS,
       });
     }
     case "ping":
       return rpcResult(id, {});
-    case "tools/list":
+    case "tools/list": {
+      // Багцад ороогүй tool-ыг клиент огт харахгүй («AI нягтлан» багц →
+      // зөвхөн мэдлэгийн tool). executeAiTool мөн адил хаадаг (давхар).
+      const ent = await getEntitlements(context.orgId);
       return rpcResult(id, {
-        tools: aiToolsForSurface("mcp").map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema,
-        })),
+        tools: aiToolsForSurface("mcp")
+          .filter((tool) => toolInPlan(ent, tool.name))
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          })),
       });
+    }
     case "tools/call": {
       // Чатын route-тай ИЖИЛ хэрэглэгч-бүрийн sliding-window хязгаар — MCP
       // клиент tool-давхаргыг хязгааргүй цохихоос хамгаална. HTTP 500 биш
