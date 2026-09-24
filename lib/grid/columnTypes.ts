@@ -4,7 +4,9 @@
 
 import type { ColDef } from "ag-grid-community";
 import type { ColumnTypeId } from "./types";
-import { moneyValueFormatter, parseMntInput } from "./formatters";
+import { moneyValueFormatter, parseMntInput, readonlyMoneyValueFormatter } from "./formatters";
+import { StatusCellRenderer } from "./editors/StatusCellRenderer";
+import { statusMeta } from "@/lib/status";
 
 export const columnTypeDefaults: Record<ColumnTypeId, Partial<ColDef>> = {
   text: {
@@ -29,12 +31,16 @@ export const columnTypeDefaults: Record<ColumnTypeId, Partial<ColDef>> = {
     valueFormatter: moneyValueFormatter,
   },
 
+  // Уншигдах дүн (UI гайдын карт 9): 0 → «—», сөрөг нь «−» тэмдэг + улаан.
   "readonly-money": {
     cellDataType: "number",
     editable: false,
-    cellClass: "ag-right-aligned-cell font-mono",
+    cellClass: "ag-right-aligned-cell font-mono tabular-nums",
     headerClass: "ag-right-aligned-header",
-    valueFormatter: moneyValueFormatter,
+    valueFormatter: readonlyMoneyValueFormatter,
+    cellClassRules: {
+      "ea-negative": (p) => Number(p.value) < -0.005,
+    },
   },
 
   // Цаг / тоо хэмжээ — мөнгө БИШ тул бутархайг албадан 2 орон болгохгүй
@@ -100,6 +106,23 @@ export const columnTypeDefaults: Record<ColumnTypeId, Partial<ColDef>> = {
     cellDataType: "text",
     editable: true,
     cellEditor: "agSelectCellEditor",
+  },
+
+  // Баримтын төлөв — ЭХНИЙ багана, зүүн талд бэхэлсэн, зөвхөн дүрс (UI гайдын
+  // карт 1, ENT-016). Утга = түүхий төлөв ("posted"); шүүлт/хуулалт/экспортод
+  // монгол шошго (lib/status.ts).
+  status: {
+    headerName: "",
+    headerTooltip: "Төлөв",
+    width: 52,
+    minWidth: 52,
+    pinned: "left",
+    editable: false,
+    sortable: true,
+    resizable: false,
+    cellRenderer: StatusCellRenderer,
+    valueFormatter: (p) => statusMeta(p.value).label,
+    filterValueGetter: (p) => statusMeta(p.data?.status).label,
   },
 };
 

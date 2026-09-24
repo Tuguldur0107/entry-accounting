@@ -68,6 +68,16 @@ export function fmtPeriodCode(code: string): string {
 }
 
 /**
+ * Нягтлан биш хэрэглэгчид уншигдах нэр — "2026-09" → "2026 · 9-р сар"
+ * (UI гайдын карт 8, ENT-061). "SEP-26" код нь дотоод/товч хэлбэрээр хэвээр.
+ */
+export function fmtPeriodLabelMn(code: string): string {
+  if (!isPeriodCode(code)) return code;
+  const [year, month] = code.split("-").map(Number);
+  return `${year} · ${month}-р сар`;
+}
+
+/**
  * Сонгох боломжтой периодуудын жагсаалт — `latest`-ээс хойш `count` сар,
  * ШИНЭЭС хуучин руу. Dropdown-д хэрэглэгдэнэ.
  */

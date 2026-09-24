@@ -44,6 +44,14 @@ export interface PeriodicMovement {
   inboundValuation?: "priced" | "average";
   /** "priced" орлогын мөнгөн дүн. "average"-д хэрэглэгдэхгүй. */
   inboundAmount?: number | null;
+  /**
+   * Агуулах хоорондын шилжүүлгийн ОРЛОГО (OD-014, README change-control 0.9):
+   * ижил барааны ЭХ агуулахын тухайн сарын дундаж × тоо хэмжээгээр
+   * үнэлэгдсэн «priced» орлого. Дүнг computeAllScopes эх хүрээг эхэлж бодоод
+   * бөглөнө; эх нь блоклогдвол дүн тодорхойгүй (null) → хүлээн авагч мөн
+   * блоклогдоно (үнэ зохиохгүй).
+   */
+  transferFromWarehouseId?: string;
 }
 
 /** Тухайн бараа-агуулахын өмнөх периодын үлдэгдэл (C1). */
@@ -274,6 +282,45 @@ export function computePeriodResult(input: {
   };
 }
 
+/** Өмнөх период блоклогдсон — C1 тодорхойгүй тул энэ периодыг үнэлэхгүй. */
+function unknownOpeningResult(
+  itemId: string,
+  warehouseId: string,
+  periodCode: string,
+  periodMovements: PeriodicMovement[]
+): PeriodicResult {
+  const sumQty = (predicate: (movement: PeriodicMovement) => boolean) =>
+    periodMovements.filter(predicate).reduce((sum, movement) => sum + movement.quantity, 0);
+  return {
+    itemId,
+    warehouseId,
+    periodCode,
+    openingQty: 0,
+    openingAmount: 0,
+    openingUnitCost: null,
+    inboundQty: sumQty((movement) => movement.direction === "in"),
+    inboundAmount: 0,
+    inboundUnitCost: null,
+    pricedInboundQty: sumQty(
+      (movement) => movement.direction === "in" && movement.inboundValuation !== "average"
+    ),
+    pricedInboundAmount: 0,
+    averageValuedInboundQty: sumQty(
+      (movement) => movement.direction === "in" && movement.inboundValuation === "average"
+    ),
+    outboundQty: sumQty((movement) => movement.direction === "out"),
+    outboundAmount: null,
+    closingQty: 0,
+    closingAmount: null,
+    averageUnitCost: null,
+    qtyBalanced: false,
+    amountBalanced: false,
+    status: "blocked-missing-inbound-cost",
+    blockReason: "Өмнөх тайлант үе тооцоологдоогүй тул эхний үлдэгдэл тодорхойгүй",
+    movementIds: periodMovements.map((movement) => movement.id),
+  };
+}
+
 /**
  * Олон период дараалан — C2 нь дараагийн периодын C1 болно.
  * Блоклогдсон период дараагийнхаа C1-ийг ТОДОРХОЙГҮЙ болгох тул дараагийн
@@ -311,49 +358,7 @@ export function computePeriodSeries(input: {
 
     // Өмнөх период блоклогдсон бол C1 тодорхойгүй — цааш нь үнэлэхгүй.
     if (opening === null) {
-      const inboundQty = periodMovements
-        .filter((movement) => movement.direction === "in")
-        .reduce((sum, movement) => sum + movement.quantity, 0);
-      const outboundQty = periodMovements
-        .filter((movement) => movement.direction === "out")
-        .reduce((sum, movement) => sum + movement.quantity, 0);
-      results.push({
-        itemId,
-        warehouseId,
-        periodCode,
-        openingQty: 0,
-        openingAmount: 0,
-        openingUnitCost: null,
-        inboundQty,
-        inboundAmount: 0,
-        inboundUnitCost: null,
-        pricedInboundQty: periodMovements
-          .filter(
-            (movement) =>
-              movement.direction === "in" &&
-              movement.inboundValuation !== "average"
-          )
-          .reduce((sum, movement) => sum + movement.quantity, 0),
-        pricedInboundAmount: 0,
-        averageValuedInboundQty: periodMovements
-          .filter(
-            (movement) =>
-              movement.direction === "in" &&
-              movement.inboundValuation === "average"
-          )
-          .reduce((sum, movement) => sum + movement.quantity, 0),
-        outboundQty,
-        outboundAmount: null,
-        closingQty: 0,
-        closingAmount: null,
-        averageUnitCost: null,
-        qtyBalanced: false,
-        amountBalanced: false,
-        status: "blocked-missing-inbound-cost",
-        blockReason:
-          "Өмнөх тайлант үе тооцоологдоогүй тул эхний үлдэгдэл тодорхойгүй",
-        movementIds: periodMovements.map((movement) => movement.id),
-      });
+      results.push(unknownOpeningResult(itemId, warehouseId, periodCode, periodMovements));
       continue;
     }
 
@@ -377,6 +382,13 @@ export function computePeriodSeries(input: {
 /**
  * Бүх хамрах хүрээгээр — бараа × агуулах бүрд цувааг бодно.
  * Буцаах нь scopeKey → тухайн хүрээний периодын үр дүнгүүд.
+ *
+ * Тооцоо нь ПЕРИОД-ЭХЭЛСЭН: сар бүрд хүрээнүүдийг шилжүүлгийн хамаарлын
+ * дарааллаар (эх агуулах → хүлээн авагч, Kahn) бодно, учир нь шилжүүлгийн
+ * орлогын дүн = эх хүрээний ТУХАЙН САРЫН дундаж × тоо (OD-014, 0.9).
+ * Нэг сард агуулахууд бие биерүүгээ шилжүүлсэн ТОЙРОГ бол дундаж нь
+ * хамтарсан тэгшитгэлээс гарна — энэ шийдлийг ЗОХИОХГҮЙ, тойрогт орсон
+ * хүрээнүүд ил шалтгаантайгаар блоклогдоно.
  */
 export function computeAllScopes(input: {
   periodCodes: string[];
@@ -388,28 +400,113 @@ export function computeAllScopes(input: {
    */
   openingByScope?: Map<string, OpeningBalance | null>;
 }): Map<string, PeriodicResult[]> {
-  const byScope = new Map<string, PeriodicMovement[]>();
-  for (const key of input.openingByScope?.keys() ?? []) byScope.set(key, []);
+  // scopeKey → periodCode → хөдөлгөөнүүд
+  const byScope = new Map<string, Map<string, PeriodicMovement[]>>();
+  const ensure = (key: string) => {
+    let periods = byScope.get(key);
+    if (!periods) {
+      periods = new Map();
+      byScope.set(key, periods);
+    }
+    return periods;
+  };
+  for (const key of input.openingByScope?.keys() ?? []) ensure(key);
   for (const movement of input.movements) {
-    const key = scopeKey(movement.itemId, movement.warehouseId);
-    const list = byScope.get(key);
+    const periods = ensure(scopeKey(movement.itemId, movement.warehouseId));
+    const code = periodCodeOf(movement.date);
+    const list = periods.get(code);
     if (list) list.push(movement);
-    else byScope.set(key, [movement]);
+    else periods.set(code, [movement]);
   }
 
   const out = new Map<string, PeriodicResult[]>();
-  for (const [key, movements] of byScope) {
-    const [itemId, warehouseId] = key.split("::");
-    out.set(
-      key,
-      computePeriodSeries({
-        itemId,
-        warehouseId,
-        periodCodes: input.periodCodes,
-        initialOpening: input.openingByScope?.get(key),
-        movements,
-      })
+  const opening = new Map<string, OpeningBalance | null>();
+  for (const key of byScope.keys()) {
+    out.set(key, []);
+    const initial = input.openingByScope?.get(key);
+    opening.set(key, initial === undefined ? { qty: 0, amount: 0 } : initial);
+  }
+
+  for (const periodCode of input.periodCodes) {
+    // Энэ сарын шилжүүлгийн хамаарал: хүлээн авагч → эх хүрээнүүд.
+    const dependsOn = new Map<string, Set<string>>();
+    for (const [key, periods] of byScope) {
+      const sources = new Set<string>();
+      for (const movement of periods.get(periodCode) ?? [])
+        if (movement.direction === "in" && movement.transferFromWarehouseId)
+          sources.add(scopeKey(movement.itemId, movement.transferFromWarehouseId));
+      sources.delete(key);
+      dependsOn.set(key, sources);
+    }
+
+    const order: string[] = [];
+    const remaining = new Map(
+      [...dependsOn].map(([key, sources]) => [
+        key,
+        new Set([...sources].filter((source) => byScope.has(source))),
+      ])
     );
+    const ready = [...remaining].filter(([, deps]) => deps.size === 0).map(([key]) => key);
+    while (ready.length > 0) {
+      const key = ready.shift()!;
+      order.push(key);
+      remaining.delete(key);
+      for (const [other, deps] of remaining)
+        if (deps.delete(key) && deps.size === 0) ready.push(other);
+    }
+    const cyclic = new Set(remaining.keys());
+
+    const averageThisPeriod = new Map<string, number | null>();
+    for (const key of [...order, ...cyclic]) {
+      const [itemId, warehouseId] = key.split("::");
+      const raw = byScope.get(key)!.get(periodCode) ?? [];
+      const c1 = opening.get(key) ?? null;
+      let result: PeriodicResult;
+      if (c1 === null) {
+        result = unknownOpeningResult(itemId, warehouseId, periodCode, raw);
+      } else if (cyclic.has(key)) {
+        result = {
+          ...unknownOpeningResult(itemId, warehouseId, periodCode, raw),
+          openingQty: c1.qty,
+          openingAmount: c1.amount,
+          openingUnitCost: Math.abs(c1.qty) > QTY_EPSILON ? c1.amount / c1.qty : null,
+          blockReason:
+            "Агуулах хоорондын шилжүүлэг энэ сард тойрог үүсгэсэн (хоёр агуулах бие биерүүгээ) — дундаж тодорхойлогдохгүй",
+        };
+      } else {
+        // Шилжүүлгийн орлогыг эх хүрээний энэ сарын дунджаар үнэлнэ.
+        const movements = raw.map((movement) => {
+          if (movement.direction !== "in" || !movement.transferFromWarehouseId) return movement;
+          const source = averageThisPeriod.get(
+            scopeKey(movement.itemId, movement.transferFromWarehouseId)
+          );
+          return {
+            ...movement,
+            inboundValuation: "priced" as const,
+            inboundAmount:
+              source === undefined || source === null ? null : movement.quantity * source,
+          };
+        });
+        result = computePeriodResult({ itemId, warehouseId, periodCode, opening: c1, movements });
+        if (
+          result.status === "blocked-missing-inbound-cost" &&
+          raw.some((movement) => movement.transferFromWarehouseId)
+        )
+          result = {
+            ...result,
+            blockReason:
+              "Шилжүүлгийн эх агуулахын энэ сарын өртөг тооцоологдоогүй — хүлээн авсан барааны өртөг тодорхойгүй",
+          };
+      }
+      out.get(key)!.push(result);
+      averageThisPeriod.set(key, result.status === "calculated" ? result.averageUnitCost : null);
+      opening.set(
+        key,
+        result.status === "calculated" && result.closingAmount !== null
+          ? { qty: result.closingQty, amount: result.closingAmount }
+          : null
+      );
+    }
   }
   return out;
 }

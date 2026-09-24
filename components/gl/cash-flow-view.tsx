@@ -169,6 +169,13 @@ export function CashFlowView({
       amount: report.totals.net,
       amountSign: report.totals.net >= 0 ? "pos" : "neg",
     });
+    if (Math.abs(report.totals.fxEffect) > 0.005)
+      out.push({
+        id: "fx-effect",
+        kind: "footnote",
+        label: "Валютын ханшийн өөрчлөлтийн нөлөө",
+        amount: report.totals.fxEffect,
+      });
     out.push({
       id: "open-cash",
       kind: "footnote",

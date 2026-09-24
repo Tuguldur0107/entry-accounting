@@ -188,7 +188,7 @@ export function MappingDialog({
         <DialogHeader>
           <DialogTitle>
             <span className="text-[var(--ea-text-3)] text-xs font-normal mr-2">
-              Дансны mapping
+              Дансны холболт
             </span>
             {lineLabel}
           </DialogTitle>
@@ -203,7 +203,7 @@ export function MappingDialog({
               ]}
               value={tab}
               onChange={setTab}
-              ariaLabel="Mapping-ийн хэмжигдэхүүн"
+              ariaLabel="Холболтын хэмжигдэхүүн"
             />
           )}
 

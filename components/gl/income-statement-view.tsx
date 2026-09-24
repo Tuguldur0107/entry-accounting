@@ -14,7 +14,12 @@ import {
   type BalanceRow,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
-import { IS_LINES, type IsSection, type IsSign } from "@/lib/reports/is-lines";
+import {
+  IS_LINES,
+  isDefaultLineKeyOf,
+  type IsSection,
+  type IsSign,
+} from "@/lib/reports/is-lines";
 import { ReportGrid, type ReportRow } from "./report-grid";
 import { MappingDialog } from "./mapping-dialog";
 import { AddLineDialog } from "./add-line-dialog";
@@ -117,9 +122,8 @@ export function IncomeStatementView({
         override !== undefined
           ? override
           : accounts
-              .filter((a) =>
-                line.defaultPrefixes.some((p) => a.number.startsWith(p))
-              )
+              // Хамгийн урт угтвар ялна — нэг данс НЭГ мөрөнд (ENT-048).
+              .filter((a) => isDefaultLineKeyOf(a.number) === line.key)
               .map((a) => a.number);
       out.push({
         key: line.key,

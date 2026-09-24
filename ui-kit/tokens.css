@@ -71,8 +71,13 @@
   --ea-danger-solid:    #DC2626;
   --ea-danger-solid-fg: #FFFFFF;
   --ea-warning:    #F59E0B;
-  --ea-warning-fg: #B45309;
+  --ea-warning-fg: #A84D08;  /* AA: 4.9:1 тинттэй badge дэвсгэр дээр ч (axe, UI гайд) — өмнө #B45309 4.4 */
   --ea-warning-bg: #FFFBEB;
+  /* Буцаагдсан (хүчингүй) баримт — ногоон/улаан/шараас ялгаатай нил ягаан
+     (өнгө ялгадаггүй хүнд хэлбэрээр ч ялгарна — lib/status.ts) */
+  --ea-reversed:    #7C5CD6;
+  --ea-reversed-fg: #5B3FB0;
+  --ea-reversed-bg: #F3F0FC;
 
   /* Modal / drawer-ийн бүрхүүл */
   --ea-overlay: rgba(0,0,0,0.45);
@@ -255,6 +260,9 @@
   --ea-warning:    #FBBF24;
   --ea-warning-fg: #FCD34D;
   --ea-warning-bg: rgba(251,191,36,0.12);
+  --ea-reversed:    #A78BFA;
+  --ea-reversed-fg: #C4B5FD;
+  --ea-reversed-bg: rgba(167,139,250,0.14);
 
   /* Modal / drawer-ийн бүрхүүл — тас хар дээр илүү гүн */
   --ea-overlay: rgba(0,0,0,0.65);

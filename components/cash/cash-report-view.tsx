@@ -252,34 +252,45 @@ export function CashReportView({
     ];
   }, [flowRows]);
 
-  // Pinned total row — sum per currency would be ideal, but for a single-
-  // currency ledger a straight sum is the common case; we sum MNT rows and
-  // leave the label noting the currency scope.
-  const mntRows = rows.filter((r) => r.currency === "MNT");
-  const totals = mntRows.reduce(
-    (acc, r) => ({
-      opening: acc.opening + r.opening,
-      receipts: acc.receipts + r.receipts,
-      payments: acc.payments + r.payments,
-      closing: acc.closing + r.closing,
-    }),
-    { opening: 0, receipts: 0, payments: 0, closing: 0 }
-  );
-
-  const pinnedBottom = useMemo<CashMovementRow[]>(
-    () => [
-      {
-        accountId: "__total__",
-        accountName: "Нийт (MNT)",
+  // Нийт мөр ВАЛЮТ бүрээр (ENT-050: зөвхөн MNT-ийг нийлүүлж USD данс «Нийт»-д
+  // огт харагдахгүй байв). Валютыг ₮ болгож нэмэхгүй — ханш зохиохгүй; ₮
+  // эквивалентыг «Дэлгэрэнгүй» табын ₮ баганууд харуулна.
+  const pinnedBottom = useMemo<CashMovementRow[]>(() => {
+    const byCurrency = new Map<string, CashMovementRow>();
+    for (const row of rows) {
+      const currency = row.currency || "MNT";
+      const current = byCurrency.get(currency) ?? {
+        accountId: `__total__${currency}`,
+        accountName: `Нийт (${currency})`,
         currency: "",
-        opening: totals.opening,
-        receipts: totals.receipts,
-        payments: totals.payments,
-        closing: totals.closing,
-      },
-    ],
-    [totals]
-  );
+        opening: 0,
+        receipts: 0,
+        payments: 0,
+        closing: 0,
+      };
+      current.opening += row.opening;
+      current.receipts += row.receipts;
+      current.payments += row.payments;
+      current.closing += row.closing;
+      byCurrency.set(currency, current);
+    }
+    const ordered = [...byCurrency.entries()].sort(([a], [b]) =>
+      a === "MNT" ? -1 : b === "MNT" ? 1 : a.localeCompare(b)
+    );
+    return ordered.length > 0
+      ? ordered.map(([, row]) => row)
+      : [
+          {
+            accountId: "__total__MNT",
+            accountName: "Нийт (MNT)",
+            currency: "",
+            opening: 0,
+            receipts: 0,
+            payments: 0,
+            closing: 0,
+          },
+        ];
+  }, [rows]);
 
   const detailTotals = useMemo(
     () => {

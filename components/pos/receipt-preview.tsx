@@ -149,10 +149,28 @@ export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
       className="mx-auto w-[80mm] max-w-full font-mono text-[11px] leading-snug"
       style={{ color: "inherit" }}
     >
+      {/* Борлуулагчийн толгой — компанийн мэдээллээс (ENT-053). */}
+      {receipt.seller ? (
+        <div className="mb-1 text-center">
+          <div className="text-[13px] font-bold">{receipt.seller.name}</div>
+          {receipt.seller.vatPayerNo || receipt.seller.registerNo ? (
+            <div>
+              {receipt.seller.vatPayerNo
+                ? `ТТД ${receipt.seller.vatPayerNo}`
+                : `РД ${receipt.seller.registerNo}`}
+            </div>
+          ) : null}
+          {receipt.seller.address ? <div>{receipt.seller.address}</div> : null}
+          {receipt.seller.phone ? <div>Утас {receipt.seller.phone}</div> : null}
+        </div>
+      ) : null}
       {headerLines.length > 0 && (
         <div className="mb-2 text-center">
           {headerLines.map((line, index) => (
-            <div key={index} className={index === 0 ? "text-[13px] font-bold" : ""}>
+            <div
+              key={index}
+              className={index === 0 && !receipt.seller ? "text-[13px] font-bold" : ""}
+            >
               {line}
             </div>
           ))}

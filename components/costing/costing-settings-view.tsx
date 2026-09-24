@@ -418,7 +418,7 @@ function IssueTypesSection({
           const row = params.data;
           if (!row) return "";
           if (row.debitAccountSource === "item_cogs")
-            return "Барааны COGS данс (profile)";
+            return "Барааны COGS данс (барааны тохиргооноос)";
           const main = row.debitAccountNumber ?? "";
           return main ? `${main} ${glNameMap.get(main) ?? ""}`.trim() : "—";
         },
@@ -561,7 +561,7 @@ function IssueTypesSection({
                 }
               >
                 <option value="fixed">Тогтмол данс</option>
-                <option value="item_cogs">Барааны COGS данс (profile)</option>
+                <option value="item_cogs">Барааны COGS данс (барааны тохиргооноос)</option>
               </select>
             </div>
 
@@ -986,7 +986,7 @@ function ItemAccountsSection({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <p className="text-xs text-[var(--ea-text-3)]">
         Бараа бүрийн нөөцийн (кредит) болон COGS данс. Зарлагын төрөл нь
-        &quot;Барааны COGS данс&quot; profile-той бол дебет чиглэл эндээс
+        &quot;Барааны COGS данс&quot; төрөлтэй бол дебет чиглэл эндээс
         шийдэгдэнэ.
       </p>
 
@@ -1008,7 +1008,7 @@ function ItemAccountsSection({
       <Dialog open={!!editRow} onOpenChange={(o) => !o && setEditRow(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editRow?.itemLabel} — дансны mapping</DialogTitle>
+            <DialogTitle>{editRow?.itemLabel} — дансны холболт</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-1.5">

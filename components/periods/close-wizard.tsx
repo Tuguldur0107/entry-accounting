@@ -119,8 +119,11 @@ export function CloseWizard({
     drafts,
     periodStatus,
     closedAt,
+    opening,
   } = checklist;
   const closed = periodStatus === "closed";
+  // ENT-019: cut-off сарын нээлтийн зөрүү (0 бол анхааруулгагүй).
+  const openingDiff = opening && Math.abs(opening.balance) > 0.005 ? opening : null;
   // Хангамжийн хориг (docs/procurement шийдвэр #7) — closePeriod мөн ижил
   // нөхцөлөөр зогсоодог; энд товчийг урьдчилан идэвхгүй болгоно.
   const poBlocked = procurement.openOrdersWithReceipts > 0;
@@ -197,7 +200,7 @@ export function CloseWizard({
       >
         <div className="flex items-center justify-between gap-3">
           <span className="font-semibold text-[var(--ea-text-1)]">
-            Ledger-ийн бүрэн бүтэн байдал
+            Дэвтрийн бүрэн бүтэн байдал
           </span>
           <span
             className="text-xs font-semibold"
@@ -323,7 +326,7 @@ export function CloseWizard({
                         ("message" in result ? result.message : undefined) ??
                           `Өртөг тооцоо амжилтгүй (${result.code})`
                       );
-                    return `Өртөг тооцогдлоо: шинээр ${result.valued}, өмнө нь ${result.alreadyValued}, тэг ${result.zeroValued}${result.blockers.length > 0 ? `, блоклогдсон ${result.blockers.length}` : ""}`;
+                    return `Өртөг тооцогдлоо: шинээр ${result.valued}, өмнө нь ${result.alreadyValued}, тэг ${result.zeroValued}${result.blockers.length > 0 ? `, блоклогдсон ${result.blockers.length} (${result.blockedMovements} хөдөлгөөн үнэлэгдээгүй)` : ""}`;
                   })
                 }
               >
@@ -475,10 +478,17 @@ export function CloseWizard({
       <Step
         index={8}
         title="Ноорог цэвэрлэгээ"
-        status={drafts.total === 0 ? "done" : "attention"}
+        status={drafts.total === 0 && !openingDiff ? "done" : "attention"}
       >
+        {openingDiff ? (
+          <p className="mb-1 text-[var(--ea-warning-fg)]">
+            Нэвтрүүлэлтийн cut-off сар: нээлтийн зөрүүний данс {openingDiff.differenceAccount}{" "}
+            {fmtMnt(openingDiff.balance)} үлдэгдэлтэй — 0 болтол (шалтгааныг залруулгаар) энэ сарыг
+            хаахгүй (R6).
+          </p>
+        ) : null}
         {drafts.total === 0 ? (
-          "Энэ сард ноорог бичилт үлдээгүй — хаахад бэлэн."
+          openingDiff ? null : "Энэ сард ноорог бичилт үлдээгүй — хаахад бэлэн."
         ) : (
           <span>
             Нийт {drafts.total} ноорог үлдсэн (батлах эсвэл устгах):{" "}

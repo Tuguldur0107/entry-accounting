@@ -161,7 +161,13 @@ export async function loadCostingAccountSettings(
   return await withAccounts(row);
 }
 
-/** Зарлагын төрлүүд — хоосон бол анхны "COGS" төрлийг үүсгэнэ. */
+/**
+ * Зарлагын төрлүүд — "COGS" (барааны COGS данс руу шийддэг) төрөл байхгүй
+ * бол түүнийг үүсгэнэ. Урьд ЗӨВХӨН хүснэгт хоосон үед үүсгэдэг байсан тул
+ * хэрэглэгч эхлээд өөр төрөл (INTERNAL, SALE…) нэмбэл COGS хэзээ ч үүсэхгүй,
+ * борлуулалтын өртөг цагаан толгойн эхний төрлийн тогтмол данс руу
+ * («Бичиг хэрэг») бичигддэг байв (ENT-022).
+ */
 export async function loadIssueTypes(
   orgId: string,
   options?: { activeOnly?: boolean; creatorUserId?: string }
@@ -171,7 +177,7 @@ export async function loadIssueTypes(
     orderBy: (type, { asc }) => [asc(type.code)],
   });
 
-  if (rows.length === 0) {
+  if (!rows.some((row) => row.code === "COGS")) {
     const userId = await seedCreatorUserId(orgId, options?.creatorUserId);
     await db
       .insert(inventoryIssueTypes)
@@ -194,12 +200,27 @@ export async function loadIssueTypes(
   return options?.activeOnly ? rows.filter((row) => row.isActive) : rows;
 }
 
-/** Анхны (кодоор "COGS") зарлагын төрөл — төрөл заагаагүй хуучин бичилтэд. */
+/**
+ * Төрөл заагаагүй зарлагын анхдагч төрөл — ЦЭВЭР. "COGS" → барааны COGS
+ * данс руу шийддэг (`item_cogs`) аль нэг төрөл → null (дуудагч барааны COGS
+ * дансыг ашиглана). Тогтмол дансны төрлийг (жишээ нь «Бичиг хэрэг»)
+ * ХЭЗЭЭ Ч анхдагч болгохгүй (ENT-022).
+ */
+export function pickDefaultIssueType<
+  T extends { code: string; debitAccountSource: string }
+>(rows: readonly T[]): T | null {
+  return (
+    rows.find((row) => row.code === "COGS") ??
+    rows.find((row) => row.debitAccountSource === "item_cogs") ??
+    null
+  );
+}
+
+/** Анхдагч зарлагын төрөл — төрөл заагаагүй бичилт, POS, АР-ын зарлагад. */
 export async function defaultIssueType(
   orgId: string
 ): Promise<InventoryIssueType | null> {
-  const rows = await loadIssueTypes(orgId, { activeOnly: true });
-  return rows.find((row) => row.code === "COGS") ?? rows[0] ?? null;
+  return pickDefaultIssueType(await loadIssueTypes(orgId, { activeOnly: true }));
 }
 
 export async function loadCostComponents(

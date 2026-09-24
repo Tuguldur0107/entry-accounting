@@ -5,5 +5,10 @@ export const metadata = { title: "Компанийн мэдээлэл — Entry 
 
 export default async function CompanyPage() {
   const settings = await getOrganizationProfile();
-  return <OrganizationProfileForm initial={settings} />;
+  return (
+    <>
+      <h1 className="sr-only">Компанийн мэдээлэл</h1>
+      <OrganizationProfileForm initial={settings} />
+    </>
+  );
 }

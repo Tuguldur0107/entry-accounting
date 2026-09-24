@@ -224,7 +224,7 @@ export function OrgSettingsView({
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs" style={{ color: "var(--ea-text-3)" }}>
-                Байгууллагаас гарвал дахин нэвтрэхийн тулд admin таныг шинээр
+                Байгууллагаас гарвал дахин нэвтрэхийн тулд админ таныг шинээр
                 урих шаардлагатай.
               </p>
               <Button
@@ -392,7 +392,7 @@ function DeleteOrgBody({
     <div className="grid gap-3">
       <p className="text-sm" style={{ color: "var(--ea-danger-fg)" }}>
         «{orgName}»-ийн БҮХ дата (журнал, баримт, тайлан, тохиргоо) буцалтгүй
-        устана. Backup-гүй бол сэргээх боломжгүй.
+        устана. Нөөц хуулбаргүй бол сэргээх боломжгүй.
       </p>
       <div className="grid gap-1.5">
         <Label>Баталгаажуулахын тулд байгууллагын нэрийг яг бичнэ үү</Label>

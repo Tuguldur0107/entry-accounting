@@ -6,7 +6,12 @@ import { AccountsTable } from "@/components/gl/accounts-table";
 import { SEGMENT_DEFS, MODULE_DEFS } from "@/lib/constants/standard-accounts";
 import { syncCompanySegmentValues } from "@/lib/gl/segment-sync";
 
-export default async function GlSettingsPage() {
+export default async function GlSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; seg?: string }>;
+}) {
+  const params = await searchParams;
   const { orgId, userId } = await getActiveOrg();
 
   // S1 (Компани) / S6 (Группын дотоод) нь байгууллагын бүртгэлээс АВТОМАТААР
@@ -49,6 +54,8 @@ export default async function GlSettingsPage() {
       segmentConfigs={segConfigs}
       segmentValues={rawSegValues}
       moduleConfigs={modConfigs}
+      initialMainTab={params.tab === "values" ? "values" : undefined}
+      initialSegment={params.seg ? Number(params.seg) : undefined}
     />
   );
 }

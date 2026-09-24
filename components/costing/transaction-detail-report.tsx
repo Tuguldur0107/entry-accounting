@@ -412,6 +412,17 @@ export function TransactionDetailReport({
           "PO хаалтын журналаар түр дансыг тэгшитгэсэн дүн — өртгийн бичилт биш",
       },
       {
+        headerName: "АР/АП баримт",
+        field: "sourceDocAmount",
+        width: 150,
+        cellClass: "ag-right-aligned-cell font-mono",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (params) =>
+          Number(params.value ?? 0) === 0 ? "" : fmtMnt(Number(params.value)),
+        headerTooltip:
+          "Клирингийн дансан дахь нэхэмжлэхийн тал (PO-гүй АП г.м.) — капитализаци түүнийг хаадаг",
+      },
+      {
         headerName: "Зөрүү",
         field: "difference",
         width: 150,
@@ -459,6 +470,7 @@ export function TransactionDetailReport({
         <div className="flex items-center gap-2">
           <input
             type="date"
+              aria-label="Эхлэх огноо"
             value={range.from}
             onChange={(event) =>
               applyRange({ ...range, from: event.target.value })
@@ -468,6 +480,7 @@ export function TransactionDetailReport({
           <span className="text-xs text-[var(--ea-text-4)]">—</span>
           <input
             type="date"
+              aria-label="Дуусах огноо"
             value={range.to}
             onChange={(event) => applyRange({ ...range, to: event.target.value })}
             className="h-8 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]"
@@ -482,7 +495,7 @@ export function TransactionDetailReport({
           className={cn(
             "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
             tab === "detail"
-              ? "bg-[var(--ea-primary)] text-white"
+              ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
               : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
           )}
         >
@@ -494,7 +507,7 @@ export function TransactionDetailReport({
           className={cn(
             "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
             tab === "clearing"
-              ? "bg-[var(--ea-primary)] text-white"
+              ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
               : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
           )}
         >
@@ -509,7 +522,7 @@ export function TransactionDetailReport({
           className={cn(
             "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
             tab === "reconciliation"
-              ? "bg-[var(--ea-primary)] text-white"
+              ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
               : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
           )}
         >

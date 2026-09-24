@@ -45,6 +45,7 @@ import {
 import { logAuditEvent } from "@/lib/audit";
 import { markPeriodTrainingFlags } from "@/lib/ai-logging/service";
 import { runBeforePeriodClose } from "@/lib/custom/loader";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 
 export interface PeriodRow {
   code: string;
@@ -150,7 +151,7 @@ export async function listPeriods(): Promise<PeriodRow[]> {
   for (const period of registered) {
     const row = ensure(period.code);
     row.status = period.status === "closed" ? "closed" : "open";
-    row.closedAt = period.closedAt?.toISOString().slice(0, 16) ?? null;
+    row.closedAt = fmtDateTimeUb(period.closedAt);
   }
   for (const voucher of vouchers) {
     const row = ensure(voucher.date.slice(0, 7));

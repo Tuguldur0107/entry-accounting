@@ -35,6 +35,14 @@ import {
   normalizePastedAccount,
 } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
+import {
+  SearchSelectCellEditor,
+  type SearchSelectOption,
+} from "@/lib/grid/editors/SearchSelectCellEditor";
+
+// Маягтын дотор 1–20 мөр л байдаг — баганын шүүлтүүр, эрэмбэлэлт хэрэггүй
+// бөгөөд мөрийн дарааллыг санамсаргүй өөрчилнө (UI гайдын карт 10).
+const FORM_GRID_COL_DEF = { filter: false, sortable: false } as const;
 
 /** Grid-ийн мөр — сервер рүү явах input + client талын түлхүүр. */
 export type LineRow = ArApLineInput & { id: string };
@@ -221,6 +229,32 @@ export function ArApLinesGrid({
 
   // Бараатай мөр: АП батлагдахад орлогын, АР батлагдахад зарлагын тоо
   // хэмжээний draft inventory-д үүснэ (бараа бүртгэлтэй үед л харагдана).
+  const itemOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      inventoryItems.map((item) => {
+        const price = item.salesPrice ?? item.lastSalesPrice;
+        return {
+          value: item.id,
+          label: item.name,
+          code: item.code,
+          hint: price != null && price > 0 ? `${fmtMnt(price)}₮` : undefined,
+        };
+      }),
+    [inventoryItems]
+  );
+  const warehouseOptions = useMemo<SearchSelectOption[]>(
+    () => warehouses.map((warehouse) => ({ value: warehouse.id, label: warehouse.name, code: warehouse.code })),
+    [warehouses]
+  );
+  const componentOptions = useMemo<SearchSelectOption[]>(
+    () =>
+      (costComponents ?? []).map((component) => ({
+        value: component.id,
+        label: component.name,
+        code: component.code,
+      })),
+    [costComponents]
+  );
   const itemLabelById = useMemo(
     () =>
       new Map(
@@ -299,10 +333,10 @@ export function ArApLinesGrid({
               minWidth: 170,
               editable: (params) =>
                 !(lockedItemLines && params.data?.purchaseOrderLineId),
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: ["", ...inventoryItems.map((item) => item.id)],
-              },
+              // Хайлттай сонгогч — нэр, код, үнээр (ENT-040).
+              cellEditor: SearchSelectCellEditor,
+              cellEditorPopup: true,
+              cellEditorParams: { options: itemOptions },
               valueFormatter: (params) =>
                 params.value ? itemLabelById.get(String(params.value)) ?? "" : "—",
             },
@@ -345,10 +379,9 @@ export function ArApLinesGrid({
               field: "warehouseId",
               minWidth: 140,
               editable: true,
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: ["", ...warehouses.map((warehouse) => warehouse.id)],
-              },
+              cellEditor: SearchSelectCellEditor,
+              cellEditorPopup: true,
+              cellEditorParams: { options: warehouseOptions },
               valueFormatter: (params) =>
                 params.value
                   ? warehouseLabelById.get(String(params.value)) ?? ""
@@ -363,13 +396,9 @@ export function ArApLinesGrid({
               field: "costComponentId",
               minWidth: 160,
               editable: true,
-              cellEditor: "agSelectCellEditor",
-              cellEditorParams: {
-                values: [
-                  "",
-                  ...(costComponents ?? []).map((component) => component.id),
-                ],
-              },
+              cellEditor: SearchSelectCellEditor,
+              cellEditorPopup: true,
+              cellEditorParams: { options: componentOptions },
               valueFormatter: (params) =>
                 params.value
                   ? componentLabelById.get(String(params.value)) ?? ""
@@ -403,12 +432,12 @@ export function ArApLinesGrid({
       defaultSegments,
       onChange,
       segmentOptions,
-      inventoryItems,
-      warehouses,
       itemLabelById,
       warehouseLabelById,
       componentLabelById,
-      costComponents,
+      itemOptions,
+      warehouseOptions,
+      componentOptions,
       showItemColumns,
       showUnitPrice,
       showComponents,
@@ -420,6 +449,7 @@ export function ArApLinesGrid({
     <div className="space-y-2">
       <DataGridDynamic<LineRow>
         rowData={lines}
+        defaultColDef={FORM_GRID_COL_DEF}
         columnDefs={columns}
         getRowId={(params) => params.data.id}
         onCellValueChanged={(event: CellValueChangedEvent<LineRow>) => {
@@ -448,6 +478,9 @@ export function ArApLinesGrid({
               // борлуулах үнээр, байхгүй бол сүүлийн борлуулалтын нэгж
               // үнээр нөхнө; тоо хоосон бол 1 → дүн шууд бодогдоно. Аль нь
               // ч байхгүй бол ХӨНДӨХГҮЙ (үнэ зохиохгүй — гараар бичнэ).
+              // Ганц агуулахтай бол бараа сонгоход автоматаар (ENT-039).
+              if (field === "itemId" && event.newValue && !next.warehouseId && warehouses.length === 1)
+                next.warehouseId = warehouses[0].id;
               if (
                 field === "itemId" &&
                 event.newValue &&
@@ -546,8 +579,9 @@ export function ArApLinesGrid({
             </Button>
           )}
         </div>
-        <span className="font-mono font-semibold text-[var(--ea-text-1)]">
-          Нийт: {fmtMnt(total)}
+        <span className="flex items-baseline gap-2 text-[var(--ea-text-1)]">
+          <span className="text-xs text-[var(--ea-text-3)]">Нийт</span>
+          <span className="font-mono text-base font-semibold tabular-nums">{fmtMnt(total)}</span>
         </span>
       </div>
       {mode === "arap" && (

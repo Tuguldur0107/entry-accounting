@@ -277,11 +277,13 @@ export function SalesListView({
         <div className="flex items-end gap-1.5">
           <label className="text-xs text-[var(--ea-text-3)]">
             Эхлэх
-            <Input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="mt-1 w-40" />
+            <Input type="date"
+              aria-label="Эхлэх огноо" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="mt-1 w-40" />
           </label>
           <label className="text-xs text-[var(--ea-text-3)]">
             Дуусах
-            <Input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="mt-1 w-40" />
+            <Input type="date"
+              aria-label="Дуусах огноо" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="mt-1 w-40" />
           </label>
           <Button
             variant="outline"

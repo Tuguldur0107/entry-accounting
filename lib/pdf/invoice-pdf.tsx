@@ -76,9 +76,10 @@ const styles = StyleSheet.create({
   },
   th: { fontWeight: "bold", fontSize: 8 },
   cNo: { width: "6%" },
-  cDesc: { width: "48%" },
-  cItem: { width: "22%" },
+  cDesc: { width: "36%" },
+  cItem: { width: "20%" },
   cQty: { width: "8%", textAlign: "right" },
+  cUnit: { width: "14%", textAlign: "right" },
   cAmount: { width: "16%", textAlign: "right" },
   totalRow: {
     flexDirection: "row",
@@ -215,6 +216,7 @@ function InvoiceDocument({ invoice }: { invoice: InvoicePayload }) {
             </Text>
             {hasItems && <Text style={[styles.th, styles.cItem]}>Бараа</Text>}
             {hasItems && <Text style={[styles.th, styles.cQty]}>Тоо</Text>}
+            {hasItems && <Text style={[styles.th, styles.cUnit]}>Нэгж үнэ</Text>}
             <Text style={[styles.th, styles.cAmount]}>
               Дүн ({invoice.currency})
             </Text>
@@ -231,6 +233,11 @@ function InvoiceDocument({ invoice }: { invoice: InvoicePayload }) {
               {hasItems && (
                 <Text style={styles.cQty}>
                   {line.quantity != null ? String(line.quantity) : ""}
+                </Text>
+              )}
+              {hasItems && (
+                <Text style={styles.cUnit}>
+                  {line.unitPrice != null ? fmt(line.unitPrice) : ""}
                 </Text>
               )}
               <Text style={styles.cAmount}>{fmt(line.amount)}</Text>

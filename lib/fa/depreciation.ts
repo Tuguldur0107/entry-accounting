@@ -45,6 +45,12 @@ export interface FixedAssetRef {
    */
   taxUsefulLifeMonths?: number;
   taxMethod?: DepreciationMethod;
+  /**
+   * Нэвтрүүлэлтийн cut-off огноо (YYYY-MM-DD) — тэр САР хүртэл элэгдлийг
+   * нээлтийн хуримтлагдсан элэгдэл (postedAccum-д шингэсэн) төлөөлдөг тул
+   * систем бодохгүй (ENT-002, lib/fa/opening.ts).
+   */
+  openingAsOf?: string | null;
 }
 
 // ── Өдрийн суурь ───────────────────────────────────────────────────────────
@@ -172,11 +178,16 @@ export function depreciationForMonth(
   const base = round2(asset.cost - asset.salvageValue);
   const remaining = round2(base - accum);
   if (remaining <= 0) return 0;
+  // IAS 16.55: ашиглалтын хугацаа дуусмагц элэгдэл ЗОГСОНО (ENT-002/049 —
+  // хугацаа дууссан тавиур дахин элэгдэж байв). Өдрийн суурь үүнийг
+  // depreciableDaysInMonth-оор өөрөө хангадаг.
+  const index = monthIndex(asset.depreciationStartMonth, month);
+  if (index > life) return 0;
 
   if (method === "declining_balance") {
-    // Хугацаа дууссан бол үлдэгдлийг бүтнээр нь хааж дуусгана — ×2 арга
+    // Хугацааны СҮҮЛИЙН сард үлдэгдлийг бүтнээр нь хааж дуусгана — ×2 арга
     // өөрөө хэзээ ч 0 хүрдэггүй тул төгсгөлийг заавал өгнө.
-    if (monthIndex(asset.depreciationStartMonth, month) >= life) return remaining;
+    if (index === life) return remaining;
     const nbv = round2(asset.cost - accum);
     // Өдрийн суурьт эхний/сүүлийн сарыг хувь тэнцүүлнэ (дунд сарууд бүтэн).
     const monthly = round2((nbv * 2) / life);
@@ -198,10 +209,10 @@ export function depreciationForMonth(
     return Math.min(round2((base * days) / totalDays), remaining);
   }
 
-  return Math.min(
-    round2((asset.cost - asset.salvageValue) / life),
-    remaining
-  );
+  // Сүүлийн сард бөөрөнхийллийн үлдэгдлийг хаана (өмнө нь 0.01₮ дараагийн
+  // сард «хугацаа хэтэрсэн» элэгдэл болж үлддэг байв).
+  if (index === life) return remaining;
+  return Math.min(round2(base / life), remaining);
 }
 
 export interface ComputedDepreciation {
@@ -234,6 +245,9 @@ export function computeMonthlyDepreciation(input: {
     if (asset.status !== "active") continue;
     if (!asset.depreciationStartMonth) continue;
     if (asset.depreciationStartMonth > input.month) continue;
+    // Нээлтийн cut-off сар ба түүнээс өмнөх сарууд нээлтийн хуримтлагдсан
+    // элэгдэлд аль хэдийн багтсан.
+    if (asset.openingAsOf && input.month <= asset.openingAsOf.slice(0, 7)) continue;
     if (input.alreadyCharged.has(asset.id)) continue;
     const accum = input.postedAccum.get(asset.id) ?? 0;
     const amount = depreciationForMonth(asset, accum, input.month, { basis });

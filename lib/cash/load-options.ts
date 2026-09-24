@@ -158,6 +158,7 @@ export async function loadCashTransactionOptions(
     accounts: accounts.map((account) => ({
       ...account,
       openingBalance: Number(account.openingBalance),
+      openingRate: account.openingRate === null ? null : Number(account.openingRate),
       balance: balanceMap.get(account.id) ?? 0,
     })),
     // S3 сонголт = идэвхтэй дансны жагсаалт (number-ээр эрэмбэлэгдсэн) —

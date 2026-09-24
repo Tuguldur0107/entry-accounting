@@ -92,3 +92,38 @@ test("бөөрөнхийлөлт 2 орон хүртэл", () => {
   assert.equal(rows[0].glAmount, 100);
   assert.equal(rows[0].difference, 0.01);
 });
+
+test("ENT-021: PO-гүй АП нэхэмжлэхийн Dr клиринг «гараар бичсэн» биш — АР/АП баримт баганаар хасагдана", () => {
+  const rows = buildInventoryReconciliationRows({
+    subledger: [
+      [INVENTORY, 80_196_400],
+      [CLEARING, -80_196_400],
+    ],
+    glLines: [
+      { accountNumber: INVENTORY, delta: 80_196_400, linked: true, poClose: false },
+      { accountNumber: CLEARING, delta: -80_196_400, linked: true, poClose: false },
+      { accountNumber: CLEARING, delta: 80_196_400, linked: false, poClose: false, sourceDoc: true },
+    ],
+  });
+  const clearing = rows.find((row) => row.accountNumber === CLEARING)!;
+  assert.equal(clearing.glAmount, 0);
+  assert.equal(clearing.sourceDocAmount, 80_196_400);
+  assert.equal(clearing.difference, 0);
+  assert.equal(clearing.unlinkedGlLines, 0);
+});
+
+test("ENT-025/073: зардал/орлогын данс (73100007, COGS) тулгалтад орохгүй", () => {
+  const rows = buildInventoryReconciliationRows({
+    subledger: [
+      [INVENTORY, -50_000],
+      ["73100007", 50_000],
+      ["61100000", 10_000],
+    ],
+    glLines: [
+      { accountNumber: "73100007", delta: 900_000, linked: false, poClose: false },
+      { accountNumber: INVENTORY, delta: -50_000, linked: true, poClose: false },
+    ],
+  });
+  assert.deepEqual(rows.map((row) => row.accountNumber), [INVENTORY]);
+  assert.equal(rows[0].difference, 0);
+});

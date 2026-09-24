@@ -674,6 +674,16 @@ export const cashAccounts = pgTable("cash_accounts", {
   openingBalance: numeric("opening_balance", { precision: 18, scale: 2 })
     .notNull()
     .default("0"),
+  /**
+   * Нээлтийн (нэвтрүүлэлтийн cut-off) огноо YYYY-MM-DD — нээлтийн журнал
+   * ЗӨВХӨН энэ огноогоор бичигдэнэ (ENT-012). Хуучин дансанд null.
+   */
+  openingDate: text("opening_date"),
+  /**
+   * Валютын дансны нээлтийн ханш (гараар өгсөн). null бол нээлтийн огнооны
+   * Монголбанкны албан ханш татагдана (ENT-011, lib/cash/opening.ts).
+   */
+  openingRate: numeric("opening_rate", { precision: 18, scale: 8 }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -3029,12 +3039,31 @@ export const fixedAssets = pgTable(
     taxDepreciationMethod: text("tax_depreciation_method")
       .notNull()
       .default("straight_line"),
+    /**
+     * НЭЭЛТИЙН хуримтлагдсан элэгдэл (нэвтрүүлэлтийн өмнөх, ENT-002) —
+     * GL-д нээлтийн журналаар орсон; карт GL бичихгүй. Элэгдэл, данснаас
+     * хасалт, бүртгэлийн тайлан бүгд үүнийг системийн бичилт дээр нэмнэ.
+     */
+    openingAccumulatedDepreciation: numeric("opening_accumulated_depreciation", {
+      precision: 18,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    /** Татварын нээлтийн хуримтлагдсан элэгдэл (мэмо, санхүүгийнхээс тусдаа). */
+    openingTaxAccumulated: numeric("opening_tax_accumulated", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    /** Нээлтийн cut-off огноо (YYYY-MM-DD) — тэр сар хүртэл систем элэгдүүлэхгүй. */
+    openingAsOf: text("opening_as_of"),
+    // Биет ҮХ-ийн анхдагч хос 20000001 / 20000002 (ENT-001: хуримтлагдсан
+    // элэгдлийн default нь «биет бус»-ын 21000099 байв). Хуучин карт хэвээр.
     assetAccountNumber: text("asset_account_number")
       .notNull()
-      .default("21010000"),
+      .default("20000001"),
     accumDepAccountNumber: text("accum_dep_account_number")
       .notNull()
-      .default("21000099"),
+      .default("20000002"),
     depExpenseAccountNumber: text("dep_expense_account_number")
       .notNull()
       .default("70000001"),

@@ -12,7 +12,8 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, asc, desc, eq, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, notInArray, or, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import {
   createArApDocument,
@@ -117,6 +118,7 @@ import {
   getOrganizationProfile,
   updateOrganizationProfile,
 } from "@/lib/actions/organization-profile";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { getBillingOverview } from "@/lib/actions/billing";
 import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
 import { requireFeature } from "@/lib/billing/guards";
@@ -275,7 +277,8 @@ import {
   resolveCfLines,
 } from "@/lib/reports/cf-lines";
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
-import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
+import { type BsSection } from "@/lib/reports/bs-lines";
+import { resolveBsLines, type ResolvedBsLine } from "@/lib/reports/bs-resolve";
 
 import {
   listNotifications,
@@ -288,7 +291,6 @@ import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
 
 import type { AiWriteMode } from "./models";
 import {
-  AI_POST_LIMIT_TOOL_CEILING_MNT,
   currentAiPostLimit,
   DEFAULT_AI_POST_LIMIT_MNT,
   planAiPostLimitChange,
@@ -297,6 +299,11 @@ import {
 } from "./post-limit";
 
 import type { AiAction } from "./action-markers";
+import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
+import { isFuturePeriodDate, ulaanbaatarToday } from "@/lib/periods/document-date";
+import { accumDepAccountFor, DEFAULT_FA_ASSET_ACCOUNT } from "@/lib/fa/opening";
+import { cashOpeningMnt } from "@/lib/cash/opening";
+import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import {
   customToolDefs,
@@ -392,6 +399,16 @@ export const AI_TOOLS: AiToolDef[] = [
           items: LINE_SCHEMA,
         },
         externalRef: EXTERNAL_REF_SCHEMA,
+        currency: {
+          type: "string",
+          description:
+            "Баримтын валют (default MNT). Валютын журналд мөрийн debit/credit нь ВАЛЮТААР, ₮ нь ханшаар бодогдоно (IAS 21)",
+        },
+        exchangeRate: {
+          type: "number",
+          description:
+            "1 валют = ? ₮ (сонголтоор — өгөөгүй бол огнооны Монголбанкны албан ханш; олдохгүй бол [RATE_REQUIRED])",
+        },
       },
       required: ["date", "description", "lines"],
     },
@@ -490,6 +507,11 @@ export const AI_TOOLS: AiToolDef[] = [
         description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
         exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
+        cashFlowCode: {
+          type: "string",
+          description:
+            "Мөнгөн гүйлгээний ангилал — S8 сегментийн код (IAS 7; жишээ нь үйл ажиллагааны орлого/зарлага). Мөнгөн гүйлгээний тайланд ангилагдахын тулд өгнө",
+        },
         externalRef: EXTERNAL_REF_SCHEMA,
         applyTo: {
           type: "array",
@@ -539,7 +561,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "create_fixed_asset",
     description:
-      "Үндсэн хөрөнгийн карт үүсгэнэ (ноорог — хэрэглэгч шалгаад идэвхжүүлнэ; 'Шууд бичих' горимд идэвхтэй үүснэ). Данснуудыг идэвхтэй дансны жагсаалтаас өгнө (хөрөнгө 2101…, хуримтлагдсан элэгдэл 2100…, элэгдлийн зардал 7000…).",
+      "Үндсэн хөрөнгийн карт үүсгэнэ (ноорог — хэрэглэгч шалгаад идэвхжүүлнэ; 'Шууд бичих' горимд идэвхтэй үүснэ). Данс өгөөгүй бол биет ҮХ-ийн анхдагч: хөрөнгө 20000001, хуримтлагдсан элэгдэл 20000002, элэгдлийн зардал 70000001. Нэвтрүүлэлтийн өмнө элэгдэж эхэлсэн хөрөнгөд openingAccumulatedDepreciation + openingAsOf (cut-off) ЗААВАЛ — эс бөгөөс систем дахин бүтэн хугацаагаар элэгдүүлнэ; нээлтийн дүн GL-д нээлтийн журналаар (Кт 20000002) орно.",
     inputSchema: {
       type: "object",
       properties: {
@@ -558,20 +580,34 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "Элэгдэл эхлэх сар YYYY-MM (default: авсан сарын дараах сар)",
         },
-        assetAccountNumber: { type: "string", description: "Хөрөнгийн данс (8 оронтой)" },
-        accumDepAccountNumber: { type: "string", description: "Хуримтлагдсан элэгдлийн данс" },
-        depExpenseAccountNumber: { type: "string", description: "Элэгдлийн зардлын данс" },
+        openingAccumulatedDepreciation: {
+          type: "number",
+          description:
+            "Нээлтийн (нэвтрүүлэлтийн өмнөх) хуримтлагдсан элэгдэл ₮ — ≤ өртөг − үлдэх өртөг",
+        },
+        openingTaxAccumulated: {
+          type: "number",
+          description: "Татварын нээлтийн хуримтлагдсан элэгдэл ₮ (мэмо, сонголтоор)",
+        },
+        openingAsOf: {
+          type: "string",
+          description:
+            "Нээлтийн cut-off огноо YYYY-MM-DD — энэ сар хүртэлх элэгдэл нээлтийн дүнд багтсан (систем дараагийн сараас элэгдүүлнэ)",
+        },
+        assetAccountNumber: {
+          type: "string",
+          description: "Хөрөнгийн данс (8 оронтой, default 20000001)",
+        },
+        accumDepAccountNumber: {
+          type: "string",
+          description: "Хуримтлагдсан элэгдлийн данс (default: хөрөнгийн дансанд харгалзах — 20000002)",
+        },
+        depExpenseAccountNumber: {
+          type: "string",
+          description: "Элэгдлийн зардлын данс (default 70000001)",
+        },
       },
-      required: [
-        "name",
-        "acquisitionDate",
-        "cost",
-        "usefulLifeMonths",
-        "custodian",
-        "assetAccountNumber",
-        "accumDepAccountNumber",
-        "depExpenseAccountNumber",
-      ],
+      required: ["name", "acquisitionDate", "cost", "usefulLifeMonths", "custodian"],
     },
   },
   {
@@ -978,7 +1014,20 @@ export const AI_TOOLS: AiToolDef[] = [
         accountNumber: { type: "string", description: "Банкны дансны дугаар (сонголтоор)" },
         currency: { type: "string", description: "Валют (default MNT)" },
         glAccount: { type: "string", description: "Холбогдох GL данс (8 оронтой)" },
-        openingBalance: { type: "number", description: "Нээлтийн үлдэгдэл (сонголтоор)" },
+        openingBalance: {
+          type: "number",
+          description: "Нээлтийн үлдэгдэл ДАНСНЫ ВАЛЮТААР (сонголтоор)",
+        },
+        openingDate: {
+          type: "string",
+          description:
+            "Нээлтийн (cut-off) огноо YYYY-MM-DD — openingBalance ≠ 0 бол ЗААВАЛ; нээлтийн журнал энэ огноогоор бичигдэнэ",
+        },
+        openingRate: {
+          type: "number",
+          description:
+            "Валютын дансны нээлтийн ханш (сонголтоор — хоосон бол нээлтийн огнооны Монголбанкны албан ханш)",
+        },
       },
       required: ["name", "accountType", "glAccount"],
     },
@@ -997,6 +1046,11 @@ export const AI_TOOLS: AiToolDef[] = [
         usefulLifeMonths: { type: "integer" },
         custodian: { type: "string", description: "Хариуцагч" },
         depreciationStartMonth: { type: "string", description: "YYYY-MM" },
+        openingAccumulatedDepreciation: {
+          type: "number",
+          description: "Нээлтийн хуримтлагдсан элэгдэл ₮ (нэвтрүүлэлтийн өмнөх)",
+        },
+        openingAsOf: { type: "string", description: "Нээлтийн cut-off огноо YYYY-MM-DD" },
         assetAccountNumber: { type: "string" },
         accumDepAccountNumber: { type: "string" },
         depExpenseAccountNumber: { type: "string" },
@@ -1291,7 +1345,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "list_inventory_movements",
     description:
-      "Бараа материалын хөдөлгөөнүүдийн жагсаалт (төрөл, бараа, тоо, төлөв).",
+      "Бараа материалын хөдөлгөөнүүдийн жагсаалт (дугаар, төрөл, бараа, тоо, агуулах, төлөв) — огноо, бараа, агуулах, төрөл, төлвөөр шүүнэ (DB дээр, хуучин сар ч олдоно).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1300,7 +1354,16 @@ export const AI_TOOLS: AiToolDef[] = [
           enum: ["draft", "confirmed", "cancelled"],
           description: "Төлвөөр шүүх",
         },
-        limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
+        movementType: {
+          type: "string",
+          enum: ["receipt", "issue", "transfer", "adjustment", "return_in", "return_out"],
+          description: "Төрлөөр шүүх",
+        },
+        from: { type: "string", description: "Огнооны эхлэл YYYY-MM-DD" },
+        to: { type: "string", description: "Огнооны төгсгөл YYYY-MM-DD" },
+        itemCode: { type: "string", description: "Барааны код" },
+        warehouseCode: { type: "string", description: "Агуулахын код (орох эсвэл гарах тал)" },
+        limit: { type: "integer", description: "Max мөр (default 20, max 200)" },
       },
     },
   },
@@ -1545,14 +1608,24 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "fix_cash_opening_balance",
     description:
-      "Кассын дансны НЭЭЛТИЙН үлдэгдлийг GL-д бичих ноорог журнал үүсгэнэ (Дт данс / Кт эздийн өмч; сөрөгт эсрэгээр). reconcile_modules-д кассын зөрүү нь нээлтийн үлдэгдэлтэй тэнцүү гарсан үед ашиглана — журнал батлагдмагц зөрүү арилна.",
+      "Кассын дансны НЭЭЛТИЙН үлдэгдлийг GL-д бичих ноорог журнал үүсгэнэ (Дт данс / Кт эздийн өмч; сөрөгт эсрэгээр). reconcile_modules-д кассын зөрүү нь нээлтийн үлдэгдэлтэй тэнцүү гарсан үед ашиглана — журнал батлагдмагц зөрүү арилна. Журнал дансны НЭЭЛТИЙН ОГНООГООР (өнөөдрөөр биш) бичигдэнэ; валютын данс FC × нээлтийн огнооны ханшаар (валютын дүн хадгалагдана).",
     inputSchema: {
       type: "object",
       properties: {
         cashAccount: { type: "string", description: "Кассын/банкны дансны нэр" },
         counterAccount: {
           type: "string",
-          description: "Харьцах данс (default: 41100000 эздийн өмч)",
+          description: "Харьцах данс (default: 41000001 эздийн өмч)",
+        },
+        date: {
+          type: "string",
+          description:
+            "Нээлтийн огноо YYYY-MM-DD — дансанд нээлтийн огноо хадгалагдаагүй үед ЗААВАЛ",
+        },
+        exchangeRate: {
+          type: "number",
+          description:
+            "Валютын дансны нээлтийн ханш (сонголтоор — хоосон бол дансны нээлтийн ханш, түүнгүй бол албан ханш)",
         },
       },
       required: ["cashAccount"],
@@ -2131,8 +2204,8 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "number",
           description:
             "AI/MCP/REST-ийн ШУУД БАТЛАХ дээд хязгаар (₮) — «Шууд бичих» горимд ч үүнээс их бичилт ноорог үлдэнэ. 0 өгвөл default " +
-            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ӨСГӨХ нь ${AI_POST_LIMIT_TOOL_CEILING_MNT.toLocaleString("en-US")}₮ таазтай — ` +
-            "түүнээс дээш хязгаарыг зөвхөн вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ тавина. Бууруулахад тааз хамаарахгүй",
+            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ЗӨВХӨН БУУРУУЛНА — ` +
+            "өсгөлт [HUMAN_REQUIRED]: вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн тавина",
         },
       },
     },
@@ -2891,6 +2964,11 @@ export const AI_TOOLS: AiToolDef[] = [
         customerTin: { type: "string", description: "Байгууллагын ТТД (11/14 орон) — өгвөл B2B баримт" },
         customerRegNo: { type: "string", description: "Байгууллагын РД — ТТД-г ТЕГ-ийн лавлахаас автоматаар олно (customerTin-ийн оронд)" },
         skipEbarimt: { type: "boolean", description: "true бол ЭНЭ борлуулалтыг eBarimt-гүй бүртгэнэ (ТЕГ-д илгээхгүй, статус «Илгээгээгүй») — хэрэглэгч ил хүссэн үед л; дараа нь resend_ebarimt-ээр илгээж болно" },
+        managerApproval: {
+          type: "boolean",
+          description:
+            "Хөнгөлөлтийн хязгаар / гар үнэ зэрэг МЕНЕЖЕРИЙН ЗӨВШӨӨРӨЛ шаардсан борлуулалтад — хэрэглэгч (эрхтэй менежер) чатад ИЛ зөвшөөрсөн үед л true. Өгөөгүй бол [APPROVAL_REQUIRED] буцна; AI өөрөө зөвшөөрөхгүй",
+        },
       },
       required: ["lines", "payments"],
     },
@@ -3007,7 +3085,25 @@ export const AI_TOOLS: AiToolDef[] = [
 // ── Туслах ──────────────────────────────────────────────────────────────────
 
 function errorText(caught: unknown): string {
-  return caught instanceof Error ? caught.message : "Тодорхойгүй алдаа";
+  // Batch-ийн мөр бүрийн алдаа ч гадны клиентэд очдог — DB-ийн дотоод
+  // мессежийг (SQL, UUID параметр) ЗАДЛАХГҮЙ (ENT-070).
+  const classified = classifyToolError(caught);
+  if (classified.internal) {
+    console.error(`AI tool internal error [${classified.logId}]:`, caught);
+    return internalErrorText(classified.logId);
+  }
+  return classified.message;
+}
+
+/**
+ * Ирээдүйн тайлант үеийн огноотой бичилт post горимд ч НООРОГ үлдэнэ
+ * (ENT-028: 2027-06-ны журнал сануулгагүй батлагдаж байв). null = саадгүй.
+ */
+function futurePeriodDraftNote(date: string): string | null {
+  const today = ulaanbaatarToday();
+  return isFuturePeriodDate(date, today)
+    ? ` (${date.slice(0, 7)} нь ирээдүйн тайлант үе — өнөөдөр ${today} тул ноорог үлдэв; тэр сар эхэлсний дараа батална)`
+    : null;
 }
 
 const fmt = (n: number) => new Intl.NumberFormat("en-US").format(Math.round(n * 100) / 100);
@@ -3122,6 +3218,8 @@ async function runCreateJournal(
     description: string;
     lines: JournalLineInput[];
     externalRef?: string;
+    currency?: string;
+    exchangeRate?: number;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -3160,16 +3258,48 @@ async function runCreateJournal(
   });
   if (lines.length < 2) throw new Error("Журналд дор хаяж 2 мөр хэрэгтэй");
 
+  // ENT-013: валютын журнал (вэбийн §2b-тэй ИЖИЛ — мөрийн дүн ВАЛЮТААР, ₮-ийг
+  // сервер resolveVoucherCurrency-оор ханшаар дахин бодно).
+  const currency = (input.currency?.trim() || "MNT").toUpperCase();
+  let rate = 1;
+  let rateSource: string | undefined;
+  let rateDate: string | undefined;
+  let rateNote = "";
+  if (currency !== "MNT") {
+    if (Number(input.exchangeRate) > 0) {
+      rate = Number(input.exchangeRate);
+      rateSource = "manual";
+      rateDate = input.date;
+    } else {
+      try {
+        const lookup = await getOfficialRateForDate(currency, input.date);
+        rate = lookup.rate;
+        rateSource = "mongolbank";
+        rateDate = lookup.rateDate;
+      } catch {
+        throw codedError(
+          "RATE_REQUIRED",
+          `${input.date}-ны ${currency} албан ханш олдсонгүй — exchangeRate (1 ${currency} = ? ₮) өгнө үү`
+        );
+      }
+    }
+    rateNote = ` · ${currency} @ ${rate}${rateSource === "mongolbank" ? ` (Монголбанк ${rateDate})` : ""}`;
+  }
+
   const totalDebit = lines.reduce((sum, line) => sum + line.debit, 0);
   const totalCredit = lines.reduce((sum, line) => sum + line.credit, 0);
   const balanced = Math.abs(totalDebit - totalCredit) <= 0.01 && totalDebit > 0;
+  // Лимит ₮-өөр.
+  const baseDebit = Math.round(totalDebit * rate * 100) / 100;
 
   let status: "draft" | "posted" = "draft";
   let note = "";
   if (mode === "post") {
-    if (!balanced)
+    const futureNote = futurePeriodDraftNote(input.date);
+    if (futureNote) note = futureNote;
+    else if (!balanced)
       note = ` (тэнцээгүй тул ноорог үлдэв: Дт ${fmt(totalDebit)} ≠ Кт ${fmt(totalCredit)})`;
-    else if (totalDebit > currentAiPostLimit())
+    else if (baseDebit > currentAiPostLimit())
       note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв — нягтланч шалгаж батална)`;
     else status = "posted";
   }
@@ -3177,13 +3307,27 @@ async function runCreateJournal(
   const { id } = unwrapAction(await createVoucher({
     date: input.date,
     description: input.description,
-    lines,
+    lines:
+      currency === "MNT"
+        ? lines
+        : lines.map((line) => ({
+            ...line,
+            debitFc: line.debit,
+            creditFc: line.credit,
+            debit: Math.round(line.debit * rate * 100) / 100,
+            credit: Math.round(line.credit * rate * 100) / 100,
+          })),
     status,
     externalRef,
+    currency,
+    exchangeRate: currency === "MNT" ? undefined : rate,
+    rateSource,
+    rateDate,
   }));
 
+  const unit = currency === "MNT" ? "₮" : ` ${currency}`;
   return {
-    resultText: `Журнал үүслээ. ID: ${id}, төлөв: ${status}, Дт ${fmt(totalDebit)}₮ / Кт ${fmt(totalCredit)}₮${note}`,
+    resultText: `Журнал үүслээ. ID: ${id}, төлөв: ${status}, Дт ${fmt(totalDebit)}${unit} / Кт ${fmt(totalCredit)}${unit}${rateNote}${currency === "MNT" ? "" : ` ≈ ${fmt(baseDebit)}₮`}${note}`,
     action: {
       kind: "voucher",
       id,
@@ -3389,6 +3533,16 @@ async function runCreateArap(
     };
   });
 
+  // ENT-030: 0 / сөрөг дүнтэй мөрийг чимээгүй хасаж «дор хаяж нэг мөр»
+  // гэж төөрөгдүүлэхгүй — аль мөр буруу болохыг индекстэй нь хэлнэ.
+  lines.forEach((line, index) => {
+    if (!Number.isFinite(line.amount) || line.amount <= 0)
+      throw codedError(
+        "INVALID_LINE",
+        `Мөр #${index + 1}${line.description ? ` («${line.description}»)` : ""}: дүн ${line.amount} — 0-ээс их байна (буцаалт/хасалтыг кредит баримт эсвэл тусдаа журналаар)`
+      );
+  });
+
   // ── НӨАТ (vatMode): exclusive — мөрүүд дээр НЭМЖ, inclusive — дотроос нь
   // ялгаж НӨАТ-ийн мөр автоматаар нэмэгдэнэ. АР → гаралтын НӨАТ (өглөг тал),
   // АП → оролтын НӨАТ (авлага тал); дансууд vat_settings тохиргооноос.
@@ -3433,18 +3587,43 @@ async function runCreateArap(
   }
 
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
-  // PO-той баримтын валют нь захиалгынхтай таарах ёстой — ил өгөөгүй бол
-  // захиалгынхаар (лимитийн хөрвүүлэлт мөн ҮҮГЭЭР).
-  const effectiveCurrency = input.currency || poDetail?.currency || "MNT";
+  // Валют: ил өгсөн → PO-гийн БАРААНЫ нэхэмжлэх бол захиалгынх → PO-гийн
+  // нэмэлт зардлын нэхэмжлэх бол харилцагчийн анхдагч → MNT. Гааль/тээврийн НЭМЭЛТ ЗАРДЛЫН нэхэмжлэх PO-гийн валютыг
+  // өвлөхгүй (ENT-038/071: USD PO-д холбосон ₮ гаалийн нэхэмжлэх USD болж,
+  // «USD ханш 0-ээс их» алдаа өгдөг байв).
+  const hasPoGoodsLines = lines.some((line) => line.itemId || line.purchaseOrderLineId);
+  const effectiveCurrency = (
+    input.currency?.trim() ||
+    (poDetail ? (hasPoGoodsLines ? poDetail.currency : counterparty.defaultCurrency) : "MNT") ||
+    "MNT"
+  ).toUpperCase();
+  // Валютын баримтад ханш өгөөгүй бол баримтын ӨДРИЙН албан ханш (зохиохгүй —
+  // олдохгүй бол exchangeRate-ийг шаардана).
+  let exchangeRate = input.exchangeRate;
+  let rateNote = "";
+  if (effectiveCurrency !== "MNT" && !(Number(exchangeRate) > 0)) {
+    try {
+      const lookup = await getOfficialRateForDate(effectiveCurrency, input.date);
+      exchangeRate = lookup.rate;
+      rateNote = `, ханш ${lookup.rate} (Монголбанк ${lookup.rateDate})`;
+    } catch {
+      throw codedError(
+        "RATE_REQUIRED",
+        `${input.date}-ны ${effectiveCurrency} албан ханш олдсонгүй — exchangeRate (1 ${effectiveCurrency} = ? ₮) өгнө үү`
+      );
+    }
+  }
   // Лимитийг ЗААВАЛ MNT-ээр шалгана — валютын баримтын дүн ханшаар үржинэ.
   const baseTotal =
     effectiveCurrency !== "MNT"
-      ? total * (Number(input.exchangeRate) || 0)
+      ? total * (Number(exchangeRate) || 0)
       : total;
   let postNow = false;
   let note = "";
   if (mode === "post") {
-    if (baseTotal > currentAiPostLimit() || !(baseTotal > 0))
+    const futureNote = futurePeriodDraftNote(input.date);
+    if (futureNote) note = futureNote;
+    else if (baseTotal > currentAiPostLimit() || !(baseTotal > 0))
       note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
     else postNow = true;
   }
@@ -3462,8 +3641,8 @@ async function runCreateArap(
     counterpartyId: counterparty.id,
     date: input.date,
     dueDate,
-    currency: input.currency || poDetail?.currency,
-    exchangeRate: input.exchangeRate,
+    currency: effectiveCurrency,
+    exchangeRate: effectiveCurrency === "MNT" ? undefined : exchangeRate,
     controlAccountNumber: control.code,
     description: input.description,
     purchaseOrderId,
@@ -3474,7 +3653,7 @@ async function runCreateArap(
 
   const label = isAp ? "Өглөгийн нэхэмжлэх" : "Авлагын нэхэмжлэл";
   return {
-    resultText: `${label} үүслээ. Дугаар: ${documentNo}, харилцагч: ${counterparty.name}, дүн: ${fmt(total)}₮${vatNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${purchaseOrderNo ? ` · захиалга ${purchaseOrderNo} (Dr өглөгийн түр данс; орлого нь хүлээн авалтаас)` : ""}`,
+    resultText: `${label} үүслээ. Дугаар: ${documentNo}, харилцагч: ${counterparty.name}, дүн: ${fmt(total)} ${effectiveCurrency === "MNT" ? "₮" : effectiveCurrency}${rateNote}${vatNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${purchaseOrderNo ? ` · захиалга ${purchaseOrderNo} (Dr өглөгийн түр данс; орлого нь хүлээн авалтаас)` : ""}`,
     action: {
       kind: "arap",
       id,
@@ -3482,6 +3661,23 @@ async function runCreateArap(
       status: postNow ? "posted" : "draft",
     },
   };
+}
+
+/**
+ * Зарлагын дараа мөнгөн данс хасах үлдэгдэлтэй болсон бол анхааруулга
+ * (ENT-062 — зөвхөн самбарт харагддаг байв). Хориг биш: банкны овердрафт
+ * байж болно, гэхдээ ИЛ хэлнэ.
+ */
+async function negativeCashBalanceNote(orgId: string, cashAccountId: string | undefined) {
+  if (!cashAccountId) return "";
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.id, cashAccountId)),
+  });
+  if (!account) return "";
+  const balance = (await loadCashBalancesFast(orgId, [account])).get(account.id) ?? 0;
+  if (balance >= -0.005) return "";
+  const unit = account.currency === "MNT" ? "₮" : ` ${account.currency}`;
+  return ` ⚠ ${account.name} ХАСАХ үлдэгдэлтэй болов: ${fmt(balance)}${unit} — орлого дутуу бүртгэгдсэн эсвэл буруу данснаас төлсөн эсэхийг шалгана уу`;
 }
 
 async function runCreateCash(
@@ -3496,6 +3692,7 @@ async function runCreateCash(
     description: string;
     counterparty?: string;
     exchangeRate?: number;
+    cashFlowCode?: string;
     externalRef?: string;
     applyTo?: { documentId: string; amount: number }[];
   },
@@ -3610,6 +3807,8 @@ async function runCreateCash(
 
   const decidePost = (amount: number) => {
     if (mode !== "post") return { postNow: false, note: "" };
+    const futureNote = futurePeriodDraftNote(input.date);
+    if (futureNote) return { postNow: false, note: futureNote };
     // Лимит ЗААВАЛ MNT-ээр: валютын дансны дүн ханшаар үржинэ (ханш
     // байхгүй бол аюулгүй тал руу — ноорог үлдээнэ).
     const baseAmount =
@@ -3639,6 +3838,8 @@ async function runCreateCash(
     counterparty: input.counterparty,
     amount,
     exchangeRate: input.exchangeRate,
+    // ENT-050: S8 ангилал — MCP-ээр оноох зам байгаагүй.
+    cashFlowCode: input.cashFlowCode?.trim() || undefined,
   });
   const typeLabel =
     input.documentType === "receipt"
@@ -3669,8 +3870,12 @@ async function runCreateCash(
       arApDocumentId: linked?.id,
       externalRef,
     }));
+    const balanceNote =
+      postNow && input.documentType !== "receipt"
+        ? await negativeCashBalanceNote(orgId, primary.id)
+        : "";
     return {
-      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+      resultText: `Мөнгөн хөрөнгийн баримт үүслээ. ${typeLabel}, ${primary.name}, ${fmt(totalAmount)}₮${linked ? `, нэхэмжлэх: ${linked.documentNo}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${balanceNote}`,
       action: {
         kind: "cash",
         id,
@@ -3852,14 +4057,25 @@ async function runCreateFixedAsset(
     depreciationMethod?: "straight_line" | "declining_balance";
     custodian: string;
     depreciationStartMonth?: string;
-    assetAccountNumber: string;
-    accumDepAccountNumber: string;
-    depExpenseAccountNumber: string;
+    openingAccumulatedDepreciation?: number;
+    openingTaxAccumulated?: number;
+    openingAsOf?: string;
+    assetAccountNumber?: string;
+    accumDepAccountNumber?: string;
+    depExpenseAccountNumber?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
   const asDraft = mode !== "post";
+  const assetAccount = resolveAccount(
+    input.assetAccountNumber?.trim() || DEFAULT_FA_ASSET_ACCOUNT,
+    ctx
+  ).main;
+  const accumAccount = resolveAccount(
+    input.accumDepAccountNumber?.trim() || accumDepAccountFor(assetAccount),
+    ctx
+  ).main;
 
   // Default: авсан сарын ДАРААХ сараас элэгдүүлж эхэлнэ.
   const startMonth =
@@ -3881,17 +4097,27 @@ async function runCreateFixedAsset(
         depreciationMethod: input.depreciationMethod ?? "straight_line",
         custodian: input.custodian,
         depreciationStartMonth: startMonth,
-        assetAccountNumber: resolveAccount(input.assetAccountNumber, ctx).main,
-        accumDepAccountNumber: resolveAccount(input.accumDepAccountNumber, ctx).main,
-        depExpenseAccountNumber: resolveAccount(input.depExpenseAccountNumber, ctx).main,
+        openingAccumulatedDepreciation: input.openingAccumulatedDepreciation,
+        openingTaxAccumulated: input.openingTaxAccumulated,
+        openingAsOf: input.openingAsOf,
+        assetAccountNumber: assetAccount,
+        accumDepAccountNumber: accumAccount,
+        depExpenseAccountNumber: resolveAccount(
+          input.depExpenseAccountNumber?.trim() || "70000001",
+          ctx
+        ).main,
       },
       { asDraft }
-  
     )
   );
 
+  const opening = Number(input.openingAccumulatedDepreciation ?? 0);
+  const openingText =
+    opening > 0
+      ? `, нээлтийн хуримт. элэгдэл ${fmt(opening)}₮ (${input.openingAsOf}) — үлдэгдэл өртөг ${fmt(Number(input.cost) - opening)}₮`
+      : "";
   return {
-    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}`,
+    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮${openingText}, данс ${assetAccount}/${accumAccount}, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}`,
     action: {
       kind: "fa",
       id,
@@ -3904,21 +4130,40 @@ async function runCreateFixedAsset(
 // ── Батлах / устгах гүйцэтгэгчид ────────────────────────────────────────────
 
 /** ID-г бүтэн эсвэл угтвараар нь ГАНЦ тохирол болгож шийднэ. */
-function resolveByIdPrefix<T extends { id: string }>(
-  rows: T[],
-  idOrPrefix: string,
-  what: string
-): T {
+/**
+ * Баримтыг ЛАВЛАГААГААР шууд DB-ээс шүүх нөхцөл — ID угтвар, дугаар
+ * (documentNo), externalRef (ENT-033: сүүлийн 500–1000 бичлэгийн цонхонд
+ * хайдаг байсан тул том байгууллагад хуучин баримт олдохгүй байв).
+ */
+function refCondition(
+  columns: { id: AnyPgColumn; documentNo?: AnyPgColumn; externalRef?: AnyPgColumn },
+  ref: string
+): SQL {
+  const query = ref.trim().toLowerCase();
+  const prefix = query.replace(/[\\%_]/g, "");
+  const conditions: SQL[] = [];
+  if (prefix.length >= 6) conditions.push(sql`${columns.id}::text like ${`${prefix}%`}`);
+  if (columns.documentNo) conditions.push(sql`lower(${columns.documentNo}) = ${query}`);
+  if (columns.externalRef) conditions.push(sql`lower(${columns.externalRef}) = ${query}`);
+  return conditions.length > 0 ? or(...conditions)! : sql`false`;
+}
+
+function resolveByIdPrefix<
+  T extends { id: string; documentNo?: string | null; externalRef?: string | null },
+>(rows: T[], idOrPrefix: string, what: string): T {
   const query = idOrPrefix.trim().toLowerCase();
+  // Дугаар / externalRef-ээр ЯГ таарвал (мөрөнд тэр багана байвал).
+  const byNo = rows.filter((row) => row.documentNo?.toLowerCase() === query);
+  if (byNo.length === 1) return byNo[0];
+  const byRef = rows.filter((row) => row.externalRef?.toLowerCase() === query);
+  if (byRef.length === 1) return byRef[0];
   if (query.length < 6)
-    throw new Error(`${what}-ийн ID дор хаяж 6 тэмдэгт байх ёстой`);
+    throw new Error(`${what}-ийн ID дор хаяж 6 тэмдэгт байх ёстой (эсвэл баримтын дугаар өгнө)`);
   const matches = rows.filter((row) => row.id.toLowerCase().startsWith(query));
   if (matches.length === 1) return matches[0];
   if (matches.length === 0)
-    // Lookup-ууд зөвхөн сүүлийн 500–1000 бичлэгийн цонхонд хайдаг тул
-    // хуучин баримт энд орж ирэхгүй — модельд шалтгааныг нь хэлж өгнө.
     throw new Error(
-      `"${idOrPrefix}" ID-тай ${what} олдсонгүй (сүүлийн ${rows.length} баримтаас хайв — хуучин баримтыг бүтэн ID-гаар өгнө үү)`
+      `"${idOrPrefix}" гэсэн ID/дугаартай ${what} олдсонгүй — list_* tool-оор шалгана уу`
     );
   throw new Error(`"${idOrPrefix}" гэхэд ${matches.length} ${what} таарлаа — бүтэн ID өгнө үү`);
 }
@@ -4034,7 +4279,8 @@ async function runPostCash(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -4042,9 +4288,11 @@ async function runPostCash(
       date: true,
       amount: true,
       baseAmount: true,
+      documentNo: true,
+      externalRef: true,
     },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   if (document.status !== "draft")
@@ -4069,7 +4317,8 @@ async function runDeleteCash(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -4077,9 +4326,11 @@ async function runDeleteCash(
       date: true,
       amount: true,
       baseAmount: true,
+      documentNo: true,
+      externalRef: true,
     },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   if (document.status !== "draft") {
@@ -4088,7 +4339,7 @@ async function runDeleteCash(
   }
   unwrapAction(await deleteCashDocument(document.id));
   return {
-    resultText: `Ноорог кассын баримт устгагдлаа: ${document.date} · ${document.description}`,
+    resultText: `${document.status === "draft" ? "Ноорог кассын баримт" : "Батлагдсан кассын баримт GL-тэй нь хамт"} устгагдлаа: ${document.date} · ${document.description}`,
   };
 }
 
@@ -4099,7 +4350,8 @@ async function runPostArap(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -4107,9 +4359,10 @@ async function runPostArap(
       description: true,
       totalAmount: true,
       baseTotalAmount: true,
+      externalRef: true,
     },
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   // Нэхэмжлэхийн дугаараар ч, ID-гаар ч олно.
   const byNo = documents.filter(
@@ -4142,8 +4395,17 @@ async function runSettleArApOffset(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
+  const refColumns = {
+    id: arApDocuments.id,
+    documentNo: arApDocuments.documentNo,
+    externalRef: arApDocuments.externalRef,
+  };
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — хоёр лавлагаагаар шууд (ENT-033).
+    where: and(
+      eq(arApDocuments.organizationId, orgId),
+      or(refCondition(refColumns, input.arInvoice), refCondition(refColumns, input.apBill))
+    ),
     columns: {
       id: true,
       status: true,
@@ -4153,7 +4415,7 @@ async function runSettleArApOffset(
       paidAmount: true,
     },
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 100,
   });
   const resolveDocument = (ref: string, label: string) => {
     const byNo = documents.filter(
@@ -4359,12 +4621,50 @@ async function runListCashAccounts(orgId: string): Promise<AiToolResult> {
     where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true)),
   });
   if (accounts.length === 0) return { resultText: "Идэвхтэй мөнгөн данс олдсонгүй" };
+  // ENT-014: үлдэгдэл (дансны валютаар — snapshot + delta), нээлт, GL-ийн ₮.
+  const today = ulaanbaatarToday();
+  const glNumbers = [...new Set(accounts.map((entry) => entry.glAccountNumber))];
+  const mainExpr = sql<string>`case when position('.' in ${journalLines.accountNumber}) > 0 then split_part(${journalLines.accountNumber}, '.', 3) else ${journalLines.accountNumber} end`;
+  const [balances, glRows] = await Promise.all([
+    loadCashBalancesFast(orgId, accounts),
+    // SQL нийлбэр — бүх журналыг JS-д ачаалахгүй (П28).
+    db
+      .select({
+        main: mainExpr,
+        net: sql<string>`coalesce(sum(${journalLines.debit} - ${journalLines.credit}), 0)`,
+      })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          inArray(journalVouchers.status, ["posted", "reversed"]),
+          lte(journalVouchers.date, today),
+          inArray(mainExpr, glNumbers)
+        )
+      )
+      .groupBy(mainExpr),
+  ]);
+  const glNet = new Map(glRows.map((row) => [row.main, Number(row.net)]));
+  const glShared = new Map<string, number>();
+  for (const entry of accounts)
+    glShared.set(entry.glAccountNumber, (glShared.get(entry.glAccountNumber) ?? 0) + 1);
   return {
     resultText: accounts
-      .map(
-        (entry) =>
-          `${entry.name} — ${entry.accountType === "bank" ? `банк (${entry.bankName ?? "?"})` : "касс"}, ${entry.currency}, GL ${entry.glAccountNumber}`
-      )
+      .map((entry) => {
+        const unit = entry.currency === "MNT" ? "₮" : ` ${entry.currency}`;
+        const opening = Number(entry.openingBalance ?? 0);
+        const gl = glNet.get(entry.glAccountNumber) ?? 0;
+        const glText =
+          (glShared.get(entry.glAccountNumber) ?? 0) > 1
+            ? `GL ${entry.glAccountNumber} ${fmt(gl)}₮ (данс ${glShared.get(entry.glAccountNumber)} мөнгөн дансанд хуваалцагдсан)`
+            : `GL ${entry.glAccountNumber} ${fmt(gl)}₮`;
+        return (
+          `${entry.name} — ${entry.accountType === "bank" ? `банк (${entry.bankName ?? "?"})` : "касс"}, ${entry.currency} · ` +
+          `үлдэгдэл ${fmt(balances.get(entry.id) ?? 0)}${unit} (${today}) · ` +
+          `нээлт ${fmt(opening)}${unit}${entry.openingDate ? ` (${entry.openingDate})` : ""} · ${glText}`
+        );
+      })
       .join("\n"),
   };
 }
@@ -4729,9 +5029,10 @@ async function runUpdateMovement(
   }
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(inventoryMovements.organizationId, orgId), refCondition({ id: inventoryMovements.id, documentNo: inventoryMovements.documentNo }, input.movementId)),
     orderBy: [desc(inventoryMovements.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft")
@@ -4860,6 +5161,8 @@ async function runCreateCashAccount(
     currency?: string;
     glAccount: string;
     openingBalance?: number;
+    openingDate?: string;
+    openingRate?: number;
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
@@ -4872,6 +5175,8 @@ async function runCreateCashAccount(
       currency: input.currency?.trim().toUpperCase() || "MNT",
       glAccountNumber: resolveAccount(input.glAccount, ctx).main,
       openingBalance: input.openingBalance,
+      openingDate: input.openingDate,
+      openingRate: input.openingRate,
     })
   );
   return { resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}` };
@@ -4899,6 +5204,8 @@ async function runActivateFixedAsset(
     usefulLifeMonths?: number;
     custodian?: string;
     depreciationStartMonth?: string;
+    openingAccumulatedDepreciation?: number;
+    openingAsOf?: string;
     assetAccountNumber?: string;
     accumDepAccountNumber?: string;
     depExpenseAccountNumber?: string;
@@ -4935,6 +5242,16 @@ async function runActivateFixedAsset(
             "Элэгдэл эхлэх сар (depreciationStartMonth, YYYY-MM) өгнө үү — ноорог картад хоосон байна"
           );
         })(),
+      // Картын бусад утга хэвээр үлдэнэ (идэвхжүүлэлт тэдгээрийг арилгахгүй).
+      location: asset.location ?? undefined,
+      subLocation: asset.subLocation ?? undefined,
+      depreciationStartDate: asset.depreciationStartDate ?? undefined,
+      taxUsefulLifeMonths: asset.taxUsefulLifeMonths,
+      taxDepreciationMethod: asset.taxDepreciationMethod,
+      openingAccumulatedDepreciation:
+        input.openingAccumulatedDepreciation ?? Number(asset.openingAccumulatedDepreciation ?? 0),
+      openingTaxAccumulated: Number(asset.openingTaxAccumulated ?? 0),
+      openingAsOf: input.openingAsOf ?? asset.openingAsOf,
       assetAccountNumber: input.assetAccountNumber ?? asset.assetAccountNumber,
       accumDepAccountNumber: input.accumDepAccountNumber ?? asset.accumDepAccountNumber,
       depExpenseAccountNumber:
@@ -5202,31 +5519,6 @@ async function runIncomeStatement(
   return { resultText: out.join("\n") };
 }
 
-// balance-sheet-view.tsx-ийн GROUP_META-тай ижил: custom мөрийн бүлэг →
-// хэсэг + тэмдэг.
-const BS_GROUP_META: Record<
-  string,
-  { section: BsSection; groupLabel: string; sign: BsSign }
-> = {
-  "current-assets": { section: "assets", groupLabel: "Эргэлтийн хөрөнгө", sign: "debit" },
-  "non-current-assets": {
-    section: "assets",
-    groupLabel: "Эргэлтийн бус хөрөнгө",
-    sign: "debit",
-  },
-  "current-liabilities": {
-    section: "liabilities",
-    groupLabel: "Богино хугацаат өр төлбөр",
-    sign: "credit",
-  },
-  "non-current-liabilities": {
-    section: "liabilities",
-    groupLabel: "Урт хугацаат өр төлбөр",
-    sign: "credit",
-  },
-  equity: { section: "equity", groupLabel: "Эздийн өмч", sign: "credit" },
-};
-
 async function runBalanceSheet(
   orgId: string,
   input: { asOf: string }
@@ -5248,52 +5540,11 @@ async function runBalanceSheet(
   // яг ижил семантик).
   const rows = await loadBalanceRowsFast(orgId, "1900-01-01", input.asOf, accounts, [3]);
   const byMain = new Map(rows.map((row) => [row.mainAccount, row]));
-  const mappingByKey = new Map(mappings.map((row) => [row.lineKey, row]));
-
-  // Вэбийн resolvedLines-тай ижил: built-in мөр + override + custom мөрүүд.
-  type Line = {
-    section: BsSection;
-    groupLabel: string;
-    label: string;
-    accountNumbers: string[];
-    sign: BsSign;
-  };
-  const lines: Line[] = BS_LINES.map((line) => {
-    const mapping = mappingByKey.get(line.key);
-    const override = mapping?.accountNumbers
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    return {
-      section: line.section,
-      groupLabel: line.groupLabel,
-      label: mapping?.customLabel?.trim() || line.label,
-      accountNumbers:
-        override !== undefined
-          ? override
-          : accounts
-              .filter((account) =>
-                line.defaultPrefixes.some((prefix) => account.number.startsWith(prefix))
-              )
-              .map((account) => account.number),
-      sign: line.sign,
-    };
-  });
-  for (const mapping of mappings) {
-    if (!mapping.lineKey.startsWith("custom-")) continue;
-    const meta = BS_GROUP_META[mapping.customGroup ?? "current-assets"];
-    if (!meta) continue;
-    lines.push({
-      section: meta.section,
-      groupLabel: meta.groupLabel,
-      label: mapping.customLabel?.trim() || "Нэргүй мөр",
-      accountNumbers: mapping.accountNumbers
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
-      sign: meta.sign,
-    });
-  }
+  // Вэбийн балансын тайлантай НЭГ функц (lib/reports/bs-resolve.ts): хоосон
+  // override нь default-даа үлдэнэ, аль ч мөрөнд ороогүй данс «Ангилагдаагүй»
+  // мөрөнд ил гарна (ENT-072).
+  type Line = ResolvedBsLine;
+  const lines = resolveBsLines(accounts, mappings);
 
   const amountOf = (line: Line) =>
     line.accountNumbers.reduce((sum, code) => {
@@ -5360,7 +5611,7 @@ async function runCashFlow(
   const resolved = resolveCfLines(mappings, accounts);
   const report = buildMappedCashFlow(vouchers, input.from, input.to, resolved);
 
-  // Кассын (11x) нээлт/хаалт — ваучерын мөрүүдээс шууд.
+  // Мөнгөн хөрөнгийн (10x/11x) нээлт/хаалт — ваучерын мөрүүдээс шууд.
   let open = 0;
   let periodNet = 0;
   for (const voucher of vouchers) {
@@ -5392,11 +5643,14 @@ async function runCashFlow(
       out.push(`  Ангилагдаагүй урсгал — ${fmt(sec.unmapped)}`);
   }
   out.push(`ЦЭВЭР МӨНГӨН УРСГАЛ: ${fmt(report.totals.net)}`);
+  if (Math.abs(report.totals.fxEffect) > 0.005)
+    out.push(`Валютын ханшийн өөрчлөлтийн нөлөө: ${fmt(report.totals.fxEffect)}`);
   out.push(`Мөнгөний эхний үлдэгдэл: ${fmt(open)} · эцсийн үлдэгдэл: ${fmt(close)}`);
+  const reconciled = open + report.totals.net + report.totals.fxEffect;
   out.push(
-    isBalanced(open + report.totals.net, close)
-      ? "Тулгалт: ✓ эхний + урсгал = эцсийн"
-      : `Тулгалт: ✗ зөрүү ${fmt(open + report.totals.net - close)}`
+    isBalanced(reconciled, close)
+      ? "Тулгалт: ✓ эхний + урсгал + ханшийн нөлөө = эцсийн"
+      : `Тулгалт: ✗ зөрүү ${fmt(reconciled - close)}`
   );
   return { resultText: out.join("\n") };
 }
@@ -5670,9 +5924,10 @@ async function runPayArap(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const byNo = documents.filter(
     (doc) => doc.documentNo.toLowerCase() === input.documentId.trim().toLowerCase()
@@ -5716,6 +5971,24 @@ async function runPayArap(
     else postNow = true;
   }
 
+  // ENT-037: валютын данснаас төлөхөд ханш өгөөгүй бол төлбөрийн ӨДРИЙН
+  // албан ханш (ИЛ тэмдэглэнэ — банкны бодит ханш өөр бол exchangeRate өгнө).
+  // Олдохгүй бол ЗОХИОХГҮЙ — аль параметр дутууг нэрлэж татгалзана.
+  let exchangeRate = input.exchangeRate;
+  let rateNote = "";
+  if (cashAccount.currency !== "MNT" && !(Number(exchangeRate) > 0)) {
+    try {
+      const lookup = await getOfficialRateForDate(cashAccount.currency, input.date);
+      exchangeRate = lookup.rate;
+      rateNote = `, ханш ${lookup.rate} (Монголбанкны албан ханш ${lookup.rateDate} — банкны бодит ханш өөр бол exchangeRate-ээр дахин)`;
+    } catch {
+      throw codedError(
+        "RATE_REQUIRED",
+        `${cashAccount.name} (${cashAccount.currency}) данснаас төлөхөд ${input.date}-ны ханш олдсонгүй — exchangeRate (1 ${cashAccount.currency} = ? ₮) параметрийг өгнө үү`
+      );
+    }
+  }
+
   const { id } = unwrapAction(await createCashDocument({
     documentType: isAr ? "receipt" : "payment",
     date: input.date,
@@ -5726,13 +5999,15 @@ async function runPayArap(
     description: `${document.documentNo} төлөлт`,
     amount,
     // Валютын данснаас төлөхөд createCashDocument ханш (>0) шаарддаг.
-    exchangeRate: input.exchangeRate,
+    exchangeRate,
     arApDocumentId: document.id,
     postNow,
   }));
 
+  const unit = document.currency === "MNT" ? "₮" : ` ${document.currency}`;
+  const balanceNote = postNow && !isAr ? await negativeCashBalanceNote(orgId, cashAccount.id) : "";
   return {
-    resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}₮, ${cashAccount.name}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+    resultText: `Төлбөрийн баримт үүслээ: ${document.documentNo}, ${fmt(amount)}${unit}, ${cashAccount.name}${rateNote}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}${balanceNote}`,
     action: {
       kind: "cash",
       id,
@@ -5745,9 +6020,10 @@ async function runPayArap(
 /** АР/АП баримтыг ID, дугаар, эсвэл externalRef-ээр олно. */
 async function findArapDocument(orgId: string, idOrNo: string) {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, idOrNo)),
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 1000,
+    limit: 50,
   });
   const query = idOrNo.trim().toLowerCase();
   const byNo = documents.filter((doc) => doc.documentNo.toLowerCase() === query);
@@ -5792,7 +6068,8 @@ async function runCreateInvoiceLink(
   input: { documentId: string }
 ): Promise<AiToolResult> {
   const document = await findArapDocument(orgId, input.documentId);
-  const { url } = await createInvoiceLink(document.id);
+  // ActionResult-ийг задлахгүй бол алдаанд «→ undefined» гэж буцаадаг байв (ENT-057).
+  const { url } = unwrapAction(await createInvoiceLink(document.id));
   return {
     resultText: `Нэхэмжлэхийн public линк үүслээ: ${document.documentNo} → ${url}`,
   };
@@ -5804,7 +6081,8 @@ async function runDeleteArap(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const documents = await db.query.arApDocuments.findMany({
-    where: eq(arApDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(arApDocuments.organizationId, orgId), refCondition({ id: arApDocuments.id, documentNo: arApDocuments.documentNo, externalRef: arApDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       status: true,
@@ -5812,9 +6090,10 @@ async function runDeleteArap(
       date: true,
       totalAmount: true,
       baseTotalAmount: true,
+      externalRef: true,
     },
     orderBy: [desc(arApDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const byNo = documents.filter(
     (doc) => doc.documentNo.toLowerCase() === input.documentId.trim().toLowerCase()
@@ -5832,7 +6111,8 @@ async function runDeleteArap(
   }
   unwrapAction(await deleteArApDocument(document.id));
   return {
-    resultText: `Ноорог нэхэмжлэх устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
+    // ENT-032: батлагдсан нэхэмжлэхийг «ноорог» гэж буруу мэдэгддэг байв.
+    resultText: `${document.status === "draft" ? "Ноорог нэхэмжлэх" : "Батлагдсан нэхэмжлэх GL-тэй нь хамт"} устгагдлаа: ${document.date} · ${document.documentNo} · ${fmt(Number(document.totalAmount))}₮`,
   };
 }
 
@@ -5868,21 +6148,28 @@ async function runCounterpartyBalance(
       )`
     )
   );
-  const [documents, settlements] = await Promise.all([
-    db.query.arApDocuments.findMany({
-      where: openAsOfScope,
-      with: { counterparty: { columns: { id: true, name: true } } },
-    }),
-    db.query.arApSettlements.findMany({
-      where: and(
-        eq(arApSettlements.organizationId, orgId),
-        inArray(
-          arApSettlements.documentId,
-          db.select({ id: arApDocuments.id }).from(arApDocuments).where(openAsOfScope)
-        )
-      ),
-    }),
-  ]);
+  // Raw `exists` нь гадна хүснэгтийг «ar_ap_documents» нэрээр иш татдаг —
+  // relational query API (db.query) хүснэгтийг alias-аар нэрлэдэг тул
+  // «missing FROM-clause entry» болж tool ҮРГЭЛЖ унадаг байв (ENT-069).
+  // Шүүлтийг core select-ээр НЭГ удаа гүйцэтгэж ID-гаар ачаална.
+  const openIds = (
+    await db.select({ id: arApDocuments.id }).from(arApDocuments).where(openAsOfScope)
+  ).map((row) => row.id);
+  const [documents, settlements] =
+    openIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db.query.arApDocuments.findMany({
+            where: inArray(arApDocuments.id, openIds),
+            with: { counterparty: { columns: { id: true, name: true } } },
+          }),
+          db.query.arApSettlements.findMany({
+            where: and(
+              eq(arApSettlements.organizationId, orgId),
+              inArray(arApSettlements.documentId, openIds)
+            ),
+          }),
+        ]);
   // asOf-оор түүхэн үлдэгдэл: paidAmount биш settlement-ийн огноогоор тоолно.
   // Хоёр хэмжүүрээр: nominal (баримтын валютаар — нээлттэй эсэхийг шийднэ)
   // болон base (₮ — нийлбэр/aging-д валют хольж болохгүй тул MNT-ээр нэгтгэнэ).
@@ -6108,10 +6395,11 @@ async function runReverseCash(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
-    columns: { id: true, status: true, description: true, date: true, amount: true, baseAmount: true },
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
+    columns: { id: true, status: true, description: true, date: true, amount: true, baseAmount: true, documentNo: true, externalRef: true },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const document = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   if (document.status !== "posted")
@@ -6127,17 +6415,59 @@ async function runReverseCash(
 
 async function runListMovements(
   orgId: string,
-  input: { status?: string; limit?: number }
+  input: {
+    status?: string;
+    movementType?: string;
+    from?: string;
+    to?: string;
+    itemCode?: string;
+    warehouseCode?: string;
+    limit?: number;
+  }
 ): Promise<AiToolResult> {
-  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
+  // ENT-045: шүүлт DB дээр — сүүлийн 400 мөрийн цонх биш.
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 200);
+  const conditions: SQL[] = [eq(inventoryMovements.organizationId, orgId)];
+  if (input.status) conditions.push(eq(inventoryMovements.status, input.status));
+  if (input.movementType) conditions.push(eq(inventoryMovements.movementType, input.movementType));
+  if (input.from) conditions.push(gte(inventoryMovements.date, input.from));
+  if (input.to) conditions.push(lte(inventoryMovements.date, input.to));
+  if (input.itemCode?.trim()) {
+    const item = await db.query.inventoryItems.findFirst({
+      where: and(
+        eq(inventoryItems.organizationId, orgId),
+        sql`lower(${inventoryItems.code}) = ${input.itemCode.trim().toLowerCase()}`
+      ),
+      columns: { id: true },
+    });
+    if (!item) throw new Error(`"${input.itemCode}" кодтой бараа олдсонгүй`);
+    conditions.push(eq(inventoryMovements.itemId, item.id));
+  }
+  if (input.warehouseCode?.trim()) {
+    const warehouse = await db.query.warehouses.findFirst({
+      where: and(
+        eq(warehouses.organizationId, orgId),
+        sql`lower(${warehouses.code}) = ${input.warehouseCode.trim().toLowerCase()}`
+      ),
+      columns: { id: true },
+    });
+    if (!warehouse) throw new Error(`"${input.warehouseCode}" кодтой агуулах олдсонгүй`);
+    conditions.push(
+      or(
+        eq(inventoryMovements.warehouseId, warehouse.id),
+        eq(inventoryMovements.toWarehouseId, warehouse.id)
+      )!
+    );
+  }
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    where: and(...conditions),
     with: {
       item: { columns: { code: true, name: true } },
       warehouse: { columns: { code: true } },
+      toWarehouse: { columns: { code: true } },
     },
     orderBy: [desc(inventoryMovements.date), desc(inventoryMovements.createdAt)],
-    limit: 400,
+    limit,
   });
   const typeLabels: Record<string, string> = {
     receipt: "орлого",
@@ -6147,15 +6477,12 @@ async function runListMovements(
     return_in: "буцаан авалт",
     return_out: "буцаалт",
   };
-  const filtered = movements
-    .filter((movement) => !input.status || movement.status === input.status)
-    .slice(0, limit);
-  if (filtered.length === 0) return { resultText: "Тохирох хөдөлгөөн олдсонгүй" };
+  if (movements.length === 0) return { resultText: "Тохирох хөдөлгөөн олдсонгүй" };
   return {
-    resultText: filtered
+    resultText: movements
       .map(
         (movement) =>
-          `${movement.date} · ${typeLabels[movement.movementType] ?? movement.movementType} · ${movement.item?.code ?? "(бараагүй)"} × ${Number(movement.quantity)} · ${movement.warehouse?.code ?? "?"} · ${movement.status} · ID ${movement.id.slice(0, 8)}`
+          `${movement.date} · ${movement.documentNo} · ${typeLabels[movement.movementType] ?? movement.movementType} · ${movement.item?.code ?? "(бараагүй)"} × ${Number(movement.quantity)} · ${movement.warehouse?.code ?? "?"}${movement.toWarehouse ? ` → ${movement.toWarehouse.code}` : ""} · ${movement.status} · ID ${movement.id.slice(0, 8)}`
       )
       .join("\n"),
   };
@@ -6168,10 +6495,11 @@ async function runConfirmMovement(
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(inventoryMovements.organizationId, orgId), refCondition({ id: inventoryMovements.id, documentNo: inventoryMovements.documentNo }, input.movementId)),
     columns: { id: true, status: true, documentNo: true },
     orderBy: [desc(inventoryMovements.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft")
@@ -6188,15 +6516,19 @@ async function runDeleteMovement(
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const movements = await db.query.inventoryMovements.findMany({
-    where: eq(inventoryMovements.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(inventoryMovements.organizationId, orgId), refCondition({ id: inventoryMovements.id, documentNo: inventoryMovements.documentNo }, input.movementId)),
     columns: { id: true, status: true, documentNo: true },
     orderBy: [desc(inventoryMovements.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const movement = resolveByIdPrefix(movements, input.movementId, "хөдөлгөөн");
   if (movement.status !== "draft") assertPostMode(mode);
   unwrapAction(await deleteInventoryMovement(movement.id));
-  return { resultText: `Ноорог хөдөлгөөн устгагдлаа: ${movement.documentNo}` };
+  // ENT-010: баталгаажсан хөдөлгөөнийг «ноорог» гэж буруу мэдэгддэг байв.
+  return {
+    resultText: `${movement.status === "draft" ? "Ноорог хөдөлгөөн" : "Баталгаажсан хөдөлгөөн"} устгагдлаа: ${movement.documentNo}`,
+  };
 }
 
 async function runGetStockBalances(
@@ -6476,10 +6808,16 @@ async function runCreatePayrollVoucher(input: {
   period: string;
 }): Promise<AiToolResult> {
   const result = unwrapAction(await createPayrollVoucher(input.period));
+  // ENT-026: журналын ДУГААРЫГ буцаана (post_journal_voucher шууд авна).
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: eq(journalVouchers.id, result.id),
+    columns: { documentNo: true, status: true },
+  });
+  const ref = voucher?.documentNo ?? result.id.slice(0, 8);
   return {
     resultText: result.dedup
-      ? `${input.period} сарын цалингийн журнал аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`
-      : `${input.period} сарын цалингийн НООРОГ журнал үүслээ — GL журналаас шалгаад батална уу`,
+      ? `${input.period} сарын цалингийн журнал аль хэдийн үүссэн байна: ${ref} (${voucher?.status ?? "?"})`
+      : `${input.period} сарын цалингийн НООРОГ журнал үүслээ: ${ref} — шалгаад post_journal_voucher {voucherId: "${ref}"}-ээр батална`,
     action: {
       kind: "voucher",
       id: result.id,
@@ -6504,7 +6842,7 @@ async function runMonthEndChecklist(input: {
         : status === "pending"
           ? "○ хийгдээгүй"
           : "— хамааралгүй";
-  const { fa, fx, costing, vat, procurement, pos, drafts } = checklist;
+  const { fa, fx, costing, vat, procurement, pos, drafts, opening } = checklist;
   const fxDetail = fx.accounts
     .map(
       (account) =>
@@ -6534,7 +6872,12 @@ async function runMonthEndChecklist(input: {
       `6. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
       `7. POS / бараа: ${statusLabel(pos.status)} — нээлттэй ээлж ${pos.openShifts}${pos.openShifts > 0 ? " (close_pos_shift — хаагдтал сар ХААГДАХГҮЙ)" : ""}, сарын өртгийн тооцоололд ороогүй/зогссон хөдөлгөөн ${pos.unvaluedMovements}${pos.unvaluedMovements > 0 ? " (run_monthly_costing; хасах үлдэгдлийг орлого/тооллогоор засах — засагдтал сар ХААГДАХГҮЙ)" : ""}, хасах үлдэгдэлтэй бараа×агуулах ${pos.negativeStockScopes}, урьдчилсан COGS ${fmt(pos.provisionalCogs)}₮ (сар хаалтад залруулагдана)`,
       `8. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
-      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
+      ...(opening
+        ? [
+            `   Нээлтийн зөрүүний данс ${opening.differenceAccount}: ${Math.abs(opening.balance) > 0.005 ? `⚠ ${fmt(opening.balance)}₮ — 0 болтол cut-off сарыг хаахгүй (R6)` : "✓ 0"}`,
+          ]
+        : []),
+      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : opening && Math.abs(opening.balance) > 0.005 ? "нээлтийн зөрүүг залруулсны дараа хаана (R6)" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
     ].join("\n"),
   };
 }
@@ -6556,13 +6899,17 @@ async function runGetVatReturn(
     summary.payableVat > 0
       ? `ТӨЛӨХ: ${fmt(summary.payableVat)}₮ (${summary.deadline} дотор; хоцорвол 0.1%/хоног алданги)`
       : summary.refundableVat > 0
-        ? `Буцаан авах / дараа сард шилжүүлэх: ${fmt(summary.refundableVat)}₮`
+        ? `Дараа сард шилжүүлэх: ${fmt(summary.refundableVat)}₮`
         : "Төлөх дүн 0";
+  const carriedText =
+    summary.carriedInVat > 0
+      ? `\n  Өмнөх саруудаас шилжсэн оролтын НӨАТ: ${fmt(summary.carriedInVat)}₮`
+      : "";
   return {
     resultText: [
       `НӨАТ тайлан ${summary.periodCode}:`,
       `  Гаралтын НӨАТ (борлуулалт): ${fmt(summary.outputVat)}₮ (${summary.outputLineCount} мөр, данс ${data.settings.outputVatAccountNumber})`,
-      `  Оролтын НӨАТ (худалдан авалт): ${fmt(summary.inputVat)}₮ (${summary.inputLineCount} мөр, данс ${data.settings.inputVatAccountNumber})`,
+      `  Оролтын НӨАТ (худалдан авалт): ${fmt(summary.inputVat)}₮ (${summary.inputLineCount} мөр, данс ${data.settings.inputVatAccountNumber})${carriedText}`,
       `  ${balanceText}${settlementText}`,
     ].join("\n"),
   };
@@ -6625,7 +6972,7 @@ async function runMonthlyCosting(
           .join("; ")}`
       : "";
   return {
-    resultText: `${input.period} сарын өртөг тооцогдлоо: шинээр үнэлэгдсэн ${result.valued}, өмнө нь үнэлэгдсэн ${result.alreadyValued}, тэг дүнтэй ${result.zeroValued}.${blockerText}`,
+    resultText: `${input.period} сарын өртөг тооцогдлоо: шинээр үнэлэгдсэн ${result.valued}, өмнө нь үнэлэгдсэн ${result.alreadyValued}, тэг дүнтэй ${result.zeroValued}${result.blockedMovements > 0 ? `, блоклогдсон хүрээнд үнэлэгдээгүй ${result.blockedMovements}` : ""}.${blockerText}`,
   };
 }
 
@@ -6658,7 +7005,7 @@ async function runPostCostEntries(
 
 async function runFixCashOpening(
   orgId: string,
-  input: { cashAccount: string; counterAccount?: string }
+  input: { cashAccount: string; counterAccount?: string; date?: string; exchangeRate?: number }
 ): Promise<AiToolResult> {
   const accounts = await db.query.cashAccounts.findMany({
     where: eq(cashAccounts.organizationId, orgId),
@@ -6676,11 +7023,18 @@ async function runFixCashOpening(
   }
   const result = unwrapAction(
     await createCashOpeningVoucher({
-    cashAccountId: account.id,
-    counterAccountNumber: counter,
-  }));
+      cashAccountId: account.id,
+      counterAccountNumber: counter,
+      date: input.date,
+      exchangeRate: input.exchangeRate,
+    })
+  );
+  const fcText =
+    result.currency === "MNT"
+      ? ""
+      : ` (${fmt(result.amountFc)} ${result.currency} × ${result.rate})`;
   return {
-    resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${fmt(result.amount)}₮, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
+    resultText: `Нээлтийн ноорог журнал үүслээ: ${account.name}, ${result.date}, ${fmt(result.amount)}₮${fcText}, харьцах данс ${result.counterAccountNumber}. Батлагдмагц тулгалтын зөрүү арилна.`,
     action: {
       kind: "voucher",
       id: result.id,
@@ -6752,11 +7106,62 @@ async function runReconcileModules(
         where: eq(cashFxRevaluations.organizationId, orgId),
       }),
     ]);
+    // ENT-020: валютын дансны нээлт нь ВАЛЮТААР — ₮-өөр нэмэхийн тулд
+    // нээлтийн журналын бодит ₮ эсвэл нээлтийн ханш хэрэгтэй (зохиохгүй).
+    const openingVouchers = await db
+      .select({
+        cashAccountId: journalLines.cashAccountId,
+        debit: journalLines.debit,
+        credit: journalLines.credit,
+        date: journalVouchers.date,
+        currency: journalVouchers.currency,
+        documentNo: journalVouchers.documentNo,
+      })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          inArray(journalVouchers.status, ["posted", "reversed"]),
+          sql`${journalVouchers.externalRef} like 'cash-opening:%'`
+        )
+      );
+    const openingVoucherMnt = new Map<string, number>();
+    const accountCurrency = new Map(accounts.map((account) => [account.id, account.currency]));
+    for (const row of openingVouchers) {
+      if (!row.cashAccountId || row.date > input.to) continue;
+      // ENT-011-ийн өмнөх журнал: валютын дансны нээлтийг ханшгүй ₮ гэж бичсэн
+      // — түүний ₮-ийг үнэн гэж тооцвол тулгалт «OK» мэт худал харагдана.
+      const currency = accountCurrency.get(row.cashAccountId) ?? "MNT";
+      if (currency !== "MNT" && row.currency === "MNT") {
+        problems.push(
+          `Касс: ${row.documentNo ?? "нээлтийн журнал"} нь ${currency} дансны нээлтийг ханшгүй ₮-өөр бичсэн — буцаагаад fix_cash_opening_balance {date, exchangeRate}-ээр FC × ханшаар дахин бичнэ`
+        );
+        continue;
+      }
+      openingVoucherMnt.set(
+        row.cashAccountId,
+        (openingVoucherMnt.get(row.cashAccountId) ?? 0) + Number(row.debit) - Number(row.credit)
+      );
+    }
+    const openingMnt = new Map<string, number | null>(
+      accounts.map((account) => [
+        account.id,
+        cashOpeningMnt({
+          currency: account.currency,
+          openingBalance: Number(account.openingBalance ?? 0),
+          openingRate: account.openingRate === null ? null : Number(account.openingRate),
+          openingVoucherMnt: openingVoucherMnt.get(account.id) ?? null,
+        }),
+      ])
+    );
     const moduleBalance = new Map<string, number>(
+      accounts.map((account) => [account.id, openingMnt.get(account.id) ?? 0])
+    );
+    // Валютын дүнгээр (FC) — тайлагналд харуулна (нээлт нь валютаар).
+    const fcBalance = new Map<string, number>(
       accounts.map((account) => [account.id, Number(account.openingBalance ?? 0)])
     );
-    // Валютын дүнгээр (FC) — тайлагналд харуулна.
-    const fcBalance = new Map<string, number>();
     for (const doc of documents) {
       if (doc.date > input.to) continue;
       const amount = Number(doc.baseAmount ?? doc.amount);
@@ -6809,11 +7214,22 @@ async function runReconcileModules(
           ? ` + тэгшитгэл ${fmt(fxTotal)} (FC ${fmt(fcBalance.get(account.id) ?? Number(latest.foreignBalance))} × ханш ${Number(latest.closingRate)})`
           : "";
       const diff = Math.round((expected - gl) * 100) / 100;
+      const fcText =
+        account.currency === "MNT" ? "" : ` [${fmt(fcBalance.get(account.id) ?? 0)} ${account.currency}]`;
+      if (openingMnt.get(account.id) === null) {
+        lines.push(
+          `  ТОДОРХОЙГҮЙ ${account.name}${fcText}: нээлтийн үлдэгдэл ${fmt(Number(account.openingBalance))} ${account.currency}-ийн ₮ дүн/ханш алга — ₮-өөр тулгах боломжгүй`
+        );
+        problems.push(
+          `Касс "${account.name}": валютын нээлт (${fmt(Number(account.openingBalance))} ${account.currency}) ханшгүй — fix_cash_opening_balance {date, exchangeRate}-ээр нээлтийн журналыг FC × ханшаар бичнэ (ханш өгөөгүй бол нээлтийн огнооны албан ханш)`
+        );
+        continue;
+      }
       if (Math.abs(diff) > EPS) {
         lines.push(
-          `  ЗӨРҮҮ ${account.name}: модуль ${fmt(subledger)}${fxNote} = ${fmt(expected)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
+          `  ЗӨРҮҮ ${account.name}${fcText}: модуль ${fmt(subledger)}${fxNote} = ${fmt(expected)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
         );
-        const opening = Number(account.openingBalance ?? 0);
+        const opening = openingMnt.get(account.id) ?? 0;
         const drafts = draftCount.get(account.id) ?? 0;
         if (Math.abs(opening) > 0.005 && Math.abs(diff - opening) <= EPS)
           problems.push(
@@ -6829,7 +7245,7 @@ async function runReconcileModules(
           );
       } else
         lines.push(
-          `  OK ${account.name}: ${fmt(subledger)}${fxNote}${Math.abs(fxTotal) > 0.005 ? ` = ${fmt(expected)}` : ""}`
+          `  OK ${account.name}${fcText}: ${fmt(subledger)}${fxNote}${Math.abs(fxTotal) > 0.005 ? ` = ${fmt(expected)}` : ""}`
         );
     }
     sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
@@ -6879,7 +7295,7 @@ async function runReconcileModules(
     });
     const lines = recon.rows.map((row) =>
       Math.abs(row.difference) > EPS
-        ? `  ЗӨРҮҮ ${row.accountNumber} ${row.accountName}: дэд дэвтэр ${fmt(row.subledgerAmount)}${row.poCloseAmount !== 0 ? ` + PO хаалт ${fmt(row.poCloseAmount)}` : ""} vs GL ${fmt(row.glAmount)} → ${fmt(row.difference)}${row.unlinkedGlLines > 0 ? ` (гараар бичсэн ${row.unlinkedGlLines} мөр ${fmt(row.unlinkedGlAmount)})` : ""}`
+        ? `  ЗӨРҮҮ ${row.accountNumber} ${row.accountName}: дэд дэвтэр ${fmt(row.subledgerAmount)}${row.poCloseAmount !== 0 ? ` + PO хаалт ${fmt(row.poCloseAmount)}` : ""}${row.sourceDocAmount !== 0 ? ` + АР/АП баримт ${fmt(row.sourceDocAmount)}` : ""} vs GL ${fmt(row.glAmount)} → ${fmt(row.difference)}${row.unlinkedGlLines > 0 ? ` (гараар бичсэн ${row.unlinkedGlLines} мөр ${fmt(row.unlinkedGlAmount)})` : ""}`
         : `  OK ${row.accountNumber} ${row.accountName}: ${fmt(row.glAmount)}`
     );
     for (const row of recon.rows)
@@ -7072,11 +7488,12 @@ POS: нээлттэй ээлж (open-pos-shifts), сарын өртгийн то
 5. Эхний үлдэгдлүүд: create_journal_voucher-оор нээлтийн баланс (харьцах данс нь эздийн өмч 4XXXXXXX)
 6. get_trial_balance — нээлтийн баланс тэнцэж буйг шалгах`,
   fixed_asset_lifecycle: `ҮНДСЭН ХӨРӨНГИЙН МӨЧЛӨГ:
-1. Худалдан авалт: create_arap_invoice (ap_bill, хөрөнгийн данс 21XXXXXX мөртэй) → post — ноорог ҮХ карт автоматаар үүснэ; ЭСВЭЛ create_fixed_asset-ээр шууд
+1. Худалдан авалт: create_arap_invoice (ap_bill, хөрөнгийн данс 20000001 мөртэй) → post — ноорог ҮХ карт автоматаар үүснэ; ЭСВЭЛ create_fixed_asset-ээр шууд
+   Хуучин системээс шилжүүлсэн хөрөнгө: create_fixed_asset {openingAccumulatedDepreciation, openingAsOf} — нээлтийн журнал (opening-*) карт үүсгэхгүй
 2. activate_fixed_asset — картыг бөглөж идэвхжүүлэх (хариуцагч, элэгдэл эхлэх сар заавал)
-3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 21000099)
+3. Сар бүр: run_fa_depreciation {month} → post_fa_depreciation {month} (Дт 70000001 / Кт 20000002 — картын хуримтлагдсан элэгдлийн данс); ашиглалтын хугацаа дуусмагц элэгдэл зогсоно
 4. Алдаатай бол: reverse_fa_depreciation {month}
-Анхаар: актлах/борлуулах (disposal) функц системд одоогоор байхгүй — гарын журналаар шийдэж, хөрөнгөө идэвхгүй болгохыг хэрэглэгчид зөвлө.`,
+5. Данснаас хасах (актлах/борлуулах/хандивлах): dispose_fixed_asset {assetCode, disposalType, date, proceeds, proceedsAccount, gainLossAccount} — нээлтийн + системийн хуримтлагдсан элэгдлийг хамт хааж олз/гарзыг бичнэ (Шууд бичих горим). Тухайн сарын ноорог элэгдлийг эхлээд батална.`,
 };
 
 function runWorkflowGuide(input: { workflow: string }): AiToolResult {
@@ -7696,7 +8113,7 @@ async function runListAuditEvents(
     resultText: filtered
       .map(
         (row) =>
-          `${row.createdAt.toISOString().replace("T", " ").slice(0, 16)} · ${row.entityType}/${row.action} · ${row.summary || row.entityId.slice(0, 8)}`
+          `${fmtDateTimeUb(row.createdAt)} · ${row.entityType}/${row.action} · ${row.summary || row.entityId.slice(0, 8)}`
       )
       .join("\n"),
   };
@@ -7851,16 +8268,18 @@ async function runUpdateCashDocument(
   }
 ): Promise<AiToolResult> {
   const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
+    // Цонхгүй — лавлагаагаар шууд (ENT-033: хуучин баримт олдохгүй байв).
+    where: and(eq(cashDocuments.organizationId, orgId), refCondition({ id: cashDocuments.id, documentNo: cashDocuments.documentNo, externalRef: cashDocuments.externalRef }, input.documentId)),
     columns: {
       id: true,
       documentNo: true,
       status: true,
       description: true,
       date: true,
+      externalRef: true,
     },
     orderBy: [desc(cashDocuments.createdAt)],
-    limit: 500,
+    limit: 50,
   });
   const found = resolveByIdPrefix(documents, input.documentId, "кассын баримт");
   let counterMain: string | undefined;
@@ -8755,7 +9174,7 @@ async function runGetPurchaseOrder(
           "НЭХЭМЖЛЭХҮҮД:",
           ...detail.invoices.map(
             (invoice) =>
-              `  ${invoice.date} · ${invoice.documentNo} · ${fmt(invoice.totalAmount)} ${detail.currency} (≈${fmt(invoice.baseTotalAmount)}₮) · ${ARAP_STATUS_LABELS[invoice.status] ?? invoice.status}${invoice.isCostInvoice ? " · нэмэлт зардал" : ""} · ID ${invoice.id.slice(0, 8)}`
+              `  ${invoice.date} · ${invoice.documentNo} · ${fmt(invoice.totalAmount)} ${invoice.currency} (≈${fmt(invoice.baseTotalAmount)}₮) · ${ARAP_STATUS_LABELS[invoice.status] ?? invoice.status}${invoice.isCostInvoice ? " · нэмэлт зардал" : ""} · ID ${invoice.id.slice(0, 8)}`
           ),
         ].join("\n")
       : "НЭХЭМЖЛЭХҮҮД: алга (create_ap_invoice_from_po)"
@@ -9693,6 +10112,7 @@ async function runCreatePosSale(
     receiptDiscountAmount?: number;
     note?: string;
     ebarimtId?: string;
+    managerApproval?: boolean;
     consumerNo?: string;
     customerTin?: string;
     customerRegNo?: string;
@@ -9738,6 +10158,13 @@ async function runCreatePosSale(
   };
   const { quote } = unwrapAction(await quotePosSale(quoteInput));
   assertPostLimit(quote.total);
+  // ENT-054: эзэн/менежерийн token-той агент pos:post эрхтэй тул хязгаарыг
+  // ЧИМЭЭГҮЙ давдаг байв — AI-аас ирсэн бол ИЛ зөвшөөрөл шаардана.
+  if (quote.approvalReasons.length > 0 && input.managerApproval !== true)
+    throw codedError(
+      "APPROVAL_REQUIRED",
+      `Менежерийн зөвшөөрөл шаардлагатай: ${quote.approvalReasons.join("; ")} — хэрэглэгчээс ИЛ асууж, зөвшөөрвөл managerApproval: true-гээр дахин дуудна`
+    );
   const payments: PaymentInput[] = [];
   for (const payment of input.payments ?? []) {
     const method = await posMethodByRef(orgId, payment.method);
@@ -10098,31 +10525,25 @@ const AI_ACTION_ENTITY: Record<AiAction["kind"], string> = {
 };
 
 function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
-  {
-    const message = errorText(caught);
-    // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
-    // Postgres SQLSTATE кодтой (23505 г.м) эсвэл SQL-дотоод үг агуулсан
-    // мессежийг ерөнхий монгол текстээр орлуулж, жинхэнэ алдааг лог руу
-    // бичнэ. [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
-    const errorCode = (caught as { code?: unknown } | null)?.code;
-    const isSqlState =
-      typeof errorCode === "string" && /^[0-9A-Z]{5}$/.test(errorCode);
-    const looksSqlish =
-      /constraint|syntax error|column .* does not exist|relation .* does not exist|duplicate key/i.test(
-        message
-      );
-    if (isSqlState || looksSqlish) {
-      console.error(`AI tool "${name}" internal error:`, caught);
-      return { resultText: "Алдаа: Дотоод алдаа гарлаа — дахин оролдоно уу" };
-    }
-    // EntitlementError г.м `code`-той алдаа: [CODE] угтварыг баталгаажуулна
-    // (REST parseError, модель хоёулаа үүнд найддаг — CLAUDE.md §9a).
-    const bracketed =
-      typeof errorCode === "string" && /^[A-Z][A-Z_]+$/.test(errorCode) && !message.startsWith("[")
-        ? `[${errorCode}] ${message}`
-        : message;
-    return { resultText: `Алдаа: ${bracketed}` };
+  // DB/Drizzle-ийн түүхий алдааг модель болон гадны MCP клиентэд задлахгүй:
+  // SQLSTATE код (cause гинжинд ч), DrizzleQueryError («Failed query: …
+  // params: <UUID>») эсвэл SQL-ийн үг агуулсан мессежийг ерөнхий монгол
+  // текст + лавлах кодоор орлуулж, жинхэнэ алдааг лог руу бичнэ (ENT-070).
+  // [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
+  const classified = classifyToolError(caught);
+  if (classified.internal) {
+    console.error(`AI tool "${name}" internal error [${classified.logId}]:`, caught);
+    return { resultText: `Алдаа: ${internalErrorText(classified.logId)}` };
   }
+  const message = classified.message;
+  // EntitlementError г.м `code`-той алдаа: [CODE] угтварыг баталгаажуулна
+  // (REST parseError, модель хоёулаа үүнд найддаг — CLAUDE.md §9a).
+  const errorCode = (caught as { code?: unknown } | null)?.code;
+  const bracketed =
+    typeof errorCode === "string" && /^[A-Z][A-Z_]+$/.test(errorCode) && !message.startsWith("[")
+      ? `[${errorCode}] ${message}`
+      : message;
+  return { resultText: `Алдаа: ${bracketed}` };
 }
 
 async function dispatchAiTool(

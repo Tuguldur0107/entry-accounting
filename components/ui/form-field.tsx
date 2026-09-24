@@ -15,13 +15,16 @@ import { cn } from "@/lib/utils";
 export function FormField({
   label,
   hint,
+  hintTone,
   htmlFor,
   className,
   children,
 }: {
   label: string;
   /** Талбарын доорх тайлбар (жижиг, бүдэг). */
-  hint?: string;
+  hint?: string | null;
+  /** warning — шар анхааруулга (ж: сонгосон үеэс гадуур огноо). */
+  hintTone?: "warning";
   htmlFor?: string;
   className?: string;
   children: ReactNode;
@@ -30,7 +33,16 @@ export function FormField({
     <div className={cn("space-y-1.5", className)}>
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
-      {hint ? <p className="text-[11px] text-[var(--ea-text-4)]">{hint}</p> : null}
+      {hint ? (
+        <p
+          className={cn(
+            "text-[11px]",
+            hintTone === "warning" ? "text-[var(--ea-warning-fg)]" : "text-[var(--ea-text-4)]"
+          )}
+        >
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -415,11 +415,30 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 - **Буцаалт нь ЭХ огноогоор** шинэ журнал бичдэг тул тэр периодыг шалгана
 - Ноорог бичилт үлдсэн сарыг хаахгүй (ноорог хожим батлагдаж гацна)
 - Шинэ бичилтийн зам нэмэхэд `assertPeriodOpen(userId, date)`-ыг ЗААВАЛ дайруулна
+- **Огнооны нэгдсэн дүрэм** (`lib/periods/document-date.ts` ЦЭВЭР, тесттэй —
+  SIM ENT-027/028/041/012/067):
+  - `assertPeriodOpen*` нь **хуанлид байхгүй огноог** (2025-02-30) татгалзана
+    (`assertCalendarDate`) — бичилтийн бүх зам нэг цэгээс хамгаалагдана
+  - **Ирээдүйн САРЫН огноо батлагдахгүй** (`assertNotFuturePeriod` — GL
+    create(posted)/post, касс, АР/АП, бараа батлах): ноорог хэвээр үлдэнэ;
+    AI/MCP post горимд ч ноорог + тайлбар (`futurePeriodDraftNote`)
+  - **Шинэ баримтын анхдагч огноо = topbar-ийн сонгосон сар**
+    (`currentDocumentDate()`: одоогийн сар → өнөөдөр, өнгөрсөн → сарын сүүлийн
+    өдөр, ирээдүй → 1-ний өдөр). Форм/диалог/панелийн анхны утгад л —
+    SSR-д рендерлэгддэг input-д БИШ (hydration). `new Date().toISOString()`-оор
+    баримтын огноо ӨГӨХИЙГ ХОРИГЛОНО
+  - **Кассын нээлт** `cash_accounts.opening_date` (эхний үлдэгдэлтэй бол
+    ЗААВАЛ) + `opening_rate` (валютын дансанд, хоосон бол албан ханш);
+    нээлтийн журнал ТЭР огноогоор, валютын данс FC × ханшаар (`lib/cash/opening.ts`)
 
 **Системийн хэмжээний периодын шүүлтүүр (topbar):**
 
-- `components/periods/period-filter.tsx` — сарын сонгогч ("JAN-26" формат,
-  `fmtPeriodCode`) + **PTD / QTD / YTD** горим. Layout-д НЭГ л удаа суусан
+- `components/periods/period-filter.tsx` — сарын сонгогч (топбарт монгол нэр
+  «2026 · 9-р сар» — `fmtPeriodLabelMn`; дотоод код "JAN-26" `fmtPeriodCode`
+  хэвээр) + муж (**Сар / Улирлын эхнээс / Оны эхнээс** = PTD / QTD / YTD —
+  `PERIOD_SCOPE_NAMES_MN`) нь сонгогч цонхон ДОТОР. Layout-д НЭГ л удаа суусан.
+  Дуу, горим, гарах нь профайл цэсэнд (`components/layout/user-menu.tsx`) —
+  топбарын удирдлага ≤ 7 (UI гайдын карт 8)
 - Сонголт cookie-д (`ea-period`) хадгалагдаж бүх хуудсанд дагаж явна;
   server хуудас `getPeriodSelection()`-оор уншина (`lib/periods/selection.ts`)
 - Мужийн тооцоо: `lib/periods/scope.ts` `scopeRange(code, scope, today)` —
@@ -482,6 +501,9 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 | Зардлын хуваарь (OD-017) | 3 суурь, баримт бүрд сонгоно: үнийн дүнгээр / тоо хэмжээгээр / гараар |
 | Өртөг бодох цаг (OD-019) | Худалдан авалт — батлагдмагц шууд. Зарлага/тохируулга/буцаалт — **сар хаахад** сарын дундажаар |
 | Үнэгүй орлого | Тооллогын илүүдэл, буцаж ирсэн бараа нь сарын дунджаар үнэлэгдэнэ. Дундаж нь эхний үлдэгдэл + ӨРТӨГТЭЙ орлогоос л бодогдоно |
+| Шилжүүлэг (OD-014, 0.9) | Эх агуулахын сарын дунджаар гарч, хүлээн авагчид ТЭР өртгөөр «өртөгтэй» орлого болно; хөдөлгөгч сар бүр хүрээнүүдийг хамаарлын дарааллаар бодно; нэг сард бие биерүүгээ шилжүүлсэн тойрог → ил шалтгаантай блок; GL бичилтгүй (данс нь барааных) |
+| Блоклогдсон хүрээ (ENT-043) | ЗӨВХӨН өөрийн хөдөлгөөнийг зогсооно — бусад бараа-агуулах үнэлэгдэнэ; сар хаалт `unvalued-movements`-ээр хориглосон хэвээр |
+| PO-гүй АП орлого (ENT-018) | Батлахад нэхэмжлэхийн мөрийн дүн × ханшаар `receipt_capitalize` НООРОГ (`ap_line`); гар үнэ ялна |
 
 Хатуу дүрмүүд:
 
@@ -691,7 +713,9 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
 - **`[POS_SOURCED]`:** POS-оос үүссэн АР / касс / хөдөлгөөн / урьдчилсан өртгийн
   бичилтийг эх модулиас нь засах/устгах/буцаахыг хориглоно — ЗӨВХӨН
   `returnPosSale` (АР кредит + `return_in` + урьдчилсан урвуу + буцаан олголт)
-- **Хасах үлдэгдэл ЗӨВШӨӨРНӨ** (`pos_settings.allowNegativeStock`, D9) — баримт,
+- **Хасах үлдэгдэл — тохиргоогоор** (`pos_settings.allowNegativeStock`, D9;
+  ШИНЭ байгууллагад анхдагч ХААЛТТАЙ — SIM ENT-054, хуучин байгууллагын утга
+  хэвээр). Асаалттай үед — баримт,
   самбар, сар хаалтын checklist-д мэдэгдэл; хөдөлгөгч тэр бараа×сарыг зогсоодог
   тул `closePeriod` `unvalued-movements` хоригоор (сарын тооцоололд "calculated"
   биш scope-той батлагдсан зарлага/буцаалт/тохируулга) засагдтал хаагдахгүй;
@@ -701,7 +725,9 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
 - **Хөнгөлөлтийн хөдөлгөгч** (`lib/pos/discounts.ts`, 9 төрөл, тесттэй): төлөх
   дүнд шууд нөлөөлнө, НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс; `approvalReasons`
   хоосон биш → `pos:post` эрх (`[APPROVAL_REQUIRED]`); GL default цэвэр орлого,
-  `discountPosting=contra` бол GL-д Cr орлого бүтэн + Dr хөнгөлөлт (АР мөр цэвэр)
+  `discountPosting=contra` бол GL-д Cr орлого бүтэн + Dr хөнгөлөлт (АР мөр цэвэр).
+  **AI/MCP-ийн `create_pos_sale`** зөвшөөрөл шаардсан борлуулалтад эрхтэй token
+  байсан ч ИЛ `managerApproval: true`-гүйгээр `[APPROVAL_REQUIRED]` (ENT-054)
 - **Төлбөрийн хэлбэр = лавлах** (`pos_payment_methods`, 10 `kind`): карт/QPay/
   BNPL нь ТҮР ДАНСТАЙ (`cash_accounts` bank) — банкны хуулгаар тэгшитгэнэ,
   `businessObjectType "pos_sale"`-аар объект бүрээр
@@ -1026,6 +1052,16 @@ tests/exchange-rates.test.ts parseMongolbank{Rates,History}, pickOfficialRate
   `assertPeriodOpen` дайрна; журнал нь ТЭР огноогоор бичигдэнэ
 - Тооцоо цэвэр: `calculateFxRevaluation(foreignBalance, closingRate,
   carryingAmount)` (lib/cash/reconciliation.ts) — зөрүү нь ханшийн олз/гарз
+- **Carrying (GL ₮) = `fxCarryingAmount`** (ENT-023): GL данс НЭГ кассын
+  дансанд л холбогдсон бол тэр GL дансны БҮХ мөр (тэмдэггүй гар нээлтийн
+  журнал ч), олон кассын данс хуваалцвал зөвхөн тэмдэгтэй мөр — тэмдэггүй мөр
+  байвал `[UNTAGGED_CASH_LINES]` гэж ЗОГСООНО (хаана хамаарахыг таахгүй)
+- **reconcile_modules** валютын дансны нээлтийг (валютаар) ₮-тэй НЭМЭХГҮЙ:
+  нээлтийн журналын ₮ → нээлтийн ханш → «ТОДОРХОЙГҮЙ» (`cashOpeningMnt`);
+  ханшгүй бичигдсэн хуучин нээлтийн журналыг илрүүлнэ (ENT-020)
+- **AI-ийн валютын баримт** (ENT-037/038/071): ханш өгөөгүй бол баримтын
+  өдрийн албан ханш (ИЛ тэмдэглэнэ; олдохгүй бол `[RATE_REQUIRED]`); PO-гийн
+  НЭМЭЛТ ЗАРДЛЫН нэхэмжлэх PO-гийн валютыг өвлөхгүй (харилцагчийн анхдагч)
 - AI `run_fx_revaluation` нь гар ханш өгөөгүй үед тэгшитгэлийн огнооны албан
   ханшийг татна; олдохгүй бол `rate` параметр шаардана (зохиохгүй)
 
@@ -1066,7 +1102,13 @@ app/(dashboard)/vat/     Сарын тайлангийн хуудас (URL `peri
   (`exclusive`/`inclusive` — inclusive нь мөрүүдийг /1.1 болгож largest-line
   absorb бөөрөнхийллөөр НӨАТ ялгана). АР → 31410000 Cr, АП → 13620000 Dr
 - **Тооцооны журнал** ЗААВАЛ ноорог (§9); буцаан авах үед оролтын үлдэгдэл
-  дараа сард шилжинэ (гаралтын дүнгээр л offset хийнэ)
+  дараа сард шилжинэ (гаралтын дүнгээр л offset хийнэ). Огноо = ТАЙЛАНТ ҮЕИЙН
+  СҮҮЛИЙН ӨДӨР (ENT-035; хаагдсан бол татгалзана)
+- **Тайлангийн эргэлт** (ENT-024/052/051): зөвхөн НӨАТ + мөнгөн дансны мөртэй
+  журнал (тооцоо, төлбөр, буцаалт — `isVatSettlementVoucher`) эргэлтэд
+  ОРОХГҮЙ; өмнөх саруудын илүү оролт = үеийн эхэн дэх max(0, оролтын Дт −
+  гаралтын Кт) «шилжсэн кредит» (`carriedInputVat`) төлөх дүнгээс хасагдана;
+  `/tax/vat` хуулга зөвхөн сонгосон сарын мөр
 
 ### 7. Цалин (Payroll) — Gross → Net — ХЭРЭГЖСЭН
 
@@ -1248,6 +1290,18 @@ Dr 72100002 НДШ зардал (ажил олгогч)
   дүнтэй элэгдэнэ. Карт бүрийн `depreciationStartDate` (YYYY-MM-DD) нь
   хуваарилалтын эхлэл; хоосон бол эхлэх сарын 1-ний өдөр
 
+**Нээлтийн хуримтлагдсан элэгдэл** (`lib/fa/opening.ts` ЦЭВЭР, тесттэй — SIM
+ENT-002/049/066/046/001): карт `openingAccumulatedDepreciation` (+ татварын
+`openingTaxAccumulated`) ба `openingAsOf` (cut-off, дүнтэй бол ЗААВАЛ)
+хадгална — GL-д нээлтийн журналаар (Кт 20000002) орсон, карт GL бичихгүй.
+Элэгдэл нээлтээс эхэлж cut-off сар хүртэл БОДОГДОХГҮЙ; данснаас хасалт
+(`computeFaDisposal`), бүртгэлийн тайлан, самбарын тулгалт бүгд нээлт +
+системийн батлагдсаныг тооцно. **Ашиглалтын хугацаа дуусмагц элэгдэл
+ЗОГСОНО** (IAS 16.55, сарын индекс > хугацаа → 0; сүүлийн сар бөөрөнхийллийн
+үлдэгдлийг хаана). Нээлтийн журнал (`opening-*` / `[ОНБ…]`) ҮХ-ийн ноорог
+карт ҮҮСГЭХГҮЙ. Биет ҮХ-ийн анхдагч хос **20000001 / 20000002**
+(`accumDepAccountFor`: биет бус 21000001 → 21000099); хуучин карт хэвээр.
+
 **НЭГ товчоор GL:** сарын бүх элэгдэл НЭГ журнал болно (дансны хосоор
 нэгтгэсэн мөрүүд) — хөрөнгө тус бүрд журнал үүсгэхгүй. Дахин бодоход
 өмнөх журнал АВТОМАТААР буцаагдаж (буцаалтын журнал үлдэж аудитын мөр
@@ -1280,10 +1334,10 @@ aiPostLimitMnt`, null = default 10 сая ₮) — Тохиргоо → Комп
 
 ```
 lib/ai/post-limit.ts   ЦЭВЭР (тесттэй): DEFAULT_AI_POST_LIMIT_MNT (10M),
-                       AI_POST_LIMIT_TOOL_CEILING_MNT (1 тэрбум — TOOL-оор
-                       ӨСГӨХ тааз), resolveAiPostLimit, planAiPostLimitChange
+                       resolveAiPostLimit, planAiPostLimitChange (tool-оор
+                       ӨСГӨЛТ [HUMAN_REQUIRED])
                        + AsyncLocalStorage (runWithAiPostLimit / currentAiPostLimit)
-tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргээлт, зэрэгцээ хүсэлт
+tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт, default сэргээлт, зэрэгцээ хүсэлт
 ```
 
 - **Хязгаарыг хүсэлт бүрд НЭГ л удаа уншина** — `executeAiTool` нь
@@ -1291,12 +1345,12 @@ tests/ai-post-limit.test.ts  тааз, бууруулалт, default сэргэ�
   дуудах цэг) `currentAiPostLimit()`-ээр SYNC хэвээр уншина. Контекстгүй
   дуудагдвал default (хамгийн болгоомжтой); зэрэгцээ хүсэлтүүд бие биенийхээ
   утгыг ХАРАХГҮЙ (AsyncLocalStorage, module-level хувьсагч ХОРИОТОЙ)
-- **AI өөрийн таазыг хязгааргүй ӨРГӨХ нь ХОРИОТОЙ** — баримтанд суулгасан
-  «зааварчилгаа» (prompt injection) агентаар лимитээ өсгүүлээд дараа нь том
-  дүн батлуулах зам байж болно. `update_company_settings`-ийн
-  `aiPostLimitMnt` нь `planAiPostLimitChange({viaTool:true})`-ээр дайрна:
-  өсгөлт `AI_POST_LIMIT_TOOL_CEILING_MNT`-ээр тагласан (`[LIMIT_CEILING_EXCEEDED]`),
-  түүнээс дээш зөвхөн ВЭБЭЭС админ. **БУУРУУЛАХАД тааз хамаарахгүй**
+- **AI өөрийн хязгаарыг ӨСГӨЖ ЧАДАХГҮЙ** (SIM ENT-068 — симуляцид агент PO
+  хаах гацааг тойрохын тулд лимитээ 50 сая болгосон; prompt injection-ийн зам
+  ч болно). `update_company_settings`-ийн `aiPostLimitMnt` нь
+  `planAiPostLimitChange({viaTool:true})`-ээр дайрна: өсгөлт БҮРЭН хориотой
+  (`[HUMAN_REQUIRED]`), зөвхөн ВЭБЭЭС админ хүн. **БУУРУУЛАХ / default руу
+  буцаах (бууралт бол) чөлөөтэй**
 - Өөрчлөлт бүр `logAuditEvent` (`settings` / `ai_post_limit`) + эзэн/админд
   `settings.ai_limit_changed` мэдэгдэл (instant и-мэйл)
 - `lib/payroll/calc.ts`-ийн `{ upTo: 10_000_000 }` нь ХАОАТ-ын шатлалын хил
@@ -1313,7 +1367,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
-| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨХ нь 1 тэрбум ₮ таазтай; `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
+| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨЛТ зөвхөн вэбээс хүн (`[HUMAN_REQUIRED]`); `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (9), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
@@ -1665,6 +1719,23 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
   (төлөв + хуулах/устгах — дуудагч бүр НЭГ controller, давхар fetch хийхгүй) +
   `AttachmentUploadBar` / `AttachmentRows` харагдах хэсгүүд. Шинэ байрлал
   нэмэхдээ эдгээрийг compose хийнэ, хуулалт/устгалтыг дахин бичихийг ХОРИГЛОНО
+
+### Баримтын төлөв, тоо, утасны карт (UI гайд)
+
+- **Төлөв** — `lib/status.ts` `DOCUMENT_STATUS` ЦОРЫН ГАНЦ бүртгэл (шошго, өнгө,
+  дүрс, хэлбэр: ноорог тасархай, буцаагдсан зураастай, `--ea-reversed*` токен).
+  Жагсаалтад `col({ eaType: "status", field: "status" })` (зөвхөн дүрс, tooltip +
+  aria-label), дэлгэрэнгүйд `DocumentStatusBadge`. Хуудас бүрд өөрийн
+  STATUS_LABELS/tone map бичихийг ХОРИГЛОНО
+- **Үйлдлийн нэр:** «Ноорог хадгалах» / «Батлах»; «сторно» БИШ «буцаалт»
+- **Тоо:** `readonly-money` 0 → «—», сөрөг «−» + улаан (`ea-negative`); хуудасны
+  гол тоо `fmtMntCompact` («13.95 сая ₮», title-д бүтэн дүн) — НЭГ л ширхэг
+- **Маягтын мөрийн grid** (`journal-lines-grid`, `arap-lines-grid`) шүүлтүүр,
+  эрэмбэлэлтгүй (`FORM_GRID_COL_DEF`)
+- **Утас (<640px):** жагсаалт хүснэгтийн оронд `MobileCardList`
+  (`useIsMobileViewport`) — төлөв · нэр · дүн, дарахад десктопын давхар даралттай
+  ижил панель. Одоо: журнал, АР/АП баримт
+- **Латин UI текст** `tests/ui-latin-text.test.ts`-ээр сахиулагдана (allowlist-тэй)
 
 ### Таб ба шүүлтүүрийн chip
 

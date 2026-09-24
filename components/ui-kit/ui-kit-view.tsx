@@ -12,7 +12,9 @@ import { FormField, SwitchField } from "@/components/ui/form-field";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
+import { ArapBalanceHero } from "@/components/arap/arap-balance-hero";
+import { MobileCardList } from "@/components/datagrid/mobile-card-list";
 import { FilterChips, PageTabs } from "@/components/ui/tabs";
 import {
   LoadingBlock,
@@ -313,9 +315,65 @@ export function UiKitView() {
             <StatusBadge tone="muted">Дүн оруулаагүй</StatusBadge>
           </div>
           <p className="text-xs" style={{ color: "var(--ea-text-4)" }}>
-            <code>components/ui/status-badge.tsx</code> — <code>&lt;StatusBadge tone=&quot;success|danger|warning|muted&quot;&gt;</code>
+            <code>components/ui/status-badge.tsx</code> — <code>&lt;StatusBadge tone=&quot;success|danger|warning|muted|reversed&quot; icon shape&gt;</code>
           </p>
+          {/* Баримтын төлөв — lib/status.ts-ийн НЭГ бүртгэл (UI гайдын карт 1).
+              Өнгө + дүрс + ХЭЛБЭР (ноорог = тасархай, буцаагдсан = зураастай). */}
+          <div className="flex flex-wrap items-center gap-2">
+            {["posted", "draft", "reversed", "partially_paid", "overdue", "cancelled"].map((status) => (
+              <DocumentStatusBadge key={status} status={status} size="md" />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {["posted", "draft", "reversed"].map((status) => (
+              <DocumentStatusBadge key={status} status={status} variant="icon" />
+            ))}
+            <span className="text-xs" style={{ color: "var(--ea-text-4)" }}>
+              ← жагсаалтын багана (<code>col({"{"} eaType: &quot;status&quot; {"}"})</code>): зөвхөн дүрс, tooltip + aria-label
+            </span>
+          </div>
         </div>
+      </Section>
+
+      {/* 4a. Гол тоо + насжилт, утасны карт (UI гайдын карт 6, 12) */}
+      <Section
+        title="Гол тоо ба утасны карт"
+        hint="Хуудсанд НЭГ л том тоо (сая/мянга товчлол, hover = бүтэн дүн) + насжилтын зурвас; 640px-ээс нарийн дэлгэцэд жагсаалт хүснэгтийн оронд карт."
+      >
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-md border border-[var(--ea-border)]">
+            <ArapBalanceHero
+              title="Авлага"
+              reportHref="/receivables/reports"
+              summary={{
+                total: 13_952_730,
+                documentCount: 41,
+                counterpartyCount: 35,
+                buckets: [
+                  { key: "0-30", label: "0–30 хоног", amount: 2_500_000, count: 12 },
+                  { key: "31-60", label: "31–60 хоног", amount: 3_752_730, count: 14 },
+                  { key: "60+", label: "60+ хоног", amount: 7_700_000, count: 15 },
+                ],
+              }}
+              draftCount={2}
+              draftAmount={480_000}
+            />
+          </div>
+          <div className="max-w-[390px]">
+            <MobileCardList
+              ariaLabel="Утасны картын жишээ"
+              rows={[
+                { id: "a", status: "posted", corner: "2025.03.31", title: "НӨАТ тооцоо · 3-р сар", meta: "VAT-25-000003 · 31410000 → 13620000", amount: "1,498,433.00" },
+                { id: "b", status: "draft", corner: "2025.03.30", title: "Цалин · 3-р сар", meta: "PAY-25-000003", amount: "8,240,000.00" },
+              ]}
+              toCard={(row) => row}
+              onOpen={() => undefined}
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-xs" style={{ color: "var(--ea-text-4)" }}>
+          <code>components/arap/arap-balance-hero.tsx</code> · <code>components/datagrid/mobile-card-list.tsx</code> (<code>useIsMobileViewport</code>) · <code>lib/format/money.ts</code> <code>fmtMntCompact</code>
+        </p>
       </Section>
 
       {/* 4b. Таб + шүүлтүүрийн chip */}
@@ -345,7 +403,7 @@ export function UiKitView() {
           <div className="space-y-1.5">
             <Label>Валют</Label>
             <Select defaultValue="mnt">
-              <SelectTrigger>
+              <SelectTrigger aria-label="Валют">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

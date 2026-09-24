@@ -91,6 +91,8 @@ export type PurchaseOrderDetail = PurchaseOrderView & {
     documentNo: string;
     date: string;
     status: string;
+    /** Нэхэмжлэхийн ӨӨРИЙН валют — гааль/тээврийн нэхэмжлэх MNT байж болно (ENT-071). */
+    currency: string;
     totalAmount: number;
     baseTotalAmount: number;
     isCostInvoice: boolean;

@@ -407,7 +407,7 @@ export function InventoryItemsView({ items, warehouses, categories }: Props) {
             Бараа, агуулах
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Тоо хэмжээний бүртгэлийн мастер дата — дансны mapping өртгийн
+            Тоо хэмжээний бүртгэлийн мастер дата — дансны холболт өртгийн
             модулийн тохиргоонд. Борлуулах үнэ, баркод, НӨАТ-ийн горим нь POS-д.
           </p>
         </div>

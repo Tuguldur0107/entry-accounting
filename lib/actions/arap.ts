@@ -8,7 +8,11 @@ import {
   requireAnyModuleAction,
   requireModuleAction,
 } from "@/lib/auth";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import {
   moduleOfVoucherNo,
   nextVoucherNo,
@@ -20,6 +24,7 @@ import {
   normalizeCounterpartyCode,
 } from "@/lib/arap/counterparty-code";
 import {
+  counterpartyDirectionError,
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
   isCounterpartyEntityKind,
   type CounterpartyEntityKind,
@@ -640,6 +645,22 @@ type PoCheckLine = {
   amount: number;
 };
 
+/**
+ * Бараатай мөр бүр АГУУЛАХТАЙ (ENT-039: вэб маягт агуулахгүй мөрийг батлуулж,
+ * агуулахгүй ноорог зарлага үүсч сар хаалтыг хориглодог байв; MCP заавал
+ * шаарддаг — дүрэм нэг болов). Server бол trust boundary.
+ */
+function assertItemLinesHaveWarehouse(
+  lines: { itemId: string | null; warehouseId: string | null; description: string }[]
+) {
+  lines.forEach((line, index) => {
+    if (line.itemId && !line.warehouseId)
+      throw new Error(
+        `Мөр #${index + 1}${line.description ? ` («${line.description}»)` : ""}: бараатай мөрөнд агуулах заавал сонгоно`
+      );
+  });
+}
+
 async function assertPurchaseOrderLines(
   tx: DbTx,
   input: {
@@ -959,6 +980,12 @@ async function createArApDocumentCore(data: {
     ),
   });
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
+  const directionError = counterpartyDirectionError(
+    data.documentType,
+    counterparty.counterpartyType,
+    counterparty.name
+  );
+  if (directionError) throw new Error(directionError);
 
   const controlAccountNumber = data.controlAccountNumber.trim();
   await assertEnabledMainAccount(orgId, controlAccountNumber);
@@ -997,6 +1024,7 @@ async function createArApDocumentCore(data: {
     })
     .filter((line) => line.account && line.amount > 0);
   if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+  assertItemLinesHaveWarehouse(validLines);
   // Клиринг + өглөгийн түр данс тохиргооноос (JPR-006) — кодод хатуу
   // дугаар байхгүй.
   const costingRoles = await loadCostingAccountSettings(orgId, userId);
@@ -1306,6 +1334,7 @@ async function postArApDocumentCore(id: string) {
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг батална");
   await assertPeriodOpen(orgId, document.date);
+  assertNotFuturePeriod(document.date);
   if (document.lines.length === 0) throw new Error("Баримтад мөр алга");
 
   const counterparty = await db.query.counterparties.findFirst({
@@ -1314,9 +1343,16 @@ async function postArApDocumentCore(id: string) {
       eq(counterparties.organizationId, orgId),
       eq(counterparties.isActive, true)
     ),
-    columns: { id: true },
+    columns: { id: true, name: true, counterpartyType: true },
   });
   if (!counterparty) throw new Error("Идэвхтэй харилцагч олдсонгүй");
+  // Ноорог засвараар харилцагч солигдсон ч батлахад дахин шалгана (ENT-031).
+  const directionError = counterpartyDirectionError(
+    document.documentType,
+    counterparty.counterpartyType,
+    counterparty.name
+  );
+  if (directionError) throw new Error(directionError);
 
   await assertEnabledMainAccount(orgId, document.controlAccountNumber);
   for (const line of document.lines)
@@ -1927,6 +1963,7 @@ export async function updateArApDocument(
       })
       .filter((line) => line.account && line.amount > 0);
     if (validLines.length === 0) throw new Error("Дор хаяж нэг мөр оруулна уу");
+    assertItemLinesHaveWarehouse(validLines);
     const costingRoles = await loadCostingAccountSettings(orgId, userId);
     const clearingAccount = costingRoles.clearingAccountNumber;
     const apClearingAccount = costingRoles.apClearingAccountNumber;

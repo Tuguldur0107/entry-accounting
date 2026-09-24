@@ -57,6 +57,9 @@ interface Props {
   segmentConfigs: SegmentConfigRow[];
   segmentValues: SegmentValue[];
   moduleConfigs: ModuleConfigRow[];
+  /** Deep link (`?tab=values&seg=3` — «Дансны төлөвлөгөө», ENT-006). */
+  initialMainTab?: "config" | "values";
+  initialSegment?: number;
 }
 
 type DraftItem = { isEnabled: boolean; modules: string };
@@ -96,16 +99,22 @@ export function AccountsTable({
   segmentConfigs,
   segmentValues,
   moduleConfigs,
+  initialMainTab,
+  initialSegment,
 }: Props) {
   const [localConfigs, setLocalConfigs] = useState<SegmentConfigRow[]>(segmentConfigs);
 
   const enabledSegIds = localConfigs.filter((c) => c.isEnabled).map((c) => c.segmentId);
   // Модулийн тохиргоо тусдаа хуудас болсон (/settings/modules) — энд зөвхөн
   // сегмент, дансны тохиргоо үлдсэн.
-  const [mainTab, setMainTab] = useState<"config" | "values">("config");
+  const [mainTab, setMainTab] = useState<"config" | "values">(initialMainTab ?? "config");
 
   const [activeTab, setActiveTab] = useState<number>(() =>
-    enabledSegIds.includes(3) ? 3 : enabledSegIds[0] ?? 1
+    initialSegment && enabledSegIds.includes(initialSegment)
+      ? initialSegment
+      : enabledSegIds.includes(3)
+        ? 3
+        : enabledSegIds[0] ?? 1
   );
 
   const [seg1EditMode, setSeg1EditMode] = useState(false);

@@ -90,6 +90,14 @@ test("fmtPeriodCode: JAN-26 style labels", async () => {
   ]);
 });
 
+test("fmtPeriodLabelMn: топбарын монгол нэр (UI гайдын карт 8)", async () => {
+  const { fmtPeriodLabelMn } = await import("../lib/periods/period");
+  assert.equal(fmtPeriodLabelMn("2026-09"), "2026 · 9-р сар");
+  assert.equal(fmtPeriodLabelMn("2025-01"), "2025 · 1-р сар");
+  assert.equal(fmtPeriodLabelMn("2025-12"), "2025 · 12-р сар");
+  assert.equal(fmtPeriodLabelMn("garbage"), "garbage");
+});
+
 test("scopeRange: PTD past month is the full month", async () => {
   const { scopeRange } = await import("../lib/periods/scope");
   assert.deepEqual(scopeRange("2026-05", "PTD", "2026-07-28"), {

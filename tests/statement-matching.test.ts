@@ -291,3 +291,19 @@ test("buildHistoricalPatterns groups by normalized text + side + counter account
   assert.equal(incomePattern.count, 1);
   assert.equal(incomePattern.counterAccountNumber, dr);
 });
+
+test("ENT-056: төлөх хугацаанаас 90+ хоног зөрүүтэй бол «Хүчтэй» биш «Дунд»", () => {
+  const stale = suggestMatches(
+    [row({ income: 550_000, counterparty: "Болор Трейд", transactionDate: "2026-09-22" })],
+    context({ openInvoices: [invoice({ dueDate: "2025-06-30" })] })
+  )["row-1"];
+  assert.equal(stale?.[0].kind, "invoice");
+  assert.equal(stale?.[0].confidence, "medium");
+  assert.equal(stale?.[0].kind === "invoice" && stale[0].staleDays, 449);
+
+  const fresh = suggestMatches(
+    [row({ income: 550_000, counterparty: "Болор Трейд", transactionDate: "2026-09-22" })],
+    context({ openInvoices: [invoice({ dueDate: "2026-09-10" })] })
+  )["row-1"];
+  assert.equal(fresh?.[0].confidence, "high");
+});

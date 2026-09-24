@@ -77,6 +77,7 @@ export function InventoryReportView({ rows, start, end }: Props) {
         <div className="flex items-center gap-2">
           <Input
             type="date"
+              aria-label="Эхлэх огноо"
             className="h-8 w-40"
             value={startInput}
             onChange={(event) => setStartInput(event.target.value)}
@@ -84,6 +85,7 @@ export function InventoryReportView({ rows, start, end }: Props) {
           <span className="text-xs text-[var(--ea-text-4)]">—</span>
           <Input
             type="date"
+              aria-label="Дуусах огноо"
             className="h-8 w-40"
             value={endInput}
             onChange={(event) => setEndInput(event.target.value)}

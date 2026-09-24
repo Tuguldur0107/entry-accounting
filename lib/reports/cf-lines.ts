@@ -13,8 +13,12 @@
 // ХАТУУ ДҮРЭМ: default prefix-үүд хоорондоо ДАВХЦАХГҮЙ (нэг данс хоёр
 // мөрөнд орвол урсгал давхар тоологдоно). Доорх багц нь хуучин
 // classifyCashFlow ангиллыг (1x→үйл ажиллагаа, 2x→хөрөнгө оруулалт,
-// 3x/4x→санхүү, 5-8x→үйл ажиллагаа) БҮРЭН, давхцалгүй хуваасан тул
-// default байдлаараа хуучин тайлантай ИЖИЛ дүн өгнө.
+// 32/33/4x→санхүү, бусад 3x ба 5-8x→үйл ажиллагаа) БҮРЭН, давхцалгүй
+// хуваасан тул default байдлаараа хуучин тайлантай ИЖИЛ дүн өгнө.
+//
+// ХАНШИЙН ТЭГШИТГЭЛ (FX- дугаартай журнал) нь мөнгөн гүйлгээ БИШ — урсгалд
+// орохгүй, «Валютын ханшийн өөрчлөлтийн нөлөө» (IAS 7.28) болж тусдаа гарна;
+// эхний + цэвэр урсгал + ханшийн нөлөө = эцсийн (ENT-047).
 
 import type { JournalVoucherWithLines } from "@/lib/db/schema";
 import {
@@ -81,11 +85,21 @@ export const CF_LINES: readonly CfLine[] = [
     defaultPrefixes: ["8"],
   },
   {
-    // Кассын (11x) контра мөр угаасаа урсгалд ордоггүй тул "11"-гүй.
+    // Мөнгөн хөрөнгийн (10x касс, 11x банк) контра мөр угаасаа урсгалд
+    // ордоггүй тул "10"/"11"-гүй (ENT-047: касс↔банк нь урсгал биш).
     key: "op-working-capital",
     section: "operating",
     label: "Авлага, урьдчилгаа, бусад эргэлтийн хөрөнгийн өөрчлөлт",
-    defaultPrefixes: ["10", "12", "13", "14", "15", "16", "17", "18", "19"],
+    defaultPrefixes: ["12", "13", "14", "15", "16", "17", "18", "19"],
+  },
+  {
+    // Нийлүүлэгч, татвар, цалин, худалдан авагчийн урьдчилгааны төлбөр нь
+    // ҮЙЛ АЖИЛЛАГААНЫ урсгал (IAS 7.14) — урьд «3»-аар бүхэлдээ санхүү рүү
+    // ордог байв (ENT-047).
+    key: "op-payables",
+    section: "operating",
+    label: "Нийлүүлэгч, татвар, цалин, бусад өглөгт төлсөн",
+    defaultPrefixes: ["30", "31", "34", "35", "36", "37", "38", "39"],
   },
 
   // ── Хөрөнгө оруулалт ─────────────────────────────────────────────────
@@ -101,7 +115,7 @@ export const CF_LINES: readonly CfLine[] = [
     key: "fin-debt",
     section: "financing",
     label: "Зээл, өр төлбөрийн хөдөлгөөн",
-    defaultPrefixes: ["3"],
+    defaultPrefixes: ["32", "33"],
   },
   {
     key: "fin-equity",
@@ -217,7 +231,20 @@ export interface CfSectionComputed {
 
 export interface MappedCashFlowReport {
   sections: Record<CfSection, CfSectionComputed>;
-  totals: { operating: number; investing: number; financing: number; net: number };
+  totals: {
+    operating: number;
+    investing: number;
+    financing: number;
+    /** Үйл ажиллагаа + хөрөнгө оруулалт + санхүү. */
+    net: number;
+    /** Ханшийн тэгшитгэлийн мөнгөн хөрөнгөд үзүүлсэн нөлөө (урсгал биш). */
+    fxEffect: number;
+  };
+}
+
+/** Ханшийн тэгшитгэл (ба түүний буцаалт) — модулийн код FX (§2a). */
+export function isFxRevaluationVoucher(voucher: { documentNo?: string | null }): boolean {
+  return (voucher.documentNo ?? "").startsWith("FX-");
 }
 
 /**
@@ -248,6 +275,7 @@ export function buildMappedCashFlow(
       if (!byAccount.has(acc)) byAccount.set(acc, line);
   }
 
+  let fxEffect = 0;
   for (const v of vouchers) {
     if (v.date < appliedFrom || v.date > appliedTo) continue;
 
@@ -257,6 +285,10 @@ export function buildMappedCashFlow(
       return acc + Number(l.debit) - Number(l.credit);
     }, 0);
     if (Math.abs(cashImpact) <= EPSILON) continue;
+    if (isFxRevaluationVoucher(v)) {
+      fxEffect += cashImpact;
+      continue;
+    }
 
     for (const l of v.lines) {
       const main = extractMainAccount(l.accountNumber);
@@ -300,6 +332,7 @@ export function buildMappedCashFlow(
     investing: sections.investing.subtotal,
     financing: sections.financing.subtotal,
     net: 0,
+    fxEffect,
   };
   totals.net = totals.operating + totals.investing + totals.financing;
 
@@ -324,7 +357,7 @@ export function computeContraFlows(
       if (!isCashMainAccount(main)) return acc;
       return acc + Number(l.debit) - Number(l.credit);
     }, 0);
-    if (Math.abs(cashImpact) <= EPSILON) continue;
+    if (Math.abs(cashImpact) <= EPSILON || isFxRevaluationVoucher(v)) continue;
     for (const l of v.lines) {
       const main = extractMainAccount(l.accountNumber);
       if (isCashMainAccount(main)) continue;

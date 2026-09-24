@@ -10,6 +10,7 @@
 //                 эсвэл toolbar-т.
 
 import { cn } from "@/lib/utils";
+import { Icon, type IconName } from "./icon";
 
 export type TabOption<T extends string> = {
   value: T;
@@ -37,15 +38,16 @@ export function PageTabs<T extends string>({
   trailing?: React.ReactNode;
   ariaLabel?: string;
 }) {
+  // role="tablist" нь ЗӨВХӨН tab-уудыг агуулна — trailing (товч, chip) нь
+  // гадна талд (axe aria-required-children, ENT-061).
   return (
     <div
       className={cn(
         "flex flex-wrap items-center gap-x-0 gap-y-1.5 border-b border-[var(--ea-border)]",
         className
       )}
-      role="tablist"
-      aria-label={ariaLabel}
     >
+      <div role="tablist" aria-label={ariaLabel} className="flex flex-wrap items-center">
       {tabs.map((tab) => (
         <button
           key={tab.value}
@@ -66,6 +68,7 @@ export function PageTabs<T extends string>({
           {tab.label}
         </button>
       ))}
+      </div>
       {trailing ? (
         <div className="ml-auto flex items-center gap-1.5 pb-1.5 pl-3">
           {trailing}
@@ -80,6 +83,11 @@ export type ChipOption<T extends string> = TabOption<T> & {
   count?: number;
   /** Идэвхгүй байхад нь анхааруулгын өнгөөр тодруулна (ж: ноорог үлдсэн). */
   tone?: "warning";
+  /**
+   * Шошгоны өмнөх дүрс — төлөвийн chip нь тайлбар (legend) болон шүүлтүүрийн
+   * үүргийг зэрэг гүйцэтгэнэ (UI гайдын карт 1).
+   */
+  icon?: IconName;
 };
 
 export function FilterChips<T extends string>({
@@ -111,6 +119,9 @@ export function FilterChips<T extends string>({
               "border-[var(--ea-warning)] text-[var(--ea-warning-fg)]"
           )}
         >
+          {chip.icon ? (
+            <Icon name={chip.icon} size="xs" className="mr-1 inline-block align-[-2px]" />
+          ) : null}
           {chip.label}
           {(chip.count ?? 0) > 0 && (
             <span className="ml-1 font-mono">{chip.count}</span>

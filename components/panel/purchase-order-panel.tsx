@@ -76,6 +76,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { feedback } from "@/lib/ui/feedback";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 
 const ERROR_MESSAGES = {
   unauthenticated: "Нэвтрэх шаардлагатай — дахин нэвтэрнэ үү.",
@@ -259,7 +260,9 @@ function PurchaseOrderBody({
     [counterparties]
   );
   const [tab, setTab] = useState<PoTab>("lines");
-  const [closeDate, setCloseDate] = useState(data.today);
+  // ENT-067: хаах огноо topbar-ийн сонгосон сараар (өнгөрсөн сарын PO-г тэр
+  // сарын сүүлийн өдрөөр), хэрэглэгч footer-ийн «Хаах огноо» талбараас засна.
+  const [closeDate, setCloseDate] = useState(currentDocumentDate);
   const [rateHint, setRateHint] = useState<{
     rate: number;
     rateDate: string;
@@ -281,7 +284,7 @@ function PurchaseOrderBody({
       : {
           counterpartyId: "",
           documentNo: "",
-          date: data.today,
+          date: currentDocumentDate(),
           expectedDate: "",
           currency: "MNT",
           warehouseId: "",
@@ -819,6 +822,7 @@ function PurchaseOrderBody({
       toast.error("Нэхэмжлээгүй үлдэгдэл алга");
       return;
     }
+    const invoiceDate = currentDocumentDate();
     const open = (exchangeRate?: number) =>
       openArapDocPanel({
         mode: "payable",
@@ -828,7 +832,7 @@ function PurchaseOrderBody({
           counterpartyId: detail.counterpartyId,
           currency: detail.currency,
           exchangeRate,
-          date: data.today,
+          date: invoiceDate,
           description: `${detail.documentNo} — нийлүүлэгчийн нэхэмжлэх`,
           lines,
         },
@@ -842,7 +846,7 @@ function PurchaseOrderBody({
     startTransition(async () => {
       const result = await fetchOfficialRate({
         currency: detail.currency,
-        date: data.today,
+        date: invoiceDate,
       });
       if (result.error) {
         toast.error(`${result.error} — ханшийг гараар оруулна уу`);
@@ -894,12 +898,15 @@ function PurchaseOrderBody({
       { headerName: "Дугаар", field: "documentNo", minWidth: 150, cellClass: "font-mono text-xs" },
       { headerName: "Огноо", field: "date", width: 110, cellClass: "font-mono text-xs" },
       {
-        headerName: `Дүн (${detail?.currency ?? "MNT"})`,
+        headerName: "Дүн (валют)",
         field: "totalAmount",
-        width: 140,
+        width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        // Нэхэмжлэх бүр ӨӨРИЙН валюттай (ENT-071 — гаалийн ₮ нэхэмжлэх USD
+        // гэж харагддаг байв).
+        valueFormatter: (params) =>
+          `${fmtMnt(Number(params.value ?? 0))} ${params.data?.currency ?? ""}`.trim(),
       },
       {
         headerName: "Дүн (MNT)",
@@ -925,7 +932,7 @@ function PurchaseOrderBody({
           String(params.value ?? ""),
       },
     ],
-    [detail?.currency]
+    []
   );
 
   const costColumns = useMemo<ColDef<PurchaseOrderDetail["costLines"][number]>[]>(
@@ -1396,13 +1403,15 @@ function PurchaseOrderBody({
         )}
         {detail && status === "open" && (
           <>
-            <Input
-              type="date"
-              value={closeDate}
-              aria-label="Хаах огноо"
-              className="w-36"
-              onChange={(event) => setCloseDate(event.target.value)}
-            />
+            <label className="flex items-center gap-1.5 text-xs text-[var(--ea-text-3)]">
+              Хаах огноо
+              <Input
+                type="date"
+                value={closeDate}
+                className="w-36"
+                onChange={(event) => setCloseDate(event.target.value)}
+              />
+            </label>
             <Button
               variant="outline"
               onClick={closeOrder}

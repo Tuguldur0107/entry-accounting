@@ -233,10 +233,11 @@ export function PermissionsSettings({
     ];
     for (const def of APP_MODULE_DEFS) {
       cols.push({
-        headerName: def.key.toUpperCase(),
+        // Монгол нэр (ENT-074: CASH/COST/PROC гэх модулийн код харагдаж байв).
+        headerName: def.nameMn,
         colId: `perm-${def.key}`,
-        headerTooltip: def.nameMn,
-        width: 104,
+        headerTooltip: `${def.nameMn} (${def.key})`,
+        width: 120,
         sortable: false,
         cellClass: "flex items-center",
         valueGetter: (params) => (params.data ? params.data.levels[def.key] : ""),
@@ -490,7 +491,7 @@ function InviteBody({
       </DialogHeader>
       <div className="grid gap-3">
         <div className="grid gap-1.5">
-          <Label>Email</Label>
+          <Label>И-мэйл</Label>
           <Input
             type="email"
             value={email}

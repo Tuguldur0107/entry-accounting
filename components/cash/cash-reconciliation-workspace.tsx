@@ -334,7 +334,11 @@ export function CashReconciliationWorkspace({
       if (!ok) return;
       startTransition(async () => {
         try {
-          await createCashOpeningVoucher({ cashAccountId: row.id });
+          const result = await createCashOpeningVoucher({ cashAccountId: row.id });
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           toast.success(
             "Нээлтийн ноорог журнал үүслээ — GL журналын жагсаалтаас шалгаж батална уу"
           );
@@ -688,7 +692,7 @@ export function CashReconciliationWorkspace({
               title={blockReason || "Тэгшитгэлийн GL бичилтийг хянах"}
               onClick={() => postFx(row)}
             >
-              {blockReason ? "Хүлээгдэж байна" : "GL-д бичих"}
+              {blockReason ? "Хүлээгдэж байна" : "Батлах"}
             </button>
           );
         },
@@ -1153,7 +1157,7 @@ export function CashReconciliationWorkspace({
                 </div>
                 <FxMiniMetric label="Валютын данс" value={fxSummary.total} />
                 <FxMiniMetric label="Ханш дутуу" value={fxSummary.missingRate} tone="warning" />
-                <FxMiniMetric label="GL-д бичих" value={fxSummary.readyToPost} tone="primary" />
+                <FxMiniMetric label="Батлахад бэлэн" value={fxSummary.readyToPost} tone="primary" />
               </div>
             </div>
           )}
@@ -1216,7 +1220,7 @@ export function CashReconciliationWorkspace({
                         title={blockReason || "Тэгшитгэлийн GL бичилтийг хянах"}
                         onClick={() => postFx(row)}
                       >
-                        GL-д бичих
+                        Батлах
                       </Button>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -1648,7 +1652,7 @@ export function CashReconciliationWorkspace({
                   0.01
               }
             >
-              GL-д бичих
+              Батлах
             </Button>
           </DialogFooter>
         </DialogContent>

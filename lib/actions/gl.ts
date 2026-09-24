@@ -38,7 +38,11 @@ import {
   removeDraftAssetsForVoucher,
   syncFixedAssetDraftForVoucher,
 } from "@/lib/fa/sync-sources";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import { parseSegParts } from "@/lib/grid/segments";
 import {
   moduleOfVoucherNo,
@@ -699,12 +703,14 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
   // Хаагдсан период руу шинэ бичилт хийхгүй (ноорог ч мөн адил — тэр нь
   // хожим батлагдах гэж гацна).
   await assertPeriodOpen(orgId, data.date);
+  if (status === "posted") assertNotFuturePeriod(data.date);
 
   // Валют → дэвтрийн валютын дүн СЕРВЕРТ дахин бодогдоно (client-д найдахгүй).
   const money = resolveVoucherCurrency(data.lines, data, status === "posted");
   const validLines = await validateVoucherLines(orgId, money.lines);
   if (status === "posted") assertBalanced(validLines);
 
+  let documentNo: string | null = null;
   const voucherId = await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
     await assertPeriodOpenInTx(tx, orgId, data.date);
@@ -773,6 +779,7 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
         },
         tx
       );
+    documentNo = voucher.documentNo;
     return voucher.id;
   });
 
@@ -809,12 +816,12 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
-  return { id: voucherId };
+  return { id: voucherId, documentNo };
 }
 
 export async function createVoucher(
   data: Parameters<typeof createVoucherCore>[0]
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; documentNo: string | null }>> {
   try {
     return await createVoucherCore(data);
   } catch (caught) {
@@ -835,6 +842,7 @@ async function postVoucherCore(id: string) {
   if (!voucher) throw new Error("Бичилт олдсонгүй");
   if (voucher.status === "posted") return;
   await assertPeriodOpen(orgId, voucher.date);
+  assertNotFuturePeriod(voucher.date);
 
   let hookContext: JournalHookContext | null = null;
   await db.transaction(async (tx) => {

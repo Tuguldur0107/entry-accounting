@@ -19,20 +19,43 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const tinCache = new Map<string, { at: number; value: TinInfo }>();
 let branchCache: { at: number; value: BranchInfoEntry[] } | null = null;
 
-async function getJson(url: string): Promise<unknown> {
+/**
+ * Сүлжээний түүхий алдааг (англи «This operation was aborted», «fetch failed»)
+ * монгол тайлбар болгоно — ЦЭВЭР (tests/ebarimt-lookup.test.ts, ENT-034).
+ */
+export function describeLookupFailure(error: unknown): string {
+  const name = error instanceof Error ? error.name : "";
+  const message = error instanceof Error ? error.message : String(error);
+  if (name === "AbortError" || /aborted|timeout/i.test(message))
+    return "ТЕГ-ийн лавлах 8 секундэд хариу өгсөнгүй (timeout) — хэсэг хугацааны дараа дахин оролдоно уу";
+  const status = /^HTTP (\d{3})$/.exec(message)?.[1];
+  if (status)
+    return `ТЕГ-ийн лавлах алдаа буцаалаа (HTTP ${status}) — хэсэг хугацааны дараа дахин оролдоно уу`;
+  return "ТЕГ-ийн лавлахад холбогдож чадсангүй (сүлжээ) — хэсэг хугацааны дараа дахин оролдоно уу";
+}
+
+async function getJsonOnce(url: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
     const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
-  } catch (error) {
-    throw new EbarimtError(
-      EBARIMT_ERRORS.posApi,
-      `ТЕГ-ийн лавлахад хүрсэнгүй: ${error instanceof Error ? error.message : String(error)}`
-    );
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function getJson(url: string): Promise<unknown> {
+  // Түр зуурын саатал элбэг тул НЭГ удаа дахин оролдоно.
+  try {
+    return await getJsonOnce(url);
+  } catch {
+    try {
+      return await getJsonOnce(url);
+    } catch (error) {
+      throw new EbarimtError(EBARIMT_ERRORS.posApi, describeLookupFailure(error));
+    }
   }
 }
 

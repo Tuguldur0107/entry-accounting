@@ -30,6 +30,10 @@ import { DebitCreditEditor } from "@/lib/grid/editors/DebitCreditEditor";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { applyJournalAmountSuggestion } from "@/lib/grid/journal-amount-suggestion";
 
+// Маягтын дотор 1–20 мөр л байдаг — баганын шүүлтүүр, эрэмбэлэлт хэрэггүй
+// бөгөөд мөрийн дарааллыг санамсаргүй өөрчилнө (UI гайдын карт 10).
+const FORM_GRID_COL_DEF = { filter: false, sortable: false } as const;
+
 // Буцаалтгийн сөрөг дүнг улаанаар — "улаан буцаалт"-гийн уламжлалт тэмдэглэгээ.
 const NEGATIVE_CELL_RULE = {
   "text-[var(--ea-danger)]": (p: { value: unknown }) => Number(p.value) < 0,
@@ -348,6 +352,7 @@ export function JournalLinesGrid({
     <>
     <DataGridDynamic<JournalLineRow>
       rowData={lines}
+      defaultColDef={FORM_GRID_COL_DEF}
       columnDefs={columnDefs}
       getRowId={(p) => p.data.id}
       pinnedBottomRowData={pinnedBottom}

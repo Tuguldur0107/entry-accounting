@@ -16,9 +16,9 @@ export function SidebarToggle() {
     <button
       type="button"
       onClick={mobile ? toggleMobile : toggle}
-      aria-label={open ? "Sidebar хаах" : "Sidebar нээх"}
+      aria-label={open ? "Цэс хаах" : "Цэс нээх"}
       aria-expanded={open}
-      title={open ? "Sidebar хаах" : "Sidebar нээх"}
+      title={open ? "Цэс хаах" : "Цэс нээх"}
       className="ea-icon-action rounded-md border border-transparent p-2"
       style={{ color: "var(--ea-text-2)" }}
     >

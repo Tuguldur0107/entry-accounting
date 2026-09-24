@@ -10,7 +10,12 @@ import {
   type BalanceRow,
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
-import { BS_LINES, type BsSection, type BsSign } from "@/lib/reports/bs-lines";
+import { type BsSection } from "@/lib/reports/bs-lines";
+import {
+  BS_GROUP_META,
+  resolveBsLines,
+  type ResolvedBsLine,
+} from "@/lib/reports/bs-resolve";
 import { ReportGrid, type ReportRow } from "./report-grid";
 import { MappingDialog } from "./mapping-dialog";
 import { AddLineDialog } from "./add-line-dialog";
@@ -38,18 +43,7 @@ interface Props {
   appliedTo: string;
 }
 
-// Group → section + sign lookup. Custom lines pick their sign from the
-// section their group belongs to.
-const GROUP_META: Record<string, { section: BsSection; sign: BsSign; groupLabel: string }> = {};
-for (const line of BS_LINES) {
-  if (!GROUP_META[line.group]) {
-    GROUP_META[line.group] = {
-      section: line.section,
-      sign: line.sign,
-      groupLabel: line.groupLabel,
-    };
-  }
-}
+const GROUP_META = BS_GROUP_META;
 
 // Group options offered when the user opens "+ Шинэ мөр".
 const GROUP_OPTIONS = Object.entries(GROUP_META).map(([value, meta]) => ({
@@ -59,18 +53,7 @@ const GROUP_OPTIONS = Object.entries(GROUP_META).map(([value, meta]) => ({
 
 const COLLAPSE_STORAGE_KEY = "ea-balance-sheet-collapsed";
 
-interface ResolvedLine {
-  key: string;
-  section: BsSection;
-  group: string;
-  groupLabel: string;
-  label: string;
-  accountNumbers: string[];
-  sign: BsSign;
-  isHidden: boolean;
-  isCustom: boolean;
-  sortOrder: number;
-}
+type ResolvedLine = ResolvedBsLine;
 
 interface ComputedLine extends ResolvedLine {
   amount: number;
@@ -118,69 +101,12 @@ export function BalanceSheetView({
   }, [mappings]);
 
   // ── Resolve all lines (built-in + custom) with overrides applied ──────
-  const resolvedLines = useMemo<ResolvedLine[]>(() => {
-    const out: ResolvedLine[] = [];
-
-    // Built-in lines from BS_LINES, with any mapping overrides applied.
-    BS_LINES.forEach((line, idx) => {
-      const m = mappingByKey.get(line.key);
-      // Хоосон accountNumbers нь override БИШ — нуух/нэр солих үйлдэл mapping
-      // мөрийг хоосон дансаар үүсгэдэг тул "" -ийг default-даа үлдээнэ
-      // (эс бөгөөс нуусан мөр дүнгээ алдаж, БАЛАНС зөрдөг байсан).
-      const override =
-        m && m.accountNumbers.trim() !== ""
-          ? m.accountNumbers
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : undefined;
-      const accountNumbers =
-        override !== undefined
-          ? override
-          : accounts
-              .filter((a) => line.defaultPrefixes.some((p) => a.number.startsWith(p)))
-              .map((a) => a.number);
-      out.push({
-        key: line.key,
-        section: line.section,
-        group: line.group,
-        groupLabel: line.groupLabel,
-        label: m?.customLabel?.trim() || line.label,
-        accountNumbers,
-        sign: line.sign,
-        isHidden: !!m?.isHidden,
-        isCustom: false,
-        // Built-in lines keep their authoring order via index; custom
-        // sortOrder uses 10/20/30/… so we can interleave later if needed.
-        sortOrder: idx,
-      });
-    });
-
-    // Custom user-added lines (lineKey starts with "custom-").
-    for (const m of mappings) {
-      if (!m.lineKey.startsWith("custom-")) continue;
-      const group = m.customGroup ?? "current-assets";
-      const meta = GROUP_META[group];
-      if (!meta) continue; // unknown group — skip defensively
-      out.push({
-        key: m.lineKey,
-        section: meta.section,
-        group,
-        groupLabel: meta.groupLabel,
-        label: m.customLabel?.trim() || "Нэргүй мөр",
-        accountNumbers: m.accountNumbers
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        sign: meta.sign,
-        isHidden: m.isHidden,
-        isCustom: true,
-        sortOrder: m.sortOrder,
-      });
-    }
-
-    return out;
-  }, [mappings, mappingByKey, accounts]);
+  // Вэб ба AI get_balance_sheet НЭГ функцээр (lib/reports/bs-resolve.ts):
+  // built-in + override + custom + «Ангилагдаагүй данс» (ENT-072).
+  const resolvedLines = useMemo<ResolvedLine[]>(
+    () => resolveBsLines(accounts, mappings),
+    [mappings, accounts]
+  );
 
   // ── Per-account closing balances (for the MappingDialog) ──────────────
   const accountBalances = useMemo(() => {
@@ -507,6 +433,7 @@ export function BalanceSheetView({
 
   const handleHide = (key: string) =>
     startTransition(async () => {
+      if (key.startsWith("unclassified-")) return;
       await setLineHidden("balance-sheet", key, true);
     });
   const handleUnhide = (key: string) =>
@@ -552,7 +479,10 @@ export function BalanceSheetView({
           rows={reportRows}
           hideAccount
           showLineNumbers
-          onMappingClick={(key) => setOpenLineKey(key)}
+          onMappingClick={(key) => {
+            // «Ангилагдаагүй» мөр нь автомат — дансыг бодит мөрийн тохиргоогоор ононо.
+            if (!key.startsWith("unclassified-")) setOpenLineKey(key);
+          }}
           collapsedKeys={collapsedKeys}
           onToggleCollapse={toggleCollapse}
           onHideLine={handleHide}

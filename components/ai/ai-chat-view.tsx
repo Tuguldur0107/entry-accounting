@@ -542,9 +542,11 @@ export function AiChatView({
               AI туслах
             </h1>
             <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-              Нягтлан бодох бүртгэл, татвар, журналын бичилтийн зөвлөгөө. AI
-              журналд шууд бичилт хийхгүй — санал болгосон бичилтийг өөрөө
-              шалгаж баталгаажуулна.
+              Нягтлан бодох бүртгэл, татвар, журналын бичилтийн зөвлөгөө.{" "}
+              {/* ENT-063: тайлбар нь сонгосон горимтой зөрчилдөхгүй. */}
+              {writeMode === "post"
+                ? "«Шууд бичих» горим: тэнцсэн, батлах хязгаар доторх бичилтийг AI шууд батална — том дүн, хаалт ноорог үлдэнэ."
+                : "«Ноорог» горим: AI зөвхөн ноорог үүсгэнэ — та шалгаж баталгаажуулна."}
             </p>
           </div>
           {clearHistoryButton}
@@ -726,7 +728,7 @@ export function AiChatView({
             className={cn(
               "rounded px-2 py-0.5 text-[11px] font-medium transition-colors",
               writeMode === "draft"
-                ? "bg-[var(--ea-primary)] text-white"
+                ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                 : "text-[var(--ea-text-3)] hover:text-[var(--ea-text-1)]"
             )}
           >
@@ -916,7 +918,7 @@ function ModelPicker({
                     className={cn(
                       "flex w-full flex-col items-start rounded px-2 py-1.5 text-left transition-colors disabled:opacity-40",
                       entry.id === model
-                        ? "bg-[var(--ea-primary)] text-white"
+                        ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
                         : "text-[var(--ea-text-1)] hover:bg-[var(--ea-bg-2)]"
                     )}
                   >

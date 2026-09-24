@@ -49,6 +49,8 @@ import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
 import { PROVISIONAL_VALUATION_SOURCE } from "@/lib/pos/constants";
 import { getVatReturnData } from "@/lib/actions/vat";
+import { loadOnboardingStatus } from "@/lib/onboarding/status";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 
 
 /** Алхмын нэгдсэн статус: done ✓ · attention ⚠ · pending ○ · na —. */
@@ -129,6 +131,11 @@ export type MonthEndChecklist = {
     provisionalCogs: number;
     hasActivity: boolean;
   };
+  /**
+   * Нэвтрүүлэлтийн cut-off сар бол нээлтийн зөрүүний дансны үлдэгдэл (R6,
+   * ENT-019) — 0 биш бол «хаахад бэлэн» гэж харагдах ёсгүй. Бусад сард null.
+   */
+  opening: { differenceAccount: string; balance: number } | null;
   drafts: {
     journal: number;
     cash: number;
@@ -547,10 +554,23 @@ export async function getMonthEndChecklist(
     goodsReceipts: draftReceipts,
   };
 
+  // ENT-019: cut-off сард нээлтийн зөрүүний данс 0 болсон эсэх.
+  const onboarding = await loadOnboardingStatus(orgId);
+  const opening =
+    onboarding.openingVoucher &&
+    onboarding.openingVoucher.date >= startDate &&
+    onboarding.openingVoucher.date <= endDate &&
+    onboarding.differenceAccount
+      ? {
+          differenceAccount: onboarding.differenceAccount.number,
+          balance: roundMoney(onboarding.differenceBalance ?? 0),
+        }
+      : null;
+
   return {
     periodCode,
     periodStatus: period?.status === "closed" ? "closed" : "open",
-    closedAt: period?.closedAt?.toISOString().slice(0, 16) ?? null,
+    closedAt: fmtDateTimeUb(period?.closedAt),
     fa: {
       status: faStatus,
       activeAssets: activeAssetCount,
@@ -597,6 +617,7 @@ export async function getMonthEndChecklist(
       provisionalCogs,
       hasActivity: posHasActivity,
     },
+    opening,
     drafts: {
       ...drafts,
       total: Object.values(drafts).reduce((sum, n) => sum + n, 0),

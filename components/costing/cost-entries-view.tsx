@@ -304,8 +304,8 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
                   <button
                     type="button"
                     className="ea-btn ea-btn--icon ea-btn--success"
-                    title="Баталж GL-д бичих"
-                    aria-label="Баталж GL-д бичих"
+                    title="Батлах"
+                    aria-label="Батлах"
                     onClick={() => handlePost(entry)}
                   >
                     <Icon name="approve" />
@@ -361,7 +361,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
             Өртгийн бичилт
           </h1>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Costing run-аар үүссэн ноорог бичилтийг батлахад GL журнал бичигдэнэ.
+            Өртгийн тооцооноос үүссэн ноорог бичилтийг батлахад GL журнал бичигдэнэ.
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -395,7 +395,7 @@ export function CostEntriesView({ entries, initialStatus }: Props) {
 
       {visibleEntries.length === 0 ? (
         <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Өртгийн бичилт байхгүй — costing run ажиллуулж үнэлгээ хийнэ
+          Өртгийн бичилт байхгүй — өртгийн тооцоо ажиллуулж үнэлгээ хийнэ
         </div>
       ) : (
         <DataGridDynamic<CostEntryView>

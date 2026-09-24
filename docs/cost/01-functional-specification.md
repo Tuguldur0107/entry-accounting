@@ -1099,7 +1099,7 @@ transactions; deactivation is required.
 | OD-011 | Late landed cost | Current/prior period treatment and revaluation |
 | OD-012 | Taxes | Capitalizable versus recoverable amounts |
 | OD-013 | Currency | Exchange rates and realized/unrealized differences |
-| OD-014 | Transfers | Same-scope and cross-scope valuation/accounting |
+| OD-014 | Transfers | **APPROVED 0.9** — source periodic average; destination priced inbound at that cost; same-month cycle blocked; no GL entry (per-item accounts) |
 | OD-015 | Stock adjustment | Surplus/shortage valuation and accounts |
 | OD-016 | Manufacturing | WIP, overhead, scrap, variance, completion logic |
 | OD-017 | Allocation | Permitted bases, defaults, residual handling |

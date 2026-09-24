@@ -29,6 +29,15 @@ export function moneyValueFormatter(params: { value: unknown }): string {
   return fmtMnt(n);
 }
 
+/** Уншигдах дүнгийн нүд — 0 бол «—» (хоосон утга хоосон хэвээр). */
+export function readonlyMoneyValueFormatter(params: { value: unknown }): string {
+  const v = params.value;
+  if (v == null || v === "") return "";
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  if (!Number.isFinite(n)) return "";
+  return Math.abs(n) < 0.005 ? "—" : fmtMnt(n);
+}
+
 export function accountValueFormatter(activeSegIds: number[]) {
   return (params: { value: unknown }) =>
     fmtAccountDisplayImpl(String(params.value ?? ""), activeSegIds);

@@ -24,6 +24,8 @@ export async function registerUser(data: {
   password: string;
   /** Урилгын token (/register?invite=...) — байвал урьсан байгууллагад шууд элсэнэ. */
   invite?: string;
+  /** Шинэ байгууллагын нэр — хоосон бол хэрэглэгчийн нэрээр (ENT-007). */
+  companyName?: string;
 }) {
   // Deployment-ийн лиценз — бүртгэлгүй хуулбар шинэ хэрэглэгч ч үүсгэхгүй.
   const license = deploymentLicenseStatus();
@@ -101,7 +103,8 @@ export async function registerUser(data: {
 
   // Фаз 01: шинэ хэрэглэгч бүр personal байгууллагатай төрнө — org гэдэг
   // ойлголтыг анзааралгүйгээр ажиллаж чадна (спекийн хатуу дүрэм).
-  const orgId = await createPersonalOrg(user.id, name);
+  const companyName = data.companyName?.trim().slice(0, 200) ?? "";
+  const orgId = await createPersonalOrg(user.id, companyName || name);
 
   // Seed default chart of accounts
   await db.insert(chartOfAccounts).values(

@@ -7,10 +7,12 @@
 // Хөдөлгөөний чиглэлийн зураглал:
 //   receipt / return_in / adjustment(+) → "in"
 //   issue / return_out / adjustment(−)  → "out"
-//   transfer                            → үнэлгээнд ОРОХГҮЙ (хамрах хүрээ
-//     хооронд шилжих үнэлгээ нь OD-014 нээлттэй шийдвэр). Тоо хэмжээ нь
-//     Inventory Ledger-т хэвийн хөдөлнө; өртгийн үр дүнд тусгагдахгүй тул
-//     энэ нь тайланд ил ЗӨРҮҮ болж харагдана.
+//   transfer (A → B)                    → A-д "out" (A-ийн сарын дунджаар),
+//     B-д "in" (A-ийн ТУХАЙН САРЫН дундаж × тоо) — OD-014, README
+//     change-control 0.9 (ENT-044). Урьд шилжүүлэг үнэлгээнд огт ордоггүй тул
+//     хүлээн авагч агуулах өртөггүй тоотой болж дараагийн зарлага блоклогддог
+//     байв. Бараа материалын данс нь барааных (агуулахгүй) тул GL бичилт
+//     үүсэхгүй — зөвхөн хүрээ хоорондын дүн шилжинэ.
 
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
 
@@ -40,9 +42,6 @@ import {
   type PeriodicResult,
 } from "./periodic";
 
-/** Үнэлгээнд орохгүй хөдөлгөөний төрлүүд (OD-014 нээлттэй). */
-const EXCLUDED_TYPES = new Set(["transfer"]);
-
 /**
  * Орлогын үнэлгээний хэлбэр: худалдан авалт нь эх баримтаас өртөгтэй ирнэ;
  * тооллогын илүүдэл, худалдан авагчаас буцаж ирсэн бараа нь худалдан авах
@@ -56,7 +55,6 @@ function directionOf(
   movementType: string,
   quantity: number
 ): "in" | "out" | null {
-  if (EXCLUDED_TYPES.has(movementType)) return null;
   switch (movementType) {
     case "receipt":
     case "return_in":
@@ -205,6 +203,7 @@ export async function runPeriodicCosting(
       date: true,
       itemId: true,
       warehouseId: true,
+      toWarehouseId: true,
       movementType: true,
       quantity: true,
     },
@@ -259,6 +258,26 @@ export async function runPeriodicCosting(
   const periodic: PeriodicMovement[] = [];
   for (const movement of valued) {
     const quantity = Number(movement.quantity);
+    if (movement.movementType === "transfer") {
+      // Хүлээн авагчгүй / ижил агуулах руу шилжүүлэг үнэлгээнд нөлөөгүй.
+      if (!movement.toWarehouseId || movement.toWarehouseId === movement.warehouseId) continue;
+      const base = {
+        id: movement.id,
+        date: movement.date,
+        itemId: movement.itemId!,
+        quantity: Math.abs(quantity),
+      };
+      periodic.push({ ...base, warehouseId: movement.warehouseId!, direction: "out" });
+      periodic.push({
+        ...base,
+        warehouseId: movement.toWarehouseId,
+        direction: "in",
+        inboundValuation: "priced",
+        inboundAmount: null,
+        transferFromWarehouseId: movement.warehouseId!,
+      });
+      continue;
+    }
     const direction = directionOf(movement.movementType, quantity);
     if (!direction) continue;
     periodic.push({

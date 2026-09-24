@@ -9,6 +9,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { accountingPeriods } from "@/lib/db/schema";
 import { periodCodeOf } from "./period";
+import {
+  assertCalendarDate,
+  isFuturePeriodDate,
+  ulaanbaatarToday,
+} from "./document-date";
 
 /**
  * Байгууллага бүрийн advisory lock түлхүүрүүд (pg_advisory_xact_lock(hashtext(orgId), N)):
@@ -29,8 +34,31 @@ export class ClosedPeriodError extends Error {
   }
 }
 
+/**
+ * Ирээдүйн тайлант үед БАТЛАХ оролдлого (ENT-028: 2027-06-ны журнал
+ * сануулгагүй батлагдаж байв). Ноорог хэвээр үлдээж болно.
+ */
+export class FuturePeriodError extends Error {
+  readonly code = "FUTURE_PERIOD";
+  constructor(public readonly periodCode: string, today: string) {
+    super(
+      `${periodCode} нь ирээдүйн тайлант үе (өнөөдөр ${today}) — батлах боломжгүй; ноорог хэвээр үлдээж, тэр сар эхэлсний дараа батална уу`
+    );
+    this.name = "FuturePeriodError";
+  }
+}
+
+/** Батлах замууд (GL, касс, АР/АП, бараа) дуудна — ирээдүйн САРЫН огноо хориотой. */
+export function assertNotFuturePeriod(date: string, today: string = ulaanbaatarToday()) {
+  if (isFuturePeriodDate(date, today)) throw new FuturePeriodError(date.slice(0, 7), today);
+}
+
 /** Нэг огноо бичигдэх боломжтой эсэх (хаагдсан бол алдаа шиднэ). */
 export async function assertPeriodOpen(orgId: string, date: string) {
+  // Хуанлид байхгүй огноо (2025-02-30) — бичилтийн бүх зам энд дайрдаг тул
+  // НЭГ газраас хориглоно (ENT-027: урьд сарын тайланд огт орохгүй бичилт
+  // үүсдэг байв).
+  assertCalendarDate(date);
   const code = periodCodeOf(date);
   const period = await db.query.accountingPeriods.findFirst({
     where: and(
@@ -53,6 +81,7 @@ export async function assertPeriodOpenInTx(
   orgId: string,
   date: string
 ) {
+  assertCalendarDate(date);
   await tx.execute(
     sql`select pg_advisory_xact_lock_shared(hashtext(${orgId}), ${PERIOD_GATE_LOCK_KEY})`
   );
@@ -71,6 +100,7 @@ export async function assertPeriodOpenInTx(
 
 /** Хэд хэдэн огноог нэг дуудалтаар шалгана (batch post). */
 export async function assertPeriodsOpen(orgId: string, dates: string[]) {
+  for (const date of dates) assertCalendarDate(date);
   const codes = [...new Set(dates.map(periodCodeOf))];
   if (codes.length === 0) return;
   const rows = await db.query.accountingPeriods.findMany({

@@ -90,6 +90,11 @@ export interface OnboardingStatus {
   openingAdjustments: number;
   /** Нээлтийн зөрүүний данс (нэрээр эсвэл дугаараар олдсон) — байхгүй бол null. */
   differenceAccount: { number: string; name: string } | null;
+  /**
+   * Зөрүүний дансны БАТЛАГДСАН GL үлдэгдэл (ENT-019: ноорог 0 байхад данс
+   * 41 сая ₮ үлдэгдэлтэй атлаа «шат 4, хаахад бэлэн» гэж харагдаж байв).
+   */
+  differenceBalance?: number;
   /** Нээлтийн журналын сар хаагдсан эсэх (cut-off сар). */
   cutoffPeriodClosed: boolean;
   /** Хамгийн сүүлд хаагдсан сар (YYYY-MM) — байхгүй бол null. */
@@ -158,11 +163,15 @@ export function deriveOnboardingPhase(status: OnboardingStatus): OnboardingPhase
       ],
     };
 
-  if (status.openingDiffDrafts > 0)
+  const differenceBalance = Math.round((status.differenceBalance ?? 0) * 100) / 100;
+  if (status.openingDiffDrafts > 0 || Math.abs(differenceBalance) > 0.005)
     return {
       phase: 3,
       title: "Тулгалт — зөрүү шийдэгдээгүй",
-      reason: `Нээлт батлагдсан, ${status.openingDiffDrafts} зөрүүний ноорог (${OPENING_REF.diff}*) үлдсэн`,
+      reason:
+        status.openingDiffDrafts > 0
+          ? `Нээлт батлагдсан, ${status.openingDiffDrafts} зөрүүний ноорог (${OPENING_REF.diff}*) үлдсэн`
+          : `Нээлт батлагдсан, зөрүүний данс ${status.differenceAccount?.number ?? OPENING_DIFFERENCE_ACCOUNT.number} үлдэгдэлтэй (${differenceBalance.toLocaleString("en-US")}₮) — 0 болтол тулгалт дуусаагүй`,
       nextSteps: [
         `list_journal_vouchers status=draft — ${OPENING_REF.diff}* журнал бүрийн шалтгааныг хэрэглэгчтэй тодруул`,
         `Шалтгаан олдсон бол R7: create_journal_voucher externalRef ${OPENING_REF.adjustment}<огноо>:<n> — зөрүүний дансыг эх дансаар нь хаана (ноорог, нягтлан батална)`,
@@ -245,7 +254,7 @@ export function formatOnboardingStatus(status: OnboardingStatus): string {
     `Хураангуй бүртгэл (R2): ${status.openingSummaryDocs} · Зөрүүний ноорог (R6): ${status.openingDiffDrafts} · Залруулга (R7): ${status.openingAdjustments}`,
     `Нээлтийн зөрүүний данс: ${
       status.differenceAccount
-        ? `${status.differenceAccount.number} ${status.differenceAccount.name}`
+        ? `${status.differenceAccount.number} ${status.differenceAccount.name} · үлдэгдэл ${(status.differenceBalance ?? 0).toLocaleString("en-US")}₮${Math.abs(status.differenceBalance ?? 0) > 0.005 ? " — 0 болтол cut-off сарыг хаахгүй (R6)" : ""}`
         : `байхгүй — ${OPENING_DIFFERENCE_ACCOUNT.number} "${OPENING_DIFFERENCE_ACCOUNT.name}" үүсгэнэ (стандарт данс sync)`
     }`,
     `Сүүлийн хаагдсан сар: ${status.latestClosedPeriod ?? "—"}${status.openingVoucher ? ` · cut-off сар ${status.cutoffPeriodClosed ? "ХААГДСАН" : "нээлттэй"}` : ""}`,

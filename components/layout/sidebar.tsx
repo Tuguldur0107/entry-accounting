@@ -174,9 +174,10 @@ export function Sidebar() {
           <button
             type="button"
             onClick={toggle}
-            // aria-label={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
+            // ENT-061: нэргүй товч бүх хуудсанд (82) axe button-name зөрчил байв.
+            aria-label={collapsed ? "Цэсийг дэлгэх" : "Цэсийг хураах"}
             aria-expanded={!collapsed}
-            // title={collapsed ? "Sidebar дэлгэх" : "Sidebar хураах"}
+            title={collapsed ? "Цэсийг дэлгэх" : "Цэсийг хураах"}
             className={cn(
               "ea-interactive flex min-h-9 w-full items-center gap-2.5 rounded-md border border-transparent px-3 py-2 text-sm text-[var(--ea-text-3)]",
               collapsed && "justify-center px-2"
@@ -187,11 +188,7 @@ export function Sidebar() {
             ) : (
               <Icon name="collapseSidebar" className="shrink-0" />
             )}
-            {collapsed ? (
-              <span className="sr-only"></span>
-            ) : (
-              <span className="truncate"></span>
-            )}
+            {collapsed ? null : <span className="truncate">Цэсийг хураах</span>}
           </button>
         </div>
       )}

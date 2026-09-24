@@ -54,6 +54,8 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
+import { currentDocumentDate } from "@/lib/periods/document-date";
+import { usePeriodDateWarning } from "@/lib/periods/use-selected-period";
 
 type ArApMode = "combined" | "receivable" | "payable";
 
@@ -83,10 +85,6 @@ const STATUS_TONES: Record<string, StatusTone> = {
   paid: "success",
   reversed: "danger",
 };
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function addDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00`);
@@ -258,7 +256,7 @@ function ArapDocForm({
     // валют/харилцагч захиалгаас (сервер мөн шалгана). Эхний snapshot тул
     // хэрэглэгч гар хүрэх хүртэл dirty болохгүй.
     if (prefill) {
-      const date = prefill.date ?? today();
+      const date = prefill.date ?? currentDocumentDate();
       const documentType: ArApDocumentType = "ap_bill";
       const defaults = defaultsFor(prefill.counterpartyId, documentType, date);
       const toFullCode = (account?: string) => {
@@ -309,7 +307,7 @@ function ArapDocForm({
         })),
       };
     }
-    const date = today();
+    const date = currentDocumentDate();
     const documentType = (mode === "payable"
       ? "ap_bill"
       : "ar_invoice") as ArApDocumentType;
@@ -326,6 +324,7 @@ function ArapDocForm({
       lines: [emptyLine(activeSegIds, defaultSegments)],
     };
   });
+  const dateWarning = usePeriodDateWarning(form.date);
 
   // ТОГТВОРТОЙ identity — мөрийн хүснэгтийн columnDefs нь үүнээс хамаардаг
   // тул render бүрт шинэ функц өгвөл AG Grid бүх баганаа дахин байгуулж,
@@ -444,8 +443,10 @@ function ArapDocForm({
           setError(result.error);
           return;
         }
-        if (postNow) feedback.posted("Баримт GL-д бичигдлээ");
-        else feedback.saved("Ноорог хадгалагдлаа");
+        // Баримтын дугаартай мэдэгдэл (UI гайдын карт 2).
+        const documentNo = "documentNo" in result ? result.documentNo : null;
+        if (postNow) feedback.posted(documentNo ? `${documentNo} батлагдлаа` : "Баримт батлагдлаа");
+        else feedback.saved(documentNo ? `${documentNo} ноорог хадгалагдлаа` : "Ноорог хадгалагдлаа");
         closePanel(panel.id);
         refreshOpenPanels();
         router.refresh();
@@ -526,7 +527,7 @@ function ArapDocForm({
             disabled={!!prefill}
           />
         </FormField>
-        <FormField label="Огноо">
+        <FormField label="Огноо" hint={dateWarning} hintTone="warning">
           <Input
             type="date"
             value={form.date}
@@ -662,11 +663,13 @@ function ArapDocForm({
         <Button variant="outline" onClick={requestClose}>
           Болих
         </Button>
+        {/* Бүх маягтад ижил: Болих · Ноорог хадгалах · Батлах (ENT-042). */}
         <Button variant="outline" onClick={() => save(false)} disabled={isPending}>
-          Ноорог
+          Ноорог хадгалах
         </Button>
-        <Button onClick={() => save(true)} disabled={isPending}>
-          GL-д бичих
+        <Button onClick={() => save(true)} disabled={isPending} title="Батлах — GL-д бичигдэнэ">
+          <Icon name="approve" size="sm" />
+          Батлах
         </Button>
       </div>
     </div>

@@ -15,12 +15,21 @@ export const AMOUNT_TOLERANCE = 0.01;
 /** Загвар ≥ энэ тооны давталттай үед л санал болгоно. */
 export const PATTERN_MIN_COUNT = 2;
 
+/**
+ * Гүйлгээний огноо нэхэмжлэхийн төлөх хугацаанаас үүнээс их хоногоор зөрвөл
+ * нэр+дүн таарсан ч «Хүчтэй» биш «Дунд» санал болно (ENT-056: 15 сарын
+ * өмнөх АП-г өнөөдрийн гүйлгээнд «Хүчтэй» гэж санал болгодог байв).
+ */
+export const STALE_MATCH_DAYS = 90;
+
 export type MatchableRow = {
   id: string;
   income: number;
   expense: number;
   counterparty: string;
   description: string;
+  /** Гүйлгээний огноо YYYY-MM-DD (сонголтоор — огнооны зөрүүг тооцоход). */
+  transactionDate?: string;
 };
 
 export type OpenInvoiceRef = {
@@ -34,6 +43,8 @@ export type OpenInvoiceRef = {
   controlAccountNumber?: string;
   /** Нэхэмжлэхийн валют — банкны дансны валюттай зөрвөл санал болохгүй. */
   currency?: string;
+  /** Төлөх огноо YYYY-MM-DD (сонголтоор). */
+  dueDate?: string;
 };
 
 export type HistoricalPattern = {
@@ -59,6 +70,8 @@ export type InvoiceSuggestion = {
   /** high = нэр + дүн, medium = ганц нэхэмжлэхийн дүн л таарсан. */
   reason: "amount_and_name" | "amount_single";
   counterAccountNumber?: string;
+  /** Гүйлгээ ↔ төлөх огнооны зөрүү STALE_MATCH_DAYS-ээс их бол хоногоор. */
+  staleDays?: number;
 };
 
 export type AccountSuggestion = {
@@ -122,6 +135,13 @@ function nameMatches(invoiceName: string, haystack: string): boolean {
   return tokens.some((token) => haystack.includes(token));
 }
 
+/** Хоёр огнооны хоорондох хоног (аль нэг нь байхгүй бол null). */
+function daysApart(a?: string, b?: string): number | null {
+  if (!a || !b) return null;
+  const diff = Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`));
+  return Number.isFinite(diff) ? Math.round(diff / 86_400_000) : null;
+}
+
 function invoiceBalance(invoice: OpenInvoiceRef): number {
   return invoice.totalAmount - invoice.paidAmount;
 }
@@ -157,16 +177,21 @@ function invoiceSuggestionsForRow(
   );
 
   if (withName.length > 0)
-    return withName.map((invoice) => ({
-      kind: "invoice" as const,
-      invoiceId: invoice.id,
-      documentNo: invoice.documentNo,
-      counterpartyName: invoice.counterpartyName,
-      balance: invoiceBalance(invoice),
-      confidence: "high" as const,
-      reason: "amount_and_name" as const,
-      counterAccountNumber: invoice.controlAccountNumber,
-    }));
+    return withName.map((invoice) => {
+      const apart = daysApart(row.transactionDate, invoice.dueDate);
+      const stale = apart != null && apart > STALE_MATCH_DAYS;
+      return {
+        kind: "invoice" as const,
+        invoiceId: invoice.id,
+        documentNo: invoice.documentNo,
+        counterpartyName: invoice.counterpartyName,
+        balance: invoiceBalance(invoice),
+        confidence: stale ? ("medium" as const) : ("high" as const),
+        reason: "amount_and_name" as const,
+        counterAccountNumber: invoice.controlAccountNumber,
+        ...(stale ? { staleDays: apart } : {}),
+      };
+    });
 
   // Нэр таараагүй — зөвхөн ГАНЦ нээлттэй нэхэмжлэх яг энэ дүнтэй үед л
   // medium санал гаргана. Хоёр ба түүнээс олон таарвал таамаглахгүй.

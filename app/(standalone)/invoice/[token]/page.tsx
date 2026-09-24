@@ -84,6 +84,7 @@ export default async function PublicInvoicePage({
             <div className="text-xs text-neutral-500">
               {[
                 company.registerNo && `Регистр: ${company.registerNo}`,
+                company.vatPayerNo && `НӨАТ төлөгч: ${company.vatPayerNo}`,
                 company.address,
                 company.phone,
                 company.email,
@@ -134,6 +135,7 @@ export default async function PublicInvoicePage({
               <th className="py-1.5 pr-2">Тайлбар</th>
               {hasItems && <th className="py-1.5 pr-2">Бараа</th>}
               {hasItems && <th className="py-1.5 pr-2 text-right">Тоо</th>}
+              {hasItems && <th className="py-1.5 pr-2 text-right">Нэгж үнэ</th>}
               <th className="py-1.5 text-right">Дүн ({invoice.currency})</th>
             </tr>
           </thead>
@@ -148,20 +150,25 @@ export default async function PublicInvoicePage({
                     {line.quantity != null ? String(line.quantity) : ""}
                   </td>
                 )}
+                {hasItems && (
+                  <td className="py-1.5 pr-2 text-right font-mono">
+                    {line.unitPrice != null ? fmt(line.unitPrice) : ""}
+                  </td>
+                )}
                 <td className="py-1.5 text-right font-mono">{fmt(line.amount)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr className="border-b border-black font-bold">
-              <td colSpan={hasItems ? 4 : 2} className="py-2 text-right">
+              <td colSpan={hasItems ? 5 : 2} className="py-2 text-right">
                 НИЙТ ДҮН
               </td>
               <td className="py-2 text-right font-mono">{fmt(invoice.totalAmount)}</td>
             </tr>
             {invoice.paidAmount > 0 && (
               <tr className="text-sm">
-                <td colSpan={hasItems ? 4 : 2} className="py-1.5 text-right text-neutral-500">
+                <td colSpan={hasItems ? 5 : 2} className="py-1.5 text-right text-neutral-500">
                   Төлсөн {fmt(invoice.paidAmount)} · Үлдэгдэл
                 </td>
                 <td className="py-1.5 text-right font-mono font-semibold">{fmt(balance)}</td>

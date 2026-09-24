@@ -165,6 +165,7 @@ export default async function CashDashboardPage() {
   const accountViews: CashAccountView[] = accounts.map((account) => ({
     ...account,
     openingBalance: Number(account.openingBalance),
+    openingRate: account.openingRate === null ? null : Number(account.openingRate),
     balance: coreRows.get(account.id)?.cashBalance ?? 0,
   }));
   // Хуудас/панелтэй НЭГ mapper (lib/cash/load-options) — талбар нэмэгдэхэд
@@ -250,6 +251,7 @@ export default async function CashDashboardPage() {
       currency: account.currency,
       isActive: account.isActive,
       openingBalance: Number(account.openingBalance),
+      openingRate: account.openingRate === null ? null : Number(account.openingRate),
       receipts,
       payments,
       cashBalance: core.cashBalance,

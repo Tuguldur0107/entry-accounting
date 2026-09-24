@@ -628,7 +628,7 @@ export function BankStatementImport({
                 : `${fmtAccountDisplay(targetCode, activeSegIds)} · түгээмэл данс`;
           const hint =
             top.kind === "invoice"
-              ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}. «Ашиглах» дарвал хадгалах үед энэ нэхэмжлэхтэй ШУУД холбогдож, төлсөн дүн нь шинэчлэгдэнэ.`
+              ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}.${top.staleDays ? ` Төлөх хугацаанаас ${top.staleDays} хоног зөрүүтэй тул «Дунд».` : ""} «Ашиглах» дарвал хадгалах үед энэ нэхэмжлэхтэй ШУУД холбогдож, төлсөн дүн нь шинэчлэгдэнэ.`
               : top.kind === "rule"
                 ? `«${top.ruleName}» дүрэм — данс${
                     top.setCounterparty ? ", харилцагч" : ""
@@ -1272,7 +1272,7 @@ export function BankStatementImport({
               disabled={isPending || totals.invalid > 0}
             >
               <Icon name="approve" />
-              Хуулга хадгалж GL-д бичих
+              Хуулга хадгалж батлах
             </Button>
           </div>
         </section>

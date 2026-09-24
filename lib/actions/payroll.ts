@@ -498,7 +498,8 @@ export async function getPayrollRunData(
       return {
         id: line.id,
         employeeId: line.employeeId,
-        employeeName: line.employee.name,
+        // Овог + нэр — ижил нэртэй ажилтнуудыг ялгана (ENT-026).
+        employeeName: [line.employee.lastName, line.employee.name].filter(Boolean).join(" "),
         position: line.employee.position,
         employerSiPercent: Number(line.employee.employerSiPercent),
         baseSalary,

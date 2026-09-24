@@ -44,6 +44,44 @@ export function calculateFxRevaluation(
   return { revaluedAmount, adjustmentAmount };
 }
 
+/**
+ * Ханшийн тэгшитгэлийн GL-ийн ₮ ДҮН (carrying amount) — ЦЭВЭР (ENT-023).
+ *
+ * Урьд зөвхөн `cashAccountId` тэмдэглэгдсэн мөрөөр бодогддог байсан тул
+ * гараар бичсэн нээлтийн журнал (тэмдэггүй) тооцогдохгүй, бүх үнэлгээ
+ * «ханшийн олз» болдог байв (12,000 USD → 41.4 сая хуурамч олз).
+ *   • GL данс НЭГ кассын дансанд л холбогдсон → GL дансны БҮХ мөр (тулгалтын
+ *     самбарын GL үлдэгдэлтэй ИЖИЛ суурь)
+ *   • Олон кассын данс нэг GL хуваалцвал → зөвхөн тэмдэглэгдсэн мөр; тэмдэггүй
+ *     мөр байвал аль дансных нь тодорхойгүй тул `untaggedAmount`-оор ИЛ
+ *     буцааж, дуудагч тэгшитгэлийг ЗОГСООНО (таамаглахгүй)
+ */
+export function fxCarryingAmount(input: {
+  lines: { accountNumber: string; cashAccountId: string | null; debit: number; credit: number }[];
+  cashAccountId: string;
+  glAccountNumber: string;
+  glSharedWithOtherCashAccounts: boolean;
+}): { carryingAmount: number; untaggedAmount: number; untaggedLines: number } {
+  let carrying = 0;
+  let untagged = 0;
+  let untaggedLines = 0;
+  for (const line of input.lines) {
+    const delta = Number(line.debit) - Number(line.credit);
+    if (line.cashAccountId === input.cashAccountId) {
+      carrying += delta;
+      continue;
+    }
+    if (extractMainAccount(line.accountNumber) !== input.glAccountNumber) continue;
+    if (line.cashAccountId) continue; // өөр кассын дансных
+    if (input.glSharedWithOtherCashAccounts) {
+      untagged += delta;
+      untaggedLines += 1;
+    } else carrying += delta;
+  }
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return { carryingAmount: round(carrying), untaggedAmount: round(untagged), untaggedLines };
+}
+
 // ── Хяналтын самбар + Тулгалт хуудасны ХАМТЫН цөм тооцоо ────────────────────
 // Урьд хоёр хуудас данс бүрийн үлдэгдэл/зөрүү/статусыг тус тусдаа тооцдог
 // байсан тул зөрдөг байв (самбар GL-ийг cashAccountId холбоосоор, тулгалт

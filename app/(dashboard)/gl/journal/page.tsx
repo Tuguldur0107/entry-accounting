@@ -48,13 +48,17 @@ export default async function JournalPage({
   }
 
   return (
-    <JournalList
-      vouchers={vouchers}
-      accounts={accounts}
-      activeSegIds={activeSegIds}
-      defaultSegments={defaultSegments}
-      initialStart={start ?? period.from}
-      initialEnd={end ?? period.to}
-    />
+    <>
+      {/* Хуудасны гарчиг topbar-т харагддаг — дэлгэц уншигчид h1 (axe). */}
+      <h1 className="sr-only">Журналын жагсаалт</h1>
+      <JournalList
+        vouchers={vouchers}
+        accounts={accounts}
+        activeSegIds={activeSegIds}
+        defaultSegments={defaultSegments}
+        initialStart={start ?? period.from}
+        initialEnd={end ?? period.to}
+      />
+    </>
   );
 }

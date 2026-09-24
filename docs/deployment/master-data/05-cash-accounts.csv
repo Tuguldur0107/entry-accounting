@@ -1,3 +1,4 @@
-name,accountType,bankName,accountNumber,currency,glAccount,openingBalance
-Касс MNT,cash,,,MNT,11210000,1500000
-Хаан банк MNT,bank,Хаан банк,5001234567,MNT,11000001,42300000
+name,accountType,bankName,accountNumber,currency,glAccount,openingBalance,openingDate,openingRate
+Касс MNT,cash,,,MNT,10000001,1500000,2024-12-31,
+Хаан банк MNT,bank,Хаан банк,5001234567,MNT,11000001,42300000,2024-12-31,
+Голомт банк USD,bank,Голомт банк,1105001234,USD,11000002,12000,2024-12-31,

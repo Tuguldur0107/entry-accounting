@@ -22,6 +22,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
 import { Button } from "@/components/ui/button";
+import { FilterChips } from "@/components/ui/tabs";
+import { countByStatus, statusMeta } from "@/lib/status";
+import { col } from "@/lib/grid/columnTypes";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
 import { downloadWorkbook } from "@/lib/excel/core";
@@ -31,7 +34,8 @@ import {
   type VoucherRowImport,
 } from "@/lib/excel/specs";
 import { openVoucherPanel, refreshOpenPanels } from "@/lib/store/panel-store";
-import { fmtMnt } from "@/lib/reports/balances";
+import { extractMainAccount, fmtMnt } from "@/lib/reports/balances";
+import { MobileCardList, useIsMobileViewport, type MobileCard } from "@/components/datagrid/mobile-card-list";
 import { fmtAccountDisplay } from "@/lib/grid/segments";
 import type {
   CellDoubleClickedEvent,
@@ -53,6 +57,29 @@ interface Props {
 }
 
 type VoucherRow = JournalListRow;
+
+/** Утасны карт: төлөв · огноо / тайлбар / Дт → Кт үндсэн данс · дүн. */
+function voucherMobileCard(voucher: VoucherRow): MobileCard {
+  const debitMains = new Set<string>();
+  const creditMains = new Set<string>();
+  let total = 0;
+  for (const line of voucher.lines) {
+    const debit = Number(line.debit ?? 0);
+    const credit = Number(line.credit ?? 0);
+    if (debit > 0) debitMains.add(extractMainAccount(line.accountNumber));
+    if (credit > 0) creditMains.add(extractMainAccount(line.accountNumber));
+    total += debit;
+  }
+  const accounts = `${[...debitMains].join(", ")} → ${[...creditMains].join(", ")}`;
+  return {
+    id: voucher.id,
+    status: voucher.status,
+    corner: voucher.date.replaceAll("-", "."),
+    title: voucher.description || voucher.documentNo || "Журнал",
+    meta: [voucher.documentNo, accounts].filter(Boolean).join(" · "),
+    amount: fmtMnt(total),
+  };
+}
 
 /** Мөрийн MNT дүнг баримтын валютаар (2 орон) — MNT баримтад хоосон. */
 function fmtSource(amount: number, rate: number | null): string {
@@ -265,6 +292,8 @@ export function JournalList({
   const filteredRef = useRef<{ id: string }[]>([]);
   // П17 — SavedViewsMenu grid API-д хандахад.
   const gridRef = useRef<DataGridHandle>(null);
+  // Утсан дээр хүснэгтийн оронд карт (UI гайдын карт 12).
+  const isMobile = useIsMobileViewport();
 
   // Диалогийн текстэд аль журнал болохыг нь заана — зөвхөн id-гаар
   // баталгаажуулах нь буруу бичилт батлах эрсдэлтэй.
@@ -359,7 +388,8 @@ export function JournalList({
     );
   }
 
-  const filtered = useMemo(
+  // Огноогоор шүүсэн (төлөвийн chip-ийн тоолол үүнээс) → төлөвөөр (ENT-016).
+  const inRange = useMemo(
     () =>
       vouchers.filter((v) => {
         if (appliedStart && v.date < appliedStart) return false;
@@ -368,22 +398,50 @@ export function JournalList({
       }),
     [vouchers, appliedStart, appliedEnd]
   );
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const statusChips = useMemo(
+    () => [
+      { value: "all", label: "Бүгд", count: inRange.length },
+      ...countByStatus(inRange, (v) => v.status).map(({ status, count }) => ({
+        value: status,
+        label: statusMeta(status).label,
+        icon: statusMeta(status).icon,
+        count,
+        tone: status === "draft" ? ("warning" as const) : undefined,
+      })),
+    ],
+    [inRange]
+  );
+  const filtered = useMemo(
+    () => (statusFilter === "all" ? inRange : inRange.filter((v) => v.status === statusFilter)),
+    [inRange, statusFilter]
+  );
   useEffect(() => {
     filteredRef.current = filtered;
   }, [filtered]);
 
-  const grandDebit = filtered.reduce(
+  // Нийт дүнд НООРОГ орохгүй — тусад нь харуулна (ENT-016).
+  const nonDraft = filtered.filter((v) => v.status !== "draft");
+  const draftVouchers = filtered.filter((v) => v.status === "draft");
+  const grandDebit = nonDraft.reduce(
     (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.debit), 0),
     0
   );
-  const grandCredit = filtered.reduce(
+  const grandCredit = nonDraft.reduce(
     (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.credit), 0),
+    0
+  );
+  const draftDebit = draftVouchers.reduce(
+    (s, v) => s + v.lines.reduce((ls, l) => ls + Number(l.debit), 0),
     0
   );
   const balanced = Math.abs(grandDebit - grandCredit) <= 0.01;
 
   const columnDefs = useMemo<ColDef<VoucherRow>[]>(
     () => [
+      // Төлөв ЭХНИЙ баганад, зүүн талд бэхэлсэн — хүн эхлээд төлөвийг хардаг
+      // (UI гайдын карт 1, ENT-016). Зөвхөн дүрс; тайлбар нь tooltip + aria-label.
+      col<VoucherRow>({ eaType: "status", field: "status" }),
       {
         headerName: "Огноо",
         field: "date",
@@ -655,40 +713,6 @@ export function JournalList({
         cellClass: "text-xs text-[var(--ea-text-3)]",
       },
       {
-        headerName: "Статус",
-        field: "status",
-        width: 120,
-        sortable: true,
-        valueGetter: (p) => {
-          if (p.data?.status === "posted") return "Бичигдсэн";
-          if (p.data?.status === "reversed") return "Буцаагдсан";
-          return "Ноорог";
-        },
-        cellClass: "ag-right-aligned-cell",
-        headerClass: "ag-right-aligned-header",
-        cellRenderer: (p: ICellRendererParams<VoucherRow>) => {
-          const v = p.data;
-          if (!v) return null;
-          const statusInfo =
-            v.status === "posted"
-              ? { dot: "var(--ea-success)", text: "text-[var(--ea-success-fg)]", label: "Бичигдсэн" }
-              : v.status === "reversed"
-              ? { dot: "var(--ea-text-4)", text: "text-[var(--ea-text-3)]", label: "Буцаагдсан" }
-              : { dot: "var(--ea-warning)", text: "text-[var(--ea-warning-fg)]", label: "Ноорог" };
-          return (
-            <div className="flex items-center justify-end gap-1.5 h-full">
-              <span
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ background: statusInfo.dot }}
-              />
-              <span className={`text-[11px] font-medium whitespace-nowrap ${statusInfo.text}`}>
-                {statusInfo.label}
-              </span>
-            </div>
-          );
-        },
-      },
-      {
         headerName: "Үйлдэл",
         colId: "actions",
         width: 120,
@@ -763,7 +787,13 @@ export function JournalList({
   // Импорт/экспортын toolbar — жагсаалт хоосон үед ч харагдана (импорт нь
   // яг тэр үед хамгийн хэрэгтэй).
   const excelToolbar = (
-    <div className="mb-3 flex items-center justify-end gap-2">
+    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+      <FilterChips
+        options={statusChips}
+        value={statusFilter}
+        onChange={setStatusFilter}
+        className="mr-auto flex-wrap"
+      />
       {/* П17 — шүүлт+эрэмбийг нэрлэж хадгалах, ?view= линкээр хуваалцах */}
       <SavedViewsMenu surfaceId="gl-journal" gridRef={gridRef} />
       <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
@@ -835,6 +865,14 @@ export function JournalList({
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       {excelToolbar}
+      {isMobile ? (
+        <MobileCardList
+          rows={filtered}
+          toCard={voucherMobileCard}
+          onOpen={(row) => handleEdit(row.id)}
+          ariaLabel="Журналын жагсаалт"
+        />
+      ) : (
       <DataGridDynamic<VoucherRow>
         ref={gridRef}
         rowData={filtered}
@@ -852,6 +890,7 @@ export function JournalList({
         cellSelection={false}
         onCellDoubleClicked={handleRowClick}
       />
+      )}
 
       {/* Footer — нийт дүн. Багана олон (валют, дансны нэр, хэрэглэгч) тул
           баганатай харалдаа CSS grid БИШ, товч нэгтгэлийн мөр. */}
@@ -864,7 +903,12 @@ export function JournalList({
         }}
       >
         <div className="text-[var(--ea-text-3)] font-medium">
-          Нийт дүн · {filtered.length} журнал
+          Нийт дүн · {nonDraft.length} журнал
+          {draftVouchers.length > 0 ? (
+            <span className="ml-2 text-[var(--ea-warning-fg)]">
+              (ноорог {draftVouchers.length} · {fmtMnt(draftDebit)} — нийтэд ороогүй)
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-6">
           <div className="flex items-baseline gap-2">

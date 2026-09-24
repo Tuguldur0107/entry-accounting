@@ -17,6 +17,10 @@ import {
   warehouses,
 } from "@/lib/db/schema";
 import { assertEnabledMainAccount } from "@/lib/costing/posting-helpers";
+import {
+  ARAP_LINE_SOURCE_TYPE,
+  capitalizeArapLineReceipts,
+} from "@/lib/costing/arap-receipt-capitalize";
 import type { ItemVatMode } from "@/lib/inventory/types";
 import {
   balanceKey,
@@ -27,7 +31,11 @@ import {
   loadQtyBalancesFast,
   loadQtyLedgerFast,
 } from "@/lib/inventory/period-balances";
-import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import {
+  assertNotFuturePeriod,
+  assertPeriodOpen,
+  assertPeriodOpenInTx,
+} from "@/lib/periods/guard";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
@@ -726,8 +734,25 @@ async function createInventoryMovementCore(data: {
     })
     .returning({ id: inventoryMovements.id });
 
-  if (data.confirmNow) await confirmInventoryMovementCore(movement.id);
-  else revalidateInventory();
+  if (data.confirmNow) {
+    try {
+      await confirmInventoryMovementCore(movement.id);
+    } catch (caught) {
+      // «Үүсгээд шууд батлах» нь НЭГ үйлдэл: батлалт унавал (үлдэгдэл хасах
+      // г.м.) ноорог ҮЛДЭЭХГҮЙ — эс бөгөөс давтах бүрд нууц ноорог нэмэгдэж
+      // сар хаалтыг «ноорог үлдсэн» гэж блоклодог байв (ENT-036).
+      await db
+        .delete(inventoryMovements)
+        .where(
+          and(
+            eq(inventoryMovements.id, movement.id),
+            eq(inventoryMovements.organizationId, orgId),
+            eq(inventoryMovements.status, "draft")
+          )
+        );
+      throw caught;
+    }
+  } else revalidateInventory();
   return { id: movement.id };
 }
 
@@ -910,6 +935,7 @@ async function confirmInventoryMovementCore(id: string) {
       throw new Error("Тоо хэмжээ 0-ээс их байна");
 
     await assertPeriodOpenInTx(tx, orgId, movement.date);
+    assertNotFuturePeriod(movement.date);
 
     // Хасах үлдэгдлийн шалгалт: он цагийн бүх цэг дээр ≥ 0 (энэ хөдөлгөөнийг
     // оруулаад, өмнөх огноогоор бичихэд дараагийн үлдэгдлүүд ч эвдрэхгүй).
@@ -946,6 +972,10 @@ async function confirmInventoryMovementCore(id: string) {
       )
       .returning({ id: inventoryMovements.id });
     if (!claimed) throw new Error("Хөдөлгөөний төлөв өөрчлөгдсөн байна");
+    // PO-гүй АП нэхэмжлэхийн орлого — нэхэмжлэхийн мөрийн дүнгээр
+    // капитализацийн НООРОГ (ENT-018); гараар өгсөн үнэ байвал хөндөхгүй.
+    if (movement.movementType === "receipt" && movement.sourceType === ARAP_LINE_SOURCE_TYPE)
+      await capitalizeArapLineReceipts(tx, orgId, userId, [id]);
     await logAuditEvent(
       {
         userId,

@@ -293,18 +293,18 @@ export function CostControlReport({
         toast.error(result.message ?? "Тооцоолол амжилтгүй");
         return;
       }
-      if (result.blockers.length > 0) {
-        setBlockers(result.blockers);
-        toast.error(
-          `${result.blockers.length} бараа-агуулах тооцоологдохгүй байна — бичилт үүсгэсэнгүй`
-        );
-        return;
-      }
+      setBlockers(result.blockers);
       const parts = [`${result.valued} бичилт үнэлэгдлээ`];
       if (result.alreadyValued > 0)
         parts.push(`${result.alreadyValued} нь GL-д бичигдсэн тул хөндөгдсөнгүй`);
       if (result.zeroValued > 0) parts.push(`${result.zeroValued} нь 0 дүнтэй`);
-      toast.success(parts.join(" · "));
+      // Блоклогдсон бараа-агуулах нь зөвхөн өөрийн хөдөлгөөнийг зогсооно —
+      // бусад нь үнэлэгдсэн (ENT-043). Шалтгаан доорх жагсаалтад ил.
+      if (result.blockers.length > 0)
+        toast.warning(
+          `${parts.join(" · ")} · ${result.blockers.length} бараа-агуулах блоклогдсон (${result.blockedMovements} хөдөлгөөн үнэлэгдээгүй)`
+        );
+      else toast.success(parts.join(" · "));
       router.refresh();
     });
   }
@@ -384,10 +384,11 @@ export function CostControlReport({
       )}
 
       {blockers && blockers.length > 0 && (
-        <div className="rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger)]">
+        <div className="rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-danger-fg)]">
           <p className="mb-1 font-medium">
-            Дараах бараа-агуулахын өртөг тодорхойлогдохгүй тул НЭГ Ч бичилт
-            үүсгэсэнгүй:
+            Дараах бараа-агуулахын өртөг тодорхойлогдохгүй — тэдгээрийн
+            хөдөлгөөн үнэлэгдсэнгүй (бусад бараа үнэлэгдсэн). Засагдтал сар
+            хаагдахгүй:
           </p>
           <ul className="space-y-0.5">
             {blockers.slice(0, 12).map((entry) => (

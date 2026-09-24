@@ -7,6 +7,16 @@
 // мөр гэж тоологдвол хаагдсан PO бүр дээр ХУДАЛ зөрүү гарна (дэд дэвтэр
 // −2,410,000 vs GL 0). Хаалтын журналыг НЭРЛЭЖ тусад нь харуулаад зөрүүнээс
 // хасна — чимээгүй нөхөж тэглэхгүй (§5.6: зөрүү ил гарна).
+//
+// SIM Trade симуляци (ENT-021/025/073):
+//   • PO-гүй АП нэхэмжлэх клирингийн данс руу Dr бичдэг (өртгийн бичилт
+//     биш) — капитализаци Cr-ийг «гараар бичсэн 47 мөр»-өөр тайлбарлаж
+//     −80 сая худал зөрүү гаргадаг байв. КЛИРИНГИЙН дансан дахь АР/АП
+//     баримтын мөрийг `sourceDocAmount` баганаар нэрлэж хасна (бараа
+//     материалын дансан дээр бол ЖИНХЭНЭ зөрүү хэвээр — давхар бичилт нуухгүй).
+//   • Харьцуулах олонлог нь БАЛАНСЫН данс (1–3) — зарлагын төрлийн тогтмол
+//     зардлын данс (73100007 «Бичиг хэрэг»), COGS-ийн бусад бичилт, жилийн
+//     хаалтын журнал (5–8 ангиллыг хаадаг) тулгалтад хамаарахгүй.
 
 import type { ReconciliationRow } from "./detail-types";
 
@@ -19,6 +29,17 @@ export interface ReconciliationGlLine {
   linked: boolean;
   /** PO хаалтын журналын мөр эсэх (purchase_orders.closeVoucherId). */
   poClose: boolean;
+  /**
+   * КЛИРИНГИЙН дансан дахь АР/АП баримтын журналын мөр (эх баримтын тал —
+   * капитализаци/хуваарилалт түүнийг хаадаг). Ачаалагч зөвхөн клиринг
+   * рольтой дансанд тавина.
+   */
+  sourceDoc?: boolean;
+}
+
+/** Тулгалтад хамаарах данс — балансын (1–3 ангилал) данс. */
+export function isReconciledAccount(accountNumber: string): boolean {
+  return /^[123]/.test(accountNumber);
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -35,6 +56,7 @@ export function buildInventoryReconciliationRows(input: {
 
   const gl = new Map<string, number>();
   const poClose = new Map<string, number>();
+  const sourceDoc = new Map<string, number>();
   const unlinkedLines = new Map<string, number>();
   const unlinkedAmount = new Map<string, number>();
 
@@ -45,6 +67,10 @@ export function buildInventoryReconciliationRows(input: {
       poClose.set(code, (poClose.get(code) ?? 0) + line.delta);
       continue;
     }
+    if (line.sourceDoc) {
+      sourceDoc.set(code, (sourceDoc.get(code) ?? 0) + line.delta);
+      continue;
+    }
     if (line.linked) continue;
     unlinkedLines.set(code, (unlinkedLines.get(code) ?? 0) + 1);
     unlinkedAmount.set(code, (unlinkedAmount.get(code) ?? 0) + line.delta);
@@ -52,20 +78,22 @@ export function buildInventoryReconciliationRows(input: {
 
   // Харьцуулах олонлог: дэд дэвтрийн данснууд (§5.5). GL-ийн бусад данс энэ
   // тайланд хамаарахгүй.
-  const codes = new Set(subledger.keys());
+  const codes = new Set([...subledger.keys()].filter(isReconciledAccount));
 
   return [...codes]
     .map((code) => {
       const subledgerAmount = round2(subledger.get(code) ?? 0);
       const glAmount = round2(gl.get(code) ?? 0);
       const poCloseAmount = round2(poClose.get(code) ?? 0);
+      const sourceDocAmount = round2(sourceDoc.get(code) ?? 0);
       return {
         accountNumber: code,
         accountName: input.accountName?.get(code) ?? "",
         subledgerAmount,
         glAmount,
         poCloseAmount,
-        difference: round2(subledgerAmount + poCloseAmount - glAmount),
+        sourceDocAmount,
+        difference: round2(subledgerAmount + poCloseAmount + sourceDocAmount - glAmount),
         unlinkedGlLines: unlinkedLines.get(code) ?? 0,
         unlinkedGlAmount: round2(unlinkedAmount.get(code) ?? 0),
       };

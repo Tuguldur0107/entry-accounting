@@ -49,6 +49,8 @@ import type {
 } from "@/lib/inventory/types";
 import type { MovementType } from "@/lib/inventory/balances";
 import { cn } from "@/lib/utils";
+import { currentDocumentDate } from "@/lib/periods/document-date";
+import { col } from "@/lib/grid/columnTypes";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -57,12 +59,6 @@ const TYPE_LABELS: Record<string, string> = {
   adjustment: "Тохируулга",
   return_in: "Буцаалт (ирсэн)",
   return_out: "Буцаалт (гарсан)",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Ноорог",
-  confirmed: "Баталсан",
-  cancelled: "Цуцалсан",
 };
 
 type TypeTab = "all" | MovementType;
@@ -90,7 +86,7 @@ const fmtQty = (value: number) =>
 
 const initialForm = () => ({
   movementType: "receipt" as MovementType,
-  date: new Date().toISOString().slice(0, 10),
+  date: currentDocumentDate(),
   itemId: "",
   warehouseId: "",
   toWarehouseId: "",
@@ -412,31 +408,8 @@ export function InventoryMovementsView({
       },
       { headerName: "Хэмжих нэгж", field: "unit", width: 110 },
       { headerName: "Утга", field: "description", minWidth: 160, flex: 1 },
-      {
-        headerName: "Төлөв",
-        field: "status",
-        width: 118,
-        valueGetter: (params) => STATUS_LABELS[params.data?.status ?? ""] ?? "",
-        cellRenderer: (params: ICellRendererParams<InventoryMovementView>) => {
-          const status = params.data?.status ?? "";
-          return (
-            <div className="flex h-full items-center gap-1.5">
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{
-                  background:
-                    status === "confirmed"
-                      ? "var(--ea-success)"
-                      : status === "draft"
-                        ? "var(--ea-warning)"
-                        : "var(--ea-text-4)",
-                }}
-              />
-              <span className="text-xs">{STATUS_LABELS[status] ?? status}</span>
-            </div>
-          );
-        },
-      },
+      // Төлөв — зүүн талд бэхэлсэн дүрс (lib/status.ts, UI гайдын карт 1).
+      col<InventoryMovementView>({ eaType: "status", field: "status" }),
       {
         headerName: "Үйлдэл",
         colId: "actions",

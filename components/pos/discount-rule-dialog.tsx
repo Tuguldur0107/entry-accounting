@@ -209,7 +209,7 @@ export function DiscountRuleDialog({
         <DialogHeader>
           <DialogTitle>{rule ? `Дүрэм засах — ${rule.code}` : "Шинэ хөнгөлөлтийн дүрэм"}</DialogTitle>
           <DialogDescription>
-            Дараалал: урамшууллын үнэ → мөрийн дүрэм (priority) → N+M → харилцагчийн бүлэг → купон → сагсны босго → гар.
+            Дараалал: урамшууллын үнэ → мөрийн дүрэм (эрэмбээр) → N+M → харилцагчийн бүлэг → купон → сагсны босго → гар.
           </DialogDescription>
         </DialogHeader>
 
@@ -240,7 +240,7 @@ export function DiscountRuleDialog({
               ))}
             </select>
           </FormField>
-          <FormField label="Давуу эрэмбэ (priority)" hint="Бага тоо түрүүлж ажиллана">
+          <FormField label="Давуу эрэмбэ" hint="Бага тоо түрүүлж ажиллана">
             <Input type="number" value={form.priority} className="font-mono" onChange={(e) => patch({ priority: e.target.value })} />
           </FormField>
 
@@ -338,7 +338,7 @@ export function DiscountRuleDialog({
         {isTier && (
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <Label>Шатлал (minQty → % эсвэл үнэ)</Label>
+              <Label>Шатлал (доод тоо → % эсвэл үнэ)</Label>
               <Button
                 variant="ghost"
                 size="sm"
