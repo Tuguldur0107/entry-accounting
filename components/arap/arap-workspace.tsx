@@ -35,16 +35,15 @@ import {
   updateCounterparty,
 } from "@/lib/actions/arap";
 import {
-  COUNTERPARTY_ENTITY_KINDS,
-  COUNTERPARTY_ENTITY_KIND_LABELS,
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
-  entityKindLabel,
-  normalizeEntityKind,
+  SYSTEM_ENTITY_KINDS,
+  baseKindOf,
   registerNoLabel,
   registerNoMismatch,
   registerNoPlaceholder,
-  type CounterpartyEntityKind,
+  type EntityKindOption,
 } from "@/lib/arap/counterparty-kind";
+import { EntityKindsDialog } from "@/components/arap/entity-kinds-dialog";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import { downloadWorkbook } from "@/lib/excel/core";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -78,6 +77,8 @@ interface Props {
   focus?: Focus;
   mode?: ArApMode;
   counterparties: CounterpartyView[];
+  /** Харилцагчийн төрлүүд (систем + байгууллагын нэмсэн). */
+  entityKinds?: EntityKindOption[];
   documents: ArApDocumentView[];
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
@@ -151,6 +152,7 @@ export function ArApWorkspace({
   focus = "dashboard",
   mode = "combined",
   counterparties,
+  entityKinds = SYSTEM_ENTITY_KINDS as EntityKindOption[],
   documents,
   activeSegIds,
   segmentOptions,
@@ -207,6 +209,7 @@ export function ArApWorkspace({
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
   const [reportDate, setReportDate] = useState(reportAsOf);
   // null = шинээр үүсгэх; id = тухайн харилцагчийг засах.
+  const [kindsOpen, setKindsOpen] = useState(false);
   const [editingCounterpartyId, setEditingCounterpartyId] = useState<
     string | null
   >(null);
@@ -219,7 +222,7 @@ export function ArApWorkspace({
       name: "",
       code: "",
       counterpartyType: config.counterpartyType,
-      entityKind: DEFAULT_COUNTERPARTY_ENTITY_KIND as CounterpartyEntityKind,
+      entityKind: DEFAULT_COUNTERPARTY_ENTITY_KIND as string,
       registerNo: "",
       defaultReceivableAccountNumber: defaultAccountNumbers.receivable
         ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
@@ -312,8 +315,8 @@ export function ArApWorkspace({
       {
         headerName: "Төрөл",
         field: "entityKind",
-        width: 110,
-        valueGetter: (params) => entityKindLabel(params.data?.entityKind),
+        width: 130,
+        valueGetter: (params) => params.data?.entityKindName ?? "",
       },
       {
         headerName: "Тооцоо",
@@ -539,7 +542,7 @@ export function ArApWorkspace({
       )
         ? counterparty.counterpartyType
         : "both") as "customer" | "supplier" | "both",
-      entityKind: normalizeEntityKind(counterparty.entityKind),
+      entityKind: counterparty.entityKind || DEFAULT_COUNTERPARTY_ENTITY_KIND,
       code: counterparty.code ?? "",
       registerNo: counterparty.registerNo ?? "",
       defaultReceivableAccountNumber:
@@ -714,6 +717,16 @@ export function ArApWorkspace({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {focus === "counterparties" && (
+            <Button
+              variant="outline"
+              onClick={() => setKindsOpen(true)}
+              title="Харилцагчийн төрөл нэмэх, засах (Байгууллага, Хувь хүн + өөрийн)"
+            >
+              <Icon name="settings" />
+              Төрөл
+            </Button>
+          )}
           {(focus === "dashboard" || focus === "counterparties") && (
             <Button variant="outline" onClick={openCounterpartyDialog}>
               <Icon name="add" />
@@ -939,12 +952,19 @@ export function ArApWorkspace({
         title={editingCounterpartyId ? "Харилцагч засах" : "Харилцагч үүсгэх"}
         form={counterpartyForm}
         setForm={setCounterpartyForm}
+        entityKinds={entityKinds}
         activeSegIds={activeSegIds}
         segmentOptions={segmentOptions}
         defaultSegments={defaultSegments}
         isPending={isPending}
         error={error}
         onSave={saveCounterparty}
+      />
+      <EntityKindsDialog
+        open={kindsOpen}
+        onOpenChange={setKindsOpen}
+        kinds={entityKinds}
+        counterparties={counterparties}
       />
       {confirmDialog}
     </section>
@@ -1299,6 +1319,7 @@ function CounterpartyDialog({
   title,
   form,
   setForm,
+  entityKinds,
   activeSegIds,
   segmentOptions,
   defaultSegments,
@@ -1313,7 +1334,8 @@ function CounterpartyDialog({
     name: string;
     code: string;
     counterpartyType: "customer" | "supplier" | "both";
-    entityKind: CounterpartyEntityKind;
+    /** Төрлийн код — систем эсвэл нэмсэн (kind_<n>). */
+    entityKind: string;
     registerNo: string;
     defaultReceivableAccountNumber: string;
     defaultPayableAccountNumber: string;
@@ -1329,6 +1351,7 @@ function CounterpartyDialog({
     creditLimit: string;
   };
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
+  entityKinds: EntityKindOption[];
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
   defaultSegments: Record<number, string>;
@@ -1336,6 +1359,10 @@ function CounterpartyDialog({
   error: string;
   onSave: () => void;
 }) {
+  // Бизнесийн логик (регистрийн шошго, шалгалт) СУУРЬ төрлөөр.
+  const baseKind = baseKindOf(form.entityKind, entityKinds);
+  // Идэвхгүй болсон төрлийг зөвхөн одоогийн утга байвал харуулна.
+  const kindOptions = entityKinds.filter((kind) => kind.isActive || kind.code === form.entityKind);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -1356,13 +1383,14 @@ function CounterpartyDialog({
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  entityKind: normalizeEntityKind(event.target.value),
+                  entityKind: event.target.value,
                 }))
               }
             >
-              {COUNTERPARTY_ENTITY_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {COUNTERPARTY_ENTITY_KIND_LABELS[kind]}
+              {kindOptions.map((kind) => (
+                <option key={kind.code} value={kind.code}>
+                  {kind.name}
+                  {kind.isActive ? "" : " (идэвхгүй)"}
                 </option>
               ))}
             </select>
@@ -1393,12 +1421,12 @@ function CounterpartyDialog({
             />
           </FormField>
           <FormField
-            label={registerNoLabel(form.entityKind)}
-            hint={registerNoMismatch(form.entityKind, form.registerNo) ?? undefined}
+            label={registerNoLabel(baseKind)}
+            hint={registerNoMismatch(baseKind, form.registerNo) ?? undefined}
           >
             <Input
               value={form.registerNo}
-              placeholder={registerNoPlaceholder(form.entityKind)}
+              placeholder={registerNoPlaceholder(baseKind)}
               onChange={(event) =>
                 setForm((current) => ({ ...current, registerNo: event.target.value }))
               }

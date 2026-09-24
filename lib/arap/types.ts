@@ -4,8 +4,12 @@ export type CounterpartyView = {
   /** Харилцагчийн код — РД-ээс тусдаа, org дотор давтагдашгүй; null = оноогоогүй. */
   code: string | null;
   counterpartyType: string;
-  /** Субъект: "organization" | "individual" (lib/arap/counterparty-kind.ts). */
+  /** Субъектийн төрлийн КОД — систем ("organization"/"individual") эсвэл нэмсэн ("kind_<n>"). */
   entityKind: string;
+  /** Төрлийн харагдах нэр (lib/arap/counterparty-kind.ts `entityKindName`). */
+  entityKindName: string;
+  /** Суурь төрөл — регистрийн шалгалт, eBarimt B2B ЭНЭГЭЭР (`baseKindOf`). */
+  entityKindBase: "organization" | "individual";
   registerNo: string | null;
   defaultReceivableAccountNumber: string | null;
   defaultPayableAccountNumber: string | null;

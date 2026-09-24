@@ -853,6 +853,15 @@ lib/ebarimt/
 │                  (tests/ebarimt-posapi-info.test.ts); client.ts fetchPosApiHealth
 ├── tax-product-codes.ts  НӨАТ-гүй (305–446) / 0% (501–507) кодын АЛБАН лавлах —
 │                  барааны картын сонгогч; хориглолт биш (ТЕГ код нэмж болно)
+├── classification-search.ts  7 оронтой АНГИЛЛЫН код (ҮСХ «Бүтээгдэхүүн, үйлчилгээний
+│                  нэгдсэн ангилал» = CPC 2.1 + 2 оронтой үндэсний задаргаа) хайлт —
+│                  ЦЭВЭР (tests/ebarimt-classification-search.test.ts)
+├── classification-codes.json/.ts  АЛБАН жагсаалт — SERVER-т л ачаална (client
+│                  bundle-д оруулахгүй); `node scripts/build-ebarimt-classifications.mjs
+│                  <албан.xlsx|csv>` үүсгэнэ (баганыг агуулгаар танина). ХООСОН бол
+│                  сонгогч байгууллагын хэрэглэж буй код + гараар 7 орон — ЗОХИОХГҮЙ.
+│                  Хайлт: lib/actions/ebarimt-classification.ts; UI сонгогч
+│                  components/inventory/ebarimt-code-pickers.tsx (7 ба 3 оронтой)
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
 ├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo / getBranchInfo (24ц кэш)
@@ -2065,8 +2074,14 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
                `normalizeCounterpartyCode` (ТОМ үсэг, ≤32) — автомат дугаарлалт
                ХИЙХГҮЙ (гараар / импортоор оноогдоно). Кассын "Харилцагчийн код"
                багана, AI list/create/update_counterparty, master data CSV (`code`)
-             counterparties.entityKind — СУБЪЕКТ: "organization" (Байгууллага,
-               default) | "individual" (Хувь хүн) — `counterpartyType` (авлага/
+             counterparties.entityKind — СУБЪЕКТИЙН төрлийн КОД: систем
+               "organization" (Байгууллага, default) | "individual" (Хувь хүн) ЭСВЭЛ
+               байгууллагын НЭМСЭН `kind_<n>` (counterparty_entity_kinds: name,
+               baseKind organization|individual, isActive; систем 2 төрөл мөргүй ч
+               бий, устгагдахгүй — нэрийг л засна). Бизнесийн логик (регистрийн
+               шалгалт, POS eBarimt B2B) ЗӨВХӨН `baseKindOf`-оор — шинэ төрлийн
+               кодыг hardcode хийхгүй; хэрэглэгдэж буй төрөл устгагдахгүй
+               (идэвхгүй болгоно). UI: Харилцагчид → «Төрөл». — `counterpartyType` (авлага/
                өглөгийн ЧИГЛЭЛ)-ээс ТУСДАА хэмжээс. ЦЭВЭР `lib/arap/counterparty-kind.ts`
                (тесттэй): шошго, `inferEntityKindFromRegisterNo` (иргэний РД
                = 2 кирилл + 8 орон → individual; 7/11/14 орон → organization;
@@ -2091,7 +2106,22 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
            файл base64-аар, FK байхгүй тул устгалтыг модулийн delete зам
            deleteAttachmentsFor-оор ӨӨРӨӨ хийнэ; унших зам ЗААВАЛ org +
            модулийн эрхийн шалгалттай (арап нь ar/ap аль нэг эрхээр)
-Inventory  inventory_items, warehouses, inventory_movements
+Inventory  inventory_items, warehouses, inventory_movements, inventory_categories,
+           inventory_category_levels
+             categories.parentId — ОЛОН ТҮВШИНТЭЙ мод (ЦЭВЭР
+               lib/inventory/category-tree.ts, тесттэй): цикл/гүн хориг, устгах
+               хориг (дэд ангилал/бараа/хөнгөлөлтийн дүрэм). УДАМШИЛ: эцэг ангиллын
+               хөнгөлөлтийн дүрэм (CartLine.categoryPath), POS chip, борлуулалтын
+               тайлангийн шүүлт дэд ангиллын бараанд ч; eBarimt ангилал хоосон бол
+               өвөг рүү өгсөж өвлөнө (readiness + queue НЭГ дүрэм). Self-FK NO
+               ACTION — байгууллагын cascade устгал бүх модыг нэг дор устгана
+             category_levels (org, depth, name) — түвшний нэр; мөргүй бол
+               default «Ерөнхий › Үндсэн › Дэд»; хамгийн багадаа 1, ашиглагдаж
+               буй гүнээс доош хасахгүй. Хуудас: Бараа · Ангилал · Агуулах ТУСДАА
+             items.barcodeType (GS1|ISBN|UNDEFINED → PosAPI barCodeType),
+               description / brand / manufacturer / originCountry — барааны
+               дэлгэрэнгүй карт (тооцоонд нөлөөгүй; Excel импортод хоосон нүд =
+               өөрчлөхгүй)
              items.salesPrice — борлуулах үнэ (MNT, нэгжид, null = тогтоогоогүй):
                АР нэхэмжлэхэд бараа сонгоход нэгж үнэ автоматаар (байхгүй бол
                сүүлийн АР мөрийн unitPrice); өртөгтэй ХОЛБООГҮЙ, үнэ зохиохгүй

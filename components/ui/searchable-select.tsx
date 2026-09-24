@@ -5,7 +5,7 @@
 // rows; this gives a filter box plus a keyboard-navigable list, portalled
 // to <body> so it isn't clipped by dialog overflow.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { createPortal } from "react-dom";
 
@@ -55,6 +55,24 @@ interface Props {
   hideValue?: boolean;
   emptyLabel?: string;
   disabled?: boolean;
+  /**
+   * Хайлтын текст өөрчлөгдөх бүрд (нээхэд "") — СЕРВЕРИЙН хайлттай жагсаалтад
+   * (ж: eBarimt-ийн хэдэн мянган ангиллын код). `serverFiltered`-тэй хамт.
+   */
+  onQueryChange?: (query: string) => void;
+  /** `options` аль хэдийн хайлтаар шүүгдсэн — дотооддоо ДАХИН шүүхгүй. */
+  serverFiltered?: boolean;
+  /**
+   * Жагсаалтад байхгүй утгыг ГАРААР оруулах (ж: ТЕГ шинээр нэмсэн код).
+   * Хайлтын текстээс сонголт буцаавал жагсаалтын эхэнд гарна; null = үгүй.
+   */
+  customOption?: (query: string) => SearchableOption | null;
+  /** Нэг дор зурах дээд мөр — их жагсаалтад хайлтаа нарийсгахыг санал болгоно. */
+  maxVisible?: number;
+  /** Жагсаалтын доорх тайлбар (ж: эх сурвалжийн тухай). */
+  footer?: ReactNode;
+  /** Trigger-ийн утга жагсаалтад байхгүй үед харуулах label (ж: хадгалсан код). */
+  valueLabel?: string;
 }
 
 export function SearchableSelect({
@@ -65,6 +83,12 @@ export function SearchableSelect({
   hideValue = false,
   emptyLabel = "Илэрц олдсонгүй",
   disabled = false,
+  onQueryChange,
+  serverFiltered = false,
+  customOption,
+  maxVisible,
+  footer,
+  valueLabel,
 }: Props) {
   const [query, setQuery] = useState("");
   // Нээлттэй эсэх нь anchor-оор илэрхийлэгдэнэ — null бол хаалттай.
@@ -73,23 +97,36 @@ export function SearchableSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const selected = options.find((o) => o.value === value);
+  const selected =
+    options.find((o) => o.value === value) ??
+    (value && valueLabel !== undefined ? { value, label: valueLabel } : undefined);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter(
-      (o) =>
-        o.value.toLowerCase().includes(q) ||
-        o.label.toLowerCase().includes(q) ||
-        (o.hint?.toLowerCase().includes(q) ?? false)
-    );
-  }, [options, query]);
+    const base =
+      !q || serverFiltered
+        ? options
+        : options.filter(
+            (o) =>
+              o.value.toLowerCase().includes(q) ||
+              o.label.toLowerCase().includes(q) ||
+              (o.hint?.toLowerCase().includes(q) ?? false)
+          );
+    const custom = customOption?.(query.trim()) ?? null;
+    return custom && !base.some((o) => o.value === custom.value) ? [custom, ...base] : base;
+  }, [options, query, serverFiltered, customOption]);
+  const visible = maxVisible ? filtered.slice(0, maxVisible) : filtered;
+  const hidden = filtered.length - visible.length;
+
+  function changeQuery(next: string) {
+    setQuery(next);
+    onQueryChange?.(next);
+  }
 
   function openDropdown() {
     if (disabled || !triggerRef.current) return;
     setAnchor(triggerRef.current.getBoundingClientRect());
-    setQuery("");
+    changeQuery("");
     setTimeout(() => inputRef.current?.focus(), 30);
   }
 
@@ -189,7 +226,7 @@ export function SearchableSelect({
                 ref={inputRef}
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => changeQuery(e.target.value)}
                 placeholder="Хайх..."
                 className="w-full rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg)] px-2 py-1.5 text-xs text-[var(--ea-text-1)] outline-none focus:border-[var(--ea-primary)]"
               />
@@ -203,12 +240,12 @@ export function SearchableSelect({
               >
                 — Хоосон
               </button>
-              {filtered.length === 0 ? (
+              {visible.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-[var(--ea-text-4)]">
                   {emptyLabel}
                 </div>
               ) : (
-                filtered.map((o) => (
+                visible.map((o) => (
                   <button
                     key={o.value}
                     type="button"
@@ -243,7 +280,20 @@ export function SearchableSelect({
                   </button>
                 ))
               )}
+              {hidden > 0 && (
+                <div className="px-3 py-2 text-center text-[10px] text-[var(--ea-text-4)]">
+                  … өөр {hidden} илэрц — хайлтаа нарийсгана уу
+                </div>
+              )}
             </div>
+            {footer && (
+              <div
+                className="shrink-0 px-2.5 py-1.5 text-[10px] leading-snug text-[var(--ea-text-4)]"
+                style={{ borderTop: "1px solid var(--ea-border)" }}
+              >
+                {footer}
+              </div>
+            )}
           </div>,
           document.body
         )}

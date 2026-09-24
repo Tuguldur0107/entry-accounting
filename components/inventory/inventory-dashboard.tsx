@@ -153,7 +153,7 @@ export function InventoryDashboard({
       value: String(warehouseCount),
       icon: "warehouse",
       color: "var(--ea-primary)",
-      href: "/inventory/items",
+      href: "/inventory/warehouses",
     },
     {
       label: "Ноорог хөдөлгөөн",

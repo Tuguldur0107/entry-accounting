@@ -25,10 +25,13 @@ import {
 } from "@/lib/arap/counterparty-code";
 import {
   counterpartyDirectionError,
-  DEFAULT_COUNTERPARTY_ENTITY_KIND,
-  isCounterpartyEntityKind,
-  type CounterpartyEntityKind,
+  entityKindNameError,
+  isSystemEntityKind,
+  nextEntityKindCode,
+  resolveEntityKindCode,
+  type CounterpartyBaseKind,
 } from "@/lib/arap/counterparty-kind";
+import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import {
   arApDocumentLines,
   arApDocuments,
@@ -39,6 +42,7 @@ import {
   costComponents,
   costEntries,
   counterparties,
+  counterpartyEntityKinds,
   inventoryMovements,
   journalLines,
   journalVouchers,
@@ -325,12 +329,15 @@ export async function getArapDocPanelData(
   };
 }
 
-/** Субъектийн төрөл — хоосон бол default (байгууллага), буруу утга бол ШИДНЭ. */
-function resolveEntityKind(value: unknown): CounterpartyEntityKind {
-  if (value == null || value === "") return DEFAULT_COUNTERPARTY_ENTITY_KIND;
-  if (!isCounterpartyEntityKind(value))
-    throw new Error("Харилцагчийн субъектийн төрөл «Байгууллага» эсвэл «Хувь хүн» байна");
-  return value;
+/**
+ * Субъектийн төрөл — хоосон бол default (байгууллага); байгууллагын
+ * жагсаалтад (систем + нэмсэн) ИДЭВХТЭЙ байх ёстой, эс бөгөөс ШИДНЭ.
+ * `current` = засаж буй харилцагчийн одоогийн төрөл (идэвхгүй болсон ч хэвээр).
+ */
+async function resolveEntityKind(orgId: string, value: unknown, current?: string | null): Promise<string> {
+  const result = resolveEntityKindCode(value, await loadEntityKinds(orgId), current);
+  if ("error" in result) throw new Error(result.error);
+  return result.code;
 }
 
 /** Харилцагчийн төрлийн монгол шошго — алдааны мессежид ойлгомжтой байхад. */
@@ -355,8 +362,8 @@ function creditLimitValue(value: number | null | undefined): string | null {
 async function createCounterpartyCore(data: {
   name: string;
   counterpartyType: "customer" | "supplier" | "both";
-  /** Субъект: байгууллага (default) / хувь хүн — lib/arap/counterparty-kind.ts. */
-  entityKind?: CounterpartyEntityKind | null;
+  /** Субъектийн төрлийн код (систем эсвэл нэмсэн) — lib/arap/counterparty-kind.ts. */
+  entityKind?: string | null;
   /** Харилцагчийн код — org дотор давтагдашгүй (сонголтоор). */
   code?: string;
   registerNo?: string;
@@ -382,7 +389,7 @@ async function createCounterpartyCore(data: {
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
     throw new Error("Харилцагчийн төрөл буруу байна");
-  const entityKind = resolveEntityKind(data.entityKind);
+  const entityKind = await resolveEntityKind(orgId, data.entityKind);
 
   let receivable = cleanText(data.defaultReceivableAccountNumber);
   let payable = cleanText(data.defaultPayableAccountNumber);
@@ -465,7 +472,7 @@ async function updateCounterpartyCore(
   data: {
     name: string;
     counterpartyType: "customer" | "supplier" | "both";
-    entityKind?: CounterpartyEntityKind | null;
+    entityKind?: string | null;
     code?: string;
     registerNo?: string;
     defaultReceivableAccountNumber?: string;
@@ -490,7 +497,11 @@ async function updateCounterpartyCore(
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   if (!["customer", "supplier", "both"].includes(data.counterpartyType))
     throw new Error("Харилцагчийн төрөл буруу байна");
-  const entityKind = resolveEntityKind(data.entityKind);
+  const currentKind = await db.query.counterparties.findFirst({
+    where: and(eq(counterparties.id, id), eq(counterparties.organizationId, orgId)),
+    columns: { entityKind: true },
+  });
+  const entityKind = await resolveEntityKind(orgId, data.entityKind, currentKind?.entityKind);
 
   const receivable = cleanText(data.defaultReceivableAccountNumber);
   const payable = cleanText(data.defaultPayableAccountNumber);
@@ -538,6 +549,132 @@ export async function updateCounterparty(
     return await updateCounterpartyCore(id, data);
   } catch (caught) {
     return actionError("updateCounterparty", caught, "Харилцагч хадгалагдсангүй");
+  }
+}
+
+// ── Харилцагчийн ДИНАМИК төрөл (counterparty_entity_kinds) ───────────────────
+// Систем төрөл («Байгууллага» / «Хувь хүн») устгагдахгүй, суурь нь
+// өөрчлөгдөхгүй — зөвхөн НЭРИЙГ засна (мөр upsert). Шинэ төрөл `kind_<n>`
+// кодтой, `baseKind`-аар бизнесийн логикт оролцоно.
+
+export type EntityKindInput = {
+  /** Засах бол код; хоосон бол ШИНЭ төрөл. */
+  code?: string | null;
+  name: string;
+  baseKind: CounterpartyBaseKind;
+  isActive?: boolean;
+};
+
+export async function saveCounterpartyEntityKind(
+  input: EntityKindInput
+): Promise<ActionResult<{ code: string }>> {
+  try {
+    const { orgId, userId } = await requireAnyModuleAction([
+      ["ar", "write"],
+      ["ap", "write"],
+    ]);
+    const kinds = await loadEntityKinds(orgId);
+    const code = input.code?.trim() || null;
+    const existing = code ? kinds.find((kind) => kind.code === code) : undefined;
+    if (code && !existing) throw new Error("Төрөл олдсонгүй");
+    const nameError = entityKindNameError(input.name, kinds, code ?? undefined);
+    if (nameError) throw new Error(nameError);
+    const name = input.name.trim();
+    if (input.baseKind !== "organization" && input.baseKind !== "individual")
+      throw new Error("Суурь төрөл «Байгууллага» эсвэл «Хувь хүн» байна");
+
+    if (existing?.isSystem) {
+      // Систем төрөл: зөвхөн нэр (суурь, идэвх өөрчлөгдөхгүй).
+      await db
+        .insert(counterpartyEntityKinds)
+        .values({ organizationId: orgId, code: existing.code, name, baseKind: existing.baseKind, isActive: true })
+        .onConflictDoUpdate({
+          target: [counterpartyEntityKinds.organizationId, counterpartyEntityKinds.code],
+          set: { name },
+        });
+    } else if (existing) {
+      // Хэрэглэгдэж буй төрлийн СУУРИЙГ солих нь регистрийн шалгалт, eBarimt
+      // B2B-г өөрчилнө — зөвшөөрнө, гэхдээ аудитад ил.
+      await db
+        .update(counterpartyEntityKinds)
+        .set({ name, baseKind: input.baseKind, isActive: input.isActive ?? existing.isActive })
+        .where(
+          and(
+            eq(counterpartyEntityKinds.organizationId, orgId),
+            eq(counterpartyEntityKinds.code, existing.code)
+          )
+        );
+    } else {
+      const next = nextEntityKindCode(kinds);
+      await db.insert(counterpartyEntityKinds).values({
+        organizationId: orgId,
+        code: next,
+        name,
+        baseKind: input.baseKind,
+        isActive: input.isActive ?? true,
+        sortOrder: kinds.filter((kind) => !kind.isSystem).length + 1,
+      });
+      await logAuditEvent({
+        userId,
+        organizationId: orgId,
+        action: "create",
+        entityType: "counterparty_kind",
+        entityId: orgId,
+        summary: `Харилцагчийн төрөл нэмэгдэв — ${name} (${next}, суурь: ${input.baseKind})`,
+      });
+      revalidateArAp();
+      return { code: next };
+    }
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "update",
+      entityType: "counterparty_kind",
+      entityId: orgId,
+      summary: `Харилцагчийн төрөл засагдав — ${existing.name} → ${name}${
+        !existing.isSystem && existing.baseKind !== input.baseKind ? ` (суурь ${existing.baseKind} → ${input.baseKind})` : ""
+      }`,
+    });
+    revalidateArAp();
+    return { code: existing.code };
+  } catch (caught) {
+    return actionError("saveCounterpartyEntityKind", caught, "Харилцагчийн төрөл хадгалагдсангүй");
+  }
+}
+
+/** Нэмсэн төрөл устгах — систем төрөл ба ХЭРЭГЛЭГДЭЖ буй төрөл устгагдахгүй (идэвхгүй болгоно). */
+export async function deleteCounterpartyEntityKind(code: string): Promise<ActionResult> {
+  try {
+    const { orgId, userId } = await requireAnyModuleAction([
+      ["ar", "write"],
+      ["ap", "write"],
+    ]);
+    if (isSystemEntityKind(code)) throw new Error("Системийн төрөл устгагдахгүй — нэрийг нь засна уу");
+    const kinds = await loadEntityKinds(orgId);
+    const kind = kinds.find((entry) => entry.code === code);
+    if (!kind) throw new Error("Төрөл олдсонгүй");
+    const [usage] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(counterparties)
+      .where(and(eq(counterparties.organizationId, orgId), eq(counterparties.entityKind, code)));
+    const used = Number(usage?.count ?? 0);
+    if (used > 0)
+      throw new Error(`«${kind.name}» төрөлтэй ${used} харилцагч байгаа тул устгах боломжгүй — идэвхгүй болгоно уу`);
+    await db
+      .delete(counterpartyEntityKinds)
+      .where(and(eq(counterpartyEntityKinds.organizationId, orgId), eq(counterpartyEntityKinds.code, code)));
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "delete",
+      entityType: "counterparty_kind",
+      entityId: orgId,
+      summary: `Харилцагчийн төрөл устгагдав — ${kind.name} (${code})`,
+    });
+    revalidateArAp();
+    return {};
+  } catch (caught) {
+    return actionError("deleteCounterpartyEntityKind", caught, "Төрөл устгагдсангүй");
   }
 }
 

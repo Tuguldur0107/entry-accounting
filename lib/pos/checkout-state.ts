@@ -28,6 +28,8 @@ export interface CartItemLike {
   unit: string;
   barcode?: string | null;
   categoryCode?: string | null;
+  /** Ангиллын өвөг кодууд [өөр, эцэг, …] — эцэг ангиллын chip дэд ангиллын барааг ч харуулна. */
+  categoryPath?: string[];
   salesPrice: number | null;
 }
 
@@ -222,7 +224,11 @@ export function filterCheckoutItems<T extends CartItemLike>(
   query: string,
   categoryCode: string | null
 ): T[] {
-  const scoped = categoryCode ? items.filter((item) => item.categoryCode === categoryCode) : items;
+  const scoped = categoryCode
+    ? items.filter((item) =>
+        item.categoryPath ? item.categoryPath.includes(categoryCode) : item.categoryCode === categoryCode
+      )
+    : items;
   const needle = query.trim().toLowerCase();
   if (!needle) return scoped;
   const exact: T[] = [];

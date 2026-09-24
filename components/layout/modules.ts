@@ -164,7 +164,10 @@ export const MODULES: Module[] = [
         configKey: "pos",
       },
       { label: "Тайлан", href: "/inventory/reports", icon: "reportDetailed" },
-      { label: "Бараа, агуулах", href: "/inventory/items", icon: "inventory" },
+      // Мастер дата — тус бүр ӨӨРИЙН хуудас (бараа нэмэх/засах маягт дэлгэрэнгүй).
+      { label: "Бараа", href: "/inventory/items", icon: "inventory" },
+      { label: "Ангилал", href: "/inventory/categories", icon: "list" },
+      { label: "Агуулах", href: "/inventory/warehouses", icon: "warehouse" },
       {
         label: "POS тохиргоо",
         href: "/inventory/pos-settings",

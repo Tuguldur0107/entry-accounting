@@ -114,3 +114,22 @@ test("бараа / хэлбэр огт байхгүй бол бэлэн (шал�
   const result = ebarimtReadiness({ items: [], categories: [], paymentMethods: [] });
   assert.equal(result.ready, true);
 });
+
+test("олон түвшинтэй ангилал: хоосон ангилал ЭЦЭГ рүү өгсөж өвлөнө", () => {
+  const result = ebarimtReadiness({
+    items: [
+      { name: "Тараг", categoryCode: "TARAG", ebarimtClassificationCode: null, ebarimtTaxProductCode: null, vatMode: "standard" },
+      { name: "Шампунь", categoryCode: "HOME", ebarimtClassificationCode: null, ebarimtTaxProductCode: null, vatMode: "standard" },
+    ],
+    categories: [
+      { id: "f", code: "FOOD", name: "Хүнс", parentId: null, ebarimtClassificationCode: "2399990" },
+      { id: "d", code: "DAIRY", name: "Сүү", parentId: "f", ebarimtClassificationCode: null },
+      { id: "t", code: "TARAG", name: "Тараг", parentId: "d", ebarimtClassificationCode: null },
+      { id: "h", code: "HOME", name: "Ахуй", parentId: null, ebarimtClassificationCode: null },
+    ],
+    paymentMethods: [],
+  });
+  // Тараг → Сүү → Хүнс (2399990) өвлөнө; Ахуйд код байхгүй — ЗОХИОХГҮЙ
+  assert.equal(result.items.count, 1);
+  assert.deepEqual(result.items.sample, ["Шампунь"]);
+});

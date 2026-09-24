@@ -66,6 +66,7 @@ const ENTITY_LABELS: Record<string, string> = {
   invitation: "Урилга",
   subscription: "Багц, төлбөр",
   support_session: "Дэмжлэгийн хандалт",
+  counterparty_kind: "Харилцагчийн төрөл",
 };
 
 // "YYYY-MM-DD HH:mm" — Улаанбаатарын цагаар. sv-SE locale яг энэ форматыг өгдөг.

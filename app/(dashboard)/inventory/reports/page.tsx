@@ -24,6 +24,7 @@ import {
 } from "@/lib/db/schema";
 import { movementEffects } from "@/lib/inventory/balances";
 import { loadInventoryBase, toMovementRefs } from "@/lib/inventory/load-data";
+import { buildCategoryTree } from "@/lib/inventory/category-tree";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { loadPaymentMethodViews } from "@/lib/pos/load-data";
 import { loadSalesReport } from "@/lib/pos/reports";
@@ -209,9 +210,10 @@ async function SalesTab({
     items: itemViews
       .filter((item) => item.isActive || item.id === filters.itemId)
       .map((item) => ({ value: item.id, label: item.name, hint: item.code })),
-    categories: categoryViews
-      .filter((category) => category.isActive || category.code === filters.categoryCode)
-      .map((category) => ({ value: category.code, label: category.name, hint: category.code })),
+    // Модны дарааллаар, бүтэн замтай — эцэг сонгоход дэд ангилал ч орно.
+    categories: buildCategoryTree(categoryViews)
+      .filter((row) => row.node.isActive || row.node.code === filters.categoryCode)
+      .map((row) => ({ value: row.node.code, label: row.pathLabel, hint: row.node.code })),
   };
 
   return (

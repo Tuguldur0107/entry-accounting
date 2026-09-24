@@ -9,19 +9,30 @@ import {
   arApDocumentLines,
   costEntries,
   inventoryCategories,
+  inventoryCategoryLevels,
   inventoryIssueTypes,
   inventoryItems,
   inventoryMovements,
   itemPriceHistory,
+  posDiscountRules,
   purchaseOrderLines,
   warehouses,
 } from "@/lib/db/schema";
+import {
+  categoryDeleteBlocker,
+  maxTreeDepth,
+  planCategoryLevels,
+  resolveCategoryLevels,
+  validateCategoryParent,
+  type CategoryNode,
+} from "@/lib/inventory/category-tree";
 import { assertEnabledMainAccount } from "@/lib/costing/posting-helpers";
 import {
   ARAP_LINE_SOURCE_TYPE,
   capitalizeArapLineReceipts,
 } from "@/lib/costing/arap-receipt-capitalize";
 import type { ItemVatMode } from "@/lib/inventory/types";
+import { EBARIMT_BARCODE_TYPES } from "@/lib/ebarimt/constants";
 import {
   balanceKey,
   findNegativeStock,
@@ -66,6 +77,8 @@ function revalidateInventory() {
     "/inventory/movements",
     "/inventory/reports",
     "/inventory/items",
+    "/inventory/categories",
+    "/inventory/warehouses",
     "/costing",
     "/costing/entries",
     "/costing/reports",
@@ -100,6 +113,28 @@ export type InventoryItemPosFields = {
   /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3 орон). */
   ebarimtClassificationCode?: string | null;
   ebarimtTaxProductCode?: string | null;
+  /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED" (PosAPI barCodeType). */
+  barcodeType?: string | null;
+  // ── Дэлгэрэнгүй мэдээлэл (барааны карт) ──
+  description?: string | null;
+  brand?: string | null;
+  manufacturer?: string | null;
+  originCountry?: string | null;
+};
+
+/** Дэлгэрэнгүй текст талбарын дээд урт (тэмдэгт). */
+const ITEM_DETAIL_LIMITS = {
+  description: 2000,
+  brand: 120,
+  manufacturer: 160,
+  originCountry: 80,
+} as const;
+
+const ITEM_DETAIL_LABELS: Record<keyof typeof ITEM_DETAIL_LIMITS, string> = {
+  description: "Тайлбар",
+  brand: "Брэнд",
+  manufacturer: "Үйлдвэрлэгч",
+  originCountry: "Гарал үүслийн улс",
 };
 
 type DbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -140,6 +175,11 @@ async function validateItemPosFields(
   categoryCode?: string | null;
   ebarimtClassificationCode?: string | null;
   ebarimtTaxProductCode?: string | null;
+  barcodeType?: string | null;
+  description?: string | null;
+  brand?: string | null;
+  manufacturer?: string | null;
+  originCountry?: string | null;
 }> {
   const salesPrice = parseOptionalPrice(data.salesPrice, "Борлуулах үнэ");
   const minSalesPrice = parseOptionalPrice(data.minSalesPrice, "Доод үнэ");
@@ -210,7 +250,24 @@ async function validateItemPosFields(
       throw new Error("Татварын бүтээгдэхүүний код 3 оронтой тоо байна");
   }
 
+  let barcodeType: string | null | undefined;
+  if (data.barcodeType !== undefined) {
+    barcodeType = cleanText(data.barcodeType)?.toUpperCase() ?? null;
+    if (barcodeType && !(EBARIMT_BARCODE_TYPES as readonly string[]).includes(barcodeType))
+      throw new Error(`Баркодын төрөл ${EBARIMT_BARCODE_TYPES.join(" / ")} байна`);
+  }
+  const details: Partial<Record<keyof typeof ITEM_DETAIL_LIMITS, string | null>> = {};
+  for (const key of Object.keys(ITEM_DETAIL_LIMITS) as (keyof typeof ITEM_DETAIL_LIMITS)[]) {
+    if (data[key] === undefined) continue;
+    const value = cleanText(data[key]);
+    if (value && value.length > ITEM_DETAIL_LIMITS[key])
+      throw new Error(`${ITEM_DETAIL_LABELS[key]} ${ITEM_DETAIL_LIMITS[key]} тэмдэгтээс ихгүй байна`);
+    details[key] = value;
+  }
+
   return {
+    ...details,
+    barcodeType,
     salesPrice: salesPrice === undefined ? undefined : salesPrice == null ? null : String(salesPrice),
     minSalesPrice:
       minSalesPrice === undefined ? undefined : minSalesPrice == null ? null : String(minSalesPrice),
@@ -297,6 +354,11 @@ async function createInventoryItemCore(
         categoryCode: pos.categoryCode ?? null,
         ebarimtClassificationCode: pos.ebarimtClassificationCode ?? null,
         ebarimtTaxProductCode: pos.ebarimtTaxProductCode ?? null,
+        barcodeType: pos.barcodeType ?? null,
+        description: pos.description ?? null,
+        brand: pos.brand ?? null,
+        manufacturer: pos.manufacturer ?? null,
+        originCountry: pos.originCountry ?? null,
       })
       .returning({ id: inventoryItems.id });
     await recordPriceHistory(tx, {
@@ -367,6 +429,11 @@ async function updateInventoryItemCore(
         ...(pos.ebarimtTaxProductCode !== undefined
           ? { ebarimtTaxProductCode: pos.ebarimtTaxProductCode }
           : {}),
+        ...(pos.barcodeType !== undefined ? { barcodeType: pos.barcodeType } : {}),
+        ...(pos.description !== undefined ? { description: pos.description } : {}),
+        ...(pos.brand !== undefined ? { brand: pos.brand } : {}),
+        ...(pos.manufacturer !== undefined ? { manufacturer: pos.manufacturer } : {}),
+        ...(pos.originCountry !== undefined ? { originCountry: pos.originCountry } : {}),
       })
       .where(and(eq(inventoryItems.id, id), eq(inventoryItems.organizationId, orgId)));
     await recordPriceHistory(tx, {
@@ -512,6 +579,24 @@ async function createWarehouseCore(data: { code: string; name: string }) {
   return {};
 }
 
+export async function updateWarehouse(id: string, data: { name: string }): Promise<ActionResult> {
+  try {
+    const { orgId } = await requireModuleAction("inv", "write");
+    const name = data.name.trim();
+    if (!name) throw new Error("Агуулахын нэр оруулна уу");
+    const updated = await db
+      .update(warehouses)
+      .set({ name })
+      .where(and(eq(warehouses.id, id), eq(warehouses.organizationId, orgId)))
+      .returning({ id: warehouses.id });
+    if (updated.length === 0) throw new Error("Агуулах олдсонгүй");
+    revalidateInventory();
+    return {};
+  } catch (caught) {
+    return actionError("updateWarehouse", caught, "Агуулах шинэчлэгдсэнгүй");
+  }
+}
+
 export async function toggleWarehouse(id: string, isActive: boolean) {
   const { orgId } = await requireModuleAction("inv", "write");
   await db
@@ -521,13 +606,38 @@ export async function toggleWarehouse(id: string, isActive: boolean) {
   revalidateInventory();
 }
 
-// ── Барааны бүлэг (POS: хөнгөлөлтийн дүрэм, тайлангийн бүлэглэл) ─────────────
+// ── Барааны АНГИЛАЛ — олон түвшинтэй мод (lib/inventory/category-tree.ts) ─────
+// POS: хөнгөлөлтийн дүрэм, шүүлт, тайлан — удамшлаар; eBarimt код өвөг рүү.
 
 type InventoryCategoryInput = {
   code: string;
   name: string;
+  /** Эцэг ангилал (id) — null/хоосон бол эхний түвшин. */
+  parentId?: string | null;
   ebarimtClassificationCode?: string | null;
 };
+
+/** Байгууллагын бүх ангилал (мод шалгахад) + түвшний нэрс. */
+async function loadCategoryContext(orgId: string) {
+  const [rows, levelRows] = await Promise.all([
+    db.query.inventoryCategories.findMany({
+      where: eq(inventoryCategories.organizationId, orgId),
+      columns: { id: true, code: true, name: true, parentId: true, isActive: true },
+    }),
+    db.query.inventoryCategoryLevels.findMany({
+      where: eq(inventoryCategoryLevels.organizationId, orgId),
+      columns: { depth: true, name: true },
+    }),
+  ]);
+  const nodes: CategoryNode[] = rows.map((row) => ({ ...row, parentId: row.parentId ?? null }));
+  return { nodes, levels: resolveCategoryLevels(levelRows) };
+}
+
+function cleanParentId(value: string | null | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
 
 export async function createInventoryCategory(
   data: InventoryCategoryInput
@@ -543,26 +653,35 @@ async function createInventoryCategoryCore(data: InventoryCategoryInput) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
-  if (!code) throw new Error("Бүлгийн код оруулна уу");
-  if (!name) throw new Error("Бүлгийн нэр оруулна уу");
+  if (!code) throw new Error("Ангиллын код оруулна уу");
+  if (!name) throw new Error("Ангиллын нэр оруулна уу");
   const ebarimtClassificationCode = parseClassificationCode(data.ebarimtClassificationCode) ?? null;
-  const duplicate = await db.query.inventoryCategories.findFirst({
-    where: and(
-      eq(inventoryCategories.organizationId, orgId),
-      eq(inventoryCategories.code, code)
-    ),
-    columns: { id: true },
-  });
-  if (duplicate) throw new Error(`"${code}" кодтой бүлэг бүртгэгдсэн байна`);
-  await db
+  const parentId = cleanParentId(data.parentId) ?? null;
+  const { nodes, levels } = await loadCategoryContext(orgId);
+  if (nodes.some((node) => node.code === code))
+    throw new Error(`"${code}" кодтой ангилал бүртгэгдсэн байна`);
+  const treeError = validateCategoryParent({ parentId, nodes, levelCount: levels.length });
+  if (treeError) throw new Error(treeError);
+  const [row] = await db
     .insert(inventoryCategories)
-    .values({ userId, organizationId: orgId, code, name, ebarimtClassificationCode });
+    .values({ userId, organizationId: orgId, code, name, parentId, ebarimtClassificationCode })
+    .returning({ id: inventoryCategories.id });
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "create",
+    entityType: "inventory",
+    entityId: row.id,
+    summary: `Барааны ангилал нэмэгдэв — ${code} · ${name}`,
+  });
   revalidateInventory();
   return {};
 }
 
 type InventoryCategoryUpdateInput = {
   name: string;
+  /** undefined = хөндөхгүй, null = эхний түвшин рүү. */
+  parentId?: string | null;
   ebarimtClassificationCode?: string | null;
 };
 
@@ -580,11 +699,23 @@ export async function updateInventoryCategory(
 async function updateInventoryCategoryCore(id: string, data: InventoryCategoryUpdateInput) {
   const { orgId } = await requireModuleAction("inv", "write");
   const name = data.name.trim();
-  if (!name) throw new Error("Бүлгийн нэр оруулна уу");
+  if (!name) throw new Error("Ангиллын нэр оруулна уу");
   const ebarimtClassificationCode = parseClassificationCode(data.ebarimtClassificationCode);
+  const parentId = cleanParentId(data.parentId);
+  const { nodes, levels } = await loadCategoryContext(orgId);
+  const current = nodes.find((node) => node.id === id);
+  if (!current) throw new Error("Ангилал олдсонгүй");
+  if (parentId !== undefined && parentId !== current.parentId) {
+    const treeError = validateCategoryParent({ id, parentId, nodes, levelCount: levels.length });
+    if (treeError) throw new Error(treeError);
+  }
   await db
     .update(inventoryCategories)
-    .set({ name, ...(ebarimtClassificationCode !== undefined ? { ebarimtClassificationCode } : {}) })
+    .set({
+      name,
+      ...(parentId !== undefined ? { parentId } : {}),
+      ...(ebarimtClassificationCode !== undefined ? { ebarimtClassificationCode } : {}),
+    })
     .where(
       and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
     );
@@ -608,6 +739,115 @@ async function toggleInventoryCategoryCore(id: string, isActive: boolean) {
     .where(
       and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId))
     );
+  revalidateInventory();
+  return {};
+}
+
+/**
+ * Ангилал устгах — ЗӨВХӨН дэд ангилал, бараа, хөнгөлөлтийн дүрэм холбоогүй
+ * үед (categoryDeleteBlocker). Холбоотойг идэвхгүй болгоно.
+ */
+export async function deleteInventoryCategory(id: string): Promise<ActionResult> {
+  try {
+    return await deleteInventoryCategoryCore(id);
+  } catch (caught) {
+    return actionError("deleteInventoryCategory", caught, "Ангилал устгагдсангүй");
+  }
+}
+
+async function deleteInventoryCategoryCore(id: string) {
+  const { orgId, userId } = await requireModuleAction("inv", "write");
+  const category = await db.query.inventoryCategories.findFirst({
+    where: and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId)),
+    columns: { id: true, code: true, name: true },
+  });
+  if (!category) throw new Error("Ангилал олдсонгүй");
+  const countOf = async (query: Promise<{ count: number }[]>) =>
+    Number((await query)[0]?.count ?? 0);
+  const [childCount, itemCount, ruleCount] = await Promise.all([
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventoryCategories)
+        .where(
+          and(eq(inventoryCategories.organizationId, orgId), eq(inventoryCategories.parentId, id))
+        )
+    ),
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(inventoryItems)
+        .where(
+          and(
+            eq(inventoryItems.organizationId, orgId),
+            eq(inventoryItems.categoryCode, category.code)
+          )
+        )
+    ),
+    countOf(
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(posDiscountRules)
+        .where(
+          and(
+            eq(posDiscountRules.organizationId, orgId),
+            eq(posDiscountRules.scope, "category"),
+            eq(posDiscountRules.scopeRef, category.code)
+          )
+        )
+    ),
+  ]);
+  const blocker = categoryDeleteBlocker({ childCount, itemCount, ruleCount });
+  if (blocker) throw new Error(blocker);
+  await db
+    .delete(inventoryCategories)
+    .where(and(eq(inventoryCategories.id, id), eq(inventoryCategories.organizationId, orgId)));
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "delete",
+    entityType: "inventory",
+    entityId: id,
+    summary: `Барааны ангилал устгагдав — ${category.code} · ${category.name}`,
+  });
+  revalidateInventory();
+  return {};
+}
+
+/**
+ * Ангиллын ТҮВШНИЙ нэрсийг хадгална (дээрээс доош). Хамгийн багадаа 1;
+ * модонд ашиглагдаж буй гүнээс доош хасахгүй (planCategoryLevels).
+ */
+export async function saveInventoryCategoryLevels(names: string[]): Promise<ActionResult> {
+  try {
+    return await saveInventoryCategoryLevelsCore(names);
+  } catch (caught) {
+    return actionError("saveInventoryCategoryLevels", caught, "Түвшин хадгалагдсангүй");
+  }
+}
+
+async function saveInventoryCategoryLevelsCore(names: string[]) {
+  const { orgId, userId } = await requireModuleAction("inv", "write");
+  if (!Array.isArray(names)) throw new Error("Түвшний жагсаалт буруу");
+  const { nodes } = await loadCategoryContext(orgId);
+  const plan = planCategoryLevels(names, maxTreeDepth(nodes));
+  if ("error" in plan) throw new Error(plan.error);
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(inventoryCategoryLevels)
+      .where(eq(inventoryCategoryLevels.organizationId, orgId));
+    await tx.insert(inventoryCategoryLevels).values(
+      plan.names.map((name, index) => ({ organizationId: orgId, depth: index + 1, name }))
+    );
+  });
+  await logAuditEvent({
+    userId,
+    organizationId: orgId,
+    action: "update",
+    entityType: "inventory",
+    entityId: orgId,
+    summary: `Барааны ангиллын түвшин: ${plan.names.join(" › ")}`,
+  });
   revalidateInventory();
   return {};
 }

@@ -6,8 +6,19 @@
 // (11/14 орон), хувь хүнд иргэний РД (2 кирилл үсэг + 8 орон). Шалгалт нь
 // ЗӨВЛӨМЖ (хориг биш): гадаадын харилцагч өөр форматтай байж болно.
 
+//
+// ДИНАМИК ТӨРӨЛ (counterparty_entity_kinds): байгууллага бүр өөрийн төрөл нэмнэ
+// (ж: «Төрийн байгууллага», «ТББ», «Гадаадын иргэн»). «Байгууллага» / «Хувь
+// хүн» нь СИСТЕМИЙН төрөл — үргэлж бий, устгагдахгүй (нэрийг нь л засна).
+// Шинэ төрөл бүр `baseKind`-тай («байгууллага шиг» / «хувь хүн шиг»);
+// регистрийн шалгалт, eBarimt B2B зэрэг бизнесийн логик ЗӨВХӨН baseKind-аар
+// ажиллана — код даяар шинэ төрлийн нэрийг/кодыг hardcode хийхгүй.
+
+/** Бизнесийн логикийн СУУРЬ төрөл (систем). */
 export const COUNTERPARTY_ENTITY_KINDS = ["organization", "individual"] as const;
 export type CounterpartyEntityKind = (typeof COUNTERPARTY_ENTITY_KINDS)[number];
+/** Суурь төрлийн нэр — `CounterpartyEntityKind`-тэй ижил (уншигдахуйц нэр). */
+export type CounterpartyBaseKind = CounterpartyEntityKind;
 
 export const COUNTERPARTY_ENTITY_KIND_LABELS: Record<CounterpartyEntityKind, string> = {
   organization: "Байгууллага",
@@ -15,6 +26,143 @@ export const COUNTERPARTY_ENTITY_KIND_LABELS: Record<CounterpartyEntityKind, str
 };
 
 export const DEFAULT_COUNTERPARTY_ENTITY_KIND: CounterpartyEntityKind = "organization";
+
+/** Нэг төрөл — систем эсвэл байгууллагын нэмсэн. */
+export interface EntityKindOption {
+  /** `counterparties.entityKind`-д хадгалагдах код. */
+  code: string;
+  name: string;
+  baseKind: CounterpartyBaseKind;
+  /** Систем төрөл — устгагдахгүй, суурь нь өөрчлөгдөхгүй. */
+  isSystem: boolean;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+export const SYSTEM_ENTITY_KINDS: readonly EntityKindOption[] = COUNTERPARTY_ENTITY_KINDS.map(
+  (code, index) => ({
+    code,
+    name: COUNTERPARTY_ENTITY_KIND_LABELS[code],
+    baseKind: code,
+    isSystem: true,
+    isActive: true,
+    sortOrder: index,
+  })
+);
+
+/** Байгууллагын нэмсэн төрлийн код — `kind_<n>` (систем кодтой давхцахгүй). */
+export const CUSTOM_ENTITY_KIND_CODE_RE = /^kind_\d{1,6}$/;
+
+export function isSystemEntityKind(code: unknown): code is CounterpartyEntityKind {
+  return (COUNTERPARTY_ENTITY_KINDS as readonly unknown[]).includes(code);
+}
+
+/**
+ * Хадгалсан мөрүүдийг системийн төрөлтэй нийлүүлнэ. Систем төрлийн мөр
+ * (нэр засагдсан) нь зөвхөн НЭРИЙГ дарна — суурь, идэвх өөрчлөгдөхгүй.
+ * Эрэмбэ: систем эхэнд, дараа нь sortOrder → нэр.
+ */
+export function resolveEntityKinds(
+  rows: readonly {
+    code: string;
+    name: string;
+    baseKind: string;
+    isActive: boolean;
+    sortOrder: number;
+  }[] | null | undefined
+): EntityKindOption[] {
+  const byCode = new Map<string, EntityKindOption>(SYSTEM_ENTITY_KINDS.map((kind) => [kind.code, { ...kind }]));
+  for (const row of rows ?? []) {
+    const name = row.name.trim();
+    if (isSystemEntityKind(row.code)) {
+      if (name) byCode.get(row.code)!.name = name;
+      continue;
+    }
+    if (!name) continue;
+    byCode.set(row.code, {
+      code: row.code,
+      name,
+      baseKind: row.baseKind === "individual" ? "individual" : "organization",
+      isSystem: false,
+      isActive: row.isActive,
+      sortOrder: row.sortOrder,
+    });
+  }
+  return [...byCode.values()].sort(
+    (a, b) =>
+      Number(b.isSystem) - Number(a.isSystem) ||
+      a.sortOrder - b.sortOrder ||
+      a.name.localeCompare(b.name, "mn")
+  );
+}
+
+/** Код → суурь төрөл. Танигдахгүй код → байгууллага (хамгийн болгоомжтой default). */
+export function baseKindOf(
+  code: string | null | undefined,
+  kinds: readonly EntityKindOption[] = SYSTEM_ENTITY_KINDS
+): CounterpartyBaseKind {
+  if (isSystemEntityKind(code)) return code;
+  return kinds.find((kind) => kind.code === code)?.baseKind ?? DEFAULT_COUNTERPARTY_ENTITY_KIND;
+}
+
+/** Код → харагдах нэр. Танигдахгүй бол кодыг өөрийг нь (нуухгүй). */
+export function entityKindName(
+  code: string | null | undefined,
+  kinds: readonly EntityKindOption[] = SYSTEM_ENTITY_KINDS
+): string {
+  if (!code) return COUNTERPARTY_ENTITY_KIND_LABELS[DEFAULT_COUNTERPARTY_ENTITY_KIND];
+  return kinds.find((kind) => kind.code === code)?.name ?? code;
+}
+
+/**
+ * Харилцагчид оноох төрлийг шалгана: хоосон → default, байгууллагын
+ * жагсаалтад ИДЭВХТЭЙ байх ёстой (идэвхгүй төрлийг `current` хэвээр
+ * үлдээхийг зөвшөөрнө — засахад унахгүй). Буцаах: код эсвэл алдаа.
+ */
+export function resolveEntityKindCode(
+  value: unknown,
+  kinds: readonly EntityKindOption[],
+  current?: string | null
+): { code: string } | { error: string } {
+  if (value == null || value === "") return { code: DEFAULT_COUNTERPARTY_ENTITY_KIND };
+  const code = String(value).trim();
+  const kind = kinds.find((entry) => entry.code === code || entry.name.toLowerCase() === code.toLowerCase());
+  if (!kind)
+    return {
+      error: `Харилцагчийн төрөл «${code}» бүртгэлд алга — ${kinds
+        .filter((entry) => entry.isActive)
+        .map((entry) => `${entry.name} (${entry.code})`)
+        .join(", ")}`,
+    };
+  if (!kind.isActive && kind.code !== current)
+    return { error: `«${kind.name}» төрөл идэвхгүй болсон байна` };
+  return { code: kind.code };
+}
+
+/** Дараагийн чөлөөт `kind_<n>` код. */
+export function nextEntityKindCode(kinds: readonly { code: string }[]): string {
+  let max = 0;
+  for (const kind of kinds) {
+    const match = /^kind_(\d+)$/.exec(kind.code);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `kind_${max + 1}`;
+}
+
+/** Шинэ/засах төрлийн нэрийг шалгана (давхардал, урт). null = зөв. */
+export function entityKindNameError(
+  name: string,
+  kinds: readonly EntityKindOption[],
+  exceptCode?: string
+): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Төрлийн нэр оруулна уу";
+  if (trimmed.length > 60) return "Төрлийн нэр 60 тэмдэгтээс ихгүй";
+  const clash = kinds.find(
+    (kind) => kind.code !== exceptCode && kind.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  return clash ? `«${clash.name}» нэртэй төрөл бүртгэгдсэн байна` : null;
+}
 
 /** Иргэний регистрийн дугаар — 2 кирилл үсэг + 8 орон (ж: УУ12345678). */
 export const CITIZEN_REGISTER_NO_RE = /^[А-ЯЁӨҮ]{2}\d{8}$/u;

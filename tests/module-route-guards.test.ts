@@ -29,6 +29,8 @@ const EXPECTED: Record<string, { module?: string[]; role?: string }> = {
   arap: { module: ["ar", "ap"] },
   inventory: { module: ["inv", "pos"] },
   "inventory/items": { module: ["inv"] },
+  "inventory/categories": { module: ["inv"] },
+  "inventory/warehouses": { module: ["inv"] },
   "inventory/movements": { module: ["inv"] },
   "inventory/counting": { module: ["inv"] },
   "inventory/reports": { module: ["inv"] },

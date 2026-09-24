@@ -192,7 +192,7 @@ export function InventoryCountingView({
       </div>
 
       {activeWarehouses.length === 0 ? (
-        <EmptyState icon="warehouse" title="Идэвхтэй агуулах алга" description="Эхлээд агуулах бүртгэнэ." actions={[{ label: "Агуулах бүртгэх", href: "/inventory/items", icon: "add", primary: true }]} />
+        <EmptyState icon="warehouse" title="Идэвхтэй агуулах алга" description="Эхлээд агуулах бүртгэнэ." actions={[{ label: "Агуулах бүртгэх", href: "/inventory/warehouses", icon: "add", primary: true }]} />
       ) : rows.length === 0 ? (
         <EmptyState icon="inventory" title="Идэвхтэй бараа алга" description="Эхлээд бараа бүртгэнэ." actions={[{ label: "Бараа бүртгэх", href: "/inventory/items", icon: "add", primary: true }]} />
       ) : (

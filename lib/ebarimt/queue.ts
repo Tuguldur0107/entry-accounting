@@ -21,7 +21,7 @@ import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import type { PaymentKind } from "@/lib/pos/constants";
 
 import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
-import { ebarimtReadiness, type EbarimtReadiness } from "./readiness";
+import { categoryClassificationMap, ebarimtReadiness, type EbarimtReadiness } from "./readiness";
 import { fetchPosApiHealth } from "./client";
 import { isMerchantRegistered } from "./posapi-info";
 import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets } from "./receipt";
@@ -68,6 +68,7 @@ export async function loadSaleForEbarimt(
               name: true,
               unit: true,
               barcode: true,
+              barcodeType: true,
               vatMode: true,
               categoryCode: true,
               ebarimtClassificationCode: true,
@@ -92,14 +93,16 @@ export async function loadSaleForEbarimt(
       if (line.originalLineId)
         returnedByLine.set(line.originalLineId, (returnedByLine.get(line.originalLineId) ?? 0) + Number(line.quantity));
 
-  const categoryCodes = [...new Set(sale.lines.map((line) => line.item?.categoryCode).filter((code): code is string => !!code))];
-  const categories = categoryCodes.length
+  // Ангилал олон түвшинтэй — өвөг рүү өгсөж өвлөхийн тулд байгууллагын БҮХ
+  // ангиллыг (жижиг лавлах) ачаална (readiness.ts-тэй ИЖИЛ дүрэм).
+  const hasCategory = sale.lines.some((line) => !!line.item?.categoryCode);
+  const categories = hasCategory
     ? await handle.query.inventoryCategories.findMany({
-        where: and(eq(inventoryCategories.organizationId, orgId), inArray(inventoryCategories.code, categoryCodes)),
-        columns: { code: true, ebarimtClassificationCode: true },
+        where: eq(inventoryCategories.organizationId, orgId),
+        columns: { id: true, code: true, name: true, parentId: true, ebarimtClassificationCode: true },
       })
     : [];
-  const categoryClassification = new Map(categories.map((category) => [category.code, category.ebarimtClassificationCode]));
+  const categoryClassification = categoryClassificationMap(categories);
   const vat = await loadVatSettings(orgId);
 
   return {
@@ -117,6 +120,7 @@ export async function loadSaleForEbarimt(
       return {
         itemName: line.description || line.item?.name || "",
         barcode: line.item?.barcode ?? null,
+        barcodeType: line.item?.barcodeType ?? null,
         unit: line.item?.unit ?? "ш",
         vatMode: toItemVatMode(line.vatMode),
         classificationCode:
@@ -452,7 +456,7 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
     }),
     db.query.inventoryCategories.findMany({
       where: eq(inventoryCategories.organizationId, orgId),
-      columns: { code: true, name: true, ebarimtClassificationCode: true },
+      columns: { id: true, code: true, name: true, parentId: true, ebarimtClassificationCode: true },
     }),
     db.query.posPaymentMethods.findMany({
       where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.isActive, true)),

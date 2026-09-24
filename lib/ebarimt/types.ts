@@ -114,6 +114,8 @@ export interface EbarimtSettingsInput {
 export interface EbarimtSaleLineInput {
   itemName: string;
   barcode: string | null;
+  /** Барааны картын баркодын төрөл — хоосон/танигдахгүй бол "UNDEFINED". */
+  barcodeType?: string | null;
   unit: string;
   vatMode: VatMode;
   /** Барааных, хоосон бол бүлгийнх (ачаалагч өвлүүлж өгнө). */

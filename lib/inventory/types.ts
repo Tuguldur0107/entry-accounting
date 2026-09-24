@@ -20,14 +20,23 @@ export type InventoryItemView = {
   ebarimtClassificationCode: string | null;
   /** eBarimt: НӨАТ-гүй/0% барааны татварын бүтээгдэхүүний код (3 орон). */
   ebarimtTaxProductCode: string | null;
+  /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED"; null = UNDEFINED. */
+  barcodeType: string | null;
+  // ── Дэлгэрэнгүй мэдээлэл ──
+  description: string | null;
+  brand: string | null;
+  manufacturer: string | null;
+  originCountry: string | null;
 };
 
 export type InventoryCategoryView = {
   id: string;
   code: string;
   name: string;
+  /** Эцэг ангилал (id) — null бол эхний түвшин (lib/inventory/category-tree.ts). */
+  parentId: string | null;
   isActive: boolean;
-  /** eBarimt: бүлгийн default ангилалын код (7 орон). */
+  /** eBarimt: ангиллын default ангилалын код (7 орон) — дэд ангилал/бараанд өвлөгдөнө. */
   ebarimtClassificationCode: string | null;
 };
 
