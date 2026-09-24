@@ -41,6 +41,12 @@ const STATUS_TONES: Record<GlBoundStatus, StatusTone> = {
 
 type Tab = "detail" | "reconciliation" | "clearing";
 
+/** GL тулгалтын мөнгөн нүд — хөл дүнгийн утгагүй (NaN) нүд ХООСОН. */
+const reconMoney = (value: unknown) => {
+  const amount = Number(value ?? 0);
+  return Number.isNaN(amount) ? "" : fmtMnt(amount);
+};
+
 interface Props {
   from: string;
   to: string;
@@ -389,7 +395,7 @@ export function TransactionDetailReport({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: (params) => reconMoney(params.value),
       },
       {
         headerName: "GL",
@@ -397,7 +403,7 @@ export function TransactionDetailReport({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: (params) => reconMoney(params.value),
       },
       {
         headerName: "PO хаалт",
@@ -406,7 +412,7 @@ export function TransactionDetailReport({
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
-          Number(params.value ?? 0) === 0 ? "" : fmtMnt(Number(params.value)),
+          Number(params.value ?? 0) === 0 ? "" : reconMoney(params.value),
         headerTooltip:
           "PO хаалтын журналаар түр дансыг тэгшитгэсэн дүн — өртгийн бичилт биш",
       },
@@ -417,7 +423,7 @@ export function TransactionDetailReport({
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
-          Number(params.value ?? 0) === 0 ? "" : fmtMnt(Number(params.value)),
+          Number(params.value ?? 0) === 0 ? "" : reconMoney(params.value),
         headerTooltip:
           "Клирингийн дансан дахь нэхэмжлэхийн тал (PO-гүй АП г.м.) — капитализаци түүнийг хаадаг",
       },
@@ -432,7 +438,7 @@ export function TransactionDetailReport({
               "text-[var(--ea-danger)]"
           ),
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: (params) => reconMoney(params.value),
       },
       {
         headerName: "Холбоогүй GL мөр",
@@ -447,7 +453,7 @@ export function TransactionDetailReport({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: (params) => reconMoney(params.value),
       },
     ],
     []
@@ -458,25 +464,28 @@ export function TransactionDetailReport({
   ).length;
   const openClearing = clearing.rows.filter((row) => row.status !== "cleared").length;
 
-  // GL тулгалтын хөл дүн — баганын энгийн нийлбэр (зөрүү = Σ дэд дэвтэр + PO
-  // хаалт + эх баримт − Σ GL тул мөрүүдтэй нийцтэй).
+  // GL тулгалтын хөл дүн. Данс бүрийн дэд дэвтэр/GL/PO хаалт/эх баримт нь
+  // өөр өөр дансны (нөөц Дт, клиринг Кт) тэмдэгтэй үлдэгдэл тул нийлбэр нь
+  // утгагүй — ХООСОН (NaN → «»). Зөрүү нь Σ|зөрүү| — эсрэг тэмдэгтэй хоёр данс
+  // хоорондоо тэгшилж «0.00 = тулгагдсан» гэж ХУДАЛ уншигдахаас сэргийлнэ
+  // (клирингийн unknownGross = Σ|үлдэгдэл|-тэй ижил зарчим).
   const reconPinned = useMemo<ReconciliationRow[]>(() => {
-    const sum = (pick: (row: ReconciliationRow) => number) =>
-      Math.round(reconciliation.reduce((acc, row) => acc + pick(row), 0) * 100) / 100;
+    const sumAbs = (pick: (row: ReconciliationRow) => number) =>
+      Math.round(reconciliation.reduce((acc, row) => acc + Math.abs(pick(row)), 0) * 100) / 100;
     return [
       {
-        accountNumber: "Нийт",
-        accountName: "",
-        subledgerAmount: sum((row) => row.subledgerAmount),
-        glAmount: sum((row) => row.glAmount),
-        poCloseAmount: sum((row) => row.poCloseAmount),
-        sourceDocAmount: sum((row) => row.sourceDocAmount),
-        difference: sum((row) => row.difference),
+        accountNumber: "Нийт |зөрүү|",
+        accountName: `${diffCount} дансанд зөрүүтэй`,
+        subledgerAmount: Number.NaN,
+        glAmount: Number.NaN,
+        poCloseAmount: Number.NaN,
+        sourceDocAmount: Number.NaN,
+        difference: sumAbs((row) => row.difference),
         unlinkedGlLines: reconciliation.reduce((acc, row) => acc + row.unlinkedGlLines, 0),
-        unlinkedGlAmount: sum((row) => row.unlinkedGlAmount),
+        unlinkedGlAmount: sumAbs((row) => row.unlinkedGlAmount),
       },
     ];
-  }, [reconciliation]);
+  }, [reconciliation, diffCount]);
 
   return (
     <ReportPage>

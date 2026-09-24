@@ -1,5 +1,6 @@
 import { ComponentAnalysisReport } from "@/components/costing/component-analysis-report";
 import { getActiveOrg } from "@/lib/auth";
+import { isPeriodCode } from "@/lib/periods/period";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { loadComponentAnalysis } from "@/lib/costing/component-analysis";
 
@@ -15,8 +16,7 @@ export default async function ComponentAnalysisPage({
 
   // Сар: URL-ийн `period` (deep link) → topbar-ийн сонголт (тайлангийн стандарт).
   const selection = await getPeriodSelection();
-  const periodCode =
-    period && /^\d{4}-\d{2}$/.test(period) ? period : selection.periodCode;
+  const periodCode = period && isPeriodCode(period) ? period : selection.periodCode;
 
   const rows = await loadComponentAnalysis(orgId, periodCode);
 

@@ -13,7 +13,9 @@ import {
 import { db } from "@/lib/db";
 import { cashAccounts, cashDocuments, segmentValues } from "@/lib/db/schema";
 
-type SearchParams = Promise<{ start?: string; end?: string }>;
+// `view` = нэг тайлангийн зүсэлт (accounts | flow | detail) — URL-д, refresh
+// болон линкээр хадгалагдана (борлуулалт/цалингийн тайлантай ижил).
+type SearchParams = Promise<{ start?: string; end?: string; view?: string }>;
 
 export default async function CashReportsPage({
   searchParams,
@@ -21,7 +23,7 @@ export default async function CashReportsPage({
   searchParams: SearchParams;
 }) {
   const { orgId } = await getActiveOrg();
-  const { start, end } = await searchParams;
+  const { start, end, view } = await searchParams;
   const period = await getPeriodSelection();
   const periodStart = start ?? period.from;
   const periodEnd = end ?? period.to;
@@ -80,6 +82,7 @@ export default async function CashReportsPage({
       cashFlowNames={Object.fromEntries(codeNames)}
       periodStart={periodStart}
       periodEnd={periodEnd}
+      view={view === "flow" || view === "detail" ? view : "accounts"}
     />
   );
 }

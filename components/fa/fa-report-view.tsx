@@ -8,6 +8,7 @@
 // заадаг (assetAccountNumber г.м. тохиргооны түвшний mapping).
 
 import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
@@ -24,8 +25,12 @@ import { fmtPeriodCode } from "@/lib/periods/period";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openFaAssetPanel } from "@/lib/store/panel-store";
 
+export type FaReportSlice = "register" | "months";
+
 interface Props {
   assets: FixedAssetView[];
+  /** Зүсэлт — URL-ийн `?view=` (page.tsx шалгасан). */
+  view: FaReportSlice;
 }
 
 const STATUS_META: Record<string, { label: string; tone: StatusTone }> = {
@@ -51,9 +56,18 @@ function moneyCol<T>(): Partial<ColDef<T>> {
   };
 }
 
-export function FaReportView({ assets }: Props) {
+export function FaReportView({ assets, view }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [view, setView] = useState<"register" | "months">("register");
+  // Зүсэлт URL-д (`?view=`) — refresh, линк хуваалцахад хадгалагдана.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const setView = (next: FaReportSlice) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "register") params.delete("view");
+    else params.set("view", next);
+    router.replace(params.size ? `${pathname}?${params}` : pathname);
+  };
 
   const counts = useMemo(
     () => ({

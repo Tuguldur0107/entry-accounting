@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
 import { createNrvEntry } from "@/lib/actions/costing";
 import { currentDocumentDate } from "@/lib/periods/document-date";
+import { fmtPeriodLabelMn } from "@/lib/periods/period";
 import type { ValuationRow } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,8 @@ const fmtQty = (value: number) =>
 
 interface Props {
   valuation: ValuationRow[];
+  /** Хамгийн сүүлд тооцоологдсон сар (YYYY-MM) — null = тооцоолол алга. */
+  latestPeriod: string | null;
 }
 
 // Нөөцийн үнэлгээ + NRV нөөц — сүүлийн тооцоологдсон сарын C2-оос
@@ -42,7 +45,7 @@ interface Props {
 // GL тулгалт ЭНД БАЙХГҮЙ — тэр нь "Гүйлгээний дэлгэрэнгүй" табын
 // loadInventoryGlReconciliation-д (огнооны мужаар) байдаг; хоёр газар
 // хоёр өөр аргаар тулгах нь давхардал байсан.
-export function CostingReportView({ valuation }: Props) {
+export function CostingReportView({ valuation, latestPeriod }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [nrvRow, setNrvRow] = useState<ValuationRow | null>(null);
@@ -194,7 +197,9 @@ export function CostingReportView({ valuation }: Props) {
     <ReportPage>
       <ReportHeader
         title="Нөөцийн үнэлгээ · NRV"
-        meta="Бараа × агуулах бүрийн хамгийн сүүлд тооцоологдсон сарын эцсийн үлдэгдэл (C2) — өртгийн хяналттай нэг суурь; цэвэр дүн = өртөг − NRV нөөц"
+        meta={`${
+          latestPeriod ? `${fmtPeriodLabelMn(latestPeriod)}-ын байдлаар` : "Тооцоологдсон сар алга"
+        } · бараа бүрийн (бүх агуулах нэгтгэсэн) хамгийн сүүлд тооцоологдсон сарын эцсийн үлдэгдэл (C2) — топбарын периодоос ХАМААРАХГҮЙ; өртгийн хяналттай нэг суурь; цэвэр дүн = өртөг − NRV нөөц`}
       />
 
       {valuation.length === 0 ? (
