@@ -103,10 +103,13 @@ async function main() {
   if (ok2)
     await run(
       "cost_entries_movement_active_uq (partial unique)",
+      // cogs_true_up нь ҮНДСЭН үнэлгээний давхарга БИШ — залруулга (docs/pos
+      // §3.7) тул энэ дүрэмд хамаарахгүй. schema.ts-тэй ижил предикат байх
+      // ЁСТОЙ; зөрвөл урьдчилсан COGS-ийн залруулга unique violation өгнө.
       `create unique index if not exists cost_entries_movement_active_uq
        on cost_entries (movement_id)
        where movement_id is not null and status <> 'reversed'
-         and entry_type <> 'landed_cost'`
+         and entry_type not in ('landed_cost', 'cogs_true_up')`
     );
   if (ok3)
     await run(

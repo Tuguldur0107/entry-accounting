@@ -1019,6 +1019,42 @@ async function main() {
        on knowledge_reads (organization_id, created_at)`
   );
 
+  // ── 11. POS урьдчилсан COGS-ийн залруулга (docs/pos §3.7) ────────────────
+  // cost_entries_movement_active_uq нь "1 хөдөлгөөнд 1 идэвхтэй ҮНДСЭН
+  // үнэлгээ" дүрмийн backstop. Анх (migrations/0015_dusty_ink.sql) зөвхөн
+  // `entry_type <> 'landed_cost'`-оор зарлагдсан — POS-ийн `cogs_true_up`
+  // хараахан байгаагүй. schema.ts хожим `not in ('landed_cost',
+  // 'cogs_true_up')` болсон ч индексийг үүсгэдэг БҮХ зам
+  // (`0015`, `manual/2026-08-08-hot-path-indexes.sql`, `apply-audit-ddl.ts`)
+  // `if not exists`-тэй тул БАЙГАА DB дээр предикат ХЭЗЭЭ Ч шинэчлэгдээгүй;
+  // drizzle-kit push мөн партиал индексийн предикатын diff-ийг найдвартай
+  // танихгүй. Улмаар хуучин DB дээр урьдчилсан COGS-той хөдөлгөөнд
+  // `cogs_true_up` мөр оруулах гэхэд ҮНДСЭН бичилттэйгээ мөргөлдөж
+  // `run_monthly_costing` unique violation-оор УНАДАГ байв — сар хаалтын
+  // залруулга огт ажиллахгүй (2026-09-24: пилот дээр илэрсэн).
+  //
+  // Предикатыг ӨРГӨН болгож байгаа тул (илүү олон мөр индексээс ХАСАГДАНА)
+  // дахин үүсгэхэд байгаа өгөгдөл зөрчил үүсгэх боломжгүй — идемпотент.
+  await run(
+    "cost_entries_movement_active_uq (cogs_true_up хасах предикат)",
+    `drop index if exists cost_entries_movement_active_uq`
+  );
+  await run(
+    "cost_entries_movement_active_uq дахин үүсгэх",
+    `create unique index if not exists cost_entries_movement_active_uq
+       on cost_entries (movement_id)
+       where movement_id is not null and status <> 'reversed'
+         and entry_type not in ('landed_cost', 'cogs_true_up')`
+  );
+  // Нэг хөдөлгөөнд нэг л ИДЭВХТЭЙ НООРОГ залруулга (идемпотент дахин тооцоолол).
+  await run(
+    "cost_entries_true_up_draft_uq (partial unique)",
+    `create unique index if not exists cost_entries_true_up_draft_uq
+       on cost_entries (movement_id)
+       where movement_id is not null and entry_type = 'cogs_true_up'
+         and status = 'draft'`
+  );
+
   console.log(
     failures === 0
       ? "apply-pending-ddl: бүх DDL хэрэгжлээ"

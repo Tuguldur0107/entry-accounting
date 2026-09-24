@@ -1,12 +1,18 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 
 import { CostEntriesView } from "@/components/costing/cost-entries-view";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { costEntries } from "@/lib/db/schema";
 import type { CostEntryView } from "@/lib/inventory/types";
+import { getPeriodSelection } from "@/lib/periods/selection";
 
-type SearchParams = Promise<{ status?: string }>;
+// Тайлант үеийн шүүлтүүр (CLAUDE.md §4 "Системийн хэмжээний периодын
+// шүүлтүүр"): URL-ийн ил `start`/`end` сонголтыг ДАРНА, байхгүй бол
+// topbar-ийн сонголтын from/to. Урьд нь энэ хуудас огнооны шүүлтгүй БҮХ
+// бичилтийг татдаг байсан тул topbar дээр "9-р сар" байхад 7, 8-р сарын
+// бичилт хамт харагдаж байв.
+type SearchParams = Promise<{ status?: string; start?: string; end?: string }>;
 
 export default async function CostEntriesPage({
   searchParams,
@@ -14,12 +20,21 @@ export default async function CostEntriesPage({
   searchParams: SearchParams;
 }) {
   const { orgId } = await getActiveOrg();
-  const { status } = await searchParams;
+  const [{ status, start, end }, period] = await Promise.all([
+    searchParams,
+    getPeriodSelection(),
+  ]);
+  const rangeStart = start ?? period.from;
+  const rangeEnd = end ?? period.to;
 
   // Дэлгэрэнгүй (GL мөр, дансны нэр, сегмент) нь одоо панель өөрөө
   // getCostEntryPanelData-аар татдаг тул энд зөвхөн жагсаалтын өгөгдөл.
   const entries = await db.query.costEntries.findMany({
-    where: eq(costEntries.organizationId, orgId),
+    where: and(
+      eq(costEntries.organizationId, orgId),
+      gte(costEntries.date, rangeStart),
+      lte(costEntries.date, rangeEnd)
+    ),
     with: { movement: { with: { item: true } }, item: true },
     orderBy: (entry, { desc }) => [desc(entry.date), desc(entry.createdAt)],
   });
