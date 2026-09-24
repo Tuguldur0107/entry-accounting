@@ -31,19 +31,12 @@ export default async function CostControlPage({
       }),
     ]);
 
-  // Сонгох боломжтой периодууд — тооцоологдсон үр дүн байгаа сарууд.
-  const periodOptions = [
-    ...new Set(allResults.map((row) => row.periodCode)),
-  ].sort((a, b) => (a < b ? 1 : -1));
-
-  // Зангуу сар: URL → topbar-ийн сонголт → үр дүнтэй сүүлийн сар.
+  // Зангуу сар: URL-ийн `period` (deep link) → topbar-ийн сонголт. Үр дүнгүй
+  // сар руу ЧИМЭЭГҮЙ шилжихгүй — хоосон төлөв «Дахин тооцоолох»-ыг заана
+  // (тайлангийн стандарт: огноо зөвхөн топбарын периодоос).
   const selection = await getPeriodSelection();
   const periodCode =
-    period && periodOptions.includes(period)
-      ? period
-      : periodOptions.includes(selection.periodCode)
-        ? selection.periodCode
-        : (periodOptions[0] ?? selection.periodCode);
+    period && /^\d{4}-\d{2}$/.test(period) ? period : selection.periodCode;
 
   const results = allResults.filter((row) => row.periodCode === periodCode);
 
@@ -108,7 +101,6 @@ export default async function CostControlPage({
   return (
     <CostControlReport
       periodCode={periodCode}
-      periodOptions={periodOptions}
       rows={rows}
       periodClosed={closed}
       calculatedAt={calculatedAt}

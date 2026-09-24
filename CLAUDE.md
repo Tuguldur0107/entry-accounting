@@ -524,11 +524,12 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 
 **UI бүтэц (5 нав цэс):** Хяналтын самбар · Өртгийн бичилт · **Зардлын
 хуваарилалт** (`/costing/allocations` — 2 таб: PO-ийн зардлын worklist /
-чөлөөт хуваарилалт) · **Тайлан** (`/costing/reports` — 4 таб: Өртгийн
-хяналт / Үнэлгээ·NRV / Гүйлгээний дэлгэрэнгүй+GL тулгалт / Бүрэлдэхүүн) ·
-Тохиргоо. Таб бүр ӨӨРИЙН route хэвээр (өгөгдөл нь зөвхөн тэр хуудсанд
-ачаалагдана) — `components/costing/costing-section-tabs.tsx` нь layout-д
-суугаад `PageTabs`-ээр шилжүүлнэ; таб бүрийн `<h1>` ХАСАГДСАН (таб нэрлэдэг).
+чөлөөт хуваарилалт — `components/costing/costing-section-tabs.tsx` layout-д) ·
+**Тайлан** (`/costing/reports` — 4 тайлан: Өртгийн хяналт / Үнэлгээ·NRV /
+Гүйлгээний дэлгэрэнгүй+GL тулгалт / Бүрэлдэхүүн) · Тохиргоо. Тайлан бүр ӨӨРИЙН
+route (өгөгдөл нь зөвхөн тэр хуудсанд ачаалагдана), хооронд нь ЗӨВХӨН топбарын
+тайлан сонгогчоор шилжинэ — хуудас доторх таб БАЙХГҮЙ, сар нь топбарын периодоос
+(«Тайлангийн стандарт»).
 Хуучин `/costing/{control,detail,components,unallocated}` redirect хийнэ.
 GL тулгалт ЗӨВХӨН "Гүйлгээний дэлгэрэнгүй" табд (үнэлгээний хуудсан дээрх
 хоёр дахь хэрэгжилт давхардал байсан тул хасагдсан).
@@ -765,14 +766,15 @@ app/(dashboard)/inventory/sales  Борлуулалт (жагсаалт) — Э�
                                  POS тохиргоо `/inventory/pos-settings` нь ТУСДАА нав цэс
                                  (хуудас бүр зөвхөн ӨӨРИЙН өгөгдлөө ачаална; хуучин
                                  `/inventory/sales?tab=` линк redirect хийнэ)
-app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (6 таб, COGS cost_period_results-ээс)
+app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (7 зүсэлт, COGS cost_period_results-ээс;
+                                 топбарын сонгогч «Борлуулалтын тайлан (POS)»)
 components/pos/                  pos-checkout-view (orchestrator) + checkout/{product-panel, ticket-panel,
                                  numpad, discount-dialog, parked-dialog}, payment-dialog, receipt-preview
                                  (80мм хэвлэлт, usePosPrint); хуудас бүрийн харагдац ТУСДАА —
                                  sales-page-view → sales-list-view / shifts-view + shift-dialogs
                                  (нээх, хаах, Z-тайлан) / gift-cards-view / pos-settings-view
                                  (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
-                                 sales-report-view (/inventory/reports, 6 таб)
+                                 sales-report-view (/inventory/reports?tab=sales, 7 зүсэлт)
 components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт: мөр/дүн, буцаан олголт эсвэл
                                  дэлгүүрийн кредит; дахин хэвлэх; eBarimt; АР/журнал/хавсралт)
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
@@ -1751,6 +1753,38 @@ text: var(--ea-text-1) | secondary: var(--ea-text-3)
   ижил панель. Одоо: журнал, АР/АП баримт
 - **Латин UI текст** `tests/ui-latin-text.test.ts`-ээр сахиулагдана (allowlist-тэй)
 
+### Тайлангийн стандарт — ЗААВАЛ мөрдөнө
+
+Бүх тайлан (GL, касс, насжилт, бараа, POS, ҮХ, өртөг, хангамж, цалин) НЭГ
+зарчмаар ажиллана (2026-09-24 — өмнө нь зарим нь топбараар, зарим нь хуудас
+доторх табаар ӨӨР тайлан руу шилждэг, зарим нь өөрийн огнооны талбартай,
+зарим нь хөл дүнгүй байв):
+
+1. **Тайлан СОЛИХ = ЗӨВХӨН топбарын сонгогч** (`HeaderReportSelect`).
+   Жагсаалтын ЦОРЫН ГАНЦ эх нь `lib/constants/report-registry.ts` — шинэ
+   тайлан = нэг мөр. Нэг хуудсанд параметрээр солигддог модуль `param`-тай
+   (GL `report`, Бараа `tab`, Цалин `view`); сонгогч огнооны параметрийг л дагуулна
+2. **Хуудас доторх таб = НЭГ тайлангийн ЗҮСЭЛТ л** (Бараагаар / Өдрөөр,
+   Дансаар / S8 / Дэлгэрэнгүй, урьдчилгаа / сүүл) — өөр тайлан руу шилжүүлэх
+   таб ХОРИОТОЙ
+3. **Огноо = ЗӨВХӨН топбарын период** — тайлан дотор огнооны input /
+   «Шинэчлэх» товч / сарын сонгогч тавихгүй; URL-ийн `start`/`end`/`period`/
+   `asOf` нь deep link-ээр л дарна (§4). Үр дүнгүй сар руу ЧИМЭЭГҮЙ шилжихгүй —
+   хоосон төлөв юу хийхийг заана
+4. **Жааз** `components/reports/report-layout.tsx`: дээрээс доош тогтмол
+   `ReportHeader` (гарчиг = registry-ийн нэр, `meta` = `reportRangeLabel`
+   + тайлбар, баруун талд Excel/хэвлэх) → `ReportToolbar` (`views` зүсэлт →
+   `filters` шүүлтүүр) → хүснэгт (`height="flex"`) эсвэл `ReportEmpty`
+5. **Хөл дүн** (`pinnedBottomRowData`) нийлбэр УТГАТАЙ багана бүрд: валют
+   холимог бол валют бүрд мөр, хэмжих нэгж холимог бол тоо хэмжээгүй,
+   нэгж өртөг/дундаж/хувь хоосон (NaN → formatter «»), нэг мөр олон бүлэгт
+   тоологдох бол давхардалгүй нийлбэр
+
+`tests/report-standard.test.ts` сахиулна: тайлангийн route бүр registry-д,
+registry-ийн href бодит хуудас, тайлангийн view-д огнооны input / «Шинэчлэх»
+байхгүй, `ReportPage`/`ReportHeader` хэрэглэсэн, хасагдсан шилжүүлэх табууд
+эргэж ирээгүй. Шинэ тайлангийн view нэмбэл тестийн `REPORT_VIEWS`-д бүртгэнэ.
+
 ### Таб ба шүүлтүүрийн chip
 
 `components/ui/tabs.tsx` — хуудас доторх таб/шүүлтүүрийн **ЦОРЫН ГАНЦ**
@@ -1952,7 +1986,8 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Гүйлгээний дэлгэрэнгүй + GL тулгалт | [components/costing/transaction-detail-report.tsx](components/costing/transaction-detail-report.tsx) | colGroup + `columnGroupShow: "open"` — задарч нэмэлт багана гаргана |
 | Бүрэлдэхүүний задаргаа | [components/costing/component-analysis-report.tsx](components/costing/component-analysis-report.tsx) | Бараа × бүрэлдэхүүн, нэгжид нөлөө, хуваарилалтын лавлагаа |
 | Зардлын хуваарилалт · чөлөөт (таб) | [components/costing/cost-allocation-view.tsx](components/costing/cost-allocation-view.tsx) | Сонголтын хүснэгт + хадгалахын өмнөх урьдчилсан хуваарь |
-| Өртгийн модулийн хэсгийн таб | [components/costing/costing-section-tabs.tsx](components/costing/costing-section-tabs.tsx) | Олон route-ыг НЭГ нав цэс дор — `PageTabs`, огнооны параметрийг дагуулна, layout-д Suspense-тэй |
+| Өртгийн модулийн хэсгийн таб | [components/costing/costing-section-tabs.tsx](components/costing/costing-section-tabs.tsx) | Зардлын хуваарилалтын 2 route-ыг НЭГ нав цэс дор — `PageTabs`, layout-д Suspense-тэй (тайлангуудад ХЭРЭГЛЭХГҮЙ — топбарын сонгогч) |
+| Тайлангийн жааз (нийтлэг) | [components/reports/report-layout.tsx](components/reports/report-layout.tsx) | `ReportPage` · `ReportHeader` (гарчиг + муж + Excel) · `ReportToolbar` (зүсэлт → шүүлтүүр) · `ReportEmpty` — «Тайлангийн стандарт» |
 | Нягтлан бодох период | [components/periods/periods-view.tsx](components/periods/periods-view.tsx) | Хаах / дахин нээх, сар бүрийн бичилтийн тоо |
 | Хангамжийн самбар | [components/procurement/procurement-dashboard.tsx](components/procurement/procurement-dashboard.tsx) | Түр дансдын үлдэгдэл, ноорог/нээлттэй/хаах боломжтой PO тоолол, сүүлийн захиалгууд |
 | Худалдан авалтын захиалга | [components/procurement/purchase-orders-view.tsx](components/procurement/purchase-orders-view.tsx) | `FilterChips` статус шүүлтүүр + хүлээн авсан/нэхэмжилсэн % багана; давхар даралт → PO панель |
@@ -1969,7 +2004,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
 | POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
-| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 6 таб (хураангуй/бараа/өдөр/кассчин/хэлбэр/харилцагч+дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 7 зүсэлт (гүйлгээ/бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
 | Цалингийн хуудас (payslip) | [components/payroll/payslip-report-view.tsx](components/payroll/payslip-report-view.tsx) | Ажилтны жагсаалт (pinned нийт) + A4 хуудас: давхар даралт → нэг ажилтан, «Бүгдийг хэвлэх» → ажилтан бүр шинэ хуудсанд (`ea-printing-payslip`) |
 | POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 

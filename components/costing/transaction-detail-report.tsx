@@ -9,10 +9,17 @@
 
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/ui/icon";
-import { useRouter } from "next/navigation";
 import type { ColDef, ColGroupDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+  ReportToolbar,
+  reportRangeLabel,
+} from "@/components/reports/report-layout";
+import { PageTabs } from "@/components/ui/tabs";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import type { ClearingReconciliation } from "@/lib/costing/clearing-types";
 import {
@@ -65,17 +72,9 @@ export function TransactionDetailReport({
   pendingAmount,
   clearing,
 }: Props) {
-  const router = useRouter();
+  // Огнооны муж ЗӨВХӨН топбарын периодоос (тайлангийн стандарт); доорх 3 таб
+  // нь НЭГ тайлангийн зүсэлт.
   const [tab, setTab] = useState<Tab>("detail");
-  const [range, setRange] = useState({ from, to });
-
-  function applyRange(next: { from: string; to: string }) {
-    setRange(next);
-    const params = new URLSearchParams(window.location.search);
-    params.set("from", next.from);
-    params.set("to", next.to);
-    router.replace(`${window.location.pathname}?${params.toString()}`);
-  }
 
   const columnDefs = useMemo<
     (ColDef<TransactionDetailRow> | ColGroupDef<TransactionDetailRow>)[]
@@ -457,87 +456,65 @@ export function TransactionDetailReport({
   const diffCount = reconciliation.filter(
     (row) => Math.abs(row.difference) > 0.005
   ).length;
+  const openClearing = clearing.rows.filter((row) => row.status !== "cleared").length;
+
+  // GL тулгалтын хөл дүн — баганын энгийн нийлбэр (зөрүү = Σ дэд дэвтэр + PO
+  // хаалт + эх баримт − Σ GL тул мөрүүдтэй нийцтэй).
+  const reconPinned = useMemo<ReconciliationRow[]>(() => {
+    const sum = (pick: (row: ReconciliationRow) => number) =>
+      Math.round(reconciliation.reduce((acc, row) => acc + pick(row), 0) * 100) / 100;
+    return [
+      {
+        accountNumber: "Нийт",
+        accountName: "",
+        subledgerAmount: sum((row) => row.subledgerAmount),
+        glAmount: sum((row) => row.glAmount),
+        poCloseAmount: sum((row) => row.poCloseAmount),
+        sourceDocAmount: sum((row) => row.sourceDocAmount),
+        difference: sum((row) => row.difference),
+        unlinkedGlLines: reconciliation.reduce((acc, row) => acc + row.unlinkedGlLines, 0),
+        unlinkedGlAmount: sum((row) => row.unlinkedGlAmount),
+      },
+    ];
+  }, [reconciliation]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-xs text-[var(--ea-text-3)]">
-            Бараа материал, өртөг, GL гурвын гүүр. Үнэлэгдээгүй болон GL-д
-            ороогүй хөдөлгөөн ч энд бүрэн харагдана.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-              aria-label="Эхлэх огноо"
-            value={range.from}
-            onChange={(event) =>
-              applyRange({ ...range, from: event.target.value })
-            }
-            className="h-8 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]"
+    <ReportPage>
+      <ReportHeader
+        title="Гүйлгээний дэлгэрэнгүй"
+        meta={`${reportRangeLabel(from, to)} · бараа материал, өртөг, GL гурвын гүүр — үнэлэгдээгүй болон GL-д ороогүй хөдөлгөөн ч бүрэн харагдана`}
+      />
+      <ReportToolbar
+        views={
+          <PageTabs
+            size="sm"
+            ariaLabel="Гүйлгээний дэлгэрэнгүйн зүсэлт"
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { value: "detail", label: `Гүйлгээний дэлгэрэнгүй (${rows.length})` },
+              {
+                value: "clearing",
+                label: `Клирингийн тулгалт${openClearing > 0 ? ` · ${openClearing} нээлттэй` : ""}`,
+              },
+              {
+                value: "reconciliation",
+                label: `GL тулгалт${diffCount > 0 ? ` · ${diffCount} зөрүү` : ""}`,
+              },
+            ]}
           />
-          <span className="text-xs text-[var(--ea-text-4)]">—</span>
-          <input
-            type="date"
-              aria-label="Дуусах огноо"
-            value={range.to}
-            onChange={(event) => applyRange({ ...range, to: event.target.value })}
-            className="h-8 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]"
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1">
-        <button
-          type="button"
-          onClick={() => setTab("detail")}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            tab === "detail"
-              ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
-              : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
-          )}
-        >
-          Гүйлгээний дэлгэрэнгүй ({rows.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("clearing")}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            tab === "clearing"
-              ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
-              : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
-          )}
-        >
-          Клирингийн тулгалт
-          {clearing.rows.filter((row) => row.status !== "cleared").length > 0
-            ? ` · ${clearing.rows.filter((row) => row.status !== "cleared").length} нээлттэй`
-            : ""}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("reconciliation")}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-            tab === "reconciliation"
-              ? "bg-[var(--ea-primary)] text-[var(--primary-foreground)]"
-              : "text-[var(--ea-text-3)] hover:bg-[var(--ea-bg-2)] hover:text-[var(--ea-text-1)]"
-          )}
-        >
-          GL тулгалт
-          {diffCount > 0 ? ` · ${diffCount} зөрүү` : ""}
-        </button>
-      </div>
+        }
+      />
 
       {tab === "clearing" && <ClearingPane clearing={clearing} />}
 
       {tab === "detail" && (
         rows.length === 0 ? (
-          <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-            Энэ хугацаанд хөдөлгөөн алга
-          </div>
+          <ReportEmpty
+            icon="costing"
+            title="Энэ хугацаанд хөдөлгөөн алга"
+            description="Топбараас периодоо солиод үзнэ үү."
+          />
         ) : (
           <DataGridDynamic<TransactionDetailRow>
             rowData={rows}
@@ -576,14 +553,16 @@ export function TransactionDetailReport({
           )}
 
           {reconciliation.length === 0 ? (
-            <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-              Энэ хугацаанд тулгах бичилт алга
-            </div>
+            <ReportEmpty
+              icon="costing"
+              title="Энэ хугацаанд тулгах бичилт алга"
+            />
           ) : (
             <DataGridDynamic<ReconciliationRow>
               rowData={reconciliation}
               columnDefs={reconColumns}
               getRowId={(params) => params.data.accountNumber}
+              pinnedBottomRowData={reconPinned}
               height="flex"
               wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
               suppressCellFocus
@@ -591,7 +570,7 @@ export function TransactionDetailReport({
           )}
         </div>
       )}
-    </div>
+    </ReportPage>
   );
 }
 

@@ -12,16 +12,11 @@
 // логик/тогтмолыг тусдаа модульд гаргаж, аль ч тал импортлоно.
 // `tests/client-server-boundary.test.ts` энэ ангиллыг статикаар барина.
 
-/** Тайлангийн хуудасны дээд таб. */
+/**
+ * Тайлангийн хуудасны `?tab=` — ӨӨР хоёр тайлан, топбарын сонгогчоор л
+ * солигдоно (lib/constants/report-registry.ts, хуудас доторх таб БАЙХГҮЙ).
+ */
 export type InventoryReportTab = "flow" | "sales";
-
-export const INVENTORY_REPORT_TABS: {
-  value: InventoryReportTab;
-  label: string;
-}[] = [
-  { value: "flow", label: "Тоо хэмжээний урсгал" },
-  { value: "sales", label: "Борлуулалт" },
-];
 
 /** Борлуулалтын тайлангийн дэд таб (docs/pos §5). */
 export const SALES_VIEWS = [

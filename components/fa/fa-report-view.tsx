@@ -1,6 +1,6 @@
 "use client";
 
-// ҮХ-ийн тайлан — хоёр хэсэг:
+// ҮХ-ийн тайлан — НЭГ тайлангийн хоёр зүсэлт (PageTabs):
 //   1. Хөрөнгийн бүртгэл: карт бүрийн өртөг / хуримтлагдсан элэгдэл / NBV,
 //      төлөвөөр шүүх FilterChips, идэвхтэй хөрөнгийн pinned нийлбэр
 //   2. Элэгдлийн сарын нэгтгэл: батлагдсан бичилтүүд сараар
@@ -12,7 +12,13 @@ import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
-import { FilterChips } from "@/components/ui/tabs";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+  ReportToolbar,
+} from "@/components/reports/report-layout";
+import { FilterChips, PageTabs } from "@/components/ui/tabs";
 import type { FixedAssetView } from "@/lib/fa/asset-views";
 import { fmtPeriodCode } from "@/lib/periods/period";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -47,6 +53,7 @@ function moneyCol<T>(): Partial<ColDef<T>> {
 
 export function FaReportView({ assets }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [view, setView] = useState<"register" | "months">("register");
 
   const counts = useMemo(
     () => ({
@@ -223,78 +230,84 @@ export function FaReportView({ assets }: Props) {
   );
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-5">
-      <div>
-        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-          Үндсэн хөрөнгийн тайлан
-        </h1>
-        <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          Хөрөнгийн бүртгэл — өртөг, хуримтлагдсан элэгдэл, үлдэгдэл өртөг ·
-          мөр дээр давхар даралтаар карт нээгдэнэ
-        </p>
-      </div>
-
-      <FilterChips
-        options={[
-          { value: "all", label: "Бүгд", count: assets.length },
-          { value: "active", label: "Идэвхтэй", count: counts.active },
-          {
-            value: "draft",
-            label: "Ноорог",
-            count: counts.draft,
-            tone: counts.draft > 0 ? ("warning" as const) : undefined,
-          },
-          { value: "disposed", label: "Данснаас хассан", count: counts.disposed },
-        ]}
-        value={statusFilter}
-        onChange={setStatusFilter}
+    <ReportPage>
+      <ReportHeader
+        title="Хөрөнгийн бүртгэл, элэгдэл"
+        meta={
+          view === "register"
+            ? "Карт бүрийн өртөг, хуримтлагдсан элэгдэл, үлдэгдэл өртөг (одоогийн байдлаар) · мөр дээр давхар даралтаар карт нээгдэнэ"
+            : "Батлагдсан элэгдлийн бичилтүүд сараар"
+        }
+      />
+      <ReportToolbar
+        views={
+          <PageTabs
+            size="sm"
+            ariaLabel="Үндсэн хөрөнгийн тайлангийн зүсэлт"
+            value={view}
+            onChange={setView}
+            tabs={[
+              { value: "register", label: "Хөрөнгийн бүртгэл" },
+              { value: "months", label: "Элэгдлийн сарын нэгтгэл" },
+            ]}
+          />
+        }
+        filters={
+          view === "register" ? (
+            <FilterChips
+              options={[
+                { value: "all", label: "Бүгд", count: assets.length },
+                { value: "active", label: "Идэвхтэй", count: counts.active },
+                {
+                  value: "draft",
+                  label: "Ноорог",
+                  count: counts.draft,
+                  tone: counts.draft > 0 ? ("warning" as const) : undefined,
+                },
+                { value: "disposed", label: "Данснаас хассан", count: counts.disposed },
+              ]}
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
+          ) : null
+        }
       />
 
-      {displayed.length === 0 ? (
-        <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Хөрөнгийн карт байхгүй
-        </div>
-      ) : (
-        <DataGridDynamic<FixedAssetView>
-          rowData={displayed}
-          columnDefs={columnDefs}
-          getRowId={(p) => p.data.id}
-          pinnedBottomRowData={pinnedBottom}
-          height={Math.min(560, 116 + displayed.length * 38)}
-          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-          suppressCellFocus
-          onRowDoubleClicked={(event) => {
-            if (event.data && event.data.id !== "__total__")
-              openFaAssetPanel(event.data.id, event.data.name);
-          }}
-        />
-      )}
-
-      <div className="flex flex-col gap-3 border-t border-[var(--ea-border)] pt-4">
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
-            Элэгдлийн сарын нэгтгэл
-          </h2>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Батлагдсан элэгдлийн бичилтүүд сараар
-          </p>
-        </div>
-        {monthRows.length === 0 ? (
-          <div className="flex min-h-32 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-            Батлагдсан элэгдлийн бичилт байхгүй
-          </div>
+      {view === "register" ? (
+        displayed.length === 0 ? (
+          <ReportEmpty
+            icon="fixedAsset"
+            title="Хөрөнгийн карт байхгүй"
+            actions={[{ label: "Хөрөнгө нэмэх", href: "/fa" }]}
+          />
         ) : (
-          <DataGridDynamic<MonthRow>
-            rowData={monthRows}
-            columnDefs={monthColumnDefs}
-            getRowId={(p) => p.data.month}
-            pinnedBottomRowData={monthPinnedBottom}
-            height={Math.min(420, 116 + monthRows.length * 38)}
+          <DataGridDynamic<FixedAssetView>
+            rowData={displayed}
+            columnDefs={columnDefs}
+            getRowId={(p) => p.data.id}
+            pinnedBottomRowData={pinnedBottom}
+            height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
+            onRowDoubleClicked={(event) => {
+              if (event.data && event.data.id !== "__total__")
+                openFaAssetPanel(event.data.id, event.data.name);
+            }}
           />
-        )}
-      </div>
-    </section>
+        )
+      ) : monthRows.length === 0 ? (
+        <ReportEmpty icon="depreciation" title="Батлагдсан элэгдлийн бичилт байхгүй" />
+      ) : (
+        <DataGridDynamic<MonthRow>
+          rowData={monthRows}
+          columnDefs={monthColumnDefs}
+          getRowId={(p) => p.data.month}
+          pinnedBottomRowData={monthPinnedBottom}
+          height="flex"
+          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+          suppressCellFocus
+        />
+      )}
+    </ReportPage>
   );
 }

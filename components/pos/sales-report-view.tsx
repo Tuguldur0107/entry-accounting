@@ -1,14 +1,14 @@
 "use client";
 
 // Борлуулалтын дэлгэрэнгүй тайлан — docs/pos/00-proposal.md §5.
-// Бараа материал → Тайлан → "Борлуулалт" таб. Өгөгдөл нь page.tsx-ээс
+// Топбарын тайлан сонгогч → «Борлуулалтын тайлан (POS)» (`?tab=sales`). Өгөгдөл нь page.tsx-ээс
 // (loadSalesReport) ирнэ; энд ЗӨВХӨН цэвэр нэгтгэл (aggregateBy / summarize /
 // aggregatePayments — lib/pos/sales-report.ts) + харуулалт. Шүүлтүүр бүр URL
 // параметр (wh, cashier, cp, method, item, cat) — хуудас сервер талд дахин
-// ачаална; дэд таб `view`, огноо `start`/`end` (тоо хэмжээний табтай нийтлэг).
+// ачаална; зүсэлт `view`; огноо ЗӨВХӨН топбарын периодоос (тайлангийн стандарт).
 //
 // Бүх элемент ui-kit-ээс: DataGridDynamic (pinned нийт), PageTabs,
-// SearchableSelect, EmptyState, Button, Input — шинэ component бичихгүй.
+// SearchableSelect, ReportPage/Header/Toolbar/Empty, Button — шинэ component бичихгүй.
 // Мөр дээр ДАВХАР даралт → POS борлуулалтын панель (жагсаалтын стандарт).
 
 import { useMemo, useState } from "react";
@@ -16,9 +16,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ColDef, ICellRendererParams, RowDoubleClickedEvent } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+  ReportToolbar,
+  reportRangeLabel,
+} from "@/components/reports/report-layout";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Input } from "@/components/ui/input";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { PageTabs } from "@/components/ui/tabs";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -39,7 +44,6 @@ import {
 import { fmtMnt } from "@/lib/reports/balances";
 import { openPosSalePanel } from "@/lib/store/panel-store";
 import {
-  INVENTORY_REPORT_TABS,
   SALES_VIEW_TABS,
   type InventoryReportTab,
   type SalesView,
@@ -48,38 +52,6 @@ import {
 // Хуучин дуудагчид эвдрэхгүйн тулд төрлүүдийг ЭНДЭЭС ч гаргана (утга биш —
 // server талын дуудагч ЗААВАЛ `@/lib/pos/report-views`-оос импортлоно).
 export type { InventoryReportTab, SalesView };
-
-// ─── Тайлангийн хуудасны дээд таб (тоо хэмжээ / борлуулалт) ──────────────────
-//
-// Табын тодорхойлолт, `isSalesView` зэрэг нь ЦЭВЭР модульд
-// (`lib/pos/report-views.ts`) — тайлангийн SERVER page.tsx тэднийг дууддаг тул
-// «use client» файлаас гаргавал ажиллахгүй (2026-09-24-ний доголдол).
-const REPORT_TABS = INVENTORY_REPORT_TABS;
-
-/** Огнооны муж (start/end) хоёр табд нийтлэг тул таб солиход дагуулна. */
-export function InventoryReportTabs({ value }: { value: InventoryReportTab }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  return (
-    <PageTabs
-      size="md"
-      ariaLabel="Бараа материалын тайлан"
-      value={value}
-      tabs={REPORT_TABS}
-      onChange={(next) => {
-        if (next === value) return;
-        const params = new URLSearchParams();
-        for (const key of ["start", "end"]) {
-          const carried = searchParams.get(key);
-          if (carried) params.set(key, carried);
-        }
-        if (next === "sales") params.set("tab", "sales");
-        router.push(params.size ? `${pathname}?${params}` : pathname);
-      }}
-    />
-  );
-}
 
 // ─── Дэд таб ─────────────────────────────────────────────────────────────────
 
@@ -295,8 +267,6 @@ export function SalesReportView({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [startInput, setStartInput] = useState(start);
-  const [endInput, setEndInput] = useState(end);
   const [exporting, setExporting] = useState(false);
 
   function pushParams(mutate: (params: URLSearchParams) => void) {
@@ -729,97 +699,79 @@ export function SalesReportView({
   const isTotalRow = (event: RowDoubleClickedEvent) => !!event.node.rowPinned;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {/* Огноо + шүүлтүүр */}
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              aria-label="Эхлэх огноо"
-              className="h-8 w-40"
-              value={startInput}
-              onChange={(event) => setStartInput(event.target.value)}
-            />
-            <span className="text-xs text-[var(--ea-text-4)]">—</span>
-            <Input
-              type="date"
-              aria-label="Дуусах огноо"
-              className="h-8 w-40"
-              value={endInput}
-              onChange={(event) => setEndInput(event.target.value)}
-            />
-            <Button
-              size="sm"
-              onClick={() =>
-                pushParams((params) => {
-                  if (startInput) params.set("start", startInput);
-                  else params.delete("start");
-                  if (endInput) params.set("end", endInput);
-                  else params.delete("end");
-                })
-              }
-            >
-              Шинэчлэх
-            </Button>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button size="sm" variant="outline" disabled={exporting || lines.length === 0} onClick={exportActive}>
-              Excel татах
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-          <FilterField label="Агуулах">
-            <SearchableSelect
-              value={filters.warehouseId ?? ANY}
-              onChange={setFilter("wh")}
-              options={[{ value: ANY, label: "Бүх агуулах" }, ...options.warehouses]}
-              hideValue
-            />
-          </FilterField>
-          <FilterField label="Кассчин">
-            <SearchableSelect
-              value={filters.cashierUserId ?? ANY}
-              onChange={setFilter("cashier")}
-              options={[{ value: ANY, label: "Бүх кассчин" }, ...options.cashiers]}
-              hideValue
-            />
-          </FilterField>
-          <FilterField label="Харилцагч">
-            <SearchableSelect
-              value={filters.counterpartyId ?? ANY}
-              onChange={setFilter("cp")}
-              options={[{ value: ANY, label: "Бүх харилцагч" }, ...options.customers]}
-              hideValue
-            />
-          </FilterField>
-          <FilterField label="Төлбөрийн хэлбэр">
-            <SearchableSelect
-              value={filters.methodId ?? ANY}
-              onChange={setFilter("method")}
-              options={[{ value: ANY, label: "Бүх хэлбэр" }, ...options.methods]}
-              hideValue
-            />
-          </FilterField>
-          <FilterField label="Бараа">
-            <SearchableSelect
-              value={filters.itemId ?? ANY}
-              onChange={setFilter("item")}
-              options={[{ value: ANY, label: "Бүх бараа" }, ...options.items]}
-              hideValue
-            />
-          </FilterField>
-          <FilterField label="Барааны бүлэг">
-            <SearchableSelect
-              value={filters.categoryCode ?? ANY}
-              onChange={setFilter("cat")}
-              options={[{ value: ANY, label: "Бүх бүлэг" }, ...options.categories]}
-              hideValue
-            />
-          </FilterField>
-        </div>
-      </div>
+    <ReportPage>
+      <ReportHeader
+        title="Борлуулалтын тайлан (POS)"
+        meta={`${reportRangeLabel(start, end)} · буцаалт сөрөг дүнгээр; COGS сар хаагдаагүй бол урьдчилсан (сар хаалтад залруулагдана), GL-ээс тооцохгүй. Мөр дээр давхар дарж борлуулалтын панель нээнэ.`}
+        actions={
+          <Button size="sm" variant="outline" disabled={exporting || lines.length === 0} onClick={exportActive}>
+            Excel татах
+          </Button>
+        }
+      />
+      <ReportToolbar
+        views={
+          <PageTabs
+            size="sm"
+            ariaLabel="Борлуулалтын тайлангийн зүсэлт"
+            value={view}
+            tabs={VIEW_TABS}
+            onChange={(next) => pushParams((params) => params.set("view", next))}
+          />
+        }
+        filters={
+          <>
+        <FilterField label="Агуулах">
+          <SearchableSelect
+            value={filters.warehouseId ?? ANY}
+            onChange={setFilter("wh")}
+            options={[{ value: ANY, label: "Бүх агуулах" }, ...options.warehouses]}
+            hideValue
+          />
+        </FilterField>
+        <FilterField label="Кассчин">
+          <SearchableSelect
+            value={filters.cashierUserId ?? ANY}
+            onChange={setFilter("cashier")}
+            options={[{ value: ANY, label: "Бүх кассчин" }, ...options.cashiers]}
+            hideValue
+          />
+        </FilterField>
+        <FilterField label="Харилцагч">
+          <SearchableSelect
+            value={filters.counterpartyId ?? ANY}
+            onChange={setFilter("cp")}
+            options={[{ value: ANY, label: "Бүх харилцагч" }, ...options.customers]}
+            hideValue
+          />
+        </FilterField>
+        <FilterField label="Төлбөрийн хэлбэр">
+          <SearchableSelect
+            value={filters.methodId ?? ANY}
+            onChange={setFilter("method")}
+            options={[{ value: ANY, label: "Бүх хэлбэр" }, ...options.methods]}
+            hideValue
+          />
+        </FilterField>
+        <FilterField label="Бараа">
+          <SearchableSelect
+            value={filters.itemId ?? ANY}
+            onChange={setFilter("item")}
+            options={[{ value: ANY, label: "Бүх бараа" }, ...options.items]}
+            hideValue
+          />
+        </FilterField>
+        <FilterField label="Барааны бүлэг">
+          <SearchableSelect
+            value={filters.categoryCode ?? ANY}
+            onChange={setFilter("cat")}
+            options={[{ value: ANY, label: "Бүх бүлэг" }, ...options.categories]}
+            hideValue
+          />
+        </FilterField>
+          </>
+        }
+      />
 
       {/* Нэгтгэлийн зурвас */}
       <section className="rounded-md border border-[var(--ea-border)]">
@@ -845,25 +797,13 @@ export function SalesReportView({
             </StatusBadge>
           </div>
         </div>
-        <p className="px-3 py-1.5 text-[11px] text-[var(--ea-text-4)]">
-          {start} — {end} · буцаалт сөрөг дүнгээр орсон; COGS сар хаагдаагүй бол урьдчилсан (сар хаалтад
-          залруулагдана), GL-ээс тооцохгүй. Мөр дээр давхар дарж борлуулалтын панель нээнэ.
-        </p>
       </section>
 
-      <PageTabs
-        size="sm"
-        ariaLabel="Борлуулалтын тайлангийн дэд таб"
-        value={view}
-        tabs={VIEW_TABS}
-        onChange={(next) => pushParams((params) => params.set("view", next))}
-      />
-
       {lines.length === 0 ? (
-        <EmptyState
+        <ReportEmpty
           icon="report"
           title="Мужид борлуулалт алга"
-          description="Огноо эсвэл шүүлтүүрээ өөрчилж үзнэ үү."
+          description="Топбарын период эсвэл шүүлтүүрээ өөрчилж үзнэ үү."
         />
       ) : view === "lines" ? (
         <DataGridDynamic<LineRow>
@@ -905,7 +845,7 @@ export function SalesReportView({
         />
       ) : view === "methods" ? (
         methodRows.length === 0 ? (
-          <EmptyState icon="cash" title="Төлбөр алга" description="Сонгосон мужид төлбөрийн бичилт байхгүй." />
+          <ReportEmpty icon="cash" title="Төлбөр алга" description="Сонгосон мужид төлбөрийн бичилт байхгүй." />
         ) : (
           <DataGridDynamic<MethodAggRow>
             {...gridProps}
@@ -927,7 +867,7 @@ export function SalesReportView({
           }}
         />
       ) : ruleRows.length === 0 ? (
-        <EmptyState
+        <ReportEmpty
           icon="filter"
           title="Хөнгөлөлтийн дүрэм хэрэглэгдээгүй"
           description="Сонгосон мужид дүрмээр хөнгөлсөн мөр байхгүй."
@@ -941,13 +881,13 @@ export function SalesReportView({
           getRowId={(params) => params.data.rule}
         />
       )}
-    </div>
+    </ReportPage>
   );
 }
 
 function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex w-full min-w-0 flex-col gap-1 sm:w-48">
       <span className="text-[11px] text-[var(--ea-text-3)]">{label}</span>
       {children}
     </div>

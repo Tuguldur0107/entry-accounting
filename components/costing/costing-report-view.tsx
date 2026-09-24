@@ -7,6 +7,11 @@ import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+} from "@/components/reports/report-layout";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,8 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
-import { EmptyState } from "@/components/ui/empty-state";
 import { createNrvEntry } from "@/lib/actions/costing";
+import { currentDocumentDate } from "@/lib/periods/document-date";
 import type { ValuationRow } from "@/lib/inventory/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
@@ -42,9 +47,9 @@ export function CostingReportView({ valuation }: Props) {
   const [isPending, startTransition] = useTransition();
   const [nrvRow, setNrvRow] = useState<ValuationRow | null>(null);
   const [nrvInput, setNrvInput] = useState("");
-  const [nrvDate, setNrvDate] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
+  // Огноо нь диалог НЭЭХ мөчид topbar-ийн сараас (currentDocumentDate) —
+  // SSR-д тооцвол hydration зөрнө, `new Date()` нь CLAUDE.md §4-өөр хориотой.
+  const [nrvDate, setNrvDate] = useState("");
 
   function submitNrv() {
     if (!nrvRow) return;
@@ -70,11 +75,11 @@ export function CostingReportView({ valuation }: Props) {
         toast.success(
           result.entryType === "nrv_writedown"
             ? `NRV бууруулалтын ноорог үүслээ — ${fmtMnt(result.amount)}`
-            : `NRV сэргээлтийн ноорог үүслээ — ${fmtMnt(result.amount)}`
+            : `NRV сэргээлтийн ноорог үүслээ — ${fmtMnt(result.amount)}`,
         );
       } catch (caught) {
         toast.error(
-          caught instanceof Error ? caught.message : "NRV бичилт үүссэнгүй"
+          caught instanceof Error ? caught.message : "NRV бичилт үүссэнгүй",
         );
       }
     });
@@ -90,7 +95,9 @@ export function CostingReportView({ valuation }: Props) {
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (params) =>
-          params.data ? `${fmtQty(params.data.quantity)} ${params.data.unit}` : "",
+          params.data && !Number.isNaN(params.data.quantity)
+            ? `${fmtQty(params.data.quantity)} ${params.data.unit}`
+            : "",
       },
       {
         headerName: "Дундаж өртөг",
@@ -98,7 +105,10 @@ export function CostingReportView({ valuation }: Props) {
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: (params) =>
+          Number.isNaN(Number(params.value))
+            ? ""
+            : fmtMnt(Number(params.value ?? 0)),
       },
       {
         headerName: "Үнэлгээ (өртөг)",
@@ -116,7 +126,7 @@ export function CostingReportView({ valuation }: Props) {
         cellClass: (params) =>
           cn(
             "ag-right-aligned-cell font-mono",
-            Number(params.value ?? 0) > 0 && "text-[var(--ea-warning-fg)]"
+            Number(params.value ?? 0) > 0 && "text-[var(--ea-warning-fg)]",
           ),
         valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
       },
@@ -135,55 +145,75 @@ export function CostingReportView({ valuation }: Props) {
         sortable: false,
         filter: false,
         cellClass: "flex items-center justify-end",
-        cellRenderer: (params: ICellRendererParams<ValuationRow>) => (
-          <button
-            type="button"
-            className="ea-btn ea-btn--icon ea-btn--warning"
-            title="NRV бууруулалт / сэргээлт"
-            aria-label="NRV бууруулалт / сэргээлт"
-            onClick={() => {
-              const row = params.data;
-              if (!row) return;
-              setNrvInput("");
-              setNrvRow(row);
-            }}
-          >
-            <Icon name="depreciation" />
-          </button>
-        ),
+        cellRenderer: (params: ICellRendererParams<ValuationRow>) =>
+          params.node.rowPinned ? null : (
+            <button
+              type="button"
+              className="ea-btn ea-btn--icon ea-btn--warning"
+              title="NRV бууруулалт / сэргээлт"
+              aria-label="NRV бууруулалт / сэргээлт"
+              onClick={() => {
+                const row = params.data;
+                if (!row) return;
+                setNrvInput("");
+                setNrvDate(currentDocumentDate());
+                setNrvRow(row);
+              }}
+            >
+              <Icon name="depreciation" />
+            </button>
+          ),
       },
     ],
-    []
+    [],
   );
 
   const totalValue = valuation.reduce((sum, row) => sum + row.value, 0);
   const totalNet = valuation.reduce((sum, row) => sum + row.netValue, 0);
+  const totalReserve = valuation.reduce((sum, row) => sum + row.nrvReserve, 0);
+
+  // Хөл дүн — үнэлгээ/нөөц/цэвэр дүн; тоо хэмжээ нэгж холимог, дундаж өртөг
+  // нийлбэргүй тул хоосон (NaN → formatter хоосон).
+  const pinned = useMemo<ValuationRow[]>(
+    () => [
+      {
+        itemId: "__total",
+        itemLabel: "Нийт",
+        unit: "",
+        quantity: Number.NaN,
+        avgCost: Number.NaN,
+        value: Math.round(totalValue * 100) / 100,
+        nrvReserve: Math.round(totalReserve * 100) / 100,
+        netValue: Math.round(totalNet * 100) / 100,
+      },
+    ],
+    [totalValue, totalReserve, totalNet],
+  );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <div>
-        <p className="text-xs text-[var(--ea-text-3)]">
-          Батлагдсан өртгийн бичилтээр — өртөг{" "}
-          <span className="font-mono font-semibold">{fmtMnt(totalValue)}</span>
-          {" · "}цэвэр (NRV нөөц хассан){" "}
-          <span className="font-mono font-semibold">{fmtMnt(totalNet)}</span>
-        </p>
-      </div>
+    <ReportPage>
+      <ReportHeader
+        title="Нөөцийн үнэлгээ · NRV"
+        meta="Бараа × агуулах бүрийн хамгийн сүүлд тооцоологдсон сарын эцсийн үлдэгдэл (C2) — өртгийн хяналттай нэг суурь; цэвэр дүн = өртөг − NRV нөөц"
+      />
 
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {valuation.length === 0 ? (
-          <EmptyState icon="costing" title="Батлагдсан өртгийн бичилт байхгүй" />
-        ) : (
-          <DataGridDynamic<ValuationRow>
-            rowData={valuation}
-            columnDefs={valuationColumns}
-            getRowId={(params) => params.data.itemId}
-            height="flex"
-            wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-            suppressCellFocus
-          />
-        )}
-      </section>
+      {valuation.length === 0 ? (
+        <ReportEmpty
+          icon="costing"
+          title="Батлагдсан өртгийн бичилт байхгүй"
+          description="Өртгийн хяналт тайлангаас сарын өртгөө тооцоолсны дараа үнэлгээ харагдана."
+        />
+      ) : (
+        <DataGridDynamic<ValuationRow>
+          rowData={valuation}
+          columnDefs={valuationColumns}
+          getRowId={(params) => params.data.itemId}
+          pinnedBottomRowData={pinned}
+          height="flex"
+          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+          suppressCellFocus
+        />
+      )}
 
       {/* NRV dialog: IAS 2 — дундаж өртөг хэвээр, нөөцөөр бууруулна */}
       <Dialog open={!!nrvRow} onOpenChange={(o) => !o && setNrvRow(null)}>
@@ -195,8 +225,8 @@ export function CostingReportView({ valuation }: Props) {
             <div className="grid gap-4">
               <p className="text-xs text-[var(--ea-text-3)]">
                 <b>{nrvRow.itemLabel}</b> — үлдэгдэл{" "}
-                <span className="font-mono">{nrvRow.quantity}</span> {nrvRow.unit},
-                дундаж өртөг{" "}
+                <span className="font-mono">{nrvRow.quantity}</span>{" "}
+                {nrvRow.unit}, дундаж өртөг{" "}
                 <span className="font-mono">{fmtMnt(nrvRow.avgCost)}</span>,
                 одоогийн нөөц{" "}
                 <span className="font-mono">{fmtMnt(nrvRow.nrvReserve)}</span>.
@@ -207,7 +237,7 @@ export function CostingReportView({ valuation }: Props) {
                 <FormField label="Огноо">
                   <Input
                     type="date"
-              aria-label="Огноо"
+                    aria-label="Огноо"
                     value={nrvDate}
                     onChange={(event) => setNrvDate(event.target.value)}
                   />
@@ -235,8 +265,8 @@ export function CostingReportView({ valuation }: Props) {
                       Math.round(
                         Math.max(0, nrvRow.avgCost - Number(nrvInput)) *
                           nrvRow.quantity *
-                          100
-                      ) / 100
+                          100,
+                      ) / 100,
                     )}
                   </span>{" "}
                   → зөрүү:{" "}
@@ -246,8 +276,8 @@ export function CostingReportView({ valuation }: Props) {
                         (Math.max(0, nrvRow.avgCost - Number(nrvInput)) *
                           nrvRow.quantity -
                           nrvRow.nrvReserve) *
-                          100
-                      ) / 100
+                          100,
+                      ) / 100,
                     )}
                   </span>
                 </p>
@@ -271,7 +301,6 @@ export function CostingReportView({ valuation }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </ReportPage>
   );
 }
-
