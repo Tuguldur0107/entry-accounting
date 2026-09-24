@@ -44,6 +44,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
+import { documentTypeLabel } from "@/lib/arap/document-kind";
 
 const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
@@ -448,9 +449,7 @@ export function CashDocPanel({
               </span>
               <span className="text-[10px] text-[var(--ea-text-4)]">
                 Холбогдсон{" "}
-                {linkedInvoice.documentType === "ar_invoice"
-                  ? "авлагын нэхэмжлэл"
-                  : "өглөгийн нэхэмжлэх"}
+                {documentTypeLabel(linkedInvoice.documentType).toLowerCase()}
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--ea-primary)]">

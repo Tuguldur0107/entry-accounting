@@ -1,4 +1,5 @@
 import type { ArApDocumentType } from "@/lib/arap/types";
+import { settlementCashType } from "@/lib/arap/document-kind";
 
 export function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
@@ -21,8 +22,10 @@ export function calculateSettlementExchangeEffect({
 }) {
   const historicalBaseAmount = calculateBaseAmount(amount, documentExchangeRate);
   const difference = roundMoney(paymentBaseAmount - historicalBaseAmount);
+  // Мөнгө ОРОХ баримт (нэхэмжлэл, дебит нэхэмжлэх): төлбөр > түүхэн = олз;
+  // мөнгө ГАРАХ (өглөг, кредит нэхэмжлэлийн буцаан олголт): эсрэгээр.
   const isGain =
-    documentType === "ar_invoice" ? difference > 0 : difference < 0;
+    settlementCashType(documentType) === "receipt" ? difference > 0 : difference < 0;
 
   return {
     historicalBaseAmount,

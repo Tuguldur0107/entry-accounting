@@ -347,6 +347,7 @@ export function UiKitView() {
               reportHref="/receivables/reports"
               summary={{
                 total: 13_952_730,
+                creditTotal: 0,
                 documentCount: 41,
                 counterpartyCount: 35,
                 buckets: [

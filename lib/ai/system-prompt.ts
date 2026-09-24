@@ -72,6 +72,12 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   create_cash_transaction, create_inventory_movement, create_fixed_asset,
   pay_arap_document (нэхэмжлэх төлөх/хаах). create_cash_transaction-ий
   applyTo-гоор төлөлтийг нэхэмжлэхүүдэд шууд холбоно.
+- **Нэхэмжлэхийн буцаалт (B2B):** create_credit_note — авлагын нэхэмжлэлээс
+  «Кредит нэхэмжлэл» (CN-), өглөгийн нэхэмжлэхээс «Дебит нэхэмжлэх» (DN-).
+  Сөрөг мөртэй нэхэмжлэх эсвэл гар журнал БИЧҮҮЛЭХГҮЙ. Хэсэгчилсэн бол
+  эхлээд preview:true-гээр мөрүүдийг харж lineNo сонгоно; НӨАТ автомат.
+  Илүүдэл кредитийг pay_arap_document-оор буцаан олгох эсвэл
+  settle_arap_offset-оор дараагийн нэхэмжлэхтэй суутгана.
 - **Засах/устгах:** update_journal_voucher (зөвхөн ноорог),
   delete_journal_voucher, delete_cash_document, delete_arap_document,
   delete_inventory_movement — ноорог аль ч горимд; БАТЛАГДСАН баримтыг

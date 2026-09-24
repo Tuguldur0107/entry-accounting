@@ -1,5 +1,6 @@
 // Нэг эх сурвалж: үндсэн дансны салгагч. Хуучин нэрээр re-export.
 export { extractMainAccount as mainAccountOf } from "@/lib/reports/balances";
+import type { ArApDocumentType } from "@/lib/arap/document-kind";
 import { extractMainAccount } from "@/lib/reports/balances";
 // Мөнгөн гүйлгээ бичихэд хэрэгтэй сонголтын өгөгдлийн НЭГДСЭН ачаалагч —
 // transactions хуудас (Server Component) болон cash-new панелийн server
@@ -35,7 +36,7 @@ import type { SegOption } from "@/lib/grid/editors/SegSelect";
 export interface CashArApSettlementTarget {
   id: string;
   documentNo: string;
-  documentType: "ar_invoice" | "ap_bill";
+  documentType: ArApDocumentType;
   counterpartyId: string;
   counterpartyName: string;
   date: string;
@@ -178,7 +179,7 @@ export async function loadCashTransactionOptions(
     arApOpenDocuments: openArApDocs.map((doc) => ({
       id: doc.id,
       documentNo: doc.documentNo,
-      documentType: doc.documentType as "ar_invoice" | "ap_bill",
+      documentType: doc.documentType as ArApDocumentType,
       counterpartyId: doc.counterpartyId,
       counterpartyName: doc.counterparty.name,
       date: doc.date,

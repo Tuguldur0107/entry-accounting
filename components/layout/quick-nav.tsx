@@ -10,7 +10,7 @@
 // Cmd/Ctrl+K хаанаас ч ажиллана.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon, type IconName } from "@/components/ui/icon";
@@ -19,6 +19,7 @@ import { HOME_MODULE_ID, MODULES } from "@/components/layout/modules";
 import { useDisabledModuleIds, isNavItemHidden } from "@/components/layout/nav-visibility";
 import { QUICK_CREATE_ACTIONS } from "@/components/layout/quick-create";
 import { getReferenceData } from "@/lib/reference/client-cache";
+import { pageOwnsHotkey } from "@/lib/ui/hotkeys";
 import {
   REFERENCE_MIN_QUERY,
   searchReference,
@@ -31,6 +32,7 @@ import {
   openVoucherPanel,
 } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
+import { arapLedger } from "@/lib/arap/document-kind";
 
 type NavEntry = {
   key: string;
@@ -102,6 +104,7 @@ const SHORTCUT_HELP: { keys: string; description: string }[] = [
   { keys: "Enter / Shift+Enter", description: "Хүснэгтэд commit + доош / дээш" },
   { keys: "Tab / Shift+Tab", description: "Дараагийн / өмнөх editable нүд" },
   { keys: "F2", description: "Шинэ баримтын цэс нээх; хүснэгтэд — нүдийг засах горим" },
+  { keys: "F3", description: "Кассын дэлгэцэд — бараа хайх (сканнерын талбар)" },
   { keys: "Ctrl/Cmd+C · V · X", description: "Мужийг хуулах / буулгах / таслах (Excel-рүү шууд)" },
   { keys: "Ctrl/Cmd+Z · Y", description: "Undo / Redo (хүснэгтийн засвар)" },
   { keys: "Shift+даралт", description: "Хүснэгтэд мужаар сонгох" },
@@ -122,6 +125,9 @@ function isTypingTarget(target: EventTarget | null) {
 
 export function QuickNav() {
   const router = useRouter();
+  // «/»-г ӨӨРӨӨ эзэмшдэг хуудсан дээр (кассын дэлгэц — бараа хайх) палитр
+  // «/»-ээр нээгдэхгүй; Cmd/Ctrl+K хэвээр (lib/ui/hotkeys.ts).
+  const slashOwned = pageOwnsHotkey(usePathname(), "/");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
@@ -140,6 +146,7 @@ export function QuickNav() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       if (event.key === "/") {
+        if (slashOwned) return;
         event.preventDefault();
         setPaletteOpen(true);
       } else if (event.key === "?") {
@@ -149,7 +156,7 @@ export function QuickNav() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [slashOwned]);
 
   return (
     <>
@@ -298,7 +305,7 @@ function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
             run: () =>
               openArapDocPanel({
                 documentId: hit.id,
-                mode: hit.documentType === "ap_bill" ? "payable" : "receivable",
+                mode: arapLedger(hit.documentType ?? "") === "ap" ? "payable" : "receivable",
                 title: hit.documentNo,
               }),
           })),

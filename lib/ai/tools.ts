@@ -24,6 +24,14 @@ import {
   updateArApDocument,
   settleArApOffset,
 } from "@/lib/actions/arap";
+import { createCreditNote, getCreditNoteSource } from "@/lib/actions/arap-credit-note";
+import {
+  arapLedger,
+  documentTypeLabel,
+  isCreditDocument,
+  ledgerSign,
+  settlementCashType,
+} from "@/lib/arap/document-kind";
 import {
   createInvoiceLink,
   sendInvoiceEmail,
@@ -1242,7 +1250,11 @@ export const AI_TOOLS: AiToolDef[] = [
     inputSchema: {
       type: "object",
       properties: {
-        documentType: { type: "string", enum: ["ar_invoice", "ap_bill"], description: "Төрлөөр шүүх" },
+        documentType: {
+          type: "string",
+          enum: ["ar_invoice", "ap_bill", "ar_credit_note", "ap_debit_note"],
+          description: "Төрлөөр шүүх (кредит нэхэмжлэл / дебит нэхэмжлэх — буцаалт)",
+        },
         counterparty: { type: "string", description: "Харилцагчийн нэрээр шүүх" },
         status: {
           type: "string",
@@ -1307,17 +1319,19 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "settle_arap_offset",
     description:
-      "Нэг харилцагчийн авлага, өглөгийн нэхэмжлэхийг мөнгө хөдөлгөлгүй хооронд нь хаана (харилцан суутган тооцоо) — GL-д Дт өглөгийн хяналтын данс / Кт авлагын хяналтын данс бичигдэнэ, НӨАТ-д нөлөөгүй. Зөвхөн MNT, нээлттэй (батлагдсан/хэсэгчлэн төлсөн) баримтууд; зөвхөн 'Шууд бичих' горимд.",
+      "Нэг харилцагчийн хоёр баримтыг мөнгө хөдөлгөлгүй хооронд нь хаана: (а) авлагын нэхэмжлэл ↔ өглөгийн нэхэмжлэх (харилцан суутган тооцоо), (б) нэхэмжлэл ↔ кредит нэхэмжлэл (кредитийн илүүдлийг дараагийн нэхэмжлэхэд тооцох), (в) өглөгийн нэхэмжлэх ↔ дебит нэхэмжлэх. GL: Дт Кт-талын баримтын хяналтын данс / Кт Дт-талынх, НӨАТ-д нөлөөгүй. Зөвхөн MNT, нээлттэй (батлагдсан/хэсэгчлэн төлсөн) баримтууд; зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
         arInvoice: {
           type: "string",
-          description: "Авлагын нэхэмжлэлийн дугаар (AR-...) эсвэл ID",
+          description:
+            "Дт талын баримт: авлагын нэхэмжлэл (AR-...) эсвэл дебит нэхэмжлэх (DN-...) — дугаар/ID",
         },
         apBill: {
           type: "string",
-          description: "Өглөгийн нэхэмжлэхийн дугаар (AP-...) эсвэл ID",
+          description:
+            "Кт талын баримт: өглөгийн нэхэмжлэх (AP-...) эсвэл кредит нэхэмжлэл (CN-...) — дугаар/ID",
         },
         amount: {
           type: "number",
@@ -1329,6 +1343,45 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["arInvoice", "apBill"],
+    },
+  },
+  {
+    name: "create_credit_note",
+    description:
+      "Батлагдсан нэхэмжлэхийн БУЦААЛТ (ENT-029): авлагын нэхэмжлэлээс «Кредит нэхэмжлэл» (CN-), өглөгийн нэхэмжлэхээс «Дебит нэхэмжлэх» (DN-) үүсгэнэ — авлага/өглөг, НӨАТ, бараа (return_in/return_out) НЭГ баримтаар буурна. Мөр бүр эх мөртэйгээ; буцаах тоо/дүн эх мөрийн үлдэгдлээс хэтрэхгүй; НӨАТ автоматаар хувиар. АР-ын орлогын мөр 51900001 «Борлуулалтын хөнгөлөлт»-д бичигдэнэ. Батлахад эх нэхэмжлэхийн үлдэгдэлд автоматаар тооцогдож, илүүдэл нь харилцагчийн кредит болно (pay_arap_document-оор буцаан олгох эсвэл settle_arap_offset-оор дараагийн нэхэмжлэхтэй суутгах). Мөрийг мэдэхгүй бол эхлээд preview:true-гээр эх мөрүүд, үлдэгдлийг харна. Default ноорог; 'Шууд бичих' горимд хязгаар дотор батлагдана. POS-ийн нэхэмжлэх → return_pos_sale; PO-той нэхэмжлэх одоогоор дэмжигдэхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sourceDocument: {
+          type: "string",
+          description: "Эх нэхэмжлэхийн дугаар (AR-/AP-...), externalRef эсвэл ID",
+        },
+        preview: {
+          type: "boolean",
+          description: "true бол юу ч үүсгэхгүй — эх мөрүүд (lineNo), буцаах үлдэгдлийг харуулна",
+        },
+        date: { type: "string", description: "Буцаалтын огноо YYYY-MM-DD (default: өнөөдөр)" },
+        reason: { type: "string", description: "Буцаалтын шалтгаан (баримтын утгад)" },
+        lines: {
+          type: "array",
+          description:
+            "Хоосон бол БҮТЭН буцаалт (бүх мөрийн үлдэгдэл). Хэсэгчилсэн бол мөр бүр: lineNo (эх мөрийн дугаар, preview-ээс) + quantity (бараатай мөр) эсвэл amount. quantity 0 + amount = бараа буцаахгүй үнийн хөнгөлөлт. НӨАТ-ын мөрийг бүү оруул.",
+          items: {
+            type: "object",
+            properties: {
+              lineNo: { type: "integer" },
+              quantity: { type: "number" },
+              amount: { type: "number" },
+            },
+            required: ["lineNo"],
+          },
+        },
+        externalRef: {
+          type: "string",
+          description: "Гадаад системийн давтагдашгүй дугаар — ижил ref дахин үүсгэхгүй",
+        },
+      },
+      required: ["sourceDocument"],
     },
   },
 
@@ -4504,6 +4557,82 @@ async function runPostArap(
   };
 }
 
+/** Кредит нэхэмжлэл / дебит нэхэмжлэх (ENT-029) — createCreditNote action. */
+async function runCreateCreditNote(
+  orgId: string,
+  input: {
+    sourceDocument: string;
+    preview?: boolean;
+    date?: string;
+    reason?: string;
+    lines?: { lineNo: number; quantity?: number; amount?: number }[];
+    externalRef?: string;
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  const source = await findArapDocument(orgId, input.sourceDocument);
+  const { source: view } = unwrapAction(await getCreditNoteSource(source.id));
+  const unit = view.currency === "MNT" ? "₮" : ` ${view.currency}`;
+  const lineText = view.lines
+    .map(
+      (line) =>
+        `  #${line.lineNo} ${line.description}${line.isVat ? " (НӨАТ — автоматаар)" : ""} · дүн ${fmt(line.amount)}${unit}${line.quantity != null ? ` · тоо ${line.quantity}` : ""} · үлдэгдэл ${fmt(line.remainingAmount)}${unit}${line.remainingQuantity != null ? ` / ${line.remainingQuantity} ш` : ""}`
+    )
+    .join("\n");
+  if (input.preview)
+    return {
+      resultText: `${view.documentNo} (${view.counterpartyName}, ${view.date}) → ${view.creditTypeLabel}${view.blocker ? `\n⚠ ${view.blocker}` : ""}\nМөрүүд:\n${lineText}\nНээлттэй үлдэгдэл: ${fmt(view.openAmount)}${unit}`,
+    };
+  if (view.blocker) throw new Error(view.blocker);
+
+  const byNo = new Map(view.lines.map((line) => [line.lineNo, line]));
+  const lines = (input.lines ?? []).map((line) => {
+    const target = byNo.get(Number(line.lineNo));
+    if (!target)
+      throw codedError(
+        "CREDIT_LINE_NOT_FOUND",
+        `${view.documentNo}-д #${line.lineNo} мөр алга — preview:true-гээр мөрүүдийг харна уу:\n${lineText}`
+      );
+    return { sourceLineId: target.id, quantity: line.quantity, amount: line.amount };
+  });
+  const date = input.date?.trim() || ulaanbaatarToday();
+
+  const created = unwrapAction(
+    await createCreditNote({
+      sourceDocumentId: source.id,
+      date,
+      reason: input.reason,
+      lines,
+      externalRef: input.externalRef,
+    })
+  );
+  if (created.dedup)
+    return {
+      resultText: `Энэ externalRef-тэй баримт аль хэдийн бий: ${created.documentNo} — давхар үүсгээгүй`,
+      action: { kind: "arap", id: created.id, title: created.documentNo, status: "draft" },
+    };
+
+  const total = created.total ?? 0;
+  const baseTotal = view.currency !== "MNT" ? total * (Number(source.exchangeRate) || 0) : total;
+  let status: "draft" | "posted" = "draft";
+  let note = "";
+  if (mode === "post") {
+    const futureNote = futurePeriodDraftNote(date);
+    if (futureNote) note = futureNote;
+    else if (baseTotal > currentAiPostLimit())
+      note = ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)`;
+    else {
+      const posted = await postArApDocument(created.id);
+      if (posted.error) note = ` (ноорог үлдэв — батлахад: ${posted.error})`;
+      else status = "posted";
+    }
+  }
+  return {
+    resultText: `${view.creditTypeLabel} үүслээ: ${created.documentNo} (эх ${view.documentNo}), дүн ${fmt(total)}${unit}, төлөв: ${status === "posted" ? "батлагдсан — эх нэхэмжлэхийн үлдэгдэлд тооцогдов" : "ноорог"}${note}`,
+    action: { kind: "arap", id: created.id, title: created.documentNo, status },
+  };
+}
+
 /** АР↔АП харилцан суутган тооцоо — settleArApOffset action-ийг дуудна. */
 async function runSettleArApOffset(
   orgId: string,
@@ -4560,7 +4689,7 @@ async function runSettleArApOffset(
     })
   );
   return {
-    resultText: `Суутган тооцоо хийгдлээ: ${arDoc.documentNo} ↔ ${apDoc.documentNo}, дүн ${fmt(Math.round(amount * 100) / 100)}₮ — GL-д Дт өглөгийн данс / Кт авлагын данс бичигдэв. Хоёр талын үлдэгдэл энэ дүнгээр буурсан.`,
+    resultText: `Суутган тооцоо хийгдлээ: ${arDoc.documentNo} ↔ ${apDoc.documentNo}, дүн ${fmt(Math.round(amount * 100) / 100)}₮ — хоёр талын хяналтын дансаар GL-д бичигдэв. Хоёр талын үлдэгдэл энэ дүнгээр буурсан.`,
     action: {
       kind: "arap",
       id: arDoc.id,
@@ -5998,6 +6127,12 @@ async function runYearEndClosing(
 
 // ── АР/АП нэмэлт гүйцэтгэгчид ───────────────────────────────────────────────
 
+/** Жагсаалтын товч шошго: АР / АП, буцаалтын баримтад төрлийн нэр. */
+function arapShortLabel(documentType: string): string {
+  if (isCreditDocument(documentType)) return documentTypeLabel(documentType);
+  return arapLedger(documentType) === "ar" ? "АР" : "АП";
+}
+
 const ARAP_STATUS_LABELS: Record<string, string> = {
   draft: "ноорог",
   posted: "батлагдсан",
@@ -6054,9 +6189,9 @@ async function runListArapDocuments(
             Number(doc.baseTotalAmount) !== 0 ? Number(doc.baseTotalAmount) : total;
           const basePaid =
             Number(doc.basePaidAmount) !== 0 ? Number(doc.basePaidAmount) : paid;
-          return `${doc.date} · ${doc.documentNo} · ${doc.counterparty?.name ?? "?"} · ${doc.documentType === "ar_invoice" ? "АР" : "АП"} · нийт ${fmt(total)} ${doc.currency} (≈${fmt(baseTotal)}₮) · төлөгдсөн ${fmt(paid)} ${doc.currency} · үлдэгдэл ${fmt(balance)} ${doc.currency} (≈${fmt(baseTotal - basePaid)}₮) · ${ARAP_STATUS_LABELS[doc.status] ?? doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`;
+          return `${doc.date} · ${doc.documentNo} · ${doc.counterparty?.name ?? "?"} · ${arapShortLabel(doc.documentType)} · нийт ${fmt(total)} ${doc.currency} (≈${fmt(baseTotal)}₮) · төлөгдсөн ${fmt(paid)} ${doc.currency} · үлдэгдэл ${fmt(balance)} ${doc.currency} (≈${fmt(baseTotal - basePaid)}₮) · ${ARAP_STATUS_LABELS[doc.status] ?? doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`;
         }
-        return `${doc.date} · ${doc.documentNo} · ${doc.counterparty?.name ?? "?"} · ${doc.documentType === "ar_invoice" ? "АР" : "АП"} · нийт ${fmt(total)} · төлөгдсөн ${fmt(paid)} · үлдэгдэл ${fmt(balance)} · ${ARAP_STATUS_LABELS[doc.status] ?? doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`;
+        return `${doc.date} · ${doc.documentNo} · ${doc.counterparty?.name ?? "?"} · ${arapShortLabel(doc.documentType)} · нийт ${fmt(total)} · төлөгдсөн ${fmt(paid)} · үлдэгдэл ${fmt(balance)} · ${ARAP_STATUS_LABELS[doc.status] ?? doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`;
       })
       .join("\n"),
   };
@@ -6107,7 +6242,9 @@ async function runPayArap(
     input.cashAccount
   );
 
-  const isAr = document.documentType === "ar_invoice";
+  // Мөнгө орох (нэхэмжлэл, дебит нэхэмжлэх) эсвэл гарах (өглөг, кредит
+  // нэхэмжлэлийн илүүдлийг буцаан олгох) — ENT-029.
+  const isAr = settlementCashType(document.documentType) === "receipt";
   // Лимит ЗААВАЛ MNT-ээр — валютын нэхэмжлэхийн дүнг ханшаар үржинэ.
   const baseAmount =
     document.currency !== "MNT"
@@ -6373,11 +6510,14 @@ async function runCounterpartyBalance(
     return AGING_BUCKETS.find((bucket) => days >= bucket.min && days <= bucket.max)!;
   };
 
+  // Кредит нэхэмжлэл / дебит нэхэмжлэх нь дэвтрийнхээ үлдэгдлийг БУУРУУЛНА
+  // (ENT-029) — хасах тэмдгээр нэгтгэнэ.
+  const signedBaseBalanceOf = (doc: ArapDoc) => ledgerSign(doc.documentType) * baseBalanceOf(doc);
   const sections: string[] = [];
-  for (const documentType of ["ar_invoice", "ap_bill"] as const) {
-    const docs = open.filter((doc) => doc.documentType === documentType);
+  for (const ledger of ["ar", "ap"] as const) {
+    const docs = open.filter((doc) => arapLedger(doc.documentType) === ledger);
     if (docs.length === 0) continue;
-    const label = documentType === "ar_invoice" ? "АВЛАГА" : "ӨГЛӨГ";
+    const label = ledger === "ar" ? "АВЛАГА" : "ӨГЛӨГ";
     const byCp = new Map<string, typeof docs>();
     for (const doc of docs) {
       const key = doc.counterparty?.name ?? "?";
@@ -6389,19 +6529,22 @@ async function runCounterpartyBalance(
       a[0].localeCompare(b[0])
     )) {
       // Нийлбэр ЗААВАЛ ₮-өөр — USD + MNT дүнг шууд нэмж болохгүй.
-      const cpTotal = cpDocs.reduce((sum, doc) => sum + baseBalanceOf(doc), 0);
+      const cpTotal = cpDocs.reduce((sum, doc) => sum + signedBaseBalanceOf(doc), 0);
       sectionTotal += cpTotal;
       lines.push(`  ${cpName} — ${fmt(cpTotal)}₮`);
       for (const doc of cpDocs) {
-        const balance = Number(doc.totalAmount) - (paidAsOf.get(doc.id) ?? 0);
-        const partial = balance < Number(doc.totalAmount) - 0.01 ? ", хэсэгчилсэн" : "";
+        const sign = ledgerSign(doc.documentType);
+        const balance = sign * (Number(doc.totalAmount) - (paidAsOf.get(doc.id) ?? 0));
+        const partial =
+          Math.abs(balance) < Number(doc.totalAmount) - 0.01 ? ", хэсэгчилсэн" : "";
+        const kindNote = sign < 0 ? ` · ${documentTypeLabel(doc.documentType).toLowerCase()}` : "";
         // Валюттай баримтын мөр: өөрийн валютаар + ₮ ойролцоо дүн.
         const amountText =
           doc.currency !== "MNT"
-            ? `${fmt(balance)} ${doc.currency} (≈${fmt(baseBalanceOf(doc))}₮)`
+            ? `${fmt(balance)} ${doc.currency} (≈${fmt(signedBaseBalanceOf(doc))}₮)`
             : `${fmt(balance)}₮`;
         lines.push(
-          `    ${doc.date} · ${doc.documentNo} · үлдэгдэл ${amountText}${partial}${input.aging ? ` · ${bucketOf(doc.dueDate).label}` : ""}`
+          `    ${doc.date} · ${doc.documentNo}${kindNote} · үлдэгдэл ${amountText}${partial}${input.aging ? ` · ${bucketOf(doc.dueDate).label}` : ""}`
         );
       }
     }
@@ -6410,8 +6553,8 @@ async function runCounterpartyBalance(
         bucket,
         total: docs
           .filter((doc) => bucketOf(doc.dueDate) === bucket)
-          .reduce((sum, doc) => sum + baseBalanceOf(doc), 0),
-      })).filter((entry) => entry.total > 0.01);
+          .reduce((sum, doc) => sum + signedBaseBalanceOf(doc), 0),
+      })).filter((entry) => Math.abs(entry.total) > 0.01);
       lines.push(
         `  Задаргаа: ${bucketTotals.map((entry) => `${entry.bucket.label} ${fmt(entry.total)}₮`).join(" · ")}`
       );
@@ -7557,12 +7700,17 @@ async function runReconcileModules(
       (doc) =>
         ["posted", "partially_paid"].includes(doc.status) && doc.date <= input.to
     );
-    const byControl = new Map<string, { type: string; sum: number }>();
+    // Хяналтын данс бүрийн дэвтрийн (АР — Дт, АП — Кт) үлдэгдэл: кредит
+    // нэхэмжлэл / дебит нэхэмжлэх хасах тэмдгээр (ENT-029). Төрлийг эхний
+    // баримтаас БИШ дэвтрээс нь — кредит баримт эхэлбэл тэмдэг эргэдэг байв.
+    const byControl = new Map<string, { ledger: "ar" | "ap"; sum: number }>();
     for (const doc of open) {
       const main =
         parseSegParts(doc.controlAccountNumber, [3])[3] ?? doc.controlAccountNumber;
-      const balance = Number(doc.baseTotalAmount) - Number(doc.basePaidAmount);
-      const slot = byControl.get(main) ?? { type: doc.documentType, sum: 0 };
+      const balance =
+        ledgerSign(doc.documentType) *
+        (Number(doc.baseTotalAmount) - Number(doc.basePaidAmount));
+      const slot = byControl.get(main) ?? { ledger: arapLedger(doc.documentType), sum: 0 };
       slot.sum += balance;
       byControl.set(main, slot);
     }
@@ -7570,14 +7718,14 @@ async function runReconcileModules(
     for (const [main, slot] of byControl) {
       const gl = glNet.get(main) ?? 0;
       // АР дебет, АП кредит үлдэгдэлтэй — GL-ийн цэвэрийг тохирох тэмдэгтэй нь харна.
-      const glSide = slot.type === "ar_invoice" ? gl : -gl;
+      const glSide = slot.ledger === "ar" ? gl : -gl;
       const diff = Math.round((slot.sum - glSide) * 100) / 100;
       if (Math.abs(diff) > EPS) {
         lines.push(
           `  ЗӨРҮҮ ${main}: нээлттэй баримтууд ${fmt(slot.sum)} vs GL ${fmt(glSide)} → зөрүү ${fmt(diff)}`
         );
         problems.push(
-          `${slot.type === "ar_invoice" ? "Авлага" : "Өглөг"} ${main}: хяналтын дансанд гараар журнал бичсэн, эсвэл төлөлт нэхэмжлэхтэй холбогдоогүй байж магадгүй — get_trial_balance + list_arap_documents тулгах`
+          `${slot.ledger === "ar" ? "Авлага" : "Өглөг"} ${main}: хяналтын дансанд гараар журнал бичсэн, эсвэл төлөлт нэхэмжлэхтэй холбогдоогүй байж магадгүй — get_trial_balance + list_arap_documents тулгах`
         );
       } else lines.push(`  OK ${main}: ${fmt(slot.sum)}`);
     }
@@ -8514,7 +8662,7 @@ async function runUpdateArapDocument(
     ]);
     const itemsByCode = new Map(items.map((item) => [item.code.toLowerCase(), item]));
     const whByCode = new Map(whList.map((wh) => [wh.code.toLowerCase(), wh]));
-    const isAp = document.documentType === "ap_bill";
+    const isAp = arapLedger(document.documentType) === "ap";
     lines = input.lines.map((line) => {
       let itemId: string | undefined;
       let warehouseId: string | undefined;
@@ -10995,6 +11143,8 @@ async function dispatchAiTool(
         return await runPostArap(orgId, args, mode);
       case "settle_arap_offset":
         return await runSettleArApOffset(orgId, args, mode);
+      case "create_credit_note":
+        return await runCreateCreditNote(orgId, args, mode);
       case "list_gl_accounts":
         return await runListGlAccounts(orgId, args);
       case "list_cash_accounts":

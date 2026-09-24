@@ -32,7 +32,9 @@ export function ArapBalanceHero({
   draftCount?: number;
   draftAmount?: number;
 }) {
-  const { total, buckets, counterpartyCount, documentCount } = summary;
+  const { total, buckets, counterpartyCount, documentCount, creditTotal } = summary;
+  // Зурвас нь нэхэмжлэхүүдийн насжилт — кредит хасагдаагүй нийлбэрээр дүүрнэ.
+  const gross = buckets.reduce((sum, bucket) => sum + bucket.amount, 0);
   return (
     <div className="min-w-0 flex-1 px-4 py-4">
       <div className="text-xs text-[var(--ea-text-3)]">
@@ -45,7 +47,7 @@ export function ArapBalanceHero({
       >
         {fmtMntCompact(total)}
       </div>
-      {total > 0 ? (
+      {gross > 0 ? (
         <div
           className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-[var(--ea-bg-2)]"
           aria-hidden
@@ -56,7 +58,7 @@ export function ArapBalanceHero({
               <div
                 key={bucket.key}
                 style={{
-                  width: `${(bucket.amount / total) * 100}%`,
+                  width: `${(bucket.amount / gross) * 100}%`,
                   background: BUCKET_COLORS[bucket.key],
                 }}
               />
@@ -82,6 +84,14 @@ export function ArapBalanceHero({
             </span>
           </Link>
         ))}
+        {creditTotal > 0.005 ? (
+          <span
+            className="text-xs text-[var(--ea-text-3)]"
+            title={`Эх нэхэмжлэхэд тооцогдоогүй кредит/дебит баримт — гол тооноос хасагдсан (${fmtMnt(creditTotal)} ₮)`}
+          >
+            Кредит −{fmtMntCompact(creditTotal)}
+          </span>
+        ) : null}
         {draftCount ? (
           <span
             className="text-xs text-[var(--ea-text-3)]"

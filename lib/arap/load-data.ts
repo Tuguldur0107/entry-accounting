@@ -74,6 +74,19 @@ export type ArApDocumentDetail = ArApDocumentView & {
   lines: ArApDocumentLineView[];
   /** PO-той баримтын захиалгын дугаар (харагдацад). */
   purchaseOrderNo: string | null;
+  /** Эх модуль ("manual" | "pos") — POS нэхэмжлэх кредит авахгүй. */
+  sourceType: string;
+  /** Кредит/дебит баримтын эх нэхэмжлэх (ENT-029). */
+  sourceDocumentId: string | null;
+  sourceDocumentNo: string | null;
+  /** Энэ нэхэмжлэхээс үүссэн кредит/дебит баримтууд. */
+  creditDocuments: {
+    id: string;
+    documentNo: string;
+    documentType: string;
+    status: string;
+    totalAmount: number;
+  }[];
 };
 
 function moduleEnabled(modules: string | null | undefined) {
@@ -371,6 +384,11 @@ export async function loadArApDocumentDetail(
     with: {
       counterparty: true,
       purchaseOrder: { columns: { documentNo: true } },
+      sourceDocument: { columns: { documentNo: true } },
+      creditDocuments: {
+        columns: { id: true, documentNo: true, documentType: true, status: true, totalAmount: true },
+        orderBy: (doc, { asc }) => [asc(doc.createdAt)],
+      },
       lines: { orderBy: (line, { asc }) => [asc(line.sortOrder)] },
     },
   });
@@ -378,6 +396,13 @@ export async function loadArApDocumentDetail(
   return {
     ...toDocumentView(row),
     purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,
+    sourceType: row.sourceType,
+    sourceDocumentId: row.sourceDocumentId,
+    sourceDocumentNo: row.sourceDocument?.documentNo ?? null,
+    creditDocuments: row.creditDocuments.map((doc) => ({
+      ...doc,
+      totalAmount: Number(doc.totalAmount),
+    })),
     lines: row.lines.map((line) => ({
       id: line.id,
       account: line.accountNumber,

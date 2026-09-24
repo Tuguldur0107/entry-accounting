@@ -77,7 +77,9 @@ export const ProductPanel = forwardRef<HTMLInputElement, ProductPanelProps>(func
           ref={searchRef}
           autoFocus
           value={query}
-          placeholder="Сканнер · barcode · нэр · код …  ⏎ нэмнэ   (F2)"
+          placeholder="Сканнер · barcode · нэр · код …  ⏎ нэмнэ   (F3)"
+          // Кассын хайлт ҮРГЭЛЖ focus-той тул глобал F2 («+ Шинэ») эндээс ч ажиллана.
+          data-global-hotkeys="F2"
           className="h-11 pr-10 text-base"
           autoComplete="off"
           onChange={(event) => onQueryChange(event.target.value)}

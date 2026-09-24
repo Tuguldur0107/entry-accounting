@@ -2,6 +2,7 @@
 // MCP-ийн import_bank_statement tool хоёул ЭНЭ функцийг дуудна (нэг л зам).
 // Эрхийн шалгалт (accountant+) функц дотроо — action-уудтай ижил хэв маяг.
 
+import { settlementCashType } from "@/lib/arap/document-kind";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -243,7 +244,7 @@ export async function saveBankStatement(
           `${row.rowNumber}-р мөр: ${invoice.documentNo} нэхэмжлэх төлбөр хүлээх төлөвт биш байна`
         );
       const expectedType =
-        invoice.documentType === "ar_invoice" ? "income" : "expense";
+        settlementCashType(invoice.documentType) === "receipt" ? "income" : "expense";
       if (
         (expectedType === "income" && row.income <= 0) ||
         (expectedType === "expense" && row.expense <= 0)
@@ -302,7 +303,7 @@ export async function saveBankStatement(
       const effect = settleEffectByRowId.get(row.id);
       if (!effect || Math.abs(effect.difference) <= 0.01) return false;
       const invoice = invoiceById.get(row.settleInvoiceId as string)!;
-      return invoice.documentType === "ar_invoice"
+      return settlementCashType(invoice.documentType) === "receipt"
         ? effect.difference > 0
         : effect.difference < 0;
     });
@@ -310,7 +311,7 @@ export async function saveBankStatement(
       const effect = settleEffectByRowId.get(row.id);
       if (!effect || Math.abs(effect.difference) <= 0.01) return false;
       const invoice = invoiceById.get(row.settleInvoiceId as string)!;
-      return invoice.documentType === "ar_invoice"
+      return settlementCashType(invoice.documentType) === "receipt"
         ? effect.difference < 0
         : effect.difference > 0;
     });

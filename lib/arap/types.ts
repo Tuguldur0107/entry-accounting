@@ -1,3 +1,5 @@
+import type { ArApDocumentType } from "./document-kind";
+
 export type CounterpartyView = {
   id: string;
   name: string;
@@ -29,7 +31,7 @@ export type CounterpartyView = {
   isActive: boolean;
 };
 
-export type ArApDocumentType = "ar_invoice" | "ap_bill";
+export type { ArApDocumentType };
 
 export type ArApDocumentView = {
   id: string;

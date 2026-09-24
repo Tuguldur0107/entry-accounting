@@ -4,6 +4,11 @@
 // тоолдог байсан (80 сая ₮-ийн ноорог байхад батлагдсан өглөг 21.5 сая атлаа
 // 101.7 сая гэж харагдав). Ноорог нь өр биш — зөвхөн БАТЛАГДСАН
 // (posted / partially_paid) баримт тоологдоно; ноорог тусдаа тоологдоно.
+//
+// ENT-029: кредит нэхэмжлэл / дебит нэхэмжлэх нь дэвтрийнхээ үлдэгдлийг
+// БУУРУУЛНА (хасах тэмдгээр); хугацаа хэтрэлтэд тоологдохгүй (кредит нь өр биш).
+
+import { arapLedger, isCreditDocument, ledgerSign } from "./document-kind";
 
 export interface ArapKpiDocument {
   documentType: string;
@@ -33,9 +38,11 @@ export function arapKpis(documents: ArapKpiDocument[], asOf: string) {
       continue;
     }
     if (!isOutstandingStatus(doc.status)) continue;
-    if (doc.documentType === "ar_invoice") ar += doc.baseBalance;
-    if (doc.documentType === "ap_bill") ap += doc.baseBalance;
-    open += doc.baseBalance;
+    const signed = ledgerSign(doc.documentType) * doc.baseBalance;
+    if (arapLedger(doc.documentType) === "ar") ar += signed;
+    else ap += signed;
+    open += signed;
+    if (isCreditDocument(doc.documentType)) continue;
     if (doc.dueDate < asOf && doc.baseBalance > 0.005) {
       overdue += doc.baseBalance;
       overdueCount += 1;
@@ -68,7 +75,10 @@ export interface ArapAgingBucket {
 }
 
 export interface ArapBalanceSummary {
+  /** Цэвэр үлдэгдэл = Σ зурвас − ашиглагдаагүй кредит. */
   total: number;
+  /** Эх нэхэмжлэхэд тооцогдоогүй кредит/дебит баримтын үлдэгдэл (эерэг). */
+  creditTotal: number;
   documentCount: number;
   counterpartyCount: number;
   buckets: ArapAgingBucket[];
@@ -86,8 +96,10 @@ function daysPastDue(asOf: string, dueDate: string): number {
 }
 
 /**
- * Нэг чиглэлийн (ar_invoice ЭСВЭЛ ap_bill) батлагдсан үлдэгдлийн хураангуй —
- * ноорог тоологдохгүй (arapKpis-тэй ижил дүрэм).
+ * Нэг дэвтрийн (ar_invoice → АР, ap_bill → АП) батлагдсан үлдэгдлийн
+ * хураангуй — ноорог тоологдохгүй (arapKpis-тэй ижил дүрэм). Зурвас нь
+ * нэхэмжлэхүүдийн насжилт; кредит баримт `creditTotal`-д тусдаа, цэвэр дүнгээс
+ * хасагдана.
  */
 export function arapBalanceSummary(
   documents: (ArapKpiDocument & { counterpartyId?: string })[],
@@ -102,10 +114,18 @@ export function arapBalanceSummary(
   }));
   const counterparties = new Set<string>();
   let total = 0;
+  let creditTotal = 0;
   let documentCount = 0;
+  const ledger = arapLedger(documentType);
   for (const doc of documents) {
-    if (doc.documentType !== documentType) continue;
+    if (arapLedger(doc.documentType) !== ledger) continue;
     if (!isOutstandingStatus(doc.status) || doc.baseBalance <= 0.005) continue;
+    if (isCreditDocument(doc.documentType)) {
+      creditTotal += doc.baseBalance;
+      documentCount += 1;
+      if (doc.counterpartyId) counterparties.add(doc.counterpartyId);
+      continue;
+    }
     const days = daysPastDue(asOf, doc.dueDate);
     const index = AGING_BUCKETS.findIndex((bucket) => days <= bucket.maxDays);
     const bucket = buckets[index === -1 ? buckets.length - 1 : index];
@@ -117,7 +137,8 @@ export function arapBalanceSummary(
   }
   const round = (value: number) => Math.round(value * 100) / 100;
   return {
-    total: round(total),
+    total: round(total - creditTotal),
+    creditTotal: round(creditTotal),
     documentCount,
     counterpartyCount: counterparties.size,
     buckets: buckets.map((bucket) => ({ ...bucket, amount: round(bucket.amount) })),
