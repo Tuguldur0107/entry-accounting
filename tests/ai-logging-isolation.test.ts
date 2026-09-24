@@ -158,7 +158,10 @@ async function outcomeOf(
   return rows[0];
 }
 
-test("AI бүртгэл — тусгаарлалт, polymorphic холбоос, буцаалт", async (t) => {
+// DB-гүй орчинд (release.yml-ийн нэгж тест) алгасна — бусад integration тестийн адил.
+const DB_READY = !!process.env.DATABASE_URL;
+
+test("AI бүртгэл — тусгаарлалт, polymorphic холбоос, буцаалт", { skip: !DB_READY }, async (t) => {
   const a = await makeOrg("a");
   const b = await makeOrg("b");
   const DATE = "2026-05-15";
