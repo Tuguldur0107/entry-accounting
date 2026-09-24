@@ -34,6 +34,10 @@ export const DOCUMENT_STATUS: Record<string, StatusMeta> = {
   paid: { label: "Төлөгдсөн", tone: "success", icon: "success", shape: "solid" },
   open: { label: "Нээлттэй", tone: "warning", icon: "unlocked", shape: "solid" },
   closed: { label: "Хаагдсан", tone: "success", icon: "locked", shape: "solid" },
+  // POS борлуулалт (lib/pos/constants SALE_STATUS_LABELS-тэй ИЖИЛ нэр)
+  partially_returned: { label: "Хэсэгчлэн буцаасан", tone: "warning", icon: "undo", shape: "solid" },
+  returned: { ...REVERSED, label: "Буцаасан" },
+  voided: { label: "Цуцалсан", tone: "muted", icon: "cancel", shape: "struck" },
 };
 
 /** Үл мэдэгдэх төлөвт ч хоосон биш, уншигдахуйц badge. */

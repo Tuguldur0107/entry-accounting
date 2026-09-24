@@ -24,7 +24,7 @@ import {
 } from "@/components/journal/journal-lines-grid";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { DocumentStatusBadge } from "@/components/ui/status-badge";
 import {
   deleteCashDocument,
   getCashDocPanelData,
@@ -49,16 +49,6 @@ const TYPE_LABELS: Record<string, string> = {
   receipt: "Орлого",
   payment: "Зарлага",
   transfer: "Шилжүүлэг",
-};
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Ноорог",
-  posted: "Батлагдсан",
-  reversed: "Буцаагдсан",
-};
-const STATUS_TONES: Record<string, StatusTone> = {
-  draft: "warning",
-  posted: "success",
-  reversed: "muted",
 };
 
 const ERROR_MESSAGES = {
@@ -380,9 +370,7 @@ export function CashDocPanel({
             </span>
             {TYPE_LABELS[document.documentType] ?? document.documentType}
           </h2>
-          <StatusBadge tone={STATUS_TONES[document.status] ?? "muted"}>
-            {STATUS_LABELS[document.status] ?? document.status}
-          </StatusBadge>
+          <DocumentStatusBadge status={document.status} size="md" />
         </div>
 
         {/* Толгойн талбарууд */}

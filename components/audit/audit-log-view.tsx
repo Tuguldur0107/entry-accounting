@@ -46,6 +46,7 @@ const ACTION_LABELS: Record<string, string> = {
   invitation_cancelled: "Урилга цуцалсан",
   support_entered: "Дэмжлэг орсон",
   support_exited: "Дэмжлэг гарсан",
+  manager_approval: "Менежерийн зөвшөөрөл",
 };
 
 // Объектын төрөл → монгол шошго.

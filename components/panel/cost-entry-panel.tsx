@@ -10,12 +10,11 @@ import { Icon } from "@/components/ui/icon";
 
 import {
   ENTRY_TYPE_LABELS,
-  STATUS_LABELS,
   fmtQty,
 } from "@/components/costing/cost-entries-view";
 import { VoucherLinesTable } from "@/components/gl/voucher-lines-table";
 import { Button } from "@/components/ui/button";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { DocumentStatusBadge } from "@/components/ui/status-badge";
 import {
   getCostEntryPanelData,
   type CostEntryPanelData,
@@ -34,12 +33,6 @@ const ERROR_MESSAGES = {
   "not-found": "Өртгийн бичилт олдсонгүй. Устгагдсан байж болзошгүй.",
   failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
 } as const;
-
-const STATUS_TONES: Record<string, StatusTone> = {
-  draft: "warning",
-  posted: "success",
-  reversed: "muted",
-};
 
 export function CostEntryPanel({
   panel,
@@ -120,12 +113,7 @@ export function CostEntryPanel({
           />
           <DetailRow label="Дүн" value={fmtMnt(entry.amount)} mono strong />
         </dl>
-        <StatusBadge
-          tone={STATUS_TONES[entry.status] ?? "muted"}
-          className="shrink-0"
-        >
-          {STATUS_LABELS[entry.status] ?? entry.status}
-        </StatusBadge>
+        <DocumentStatusBadge status={entry.status} size="md" className="shrink-0" />
       </div>
 
       <div>

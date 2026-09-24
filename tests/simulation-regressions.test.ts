@@ -7,7 +7,7 @@ import "./helpers/load-env";
 import { createRequire } from "node:module";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const requireCjs = createRequire(import.meta.url);
 try {
@@ -27,6 +27,7 @@ import { db } from "../lib/db";
 import {
   accountingPeriods,
   arApDocuments,
+  auditEvents,
   cashAccounts,
   cashDocuments,
   cashFxRevaluations,
@@ -40,6 +41,7 @@ import {
   journalVouchers,
   memberships,
   organizations,
+  posSales,
   purchaseOrders,
   users,
 } from "../lib/db/schema";
@@ -71,6 +73,10 @@ async function setupOrg() {
     // унадаг (purchase_order_lines.item_id, ar_ap_documents.purchase_order_id)
     // тул PO-гийн гинжийг эхлээд устгана.
     await db.transaction(async (tx) => {
+      // POS борлуулалт АР нэхэмжлэх/кассын баримтыг заадаг тул эхэлж.
+      await tx.delete(posSales).where(eq(posSales.organizationId, org.id));
+      await tx.execute(sql`delete from ar_ap_settlements where document_id in
+        (select id from ar_ap_documents where organization_id = ${org.id})`);
       await tx.delete(cashDocuments).where(eq(cashDocuments.organizationId, org.id));
       await tx.delete(arApDocuments).where(eq(arApDocuments.organizationId, org.id));
       await tx.delete(goodsReceipts).where(eq(goodsReceipts.organizationId, org.id));
@@ -357,6 +363,22 @@ test("ENT-002/049/066/046/001: ҮХ-ийн нээлтийн хуримтлагд
     "хугацаа дууссан 2025-04-д элэгдэхгүй"
   );
 
+  // Хасалтын журнал 12.5 сая ₮ (өртөг + олз) > 10 саяын анхдагч хязгаар —
+  // вэбээс хүн хязгаарыг өсгөснийг дуурайна (tool-оор өсгөх боломжгүй, §9).
+  const setLimit = (value: string | null) =>
+    db.execute(sql`insert into company_settings (user_id, organization_id, ai_post_limit_mnt)
+      values (${userId}, ${orgId}, ${value}) on conflict (organization_id)
+      do update set ai_post_limit_mnt = excluded.ai_post_limit_mnt`);
+  const overLimit = await tool(
+    "dispose_fixed_asset",
+    {
+      assetCode: asset.code, disposalType: "sale", date: "2025-10-15", proceeds: 500_000,
+      proceedsAccount: "11000001", gainLossAccount: "87000004",
+    },
+    "post"
+  );
+  assert.match(overLimit.resultText, /12,500,000₮ нь 10,000,000₮-ийн хязгаараас их/);
+  await setLimit("50000000");
   const disposed = await tool(
     "dispose_fixed_asset",
     {
@@ -365,6 +387,7 @@ test("ENT-002/049/066/046/001: ҮХ-ийн нээлтийн хуримтлагд
     },
     "post"
   );
+  await setLimit(null);
   assert.ok(okOrRevalidate(disposed.resultText), disposed.resultText);
   const after = await db.query.fixedAssets.findFirst({ where: eq(fixedAssets.id, asset.id) });
   const lines = await db.query.journalLines.findMany({
@@ -688,6 +711,59 @@ test("Аудит hotfix: хуучин касс, хаагдсан үеийн өр
     where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-future-arap`)),
   });
   assert.equal(futureDoc, undefined);
+});
+
+test("Аудит hotfix 2: dispose_fixed_asset батлах хязгаар, AI-ийн менежерийн зөвшөөрөл аудитад", { skip: !DB_READY }, async () => {
+  await setupOrg();
+
+  // dispose_fixed_asset — анхны өртөг 10 сая ₮-ийн анхдагч хязгаараас их
+  const big = await tool(
+    "create_fixed_asset",
+    {
+      name: "Агуулахын барилга (туршилт)", acquisitionDate: "2020-01-10", cost: 15_000_000, usefulLifeMonths: 240,
+      custodian: "Б.Бат", depreciationStartMonth: "2020-02", openingAccumulatedDepreciation: 3_000_000, openingAsOf: "2024-12-31",
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(big.resultText), big.resultText);
+  const bigAsset = await db.query.fixedAssets.findFirst({
+    where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.name, "Агуулахын барилга (туршилт)")),
+  });
+  assert.ok(bigAsset);
+  const blocked = await tool(
+    "dispose_fixed_asset",
+    { assetCode: bigAsset.code, disposalType: "scrap", date: "2025-10-20", gainLossAccount: "87000004" },
+    "post"
+  );
+  assert.match(blocked.resultText, /хязгаараас их/);
+  const still = await db.query.fixedAssets.findFirst({ where: eq(fixedAssets.id, bigAsset.id) });
+  assert.equal(still?.disposalVoucherId ?? null, null, "хязгаараас их хасалт GL-д бичигдэх ёсгүй");
+
+  // create_pos_sale — 15% гар хөнгөлөлт (зөвшөөрөл шаардана) managerApproval-аар
+  const cashAccount = await tool("create_cash_account", {
+    name: "Дэлгүүрийн касс", accountType: "cash", currency: "MNT", glAccount: "10000001",
+  });
+  assert.ok(okOrRevalidate(cashAccount.resultText), cashAccount.resultText);
+  const priced = await tool("update_inventory_item", { itemCode: "ITM-A", salesPrice: 50_000 });
+  assert.ok(okOrRevalidate(priced.resultText), priced.resultText);
+  const shift = await tool("open_pos_shift", { cashAccount: "Дэлгүүрийн касс", warehouseCode: "WH1" }, "post");
+  assert.ok(okOrRevalidate(shift.resultText), shift.resultText);
+  const saleInput = {
+    lines: [{ itemCode: "ITM-A", quantity: 1, discountPercent: 15 }],
+    payments: [{ method: "CASH", amount: 42_500 }],
+  };
+  const refused = await tool("create_pos_sale", saleInput, "post");
+  assert.match(refused.resultText, /APPROVAL_REQUIRED/);
+  const sold = await tool("create_pos_sale", { ...saleInput, managerApproval: true }, "post");
+  assert.ok(okOrRevalidate(sold.resultText), sold.resultText);
+  const events = await db.query.auditEvents.findMany({
+    where: and(eq(auditEvents.organizationId, orgId), eq(auditEvents.entityType, "pos_sale")),
+  });
+  const approval = events.find((event) => event.action === "manager_approval");
+  assert.ok(approval, "AI-ийн managerApproval аудитад ТУСДАА бичигдэнэ");
+  assert.match(approval.summary, /AI\/MCP-ийн managerApproval/);
+  const created = events.find((event) => event.action === "create_posted");
+  assert.match(created?.summary ?? "", /менежерийн зөвшөөрөл/);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

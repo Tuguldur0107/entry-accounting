@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   allocateReceiptDiscount,
   applyDiscounts,
+  approvalAuditNote,
   ruleWindowMatches,
 } from "../lib/pos/discounts";
 import type { CartContext, CartLine, DiscountRule } from "../lib/pos/types";
@@ -266,4 +267,13 @@ test("categoryPath-гүй хуучин мөр: зөвхөн яг ангиллы�
     ctx
   );
   assert.equal(result.lines[0].discountAmount, 0);
+});
+
+test("Аудит: менежерийн зөвшөөрлийн аудитын тэмдэглэл", () => {
+  assert.equal(approvalAuditNote([]), "");
+  assert.equal(
+    approvalAuditNote(["15% нь 10%-иас их"]),
+    " — менежерийн зөвшөөрөл (pos:post эрхээр): 15% нь 10%-иас их"
+  );
+  assert.match(approvalAuditNote(["a", "b"], "ai"), /AI\/MCP-ийн managerApproval-аар\): a; b$/);
 });

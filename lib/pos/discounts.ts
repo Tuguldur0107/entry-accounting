@@ -442,3 +442,14 @@ export function applyDiscounts(
     subtotal: round2(grossAmount - discountTotal),
   };
 }
+
+/**
+ * Менежерийн зөвшөөрлөөр явсан борлуулалтын аудитын тэмдэглэл (аудит M —
+ * урьд нь зөвшөөрлийн шалтгаан аудитын мөрд ОГТ үлддэггүй байв). Хоосон бол "".
+ * `via` — AI/MCP/REST-ээс ИЛ `managerApproval: true`-гээр ирсэн бол "ai".
+ */
+export function approvalAuditNote(reasons: readonly string[], via?: "ai"): string {
+  if (reasons.length === 0) return "";
+  const source = via === "ai" ? "AI/MCP-ийн managerApproval-аар" : "pos:post эрхээр";
+  return ` — менежерийн зөвшөөрөл (${source}): ${reasons.join("; ")}`;
+}

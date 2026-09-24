@@ -27,7 +27,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { DocumentStatusBadge } from "@/components/ui/status-badge";
 import { FormField } from "@/components/ui/form-field";
 import {
   confirmGoodsReceipt,
@@ -44,8 +44,6 @@ import type {
   GoodsReceiptStatus,
 } from "@/lib/procurement/types";
 import {
-  GR_STATUS_LABELS,
-  GR_STATUS_TONES,
 } from "@/lib/procurement/labels";
 import { parseMntInput } from "@/lib/grid/formatters";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -66,7 +64,6 @@ const ERROR_MESSAGES = {
   "not-found": "Хүлээн авалт олдсонгүй. Устгагдсан байж болзошгүй.",
   failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
 } as const;
-
 
 export function GoodsReceiptPanel({
   panel,
@@ -614,9 +611,7 @@ function GoodsReceiptBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={GR_STATUS_TONES[status]}>
-          {GR_STATUS_LABELS[status]}
-        </StatusBadge>
+        <DocumentStatusBadge status={status} size="md" />
         {receipt && (
           <span className="font-mono text-xs font-semibold text-[var(--ea-text-1)]">
             {receipt.documentNo}

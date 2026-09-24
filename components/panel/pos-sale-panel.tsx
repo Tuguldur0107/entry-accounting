@@ -14,7 +14,7 @@ import { AttachmentSection } from "@/components/attachments/attachment-section";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
-import { EBARIMT_STATUS_TONES, SALE_STATUS_TONES } from "@/components/pos/sales-list-view";
+import { EBARIMT_STATUS_TONES } from "@/components/pos/sales-list-view";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -28,7 +28,7 @@ import { Icon } from "@/components/ui/icon";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { getEbarimtSubmissions, resendEbarimt } from "@/lib/actions/ebarimt";
 import {
@@ -42,7 +42,7 @@ import {
 import { GENERIC_ATTACHMENT_KINDS } from "@/lib/attachments/constants";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import type { EbarimtSubmissionView } from "@/lib/ebarimt/types";
-import { PAYMENT_KIND_LABELS, POS_BUSINESS_OBJECT, SALE_STATUS_LABELS } from "@/lib/pos/constants";
+import { PAYMENT_KIND_LABELS, POS_BUSINESS_OBJECT } from "@/lib/pos/constants";
 import type { PaymentInput, PaymentMethodView, PosSaleDetail, SaleLineView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
@@ -218,9 +218,7 @@ function PosSaleBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={SALE_STATUS_TONES[sale.status] ?? "muted"}>
-          {SALE_STATUS_LABELS[sale.status] ?? sale.status}
-        </StatusBadge>
+        <DocumentStatusBadge status={sale.status} size="md" />
         {sale.isReturn && <StatusBadge tone="warning">Буцаалт</StatusBadge>}
         <span className="font-mono text-xs font-semibold text-[var(--ea-text-1)]">{sale.documentNo}</span>
         <span className="text-xs text-[var(--ea-text-3)]">{fmtTime(sale.soldAt)}</span>

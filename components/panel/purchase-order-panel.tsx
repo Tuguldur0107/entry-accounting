@@ -34,7 +34,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
 import { PageTabs, type TabOption } from "@/components/ui/tabs";
 import { FormField } from "@/components/ui/form-field";
 import {
@@ -61,8 +61,6 @@ import type {
 import {
   GR_STATUS_LABELS,
   GR_STATUS_TONES,
-  PO_STATUS_LABELS,
-  PO_STATUS_TONES,
 } from "@/lib/procurement/labels";
 import { parseMntInput } from "@/lib/grid/formatters";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -83,7 +81,6 @@ const ERROR_MESSAGES = {
   "not-found": "Захиалга олдсонгүй. Устгагдсан байж болзошгүй.",
   failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
 } as const;
-
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   draft: "Ноорог",
@@ -997,7 +994,7 @@ function PurchaseOrderBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={PO_STATUS_TONES[status]}>{PO_STATUS_LABELS[status]}</StatusBadge>
+        <DocumentStatusBadge status={status} size="md" />
         {detail && (
           <>
             <span className="font-mono text-xs font-semibold text-[var(--ea-text-1)]">

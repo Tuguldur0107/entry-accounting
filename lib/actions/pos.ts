@@ -71,7 +71,7 @@ import {
 import { loadProvisionalUnitCosts } from "@/lib/costing/provisional-cost";
 import { scopeKey } from "@/lib/costing/periodic";
 import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
-import { applyDiscounts } from "@/lib/pos/discounts";
+import { applyDiscounts, approvalAuditNote } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { planPayments, planRefund } from "@/lib/pos/payments";
 import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
@@ -1650,7 +1650,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         action: "create_posted",
         entityType: "pos_sale",
         entityId: saleId,
-        summary: `POS борлуулалт — ${documentNo}, ${date}, ${customer.name}, ${quote.totals.lines.length} мөр, төлөх ${fmt(payable)}₮ (${plan.payments.map((payment) => `${payment.method.name} ${fmt(payment.baseAmount - payment.changeGiven)}`).join(", ")})${ebarimtPlan.status === "skipped" ? " — eBarimt илгээгээгүй (кассчин)" : ""}`,
+        summary: `POS борлуулалт — ${documentNo}, ${date}, ${customer.name}, ${quote.totals.lines.length} мөр, төлөх ${fmt(payable)}₮ (${plan.payments.map((payment) => `${payment.method.name} ${fmt(payment.baseAmount - payment.changeGiven)}`).join(", ")})${ebarimtPlan.status === "skipped" ? " — eBarimt илгээгээгүй (кассчин)" : ""}${approvalAuditNote(quote.approvalReasons)}`,
       },
       tx
     );

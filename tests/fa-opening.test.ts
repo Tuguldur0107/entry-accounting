@@ -9,6 +9,7 @@ import {
 import {
   accumDepAccountFor,
   computeFaDisposal,
+  faDisposalJournalTotal,
   isOpeningBalanceVoucher,
   normalizeFaOpening,
 } from "../lib/fa/opening";
@@ -126,4 +127,11 @@ test("ENT-001: хуримтлагдсан элэгдлийн анхдагч да
   assert.equal(accumDepAccountFor("20000001"), "20000002");
   assert.equal(accumDepAccountFor("21010000"), "20000002");
   assert.equal(accumDepAccountFor("21000001"), "21000099");
+});
+
+test("Аудит M: хасалтын журналын нийт дүн = өртөг + олз (AI хязгаарын суурь)", () => {
+  // бүрэн элэгдсэн 12 сая, 500 мянгаар зарсан → олз 500k → журнал 12.5 сая
+  assert.equal(faDisposalJournalTotal({ cost: 12_000_000, gainLoss: -500_000 }), 12_500_000);
+  // гарзтай бол журнал = өртөг (гарз нь Dr талд багтана)
+  assert.equal(faDisposalJournalTotal({ cost: 5_000_000, gainLoss: 4_000_000 }), 5_000_000);
 });
