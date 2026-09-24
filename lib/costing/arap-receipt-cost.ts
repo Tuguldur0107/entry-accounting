@@ -31,3 +31,23 @@ export function arapLineReceiptCost(
   const base = round2(amount * rate);
   return { unitCost: round4(base / quantity), amount: base };
 }
+
+/**
+ * Өртгийн run-д АВТОМАТААР капиталжуулах arap_line орлого мөн үү (аудит M).
+ * Run нь `asOfDate` хүртэл л үнэлнэ; ХААГДСАН үеийн орлогод ноорог ч, 0 дүнтэй
+ * шууд «posted» бичилт ч үүсгэвэл snapshot (§4) хуучирч, хаалтын дараа
+ * тухайн үеийн өртөг чимээгүй өөрчлөгдөнө — тийм орлого дахин нээж байж л
+ * үнэлэгдэнэ.
+ */
+export function isArapCapitalizeCandidate(
+  movement: { id: string; date: string },
+  context: {
+    asOfDate: string;
+    closedPeriodCodes: ReadonlySet<string>;
+    manuallyPriced: ReadonlySet<string>;
+  }
+): boolean {
+  if (context.manuallyPriced.has(movement.id)) return false;
+  if (movement.date > context.asOfDate) return false;
+  return !context.closedPeriodCodes.has(movement.date.slice(0, 7));
+}

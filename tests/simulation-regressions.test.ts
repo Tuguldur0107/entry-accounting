@@ -20,8 +20,12 @@ try {
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
+import { createArApDocument } from "../lib/actions/arap";
+import { updateCashAccount } from "../lib/actions/cash";
+import { runCosting } from "../lib/actions/costing";
 import { db } from "../lib/db";
 import {
+  accountingPeriods,
   arApDocuments,
   cashAccounts,
   cashDocuments,
@@ -573,6 +577,117 @@ test("ENT-013/014/045/030/057: валютын журнал, кассын үлд�
   assert.doesNotMatch(link.resultText, /undefined/);
   assert.match(link.resultText, /\/invoice\//);
   await db.update(arApDocuments).set({ status: ar!.status }).where(eq(arApDocuments.id, ar!.id));
+});
+
+test("Аудит hotfix: хуучин касс, хаагдсан үеийн өртөг, АР/АП валют, ирээдүйн шууд батлалт", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const as = <T>(fn: () => Promise<T>) => runAsOrg({ userId, orgId }, fn);
+
+  // (1) opening_date нэмэгдэхээс ӨМНӨХ огноогүй данс — нэр засахад гацахгүй
+  const [legacy] = await db
+    .insert(cashAccounts)
+    .values({
+      userId, organizationId: orgId, name: "Хуучин касс", accountType: "cash",
+      currency: "MNT", glAccountNumber: "11210000", openingBalance: "5000000",
+    })
+    .returning();
+  const renamed = await as(() =>
+    updateCashAccount({
+      id: legacy.id, name: "Хуучин касс (засав)", accountType: "cash",
+      currency: "MNT", glAccountNumber: "11210000", openingBalance: 5_000_000,
+    })
+  );
+  assert.equal(renamed.error, undefined, renamed.error);
+  // Үлдэгдлийг СОЛИХОД огноо нэхсээр
+  const rebalanced = await as(() =>
+    updateCashAccount({
+      id: legacy.id, name: "Хуучин касс (засав)", accountType: "cash",
+      currency: "MNT", glAccountNumber: "11210000", openingBalance: 6_000_000,
+    })
+  );
+  assert.match(rebalanced.error ?? "", /НЭЭЛТИЙН ОГНОО/);
+
+  // (3) Хаагдсан үеийн (2025-07) ба asOfDate-ээс хойшхи (2025-09) АП орлого
+  //     run-аар капиталжихгүй — засварын өмнөх (капитализацигүй) орлогыг дуурайна.
+  const receiptOn = async (date: string, ref: string) => {
+    const bill = await tool(
+      "create_arap_invoice",
+      {
+        documentType: "ap_bill", counterparty: "Нийлүүлэгч А", date, currency: "MNT",
+        description: "Хуучин орлого", externalRef: `sim-${STAMP}-${ref}`,
+        lines: [{ itemCode: "ITM-A", warehouseCode: "WH1", quantity: 2, unitPrice: 30000, description: "Цэнэглэгч" }],
+      },
+      "post"
+    );
+    assert.ok(okOrRevalidate(bill.resultText), bill.resultText);
+    const movement = (
+      await db.query.inventoryMovements.findMany({
+        where: and(
+          eq(inventoryMovements.organizationId, orgId),
+          eq(inventoryMovements.sourceType, "arap_line"),
+          eq(inventoryMovements.date, date)
+        ),
+      })
+    )[0];
+    assert.ok(movement, `${date} орлого`);
+    const confirm = await tool("confirm_inventory_movement", { movementId: movement.id }, "post");
+    assert.ok(okOrRevalidate(confirm.resultText), confirm.resultText);
+    await db.delete(costEntries).where(eq(costEntries.movementId, movement.id));
+    return movement.id;
+  };
+  const julyMovement = await receiptOn("2025-07-15", "jul");
+  const septMovement = await receiptOn("2025-09-10", "sep");
+  const [closedJuly] = await db
+    .insert(accountingPeriods)
+    .values({ userId, organizationId: orgId, code: "2025-07", startDate: "2025-07-01", endDate: "2025-07-31", status: "closed" })
+    .returning({ id: accountingPeriods.id });
+  try {
+    const run = await as(() => runCosting({ asOfDate: "2025-08-31" }));
+    assert.equal(run.error, undefined, run.error);
+    const entriesFor = (movementId: string) =>
+      db.query.costEntries.findMany({ where: eq(costEntries.movementId, movementId) });
+    assert.equal((await entriesFor(julyMovement)).length, 0, "хаагдсан үе рүү бичихгүй");
+    assert.equal((await entriesFor(septMovement)).length, 0, "asOfDate-ээс хойш үнэлэхгүй");
+    const later = await as(() => runCosting({ asOfDate: "2025-09-30" }));
+    assert.equal(later.error, undefined, later.error);
+    assert.equal((await entriesFor(septMovement)).length, 1, "нээлттэй үед нөхөж капиталжина");
+    assert.equal((await entriesFor(julyMovement)).length, 0);
+  } finally {
+    await db.delete(accountingPeriods).where(eq(accountingPeriods.id, closedJuly.id));
+  }
+
+  // (4) PO-гүй нэхэмжлэх валютаа харилцагчийн анхдагчаас авна
+  assert.ok(okOrRevalidate((await tool("create_counterparty", { name: "USD Нийлүүлэгч", counterpartyType: "supplier", currency: "USD" })).resultText));
+  const usdBill = await tool("create_arap_invoice", {
+    documentType: "ap_bill", counterparty: "USD Нийлүүлэгч", date: "2025-05-10", exchangeRate: 3450,
+    description: "Үйлчилгээ", externalRef: `sim-${STAMP}-usd-default`,
+    lines: [{ account: "73100001", description: "Зөвлөх", amount: 1_000 }],
+  });
+  assert.ok(okOrRevalidate(usdBill.resultText), usdBill.resultText);
+  const usdDoc = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-usd-default`)),
+  });
+  assert.equal(usdDoc?.currency, "USD");
+  assert.equal(Number(usdDoc?.exchangeRate), 3450);
+
+  // (5) postNow нь ирээдүйн сарын хоригийг тойрохгүй
+  const cp = await db.query.counterparties.findFirst({
+    where: (row, { and: both, eq: equals }) => both(equals(row.organizationId, orgId), equals(row.name, "НӨАТ Харилцагч")),
+  });
+  assert.ok(cp);
+  const future = await as(() =>
+    createArApDocument({
+      documentType: "ar_invoice", counterpartyId: cp.id, date: "2099-06-01", dueDate: "2099-07-01",
+      controlAccountNumber: "13110000", description: "Ирээдүйн шууд батлалт",
+      externalRef: `sim-${STAMP}-future-arap`, postNow: true,
+      lines: [{ account: "51100000", description: "Үйлчилгээ", amount: 10_000 }],
+    })
+  );
+  assert.match(future.error ?? "", /ирээдүйн тайлант үе/, "ирээдүйн сарын баримт шууд батлагдах ёсгүй");
+  const futureDoc = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-future-arap`)),
+  });
+  assert.equal(futureDoc, undefined);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

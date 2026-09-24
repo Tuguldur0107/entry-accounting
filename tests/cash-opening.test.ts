@@ -90,3 +90,15 @@ test("ENT-023: тэгшитгэлийн carrying — ганц дансанд GL-
     { carryingAmount: 100_000, untaggedAmount: 41_045_520, untaggedLines: 1 }
   );
 });
+
+test("Аудит M2: огноогүй хуучин данс — requireDate:false үед нэр засахад гацахгүй", () => {
+  assert.deepEqual(
+    normalizeCashOpeningFields({ openingBalance: 5_000_000, currency: "MNT", requireDate: false }),
+    { openingDate: null, openingRate: null }
+  );
+  // Хэвийн (шинэ / үлдэгдэл солих) зам огноо нэхсээр
+  assert.throws(
+    () => normalizeCashOpeningFields({ openingBalance: 5_000_000, currency: "MNT", requireDate: true }),
+    /НЭЭЛТИЙН ОГНОО/
+  );
+});

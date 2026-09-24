@@ -22,6 +22,7 @@ import {
 } from "@/lib/costing/posting-helpers";
 import { db } from "@/lib/db";
 import {
+  accountingPeriods,
   chartOfAccounts,
   costComponents,
   costEntries,
@@ -48,6 +49,7 @@ import {
   ARAP_LINE_SOURCE_TYPE,
   capitalizeArapLineReceipts,
 } from "@/lib/costing/arap-receipt-capitalize";
+import { isArapCapitalizeCandidate } from "@/lib/costing/arap-receipt-cost";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import {
@@ -193,19 +195,33 @@ async function runCostingCore(data: {
   // PO-гүй АП нэхэмжлэхийн орлого — нэхэмжлэхийн мөрийн дүнгээр (ENT-018).
   // Энэ засвараас өмнө батлагдсан орлогыг ч нөхнө; гараар өгсөн үнэтэй
   // хөдөлгөөн нь receiptCosts-оор доор үнэлэгдэх тул эндээс алгасна.
+  // Зөвхөн asOfDate хүртэлх, НЭЭЛТТЭЙ үеийн орлого — хаагдсан үе рүү бичихгүй.
   const manuallyPriced = new Set(Object.keys(data.receiptCosts ?? {}));
-  const arapCandidates = (
-    await tx.query.inventoryMovements.findMany({
+  const [arapMovements, closedPeriods] = await Promise.all([
+    tx.query.inventoryMovements.findMany({
       where: and(
         eq(inventoryMovements.organizationId, orgId),
         eq(inventoryMovements.status, "confirmed"),
         eq(inventoryMovements.sourceType, ARAP_LINE_SOURCE_TYPE)
       ),
-      columns: { id: true },
-    })
-  )
-    .map((row) => row.id)
-    .filter((id) => !manuallyPriced.has(id));
+      columns: { id: true, date: true },
+    }),
+    tx.query.accountingPeriods.findMany({
+      where: and(
+        eq(accountingPeriods.organizationId, orgId),
+        eq(accountingPeriods.status, "closed")
+      ),
+      columns: { code: true },
+    }),
+  ]);
+  const candidateContext = {
+    asOfDate: data.asOfDate,
+    closedPeriodCodes: new Set(closedPeriods.map((row) => row.code)),
+    manuallyPriced,
+  };
+  const arapCandidates = arapMovements
+    .filter((row) => isArapCapitalizeCandidate(row, candidateContext))
+    .map((row) => row.id);
   await capitalizeArapLineReceipts(tx, orgId, userId, arapCandidates);
 
   const [movements, activeEntries] = await Promise.all([

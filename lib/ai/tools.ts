@@ -3587,14 +3587,16 @@ async function runCreateArap(
   }
 
   const total = lines.reduce((sum, line) => sum + line.amount, 0);
-  // Валют: ил өгсөн → PO-гийн БАРААНЫ нэхэмжлэх бол захиалгынх → PO-гийн
-  // нэмэлт зардлын нэхэмжлэх бол харилцагчийн анхдагч → MNT. Гааль/тээврийн НЭМЭЛТ ЗАРДЛЫН нэхэмжлэх PO-гийн валютыг
-  // өвлөхгүй (ENT-038/071: USD PO-д холбосон ₮ гаалийн нэхэмжлэх USD болж,
-  // «USD ханш 0-ээс их» алдаа өгдөг байв).
+  // Валют: ил өгсөн → PO-гийн БАРААНЫ нэхэмжлэх бол захиалгынх → бусад үед
+  // (PO-гүй, эсвэл PO-гийн нэмэлт зардал) харилцагчийн анхдагч → MNT —
+  // createArApDocument-ийн default-тай ИЖИЛ (аудит M: PO-гүй нэхэмжлэх
+  // харилцагчийн USD-г үл тоож MNT болдог байв). Гааль/тээврийн НЭМЭЛТ
+  // ЗАРДЛЫН нэхэмжлэх PO-гийн валютыг өвлөхгүй (ENT-038/071: USD PO-д
+  // холбосон ₮ гаалийн нэхэмжлэх USD болж, «USD ханш 0-ээс их» алдаа өгдөг байв).
   const hasPoGoodsLines = lines.some((line) => line.itemId || line.purchaseOrderLineId);
   const effectiveCurrency = (
     input.currency?.trim() ||
-    (poDetail ? (hasPoGoodsLines ? poDetail.currency : counterparty.defaultCurrency) : "MNT") ||
+    (poDetail && hasPoGoodsLines ? poDetail.currency : counterparty.defaultCurrency) ||
     "MNT"
   ).toUpperCase();
   // Валютын баримтад ханш өгөөгүй бол баримтын ӨДРИЙН албан ханш (зохиохгүй —

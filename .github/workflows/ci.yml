@@ -1,9 +1,10 @@
 # CI — push/PR бүрд төрөл, lint, нэгж тест, production build, хамаарлын аудит.
 #
-# DB integration тестүүд (org-isolation, ai-tools-flow, procurement-flow) нь
-# DATABASE_URL шаарддаг тул repo-ийн Settings → Secrets-д DATABASE_URL нэмсэн
-# үед л ажиллана — нэмээгүй бол тэр алхам чимээгүй алгасагдана (бусад шалгалт
-# бүрэн явна).
+# DB integration тестүүд (org-isolation, ai-tools-flow, procurement-flow,
+# simulation-regressions …) нь job-ын ТҮР Postgres service дээр ҮРГЭЛЖ явна:
+# хоосон DB-д `db:predeploy` (production-ий preDeploy-той ИЖИЛ) схем үүсгэнэ.
+# Урьд нь DATABASE_URL secret-гүй үед энэ алхам чимээгүй алгасагддаг байсан тул
+# PR #79-ийн DB регресс тестүүд CI-д огт ажиллаагүй (аудит M).
 name: CI
 
 on:
@@ -14,8 +15,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: entry_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -62,9 +75,18 @@ jobs:
       - name: Build (next build — client/server хилийн шалгалт)
         run: npx next build
 
-      - name: DB integration тест (DATABASE_URL secret тохируулсан үед)
-        if: env.DATABASE_URL != ''
-        run: npx tsx --test tests/org-isolation.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts tests/simulation-regressions.test.ts
+      # DATABASE_URL зөвхөн эдгээр алхамд — build нь DB-гүй хэвээр (production
+      # build-тэй ижил). Файлууд нэг DB хуваалцдаг тул дараалан (concurrency 1).
+      - name: DB схем (хоосон Postgres дээр preDeploy)
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/entry_ci
+        run: npm run db:predeploy
+
+      - name: DB integration тест
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/entry_ci
+          AUTH_SECRET: ci-only-auth-secret-not-used-in-production
+        run: npx tsx --test --test-concurrency=1 tests/org-isolation.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts tests/simulation-regressions.test.ts
 
       - name: Хамаарлын аудит
         run: npm audit --audit-level=high
