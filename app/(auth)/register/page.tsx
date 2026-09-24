@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { EAMark, EAWordmark } from "@/components/auth/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { deploymentMode } from "@/lib/deployment-mode";
 import { registrationMode } from "@/lib/registration";
 
 import RegisterForm from "./register-form";
@@ -13,11 +14,13 @@ import RegisterForm from "./register-form";
 export default async function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string }>;
+  searchParams: Promise<{ invite?: string; plan?: string }>;
 }) {
-  const { invite } = await searchParams;
+  const { invite, plan } = await searchParams;
   const mode = await registrationMode();
-  if (mode === "open" || invite) return <RegisterForm />;
+  // «AI нягтлан» (skills) захиалга — зөвхөн SaaS (entry.mn landing-ийн CTA).
+  const skills = plan === "skills" && deploymentMode() === "saas" && !invite;
+  if (mode === "open" || invite) return <RegisterForm plan={skills ? "skills" : undefined} />;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>

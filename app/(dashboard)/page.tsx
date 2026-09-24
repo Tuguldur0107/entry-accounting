@@ -30,6 +30,10 @@ import {
   type AttentionInput,
 } from "@/lib/notifications/attention";
 import { getActiveOrg } from "@/lib/auth";
+import { SkillsHome } from "@/components/skills/skills-home";
+import { hasFeature } from "@/lib/billing/entitlements";
+import { getEntitlements } from "@/lib/billing/load";
+import { mcpEndpointUrl } from "@/lib/mcp/endpoint";
 import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { shiftDays } from "@/lib/periods/period";
 import { db } from "@/lib/db";
@@ -56,6 +60,11 @@ import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 export default async function HomePage() {
   const { orgId } = await getActiveOrg();
+  // «AI нягтлан» (skills) багц — нягтлан бодох системгүй: модулийн самбарын
+  // оронд мэдлэгийн санг ChatGPT / Claude-д холбох заавар.
+  const entitlements = await getEntitlements(orgId);
+  if (!hasFeature(entitlements, "accounting"))
+    return <SkillsHome ent={entitlements} mcpUrl={await mcpEndpointUrl()} />;
   const { periodCode, today } = await getPeriodSelection();
 
   const [

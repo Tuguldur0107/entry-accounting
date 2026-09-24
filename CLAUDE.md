@@ -26,7 +26,7 @@
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
 | POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
-| Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д, Console-оос байгууллага бүрд нээнэ | ✅ фаз 1 | fork-ын хамгаалалт: хувийн repo (фаз 2), dedicated sync |
+| Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1 | fork-ын хамгаалалт: хувийн repo (фаз 2), dedicated sync |
 
 ## Файлын бүтэц
 
@@ -172,7 +172,9 @@ entry-accounting/
   цэгээс — read-only багцад `[SUBSCRIPTION_READ_ONLY]`), `requireFeature`
   (REST `api.rest` → 402, MCP `mcp` → -32003, AI чат `ai`, eBarimt enqueue
   алгасна), `assertSeatAvailable` (урилга), `assertCompanyCreatable`
-  (multi_company + компанийн тоо). Код даяар `if plan === …` ХОРИОТОЙ.
+  (multi_company + компанийн тоо), `assertModuleEntitlements` (requireModuleAction —
+  `accounting` боломж + бичих эрх, entitlement-ийг НЭГ удаа уншина).
+  Код даяар `if plan === …` ХОРИОТОЙ.
   **Нягтлан бодох ажлыг дунд нь блоклохгүй**: унших, тайлан, экспорт, сар
   хаах (`requireRole`) үргэлж. Мөргүй SaaS байгууллага = trial 14 хоног;
   past_due grace 14 хоног; хүснэгт АНХ үүсэхэд preDeploy бүх байгууллагыг
@@ -1710,9 +1712,18 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
 
 Хатуу дүрмүүд:
 
-- **Хандалт ЗӨВХӨН багцын `knowledge` боломжоор** (`plans.ts`, аль ч багцад
-  default OFF, dedicated-д ч) — Entry Console `overrides.features.knowledge`
-  асаана. Кодод `if plan === …` ХОРИОТОЙ (billing дүрэм хэвээр)
+- **Хандалт ЗӨВХӨН багцын `knowledge` боломжоор** (`plans.ts`, D2′ 2026-09-24):
+  SaaS-ийн нягтлан бодох багц бүрд ҮНЭГҮЙ; dedicated-д OFF; систем
+  ашиглахгүй хэрэглэгч **«AI нягтлан» (`skills`)** — 29,000₮/сар, trial 24 цаг,
+  `/register?plan=skills`. Захиалгын бүтээгдэхүүн тул read-only үед хаагдана
+  (`featureUsable`). Кодод `if plan === …` ХОРИОТОЙ (billing дүрэм хэвээр)
+- **`skills` багцад нягтлан бодох систем (`accounting` боломж) ХААЛТТАЙ** — хямд
+  багцаар бүх системийг үнэгүй ашиглах зам болохоос сэргийлнэ: `requireModuleAction`
+  (уншилт ч, `assertModuleEntitlements`), `ModuleGuard`, AI/MCP tool
+  (`lib/billing/tool-scope.ts` `ACCOUNTING_FREE_TOOLS` — `tools/list` шүүлт +
+  `executeAiTool` хаалт), вэб нүүр = холбох заавар (`components/skills/`). Шинэ
+  tool нэмэхэд skills-д нээх эсэхийг ЗӨВХӨН `ACCOUNTING_FREE_TOOLS`-оор шийднэ.
+  Тест `tests/billing-skills.test.ts`, `tests/skills-plan-flow.test.ts` (DB)
 - **Хэсгээр л** — «бүгдийг буцаах» параметр, сэдвийг бүтнээр өгөх зам НЭМЭХГҮЙ;
   хэсэг `KNOWLEDGE_MAX_SECTION_CHARS`-аар таслагдвал ИЛ хэлнэ
 - **`surfaces: ["chat", "mcp"]`** — REST-д ГАРАХГҮЙ (`aiToolsForSurface("rest")`

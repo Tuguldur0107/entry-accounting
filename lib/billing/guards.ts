@@ -2,7 +2,14 @@
 // `if plan === …` тараахгүй, зөвхөн эдгээрийг дуудна. Алдаа `[CODE] текст`
 // (AI/MCP/REST-ийн алдааны хэв маягтай ижил); dedicated горимд бүгд чимээгүй давна.
 
-import { hasFeature, limitReached, READ_ONLY_MESSAGES, type Entitlements } from "@/lib/billing/entitlements";
+import {
+  featureUsable,
+  hasFeature,
+  KNOWLEDGE_READ_ONLY_MESSAGES,
+  limitReached,
+  READ_ONLY_MESSAGES,
+  type Entitlements,
+} from "@/lib/billing/entitlements";
 import { countOwnedCompanies, countSeatsUsed, getEntitlements } from "@/lib/billing/load";
 import { FEATURE_LABELS, type FeatureKey } from "@/lib/billing/plans";
 
@@ -30,11 +37,40 @@ export async function assertWritesAllowed(orgId: string): Promise<Entitlements> 
 
 export async function requireFeature(orgId: string, feature: FeatureKey): Promise<Entitlements> {
   const ent = await getEntitlements(orgId);
+  if (hasFeature(ent, feature) && !featureUsable(ent, feature) && ent.readOnlyReason)
+    throw new EntitlementError(
+      "SUBSCRIPTION_READ_ONLY",
+      (feature === "knowledge" ? KNOWLEDGE_READ_ONLY_MESSAGES : READ_ONLY_MESSAGES)[ent.readOnlyReason]
+    );
   if (!hasFeature(ent, feature))
     throw new EntitlementError(
       "FEATURE_NOT_IN_PLAN",
       `«${FEATURE_LABELS[feature]}» таны багцад (${ent.planId}) ороогүй — Тохиргоо → Багц, төлбөр хэсгээс дээшлүүлнэ үү`
     );
+  return ent;
+}
+
+/**
+ * Нягтлан бодох систем багцад байгаа эсэх — «AI нягтлан» (skills) багцад
+ * ШИДНЭ. requireModuleAction (бүх модулийн action) ба executeAiTool дуудна.
+ */
+export function assertAccountingIncluded(ent: Entitlements): void {
+  if (!hasFeature(ent, "accounting"))
+    throw new EntitlementError(
+      "FEATURE_NOT_IN_PLAN",
+      "«AI нягтлан» багцад нягтлан бодох систем ороогүй — мэдлэгийн сангаа ChatGPT / Claude-оосоо ашиглана. Системийг ашиглах бол Тохиргоо → Багц, төлбөр хэсгээс Standard багц руу шилжинэ"
+    );
+}
+
+/**
+ * Модулийн action-ийн багцын шалгалт — entitlement-ийг НЭГ удаа уншина:
+ * нягтлан бодох систем багцад байх (унших ч мөн), бичих/батлах бол read-only биш.
+ */
+export async function assertModuleEntitlements(orgId: string, writing: boolean): Promise<Entitlements> {
+  const ent = await getEntitlements(orgId);
+  assertAccountingIncluded(ent);
+  if (writing && !ent.writable && ent.readOnlyReason)
+    throw new EntitlementError("SUBSCRIPTION_READ_ONLY", READ_ONLY_MESSAGES[ent.readOnlyReason]);
   return ent;
 }
 

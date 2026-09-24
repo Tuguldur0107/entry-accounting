@@ -18,6 +18,7 @@ import { EmailVerifyBanner } from "@/components/layout/email-verify-banner";
 import { SubscriptionBanner } from "@/components/layout/subscription-banner";
 import { SupportBanner } from "@/components/layout/support-banner";
 import { getEntitlements } from "@/lib/billing/load";
+import { hasFeature } from "@/lib/billing/entitlements";
 import { NavVisibilityProvider } from "@/components/layout/nav-visibility";
 import {
   disabledNavItemKeys,
@@ -85,6 +86,11 @@ export default async function DashboardLayout({
     getEntitlements(activeOrgId),
   ]);
 
+  // «AI нягтлан» (skills) багц — нягтлан бодох системгүй: модулийн нав,
+  // периодын шүүлтүүр, тайлан, «+ Шинэ», чат, панел нуугдана (хуудас нь
+  // холбох заавар; модулийн URL-ийг ModuleGuard хаана).
+  const systemOn = hasFeature(entitlements, "accounting");
+
   const memberHiddenNavIds = myMembership
     ? APP_MODULE_DEFS.filter(
         (def) =>
@@ -150,16 +156,24 @@ export default async function DashboardLayout({
           </div>
           <div className="order-3 flex w-full items-center gap-2 md:order-none md:w-auto md:flex-1 md:justify-end">
             <OrgSwitcher orgs={orgs} activeOrgId={activeOrgId} />
-            <PeriodFilter
-              initialPeriodCode={periodSelection.periodCode}
-              initialScope={periodSelection.scope}
-              today={periodSelection.today}
-            />
-            <HeaderReportSelect />
+            {systemOn ? (
+              <>
+                <PeriodFilter
+                  initialPeriodCode={periodSelection.periodCode}
+                  initialScope={periodSelection.scope}
+                  today={periodSelection.today}
+                />
+                <HeaderReportSelect />
+              </>
+            ) : null}
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <QuickCreate />
-            <AiChatButton />
+            {systemOn ? (
+              <>
+                <QuickCreate />
+                <AiChatButton />
+              </>
+            ) : null}
             <NotificationBell initialUnread={unreadRow?.n ?? 0} />
             {/* Дуу, горим, гарах — профайл цэсэнд (UI гайдын карт 8, ENT-061). */}
             <UserMenu
@@ -179,13 +193,13 @@ export default async function DashboardLayout({
       ) : null}
       <SubscriptionBanner entitlements={entitlements} />
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar />
+        {systemOn ? <Sidebar /> : null}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 md:px-6 md:py-8">{children}</main>
       </div>
       {/* Ажлын панелиуд — олон зэрэг нээгдэж, доод докоор сэлгэнэ */}
-      <PanelHost />
+      {systemOn ? <PanelHost /> : null}
       {/* "/" палитр + "?" товчлолын тусламж — глобал keyboard навигаци */}
-      <QuickNav />
+      {systemOn ? <QuickNav /> : null}
     </div>
     </NavVisibilityProvider>
   );

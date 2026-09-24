@@ -86,7 +86,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/entry_ci
           AUTH_SECRET: ci-only-auth-secret-not-used-in-production
-        run: npx tsx --test --test-concurrency=1 tests/org-isolation.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts tests/simulation-regressions.test.ts tests/inventory-master-data-flow.test.ts tests/org-purge.test.ts tests/credit-note-flow.test.ts
+        run: npx tsx --test --test-concurrency=1 tests/org-isolation.test.ts tests/ai-tools-flow.test.ts tests/procurement-flow.test.ts tests/ai-logging-isolation.test.ts tests/simulation-regressions.test.ts tests/inventory-master-data-flow.test.ts tests/org-purge.test.ts tests/credit-note-flow.test.ts tests/skills-plan-flow.test.ts
 
       - name: Хамаарлын аудит
         run: npm audit --audit-level=high

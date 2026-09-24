@@ -13,6 +13,8 @@ import type { ReactNode } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { getActiveOrg, moduleAccess } from "@/lib/auth";
+import { hasFeature } from "@/lib/billing/entitlements";
+import { getEntitlements } from "@/lib/billing/load";
 import type { MembershipRole } from "@/lib/db/schema";
 import { roleAtLeast } from "@/lib/permissions";
 
@@ -48,7 +50,16 @@ export async function ModuleGuard({
   children: ReactNode;
 }) {
   const keys = Array.isArray(moduleKeys) ? moduleKeys : [moduleKeys];
-  const { levels } = await moduleAccess(keys);
+  const { active, levels } = await moduleAccess(keys);
+  // «AI нягтлан» (skills) багц — нягтлан бодох систем ороогүй (action-ууд
+  // requireModuleAction-оор мөн хаагдана; энэ нь URL-ээр орсон үеийн хуудас).
+  if (!hasFeature(await getEntitlements(active.orgId), "accounting"))
+    return (
+      <AccessDenied
+        title="«AI нягтлан» багцад нягтлан бодох систем ороогүй"
+        description="Мэдлэгийн сангаа өөрийн ChatGPT / Claude-оос ашиглана — холбох заавар нүүр хуудсанд. Системийг ашиглах бол Тохиргоо → Багц, төлбөр."
+      />
+    );
   const allowed = keys.some((key) => levels[key] !== "none");
   if (!allowed) return <AccessDenied />;
   return <>{children}</>;
