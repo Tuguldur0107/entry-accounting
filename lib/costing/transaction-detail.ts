@@ -23,7 +23,10 @@ import {
 import { extractMainAccount } from "@/lib/reports/balances";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
-import { buildInventoryReconciliationRows } from "./reconciliation-math";
+import {
+  buildInventoryReconciliationRows,
+  postedEntryAmount,
+} from "./reconciliation-math";
 import {
   computeRunningBalances,
   type RunningMovement,
@@ -418,6 +421,7 @@ export async function loadInventoryGlReconciliation(
       columns: {
         status: true,
         amount: true,
+        entryType: true,
         debitAccountNumber: true,
         creditAccountNumber: true,
       },
@@ -454,13 +458,16 @@ export async function loadInventoryGlReconciliation(
       }
       continue;
     }
+    // Хадгалсан Дт/Кт хос чиглэлээ агуулдаг тул дүн нь абсолют (cogs_true_up
+    // тэмдэгтэй хадгалагддаг — postedEntryAmount).
+    const effect = postedEntryAmount(entry);
     if (entry.debitAccountNumber) {
       const main = extractMainAccount(entry.debitAccountNumber);
-      subledger.set(main, (subledger.get(main) ?? 0) + amount);
+      subledger.set(main, (subledger.get(main) ?? 0) + effect);
     }
     if (entry.creditAccountNumber) {
       const main = extractMainAccount(entry.creditAccountNumber);
-      subledger.set(main, (subledger.get(main) ?? 0) - amount);
+      subledger.set(main, (subledger.get(main) ?? 0) - effect);
     }
   }
 
