@@ -29,7 +29,7 @@ import {
 } from "@/components/arap/arap-lines-grid";
 import { CounterpartySelect } from "@/components/arap/counterparty-select";
 import { Input } from "@/components/ui/input";
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
 import { FormField } from "@/components/ui/form-field";
 import {
   createArApDocument,
@@ -68,22 +68,6 @@ const ERROR_MESSAGES = {
 const TYPE_LABELS: Record<string, string> = {
   ar_invoice: "Авлагын нэхэмжлэл",
   ap_bill: "Өглөгийн нэхэмжлэх",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Ноорог",
-  posted: "Батлагдсан",
-  partially_paid: "Хэсэгчлэн төлсөн",
-  paid: "Төлсөн",
-  reversed: "Буцаагдсан",
-};
-
-const STATUS_TONES: Record<string, StatusTone> = {
-  draft: "muted",
-  posted: "success",
-  partially_paid: "warning",
-  paid: "success",
-  reversed: "danger",
 };
 
 function addDays(date: string, days: number) {
@@ -1154,9 +1138,7 @@ function ArapDocReadOnly({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={STATUS_TONES[document.status] ?? "muted"}>
-          {STATUS_LABELS[document.status] ?? document.status}
-        </StatusBadge>
+        <DocumentStatusBadge status={document.status} size="md" />
         <span className="text-xs text-[var(--ea-text-3)]">
           {TYPE_LABELS[document.documentType] ?? document.documentType}
         </span>

@@ -16,7 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
+import { statusMeta } from "@/lib/status";
 import { fmtMnt } from "@/lib/reports/balances";
 import { convertLinesToBase, fcBalance } from "@/lib/gl/currency";
 import { fetchOfficialRate } from "@/lib/actions/procurement";
@@ -690,12 +691,7 @@ export function JournalEntryForm({
     }
   }
 
-  const statusLabel =
-    voucherStatus === "posted"
-      ? "Бичигдсэн"
-      : voucherStatus === "reversed"
-        ? "Буцаагдсан"
-        : "Ноорог";
+  const statusLabel = statusMeta(voucherStatus ?? "draft").label;
 
   /* ── Хэвлэх баримт — зөвхөн print үед харагдана ─────────────────────── */
   const printSheet = (
@@ -812,26 +808,8 @@ export function JournalEntryForm({
         <span className="text-sm font-semibold" style={{ color: "var(--ea-text-1)" }}>
           {readOnly ? "Журнал харах" : isEdit ? "Журнал засах" : "Журнал бичих"}
         </span>
-        {!readOnly && (
-          <StatusBadge tone="warning">Ноорог</StatusBadge>
-        )}
-        {readOnly && voucherStatus && (
-          <StatusBadge
-            tone={
-              voucherStatus === "posted"
-                ? "success"
-                : voucherStatus === "draft"
-                  ? "warning"
-                  : "muted"
-            }
-          >
-            {voucherStatus === "posted"
-              ? "Бичигдсэн"
-              : voucherStatus === "reversed"
-                ? "Буцаагдсан"
-                : "Ноорог"}
-          </StatusBadge>
-        )}
+        {!readOnly && <DocumentStatusBadge status="draft" size="md" />}
+        {readOnly && voucherStatus && <DocumentStatusBadge status={voucherStatus} size="md" />}
       </header>
       )}
 

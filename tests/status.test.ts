@@ -28,3 +28,11 @@ test("B1: chip-ийн тоолол бүртгэлийн дарааллаар", (
     { status: "reversed", count: 1 },
   ]);
 });
+
+test("Аудит: POS борлуулалтын төлөв нэгдсэн бүртгэлд, нэр нь POS-ынхтой ижил", async () => {
+  const { SALE_STATUS_LABELS } = await import("../lib/pos/constants");
+  for (const [status, label] of Object.entries(SALE_STATUS_LABELS))
+    assert.equal(statusMeta(status).label, label, status);
+  // буцаасан нь буцаагдсантай ижил хэлбэр (зураастай)
+  assert.equal(statusMeta("returned").shape, "struck");
+});

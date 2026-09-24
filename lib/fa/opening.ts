@@ -79,6 +79,14 @@ export function computeFaDisposal(input: {
 }
 
 /**
+ * Хасалтын журналын НИЙТ дүн (Σ Dr = Σ Cr): анхны өртөг (Cr) + олз (Cr) —
+ * AI-ийн шууд батлах хязгаарыг бусад журналын адил ЭНЭ дүнгээр шалгана.
+ */
+export function faDisposalJournalTotal(input: { cost: number; gainLoss: number }): number {
+  return round2(round2(input.cost) + Math.max(0, -round2(input.gainLoss)));
+}
+
+/**
  * Нэвтрүүлэлтийн нээлтийн журнал эсэх — externalRef `opening-*`
  * (opening-balance / opening-summary / opening-diff / opening-adj) эсвэл
  * тайлбар `[ОНБ…]`. Ийм журналаас ҮХ-ийн ноорог карт ҮҮСГЭХГҮЙ.
