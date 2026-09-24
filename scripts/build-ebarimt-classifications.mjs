@@ -2,8 +2,12 @@
 // ТЕГ / ҮСХ-ын АЛБАН «Бүтээгдэхүүн, үйлчилгээний нэгдсэн ангилал» файлыг
 // lib/ebarimt/classification-codes.json болгоно.
 //
-//   node scripts/build-ebarimt-classifications.mjs Angilal/БҮНА.xlsx
-//   node scripts/build-ebarimt-classifications.mjs codes.csv
+//   python3 scripts/extract-buna-pdf.py Angilal/<БҮНА>.pdf buna.csv   ← ЭХ СУРВАЛЖ
+//   node scripts/build-ebarimt-classifications.mjs buna.csv
+//
+// ⚠️ Мерчантын багцын `gs1_gs1.xlsx`-ийг шууд бүү өг: PDF-ээс хөрвүүлсэн тул
+// тэргүүлэх 0 алдагдсан (0111100 → 111100 — 7 орон биш тул АЛГАСАГДАНА),
+// урт нэр тасарсан. Албан PDF-ээс `extract-buna-pdf.py`-гаар CSV гаргана.
 //   node scripts/build-ebarimt-classifications.mjs a.xlsx b.xlsx   (нийлүүлнэ)
 //
 // Баганыг НЭРЭЭР биш АГУУЛГААР танина (албан файлуудын толгой янз бүр):

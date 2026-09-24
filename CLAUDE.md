@@ -856,10 +856,14 @@ lib/ebarimt/
 ├── classification-search.ts  7 оронтой АНГИЛЛЫН код (ҮСХ «Бүтээгдэхүүн, үйлчилгээний
 │                  нэгдсэн ангилал» = CPC 2.1 + 2 оронтой үндэсний задаргаа) хайлт —
 │                  ЦЭВЭР (tests/ebarimt-classification-search.test.ts)
-├── classification-codes.json/.ts  АЛБАН жагсаалт — SERVER-т л ачаална (client
-│                  bundle-д оруулахгүй); `node scripts/build-ebarimt-classifications.mjs
-│                  <албан.xlsx|csv>` үүсгэнэ (баганыг агуулгаар танина). ХООСОН бол
-│                  сонгогч байгууллагын хэрэглэж буй код + гараар 7 орон — ЗОХИОХГҮЙ.
+├── classification-codes.json/.ts  АЛБАН жагсаалт (3499 код) — SERVER-т л ачаална
+│                  (client bundle-д оруулахгүй). ЭХ = ҮСХ БҮНА PDF (мерчантын багц
+│                  Angilal/, х.4–91): `python3 scripts/extract-buna-pdf.py <pdf> x.csv`
+│                  → `node scripts/build-ebarimt-classifications.mjs x.csv`. Багцын
+│                  gs1_gs1.xlsx-ийг ХЭРЭГЛЭХГҮЙ (тэргүүлэх 0 алдагдсан, нэр тасарсан).
+│                  Эх баримтын давхардсан код (2441030) — дэд ангийн угтвартай таарсан
+│                  нь үлдэнэ. Хайлт: бүтэн үг > үгийн эхлэл > дэд мөр. Жагсаалтад
+│                  байхгүй 7 оронтой кодыг гараар оруулж болно — ЗОХИОХГҮЙ.
 │                  Хайлт: lib/actions/ebarimt-classification.ts; UI сонгогч
 │                  components/inventory/ebarimt-code-pickers.tsx (7 ба 3 оронтой)
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData

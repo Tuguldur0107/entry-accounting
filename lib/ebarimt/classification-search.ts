@@ -3,8 +3,8 @@
 // Эх сурвалж: ҮСХ «Бүтээгдэхүүн, үйлчилгээний нэгдсэн ангилал» (БҮНА, НҮБ-ын
 // CPC Ver.2.1 дээр суурилсан; 5 оронтой CPC дэд анги + 2 оронтой үндэсний
 // задаргаа — ж: 6331000 ← CPC 63310). Албан жагсаалт нь ТЕГ-ийн мерчант
-// багцад (Angilal/) ирдэг; `scripts/build-ebarimt-classifications.mjs`
-// тэр файлыг `classification-codes.json` болгоно.
+// багцад (Angilal/*.pdf) ирдэг; `scripts/extract-buna-pdf.py` →
+// `scripts/build-ebarimt-classifications.mjs` → `classification-codes.json`.
 //
 // Код ЗОХИОХГҮЙ: жагсаалтад байхгүй 7 оронтой кодыг хэрэглэгч бичиж болно
 // (ТЕГ шинэ код нэмдэг) — хайлт зөвхөн САНАЛ болгоно, хориглохгүй.
@@ -57,16 +57,28 @@ export function searchClassifications(
   const exact: ClassificationEntry[] = [];
   const prefix: ClassificationEntry[] = [];
   const byName: ClassificationEntry[] = [];
+  // Нэрийн таарцад оноо: бүтэн ҮГ (3) > үгийн ЭХЛЭЛ (1) > дэд мөр (0), нэр
+  // эхний үгээр эхэлбэл +1. Үгүй бол «ус» → «Бусад…», «сүү» → «Бэрсүүт…»,
+  // «архи» → «Архитектур…» мянган мөрийн эхэнд гарч жинхэнэ бараа дарагдана.
+  const scored: { entry: ClassificationEntry; score: number }[] = [];
   const words = needle.split(/\s+/).filter(Boolean);
   for (const entry of entries) {
     if (entry.code === needle) exact.push(entry);
     else if (digits && entry.code.startsWith(needle)) prefix.push(entry);
     else {
       const name = entry.name.toLowerCase();
-      if (words.every((word) => name.includes(word) || entry.code.includes(word))) byName.push(entry);
+      if (!words.every((word) => name.includes(word) || entry.code.includes(word))) continue;
+      const tokens = name.split(/[^0-9a-zа-яөүё]+/i).filter(Boolean);
+      let score = name.startsWith(words[0]) ? 1 : 0;
+      for (const word of words) {
+        if (tokens.includes(word)) score += 3;
+        else if (tokens.some((token) => token.startsWith(word))) score += 1;
+      }
+      scored.push({ entry, score });
     }
-    if (exact.length + prefix.length >= limit) break;
   }
+  // sort нь тогтвортой — ижил оноонд кодын дараалал хадгалагдана
+  byName.push(...scored.sort((a, b) => b.score - a.score).map((item) => item.entry));
   return [...exact, ...prefix, ...byName].slice(0, limit);
 }
 
