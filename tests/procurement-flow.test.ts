@@ -93,10 +93,10 @@ import {
 } from "../lib/procurement/load-data";
 import { extractMainAccount } from "../lib/reports/balances";
 import { db } from "../lib/db";
+import { purgeOrganization } from "../lib/org/purge";
 import {
   arApDocumentLines,
   arApDocuments,
-  costAllocations,
   costComponents,
   costEntries,
   counterparties,
@@ -257,31 +257,6 @@ async function poBalances(
   return balances;
 }
 
-/**
- * Цэвэрлэгээ — мастер дата руу RESTRICT FK-тай мөрүүдийг ТООЦООНЫ ДАРААЛЛААР
- * устгаад дараа нь байгууллагыг (бусад нь cascade). Зөвхөн cascade-д найдвал
- * `purchase_order_lines.item_id` (restrict) зэрэг зөрчил гардаг.
- */
-async function purgeOrg(targetOrgId: string) {
-  await db
-    .delete(costAllocations)
-    .where(eq(costAllocations.organizationId, targetOrgId));
-  await db.delete(costEntries).where(eq(costEntries.organizationId, targetOrgId));
-  await db
-    .delete(goodsReceipts)
-    .where(eq(goodsReceipts.organizationId, targetOrgId));
-  await db
-    .delete(inventoryMovements)
-    .where(eq(inventoryMovements.organizationId, targetOrgId));
-  await db
-    .delete(arApDocuments)
-    .where(eq(arApDocuments.organizationId, targetOrgId));
-  await db
-    .delete(purchaseOrders)
-    .where(eq(purchaseOrders.organizationId, targetOrgId));
-  await db.delete(organizations).where(eq(organizations.id, targetOrgId));
-}
-
 async function setupOrg() {
   const [user] = await db
     .insert(users)
@@ -301,7 +276,7 @@ async function setupOrg() {
     role: "owner",
   });
   cleanup.push(async () => {
-    await purgeOrg(org.id);
+    await purgeOrganization(org.id);
     await db.delete(users).where(eq(users.id, user.id));
   });
   userId = user.id;

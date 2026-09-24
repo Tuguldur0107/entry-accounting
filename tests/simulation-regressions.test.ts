@@ -1,6 +1,6 @@
 // SIM Trade ХХК симуляцийн олдворуудын (entry_simulation_issues.xlsx, ENT-xxx)
 // DB integration регресс тест. DATABASE_URL шаарддаг (ai-tools-flow-тэй ижил
-// хэв маяг): түр байгууллага үүсгэж, төгсгөлд нь cascade-аар устгана.
+// хэв маяг): түр байгууллага үүсгэж, төгсгөлд нь бодит устгалтын замаар (purgeOrganization) устгана.
 
 import "./helpers/load-env";
 
@@ -23,27 +23,24 @@ import { syncStandardAccounts } from "../lib/actions/gl";
 import { createArApDocument } from "../lib/actions/arap";
 import { updateCashAccount } from "../lib/actions/cash";
 import { runCosting } from "../lib/actions/costing";
+import { deleteOrganizationForUser } from "../lib/actions/org";
 import { db } from "../lib/db";
 import {
   accountingPeriods,
   arApDocuments,
   auditEvents,
   cashAccounts,
-  cashDocuments,
   cashFxRevaluations,
   exchangeRates,
   costEntries,
   faDepreciationEntries,
   fixedAssets,
-  goodsReceipts,
   inventoryItems,
   inventoryMovements,
   journalLines,
   journalVouchers,
   memberships,
   organizations,
-  posSales,
-  purchaseOrders,
   users,
 } from "../lib/db/schema";
 
@@ -70,21 +67,24 @@ async function setupOrg() {
     .returning({ id: organizations.id });
   await db.insert(memberships).values({ organizationId: org.id, userId: user.id, role: "owner" });
   cleanup.push(async () => {
-    // PO-той байгууллагын cascade устгалт RESTRICT FK-ийн дарааллаас болж
-    // унадаг (purchase_order_lines.item_id, ar_ap_documents.purchase_order_id)
-    // тул PO-гийн гинжийг эхлээд устгана.
-    await db.transaction(async (tx) => {
-      // POS борлуулалт АР нэхэмжлэх/кассын баримтыг заадаг тул эхэлж.
-      await tx.delete(posSales).where(eq(posSales.organizationId, org.id));
-      await tx.execute(sql`delete from payroll_runs where organization_id = ${org.id}`);
-      await tx.execute(sql`delete from ar_ap_settlements where document_id in
-        (select id from ar_ap_documents where organization_id = ${org.id})`);
-      await tx.delete(cashDocuments).where(eq(cashDocuments.organizationId, org.id));
-      await tx.delete(arApDocuments).where(eq(arApDocuments.organizationId, org.id));
-      await tx.delete(goodsReceipts).where(eq(goodsReceipts.organizationId, org.id));
-      await tx.delete(purchaseOrders).where(eq(purchaseOrders.organizationId, org.id));
+    // Бодит устгалтын замаар (owner + нэр): цалин, POS, PO, АР/АП төлбөр,
+    // касс, өртөг бүгдтэй байгууллага RESTRICT FK-д гацахгүй устах ёстой.
+    // Тест дундаа нэрийг сольдог (компанийн мэдээлэл) тул одоогийн нэрээр.
+    const current = await db.query.organizations.findFirst({
+      where: eq(organizations.id, org.id),
+      columns: { name: true },
     });
-    await db.delete(organizations).where(eq(organizations.id, org.id));
+    assert.ok(current, "байгууллага цэвэрлэгээнээс өмнө байх ёстой");
+    await deleteOrganizationForUser({
+      orgId: org.id,
+      userId: user.id,
+      confirmName: current.name,
+    });
+    const left = await db.query.organizations.findFirst({
+      where: eq(organizations.id, org.id),
+      columns: { id: true },
+    });
+    assert.equal(left, undefined, "байгууллага устсан байх ёстой");
     await db.delete(users).where(eq(users.id, user.id));
   });
   userId = user.id;

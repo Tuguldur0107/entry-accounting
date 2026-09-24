@@ -139,6 +139,13 @@ entry-accounting/
     `requireModuleAction(key, "read")` — `getActiveOrg()` дангаараа эрх
     шалгадаггүй (зөвхөн scope). Хоёр модулийн аль нэг нь хүрэлцэх бол
     `requireAnyModuleAction`. Лавлах өгөгдөл (сегмент, период, ханш) шалгалтгүй
+  - **Байгууллага устгах = ЗӨВХӨН `purgeOrganization`** (`lib/org/purge.ts`):
+    46 FK `RESTRICT` тул `delete from organizations` cascade дундаас гацдаг
+    (цалин/POS/PO/төлбөртэй байгууллага). Гүйлгээний хүснэгтүүдийг ИЛ дараалал
+    `ORG_PURGE_ORDER` (`lib/org/purge-order.ts`)-аар устгаад үлдсэнийг cascade,
+    НЭГ транзакцаар. Шинэ RESTRICT/NO ACTION FK нэмбэл `tests/org-purge.test.ts`
+    (DB каталогоор) унаж дараалалд бүртгэхийг шаардана. `db.delete(organizations)`
+    шууд дуудахгүй
   - **Урилга** (`org_invitations`) 7 хоног хүчинтэй (`expiresAt`,
     `ORG_INVITATION_TTL_DAYS`); дахин урихад token + хугацаа шинэчлэгдэнэ;
     урилгын ЛИНК зөвхөн admin+ хардаг (`getOrgSettingsData`). Байгууллага/
