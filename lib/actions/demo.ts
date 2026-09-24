@@ -18,6 +18,7 @@ import { executeAiTool } from "@/lib/ai/tools";
 import { auth, createPersonalOrg, runAsOrg } from "@/lib/auth";
 import { syncStandardAccounts } from "@/lib/actions/gl";
 import { db } from "@/lib/db";
+import { purgeOrganization } from "@/lib/org/purge";
 import { memberships, organizations } from "@/lib/db/schema";
 
 // "use server" файл зөвхөн async функц export хийнэ — нэр нь локал const.
@@ -71,8 +72,8 @@ export async function createDemoCompany(): Promise<
     try {
       await runAsOrg({ userId, orgId }, () => seedDemoData(userId));
     } catch (seedError) {
-      // Хагас дутуу демо үлдээхгүй — cascade бүх датаг нь устгана.
-      await db.delete(organizations).where(eq(organizations.id, orgId));
+      // Хагас дутуу демо үлдээхгүй — бүх датаг нь устгана.
+      await purgeOrganization(orgId);
       throw seedError;
     }
 

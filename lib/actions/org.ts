@@ -16,6 +16,7 @@ import {
   requireRole,
 } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { purgeOrganization } from "@/lib/org/purge";
 import {
   auditEvents,
   chartOfAccounts,
@@ -515,11 +516,11 @@ export async function deleteOrganizationForUser(input: {
       `Баталгаажуулахын тулд байгууллагын нэрийг яг бичнэ үү: "${org.name}"`
     );
 
-  // Cascade нь audit_events-ийг ч устгах тул сервер лог л үлдэнэ.
+  // Устгалт audit_events-ийг ч устгах тул сервер лог л үлдэнэ.
   console.log(
     `[org-audit] deleteOrganizationForUser org=${input.orgId} "${org.name}" by user=${input.userId} at=${new Date().toISOString()}`
   );
-  await db.delete(organizations).where(eq(organizations.id, input.orgId));
+  await purgeOrganization(input.orgId);
   return { deletedName: org.name };
 }
 
@@ -807,11 +808,11 @@ async function deleteOrganizationCore(confirmName: string) {
       `Баталгаажуулахын тулд байгууллагын нэрийг яг бичнэ үү: "${org.name}"`
     );
 
-  // Cascade нь audit_events-ийг ч устгах тул сервер лог л үлдэнэ.
+  // Устгалт audit_events-ийг ч устгах тул сервер лог л үлдэнэ.
   console.log(
     `[org-audit] deleteOrganization org=${orgId} "${org.name}" by user=${userId} at=${new Date().toISOString()}`
   );
-  await db.delete(organizations).where(eq(organizations.id, orgId));
+  await purgeOrganization(orgId);
 
   // Өөр байгууллагатай бол тийш нь, үгүй бол cookie цэвэрлээд дараагийн
   // хандалтад personal org автоматаар үүснэ (getActiveOrg safety net).
