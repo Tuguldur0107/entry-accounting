@@ -53,6 +53,7 @@ import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
 import { currentDocumentDate } from "@/lib/periods/document-date";
 import { arapBalanceSummary, arapKpis } from "@/lib/arap/kpis";
+import { arapLedger, controlSide, documentTypeLabel } from "@/lib/arap/document-kind";
 import { ArapBalanceHero } from "@/components/arap/arap-balance-hero";
 import { MobileCardList, useIsMobileViewport } from "@/components/datagrid/mobile-card-list";
 import { col } from "@/lib/grid/columnTypes";
@@ -94,6 +95,8 @@ interface Props {
 const TYPE_LABELS: Record<string, string> = {
   ar_invoice: "Авлага",
   ap_bill: "Өглөг",
+  ar_credit_note: "Кредит нэхэмжлэл",
+  ap_debit_note: "Дебит нэхэмжлэх",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -252,9 +255,8 @@ export function ArApWorkspace({
       mode === "combined"
         ? documents
         : documents.filter((doc) =>
-            mode === "receivable"
-              ? doc.documentType === "ar_invoice"
-              : doc.documentType === "ap_bill"
+            // Кредит/дебит баримт эх нэхэмжлэхийнхээ дэвтэрт харагдана (ENT-029).
+            arapLedger(doc.documentType) === (mode === "receivable" ? "ar" : "ap")
           ),
     [documents, mode]
   );
@@ -633,11 +635,11 @@ export function ArApWorkspace({
     source: ArApDocumentView,
     input: { targetId: string; amount: number; date: string }
   ) {
-    const sourceIsAr = source.documentType === "ar_invoice";
     startTransition(async () => {
+      // Сервер хосын Дт/Кт талыг өөрөө тогтооно (offsetPair) — дараалал хамаагүй.
       const result = await settleArApOffset({
-        arDocumentId: sourceIsAr ? source.id : input.targetId,
-        apDocumentId: sourceIsAr ? input.targetId : source.id,
+        arDocumentId: source.id,
+        apDocumentId: input.targetId,
         amount: input.amount,
         date: input.date,
       });
@@ -1000,9 +1002,7 @@ async function exportDocuments(
     ],
     rows: documents.map((doc) => [
       doc.documentNo,
-      doc.documentType === "ar_invoice"
-        ? "Авлагын нэхэмжлэл"
-        : "Өглөгийн нэхэмжлэх",
+      documentTypeLabel(doc.documentType),
       doc.counterpartyName,
       doc.date,
       doc.dueDate,
@@ -1245,10 +1245,12 @@ function OffsetDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (input: { targetId: string; amount: number; date: string }) => void;
 }) {
-  const sourceIsAr = source.documentType === "ar_invoice";
+  // Эсрэг талын хяналтын данстай баримт: нэхэмжлэл ↔ өглөг (харилцан
+  // суутгал) эсвэл нэхэмжлэл ↔ кредит нэхэмжлэл (кредитийг тооцох).
+  const sourceSide = controlSide(source.documentType);
   const candidates = documents.filter(
     (doc) =>
-      doc.documentType === (sourceIsAr ? "ap_bill" : "ar_invoice") &&
+      controlSide(doc.documentType) !== sourceSide &&
       doc.counterpartyId === source.counterpartyId &&
       (doc.status === "posted" || doc.status === "partially_paid") &&
       doc.currency === "MNT" &&
@@ -1284,12 +1286,16 @@ function OffsetDialog({
         ) : candidates.length === 0 ? (
           <p className="text-sm text-[var(--ea-text-3)]">
             {source.counterpartyName} харилцагчид хаах боломжтой нээлттэй{" "}
-            {sourceIsAr ? "өглөгийн нэхэмжлэх" : "авлагын нэхэмжлэл"} алга.
+            эсрэг талын баримт (
+            {sourceSide === "debit"
+              ? "өглөгийн нэхэмжлэх / кредит нэхэмжлэл"
+              : "авлагын нэхэмжлэл / дебит нэхэмжлэх"}
+            ) алга.
             Хоёр тал хоёулаа батлагдсан, үлдэгдэлтэй, MNT байх шаардлагатай.
           </p>
         ) : (
           <div className="space-y-3">
-            <FormField label={sourceIsAr ? "Авлагын нэхэмжлэл" : "Өглөгийн нэхэмжлэх"}>
+            <FormField label={documentTypeLabel(source.documentType)}>
               <div className="rounded-md border border-[var(--ea-border)] px-3 py-2 text-sm">
                 <span className="font-mono text-xs">{source.documentNo}</span>
                 <span className="ml-2 text-xs text-[var(--ea-text-3)]">
@@ -1298,7 +1304,7 @@ function OffsetDialog({
               </div>
             </FormField>
             <FormField
-              label={sourceIsAr ? "Хаах өглөгийн нэхэмжлэх" : "Хаах авлагын нэхэмжлэл"}
+              label="Хаах баримт"
             >
               <select
                 className="ea-form-select"
@@ -1316,7 +1322,8 @@ function OffsetDialog({
               >
                 {candidates.map((doc) => (
                   <option key={doc.id} value={doc.id}>
-                    {doc.documentNo} · үлдэгдэл {fmtMnt(doc.balance)}
+                    {doc.documentNo} · {documentTypeLabel(doc.documentType)} · үлдэгдэл{" "}
+                    {fmtMnt(doc.balance)}
                   </option>
                 ))}
               </select>

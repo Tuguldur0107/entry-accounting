@@ -6,6 +6,8 @@
 // (11/14 орон), хувь хүнд иргэний РД (2 кирилл үсэг + 8 орон). Шалгалт нь
 // ЗӨВЛӨМЖ (хориг биш): гадаадын харилцагч өөр форматтай байж болно.
 
+import { arapLedger } from "./document-kind";
+
 //
 // ДИНАМИК ТӨРӨЛ (counterparty_entity_kinds): байгууллага бүр өөрийн төрөл нэмнэ
 // (ж: «Төрийн байгууллага», «ТББ», «Гадаадын иргэн»). «Байгууллага» / «Хувь
@@ -227,9 +229,11 @@ export function counterpartyDirectionError(
   counterpartyName = "Харилцагч"
 ): string | null {
   const type = counterpartyType ?? "both";
-  if (documentType === "ap_bill" && type === "customer")
+  // Кредит/дебит баримт эх нэхэмжлэхийнхээ дэвтрийг дагана (ENT-029).
+  const ledger = arapLedger(documentType);
+  if (ledger === "ap" && type === "customer")
     return `[COUNTERPARTY_DIRECTION] ${counterpartyName} нь зөвхөн «Авлага» (худалдан авагч) төрөлтэй — өглөгийн нэхэмжлэх үүсгэхгүй. Харилцагчийн «Тооцоо»-г «Авлага/Өглөг» (both) болгоно уу`;
-  if (documentType === "ar_invoice" && type === "supplier")
+  if (ledger === "ar" && type === "supplier")
     return `[COUNTERPARTY_DIRECTION] ${counterpartyName} нь зөвхөн «Өглөг» (нийлүүлэгч) төрөлтэй — авлагын нэхэмжлэл үүсгэхгүй. Харилцагчийн «Тооцоо»-г «Авлага/Өглөг» (both) болгоно уу`;
   return null;
 }

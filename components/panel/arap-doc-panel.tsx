@@ -22,6 +22,15 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
+import { CreditNoteDialog } from "@/components/arap/credit-note-dialog";
+import {
+  ARAP_DOCUMENT_TYPE_LABELS,
+  arapLedger,
+  creditDocumentTypeFor,
+  documentTypeLabel,
+  isCreditDocument,
+  settlementCashType,
+} from "@/lib/arap/document-kind";
 import {
   ArApLinesGrid,
   emptyLine,
@@ -45,6 +54,7 @@ import type { ArApDocumentType } from "@/lib/arap/types";
 import { buildSegCode, fmtAccountDisplay } from "@/lib/grid/segments";
 import { fmtMnt } from "@/lib/reports/balances";
 import {
+  openArapDocPanel,
   openCashDocPanel,
   openCashNewPanel,
   openVoucherPanel,
@@ -65,9 +75,14 @@ const ERROR_MESSAGES = {
   failed: "Ачаалж чадсангүй. Дахин оролдоно уу.",
 } as const;
 
-const TYPE_LABELS: Record<string, string> = {
-  ar_invoice: "Авлагын нэхэмжлэл",
-  ap_bill: "Өглөгийн нэхэмжлэх",
+const TYPE_LABELS: Record<string, string> = ARAP_DOCUMENT_TYPE_LABELS;
+
+/** Хэвлэх маягтын гарчиг — баримтын төрөл бүрд. */
+const PRINT_TITLES: Record<string, string> = {
+  ar_invoice: "НЭХЭМЖЛЭХ",
+  ap_bill: "ХУДАЛДАН АВАЛТЫН БАРИМТ",
+  ar_credit_note: "КРЕДИТ НЭХЭМЖЛЭЛ",
+  ap_debit_note: "ДЕБИТ НЭХЭМЖЛЭХ",
 };
 
 function addDays(date: string, days: number) {
@@ -682,6 +697,8 @@ function ArapDocReadOnly({
   const { print, renderSheet } = usePanelPrint();
   // Нэхэмжлэх илгээх dialog (зөвхөн posted АР нэхэмжлэхэд).
   const [sendOpen, setSendOpen] = useState(false);
+  // Кредит нэхэмжлэл / дебит нэхэмжлэх үүсгэх dialog (ENT-029).
+  const [creditOpen, setCreditOpen] = useState(false);
 
   const {
     activeSegIds,
@@ -1025,19 +1042,30 @@ function ArapDocReadOnly({
 
   const foreign = document.currency !== "MNT";
   const isAr = document.documentType === "ar_invoice";
+  const isCredit = isCreditDocument(document.documentType);
+  const panelMode = arapLedger(document.documentType) === "ar" ? "receivable" : "payable";
+  const creditType = creditDocumentTypeFor(document.documentType);
+  // Кредит үүсгэх боломж — серверийн дүрэмтэй ижил (POS / PO-той нэхэмжлэх үгүй).
+  const canCredit =
+    !!creditType &&
+    ["posted", "partially_paid", "paid"].includes(document.status) &&
+    document.sourceType !== "pos" &&
+    !document.purchaseOrderId;
 
   // Хэвлэх маягт — НЭХЭМЖЛЭХ (АР) / ХУДАЛДАН АВАЛТЫН БАРИМТ (АП).
   const printSheet = (
     <div className="ea-print-sheet hidden bg-white p-8 text-black print:block">
       <div className="mb-1 text-center text-lg font-bold uppercase tracking-wide">
-        {isAr ? "НЭХЭМЖЛЭХ" : "ХУДАЛДАН АВАЛТЫН БАРИМТ"}
+        {PRINT_TITLES[document.documentType] ?? "БАРИМТ"}
       </div>
       <div className="mb-5 text-center text-xs text-neutral-500">
         № {document.documentNo}
       </div>
       <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
         <div>
-          <span className="text-neutral-500">{isAr ? "Худалдан авагч" : "Нийлүүлэгч"}: </span>
+          <span className="text-neutral-500">
+            {arapLedger(document.documentType) === "ar" ? "Худалдан авагч" : "Нийлүүлэгч"}:{" "}
+          </span>
           {document.counterpartyName}
         </div>
         <div>
@@ -1169,6 +1197,46 @@ function ArapDocReadOnly({
             <span className="font-mono">{document.purchaseOrderNo}</span>
           </ReadField>
         )}
+        {document.sourceDocumentId && (
+          <ReadField label="Эх нэхэмжлэх">
+            <button
+              type="button"
+              className="font-mono text-[var(--ea-primary)] hover:underline"
+              onClick={() =>
+                openArapDocPanel({
+                  documentId: document.sourceDocumentId!,
+                  mode: panelMode,
+                  title: document.sourceDocumentNo ?? undefined,
+                })
+              }
+            >
+              {document.sourceDocumentNo ?? document.sourceDocumentId.slice(0, 8)}
+            </button>
+          </ReadField>
+        )}
+        {document.creditDocuments.length > 0 && (
+          <ReadField label="Кредит/дебит баримт">
+            <span className="flex flex-wrap gap-x-3 gap-y-1">
+              {document.creditDocuments.map((credit) => (
+                <button
+                  key={credit.id}
+                  type="button"
+                  title={`${documentTypeLabel(credit.documentType)} · ${fmtMnt(credit.totalAmount)}`}
+                  className={`font-mono hover:underline ${
+                    credit.status === "reversed"
+                      ? "text-[var(--ea-text-3)] line-through"
+                      : "text-[var(--ea-primary)]"
+                  }`}
+                  onClick={() =>
+                    openArapDocPanel({ documentId: credit.id, mode: panelMode, title: credit.documentNo })
+                  }
+                >
+                  {credit.documentNo}
+                </button>
+              ))}
+            </span>
+          </ReadField>
+        )}
         <div className="sm:col-span-2 lg:col-span-3">
           <ReadField label="Журналын нэр">{document.description}</ReadField>
         </div>
@@ -1206,7 +1274,7 @@ function ArapDocReadOnly({
           </div>
           <div className="space-y-1.5">
             {payments.map((payment) =>
-              payment.kind === "offset" ? (
+              payment.kind === "offset" || payment.kind === "credit" ? (
                 // Кассгүй хаалт — АР↔АП суутган тооцоо: нээх кассын баримт
                 // байхгүй тул мөр нь мэдээлэл + Буцаах товч.
                 <div
@@ -1229,7 +1297,8 @@ function ArapDocReadOnly({
                   <span className="shrink-0 font-mono text-xs font-semibold text-[var(--ea-text-1)]">
                     {fmtMnt(payment.baseAmount)}
                   </span>
-                  {payment.voucherId && (
+                  {/* Кредит баримтын тооцоо нь баримтыг буцаахад хамт арилна. */}
+                  {payment.voucherId && payment.kind === "offset" && (
                     <button
                       type="button"
                       className="shrink-0 text-[11px] font-medium text-[var(--ea-danger-fg)] hover:underline"
@@ -1383,10 +1452,21 @@ function ArapDocReadOnly({
             variant="outline"
             onClick={() => openCashNewPanel({ arApDocumentId: document.id })}
           >
-            Мөнгөн хөрөнгөөр хаах
+            {isCredit
+              ? settlementCashType(document.documentType) === "payment"
+                ? "Кассаар буцаан олгох"
+                : "Кассаар хүлээн авах"
+              : "Мөнгөн хөрөнгөөр хаах"}
           </Button>
         )}
-        {document.status === "posted" && (
+        {canCredit && (
+          <Button variant="outline" onClick={() => setCreditOpen(true)} disabled={isPending}>
+            <Icon name="reset" size="sm" />
+            {documentTypeLabel(creditType!)}
+          </Button>
+        )}
+        {(document.status === "posted" ||
+          (isCredit && (document.status === "partially_paid" || document.status === "paid"))) && (
           <>
             <Button
               variant="outline"
@@ -1396,10 +1476,13 @@ function ArapDocReadOnly({
               <Icon name="reset" size="sm" />
               Буцаах
             </Button>
-            <Button variant="outline" onClick={deleteDraft} disabled={isPending}>
-              <Icon name="delete" size="sm" />
-              Устгах
-            </Button>
+            {/* Батлагдсан кредит баримт эх нэхэмжлэхэд тооцогдсон — зөвхөн буцаалтаар. */}
+            {!isCredit && (
+              <Button variant="outline" onClick={deleteDraft} disabled={isPending}>
+                <Icon name="delete" size="sm" />
+                Устгах
+              </Button>
+            )}
           </>
         )}
         {document.status === "draft" && (
@@ -1416,6 +1499,18 @@ function ArapDocReadOnly({
       </div>
       {confirmDialog}
       {renderSheet(printSheet)}
+      {canCredit && creditOpen && (
+        <CreditNoteDialog
+          sourceDocumentId={document.id}
+          open={creditOpen}
+          onOpenChange={setCreditOpen}
+          onCreated={(created) => {
+            refreshOpenPanels();
+            router.refresh();
+            openArapDocPanel({ documentId: created.id, mode: panelMode, title: created.documentNo });
+          }}
+        />
+      )}
       {isAr && (
         <InvoiceSendDialog
           documentId={document.id}

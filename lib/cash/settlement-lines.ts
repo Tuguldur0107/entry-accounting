@@ -6,6 +6,8 @@
 // ханшаар хаагдаж, кассын тал төлбөрийн өдрийн ханшаар; зөрүү нь ханшийн
 // олз/гарзын мөр (АР: төлбөр > түүхэн = олз; АП: эсрэгээр).
 
+import { settlementCashType } from "@/lib/arap/document-kind";
+
 export function buildSettlementPostingLines({
   voucherId,
   documentType,
@@ -38,7 +40,8 @@ export function buildSettlementPostingLines({
   buildCode: (accountNumber: string) => string;
   description: string;
 }) {
-  const isReceivable = documentType === "ar_invoice";
+  // Мөнгө орох баримт: Dr касс / Cr хяналт; гарах: Dr хяналт / Cr касс.
+  const isReceivable = settlementCashType(documentType) === "receipt";
   const lines = isReceivable
     ? [
         {
