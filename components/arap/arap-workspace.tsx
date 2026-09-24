@@ -430,7 +430,7 @@ export function ArApWorkspace({
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Үлдэгдэл",
@@ -1067,6 +1067,16 @@ function buildReportRows(documents: ArApDocumentView[], asOf: string): ReportRow
   return [...rows.values()].sort((a, b) => b.baseBalance - a.baseBalance);
 }
 
+/**
+ * Хөл дүнгийн мөрөнд валютын багана НИЙЛБЭРЛЭГДЭХГҮЙ — тэр нүдийг NaN-аар
+ * тэмдэглэж ХООСОН харуулна (0 гэж харуулбал «нийлбэр нь тэг» мэт худал
+ * уншигдана).
+ */
+const agingMoney = (params: { value: unknown }) => {
+  const value = Number(params.value);
+  return Number.isNaN(value) ? "" : fmtMnt(value);
+};
+
 function ReportSection({
   title,
   rows,
@@ -1097,7 +1107,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Төлсөн",
@@ -1113,7 +1123,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Үлдэгдэл (MNT)",
@@ -1121,7 +1131,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       ...([
         ["Хугацаа болоогүй", "currentAmount"],
@@ -1135,12 +1145,36 @@ function ReportSection({
         width: 145,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params: { value: unknown }) =>
-          fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       })),
     ],
     []
   );
+
+  // Хөл дүн: мөр бүр ӨӨР валюттай байж болох тул валютын багануудыг
+  // НИЙЛБЭРЛЭХГҮЙ (100 USD + 100 ₮ гэсэн утгагүй тоо гарна) — зөвхөн
+  // баримтын ТОО ба «Үлдэгдэл (MNT)» нийлнэ. Бусад нүд ХООСОН үлдэнэ.
+  const pinnedBottom = useMemo<ReportRow[]>(() => {
+    if (rows.length === 0) return [];
+    const sum = (pick: (row: ReportRow) => number) =>
+      Math.round(rows.reduce((total, row) => total + pick(row), 0) * 100) / 100;
+    return [
+      {
+        counterpartyName: `Нийт (${rows.length} мөр)`,
+        currency: "",
+        documentCount: sum((row) => row.documentCount),
+        totalAmount: Number.NaN,
+        paidAmount: Number.NaN,
+        balance: Number.NaN,
+        baseBalance: sum((row) => row.baseBalance),
+        currentAmount: Number.NaN,
+        days1To30: Number.NaN,
+        days31To60: Number.NaN,
+        days61To90: Number.NaN,
+        daysOver90: Number.NaN,
+      },
+    ];
+  }, [rows]);
 
   return (
     <section className="min-w-0">
@@ -1168,6 +1202,7 @@ function ReportSection({
         <DataGridDynamic<ReportRow>
           rowData={rows}
           columnDefs={columns}
+          pinnedBottomRowData={pinnedBottom}
           getRowId={(params) => `${params.data.counterpartyName}:${params.data.currency}`}
           height={Math.min(480, 86 + rows.length * 38)}
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"

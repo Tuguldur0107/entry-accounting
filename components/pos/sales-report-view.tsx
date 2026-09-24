@@ -38,15 +38,23 @@ import {
 } from "@/lib/pos/sales-report";
 import { fmtMnt } from "@/lib/reports/balances";
 import { openPosSalePanel } from "@/lib/store/panel-store";
+import {
+  INVENTORY_REPORT_TABS,
+  SALES_VIEW_TABS,
+  type InventoryReportTab,
+  type SalesView,
+} from "@/lib/pos/report-views";
+
+// Хуучин дуудагчид эвдрэхгүйн тулд төрлүүдийг ЭНДЭЭС ч гаргана (утга биш —
+// server талын дуудагч ЗААВАЛ `@/lib/pos/report-views`-оос импортлоно).
+export type { InventoryReportTab, SalesView };
 
 // ─── Тайлангийн хуудасны дээд таб (тоо хэмжээ / борлуулалт) ──────────────────
-
-export type InventoryReportTab = "flow" | "sales";
-
-const REPORT_TABS: { value: InventoryReportTab; label: string }[] = [
-  { value: "flow", label: "Тоо хэмжээний урсгал" },
-  { value: "sales", label: "Борлуулалт" },
-];
+//
+// Табын тодорхойлолт, `isSalesView` зэрэг нь ЦЭВЭР модульд
+// (`lib/pos/report-views.ts`) — тайлангийн SERVER page.tsx тэднийг дууддаг тул
+// «use client» файлаас гаргавал ажиллахгүй (2026-09-24-ний доголдол).
+const REPORT_TABS = INVENTORY_REPORT_TABS;
 
 /** Огнооны муж (start/end) хоёр табд нийтлэг тул таб солиход дагуулна. */
 export function InventoryReportTabs({ value }: { value: InventoryReportTab }) {
@@ -75,30 +83,7 @@ export function InventoryReportTabs({ value }: { value: InventoryReportTab }) {
 
 // ─── Дэд таб ─────────────────────────────────────────────────────────────────
 
-export const SALES_VIEWS = [
-  "lines",
-  "items",
-  "days",
-  "cashiers",
-  "methods",
-  "customers",
-  "rules",
-] as const;
-export type SalesView = (typeof SALES_VIEWS)[number];
-
-const VIEW_TABS: { value: SalesView; label: string }[] = [
-  { value: "lines", label: "Гүйлгээ" },
-  { value: "items", label: "Бараагаар" },
-  { value: "days", label: "Өдрөөр" },
-  { value: "cashiers", label: "Кассчинаар" },
-  { value: "methods", label: "Төлбөрийн хэлбэрээр" },
-  { value: "customers", label: "Харилцагчаар" },
-  { value: "rules", label: "Хөнгөлөлтийн үр ашиг" },
-];
-
-export function isSalesView(value: string | undefined | null): value is SalesView {
-  return SALES_VIEWS.includes(value as SalesView);
-}
+const VIEW_TABS = SALES_VIEW_TABS;
 
 export interface SalesReportFilters {
   warehouseId: string | null;
@@ -622,6 +607,25 @@ export function SalesReportView({
       })
       .sort((a, b) => b.discount - a.discount || a.rule.localeCompare(b.rule));
   }, [lines]);
+  // Хөл дүн: нэг мөр ХЭД ХЭДЭН дүрэмд тоологддог тул баганын нийлбэр
+  // ДАВХАРДАНА — тиймээс мужийн ДАВХАРДАЛГҮЙ нийт дүнг (summarize) харуулна.
+  // Энэ нь дээрх мөрүүдийн нийлбэрээс БАГА байж болно, шошго нь үүнийг хэлнэ.
+  const rulePinned = useMemo<RuleRow[]>(
+    () =>
+      ruleRows.length === 0
+        ? []
+        : [
+            {
+              rule: `Нийт (давхардалгүй, ${lines.length} мөр)`,
+              lineCount: lines.length,
+              discount: summary.discount,
+              net: summary.net,
+              margin: summary.margin,
+              cogsBasis: summary.cogsBasis,
+            },
+          ],
+    [ruleRows.length, lines.length, summary]
+  );
   const ruleColumns = useMemo<ColDef<RuleRow>[]>(
     () => [
       { headerName: "Дүрэм", field: "rule", minWidth: 180, flex: 1, cellClass: "font-mono" },
@@ -933,6 +937,7 @@ export function SalesReportView({
           {...gridProps}
           rowData={ruleRows}
           columnDefs={ruleColumns}
+          pinnedBottomRowData={rulePinned}
           getRowId={(params) => params.data.rule}
         />
       )}

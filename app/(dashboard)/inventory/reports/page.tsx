@@ -7,12 +7,17 @@ import {
 } from "@/components/inventory/inventory-report-view";
 import {
   InventoryReportTabs,
-  isSalesView,
   SalesReportView,
-  type InventoryReportTab,
   type SalesReportOptions,
-  type SalesView,
 } from "@/components/pos/sales-report-view";
+// ⚠️ `isSalesView` / `toInventoryReportTab` нь ЦЭВЭР модульд — «use client»
+// файлаас server component функц дуудах боломжгүй (2026-09-24-ний доголдол).
+import {
+  isSalesView,
+  toInventoryReportTab,
+  type InventoryReportTab,
+  type SalesView,
+} from "@/lib/pos/report-views";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
@@ -57,7 +62,7 @@ export default async function InventoryReportsPage({
   const period = await getPeriodSelection();
   const start = isIsoDate(params.start) ? params.start! : period.from;
   const end = isIsoDate(params.end) ? params.end! : period.to;
-  const tab: InventoryReportTab = params.tab === "sales" ? "sales" : "flow";
+  const tab: InventoryReportTab = toInventoryReportTab(params.tab);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
