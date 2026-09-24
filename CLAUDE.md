@@ -1906,6 +1906,14 @@ alignment / editor зэргийг дахин зарлахгүй. Дэмжих ki
 | Ctrl/Cmd+Z / Y | Undo / Redo |
 | Delete | Сонгосон нүднүүдийг цэвэрлэх |
 
+**Хуудас эзэмшдэг товчлол:** F2 = топбарын «+ Шинэ» аппын ХААНА Ч (кассын
+дэлгэцэд ч — хайлтын input `data-global-hotkeys="F2"`-оор нэвтрүүлнэ); кассын
+бараа хайлт F3 / «/». Хуудас глобал товчлолыг өөрөөр хэрэглэвэл
+`lib/ui/hotkeys.ts`-ийн `PAGE_OWNED_HOTKEYS`-д ЗААВАЛ бүртгэнэ — глобал
+сонсогч тэнд алгасна (`pageOwnsHotkey`; касс «/»-г эзэмшдэг тул палитр
+Cmd/Ctrl+K-гаар). Хуудасны нэрийг глобал сонсогчид hardcode хийхгүй
+(`tests/hotkeys.test.ts`).
+
 **Мужийн сонголт + copy (DataGrid built-in, бүх grid-д):** AG Grid
 Community-д range selection байхгүй тул `DataGrid.tsx` дээр custom
 хэрэгжсэн — нэг даралт зангуу, Shift+даралт муж, `ea-range-cell` класс
@@ -2006,7 +2014,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
 | Хавсралт — компакт мөр + popup | [components/attachments/attachment-section.tsx](components/attachments/attachment-section.tsx) | Панелиудын НЭГДСЭН хэрэглээ: `📎 Хавсралт · N` товч → `Dialog` дотор бүтэн жагсаалт |
-| POS кассын дэлгэц (v2, дэлгүүрийн POS) | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | **Хүснэгт БИШ** — хүрэлцэх дэлгэцийн ticket (AG Grid стандарт хамаарахгүй, баримтын preview-тэй ижил ангилал): зүүн `checkout/product-panel` (сканнер/хайлт, бүлгийн `FilterChips`, барааны tile), баруун `checkout/ticket-panel` (мөр сонгох, −/+/×, дүн, `checkout/numpad` Тоо/Хөнг %/Үнэ, ТӨЛБӨР); `checkout/discount-dialog` (F4), `checkout/parked-dialog` (олон түр хадгалсан сагс); цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй); `quotePosSale` debounce 250мс; сканнер = гар (input үргэлж focus-той); F9/F2/F4/F6/↑↓/+−/Delete/Esc |
+| POS кассын дэлгэц (v2, дэлгүүрийн POS) | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | **Хүснэгт БИШ** — хүрэлцэх дэлгэцийн ticket (AG Grid стандарт хамаарахгүй, баримтын preview-тэй ижил ангилал): зүүн `checkout/product-panel` (сканнер/хайлт, бүлгийн `FilterChips`, барааны tile), баруун `checkout/ticket-panel` (мөр сонгох, −/+/×, дүн, `checkout/numpad` Тоо/Хөнг %/Үнэ, ТӨЛБӨР); `checkout/discount-dialog` (F4), `checkout/parked-dialog` (олон түр хадгалсан сагс); цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй); `quotePosSale` debounce 250мс; сканнер = гар (input үргэлж focus-той); F9/F3/F4/F6/↑↓/+−/Delete/Esc (F2 = глобал «+ Шинэ») |
 | POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |

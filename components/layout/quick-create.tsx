@@ -6,12 +6,13 @@
 // (хүснэгт, оролтын талбар дотор F2 өөрийн үүрэгтэй тул тэнд ажиллахгүй).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 
 import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import { Icon, type IconName } from "@/components/ui/icon";
+import { allowsGlobalHotkey, pageOwnsHotkey } from "@/lib/ui/hotkeys";
 import {
   openArapDocPanel,
   openCashNewPanel,
@@ -117,13 +118,19 @@ export function QuickCreate() {
   );
 
   // F2 — цэсийг нээх/хаах глобал товчлол. Оролтын талбар, AG Grid (F2 =
-  // нүд засах) болон modal дотор фокустай үед үл ойшооно.
+  // нүд засах), modal дотор фокустай үед үл ойшооно — `data-global-hotkeys`
+  // -тай input (кассын хайлт) үл хамаарна. F2-г ӨӨРӨӨ эзэмшдэг хуудсан дээр
+  // ажиллахгүй (lib/ui/hotkeys.ts — одоогоор ийм хуудас байхгүй).
+  const pathname = usePathname();
+  const f2Owned = pageOwnsHotkey(pathname, "F2");
   useEffect(() => {
+    if (f2Owned) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "F2" || event.metaKey || event.ctrlKey || event.altKey)
         return;
       const target = event.target as HTMLElement | null;
       if (
+        !allowsGlobalHotkey(target, "F2") &&
         target?.closest?.(
           "input, textarea, select, [contenteditable='true'], .ag-root-wrapper, [role='dialog']"
         )
@@ -134,7 +141,7 @@ export function QuickCreate() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [f2Owned]);
 
   // Цэс нээлттэй үед 1–9 тоо дарахад тухайн мөрийг шууд ажиллуулна,
   // Esc хаана — F2 → тоо гэсэн хоёрхон даралтаар баримт үүсгэнэ.
@@ -147,11 +154,13 @@ export function QuickCreate() {
         return;
       }
       // Modifier-той (Cmd+1 таб солих г.м.) болон input дотор бичиж буй
-      // даралтыг булаахгүй.
+      // даралтыг булаахгүй — F2-г нэвтрүүлдэг input (кассын хайлт, үргэлж
+      // focus-той) үл хамаарна: тоо нь хайлтад биш цэсэнд очно.
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (
         target &&
+        !allowsGlobalHotkey(target, "F2") &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
           target.isContentEditable)
@@ -183,9 +192,9 @@ export function QuickCreate() {
           className="ea-primary-button h-8 rounded-md px-3 text-xs font-medium text-[var(--primary-foreground)]"
           aria-haspopup="menu"
           aria-expanded={open}
-          title="Шинэ баримт үүсгэх (F2)"
+          title={f2Owned ? "Шинэ баримт үүсгэх" : "Шинэ баримт үүсгэх (F2)"}
         >
-          + Шинэ (F2)
+          {f2Owned ? "+ Шинэ" : "+ Шинэ (F2)"}
         </button>
       }
     >
