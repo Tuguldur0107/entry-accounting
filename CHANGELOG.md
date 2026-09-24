@@ -7,6 +7,14 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Fixed
 
+- **Кассын дэлгэц: F2 / «/» дарахад «Шинэ баримт» цэс, палитр зэрэг нээгддэг байсныг
+  заслаа.** Хоёр глобал сонсогч (`quick-create`, `quick-nav`) кассын хайлтын товчлолтой
+  давхцаж байв. Хуудас эзэмшдэг товчлолын бүртгэл `lib/ui/hotkeys.ts` — глобал товчлол
+  тэр хуудсан дээр алгасна; кассын дэлгэцэд топбарын товч «+ Шинэ» (F2 шошгогүй)
+  болно, Cmd/Ctrl+K палитр хэвээр. `tests/hotkeys.test.ts`
+
+### Fixed
+
 - **Борлуулалтын тайлан ОГТ нээгдэхгүй байсныг заслаа** (`/inventory/reports?tab=sales`).
   Server component нь `isSalesView`-г `"use client"` файлаас импортлож ДУУДАЖ
   байсан тул production дээр «Attempted to call isSalesView() from the server

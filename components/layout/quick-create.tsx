@@ -6,12 +6,13 @@
 // (хүснэгт, оролтын талбар дотор F2 өөрийн үүрэгтэй тул тэнд ажиллахгүй).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 
 import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import { Icon, type IconName } from "@/components/ui/icon";
+import { pageOwnsHotkey } from "@/lib/ui/hotkeys";
 import {
   openArapDocPanel,
   openCashNewPanel,
@@ -117,8 +118,12 @@ export function QuickCreate() {
   );
 
   // F2 — цэсийг нээх/хаах глобал товчлол. Оролтын талбар, AG Grid (F2 =
-  // нүд засах) болон modal дотор фокустай үед үл ойшооно.
+  // нүд засах), modal дотор фокустай үед болон F2-г ӨӨРӨӨ эзэмшдэг хуудсан
+  // дээр (кассын дэлгэц — бараа хайх, lib/ui/hotkeys.ts) үл ойшооно.
+  const pathname = usePathname();
+  const f2Owned = pageOwnsHotkey(pathname, "F2");
   useEffect(() => {
+    if (f2Owned) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "F2" || event.metaKey || event.ctrlKey || event.altKey)
         return;
@@ -134,7 +139,7 @@ export function QuickCreate() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [f2Owned]);
 
   // Цэс нээлттэй үед 1–9 тоо дарахад тухайн мөрийг шууд ажиллуулна,
   // Esc хаана — F2 → тоо гэсэн хоёрхон даралтаар баримт үүсгэнэ.
@@ -183,9 +188,9 @@ export function QuickCreate() {
           className="ea-primary-button h-8 rounded-md px-3 text-xs font-medium text-[var(--primary-foreground)]"
           aria-haspopup="menu"
           aria-expanded={open}
-          title="Шинэ баримт үүсгэх (F2)"
+          title={f2Owned ? "Шинэ баримт үүсгэх" : "Шинэ баримт үүсгэх (F2)"}
         >
-          + Шинэ (F2)
+          {f2Owned ? "+ Шинэ" : "+ Шинэ (F2)"}
         </button>
       }
     >

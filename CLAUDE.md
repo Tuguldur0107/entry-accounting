@@ -1906,6 +1906,12 @@ alignment / editor зэргийг дахин зарлахгүй. Дэмжих ki
 | Ctrl/Cmd+Z / Y | Undo / Redo |
 | Delete | Сонгосон нүднүүдийг цэвэрлэх |
 
+**Хуудас эзэмшдэг товчлол:** глобал товчлол (топбарын «+ Шинэ» F2, палитр «/»)
+нь `lib/ui/hotkeys.ts`-ийн `PAGE_OWNED_HOTKEYS`-д бүртгэгдсэн хуудсан дээр
+ажиллахгүй (`pageOwnsHotkey`) — кассын дэлгэцэд F2 / «/» = бараа хайх. Шинэ
+хуудас глобал товчлолыг өөрөөр хэрэглэвэл ЗААВАЛ тэнд бүртгэнэ
+(`tests/hotkeys.test.ts`); хуудасны нэрийг глобал сонсогчид hardcode хийхгүй.
+
 **Мужийн сонголт + copy (DataGrid built-in, бүх grid-д):** AG Grid
 Community-д range selection байхгүй тул `DataGrid.tsx` дээр custom
 хэрэгжсэн — нэг даралт зангуу, Shift+даралт муж, `ea-range-cell` класс
