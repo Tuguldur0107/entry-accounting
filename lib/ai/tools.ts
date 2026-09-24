@@ -317,6 +317,7 @@ import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { recordAiToolCall } from "@/lib/ai-logging/record-tool";
 import { logAuditEvent } from "@/lib/audit";
 import { approvalAuditNote } from "@/lib/pos/discounts";
+import { posIssueTypeWarning } from "@/lib/pos/sale-math";
 import {
   customToolDefs,
   executeCustomTool,
@@ -7372,7 +7373,9 @@ async function runReconcileModules(
       .where(
         and(
           eq(journalVouchers.organizationId, orgId),
-          inArray(journalVouchers.status, ["posted", "reversed"]),
+          // Буцаагдсан нээлт (ба түүний ref-гүй буцаалт) нь хамтдаа 0 — зөвхөн
+          // идэвхтэй нээлт (аудит M1: «буцаагаад дахин бичнэ» засварын дараа).
+          eq(journalVouchers.status, "posted"),
           sql`${journalVouchers.externalRef} like 'cash-opening:%'`
         )
       );
@@ -10188,7 +10191,18 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
     loadShiftViews(orgId, { openOnly: true }),
     loadVatSettings(orgId),
   ]);
+  const issueType = settings.issueTypeId
+    ? ((await db.query.inventoryIssueTypes.findFirst({
+        where: and(
+          eq(inventoryIssueTypes.organizationId, orgId),
+          eq(inventoryIssueTypes.id, settings.issueTypeId)
+        ),
+        columns: { name: true, debitAccountSource: true, debitAccountNumber: true },
+      })) ?? null)
+    : null;
+  const issueTypeWarning = posIssueTypeWarning(issueType);
   const lines = [
+    ...(issueTypeWarning ? [`⚠ ${issueTypeWarning}`] : []),
     `НӨАТ төлөгч: ${vat.isVatPayer ? "тийм (үнэ НӨАТ орсон)" : "үгүй (НӨАТ мөр үүсэхгүй)"}`,
     `Урьдчилсан COGS: ${settings.provisionalCogs ? "асаалттай" : "унтраалттай"} · Хасах үлдэгдэл: ${settings.allowNegativeStock ? "зөвшөөрнө (мэдэгдэлтэй)" : "хориглоно"} · Хөнгөлөлт: гар max ${Number(settings.maxManualDiscountPercent)}%, нийт max ${Number(settings.maxTotalDiscountPercent)}%, ${settings.discountStacking} · Бөөрөнхийлөл ${settings.cashRoundingUnit}₮`,
     `Нээлттэй ээлж (${shifts.length}): ${

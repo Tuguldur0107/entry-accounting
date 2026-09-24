@@ -113,3 +113,27 @@ export function cashOpeningMnt(input: {
   if (Number.isFinite(rate) && rate > 0) return round2(opening * rate);
   return null;
 }
+
+/**
+ * Дансны нээлтийн журналыг (дахин) үүсгэж болох эсэх + шинэ журналын
+ * externalRef (аудит M1). Буцаагдсан хуучин нээлт (ENT-011-ийн өмнөх ханшгүй
+ * ₮ журнал г.м.) болон түүний буцаалт нь ИДЭВХГҮЙ — `reconcile_modules`-ийн
+ * «буцаагаад дахин бичнэ» зөвлөмж ажиллахын тулд тэднийг тоохгүй. Unique index
+ * (organization_id, external_ref) статусаар шүүгддэггүй тул дахин үүсгэх
+ * журнал `cash-opening:<id>:<n>` дугаартай болно (`cash-opening:%` хайлтад орно).
+ */
+export function planCashOpeningRef(
+  cashAccountId: string,
+  prior: readonly { externalRef: string | null; status: string; reversalOfVoucherId: string | null }[]
+): { blockedBy: "draft" | "posted" | null; externalRef: string } {
+  const base = `cash-opening:${cashAccountId}`;
+  const active = prior.find(
+    (voucher) => voucher.reversalOfVoucherId === null && (voucher.status === "draft" || voucher.status === "posted")
+  );
+  if (active) return { blockedBy: active.status === "draft" ? "draft" : "posted", externalRef: base };
+  const used = new Set(prior.map((voucher) => voucher.externalRef).filter(Boolean));
+  if (!used.has(base)) return { blockedBy: null, externalRef: base };
+  let n = 2;
+  while (used.has(`${base}:${n}`)) n += 1;
+  return { blockedBy: null, externalRef: `${base}:${n}` };
+}

@@ -36,6 +36,7 @@ import {
   faDepreciationEntries,
   fixedAssets,
   goodsReceipts,
+  inventoryItems,
   inventoryMovements,
   journalLines,
   journalVouchers,
@@ -75,6 +76,7 @@ async function setupOrg() {
     await db.transaction(async (tx) => {
       // POS борлуулалт АР нэхэмжлэх/кассын баримтыг заадаг тул эхэлж.
       await tx.delete(posSales).where(eq(posSales.organizationId, org.id));
+      await tx.execute(sql`delete from payroll_runs where organization_id = ${org.id}`);
       await tx.execute(sql`delete from ar_ap_settlements where document_id in
         (select id from ar_ap_documents where organization_id = ${org.id})`);
       await tx.delete(cashDocuments).where(eq(cashDocuments.organizationId, org.id));
@@ -764,6 +766,105 @@ test("Аудит hotfix 2: dispose_fixed_asset батлах хязгаар, AI-�
   assert.match(approval.summary, /AI\/MCP-ийн managerApproval/);
   const created = events.find((event) => event.action === "create_posted");
   assert.match(created?.summary ?? "", /менежерийн зөвшөөрөл/);
+});
+
+test("Аудит M1: буцаасан нээлтийн журналын дараа fix_cash_opening_balance дахин ажиллана", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.name, "Голомт банк USD")),
+  });
+  assert.ok(account, "ENT-011 тестийн данс");
+  const first = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `cash-opening:${account.id}`)),
+  });
+  assert.ok(first);
+  // 41 сая ₮-ийн журнал — вэбээс хүн хязгаарыг өсгөснийг дуурайна (§9), дараа нь сэргээнэ.
+  const settingsRow = await db.execute(
+    sql`select ai_post_limit_mnt as "limit" from company_settings where organization_id = ${orgId}`
+  );
+  const previousLimit = (settingsRow as unknown as { limit: string | null }[])[0]?.limit ?? null;
+  const setLimit = (value: string | null) =>
+    db.execute(sql`insert into company_settings (user_id, organization_id, ai_post_limit_mnt)
+      values (${userId}, ${orgId}, ${value}) on conflict (organization_id)
+      do update set ai_post_limit_mnt = excluded.ai_post_limit_mnt`);
+  await setLimit("100000000");
+  try {
+    if (first.status === "draft") {
+      const posted = await tool("post_journal_voucher", { voucherId: first.id }, "post");
+      assert.ok(okOrRevalidate(posted.resultText), posted.resultText);
+    }
+    const blocked = await tool("fix_cash_opening_balance", { cashAccount: "Голомт банк USD" });
+    assert.match(blocked.resultText, /аль хэдийн батлагдсан/);
+    const reversed = await tool("reverse_journal_voucher", { voucherId: first.id }, "post");
+    assert.ok(okOrRevalidate(reversed.resultText), reversed.resultText);
+  } finally {
+    await setLimit(previousLimit);
+  }
+  const again = await tool("fix_cash_opening_balance", { cashAccount: "Голомт банк USD" });
+  assert.ok(okOrRevalidate(again.resultText), again.resultText);
+  const redo = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `cash-opening:${account.id}:2`)),
+  });
+  assert.ok(redo, "дахин үүссэн нээлт шинэ ref-тэй");
+  assert.equal(redo.date, "2024-12-31");
+});
+
+test("Аудит тест дутуу: ENT-062/032/039/026", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const as = <T>(fn: () => Promise<T>) => runAsOrg({ userId, orgId }, fn);
+
+  // ENT-062 — зарлагын дараа данс хасах үлдэгдэлтэй болбол ИЛ анхааруулна
+  const pay = await tool(
+    "create_cash_transaction",
+    {
+      documentType: "payment", date: "2026-09-02", cashAccount: "Дэлгүүрийн касс", counterAccount: "73100001",
+      amount: 1_000_000, description: "Түрээс (хасах үлдэгдэл шалгах)", externalRef: `sim-${STAMP}-neg-cash`,
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(pay.resultText), pay.resultText);
+  assert.match(pay.resultText, /ХАСАХ үлдэгдэлтэй болов/);
+
+  // ENT-032 — батлагдсан нэхэмжлэх устгахад «Ноорог» гэж худал хэлэхгүй
+  const inv = await tool(
+    "create_arap_invoice",
+    {
+      documentType: "ar_invoice", counterparty: "Скай Трэйдинг", date: "2025-06-10", description: "Устгах туршилт",
+      externalRef: `sim-${STAMP}-del-ar`, lines: [{ account: "51100000", description: "Үйлчилгээ", amount: 10_000 }],
+    },
+    "post"
+  );
+  assert.ok(okOrRevalidate(inv.resultText), inv.resultText);
+  const doc = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim-${STAMP}-del-ar`)),
+  });
+  assert.equal(doc?.status, "posted");
+  const deleted = await tool("delete_arap_document", { documentId: doc!.id }, "post");
+  assert.match(deleted.resultText, /Батлагдсан нэхэмжлэх GL-тэй нь хамт устгагдлаа/);
+
+  // ENT-039 — бараатай мөр агуулахгүй бол сервер ТАТГАЛЗАНА (trust boundary)
+  const item = await db.query.inventoryItems.findFirst({
+    where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, "ITM-A")),
+  });
+  const customer = await db.query.counterparties.findFirst({
+    where: (row, { and: both, eq: equals }) => both(equals(row.organizationId, orgId), equals(row.name, "Скай Трэйдинг")),
+  });
+  const noWarehouse = await as(() =>
+    createArApDocument({
+      documentType: "ar_invoice", counterpartyId: customer!.id, date: "2025-06-11", dueDate: "2025-07-11",
+      controlAccountNumber: "13110000", description: "Агуулахгүй бараа",
+      lines: [{ account: "51100000", description: "Цэнэглэгч", amount: 50_000, itemId: item!.id, quantity: 1 }],
+    })
+  );
+  assert.match(noWarehouse.error ?? "", /агуулах заавал/);
+
+  // ENT-026 — цалингийн журналын ДУГААР хариунд
+  assert.ok(okOrRevalidate((await tool("create_employee", { name: "Болд", lastName: "Дорж", baseSalary: 2_000_000 })).resultText));
+  const run = await tool("run_payroll", { period: "2025-06" });
+  assert.ok(okOrRevalidate(run.resultText), run.resultText);
+  const voucher = await tool("create_payroll_voucher", { period: "2025-06" });
+  assert.ok(okOrRevalidate(voucher.resultText), voucher.resultText);
+  assert.match(voucher.resultText, /PAY-25-\d{6}/);
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

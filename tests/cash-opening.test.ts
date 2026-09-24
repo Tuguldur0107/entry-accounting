@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeCashOpeningFields, planCashOpeningVoucher } from "../lib/cash/opening";
+import { normalizeCashOpeningFields, planCashOpeningRef, planCashOpeningVoucher } from "../lib/cash/opening";
 
 test("ENT-011: валютын нээлт FC × ханш (12,000 USD @3,420.46)", () => {
   const plan = planCashOpeningVoucher({ openingBalance: 12_000, currency: "usd", rate: 3420.46 });
@@ -100,5 +100,26 @@ test("Аудит M2: огноогүй хуучин данс — requireDate:fals
   assert.throws(
     () => normalizeCashOpeningFields({ openingBalance: 5_000_000, currency: "MNT", requireDate: true }),
     /НЭЭЛТИЙН ОГНОО/
+  );
+});
+
+test("Аудит M1: буцаасан нээлтийн дараа дахин үүсгэх боломжтой, ref давхардахгүй", () => {
+  const id = "acc-1";
+  assert.deepEqual(planCashOpeningRef(id, []), { blockedBy: null, externalRef: "cash-opening:acc-1" });
+  // идэвхтэй (ноорог/батлагдсан) байвал хаана
+  assert.equal(
+    planCashOpeningRef(id, [{ externalRef: "cash-opening:acc-1", status: "posted", reversalOfVoucherId: null }]).blockedBy,
+    "posted"
+  );
+  // буцаагдсан + түүний буцаалт (тайлбарт тэмдэгтэй, ref-гүй) → дахин үүсгэнэ, шинэ ref
+  const reversed = [
+    { externalRef: "cash-opening:acc-1", status: "reversed", reversalOfVoucherId: null },
+    { externalRef: null, status: "posted", reversalOfVoucherId: "v-old" },
+  ];
+  assert.deepEqual(planCashOpeningRef(id, reversed), { blockedBy: null, externalRef: "cash-opening:acc-1:2" });
+  assert.equal(
+    planCashOpeningRef(id, [...reversed, { externalRef: "cash-opening:acc-1:2", status: "reversed", reversalOfVoucherId: null }])
+      .externalRef,
+    "cash-opening:acc-1:3"
   );
 });
