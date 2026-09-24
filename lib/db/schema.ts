@@ -1091,7 +1091,7 @@ export const arApDocuments = pgTable(
       onDelete: "cascade",
     }),
     documentNo: text("document_no").notNull(),
-    documentType: text("document_type").notNull(), // "ar_invoice" | "ap_bill"
+    documentType: text("document_type").notNull(), // lib/arap/document-kind.ts ARAP_DOCUMENT_TYPES
     counterpartyId: uuid("counterparty_id")
       .notNull()
       .references(() => counterparties.id, { onDelete: "restrict" }),
@@ -1138,10 +1138,23 @@ export const arApDocuments = pgTable(
      */
     sourceType: text("source_type").notNull().default("manual"),
     sourceId: uuid("source_id"),
+    /**
+     * Кредит нэхэмжлэл / дебит нэхэмжлэхийн ЭХ нэхэмжлэх (ENT-029). SET NULL
+     * (байгууллагын cascade устгалт нэг дор) — эх нэхэмжлэхийг идэвхтэй
+     * буцаалттай үед устгах/буцаахыг action хориглоно.
+     */
+    sourceDocumentId: uuid("source_document_id"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
+    foreignKey({
+      columns: [table.sourceDocumentId],
+      foreignColumns: [table.id],
+    }).onDelete("set null"),
+    index("ar_ap_documents_source_document_ix")
+      .on(table.sourceDocumentId)
+      .where(sql`${table.sourceDocumentId} is not null`),
     uniqueIndex("ar_ap_documents_organization_id_document_no_ux").on(
       table.organizationId,
       table.documentNo
@@ -1187,10 +1200,19 @@ export const arApDocumentLines = pgTable(
       () => costComponents.id,
       { onDelete: "restrict" }
     ),
+    /** Кредит/дебит баримтын мөр → эх нэхэмжлэхийн мөр (буцаах үлдэгдэл). */
+    sourceLineId: uuid("source_line_id"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
+    foreignKey({
+      columns: [table.sourceLineId],
+      foreignColumns: [table.id],
+    }).onDelete("set null"),
+    index("ar_ap_document_lines_source_line_ix")
+      .on(table.sourceLineId)
+      .where(sql`${table.sourceLineId} is not null`),
     check(
       "ar_ap_document_lines_item_xor_component",
       sql`not (${table.itemId} is not null and ${table.costComponentId} is not null)`
@@ -1413,6 +1435,12 @@ export const arApDocumentsRelations = relations(
       references: [journalVouchers.id],
       relationName: "arApDocumentReversalVoucher",
     }),
+    sourceDocument: one(arApDocuments, {
+      fields: [arApDocuments.sourceDocumentId],
+      references: [arApDocuments.id],
+      relationName: "arApCreditSource",
+    }),
+    creditDocuments: many(arApDocuments, { relationName: "arApCreditSource" }),
     purchaseOrder: one(purchaseOrders, {
       fields: [arApDocuments.purchaseOrderId],
       references: [purchaseOrders.id],

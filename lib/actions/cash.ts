@@ -64,6 +64,8 @@ import { logAuditEvent } from "@/lib/audit";
 import { POS_SOURCE_TYPE } from "@/lib/pos/constants";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
+import { settlementCashType } from "@/lib/arap/document-kind";
+import type { ArApDocumentType } from "@/lib/arap/types";
 
 export type CashDocumentType = "receipt" | "payment" | "transfer";
 
@@ -125,8 +127,7 @@ async function validateArApSettlement(
   if (document.status !== "posted" && document.status !== "partially_paid")
     throw new Error("Зөвхөн батлагдсан авлага/өглөгийн баримтыг хаана");
 
-  const expectedType =
-    document.documentType === "ar_invoice" ? "receipt" : "payment";
+  const expectedType = settlementCashType(document.documentType);
   if (data.documentType !== expectedType)
     throw new Error("Cash гүйлгээний төрөл авлага/өглөгийн баримттай таарахгүй байна");
   if (document.currency !== currency)
@@ -993,9 +994,7 @@ async function postCashDocumentCore(
   );
   const settlementExchangeEffect = arApSettlement
     ? calculateSettlementExchangeEffect({
-        documentType: arApSettlement.document.documentType as
-          | "ar_invoice"
-          | "ap_bill",
+        documentType: arApSettlement.document.documentType as ArApDocumentType,
         amount,
         documentExchangeRate: Number(arApSettlement.document.exchangeRate),
         paymentBaseAmount: baseAmount,
@@ -1012,7 +1011,7 @@ async function postCashDocumentCore(
     : null;
   if (arApSettlement && costingSettings && Math.abs(fxDifference) > 0.01) {
     const isGain =
-      arApSettlement.document.documentType === "ar_invoice"
+      settlementCashType(arApSettlement.document.documentType) === "receipt"
         ? fxDifference > 0
         : fxDifference < 0;
     await assertMainAccount(

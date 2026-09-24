@@ -77,6 +77,22 @@ import {
 } from "@/lib/costing/master-data";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
 import { POS_SOURCE_TYPE } from "@/lib/pos/constants";
+import {
+  applyCreditToSourceInTx,
+  activeCreditDocumentNos,
+  loadCreditSource,
+  loadCreditedByLine,
+  undoOwnCreditApplicationInTx,
+} from "@/lib/arap/credit-note-db";
+import { creditOverrunError } from "@/lib/arap/credit-note";
+import {
+  arapLedger,
+  controlSide,
+  documentNoPrefix,
+  documentTypeLabel,
+  isCreditDocument,
+  offsetPair,
+} from "@/lib/arap/document-kind";
 
 import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
@@ -97,7 +113,7 @@ function assertNotPosSourced(document: { sourceType: string | null }, verb: stri
 
 /** Баримтын төрөл → эрхийн модулийн түлхүүр (АР/АП тусдаа тохирно). */
 function permissionModuleOf(documentType: string): string {
-  return documentType === "ar_invoice" ? "ar" : "ap";
+  return arapLedger(documentType);
 }
 
 /** Транзакцийн handle (assertPeriodOpenInTx-тэй ижил дүгнэлт). */
@@ -149,20 +165,62 @@ async function assertEnabledMainAccount(orgId: string, accountNumber: string) {
 }
 
 function documentLabel(type: ArApDocumentType) {
-  return type === "ar_invoice" ? "Авлагын нэхэмжлэл" : "Өглөгийн нэхэмжлэх";
+  return documentTypeLabel(type);
 }
 
-/** Журналын дугаарын модуль: авлага → AR-, өглөг → AP-. */
+/**
+ * Журналын дугаарын модуль: авлага (кредит нэхэмжлэл ч) → AR-, өглөг
+ * (дебит нэхэмжлэх ч) → AP-.
+ */
 function voucherModuleOf(type: ArApDocumentType): JournalModule {
-  return type === "ar_invoice" ? "ar" : "ap";
+  return arapLedger(type);
 }
 
 function nextDocumentNo(type: ArApDocumentType, date: string) {
-  const prefix = type === "ar_invoice" ? "AR" : "AP";
+  const prefix = documentNoPrefix(type);
   return `${prefix}-${date.replaceAll("-", "")}-${crypto
     .randomUUID()
     .slice(0, 6)
     .toUpperCase()}`;
+}
+
+/**
+ * Баримтын журналын мөрүүд — хяналтын данс `controlSide`-ийн талд, мөрүүд
+ * эсрэг талд (нэхэмжлэх/кредит/дебит баримт бүгд НЭГ дүрмээр).
+ */
+function documentVoucherLines(args: {
+  voucherId: string;
+  documentType: string;
+  controlAccountNumber: string;
+  description: string;
+  baseTotalAmount: number;
+  lines: { accountNumber: string; description: string; baseAmount: number }[];
+  businessObject: { businessObjectType?: string; businessObjectId?: string };
+}) {
+  const { voucherId, businessObject } = args;
+  const controlDebit = controlSide(args.documentType) === "debit";
+  const control = (sortOrder: number) => ({
+    voucherId,
+    accountNumber: args.controlAccountNumber,
+    debit: controlDebit ? String(args.baseTotalAmount) : "0",
+    credit: controlDebit ? "0" : String(args.baseTotalAmount),
+    description: args.description,
+    sortOrder,
+    ...businessObject,
+  });
+  const body = (offset: number) =>
+    args.lines.map((line, index) => ({
+      voucherId,
+      accountNumber: line.accountNumber,
+      debit: controlDebit ? "0" : String(line.baseAmount),
+      credit: controlDebit ? String(line.baseAmount) : "0",
+      description: line.description || args.description,
+      sortOrder: index + offset,
+      ...businessObject,
+    }));
+  return controlDebit
+    ? [control(0), ...body(1)]
+    : [...body(0), control(args.lines.length)];
 }
 
 // ── АР/АП баримтын панелийн өгөгдөл ─────────────────────────────────────────
@@ -200,7 +258,8 @@ export type ArapDocPanelData = {
     baseAmount: number;
     status: string;
     /** "cash" — кассын баримт; "offset" — АР↔АП суутган тооцоо. */
-    kind: "cash" | "offset";
+    /** cash — кассын баримт; offset — суутган тооцоо; credit — кредит/дебит баримтын тооцоо (ENT-029). */
+    kind: "cash" | "offset" | "credit";
     /** offset үед — буцаахад хэрэглэх GL воучерийн ID. */
     voucherId: string | null;
   }[];
@@ -284,6 +343,23 @@ export async function getArapDocPanelData(
   const siblingByVoucher = new Map(
     siblingRows.map((row) => [row.voucherId, row.document?.documentNo ?? ""])
   );
+  // Журнал нь кредит/дебит баримтынх бол энэ нь суутгал биш — баримтын өөрийн
+  // тооцоо (буцаахдаа баримтыг буцаана).
+  const creditVoucherIds = new Set(
+    offsetVoucherIds.length > 0
+      ? (
+          await db.query.arApDocuments.findMany({
+            where: and(
+              eq(arApDocuments.organizationId, orgId),
+              inArray(arApDocuments.voucherId, offsetVoucherIds)
+            ),
+            columns: { voucherId: true, documentType: true },
+          })
+        )
+          .filter((row) => isCreditDocument(row.documentType))
+          .map((row) => row.voucherId)
+      : []
+  );
 
   if (documentId && !document) return { ok: false, code: "not-found" };
 
@@ -317,11 +393,13 @@ export async function getArapDocPanelData(
         })),
         ...offsetRows.map((row) => ({
           id: row.id,
-          documentNo: `Суутган тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`,
+          documentNo: creditVoucherIds.has(row.voucherId)
+            ? `Кредит/дебит баримтын тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`
+            : `Суутган тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`,
           date: row.settlementDate,
           baseAmount: Number(row.baseAmount ?? row.amount),
           status: "posted",
-          kind: "offset" as const,
+          kind: creditVoucherIds.has(row.voucherId) ? ("credit" as const) : ("offset" as const),
           voucherId: row.voucherId,
         })),
       ].sort((a, b) => a.date.localeCompare(b.date)),
@@ -1322,48 +1400,19 @@ async function createArApDocumentCore(data: {
       const createdVoucherId = voucher.id;
       voucherId = createdVoucherId;
 
-      const lineValues =
-        data.documentType === "ar_invoice"
-          ? [
-              {
-                voucherId: createdVoucherId,
-                accountNumber: controlAccountNumber,
-                debit: String(baseTotalAmount),
-                credit: "0",
-                description,
-                sortOrder: 0,
-                ...businessObject,
-              },
-              ...validLines.map((line, index) => ({
-                voucherId: createdVoucherId,
-                accountNumber: line.account,
-                debit: "0",
-                credit: String(baseLineAmounts[index]),
-                description: line.description || description,
-                sortOrder: index + 1,
-                ...businessObject,
-              })),
-            ]
-          : [
-              ...validLines.map((line, index) => ({
-                voucherId: createdVoucherId,
-                accountNumber: line.account,
-                debit: String(baseLineAmounts[index]),
-                credit: "0",
-                description: line.description || description,
-                sortOrder: index,
-                ...businessObject,
-              })),
-              {
-                voucherId: createdVoucherId,
-                accountNumber: controlAccountNumber,
-                debit: "0",
-                credit: String(baseTotalAmount),
-                description,
-                sortOrder: validLines.length,
-                ...businessObject,
-              },
-            ];
+      const lineValues = documentVoucherLines({
+        voucherId: createdVoucherId,
+        documentType: data.documentType,
+        controlAccountNumber,
+        description,
+        baseTotalAmount,
+        lines: validLines.map((line, index) => ({
+          accountNumber: line.account,
+          description: line.description,
+          baseAmount: baseLineAmounts[index],
+        })),
+        businessObject,
+      });
 
       await tx.insert(journalLines).values(lineValues);
       createdVoucherId2 = createdVoucherId;
@@ -1497,6 +1546,9 @@ async function postArApDocumentCore(id: string) {
   await assertEnabledMainAccount(orgId, document.controlAccountNumber);
   for (const line of document.lines)
     await assertEnabledMainAccount(orgId, line.accountNumber);
+  const isCredit = isCreditDocument(document.documentType);
+  if (isCredit && !document.sourceDocumentId)
+    throw new Error("[CREDIT_SOURCE_REQUIRED] Кредит/дебит баримтын эх нэхэмжлэх алга");
 
   const exchangeRate = Number(document.exchangeRate);
   const baseTotalAmount = calculateBaseAmount(
@@ -1543,6 +1595,38 @@ async function postArApDocumentCore(id: string) {
           businessObjectId: document.purchaseOrderId,
         }
       : {};
+    // Кредит/дебит баримт: эх нэхэмжлэхийг түгжээд, бусад БАТЛАГДСАН
+    // кредиттэй нийлээд эх мөрийн үлдэгдлээс хэтрэхгүйг ДАХИН шалгана
+    // (ноорог хэвтэх зуур өөр кредит батлагдсан байж болно).
+    if (isCredit && document.sourceDocumentId) {
+      await tx
+        .select({ id: arApDocuments.id })
+        .from(arApDocuments)
+        .where(
+          and(
+            eq(arApDocuments.id, document.sourceDocumentId),
+            eq(arApDocuments.organizationId, orgId)
+          )
+        )
+        .for("update");
+      const loaded = await loadCreditSource(orgId, document.sourceDocumentId, tx);
+      if (!loaded) throw new Error("[CREDIT_SOURCE_NOT_FOUND] Эх нэхэмжлэх олдсонгүй");
+      if (!["posted", "partially_paid", "paid"].includes(loaded.source.status))
+        throw new Error(
+          `[CREDIT_SOURCE_STATUS] Эх нэхэмжлэх ${loaded.source.documentNo} батлагдсан төлөвт биш (${loaded.source.status})`
+        );
+      const others = await loadCreditedByLine(orgId, document.sourceDocumentId, id, tx);
+      const overrun = creditOverrunError(
+        loaded.lines,
+        others,
+        document.lines.map((line) => ({
+          sourceLineId: line.sourceLineId,
+          amount: Number(line.amount),
+          quantity: line.itemId && line.quantity != null ? Number(line.quantity) : null,
+        }))
+      );
+      if (overrun) throw new Error(overrun);
+    }
     const [claimed] = await tx
       .update(arApDocuments)
       .set({ status: "posted", postedAt: new Date() })
@@ -1574,54 +1658,39 @@ async function postArApDocumentCore(id: string) {
       .returning({ id: journalVouchers.id });
     voucherId = voucher.id;
 
-    const lineValues =
-      document.documentType === "ar_invoice"
-        ? [
-            {
-              voucherId: voucher.id,
-              accountNumber: document.controlAccountNumber,
-              debit: String(baseTotalAmount),
-              credit: "0",
-              description: document.description,
-              sortOrder: 0,
-              ...businessObject,
-            },
-            ...document.lines.map((line, index) => ({
-              voucherId: voucher.id,
-              accountNumber: line.accountNumber,
-              debit: "0",
-              credit: String(baseLineAmounts[index]),
-              description: line.description || document.description,
-              sortOrder: index + 1,
-              ...businessObject,
-            })),
-          ]
-        : [
-            ...document.lines.map((line, index) => ({
-              voucherId: voucher.id,
-              accountNumber: line.accountNumber,
-              debit: String(baseLineAmounts[index]),
-              credit: "0",
-              description: line.description || document.description,
-              sortOrder: index,
-              ...businessObject,
-            })),
-            {
-              voucherId: voucher.id,
-              accountNumber: document.controlAccountNumber,
-              debit: "0",
-              credit: String(baseTotalAmount),
-              description: document.description,
-              sortOrder: document.lines.length,
-              ...businessObject,
-            },
-          ];
+    const lineValues = documentVoucherLines({
+      voucherId: voucher.id,
+      documentType: document.documentType,
+      controlAccountNumber: document.controlAccountNumber,
+      description: document.description,
+      baseTotalAmount,
+      lines: document.lines.map((line, index) => ({
+        accountNumber: line.accountNumber,
+        description: line.description,
+        baseAmount: baseLineAmounts[index],
+      })),
+      businessObject,
+    });
     await tx.insert(journalLines).values(lineValues);
 
     await tx
       .update(arApDocuments)
       .set({ voucherId: voucher.id })
       .where(eq(arApDocuments.id, id));
+    // D-CN-3: эх нэхэмжлэхийн нээлттэй үлдэгдэлд автоматаар тооцно.
+    if (isCredit && document.sourceDocumentId)
+      await applyCreditToSourceInTx(tx, {
+        orgId,
+        userId,
+        credit: {
+          id,
+          totalAmount: Number(document.totalAmount),
+          exchangeRate,
+          date: document.date,
+          sourceDocumentId: document.sourceDocumentId,
+        },
+        voucherId: voucher.id,
+      });
     await logAuditEvent(
       {
         userId,
@@ -1687,12 +1756,24 @@ async function reverseArApDocumentCore(id: string) {
   assertNotPosSourced(document, "буцаах");
   if (document.status === "reversed")
     throw new Error("Энэ баримт аль хэдийн буцаагдсан байна");
-  if (document.status === "partially_paid" || document.status === "paid")
+  // Кредит/дебит баримт: эх нэхэмжлэхэд тооцсон ӨӨРИЙН settlement (журнал нь
+  // баримтынх) буцаалтад хамт арилна; кассаар буцаан олгосон / өөр
+  // нэхэмжлэхтэй суутгасан хэсэг байвал эхлээд тэдгээрийг буцаана.
+  const isCredit = isCreditDocument(document.documentType);
+  if (!isCredit && (document.status === "partially_paid" || document.status === "paid"))
     throw new Error(
       "Төлөлттэй нэхэмжлэх — эхлээд төлөлтийн кассын баримт(ууд)ыг буцаана уу"
     );
-  if (document.status !== "posted" || !document.voucherId)
+  if (
+    !["posted", ...(isCredit ? ["partially_paid", "paid"] : [])].includes(document.status) ||
+    !document.voucherId
+  )
     throw new Error("Зөвхөн батлагдсан нэхэмжлэхийг буцаана");
+  const creditNos = isCredit ? [] : await activeCreditDocumentNos(orgId, id);
+  if (creditNos.length > 0)
+    throw new Error(
+      `[HAS_CREDIT_NOTES] Энэ нэхэмжлэхэд кредит/дебит баримт бий (${creditNos.join(", ")}) — эхлээд тэдгээрийг буцаана/устгана уу`
+    );
   await assertPeriodOpen(orgId, document.date);
   // Хаагдсан PO-гийн нэхэмжлэхийг буцаавал хаалтын журнал тэнцэхгүй.
   if (document.purchaseOrderId)
@@ -1702,16 +1783,27 @@ async function reverseArApDocumentCore(id: string) {
   await assertNoActiveCostAllocations(orgId, id);
 
   // Аюулгүйн давхар шалгалт — статус posted атлаа settlement үлдсэн байж болно.
-  const settlement = await db.query.arApSettlements.findFirst({
+  // Кредит баримтын өөрийн тооцоо (voucherId = баримтын журнал) тооцогдохгүй.
+  const settlements = await db.query.arApSettlements.findMany({
     where: and(
       eq(arApSettlements.organizationId, orgId),
       eq(arApSettlements.documentId, id)
     ),
-    columns: { id: true },
+    columns: { id: true, voucherId: true, amount: true },
   });
-  if (settlement || Number(document.paidAmount) > 0.005)
+  const ownApplied = isCredit
+    ? settlements
+        .filter((row) => row.voucherId === document.voucherId)
+        .reduce((sum, row) => sum + Number(row.amount), 0)
+    : 0;
+  const foreignSettlement = settlements.some(
+    (row) => !isCredit || row.voucherId !== document.voucherId
+  );
+  if (foreignSettlement || Number(document.paidAmount) - ownApplied > 0.005)
     throw new Error(
-      "Төлөлттэй нэхэмжлэх — эхлээд төлөлтийн кассын баримт(ууд)ыг буцаана уу"
+      isCredit
+        ? "Кредитийн үлдэгдлийг кассаар буцаан олгосон эсвэл өөр нэхэмжлэхтэй суутгасан — эхлээд тэдгээрийг буцаана уу"
+        : "Төлөлттэй нэхэмжлэх — эхлээд төлөлтийн кассын баримт(ууд)ыг буцаана уу"
     );
 
   // Энэ баримтын мөрүүдээс үүссэн бараа хөдөлгөөнүүд (delete-тэй ижил дүрэм).
@@ -1758,11 +1850,14 @@ async function reverseArApDocumentCore(id: string) {
         and(
           eq(arApDocuments.id, id),
           eq(arApDocuments.organizationId, orgId),
-          eq(arApDocuments.status, "posted")
+          eq(arApDocuments.status, document.status)
         )
       )
       .returning({ id: arApDocuments.id });
     if (!claimed) throw new Error("Баримтын төлөв өөрчлөгдсөн байна");
+    // Кредит баримт: эх нэхэмжлэхэд тооцсоныг сэргээнэ (статус нь reversed
+    // тул CASE хөндөхгүй, эх нэхэмжлэх posted/partially_paid руу буцна).
+    if (isCredit) await undoOwnCreditApplicationInTx(tx, orgId, voucher.id);
 
     const [reversal] = await tx
       .insert(journalVouchers)
@@ -1876,6 +1971,17 @@ async function deleteArApDocumentCore(id: string) {
     document.status === "draft" ? "write" : "post"
   );
   assertNotPosSourced(document, "устгах");
+  // Батлагдсан кредит/дебит баримт эх нэхэмжлэхэд тооцогдсон — устгахгүй,
+  // буцаалтаар (тооцоо нь хамт сэргэнэ).
+  if (isCreditDocument(document.documentType) && document.status !== "draft")
+    throw new Error(
+      "[CREDIT_DELETE_POSTED] Батлагдсан кредит/дебит баримтыг устгахгүй — «Буцаах»-аар цуцална уу"
+    );
+  const creditNos = await activeCreditDocumentNos(orgId, id);
+  if (creditNos.length > 0)
+    throw new Error(
+      `[HAS_CREDIT_NOTES] Энэ нэхэмжлэхэд кредит/дебит баримт бий (${creditNos.join(", ")}) — эхлээд тэдгээрийг буцаана/устгана уу`
+    );
   // Хаагдсан PO-гийн нэхэмжлэхийг устгавал хаалтын нөхцөл/журнал эвдэрнэ
   // (ноорог нэхэмжлэх ч PO-гийн нэхэмжилсэн нийлбэрт тооцогддог).
   if (document.purchaseOrderId)
@@ -2022,6 +2128,17 @@ export async function updateArApDocument(
   assertNotPosSourced(document, "засах");
   if (document.status !== "draft")
     throw new Error("Зөвхөн ноорог баримтыг засна — батлагдсаныг буцаагаад шинээр бүртгэнэ");
+  // Кредит/дебит баримтын мөр, хяналтын данс нь эх нэхэмжлэхээс тогтдог —
+  // огноо/утга л засагдана; мөрийг өөрчлөх бол устгаад дахин үүсгэнэ.
+  if (
+    isCreditDocument(document.documentType) &&
+    (data.lines !== undefined ||
+      (data.controlAccountNumber?.trim() &&
+        data.controlAccountNumber.trim() !== document.controlAccountNumber))
+  )
+    throw new Error(
+      "[CREDIT_LINES_LOCKED] Кредит/дебит баримтын мөр эх нэхэмжлэхээс тогтдог — өөрчлөх бол ноорогийг устгаад дахин үүсгэнэ үү"
+    );
 
   const date = data.date?.trim() || document.date;
   const dueDate = data.dueDate?.trim() || document.dueDate;
@@ -2233,6 +2350,10 @@ export async function deleteArApDocument(
 // Нэг харилцагчийн авлага, өглөгийг мөнгө хөдөлгөлгүй хооронд нь хаана
 // (харилцан суутган тооцооны акт). GL: Dr АП-ийн хяналтын данс / Cr АР-ийн
 // хяналтын данс — НӨАТ-д нөлөөгүй (татвар нь нэхэмжлэх дээр бүртгэгдсэн).
+// ENT-029: ерөнхий дүрэм нь Дт талын (авлагын нэхэмжлэл / дебит нэхэмжлэх) ↔
+// Кт талын (өглөгийн нэхэмжлэх / кредит нэхэмжлэл) хос (`offsetPair`) — тэгэхээр
+// кредит нэхэмжлэлийн илүүдлийг дараагийн нэхэмжлэхэд ИЖИЛ замаар тооцно.
+// `arDocumentId`/`apDocumentId` нэр нь хуучин дуудагчдын төлөө; дараалал хамаагүй.
 // Нэг offset = НЭГ posted воучер + ХОЁР settlement мөр (voucherId-гаар
 // холбогдоно, cashDocumentId null). Эхний хувилбарт зөвхөн MNT баримтууд —
 // гадаад валютын түүхэн ханшны зөрүү (ханшийн олз/гарз) 2-р үе шатанд.
@@ -2260,13 +2381,11 @@ async function settleArApOffsetCore(input: {
   date: string;
 }): Promise<string> {
   const { orgId, userId } = await getActiveOrg();
-  await requireModuleAction("ar", "post");
-  await requireModuleAction("ap", "post");
   assertDate(input.date, "Огноо");
   if (input.arDocumentId === input.apDocumentId)
     throw new Error("Нэг баримтыг өөртэй нь хаах боломжгүй");
 
-  const [arDoc, apDoc] = await Promise.all([
+  const [first, second] = await Promise.all([
     db.query.arApDocuments.findFirst({
       where: and(
         eq(arApDocuments.id, input.arDocumentId),
@@ -2280,12 +2399,17 @@ async function settleArApOffsetCore(input: {
       ),
     }),
   ]);
-  if (!arDoc) throw new Error("Авлагын нэхэмжлэл олдсонгүй");
-  if (!apDoc) throw new Error("Өглөгийн нэхэмжлэх олдсонгүй");
-  if (arDoc.documentType !== "ar_invoice")
-    throw new Error(`${arDoc.documentNo} нь авлагын нэхэмжлэл биш байна`);
-  if (apDoc.documentType !== "ap_bill")
-    throw new Error(`${apDoc.documentNo} нь өглөгийн нэхэмжлэх биш байна`);
+  if (!first || !second) throw new Error("Суутгах баримт олдсонгүй");
+  const pair = offsetPair(first, second);
+  if (!pair)
+    throw new Error(
+      `${first.documentNo} ба ${second.documentNo} суутгагдахгүй — нэг нь авлага/дебит (Дт), нөгөө нь өглөг/кредит (Кт) талын баримт байна`
+    );
+  // Дт тал = «AR» байрлал, Кт тал = «AP» байрлал (хуучин мессеж, журналын дүрэм).
+  const arDoc = pair.debitSide;
+  const apDoc = pair.creditSide;
+  for (const ledger of new Set([arapLedger(arDoc.documentType), arapLedger(apDoc.documentType)]))
+    await requireModuleAction(ledger, "post");
   if (arDoc.counterpartyId !== apDoc.counterpartyId)
     throw new Error(
       "Хоёр баримт НЭГ харилцагчийнх байх ёстой — өөр харилцагч хоорондын (гурван талт) тооцоо дэмжигдэхгүй"
@@ -2365,7 +2489,14 @@ async function settleArApOffsetCore(input: {
         description: `Суутган тооцоо [${arDoc.documentNo} ↔ ${apDoc.documentNo}] ${arDoc.description}`,
         // Суутган нь хоёр модулийг хамардаг — авлагын талаас дугаарлаж, хосыг
         // нь утга дотор ил бичнэ (AR ба AP баримтын дугаар хоёулаа харагдана).
-        documentNo: await nextVoucherNo(tx, orgId, "ar", input.date),
+        documentNo: await nextVoucherNo(
+          tx,
+          orgId,
+          arapLedger(arDoc.documentType) === arapLedger(apDoc.documentType)
+            ? arapLedger(arDoc.documentType)
+            : "ar",
+          input.date
+        ),
         status: "posted",
       })
       .returning({ id: journalVouchers.id });
@@ -2452,8 +2583,19 @@ export async function reverseArApOffset(
 
 async function reverseArApOffsetCore(voucherId: string) {
   const { orgId, userId } = await getActiveOrg();
-  await requireModuleAction("ar", "post");
-  await requireModuleAction("ap", "post");
+  // Кредит баримтын эх нэхэмжлэхэд хийсэн тооцоо (журнал нь баримтынх) —
+  // суутгал биш; баримтыг өөрийг нь буцаана.
+  const ownerDocument = await db.query.arApDocuments.findFirst({
+    where: and(
+      eq(arApDocuments.organizationId, orgId),
+      eq(arApDocuments.voucherId, voucherId)
+    ),
+    columns: { documentNo: true },
+  });
+  if (ownerDocument)
+    throw new Error(
+      `[CREDIT_OWN_APPLICATION] Энэ нь ${ownerDocument.documentNo} кредит/дебит баримтын тооцоо — баримтыг «Буцаах»-аар цуцална уу`
+    );
 
   const settlements = await db.query.arApSettlements.findMany({
     where: and(
@@ -2464,6 +2606,10 @@ async function reverseArApOffsetCore(voucherId: string) {
   });
   if (settlements.length === 0)
     throw new Error("Суутган тооцооны бичилт олдсонгүй");
+  for (const ledger of new Set(
+    settlements.map((row) => arapLedger(row.document.documentType))
+  ))
+    await requireModuleAction(ledger, "post");
 
   const voucher = await db.query.journalVouchers.findFirst({
     where: and(

@@ -14,6 +14,7 @@
 // данс дээрх мөрийн объектыг өвлөнө — эс бөгөөс тэгширсэн хос "нээлттэй"
 // мэт харагдана.
 
+import { documentTypeLabel } from "@/lib/arap/document-kind";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
 
 /** Бизнес объектын төрлийн монгол шошго (journal_lines-ийн түлхүүрээс). */
@@ -140,10 +141,7 @@ export function resolveClearingObject(
             objectId = order?.documentNo ?? sourceAp.purchaseOrderId;
             objectLabel = order?.documentNo ?? sourceAp.documentNo;
           } else {
-            objectType =
-              sourceAp.documentType === "ap_bill"
-                ? "Өглөгийн нэхэмжлэх"
-                : "Авлагын нэхэмжлэл";
+            objectType = documentTypeLabel(sourceAp.documentType);
             objectId = sourceAp.documentNo;
             objectLabel = sourceAp.documentNo;
           }
@@ -180,10 +178,7 @@ export function resolveClearingObject(
             objectId = order?.documentNo ?? apFromLine.purchaseOrderId;
             objectLabel = order?.documentNo ?? apFromLine.documentNo;
           } else {
-            objectType =
-              apFromLine.documentType === "ap_bill"
-                ? "Өглөгийн нэхэмжлэх"
-                : "Авлагын нэхэмжлэл";
+            objectType = documentTypeLabel(apFromLine.documentType);
             objectId = apFromLine.documentNo;
             objectLabel = apFromLine.documentNo;
           }
@@ -229,10 +224,7 @@ export function resolveClearingObject(
           objectId = order?.documentNo ?? apDoc.purchaseOrderId;
           objectLabel = order?.documentNo ?? apDoc.documentNo;
         } else {
-          objectType =
-            apDoc.documentType === "ap_bill"
-              ? "Өглөгийн нэхэмжлэх"
-              : "Авлагын нэхэмжлэл";
+          objectType = documentTypeLabel(apDoc.documentType);
           objectId = apDoc.documentNo;
           objectLabel = apDoc.documentNo;
         }

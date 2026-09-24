@@ -34,6 +34,7 @@ import type { SegOption } from "@/lib/grid/editors/SegSelect";
 import { buildSegCode } from "@/lib/grid/segments";
 import { extractMainAccount, fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
+import { settlementCashType } from "@/lib/arap/document-kind";
 import { currentDocumentDate } from "@/lib/periods/document-date";
 import { usePeriodDateWarning } from "@/lib/periods/use-selected-period";
 
@@ -87,8 +88,8 @@ function settlementForm(
   activeSegIds: number[],
   defaultSegments: Record<number, string>
 ) {
-  const documentType: CashDocumentType =
-    target.documentType === "ar_invoice" ? "receipt" : "payment";
+  // Кредит нэхэмжлэлийн илүүдлийг буцаан олгох = зарлага (ENT-029).
+  const documentType: CashDocumentType = settlementCashType(target.documentType);
   const matchingCashAccount =
     accounts.find(
       (account) => account.isActive && account.currency === target.currency
@@ -219,9 +220,7 @@ export function CashNewForm({
     form.documentType === "transfer"
       ? []
       : arApOpenDocuments.filter(
-          (d) =>
-            d.documentType ===
-            (form.documentType === "receipt" ? "ar_invoice" : "ap_bill")
+          (d) => settlementCashType(d.documentType) === form.documentType
         );
 
   // Нээлттэй АР/АП баримт холбох: формыг түүнээс prefill хийж, батлахад
@@ -289,9 +288,7 @@ export function CashNewForm({
                     // холболтыг салгана.
                     setSettlementTarget((current) =>
                       current &&
-                      (current.documentType === "ar_invoice"
-                        ? "receipt"
-                        : "payment") !== type
+                      settlementCashType(current.documentType) !== type
                         ? null
                         : current
                     );

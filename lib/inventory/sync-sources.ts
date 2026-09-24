@@ -25,6 +25,7 @@ import {
   inventoryMovements,
   journalVouchers,
 } from "@/lib/db/schema";
+import { lineMovementType } from "@/lib/arap/document-kind";
 
 function autoDocumentNo(prefix: string, date: string) {
   return `${prefix}-${date.replaceAll("-", "")}-${crypto
@@ -84,8 +85,9 @@ export async function createMovementDraftsForArApDocument(documentId: string) {
     });
     const linked = new Set(existing.map((row) => row.sourceId));
 
-    const movementType =
-      document.documentType === "ap_bill" ? "receipt" : "issue";
+    // Нэхэмжлэх → зарлага/орлого; кредит нэхэмжлэл → худалдан авагчаас
+    // буцаалт (return_in), дебит нэхэмжлэх → нийлүүлэгчид буцаалт (return_out).
+    const movementType = lineMovementType(document.documentType);
     const inserts = itemLines
       .filter((line) => !linked.has(line.id))
       .map((line) => ({

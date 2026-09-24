@@ -31,6 +31,7 @@ import {
   openVoucherPanel,
 } from "@/lib/store/panel-store";
 import { cn } from "@/lib/utils";
+import { arapLedger } from "@/lib/arap/document-kind";
 
 type NavEntry = {
   key: string;
@@ -298,7 +299,7 @@ function PaletteBody({ onRun }: { onRun: (entry: NavEntry) => void }) {
             run: () =>
               openArapDocPanel({
                 documentId: hit.id,
-                mode: hit.documentType === "ap_bill" ? "payable" : "receivable",
+                mode: arapLedger(hit.documentType ?? "") === "ap" ? "payable" : "receivable",
                 title: hit.documentNo,
               }),
           })),

@@ -9,7 +9,7 @@
 | Ерөнхий журнал (GL) | ✅ | — |
 | Draft → Post журнал | ✅ | — |
 | Мөнгөн хөрөнгө (Cash) | ✅ | — |
-| Авлага / Өглөг (AR/AP) | ✅ | — |
+| Авлага / Өглөг (AR/AP) + кредит нэхэмжлэл / дебит нэхэмжлэх (ENT-029) | ✅ | eBarimt засвар (inactiveId), PO-той нэхэмжлэхийн дебит |
 | Бараа материал (Inventory) | ✅ | — |
 | Өртөг (Costing) | ✅ | — |
 | Хангамж (Procurement — PO, хүлээн авалт, landed cost) | ✅ | хангамжийн тайлан, урьдчилгаа/LC, receipt type |
@@ -1087,6 +1087,55 @@ tests/exchange-rates.test.ts parseMongolbank{Rates,History}, pickOfficialRate
 - AI `run_fx_revaluation` нь гар ханш өгөөгүй үед тэгшитгэлийн огнооны албан
   ханшийг татна; олдохгүй бол `rate` параметр шаардана (зохиохгүй)
 
+### 5d. Кредит нэхэмжлэл / дебит нэхэмжлэх (ENT-029) — ХЭРЭГЖСЭН
+
+Шийдвэр: `docs/product/2026-09-audit-followup-proposal.md` §3 (D-CN-1…4 —
+зөвлөмжөөр батлагдсан 2026-09-24). Нэхэмжлэхийн БУЦААЛТ нь тусдаа баримт:
+`ar_credit_note` «Кредит нэхэмжлэл» (CN-), `ap_debit_note` «Дебит нэхэмжлэх»
+(DN-) — дүн ЭЕРЭГ, эх нэхэмжлэхтэй (`source_document_id`), мөр бүр эх мөртэй
+(`source_line_id`, хоёулаа SET NULL). Сөрөг мөртэй нэхэмжлэх ХЭРЭГЛЭХГҮЙ.
+
+- **Төрлөөс хамаарах бүх шийдвэр `lib/arap/document-kind.ts`-д** (ЦЭВЭР):
+  `arapLedger` (эрх, журналын модуль AR/AP), `controlSide` (хяналтын данс Дт/Кт),
+  `settlementCashType` (үлдэгдлийг хаах мөнгө орох/гарах — касс, ханшийн
+  олз/гарз, хуулгын импорт), `ledgerSign` (үлдэгдэл, KPI, тулгалт),
+  `lineMovementType` (return_in / return_out), `offsetPair`. `=== "ar_invoice"
+  ? … : …` гэсэн хоёр салаат шалгалт шинэ төрлийг АП руу чимээгүй унагадаг —
+  ШИНЭ КОДОД ХОРИОТОЙ
+- **GL:** кредит нэхэмжлэл Dr 51900001 «Борлуулалтын хөнгөлөлт» (АР-ын 5-бүлгийн
+  мөр, сегмент нь эх мөрийнх; бусад мөр эх данс руугаа) + Dr НӨАТ өглөг / Cr
+  авлага; дебит нэхэмжлэх Dr өглөг / Cr эх данс (клиринг/зардал) + Cr оролтын
+  НӨАТ. НӨАТ-ын мөрийг хэрэглэгч сонгохгүй — буцаасан цэвэр дүнгийн хувиар
+  (бүтэн буцаалтад үлдэгдэл бүтнээрээ); `computeVatReturn` өөрчлөгдөөгүй
+- **Хязгаар:** буцаах тоо/дүн эх мөрийн ҮЛДЭГДЛЭЭС (батлагдсан бусад кредитийн
+  дараа) хэтрэхгүй — үүсгэхэд `planCreditNote`, батлахад эх нэхэмжлэхийг
+  `for update` түгжээд `creditOverrunError` ДАХИН шалгана. Кредит нь эх
+  нэхэмжлэхийн ВАЛЮТ, ХАНШААР (ханшийн зөрүү үүсэхгүй); огноо ≥ эх огноо
+- **Тооцоо (D-CN-3):** батлахад эх нэхэмжлэхийн нээлттэй үлдэгдэлд АВТОМАТААР
+  (settlement хос, voucherId = кредитийн ӨӨРИЙН журнал, нэмэлт GL үгүй);
+  илүүдэл = харилцагчийн кредит → кассаар буцаан олгох (зарлага) эсвэл
+  `settleArApOffset`-оор дараагийн нэхэмжлэхтэй суутгах (Дт ↔ Кт хос).
+  Энэ тооцоог `reverseArApOffset` БУЦААХГҮЙ — баримтыг буцаана
+- **Бараа:** бараатай мөр батлагдмагц НООРОГ return_in (АР) / return_out (АП)
+  хөдөлгөөн — сар хаалтад дунджаар үнэлэгдэнэ. «Тоо 0 + дүн» = бараа буцахгүй
+  үнийн хөнгөлөлт
+- **Хамгаалалт:** идэвхтэй кредиттэй эх нэхэмжлэхийг буцаах/устгахгүй
+  (`[HAS_CREDIT_NOTES]`); батлагдсан кредитийг устгахгүй — буцаалтаар (тооцоо
+  хамт сэргэнэ); кредитийн мөр/хяналтын данс засагдахгүй (`[CREDIT_LINES_LOCKED]`).
+  POS-ийн нэхэмжлэх → `return_pos_sale`; PO-той нэхэмжлэх — ENT-064-тэй хамт.
+  eBarimt-ийн засвар (D-CN-4) — дараагийн фаз
+
+```
+lib/arap/document-kind.ts        ЦЭВЭР: төрөл, дэвтэр, тал, чиглэл, хөдөлгөөн, суутгалын хос
+lib/arap/credit-note.ts          ЦЭВЭР: planCreditNote, creditOverrunError, creditApplicationAmount
+lib/arap/credit-note-db.ts       DB: эх ачаалах, буцаагдсан дүн, тооцоо хийх/буцаах (tx)
+lib/actions/arap-credit-note.ts  getCreditNoteSource / createCreditNote (+ postNow)
+lib/actions/arap.ts              батлах/буцаах/устгах/суутгал — төрлөөс үл хамаарах
+components/arap/credit-note-dialog.tsx  панелийн «Кредит нэхэмжлэл» диалог
+lib/ai/tools.ts                  create_credit_note (preview, lineNo)
+tests/arap-credit-note.test.ts, tests/credit-note-flow.test.ts (DB)
+```
+
 ### 6. НӨАТ (VAT) — 10% — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
@@ -1381,12 +1430,12 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 140 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 141 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
 |-------|-------|-------|
-| Үүсгэх | create_journal_voucher, create_arap_invoice, create_cash_transaction (applyTo-гоор нэхэмжлэхэд холбоно), create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
+| Үүсгэх | create_journal_voucher, create_arap_invoice, create_credit_note (нэхэмжлэхийн буцаалт — §5d), create_cash_transaction (applyTo-гоор нэхэмжлэхэд холбоно), create_inventory_movement, create_fixed_asset, pay_arap_document | ноорог (post горимд ≤10M шууд) |
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), delete_cost_entry (ноорог — хожмын бичилт байвал татгалзана), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation,cost_entry}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
@@ -2111,6 +2160,8 @@ Cash       cash_accounts, cash_documents, bank_statements,
              fx_revaluations.closingRate / rateSource / rateBasis / sourceDate /
                manualOverrideReason — тэгшитгэлийн ханшийн баримт
 AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
+             documents.documentType ar_invoice|ap_bill|ar_credit_note|ap_debit_note;
+               sourceDocumentId / lines.sourceLineId — кредит/дебит баримтын эх (§5d)
            ar_ap_settlements
              settlements.cashDocumentId нь `on delete set null` тул кассын
                баримт rollback-гүй устсан үед мөр ӨНЧИН үлдэж нэхэмжлэх «төлөгдсөн»
