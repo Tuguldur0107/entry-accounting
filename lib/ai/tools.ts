@@ -69,7 +69,11 @@ import {
   updateInventoryItem,
   updateInventoryMovement,
 } from "@/lib/actions/inventory";
-import { postCostEntries } from "@/lib/actions/costing";
+import {
+  deleteCostEntry,
+  postCostEntries,
+  reverseCostEntry,
+} from "@/lib/actions/costing";
 import {
   createCostAllocation,
   reverseCostAllocation,
@@ -1714,6 +1718,51 @@ export const AI_TOOLS: AiToolDef[] = [
         month: { type: "string", description: "Сар YYYY-MM" },
       },
       required: ["month"],
+    },
+  },
+  {
+    name: "list_cost_entries",
+    description:
+      "Өртгийн бичилтүүдийн жагсаалт (бараа, хөдөлгөөн, төрөл, нэгж өртөг, дүн, төлөв). reverse_cost_entry / delete_cost_entry-д шаардлагатай ID-г эндээс олно; хөдөлгөөн устгах гэхэд «үнэлэгдсэн байна» гэвэл тэр хөдөлгөөний бичилтийг энд хайна.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        month: { type: "string", description: "Сар YYYY-MM (сонголтоор)" },
+        from: { type: "string", description: "Огнооноос YYYY-MM-DD (сонголтоор)" },
+        to: { type: "string", description: "Огноо хүртэл YYYY-MM-DD (сонголтоор)" },
+        itemCode: { type: "string", description: "Барааны кодоор шүүх (сонголтоор)" },
+        status: {
+          type: "string",
+          enum: ["draft", "posted", "reversed"],
+          description: "Төлвөөр шүүх (сонголтоор)",
+        },
+        entryType: { type: "string", description: "Төрлөөр шүүх: receipt_capitalize | issue_cogs | landed_cost | adjustment_gain | adjustment_loss | nrv_writedown | nrv_reversal | return_in | return_out | cogs_true_up (сонголтоор)" },
+        limit: { type: "number", description: "Мөрийн тоо (default 20, max 200)" },
+      },
+    },
+  },
+  {
+    name: "reverse_cost_entry",
+    description:
+      "БАТЛАГДСАН өртгийн бичилтийг буцаана — GL журнал эсрэг бичилтээр буцаж, бичилт 'reversed' болно (дараагийн run_monthly_costing уг хөдөлгөөнийг дахин үнэлж болно). Хүлээн авалтын капитализаци (Хангамж → Хүлээн авалт) ба POS-ийн урьдчилсан COGS (Борлуулалт → Буцаалт) энэ замаар буцахгүй. Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entryId: { type: "string", description: "Өртгийн бичилтийн ID (бүтэн эсвэл эхний 8+ тэмдэгт) — list_cost_entries-ээс" },
+      },
+      required: ["entryId"],
+    },
+  },
+  {
+    name: "delete_cost_entry",
+    description:
+      "НООРОГ өртгийн бичилтийг устгана (батлагдсаныг ЭХЛЭЭД reverse_cost_entry-ээр буцаана). Тухайн барааны хожмын бичилт байвал татгалзана — сүүлийнхээс нь эхэлнэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entryId: { type: "string", description: "Өртгийн бичилтийн ID (бүтэн эсвэл эхний 8+ тэмдэгт) — list_cost_entries-ээс" },
+      },
+      required: ["entryId"],
     },
   },
 
@@ -7005,6 +7054,151 @@ async function runPostCostEntries(
   };
 }
 
+const COST_ENTRY_TYPE_LABELS: Record<string, string> = {
+  receipt_capitalize: "орлогын капитализаци",
+  issue_cogs: "зарлагын өртөг",
+  landed_cost: "орлогдох зардал",
+  adjustment_gain: "тохируулга (илүүдэл)",
+  adjustment_loss: "тохируулга (дутагдал)",
+  nrv_writedown: "NRV бууралт",
+  nrv_reversal: "NRV сэргээлт",
+  return_in: "буцаан авалт",
+  return_out: "буцаалт",
+  cogs_true_up: "COGS залруулга",
+};
+
+/** Өртгийн бичилтийг ID / ID-угтвараар олно (list_cost_entries-ийн гаралттай нийцүүлэв). */
+async function findCostEntry(orgId: string, ref: string) {
+  const value = (ref ?? "").trim();
+  if (value.length < 6)
+    throw new Error("Өртгийн бичилтийн ID-г дор хаяж 6 тэмдэгтээр өгнө (list_cost_entries-ээс)");
+  const entries = await db.query.costEntries.findMany({
+    where: and(
+      eq(costEntries.organizationId, orgId),
+      sql`${costEntries.id}::text like ${`${value.toLowerCase()}%`}`
+    ),
+    with: {
+      movement: { columns: { documentNo: true } },
+      item: { columns: { code: true, name: true } },
+    },
+    limit: 20,
+  });
+  return resolveByIdPrefix(entries, value, "өртгийн бичилт");
+}
+
+function costEntryLabel(entry: {
+  date: string;
+  entryType: string;
+  amount: string;
+  movement?: { documentNo: string | null } | null;
+  item?: { code: string | null } | null;
+}) {
+  const doc = entry.movement?.documentNo ?? entry.item?.code ?? "—";
+  const type = COST_ENTRY_TYPE_LABELS[entry.entryType] ?? entry.entryType;
+  return `${entry.date} · ${doc} · ${type} · ${fmt(Number(entry.amount))}₮`;
+}
+
+async function runListCostEntries(
+  orgId: string,
+  input: {
+    month?: string;
+    from?: string;
+    to?: string;
+    itemCode?: string;
+    status?: string;
+    entryType?: string;
+    limit?: number;
+  }
+): Promise<AiToolResult> {
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 200);
+  const conditions: SQL[] = [eq(costEntries.organizationId, orgId)];
+  if (input.month?.trim()) {
+    if (!/^\d{4}-\d{2}$/.test(input.month.trim()))
+      throw new Error("Сар YYYY-MM форматтай байх ёстой");
+    conditions.push(sql`${costEntries.date} like ${`${input.month.trim()}%`}`);
+  }
+  if (input.from) conditions.push(gte(costEntries.date, input.from));
+  if (input.to) conditions.push(lte(costEntries.date, input.to));
+  if (input.status) conditions.push(eq(costEntries.status, input.status));
+  if (input.entryType) conditions.push(eq(costEntries.entryType, input.entryType));
+  if (input.itemCode?.trim()) {
+    const item = await db.query.inventoryItems.findFirst({
+      where: and(
+        eq(inventoryItems.organizationId, orgId),
+        sql`lower(${inventoryItems.code}) = ${input.itemCode.trim().toLowerCase()}`
+      ),
+      columns: { id: true },
+    });
+    if (!item) throw new Error(`"${input.itemCode}" кодтой бараа олдсонгүй`);
+    // Бичилт нь хөдөлгөөнөөр (ердийн) эсвэл шууд бараагаар (NRV) холбогдоно.
+    const movements = await db.query.inventoryMovements.findMany({
+      where: and(
+        eq(inventoryMovements.organizationId, orgId),
+        eq(inventoryMovements.itemId, item.id)
+      ),
+      columns: { id: true },
+    });
+    const movementIds = movements.map((movement) => movement.id);
+    conditions.push(
+      or(
+        eq(costEntries.itemId, item.id),
+        movementIds.length > 0 ? inArray(costEntries.movementId, movementIds) : sql`false`
+      )!
+    );
+  }
+  const entries = await db.query.costEntries.findMany({
+    where: and(...conditions),
+    with: {
+      movement: { columns: { documentNo: true } },
+      item: { columns: { code: true, name: true } },
+    },
+    orderBy: [desc(costEntries.date), desc(costEntries.createdAt)],
+    limit,
+  });
+  if (entries.length === 0) return { resultText: "Тохирох өртгийн бичилт олдсонгүй" };
+  return {
+    resultText: entries
+      .map(
+        (entry) =>
+          `${costEntryLabel(entry)} · ${Number(entry.quantity)} × ${fmt(Number(entry.unitCost))}₮ · ${entry.status} · ${entry.valuationSource} · ID ${entry.id.slice(0, 8)}`
+      )
+      .join("\n"),
+  };
+}
+
+async function runReverseCostEntry(
+  orgId: string,
+  input: { entryId: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const entry = await findCostEntry(orgId, input.entryId);
+  if (entry.status !== "posted")
+    throw new Error(
+      `Зөвхөн батлагдсан бичилтийг буцаана (төлөв: ${entry.status})${entry.status === "draft" ? " — ноорогийг delete_cost_entry-ээр устгана" : ""}`
+    );
+  assertPostLimit(Math.abs(Number(entry.amount)));
+  unwrapAction(await reverseCostEntry(entry.id));
+  return {
+    resultText: `Өртгийн бичилт БУЦААГДЛАА: ${costEntryLabel(entry)} — GL журнал эсрэг бичилтээр буцаж, бичилт 'reversed' болов. Хөдөлгөөнийг дараагийн run_monthly_costing дахин үнэлнэ.`,
+  };
+}
+
+async function runDeleteCostEntry(
+  orgId: string,
+  input: { entryId: string }
+): Promise<AiToolResult> {
+  const entry = await findCostEntry(orgId, input.entryId);
+  if (entry.status !== "draft")
+    throw new Error(
+      `Зөвхөн ноорог бичилтийг устгана (төлөв: ${entry.status})${entry.status === "posted" ? " — эхлээд reverse_cost_entry" : ""}`
+    );
+  unwrapAction(await deleteCostEntry(entry.id));
+  return {
+    resultText: `Ноорог өртгийн бичилт устгагдлаа: ${costEntryLabel(entry)}`,
+  };
+}
+
 async function runFixCashOpening(
   orgId: string,
   input: { cashAccount: string; counterAccount?: string; date?: string; exchangeRate?: number }
@@ -10748,6 +10942,12 @@ async function dispatchAiTool(
         return await runMonthlyCosting(orgId, args);
       case "post_cost_entries":
         return await runPostCostEntries(orgId, args, mode);
+      case "list_cost_entries":
+        return await runListCostEntries(orgId, args);
+      case "reverse_cost_entry":
+        return await runReverseCostEntry(orgId, args, mode);
+      case "delete_cost_entry":
+        return await runDeleteCostEntry(orgId, args);
       case "fix_cash_opening_balance":
         return await runFixCashOpening(orgId, args);
       case "reconcile_modules":
