@@ -969,6 +969,9 @@ async function createArApDocumentCore(data: {
     throw new Error("Төлөх огноо баримтын огнооноос өмнө байж болохгүй");
   // Хаагдсан периодын хамгаалалт — ноорог ч, postNow ч энэ огноогоор бичигдэнэ.
   await assertPeriodOpen(orgId, data.date);
+  // Шууд батлах нь postArApDocument-тэй ИЖИЛ дүрэмтэй — ирээдүйн сарын
+  // баримт батлагдахгүй (аудит M: postNow зам энэ хоригийг тойрдог байв).
+  if (data.postNow) assertNotFuturePeriod(data.date);
   const description = data.description.trim();
   if (!description) throw new Error("Баримтын утга оруулна уу");
 

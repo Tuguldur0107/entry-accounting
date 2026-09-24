@@ -381,11 +381,17 @@ export async function updateCashAccount(data: {
       throw new Error("Эхний үлдэгдэл буруу байна");
 
     // Нээлтийн огноо/ханшийг өгөөгүй бол (хуучин дуудагч) хадгалсан утга хэвээр.
+    // `opening_date` багана нэмэгдэхээс ӨМНӨХ данс огноогүй — эхний үлдэгдэл нь
+    // өөрчлөгдөөгүй бол огноо нэхэхгүй (нэр засахад ч гацдаг байв).
+    const storedBalance = Number(account.openingBalance ?? 0);
+    const legacyUndated =
+      account.openingDate === null && Math.abs(openingBalance - storedBalance) <= 0.005;
     const openingFields = normalizeCashOpeningFields({
       openingBalance,
       currency,
       openingDate: data.openingDate === undefined ? account.openingDate : data.openingDate,
       openingRate: data.openingRate === undefined ? account.openingRate : data.openingRate,
+      requireDate: !legacyUndated,
     });
     const storedRate = account.openingRate === null ? null : Number(account.openingRate);
 
@@ -395,9 +401,11 @@ export async function updateCashAccount(data: {
       data.accountType !== account.accountType ||
       currency !== account.currency ||
       glAccountNumber !== account.glAccountNumber ||
-      Math.abs(openingBalance - Number(account.openingBalance ?? 0)) > 0.005 ||
-      openingFields.openingDate !== account.openingDate ||
-      openingFields.openingRate !== storedRate;
+      Math.abs(openingBalance - storedBalance) > 0.005 ||
+      // Хоосон огноо/ханшийг НЭГ удаа нөхөх нь бичилтийг өөрчлөхгүй (зөвхөн
+      // мэдээлэл) — гүйлгээтэй хуучин дансанд ч зөвшөөрнө; байгааг солихгүй.
+      (account.openingDate !== null && openingFields.openingDate !== account.openingDate) ||
+      (storedRate !== null && openingFields.openingRate !== storedRate);
     if (coreChanged && (await cashAccountIsUsed(orgId, data.id)))
       throw new Error(
         "Гүйлгээ, хуулга эсвэл журналын бичилттэй данс тул төрөл, валют, GL данс, эхний үлдэгдэл, нээлтийн огноо/ханшийг өөрчлөх боломжгүй — зөвхөн нэр, банкны мэдээллийг засна"

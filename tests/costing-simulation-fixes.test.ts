@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { computeAllScopes, scopeKey, type PeriodicMovement } from "../lib/costing/periodic";
-import { arapLineReceiptCost } from "../lib/costing/arap-receipt-cost";
+import { arapLineReceiptCost, isArapCapitalizeCandidate } from "../lib/costing/arap-receipt-cost";
 import { pickDefaultIssueType } from "../lib/costing/master-data";
 
 const ITEM = "item-1";
@@ -115,4 +115,16 @@ test("ENT-022: анхдагч зарлагын төрөл — COGS → item_cogs
   assert.equal(pickDefaultIssueType([stationery, sale, cogs]), cogs);
   assert.equal(pickDefaultIssueType([stationery, sale]), sale);
   assert.equal(pickDefaultIssueType([stationery]), null);
+});
+
+test("Аудит M: өртгийн run хаагдсан үе / asOfDate-ээс хойшхи АП орлогыг капиталжуулахгүй", () => {
+  const context = {
+    asOfDate: "2025-08-31",
+    closedPeriodCodes: new Set(["2025-07"]),
+    manuallyPriced: new Set(["m-manual"]),
+  };
+  assert.equal(isArapCapitalizeCandidate({ id: "m1", date: "2025-08-10" }, context), true);
+  assert.equal(isArapCapitalizeCandidate({ id: "m2", date: "2025-07-15" }, context), false);
+  assert.equal(isArapCapitalizeCandidate({ id: "m3", date: "2025-09-01" }, context), false);
+  assert.equal(isArapCapitalizeCandidate({ id: "m-manual", date: "2025-08-10" }, context), false);
 });

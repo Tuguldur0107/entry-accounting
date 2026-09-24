@@ -20,6 +20,13 @@ export interface CashOpeningFieldsInput {
   currency: string;
   openingDate?: string | null;
   openingRate?: number | string | null;
+  /**
+   * Нээлт ≠ 0 үед огноог шаардах эсэх (default true). Багана нэмэгдэхээс
+   * ӨМНӨХ данс огноогүй хадгалагдсан — эхний үлдэгдэл нь өөрчлөгдөөгүй бол
+   * нэр/банкны мэдээллийг засахад огноо нэхэхгүй (засвар огт хийгдэхгүй
+   * болж гацдаг байв — аудитын M2).
+   */
+  requireDate?: boolean;
 }
 
 /**
@@ -32,7 +39,7 @@ export function normalizeCashOpeningFields(input: CashOpeningFieldsInput): {
 } {
   const date = input.openingDate?.trim() || null;
   if (date) assertCalendarDate(date, "Нээлтийн огноо");
-  if (Math.abs(input.openingBalance) >= 0.005 && !date)
+  if (input.requireDate !== false && Math.abs(input.openingBalance) >= 0.005 && !date)
     throw new Error(
       "Эхний үлдэгдэлтэй дансанд НЭЭЛТИЙН ОГНОО (нэвтрүүлэлтийн cut-off, YYYY-MM-DD) заавал оруулна"
     );

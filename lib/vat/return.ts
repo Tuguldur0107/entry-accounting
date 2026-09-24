@@ -85,23 +85,30 @@ export type VatJournalLine = {
 const isCashMain = (main: string) => main.startsWith("10") || main.startsWith("11");
 
 /**
- * НӨАТ-ын ТООЦОО / ТӨЛБӨР / БУЦААЛТЫН журнал уу — мөрүүд нь зөвхөн гаралт,
- * оролтын НӨАТ ба мөнгөн дансных (Dr гаралт / Cr оролт / Cr банк г.м.).
- * Ийм журнал нь НӨАТ-ын ЭРГЭЛТ БИШ: урьд тэдгээрийг тооцдог байсан тул
- * өмнөх сарын төлөлт (Dr 31410000) «гаралтын НӨАТ»-аас хасагдаж, тайлан
- * тэмдгээ эргүүлж «буцаан авах 5,129,315₮» гэж гардаг байв (ENT-024).
+ * НӨАТ-ын ТООЦОО / ТӨЛБӨРИЙН журнал уу — ГАРАЛТЫН НӨАТ-ын дансыг хөндсөн
+ * бөгөөд бусад мөр нь зөвхөн оролтын НӨАТ ба мөнгөн дансных (Dr гаралт /
+ * Cr оролт / Cr банк г.м.). Ийм журнал нь НӨАТ-ын ЭРГЭЛТ БИШ: урьд
+ * тэдгээрийг тооцдог байсан тул өмнөх сарын төлөлт (Dr 31410000) «гаралтын
+ * НӨАТ»-аас хасагдаж, тайлан тэмдгээ эргүүлж «буцаан авах 5,129,315₮» гэж
+ * гардаг байв (ENT-024).
+ *
+ * Гаралтыг хөндөөгүй «оролт + мөнгө» журнал нь ЭРГЭЛТ хэвээр: гаалийн
+ * байгууллагад бэлнээр төлсөн импортын НӨАТ (Dr 13620000 / Cr банк) нь
+ * хасагдах оролтын НӨАТ, татварын албанаас буцаан авсан илүү оролт
+ * (Dr банк / Cr 13620000) нь шилжсэн кредитийг (carriedInputVat) хэрэглэдэг
+ * тул мөн тооцогдоно — хоёр удаа хасагдахгүй.
  */
 export function isVatSettlementVoucher(
   mains: readonly string[],
   outputVatAccount: string,
   inputVatAccount: string
 ): boolean {
-  let touchesVat = false;
+  let touchesOutput = false;
   for (const main of mains) {
-    if (main === outputVatAccount || main === inputVatAccount) touchesVat = true;
-    else if (!isCashMain(main)) return false;
+    if (main === outputVatAccount) touchesOutput = true;
+    else if (main !== inputVatAccount && !isCashMain(main)) return false;
   }
-  return touchesVat;
+  return touchesOutput;
 }
 
 /**
