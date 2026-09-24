@@ -2,8 +2,13 @@
 // POS загвар). DB, React, `@/lib/db` импортгүй — client component шууд уншина,
 // `tests/pos-checkout-state.test.ts` шалгана.
 //
-// Үнэ / хөнгөлөлт ЭНД ТООЦОГДОХГҮЙ — зөвхөн сагсны мөрийн ОРОЛТ (тоо, зассан
-// үнэ, гар хөнгөлөлт) хадгалагдана; дүн нь серверийн `quotePosSale`-аас.
+// Үнэ / хөнгөлөлт ЭНД ТООЦОГДОХГҮЙ — зөвхөн сагсны мөрийн ОРОЛТ (тоо, гар
+// хөнгөлөлт) хадгалагдана; дүн нь серверийн `quotePosSale`-аас.
+//
+// Кассаас ҮНЭ ЗАСАХГҮЙ: үнэ нь барааны картын борлуулах үнэ (жинлэдэг бараанд
+// кг-ийн үнэ, жин = тоо). Үнэ буулгах нь хөнгөлөлтөөр (хязгаар, тайлан, contra
+// данс дагана), өсгөх нь барааны карт дээр (үнийн түүх) — хэрэглэгчийн шийдвэр
+// 2026-09-24.
 
 export interface CartRow {
   key: string;
@@ -12,10 +17,8 @@ export interface CartRow {
   name: string;
   unit: string;
   quantity: number;
+  /** Барааны борлуулах үнэ (харуулах; сервер өөрөө дахин уншина). */
   unitPrice: number;
-  /** Кассчин үнийг гараар зассан (сервер зөвшөөрөл шаардана). */
-  priceOverridden: boolean;
-  salesPrice: number | null;
   manualDiscountPercent: number | null;
   manualDiscountAmount: number | null;
 }
@@ -34,23 +37,17 @@ export interface CartItemLike {
 }
 
 /** Numpad-ийн горим: сонгосон мөрийн аль талбарт бичих вэ. */
-export type NumpadMode = "qty" | "discount" | "price";
+export type NumpadMode = "qty" | "discount";
 
 export const NUMPAD_MODE_LABELS: Record<NumpadMode, string> = {
   qty: "Тоо",
   discount: "Хөнг %",
-  price: "Үнэ",
 };
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-/** Мөрийн үнэ жишиг үнээс зөрсөн эсэх (0.01-ийн нарийвчлалтай). */
-export function isPriceOverridden(price: number, salesPrice: number | null): boolean {
-  return salesPrice == null || Math.abs(price - salesPrice) >= 0.01;
-}
-
 /**
- * Бараа нэмэх: хөндөгдөөгүй (үнэ, хөнгөлөлтгүй) ижил барааны мөр байвал тоог
+ * Бараа нэмэх: хөнгөлөлтгүй ижил барааны мөр байвал тоог
  * нэмэгдүүлнэ, үгүй бол шинэ мөр. Борлуулах үнэгүй бараа НЭМЭГДЭХГҮЙ (үнэ
  * зохиохгүй) — `null` буцаана.
  */
@@ -64,7 +61,6 @@ export function addToCart(
   const existing = cart.find(
     (row) =>
       row.itemId === item.id &&
-      !row.priceOverridden &&
       row.manualDiscountPercent == null &&
       row.manualDiscountAmount == null
   );
@@ -88,8 +84,6 @@ export function addToCart(
         unit: item.unit,
         quantity,
         unitPrice: item.salesPrice,
-        priceOverridden: false,
-        salesPrice: item.salesPrice,
         manualDiscountPercent: null,
         manualDiscountAmount: null,
       },
@@ -111,23 +105,6 @@ export function adjustLineQuantity(cart: CartRow[], key: string, delta: number):
   return setLineQuantity(cart, key, round2(row.quantity + delta));
 }
 
-export function setLinePrice(cart: CartRow[], key: string, price: number): CartRow[] {
-  if (!Number.isFinite(price) || price < 0) return cart;
-  return cart.map((row) =>
-    row.key === key
-      ? { ...row, unitPrice: price, priceOverridden: isPriceOverridden(price, row.salesPrice) }
-      : row
-  );
-}
-
-/** Жишиг үнэ рүү буцаана (зассан тэмдэг арилна). */
-export function resetLinePrice(cart: CartRow[], key: string): CartRow[] {
-  return cart.map((row) =>
-    row.key === key && row.salesPrice != null
-      ? { ...row, unitPrice: row.salesPrice, priceOverridden: false }
-      : row
-  );
-}
 
 /** Хувийн хөнгөлөлт 0–100; `null` бол арилгана. Дүнгийн хөнгөлөлттэй ХАМТ байхгүй. */
 export function setLineDiscountPercent(
@@ -193,7 +170,7 @@ export function numpadValue(buffer: string): number | null {
 
 /**
  * Буферийг сонгосон мөрд горимоор нь оруулна. Тоо 0 → мөр хасагдана; хөнгөлөлт
- * >100 → өөрчлөлтгүй; үнэ ≥ 0.
+ * >100 → өөрчлөлтгүй.
  */
 export function applyNumpad(
   cart: CartRow[],
@@ -208,8 +185,6 @@ export function applyNumpad(
       return setLineQuantity(cart, key, value);
     case "discount":
       return setLineDiscountPercent(cart, key, value);
-    case "price":
-      return setLinePrice(cart, key, value);
   }
 }
 
@@ -298,10 +273,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseCartRow(value: unknown): CartRow | null {
   if (!isRecord(value)) return null;
   const quantity = Number(value.quantity);
-  const unitPrice = Number(value.unitPrice);
+  // Хуучин парк гараар зассан үнэ (`priceOverridden`) авч явж болно — касс үнэ
+  // засахаа больсон тул барааны борлуулах үнэ рүү буцаана.
+  const unitPrice = Number(value.salesPrice ?? value.unitPrice);
   if (typeof value.itemId !== "string" || typeof value.key !== "string") return null;
   if (!(quantity > 0) || !Number.isFinite(unitPrice) || unitPrice < 0) return null;
-  const salesPrice = value.salesPrice == null ? null : Number(value.salesPrice);
   const pct = value.manualDiscountPercent == null ? null : Number(value.manualDiscountPercent);
   const amt = value.manualDiscountAmount == null ? null : Number(value.manualDiscountAmount);
   return {
@@ -312,8 +288,6 @@ function parseCartRow(value: unknown): CartRow | null {
     unit: String(value.unit ?? ""),
     quantity,
     unitPrice,
-    priceOverridden: Boolean(value.priceOverridden),
-    salesPrice: salesPrice != null && Number.isFinite(salesPrice) ? salesPrice : null,
     manualDiscountPercent: pct != null && pct > 0 && pct <= 100 ? pct : null,
     manualDiscountAmount: amt != null && amt > 0 ? amt : null,
   };

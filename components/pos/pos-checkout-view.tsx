@@ -5,7 +5,7 @@
 //
 //   ЗҮҮН  `ProductPanel`  сканнер/хайлт → бүлгийн chip → барааны TILE grid
 //   БАРУУН `TicketPanel`  харилцагч → баримтын мөрүүд (товшиж сонгох, −/+, ×)
-//                         → дүн (ТӨЛӨХ) → numpad (Тоо / Хөнг % / Үнэ) → ТӨЛБӨР
+//                         → дүн (ТӨЛӨХ) → numpad (Тоо / Хөнг %) → ТӨЛБӨР
 //   Ээлж нээгээгүй бол дэлгэц дээр НЭГ ТОВЧНЫ диалог (сүүлийн ээлжийн default).
 //
 // Үнэ / хөнгөлөлт CLIENT талд ТООЦОГДОХГҮЙ — зөвхөн серверийн `quotePosSale`
@@ -270,7 +270,6 @@ export function PosCheckoutView({
       cart.map((row) => ({
         itemId: row.itemId,
         quantity: row.quantity,
-        unitPrice: row.priceOverridden ? row.unitPrice : undefined,
         manualDiscountPercent: row.manualDiscountPercent,
         manualDiscountAmount: row.manualDiscountAmount,
       })),

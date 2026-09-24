@@ -2,7 +2,7 @@
 
 // Кассын дэлгэцийн БАРУУН панель = баримт (ticket) — docs/pos §4.1 v2:
 //   харилцагч → сагсны мөрүүд (товшиж сонгоно, −/+, ×) → дүн (ТӨЛӨХ том) →
-//   numpad (сонгосон мөрийн Тоо / Хөнг % / Үнэ) → үйлдлүүд → ТӨЛБӨР.
+//   numpad (сонгосон мөрийн Тоо / Хөнг %) → үйлдлүүд → ТӨЛБӨР.
 //
 // Энэ бол хүрэлцэх дэлгэцийн БАРИМТ, өгөгдлийн хүснэгт биш — тиймээс AG Grid-ийн
 // стандарт (CLAUDE.md «Хүснэгтийн стандарт») хамаарахгүй; баримтын preview-тэй
@@ -311,12 +311,7 @@ function TicketLine({
       <div className="mt-0.5 flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-mono text-[11px] text-[var(--ea-text-3)]">
           {fmtQty(line.quantity)} × {" "}
-          <span
-            className={cn(line.priceOverridden && "font-semibold text-[var(--ea-warning-fg)]")}
-            title={line.priceOverridden ? `Үнэ зассан (жишиг ${fmtMnt(line.salesPrice ?? 0)})` : undefined}
-          >
-            {fmtMnt(line.unitPrice)}
-          </span>
+          {fmtMnt(line.unitPrice)}
           {line.discountAmount > 0 && (
             <span className="ml-1.5 text-[var(--ea-success-fg)]" title={line.discountCodes}>
               −{fmtMnt(line.discountAmount)}
