@@ -13,7 +13,7 @@
     "lint": "eslint",
     "ui-kit:icons": "tsx scripts/build-icon-kit-html.ts",
     "db:push": "drizzle-kit push --force",
-    "db:predeploy": "node scripts/apply-pending-ddl.mjs && drizzle-kit push --force && node scripts/backfill-voucher-numbers.mjs && node scripts/seed-knowledge.mjs"
+    "db:predeploy": "node scripts/apply-pending-ddl.mjs && drizzle-kit push --force && node scripts/backfill-voucher-numbers.mjs && node scripts/cleanup-orphan-settlements.mjs && node scripts/seed-knowledge.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

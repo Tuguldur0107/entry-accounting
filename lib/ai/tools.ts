@@ -185,6 +185,7 @@ import {
   quotePosSale,
   returnPosSale,
   savePaymentMethod,
+  updatePosSettings,
   type SaleLineInput,
   type SaleQuoteInput,
 } from "@/lib/actions/pos";
@@ -2916,6 +2917,47 @@ export const AI_TOOLS: AiToolDef[] = [
     description:
       "POS-ийн одоогийн байдал: нээлттэй ээлжүүд (касс, агуулах, дугаар), идэвхтэй төлбөрийн хэлбэрүүд (код, төрөл), НӨАТ төлөгч эсэх, тохиргооны товч. Борлуулалт бүртгэхийн ӨМНӨ үүнийг уншиж ээлж нээлттэй эсэх, төлбөрийн хэлбэрийн кодыг мэднэ.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "update_pos_settings",
+    description:
+      "POS-ийн ҮЙЛ АЖИЛЛАГААНЫ тохиргоо засна — зөвхөн өгсөн талбар өөрчлөгдөнө. Одоогийн утга get_pos_status-д. Хасах үлдэгдэл (allowNegativeStock) нь ЧУХАЛ: асаалттай бол кассчин үлдэгдэлгүй бараа зарж чадах ба тэр бараа сарын өртгийн тооцоололд орохгүй тул САР ХААЛТ блоклогдоно. eBarimt / QPay-ийн тохиргоо энд БАЙХГҮЙ (бэлэн байдлын шалгалттай, вэбээс).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        allowNegativeStock: {
+          type: "boolean",
+          description: "Хасах үлдэгдэлтэй болгож зарахыг зөвшөөрөх эсэх (D9; шинэ байгууллагад анхдагч ХААЛТТАЙ)",
+        },
+        provisionalCogs: {
+          type: "boolean",
+          description: "Борлуулах мөчид явцын дунджаар урьдчилсан COGS бичих эсэх (сар хаалтад залруулагдана)",
+        },
+        discountPosting: {
+          type: "string",
+          enum: ["net", "contra"],
+          description: "GL-д хөнгөлөлт: net = цэвэр орлого, contra = Cr орлого бүтэн + Dr хөнгөлөлтийн данс",
+        },
+        discountStacking: {
+          type: "string",
+          enum: ["best_single", "cumulative"],
+          description: "Хөнгөлөлтийн дүрмүүд давхцахад: хамгийн сайн НЭГ / нийлбэр",
+        },
+        maxManualDiscountPercent: { type: "number", description: "Гар хөнгөлөлтийн дээд хувь 0–100" },
+        maxTotalDiscountPercent: { type: "number", description: "Нийт хөнгөлөлтийн тааз 0–100" },
+        cashRoundingUnit: { type: "number", description: "Бэлэн мөнгөний бөөрөнхийлөл: 0, 10 эсвэл 100 ₮" },
+        receiptHeader: { type: "string", description: "Баримтын толгойн текст" },
+        receiptFooter: { type: "string", description: "Баримтын хөлийн текст" },
+        revenueAccount: { type: "string", description: "Борлуулалтын орлогын данс (8 орон)" },
+        discountAccount: { type: "string", description: "Хөнгөлөлтийн данс (8 орон, contra горимд)" },
+        giftCardLiabilityAccount: { type: "string", description: "Бэлгийн картын өглөгийн данс (8 орон)" },
+        storeCreditLiabilityAccount: { type: "string", description: "Дэлгүүрийн кредитийн өглөгийн данс (8 орон)" },
+        customerAdvanceAccount: { type: "string", description: "Худалдан авагчийн урьдчилгааны данс (8 орон)" },
+        cashOverAccount: { type: "string", description: "Кассын илүүдлийн данс (8 орон)" },
+        cashShortAccount: { type: "string", description: "Кассын дутагдлын данс (8 орон)" },
+        roundingAccount: { type: "string", description: "Бөөрөнхийллийн зөрүүний данс (8 орон)" },
+      },
+    },
   },
   {
     name: "save_pos_payment_method",
@@ -10209,6 +10251,72 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
   return { resultText: lines.join("\n") };
 }
 
+async function runUpdatePosSettings(
+  orgId: string,
+  input: {
+    allowNegativeStock?: boolean;
+    provisionalCogs?: boolean;
+    discountPosting?: "net" | "contra";
+    discountStacking?: "best_single" | "cumulative";
+    maxManualDiscountPercent?: number;
+    maxTotalDiscountPercent?: number;
+    cashRoundingUnit?: number;
+    receiptHeader?: string;
+    receiptFooter?: string;
+    revenueAccount?: string;
+    discountAccount?: string;
+    giftCardLiabilityAccount?: string;
+    storeCreditLiabilityAccount?: string;
+    customerAdvanceAccount?: string;
+    cashOverAccount?: string;
+    cashShortAccount?: string;
+    roundingAccount?: string;
+  }
+): Promise<AiToolResult> {
+  const before = await ensurePosSettings(orgId);
+  const ctx = await accountContext(orgId);
+  // Данс нь нэрээр ч өгөгдөж болно — paste/Excel-тэй ИЖИЛ resolve (§9a).
+  const account = (value?: string) =>
+    value?.trim() ? resolveAccount(value, ctx).main : undefined;
+  const patch = {
+    allowNegativeStock: input.allowNegativeStock,
+    provisionalCogs: input.provisionalCogs,
+    discountPosting: input.discountPosting,
+    discountStacking: input.discountStacking,
+    maxManualDiscountPercent:
+      input.maxManualDiscountPercent == null ? undefined : String(input.maxManualDiscountPercent),
+    maxTotalDiscountPercent:
+      input.maxTotalDiscountPercent == null ? undefined : String(input.maxTotalDiscountPercent),
+    cashRoundingUnit: input.cashRoundingUnit,
+    receiptHeader: input.receiptHeader,
+    receiptFooter: input.receiptFooter,
+    revenueAccountNumber: account(input.revenueAccount),
+    discountAccountNumber: account(input.discountAccount),
+    giftCardLiabilityAccountNumber: account(input.giftCardLiabilityAccount),
+    storeCreditLiabilityAccountNumber: account(input.storeCreditLiabilityAccount),
+    customerAdvanceAccountNumber: account(input.customerAdvanceAccount),
+    cashOverAccountNumber: account(input.cashOverAccount),
+    cashShortAccountNumber: account(input.cashShortAccount),
+    roundingAccountNumber: account(input.roundingAccount),
+  };
+  const given = Object.entries(patch).filter(([, value]) => value !== undefined);
+  if (given.length === 0)
+    throw new Error("Өөрчлөх талбар өгөөгүй байна — get_pos_status-оос одоогийн утгыг харна уу");
+  const { settings } = unwrapAction(
+    await updatePosSettings(Object.fromEntries(given) as Parameters<typeof updatePosSettings>[0])
+  );
+  const changed: string[] = [];
+  if (input.allowNegativeStock != null && before.allowNegativeStock !== settings.allowNegativeStock)
+    changed.push(
+      `Хасах үлдэгдэл: ${settings.allowNegativeStock ? "ЗӨВШӨӨРНӨ — үлдэгдэлгүй бараа зарагдвал сарын өртөг тооцогдохгүй, сар хаалт блоклогдоно" : "ХОРИГЛОНО"}`
+    );
+  if (input.provisionalCogs != null && before.provisionalCogs !== settings.provisionalCogs)
+    changed.push(`Урьдчилсан COGS: ${settings.provisionalCogs ? "асаалттай" : "унтраалттай"}`);
+  return {
+    resultText: `POS тохиргоо шинэчлэгдлээ (${given.length} талбар).${changed.length ? ` ${changed.join("; ")}` : ""}`,
+  };
+}
+
 async function runSavePosPaymentMethod(
   orgId: string,
   input: {
@@ -11113,6 +11221,8 @@ async function dispatchAiTool(
         return await runGetLandedCostSummary(orgId, args);
       case "get_pos_status":
         return await runGetPosStatus(orgId);
+      case "update_pos_settings":
+        return await runUpdatePosSettings(orgId, args);
       case "save_pos_payment_method":
         return await runSavePosPaymentMethod(orgId, args);
       case "delete_pos_payment_method":
