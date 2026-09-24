@@ -13,7 +13,7 @@
 // үүсгэхгүй: ноорог + түр хадгалсан (парк) сагснууд localStorage-д.
 // Сагсны цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй).
 //
-// Товчлуур: F9 төлбөр · F2 эсвэл "/" хайлт · F4 хөнгөлөлт · F6 харилцагч ·
+// Товчлуур: F9 төлбөр · F3 эсвэл "/" хайлт · F4 хөнгөлөлт · F6 харилцагч ·
 // ↑/↓ мөр сонгох · + / − тоо · Delete мөр хасах · Esc сонголт → сагс цэвэрлэх.
 // Сканнер = гар (keyboard wedge): хайлтын input ҮРГЭЛЖ focus-той — tile,
 // мөр, numpad бүгд mousedown-ыг preventDefault хийж focus-ыг булаахгүй.
@@ -507,7 +507,8 @@ export function PosCheckoutView({
         h.openPayment();
         return;
       }
-      if (event.key === "F2" || (event.key === "/" && !isSearch && !typingElsewhere)) {
+      // F3 — бараа хайх (F2 нь аппын глобал «+ Шинэ»; lib/ui/hotkeys.ts).
+      if (event.key === "F3" || (event.key === "/" && !isSearch && !typingElsewhere)) {
         event.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();

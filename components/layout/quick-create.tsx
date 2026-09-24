@@ -12,7 +12,7 @@ import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 
 import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
 import { Icon, type IconName } from "@/components/ui/icon";
-import { pageOwnsHotkey } from "@/lib/ui/hotkeys";
+import { allowsGlobalHotkey, pageOwnsHotkey } from "@/lib/ui/hotkeys";
 import {
   openArapDocPanel,
   openCashNewPanel,
@@ -118,8 +118,9 @@ export function QuickCreate() {
   );
 
   // F2 — цэсийг нээх/хаах глобал товчлол. Оролтын талбар, AG Grid (F2 =
-  // нүд засах), modal дотор фокустай үед болон F2-г ӨӨРӨӨ эзэмшдэг хуудсан
-  // дээр (кассын дэлгэц — бараа хайх, lib/ui/hotkeys.ts) үл ойшооно.
+  // нүд засах), modal дотор фокустай үед үл ойшооно — `data-global-hotkeys`
+  // -тай input (кассын хайлт) үл хамаарна. F2-г ӨӨРӨӨ эзэмшдэг хуудсан дээр
+  // ажиллахгүй (lib/ui/hotkeys.ts — одоогоор ийм хуудас байхгүй).
   const pathname = usePathname();
   const f2Owned = pageOwnsHotkey(pathname, "F2");
   useEffect(() => {
@@ -129,6 +130,7 @@ export function QuickCreate() {
         return;
       const target = event.target as HTMLElement | null;
       if (
+        !allowsGlobalHotkey(target, "F2") &&
         target?.closest?.(
           "input, textarea, select, [contenteditable='true'], .ag-root-wrapper, [role='dialog']"
         )
@@ -152,11 +154,13 @@ export function QuickCreate() {
         return;
       }
       // Modifier-той (Cmd+1 таб солих г.м.) болон input дотор бичиж буй
-      // даралтыг булаахгүй.
+      // даралтыг булаахгүй — F2-г нэвтрүүлдэг input (кассын хайлт, үргэлж
+      // focus-той) үл хамаарна: тоо нь хайлтад биш цэсэнд очно.
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (
         target &&
+        !allowsGlobalHotkey(target, "F2") &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
           target.isContentEditable)
