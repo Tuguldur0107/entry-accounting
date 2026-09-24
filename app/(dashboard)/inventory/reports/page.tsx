@@ -6,13 +6,17 @@ import {
   type QtyFlowRow,
 } from "@/components/inventory/inventory-report-view";
 import {
-  InventoryReportTabs,
-  isSalesView,
   SalesReportView,
-  type InventoryReportTab,
   type SalesReportOptions,
-  type SalesView,
 } from "@/components/pos/sales-report-view";
+// ⚠️ `isSalesView` / `toInventoryReportTab` нь ЦЭВЭР модульд — «use client»
+// файлаас server component функц дуудах боломжгүй (2026-09-24-ний доголдол).
+import {
+  isSalesView,
+  toInventoryReportTab,
+  type InventoryReportTab,
+  type SalesView,
+} from "@/lib/pos/report-views";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { db } from "@/lib/db";
@@ -29,8 +33,8 @@ import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { loadPaymentMethodViews } from "@/lib/pos/load-data";
 import { loadSalesReport } from "@/lib/pos/reports";
 
-// Огноо `start`/`end` хоёр табд НИЙТЛЭГ (deep link cookie-г дарна — CLAUDE.md
-// §4); борлуулалтын шүүлтүүр wh/cashier/cp/method/item/cat, дэд таб `view`.
+// Огноо = топбарын период; `start`/`end` нь зөвхөн deep link (cookie-г дарна —
+// CLAUDE.md §4); борлуулалтын шүүлтүүр wh/cashier/cp/method/item/cat, зүсэлт `view`.
 type SearchParams = Promise<{
   tab?: string;
   start?: string;
@@ -57,30 +61,16 @@ export default async function InventoryReportsPage({
   const period = await getPeriodSelection();
   const start = isIsoDate(params.start) ? params.start! : period.from;
   const end = isIsoDate(params.end) ? params.end! : period.to;
-  const tab: InventoryReportTab = params.tab === "sales" ? "sales" : "flow";
+  const tab: InventoryReportTab = toInventoryReportTab(params.tab);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div>
-        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-          Бараа материалын тайлан
-        </h1>
-        <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          Тоо хэмжээний урсгал (баталсан хөдөлгөөнөөр) ба POS борлуулалтын
-          дэлгэрэнгүй — огнооны муж хоёр табд нийтлэг.
-        </p>
-      </div>
-      <Suspense fallback={null}>
-        <InventoryReportTabs value={tab} />
-      </Suspense>
-      {tab === "sales" ? (
-        <Suspense fallback={null}>
-          <SalesTab orgId={orgId} start={start} end={end} params={params} />
-        </Suspense>
-      ) : (
-        <FlowTab orgId={orgId} start={start} end={end} />
-      )}
-    </div>
+  // Тайлан солих нь ЗӨВХӨН топбарын сонгогчоор (`?tab=`) — хуудас доторх
+  // таб/гарчиг нь тайлан бүрийн өөрийн ReportHeader-т (тайлангийн стандарт).
+  return tab === "sales" ? (
+    <Suspense fallback={null}>
+      <SalesTab orgId={orgId} start={start} end={end} params={params} />
+    </Suspense>
+  ) : (
+    <FlowTab orgId={orgId} start={start} end={end} />
   );
 }
 

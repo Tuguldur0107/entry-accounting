@@ -8,13 +8,37 @@ import {
   DataGridDynamic,
   type DataGridHandle,
 } from "@/components/datagrid/DataGridDynamic";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+  ReportToolbar,
+  reportRangeLabel,
+} from "@/components/reports/report-layout";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PageTabs } from "@/components/ui/tabs";
 import { fmtMnt } from "@/lib/reports/balances";
 import type {
   CashDetailRow,
   CashFlowCodeRow,
   CashMovementRow,
 } from "@/lib/cash/balances";
+
+type CashReportView = "accounts" | "flow" | "detail";
+
+const VIEW_TABS: { value: CashReportView; label: string }[] = [
+  { value: "accounts", label: "Дансаар" },
+  { value: "flow", label: "Мөнгөн урсгалын ангилал (S8)" },
+  { value: "detail", label: "Дэлгэрэнгүй" },
+];
+
+const VIEW_HINTS: Record<CashReportView, string> = {
+  accounts: "данс тус бүрийн орлого, зарлага, үлдэгдэл",
+  flow: "орлого, зарлага мөнгөн урсгалын кодоор · MNT дүнгээр · дотоод шилжүүлэг ороогүй",
+  detail:
+    "эхний үлдэгдэл, баримтын мөр бүрийн орлого/зарлага, ханш, MNT дүн, гүйлгээний дараах үлдэгдэл",
+};
 
 interface Props {
   rows: CashMovementRow[];
@@ -57,6 +81,8 @@ export function CashReportView({
 }: Props) {
   const detailGridRef = useRef<DataGridHandle>(null);
   const [quickFilter, setQuickFilter] = useState("");
+  // Нэг тайлангийн 3 зүсэлт — огноо нь ЗӨВХӨН топбарын периодоос.
+  const [view, setView] = useState<CashReportView>("accounts");
 
   const movementColumnDefs = useMemo<ColDef<CashMovementRow>[]>(
     () => [
@@ -351,21 +377,60 @@ export function CashReportView({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-5">
-      <div>
-        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-          Мөнгөн хөрөнгийн тайлан
-        </h1>
-        <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          {periodStart} – {periodEnd} · Данс тус бүрийн орлого, зарлага, үлдэгдэл
-        </p>
-      </div>
+    <ReportPage>
+      <ReportHeader
+        title="Мөнгөн хөдөлгөөний тайлан"
+        meta={`${reportRangeLabel(periodStart, periodEnd)} · ${VIEW_HINTS[view]}`}
+        actions={
+          view === "detail" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportDetails}
+              disabled={detailRows.length === 0}
+            >
+              <Icon name="download" size="sm" />
+              CSV татах
+            </Button>
+          ) : null
+        }
+      />
+      <ReportToolbar
+        views={
+          <PageTabs
+            size="sm"
+            ariaLabel="Мөнгөн хөдөлгөөний тайлангийн зүсэлт"
+            value={view}
+            onChange={setView}
+            tabs={VIEW_TABS}
+          />
+        }
+        filters={
+          view === "detail" ? (
+            <label className="relative w-full sm:w-72">
+              <Icon
+                name="search"
+                className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-[var(--ea-text-4)]"
+              />
+              <span className="sr-only">Дэлгэрэнгүй тайлангаас хайх</span>
+              <Input
+                value={quickFilter}
+                onChange={(event) => setQuickFilter(event.target.value)}
+                placeholder="Хайх..."
+                className="h-8 pl-8 text-xs"
+              />
+            </label>
+          ) : null
+        }
+      />
 
       {rows.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Касс, банкны данс үүсгээгүй байна
-        </div>
-      ) : (
+        <ReportEmpty
+          icon="cash"
+          title="Касс, банкны данс үүсгээгүй байна"
+          actions={[{ label: "Данс нэмэх", href: "/cash/accounts" }]}
+        />
+      ) : view === "accounts" ? (
         <DataGridDynamic<CashMovementRow>
           rowData={rows}
           columnDefs={movementColumnDefs}
@@ -375,88 +440,44 @@ export function CashReportView({
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />
-      )}
-
-      {/* S8 нэгтгэл — мөнгөн урсгалыг ДАНСААР биш мөнгөн урсгалын кодоор
-          бүлэглэнэ (шууд аргын CF-ийн суурь; код нь Тохиргоо → GL-ийн
-          S8 сегментийн утга тул хэрэглэгч өөрөө засварладаг "mapping"). */}
-      <div className="flex flex-col gap-3 border-t border-[var(--ea-border)] pt-4">
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
-            Мөнгөн урсгалын ангилал (S8)
-          </h2>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Орлого, зарлага мөнгөн урсгалын кодоор · MNT дүнгээр · дотоод
-            шилжүүлэг ороогүй
-          </p>
-        </div>
-        {flowRows.length === 0 ? (
-          <div className="flex min-h-32 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-            Тайлант үед орлого, зарлагын гүйлгээ байхгүй
-          </div>
+      ) : view === "flow" ? (
+        flowRows.length === 0 ? (
+          <ReportEmpty
+            icon="cash"
+            title="Тайлант үед орлого, зарлагын гүйлгээ байхгүй"
+          />
         ) : (
+          /* S8 нэгтгэл — мөнгөн урсгалыг ДАНСААР биш мөнгөн урсгалын кодоор
+             бүлэглэнэ (шууд аргын CF-ийн суурь; код нь Тохиргоо → GL-ийн
+             S8 сегментийн утга тул хэрэглэгч өөрөө засварладаг "mapping"). */
           <DataGridDynamic<CashFlowCodeRow>
             rowData={flowRows}
             columnDefs={flowColumnDefs}
             getRowId={(p) => p.data.code ?? "__none__"}
             pinnedBottomRowData={flowPinnedBottom}
-            height={Math.min(420, 116 + flowRows.length * 38)}
+            height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
           />
-        )}
-      </div>
-
-      <div className="flex flex-col gap-3 border-t border-[var(--ea-border)] pt-4">
-        <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
-              Мөнгөн хөрөнгийн дэлгэрэнгүй
-            </h2>
-            <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-              Эхний үлдэгдэл, баримтын мөр бүрийн орлого/зарлага, ханш, MNT дүн,
-              гүйлгээний дараах үлдэгдэл
-            </p>
-          </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <label className="relative w-full sm:w-72">
-              <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-[var(--ea-text-4)]" />
-              <span className="sr-only">Дэлгэрэнгүй тайлангаас хайх</span>
-              <input
-                value={quickFilter}
-                onChange={(event) => setQuickFilter(event.target.value)}
-                placeholder="Хайх..."
-                className="h-9 w-full rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] pl-8 pr-3 text-xs text-[var(--ea-text-1)] focus:border-[var(--ea-primary)] focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--ea-primary)_22%,transparent)]"
-              />
-            </label>
-            <Button type="button" variant="outline" onClick={exportDetails}>
-              <Icon name="download" />
-              CSV
-            </Button>
-          </div>
-        </div>
-
-        {detailRows.length === 0 ? (
-          <div className="flex min-h-56 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-            Тайлангийн мөр байхгүй
-          </div>
-        ) : (
-          <DataGridDynamic<CashDetailRow>
-            ref={detailGridRef}
-            rowData={detailRows}
-            columnDefs={detailColumnDefs}
-            getRowId={(p) => p.data.id}
-            pinnedBottomRowData={detailPinnedBottom}
-            quickFilterText={quickFilter}
-            height={Math.min(720, 116 + detailRows.length * 38)}
-            pagination={detailRows.length > 50}
-            paginationPageSize={50}
-            paginationPageSizeSelector={false}
-            wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
-            suppressCellFocus
-          />
-        )}
-      </div>
-    </section>
+        )
+      ) : detailRows.length === 0 ? (
+        <ReportEmpty icon="cash" title="Тайлангийн мөр байхгүй" />
+      ) : (
+        <DataGridDynamic<CashDetailRow>
+          ref={detailGridRef}
+          rowData={detailRows}
+          columnDefs={detailColumnDefs}
+          getRowId={(p) => p.data.id}
+          pinnedBottomRowData={detailPinnedBottom}
+          quickFilterText={quickFilter}
+          height="flex"
+          pagination={detailRows.length > 50}
+          paginationPageSize={50}
+          paginationPageSizeSelector={false}
+          wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
+          suppressCellFocus
+        />
+      )}
+    </ReportPage>
   );
 }

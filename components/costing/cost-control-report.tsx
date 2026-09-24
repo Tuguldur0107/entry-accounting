@@ -20,13 +20,14 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { ReportEmpty, ReportHeader, ReportPage } from "@/components/reports/report-layout";
 import { Button } from "@/components/ui/button";
 import {
   computeMonthlyCosting,
   recalculatePeriodicCosting,
 } from "@/lib/actions/costing-period";
 import { fmtMnt } from "@/lib/reports/balances";
-import { fmtPeriodCode } from "@/lib/periods/period";
+import { fmtPeriodLabelMn } from "@/lib/periods/period";
 import { cn } from "@/lib/utils";
 
 export type CostControlRow = {
@@ -55,7 +56,6 @@ export type CostControlRow = {
 
 interface Props {
   periodCode: string;
-  periodOptions: string[];
   rows: CostControlRow[];
   /** Тухайн период хаагдсан эсэх — дахин тооцоолол хийх боломжид нөлөөлнө. */
   periodClosed: boolean;
@@ -98,7 +98,6 @@ const AMOUNT = {
 
 export function CostControlReport({
   periodCode,
-  periodOptions,
   rows,
   periodClosed,
   calculatedAt,
@@ -259,12 +258,6 @@ export function CostControlReport({
     (row) => row.status === "calculated" && (!row.qtyBalanced || !row.amountBalanced)
   ).length;
 
-  function changePeriod(next: string) {
-    const params = new URLSearchParams(window.location.search);
-    params.set("period", next);
-    router.replace(`${window.location.pathname}?${params.toString()}`);
-  }
-
   function recalculate() {
     setRecalculating(true);
     void recalculatePeriodicCosting().then((result) => {
@@ -310,54 +303,39 @@ export function CostControlReport({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-xs text-[var(--ea-text-3)]">
-            Хугацааны жигнэсэн дундаж · бараа × агуулах · Зарлага нь сарын
-            өртөг тооцоход л үнэлэгдэнэ (зөрүү үүсэхгүй)
-            {calculatedAt ? ` · тооцоолсон: ${calculatedAt}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            className="h-8 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]"
-            value={periodCode}
-            onChange={(event) => changePeriod(event.target.value)}
-          >
-            {periodOptions.length === 0 && (
-              <option value={periodCode}>{fmtPeriodCode(periodCode)}</option>
-            )}
-            {periodOptions.map((code) => (
-              <option key={code} value={code}>
-                {fmtPeriodCode(code)}
-              </option>
-            ))}
-          </select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={recalculate}
-            disabled={recalculating || valuing}
-          >
-            <Icon name="refresh" size="sm" className={cn(recalculating && "animate-spin")} />
-            Дахин тооцоолох
-          </Button>
-          <Button
-            size="sm"
-            onClick={valueMonth}
-            disabled={valuing || recalculating || periodClosed}
-            title={
-              periodClosed
-                ? "Хаагдсан сарын өртгийг дахин тооцохгүй"
-                : "Зарлага, тохируулга, буцаалтыг сарын дундажаар үнэлж ноорог бичилт үүсгэнэ"
-            }
-          >
-            <Icon name="costing" size="sm" />
-            Сарын өртөг тооцох
-          </Button>
-        </div>
-      </div>
+    <ReportPage>
+      <ReportHeader
+        title="Өртгийн хяналт"
+        meta={`${fmtPeriodLabelMn(periodCode)} · хугацааны жигнэсэн дундаж · бараа × агуулах · зарлага нь сарын өртөг тооцоход л үнэлэгдэнэ${
+          calculatedAt ? ` · тооцоолсон: ${calculatedAt}` : ""
+        }`}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={recalculate}
+              disabled={recalculating || valuing}
+            >
+              <Icon name="refresh" size="sm" className={cn(recalculating && "animate-spin")} />
+              Дахин тооцоолох
+            </Button>
+            <Button
+              size="sm"
+              onClick={valueMonth}
+              disabled={valuing || recalculating || periodClosed}
+              title={
+                periodClosed
+                  ? "Хаагдсан сарын өртгийг дахин тооцохгүй"
+                  : "Зарлага, тохируулга, буцаалтыг сарын дундажаар үнэлж ноорог бичилт үүсгэнэ"
+              }
+            >
+              <Icon name="costing" size="sm" />
+              Сарын өртөг тооцох
+            </Button>
+          </>
+        }
+      />
 
       {periodClosed && (
         <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
@@ -402,10 +380,11 @@ export function CostControlReport({
       )}
 
       {rows.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          {periodCode} тайлант үед өртгийн үр дүн алга — &quot;Дахин
-          тооцоолох&quot; товчийг дарна уу
-        </div>
+        <ReportEmpty
+          icon="costing"
+          title="Өртгийн үр дүн алга"
+          description={`${fmtPeriodLabelMn(periodCode)}-д тооцоологдоогүй — «Дахин тооцоолох» товчийг дарна уу.`}
+        />
       ) : (
         <DataGridDynamic<CostControlRow>
           rowData={rows}
@@ -417,6 +396,6 @@ export function CostControlReport({
           suppressCellFocus
         />
       )}
-    </div>
+    </ReportPage>
   );
 }

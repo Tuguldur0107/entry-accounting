@@ -6,14 +6,19 @@ import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 import {
   findActiveReportHref,
   REPORT_REGISTRY,
+  reportModuleOfHref,
 } from "@/lib/constants/report-registry";
 
 // Топбарын тайлангийн сонгогч — БҮХ модулийн тайлан нэг бүлэглэсэн
 // dropdown-д (эх сурвалж: lib/constants/report-registry.ts). Харагдах газар:
 //   • тайлангийн хуудас бүр — идэвхтэй тайлан нь сонгогдсон байна
 //   • Хяналтын самбар ("/") — "Тайлан руу очих…" placeholder-той
-// GL-ийн дотоод сонголт ?report= параметрээр (start/end хадгалагдана),
-// модуль хооронд бүтэн навигаци хийнэ.
+// Нэг хуудсанд параметрээр солигддог тайлан (GL ?report=, Бараа ?tab=,
+// Цалин ?view=) — бусад параметрыг (огнооны муж) хадгалж зөвхөн тэр
+// түлхүүрийг солино; модуль хооронд бүтэн навигаци хийнэ.
+//
+// ДҮРЭМ (UI стандарт): ӨӨР тайлан руу шилжих нь ЗӨВХӨН энэ сонгогчоор.
+// Хуудас доторх таб нь НЭГ тайлангийн зүсэлт (бараагаар/өдрөөр…) л байна.
 
 const PLACEHOLDER = "__none__";
 
@@ -27,7 +32,7 @@ export function HeaderReportSelect() {
     (module) => !disabledModuleIds.includes(module.moduleId)
   );
 
-  const activeHref = findActiveReportHref(pathname, searchParams.get("report"));
+  const activeHref = findActiveReportHref(pathname, (key) => searchParams.get(key));
 
   // Тайлангийн хуудас эсвэл нүүр дээр л харагдана — бусад газар топбар цэвэр.
   if (!activeHref && pathname !== "/") return null;
@@ -35,11 +40,20 @@ export function HeaderReportSelect() {
   function handleChange(nextHref: string) {
     if (nextHref === PLACEHOLDER) return;
     const [nextPath, nextQuery] = nextHref.split("?");
-    if (nextPath === pathname && nextQuery?.startsWith("report=")) {
-      // Нэг хуудсан доторх сонголт — бусад параметрыг (start/end) хадгална.
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("report", nextQuery.slice("report=".length));
-      router.replace(`${pathname}?${params.toString()}`);
+    const reportModule = reportModuleOfHref(nextHref);
+    if (nextPath === pathname && reportModule?.param) {
+      // Нэг хуудсан доторх тайлан солих — огнооны муж зэрэг бусад параметрыг
+      // хадгалж, зөвхөн тайлангийн түлхүүрийг солино. Өмнөх тайлангийн
+      // өөрийн шүүлтүүр (дэд таб, агуулах…) шинэ тайланд хамааралгүй тул
+      // зөвхөн нийтлэг огнооны параметрүүд дагана.
+      const params = new URLSearchParams();
+      for (const key of ["start", "end", "from", "to", "period", "asOf"]) {
+        const carried = searchParams.get(key);
+        if (carried) params.set(key, carried);
+      }
+      const nextValue = new URLSearchParams(nextQuery ?? "").get(reportModule.param);
+      if (nextValue) params.set(reportModule.param, nextValue);
+      router.push(params.size ? `${pathname}?${params}` : pathname);
       return;
     }
     router.push(nextHref);

@@ -12,17 +12,14 @@ import { createPortal } from "react-dom";
 import type { ColDef, RowDoubleClickedEvent } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { ReportEmpty, ReportHeader, ReportPage } from "@/components/reports/report-layout";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
-import {
-  PayrollReportTabs,
-} from "@/components/payroll/payroll-report-tabs";
 import type { PayslipReport } from "@/lib/actions/payroll";
 import type { Payslip } from "@/lib/payroll/payslip";
 import { col } from "@/lib/grid/columnTypes";
 import { fmtMnt } from "@/lib/grid/formatters";
-import { fmtPeriodCode } from "@/lib/periods/period";
+import { fmtPeriodCode, fmtPeriodLabelMn } from "@/lib/periods/period";
 
 interface Props {
   data: PayslipReport;
@@ -186,33 +183,25 @@ export function PayslipReportView({ data }: Props) {
   );
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-            Цалингийн хуудас — {fmtPeriodCode(periodMonth)}
-          </h1>
-          <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Ажилтан бүрийн сарын задаргаа — олголт, суутгал, гарт олгох дүн.
-            Мөр дээр давхар дарж нэг ажилтныг сонгоод хэвлэнэ; сонгоогүй бол
-            бүх ажилтны хуудас дараалан хэвлэгдэнэ.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {selected && (
-            <Button size="sm" variant="outline" onClick={() => setSelectedId(null)}>
-              <Icon name="close" size="sm" />
-              Сонголт болих
+    <ReportPage>
+      <ReportHeader
+        title="Цалингийн хуудас"
+        meta={`${fmtPeriodLabelMn(periodMonth)} · ажилтан бүрийн сарын задаргаа — олголт, суутгал, гарт олгох дүн. Мөр дээр давхар дарж нэг ажилтныг сонгоод хэвлэнэ; сонгоогүй бол бүх ажилтны хуудас дараалан хэвлэгдэнэ.`}
+        actions={
+          <>
+            {selected && (
+              <Button size="sm" variant="outline" onClick={() => setSelectedId(null)}>
+                <Icon name="close" size="sm" />
+                Сонголт болих
+              </Button>
+            )}
+            <Button size="sm" onClick={print} disabled={payslips.length === 0}>
+              <Icon name="print" size="sm" />
+              {selected ? `${selected.employeeName} — хэвлэх` : "Бүгдийг хэвлэх"}
             </Button>
-          )}
-          <Button size="sm" onClick={print} disabled={payslips.length === 0}>
-            <Icon name="print" size="sm" />
-            {selected ? `${selected.employeeName} — хэвлэх` : "Бүгдийг хэвлэх"}
-          </Button>
-        </div>
-      </div>
-
-      <PayrollReportTabs value="payslip" />
+          </>
+        }
+      />
 
       {errors.length > 0 && (
         <p className="rounded-md border border-[var(--ea-danger)]/40 bg-[var(--ea-danger)]/8 px-3 py-2 text-xs text-[var(--ea-text-1)]">
@@ -222,10 +211,11 @@ export function PayslipReportView({ data }: Props) {
       )}
 
       {payslips.length === 0 ? (
-        <EmptyState
-          icon="document"
+        <ReportEmpty
+          icon="user"
           title="Цалингийн бодолт хийгдээгүй байна"
           description="Цалин → Цалин бодолт хэсэгт «Бодолт хийх» дарсны дараа хуудас үүснэ."
+          actions={[{ label: "Цалин бодолт", href: `/payroll?period=${periodMonth}` }]}
         />
       ) : (
         <>
@@ -251,7 +241,7 @@ export function PayslipReportView({ data }: Props) {
       )}
 
       {portal}
-    </section>
+    </ReportPage>
   );
 }
 

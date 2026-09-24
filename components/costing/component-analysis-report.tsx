@@ -7,34 +7,23 @@
 
 import { useMemo } from "react";
 import { Icon } from "@/components/ui/icon";
-import { useRouter } from "next/navigation";
 import type { ColDef } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { ReportEmpty, ReportHeader, ReportPage } from "@/components/reports/report-layout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { ComponentAnalysisRow } from "@/lib/costing/component-analysis-types";
 import { fmtMnt } from "@/lib/reports/balances";
-import { fmtPeriodCode } from "@/lib/periods/period";
+import { fmtPeriodLabelMn } from "@/lib/periods/period";
 import { openVoucherPanel } from "@/lib/store/panel-store";
 
 interface Props {
   periodCode: string;
-  periodOptions: string[];
   rows: ComponentAnalysisRow[];
 }
 
-export function ComponentAnalysisReport({
-  periodCode,
-  periodOptions,
-  rows,
-}: Props) {
-  const router = useRouter();
-
-  function changePeriod(next: string) {
-    const params = new URLSearchParams(window.location.search);
-    params.set("period", next);
-    router.replace(`${window.location.pathname}?${params.toString()}`);
-  }
+// Сар нь ЗӨВХӨН топбарын периодоос (тайлангийн стандарт) — энд сонгогчгүй.
+export function ComponentAnalysisReport({ periodCode, rows }: Props) {
 
   const columns = useMemo<ColDef<ComponentAnalysisRow>[]>(
     () => [
@@ -212,29 +201,11 @@ export function ComponentAnalysisReport({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-xs text-[var(--ea-text-3)]">
-            Барааны Орлогын дүн юунаас бүрдсэн — худалдан авах үнэ + тээвэр,
-            гааль, даатгал зэрэг хуваарилагдсан бүрэлдэхүүнүүд.
-          </p>
-        </div>
-        <select
-          className="h-8 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-2 text-xs text-[var(--ea-text-1)]"
-          value={periodCode}
-          onChange={(event) => changePeriod(event.target.value)}
-        >
-          {periodOptions.length === 0 && (
-            <option value={periodCode}>{fmtPeriodCode(periodCode)}</option>
-          )}
-          {periodOptions.map((code) => (
-            <option key={code} value={code}>
-              {fmtPeriodCode(code)}
-            </option>
-          ))}
-        </select>
-      </div>
+    <ReportPage>
+      <ReportHeader
+        title="Бүрэлдэхүүний задаргаа"
+        meta={`${fmtPeriodLabelMn(periodCode)} · барааны орлогын дүн юунаас бүрдсэн — худалдан авах үнэ + тээвэр, гааль, даатгал зэрэг хуваарилагдсан бүрэлдэхүүнүүд`}
+      />
 
       {byItem.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -254,10 +225,11 @@ export function ComponentAnalysisReport({
       )}
 
       {rows.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] px-6 text-center text-sm text-[var(--ea-text-4)]">
-          {periodCode} сард орлогын өртгийн бичилт алга. Орлого үнэлж,
-          &quot;Зардлын хуваарилалт&quot; хийсний дараа задаргаа харагдана.
-        </div>
+        <ReportEmpty
+          icon="costing"
+          title="Орлогын өртгийн бичилт алга"
+          description={`${fmtPeriodLabelMn(periodCode)}-д бичилт алга. Орлого үнэлж, «Зардлын хуваарилалт» хийсний дараа задаргаа харагдана.`}
+        />
       ) : (
         <DataGridDynamic<ComponentAnalysisRow>
           rowData={rows}
@@ -269,6 +241,6 @@ export function ComponentAnalysisReport({
           suppressCellFocus
         />
       )}
-    </div>
+    </ReportPage>
   );
 }

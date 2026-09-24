@@ -9,7 +9,13 @@ import { useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { EmptyState } from "@/components/ui/empty-state";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+  ReportToolbar,
+  reportRangeLabel,
+} from "@/components/reports/report-layout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PageTabs } from "@/components/ui/tabs";
 import {
@@ -139,29 +145,53 @@ export function ProcurementReportView({
     return [...byCurrency.values()];
   }, [orders]);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div>
-        <h1 className="text-lg font-semibold text-[var(--ea-text-1)]">
-          Хангамжийн тайлан
-        </h1>
-        <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-          {from} — {to} мужийн захиалгын гүйцэтгэл. Дүн бүр захиалгын
-          валютаараа; цуцлагдсан захиалга нэгтгэлд орохгүй. Мөр дээр давхар
-          дарж захиалгын панель нээнэ.
-        </p>
-      </div>
+  // Нийлүүлэгчийн хөл дүн — захиалгын табтай ижил: ВАЛЮТ бүрд тусдаа мөр
+  // (өөр валютыг нэмэхгүй).
+  const supplierTotals = useMemo(() => {
+    const byCurrency = new Map<string, ProcurementSupplierRow>();
+    for (const row of suppliers) {
+      const total =
+        byCurrency.get(row.currency) ??
+        ({
+          counterpartyName: `НИЙТ · ${row.currency}`,
+          currency: row.currency,
+          orderCount: 0,
+          openCount: 0,
+          totalAmount: 0,
+          receivedAmount: 0,
+          invoicedAmount: 0,
+        } satisfies ProcurementSupplierRow);
+      total.orderCount += row.orderCount;
+      total.openCount += row.openCount;
+      total.totalAmount += row.totalAmount;
+      total.receivedAmount += row.receivedAmount;
+      total.invoicedAmount += row.invoicedAmount;
+      byCurrency.set(row.currency, total);
+    }
+    return [...byCurrency.values()];
+  }, [suppliers]);
 
-      <PageTabs
-        size="sm"
-        value={tab}
-        onChange={(value) => setTab(value as Tab)}
-        tabs={TABS}
+  return (
+    <ReportPage>
+      <ReportHeader
+        title="Захиалгын гүйцэтгэл"
+        meta={`${reportRangeLabel(from, to)} · дүн бүр захиалгын валютаараа; цуцлагдсан захиалга нэгтгэлд орохгүй. Мөр дээр давхар дарж захиалгын панель нээнэ.`}
+      />
+      <ReportToolbar
+        views={
+          <PageTabs
+            size="sm"
+            ariaLabel="Захиалгын гүйцэтгэлийн зүсэлт"
+            value={tab}
+            onChange={(value) => setTab(value as Tab)}
+            tabs={TABS}
+          />
+        }
       />
 
       {tab === "orders" &&
         (orders.length === 0 ? (
-          <EmptyState
+          <ReportEmpty
             icon="purchaseOrder"
             title="Мужид захиалга алга"
             description="Топбарын тайлант үеийн сонголтыг өөрчилж үзнэ үү."
@@ -190,7 +220,7 @@ export function ProcurementReportView({
 
       {tab === "suppliers" &&
         (suppliers.length === 0 ? (
-          <EmptyState
+          <ReportEmpty
             icon="company"
             title="Мужид нийлүүлэгч алга"
             description="Топбарын тайлант үеийн сонголтыг өөрчилж үзнэ үү."
@@ -202,11 +232,12 @@ export function ProcurementReportView({
             getRowId={(params) =>
               `${params.data.counterpartyName}·${params.data.currency}`
             }
+            pinnedBottomRowData={supplierTotals}
             height="flex"
             wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
             suppressCellFocus
           />
         ))}
-    </div>
+    </ReportPage>
   );
 }

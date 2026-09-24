@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useMemo } from "react";
 import type { ColDef } from "ag-grid-community";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  ReportEmpty,
+  ReportHeader,
+  ReportPage,
+  reportRangeLabel,
+} from "@/components/reports/report-layout";
 
 const fmtQty = (value: number) =>
   value.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -29,12 +32,8 @@ interface Props {
 }
 
 // Тоо хэмжээний хөдөлгөөний тайлан: эхний үлдэгдэл + орлого − зарлага = эцсийн.
+// Огнооны муж ЗӨВХӨН топбарын периодоос (тайлангийн стандарт) — энд талбаргүй.
 export function InventoryReportView({ rows, start, end }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [startInput, setStartInput] = useState(start);
-  const [endInput, setEndInput] = useState(end);
-
   const columns = useMemo<ColDef<QtyFlowRow>[]>(() => {
     const qtyCol = (
       field: keyof QtyFlowRow & string,
@@ -59,57 +58,53 @@ export function InventoryReportView({ rows, start, end }: Props) {
     ];
   }, []);
 
-  function refresh() {
-    const params = new URLSearchParams();
-    if (startInput) params.set("start", startInput);
-    if (endInput) params.set("end", endInput);
-    router.push(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`);
-  }
+  // Хөл дүн: хэмжих нэгж НЭГ бол л нийлбэр утгатай (ширхэг + кг нэмэхгүй).
+  const units = new Set(rows.map((row) => row.unit));
+  const pinned: QtyFlowRow[] | undefined =
+    rows.length > 0 && units.size === 1
+      ? [
+          {
+            key: "__total",
+            itemLabel: "Нийт",
+            unit: rows[0].unit,
+            warehouseName: "",
+            opening: sumQty(rows, "opening"),
+            inQty: sumQty(rows, "inQty"),
+            outQty: sumQty(rows, "outQty"),
+            closing: sumQty(rows, "closing"),
+          },
+        ]
+      : undefined;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        {/* Хуудасны <h1> нь тайлангийн хуудсанд (таб нэрлэдэг) — энд зөвхөн муж. */}
-        <p className="text-xs text-[var(--ea-text-3)]">
-          {start} — {end} · эхний үлдэгдэл + орлого − зарлага = эцсийн; зөвхөн
-          баталсан хөдөлгөөнөөр
-        </p>
-        <div className="flex items-center gap-2">
-          <Input
-            type="date"
-              aria-label="Эхлэх огноо"
-            className="h-8 w-40"
-            value={startInput}
-            onChange={(event) => setStartInput(event.target.value)}
-          />
-          <span className="text-xs text-[var(--ea-text-4)]">—</span>
-          <Input
-            type="date"
-              aria-label="Дуусах огноо"
-            className="h-8 w-40"
-            value={endInput}
-            onChange={(event) => setEndInput(event.target.value)}
-          />
-          <Button size="sm" onClick={refresh}>
-            Шинэчлэх
-          </Button>
-        </div>
-      </div>
-
+    <ReportPage>
+      <ReportHeader
+        title="Тоо хэмжээний урсгал"
+        meta={`${reportRangeLabel(start, end)} · эхний үлдэгдэл + орлого − зарлага = эцсийн; зөвхөн баталсан хөдөлгөөнөөр${
+          units.size > 1 ? " · хэмжих нэгж холимог тул нийт дүнгүй" : ""
+        }`}
+      />
       {rows.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Хөдөлгөөн байхгүй
-        </div>
+        <ReportEmpty
+          icon="report"
+          title="Хөдөлгөөн байхгүй"
+          description="Сонгосон мужид баталсан хөдөлгөөн алга — топбараас периодоо солиод үзнэ үү."
+        />
       ) : (
         <DataGridDynamic<QtyFlowRow>
           rowData={rows}
           columnDefs={columns}
           getRowId={(params) => params.data.key}
+          pinnedBottomRowData={pinned}
           height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />
       )}
-    </div>
+    </ReportPage>
   );
+}
+
+function sumQty(rows: QtyFlowRow[], field: "opening" | "inQty" | "outQty" | "closing") {
+  return Math.round(rows.reduce((sum, row) => sum + row[field], 0) * 10000) / 10000;
 }

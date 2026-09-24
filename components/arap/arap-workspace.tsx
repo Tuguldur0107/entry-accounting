@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
 import { useMemo, useRef, useState, useTransition } from "react";
@@ -12,6 +12,7 @@ import { useDirtyClose } from "@/lib/ui/use-dirty-close";
 
 import { AccountInput } from "@/components/account/account-input";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
+import { ReportEmpty, ReportHeader, ReportPage } from "@/components/reports/report-layout";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { DataGridHandle } from "@/components/datagrid/DataGrid";
 import { SavedViewsMenu } from "@/components/datagrid/SavedViewsMenu";
@@ -120,7 +121,7 @@ const MODE_CONFIG: Record<
     description: "Авлага, өглөгийн баримт, харилцагчийн default данс, GL бичилтийн хяналт",
     counterpartyType: "both",
     documentTitle: "Авлага, өглөгийн баримт",
-    reportTitle: "Авлага, өглөгийн тайлан",
+    reportTitle: "Авлага, өглөгийн насжилт",
     createLabel: "Баримт үүсгэх",
     emptyDocuments: "Баримт бүртгээгүй байна",
   },
@@ -129,7 +130,7 @@ const MODE_CONFIG: Record<
     description: "Харилцагчийн авлага, нэхэмжлэл, төлөлтийн үлдэгдэл",
     counterpartyType: "customer",
     documentTitle: "Авлагын нэхэмжлэл",
-    reportTitle: "Авлагын тайлан",
+    reportTitle: "Авлагын насжилт",
     createLabel: "Нэхэмжлэл үүсгэх",
     emptyDocuments: "Авлагын нэхэмжлэл бүртгээгүй байна",
   },
@@ -138,7 +139,7 @@ const MODE_CONFIG: Record<
     description: "Нийлүүлэгчийн өглөг, нэхэмжлэх, төлөлтийн үлдэгдэл",
     counterpartyType: "supplier",
     documentTitle: "Өглөгийн нэхэмжлэх",
-    reportTitle: "Өглөгийн тайлан",
+    reportTitle: "Өглөгийн насжилт",
     createLabel: "Нэхэмжлэх бүртгэх",
     emptyDocuments: "Өглөгийн нэхэмжлэх бүртгээгүй байна",
   },
@@ -161,7 +162,6 @@ export function ArApWorkspace({
   reportAsOf = today(),
 }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
   const config = MODE_CONFIG[mode];
 
   // eBarimt файл → сервер задаргаа → АП НООРОГ; амжилтад панель нээнэ.
@@ -207,7 +207,6 @@ export function ArApWorkspace({
     const [isPending, startTransition] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const [counterpartyOpen, setCounterpartyOpen] = useState(false);
-  const [reportDate, setReportDate] = useState(reportAsOf);
   // null = шинээр үүсгэх; id = тухайн харилцагчийг засах.
   const [kindsOpen, setKindsOpen] = useState(false);
   const [editingCounterpartyId, setEditingCounterpartyId] = useState<
@@ -430,7 +429,7 @@ export function ArApWorkspace({
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Үлдэгдэл",
@@ -705,6 +704,12 @@ export function ArApWorkspace({
   const showDocuments = focus === "documents";
   const showReports = focus === "reports";
 
+  // Насжилтын тайлан — бусад тайлантай ИЖИЛ жааз (ReportPage). Тайлант огноо
+  // нь ЗӨВХӨН топбарын периодын төгсгөл (`?asOf=` deep link дарна) — өөрийн
+  // огнооны талбар / «Шинэчлэх» товч БАЙХГҮЙ (тайлангийн стандарт).
+  if (showReports)
+    return <ReportSection title={config.reportTitle} rows={reportRows} asOf={reportAsOf} />;
+
   return (
     <section className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -894,16 +899,6 @@ export function ArApWorkspace({
         </section>
       )}
 
-      {showReports && (
-        <ReportSection
-          title={config.reportTitle}
-          rows={reportRows}
-          asOf={reportDate}
-          onAsOfChange={setReportDate}
-          onRefresh={() => router.push(`${pathname}?asOf=${reportDate}`)}
-        />
-      )}
-
       {showCounterparties && (
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           <h2 className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">
@@ -1067,18 +1062,24 @@ function buildReportRows(documents: ArApDocumentView[], asOf: string): ReportRow
   return [...rows.values()].sort((a, b) => b.baseBalance - a.baseBalance);
 }
 
+/**
+ * Хөл дүнгийн мөрөнд валютын багана НИЙЛБЭРЛЭГДЭХГҮЙ — тэр нүдийг NaN-аар
+ * тэмдэглэж ХООСОН харуулна (0 гэж харуулбал «нийлбэр нь тэг» мэт худал
+ * уншигдана).
+ */
+const agingMoney = (params: { value: unknown }) => {
+  const value = Number(params.value);
+  return Number.isNaN(value) ? "" : fmtMnt(value);
+};
+
 function ReportSection({
   title,
   rows,
   asOf,
-  onAsOfChange,
-  onRefresh,
 }: {
   title: string;
   rows: ReportRow[];
   asOf: string;
-  onAsOfChange: (value: string) => void;
-  onRefresh: () => void;
 }) {
   const columns = useMemo<ColDef<ReportRow>[]>(
     () => [
@@ -1097,7 +1098,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Төлсөн",
@@ -1113,7 +1114,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       {
         headerName: "Үлдэгдэл (MNT)",
@@ -1121,7 +1122,7 @@ function ReportSection({
         width: 150,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params) => fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       },
       ...([
         ["Хугацаа болоогүй", "currentAmount"],
@@ -1135,46 +1136,61 @@ function ReportSection({
         width: 145,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (params: { value: unknown }) =>
-          fmtMnt(Number(params.value ?? 0)),
+        valueFormatter: agingMoney,
       })),
     ],
     []
   );
 
+  // Хөл дүн: мөр бүр ӨӨР валюттай байж болох тул валютын багануудыг
+  // НИЙЛБЭРЛЭХГҮЙ (100 USD + 100 ₮ гэсэн утгагүй тоо гарна) — зөвхөн
+  // баримтын ТОО ба «Үлдэгдэл (MNT)» нийлнэ. Бусад нүд ХООСОН үлдэнэ.
+  const pinnedBottom = useMemo<ReportRow[]>(() => {
+    if (rows.length === 0) return [];
+    const sum = (pick: (row: ReportRow) => number) =>
+      Math.round(rows.reduce((total, row) => total + pick(row), 0) * 100) / 100;
+    return [
+      {
+        counterpartyName: `Нийт (${rows.length} мөр)`,
+        currency: "",
+        documentCount: sum((row) => row.documentCount),
+        totalAmount: Number.NaN,
+        paidAmount: Number.NaN,
+        balance: Number.NaN,
+        baseBalance: sum((row) => row.baseBalance),
+        currentAmount: Number.NaN,
+        days1To30: Number.NaN,
+        days31To60: Number.NaN,
+        days61To90: Number.NaN,
+        daysOver90: Number.NaN,
+      },
+    ];
+  }, [rows]);
+
   return (
-    <section className="min-w-0">
-      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">{title}</h2>
-          <p className="mt-0.5 text-[11px] text-[var(--ea-text-3)]">
-            Харилцагч ба валютаар ангилсан насжилт
-          </p>
-        </div>
-        <div className="flex items-end gap-2">
-          <FormField label="Тайлант огноо">
-            <Input
-              type="date"
-              value={asOf}
-              onChange={(event) => onAsOfChange(event.target.value)}
-            />
-          </FormField>
-          <Button variant="outline" onClick={onRefresh}>Шинэчлэх</Button>
-        </div>
-      </div>
+    <ReportPage>
+      <ReportHeader
+        title={title}
+        meta={`${asOf}-ны байдлаар · харилцагч ба валютаар ангилсан үлдэгдэлтэй баримтууд (ноорог, буцаагдсан ороогүй)`}
+      />
       {rows.length === 0 ? (
-        <EmptyState icon="document" title="Тайланд харуулах үлдэгдэл алга" />
+        <ReportEmpty
+          icon="document"
+          title="Тайланд харуулах үлдэгдэл алга"
+          description="Топбараас периодоо солиод үзнэ үү."
+        />
       ) : (
         <DataGridDynamic<ReportRow>
           rowData={rows}
           columnDefs={columns}
+          pinnedBottomRowData={pinnedBottom}
           getRowId={(params) => `${params.data.counterpartyName}:${params.data.currency}`}
-          height={Math.min(480, 86 + rows.length * 38)}
+          height="flex"
           wrapperClassName="rounded-md border border-[var(--ea-border)] overflow-hidden"
           suppressCellFocus
         />
       )}
-    </section>
+    </ReportPage>
   );
 }
 
