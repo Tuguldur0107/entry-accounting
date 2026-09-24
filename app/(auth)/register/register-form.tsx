@@ -12,7 +12,9 @@ import { HeroPixelGrid } from '@/components/auth/hero-pixel-grid';
 import { registerUser } from '@/lib/actions/auth';
 import { ThemeToggle } from '@/components/theme-toggle';
 
-export default function RegisterForm() {
+export default function RegisterForm({ plan }: { plan?: 'skills' } = {}) {
+  // «AI нягтлан» (skills): мэдлэгийн сан л — компанийн нэр хэрэггүй, 24ц туршилт.
+  const skills = plan === 'skills';
   // registerUser амжилттай бол server action өөрөө redirect хийдэг тул router хэрэггүй
   const [name, setName]         = useState('');
   // ENT-007: байгууллага хэрэглэгчийн нэрээр үүсдэг байв — компанийн нэрийг асууна.
@@ -38,7 +40,7 @@ export default function RegisterForm() {
       // бүртгэл дуусмагц урьсан байгууллагад шууд элсэнэ.
       const invite =
         new URLSearchParams(window.location.search).get('invite') ?? undefined;
-      const res = await registerUser({ name, email, password, invite, companyName });
+      const res = await registerUser({ name, email, password, invite, companyName, plan });
       if (res?.error) { setError(res.error); setLoading(false); }
       // redirects on success
     } catch {
@@ -95,15 +97,17 @@ export default function RegisterForm() {
             {/* <form> — Enter дарахад илгээгдэнэ, нууц үг хадгалагч танина */}
             <form className="ea-fade-up" onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
               <h1 style={{ fontFamily: 'var(--ea-font-display)', fontSize: 24, fontWeight: 500, margin: 0, letterSpacing: '-0.01em' }}>
-                Шинэ бүртгэл үүсгэх
+                {skills ? 'AI нягтлан — 24 цаг үнэгүй' : 'Шинэ бүртгэл үүсгэх'}
               </h1>
               <p style={{ fontSize: 13, color: 'var(--ea-text-3)', margin: '6px 0 28px 0', lineHeight: 1.5 }}>
-                Мэдээллээ оруулаад бүртгэлээ үүсгэнэ үү
+                {skills
+                  ? 'Бүртгүүлээд мэдлэгийн сангаа өөрийн ChatGPT эсвэл Claude-д холбоно. Туршилтын дараа 29,000₮ / сар.'
+                  : 'Мэдээллээ оруулаад бүртгэлээ үүсгэнэ үү'}
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                 <EAField label="Нэр" value={name} onChange={setName} placeholder="Овог нэр" icon={<Icon name="user" />} autoComplete="name" autoFocus />
-                {hasInvite ? null : (
+                {hasInvite || skills ? null : (
                   <EAField label="Компанийн нэр" value={companyName} onChange={setCompanyName} placeholder="ж: Монгол Трейд ХХК" icon={<Icon name="company" />} autoComplete="organization" />
                 )}
                 <EAField label="И-мэйл" value={email} onChange={setEmail} placeholder="name@company.mn" icon={<Icon name="mail" />} autoComplete="email" />

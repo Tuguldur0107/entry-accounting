@@ -54,6 +54,15 @@ export function daysUntil(target: Date, now: Date): number {
   return Math.ceil((target.getTime() - now.getTime()) / DAY_MS);
 }
 
+/**
+ * Trial ЯГ дуусах мөчөөсөө дууссан. daysUntil нь өдрөөр ДЭЭШ бөөрөнхийлдөг тул
+ * `daysLeft < 0` нь дуусалтыг бараг нэг өдөр хойшлуулдаг байсан — 24 цагийн
+ * «AI нягтлан» trial ~48 цаг болж байв (tests/billing-skills.test.ts).
+ */
+export function trialExpired(trialEndsAt: Date, now: Date): boolean {
+  return now.getTime() >= trialEndsAt.getTime();
+}
+
 export function trialEndFor(orgCreatedAt: Date): Date {
   return new Date(orgCreatedAt.getTime() + TRIAL_DAYS * DAY_MS);
 }
@@ -110,7 +119,7 @@ export function resolveEntitlements(input: {
   if (!sub) {
     const trialEndsAt = trialEndFor(input.orgCreatedAt);
     const daysLeft = daysUntil(trialEndsAt, now);
-    const expired = daysLeft < 0;
+    const expired = trialExpired(trialEndsAt, now);
     return {
       mode: "saas",
       planId: "trial",
@@ -148,7 +157,7 @@ export function resolveEntitlements(input: {
   if (status === "trialing") {
     trialEndsAt = sub.trialEndsAt ?? trialEndFor(input.orgCreatedAt);
     const left = daysUntil(trialEndsAt, now);
-    if (left < 0) {
+    if (trialExpired(trialEndsAt, now)) {
       writable = false;
       readOnlyReason = "trial_expired";
     } else daysLeft = left;
@@ -184,6 +193,18 @@ export function hasFeature(ent: Entitlements, feature: FeatureKey): boolean {
   return ent.features[feature] === true;
 }
 
+/**
+ * Боломж багцад байгаад ОДОО ашиглаж болох эсэх. Мэдлэгийн сан нь өөрөө
+ * захиалгын бүтээгдэхүүн (skills багц, 2026-09-24) тул read-only төлөвт
+ * (trial дууссан, төлбөр хоцорсон…) ХААГДАНА — «унших үргэлж нээлттэй» дүрэм
+ * нь хэрэглэгчийн ӨӨРИЙН нягтлан бодох өгөгдөлд хамаарна, энэ агуулгад биш.
+ */
+export function featureUsable(ent: Entitlements, feature: FeatureKey): boolean {
+  if (!hasFeature(ent, feature)) return false;
+  if (feature === "knowledge") return ent.writable;
+  return true;
+}
+
 /** Хязгаар хүрсэн үү (null = хязгааргүй). */
 export function limitReached(ent: Entitlements, key: LimitKey, used: number): boolean {
   const limit = ent.limits[key];
@@ -199,4 +220,14 @@ export const READ_ONLY_MESSAGES: Record<ReadOnlyReason, string> = {
     "Багц түр зогсоосон байна — бичилт хаалттай. Тохиргоо → Багц, төлбөр хэсгээс холбогдоно уу.",
   cancelled:
     "Багц цуцлагдсан байна — бичилт хаалттай, өгөгдөл хэвээр. Дахин идэвхжүүлэхийн тулд холбогдоно уу.",
+};
+
+/** Мэдлэгийн сан хаагдсан шалтгаан — бичилтийн тухай биш, ЗАХИАЛГЫН тухай. */
+export const KNOWLEDGE_READ_ONLY_MESSAGES: Record<ReadOnlyReason, string> = {
+  trial_expired:
+    "Мэдлэгийн сангийн туршилтын хугацаа дууссан — үргэлжлүүлэхийн тулд захиалгаа идэвхжүүлнэ үү (app.entry.mn → Тохиргоо → Багц, төлбөр).",
+  past_due:
+    "Төлбөр хоцорсон тул мэдлэгийн сан түр хаагдлаа — төлбөрөө төлсний дараа шууд сэргэнэ.",
+  suspended: "Захиалга түр зогсоосон байна — мэдлэгийн сан хаалттай.",
+  cancelled: "Захиалга цуцлагдсан байна — мэдлэгийн сан хаалттай. Дахин идэвхжүүлэхийн тулд холбогдоно уу.",
 };

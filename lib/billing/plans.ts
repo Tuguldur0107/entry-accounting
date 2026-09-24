@@ -1,7 +1,7 @@
 // Багцын тодорхойлолт — ЦЭВЭР (client-safe, DB-гүй). docs/billing/00-proposal.md §2.
 // Тоо/боломж энд л; байгууллага бүрийн ялгаа `organization_subscriptions.overrides`.
 
-export type PlanId = "trial" | "standard" | "platform" | "enterprise" | "dedicated";
+export type PlanId = "trial" | "standard" | "platform" | "enterprise" | "dedicated" | "skills";
 
 export type FeatureKey =
   | "ebarimt"
@@ -10,7 +10,10 @@ export type FeatureKey =
   | "api.rest"
   | "multi_company"
   | "custom_extensions"
-  | "knowledge";
+  | "knowledge"
+  /** Нягтлан бодох СИСТЕМ өөрөө (модулиуд, бичилт, тайлан, тэдгээрийн AI/MCP tool).
+   *  Зөвхөн «AI нягтлан» (skills) багцад УНТРААЛТТАЙ — мэдлэгийн сан + MCP л. */
+  | "accounting";
 
 export type LimitKey = "seats" | "companies";
 
@@ -24,6 +27,7 @@ export const FEATURE_KEYS: FeatureKey[] = [
   "multi_company",
   "custom_extensions",
   "knowledge",
+  "accounting",
 ];
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
@@ -35,6 +39,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   multi_company: "Олон компани (групп / нягтлангийн фирм)",
   custom_extensions: "custom/ өргөтгөл",
   knowledge: "Мэдлэгийн сан (IFRS, татвар, цалин — AI/MCP)",
+  accounting: "Нягтлан бодох систем (модулиуд, бичилт, тайлан)",
 };
 
 export const PLAN_LABELS: Record<PlanId, string> = {
@@ -43,6 +48,7 @@ export const PLAN_LABELS: Record<PlanId, string> = {
   platform: "Platform",
   enterprise: "Enterprise",
   dedicated: "Тусдаа сервис (лицензээр)",
+  skills: "AI нягтлан (ChatGPT / Claude-д)",
 };
 
 export const STATUS_LABELS: Record<SubscriptionStatus, string> = {
@@ -68,11 +74,26 @@ const ALL_ON: Record<FeatureKey, boolean> = {
   "api.rest": true,
   multi_company: true,
   custom_extensions: true,
-  // Мэдлэгийн сан нь АЛЬ Ч багцад default-оор ОРОХГҮЙ — Entry Console
-  // байгууллага бүрд `overrides.features.knowledge` асаана
-  // (docs/knowledge/00-proposal.md D2). dedicated-д ч ижил: агуулга нь
-  // Entry-ээс л ирдэг тул fork өөрөө нээж чадахгүй.
-  knowledge: false,
+  // Мэдлэгийн сан SaaS-ийн нягтлан бодох багц бүрд ҮНЭГҮЙ дагалдана
+  // (docs/knowledge/00-proposal.md D2′, 2026-09-24). Систем ашиглахгүй
+  // хэрэглэгч «AI нягтлан» (skills) багцаар тусад нь захиална.
+  knowledge: true,
+  accounting: true,
+};
+
+/** Мэдлэгийн сан + MCP л — нягтлан бодох систем, чат, REST, eBarimt хаалттай. */
+const SKILLS_ONLY: Record<FeatureKey, boolean> = {
+  ebarimt: false,
+  // Вэб чат нь байгууллагын ӨӨРИЙН API түлхүүрээр ажилладаг (BYO) — skills
+  // хэрэглэгч өөрийн ChatGPT / Claude-оос MCP-ээр ханддаг тул хэрэггүй.
+  ai: false,
+  mcp: true,
+  // D4: мэдлэг REST-ээр ХЭЗЭЭ Ч гарахгүй — скриптээр бөөнөөр татах зам.
+  "api.rest": false,
+  multi_company: false,
+  custom_extensions: false,
+  knowledge: true,
+  accounting: false,
 };
 
 export const PLANS: Record<PlanId, PlanDef> = {
@@ -97,13 +118,25 @@ export const PLANS: Record<PlanId, PlanDef> = {
     pricePerSeatMnt: null,
   },
   dedicated: {
-    features: ALL_ON,
+    // D2: dedicated (fork) харилцагчид мэдлэгийн сан ОРОХГҮЙ — агуулга Entry-ээс
+    // л ирнэ; хэрэгтэй бол Console-оос байгууллага бүрд тусад нь асаана.
+    features: { ...ALL_ON, knowledge: false },
     limits: { seats: null, companies: null },
     pricePerSeatMnt: 20_000,
+  },
+  skills: {
+    // «AI нягтлан» — Entry систем ашиглахгүйгээр мэдлэгийн санг өөрийн
+    // ChatGPT / Claude-д MCP-ээр холбож ашиглах захиалга (2026-09-24).
+    features: SKILLS_ONLY,
+    limits: { seats: 1, companies: 1 },
+    pricePerSeatMnt: 29_000,
   },
 };
 
 export const PLAN_IDS = Object.keys(PLANS) as PlanId[];
+
+/** «AI нягтлан» багцын үнэгүй туршилт — бүртгүүлснээс 24 цаг (2026-09-24). */
+export const SKILLS_TRIAL_HOURS = 24;
 
 /** Trial-ийн хугацаа (хоног) — байгууллага үүссэнээс. */
 export const TRIAL_DAYS = 14;

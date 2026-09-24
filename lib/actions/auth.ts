@@ -6,6 +6,7 @@ import {
   chartOfAccounts,
   memberships,
   orgInvitations,
+  organizationSubscriptions,
 } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
@@ -14,6 +15,8 @@ import { createPersonalOrg, signIn } from "@/lib/auth";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { registrationMode } from "@/lib/registration";
+import { deploymentMode } from "@/lib/deployment-mode";
+import { SKILLS_TRIAL_HOURS } from "@/lib/billing/plans";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
 import { sendVerificationEmail } from "@/lib/account/emails";
 import { transactionalEmailConfigured } from "@/lib/email/transactional";
@@ -26,6 +29,8 @@ export async function registerUser(data: {
   invite?: string;
   /** Шинэ байгууллагын нэр — хоосон бол хэрэглэгчийн нэрээр (ENT-007). */
   companyName?: string;
+  /** "skills" = «AI нягтлан» захиалга (мэдлэгийн сан л, 24ц trial) — зөвхөн SaaS. */
+  plan?: string;
 }) {
   // Deployment-ийн лиценз — бүртгэлгүй хуулбар шинэ хэрэглэгч ч үүсгэхгүй.
   const license = deploymentLicenseStatus();
@@ -106,6 +111,18 @@ export async function registerUser(data: {
   const companyName = data.companyName?.trim().slice(0, 200) ?? "";
   const orgId = await createPersonalOrg(user.id, companyName || name);
 
+  // «AI нягтлан» (skills) — багцыг бүртгэлийн мөчид тавина: entitlement нь
+  // мөргүй байгууллагыг 14 хоногийн Entry trial гэж үздэг тул мөр ЗААВАЛ.
+  const skills = data.plan === "skills" && deploymentMode() === "saas" && !invitation;
+  if (skills)
+    await db.insert(organizationSubscriptions).values({
+      organizationId: orgId,
+      planId: "skills",
+      status: "trialing",
+      trialEndsAt: new Date(Date.now() + SKILLS_TRIAL_HOURS * 60 * 60_000),
+      note: "Бүртгэлээр — AI нягтлан (entry.mn)",
+    });
+
   // Seed default chart of accounts
   await db.insert(chartOfAccounts).values(
     DEFAULT_ACCOUNTS.map((a) => ({ userId: user.id, organizationId: orgId, ...a }))
@@ -140,6 +157,7 @@ export async function registerUser(data: {
   await signIn("credentials", {
     identifier: email,
     password: data.password,
-    redirectTo: "/gl/journal",
+    // skills: нүүр хуудас нь ChatGPT / Claude-д холбох заавар.
+    redirectTo: skills ? "/" : "/gl/journal",
   });
 }
