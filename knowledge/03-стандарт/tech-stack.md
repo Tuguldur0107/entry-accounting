@@ -143,8 +143,8 @@
 - `knowledge/02-нягтлан-бодох-мэргэжлийн/expert-accountant-SKILL.md`-д тодорхойлсон tool-уудыг хэрэгжүүлэхэд хамгийн тохиромжтой
 
 **Аюулгүй байдал:**
-- API key Next.js API Route / Server Action-д хадгалагдана — browser-д задрахгүй
-- `ANTHROPIC_API_KEY` environment variable → Railway-д тохируулна
+- Entry-ийн сервер AI-ийн API дууддаггүй (2026-09-25) — API түлхүүр огт хадгалахгүй;
+  хэрэглэгч өөрийн ChatGPT / Claude-оос MCP-ээр (OAuth) холбогдоно
 
 ---
 

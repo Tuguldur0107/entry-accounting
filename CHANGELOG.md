@@ -21,9 +21,12 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   DB: `ai_messages` / `ai_attachments` preDeploy-д `archive` схем рүү,
   `ai_settings`-ийн `api_key` / `openai_api_key` / `model` / `effort` /
   `custom_instructions` баганууд хасагдана (`write_mode` үлдэнэ). Багцын `ai`
-  боломж хасагдсан (`mcp` + `knowledge`). АР/АП-ийн eBarimt / PDF → нэхэмжлэхийн
-  ноорог таних нь ЗӨВХӨН серверийн `ANTHROPIC_API_KEY`-ээр (Entry-ийн түлхүүр)
-  ажиллана; байхгүй бол товч ил тайлбартай 503.
+  боломж хасагдсан (`mcp` + `knowledge`).
+- **АР/АП «eBarimt импорт» (PDF / зураг → сервер vision → ноорог) хасагдсан.**
+  Entry-ийн сервер AI-ийн API дуудах цорын ганц үлдсэн газар байв — одоо
+  `ANTHROPIC_API_KEY` env, `@anthropic-ai/sdk` хамаарал огт хэрэггүй. Хэрэглэгч
+  баримтын зургаа ChatGPT / Claude-даа өгөхөд `create_arap_invoice` tool-оор
+  ижил ноорог үүснэ (ДДТД-гээр idempotent хэвээр).
 
 ### Fixed
 

@@ -2,8 +2,7 @@
 //
 // Server action-ы body 1MB-аар хязгаарлагдсан (next.config.ts-д
 // serverActions.bodySizeLimit байхгүй) тул 8MB файл ЗААВАЛ route handler-аар
-// явна. Загвар: app/api/arap/ebarimt/route.ts (formData задлалт, хэмжээ/
-// төрлийн шалгалт, base64 хувиргалт, org нэвтрэлт).
+// явна (formData задлалт, хэмжээ/төрлийн шалгалт, base64 хувиргалт, org нэвтрэлт).
 //
 // proxy.ts-ийн matcher `/api`-г алгасдаг тул энэ route НЭВТРЭЛТЭЭ ӨӨРӨӨ
 // шалгана (getActiveOrg + requireModuleAction).
