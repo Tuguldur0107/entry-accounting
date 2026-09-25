@@ -55,6 +55,8 @@ interface Props {
   openaiEnvKeyConfigured: boolean;
   /** MCP холболтын token-ууд. */
   mcpTokens: ApiTokenView[];
+  /** Анх нээгдэх таб (URL `?tab=` — «AI нягтлан»-ы заавар `mcp`). */
+  initialTab?: SettingsTab;
 }
 
 export function AiSettingsView({
@@ -66,6 +68,7 @@ export function AiSettingsView({
   openaiKeyHint,
   openaiEnvKeyConfigured,
   mcpTokens,
+  initialTab = "keys",
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -78,7 +81,7 @@ export function AiSettingsView({
   const [tokenExpiry, setTokenExpiry] = useState("");
   // Сая үүссэн token — ЗӨВХӨН энэ render-д бүтнээрээ харагдана.
   const [freshToken, setFreshToken] = useState<string | null>(null);
-  const [tab, setTab] = useState<SettingsTab>("keys");
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const keyStatus = keyHint

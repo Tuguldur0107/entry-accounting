@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import authConfig from "@/lib/auth.config";
+import { redirectsSignedInUser } from "@/lib/auth-redirect";
 
 // Edge-safe NextAuth instance — uses only JWT decoding, no DB/bcrypt.
 const { auth } = NextAuth(authConfig);
@@ -23,7 +24,9 @@ export default auth((req) => {
     return NextResponse.redirect(login);
   }
 
-  if (isLoggedIn && isAuthPage) {
+  // «AI нягтлан» линк (`/register?plan=skills`) үсэргэгдэхгүй — хуудас өөрөө
+  // нэвтэрсэн хэрэглэгчид сонголт харуулна (lib/auth-redirect.ts).
+  if (isLoggedIn && redirectsSignedInUser(pathname, search)) {
     return NextResponse.redirect(new URL("/gl/journal", req.nextUrl));
   }
 

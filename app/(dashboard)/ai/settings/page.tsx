@@ -8,8 +8,14 @@ import { decryptSecret } from "@/lib/ai/crypto";
 import { DEFAULT_AI_EFFORT, DEFAULT_AI_MODEL } from "@/lib/ai/models";
 import { listApiTokens } from "@/lib/actions/mcp-tokens";
 
-export default async function AiSettingsPage() {
+export default async function AiSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const { userId, orgId } = await getActiveOrg();
+  // Deep link: «AI нягтлан»-ы холбох заавар `?tab=mcp` руу чиглүүлдэг.
+  const { tab } = await searchParams;
 
   const [settings, mcpTokens] = await Promise.all([
     db.query.aiSettings.findFirst({
@@ -42,6 +48,7 @@ export default async function AiSettingsPage() {
       openaiKeyHint={openaiKeyHint}
       openaiEnvKeyConfigured={Boolean(process.env.OPENAI_API_KEY)}
       mcpTokens={mcpTokens}
+      initialTab={tab === "mcp" || tab === "chat" ? tab : "keys"}
     />
   );
 }
