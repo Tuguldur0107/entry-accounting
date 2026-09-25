@@ -947,6 +947,10 @@ tests/ebarimt-receipt.test.ts
 Холбох: [QPay холбох] → state (AES-GCM, 15 мин) → {dashboard}/connect (бүртгэл/онбординг/consent)
    → callback?state&code → Entry сервер POST /api/connect/exchange → key+secret (НЭГ удаа) → шифртэй хадгална
    → «QPay» хэлбэр + «QPay түр данс» (GL 11000099) seed → readiness → асна   (гар зам: key хуулах хэвээр)
+АВТОМАТ (QPAY_PARTNER_KEY): Компанийн мэдээлэл (регистр, MCC, хот/дүүрэг, хаяг, утас, данс ★) → [QPay-д бүртгүүлэх]
+   → Entry сервер POST {dashboard}/api/partner/merchants (Bearer, external_id = org id, ИДЕМПОТЕНТ)
+   → мерчант + dashboard хэрэглэгч (эзний и-мэйл, нууц үг тохируулах линк) + данс → key+secret → ижил зам
+   → qpay_provisioned_at; компанийн данс хадгалах → PUT …/bank-accounts (Entry эх сурвалж)
 QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → dashboard POST /api/v1/invoices
    → QR + deeplink; диалог ENTRY DB-ээс 2 сек тутам (QPay polling ҮГҮЙ — ККТТ гэрээ хориглодог)
    ← webhook POST /api/pos/qpay/webhook?intent= (HMAC-SHA256 x-webhook-signature) ЭСВЭЛ [Шалгах] 10 сек-д нэг
@@ -978,6 +982,20 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   «QPay түр данс» (банк, GL 11000099) дутуу бол л үүснэ, байгааг хөндөхгүй;
   readiness `seedOnEnable` (default) хэлбэр/данс дутууг warning гэж үзнэ, seed-ийн
   ДАРАА `seedOnEnable:false` хатуу шалгана. eBarimt код ЗОХИОХГҮЙ (plan T1)
+- **Автомат бүртгэл — Partner API** (`docs/deployment/qpay.md` §2b, plan §3.7;
+  dashboard `docs/API.md` «Partner»): `lib/qpay/provision.ts` ЦЭВЭР (тесттэй —
+  `buildQpayProvisionPlan`: регистрээс company/person, дутууг МОНГОЛООР нэрлэнэ,
+  `mapQpayBankAccounts` банкны код нэрээс таагдвал л, default нэг);
+  `lib/qpay/reference.ts` CLIENT-SAFE лавлах (MCC 85, банкны код, хот, УБ дүүрэг —
+  ЭХ dashboard `src/lib/*`; аймгийн сум `getQpayDistricts` action); `lib/qpay/partner.ts`
+  SERVER (`provisionQpayMerchantForOrg` — нууц connect callback-тай ИЖИЛ замаар
+  шифртэй, `syncQpayBankAccountsForOrg` best effort — `updateOrganizationProfile`
+  данс өөрчлөгдвөл `{ warning }` буцаана, хадгалалт унахгүй). Partner key
+  `qpayPartnerKey()` store.ts-д (partner ↔ store импортын тойрог үүсгэхгүй).
+  `company_settings.mcc_code/city_code/district_code`, `bank_accounts` jsonb
+  `bankCode/iban/isDefault` (хуучин мөрд undefined), `pos_settings.qpay_provisioned_at`
+  (null = consent/гар зам → данс sync ҮГҮЙ). Код ЗОХИОХГҮЙ — dashboard 400/502-ийн
+  шалтгаан `[QPAY_PROVISION_REJECTED]`-ээр хэрэглэгчид ил
 - **Нэг товчны холболт** (`lib/qpay/connect.ts` SERVER, тесттэй; `startQpayConnect`;
   `app/api/pos/qpay/connect/callback`): state нь authenticated шифр (org, user,
   apiUrl, 15 мин) — өөр байгууллагын нэрээр зохиох боломжгүй; code нэг удаагийн

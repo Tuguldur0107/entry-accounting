@@ -2396,6 +2396,9 @@ export const AI_TOOLS: AiToolDef[] = [
               bankName: { type: "string" },
               accountNo: { type: "string" },
               accountName: { type: "string" },
+              bankCode: { type: "string", description: "Банкны 6 оронтой код (ж: 050000 Хаан) — QPay мерчантын дансанд" },
+              iban: { type: "string" },
+              isDefault: { type: "boolean", description: "QPay төлбөр орох үндсэн данс (нэг л мөр)" },
             },
             required: ["bankName", "accountNo", "accountName"],
           },
@@ -9014,7 +9017,7 @@ async function runUpdateOrganizationProfile(input: {
   address?: string;
   phone?: string;
   email?: string;
-  bankAccounts?: { bankName: string; accountNo: string; accountName: string }[];
+  bankAccounts?: { bankName: string; accountNo: string; accountName: string; bankCode?: string; iban?: string; isDefault?: boolean }[];
   invoiceFromEmail?: string;
   invoiceReplyTo?: string;
   emailDomainVerified?: boolean;

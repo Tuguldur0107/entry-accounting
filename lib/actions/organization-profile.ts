@@ -13,10 +13,13 @@ import { db } from "@/lib/db";
 import {
   organizationProfile,
   organizations,
+  type CompanyBankAccount,
   type OrganizationProfile,
 } from "@/lib/db/schema";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { emitNotification } from "@/lib/notifications/emit";
+import { syncQpayBankAccountsForOrg } from "@/lib/qpay/partner";
+import { bankAccountsEqualForQpay } from "@/lib/qpay/provision";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
 
@@ -48,7 +51,11 @@ export async function updateOrganizationProfile(data: {
   address: string | null;
   phone: string | null;
   email: string | null;
-  bankAccounts: { bankName: string; accountNo: string; accountName: string }[];
+  /** QPay мерчантын талбарууд (docs/deployment/qpay.md §2b) — undefined = хөндөхгүй. */
+  mccCode?: string | null;
+  cityCode?: string | null;
+  districtCode?: string | null;
+  bankAccounts: CompanyBankAccount[];
   /** undefined = хөндөхгүй, null = устгах, string = шинэ PNG base64. */
   logo?: string | null;
   stamp?: string | null;
@@ -65,7 +72,7 @@ export async function updateOrganizationProfile(data: {
   aiPostLimitMnt?: number | null;
   /** Хяналтын дансанд гар журнал: warn | block (SIM2-038). */
   controlAccountGuard?: "warn" | "block";
-}): Promise<ActionResult> {
+}): Promise<ActionResult<{ warning?: string }>> {
   try {
     return await updateOrganizationProfileCore(data);
   } catch (caught) {
@@ -80,7 +87,10 @@ async function updateOrganizationProfileCore(data: {
   address: string | null;
   phone: string | null;
   email: string | null;
-  bankAccounts: { bankName: string; accountNo: string; accountName: string }[];
+  mccCode?: string | null;
+  cityCode?: string | null;
+  districtCode?: string | null;
+  bankAccounts: CompanyBankAccount[];
   /** undefined = хөндөхгүй, null = устгах, string = шинэ PNG base64. */
   logo?: string | null;
   stamp?: string | null;
@@ -96,7 +106,7 @@ async function updateOrganizationProfileCore(data: {
       Tool-оор өсгөх таазыг дуудагч (lib/ai/tools.ts) ӨМНӨӨ нь шалгана. */
   aiPostLimitMnt?: number | null;
   controlAccountGuard?: "warn" | "block";
-}) {
+}): Promise<{ warning?: string }> {
   // Компанийн мэдээлэл = тохиргоо — admin+.
   const { orgId, userId } = await requireRole("admin");
 
@@ -127,18 +137,41 @@ async function updateOrganizationProfileCore(data: {
   )
     throw new Error("AI-ийн батлах хязгаар 0-ээс их тоо байна");
 
-  // Хязгаарын өөрчлөлтийг аудит + мэдэгдэлд гаргахын тулд ӨМНӨХ утгыг уншина.
+  const cleanCode = (value: string | null | undefined, re: RegExp, label: string) => {
+    const code = (value ?? "").trim();
+    if (code && !re.test(code)) throw new Error(`${label} буруу хэлбэртэй: ${code}`);
+    return code || null;
+  };
+  const mccCode = cleanCode(data.mccCode, /^\d{4}$/, "Бизнесийн ангилал (MCC)");
+  const cityCode = cleanCode(data.cityCode, /^\d{4,6}$/, "Хот/аймгийн код");
+  const districtCode = cleanCode(data.districtCode, /^\d{4,6}$/, "Дүүрэг/сумын код");
+  // Данс: хоосон дугаартай мөр хасагдана; «үндсэн» нэг л (QPay төлбөр орох).
+  const bankAccounts: CompanyBankAccount[] = data.bankAccounts
+    .filter((account) => (account.accountNo ?? "").trim())
+    .map((account) => ({
+      bankName: (account.bankName ?? "").trim(),
+      accountNo: account.accountNo.trim(),
+      accountName: (account.accountName ?? "").trim(),
+      ...((account.bankCode ?? "").trim() ? { bankCode: account.bankCode!.trim() } : {}),
+      ...((account.iban ?? "").trim() ? { iban: account.iban!.trim().toUpperCase() } : {}),
+      ...(account.isDefault ? { isDefault: true } : {}),
+    }));
+  {
+    let seen = false;
+    for (const account of bankAccounts) {
+      if (!account.isDefault) continue;
+      if (seen) delete account.isDefault;
+      seen = true;
+    }
+  }
+
+  // ӨМНӨХ мөр: AI хязгаарын өөрчлөлтийн аудит + QPay данс sync хэрэгтэй эсэх.
+  const previousRow = await db.query.organizationProfile.findFirst({
+    where: eq(organizationProfile.organizationId, orgId),
+    columns: { aiPostLimitMnt: true, bankAccounts: true },
+  });
   const previousLimit =
-    data.aiPostLimitMnt === undefined
-      ? null
-      : resolveAiPostLimit(
-          (
-            await db.query.organizationProfile.findFirst({
-              where: eq(organizationProfile.organizationId, orgId),
-              columns: { aiPostLimitMnt: true },
-            })
-          )?.aiPostLimitMnt
-        );
+    data.aiPostLimitMnt === undefined ? null : resolveAiPostLimit(previousRow?.aiPostLimitMnt);
 
   const base = {
     name: data.name.trim(),
@@ -147,7 +180,10 @@ async function updateOrganizationProfileCore(data: {
     address: data.address?.trim() || null,
     phone: data.phone?.trim() || null,
     email: data.email?.trim() || null,
-    bankAccounts: data.bankAccounts.filter((account) => account.accountNo.trim()),
+    ...(data.mccCode !== undefined && { mccCode }),
+    ...(data.cityCode !== undefined && { cityCode }),
+    ...(data.districtCode !== undefined && { districtCode }),
+    bankAccounts,
     signatures: data.signatures,
     autoStamp: data.autoStamp,
     // undefined = хөндөхгүй (MCP хэсэгчилсэн update), null = цэвэрлэх.
@@ -238,9 +274,18 @@ async function updateOrganizationProfileCore(data: {
     }
   }
 
+  // QPay мерчантын данс — Partner API-аар бүртгэгдсэн байгууллагад данс
+  // өөрчлөгдвөл dashboard руу sync (best effort: алдаа = анхааруулга, хадгалалт
+  // унахгүй; docs/deployment/qpay.md §2b).
+  let warning: string | undefined;
+  if (!bankAccountsEqualForQpay(previousRow?.bankAccounts ?? [], bankAccounts)) {
+    const sync = await syncQpayBankAccountsForOrg(orgId, userId, bankAccounts);
+    if (sync && "warning" in sync) warning = sync.warning;
+  }
+
   revalidatePath("/settings/gl");
   revalidatePath("/settings/company");
   revalidatePath("/admin/org");
   revalidatePath("/", "layout");
-  return {};
+  return warning ? { warning } : {};
 }

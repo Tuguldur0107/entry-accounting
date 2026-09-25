@@ -798,6 +798,11 @@ async function main() {
     ["pos_settings", "qpay_webhook_secret_enc", "text"],
     ["pos_settings", "qpay_merchant_id", "text"],
     ["pos_settings", "qpay_invoice_ttl_sec", "integer not null default 180"],
+    // QPay Partner API-аар бүртгэгдсэн мөч + компанийн QPay талбарууд (docs/deployment/qpay.md §2b)
+    ["pos_settings", "qpay_provisioned_at", "timestamp"],
+    ["company_settings", "mcc_code", "text"],
+    ["company_settings", "city_code", "text"],
+    ["company_settings", "district_code", "text"],
     ["pos_payment_methods", "provider", "text"],
     // НӨАТ-гүй POS борлуулалт (lib/pos/non-vat.ts) — данс default-тай (доорх нөхөлт)
     ["pos_settings", "non_vat_revenue_account_number", "text not null default '51100002'"],
