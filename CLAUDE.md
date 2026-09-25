@@ -1464,12 +1464,15 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
   дуудах цэг) `currentAiPostLimit()`-ээр SYNC хэвээр уншина. Контекстгүй
   дуудагдвал default (хамгийн болгоомжтой); зэрэгцээ хүсэлтүүд бие биенийхээ
   утгыг ХАРАХГҮЙ (AsyncLocalStorage, module-level хувьсагч ХОРИОТОЙ)
-- **AI өөрийн хязгаарыг ӨСГӨЖ ЧАДАХГҮЙ** (SIM ENT-068 — симуляцид агент PO
-  хаах гацааг тойрохын тулд лимитээ 50 сая болгосон; prompt injection-ийн зам
-  ч болно). `update_company_settings`-ийн `aiPostLimitMnt` нь
-  `planAiPostLimitChange({viaTool:true})`-ээр дайрна: өсгөлт БҮРЭН хориотой
-  (`[HUMAN_REQUIRED]`), зөвхөн ВЭБЭЭС админ хүн. **БУУРУУЛАХ / default руу
-  буцаах (бууралт бол) чөлөөтэй**
+- **AI өөрийн хязгаарыг ХЯЗГААРГҮЙ өсгөж чадахгүй** (SIM ENT-068 — симуляцид
+  агент PO хаах гацааг тойрохын тулд лимитээ 50 сая болгосон; prompt
+  injection-ийн зам ч болно). `update_company_settings`-ийн `aiPostLimitMnt`
+  нь `planAiPostLimitChange({viaTool:true})`-ээр дайрна: өсгөлт
+  `AI_POST_LIMIT_TOOL_MAX_MNT` (**1 тэрбум ₮**) хүртэл зөвшөөрөгдөнө, түүнээс
+  дээш `[HUMAN_REQUIRED]` — зөвхөн ВЭБЭЭС админ хүн. **БУУРУУЛАХ / default
+  руу буцаах чөлөөтэй.** Таазыг өөрчилбөл UI-ийн тайлбар
+  (`components/settings/organization-profile-form.tsx`) ба tool description
+  хамт шинэчилнэ
 - Өөрчлөлт бүр `logAuditEvent` (`settings` / `ai_post_limit`) + эзэн/админд
   `settings.ai_limit_changed` мэдэгдэл (instant и-мэйл)
 - `lib/payroll/calc.ts`-ийн `{ upTo: 10_000_000 }` нь ХАОАТ-ын шатлалын хил
@@ -1486,7 +1489,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), delete_cost_entry (ноорог — хожмын бичилт байвал татгалзана), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation,cost_entry}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
-| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨЛТ зөвхөн вэбээс хүн (`[HUMAN_REQUIRED]`); `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
+| Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, өсгөлт 1 тэрбум ₮ хүртэл, дээш нь зөвхөн вэбээс хүн (`[HUMAN_REQUIRED]`); `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (10 — list_cost_entries: өртгийн бичилтийн ID-г эндээс), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
@@ -1778,7 +1781,9 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
   багцаар бүх системийг үнэгүй ашиглах зам болохоос сэргийлнэ: `requireModuleAction`
   (уншилт ч, `assertModuleEntitlements`), `ModuleGuard`, AI/MCP tool
   (`lib/billing/tool-scope.ts` `ACCOUNTING_FREE_TOOLS` — `tools/list` шүүлт +
-  `executeAiTool` хаалт), вэб нүүр = холбох заавар (`components/skills/`). Шинэ
+  `executeAiTool` хаалт), вэб нүүр = НЭГ хуудас (`components/skills/skills-home.tsx`:
+  давуу тал → ① төлбөр/сунгах (`SkillsPay`, QR диалог нь billing-тэй НЭГ) →
+  ② холбох); `/settings/billing` нүүр рүү redirect, топбарын багцын баннер гарахгүй. Шинэ
   tool нэмэхэд skills-д нээх эсэхийг ЗӨВХӨН `ACCOUNTING_FREE_TOOLS`-оор шийднэ.
   Тест `tests/billing-skills.test.ts`, `tests/skills-plan-flow.test.ts` (DB)
 - **Хэсгээр л** — «бүгдийг буцаах» параметр, сэдвийг бүтнээр өгөх зам НЭМЭХГҮЙ;
@@ -2386,7 +2391,7 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            knowledge_reads (org, user, slug, section, created_at; org+time index)
            — 24ц квот + бөөнөөр татах илрүүлэлт, аудит БИШ (§9e)
 Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
-           хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд тааз
+           хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд 1 тэрбум ₮ тааз
 AI         ai_messages, ai_attachments, ai_settings
 Тайлан     report_line_mappings
              cfCodes — мөнгөн гүйлгээний тайлангийн S8 сегментийн кодууд
