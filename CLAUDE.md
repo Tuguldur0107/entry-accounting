@@ -354,6 +354,19 @@ components/journal/journal-lines-grid.tsx  Валютын Дт/Кт багана
 tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, гажиг оролт
 ```
 
+### 2c. Хяналтын данс, батлагдсан журнал (SIM2) — ХЭРЭГЖСЭН
+
+- **Батлагдсан журнал УСТГАГДАХГҮЙ** — `[USE_REVERSAL]`; засвар нь буцаалтаар
+  (SIM2-046). Устгах нь зөвхөн ноорогт
+- **Хяналтын дансанд гар журнал** (АР/АП/касс/бараа/ҮХ — `lib/gl/control-accounts.ts`)
+  нь дэд дэвтэрээс зөрүү үүсгэдэг: `company_settings.control_account_guard`
+  `warn` (default — `warning` буцааж toast) | `block`. AI/MCP сулруулж
+  ЧАДАХГҮЙ (`[HUMAN_REQUIRED]`); `reconcile_modules` ийм журналуудыг жагсаана
+- **Нээлтийн журнал** (`isOpeningBalanceVoucher`: externalRef `opening-*` /
+  `[ОНБ`) кассын толин баримт, барааны «(бараагүй) × 0» ноорог ҮҮСГЭХГҮЙ —
+  нээлт дэд дэвтэрт тусдаа бүртгэгддэг (SIM2-011/009)
+- Sim harness: `tests/sim/README.md` — засварын дараа `compare.py` 0 зөрүү
+
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
 Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
@@ -676,6 +689,9 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
   нэхэмжилсэн тоо = захиалсан, Σ нэхэмжилсэн дүн (PO валют) = мөрийн дүн, бүх
   нэмэлт зардал хуваарилагдсан. Зөрүүг АВТОМАТААР нөхөхийг хориглоно — UI-д
   улаанаар харагдана
+- **Нээлттэй PO-той сар хаалт** `costing_account_settings.open_po_close_mode`:
+  `block` (default) | `warn` — хэсэгчлэн хүлээн авсан PO-той сарыг анхааруулгатай
+  хаана (SIM2-023). Ноорог GR-ийг `delete_goods_receipt`; PO цуцлахад ноорог GR устна
 - **Сар хаалт:** хүлээн авалттай нээлттэй PO байвал `closePeriod` код
   `open-purchase-orders`-оор татгалзана; ноорог хүлээн авалт бусад ноорогтой
   адил хаалтыг хориглоно (OD-011)
@@ -1432,7 +1448,7 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 141 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 144 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |

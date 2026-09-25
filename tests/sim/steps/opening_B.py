@@ -2,6 +2,13 @@
 import sys, os, subprocess
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'common'))
 from engine import *
+
+# Нээлтийн АР/АП: 10 саяас их нь AI-ийн батлах хязгаараас болж ноорог үлддэг —
+# вэбээс (хүн) батална; эс бөгөөс дараагийн сарын төлбөр нэхэмжлэхэд холбогдохгүй.
+def post_opening_arap(org, cut):
+    for mod in ('receivables', 'payables'):
+        r = subprocess.run(['node', os.path.join(ROOT, 'web', 'post_arap_all.mjs'), mod, f'{cut[:7]}:ytd', f'open-{mod}'], capture_output=True, text=True, env=dict(os.environ, SIM_ORG=org))
+        print(f'[web] post_arap_all {mod}\n' + (r.stdout + r.stderr)[-1500:], flush=True)
 from openpyxl import Workbook
 o = Org('B'); P = o.P; L = o.L; s = o.s
 CUT = P.CUTOFF
@@ -80,3 +87,4 @@ for no in o.jvnos(t):
     s['drafts'].append(dict(kind='jv', no=no, month=CUT[:7], what='opening-excel'))
 o.save()
 o.call('get_onboarding_guide', {'section': 'status'}, 'open')
+post_opening_arap('B', CUT)

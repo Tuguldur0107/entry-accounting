@@ -30,4 +30,4 @@ export async function open({width=1440,height=900,state=true,mobile=false,role='
 }
 export async function shot(page,name){ const d=path.join(ODIR,'shots'); fs.mkdirSync(d,{recursive:true}); await page.screenshot({path:path.join(d,`${name}.png`),fullPage:false}); }
 export function flush(){ const f=path.join(ODIR,'weblog.jsonl'); fs.appendFileSync(f, log.map(x=>JSON.stringify({org:ORG,...x})).join('\n')+(log.length?'\n':'')); log.length=0; }
-export async function setPeriod(page,ym){ await page.context().addCookies([{name:'ea-period',value:`${ym}:ptd`,domain:new URL(BASE).host,path:'/'}]); }
+export async function setPeriod(page,ym){ await page.context().addCookies([{name:'ea-period',value:ym.includes(':')?ym:`${ym}:ptd`,domain:new URL(BASE).host,path:'/'}]); }
