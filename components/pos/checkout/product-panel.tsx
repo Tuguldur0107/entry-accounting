@@ -183,11 +183,13 @@ function ProductTile({
       <span className="flex items-end justify-between gap-1">
         <span
           className={cn(
-            "font-mono text-sm font-semibold",
-            noPrice ? "text-[var(--ea-danger-fg)]" : "text-[var(--ea-text-1)]"
+            "font-semibold",
+            noPrice
+              ? "text-[11px] leading-tight text-[var(--ea-danger-fg)]"
+              : "font-mono text-sm text-[var(--ea-text-1)]"
           )}
         >
-          {noPrice ? "үнэгүй" : fmtMnt(item.salesPrice!)}
+          {noPrice ? "Үнэ тохируулаагүй" : fmtMnt(item.salesPrice!)}
         </span>
         <span
           className={cn(

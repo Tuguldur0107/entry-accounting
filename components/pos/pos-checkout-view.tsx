@@ -142,16 +142,14 @@ export function PosCheckoutView({
     [data.openShifts, shiftId]
   );
   const [closingShift, setClosingShift] = useState(false);
-  // Агуулах ээлжийнхээр default; кассчин сольж болно (сонголт тухайн ээлжид л хүчинтэй).
-  const [warehouseChoice, setWarehouseChoice] = useState<{ shiftId: string; id: string } | null>(null);
+  // Агуулах = ЭЭЛЖИЙНХ (түгжээтэй): ээлжийн дундуур солихыг хориглоно — буруу
+  // агуулахаас хасагдах эрсдэл. Солих бол ээлжээ хааж шинээр нээнэ.
   const warehouseId =
-    warehouseChoice && warehouseChoice.shiftId === (shift?.id ?? "")
-      ? warehouseChoice.id
-      : (shift?.warehouseId ??
-        data.lastShift?.warehouseId ??
-        data.settings.defaultWarehouseId ??
-        data.warehouses[0]?.id ??
-        "");
+    shift?.warehouseId ??
+    data.lastShift?.warehouseId ??
+    data.settings.defaultWarehouseId ??
+    data.warehouses[0]?.id ??
+    "";
   const warehouseName = data.warehouses.find((w) => w.id === warehouseId)?.name ?? "";
 
   const walkIn = useMemo(
@@ -700,9 +698,7 @@ export function PosCheckoutView({
       <Header
         cashierName={cashierName}
         shift={shift}
-        warehouseId={warehouseId}
-        warehouses={data.warehouses}
-        onWarehouseChange={(id) => setWarehouseChoice({ shiftId: shift?.id ?? "", id })}
+        warehouseName={warehouseName}
         shiftOptions={data.openShifts.length > 1 ? data.openShifts : undefined}
         onShiftChange={setShiftId}
         onCloseShift={() => setClosingShift(true)}
@@ -863,18 +859,14 @@ export function PosCheckoutView({
 function Header({
   cashierName,
   shift,
-  warehouseId,
-  warehouses,
-  onWarehouseChange,
+  warehouseName,
   shiftOptions,
   onShiftChange,
   onCloseShift,
 }: {
   cashierName: string;
   shift: CheckoutData["openShifts"][number] | null;
-  warehouseId: string;
-  warehouses: CheckoutData["warehouses"];
-  onWarehouseChange: (id: string) => void;
+  warehouseName: string;
   shiftOptions?: CheckoutData["openShifts"];
   onShiftChange?: (id: string) => void;
   onCloseShift: () => void;
@@ -918,21 +910,11 @@ function Header({
             Ээлж нээгээгүй
           </StatusBadge>
         )}
-        <label className="flex items-center gap-1">
-          <span>Агуулах:</span>
-          <select
-            className="ea-form-select h-8 w-auto text-xs"
-            value={warehouseId}
-            onChange={(event) => onWarehouseChange(event.target.value)}
-            disabled={!shift}
-          >
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.code} · {warehouse.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {warehouseName && (
+          <span title="Ээлжийн агуулах — солих бол ээлжээ хааж шинээр нээнэ">
+            Агуулах: {warehouseName}
+          </span>
+        )}
         <span>Кассчин: {cashierName || shift?.openedByName}</span>
         {clock && <span className="font-mono text-[var(--ea-text-2)]">{clock}</span>}
       </div>
