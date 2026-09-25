@@ -245,18 +245,21 @@ def imports_cycle(m, R):
 # ─────────────────────────── БӨӨНИЙ БОРЛУУЛАЛТ + ЭКСПОРТ ───────────────────────────
 def sales(m, R):
     items = []
+    reserved = {}  # нэг batch-ийн өмнөх нэхэмжлэхүүдэд аль хэдийн зарагдсан тоо (stock_add нь batch-ийн дараа)
     for k in range(R.randint(26, 36)):
         cp = R.choice(ORG_CUST)
         d = day(m, R.randint(2, 27))
         lines = []
         for it in R.sample(GOODS, R.randint(2, 5)):
-            av = avail(it['code'], 'WH-01', m) - sum(x['quantity'] for x in lines if x['itemCode'] == it['code'])
+            av = avail(it['code'], 'WH-01', m) - reserved.get(it['code'], 0) - sum(x['quantity'] for x in lines if x['itemCode'] == it['code'])
             if av < 2:
                 continue
             q = min(av, R.randint(4, 24) if it['cost'] < 150000 else R.randint(2, 8))
             lines.append(dict(account='51100000', itemCode=it['code'], quantity=q, warehouseCode='WH-01', unitPrice=it['price'], description=it['name']))
         if not lines:
             continue
+        for x in lines:
+            reserved[x['itemCode']] = reserved.get(x['itemCode'], 0) + x['quantity']
         if R.random() < 0.3:
             lines.append(dict(account='51100002', amount=60000 * R.randint(1, 4), description='Угсралт, суурилуулалт'))
         items.append(dict(documentType='ar_invoice', counterparty=cp, date=d, vatMode='exclusive', description=f'Бөөний борлуулалт {m}', externalRef=f'sim:{m}:AR:{k:02d}', lines=lines))
