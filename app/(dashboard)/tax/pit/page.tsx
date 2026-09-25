@@ -18,7 +18,7 @@ import {
 // ХХОАТ (Хувь хүний орлогын албан татвар, хуучнаар ХАОАТ) — цалингийн
 // суутгалын нэгтгэл. Тооцоолол нь Цалин модульд (lib/payroll/calc.ts,
 // effective date-ээр); энд бодогдсон тоог л саруулж нэгтгэнэ.
-// Лавлагаа: knowledge/01-онол-хууль-стандарт/tax/pit.md, 2026-updates.md.
+// Лавлагаа: entry-knowledge/01-онол-хууль-стандарт/tax/pit.md, 2026-updates.md.
 
 export default async function PitPage() {
   const { orgId, userId } = await getActiveOrg();

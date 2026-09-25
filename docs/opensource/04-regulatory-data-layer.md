@@ -32,7 +32,7 @@ CLAUDE.md §10 (Effective date guardrail)-ийн бүрэн хэрэгжилт.
 - Тайлангийн хугацаанууд (НДШ 5, ХАОАТ/НӨАТ 10, алданги 0.1%/хоног) —
   `lib/vat/return.ts` `vatDeadlineOf` + UI текстүүдэд тархсан →
   `deadlines.json`
-- `knowledge/01-онол-хууль-стандарт/tax/`, `.../payroll/` — эх сурвалж
+- `entry-knowledge/01-онол-хууль-стандарт/tax/`, `.../payroll/` — эх сурвалж
 - Effective-date guardrail: `knowledge/.../guardrails/effective-date.md`
 
 ## Хийх ажил

@@ -2,8 +2,8 @@
 
 // НӨАТ модулийн server actions — сарын тайлан + тооцооны ноорог журнал.
 //
-// Knowledge: knowledge/01-онол-хууль-стандарт/tax/vat.md,
-// knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md.
+// Knowledge: entry-knowledge/01-онол-хууль-стандарт/tax/vat.md,
+// entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md.
 // Тооцооны журнал ЗААВАЛ ноорог үүснэ (human-in-the-loop §9) — нягтланч
 // шалгаад GL журналаас Post дарна.
 
