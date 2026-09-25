@@ -48,8 +48,20 @@ export const EBARIMT_TAX_TYPE_LABELS: Record<EbarimtTaxType, string> = {
 export const EBARIMT_BARCODE_TYPES = ["UNDEFINED", "GS1", "ISBN"] as const;
 export type EbarimtBarcodeType = (typeof EBARIMT_BARCODE_TYPES)[number];
 
-/** Төлбөрийн статус — PosAPI `payments[].status`. */
+/**
+ * Төлбөрийн статус — PosAPI `payments[].status`: PAID = төлөгдсөн, PAY =
+ * төлөгдөх (нэхэмжлэхийн дараа төлөх хэсэг — зээлээр `credit`).
+ */
 export const EBARIMT_PAYMENT_STATUS_PAID = "PAID";
+export const EBARIMT_PAYMENT_STATUS_PAY = "PAY";
+export type EbarimtPaymentStatus = typeof EBARIMT_PAYMENT_STATUS_PAID | typeof EBARIMT_PAYMENT_STATUS_PAY;
+
+/**
+ * Дараа төлөгдөх (НЭХЭМЖЛЭХ) төлбөрийн `kind`. Ийм төлбөртэй борлуулалт
+ * `B2C_INVOICE` / `B2B_INVOICE` төрлөөр илгээгдэж, тэр хэсэг нь `PAY` статустай
+ * (docs/pos/03 T3). Сугалаа нэхэмжлэхэд олгогдохгүй.
+ */
+export const EBARIMT_INVOICE_PAYMENT_KINDS: readonly PaymentKind[] = ["credit"];
 
 /**
  * Төлбөрийн хэлбэрийн `kind` → санал болгох eBarimt код. ЗӨВХӨН UI-ийн
@@ -63,7 +75,7 @@ export const EBARIMT_PAYMENT_CODE_SUGGESTIONS: Record<PaymentKind, string | null
   card: "PAYMENT_CARD",
   ewallet: null,
   transfer: null,
-  credit: null,
+  credit: "INVOICE",
   advance: "CASH",
   gift_card: "CASH",
   store_credit: "CASH",

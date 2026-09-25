@@ -7,6 +7,7 @@ import {
   ebarimtSettingsProblems,
   initialSaleEbarimtStatus,
   receiptResponseOutcome,
+  receiptTypeOf,
   stripReceiptSecrets,
   taxTypeOf,
 } from "../lib/ebarimt/receipt";
@@ -132,6 +133,23 @@ test("B2B: customerTin өгвөл B2B_RECEIPT; буруу ТТД/иргэний 
   assert.throws(() => buildEbarimtReceipt(sale({ customerTin: "12" }), settings), /\[EBARIMT_SETTINGS\]/);
   assert.throws(() => buildEbarimtReceipt(sale({ consumerNo: "123" }), settings), /\[EBARIMT_SETTINGS\]/);
   assert.equal(buildEbarimtReceipt(sale({ consumerNo: "12345678" }), settings).consumerNo, "12345678");
+});
+
+test("зээлээр (credit) → B2C/B2B_INVOICE, зээлийн хэсэг PAY статус, бусад нь PAID", () => {
+  const credit = { kind: "credit" as const, methodName: "Зээлээр", ebarimtCode: "INVOICE", baseAmount: 661_550, reference: null };
+  const cash = { kind: "cash" as const, methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 1_000_000, reference: null };
+  const mixed = buildEbarimtReceipt(sale({ payments: [cash, credit] }), settings);
+  assert.equal(mixed.type, "B2C_INVOICE");
+  assert.deepEqual(
+    mixed.payments.map((payment) => [payment.code, payment.status, payment.paidAmount]),
+    [["CASH", "PAID", 1_000_000], ["INVOICE", "PAY", 661_550]]
+  );
+  const b2b = buildEbarimtReceipt(sale({ customerTin: "12345678901", payments: [{ ...credit, baseAmount: 1_661_550 }] }), settings);
+  assert.equal(b2b.type, "B2B_INVOICE");
+  assert.deepEqual(b2b.payments.map((payment) => payment.status), ["PAY"]);
+  // Бүрэн төлөгдсөн → RECEIPT хэвээр; 0 дүнтэй зээлийн мөр төрлийг өөрчлөхгүй
+  assert.equal(receiptTypeOf([cash, { ...credit, baseAmount: 0 }], null), "B2C_RECEIPT");
+  assert.equal(receiptTypeOf([cash], "12345678901"), "B2B_RECEIPT");
 });
 
 test("хэсэгчилсэн буцаалт: үлдсэн мөр л илгээгдэж, төлбөр хувь тэнцүү хуваарилагдана", () => {

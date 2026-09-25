@@ -7,7 +7,9 @@
 //  2. Мөрүүдийг taxType-аар БҮЛЭГЛЭЖ дэд баримт (receipts[]) болгоно.
 //  3. Мөрийн дүн = POS-ийн lineTotal (хөнгөлөлтийн дараах, татвар орсон) —
 //     computeSaleTotals-той ЯГ ижил; unitPrice = lineTotal / qty (2 орон).
-//  4. payments[] = хэлбэрийн ebarimtCode; Σ paidAmount = totalAmount. Хэсэгчилсэн
+//  4. payments[] = хэлбэрийн ebarimtCode; Σ paidAmount = totalAmount. Зээлээр
+//     (`credit`) төлбөр → тэр хэсэг `PAY` статус, баримт `B2C/B2B_INVOICE`
+//     (receiptTypeOf; сугалаа олгогдохгүй). Хэсэгчилсэн
 //     буцаалтын дараа (Σ мөр < бүтэн төлбөр) төлбөрүүдийг ХУВЬ ТЭНЦҮҮЛЭН
 //     хуваарилж, бөөрөнхийллийн зөрүүг хамгийн том төлбөр шингээнэ.
 //  5. Ямар нэг зүйл дутуу (ангилал, татварын код, төлбөрийн код, Σ зөрүү) →
@@ -22,9 +24,14 @@ import {
   DISTRICT_CODE_RE,
   EBARIMT_BARCODE_TYPES,
   EBARIMT_ERRORS,
+  EBARIMT_INVOICE_PAYMENT_KINDS,
+  EBARIMT_PAYMENT_STATUS_PAID,
+  EBARIMT_PAYMENT_STATUS_PAY,
   MERCHANT_TIN_RE,
   TAX_PRODUCT_CODE_RE,
   type EbarimtBarcodeType,
+  type EbarimtPaymentStatus,
+  type EbarimtReceiptType,
   type EbarimtStatus,
   type EbarimtTaxType,
 } from "./constants";
@@ -133,6 +140,28 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
   return item;
 }
 
+/** Дараа төлөгдөх (нэхэмжлэх) төлбөр мөн эсэх — зээлээр. */
+function paymentStatusOf(payment: EbarimtSaleInput["payments"][number]): EbarimtPaymentStatus {
+  return EBARIMT_INVOICE_PAYMENT_KINDS.includes(payment.kind)
+    ? EBARIMT_PAYMENT_STATUS_PAY
+    : EBARIMT_PAYMENT_STATUS_PAID;
+}
+
+/**
+ * Баримтын төрөл: зээлээр (дараа төлөх) хэсэгтэй бол НЭХЭМЖЛЭХ
+ * (`B2C_INVOICE` / `B2B_INVOICE`), үгүй бол RECEIPT; байгууллагын ТТД-тэй бол B2B.
+ */
+export function receiptTypeOf(
+  payments: EbarimtSaleInput["payments"],
+  customerTin: string | null
+): EbarimtReceiptType {
+  const invoice = payments.some(
+    (payment) => payment.baseAmount > 0.005 && paymentStatusOf(payment) === EBARIMT_PAYMENT_STATUS_PAY
+  );
+  if (customerTin) return invoice ? "B2B_INVOICE" : "B2B_RECEIPT";
+  return invoice ? "B2C_INVOICE" : "B2C_RECEIPT";
+}
+
 /**
  * Төлбөрүүдийг илгээх дүнд (targetTotal) тааруулна. Бүтэн борлуулалтад
  * ижил; хэсэгчилсэн буцаалтын дараа хувь тэнцүүлж, зөрүүг хамгийн том нь
@@ -154,7 +183,7 @@ export function allocatePayments(
   const factor = paidTotal > 0 ? targetTotal / paidTotal : 0;
   const scaled = positive.map((payment) => ({
     code: payment.ebarimtCode!.trim(),
-    status: "PAID" as const,
+    status: paymentStatusOf(payment),
     paidAmount: round2(payment.baseAmount * factor),
     ...(payment.reference ? { exchangeCode: payment.reference } : {}),
   }));
@@ -163,10 +192,10 @@ export function allocatePayments(
     const largest = scaled.reduce((best, payment) => (payment.paidAmount > best.paidAmount ? payment : best));
     largest.paidAmount = round2(largest.paidAmount + diff);
   }
-  // Ижил кодтой төлбөрүүдийг нэгтгэнэ (нэг хэлбэрээр хоёр удаа төлсөн).
+  // Ижил код + статустай төлбөрүүдийг нэгтгэнэ (нэг хэлбэрээр хоёр удаа төлсөн).
   const merged = new Map<string, EbarimtPayment>();
   for (const payment of scaled) {
-    const key = `${payment.code}|${payment.exchangeCode ?? ""}`;
+    const key = `${payment.code}|${payment.status}|${payment.exchangeCode ?? ""}`;
     const existing = merged.get(key);
     if (existing) existing.paidAmount = round2(existing.paidAmount + payment.paidAmount);
     else merged.set(key, { ...payment });
@@ -226,7 +255,7 @@ export function buildEbarimtReceipt(
     districtCode: settings.districtCode.trim(),
     merchantTin,
     posNo: settings.posNo.trim(),
-    type: customerTin ? "B2B_RECEIPT" : "B2C_RECEIPT",
+    type: receiptTypeOf(sale.payments, customerTin),
     receipts,
     payments: allocatePayments(sale.payments, totalAmount),
   };

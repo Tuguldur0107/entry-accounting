@@ -5,6 +5,13 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Changed
+
+- **eBarimt: зээлээр борлуулалт НЭХЭМЖЛЭХ төрлөөр.** Зээлээр (дараа төлөх) хэсэгтэй
+  борлуулалт `B2C_INVOICE` / `B2B_INVOICE` болж илгээгдэнэ; зээлийн хэсэг
+  `payments[].status = PAY`, бусад төлбөр `PAID`. Зээлийн хэлбэрийн санал болгох
+  код `INVOICE`.
+
 ### Added
 
 - **AI/MCP `update_pos_settings`: НӨАТ-гүй борлуулалтын данс** (`nonVatRevenueAccount`,

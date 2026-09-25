@@ -4,7 +4,7 @@
 
 import type { PaymentKind, VatMode } from "@/lib/pos/constants";
 
-import type { EbarimtBarcodeType, EbarimtReceiptType, EbarimtStatus, EbarimtTaxType } from "./constants";
+import type { EbarimtBarcodeType, EbarimtPaymentStatus, EbarimtReceiptType, EbarimtStatus, EbarimtTaxType } from "./constants";
 
 // ── PosAPI 3.0 JSON ────────────────────────────────────────────────────────
 
@@ -34,7 +34,8 @@ export interface EbarimtSubReceipt {
 
 export interface EbarimtPayment {
   code: string;
-  status: "PAID";
+  /** PAID = төлөгдсөн; PAY = нэхэмжлэхийн дараа төлөгдөх хэсэг (зээл). */
+  status: EbarimtPaymentStatus;
   paidAmount: number;
   /** Гуравдагч системийн лавлагаа (картын слип, QPay гүйлгээ). */
   exchangeCode?: string;
