@@ -7081,7 +7081,7 @@ async function runPayrollSummary(input: {
       `Цалингийн бодолт ${input.period} — ${data.lines.length} ажилтан:`,
       ...data.lines.map(
         (line) =>
-          `  ${line.employeeName}: олголт ${fmt(line.earnings)}₮, НДШ ${fmt(line.employeeSi)}₮, ХАОАТ ${fmt(line.pit)}₮ → гарт ${fmt(line.netSalary)}₮` +
+          `  ${line.employeeName}${line.employmentNote ? ` [${line.employmentNote}]` : ""}: олголт ${fmt(line.earnings)}₮, НДШ ${fmt(line.employeeSi)}₮, ХАОАТ ${fmt(line.pit)}₮ → гарт ${fmt(line.netSalary)}₮` +
           (line.advanceAmount > 0
             ? ` (урьдчилгаа ${fmt(line.advanceAmount)}₮ / ${line.advanceHours} цаг + сүүл ${fmt(line.finalNet)}₮)`
             : "")
@@ -8211,7 +8211,7 @@ async function runListEmployees(
       .sort((a, b) => a.name.localeCompare(b.name))
       .map(
         (row) =>
-          `${row.name}${row.position ? ` · ${row.position}` : ""} · цалин ${fmt(Number(row.baseSalary))}₮ · АО-НДШ ${Number(row.employerSiPercent)}%${row.isActive ? "" : " · ИДЭВХГҮЙ"}`
+          `${row.name}${row.position ? ` · ${row.position}` : ""} · цалин ${fmt(Number(row.baseSalary))}₮ · АО-НДШ ${Number(row.employerSiPercent)}%${row.hireDate ? ` · орсон ${row.hireDate}` : ""}${row.terminationDate ? ` · ГАРСАН ${row.terminationDate}` : ""}${row.isActive ? "" : " · ИДЭВХГҮЙ"}`
       )
       .join("\n"),
   };
