@@ -43,6 +43,56 @@ POST /rest/receipt → ДДТД; хэсэгчилсэн буцаалт `inactive
 
 ## 2. P0 — staging тестгүйгээр production-д ИТГЭХ БОЛОМЖГҮЙ
 
+### 2.0 Засварын тэмдэглэл (2026-09-25 — P0-1/P0-2/P0-3 нэг PR)
+
+**Staging тест (§4.1) ЭНЭ удаа АЖИЛЛУУЛААГҮЙ — шалтгаан:** Монголын IP
+(Улаанбаатар, Univision) байсан ч §4.1-ийн тест PosAPI daemon (`localhost:7080`)
+руу явдаг. Daemon нь Linux `.deb` (Qt, NIC шаардана); хөгжүүлэлтийн Mac дээр Docker
+ч, суулгасан PosAPI ч байхгүй; Railway-ийн `Entry Accounting` төсөлд PosAPI service
+БАЙХГҮЙ (PROD PosAPI операторын өөрийн серверт — `docs/deployment/ebarimt.md` §4,
+тест баримт илгээх ХОРИОТОЙ). `st-operator.ebarimt.mn` (200) ба
+`api.ebarimt.mn` (200) хүрч байгааг л баталгаажуулав. §4.1 (1)(2)(3)(5) тестийг
+тестийн оператор PosAPI суусан Linux машин / контейнерээс ажиллуулж үр дүнг
+доорх хүснэгтэд нөхнө — production деплойн ӨМНӨ.
+
+| # | Тест | Үр дүн | Огноо / PosAPI version |
+|---|---|---|---|
+| 1 | `totalVat` (хуучин) | _хүлээгдэж байна_ | — |
+| 2 | `totalVAT` (шинэ) | _хүлээгдэж байна_ | — |
+| 3 | `billIdSuffix`-гүй | _хүлээгдэж байна_ | — |
+| 4 | `billIdSuffix` 6 / 8 оронтой цифр (Entry-ийн бодит урт), үсэгтэй | _хүлээгдэж байна_ | — |
+| 5 | Ижил `billIdSuffix` өдөртөө 2 удаа | _хүлээгдэж байна_ | — |
+
+**Кодонд хийсэн (албан баримтыг дагаж, staging хариу хүлээлгүй — хоёр SDK ба
+албан хуудас нэг л хэлбэрийг заадаг):**
+
+- **P0-1 ✅** `EbarimtItem` / `EbarimtSubReceipt` / `EbarimtReceiptRequest`-ийн талбар
+  `totalVAT` (TS нэр = wire түлхүүр); `receipt.ts` гурван түвшинд `totalVAT`;
+  `tests/ebarimt-receipt.test.ts`-д wire JSON snapshot (`"totalVat"` ХЭЗЭЭ Ч үгүй,
+  `"totalVAT":` тоо = 1 + receipts + items). `lib/`, `components/`, `app/`-д өөр
+  уншигч байгаагүй (grep).
+- **P0-2 ✅** `billIdSuffixOf(documentNo, edit)` (`receipt.ts`, ЦЭВЭР, тесттэй):
+  `POS-YYMM-NNNN` → `MMNNNN` (6 орон — сарын дараалал тул өдөртөө давтагдахгүй,
+  сарын хил дээр хоцорч илгээгдсэн баримт MM-ээр ялгарна); `edit ≥ 1` → + 2 орон
+  (`09000101`); POS биш угтвар (`RET-`) → тэргүүлэх `9`; цифргүй →
+  `[EBARIMT_BILL_ID]`. `buildEbarimtReceipt` root-д ЗААВАЛ тавина; `inactiveId`
+  засварт `edit` өгөөгүй бол 1 (эх suffix-тэй ижил явуулбал PosAPI дедуп хийгээд
+  шинэ ДДТД олгохгүй байж болзошгүй). `prepareSubmission` `edit` = тухайн
+  борлуулалтын ЭНЭ submission-оос ЭРТ үүссэн submission-ийн тоо (`editIndexOf`,
+  createdAt/id дараалал) — оролдлогын тооноос ХАМААРАХГҮЙ тул нэг submission-ийн
+  бүх дахин илгээлтэд ИЖИЛ (PosAPI дедуп), дараагийн бичилт бүрд ӨӨР. Зөвхөн
+  цифр, ердийн урт 6–8 — §4.1 (4)-ийг энэ уртаар шалгана.
+- **P0-3 ✅** `POSAPI_RECEIPT_TIMEOUT_MS = 90_000` — `POST`/`DELETE /rest/receipt`
+  хоёуланд (`/rest/info` 10с, `sendData` 60с хэвээр); `EBARIMT_INLINE_SEND_TIMEOUT_MS`
+  8с хэвээр (кассын хүлээлт, Promise.race — ажил ард үргэлжилнэ, claim 10 мин
+  хүртэл). Timeout нь тусдаа код `EBARIMT_POSAPI_TIMEOUT` («хүрсэнгүй» биш —
+  «хүрч ДДТД үүссэн байж болзошгүй»); worker `lastError`-д «ДАВХАР ДДТД-ийн
+  ЭРСДЭЛ: дахин илгээхэд ижил billIdSuffix=… явна — PosAPI үүгээр давхардлыг
+  таних ёстой; ТЕГ-ийн баримтыг гараар тулгана» гэж ил бичээд backoff-оор дахин
+  оролдоно. `/rest/info`-оор амьд эсэхийг урьдчилж шалгах алхмыг НЭМЭЭГҮЙ (§4.1 (5)
+  дедупийн хариу гартал — PosAPI дедуп хийдэг бол шаардлагагүй, хийдэггүй бол
+  timeout-ын дараа АВТОМАТ дахин илгээлтийг өөрөө зогсоох хэрэгтэй болно).
+
 ### P0-1. JSON түлхүүрийн бичлэг: `totalVAT` (албан) vs `totalVat` (Entry)
 
 | Эх | Root | receipts[] | items[] |
@@ -129,7 +179,7 @@ staging DB) эсвэл `tests/ebarimt-receipt.test.ts`-ийн fixture-ээр `bu
 | 1 | Payload-ыг **яг одоогийнхоор** (`totalVat`) илгээх | Хариуны `totalVAT` = хүлээгдэж буй НӨАТ үү, 0 уу? 0 бол P0-1 БАТЛАГДАНА |
 | 2 | Ижил payload `totalVAT`-аар | `totalVAT` зөв; `status: SUCCESS` |
 | 3 | `billIdSuffix`-гүй илгээх | ERROR уу, PosAPI өөрөө нөхөв үү (хариуны `id`-ийн сүүлийн орнууд) |
-| 4 | `billIdSuffix` 4 / 8 оронтой цифр, үсэгтэй | Зөвшөөрөгдөх урт/тэмдэгт |
+| 4 | `billIdSuffix` 6 / 8 оронтой цифр (Entry: `090001` / `09000101`), үсэгтэй | Зөвшөөрөгдөх урт/тэмдэгт — 8 орон татгалзвал `billIdSuffixOf`-ийн засварын дугаарыг 1 орон болгоно |
 | 5 | **Ижил `billIdSuffix` өдөртөө 2 удаа** (P0-3 симуляц) | Хоёр дахь нь ижил ДДТД буцаах уу (дедуп) / ERROR уу / шинэ ДДТД үү |
 | 6 | `taxType: "NOT_VAT"` ба `"NO_VAT"` (НӨАТ төлөгч бус тест мерчант байвал) | Аль нь хүлээн авагдах; Entry НӨАТ төлөгч бус байгууллагад илгээдэггүй тул нөлөө бага (§5) |
 | 7 | B2B_RECEIPT-ийг `DELETE` | Хариу (хүлээн авах / татгалзах / хүлээгдэж буй) → P1-3 |
@@ -151,8 +201,9 @@ curl -sS "$POSAPI/rest/info" | jq '{operatorTIN,posNo,leftLotteries,lastSentDate
 npm test -- tests/ebarimt-receipt.test.ts tests/ebarimt-posapi-info.test.ts tests/ebarimt-lookup.test.ts tests/ebarimt-readiness.test.ts
 ```
 
-Шинэ тест: `billIdSuffix` өдөрт давтагдашгүй ба `inactiveId` засварт өөр; wire
-JSON-д `totalVAT` түлхүүр (snapshot).
+Шинэ тест (✅ 2026-09-25, `tests/ebarimt-receipt.test.ts`): `billIdSuffix` өдөрт
+давтагдашгүй, дахин илгээлтэд тогтвортой, `inactiveId` засварт өөр, `RET-` эхээс
+өөр; wire JSON-д `totalVAT` түлхүүр, `totalVat` үгүй (snapshot).
 
 ---
 
@@ -182,8 +233,9 @@ JSON-д `totalVAT` түлхүүр (snapshot).
 ## 6. Дараагийн алхам
 
 1. §4.1-ийг Монголоос ажиллуулж үр дүнг энэ баримтын §2–3-д бичих (огноо, PosAPI version)
-2. P0-1/P0-2/P0-3-ыг НЭГ PR-аар (types → receipt → client timeout → тест) — production
-   деплойн өмнө staging дээр 1 бүтэн + 1 хэсэгчилсэн буцаалт + 1 B2B
+2. ✅ P0-1/P0-2/P0-3 НЭГ PR-аар (types → receipt → client timeout → тест) — §2.0;
+   production деплойн өмнө staging дээр §4.1 (1)(2)(3)(5) + 1 бүтэн + 1 хэсэгчилсэн
+   буцаалт + 1 B2B (ХҮЛЭЭГДЭЖ БАЙНА — PosAPI daemon-той Linux орчин хэрэгтэй)
 3. P1-1/P1-2 — Монголын egress шийдэл (операторын сервер) + харилцагчийн картын ТТД
 4. `docs/pos/03-ebarimt-integration-plan.md` §8-д «2026-09-25 developer портал v3.0.12-тэй
    тулгав» мөр, `02-implementation-status.md`-д P2-5 (ОАТ) хязгаар

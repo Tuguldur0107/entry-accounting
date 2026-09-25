@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   allocatePayments,
+  billIdSuffixOf,
   buildEbarimtReceipt,
   ebarimtSettingsProblems,
   initialSaleEbarimtStatus,
@@ -76,7 +77,7 @@ test("B2C баримт: нэг VAT_ABLE дэд баримт, Σ мөр = totalAm
   assert.equal(request.receipts.length, 1);
   assert.equal(request.receipts[0].taxType, "VAT_ABLE");
   assert.equal(request.totalAmount, 1_661_550);
-  assert.equal(request.totalVat, 151_050);
+  assert.equal(request.totalVAT, 151_050);
   assert.equal(request.receipts[0].items[1].unitPrice, 53_850);
   assert.equal(request.receipts[0].items[1].qty, 3);
   const paid = request.payments.reduce((sum, payment) => sum + payment.paidAmount, 0);
@@ -85,14 +86,14 @@ test("B2C баримт: нэг VAT_ABLE дэд баримт, Σ мөр = totalAm
   assert.equal(request.consumerNo, undefined);
 });
 
-test("НӨАТ төлөгч бус: NOT_VAT, totalVat 0, taxProductCode шаардахгүй", () => {
+test("НӨАТ төлөгч бус: NOT_VAT, totalVAT 0, taxProductCode шаардахгүй", () => {
   const request = buildEbarimtReceipt(
     sale({ isVatPayer: false, lines: [line({ itemName: "A", quantity: 2, lineTotal: 20_000, vatMode: "exempt", vatAmount: 0 })], total: 20_000, payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 20_000, reference: null }] }),
     settings
   );
   assert.equal(request.receipts[0].taxType, "NOT_VAT");
-  assert.equal(request.totalVat, 0);
-  assert.equal(request.receipts[0].items[0].totalVat, 0);
+  assert.equal(request.totalVAT, 0);
+  assert.equal(request.receipts[0].items[0].totalVAT, 0);
 });
 
 test("холимог taxType → дэд баримт бүрд бүлэглэнэ; exempt-д татварын код заавал", () => {
@@ -108,7 +109,7 @@ test("холимог taxType → дэд баримт бүрд бүлэглэнэ
   assert.equal(request.receipts.length, 2);
   const free = request.receipts.find((receipt) => receipt.taxType === "VAT_FREE")!;
   assert.equal(free.items[0].taxProductCode, "447");
-  assert.equal(free.totalVat, 0);
+  assert.equal(free.totalVAT, 0);
   assert.equal(request.totalAmount, 32_200);
 
   const missingCode = sale({ ...mixed, lines: [{ ...mixed.lines[0], taxProductCode: null }, mixed.lines[1]] });
@@ -201,6 +202,58 @@ test("хэсэгчилсэн буцаалтын засвар: inactiveId = сү�
   const plain = buildEbarimtReceipt(sale({ lines: [line({ itemName: "А", quantity: 1, lineTotal: 1100 })] }), settings);
   assert.equal("inactiveId" in plain, false);
   assert.equal(buildEbarimtReceipt(sale({ lines: [line({ itemName: "А", quantity: 1, lineTotal: 1100 })] }), settings, { inactiveId: "  " }).inactiveId, undefined);
+});
+
+test("wire JSON: түлхүүр албан спекийнх — totalVAT (root/receipts/items), billIdSuffix заавал, camelCase totalVat ХЭЗЭЭ Ч үгүй", () => {
+  const request = buildEbarimtReceipt(sale(), settings);
+  const wire = JSON.stringify(request);
+  assert.equal(wire.includes('"totalVat"'), false);
+  assert.equal((wire.match(/"totalVAT":/g) ?? []).length, 1 + request.receipts.length + request.receipts[0].items.length);
+  assert.equal(request.receipts[0].totalVAT, 151_050);
+  assert.equal(request.receipts[0].items[0].totalVAT, 136_363.64);
+  // billIdSuffix root түвшинд, зөвхөн цифр
+  assert.equal(request.billIdSuffix, "090001");
+  assert.match(wire, /"billIdSuffix":"090001"/);
+});
+
+test("billIdSuffixOf: өдөртөө давтагдашгүй, дахин илгээлтэд тогтвортой, засвар/буцаалт бүрд өөр", () => {
+  // Нэг submission-ийн бүх оролдлогод ИЖИЛ (PosAPI давхардлыг үүгээр таньдаг — P0-3)
+  assert.equal(billIdSuffixOf("POS-2609-0001"), billIdSuffixOf("POS-2609-0001"));
+  assert.equal(billIdSuffixOf("POS-2609-0001", 0), "090001");
+  // Ижил өдрийн өөр борлуулалт → өөр; сарын хил (9-р сарын хоцорсон + 10-р сарын шинэ) → өөр
+  const sameDay = ["POS-2609-0001", "POS-2609-0002", "POS-2609-1234", "POS-2610-0001", "POS-2610-0002"].map((no) => billIdSuffixOf(no));
+  assert.equal(new Set(sameDay).size, sameDay.length);
+  // inactiveId засвар (edit ≥ 1) → эх баримтаас ӨӨР, засвар бүр өөр хоорондоо ч өөр
+  assert.equal(billIdSuffixOf("POS-2609-0001", 1), "09000101");
+  assert.equal(billIdSuffixOf("POS-2609-0001", 2), "09000102");
+  assert.notEqual(billIdSuffixOf("POS-2609-0001", 1), billIdSuffixOf("POS-2609-0001"));
+  // Засварын suffix өөр борлуулалтын эх suffix-тэй давхцахгүй (урт өөр)
+  assert.notEqual(billIdSuffixOf("POS-2609-0001", 1), billIdSuffixOf("POS-2609-0101"));
+  // RET- буцаалтын баримт (өөрөө илгээгдэхгүй ч) эх POS-той хэзээ ч давхцахгүй
+  assert.equal(billIdSuffixOf("RET-2609-0001"), "9090001");
+  assert.notEqual(billIdSuffixOf("RET-2609-0001"), billIdSuffixOf("POS-2609-0001"));
+  // Зөвхөн цифр
+  for (const value of [...sameDay, billIdSuffixOf("RET-2609-0007", 3)]) assert.match(value, /^\d+$/);
+  // Танигдахгүй хэлбэр → бүх цифр (POS биш угтварт "9"); цифргүй → [EBARIMT_BILL_ID]; засварын дугаар мужаас гарвал шидэнэ
+  assert.equal(billIdSuffixOf("  A/77-12 "), "97712");
+  assert.equal(billIdSuffixOf("77-12"), "7712");
+  assert.throws(() => billIdSuffixOf("POS-ABC"), /\[EBARIMT_BILL_ID\]/);
+  assert.throws(() => billIdSuffixOf("POS-2609-0001", 100), /\[EBARIMT_BILL_ID\]/);
+  assert.throws(() => billIdSuffixOf("POS-2609-0001", -1), /\[EBARIMT_BILL_ID\]/);
+});
+
+test("buildEbarimtReceipt: billIdSuffix — энгийн баримт edit 0, inactiveId засварт өгөөгүй бол 1, ил edit давамгайлна", () => {
+  const one = sale({ lines: [line({ itemName: "А", quantity: 1, lineTotal: 1100 })] });
+  const plain = buildEbarimtReceipt(one, settings);
+  const edited = buildEbarimtReceipt(one, settings, { inactiveId: "1".repeat(33) });
+  const explicit = buildEbarimtReceipt(one, settings, { inactiveId: "1".repeat(33), edit: 3 });
+  assert.equal(plain.billIdSuffix, "090001");
+  assert.equal(edited.billIdSuffix, "09000101");
+  assert.equal(explicit.billIdSuffix, "09000103");
+  // Дахин илгээлт (edit 0-тэй хоёр дахь send) — ижил утга буцна
+  assert.equal(buildEbarimtReceipt(one, settings).billIdSuffix, plain.billIdSuffix);
+  // Хоосон inactiveId = засвар БИШ → edit 0
+  assert.equal(buildEbarimtReceipt(one, settings, { inactiveId: "  " }).billIdSuffix, "090001");
 });
 
 test("stripReceiptSecrets: сугалаа ба QR хадгалагдахгүй — дэд баримтаас ч; эх объект хөндөгдөхгүй", () => {

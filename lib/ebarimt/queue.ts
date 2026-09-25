@@ -4,7 +4,7 @@
 // Борлуулалтын commit-ийн ДАРАА enqueue хийгдэнэ; энд ХЭЗЭЭ Ч шидэхгүй —
 // борлуулалт илгээлтээс болж унахгүй (алдаа лог руу, submission failed).
 
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -215,11 +215,34 @@ export interface PreparedSubmission {
 }
 
 /**
+ * `billIdSuffix`-ийн засварын дугаар = энэ борлуулалтын ӨМНӨХ (энэ submission-оос
+ * эрт үүссэн) submission-ийн тоо. Оролдлогын тооноос ХАМААРАХГҮЙ тул нэг
+ * submission-ийн дахин илгээлт бүрд ижил (PosAPI давхардлыг таних), харин
+ * дараагийн бичилт (inactiveId засвар, цуцлагдсаны дараах дахин илгээлт) бүрд өөр.
+ */
+async function editIndexOf(submission: { id: string; saleId: string; organizationId: string; createdAt: Date }): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(posEbarimtSubmissions)
+    .where(
+      and(
+        eq(posEbarimtSubmissions.organizationId, submission.organizationId),
+        eq(posEbarimtSubmissions.saleId, submission.saleId),
+        or(
+          lt(posEbarimtSubmissions.createdAt, submission.createdAt),
+          and(eq(posEbarimtSubmissions.createdAt, submission.createdAt), lt(posEbarimtSubmissions.id, submission.id))
+        )
+      )
+    );
+  return Math.min(Number(row?.count ?? 0), 99);
+}
+
+/**
  * Submission-ийг илгээхэд бэлтгэнэ (payload үүсгэж хадгална). Payload үүсэхгүй
  * бол ([EBARIMT_*]) submission failed → null.
  */
 export async function prepareSubmission(
-  submission: { id: string; organizationId: string; saleId: string; kind: string; attempts: number },
+  submission: { id: string; organizationId: string; saleId: string; kind: string; attempts: number; createdAt: Date },
   settingsRow: PosSettings
 ): Promise<PreparedSubmission | null> {
   const settings = settingsInputOf(settingsRow);
@@ -253,7 +276,7 @@ export async function prepareSubmission(
     if (kind === "send") {
       if (alreadySent) return settle(null); // давхар enqueue
       if (!hasRemaining) return settle("cancelled"); // илгээхээс өмнө бүгд буцаагдсан
-      request = buildEbarimtReceipt(input, settings);
+      request = buildEbarimtReceipt(input, settings, { edit: await editIndexOf(submission) });
     } else if (!alreadySent) {
       // Эх нь ТЕГ-д очоогүй байхад буцаагдав — цуцлах/засах зүйл алга; хүлээгдэж
       // буй илгээлт (байвал) буцаалтыг тооцсон үлдсэн мөрөөр өөрөө явна.
@@ -262,7 +285,10 @@ export async function prepareSubmission(
       // ХЭСЭГЧИЛСЭН буцаалт — албан спек §5: inactiveId = сүүлийн ДДТД, шинэ
       // бичилт эхийг орлоно, сугалаа ДАХИН олгогдохгүй (DELETE + шинэ бол
       // үйлчлүүлэгч хоёр дахь сугалаа авах зөрчил байсан).
-      request = buildEbarimtReceipt(input, settings, { inactiveId: sale.ebarimtId });
+      request = buildEbarimtReceipt(input, settings, {
+        inactiveId: sale.ebarimtId,
+        edit: Math.max(1, await editIndexOf(submission)),
+      });
     } else {
       // БҮТЭН буцаалт — §6 DELETE.
       if (!sale.ebarimtDate)

@@ -156,8 +156,12 @@ Cr COGS, `provisional_avg`), буцаан олголт: касс/банк хэл
 
 ```ts
 buildEbarimtReceipt(sale: EbarimtSaleInput, settings: EbarimtSettingsInput,
-                    options?: { inactiveId?: string | null }): EbarimtReceiptRequest
+                    options?: { inactiveId?: string | null; edit?: number }): EbarimtReceiptRequest
   // inactiveId = засварлах (хэсэгчилсэн буцаалт) баримтын СҮҮЛИЙН ДДТД — албан заавар §5
+  // edit = борлуулалтын ӨМНӨХ submission-ийн тоо (billIdSuffix-д; өгөөгүй бол inactiveId-тай 1)
+  // wire түлхүүр: totalVAT (root/receipts/items), billIdSuffix заавал — docs/integrations/01 §2
+billIdSuffixOf(documentNo: string, edit?: number): string
+  // POS-2609-0001 → "090001"; edit=1 → "09000101"; RET- → "9…"; цифргүй → EBARIMT_BILL_ID
 allocatePayments(payments: EbarimtSalePaymentInput[], targetTotal: number): EbarimtPayment[]
 taxTypeOf(line: { vatMode }, isVatPayer: boolean): EbarimtTaxType
 ebarimtSettingsProblems(settings: EbarimtSettingsInput): string[]
@@ -199,8 +203,11 @@ loadEbarimtReadiness(orgId): Promise<EbarimtReadiness>
 
 **PosAPI клиент** (`lib/ebarimt/client.ts`, DB-гүй — browser горимд ч дуудагдана):
 `posApiPutReceipt(url, request)`, `posApiDeleteReceipt(url, { id, date })`,
-`posApiInfo(url)`, `posApiSendData(url)`. Timeout 10с (sendData 60с), сүлжээний
-алдаа → `EBARIMT_POSAPI`.
+`posApiInfo(url)`, `posApiSendData(url)`. Timeout: `/rest/info` 10с, `POST`/`DELETE
+/rest/receipt` **90с** (`POSAPI_RECEIPT_TIMEOUT_MS` — PosAPI нөөцөө түлхэж байхдаа
+удаан хариулдаг, богино таслаад дахин илгээвэл давхар ДДТД), sendData 60с; сүлжээний
+алдаа → `EBARIMT_POSAPI`, timeout → `EBARIMT_POSAPI_TIMEOUT` (worker `lastError`-д
+«давхар ДДТД-ийн эрсдэл» + ижил `billIdSuffix`-тэй дахин илгээнэ гэж ил бичнэ).
 
 **Дараалал** (`lib/ebarimt/queue.ts`, DB давхарга, "use server" БИШ):
 `enqueueEbarimt(orgId, saleId, kind, handle?)` (ХЭЗЭЭ Ч шидэхгүй — false буцаана),

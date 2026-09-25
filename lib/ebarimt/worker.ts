@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 import { posEbarimtSubmissions, posSales, posSettings } from "@/lib/db/schema";
 
 import { posApiDeleteReceipt, posApiPutReceipt, posApiSendData } from "./client";
-import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_MAX_ATTEMPTS } from "./constants";
+import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_ERRORS, EBARIMT_MAX_ATTEMPTS } from "./constants";
 import { claimDueSubmissions, markFailed, markSent, prepareSubmission, type PreparedSubmission } from "./queue";
 import { EbarimtError, receiptResponseOutcome } from "./receipt";
 import type { EbarimtReceiptResponse, EbarimtSaleResult } from "./types";
@@ -153,9 +153,22 @@ export async function processSubmission(
     }
     return { outcome: "sent", result: applied.result };
   } catch (error) {
-    // Сүлжээ / timeout — дахин оролдоно (backoff).
-    const attempts = await markFailed(prepared.id, prepared.saleId, error, { maxAttempts: EBARIMT_MAX_ATTEMPTS });
-    await alertIfNeeded(prepared.orgId, prepared.saleId, attempts, error instanceof Error ? error.message : String(error));
+    // Сүлжээ / timeout — дахин оролдоно (backoff). Timeout нь ДАВХАР ДДТД-ийн
+    // эрсдэлтэй (хүсэлт хүрсэн байж болзошгүй) — lastError-д ил, дараагийн
+    // оролдлого ижил billIdSuffix-тэй явж PosAPI давхардлыг таних ёстой.
+    const failure =
+      error instanceof EbarimtError && error.code === EBARIMT_ERRORS.posApiTimeout
+        ? new EbarimtError(
+            error.code,
+            `${error.message.replace(/^\[[^\]]+\] /, "")}. ${
+              prepared.request
+                ? `ДАВХАР ДДТД-ийн ЭРСДЭЛ: дахин илгээхэд ижил billIdSuffix=${prepared.request.billIdSuffix} явна — PosAPI үүгээр давхардлыг таних ёстой; ТЕГ-ийн баримтыг гараар тулгана`
+                : `Цуцлах хүсэлт (ДДТД ${prepared.cancel?.id ?? "?"}) дахин илгээгдэнэ — DELETE давтагдахад давхар баримт үүсэхгүй`
+            } (docs/integrations/01 §2 P0-3)`
+          )
+        : error;
+    const attempts = await markFailed(prepared.id, prepared.saleId, failure, { maxAttempts: EBARIMT_MAX_ATTEMPTS });
+    await alertIfNeeded(prepared.orgId, prepared.saleId, attempts, failure instanceof Error ? failure.message : String(failure));
     return { outcome: "failed", result: null };
   }
 }

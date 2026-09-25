@@ -22,7 +22,7 @@ PROD + ST хувилбар), «Хэрэглэгчийн систем нийлү�
 | Бүртгэл | ebarimt.mn мерчант портал → «PosAPI 3.0 хүсэлт» → батлагдмагц **merchantTin (ТТД, 11/14 орон)**, **branchNo (салбар)**, **posNo (кассын дугаар)**, **districtCode (4 оронтой дүүрэг)** олгогдоно; PosAPI суулгац тэдгээрээр идэвхжинэ | `pos_settings`-д eBarimt блок; кассын ээлж бүр ≠ posNo (posNo нь бүртгэлтэй терминал — ээлжээс тусдаа) |
 | Баримтын төрөл | `B2C_RECEIPT` (иргэн, `consumerNo` 8 оронтой эсвэл хоосон), `B2B_RECEIPT` (`customerTin` — байгууллага), `B2C_INVOICE` / `B2B_INVOICE` (нэхэмжлэх, дараа төлөгдөх) | POS борлуулалт → RECEIPT; зээлээр (`credit`) төлбөр → INVOICE эсэх — §8 асуулт |
 | Татварын төрөл | Дэд баримт (`receipts[]`) бүр нэг `taxType`: `VAT_ABLE` / `VAT_FREE` / `VAT_ZERO` / `NOT_VAT` (НӨАТ төлөгч бус) | Барааны `vatMode` (standard/exempt/zero) + `vat_settings.isVatPayer` → мөрүүдийг taxType-аар БҮЛЭГЛЭНЭ |
-| Барааны ангилал | Мөр бүрд **`classificationCode` 7 оронтой** (ТЕГ-ийн бараа/үйлчилгээний ангилал), `VAT_FREE`/`VAT_ZERO`-д **`taxProductCode` 3 оронтой** заавал; `barCode` + `barCodeType` (`UNDEFINED`/`GS1`/`ISBN`…), `measureUnit`, `qty`, `unitPrice` (татвар ОРСОН), `totalVat`, `totalCityTax`, `totalAmount` | `inventory_items`-д 2 шинэ талбар; ангилалгүй бараа eBarimt-д илгээгдэхгүй → UI-д улаан |
+| Барааны ангилал | Мөр бүрд **`classificationCode` 7 оронтой** (ТЕГ-ийн бараа/үйлчилгээний ангилал), `VAT_FREE`/`VAT_ZERO`-д **`taxProductCode` 3 оронтой** заавал; `barCode` + `barCodeType` (`UNDEFINED`/`GS1`/`ISBN`…), `measureUnit`, `qty`, `unitPrice` (татвар ОРСОН), `totalVAT` (түлхүүр ЯГ ингэж — camelCase биш), `totalCityTax`, `totalAmount` | `inventory_items`-д 2 шинэ талбар; ангилалгүй бараа eBarimt-д илгээгдэхгүй → UI-д улаан |
 | Хотын татвар | `totalCityTax` (НХАТ — зөвхөн тодорхой салбар: зочид буудал, ресторан, бар, согтууруулах ундаа/тамхи) | `pos_settings.cityTaxPercent` (default 0); НХАТ өглөгийн данс роль |
 | Төлбөр | `payments[]`: `code` (`CASH`, `PAYMENT_CARD`, … ), `status: PAID`, `paidAmount`, `exchangeCode` (гуравдагч системийн код); Σ = `totalAmount` | 10 `kind` → eBarimt код map (§4.3) |
 | Хариу | `id` (**ДДТД**), `lottery` (сугалааны дугаар), `qrData` (баримт дээрх QR), `date` (`yyyy-MM-dd HH:mm:ss`), `status`, `message` | `pos_sales.ebarimtId/ebarimtLottery/ebarimtStatus` + шинэ `ebarimtQrData`, `ebarimtDate` |
@@ -136,9 +136,9 @@ counterparties               registerNo (одоо байгаа) → getTinInfo-�
 1. Мөр бүрийн taxType: org НӨАТ төлөгч биш → бүгд `NOT_VAT`; төлөгч бол `vatMode`
    standard→`VAT_ABLE`, exempt→`VAT_FREE`, zero→`VAT_ZERO`.
 2. Мөрүүдийг taxType-аар бүлэглэж `receipts[]` дэд баримт болгоно; дэд баримт бүр
-   `totalAmount/totalVat/totalCityTax` = Σ мөр.
+   `totalAmount/totalVAT/totalCityTax` = Σ мөр.
 3. Мөр: `unitPrice` = хөнгөлөлтийн ДАРААХ нэгж үнэ (татвар орсон), `totalAmount` =
-   `lineTotal`, `totalVat` = `vatAmount` — POS-ийн `computeSaleTotals`-той ЯГ ижил
+   `lineTotal`, `totalVAT` = `vatAmount` — POS-ийн `computeSaleTotals`-той ЯГ ижил
    бөөрөнхийлөл (largest-line absorb); Σ мөр = баримтын `total` (бөөрөнхийллийн
    `roundingAmount` → тусдаа мөр биш, ТЕГ-ийн дүрмээр §8).
 4. `payments[]`: §4.3 map; Σ paidAmount = totalAmount (хариулт ХАСАГДСАН).
@@ -266,7 +266,7 @@ eBarimt тулгалт (ТЕГ-ийн нэвтрэлттэй API); easy registra
 | Нэг суулгац олон ТТД | **ТИЙМ** — §1.2 | Гарын авлага | Топологи A′ |
 | Мерчант нэвтрүүлэх | operator.ebarimt.mn → posNo-гоор PosAPI → «Мерчант нэмэх» (ТТД) → харилцагч e-invoice.ebarimt.mn-д батална | §4, Links.txt | `ebarimt.md` §2; статус «Мерчант бүртгэл» |
 | ТТД, салбар, posNo, дүүрэг | Харилцагчийнх; `posNo` = дотоод кассын дугаар (PosAPI-ийн 8 оронтой posNo-той өөр) | §5 | `pos_settings` хэвээр |
-| `POST /rest/receipt` талбарууд | Спекийн JSON: + `inactiveId`, `reportMonth`, `totalBonus`, `data{}`; `type` 4 утга; `taxType` VAT_ABLE/FREE/ZERO; `barCodeType` UNDEFINED/GS1/ISBN | §5 | `inactiveId` нэмэгдэв; бусад сонголтоор |
+| `POST /rest/receipt` талбарууд | Спекийн JSON: + `inactiveId`, `reportMonth`, `totalBonus`, `data{}`; `type` 4 утга; `taxType` VAT_ABLE/FREE/ZERO; `barCodeType` UNDEFINED/GS1/ISBN. **2026-09-25 developer портал v3.0.12-тэй тулгав** (`docs/integrations/01-ebarimt-posapi-verification.md`): НӨАТ-ын түлхүүр root/`receipts[]`/`items[]` гурвуулд **`totalVAT`** (camelCase `totalVat` биш); **`billIdSuffix`** ✔ шаардлагатай — «тухайн өдөртөө дахин давтагдашгүй дугаар», ДДТД-ийн давхардлыг үүгээр таньдаг | §5, developer портал | `totalVAT` болгож солив (P0-1); `billIdSuffix` = `billIdSuffixOf(documentNo, edit)` — `POS-YYMM-NNNN` → `MMNNNN`, засварт + 2 орон, нэг submission-ийн дахин илгээлтэд ИЖИЛ (P0-2); `/rest/receipt` timeout 90 сек + timeout-д «давхар ДДТД-ийн эрсдэл» lastError (P0-3) |
 | Төлбөрийн код | Гарын авлагад CASH, PAYMENT_CARD, BONUS_CARD_TEST; ewallet/transfer/BNPL-ийн код developer порталаас — staging дээр тулгана | §5 | `EBARIMT_PAYMENT_CODE_SUGGESTIONS` хэвээр |
 | Хариуны алдаа | `status`/`message`; `httpStatus` DELETE-д | §5–6 | хэвээр |
 | Цуцлах / хэсэгчилсэн | Бүтэн → DELETE (§6); хэсэгчилсэн → `inactiveId` гинж, **сугалаа дахин олгохгүй** (§5) | Гарын авлага | **ЗАСАГДАВ** (v1 DELETE+шинэ байсан) |
