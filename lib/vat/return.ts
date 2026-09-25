@@ -213,3 +213,28 @@ export function computeVatReturn(
     inputLineCount,
   };
 }
+
+/**
+ * SIM2-015: тооцоо хийсний ДАРАА тухайн сарын нэхэмжлэх батлагдвал тооцоо
+ * хуучирна. Одоогийн тайлан ба аль хэдийн бичигдсэн тооцоо(нууд)-ын зөрүү =
+ * НЭМЭЛТ тооцоо: Dr гаралт Δ / Кт оролт Δ / Кт банк Δ. Гаралт буурсан эсвэл
+ * төлөх дүн буурсан (буцаан авах) тохиолдлыг автоматаар бичихгүй — ИЛ
+ * мэдэгдэнэ (`negative`).
+ */
+export function planVatSettlementDelta(
+  summary: Pick<VatReturnSummary, "outputVat" | "inputVat" | "carriedInVat">,
+  settled: { output: number; input: number }
+): { outputDelta: number; inputDelta: number; payableDelta: number; needed: boolean; negative: boolean } {
+  const inputOffsetNow = Math.min(round2(summary.inputVat + summary.carriedInVat), summary.outputVat);
+  const outputDelta = round2(summary.outputVat - settled.output);
+  const inputDelta = round2(Math.max(0, inputOffsetNow) - settled.input);
+  const payableDelta = round2(outputDelta - inputDelta);
+  const needed = Math.abs(outputDelta) >= 0.01 || Math.abs(inputDelta) >= 0.01;
+  return {
+    outputDelta,
+    inputDelta,
+    payableDelta,
+    needed,
+    negative: needed && (outputDelta < 0 || payableDelta < 0),
+  };
+}

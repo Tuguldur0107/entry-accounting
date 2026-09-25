@@ -785,7 +785,9 @@ async function createCashDocumentCore(data: {
     data.documentType === "transfer" &&
     fromAccount?.currency !== toAccount?.currency
   )
-    throw new Error("Өөр валюттай дансны шилжүүлэгт ханшийн модуль шаардлагатай");
+    throw new Error(
+      "[CROSS_CURRENCY] Өөр валюттай дансны шилжүүлэг = валют солилцоо: зарлага (эх данс) + орлого (хүлээн авах данс) хоёр баримтаар 11000099 түр дансаар бичнэ (AI/MCP: create_cash_transaction transfer + toAmount эсвэл exchangeRate — автоматаар хоёр баримт үүсгэнэ)"
+    );
 
   const currency = (toAccount ?? fromAccount)?.currency ?? "MNT";
   const exchangeRate =

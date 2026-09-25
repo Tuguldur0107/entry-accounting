@@ -176,6 +176,8 @@ import { saveBankStatement } from "@/lib/cash/import-statement";
 import { expectedCashGlBalance, groupCashAccountsByGl } from "@/lib/cash/reconciliation";
 import { cashOpeningAccountIdOf, mainAccountOf } from "@/lib/cash/gl-sync";
 import { faExpectedGl } from "@/lib/fa/reconcile";
+import { planCurrencyExchange } from "@/lib/cash/exchange-transfer";
+import { toolInputProblem, type ToolInputSchema } from "@/lib/ai/tool-input";
 import { loadVoucherCfCodes } from "@/lib/reports/cf-codes";
 import { isGuardExemptRef } from "@/lib/gl/control-accounts";
 import { FA_COST_ACCOUNTS } from "@/lib/fa/sync-sources";
@@ -537,7 +539,16 @@ export const AI_TOOLS: AiToolDef[] = [
         amount: { type: "number", description: "Дүн (0-ээс их)" },
         description: { type: "string", description: "Журналын нэр (баримтын ерөнхий утга)" },
         counterparty: { type: "string", description: "Харилцагчийн нэр (сонголтоор)" },
-        exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
+        exchangeRate: { type: "number", description: "Валютын данс бол ханш (валют солилцоонд — арилжааны ханш)" },
+        toAmount: {
+          type: "number",
+          description:
+            "Валют солилцоо (өөр валюттай дансны transfer): хүлээн авах дансанд орох дүн тэр валютаар — эсвэл exchangeRate",
+        },
+        clearingAccount: {
+          type: "string",
+          description: "Валют солилцооны түр данс (default 11000099) — хоёр баримт энэ дансаар тэглэгдэнэ",
+        },
         cashFlowCode: {
           type: "string",
           description:
@@ -583,7 +594,7 @@ export const AI_TOOLS: AiToolDef[] = [
         description: { type: "string", description: "Тайлбар" },
         issueType: {
           type: "string",
-          description: "Зарлагын төрлийн нэр (issue үед — хоосон бол хэрэглэгч сонгоно)",
+          description: "Зарлагын төрлийн КОД (ж: WRITEOFF) эсвэл нэр (issue үед — хоосон бол хэрэглэгч сонгоно)",
         },
       },
       required: ["movementType", "date", "itemCode", "warehouseCode", "quantity"],
@@ -783,6 +794,7 @@ export const AI_TOOLS: AiToolDef[] = [
           description: "Төлвөөр шүүх (сонголтоор)",
         },
         limit: { type: "integer", description: "Хамгийн ихдээ хэдэн мөр (default 20, max 50)" },
+        offset: { type: "integer", description: "Хэдэн мөр алгасах (дараагийн хуудас, default 0)" },
       },
     },
   },
@@ -1020,7 +1032,7 @@ export const AI_TOOLS: AiToolDef[] = [
         itemCode: { type: "string", description: "Шинэ бараа (сонголтоор)" },
         warehouseCode: { type: "string", description: "Шинэ агуулах (сонголтоор)" },
         toWarehouseCode: { type: "string", description: "Шилжүүлэгт хүлээн авах агуулах (сонголтоор)" },
-        issueType: { type: "string", description: "Зарлагын төрлийн нэр (сонголтоор)" },
+        issueType: { type: "string", description: "Зарлагын төрлийн КОД эсвэл нэр (get_costing_settings; сонголтоор)" },
       },
       required: ["movementId"],
     },
@@ -1417,7 +1429,12 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+        cashAccount: {
+          type: "string",
+          description: "Мөнгөн дансны нэрээр шүүх (шилжүүлгийн аль нэг тал)",
+        },
         limit: { type: "integer", description: "Max мөр (default 20, max 50)" },
+        offset: { type: "integer", description: "Хэдэн мөр алгасах (default 0)" },
       },
     },
   },
@@ -1492,6 +1509,8 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         itemCode: { type: "string", description: "Барааны кодоор шүүх (сонголтоор)" },
         warehouseCode: { type: "string", description: "Агуулахын кодоор шүүх (сонголтоор)" },
+        limit: { type: "integer", description: "Мөрийн тоо (default 100, max 500)" },
+        offset: { type: "integer", description: "Хэдэн мөр алгасах (дараагийн хуудас, default 0)" },
       },
     },
   },
@@ -1846,6 +1865,7 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         entryType: { type: "string", description: "Төрлөөр шүүх: receipt_capitalize | issue_cogs | landed_cost | adjustment_gain | adjustment_loss | nrv_writedown | nrv_reversal | return_in | return_out | cogs_true_up (сонголтоор)" },
         limit: { type: "number", description: "Мөрийн тоо (default 20, max 200)" },
+        offset: { type: "number", description: "Хэдэн мөр алгасах (дараагийн хуудас, default 0)" },
       },
     },
   },
@@ -2601,7 +2621,14 @@ export const AI_TOOLS: AiToolDef[] = [
     name: "get_inventory_valuation",
     description:
       "Бараа материалын мөнгөн үнэлгээ — бараа бүрийн хамгийн сүүлд тооцоологдсон сарын хаалтын үлдэгдэл (тоо, дүн, нэгж өртөг) cost_period_results-ээс. get_stock_balances нь зөвхөн ТОО; энэ нь ҮНЭЛГЭЭ.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemCode: { type: "string", description: "Барааны кодоор шүүх (яг эсвэл угтвар, сонголтоор)" },
+        limit: { type: "integer", description: "Мөрийн тоо (default 100, max 500)" },
+        offset: { type: "integer", description: "Хэдэн мөр алгасах (default 0)" },
+      },
+    },
   },
 
   // ── Хангамж (PO + орлогдох өртөг) ─────────────────────────────────────────
@@ -3419,6 +3446,34 @@ function requireSingle<T>(
   );
 }
 
+/**
+ * SIM2-022: зарлагын төрөл КОДООР (get_costing_settings-д «WRITEOFF · Акт,
+ * гэмтэл» гэж харагддаг) эсвэл нэрээр. Код яг таарвал түрүүлнэ.
+ */
+function resolveIssueType<T extends { id: string; code: string; name: string; isActive: boolean }>(
+  issueTypes: T[],
+  query: string
+): T {
+  const active = issueTypes.filter((entry) => entry.isActive);
+  const q = query.trim().toLowerCase();
+  const byCode = active.filter((entry) => entry.code.toLowerCase() === q);
+  const matches = byCode.length > 0 ? byCode : nameMatches(active, (entry) => entry.name, query);
+  if (matches.length === 0)
+    throw codedError(
+      "NOT_FOUND",
+      `"${query}" зарлагын төрөл олдсонгүй. Боломжит (код · нэр): ${active
+        .map((entry) => `${entry.code} · ${entry.name}`)
+        .join("; ")}`
+    );
+  return requireSingle(
+    matches,
+    (entry) => `${entry.code} · ${entry.name}`,
+    "зарлагын төрөл",
+    query,
+    { allNames: active.map((entry) => `${entry.code} · ${entry.name}`) }
+  );
+}
+
 function nameMatches<T>(list: T[], nameOf: (entry: T) => string, query: string): T[] {
   const q = query.trim().toLowerCase();
   const exact = list.filter((entry) => nameOf(entry).toLowerCase() === q);
@@ -3918,6 +3973,8 @@ async function runCreateCash(
     description: string;
     counterparty?: string;
     exchangeRate?: number;
+    toAmount?: number;
+    clearingAccount?: string;
     cashFlowCode?: string;
     externalRef?: string;
     applyTo?: { documentId: string; amount: number }[];
@@ -3976,6 +4033,87 @@ async function runCreateCash(
 
   const primary = findAccount(input.cashAccount);
   const secondary = input.toCashAccount ? findAccount(input.toCashAccount) : null;
+
+  // SIM2-021: өөр валюттай дансны шилжүүлэг = валют солилцоо — түр дансаар
+  // хоёр баримт (зарлага + орлого), ₮ дүн ижил тул түр данс тэглэгдэнэ.
+  if (input.documentType === "transfer" && secondary && secondary.currency !== primary.currency) {
+    if (existingPart1) return dedupResult(existingPart1);
+    const plan = planCurrencyExchange({
+      fromCurrency: primary.currency,
+      toCurrency: secondary.currency,
+      amount: Number(input.amount),
+      toAmount: input.toAmount,
+      exchangeRate: input.exchangeRate,
+    });
+    const ctx = await accountContext(orgId);
+    const clearing = resolveAccount(input.clearingAccount?.trim() || "11000099", ctx).main;
+    const { postNow, note } =
+      mode !== "post"
+        ? { postNow: false, note: "" }
+        : futurePeriodDraftNote(input.date)
+          ? { postNow: false, note: futurePeriodDraftNote(input.date)! }
+          : plan.mnt > currentAiPostLimit()
+            ? { postNow: false, note: ` (${fmt(currentAiPostLimit())}₮-с их тул ноорог үлдэв)` }
+            : { postNow: true, note: "" };
+    const legs = [
+      {
+        documentType: "payment" as const,
+        fromCashAccountId: primary.id,
+        amount: plan.fromAmount,
+        exchangeRate: plan.fromRate,
+        ref: externalRef ? `${externalRef}#1` : undefined,
+      },
+      {
+        documentType: "receipt" as const,
+        toCashAccountId: secondary.id,
+        amount: plan.toAmount,
+        exchangeRate: plan.toRate,
+        ref: externalRef ? `${externalRef}#2` : undefined,
+      },
+    ];
+    const ids: string[] = [];
+    for (const leg of legs) {
+      if (leg.ref && existingRefs.has(leg.ref)) continue;
+      const result = await createCashDocument({
+        documentType: leg.documentType,
+        date: input.date,
+        fromCashAccountId: "fromCashAccountId" in leg ? leg.fromCashAccountId : undefined,
+        toCashAccountId: "toCashAccountId" in leg ? leg.toCashAccountId : undefined,
+        counterAccountNumber: clearing,
+        amount: leg.amount,
+        exchangeRate: leg.exchangeRate,
+        description: input.description,
+        counterparty: input.counterparty,
+        cashFlowCode: input.cashFlowCode?.trim() || undefined,
+        postNow: false,
+        externalRef: leg.ref,
+      });
+      if (result.error) {
+        // Хагас солилцоо үлдээхгүй — эхний ноорог хөлийг цэвэрлэнэ.
+        for (const id of ids) await deleteCashDocument(id);
+        throw new Error(result.error);
+      }
+      if (result.id) ids.push(result.id);
+    }
+    // Хоёр хөл ноорогоор бүрэн үүссэний ДАРАА л батална.
+    if (postNow)
+      for (const [index, id] of ids.entries()) {
+        const posted = await postCashDocument(id);
+        if (posted.error)
+          throw new Error(
+            `${posted.error}${index > 0 ? " — эхний хөл батлагдсан, хоёр дахь нь ноорог үлдэв (post_cash_document-оор батална)" : ""}`
+          );
+      }
+    return {
+      resultText: `Валют солилцоо: ${primary.name} −${fmt(plan.fromAmount)} ${primary.currency} → ${secondary.name} +${fmt(plan.toAmount)} ${secondary.currency} (ханш ${primary.currency === "MNT" ? plan.toRate : plan.fromRate}, ₮ ${fmt(plan.mnt)}; түр данс ${clearing} тэглэгдэнэ) — 2 баримт, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note}`,
+      action: {
+        kind: "cash",
+        id: ids[0] ?? "",
+        title: `Валют солилцоо · ${input.description}`.slice(0, 80),
+        status: postNow ? "posted" : "draft",
+      },
+    };
+  }
 
   let counterAccountNumber: string | undefined;
   if (input.counterAccount) {
@@ -4230,15 +4368,8 @@ async function runCreateMovement(
   const toWarehouse = input.toWarehouseCode ? findWh(input.toWarehouseCode) : null;
 
   let issueTypeId: string | undefined;
-  if (input.movementType === "issue" && input.issueType) {
-    const active = issueTypes.filter((entry) => entry.isActive);
-    issueTypeId = requireSingle(
-      nameMatches(active, (entry) => entry.name, input.issueType),
-      (entry) => entry.name,
-      "зарлагын төрөл",
-      input.issueType
-    ).id;
-  }
+  if (input.movementType === "issue" && input.issueType)
+    issueTypeId = resolveIssueType(issueTypes, input.issueType).id;
 
   const confirmNow = mode === "post";
   const { id } = unwrapAction(await createInventoryMovement({
@@ -4885,32 +5016,41 @@ async function runListInventory(
 
 async function runListJournalVouchers(
   orgId: string,
-  input: { from?: string; to?: string; status?: string; limit?: number }
+  input: { from?: string; to?: string; status?: string; limit?: number; offset?: number }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
-  const vouchers = await db.query.journalVouchers.findMany({
-    where: eq(journalVouchers.organizationId, orgId),
-    with: { lines: { columns: { debit: true } } },
-    orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
-    // Огноогоор JS талд шүүх тул хангалттай нөөцтэй татна.
-    limit: 400,
-  });
+  const offset = Math.max(Number(input.offset) || 0, 0);
+  // SIM2-044: шүүлт SQL-д — өмнө нь сүүлийн 400-г татаад JS-д шүүдэг тул
+  // хуучин (хаагдсан) сарын журнал «олдсонгүй» гэж гардаг байв.
+  const conditions = [
+    eq(journalVouchers.organizationId, orgId),
+    ...(input.from ? [gte(journalVouchers.date, input.from)] : []),
+    ...(input.to ? [lte(journalVouchers.date, input.to)] : []),
+    ...(input.status ? [eq(journalVouchers.status, input.status)] : []),
+  ];
+  const [total, filtered] = await Promise.all([
+    db.$count(journalVouchers, and(...conditions)),
+    db.query.journalVouchers.findMany({
+      where: and(...conditions),
+      with: { lines: { columns: { debit: true } } },
+      orderBy: [desc(journalVouchers.date), desc(journalVouchers.createdAt)],
+      limit,
+      offset,
+    }),
+  ]);
   const statusLabels: Record<string, string> = {
     draft: "ноорог",
     posted: "батлагдсан",
     reversed: "буцаагдсан",
   };
-  const filtered = vouchers
-    .filter((voucher) => {
-      if (input.from && voucher.date < input.from) return false;
-      if (input.to && voucher.date > input.to) return false;
-      if (input.status && voucher.status !== input.status) return false;
-      return true;
-    })
-    .slice(0, limit);
-  if (filtered.length === 0) return { resultText: "Тохирох журнал олдсонгүй" };
+  if (filtered.length === 0)
+    return { resultText: total > 0 ? `Нийт ${total} журнал — offset ${offset}-оос хойш мөр алга` : "Тохирох журнал олдсонгүй" };
+  const header =
+    total > filtered.length
+      ? `Нийт ${total}-ээс ${offset + 1}–${offset + filtered.length} харуулав${offset + filtered.length < total ? ` (дараагийнх: offset ${offset + filtered.length})` : ""}\n`
+      : "";
   return {
-    resultText: filtered
+    resultText: header + filtered
       .map((voucher) => {
         const total = voucher.lines.reduce(
           (sum, line) => sum + Number(line.debit),
@@ -5414,18 +5554,7 @@ async function runUpdateMovement(
     throw new Error("Хөдөлгөөнд бараа/агуулах дутуу — itemCode, warehouseCode өгнө үү");
 
   let issueTypeId = movement.issueTypeId ?? undefined;
-  if (input.issueType) {
-    issueTypeId = requireSingle(
-      nameMatches(
-        issueTypes.filter((entry) => entry.isActive),
-        (entry) => entry.name,
-        input.issueType
-      ),
-      (entry) => entry.name,
-      "зарлагын төрөл",
-      input.issueType
-    ).id;
-  }
+  if (input.issueType) issueTypeId = resolveIssueType(issueTypes, input.issueType).id;
 
   unwrapAction(await updateInventoryMovement(movement.id, {
     movementType: movement.movementType as
@@ -6737,32 +6866,60 @@ async function runListCashDocuments(
     status?: string;
     from?: string;
     to?: string;
+    cashAccount?: string;
     limit?: number;
+    offset?: number;
   }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 50);
-  const documents = await db.query.cashDocuments.findMany({
-    where: eq(cashDocuments.organizationId, orgId),
-    orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
-    limit: 400,
-  });
+  const offset = Math.max(Number(input.offset) || 0, 0);
+  // SIM2-012: шүүлт SQL-д (cashAccount өмнө нь огт үйлчилдэггүй байв).
+  let accountFilter: ReturnType<typeof or> | undefined;
+  if (input.cashAccount?.trim()) {
+    const accounts = await db.query.cashAccounts.findMany({
+      where: eq(cashAccounts.organizationId, orgId),
+    });
+    const account = requireSingle(
+      nameMatches(accounts, (entry) => entry.name, input.cashAccount),
+      (entry) => entry.name,
+      "мөнгөн данс",
+      input.cashAccount,
+      { allNames: accounts.map((entry) => entry.name) }
+    );
+    accountFilter = or(
+      eq(cashDocuments.fromCashAccountId, account.id),
+      eq(cashDocuments.toCashAccountId, account.id)
+    );
+  }
+  const conditions = and(
+    eq(cashDocuments.organizationId, orgId),
+    ...(input.documentType ? [eq(cashDocuments.documentType, input.documentType)] : []),
+    ...(input.status ? [eq(cashDocuments.status, input.status)] : []),
+    ...(input.from ? [gte(cashDocuments.date, input.from)] : []),
+    ...(input.to ? [lte(cashDocuments.date, input.to)] : []),
+    ...(accountFilter ? [accountFilter] : [])
+  );
+  const [total, filtered] = await Promise.all([
+    db.$count(cashDocuments, conditions),
+    db.query.cashDocuments.findMany({
+      where: conditions,
+      orderBy: [desc(cashDocuments.date), desc(cashDocuments.createdAt)],
+      limit,
+      offset,
+    }),
+  ]);
   const typeLabels: Record<string, string> = {
     receipt: "орлого",
     payment: "зарлага",
     transfer: "шилжүүлэг",
   };
-  const filtered = documents
-    .filter((doc) => {
-      if (input.documentType && doc.documentType !== input.documentType) return false;
-      if (input.status && doc.status !== input.status) return false;
-      if (input.from && doc.date < input.from) return false;
-      if (input.to && doc.date > input.to) return false;
-      return true;
-    })
-    .slice(0, limit);
   if (filtered.length === 0) return { resultText: "Тохирох баримт олдсонгүй" };
+  const header =
+    total > filtered.length
+      ? `Нийт ${total}-ээс ${offset + 1}–${offset + filtered.length} харуулав${offset + filtered.length < total ? ` (дараагийнх: offset ${offset + filtered.length})` : ""}\n`
+      : "";
   return {
-    resultText: filtered
+    resultText: header + filtered
       .map(
         (doc) =>
           `${doc.date} · ${doc.documentNo} · ${typeLabels[doc.documentType] ?? doc.documentType} · ${doc.description} · ${fmt(Number(doc.amount))} · ${doc.status} · ID ${doc.id.slice(0, 8)}${doc.externalRef ? ` · ref ${doc.externalRef}` : ""}`
@@ -6916,7 +7073,7 @@ async function runDeleteMovement(
 
 async function runGetStockBalances(
   orgId: string,
-  input: { itemCode?: string; warehouseCode?: string }
+  input: { itemCode?: string; warehouseCode?: string; limit?: number; offset?: number }
 ): Promise<AiToolResult> {
   const [movements, items, whList] = await Promise.all([
     db.query.inventoryMovements.findMany({
@@ -6970,13 +7127,21 @@ async function runGetStockBalances(
         (!input.warehouseCode ||
           row.wh.code.toLowerCase().includes(input.warehouseCode.toLowerCase()))
     )
-    .filter((row) => row.qty !== 0);
+    .filter((row) => row.qty !== 0)
+    .sort((a, b) => a.item!.code.localeCompare(b.item!.code) || a.wh!.code.localeCompare(b.wh!.code));
   if (rows.length === 0) return { resultText: "Үлдэгдэл олдсонгүй" };
+  // SIM2-048: чимээгүй тасрахгүй — нийт тоо + хуудаслалт.
+  const limit = Math.min(Math.max(Number(input.limit) || 100, 1), 500);
+  const offset = Math.max(Number(input.offset) || 0, 0);
+  const page = rows.slice(offset, offset + limit);
+  const header =
+    rows.length > page.length
+      ? `Нийт ${rows.length}-ээс ${offset + 1}–${offset + page.length} харуулав${offset + page.length < rows.length ? ` (дараагийнх: offset ${offset + page.length}; эсвэл warehouseCode-оор шүүнэ)` : ""}\n`
+      : "";
   return {
-    resultText: rows
-      .slice(0, 100)
-      .map((row) => `${row.item!.code} (${row.item!.name}) · ${row.wh!.code} · ${row.qty}`)
-      .join("\n"),
+    resultText:
+      header +
+      page.map((row) => `${row.item!.code} (${row.item!.name}) · ${row.wh!.code} · ${row.qty}`).join("\n"),
   };
 }
 
@@ -7284,16 +7449,27 @@ async function runGetVatReturn(
       : summary.refundableVat > 0
         ? `Дараа сард шилжүүлэх: ${fmt(summary.refundableVat)}₮`
         : "Төлөх дүн 0";
+  // SIM2-027: шилжсэн кредитийг задлан — өмнөх сарын «дараа сард шилжүүлэх»
+  // дүнтэй тулгагдана; төлөгдөөгүй гаралтын НӨАТ (нээлт г.м.) тусдаа.
+  const { inputOpening, unpaidOutputOpening } = data.carriedBreakdown;
   const carriedText =
-    summary.carriedInVat > 0
-      ? `\n  Өмнөх саруудаас шилжсэн оролтын НӨАТ: ${fmt(summary.carriedInVat)}₮`
+    inputOpening > 0 || unpaidOutputOpening > 0
+      ? `\n  Өмнөх саруудаас шилжсэн оролтын НӨАТ: ${fmt(inputOpening)}₮` +
+        (unpaidOutputOpening > 0
+          ? `\n  Төлөгдөөгүй НӨАТ өглөг (үеийн эхэнд): ${fmt(unpaidOutputOpening)}₮\n  Цэвэр шилжсэн кредит (тооцоонд): ${fmt(summary.carriedInVat)}₮`
+          : "")
+      : "";
+  // SIM2-015: тооцоо хийсний дараа батлагдсан баримт — ИЛ анхааруулга.
+  const staleText =
+    data.settlement && data.settlementDelta.needed
+      ? `\n  ⚠ Тооцоо тайлантай зөрүүтэй: бичигдсэн гаралт ${fmt(data.settled.output)}₮ vs тайлан ${fmt(summary.outputVat)}₮ (нэмэлт төлөх ${fmt(data.settlementDelta.payableDelta)}₮) — create_vat_settlement дахин дуудахад нэмэлт тооцоо үүснэ`
       : "";
   return {
     resultText: [
       `НӨАТ тайлан ${summary.periodCode}:`,
       `  Гаралтын НӨАТ (борлуулалт): ${fmt(summary.outputVat)}₮ (${summary.outputLineCount} мөр, данс ${data.settings.outputVatAccountNumber})`,
       `  Оролтын НӨАТ (худалдан авалт): ${fmt(summary.inputVat)}₮ (${summary.inputLineCount} мөр, данс ${data.settings.inputVatAccountNumber})${carriedText}`,
-      `  ${balanceText}${settlementText}`,
+      `  ${balanceText}${settlementText}${staleText}`,
     ].join("\n"),
   };
 }
@@ -7326,8 +7502,10 @@ async function runCreateVatSettlement(
   );
   return {
     resultText: result.dedup
-      ? `${input.period} сарын НӨАТ тооцоо аль хэдийн үүссэн байна (ID: ${result.id.slice(0, 8)})`
-      : `${input.period} сарын НӨАТ тооцооны НООРОГ журнал үүслээ — GL журналаас шалгаад батална уу`,
+      ? `${input.period} сарын НӨАТ тооцоо аль хэдийн үүссэн, тайлантай таарч байна (ID: ${result.id.slice(0, 8)})`
+      : result.supplement
+        ? `${input.period} сарын НӨАТ НЭМЭЛТ тооцооны НООРОГ үүслээ (өмнөх тооцооноос хойш батлагдсан баримтууд) — GL журналаас шалгаад батална уу`
+        : `${input.period} сарын НӨАТ тооцооны НООРОГ журнал үүслээ — GL журналаас шалгаад батална уу`,
     action: {
       kind: "voucher",
       id: result.id,
@@ -7440,9 +7618,11 @@ async function runListCostEntries(
     status?: string;
     entryType?: string;
     limit?: number;
+    offset?: number;
   }
 ): Promise<AiToolResult> {
   const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 200);
+  const offset = Math.max(Number(input.offset) || 0, 0);
   const conditions: SQL[] = [eq(costEntries.organizationId, orgId)];
   if (input.month?.trim()) {
     if (!/^\d{4}-\d{2}$/.test(input.month.trim()))
@@ -7478,18 +7658,27 @@ async function runListCostEntries(
       )!
     );
   }
-  const entries = await db.query.costEntries.findMany({
-    where: and(...conditions),
-    with: {
-      movement: { columns: { documentNo: true } },
-      item: { columns: { code: true, name: true } },
-    },
-    orderBy: [desc(costEntries.date), desc(costEntries.createdAt)],
-    limit,
-  });
+  const [total, entries] = await Promise.all([
+    db.$count(costEntries, and(...conditions)),
+    db.query.costEntries.findMany({
+      where: and(...conditions),
+      with: {
+        movement: { columns: { documentNo: true } },
+        item: { columns: { code: true, name: true } },
+      },
+      orderBy: [desc(costEntries.date), desc(costEntries.createdAt), desc(costEntries.id)],
+      limit,
+      offset,
+    }),
+  ]);
   if (entries.length === 0) return { resultText: "Тохирох өртгийн бичилт олдсонгүй" };
+  // SIM2-048: нийт тоо + offset (өмнө нь эхний хуудас л давтагддаг байв).
+  const header =
+    total > entries.length
+      ? `Нийт ${total}-ээс ${offset + 1}–${offset + entries.length} харуулав${offset + entries.length < total ? ` (дараагийнх: offset ${offset + entries.length})` : ""}\n`
+      : "";
   return {
-    resultText: entries
+    resultText: header + entries
       .map(
         (entry) =>
           `${costEntryLabel(entry)} · ${Number(entry.quantity)} × ${fmt(Number(entry.unitCost))}₮ · ${entry.status} · ${entry.valuationSource} · ID ${entry.id.slice(0, 8)}`
@@ -8911,7 +9100,10 @@ async function runListAuditEvents(
   };
 }
 
-async function runInventoryValuation(orgId: string): Promise<AiToolResult> {
+async function runInventoryValuation(
+  orgId: string,
+  input: { itemCode?: string; limit?: number; offset?: number } = {}
+): Promise<AiToolResult> {
   const [byItem, items] = await Promise.all([
     latestClosingByItem(orgId),
     db.query.inventoryItems.findMany({
@@ -8924,9 +9116,23 @@ async function runInventoryValuation(orgId: string): Promise<AiToolResult> {
         "Тооцоологдсон өртгийн үнэлгээ алга — эхлээд run_monthly_costing ажиллуулна уу",
     };
   const nameOf = new Map(items.map((item) => [item.id, `${item.code} ${item.name}`]));
+  // SIM2-050: itemCode шүүлт (өмнө нь үл тоомсорлодог байв) — яг таарсан
+  // код түрүүлж, үгүй бол угтвар.
+  const wanted = input.itemCode?.trim().toLowerCase();
+  const exact = wanted ? items.filter((item) => item.code.toLowerCase() === wanted) : [];
+  const allowed = wanted
+    ? new Set(
+        (exact.length ? exact : items.filter((item) => item.code.toLowerCase().startsWith(wanted))).map(
+          (item) => item.id
+        )
+      )
+    : null;
+  if (allowed && allowed.size === 0)
+    throw codedError("ITEM_NOT_FOUND", `"${input.itemCode}" кодтой бараа олдсонгүй — list_inventory-оор шалгана`);
   let total = 0;
   const lines: string[] = [];
   for (const [itemId, closing] of byItem) {
+    if (allowed && !allowed.has(itemId)) continue;
     if (Math.abs(closing.qty) < 0.0001 && Math.abs(closing.amount) < 0.01) continue;
     total += closing.amount;
     const unit = closing.qty > 0 ? closing.amount / closing.qty : 0;
@@ -8934,13 +9140,23 @@ async function runInventoryValuation(orgId: string): Promise<AiToolResult> {
       `${nameOf.get(itemId) ?? itemId.slice(0, 8)} — ${fmt(closing.qty)} ш × ${fmt(unit)}₮ = ${fmt(closing.amount)}₮ (${closing.periodCode} хаалтаар)`
     );
   }
+  lines.sort();
+  const limit = Math.min(Math.max(Number(input.limit) || 100, 1), 500);
+  const offset = Math.max(Number(input.offset) || 0, 0);
+  const page = lines.slice(offset, offset + limit);
   return {
     resultText: [
       "БАРАА МАТЕРИАЛЫН ҮНЭЛГЭЭ (сүүлийн тооцоологдсон сарын хаалтаар):",
-      ...lines.sort(),
-      `НИЙТ: ${fmt(total)}₮`,
+      ...(lines.length > page.length
+        ? [`Нийт ${lines.length}-ээс ${offset + 1}–${offset + page.length} харуулав${offset + page.length < lines.length ? ` (дараагийнх: offset ${offset + page.length})` : ""}`]
+        : []),
+      ...page,
+      lines.length === 0 && allowed ? "Энэ барааны тооцоологдсон үнэлгээ алга" : "",
+      `НИЙТ${allowed ? " (шүүсэн)" : ""}: ${fmt(total)}₮`,
       "GL 14-бүлэгтэй тулгахад reconcile_modules ашиглана.",
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
 }
 
@@ -11358,6 +11574,10 @@ export async function executeAiTool(
         "FEATURE_NOT_IN_PLAN",
         "«AI нягтлан» багцад зөвхөн мэдлэгийн сан (list_knowledge_topics, read_knowledge_section) нээлттэй — нягтлан бодох системийн үйлдэлд Standard багц хэрэгтэй"
       );
+    // SIM2-016: schema-ийн required талбар дутуу бол executor-т хүргэхгүй.
+    const definition = allAiTools().find((tool) => tool.name === name);
+    const problem = toolInputProblem(definition?.inputSchema as ToolInputSchema | undefined, input);
+    if (problem) throw codedError("INVALID_INPUT", `${name}: ${problem}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const args = (input ?? {}) as any;
     // Шууд батлах хязгаарыг хүсэлт бүрд НЭГ л удаа уншиж контекстод тавина —
@@ -11626,7 +11846,7 @@ async function dispatchAiTool(
       case "import_bank_statement":
         return await runImportBankStatement(orgId, args, mode);
       case "get_inventory_valuation":
-        return await runInventoryValuation(orgId);
+        return await runInventoryValuation(orgId, args);
       case "run_fa_depreciation":
         return await runFaDepreciation(orgId, args);
       case "post_fa_depreciation":

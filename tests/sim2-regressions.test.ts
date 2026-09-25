@@ -538,3 +538,138 @@ test("SIM2-043: АР төлбөр (S8 1101) мөнгөн гүйлгээний т
   assert.match(text, /Борлуулалт, үйлчилгээний орлого — 70,833,612/);
   assert.doesNotMatch(text, /эргэлтийн хөрөнгийн өөрчлөлт — 70,833,612/);
 });
+
+// ── Бүлэг 5: MCP / тайлан ────────────────────────────────────────────────────
+
+test("SIM2-012/050/048/022/016: шүүлтүүд үйлчилнэ, хуудаслалт ил, issueType кодоор, required талбар", { skip: !DB_READY }, async () => {
+  await setupProcurement();
+  // SIM2-012: cashAccount шүүлт
+  ok(await tool("create_cash_transaction", {
+    documentType: "receipt", date: "2024-12-31", cashAccount: "Касс дэлгүүр №2", counterAccount: "51100000",
+    amount: 12_000, description: "Дэлгүүр №2-ын орлого",
+  }));
+  const shop2 = ok(await tool("list_cash_documents", { cashAccount: "Касс дэлгүүр №2", limit: 50 })).resultText;
+  assert.match(shop2, /Дэлгүүр №2-ын орлого/);
+  assert.doesNotMatch(shop2, /Худалдан авагчийн төлбөр/, "өөр дансны баримт орохгүй");
+
+  // SIM2-050: itemCode шүүлт
+  const valuation = ok(await tool("get_inventory_valuation", { itemCode: "ITM-C" })).resultText;
+  assert.match(valuation, /ITM-C Landed бараа/);
+  assert.doesNotMatch(valuation, /ITM-A /);
+  assert.match((await tool("get_inventory_valuation", { itemCode: "NOPE-1" })).resultText, /ITEM_NOT_FOUND/);
+
+  // SIM2-048: чимээгүй тасрахгүй
+  const page = ok(await tool("get_stock_balances", { limit: 1 })).resultText;
+  assert.match(page, /^Нийт \d+-ээс 1–1 харуулав \(дараагийнх: offset 1/);
+  const costPage = ok(await tool("list_cost_entries", { limit: 1, offset: 1 })).resultText;
+  assert.match(costPage, /^Нийт \d+-ээс 2–2 харуулав/);
+
+  // SIM2-022: зарлагын төрөл КОДООР
+  ok(await tool("save_issue_type", { code: "WRITEOFF", name: "Акт, гэмтэл", debitAccountSource: "fixed", debitAccount: "73100001" }));
+  ok(await tool("create_inventory_movement", {
+    movementType: "issue", date: "2025-03-28", itemCode: "ITM-C", warehouseCode: "WH1", quantity: 1, issueType: "WRITEOFF",
+  }));
+  assert.match(
+    (await tool("create_inventory_movement", {
+      movementType: "issue", date: "2025-03-28", itemCode: "ITM-C", warehouseCode: "WH1", quantity: 1, issueType: "NOPE",
+    })).resultText,
+    /WRITEOFF · Акт, гэмтэл/,
+    "олдоогүй бол боломжит утгуудыг жагсаана"
+  );
+
+  // SIM2-016: required талбаргүй дуудалт — ойлгомжтой алдаа
+  const missing = (await tool("delete_cash_document", {})).resultText;
+  assert.match(missing, /INVALID_INPUT[^\n]*documentId/);
+  assert.doesNotMatch(missing, /Cannot read properties/);
+});
+
+test("SIM2-021: MNT → CNY валют солилцоо — 2 баримт, түр данс тэглэгдэнэ", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  ok(await tool("create_cash_account", { name: "Голомт CNY", accountType: "bank", currency: "CNY", glAccount: "11000002" }));
+  const text = ok(await tool("create_cash_transaction", {
+    documentType: "transfer", date: "2025-01-20", cashAccount: "Хаан банк MNT", toCashAccount: "Голомт CNY",
+    amount: 4_850_000, exchangeRate: 485, description: "Валют худалдан авалт", externalRef: `sim2-${STAMP}-fxbuy`,
+  }, "post")).resultText;
+  assert.match(text, /Валют солилцоо: Хаан банк MNT −4,850,000 MNT → Голомт CNY \+10,000 CNY/);
+  assert.match(text, /батлагдсан/);
+  assert.equal(await glNet("11000099"), 0, "түр данс тэглэгдэв");
+  const cny = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.name, "Голомт CNY")),
+  });
+  const docs = await db.query.cashDocuments.findMany({
+    where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.toCashAccountId, cny!.id)),
+  });
+  assert.equal(docs.length, 1);
+  assert.equal(Number(docs[0].amount), 10_000);
+  assert.equal(Number(docs[0].baseAmount), 4_850_000);
+  // Давтан дуудалт давхардахгүй
+  assert.match((await tool("create_cash_transaction", {
+    documentType: "transfer", date: "2025-01-20", cashAccount: "Хаан банк MNT", toCashAccount: "Голомт CNY",
+    amount: 4_850_000, exchangeRate: 485, description: "Валют худалдан авалт", externalRef: `sim2-${STAMP}-fxbuy`,
+  }, "post")).resultText, /Аль хэдийн үүссэн/);
+  // Ханшгүй — зохиохгүй
+  assert.match((await tool("create_cash_transaction", {
+    documentType: "transfer", date: "2025-01-21", cashAccount: "Хаан банк MNT", toCashAccount: "Голомт CNY",
+    amount: 100_000, description: "Ханшгүй",
+  })).resultText, /RATE_REQUIRED/);
+});
+
+test("SIM2-015/027: НӨАТ тооцооноос хойшх нэхэмжлэх → нэмэлт тооцоо; шилжсэн кредитийн задаргаа", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  ok(await tool("create_counterparty", { name: "НӨАТ худалдан авагч", counterpartyType: "customer" }));
+  const invoice = (n: number, amount: number) =>
+    tool("create_arap_invoice", {
+      documentType: "ar_invoice", counterparty: "НӨАТ худалдан авагч", date: "2025-09-10", description: `Борлуулалт ${n}`,
+      externalRef: `sim2-${STAMP}-vat${n}`, vatMode: "exclusive", lines: [{ account: "51100000", amount, description: "Бараа" }],
+    }, "post");
+  ok(await invoice(1, 1_000_000)); // НӨАТ 100,000
+  ok(await tool("create_vat_settlement", { period: "2025-09", cashAccount: "Хаан банк MNT" }));
+  const settlement = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, "vat-settlement:2025-09")),
+  });
+  ok(await tool("post_journal_voucher", { voucherId: settlement!.documentNo }, "post"));
+  // Тооцооноос ХОЙШ батлагдсан нэхэмжлэх
+  ok(await invoice(2, 2_000_000)); // НӨАТ 200,000
+  const report = ok(await tool("get_vat_return", { period: "2025-09" })).resultText;
+  assert.match(report, /⚠ Тооцоо тайлантай зөрүүтэй: бичигдсэн гаралт 100,000₮ vs тайлан 300,000₮ \(нэмэлт төлөх 200,000₮\)/);
+  const supplement = ok(await tool("create_vat_settlement", { period: "2025-09", cashAccount: "Хаан банк MNT" })).resultText;
+  assert.match(supplement, /НЭМЭЛТ тооцооны НООРОГ/);
+  const extra = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, "vat-settlement:2025-09:2")),
+    with: { lines: true },
+  });
+  assert.equal(extra!.lines.reduce((sum, line) => sum + Number(line.debit), 0), 200_000);
+  ok(await tool("post_journal_voucher", { voucherId: extra!.documentNo }, "post"));
+  assert.doesNotMatch(ok(await tool("get_vat_return", { period: "2025-09" })).resultText, /зөрүүтэй/);
+
+  // SIM2-027: C 2025-01 → 02: шилжсэн 7,690,499.09 − нээлтийн өглөг 6,420,000 = 1,270,499.09
+  ok(await tool("create_journal_voucher", {
+    date: "2024-05-15", description: "Оролтын НӨАТ (өмнөх)", lines: [{ account: "13620000", debit: 7_690_499.09 }, { account: "44000098", credit: 7_690_499.09 }],
+  }, "post"));
+  ok(await tool("create_journal_voucher", {
+    date: "2024-05-15", description: "Нээлтийн НӨАТ өглөг", lines: [{ account: "44000098", debit: 6_420_000 }, { account: "31410000", credit: 6_420_000 }],
+  }, "post"));
+  const june = ok(await tool("get_vat_return", { period: "2024-06" })).resultText;
+  assert.match(june, /Өмнөх саруудаас шилжсэн оролтын НӨАТ: 7,690,499\.09₮/);
+  assert.match(june, /Төлөгдөөгүй НӨАТ өглөг \(үеийн эхэнд\): 6,420,000₮/);
+  assert.match(june, /Цэвэр шилжсэн кредит \(тооцоонд\): 1,270,499\.09₮/);
+});
+
+// Сүүлд — олон тооны журнал оруулдаг тул бусад тестийн дараа.
+test("SIM2-044: list_journal_vouchers хуучин (хаагдсан) сарыг 400-гаас олон журналтай ч олно", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  ok(await tool("create_journal_voucher", {
+    date: "2023-03-15", description: "Хуучин сарын журнал", lines: [{ account: "73100001", debit: 5_000 }, { account: "51100000", credit: 5_000 }],
+  }, "post"));
+  ok(await tool("close_period", { code: "2023-03" }, "post"));
+  await db.insert(journalVouchers).values(
+    Array.from({ length: 410 }, (_, index) => ({
+      userId, organizationId: orgId, date: "2026-08-20", description: `Шинэ журнал ${index}`, status: "draft" as const,
+    }))
+  );
+  const march = ok(await tool("list_journal_vouchers", { from: "2023-03-01", to: "2023-03-31" })).resultText;
+  assert.match(march, /Хуучин сарын журнал/);
+  const newest = ok(await tool("list_journal_vouchers", { from: "2026-08-01", to: "2026-08-31", limit: 5 })).resultText;
+  assert.match(newest, /^Нийт 410-ээс 1–5 харуулав \(дараагийнх: offset 5\)/);
+  ok(await tool("reopen_period", { code: "2023-03" }, "post"));
+});
