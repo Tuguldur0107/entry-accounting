@@ -217,6 +217,13 @@ npm test -- tests/ebarimt-receipt.test.ts tests/ebarimt-posapi-info.test.ts test
 
 ## 5. P2 — сайжруулалт / баримтжуулалт
 
+> **Төлөв 2026-09-25:** кодонд — P2-1 (`MERCHANT_TIN_RE` 11–14), P2-2 (`TAX_PRODUCT_CODE_RE`
+> 3–5, лавлахыг API-аас татах хэвээр хийгдээгүй), P2-3/P2-4 (`getInfo`-ийн `freeProject`/
+> `cityPayer` кассын лавлах + мерчантын статуст анхааруулга — автомат VAT_FREE/НХАТ бичихгүй),
+> P2-9 (`lastSendDate`), P2-10 (хариуны `version` статуст, <3.0.12 улаан), P2-14 (branchNo hint),
+> P2-13 (байсан). Баримтад — P2-11/12/15 (`ebarimt.md`), P2-5/6/8/16 (`02-implementation-status.md`
+> хязгаарлалт — schema/UI-ийн тусдаа change-control). P2-7 N/A.
+
 | # | Зүйл | Санал |
 |---|---|---|
 | P2-1 | `MERCHANT_TIN_RE = ^(\d{11}|\d{14})$` — албан: хуулийн этгээд 11, **хувь хүн 12–14** | `^\d{11,14}$` (§4.1 (9)-ийн дараа) — customerTin, merchantTin хоёуланд |
@@ -244,6 +251,6 @@ npm test -- tests/ebarimt-receipt.test.ts tests/ebarimt-posapi-info.test.ts test
 2. ✅ P0-1/P0-2/P0-3 НЭГ PR-аар (types → receipt → client timeout → тест) — §2.0;
    production деплойн өмнө staging дээр §4.1 (1)(2)(3)(5) + 1 бүтэн + 1 хэсэгчилсэн
    буцаалт + 1 B2B (ХҮЛЭЭГДЭЖ БАЙНА — PosAPI daemon-той Linux орчин хэрэгтэй)
-3. P1-1/P1-2 — Монголын egress шийдэл (операторын сервер) + харилцагчийн картын ТТД
+3. P1-1 — Монголын egress шийдэл (операторын сервер, `EBARIMT_PUBLIC_API_BASE`); ✅ P1-2 харилцагчийн картын ТТД (`counterparties.tin`, «ТЕГ-ээс лавлах», POS/AI шууд хэрэглэнэ)
 4. `docs/pos/03-ebarimt-integration-plan.md` §8-д «2026-09-25 developer портал v3.0.12-тэй
    тулгав» мөр, `02-implementation-status.md`-д P2-5 (ОАТ) хязгаар

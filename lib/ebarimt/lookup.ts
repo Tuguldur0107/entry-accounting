@@ -31,6 +31,10 @@ export interface TinInfo {
   name: string;
   /** НӨАТ суутган төлөгч эсэх (getInfo), тодорхойгүй бол null. */
   vatPayer: boolean | null;
+  /** НХАТ (нийслэлийн албан татвар) суутган төлөгч — Entry `totalCityTax` дэмжихгүй (P2-4). */
+  cityPayer: boolean | null;
+  /** НӨАТ-аас чөлөөлөгдөх төсөл — албан: receipts[].taxType VAT_FREE + taxProductCode 304 (P2-3). */
+  freeProject: boolean | null;
 }
 
 export interface BranchInfoEntry {
@@ -110,6 +114,8 @@ export interface TaxpayerInfo {
   name: string;
   found: boolean;
   vatPayer: boolean | null;
+  cityPayer: boolean | null;
+  freeProject: boolean | null;
 }
 
 /**
@@ -122,7 +128,9 @@ export function parseTaxpayerInfoResponse(json: unknown): TaxpayerInfo {
   const name = pick(record, ["name", "NAME", "orgName"]);
   const found = typeof record.found === "boolean" ? record.found : name !== "";
   const vatPayer = typeof record.vatPayer === "boolean" ? record.vatPayer : null;
-  return { name, found, vatPayer };
+  const cityPayer = typeof record.cityPayer === "boolean" ? record.cityPayer : null;
+  const freeProject = typeof record.freeProject === "boolean" ? record.freeProject : null;
+  return { name, found, vatPayer, cityPayer, freeProject };
 }
 
 /**
@@ -141,7 +149,7 @@ export async function lookupTinByRegNo(regNoRaw: string): Promise<TinInfo> {
   if (MERCHANT_TIN_RE.test(regNo)) {
     // ТТД шууд өгөгдсөн — лавлах шаардлагагүй, зөвхөн нэр.
     const info = await lookupTaxpayerByTin(regNo);
-    return { regNo, tin: regNo, name: info.name, vatPayer: info.vatPayer };
+    return { regNo, tin: regNo, name: info.name, vatPayer: info.vatPayer, cityPayer: info.cityPayer, freeProject: info.freeProject };
   }
   const cached = tinCache.get(regNo);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
@@ -155,14 +163,14 @@ export async function lookupTinByRegNo(regNoRaw: string): Promise<TinInfo> {
   }
   if (!tin)
     throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй. ${TIN_DIRECT_HINT}`);
-  let info: TaxpayerInfo = { name: "", found: true, vatPayer: null };
+  let info: TaxpayerInfo = { name: "", found: true, vatPayer: null, cityPayer: null, freeProject: null };
   try {
     info = await lookupTaxpayerByTin(tin);
   } catch {
     // Нэр нь зөвхөн харуулах мэдээлэл — баримт ТТД-ээр илгээгдэнэ.
   }
   if (!info.found) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй. ${TIN_DIRECT_HINT}`);
-  const value: TinInfo = { regNo, tin, name: info.name, vatPayer: info.vatPayer };
+  const value: TinInfo = { regNo, tin, name: info.name, vatPayer: info.vatPayer, cityPayer: info.cityPayer, freeProject: info.freeProject };
   if (info.name) tinCache.set(regNo, { at: Date.now(), value });
   return value;
 }
@@ -174,7 +182,7 @@ export async function lookupTinByRegNo(regNoRaw: string): Promise<TinInfo> {
  */
 export async function lookupTaxpayerByTin(tinRaw: string): Promise<TaxpayerInfo> {
   const tin = tinRaw.trim();
-  if (!MERCHANT_TIN_RE.test(tin)) throw new EbarimtError(EBARIMT_ERRORS.settings, "ТТД 11 эсвэл 14 оронтой тоо байна");
+  if (!MERCHANT_TIN_RE.test(tin)) throw new EbarimtError(EBARIMT_ERRORS.settings, "ТТД 11–14 оронтой тоо байна");
   const info = parseTaxpayerInfoResponse(await getJson(`${publicApiBase()}/getInfo?tin=${encodeURIComponent(tin)}`));
   if (!info.found) throw new EbarimtError(EBARIMT_ERRORS.settings, `ТТД ${tin} ТЕГ-ийн бүртгэлд олдсонгүй`);
   return info;

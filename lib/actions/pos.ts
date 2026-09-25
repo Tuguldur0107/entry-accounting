@@ -266,7 +266,7 @@ export async function updatePosSettings(
     // ── eBarimt (docs/pos/03-ebarimt-integration-plan.md §4.1) ──
     if (data.ebarimtMerchantTin != null) {
       const tin = data.ebarimtMerchantTin.trim();
-      if (tin && !MERCHANT_TIN_RE.test(tin)) throw new Error("Мерчантын ТТД 11 эсвэл 14 оронтой тоо байна");
+      if (tin && !MERCHANT_TIN_RE.test(tin)) throw new Error("Мерчантын ТТД 11–14 оронтой тоо байна (хуулийн этгээд 11)");
       patch.ebarimtMerchantTin = tin;
     }
     if (data.ebarimtBranchNo != null) patch.ebarimtBranchNo = data.ebarimtBranchNo.trim();
@@ -1026,7 +1026,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     ebarimtCustomerTin = info.tin;
   }
   if (ebarimtCustomerTin && !MERCHANT_TIN_RE.test(ebarimtCustomerTin))
-    throw new Error("Худалдан авагчийн ТТД 11 эсвэл 14 оронтой тоо байна");
+    throw new Error("Худалдан авагчийн ТТД 11–14 оронтой тоо байна (хуулийн этгээд 11, хувь хүн 12–14)");
   const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
   if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
     throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");

@@ -294,3 +294,15 @@ test("баркодын төрөл: барааны картаас, танигда
   assert.equal(barcodeTypeOf(null), "UNDEFINED");
   assert.equal(barcodeTypeOf("EAN13"), "UNDEFINED");
 });
+
+test("P2-1/P2-2: ТТД 12–14 орон (хувь хүн) ба 5 оронтой татварын код зөвшөөрөгдөнө", () => {
+  assert.equal(buildEbarimtReceipt(sale({ customerTin: "123456789012" }), settings).customerTin, "123456789012");
+  assert.equal(buildEbarimtReceipt(sale({ customerTin: "1234567890123" }), settings).type, "B2B_RECEIPT");
+  assert.throws(() => buildEbarimtReceipt(sale({ customerTin: "1234567890" }), settings), /\[EBARIMT_SETTINGS\]/);
+  assert.throws(() => buildEbarimtReceipt(sale({ customerTin: "123456789012345" }), settings), /\[EBARIMT_SETTINGS\]/);
+  const free = buildEbarimtReceipt(
+    sale({ lines: [line({ itemName: "Трактор", quantity: 1, lineTotal: 30_000, vatMode: "exempt", vatAmount: 0, taxProductCode: "43401" })], total: 30_000, payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 30_000, reference: null }] }),
+    settings
+  );
+  assert.equal(free.receipts[0].items[0].taxProductCode, "43401");
+});

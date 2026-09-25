@@ -10,6 +10,7 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
+import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
 import { createHash, randomUUID } from "node:crypto";
 
 import { and, asc, desc, eq, gte, inArray, like, lte, notInArray, or, sql, type SQL } from "drizzle-orm";
@@ -235,6 +236,8 @@ import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
 import {
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
   baseKindOf,
+  effectiveTin,
+  normalizeTin,
   entityKindName,
   inferEntityKindFromRegisterNo,
   resolveEntityKindCode,
@@ -307,11 +310,13 @@ import {
 } from "@/lib/grid/segments";
 import {
   aggregateBalances,
+  cashNetsFromRows,
   computeNetIncome,
   extractMainAccount,
   isBalanced,
   isCashMainAccount,
 } from "@/lib/reports/balances";
+import { computeEbalanceStatements, formatEbalanceReport } from "@/lib/reports/ebalance";
 import {
   buildMappedCashFlow,
   resolveCfLines,
@@ -873,7 +878,8 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "Харилцагчийн код — РД-ээс тусдаа, байгууллага дотор давтагдашгүй (сонголтоор; ж: 10001)",
         },
-        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллагад РД (7 орон) / ТТД (11/14), хувь хүнд иргэний РД (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллагад РД (7 орон), хувь хүнд иргэний РД (сонголтоор)" },
+        tin: { type: "string", description: "ТТД — татвар төлөгчийн дугаар, 11–14 орон (регистрээс тусдаа; байгууллагын регистрээс lookup_tin-ээр олно). POS B2B eBarimt баримтад шууд хэрэглэгдэнэ" },
         email: { type: "string", description: "И-мэйл (нэхэмжлэх илгээхэд ашиглагдана)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
@@ -909,7 +915,7 @@ export const AI_TOOLS: AiToolDef[] = [
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
         ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
-        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3 орон — exempt/zero бараанд заавал" },
+        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3–5 орон (албан жагсаалт 3 орон) — exempt/zero бараанд заавал" },
         barcodeType: { type: "string", enum: ["GS1", "ISBN", "UNDEFINED"], description: "Баркодын төрөл (eBarimt barCodeType) — сонголтоор" },
         description: { type: "string", description: "Барааны тайлбар (≤2000) — сонголтоор" },
         brand: { type: "string", description: "Брэнд — сонголтоор" },
@@ -955,7 +961,8 @@ export const AI_TOOLS: AiToolDef[] = [
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (сонголтоор)" },
         code: { type: "string", description: "Харилцагчийн код — давтагдашгүй; хоосон өгвөл арилна (сонголтоор)" },
-        registerNo: { type: "string", description: "Регистр/ТТД (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистр (сонголтоор)" },
+        tin: { type: "string", description: "ТТД 11–14 орон; хоосон өгвөл арилна (сонголтоор)" },
         email: { type: "string", description: "И-мэйл — нэхэмжлэх илгээхэд (сонголтоор)" },
         phone: { type: "string", description: "Утас (сонголтоор)" },
         address: { type: "string", description: "Хаяг (сонголтоор)" },
@@ -1047,7 +1054,7 @@ export const AI_TOOLS: AiToolDef[] = [
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
         ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
-        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3 орон — exempt/zero бараанд заавал" },
+        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3–5 орон (албан жагсаалт 3 орон) — exempt/zero бараанд заавал" },
         barcodeType: { type: "string", enum: ["GS1", "ISBN", "UNDEFINED"], description: "Баркодын төрөл (eBarimt barCodeType) — сонголтоор" },
         description: { type: "string", description: "Барааны тайлбар (≤2000) — сонголтоор" },
         brand: { type: "string", description: "Брэнд — сонголтоор" },
@@ -1286,6 +1293,19 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "get_ebalance_statements",
+    description:
+      "Сангийн яамны e-Balance (Цахим санхүүгийн тайлангийн систем) МАЯГТЫН мөрөөр санхүүгийн тайлан: СТ-1 санхүүгийн байдал (эхний/эцсийн), СТ-2 орлогын дэлгэрэнгүй, СТ-3 өмчийн өөрчлөлт, СТ-4 мөнгөн гүйлгээ (шууд арга, S8 кодоор). Вэбийн Ерөнхий журнал → Тайлан → «Санхүүгийн тайлан (e-Balance маягт)»-тай НЭГ тооцоо; мөр бүрийн Entry-ийн эх ба гараар нөхөх мөр (⚠) ил. Хагас жилийн тайлан 7-р сарын 20, жилийн дараа оны 2-р сарын 10 (Нягтлан бодох бүртгэлийн тухай хууль 10.3).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Тайлант үеийн эхлэл YYYY-MM-DD (жилийн тайланд 01-01)" },
+        to: { type: "string", description: "Тайлант үеийн төгсгөл YYYY-MM-DD" },
       },
       required: ["from", "to"],
     },
@@ -2017,6 +2037,7 @@ export const AI_TOOLS: AiToolDef[] = [
               entityKind: { type: "string", description: "Төрөл — organization (default) / individual / байгууллагын нэмсэн төрлийн код эсвэл нэр" },
               code: { type: "string", description: "Харилцагчийн код (давтагдашгүй, сонголтоор)" },
               registerNo: { type: "string" },
+              tin: { type: "string", description: "ТТД 11–14 орон (сонголтоор)" },
               defaultReceivableAccount: { type: "string" },
               defaultPayableAccount: { type: "string" },
               currency: { type: "string" },
@@ -5139,7 +5160,8 @@ async function runListCounterparties(
         (entry) =>
           entry.name.toLowerCase().includes(q) ||
           (entry.code ?? "").toLowerCase().includes(q) ||
-          (entry.registerNo ?? "").toLowerCase().includes(q)
+          (entry.registerNo ?? "").toLowerCase().includes(q) ||
+          (entry.tin ?? "").includes(q)
       )
     : list;
   if (filtered.length === 0) return { resultText: "Тохирох харилцагч олдсонгүй" };
@@ -5156,7 +5178,8 @@ async function runListCounterparties(
           entry.id.slice(0, 8),
           entry.name,
           entry.code ? `Код ${entry.code}` : null,
-          entry.registerNo ? `${baseKindOf(entry.entityKind, kinds) === "individual" ? "РД" : "ТТД"} ${entry.registerNo}` : null,
+          entry.registerNo ? `${baseKindOf(entry.entityKind, kinds) === "individual" ? "РД" : "Регистр"} ${entry.registerNo}` : null,
+          entry.tin ? `ТТД ${entry.tin}` : null,
           entry.email || null,
           cpKindNote(entry.entityKind, kinds),
           CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
@@ -5350,6 +5373,7 @@ async function runCreateCounterparty(
     entityKind?: string;
     code?: string;
     registerNo?: string;
+    tin?: string;
     email?: string;
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
@@ -5366,6 +5390,9 @@ async function runCreateCounterparty(
   const name = String(input.name ?? "").trim().replace(/\s+/g, " ");
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   const registerNo = input.registerNo?.trim() || undefined;
+  const tinResult = normalizeTin(input.tin);
+  if ("error" in tinResult) throw new Error(`[VALIDATION] ${tinResult.error}`);
+  const tin = tinResult.tin ?? undefined;
   const code = normalizeCounterpartyCode(input.code);
   // Төрөл: байгууллагын жагсаалтаас (систем + нэмсэн) код эсвэл нэрээр.
   // Өгөөгүй ч регистр нь иргэний РД хэлбэртэй бол «Хувь хүн» (таамаглал биш —
@@ -5388,6 +5415,7 @@ async function runCreateCounterparty(
     (entry) =>
       entry.name.toLowerCase() === name.toLowerCase() ||
       (registerNo != null && entry.registerNo === registerNo) ||
+      (tin != null && entry.tin === tin) ||
       (code != null && entry.code === code)
   );
   // SIM2-002: нэр/ТТД ижил харилцагчийг ӨӨР чиглэлээр (customer ↔ supplier)
@@ -5410,7 +5438,7 @@ async function runCreateCounterparty(
   }
   if (duplicate) {
     return {
-      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.code ? ` (код ${duplicate.code})` : ""}${duplicate.registerNo ? ` (ТТД ${duplicate.registerNo})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
+      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.code ? ` (код ${duplicate.code})` : ""}${duplicate.registerNo ? ` (регистр ${duplicate.registerNo})` : ""}${duplicate.tin ? ` (ТТД ${duplicate.tin})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
       dedup: true,
     };
   }
@@ -5432,6 +5460,7 @@ async function runCreateCounterparty(
     entityKind,
     code: code ?? undefined,
     registerNo,
+    tin,
     email: input.email,
     defaultReceivableAccountNumber: receivableCode,
     defaultPayableAccountNumber: payableCode,
@@ -5445,7 +5474,7 @@ async function runCreateCounterparty(
     })
   );
   return {
-    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${baseKindOf(entityKind, kinds) === "individual" ? "РД" : "ТТД"} ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${entityKindName(entityKind, kinds)}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${baseKindOf(entityKind, kinds) === "individual" ? "РД" : "регистр"} ${registerNo})` : ""}${tin ? ` (ТТД ${tin})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${entityKindName(entityKind, kinds)}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };
 }
 
@@ -5558,6 +5587,7 @@ async function runUpdateCounterparty(
     currency?: string;
     code?: string;
     registerNo?: string;
+    tin?: string;
     email?: string;
     phone?: string;
     address?: string;
@@ -5600,6 +5630,11 @@ async function runUpdateCounterparty(
   }
   if (input.registerNo != null)
     changes.registerNo = input.registerNo.trim() || null;
+  if (input.tin != null) {
+    const tinResult = normalizeTin(input.tin);
+    if ("error" in tinResult) throw new Error(`[VALIDATION] ${tinResult.error}`);
+    changes.tin = tinResult.tin;
+  }
   if (input.email != null) {
     const email = input.email.trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -6307,6 +6342,52 @@ async function runBalanceSheet(
       : `Тэнцэл: ✗ ЗӨРҮҮ ${fmt(sectionTotals.assets - totalLiabAndEquity)} — reconcile_modules-оор шалтгааныг хайна уу`
   );
   return { resultText: out.join("\n") };
+}
+
+async function runEbalanceStatements(
+  orgId: string,
+  input: { from: string; to: string }
+): Promise<AiToolResult> {
+  assertDates(input.from, input.to);
+  // Вэбийн тайлантай НЭГ тооцоо (lib/reports/ebalance.ts): БС/ОДТ-ийн [3]
+  // мөрүүд (snapshot + delta) + [from,to] ваучерууд (мөнгөн гүйлгээний контра).
+  const accounts = await db.query.chartOfAccounts.findMany({
+    where: eq(chartOfAccounts.organizationId, orgId),
+  });
+  const [rows, vouchers, mappings, voucherCfCodes] = await Promise.all([
+    loadBalanceRowsFast(orgId, input.from, input.to, accounts, [3]),
+    db.query.journalVouchers.findMany({
+      where: and(
+        eq(journalVouchers.organizationId, orgId),
+        inArray(journalVouchers.status, ["posted", "reversed"]),
+        gte(journalVouchers.date, input.from),
+        lte(journalVouchers.date, input.to)
+      ),
+      with: { lines: true },
+    }),
+    db.query.reportLineMappings.findMany({
+      where: and(
+        eq(reportLineMappings.organizationId, orgId),
+        inArray(reportLineMappings.reportType, ["balance-sheet", "income-statement", "cash-flow"])
+      ),
+    }),
+    loadVoucherCfCodes(orgId),
+  ]);
+  const cashNets = cashNetsFromRows(rows);
+  const report = computeEbalanceStatements({
+    rows,
+    accounts,
+    bsMappings: mappings.filter((m) => m.reportType === "balance-sheet"),
+    isMappings: mappings.filter((m) => m.reportType === "income-statement"),
+    cfMappings: mappings.filter((m) => m.reportType === "cash-flow"),
+    vouchers,
+    voucherCfCodes: new Map(Object.entries(voucherCfCodes)),
+    from: input.from,
+    to: input.to,
+    cashOpenNet: cashNets.openNet,
+    cashCloseNet: cashNets.closeNet,
+  });
+  return { resultText: formatEbalanceReport(report, fmt) };
 }
 
 async function runCashFlow(
@@ -8728,7 +8809,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 НӨАТ-тай бол: авлага = нийт, орлого = нийт/1.1, НӨАТ өглөг 31410000 = нийт×10/110 гэж мөр хуваана.`,
   pos_sale: `ЖИЖИГЛЭН ХУДАЛДАА (POS — docs/pos) — зөв дараалал:
 0. Бараанд борлуулах үнэ (salesPrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch.
-   eBarimt асаалттай бол бараа бүрд ТЕГ-ийн ангилалын код (7 орон) ба НӨАТ-гүй/0%-д татварын бүтээгдэхүүний код (3 орон), төлбөрийн хэлбэр бүрд eBarimt код ЗААВАЛ — эдгээргүй бол баримт илгээгдэхгүй (get_ebarimt_status алдааг нэрлэнэ)
+   eBarimt асаалттай бол бараа бүрд ТЕГ-ийн ангилалын код (7 орон) ба НӨАТ-гүй/0%-д татварын бүтээгдэхүүний код (3–5 орон), төлбөрийн хэлбэр бүрд eBarimt код ЗААВАЛ — эдгээргүй бол баримт илгээгдэхгүй (get_ebarimt_status алдааг нэрлэнэ)
 1. get_pos_status — нээлттэй ээлж, төлбөрийн хэлбэрийн кодууд (CASH, CARD, CREDIT …), НӨАТ төлөгч эсэх
 2. open_pos_shift {cashAccount, warehouseCode, openingFloat} — ээлж байхгүй бол (GL бичилтгүй)
 3. create_pos_sale {lines:[{itemCode, quantity}], payments:[{method:"CASH", amount}]} — НЭГ транзакцад: АР нэхэмжлэх posted + кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS. Хөнгөлөлтийн дүрэм автомат; купон couponCodes-оор; харилцагч өгвөл бүлгийн хөнгөлөлт/зээл. Зөвхөн 'Шууд бичих' горим, ≤10 сая ₮
@@ -11717,10 +11798,11 @@ async function runCreatePosSale(
   if (!Array.isArray(input.lines) || input.lines.length === 0) throw new Error("Борлуулах бараа өгнө үү");
   const shift = await posShiftFor(orgId, input.warehouseCode);
   let counterpartyId: string | null = null;
+  let customerTinFromCard: string | null = null;
   if (input.customer?.trim()) {
     const cpList = await db.query.counterparties.findMany({
       where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
-      columns: { id: true, name: true, counterpartyType: true },
+      columns: { id: true, name: true, counterpartyType: true, tin: true, registerNo: true, entityKind: true },
     });
     const customer = requireSingle(
       nameMatches(cpList.filter((cp) => cp.counterpartyType !== "supplier"), (entry) => entry.name, input.customer),
@@ -11730,6 +11812,12 @@ async function runCreatePosSale(
       { codePrefix: "COUNTERPARTY", allNames: cpList.map((entry) => entry.name) }
     );
     counterpartyId = customer.id;
+    // Картад ТТД хадгалагдсан байгууллага → B2B баримт (tool ТТД/РД өгөөгүй үед);
+    // иргэн (consumerNo) өгсөн бол хөндөхгүй — лавлах дуудагдахгүй.
+    if (!input.customerTin && !input.customerRegNo && !input.consumerNo && customer.entityKind !== "individual") {
+      const storedTin = effectiveTin(customer.tin, customer.registerNo);
+      if (storedTin) customerTinFromCard = storedTin;
+    }
   }
   const lines: SaleLineInput[] = [];
   for (const line of input.lines) {
@@ -11787,7 +11875,7 @@ async function runCreatePosSale(
       note: input.note ?? null,
       ebarimtId: input.ebarimtId ?? null,
       ebarimtConsumerNo: input.consumerNo ?? null,
-      ebarimtCustomerTin: input.customerTin ?? null,
+      ebarimtCustomerTin: input.customerTin ?? customerTinFromCard,
       ebarimtCustomerRegNo: input.customerRegNo ?? null,
       skipEbarimt: input.skipEbarimt === true,
     })
@@ -11990,6 +12078,9 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,
     ...(readiness.warnings.length ? [`Анхааруулга: ${readiness.warnings.join("; ")}`] : []),
+    ...(status.posApiVersion ? [`PosAPI хувилбар: ${status.posApiVersion}${isPosApiVersionOutdated(status.posApiVersion) ? ` — ${POSAPI_MIN_VERSION}-оос доош, шинэчилнэ` : ""}`] : []),
+    ...(status.merchant?.cityPayer ? ["ТЕГ: НХАТ суутган төлөгч — Entry totalCityTax дэмжихгүй (үргэлж 0)"] : []),
+    ...(status.merchant?.freeProject ? ["ТЕГ: НӨАТ-аас чөлөөлөгдөх төсөл — баримт VAT_FREE/304 байх ёстой (гараар)"] : []),
     status.enabled && status.mode === "server"
       ? status.posApi
         ? `PosAPI: ${status.posApi.operatorName ?? "оператор ?"} · posNo ${status.posApi.posNo ?? "?"} · үлдсэн сугалаа ${status.posApi.leftLotteries ?? "?"} · ТЕГ рүү сүүлд ${status.posApi.lastSentDate ?? "?"} · мерчант бүртгэлтэй: ${status.posApi.merchantRegistered == null ? "тодорхойгүй" : status.posApi.merchantRegistered ? "тийм" : "ҮГҮЙ — operator.ebarimt.mn-ээс хүсэлт илгээж харилцагчаар батлуулна"}`
@@ -12262,6 +12353,8 @@ async function dispatchAiTool(
         return await runBalanceSheet(orgId, args);
       case "get_cash_flow":
         return await runCashFlow(orgId, args);
+      case "get_ebalance_statements":
+        return await runEbalanceStatements(orgId, args);
       case "get_account_ledger":
         return await runAccountLedger(orgId, args);
       case "create_year_end_closing":

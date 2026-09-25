@@ -8,7 +8,7 @@ tools-оор системд оруулна. **Баганын НЭР чухал, 
 | # | Файл | MCP tool (batch, max 100/дуудлага) | Тэмдэглэл |
 |---|------|-----------------------------------|-----------|
 | 1 | `01-gl-accounts.csv` | `create_gl_accounts_batch` | Стандарт дансны мод аль хэдийн бий (Тохиргоо → ЕЖ тохиргоо → "Стандарт данс sync"). Зөвхөн НЭМЭЛТ данс энд |
-| 2 | `02-counterparties.csv` | `create_counterparties_batch` | `counterpartyType`: customer / supplier / both. `entityKind`: organization (Байгууллага, default) / individual (Хувь хүн) — иргэний РД (УУ12345678) өгвөл автоматаар individual. `code` = харилцагчийн код (РД-ээс тусдаа, давтагдашгүй, заавал биш — хуучин системийн кодыг энд авчирна). ТТД / код / нэр давхардвал алгасна |
+| 2 | `02-counterparties.csv` | `create_counterparties_batch` | `counterpartyType`: customer / supplier / both. `entityKind`: organization (Байгууллага, default) / individual (Хувь хүн) — иргэний РД (УУ12345678) өгвөл автоматаар individual. `code` = харилцагчийн код (РД-ээс тусдаа, давтагдашгүй, заавал биш — хуучин системийн кодыг энд авчирна). `tin` = ТТД (11–14 орон, регистрээс тусдаа; мэдэхгүй бол хоосон — картын «ТЕГ-ээс лавлах» товч эсвэл `lookup_tin`). Регистр / ТТД / код / нэр давхардвал алгасна |
 | 3 | `03-inventory-items.csv` | `create_inventory_items_batch` | Код давхардахгүй |
 | 4 | `04-warehouses.csv` | `create_warehouse` (мөр бүрд) | Цөөн тул batch-гүй |
 | 5 | `05-cash-accounts.csv` | `create_cash_account` (мөр бүрд) | `glAccount` нь 1-р файлд/стандарт дансанд байх ёстой. `openingBalance` нь 8-р файлын дүнтэй ТЭНЦЭХ ёстой |

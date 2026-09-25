@@ -81,7 +81,7 @@ export function initialSaleEbarimtStatus(input: {
 /** Тохиргооны бүрэн байдал — дутуу бол шалтгааны жагсаалт (UI + worker хоёулаа). */
 export function ebarimtSettingsProblems(settings: EbarimtSettingsInput): string[] {
   const problems: string[] = [];
-  if (!MERCHANT_TIN_RE.test(settings.merchantTin.trim())) problems.push("Мерчантын ТТД 11 эсвэл 14 оронтой тоо байна");
+  if (!MERCHANT_TIN_RE.test(settings.merchantTin.trim())) problems.push("Мерчантын ТТД 11–14 оронтой тоо байна (хуулийн этгээд 11)");
   if (!settings.branchNo.trim()) problems.push("Салбарын дугаар (branchNo) хоосон");
   if (!DISTRICT_CODE_RE.test(settings.districtCode.trim())) problems.push("Дүүргийн код 4 оронтой байна");
   if (!settings.posNo.trim()) problems.push("Кассын дугаар (posNo) хоосон");
@@ -120,7 +120,7 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
   if ((taxType === "VAT_FREE" || taxType === "VAT_ZERO") && !TAX_PRODUCT_CODE_RE.test(taxProductCode))
     throw new EbarimtError(
       EBARIMT_ERRORS.taxProductCode,
-      `"${line.itemName}" НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3 орон) байхгүй`
+      `"${line.itemName}" НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3–5 орон) байхгүй`
     );
   const qty = round2(line.quantity);
   const totalAmount = round2(line.lineTotal);
@@ -282,7 +282,7 @@ export function buildEbarimtReceipt(
 
   const customerTin = sale.customerTin?.trim() || null;
   if (customerTin && !MERCHANT_TIN_RE.test(customerTin))
-    throw new EbarimtError(EBARIMT_ERRORS.settings, "Худалдан авагчийн ТТД 11 эсвэл 14 оронтой байна");
+    throw new EbarimtError(EBARIMT_ERRORS.settings, "Худалдан авагчийн ТТД 11–14 оронтой байна (хуулийн этгээд 11, хувь хүн 12–14)");
   const consumerNo = sale.consumerNo?.trim() || null;
   if (consumerNo && !CONSUMER_NO_RE.test(consumerNo))
     throw new EbarimtError(EBARIMT_ERRORS.settings, "Иргэний eBarimt дугаар 8 оронтой байна");

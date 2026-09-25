@@ -23,6 +23,7 @@ import type { PaymentKind } from "@/lib/pos/constants";
 import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
 import { categoryClassificationMap, ebarimtReadiness, type EbarimtReadiness } from "./readiness";
 import { fetchPosApiHealth } from "./client";
+import { lookupTaxpayerByTin } from "./lookup";
 import { isMerchantRegistered } from "./posapi-info";
 import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets } from "./receipt";
 import type {
@@ -522,6 +523,13 @@ export async function ebarimtStatusSummary(orgId: string, settingsRow: PosSettin
     orderBy: [desc(posEbarimtSubmissions.updatedAt)],
     columns: { lastError: true },
   });
+  // PosAPI-ийн хувилбар — сүүлийн амжилттай хариуны `version` (сүлжээ хөндөхгүй).
+  const [lastVersion] = await db
+    .select({ version: sql<string | null>`${posEbarimtSubmissions.response} ->> 'version'` })
+    .from(posEbarimtSubmissions)
+    .where(and(eq(posEbarimtSubmissions.organizationId, orgId), eq(posEbarimtSubmissions.status, "sent"), sql`${posEbarimtSubmissions.response} ? 'version'`))
+    .orderBy(desc(posEbarimtSubmissions.sentAt))
+    .limit(1);
   return {
     enabled: settingsRow.ebarimtEnabled,
     mode: settingsRow.ebarimtMode === "browser" ? "browser" : "server",
@@ -533,6 +541,8 @@ export async function ebarimtStatusSummary(orgId: string, settingsRow: PosSettin
     // Амьд PosAPI-ийн мэдээллийг ACTION давхарга (getEbarimtStatus) нэмнэ —
     // /api/health энэ тоймыг байгууллага бүрд дууддаг тул энд сүлжээ хөндөхгүй.
     posApi: null,
+    posApiVersion: lastVersion?.version?.trim() || null,
+    merchant: null,
   };
 }
 
@@ -550,10 +560,20 @@ export async function ebarimtStatusWithPosApi(
 ): Promise<EbarimtStatusSummary> {
   const summary = await ebarimtStatusSummary(orgId, settingsRow, todayUb);
   if (summary.mode !== "server" || !settingsRow.ebarimtPosApiUrl.trim()) return summary;
-  const health = await fetchPosApiHealth(settingsRow.ebarimtPosApiUrl);
-  if (!health) return summary;
+  const [health, merchant] = await Promise.all([
+    fetchPosApiHealth(settingsRow.ebarimtPosApiUrl),
+    // ТЕГ-ийн бүртгэл (НХАТ төлөгч / чөлөөлөгдөх төсөл) — лавлах хүрэхгүй бол null, шидэхгүй.
+    settingsRow.ebarimtMerchantTin.trim()
+      ? lookupTaxpayerByTin(settingsRow.ebarimtMerchantTin).then(
+          (info) => ({ name: info.name, vatPayer: info.vatPayer, cityPayer: info.cityPayer, freeProject: info.freeProject }),
+          () => null
+        )
+      : Promise.resolve(null),
+  ]);
+  if (!health) return { ...summary, merchant };
   return {
     ...summary,
+    merchant,
     posApi: { ...health, merchantRegistered: isMerchantRegistered(health, settingsRow.ebarimtMerchantTin) },
   };
 }

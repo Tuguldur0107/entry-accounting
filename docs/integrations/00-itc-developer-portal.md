@@ -135,17 +135,34 @@ grant_type=password&client_id={client}&username={нэвтрэх нэр}&password
 eTax-ийн token/нууц шифртэй, `/api/health`-д зөвхөн тоолуур; AI/MCP tool
 `submit_*` нь post горим + `[HUMAN_REQUIRED]` (татварын тайлан = хүний гарын үсэг).
 
-### 4.3 Модулийн загвар (кодын байршил — эхлэхэд)
+### 4.3 Модулийн загвар (кодын байршил)
+
+✅ **Scaffold 2026-09-25** — спек шаардахгүй хэсэг (нэвтрэлт, TPI) кодод, тесттэй;
+eTax-ийн өөрийн замууд PDF ирмэгц нэмэгдэнэ (зохиохгүй):
 
 ```
 lib/itc/
-├── auth.ts          Keycloak token (staging/prod), refresh, шифртэй хадгалалт — ЦЭВЭР parse + DB давхарга
-├── constants.ts     Хостууд, realm, client_id, зам — ЦОРЫН ГАНЦ эх (client-safe)
-├── etax/            client.ts (REST), forms/ (маягт → JSON mapper, ЦЭВЭР, тесттэй), types.ts
-└── tpi/             getSalesTotalData / getSaleListERP / getInfo — оролт/гаралтын ЦЭВЭР parser
-lib/actions/etax.ts  Server Actions (requireModuleAction("vat"|"payroll", "post"), actionError)
-app/(dashboard)/tax/etax   Тохиргоо (холболт, орчин), илгээлтийн түүх, төлөв
+├── constants.ts     ✅ Орчин (staging/production authBase + realm), client_id (vatps /
+│                    e-inventory / etax-gui), TPI зам, status, timeout, [CODE] — client-safe
+├── auth.ts          ✅ ЦЭВЭР (tests/itc-auth.test.ts): itcTokenUrl, password/refresh grant body,
+│                    parseItcTokenResponse (expires_in → expiresAt), isAccessTokenUsable
+│                    (30 сек skew), isRefreshUsable, bearerHeader, describeToken (утгагүй лог)
+├── tpi.ts           ✅ ЦЭВЭР (tests/itc-tpi.test.ts): salesTotalDataBody / saleListErpBody
+│                    (Pin/subPin/StartDate/EndDate — албан), parseSalesTotalData /
+│                    parseSaleListErp (танигдахгүй мөр алгасаж ТООЛНО), assertTpiStatus,
+│                    reconcileDdtd (ТЕГ ↔ Entry ДДТД олонлог — E5-ийн суурь)
+├── client.ts        ✅ SERVER: fetchItcToken / refreshItcToken (Keycloak), tpiSalesTotalData /
+│                    tpiSaleListErp (Bearer + X-API-KEY, 60 сек timeout); env ITC_TPI_BASE
+│                    (Монголд байрлах прокси — §3), ITC_ENV, ITC_TPI_API_KEY (.env.example)
+├── etax/            ⏳ client.ts (REST), forms/ (маягт → JSON mapper, ЦЭВЭР, тесттэй), types.ts —
+│                    «ETAX API documentation v1.1» PDF-ээс (§4.4 №2–3)
+└── token-store.ts   ⏳ Байгууллага бүрийн token шифртэй (`encryptSecret`), refresh — DB давхарга
+lib/actions/etax.ts  ⏳ Server Actions (requireModuleAction("vat"|"payroll", "post"), actionError)
+app/(dashboard)/tax/etax   ⏳ Тохиргоо (холболт, орчин), илгээлтийн түүх, төлөв
 ```
+
+⚠ `salesTotalDataBody`-ийн wire талбарын нэр (year/month/day/status/startCount/endCount)
+албан ТАЙЛБАРЫН нэрээр — staging дээр Монголоос шалгаж баталгаажуулна (§4.4 №3).
 
 ### 4.4 Нээлттэй асуултууд — ITC-ээс (posapi@itc.gov.mn / info@itc.gov.mn) тодруулах
 
@@ -181,8 +198,8 @@ app/(dashboard)/tax/etax   Тохиргоо (холболт, орчин), илг
 
 | # | Юу | Entry-ийн эх |
 |---|---|---|
-| B1 | **e-Balance маягтын дарааллаар тайлан гаргах** — БС / ОДТ / ӨӨТ / МГТ мөрийн код бүрд Entry-ийн `report_line_mappings` (BS/IS/CF) + S8 сегментийн МГ кодыг буулгах mapping (ЦЭВЭР, тесттэй); тодруулгын хүснэгтүүд (ҮХ хөдөлгөөн, авлага/өглөгийн насжилт, бараа) Entry-ийн тайлангаас | `lib/reports/`, `knowledge/03-стандарт/reports/01-line-mapping.md` |
-| B2 | **Excel экспорт e-Balance-ийн маягтын хэлбэрээр** (нягтлан шивэхгүй хуулж тавих) — импортын спек гарвал ижил mapping-аас файл/JSON үүснэ | `lib/excel/` стандарт |
+| B1 | ✅ **e-Balance маягтын дарааллаар тайлан гаргах** (2026-09-25) — `lib/reports/ebalance.ts` (ЦЭВЭР, тесттэй): СТ-1 БС (эхний/эцсийн), СТ-2 ОДТ, СТ-3 ӨӨТ, СТ-4 МГТ (шууд арга, S8 код → мөр) Entry-ийн `report_line_mappings` (BS/IS/CF)-аас; мөр бүрийн эх ил, харгалзах мөргүй маягтын мөр 0 + тэмдэглэл. Хуудас `/gl/reports?report=ebalance`, AI `get_ebalance_statements`. **Тодруулгын хүснэгтүүд** (ҮХ хөдөлгөөн, насжилт, бараа) — дараагийн алхам | `lib/reports/ebalance.ts`, `knowledge/03-стандарт/reports/01-line-mapping.md` |
+| B2 | ✅ **Excel экспорт e-Balance-ийн маягтын хэлбэрээр** — 4 хуудастай нэг файл (`downloadWorkbookSheets`), мөрийн дугаараар хуулна; импортын спек гарвал ижил mapping-аас файл/JSON үүснэ. Маягтын мөрийн дугаар албан маягттай **тулгагдаагүй** (§5.3 №3) — `EBALANCE_*_FORM` нэг жагсаалтаас засна | `lib/excel/core.ts`, `components/gl/ebalance-view.tsx` |
 | B3 | Сар хаалт → жилийн хаалт (`create_year_end_closing`)-ын дараа «e-Balance бэлэн» checklist: тэнцэл, өмчийн өөрчлөлт = ОДТ-ийн цэвэр ашиг, МГТ = кассын хөдөлгөөн (`reconcile_modules`) | `/close`, `attention.ts` (хугацаа 7/20, 2/10 — татварын хуанлитай нэг эх) |
 | B4 | Хэрэв импорт/API гарвал: `lib/mof/ebalance/` — нэвтрэлт (ДАН OAuth?), маягт JSON, илгээлтийн түүх, аудит | — |
 

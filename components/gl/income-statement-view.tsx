@@ -15,10 +15,11 @@ import {
 } from "@/lib/reports/balances";
 import type { SegmentDef } from "@/lib/constants/standard-accounts";
 import {
-  IS_LINES,
-  isDefaultLineKeyOf,
+  IS_GROUP_META,
+  resolveIsLines,
   type IsSection,
   type IsSign,
+  type ResolvedIsLine,
 } from "@/lib/reports/is-lines";
 import { ReportGrid, type ReportRow } from "./report-grid";
 import { MappingDialog } from "./mapping-dialog";
@@ -37,19 +38,9 @@ interface Props {
   mappings: ReportLineMapping[];
 }
 
-const GROUP_META: Record<
-  string,
-  { section: IsSection; sign: IsSign; groupLabel: string }
-> = {};
-for (const line of IS_LINES) {
-  if (!GROUP_META[line.group]) {
-    GROUP_META[line.group] = {
-      section: line.section,
-      sign: line.sign,
-      groupLabel: line.groupLabel,
-    };
-  }
-}
+// Бүлгийн мета — lib/reports/is-lines.ts (e-Balance маягттай НЭГ эх).
+const GROUP_META: Record<string, { section: IsSection; sign: IsSign; groupLabel: string }> =
+  IS_GROUP_META;
 
 const GROUP_OPTIONS = Object.entries(GROUP_META).map(([value, meta]) => ({
   value,
@@ -63,18 +54,7 @@ const SECTION_LABEL: Record<IsSection, string> = {
   expense: "ЗАРДАЛ",
 };
 
-interface ResolvedLine {
-  key: string;
-  section: IsSection;
-  group: string;
-  groupLabel: string;
-  label: string;
-  accountNumbers: string[];
-  sign: IsSign;
-  isHidden: boolean;
-  isCustom: boolean;
-  sortOrder: number;
-}
+type ResolvedLine = ResolvedIsLine;
 
 interface ComputedLine extends ResolvedLine {
   amount: number;
@@ -104,64 +84,12 @@ export function IncomeStatementView({
     return m;
   }, [mappings]);
 
-  const resolvedLines = useMemo<ResolvedLine[]>(() => {
-    const out: ResolvedLine[] = [];
-    IS_LINES.forEach((line, idx) => {
-      const m = mappingByKey.get(line.key);
-      // Хоосон accountNumbers нь override БИШ — нуух/нэр солих үйлдэл mapping
-      // мөрийг хоосон дансаар үүсгэдэг тул "" -ийг default-даа үлдээнэ
-      // (эс бөгөөс нуусан мөр дүнгээ алдаж, нийт дүн өөрчлөгддөг байсан).
-      const override =
-        m && m.accountNumbers.trim() !== ""
-          ? m.accountNumbers
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : undefined;
-      const accountNumbers =
-        override !== undefined
-          ? override
-          : accounts
-              // Хамгийн урт угтвар ялна — нэг данс НЭГ мөрөнд (ENT-048).
-              .filter((a) => isDefaultLineKeyOf(a.number) === line.key)
-              .map((a) => a.number);
-      out.push({
-        key: line.key,
-        section: line.section,
-        group: line.group,
-        groupLabel: line.groupLabel,
-        label: m?.customLabel?.trim() || line.label,
-        accountNumbers,
-        sign: line.sign,
-        isHidden: !!m?.isHidden,
-        isCustom: false,
-        sortOrder: idx,
-      });
-    });
-
-    for (const m of mappings) {
-      if (!m.lineKey.startsWith("custom-")) continue;
-      const group = m.customGroup ?? "opex";
-      const meta = GROUP_META[group];
-      if (!meta) continue;
-      out.push({
-        key: m.lineKey,
-        section: meta.section,
-        group,
-        groupLabel: meta.groupLabel,
-        label: m.customLabel?.trim() || "Нэргүй мөр",
-        accountNumbers: m.accountNumbers
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        sign: meta.sign,
-        isHidden: m.isHidden,
-        isCustom: true,
-        sortOrder: m.sortOrder,
-      });
-    }
-    return out;
-  }, [mappings, mappingByKey, accounts]);
+  // Вэб ба e-Balance маягт НЭГ функцээр (lib/reports/is-lines.ts): хоосон
+  // override default-даа үлдэнэ, хамгийн урт угтвар ялна (ENT-048), custom мөр.
+  const resolvedLines = useMemo<ResolvedLine[]>(
+    () => resolveIsLines(mappings, accounts),
+    [mappings, accounts]
+  );
 
   // MappingDialog-ийн данс бүрийн дүн — тайлант үеийн цэвэр эргэлт
   // (Dr − Cr: зардал эерэг, орлого сөрөг харагдана).

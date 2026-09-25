@@ -27,7 +27,7 @@
 | POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1 | fork-ын хамгаалалт: хувийн repo (фаз 2), dedicated sync |
-| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance маягтын экспорт |
+| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
 ## Файлын бүтэц
 
@@ -66,6 +66,9 @@ entry-accounting/
 │   │                             #   load-data, reports (§5c)
 │   ├── ebarimt/                  # eBarimt 3.0: receipt (ЦЭВЭР), client, lookup,
 │   │                             #   queue, worker, ticker (§5c)
+│   ├── itc/                      # ITC (eTax / eBarimt TPI) холболтын scaffold: constants,
+│   │                             #   auth (Keycloak, ЦЭВЭР), tpi (parser, ЦЭВЭР), client —
+│   │                             #   docs/integrations/00 §4.3; eTax замууд спек ирмэгц
 │   ├── qpay/                     # QPay Quick QR (dashboard-аар): constants, intent
 │   │                             #   (ЦЭВЭР), readiness (ЦЭВЭР), client, store (§5c)
 │   ├── actions/pos.ts            # POS Server Actions (createPosSale атомик, буцаалт, ээлж)
@@ -879,7 +882,10 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   `api.ebarimt.mn` ЗӨВХӨН Монголын IP — env `EBARIMT_PUBLIC_API_BASE` (`publicApiBase()`);
   иргэний РД-аар `getTinInfo` ХОРИОТОЙ (ХХМХ 4.1.11, ТЕГ 2026-05-11), регистрээр лавлах
   2026-06-15-аас хязгаарлагдана → кассын B2B-д **ТТД шууд** үндсэн зам (нэр `getInfo`-оос,
-  `lookupTaxpayerByTin`; лавлах унасан ч төлбөр хаагдахгүй)
+  `lookupTaxpayerByTin`; лавлах унасан ч төлбөр хаагдахгүй). ТТД 11–14 орон (хувь хүн 12–14),
+  татварын бүтээгдэхүүний код 3–5 орон (`getProductTaxCode` 5 оронтой ч буцаадаг); `getInfo`-ийн
+  `cityPayer`/`freeProject` → мерчантын статус + кассын анхааруулга (НХАТ, VAT_FREE/304 автомат
+  БИШ); PosAPI хувилбар сүүлийн хариуны `version`-оос, <3.0.12 улаан (`isPosApiVersionOutdated`)
 - **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
   гараар засах ХОРИОТОЙ (давхар баримт)
 - **Борлуулалт бүрд eBarimt-гүй (`skipped`)**: төлбөрийн диалогийн «eBarimt
@@ -1626,7 +1632,7 @@ MCP, REST API хоёулаа НЭГ tool давхаргаар (lib/ai/tools.ts, 
 | Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |
 | Унших | list_* (10 — list_cost_entries: өртгийн бичилтийн ID-г эндээс), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
-| Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
+| Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_ebalance_statements (Сангийн яамны e-Balance маягт СТ-1…СТ-4 — `lib/reports/ebalance.ts`), get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
 | Batch | create_{counterparties,arap_invoices,cash_transactions,journal_vouchers}_batch, master data: create_{gl_accounts,inventory_items,employees,fixed_assets}_batch (max 100, partial success — Cowork анхны импорт), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал), import_bank_statement (мөрд `settleInvoice` — нэхэмжлэхийн төлбөр; `ewalletSettlement: true` — QPay settlement: түр данс → банк шилжүүлэг + шимтгэл, §5c) | импорт post горимд |
 | Нэвтрүүлэлт | get_onboarding_guide (section: overview/checklist/rules/phases/status) — `docs/deployment/onboarding.md`-ийн §2/§3/§4-ийг үгчлэн + байгууллагын шат (0–5) ба дараагийн алхам (`lib/onboarding/`); MCP `instructions` анх холбогдоход үүнийг заана | унших, аль ч горимд |
@@ -2392,6 +2398,15 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
                `normalizeCounterpartyCode` (ТОМ үсэг, ≤32) — автомат дугаарлалт
                ХИЙХГҮЙ (гараар / импортоор оноогдоно). Кассын "Харилцагчийн код"
                багана, AI list/create/update_counterparty, master data CSV (`code`)
+             counterparties.tin — ТТД (татвар төлөгчийн дугаар, 11–14 орон):
+               регистрээс ТУСДАА багана; ЦЭВЭР `normalizeTin` / `effectiveTin`
+               (counterparty-kind.ts, тесттэй — хуучин мөрд регистрийн талбарт
+               бичигдсэн ТТД-г preDeploy нөхнө, харагдацад ч өвлөнө). Картын
+               «ТЕГ-ээс лавлах» (`lookupCounterpartyTaxpayer`: ТТД → нэр/НӨАТ
+               төлөгч, байгууллагын регистр → ТТД) НЭГ удаа; POS кассын B2B ба
+               AI `create_pos_sale` (customerTin өгөөгүй бол) картын ТТД-г шууд
+               хэрэглэнэ — регистрээр лавлах 2026-06-15-аас хязгаарлагдсан.
+               AI create/update/batch/list_counterparty `tin`, CSV `tin`
              counterparties.entityKind — СУБЪЕКТИЙН төрлийн КОД: систем
                "organization" (Байгууллага, default) | "individual" (Хувь хүн) ЭСВЭЛ
                байгууллагын НЭМСЭН `kind_<n>` (counterparty_entity_kinds: name,

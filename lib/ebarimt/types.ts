@@ -175,6 +175,10 @@ export interface EbarimtStatusSummary {
    * операторын хүсэлтийг харилцагч батласан эсэхийг ИЛ харуулна.
    */
   posApi: (PosApiHealth & { merchantRegistered: boolean | null }) | null;
+  /** Сүүлийн амжилттай `/rest/receipt` хариуны `version` (жишээ 3.2.44) — ≥ 3.0.12 байх ёстой (P2-10). */
+  posApiVersion: string | null;
+  /** Мерчантын ТЕГ бүртгэл (`getInfo?tin=`, server горим) — НХАТ/чөлөөлөгдөх төслийн анхааруулга (P2-4). null = лавлах хүрээгүй. */
+  merchant: { name: string; vatPayer: boolean | null; cityPayer: boolean | null; freeProject: boolean | null } | null;
 }
 
 export interface EbarimtSubmissionView {

@@ -8,6 +8,7 @@
 // амжилтлана/унана — нэг мөрийн алдаа бусдыг унагахгүй. Үнэ өөрчлөгдсөн
 // бүрд item_price_history-д мөр бичигдэнэ (docs/pos §3.2).
 
+import { TAX_PRODUCT_CODE_RE } from "@/lib/ebarimt/constants";
 import { and, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -95,14 +96,14 @@ async function importInventoryItemsCore(
       if (categoryCode && !activeCategories.has(categoryCode))
         throw new Error(`"${categoryCode}" ангилал идэвхтэй жагсаалтад алга`);
       const barcode = row.barcode?.trim() || null;
-      // eBarimt: ангилал 7 орон, татварын бүтээгдэхүүний код 3 орон
+      // eBarimt: ангилал 7 орон, татварын бүтээгдэхүүний код 3–5 орон
       // (docs/pos/03-ebarimt-integration-plan.md §4.1) — код ЗОХИОХГҮЙ.
       const ebarimtClassificationCode = row.ebarimtClassificationCode?.trim() || null;
       if (ebarimtClassificationCode && !/^\d{7}$/.test(ebarimtClassificationCode))
         throw new Error("eBarimt ангилал 7 оронтой тоо байна");
       const ebarimtTaxProductCode = row.ebarimtTaxProductCode?.trim() || null;
-      if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
-        throw new Error("Татварын код 3 оронтой тоо байна");
+      if (ebarimtTaxProductCode && !TAX_PRODUCT_CODE_RE.test(ebarimtTaxProductCode))
+        throw new Error("Татварын код 3–5 оронтой тоо байна");
 
       const barcodeType = row.barcodeType?.trim().toUpperCase() || null;
       if (barcodeType && !["GS1", "ISBN", "UNDEFINED"].includes(barcodeType))

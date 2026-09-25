@@ -1082,6 +1082,10 @@ export const counterparties = pgTable(
     entityKind: text("entity_kind").notNull().default("organization"),
     // Байгууллагад РД (7) / ТТД (11/14), хувь хүнд иргэний РД (УУ12345678).
     registerNo: text("register_no"),
+    // ТТД (татвар төлөгчийн дугаар, 11–14 орон) — регистрээс ТУСДАА: ТЕГ-ийн
+    // лавлахаас НЭГ удаа олж хадгална, POS B2B eBarimt баримт шууд үүгээр
+    // (иргэний РД / регистрээр лавлах 2026-06-15-аас хязгаарлагдсан — P1-2).
+    tin: text("tin"),
     defaultReceivableAccountNumber: text("default_receivable_account_number"),
     defaultPayableAccountNumber: text("default_payable_account_number"),
     defaultCurrency: text("default_currency").notNull().default("MNT"),

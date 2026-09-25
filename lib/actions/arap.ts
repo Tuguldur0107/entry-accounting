@@ -28,6 +28,7 @@ import {
   entityKindNameError,
   isSystemEntityKind,
   nextEntityKindCode,
+  normalizeTin,
   resolveEntityKindCode,
   type CounterpartyBaseKind,
 } from "@/lib/arap/counterparty-kind";
@@ -452,6 +453,13 @@ function counterpartyTypeLabel(type: string) {
         : type;
 }
 
+/** ТТД — хоосон = null; хэлбэр буруу бол ШИДНЭ (lib/arap/counterparty-kind.ts). */
+function tinValue(raw: string | null | undefined): string | null {
+  const result = normalizeTin(raw);
+  if ("error" in result) throw new Error(result.error);
+  return result.tin;
+}
+
 /** Зээлийн лимит — хоосон/null = хязгааргүй; сөрөг утга хориотой. */
 function creditLimitValue(value: number | null | undefined): string | null {
   if (value == null || (typeof value === "number" && Number.isNaN(value))) return null;
@@ -468,6 +476,8 @@ async function createCounterpartyCore(data: {
   /** Харилцагчийн код — org дотор давтагдашгүй (сонголтоор). */
   code?: string;
   registerNo?: string;
+  /** ТТД (11–14 орон) — регистрээс тусдаа; хоосон = арилгана. */
+  tin?: string;
   defaultReceivableAccountNumber?: string;
   defaultPayableAccountNumber?: string;
   defaultCurrency?: string;
@@ -523,6 +533,7 @@ async function createCounterpartyCore(data: {
 
   const code = normalizeCounterpartyCode(data.code);
   await assertCounterpartyCodeAvailable(orgId, code);
+  const tin = tinValue(data.tin);
 
   const [created] = await db
     .insert(counterparties)
@@ -534,6 +545,7 @@ async function createCounterpartyCore(data: {
       counterpartyType: data.counterpartyType,
       entityKind,
       registerNo: cleanText(data.registerNo),
+      tin,
       defaultReceivableAccountNumber: receivable,
       defaultPayableAccountNumber: payable,
       defaultCurrency: data.defaultCurrency?.trim().toUpperCase() || "MNT",
@@ -576,6 +588,7 @@ async function updateCounterpartyCore(
     entityKind?: string | null;
     code?: string;
     registerNo?: string;
+    tin?: string;
     defaultReceivableAccountNumber?: string;
     defaultPayableAccountNumber?: string;
     defaultCurrency?: string;
@@ -611,6 +624,7 @@ async function updateCounterpartyCore(
 
   const code = normalizeCounterpartyCode(data.code);
   await assertCounterpartyCodeAvailable(orgId, code, id);
+  const tin = tinValue(data.tin);
 
   const [updated] = await db
     .update(counterparties)
@@ -620,6 +634,7 @@ async function updateCounterpartyCore(
       counterpartyType: data.counterpartyType,
       entityKind,
       registerNo: cleanText(data.registerNo),
+      tin,
       defaultReceivableAccountNumber: receivable,
       defaultPayableAccountNumber: payable,
       defaultCurrency: data.defaultCurrency?.trim().toUpperCase() || "MNT",

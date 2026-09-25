@@ -108,6 +108,12 @@ export function VatReceiptBar({
                 {buyer.lookup.name || "Нэр уншигдсангүй"} · ТТД {buyer.lookup.tin}
               </span>
             )}
+            {buyer.lookup.status === "found" && buyer.lookup.freeProject && (
+              <span className="block text-[var(--ea-warning-fg)]">
+                ТЕГ: НӨАТ-аас чөлөөлөгдөх төсөл — баримт VAT_FREE (код 304) байх ёстой; Entry автоматаар хийхгүй,
+                нягтлантай тохирно
+              </span>
+            )}
             {buyer.lookup.status !== "loading" && buyer.lookup.status !== "found" && problem && (
               <span className="text-[var(--ea-danger-fg)]">{problem}</span>
             )}

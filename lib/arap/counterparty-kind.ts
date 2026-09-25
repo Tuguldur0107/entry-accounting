@@ -7,6 +7,7 @@
 // ЗӨВЛӨМЖ (хориг биш): гадаадын харилцагч өөр форматтай байж болно.
 
 import { arapLedger } from "./document-kind";
+import { MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 
 //
 // ДИНАМИК ТӨРӨЛ (counterparty_entity_kinds): байгууллага бүр өөрийн төрөл нэмнэ
@@ -170,6 +171,39 @@ export function entityKindNameError(
 export const CITIZEN_REGISTER_NO_RE = /^[А-ЯЁӨҮ]{2}\d{8}$/u;
 /** Байгууллагын регистр (7 орон) эсвэл ТТД (11/14 орон). */
 export const ORGANIZATION_REGISTER_NO_RE = /^(\d{7}|\d{11}|\d{14})$/;
+
+// ── ТТД (татвар төлөгчийн дугаар) — регистрээс ТУСДАА багана ─────────────────
+// ТЕГ-ийн лавлахаас НЭГ удаа олж хадгална (POS B2B баримт шууд үүгээр —
+// регистрээр лавлах 2026-06-15-аас хязгаарлагдсан, docs/integrations/01 §3 P1-2).
+
+export const TIN_LABEL = "ТТД (татвар төлөгчийн дугаар)";
+export const TIN_PLACEHOLDER = "11–14 орон (ТЕГ-ээс лавлаж болно)";
+
+/**
+ * ТТД оролт → хадгалах утга. Зай/зураас арилгана; хоосон → null; 11–14 оронтой
+ * цифр биш бол алдаа (зохиохгүй, засахгүй — хэрэглэгч л оруулна).
+ */
+export function normalizeTin(raw: unknown): { tin: string | null } | { error: string } {
+  const value = String(raw ?? "").replace(/[\s-]/g, "");
+  if (!value) return { tin: null };
+  if (!MERCHANT_TIN_RE.test(value)) return { error: "ТТД 11–14 оронтой тоо байна (хуулийн этгээд 11, хувь хүн 12–14)" };
+  return { tin: value };
+}
+
+/**
+ * Баримтад (eBarimt B2B) хэрэглэх ТТД: өөрийн багана; байхгүй бол регистрийн
+ * талбарт ТТД хэлбэртэй бичигдсэн хуучин утга (багана нэмэгдэхээс өмнөх мөр).
+ * Регистр (7 орон) ТТД БИШ — null (лавлах шаардлагатай).
+ */
+export function effectiveTin(
+  tin: string | null | undefined,
+  registerNo: string | null | undefined
+): string | null {
+  const own = (tin ?? "").trim();
+  if (MERCHANT_TIN_RE.test(own)) return own;
+  const legacy = (registerNo ?? "").trim();
+  return MERCHANT_TIN_RE.test(legacy) ? legacy : null;
+}
 
 /** Хоосон / буруу утгыг default руу (хуучин мөр, гадаад оролт). */
 export function normalizeEntityKind(value: unknown): CounterpartyEntityKind {

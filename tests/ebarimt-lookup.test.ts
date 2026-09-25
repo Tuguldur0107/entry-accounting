@@ -25,10 +25,15 @@ test("getTinInfo: албан хариу data = ТТД тоо (нэргүй) — 
 test("getInfo: нэр, found, vatPayer", () => {
   assert.deepEqual(
     parseTaxpayerInfoResponse({ status: 200, data: { name: "Жишээ ХХК", found: true, vatPayer: true, cityPayer: false } }),
-    { name: "Жишээ ХХК", found: true, vatPayer: true }
+    { name: "Жишээ ХХК", found: true, vatPayer: true, cityPayer: false, freeProject: null }
   );
-  assert.deepEqual(parseTaxpayerInfoResponse({ data: { name: "", found: false } }), { name: "", found: false, vatPayer: null });
-  assert.deepEqual(parseTaxpayerInfoResponse({}), { name: "", found: false, vatPayer: null });
+  assert.deepEqual(parseTaxpayerInfoResponse({ data: { name: "", found: false } }), { name: "", found: false, vatPayer: null, cityPayer: null, freeProject: null });
+  assert.deepEqual(parseTaxpayerInfoResponse({}), { name: "", found: false, vatPayer: null, cityPayer: null, freeProject: null });
+  // P2-3/4: НХАТ төлөгч, чөлөөлөгдөх төсөл ил гарна
+  assert.deepEqual(
+    parseTaxpayerInfoResponse({ data: { name: "Зочид буудал", found: true, vatPayer: true, cityPayer: true, freeProject: true } }),
+    { name: "Зочид буудал", found: true, vatPayer: true, cityPayer: true, freeProject: true }
+  );
 });
 
 test("P1-1: лавлахын суурь хаяг env-ээр солигдоно (Монголын egress), гажиг утга default руу", () => {

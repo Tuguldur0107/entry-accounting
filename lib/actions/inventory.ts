@@ -33,7 +33,7 @@ import {
   capitalizeArapLineReceipts,
 } from "@/lib/costing/arap-receipt-capitalize";
 import type { ItemVatMode } from "@/lib/inventory/types";
-import { EBARIMT_BARCODE_TYPES } from "@/lib/ebarimt/constants";
+import { EBARIMT_BARCODE_TYPES, TAX_PRODUCT_CODE_RE } from "@/lib/ebarimt/constants";
 import {
   balanceKey,
   findNegativeStock,
@@ -111,7 +111,7 @@ export type InventoryItemPosFields = {
   vatMode?: ItemVatMode;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
-  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3 орон). */
+  /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3–5 орон). */
   ebarimtClassificationCode?: string | null;
   ebarimtTaxProductCode?: string | null;
   /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED" (PosAPI barCodeType). */
@@ -247,8 +247,8 @@ async function validateItemPosFields(
   let ebarimtTaxProductCode: string | null | undefined;
   if (data.ebarimtTaxProductCode !== undefined) {
     ebarimtTaxProductCode = cleanText(data.ebarimtTaxProductCode);
-    if (ebarimtTaxProductCode && !/^\d{3}$/.test(ebarimtTaxProductCode))
-      throw new Error("Татварын бүтээгдэхүүний код 3 оронтой тоо байна");
+    if (ebarimtTaxProductCode && !TAX_PRODUCT_CODE_RE.test(ebarimtTaxProductCode))
+      throw new Error("Татварын бүтээгдэхүүний код 3–5 оронтой тоо байна");
   }
 
   let barcodeType: string | null | undefined;

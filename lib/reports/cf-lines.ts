@@ -283,30 +283,40 @@ export function isFxRevaluationVoucher(voucher: { documentNo?: string | null }):
   return (voucher.documentNo ?? "").startsWith("FX-");
 }
 
+/** Мөнгөн гүйлгээний НЭГ контра мөр — ангилагдсан (e-Balance маягт, задаргаа). */
+export interface CashFlowItem {
+  /** S8 код (мөрийн эсвэл кассын баримтын) — "" бол кодгүй. */
+  cfCode: string;
+  /** Таарсан тайлангийн мөр — null бол «Ангилагдаагүй» (section нь classifyCashFlow). */
+  lineKey: string | null;
+  section: CfSection;
+  /** Мөнгө орж ирсэн бол эерэг, гарсан бол сөрөг. */
+  amount: number;
+}
+
+export interface CollectedCashFlows {
+  items: CashFlowItem[];
+  /** Ханшийн тэгшитгэлийн мөнгөн хөрөнгөд үзүүлсэн нөлөө (урсгал биш). */
+  fxEffect: number;
+  /** S8 ангилалгүй мөнгөн гүйлгээтэй журналын тоо (SIM2-043). */
+  uncodedVouchers: number;
+}
+
 /**
  * Урсгал бүр ЯГ НЭГ мөрөнд ордог тул давхар тооллого бүтцээрээ боломжгүй:
  *   1. S8 код (байвал) → cfCodes-доо агуулсан ЭХНИЙ мөр
  *   2. Контра үндсэн данс → accountNumbers-доо агуулсан ЭХНИЙ мөр
  *   3. Аль нь ч биш → classifyCashFlow секцийн "Ангилагдаагүй"
+ * Энэ нь ангиллын ЦОРЫН ГАНЦ хэрэгжилт — тайлан (`buildMappedCashFlow`) ба
+ * e-Balance маягт (lib/reports/ebalance.ts) хоёул үүнээс нэгтгэнэ.
  */
-export function buildMappedCashFlow(
+export function collectCashFlows(
   vouchers: JournalVoucherWithLines[],
   appliedFrom: string,
   appliedTo: string,
   resolvedLines: ResolvedCfLine[],
-  /**
-   * Журнал → кассын баримтын S8 код (cash_documents.cashFlowCode). S8
-   * сегмент идэвхгүй үед код журналын мөрөнд ордоггүй тул эндээс уншина.
-   */
   voucherCfCodes?: ReadonlyMap<string, string>,
-): MappedCashFlowReport {
-  const amounts = new Map<string, number>();
-  const unmapped: Record<CfSection, number> = {
-    operating: 0,
-    investing: 0,
-    financing: 0,
-  };
-
+): CollectedCashFlows {
   const byCfCode = new Map<string, ResolvedCfLine>();
   const byAccount = new Map<string, ResolvedCfLine>();
   for (const line of resolvedLines) {
@@ -320,6 +330,7 @@ export function buildMappedCashFlow(
     for (const code of line.defaultCfCodes)
       if (!byCfCode.has(code)) byCfCode.set(code, line);
 
+  const items: CashFlowItem[] = [];
   let fxEffect = 0;
   let uncodedVouchers = 0;
   for (const v of vouchers) {
@@ -349,13 +360,45 @@ export function buildMappedCashFlow(
       if (cfCode) coded = true;
       const target =
         (cfCode ? byCfCode.get(cfCode) : undefined) ?? byAccount.get(main);
-      if (target) {
-        amounts.set(target.key, (amounts.get(target.key) ?? 0) + flow);
-      } else {
-        unmapped[classifyCashFlow(main)] += flow;
-      }
+      items.push({
+        cfCode,
+        lineKey: target?.key ?? null,
+        section: target?.section ?? classifyCashFlow(main),
+        amount: flow,
+      });
     }
     if (!coded) uncodedVouchers += 1;
+  }
+  return { items, fxEffect, uncodedVouchers };
+}
+
+/**
+ * Тайлангийн мөрүүд — `collectCashFlows`-ийн ангиллыг мөр бүрээр нэгтгэнэ
+ * (урсгал бүр яг нэг мөрөнд тул нийт тулгалт mapping-аас үл хамаарна).
+ */
+export function buildMappedCashFlow(
+  vouchers: JournalVoucherWithLines[],
+  appliedFrom: string,
+  appliedTo: string,
+  resolvedLines: ResolvedCfLine[],
+  /**
+   * Журнал → кассын баримтын S8 код (cash_documents.cashFlowCode). S8
+   * сегмент идэвхгүй үед код журналын мөрөнд ордоггүй тул эндээс уншина.
+   */
+  voucherCfCodes?: ReadonlyMap<string, string>,
+): MappedCashFlowReport {
+  const { items, fxEffect, uncodedVouchers } = collectCashFlows(
+    vouchers,
+    appliedFrom,
+    appliedTo,
+    resolvedLines,
+    voucherCfCodes
+  );
+  const amounts = new Map<string, number>();
+  const unmapped: Record<CfSection, number> = { operating: 0, investing: 0, financing: 0 };
+  for (const item of items) {
+    if (item.lineKey) amounts.set(item.lineKey, (amounts.get(item.lineKey) ?? 0) + item.amount);
+    else unmapped[item.section] += item.amount;
   }
 
   const sections: Record<CfSection, CfSectionComputed> = {

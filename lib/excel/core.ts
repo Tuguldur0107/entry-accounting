@@ -82,27 +82,49 @@ function triggerDownload(buffer: ArrayBuffer, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Өгөгдлийг .xlsx болгож татуулна. */
+export interface ExportSheet {
+  sheetName: string;
+  columns: ExportColumn[];
+  rows: CellValue[][];
+  /** Тод (bold) болгох мөрийн индексүүд (0 = эхний өгөгдлийн мөр) — дэд дүн, дүн. */
+  boldRows?: number[];
+}
+
+/** Өгөгдлийг .xlsx болгож татуулна (нэг хуудас). */
 export async function downloadWorkbook(input: {
   slug: string;
   sheetName: string;
   columns: ExportColumn[];
   rows: CellValue[][];
 }): Promise<void> {
+  await downloadWorkbookSheets({
+    slug: input.slug,
+    sheets: [{ sheetName: input.sheetName, columns: input.columns, rows: input.rows }],
+  });
+}
+
+/** Олон хуудастай .xlsx (e-Balance-ийн 4 маягт г.м.) — хуудас бүр өөрийн толгойтой. */
+export async function downloadWorkbookSheets(input: {
+  slug: string;
+  sheets: ExportSheet[];
+}): Promise<void> {
   const ExcelJS = await loadExceljs();
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet(input.sheetName);
-
-  sheet.columns = input.columns.map((column) => ({
-    header: column.header,
-    width: column.width ?? 18,
-    style:
-      column.kind === "number"
-        ? { numFmt: "#,##0.00", alignment: { horizontal: "right" as const } }
-        : undefined,
-  }));
-  sheet.getRow(1).font = { bold: true };
-  for (const row of input.rows) sheet.addRow(row);
+  for (const spec of input.sheets) {
+    // Excel-ийн хуудасны нэрийн хориотой тэмдэгт, 31 тэмдэгтийн хязгаар.
+    const sheet = workbook.addWorksheet(spec.sheetName.replace(/[\\/?*[\]:]/g, " ").slice(0, 31));
+    sheet.columns = spec.columns.map((column) => ({
+      header: column.header,
+      width: column.width ?? 18,
+      style:
+        column.kind === "number"
+          ? { numFmt: "#,##0.00", alignment: { horizontal: "right" as const } }
+          : undefined,
+    }));
+    sheet.getRow(1).font = { bold: true };
+    for (const row of spec.rows) sheet.addRow(row);
+    for (const index of spec.boldRows ?? []) sheet.getRow(index + 2).font = { bold: true };
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   triggerDownload(buffer as ArrayBuffer, stampedName(input.slug));

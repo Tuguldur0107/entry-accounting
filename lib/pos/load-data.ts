@@ -721,6 +721,8 @@ export interface CheckoutCustomer {
    */
   entityKind: string;
   registerNo: string | null;
+  /** ТТД — картад хадгалагдсан бол B2B баримт лавлахгүй шууд (effectiveTin). */
+  tin: string | null;
   customerGroup: string | null;
   creditLimit: number | null;
   isWalkIn: boolean;
@@ -859,6 +861,7 @@ export async function loadCheckoutData(orgId: string, userId: string): Promise<C
       name: cp.name,
       entityKind: baseKindOf(cp.entityKind, entityKinds),
       registerNo: cp.registerNo,
+      tin: cp.tin,
       customerGroup: cp.customerGroup,
       creditLimit: cp.creditLimit === null ? null : Number(cp.creditLimit),
       isWalkIn: cp.id === settings.walkInCounterpartyId,
