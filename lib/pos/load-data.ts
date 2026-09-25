@@ -211,6 +211,8 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     cashOverAccountNumber: row.cashOverAccountNumber,
     cashShortAccountNumber: row.cashShortAccountNumber,
     roundingAccountNumber: row.roundingAccountNumber,
+    nonVatRevenueAccountNumber: row.nonVatRevenueAccountNumber,
+    nonVatReceivableAccountNumber: row.nonVatReceivableAccountNumber,
     walkInCounterpartyId: row.walkInCounterpartyId,
     issueTypeId: row.issueTypeId,
     defaultWarehouseId: row.defaultWarehouseId,
@@ -552,6 +554,8 @@ function toSaleView(
     ebarimtType: row.ebarimtType,
     ebarimtConsumerNo: row.ebarimtConsumerNo,
     ebarimtCustomerTin: row.ebarimtCustomerTin,
+    nonVat: row.nonVat,
+    nonVatReason: row.nonVatReason,
     note: row.note,
     paymentSummary: paymentSummaryOf(
       row.payments.map((payment) => ({

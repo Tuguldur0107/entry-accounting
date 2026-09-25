@@ -8,7 +8,7 @@
 // стандарт (CLAUDE.md «Хүснэгтийн стандарт») хамаарахгүй; баримтын preview-тэй
 // ижил ангилал. Дүн бүр серверийн quote-оос — энд юу ч тооцогдохгүй.
 
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import { Numpad } from "@/components/pos/checkout/numpad";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,7 @@ export function TicketPanel({
   onPay,
   warehouseName,
   allowNegativeStock,
+  vatBar,
 }: {
   lines: TicketLineView[];
   selectedKey: string | null;
@@ -106,6 +107,8 @@ export function TicketPanel({
   onPay: () => void;
   warehouseName: string;
   allowNegativeStock: boolean;
+  /** «НӨАТ» мөр (VatReceiptBar) — НӨАТ төлөгч байгууллагад л. */
+  vatBar?: ReactNode;
 }) {
   const selected = lines.find((line) => line.key === selectedKey) ?? null;
   const negativeLines = lines.filter((line) => line.stockAfter < 0);
@@ -133,6 +136,7 @@ export function TicketPanel({
           {customer.creditLimit != null && <span>Зээлийн лимит: {fmtMnt(customer.creditLimit)}₮</span>}
         </div>
       )}
+      {vatBar}
 
       {/* ── Мөрүүд ── */}
       <div

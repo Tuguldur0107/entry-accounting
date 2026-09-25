@@ -124,6 +124,16 @@ const ACCOUNT_FIELDS: { key: keyof PosSettings; label: string; hint: string }[] 
   { key: "cashOverAccountNumber", label: "Кассын илүү (орлого)", hint: "Ээлж хаалтын + зөрүү" },
   { key: "cashShortAccountNumber", label: "Кассын дутуу (зардал)", hint: "Ээлж хаалтын − зөрүү" },
   { key: "roundingAccountNumber", label: "Бөөрөнхийллийн данс", hint: "Бэлэн бөөрөнхийллийн зөрүү" },
+  {
+    key: "nonVatRevenueAccountNumber",
+    label: "НӨАТ-гүй борлуулалтын орлого",
+    hint: "Кассын «НӨАТ» унтраалттай борлуулалт (eBarimt-гүй); хоосон бол ийм борлуулалт хийгдэхгүй",
+  },
+  {
+    key: "nonVatReceivableAccountNumber",
+    label: "НӨАТ-гүй борлуулалтын авлага",
+    hint: "НӨАТ-гүй борлуулалтын хяналтын данс; хоосон бол ийм борлуулалт хийгдэхгүй",
+  },
 ];
 
 function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; issueTypes: IssueTypeOption[] }) {

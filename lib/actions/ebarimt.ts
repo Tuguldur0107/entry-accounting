@@ -96,9 +96,11 @@ export async function resendEbarimt(
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
     const sale = await db.query.posSales.findFirst({
       where: and(eq(posSales.id, saleId), eq(posSales.organizationId, orgId)),
-      columns: { id: true, documentNo: true, ebarimtStatus: true },
+      columns: { id: true, documentNo: true, ebarimtStatus: true, nonVat: true },
     });
     if (!sale) throw new Error("Борлуулалт олдсонгүй");
+    if (sale.nonVat && kind === "send")
+      throw new Error("НӨАТ-гүй борлуулалт eBarimt-д илгээгдэхгүй (НӨАТ задлаагүй тул баримтын дүн зөрнө)");
     if (sale.ebarimtStatus === "sent" && kind === "send")
       throw new Error("Энэ борлуулалт аль хэдийн ТЕГ-д илгээгдсэн");
     const settings = await ensurePosSettings(orgId, userId);

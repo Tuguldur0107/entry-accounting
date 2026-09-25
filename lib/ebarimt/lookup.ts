@@ -7,7 +7,10 @@ import { EbarimtError } from "./receipt";
 export interface TinInfo {
   regNo: string;
   tin: string;
+  /** ТЕГ-ийн бүртгэлийн нэр; нэрийн лавлах унасан бол "". */
   name: string;
+  /** НӨАТ суутган төлөгч эсэх (getInfo), тодорхойгүй бол null. */
+  vatPayer: boolean | null;
 }
 
 export interface BranchInfoEntry {
@@ -70,19 +73,61 @@ function pick(obj: unknown, keys: string[]): string {
   return "";
 }
 
-/** РД (АА00000000 / 7 оронтой ТТД) → ТТД + нэр. Олдохгүй бол ШИДНЭ. */
+/**
+ * `getTinInfo?regNo=` хариу → ТТД. Албан хариу `{ msg, status, data: <ТТД тоо> }`
+ * (PosAPI 3.0 — нэр БУЦААХГҮЙ); зарим прокси `data: { tin }` өгдөг тул хоёуланг
+ * танина. Олдоогүй бол "" — ЦЭВЭР (tests/ebarimt-lookup.test.ts).
+ */
+export function parseTinInfoResponse(json: unknown): string {
+  const data = json && typeof json === "object" && "data" in json ? (json as { data: unknown }).data : json;
+  if (typeof data === "number" && Number.isFinite(data) && data > 0) return String(Math.trunc(data));
+  if (typeof data === "string" && /^\d{11,14}$/.test(data.trim())) return data.trim();
+  const tin = pick(data, ["tin", "TIN"]);
+  return /^\d{11,14}$/.test(tin) ? tin : "";
+}
+
+export interface TaxpayerInfo {
+  name: string;
+  found: boolean;
+  vatPayer: boolean | null;
+}
+
+/**
+ * `getInfo?tin=` хариу → нэр, НӨАТ төлөгч эсэх. Албан хариу
+ * `{ msg, status, data: { name, found, vatPayer, cityPayer, freeProject, … } }` — ЦЭВЭР.
+ */
+export function parseTaxpayerInfoResponse(json: unknown): TaxpayerInfo {
+  const data = json && typeof json === "object" && "data" in json ? (json as { data: unknown }).data : json;
+  const record = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const name = pick(record, ["name", "NAME", "orgName"]);
+  const found = typeof record.found === "boolean" ? record.found : name !== "";
+  const vatPayer = typeof record.vatPayer === "boolean" ? record.vatPayer : null;
+  return { name, found, vatPayer };
+}
+
+/**
+ * РД (байгууллагын 7 орон / иргэний АА00000000) → ТТД + нэр. Хоёр алхамтай:
+ * `getTinInfo` (РД → ТТД) → `getInfo` (ТТД → нэр). ТТД олдохгүй бол ШИДНЭ;
+ * нэрийн лавлах унавал ТТД-ээр үргэлжилнэ (нэр хоосон — зохиохгүй).
+ */
 export async function lookupTinByRegNo(regNoRaw: string): Promise<TinInfo> {
   const regNo = regNoRaw.trim().toUpperCase();
   if (!regNo) throw new EbarimtError(EBARIMT_ERRORS.settings, "Регистрийн дугаар хоосон");
   const cached = tinCache.get(regNo);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
-  const json = await getJson(`${EBARIMT_PUBLIC_API_BASE}/getTinInfo?regNo=${encodeURIComponent(regNo)}`);
-  const data = (json && typeof json === "object" && "data" in json ? (json as { data: unknown }).data : json) ?? {};
-  const tin = pick(data, ["tin", "TIN", "id"]);
-  const name = pick(data, ["name", "NAME", "orgName"]);
-  if (!tin) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" РД-тэй байгууллага ТЕГ-ийн бүртгэлд олдсонгүй`);
-  const value = { regNo, tin, name };
-  tinCache.set(regNo, { at: Date.now(), value });
+  const tin = parseTinInfoResponse(
+    await getJson(`${EBARIMT_PUBLIC_API_BASE}/getTinInfo?regNo=${encodeURIComponent(regNo)}`)
+  );
+  if (!tin) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй`);
+  let info: TaxpayerInfo = { name: "", found: true, vatPayer: null };
+  try {
+    info = parseTaxpayerInfoResponse(await getJson(`${EBARIMT_PUBLIC_API_BASE}/getInfo?tin=${encodeURIComponent(tin)}`));
+  } catch {
+    // Нэр нь зөвхөн харуулах мэдээлэл — баримт ТТД-ээр илгээгдэнэ.
+  }
+  if (!info.found) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй`);
+  const value: TinInfo = { regNo, tin, name: info.name, vatPayer: info.vatPayer };
+  if (info.name) tinCache.set(regNo, { at: Date.now(), value });
   return value;
 }
 
