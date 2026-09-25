@@ -8,10 +8,11 @@
 // үзүүлнэ (апп, диалог, бусад панель хэвлэгдэхгүй). Z-тайлан ч мөн
 // `usePosPrint`-ийг хэрэглэнэ.
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SwitchField } from "@/components/ui/form-field";
 import { Icon } from "@/components/ui/icon";
 import type { PosReceipt } from "@/lib/actions/pos";
 import { fmtMnt } from "@/lib/reports/balances";
@@ -27,10 +29,14 @@ import { fmtMnt } from "@/lib/reports/balances";
 /**
  * Хэвлэх туслах: `print()` дуудахад `content` body-д `.pos-receipt` болж
  * portal-оор гарч window.print() ажиллана. `portal`-ыг дуудагч render-дээ
- * заавал оруулна.
+ * заавал оруулна. `onAfterPrint` — хэвлэх цонх хаагдсаны дараа.
  */
-export function usePosPrint(content: ReactNode) {
+export function usePosPrint(content: ReactNode, onAfterPrint?: () => void) {
   const [printing, setPrinting] = useState(false);
+  const afterPrintRef = useRef(onAfterPrint);
+  useEffect(() => {
+    afterPrintRef.current = onAfterPrint;
+  });
 
   useEffect(() => {
     if (!printing) return;
@@ -39,7 +45,10 @@ export function usePosPrint(content: ReactNode) {
     document.body.classList.remove("ea-printing-pos");
     // window.print() нь хэвлэх dialog хаагдтал блоклоно — дараа нь portal-ыг
     // буулгана (sync setState effect дотор хориотой тул timeout-оор).
-    const timer = setTimeout(() => setPrinting(false), 0);
+    const timer = setTimeout(() => {
+      setPrinting(false);
+      afterPrintRef.current?.();
+    }, 0);
     return () => clearTimeout(timer);
   }, [printing]);
 
@@ -51,7 +60,9 @@ export function usePosPrint(content: ReactNode) {
         )
       : null;
 
-  return { print: () => setPrinting(true), portal, printing };
+  // Тогтвортой — автомат хэвлэлтийн effect-ийн dependency.
+  const print = useCallback(() => setPrinting(true), []);
+  return { print, portal, printing };
 }
 
 const fmtTime = (iso: string) => {
@@ -297,24 +308,82 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Browser горимд eBarimt-ийн хариу (сугалаа/QR) ирэхийг хүлээх дээд хугацаа. */
+const EBARIMT_PRINT_WAIT_MS = 8_000;
+
 /**
  * Баримтын диалог: борлуулалт батлагдсаны дараа (кассын дэлгэц) ба
  * "Дахин хэвлэх" (борлуулалтын панель) хоёуланд.
+ *
+ * Кассын дэлгэц `autoPrint`-ийг дамжуулна (төхөөрөмжийн тохиргоо): шинэ баримт
+ * гармагц хэвлэгдэж, хэвлэсний дараа цонх өөрөө хаагдана. eBarimt-ийн
+ * сугалаа, QR нь ЗӨВХӨН энэ цонхонд нэг удаа гардаг (хадгалахыг хуулиар
+ * хориглосон) тул хэвлээгүй хаах гэвэл анхааруулна.
  */
 export function ReceiptPreview({
   receipt,
   onClose,
+  autoPrint,
+  onAutoPrintChange,
+  waitForEbarimt = false,
 }: {
   receipt: PosReceipt | null;
   onClose: () => void;
+  /** undefined = автомат хэвлэлтгүй (панелийн «Дахин хэвлэх»). */
+  autoPrint?: boolean;
+  onAutoPrintChange?: (value: boolean) => void;
+  /** eBarimt browser горим: `pending` баримтыг хариу иртэл (≤8 сек) хүлээж хэвлэнэ. */
+  waitForEbarimt?: boolean;
 }) {
-  const { print, portal } = usePosPrint(receipt ? <ReceiptSheet receipt={receipt} /> : null);
+  const [printedId, setPrintedId] = useState<string | null>(null);
+  const autoPrintedFor = useRef<string | null>(null);
+  const closeAfterPrint = useRef(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { print, portal } = usePosPrint(receipt ? <ReceiptSheet receipt={receipt} /> : null, () => {
+    if (receipt) setPrintedId(receipt.saleId);
+    if (closeAfterPrint.current) {
+      closeAfterPrint.current = false;
+      onClose();
+    }
+  });
+
+  const saleId = receipt?.saleId ?? null;
+  const ebarimtPending = receipt?.ebarimtStatus === "pending";
+  useEffect(() => {
+    if (!autoPrint || !saleId || autoPrintedFor.current === saleId) return;
+    const run = () => {
+      autoPrintedFor.current = saleId;
+      closeAfterPrint.current = true;
+      print();
+    };
+    const timer = setTimeout(run, waitForEbarimt && ebarimtPending ? EBARIMT_PRINT_WAIT_MS : 0);
+    return () => clearTimeout(timer);
+  }, [autoPrint, saleId, ebarimtPending, waitForEbarimt, print]);
+
+  const printed = receipt !== null && printedId === receipt.saleId;
+  const hasOneTimeData = !!(receipt?.ebarimtLottery || receipt?.ebarimtQrData);
+
+  async function requestClose() {
+    if (!printed && hasOneTimeData) {
+      const ok = await confirm({
+        title: "Баримт хэвлээгүй байна",
+        description:
+          "eBarimt-ийн сугалаа, QR зөвхөн энэ цонхонд гардаг — хаавал дахин хэвлэхэд зөвхөн ДДТД гарна. Хэвлэхгүй хаах уу?",
+        confirmText: "Хэвлэхгүй хаах",
+        cancelText: "Буцах",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    onClose();
+  }
+
   return (
     <>
       <Dialog
         open={receipt !== null}
         onOpenChange={(open) => {
-          if (!open) onClose();
+          if (!open) void requestClose();
         }}
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
@@ -329,17 +398,26 @@ export function ReceiptPreview({
               <ReceiptSheet receipt={receipt} />
             </div>
           )}
+          {onAutoPrintChange && (
+            <SwitchField
+              label="Автоматаар хэвлэх"
+              hint="Энэ төхөөрөмжид: борлуулалт батлагдмагц баримт хэвлэгдэж цонх хаагдана"
+              checked={!!autoPrint}
+              onChange={onAutoPrintChange}
+            />
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={() => void requestClose()}>
               Хаах
             </Button>
             <Button onClick={print} autoFocus>
               <Icon name="print" size="sm" />
-              Хэвлэх
+              {printed ? "Дахин хэвлэх" : "Хэвлэх"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
       {portal}
     </>
   );

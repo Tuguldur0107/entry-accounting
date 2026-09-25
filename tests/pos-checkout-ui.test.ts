@@ -15,3 +15,24 @@ test("үнэгүй бараа «Үнэ тохируулаагүй» гэж ха�
   assert.match(panel, /"Үнэ тохируулаагүй"/);
   assert.doesNotMatch(panel, /"үнэгүй"/);
 });
+
+const payment = readFileSync("components/pos/payment-dialog.tsx", "utf8");
+const receiptPreview = readFileSync("components/pos/receipt-preview.tsx", "utf8");
+
+test("төлбөрийн диалог «Бэлэн = төлөх дүн» мөртэй нээгдэнэ (бөөрөнхийлсөн)", () => {
+  assert.match(payment, /useState<PaymentRow\[\]>\(\(\) =>/);
+  assert.match(payment, /kind === "cash"/);
+  assert.match(payment, /roundToCashUnit\(total, cashRoundingUnit\)\.rounded/);
+});
+
+test("баримт автоматаар хэвлэгдэнэ, хэвлээгүй хаавал сугалаа/QR-ийн анхааруулга", () => {
+  assert.match(receiptPreview, /autoPrint/);
+  assert.match(receiptPreview, /Баримт хэвлээгүй байна/);
+  assert.match(view, /autoPrint=\{autoPrint\}/, "кассын дэлгэц автомат хэвлэлтийг дамжуулна");
+});
+
+test("сүлжээ тасарвал ил мэдэгдэж, төлбөр хаагдана", () => {
+  assert.match(view, /navigator\.onLine/);
+  assert.match(view, /Интернэт холболт тасарсан/);
+  assert.match(view, /const canPay = [^;]*online/);
+});

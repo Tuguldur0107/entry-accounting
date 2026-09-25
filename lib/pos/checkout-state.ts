@@ -92,6 +92,57 @@ export function addToCart(
   };
 }
 
+/** Серверийн үнийн саналын мөр — `resolveLineAmounts`-д хэрэгтэй хэсэг. */
+export interface QuotedLineLike {
+  itemId: string;
+  quantity: number;
+  manualDiscountPercent?: number | null;
+  manualDiscountAmount?: number | null;
+  discountAmount: number;
+  lineTotal: number;
+}
+
+/**
+ * Мөрийн ОЙРОЛЦОО дүн (сервергүй): тоо × үнэ − гар хөнгөлөлт. Автомат дүрэм,
+ * купон, баримтын хөнгөлөлт ороогүй — серверийн санал ирэхийн өмнөх агшинд л.
+ */
+export function estimateLineTotal(row: CartRow): number {
+  const gross = row.quantity * row.unitPrice;
+  const discount =
+    row.manualDiscountAmount != null && row.manualDiscountAmount > 0
+      ? row.manualDiscountAmount
+      : row.manualDiscountPercent != null && row.manualDiscountPercent > 0
+        ? (gross * row.manualDiscountPercent) / 100
+        : 0;
+  return round2(Math.max(0, gross - discount));
+}
+
+const sameDiscount = (a: number | null | undefined, b: number | null | undefined) =>
+  Math.abs((a ?? 0) - (b ?? 0)) < 0.005;
+
+/**
+ * Ticket-ийн мөрийн дүн — сагс өөрчлөгдөх агшинд ШУУД харагдана (серверийн
+ * санал 250мс + сүлжээгээр хоцорно). Шинэ санал бол түүнийг; хуучин санал
+ * ижил бараа·тоо·гар хөнгөлөлттэй мөрд хүчинтэй хэвээр; бусад мөрд ойролцоо дүн.
+ * Эцсийн тооцоо ҮРГЭЛЖ серверийнх (төлбөр шинэ саналаар л нээгдэнэ).
+ */
+export function resolveLineAmounts(
+  row: CartRow,
+  quoted: QuotedLineLike | undefined,
+  fresh: boolean
+): { lineTotal: number; discountAmount: number; estimated: boolean } {
+  const usable =
+    quoted &&
+    quoted.itemId === row.itemId &&
+    (fresh ||
+      (Math.abs(quoted.quantity - row.quantity) < 1e-9 &&
+        sameDiscount(quoted.manualDiscountPercent, row.manualDiscountPercent) &&
+        sameDiscount(quoted.manualDiscountAmount, row.manualDiscountAmount)));
+  if (usable) return { lineTotal: quoted.lineTotal, discountAmount: quoted.discountAmount, estimated: false };
+  const lineTotal = estimateLineTotal(row);
+  return { lineTotal, discountAmount: round2(row.quantity * row.unitPrice - lineTotal), estimated: true };
+}
+
 /** Тоо ≤ 0 болбол мөр ХАСАГДАНА (дэлгүүрийн POS-ийн заншил). */
 export function setLineQuantity(cart: CartRow[], key: string, quantity: number): CartRow[] {
   if (!Number.isFinite(quantity)) return cart;
