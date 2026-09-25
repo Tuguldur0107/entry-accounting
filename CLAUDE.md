@@ -1585,6 +1585,12 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   commit + subledger sync дараа `afterJournalPost` (алдаа залгина);
   `closePeriod` → `beforePeriodClose` (`hook-rejected` код + reason). Hook
   байгаа хоригийг сулруулж ЧАДАХГҮЙ
+- **Fork-ийн predeploy DDL:** `custom/predeploy.mjs` — `db:predeploy` нь
+  `apply-pending-ddl`-ийн ДАРАА, `drizzle-kit push`-ийн ӨМНӨ
+  `scripts/run-custom-predeploy.mjs`-ээр ажиллуулна (байхгүй бол алгасна,
+  алдаа → deploy зогсоно). Fork `package.json`-д ГАР ХҮРЭХГҮЙ — 2026-09-25
+  smartgps-ийн sync conflict-д `db:predeploy` мөр устаж build унасан.
+  `tests/fork-sync-contract.test.ts` дараалал + conflict тэмдэг үлдэгдлийг барина
 - **Theme:** `app/globals.css` нь `ui-kit/tokens.css`-ийн ДАРАА
   `custom/theme.css` import хийнэ
 - **REST API v1:** `lib/api/v1.ts` — `GET /api/v1/tools`, `POST

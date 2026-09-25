@@ -182,6 +182,18 @@ git checkout -b upstream-sync/v1.1.0 && git merge v1.1.0
 Code-оор шийдүүлж болно: *"upstream-sync PR-ын conflict-ийг шийд, custom/
 дахь миний дүрмүүдийг хадгал"*.
 
+**Fork-ийн deploy-ийн өмнөх DDL** (өгөгдөл `archive` руу зөөх г.м.) —
+`package.json`-ийн `db:predeploy`-д НЭМЭХГҮЙ, `custom/predeploy.mjs` бичнэ:
+core нь `apply-pending-ddl`-ийн дараа, `drizzle-kit push`-ийн өмнө түүнийг
+ажиллуулна (`scripts/run-custom-predeploy.mjs`; алдаа → deploy зогсоно).
+2026-09-25: smartgps-ийн `db:predeploy` мөр v1.6.0 sync-ийн conflict-ийг
+гараар шийдэхэд устаж `package.json` эвдэрсэн тул build унасан.
+
+**Улаан CI-тэй sync PR-ыг merge хийхгүй.** Conflict-ийг гараар шийдсэний
+дараа PR-ын `check` ногоон болтол хүлээнэ. Railway дээр service → Settings →
+Source → **«Wait for CI»**-г асаавал CI унасан commit production руу
+deploy хийгдэхгүй (хуучин хувилбар ажилласаар) — харилцагч бүрд асаана.
+
 Merge хийсний дараа Railway автоматаар deploy хийж `preDeployCommand`
 (`npm run db:push`) шинэ DDL-ийг хэрэглэнэ. **Deploy-ийн өмнө DB snapshot.**
 
