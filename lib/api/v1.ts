@@ -35,7 +35,7 @@ export function unauthorized(request: Request): Response {
       ok: false,
       code: "UNAUTHORIZED",
       error:
-        "Token буруу эсвэл хүчингүй — Тохиргоо → AI туслах → MCP холболт хэсгээс үүсгэнэ үү",
+        "Token буруу эсвэл хүчингүй — Entry → AI холболт хуудаснаас шинээр үүсгэнэ үү",
     },
     {
       status: 401,

@@ -284,7 +284,7 @@ export const ICON_CATALOG: readonly IconCatalogItem[] = [
   { name: "tune", category: "data", label: "Тохируулах" },
   { name: "paste", category: "data", label: "Paste хийх" },
 
-  { name: "ai", category: "module", label: "AI туслах" },
+  { name: "ai", category: "module", label: "AI холболт" },
   { name: "bank", category: "module", label: "Банк" },
   { name: "cash", category: "module", label: "Мөнгөн хөрөнгө" },
   { name: "company", category: "module", label: "Компани" },

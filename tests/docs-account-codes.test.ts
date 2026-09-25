@@ -35,7 +35,7 @@ test("баримт/skill/system prompt-д хуучин дугаар (11210000, 1
     `${DIR}/README.md`,
     "docs/deployment/onboarding.md",
     ".claude/skills/master-data-import/SKILL.md",
-    "lib/ai/system-prompt.ts",
+    "lib/mcp/server.ts",
   ]) {
     const text = readFileSync(file, "utf8");
     for (const legacy of ["11210000", "14110000", "41100000"])

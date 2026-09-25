@@ -7,7 +7,7 @@
 // Энэ файл бол core; custom/ талаас зөвхөн import хийнэ.
 
 import type { AiToolDef, AiToolResult } from "@/lib/ai/tools";
-import type { AiWriteMode } from "@/lib/ai/models";
+import type { AiWriteMode } from "@/lib/ai/write-mode";
 
 /** Custom tool-ийн гүйцэтгэх контекст — MCP/чат хоёуланд ижил. */
 export interface CustomToolContext {

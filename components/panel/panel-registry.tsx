@@ -8,7 +8,6 @@
 
 import type { PanelInstance, PanelKind } from "@/lib/store/panel-store";
 
-import { AiChatPanel } from "./ai-chat-panel";
 import { ArapDocPanel } from "./arap-doc-panel";
 import { CashDocPanel } from "./cash-doc-panel";
 import { CashNewPanel } from "./cash-new-panel";
@@ -57,5 +56,4 @@ export const PANEL_REGISTRY: Record<PanelKind, PanelKindConfig> = {
   "purchase-order": { component: PurchaseOrderPanel },
   "goods-receipt": { component: GoodsReceiptPanel },
   "pos-sale": { component: PosSalePanel },
-  "ai-chat": { component: AiChatPanel, keepMounted: true },
 };

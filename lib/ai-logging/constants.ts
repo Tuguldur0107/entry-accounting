@@ -12,7 +12,7 @@ export const AI_SUGGESTION_SOURCES = [
   "mcp",
   /** Апп доторх agent / автомат урсгал — lib/actions/*, демо */
   "internal_agent",
-  /** Хэрэглэгчийн чат дэлгэц — app/api/ai/chat/route.ts */
+  /** Апп доторх чат (2026-09-25-нд хасагдсан) — хуучин мөрүүдэд л. */
   "ui_assist",
   /** Гадаад интеграцийн REST API v1 — lib/api/v1.ts */
   "rest_api",
@@ -22,7 +22,7 @@ export type AiSuggestionSource = (typeof AI_SUGGESTION_SOURCES)[number];
 export const AI_SUGGESTION_SOURCE_LABELS: Record<AiSuggestionSource, string> = {
   mcp: "MCP клиент",
   internal_agent: "Дотоод agent",
-  ui_assist: "Чат туслах",
+  ui_assist: "Чат туслах (хасагдсан)",
   rest_api: "REST API",
 };
 

@@ -33,7 +33,7 @@ AI санал бүртгэгдэв ──▶ нябо зөвшөөрөв ──�
 
 ## 2. Нэг бичих зам
 
-MCP, REST v1, чат (Anthropic ба OpenAI), демо, eBarimt→АР — **бүгд**
+MCP, REST v1, демо, eBarimt→АР — **бүгд** (апп доторх чат 2026-09-25-нд хасагдсан; `ui_assist` мөрүүд түүхэнд л)
 `executeAiTool()`-оор дамждаг (`lib/ai/tools.ts`). Бүртгэл ч **яг тэнд** —
 шинэ эх сурвалж нэмэхэд бүртгэлийн код өөрчлөгдөхгүй.
 
@@ -52,8 +52,7 @@ REST ─┤
 |---|---|---|
 | Гадны MCP клиент | `mcp` | `lib/mcp/server.ts` |
 | REST API v1 | `rest_api` | `lib/api/v1.ts` |
-| Чат (Anthropic) | `ui_assist` | `app/api/ai/chat/route.ts` |
-| Чат (OpenAI) | `ui_assist` | `lib/ai/openai.ts` |
+| Апп доторх чат (хасагдсан) | `ui_assist` | — (хуучин мөрүүд) |
 | Контекстгүй дуудлага | `internal_agent` | default |
 
 **Зөвхөн БИЧИЛТ үүсгэсэн дуудлага бүртгэгдэнэ.** `list_*` / тайлангийн

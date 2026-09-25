@@ -55,8 +55,7 @@ function revalidateAttachments() {
  * Тухайн объектын хавсралтууд (шинээс хуучин руу).
  *
  * `data` багана СОНГОГДОХГҮЙ — 8MB файлууд жагсаалт болгонд memory-д
- * ачаалагдахаас сэргийлнэ (app/api/ai/chat/route.ts-ийн explicit columns
- * хэв маяг).
+ * ачаалагдахаас сэргийлнэ (explicit columns хэв маяг).
  */
 export async function listAttachments(
   entityType: string,

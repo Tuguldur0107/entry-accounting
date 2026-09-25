@@ -12,7 +12,6 @@ import { getMyOrgs } from "@/lib/actions/org";
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { QuickCreate } from "@/components/layout/quick-create";
 import { QuickNav } from "@/components/layout/quick-nav";
-import { AiChatButton } from "@/components/layout/ai-chat-button";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { EmailVerifyBanner } from "@/components/layout/email-verify-banner";
 import { SubscriptionBanner } from "@/components/layout/subscription-banner";
@@ -171,7 +170,6 @@ export default async function DashboardLayout({
             {systemOn ? (
               <>
                 <QuickCreate />
-                <AiChatButton />
               </>
             ) : null}
             <NotificationBell initialUnread={unreadRow?.n ?? 0} />

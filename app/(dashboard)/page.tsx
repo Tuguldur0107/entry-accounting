@@ -474,6 +474,17 @@ export default async function HomePage() {
       note: draftAssetCount > 0 ? `${draftAssetCount} ноорог карт` : "бүгд активчилсан",
       tone: draftAssetCount > 0 ? "warning" : "default",
     },
+    {
+      // Мэдлэгийн сан + бүх модуль хэрэглэгчийн ӨӨРИЙН ChatGPT / Claude-д —
+      // багцад багтсан (апп доторх чат 2026-09-25-нд хасагдсан, §9a).
+      key: "ai",
+      label: "AI холболт",
+      href: "/ai",
+      value: "ChatGPT / Claude",
+      valueLabel: "багцад багтсан",
+      note: "MCP-ээр холбоод бүртгэлээ AI-аар хөтөлнө",
+      tone: "default",
+    },
   ];
 
   /* ── Анхаарах шаардлагатай — lib/notifications/attention.ts НЭГ эх ─────── */

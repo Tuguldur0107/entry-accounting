@@ -578,7 +578,7 @@ export function OrganizationProfileForm({
             AI-ийн шууд батлах хязгаар
           </h2>
           <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
-            AI туслах, MCP, REST-ээр «Шууд бичих» горимд батлагдах дээд дүн
+            MCP (ChatGPT / Claude), REST-ээр «Шууд бичих» горимд батлагдах дээд дүн
             (MNT). Үүнээс их бичилт ноорог үлдэж, нягтланч өөрөө батална.
             Хоосон бол 10,000,000₮.
           </p>
