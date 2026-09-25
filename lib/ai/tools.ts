@@ -316,6 +316,7 @@ import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
 
 import type { AiWriteMode } from "./models";
 import {
+  AI_POST_LIMIT_TOOL_MAX_MNT,
   currentAiPostLimit,
   DEFAULT_AI_POST_LIMIT_MNT,
   planAiPostLimitChange,
@@ -2388,8 +2389,9 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "number",
           description:
             "AI/MCP/REST-ийн ШУУД БАТЛАХ дээд хязгаар (₮) — «Шууд бичих» горимд ч үүнээс их бичилт ноорог үлдэнэ. 0 өгвөл default " +
-            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ЗӨВХӨН БУУРУУЛНА — ` +
-            "өсгөлт [HUMAN_REQUIRED]: вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн тавина",
+            `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Бууруулах чөлөөтэй; өсгөх нь ` +
+            `${AI_POST_LIMIT_TOOL_MAX_MNT.toLocaleString("en-US")} ₮ хүртэл таазтай — түүнээс дээш ` +
+            "[HUMAN_REQUIRED]: вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн тавина",
         },
         controlAccountGuard: {
           type: "string",
@@ -8957,7 +8959,8 @@ async function runUpdateOrganizationProfile(input: {
 
   // AI өөрийн таазыг ХЯЗГААРГҮЙ өргөхийг хориглоно — баримтанд суулгасан
   // зааварчилгаа (prompt injection) агентаар лимитээ өсгүүлэх замыг хаана.
-  // Бууруулах нь чөлөөтэй; өсгөх нь таазтай (lib/ai/post-limit.ts).
+  // Бууруулах нь чөлөөтэй; өсгөх нь AI_POST_LIMIT_TOOL_MAX_MNT (1 тэрбум ₮)
+  // хүртэл таазтай, дээш нь [HUMAN_REQUIRED] (lib/ai/post-limit.ts).
   let aiPostLimitMnt: number | null | undefined;
   let limitNote = "";
   if (input.aiPostLimitMnt !== undefined) {

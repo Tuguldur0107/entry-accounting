@@ -4,17 +4,23 @@
 // үлдэж, нягтланч вэб дээрээсээ батална. Хязгаар нь
 // `company_settings.ai_post_limit_mnt`-д хадгалагдана; null = 10 сая ₮ default.
 //
-// АЮУЛГҮЙ БАЙДАЛ: хамгаалагдаж буй агент ӨӨРИЙН хязгаарыг ӨСГӨЖ ЧАДАХГҮЙ
-// (SIM ENT-068: симуляцид AI PO хаах гацааг тойрохын тулд лимитээ 50 сая
-// болгож өсгөсөн; баримтанд суулгасан «зааварчилгаа» (prompt injection)
-// агентаар лимитээ өсгүүлээд том дүн батлуулах зам ч болно). TOOL-оор
-// (AI/MCP/REST) зөвхөн БУУРУУЛНА — өсгөлт `[HUMAN_REQUIRED]`, вэбийн
-// Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн л тавина.
+// АЮУЛГҮЙ БАЙДАЛ: хамгаалагдаж буй агент ӨӨРИЙН хязгаарыг хязгааргүй өсгөж
+// чадахгүй (SIM ENT-068: симуляцид AI PO хаах гацааг тойрохын тулд лимитээ
+// 50 сая болгож өсгөсөн; баримтанд суулгасан «зааварчилгаа» (prompt
+// injection) агентаар лимитээ өсгүүлээд том дүн батлуулах зам ч болно).
+// TOOL-оор (AI/MCP/REST) бууруулах чөлөөтэй; өсгөх нь
+// `AI_POST_LIMIT_TOOL_MAX_MNT` (1 тэрбум ₮) ТААЗТАЙ — түүнээс дээшийг
+// `[HUMAN_REQUIRED]`, вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ
+// хүн л тавина. UI-ийн тайлбар (organization-profile-form) энэ таазтай
+// тааралцана.
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Тохируулаагүй байгууллагын хязгаар (§9). */
 export const DEFAULT_AI_POST_LIMIT_MNT = 10_000_000;
+
+/** Tool-оор (AI/MCP/REST) өсгөж болох дээд тааз — түүнээс дээшийг зөвхөн вэбээс. */
+export const AI_POST_LIMIT_TOOL_MAX_MNT = 1_000_000_000;
 
 
 /** Хадгалагдсан утга (numeric → string) → бодит хязгаар. Гажиг/хоосон бол default. */
@@ -36,7 +42,8 @@ export type AiPostLimitPlan =
 
 /**
  * Хязгаарын өөрчлөлтийг шалгана — ЦЭВЭР (DB-гүй, тесттэй).
- * `viaTool` нь AI/MCP/REST-ээс ирсэн эсэх: тэр замд ӨСГӨЛТ таазтай.
+ * `viaTool` нь AI/MCP/REST-ээс ирсэн эсэх: тэр замд өсгөлт
+ * `AI_POST_LIMIT_TOOL_MAX_MNT`-ээр таазтай (дээш нь `HUMAN_REQUIRED`).
  */
 export function planAiPostLimitChange(args: {
   currentMnt: number;
@@ -56,12 +63,13 @@ export function planAiPostLimitChange(args: {
   const direction =
     effectiveMnt > currentMnt ? "raise" : effectiveMnt < currentMnt ? "lower" : "same";
 
-  if (viaTool && direction === "raise")
+  if (viaTool && direction === "raise" && effectiveMnt > AI_POST_LIMIT_TOOL_MAX_MNT)
     return {
       ok: false,
       code: "HUMAN_REQUIRED",
       message:
-        `AI/MCP шууд батлах хязгаараа ӨСГӨЖ чадахгүй (одоо ${currentMnt.toLocaleString("en-US")}₮ → ` +
+        `AI/MCP шууд батлах хязгаараа ${AI_POST_LIMIT_TOOL_MAX_MNT.toLocaleString("en-US")}₮-өөс дээш ` +
+        `өсгөж чадахгүй (одоо ${currentMnt.toLocaleString("en-US")}₮ → ` +
         `${effectiveMnt.toLocaleString("en-US")}₮) — Тохиргоо → Компанийн мэдээлэл хуудсаас админ ` +
         "хүн өөрөө тавина. Хязгаараас их бичилт ноорог үлдэж вэбээс батлагдана",
     };
