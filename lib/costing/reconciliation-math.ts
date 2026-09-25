@@ -42,6 +42,22 @@ export function isReconciledAccount(accountNumber: string): boolean {
   return /^[123]/.test(accountNumber);
 }
 
+/**
+ * Батлагдсан өртгийн бичилтийн ДАНСНЫ дүн — хадгалсан Дт/Кт хостой хамт
+ * хэрэглэнэ. `cogs_true_up` нь ТЭМДЭГТЭЙ хадгалагддаг; батлахад сөрөг бол
+ * Дт/Кт солигдож абсолют дүнгээр GL-д бичигддэг (lib/actions/costing.ts
+ * postCostEntry) тул хадгалсан хос чиглэлээ аль хэдийн агуулна. Тэмдэгтэй
+ * дүнг тэр хосоор дахин нэмбэл дэд дэвтэр GL-ээс яг 2× зөрнө (2026-09-24:
+ * −4,694.36 залруулга → 9,388.72 худал зөрүү). Бусад төрөл эерэг л байна.
+ */
+export function postedEntryAmount(entry: {
+  entryType: string;
+  amount: number | string;
+}): number {
+  const amount = Number(entry.amount);
+  return entry.entryType === "cogs_true_up" ? Math.abs(amount) : amount;
+}
+
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export function buildInventoryReconciliationRows(input: {
