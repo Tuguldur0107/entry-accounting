@@ -321,6 +321,19 @@ export interface PosShiftView {
   cashReceipts: number;
   cashRefunds: number;
   returnsTotal: number;
+  /**
+   * Төлбөрийн хэлбэр бүрийн ЦЭВЭР дүн (борлуулалт − буцаалт), их → бага.
+   * Z-тайлан ба ээлж хаалтын хариунд: бэлэн биш хэлбэр (QPay, карт, зээл)
+   * «систем vs тоолсон» зөрүүг тайлбарлана.
+   */
+  paymentsByMethod: ShiftPaymentSummary[];
+}
+
+export interface ShiftPaymentSummary {
+  code: string;
+  name: string;
+  kind: PaymentKind;
+  amount: number;
 }
 
 export interface PosSettingsView {

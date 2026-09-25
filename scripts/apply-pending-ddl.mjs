@@ -22,6 +22,7 @@
 import { config } from "dotenv";
 import postgres from "postgres";
 
+import { indexPredicateMatches, normalizeIndexPredicate, predicateOfIndexDef } from "./lib/index-def.mjs";
 import { REMOVED_COLUMNS, REMOVED_TABLES } from "./lib/removed-schema-objects.mjs";
 
 config({ path: ".env.local" });
@@ -51,6 +52,47 @@ async function run(label, statement) {
     }
     failures += 1;
     console.log(`✗ ${label}: ${error.message}`);
+  }
+}
+
+// Партиал (WHERE-тэй) индексийг schema.ts-ийн предикаттай ТУЛГАЖ, зөрвөл drop +
+// дахин үүсгэнэ. `create index if not exists` нь байгаа индексийн предикатыг
+// ХЭЗЭЭ Ч шинэчилдэггүй, drizzle-kit push ч предикатын diff-ийг найдвартай
+// танихгүй (#90: cost_entries_movement_active_uq хуучин предикаттай үлдэж
+// cogs_true_up залруулга бүр unique violation өгч байв). Харьцуулалт ЦЭВЭР
+// scripts/lib/index-def.mjs (тесттэй). Идемпотент; предикат зөрсөн үед л
+// дахин үүсгэдэг тул ердийн deploy-д индекс хөндөгдөхгүй.
+async function ensurePartialIndex({ name, table, columns, unique = true, predicate }) {
+  const create = `create ${unique ? "unique " : ""}index if not exists ${name}
+       on ${table} (${columns.join(", ")})
+       where ${predicate}`;
+  try {
+    const rows = await sql`select indexdef from pg_indexes
+      where schemaname = 'public' and indexname = ${name}`;
+    if (rows.length === 0) {
+      await sql.unsafe(create);
+      console.log(`+ ${name}: шинээр үүсгэв`);
+      return;
+    }
+    if (indexPredicateMatches(rows[0].indexdef, predicate)) {
+      console.log(`✓ ${name}: предикат schema-тай таарна`);
+      return;
+    }
+    console.log(
+      `↻ ${name}: предикат зөрсөн — дахин үүсгэнэ\n` +
+        `    DB:     ${normalizeIndexPredicate(predicateOfIndexDef(rows[0].indexdef))}\n` +
+        `    schema: ${normalizeIndexPredicate(predicate)}`
+    );
+    await sql.unsafe(`drop index if exists ${name}`);
+    await sql.unsafe(create);
+    console.log(`↻ ${name}: дахин үүсгэв`);
+  } catch (error) {
+    if (error.code === "42P01") {
+      console.log(`⊘ ${name}: хүснэгт хараахан үүсээгүй — push үүсгэнэ`);
+      return;
+    }
+    failures += 1;
+    console.log(`✗ ${name}: ${error.message}`);
   }
 }
 
@@ -1033,27 +1075,22 @@ async function main() {
   // `run_monthly_costing` unique violation-оор УНАДАГ байв — сар хаалтын
   // залруулга огт ажиллахгүй (2026-09-24: пилот дээр илэрсэн).
   //
-  // Предикатыг ӨРГӨН болгож байгаа тул (илүү олон мөр индексээс ХАСАГДАНА)
-  // дахин үүсгэхэд байгаа өгөгдөл зөрчил үүсгэх боломжгүй — идемпотент.
-  await run(
-    "cost_entries_movement_active_uq (cogs_true_up хасах предикат)",
-    `drop index if exists cost_entries_movement_active_uq`
-  );
-  await run(
-    "cost_entries_movement_active_uq дахин үүсгэх",
-    `create unique index if not exists cost_entries_movement_active_uq
-       on cost_entries (movement_id)
-       where movement_id is not null and status <> 'reversed'
-         and entry_type not in ('landed_cost', 'cogs_true_up')`
-  );
+  // Предикат зөрсөн үед л дахин үүсгэнэ (ensurePartialIndex) — deploy бүрд
+  // индекс хөндөгдөхгүй. Предикат нь schema.ts-тэй ҮГ ҮГЭЭР ижил байх ёстой.
+  await ensurePartialIndex({
+    name: "cost_entries_movement_active_uq",
+    table: "cost_entries",
+    columns: ["movement_id"],
+    predicate:
+      "movement_id is not null and status <> 'reversed' and entry_type not in ('landed_cost', 'cogs_true_up')",
+  });
   // Нэг хөдөлгөөнд нэг л ИДЭВХТЭЙ НООРОГ залруулга (идемпотент дахин тооцоолол).
-  await run(
-    "cost_entries_true_up_draft_uq (partial unique)",
-    `create unique index if not exists cost_entries_true_up_draft_uq
-       on cost_entries (movement_id)
-       where movement_id is not null and entry_type = 'cogs_true_up'
-         and status = 'draft'`
-  );
+  await ensurePartialIndex({
+    name: "cost_entries_true_up_draft_uq",
+    table: "cost_entries",
+    columns: ["movement_id"],
+    predicate: "movement_id is not null and entry_type = 'cogs_true_up' and status = 'draft'",
+  });
 
   console.log(
     failures === 0
