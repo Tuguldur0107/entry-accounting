@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { IconAction } from "@/components/ui/icon-action";
 import { PageTabs } from "@/components/ui/tabs";
 import {
@@ -147,6 +148,7 @@ export function PayrollRunView({ data }: Props) {
         averageMonthlyEarnings: 0,
         averageMonthsUsed: 0,
         sickBenefitPercent: null,
+        employmentNote: null,
         ...totals,
       } satisfies PayrollLineView,
     ],
@@ -305,6 +307,19 @@ export function PayrollRunView({ data }: Props) {
         cellClassRules: {
           "font-semibold": (params) => !!params.node.rowPinned,
         },
+        // Сарын дундаас орсон/гарсан ажилтан — цалин хувь тэнцүүлэн бодогдсоныг
+        // ил харуулна (SIM2-019/020).
+        cellRenderer: (params: { value?: string; data?: PayrollLineView }) =>
+          params.data?.employmentNote ? (
+            <span className="flex items-center gap-1.5" title={params.data.employmentNote}>
+              <span className="truncate">{params.value}</span>
+              <StatusBadge tone="warning" size="sm">
+                хэсэгчилсэн
+              </StatusBadge>
+            </span>
+          ) : (
+            params.value
+          ),
       }),
       col<PayrollLineView>({
         eaType: "readonly-text",

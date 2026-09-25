@@ -57,6 +57,8 @@ export type PeriodCostingActionResult =
       ok: true;
       valued: number;
       alreadyValued: number;
+      /** Дундаж өөрчлөгдсөн тул үүссэн ноорог COGS залруулга (SIM2-024). */
+      trueUps: number;
       zeroValued: number;
       /** Блоклогдсон хүрээнд хамаарч үнэлэгдээгүй хөдөлгөөн (ENT-043). */
       blockedMovements: number;
@@ -101,6 +103,7 @@ export async function computeMonthlyCosting(
       ok: true,
       valued: summary.valued,
       alreadyValued: summary.alreadyValued,
+      trueUps: summary.trueUps,
       zeroValued: summary.zeroValued,
       blockedMovements: summary.blockedMovements,
       blockers: labels,

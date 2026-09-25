@@ -41,6 +41,13 @@ export interface AttentionInput {
   taxDeadlines: TaxDeadline[];
   /** Системд бий externalRef marker-ууд: vat-settlement:YYYY-MM, payroll:YYYY-MM. */
   preparedMarkers: string[];
+  /**
+   * SIM2-045: сар бүрийн татварын ҮНДЭСЛЭЛ (YYYY-MM → НӨАТ-ын дансны бичилт /
+   * цалингийн бодолт бий эсэх). Өгөөгүй бол (хуучин дуудагч) шүүхгүй.
+   */
+  taxActivity?: Record<string, { vat: boolean; payroll: boolean }>;
+  /** Байгууллага бүртгүүлсэн өдөр (YYYY-MM-DD) — түүнээс өмнөх сарын татварт сануулахгүй. */
+  orgCreatedAt?: string | null;
   /** Өмнөх сар — сар хаалтын сануулгад. */
   previousPeriod?: {
     code: string;
@@ -206,6 +213,24 @@ export function alertBucket(daysLeft: number, buckets: readonly number[]): numbe
   const sorted = [...buckets].sort((a, b) => a - b);
   for (const bucket of sorted) if (daysLeft <= bucket) return bucket;
   return null;
+}
+
+/**
+ * SIM2-045: тухайн сарын татварт сануулах үндэслэл бий эсэх — байгууллага
+ * бүртгүүлэхээс өмнөх сар, эсвэл НӨАТ-ын бичилт / цалингийн бодолтгүй сард
+ * «хугацаа хэтэрсэн, алданги» гэж айлгахгүй (alarm fatigue).
+ */
+export function taxPeriodRelevant(
+  key: TaxDeadlineKey,
+  period: string,
+  input: Pick<AttentionInput, "taxActivity" | "orgCreatedAt">
+): boolean {
+  if (input.orgCreatedAt && period < input.orgCreatedAt.slice(0, 7)) return false;
+  const activity = input.taxActivity?.[period];
+  if (!input.taxActivity) return true;
+  if (key === "vat") return !!activity?.vat;
+  if (key === "si" || key === "pit") return !!activity?.payroll;
+  return true;
 }
 
 /** Татварын «тайлан бэлтгэгдсэн» marker (externalRef) — vat/pit/si-д л бий. */
@@ -378,6 +403,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
   for (const deadline of input.taxDeadlines) {
     const bucket = alertBucket(deadline.daysLeft, TAX_ALERT_BUCKETS);
     if (bucket === null) continue;
+    if (!taxPeriodRelevant(deadline.key, deadline.period, input)) continue;
     const marker = taxPreparedMarker(deadline.key, deadline.period);
     const prepared = marker ? markers.has(marker) : null;
     const when =
@@ -411,6 +437,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
   for (const overdue of overdueTaxDeadlines(today)) {
     const marker = taxPreparedMarker(overdue.key, overdue.period);
     if (!marker || markers.has(marker)) continue;
+    if (!taxPeriodRelevant(overdue.key, overdue.period, input)) continue;
     signals.push({
       key: `tax-overdue-${overdue.key}-${overdue.period}`,
       tone: "danger",

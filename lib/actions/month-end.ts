@@ -23,6 +23,7 @@ import {
 import { roundMoney } from "@/lib/arap/accounting";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { removeOpeningMirrorDrafts } from "@/lib/cash/sync-voucher";
 import {
   accountingPeriods,
   arApDocumentLines,
@@ -32,6 +33,7 @@ import {
   cashFxRevaluations,
   costAllocations,
   costEntries,
+  costingAccountSettings,
   costPeriodResults,
   employees,
   faDepreciationEntries,
@@ -112,6 +114,8 @@ export type MonthEndChecklist = {
     draftReceipts: number;
     /** Бүрэлдэхүүнтэй боловч бүрэн хуваарилагдаагүй нэхэмжлэхийн мөр. */
     unallocatedCostLines: number;
+    /** SIM2-023: хүлээн авалттай нээлттэй PO сар хаалтыг хориглох эсэх (block|warn). */
+    openPoCloseMode: "block" | "warn";
     hasActivity: boolean;
   };
   /**
@@ -154,6 +158,9 @@ export async function getMonthEndChecklist(
   const { orgId } = await getActiveOrg();
   if (!isPeriodCode(periodCode)) throw new Error("Тайлант үеийн код буруу байна");
   const { startDate, endDate } = periodRange(periodCode);
+  // Нээлтийн журналын «толин» ноорог кассын баримт (SIM2-011) ноорог гэж
+  // тоологдохгүй — идемпотент цэвэрлэгээ.
+  await removeOpeningMirrorDrafts(orgId);
 
   const draftCount = (table: typeof journalVouchers | typeof cashDocuments | typeof arApDocuments | typeof inventoryMovements | typeof costEntries | typeof goodsReceipts) =>
     db
@@ -515,6 +522,10 @@ export async function getMonthEndChecklist(
     return roundMoney(lineMnt - allocated) > 0.005;
   }).length;
   const openOrdersWithReceipts = Number(openOrdersWithReceiptRows?.n ?? 0);
+  const costingRoles = await db.query.costingAccountSettings.findFirst({
+    where: eq(costingAccountSettings.organizationId, orgId),
+    columns: { openPoCloseMode: true },
+  });
   const draftReceipts = Number(receiptDrafts?.n ?? 0);
   const procurementHasActivity =
     Number(ordersInPeriod?.n ?? 0) > 0 ||
@@ -607,6 +618,7 @@ export async function getMonthEndChecklist(
       openOrdersWithReceipts,
       draftReceipts,
       unallocatedCostLines,
+      openPoCloseMode: costingRoles?.openPoCloseMode === "warn" ? "warn" : "block",
       hasActivity: procurementHasActivity,
     },
     pos: {

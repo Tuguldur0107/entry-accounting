@@ -89,6 +89,7 @@ export default async function CostingSettingsPage() {
         nrvExpenseAccountNumber: accountRoles.nrvExpenseAccountNumber,
         nrvReserveAccountNumber: accountRoles.nrvReserveAccountNumber,
       }}
+      openPoCloseMode={accountRoles.openPoCloseMode === "warn" ? "warn" : "block"}
       glAccounts={glAccounts.map((account) => ({
         number: account.number,
         name: account.name,

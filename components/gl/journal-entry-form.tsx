@@ -1,5 +1,7 @@
 "use client";
 
+import { toast } from "sonner";
+
 import { feedback } from "@/lib/ui/feedback";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
@@ -578,6 +580,9 @@ export function JournalEntryForm({
       if (status === "posted")
         feedback.posted(documentNo ? `${documentNo} батлагдлаа` : "Журнал батлагдлаа");
       else feedback.saved(documentNo ? `${documentNo} ноорог хадгалагдлаа` : "Ноорог хадгалагдлаа");
+      // SIM2-038: хяналтын дансанд гар журнал — анхааруулга.
+      if ("warning" in result && typeof result.warning === "string")
+        toast.warning(result.warning, { duration: 10_000 });
       finish();
     } catch {
       setError("Алдаа гарлаа");

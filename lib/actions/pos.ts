@@ -126,6 +126,7 @@ import type {
   ResolvedPayment,
   TotaledLine,
 } from "@/lib/pos/types";
+import { isLargeShiftVariance, shiftVarianceThreshold } from "@/lib/pos/shift-variance";
 
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -2396,7 +2397,12 @@ export async function openShift(data: {
 
 export async function closeShift(
   id: string,
-  data: { countedCash: number; note?: string }
+  data: {
+    countedCash: number;
+    note?: string;
+    /** SIM2-036: босгоос их зөрүүг ил баталгаажуулсан (pos:post эрх). */
+    confirmLargeVariance?: boolean;
+  }
 ): Promise<ActionResult<{ systemCash: number; variance: number }>> {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
@@ -2409,6 +2415,14 @@ export async function closeShift(
     await assertPeriodOpen(orgId, date);
     const systemCash = round2(view.openingFloat + view.cashReceipts - view.cashRefunds);
     const variance = round2(countedCash - systemCash);
+    // SIM2-036: том зөрүү — дахин тоолох эсвэл менежер (pos:post) баталгаажуулна.
+    if (isLargeShiftVariance(systemCash, countedCash)) {
+      if (!data.confirmLargeVariance)
+        throw new Error(
+          `[LARGE_VARIANCE] Кассын зөрүү ${fmt(variance)}₮ (систем ${fmt(systemCash)}₮, тоолсон ${fmt(countedCash)}₮) босгоос (${fmt(shiftVarianceThreshold(systemCash))}₮) их — дахин тоолно уу эсвэл менежер баталгаажуулна`
+        );
+      await requireModuleAction(POS_MODULE_KEY, "post");
+    }
     const account = await db.query.cashAccounts.findFirst({ where: eq(cashAccounts.id, view.cashAccountId) });
     if (!account) throw new Error("Кассын данс олдсонгүй");
     const builders = await codeBuilders(orgId);

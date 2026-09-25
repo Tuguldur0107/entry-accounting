@@ -752,7 +752,11 @@ function PurchaseOrderBody({
             toast.error(result.error);
             return;
           }
-          toast.success("Захиалга цуцлагдлаа");
+          toast.success(
+            result.deletedReceipts?.length
+              ? `Захиалга цуцлагдлаа · ноорог хүлээн авалт устгагдав: ${result.deletedReceipts.join(", ")}`
+              : "Захиалга цуцлагдлаа"
+          );
           setDirty(panel.id, false);
           closePanel(panel.id);
           refreshOpenPanels();

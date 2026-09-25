@@ -333,3 +333,41 @@ export function expectedCashGlBalance(input: {
     expected: Math.round((input.subledger + fxTotal) * 100) / 100,
   };
 }
+
+/**
+ * Касс ↔ GL тулгалтыг GL ДАНСААР бүлэглэнэ (SIM2-005): нэг GL данс (жишээ нь
+ * 10000001) дээр олон кассын данс байвал данс бүрийг GL-ийн НИЙТ үлдэгдэлтэй
+ * харьцуулж худал зөрүү гаргадаг байв. Одоо Σ(модулийн хүлээгдэх) = GL; данс
+ * тус бүр зөвхөн мэдээлэл. `expected: null` = ₮ тодорхойгүй (ханшгүй нээлт) —
+ * тэр бүлгийн нийлбэр тодорхойгүй (зохиохгүй).
+ */
+export function groupCashAccountsByGl<
+  T extends { glAccountNumber: string; expected: number | null }
+>(
+  accounts: readonly T[],
+  glNet: ReadonlyMap<string, number>
+): {
+  glAccountNumber: string;
+  accounts: T[];
+  total: number | null;
+  gl: number;
+  diff: number | null;
+}[] {
+  const groups = new Map<string, T[]>();
+  for (const account of accounts)
+    groups.set(account.glAccountNumber, [...(groups.get(account.glAccountNumber) ?? []), account]);
+  return [...groups.entries()].map(([glAccountNumber, members]) => {
+    const undetermined = members.some((member) => member.expected === null);
+    const total = undetermined
+      ? null
+      : Math.round(members.reduce((sum, member) => sum + (member.expected ?? 0), 0) * 100) / 100;
+    const gl = glNet.get(glAccountNumber) ?? 0;
+    return {
+      glAccountNumber,
+      accounts: members,
+      total,
+      gl,
+      diff: total === null ? null : Math.round((total - gl) * 100) / 100,
+    };
+  });
+}

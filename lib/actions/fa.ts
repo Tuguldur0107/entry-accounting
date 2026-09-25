@@ -203,8 +203,10 @@ export async function createFixedAsset(
     /** true бол "draft" төлөвтэй карт үүсгэнэ (AI туслах §9 — хэрэглэгч
      * шалгаж идэвхжүүлнэ; АП sync-ийн draft карттай ижил урсгал). */
     asDraft?: boolean;
+    /** SIM2-037: өртөг аль данснаас капиталжих (ж: 20000099 түр данс). */
+    capitalizeFrom?: string;
   }
-): Promise<ActionResult<{ id: string; code: string }>> {
+): Promise<ActionResult<{ id: string; code: string; voucherNo: string | null }>> {
   try {
     return await createFixedAssetCore(data, options);
   } catch (caught) {
@@ -218,6 +220,7 @@ async function createFixedAssetCore(
     /** true бол "draft" төлөвтэй карт үүсгэнэ (AI туслах §9 — хэрэглэгч
      * шалгаж идэвхжүүлнэ; АП sync-ийн draft карттай ижил урсгал). */
     asDraft?: boolean;
+    capitalizeFrom?: string;
   }
 ) {
   const { orgId, userId } = await requireModuleAction("fa", "write");
@@ -243,29 +246,90 @@ async function createFixedAssetCore(
       .slice(0, 6)
       .toUpperCase()}`;
 
-  const [created] = await db
-    .insert(fixedAssets)
-    .values({
-      userId,
-      organizationId: orgId,
-      code,
-      name: data.name.trim(),
-      acquisitionDate: data.acquisitionDate,
-      cost: String(Math.round(Number(data.cost) * 100) / 100),
-      salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
-      usefulLifeMonths: data.usefulLifeMonths,
-      depreciationMethod: data.depreciationMethod,
-      custodian: data.custodian.trim().slice(0, 120),
-      ...assetExtraValues(data),
-      depreciationStartMonth: data.depreciationStartMonth,
-      assetAccountNumber: data.assetAccountNumber.trim(),
-      accumDepAccountNumber: data.accumDepAccountNumber.trim(),
-      depExpenseAccountNumber: data.depExpenseAccountNumber.trim(),
-      status: options?.asDraft ? "draft" : "active",
-    })
-    .returning({ id: fixedAssets.id });
+  // SIM2-037: капиталжуулах журнал — Dr ҮХ-ийн данс / Cr эх данс (түр данс,
+  // өглөг, банк …). Эх данс өгөөгүй бол GL-д бичихгүй (АП-аар ҮХ-ийн дансанд
+  // шууд авсан — өртөг аль хэдийн GL-д; нээлтийн карт — нээлтийн журналаар).
+  const capitalizeFrom = options?.capitalizeFrom?.trim() || null;
+  if (capitalizeFrom) {
+    if (capitalizeFrom === data.assetAccountNumber.trim())
+      throw new Error("Капиталжуулах эх данс нь хөрөнгийн данснаас өөр байна");
+    if (data.openingAsOf)
+      throw new Error(
+        "Нээлтийн (openingAsOf-той) карт капиталжуулах журналгүй — өртөг нээлтийн журналаар GL-д орно"
+      );
+    await assertEnabledMainAccount(orgId, capitalizeFrom);
+    await assertPeriodOpen(orgId, data.acquisitionDate);
+    // Батлагдсан журнал бичих нь батлах түвшний эрх.
+    if (!options?.asDraft) await requireModuleAction("fa", "post");
+  }
+  const buildCode = capitalizeFrom ? await faPostingCodeBuilder(orgId) : null;
+  const cost = Math.round(Number(data.cost) * 100) / 100;
+
+  const { created, voucherNo } = await db.transaction(async (tx) => {
+    let voucherId: string | null = null;
+    let voucherNo: string | null = null;
+    if (capitalizeFrom && buildCode) {
+      await assertPeriodOpenInTx(tx, orgId, data.acquisitionDate);
+      voucherNo = await nextVoucherNo(tx, orgId, "fa", data.acquisitionDate);
+      const [voucher] = await tx
+        .insert(journalVouchers)
+        .values({
+          userId,
+          organizationId: orgId,
+          date: data.acquisitionDate,
+          description: `ҮХ капиталжуулалт: ${code} ${data.name.trim()}`,
+          documentNo: voucherNo,
+          externalRef: `fa-capitalize:${code}`,
+          status: options?.asDraft ? "draft" : "posted",
+        })
+        .returning({ id: journalVouchers.id });
+      voucherId = voucher.id;
+      await tx.insert(journalLines).values([
+        {
+          voucherId: voucher.id,
+          accountNumber: buildCode(data.assetAccountNumber.trim()),
+          debit: String(cost),
+          credit: "0",
+          description: "ҮХ-ийн өртөг капиталжуулав",
+          sortOrder: 0,
+        },
+        {
+          voucherId: voucher.id,
+          accountNumber: buildCode(capitalizeFrom),
+          debit: "0",
+          credit: String(cost),
+          description: "ҮХ-ийн өртөг капиталжуулав",
+          sortOrder: 1,
+        },
+      ]);
+    }
+    const [created] = await tx
+      .insert(fixedAssets)
+      .values({
+        userId,
+        organizationId: orgId,
+        code,
+        sourceVoucherId: voucherId,
+          name: data.name.trim(),
+          acquisitionDate: data.acquisitionDate,
+          cost: String(Math.round(Number(data.cost) * 100) / 100),
+          salvageValue: String(Math.round(Number(data.salvageValue) * 100) / 100),
+          usefulLifeMonths: data.usefulLifeMonths,
+          depreciationMethod: data.depreciationMethod,
+          custodian: data.custodian.trim().slice(0, 120),
+          ...assetExtraValues(data),
+          depreciationStartMonth: data.depreciationStartMonth,
+          assetAccountNumber: data.assetAccountNumber.trim(),
+          accumDepAccountNumber: data.accumDepAccountNumber.trim(),
+          depExpenseAccountNumber: data.depExpenseAccountNumber.trim(),
+        status: options?.asDraft ? "draft" : "active",
+      })
+      .returning({ id: fixedAssets.id });
+    return { created, voucherNo };
+  });
+  if (voucherNo) revalidatePath("/gl/journal");
   revalidateFa();
-  return { id: created.id, code };
+  return { id: created.id, code, voucherNo };
 }
 
 // Ноорог картыг (гараар үүсгэсэн эсвэл АП/GL sync-ээс ирсэн) бөглөж
@@ -287,13 +351,45 @@ async function activateFixedAssetCore(id: string, data: FixedAssetInput) {
 
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
-    columns: { status: true },
+    columns: { status: true, sourceVoucherId: true },
   });
   if (!asset) throw new Error("Хөрөнгө олдсонгүй");
   if (asset.status !== "draft")
     throw new Error("Зөвхөн ноорог картыг идэвхжүүлнэ");
+  // SIM2-037: картын НООРОГ капиталжуулах журнал идэвхжүүлэлттэй хамт
+  // батлагдана (нэг баримт — нэг батлах). Өртөг өөрчлөгдсөн бол зөрнө.
+  const capitalization = asset.sourceVoucherId
+    ? await db.query.journalVouchers.findFirst({
+        where: and(
+          eq(journalVouchers.id, asset.sourceVoucherId),
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalVouchers.status, "draft"),
+          sql`${journalVouchers.externalRef} like 'fa-capitalize:%'`
+        ),
+        with: { lines: true },
+      })
+    : null;
+  if (capitalization) {
+    await requireModuleAction("fa", "post");
+    const journalCost = capitalization.lines.reduce((sum, line) => sum + Number(line.debit), 0);
+    if (Math.abs(journalCost - Number(data.cost)) > 0.005)
+      throw new Error(
+        `Капиталжуулах журнал ${capitalization.documentNo} ${journalCost}₮ — картын өртөг ${Number(data.cost)}₮-тэй таарахгүй. Журналыг засаад идэвхжүүлнэ`
+      );
+    await assertPeriodOpen(orgId, capitalization.date);
+  }
 
-  const [claimed] = await db
+  await db.transaction(async (tx) => {
+    if (capitalization) {
+      await assertPeriodOpenInTx(tx, orgId, capitalization.date);
+      await tx
+        .update(journalVouchers)
+        .set({ status: "posted" })
+        .where(
+          and(eq(journalVouchers.id, capitalization.id), eq(journalVouchers.status, "draft"))
+        );
+    }
+    const [claimed] = await tx
     .update(fixedAssets)
     .set({
       name: data.name.trim(),
@@ -318,7 +414,9 @@ async function activateFixedAssetCore(id: string, data: FixedAssetInput) {
       )
     )
     .returning({ id: fixedAssets.id });
-  if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
+    if (!claimed) throw new Error("Картын төлөв өөрчлөгдсөн байна");
+  });
+  if (capitalization) revalidatePath("/gl/journal");
   revalidateFa();
   return {};
 }
@@ -402,9 +500,26 @@ async function deleteFixedAssetCore(id: string) {
   const { orgId } = await requireModuleAction("fa", "write");
   const asset = await db.query.fixedAssets.findFirst({
     where: and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)),
-    columns: { status: true, code: true },
+    columns: { status: true, code: true, sourceVoucherId: true },
   });
   if (!asset) return {};
+
+  // SIM2-037: картын капиталжуулах журнал — ноорог бол хамт устна, батлагдсан
+  // бол эхлээд буцаана (GL-д өртөг картгүй үлдэхээс сэргийлнэ).
+  const capitalization = asset.sourceVoucherId
+    ? await db.query.journalVouchers.findFirst({
+        where: and(
+          eq(journalVouchers.id, asset.sourceVoucherId),
+          eq(journalVouchers.organizationId, orgId),
+          sql`${journalVouchers.externalRef} like 'fa-capitalize:%'`
+        ),
+        columns: { id: true, status: true, documentNo: true },
+      })
+    : null;
+  if (capitalization?.status === "posted")
+    throw new Error(
+      `${asset.code} хөрөнгийн капиталжуулах журнал ${capitalization.documentNo} батлагдсан — эхлээд журналыг буцаана`
+    );
 
   if (asset.status !== "draft") {
     const entry = await db.query.faDepreciationEntries.findFirst({
@@ -423,6 +538,16 @@ async function deleteFixedAssetCore(id: string) {
   await db
     .delete(fixedAssets)
     .where(and(eq(fixedAssets.id, id), eq(fixedAssets.organizationId, orgId)));
+  if (capitalization?.status === "draft")
+    await db
+      .delete(journalVouchers)
+      .where(
+        and(
+          eq(journalVouchers.id, capitalization.id),
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalVouchers.status, "draft")
+        )
+      );
   // Хавсралт FK-гүй тул хөрөнгийнхийг өөрсдөө цэвэрлэнэ.
   await deleteAttachmentsFor(orgId, "fa", id);
   revalidateFa();

@@ -11,11 +11,13 @@ import { revalidatePath } from "next/cache";
 
 import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { removeOpeningMirrorDrafts } from "@/lib/cash/sync-voucher";
 import {
   accountingPeriods,
   arApDocuments,
   cashDocuments,
   costEntries,
+  costingAccountSettings,
   faDepreciationEntries,
   goodsReceipts,
   journalVouchers,
@@ -214,6 +216,9 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
   const { startDate, endDate } = periodRange(code);
+  // SIM2-011: нээлтийн журналын «толин» ноорог кассын баримт хаалтыг
+  // хориглохгүй (GL/модульд нөлөөгүй — идемпотент цэвэрлэгээ).
+  await removeOpeningMirrorDrafts(orgId);
 
   // Exclusive advisory lock: post замууд shared lock-оо транзакц дотроо
   // авдаг тул хаалт хийгдэж дуусах хүртэл шинэ бичилт хүлээнэ — ноорог
@@ -346,8 +351,15 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
           eq(purchaseOrders.status, "open")
         )
       );
-    if (Number(openPo?.n ?? 0) > 0)
-      return { kind: "open-purchase-orders" as const };
+    // SIM2-023: байгууллага «анхааруулга» горим сонгосон бол хориглохгүй
+    // (checklist-д анхааруулга хэвээр) — анхдагч нь OD-011-ийн хатуу хориг.
+    if (Number(openPo?.n ?? 0) > 0) {
+      const [mode] = await tx
+        .select({ value: costingAccountSettings.openPoCloseMode })
+        .from(costingAccountSettings)
+        .where(eq(costingAccountSettings.organizationId, orgId));
+      if (mode?.value !== "warn") return { kind: "open-purchase-orders" as const };
+    }
 
     // POS: энэ сард (эсвэл өмнө нь) нээгдсэн, хаагдаагүй ээлж байвал хаагдахгүй —
     // ээлжийн зөрүү энэ сард бичигдэх ёстой (docs/pos §3.3 ⑥⑦).

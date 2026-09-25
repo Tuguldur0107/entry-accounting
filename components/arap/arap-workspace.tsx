@@ -1,5 +1,8 @@
 "use client";
 
+import { useNewParam } from "@/components/ui/use-new-param";
+import { CurrencySelect } from "@/components/ui/currency-select";
+
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
@@ -533,6 +536,10 @@ export function ArApWorkspace({
     setError("");
     setCounterpartyOpen(true);
   }
+  // SIM2-032: «+ Шинэ» цэсийн «Лавлах» (?new=1) — харилцагчийн хуудсанд.
+  useNewParam(() => {
+    if (focus === "counterparties") openCounterpartyDialog();
+  });
 
   /** Бүртгэгдсэн харилцагчийг засах — форм нь одоогийн утгуудаар бөглөгдөнө. */
   function openEditCounterparty(counterparty: CounterpartyView) {
@@ -1489,11 +1496,9 @@ function CounterpartyDialog({
             />
           </FormField>
           <FormField label="Валют">
-            <Input
+            <CurrencySelect
               value={form.defaultCurrency}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, defaultCurrency: event.target.value }))
-              }
+              onChange={(defaultCurrency) => setForm((current) => ({ ...current, defaultCurrency }))}
             />
           </FormField>
           <FormField label="Авлагын default данс">

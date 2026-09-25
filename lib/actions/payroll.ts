@@ -9,7 +9,7 @@
 // хэзээ ч шууд posted журнал бичихгүй.
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, or } from "drizzle-orm";
 
 import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -40,6 +40,8 @@ import {
 } from "@/lib/action-result";
 import { assertPeriodOpen } from "@/lib/periods/guard";
 import { isPeriodCode, periodRange } from "@/lib/periods/period";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
+import { employmentShare, isTerminated, proratedHours } from "@/lib/payroll/employment";
 import { loadPayrollSettings } from "@/lib/payroll/settings";
 import {
   validatePayrollSettings,
@@ -170,7 +172,9 @@ function validateEmployeeInput(data: EmployeeInput) {
     throw new Error("ХЧТА тэтгэмжийн хувь 0–100%-ийн хооронд байна");
   const employmentType: EmploymentType = data.employmentType ?? "primary";
   if (!["primary", "contract", "hourly"].includes(employmentType))
-    throw new Error("Ажил эрхлэлтийн төрөл буруу байна");
+    throw new Error(
+      `Ажил эрхлэлтийн төрөл буруу байна ("${employmentType}") — primary (үндсэн), contract (гэрээт), hourly (цагийн) -ийн аль нэг`
+    );
 
   return {
     name,
@@ -196,7 +200,9 @@ function validateEmployeeInput(data: EmployeeInput) {
           sickBenefitPercent:
             sickBenefitPercent === null ? null : String(sickBenefitPercent),
         }),
-    isActive: data.isActive ?? true,
+    // Гарсан огноо өнгөрсөн ажилтан автоматаар идэвхгүй (SIM2-020) — цалингийн
+    // бодолт огноогоор нь дахин шүүнэ (гарсан сард хувь тэнцүүлнэ).
+    isActive: isTerminated(terminationDate, ulaanbaatarToday()) ? false : (data.isActive ?? true),
   };
 }
 
@@ -378,6 +384,8 @@ export type PayrollLineView = {
   advanceHours: number;
   advanceAmount: number;
   finalNet: number;
+  /** Сарын дундаас орсон/гарсан бол «хэсэгчилсэн сар 10/21 (…)» — бүтэн сард null. */
+  employmentNote: string | null;
 };
 
 export type SalaryBillView = {
@@ -547,6 +555,11 @@ export async function getPayrollRunData(
         // Сүүл цалин = нийт гарт олгох − урьдчилгаа (хадгалагдсан дүнгээс
         // гаргана — calc.ts-тэй ижил томьёо, давхар хадгалалт үүсгэхгүй).
         finalNet: Math.round((netSalary - advanceAmount) * 100) / 100,
+        employmentNote: employmentShare(
+          periodMonth,
+          line.employee.hireDate,
+          line.employee.terminationDate
+        ).note,
       };
     }),
     settings: {
@@ -838,16 +851,30 @@ export async function calculatePayrollRun(periodMonth: string): Promise<ActionRe
 async function calculatePayrollRunCore(periodMonth: string) {
   const { orgId, userId } = await requireModuleAction("payroll", "write");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
-  const { endDate } = periodRange(periodMonth);
+  const { startDate, endDate } = periodRange(periodMonth);
   await assertPeriodOpen(orgId, endDate);
 
-  const [settingsRow, staff] = await Promise.all([
+  const [settingsRow, candidates] = await Promise.all([
     loadPayrollSettings(orgId, userId),
+    // Идэвхтэй + тухайн сард (эсвэл хойно) гарсан — гарсан сард хувь
+    // тэнцүүлэн бодогдоно (SIM2-020: гарсан ажилтан идэвхгүй болсон ч
+    // гарсан сарынхаа цалинг авна).
     db.query.employees.findMany({
-      where: and(eq(employees.organizationId, orgId), eq(employees.isActive, true)),
+      where: and(
+        eq(employees.organizationId, orgId),
+        or(eq(employees.isActive, true), gte(employees.terminationDate, startDate))
+      ),
       orderBy: [asc(employees.name)],
     }),
   ]);
+  // Сард ороогүй / аль хэдийн гарсан ажилтан бодолтод орохгүй (SIM2-019/020).
+  const shareOf = new Map(
+    candidates.map((person) => [
+      person.id,
+      employmentShare(periodMonth, person.hireDate, person.terminationDate),
+    ])
+  );
+  const staff = candidates.filter((person) => shareOf.get(person.id)!.employed);
   if (staff.length === 0)
     throw new Error("Идэвхтэй ажилтан алга — эхлээд Ажилтнууд хэсэгт бүртгэнэ үү");
   const settings = computeSettingsOf(settingsRow);
@@ -881,6 +908,11 @@ async function calculatePayrollRunCore(periodMonth: string) {
     }
 
     const byEmployee = new Map(run.lines.map((line) => [line.employeeId, line]));
+    // Өмнөх бодолтод орсон ч энэ сард ажиллаагүй (ороогүй/гарсан) мөрүүд хасагдана.
+    const staffIds = new Set(staff.map((person) => person.id));
+    const stale = run.lines.filter((line) => !staffIds.has(line.employeeId)).map((line) => line.id);
+    if (stale.length > 0)
+      await tx.delete(payrollRunLines).where(inArray(payrollRunLines.id, stale));
     let sortOrder = 0;
     for (const person of staff) {
       const existing = byEmployee.get(person.id);
@@ -893,8 +925,14 @@ async function calculatePayrollRunCore(periodMonth: string) {
       const standardHours =
         (existing ? Number(existing.standardHours) : 0) ||
         settings.standardMonthlyHours;
+      // Хэсэгчилсэн сар: ажилласан цаг = стандарт × ажлын өдрийн хувь. Хэрэглэгч
+      // гараар өөр цаг оруулсан бол (стандартаас ялгаатай) тэр нь хадгалагдана.
+      const share = shareOf.get(person.id)!;
+      const storedWorked = existing ? Number(existing.workedHours) : 0;
       const workedHours =
-        (existing ? Number(existing.workedHours) : 0) || standardHours;
+        share.partial && (!storedWorked || storedWorked === standardHours)
+          ? proratedHours(standardHours, share)
+          : storedWorked || standardHours;
       const additionsInput = lineAdditionsOf(
         existing,
         person,

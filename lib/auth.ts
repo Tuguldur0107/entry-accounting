@@ -5,6 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { ensureCashFlowSegmentValues } from "@/lib/gl/segment-sync";
 import {
   memberships,
   organizations,
@@ -115,7 +116,7 @@ export async function createPersonalOrg(
   userId: string,
   name: string
 ): Promise<string> {
-  return await db.transaction(async (tx) => {
+  const orgId = await db.transaction(async (tx) => {
     const [org] = await tx
       .insert(organizations)
       .values({ name: name.trim() || "Миний байгууллага" })
@@ -127,6 +128,11 @@ export async function createPersonalOrg(
     });
     return org.id;
   });
+  // SIM2-014: мөнгөн гүйлгээний S8 ангилал шинэ байгууллагад бэлэн байна.
+  await ensureCashFlowSegmentValues(orgId, userId).catch((caught) =>
+    console.error("[createPersonalOrg] S8 seed", caught)
+  );
+  return orgId;
 }
 
 // ── Дэмжлэгийн хандалт (Console-оос олгогдсон түр сесс) ─────────────────────

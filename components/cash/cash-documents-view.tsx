@@ -1,5 +1,8 @@
 "use client";
 
+import { READ_ONLY_HINT, useModuleCan } from "@/components/layout/module-access-context";
+import { StatusBadge } from "@/components/ui/status-badge";
+
 // Мөнгөн гүйлгээний жагсаалт. Мөр дээр давхар дарахад баримтын дэлгэрэнгүй ПАНЕЛЬ
 // (cash-doc), "Шинэ гүйлгээ" нь бичих ПАНЕЛЬ (cash-new) нээгдэнэ — урьд нь
 // хоёулаа Dialog байсан. Валютын ханш асуух жижиг prompt болон бүх confirm
@@ -134,6 +137,8 @@ export function CashDocumentsView({
   initialArApDocumentId = null,
 }: Props) {
   const router = useRouter();
+  // SIM2-047: үзэгч эрхтэй бол бичих товч урьдчилан идэвхгүй.
+  const canWrite = useModuleCan("cash", "write");
   const pathname = usePathname();
   const searchParams = useSearchParams();
 // П17 — SavedViewsMenu grid API-д хандахад.
@@ -700,8 +705,17 @@ export function CashDocumentsView({
             холбоно (давхар бичилт үүсэхгүй).
           </p>
         </div>
+        {!canWrite && (
+          <StatusBadge tone="muted" size="sm">
+            Зөвхөн харах эрх
+          </StatusBadge>
+        )}
         {allowCreate && (
-          <Button onClick={() => openCashNewPanel()}>
+          <Button
+            onClick={() => openCashNewPanel()}
+            disabled={!canWrite}
+            title={canWrite ? undefined : READ_ONLY_HINT}
+          >
             <Icon name="add" />
             Шинэ гүйлгээ
           </Button>
@@ -753,12 +767,16 @@ export function CashDocumentsView({
             title="Мөнгөн гүйлгээгээ бүртгэж эхлээрэй"
             description="Гараар бүртгэх эсвэл банкны хуулгаа импортлоход GL журнал автоматаар үүснэ."
             actions={[
-              {
-                label: "Шинэ мөнгөн гүйлгээ",
-                onClick: () => openCashNewPanel(),
-                icon: "add",
-                primary: true,
-              },
+              ...(canWrite
+                ? [
+                    {
+                      label: "Шинэ мөнгөн гүйлгээ",
+                      onClick: () => openCashNewPanel(),
+                      icon: "add" as const,
+                      primary: true,
+                    },
+                  ]
+                : []),
               {
                 label: "Хуулга импортлох",
                 href: "/cash/statements",

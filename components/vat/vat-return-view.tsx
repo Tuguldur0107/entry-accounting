@@ -59,10 +59,16 @@ export function VatReturnView({
     summary,
     settings,
     settlement,
+    settled,
+    settlementDelta,
+    carriedBreakdown,
     cashAccounts,
     yearSales,
     registrationThreshold,
   } = data;
+  // SIM2-015: тооцооноос хойш батлагдсан баримт — нэмэлт тооцоо шаардлагатай.
+  const settlementStale = !!settlement && settlementDelta.needed;
+  const needsBank = settlementStale ? settlementDelta.payableDelta > 0 : summary.payableVat > 0;
   const [cashAccountId, setCashAccountId] = useState(
     cashAccounts[0]?.id ?? ""
   );
@@ -72,13 +78,18 @@ export function VatReturnView({
       try {
         const result = await createVatSettlementDraft({
           periodCode,
-          cashAccountId:
-            summary.payableVat > 0 ? cashAccountId || undefined : undefined,
+          cashAccountId: needsBank ? cashAccountId || undefined : undefined,
         });
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(
           result.dedup
             ? "Энэ сарын тооцоо аль хэдийн үүссэн байна"
-            : "НӨАТ тооцооны ноорог журнал үүслээ — GL журналаас шалгаад батална уу"
+            : result.supplement
+              ? "Нэмэлт тооцооны ноорог үүслээ — GL журналаас шалгаад батална уу"
+              : "НӨАТ тооцооны ноорог журнал үүслээ — GL журналаас шалгаад батална уу"
         );
         router.refresh();
       } catch (error) {
@@ -171,8 +182,12 @@ export function VatReturnView({
           value={fmtMnt(summary.inputVat)}
           mono
           hint={
-            summary.carriedInVat > 0
-              ? `${summary.inputLineCount} мөр · өмнөх сараас шилжсэн ${fmtMnt(summary.carriedInVat)}`
+            carriedBreakdown.inputOpening > 0 || carriedBreakdown.unpaidOutputOpening > 0
+              ? `${summary.inputLineCount} мөр · шилжсэн ${fmtMnt(carriedBreakdown.inputOpening)}${
+                  carriedBreakdown.unpaidOutputOpening > 0
+                    ? ` − төлөгдөөгүй өглөг ${fmtMnt(carriedBreakdown.unpaidOutputOpening)} = цэвэр ${fmtMnt(summary.carriedInVat)}`
+                    : ""
+                }`
               : `${summary.inputLineCount} мөр`
           }
         />
@@ -212,7 +227,44 @@ export function VatReturnView({
             </span>{" "}
             төлөвтэй байна — GL журналын жагсаалтаас харна уу.
           </p>
-        ) : !hasActivity ? (
+        ) : null}
+        {settlementStale ? (
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-[var(--ea-warning-fg)]">
+              Тооцооноос хойш баримт батлагдсан: бичигдсэн гаралт {fmtMnt(settled.output)} vs тайлан{" "}
+              {fmtMnt(summary.outputVat)} — нэмэлт төлөх {fmtMnt(settlementDelta.payableDelta)}.
+              {settled.hasDraft ? " Ноорог тооцоог устгаад дахин үүсгэнэ." : ""}
+            </p>
+            {!settled.hasDraft && !settlementDelta.negative ? (
+              <>
+                {needsBank ? (
+                  <div className="max-w-xs space-y-1.5">
+                    <Label>Төлбөр гарах банкны данс</Label>
+                    <select
+                      className="w-full rounded-md border px-3 py-2 text-sm"
+                      style={{
+                        borderColor: "var(--ea-border)",
+                        background: "var(--ea-bg)",
+                        color: "var(--ea-text-1)",
+                      }}
+                      value={cashAccountId}
+                      onChange={(event) => setCashAccountId(event.target.value)}
+                    >
+                      {cashAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} ({account.glAccountNumber})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                <Button onClick={createSettlement} disabled={isPending}>
+                  Нэмэлт тооцооны ноорог үүсгэх
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ) : settlement ? null : !hasActivity ? (
           <p className="mt-2 text-sm" style={{ color: "var(--ea-text-3)" }}>
             Энэ сард НӨАТ-ийн дансдад бичилт алга.
           </p>

@@ -11,6 +11,7 @@ import {
 import { db } from "@/lib/db";
 import { cashDocuments } from "@/lib/db/schema";
 import { backfillCashDraftsForUser } from "@/lib/cash/sync-voucher";
+import { ensureCashFlowSegmentValues } from "@/lib/gl/segment-sync";
 
 type SearchParams = Promise<{
   start?: string;
@@ -25,7 +26,7 @@ export default async function CashTransactionsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { orgId } = await getActiveOrg();
+  const { orgId, userId } = await getActiveOrg();
   const { start, end, type, status, arap } = await searchParams;
   // Topbar-ийн периодын сонголт — URL-д ил огноо байхгүй үед хэрэглэнэ.
   const period = await getPeriodSelection();
@@ -36,6 +37,8 @@ export default async function CashTransactionsPage({
   // have a cash document — including historical ones. Idempotent + best
   // effort; runs before the document query so new drafts show immediately.
   await backfillCashDraftsForUser(orgId);
+  // SIM2-014: S8 ангилалгүй хуучин байгууллагад стандарт жагсаалт (идемпотент).
+  await ensureCashFlowSegmentValues(orgId, userId).catch(() => 0);
 
   // Date range filters the document list at the DB level. `type` (receipt /
   // payment / transfer) is applied client-side so switching tabs doesn't

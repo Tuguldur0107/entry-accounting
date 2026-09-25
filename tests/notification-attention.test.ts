@@ -292,3 +292,29 @@ test("QPay — төлөгдсөн ч бүртгэгдээгүй intent → dange
   assert.match(some[0].detail ?? "", /35 мин/);
   assert.deepEqual(some[0].surfaces, ["dashboard", "daily"]);
 });
+
+test("SIM2-045: бүртгүүлэхээс өмнөх / НӨАТ, цалингийн бичилтгүй сард татварын ‼ мэдэгдэл явахгүй", () => {
+  const overdueKeys = (overrides: Partial<AttentionInput>) =>
+    attentionSignals(input("2026-09-24", overrides))
+      .filter((signal) => signal.notify?.type === "tax.overdue")
+      .map((signal) => signal.key)
+      .sort();
+  // Өмнөх зан төлөв (өгөгдөлгүй дуудагч): 3 хэтэрсэн
+  assert.deepEqual(overdueKeys({}), [
+    "tax-overdue-pit-2026-08",
+    "tax-overdue-si-2026-08",
+    "tax-overdue-vat-2026-08",
+  ]);
+  // C: 2026-09-24-нд бүртгүүлсэн — 2026-08-ийн татварт хамаагүй
+  assert.deepEqual(overdueKeys({ orgCreatedAt: "2026-09-24" }), []);
+  // Хуучин байгууллага, 2026-08-д цалин/НӨАТ-ын бичилтгүй
+  assert.deepEqual(
+    overdueKeys({ orgCreatedAt: "2025-01-01", taxActivity: { "2026-08": { vat: false, payroll: false } } }),
+    []
+  );
+  // Зөвхөн НӨАТ-ын бичилттэй
+  assert.deepEqual(
+    overdueKeys({ orgCreatedAt: "2025-01-01", taxActivity: { "2026-08": { vat: true, payroll: false } } }),
+    ["tax-overdue-vat-2026-08"]
+  );
+});

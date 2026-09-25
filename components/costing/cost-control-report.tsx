@@ -290,6 +290,8 @@ export function CostControlReport({
       const parts = [`${result.valued} бичилт үнэлэгдлээ`];
       if (result.alreadyValued > 0)
         parts.push(`${result.alreadyValued} нь GL-д бичигдсэн тул хөндөгдсөнгүй`);
+      if (result.trueUps > 0)
+        parts.push(`${result.trueUps} COGS залруулгын ноорог (дундаж өөрчлөгдсөн) — батална уу`);
       if (result.zeroValued > 0) parts.push(`${result.zeroValued} нь 0 дүнтэй`);
       // Блоклогдсон бараа-агуулах нь зөвхөн өөрийн хөдөлгөөнийг зогсооно —
       // бусад нь үнэлэгдсэн (ENT-043). Шалтгаан доорх жагсаалтад ил.

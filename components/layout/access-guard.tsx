@@ -12,6 +12,7 @@
 import type { ReactNode } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
+import { ModuleAccessProvider } from "@/components/layout/module-access-context";
 import { getActiveOrg, moduleAccess } from "@/lib/auth";
 import { hasFeature } from "@/lib/billing/entitlements";
 import { getEntitlements } from "@/lib/billing/load";
@@ -62,7 +63,8 @@ export async function ModuleGuard({
     );
   const allowed = keys.some((key) => levels[key] !== "none");
   if (!allowed) return <AccessDenied />;
-  return <>{children}</>;
+  // SIM2-047: эрхийн түвшин client-д — бичих товчнууд урьдчилан идэвхгүй.
+  return <ModuleAccessProvider levels={levels}>{children}</ModuleAccessProvider>;
 }
 
 /** Role-ийн guard — admin+ хуудсууд (Удирдлага, Хэрэглэгчдийн эрх). */

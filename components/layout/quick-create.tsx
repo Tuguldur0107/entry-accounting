@@ -10,7 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useDisabledModuleIds } from "@/components/layout/nav-visibility";
 
-import { Dropdown, DropdownItem } from "@/components/ui/dropdown";
+import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from "@/components/ui/dropdown";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { allowsGlobalHotkey, pageOwnsHotkey } from "@/lib/ui/hotkeys";
 import {
@@ -85,6 +85,18 @@ export const QUICK_CREATE_ACTIONS: {
   },
 ];
 
+/**
+ * SIM2-032: «Лавлах» бүлэг — мастер дата (данс, харилцагч, бараа, ажилтан).
+ * Жагсаалтын хуудас `?new=1`-ээр үүсгэх цонхоо шууд нээнэ (useNewParam).
+ * Тоон товчлолгүй (1–9 нь гүйлгээний төрлүүдэд).
+ */
+export const QUICK_CREATE_MASTER: (typeof QUICK_CREATE_ACTIONS)[number][] = [
+  { key: "cash-account", label: "Мөнгөн данс (касс, банк)", icon: "cash", moduleId: "cash", href: "/cash/accounts?new=1" },
+  { key: "counterparty", label: "Харилцагч", icon: "document", moduleId: "receivables", href: "/receivables/counterparties?new=1" },
+  { key: "item", label: "Бараа, үйлчилгээ", icon: "inventory", moduleId: "inventory", href: "/inventory/items?new=1" },
+  { key: "employee", label: "Ажилтан", icon: "user", moduleId: "payroll", href: "/payroll/employees?new=1" },
+];
+
 /** Үйлдлийг гүйцэтгэнэ — href бол навигаци, үгүй бол панель. Цэс болон
  * хяналтын самбарын "Хурдан үйлдэл" хоёул энэ нэг замаар явна. */
 export function runQuickCreateAction(
@@ -107,6 +119,14 @@ export function QuickCreate() {
       QUICK_CREATE_ACTIONS.filter(
         (action) =>
           !action.moduleId || !disabledModuleIds.includes(action.moduleId)
+      ),
+    [disabledModuleIds]
+  );
+
+  const visibleMaster = useMemo(
+    () =>
+      QUICK_CREATE_MASTER.filter(
+        (action) => !action.moduleId || !disabledModuleIds.includes(action.moduleId)
       ),
     [disabledModuleIds]
   );
@@ -213,6 +233,25 @@ export function QuickCreate() {
           {action.label}
         </DropdownItem>
       ))}
+      {visibleMaster.length > 0 ? (
+        <>
+          <DropdownSeparator />
+          <DropdownLabel>Лавлах</DropdownLabel>
+          {visibleMaster.map((action) => (
+            <DropdownItem
+              key={action.key}
+              onSelect={() => {
+                setOpen(false);
+                runAction(action);
+              }}
+            >
+              <span className="w-3" />
+              <Icon name={action.icon} size="sm" className="text-[var(--ea-text-3)]" />
+              {action.label}
+            </DropdownItem>
+          ))}
+        </>
+      ) : null}
     </Dropdown>
   );
 }

@@ -8,7 +8,7 @@
 // шалгаад GL журналаас Post дарна.
 
 import { revalidatePath } from "next/cache";
-import { and, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, like, lt, lte, or, sql } from "drizzle-orm";
 
 import { getActiveOrg, requireModuleAction, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -32,6 +32,7 @@ import {
   carriedInputVat,
   computeVatReturn,
   type VatReturnSummary,
+  planVatSettlementDelta,
 } from "@/lib/vat/return";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
@@ -69,6 +70,38 @@ async function vatPostingCodeBuilder(orgId: string) {
 
 const settlementRefOf = (periodCode: string) => `vat-settlement:${periodCode}`;
 
+/** Тухайн сарын бүх тооцооны журнал (үндсэн + нэмэлт `:N`), буцаагдаагүй. */
+async function loadSettledVat(
+  orgId: string,
+  periodCode: string,
+  outputVatAccount: string,
+  inputVatAccount: string
+) {
+  const ref = settlementRefOf(periodCode);
+  const vouchers = await db.query.journalVouchers.findMany({
+    where: and(
+      eq(journalVouchers.organizationId, orgId),
+      or(eq(journalVouchers.externalRef, ref), like(journalVouchers.externalRef, `${ref}:%`)),
+      inArray(journalVouchers.status, ["draft", "posted"])
+    ),
+    with: { lines: true },
+  });
+  let output = 0;
+  let input = 0;
+  for (const voucher of vouchers)
+    for (const line of voucher.lines) {
+      const main = extractMainAccount(line.accountNumber);
+      if (main === outputVatAccount) output += Number(line.debit) - Number(line.credit);
+      else if (main === inputVatAccount) input += Number(line.credit) - Number(line.debit);
+    }
+  return {
+    output: Math.round(output * 100) / 100,
+    input: Math.round(input * 100) / 100,
+    count: vouchers.length,
+    hasDraft: vouchers.some((voucher) => voucher.status === "draft"),
+  };
+}
+
 /**
  * АР/АП панелийн "НӨАТ нэмэх" товчны default-ууд — нэвтэрсэн хэрэглэгчийн
  * тохиргооноос бүтэн segment кодтой НӨАТ-ийн данс + хувь.
@@ -101,6 +134,17 @@ export type VatReturnData = {
   isVatPayer: boolean;
   /** Энэ сарын тооцооны журнал аль хэдийн үүссэн бол. */
   settlement: { id: string; status: string; date: string } | null;
+  /**
+   * SIM2-015: бичигдсэн тооцоо(нууд)-ын Dr гаралт / Кт оролт ба одоогийн
+   * тайлантай зөрүү — needed бол create_vat_settlement НЭМЭЛТ тооцоо үүсгэнэ.
+   */
+  settled: { output: number; input: number; count: number; hasDraft: boolean };
+  settlementDelta: ReturnType<typeof planVatSettlementDelta>;
+  /**
+   * SIM2-027: шилжсэн кредитийн задаргаа (үеийн эхэнд): оролтын НӨАТ-ын
+   * үлдэгдэл, төлөгдөөгүй гаралтын НӨАТ (нээлт г.м.) — цэвэр = carriedInVat.
+   */
+  carriedBreakdown: { inputOpening: number; unpaidOutputOpening: number };
   /** Тооцооны төлбөрийн мөрөнд сонгох банкны данс. */
   cashAccounts: { id: string; name: string; glAccountNumber: string }[];
   /** Хуанлийн оны эхнээс тайлант үеийн эцэс хүртэлх борлуулалтын орлого (5XXXXXXX, Кт−Дт). */
@@ -198,6 +242,10 @@ export async function getVatReturnData(
     inputDebitBalance: openingNet(settings.inputVatAccountNumber),
     outputCreditBalance: -openingNet(settings.outputVatAccountNumber),
   });
+  const carriedBreakdown = {
+    inputOpening: Math.round(Math.max(0, openingNet(settings.inputVatAccountNumber)) * 100) / 100,
+    unpaidOutputOpening: Math.round(Math.max(0, -openingNet(settings.outputVatAccountNumber)) * 100) / 100,
+  };
 
   // Орлогын данс (5XXXXXXX) — оны борлуулалт = Σ(Кт − Дт).
   const yearSales = yearRows.reduce(
@@ -225,8 +273,18 @@ export async function getVatReturnData(
     }
   );
 
+  const settled = await loadSettledVat(
+    orgId,
+    periodCode,
+    settings.outputVatAccountNumber,
+    settings.inputVatAccountNumber
+  );
+
   return {
     summary,
+    settled,
+    settlementDelta: planVatSettlementDelta(summary, settled),
+    carriedBreakdown,
     settings: {
       outputVatAccountNumber: settings.outputVatAccountNumber,
       inputVatAccountNumber: settings.inputVatAccountNumber,
@@ -271,7 +329,7 @@ export async function updateVatPayerFlag(isVatPayer: boolean): Promise<void> {
  */
 export async function createVatSettlementDraft(
   data: Parameters<typeof createVatSettlementDraftCore>[0]
-): Promise<ActionResult<{ id: string; dedup?: boolean }>> {
+): Promise<ActionResult<{ id: string; dedup?: boolean; supplement?: boolean }>> {
   try {
     return await createVatSettlementDraftCore(data);
   } catch (caught) {
@@ -287,7 +345,7 @@ async function createVatSettlementDraftCore(data: {
   periodCode: string;
   /** Төлөх дүнтэй үед заавал — төлбөр гарах банкны данс. */
   cashAccountId?: string;
-}): Promise<{ id: string; dedup?: boolean }> {
+}): Promise<{ id: string; dedup?: boolean; supplement?: boolean }> {
   const { orgId } = await requireRole("accountant");
   if (!isPeriodCode(data.periodCode))
     throw new Error("Тайлант үеийн код буруу байна");
@@ -299,9 +357,22 @@ async function createVatSettlementDraftCore(data: {
     ),
     columns: { id: true },
   });
-  if (existing) return { id: existing.id, dedup: true };
 
-  const { summary, settings } = await getVatReturnData(data.periodCode);
+  const { summary, settings, settled, settlementDelta } = await getVatReturnData(data.periodCode);
+  if (existing) {
+    // SIM2-015: тооцоо хуучирсан бол НЭМЭЛТ тооцоо (зөрүүгээр). Ноорог
+    // тооцоо байвал давхар ноорог гаргахгүй — устгаад дахин үүсгэхийг заана.
+    if (!settlementDelta.needed) return { id: existing.id, dedup: true };
+    if (settled.hasDraft)
+      throw new Error(
+        `[VAT_SETTLEMENT_STALE] ${data.periodCode}-ийн НООРОГ тооцоо тайлантай зөрүүтэй (гаралт Δ ${settlementDelta.outputDelta}) — ноорог тооцоог устгаад дахин үүсгэнэ`
+      );
+    if (settlementDelta.negative)
+      throw new Error(
+        `[VAT_SETTLEMENT_DECREASE] ${data.periodCode}-ийн тооцооноос хойш НӨАТ буурсан (гаралт Δ ${settlementDelta.outputDelta}, төлөх Δ ${settlementDelta.payableDelta}) — тооцооны журналыг буцааж дахин үүсгэнэ`
+      );
+    return await createVatSupplementDraft(orgId, data, settings, settled.count, settlementDelta, summary.deadline);
+  }
   if (summary.outputVat <= 0 && summary.inputVat <= 0)
     throw new Error(`${data.periodCode} сард НӨАТ-ийн бичилт алга`);
   if (summary.outputVat <= 0)
@@ -389,4 +460,66 @@ async function createVatSettlementDraftCore(data: {
   revalidatePath("/tax/vat");
   revalidatePath("/gl/journal");
   return { id };
+}
+
+/** Нэмэлт тооцооны НООРОГ (`vat-settlement:YYYY-MM:N`) — SIM2-015. */
+async function createVatSupplementDraft(
+  orgId: string,
+  data: { periodCode: string; cashAccountId?: string },
+  settings: { outputVatAccountNumber: string; inputVatAccountNumber: string },
+  existingCount: number,
+  delta: ReturnType<typeof planVatSettlementDelta>,
+  deadline: string
+): Promise<{ id: string; dedup?: boolean; supplement: true }> {
+  const code = await vatPostingCodeBuilder(orgId);
+  const lines: { account: string; debit: number; credit: number; description: string }[] = [];
+  if (delta.outputDelta > 0)
+    lines.push({
+      account: code(settings.outputVatAccountNumber),
+      debit: delta.outputDelta,
+      credit: 0,
+      description: `Гаралтын НӨАТ нэмэлт ${data.periodCode}`,
+    });
+  if (Math.abs(delta.inputDelta) >= 0.01)
+    lines.push({
+      account: code(settings.inputVatAccountNumber),
+      debit: delta.inputDelta < 0 ? -delta.inputDelta : 0,
+      credit: delta.inputDelta > 0 ? delta.inputDelta : 0,
+      description: `Оролтын НӨАТ хаалт нэмэлт ${data.periodCode}`,
+    });
+  if (delta.payableDelta >= 0.01) {
+    if (!data.cashAccountId)
+      throw new Error(
+        `Нэмэлт төлөх НӨАТ ${delta.payableDelta.toLocaleString()}₮ — банкны данс (cashAccount) сонгоно уу`
+      );
+    const account = await db.query.cashAccounts.findFirst({
+      where: and(
+        eq(cashAccounts.id, data.cashAccountId),
+        eq(cashAccounts.organizationId, orgId),
+        eq(cashAccounts.isActive, true)
+      ),
+      columns: { glAccountNumber: true },
+    });
+    if (!account) throw new Error("Идэвхтэй банкны данс олдсонгүй");
+    lines.push({
+      account: code(account.glAccountNumber),
+      debit: 0,
+      credit: delta.payableDelta,
+      description: `НӨАТ нэмэлт төлөлт ${data.periodCode} (${deadline} дотор)`,
+    });
+  }
+  const { id } = unwrapAction(
+    await createVoucher({
+      date: periodRange(data.periodCode).endDate,
+      description: `НӨАТ нэмэлт тооцоо ${data.periodCode} (тооцооноос хойш батлагдсан баримтууд)`,
+      lines,
+      status: "draft",
+      externalRef: `${settlementRefOf(data.periodCode)}:${existingCount + 1}`,
+      module: "vat",
+    })
+  );
+  revalidatePath("/vat");
+  revalidatePath("/tax/vat");
+  revalidatePath("/gl/journal");
+  return { id, supplement: true };
 }

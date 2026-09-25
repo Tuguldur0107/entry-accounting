@@ -42,6 +42,8 @@ import {
   planCashOpeningRef,
   planCashOpeningVoucher,
 } from "@/lib/cash/opening";
+import { cashOpeningAccountIdOf } from "@/lib/cash/gl-sync";
+import { ensureCashFlowSegmentValues } from "@/lib/gl/segment-sync";
 import type { CashDocumentView } from "@/lib/cash/types";
 import {
   cashDocumentEffect,
@@ -665,6 +667,15 @@ async function createCashOpeningVoucherCore(data: {
         cashAccountId: opening > 0 ? null : account.id,
       },
     ]);
+    // SIM2-006: валютын нээлтийн ханш дансанд хадгалагдана — тулгалт,
+    // нээлтийн ₮ (cashOpeningMnt) журналын мөрөөс хамааралгүй тодорхой.
+    if (plan.currency !== "MNT" && account.openingRate === null)
+      await tx
+        .update(cashAccounts)
+        .set({ openingRate: String(plan.rate) })
+        .where(
+          and(eq(cashAccounts.id, account.id), eq(cashAccounts.organizationId, orgId))
+        );
     return voucher.id;
   });
 
@@ -774,7 +785,9 @@ async function createCashDocumentCore(data: {
     data.documentType === "transfer" &&
     fromAccount?.currency !== toAccount?.currency
   )
-    throw new Error("Өөр валюттай дансны шилжүүлэгт ханшийн модуль шаардлагатай");
+    throw new Error(
+      "[CROSS_CURRENCY] Өөр валюттай дансны шилжүүлэг = валют солилцоо: зарлага (эх данс) + орлого (хүлээн авах данс) хоёр баримтаар 11000099 түр дансаар бичнэ (AI/MCP: create_cash_transaction transfer + toAmount эсвэл exchangeRate — автоматаар хоёр баримт үүсгэнэ)"
+    );
 
   const currency = (toAccount ?? fromAccount)?.currency ?? "MNT";
   const exchangeRate =
@@ -791,15 +804,23 @@ async function createCashDocumentCore(data: {
 
   const cashFlowCode = cleanText(data.cashFlowCode);
   if (cashFlowCode) {
-    const cashFlow = await db.query.segmentValues.findFirst({
-      where: and(
-        eq(segmentValues.organizationId, orgId),
-        eq(segmentValues.segmentId, 8),
-        eq(segmentValues.code, cashFlowCode),
-        eq(segmentValues.isEnabled, true)
-      ),
-    });
-    if (!cashFlow) throw new Error("Мөнгөн гүйлгээний S8 ангилал олдсонгүй");
+    const findCashFlow = () =>
+      db.query.segmentValues.findFirst({
+        where: and(
+          eq(segmentValues.organizationId, orgId),
+          eq(segmentValues.segmentId, 8),
+          eq(segmentValues.code, cashFlowCode),
+          eq(segmentValues.isEnabled, true)
+        ),
+      });
+    let cashFlow = await findCashFlow();
+    // SIM2-014: хуучин байгууллагад S8 огт суугаагүй бол стандартыг суулгана.
+    if (!cashFlow && (await ensureCashFlowSegmentValues(orgId, userId)) > 0)
+      cashFlow = await findCashFlow();
+    if (!cashFlow)
+      throw new Error(
+        `[CASH_FLOW_CODE_NOT_FOUND] Мөнгөн гүйлгээний S8 ангилал "${cashFlowCode}" олдсонгүй — кодуудыг list_segment_values {segment: 8}-ээр харна; вэбд Тохиргоо → Ерөнхий журнал → Сегментийн утга → S8 → «Стандарт утга татах»`
+      );
   }
 
   const documentNo = `CM-${data.date.replaceAll("-", "")}-${crypto
@@ -896,6 +917,18 @@ async function postCashDocumentsCore(ids: string[]) {
   return { posted, failures };
 }
 
+/** Эх журнал нь кассын НЭЭЛТИЙН журнал уу (SIM2-011/013). */
+async function isOpeningMirror(orgId: string, voucherId: string) {
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.id, voucherId),
+      eq(journalVouchers.organizationId, orgId)
+    ),
+    columns: { externalRef: true, description: true },
+  });
+  return !!voucher && cashOpeningAccountIdOf(voucher) !== null;
+}
+
 async function postCashDocumentCore(
   id: string,
   options?: { exchangeRate?: number }
@@ -918,6 +951,12 @@ async function postCashDocumentCore(
   // GL-derived draft: the ledger already has this entry. Confirming it just
   // adopts the source voucher — do NOT create a second one (double-count).
   if (document.sourceVoucherId) {
+    // SIM2-011: нээлтийн журналын «толин» баримт — нээлтийн үлдэгдэл дансны
+    // opening_balance-аар аль хэдийн тоологдсон тул батлавал ДАВХАРДАНА.
+    if (await isOpeningMirror(orgId, document.sourceVoucherId))
+      throw new Error(
+        "[OPENING_MIRROR] Энэ баримт нээлтийн журналын давхар бичлэг — нээлтийн үлдэгдэл кассын дансанд аль хэдийн тоологдсон. Батлахгүй, устгана уу (журнал хөндөгдөхгүй)"
+      );
     const patch: Partial<typeof cashDocuments.$inferInsert> = {
       status: "posted",
       postedAt: new Date(),
@@ -1404,11 +1443,17 @@ async function deleteCashDocumentCore(id: string) {
   await requireModuleAction("cash", "post");
   await assertPeriodOpen(orgId, document.date);
 
+  // SIM2-013: нээлтийн журналын толин баримтыг устгахад НЭЭЛТИЙН ЖУРНАЛ
+  // хөндөгдөхгүй — тэр нь дансны opening_balance-ийн GL тал.
+  const openingMirror =
+    !!document.sourceVoucherId &&
+    (await isOpeningMirror(orgId, document.sourceVoucherId));
   const voucherIds = [
     ...new Set(
-      [document.voucherId, document.reversalVoucherId, document.sourceVoucherId].filter(
-        (value): value is string => !!value
-      )
+      (openingMirror
+        ? [document.reversalVoucherId]
+        : [document.voucherId, document.reversalVoucherId, document.sourceVoucherId]
+      ).filter((value): value is string => !!value)
     ),
   ];
 

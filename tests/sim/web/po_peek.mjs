@@ -1,0 +1,10 @@
+import {open,shot,flush,BASE,setPeriod} from '../common/harness.mjs';
+const [,, no, ym]=process.argv;
+const {browser,page}=await open({height:2200});
+await setPeriod(page,ym);
+await page.goto(BASE+'/procurement/orders',{waitUntil:'networkidle'}); await page.waitForTimeout(1000);
+const row=page.locator('.ag-row').filter({hasText:no}).first(); await row.waitFor({timeout:20000}); await row.dblclick(); await page.waitForTimeout(1500);
+console.log('url',page.url());
+console.log('buttons',JSON.stringify((await page.getByRole('button').allInnerTexts()).filter(x=>x.trim())));
+console.log((await page.locator('main, body').first().innerText()).slice(0,2500).replace(/\n+/g,' | '));
+await shot(page,'po-detail'); flush(); await browser.close();

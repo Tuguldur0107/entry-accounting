@@ -146,6 +146,9 @@ export function OrganizationProfileForm({
   const [largeAmountAlert, setLargeAmountAlert] = useState(
     initial?.largeAmountAlertMnt != null ? String(Number(initial.largeAmountAlertMnt)) : ""
   );
+  const [controlGuardBlock, setControlGuardBlock] = useState(
+    initial?.controlAccountGuard === "block"
+  );
   const [aiPostLimit, setAiPostLimit] = useState(
     initial?.aiPostLimitMnt != null ? String(Number(initial.aiPostLimitMnt)) : ""
   );
@@ -185,6 +188,7 @@ export function OrganizationProfileForm({
           aiPostLimitMnt: aiPostLimit.trim()
             ? Number(aiPostLimit.replace(/[^\d.]/g, ""))
             : null,
+          controlAccountGuard: controlGuardBlock ? "block" : "warn",
         });
         if (saved.error !== undefined) {
           toast.error(saved.error);
@@ -464,6 +468,30 @@ export function OrganizationProfileForm({
             onChange={(e) => setAiPostLimit(e.target.value)}
             placeholder="10000000"
           />
+        </div>
+      </section>
+
+      {/* ── Хяналтын дансны хамгаалалт (SIM2-038) ── */}
+      <section className="ea-glass space-y-3 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">
+            Авлага, өглөгийн хяналтын данс
+          </h2>
+          <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
+            13110000, 31000001 зэрэг хяналтын дансанд гар журнал бичвэл
+            нэхэмжлэлийн үлдэгдэл GL-тэй зөрнө. Анхдагчаар анхааруулна;
+            асаавал хориглоно (нээлтийн журнал чөлөөтэй).
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Switch
+            id="control-guard"
+            checked={controlGuardBlock}
+            onCheckedChange={setControlGuardBlock}
+          />
+          <Label htmlFor="control-guard">
+            Хяналтын дансанд гар журнал бичихийг хориглох
+          </Label>
         </div>
       </section>
 

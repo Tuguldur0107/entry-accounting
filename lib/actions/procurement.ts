@@ -13,7 +13,7 @@
 // loadCostingAccountSettings / itemAccountsFor-оос.
 
 import { revalidatePath } from "next/cache";
-import { and, asc, eq, inArray, isNotNull, like, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, like, ne, notInArray, sql } from "drizzle-orm";
 
 import { actionError, type ActionResult, unwrapAction } from "@/lib/action-result";
 import { roundMoney } from "@/lib/arap/accounting";
@@ -1217,19 +1217,24 @@ export async function approvePurchaseOrder(input: {
 async function assertNoProcurementActivity(
   orgId: string,
   purchaseOrderId: string,
-  documentNo: string
+  documentNo: string,
+  options: { ignoreDraftReceipts?: boolean } = {}
 ) {
   const receipt = await db.query.goodsReceipts.findFirst({
     where: and(
       eq(goodsReceipts.organizationId, orgId),
       eq(goodsReceipts.purchaseOrderId, purchaseOrderId),
-      ne(goodsReceipts.status, "reversed")
+      options.ignoreDraftReceipts
+        ? notInArray(goodsReceipts.status, ["reversed", "draft"])
+        : ne(goodsReceipts.status, "reversed")
     ),
-    columns: { documentNo: true },
+    columns: { documentNo: true, status: true },
   });
   if (receipt)
     throw new Error(
-      `${documentNo}: ${receipt.documentNo} хүлээн авалттай тул үйлдэл хийх боломжгүй — эхлээд хүлээн авалтыг буцаана уу`
+      receipt.status === "draft"
+        ? `${documentNo}: ${receipt.documentNo} ноорог хүлээн авалттай — эхлээд ноорогийг устгана уу (Хангамж → Хүлээн авалт, эсвэл delete_goods_receipt)`
+        : `${documentNo}: ${receipt.documentNo} хүлээн авалттай тул үйлдэл хийх боломжгүй — эхлээд хүлээн авалтыг буцаана уу`
     );
   const invoice = await db.query.arApDocuments.findFirst({
     where: and(
@@ -1247,7 +1252,7 @@ async function assertNoProcurementActivity(
 
 async function cancelPurchaseOrderCore(input: {
   id: string;
-}): Promise<{ id: string }> {
+}): Promise<{ id: string; deletedReceipts: string[] }> {
   const { orgId, userId } = await requireModuleAction(
     PROCUREMENT_MODULE_KEY,
     "write"
@@ -1257,9 +1262,41 @@ async function cancelPurchaseOrderCore(input: {
     throw new Error("[PO_CLOSED] Хаагдсан захиалгыг цуцлах боломжгүй");
   if (order.status === "cancelled")
     throw new Error("Захиалга аль хэдийн цуцлагдсан");
-  await assertNoProcurementActivity(orgId, order.id, order.documentNo);
+  // Ноорог хүлээн авалт GL/бараанд нөлөөгүй — цуцлалт тэдгээрийг хамт устгана
+  // (SIM2-026: ноорог GR цуцлалтыг мухардалд оруулдаг байв). Баталгаажсан бол хориг.
+  await assertNoProcurementActivity(orgId, order.id, order.documentNo, {
+    ignoreDraftReceipts: true,
+  });
+  const draftReceipts = await db.query.goodsReceipts.findMany({
+    where: and(
+      eq(goodsReceipts.organizationId, orgId),
+      eq(goodsReceipts.purchaseOrderId, order.id),
+      eq(goodsReceipts.status, "draft")
+    ),
+    columns: { id: true, documentNo: true },
+  });
 
   await db.transaction(async (tx) => {
+    for (const draft of draftReceipts) {
+      await tx
+        .delete(documentAttachments)
+        .where(
+          and(
+            eq(documentAttachments.organizationId, orgId),
+            eq(documentAttachments.entityType, "goods_receipt"),
+            eq(documentAttachments.entityId, draft.id)
+          )
+        );
+      await tx
+        .delete(goodsReceipts)
+        .where(
+          and(
+            eq(goodsReceipts.id, draft.id),
+            eq(goodsReceipts.organizationId, orgId),
+            eq(goodsReceipts.status, "draft")
+          )
+        );
+    }
     const [claimed] = await tx
       .update(purchaseOrders)
       .set({ status: "cancelled" })
@@ -1279,19 +1316,19 @@ async function cancelPurchaseOrderCore(input: {
         action: "cancel",
         entityType: "purchase_order",
         entityId: order.id,
-        summary: `Захиалга цуцлагдав — ${order.documentNo}, ${order.date}`,
+        summary: `Захиалга цуцлагдав — ${order.documentNo}, ${order.date}${draftReceipts.length ? ` (ноорог хүлээн авалт устгагдав: ${draftReceipts.map((r) => r.documentNo).join(", ")})` : ""}`,
       },
       tx
     );
   });
 
   revalidateProcurement();
-  return { id: order.id };
+  return { id: order.id, deletedReceipts: draftReceipts.map((r) => r.documentNo) };
 }
 
 export async function cancelPurchaseOrder(input: {
   id: string;
-}): Promise<ActionResult<{ id: string }>> {
+}): Promise<ActionResult<{ id: string; deletedReceipts: string[] }>> {
   try {
     return await cancelPurchaseOrderCore(input);
   } catch (caught) {

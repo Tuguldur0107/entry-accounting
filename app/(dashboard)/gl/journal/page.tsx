@@ -6,6 +6,9 @@ import {
 } from "@/lib/db/schema";
 import { getActiveOrg } from "@/lib/auth";
 import { getPeriodSelection } from "@/lib/periods/selection";
+import { periodRange } from "@/lib/periods/period";
+
+const maxDate = (a: string, b: string) => (a > b ? a : b);
 import { eq, and } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { JournalList } from "@/components/gl/journal-list";
@@ -57,7 +60,9 @@ export default async function JournalPage({
         activeSegIds={activeSegIds}
         defaultSegments={defaultSegments}
         initialStart={start ?? period.from}
-        initialEnd={end ?? period.to}
+        // SIM2-040: журналын ЖАГСААЛТ сонгосон сарыг БҮТНЭЭР (өнөөдрөөр
+        // таслахгүй) — сарын эцсийн огноотой ноорог (цалин г.м.) харагдана.
+        initialEnd={end ?? maxDate(period.to, periodRange(period.periodCode).endDate)}
       />
     </>
   );

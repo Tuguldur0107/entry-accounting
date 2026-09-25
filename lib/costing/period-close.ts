@@ -223,13 +223,18 @@ export async function computePeriodCosting(
       const current = activeByMovement.get(movement.id);
 
       if (current?.status === "posted") {
-        if (current.valuationSource !== PROVISIONAL_VALUATION_SOURCE) {
-          // Аль хэдийн GL-д бичигдсэн (хуучин өгөгдөл) — түүхийг дарж
+        if (
+          current.valuationSource !== PROVISIONAL_VALUATION_SOURCE &&
+          current.entryType !== "issue_cogs"
+        ) {
+          // Аль хэдийн GL-д бичигдсэн (буцаалт/тохируулга) — түүхийг дарж
           // бичихгүй. Зөрүү нь тулгалтын тайланд ил харагдана.
           alreadyValued += 1;
           continue;
         }
-        // POS урьдчилсан COGS (docs/pos §3.7): posted бичилтийг ХӨНДӨХГҮЙ,
+        // POS урьдчилсан COGS (docs/pos §3.7) БА сарын дундуур батлагдсан
+        // энгийн issue_cogs (SIM2-024: дараа нь хуваарилагдсан нэмэлт зардал
+        // дунджийг өөрчилсөн): posted бичилтийг ХӨНДӨХГҮЙ,
         // эцсийн дунджаас зөрүүг ТЭМДЭГТЭЙ залруулгаар (cogs_true_up, ноорог)
         // нөхнө. Σ(posted урьдчилсан + posted залруулга) + энэ ноорог = эцсийн.
         // Идемпотент: ноорог залруулга дахин бодогдоно, posted-ыг давхардуулахгүй.

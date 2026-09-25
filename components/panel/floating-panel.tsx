@@ -40,6 +40,8 @@ interface Props {
   children: React.ReactNode;
   /** Хаахын өмнөх шалгалт (жишээ нь хадгалаагүй өөрчлөлт). */
   onRequestClose?: () => void;
+  /** Агуулгадаа тохирох анхны хэмжээ (богино форм — SIM2-031). */
+  compact?: { width: number; maxHeight: number };
 }
 
 export function FloatingPanel({
@@ -48,6 +50,7 @@ export function FloatingPanel({
   active,
   children,
   onRequestClose,
+  compact,
 }: Props) {
   const minimize = usePanelStore((state) => state.minimize);
   const toggleMaximize = usePanelStore((state) => state.toggleMaximize);
@@ -223,12 +226,20 @@ export function FloatingPanel({
                 width: panel.rect.width,
                 height: panel.rect.height,
               }
-            : {
-                top: 72 + offset,
-                right: 24 + offset,
-                width: "min(1180px, calc(100vw - 48px))",
-                bottom: 72,
-              }),
+            : compact
+              ? {
+                  // Богино форм: өндөр агуулгаараа, товчнууд формын доор.
+                  top: 72 + offset,
+                  right: 24 + offset,
+                  width: `min(${compact.width}px, calc(100vw - 48px))`,
+                  maxHeight: `min(${compact.maxHeight}px, calc(100vh - ${144 + offset}px))`,
+                }
+              : {
+                  top: 72 + offset,
+                  right: 24 + offset,
+                  width: "min(1180px, calc(100vw - 48px))",
+                  bottom: 72,
+                }),
         // Чирч байхад доторх текст сонгогдож, iframe-үүд заагчийг булаахгүй.
         userSelect: dragging ? "none" : undefined,
       }}

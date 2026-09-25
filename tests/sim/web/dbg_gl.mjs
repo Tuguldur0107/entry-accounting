@@ -1,0 +1,16 @@
+import {open,shot,flush,BASE} from '../common/harness.mjs';
+import {clickBtn} from './d_lib.mjs';
+const {browser,page}=await open({height:1400});
+await page.goto(BASE+'/cash/transactions',{waitUntil:'networkidle'}); await page.waitForTimeout(700);
+await clickBtn(page,'^Шинэ гүйлгээ$'); await page.waitForTimeout(700);
+const d=page.locator('[role=dialog]').last();
+const inp=d.locator('input[placeholder="GL данс..."]').first();
+const wrap=inp.locator('xpath=..'); const chev=wrap.locator('button, svg').last(); console.log('chev',await chev.count());
+await chev.click({force:true}).catch(e=>console.log('chev click fail')); await page.waitForTimeout(1000);
+await shot(page,'dbg-gl3');
+const txt=await page.evaluate(()=>{ const all=[...document.body.querySelectorAll('*')].filter(e=>e.children.length===0&&/Кассд байгаа|41000001|Эздийн өмч/.test(e.textContent||'')); return all.slice(0,5).map(e=>e.textContent.slice(0,60)); });
+console.log(JSON.stringify(txt));
+await inp.click(); await inp.fill(''); await page.keyboard.type('Эздийн',{delay:60}); await page.waitForTimeout(1200); await shot(page,'dbg-gl4');
+const txt2=await page.evaluate(()=>{ const all=[...document.body.querySelectorAll('*')].filter(e=>e.children.length===0&&/41000001|Эздийн өмч/.test(e.textContent||'')); return all.slice(0,5).map(e=>e.textContent.slice(0,60)); });
+console.log(JSON.stringify(txt2));
+flush(); await browser.close();

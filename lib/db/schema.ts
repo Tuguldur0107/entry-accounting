@@ -2015,6 +2015,12 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
   fxLossAccountNumber: text("fx_loss_account_number")
     .notNull()
     .default("87000003"),
+  /**
+   * Хүлээн авалттай НЭЭЛТТЭЙ захиалга сар хаалтад: "block" (OD-011 — хатуу
+   * хориг, анхдагч) | "warn" (SIM2-023 — анхааруулга; хожуу ирсэн зардал
+   * тухайн нээлттэй сард хуваарилагдана, түр данс балансад GRNI болж үлдэнэ).
+   */
+  openPoCloseMode: text("open_po_close_mode").notNull().default("block"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("costing_account_settings_org_id_ux").on(t.organizationId)]);
 
@@ -3483,6 +3489,9 @@ export const organizationProfile = pgTable("company_settings", {
   /** AI/MCP/REST шууд батлах дээд хязгаар (MNT) — null = default 10 сая ₮ (§9).
       Tool-оор өсгөхөд тааз (lib/ai/post-limit.ts); вэбээс админ чөлөөтэй. */
   aiPostLimitMnt: numeric("ai_post_limit_mnt", { precision: 18, scale: 2 }),
+  /** Хяналтын дансанд (АР/АП) гар журнал: "warn" (анхааруулна) | "block"
+      (хориглоно) — SIM2-038, lib/gl/control-accounts.ts. */
+  controlAccountGuard: text("control_account_guard").notNull().default("warn"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [uniqueIndex("company_settings_org_id_ux").on(t.organizationId)]);
 

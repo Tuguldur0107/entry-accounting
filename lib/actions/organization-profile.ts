@@ -63,6 +63,8 @@ export async function updateOrganizationProfile(data: {
   /** AI/MCP-ийн шууд батлах дээд хязгаар (MNT); null = default 10 сая ₮ (§9).
       Tool-оор өсгөх таазыг дуудагч (lib/ai/tools.ts) ӨМНӨӨ нь шалгана. */
   aiPostLimitMnt?: number | null;
+  /** Хяналтын дансанд гар журнал: warn | block (SIM2-038). */
+  controlAccountGuard?: "warn" | "block";
 }): Promise<ActionResult> {
   try {
     return await updateOrganizationProfileCore(data);
@@ -93,6 +95,7 @@ async function updateOrganizationProfileCore(data: {
   /** AI/MCP-ийн шууд батлах дээд хязгаар (MNT); null = default 10 сая ₮ (§9).
       Tool-оор өсгөх таазыг дуудагч (lib/ai/tools.ts) ӨМНӨӨ нь шалгана. */
   aiPostLimitMnt?: number | null;
+  controlAccountGuard?: "warn" | "block";
 }) {
   // Компанийн мэдээлэл = тохиргоо — admin+.
   const { orgId, userId } = await requireRole("admin");
@@ -160,6 +163,9 @@ async function updateOrganizationProfileCore(data: {
     ...(data.aiPostLimitMnt !== undefined && {
       aiPostLimitMnt:
         data.aiPostLimitMnt == null ? null : String(Math.round(data.aiPostLimitMnt)),
+    }),
+    ...(data.controlAccountGuard !== undefined && {
+      controlAccountGuard: data.controlAccountGuard === "block" ? "block" : "warn",
     }),
     updatedAt: new Date(),
   };

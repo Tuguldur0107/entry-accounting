@@ -1,0 +1,17 @@
+import {open,shot,flush,BASE,EMAIL,NAME,PASS,ORG} from '../common/harness.mjs';
+const {browser,ctx,page,stateFile}=await open({state:false});
+await page.goto(BASE+'/register',{waitUntil:'networkidle'});
+await shot(page,'00-register-form');
+const fields=await page.locator('input').evaluateAll(els=>els.map(e=>({name:e.name,ph:e.placeholder,type:e.type})));
+console.log('fields',JSON.stringify(fields));
+await page.getByPlaceholder('Овог нэр').fill(NAME);
+await page.getByPlaceholder('name@company.mn').fill(EMAIL);
+await page.getByPlaceholder('8+ тэмдэгт').fill(PASS);
+await page.getByRole('button',{name:/Бүртгүүлэх/}).click();
+await page.waitForURL(u=>!u.toString().includes('/register'),{timeout:30000}).catch(()=>{});
+await page.waitForLoadState('networkidle');
+console.log('URL',page.url());
+await shot(page,'01-after-register');
+const h1=await page.locator('h1').first().innerText().catch(()=>''); console.log('h1',h1);
+await ctx.storageState({path:stateFile});
+flush(); await browser.close();

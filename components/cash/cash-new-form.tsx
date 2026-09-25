@@ -492,6 +492,7 @@ export function CashNewForm({
                   {!form.counterpartyId && (
                     <Input
                       value={form.counterparty}
+                      aria-label="Харилцагчийн нэр (бүртгэлгүй)"
                       placeholder="Бүртгэлгүй бол нэрийг бичнэ"
                       onChange={(event) =>
                         setForm((current) => ({

@@ -19,9 +19,13 @@ import {
   fixedAssets,
   inventoryItems,
   inventoryMovements,
+  journalLines,
   journalVouchers,
+  organizations,
+  payrollRuns,
   posSales,
   posSettings,
+  vatSettings,
   warehouses,
 } from "@/lib/db/schema";
 import { countPaidUnfinalized } from "@/lib/qpay/store";
@@ -186,6 +190,59 @@ async function loadQpay(orgId: string): Promise<AttentionInput["qpay"]> {
   return { paidUnfinalized: count, oldestMinutes };
 }
 
+/**
+ * SIM2-045: сар бүрийн татварын үндэслэл — НӨАТ-ын дансанд батлагдсан бичилт
+ * бий эсэх, цалин бодогдсон эсэх; байгууллагын бүртгэлийн огноо. SQL count.
+ */
+async function loadTaxActivity(orgId: string, periods: string[]) {
+  const settings = await db.query.vatSettings.findFirst({
+    where: eq(vatSettings.organizationId, orgId),
+    columns: { outputVatAccountNumber: true, inputVatAccountNumber: true },
+  });
+  const vatAccounts = [
+    settings?.outputVatAccountNumber ?? "31410000",
+    settings?.inputVatAccountNumber ?? "13620000",
+  ];
+  const mainExpr = sql<string>`case when position('.' in ${journalLines.accountNumber}) > 0 then split_part(${journalLines.accountNumber}, '.', 3) else ${journalLines.accountNumber} end`;
+  const first = periodRange([...periods].sort()[0]).startDate;
+  const last = periodRange([...periods].sort().at(-1)!).endDate;
+  const [vatRows, payrollRows, org] = await Promise.all([
+    db
+      .select({ month: sql<string>`substr(${journalVouchers.date}, 1, 7)` })
+      .from(journalLines)
+      .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+      .where(
+        and(
+          eq(journalVouchers.organizationId, orgId),
+          eq(journalVouchers.status, "posted"),
+          gte(journalVouchers.date, first),
+          lte(journalVouchers.date, last),
+          inArray(mainExpr, vatAccounts)
+        )
+      )
+      .groupBy(sql`substr(${journalVouchers.date}, 1, 7)`),
+    db.query.payrollRuns.findMany({
+      where: and(eq(payrollRuns.organizationId, orgId), inArray(payrollRuns.periodMonth, periods)),
+      columns: { periodMonth: true },
+    }),
+    db.query.organizations.findFirst({
+      where: eq(organizations.id, orgId),
+      columns: { createdAt: true },
+    }),
+  ]);
+  const vatMonths = new Set(vatRows.map((row) => row.month));
+  const payrollMonths = new Set(payrollRows.map((row) => row.periodMonth));
+  const taxActivity: Record<string, { vat: boolean; payroll: boolean }> = {};
+  for (const period of periods)
+    taxActivity[period] = { vat: vatMonths.has(period), payroll: payrollMonths.has(period) };
+  return {
+    taxActivity,
+    orgCreatedAt: org?.createdAt
+      ? org.createdAt.toLocaleDateString("en-CA", { timeZone: "Asia/Ulaanbaatar" })
+      : null,
+  };
+}
+
 export async function loadAttentionInput(
   orgId: string,
   today: string
@@ -296,6 +353,7 @@ export async function loadAttentionInput(
 
   const license = deploymentLicenseStatus();
   const entitlements = await getEntitlements(orgId);
+  const { taxActivity, orgCreatedAt } = await loadTaxActivity(orgId, [prevCode, periodCode]);
   const endsAt = entitlements.trialEndsAt ?? entitlements.graceEndsAt;
 
   return {
@@ -315,6 +373,8 @@ export async function loadAttentionInput(
     preparedMarkers: markerRows
       .map((row) => row.externalRef)
       .filter((ref): ref is string => !!ref),
+    taxActivity,
+    orgCreatedAt,
     previousPeriod: {
       code: prevCode,
       status: statusOf(prevCode),

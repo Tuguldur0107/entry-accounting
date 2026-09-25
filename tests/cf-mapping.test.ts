@@ -323,8 +323,58 @@ test("ENT-047: нийлүүлэгч/татвар/цалингийн өглөги
   const mapped = buildMappedCashFlow(vouchers, FROM, TO, resolveCfLines([], accounts));
   assert.equal(mapped.totals.operating, -150000);
   assert.equal(mapped.totals.financing, -70000);
-  const payables = mapped.sections.operating.lines.find((l) => l.key === "op-payables")!;
-  assert.equal(payables.amount, -150000);
+  // SIM2-043: шууд арга — нийлүүлэгч / татвар / цалин тус тусдаа мөрөнд.
+  const amount = (key: string) => mapped.sections.operating.lines.find((l) => l.key === key)!.amount;
+  assert.equal(amount("op-goods"), -100000);
+  assert.equal(amount("op-tax"), -30000);
+  assert.equal(amount("op-payroll"), -20000);
+  assert.equal(amount("op-payables"), 0);
+});
+
+test("SIM2-043: АР төлбөр S8 1101 → «Борлуулалт», авлагын өөрчлөлт биш; кодгүй бол 131 данс мөн борлуулалт", () => {
+  const accounts = ["11000001", "13110000", "31000001", "51100000"].map((number) => ({ number }));
+  const withId = (id: string, v: ReturnType<typeof voucher>) => ({ ...v, id });
+  // C 2025-03: АР-ын төлбөр 70,833,612₮ (кассын баримт cashFlowCode=1101)
+  const vouchers = [
+    withId("v-ar", voucher("2026-07-10", [
+      [acct("11000001"), 70833612, 0],
+      [acct("13110000"), 0, 70833612],
+    ])),
+    // Нийлүүлэгчид төлсөн, S8 сегмент идэвхгүй — код зөвхөн кассын баримтад
+    withId("v-ap", voucher("2026-07-12", [
+      [acct("31000001"), 176554150.65, 0],
+      [acct("11000001"), 0, 176554150.65],
+    ])),
+    // Кодгүй АР төлбөр — харьцах данс 131 → борлуулалт
+    withId("v-nocode", voucher("2026-07-15", [
+      [acct("11000001"), 29449.98, 0],
+      [acct("13110000"), 0, 29449.98],
+    ])),
+  ] as unknown as Parameters<typeof buildMappedCashFlow>[0];
+  const codes = new Map([["v-ar", "1101"], ["v-ap", "1102"]]);
+  const mapped = buildMappedCashFlow(vouchers, FROM, TO, resolveCfLines([], accounts), codes);
+  const amount = (key: string) => mapped.sections.operating.lines.find((l) => l.key === key)!.amount;
+  assert.equal(Math.round(amount("op-sales") * 100) / 100, 70863061.98);
+  assert.equal(amount("op-working-capital"), 0);
+  assert.equal(amount("op-goods"), -176554150.65);
+  assert.equal(amount("op-payables"), 0);
+  assert.equal(mapped.uncodedVouchers, 1, "кодгүй гүйлгээ ИЛ тоологдоно");
+});
+
+test("SIM2-043: хэрэглэгчийн cfCodes стандарт кодыг дарна", () => {
+  const accounts = ["11000001", "13110000"].map((number) => ({ number }));
+  const vouchers = [
+    { ...voucher("2026-07-10", [
+      [acct("11000001"), 1000, 0],
+      [acct("13110000"), 0, 1000],
+    ]), id: "v1" },
+  ] as unknown as Parameters<typeof buildMappedCashFlow>[0];
+  const mapped = buildMappedCashFlow(
+    vouchers, FROM, TO,
+    resolveCfLines([mapping("fin-equity", { cfCodes: "1101" })], accounts),
+    new Map([["v1", "1101"]])
+  );
+  assert.equal(mapped.sections.financing.lines.find((l) => l.key === "fin-equity")!.amount, 1000);
 });
 
 test("ENT-047: ханшийн тэгшитгэл (FX-) урсгалд орохгүй, ханшийн нөлөө болж тусдаа", () => {

@@ -1,0 +1,9 @@
+# Симуляцийн ажиллагааны өгөгдөл ба НУУЦ — repo-д ОРОХГҮЙ.
+orgs/
+out/
+common/.pw
+**/.token*
+**/state*.json
+__pycache__/
+node_modules/
+*.xlsx

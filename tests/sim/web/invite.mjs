@@ -1,0 +1,10 @@
+import {open,shot,flush,BASE} from '../common/harness.mjs';
+import {fill,clickBtn,toast,dlgText} from './d_lib.mjs';
+const [,, email, role]=process.argv;
+const {browser,page}=await open({height:1200,slow:true});
+await page.goto(BASE+'/settings/permissions',{waitUntil:'networkidle'}); await page.waitForTimeout(800);
+await clickBtn(page,'^Гишүүн нэмэх$'); await page.waitForTimeout(700);
+const d=page.locator('[role=dialog]').last(); await fill(d,'И-мэйл',email); await fill(d,'Роль',role);
+await d.getByRole('button',{name:/^Нэмэх$/}).click(); console.log('toast',await toast(page)); await page.waitForTimeout(800);
+console.log((await page.locator('main').innerText()).replace(/\n+/g,' | ').slice(300,900));
+await shot(page,'invite'); flush(); await browser.close();

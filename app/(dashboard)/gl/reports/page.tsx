@@ -26,6 +26,7 @@ import { eq, and, gte, inArray, lte } from "drizzle-orm";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { cashNetsFromRows } from "@/lib/reports/balances";
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
+import { loadVoucherCfCodes } from "@/lib/reports/cf-codes";
 import { ReportsView, type ReportData } from "@/components/gl/reports-view";
 
 type SearchParams = Promise<{ start?: string; end?: string; report?: string }>;
@@ -105,7 +106,7 @@ export default async function ReportsPage({
     const rows = await loadBalanceRowsFast(orgId, from, to, accounts, [3]);
     data = { kind: reportType, rows };
   } else if (reportType === "cash-flow") {
-    const [vouchers, mainRows] = await Promise.all([
+    const [vouchers, mainRows, voucherCfCodes] = await Promise.all([
       db.query.journalVouchers.findMany({
         where: and(
           eq(journalVouchers.organizationId, orgId),
@@ -116,11 +117,13 @@ export default async function ReportsPage({
         with: { lines: true },
       }),
       loadBalanceRowsFast(orgId, from, to, accounts, [3]),
+      loadVoucherCfCodes(orgId),
     ]);
     const cashNets = cashNetsFromRows(mainRows);
     data = {
       kind: "cash-flow",
       vouchers,
+      voucherCfCodes,
       cashOpenNet: cashNets.openNet,
       cashCloseNet: cashNets.closeNet,
     };

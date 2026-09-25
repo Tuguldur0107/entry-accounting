@@ -1,0 +1,9 @@
+{
+  "name": "entry-sim2-harness",
+  "private": true,
+  "type": "module",
+  "description": "Сим 2.0 харness — tests/sim/README.md",
+  "dependencies": {
+    "playwright": "1.56.1"
+  }
+}
