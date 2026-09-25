@@ -126,6 +126,12 @@ def close(o, m):
             node(o.org, 'bulk_post.mjs', '/cash/transactions', m, f'cash-close-{m}')
         post_drafts_web(o, m)
         ok, t = o.call('close_period', {'code': m}, f'{m}:close')
+    if not ok and 'өмнөх тайлант үе нээлттэй' in t:
+        # Дараалсан хаалт: нээлтийн баримтууд (cut-off-оос өмнөх огноотой АР/АП,
+        # нээлтийн журнал) байгаа тул өмнөх саруудыг эхнээс нь хаана.
+        for k in range(12, 0, -1):
+            o.call('close_period', {'code': add_months(m, -k)}, f'{m}:close-prev')
+        ok, t = o.call('close_period', {'code': m}, f'{m}:close')
     if ok:
         o.s['months_done'].append(m)
     return ok, t
