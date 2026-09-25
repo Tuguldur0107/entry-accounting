@@ -135,7 +135,16 @@ post_opening_arap('C', CUT)
 # Нээлтийн барааны өртөг (SIM2-007 / ENT-003 багц импорт хойшлогдсон): 2024-12-ийн
 # «үнэ хүлээж буй» орлогод нэгж өртгийг вэбээс бөглөж, сарын өртөг тооцож батална.
 import json
-json.dump({code: uc for code, wh, q, uc in st}, open(os.path.join(ROOT, 'orgs', 'C', 'costmap.json'), 'w'))
+# Түлхүүр = хөдөлгөөний ДУГААР: нэг бараа агуулах бүрд (ижил тоотой ч) өөр нэгж өртөгтэй байж болно.
+import re
+ucs = {(code, wh): uc for code, wh, q, uc in st}
+ok, lst = o.call('list_inventory_movements', {'from': CUT, 'to': CUT, 'movementType': 'receipt', 'limit': 500}, 'open:costmap')
+cmap = {}
+for no, code, wh in re.findall(r'(INV-\d{8}-[0-9A-F]+) · орлого · (\S+) × [\d.]+ · (\S+) ·', lst):
+    if (code, wh) in ucs:
+        cmap[no] = ucs[(code, wh)]
+assert len(cmap) == len(st), f'нээлтийн орлого {len(st)}, дугаартай {len(cmap)}'
+json.dump(cmap, open(os.path.join(ROOT, 'orgs', 'C', 'costmap.json'), 'w'))
 r = subprocess.run(['node', os.path.join(ROOT, 'web', 'costing_fill.mjs'), CUT[:7], 'open-cost'], capture_output=True, text=True, env=dict(os.environ, SIM_ORG='C'))
 print('[web] costing_fill\n' + (r.stdout + r.stderr)[-1500:], flush=True)
 o.call('run_monthly_costing', {'period': CUT[:7]}, 'open:costing')
