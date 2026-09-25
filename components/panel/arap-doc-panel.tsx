@@ -1275,7 +1275,7 @@ function ArapDocReadOnly({
           </div>
           <div className="space-y-1.5">
             {payments.map((payment) =>
-              payment.kind === "offset" || payment.kind === "credit" ? (
+              payment.kind !== "cash" ? (
                 // Кассгүй хаалт — АР↔АП суутган тооцоо: нээх кассын баримт
                 // байхгүй тул мөр нь мэдээлэл + Буцаах товч.
                 <div
@@ -1298,7 +1298,8 @@ function ArapDocReadOnly({
                   <span className="shrink-0 font-mono text-xs font-semibold text-[var(--ea-text-1)]">
                     {fmtMnt(payment.baseAmount)}
                   </span>
-                  {/* Кредит баримтын тооцоо нь баримтыг буцаахад хамт арилна. */}
+                  {/* Кредит баримтын тооцоо нь баримтыг буцаахад хамт арилна; хасалтыг
+                      доорх «Найдваргүй авлага» хэсгээс буцаана. */}
                   {payment.voucherId && payment.kind === "offset" && (
                     <button
                       type="button"
@@ -1415,6 +1416,7 @@ function ArapDocReadOnly({
         {isAr && (
           <Button
             variant="outline"
+            nativeButton={false}
             render={
               <a
                 href={`/api/arap/${document.id}/pdf`}

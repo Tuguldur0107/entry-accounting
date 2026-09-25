@@ -117,6 +117,8 @@ test("ENT-065: ECL нөөц (ноорог, дахин ажиллуулахад �
   );
   const second = ok(await asOrg(() => runEclProvision({ asOf: "2026-08-31" })), "ECL 2");
   assert.equal(second.replacedDrafts, 1, "өмнөх ноорог солигдоно");
+  assert.equal(second.documentNo, first.documentNo, "ноорог дугаараа хадгална (цоорхойгүй)");
+  assert.equal(second.voucherId, first.voucherId);
   assert.deepEqual(second.plan.deferredTax, { ratePct: 10, requiredAsset: 102_000, currentAsset: 0, delta: 102_000 });
   const drafts = await db.query.journalVouchers.findMany({
     where: and(eq(journalVouchers.organizationId, orgId), like(journalVouchers.externalRef, "ecl-provision:%")),

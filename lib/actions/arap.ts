@@ -259,8 +259,9 @@ export type ArapDocPanelData = {
     baseAmount: number;
     status: string;
     /** "cash" — кассын баримт; "offset" — АР↔АП суутган тооцоо. */
-    /** cash — кассын баримт; offset — суутган тооцоо; credit — кредит/дебит баримтын тооцоо (ENT-029). */
-    kind: "cash" | "offset" | "credit";
+    /** cash — кассын баримт; offset — суутган тооцоо; credit — кредит/дебит баримтын тооцоо (ENT-029);
+     *  write_off — найдваргүй авлагын хасалт (ENT-065, буцаалт нь хасалтын хэсгээр). */
+    kind: "cash" | "offset" | "credit" | "write_off";
     /** offset үед — буцаахад хэрэглэх GL воучерийн ID. */
     voucherId: string | null;
   }[];
@@ -362,6 +363,21 @@ export async function getArapDocPanelData(
       : []
   );
 
+  // Найдваргүй авлагын хасалтын журнал (ENT-065) — суутгал биш.
+  const writeOffVoucherIds = new Set(
+    offsetVoucherIds.length > 0
+      ? (
+          await db.query.arapWriteOffs.findMany({
+            where: and(
+              eq(arapWriteOffs.organizationId, orgId),
+              inArray(arapWriteOffs.voucherId, offsetVoucherIds)
+            ),
+            columns: { voucherId: true },
+          })
+        ).map((row) => row.voucherId)
+      : []
+  );
+
   if (documentId && !document) return { ok: false, code: "not-found" };
 
   return {
@@ -394,13 +410,19 @@ export async function getArapDocPanelData(
         })),
         ...offsetRows.map((row) => ({
           id: row.id,
-          documentNo: creditVoucherIds.has(row.voucherId)
-            ? `Кредит/дебит баримтын тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`
-            : `Суутган тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`,
+          documentNo: row.voucherId && writeOffVoucherIds.has(row.voucherId)
+            ? "Найдваргүй авлагын хасалт"
+            : creditVoucherIds.has(row.voucherId)
+              ? `Кредит/дебит баримтын тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`
+              : `Суутган тооцоо ↔ ${siblingByVoucher.get(row.voucherId) || "?"}`,
           date: row.settlementDate,
           baseAmount: Number(row.baseAmount ?? row.amount),
           status: "posted",
-          kind: creditVoucherIds.has(row.voucherId) ? ("credit" as const) : ("offset" as const),
+          kind: row.voucherId && writeOffVoucherIds.has(row.voucherId)
+            ? ("write_off" as const)
+            : creditVoucherIds.has(row.voucherId)
+              ? ("credit" as const)
+              : ("offset" as const),
           voucherId: row.voucherId,
         })),
       ].sort((a, b) => a.date.localeCompare(b.date)),
