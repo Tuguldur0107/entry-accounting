@@ -25,7 +25,7 @@ for code, name in P.WAREHOUSES:
 curs = sorted({x.get('currency', 'MNT') for x in P.CASH} | {s.get('currency', 'MNT') for s in P.SUPPLIERS} | {x.get('currency', 'MNT') for x in P.CUSTOMERS})
 curs = [x for x in curs if x != 'MNT']
 if curs:
-    call('sync_exchange_rates', {'from': P.CUTOFF[:8] + '01', 'to': '2026-09-30', 'currencies': curs})
+    call('sync_exchange_rates', {'from': P.CUTOFF[:8] + '01', 'to': __import__('datetime').date.today().isoformat(), 'currencies': curs})
     for cu in curs:
         call('get_exchange_rate', {'currency': cu, 'date': P.CUTOFF})
 for ca in P.CASH:
