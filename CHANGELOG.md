@@ -16,6 +16,8 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   fork-д эх сурвалж байхгүй тул юу ч ачаалагдахгүй. Эх сурвалж бүрэн биш үед
   (token-гүй, татаж чадаагүй, хагас архив) seed DB-ээс ЮУ Ч УСТГАХГҮЙ. Хөгжүүлэгч
   `../entry-knowledge` clone хийнэ; CLAUDE.md-ийн лавлагаанууд тийш заана.
+  Production-ийг Railway service `knowledge-sync` (entry-knowledge repo, token-гүй,
+  push бүрд) бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env тавихгүй.
 
 ### Removed
 

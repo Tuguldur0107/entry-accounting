@@ -92,6 +92,12 @@ checksum ижил тул production-ийн сан шилжилтэд хөндө�
 эх сурвалж бүрэн биш (token-гүй, татаж чадаагүй, хагас архив) үед seed DB-ээс
 ЮУ Ч УСТГАХГҮЙ. 4-р алхам (dedicated sync) нээлттэй хэвээр.
 
+**Шинэчлэл (мөн өдөр):** production-ийн ачаалалт token-оос Railway service
+**`knowledge-sync`** руу шилжсэн — эх нь `entry-knowledge` repo (Railway-ийн
+GitHub холболт, хугацаа дуусахгүй), push бүрд `sync/seed.mjs` ажиллаж гарна,
+алдаанд Crashed → Railway мэдэгдэл. `entry-accounting`-д `KNOWLEDGE_REPO*` env
+тавихгүй (нэг л бичигч). Parser нь хоёр repo-д ИЖИЛ хуулбар.
+
 
 D7 нь «хавтас байхгүй бол алгас» гэдэг; одоогоор `knowledge/` core repo-д
 хэвээр тул **fork харилцагч seed ажиллуулбал агуулга ачаалагдана**. Бүрэн
