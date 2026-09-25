@@ -332,11 +332,24 @@ tests/ai-logging-isolation.test.ts   tenant тусгаарлалт, polymorphic,
 
 ---
 
-## 11. Хараахан ХИЙГЭЭГҮЙ (санаатайгаар)
+## 11. Хуримтлалын хяналт — `/api/health.aiLog`
+
+Бүртгэл deploy-ийн дараа бодитоор хуримтлагдаж буй эсэхийг `/api/health`-ийн
+`aiLog` блок харуулна (`aiLoggingHealthStats`, service.ts-ийн scope-гүй ЦОРЫН
+ГАНЦ функц): `total`, `last30Days`, `organizations`, `accepted` / `modified` /
+`rejected`, `posted`, `trainable` (§6-ийн гурван нөхцөл), `invalidated`,
+`lastAt`. Health нэвтрэлтгүй тул **зөвхөн нэгтгэл тоо** — байгууллагын ID,
+payload, санал, баримтын холбоос ХЭЗЭЭ Ч гарахгүй (`tests/ai-logging-isolation`
+шалгана). Хүснэгт хараахан үүсээгүй бол `null`.
+
+v1.6.0-оор энэ бүртгэл fork харилцагчдад (dedicated) ч хүрсэн — өгөгдөл
+харилцагчийн ӨӨРИЙН DB-д `tenant_only`-оор үлддэг тул Entry рүү юу ч
+урсахгүй; тоолуурыг харилцагч бүрийн `/api/health`-ээс харна.
+
+## 12. Хараахан ХИЙГЭЭГҮЙ (санаатайгаар)
 
 - ML загвар, сургалт, retrain job, background worker
 - Бүртгэлийг харах UI хуудас (өгөгдөл хуримтлагдсаны дараа)
 - Хадгалалтын хугацаа / цэвэрлэгээ (эзлэхүүн харагдсаны дараа тогтооно)
 - `industry` / `global` scope руу өгөгдөл ил өргөх урсгал — одоогоор
   бүх мөр `tenant_only`
-- SmartGPS болон бусад fork руу нэвтрүүлэх — схем тогтворжсоны дараа

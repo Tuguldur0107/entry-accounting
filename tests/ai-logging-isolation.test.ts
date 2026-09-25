@@ -29,6 +29,7 @@ import {
 import { logAuditEvent } from "../lib/audit";
 import { isTrainingEligible } from "../lib/ai-logging/resolution";
 import {
+  aiLoggingHealthStats,
   aiSuggestionStats,
   findOutcomesForDocument,
   listAiSuggestions,
@@ -212,6 +213,17 @@ test("AI бүртгэл — тусгаарлалт, polymorphic холбоос, 
       const statsA = await aiSuggestionStats(a);
       assert.equal(statsA.total, 3);
       assert.equal(statsA.accepted, 3);
+    });
+
+    await t.test("health тоолуур: зөвхөн нэгтгэл тоо, байгууллагын ID гарахгүй", async () => {
+      const health = await aiLoggingHealthStats();
+      assert.ok(health, "хүснэгт байгаа үед null биш");
+      assert.ok(health.total >= 3, "А-гийн 3 санал тоологдоно");
+      assert.ok(health.organizations >= 1);
+      assert.ok(health.accepted >= 3);
+      const serialized = JSON.stringify(health);
+      assert.doesNotMatch(serialized, new RegExp(a.orgId), "org ID ил гарахгүй");
+      assert.doesNotMatch(serialized, /Болор Трейд/, "payload ил гарахгүй");
     });
 
     await t.test("Б байгууллага А-гийн саналд үр дүн БИЧИЖ ЧАДАХГҮЙ", async () => {
