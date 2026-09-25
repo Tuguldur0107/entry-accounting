@@ -11,6 +11,12 @@ export type CashAccountView = {
   openingDate?: string | null;
   /** Валютын дансны гараар өгсөн нээлтийн ханш (ENT-011). */
   openingRate?: number | null;
+  // QPay төлбөр хүлээн авах данс (docs/deployment/qpay.md §2b) — банкны дансанд.
+  bankCode?: string | null;
+  iban?: string | null;
+  accountHolder?: string | null;
+  qpayPayout?: boolean;
+  qpayDefault?: boolean;
   isActive: boolean;
   balance: number;
 };

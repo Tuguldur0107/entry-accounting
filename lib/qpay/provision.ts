@@ -1,13 +1,82 @@
 // QPay мерчант АВТОМАТ бүртгэлийн оролт — ЦЭВЭР (DB-гүй, client-safe), тесттэй.
 // docs/deployment/qpay.md §2b, dashboard docs/API.md «Partner».
 //
-// Entry-ийн компанийн мэдээлэл (company_settings) + байгууллагын эзэн →
+// Entry-ийн компанийн мэдээлэл (company_settings) + КАССЫН МОДУЛИЙН банкны данс
+// («QPay төлбөр хүлээн авах» тэмдэглэсэн cash_accounts) + байгууллагын эзэн →
 // dashboard `POST /api/partner/merchants`-ийн body. Дутууг НЭРЛЭНЭ (монголоор),
 // ЗОХИОХГҮЙ: MCC, хот/дүүрэг, банкны код, регистр — хэрэглэгч бөглөнө.
 // Регистрийн хэлбэрээс төрөл (company / person) шийдэгдэнэ.
 
-import type { CompanyBankAccount } from "@/lib/db/schema";
 import { QPAY_MCC_CODES, guessQpayBankCode, qpayBankName } from "./reference";
+
+/**
+ * QPay мерчантын данс — ЦЭВЭР оролт (cash_accounts-аас `payoutAccountsFromCashAccounts`
+ * бүрдүүлнэ; хуучин company_settings.bankAccounts-ийн мөртэй бүтцээрээ ижил).
+ */
+export interface QpayPayoutAccount {
+  bankName: string;
+  accountNo: string;
+  accountName: string;
+  /** Банкны 6 оронтой код (QPay/банк хоорондын) — sync-д ЗААВАЛ. */
+  bankCode?: string | null;
+  iban?: string | null;
+  /** QPay үндсэн данс — нэг л мөр (салбар данс сонгоогүй үед энэ). */
+  isDefault?: boolean;
+}
+
+/** cash_accounts-ийн QPay-д хамаатай багана (DB мөрийн дэд олонлог — client-safe). */
+export interface CashAccountForQpay {
+  id: string;
+  name: string;
+  accountType: string;
+  bankName: string | null;
+  bankCode: string | null;
+  accountNumber: string | null;
+  accountHolder: string | null;
+  iban: string | null;
+  currency: string;
+  qpayPayout: boolean;
+  qpayDefault: boolean;
+  isActive: boolean;
+}
+
+/**
+ * Кассын модулийн банкны данснаас QPay мерчантын дансны жагсаалт — «QPay
+ * төлбөр хүлээн авах» тэмдэглэсэн, ИДЭВХТЭЙ, банкны, MNT данс л. Эзэмшигч
+ * хоосон бол `holderFallback` (компанийн нэр). Дугааргүй/валютын данс
+ * жагсаалтад ОРОХГҮЙ, `problems`-д нэрлэгдэнэ (код зохиохгүй).
+ */
+export function payoutAccountsFromCashAccounts(
+  rows: CashAccountForQpay[],
+  holderFallback: string
+): { accounts: QpayPayoutAccount[]; problems: string[] } {
+  const problems: string[] = [];
+  const accounts: QpayPayoutAccount[] = [];
+  const flagged = rows.filter((r) => r.qpayPayout && r.isActive && r.accountType === "bank");
+  let defaultSeen = false;
+  for (const r of flagged) {
+    const accountNo = (r.accountNumber ?? "").trim();
+    if (!accountNo) {
+      problems.push(`Данс «${r.name}»: дансны дугаар (Касс → Данс)`);
+      continue;
+    }
+    if ((r.currency || "MNT").toUpperCase() !== "MNT") {
+      problems.push(`Данс «${r.name}»: QPay зөвхөн MNT данс руу төлбөр хүлээн авна`);
+      continue;
+    }
+    const isDefault = r.qpayDefault && !defaultSeen;
+    if (isDefault) defaultSeen = true;
+    accounts.push({
+      bankName: (r.bankName ?? "").trim(),
+      accountNo,
+      accountName: (r.accountHolder ?? "").trim() || holderFallback.trim(),
+      bankCode: (r.bankCode ?? "").trim() || null,
+      iban: (r.iban ?? "").trim() || null,
+      isDefault,
+    });
+  }
+  return { accounts, problems };
+}
 
 export interface QpayProvisionCompany {
   name: string;
@@ -18,7 +87,8 @@ export interface QpayProvisionCompany {
   address: string | null;
   phone: string | null;
   email: string | null;
-  bankAccounts: CompanyBankAccount[];
+  /** QPay төлбөр орох данснууд — `payoutAccountsFromCashAccounts` (кассын модулиас). */
+  bankAccounts: QpayPayoutAccount[];
 }
 
 export interface QpayProvisionOwner {
@@ -95,16 +165,17 @@ export function qpayMerchantTypeOf(registerNo: string | null | undefined): "comp
 }
 
 /**
- * Компанийн данснуудыг Partner API-ийн хэлбэрт — банкны код ЗААВАЛ (нэрээс
+ * QPay данснуудыг Partner API-ийн хэлбэрт — банкны код ЗААВАЛ (нэрээс
  * таагдвал хэрэглэнэ, эс бөгөөс асуудал), default нэг (тэмдэглээгүй бол эхнийх).
  */
 export function mapQpayBankAccounts(
-  accounts: CompanyBankAccount[]
+  accounts: QpayPayoutAccount[]
 ): { accounts: PartnerBankAccount[]; problems: string[] } {
   const problems: string[] = [];
   const out: PartnerBankAccount[] = [];
   const filled = accounts.filter((a) => (a.accountNo ?? "").trim());
-  if (filled.length === 0) problems.push("Банкны данс — компанийн мэдээлэлд дор хаяж нэг данс (QPay төлбөр орох)");
+  if (filled.length === 0)
+    problems.push("Банкны данс — Касс → Данс дээр «QPay төлбөр хүлээн авах» тэмдэглэсэн банкны данс дор хаяж нэг");
   const defaultIdx = filled.findIndex((a) => a.isDefault);
   filled.forEach((a, idx) => {
     const code = (a.bankCode ?? "").trim() || guessQpayBankCode(a.bankName);
@@ -198,8 +269,8 @@ export function buildQpayProvisionPlan(input: QpayProvisionInput): QpayProvision
 }
 
 /** Хоёр дансны жагсаалт QPay-ийн хувьд ижил үү (sync хэрэгтэй эсэх — хадгалахад). */
-export function bankAccountsEqualForQpay(a: CompanyBankAccount[], b: CompanyBankAccount[]): boolean {
-  const key = (rows: CompanyBankAccount[]) =>
+export function bankAccountsEqualForQpay(a: QpayPayoutAccount[], b: QpayPayoutAccount[]): boolean {
+  const key = (rows: QpayPayoutAccount[]) =>
     JSON.stringify(
       rows
         .filter((r) => (r.accountNo ?? "").trim())

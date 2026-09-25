@@ -80,13 +80,25 @@ function normalizeUrls(value: unknown): DashboardInvoice["urls"] {
 
 export async function createDashboardInvoice(
   config: QpayClientConfig,
-  input: { senderInvoiceNo: string; amount: number; description: string; callbackUrl: string | null }
+  input: {
+    senderInvoiceNo: string;
+    amount: number;
+    description: string;
+    callbackUrl: string | null;
+    /**
+     * Салбарын (агуулахын) QPay данс — мерчантын sync-лэсэн дансны дугаар;
+     * dashboard энэ нэхэмжлэхийн төлбөрийг ТЭР данс руу чиглүүлнэ. null =
+     * мерчантын үндсэн данс. Бүртгэлгүй дугаар → dashboard 400 (данс зохиохгүй).
+     */
+    payoutAccountNumber?: string | null;
+  }
 ): Promise<DashboardInvoice> {
   const data = await call<Record<string, unknown>>(config, "POST", "/api/v1/invoices", {
     sender_invoice_no: input.senderInvoiceNo,
     amount: input.amount,
     invoice_description: input.description,
     ...(input.callbackUrl ? { callback_url: input.callbackUrl } : {}),
+    ...(input.payoutAccountNumber ? { payout_account_number: input.payoutAccountNumber } : {}),
   });
   const invoiceId = String(data.invoice_id ?? data.id ?? "").trim();
   if (!invoiceId) throw new QpayError(QPAY_ERRORS.dashboard, "Нэхэмжлэхийн id ирсэнгүй");

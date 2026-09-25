@@ -30,7 +30,8 @@ import type {
 import { fmtMnt } from "@/lib/reports/balances";
 import { toast } from "sonner";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, SwitchField } from "@/components/ui/form-field";
+import { QPAY_BANK_CODES, guessQpayBankCode } from "@/lib/qpay/reference";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CurrencySelect } from "@/components/ui/currency-select";
 import { useNewParam } from "@/components/ui/use-new-param";
@@ -41,11 +42,23 @@ interface Props {
   glAccounts: CashGlAccountOption[];
 }
 
+/** Банк сонгогч: QPay банкны код (lib/qpay/reference.ts) + «Бусад» (нэрийг гараар). */
+const OTHER_BANK = "other";
+const BANK_OPTIONS = [
+  ...QPAY_BANK_CODES.map((b) => ({ value: b.code, label: b.name })),
+  { value: OTHER_BANK, label: "Бусад банк (нэрийг гараар)" },
+];
+
 const emptyForm = () => ({
   name: "",
   accountType: "bank" as "cash" | "bank",
   bankName: "",
+  bankCode: "",
   accountNumber: "",
+  accountHolder: "",
+  iban: "",
+  qpayPayout: false,
+  qpayDefault: false,
   currency: "MNT",
   glAccountNumber: "",
   openingBalance: "0",
@@ -72,9 +85,14 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
     (id: string, isActive: boolean) => {
       startTransition(async () => {
         try {
-          await toggleCashAccount(id, isActive);
+          const result = await toggleCashAccount(id, isActive);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
           router.refresh();
           toast.success(isActive ? "Данс идэвхжлээ" : "Данс идэвхгүй боллоо");
+          if (result.warning) toast.warning(result.warning);
         } catch (caught) {
           toast.error(
             caught instanceof Error ? caught.message : "Төлөв сольж чадсангүй"
@@ -126,6 +144,15 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         field: "currency",
         width: 90,
         cellClass: "font-mono text-xs",
+      },
+      {
+        // QPay төлбөр хүлээн авах данс (docs/deployment/qpay.md §2b) — ★ үндсэн.
+        headerName: "QPay",
+        field: "qpayPayout",
+        width: 100,
+        valueGetter: (params) =>
+          params.data?.qpayPayout ? (params.data.qpayDefault ? "★ Үндсэн" : "Тийм") : "",
+        cellClass: "text-xs",
       },
       {
         headerName: "GL данс",
@@ -191,11 +218,17 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
 
   function showEditDialog(account: CashAccountView) {
     setEditing(account);
+    const bankCode = account.bankCode ?? guessQpayBankCode(account.bankName) ?? "";
     setForm({
       name: account.name,
       accountType: account.accountType === "cash" ? "cash" : "bank",
       bankName: account.bankName ?? "",
+      bankCode: bankCode || (account.bankName ? OTHER_BANK : ""),
       accountNumber: account.accountNumber ?? "",
+      accountHolder: account.accountHolder ?? "",
+      iban: account.iban ?? "",
+      qpayPayout: account.qpayPayout ?? false,
+      qpayDefault: account.qpayDefault ?? false,
       currency: account.currency,
       glAccountNumber: account.glAccountNumber,
       openingBalance: String(account.openingBalance),
@@ -213,7 +246,12 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         name: form.name,
         accountType: form.accountType,
         bankName: form.bankName,
+        bankCode: form.bankCode && form.bankCode !== OTHER_BANK ? form.bankCode : null,
         accountNumber: form.accountNumber,
+        accountHolder: form.accountHolder,
+        iban: form.iban,
+        qpayPayout: form.qpayPayout,
+        qpayDefault: form.qpayDefault,
         currency: form.currency,
         glAccountNumber: form.glAccountNumber,
         openingBalance: Number(form.openingBalance.replaceAll(",", "")),
@@ -233,6 +271,8 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
       setOpen(false);
       router.refresh();
       toast.success(editing ? "Данс хадгалагдлаа" : "Данс үүслээ");
+      // QPay мерчантын данс sync амжилтгүй (best effort) — хадгалалт хэвээр.
+      if (result.warning) toast.warning(result.warning);
     });
   }
 
@@ -256,6 +296,7 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
         setOpen(false);
         router.refresh();
         toast.success("Данс устгагдлаа");
+        if (result.warning) toast.warning(result.warning);
       });
     })();
   }
@@ -360,32 +401,109 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
             </FormField>
 
             {form.accountType === "bank" && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField label="Банк">
-                  <Input
-                    value={form.bankName}
-                    placeholder="Банкны нэр"
-                    onChange={(event) =>
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FormField label="Банк">
+                    <SearchableSelect
+                      value={form.bankCode}
+                      options={BANK_OPTIONS}
+                      hideValue
+                      placeholder="Банк сонгох"
+                      onChange={(code) =>
+                        setForm((current) => ({
+                          ...current,
+                          bankCode: code,
+                          bankName:
+                            code === OTHER_BANK
+                              ? current.bankName
+                              : (QPAY_BANK_CODES.find((b) => b.code === code)?.name ?? current.bankName),
+                        }))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Дансны дугаар">
+                    <Input
+                      value={form.accountNumber}
+                      placeholder="0000000000"
+                      className="font-mono"
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          accountNumber: event.target.value,
+                        }))
+                      }
+                    />
+                  </FormField>
+                </div>
+                {form.bankCode === OTHER_BANK && (
+                  <FormField label="Банкны нэр" hint="Жагсаалтад байхгүй банк — QPay төлбөр хүлээн авах боломжгүй">
+                    <Input
+                      value={form.bankName}
+                      placeholder="Банкны нэр"
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          bankName: event.target.value,
+                        }))
+                      }
+                    />
+                  </FormField>
+                )}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FormField label="Данс эзэмшигч" hint="Хоосон бол компанийн нэр">
+                    <Input
+                      value={form.accountHolder}
+                      placeholder="ж: Монгол Трейд ХХК"
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          accountHolder: event.target.value,
+                        }))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="IBAN" hint="Сонголтоор">
+                    <Input
+                      value={form.iban}
+                      placeholder="MN…"
+                      className="font-mono"
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          iban: event.target.value.toUpperCase(),
+                        }))
+                      }
+                    />
+                  </FormField>
+                </div>
+                <div className="grid gap-2 rounded-md border border-[var(--ea-border)] p-3">
+                  <SwitchField
+                    label="QPay төлбөр хүлээн авах"
+                    hint={
+                      form.currency !== "MNT"
+                        ? "QPay зөвхөн MNT данс руу төлбөр хүлээн авна"
+                        : "Энэ данс QPay мерчантын дансанд бүртгэгдэж, салбар (агуулах) бүр өөрийн дансаа сонгоно. Банк жагсаалтаас, дугаар заавал."
+                    }
+                    checked={form.qpayPayout}
+                    disabled={form.currency !== "MNT" || form.bankCode === OTHER_BANK || !form.bankCode}
+                    onChange={(checked) =>
                       setForm((current) => ({
                         ...current,
-                        bankName: event.target.value,
+                        qpayPayout: checked,
+                        qpayDefault: checked ? current.qpayDefault : false,
                       }))
                     }
                   />
-                </FormField>
-                <FormField label="Дансны дугаар">
-                  <Input
-                    value={form.accountNumber}
-                    placeholder="0000000000"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        accountNumber: event.target.value,
-                      }))
-                    }
-                  />
-                </FormField>
-              </div>
+                  {form.qpayPayout && (
+                    <SwitchField
+                      label="Байгууллагын үндсэн QPay данс"
+                      hint="Салбарт данс сонгоогүй үед энэ данс руу. Нэг л данс үндсэн байна — бусдаас тэмдэг автоматаар авагдана."
+                      checked={form.qpayDefault}
+                      onChange={(checked) => setForm((current) => ({ ...current, qpayDefault: checked }))}
+                    />
+                  )}
+                </div>
+              </>
             )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

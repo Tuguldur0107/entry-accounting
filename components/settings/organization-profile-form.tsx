@@ -367,9 +367,9 @@ export function OrganizationProfileForm({
               Банкны данс
             </h2>
             <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
-              Нэхэмжлэх дээр төлбөр хүлээн авах данс болж гарна. QPay-д бүртгэгдсэн бол
-              энд хадгалахад QPay мерчантын данс автоматаар шинэчлэгдэнэ («Үндсэн» = QPay
-              төлбөр орох данс).
+              Нэхэмжлэх дээр төлбөр хүлээн авах данс болж гарна. QPay төлбөр орох данс энд
+              БИШ — Касс → Данс дээр «QPay төлбөр хүлээн авах» гэж тэмдэглэнэ (салбар бүр
+              Бараа → Агуулах дээр дансаа сонгоно).
             </p>
           </div>
           <Button
@@ -378,7 +378,7 @@ export function OrganizationProfileForm({
             onClick={() =>
               setBankAccounts((prev) => [
                 ...prev,
-                { bankName: "", accountNo: "", accountName: "", bankCode: "", iban: "", isDefault: prev.length === 0 },
+                { bankName: "", accountNo: "", accountName: "", bankCode: "", iban: "" },
               ])
             }
           >
@@ -395,20 +395,8 @@ export function OrganizationProfileForm({
           {bankAccounts.map((account, index) => (
             <div
               key={index}
-              className="grid grid-cols-[auto_1.2fr_1fr_1fr_1fr_auto] items-end gap-2"
+              className="grid grid-cols-[1.2fr_1fr_1fr_1fr_auto] items-end gap-2"
             >
-              <div className="space-y-1 pb-2">
-                {index === 0 && <Label title="QPay төлбөр орох үндсэн данс">Үндсэн</Label>}
-                <input
-                  type="radio"
-                  name="company-bank-default"
-                  aria-label="QPay төлбөр орох үндсэн данс"
-                  checked={!!account.isDefault}
-                  onChange={() =>
-                    setBankAccounts((prev) => prev.map((a, i) => ({ ...a, isDefault: i === index })))
-                  }
-                />
-              </div>
               <div className="space-y-1">
                 {index === 0 && <Label>Банк</Label>}
                 <SearchableSelect
@@ -480,14 +468,7 @@ export function OrganizationProfileForm({
                 label="Данс устгах"
                 size="sm"
                 variant="danger"
-                onClick={() =>
-                  setBankAccounts((prev) => {
-                    const next = prev.filter((_, i) => i !== index);
-                    return next.length > 0 && !next.some((a) => a.isDefault)
-                      ? next.map((a, i) => ({ ...a, isDefault: i === 0 }))
-                      : next;
-                  })
-                }
+                onClick={() => setBankAccounts((prev) => prev.filter((_, i) => i !== index))}
               />
             </div>
           ))}

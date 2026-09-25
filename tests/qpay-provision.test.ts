@@ -6,7 +6,9 @@ import {
   buildQpayProvisionPlan,
   mapQpayBankAccounts,
   normalizeQpayPhone,
+  payoutAccountsFromCashAccounts,
   qpayMerchantTypeOf,
+  type CashAccountForQpay,
 } from "../lib/qpay/provision";
 import { guessQpayBankCode } from "../lib/qpay/reference";
 
@@ -113,4 +115,64 @@ test("утасны normalize + дансны тэнцэл (sync хэрэгтэй 
   assert.equal(bankAccountsEqualForQpay(a, [a[0]]), false);
   // Хоосон дугаартай мөр тооцогдохгүй
   assert.equal(bankAccountsEqualForQpay(a, [...a, { bankName: "", accountNo: "", accountName: "" }]), true);
+});
+
+const cashRow = (over: Partial<CashAccountForQpay>): CashAccountForQpay => ({
+  id: "a",
+  name: "Голомт MNT",
+  accountType: "bank",
+  bankName: "Голомт банк",
+  bankCode: "150000",
+  accountNumber: "1105001234",
+  accountHolder: null,
+  iban: null,
+  currency: "MNT",
+  qpayPayout: true,
+  qpayDefault: false,
+  isActive: true,
+  ...over,
+});
+
+test("кассын данс → QPay данс: зөвхөн тэмдэглэсэн/идэвхтэй/банкны; эзэмшигч хоосон бол компанийн нэр; үндсэн нэг л", () => {
+  const out = payoutAccountsFromCashAccounts(
+    [
+      cashRow({ id: "1", qpayDefault: true }),
+      cashRow({ id: "2", name: "Хаан", bankCode: "050000", accountNumber: "5001234567", accountHolder: "Салбар 2", qpayDefault: true }),
+      cashRow({ id: "3", name: "Тэмдэглээгүй", qpayPayout: false }),
+      cashRow({ id: "4", name: "Идэвхгүй", isActive: false }),
+      cashRow({ id: "5", name: "Касс", accountType: "cash" }),
+    ],
+    "Хос Хас ХХК"
+  );
+  assert.equal(out.problems.length, 0);
+  assert.deepEqual(
+    out.accounts.map((a) => [a.accountNo, a.accountName, a.bankCode, a.isDefault]),
+    [
+      ["1105001234", "Хос Хас ХХК", "150000", true],
+      ["5001234567", "Салбар 2", "050000", false],
+    ]
+  );
+  // mapQpayBankAccounts-тай нийлж Partner API-ийн хэлбэрт
+  const mapped = mapQpayBankAccounts(out.accounts);
+  assert.equal(mapped.problems.length, 0);
+  assert.deepEqual(mapped.accounts.map((a) => a.is_default), [true, false]);
+  assert.equal(mapped.accounts[0].bank_name, "Голомт банк");
+});
+
+test("кассын данс: дугааргүй / валютын данс жагсаалтад ОРОХГҮЙ, асуудал нэрлэгдэнэ; тэмдэглэсэн данс байхгүй → mapQpayBankAccounts асуудал", () => {
+  const out = payoutAccountsFromCashAccounts(
+    [cashRow({ id: "1", name: "Дугааргүй", accountNumber: " " }), cashRow({ id: "2", name: "USD данс", currency: "USD" })],
+    "X"
+  );
+  assert.equal(out.accounts.length, 0);
+  assert.equal(out.problems.length, 2);
+  assert.ok(out.problems[0].includes("Дугааргүй"));
+  assert.ok(out.problems[1].includes("MNT"));
+  const mapped = mapQpayBankAccounts(out.accounts);
+  assert.ok(mapped.problems[0].includes("QPay төлбөр хүлээн авах"));
+  // Банкны код байхгүй бол нэрээс таагдана; танигдахгүй бол асуудал
+  const noCode = payoutAccountsFromCashAccounts([cashRow({ bankCode: null, bankName: "Хаан банк" })], "X");
+  assert.equal(mapQpayBankAccounts(noCode.accounts).accounts[0]?.account_bank_code, "050000");
+  const unknown = payoutAccountsFromCashAccounts([cashRow({ bankCode: null, bankName: "Гадаад банк" })], "X");
+  assert.equal(mapQpayBankAccounts(unknown.accounts).problems.length, 1);
 });

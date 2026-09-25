@@ -1112,6 +1112,19 @@ export const AI_TOOLS: AiToolDef[] = [
         accountType: { type: "string", enum: ["cash", "bank"] },
         bankName: { type: "string", description: "Банкны нэр (банкны дансанд)" },
         accountNumber: { type: "string", description: "Банкны дансны дугаар (сонголтоор)" },
+        bankCode: {
+          type: "string",
+          description:
+            "Банкны 6 оронтой код (QPay/банк хоорондын: Хаан 050000, Голомт 150000, ХХБ 040000, Хас 320000, Төрийн 190000…) — qpayPayout-д ЗААВАЛ",
+        },
+        accountHolder: { type: "string", description: "Данс эзэмшигчийн нэр (сонголтоор — хоосон бол компанийн нэр)" },
+        iban: { type: "string", description: "IBAN (сонголтоор)" },
+        qpayPayout: {
+          type: "boolean",
+          description:
+            "«QPay төлбөр хүлээн авах» — данс QPay мерчантын дансанд sync хийгдэнэ (банкны, MNT, дугаартай, банкны кодтой); салбар (агуулах) бүр өөрийн дансаа сонгоно",
+        },
+        qpayDefault: { type: "boolean", description: "Байгууллагын QPay үндсэн данс (нэг л) — салбарт данс сонгоогүй үед" },
         currency: { type: "string", description: "Валют (default MNT)" },
         glAccount: { type: "string", description: "Холбогдох GL данс (8 оронтой)" },
         openingBalance: {
@@ -5833,6 +5846,11 @@ async function runCreateCashAccount(
     accountType: "cash" | "bank";
     bankName?: string;
     accountNumber?: string;
+    bankCode?: string;
+    accountHolder?: string;
+    iban?: string;
+    qpayPayout?: boolean;
+    qpayDefault?: boolean;
     currency?: string;
     glAccount: string;
     openingBalance?: number;
@@ -5841,12 +5859,17 @@ async function runCreateCashAccount(
   }
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
-  unwrapAction(
+  const result = unwrapAction(
     await createCashAccount({
       name: input.name,
       accountType: input.accountType,
       bankName: input.bankName,
       accountNumber: input.accountNumber,
+      bankCode: input.bankCode,
+      accountHolder: input.accountHolder,
+      iban: input.iban,
+      qpayPayout: input.qpayPayout,
+      qpayDefault: input.qpayDefault,
       currency: input.currency?.trim().toUpperCase() || "MNT",
       glAccountNumber: resolveAccount(input.glAccount, ctx).main,
       openingBalance: input.openingBalance,
@@ -5854,7 +5877,11 @@ async function runCreateCashAccount(
       openingRate: input.openingRate,
     })
   );
-  return { resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}` };
+  return {
+    resultText: `Мөнгөн данс бүртгэгдлээ: ${input.name}${input.qpayPayout ? " (QPay төлбөр хүлээн авна)" : ""}${
+      result.warning ? `. Анхаар: ${result.warning}` : ""
+    }`,
+  };
 }
 
 async function findAssetByCode(orgId: string, assetCode: string) {

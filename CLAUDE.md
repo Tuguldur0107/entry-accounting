@@ -1026,13 +1026,30 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   `lib/qpay/reference.ts` CLIENT-SAFE лавлах (MCC 85, банкны код, хот, УБ дүүрэг —
   ЭХ dashboard `src/lib/*`; аймгийн сум `getQpayDistricts` action); `lib/qpay/partner.ts`
   SERVER (`provisionQpayMerchantForOrg` — нууц connect callback-тай ИЖИЛ замаар
-  шифртэй, `syncQpayBankAccountsForOrg` best effort — `updateOrganizationProfile`
-  данс өөрчлөгдвөл `{ warning }` буцаана, хадгалалт унахгүй). Partner key
-  `qpayPartnerKey()` store.ts-д (partner ↔ store импортын тойрог үүсгэхгүй).
-  `company_settings.mcc_code/city_code/district_code`, `bank_accounts` jsonb
-  `bankCode/iban/isDefault` (хуучин мөрд undefined), `pos_settings.qpay_provisioned_at`
-  (null = consent/гар зам → данс sync ҮГҮЙ). Код ЗОХИОХГҮЙ — dashboard 400/502-ийн
-  шалтгаан `[QPAY_PROVISION_REJECTED]`-ээр хэрэглэгчид ил
+  шифртэй, `syncQpayBankAccountsForOrg` best effort — `{ warning }` буцаана,
+  хадгалалт унахгүй). Partner key `qpayPartnerKey()` store.ts-д (partner ↔ store
+  импортын тойрог үүсгэхгүй). `company_settings.mcc_code/city_code/district_code`,
+  `pos_settings.qpay_provisioned_at` (null = consent/гар зам → данс sync ҮГҮЙ).
+  Код ЗОХИОХГҮЙ — dashboard 400/502-ийн шалтгаан `[QPAY_PROVISION_REJECTED]`-ээр
+  хэрэглэгчид ил
+- **QPay данс = КАССЫН МОДУЛИЙН банкны данс, салбар = агуулах** (2026-09-25;
+  `company_settings.bank_accounts` ЗӨВХӨН нэхэмжлэхийн толгойд — тэнд QPay sync
+  ҮГҮЙ, `isDefault` хуучин мөрд л): `cash_accounts.bank_code` (жагсаалтаас —
+  `qpayBankName`), `iban`, `account_holder` (хоосон бол компанийн нэр),
+  `qpay_payout` («QPay төлбөр хүлээн авах» — MNT банкны данс, дугаартай),
+  `qpay_default` (нэг л — `afterQpayAccountChange` бусдаас авна, үндсэнгүй бол
+  эхний тэмдэглэсэн). ЦЭВЭР `payoutAccountsFromCashAccounts` (тесттэй), DB
+  `loadQpayPayoutAccounts`; create/update/toggle/delete бүр QPay-д хамаатай
+  өөрчлөлтөд sync (toast анхааруулга). `warehouses.qpay_cash_account_id` (FK set
+  null; тэмдэглэсэн идэвхтэй банкны данс л — `resolveWarehouseQpayAccount`) →
+  `createQpayIntent` ээлжийн агуулахаас `resolveWarehousePayoutAccount` →
+  `createDashboardInvoice({ payoutAccountNumber })` → dashboard `payout_account_number`
+  (sync-лэсэн данс л, тэр нэхэмжлэхэд default; бүртгэлгүй → 400). Сонгоогүй
+  агуулах = үндсэн данс; сонгосон данс тэмдэг/идэвхгүй болсон бол QR үүсгэхэд
+  ИЛ алдаа (fallback ҮГҮЙ). GL/settlement өөрчлөлтгүй (нэг түр данс). preDeploy
+  нэг удаа: provisioned байгууллагын company_settings данстай дугаараар таарах
+  кассын дансыг тэмдэглэнэ. AI `create_cash_account` `bankCode/accountHolder/
+  iban/qpayPayout/qpayDefault`
 - **Нэг товчны холболт** (`lib/qpay/connect.ts` SERVER, тесттэй; `startQpayConnect`;
   `app/api/pos/qpay/connect/callback`): state нь authenticated шифр (org, user,
   apiUrl, 15 мин) — өөр байгууллагын нэрээр зохиох боломжгүй; code нэг удаагийн
@@ -1585,9 +1602,12 @@ connect-guide` — AI нягтлантай НЭГ), ② бичилтийн го�
 түлхүүр `ai` ХЭВЭЭР (эрхийн бүртгэл хөндөгдөхгүй), нэр «AI холболт»; багцын
 `ai` боломж ХАСАГДСАН (`mcp` + `knowledge` л). Топбарын AI товч, хөвөгч чат
 панель, `actionMarker` байхгүй; `AiAction` төрөл (`action-markers.ts`) tool
-үр дүн + AI бүртгэлд үлдсэн. АР/АП-ийн eBarimt/PDF → ноорог таних
-(`app/api/arap/ebarimt`) ЗӨВХӨН серверийн `ANTHROPIC_API_KEY`-ээр (Entry-ийн
-өөрийн түлхүүр). Чат буцааж нэмэхийг ХОРИГЛОНО — MCP л.
+үр дүн + AI бүртгэлд үлдсэн. АР/АП-ийн «eBarimt импорт» (PDF/зураг → сервер
+Anthropic vision → ноорог, П24) мөн хасагдсан — хэрэглэгч баримтын зургаа
+ChatGPT / Claude-даа өгөхөд `create_arap_invoice`-оор ижил ноорог үүснэ.
+**Entry-ийн сервер AI-ийн API дуудахгүй, `ANTHROPIC_API_KEY` env байхгүй,
+`@anthropic-ai/sdk` хамаарал үгүй.** Чат / серверийн AI буцааж нэмэхийг
+ХОРИГЛОНО — MCP л.
 
 MCP, REST API хоёулаа НЭГ tool давхаргаар (lib/ai/tools.ts, 149 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:

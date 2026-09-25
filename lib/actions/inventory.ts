@@ -7,6 +7,7 @@ import { requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   arApDocumentLines,
+  cashAccounts,
   costEntries,
   inventoryCategories,
   inventoryCategoryLevels,
@@ -555,7 +556,31 @@ async function deleteInventoryItemCore(id: string) {
   return { code: item.code, name: item.name };
 }
 
-export async function createWarehouse(data: { code: string; name: string }): Promise<ActionResult> {
+type WarehouseInput = {
+  name: string;
+  /**
+   * Салбарын QPay төлбөр орох данс — cash_accounts (банк, «QPay төлбөр хүлээн
+   * авах»). null/хоосон = байгууллагын QPay үндсэн данс; undefined = хөндөхгүй.
+   */
+  qpayCashAccountId?: string | null;
+};
+
+/** Сонгосон данс энэ байгууллагынх, банкны, QPay тэмдэглэсэн, идэвхтэй эсэх — эс бөгөөс ШИДНЭ. */
+async function resolveWarehouseQpayAccount(orgId: string, value: string | null | undefined): Promise<string | null | undefined> {
+  if (value === undefined) return undefined;
+  const id = (value ?? "").trim();
+  if (!id) return null;
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.id, id), eq(cashAccounts.organizationId, orgId)),
+    columns: { name: true, accountType: true, qpayPayout: true, isActive: true },
+  });
+  if (!account) throw new Error("QPay данс олдсонгүй");
+  if (account.accountType !== "bank" || !account.qpayPayout || !account.isActive)
+    throw new Error(`«${account.name}» данс идэвхтэй банкны данс бөгөөд «QPay төлбөр хүлээн авах» тэмдэглэгдсэн байх ёстой (Касс → Данс)`);
+  return id;
+}
+
+export async function createWarehouse(data: { code: string } & WarehouseInput): Promise<ActionResult> {
   try {
     return await createWarehouseCore(data);
   } catch (caught) {
@@ -563,7 +588,7 @@ export async function createWarehouse(data: { code: string; name: string }): Pro
   }
 }
 
-async function createWarehouseCore(data: { code: string; name: string }) {
+async function createWarehouseCore(data: { code: string } & WarehouseInput) {
   const { orgId, userId } = await requireModuleAction("inv", "write");
   const code = data.code.trim();
   const name = data.name.trim();
@@ -574,19 +599,21 @@ async function createWarehouseCore(data: { code: string; name: string }) {
     columns: { id: true },
   });
   if (duplicate) throw new Error(`"${code}" кодтой агуулах бүртгэгдсэн байна`);
-  await db.insert(warehouses).values({ userId, organizationId: orgId, code, name });
+  const qpayCashAccountId = (await resolveWarehouseQpayAccount(orgId, data.qpayCashAccountId)) ?? null;
+  await db.insert(warehouses).values({ userId, organizationId: orgId, code, name, qpayCashAccountId });
   revalidateInventory();
   return {};
 }
 
-export async function updateWarehouse(id: string, data: { name: string }): Promise<ActionResult> {
+export async function updateWarehouse(id: string, data: WarehouseInput): Promise<ActionResult> {
   try {
     const { orgId } = await requireModuleAction("inv", "write");
     const name = data.name.trim();
     if (!name) throw new Error("Агуулахын нэр оруулна уу");
+    const qpayCashAccountId = await resolveWarehouseQpayAccount(orgId, data.qpayCashAccountId);
     const updated = await db
       .update(warehouses)
-      .set({ name })
+      .set({ name, ...(qpayCashAccountId === undefined ? {} : { qpayCashAccountId }) })
       .where(and(eq(warehouses.id, id), eq(warehouses.organizationId, orgId)))
       .returning({ id: warehouses.id });
     if (updated.length === 0) throw new Error("Агуулах олдсонгүй");
