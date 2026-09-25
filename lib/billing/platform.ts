@@ -18,7 +18,13 @@ import {
 import { monthlyAmountMnt, parsePlanPriceInput, resolveSeatPrice } from "@/lib/billing/pricing";
 import { loadPlanPricesAt } from "@/lib/billing/pricing-store";
 import { db } from "@/lib/db";
-import { memberships, organizationSubscriptions, organizations, users } from "@/lib/db/schema";
+import {
+  knowledgeReads,
+  memberships,
+  organizationSubscriptions,
+  organizations,
+  users,
+} from "@/lib/db/schema";
 
 export type PlatformSubscriptionRow = {
   organizationId: string;
@@ -46,6 +52,9 @@ export type PlatformSubscriptionRow = {
   note: string | null;
   hasRow: boolean;
   updatedAt: string | null;
+  /** «AI нягтлан»: мэдлэгийн сангийн уншилт сүүлийн 30 хоногт (0 = ашиглаагүй). */
+  knowledgeReads30d: number;
+  lastKnowledgeReadAt: string | null;
 };
 
 export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionRow[]> {
@@ -60,6 +69,19 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
     .orderBy(asc(organizations.createdAt));
   // Үнэ нь платформын хэмжээнд нэг — давталтын ГАДНА нэг л удаа уншина.
   const planPrices = await loadPlanPricesAt();
+  // «AI нягтлан»-ы хэрэглээ — бүх байгууллагад НЭГ бүлэглэсэн асуулга.
+  const knowledgeUse = new Map(
+    (
+      await db
+        .select({
+          organizationId: knowledgeReads.organizationId,
+          n: sql<number>`count(*) filter (where ${knowledgeReads.createdAt} >= now() - interval '30 days')::int`,
+          last: sql<string | null>`max(${knowledgeReads.createdAt})`,
+        })
+        .from(knowledgeReads)
+        .groupBy(knowledgeReads.organizationId)
+    ).map((row) => [row.organizationId, row])
+  );
   const rows: PlatformSubscriptionRow[] = [];
   for (const org of orgs) {
     const [ent, seatsUsed, [members], owner, sub] = await Promise.all([
@@ -78,6 +100,7 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
       }),
     ]);
     const pricePerSeatMnt = resolveSeatPrice(ent.planId, sub?.pricePerSeatMnt, planPrices);
+    const knowledge = knowledgeUse.get(org.id);
     rows.push({
       organizationId: org.id,
       orgName: org.name,
@@ -101,6 +124,8 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
       note: sub?.note ?? null,
       hasRow: !!sub,
       updatedAt: sub?.updatedAt?.toISOString() ?? null,
+      knowledgeReads30d: knowledge?.n ?? 0,
+      lastKnowledgeReadAt: knowledge?.last ? new Date(knowledge.last).toISOString() : null,
     });
   }
   return rows;

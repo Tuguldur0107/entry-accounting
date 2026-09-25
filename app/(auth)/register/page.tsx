@@ -4,8 +4,16 @@
 // action (`registerUser`) дотор байгаа тул формыг тойрч дуудсан ч хүчинтэй.
 import Link from "next/link";
 
+import { eq } from "drizzle-orm";
+
 import { EAMark, EAWordmark } from "@/components/auth/brand";
+import { SkillsSignedIn } from "@/components/skills/skills-signed-in";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { auth, getActiveOrg, signOut } from "@/lib/auth";
+import { featureUsable, hasFeature } from "@/lib/billing/entitlements";
+import { getEntitlements } from "@/lib/billing/load";
+import { db } from "@/lib/db";
+import { organizations } from "@/lib/db/schema";
 import { deploymentMode } from "@/lib/deployment-mode";
 import { registrationMode } from "@/lib/registration";
 
@@ -20,6 +28,12 @@ export default async function RegisterPage({
   const mode = await registrationMode();
   // «AI нягтлан» (skills) захиалга — зөвхөн SaaS (entry.mn landing-ийн CTA).
   const skills = plan === "skills" && deploymentMode() === "saas" && !invite;
+  // Нэвтэрсэн хэрэглэгч «AI нягтлан» линкийг нээвэл (proxy үсэргэдэггүй —
+  // lib/auth-redirect.ts) самбар руу чимээгүй оруулахгүй, сонголтоо харуулна.
+  if (plan === "skills" && !invite) {
+    const session = await auth();
+    if (session?.user?.id) return <SignedInSkills email={session.user.email ?? null} />;
+  }
   if (mode === "open" || invite) return <RegisterForm plan={skills ? "skills" : undefined} />;
 
   return (
@@ -74,5 +88,39 @@ export default async function RegisterPage({
         <a href="mailto:support@entry.mn" style={{ color: "var(--ea-text-3)" }}>Тусламж</a>
       </footer>
     </div>
+  );
+}
+
+async function SignedInSkills({ email }: { email: string | null }) {
+  // Ghost session (JWT хүчинтэй ч гишүүнчлэлгүй) үед getActiveOrg шиднэ —
+  // тэгвэл зөвхөн «гараад шинээр бүртгүүлэх» сонголт үлдэнэ.
+  const active = await getActiveOrg().catch(() => null);
+  let orgName: string | null = null;
+  let hasKnowledge = false;
+  let guideHref = "/";
+  if (active) {
+    const [ent, org] = await Promise.all([
+      getEntitlements(active.orgId),
+      db.query.organizations.findFirst({
+        where: eq(organizations.id, active.orgId),
+        columns: { name: true },
+      }),
+    ]);
+    orgName = org?.name ?? null;
+    hasKnowledge = featureUsable(ent, "knowledge");
+    // skills багцын нүүр = холбох заавар; нягтлан бодох багцад AI тохиргооны MCP таб.
+    guideHref = hasFeature(ent, "accounting") ? "/ai/settings?tab=mcp" : "/";
+  }
+  return (
+    <SkillsSignedIn
+      email={email}
+      orgName={orgName}
+      hasKnowledge={hasKnowledge}
+      guideHref={guideHref}
+      signOutAction={async () => {
+        "use server";
+        await signOut({ redirectTo: "/register?plan=skills" });
+      }}
+    />
   );
 }

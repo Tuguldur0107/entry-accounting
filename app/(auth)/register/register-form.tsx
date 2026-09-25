@@ -123,7 +123,13 @@ export default function RegisterForm({ plan }: { plan?: 'skills' } = {}) {
 
               <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13, color: 'var(--ea-text-3)' }}>
                 Бүртгэлтэй юу?{' '}
-                <Link href="/login" style={{ fontWeight: 500, color: 'var(--ea-primary)' }}>Нэвтрэх</Link>
+                {/* skills: нэвтэрсний дараа энэ линк рүү буцаж «багцад багтсан / шинэ бүртгэл» сонголтоо харна */}
+                <Link
+                  href={skills ? `/login?callbackUrl=${encodeURIComponent('/register?plan=skills')}` : '/login'}
+                  style={{ fontWeight: 500, color: 'var(--ea-primary)' }}
+                >
+                  Нэвтрэх
+                </Link>
               </div>
             </form>
           </div>

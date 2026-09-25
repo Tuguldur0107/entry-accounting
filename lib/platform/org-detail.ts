@@ -21,7 +21,9 @@ import {
   fixedAssets,
   inventoryItems,
   journalVouchers,
+  knowledgeReads,
   moduleConfigs,
+  oauthTokens,
   organizationProfile,
   organizations,
   posSettings,
@@ -83,6 +85,19 @@ export type PlatformOrgDetail = {
   };
   /** Сүүлийн үйл ажиллагаа — аудитын хамгийн сүүлийн мөрийн мөч. */
   lastActivityAt: string | null;
+  /**
+   * «AI нягтлан» (мэдлэгийн сан + MCP) хэрэглээ — Console-д худалдан авсан
+   * хэрэглэгч бодитоор ашиглаж байгаа эсэхийг хянах. Зөвхөн ТОО/цаг —
+   * асуултын агуулга, token хэзээ ч буцаахгүй.
+   */
+  aiAccountant: {
+    /** Мэдлэгийн сангийн хэсэг уншсан тоо — сүүлийн 30 хоног. */
+    knowledgeReads30d: number;
+    lastKnowledgeReadAt: string | null;
+    /** ChatGPT / Claude-ийн OAuth холболт (connector) — хүчинтэй эсэхээс үл хамааран. */
+    oauthConnections: number;
+    lastConnectorUseAt: string | null;
+  };
   supportSessions: SupportSessionView[];
 };
 
@@ -125,6 +140,8 @@ export async function loadPlatformOrgDetail(
     closedRows,
     lastAudit,
     supportSessions,
+    [knowledgeUse],
+    [connectors],
   ] = await Promise.all([
     db.query.organizationProfile.findFirst({
       where: eq(organizationProfile.organizationId, organizationId),
@@ -167,6 +184,20 @@ export async function loadPlatformOrgDetail(
       .orderBy(desc(auditEvents.createdAt))
       .limit(1),
     listSupportSessions({ organizationId, limit: 10 }),
+    db
+      .select({
+        n: sql<number>`count(*) filter (where ${knowledgeReads.createdAt} >= now() - interval '30 days')::int`,
+        last: sql<string | null>`max(${knowledgeReads.createdAt})`,
+      })
+      .from(knowledgeReads)
+      .where(eq(knowledgeReads.organizationId, organizationId)),
+    db
+      .select({
+        n: sql<number>`count(*)::int`,
+        last: sql<string | null>`max(${oauthTokens.lastUsedAt})`,
+      })
+      .from(oauthTokens)
+      .where(eq(oauthTokens.organizationId, organizationId)),
   ]);
 
   return {
@@ -221,6 +252,19 @@ export async function loadPlatformOrgDetail(
       lastClosedPeriod: closedRows[0]?.code ?? null,
     },
     lastActivityAt: lastAudit[0]?.at?.toISOString() ?? null,
+    aiAccountant: {
+      knowledgeReads30d: knowledgeUse?.n ?? 0,
+      lastKnowledgeReadAt: isoOrNull(knowledgeUse?.last),
+      oauthConnections: connectors?.n ?? 0,
+      lastConnectorUseAt: isoOrNull(connectors?.last),
+    },
     supportSessions,
   };
+}
+
+/** Raw `sql` max(timestamp) нь драйвераас string эсвэл Date ирдэг — ISO болгоно. */
+function isoOrNull(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }

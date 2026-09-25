@@ -1738,7 +1738,13 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
   SaaS-ийн нягтлан бодох багц бүрд ҮНЭГҮЙ; dedicated-д OFF; систем
   ашиглахгүй хэрэглэгч **«AI нягтлан» (`skills`)** — 29,000₮/сар, trial 24 цаг,
   `/register?plan=skills`. Захиалгын бүтээгдэхүүн тул read-only үед хаагдана
-  (`featureUsable`). Кодод `if plan === …` ХОРИОТОЙ (billing дүрэм хэвээр)
+  (`featureUsable`). Кодод `if plan === …` ХОРИОТОЙ (billing дүрэм хэвээр).
+  НЭВТЭРСЭН хэрэглэгч энэ линкийг нээвэл proxy самбар руу ҮСЭРГЭХГҮЙ
+  (`lib/auth-redirect.ts`, тесттэй) — бүртгэлийн хуудас «багцад аль хэдийн
+  багтсан → холбох заавар» / «гараад шинэ бүртгэл» сонголт харуулна
+  (`components/skills/skills-signed-in.tsx`). Console хэрэглээг
+  `GET /api/platform/subscriptions` (`knowledgeReads30d`) ба байгууллагын
+  дэлгэрэнгүйн `aiAccountant` (уншилт, OAuth холболт, сүүлд ашигласан) — ТОО л
 - **`skills` багцад нягтлан бодох систем (`accounting` боломж) ХААЛТТАЙ** — хямд
   багцаар бүх системийг үнэгүй ашиглах зам болохоос сэргийлнэ: `requireModuleAction`
   (уншилт ч, `assertModuleEntitlements`), `ModuleGuard`, AI/MCP tool
