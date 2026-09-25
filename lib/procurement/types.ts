@@ -48,8 +48,12 @@ export type PurchaseOrderView = {
   receivedPct: number;
   invoicedPct: number;
   approvedAt: string | null;
+  /** Хаах товч дарсан цаг (аудит) — ХАРУУЛАХ огноо биш. */
   closedAt: string | null;
+  /** Хаалтын журналын огноо (YYYY-MM-DD) — «Хаагдсан» огноо. */
+  closeDate: string | null;
   closeVoucherId: string | null;
+  closeVoucherNo: string | null;
   /** Дутуу хаалтын шалтгаан (ENT-064); null = бүрэн хаалт. */
   shortCloseReason: string | null;
   attachmentCount: number;

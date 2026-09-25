@@ -1,7 +1,7 @@
 // ECL / найдваргүй авлагын DB давхарга (ENT-065) — "use server" БИШ: action,
 // AI tool, тест шууд дуудна. Эрхийн шалгалт БАЙХГҮЙ — дуудагч шалгана.
 
-import { and, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, like, lte, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -14,6 +14,9 @@ import {
 import {
   DEFAULT_ECL_ACCOUNTS,
   DEFAULT_ECL_MATRIX,
+  ECL_DEFERRED_TAX_OBJECT,
+  ECL_PROVISION_REF_PREFIX,
+  planEclProvision,
   type EclBucket,
   type EclOpenItem,
   type EclSettingsView,
@@ -138,4 +141,36 @@ export async function loadEclOpenInvoices(orgId: string, asOf: string): Promise<
       baseBalance: Math.round((Number(row.baseTotal) - Number(row.settledBase)) * 100) / 100,
     }))
     .filter((row) => row.baseBalance > 0.005);
+}
+
+/** asOf-ийн ECL төлөвлөгөө (GL-ийн одоогийн нөөц + ECL-ийн DTA мөрүүдтэй). */
+export async function loadEclPlan(orgId: string, asOf: string, settings: EclSettingsView) {
+  const [items, currentAllowance, currentDta] = await Promise.all([
+    loadEclOpenInvoices(orgId, asOf),
+    creditBalanceOf(db, orgId, settings.allowanceAccountNumber, asOf),
+    creditBalanceOf(db, orgId, settings.deferredTaxAssetAccountNumber, asOf, ECL_DEFERRED_TAX_OBJECT),
+  ]);
+  return planEclProvision({
+    asOf,
+    items,
+    matrix: settings.matrix,
+    currentAllowance,
+    taxRatePct: settings.taxRatePct,
+    // DTA нь Дт үлдэгдэлтэй хөрөнгө — Кт тэмдгийг эргүүлнэ.
+    currentDeferredTaxAsset: -currentDta,
+  });
+}
+
+/** Ноорог ECL журналууд (нэг л байна — дахин ажиллуулахад солигдоно). */
+export async function loadEclDrafts(orgId: string) {
+  return db
+    .select({ id: journalVouchers.id, documentNo: journalVouchers.documentNo, date: journalVouchers.date })
+    .from(journalVouchers)
+    .where(
+      and(
+        eq(journalVouchers.organizationId, orgId),
+        eq(journalVouchers.status, "draft"),
+        like(journalVouchers.externalRef, `${ECL_PROVISION_REF_PREFIX}%`)
+      )
+    );
 }

@@ -158,6 +158,9 @@ test("ENT-064: 20 захиалж 12 ирсэн → дутуу хаалт 8 цу�
   assert.equal(closed?.status, "closed");
   assert.equal(closed?.shortCloseReason, "Нийлүүлэгч үлдэгдлийг нийлүүлэх боломжгүй");
   assert.equal(closed?.lines[0].cancelledQuantity, 8);
+  // «Хаагдсан» огноо = хаалтын журналын огноо (товч дарсан цаг биш).
+  assert.equal(closed?.closeDate, DATE);
+  assert.match(closed?.closeVoucherNo ?? "", /^PROC-26-\d{6}$/);
   const after = await balances(order.id);
   assert.equal(after.get(roles.clearing) ?? 0, 0);
   assert.equal(after.get(roles.apClearing) ?? 0, 0);

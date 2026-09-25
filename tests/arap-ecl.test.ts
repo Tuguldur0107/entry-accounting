@@ -7,6 +7,7 @@ import {
   DEFAULT_ECL_MATRIX,
   bucketIndexOf,
   bucketLabel,
+  eclChecklistStatus,
   eclJournalLines,
   eclMatrixProblems,
   planEclProvision,
@@ -115,4 +116,46 @@ test("сэргэлт: хассан дүнгийн үлдэгдлээс хэтр�
   assert.equal(recoveryProblem(400, 1_000, 500), null);
   assert.match(recoveryProblem(600, 1_000, 500)!, /RECOVERY_EXCEEDS/);
   assert.match(recoveryProblem(0, 1_000, 0)!, /0-ээс их/);
+});
+
+test("сар хаалтын ECL алхам: na / pending / attention / done", () => {
+  const plan = (over: Partial<Parameters<typeof eclChecklistStatus>[0]["plan"]> = {}) => ({
+    grossBalance: 1_000_000,
+    currentAllowance: 0,
+    allowanceDelta: 10_000,
+    deferredTax: null,
+    ...over,
+  });
+  // Авлага ч, нөөц ч алга → хамааралгүй.
+  assert.equal(
+    eclChecklistStatus({ plan: plan({ grossBalance: 0, allowanceDelta: 0 }), hasDraftInPeriod: false }),
+    "na"
+  );
+  // Нөөц үлдсэн (авлага бүгд хаагдсан) → эргүүлэх шаардлагатай.
+  assert.equal(
+    eclChecklistStatus({
+      plan: plan({ grossBalance: 0, currentAllowance: 5_000, allowanceDelta: -5_000 }),
+      hasDraftInPeriod: false,
+    }),
+    "pending"
+  );
+  assert.equal(eclChecklistStatus({ plan: plan(), hasDraftInPeriod: false }), "pending");
+  // Ноорог батлагдаагүй → анхаарах (delta-аас үл хамаарна).
+  assert.equal(eclChecklistStatus({ plan: plan({ allowanceDelta: 0 }), hasDraftInPeriod: true }), "attention");
+  assert.equal(
+    eclChecklistStatus({ plan: plan({ currentAllowance: 10_000, allowanceDelta: 0 }), hasDraftInPeriod: false }),
+    "done"
+  );
+  // DTA-ийн зөрүү үлдсэн бол бэлэн биш.
+  assert.equal(
+    eclChecklistStatus({
+      plan: plan({
+        currentAllowance: 10_000,
+        allowanceDelta: 0,
+        deferredTax: { ratePct: 10, requiredAsset: 1_000, currentAsset: 0, delta: 1_000 },
+      }),
+      hasDraftInPeriod: false,
+    }),
+    "pending"
+  );
 });
