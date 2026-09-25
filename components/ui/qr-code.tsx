@@ -76,18 +76,21 @@ export function QrCode({
   if (!qr)
     return fallbackSrc ? (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={fallbackSrc} alt={label} width={size} height={size} className="rounded-md bg-white" />
+      <img src={fallbackSrc} alt={label} width={size} height={size} className="rounded-md" style={{ background: "var(--ea-qr-bg)" }} />
     ) : null;
+  // `bg-white` БИШ: globals.css нь dark горимд .bg-white-ийг surface (харанхуй)
+  // болгодог тул QR харанхуй дээр хар болж уншигдахгүй байв (2026-09-25).
+  // Quiet zone 4 модуль (QR стандарт) — харанхуй орчинд сканнер ирмэгийг олно.
   return (
     <svg
-      viewBox={`-2 -2 ${qr.count + 4} ${qr.count + 4}`}
-      style={{ width: size, height: size }}
+      viewBox={`-4 -4 ${qr.count + 8} ${qr.count + 8}`}
+      style={{ width: size, height: size, background: "var(--ea-qr-bg)" }}
       shapeRendering="crispEdges"
       role="img"
       aria-label={label}
-      className="rounded-md bg-white text-black"
+      className="rounded-md"
     >
-      <path d={qr.path} fill="currentColor" />
+      <path d={qr.path} fill="var(--ea-qr-fg)" />
     </svg>
   );
 }
