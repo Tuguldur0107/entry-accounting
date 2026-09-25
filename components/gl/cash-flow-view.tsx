@@ -37,6 +37,8 @@ interface Props {
    * кассын нээлт/хаалт сервер талд [3] мөрүүдээс бодогдож ирдэг.
    */
   vouchers: JournalVoucherWithLines[];
+  /** Журнал → кассын баримтын S8 код (SIM2-043). */
+  voucherCfCodes: Record<string, string>;
   accounts: ChartOfAccount[];
   activeSegments: SegmentDef[];
   appliedFrom: string;
@@ -60,6 +62,7 @@ const SECTIONS: readonly CfSection[] = ["operating", "investing", "financing"];
 
 export function CashFlowView({
   vouchers,
+  voucherCfCodes,
   accounts,
   activeSegments,
   appliedFrom,
@@ -85,16 +88,17 @@ export function CashFlowView({
     [mappings, accounts]
   );
 
+  const cfCodeMap = useMemo(() => new Map(Object.entries(voucherCfCodes)), [voucherCfCodes]);
   const report = useMemo(
-    () => buildMappedCashFlow(vouchers, appliedFrom, appliedTo, resolvedLines),
-    [vouchers, appliedFrom, appliedTo, resolvedLines]
+    () => buildMappedCashFlow(vouchers, appliedFrom, appliedTo, resolvedLines, cfCodeMap),
+    [vouchers, appliedFrom, appliedTo, resolvedLines, cfCodeMap]
   );
 
   // MappingDialog-ийн жагсаалтад данс/S8 код бүрийн тайлант үеийн урсгалыг
   // харуулна — нягтлан нэрээс гадна дүнгээр нь баримжаалж сонгоно.
   const contraFlows = useMemo(
-    () => computeContraFlows(vouchers, appliedFrom, appliedTo),
-    [vouchers, appliedFrom, appliedTo]
+    () => computeContraFlows(vouchers, appliedFrom, appliedTo, cfCodeMap),
+    [vouchers, appliedFrom, appliedTo, cfCodeMap]
   );
 
   const reportRows = useMemo<ReportRow[]>(() => {
@@ -272,6 +276,14 @@ export function CashFlowView({
             <span className="text-[var(--ea-text-4)]">({hiddenCount})</span>
           )}
         </label>
+        {report.uncodedVouchers > 0 && (
+          <span
+            className="ml-auto text-[var(--ea-warning-fg)]"
+            title="Кассын баримтад «Мөнгөн гүйлгээний ангилал» (S8) сонгоогүй гүйлгээг харьцах дансаар ангилсан"
+          >
+            S8 ангилалгүй {report.uncodedVouchers} гүйлгээ — харьцах дансаар ангилав
+          </span>
+        )}
       </div>
 
       <div className="flex-1 min-h-0">

@@ -304,13 +304,9 @@ export function JournalList({
   }
 
   async function handleDelete(id: string) {
-    const voucher = vouchersRef.current.find((entry) => entry.id === id);
-    const posted = voucher?.status === "posted";
     const ok = await confirm({
       title: "Журнал устгах",
-      description: posted
-        ? `${describeVoucher(id)} БАТЛАГДСАН бичилтийг GL-ээс бүрмөсөн устгах уу? (Буцаалт биш — аудитын ул мөр үлдэхгүй. Дэд дэвтрийн баримттай холбоотой бол эх баримтаар нь устгахыг шаардана.)`
-        : `${describeVoucher(id)} бичилтийг устгах уу?`,
+      description: `${describeVoucher(id)} бичилтийг устгах уу?`,
       confirmText: "Устгах",
       danger: true,
     });
@@ -342,6 +338,7 @@ export function JournalList({
         return;
       }
       feedback.posted("Журнал батлагдлаа");
+      if (result.warning) toast.warning(result.warning, { duration: 10_000 });
       refreshOpenPanels();
     } catch {
       toast.error("Батлах үед алдаа гарлаа");
@@ -762,14 +759,6 @@ export function JournalList({
                     aria-label="Ноорог болгож буцаах"
                   >
                     <Icon name="undo" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(v.id)}
-                    className="ea-btn ea-btn--icon ea-btn--danger"
-                    title="GL-ээс бүрмөсөн устгах"
-                    aria-label="GL-ээс бүрмөсөн устгах"
-                  >
-                    <Icon name="delete" />
                   </button>
                 </>
               )}

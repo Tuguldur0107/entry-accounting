@@ -43,6 +43,8 @@ const ERROR_MESSAGES = {
 } as const;
 
 interface AssetForm {
+  /** SIM2-037: шинэ хөрөнгийн өртгийг аль данснаас капиталжуулах (сонголтоор). */
+  capitalizeFrom: string;
   code: string;
   name: string;
   acquisitionDate: string;
@@ -72,6 +74,7 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
 
   if (asset)
     return {
+      capitalizeFrom: "",
       code: asset.code,
       name: asset.name,
       acquisitionDate: asset.acquisitionDate,
@@ -96,6 +99,7 @@ function buildInitialForm(data: FaAssetPanelData): AssetForm {
     };
 
   return {
+    capitalizeFrom: "",
     code: "",
     name: "",
     acquisitionDate: currentDocumentDate(),
@@ -256,9 +260,10 @@ function FaAssetFormBody({
             form.depExpenseAccountNumber
           ),
         };
+        const capitalizeFrom = extractMainAccount(form.capitalizeFrom) || undefined;
         const res = activatingId
           ? await activateFixedAsset(activatingId, payload)
-          : await createFixedAsset(payload);
+          : await createFixedAsset(payload, { capitalizeFrom });
         if (res.error !== undefined) {
           toast.error(res.error);
           return;
@@ -290,7 +295,7 @@ function FaAssetFormBody({
             <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg-2)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
               <span className="font-mono">{data.asset.code}</span> — өртөг{" "}
               <span className="font-mono">{fmtMnt(data.asset.cost)}</span> эх
-              сувагтаа данслагдсан; идэвхжүүлэлт GL бичихгүй.
+              сувагтаа данслагдсан; капиталжуулах ноорог журналтай бол идэвхжүүлэхэд хамт батлагдана.
             </p>
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -490,6 +495,23 @@ function FaAssetFormBody({
               placeholder="Өртгийн данс..."
             />
           </FormField>
+          {!activatingId && (
+            <FormField
+              label="Капиталжуулах эх данс (сонголтоор)"
+              hint="Түр данс (20000099), өглөг, банкнаас авсан бол сонгоно — Дт өртгийн данс / Кт энэ данс журнал батлагдана. АП-аар өртгийн дансанд шууд авсан бол хоосон"
+            >
+              <AccountInput
+                value={form.capitalizeFrom}
+                onChange={(value) =>
+                  setForm((c) => ({ ...c, capitalizeFrom: value }))
+                }
+                activeSegIds={data.activeSegIds}
+                segmentOptions={data.segmentOptions}
+                defaultSegments={data.defaultSegments}
+                placeholder="Хоосон = GL бичихгүй"
+              />
+            </FormField>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField label="Хуримтлагдсан элэгдлийн данс">
               <AccountInput

@@ -14,6 +14,7 @@ import {
   journalVouchers,
   journalLines,
   moduleConfigs,
+  organizationProfile,
   purchaseOrders,
   segmentConfigs,
   segmentValues,
@@ -63,6 +64,13 @@ import {
 } from "@/lib/custom/loader";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { carryCashAccountTags } from "@/lib/cash/gl-sync";
+import {
+  DEFAULT_CONTROL_ACCOUNTS,
+  controlAccountHits,
+  controlAccountMessage,
+  isGuardExemptRef,
+  normalizeGuardMode,
+} from "@/lib/gl/control-accounts";
 import { extractMainAccount } from "@/lib/reports/balances";
 import {
   syncAllSegmentDefaultValues,
@@ -684,6 +692,40 @@ function assertBalanced(lines: { debit: number; credit: number }[]) {
 // компонент зөвхөн wrapper-ыг дуудна. Server-талын дуудагч (lib/ai/tools.ts
 // г.м) unwrapAction-аар шидэлтээ сэргээнэ.
 
+/**
+ * SIM2-038: гар журнал (GL модуль) АР/АП-ийн хяналтын дансыг хөндвөл
+ * анхааруулга буцаана, «block» горимд хориглоно. Нээлтийн журнал чөлөөтэй.
+ */
+async function checkControlAccountGuard(
+  orgId: string,
+  accountNumbers: string[],
+  externalRef: string | null | undefined
+): Promise<string | null> {
+  if (isGuardExemptRef(externalRef)) return null;
+  const [settings, used] = await Promise.all([
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
+      columns: { controlAccountGuard: true },
+    }),
+    db
+      .selectDistinct({ account: arApDocuments.controlAccountNumber })
+      .from(arApDocuments)
+      .where(eq(arApDocuments.organizationId, orgId)),
+  ]);
+  const control = new Set<string>([
+    ...DEFAULT_CONTROL_ACCOUNTS,
+    ...used.map((row) => extractMainAccount(row.account)),
+  ]);
+  const hits = controlAccountHits(accountNumbers, control);
+  if (hits.length === 0) return null;
+  const message = controlAccountMessage(hits);
+  if (normalizeGuardMode(settings?.controlAccountGuard) === "block")
+    throw new Error(
+      `[CONTROL_ACCOUNT] ${message}. (Тохиргоо → Компанийн мэдээлэл: хяналтын дансны хориг идэвхтэй)`
+    );
+  return message;
+}
+
 async function createVoucherCore(data: VoucherCurrencyInput & {
   date: string;
   description: string;
@@ -711,6 +753,14 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
   const money = resolveVoucherCurrency(data.lines, data, status === "posted");
   const validLines = await validateVoucherLines(orgId, money.lines);
   if (status === "posted") assertBalanced(validLines);
+  const warning =
+    (data.module ?? "gl") === "gl"
+      ? await checkControlAccountGuard(
+          orgId,
+          validLines.map((line) => line.account),
+          data.externalRef
+        )
+      : null;
 
   let documentNo: string | null = null;
   const voucherId = await db.transaction(async (tx) => {
@@ -818,12 +868,14 @@ async function createVoucherCore(data: VoucherCurrencyInput & {
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
-  return { id: voucherId, documentNo };
+  return { id: voucherId, documentNo, warning };
 }
 
 export async function createVoucher(
   data: Parameters<typeof createVoucherCore>[0]
-): Promise<ActionResult<{ id: string; documentNo: string | null }>> {
+): Promise<
+  ActionResult<{ id: string; documentNo: string | null; warning: string | null }>
+> {
   try {
     return await createVoucherCore(data);
   } catch (caught) {
@@ -842,8 +894,16 @@ async function postVoucherCore(id: string) {
     with: { lines: true },
   });
   if (!voucher) throw new Error("Бичилт олдсонгүй");
-  if (voucher.status === "posted") return;
+  if (voucher.status === "posted") return { warning: null };
   await assertPeriodOpen(orgId, voucher.date);
+  const warning =
+    moduleOfVoucherNo(voucher.documentNo, "gl") === "gl"
+      ? await checkControlAccountGuard(
+          orgId,
+          voucher.lines.map((line) => line.accountNumber),
+          voucher.externalRef
+        )
+      : null;
   assertNotFuturePeriod(voucher.date);
 
   let hookContext: JournalHookContext | null = null;
@@ -952,12 +1012,14 @@ async function postVoucherCore(id: string) {
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
+  return { warning };
 }
 
-export async function postVoucher(id: string): Promise<ActionResult> {
+export async function postVoucher(
+  id: string
+): Promise<ActionResult<{ warning?: string | null }>> {
   try {
-    await postVoucherCore(id);
-    return {};
+    return await postVoucherCore(id);
   } catch (caught) {
     return actionError("postVoucher", caught, "Журнал батлагдсангүй");
   }
@@ -1245,6 +1307,7 @@ async function updateVoucherCore(
   );
   const validLines = await validateVoucherLines(orgId, money.lines);
   if (data.status === "posted") assertBalanced(validLines);
+  let warning: string | null = null;
 
   await db.transaction(async (tx) => {
     // Периодын хаалттай уралдахаас хамгаалсан транзакц-доторх шалгалт.
@@ -1254,11 +1317,17 @@ async function updateVoucherCore(
         eq(journalVouchers.id, id),
         eq(journalVouchers.organizationId, orgId)
       ),
-      columns: { status: true },
+      columns: { status: true, documentNo: true, externalRef: true },
     });
     if (!existing) throw new Error("Бичилт олдсонгүй");
     if (existing.status !== "draft")
       throw new Error("Зөвхөн ноорог журналыг засах боломжтой");
+    if (moduleOfVoucherNo(existing.documentNo, "gl") === "gl")
+      warning = await checkControlAccountGuard(
+        orgId,
+        validLines.map((line) => line.account),
+        existing.externalRef
+      );
 
     // Дэд дэвтрийн кассын тэмдэг (cashAccountId) засварт алдагдахгүй
     // (SIM2-011): хуучин мөрийн үндсэн данс → кассын данс нь НЭГ утгатай
@@ -1326,15 +1395,15 @@ async function updateVoucherCore(
 
   revalidatePath("/gl/journal");
   revalidatePath("/gl/reports");
+  return { warning };
 }
 
 export async function updateVoucher(
   id: string,
   data: Parameters<typeof updateVoucherCore>[1]
-): Promise<ActionResult> {
+): Promise<ActionResult<{ warning?: string | null }>> {
   try {
-    await updateVoucherCore(id, data);
-    return {};
+    return await updateVoucherCore(id, data);
   } catch (caught) {
     return actionError("updateVoucher", caught, "Журнал засварлагдсангүй");
   }
@@ -1370,14 +1439,12 @@ async function deleteVoucherCore(id: string) {
       "Буцаалтын журналыг дангаар нь устгахгүй — эх журналаар нь удирдана уу"
     );
 
-  if (existing.status !== "draft") {
-    // Батлагдсан журналыг устгах нь батлахтай ижил түвшний эрх.
-    await requireModuleAction("gl", "post");
-    await assertPeriodOpen(orgId, existing.date);
-    // Дэд дэвтрийн баримттай журнал — эх баримтаар нь устгуулна.
-    // sourceVoucherId-тэй НООРОГ кассын баримт саад болохгүй (доор цэвэрлэнэ).
-    await assertNotSubledgerOwned(orgId, id, existing.lines);
-  }
+  // SIM2-046: батлагдсан (буцаагдсан ч) журналыг GL-ээс бүрмөсөн устгавал
+  // аудитын мөр тасарна — НББ-д залруулга нь БУЦААЛТ. Зөвхөн ноорог устана.
+  if (existing.status !== "draft")
+    throw new Error(
+      "[USE_REVERSAL] Батлагдсан журналыг устгахгүй — буцаалт хийнэ (reverse_journal_voucher / журналын «Буцаах»). Эх бичилт, буцаалт хоёулаа аудитын мөрд үлдэнэ"
+    );
 
   // Энэ журналаас sync-ээр үүссэн ноорог (бараа, ҮХ, касс) хамт цэвэрлэгдэнэ.
   // Эхийг устгахад буцаалт нь cascade-аар устах тул буцаалтын журналын

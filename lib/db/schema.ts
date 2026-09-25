@@ -3489,6 +3489,9 @@ export const organizationProfile = pgTable("company_settings", {
   /** AI/MCP/REST шууд батлах дээд хязгаар (MNT) — null = default 10 сая ₮ (§9).
       Tool-оор өсгөхөд тааз (lib/ai/post-limit.ts); вэбээс админ чөлөөтэй. */
   aiPostLimitMnt: numeric("ai_post_limit_mnt", { precision: 18, scale: 2 }),
+  /** Хяналтын дансанд (АР/АП) гар журнал: "warn" (анхааруулна) | "block"
+      (хориглоно) — SIM2-038, lib/gl/control-accounts.ts. */
+  controlAccountGuard: text("control_account_guard").notNull().default("warn"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [uniqueIndex("company_settings_org_id_ux").on(t.organizationId)]);
 

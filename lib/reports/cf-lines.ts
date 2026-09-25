@@ -38,6 +38,12 @@ export interface CfLine {
   label: string;
   /** Дансны кодын угтвар — мөрүүд хооронд давхцахгүй байх ёстой. */
   defaultPrefixes: string[];
+  /**
+   * Стандарт S8 кодууд (lib/constants/segment-defaults.ts) — шууд аргын
+   * тайланд кассын баримтын «мөнгөн гүйлгээний ангилал» ЭНЭ мөрөнд орно
+   * (SIM2-043). Хэрэглэгчийн cfCodes-оос ДАРАА шалгагдана.
+   */
+  defaultCfCodes?: string[];
 }
 
 export const CF_SECTION_LABEL: Record<CfSection, string> = {
@@ -52,31 +58,46 @@ export const CF_SUBTOTAL_LABEL: Record<CfSection, string> = {
   financing: "Санхүүгийн цэвэр урсгал",
 };
 
+// SIM2-043: ШУУД арга — S8 кодгүй урсгалыг харьцах дансаар: худалдан
+// авагчаас (131 авлага) → борлуулалт, нийлүүлэгчид (310 өглөг) → бараа/
+// нийлүүлэгч, татвар (314) → татвар, цалин (315) → ажиллагсад. Секц нь
+// хэвээр (бүгд үйл ажиллагаа) тул секцийн дүн өөрчлөгдөхгүй.
 export const CF_LINES: readonly CfLine[] = [
   // ── Үйл ажиллагаа ────────────────────────────────────────────────────
   {
     key: "op-sales",
     section: "operating",
     label: "Борлуулалт, үйлчилгээний орлого",
-    defaultPrefixes: ["5"],
+    defaultPrefixes: ["5", "131"],
+    defaultCfCodes: ["1101", "1109"],
   },
   {
     key: "op-goods",
     section: "operating",
     label: "Бараа материал, нийлүүлэгчид төлсөн",
-    defaultPrefixes: ["6"],
+    defaultPrefixes: ["6", "310"],
+    defaultCfCodes: ["1102"],
   },
   {
     key: "op-payroll",
     section: "operating",
     label: "Ажиллагсад, НДШ-д төлсөн",
-    defaultPrefixes: ["72"],
+    defaultPrefixes: ["72", "315"],
+    defaultCfCodes: ["1103"],
+  },
+  {
+    key: "op-tax",
+    section: "operating",
+    label: "Татварт төлсөн",
+    defaultPrefixes: ["314"],
+    defaultCfCodes: ["1104"],
   },
   {
     key: "op-opex",
     section: "operating",
     label: "Бусад үйл ажиллагааны зардалд төлсөн",
     defaultPrefixes: ["70", "71", "73", "74", "75", "76", "77", "78", "79"],
+    defaultCfCodes: ["1105"],
   },
   {
     key: "op-fin-costs",
@@ -89,17 +110,22 @@ export const CF_LINES: readonly CfLine[] = [
     // ордоггүй тул "10"/"11"-гүй (ENT-047: касс↔банк нь урсгал биш).
     key: "op-working-capital",
     section: "operating",
-    label: "Авлага, урьдчилгаа, бусад эргэлтийн хөрөнгийн өөрчлөлт",
-    defaultPrefixes: ["12", "13", "14", "15", "16", "17", "18", "19"],
+    label: "Урьдчилгаа, бусад эргэлтийн хөрөнгийн өөрчлөлт",
+    defaultPrefixes: [
+      "12", "130", "132", "133", "134", "135", "136", "137", "138", "139",
+      "14", "15", "16", "17", "18", "19",
+    ],
   },
   {
-    // Нийлүүлэгч, татвар, цалин, худалдан авагчийн урьдчилгааны төлбөр нь
-    // ҮЙЛ АЖИЛЛАГААНЫ урсгал (IAS 7.14) — урьд «3»-аар бүхэлдээ санхүү рүү
-    // ордог байв (ENT-047).
+    // Бусад өглөг, худалдан авагчийн урьдчилгааны төлбөр нь ҮЙЛ АЖИЛЛАГААНЫ
+    // урсгал (IAS 7.14) — урьд «3»-аар бүхэлдээ санхүү рүү ордог байв (ENT-047).
     key: "op-payables",
     section: "operating",
-    label: "Нийлүүлэгч, татвар, цалин, бусад өглөгт төлсөн",
-    defaultPrefixes: ["30", "31", "34", "35", "36", "37", "38", "39"],
+    label: "Бусад өглөгт төлсөн",
+    defaultPrefixes: [
+      "30", "311", "312", "313", "316", "317", "318", "319",
+      "34", "35", "36", "37", "38", "39",
+    ],
   },
 
   // ── Хөрөнгө оруулалт ─────────────────────────────────────────────────
@@ -108,6 +134,7 @@ export const CF_LINES: readonly CfLine[] = [
     section: "investing",
     label: "Үндсэн хөрөнгө, хөрөнгө оруулалтын хөдөлгөөн",
     defaultPrefixes: ["2"],
+    defaultCfCodes: ["2101", "2102", "2103", "2104", "2109"],
   },
 
   // ── Санхүү ───────────────────────────────────────────────────────────
@@ -116,12 +143,14 @@ export const CF_LINES: readonly CfLine[] = [
     section: "financing",
     label: "Зээл, өр төлбөрийн хөдөлгөөн",
     defaultPrefixes: ["32", "33"],
+    defaultCfCodes: ["3101", "3102", "3103", "3109"],
   },
   {
     key: "fin-equity",
     section: "financing",
     label: "Эздийн өмчийн хөдөлгөөн",
     defaultPrefixes: ["4"],
+    defaultCfCodes: ["3104", "3105"],
   },
 ];
 
@@ -141,7 +170,10 @@ export interface ResolvedCfLine {
   section: CfSection;
   label: string;
   accountNumbers: string[];
+  /** Хэрэглэгчийн mapping-ийн S8 кодууд — стандартаас ТҮРҮҮЛЖ шалгагдана. */
   cfCodes: string[];
+  /** Стандарт S8 кодууд (CfLine.defaultCfCodes). */
+  defaultCfCodes: string[];
   isHidden: boolean;
   isCustom: boolean;
   sortOrder: number;
@@ -183,6 +215,7 @@ export function resolveCfLines(
       label: m?.customLabel?.trim() || line.label,
       accountNumbers,
       cfCodes: splitCsv(m?.cfCodes),
+      defaultCfCodes: line.defaultCfCodes ?? [],
       isHidden: !!m?.isHidden,
       isCustom: false,
       sortOrder: idx,
@@ -201,6 +234,7 @@ export function resolveCfLines(
       label: m.customLabel?.trim() || "Нэргүй мөр",
       accountNumbers: splitCsv(m.accountNumbers),
       cfCodes: splitCsv(m.cfCodes),
+      defaultCfCodes: [],
       isHidden: m.isHidden,
       isCustom: true,
       sortOrder: CF_LINES.length + m.sortOrder,
@@ -240,6 +274,8 @@ export interface MappedCashFlowReport {
     /** Ханшийн тэгшитгэлийн мөнгөн хөрөнгөд үзүүлсэн нөлөө (урсгал биш). */
     fxEffect: number;
   };
+  /** S8 ангилалгүй мөнгөн гүйлгээтэй журналын тоо (SIM2-043 — ИЛ анхааруулга). */
+  uncodedVouchers: number;
 }
 
 /** Ханшийн тэгшитгэл (ба түүний буцаалт) — модулийн код FX (§2a). */
@@ -258,6 +294,11 @@ export function buildMappedCashFlow(
   appliedFrom: string,
   appliedTo: string,
   resolvedLines: ResolvedCfLine[],
+  /**
+   * Журнал → кассын баримтын S8 код (cash_documents.cashFlowCode). S8
+   * сегмент идэвхгүй үед код журналын мөрөнд ордоггүй тул эндээс уншина.
+   */
+  voucherCfCodes?: ReadonlyMap<string, string>,
 ): MappedCashFlowReport {
   const amounts = new Map<string, number>();
   const unmapped: Record<CfSection, number> = {
@@ -274,8 +315,13 @@ export function buildMappedCashFlow(
     for (const acc of line.accountNumbers)
       if (!byAccount.has(acc)) byAccount.set(acc, line);
   }
+  // Стандарт кодууд хэрэглэгчийн заавраас ДАРАА (дарагдахгүй).
+  for (const line of resolvedLines)
+    for (const code of line.defaultCfCodes)
+      if (!byCfCode.has(code)) byCfCode.set(code, line);
 
   let fxEffect = 0;
+  let uncodedVouchers = 0;
   for (const v of vouchers) {
     if (v.date < appliedFrom || v.date > appliedTo) continue;
 
@@ -289,6 +335,8 @@ export function buildMappedCashFlow(
       fxEffect += cashImpact;
       continue;
     }
+    const documentCode = (v.id && voucherCfCodes?.get(v.id)) || "";
+    let coded = !!documentCode;
 
     for (const l of v.lines) {
       const main = extractMainAccount(l.accountNumber);
@@ -297,7 +345,8 @@ export function buildMappedCashFlow(
       const flow = Number(l.credit) - Number(l.debit);
       if (Math.abs(flow) <= EPSILON) continue;
 
-      const cfCode = extractCfCode(l.accountNumber);
+      const cfCode = extractCfCode(l.accountNumber) || documentCode;
+      if (cfCode) coded = true;
       const target =
         (cfCode ? byCfCode.get(cfCode) : undefined) ?? byAccount.get(main);
       if (target) {
@@ -306,6 +355,7 @@ export function buildMappedCashFlow(
         unmapped[classifyCashFlow(main)] += flow;
       }
     }
+    if (!coded) uncodedVouchers += 1;
   }
 
   const sections: Record<CfSection, CfSectionComputed> = {
@@ -336,7 +386,7 @@ export function buildMappedCashFlow(
   };
   totals.net = totals.operating + totals.investing + totals.financing;
 
-  return { sections, totals };
+  return { sections, totals, uncodedVouchers };
 }
 
 /**
@@ -347,6 +397,7 @@ export function computeContraFlows(
   vouchers: JournalVoucherWithLines[],
   appliedFrom: string,
   appliedTo: string,
+  voucherCfCodes?: ReadonlyMap<string, string>,
 ): { byAccount: Map<string, number>; byCfCode: Map<string, number> } {
   const byAccount = new Map<string, number>();
   const byCfCode = new Map<string, number>();
@@ -364,7 +415,8 @@ export function computeContraFlows(
       const flow = Number(l.credit) - Number(l.debit);
       if (Math.abs(flow) <= EPSILON) continue;
       byAccount.set(main, (byAccount.get(main) ?? 0) + flow);
-      const cfCode = extractCfCode(l.accountNumber);
+      const cfCode =
+        extractCfCode(l.accountNumber) || (v.id && voucherCfCodes?.get(v.id)) || "";
       if (cfCode) byCfCode.set(cfCode, (byCfCode.get(cfCode) ?? 0) + flow);
     }
   }

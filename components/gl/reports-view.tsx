@@ -42,6 +42,8 @@ export type ReportData =
       kind: "cash-flow";
       /** Зөвхөн [from,to] доторх ваучерууд — контра хослолд хэрэгтэй. */
       vouchers: JournalVoucherWithLines[];
+      /** Журнал → кассын баримтын S8 код (SIM2-043). */
+      voucherCfCodes: Record<string, string>;
       cashOpenNet: number;
       cashCloseNet: number;
     };
@@ -111,6 +113,7 @@ export function ReportsView({
       {data.kind === "cash-flow" && (
         <CashFlowView
           vouchers={data.vouchers}
+          voucherCfCodes={data.voucherCfCodes}
           accounts={accounts}
           activeSegments={activeSegments}
           appliedFrom={appliedFrom}

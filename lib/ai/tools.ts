@@ -175,6 +175,10 @@ import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { saveBankStatement } from "@/lib/cash/import-statement";
 import { expectedCashGlBalance, groupCashAccountsByGl } from "@/lib/cash/reconciliation";
 import { cashOpeningAccountIdOf, mainAccountOf } from "@/lib/cash/gl-sync";
+import { faExpectedGl } from "@/lib/fa/reconcile";
+import { loadVoucherCfCodes } from "@/lib/reports/cf-codes";
+import { isGuardExemptRef } from "@/lib/gl/control-accounts";
+import { FA_COST_ACCOUNTS } from "@/lib/fa/sync-sources";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import {
   saveCostComponent,
@@ -629,6 +633,11 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "Хуримтлагдсан элэгдлийн данс (default: хөрөнгийн дансанд харгалзах — 20000002)",
         },
+        capitalizeFrom: {
+          type: "string",
+          description:
+            "Капиталжуулах ЭХ данс (ж: 20000099 ҮХ-ийн түр данс, 31000001 өглөг, банк) — өгвөл Dr хөрөнгийн данс / Cr энэ данс журнал үүснэ (картын төлөвтэй хамт ноорог/батлагдсан). Өртөг АП/журналаар ҮХ-ийн дансанд аль хэдийн орсон бол өгөхгүй",
+        },
         depExpenseAccountNumber: {
           type: "string",
           description: "Элэгдлийн зардлын данс (default 70000001)",
@@ -702,7 +711,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "delete_journal_voucher",
     description:
-      "Журнал устгана. Ноорог — аль ч горимд; БАТЛАГДСАНЫГ устгах нь 'Шууд бичих' горимд л зөвшөөрөгдөнө (GL-ээс бүрмөсөн хасна; дэд дэвтрийн баримттай холбоотой бол эх баримтаар нь устгуулна). Хэрэглэгч ил хүссэн үед л ашиглана.",
+      "НООРОГ журнал устгана (аль ч горимд). Батлагдсан журнал устгагдахгүй — [USE_REVERSAL]: reverse_journal_voucher-оор буцаана (аудитын мөр хадгалагдана). Хэрэглэгч ил хүссэн үед л ашиглана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2355,6 +2364,12 @@ export const AI_TOOLS: AiToolDef[] = [
             `(${DEFAULT_AI_POST_LIMIT_MNT.toLocaleString("en-US")} ₮). Энэ tool-оор ЗӨВХӨН БУУРУУЛНА — ` +
             "өсгөлт [HUMAN_REQUIRED]: вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн тавина",
         },
+        controlAccountGuard: {
+          type: "string",
+          enum: ["warn", "block"],
+          description:
+            "АР/АП-ийн хяналтын дансанд гар журнал: warn (анхааруулна) | block (хориглоно). Энэ tool-оор ЗӨВХӨН чангатгана (block) — сулруулах [HUMAN_REQUIRED], вэбээс админ",
+        },
       },
     },
   },
@@ -3513,7 +3528,7 @@ async function runCreateJournal(
     else status = "posted";
   }
 
-  const { id } = unwrapAction(await createVoucher({
+  const { id, warning } = unwrapAction(await createVoucher({
     date: input.date,
     description: input.description,
     lines:
@@ -3536,7 +3551,7 @@ async function runCreateJournal(
 
   const unit = currency === "MNT" ? "₮" : ` ${currency}`;
   return {
-    resultText: `Журнал үүслээ. ID: ${id}, төлөв: ${status}, Дт ${fmt(totalDebit)}${unit} / Кт ${fmt(totalCredit)}${unit}${rateNote}${currency === "MNT" ? "" : ` ≈ ${fmt(baseDebit)}₮`}${note}`,
+    resultText: `Журнал үүслээ. ID: ${id}, төлөв: ${status}, Дт ${fmt(totalDebit)}${unit} / Кт ${fmt(totalCredit)}${unit}${rateNote}${currency === "MNT" ? "" : ` ≈ ${fmt(baseDebit)}₮`}${note}${warning ? `\n⚠ ${warning}` : ""}`,
     action: {
       kind: "voucher",
       id,
@@ -4274,11 +4289,16 @@ async function runCreateFixedAsset(
     assetAccountNumber?: string;
     accumDepAccountNumber?: string;
     depExpenseAccountNumber?: string;
+    capitalizeFrom?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   const ctx = await accountContext(orgId);
   const asDraft = mode !== "post";
+  const capitalizeFrom = input.capitalizeFrom?.trim()
+    ? resolveAccount(input.capitalizeFrom.trim(), ctx).main
+    : undefined;
+  if (capitalizeFrom && !asDraft) assertPostLimit(Number(input.cost));
   const assetAccount = resolveAccount(
     input.assetAccountNumber?.trim() || DEFAULT_FA_ASSET_ACCOUNT,
     ctx
@@ -4297,7 +4317,7 @@ async function runCreateFixedAsset(
       return next;
     })();
 
-  const { id, code } = unwrapAction(
+  const { id, code, voucherNo } = unwrapAction(
     await createFixedAsset(
       {
         name: input.name,
@@ -4318,17 +4338,23 @@ async function runCreateFixedAsset(
           ctx
         ).main,
       },
-      { asDraft }
+      { asDraft, capitalizeFrom }
     )
   );
 
   const opening = Number(input.openingAccumulatedDepreciation ?? 0);
+  // SIM2-037: GL-тэй холбоо ИЛ — журнал үүссэн эсэх, үгүй бол яагаад.
+  const glText = voucherNo
+    ? ` · капиталжуулах журнал ${voucherNo} (Dr ${assetAccount} / Cr ${capitalizeFrom}, ${asDraft ? "ноорог — карт идэвхжихэд батлагдана" : "батлагдсан"})`
+    : input.openingAsOf
+      ? ""
+      : ` · GL журнал үүсээгүй: өртөг АП/журналаар ${assetAccount}-д аль хэдийн орсон бол зөв; түр данс (20000099 г.м.)-д авсан бол capitalizeFrom өгнө (reconcile_modules ҮХ хэсэг зөрүүг харуулна)`;
   const openingText =
     opening > 0
       ? `, нээлтийн хуримт. элэгдэл ${fmt(opening)}₮ (${input.openingAsOf}) — үлдэгдэл өртөг ${fmt(Number(input.cost) - opening)}₮`
       : "";
   return {
-    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮${openingText}, данс ${assetAccount}/${accumAccount}, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}`,
+    resultText: `Үндсэн хөрөнгийн карт үүслээ. Код: ${code}, ${input.name}, өртөг ${fmt(Number(input.cost))}₮${openingText}, данс ${assetAccount}/${accumAccount}, төлөв: ${asDraft ? "ноорог" : "идэвхтэй"}${glText}`,
     action: {
       kind: "fa",
       id,
@@ -4436,9 +4462,9 @@ async function runPostJournal(
   const total = voucher.lines.reduce((sum, line) => sum + Number(line.debit), 0);
   assertPostLimit(total);
 
-  unwrapAction(await postVoucher(voucher.id));
+  const posted = unwrapAction(await postVoucher(voucher.id));
   return {
-    resultText: `Журнал батлагдлаа. ${voucher.date} · ${voucher.description} · ${fmt(total)}₮`,
+    resultText: `Журнал батлагдлаа. ${voucher.date} · ${voucher.description} · ${fmt(total)}₮${posted.warning ? `\n⚠ ${posted.warning}` : ""}`,
     action: {
       kind: "voucher",
       id: voucher.id,
@@ -4466,20 +4492,15 @@ async function runDeleteJournal(
     limit: 500,
   });
   const voucher = resolveVoucherRef(vouchers, input.voucherId);
-  // Батлагдсан бичилтийг устгах нь эргэлт буцалтгүй — зөвхөн "Шууд бичих"
-  // горимд, батлах/буцаахтай ИЖИЛ дүнгийн лимиттэй зөвшөөрнө (ноорог
-  // устгалт аль ч горимд чөлөөтэй).
-  if (voucher.status !== "draft") {
-    assertPostMode(mode);
-    const lines = await db.query.journalLines.findMany({
-      where: eq(journalLines.voucherId, voucher.id),
-      columns: { debit: true },
-    });
-    assertPostLimit(lines.reduce((sum, l) => sum + Number(l.debit), 0));
-  }
+  // SIM2-046: батлагдсан журнал устгагдахгүй — буцаалтаар залруулна.
+  if (voucher.status !== "draft")
+    throw codedError(
+      "USE_REVERSAL",
+      `${voucher.documentNo ?? voucher.id.slice(0, 8)} батлагдсан журналыг устгахгүй — reverse_journal_voucher-оор буцаана (аудитын мөр хадгалагдана)`
+    );
   unwrapAction(await deleteVoucher(voucher.id));
   return {
-    resultText: `${voucher.status === "draft" ? "Ноорог журнал" : "Журнал GL-тэй нь хамт"} устгагдлаа: ${voucher.date} · ${voucher.description}`,
+    resultText: `Ноорог журнал устгагдлаа: ${voucher.date} · ${voucher.description}`,
   };
 }
 
@@ -5530,11 +5551,27 @@ async function runActivateFixedAsset(
     assetAccountNumber?: string;
     accumDepAccountNumber?: string;
     depExpenseAccountNumber?: string;
-  }
+  },
+  mode: AiWriteMode
 ): Promise<AiToolResult> {
   const asset = await findAssetByCode(orgId, input.assetCode);
   if (asset.status !== "draft")
     throw new Error(`Зөвхөн ноорог картыг идэвхжүүлнэ (төлөв: ${asset.status})`);
+  // SIM2-037: ноорог капиталжуулах журналтай карт идэвхжихэд журнал батлагдана.
+  const capitalization = asset.sourceVoucherId
+    ? await db.query.journalVouchers.findFirst({
+        where: and(
+          eq(journalVouchers.id, asset.sourceVoucherId),
+          eq(journalVouchers.status, "draft"),
+          sql`${journalVouchers.externalRef} like 'fa-capitalize:%'`
+        ),
+        columns: { id: true },
+      })
+    : null;
+  if (capitalization) {
+    assertPostMode(mode);
+    assertPostLimit(input.cost ?? Number(asset.cost));
+  }
 
   unwrapAction(
     await activateFixedAsset(  asset.id, {
@@ -5920,7 +5957,7 @@ async function runCashFlow(
   assertDates(input.from, input.to);
   // Вэбийн тайлантай НЭГ логик: cash-flow mapping (данс + S8 код) →
   // resolveCfLines → buildMappedCashFlow (lib/reports/cf-lines.ts).
-  const [{ vouchers, accounts }, mappings] = await Promise.all([
+  const [{ vouchers, accounts }, mappings, voucherCfCodes] = await Promise.all([
     loadReportData(orgId),
     db.query.reportLineMappings.findMany({
       where: and(
@@ -5928,9 +5965,16 @@ async function runCashFlow(
         eq(reportLineMappings.reportType, "cash-flow")
       ),
     }),
+    loadVoucherCfCodes(orgId),
   ]);
   const resolved = resolveCfLines(mappings, accounts);
-  const report = buildMappedCashFlow(vouchers, input.from, input.to, resolved);
+  const report = buildMappedCashFlow(
+    vouchers,
+    input.from,
+    input.to,
+    resolved,
+    new Map(Object.entries(voucherCfCodes))
+  );
 
   // Мөнгөн хөрөнгийн (10x/11x) нээлт/хаалт — ваучерын мөрүүдээс шууд.
   let open = 0;
@@ -5964,6 +6008,10 @@ async function runCashFlow(
       out.push(`  Ангилагдаагүй урсгал — ${fmt(sec.unmapped)}`);
   }
   out.push(`ЦЭВЭР МӨНГӨН УРСГАЛ: ${fmt(report.totals.net)}`);
+  if (report.uncodedVouchers > 0)
+    out.push(
+      `S8 ангилалгүй мөнгөн гүйлгээ: ${report.uncodedVouchers} журнал — харьцах дансаар ангилсан; нарийвчлахад кассын баримтад cashFlowCode өгнө (list_segment_values {segment: 8})`
+    );
   if (Math.abs(report.totals.fxEffect) > 0.005)
     out.push(`Валютын ханшийн өөрчлөлтийн нөлөө: ${fmt(report.totals.fxEffect)}`);
   out.push(`Мөнгөний эхний үлдэгдэл: ${fmt(open)} · эцсийн үлдэгдэл: ${fmt(close)}`);
@@ -7846,6 +7894,84 @@ async function runReconcileModules(
     sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
   }
 
+  // 1b. ҮХ (SIM2-037): картын өртөг / хуримтлагдсан элэгдэл vs GL данс.
+  {
+    const [cards, entries] = await Promise.all([
+      db.query.fixedAssets.findMany({
+        where: eq(fixedAssets.organizationId, orgId),
+        columns: {
+          id: true,
+          code: true,
+          status: true,
+          acquisitionDate: true,
+          disposalDate: true,
+          assetAccountNumber: true,
+          accumDepAccountNumber: true,
+          cost: true,
+          openingAccumulatedDepreciation: true,
+          sourceVoucherId: true,
+        },
+      }),
+      db.query.faDepreciationEntries.findMany({
+        where: eq(faDepreciationEntries.organizationId, orgId),
+        columns: { assetId: true, periodMonth: true, amount: true, status: true },
+      }),
+    ]);
+    const sourceIds = cards.map((card) => card.sourceVoucherId).filter((id): id is string => !!id);
+    const postedSources = new Set(
+      sourceIds.length
+        ? (
+            await db.query.journalVouchers.findMany({
+              where: and(
+                eq(journalVouchers.organizationId, orgId),
+                inArray(journalVouchers.id, sourceIds),
+                inArray(journalVouchers.status, ["posted", "reversed"])
+              ),
+              columns: { id: true },
+            })
+          ).map((row) => row.id)
+        : []
+    );
+    const expected = faExpectedGl(
+      cards.map((card) => ({
+        id: card.id,
+        status: card.status,
+        acquisitionDate: card.acquisitionDate,
+        disposalDate: card.disposalDate,
+        assetAccountNumber: card.assetAccountNumber,
+        accumDepAccountNumber: card.accumDepAccountNumber,
+        cost: Number(card.cost),
+        openingAccumulated: Number(card.openingAccumulatedDepreciation ?? 0),
+        sourceVoucherPosted: !!card.sourceVoucherId && postedSources.has(card.sourceVoucherId),
+      })),
+      entries.map((entry) => ({ ...entry, amount: Number(entry.amount) })),
+      input.to
+    );
+    // Картгүй ч GL-д үлдэгдэлтэй ҮХ-ийн өртгийн данс (АП-аар шууд г.м.) ч орно.
+    for (const account of FA_COST_ACCOUNTS)
+      if (Math.abs(glNet.get(account) ?? 0) > EPS && !expected.has(account)) expected.set(account, 0);
+    const lines: string[] = [];
+    const costAccounts = new Set(cards.map((card) => card.assetAccountNumber));
+    for (const [account, value] of [...expected.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const gl = Math.round((glNet.get(account) ?? 0) * 100) / 100;
+      const diff = Math.round((value - gl) * 100) / 100;
+      const kind = costAccounts.has(account) || FA_COST_ACCOUNTS.has(account) ? "өртөг" : "хуримт. элэгдэл";
+      if (Math.abs(diff) <= EPS) {
+        lines.push(`  OK ${account} (${kind}): ${fmt(value)}`);
+        continue;
+      }
+      lines.push(`  ЗӨРҮҮ ${account} (${kind}): бүртгэл ${fmt(value)} vs GL ${fmt(gl)} → зөрүү ${fmt(diff)}`);
+      problems.push(
+        kind === "өртөг"
+          ? diff > 0
+            ? `ҮХ ${account}: картын өртөг GL-ээс ${fmt(diff)}₮ илүү — GL журналгүй карт (түр данс 20000099 / өглөгт авсан бол create_fixed_asset capitalizeFrom-оор капиталжуулна, эсвэл Dr ${account} журнал)`
+            : `ҮХ ${account}: GL-д картгүй өртөг ${fmt(-diff)}₮ — АП/журналаар орсон хөрөнгийн картыг (ноорог) идэвхжүүлэх эсвэл create_fixed_asset (capitalizeFrom-гүй)`
+          : `ҮХ ${account}: хуримтлагдсан элэгдэл бүртгэл ба GL зөрүүтэй — ноорог элэгдлийн журнал (post_fa_depreciation) эсвэл нээлтийн журналыг шалгана`
+      );
+    }
+    if (lines.length > 0) sections.push(`ҮНДСЭН ХӨРӨНГӨ (${input.to}-ний үлдэгдэл):\n${lines.join("\n")}`);
+  }
+
   // 2. АР/АП: хяналтын данс vs нээлттэй баримтын үлдэгдэл.
   {
     const documents = await db.query.arApDocuments.findMany({
@@ -7879,8 +8005,42 @@ async function runReconcileModules(
         lines.push(
           `  ЗӨРҮҮ ${main}: нээлттэй баримтууд ${fmt(slot.sum)} vs GL ${fmt(glSide)} → зөрүү ${fmt(diff)}`
         );
+        // SIM2-038: зөрүү үүсгэж болох ГАР журналууд (GL модулийн дугаартай,
+        // нээлтийн бус) — нягтлан аль журналаас гарсныг шууд харна.
+        const manual = await db
+          .select({
+            documentNo: journalVouchers.documentNo,
+            date: journalVouchers.date,
+            description: journalVouchers.description,
+            externalRef: journalVouchers.externalRef,
+            debit: journalLines.debit,
+            credit: journalLines.credit,
+            accountNumber: journalLines.accountNumber,
+          })
+          .from(journalLines)
+          .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+          .where(
+            and(
+              eq(journalVouchers.organizationId, orgId),
+              eq(journalVouchers.status, "posted"),
+              sql`${journalVouchers.documentNo} like 'GL-%'`,
+              sql`${journalVouchers.date} <= ${input.to}`
+            )
+          );
+        const suspects = manual.filter(
+          (row) => mainAccountOf(row.accountNumber) === main && !isGuardExemptRef(row.externalRef)
+        );
+        const suspectText = suspects.length
+          ? ` Гар журнал (${suspects.length}): ${suspects
+              .slice(0, 8)
+              .map(
+                (row) =>
+                  `${row.documentNo} ${row.date} ${Number(row.debit) > 0 ? "Дт" : "Кт"} ${fmt(Number(row.debit) || Number(row.credit))} «${(row.description ?? "").slice(0, 40)}»`
+              )
+              .join("; ")}${suspects.length > 8 ? " …" : ""} — кредит нэхэмжлэл / суутгал / төлбөрөөр дахин хийнэ.`
+          : "";
         problems.push(
-          `${slot.ledger === "ar" ? "Авлага" : "Өглөг"} ${main}: хяналтын дансанд гараар журнал бичсэн, эсвэл төлөлт нэхэмжлэхтэй холбогдоогүй байж магадгүй — get_trial_balance + list_arap_documents тулгах`
+          `${slot.ledger === "ar" ? "Авлага" : "Өглөг"} ${main}: хяналтын дансанд гараар журнал бичсэн, эсвэл төлөлт нэхэмжлэхтэй холбогдоогүй байж магадгүй — get_trial_balance + list_arap_documents тулгах.${suspectText}`
         );
       } else lines.push(`  OK ${main}: ${fmt(slot.sum)}`);
     }
@@ -8438,7 +8598,7 @@ async function runGetOrganizationProfile(): Promise<AiToolResult> {
         : "Банкны данс: бүртгэлгүй",
       `Лого: ${settings.logo ? "бий" : "—"} · Тамга: ${settings.stamp ? "бий" : "—"} · Гарын үсэг: ${settings.signatures.length}`,
       `Нэхэмжлэх илгээгч: ${settings.invoiceFromEmail ?? "— (env default)"}${settings.invoiceFromEmail ? (settings.emailDomainVerified ? " · домэйн баталгаажсан" : " · ⚠ домэйн БАТАЛГААЖААГҮЙ") : ""}${settings.invoiceReplyTo ? ` · reply-to: ${settings.invoiceReplyTo}` : ""}`,
-      `AI шууд батлах хязгаар: ${fmt(resolveAiPostLimit(settings.aiPostLimitMnt))}₮${settings.aiPostLimitMnt == null ? " (default)" : ""} · Том дүнгийн мэдэгдэл: ${fmt(resolveAiPostLimit(settings.largeAmountAlertMnt))}₮${settings.largeAmountAlertMnt == null ? " (default)" : ""}`,
+      `AI шууд батлах хязгаар: ${fmt(resolveAiPostLimit(settings.aiPostLimitMnt))}₮${settings.aiPostLimitMnt == null ? " (default)" : ""} · Том дүнгийн мэдэгдэл: ${fmt(resolveAiPostLimit(settings.largeAmountAlertMnt))}₮${settings.largeAmountAlertMnt == null ? " (default)" : ""} · Хяналтын дансанд гар журнал: ${settings.controlAccountGuard === "block" ? "хориглоно" : "анхааруулна"}`,
     ].join("\n"),
   };
 }
@@ -8552,8 +8712,18 @@ async function runUpdateOrganizationProfile(input: {
   emailDomainVerified?: boolean;
   largeAmountAlertMnt?: number;
   aiPostLimitMnt?: number;
+  controlAccountGuard?: "warn" | "block";
 }): Promise<AiToolResult> {
   const current = await getOrganizationProfile();
+  // SIM2-038: хамгаалалтыг AI сулруулахгүй (post limit-тэй ижил зарчим).
+  if (
+    input.controlAccountGuard === "warn" &&
+    current?.controlAccountGuard === "block"
+  )
+    throw codedError(
+      "HUMAN_REQUIRED",
+      "Хяналтын дансны хоригийг зөвхөн вэбийн Тохиргоо → Компанийн мэдээлэл хуудсаас админ хүн сулруулна"
+    );
   const name = input.name?.trim() || current?.name || "";
   if (!name) throw new Error("Компанийн нэр заавал (одоо тохируулаагүй байна)");
 
@@ -8597,8 +8767,11 @@ async function runUpdateOrganizationProfile(input: {
           ? Number(input.largeAmountAlertMnt)
           : null,
     aiPostLimitMnt,
+    controlAccountGuard: input.controlAccountGuard,
   }));
-  return { resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}${limitNote}` };
+  return {
+    resultText: `Компанийн мэдээлэл шинэчлэгдлээ: ${name}${limitNote}${input.controlAccountGuard ? ` · хяналтын данс: ${input.controlAccountGuard === "block" ? "хориг" : "анхааруулга"}` : ""}`,
+  };
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -11351,7 +11524,7 @@ async function dispatchAiTool(
       case "create_cash_account":
         return await runCreateCashAccount(orgId, args);
       case "activate_fixed_asset":
-        return await runActivateFixedAsset(orgId, args);
+        return await runActivateFixedAsset(orgId, args, mode);
       case "delete_fixed_asset":
         return await runDeleteFixedAsset(orgId, args, mode);
       case "reverse_fa_depreciation":

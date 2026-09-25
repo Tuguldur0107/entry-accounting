@@ -21,6 +21,9 @@ import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts, updateVoucher } from "../lib/actions/gl";
 import { backfillCashDraftsForUser } from "../lib/cash/sync-voucher";
 import { getPayrollRunData } from "../lib/actions/payroll";
+import { activateFixedAsset } from "../lib/actions/fa";
+import { postArApDocument } from "../lib/actions/arap";
+import { postCashDocument } from "../lib/actions/cash";
 import { db } from "../lib/db";
 import {
   accountingPeriods,
@@ -30,10 +33,12 @@ import {
   chartOfAccounts,
   costEntries,
   employees,
+  fixedAssets,
   goodsReceipts,
   journalLines,
   journalVouchers,
   memberships,
+  organizationProfile,
   organizations,
   purchaseOrders,
   users,
@@ -75,6 +80,7 @@ async function setupOrg() {
   });
   userId = user.id;
   orgId = org.id;
+  await db.insert(organizationProfile).values({ userId: user.id, organizationId: org.id, name: `SIM2 регресс ${STAMP}` });
   const sync = await asOrg(() => syncStandardAccounts());
   assert.ok(!sync.error, `стандарт данс: ${sync.error}`);
 }
@@ -405,4 +411,130 @@ test("SIM2-014/004: S8 ангилал автоматаар, list_segment_values,
   assert.match(ok(await tool("sync_standard_accounts", {})).resultText, /Стандарт данс 1 нэмэгдлээ/);
   assert.match(ok(await tool("sync_standard_accounts", {})).resultText, /нэмэх зүйлгүй/);
   assert.match(ok(await tool("list_gl_accounts", { query: "44000098" })).resultText, /44000098/);
+});
+
+// ── Бүлэг 4: ҮХ / GL хяналт ─────────────────────────────────────────────────
+
+async function glNet(main: string, to = "2026-12-31") {
+  const rows = await db
+    .select({ debit: journalLines.debit, credit: journalLines.credit, accountNumber: journalLines.accountNumber })
+    .from(journalLines)
+    .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
+    .where(and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.status, "posted")));
+  return rows
+    .filter((row) => row.accountNumber.split(".")[2] === main || row.accountNumber === main)
+    .reduce((sum, row) => sum + Number(row.debit) - Number(row.credit), 0);
+}
+
+test("SIM2-037: create_fixed_asset capitalizeFrom → Dr 20000001 / Cr 20000099; reconcile ҮХ хэсэг", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  ok(await tool("create_counterparty", { name: "ҮХ нийлүүлэгч", counterpartyType: "supplier" }));
+  // B 2026-05: АП нэхэмжлэх ҮХ-ийн түр дансанд (24M)
+  ok(await tool("create_arap_invoice", {
+    documentType: "ap_bill", counterparty: "ҮХ нийлүүлэгч", date: "2026-05-05", description: "Тоног төхөөрөмж",
+    externalRef: `sim2-${STAMP}-fabuy`, lines: [{ account: "20000099", amount: 24_000_000, description: "Тоног төхөөрөмж" }],
+  }));
+  // 24M > AI-ийн 10M хязгаар — хэрэглэгч вэбээс батална
+  const bill = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim2-${STAMP}-fabuy`)),
+  });
+  const postedBill = await asOrg(() => postArApDocument(bill!.id));
+  assert.ok(!postedBill.error, postedBill.error);
+  assert.equal(await glNet("20000099"), 24_000_000);
+
+  // Хязгаараас их тул ноорог карт + ноорог журнал
+  const created = ok(await tool("create_fixed_asset", {
+    name: "CNC машин", acquisitionDate: "2026-05-10", cost: 24_000_000, usefulLifeMonths: 120,
+    custodian: "Үйлдвэр", capitalizeFrom: "20000099",
+  })).resultText;
+  assert.match(created, /капиталжуулах журнал FA-26-\d{6} \(Dr 20000001 \/ Cr 20000099, ноорог/);
+  const card = await db.query.fixedAssets.findFirst({
+    where: and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.name, "CNC машин")),
+  });
+  assert.equal(card?.status, "draft");
+  assert.equal(await glNet("20000001"), 0, "ноорог журнал GL-д ороогүй");
+
+  // Идэвхжүүлэхэд журнал батлагдана — tool нь хязгаартай, вэб (action) шууд
+  assert.match((await tool("activate_fixed_asset", { assetCode: card!.code }, "post")).resultText, /AMOUNT_LIMIT|хязгаар/);
+  const activated = await asOrg(() =>
+    activateFixedAsset(card!.id, {
+      code: card!.code, name: card!.name, acquisitionDate: card!.acquisitionDate, cost: 24_000_000, salvageValue: 0,
+      usefulLifeMonths: 120, depreciationMethod: "straight_line", custodian: "Үйлдвэр", depreciationStartMonth: "2026-06",
+      assetAccountNumber: "20000001", accumDepAccountNumber: "20000002", depExpenseAccountNumber: "70000001",
+    })
+  );
+  assert.ok(!activated.error, activated.error);
+  assert.equal(await glNet("20000001"), 24_000_000);
+  assert.equal(await glNet("20000099"), 0, "түр данс тэглэгдэв");
+
+  // capitalizeFrom-гүй карт GL-д ороогүй → reconcile ҮХ хэсэг зөрүү заана
+  const plain = ok(await tool("create_fixed_asset", {
+    name: "Ширээ", acquisitionDate: "2026-05-12", cost: 700_000, usefulLifeMonths: 60, custodian: "Оффис",
+  }, "post")).resultText;
+  assert.match(plain, /GL журнал үүсээгүй/);
+  const reconcile = ok(await tool("reconcile_modules", { from: "2026-05-01", to: "2026-05-31" })).resultText;
+  assert.match(reconcile, /ЗӨРҮҮ 20000001 \(өртөг\): бүртгэл 24,700,000 vs GL 24,000,000/);
+  assert.match(reconcile, /картын өртөг GL-ээс 700,000₮ илүү/);
+  await db.delete(fixedAssets).where(and(eq(fixedAssets.organizationId, orgId), eq(fixedAssets.name, "Ширээ")));
+  assert.match(ok(await tool("reconcile_modules", { from: "2026-05-01", to: "2026-05-31" })).resultText, /OK 20000001 \(өртөг\): 24,000,000/);
+});
+
+test("SIM2-038: хяналтын дансанд гар журнал — анхааруулга, «block» горимд хориг", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // B: найдваргүй авлага хасах Cr 13110000 5.5M
+  const warned = ok(await tool("create_journal_voucher", {
+    date: "2026-05-20", description: "Найдваргүй авлага хасав",
+    lines: [{ account: "73100001", debit: 5_500_000 }, { account: "13110000", credit: 5_500_000 }],
+  })).resultText;
+  assert.match(warned, /⚠ Хяналтын данс \(13110000\)/);
+
+  ok(await tool("update_company_settings", { controlAccountGuard: "block" }));
+  const blocked = await tool("create_journal_voucher", {
+    date: "2026-05-21", description: "Суутган татвар reclass",
+    lines: [{ account: "31000001", debit: 250_000 }, { account: "73100001", credit: 250_000 }],
+  });
+  assert.match(blocked.resultText, /CONTROL_ACCOUNT/);
+  // Нээлтийн журнал хориглогдохгүй
+  ok(await tool("create_journal_voucher", {
+    date: "2026-01-01", description: "Нээлт", externalRef: `opening-balance:${STAMP}`,
+    lines: [{ account: "13110000", debit: 1_000 }, { account: "44000098", credit: 1_000 }],
+  }));
+  // AI хоригийг сулруулж чадахгүй
+  assert.match((await tool("update_company_settings", { controlAccountGuard: "warn" })).resultText, /HUMAN_REQUIRED/);
+  await db.update(organizationProfile).set({ controlAccountGuard: "warn" }).where(eq(organizationProfile.organizationId, orgId));
+});
+
+test("SIM2-046: батлагдсан журнал устгагдахгүй — буцаалтаар", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  const created = ok(await tool("create_journal_voucher", {
+    date: "2026-05-22", description: "Засах журнал", externalRef: `sim2-${STAMP}-del`,
+    lines: [{ account: "73100001", debit: 10_000 }, { account: "51100000", credit: 10_000 }],
+  }, "post")).resultText;
+  assert.match(created, /төлөв: posted/);
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `sim2-${STAMP}-del`)),
+  });
+  const refused = await tool("delete_journal_voucher", { voucherId: voucher!.documentNo }, "post");
+  assert.match(refused.resultText, /USE_REVERSAL/);
+  assert.ok(await db.query.journalVouchers.findFirst({ where: eq(journalVouchers.id, voucher!.id) }));
+  ok(await tool("reverse_journal_voucher", { voucherId: voucher!.documentNo }, "post"));
+  assert.match((await tool("delete_journal_voucher", { voucherId: voucher!.documentNo }, "post")).resultText, /USE_REVERSAL/);
+});
+
+test("SIM2-043: АР төлбөр (S8 1101) мөнгөн гүйлгээний тайланд «Борлуулалт»-д", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  ok(await tool("create_cash_account", { name: "CF банк", accountType: "bank", glAccount: "11000001" }));
+  // C 2025-03: АР төлбөр 70,833,612₮, cashFlowCode 1101 (S8 сегмент идэвхгүй)
+  ok(await tool("create_cash_transaction", {
+    documentType: "receipt", date: "2025-03-15", cashAccount: "CF банк", counterAccount: "13110000",
+    amount: 70_833_612, description: "Худалдан авагчийн төлбөр", cashFlowCode: "1101",
+  }));
+  const receipt = await db.query.cashDocuments.findFirst({
+    where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.description, "Худалдан авагчийн төлбөр")),
+  });
+  const postedReceipt = await asOrg(() => postCashDocument(receipt!.id));
+  assert.ok(!postedReceipt.error, postedReceipt.error);
+  const text = ok(await tool("get_cash_flow", { from: "2025-03-01", to: "2025-03-31" })).resultText;
+  assert.match(text, /Борлуулалт, үйлчилгээний орлого — 70,833,612/);
+  assert.doesNotMatch(text, /эргэлтийн хөрөнгийн өөрчлөлт — 70,833,612/);
 });
