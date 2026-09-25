@@ -169,7 +169,9 @@ deeplink) → webhook `POST /api/billing/qpay/webhook?payment=<id>` (HMAC-SHA256
   хаалттай
 - Аудит `subscription` (`payment_created` / `paid` / `payment_amount_mismatch`
   / `webhook_rejected`); Console `GET /api/platform/organizations?id=` →
-  `billingPayments` (сүүлийн 10)
+  `billingPayments` (сүүлийн 10) ба бүх байгууллагын жагсаалт
+  `GET /api/platform/billing-payments[?organizationId=&status=&limit=]`
+  (`lib/billing/platform-payments.ts` — QR/нууц буцаахгүй)
 
 ```
 lib/billing/self-pay.ts        ЦЭВЭР (tests/billing-self-pay.test.ts): selfPayOptions,
