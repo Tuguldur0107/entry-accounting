@@ -5,6 +5,13 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Added
+
+- **Platform API: байгууллага бүрмөсөн устгах** — `DELETE /api/platform/organizations?id=`
+  (Entry Console-ийн «Аюултай бүс»): нэр/ID-гээр баталгаажуулж `purgeOrganization`,
+  сонголтоор өнчин болсон гишүүдийн хэрэглэгчийн бүртгэлийг ч устгана
+  (`lib/platform/org-purge.ts`, тесттэй).
+
 ### Fixed
 
 - **POS баримтын eBarimt QR эхний баримт дээр зурагддаггүй байв.** `ReceiptQr`

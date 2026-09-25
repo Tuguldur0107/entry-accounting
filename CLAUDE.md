@@ -216,7 +216,12 @@ entry-accounting/
   багц/суудал солихгүй (пропорц зохиохгүй); read-only үед ч төлнө
   (`requireRole`, assertWritesAllowed-гүй); мөнгө хэзээ ч алдагдахгүй
   (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`). Console: `GET
-  /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`)
+  /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`).
+  **Байгууллага БҮРМӨСӨН устгах** — Console-оос `DELETE /api/platform/organizations?id=`
+  body `{ confirm: <нэр эсвэл id>, purgeUsers? }` (`lib/platform/org-purge.ts`):
+  апп доторх устгалттай НЭГ `purgeOrganization`; баталгаажуулалт нэр/ID яг таарах
+  (`purgeConfirmationMatches` ЦЭВЭР, тесттэй); өнчин гишүүдийг сонголтоор устгана,
+  RESTRICT-ээр заагдсан хэрэглэгч үлдэнэ. Буцаагдахгүй — серверийн лог
 - **Дэмжлэгийн хандалт** (`docs/deployment/support-access.md` — ЗААВАЛ уншина;
   `lib/platform/support.ts` ЦЭВЭР + `support-store.ts` DB): платформын оператор
   харилцагчийн байгууллагад ТҮР орох цорын ганц зам. Эрх нь ХЭРЭГЛЭГЧИД биш
