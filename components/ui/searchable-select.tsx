@@ -4,10 +4,14 @@
 // chart of accounts). A plain <select> becomes unusable past a few dozen
 // rows; this gives a filter box plus a keyboard-navigable list, portalled
 // to <body> so it isn't clipped by dialog overflow.
+// Гар: ↑/↓ мөр солих, Enter идэвхтэй мөрийг сонгох (илэрцгүй бол юу ч
+// сонгохгүй), Esc хаах, Tab хаагаад дараагийн талбар. «— Хоосон» нь ЗӨВХӨН
+// хулганаар — Tab/Enter-ээр санамсаргүй утга арилахаас сэргийлнэ.
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { createPortal } from "react-dom";
+import { enterPickValue, initialActiveIndex, moveActiveIndex } from "@/lib/ui/listbox-nav";
 
 const MIN_WIDTH = 260;
 const MARGIN = 8;
@@ -96,6 +100,10 @@ export function SearchableSelect({
   const open = anchor !== null;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  // Гарын идэвхтэй мөр — `visible`-ийн индекс (-1 = мөр алга).
+  const [active, setActive] = useState(-1);
 
   const selected =
     options.find((o) => o.value === value) ??
@@ -117,10 +125,19 @@ export function SearchableSelect({
   }, [options, query, serverFiltered, customOption]);
   const visible = maxVisible ? filtered.slice(0, maxVisible) : filtered;
   const hidden = filtered.length - visible.length;
+  // Сервер талын жагсаалт хожуу ирж богиносож болох тул хэрэглэхдээ хязгаарлана.
+  const activeIndex = visible.length === 0 ? -1 : Math.min(active, visible.length - 1);
 
   function changeQuery(next: string) {
     setQuery(next);
     onQueryChange?.(next);
+    setActive(next.trim() ? 0 : unfilteredActive());
+  }
+
+  // Хайлтгүй жагсаалтад сонгосон утгын мөр (эс бөгөөс эхний мөр).
+  function unfilteredActive() {
+    const base = maxVisible ? options.slice(0, maxVisible) : options;
+    return initialActiveIndex(base.map((o) => o.value), value, false);
   }
 
   function openDropdown() {
@@ -129,6 +146,32 @@ export function SearchableSelect({
     changeQuery("");
     setTimeout(() => inputRef.current?.focus(), 30);
   }
+
+  function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive(moveActiveIndex(activeIndex, e.key === "ArrowDown" ? 1 : -1, visible.length));
+    } else if (e.key === "Enter") {
+      // Маягтыг submit хийлгэхгүй; илэрцгүй бол юу ч сонгохгүй («Хоосон» БИШ).
+      e.preventDefault();
+      const next = enterPickValue(visible.map((o) => o.value), activeIndex);
+      if (next !== null) {
+        pick(next);
+        triggerRef.current?.focus();
+      }
+    } else if (e.key === "Tab") {
+      // Portal body-ийн төгсгөлд тул Tab-ийг trigger-ээс үргэлжлүүлнэ.
+      setAnchor(null);
+      triggerRef.current?.focus();
+    }
+  }
+
+  // Идэвхтэй мөрийг жагсаалтын харагдах хэсэгт байлгана.
+  useEffect(() => {
+    if (!open || activeIndex < 0) return;
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-option-index="${activeIndex}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+  }, [open, activeIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -227,14 +270,21 @@ export function SearchableSelect({
                 type="text"
                 value={query}
                 onChange={(e) => changeQuery(e.target.value)}
+                onKeyDown={onInputKeyDown}
+                role="combobox"
+                aria-expanded={true}
+                aria-controls={listId}
+                aria-autocomplete="list"
+                aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
                 placeholder="Хайх..."
                 className="w-full rounded-md border border-[var(--ea-border)] bg-[var(--ea-bg)] px-2 py-1.5 text-xs text-[var(--ea-text-1)] outline-none focus:border-[var(--ea-primary)]"
               />
             </div>
             {/* maxHeight нь эцэг элемент дээр — жагсаалт үлдсэн зайг эзэлнэ. */}
-            <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
+            <div ref={listRef} id={listId} role="listbox" style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
               <button
                 type="button"
+                tabIndex={-1}
                 onMouseDown={() => pick("")}
                 className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-[var(--ea-text-4)] transition-colors hover:bg-[var(--ea-bg-2)]"
               >
@@ -245,14 +295,26 @@ export function SearchableSelect({
                   {emptyLabel}
                 </div>
               ) : (
-                visible.map((o) => (
+                visible.map((o, index) => (
                   <button
                     key={o.value}
+                    id={`${listId}-${index}`}
                     type="button"
+                    tabIndex={-1}
+                    role="option"
+                    aria-selected={o.value === value}
+                    data-option-index={index}
                     onMouseDown={() => pick(o.value)}
+                    onMouseEnter={() => setActive(index)}
                     className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-[var(--ea-bg-2)]"
                     style={{
-                      background: o.value === value ? "var(--ea-primary-50)" : "transparent",
+                      background:
+                        index === activeIndex
+                          ? "var(--ea-bg-2)"
+                          : o.value === value
+                            ? "var(--ea-primary-50)"
+                            : "transparent",
+                      boxShadow: index === activeIndex ? "inset 2px 0 0 var(--ea-primary)" : undefined,
                     }}
                   >
                     <Icon name="approve" size="sm" className="shrink-0" style={{ opacity: o.value === value ? 1 : 0, color: "var(--ea-primary)" }} />
