@@ -1775,7 +1775,9 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
   багцаар бүх системийг үнэгүй ашиглах зам болохоос сэргийлнэ: `requireModuleAction`
   (уншилт ч, `assertModuleEntitlements`), `ModuleGuard`, AI/MCP tool
   (`lib/billing/tool-scope.ts` `ACCOUNTING_FREE_TOOLS` — `tools/list` шүүлт +
-  `executeAiTool` хаалт), вэб нүүр = холбох заавар (`components/skills/`). Шинэ
+  `executeAiTool` хаалт), вэб нүүр = НЭГ хуудас (`components/skills/skills-home.tsx`:
+  давуу тал → ① төлбөр/сунгах (`SkillsPay`, QR диалог нь billing-тэй НЭГ) →
+  ② холбох); `/settings/billing` нүүр рүү redirect, топбарын багцын баннер гарахгүй. Шинэ
   tool нэмэхэд skills-д нээх эсэхийг ЗӨВХӨН `ACCOUNTING_FREE_TOOLS`-оор шийднэ.
   Тест `tests/billing-skills.test.ts`, `tests/skills-plan-flow.test.ts` (DB)
 - **Хэсгээр л** — «бүгдийг буцаах» параметр, сэдвийг бүтнээр өгөх зам НЭМЭХГҮЙ;

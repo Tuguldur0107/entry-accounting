@@ -3,12 +3,15 @@
 import Link from "next/link";
 
 import { Icon } from "@/components/ui/icon";
-import { READ_ONLY_MESSAGES, type Entitlements } from "@/lib/billing/entitlements";
+import { hasFeature, READ_ONLY_MESSAGES, type Entitlements } from "@/lib/billing/entitlements";
 
 const ALERT_DAYS = 7;
 
 export function SubscriptionBanner({ entitlements: ent }: { entitlements: Entitlements }) {
   if (ent.mode === "dedicated") return null;
+  // «AI нягтлан» (skills) — төлөв, сунгалт нүүрний хуудсанд ил; «бичилт хаагдана»
+  // гэсэн нягтлан бодох системийн баннер энэ багцад хамаарахгүй.
+  if (!hasFeature(ent, "accounting")) return null;
   let text: string | null = null;
   let danger = false;
   if (ent.readOnlyReason) {
