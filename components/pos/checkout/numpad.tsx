@@ -1,8 +1,9 @@
 "use client";
 
-// Кассын numpad — docs/pos §4.1 v2. Сонгосон мөрийн Тоо / Хөнг % / Үнэ-г
+// Кассын numpad — docs/pos §4.1 v2. Сонгосон мөрийн Тоо / Хөнг %-ийг
 // хүрэлцэх дэлгэцээр засна (Odoo / Square-ийн заншил): горим сонгоод тоо
-// дарна, буфер тухай бүр мөрд орно. Логик `lib/pos/checkout-state.ts`
+// дарна, буфер тухай бүр мөрд орно. Үнэ кассаас засагдахгүй
+// (барааны картын борлуулах үнэ; буулгах нь хөнгөлөлтөөр). Логик `lib/pos/checkout-state.ts`
 // (`pressNumpad`, `applyNumpad`) — энд зөвхөн товчлуурууд.
 
 import { Icon } from "@/components/ui/icon";
@@ -20,7 +21,7 @@ const DIGIT_ROWS: NumpadKey[][] = [
   ["0", ".", "⌫"],
 ];
 
-const MODES: NumpadMode[] = ["qty", "discount", "price"];
+const MODES: NumpadMode[] = ["qty", "discount"];
 
 const keyClass =
   "ea-interactive flex h-10 select-none items-center justify-center rounded-lg border border-[var(--ea-border)] bg-[var(--ea-surface-raised)] font-mono text-base font-medium text-[var(--ea-text-1)] hover:border-[var(--ea-border-strong)] hover:bg-[var(--ea-hover-subtle)] active:translate-y-px disabled:pointer-events-none disabled:opacity-40";
@@ -46,7 +47,7 @@ export function Numpad({
     <div className="shrink-0 space-y-1.5">
       <div className="flex h-6 items-center justify-between px-0.5 text-[11px]">
         <span className="min-w-0 truncate text-[var(--ea-text-3)]">
-          {lineLabel ?? "Мөр сонгоод тоо / хөнгөлөлт / үнэ засна"}
+          {lineLabel ?? "Мөр сонгоод тоо / хөнгөлөлт засна"}
         </span>
         {lineLabel && (
           <span className="shrink-0 font-mono text-[var(--ea-text-2)]">

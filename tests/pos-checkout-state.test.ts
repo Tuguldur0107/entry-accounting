@@ -8,16 +8,15 @@ import {
   cartQuantityByItem,
   filterCheckoutItems,
   MAX_PARKED_TICKETS,
+  NUMPAD_MODE_LABELS,
   numpadValue,
   parkTicket,
   parseParkedTickets,
   parseStoredCart,
   pressNumpad,
-  resetLinePrice,
   resolveScan,
   setLineDiscountAmount,
   setLineDiscountPercent,
-  setLinePrice,
   setLineQuantity,
   type CartRow,
   type ParkedTicket,
@@ -46,17 +45,34 @@ test("addToCart: ижил бараа тоог нэмэгдүүлнэ, үнэгү
   assert.equal(third.cart[1].quantity, 3);
 });
 
-test("addToCart: үнэ зассан / хөнгөлөлттэй мөрд нэгтгэхгүй — шинэ мөр", () => {
+test("addToCart: хөнгөлөлттэй мөрд нэгтгэхгүй — шинэ мөр", () => {
   const next = keyGen();
   let cart = addToCart([], cola, next)!.cart;
-  cart = setLinePrice(cart, "L1", 2000);
-  assert.equal(cart[0].priceOverridden, true);
+  cart = setLineDiscountPercent(cart, "L1", 10);
   cart = addToCart(cart, cola, next)!.cart;
   assert.equal(cart.length, 2);
+  assert.equal(cart[1].manualDiscountPercent, null);
   assert.equal(cart[1].unitPrice, 2500);
-  cart = resetLinePrice(cart, "L1");
-  assert.equal(cart[0].priceOverridden, false);
-  assert.equal(cart[0].unitPrice, 2500);
+});
+
+test("касс үнэ засахгүй: numpad-д «Үнэ» горим байхгүй, мөр барааны үнээр", () => {
+  assert.deepEqual(Object.keys(NUMPAD_MODE_LABELS), ["qty", "discount"]);
+  const next = keyGen();
+  // Жинлэдэг бараа: кг-ийн үнэ = борлуулах үнэ, жин = тоо хэмжээ
+  const meat = { id: "i-meat", code: "MT-01", name: "Үхрийн мах", unit: "кг", barcode: null, categoryCode: null, salesPrice: 18000 };
+  let cart = addToCart([], meat, next)!.cart;
+  cart = applyNumpad(cart, "L1", "qty", "1.35");
+  assert.equal(cart[0].quantity, 1.35);
+  assert.equal(cart[0].unitPrice, 18000);
+});
+
+test("parseStoredCart: хуучин паркийн гараар зассан үнэ барааны үнэ рүү буцна", () => {
+  const raw = {
+    cart: [{ key: "L1", itemId: "i-cola", quantity: 1, unitPrice: 2000, priceOverridden: true, salesPrice: 2500 }],
+  };
+  const parsed = parseStoredCart(raw, new Set(["i-cola"]))!;
+  assert.equal(parsed.cart[0].unitPrice, 2500);
+  assert.equal("priceOverridden" in parsed.cart[0], false);
 });
 
 test("тоо 0 → мөр хасагдана; −/+ засварлана", () => {
@@ -108,9 +124,6 @@ test("applyNumpad: горим бүрд зөв талбар; хоосон буф�
   assert.equal(cart[0].quantity, 4);
   cart = applyNumpad(cart, "L1", "discount", "15");
   assert.equal(cart[0].manualDiscountPercent, 15);
-  cart = applyNumpad(cart, "L1", "price", "2300");
-  assert.equal(cart[0].unitPrice, 2300);
-  assert.equal(cart[0].priceOverridden, true);
   cart = applyNumpad(cart, "L1", "qty", "0");
   assert.equal(cart.length, 0);
 });
@@ -158,7 +171,7 @@ test("parseStoredCart: гажиг мөр, устсан бараа хасагда
 
 test("парк: эхэнд нэмэгдэж, ижил id солигдож, MAX хязгаарлагдана", () => {
   const known = new Set(["i-cola"]);
-  const row: CartRow = { key: "L1", itemId: "i-cola", code: "CL-01", name: "Кола", unit: "ш", quantity: 1, unitPrice: 2500, priceOverridden: false, salesPrice: 2500, manualDiscountPercent: null, manualDiscountAmount: null };
+  const row: CartRow = { key: "L1", itemId: "i-cola", code: "CL-01", name: "Кола", unit: "ш", quantity: 1, unitPrice: 2500, manualDiscountPercent: null, manualDiscountAmount: null };
   const make = (id: string): ParkedTicket => ({ id, parkedAt: "2026-09-19T10:00:00Z", label: "", cart: [row], couponCodes: [], receiptDiscountMode: "percent", receiptDiscountValue: "", customerId: "", lineCount: 1, total: 2500 });
   let list: ParkedTicket[] = [];
   for (let i = 0; i < MAX_PARKED_TICKETS + 3; i++) list = parkTicket(list, make(`p${i}`));
@@ -176,7 +189,7 @@ test("парк: эхэнд нэмэгдэж, ижил id солигдож, MAX �
 test("cartQuantityByItem: мөрүүд бараагаар нэгтгэгдэнэ", () => {
   const next = keyGen();
   let cart = addToCart([], cola, next)!.cart;
-  cart = setLinePrice(cart, "L1", 2000);
+  cart = setLineDiscountPercent(cart, "L1", 5);
   cart = addToCart(cart, cola, next, 2)!.cart;
   assert.equal(cartQuantityByItem(cart).get("i-cola"), 3);
 });
