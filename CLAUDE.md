@@ -892,6 +892,12 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   «ТЕГ-ээс татах» (хоосон бол `company_settings.registerNo`) эсвэл хадгалахад
   `updatePosSettings` `lookupTinByRegNo`-оор ТТД болгоно; унавал ШИДНЭ (ТТД
   ЗОХИОХГҮЙ). Салбар / кассын дугаар хоосон бол форм «001»-ийг ИЛ санал болгоно
+- **Операторын PosAPI нийтэд ХААЛТТАЙ** (2026-09-25, `docs/deployment/ebarimt.md`
+  §4a): Cloudflare WAF нууц header шаардана; Entry сервер PosAPI + лавлахын прокси
+  (`EBARIMT_PUBLIC_API_BASE`) руу `EBARIMT_GATEWAY_KEY`-г нэмнэ — ЗӨВХӨН
+  `EBARIMT_GATEWAY_HOSTS`-ийн хост руу (харилцагчийн дурын `ebarimtPosApiUrl` руу
+  нууц АЛДАГДАХГҮЙ, албан `api.ebarimt.mn` руу хэзээ ч). ЦЭВЭР
+  `lib/ebarimt/gateway-auth.ts` (тесттэй); `/api/health.ebarimt.gatewayAuth` зөвхөн boolean
 - **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
   гараар засах ХОРИОТОЙ (давхар баримт)
 - **Борлуулалт бүрд eBarimt-гүй (`skipped`)**: төлбөрийн диалогийн «eBarimt
@@ -959,6 +965,7 @@ lib/ebarimt/
 │                  components/inventory/ebarimt-code-pickers.tsx (7 ба 3 оронтой)
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
+├── gateway-auth.ts WAF-ын нууц header — allowlist-ийн хост руу л (ЦЭВЭР, тесттэй)
 ├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo (РД → ТТД) + getInfo (ТТД → нэр) /
 │                  getBranchInfo (24ц кэш; parse нь ЦЭВЭР, tests/ebarimt-lookup.test.ts)
 ├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /

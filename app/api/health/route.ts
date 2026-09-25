@@ -8,6 +8,7 @@ import { aiLoggingHealthStats } from "@/lib/ai-logging/service";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { deploymentMode } from "@/lib/deployment-mode";
 import { APP_VERSION, GIT_SHA } from "@/lib/version";
+import { gatewayAuthConfigured, serverGatewayEnv } from "@/lib/ebarimt/gateway-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,8 @@ async function ebarimtHealth() {
       })
       .from(posEbarimtSubmissions);
     return {
+      // Операторын PosAPI-ийн WAF нууц header тохируулсан эсэх — УТГА БИШ (ebarimt.md §4a).
+      gatewayAuth: gatewayAuthConfigured(serverGatewayEnv()),
       enabledOrganizations: Number(orgs?.enabled ?? 0),
       serverModeOrganizations: Number(orgs?.server ?? 0),
       pending: Number(queue?.pending ?? 0),
