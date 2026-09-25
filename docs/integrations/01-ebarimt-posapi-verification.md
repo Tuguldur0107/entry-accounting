@@ -153,6 +153,14 @@ Entry `EbarimtReceiptRequest`-д талбар ОГТ БАЙХГҮЙ.
 
 ## 3. P1 — ажиллагаанд нөлөөлөх
 
+> **Төлөв 2026-09-25:** P1-1 (`EBARIMT_PUBLIC_API_BASE` env, `publicApiBase()`), P1-2
+> (иргэний РД татгалзана, ТТД шууд → нэр `lookupTaxpayerByTin`, касс ТТД-г үндсэн зам
+> болгов, алдаанд ТТД-ийн зөвлөмж), P1-4 (`EBARIMT_PAYMENT_CODES`, readiness `warnings`,
+> QPay seed `BANK_TRANSFER_QPAY`, `INVOICE` санал хасагдав) кодонд оров. P1-3 — DELETE-ийн
+> урсгал ХЭВЭЭР (бүтэн буцаалт → DELETE), татгалзсан хариунд ТЕГ-ийн дүрмийг ил бичнэ;
+> B2B бүтэн буцаалтын зөв замыг §4.1 (7) staging тестээр тогтооно. Харилцагчийн картад
+> ТТД хадгалах (schema багана) — дараагийн PR.
+
 | # | Асуудал | Албан эх | Entry одоо | Санал |
 |---|---|---|---|---|
 | P1-1 | **Гео-хязгаар:** `api.ebarimt.mn`, `auth.itc.gov.mn` зөвхөн Монголын сүлжээнээс | API холболтын заавар «Сүлжээний тохиргоо» | `lookup.ts` (`getTinInfo`/`getInfo`/`getBranchInfo`) Railway серверээс шууд `fetch` → гадаад бүсэд **унах магадлал өндөр**; кассын ААН лавлах, дүүргийн сонголт ажиллахгүй | Монголд байрлах egress (операторын PosAPI сервер дээрх reverse proxy / VPN) — `EBARIMT_PUBLIC_API_BASE`-ийг env-ээр солигддог болгох; production log-оор одоогийн амжилтын хувийг шалгах |

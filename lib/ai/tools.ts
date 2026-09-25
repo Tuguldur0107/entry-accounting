@@ -3249,7 +3249,7 @@ export const AI_TOOLS: AiToolDef[] = [
           description: "Бүртгэлийн замыг шийднэ (шинээр үүсгэхэд ЗААВАЛ) — cash=бэлэн, card/ewallet/bnpl=түр данстай, credit=зээл",
         },
         cashAccount: { type: "string", description: "Мөнгө хүлээн авах касс/банк/түр дансны НЭР (cash/cash_fx/card/ewallet/bnpl/bank_transfer төрөлд ЗААВАЛ)" },
-        ebarimtCode: { type: "string", description: "eBarimt-ийн төлбөрийн код (ТЕГ: CASH, PAYMENT_CARD, QPAY …) — хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй" },
+        ebarimtCode: { type: "string", description: "eBarimt-ийн төлбөрийн код — ТЕГ-ийн албан жагсаалт: CASH, PAYMENT_CARD, BANK_TRANSFER, BANK_TRANSFER_QPAY (өөр код PosAPI-д татгалзагдаж болзошгүй; зээлд төлөгдөх хэлбэрийнх нь код); хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй" },
         provider: { type: "string", description: "ewallet-ийн провайдер: \"qpay\" бол төлбөр QR intent-ээр батлагдана; бусад төрөлд хоосон" },
         requiresReference: { type: "boolean", description: "Лавлах дугаар заавал эсэх (терминалын слип)" },
         allowsRefund: { type: "boolean", description: "Буцаалтад ашиглах эсэх" },
@@ -3459,10 +3459,10 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "lookup_tin",
     description:
-      "ТЕГ-ийн нийтийн лавлахаас регистрийн дугаараар байгууллагын ТТД ба нэрийг олно (B2B баримт, харилцагч бүртгэхэд). Олдохгүй бол алдаа — ТТД ЗОХИОХГҮЙ.",
+      "ТЕГ-ийн нийтийн лавлахаас БАЙГУУЛЛАГЫН регистрийн дугаар (7 орон) эсвэл ТТД (11/14 орон)-аар ТТД ба нэрийг олно (B2B баримт, харилцагч бүртгэхэд). Иргэний РД-аар лавлахгүй (хувийн мэдээлэл — ТЕГ 2026-05-11; регистрээр лавлах 2026-06-15-аас хязгаарлагдана) — ТТД шууд өгөх нь үндсэн зам. Олдохгүй бол алдаа — ТТД ЗОХИОХГҮЙ.",
     inputSchema: {
       type: "object",
-      properties: { regNo: { type: "string", description: "Байгууллагын регистрийн дугаар (эсвэл 7 оронтой ТТД)" } },
+      properties: { regNo: { type: "string", description: "Байгууллагын регистрийн дугаар (7 орон) эсвэл ТТД (11/14 орон)" } },
       required: ["regNo"],
     },
   },
@@ -11959,6 +11959,7 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
     readiness.ready
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,
+    ...(readiness.warnings.length ? [`Анхааруулга: ${readiness.warnings.join("; ")}`] : []),
     status.enabled && status.mode === "server"
       ? status.posApi
         ? `PosAPI: ${status.posApi.operatorName ?? "оператор ?"} · posNo ${status.posApi.posNo ?? "?"} · үлдсэн сугалаа ${status.posApi.leftLotteries ?? "?"} · ТЕГ рүү сүүлд ${status.posApi.lastSentDate ?? "?"} · мерчант бүртгэлтэй: ${status.posApi.merchantRegistered == null ? "тодорхойгүй" : status.posApi.merchantRegistered ? "тийм" : "ҮГҮЙ — operator.ebarimt.mn-ээс хүсэлт илгээж харилцагчаар батлуулна"}`

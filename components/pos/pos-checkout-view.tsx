@@ -45,6 +45,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { getEbarimtOutbox, lookupEbarimtTin, recordEbarimtResponse } from "@/lib/actions/ebarimt";
 import {
   IDLE_LOOKUP,
+  needsOrgLookup,
   orgNoKind,
   resolveBuyer,
   sanitizeOrgNo,
@@ -223,12 +224,15 @@ export function PosCheckoutView({
         : {
             ...current,
             orgNo,
-            lookup: orgNoKind(orgNo) === "register" ? { ...IDLE_LOOKUP, status: "loading" } : IDLE_LOOKUP,
+            lookup: needsOrgLookup(orgNo) ? { ...IDLE_LOOKUP, status: "loading" } : IDLE_LOOKUP,
           }
     );
   }, []);
-  // 7 оронтой регистр бичигдмэгц ТЕГ-ээс НЭР + ТТД (getTinInfo → getInfo), debounce.
-  const lookupRegNo = buyerState.type === "org" && orgNoKind(buyerState.orgNo) === "register" ? buyerState.orgNo : "";
+  // 7 оронтой регистр → ТЕГ-ээс ТТД + НЭР (getTinInfo → getInfo); ТТД (11/14) шууд →
+  // зөвхөн НЭР (getInfo — B2B баримтад худалдан авагчийн нэр хэвлэгдэнэ). ТТД-ийн
+  // лавлах унасан ч төлбөр хаагдахгүй (resolveBuyer) — регистрээр лавлах нь
+  // 2026-06-15-аас хязгаарлагдах тул ТТД шууд оруулах нь үндсэн зам (P1-2).
+  const lookupRegNo = buyerState.type === "org" && needsOrgLookup(buyerState.orgNo) ? buyerState.orgNo : "";
   useEffect(() => {
     if (!lookupRegNo) return;
     let alive = true;
@@ -277,7 +281,7 @@ export function PosCheckoutView({
                 ...current,
                 type: "org",
                 orgNo: regNo,
-                lookup: orgNoKind(regNo) === "register" ? { ...IDLE_LOOKUP, status: "loading" } : IDLE_LOOKUP,
+                lookup: needsOrgLookup(regNo) ? { ...IDLE_LOOKUP, status: "loading" } : IDLE_LOOKUP,
               }
         );
       }

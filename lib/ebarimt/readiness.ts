@@ -11,7 +11,7 @@
 // Код ЗОХИОХГҮЙ (CLAUDE.md §5c) — зөвхөн дутууг НЭРЛЭНЭ.
 
 import { effectiveCategoryClassification } from "@/lib/inventory/category-tree";
-import { CLASSIFICATION_CODE_RE, TAX_PRODUCT_CODE_RE } from "./constants";
+import { CLASSIFICATION_CODE_RE, EBARIMT_PAYMENT_CODES, isKnownEbarimtPaymentCode, TAX_PRODUCT_CODE_RE } from "./constants";
 
 /**
  * Ангиллын лавлах — барааны код хоосон бол ЭНДЭЭС өвлөнө (queue.ts prepare-тай
@@ -78,8 +78,15 @@ export interface EbarimtReadiness {
   taxProduct: ReadinessGap;
   /** `ebarimtCode` оноогоогүй идэвхтэй төлбөрийн хэлбэр. */
   payments: ReadinessGap;
+  /**
+   * PosAPI 3.0 албан жагсаалтад (`EBARIMT_PAYMENT_CODES`) БАЙХГҮЙ кодтой хэлбэр —
+   * `"Нэр (КОД)"`. Хориглолт биш (ТЕГ код нэмж болно), анхааруулга (docs/integrations/01 P1-4).
+   */
+  unknownPaymentCodes: ReadinessGap;
   /** МОНГОЛ текстээр — UI ба action-ий алдаанд шууд хэрэглэнэ. */
   problems: string[];
+  /** Блоклохгүй анхааруулга (МОНГОЛ) — `ready`-д нөлөөлөхгүй. */
+  warnings: string[];
   ready: boolean;
 }
 
@@ -131,10 +138,14 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
   const missingPayments = input.paymentMethods
     .filter((method) => !method.ebarimtCode?.trim())
     .map((method) => method.name);
+  const unknownCodes = input.paymentMethods
+    .filter((method) => method.ebarimtCode?.trim() && !isKnownEbarimtPaymentCode(method.ebarimtCode))
+    .map((method) => `${method.name} (${method.ebarimtCode!.trim().toUpperCase()})`);
 
   const items = gap(missingClassification);
   const taxProduct = gap(missingTaxProduct);
   const payments = gap(missingPayments);
+  const unknownPaymentCodes = gap(unknownCodes);
 
   const problems: string[] = [];
   if (items.count > 0)
@@ -150,5 +161,11 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
       `${payments.count} төлбөрийн хэлбэрт eBarimt код алга: ${sampleText(payments)}`
     );
 
-  return { items, taxProduct, payments, problems, ready: problems.length === 0 };
+  const warnings: string[] = [];
+  if (unknownPaymentCodes.count > 0)
+    warnings.push(
+      `${unknownPaymentCodes.count} төлбөрийн хэлбэрийн eBarimt код ТЕГ-ийн албан жагсаалтад (${EBARIMT_PAYMENT_CODES.join(", ")}) байхгүй — PosAPI татгалзаж болзошгүй: ${sampleText(unknownPaymentCodes)}`
+    );
+
+  return { items, taxProduct, payments, unknownPaymentCodes, problems, warnings, ready: problems.length === 0 };
 }

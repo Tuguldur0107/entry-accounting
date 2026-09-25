@@ -44,7 +44,7 @@ import {
   updatePosSettings,
   type SaleQuote,
 } from "@/lib/actions/pos";
-import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
+import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS, EBARIMT_PAYMENT_CODES } from "@/lib/ebarimt/constants";
 import {
   getQpayProvisionPreview,
   getQpayStatus,
@@ -576,7 +576,7 @@ function PaymentMethodDialog({
           </FormField>
           <FormField
             label="eBarimt код"
-            hint="ТЕГ-ийн жагсаалтаас — хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй"
+            hint={`ТЕГ-ийн албан код: ${EBARIMT_PAYMENT_CODES.join(", ")} — хоосон бол энэ хэлбэртэй борлуулалт eBarimt-д илгээгдэхгүй; зээлд төлөгдөх хэлбэрийнх нь код`}
           >
             <Input
               value={form.ebarimtCode}
@@ -1110,6 +1110,13 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
         </div>
       )}
 
+      {readiness && readiness.warnings.length > 0 && (
+        <div className="rounded-md border border-[var(--ea-border)] p-3 text-xs text-[var(--ea-warning-fg)]">
+          {readiness.warnings.map((warning) => (
+            <div key={warning}>• {warning}</div>
+          ))}
+        </div>
+      )}
       {readiness && !readiness.ready && (
         <div className="rounded-md border border-[var(--ea-border)] p-3">
           <div className="text-xs font-semibold text-[var(--ea-warning-fg)]">
@@ -1137,7 +1144,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
                 • <b>{readiness.payments.count}</b> төлбөрийн хэлбэрт eBarimt код алга —{" "}
                 {sampleText(readiness.payments)}
                 <span className="block text-[var(--ea-text-3)]">
-                  Энэ хуудсын «Төлбөрийн хэлбэр» табаас ононо (CASH, PAYMENT_CARD …)
+                  Энэ хуудсын «Төлбөрийн хэлбэр» табаас ононо (CASH, PAYMENT_CARD, BANK_TRANSFER, BANK_TRANSFER_QPAY)
                 </span>
               </li>
             )}

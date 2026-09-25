@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { QPAY_CLEARING_ACCOUNT_NAME, QPAY_CLEARING_GL_ACCOUNT, QPAY_METHOD_CODE, planQpaySeed } from "../lib/qpay/seed";
+import { QPAY_CLEARING_ACCOUNT_NAME, QPAY_CLEARING_GL_ACCOUNT, QPAY_EBARIMT_CODE, QPAY_METHOD_CODE, planQpaySeed } from "../lib/qpay/seed";
 
 const bank = { id: "b1", name: "QPay түр данс", accountType: "bank", currency: "MNT", isActive: true };
 const cashBox = { id: "c1", name: "Касс", accountType: "cash", currency: "MNT", isActive: true };
@@ -11,6 +11,7 @@ test("юу ч байхгүй → данс + хэлбэр хоёулаа үүсн
   assert.deepEqual(plan.createAccount, { name: QPAY_CLEARING_ACCOUNT_NAME, glAccountNumber: QPAY_CLEARING_GL_ACCOUNT });
   assert.equal(plan.createMethod?.code, QPAY_METHOD_CODE);
   assert.equal(plan.createMethod?.cashAccountId, null);
+  assert.equal(plan.createMethod?.ebarimtCode, QPAY_EBARIMT_CODE); // PosAPI 3.0 албан код
   assert.equal(plan.updateMethod, null);
   assert.equal(plan.notes.length, 2);
 });
@@ -60,4 +61,26 @@ test("QPAY код өөр хэлбэрт ашиглагдсан бол дагав
   assert.ok(plan.createMethod);
   assert.notEqual(plan.createMethod.code, "QPAY");
   assert.ok(plan.createMethod.code.startsWith("QPAY-"));
+});
+
+test("eBarimt код: хоосон QPay хэлбэрт BANK_TRANSFER_QPAY нөхнө; хэрэглэгчийн оноосныг хөндөхгүй; өгөөгүй бол шалгахгүй", () => {
+  const empty = planQpaySeed({
+    methods: [{ id: "m1", code: "QPAY", kind: "ewallet", provider: "qpay", cashAccountId: "b1", isActive: true, ebarimtCode: null }],
+    cashAccounts: [bank],
+  });
+  assert.deepEqual(empty.updateMethod, { id: "m1", ebarimtCode: QPAY_EBARIMT_CODE });
+  assert.equal(empty.createAccount, null);
+  assert.ok(empty.notes.some((n) => n.includes(QPAY_EBARIMT_CODE)));
+
+  const custom = planQpaySeed({
+    methods: [{ id: "m1", code: "QPAY", kind: "ewallet", provider: "qpay", cashAccountId: "b1", isActive: true, ebarimtCode: "PAYMENT_CARD" }],
+    cashAccounts: [bank],
+  });
+  assert.equal(custom.updateMethod, null);
+
+  const legacyCaller = planQpaySeed({
+    methods: [{ id: "m1", code: "QPAY", kind: "ewallet", provider: "qpay", cashAccountId: "b1", isActive: true }],
+    cashAccounts: [bank],
+  });
+  assert.equal(legacyCaller.updateMethod, null);
 });

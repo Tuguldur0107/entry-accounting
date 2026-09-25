@@ -47,14 +47,15 @@ const vatBar = readFileSync("components/pos/checkout/vat-receipt-bar.tsx", "utf8
 const salePanel = readFileSync("components/panel/pos-sale-panel.tsx", "utf8");
 const salesList = readFileSync("components/pos/sales-list-view.tsx", "utf8");
 
-test("«НӨАТ» мөр: анхдагч асаалттай, Хувь хүн/ААН, 7 оронтой регистрээр нэр татна", () => {
+test("«НӨАТ» мөр: анхдагч асаалттай, Хувь хүн/ААН, ТТД шууд (үндсэн) эсвэл 7 оронтой регистрээр нэр татна", () => {
   assert.match(view, /useState\(true\);\s*\n\s*const \[nonVatReason/, "НӨАТ анхдагч асаалттай");
   assert.match(view, /<VatReceiptBar/);
   assert.match(view, /lookupEbarimtTin\(lookupRegNo\)/, "регистр бичигдмэгц ТЕГ-ийн лавлах");
   assert.match(view, /const canPay =[^;]*!buyerProblem[^;]*!nonVatProblem/);
   assert.match(vatBar, /Хувь хүн/);
   assert.match(vatBar, /ААН/);
-  assert.match(vatBar, /Байгууллагын регистр \(7 орон\)/);
+  assert.match(vatBar, /Байгууллагын ТТД \(11 орон\) эсвэл регистр \(7 орон\)/);
+  assert.match(view, /needsOrgLookup\(/, "ТТД шууд оруулсан үед ч нэрийг ТЕГ-ээс лавлана");
   assert.match(vatBar, /Шалтгаан \(заавал\)/);
   assert.doesNotMatch(payment, /lookupEbarimtTin/, "худалдан авагчийн давхар сонголт төлбөрийн диалогт байхгүй");
 });

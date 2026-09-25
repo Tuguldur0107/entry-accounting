@@ -2,8 +2,9 @@
 // CLIENT-SAFE: кассын дэлгэц ба төлбөрийн диалог хоёулаа импортолно.
 //
 //   Хувь хүн (B2C)  — eBarimt хэрэглэгчийн дугаар (8 орон, сонголтоор)
-//   ААН (B2B)       — байгууллагын РЕГИСТР (7 орон) → ТЕГ-ийн лавлахаас ТТД + НЭР
-//                     (getTinInfo → getInfo, lib/ebarimt/lookup.ts); ТТД (11/14) шууд
+//   ААН (B2B)       — ТТД (11/14) ШУУД (үндсэн зам; нэр getInfo-оос — лавлах унасан ч төлбөр хаагдахгүй)
+//                     эсвэл байгууллагын РЕГИСТР (7 орон) → ТЕГ-ийн лавлахаас ТТД + НЭР
+//                     (getTinInfo → getInfo, lib/ebarimt/lookup.ts; ТЕГ 2026-06-15-аас хязгаарлах төлөвлөгөөтэй)
 
 import { CONSUMER_NO_RE, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 
@@ -36,6 +37,16 @@ export function orgNoKind(raw: string): OrgNoKind {
   if (ORG_REGISTER_RE.test(value)) return "register";
   if (MERCHANT_TIN_RE.test(value)) return "tin";
   return "incomplete";
+}
+
+/**
+ * Дугаар ТЕГ-ээс лавлах шаардлагатай юу: регистр (7) → ТТД + нэр; ТТД (11/14) → зөвхөн
+ * нэр (B2B баримтад худалдан авагчийн нэр хэвлэгдэнэ). ТТД-ийн лавлах унасан ч
+ * `resolveBuyer` төлбөрийг хаахгүй — ТТД шууд оруулах нь үндсэн зам (P1-2).
+ */
+export function needsOrgLookup(orgNo: string): boolean {
+  const kind = orgNoKind(orgNo);
+  return kind === "register" || kind === "tin";
 }
 
 /** Оролтыг цэвэрлэнэ — зөвхөн цифр, ≤14 (регистр 7, ТТД 11/14). */
@@ -73,9 +84,9 @@ export function resolveBuyer(state: BuyerState): { buyer: EbarimtBuyerInput; pro
   }
   const value = state.orgNo.trim();
   const kind = orgNoKind(value);
-  if (kind === "empty") return { buyer: EMPTY_BUYER, problem: "Байгууллагын регистрийн дугаар (7 орон) оруулна уу" };
+  if (kind === "empty") return { buyer: EMPTY_BUYER, problem: "Байгууллагын ТТД (11 орон) эсвэл регистрийн дугаар (7 орон) оруулна уу" };
   if (kind === "incomplete")
-    return { buyer: EMPTY_BUYER, problem: "Регистр 7 оронтой (эсвэл ТТД 11/14 оронтой) байна" };
+    return { buyer: EMPTY_BUYER, problem: "ТТД 11/14 оронтой (эсвэл регистр 7 оронтой) байна" };
   if (kind === "tin") return { buyer: { ...EMPTY_BUYER, ebarimtCustomerTin: value }, problem: null };
   if (state.lookup.status === "loading") return { buyer: EMPTY_BUYER, problem: "Байгууллагыг ТЕГ-ээс шалгаж байна…" };
   if (state.lookup.status !== "found" || !state.lookup.tin)

@@ -84,7 +84,7 @@ export async function ensureQpayPaymentMethod(orgId: string, creatorUserId?: str
   const [methods, accounts] = await Promise.all([
     db.query.posPaymentMethods.findMany({
       where: eq(posPaymentMethods.organizationId, orgId),
-      columns: { id: true, code: true, kind: true, provider: true, cashAccountId: true, isActive: true },
+      columns: { id: true, code: true, kind: true, provider: true, cashAccountId: true, isActive: true, ebarimtCode: true },
     }),
     db.query.cashAccounts.findMany({
       where: eq(cashAccounts.organizationId, orgId),
@@ -129,8 +129,8 @@ export async function ensureQpayPaymentMethod(orgId: string, creatorUserId?: str
         requiresReference: false,
         allowsChange: false,
         allowsRefund: false,
-        // eBarimt код ЗОХИОХГҮЙ (plan T1: QPay-ийн албан код ТЕГ-ээс тодорхойгүй) — хэрэглэгч оноож болно.
-        ebarimtCode: null,
+        // PosAPI 3.0 албан жагсаалтын код (BANK_TRANSFER_QPAY) — хэрэглэгч засаж болно.
+        ebarimtCode: plan.createMethod.ebarimtCode,
         sortOrder: Math.min(10 + maxSort, 89),
       })
       .onConflictDoNothing();
@@ -138,6 +138,7 @@ export async function ensureQpayPaymentMethod(orgId: string, creatorUserId?: str
     const patch: Partial<typeof posPaymentMethods.$inferInsert> = {};
     if ("cashAccountId" in plan.updateMethod) patch.cashAccountId = accountId;
     if (plan.updateMethod.isActive) patch.isActive = true;
+    if (plan.updateMethod.ebarimtCode) patch.ebarimtCode = plan.updateMethod.ebarimtCode;
     if (Object.keys(patch).length > 0)
       await db.update(posPaymentMethods).set(patch).where(and(eq(posPaymentMethods.id, plan.updateMethod.id), eq(posPaymentMethods.organizationId, orgId)));
   }
