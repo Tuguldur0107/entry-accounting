@@ -33,6 +33,7 @@ import { IconAction } from "@/components/ui/icon-action";
 import {
   getEbarimtBranchInfo,
   getEbarimtStatus,
+  lookupEbarimtTin,
   pushEbarimtData,
   testEbarimtConnection,
 } from "@/lib/actions/ebarimt";
@@ -998,12 +999,15 @@ function infoLines(info: Record<string, unknown>): string[] {
 function EbarimtSection({ settings }: { settings: PosSettings }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  // Салбар / кассын дугаарыг татвар төлөгч ӨӨРӨӨ тодорхойлно (docs/deployment/
+  // ebarimt.md §3) — нэг салбар, нэг касстай бол «001». Хоосон үед формд ИЛ
+  // санал болгоно (хадгалахад л бичигдэнэ, нуусан default биш).
   const [form, setForm] = useState<EbarimtForm>({
     ebarimtEnabled: settings.ebarimtEnabled,
     ebarimtMerchantTin: settings.ebarimtMerchantTin,
-    ebarimtBranchNo: settings.ebarimtBranchNo,
+    ebarimtBranchNo: settings.ebarimtBranchNo || "001",
     ebarimtDistrictCode: settings.ebarimtDistrictCode,
-    ebarimtPosNo: settings.ebarimtPosNo,
+    ebarimtPosNo: settings.ebarimtPosNo || "001",
     ebarimtPosApiUrl: settings.ebarimtPosApiUrl,
     ebarimtMode: settings.ebarimtMode,
   });
@@ -1026,6 +1030,9 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
   const [branches, setBranches] = useState<{ code: string; name: string }[] | null>(null);
   const [branchFailed, setBranchFailed] = useState(false);
   const [info, setInfo] = useState<string[] | null>(null);
+  const [companyRegisterNo, setCompanyRegisterNo] = useState<string | null>(null);
+  /** ТЕГ-ээс татсан мерчантын нэр — ТТД зөв байгууллагынх эсэхийг нүдээр шалгана. */
+  const [merchantName, setMerchantName] = useState<string | null>(null);
   /** Switch зөвхөн бүх дутуу цэгцэрсэн үед асна (server тал мөн ижил хоригтой). */
   const canEnable = problems.length === 0 && (readiness?.ready ?? false);
 
@@ -1040,6 +1047,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       setStatus(result.status ?? null);
       setProblems(result.problems ?? []);
       setReadiness(result.readiness ?? null);
+      setCompanyRegisterNo(result.companyRegisterNo ?? null);
     });
     getEbarimtBranchInfo().then((result) => {
       if (cancelled) return;
@@ -1063,6 +1071,31 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       }
       feedback.saved("eBarimt тохиргоо хадгалагдлаа");
       router.refresh();
+    });
+  }
+
+  /**
+   * Регистр (7 орон) → ТЕГ-ийн getTinInfo → 11 оронтой ТТД + нэр. Талбарт 7
+   * оронтой регистр бичсэн бол түүгээр, хоосон бол компанийн мэдээллийн
+   * регистрээр. ТТД ЗОХИОХГҮЙ — лавлах унавал шалтгаан + гараар оруулах зам.
+   */
+  function fetchTin() {
+    const typed = form.ebarimtMerchantTin.trim();
+    const regNo = /^\d{7}$/.test(typed) ? typed : companyRegisterNo;
+    if (!regNo) {
+      feedback.error("7 оронтой регистр бичнэ үү (эсвэл Компанийн мэдээлэлд регистрээ оруулна)");
+      return;
+    }
+    startTransition(async () => {
+      const result = await lookupEbarimtTin(regNo);
+      if (result.error || !result.info) {
+        setMerchantName(null);
+        feedback.error(result.error ?? "ТТД олдсонгүй");
+        return;
+      }
+      patch({ ebarimtMerchantTin: result.info.tin });
+      setMerchantName(result.info.name || null);
+      toast.success(`ТТД ${result.info.tin}${result.info.name ? ` · ${result.info.name}` : ""} — хадгална уу`);
     });
   }
 
@@ -1166,15 +1199,42 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <FormField label="Мерчантын ТТД" hint="11 эсвэл 14 оронтой">
-          <Input
-            value={form.ebarimtMerchantTin}
-            maxLength={14}
-            inputMode="numeric"
-            className="font-mono"
-            placeholder="12345678901"
-            onChange={(e) => patch({ ebarimtMerchantTin: e.target.value.replace(/\D/g, "") })}
-          />
+        <FormField
+          label="Мерчантын ТТД"
+          hint={
+            merchantName
+              ? `ТЕГ: ${merchantName}`
+              : "7 оронтой регистрээ бичээд «ТЕГ-ээс татах» — 11 оронтой ТТД автоматаар бөглөгдөнө (ТТД-г шууд бичиж ч болно)"
+          }
+        >
+          <div className="flex gap-2">
+            <Input
+              value={form.ebarimtMerchantTin}
+              maxLength={14}
+              inputMode="numeric"
+              className="font-mono"
+              placeholder={companyRegisterNo ?? "6596177"}
+              onChange={(e) => {
+                setMerchantName(null);
+                patch({ ebarimtMerchantTin: e.target.value.replace(/\D/g, "") });
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isPending || (!/^\d{7}$/.test(form.ebarimtMerchantTin.trim()) && !companyRegisterNo)}
+              onClick={fetchTin}
+              title={
+                /^\d{7}$/.test(form.ebarimtMerchantTin.trim())
+                  ? `Регистр ${form.ebarimtMerchantTin.trim()}-ээр`
+                  : companyRegisterNo
+                    ? `Компанийн регистр ${companyRegisterNo}-ээр`
+                    : undefined
+              }
+            >
+              ТЕГ-ээс татах
+            </Button>
+          </div>
         </FormField>
         <FormField label="Салбарын дугаар" hint="3 оронтой тоо (001, 002 …) — татвар төлөгч өөрөө тодорхойлно (албан спек)">
           <Input

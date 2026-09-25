@@ -82,6 +82,7 @@ import { finalizeIntentInTx, loadIntent as loadQpayIntent } from "@/lib/qpay/sto
 import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
 import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
 import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
+import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { ebarimtSettingsProblems, initialSaleEbarimtStatus } from "@/lib/ebarimt/receipt";
 import { CONSUMER_NO_RE, DISTRICT_CODE_RE, EBARIMT_INLINE_SEND_TIMEOUT_MS, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 import {
@@ -265,8 +266,13 @@ export async function updatePosSettings(
     if (data.receiptFooter != null) patch.receiptFooter = data.receiptFooter;
     // ── eBarimt (docs/pos/03-ebarimt-integration-plan.md §4.1) ──
     if (data.ebarimtMerchantTin != null) {
-      const tin = data.ebarimtMerchantTin.trim();
-      if (tin && !MERCHANT_TIN_RE.test(tin)) throw new Error("Мерчантын ТТД 11–14 оронтой тоо байна (хуулийн этгээд 11)");
+      let tin = data.ebarimtMerchantTin.trim();
+      // Хэрэглэгч 11 оронтой ТТД-гээ ихэвчлэн мэддэггүй — 7 оронтой байгууллагын
+      // РЕГИСТР өгвөл ТЕГ-ээс (getTinInfo) ТТД-г татаж хадгална. Лавлах унавал
+      // ШИДНЭ (ТТД ЗОХИОХГҮЙ) — шалтгаан + «ТТД-г шууд оруулах» зам алдаанд.
+      if (ORG_REGISTER_RE.test(tin)) tin = (await lookupTinByRegNo(tin)).tin;
+      if (tin && !MERCHANT_TIN_RE.test(tin))
+        throw new Error("Мерчантын ТТД 11–14 оронтой тоо, эсвэл байгууллагын 7 оронтой регистр байна");
       patch.ebarimtMerchantTin = tin;
     }
     if (data.ebarimtBranchNo != null) patch.ebarimtBranchNo = data.ebarimtBranchNo.trim();
