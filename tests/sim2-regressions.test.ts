@@ -21,7 +21,18 @@ import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { getPayrollRunData } from "../lib/actions/payroll";
 import { db } from "../lib/db";
-import { employees, memberships, organizations, users } from "../lib/db/schema";
+import {
+  accountingPeriods,
+  arApDocuments,
+  costEntries,
+  employees,
+  goodsReceipts,
+  memberships,
+  organizations,
+  purchaseOrders,
+  users,
+  warehouses,
+} from "../lib/db/schema";
 import { purgeOrganization } from "../lib/org/purge";
 
 const DB_READY = !!process.env.DATABASE_URL;
@@ -98,4 +109,145 @@ test("SIM2-019/020: сарын дунд орсон/гарсан ажилтны �
   const oct = await asOrg(() => getPayrollRunData("2025-10"));
   assert.equal(oct.lines.some((l) => l.employeeName === "Багш06"), false);
   assert.match((await tool("list_employees", { includeInactive: true })).resultText, /Багш06.*ГАРСАН 2025-09-15/);
+});
+
+async function setupProcurement() {
+  await setupOrg();
+  if (await db.query.warehouses.findFirst({ where: and(eq(warehouses.organizationId, orgId), eq(warehouses.code, "WH1")) }))
+    return;
+  ok(await tool("create_warehouse", { code: "WH1", name: "Төв агуулах" }));
+  ok(await tool("create_inventory_item", { code: "ITM-A", name: "Импортын бараа", unit: "ш" }));
+  ok(await tool("create_counterparty", { name: "Нийлүүлэгч MNT", counterpartyType: "supplier" }));
+  ok(await tool("create_counterparty", { name: "Нийлүүлэгч USD", counterpartyType: "supplier", currency: "USD" }));
+  ok(await tool("create_counterparty", { name: "Гаалийн газар", counterpartyType: "supplier" }));
+  ok(await tool("save_cost_component", { code: "CUSTOMS", name: "Гаалийн татвар" }));
+}
+
+test("SIM2-023: хэсэгчлэн хүлээн авсан PO — анхдагч хориг, «warn» горимд сар хаагдана", { skip: !DB_READY }, async () => {
+  await setupProcurement();
+  // PO-2501-001: 40+30 захиалснаас 25 ирсэн
+  ok(await tool("create_purchase_order", {
+    supplier: "Нийлүүлэгч MNT", date: "2025-01-05", description: "Импорт", documentNo: `PO-2501-${STAMP}`, warehouseCode: "WH1",
+    lines: [{ itemCode: "ITM-A", quantity: 40, unitPrice: 10_000 }, { itemCode: "ITM-A", quantity: 30, unitPrice: 10_000 }],
+  }));
+  ok(await tool("approve_purchase_order", { purchaseOrderId: `PO-2501-${STAMP}` }, "post"));
+  const po = await db.query.purchaseOrders.findFirst({
+    where: and(eq(purchaseOrders.organizationId, orgId), eq(purchaseOrders.documentNo, `PO-2501-${STAMP}`)),
+    with: { lines: true },
+  });
+  const firstLine = po!.lines.find((line) => Number(line.quantity) === 40)!;
+  ok(await tool(
+    "create_goods_receipt",
+    { purchaseOrderId: `PO-2501-${STAMP}`, date: "2025-01-20", lines: [{ purchaseOrderLineId: firstLine.id, quantity: 25 }] },
+    "post"
+  ));
+
+  const blocked = await tool("close_period", { code: "2025-01" }, "post");
+  assert.match(blocked.resultText, /НЭЭЛТТЭЙ захиалга/, "анхдагч OD-011 хориг хэвээр");
+
+  ok(await tool("update_costing_accounts", { openPoCloseMode: "warn" }));
+  ok(await tool("close_period", { code: "2025-01" }, "post"));
+  const period = await db.query.accountingPeriods.findFirst({
+    where: and(eq(accountingPeriods.organizationId, orgId), eq(accountingPeriods.code, "2025-01")),
+  });
+  assert.equal(period?.status, "closed");
+  // GRNI (бараа материалын түр данс) 25 × 10,000 балансад үлдэнэ
+  const tb = ok(await tool("get_trial_balance", { from: "2025-01-01", to: "2025-01-31" })).resultText;
+  assert.match(tb, /250,000/);
+
+  ok(await tool("reopen_period", { code: "2025-01" }, "post"));
+  ok(await tool("update_costing_accounts", { openPoCloseMode: "block" }));
+});
+
+test("SIM2-025/026: валютын PO ханшгүй цуцлагдана, ноорог GR устгагдана (мухардалгүй)", { skip: !DB_READY }, async () => {
+  await setupProcurement();
+  // PO-2502-001 (USD 385) → GR ноорог
+  ok(await tool("create_purchase_order", {
+    supplier: "Нийлүүлэгч USD", date: "2025-02-05", description: "Импорт", currency: "USD", exchangeRate: 3440,
+    documentNo: `PO-2502-${STAMP}`, warehouseCode: "WH1", lines: [{ itemCode: "ITM-A", quantity: 11, unitPrice: 35 }],
+  }));
+  ok(await tool("approve_purchase_order", { purchaseOrderId: `PO-2502-${STAMP}`, exchangeRate: 3440 }, "post"));
+  ok(await tool("create_goods_receipt", { purchaseOrderId: `PO-2502-${STAMP}`, date: "2025-02-10", exchangeRate: 3450, documentNo: `GR-2502-${STAMP}` }));
+
+  // Ноорог GR-ийг буцаах гэвэл устгах замыг заана
+  assert.match((await tool("reverse_goods_receipt", { receiptId: `GR-2502-${STAMP}` }, "post")).resultText, /delete_goods_receipt/);
+
+  // SIM2-025 + 026: ханшгүйгээр цуцлагдаж, ноорог GR хамт устгагдана
+  const cancelled = ok(await tool("cancel_purchase_order", { purchaseOrderId: `PO-2502-${STAMP}` }, "post"));
+  assert.match(cancelled.resultText, /GR-2502/);
+  const po = await db.query.purchaseOrders.findFirst({
+    where: and(eq(purchaseOrders.organizationId, orgId), eq(purchaseOrders.documentNo, `PO-2502-${STAMP}`)),
+  });
+  assert.equal(po?.status, "cancelled");
+  assert.equal(
+    (await db.query.goodsReceipts.findMany({ where: eq(goodsReceipts.purchaseOrderId, po!.id) })).length,
+    0
+  );
+
+  // delete_goods_receipt: ноорог GR шууд устана
+  ok(await tool("create_purchase_order", {
+    supplier: "Нийлүүлэгч MNT", date: "2025-02-06", description: "Импорт", documentNo: `PO-2502B-${STAMP}`, warehouseCode: "WH1",
+    lines: [{ itemCode: "ITM-A", quantity: 5, unitPrice: 10_000 }],
+  }));
+  ok(await tool("approve_purchase_order", { purchaseOrderId: `PO-2502B-${STAMP}` }, "post"));
+  ok(await tool("create_goods_receipt", { purchaseOrderId: `PO-2502B-${STAMP}`, date: "2025-02-11", documentNo: `GR-2502B-${STAMP}` }));
+  ok(await tool("delete_goods_receipt", { receiptId: `GR-2502B-${STAMP}` }));
+  assert.equal(
+    await db.query.goodsReceipts.findFirst({
+      where: and(eq(goodsReceipts.organizationId, orgId), eq(goodsReceipts.documentNo, `GR-2502B-${STAMP}`)),
+    }),
+    undefined
+  );
+  ok(await tool("cancel_purchase_order", { purchaseOrderId: `PO-2502B-${STAMP}` }, "post"));
+});
+
+test("SIM2-024: зарлагын COGS батлагдсаны ДАРАА хуваарилсан нэмэлт зардал → cogs_true_up залруулга", { skip: !DB_READY }, async () => {
+  await setupProcurement();
+  // Тусдаа бараа — бусад тестийн орлого сарын дунджид орохгүй
+  ok(await tool("create_inventory_item", { code: "ITM-C", name: "Landed бараа", unit: "ш" }));
+  ok(await tool("create_purchase_order", {
+    supplier: "Нийлүүлэгч MNT", date: "2025-03-02", description: "Импорт", documentNo: `PO-2503-${STAMP}`, warehouseCode: "WH1",
+    lines: [{ itemCode: "ITM-C", quantity: 10, unitPrice: 100_000 }],
+  }));
+  ok(await tool("approve_purchase_order", { purchaseOrderId: `PO-2503-${STAMP}` }, "post"));
+  ok(await tool("create_goods_receipt", { purchaseOrderId: `PO-2503-${STAMP}`, date: "2025-03-05" }, "post"));
+  ok(await tool("create_inventory_movement",
+    { movementType: "issue", date: "2025-03-10", itemCode: "ITM-C", warehouseCode: "WH1", quantity: 4 }, "post"));
+
+  // 1) Сарын дундуур өртөг тооцоод COGS батлав: 4 × 100,000
+  ok(await tool("run_monthly_costing", { period: "2025-03" }));
+  ok(await tool("post_cost_entries", { month: "2025-03" }, "post"));
+
+  // 2) Дараа нь гааль 50,000 → хуваарилав, батлав
+  ok(await tool("create_arap_invoice", {
+    documentType: "ap_bill", counterparty: "Гаалийн газар", date: "2025-03-25", purchaseOrder: `PO-2503-${STAMP}`,
+    description: "Гааль", externalRef: `sim2-${STAMP}-customs`,
+    lines: [{ amount: 50_000, costComponentCode: "CUSTOMS", description: "Гааль" }],
+  }, "post"));
+  const bill = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.organizationId, orgId), eq(arApDocuments.externalRef, `sim2-${STAMP}-customs`)),
+    with: { lines: true },
+  });
+  ok(await tool("create_cost_allocation", { allocationBase: "value", sourceLine: bill!.lines[0].id }));
+  ok(await tool("post_cost_entries", { month: "2025-03" }, "post"));
+
+  // 3) Дахин тооцоход: дундаж 105,000 → COGS 420,000, залруулга +20,000
+  const rerun = ok(await tool("run_monthly_costing", { period: "2025-03" })).resultText;
+  assert.match(rerun, /COGS залруулга/);
+  const trueUps = await db.query.costEntries.findMany({
+    where: and(eq(costEntries.organizationId, orgId), eq(costEntries.entryType, "cogs_true_up"), eq(costEntries.periodCode, "2025-03")),
+  });
+  assert.equal(trueUps.length, 1);
+  assert.equal(Number(trueUps[0].amount), 20_000);
+  assert.equal(trueUps[0].status, "draft");
+
+  // Идемпотент: дахин ажиллуулахад давхардахгүй; батласны дараа залруулга алга
+  ok(await tool("run_monthly_costing", { period: "2025-03" }));
+  ok(await tool("post_cost_entries", { month: "2025-03" }, "post"));
+  const again = ok(await tool("run_monthly_costing", { period: "2025-03" })).resultText;
+  assert.doesNotMatch(again, /COGS залруулга/);
+  const all = await db.query.costEntries.findMany({
+    where: and(eq(costEntries.organizationId, orgId), eq(costEntries.entryType, "cogs_true_up")),
+  });
+  assert.equal(all.length, 1);
 });

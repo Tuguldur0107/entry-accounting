@@ -2015,6 +2015,12 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
   fxLossAccountNumber: text("fx_loss_account_number")
     .notNull()
     .default("87000003"),
+  /**
+   * Хүлээн авалттай НЭЭЛТТЭЙ захиалга сар хаалтад: "block" (OD-011 — хатуу
+   * хориг, анхдагч) | "warn" (SIM2-023 — анхааруулга; хожуу ирсэн зардал
+   * тухайн нээлттэй сард хуваарилагдана, түр данс балансад GRNI болж үлдэнэ).
+   */
+  openPoCloseMode: text("open_po_close_mode").notNull().default("block"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("costing_account_settings_org_id_ux").on(t.organizationId)]);
 

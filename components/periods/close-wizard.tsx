@@ -126,7 +126,9 @@ export function CloseWizard({
   const openingDiff = opening && Math.abs(opening.balance) > 0.005 ? opening : null;
   // Хангамжийн хориг (docs/procurement шийдвэр #7) — closePeriod мөн ижил
   // нөхцөлөөр зогсоодог; энд товчийг урьдчилан идэвхгүй болгоно.
-  const poBlocked = procurement.openOrdersWithReceipts > 0;
+  // SIM2-023: «анхааруулга» горимд хориглохгүй — зөвхөн шар анхааруулга.
+  const poBlocked =
+    procurement.openOrdersWithReceipts > 0 && procurement.openPoCloseMode === "block";
   // POS хориг (docs/pos §3.3 ⑦, §2.1 C1) — closePeriod-ийн `open-pos-shifts` /
   // `unvalued-movements`-тэй ижил нөхцөл; хасах үлдэгдэл нь өөрөө хориг биш
   // (unvalued-ээр илэрнэ).
@@ -326,7 +328,7 @@ export function CloseWizard({
                         ("message" in result ? result.message : undefined) ??
                           `Өртөг тооцоо амжилтгүй (${result.code})`
                       );
-                    return `Өртөг тооцогдлоо: шинээр ${result.valued}, өмнө нь ${result.alreadyValued}, тэг ${result.zeroValued}${result.blockers.length > 0 ? `, блоклогдсон ${result.blockers.length} (${result.blockedMovements} хөдөлгөөн үнэлэгдээгүй)` : ""}`;
+                    return `Өртөг тооцогдлоо: шинээр ${result.valued}, өмнө нь ${result.alreadyValued}${result.trueUps > 0 ? `, COGS залруулга ${result.trueUps}` : ""}, тэг ${result.zeroValued}${result.blockers.length > 0 ? `, блоклогдсон ${result.blockers.length} (${result.blockedMovements} хөдөлгөөн үнэлэгдээгүй)` : ""}`;
                   })
                 }
               >
@@ -421,6 +423,8 @@ export function CloseWizard({
           ? "Энэ сард худалдан авалтын захиалга алга."
           : poBlocked
             ? `Энэ сард хүлээн авалттай нээлттэй захиалга (PO) ${procurement.openOrdersWithReceipts} байна — эхлээд PO-г хаана уу. Хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}, батлагдаагүй хүлээн авалт ${procurement.draftReceipts}.`
+            : procurement.openOrdersWithReceipts > 0
+              ? `Анхааруулга: хүлээн авалттай нээлттэй захиалга (PO) ${procurement.openOrdersWithReceipts} — сар хаагдана, бараа материалын түр дансны үлдэгдэл (замд яваа/GRNI) балансад үлдэж, хожуу ирсэн зардал дараагийн нээлттэй сард хуваарилагдана.`
             : `Хүлээн авалттай нээлттэй захиалга алга · хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines} · батлагдаагүй хүлээн авалт ${procurement.draftReceipts}.`}
       </Step>
 

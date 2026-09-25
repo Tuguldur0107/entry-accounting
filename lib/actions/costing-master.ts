@@ -63,6 +63,12 @@ export async function saveCostingAccountSettings(data: {
   adjustmentLossAccountNumber: string;
   nrvExpenseAccountNumber: string;
   nrvReserveAccountNumber: string;
+  /**
+   * Сарын хүлээн авалттай НЭЭЛТТЭЙ PO-той сар хаалт (SIM2-023): "block"
+   * (OD-011, анхдагч) | "warn" (GRNI-г балансад үлдээж хаана). Өгөөгүй бол
+   * өөрчлөгдөхгүй.
+   */
+  openPoCloseMode?: "block" | "warn";
 }): Promise<MasterDataResult> {
   const active = await requireAdminCtx();
   if (!active) return { ok: false, code: "unauthenticated" };
@@ -104,10 +110,25 @@ export async function saveCostingAccountSettings(data: {
     };
   }
 
+  if (
+    data.openPoCloseMode !== undefined &&
+    data.openPoCloseMode !== "block" &&
+    data.openPoCloseMode !== "warn"
+  )
+    return {
+      ok: false,
+      code: "validation",
+      message: "Нээлттэй PO-той сар хаалт: block эсвэл warn",
+    };
+
   await loadCostingAccountSettings(orgId, userId); // мөр байгаа эсэхийг баталгаажуулна
   await db
     .update(costingAccountSettings)
-    .set({ ...values, updatedAt: new Date() })
+    .set({
+      ...values,
+      ...(data.openPoCloseMode ? { openPoCloseMode: data.openPoCloseMode } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(costingAccountSettings.organizationId, orgId));
 
   revalidateCosting();

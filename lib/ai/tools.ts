@@ -97,6 +97,7 @@ import {
   createPurchaseOrder,
   getLandedCostSummary,
   reverseGoodsReceipt,
+  deleteGoodsReceipt,
   updatePurchaseOrder,
 } from "@/lib/actions/procurement";
 import {
@@ -2509,6 +2510,12 @@ export const AI_TOOLS: AiToolDef[] = [
         adjustmentLossAccount: { type: "string", description: "Тооллогын дутагдлын данс" },
         nrvExpenseAccount: { type: "string", description: "NRV зардлын данс" },
         nrvReserveAccount: { type: "string", description: "NRV нөөцийн (contra) данс" },
+        openPoCloseMode: {
+          type: "string",
+          enum: ["block", "warn"],
+          description:
+            "Хүлээн авалттай нээлттэй PO-той сар хаалт: block (анхдагч — хаахгүй) | warn (анхааруулаад хаана; бараа материалын түр дансны үлдэгдэл балансад үлдэнэ)",
+        },
       },
     },
   },
@@ -2683,7 +2690,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "cancel_purchase_order",
     description:
-      "Ноорог эсвэл нээлттэй захиалгыг ЦУЦЛАНА (хүлээн авалт, нэхэмжлэхгүй байх ёстой — байвал эхлээд тэднийг буцаана). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+      "Ноорог эсвэл нээлттэй захиалгыг ЦУЦЛАНА (баталгаажсан хүлээн авалт, нэхэмжлэхгүй байх ёстой — байвал эхлээд тэднийг буцаана; НООРОГ хүлээн авалт хамт устгагдана). GL-д нөлөөгүй тул ханш, дүнгийн хязгааргүй; зөвхөн 'Шууд бичих' горимд.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2693,8 +2700,7 @@ export const AI_TOOLS: AiToolDef[] = [
         },
         exchangeRate: {
           type: "number",
-          description:
-            "Валюттай захиалгад 1 валют = ? ₮ — зөвхөн хязгаарын шалгалтад (хадгалагдахгүй)",
+          description: "Хэрэглэгдэхгүй (хуучин дуудлагын нийцэлд үлдсэн)",
         },
       },
       required: ["purchaseOrderId"],
@@ -2798,6 +2804,21 @@ export const AI_TOOLS: AiToolDef[] = [
     name: "reverse_goods_receipt",
     description:
       "Баталгаажсан хүлээн авалтыг БУЦААНА — капитализацийн журнал эсрэг мөрөөр буцааж, орлогын хөдөлгөөн цуцлагдана (хаагдсан захиалгад хийхгүй). Зөвхөн 'Шууд бичих' горимд, 10 сая ₮-с хэтрэхгүй дүнд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        receiptId: {
+          type: "string",
+          description: "Хүлээн авалтын дугаар (GR-…) эсвэл ID (бүтэн/6+ тэмдэгт)",
+        },
+      },
+      required: ["receiptId"],
+    },
+  },
+  {
+    name: "delete_goods_receipt",
+    description:
+      "НООРОГ хүлээн авалтыг устгана (GL, бараанд нөлөөгүй — аль ч горимд). Баталгаажсан хүлээн авалтыг reverse_goods_receipt-ээр буцаана. Захиалгыг цуцлахад ноорог хүлээн авалт автоматаар устана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -7265,7 +7286,7 @@ async function runMonthlyCosting(
           .join("; ")}`
       : "";
   return {
-    resultText: `${input.period} сарын өртөг тооцогдлоо: шинээр үнэлэгдсэн ${result.valued}, өмнө нь үнэлэгдсэн ${result.alreadyValued}, тэг дүнтэй ${result.zeroValued}${result.blockedMovements > 0 ? `, блоклогдсон хүрээнд үнэлэгдээгүй ${result.blockedMovements}` : ""}.${blockerText}`,
+    resultText: `${input.period} сарын өртөг тооцогдлоо: шинээр үнэлэгдсэн ${result.valued}, өмнө нь үнэлэгдсэн ${result.alreadyValued}${result.trueUps > 0 ? `, дундаж өөрчлөгдсөн тул COGS залруулга (cogs_true_up ноорог) ${result.trueUps} — post_cost_entries-ээр батална` : ""}, тэг дүнтэй ${result.zeroValued}${result.blockedMovements > 0 ? `, блоклогдсон хүрээнд үнэлэгдээгүй ${result.blockedMovements}` : ""}.${blockerText}`,
   };
 }
 
@@ -8868,6 +8889,7 @@ async function runUpdateCostingAccounts(
     adjustmentLossAccount?: string;
     nrvExpenseAccount?: string;
     nrvReserveAccount?: string;
+    openPoCloseMode?: "block" | "warn";
   }
 ): Promise<AiToolResult> {
   const current = await loadCostingAccountSettings(orgId);
@@ -8881,9 +8903,12 @@ async function runUpdateCostingAccounts(
       input.adjustmentLossAccount ?? current.adjustmentLossAccountNumber,
     nrvExpenseAccountNumber: input.nrvExpenseAccount ?? current.nrvExpenseAccountNumber,
     nrvReserveAccountNumber: input.nrvReserveAccount ?? current.nrvReserveAccountNumber,
+    openPoCloseMode: input.openPoCloseMode,
   });
   assertMasterDataOk(result);
-  return { resultText: "Өртгийн дансны рольууд шинэчлэгдлээ" };
+  return {
+    resultText: `Өртгийн дансны рольууд шинэчлэгдлээ${input.openPoCloseMode ? ` · нээлттэй PO-той сар хаалт: ${input.openPoCloseMode === "warn" ? "анхааруулга" : "хориг"}` : ""}`,
+  };
 }
 
 async function runImportBankStatement(
@@ -9542,10 +9567,11 @@ async function runCancelPurchaseOrder(
     );
   if (order.status === "cancelled")
     throw new Error(`${order.documentNo} захиалга аль хэдийн цуцлагдсан байна`);
-  assertPostLimit(purchaseOrderBaseTotal(order, input.exchangeRate));
-  unwrapAction(await cancelPurchaseOrder({ id: order.id }));
+  // Цуцлалт GL-д нөлөөгүй (хүлээн авалт/нэхэмжлэхтэй PO цуцлагдахгүй) тул
+  // батлах хязгаар, ханш шаардахгүй (SIM2-025).
+  const cancelled = unwrapAction(await cancelPurchaseOrder({ id: order.id }));
   return {
-    resultText: `Захиалга цуцлагдлаа: ${order.documentNo}`,
+    resultText: `Захиалга цуцлагдлаа: ${order.documentNo}${cancelled.deletedReceipts.length ? ` · ноорог хүлээн авалт устгагдав: ${cancelled.deletedReceipts.join(", ")}` : ""}`,
     action: {
       kind: "purchase_order",
       id: order.id,
@@ -9837,7 +9863,9 @@ async function runReverseGoodsReceipt(
   if (receipt.status !== "confirmed")
     throw codedError(
       "GR_NOT_CONFIRMED",
-      `${receipt.documentNo} хүлээн авалт баталгаажаагүй (төлөв: ${GR_STATUS_LABELS[receipt.status] ?? receipt.status}) — буцаах шаардлагагүй`
+      receipt.status === "draft"
+        ? `${receipt.documentNo} ноорог хүлээн авалт — буцаах биш delete_goods_receipt-ээр устгана`
+        : `${receipt.documentNo} хүлээн авалт баталгаажаагүй (төлөв: ${GR_STATUS_LABELS[receipt.status] ?? receipt.status}) — буцаах шаардлагагүй`
     );
   const detail = await loadGoodsReceiptDetail(orgId, receipt.id);
   if (!detail) throw new Error("Хүлээн авалт олдсонгүй");
@@ -9852,6 +9880,21 @@ async function runReverseGoodsReceipt(
       status: "reversed",
     },
   };
+}
+
+/** Ноорог хүлээн авалтыг устгана (SIM2-026) — GL/бараанд нөлөөгүй тул аль ч горимд. */
+async function runDeleteGoodsReceipt(
+  orgId: string,
+  input: { receiptId: string }
+): Promise<AiToolResult> {
+  const receipt = await findGoodsReceipt(orgId, input.receiptId);
+  if (receipt.status !== "draft")
+    throw codedError(
+      "GR_NOT_DRAFT",
+      `${receipt.documentNo} ноорог биш (төлөв: ${GR_STATUS_LABELS[receipt.status] ?? receipt.status}) — баталгаажсаныг reverse_goods_receipt-ээр буцаана`
+    );
+  unwrapAction(await deleteGoodsReceipt({ id: receipt.id }));
+  return { resultText: `Ноорог хүлээн авалт устгагдлаа: ${receipt.documentNo}` };
 }
 
 async function runCreateApInvoiceFromPo(
@@ -11384,6 +11427,8 @@ async function dispatchAiTool(
         return await runConfirmGoodsReceipt(orgId, args, mode);
       case "reverse_goods_receipt":
         return await runReverseGoodsReceipt(orgId, args, mode);
+      case "delete_goods_receipt":
+        return await runDeleteGoodsReceipt(orgId, args);
       case "create_ap_invoice_from_po":
         return await runCreateApInvoiceFromPo(orgId, args, mode);
       case "create_cost_allocation":

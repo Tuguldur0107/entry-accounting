@@ -32,6 +32,7 @@ import {
   cashFxRevaluations,
   costAllocations,
   costEntries,
+  costingAccountSettings,
   costPeriodResults,
   employees,
   faDepreciationEntries,
@@ -112,6 +113,8 @@ export type MonthEndChecklist = {
     draftReceipts: number;
     /** Бүрэлдэхүүнтэй боловч бүрэн хуваарилагдаагүй нэхэмжлэхийн мөр. */
     unallocatedCostLines: number;
+    /** SIM2-023: хүлээн авалттай нээлттэй PO сар хаалтыг хориглох эсэх (block|warn). */
+    openPoCloseMode: "block" | "warn";
     hasActivity: boolean;
   };
   /**
@@ -515,6 +518,10 @@ export async function getMonthEndChecklist(
     return roundMoney(lineMnt - allocated) > 0.005;
   }).length;
   const openOrdersWithReceipts = Number(openOrdersWithReceiptRows?.n ?? 0);
+  const costingRoles = await db.query.costingAccountSettings.findFirst({
+    where: eq(costingAccountSettings.organizationId, orgId),
+    columns: { openPoCloseMode: true },
+  });
   const draftReceipts = Number(receiptDrafts?.n ?? 0);
   const procurementHasActivity =
     Number(ordersInPeriod?.n ?? 0) > 0 ||
@@ -607,6 +614,7 @@ export async function getMonthEndChecklist(
       openOrdersWithReceipts,
       draftReceipts,
       unallocatedCostLines,
+      openPoCloseMode: costingRoles?.openPoCloseMode === "warn" ? "warn" : "block",
       hasActivity: procurementHasActivity,
     },
     pos: {

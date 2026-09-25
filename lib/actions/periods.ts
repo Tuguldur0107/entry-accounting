@@ -16,6 +16,7 @@ import {
   arApDocuments,
   cashDocuments,
   costEntries,
+  costingAccountSettings,
   faDepreciationEntries,
   goodsReceipts,
   journalVouchers,
@@ -346,8 +347,15 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
           eq(purchaseOrders.status, "open")
         )
       );
-    if (Number(openPo?.n ?? 0) > 0)
-      return { kind: "open-purchase-orders" as const };
+    // SIM2-023: байгууллага «анхааруулга» горим сонгосон бол хориглохгүй
+    // (checklist-д анхааруулга хэвээр) — анхдагч нь OD-011-ийн хатуу хориг.
+    if (Number(openPo?.n ?? 0) > 0) {
+      const [mode] = await tx
+        .select({ value: costingAccountSettings.openPoCloseMode })
+        .from(costingAccountSettings)
+        .where(eq(costingAccountSettings.organizationId, orgId));
+      if (mode?.value !== "warn") return { kind: "open-purchase-orders" as const };
+    }
 
     // POS: энэ сард (эсвэл өмнө нь) нээгдсэн, хаагдаагүй ээлж байвал хаагдахгүй —
     // ээлжийн зөрүү энэ сард бичигдэх ёстой (docs/pos §3.3 ⑥⑦).

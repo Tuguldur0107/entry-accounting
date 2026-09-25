@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { SwitchField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -90,6 +91,8 @@ interface Props {
   issueTypes: IssueTypeRow[];
   components: CostComponentRow[];
   accountRoles: CostingAccountRolesRow;
+  /** Хүлээн авалттай нээлттэй PO-той сар хаалт (SIM2-023). */
+  openPoCloseMode: "block" | "warn";
   glAccounts: { number: string; name: string }[];
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
@@ -114,6 +117,7 @@ export function CostingSettingsView({
   issueTypes,
   components,
   accountRoles,
+  openPoCloseMode,
   glAccounts,
   activeSegIds,
   segmentOptions,
@@ -144,6 +148,7 @@ export function CostingSettingsView({
       {tab === "accounts" && (
         <AccountRolesSection
           roles={accountRoles}
+          openPoCloseMode={openPoCloseMode}
           activeSegIds={activeSegIds}
           segmentOptions={segmentOptions}
           defaultSegments={defaultSegments}
@@ -222,12 +227,14 @@ const ROLE_FIELDS: {
 
 function AccountRolesSection({
   roles,
+  openPoCloseMode,
   activeSegIds,
   segmentOptions,
   defaultSegments,
   glNameMap,
 }: {
   roles: CostingAccountRolesRow;
+  openPoCloseMode: "block" | "warn";
   activeSegIds: number[];
   segmentOptions: Record<number, SegOption[]>;
   defaultSegments: Record<number, string>;
@@ -236,6 +243,7 @@ function AccountRolesSection({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState("");
+  const [poWarnOnly, setPoWarnOnly] = useState(openPoCloseMode === "warn");
   const [form, setForm] = useState(
     () =>
       Object.fromEntries(
@@ -256,6 +264,7 @@ function AccountRolesSection({
         adjustmentLossAccountNumber: form.adjustmentLossAccountNumber,
         nrvExpenseAccountNumber: form.nrvExpenseAccountNumber,
         nrvReserveAccountNumber: form.nrvReserveAccountNumber,
+        openPoCloseMode: poWarnOnly ? "warn" : "block",
       });
       if (!result.ok) {
         setError(result.message ?? "Хадгалж чадсангүй");
@@ -297,6 +306,14 @@ function AccountRolesSection({
             </div>
           );
         })}
+
+        <SwitchField
+          className="lg:col-span-2"
+          label="Нээлттэй захиалгатай сарыг хаахыг зөвшөөрөх"
+          hint="Асаавал хэсэгчлэн хүлээн авсан PO-той сар анхааруулгатай хаагдана — замд яваа барааны түр дансны үлдэгдэл балансад үлдэнэ. Унтраалттай бол бүх PO хаагдтал сар хаагдахгүй."
+          checked={poWarnOnly}
+          onChange={setPoWarnOnly}
+        />
 
         {error && (
           <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)] lg:col-span-2">
