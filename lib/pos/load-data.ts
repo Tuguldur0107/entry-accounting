@@ -59,6 +59,8 @@ function roleAccountsOf(row: PosSettings): string[] {
     row.cashOverAccountNumber,
     row.cashShortAccountNumber,
     row.roundingAccountNumber,
+    row.nonVatRevenueAccountNumber,
+    row.nonVatReceivableAccountNumber,
     DEFAULT_RECEIVABLE_ACCOUNT,
   ];
 }

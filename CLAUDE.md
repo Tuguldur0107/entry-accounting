@@ -873,7 +873,8 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
 - **НӨАТ-гүй борлуулалт** (☐ НӨАТ — нөхөж оруулах, залруулга; `lib/pos/non-vat.ts`
   ЦЭВЭР, тесттэй): НӨАТ задлахгүй, eBarimt ОГТ үүсэхгүй (`resendEbarimt` /
   гар ДДТД татгалзана), GL-д `pos_settings.nonVatRevenue/ReceivableAccountNumber`
-  (default БАЙХГҮЙ — хоосон бол `[NON_VAT_ACCOUNTS_REQUIRED]`), шалтгаан ЗААВАЛ
+  (default `51100002` / `13110002` — бусад рольтой ижил, дансны модонд байхгүй
+  бол `ensurePosSettings` стандарт нэрээр нээнэ; хуучин null-ийг preDeploy нөхнө), шалтгаан ЗААВАЛ
   (`pos_sales.nonVatReason`), эрх `pos:post` (approvalReasons), аудитад ил;
   жагсаалтын «НӨАТ баримт» багана + «НӨАТ-гүй» шүүлт, панель. Буцаалт эх АР
   мөрийн орлогын данс руу. AI `create_pos_sale` `nonVat` + `nonVatReason`

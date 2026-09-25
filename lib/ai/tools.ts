@@ -3105,11 +3105,11 @@ export const AI_TOOLS: AiToolDef[] = [
         roundingAccount: { type: "string", description: "Бөөрөнхийллийн зөрүүний данс (8 орон)" },
         nonVatRevenueAccount: {
           type: "string",
-          description: "НӨАТ-гүй борлуулалтын ОРЛОГЫН данс (8 орон; кассын «НӨАТ» унтраалттай). \"\" = тохиргоог арилгана (тэгвэл НӨАТ-гүй борлуулалт хийгдэхгүй)",
+          description: "НӨАТ-гүй борлуулалтын ОРЛОГЫН данс (8 орон; кассын «НӨАТ» унтраалттай; default 51100002)",
         },
         nonVatReceivableAccount: {
           type: "string",
-          description: "НӨАТ-гүй борлуулалтын АВЛАГЫН (хяналтын) данс (8 орон). \"\" = тохиргоог арилгана",
+          description: "НӨАТ-гүй борлуулалтын АВЛАГЫН (хяналтын) данс (8 орон; default 13110002)",
         },
       },
     },
@@ -11081,15 +11081,8 @@ async function runUpdatePosSettings(
     cashOverAccountNumber: account(input.cashOverAccount),
     cashShortAccountNumber: account(input.cashShortAccount),
     roundingAccountNumber: account(input.roundingAccount),
-    // НӨАТ-гүй данс: "" = арилгах (updatePosSettings null болгоно), өгөөгүй = хэвээр.
-    nonVatRevenueAccountNumber:
-      input.nonVatRevenueAccount === undefined ? undefined : input.nonVatRevenueAccount.trim() ? account(input.nonVatRevenueAccount) : "",
-    nonVatReceivableAccountNumber:
-      input.nonVatReceivableAccount === undefined
-        ? undefined
-        : input.nonVatReceivableAccount.trim()
-          ? account(input.nonVatReceivableAccount)
-          : "",
+    nonVatRevenueAccountNumber: account(input.nonVatRevenueAccount),
+    nonVatReceivableAccountNumber: account(input.nonVatReceivableAccount),
   };
   const given = Object.entries(patch).filter(([, value]) => value !== undefined);
   if (given.length === 0)
