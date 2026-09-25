@@ -23,6 +23,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
 import { CreditNoteDialog } from "@/components/arap/credit-note-dialog";
+import { WriteOffSection } from "@/components/arap/write-off-section";
 import {
   ARAP_DOCUMENT_TYPE_LABELS,
   arapLedger,
@@ -1384,6 +1385,15 @@ function ArapDocReadOnly({
           </>
         )}
       </div>
+
+      <WriteOffSection
+        document={document}
+        refreshToken={panel.refreshToken}
+        onChanged={() => {
+          refreshOpenPanels();
+          router.refresh();
+        }}
+      />
 
       <AttachmentSection
         entityType="arap"

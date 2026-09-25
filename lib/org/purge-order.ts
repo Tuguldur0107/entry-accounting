@@ -25,7 +25,8 @@ export const ORG_PURGE_ORDER = [
   // Өртөг: хуваарилалт (мөр cascade) → АР/АП мөр, PO, хөдөлгөөн; бичилт → бараа
   "cost_allocations",
   "cost_entries",
-  // Тооцоо, касс
+  // Тооцоо, касс (найдваргүй авлагын хасалт → нэхэмжлэх, журнал; сэргэлт cascade)
+  "arap_write_offs",
   "ar_ap_settlements",
   "cash_fx_revaluations",
   "cash_documents",
