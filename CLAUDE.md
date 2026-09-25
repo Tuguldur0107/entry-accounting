@@ -1891,9 +1891,11 @@ tests/notification-{rules,attention,recipients,email}.test.ts
 Агуулга (`01-онол-хууль-стандарт`, `02-нягтлан-бодох-мэргэжлийн`,
 `04-ai-agent/skills`) нь **ХУВИЙН repo `Tuguldur0107/entry-knowledge`**-д
 (фаз 2, 2026-09-25) — core repo-д, fork харилцагчид ОЧИХГҮЙ; «AI нягтлан»
-бүтээгдэхүүний гол агуулга. SaaS preDeploy тэр repo-гийн tarball-ийг
-`KNOWLEDGE_REPO` + `KNOWLEDGE_REPO_TOKEN` (read-only PAT)-оор татаж
-`knowledge_articles`-д ачаална; хэрэглэгчийн MCP-д (ChatGPT / Claude)
+бүтээгдэхүүний гол агуулга. Production-д **Railway service `knowledge-sync`**
+(эх нь `entry-knowledge` repo, Railway-ийн GitHub холболтоор — token-гүй, хугацаа
+дуусахгүй) `main`-д push бүрд `sync/seed.mjs`-ээр `knowledge_articles`-д
+ачаалаад гарна (`DATABASE_URL=${{entry-accounting.DATABASE_URL}}`; алдаанд exit 1 →
+Crashed → Railway мэдэгдэл); хэрэглэгчийн MCP-д (ChatGPT / Claude)
 **хэсгээр** уншигдана. Хэрэглэгчид файл хэзээ ч очихгүй. Core-ийн `knowledge/`
 хавтсанд зөвхөн `03-стандарт` (хөгжүүлэлтийн лавлагаа) үлдсэн.
 
@@ -1945,11 +1947,15 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
   DB-ээс тоологдоно — in-memory rate limit ХЭРЭГЛЭХГҮЙ (олон instance)
 - AI хариултдаа ишлэлээ ЗААВАЛ дурдана; санах ойгоос таахгүй (system prompt)
 - **Фаз 2 ХИЙГДСЭН (2026-09-25):** агуулга `entry-knowledge` хувийн repo-д; fork-ын
-  preDeploy эх сурвалжгүй тул юу ч ачаалахгүй. Token-гүй / татаж чадаагүй / хагас
-  архив → DB ХЭВЭЭР (устгахгүй) — `isCompleteKnowledgeSource` 01, 02, 04-skills
-  гурвууланг шаардана. Token-ий утгыг ХЭЗЭЭ Ч логлохгүй. Агуулга засахдаа
-  `entry-knowledge`-д push → дараагийн deploy шинэчилнэ. Сонголт (§6.4, хийгдээгүй):
-  dedicated харилцагчид `ENTRY_LICENSE`-ээр sync
+  preDeploy эх сурвалжгүй тул юу ч ачаалахгүй. Production-ийг ЗӨВХӨН `knowledge-sync`
+  service бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env ТАВИХГҮЙ (хоёр бичигч
+  болж parser зөрвөл хэсгүүд устаж/үүснэ). Core-ийн tarball зам
+  (`KNOWLEDGE_REPO` + `KNOWLEDGE_REPO_TOKEN`) нь нөөц / dedicated sync-д үлдсэн.
+  **`entry-knowledge/sync/knowledge-parse.mjs` = `scripts/lib/knowledge-parse.mjs`-ийн
+  ИЖИЛ хуулбар** — parser өөрчилбөл хоёуланг нь; `knowledge_articles`-ийн багана
+  өөрчилбөл `sync/seed.mjs`-ийг хамт. Бүрэн биш эх сурвалж (01, 02, 04-skills
+  гурвуулаа биш) → DB ХЭВЭЭР, устгахгүй. Сонголт (§6.4, хийгдээгүй): dedicated
+  харилцагчид `ENTRY_LICENSE`-ээр sync
 - **Хөгжүүлэлтэд:** `entry-knowledge`-ийг core-ийн хажууд `../entry-knowledge` болгон
   clone хийнэ (Claude Code web-д repo-г session-д нэмнэ); `CLAUDE.md`-ийн
   `entry-knowledge/…` лавлагаа тэр repo-г заана. Локал DB-д:
