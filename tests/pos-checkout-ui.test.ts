@@ -25,6 +25,12 @@ test("төлбөрийн диалог «Бэлэн = төлөх дүн» мөр�
   assert.match(payment, /roundToCashUnit\(total, cashRoundingUnit\)\.rounded/);
 });
 
+test("төлбөрийн хэлбэр ижил хэмжээтэй том товч; хөндөөгүй бэлэн мөр өөр хэлбэрээр солигдоно", () => {
+  assert.match(payment, /grid grid-cols-2 gap-2 sm:grid-cols-3/);
+  assert.match(payment, /current\.length === 1 && current\[0\]\.auto/);
+  assert.doesNotMatch(payment, /\+10,000|bumpCash/, "дэвсгэртийн хурдан товч хасагдсан — дүнг гараар");
+});
+
 test("баримт автоматаар хэвлэгдэнэ, хэвлээгүй хаавал сугалаа/QR-ийн анхааруулга", () => {
   assert.match(receiptPreview, /autoPrint/);
   assert.match(receiptPreview, /Баримт хэвлээгүй байна/);
