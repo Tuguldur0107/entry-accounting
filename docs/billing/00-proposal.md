@@ -131,9 +131,63 @@ organization_subscriptions   organizationId (unique) · planId · status · seat
   read-only) ба `attention.ts`-ийн `subscription.trial_ending` /
   `subscription.read_only` дохио (нүүр + өдөр тутмын мэдэгдэл, эзэн/админд).
 
+## 6a. Багцаа QPay-ээр ӨӨРӨӨ төлөх — ХЭРЭГЖСЭН (2026-09-25)
+
+Шийдвэр (product owner, 2026-09-25):
+
+| # | Асуудал | Шийдвэр |
+|---|---|---|
+| P1 | Аль багц | `skills` («AI нягтлан»), `standard`, `platform`. Enterprise = гэрээ, trial/dedicated төлөгдөхгүй |
+| P2 | Хугацаа | 1 / 3 / 6 / 12 сар, ХӨНГӨЛӨЛТГҮЙ — дүн = суудал × үнэ × сар |
+| P3 | Grace | Төлсөн хугацаа дуусахад `skills` 3 хоног, бусад 14 (`graceDaysFor`) |
+
+Урсгал: `/settings/billing` (эзэн/админ) → багц · суудал · сар → [QPay-ээр
+төлөх] → Entry-ийн ӨӨРИЙН qpay-dashboard мерчант дээр нэхэмжлэх (QR + банкны
+deeplink) → webhook `POST /api/billing/qpay/webhook?payment=<id>` (HMAC-SHA256,
+`ENTRY_BILLING_QPAY_WEBHOOK_SECRET`) ЭСВЭЛ [Шалгах] (10 сек-д нэг) →
+`markBillingPaymentPaid` НЭГ транзакцаар: төлбөр `paid` + subscription
+`active`, `currentPeriodEnd` сунгагдана. «AI нягтлан»-ы нүүрнээс ч [QPay-ээр
+төлөх] линк.
+
+- **Хугацаа үргэлжилнэ:** туршилтын эцэс / ижил багцын `currentPeriodEnd`-ээс
+  (эрт төлсөндөө хохирохгүй); хоцорсон, багц сольсон бол ОДООНООС (өнгөрсөнийг
+  нөхүүлэхгүй). `addMonths` сарын сүүлийг хавчина
+- **Идэвхтэй хугацаанд багц / суудал СОЛИХГҮЙ** — ижил нөхцлөөр л сунгана
+  (пропорц тооцоо ЗОХИОХГҮЙ); өөрчлөлт Console-оор. Туршилт / хоцорсон /
+  цуцалсан үед Standard ↔ Platform, суудал ≥ ашиглаж буй
+- **`active` + `currentPeriodEnd` өнгөрсөн = `past_due`** (entitlements.ts) —
+  grace-ийн дараа read-only. `currentPeriodEnd` null (Console-оор гараар
+  удирддаг) active хөндөгдөхгүй
+- **Үнэ ЗОХИОХГҮЙ:** `resolveSeatPrice` null (хэлэлцээрээр) бол товч идэвхгүй;
+  байгууллагын тусгай үнэ зөвхөн ОДООГИЙН багцад
+- **Мөнгө хэзээ ч алдагдахгүй:** хугацаа дууссан / цуцалсан нэхэмжлэхэд
+  webhook ирвэл `paid` болно; дүн зөрвөл `failed` + шалтгаан (Console-оос
+  шийднэ). Нэг байгууллагад нэг нээлттэй нэхэмжлэх (шинийг үүсгэхэд хуучин
+  цуцлагдана). Суспенд хийсэн багц өөрөө төлж сэргэхгүй
+- **Read-only үед ч ажиллана** — action нь `requireRole("admin")`,
+  `requireModuleAction` (assertWritesAllowed) ДАЙРАХГҮЙ; дэмжлэгийн сессээр
+  хаалттай
+- Аудит `subscription` (`payment_created` / `paid` / `payment_amount_mismatch`
+  / `webhook_rejected`); Console `GET /api/platform/organizations?id=` →
+  `billingPayments` (сүүлийн 10)
+
+```
+lib/billing/self-pay.ts        ЦЭВЭР (tests/billing-self-pay.test.ts): selfPayOptions,
+                               planBillingPayment, applyPaidSubscription, addMonths
+lib/billing/payment-store.ts   DB: env тохиргоо, нэхэмжлэх үүсгэх/шалгах/цуцлах,
+                               markBillingPaymentPaid (идемпотент, FOR UPDATE)
+lib/actions/billing-payment.ts Server Actions ({ error })
+app/api/billing/qpay/webhook   payment.paid webhook
+components/settings/billing-self-pay.tsx  форм + QR диалог + түүх
+billing_payments               хүснэгт (schema.ts, apply-pending-ddl.mjs 10b)
+```
+
+Нээлттэй (дараагийн шат): Entry-ийн ӨӨРИЙН борлуулалтын eBarimt баримт,
+хугацаа дуусахаас өмнөх сануулга (`attention.ts`), автомат сунгалт (карт).
+
 ## 6. Фаз 2 (энэ PR-д ОРООГҮЙ)
 
-- Төлбөрийн гарц (QPay/карт) — статусыг автоматаар `active`/`past_due` болгох
+- ~~Төлбөрийн гарц (QPay/карт)~~ — QPay §6a-д хэрэгжсэн; карт / автомат сунгалт үлдсэн
 - Usage metering (MCP дуудлага, extension ажиллалт) — үнэ тогтооход
 - Нэхэмжлэх үүсгэх (суудал × үнэ) — Entry өөрийн АР-аараа
 

@@ -15,6 +15,7 @@ import {
   apiTokens,
   arApDocuments,
   auditEvents,
+  billingPayments,
   cashAccounts,
   counterparties,
   employees,
@@ -98,6 +99,20 @@ export type PlatformOrgDetail = {
     oauthConnections: number;
     lastConnectorUseAt: string | null;
   };
+  /** Багцын QPay төлбөр (сүүлийн 10) — QR, нууц БАЙХГҮЙ. */
+  billingPayments: {
+    id: string;
+    status: string;
+    planId: string;
+    seats: number;
+    months: number;
+    amount: number;
+    qpayInvoiceId: string | null;
+    paidAt: string | null;
+    periodEnd: string | null;
+    lastError: string | null;
+    createdAt: string;
+  }[];
   supportSessions: SupportSessionView[];
 };
 
@@ -142,6 +157,7 @@ export async function loadPlatformOrgDetail(
     supportSessions,
     [knowledgeUse],
     [connectors],
+    payments,
   ] = await Promise.all([
     db.query.organizationProfile.findFirst({
       where: eq(organizationProfile.organizationId, organizationId),
@@ -198,6 +214,24 @@ export async function loadPlatformOrgDetail(
       })
       .from(oauthTokens)
       .where(eq(oauthTokens.organizationId, organizationId)),
+    db
+      .select({
+        id: billingPayments.id,
+        status: billingPayments.status,
+        planId: billingPayments.planId,
+        seats: billingPayments.seats,
+        months: billingPayments.months,
+        amount: billingPayments.amount,
+        qpayInvoiceId: billingPayments.qpayInvoiceId,
+        paidAt: billingPayments.paidAt,
+        periodEnd: billingPayments.periodEnd,
+        lastError: billingPayments.lastError,
+        createdAt: billingPayments.createdAt,
+      })
+      .from(billingPayments)
+      .where(eq(billingPayments.organizationId, organizationId))
+      .orderBy(desc(billingPayments.createdAt))
+      .limit(10),
   ]);
 
   return {
@@ -258,6 +292,12 @@ export async function loadPlatformOrgDetail(
       oauthConnections: connectors?.n ?? 0,
       lastConnectorUseAt: isoOrNull(connectors?.last),
     },
+    billingPayments: payments.map((row) => ({
+      ...row,
+      paidAt: row.paidAt?.toISOString() ?? null,
+      periodEnd: row.periodEnd?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+    })),
     supportSessions,
   };
 }

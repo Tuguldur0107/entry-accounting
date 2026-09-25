@@ -56,6 +56,13 @@ export function SkillsHome({ ent, mcpUrl }: { ent: Entitlements; mcpUrl: string 
         {!usable && ent.readOnlyReason ? (
           <p className="text-xs text-[var(--ea-danger-fg)]">{KNOWLEDGE_READ_ONLY_MESSAGES[ent.readOnlyReason]}</p>
         ) : null}
+        {ent.status !== "active" || !usable ? (
+          <div>
+            <LinkButton href="/settings/billing" icon="cash">
+              QPay-ээр төлөх — {price.toLocaleString("en-US")}₮ / сар
+            </LinkButton>
+          </div>
+        ) : null}
       </header>
 
       <section className={card}>

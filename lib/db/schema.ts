@@ -109,6 +109,54 @@ export const organizationSubscriptions = pgTable(
 );
 
 /**
+ * Багцын QPay төлбөр — байгууллага өөрөө төлөх урсгал (docs/billing/00-proposal.md
+ * §6a, lib/billing/self-pay.ts). Мөнгө Entry-ийн ӨӨРИЙН QPay мерчант руу
+ * (ENTRY_BILLING_QPAY_* env) орно — харилцагчийн POS-ийн QPay-тэй ХОЛБООГҮЙ.
+ * open → paid (subscription-ийг ИЖИЛ транзакцаар сунгана) | cancelled | expired |
+ * failed. Хугацаа дууссан/цуцалсан ч webhook ирвэл мөнгө бодит тул paid болно.
+ */
+export const billingPayments = pgTable(
+  "billing_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Төлбөр үүсгэсэн хэрэглэгч (устгагдвал null). */
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    planId: text("plan_id").notNull(),
+    seats: integer("seats").notNull(),
+    months: integer("months").notNull(),
+    pricePerSeatMnt: integer("price_per_seat_mnt").notNull(),
+    /** MNT бүхэл = суудал × үнэ × сар. */
+    amount: integer("amount").notNull(),
+    /** open | paid | cancelled | expired | failed */
+    status: text("status").notNull().default("open"),
+    qpayInvoiceId: text("qpay_invoice_id"),
+    qrText: text("qr_text"),
+    qrImage: text("qr_image"),
+    urls: jsonb("urls"),
+    paymentId: text("payment_id"),
+    paidAmount: integer("paid_amount"),
+    paidAt: timestamp("paid_at"),
+    expiresAt: timestamp("expires_at").notNull(),
+    /** Төлөгдөхөд сунгасан хугацаа (subscription.currentPeriodEnd-тэй тэнцүү). */
+    periodStart: timestamp("period_start"),
+    periodEnd: timestamp("period_end"),
+    lastCheckAt: timestamp("last_check_at"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("billing_payments_invoice_ux")
+      .on(t.qpayInvoiceId)
+      .where(sql`${t.qpayInvoiceId} is not null`),
+    index("billing_payments_org_time_ix").on(t.organizationId, t.createdAt),
+  ]
+);
+
+/**
  * Багцын ҮНЭ — ПЛАТФОРМЫН лавлах (organizationId БАЙХГҮЙ: үнэ бүх харилцагчид
  * нэг). Мөр бүр нь ОГНООНЫ МУЖ тул багцын үнийн ТҮҮХ энд хадгалагдана: анхны
  * үнэ, дараагийн шинэчлэлт, ирээдүйн үнэ бүгд тусдаа мөр. Тухайн өдрийг хамрах

@@ -142,6 +142,16 @@ export const SKILLS_TRIAL_HOURS = 24;
 export const TRIAL_DAYS = 14;
 /** Төлбөр хоцорсны дараа бичих эрх хадгалагдах хоног (зөөлөн хязгаар). */
 export const GRACE_DAYS = 14;
+/**
+ * «AI нягтлан» (skills) — 29,000₮-ийн захиалга тул хугацаа дууссаны дараа
+ * 3 хоног л үргэлжилнэ (2026-09-25 шийдвэр); бусад багц GRACE_DAYS.
+ */
+export const SKILLS_GRACE_DAYS = 3;
+
+/** Багцын grace хоног — entitlement, UI хоёулаа ЭНДЭЭС (давтахгүй). */
+export function graceDaysFor(planId: PlanId): number {
+  return planId === "skills" ? SKILLS_GRACE_DAYS : GRACE_DAYS;
+}
 /** Trial дуусахын өмнө сануулах хоногууд. */
 export const TRIAL_ALERT_DAYS = [7, 3, 1, 0] as const;
 
