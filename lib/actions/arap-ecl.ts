@@ -6,7 +6,7 @@
 // ⚠️ Энэ файл ЗӨВХӨН async функц export хийнэ (төрөл lib/arap/ecl*.ts-д).
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
@@ -224,9 +224,11 @@ async function runEclProvisionCore(input: { asOf: string }): Promise<{
 
   return await db.transaction(async (tx) => {
     await assertPeriodOpenInTx(tx, orgId, input.asOf);
-    // Өмнөх НООРОГ ECL журналууд (бүх огноо) — нэг л ноорог байна.
+    // Өмнөх НООРОГ ECL журналууд (бүх огноо) — нэг л ноорог байна. Ижил
+    // жилийнхийг ДУГААРТАЙ нь дахин ашиглана (устгаад шинээр авбал журналын
+    // дугаарлалтад цоорхой гарна — sim ENT-065); бусдыг устгана.
     const staleDrafts = await tx
-      .select({ id: journalVouchers.id })
+      .select({ id: journalVouchers.id, documentNo: journalVouchers.documentNo, date: journalVouchers.date })
       .from(journalVouchers)
       .where(
         and(
@@ -235,14 +237,16 @@ async function runEclProvisionCore(input: { asOf: string }): Promise<{
           like(journalVouchers.externalRef, `${ECL_PROVISION_REF_PREFIX}%`)
         )
       );
-    if (staleDrafts.length > 0) {
-      const ids = staleDrafts.map((row) => row.id);
-      await tx.delete(journalLines).where(inArray(journalLines.voucherId, ids));
-      await tx.delete(journalVouchers).where(inArray(journalVouchers.id, ids));
-    }
-
     const plan = await eclPlanFor(orgId, input.asOf, settings);
     const lines = eclJournalLines(plan, input.asOf);
+    const reuse =
+      lines.length > 0
+        ? staleDrafts.find((row) => row.documentNo && row.date.slice(0, 4) === input.asOf.slice(0, 4))
+        : undefined;
+    const dropIds = staleDrafts.filter((row) => row.id !== reuse?.id).map((row) => row.id);
+    if (staleDrafts.length > 0)
+      await tx.delete(journalLines).where(inArray(journalLines.voucherId, staleDrafts.map((row) => row.id)));
+    if (dropIds.length > 0) await tx.delete(journalVouchers).where(inArray(journalVouchers.id, dropIds));
     if (lines.length === 0)
       return { voucherId: null, documentNo: null, plan, replacedDrafts: staleDrafts.length };
 
@@ -253,27 +257,31 @@ async function runEclProvisionCore(input: { asOf: string }): Promise<{
       .where(
         and(
           eq(journalVouchers.organizationId, orgId),
-          like(journalVouchers.externalRef, `${ECL_PROVISION_REF_PREFIX}${input.asOf}%`)
+          like(journalVouchers.externalRef, `${ECL_PROVISION_REF_PREFIX}${input.asOf}%`),
+          reuse ? ne(journalVouchers.id, reuse.id) : undefined
         )
       );
     const externalRef =
       Number(count) === 0
         ? `${ECL_PROVISION_REF_PREFIX}${input.asOf}`
         : `${ECL_PROVISION_REF_PREFIX}${input.asOf}#${Number(count) + 1}`;
-    const documentNo = await nextVoucherNo(tx, orgId, "ar", input.asOf);
     const taxNote = settings.taxRatePct == null ? " (ААНОАТ-ын хувь тохируулаагүй — хойшлогдсон татвар бодогдоогүй)" : "";
-    const [voucher] = await tx
-      .insert(journalVouchers)
-      .values({
-        userId,
-        organizationId: orgId,
-        date: input.asOf,
-        description: `Авлагын ECL нөөц (IFRS 9) ${input.asOf} — шаардлагатай ${plan.requiredAllowance.toLocaleString("en-US")}₮${taxNote}`,
-        documentNo,
-        status: "draft",
-        externalRef,
-      })
-      .returning({ id: journalVouchers.id });
+    const header = {
+      date: input.asOf,
+      description: `Авлагын ECL нөөц (IFRS 9) ${input.asOf} — шаардлагатай ${plan.requiredAllowance.toLocaleString("en-US")}₮${taxNote}`,
+      externalRef,
+    };
+    const documentNo = reuse?.documentNo ?? (await nextVoucherNo(tx, orgId, "ar", input.asOf));
+    const [voucher] = reuse
+      ? await tx
+          .update(journalVouchers)
+          .set(header)
+          .where(eq(journalVouchers.id, reuse.id))
+          .returning({ id: journalVouchers.id })
+      : await tx
+          .insert(journalVouchers)
+          .values({ userId, organizationId: orgId, documentNo, status: "draft", ...header })
+          .returning({ id: journalVouchers.id });
     await tx.insert(journalLines).values(
       lines.map((line, index) => {
         const isTax = line.role === "deferredTaxAsset" || line.role === "deferredTaxExpense";

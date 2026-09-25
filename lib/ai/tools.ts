@@ -10627,12 +10627,22 @@ async function runGetPurchaseOrder(
   sections.push(
     `ТҮР ДАНСДЫН ҮЛДЭГДЭЛ (энэ захиалгаар): бараа материалын түр данс ${fmt(detail.clearing.inventory)}₮ · өглөгийн түр данс ${fmt(detail.clearing.payable)}₮ (хаалтад хоёул 0 болно)`
   );
+  const cancelled = detail.lines.filter((line) => line.cancelledQuantity > 0);
   sections.push(
-    detail.blockers.length > 0
-      ? `ХААХАД ДУТУУ: ${detail.blockers.join("; ")}`
-      : detail.status === "open"
-        ? "ХААХАД БЭЛЭН — close_purchase_order"
-        : `Төлөв: ${PO_STATUS_LABELS[detail.status] ?? detail.status}`
+    detail.status !== "open"
+      ? // Хаагдсан/цуцлагдсан захиалгад хаалтын нөхцөл хамаарахгүй (ENT-064).
+        `Төлөв: ${PO_STATUS_LABELS[detail.status] ?? detail.status}${
+          detail.shortCloseReason
+            ? ` — ДУТУУ хаагдсан: цуцалсан ${cancelled.map((line) => `${line.itemCode} ${fmt(line.cancelledQuantity)}`).join(", ") || "үлдэгдэлгүй"}; шалтгаан: ${detail.shortCloseReason}`
+            : ""
+        }`
+      : detail.blockers.length > 0
+        ? `ХААХАД ДУТУУ: ${detail.blockers.join("; ")}${
+            detail.shortClose && detail.shortClose.blockers.length === 0
+              ? ` — бараа бүрэн ирэхгүй бол close_purchase_order {shortClose: true, reason} (цуцлах ${fmt(detail.shortClose.cancelledQuantity)} нэгж${detail.shortClose.writeOffMnt > 0 ? `, илүү нэхэмжлэл ${fmt(detail.shortClose.writeOffMnt)}₮ → writeOffAccount` : ""})`
+              : ""
+          }`
+        : "ХААХАД БЭЛЭН — close_purchase_order"
   );
   return { resultText: sections.join("\n\n") };
 }
