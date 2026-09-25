@@ -18,7 +18,8 @@ export interface EbarimtItem {
   qty: number;
   /** Татвар ОРСОН нэгж үнэ. */
   unitPrice: number;
-  totalVat: number;
+  /** Wire түлхүүр ЯГ `totalVAT` (албан спек, Fibocloud/Java SDK) — `totalVat` БИШ. */
+  totalVAT: number;
   totalCityTax: number;
   totalAmount: number;
 }
@@ -27,7 +28,7 @@ export interface EbarimtSubReceipt {
   taxType: EbarimtTaxType;
   merchantTin: string;
   totalAmount: number;
-  totalVat: number;
+  totalVAT: number;
   totalCityTax: number;
   items: EbarimtItem[];
 }
@@ -43,8 +44,16 @@ export interface EbarimtPayment {
 
 export interface EbarimtReceiptRequest {
   totalAmount: number;
-  totalVat: number;
+  totalVAT: number;
   totalCityTax: number;
+  /**
+   * Албан спек (✔ шаардлагатай): «Баримтын ДДТД-ыг давхцуулахгүйн тулд олгох
+   * дотоод дугаарлалт. Тухайн өдөртөө дахин давтагдашгүй дугаар». Нэг
+   * submission-ийн БҮХ оролдлогод ИЖИЛ (timeout-ын дараах дахин илгээлтийг
+   * PosAPI давхардал гэж таньдаг), борлуулалтын дараагийн бичилт бүрд ӨӨР —
+   * `billIdSuffixOf` (receipt.ts).
+   */
+  billIdSuffix: string;
   branchNo: string;
   districtCode: string;
   merchantTin: string;

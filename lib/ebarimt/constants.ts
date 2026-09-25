@@ -109,6 +109,10 @@ export const EBARIMT_ERRORS = {
   unmappedPayment: "EBARIMT_UNMAPPED_PAYMENT",
   totalMismatch: "EBARIMT_TOTAL_MISMATCH",
   posApi: "EBARIMT_POSAPI",
+  /** HTTP timeout — хүсэлт PosAPI-д хүрч ДДТД үүссэн байж болзошгүй (давхардлын эрсдэл). */
+  posApiTimeout: "EBARIMT_POSAPI_TIMEOUT",
+  /** Борлуулалтын дугаараас `billIdSuffix` гаргах боломжгүй. */
+  billId: "EBARIMT_BILL_ID",
   rejected: "EBARIMT_REJECTED",
   notSent: "EBARIMT_NOT_SENT",
 } as const;
@@ -119,8 +123,17 @@ export const EBARIMT_BACKOFF_MS = [15_000, 60_000, 5 * 60_000, 30 * 60_000, 2 * 
 export const EBARIMT_MAX_ATTEMPTS = 20;
 /** Энэ тооны дараалсан алдаанд аудит + мэдэгдэл (`ebarimt_failed`) — нэг л удаа. */
 export const EBARIMT_ALERT_AFTER_ATTEMPTS = 3;
-/** PosAPI-ийн HTTP timeout. */
+/** PosAPI-ийн HTTP timeout — хөнгөн хүсэлтэд (`/rest/info`, гар шалгалт). */
 export const POSAPI_TIMEOUT_MS = 10_000;
+/**
+ * `POST`/`DELETE /rest/receipt`-ийн HTTP timeout. PosAPI daemon ТЕГ рүү нөөцөө
+ * түлхэж байх үедээ хариуг хэдэн арван секунд барьдаг (Techpartners SDK-ийн
+ * тэмдэглэл, docs/integrations/01 §2 P0-3). 10 сек-д таслаад дахин илгээвэл
+ * хүрсэн хүсэлт ДДТД+сугалаа үүсгэчихсэн байж болох тул ХОЁР ДАХЬ ДДТД
+ * (ТЕГ-д давхар борлуулалт) гарна — тиймээс урт хүлээнэ. Кассын дэлгэц үүнийг
+ * хүлээхгүй (`EBARIMT_INLINE_SEND_TIMEOUT_MS`, Promise.race).
+ */
+export const POSAPI_RECEIPT_TIMEOUT_MS = 90_000;
 /**
  * Борлуулалт батлагдмагц КАССЫН ДЭЛГЭЦ хариуг ХҮЛЭЭХ дээд хугацаа — сугалаа/QR
  * нь DB-д хадгалагдахгүй (албан спек) тул зөвхөн ЭНЭ цонхонд ирсэн хариу л

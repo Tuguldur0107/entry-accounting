@@ -3,7 +3,7 @@
 // client component ч дуудаж болно (browser горим).
 // docs/pos/03-ebarimt-integration-plan.md §1, §3.
 
-import { EBARIMT_ERRORS, POSAPI_PATHS, POSAPI_TIMEOUT_MS } from "./constants";
+import { EBARIMT_ERRORS, POSAPI_PATHS, POSAPI_RECEIPT_TIMEOUT_MS, POSAPI_TIMEOUT_MS } from "./constants";
 import { EbarimtError } from "./receipt";
 import { parsePosApiInfo } from "./posapi-info";
 import type { EbarimtDeleteRequest, EbarimtReceiptRequest, EbarimtReceiptResponse, PosApiHealth, PosApiInfo } from "./types";
@@ -30,28 +30,44 @@ async function call<T>(
     }
     return { status: response.status, body };
   } catch (error) {
-    const reason = error instanceof Error && error.name === "AbortError" ? "хугацаа хэтэрлээ" : error instanceof Error ? error.message : String(error);
+    if (error instanceof Error && error.name === "AbortError")
+      // Timeout нь «хүрсэнгүй» БИШ — хүсэлт PosAPI-д хүрч ДДТД үүссэн байж болзошгүй
+      // (P0-3); дуудагч (worker) давхардлын эрсдэлийг lastError-д ил бичнэ.
+      throw new EbarimtError(
+        EBARIMT_ERRORS.posApiTimeout,
+        `PosAPI ${Math.round(timeoutMs / 1000)} сек-д хариулсангүй (${url}) — хүсэлт хүрч ДДТД үүссэн байж болзошгүй`
+      );
+    const reason = error instanceof Error ? error.message : String(error);
     throw new EbarimtError(EBARIMT_ERRORS.posApi, `PosAPI-д хүрсэнгүй (${url}): ${reason}`);
   } finally {
     clearTimeout(timer);
   }
 }
 
+/** Баримт бичих — урт timeout (PosAPI нөөцөө түлхэж байхдаа удаан хариулдаг, давхар ДДТД-ээс сэргийлнэ). */
 export async function posApiPutReceipt(posApiUrl: string, request: EbarimtReceiptRequest): Promise<EbarimtReceiptResponse> {
-  const { body } = await call<EbarimtReceiptResponse>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.receipt}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const { body } = await call<EbarimtReceiptResponse>(
+    `${baseUrl(posApiUrl)}${POSAPI_PATHS.receipt}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    POSAPI_RECEIPT_TIMEOUT_MS
+  );
   return body ?? {};
 }
 
 export async function posApiDeleteReceipt(posApiUrl: string, request: EbarimtDeleteRequest): Promise<EbarimtReceiptResponse> {
-  const { status, body } = await call<EbarimtReceiptResponse>(`${baseUrl(posApiUrl)}${POSAPI_PATHS.receipt}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const { status, body } = await call<EbarimtReceiptResponse>(
+    `${baseUrl(posApiUrl)}${POSAPI_PATHS.receipt}`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    POSAPI_RECEIPT_TIMEOUT_MS
+  );
   return { ...(body ?? {}), httpStatus: status };
 }
 

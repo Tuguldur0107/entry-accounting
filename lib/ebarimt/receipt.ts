@@ -15,6 +15,9 @@
 //  5. Ямар нэг зүйл дутуу (ангилал, татварын код, төлбөрийн код, Σ зөрүү) →
 //     `[EBARIMT_*]` алдаа ШИДНЭ — payload зохиогдохгүй, борлуулалт зогсохгүй
 //     (дуудагч submission-ийг failed болгож шалтгааныг ил харуулна).
+//  6. Wire түлхүүр АЛБАН спекийнхээр: `totalVAT` (root, receipts[], items[]) —
+//     camelCase `totalVat` гэж явуулбал PosAPI НӨАТ-ыг 0 гэж уншиж болзошгүй
+//     (P0-1); `billIdSuffix` заавал (P0-2) — billIdSuffixOf.
 
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
@@ -121,14 +124,14 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
     );
   const qty = round2(line.quantity);
   const totalAmount = round2(line.lineTotal);
-  const totalVat = taxType === "VAT_ABLE" ? round2(line.vatAmount) : 0;
+  const totalVAT = taxType === "VAT_ABLE" ? round2(line.vatAmount) : 0;
   const item: EbarimtItem = {
     name: line.itemName,
     classificationCode: classification,
     measureUnit: line.unit || "ш",
     qty,
     unitPrice: qty > 0 ? round2(totalAmount / qty) : 0,
-    totalVat,
+    totalVAT,
     totalCityTax: 0,
     totalAmount,
   };
@@ -203,15 +206,52 @@ export function allocatePayments(
   return [...merged.values()].filter((payment) => payment.paidAmount > 0.005);
 }
 
+const DOCUMENT_NO_RE = /^([A-Za-z]*)-?(\d{2})(\d{2})-(\d+)$/;
+
+/**
+ * `billIdSuffix` — албан спек (✔): «Баримтын ДДТД-ыг давхцуулахгүйн тулд олгох
+ * дотоод дугаарлалт. Тухайн өдөртөө дахин давтагдашгүй дугаар». PosAPI ижил
+ * suffix-тэй хоёр дахь хүсэлтийг давхардал гэж таньдаг (Fibocloud SDK: «used to
+ * deduplicate ДДТД») тул:
+ *  - НЭГ submission-ийн бүх оролдлогод ИЖИЛ утга (timeout → backoff → дахин
+ *    илгээхэд хоёр дахь ДДТД үүсэхгүй — P0-3);
+ *  - тухайн борлуулалтын ДАРААГИЙН бичилт (`inactiveId` засвар, цуцлагдсаны
+ *    дараах дахин илгээлт) бүрд ӨӨР — `edit` = өмнөх submission-ийн тоо.
+ *
+ *   POS-2609-0001 → "090001"          MM + NNNN (сарын дараалал — өдөртөө давтагдахгүй;
+ *                                      сарын хил дээр хоцорч илгээгдсэн баримт ч MM-ээр ялгарна)
+ *   edit=1        → "09000101"        + 2 оронтой засварын дугаар
+ *   RET-2609-0001 → "9090001"         POS биш угтварт тэргүүлэх "9" — буцаалтын баримт
+ *                                      өөрөө илгээгдэхгүй ч эх борлуулалттай хэзээ ч давхцахгүй
+ *   танигдахгүй хэлбэр → бүх цифр       (POS биш үсгэн угтварт мөн "9"; цифргүй бол [EBARIMT_BILL_ID])
+ *
+ * Зөвхөн цифр, ердийн тохиолдолд 6–8 орон — зөвшөөрөгдөх тэмдэгт/урт албан
+ * баримтад бичигдээгүй тул хамгийн болгоомжтой хэлбэр (docs/integrations/01 §4.1 (4)).
+ */
+export function billIdSuffixOf(documentNo: string, edit = 0): string {
+  const trimmed = documentNo.trim();
+  if (!Number.isInteger(edit) || edit < 0 || edit > 99)
+    throw new EbarimtError(EBARIMT_ERRORS.billId, `billIdSuffix-ийн засварын дугаар 0–99 байна (${edit})`);
+  const match = DOCUMENT_NO_RE.exec(trimmed);
+  const prefix = (match ? match[1] : trimmed.match(/^[A-Za-z]+/)?.[0] ?? "").toUpperCase();
+  const digits = match ? `${match[3]}${match[4]}` : trimmed.replace(/\D/g, "");
+  if (!digits)
+    throw new EbarimtError(EBARIMT_ERRORS.billId, `Борлуулалтын дугаар "${documentNo}"-аас billIdSuffix гаргах боломжгүй (цифргүй)`);
+  const base = prefix === "POS" || prefix === "" ? digits : `9${digits}`;
+  return edit > 0 ? `${base}${String(edit).padStart(2, "0")}` : base;
+}
+
 /**
  * Борлуулалт → PosAPI 3.0 хүсэлт. Шидвэл payload зохиогдохгүй.
  * `inactiveId` = засварлах (хэсэгчилсэн буцаалт) баримтын ДДТД — албан спек §5:
  * эх баримт солигдоно, сугалаа дахин олгогдохгүй. Бүтэн буцаалт бол DELETE (§6).
+ * `edit` = энэ борлуулалтын ӨМНӨХ submission-ийн тоо (`billIdSuffixOf`) — өгөөгүй
+ * бол inactiveId-тай засварт 1, эс бөгөөс 0.
  */
 export function buildEbarimtReceipt(
   sale: EbarimtSaleInput,
   settings: EbarimtSettingsInput,
-  options: { inactiveId?: string | null } = {}
+  options: { inactiveId?: string | null; edit?: number } = {}
 ): EbarimtReceiptRequest {
   const problems = ebarimtSettingsProblems(settings);
   if (problems.length > 0) throw new EbarimtError(EBARIMT_ERRORS.settings, problems.join("; "));
@@ -232,12 +272,12 @@ export function buildEbarimtReceipt(
     taxType,
     merchantTin,
     totalAmount: round2(items.reduce((sum, item) => sum + item.totalAmount, 0)),
-    totalVat: round2(items.reduce((sum, item) => sum + item.totalVat, 0)),
+    totalVAT: round2(items.reduce((sum, item) => sum + item.totalVAT, 0)),
     totalCityTax: 0,
     items,
   }));
   const totalAmount = round2(receipts.reduce((sum, receipt) => sum + receipt.totalAmount, 0));
-  const totalVat = round2(receipts.reduce((sum, receipt) => sum + receipt.totalVat, 0));
+  const totalVAT = round2(receipts.reduce((sum, receipt) => sum + receipt.totalVAT, 0));
   if (totalAmount <= 0) throw new EbarimtError(EBARIMT_ERRORS.totalMismatch, "Баримтын дүн 0");
 
   const customerTin = sale.customerTin?.trim() || null;
@@ -247,10 +287,14 @@ export function buildEbarimtReceipt(
   if (consumerNo && !CONSUMER_NO_RE.test(consumerNo))
     throw new EbarimtError(EBARIMT_ERRORS.settings, "Иргэний eBarimt дугаар 8 оронтой байна");
 
+  const inactiveId = options.inactiveId?.trim() || null;
   const request: EbarimtReceiptRequest = {
     totalAmount,
-    totalVat,
+    totalVAT,
     totalCityTax: 0,
+    // Засвар (inactiveId) бол edit ≥ 1 ЗААВАЛ — эх баримтын suffix-тэй ижил явуулбал
+    // PosAPI давхардал гэж үзээд шинэ ДДТД олгохгүй байж болзошгүй.
+    billIdSuffix: billIdSuffixOf(sale.documentNo, options.edit ?? (inactiveId ? 1 : 0)),
     branchNo: settings.branchNo.trim(),
     districtCode: settings.districtCode.trim(),
     merchantTin,
@@ -261,7 +305,6 @@ export function buildEbarimtReceipt(
   };
   if (customerTin) request.customerTin = customerTin;
   else if (consumerNo) request.consumerNo = consumerNo;
-  const inactiveId = options.inactiveId?.trim();
   if (inactiveId) request.inactiveId = inactiveId;
 
   const paid = round2(request.payments.reduce((sum, payment) => sum + payment.paidAmount, 0));
