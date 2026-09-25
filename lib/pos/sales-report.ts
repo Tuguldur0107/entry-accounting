@@ -36,6 +36,12 @@ export interface SalesLineRow {
   lineTotal: number;
   discountRules: string[];
   paymentSummary: string;
+  /** eBarimt ДДТД (pos_sales.ebarimtId) — илгээгдээгүй бол null. */
+  ebarimtId: string | null;
+  /** eBarimt статус (EbarimtStatus) — НӨАТ-гүй / асаагаагүй бол null. */
+  ebarimtStatus: string | null;
+  /** НӨАТ-гүй борлуулалт (eBarimt ОГТ үүсэхгүй — lib/pos/non-vat.ts). */
+  nonVat: boolean;
   /** Тэмдэгтэй COGS (буцаалт сөрөг); null = тодорхойгүй. */
   cogs: number | null;
   cogsBasis: CogsBasis;
@@ -262,6 +268,17 @@ export function summarize(lines: SalesLineRow[]): SalesSummary {
     marginPercent: margin === null || netR === 0 ? null : Math.round((margin / netR) * 10000) / 100,
     cogsBasis: lines.length ? basis : "none",
   };
+}
+
+/**
+ * eBarimt илгээгдсэн (`sent`) БОРЛУУЛАЛТЫН ЧЕКИЙН тоо — мөр биш, баримт;
+ * буцаалт (isReturn) тоологдохгүй. Өдөр/салбарын мөрд «илгээсэн / чек»
+ * харьцаа болж ТЕГ рүү очоогүй баримтыг ил гаргана.
+ */
+export function ebarimtSentCount(lines: SalesLineRow[]): number {
+  const sent = new Set<string>();
+  for (const line of lines) if (!line.isReturn && line.ebarimtStatus === "sent") sent.add(line.saleId);
+  return sent.size;
 }
 
 export const COGS_BASIS_LABELS: Record<CogsBasis, string> = {
