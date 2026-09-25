@@ -7,6 +7,9 @@ builder = "RAILPACK"
 # индексийг DDL скрипт ӨӨРӨӨ баталгаажуулна (2026-09-18 осол — CLAUDE.md).
 preDeployCommand = "npm run db:predeploy"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+# 30 сек нь хатуу байв: 2026-09-25-нд predeploy/push-ийн дараах түр саатлаас
+# амжилттай image (#127) healthcheck-ээр унаж, redeploy-д 70 сек-д давсан.
+# Railway default 300; 120 нь буруу build-ийг удаан барихгүй, түр саатлыг тэсдэг.
+healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
