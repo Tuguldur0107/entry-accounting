@@ -23,7 +23,7 @@ export function SetupChecklist({
   showDemo = true,
 }: {
   steps: SetupStep[];
-  /** Анхны туршилтын карт харагдаж байвал демо товч тэнд — давхардуулахгүй. */
+  /** Анхны туршилтын карт харагдаж байхад демо мөр НУУГДАНА — нэвтрүүлэлтийн нэг л зам. */
   showDemo?: boolean;
 }) {
   const doneCount = steps.filter((step) => step.done).length;

@@ -1,13 +1,14 @@
 // Нүүрний «Өөрийн компаниа 15 минутад Entry-д» карт — анхны туршилтын гол зам
 // нь AI-тай НЭВТРҮҮЛЭЛТ: ① ChatGPT / Claude-даа холбох → ② хуучин датагаа өгөх →
-// ③ нээлтийн үлдэгдэл, тэнцэл. Демо компани нь доод мөрөнд ТУСЛАХ зам.
+// ③ нээлтийн үлдэгдэл, тэнцэл. Демо компани ЭНЭ картад БАЙХГҮЙ — зохиомол дата
+// үнэ цэнийг хойшлуулж холболтыг дахин хийлгэдэг (setup-checklist-ийн демо мөр ч
+// карт харагдаж байхад нуугддаг).
 // Алхам бүр өгөгдлөөс автоматаар ✓ (lib/onboarding/first-run.ts); гурвуул
 // хийгдмэгц эсвэл «Дараа үзнэ» дармагц нуугдана. Server Component — товчнууд
 // нь жижиг client хэсгүүд.
 
 import Link from "next/link";
 
-import { DemoCompanyButton } from "@/components/dashboard/demo-company-button";
 import { StarterPrompts } from "@/components/onboarding/starter-prompts";
 import { WelcomeDismiss } from "@/components/onboarding/welcome-dismiss";
 import { ConnectGuide } from "@/components/skills/connect-guide";
@@ -121,16 +122,13 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
         ))}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ea-border)] pt-3">
-        <p className="text-xs text-[var(--ea-text-3)]">
-          Дата гартаа байхгүй юу? Эхлээд 2 сарын жишээ гүйлгээтэй демо компани дээр үзэж болно — таны
-          компанийг хөндөхгүй.{" "}
-          <Link href="/ai#starter-prompts" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
-            Бусад жишээ асуулт
-          </Link>
-        </p>
-        <DemoCompanyButton />
-      </div>
+      <p className="mt-3 border-t border-[var(--ea-border)] pt-3 text-xs text-[var(--ea-text-3)]">
+        Бусад жишээ асуулт, бичилтийн горим, token —{" "}
+        <Link href="/ai#starter-prompts" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
+          AI холболт
+        </Link>{" "}
+        хуудсанд.
+      </p>
     </section>
   );
 }

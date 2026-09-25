@@ -111,6 +111,14 @@ test("starterInstructionHint — MCP instructions-д жишээ гарчиг; б
   assert.equal(starterInstructionHint({}), "");
 });
 
+test("welcome-card — демо компани картад БАЙХГҮЙ, карт харагдаж байхад checklist-ийн демо мөр нуугдана", () => {
+  const card = readFileSync(path.join(process.cwd(), "components/dashboard/welcome-card.tsx"), "utf8");
+  assert.ok(!card.includes("DemoCompanyButton"), "картад демо товч байхгүй");
+  assert.ok(!/демо компани/i.test(card.replace(/^\/\/.*$/gm, "")), "картын текстэд демо компани дурдагдахгүй");
+  const home = readFileSync(path.join(process.cwd(), "components/dashboard/home-dashboard.tsx"), "utf8");
+  assert.ok(home.includes("showDemo={!welcome}"), "нүүрний демо мөр карт харагдаж байхад нуугдана");
+});
+
 test("демо компанийн нэр НЭГ эх — createDemoCompany ба илрүүлэлт ижил тогтмолоор", () => {
   const demo = readFileSync(path.join(process.cwd(), "lib/actions/demo.ts"), "utf8");
   assert.ok(demo.includes('import { DEMO_ORG_NAME } from "@/lib/onboarding/first-run"'));
