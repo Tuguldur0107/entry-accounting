@@ -234,26 +234,37 @@ Entry [QPay холбох] → state (AES-GCM: org, user, apiUrl, nonce, 15 ми�
 ### 3.7 Автомат бүртгэл — Partner API (Фаз 3, БАТЛАГДСАН 2026-09-25)
 
 Харилцагч dashboard руу орохгүй — Entry-ийн компанийн мэдээлэл мерчант болно
-(D1 автомат биш, мэдээлэл бүрэн болмогц НЭГ товч; D2 данс = `company_settings.bankAccounts`;
-D3 dashboard нэвтрэлт нууц үг тохируулах и-мэйлээр хэвээр; D4 MCC/дүүрэг Entry-д сонгогч):
+(D1 автомат биш, мэдээлэл бүрэн болмогц НЭГ товч; D2 данс = **кассын модулийн
+банкны данс** `cash_accounts.qpayPayout` — 2026-09-25-нд `company_settings.bankAccounts`-аас
+шилжсэн (олон салбар / олон данс); D3 dashboard нэвтрэлт нууц үг тохируулах
+и-мэйлээр хэвээр; D4 MCC/дүүрэг Entry-д сонгогч):
 
 ```
-Тохиргоо → Компанийн мэдээлэл: регистр, MCC, хот/дүүрэг (QPay код), хаяг, утас, и-мэйл,
-  данс [банк код, дугаар, эзэмшигч, IBAN?, үндсэн ★]           (lib/qpay/reference.ts — код ЗОХИОХГҮЙ)
-QPay таб [QPay-д бүртгүүлэх] → buildQpayProvisionPlan (ЦЭВЭР, дутууг нэрлэнэ; регистрээс company/person)
+Тохиргоо → Компанийн мэдээлэл: регистр, MCC, хот/дүүрэг (QPay код), хаяг, утас, и-мэйл
+Касс → Данс (банкны): банк ЖАГСААЛТААС (код), дугаар, эзэмшигч?, IBAN?, ☑ QPay төлбөр хүлээн авах, ★ үндсэн (нэг л)
+                                                              (lib/qpay/reference.ts — код ЗОХИОХГҮЙ)
+QPay таб [QPay-д бүртгүүлэх] → buildQpayProvisionPlan (ЦЭВЭР, дутууг нэрлэнэ; регистрээс company/person;
+    данс = payoutAccountsFromCashAccounts — тэмдэглэсэн/идэвхтэй/MNT/дугаартай, эзэмшигч хоосон бол компанийн нэр)
   → Entry сервер POST {dashboard}/api/partner/merchants (Bearer QPAY_PARTNER_KEY; external_id = org id, ИДЕМПОТЕНТ)
   → dashboard: QPay /v2/merchant/* (регистрээр байвал дахин ашиглана) + хэрэглэгч (эзний и-мэйл) + данс + API хандалт
   → { merchant_id, api_key, webhook_secret } НЭГ удаа → encryptSecret → seed → readiness → асна; qpay_provisioned_at
-Компанийн данс хадгалах → (provisioned бол) PUT …/bank-accounts — Entry эх сурвалж, best effort (алдаа = анхааруулга)
+Кассын данс хадгалах/идэвх/устгах → (provisioned бол) PUT …/bank-accounts — Entry эх сурвалж, best effort (алдаа = toast)
+Салбар: Бараа → Агуулах → «QPay төлбөр орох данс» (warehouses.qpay_cash_account_id, FK set null)
+  ээлж → агуулах → данс → createQpayIntent → dashboard POST /api/v1/invoices { payout_account_number }
+  → тэр нэхэмжлэхэд ТЭР данс default (мерчантын үндсэн хөндөгдөхгүй); бүртгэлгүй → 400; сонгоогүй → үндсэн данс
 ```
 
 - Consent зам (§3.6) fallback хэвээр — partner key байхгүй deploy (dedicated fork)
 - Dashboard: `src/lib/merchant-provision.ts` (онбордингтой НЭГ цөм), `src/lib/partner-auth.ts`,
   `src/lib/partner-links.ts`, `src/app/api/partner/*`, `src/lib/account-setup.ts` + `/set-password`;
   `docs/API.md` «Partner»
-- Entry: `lib/qpay/provision.ts` (ЦЭВЭР, тесттэй), `lib/qpay/partner.ts` (SERVER), `lib/qpay/reference.ts`
+- Entry: `lib/qpay/provision.ts` (ЦЭВЭР, тесттэй — `payoutAccountsFromCashAccounts`), `lib/qpay/partner.ts`
+  (SERVER — `loadQpayPayoutAccounts`, `syncQpayBankAccountsForOrg` cash_accounts-аас), `lib/qpay/reference.ts`
   (CLIENT-SAFE лавлах), `provisionQpayMerchant` / `getQpayProvisionPreview` / `getQpayDistricts`,
-  `updateOrganizationProfile` → `syncQpayBankAccountsForOrg`
+  `lib/actions/cash.ts` (`afterQpayAccountChange` — үндсэн нэг + sync), `lib/actions/inventory.ts`
+  агуулахын `qpayCashAccountId`, `createQpayIntent` → `resolveWarehousePayoutAccount`
+- Dashboard: `POST /api/v1/invoices` / MCP `create_invoice` `payout_account_number` — `bankAccountsFor`
+  (`src/lib/qpay-invoices.ts`) sync-лэсэн данснаас, `PayoutAccountNotFoundError` → 400
 
 ---
 

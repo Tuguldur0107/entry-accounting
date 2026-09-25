@@ -18,8 +18,6 @@ import {
 } from "@/lib/db/schema";
 import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
 import { emitNotification } from "@/lib/notifications/emit";
-import { syncQpayBankAccountsForOrg } from "@/lib/qpay/partner";
-import { bankAccountsEqualForQpay } from "@/lib/qpay/provision";
 import { actionError, type ActionResult } from "@/lib/action-result";
 
 
@@ -274,18 +272,12 @@ async function updateOrganizationProfileCore(data: {
     }
   }
 
-  // QPay мерчантын данс — Partner API-аар бүртгэгдсэн байгууллагад данс
-  // өөрчлөгдвөл dashboard руу sync (best effort: алдаа = анхааруулга, хадгалалт
-  // унахгүй; docs/deployment/qpay.md §2b).
-  let warning: string | undefined;
-  if (!bankAccountsEqualForQpay(previousRow?.bankAccounts ?? [], bankAccounts)) {
-    const sync = await syncQpayBankAccountsForOrg(orgId, userId, bankAccounts);
-    if (sync && "warning" in sync) warning = sync.warning;
-  }
+  // Энд буй данс = зөвхөн нэхэмжлэхийн толгой. QPay мерчантын данс кассын
+  // модулиас (cash_accounts.qpayPayout → lib/actions/cash.ts sync) — энд sync ҮГҮЙ.
 
   revalidatePath("/settings/gl");
   revalidatePath("/settings/company");
   revalidatePath("/admin/org");
   revalidatePath("/", "layout");
-  return warning ? { warning } : {};
+  return {};
 }

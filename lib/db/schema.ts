@@ -732,6 +732,19 @@ export const cashAccounts = pgTable("cash_accounts", {
    * Монголбанкны албан ханш татагдана (ENT-011, lib/cash/opening.ts).
    */
   openingRate: numeric("opening_rate", { precision: 18, scale: 8 }),
+  // ── QPay төлбөр хүлээн авах данс (банкны дансанд; docs/deployment/qpay.md §2b) ──
+  // Кассын модулийн банкны данс = QPay мерчантын дансны ЦОРЫН ГАНЦ эх сурвалж:
+  // тэмдэглэсэн данснууд dashboard руу sync хийгдэж, агуулах (салбар) бүр
+  // өөрийн дансаа сонгоно (warehouses.qpayCashAccountId).
+  /** Банкны 6 оронтой код (lib/qpay/reference.ts QPAY_BANK_CODES) — QPay-д ЗААВАЛ. */
+  bankCode: text("bank_code"),
+  iban: text("iban"),
+  /** Данс эзэмшигчийн нэр (QPay account_name) — хоосон бол компанийн нэр. */
+  accountHolder: text("account_holder"),
+  /** «QPay төлбөр хүлээн авах» — dashboard-ын мерчантын дансанд sync хийгдэнэ. */
+  qpayPayout: boolean("qpay_payout").notNull().default(false),
+  /** Байгууллагын QPay ҮНДСЭН данс (нэг л) — салбарт данс сонгоогүй үед. */
+  qpayDefault: boolean("qpay_default").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -1949,6 +1962,14 @@ export const warehouses = pgTable(
     }),
     code: text("code").notNull(),
     name: text("name").notNull(),
+    /**
+     * Салбар (агуулах) бүрийн QPay төлбөр орох данс — cash_accounts (банк,
+     * qpayPayout). null = байгууллагын QPay үндсэн данс. POS ээлж → агуулах →
+     * данс → QR үүсгэхэд dashboard руу `payout_account_number` (§5c QPay).
+     */
+    qpayCashAccountId: uuid("qpay_cash_account_id").references(() => cashAccounts.id, {
+      onDelete: "set null",
+    }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -3562,15 +3583,20 @@ export const aiSettings = pgTable("ai_settings", {
 // (халуун зам биш). Кодод organizationProfile; ФИЗИК хүснэгтийн нэр
 // "company_settings" ХЭВЭЭР — rename хийвэл drizzle-kit push нь drop+create
 // гэж үзэж бодит дата (лого/тамга/банк) устгах эрсдэлтэй тул зориуд үлдээв.
-/** company_settings.bank_accounts jsonb-ийн мөр (QPay талбарууд сонголттой). */
+/**
+ * company_settings.bank_accounts jsonb-ийн мөр — ЗӨВХӨН нэхэмжлэхийн толгойд.
+ * QPay төлбөр орох данс нь ЭНД БИШ — cash_accounts (qpayPayout) + агуулахын
+ * qpayCashAccountId (§5c QPay). bankCode/iban/isDefault нь хуучин мөрд
+ * үлдсэн (2026-09-25-аас өмнө QPay sync энд байсан) — уншихад нөлөөгүй.
+ */
 export interface CompanyBankAccount {
   bankName: string;
   accountNo: string;
   accountName: string;
-  /** Банкны 6 оронтой код (QPay/банк хоорондын) — QPay данс sync-д ЗААВАЛ. */
+  /** Банкны 6 оронтой код (lib/qpay/reference.ts) — нэрийг жагсаалтаас сонгосон бол. */
   bankCode?: string;
   iban?: string;
-  /** QPay төлбөр орох үндсэн данс — нэг л мөр. */
+  /** Хуучин: QPay үндсэн данс байсан — одоо cash_accounts.qpayDefault. */
   isDefault?: boolean;
 }
 
@@ -3590,10 +3616,9 @@ export const organizationProfile = pgTable("company_settings", {
   phone: text("phone"),
   email: text("email"),
   /**
-   * Банкны данснууд — [{ bankName, accountNo, accountName, bankCode?, iban?, isDefault? }].
-   * `bankCode` (6 орон, lib/qpay/reference.ts QPAY_BANK_CODES) / `iban` /
-   * `isDefault` нь QPay мерчантын данс sync-д (§5c QPay Partner) — хуучин мөрд
-   * байхгүй бол undefined (нэхэмжлэхийн толгойд нөлөөгүй).
+   * Банкны данснууд — [{ bankName, accountNo, accountName, bankCode?, iban?, isDefault? }]
+   * — нэхэмжлэхийн толгойд л. QPay мерчантын данс = cash_accounts.qpayPayout
+   * (§5c QPay Partner); энд өөрчлөгдөхөд QPay sync ХИЙГДЭХГҮЙ.
    */
   bankAccounts: jsonb("bank_accounts")
     .$type<CompanyBankAccount[]>()

@@ -811,6 +811,14 @@ async function main() {
     ["pos_settings", "ewallet_fee_account_number", "text not null default '73100008'"],
     ["pos_sales", "non_vat", "boolean not null default false"],
     ["pos_sales", "non_vat_reason", "text"],
+    // QPay төлбөр хүлээн авах данс = кассын модулийн банкны данс (docs/deployment/qpay.md §2b);
+    // салбар (агуулах) бүр өөрийн дансаа сонгоно
+    ["cash_accounts", "bank_code", "text"],
+    ["cash_accounts", "iban", "text"],
+    ["cash_accounts", "account_holder", "text"],
+    ["cash_accounts", "qpay_payout", "boolean not null default false"],
+    ["cash_accounts", "qpay_default", "boolean not null default false"],
+    ["warehouses", "qpay_cash_account_id", "uuid"],
   ]) {
     await run(
       `${table}.${column} багана`,
@@ -837,6 +845,47 @@ async function main() {
       `alter table pos_settings alter column ${column} set not null`
     );
   }
+  await run(
+    "warehouses.qpay_cash_account_id FK",
+    `do $$
+     begin
+       if not exists (
+         select 1 from pg_constraint
+         where conname = 'warehouses_qpay_cash_account_id_cash_accounts_id_fk'
+       ) then
+         alter table warehouses
+           add constraint warehouses_qpay_cash_account_id_cash_accounts_id_fk
+           foreign key (qpay_cash_account_id) references cash_accounts(id)
+           on delete set null;
+       end if;
+     end $$;`
+  );
+  // QPay данс sync ӨМНӨ нь company_settings.bank_accounts-аас байсан (2026-09-25
+  // хүртэл). Partner-аар бүртгэгдсэн байгууллагад тэр жагсаалттай ДУГААРААР
+  // таарах кассын банкны дансыг «QPay төлбөр хүлээн авах» гэж нэг удаа
+  // тэмдэглэнэ (код/IBAN/эзэмшигч/үндсэн дагуулж) — sync тасрахгүй. Таарахгүй
+  // бол хэрэглэгч Касс → Данс дээр өөрөө тэмдэглэнэ; идемпотент (qpay_payout=false л).
+  await run(
+    "cash_accounts.qpay_payout нөхөлт (company_settings.bank_accounts-аас)",
+    `update cash_accounts ca
+        set qpay_payout = true,
+            bank_code = coalesce(ca.bank_code, nullif(b.acc->>'bankCode', '')),
+            iban = coalesce(ca.iban, nullif(b.acc->>'iban', '')),
+            account_holder = coalesce(ca.account_holder, nullif(b.acc->>'accountName', '')),
+            qpay_default = coalesce((b.acc->>'isDefault')::boolean, false)
+       from company_settings cs, jsonb_array_elements(cs.bank_accounts) as b(acc)
+      where cs.organization_id = ca.organization_id
+        and ca.account_type = 'bank'
+        and ca.qpay_payout = false
+        and regexp_replace(coalesce(ca.account_number, ''), '\\D', '', 'g') <> ''
+        and regexp_replace(coalesce(ca.account_number, ''), '\\D', '', 'g')
+            = regexp_replace(coalesce(b.acc->>'accountNo', ''), '\\D', '', 'g')
+        and exists (
+          select 1 from pos_settings ps
+           where ps.organization_id = ca.organization_id
+             and ps.qpay_provisioned_at is not null
+        )`
+  );
   // Багана нэмэгдэхээс өмнөх мөр: регистр нь иргэний РД хэлбэртэй (2 кирилл
   // үсэг + 8 орон) бол «Хувь хүн» — зөвхөн default утгатай мөрийг хөндөнө
   // (хэрэглэгчийн сонгосон утгыг дарахгүй, идемпотент).
