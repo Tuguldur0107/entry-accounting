@@ -524,6 +524,13 @@ function DisposeBody({
 
   const isSale = disposalType === "sale";
   const proceedsValue = isSale ? Number(proceeds) || 0 : 0;
+  const blockedReason = !gainLossAccount
+    ? "Олз/гарзын данс сонгоно уу"
+    : isSale && proceedsValue <= 0
+      ? "Борлуулсан үнэ 0-ээс их байна (нэхэмжлэхээр аль хэдийн борлуулсан бол «Актлах»-аар хасна)"
+      : isSale && !proceedsAccount
+        ? "Борлуулалтын орлогын (авлага/мөнгө) данс сонгоно уу"
+        : null;
   // Урьдчилсан тооцоо: NBV − орлого = гарз (+) / олз (−).
   const gainLoss =
     Math.round((asset.netBookValue - proceedsValue) * 100) / 100;
@@ -644,13 +651,18 @@ function DisposeBody({
           </p>
         </div>
       </div>
+      {/* SIM2-039: товч идэвхгүй бол ЯАГААД гэдгийг ил хэлнэ. */}
+      {blockedReason ? (
+        <p className="px-1 text-xs text-[var(--ea-warning-fg)]">{blockedReason}</p>
+      ) : null}
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
           Болих
         </Button>
         <Button
           variant="destructive"
-          disabled={isPending || !gainLossAccount || (isSale && (!proceedsAccount || proceedsValue <= 0))}
+          disabled={isPending || blockedReason !== null}
+          title={blockedReason ?? undefined}
           onClick={submit}
         >
           Данснаас хасах

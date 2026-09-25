@@ -18,6 +18,7 @@ import { revalidatePath } from "next/cache";
 
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { db } from "@/lib/db";
+import { isOpeningBalanceVoucher } from "@/lib/fa/opening";
 import {
   arApDocumentLines,
   arApDocuments,
@@ -129,6 +130,10 @@ export async function syncInventoryDraftForVoucher(voucherId: string) {
       with: { lines: true },
     });
     if (!voucher || voucher.status !== "posted") return;
+    // SIM2-009: нэвтрүүлэлтийн нээлтийн журнал — нээлтийн бараа тусдаа
+    // (тоо хэмжээтэй) орлогоор бүртгэгддэг тул «(бараагүй) × 0» хиймэл
+    // ноорог хөдөлгөөн үүсгэж сар хаалтыг хориглохгүй (ENT-046-тай ижил).
+    if (isOpeningBalanceVoucher(voucher)) return;
     const userId = voucher.userId;
     const orgId = voucher.organizationId;
     if (!orgId) return;

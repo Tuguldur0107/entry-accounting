@@ -1,0 +1,12 @@
+import {open,shot,flush,BASE,ODIR} from '../common/harness.mjs';
+import path from 'path';
+import {fill,clickBtn,toast,dlgText} from './d_lib.mjs';
+const {browser,page}=await open({height:1800,slow:true});
+const log=(...a)=>console.log(...a);
+await page.goto(BASE+'/cash/statements',{waitUntil:'networkidle'}); await page.waitForTimeout(800);
+await page.locator('select').first().selectOption({index:1});
+const [fc]=await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button',{name:/Хуулга сонгох/}).click()]);
+await fc.setFiles(path.join(ODIR,'stmt_sep.csv')); await page.waitForTimeout(2500);
+log('page',(await page.locator('main').innerText()).replace(/\n+/g,' | ').slice(0,1800));
+log('buttons',JSON.stringify((await page.getByRole('button').allInnerTexts()).filter(x=>x.trim()).slice(8)));
+await shot(page,'d-stmt-2'); flush(); await browser.close();

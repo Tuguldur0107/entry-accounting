@@ -2009,6 +2009,13 @@ export const AI_TOOLS: AiToolDef[] = [
               phone: { type: "string" },
               baseSalary: { type: "number", description: "Сарын үндсэн цалин ₮" },
               employerSiPercent: { type: "number", description: "АО-НДШ % (default 12.5)" },
+              // SIM2-003: create_employee-тэй ИЖИЛ (batch-д зарлагдаагүй байв).
+              employmentType: {
+                type: "string",
+                enum: ["primary", "contract", "hourly"],
+                description: "Ажил эрхлэлт: primary=Үндсэн, contract=Гэрээт, hourly=Цагийн",
+              },
+              terminationDate: { type: "string", description: "Ажлаас гарсан огноо YYYY-MM-DD (сонголтоор)" },
             },
             required: ["name", "baseSalary"],
           },
@@ -5196,6 +5203,24 @@ async function runCreateCounterparty(
       (registerNo != null && entry.registerNo === registerNo) ||
       (code != null && entry.code === code)
   );
+  // SIM2-002: нэр/ТТД ижил харилцагчийг ӨӨР чиглэлээр (customer ↔ supplier)
+  // дахин өгвөл «both» болгон нэгтгэнэ — алгасаад дараа нь АП нэхэмжлэх
+  // чиглэлийн шалгалтад унадаг байв. Бусад талбарыг хөндөхгүй.
+  if (
+    duplicate &&
+    input.counterpartyType &&
+    duplicate.counterpartyType !== "both" &&
+    input.counterpartyType !== duplicate.counterpartyType
+  ) {
+    await db
+      .update(counterparties)
+      .set({ counterpartyType: "both" })
+      .where(and(eq(counterparties.id, duplicate.id), eq(counterparties.organizationId, orgId)));
+    return {
+      resultText: `Аль хэдийн бүртгэгдсэн "${duplicate.name}" — чиглэлийг нэгтгэв: ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType} → ${CP_TYPE_LABELS.both ?? "both"} (ID ${duplicate.id})`,
+      dedup: true,
+    };
+  }
   if (duplicate) {
     return {
       resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.code ? ` (код ${duplicate.code})` : ""}${duplicate.registerNo ? ` (ТТД ${duplicate.registerNo})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
@@ -10947,8 +10972,10 @@ async function posShiftFor(orgId: string, warehouseCode?: string, shiftRef?: str
 }
 
 async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
-  const [settings, methods, shifts, vat] = await Promise.all([
-    ensurePosSettings(orgId),
+  // SIM2-018: ensurePosSettings default хэлбэрүүдийг (CASH, CREDIT) seed хийдэг —
+  // ДАРАА нь уншина (зэрэг уншвал эхний дуудлагад жагсаалт хоосон гардаг байв).
+  const settings = await ensurePosSettings(orgId);
+  const [methods, shifts, vat] = await Promise.all([
     loadPaymentMethodViews(orgId),
     loadShiftViews(orgId, { openOnly: true }),
     loadVatSettings(orgId),
@@ -10979,7 +11006,8 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
     }`,
     `Төлбөрийн хэлбэр: ${methods
       .filter((method) => method.isActive)
-      .map((method) => `${method.code} (${PAYMENT_KIND_LABELS[method.kind]}${method.cashAccountName ? ` → ${method.cashAccountName}` : ""}${method.currency !== "MNT" ? `, ${method.currency}` : ""}${method.requiresReference ? ", лавлах заавал" : ""})`)
+      // SIM2-017: хэлбэр бүрийн ӨӨРИЙН нэр (ижил төрлийн CASH / CASH2 ялгагдана).
+      .map((method) => `${method.code} «${method.name}» (${PAYMENT_KIND_LABELS[method.kind]}${method.cashAccountName ? ` → ${method.cashAccountName}` : ""}${method.currency !== "MNT" ? `, ${method.currency}` : ""}${method.requiresReference ? ", лавлах заавал" : ""})`)
       .join(", ")}`,
   ];
   return { resultText: lines.join("\n") };
@@ -11092,11 +11120,16 @@ async function runSavePosPaymentMethod(
     ).id;
   }
 
+  const savedName = input.name?.trim() || existing?.name || code;
+  // SIM2-017: ижил нэртэй идэвхтэй хэлбэр — анхааруулга.
+  const duplicate = methods.find(
+    (method) => method.code !== code && method.isActive && method.name.trim().toLowerCase() === savedName.toLowerCase()
+  );
   unwrapAction(
     await savePaymentMethod({
       id: existing?.id ?? null,
       code,
-      name: input.name?.trim() || existing?.name || code,
+      name: savedName,
       kind,
       cashAccountId,
       requiresReference: input.requiresReference ?? existing?.requiresReference ?? false,
@@ -11111,9 +11144,11 @@ async function runSavePosPaymentMethod(
     })
   );
   return {
-    resultText: `${existing ? "Шинэчлэгдлээ" : "Үүслээ"}: ${code} · ${PAYMENT_KIND_LABELS[kind]}${
+    resultText: `${existing ? "Шинэчлэгдлээ" : "Үүслээ"}: ${code} «${savedName}» · ${PAYMENT_KIND_LABELS[kind]}${
       input.ebarimtCode ? ` · eBarimt ${input.ebarimtCode.trim().toUpperCase()}` : ""
-    }${input.isActive === false ? " · ИДЭВХГҮЙ" : ""}`,
+    }${input.isActive === false ? " · ИДЭВХГҮЙ" : ""}${
+      duplicate ? `\n⚠ «${savedName}» нэртэй өөр идэвхтэй хэлбэр (${duplicate.code}) бий — кассчин ялгахгүй, нэрийг өөрчилнө үү` : ""
+    }`,
   };
 }
 

@@ -1,0 +1,12 @@
+import {open,shot,flush,BASE,ODIR} from '../common/harness.mjs';
+import {fill,clickBtn,toast,dlgText} from './d_lib.mjs';
+import fs from 'fs'; import path from 'path';
+const {browser,page}=await open({height:1300,slow:true});
+const log=(...a)=>console.log(...a);
+await page.goto(BASE+'/',{waitUntil:'networkidle'}); await page.waitForTimeout(800); await page.getByRole('button',{name:/SIM Микро ХХК/}).first().click(); await page.waitForTimeout(600); await page.getByText('SIM Импорт ХХК',{exact:true}).first().click(); await page.waitForTimeout(1500);
+await page.goto(BASE+'/cash/transactions',{waitUntil:'networkidle'}); await page.waitForTimeout(800);
+log('company',await page.getByRole('button',{name:/SIM (Микро|Импорт)/}).first().innerText());
+await clickBtn(page,'^Шинэ гүйлгээ$'); await page.waitForTimeout(700); const d=page.locator('[role=dialog]').last(); await d.getByRole('button',{name:/^Орлого$/}).click(); await fill(d,'Дүн',1000); await d.locator('select').first().selectOption({index:1}); const gl=d.locator('input[placeholder="GL данс..."]').first(); await gl.fill('51100000'); await page.keyboard.press('Tab'); await fill(d,'Журналын нэр','RBAC тест ноорог');
+await d.getByRole('button',{name:/^Ноорог хадгалах$/}).click(); await page.waitForTimeout(1000); log('draft toast',await toast(page,4000)); log('dlg err',(await page.locator('[role=dialog]').last().innerText()).match(/эрх[^\n]*/)?.[0]); await shot(page,'rbac-draft');
+await page.keyboard.press('Escape');
+flush(); await browser.close();

@@ -1,0 +1,13 @@
+import {open,shot,flush,BASE} from '../common/harness.mjs';
+import {fill,clickBtn,toast,dlgText} from './d_lib.mjs';
+const {browser,page}=await open({height:1600,slow:true});
+const log=(...a)=>console.log(...a);
+await page.goto(BASE+'/payroll',{waitUntil:'networkidle'}); await page.waitForTimeout(800);
+await clickBtn(page,'^Бодолт хийх$'); await page.waitForTimeout(1200);
+log('dlg',await dlgText(page)); await shot(page,'d-payroll-1');
+const d=page.locator('[role=dialog]').last(); const names=await d.locator('button').allInnerTexts().catch(()=>[]); log('btns',JSON.stringify(names));
+const bi=names.findIndex(x=>x.trim()==='Болих'); if(bi>=0) await d.locator('button').nth(bi+1).click();
+log('toast',await toast(page,15000)); await page.waitForTimeout(1200);
+log('page',(await page.locator('main').innerText()).replace(/\n+/g,' | ').slice(0,1500));
+log('buttons',JSON.stringify((await page.getByRole('button').allInnerTexts()).filter(x=>x.trim()).slice(8)));
+await shot(page,'d-payroll-2'); flush(); await browser.close();

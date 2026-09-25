@@ -18,7 +18,7 @@ try {
 
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
-import { syncStandardAccounts, updateVoucher } from "../lib/actions/gl";
+import { postVoucher, syncStandardAccounts, updateVoucher } from "../lib/actions/gl";
 import { backfillCashDraftsForUser } from "../lib/cash/sync-voucher";
 import { getPayrollRunData } from "../lib/actions/payroll";
 import { activateFixedAsset } from "../lib/actions/fa";
@@ -35,6 +35,8 @@ import {
   employees,
   fixedAssets,
   goodsReceipts,
+  counterparties,
+  inventoryMovements,
   journalLines,
   journalVouchers,
   memberships,
@@ -415,7 +417,7 @@ test("SIM2-014/004: S8 ангилал автоматаар, list_segment_values,
 
 // ── Бүлэг 4: ҮХ / GL хяналт ─────────────────────────────────────────────────
 
-async function glNet(main: string, to = "2026-12-31") {
+async function glNet(main: string) {
   const rows = await db
     .select({ debit: journalLines.debit, credit: journalLines.credit, accountNumber: journalLines.accountNumber })
     .from(journalLines)
@@ -672,4 +674,53 @@ test("SIM2-044: list_journal_vouchers хуучин (хаагдсан) сарыг
   const newest = ok(await tool("list_journal_vouchers", { from: "2026-08-01", to: "2026-08-31", limit: 5 })).resultText;
   assert.match(newest, /^Нийт 410-ээс 1–5 харуулав \(дараагийнх: offset 5\)/);
   ok(await tool("reopen_period", { code: "2023-03" }, "post"));
+});
+
+test("SIM2-009/002/003/017/018: нээлтийн журнал бараа ноорог үүсгэхгүй; харилцагчийн чиглэл нэгтгэгдэнэ; batch employmentType; POS хэлбэрийн нэр", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // SIM2-009: нээлтийн журнал 14000099 (бараа мат. түр данс)-г Дт хийсэн ч «(бараагүй) × 0» ноорог хөдөлгөөн үүсгэхгүй
+  const created = ok(await tool("create_journal_voucher", {
+    date: "2024-12-31", description: "[ОНБ] Нээлтийн үлдэгдэл", externalRef: `opening-balance:2024-12-31-${STAMP}`,
+    lines: [
+      { account: "14000099", debit: 5_000_000, credit: 0 },
+      { account: "41000001", debit: 0, credit: 5_000_000 },
+    ],
+  })).resultText;
+  const voucherId = created.match(/ID: ([0-9a-f-]{36})/)?.[1];
+  assert.ok(voucherId, created);
+  const posted = await asOrg(() => postVoucher(voucherId!));
+  assert.ok(!("error" in posted && posted.error), JSON.stringify(posted));
+  const sentinels = await db.query.inventoryMovements.findMany({
+    where: and(eq(inventoryMovements.organizationId, orgId), eq(inventoryMovements.sourceType, "gl_voucher"), eq(inventoryMovements.sourceId, voucherId!)),
+  });
+  assert.equal(sentinels.length, 0, "нээлтийн журнал бараа ноорог үүсгэхгүй");
+
+  // SIM2-002: ижил харилцагчийг өөр чиглэлээр → «both»
+  ok(await tool("create_counterparty", { name: `Мобиком ${STAMP}`, registerNo: "2000601", counterpartyType: "customer" }));
+  const merged = ok(await tool("create_counterparty", { name: `Мобиком ${STAMP}`, registerNo: "2000601", counterpartyType: "supplier" })).resultText;
+  assert.match(merged, /чиглэлийг нэгтгэв/);
+  const cp = await db.query.counterparties.findFirst({
+    where: and(eq(counterparties.organizationId, orgId), eq(counterparties.registerNo, "2000601")),
+  });
+  assert.equal(cp?.counterpartyType, "both");
+
+  // SIM2-003: batch employmentType + terminationDate хадгалагдана
+  ok(await tool("create_employees_batch", {
+    items: [{ name: `Цагийн-${STAMP}`, baseSalary: 900_000, employmentType: "hourly", terminationDate: "2025-09-15", registerNo: "УБ87010199" }],
+  }));
+  const hourly = await db.query.employees.findFirst({
+    where: and(eq(employees.organizationId, orgId), eq(employees.name, `Цагийн-${STAMP}`)),
+  });
+  assert.equal(hourly?.employmentType, "hourly");
+  assert.equal(hourly?.terminationDate, "2025-09-15");
+
+  // SIM2-018: анхны get_pos_status default хэлбэрүүдийг шууд харуулна
+  const status = ok(await tool("get_pos_status", {})).resultText;
+  assert.match(status, /Төлбөрийн хэлбэр: CASH «/);
+  // SIM2-017: ижил нэртэй хэлбэр — анхааруулга, нэр ялгагдана
+  const cashName = status.match(/CASH «([^»]+)»/)?.[1];
+  assert.ok(cashName, status);
+  ok(await tool("create_cash_account", { name: `POS касс ${STAMP}`, accountType: "cash", currency: "MNT", glAccount: "10000001" }));
+  const dup = ok(await tool("save_pos_payment_method", { code: "CASH2", name: cashName, kind: "cash", cashAccount: `POS касс ${STAMP}` })).resultText;
+  assert.match(dup, /нэртэй өөр идэвхтэй хэлбэр \(CASH\)/);
 });
