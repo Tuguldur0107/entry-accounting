@@ -21,18 +21,39 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { FormField } from "@/components/ui/form-field";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
 import { createWarehouse, toggleWarehouse, updateWarehouse } from "@/lib/actions/inventory";
 import type { WarehouseView } from "@/lib/inventory/types";
 
-const emptyForm = { id: "", code: "", name: "" };
+/** Салбарын QPay данс сонгогчийн мөр — «QPay төлбөр хүлээн авах» кассын банкны данс. */
+export type WarehouseQpayAccountOption = {
+  id: string;
+  name: string;
+  bankName: string;
+  accountNumber: string;
+  isDefault: boolean;
+};
 
-export function InventoryWarehousesView({ warehouses }: { warehouses: WarehouseView[] }) {
+const emptyForm = { id: "", code: "", name: "", qpayCashAccountId: "" };
+
+export function InventoryWarehousesView({
+  warehouses,
+  qpayAccounts,
+}: {
+  warehouses: WarehouseView[];
+  qpayAccounts: WarehouseQpayAccountOption[];
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
+  const qpayAccountLabel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of qpayAccounts) map.set(a.id, `${a.name}${a.accountNumber ? ` · ${a.accountNumber}` : ""}`);
+    return map;
+  }, [qpayAccounts]);
 
   function run(action: () => Promise<{ error?: string } | void>, success: string, close?: () => void) {
     setError("");
@@ -56,7 +77,12 @@ export function InventoryWarehousesView({ warehouses }: { warehouses: WarehouseV
   }
 
   function openEdit(warehouse: WarehouseView) {
-    setForm({ id: warehouse.id, code: warehouse.code, name: warehouse.name });
+    setForm({
+      id: warehouse.id,
+      code: warehouse.code,
+      name: warehouse.name,
+      qpayCashAccountId: warehouse.qpayCashAccountId ?? "",
+    });
     setError("");
     setOpen(true);
   }
@@ -65,6 +91,19 @@ export function InventoryWarehousesView({ warehouses }: { warehouses: WarehouseV
     () => [
       { headerName: "Код", field: "code", width: 140, cellClass: "font-mono text-xs" },
       { headerName: "Нэр", field: "name", minWidth: 220, flex: 1 },
+      {
+        headerName: "QPay данс",
+        field: "qpayCashAccountId",
+        minWidth: 200,
+        flex: 1,
+        // Салбарын QPay төлбөр орох данс; сонгоогүй бол байгууллагын үндсэн данс.
+        valueGetter: (params) => {
+          const id = params.data?.qpayCashAccountId;
+          if (!id) return "Үндсэн данс";
+          return qpayAccountLabel.get(id) ?? "Данс тэмдэглэгдээгүй";
+        },
+        cellClass: (params) => (params.data?.qpayCashAccountId ? "" : "text-[var(--ea-text-3)]"),
+      },
       {
         headerName: "Идэвхтэй",
         field: "isActive",
@@ -104,7 +143,7 @@ export function InventoryWarehousesView({ warehouses }: { warehouses: WarehouseV
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [qpayAccountLabel]
   );
 
   return (
@@ -166,6 +205,27 @@ export function InventoryWarehousesView({ warehouses }: { warehouses: WarehouseV
                 onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
               />
             </FormField>
+            <FormField
+              label="QPay төлбөр орох данс"
+              hint={
+                qpayAccounts.length === 0
+                  ? "Касс → Данс дээр банкны дансаа «QPay төлбөр хүлээн авах» гэж тэмдэглэвэл энд сонгогдоно. Сонгоогүй салбар байгууллагын үндсэн QPay данс руу хүлээн авна."
+                  : "Энэ салбарын (агуулахын) ээлжээс үүссэн QPay QR төлбөр энэ данс руу орно. Хоосон = байгууллагын үндсэн QPay данс."
+              }
+            >
+              <SearchableSelect
+                value={form.qpayCashAccountId}
+                onChange={(value) => setForm((current) => ({ ...current, qpayCashAccountId: value }))}
+                options={[
+                  { value: "", label: "Үндсэн данс (байгууллагын QPay үндсэн данс)" },
+                  ...qpayAccounts.map((a) => ({
+                    value: a.id,
+                    label: `${a.name}${a.bankName ? ` · ${a.bankName}` : ""}${a.accountNumber ? ` · ${a.accountNumber}` : ""}${a.isDefault ? " ★" : ""}`,
+                  })),
+                ]}
+                placeholder="Үндсэн данс"
+              />
+            </FormField>
             {error && (
               <p className="rounded-md bg-[var(--ea-danger-bg)] px-3 py-2 text-xs text-[var(--ea-danger)]">
                 {error}
@@ -182,8 +242,8 @@ export function InventoryWarehousesView({ warehouses }: { warehouses: WarehouseV
                 run(
                   () =>
                     form.id
-                      ? updateWarehouse(form.id, { name: form.name })
-                      : createWarehouse({ code: form.code, name: form.name }),
+                      ? updateWarehouse(form.id, { name: form.name, qpayCashAccountId: form.qpayCashAccountId || null })
+                      : createWarehouse({ code: form.code, name: form.name, qpayCashAccountId: form.qpayCashAccountId || null }),
                   form.id ? "Агуулах шинэчлэгдлээ" : "Агуулах нэмэгдлээ",
                   () => setOpen(false)
                 )

@@ -37,6 +37,8 @@ import {
 } from "@/lib/cash/load-options";
 import { matchCounterpartyByName } from "@/lib/cash/list-columns";
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
+import { syncQpayBankAccountsForOrg } from "@/lib/qpay/partner";
+import { qpayBankName } from "@/lib/qpay/reference";
 import {
   normalizeCashOpeningFields,
   planCashOpeningRef,
@@ -237,6 +239,73 @@ async function cashPostingCodeBuilder(
   });
 }
 
+/** Банкны дансны QPay талбарууд (docs/deployment/qpay.md §2b — данс = кассын модуль). */
+type CashAccountQpayInput = {
+  /** Банкны 6 оронтой код (lib/qpay/reference.ts) — QPay тэмдэглэсэн дансанд ЗААВАЛ. */
+  bankCode?: string | null;
+  iban?: string | null;
+  /** Данс эзэмшигч (QPay account_name) — хоосон бол компанийн нэр. */
+  accountHolder?: string | null;
+  /** «QPay төлбөр хүлээн авах» — мерчантын дансанд sync хийгдэнэ. */
+  qpayPayout?: boolean;
+  /** Байгууллагын QPay үндсэн данс (нэг л). */
+  qpayDefault?: boolean;
+};
+
+/**
+ * QPay талбаруудыг шалгаж хэвийн болгоно — код ЗОХИОХГҮЙ: тэмдэглэсэн данс
+ * банкны, MNT, дугаартай, жагсаалтын банкны кодтой байх ёстой (dashboard
+ * танигдахгүй кодыг татгалздаг тул хадгалах мөчид л барина).
+ */
+function normalizeCashAccountQpay(
+  data: CashAccountQpayInput,
+  accountType: "cash" | "bank",
+  currency: string,
+  accountNumber: string | null
+) {
+  const isBank = accountType === "bank";
+  const bankCode = isBank ? cleanText(data.bankCode) : null;
+  if (bankCode && !qpayBankName(bankCode)) throw new Error("Банкны код жагсаалтад байхгүй — банкыг жагсаалтаас сонгоно");
+  const qpayPayout = isBank && !!data.qpayPayout;
+  if (qpayPayout) {
+    if (!accountNumber) throw new Error("QPay төлбөр хүлээн авах дансанд дансны дугаар ЗААВАЛ");
+    if (!bankCode) throw new Error("QPay төлбөр хүлээн авах дансанд банкыг жагсаалтаас сонгоно (QPay банкны код)");
+    if (currency !== "MNT") throw new Error("QPay зөвхөн MNT данс руу төлбөр хүлээн авна — валютын дансыг тэмдэглэхгүй");
+  }
+  return {
+    bankCode,
+    iban: isBank ? cleanText(data.iban)?.toUpperCase() ?? null : null,
+    accountHolder: isBank ? cleanText(data.accountHolder) : null,
+    qpayPayout,
+    qpayDefault: qpayPayout && !!data.qpayDefault,
+  };
+}
+
+/**
+ * QPay данс өөрчлөгдсөний ДАРАА: (а) үндсэн данс нэг л байна — `defaultId`
+ * өгвөл бусдаас тэмдгийг авна, үндсэн алга бол хамгийн эрт үүссэн тэмдэглэсэн
+ * идэвхтэй данс үндсэн болно (QPay-д default ЗААВАЛ нэг); (б) partner-аар
+ * бүртгэгдсэн байгууллагад dashboard руу sync (best effort — анхааруулга).
+ */
+async function afterQpayAccountChange(orgId: string, userId: string, defaultId?: string | null): Promise<string | undefined> {
+  if (defaultId) {
+    await db
+      .update(cashAccounts)
+      .set({ qpayDefault: false })
+      .where(and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.qpayDefault, true), sql`${cashAccounts.id} <> ${defaultId}`));
+  }
+  const flagged = await db.query.cashAccounts.findMany({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.qpayPayout, true), eq(cashAccounts.isActive, true)),
+    columns: { id: true, qpayDefault: true },
+    orderBy: (a, { asc }) => [asc(a.createdAt)],
+  });
+  if (flagged.length > 0 && !flagged.some((a) => a.qpayDefault)) {
+    await db.update(cashAccounts).set({ qpayDefault: true }).where(eq(cashAccounts.id, flagged[0].id));
+  }
+  const sync = await syncQpayBankAccountsForOrg(orgId, userId);
+  return sync && "warning" in sync ? sync.warning : undefined;
+}
+
 async function createCashAccountCore(data: {
   name: string;
   accountType: "cash" | "bank";
@@ -249,7 +318,7 @@ async function createCashAccountCore(data: {
   openingDate?: string | null;
   /** Валютын дансны нээлтийн ханш (хоосон бол албан ханш татагдана). */
   openingRate?: number | null;
-}) {
+} & CashAccountQpayInput): Promise<{ warning?: string }> {
   const { orgId, userId } = await requireModuleAction("cash", "write");
   const name = data.name.trim();
   if (!name) throw new Error("Дансны нэр оруулна уу");
@@ -269,32 +338,38 @@ async function createCashAccountCore(data: {
     openingDate: data.openingDate,
     openingRate: data.openingRate,
   });
+  const accountNumber = data.accountType === "bank" ? cleanText(data.accountNumber) : null;
+  const qpay = normalizeCashAccountQpay(data, data.accountType, currency, accountNumber);
 
-  await db.insert(cashAccounts).values({
-    userId,
-    organizationId: orgId,
-    name,
-    accountType: data.accountType,
-    bankName: data.accountType === "bank" ? cleanText(data.bankName) : null,
-    accountNumber:
-      data.accountType === "bank" ? cleanText(data.accountNumber) : null,
-    currency,
-    glAccountNumber,
-    openingBalance: String(openingBalance),
-    openingDate: openingFields.openingDate,
-    openingRate:
-      openingFields.openingRate === null ? null : String(openingFields.openingRate),
-  });
+  const [row] = await db
+    .insert(cashAccounts)
+    .values({
+      userId,
+      organizationId: orgId,
+      name,
+      accountType: data.accountType,
+      bankName: data.accountType === "bank" ? cleanText(data.bankName) : null,
+      accountNumber,
+      currency,
+      glAccountNumber,
+      openingBalance: String(openingBalance),
+      openingDate: openingFields.openingDate,
+      openingRate:
+        openingFields.openingRate === null ? null : String(openingFields.openingRate),
+      ...qpay,
+    })
+    .returning({ id: cashAccounts.id });
 
+  const warning = qpay.qpayPayout ? await afterQpayAccountChange(orgId, userId, qpay.qpayDefault ? row.id : null) : undefined;
   revalidateCash();
+  return warning ? { warning } : {};
 }
 
 export async function createCashAccount(
   data: Parameters<typeof createCashAccountCore>[0]
-): Promise<ActionResult> {
+): Promise<ActionResult<{ warning?: string }>> {
   try {
-    await createCashAccountCore(data);
-    return {};
+    return await createCashAccountCore(data);
   } catch (caught) {
     return actionError("createCashAccount", caught, "Данс үүсгэж чадсангүй");
   }
@@ -361,7 +436,7 @@ export async function updateCashAccount(data: {
   openingBalance?: number;
   openingDate?: string | null;
   openingRate?: number | null;
-}): Promise<ActionResult> {
+} & CashAccountQpayInput): Promise<ActionResult<{ warning?: string }>> {
   try {
     const { orgId, userId } = await requireModuleAction("cash", "write");
 
@@ -418,6 +493,31 @@ export async function updateCashAccount(data: {
     if (glAccountNumber !== account.glAccountNumber)
       await assertMainAccount(orgId, glAccountNumber);
 
+    const accountNumber = data.accountType === "bank" ? cleanText(data.accountNumber) : null;
+    // QPay талбар өгөөгүй (хуучин дуудагч — AI tool) бол хадгалсан утга хэвээр.
+    const qpay = normalizeCashAccountQpay(
+      {
+        bankCode: data.bankCode === undefined ? account.bankCode : data.bankCode,
+        iban: data.iban === undefined ? account.iban : data.iban,
+        accountHolder: data.accountHolder === undefined ? account.accountHolder : data.accountHolder,
+        qpayPayout: data.qpayPayout === undefined ? account.qpayPayout : data.qpayPayout,
+        qpayDefault: data.qpayDefault === undefined ? account.qpayDefault : data.qpayDefault,
+      },
+      data.accountType,
+      currency,
+      accountNumber
+    );
+    // QPay-д хамаатай юу өөрчлөгдвөл (тэмдэг, үндсэн, банк, дугаар, IBAN,
+    // эзэмшигч) — ӨМНӨ нь эсвэл ОДОО тэмдэглэсэн бол л dashboard-тай sync.
+    const qpayTouched =
+      (account.qpayPayout || qpay.qpayPayout) &&
+      (account.qpayPayout !== qpay.qpayPayout ||
+        account.qpayDefault !== qpay.qpayDefault ||
+        (account.bankCode ?? null) !== qpay.bankCode ||
+        (account.iban ?? null) !== qpay.iban ||
+        (account.accountHolder ?? null) !== qpay.accountHolder ||
+        (account.accountNumber ?? null) !== accountNumber);
+
     await db
       .update(cashAccounts)
       .set({
@@ -425,14 +525,14 @@ export async function updateCashAccount(data: {
         accountType: data.accountType,
         bankName:
           data.accountType === "bank" ? cleanText(data.bankName) : null,
-        accountNumber:
-          data.accountType === "bank" ? cleanText(data.accountNumber) : null,
+        accountNumber,
         currency,
         glAccountNumber,
         openingBalance: String(openingBalance),
         openingDate: openingFields.openingDate,
         openingRate:
           openingFields.openingRate === null ? null : String(openingFields.openingRate),
+        ...qpay,
       })
       .where(
         and(eq(cashAccounts.id, data.id), eq(cashAccounts.organizationId, orgId))
@@ -444,16 +544,19 @@ export async function updateCashAccount(data: {
       action: "update",
       entityType: "cash_account",
       entityId: data.id,
-      summary: `Мөнгөн хөрөнгийн данс засагдав — ${name}`,
+      summary: `Мөнгөн хөрөнгийн данс засагдав — ${name}${
+        qpayTouched ? ` (QPay: ${qpay.qpayPayout ? `хүлээн авна${qpay.qpayDefault ? ", үндсэн" : ""}` : "хасагдав"})` : ""
+      }`,
     });
+    const warning = qpayTouched ? await afterQpayAccountChange(orgId, userId, qpay.qpayDefault ? data.id : null) : undefined;
     revalidateCash();
-    return {};
+    return warning ? { warning } : {};
   } catch (caught) {
     return actionError("updateCashAccount", caught, "Данс засаж чадсангүй");
   }
 }
 
-export async function deleteCashAccount(id: string): Promise<ActionResult> {
+export async function deleteCashAccount(id: string): Promise<ActionResult<{ warning?: string }>> {
   try {
     const { orgId, userId } = await requireModuleAction("cash", "write");
 
@@ -462,7 +565,7 @@ export async function deleteCashAccount(id: string): Promise<ActionResult> {
         eq(cashAccounts.id, id),
         eq(cashAccounts.organizationId, orgId)
       ),
-      columns: { id: true, name: true },
+      columns: { id: true, name: true, qpayPayout: true },
     });
     if (!account) throw new Error("Мөнгөн хөрөнгийн данс олдсонгүй");
 
@@ -485,8 +588,11 @@ export async function deleteCashAccount(id: string): Promise<ActionResult> {
       entityId: id,
       summary: `Мөнгөн хөрөнгийн данс устгагдав — ${account.name}`,
     });
+    // QPay данс устсан бол мерчантын жагсаалт дагаж шинэчлэгдэнэ (агуулахын
+    // холбоос FK set null — салбар үндсэн данс руу буцна).
+    const warning = account.qpayPayout ? await afterQpayAccountChange(orgId, userId) : undefined;
     revalidateCash();
-    return {};
+    return warning ? { warning } : {};
   } catch (caught) {
     return actionError("deleteCashAccount", caught, "Данс устгаж чадсангүй");
   }
@@ -692,7 +798,7 @@ async function createCashOpeningVoucherCore(data: {
   };
 }
 
-export async function toggleCashAccount(id: string, isActive: boolean): Promise<ActionResult> {
+export async function toggleCashAccount(id: string, isActive: boolean): Promise<ActionResult<{ warning?: string }>> {
   try {
     return await toggleCashAccountCore(id, isActive);
   } catch (caught) {
@@ -700,16 +806,19 @@ export async function toggleCashAccount(id: string, isActive: boolean): Promise<
   }
 }
 
-async function toggleCashAccountCore(id: string, isActive: boolean) {
-  const { orgId } = await requireModuleAction("cash", "write");
-  await db
+async function toggleCashAccountCore(id: string, isActive: boolean): Promise<{ warning?: string }> {
+  const { orgId, userId } = await requireModuleAction("cash", "write");
+  const [row] = await db
     .update(cashAccounts)
     .set({ isActive })
     .where(
       and(eq(cashAccounts.id, id), eq(cashAccounts.organizationId, orgId))
-    );
+    )
+    .returning({ qpayPayout: cashAccounts.qpayPayout });
+  // Идэвхгүй QPay данс мерчантын жагсаалтаас гарна (идэвхжүүлэхэд буцна).
+  const warning = row?.qpayPayout ? await afterQpayAccountChange(orgId, userId) : undefined;
   revalidateCash();
-  return {};
+  return warning ? { warning } : {};
 }
 
 // ── Баримтын мутацууд ────────────────────────────────────────────────────────

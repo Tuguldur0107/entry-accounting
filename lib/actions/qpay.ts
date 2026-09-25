@@ -23,7 +23,7 @@ import {
 import type { QpayReferenceOption } from "@/lib/qpay/reference";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { organizations, posQpayIntents, posSettings, posShifts } from "@/lib/db/schema";
+import { cashAccounts, organizations, posQpayIntents, posSettings, posShifts, warehouses } from "@/lib/db/schema";
 import { createPosSale, type CreatePosSaleInput, type PosReceipt } from "@/lib/actions/pos";
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
@@ -209,6 +209,32 @@ export interface CreateQpayIntentInput {
   saleInput: CreatePosSaleInput;
 }
 
+/**
+ * Агуулахын (салбарын) QPay данс → дансны дугаар. null = агуулахад данс
+ * сонгоогүй (мерчантын үндсэн данс). Сонгосон данс «QPay төлбөр хүлээн авах»
+ * биш / идэвхгүй / дугааргүй бол ШИДНЭ (fallback хийхгүй).
+ */
+async function resolveWarehousePayoutAccount(orgId: string, warehouseId: string | null): Promise<string | null> {
+  if (!warehouseId) return null;
+  const warehouse = await db.query.warehouses.findFirst({
+    where: and(eq(warehouses.id, warehouseId), eq(warehouses.organizationId, orgId)),
+    columns: { name: true, qpayCashAccountId: true },
+  });
+  if (!warehouse?.qpayCashAccountId) return null;
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.id, warehouse.qpayCashAccountId), eq(cashAccounts.organizationId, orgId)),
+    columns: { name: true, accountNumber: true, qpayPayout: true, isActive: true },
+  });
+  if (!account) throw new Error(`Салбар «${warehouse.name}»-ын QPay данс олдсонгүй — Бараа → Агуулах дээр дахин сонгоно`);
+  if (!account.qpayPayout || !account.isActive)
+    throw new Error(
+      `Салбар «${warehouse.name}»-ын QPay данс «${account.name}» идэвхгүй эсвэл «QPay төлбөр хүлээн авах» тэмдэглэгдээгүй (Касс → Данс)`
+    );
+  const number = (account.accountNumber ?? "").trim();
+  if (!number) throw new Error(`Салбар «${warehouse.name}»-ын QPay данс «${account.name}» дугааргүй (Касс → Данс)`);
+  return number;
+}
+
 export async function createQpayIntent(input: CreateQpayIntentInput): Promise<ActionResult<{ intent: QpayIntentView }>> {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
@@ -219,10 +245,15 @@ export async function createQpayIntent(input: CreateQpayIntentInput): Promise<Ac
     if (!amount) throw new Error("QPay дүн 0-ээс их бүхэл ₮ байна");
     const shift = await db.query.posShifts.findFirst({
       where: and(eq(posShifts.id, input.shiftId), eq(posShifts.organizationId, orgId), eq(posShifts.status, "open")),
-      columns: { id: true, documentNo: true },
+      columns: { id: true, documentNo: true, warehouseId: true },
     });
     if (!shift) throw new Error("Нээлттэй ээлж олдсонгүй");
     if (!Array.isArray(input.saleInput?.lines) || input.saleInput.lines.length === 0) throw new Error("Сагс хоосон байна");
+    // Салбар = агуулах: ээлжийн агуулахад QPay данс сонгосон бол ТЭР данс руу
+    // (dashboard `payout_account_number`); сонгоогүй бол мерчантын үндсэн данс.
+    // Сонгосон данс нь тэмдэглэгдээгүй/идэвхгүй бол ЗОГСООНО — өөр данс руу
+    // чимээгүй шилжихгүй (мөнгө буруу салбарт орохоос).
+    const payoutAccountNumber = await resolveWarehousePayoutAccount(orgId, shift.warehouseId);
 
     const ttl = clampInvoiceTtl(settings.qpayInvoiceTtlSec);
     const now = new Date();
@@ -245,6 +276,7 @@ export async function createQpayIntent(input: CreateQpayIntentInput): Promise<Ac
         amount,
         description: `${shift.documentNo} POS төлбөр`,
         callbackUrl: qpayWebhookUrl(row.id),
+        payoutAccountNumber,
       });
       const [updated] = await db
         .update(posQpayIntents)

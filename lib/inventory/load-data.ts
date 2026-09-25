@@ -73,6 +73,7 @@ export async function loadInventoryBase(orgId: string) {
     code: warehouse.code,
     name: warehouse.name,
     isActive: warehouse.isActive,
+    qpayCashAccountId: warehouse.qpayCashAccountId ?? null,
   }));
   const categoryViews: InventoryCategoryView[] = categoryRows.map((category) => ({
     id: category.id,

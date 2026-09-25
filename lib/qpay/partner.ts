@@ -2,22 +2,30 @@
 // docs/deployment/qpay.md §2b, dashboard docs/API.md «Partner».
 //
 // Байгууллагыг dashboard-д НЭВТРЭХГҮЙГЭЭР мерчант болгоно: компанийн
-// мэдээлэл + данс (company_settings) → `POST /api/partner/merchants` → api key +
-// webhook secret НЭГ удаа → pos_settings-д шифртэй (connect callback-тай ЯГ ижил
-// зам) → «QPay» хэлбэр + түр данс seed → readiness → асна. Дансны өөрчлөлт →
-// `PUT …/bank-accounts`. Partner key ЗӨВХӨН env (`QPAY_PARTNER_KEY`);
-// хариуны нууц лог/аудитад ХЭЗЭЭ Ч орохгүй.
+// мэдээлэл (company_settings) + КАССЫН МОДУЛИЙН банкны данс («QPay төлбөр
+// хүлээн авах» тэмдэглэсэн cash_accounts) → `POST /api/partner/merchants` →
+// api key + webhook secret НЭГ удаа → pos_settings-д шифртэй (connect
+// callback-тай ЯГ ижил зам) → «QPay» хэлбэр + түр данс seed → readiness → асна.
+// Кассын дансны өөрчлөлт → `PUT …/bank-accounts`. Partner key ЗӨВХӨН env
+// (`QPAY_PARTNER_KEY`); хариуны нууц лог/аудитад ХЭЗЭЭ Ч орохгүй.
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { encryptSecret } from "@/lib/ai/crypto";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { organizationProfile, organizations, posSettings, users, type CompanyBankAccount, type PosSettings } from "@/lib/db/schema";
+import { cashAccounts, organizationProfile, organizations, posSettings, users, type PosSettings } from "@/lib/db/schema";
 import { ensurePosSettings } from "@/lib/pos/load-data";
 import { QpayError } from "./client";
 import { QPAY_ERRORS, QPAY_HTTP_TIMEOUT_MS } from "./constants";
-import { buildQpayProvisionPlan, mapQpayBankAccounts, type PartnerBankAccount, type PartnerProvisionBody } from "./provision";
+import {
+  buildQpayProvisionPlan,
+  mapQpayBankAccounts,
+  payoutAccountsFromCashAccounts,
+  type PartnerBankAccount,
+  type PartnerProvisionBody,
+  type QpayPayoutAccount,
+} from "./provision";
 import type { QpayReferenceOption } from "./reference";
 import { ensureQpayPaymentMethod, loadQpayReadiness, qpayPartnerConfigured, qpayPartnerKey, qpayWebhookUrl } from "./store";
 
@@ -139,9 +147,42 @@ export interface OrgProvisionContext {
   orgName: string;
   profile: typeof organizationProfile.$inferSelect | null;
   owner: { email: string; name: string | null };
+  /** Кассын модулийн «QPay төлбөр хүлээн авах» данснууд (эзэмшигч = компанийн нэр fallback). */
+  payoutAccounts: QpayPayoutAccount[];
+  /** Дансны жагсаалтын ДУТУУ (дугааргүй, валютын) — plan-ийн problems-д нэмэгдэнэ. */
+  payoutProblems: string[];
 }
 
-/** Компанийн мэдээлэл + байгууллагын эзэн (owner гишүүн; олдохгүй бол дуудагч). */
+/**
+ * Кассын модулийн банкны данснаас QPay мерчантын данс (ЦЭВЭР дүрэм
+ * `payoutAccountsFromCashAccounts`). Эзэмшигч хоосон бол компанийн нэр.
+ */
+export async function loadQpayPayoutAccounts(
+  orgId: string,
+  holderFallback: string
+): Promise<{ accounts: QpayPayoutAccount[]; problems: string[] }> {
+  const rows = await db.query.cashAccounts.findMany({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.qpayPayout, true)),
+    columns: {
+      id: true,
+      name: true,
+      accountType: true,
+      bankName: true,
+      bankCode: true,
+      accountNumber: true,
+      accountHolder: true,
+      iban: true,
+      currency: true,
+      qpayPayout: true,
+      qpayDefault: true,
+      isActive: true,
+    },
+    orderBy: (a, { desc, asc }) => [desc(a.qpayDefault), asc(a.name)],
+  });
+  return payoutAccountsFromCashAccounts(rows, holderFallback);
+}
+
+/** Компанийн мэдээлэл + кассын QPay данс + байгууллагын эзэн (owner гишүүн; олдохгүй бол дуудагч). */
 export async function loadOrgProvisionContext(orgId: string, actingUserId: string): Promise<OrgProvisionContext> {
   const [settings, org, profile, owner, actor] = await Promise.all([
     ensurePosSettings(orgId, actingUserId),
@@ -158,12 +199,21 @@ export async function loadOrgProvisionContext(orgId: string, actingUserId: strin
     : null;
   const resolved = ownerUser ?? actor;
   if (!resolved) throw new Error("Байгууллагын эзэн олдсонгүй");
-  return { settings, orgName: org?.name ?? "", profile: profile ?? null, owner: { email: resolved.email, name: resolved.name } };
+  const orgName = org?.name ?? "";
+  const payout = await loadQpayPayoutAccounts(orgId, (profile?.name ?? "").trim() || orgName);
+  return {
+    settings,
+    orgName,
+    profile: profile ?? null,
+    owner: { email: resolved.email, name: resolved.name },
+    payoutAccounts: payout.accounts,
+    payoutProblems: payout.problems,
+  };
 }
 
 export function provisionPlanFromContext(orgId: string, ctx: OrgProvisionContext, options: { rotate?: boolean } = {}) {
   const p = ctx.profile;
-  return buildQpayProvisionPlan({
+  const plan = buildQpayProvisionPlan({
     orgId,
     company: {
       name: (p?.name ?? "").trim() || ctx.orgName,
@@ -174,12 +224,16 @@ export function provisionPlanFromContext(orgId: string, ctx: OrgProvisionContext
       address: p?.address ?? null,
       phone: p?.phone ?? null,
       email: p?.email ?? null,
-      bankAccounts: p?.bankAccounts ?? [],
+      bankAccounts: ctx.payoutAccounts,
     },
     owner: ctx.owner,
     webhookUrl: qpayWebhookUrl(),
     rotateCredentials: options.rotate,
   });
+  // Кассын дансны дутуу (дугааргүй, валютын) нь plan-ийн асуудалд нэмэгдэнэ —
+  // тэмдэглэсэн данс бүр QPay-д хүрэх ёстой, чимээгүй алгасахгүй.
+  if (ctx.payoutProblems.length === 0) return plan;
+  return { ok: false as const, problems: [...(plan.ok ? [] : plan.problems), ...ctx.payoutProblems] };
 }
 
 export interface ProvisionOutcome {
@@ -257,25 +311,33 @@ export async function provisionQpayMerchantForOrg(
 }
 
 /**
- * Компанийн данс өөрчлөгдөхөд dashboard руу sync — ЗӨВХӨН partner-аар
- * бүртгэгдсэн (`qpayProvisionedAt`) байгууллагад. Best effort: алдаа нь
- * компанийн мэдээлэл хадгалахыг унагахгүй — аудитад + буцаах анхааруулга.
+ * Кассын QPay данс өөрчлөгдөхөд (тэмдэглэх/тайлах, дугаар, банк, IBAN,
+ * эзэмшигч, үндсэн, идэвх, устгах) dashboard руу sync — ЗӨВХӨН partner-аар
+ * бүртгэгдсэн (`qpayProvisionedAt`) байгууллагад. Жагсаалт cash_accounts-аас
+ * ДАХИН уншигдана (нэг эх сурвалж). Best effort: алдаа нь дансны хадгалалтыг
+ * унагахгүй — аудитад + буцаах анхааруулга.
  */
 export async function syncQpayBankAccountsForOrg(
   orgId: string,
-  userId: string,
-  accounts: CompanyBankAccount[]
+  userId: string
 ): Promise<{ synced: number } | { warning: string } | null> {
   const settings = await db.query.posSettings.findFirst({
     where: eq(posSettings.organizationId, orgId),
     columns: { id: true, qpayApiUrl: true, qpayMerchantId: true, qpayProvisionedAt: true },
   });
   if (!settings?.qpayProvisionedAt || !settings.qpayMerchantId || !qpayPartnerConfigured()) return null;
-  const mapped = mapQpayBankAccounts(accounts);
-  if (mapped.problems.length > 0) {
-    return { warning: `QPay данс sync хийгдсэнгүй — ${mapped.problems.join("; ")}` };
+  const [org, profile] = await Promise.all([
+    db.query.organizations.findFirst({ where: eq(organizations.id, orgId), columns: { name: true } }),
+    db.query.organizationProfile.findFirst({ where: eq(organizationProfile.organizationId, orgId), columns: { name: true } }),
+  ]);
+  const payout = await loadQpayPayoutAccounts(orgId, (profile?.name ?? "").trim() || org?.name || "");
+  const mapped = mapQpayBankAccounts(payout.accounts);
+  const problems = [...payout.problems, ...mapped.problems];
+  if (problems.length > 0) {
+    return { warning: `QPay данс sync хийгдсэнгүй — ${problems.join("; ")}` };
   }
-  if (mapped.accounts.length === 0) return { warning: "QPay данс sync хийгдсэнгүй — данс хоосон (QPay-д дор хаяж нэг данс үлдэнэ)" };
+  if (mapped.accounts.length === 0)
+    return { warning: "QPay данс sync хийгдсэнгүй — «QPay төлбөр хүлээн авах» данс үлдсэнгүй (QPay-д дор хаяж нэг данс үлдэнэ)" };
   try {
     const synced = await partnerSyncBankAccounts(settings.qpayApiUrl, settings.qpayMerchantId, mapped.accounts);
     await logAuditEvent({

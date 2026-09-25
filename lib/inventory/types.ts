@@ -45,6 +45,8 @@ export type WarehouseView = {
   code: string;
   name: string;
   isActive: boolean;
+  /** Салбарын QPay төлбөр орох кассын данс (null = байгууллагын үндсэн данс). */
+  qpayCashAccountId: string | null;
 };
 
 export type InventoryMovementView = {
