@@ -3164,6 +3164,11 @@ export const AI_TOOLS: AiToolDef[] = [
         shift: { type: "string", description: "Ээлжийн дугаар (SH-…) эсвэл ID; хоосон бол цорын ганц нээлттэй ээлж" },
         countedCash: { type: "number", description: "Тоолсон бэлэн мөнгө ₮" },
         note: { type: "string", description: "Тайлбар" },
+        confirmLargeVariance: {
+          type: "boolean",
+          description:
+            "Зөрүү max(10,000₮, системийн 1%)-ээс их бол [LARGE_VARIANCE] — хэрэглэгч (менежер) дахин тоолсноо ИЛ баталсан үед л true",
+        },
       },
       required: ["countedCash"],
     },
@@ -4607,8 +4612,7 @@ async function runPostJournal(
 
 async function runDeleteJournal(
   orgId: string,
-  input: { voucherId: string },
-  mode: AiWriteMode
+  input: { voucherId: string }
 ): Promise<AiToolResult> {
   const vouchers = await db.query.journalVouchers.findMany({
     where: eq(journalVouchers.organizationId, orgId),
@@ -11167,14 +11171,20 @@ async function runOpenPosShift(
 
 async function runClosePosShift(
   orgId: string,
-  input: { shift?: string; countedCash: number; note?: string },
+  input: { shift?: string; countedCash: number; note?: string; confirmLargeVariance?: boolean },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
   const shift = await posShiftFor(orgId, undefined, input.shift);
   const expected = Math.round((shift.openingFloat + shift.cashReceipts - shift.cashRefunds) * 100) / 100;
   assertPostLimit(Math.abs(Number(input.countedCash) - expected));
-  const result = unwrapAction(await closeShift(shift.id, { countedCash: Number(input.countedCash), note: input.note }));
+  const result = unwrapAction(
+    await closeShift(shift.id, {
+      countedCash: Number(input.countedCash),
+      note: input.note,
+      confirmLargeVariance: input.confirmLargeVariance === true,
+    })
+  );
   return {
     resultText: `Ээлж ${shift.documentNo} хаагдлаа. Систем ${fmt(result.systemCash)}₮, тоолсон ${fmt(Number(input.countedCash))}₮, зөрүү ${fmt(result.variance)}₮${
       Math.abs(result.variance) >= 0.01 ? ` (${result.variance > 0 ? "илүүдэл" : "дутагдал"} — кассын баримт бичигдэв)` : ""
@@ -11704,7 +11714,7 @@ async function dispatchAiTool(
       case "post_journal_voucher":
         return await runPostJournal(orgId, args, mode);
       case "delete_journal_voucher":
-        return await runDeleteJournal(orgId, args, mode);
+        return await runDeleteJournal(orgId, args);
       case "post_cash_document":
         return await runPostCash(orgId, args, mode);
       case "delete_cash_document":

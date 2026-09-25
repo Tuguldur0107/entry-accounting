@@ -140,6 +140,7 @@ export function PanelHost() {
             panel={panel}
             zRank={zRankById.get(panel.id) ?? 0}
             active={panel.id === activeId}
+            compact={PANEL_REGISTRY[panel.kind]?.compact}
             onRequestClose={() => requestClose(panel)}
           >
             <PanelBody panel={panel} requestClose={() => requestClose(panel)} />

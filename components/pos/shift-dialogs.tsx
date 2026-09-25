@@ -28,6 +28,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FormField } from "@/components/ui/form-field";
 import { closeShift, openShift } from "@/lib/actions/pos";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { isLargeShiftVariance, shiftVarianceThreshold } from "@/lib/pos/shift-variance";
 import type { PosShiftView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
 
@@ -366,14 +368,32 @@ export function CloseShiftDialog({
   const [countedCash, setCountedCash] = useState("");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<{ systemCash: number; variance: number } | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
-  function submit() {
+  async function submit() {
     if (!shift) return;
     const counted = Number(countedCash);
     if (!(counted >= 0) || countedCash.trim() === "")
       return toast.error("Тоолсон бэлэн мөнгөө оруулна уу");
+    // SIM2-036: том зөрүү — дахин тоолох эсвэл менежерийн баталгаажуулалт.
+    const system = shift.openingFloat + shift.cashReceipts - shift.cashRefunds;
+    const large = isLargeShiftVariance(system, counted);
+    if (large) {
+      const ok = await confirm({
+        title: "Кассын зөрүү их байна",
+        description: `Систем ${fmtMnt(system)} · тоолсон ${fmtMnt(counted)} → зөрүү ${fmtMnt(counted - system)} (босго ${fmtMnt(shiftVarianceThreshold(system))}). Мөнгөө дахин тоолно уу. Зөрүүг ${counted < system ? "дутагдал" : "илүүдэл"} болгож бичих бол менежер (батлах эрхтэй) баталгаажуулна.`,
+        confirmText: "Менежер баталгаажуулж хаах",
+        cancelText: "Дахин тоолох",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     startTransition(async () => {
-      const response = await closeShift(shift.id, { countedCash: counted, note: note.trim() || undefined });
+      const response = await closeShift(shift.id, {
+        countedCash: counted,
+        note: note.trim() || undefined,
+        confirmLargeVariance: large,
+      });
       if (response.error || response.systemCash == null) {
         toast.error(response.error ?? "Ээлж хаагдсангүй");
         return;
@@ -389,6 +409,7 @@ export function CloseShiftDialog({
     : 0;
 
   return (
+    <>
     <Dialog
       open={shift !== null}
       onOpenChange={(open) => {
@@ -479,6 +500,8 @@ export function CloseShiftDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {confirmDialog}
+    </>
   );
 }
 

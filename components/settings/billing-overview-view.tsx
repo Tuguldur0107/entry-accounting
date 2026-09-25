@@ -6,8 +6,11 @@ import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
 import {
   FEATURE_KEYS,
   FEATURE_LABELS,
+  GRACE_DAYS,
   PLAN_LABELS,
+  PLANS,
   STATUS_LABELS,
+  type PlanId,
   type SubscriptionStatus,
 } from "@/lib/billing/plans";
 import { DEPLOYMENT_MODE_LABELS } from "@/lib/deployment-mode";
@@ -105,6 +108,67 @@ export function BillingOverviewView({ overview }: { overview: BillingOverview })
           <a href="mailto:support@entry.mn" className="text-[var(--ea-primary)]">support@entry.mn</a> — төлбөрийн онлайн гарц дараагийн шатанд.
         </p>
       </section>
+
+      {ent.mode === "saas" ? <PlanComparison overview={overview} /> : null}
     </div>
+  );
+}
+
+/** SIM2-049: багцын харьцуулалт + туршилт дуусахад юу болох. */
+const SALE_PLANS: PlanId[] = ["standard", "platform", "enterprise"];
+
+function PlanComparison({ overview }: { overview: BillingOverview }) {
+  const { entitlements: ent, planPrices } = overview;
+  return (
+    <section className="ea-glass space-y-4 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5">
+      <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Багцууд</h2>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {SALE_PLANS.map((planId) => {
+          const plan = PLANS[planId];
+          const price = planPrices[planId];
+          const current = ent.planId === planId;
+          const missing = FEATURE_KEYS.filter((key) => !plan.features[key]);
+          return (
+            <div
+              key={planId}
+              className="space-y-2 rounded-md border p-3 text-xs"
+              style={{ borderColor: current ? "var(--ea-primary)" : "var(--ea-border)" }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-[var(--ea-text-1)]">{PLAN_LABELS[planId]}</span>
+                {current ? (
+                  <StatusBadge tone="success" size="sm">
+                    Одоогийн
+                  </StatusBadge>
+                ) : null}
+              </div>
+              <p className="font-mono text-[var(--ea-text-1)]">
+                {price === null ? "Хэлэлцээрээр" : `${fmt(price)} ₮ / хэрэглэгч / сар`}
+              </p>
+              <p className="text-[var(--ea-text-3)]">
+                Компани: {plan.limits.companies === null ? "хязгааргүй" : plan.limits.companies}
+              </p>
+              <p className="text-[var(--ea-text-3)]">
+                {missing.length === 0
+                  ? "Бүх боломж"
+                  : `Ороогүй: ${missing.map((key) => FEATURE_LABELS[key]).join(", ")}`}
+              </p>
+              {!current ? (
+                <a
+                  href={`mailto:support@entry.mn?subject=${encodeURIComponent(`${PLAN_LABELS[planId]} багц — ${overview.orgName}`)}`}
+                  className="inline-block text-[var(--ea-primary)]"
+                >
+                  Багц сонгох →
+                </a>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-[var(--ea-text-3)]">
+        Туршилт дуусахад: өгөгдөл устахгүй — бичилт түр хаагдаж, унших, тайлан, экспорт, сар хаалт нээлттэй
+        хэвээр. Төлбөр хоцорвол {GRACE_DAYS} хоногийн хугацаа олгоно. Багц идэвхжмэгц бичих эрх шууд сэргэнэ.
+      </p>
+    </section>
   );
 }

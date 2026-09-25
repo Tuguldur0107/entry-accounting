@@ -31,6 +31,10 @@ import { fmtMnt } from "@/lib/reports/balances";
 import { toast } from "sonner";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { FormField } from "@/components/ui/form-field";
+import { EmptyState } from "@/components/ui/empty-state";
+import { CurrencySelect } from "@/components/ui/currency-select";
+import { useNewParam } from "@/components/ui/use-new-param";
+import { READ_ONLY_HINT, useModuleCan } from "@/components/layout/module-access-context";
 
 interface Props {
   accounts: CashAccountView[];
@@ -180,6 +184,10 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
     setError("");
     setOpen(true);
   }
+  // SIM2-032: «+ Шинэ» цэс / хоосон төлөвийн CTA (?new=1) — цонх шууд нээгдэнэ.
+  useNewParam(showDialog);
+  // SIM2-047: үзэгч эрхтэй бол бичих товч урьдчилан идэвхгүй.
+  const canWrite = useModuleCan("cash", "write");
 
   function showEditDialog(account: CashAccountView) {
     setEditing(account);
@@ -263,16 +271,23 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
             Мөнгөн хөрөнгийн данс бүрийг нэг үндсэн GL данстай холбоно.
           </p>
         </div>
-        <Button onClick={showDialog}>
+        <Button
+          onClick={showDialog}
+          disabled={!canWrite}
+          title={canWrite ? undefined : READ_ONLY_HINT}
+        >
           <Icon name="add" />
           Данс нэмэх
         </Button>
       </div>
 
       {accounts.length === 0 ? (
-        <div className="flex min-h-56 flex-1 items-center justify-center rounded-md border border-[var(--ea-border)] text-sm text-[var(--ea-text-4)]">
-          Мөнгөн хөрөнгийн данс үүсгээгүй байна
-        </div>
+        <EmptyState
+          icon="cash"
+          title="Мөнгөн хөрөнгийн данс үүсгээгүй байна"
+          description="Касс, банкны данс бүрийг GL данстай холбож нэмнэ — дараа нь орлого, зарлага бичнэ."
+          actions={canWrite ? [{ label: "Данс нэмэх", onClick: showDialog, icon: "add", primary: true }] : []}
+        />
       ) : (
         <DataGridDynamic<CashAccountView>
           rowData={accounts}
@@ -375,22 +390,10 @@ export function CashAccountsView({ accounts, glAccounts }: Props) {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField label="Валют">
-                <select
+                <CurrencySelect
                   value={form.currency}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      currency: event.target.value,
-                    }))
-                  }
-                  className="ea-form-select"
-                >
-                  <option value="MNT">MNT</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="CNY">CNY</option>
-                  <option value="RUB">RUB</option>
-                </select>
+                  onChange={(currency) => setForm((current) => ({ ...current, currency }))}
+                />
               </FormField>
               <FormField label="Эхний үлдэгдэл">
                 <Input

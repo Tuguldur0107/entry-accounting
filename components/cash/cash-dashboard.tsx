@@ -373,7 +373,12 @@ export function CashDashboard({
             Үлдэгдлийн онош
           </h2>
           {orderedHealthRows.length === 0 ? (
-            <EmptyState icon="cash" title="Мөнгөн хөрөнгийн данс үүсгээгүй байна" />
+            <EmptyState
+              icon="cash"
+              title="Мөнгөн хөрөнгийн данс үүсгээгүй байна"
+              description="Касс, банкны дансаа нэмээд эхний үлдэгдлээ оруулна."
+              actions={[{ label: "Данс нэмэх", href: "/cash/accounts?new=1", icon: "add", primary: true }]}
+            />
           ) : (
             <>
               <div className="hidden xl:block">

@@ -1,5 +1,7 @@
 "use client";
 
+import { useNewParam } from "@/components/ui/use-new-param";
+
 // Ажилтны бүртгэл — цалингийн бодолтын суурь лавлах.
 // Мөр дээр ДАВХАР даралт = засварын dialog (нэг даралт нээхгүй — UI стандарт).
 // Дэлгэрэнгүй бүртгэл: хувийн / хөдөлмөр / банк / цалин 4 бүлэг талбар;
@@ -142,6 +144,8 @@ export function EmployeesView({ rows }: Props) {
     setForm(EMPTY_FORM);
     setOpen(true);
   }
+  // SIM2-032: «+ Шинэ» цэсийн «Лавлах» (?new=1).
+  useNewParam(openCreate);
 
   function openEdit(row: EmployeeRow) {
     setForm({

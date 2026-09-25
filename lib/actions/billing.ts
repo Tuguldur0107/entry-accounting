@@ -10,7 +10,7 @@ import { eq, sql } from "drizzle-orm";
 import { getActiveOrg } from "@/lib/auth";
 import type { Entitlements } from "@/lib/billing/entitlements";
 import { countSeatsUsed, getEntitlements } from "@/lib/billing/load";
-import { resolveSeatPrice } from "@/lib/billing/pricing";
+import { resolveSeatPrice, type PlanPriceMap } from "@/lib/billing/pricing";
 import { loadPlanPricesAt } from "@/lib/billing/pricing-store";
 import { db } from "@/lib/db";
 import { memberships, organizationSubscriptions, organizations } from "@/lib/db/schema";
@@ -22,6 +22,8 @@ export type BillingOverview = {
   membersCount: number;
   pricePerSeatMnt: number | null;
   note: string | null;
+  /** SIM2-049: өнөөдрийн багцын үнэ (платформын үе → default; null = хэлэлцээрээр). */
+  planPrices: PlanPriceMap;
 };
 
 /** Идэвхтэй байгууллагын багц — гишүүн бүр харна (засах эрх platform admin-д). */
@@ -45,5 +47,6 @@ export async function getBillingOverview(): Promise<BillingOverview> {
     membersCount: members?.n ?? 0,
     pricePerSeatMnt: resolveSeatPrice(entitlements.planId, sub?.pricePerSeatMnt, planPrices),
     note: sub?.note ?? null,
+    planPrices,
   };
 }

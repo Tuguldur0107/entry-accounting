@@ -18,7 +18,9 @@ import { closePeriod, reopenPeriod } from "@/lib/actions/periods";
 import type { MonthEndChecklist, StepStatus } from "@/lib/actions/month-end";
 import type { LedgerIntegrityResult } from "@/lib/gl/integrity";
 import { fmtMnt } from "@/lib/grid/formatters";
-import { fmtPeriodCode } from "@/lib/periods/period";
+import { fmtPeriodCode, periodRange } from "@/lib/periods/period";
+import { ulaanbaatarToday } from "@/lib/periods/document-date";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 // Алхмын статус — Icon Kit-ийн semantic дүрс (текст glyph ✓/⚠ бичихгүй).
 const STATUS_META: Record<StepStatus, { label: string; icon: IconName; color: string }> = {
@@ -108,6 +110,7 @@ export function CloseWizard({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const {
     fa,
     fx,
@@ -148,7 +151,12 @@ export function CloseWizard({
   }
 
   const draftItems: { label: string; n: number; href: string }[] = [
-    { label: "Журнал", n: drafts.journal, href: "/gl/journal" },
+    // SIM2-040: тухайн сарын журналын жагсаалт руу шууд (сарын эцэс хүртэл).
+    {
+      label: "Журнал",
+      n: drafts.journal,
+      href: `/gl/journal?start=${periodRange(periodCode).startDate}&end=${periodRange(periodCode).endDate}`,
+    },
     { label: "Касс", n: drafts.cash, href: "/cash/transactions" },
     { label: "АР/АП", n: drafts.arap, href: "/receivables/documents" },
     { label: "Бараа", n: drafts.inventory, href: "/inventory/movements" },
@@ -538,7 +546,29 @@ export function CloseWizard({
             <Button
               size="sm"
               disabled={isPending || closeBlocked}
-              onClick={() =>
+              onClick={async () => {
+                // SIM2-041: санамсаргүй хаалтаас хамгаалах баталгаажуулалт;
+                // сар дуусаагүй бол үлдсэн хоногийг ИЛ анхааруулна.
+                const monthEnd = periodRange(periodCode).endDate;
+                const today = ulaanbaatarToday();
+                const daysLeft =
+                  monthEnd > today
+                    ? Math.round(
+                        (Date.parse(`${monthEnd}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) /
+                          86_400_000
+                      )
+                    : 0;
+                const ok = await confirm({
+                  title: `${fmtPeriodCode(periodCode)} тайлант үеийг хаах уу?`,
+                  description:
+                    (daysLeft > 0
+                      ? `⚠ Сар дуусаагүй байна — ${daysLeft} хоног үлдсэн. Үлдсэн өдрүүдийн гүйлгээ энэ сард бичигдэх боломжгүй болно. `
+                      : "") +
+                    "Хаасны дараа энэ сар руу шинэ бичилт орохгүй (дахин нээх нь аудитын мөрд үлдэнэ).",
+                  confirmText: "Сар хаах",
+                  danger: daysLeft > 0,
+                });
+                if (!ok) return;
                 act(async () => {
                   const result = await closePeriod(periodCode);
                   if (!result.ok)
@@ -558,8 +588,8 @@ export function CloseWizard({
                             : `Хаагдсангүй (${result.code})`
                     );
                   return `${periodCode} тайлант үе хаагдлаа`;
-                })
-              }
+                });
+              }}
             >
               Сар хаах
             </Button>
@@ -578,6 +608,7 @@ export function CloseWizard({
                   : "Сарын өртөгт үнэлэгдээгүй бараа хөдөлгөөн үлдсэн тул хаах товч идэвхгүй."
                 : "Хаасны дараа энэ сарын бичилт түгжигдэнэ (дахин нээх боломжтой)."}
       </Step>
+      {confirmDialog}
     </div>
   );
 }

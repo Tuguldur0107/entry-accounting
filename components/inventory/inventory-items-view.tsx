@@ -1,5 +1,7 @@
 "use client";
 
+import { useNewParam } from "@/components/ui/use-new-param";
+
 // БАРАА — бараа материалын мастер дата (өөрийн хуудас; ангилал, агуулах нь
 // тусдаа хуудсанд). Барааны карт нь ДЭЛГЭРЭНГҮЙ: үндсэн мэдээлэл, үнэ ба
 // НӨАТ, eBarimt (ангилал 7 орон / татварын код 3 орон — хайлттай сонгогч),
@@ -63,6 +65,8 @@ interface Props {
   categories: InventoryCategoryView[];
   /** Ангиллын түвшний нэрс (дээрээс доош). */
   levels: string[];
+  /** НӨАТ төлөгч биш бол НӨАТ / татварын кодын талбар хураагдана (SIM2-030). */
+  isVatPayer?: boolean;
 }
 
 const VAT_MODE_OPTIONS: { value: ItemVatMode; label: string }[] = [
@@ -165,7 +169,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-export function InventoryItemsView({ items, categories, levels }: Props) {
+export function InventoryItemsView({ items, categories, levels, isVatPayer = true }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [itemOpen, setItemOpen] = useState(false);
@@ -268,6 +272,8 @@ export function InventoryItemsView({ items, categories, levels }: Props) {
     setError("");
     setItemOpen(true);
   }
+  // SIM2-032: «+ Шинэ» цэсийн «Лавлах» (?new=1).
+  useNewParam(openCreate);
 
   function openEdit(item: InventoryItemView) {
     setItemForm(formOf(item));
@@ -602,9 +608,13 @@ export function InventoryItemsView({ items, categories, levels }: Props) {
                     onChange={(e) => setItemForm((c) => ({ ...c, minSalesPrice: e.target.value }))}
                   />
                 </FormField>
-                <FormField label="НӨАТ">
+                <FormField
+                  label="НӨАТ"
+                  hint={isVatPayer ? undefined : "Байгууллага НӨАТ төлөгч биш — борлуулалтад НӨАТ тооцогдохгүй"}
+                >
                   {/* Native select — Dialog доторх Base UI popup давхарга дарагддаг */}
                   <select
+                    disabled={!isVatPayer}
                     className="ea-form-select"
                     value={itemForm.vatMode}
                     onChange={(e) =>
@@ -682,6 +692,7 @@ export function InventoryItemsView({ items, categories, levels }: Props) {
                   onChange={(code) => setItemForm((c) => ({ ...c, ebarimtClassificationCode: code }))}
                 />
               </FormField>
+              {isVatPayer && (
               <FormField
                 label="Татварын бүтээгдэхүүний код (3 орон)"
                 hint={
@@ -696,6 +707,7 @@ export function InventoryItemsView({ items, categories, levels }: Props) {
                   onChange={(code) => setItemForm((c) => ({ ...c, ebarimtTaxProductCode: code }))}
                 />
               </FormField>
+              )}
             </Section>
 
             <Section title="Нэмэлт мэдээлэл" hint="сонголтоор">

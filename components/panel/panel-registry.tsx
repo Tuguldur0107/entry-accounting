@@ -36,6 +36,11 @@ export interface PanelKindConfig {
    * хэмнэнэ). Арын процесстой (жишээ нь стрийм явж буй чат) панель true.
    */
   keepMounted?: boolean;
+  /**
+   * SIM2-031: богино формтой панель — анхны хэмжээ агуулгадаа тохирно
+   * (өргөн, дээд өндөр px). Байхгүй бол дэлгэц дүүрэн (мөртэй баримт).
+   */
+  compact?: { width: number; maxHeight: number };
 }
 
 export const PANEL_REGISTRY: Record<PanelKind, PanelKindConfig> = {
@@ -44,7 +49,7 @@ export const PANEL_REGISTRY: Record<PanelKind, PanelKindConfig> = {
   drill: { component: DrillPanel },
   "report-line": { component: ReportLinePanel },
   "cash-doc": { component: CashDocPanel },
-  "cash-new": { component: CashNewPanel },
+  "cash-new": { component: CashNewPanel, compact: { width: 760, maxHeight: 720 } },
   "cost-entry": { component: CostEntryPanel },
   "fa-asset": { component: FaAssetPanel },
   "fa-asset-form": { component: FaAssetFormPanel },
