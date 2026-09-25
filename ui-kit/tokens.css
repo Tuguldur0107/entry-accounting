@@ -41,6 +41,10 @@
   --ea-bg-3:          #E7DFD2;
   --ea-surface:       #FBF8F2;
   --ea-surface-raised:#FFFCF7;
+  /* QR — сканнер цагаан дээр хар хүлээдэг тул ГОРИМООС ҮЛ ХАМААРАН ижил
+     (.dark-д дахин тодорхойлохгүй). */
+  --ea-qr-bg:         #FFFFFF;
+  --ea-qr-fg:         #000000;
   --ea-surface-glass: rgba(255,253,248,0.72);
   --ea-border:        #D9D1C5;
   --ea-border-strong: #C9BFB1;

@@ -156,12 +156,13 @@ function ReceiptQr({ value }: { value: string }) {
     <div className="mt-1 flex justify-center">
       <svg
         viewBox={`-2 -2 ${qr.count + 4} ${qr.count + 4}`}
-        style={{ width: "36mm", height: "36mm" }}
+        style={{ width: "36mm", height: "36mm", background: "var(--ea-qr-bg)" }}
         shapeRendering="crispEdges"
         role="img"
         aria-label="eBarimt QR"
       >
-        <path d={qr.path} fill="currentColor" />
+        {/* Дэлгэцийн урьдчилсан харагдац dark горимд ч цагаан дээр хар (урвуу QR уншигдахгүй) */}
+        <path d={qr.path} fill="var(--ea-qr-fg)" />
       </svg>
     </div>
   );
