@@ -21,6 +21,7 @@ import { db } from "@/lib/db";
 import {
   knowledgeReads,
   memberships,
+  oauthTokens,
   organizationSubscriptions,
   organizations,
   users,
@@ -55,6 +56,9 @@ export type PlatformSubscriptionRow = {
   /** «AI нягтлан»: мэдлэгийн сангийн уншилт сүүлийн 30 хоногт (0 = ашиглаагүй). */
   knowledgeReads30d: number;
   lastKnowledgeReadAt: string | null;
+  /** ChatGPT / Claude-оос OAuth-оор холбосон тоо (0 = холбоогүй) — Console-ийн «AI нягтлан» хуудас. */
+  oauthConnections: number;
+  lastConnectorUseAt: string | null;
 };
 
 export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionRow[]> {
@@ -82,6 +86,19 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
         .groupBy(knowledgeReads.organizationId)
     ).map((row) => [row.organizationId, row])
   );
+  // OAuth холболт (ChatGPT / Claude) — мөн НЭГ бүлэглэсэн асуулга; org-detail-тэй ижил тодорхойлолт.
+  const connectorUse = new Map(
+    (
+      await db
+        .select({
+          organizationId: oauthTokens.organizationId,
+          n: sql<number>`count(*)::int`,
+          last: sql<string | null>`max(${oauthTokens.lastUsedAt})`,
+        })
+        .from(oauthTokens)
+        .groupBy(oauthTokens.organizationId)
+    ).map((row) => [row.organizationId, row])
+  );
   const rows: PlatformSubscriptionRow[] = [];
   for (const org of orgs) {
     const [ent, seatsUsed, [members], owner, sub] = await Promise.all([
@@ -101,6 +118,7 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
     ]);
     const pricePerSeatMnt = resolveSeatPrice(ent.planId, sub?.pricePerSeatMnt, planPrices);
     const knowledge = knowledgeUse.get(org.id);
+    const connectors = connectorUse.get(org.id);
     rows.push({
       organizationId: org.id,
       orgName: org.name,
@@ -126,6 +144,8 @@ export async function listPlatformSubscriptions(): Promise<PlatformSubscriptionR
       updatedAt: sub?.updatedAt?.toISOString() ?? null,
       knowledgeReads30d: knowledge?.n ?? 0,
       lastKnowledgeReadAt: knowledge?.last ? new Date(knowledge.last).toISOString() : null,
+      oauthConnections: connectors?.n ?? 0,
+      lastConnectorUseAt: connectors?.last ? new Date(connectors.last).toISOString() : null,
     });
   }
   return rows;
