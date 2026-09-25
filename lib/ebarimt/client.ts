@@ -6,6 +6,7 @@
 import { EBARIMT_ERRORS, POSAPI_PATHS, POSAPI_RECEIPT_TIMEOUT_MS, POSAPI_TIMEOUT_MS } from "./constants";
 import { EbarimtError } from "./receipt";
 import { parsePosApiInfo } from "./posapi-info";
+import { gatewayHeaders } from "./gateway-auth";
 import type { EbarimtDeleteRequest, EbarimtReceiptRequest, EbarimtReceiptResponse, PosApiHealth, PosApiInfo } from "./types";
 
 function baseUrl(url: string): string {
@@ -20,7 +21,10 @@ async function call<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+    // Операторын PosAPI нийтэд ил бол WAF-ын нууц header (allowlist-ийн хост руу л —
+    // lib/ebarimt/gateway-auth.ts); тохируулаагүй бол хоосон.
+    const headers = { ...(init.headers as Record<string, string> | undefined), ...gatewayHeaders(url) };
+    const response = await fetch(url, { ...init, headers, signal: controller.signal, cache: "no-store" });
     const text = await response.text();
     let body: T;
     try {
