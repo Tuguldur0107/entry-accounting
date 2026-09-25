@@ -2,6 +2,8 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 
 import { requireModuleAction } from "@/lib/auth";
 import type { BankRule, BankRuleMode, BankRuleSide } from "@/lib/cash/bank-rules";
+import type { EwalletSettlementMethod } from "@/lib/cash/ewallet-settlement";
+import { loadEwalletSettlementContext } from "@/lib/cash/ewallet-settlement-data";
 import {
   buildHistoricalPatterns,
   type MatchContext,
@@ -23,7 +25,8 @@ const HISTORY_LINE_LIMIT = 5000;
  * Хуулгын импортын саналын лавлах дата:
  *   - нээлттэй АР/АП нэхэмжлэхүүд (posted | partially_paid, үлдэгдэлтэй)
  *   - өмнөх баталгаажсан хуулгын мөрүүдээс гарсан харилцагч → данс загварууд
- * Хоёул байгууллагаар (organizationId) хамгаалагдсан. Тулгалтын логик нь
+ *   - э-хэтэвчийн (QPay) хэлбэрүүд + түр дансны тулгагдаагүй орлогууд (settlement)
+ * Бүгд байгууллагаар (organizationId) хамгаалагдсан. Тулгалтын логик нь
  * client талд цэвэр функцээр (lib/cash/statement-matching.ts) ажиллана.
  */
 export async function GET() {
@@ -35,7 +38,7 @@ export async function GET() {
   }
 
   try {
-    const [invoices, historyLines, ruleRows] = await Promise.all([
+    const [invoices, historyLines, ruleRows, ewallet] = await Promise.all([
       db.query.arApDocuments.findMany({
         where: and(
           eq(arApDocuments.organizationId, orgId),
@@ -70,6 +73,7 @@ export async function GET() {
         ),
         orderBy: [asc(bankRules.priority), asc(bankRules.name)],
       }),
+      loadEwalletSettlementContext(orgId),
     ]);
 
     const rules: BankRule[] = ruleRows.map((row) => ({
@@ -87,8 +91,12 @@ export async function GET() {
       isActive: row.isActive,
     }));
 
-    const context: MatchContext & { rules: BankRule[] } = {
+    const context: MatchContext & {
+      rules: BankRule[];
+      ewalletMethods: EwalletSettlementMethod[];
+    } = {
       rules,
+      ewalletMethods: ewallet.methods,
       openInvoices: invoices
         .map((invoice) => ({
           id: invoice.id,

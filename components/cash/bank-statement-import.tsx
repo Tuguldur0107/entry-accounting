@@ -47,6 +47,11 @@ import {
   type RuleSuggestion,
 } from "@/lib/cash/bank-rules";
 import {
+  suggestEwalletSettlements,
+  type EwalletSettlementMethod,
+  type EwalletSettlementSuggestion,
+} from "@/lib/cash/ewallet-settlement";
+import {
   suggestMatches,
   type MatchContext,
   type RowSuggestion,
@@ -86,11 +91,14 @@ interface Props {
 type AssignmentSide = "debit" | "credit";
 type AssignmentScope = "selected" | "filtered";
 
-/** «Санал» баганы нэгдсэн төрөл — дүрэм → нэхэмжлэх → түүхэн загвар. */
-type AnySuggestion = RuleSuggestion | RowSuggestion;
+/** «Санал» баганы нэгдсэн төрөл — дүрэм → э-хэтэвчийн settlement → нэхэмжлэх → түүхэн загвар. */
+type AnySuggestion = RuleSuggestion | EwalletSettlementSuggestion | RowSuggestion;
 
-/** Саналын лавлах + П8 дүрмүүд — suggestions endpoint-ийн хариу. */
-type ImportContext = MatchContext & { rules?: BankRule[] };
+/** Саналын лавлах + П8 дүрмүүд + э-хэтэвчийн хэлбэрүүд — suggestions endpoint-ийн хариу. */
+type ImportContext = MatchContext & {
+  rules?: BankRule[];
+  ewalletMethods?: EwalletSettlementMethod[];
+};
 
 function emptyAccountCode(
   activeSegIds: number[],
@@ -224,7 +232,7 @@ export function BankStatementImport({
                     (row.income > 0
                       ? "creditAccountNumber"
                       : "debitAccountNumber")
-                      ? { settleInvoiceId: null }
+                      ? { settleInvoiceId: null, ewalletSettlement: null }
                       : {}),
                   }
             : row
@@ -252,6 +260,14 @@ export function BankStatementImport({
     return suggestMatches(parsed.rows, context);
   }, [parsed, matchContext, cashCurrency]);
 
+  // Э-хэтэвчийн (QPay) settlement — түр дансны тулгагдаагүй орлогуудыг FIFO-оор
+  // тулгана (зөвхөн MNT банкны данс; save route ч хориглодог).
+  const ewalletMethods = matchContext?.ewalletMethods;
+  const ewalletSuggestions = useMemo<Record<string, EwalletSettlementSuggestion[]>>(() => {
+    if (!parsed || !ewalletMethods?.length || cashCurrency !== "MNT") return {};
+    return suggestEwalletSettlements(parsed.rows, ewalletMethods);
+  }, [parsed, ewalletMethods, cashCurrency]);
+
   // П8 — мөр бүрд таарах ЭХНИЙ дүрэм (parse хийсэн эх мөрүүдээс, саналуудтай
   // ижил зарчим — засвар хийхэд дахин тооцоолохгүй).
   const rules = matchContext?.rules;
@@ -271,17 +287,19 @@ export function BankStatementImport({
     const merged: Record<string, AnySuggestion[]> = {};
     const ids = new Set([
       ...Object.keys(ruleHits),
+      ...Object.keys(ewalletSuggestions),
       ...Object.keys(suggestions),
     ]);
     for (const id of ids) {
       const list: AnySuggestion[] = [];
       const rule = ruleHits[id];
       if (rule) list.push(toRuleSuggestion(rule));
+      list.push(...(ewalletSuggestions[id] ?? []));
       list.push(...(suggestions[id] ?? []));
       merged[id] = list;
     }
     return merged;
-  }, [ruleHits, suggestions]);
+  }, [ruleHits, ewalletSuggestions, suggestions]);
 
   // Саналын дансыг бүтэн 10-part сегмент код болгоно (хуучин дата ганц
   // 8 оронтой үндсэн данс хадгалсан байж болно).
@@ -311,10 +329,19 @@ export function BankStatementImport({
     ): ParsedBankStatementRow => {
       const settleInvoiceId =
         suggestion.kind === "invoice" ? suggestion.invoiceId : null;
+      // Settlement санал → хадгалахад шилжүүлэг + шимтгэл (import-statement.ts).
+      const ewalletSettlement =
+        suggestion.kind === "ewallet_settlement"
+          ? {
+              paymentMethodId: suggestion.paymentMethodId,
+              grossAmount: suggestion.grossAmount,
+              feeAmount: suggestion.feeAmount,
+            }
+          : null;
       const patched =
         row.income > 0
-          ? { ...row, creditAccountNumber: code, settleInvoiceId }
-          : { ...row, debitAccountNumber: code, settleInvoiceId };
+          ? { ...row, creditAccountNumber: code, settleInvoiceId, ewalletSettlement }
+          : { ...row, debitAccountNumber: code, settleInvoiceId, ewalletSettlement };
       if (suggestion.kind === "rule") {
         if (suggestion.setCounterparty)
           patched.counterparty = suggestion.setCounterparty;
@@ -361,7 +388,10 @@ export function BankStatementImport({
       return (
         code !== "" &&
         current === code &&
-        (top.kind !== "invoice" || row.settleInvoiceId === top.invoiceId)
+        (top.kind !== "invoice" || row.settleInvoiceId === top.invoiceId) &&
+        (top.kind !== "ewallet_settlement" ||
+          (row.ewalletSettlement?.paymentMethodId === top.paymentMethodId &&
+            row.ewalletSettlement.grossAmount === top.grossAmount))
       );
     },
     []
@@ -623,18 +653,23 @@ export function BankStatementImport({
           const label =
             top.kind === "invoice"
               ? top.documentNo
-              : top.kind === "rule"
-                ? `${fmtAccountDisplay(targetCode, activeSegIds)} · ${top.ruleName}`
-                : `${fmtAccountDisplay(targetCode, activeSegIds)} · түгээмэл данс`;
+              : top.kind === "ewallet_settlement"
+                ? `${top.methodName} settlement · нийт ${fmtMnt(top.grossAmount)}`
+                : top.kind === "rule"
+                  ? `${fmtAccountDisplay(targetCode, activeSegIds)} · ${top.ruleName}`
+                  : `${fmtAccountDisplay(targetCode, activeSegIds)} · түгээмэл данс`;
           const hint =
             top.kind === "invoice"
               ? `${top.counterpartyName} — үлдэгдэл ${fmtMnt(top.balance)}.${top.staleDays ? ` Төлөх хугацаанаас ${top.staleDays} хоног зөрүүтэй тул «Дунд».` : ""} «Ашиглах» дарвал хадгалах үед энэ нэхэмжлэхтэй ШУУД холбогдож, төлсөн дүн нь шинэчлэгдэнэ.`
-              : top.kind === "rule"
-                ? `«${top.ruleName}» дүрэм — данс${
-                    top.setCounterparty ? ", харилцагч" : ""
-                  }${top.setDescription ? ", тайлбар" : ""} бөглөнө.`
-                : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
+              : top.kind === "ewallet_settlement"
+                ? `«${top.cashAccountName}» түр дансны ${top.receiptIds.length} орлого (нийт ${fmtMnt(top.grossAmount)}) − шимтгэл ${fmtMnt(top.feeAmount)}${Math.abs(top.expectedFeeAmount - top.feeAmount) > 0.005 ? ` (хувиар ${fmtMnt(top.expectedFeeAmount)})` : ""} = банкинд орсон ${fmtMnt(top.netAmount)}. «Ашиглах» дарвал хадгалахад түр данс → банк шилжүүлэг + шимтгэлийн зарлага үүснэ.`
+                : top.kind === "rule"
+                  ? `«${top.ruleName}» дүрэм — данс${
+                      top.setCounterparty ? ", харилцагч" : ""
+                    }${top.setDescription ? ", тайлбар" : ""} бөглөнө.`
+                  : `"${top.matchedText}" харилцагчид ${top.count} удаа ашигласан данс`;
           const settleLinked = applied && !!row.settleInvoiceId;
+          const ewalletLinked = applied && !!row.ewalletSettlement;
           return (
             <span className="flex h-full items-center gap-1.5">
               {/* Итгэлийн түвшний дохио — QBO/Digits загвар: ногоон=хүчтэй;
@@ -667,10 +702,12 @@ export function BankStatementImport({
                   title={
                     settleLinked
                       ? "Хадгалахад нэхэмжлэхийн төлбөр болж бүртгэгдэнэ"
-                      : undefined
+                      : ewalletLinked
+                        ? "Хадгалахад түр данс → банк шилжүүлэг + шимтгэлийн зарлага үүснэ"
+                        : undefined
                   }
                 >
-                  {settleLinked ? "Холбогдсон ✓" : "Ашигласан"}
+                  {settleLinked ? "Холбогдсон ✓" : ewalletLinked ? "Settlement ✓" : "Ашигласан"}
                 </span>
               ) : targetCode !== "" ? (
                 <button

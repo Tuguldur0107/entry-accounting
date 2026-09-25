@@ -3803,6 +3803,12 @@ export const posSettings = pgTable(
      */
     nonVatRevenueAccountNumber: text("non_vat_revenue_account_number").notNull().default("51100002"),
     nonVatReceivableAccountNumber: text("non_vat_receivable_account_number").notNull().default("13110002"),
+    /**
+     * Э-хэтэвчийн (QPay …) settlement-ийн ШИМТГЭЛИЙН зардлын данс — банкны
+     * хуулгын импорт түр данс → банк шилжүүлэгтэй хамт шимтгэлийг энд бичнэ
+     * (lib/cash/ewallet-settlement.ts). Default стандарт «Банкны шимтгэлийн зардал».
+     */
+    ewalletFeeAccountNumber: text("ewallet_fee_account_number").notNull().default("73100008"),
     // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1, T1a) ──
     // Мерчантын тохиргоо харилцагчийн апп-д (Console-д биш); нууц энд байхгүй.
     /** Автомат илгээлт асаалттай эсэх — унтраалттай бол v1-ийн гар ДДТД хэвээр. */

@@ -182,6 +182,11 @@ import {
 // `getOfficialRateForDate` нь хадгалсан түүхээс → Монголбанкнаас → ШИДНЭ.
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { saveBankStatement } from "@/lib/cash/import-statement";
+import {
+  suggestEwalletSettlements,
+  type EwalletSettlementRowInput,
+} from "@/lib/cash/ewallet-settlement";
+import { loadEwalletSettlementContext } from "@/lib/cash/ewallet-settlement-data";
 import { expectedCashGlBalance, groupCashAccountsByGl } from "@/lib/cash/reconciliation";
 import { cashOpeningAccountIdOf, mainAccountOf } from "@/lib/cash/gl-sync";
 import { faExpectedGl } from "@/lib/fa/reconcile";
@@ -2708,15 +2713,24 @@ export const AI_TOOLS: AiToolDef[] = [
               expense: { type: "number", description: "Зарлага ₮" },
               counterGlAccount: {
                 type: "string",
-                description: "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал",
+                description: "Харьцах GL данс (8 оронтой) — орлогод кредитлэгдэх/зарлагад дебетлэгдэх тал (ewalletSettlement=true бол хэрэггүй — түр дансны GL автоматаар)",
               },
               exchangeRate: { type: "number", description: "Валютын данс бол ханш" },
               settleInvoice: {
                 type: "string",
                 description: "Хаагдах нэхэмжлэх (ID/дугаар/externalRef) — counterGlAccount нь хяналтын данс байх ёстой",
               },
+              ewalletSettlement: {
+                type: "boolean",
+                description:
+                  "Энэ орлогын мөр QPay / э-хэтэвчийн SETTLEMENT (провайдер шимтгэлээ суутгаад банкинд шилжүүлсэн): сервер түр дансны тулгагдаагүй орлогуудыг FIFO-оор нийлүүлж нийт/шимтгэлийг тооцоод түр данс → банк шилжүүлэг + шимтгэлийн зарлага бичнэ. Таарахгүй бол [EWALLET_SETTLEMENT_UNMATCHED]",
+              },
+              paymentMethod: {
+                type: "string",
+                description: "ewalletSettlement-д: хэд хэдэн ewallet хэлбэртэй бол тухайн хэлбэрийн код (get_pos_status)",
+              },
             },
-            required: ["date", "counterGlAccount"],
+            required: ["date"],
           },
         },
       },
@@ -3221,6 +3235,10 @@ export const AI_TOOLS: AiToolDef[] = [
         nonVatReceivableAccount: {
           type: "string",
           description: "НӨАТ-гүй борлуулалтын АВЛАГЫН (хяналтын) данс (8 орон; default 13110002)",
+        },
+        ewalletFeeAccount: {
+          type: "string",
+          description: "QPay / э-хэтэвчийн settlement-ийн ШИМТГЭЛИЙН зардлын данс (8 орон; default 73100008) — import_bank_statement-ийн ewalletSettlement мөрд",
         },
       },
     },
@@ -9745,14 +9763,19 @@ async function runImportBankStatement(
       counterAccount?: string;
       income?: number;
       expense?: number;
-      counterGlAccount: string;
+      counterGlAccount?: string;
       exchangeRate?: number;
       settleInvoice?: string;
+      ewalletSettlement?: boolean;
+      paymentMethod?: string;
     }[];
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
+  for (const [index, row] of input.rows.entries())
+    if (!row.ewalletSettlement && !row.counterGlAccount?.trim())
+      throw codedError("INVALID_INPUT", `rows[${index}].counterGlAccount заавал (ewalletSettlement мөрд л хэрэггүй)`);
   if (!Array.isArray(input.rows) || input.rows.length === 0)
     throw new Error("rows хоосон байна");
   if (input.rows.length > 500)
@@ -9807,9 +9830,10 @@ async function runImportBankStatement(
     const expense = Math.round(Number(row.expense ?? 0) * 100) / 100;
     // Харьцах данс: оршин буйг resolveAccount-оор шалгаад, кодыг кассын
     // builder-ээр (create_cash_transaction-ий counterAccount-тай ижил).
-    const counterCode = buildCashCode(
-      resolveAccount(row.counterGlAccount, ctx).main
-    );
+    // Settlement мөрд түр дансны GL доор (санал таарсны дараа) бөглөгдөнө.
+    const counterCode = row.ewalletSettlement
+      ? ""
+      : buildCashCode(resolveAccount(row.counterGlAccount as string, ctx).main);
     return {
       id: randomUUID(),
       rowNumber: index + 1,
@@ -9826,9 +9850,58 @@ async function runImportBankStatement(
       settleInvoiceId: row.settleInvoice?.trim()
         ? settleIdByRef.get(row.settleInvoice.trim())
         : null,
+      ewalletSettlement: null as EwalletSettlementRowInput | null,
       rawData: {} as Record<string, string>,
     };
   });
+
+  // ── Э-хэтэвчийн settlement мөрүүд — серверт FIFO тулгалт ────────────────
+  // Вэбийн «Ашиглах»-тай ИЖИЛ цэвэр логик (lib/cash/ewallet-settlement.ts);
+  // мөр таарахгүй бол бүх импортыг зогсооно (хагас бичихгүй).
+  const settlementIndexes = input.rows
+    .map((row, index) => (row.ewalletSettlement ? index : -1))
+    .filter((index) => index >= 0);
+  if (settlementIndexes.length) {
+    const context = await loadEwalletSettlementContext(orgId);
+    const methodFor = (code?: string) => {
+      const wanted = code?.trim().toUpperCase();
+      return wanted
+        ? context.methods.filter(
+            (method) =>
+              method.methodCode.toUpperCase() === wanted ||
+              method.methodName.toUpperCase() === wanted
+          )
+        : context.methods;
+    };
+    for (const index of settlementIndexes) {
+      const row = parsedRows[index];
+      const methods = methodFor(input.rows[index].paymentMethod);
+      if (methods.length === 0)
+        throw codedError(
+          "EWALLET_SETTLEMENT_UNMATCHED",
+          `rows[${index}]: идэвхтэй, түр данстай ewallet хэлбэр олдсонгүй (get_pos_status; save_pos_payment_method kind=ewallet + cashAccount)`
+        );
+      // Мөр бүрийг дангаар тулгаж, таарсан орлогуудыг дараагийн мөрөөс хасна
+      // (suggestEwalletSettlements дотроо ижил дүрэмтэй — ганц мөрөөр дуудна).
+      const [suggestion] = suggestEwalletSettlements([row], methods)[row.id] ?? [];
+      if (!suggestion) {
+        const open = methods.map((method) => `${method.methodName}: ${fmt(method.openReceipts.reduce((sum, receipt) => sum + receipt.amount, 0))}₮ (${method.openReceipts.length} орлого${method.feePercent != null ? `, шимтгэл ${method.feePercent}%` : ", шимтгэл тохируулаагүй"})`).join("; ");
+        throw codedError(
+          "EWALLET_SETTLEMENT_UNMATCHED",
+          `rows[${index}] (${row.transactionDate}, ${fmt(row.income)}₮): түр дансны тулгагдаагүй орлогуудын FIFO нийлбэр − шимтгэл энэ дүнтэй таарсангүй. Тулгагдаагүй: ${open || "байхгүй"}. Хэлбэрийн feePercent-ийг шалгах (save_pos_payment_method) эсвэл мөрийг counterGlAccount-оор энгийн орлого болгож, дараа нь гараар тулгана`
+        );
+      }
+      const method = methods.find((entry) => entry.paymentMethodId === suggestion.paymentMethodId)!;
+      // Дараагийн settlement мөрд ижил орлого дахин орохгүй.
+      method.openReceipts = method.openReceipts.filter((receipt) => !suggestion.receiptIds.includes(receipt.id));
+      row.creditAccountNumber = buildCashCode(method.glAccountNumber);
+      row.ewalletSettlement = {
+        paymentMethodId: suggestion.paymentMethodId,
+        grossAmount: suggestion.grossAmount,
+        feeAmount: suggestion.feeAmount,
+      };
+    }
+  }
 
   // Идемпотент hash — ижил данс + ижил мөрүүд хоёр дахь удаад импортлогдохгүй.
   const fileHash = createHash("sha256")
@@ -9848,12 +9921,13 @@ async function runImportBankStatement(
   });
 
   const settled = parsedRows.filter((row) => row.settleInvoiceId).length;
+  const ewalletSettled = parsedRows.filter((row) => row.ewalletSettlement);
   const totalIncome = parsedRows.reduce((sum, row) => sum + row.income, 0);
   const totalExpense = parsedRows.reduce((sum, row) => sum + row.expense, 0);
   return {
     resultText: [
       `Банкны хуулга импортлогдлоо: ${account.name}, ${result.rowCount} мөр (орлого ${fmt(totalIncome)}₮ / зарлага ${fmt(totalExpense)}₮)`,
-      `Мөр бүрд кассын баримт + GL журнал бичигдсэн${settled > 0 ? `; ${settled} мөр нэхэмжлэхтэй холбогдож төлсөн дүн шинэчлэгдсэн` : ""}.`,
+      `Мөр бүрд кассын баримт + GL журнал бичигдсэн${settled > 0 ? `; ${settled} мөр нэхэмжлэхтэй холбогдож төлсөн дүн шинэчлэгдсэн` : ""}${ewalletSettled.length ? `; ${ewalletSettled.length} э-хэтэвчийн settlement — түр данс → банк шилжүүлэг нийт ${fmt(ewalletSettled.reduce((sum, row) => sum + row.ewalletSettlement!.grossAmount, 0))}₮, шимтгэл ${fmt(ewalletSettled.reduce((sum, row) => sum + row.ewalletSettlement!.feeAmount, 0))}₮` : ""}.`,
       `Statement ID: ${result.id.slice(0, 8)} — вэб: Мөнгөн хөрөнгө → Хуулгууд.`,
     ].join("\n"),
   };
@@ -11279,11 +11353,13 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
   // SIM2-018: ensurePosSettings default хэлбэрүүдийг (CASH, CREDIT) seed хийдэг —
   // ДАРАА нь уншина (зэрэг уншвал эхний дуудлагад жагсаалт хоосон гардаг байв).
   const settings = await ensurePosSettings(orgId);
-  const [methods, shifts, vat] = await Promise.all([
+  const [methods, shifts, vat, ewallet] = await Promise.all([
     loadPaymentMethodViews(orgId),
     loadShiftViews(orgId, { openOnly: true }),
     loadVatSettings(orgId),
+    loadEwalletSettlementContext(orgId),
   ]);
+  const unsettledEwallet = ewallet.methods.filter((method) => method.openReceipts.length > 0);
   const issueType = settings.issueTypeId
     ? ((await db.query.inventoryIssueTypes.findFirst({
         where: and(
@@ -11322,6 +11398,13 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
       // SIM2-017: хэлбэр бүрийн ӨӨРИЙН нэр (ижил төрлийн CASH / CASH2 ялгагдана).
       .map((method) => `${method.code} «${method.name}» (${PAYMENT_KIND_LABELS[method.kind]}${method.cashAccountName ? ` → ${method.cashAccountName}` : ""}${method.currency !== "MNT" ? `, ${method.currency}` : ""}${method.requiresReference ? ", лавлах заавал" : ""})`)
       .join(", ")}`,
+    ...(unsettledEwallet.length
+      ? [
+          `Э-хэтэвчийн түр данс тулгагдаагүй: ${unsettledEwallet
+            .map((method) => `${method.methodName} → «${method.cashAccountName}» ${fmt(method.openReceipts.reduce((sum, receipt) => sum + receipt.amount, 0))}₮ (${method.openReceipts.length} орлого${method.feePercent != null ? `, шимтгэл ${method.feePercent}%` : ", feePercent тохируулаагүй"})`)
+            .join("; ")} — провайдер банкинд шилжүүлмэгц import_bank_statement мөрд ewalletSettlement=true (шимтгэлийн данс ${ewallet.feeAccountNumber})`,
+        ]
+      : []),
   ];
   return { resultText: lines.join("\n") };
 }
@@ -11348,6 +11431,7 @@ async function runUpdatePosSettings(
     roundingAccount?: string;
     nonVatRevenueAccount?: string;
     nonVatReceivableAccount?: string;
+    ewalletFeeAccount?: string;
   }
 ): Promise<AiToolResult> {
   const before = await ensurePosSettings(orgId);
@@ -11377,6 +11461,7 @@ async function runUpdatePosSettings(
     roundingAccountNumber: account(input.roundingAccount),
     nonVatRevenueAccountNumber: account(input.nonVatRevenueAccount),
     nonVatReceivableAccountNumber: account(input.nonVatReceivableAccount),
+    ewalletFeeAccountNumber: account(input.ewalletFeeAccount),
   };
   const given = Object.entries(patch).filter(([, value]) => value !== undefined);
   if (given.length === 0)

@@ -61,6 +61,7 @@ function roleAccountsOf(row: PosSettings): string[] {
     row.roundingAccountNumber,
     row.nonVatRevenueAccountNumber,
     row.nonVatReceivableAccountNumber,
+    row.ewalletFeeAccountNumber,
     DEFAULT_RECEIVABLE_ACCOUNT,
   ];
 }
@@ -215,6 +216,7 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     roundingAccountNumber: row.roundingAccountNumber,
     nonVatRevenueAccountNumber: row.nonVatRevenueAccountNumber,
     nonVatReceivableAccountNumber: row.nonVatReceivableAccountNumber,
+    ewalletFeeAccountNumber: row.ewalletFeeAccountNumber,
     walkInCounterpartyId: row.walkInCounterpartyId,
     issueTypeId: row.issueTypeId,
     defaultWarehouseId: row.defaultWarehouseId,

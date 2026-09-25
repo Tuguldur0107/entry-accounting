@@ -141,6 +141,11 @@ const ACCOUNT_FIELDS: { key: keyof PosSettings; label: string; hint: string }[] 
     label: "НӨАТ-гүй борлуулалтын авлага",
     hint: "НӨАТ-гүй борлуулалтын хяналтын данс, default 13110002",
   },
+  {
+    key: "ewalletFeeAccountNumber",
+    label: "QPay / э-хэтэвчийн шимтгэл (зардал)",
+    hint: "Банкны хуулгаар settlement тулгахад түр данснаас суутгагдсан шимтгэл, default 73100008",
+  },
 ];
 
 function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; issueTypes: IssueTypeOption[] }) {

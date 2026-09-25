@@ -979,6 +979,17 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
 - **GL ӨӨРЧЛӨЛТГҮЙ:** `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ,
   ККТТ 1% шимтгэл settlement-д гарна); QPay буцаалт БАЙХГҮЙ (Quick QR refund-гүй) —
   бэлэн / дэлгүүрийн кредитээр
+- **Settlement автомат** (`lib/cash/ewallet-settlement.ts` ЦЭВЭР, тесттэй; DB
+  `ewallet-settlement-data.ts`): провайдер шимтгэлээ суутгаад банкинд шилжүүлсэн
+  хуулгын мөрийг түр дансны ТУЛГАГДААГҮЙ орлогуудтай FIFO-оор тулгана (үлдэгдэлд
+  суурилсан — баримт тэмдэглэх баганагүй; хэлбэрийн `feePercent` мөр бүрд, 1₮ +
+  0.5₮/орлого хүлцэл; текст = провайдерийн alias / хэлбэрийн нэр → «Хүчтэй»,
+  зөвхөн дүн → «Дунд», зөвхөн бүх үлдэгдэл таарсан үед). «Ашиглах» / MCP
+  `ewalletSettlement: true` → хадгалахад мөр нь ОРЛОГО биш **түр данс → банк
+  ШИЛЖҮҮЛЭГ** (цэвэр) + **шимтгэлийн зарлага** (түр данснаас,
+  `pos_settings.ewalletFeeAccountNumber`, default 73100008) — касс модуль ба GL
+  хоёул тулна. Нийт нь тулгагдаагүй үлдэгдлээс хэтрэхгүй; шимтгэлийг ЗОХИОХГҮЙ
+  (нийт − цэвэр = хуулгын бодит дүн). `get_pos_status` тулгагдаагүй дүнг заана
 - **Нууц:** API key (`qpd_live_…`/`qpd_test_…`) ба webhook secret `encryptSecret`-ээр
   (`pos_settings.qpayApiKeyEnc/qpayWebhookSecretEnc`), зөвхөн `lib/qpay/store.ts`
   задална; `getQpayStatus` → `*Set: boolean`; аудит, лог, `/api/health.qpay`-д УТГА
@@ -1562,7 +1573,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Унших | list_* (10 — list_cost_entries: өртгийн бичилтийн ID-г эндээс), get_journal_voucher, get_trial_balance, get_stock_balances, get_counterparty_balance (aging-тэй) | — |
 | Тайлан | get_income_statement, get_balance_sheet, get_cash_flow, get_account_ledger — вэбийн тайлантай НЭГ цэвэр функц (lib/reports/) ашиглана; create_year_end_closing (жилийн хаалтын 3 ноорог, нэг жилд нэг л удаа) | тайлан унших аль ч горимд; хаалт ноорог үүсгэнэ |
 | Batch | create_{counterparties,arap_invoices,cash_transactions,journal_vouchers}_batch, master data: create_{gl_accounts,inventory_items,employees,fixed_assets}_batch (max 100, partial success — Cowork анхны импорт), post_{arap_documents,cash_documents,journal_vouchers}_batch | create нь аль ч горимд, post нь post горимд |
-| Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал) | — |
+| Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал), import_bank_statement (мөрд `settleInvoice` — нэхэмжлэхийн төлбөр; `ewalletSettlement: true` — QPay settlement: түр данс → банк шилжүүлэг + шимтгэл, §5c) | импорт post горимд |
 | Нэвтрүүлэлт | get_onboarding_guide (section: overview/checklist/rules/phases/status) — `docs/deployment/onboarding.md`-ийн §2/§3/§4-ийг үгчлэн + байгууллагын шат (0–5) ба дараагийн алхам (`lib/onboarding/`); MCP `instructions` анх холбогдоход үүнийг заана | унших, аль ч горимд |
 | НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
 | Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
@@ -1570,7 +1581,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 | Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |
 | Ханш | sync_exchange_rates (муж + валютаар Монголбанкны ТҮҮХ татаж `exchange_rates`-д хадгална), get_exchange_rate (тухайн огнооны албан ханш — хадгалсан → татна → ШИДНЭ) | аль ч горимд (нийтийн лавлах, журнал үүсгэхгүй) |
-| POS | get_pos_status, update_pos_settings (үйл ажиллагааны тохиргоо — `allowNegativeStock` унтраах, хөнгөлөлтийн хязгаар, бөөрөнхийлөл, дансны рольууд; eBarimt/QPay энд БАЙХГҮЙ), open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц), save_pos_payment_method / delete_pos_payment_method (төлбөрийн хэлбэрийн ЛАВЛАХ — eBarimt код оноох, буруу/давхардсан мөр цэвэрлэх; ашиглагдсан хэлбэр устахгүй, идэвхгүй болно) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
+| POS | get_pos_status (+ э-хэтэвчийн түр дансны тулгагдаагүй дүн), update_pos_settings (үйл ажиллагааны тохиргоо — `allowNegativeStock` унтраах, хөнгөлөлтийн хязгаар, бөөрөнхийлөл, дансны рольууд, `ewalletFeeAccount`; eBarimt/QPay энд БАЙХГҮЙ), open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц), save_pos_payment_method / delete_pos_payment_method (төлбөрийн хэлбэрийн ЛАВЛАХ — eBarimt код оноох, буруу/давхардсан мөр цэвэрлэх; ашиглагдсан хэлбэр устахгүй, идэвхгүй болно) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
 | eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
 | QPay | get_qpay_status (асаалттай/тохируулсан эсэх, бэлэн байдлын дутуу, мерчант id, нээлттэй QR, төлөгдсөн ч борлуулалт болоогүй — нууц буцахгүй); холбох нь ЗӨВХӨН вэбээс [QPay холбох] | аль ч горимд (унших) |
 | Мэдлэгийн сан | list_knowledge_topics (сэдвийн индекс — гарчиг + хэсгийн нэрс, ангиллаар), read_knowledge_section (НЭГ хэсэг, ≤3000 тэмдэгт, ишлэлтэй) — §9e; `surfaces: ["chat","mcp"]` тул REST-д ГАРАХГҮЙ; `requireFeature("knowledge")` (Console-оос байгууллага бүрд), 24ц/200 квот `[KNOWLEDGE_LIMIT]` | аль ч горимд (унших; журнал үүсгэхгүй) |
@@ -2385,7 +2396,9 @@ Inventory  inventory_items, warehouses, inventory_movements, inventory_categorie
              movements.sourceType `po_receipt` — хүлээн авалтын мөрөөс үүссэн
 POS        pos_settings (рольын данс, walkInCounterpartyId, issueTypeId,
            provisionalCogs, allowNegativeStock, хөнгөлөлтийн хязгаар, бөөрөнхийлөл),
-           pos_payment_methods (kind × cashAccountId), pos_discount_rules,
+           pos_payment_methods (kind × cashAccountId × feePercent — ewallet
+           settlement-ийн шимтгэл), pos_settings.ewalletFeeAccountNumber
+           (шимтгэлийн зардал, default 73100008), pos_discount_rules,
            pos_shifts, pos_sales, pos_sale_lines (arApLineId / movementId /
            provisionalCostEntryId), pos_sale_discounts, pos_payments,
            pos_gift_cards, pos_store_credits; inventory_categories,
