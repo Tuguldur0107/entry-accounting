@@ -30,7 +30,6 @@ import {
   WRITE_OFF_REASON_MIN,
   eclJournalLines,
   eclMatrixProblems,
-  planEclProvision,
   recoveryProblem,
   splitWriteOff,
   type EclBucket,
@@ -38,7 +37,8 @@ import {
 } from "@/lib/arap/ecl";
 import {
   creditBalanceOf,
-  loadEclOpenInvoices,
+  loadEclDrafts,
+  loadEclPlan,
   loadEclSettings,
   type ArapWriteOffView,
   type EclOverviewResult,
@@ -153,38 +153,11 @@ export async function saveEclSettings(
 
 // ── ECL тооцоо (сарын нөөц) ───────────────────────────────────────────────────
 
-async function eclPlanFor(orgId: string, asOf: string, settings: EclSettingsView) {
-  const [items, currentAllowance, currentDta] = await Promise.all([
-    loadEclOpenInvoices(orgId, asOf),
-    creditBalanceOf(db, orgId, settings.allowanceAccountNumber, asOf),
-    creditBalanceOf(db, orgId, settings.deferredTaxAssetAccountNumber, asOf, ECL_DEFERRED_TAX_OBJECT),
-  ]);
-  return planEclProvision({
-    asOf,
-    items,
-    matrix: settings.matrix,
-    currentAllowance,
-    taxRatePct: settings.taxRatePct,
-    // DTA нь Дт үлдэгдэлтэй хөрөнгө — Кт тэмдгийг эргүүлнэ.
-    currentDeferredTaxAsset: -currentDta,
-  });
-}
-
 async function getEclOverviewCore(asOf: string): Promise<EclOverviewResult> {
   const { orgId } = await requireModuleAction("ar", "read");
   assertDate(asOf, "Огноо");
   const settings = await loadEclSettings(orgId);
-  const plan = await eclPlanFor(orgId, asOf, settings);
-  const drafts = await db
-    .select({ id: journalVouchers.id, documentNo: journalVouchers.documentNo, date: journalVouchers.date })
-    .from(journalVouchers)
-    .where(
-      and(
-        eq(journalVouchers.organizationId, orgId),
-        eq(journalVouchers.status, "draft"),
-        like(journalVouchers.externalRef, `${ECL_PROVISION_REF_PREFIX}%`)
-      )
-    );
+  const [plan, drafts] = await Promise.all([loadEclPlan(orgId, asOf, settings), loadEclDrafts(orgId)]);
   return { asOf, settings, plan, drafts };
 }
 
@@ -237,7 +210,7 @@ async function runEclProvisionCore(input: { asOf: string }): Promise<{
           like(journalVouchers.externalRef, `${ECL_PROVISION_REF_PREFIX}%`)
         )
       );
-    const plan = await eclPlanFor(orgId, input.asOf, settings);
+    const plan = await loadEclPlan(orgId, input.asOf, settings);
     const lines = eclJournalLines(plan, input.asOf);
     const reuse =
       lines.length > 0

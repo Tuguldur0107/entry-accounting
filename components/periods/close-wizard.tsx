@@ -14,6 +14,8 @@ import { LinkButton } from "@/components/ui/link-button";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { runDepreciation } from "@/lib/actions/fa";
 import { computeMonthlyCosting } from "@/lib/actions/costing-period";
+import { runEclProvision } from "@/lib/actions/arap-ecl";
+import { READ_ONLY_HINT, useModuleCan } from "@/components/layout/module-access-context";
 import { closePeriod, reopenPeriod } from "@/lib/actions/periods";
 import type { MonthEndChecklist, StepStatus } from "@/lib/actions/month-end";
 import type { LedgerIntegrityResult } from "@/lib/gl/integrity";
@@ -116,6 +118,7 @@ export function CloseWizard({
     fx,
     costing,
     payroll,
+    ecl,
     vat,
     procurement,
     pos,
@@ -125,6 +128,7 @@ export function CloseWizard({
     opening,
   } = checklist;
   const closed = periodStatus === "closed";
+  const canRunEcl = useModuleCan("ar", "write");
   // ENT-019: cut-off сарын нээлтийн зөрүү (0 бол анхааруулгагүй).
   const openingDiff = opening && Math.abs(opening.balance) > 0.005 ? opening : null;
   // Хангамжийн хориг (docs/procurement шийдвэр #7) — closePeriod мөн ижил
@@ -380,6 +384,50 @@ export function CloseWizard({
 
       <Step
         index={5}
+        title="Авлагын ECL нөөц (IFRS 9)"
+        status={ecl.status}
+        actions={
+          !closed && ecl.status !== "na" ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isPending || !canRunEcl}
+                title={canRunEcl ? "Сарын эцсийн өдрөөр НООРОГ журнал үүсгэнэ" : READ_ONLY_HINT}
+                onClick={() =>
+                  act(async () => {
+                    const result = await runEclProvision({ asOf: periodRange(periodCode).endDate });
+                    if (result.error !== undefined) throw new Error(result.error);
+                    return result.documentNo
+                      ? `ECL нөөцийн ноорог ${result.documentNo} үүслээ — шалгаад батална уу`
+                      : "ECL нөөц GL-тэй тэнцүү — журнал шаардлагагүй";
+                  })
+                }
+              >
+                ECL тооцох
+              </Button>
+              <LinkButton href="/receivables/ecl">ECL нөөц</LinkButton>
+            </>
+          ) : null
+        }
+      >
+        {ecl.status === "na"
+          ? "Нээлттэй авлага, ECL нөөц алга."
+          : `Нээлттэй авлага ${fmtMnt(ecl.grossBalance)} · шаардлагатай нөөц ${fmtMnt(ecl.requiredAllowance)} · GL-ийн нөөц ${fmtMnt(ecl.currentAllowance)} · ${
+              Math.abs(ecl.allowanceDelta) <= 0.005
+                ? "тэнцүү"
+                : `${ecl.allowanceDelta > 0 ? "нэмэх" : "эргүүлэх"} ${fmtMnt(Math.abs(ecl.allowanceDelta))}`
+            }${
+              ecl.deferredTaxDelta == null
+                ? " · ААНОАТ-ын хувь тохируулаагүй (хойшлогдсон татвар бодогдохгүй)"
+                : Math.abs(ecl.deferredTaxDelta) > 0.005
+                  ? ` · хойшлогдсон татвар ${fmtMnt(ecl.deferredTaxDelta)}`
+                  : ""
+            }${ecl.draft ? ` · ноорог журнал ${ecl.draft.documentNo ?? ""} батлагдаагүй` : ""}.`}
+      </Step>
+
+      <Step
+        index={6}
         title="НӨАТ тооцоо"
         status={vat.status}
         actions={
@@ -404,7 +452,7 @@ export function CloseWizard({
       </Step>
 
       <Step
-        index={6}
+        index={7}
         title="Хангамж — захиалгын хаалт"
         status={procurement.status}
         actions={
@@ -437,7 +485,7 @@ export function CloseWizard({
       </Step>
 
       <Step
-        index={7}
+        index={8}
         title="POS / Бараа материал"
         status={pos.status}
         actions={
@@ -488,7 +536,7 @@ export function CloseWizard({
       </Step>
 
       <Step
-        index={8}
+        index={9}
         title="Ноорог цэвэрлэгээ"
         status={drafts.total === 0 && !openingDiff ? "done" : "attention"}
       >
@@ -523,7 +571,7 @@ export function CloseWizard({
       </Step>
 
       <Step
-        index={9}
+        index={10}
         title="Тайлант үе хаах"
         status={closed ? "done" : closeBlocked ? "attention" : "pending"}
         actions={

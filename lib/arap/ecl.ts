@@ -218,6 +218,26 @@ export function splitWriteOff(amount: number, allowanceBalance: number) {
   return { fromAllowance, toExpense: round2(total - fromAllowance) };
 }
 
+/**
+ * Сар хаалтын checklist-ийн ECL алхмын статус (ЦЭВЭР). Хориг БИШ — зөвлөмж:
+ * - na: нээлттэй авлага ч, GL-ийн нөөц ч алга
+ * - attention: энэ сарын ECL ноорог журнал батлагдаагүй (ноорог хаалтыг хориглоно)
+ * - done: шаардлагатай нөөц (+ DTA) GL-тэй тэнцүү (delta 0)
+ * - pending: delta байгаа, ноорог алга — «ECL тооцох»
+ */
+export function eclChecklistStatus(input: {
+  plan: Pick<EclProvisionPlan, "grossBalance" | "currentAllowance" | "allowanceDelta" | "deferredTax">;
+  hasDraftInPeriod: boolean;
+}): "done" | "attention" | "pending" | "na" {
+  const { plan } = input;
+  if (input.hasDraftInPeriod) return "attention";
+  const settled =
+    Math.abs(plan.allowanceDelta) <= 0.005 &&
+    (plan.deferredTax == null || Math.abs(plan.deferredTax.delta) <= 0.005);
+  if (plan.grossBalance <= 0.005 && Math.abs(plan.currentAllowance) <= 0.005 && settled) return "na";
+  return settled ? "done" : "pending";
+}
+
 /** Сэргэлт/буцаалтын өмнөх үлдэгдлийн шалгалт — алдааны текст эсвэл null. */
 export function recoveryProblem(amount: number, writtenOff: number, recovered: number): string | null {
   if (!(amount > 0)) return "Сэргэлтийн дүн 0-ээс их байна";

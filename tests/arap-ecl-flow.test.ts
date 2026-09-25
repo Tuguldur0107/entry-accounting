@@ -21,6 +21,7 @@ import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { postVoucher, syncStandardAccounts } from "../lib/actions/gl";
 import { reverseArApOffset } from "../lib/actions/arap";
+import { getMonthEndChecklist } from "../lib/actions/month-end";
 import {
   getEclOverview,
   recoverArApWriteOff,
@@ -127,7 +128,15 @@ test("ENT-065: ECL нөөц (ноорог, дахин ажиллуулахад �
   assert.equal(drafts.length, 1);
   assert.equal(drafts[0].status, "draft");
   assert.equal(drafts[0].lines.length, 4);
+  const pendingChecklist = await asOrg(() => getMonthEndChecklist("2026-08"));
+  assert.equal(pendingChecklist.ecl.status, "attention", "ноорог батлагдаагүй — сар хаалтад анхаарах");
+  assert.equal(pendingChecklist.ecl.draft?.documentNo, second.documentNo);
+  assert.equal(pendingChecklist.ecl.allowanceDelta, 1_020_000);
   ok(await asOrg(() => postVoucher(second.voucherId!)), "ECL батлах");
+  const doneChecklist = await asOrg(() => getMonthEndChecklist("2026-08"));
+  assert.equal(doneChecklist.ecl.status, "done");
+  assert.equal(doneChecklist.ecl.draft, null);
+  assert.equal(doneChecklist.ecl.currentAllowance, 1_020_000);
   const after = ok(await asOrg(() => getEclOverview("2026-08-31")), "overview");
   assert.equal(after.plan.allowanceDelta, 0, "батлагдсаны дараа delta 0");
   assert.equal(after.plan.deferredTax?.delta, 0);

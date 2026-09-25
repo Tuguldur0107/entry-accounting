@@ -2,11 +2,12 @@
 
 // Сар хаалтын wizard — CLAUDE.md §4-ийн monthly close дарааллын статусыг
 // НЭГ дэлгэцэнд цуглуулна:
-//   1. Элэгдэл (FA)  2. FX тэгшитгэл  3. Өртөг тооцоо  4. НӨАТ тооцоо
-//   5. Хангамж — захиалгын хаалт  6. Ноорог цэвэрлэгээ  7. Период хаах
+//   1. Элэгдэл (FA)  2. FX тэгшитгэл  3. Өртөг тооцоо  4. Цалин
+//   5. Авлагын ECL нөөц (IFRS 9)  6. НӨАТ тооцоо  7. Хангамж — захиалгын
+//   хаалт  8. POS / бараа  9. Ноорог цэвэрлэгээ  10. Период хаах
 // Энэ action зөвхөн УНШИНА — бичилт хийдэг алхмууд нь тус тусын
 // баталгаажсан action-уудаар (runDepreciation, computeMonthlyCosting,
-// createVatSettlementDraft, closePeriod) явна.
+// runEclProvision, createVatSettlementDraft, closePeriod) явна.
 
 import {
   and,
@@ -21,6 +22,8 @@ import {
 } from "drizzle-orm";
 
 import { roundMoney } from "@/lib/arap/accounting";
+import { eclChecklistStatus } from "@/lib/arap/ecl";
+import { loadEclDrafts, loadEclPlan, loadEclSettings } from "@/lib/arap/ecl-db";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { removeOpeningMirrorDrafts } from "@/lib/cash/sync-voucher";
@@ -91,6 +94,23 @@ export type MonthEndChecklist = {
     activeEmployees: number;
     lineCount: number;
     voucherStatus: "none" | "draft" | "posted" | string;
+  };
+  /**
+   * Авлагын ECL нөөц (ENT-065, IFRS 9) — сарын эцсийн өдрөөр шаардлагатай нөөц
+   * GL-тэй тэнцсэн эсэх. Хаалтын хориг БИШ (ноорог журнал нь drafts-аар хориглоно).
+   */
+  ecl: {
+    status: StepStatus;
+    /** Нээлттэй авлагын нийт үлдэгдэл (MNT). */
+    grossBalance: number;
+    requiredAllowance: number;
+    currentAllowance: number;
+    /** >0 → нэмэх, <0 → эргүүлэх. */
+    allowanceDelta: number;
+    /** ААНОАТ-ын хувь тохируулаагүй бол null (DTA бодогдохгүй). */
+    deferredTaxDelta: number | null;
+    /** Энэ сарын ноорог ECL журнал (батлах ёстой). */
+    draft: { id: string; documentNo: string | null; date: string } | null;
   };
   vat: {
     status: StepStatus;
@@ -400,6 +420,11 @@ export async function getMonthEndChecklist(
     // Сарын эцсийн өдрөөрх үлдэгдэл (snapshot + delta) — хасах scope тоолоход.
     loadQtyBalancesFast(orgId, endDate),
   ]);
+  const eclSettings = await loadEclSettings(orgId);
+  const [eclPlan, eclDrafts] = await Promise.all([
+    loadEclPlan(orgId, endDate, eclSettings),
+    loadEclDrafts(orgId),
+  ]);
 
   // ── FA элэгдэл ──
   const faDraftEntries = faEntries.filter((entry) => entry.status === "draft").length;
@@ -477,6 +502,14 @@ export async function getMonthEndChecklist(
             (payrollRun?.lines.length ?? 0) > 0
           ? "attention"
           : "pending";
+
+  // ── ECL нөөц ──
+  const eclDraft =
+    eclDrafts.find((draft) => draft.date >= startDate && draft.date <= endDate) ?? null;
+  const eclStatus: StepStatus = eclChecklistStatus({
+    plan: eclPlan,
+    hasDraftInPeriod: eclDraft !== null,
+  });
 
   // ── НӨАТ ──
   const vatHasActivity =
@@ -602,6 +635,15 @@ export async function getMonthEndChecklist(
       activeEmployees: activeEmployeeCount,
       lineCount: payrollRun?.lines.length ?? 0,
       voucherStatus: payrollVoucherStatus,
+    },
+    ecl: {
+      status: eclStatus,
+      grossBalance: eclPlan.grossBalance,
+      requiredAllowance: eclPlan.requiredAllowance,
+      currentAllowance: eclPlan.currentAllowance,
+      allowanceDelta: eclPlan.allowanceDelta,
+      deferredTaxDelta: eclPlan.deferredTax?.delta ?? null,
+      draft: eclDraft,
     },
     vat: {
       status: vatStatus,

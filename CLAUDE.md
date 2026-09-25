@@ -1261,6 +1261,11 @@ product owner 2026-09-25), `docs/cost/README.md` **1.2**. Хуудас Авла�
 - **Сэргэлт** (D-ECL-4): Dr авлага / Cr ECL зардал → үлдэгдэл дахин нээгдэж
   ердийн кассын орлогоор хаагдана (`arap_write_off_recoveries`). Сэргэлттэй
   хасалт буцаагдахгүй (`[HAS_RECOVERY]`); сэргэлтгүйг эх огноогоор буцаана
+- **Сар хаалтын checklist-ийн 5-р алхам** (`/close`, `get_month_end_checklist`):
+  сарын эцсийн өдрийн шаардлагатай нөөц (+ DTA) GL-тэй тэнцсэн эсэх —
+  `eclChecklistStatus` (ЦЭВЭР, тесттэй): ноорог батлагдаагүй → анхаарах, delta
+  байгаа → хийгдээгүй, тэнцүү → бэлэн. Хаалтын ХОРИГ БИШ (ноорог нь drafts-аар
+  хориглоно); төлөвлөгөөг `loadEclPlan` (ecl-db.ts) — ECL хуудастай НЭГ loader
 
 ```
 lib/arap/ecl.ts            ЦЭВЭР (tests/arap-ecl.test.ts): matrix, planEclProvision,
@@ -1606,7 +1611,7 @@ MCP, REST API хоёулаа НЭГ tool давхаргаар (lib/ai/tools.ts, 
 | Тулгалт+урсгал | reconcile_modules (касс/АРАП/бараа/клиринг vs GL, шалтгаан+засвар зөвлөнө), get_workflow_guide (7 урсгалын зөв дараалал), import_bank_statement (мөрд `settleInvoice` — нэхэмжлэхийн төлбөр; `ewalletSettlement: true` — QPay settlement: түр данс → банк шилжүүлэг + шимтгэл, §5c) | импорт post горимд |
 | Нэвтрүүлэлт | get_onboarding_guide (section: overview/checklist/rules/phases/status) — `docs/deployment/onboarding.md`-ийн §2/§3/§4-ийг үгчлэн + байгууллагын шат (0–5) ба дараагийн алхам (`lib/onboarding/`); MCP `instructions` анх холбогдоход үүнийг заана | унших, аль ч горимд |
 | НӨАТ | get_vat_return (сарын тайлан), create_vat_settlement (тооцооны ноорог, сард 1) | тайлан аль ч горимд; тооцоо ноорог үүсгэнэ |
-| Сар хаалт | get_month_end_checklist (7 алхмын статус — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
+| Сар хаалт | get_month_end_checklist (10 алхмын статус, ECL нөөц орно — вэб: Системийн хяналт → Сар хаалт `/close`) | аль ч горимд |
 | Цалин | create_employee, run_payroll (бодолт+нэгтгэл), get_payroll_summary, create_payroll_voucher (GL ноорог, сард 1) | бүгд ноорог үүсгэдэг тул аль ч горимд |
 | Хангамж | create/update/list/get_purchase_order, create_goods_receipt, create_ap_invoice_from_po, create_cost_allocation, get_landed_cost_summary — мөн `create_arap_invoice`-ийн `purchaseOrder` / мөрийн `purchaseOrderLineId`, `unitPrice`, `costComponentCode` өргөтгөл | үүсгэх/унших аль ч горимд; approve/close/cancel_purchase_order, confirm/reverse_goods_receipt, reverse_cost_allocation нь ЗӨВХӨН post горим + ≤10M |
 | Мэдэгдэл | list_notifications (inbox — уншаагүй/бүгд), mark_notifications_read (ids угтвар эсвэл all) — §9d; system prompt-ийн dynamic context-д уншаагүй тоо + хамгийн ойрын татварын хугацаа | аль ч горимд (журнал үүсгэхгүй) |

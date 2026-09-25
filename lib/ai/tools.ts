@@ -1765,7 +1765,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "get_month_end_checklist",
     description:
-      "Сар хаалтын шалгах хуудас: элэгдэл, FX тэгшитгэл, өртөг тооцоо, цалин, НӨАТ тооцоо, ХАНГАМЖ (хүлээн авалттай нээлттэй захиалга сар хаалтыг хориглоно), үлдсэн ноорог, периодын төлөв — алхам бүрийн статустай. Сар хаахын өмнө юу дутууг харахад ашиглана (вэб: Системийн хяналт → Сар хаалт).",
+      "Сар хаалтын шалгах хуудас: элэгдэл, FX тэгшитгэл, өртөг тооцоо, цалин, авлагын ECL нөөц (run_ecl_provision), НӨАТ тооцоо, ХАНГАМЖ (хүлээн авалттай нээлттэй захиалга сар хаалтыг хориглоно), үлдсэн ноорог, периодын төлөв — алхам бүрийн статустай. Сар хаахын өмнө юу дутууг харахад ашиглана (вэб: Системийн хяналт → Сар хаалт).",
     inputSchema: {
       type: "object",
       properties: {
@@ -7696,7 +7696,7 @@ async function runMonthEndChecklist(input: {
         : status === "pending"
           ? "○ хийгдээгүй"
           : "— хамааралгүй";
-  const { fa, fx, costing, vat, procurement, pos, drafts, opening } = checklist;
+  const { fa, fx, costing, ecl, vat, procurement, pos, drafts, opening } = checklist;
   const fxDetail = fx.accounts
     .map(
       (account) =>
@@ -7722,16 +7722,17 @@ async function runMonthEndChecklist(input: {
       `2. FX тэгшитгэл: ${statusLabel(fx.status)}${fxDetail ? ` — ${fxDetail}` : ""}`,
       `3. Өртөг тооцоо: ${statusLabel(costing.status)} — тооцогдсон ${costing.calculated}, блоклогдсон ${costing.blocked}, ноорог бичилт ${costing.draftEntries}`,
       `4. Цалин: ${statusLabel(checklist.payroll.status)} — идэвхтэй ажилтан ${checklist.payroll.activeEmployees}, бодолтын мөр ${checklist.payroll.lineCount}, GL журнал: ${checklist.payroll.voucherStatus === "none" ? "үүсээгүй" : checklist.payroll.voucherStatus}`,
-      `5. НӨАТ: ${statusLabel(vat.status)} — гаралт ${fmt(vat.outputVat)}₮, оролт ${fmt(vat.inputVat)}₮, ${vat.payableVat > 0 ? `төлөх ${fmt(vat.payableVat)}₮ (${vat.deadline} дотор)` : `шилжүүлэх ${fmt(vat.refundableVat)}₮`}, тооцоо: ${vat.settlementStatus === "none" ? "үүсээгүй" : vat.settlementStatus}`,
-      `6. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
-      `7. POS / бараа: ${statusLabel(pos.status)} — нээлттэй ээлж ${pos.openShifts}${pos.openShifts > 0 ? " (close_pos_shift — хаагдтал сар ХААГДАХГҮЙ)" : ""}, сарын өртгийн тооцоололд ороогүй/зогссон хөдөлгөөн ${pos.unvaluedMovements}${pos.unvaluedMovements > 0 ? " (run_monthly_costing; хасах үлдэгдлийг орлого/тооллогоор засах — засагдтал сар ХААГДАХГҮЙ)" : ""}, хасах үлдэгдэлтэй бараа×агуулах ${pos.negativeStockScopes}, урьдчилсан COGS ${fmt(pos.provisionalCogs)}₮ (сар хаалтад залруулагдана)`,
-      `8. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
+      `5. ECL нөөц: ${statusLabel(ecl.status)} — нээлттэй авлага ${fmt(ecl.grossBalance)}₮, шаардлагатай нөөц ${fmt(ecl.requiredAllowance)}₮, GL-ийн нөөц ${fmt(ecl.currentAllowance)}₮${Math.abs(ecl.allowanceDelta) > 0.005 ? `, ${ecl.allowanceDelta > 0 ? "нэмэх" : "эргүүлэх"} ${fmt(Math.abs(ecl.allowanceDelta))}₮ (run_ecl_provision — ноорог)` : ""}${ecl.deferredTaxDelta == null ? ", ААНОАТ-ын хувь тохируулаагүй (DTA бодогдохгүй)" : Math.abs(ecl.deferredTaxDelta) > 0.005 ? `, хойшлогдсон татвар ${fmt(ecl.deferredTaxDelta)}₮` : ""}${ecl.draft ? `, ноорог ${ecl.draft.documentNo ?? ecl.draft.id.slice(0, 8)} батлагдаагүй (post_journal_voucher)` : ""}`,
+      `6. НӨАТ: ${statusLabel(vat.status)} — гаралт ${fmt(vat.outputVat)}₮, оролт ${fmt(vat.inputVat)}₮, ${vat.payableVat > 0 ? `төлөх ${fmt(vat.payableVat)}₮ (${vat.deadline} дотор)` : `шилжүүлэх ${fmt(vat.refundableVat)}₮`}, тооцоо: ${vat.settlementStatus === "none" ? "үүсээгүй" : vat.settlementStatus}`,
+      `7. Хангамж: ${statusLabel(procurement.status)} — хүлээн авалттай нээлттэй захиалга ${procurement.openOrdersWithReceipts}${procurement.openOrdersWithReceipts > 0 ? " (хаагдтал сар ХААГДАХГҮЙ — close_purchase_order)" : ""}, ноорог хүлээн авалт ${procurement.draftReceipts}, хуваарилагдаагүй зардлын мөр ${procurement.unallocatedCostLines}`,
+      `8. POS / бараа: ${statusLabel(pos.status)} — нээлттэй ээлж ${pos.openShifts}${pos.openShifts > 0 ? " (close_pos_shift — хаагдтал сар ХААГДАХГҮЙ)" : ""}, сарын өртгийн тооцоололд ороогүй/зогссон хөдөлгөөн ${pos.unvaluedMovements}${pos.unvaluedMovements > 0 ? " (run_monthly_costing; хасах үлдэгдлийг орлого/тооллогоор засах — засагдтал сар ХААГДАХГҮЙ)" : ""}, хасах үлдэгдэлтэй бараа×агуулах ${pos.negativeStockScopes}, урьдчилсан COGS ${fmt(pos.provisionalCogs)}₮ (сар хаалтад залруулагдана)`,
+      `9. Ноорог: ${drafts.total === 0 ? "✓ цэвэр" : `⚠ ${drafts.total} үлдсэн (${draftDetail})`}`,
       ...(opening
         ? [
             `   Нээлтийн зөрүүний данс ${opening.differenceAccount}: ${Math.abs(opening.balance) > 0.005 ? `⚠ ${fmt(opening.balance)}₮ — 0 болтол cut-off сарыг хаахгүй (R6)` : "✓ 0"}`,
           ]
         : []),
-      `9. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : opening && Math.abs(opening.balance) > 0.005 ? "нээлтийн зөрүүг залруулсны дараа хаана (R6)" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
+      `10. Хаалт: ${checklist.periodStatus === "closed" ? "✓ хаагдсан" : procurement.openOrdersWithReceipts > 0 ? "хүлээн авалттай нээлттэй захиалга хаагдсаны дараа хаана" : pos.openShifts > 0 || pos.unvaluedMovements > 0 ? "POS ээлж хаагдаж, зогссон бараа засагдсаны дараа хаана" : opening && Math.abs(opening.balance) > 0.005 ? "нээлтийн зөрүүг залруулсны дараа хаана (R6)" : drafts.total === 0 ? "хаахад бэлэн (close_period)" : "ноорог цэвэрлэсний дараа хаана"}`,
     ].join("\n"),
   };
 }
