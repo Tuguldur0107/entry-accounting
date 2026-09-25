@@ -48,6 +48,11 @@ export const REPORT_REGISTRY: readonly ReportModule[] = [
         label: "Мөнгөн гүйлгээний тайлан",
         href: "/gl/reports?report=cash-flow",
       },
+      {
+        value: "ebalance",
+        label: "Санхүүгийн тайлан (e-Balance маягт)",
+        href: "/gl/reports?report=ebalance",
+      },
     ],
   },
   {

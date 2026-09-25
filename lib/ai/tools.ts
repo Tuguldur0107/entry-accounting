@@ -310,11 +310,13 @@ import {
 } from "@/lib/grid/segments";
 import {
   aggregateBalances,
+  cashNetsFromRows,
   computeNetIncome,
   extractMainAccount,
   isBalanced,
   isCashMainAccount,
 } from "@/lib/reports/balances";
+import { computeEbalanceStatements, formatEbalanceReport } from "@/lib/reports/ebalance";
 import {
   buildMappedCashFlow,
   resolveCfLines,
@@ -1291,6 +1293,19 @@ export const AI_TOOLS: AiToolDef[] = [
       properties: {
         from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
+    name: "get_ebalance_statements",
+    description:
+      "Сангийн яамны e-Balance (Цахим санхүүгийн тайлангийн систем) МАЯГТЫН мөрөөр санхүүгийн тайлан: СТ-1 санхүүгийн байдал (эхний/эцсийн), СТ-2 орлогын дэлгэрэнгүй, СТ-3 өмчийн өөрчлөлт, СТ-4 мөнгөн гүйлгээ (шууд арга, S8 кодоор). Вэбийн Ерөнхий журнал → Тайлан → «Санхүүгийн тайлан (e-Balance маягт)»-тай НЭГ тооцоо; мөр бүрийн Entry-ийн эх ба гараар нөхөх мөр (⚠) ил. Хагас жилийн тайлан 7-р сарын 20, жилийн дараа оны 2-р сарын 10 (Нягтлан бодох бүртгэлийн тухай хууль 10.3).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Тайлант үеийн эхлэл YYYY-MM-DD (жилийн тайланд 01-01)" },
+        to: { type: "string", description: "Тайлант үеийн төгсгөл YYYY-MM-DD" },
       },
       required: ["from", "to"],
     },
@@ -6327,6 +6342,52 @@ async function runBalanceSheet(
       : `Тэнцэл: ✗ ЗӨРҮҮ ${fmt(sectionTotals.assets - totalLiabAndEquity)} — reconcile_modules-оор шалтгааныг хайна уу`
   );
   return { resultText: out.join("\n") };
+}
+
+async function runEbalanceStatements(
+  orgId: string,
+  input: { from: string; to: string }
+): Promise<AiToolResult> {
+  assertDates(input.from, input.to);
+  // Вэбийн тайлантай НЭГ тооцоо (lib/reports/ebalance.ts): БС/ОДТ-ийн [3]
+  // мөрүүд (snapshot + delta) + [from,to] ваучерууд (мөнгөн гүйлгээний контра).
+  const accounts = await db.query.chartOfAccounts.findMany({
+    where: eq(chartOfAccounts.organizationId, orgId),
+  });
+  const [rows, vouchers, mappings, voucherCfCodes] = await Promise.all([
+    loadBalanceRowsFast(orgId, input.from, input.to, accounts, [3]),
+    db.query.journalVouchers.findMany({
+      where: and(
+        eq(journalVouchers.organizationId, orgId),
+        inArray(journalVouchers.status, ["posted", "reversed"]),
+        gte(journalVouchers.date, input.from),
+        lte(journalVouchers.date, input.to)
+      ),
+      with: { lines: true },
+    }),
+    db.query.reportLineMappings.findMany({
+      where: and(
+        eq(reportLineMappings.organizationId, orgId),
+        inArray(reportLineMappings.reportType, ["balance-sheet", "income-statement", "cash-flow"])
+      ),
+    }),
+    loadVoucherCfCodes(orgId),
+  ]);
+  const cashNets = cashNetsFromRows(rows);
+  const report = computeEbalanceStatements({
+    rows,
+    accounts,
+    bsMappings: mappings.filter((m) => m.reportType === "balance-sheet"),
+    isMappings: mappings.filter((m) => m.reportType === "income-statement"),
+    cfMappings: mappings.filter((m) => m.reportType === "cash-flow"),
+    vouchers,
+    voucherCfCodes: new Map(Object.entries(voucherCfCodes)),
+    from: input.from,
+    to: input.to,
+    cashOpenNet: cashNets.openNet,
+    cashCloseNet: cashNets.closeNet,
+  });
+  return { resultText: formatEbalanceReport(report, fmt) };
 }
 
 async function runCashFlow(
@@ -12289,6 +12350,8 @@ async function dispatchAiTool(
         return await runBalanceSheet(orgId, args);
       case "get_cash_flow":
         return await runCashFlow(orgId, args);
+      case "get_ebalance_statements":
+        return await runEbalanceStatements(orgId, args);
       case "get_account_ledger":
         return await runAccountLedger(orgId, args);
       case "create_year_end_closing":

@@ -28,6 +28,7 @@ import { cashNetsFromRows } from "@/lib/reports/balances";
 import { loadBalanceRowsFast } from "@/lib/reports/period-balances";
 import { loadVoucherCfCodes } from "@/lib/reports/cf-codes";
 import { ReportsView, type ReportData } from "@/components/gl/reports-view";
+import { computeEbalanceStatements } from "@/lib/reports/ebalance";
 
 type SearchParams = Promise<{ start?: string; end?: string; report?: string }>;
 
@@ -49,7 +50,8 @@ export default async function ReportsPage({
   const reportType =
     report === "balance-sheet" ||
     report === "income-statement" ||
-    report === "cash-flow"
+    report === "cash-flow" ||
+    report === "ebalance"
       ? report
       : "gl-balance";
 
@@ -105,6 +107,39 @@ export default async function ReportsPage({
     // Байгууллагын түвшний тайлан — үндсэн данс (S3)-аар нэгтгэнэ.
     const rows = await loadBalanceRowsFast(orgId, from, to, accounts, [3]);
     data = { kind: reportType, rows };
+  } else if (reportType === "ebalance") {
+    // e-Balance маягт — БС/ОДТ-ийн [3] мөрүүд + МГТ-ийн ваучерууд, бүгд серверт
+    // бодогдож 4 маягт л клиент рүү очно (lib/reports/ebalance.ts ЦЭВЭР, тесттэй).
+    const [rows, vouchers, voucherCfCodes] = await Promise.all([
+      loadBalanceRowsFast(orgId, from, to, accounts, [3]),
+      db.query.journalVouchers.findMany({
+        where: and(
+          eq(journalVouchers.organizationId, orgId),
+          inArray(journalVouchers.status, ["posted", "reversed"]),
+          gte(journalVouchers.date, from),
+          lte(journalVouchers.date, to)
+        ),
+        with: { lines: true },
+      }),
+      loadVoucherCfCodes(orgId),
+    ]);
+    const cashNets = cashNetsFromRows(rows);
+    data = {
+      kind: "ebalance",
+      report: computeEbalanceStatements({
+        rows,
+        accounts,
+        bsMappings: balanceSheetMappings,
+        isMappings: incomeStatementMappings,
+        cfMappings: cashFlowMappings,
+        vouchers,
+        voucherCfCodes: new Map(Object.entries(voucherCfCodes)),
+        from,
+        to,
+        cashOpenNet: cashNets.openNet,
+        cashCloseNet: cashNets.closeNet,
+      }),
+    };
   } else if (reportType === "cash-flow") {
     const [vouchers, mainRows, voucherCfCodes] = await Promise.all([
       db.query.journalVouchers.findMany({

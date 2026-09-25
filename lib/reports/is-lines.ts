@@ -191,3 +191,94 @@ export function isDefaultLineKeyOf(accountNumber: string): string | null {
         best = { key: line.key, length: prefix.length };
   return best?.key ?? null;
 }
+
+// ── Мөрийн mapping-ийн шийдвэр — вэб (income-statement-view), e-Balance маягт
+// (lib/reports/ebalance.ts) НЭГ функцээр (BS-ийн resolveBsLines-тэй ижил хэв маяг).
+
+/** Mapping мөрийн шаардлагатай хэсэг — DB row-оос ч, тестээс ч бүтнэ. */
+export interface IsMappingInput {
+  lineKey: string;
+  accountNumbers: string;
+  isHidden: boolean;
+  customLabel: string | null;
+  customGroup: string | null;
+  sortOrder: number;
+}
+
+export interface ResolvedIsLine {
+  key: string;
+  section: IsSection;
+  group: string;
+  groupLabel: string;
+  label: string;
+  accountNumbers: string[];
+  sign: IsSign;
+  isHidden: boolean;
+  isCustom: boolean;
+  sortOrder: number;
+}
+
+/** Бүлэг → секц/тэмдэг/нэр (custom мөр бүлгээ л заана). */
+export const IS_GROUP_META: Record<string, { section: IsSection; sign: IsSign; groupLabel: string }> = {};
+for (const line of IS_LINES) {
+  if (!IS_GROUP_META[line.group])
+    IS_GROUP_META[line.group] = { section: line.section, sign: line.sign, groupLabel: line.groupLabel };
+}
+
+const splitNumbers = (value: string | null | undefined): string[] =>
+  (value ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/**
+ * IS_LINES + хэрэглэгчийн override + custom мөрүүд → эцсийн мөрүүд.
+ * ХООСОН accountNumbers нь override БИШ (нуух/нэр солих үйлдэл mapping мөрийг
+ * хоосон дансаар үүсгэдэг) — default-даа үлдэнэ; default нь ХАМГИЙН УРТ таарсан
+ * угтвараар (нэг данс НЭГ мөрөнд, ENT-048).
+ */
+export function resolveIsLines(
+  mappings: readonly IsMappingInput[],
+  accounts: readonly { number: string }[]
+): ResolvedIsLine[] {
+  const byKey = new Map<string, IsMappingInput>();
+  for (const m of mappings) byKey.set(m.lineKey, m);
+  const out: ResolvedIsLine[] = [];
+  IS_LINES.forEach((line, idx) => {
+    const m = byKey.get(line.key);
+    const override = m && m.accountNumbers.trim() !== "" ? splitNumbers(m.accountNumbers) : undefined;
+    out.push({
+      key: line.key,
+      section: line.section,
+      group: line.group,
+      groupLabel: line.groupLabel,
+      label: m?.customLabel?.trim() || line.label,
+      accountNumbers:
+        override ??
+        accounts.filter((a) => isDefaultLineKeyOf(a.number) === line.key).map((a) => a.number),
+      sign: line.sign,
+      isHidden: !!m?.isHidden,
+      isCustom: false,
+      sortOrder: idx,
+    });
+  });
+  for (const m of mappings) {
+    if (!m.lineKey.startsWith("custom-")) continue;
+    const group = m.customGroup ?? "opex";
+    const meta = IS_GROUP_META[group];
+    if (!meta) continue;
+    out.push({
+      key: m.lineKey,
+      section: meta.section,
+      group,
+      groupLabel: meta.groupLabel,
+      label: m.customLabel?.trim() || "Нэргүй мөр",
+      accountNumbers: splitNumbers(m.accountNumbers),
+      sign: meta.sign,
+      isHidden: m.isHidden,
+      isCustom: true,
+      sortOrder: m.sortOrder,
+    });
+  }
+  return out;
+}

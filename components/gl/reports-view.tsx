@@ -8,6 +8,8 @@ import { GlBalanceView } from "@/components/gl/gl-balance-view";
 import { BalanceSheetView } from "@/components/gl/balance-sheet-view";
 import { IncomeStatementView } from "@/components/gl/income-statement-view";
 import { CashFlowView } from "@/components/gl/cash-flow-view";
+import { EbalanceView } from "@/components/gl/ebalance-view";
+import type { EbalanceReport } from "@/lib/reports/ebalance";
 import {
   ReportHeader,
   ReportPage,
@@ -29,6 +31,8 @@ const META: Record<ReportData["kind"], (from: string, to: string) => string> = {
   "balance-sheet": (_from, to) => `${to}-ны байдлаар`,
   "income-statement": (from, to) => reportRangeLabel(from, to),
   "cash-flow": (from, to) => reportRangeLabel(from, to),
+  ebalance: (from, to) =>
+    `${reportRangeLabel(from, to)} · Сангийн яамны e-Balance маягтын мөрөөр (СТ-1 … СТ-4) — мөр бүрийн Entry-ийн эх ил`,
 };
 
 // П28: тайлан бүрийн өгөгдөл СЕРВЕРТ нэгтгэгдэж ирнэ (snapshot + SQL delta,
@@ -46,6 +50,11 @@ export type ReportData =
       voucherCfCodes: Record<string, string>;
       cashOpenNet: number;
       cashCloseNet: number;
+    }
+  | {
+      kind: "ebalance";
+      /** Серверт бодогдсон 4 маягт (lib/reports/ebalance.ts) — ваучер клиент рүү дамжихгүй. */
+      report: EbalanceReport;
     };
 
 interface Props {
@@ -110,6 +119,7 @@ export function ReportsView({
           mappings={incomeStatementMappings}
         />
       )}
+      {data.kind === "ebalance" && <EbalanceView report={data.report} />}
       {data.kind === "cash-flow" && (
         <CashFlowView
           vouchers={data.vouchers}
