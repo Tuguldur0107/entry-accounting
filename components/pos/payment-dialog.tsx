@@ -48,6 +48,8 @@ interface PaymentRow {
   storeCreditId: string;
   /** QPay провайдертай мөр — төлөгдсөн intent (мөр түгжигдэнэ, дүн өөрчлөгдөхгүй). */
   qpayIntentId: string | null;
+  /** Диалог нээгдэхэд автоматаар үүссэн «Бэлэн = төлөх дүн» мөр, хэрэглэгч хөндөөгүй. */
+  auto?: boolean;
 }
 
 /** Батлахад дамжих нэмэлт (QPay intent) — createPosSale.qpayIntentId. */
@@ -130,6 +132,7 @@ export function PaymentDialog({
         giftCardCode: "",
         storeCreditId: "",
         qpayIntentId: null,
+        auto: true,
       },
     ];
   });
@@ -289,21 +292,28 @@ export function PaymentDialog({
   }, [rows, methodById, shift, total, cashRoundingUnit, isWalkIn, customer]);
 
   function addMethod(method: PaymentMethodView) {
-    const prefill = plan.remaining > EPS ? String(plan.remaining) : "";
     const currency = method.currency || "MNT";
     const rate = currency === "MNT" ? 1 : shift?.fxRates[currency] ?? 0;
-    setRows((current) => [
-      ...current,
+    setRows((current) => {
+      // Хөндөөгүй анхдагч «Бэлэн» мөр ганцаараа байвал өөр хэлбэр сонгоход СОЛИГДОНО
+      // (эс бөгөөс QPay/карт мөр 0 дүнтэй нэмэгдэж, бэлэн мөрийг гараар устгах болдог).
+      const replaceAuto = current.length === 1 && current[0].auto;
+      const base = replaceAuto ? [] : current;
+      const remaining = replaceAuto ? plan.payable : plan.remaining;
+      const amount = remaining > EPS && rate > 0 ? String(round2(remaining / rate)) : "";
+      return [
+      ...base,
       {
         key: seq,
         paymentMethodId: method.id,
-        amount: prefill && rate > 0 ? String(round2(Number(prefill) / rate)) : "",
+        amount,
         reference: "",
         giftCardCode: "",
         storeCreditId: "",
         qpayIntentId: null,
       },
-    ]);
+      ];
+    });
     setSeq((value) => value + 1);
   }
 
@@ -333,25 +343,11 @@ export function PaymentDialog({
   }
 
   function patchRow(key: number, patch: Partial<PaymentRow>) {
-    setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+    setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch, auto: false } : row)));
   }
 
   function removeRow(key: number) {
     setRows((current) => current.filter((row) => row.key !== key));
-  }
-
-  function bumpCash(key: number, delta: number | "exact") {
-    setRows((current) =>
-      current.map((row) => {
-        if (row.key !== key) return row;
-        if (delta === "exact") {
-          // Энэ мөрийг тэглээд үлдэгдлээр нь бөглөнө.
-          const others = plan.paid - (Number(row.amount) || 0);
-          return { ...row, amount: String(Math.max(0, round2(plan.payable - others))) };
-        }
-        return { ...row, amount: String(round2((Number(row.amount) || 0) + delta)) };
-      })
-    );
   }
 
   // QPay мөр бүр төлөгдсөн intent-тэй байх ёстой (сервер ч мөн шаардана); нэг л QPay мөр.
@@ -401,15 +397,16 @@ export function PaymentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-wrap gap-1.5">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {activeMethods.map((method) => (
             <Button
               key={method.id}
               variant="outline"
-              size="sm"
+              size="lg"
               type="button"
               onClick={() => addMethod(method)}
               title={PAYMENT_KIND_LABELS[method.kind]}
+              className="h-14 w-full text-base font-semibold"
             >
               {method.name}
               {method.currency !== "MNT" && (
@@ -418,7 +415,7 @@ export function PaymentDialog({
             </Button>
           ))}
           {activeMethods.length === 0 && (
-            <span className="text-xs text-[var(--ea-danger-fg)]">
+            <span className="col-span-full text-xs text-[var(--ea-danger-fg)]">
               Идэвхтэй төлбөрийн хэлбэр алга — Борлуулалт → Тохиргоо → Төлбөрийн хэлбэр
             </span>
           )}
@@ -461,14 +458,6 @@ export function PaymentDialog({
                     onChange={(event) => patchRow(row.key, { amount: event.target.value })}
                     className="font-mono text-right"
                   />
-                  {method.kind === "cash" && (
-                    <div className="flex flex-wrap gap-1">
-                      <QuickButton onClick={() => bumpCash(row.key, "exact")}>Яг</QuickButton>
-                      <QuickButton onClick={() => bumpCash(row.key, 10_000)}>+10,000</QuickButton>
-                      <QuickButton onClick={() => bumpCash(row.key, 20_000)}>+20,000</QuickButton>
-                      <QuickButton onClick={() => bumpCash(row.key, 50_000)}>+50,000</QuickButton>
-                    </div>
-                  )}
                 </div>
                 <div>
                   {isQpayMethod(method) ? (
@@ -686,13 +675,5 @@ export function PaymentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function QuickButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <Button type="button" variant="outline" size="xs" className="font-mono" onClick={onClick} tabIndex={-1}>
-      {children}
-    </Button>
   );
 }
