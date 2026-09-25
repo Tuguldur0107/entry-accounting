@@ -478,6 +478,7 @@ async function loadPurchaseOrderBundles(
     with: {
       counterparty: { columns: { name: true } },
       warehouse: { columns: { name: true } },
+      closeVoucher: { columns: { date: true, documentNo: true } },
       lines: {
         with: {
           item: { columns: { code: true, name: true, unit: true } },
@@ -583,7 +584,9 @@ async function loadPurchaseOrderBundles(
       invoicedPct: percentOf(invoicedAmount, totalAmount),
       approvedAt: isoOrNull(row.approvedAt),
       closedAt: isoOrNull(row.closedAt),
+      closeDate: row.closeVoucher?.date ?? null,
       closeVoucherId: row.closeVoucherId,
+      closeVoucherNo: row.closeVoucher?.documentNo ?? null,
       shortCloseReason: row.shortCloseReason,
       attachmentCount: attachmentCounts.get(row.id) ?? 0,
     };

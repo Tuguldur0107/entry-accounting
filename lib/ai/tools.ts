@@ -10624,6 +10624,8 @@ async function runGetPurchaseOrder(
     detail.status !== "open"
       ? // Хаагдсан/цуцлагдсан захиалгад хаалтын нөхцөл хамаарахгүй (ENT-064).
         `Төлөв: ${PO_STATUS_LABELS[detail.status] ?? detail.status}${
+          detail.closeDate ? ` ${detail.closeDate}${detail.closeVoucherNo ? ` (журнал ${detail.closeVoucherNo})` : ""}` : ""
+        }${
           detail.shortCloseReason
             ? ` — ДУТУУ хаагдсан: цуцалсан ${cancelled.map((line) => `${line.itemCode} ${fmt(line.cancelledQuantity)}`).join(", ") || "үлдэгдэлгүй"}; шалтгаан: ${detail.shortCloseReason}`
             : ""

@@ -3103,6 +3103,11 @@ export const purchaseOrdersRelations = relations(
     }),
     lines: many(purchaseOrderLines),
     receipts: many(goodsReceipts),
+    /** Хаалтын журнал — «Хаагдсан» огноо нь ЭНЭ журналын огноо (closedAt нь товч дарсан цаг). */
+    closeVoucher: one(journalVouchers, {
+      fields: [purchaseOrders.closeVoucherId],
+      references: [journalVouchers.id],
+    }),
   })
 );
 

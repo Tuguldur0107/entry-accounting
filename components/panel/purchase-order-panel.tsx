@@ -1390,8 +1390,8 @@ function PurchaseOrderBody({
           )}
           {status === "closed" && (
             <p className="text-xs text-[var(--ea-text-3)]">
-              {detail.closedAt
-                ? `Хаагдсан: ${detail.closedAt.slice(0, 10)} — түр дансууд тэгшитгэгдсэн.`
+              {detail.closeDate
+                ? `Хаагдсан: ${detail.closeDate}${detail.closeVoucherNo ? ` (журнал ${detail.closeVoucherNo})` : ""} — түр дансууд тэгшитгэгдсэн.`
                 : "Түр дансууд тэгшитгэгдсэн."}
             </p>
           )}
