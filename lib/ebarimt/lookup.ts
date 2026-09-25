@@ -3,6 +3,7 @@
 
 import { EBARIMT_ERRORS, EBARIMT_PUBLIC_API_BASE, MERCHANT_TIN_RE, REGISTER_NO_RE } from "./constants";
 import { EbarimtError } from "./receipt";
+import { gatewayHeaders } from "./gateway-auth";
 
 /**
  * Лавлахын суурь хаяг. `api.ebarimt.mn` нь ЗӨВХӨН Монголын IP-ээс хандагддаг тул
@@ -65,7 +66,9 @@ async function getJsonOnce(url: string): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
+    // Монголын прокси (EBARIMT_PUBLIC_API_BASE) WAF-ын ард бол нууц header — allowlist-ийн
+    // хост руу л; албан api.ebarimt.mn руу ХЭЗЭЭ Ч илгээхгүй (жагсаалтад оруулахгүй).
+    const response = await fetch(url, { headers: gatewayHeaders(url), signal: controller.signal, cache: "no-store" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } finally {

@@ -16,6 +16,8 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   fork-д эх сурвалж байхгүй тул юу ч ачаалагдахгүй. Эх сурвалж бүрэн биш үед
   (token-гүй, татаж чадаагүй, хагас архив) seed DB-ээс ЮУ Ч УСТГАХГҮЙ. Хөгжүүлэгч
   `../entry-knowledge` clone хийнэ; CLAUDE.md-ийн лавлагаанууд тийш заана.
+  Production-ийг Railway service `knowledge-sync` (entry-knowledge repo, token-гүй,
+  push бүрд) бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env тавихгүй.
 
 ### Removed
 
@@ -62,6 +64,12 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   Бэлэн асуултууд `/ai` хуудас, «AI нягтлан» нүүр, **MCP `prompts/list`**-д ч гарна
   — ChatGPT / Claude-ийн «+» / «/» цэсэнд Entry-ийн жишээ болж харагдана.
   DB: `users.welcome_dismissed_at`.
+- **Операторын PosAPI-г нийтээс хаах нууц header.** Entry сервер PosAPI болон
+  ТЕГ-ийн лавлахын Монгол прокси руу явах хүсэлт бүрд `EBARIMT_GATEWAY_KEY`-г
+  header болгон нэмнэ — зөвхөн `EBARIMT_GATEWAY_HOSTS`-д бүртгэсэн хост руу,
+  тиймээс харилцагч PosAPI-ийн хаягаа өөрчилсөн ч нууц алдагдахгүй. Cloudflare
+  WAF дүрэм, nginx `/teg/` прокси, шалгах алхам `docs/deployment/ebarimt.md` §4a.
+  `/api/health`-д зөвхөн тохируулсан эсэх (`gatewayAuth`).
 - **eBarimt-ийн мерчантын ТТД-г регистрээс.** POS тохиргоо → eBarimt-ийн
   «Мерчантын ТТД» талбарт 7 оронтой байгууллагын регистр бичээд «ТЕГ-ээс
   татах» (хоосон бол Компанийн мэдээллийн регистрээр) эсвэл шууд хадгалахад

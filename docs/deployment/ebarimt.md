@@ -78,6 +78,69 @@ eBarimt таб «Мерчант бүртгэл: ҮГҮЙ» гэж улаанаа
 - ТЕГ-ийн нийтийн лавлах (`api.ebarimt.mn`) ЗӨВХӨН Монголын IP — гадаад бүсийн Entry
   серверт `EBARIMT_PUBLIC_API_BASE` (§7)
 
+## 4a. PosAPI-г нийтээс хаах + ТЕГ-ийн лавлахын прокси (оператор, нэг удаа)
+
+**Асуудал (2026-09-25 илэрсэн):** операторын PosAPI Cloudflare-ийн ард
+`https://<host>` дээр нэвтрэлтгүй нээлттэй байвал хэн ч `/rest/info`-оос бүх
+мерчантын ТТД, нэрийг харж, `/rest/receipt`-ээр тэдний нэрээр баримт үүсгэж
+болзошгүй. Албан best practice: PosAPI-г нийтэд ил тавихгүй. Мөн ТЕГ-ийн нийтийн
+лавлах (`api.ebarimt.mn`) зөвхөн Монголын IP-ээс хариулдаг тул Railway (гадаад)
+серверээс «ТЕГ-ээс татах», дүүргийн жагсаалт, кассын ААН лавлах ажиллахгүй.
+
+**Шийдэл — нэг нууц header, нэг Монгол сервер:**
+
+1. **Нууц үүсгэх** (операторын компьютер дээр, хэнтэй ч хуваалцахгүй):
+   `openssl rand -hex 32`
+2. **Railway `entry-accounting` env** (Sealed variable болгоно):
+   | Env | Утга |
+   |---|---|
+   | `EBARIMT_GATEWAY_KEY` | 1-р алхмын нууц |
+   | `EBARIMT_GATEWAY_HOSTS` | `ebarimt.chipmo.mn` (таслалаар олон хост) |
+   | `EBARIMT_GATEWAY_HEADER` | хоосон = `x-entry-gateway-key` |
+   | `EBARIMT_PUBLIC_API_BASE` | `https://ebarimt.chipmo.mn/teg` (3-р алхмын дараа) |
+
+   Entry СЕРВЕР нь PosAPI болон лавлахын прокси руу явах хүсэлт бүрд header-ийг
+   нэмнэ — ЗӨВХӨН `EBARIMT_GATEWAY_HOSTS`-д бүртгэсэн хост руу (харилцагч
+   `ebarimtPosApiUrl`-аа өөр хаягаар солиход нууц алдагдахгүй; албан
+   `api.ebarimt.mn` руу хэзээ ч явахгүй). Header илгээх нь WAF дүрэм байхгүй үед
+   ч хоргүй тул энэ алхмыг ЭХЭЛЖ хийнэ. `/api/health` → `ebarimt.gatewayAuth: true`
+   (утга биш, зөвхөн тохируулсан эсэх). Код: `lib/ebarimt/gateway-auth.ts`
+3. **Origin сервер дээр nginx** (PosAPI-ийн өмнө; Cloudflare нь 443 → энэ nginx):
+   ```nginx
+   server {
+     listen 80;
+     server_name ebarimt.chipmo.mn;
+
+     # ТЕГ-ийн нийтийн лавлах — Монголын IP-ээс гарна (зөвхөн GET)
+     location /teg/ {
+       limit_except GET { deny all; }
+       proxy_set_header x-entry-gateway-key "";   # нууцыг ТЕГ рүү дамжуулахгүй
+       proxy_set_header Host api.ebarimt.mn;
+       proxy_ssl_server_name on;
+       proxy_pass https://api.ebarimt.mn/api/info/check/;
+     }
+
+     # PosAPI 3.0
+     location / {
+       proxy_pass http://127.0.0.1:7080;
+     }
+   }
+   ```
+4. **Cloudflare → Security → WAF → Custom rules** — «Block»:
+   ```
+   (http.host eq "ebarimt.chipmo.mn"
+    and not starts_with(http.request.uri.path, "/web/")
+    and not any(http.request.headers["x-entry-gateway-key"][*] eq "<1-р алхмын нууц>"))
+   ```
+   PosAPI-ийн вэб консолыг (`/web/`) Cloudflare Access-оор (и-мэйл OTP, 50
+   хэрэглэгч хүртэл үнэгүй) эсвэл операторын IP-ээр тусад нь хаана
+5. **Шалгах:** header-гүй `curl https://ebarimt.chipmo.mn/rest/info` → 403;
+   Entry-ийн eBarimt таб → «Холболт шалгах» → оператор, үлдсэн сугалаа гарна;
+   «ТЕГ-ээс татах» → ТТД + нэр
+
+Нууцыг солихдоо: Cloudflare дүрэмд хуучин + шинэ хоёуланг `or`-оор зөвшөөрч →
+Railway env солих → deploy → хуучныг дүрмээс хасна (тасалдалгүй).
+
 ## 5. Entry дээр тохируулах (харилцагч бүрд, 5 минут)
 
 1. **Борлуулалт → Тохиргоо → eBarimt**: ТТД, салбар, дүүрэг, posNo, PosAPI URL
@@ -121,6 +184,7 @@ eBarimt таб «Мерчант бүртгэл: ҮГҮЙ» гэж улаанаа
 |---|---|
 | `EBARIMT_WORKER=off` | In-process worker (20 сек) унтраана — гадаад cron-оор л ажиллуулах бол |
 | `CRON_SECRET` | `POST /api/cron/ebarimt?job=process\|senddata\|all` нээнэ (Bearer) |
+| `EBARIMT_GATEWAY_KEY` / `EBARIMT_GATEWAY_HOSTS` / `EBARIMT_GATEWAY_HEADER` | Операторын PosAPI + лавлахын прокси Cloudflare WAF-ын ард бол нууц header (§4a) — зөвхөн жагсаалтын хост руу; хоосон бол header илгээхгүй |
 | `EBARIMT_PUBLIC_API_BASE` | ТЕГ-ийн нийтийн лавлахын суурь хаяг — `api.ebarimt.mn` **зөвхөн Монголын IP**-ээс хандагддаг тул гадаад бүсийн (Railway) серверт Монголд байрлах прокси / операторын PosAPI сервер дээрх reverse proxy-ийн хаяг өгнө (замууд ижил: `/getTinInfo`, `/getInfo`, `/getBranchInfo`). Хоосон бол default |
 
 Ямар ч тохиргоогүй бол in-process worker ажиллана (`lib/ebarimt/ticker.ts`).
