@@ -1778,7 +1778,8 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
   (`lib/auth-redirect.ts`, тесттэй) — бүртгэлийн хуудас «багцад аль хэдийн
   багтсан → холбох заавар» / «гараад шинэ бүртгэл» сонголт харуулна
   (`components/skills/skills-signed-in.tsx`). Console хэрэглээг
-  `GET /api/platform/subscriptions` (`knowledgeReads30d`) ба байгууллагын
+  `GET /api/platform/subscriptions` (`knowledgeReads30d`, `oauthConnections`,
+  `lastConnectorUseAt` — Console-ийн «AI нягтлан» хуудас) ба байгууллагын
   дэлгэрэнгүйн `aiAccountant` (уншилт, OAuth холболт, сүүлд ашигласан) — ТОО л
 - **`skills` багцад нягтлан бодох систем (`accounting` боломж) ХААЛТТАЙ** — хямд
   багцаар бүх системийг үнэгүй ашиглах зам болохоос сэргийлнэ: `requireModuleAction`
