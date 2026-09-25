@@ -131,3 +131,16 @@ L.inv_close('2024-12')  # нээлтийн орлого капиталжина: 
 o.save()
 o.call('get_onboarding_guide', {'section': 'status'}, 'open')
 post_opening_arap('C', CUT)
+
+# Нээлтийн барааны өртөг (SIM2-007 / ENT-003 багц импорт хойшлогдсон): 2024-12-ийн
+# «үнэ хүлээж буй» орлогод нэгж өртгийг вэбээс бөглөж, сарын өртөг тооцож батална.
+import json
+json.dump({code: uc for code, wh, q, uc in st}, open(os.path.join(ROOT, 'orgs', 'C', 'costmap.json'), 'w'))
+r = subprocess.run(['node', os.path.join(ROOT, 'web', 'costing_fill.mjs'), CUT[:7], 'open-cost'], capture_output=True, text=True, env=dict(os.environ, SIM_ORG='C'))
+print('[web] costing_fill\n' + (r.stdout + r.stderr)[-1500:], flush=True)
+o.call('run_monthly_costing', {'period': CUT[:7]}, 'open:costing')
+ok, t = o.call('post_cost_entries', {'month': CUT[:7]}, 'open:costing')
+if not ok:
+    r = subprocess.run(['node', os.path.join(ROOT, 'web', 'bulk_post.mjs'), '/costing/entries', CUT[:7], 'open-cost-post'], capture_output=True, text=True, env=dict(os.environ, SIM_ORG='C'))
+    print('[web] bulk_post\n' + (r.stdout + r.stderr)[-1500:], flush=True)
+o.call('list_cost_entries', {'month': CUT[:7], 'status': 'draft', 'limit': 5}, 'open:costing')
