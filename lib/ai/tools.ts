@@ -324,7 +324,7 @@ import {
 } from "./post-limit";
 
 import type { AiAction } from "./action-markers";
-import { classifyToolError, internalErrorText } from "@/lib/ai/error-sanitize";
+import { classifyToolError, describeErrorChain, internalErrorText } from "@/lib/ai/error-sanitize";
 import { isFuturePeriodDate, ulaanbaatarToday } from "@/lib/periods/document-date";
 import {
   accumDepAccountFor,
@@ -3352,7 +3352,7 @@ function errorText(caught: unknown): string {
   // мессежийг (SQL, UUID параметр) ЗАДЛАХГҮЙ (ENT-070).
   const classified = classifyToolError(caught);
   if (classified.internal) {
-    console.error(`AI tool internal error [${classified.logId}]:`, caught);
+    console.error(`AI tool internal error [${classified.logId}]: ${describeErrorChain(caught)}`, caught);
     return internalErrorText(classified.logId);
   }
   return classified.message;
@@ -11223,7 +11223,13 @@ async function runClosePosShift(
   return {
     resultText: `Ээлж ${shift.documentNo} хаагдлаа. Систем ${fmt(result.systemCash)}₮, тоолсон ${fmt(Number(input.countedCash))}₮, зөрүү ${fmt(result.variance)}₮${
       Math.abs(result.variance) >= 0.01 ? ` (${result.variance > 0 ? "илүүдэл" : "дутагдал"} — кассын баримт бичигдэв)` : ""
-    }. Борлуулалт ${shift.salesCount} (${fmt(shift.salesTotal)}₮), буцаалт ${fmt(shift.returnsTotal)}₮.`,
+    }. Борлуулалт ${shift.salesCount} (${fmt(shift.salesTotal)}₮), буцаалт ${fmt(shift.returnsTotal)}₮.${
+      // Хэлбэрээр задаргаа — «систем 3,780 vs тоолсон 0» зөрүү QPay/карт/зээлээс
+      // үүссэн эсэх нь хариунаас шууд харагдана (D9-ийн дараах SIM).
+      shift.paymentsByMethod.length > 0
+        ? ` Төлбөрийн хэлбэрээр: ${shift.paymentsByMethod.map((method) => `${method.code} ${fmt(method.amount)}₮`).join(" · ")}.`
+        : ""
+    }`,
   };
 }
 
@@ -11708,7 +11714,7 @@ function aiToolErrorResult(name: string, caught: unknown): AiToolResult {
   // [CODE]-той болон монгол validation алдаанууд хэвээр дамжина.
   const classified = classifyToolError(caught);
   if (classified.internal) {
-    console.error(`AI tool "${name}" internal error [${classified.logId}]:`, caught);
+    console.error(`AI tool "${name}" internal error [${classified.logId}]: ${describeErrorChain(caught)}`, caught);
     return { resultText: `Алдаа: ${internalErrorText(classified.logId)}` };
   }
   const message = classified.message;

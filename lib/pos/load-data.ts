@@ -338,6 +338,8 @@ export async function loadShiftViews(
         shiftId: posSales.shiftId,
         isReturn: posSales.isReturn,
         kind: posPaymentMethods.kind,
+        code: posPaymentMethods.code,
+        name: posPaymentMethods.name,
         baseAmount: posPayments.baseAmount,
         changeGiven: posPayments.changeGiven,
       })
@@ -349,7 +351,14 @@ export async function loadShiftViews(
   const closerName = new Map(closers.map((user) => [user.id, user.name]));
   const summary = new Map<
     string,
-    { salesCount: number; salesTotal: number; cashReceipts: number; cashRefunds: number; returnsTotal: number }
+    {
+      salesCount: number;
+      salesTotal: number;
+      cashReceipts: number;
+      cashRefunds: number;
+      returnsTotal: number;
+      byMethod: Map<string, PosShiftView["paymentsByMethod"][number]>;
+    }
   >();
   const of = (id: string) => {
     const current = summary.get(id) ?? {
@@ -358,6 +367,7 @@ export async function loadShiftViews(
       cashReceipts: 0,
       cashRefunds: 0,
       returnsTotal: 0,
+      byMethod: new Map(),
     };
     summary.set(id, current);
     return current;
@@ -372,9 +382,21 @@ export async function loadShiftViews(
     }
   }
   for (const payment of paymentRows) {
-    if (!payment.shiftId || payment.kind !== "cash") continue;
+    if (!payment.shiftId) continue;
     const entry = of(payment.shiftId);
     const net = Number(payment.baseAmount) - Number(payment.changeGiven);
+    // Хэлбэр бүрийн цэвэр дүн (борлуулалт +, буцаалт −) — Z-тайлан, ээлж
+    // хаалтын хариунд бэлэн биш хэлбэрийн дүн ил гарна.
+    const method = entry.byMethod.get(payment.code) ?? {
+      code: payment.code,
+      name: payment.name,
+      kind: payment.kind,
+      amount: 0,
+    };
+    method.amount += payment.isReturn ? -net : net;
+    entry.byMethod.set(payment.code, method);
+    // Системийн бэлэн мөнгө = ЗӨВХӨН cash хэлбэр.
+    if (payment.kind !== "cash") continue;
     if (payment.isReturn) entry.cashRefunds += net;
     else entry.cashReceipts += net;
   }
@@ -385,6 +407,7 @@ export async function loadShiftViews(
       cashReceipts: 0,
       cashRefunds: 0,
       returnsTotal: 0,
+      byMethod: new Map<string, PosShiftView["paymentsByMethod"][number]>(),
     };
     return {
       id: row.id,
@@ -405,11 +428,16 @@ export async function loadShiftViews(
       fxRates: row.fxRates ?? {},
       status: row.status === "closed" ? "closed" : "open",
       note: row.note,
-      ...entry,
+      // byMethod (Map) нь client prop-оор сериалжихгүй тул spread хийхгүй —
+      // талбар бүрийг ил өгнө.
+      salesCount: entry.salesCount,
       salesTotal: Math.round(entry.salesTotal * 100) / 100,
       cashReceipts: Math.round(entry.cashReceipts * 100) / 100,
       cashRefunds: Math.round(entry.cashRefunds * 100) / 100,
       returnsTotal: Math.round(entry.returnsTotal * 100) / 100,
+      paymentsByMethod: [...entry.byMethod.values()]
+        .map((method) => ({ ...method, amount: Math.round(method.amount * 100) / 100 }))
+        .sort((a, b) => b.amount - a.amount),
     };
   });
 }
