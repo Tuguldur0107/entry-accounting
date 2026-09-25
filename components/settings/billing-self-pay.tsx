@@ -198,7 +198,7 @@ export function BillingSelfPay({
   );
 }
 
-function BillingQpayDialog({
+export function BillingQpayDialog({
   initial,
   onClose,
 }: {

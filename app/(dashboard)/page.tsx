@@ -32,7 +32,9 @@ import {
 import { getActiveOrg } from "@/lib/auth";
 import { SkillsHome } from "@/components/skills/skills-home";
 import { hasFeature } from "@/lib/billing/entitlements";
-import { getEntitlements } from "@/lib/billing/load";
+import { getEntitlements, loadSubscription } from "@/lib/billing/load";
+import { billingQpayConfig, loadSelfPayOptions } from "@/lib/billing/payment-store";
+import { ROLE_RANK } from "@/lib/permissions";
 import { mcpEndpointUrl } from "@/lib/mcp/endpoint";
 import { loadCashBalancesFast } from "@/lib/cash/period-balances";
 import { shiftDays } from "@/lib/periods/period";
@@ -59,12 +61,27 @@ import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 
 export default async function HomePage() {
-  const { orgId } = await getActiveOrg();
+  const { orgId, role } = await getActiveOrg();
   // «AI нягтлан» (skills) багц — нягтлан бодох системгүй: модулийн самбарын
-  // оронд мэдлэгийн санг ChatGPT / Claude-д холбох заавар.
+  // оронд НЭГ хуудас (давуу тал → төлбөр → ChatGPT / Claude-д холбох).
   const entitlements = await getEntitlements(orgId);
-  if (!hasFeature(entitlements, "accounting"))
-    return <SkillsHome ent={entitlements} mcpUrl={await mcpEndpointUrl()} />;
+  if (!hasFeature(entitlements, "accounting")) {
+    const [mcpUrl, options, subscription] = await Promise.all([
+      mcpEndpointUrl(),
+      loadSelfPayOptions(orgId),
+      loadSubscription(orgId),
+    ]);
+    return (
+      <SkillsHome
+        ent={entitlements}
+        mcpUrl={mcpUrl}
+        options={options}
+        ready={billingQpayConfig().config !== null}
+        canPay={ROLE_RANK[role] >= ROLE_RANK.admin}
+        paidThrough={subscription?.currentPeriodEnd ?? null}
+      />
+    );
+  }
   const { periodCode, today } = await getPeriodSelection();
 
   const [
