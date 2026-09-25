@@ -75,7 +75,10 @@ export async function applyPosApiResponse(
     const status = typeof response.status === "string" ? response.status.toUpperCase() : "";
     const ok = status !== "ERROR" && (raw.httpStatus == null || Number(raw.httpStatus) < 400);
     if (!ok) {
-      const attempts = await markFailed(prepared.id, prepared.saleId, new EbarimtError("EBARIMT_REJECTED", response.message ?? "Цуцлах хүсэлт татгалзагдав"), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
+      const attempts = await markFailed(prepared.id, prepared.saleId, new EbarimtError(
+          "EBARIMT_REJECTED",
+          `${response.message ?? "Цуцлах хүсэлт татгалзагдав"} — ТЕГ: DELETE зөвхөн B2C_RECEIPT, иргэн баталгаажуулаагүй баримтад; баталгаажсан бол иргэн Ebarimt апп-аас зөвшөөрөх хүртэл «Баталгаажаагүй буцаалт»; B2B/нэхэмжлэх бол ТЕГ-тэй тохирно (docs/integrations/01 P1-3)`
+        ), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
       return { ok: false, attempts, result: null };
     }
     await markSent(prepared.id, prepared.saleId, "cancel", raw, { id: null, date: null, type: null });

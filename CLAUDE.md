@@ -868,6 +868,18 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
   worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг
   илгээхээс сэргийлнэ (10 мин гацвал чөлөөлөгдөнө)
+- **Wire-формат албан спекээр** (2026-09-25, #128): `totalVAT` түлхүүр, `billIdSuffix`
+  (`billIdSuffixOf` — дахин илгээлтэд ИЖИЛ, засвар бүрд ӨӨР), `/rest/receipt` timeout
+  `POSAPI_RECEIPT_TIMEOUT_MS` 90 сек (`EBARIMT_POSAPI_TIMEOUT` — давхар ДДТД-ийн эрсдэл ил) —
+  `docs/integrations/01-ebarimt-posapi-verification.md` §2
+- **Төлбөрийн код ба лавлах (P1, 2026-09-25):** `payments[].code`-ийн АЛБАН жагсаалт
+  `EBARIMT_PAYMENT_CODES` (CASH · PAYMENT_CARD · BANK_TRANSFER · BANK_TRANSFER_QPAY) —
+  readiness жагсаалтад байхгүй кодыг `warnings`-аар АНХААРУУЛНА (блоклохгүй, ТЕГ код нэмж
+  болно); `credit`-д санал байхгүй (`INVOICE` албан биш). ТЕГ-ийн нийтийн лавлах
+  `api.ebarimt.mn` ЗӨВХӨН Монголын IP — env `EBARIMT_PUBLIC_API_BASE` (`publicApiBase()`);
+  иргэний РД-аар `getTinInfo` ХОРИОТОЙ (ХХМХ 4.1.11, ТЕГ 2026-05-11), регистрээр лавлах
+  2026-06-15-аас хязгаарлагдана → кассын B2B-д **ТТД шууд** үндсэн зам (нэр `getInfo`-оос,
+  `lookupTaxpayerByTin`; лавлах унасан ч төлбөр хаагдахгүй)
 - **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
   гараар засах ХОРИОТОЙ (давхар баримт)
 - **Борлуулалт бүрд eBarimt-гүй (`skipped`)**: төлбөрийн диалогийн «eBarimt
@@ -1002,7 +1014,8 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   `ensureQpayPaymentMethod` DB) — ratified-seed: «QPay» (ewallet, provider qpay) +
   «QPay түр данс» (банк, GL 11000099) дутуу бол л үүснэ, байгааг хөндөхгүй;
   readiness `seedOnEnable` (default) хэлбэр/данс дутууг warning гэж үзнэ, seed-ийн
-  ДАРАА `seedOnEnable:false` хатуу шалгана. eBarimt код ЗОХИОХГҮЙ (plan T1)
+  ДАРАА `seedOnEnable:false` хатуу шалгана. eBarimt код `BANK_TRANSFER_QPAY`
+  (PosAPI 3.0 албан жагсаалт, 2026-09-25 — урьд null); кодгүй байгаа QPay хэлбэрт нөхнө, хэрэглэгчийн оноосныг хөндөхгүй
 - **Автомат бүртгэл — Partner API** (`docs/deployment/qpay.md` §2b, plan §3.7;
   dashboard `docs/API.md` «Partner»): `lib/qpay/provision.ts` ЦЭВЭР (тесттэй —
   `buildQpayProvisionPlan`: регистрээс company/person, дутууг МОНГОЛООР нэрлэнэ,

@@ -133,3 +133,22 @@ test("олон түвшинтэй ангилал: хоосон ангилал Э
   assert.equal(result.items.count, 1);
   assert.deepEqual(result.items.sample, ["Шампунь"]);
 });
+
+test("P1-4: албан жагсаалтад байхгүй төлбөрийн код → warnings (блоклохгүй), ready хэвээр", () => {
+  const readiness = ebarimtReadiness({
+    items: [],
+    categories: [],
+    paymentMethods: [
+      { name: "Бэлэн", ebarimtCode: "CASH" },
+      { name: "QPay", ebarimtCode: "bank_transfer_qpay" },
+      { name: "Зээлээр", ebarimtCode: "INVOICE" },
+    ],
+  });
+  assert.equal(readiness.ready, true);
+  assert.equal(readiness.problems.length, 0);
+  assert.equal(readiness.unknownPaymentCodes.count, 1);
+  assert.deepEqual(readiness.unknownPaymentCodes.sample, ["Зээлээр (INVOICE)"]);
+  assert.equal(readiness.warnings.length, 1);
+  assert.match(readiness.warnings[0], /BANK_TRANSFER_QPAY/);
+  assert.match(readiness.warnings[0], /Зээлээр \(INVOICE\)/);
+});

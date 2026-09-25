@@ -64,18 +64,38 @@ export type EbarimtPaymentStatus = typeof EBARIMT_PAYMENT_STATUS_PAID | typeof E
 export const EBARIMT_INVOICE_PAYMENT_KINDS: readonly PaymentKind[] = ["credit"];
 
 /**
- * Төлбөрийн хэлбэрийн `kind` → санал болгох eBarimt код. ЗӨВХӨН UI-ийн
- * placeholder ба анхны seed-д; хэрэглэгч pos_payment_methods.ebarimtCode-д
- * ТЕГ-ийн жагсаалтаас өөрөө оноож баталгаажуулна. null = санал байхгүй
- * (ewallet/transfer/BNPL/зээл — ТЕГ-ийн кодыг мерчант багцаас тулгана, §8).
+ * PosAPI 3.0 `payments[].code`-ийн АЛБАН жагсаалт (developer портал «Төлбөрийн
+ * баримт хадгалах», 2026-08; docs/integrations/01 P1-4). Хориглолт БИШ — ТЕГ код
+ * нэмж болно (readiness ЗӨВХӨН анхааруулна), гэхдээ жагсаалтад байхгүй кодтой
+ * баримт PosAPI-д татгалзагдах эрсдэлтэй.
+ */
+export const EBARIMT_PAYMENT_CODES = ["CASH", "PAYMENT_CARD", "BANK_TRANSFER", "BANK_TRANSFER_QPAY"] as const;
+export type EbarimtPaymentCode = (typeof EBARIMT_PAYMENT_CODES)[number];
+export const EBARIMT_PAYMENT_CODE_LABELS: Record<EbarimtPaymentCode, string> = {
+  CASH: "Бэлнээр",
+  PAYMENT_CARD: "Төлбөрийн карт",
+  BANK_TRANSFER: "Банкны шилжүүлэг",
+  BANK_TRANSFER_QPAY: "QPay-ээр",
+};
+export function isKnownEbarimtPaymentCode(code: string | null | undefined): boolean {
+  return (EBARIMT_PAYMENT_CODES as readonly string[]).includes((code ?? "").trim().toUpperCase());
+}
+
+/**
+ * Төлбөрийн хэлбэрийн `kind` → санал болгох eBarimt код (`EBARIMT_PAYMENT_CODES`-оос).
+ * ЗӨВХӨН UI-ийн placeholder ба анхны seed-д; хэрэглэгч pos_payment_methods.ebarimtCode-д
+ * өөрөө оноож баталгаажуулна. null = санал байхгүй: ewallet ерөнхийд нь (QPay
+ * провайдертай хэлбэр л `BANK_TRANSFER_QPAY` — lib/qpay/seed.ts), BNPL, зээл
+ * (`credit` = PAY статустай дараа төлөгдөх хэсэг — төлөгдөх хэлбэрийнх нь код;
+ * өмнөх `INVOICE` санал албан жагсаалтад БАЙХГҮЙ тул хасагдав).
  */
 export const EBARIMT_PAYMENT_CODE_SUGGESTIONS: Record<PaymentKind, string | null> = {
   cash: "CASH",
   cash_fx: "CASH",
   card: "PAYMENT_CARD",
   ewallet: null,
-  transfer: null,
-  credit: "INVOICE",
+  transfer: "BANK_TRANSFER",
+  credit: null,
   advance: "CASH",
   gift_card: "CASH",
   store_credit: "CASH",
@@ -89,7 +109,12 @@ export const POSAPI_PATHS = {
   sendData: "/rest/sendData",
 } as const;
 
-/** ТЕГ-ийн нийтийн лавлах (нэвтрэлтгүй). */
+/**
+ * ТЕГ-ийн нийтийн лавлах (нэвтрэлтгүй). ЗӨВХӨН Монгол Улсын сүлжээнээс хандагддаг
+ * (албан заавар «Сүлжээний тохиргоо»; docs/integrations/01 P1-1) — гадаад бүсийн
+ * серверт env `EBARIMT_PUBLIC_API_BASE`-ээр Монголд байрлах прокси/операторын
+ * хаягаар СОЛИНО (lib/ebarimt/lookup.ts `publicApiBase`). Энэ default нь баримт.
+ */
 export const EBARIMT_PUBLIC_API_BASE = "https://api.ebarimt.mn/api/info/check";
 
 /** Оруулгын шалгалт — формат зохиохгүй, ТЕГ-ийн баримтаас. */

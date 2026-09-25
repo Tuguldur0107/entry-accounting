@@ -10,6 +10,12 @@ export const QPAY_CLEARING_GL_ACCOUNT = "11000099";
 export const QPAY_CLEARING_ACCOUNT_NAME = "QPay түр данс";
 export const QPAY_METHOD_CODE = "QPAY";
 export const QPAY_METHOD_NAME = "QPay";
+/**
+ * QPay-ийн eBarimt төлбөрийн код — PosAPI 3.0 албан жагсаалт `BANK_TRANSFER_QPAY`
+ * (developer портал 2026-08, docs/integrations/01 P1-4). Урьд «код тодорхойгүй» тул
+ * null seed-лэдэг байв; одоо албан код тул seed-д оноож, кодгүй байгаа хэлбэрт нөхнө.
+ */
+export const QPAY_EBARIMT_CODE = "BANK_TRANSFER_QPAY";
 
 export interface QpaySeedMethod {
   id: string;
@@ -18,6 +24,8 @@ export interface QpaySeedMethod {
   provider: string | null;
   cashAccountId: string | null;
   isActive: boolean;
+  /** pos_payment_methods.ebarimtCode — өгөхгүй бол шалгахгүй (хуучин дуудагч). */
+  ebarimtCode?: string | null;
 }
 
 export interface QpaySeedCashAccount {
@@ -32,9 +40,9 @@ export interface QpaySeedPlan {
   /** Шинэ түр данс үүсгэх (байхгүй бол). */
   createAccount: { name: string; glAccountNumber: string } | null;
   /** Шинэ хэлбэр үүсгэх — cashAccountId нь `createAccount` бол дараа нь оноогдоно. */
-  createMethod: { code: string; name: string; cashAccountId: string | null } | null;
-  /** Байгаа QPay хэлбэрийг засах: түр данс оноох / дахин идэвхжүүлэх. */
-  updateMethod: { id: string; cashAccountId?: string | null; isActive?: true } | null;
+  createMethod: { code: string; name: string; cashAccountId: string | null; ebarimtCode: string } | null;
+  /** Байгаа QPay хэлбэрийг засах: түр данс оноох / дахин идэвхжүүлэх / eBarimt код нөхөх. */
+  updateMethod: { id: string; cashAccountId?: string | null; isActive?: true; ebarimtCode?: string } | null;
   /** Хэрэглэгчид ил тайлбар (юу үүссэн / өөрчлөгдсөн). */
   notes: string[];
 }
@@ -68,6 +76,7 @@ export function planQpaySeed(input: { methods: QpaySeedMethod[]; cashAccounts: Q
         code: codeTaken ? `${QPAY_METHOD_CODE}-${Date.now().toString(36).toUpperCase().slice(-4)}` : QPAY_METHOD_CODE,
         name: QPAY_METHOD_NAME,
         cashAccountId: account?.id ?? null,
+        ebarimtCode: QPAY_EBARIMT_CODE,
       },
       updateMethod: null,
       notes,
@@ -89,6 +98,12 @@ export function planQpaySeed(input: { methods: QpaySeedMethod[]; cashAccounts: Q
     update.isActive = true;
     changed = true;
     notes.push("QPay хэлбэр дахин идэвхжив");
+  }
+  if (method.ebarimtCode !== undefined && !method.ebarimtCode?.trim()) {
+    // Хэрэглэгчийн оноосон кодыг ХӨНДӨХГҮЙ — зөвхөн хоосныг албан кодоор нөхнө.
+    update.ebarimtCode = QPAY_EBARIMT_CODE;
+    changed = true;
+    notes.push(`QPay хэлбэрт eBarimt код ${QPAY_EBARIMT_CODE} оноов`);
   }
   return { createAccount: changed && !method.cashAccountId ? createAccount : null, createMethod: null, updateMethod: changed ? update : null, notes };
 }

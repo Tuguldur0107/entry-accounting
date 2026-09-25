@@ -1,8 +1,28 @@
 // ТЕГ-ийн нийтийн лавлах (нэвтрэлтгүй) — РД → ТТД/нэр, дүүргийн кодууд.
 // 24 цагийн in-process кэш; уначихвал ШИДНЭ (утга зохиохгүй).
 
-import { EBARIMT_ERRORS, EBARIMT_PUBLIC_API_BASE, REGISTER_NO_RE } from "./constants";
+import { EBARIMT_ERRORS, EBARIMT_PUBLIC_API_BASE, MERCHANT_TIN_RE, REGISTER_NO_RE } from "./constants";
 import { EbarimtError } from "./receipt";
+
+/**
+ * Лавлахын суурь хаяг. `api.ebarimt.mn` нь ЗӨВХӨН Монголын IP-ээс хандагддаг тул
+ * гадаад бүсийн серверт (Railway) env `EBARIMT_PUBLIC_API_BASE`-ээр Монголд
+ * байрлах прокси (операторын PosAPI сервер дээрх reverse proxy г.м.) өгнө —
+ * зам нь ижил (`/getTinInfo`, `/getInfo`, `/getBranchInfo`). docs/integrations/01 P1-1.
+ */
+export function publicApiBase(): string {
+  const env = process.env.EBARIMT_PUBLIC_API_BASE?.trim().replace(/\/+$/, "");
+  return env && /^https?:\/\/\S+$/.test(env) ? env : EBARIMT_PUBLIC_API_BASE;
+}
+
+/**
+ * ТЕГ-ийн 2026-05-11-ний мэдэгдэл: иргэний РД нь хувийн мэдээлэл (ХХМХ хууль
+ * 4.1.11) — `getTinInfo`-г иргэний регистрээр дуудахгүй, 2026-06-15-аас зогсоох
+ * төлөвлөгөөтэй; байгууллагын регистрээр лавлах ч хязгаарлагдаж болзошгүй.
+ * Иймд ТТД-г ШУУД оруулах нь үндсэн зам (docs/integrations/01 P1-2).
+ */
+export const TIN_DIRECT_HINT =
+  "ТТД-г шууд оруулж болно (харилцагчийн ETAX «Татвар төлөгчийн мэдээлэл» цонх; хуулийн этгээд 11 орон)";
 
 export interface TinInfo {
   regNo: string;
@@ -113,22 +133,51 @@ export function parseTaxpayerInfoResponse(json: unknown): TaxpayerInfo {
 export async function lookupTinByRegNo(regNoRaw: string): Promise<TinInfo> {
   const regNo = regNoRaw.trim().toUpperCase();
   if (!regNo) throw new EbarimtError(EBARIMT_ERRORS.settings, "Регистрийн дугаар хоосон");
+  if (REGISTER_NO_RE.test(regNo))
+    throw new EbarimtError(
+      EBARIMT_ERRORS.settings,
+      "Иргэний регистрийн дугаараар ТТД лавлахгүй (Хувь хүний мэдээлэл хамгаалах тухай хууль 4.1.11, ТЕГ 2026-05-11) — иргэнд eBarimt хэрэглэгчийн дугаар (8 орон), эсвэл ТТД (12–14 орон) оруулна"
+    );
+  if (MERCHANT_TIN_RE.test(regNo)) {
+    // ТТД шууд өгөгдсөн — лавлах шаардлагагүй, зөвхөн нэр.
+    const info = await lookupTaxpayerByTin(regNo);
+    return { regNo, tin: regNo, name: info.name, vatPayer: info.vatPayer };
+  }
   const cached = tinCache.get(regNo);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
-  const tin = parseTinInfoResponse(
-    await getJson(`${EBARIMT_PUBLIC_API_BASE}/getTinInfo?regNo=${encodeURIComponent(regNo)}`)
-  );
-  if (!tin) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй`);
+  let tin = "";
+  try {
+    tin = parseTinInfoResponse(await getJson(`${publicApiBase()}/getTinInfo?regNo=${encodeURIComponent(regNo)}`));
+  } catch (error) {
+    // Лавлах хүрэхгүй / хаагдсан (гео-хязгаар, 2026-06-15-ын зогсоолт) — ТТД-ийн замыг заана.
+    const reason = error instanceof Error ? error.message.replace(/^\[[A-Z_]+\]\s*/, "") : String(error);
+    throw new EbarimtError(EBARIMT_ERRORS.posApi, `${reason}. ${TIN_DIRECT_HINT}`);
+  }
+  if (!tin)
+    throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй. ${TIN_DIRECT_HINT}`);
   let info: TaxpayerInfo = { name: "", found: true, vatPayer: null };
   try {
-    info = parseTaxpayerInfoResponse(await getJson(`${EBARIMT_PUBLIC_API_BASE}/getInfo?tin=${encodeURIComponent(tin)}`));
+    info = await lookupTaxpayerByTin(tin);
   } catch {
     // Нэр нь зөвхөн харуулах мэдээлэл — баримт ТТД-ээр илгээгдэнэ.
   }
-  if (!info.found) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй`);
+  if (!info.found) throw new EbarimtError(EBARIMT_ERRORS.settings, `"${regNo}" регистртэй татвар төлөгч ТЕГ-ийн бүртгэлд олдсонгүй. ${TIN_DIRECT_HINT}`);
   const value: TinInfo = { regNo, tin, name: info.name, vatPayer: info.vatPayer };
   if (info.name) tinCache.set(regNo, { at: Date.now(), value });
   return value;
+}
+
+/**
+ * ТТД → бүртгэлийн мэдээлэл (`getInfo?tin=`): нэр, НӨАТ төлөгч эсэх. B2B баримтад
+ * худалдан авагчийн НЭР хэвлэх шаардлагатай (ХСН шаардлага №16) тул ТТД шууд
+ * оруулсан үед ч нэрийг эндээс авна. Олдоогүй бол ШИДНЭ (нэр зохиохгүй).
+ */
+export async function lookupTaxpayerByTin(tinRaw: string): Promise<TaxpayerInfo> {
+  const tin = tinRaw.trim();
+  if (!MERCHANT_TIN_RE.test(tin)) throw new EbarimtError(EBARIMT_ERRORS.settings, "ТТД 11 эсвэл 14 оронтой тоо байна");
+  const info = parseTaxpayerInfoResponse(await getJson(`${publicApiBase()}/getInfo?tin=${encodeURIComponent(tin)}`));
+  if (!info.found) throw new EbarimtError(EBARIMT_ERRORS.settings, `ТТД ${tin} ТЕГ-ийн бүртгэлд олдсонгүй`);
+  return info;
 }
 
 export function isRegisterNoShape(value: string): boolean {
@@ -138,7 +187,7 @@ export function isRegisterNoShape(value: string): boolean {
 /** Дүүргийн кодын лавлах — тохиргооны сонголтод. */
 export async function lookupBranchInfo(): Promise<BranchInfoEntry[]> {
   if (branchCache && Date.now() - branchCache.at < CACHE_TTL_MS) return branchCache.value;
-  const json = await getJson(`${EBARIMT_PUBLIC_API_BASE}/getBranchInfo`);
+  const json = await getJson(`${publicApiBase()}/getBranchInfo`);
   const root = json && typeof json === "object" && "data" in json ? (json as { data: unknown }).data : json;
   const entries: BranchInfoEntry[] = [];
   const visit = (node: unknown, prefix: string) => {

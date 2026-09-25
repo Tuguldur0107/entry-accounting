@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { IDLE_LOOKUP, orgNoKind, resolveBuyer, sanitizeOrgNo } from "../lib/pos/ebarimt-buyer";
+import { IDLE_LOOKUP, orgNoKind, resolveBuyer, sanitizeOrgNo, needsOrgLookup } from "../lib/pos/ebarimt-buyer";
 
 test("байгууллагын дугаарын хэлбэр: 7 орон = регистр, 11/14 = ТТД", () => {
   assert.equal(orgNoKind(""), "empty");
@@ -33,4 +33,12 @@ test("ААН — регистр лавлахаар олдсон үед л ТТД
   assert.equal(found.buyer.ebarimtCustomerRegNo, "2663503");
   const tin = resolveBuyer({ ...base, orgNo: "37900846788" });
   assert.equal(tin.buyer.ebarimtCustomerTin, "37900846788");
+});
+
+test("needsOrgLookup: регистр ба ТТД → лавлана; хоосон / дутуу → үгүй", () => {
+  assert.equal(needsOrgLookup("1234567"), true);
+  assert.equal(needsOrgLookup("12345678901"), true);
+  assert.equal(needsOrgLookup("12345678901234"), true);
+  assert.equal(needsOrgLookup(""), false);
+  assert.equal(needsOrgLookup("12345"), false);
 });
