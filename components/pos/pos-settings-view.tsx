@@ -45,7 +45,14 @@ import {
   type SaleQuote,
 } from "@/lib/actions/pos";
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS } from "@/lib/ebarimt/constants";
-import { getQpayStatus, saveQpaySettings, startQpayConnect, testQpayConnection } from "@/lib/actions/qpay";
+import {
+  getQpayProvisionPreview,
+  getQpayStatus,
+  provisionQpayMerchant,
+  saveQpaySettings,
+  startQpayConnect,
+  testQpayConnection,
+} from "@/lib/actions/qpay";
 import { QPAY_INVOICE_TTL_MAX_SEC, QPAY_INVOICE_TTL_MIN_SEC, QPAY_PROVIDER } from "@/lib/qpay/constants";
 import type { QpayReadiness } from "@/lib/qpay/readiness";
 import type { QpayStatusSummary } from "@/lib/qpay/types";
@@ -1419,6 +1426,8 @@ function QpaySection({ settings }: { settings: PosSettings }) {
   const [readiness, setReadiness] = useState<QpayReadiness | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [probe, setProbe] = useState<{ merchantId: string | null; recentInvoices: number } | null>(null);
+  // Partner API (автомат бүртгэл) — компанийн мэдээллийн дутууг урьдчилан харуулна.
+  const [preview, setPreview] = useState<{ available: boolean; problems: string[]; ownerEmail: string; provisionedAt: string | null } | null>(null);
 
   const load = () => {
     getQpayStatus().then((result) => {
@@ -1430,8 +1439,35 @@ function QpaySection({ settings }: { settings: PosSettings }) {
       setStatus(result.status ?? null);
       setReadiness(result.readiness ?? null);
     });
+    getQpayProvisionPreview().then((result) => {
+      if (result.error || result.available === undefined) return;
+      setPreview({ available: result.available, problems: result.problems ?? [], ownerEmail: result.ownerEmail ?? "", provisionedAt: result.provisionedAt ?? null });
+    });
   };
   useEffect(load, []);
+
+  function provision(rotate: boolean) {
+    startTransition(async () => {
+      const result = await provisionQpayMerchant({ rotate });
+      if (result.error || !result.outcome) {
+        feedback.error(result.error ?? "QPay мерчантын бүртгэл амжилтгүй");
+        return;
+      }
+      const o = result.outcome;
+      const parts = [
+        o.created ? `QPay мерчант бүртгэгдлээ (${o.merchantId})` : `QPay мерчант sync хийгдлээ (${o.merchantId})`,
+        o.enabled ? "QPay асаалттай" : `асаагаагүй: ${o.problems.join("; ")}`,
+        ...o.seeded,
+        o.userCreated
+          ? `QPay самбарын нэвтрэх эрх ${o.ownerEmail}-д ${o.setupLinkSent ? "и-мэйлээр илгээгдлээ" : "үүслээ (и-мэйл тохируулаагүй — нууц үгийг самбарын админаас)"}`
+          : "",
+        !o.created && o.credentialsUnchanged ? "key хэвээр (солих бол «дахин холбох»)" : "",
+      ].filter(Boolean);
+      feedback.saved(parts.join(" · "));
+      load();
+      router.refresh();
+    });
+  }
 
   // Асаах нь readiness бүрэн (эсвэл формд key/secret шинээр бичсэн) үед л.
   const keySet = settings.qpayApiKeySet || form.apiKey.trim().length > 0;
@@ -1491,10 +1527,46 @@ function QpaySection({ settings }: { settings: PosSettings }) {
         боломжгүй (бэлэн / дэлгүүрийн кредитээр).
       </div>
 
+      {preview?.available && (
+        <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-xs">
+          <div className="mb-1 font-semibold text-[var(--ea-text-1)]">
+            Автомат бүртгэл (Entry → QPay самбар)
+          </div>
+          <p className="text-[var(--ea-text-3)]">
+            Компанийн мэдээлэл (Тохиргоо → Компанийн мэдээлэл: регистр, MCC, хот/дүүрэг, хаяг, утас, банкны
+            данс) QPay самбар руу илгээгдэж мерчант үүснэ; key, webhook secret автоматаар ирнэ; данс өөрчлөгдвөл
+            хадгалахад дагаж шинэчлэгдэнэ. QPay самбарын нэвтрэх эрх эзний и-мэйлд
+            {preview.ownerEmail ? ` (${preview.ownerEmail})` : ""} очно.
+          </p>
+          {preview.problems.length > 0 ? (
+            <ul className="mt-1 space-y-0.5 text-[var(--ea-danger-fg)]">
+              {preview.problems.map((problem) => (
+                <li key={problem}>• {problem}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-[var(--ea-success-fg)]">
+              Компанийн мэдээлэл бүрэн — {preview.provisionedAt ? `бүртгэгдсэн ${preview.provisionedAt.slice(0, 10)}` : "бүртгүүлэхэд бэлэн"}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={connect} disabled={isPending || !status?.webhookUrl}>
+        {preview?.available && (
+          <Button onClick={() => provision(!!preview.provisionedAt && settings.qpayApiKeySet)} disabled={isPending || preview.problems.length > 0}>
+            <Icon name="send" size="sm" />
+            {preview.provisionedAt ? "QPay дахин холбох (key солигдоно)" : "QPay-д бүртгүүлэх"}
+          </Button>
+        )}
+        {preview?.available && preview.provisionedAt && (
+          <Button variant="outline" onClick={() => provision(false)} disabled={isPending || preview.problems.length > 0}>
+            Данс sync
+          </Button>
+        )}
+        <Button variant={preview?.available ? "outline" : "default"} onClick={connect} disabled={isPending || !status?.webhookUrl}>
           <Icon name="send" size="sm" />
-          {settings.qpayApiKeySet ? "QPay дахин холбох (key солигдоно)" : "QPay холбох"}
+          {settings.qpayApiKeySet ? "QPay самбараар дахин холбох (key солигдоно)" : preview?.available ? "QPay самбараар холбох" : "QPay холбох"}
         </Button>
         {status && !status.webhookUrl && (
           <span className="text-xs text-[var(--ea-warning-fg)]">

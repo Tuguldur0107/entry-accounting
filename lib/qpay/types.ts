@@ -68,6 +68,10 @@ export interface QpayStatusSummary {
   /** NEXT_PUBLIC_APP_URL + webhook зам; null = нийтийн URL тохируулаагүй. */
   webhookUrl: string | null;
   invoiceTtlSec: number;
+  /** QPAY_PARTNER_KEY тохируулсан — [QPay-д бүртгүүлэх] автомат зам боломжтой (docs/deployment/qpay.md §2b). */
+  partnerConfigured: boolean;
+  /** Partner API-аар бүртгэгдсэн мөч (ISO); null = гар / consent зам. */
+  provisionedAt: string | null;
   openIntents: number;
   paidUnfinalized: number;
   finalizedToday: number;

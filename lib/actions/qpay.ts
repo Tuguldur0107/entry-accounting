@@ -11,7 +11,16 @@ import { and, eq } from "drizzle-orm";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { encryptSecret } from "@/lib/ai/crypto";
-import { requireModuleAction } from "@/lib/auth";
+import { requireModuleAction, requireRole } from "@/lib/auth";
+import {
+  loadOrgProvisionContext,
+  partnerDistricts,
+  provisionPlanFromContext,
+  provisionQpayMerchantForOrg,
+  qpayPartnerConfigured,
+  type ProvisionOutcome,
+} from "@/lib/qpay/partner";
+import type { QpayReferenceOption } from "@/lib/qpay/reference";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { organizations, posQpayIntents, posSettings, posShifts } from "@/lib/db/schema";
@@ -396,5 +405,66 @@ export async function finalizeQpayIntent(
     return { id: result.id!, documentNo: result.documentNo!, receipt: result.receipt };
   } catch (caught) {
     return actionError("finalizeQpayIntent", caught, "QPay төлбөр борлуулалт болсонгүй");
+  }
+}
+
+// ─── Partner API — автомат мерчант бүртгэл (docs/deployment/qpay.md §2b) ──────
+
+/**
+ * [QPay-д бүртгүүлэх] товчны өмнөх урьдчилсан шалгалт — компанийн мэдээлэлд
+ * юу дутууг НЭРЛЭНЭ (dashboard руу хандахгүй). Partner key байхгүй бол
+ * `available: false` — UI consent замаа л харуулна.
+ */
+export async function getQpayProvisionPreview(): Promise<
+  ActionResult<{ available: boolean; problems: string[]; type: "company" | "person" | null; ownerEmail: string; provisionedAt: string | null }>
+> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
+    if (!qpayPartnerConfigured()) return { available: false, problems: [], type: null, ownerEmail: "", provisionedAt: null };
+    const ctx = await loadOrgProvisionContext(orgId, userId);
+    const plan = provisionPlanFromContext(orgId, ctx);
+    return {
+      available: true,
+      problems: plan.ok ? [] : plan.problems,
+      type: plan.ok ? plan.type : null,
+      ownerEmail: ctx.owner.email,
+      provisionedAt: ctx.settings.qpayProvisionedAt?.toISOString() ?? null,
+    };
+  } catch (caught) {
+    return actionError("getQpayProvisionPreview", caught, "QPay бүртгэлийн шалгалт уншигдсангүй");
+  }
+}
+
+/**
+ * Байгууллагыг QPay мерчант болгоно (Entry сервер → dashboard Partner API):
+ * компанийн мэдээлэл + данс → мерчант + dashboard хэрэглэгч (эзний и-мэйл) →
+ * api key + webhook secret шифртэй → хэлбэр/данс seed → readiness → асна.
+ * Компанийн мэдээлэл = тохиргоо тул admin+ ба pos:post. Дахин дуудахад
+ * (`rotate`) dashboard key-ээ солино — хуучин интеграци хүчингүй.
+ */
+export async function provisionQpayMerchant(
+  data: { rotate?: boolean } = {}
+): Promise<ActionResult<{ outcome: ProvisionOutcome }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    await requireRole("admin");
+    const outcome = await provisionQpayMerchantForOrg(orgId, userId, { rotate: data.rotate });
+    revalidateQpay();
+    revalidatePath("/settings/company");
+    return { outcome };
+  } catch (caught) {
+    return actionError("provisionQpayMerchant", caught, "QPay мерчантын бүртгэл амжилтгүй");
+  }
+}
+
+/** Аймгийн сумдын QPay код — компанийн мэдээллийн сонгогчид (УБ-ын дүүрэг статик). */
+export async function getQpayDistricts(data: { cityCode: string }): Promise<ActionResult<{ districts: QpayReferenceOption[] }>> {
+  try {
+    const { orgId, userId } = await requireRole("admin");
+    if (!qpayPartnerConfigured()) return { districts: [] };
+    const settings = await ensurePosSettings(orgId, userId);
+    return { districts: await partnerDistricts(settings.qpayApiUrl, data.cityCode.trim()) };
+  } catch (caught) {
+    return actionError("getQpayDistricts", caught, "Дүүрэг/сумын жагсаалт уншигдсангүй");
   }
 }

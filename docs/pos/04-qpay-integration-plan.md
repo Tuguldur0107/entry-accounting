@@ -231,6 +231,30 @@ Entry [QPay холбох] → state (AES-GCM: org, user, apiUrl, nonce, 15 ми�
   `src/lib/post-auth.ts`; `docs/API.md` «Connect» (v1 ӨӨРЧЛӨГДӨӨГҮЙ)
 - Нэвтрүүлэлтийн заавар: `docs/deployment/qpay.md`
 
+### 3.7 Автомат бүртгэл — Partner API (Фаз 3, БАТЛАГДСАН 2026-09-25)
+
+Харилцагч dashboard руу орохгүй — Entry-ийн компанийн мэдээлэл мерчант болно
+(D1 автомат биш, мэдээлэл бүрэн болмогц НЭГ товч; D2 данс = `company_settings.bankAccounts`;
+D3 dashboard нэвтрэлт нууц үг тохируулах и-мэйлээр хэвээр; D4 MCC/дүүрэг Entry-д сонгогч):
+
+```
+Тохиргоо → Компанийн мэдээлэл: регистр, MCC, хот/дүүрэг (QPay код), хаяг, утас, и-мэйл,
+  данс [банк код, дугаар, эзэмшигч, IBAN?, үндсэн ★]           (lib/qpay/reference.ts — код ЗОХИОХГҮЙ)
+QPay таб [QPay-д бүртгүүлэх] → buildQpayProvisionPlan (ЦЭВЭР, дутууг нэрлэнэ; регистрээс company/person)
+  → Entry сервер POST {dashboard}/api/partner/merchants (Bearer QPAY_PARTNER_KEY; external_id = org id, ИДЕМПОТЕНТ)
+  → dashboard: QPay /v2/merchant/* (регистрээр байвал дахин ашиглана) + хэрэглэгч (эзний и-мэйл) + данс + API хандалт
+  → { merchant_id, api_key, webhook_secret } НЭГ удаа → encryptSecret → seed → readiness → асна; qpay_provisioned_at
+Компанийн данс хадгалах → (provisioned бол) PUT …/bank-accounts — Entry эх сурвалж, best effort (алдаа = анхааруулга)
+```
+
+- Consent зам (§3.6) fallback хэвээр — partner key байхгүй deploy (dedicated fork)
+- Dashboard: `src/lib/merchant-provision.ts` (онбордингтой НЭГ цөм), `src/lib/partner-auth.ts`,
+  `src/lib/partner-links.ts`, `src/app/api/partner/*`, `src/lib/account-setup.ts` + `/set-password`;
+  `docs/API.md` «Partner»
+- Entry: `lib/qpay/provision.ts` (ЦЭВЭР, тесттэй), `lib/qpay/partner.ts` (SERVER), `lib/qpay/reference.ts`
+  (CLIENT-SAFE лавлах), `provisionQpayMerchant` / `getQpayProvisionPreview` / `getQpayDistricts`,
+  `updateOrganizationProfile` → `syncQpayBankAccountsForOrg`
+
 ---
 
 ## 4. Шийдвэрлэх асуултууд (батлах)

@@ -47,6 +47,39 @@
 API хөгжүүлэлт → API key + webhook secret хуулж Entry-ийн QPay табд буулгаад
 асаана (API хандалтыг dashboard-ын админ нээж өгнө).
 
+## 2b. Автомат бүртгэл — Entry-ийн мэдээллээр (Partner API, 2026-09-25)
+
+Харилцагч dashboard руу ОГТ орохгүй: Entry-д бүртгэсэн компанийн мэдээлэл
+QPay мерчант болно, key/secret эргээд Entry-д ирнэ, данс өөрчлөгдвөл дагаж
+шинэчлэгдэнэ. Нөхцөл: Entry-д `QPAY_PARTNER_KEY` (dashboard-ын
+`QPAY_PARTNER_KEY`-тэй ижил) тохируулсан — SaaS-д тавьсан; dedicated fork-д
+тавиагүй бол §2-ын consent зам хэвээр.
+
+1. **Тохиргоо → Компанийн мэдээлэл** бүрэн бөглөнө: нэр, регистр (ААН 7 орон
+   → company; иргэн УБ12345678 → person, нэр «Овог Нэр»), **бизнесийн ангилал
+   (MCC)**, **хот/аймаг + дүүрэг/сум** (QPay код, сонгогч), хаяг, утас (8 орон),
+   и-мэйл, **банкны данс** (банк жагсаалтаас — QPay код; данс эзэмшигч; IBAN
+   сонголтоор; «Үндсэн» = QPay төлбөр орох данс). Код ЗОХИОГДОХГҮЙ — дутуу бол
+   QPay табд улаанаар нэрлэгдэнэ (`lib/qpay/provision.ts`, тесттэй)
+2. **Борлуулалт → Тохиргоо → QPay → [QPay-д бүртгүүлэх]** → Entry-ийн сервер
+   dashboard `POST /api/partner/merchants` (Bearer partner key; `external_id` =
+   Entry-ийн байгууллагын ID — ИДЕМПОТЕНТ) → dashboard QPay-д мерчант үүсгэнэ
+   (регистрээр байвал дахин ашиглана), dashboard хэрэглэгч (эзний и-мэйл,
+   и-мэйл баталгаажсан) + данс + API хандалт → `api_key`, `webhook_secret`
+   НЭГ удаа → Entry `pos_settings`-д шифртэй (consent замтай ЯГ ижил),
+   «QPay» хэлбэр + «QPay түр данс» seed → асна; `qpay_provisioned_at` тавигдана
+3. Эзэнд **«QPay Dashboard — нууц үг тохируулах»** и-мэйл (7 хоног) очно —
+   dashboard руу орох боломжтой хэвээр (төлбөрийн түүх, settlement)
+4. Компанийн мэдээллийн **данс өөрчилж хадгалахад** Entry → dashboard
+   `PUT /api/partner/merchants/{id}/bank-accounts` (Entry эх сурвалж; дутуу
+   банкны код бол sync алгасаж анхааруулна, хадгалалт унахгүй). QPay табын
+   [Данс sync] гараар мөн
+5. [QPay дахин холбох] (партнер зам) = dashboard key СОЛИГДОНО (`rotate`)
+
+Нууц: partner key env-д л; хариуны key/secret зөвхөн шифртэй; аудитад
+(`provision_completed` / `provision_synced` / `bank_accounts_synced` /
+`bank_accounts_sync_failed`) утга ҮГҮЙ. Dashboard тал: `docs/API.md` «Partner».
+
 ## 3. Урсгал (техник)
 
 ```
@@ -75,6 +108,7 @@ API хөгжүүлэлт → API key + webhook secret хуулж Entry-ийн QP
 |---|---|---|
 | `NEXT_PUBLIC_APP_URL` | Entry (Railway) | Нийтийн https URL — webhook + нэг товчны холболтын callback. Байхгүй бол QPay зөвхөн гар key + [Шалгах] товчоор |
 | `AUTH_SECRET` | Entry | Нууцын шифр (солибол key/secret дахин холбоно) |
+| `QPAY_PARTNER_KEY` | Entry + qpay-dashboard (ижил утга, ≥32 тэмдэгт) | §2b автомат бүртгэл — Entry-ийн сервер dashboard Partner API-д. Байхгүй бол зөвхөн consent / гар зам |
 | `PUBLIC_BASE_URL`, `QPAY_QR_*`, `QPAY_INVOICE_CODE`, `WEBHOOK_SECRET` | qpay-dashboard | Parent мерчантын тохиргоо — операторын нууц, харилцагчид өгөхгүй |
 
 ## 5. Хяналт

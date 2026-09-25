@@ -3495,6 +3495,18 @@ export const aiSettings = pgTable("ai_settings", {
 // (халуун зам биш). Кодод organizationProfile; ФИЗИК хүснэгтийн нэр
 // "company_settings" ХЭВЭЭР — rename хийвэл drizzle-kit push нь drop+create
 // гэж үзэж бодит дата (лого/тамга/банк) устгах эрсдэлтэй тул зориуд үлдээв.
+/** company_settings.bank_accounts jsonb-ийн мөр (QPay талбарууд сонголттой). */
+export interface CompanyBankAccount {
+  bankName: string;
+  accountNo: string;
+  accountName: string;
+  /** Банкны 6 оронтой код (QPay/банк хоорондын) — QPay данс sync-д ЗААВАЛ. */
+  bankCode?: string;
+  iban?: string;
+  /** QPay төлбөр орох үндсэн данс — нэг л мөр. */
+  isDefault?: boolean;
+}
+
 export const organizationProfile = pgTable("company_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
@@ -3510,11 +3522,23 @@ export const organizationProfile = pgTable("company_settings", {
   address: text("address"),
   phone: text("phone"),
   email: text("email"),
-  /** Банкны данснууд — [{ bankName, accountNo, accountName }] */
+  /**
+   * Банкны данснууд — [{ bankName, accountNo, accountName, bankCode?, iban?, isDefault? }].
+   * `bankCode` (6 орон, lib/qpay/reference.ts QPAY_BANK_CODES) / `iban` /
+   * `isDefault` нь QPay мерчантын данс sync-д (§5c QPay Partner) — хуучин мөрд
+   * байхгүй бол undefined (нэхэмжлэхийн толгойд нөлөөгүй).
+   */
   bankAccounts: jsonb("bank_accounts")
-    .$type<{ bankName: string; accountNo: string; accountName: string }[]>()
+    .$type<CompanyBankAccount[]>()
     .notNull()
     .default([]),
+  // ── QPay мерчантын бүртгэлд шаардлагатай (docs/deployment/qpay.md §2b) ──
+  /** Бизнесийн ангилал (MCC, 4 орон) — lib/qpay/reference.ts QPAY_MCC_CODES. */
+  mccCode: text("mcc_code"),
+  /** Хот/аймгийн QPay код (5 орон, "11000" = Улаанбаатар). */
+  cityCode: text("city_code"),
+  /** Дүүрэг/сумын QPay код (5 орон). */
+  districtCode: text("district_code"),
   /** PNG зурагнууд — data URL биш, цэвэр base64 (aiAttachments-тай ижил загвар). */
   logo: text("logo"),
   stamp: text("stamp"),
@@ -3699,6 +3723,13 @@ export const posSettings = pgTable(
     qpayMerchantId: text("qpay_merchant_id"),
     /** Нэхэмжлэхийн хүчинтэй хугацаа (сек) — хэтэрвэл intent expired, QPay-д DELETE. */
     qpayInvoiceTtlSec: integer("qpay_invoice_ttl_sec").notNull().default(180),
+    /**
+     * Partner API-аар (Entry сервер → dashboard) мерчант бүртгэгдсэн мөч
+     * (docs/deployment/qpay.md §2b). null = гар / consent замаар холбогдсон
+     * эсвэл холбогдоогүй — компанийн данс өөрчлөгдөхөд dashboard руу sync
+     * ЗӨВХӨН энэ тавигдсан үед.
+     */
+    qpayProvisionedAt: timestamp("qpay_provisioned_at"),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("pos_settings_org_id_ux").on(t.organizationId)]

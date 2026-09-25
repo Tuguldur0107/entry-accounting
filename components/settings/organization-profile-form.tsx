@@ -3,7 +3,7 @@
 // Компанийн мэдээллийн форм — нэхэмжлэх/маягтын толгойн реквизит,
 // лого/тамга/гарын үсгийн PNG зураг, autoStamp тохиргоо.
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -12,11 +12,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { updateOrganizationProfile } from "@/lib/actions/organization-profile";
-import type { OrganizationProfile } from "@/lib/db/schema";
+import { getQpayDistricts } from "@/lib/actions/qpay";
+import type { CompanyBankAccount, OrganizationProfile } from "@/lib/db/schema";
+import {
+  QPAY_BANK_CODES,
+  QPAY_CITY_CODES,
+  QPAY_MCC_CODES,
+  QPAY_UB_CITY_CODE,
+  QPAY_UB_DISTRICT_CODES,
+  guessQpayBankCode,
+  type QpayReferenceOption,
+} from "@/lib/qpay/reference";
 import { toast } from "sonner";
 
-type BankAccount = { bankName: string; accountNo: string; accountName: string };
+type BankAccount = CompanyBankAccount;
+const toOptions = (rows: readonly QpayReferenceOption[]) =>
+  rows.map((r) => ({ value: r.code, label: r.name }));
+const MCC_OPTIONS = toOptions(QPAY_MCC_CODES);
+const CITY_OPTIONS = toOptions(QPAY_CITY_CODES);
+const BANK_OPTIONS = toOptions(QPAY_BANK_CODES);
 type Signature = { name: string; title: string; image: string };
 
 /** File → цэвэр base64 (data URL-ийн толгойгүй). */
@@ -123,6 +139,33 @@ export function OrganizationProfileForm({
   const [address, setAddress] = useState(initial?.address ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
+  // QPay мерчантын бүртгэлд (docs/deployment/qpay.md §2b) — код ЗОХИОХГҮЙ, сонгоно.
+  const [mccCode, setMccCode] = useState(initial?.mccCode ?? "");
+  const [cityCode, setCityCode] = useState(initial?.cityCode ?? "");
+  const [districtCode, setDistrictCode] = useState(initial?.districtCode ?? "");
+  // Аймгийн сумд dashboard-аас (QPay лавлах); УБ статик. Аль хотынх болохыг
+  // хамт хадгалснаар хот солигдоход хуучин жагсаалт харагдахгүй (setState
+  // зөвхөн fetch-ийн callback-д — effect-ийн биед биш).
+  const [fetchedDistricts, setFetchedDistricts] = useState<{ city: string; list: QpayReferenceOption[] }>({
+    city: "",
+    list: [],
+  });
+  useEffect(() => {
+    if (!cityCode || cityCode === QPAY_UB_CITY_CODE) return;
+    let alive = true;
+    getQpayDistricts({ cityCode }).then((result) => {
+      if (alive) setFetchedDistricts({ city: cityCode, list: result.districts ?? [] });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [cityCode]);
+  const districtOptions =
+    !cityCode || cityCode === QPAY_UB_CITY_CODE
+      ? toOptions(QPAY_UB_DISTRICT_CODES)
+      : fetchedDistricts.city === cityCode
+        ? toOptions(fetchedDistricts.list)
+        : [];
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(
     // Хоосон бол мөр рендерлэхгүй — placeholder-оор дүүрсэн мөр бодит данс
     // мэт харагддаг байв (ENT-008). «Данс нэмэх»-ээр нэмнэ.
@@ -174,6 +217,9 @@ export function OrganizationProfileForm({
           address: address || null,
           phone: phone || null,
           email: email || null,
+          mccCode: mccCode || null,
+          cityCode: cityCode || null,
+          districtCode: districtCode || null,
           bankAccounts,
           logo,
           stamp,
@@ -194,6 +240,7 @@ export function OrganizationProfileForm({
           toast.error(saved.error);
           return;
         }
+        if (saved.warning) toast.warning(saved.warning);
         toast.success("Компанийн мэдээлэл хадгалагдлаа");
       } catch (caught) {
         toast.error(
@@ -269,6 +316,46 @@ export function OrganizationProfileForm({
               placeholder="ж: info@company.mn"
             />
           </div>
+          {/* QPay мерчантын бүртгэлд — docs/deployment/qpay.md §2b; код зохиохгүй, сонгоно */}
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Бизнесийн ангилал (MCC)</Label>
+            <SearchableSelect
+              value={mccCode}
+              options={MCC_OPTIONS}
+              onChange={setMccCode}
+              placeholder="QPay мерчантын ангилал сонгох"
+              emptyLabel="Ангилал олдсонгүй"
+            />
+            <p className="text-[11px] text-[var(--ea-text-4)]">
+              QPay-д бүртгүүлэхэд шаардлагатай (Борлуулалт → Тохиргоо → QPay).
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Хот / аймаг</Label>
+            <SearchableSelect
+              value={cityCode}
+              options={CITY_OPTIONS}
+              onChange={(code) => {
+                setCityCode(code);
+                setDistrictCode("");
+              }}
+              placeholder="Хот / аймаг сонгох"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Дүүрэг / сум</Label>
+            <SearchableSelect
+              value={districtCode}
+              options={districtOptions}
+              onChange={setDistrictCode}
+              placeholder={cityCode ? "Дүүрэг / сум сонгох" : "Эхлээд хот сонгоно"}
+              disabled={!cityCode}
+              valueLabel={districtCode && !districtOptions.some((d) => d.value === districtCode) ? districtCode : undefined}
+              customOption={(query) =>
+                /^\d{4,6}$/.test(query.trim()) ? { value: query.trim(), label: `${query.trim()} (QPay код гараар)` } : null
+              }
+            />
+          </div>
         </div>
       </section>
 
@@ -280,7 +367,9 @@ export function OrganizationProfileForm({
               Банкны данс
             </h2>
             <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
-              Нэхэмжлэх дээр төлбөр хүлээн авах данс болж гарна.
+              Нэхэмжлэх дээр төлбөр хүлээн авах данс болж гарна. QPay-д бүртгэгдсэн бол
+              энд хадгалахад QPay мерчантын данс автоматаар шинэчлэгдэнэ («Үндсэн» = QPay
+              төлбөр орох данс).
             </p>
           </div>
           <Button
@@ -289,7 +378,7 @@ export function OrganizationProfileForm({
             onClick={() =>
               setBankAccounts((prev) => [
                 ...prev,
-                { bankName: "", accountNo: "", accountName: "" },
+                { bankName: "", accountNo: "", accountName: "", bankCode: "", iban: "", isDefault: prev.length === 0 },
               ])
             }
           >
@@ -306,20 +395,40 @@ export function OrganizationProfileForm({
           {bankAccounts.map((account, index) => (
             <div
               key={index}
-              className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2"
+              className="grid grid-cols-[auto_1.2fr_1fr_1fr_1fr_auto] items-end gap-2"
             >
+              <div className="space-y-1 pb-2">
+                {index === 0 && <Label title="QPay төлбөр орох үндсэн данс">Үндсэн</Label>}
+                <input
+                  type="radio"
+                  name="company-bank-default"
+                  aria-label="QPay төлбөр орох үндсэн данс"
+                  checked={!!account.isDefault}
+                  onChange={() =>
+                    setBankAccounts((prev) => prev.map((a, i) => ({ ...a, isDefault: i === index })))
+                  }
+                />
+              </div>
               <div className="space-y-1">
                 {index === 0 && <Label>Банк</Label>}
-                <Input
-                  value={account.bankName}
-                  onChange={(e) =>
+                <SearchableSelect
+                  value={account.bankCode ?? guessQpayBankCode(account.bankName) ?? ""}
+                  options={BANK_OPTIONS}
+                  hideValue
+                  placeholder={account.bankName || "Банк сонгох"}
+                  onChange={(code) =>
                     setBankAccounts((prev) =>
                       prev.map((a, i) =>
-                        i === index ? { ...a, bankName: e.target.value } : a
+                        i === index
+                          ? {
+                              ...a,
+                              bankCode: code,
+                              bankName: QPAY_BANK_CODES.find((b) => b.code === code)?.name ?? a.bankName,
+                            }
+                          : a
                       )
                     )
                   }
-                  placeholder="ж: Хаан банк"
                 />
               </div>
               <div className="space-y-1">
@@ -351,13 +460,33 @@ export function OrganizationProfileForm({
                   placeholder="ж: Монгол Трейд ХХК"
                 />
               </div>
+              <div className="space-y-1">
+                {index === 0 && <Label>IBAN</Label>}
+                <Input
+                  value={account.iban ?? ""}
+                  onChange={(e) =>
+                    setBankAccounts((prev) =>
+                      prev.map((a, i) =>
+                        i === index ? { ...a, iban: e.target.value.toUpperCase() } : a
+                      )
+                    )
+                  }
+                  className="font-mono"
+                  placeholder="MN…"
+                />
+              </div>
               <IconAction
                 name="delete"
                 label="Данс устгах"
                 size="sm"
                 variant="danger"
                 onClick={() =>
-                  setBankAccounts((prev) => prev.filter((_, i) => i !== index))
+                  setBankAccounts((prev) => {
+                    const next = prev.filter((_, i) => i !== index);
+                    return next.length > 0 && !next.some((a) => a.isDefault)
+                      ? next.map((a, i) => ({ ...a, isDefault: i === 0 }))
+                      : next;
+                  })
                 }
               />
             </div>

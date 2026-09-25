@@ -50,4 +50,10 @@ export const QPAY_ERRORS = {
   webhookSignature: "QPAY_WEBHOOK_SIGNATURE",
   /** Нэг товчны холболт: state / code хуучирсан, ашиглагдсан эсвэл таарахгүй. */
   connectExpired: "QPAY_CONNECT_EXPIRED",
+  /** Partner API (автомат бүртгэл): QPAY_PARTNER_KEY тохируулаагүй / dashboard хүлээж авахгүй. */
+  partnerNotConfigured: "QPAY_PARTNER_NOT_CONFIGURED",
+  /** Автомат бүртгэл: компанийн мэдээлэлд дутуу (MCC, дүүрэг, данс…). */
+  provisionIncomplete: "QPAY_PROVISION_INCOMPLETE",
+  /** Автомат бүртгэл: dashboard / QPay татгалзав (шалтгаан текстээр). */
+  provisionRejected: "QPAY_PROVISION_REJECTED",
 } as const;

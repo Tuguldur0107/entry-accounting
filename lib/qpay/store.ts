@@ -24,6 +24,20 @@ export function publicAppUrl(): string | null {
   return value && /^https?:\/\//.test(value) ? value : null;
 }
 
+/**
+ * QPAY_PARTNER_KEY — Partner API-ийн (автомат мерчант бүртгэл, lib/qpay/partner.ts)
+ * түлхүүр; байхгүй бол consent / гар зам л. Энд (partner.ts-д биш) — store
+ * ↔ partner импортын тойрог үүсгэхгүй.
+ */
+export function qpayPartnerKey(): string | null {
+  const value = process.env.QPAY_PARTNER_KEY?.trim();
+  return value && value.length >= 16 ? value : null;
+}
+
+export function qpayPartnerConfigured(): boolean {
+  return qpayPartnerKey() !== null;
+}
+
 export function qpayWebhookUrl(intentId?: string): string | null {
   const base = publicAppUrl();
   if (!base) return null;
@@ -299,6 +313,8 @@ export async function qpayStatusSummary(orgId: string, settings: PosSettings, to
     merchantId: settings.qpayMerchantId,
     webhookUrl: qpayWebhookUrl(),
     invoiceTtlSec: clampInvoiceTtl(settings.qpayInvoiceTtlSec),
+    partnerConfigured: qpayPartnerConfigured(),
+    provisionedAt: settings.qpayProvisionedAt ? settings.qpayProvisionedAt.toISOString() : null,
     openIntents: Number(counts?.open ?? 0),
     paidUnfinalized: Number(counts?.paidUnfinalized ?? 0),
     finalizedToday: Number(finalized?.n ?? 0),
