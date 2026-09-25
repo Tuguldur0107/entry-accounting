@@ -276,7 +276,7 @@ export function mcpUnauthorized(request: Request): Response {
   return Response.json(
     {
       error:
-        "Token буруу эсвэл хүчингүй — Тохиргоо → MCP холболт хэсгээс шинээр үүсгэнэ үү",
+        "Нэвтрэлт хүчингүй эсвэл хугацаа нь дууссан — Claude / ChatGPT-оос холболтоо дахин Connect хийж Entry-д нэвтэрнэ үү (token ашигладаг бол Entry → Тохиргоо → AI туслах → MCP холболтоос шинээр үүсгэнэ)",
     },
     {
       status: 401,
