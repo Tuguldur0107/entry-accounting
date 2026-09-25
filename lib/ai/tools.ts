@@ -3103,6 +3103,14 @@ export const AI_TOOLS: AiToolDef[] = [
         cashOverAccount: { type: "string", description: "Кассын илүүдлийн данс (8 орон)" },
         cashShortAccount: { type: "string", description: "Кассын дутагдлын данс (8 орон)" },
         roundingAccount: { type: "string", description: "Бөөрөнхийллийн зөрүүний данс (8 орон)" },
+        nonVatRevenueAccount: {
+          type: "string",
+          description: "НӨАТ-гүй борлуулалтын ОРЛОГЫН данс (8 орон; кассын «НӨАТ» унтраалттай). \"\" = тохиргоог арилгана (тэгвэл НӨАТ-гүй борлуулалт хийгдэхгүй)",
+        },
+        nonVatReceivableAccount: {
+          type: "string",
+          description: "НӨАТ-гүй борлуулалтын АВЛАГЫН (хяналтын) данс (8 орон). \"\" = тохиргоог арилгана",
+        },
       },
     },
   },
@@ -10995,6 +11003,15 @@ async function runGetPosStatus(orgId: string): Promise<AiToolResult> {
   const lines = [
     ...(issueTypeWarning ? [`⚠ ${issueTypeWarning}`] : []),
     `НӨАТ төлөгч: ${vat.isVatPayer ? "тийм (үнэ НӨАТ орсон)" : "үгүй (НӨАТ мөр үүсэхгүй)"}`,
+    ...(vat.isVatPayer
+      ? [
+          `НӨАТ-гүй борлуулалтын данс: ${
+            settings.nonVatRevenueAccountNumber && settings.nonVatReceivableAccountNumber
+              ? `орлого ${settings.nonVatRevenueAccountNumber} · авлага ${settings.nonVatReceivableAccountNumber}`
+              : "тохируулаагүй — НӨАТ-гүй борлуулалт хийгдэхгүй (update_pos_settings nonVatRevenueAccount / nonVatReceivableAccount)"
+          }`,
+        ]
+      : []),
     `Урьдчилсан COGS: ${settings.provisionalCogs ? "асаалттай" : "унтраалттай"} · Хасах үлдэгдэл: ${settings.allowNegativeStock ? "зөвшөөрнө (мэдэгдэлтэй)" : "хориглоно"} · Хөнгөлөлт: гар max ${Number(settings.maxManualDiscountPercent)}%, нийт max ${Number(settings.maxTotalDiscountPercent)}%, ${settings.discountStacking} · Бөөрөнхийлөл ${settings.cashRoundingUnit}₮`,
     `Нээлттэй ээлж (${shifts.length}): ${
       shifts.length
@@ -11035,6 +11052,8 @@ async function runUpdatePosSettings(
     cashOverAccount?: string;
     cashShortAccount?: string;
     roundingAccount?: string;
+    nonVatRevenueAccount?: string;
+    nonVatReceivableAccount?: string;
   }
 ): Promise<AiToolResult> {
   const before = await ensurePosSettings(orgId);
@@ -11062,6 +11081,15 @@ async function runUpdatePosSettings(
     cashOverAccountNumber: account(input.cashOverAccount),
     cashShortAccountNumber: account(input.cashShortAccount),
     roundingAccountNumber: account(input.roundingAccount),
+    // НӨАТ-гүй данс: "" = арилгах (updatePosSettings null болгоно), өгөөгүй = хэвээр.
+    nonVatRevenueAccountNumber:
+      input.nonVatRevenueAccount === undefined ? undefined : input.nonVatRevenueAccount.trim() ? account(input.nonVatRevenueAccount) : "",
+    nonVatReceivableAccountNumber:
+      input.nonVatReceivableAccount === undefined
+        ? undefined
+        : input.nonVatReceivableAccount.trim()
+          ? account(input.nonVatReceivableAccount)
+          : "",
   };
   const given = Object.entries(patch).filter(([, value]) => value !== undefined);
   if (given.length === 0)
