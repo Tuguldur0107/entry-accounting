@@ -135,17 +135,34 @@ grant_type=password&client_id={client}&username={нэвтрэх нэр}&password
 eTax-ийн token/нууц шифртэй, `/api/health`-д зөвхөн тоолуур; AI/MCP tool
 `submit_*` нь post горим + `[HUMAN_REQUIRED]` (татварын тайлан = хүний гарын үсэг).
 
-### 4.3 Модулийн загвар (кодын байршил — эхлэхэд)
+### 4.3 Модулийн загвар (кодын байршил)
+
+✅ **Scaffold 2026-09-25** — спек шаардахгүй хэсэг (нэвтрэлт, TPI) кодод, тесттэй;
+eTax-ийн өөрийн замууд PDF ирмэгц нэмэгдэнэ (зохиохгүй):
 
 ```
 lib/itc/
-├── auth.ts          Keycloak token (staging/prod), refresh, шифртэй хадгалалт — ЦЭВЭР parse + DB давхарга
-├── constants.ts     Хостууд, realm, client_id, зам — ЦОРЫН ГАНЦ эх (client-safe)
-├── etax/            client.ts (REST), forms/ (маягт → JSON mapper, ЦЭВЭР, тесттэй), types.ts
-└── tpi/             getSalesTotalData / getSaleListERP / getInfo — оролт/гаралтын ЦЭВЭР parser
-lib/actions/etax.ts  Server Actions (requireModuleAction("vat"|"payroll", "post"), actionError)
-app/(dashboard)/tax/etax   Тохиргоо (холболт, орчин), илгээлтийн түүх, төлөв
+├── constants.ts     ✅ Орчин (staging/production authBase + realm), client_id (vatps /
+│                    e-inventory / etax-gui), TPI зам, status, timeout, [CODE] — client-safe
+├── auth.ts          ✅ ЦЭВЭР (tests/itc-auth.test.ts): itcTokenUrl, password/refresh grant body,
+│                    parseItcTokenResponse (expires_in → expiresAt), isAccessTokenUsable
+│                    (30 сек skew), isRefreshUsable, bearerHeader, describeToken (утгагүй лог)
+├── tpi.ts           ✅ ЦЭВЭР (tests/itc-tpi.test.ts): salesTotalDataBody / saleListErpBody
+│                    (Pin/subPin/StartDate/EndDate — албан), parseSalesTotalData /
+│                    parseSaleListErp (танигдахгүй мөр алгасаж ТООЛНО), assertTpiStatus,
+│                    reconcileDdtd (ТЕГ ↔ Entry ДДТД олонлог — E5-ийн суурь)
+├── client.ts        ✅ SERVER: fetchItcToken / refreshItcToken (Keycloak), tpiSalesTotalData /
+│                    tpiSaleListErp (Bearer + X-API-KEY, 60 сек timeout); env ITC_TPI_BASE
+│                    (Монголд байрлах прокси — §3), ITC_ENV, ITC_TPI_API_KEY (.env.example)
+├── etax/            ⏳ client.ts (REST), forms/ (маягт → JSON mapper, ЦЭВЭР, тесттэй), types.ts —
+│                    «ETAX API documentation v1.1» PDF-ээс (§4.4 №2–3)
+└── token-store.ts   ⏳ Байгууллага бүрийн token шифртэй (`encryptSecret`), refresh — DB давхарга
+lib/actions/etax.ts  ⏳ Server Actions (requireModuleAction("vat"|"payroll", "post"), actionError)
+app/(dashboard)/tax/etax   ⏳ Тохиргоо (холболт, орчин), илгээлтийн түүх, төлөв
 ```
+
+⚠ `salesTotalDataBody`-ийн wire талбарын нэр (year/month/day/status/startCount/endCount)
+албан ТАЙЛБАРЫН нэрээр — staging дээр Монголоос шалгаж баталгаажуулна (§4.4 №3).
 
 ### 4.4 Нээлттэй асуултууд — ITC-ээс (posapi@itc.gov.mn / info@itc.gov.mn) тодруулах
 

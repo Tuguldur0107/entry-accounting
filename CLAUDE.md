@@ -27,7 +27,7 @@
 | POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1 | fork-ын хамгаалалт: хувийн repo (фаз 2), dedicated sync |
-| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
+| Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
 ## Файлын бүтэц
 
@@ -66,6 +66,9 @@ entry-accounting/
 │   │                             #   load-data, reports (§5c)
 │   ├── ebarimt/                  # eBarimt 3.0: receipt (ЦЭВЭР), client, lookup,
 │   │                             #   queue, worker, ticker (§5c)
+│   ├── itc/                      # ITC (eTax / eBarimt TPI) холболтын scaffold: constants,
+│   │                             #   auth (Keycloak, ЦЭВЭР), tpi (parser, ЦЭВЭР), client —
+│   │                             #   docs/integrations/00 §4.3; eTax замууд спек ирмэгц
 │   ├── qpay/                     # QPay Quick QR (dashboard-аар): constants, intent
 │   │                             #   (ЦЭВЭР), readiness (ЦЭВЭР), client, store (§5c)
 │   ├── actions/pos.ts            # POS Server Actions (createPosSale атомик, буцаалт, ээлж)
