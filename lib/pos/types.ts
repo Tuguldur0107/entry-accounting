@@ -349,9 +349,9 @@ export interface PosSettingsView {
   cashOverAccountNumber: string;
   cashShortAccountNumber: string;
   roundingAccountNumber: string;
-  /** НӨАТ-гүй борлуулалтын орлого / авлагын данс — null = тохируулаагүй (lib/pos/non-vat.ts). */
-  nonVatRevenueAccountNumber: string | null;
-  nonVatReceivableAccountNumber: string | null;
+  /** НӨАТ-гүй борлуулалтын орлого / авлагын данс (default 51100002 / 13110002, lib/pos/non-vat.ts). */
+  nonVatRevenueAccountNumber: string;
+  nonVatReceivableAccountNumber: string;
   walkInCounterpartyId: string | null;
   issueTypeId: string | null;
   defaultWarehouseId: string | null;

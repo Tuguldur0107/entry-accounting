@@ -171,7 +171,12 @@ export function QpayDialog({
 
             {status === "open" &&
               (intent.qrText ? (
-                <QrCode value={intent.qrText} size={240} label="QPay QR" />
+                <QrCode
+                  value={intent.qrText}
+                  size={240}
+                  label="QPay QR"
+                  fallbackSrc={intent.qrImage ? `data:image/png;base64,${intent.qrImage}` : null}
+                />
               ) : intent.qrImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={`data:image/png;base64,${intent.qrImage}`} alt="QPay QR" width={240} height={240} />

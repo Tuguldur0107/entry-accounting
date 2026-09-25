@@ -223,22 +223,12 @@ export async function updatePosSettings(
       "cashOverAccountNumber",
       "cashShortAccountNumber",
       "roundingAccountNumber",
+      "nonVatRevenueAccountNumber",
+      "nonVatReceivableAccountNumber",
     ] as const;
     for (const field of accountFields) {
       const value = data[field]?.trim();
       if (value == null) continue;
-      if (!/^\d{8}$/.test(value)) throw new Error(`${field}: 8 оронтой данс оруулна уу`);
-      await assertEnabledMainAccount(orgId, value);
-      patch[field] = value;
-    }
-    // НӨАТ-гүй борлуулалтын данс — хоосон = тохиргоог арилгана (default ЗОХИОХГҮЙ).
-    for (const field of ["nonVatRevenueAccountNumber", "nonVatReceivableAccountNumber"] as const) {
-      if (data[field] === undefined) continue;
-      const value = data[field]?.trim() ?? "";
-      if (!value) {
-        patch[field] = null;
-        continue;
-      }
       if (!/^\d{8}$/.test(value)) throw new Error(`${field}: 8 оронтой данс оруулна уу`);
       await assertEnabledMainAccount(orgId, value);
       patch[field] = value;

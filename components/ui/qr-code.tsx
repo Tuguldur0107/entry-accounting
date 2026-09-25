@@ -5,7 +5,7 @@
 // АР нэхэмжлэхийн QR-д. Баримтын eBarimt QR (receipt-preview.tsx) хэвлэлтийн
 // кэштэй тусдаа хэвээр.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface QrCodeLike {
   addData(data: string): void;
@@ -37,9 +37,24 @@ function buildPath(value: string): { path: string; count: number } | null {
   }
 }
 
-export function QrCode({ value, size = 240, label = "QR" }: { value: string; size?: number; label?: string }) {
+export function QrCode({
+  value,
+  size = 240,
+  label = "QR",
+  fallbackSrc,
+}: {
+  value: string;
+  size?: number;
+  label?: string;
+  /** Сан ачаалагдах хүртэл / ачаалагдаагүй үед харуулах зураг (QPay-ийн qr_image). */
+  fallbackSrc?: string | null;
+}) {
+  // Render бүрд шууд (buildPath өөрөө Map-аар кэшлэдэг). Сан (qrcode-generator)
+  // асинхрон ачаалагдах хүртэл null — ачаалагдмагц setLoaded дахин render хийж
+  // зурна. Өмнө нь useMemo([value]) тэр анхны null-ийг хадгалж QR ХЭЗЭЭ Ч
+  // зурагдахгүй байв (2026-09-25, QPay диалог хоосон).
   const [, setLoaded] = useState(0);
-  const qr = useMemo(() => buildPath(value), [value]);
+  const qr = buildPath(value);
 
   useEffect(() => {
     if (qr || qrFactory) return;
@@ -58,7 +73,11 @@ export function QrCode({ value, size = 240, label = "QR" }: { value: string; siz
     };
   }, [qr]);
 
-  if (!qr) return null;
+  if (!qr)
+    return fallbackSrc ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={fallbackSrc} alt={label} width={size} height={size} className="rounded-md bg-white" />
+    ) : null;
   return (
     <svg
       viewBox={`-2 -2 ${qr.count + 4} ${qr.count + 4}`}

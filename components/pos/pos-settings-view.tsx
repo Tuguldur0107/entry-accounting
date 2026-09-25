@@ -127,12 +127,12 @@ const ACCOUNT_FIELDS: { key: keyof PosSettings; label: string; hint: string }[] 
   {
     key: "nonVatRevenueAccountNumber",
     label: "НӨАТ-гүй борлуулалтын орлого",
-    hint: "Кассын «НӨАТ» унтраалттай борлуулалт (eBarimt-гүй); хоосон бол ийм борлуулалт хийгдэхгүй",
+    hint: "Кассын «НӨАТ» унтраалттай борлуулалт (eBarimt-гүй), default 51100002",
   },
   {
     key: "nonVatReceivableAccountNumber",
     label: "НӨАТ-гүй борлуулалтын авлага",
-    hint: "НӨАТ-гүй борлуулалтын хяналтын данс; хоосон бол ийм борлуулалт хийгдэхгүй",
+    hint: "НӨАТ-гүй борлуулалтын хяналтын данс, default 13110002",
   },
 ];
 
