@@ -1606,7 +1606,8 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 connect-guide` — AI нягтлантай НЭГ), ② бичилтийн горим (`lib/ai/write-mode.ts`
 ЦЭВЭР, `write-mode-store.ts` DB, `actions/ai-write-mode.ts` — ноорог / шууд
 бичих, `ai_settings.write_mode`, MCP ба REST-д НЭГ, аудитад бичигдэнэ),
-③ token (Claude Code / Codex). `/ai/settings` → `/ai` redirect. Модулийн
+③ token (Claude Code / Codex); мөн «Эхлээд ингэж асуу» бэлэн асуултууд
+(`#starter-prompts`). `/ai/settings` → `/ai` redirect. Модулийн
 түлхүүр `ai` ХЭВЭЭР (эрхийн бүртгэл хөндөгдөхгүй), нэр «AI холболт»; багцын
 `ai` боломж ХАСАГДСАН (`mcp` + `knowledge` л). Топбарын AI товч, хөвөгч чат
 панель, `actionMarker` байхгүй; `AiAction` төрөл (`action-markers.ts`) tool
@@ -1616,6 +1617,21 @@ ChatGPT / Claude-даа өгөхөд `create_arap_invoice`-оор ижил но�
 **Entry-ийн сервер AI-ийн API дуудахгүй, `ANTHROPIC_API_KEY` env байхгүй,
 `@anthropic-ai/sdk` хамаарал үгүй.** Чат / серверийн AI буцааж нэмэхийг
 ХОРИГЛОНО — MCP л.
+
+**Анхны туршилт — «Entry-г 5 минутад мэдэр»** (`lib/onboarding/first-run.ts`
+ЦЭВЭР, тесттэй; DB `first-run-db.ts`; `components/dashboard/welcome-card.tsx`):
+нүүрний ДЭЭД карт — ① бэлэн дататай турших (демо компани) → ② ChatGPT / Claude-даа
+холбох → ③ эхний асуулт. Алхам бүр ӨГӨГДЛӨӨС ✓ (демо гишүүнчлэл эсвэл өөрийн
+журнал; OAuth/token мөр; token-ий `lastUsedAt`) — хэрэглэгчийн түвшинд, аль ч
+байгууллагад. Харагдах нөхцөл `shouldShowWelcome`: хаагаагүй
+(`users.welcome_dismissed_at`, `dismissWelcome`), 3 алхам бүгд хийгдээгүй, мөн
+туршилт / демо / журналгүй байгууллага — идэвхтэй харилцагчид ХЭЗЭЭ Ч гарахгүй.
+Демогийн нэр `DEMO_ORG_NAME` НЭГ эх (`createDemoCompany` импортолно). **Бэлэн
+асуултууд `STARTER_PROMPTS`** нь нүүрний карт, `/ai`, «AI нягтлан» нүүр, MCP
+`prompts/list` · `prompts/get` (ChatGPT / Claude-ийн «+» / «/» цэс) ба
+`instructions`-ийн жишээ — ДӨРВҮҮЛ нэг эхээс, багцаар (`accounting` /
+`knowledge`) шүүгдэнэ; `id` = MCP нэр, ӨӨРЧЛӨХГҮЙ. Асуулт нэмэхэд зөвхөн энэ
+жагсаалтад; демо датад (өнгөрсөн 2 сар) бодит хариу өгөхөөр бичнэ.
 
 MCP, REST API хоёулаа НЭГ tool давхаргаар (lib/ai/tools.ts, 149 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
@@ -2337,6 +2353,7 @@ lib/actions/journal-import.ts              Багц журнал → НООРО�
 ## DB өгөгдлийн бүтэц (Drizzle / PostgreSQL)
 
 Бүх хүснэгт `userId`-аар хамгаалагдсан (нэг хэрэглэгч = нэг компани).
+`users.welcome_dismissed_at` — нүүрний анхны туршилтын картыг хаасан мөч (§9a).
 Дэлгэрэнгүйг `lib/db/schema.ts`-ээс уншина — доор нь зөвхөн бүлэглэл.
 
 ```

@@ -32,6 +32,7 @@ import { aiRateLimitMessage, aiToolRateKind, checkAiRateLimit } from "@/lib/ai/r
 import { aiToolsForSurface, executeAiTool } from "@/lib/ai/tools";
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
 import { APP_VERSION } from "@/lib/version";
+import { mcpPromptList, mcpPromptMessages, starterInstructionHint } from "@/lib/onboarding/first-run";
 
 const PROTOCOL_VERSION = "2025-06-18";
 /** Нэг JSON-RPC batch POST-д зөвшөөрөх дуудлагын дээд тоо. */
@@ -127,6 +128,11 @@ const SKILLS_INSTRUCTIONS =
   "бичилт хийхгүй — хэрэглэгч Entry Accounting системийг ашиглавал бүртгэл, " +
   "тайлан ч мөн боломжтой болно.";
 
+/** Багц → бэлэн асуултын боломж (нягтлан бодох / мэдлэгийн сан). */
+function promptFeatures(ent: Parameters<typeof hasFeature>[0]) {
+  return { accounting: hasFeature(ent, "accounting"), knowledge: hasFeature(ent, "knowledge") };
+}
+
 async function handleRequest(
   context: TokenContext,
   message: JsonRpcRequest,
@@ -147,10 +153,25 @@ async function handleRequest(
       return rpcResult(id, {
         protocolVersion:
           typeof requested === "string" ? requested : PROTOCOL_VERSION,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: hasFeature(ent, "accounting") ? ACCOUNTING_INSTRUCTIONS : SKILLS_INSTRUCTIONS,
+        instructions:
+          (hasFeature(ent, "accounting") ? ACCOUNTING_INSTRUCTIONS : SKILLS_INSTRUCTIONS) +
+          starterInstructionHint(promptFeatures(ent)),
       });
+    }
+    // Бэлэн асуултууд (lib/onboarding/first-run.ts) — ChatGPT / Claude-ийн «+» / «/»
+    // цэсэнд Entry-ийн жишээ болж гарна; нүүрний карт, /ai-тай НЭГ эх. Багцаар шүүнэ.
+    case "prompts/list": {
+      const ent = await getEntitlements(context.orgId);
+      return rpcResult(id, { prompts: mcpPromptList(promptFeatures(ent)) });
+    }
+    case "prompts/get": {
+      const ent = await getEntitlements(context.orgId);
+      const name = String(message.params?.name ?? "");
+      const prompt = mcpPromptMessages(name, promptFeatures(ent));
+      if (!prompt) return rpcError(id, -32602, `"${name}" нэртэй асуулт олдсонгүй`);
+      return rpcResult(id, prompt);
     }
     case "ping":
       return rpcResult(id, {});

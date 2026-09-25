@@ -7,6 +7,8 @@ import type { ReactNode } from "react";
 
 import { ConnectGuide } from "@/components/skills/connect-guide";
 import { CopyValue } from "@/components/skills/copy-value";
+import { StarterPrompts } from "@/components/onboarding/starter-prompts";
+import { startersFor } from "@/lib/onboarding/first-run";
 import { SkillsPay } from "@/components/skills/skills-pay";
 import { Icon } from "@/components/ui/icon";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -121,6 +123,8 @@ export function SkillsHome({
             ? "Нууц үгээ мартвал нэвтрэх хуудасны «Нууц үг сэргээх»-ээр шинэчилнэ."
             : "Төлбөр төлсний дараа холболт шууд ажиллана."}
         </p>
+        <p className="text-xs font-medium text-[var(--ea-text-2)]">Холбосны дараа эхлээд ингэж асуугаарай:</p>
+        <StarterPrompts prompts={startersFor({ knowledge: true })} columns={1} />
       </Step>
     </div>
   );

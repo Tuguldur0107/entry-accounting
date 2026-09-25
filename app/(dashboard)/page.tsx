@@ -57,11 +57,13 @@ import {
 import { getPeriodSelection } from "@/lib/periods/selection";
 import { loadProcurementDashboard } from "@/lib/procurement/load-data";
 import { loadVoucherSummaries } from "@/lib/reports/voucher-summaries";
+import { firstRunSteps, shouldShowWelcome, startersFor } from "@/lib/onboarding/first-run";
+import { loadFirstRunSignals } from "@/lib/onboarding/first-run-db";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 
 export default async function HomePage() {
-  const { orgId, role } = await getActiveOrg();
+  const { orgId, userId, role } = await getActiveOrg();
   // «AI нягтлан» (skills) багц — нягтлан бодох системгүй: модулийн самбарын
   // оронд НЭГ хуудас (давуу тал → төлбөр → ChatGPT / Claude-д холбох).
   const entitlements = await getEntitlements(orgId);
@@ -158,7 +160,7 @@ export default async function HomePage() {
     }),
     db.query.organizations.findFirst({
       where: eq(organizations.id, orgId),
-      columns: { registryNo: true },
+      columns: { registryNo: true, name: true },
     }),
   ]);
 
@@ -668,8 +670,29 @@ export default async function HomePage() {
     },
   ];
 
+  /* ── Анхны туршилт («Entry-г 5 минутад мэдэр») — lib/onboarding/first-run.ts ── */
+  const firstRun = await loadFirstRunSignals({
+    userId,
+    orgName: orgRow?.name ?? null,
+    orgHasActivity: vouchers.length > 0,
+    isTrial: entitlements.status === "trialing",
+  });
+  const welcome = shouldShowWelcome(firstRun)
+    ? {
+        steps: firstRunSteps(firstRun),
+        mcpUrl: await mcpEndpointUrl(),
+        orgName: orgRow?.name ?? "",
+        isDemoOrg: firstRun.isDemoOrg,
+        prompts: startersFor({
+          accounting: hasFeature(entitlements, "accounting"),
+          knowledge: hasFeature(entitlements, "knowledge"),
+        }),
+      }
+    : null;
+
   return (
     <HomeDashboard
+      welcome={welcome}
       setupSteps={setupSteps}
       periodCode={periodCode}
       periodStatus={periodStatus}

@@ -32,6 +32,11 @@ export const users = pgTable("users", {
    * ХААХГҮЙ (lib/actions/account-recovery.ts).
    */
   emailVerifiedAt: timestamp("email_verified_at"),
+  /**
+   * Нүүрний «Entry-г 5 минутад мэдэр» картыг хаасан мөч (lib/onboarding/first-run.ts).
+   * null = хаагаагүй — алхмууд бүгд хийгдмэгц ч карт өөрөө нуугдана.
+   */
+  welcomeDismissedAt: timestamp("welcome_dismissed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 },
 // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн #5955 (§5b):

@@ -821,6 +821,8 @@ async function main() {
     ["warehouses", "qpay_cash_account_id", "uuid"],
     // Харилцагчийн ТТД — регистрээс тусдаа (docs/integrations/01 §3 P1-2)
     ["counterparties", "tin", "text"],
+    // Нүүрний анхны туршилтын картыг хаасан мөч (lib/onboarding/first-run.ts)
+    ["users", "welcome_dismissed_at", "timestamp"],
   ]) {
     await run(
       `${table}.${column} багана`,

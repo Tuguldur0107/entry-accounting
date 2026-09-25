@@ -18,7 +18,14 @@ export type SetupStep = {
   done: boolean;
 };
 
-export function SetupChecklist({ steps }: { steps: SetupStep[] }) {
+export function SetupChecklist({
+  steps,
+  showDemo = true,
+}: {
+  steps: SetupStep[];
+  /** Анхны туршилтын карт харагдаж байвал демо товч тэнд — давхардуулахгүй. */
+  showDemo?: boolean;
+}) {
   const doneCount = steps.filter((step) => step.done).length;
   if (doneCount === steps.length) return null;
 
@@ -96,12 +103,14 @@ export function SetupChecklist({ steps }: { steps: SetupStep[] }) {
         ))}
       </ul>
       {/* П20 — өөрийн дата оруулахаас өмнө бэлэн демо дээр турших зам */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ea-border)] pt-3">
-        <p className="text-xs text-[var(--ea-text-3)]">
-          Эхлээд турших уу? 2 сарын жишээ гүйлгээтэй демо компани бэлэн.
-        </p>
-        <DemoCompanyButton />
-      </div>
+      {showDemo ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ea-border)] pt-3">
+          <p className="text-xs text-[var(--ea-text-3)]">
+            Эхлээд турших уу? 2 сарын жишээ гүйлгээтэй демо компани бэлэн.
+          </p>
+          <DemoCompanyButton />
+        </div>
+      ) : null}
     </section>
   );
 }
