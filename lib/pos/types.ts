@@ -352,6 +352,8 @@ export interface PosSettingsView {
   /** НӨАТ-гүй борлуулалтын орлого / авлагын данс (default 51100002 / 13110002, lib/pos/non-vat.ts). */
   nonVatRevenueAccountNumber: string;
   nonVatReceivableAccountNumber: string;
+  /** Э-хэтэвчийн (QPay) settlement-ийн шимтгэлийн зардлын данс (default 73100008). */
+  ewalletFeeAccountNumber: string;
   walkInCounterpartyId: string | null;
   issueTypeId: string | null;
   defaultWarehouseId: string | null;

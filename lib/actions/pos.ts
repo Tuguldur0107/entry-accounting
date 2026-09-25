@@ -225,6 +225,7 @@ export async function updatePosSettings(
       "roundingAccountNumber",
       "nonVatRevenueAccountNumber",
       "nonVatReceivableAccountNumber",
+      "ewalletFeeAccountNumber",
     ] as const;
     for (const field of accountFields) {
       const value = data[field]?.trim();

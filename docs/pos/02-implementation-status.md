@@ -58,6 +58,11 @@ QPay мөр сонгов → [QR үүсгэх] → pos_qpay_intents (open, cartS
 ```
 
 - GL ӨӨРЧЛӨЛТГҮЙ: `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ, 1% шимтгэл settlement-д)
+- **Settlement автомат (2026-09-25):** банкны хуулгын импорт QPay-ийн шилжүүлгийг түр дансны
+  тулгагдаагүй орлогуудтай FIFO-оор тулгаж санал болгоно (`lib/cash/ewallet-settlement.ts`);
+  «Ашиглах» / MCP `ewalletSettlement: true` → түр данс → банк шилжүүлэг (цэвэр) + шимтгэлийн
+  зарлага (`pos_settings.ewalletFeeAccountNumber`, default 73100008). Шимтгэл = нийт − цэвэр
+  (хуулгаас), хэлбэрийн `feePercent` нь тулгалтад л
 - Нууц (API key, webhook secret) `encryptSecret`-ээр, `getQpayStatus` зөвхөн `*Set: boolean`;
   `/api/health.qpay` зөвхөн тоолуур
 - Буцаалт QPay-ээр ҮГҮЙ (Quick QR refund-гүй) — бэлэн / дэлгүүрийн кредит

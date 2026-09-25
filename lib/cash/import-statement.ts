@@ -15,6 +15,11 @@ import {
   validateCashAccountCode,
 } from "@/lib/cash/account-code-validation";
 import type { ParsedBankStatement } from "@/lib/cash/bank-statement-types";
+import {
+  validateEwalletSettlementRow,
+  type EwalletSettlementMethod,
+} from "@/lib/cash/ewallet-settlement";
+import { loadEwalletSettlementContext } from "@/lib/cash/ewallet-settlement-data";
 import { buildSettlementPostingLines } from "@/lib/cash/settlement-lines";
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
@@ -296,6 +301,62 @@ export async function saveBankStatement(
         );
     }
 
+    // ── Э-хэтэвчийн (QPay) settlement мөрүүд ─────────────────────────────
+    // Мөр = түр данс → банк шилжүүлэг (цэвэр) + шимтгэлийн зарлага (түр
+    // данснаас). Нийт (gross) нь түр дансны тулгагдаагүй үлдэгдлээс хэтрэхгүй;
+    // нэг импорт доторх хэд хэдэн settlement дарааллаар үлдэгдлээс хасна.
+    const ewalletRows = rows.filter((row) => row.ewalletSettlement);
+    const ewalletMethodById = new Map<string, EwalletSettlementMethod>();
+    let ewalletFeeAccountNumber = "";
+    let ewalletFeeCode = "";
+    if (ewalletRows.length) {
+      const context = await loadEwalletSettlementContext(orgId);
+      for (const method of context.methods) ewalletMethodById.set(method.paymentMethodId, method);
+      ewalletFeeAccountNumber = context.feeAccountNumber;
+      if (
+        !glAccounts.some(
+          (account) => account.number === ewalletFeeAccountNumber && account.isEnabled
+        )
+      )
+        throw new Error(
+          `Э-хэтэвчийн шимтгэлийн данс (${ewalletFeeAccountNumber}) идэвхтэй биш байна — POS тохиргооноос шалгана уу`
+        );
+      const claimedByMethod = new Map<string, number>();
+      for (const row of ewalletRows) {
+        const input = row.ewalletSettlement!;
+        const method = ewalletMethodById.get(input.paymentMethodId);
+        if (!method)
+          throw new Error(
+            `${row.rowNumber}-р мөр: settlement-ийн төлбөрийн хэлбэр олдсонгүй (идэвхтэй ewallet хэлбэр, түр данстай байх ёстой)`
+          );
+        if (row.settleInvoiceId)
+          throw new Error(
+            `${row.rowNumber}-р мөр: settlement мөр нэхэмжлэхтэй зэрэг холбогдохгүй`
+          );
+        if (method.cashAccountId === cashAccount.id)
+          throw new Error(`${row.rowNumber}-р мөр: түр данс банкны данстай ижил байж болохгүй`);
+        if (cashAccount.currency !== "MNT")
+          throw new Error(
+            `${row.rowNumber}-р мөр: э-хэтэвчийн settlement зөвхөн MNT банкны дансанд`
+          );
+        if (row.creditMain !== method.glAccountNumber)
+          throw new Error(
+            `${row.rowNumber}-р мөрийн харьцах данс «${method.cashAccountName}» түр дансны GL (${method.glAccountNumber}) байх ёстой`
+          );
+        const openBalance = method.openReceipts.reduce((sum, receipt) => sum + receipt.amount, 0);
+        const claimed = claimedByMethod.get(method.paymentMethodId) ?? 0;
+        const errors = validateEwalletSettlementRow({
+          netAmount: row.income,
+          grossAmount: Number(input.grossAmount),
+          feeAmount: Number(input.feeAmount),
+          openBalance: Math.round((openBalance - claimed) * 100) / 100,
+        });
+        if (errors.length)
+          throw new Error(`${row.rowNumber}-р мөр (${method.methodName} settlement): ${errors.join("; ")}`);
+        claimedByMethod.set(method.paymentMethodId, claimed + Number(input.grossAmount));
+      }
+    }
+
     // Ханшийн зөрүүтэй settlement байвал олз/гарзын данс шаардлагатай —
     // тохиргооноос уншиж (postCashDocument-тэй ижил эх сурвалж), идэвхтэй
     // эсэхийг урьдчилан шалгана.
@@ -354,6 +415,8 @@ export async function saveBankStatement(
       }
       return builder;
     };
+
+    if (ewalletRows.length) ewalletFeeCode = fxCodeBuilder(null)(ewalletFeeAccountNumber);
 
     const totalIncome = rows.reduce((sum, row) => sum + row.income, 0);
     const totalExpense = rows.reduce((sum, row) => sum + row.expense, 0);
@@ -446,6 +509,12 @@ export async function saveBankStatement(
             description: lineDescription,
           });
         }
+        // Settlement мөр = шилжүүлэг: хоёр тал хоёулаа кассын данстай
+        // (postCashDocument-ийн transfer-тэй ижил) — касс модуль хоёр дансыг
+        // тулгана.
+        const ewalletMethod = row.ewalletSettlement
+          ? ewalletMethodById.get(row.ewalletSettlement.paymentMethodId)
+          : undefined;
         return [
           {
             voucherId: row.voucherId,
@@ -459,7 +528,8 @@ export async function saveBankStatement(
           {
             voucherId: row.voucherId,
             accountNumber: row.creditAccountNumber,
-            cashAccountId: row.expense > 0 ? cashAccount.id : null,
+            cashAccountId:
+              row.expense > 0 ? cashAccount.id : ewalletMethod ? ewalletMethod.cashAccountId : null,
             debit: "0",
             credit: String(row.baseAmount),
             description: lineDescription,
@@ -472,24 +542,38 @@ export async function saveBankStatement(
 
       for (const group of chunks(postingRows)) {
         await tx.insert(cashDocuments).values(
-          group.map((row) => ({
+          group.map((row) => {
+            const ewalletMethod = row.ewalletSettlement
+              ? ewalletMethodById.get(row.ewalletSettlement.paymentMethodId)
+              : undefined;
+            return {
             id: row.cashDocumentId,
             userId,
             organizationId: orgId,
             documentNo: `BS-${statement.id.slice(0, 8).toUpperCase()}-${
               row.rowNumber
             }`,
-            documentType: row.income > 0 ? "receipt" : "payment",
+            // Settlement мөр — түр данс → банк ШИЛЖҮҮЛЭГ (харилцагч, харьцах данс байхгүй).
+            documentType: ewalletMethod ? "transfer" : row.income > 0 ? "receipt" : "payment",
             date: row.transactionDate,
-            fromCashAccountId: row.expense > 0 ? cashAccount.id : null,
+            fromCashAccountId: ewalletMethod
+              ? ewalletMethod.cashAccountId
+              : row.expense > 0
+                ? cashAccount.id
+                : null,
             toCashAccountId: row.income > 0 ? cashAccount.id : null,
-            counterAccountNumber:
-              row.income > 0 ? row.creditMain : row.debitMain,
+            counterAccountNumber: ewalletMethod
+              ? null
+              : row.income > 0
+                ? row.creditMain
+                : row.debitMain,
             cashFlowCode:
               row.debitAccountNumber.split(".")[7] ||
               row.creditAccountNumber.split(".")[7] ||
               null,
-            ...counterpartyLinkFor(row),
+            ...(ewalletMethod
+              ? { counterpartyId: null, counterparty: null }
+              : counterpartyLinkFor(row)),
             description: row.description || "Банкны гүйлгээ",
             amount: String(row.amount),
             currency: cashAccount.currency,
@@ -501,6 +585,84 @@ export async function saveBankStatement(
             // `|| null`: хоосон тэмдэгт settlement шүүлтийг давдаггүйтэй
             // нийцүүлж uuid баганад орохоос сэргийлнэ.
             arApDocumentId: row.settleInvoiceId || null,
+            postedAt: new Date(),
+            };
+          })
+        );
+      }
+
+      // Settlement-ийн ШИМТГЭЛ — түр данснаас зарлага (Dr шимтгэлийн зардал /
+      // Cr түр данс) тусдаа баримт + журнал; 0 шимтгэлтэй мөрд үүсэхгүй.
+      const feeRows = postingRows
+        .filter((row) => row.ewalletSettlement && Number(row.ewalletSettlement.feeAmount) > 0)
+        .map((row) => ({
+          row,
+          method: ewalletMethodById.get(row.ewalletSettlement!.paymentMethodId)!,
+          fee: Math.round(Number(row.ewalletSettlement!.feeAmount) * 100) / 100,
+          voucherId: randomUUID(),
+          cashDocumentId: randomUUID(),
+        }));
+      if (feeRows.length) {
+        const feeVoucherNos = await nextVoucherNos(
+          tx,
+          orgId,
+          "cash",
+          feeRows.map((entry) => entry.row.transactionDate)
+        );
+        await tx.insert(journalVouchers).values(
+          feeRows.map((entry, index) => ({
+            id: entry.voucherId,
+            userId,
+            organizationId: orgId,
+            date: entry.row.transactionDate,
+            description: `[BANK ${statement.id.slice(0, 8)}-${entry.row.rowNumber}] ${entry.method.methodName} settlement шимтгэл`,
+            documentNo: feeVoucherNos[index],
+            status: "posted",
+          }))
+        );
+        await tx.insert(journalLines).values(
+          feeRows.flatMap((entry) => [
+            {
+              voucherId: entry.voucherId,
+              accountNumber: ewalletFeeCode,
+              cashAccountId: null,
+              debit: String(entry.fee),
+              credit: "0",
+              description: `${entry.method.methodName} шимтгэл`,
+              sortOrder: 0,
+            },
+            {
+              voucherId: entry.voucherId,
+              accountNumber: entry.row.creditAccountNumber,
+              cashAccountId: entry.method.cashAccountId,
+              debit: "0",
+              credit: String(entry.fee),
+              description: `${entry.method.methodName} шимтгэл`,
+              sortOrder: 1,
+            },
+          ])
+        );
+        await tx.insert(cashDocuments).values(
+          feeRows.map((entry) => ({
+            id: entry.cashDocumentId,
+            userId,
+            organizationId: orgId,
+            documentNo: `BS-${statement.id.slice(0, 8).toUpperCase()}-${entry.row.rowNumber}-F`,
+            documentType: "payment",
+            date: entry.row.transactionDate,
+            fromCashAccountId: entry.method.cashAccountId,
+            toCashAccountId: null,
+            counterAccountNumber: ewalletFeeAccountNumber,
+            cashFlowCode: null,
+            counterpartyId: null,
+            counterparty: null,
+            description: `${entry.method.methodName} settlement шимтгэл — ${entry.row.description || "банкны гүйлгээ"}`,
+            amount: String(entry.fee),
+            currency: cashAccount.currency,
+            exchangeRate: "1",
+            baseAmount: String(entry.fee),
+            status: "posted",
+            voucherId: entry.voucherId,
             postedAt: new Date(),
           }))
         );
@@ -561,7 +723,7 @@ export async function saveBankStatement(
           action: "import",
           entityType: "cash",
           entityId: statement.id,
-          summary: `Банкны хуулга импортлогдов — ${payload.fileName.slice(0, 80)}, ${rows.length} мөр, орлого ${totalIncome.toLocaleString("en-US")}, зарлага ${totalExpense.toLocaleString("en-US")}${settleRows.length ? `, ${settleRows.length} мөр нэхэмжлэхтэй холбогдов` : ""}`,
+          summary: `Банкны хуулга импортлогдов — ${payload.fileName.slice(0, 80)}, ${rows.length} мөр, орлого ${totalIncome.toLocaleString("en-US")}, зарлага ${totalExpense.toLocaleString("en-US")}${settleRows.length ? `, ${settleRows.length} мөр нэхэмжлэхтэй холбогдов` : ""}${ewalletRows.length ? `, ${ewalletRows.length} э-хэтэвчийн settlement (шилжүүлэг + шимтгэл)` : ""}`,
         },
         tx
       );

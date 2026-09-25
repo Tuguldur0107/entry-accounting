@@ -807,6 +807,8 @@ async function main() {
     // НӨАТ-гүй POS борлуулалт (lib/pos/non-vat.ts) — данс default-тай (доорх нөхөлт)
     ["pos_settings", "non_vat_revenue_account_number", "text not null default '51100002'"],
     ["pos_settings", "non_vat_receivable_account_number", "text not null default '13110002'"],
+    // Э-хэтэвчийн settlement-ийн шимтгэлийн данс (lib/cash/ewallet-settlement.ts)
+    ["pos_settings", "ewallet_fee_account_number", "text not null default '73100008'"],
     ["pos_sales", "non_vat", "boolean not null default false"],
     ["pos_sales", "non_vat_reason", "text"],
   ]) {
