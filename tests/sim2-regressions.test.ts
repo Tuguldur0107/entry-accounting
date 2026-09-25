@@ -18,15 +18,21 @@ try {
 
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
-import { syncStandardAccounts } from "../lib/actions/gl";
+import { syncStandardAccounts, updateVoucher } from "../lib/actions/gl";
+import { backfillCashDraftsForUser } from "../lib/cash/sync-voucher";
 import { getPayrollRunData } from "../lib/actions/payroll";
 import { db } from "../lib/db";
 import {
   accountingPeriods,
   arApDocuments,
+  cashAccounts,
+  cashDocuments,
+  chartOfAccounts,
   costEntries,
   employees,
   goodsReceipts,
+  journalLines,
+  journalVouchers,
   memberships,
   organizations,
   purchaseOrders,
@@ -250,4 +256,153 @@ test("SIM2-024: зарлагын COGS батлагдсаны ДАРАА хува
     where: and(eq(costEntries.organizationId, orgId), eq(costEntries.entryType, "cogs_true_up")),
   });
   assert.equal(all.length, 1);
+});
+
+// ── Бүлэг 2: нэвтрүүлэлт / касс ─────────────────────────────────────────────
+
+/** Вэбийн журнал засварын форм шиг — мөрүүдийг дахин илгээж батална. */
+async function postOpeningViaWebForm(voucherId: string) {
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: eq(journalVouchers.id, voucherId),
+    with: { lines: true },
+  });
+  const result = await asOrg(() =>
+    updateVoucher(voucherId, {
+      date: voucher!.date,
+      description: voucher!.description,
+      currency: voucher!.currency,
+      exchangeRate: Number(voucher!.exchangeRate),
+      rateSource: voucher!.rateSource,
+      rateDate: voucher!.rateDate,
+      status: "posted",
+      lines: voucher!.lines
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((line) => ({
+          account: line.accountNumber,
+          debit: Number(line.debit),
+          credit: Number(line.credit),
+          debitFc: Number(line.debitFc),
+          creditFc: Number(line.creditFc),
+          description: line.description ?? "",
+        })),
+    })
+  );
+  assert.ok(!result.error, result.error);
+}
+
+async function openingVoucherOf(accountName: string) {
+  const account = await db.query.cashAccounts.findFirst({
+    where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.name, accountName)),
+  });
+  const voucher = await db.query.journalVouchers.findFirst({
+    where: and(
+      eq(journalVouchers.organizationId, orgId),
+      eq(journalVouchers.externalRef, `cash-opening:${account!.id}`)
+    ),
+  });
+  return { account: account!, voucher: voucher! };
+}
+
+test("SIM2-011/008/013/005: нээлтийн журнал вэбээс батлахад толин баримт үүсэхгүй, нэг GL-ийн олон касс зөв тулгагдана", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // C: Касс MNT 4.2M, Касс дэлгүүр №1 0.8M, №2 0.65M — гурвуулаа 10000001
+  for (const [name, opening] of [["Касс MNT", 4_200_000], ["Касс дэлгүүр №1", 800_000], ["Касс дэлгүүр №2", 650_000]] as const) {
+    ok(await tool("create_cash_account", {
+      name, accountType: "cash", glAccount: "10000001", openingBalance: opening, openingDate: "2024-12-31",
+    }));
+    ok(await tool("fix_cash_opening_balance", { cashAccount: name, date: "2024-12-31" }));
+    await postOpeningViaWebForm((await openingVoucherOf(name)).voucher.id);
+  }
+
+  // SIM2-008/011: журнал засварт кассын тэмдэг хадгалагдаж, толин баримт үүсээгүй
+  const { account: shop2, voucher: shop2Opening } = await openingVoucherOf("Касс дэлгүүр №2");
+  const lines = await db.query.journalLines.findMany({ where: eq(journalLines.voucherId, shop2Opening.id) });
+  assert.equal(lines.filter((line) => line.cashAccountId === shop2.id).length, 1);
+  await backfillCashDraftsForUser(orgId);
+  const mirrors = await db.query.cashDocuments.findMany({
+    where: and(eq(cashDocuments.organizationId, orgId), eq(cashDocuments.sourceVoucherId, shop2Opening.id)),
+  });
+  assert.equal(mirrors.length, 0, "нээлтийн журналаас толин кассын баримт үүсэхгүй");
+
+  // SIM2-005: 4.2M + 0.8M + 0.65M = 5.65M = GL — худал ЗӨРҮҮ гарахгүй
+  const reconcile = ok(await tool("reconcile_modules", { from: "2024-12-01", to: "2024-12-31" })).resultText;
+  assert.match(reconcile, /OK GL 10000001 \(3 данс\): Σ модуль 5,650,000 = GL/);
+  assert.doesNotMatch(reconcile, /ЗӨРҮҮ Касс/);
+
+  // Өмнөх хувилбарын өгөгдөл: толин НООРОГ баримт → батлахыг хориглоно, сар хаалтад цэвэрлэгдэнэ
+  const [legacyDraft] = await db
+    .insert(cashDocuments)
+    .values({
+      userId, organizationId: orgId, documentNo: `GL-LEGACY-${STAMP}`, documentType: "receipt" as const, date: "2024-12-31", description: "Нээлтийн үлдэгдэл (хуучин толь)",
+      toCashAccountId: shop2.id, amount: "650000", baseAmount: "650000", currency: "MNT", exchangeRate: "1",
+      status: "draft" as const, sourceVoucherId: shop2Opening.id,
+    })
+    .returning({ id: cashDocuments.id });
+  const refused = await tool("post_cash_document", { documentId: legacyDraft.id }, "post");
+  assert.match(refused.resultText, /OPENING_MIRROR/);
+  const balances = ok(await tool("list_cash_accounts", {})).resultText;
+  assert.match(balances, /Касс дэлгүүр №2[^\n]*650,000/, "үлдэгдэл давхардаагүй (6.3M биш)");
+  ok(await tool("get_month_end_checklist", { period: "2024-12" }));
+  assert.equal(await db.query.cashDocuments.findFirst({ where: eq(cashDocuments.id, legacyDraft.id) }), undefined);
+
+  // SIM2-013: БАТЛАГДСАН толин баримтыг устгахад нээлтийн журнал хөндөгдөхгүй
+  const [legacyPosted] = await db
+    .insert(cashDocuments)
+    .values({
+      userId, organizationId: orgId, documentNo: `GL-LEGACY2-${STAMP}`, documentType: "receipt" as const, date: "2024-12-31", description: "Нээлтийн үлдэгдэл (хуучин толь)",
+      toCashAccountId: shop2.id, amount: "650000", baseAmount: "650000", currency: "MNT", exchangeRate: "1",
+      status: "posted" as const, sourceVoucherId: shop2Opening.id, voucherId: shop2Opening.id,
+    })
+    .returning({ id: cashDocuments.id });
+  const doubled = ok(await tool("reconcile_modules", { from: "2024-12-01", to: "2024-12-31" })).resultText;
+  assert.match(doubled, /ЗӨРҮҮ GL 10000001 \(3 данс\)[^\n]*зөрүү 650,000/);
+  assert.match(doubled, /давхар тоолсон баримт GL-LEGACY2/);
+  ok(await tool("delete_cash_document", { documentId: legacyPosted.id }, "post"));
+  const stillThere = await db.query.journalVouchers.findFirst({ where: eq(journalVouchers.id, shop2Opening.id) });
+  assert.equal(stillThere?.status, "posted", "нээлтийн журнал устаагүй");
+  assert.match(ok(await tool("reconcile_modules", { from: "2024-12-01", to: "2024-12-31" })).resultText, /OK GL 10000001/);
+});
+
+test("SIM2-006: валютын нээлт ханштай бичигдэж батлагдвал тулгалт тодорхой (тэмдэг алдагдсан ч)", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // C: Голомт USD 38,500 × 3420.46
+  ok(await tool("create_cash_account", {
+    name: "Голомт USD", accountType: "bank", currency: "USD", glAccount: "11000002",
+    openingBalance: 38_500, openingDate: "2024-12-31",
+  }));
+  ok(await tool("fix_cash_opening_balance", { cashAccount: "Голомт USD", date: "2024-12-31", exchangeRate: 3420.46 }));
+  const { account, voucher } = await openingVoucherOf("Голомт USD");
+  assert.equal(Number(account.openingRate), 3420.46, "нээлтийн ханш дансанд хадгалагдсан");
+  await postOpeningViaWebForm(voucher.id);
+  // Хуучин хувилбараар засагдсан журнал шиг — мөрийн тэмдгийг арилгана
+  await db.update(journalLines).set({ cashAccountId: null }).where(eq(journalLines.voucherId, voucher.id));
+  await db.update(cashAccounts).set({ openingRate: null }).where(eq(cashAccounts.id, account.id));
+
+  const text = ok(await tool("reconcile_modules", { from: "2024-12-01", to: "2024-12-31" })).resultText;
+  assert.doesNotMatch(text, /ТОДОРХОЙГҮЙ Голомт USD/);
+  // 38,500 × 3,420.46 = 131,687,710
+  assert.match(text, /OK Голомт USD \[38,500 USD\]: 131,687,710/);
+});
+
+test("SIM2-014/004: S8 ангилал автоматаар, list_segment_values, sync_standard_accounts", { skip: !DB_READY }, async () => {
+  await setupOrg();
+  // B: cashFlowCode=1101 — S8 суугаагүй байгууллагад ч ажиллана
+  ok(await tool("create_cash_account", { name: "Хаан банк MNT", accountType: "bank", glAccount: "11000001" }));
+  ok(await tool("create_cash_transaction", {
+    documentType: "receipt", date: "2025-07-05", cashAccount: "Хаан банк MNT", counterAccount: "51100000",
+    amount: 120_000, description: "Борлуулалт", cashFlowCode: "1101",
+  }));
+  const s8 = ok(await tool("list_segment_values", { segment: 8 })).resultText;
+  assert.match(s8, /1101 · /);
+  const bad = await tool("create_cash_transaction", {
+    documentType: "receipt", date: "2025-07-05", cashAccount: "Хаан банк MNT", counterAccount: "51100000",
+    amount: 1, description: "x", cashFlowCode: "9999",
+  });
+  assert.match(bad.resultText, /CASH_FLOW_CODE_NOT_FOUND[^\n]*list_segment_values/);
+
+  // SIM2-004: MCP-ээр стандарт мод — идемпотент, 44000098 байна
+  await db.delete(chartOfAccounts).where(and(eq(chartOfAccounts.organizationId, orgId), eq(chartOfAccounts.number, "44000098")));
+  assert.match(ok(await tool("sync_standard_accounts", {})).resultText, /Стандарт данс 1 нэмэгдлээ/);
+  assert.match(ok(await tool("sync_standard_accounts", {})).resultText, /нэмэх зүйлгүй/);
+  assert.match(ok(await tool("list_gl_accounts", { query: "44000098" })).resultText, /44000098/);
 });

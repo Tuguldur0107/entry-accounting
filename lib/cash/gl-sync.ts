@@ -129,3 +129,55 @@ export function deriveCashDocumentFromVoucher(input: {
 
   return null;
 }
+
+/**
+ * Кассын модулиас ӨӨРӨӨС нь үүссэн журнал уу (SIM2-011): мөр нь cashAccountId
+ * тэмдэгтэй, ЭСВЭЛ нээлтийн журнал (`cash-opening:<id>` / `[НЭЭЛТ:<id>]`) —
+ * нээлтийн үлдэгдэл `cash_accounts.opening_balance`-аар модульд аль хэдийн
+ * тоологдсон тул ийм журналаас «толин» кассын баримт ҮҮСГЭХГҮЙ. Тэмдэг нь
+ * вэбийн засвараар алдагдсан ч externalRef/тайлбараар танина.
+ */
+export function isCashModuleVoucher(voucher: {
+  externalRef?: string | null;
+  description?: string | null;
+  lines: { cashAccountId?: string | null }[];
+}): boolean {
+  if (voucher.lines.some((line) => line.cashAccountId)) return true;
+  return cashOpeningAccountIdOf(voucher) !== null;
+}
+
+/** Нээлтийн журналын кассын дансны ID (externalRef эсвэл тайлбарын тэмдгээс). */
+export function cashOpeningAccountIdOf(voucher: {
+  externalRef?: string | null;
+  description?: string | null;
+}): string | null {
+  const ref = voucher.externalRef ?? "";
+  if (ref.startsWith("cash-opening:")) {
+    const id = ref.slice("cash-opening:".length).split(":")[0];
+    if (id) return id;
+  }
+  const marker = /\[НЭЭЛТ:([0-9a-f-]{36})\]/i.exec(voucher.description ?? "");
+  return marker ? marker[1] : null;
+}
+
+/**
+ * Журнал засахад мөрүүд дахин бичигддэг — хуучин мөрийн кассын тэмдгийг
+ * үндсэн дансаар нь шилжүүлэх зураглал. Нэг үндсэн дансанд ӨӨР ӨӨР кассын
+ * данс байсан бол (таамаглахгүй) тэр дансыг зураглалд оруулахгүй.
+ */
+export function carryCashAccountTags(
+  lines: readonly { accountNumber: string; cashAccountId: string | null }[]
+): Map<string, string> {
+  const byMain = new Map<string, string | null>();
+  for (const line of lines) {
+    if (!line.cashAccountId) continue;
+    const main = extractMainAccount(line.accountNumber);
+    const seen = byMain.get(main);
+    if (seen === undefined) byMain.set(main, line.cashAccountId);
+    else if (seen !== line.cashAccountId) byMain.set(main, null);
+  }
+  const result = new Map<string, string>();
+  for (const [main, cashAccountId] of byMain)
+    if (cashAccountId) result.set(main, cashAccountId);
+  return result;
+}

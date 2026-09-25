@@ -23,6 +23,7 @@ import {
 import { roundMoney } from "@/lib/arap/accounting";
 import { getActiveOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { removeOpeningMirrorDrafts } from "@/lib/cash/sync-voucher";
 import {
   accountingPeriods,
   arApDocumentLines,
@@ -157,6 +158,9 @@ export async function getMonthEndChecklist(
   const { orgId } = await getActiveOrg();
   if (!isPeriodCode(periodCode)) throw new Error("Тайлант үеийн код буруу байна");
   const { startDate, endDate } = periodRange(periodCode);
+  // Нээлтийн журналын «толин» ноорог кассын баримт (SIM2-011) ноорог гэж
+  // тоологдохгүй — идемпотент цэвэрлэгээ.
+  await removeOpeningMirrorDrafts(orgId);
 
   const draftCount = (table: typeof journalVouchers | typeof cashDocuments | typeof arApDocuments | typeof inventoryMovements | typeof costEntries | typeof goodsReceipts) =>
     db

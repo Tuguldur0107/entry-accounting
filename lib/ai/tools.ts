@@ -62,6 +62,7 @@ import {
   createVoucher,
   deleteVoucher,
   postVoucher,
+  syncStandardAccounts,
   unpostVoucher,
   updateVoucher,
 } from "@/lib/actions/gl";
@@ -172,7 +173,8 @@ import {
 // `getOfficialRateForDate` нь хадгалсан түүхээс → Монголбанкнаас → ШИДНЭ.
 import { getOfficialRateForDate } from "@/lib/cash/official-rate";
 import { saveBankStatement } from "@/lib/cash/import-statement";
-import { expectedCashGlBalance } from "@/lib/cash/reconciliation";
+import { expectedCashGlBalance, groupCashAccountsByGl } from "@/lib/cash/reconciliation";
+import { cashOpeningAccountIdOf, mainAccountOf } from "@/lib/cash/gl-sync";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import {
   saveCostComponent,
@@ -1531,6 +1533,25 @@ export const AI_TOOLS: AiToolDef[] = [
     description:
       "Тайлант үеүүдийн жагсаалт (сар, төлөв, бичилтийн тоо). Бүртгэгдээгүй сар = нээлттэй.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "sync_standard_accounts",
+    description:
+      "Стандарт дансны төлөвлөгөөг (STANDARD_ACCOUNTS — зөрүүний 44000098, ҮХ, валют, POS, цалин, НӨАТ …) дутууг нь нэмнэ — байгаа дансыг ХӨНДӨХГҮЙ, идемпотент. Шинэ байгууллага цөөн дансаар үүсдэг тул нэвтрүүлэлтийн ЭХНИЙ алхам. Эрх: admin+. Аль ч горимд (журнал үүсгэхгүй).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_segment_values",
+    description:
+      "Сегментийн утгуудын жагсаалт (код · нэр · идэвхтэй эсэх). segment=8 — мөнгөн гүйлгээний ангилал (кассын баримтын cashFlowCode); 2 салбар, 4 хэлтэс, 5 төсөл … Унших, аль ч горимд.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        segment: { type: "number", description: "Сегментийн дугаар 1–10 (S3 = данс — list_gl_accounts)" },
+        includeDisabled: { type: "boolean", description: "Идэвхгүйг ч харуулах (default false)" },
+      },
+      required: ["segment"],
+    },
   },
   {
     name: "close_period",
@@ -7531,6 +7552,44 @@ async function glNetByMain(orgId: string, upTo: string): Promise<Map<string, num
   return net;
 }
 
+async function runSyncStandardAccounts(): Promise<AiToolResult> {
+  const result = unwrapAction(await syncStandardAccounts());
+  const { orgId } = await getActiveOrg();
+  const total = await db.$count(chartOfAccounts, eq(chartOfAccounts.organizationId, orgId));
+  return {
+    resultText:
+      result.added > 0
+        ? `Стандарт данс ${result.added} нэмэгдлээ (нийт ${total}). Байгаа данс хөндөгдөөгүй.`
+        : `Стандарт данс бүгд бэлэн байна (нийт ${total}) — нэмэх зүйлгүй.`,
+  };
+}
+
+async function runListSegmentValues(
+  orgId: string,
+  input: { segment: number; includeDisabled?: boolean }
+): Promise<AiToolResult> {
+  const segment = Number(input.segment);
+  if (!Number.isInteger(segment) || segment < 1 || segment > 10 || segment === 3)
+    throw new Error("segment нь 1–10 (3-аас бусад — данс нь list_gl_accounts)");
+  const rows = await db.query.segmentValues.findMany({
+    where: and(
+      eq(segmentValues.organizationId, orgId),
+      eq(segmentValues.segmentId, segment),
+      ...(input.includeDisabled ? [] : [eq(segmentValues.isEnabled, true)])
+    ),
+    orderBy: (value, { asc }) => [asc(value.code)],
+  });
+  if (rows.length === 0)
+    return {
+      resultText: `S${segment}-д утга алга.${segment === 8 ? " Мөнгөн гүйлгээний ангилал кассын баримт үүсгэхэд автоматаар суурилна; вэбд Тохиргоо → Ерөнхий журнал → Сегментийн утга → S8 → «Стандарт утга татах»." : ""}`,
+    };
+  return {
+    resultText: `S${segment} утгууд (${rows.length}):\n${rows
+      .map((row) => `${row.code} · ${row.name}${row.isEnabled ? "" : " (идэвхгүй)"}`)
+      .join("\n")}`,
+  };
+}
+
 async function runReconcileModules(
   orgId: string,
   input: { from: string; to: string }
@@ -7567,14 +7626,18 @@ async function runReconcileModules(
     ]);
     // ENT-020: валютын дансны нээлт нь ВАЛЮТААР — ₮-өөр нэмэхийн тулд
     // нээлтийн журналын бодит ₮ эсвэл нээлтийн ханш хэрэгтэй (зохиохгүй).
-    const openingVouchers = await db
+    const openingVoucherRows = await db
       .select({
+        voucherId: journalVouchers.id,
         cashAccountId: journalLines.cashAccountId,
+        accountNumber: journalLines.accountNumber,
         debit: journalLines.debit,
         credit: journalLines.credit,
         date: journalVouchers.date,
         currency: journalVouchers.currency,
         documentNo: journalVouchers.documentNo,
+        externalRef: journalVouchers.externalRef,
+        description: journalVouchers.description,
       })
       .from(journalLines)
       .innerJoin(journalVouchers, eq(journalLines.voucherId, journalVouchers.id))
@@ -7587,10 +7650,29 @@ async function runReconcileModules(
           sql`${journalVouchers.externalRef} like 'cash-opening:%'`
         )
       );
+    // SIM2-006: вэбээс засаж батласан нээлтийн журналын мөр кассын тэмдгээ
+    // алдсан байж болно — тэр үед externalRef-ийн дансны ID + GL дансаар танина.
+    const accountById = new Map(accounts.map((account) => [account.id, account]));
+    const openingByVoucher = new Map<string, typeof openingVoucherRows>();
+    for (const row of openingVoucherRows)
+      openingByVoucher.set(row.voucherId, [...(openingByVoucher.get(row.voucherId) ?? []), row]);
+    const openingVouchers: { cashAccountId: string; debit: string; credit: string; date: string; currency: string; documentNo: string | null }[] = [];
+    for (const rows of openingByVoucher.values()) {
+      const tagged = rows.filter((row) => row.cashAccountId);
+      if (tagged.length > 0) {
+        for (const row of tagged) openingVouchers.push({ ...row, cashAccountId: row.cashAccountId! });
+        continue;
+      }
+      const account = accountById.get(cashOpeningAccountIdOf(rows[0]) ?? "");
+      if (!account) continue;
+      for (const row of rows)
+        if (mainAccountOf(row.accountNumber) === account.glAccountNumber)
+          openingVouchers.push({ ...row, cashAccountId: account.id });
+    }
     const openingVoucherMnt = new Map<string, number>();
     const accountCurrency = new Map(accounts.map((account) => [account.id, account.currency]));
     for (const row of openingVouchers) {
-      if (!row.cashAccountId || row.date > input.to) continue;
+      if (row.date > input.to) continue;
       // ENT-011-ийн өмнөх журнал: валютын дансны нээлтийг ханшгүй ₮ гэж бичсэн
       // — түүний ₮-ийг үнэн гэж тооцвол тулгалт «OK» мэт худал харагдана.
       const currency = accountCurrency.get(row.cashAccountId) ?? "MNT";
@@ -7642,10 +7724,28 @@ async function runReconcileModules(
       for (const accountId of [doc.fromCashAccountId, doc.toCashAccountId])
         if (accountId) draftCount.set(accountId, (draftCount.get(accountId) ?? 0) + 1);
     }
-    const lines: string[] = [];
-    for (const account of accounts) {
+    // Нээлтийн журналыг «толин» баримтаар ДАХИН тоолсон (SIM2-011-ийн өмнөх
+    // өгөгдөл) — нээлт opening_balance-аар аль хэдийн орсон.
+    const mirrorVoucherIds = new Set(openingByVoucher.keys());
+    const mirrorDocs = documents.filter(
+      (doc) => doc.date <= input.to && doc.voucherId && mirrorVoucherIds.has(doc.voucherId)
+    );
+    const mirrorByAccount = new Map<string, string[]>();
+    for (const doc of mirrorDocs)
+      for (const accountId of [doc.fromCashAccountId, doc.toCashAccountId])
+        if (accountId)
+          mirrorByAccount.set(accountId, [...(mirrorByAccount.get(accountId) ?? []), doc.documentNo]);
+
+    type CashRow = {
+      account: (typeof accounts)[number];
+      subledger: number;
+      expected: number | null;
+      fxTotal: number;
+      fxNote: string;
+      fcText: string;
+    };
+    const rows: CashRow[] = accounts.map((account) => {
       const subledger = moduleBalance.get(account.id) ?? 0;
-      const gl = glNet.get(account.glAccountNumber) ?? 0;
       const accountRevaluations = revaluations.filter(
         (revaluation) => revaluation.cashAccountId === account.id
       );
@@ -7670,44 +7770,78 @@ async function runReconcileModules(
             b.valuationDate.localeCompare(a.valuationDate) ||
             b.revision - a.revision
         )[0];
-      const fxNote =
-        Math.abs(fxTotal) > 0.005 && latest
-          ? ` + тэгшитгэл ${fmt(fxTotal)} (FC ${fmt(fcBalance.get(account.id) ?? Number(latest.foreignBalance))} × ханш ${Number(latest.closingRate)})`
-          : "";
-      const diff = Math.round((expected - gl) * 100) / 100;
-      const fcText =
-        account.currency === "MNT" ? "" : ` [${fmt(fcBalance.get(account.id) ?? 0)} ${account.currency}]`;
-      if (openingMnt.get(account.id) === null) {
+      return {
+        account,
+        subledger,
+        expected: openingMnt.get(account.id) === null ? null : expected,
+        fxTotal,
+        fxNote:
+          Math.abs(fxTotal) > 0.005 && latest
+            ? ` + тэгшитгэл ${fmt(fxTotal)} (FC ${fmt(fcBalance.get(account.id) ?? Number(latest.foreignBalance))} × ханш ${Number(latest.closingRate)})`
+            : "",
+        fcText:
+          account.currency === "MNT" ? "" : ` [${fmt(fcBalance.get(account.id) ?? 0)} ${account.currency}]`,
+      };
+    });
+    const lines: string[] = [];
+    const describe = (row: CashRow) =>
+      `${row.account.name}${row.fcText}: ${fmt(row.subledger)}${row.fxNote}${Math.abs(row.fxTotal) > 0.005 ? ` = ${fmt(row.expected ?? 0)}` : ""}`;
+    for (const group of groupCashAccountsByGl(
+      rows.map((row) => ({ ...row, glAccountNumber: row.account.glAccountNumber })),
+      glNet
+    )) {
+      const shared = group.accounts.length > 1;
+      for (const row of group.accounts.filter((member) => member.expected === null)) {
         lines.push(
-          `  ТОДОРХОЙГҮЙ ${account.name}${fcText}: нээлтийн үлдэгдэл ${fmt(Number(account.openingBalance))} ${account.currency}-ийн ₮ дүн/ханш алга — ₮-өөр тулгах боломжгүй`
+          `  ТОДОРХОЙГҮЙ ${row.account.name}${row.fcText}: нээлтийн үлдэгдэл ${fmt(Number(row.account.openingBalance))} ${row.account.currency}-ийн ₮ дүн/ханш алга — ₮-өөр тулгах боломжгүй`
         );
         problems.push(
-          `Касс "${account.name}": валютын нээлт (${fmt(Number(account.openingBalance))} ${account.currency}) ханшгүй — fix_cash_opening_balance {date, exchangeRate}-ээр нээлтийн журналыг FC × ханшаар бичнэ (ханш өгөөгүй бол нээлтийн огнооны албан ханш)`
+          `Касс "${row.account.name}": валютын нээлт (${fmt(Number(row.account.openingBalance))} ${row.account.currency}) ханшгүй — fix_cash_opening_balance {date, exchangeRate}-ээр нээлтийн журналыг FC × ханшаар бичнэ (ханш өгөөгүй бол нээлтийн огнооны албан ханш)`
         );
-        continue;
       }
-      if (Math.abs(diff) > EPS) {
+      if (group.diff === null) continue;
+      const name = shared
+        ? `GL ${group.glAccountNumber} (${group.accounts.length} данс)`
+        : group.accounts[0].account.name;
+      if (Math.abs(group.diff) > EPS) {
         lines.push(
-          `  ЗӨРҮҮ ${account.name}${fcText}: модуль ${fmt(subledger)}${fxNote} = ${fmt(expected)} vs GL(${account.glAccountNumber}) ${fmt(gl)} → зөрүү ${fmt(diff)}`
+          shared
+            ? `  ЗӨРҮҮ ${name}: Σ модуль ${fmt(group.total ?? 0)} vs GL ${fmt(group.gl)} → зөрүү ${fmt(group.diff)}`
+            : `  ЗӨРҮҮ ${group.accounts[0].account.name}${group.accounts[0].fcText}: модуль ${fmt(group.accounts[0].subledger)}${group.accounts[0].fxNote} = ${fmt(group.total ?? 0)} vs GL(${group.glAccountNumber}) ${fmt(group.gl)} → зөрүү ${fmt(group.diff)}`
         );
-        const opening = openingMnt.get(account.id) ?? 0;
-        const drafts = draftCount.get(account.id) ?? 0;
-        if (Math.abs(opening) > 0.005 && Math.abs(diff - opening) <= EPS)
+        const opening = group.accounts.reduce(
+          (sum, row) => sum + (openingMnt.get(row.account.id) ?? 0),
+          0
+        );
+        const drafts = group.accounts.reduce(
+          (sum, row) => sum + (draftCount.get(row.account.id) ?? 0),
+          0
+        );
+        const mirrors = group.accounts.flatMap((row) => mirrorByAccount.get(row.account.id) ?? []);
+        if (mirrors.length > 0)
           problems.push(
-            `Касс "${account.name}": зөрүү нь НЭЭЛТИЙН үлдэгдэлтэй (${fmt(opening)}₮) тэнцүү — нээлтийн журнал GL-д бичигдээгүй. fix_cash_opening_balance tool-оор ноорог журнал үүсгээд батлана`
+            `Касс ${name}: нээлтийн журналыг давхар тоолсон баримт ${mirrors.join(", ")} — delete_cash_document-оор устгана (нээлтийн журнал хөндөгдөхгүй)`
+          );
+        else if (Math.abs(opening) > 0.005 && Math.abs(group.diff - opening) <= EPS)
+          problems.push(
+            `Касс ${name}: зөрүү нь НЭЭЛТИЙН үлдэгдэлтэй (${fmt(opening)}₮) тэнцүү — нээлтийн журнал GL-д бичигдээгүй. fix_cash_opening_balance tool-оор ноорог журнал үүсгээд батлана`
           );
         else if (drafts > 0)
           problems.push(
-            `Касс "${account.name}": ${drafts} ноорог кассын баримт батлагдаагүй байна — list_cash_documents status=draft шалгаад батлах/устгах; зөрүү үлдвэл GL-д гараар бичсэн бичилтийг шалгана`
+            `Касс ${name}: ${drafts} ноорог кассын баримт батлагдаагүй байна — list_cash_documents status=draft шалгаад батлах/устгах; зөрүү үлдвэл GL-д гараар бичсэн бичилтийг шалгана`
           );
         else
           problems.push(
-            `Касс "${account.name}": GL(${account.glAccountNumber})-д гараар бичсэн журнал байж магадгүй — get_account_ledger-ээр ${input.from} — ${input.to} мужийг мөр мөрөөр тулгана`
+            `Касс ${name}: GL(${group.glAccountNumber})-д гараар бичсэн журнал байж магадгүй — get_account_ledger-ээр ${input.from} — ${input.to} мужийг мөр мөрөөр тулгана`
           );
       } else
         lines.push(
-          `  OK ${account.name}${fcText}: ${fmt(subledger)}${fxNote}${Math.abs(fxTotal) > 0.005 ? ` = ${fmt(expected)}` : ""}`
+          shared ? `  OK ${name}: Σ модуль ${fmt(group.total ?? 0)} = GL` : `  OK ${describe(group.accounts[0])}`
         );
+      // Нэг GL-ийг хуваалцсан данс бүр — зөвхөн мэдээлэл (тус бүрд GL байхгүй).
+      if (shared)
+        for (const row of group.accounts.filter((member) => member.expected !== null))
+          lines.push(`    · ${describe(row)}`);
     }
     sections.push(`КАСС/БАНК (${input.to}-ний үлдэгдэл):\n${lines.join("\n") || "  данс алга"}`);
   }
@@ -7947,7 +8081,7 @@ POS: нээлттэй ээлж (open-pos-shifts), сарын өртгийн то
 3. Засвар бүрийн дараа reconcile_modules ДАХИН ажиллуулж 0 болсныг бататгах
 Гараар тохируулгын журнал бичихээс ӨМНӨ эх баримтаар нь засахыг үргэлж эрмэлзэнэ.`,
   new_company_setup: `ШИНЭ КОМПАНИЙН ТОХИРГОО — дараалал:
-1. list_gl_accounts — стандарт дансны мод байгаа эсэхийг шалгах; дутууг create_gl_account
+1. sync_standard_accounts — стандарт дансны модыг НЭГ дуудлагаар суулгана (идемпотент); үлдсэн тусгай дансыг create_gl_accounts_batch
 2. create_cash_account — касс, банкны данснууд (нээлтийн үлдэгдэлтэй нь)
 3. create_counterparty — үндсэн харилцагчид (default данс, нөхцөлтэй нь)
 4. create_warehouse + create_inventory_item — агуулах, бараанууд
@@ -11326,6 +11460,10 @@ async function dispatchAiTool(
         return await runPostFaDepreciation(orgId, args, mode);
       case "list_periods":
         return await runListPeriods();
+      case "sync_standard_accounts":
+        return await runSyncStandardAccounts();
+      case "list_segment_values":
+        return await runListSegmentValues(orgId, args);
       case "close_period":
         return await runClosePeriod(orgId, args, mode);
       case "reopen_period":

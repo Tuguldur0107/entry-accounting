@@ -204,3 +204,22 @@ export async function syncAllSegmentDefaultValues(
   }
   return total;
 }
+
+/**
+ * SIM2-014: S8 (мөнгөн гүйлгээний ангилал) нь кассын баримтын cashFlowCode-д
+ * ЗААВАЛ таарах лавлах — шинэ байгууллагад хоосон байснаас бүх баримт
+ * «S8 ангилал олдсонгүй» гэж унадаг байв. Нэг ч утгагүй бол стандарт
+ * жагсаалтыг суулгана; хэрэглэгч аль хэдийн утга оруулсан бол ХӨНДӨХГҮЙ.
+ */
+export async function ensureCashFlowSegmentValues(
+  orgId: string,
+  actorUserId: string
+): Promise<number> {
+  const any = await db.query.segmentValues.findFirst({
+    where: and(eq(segmentValues.organizationId, orgId), eq(segmentValues.segmentId, 8)),
+    columns: { id: true },
+  });
+  if (any) return 0;
+  const result = await syncSegmentDefaultValues(orgId, actorUserId, 8);
+  return result.added;
+}

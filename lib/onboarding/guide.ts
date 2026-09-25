@@ -145,7 +145,7 @@ export function deriveOnboardingPhase(status: OnboardingStatus): OnboardingPhase
       reason: `Бүртгэл эхэлсэн (касс ${counts.cashAccounts}, харилцагч ${counts.counterparties}, бараа ${counts.inventoryItems}), нээлтийн журнал байхгүй`,
       nextSteps: [
         "Дутуу master data-г batch tool-оор (100 мөр/дуудлага): create_counterparties_batch, create_inventory_items_batch, create_warehouse, create_cash_account, create_employees_batch, create_fixed_assets_batch",
-        `Нээлтийн зөрүүний данс: ${status.differenceAccount ? `${status.differenceAccount.number} байна` : `${OPENING_DIFFERENCE_ACCOUNT.number} "${OPENING_DIFFERENCE_ACCOUNT.name}" — стандарт данс sync (/settings/gl) эсвэл create_gl_account`}`,
+        `Нээлтийн зөрүүний данс: ${status.differenceAccount ? `${status.differenceAccount.number} байна` : `${OPENING_DIFFERENCE_ACCOUNT.number} "${OPENING_DIFFERENCE_ACCOUNT.name}" — sync_standard_accounts (вэбд /settings/gl «Стандарт данс нэмэх»)`}`,
         "2-р шат: АР/АП, бараа, ҮХ-ийг дэд дэвтрээр (задаргаагүй бол хураангуй R2/R3/R5), дараа нь create_journal_voucher НЭГ ноорог externalRef opening-balance:<cut-off> — дэд дэвтэрт орсон дансыг ДАВХАРДУУЛАХГҮЙ (R8)",
       ],
     };
@@ -255,7 +255,7 @@ export function formatOnboardingStatus(status: OnboardingStatus): string {
     `Нээлтийн зөрүүний данс: ${
       status.differenceAccount
         ? `${status.differenceAccount.number} ${status.differenceAccount.name} · үлдэгдэл ${(status.differenceBalance ?? 0).toLocaleString("en-US")}₮${Math.abs(status.differenceBalance ?? 0) > 0.005 ? " — 0 болтол cut-off сарыг хаахгүй (R6)" : ""}`
-        : `байхгүй — ${OPENING_DIFFERENCE_ACCOUNT.number} "${OPENING_DIFFERENCE_ACCOUNT.name}" үүсгэнэ (стандарт данс sync)`
+        : `байхгүй — ${OPENING_DIFFERENCE_ACCOUNT.number} "${OPENING_DIFFERENCE_ACCOUNT.name}" үүсгэнэ (sync_standard_accounts)`
     }`,
     `Сүүлийн хаагдсан сар: ${status.latestClosedPeriod ?? "—"}${status.openingVoucher ? ` · cut-off сар ${status.cutoffPeriodClosed ? "ХААГДСАН" : "нээлттэй"}` : ""}`,
     "",

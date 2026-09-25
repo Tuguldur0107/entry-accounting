@@ -28,7 +28,10 @@ import {
   type MembershipRole,
 } from "@/lib/db/schema";
 import { DEFAULT_ACCOUNTS } from "@/lib/constants/standard-accounts";
-import { syncCompanySegmentValuesForGroup } from "@/lib/gl/segment-sync";
+import {
+  ensureCashFlowSegmentValues,
+  syncCompanySegmentValuesForGroup,
+} from "@/lib/gl/segment-sync";
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
 import { assertCompanyCreatable, assertSeatAvailable } from "@/lib/billing/guards";
@@ -469,6 +472,10 @@ export async function createOrganizationForUser(input: {
       );
     return org.id;
   });
+  // SIM2-014: мөнгөн гүйлгээний S8 ангилал шинэ компанид бэлэн байна.
+  await ensureCashFlowSegmentValues(orgId, input.userId).catch((caught) =>
+    console.error("[createOrganization] S8 seed", caught)
+  );
   // Группын багц ӨВЛӨЛТ — вэбийн замтай ИЖИЛ (docs/billing §6).
   if (sourceOrgId) await inheritSubscriptionForNewOrg(sourceOrgId, orgId, input.userId);
   await logAuditEvent({

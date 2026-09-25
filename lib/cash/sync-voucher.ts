@@ -4,13 +4,15 @@
 // action reference, which did not execute when called server-to-server —
 // hence GL journals never produced a draft cash document.
 
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 import { cashAccounts, cashDocuments, journalVouchers } from "@/lib/db/schema";
 import {
   deriveCashDocumentFromVoucher,
+  cashOpeningAccountIdOf,
+  isCashModuleVoucher,
   mainAccountOf,
   type CashAccountRef,
   type DerivedCashDocument,
@@ -72,7 +74,8 @@ export async function syncDraftCashDocumentForVoucher(voucherId: string) {
     // Кассын модулиас ӨӨРӨӨС нь үүссэн GL бичилт (кассын баримт, ханшийн
     // тэгшитгэл, нээлтийн журнал) мөрөндөө cashAccountId тэмдэгтэй байдаг —
     // модульд аль хэдийн тусгагдсан тул давхар ноорог баримт үүсгэхгүй.
-    if (voucher.lines.some((line) => line.cashAccountId)) return;
+    // Нээлтийн журналыг тэмдэг алдагдсан ч externalRef-ээр танина (SIM2-011).
+    if (isCashModuleVoucher(voucher)) return;
 
     const existing = await db.query.cashDocuments.findFirst({
       where: and(
@@ -170,6 +173,8 @@ export async function backfillCashDraftsForUser(orgId: string): Promise<number> 
     }));
     const cashGl = new Set(cashRefs.map((a) => a.glAccountNumber));
 
+    await removeOpeningMirrorDrafts(orgId);
+
     // Voucher ids already tied to a cash document (either direction).
     const linkedDocs = await db.query.cashDocuments.findMany({
       where: eq(cashDocuments.organizationId, orgId),
@@ -194,7 +199,7 @@ export async function backfillCashDraftsForUser(orgId: string): Promise<number> 
       if (linked.has(voucher.id)) continue;
       // Кассын модулиас үүссэн GL (cashAccountId тэмдэгтэй мөртэй) —
       // модульд аль хэдийн байгаа тул давхар ноорог үүсгэхгүй.
-      if (voucher.lines.some((l) => l.cashAccountId)) continue;
+      if (isCashModuleVoucher(voucher)) continue;
       // Cheap pre-filter: skip vouchers that don't touch any cash gl account.
       const touchesCash = voucher.lines.some((l) =>
         cashGl.has(mainAccountOf(l.accountNumber))
@@ -258,6 +263,48 @@ export async function backfillCashDraftsForUser(orgId: string): Promise<number> 
     return inserts.length;
   } catch (error) {
     console.error("[backfillCashDraftsForUser]", error);
+    return 0;
+  }
+}
+
+/**
+ * SIM2-011: өмнөх хувилбар нээлтийн журналаас үүсгэсэн «толин» НООРОГ кассын
+ * баримтыг цэвэрлэнэ (батлавал үлдэгдэл давхардаж, сар хаалтыг ноорог гэж
+ * хориглодог байв). Батлагдсаныг ХӨНДӨХГҮЙ — reconcile_modules заана.
+ * Идемпотент; кассын хуудас, сар хаалтын шалгалт, хаалт дуудна.
+ */
+export async function removeOpeningMirrorDrafts(orgId: string): Promise<number> {
+  try {
+    const mirrorDrafts = await db
+      .select({
+        id: cashDocuments.id,
+        externalRef: journalVouchers.externalRef,
+        description: journalVouchers.description,
+      })
+      .from(cashDocuments)
+      .innerJoin(journalVouchers, eq(journalVouchers.id, cashDocuments.sourceVoucherId))
+      .where(
+        and(
+          eq(cashDocuments.organizationId, orgId),
+          eq(cashDocuments.status, "draft")
+        )
+      );
+    const staleMirrors = mirrorDrafts
+      .filter((row) => cashOpeningAccountIdOf(row) !== null)
+      .map((row) => row.id);
+    if (staleMirrors.length > 0)
+      await db
+        .delete(cashDocuments)
+        .where(
+          and(
+            eq(cashDocuments.organizationId, orgId),
+            eq(cashDocuments.status, "draft"),
+            inArray(cashDocuments.id, staleMirrors)
+          )
+        );
+    return staleMirrors.length;
+  } catch (error) {
+    console.error("[removeOpeningMirrorDrafts]", error);
     return 0;
   }
 }

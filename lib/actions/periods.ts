@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 
 import { getActiveOrg, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { removeOpeningMirrorDrafts } from "@/lib/cash/sync-voucher";
 import {
   accountingPeriods,
   arApDocuments,
@@ -215,6 +216,9 @@ export async function closePeriod(code: string): Promise<PeriodActionResult> {
   if (!isPeriodCode(code)) return { ok: false, code: "invalid-period" };
 
   const { startDate, endDate } = periodRange(code);
+  // SIM2-011: нээлтийн журналын «толин» ноорог кассын баримт хаалтыг
+  // хориглохгүй (GL/модульд нөлөөгүй — идемпотент цэвэрлэгээ).
+  await removeOpeningMirrorDrafts(orgId);
 
   // Exclusive advisory lock: post замууд shared lock-оо транзакц дотроо
   // авдаг тул хаалт хийгдэж дуусах хүртэл шинэ бичилт хүлээнэ — ноорог

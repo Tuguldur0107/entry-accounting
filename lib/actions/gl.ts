@@ -62,6 +62,8 @@ import {
   runBeforeJournalPost,
 } from "@/lib/custom/loader";
 import { actionError, type ActionResult } from "@/lib/action-result";
+import { carryCashAccountTags } from "@/lib/cash/gl-sync";
+import { extractMainAccount } from "@/lib/reports/balances";
 import {
   syncAllSegmentDefaultValues,
   syncSegmentDefaultValues,
@@ -1258,6 +1260,16 @@ async function updateVoucherCore(
     if (existing.status !== "draft")
       throw new Error("Зөвхөн ноорог журналыг засах боломжтой");
 
+    // Дэд дэвтрийн кассын тэмдэг (cashAccountId) засварт алдагдахгүй
+    // (SIM2-011): хуучин мөрийн үндсэн данс → кассын данс нь НЭГ утгатай
+    // бол ижил дансны шинэ мөрөнд шилжинэ. Эс бөгөөс нээлтийн журнал
+    // батлагдмагц «толин» ноорог кассын баримт үүсэж үлдэгдэл давхардана.
+    const previousLines = await tx.query.journalLines.findMany({
+      where: eq(journalLines.voucherId, id),
+      columns: { accountNumber: true, cashAccountId: true },
+    });
+    const cashTagByMain = carryCashAccountTags(previousLines);
+
     // ДАРААЛАЛ ЧУХАЛ: мөрүүдийг ЭХЛЭЭД (воучер ноорог байх зуур) дахин
     // бичнэ — ea_journal_lines_protect trigger батлагдсан воучерын мөрийг
     // хамгаалдаг тул статусыг түрүүлж 'posted' болговол өөрийнх нь мөрийн
@@ -1273,6 +1285,7 @@ async function updateVoucherCore(
         creditFc: String(l.creditFc ?? 0),
         description: l.description,
         sortOrder: i,
+        cashAccountId: cashTagByMain.get(extractMainAccount(l.account)) ?? null,
       }))
     );
 
