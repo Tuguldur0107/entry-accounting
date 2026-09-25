@@ -11,7 +11,7 @@ for(let round=0;round<20;round++){
   for(let i=0;i<n;i++){
     const r=rows.nth(i); const txt=await r.innerText(); const m=txt.match(/((?:IMP|MK|SRV)-[A-Z0-9]+)/); if(!m) continue;
     const inp=r.locator('input'); if(!(await inp.count())) continue;
-    const q=(txt.match(/(\d+(?:\.\d+)?)\s*(?:ш|кг|удаа)/)||[])[1]; const k=m[1]+'|'+q; const v=cmap[k]??cmap[m[1]]; if(v===undefined){miss.push(k); continue;}
+    const q=(txt.match(/(\d+(?:\.\d+)?)\s*(?:ш|кг|удаа)/)||[])[1]; const k=m[1]+'|'+q; const doc=(txt.match(/(INV-\d{8}-[0-9A-F]+)/)||[])[1]; const v=(doc&&cmap[doc])??cmap[k]??cmap[m[1]]; if(v===undefined){miss.push(k); continue;}
     await inp.first().fill(String(v)); filled++;
   }
   console.log('round',round,'rows',n,'filled',filled);
