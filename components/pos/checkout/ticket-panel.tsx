@@ -62,6 +62,8 @@ export function TicketPanel({
   onOpenParked,
   onClear,
   canPay,
+  payPending,
+  displayTotal,
   saleBusy,
   onPay,
   warehouseName,
@@ -96,6 +98,10 @@ export function TicketPanel({
   onOpenParked: () => void;
   onClear: () => void;
   canPay: boolean;
+  /** ТӨЛБӨР дарагдсан, шинэ үнийн санал хүлээж байна. */
+  payPending: boolean;
+  /** ТӨЛӨХ — шинэ санал бол серверийнх, эс бөгөөс мөрүүдийн шууд дүн. */
+  displayTotal: number;
   saleBusy: boolean;
   onPay: () => void;
   warehouseName: string;
@@ -103,7 +109,7 @@ export function TicketPanel({
 }) {
   const selected = lines.find((line) => line.key === selectedKey) ?? null;
   const negativeLines = lines.filter((line) => line.stockAfter < 0);
-  const total = quote?.total ?? 0;
+  const total = displayTotal;
 
   return (
     <div className="flex min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain rounded-lg border border-[var(--ea-border)] bg-[var(--ea-surface)] p-2.5">
@@ -261,7 +267,7 @@ export function TicketPanel({
         onClick={onPay}
       >
         <Icon name="cash" size="lg" />
-        {saleBusy ? "Бичиж байна…" : `ТӨЛБӨР · ${fmtMnt(total)} ₮`}
+        {saleBusy ? "Бичиж байна…" : payPending ? "Тооцож байна…" : `ТӨЛБӨР · ${fmtMnt(total)} ₮`}
         <span className="ml-1 font-mono text-xs font-normal opacity-70">F9</span>
       </Button>
     </div>

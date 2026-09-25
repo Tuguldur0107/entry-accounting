@@ -204,3 +204,22 @@ test("ангиллын chip дэд ангиллын барааг ч харуул
   assert.deepEqual(filterCheckoutItems(items, "", "DAIRY").map((item) => item.id), ["1"]);
   assert.deepEqual(filterCheckoutItems(items, "", "HOME").map((item) => item.id), ["2"]);
 });
+
+test("мөрийн дүн шууд: хуучин санал ижил мөрд хүчинтэй, өөрчлөгдсөн мөрд ойролцоо дүн", async () => {
+  const { resolveLineAmounts, estimateLineTotal } = await import("../lib/pos/checkout-state");
+  const row: CartRow = { key: "L1", itemId: "i-cola", code: "CL-01", name: "Кола", unit: "ш", quantity: 2, unitPrice: 2500, manualDiscountPercent: null, manualDiscountAmount: null };
+  const quoted = { itemId: "i-cola", quantity: 2, manualDiscountPercent: null, manualDiscountAmount: null, discountAmount: 500, lineTotal: 4500 };
+  // Шинэ санал — серверийнх (автомат хөнгөлөлт орсон)
+  assert.deepEqual(resolveLineAmounts(row, quoted, true), { lineTotal: 4500, discountAmount: 500, estimated: false });
+  // Хуучин санал, мөр өөрчлөгдөөгүй — хэвээр (анивчихгүй)
+  assert.equal(resolveLineAmounts(row, quoted, false).lineTotal, 4500);
+  // Тоо өөрчлөгдсөн → ойролцоо дүн шууд
+  const bumped = { ...row, quantity: 3 };
+  assert.deepEqual(resolveLineAmounts(bumped, quoted, false), { lineTotal: 7500, discountAmount: 0, estimated: true });
+  // Индекс шилжиж өөр бараа таарвал хэрэглэхгүй
+  assert.equal(resolveLineAmounts({ ...row, itemId: "i-bread" }, quoted, false).estimated, true);
+  // Гар хөнгөлөлт: хувь ба дүн
+  assert.equal(estimateLineTotal({ ...row, manualDiscountPercent: 10 }), 4500);
+  assert.equal(estimateLineTotal({ ...row, manualDiscountAmount: 6000 }), 0, "сөрөг болохгүй");
+  assert.equal(resolveLineAmounts({ ...row, manualDiscountPercent: 10 }, quoted, false).estimated, true, "хөнгөлөлт өөрчлөгдвөл хуучин санал хүчингүй");
+});

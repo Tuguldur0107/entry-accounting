@@ -114,7 +114,25 @@ export function PaymentDialog({
    */
   saleDraft: Omit<CreatePosSaleInput, "payments" | "ebarimtConsumerNo" | "ebarimtCustomerTin" | "ebarimtCustomerRegNo" | "skipEbarimt" | "qpayIntentId">;
 }) {
-  const [rows, setRows] = useState<PaymentRow[]>([]);
+  // Анхдагч мөр: «Бэлэн = төлөх дүн» — ихэнх борлуулалт нэг товшилт + Enter.
+  // Диалог нээх бүрд remount болдог тул анхны утга хангалттай.
+  const [rows, setRows] = useState<PaymentRow[]>(() => {
+    const cash = methods
+      .filter((method) => method.isActive && method.kind === "cash" && (method.currency || "MNT") === "MNT")
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))[0];
+    if (!cash || !(total > 0)) return [];
+    return [
+      {
+        key: 0,
+        paymentMethodId: cash.id,
+        amount: String(roundToCashUnit(total, cashRoundingUnit).rounded),
+        reference: "",
+        giftCardCode: "",
+        storeCreditId: "",
+        qpayIntentId: null,
+      },
+    ];
+  });
   const [seq, setSeq] = useState(1);
   /** Нээлттэй QPay диалог — аль мөрийнх. */
   const [qpayRowKey, setQpayRowKey] = useState<number | null>(null);
@@ -383,99 +401,6 @@ export function PaymentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {ebarimtEnabled && (
-          <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-2">
-            <SwitchField
-              label="eBarimt баримт илгээх"
-              hint={
-                sendEbarimt
-                  ? undefined
-                  : "Энэ борлуулалт ТЕГ-д илгээгдэхгүй — «Илгээгээгүй» статустай бичигдэнэ; дараа нь панелиас илгээж болно"
-              }
-              checked={sendEbarimt}
-              onChange={setSendEbarimt}
-              className={sendEbarimt ? "mb-1.5" : undefined}
-            />
-            {sendEbarimt && (
-              <>
-                <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-[var(--ea-text-1)]">
-                    eBarimt худалдан авагч
-                  </span>
-                  <div className="flex gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={buyerType === "citizen" ? "default" : "outline"}
-                      onClick={() => setBuyerType("citizen")}
-                    >
-                      Иргэн
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={buyerType === "org" ? "default" : "outline"}
-                      onClick={() => setBuyerType("org")}
-                    >
-                      Байгууллага
-                    </Button>
-                  </div>
-                </div>
-                {buyerType === "citizen" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={consumerNo}
-                      inputMode="numeric"
-                      maxLength={8}
-                      placeholder="eBarimt дугаар (8 орон, сонголтоор)"
-                      className="w-64 font-mono"
-                      onChange={(event) => setConsumerNo(event.target.value.replace(/\D/g, ""))}
-                    />
-                    {consumerNoInvalid && (
-                      <span className="text-xs text-[var(--ea-danger-fg)]">
-                        eBarimt дугаар 8 оронтой байна
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={orgNo}
-                      placeholder="РД (УУ12345678) эсвэл ТТД"
-                      className="w-64 font-mono uppercase"
-                      onChange={(event) => {
-                        setOrgNo(event.target.value);
-                        setOrgName("");
-                        setOrgTin("");
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={!orgValue || orgIsTin || orgLookupBusy}
-                      onClick={lookupOrg}
-                    >
-                      Шалгах
-                    </Button>
-                    {orgIsTin ? (
-                      <span className="text-xs text-[var(--ea-text-3)]">ТТД-гээр илгээнэ</span>
-                    ) : orgName ? (
-                      <span className="text-xs text-[var(--ea-success-fg)]">
-                        {orgName} · ТТД {orgTin}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-[var(--ea-text-3)]">
-                        РД өгвөл ТТД-г сервер өөрөө хайна
-                      </span>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         <div className="flex flex-wrap gap-1.5">
           {activeMethods.map((method) => (
             <Button
@@ -528,6 +453,8 @@ export function PaymentDialog({
                     min="0"
                     step="0.01"
                     autoFocus
+                    // Анхдагч «Бэлэн» мөрийн дүнг шууд дарж бичих (өгсөн мөнгө).
+                    onFocus={(event) => event.currentTarget.select()}
                     value={row.amount}
                     placeholder={currency}
                     readOnly={!!row.qpayIntentId}
@@ -630,6 +557,99 @@ export function PaymentDialog({
             </span>
           )}
         </div>
+
+        {ebarimtEnabled && (
+          <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-2">
+            <SwitchField
+              label="eBarimt баримт илгээх"
+              hint={
+                sendEbarimt
+                  ? undefined
+                  : "Энэ борлуулалт ТЕГ-д илгээгдэхгүй — «Илгээгээгүй» статустай бичигдэнэ; дараа нь панелиас илгээж болно"
+              }
+              checked={sendEbarimt}
+              onChange={setSendEbarimt}
+              className={sendEbarimt ? "mb-1.5" : undefined}
+            />
+            {sendEbarimt && (
+              <>
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-[var(--ea-text-1)]">
+                    eBarimt худалдан авагч
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={buyerType === "citizen" ? "default" : "outline"}
+                      onClick={() => setBuyerType("citizen")}
+                    >
+                      Иргэн
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={buyerType === "org" ? "default" : "outline"}
+                      onClick={() => setBuyerType("org")}
+                    >
+                      Байгууллага
+                    </Button>
+                  </div>
+                </div>
+                {buyerType === "citizen" ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={consumerNo}
+                      inputMode="numeric"
+                      maxLength={8}
+                      placeholder="eBarimt дугаар (8 орон, сонголтоор)"
+                      className="w-64 font-mono"
+                      onChange={(event) => setConsumerNo(event.target.value.replace(/\D/g, ""))}
+                    />
+                    {consumerNoInvalid && (
+                      <span className="text-xs text-[var(--ea-danger-fg)]">
+                        eBarimt дугаар 8 оронтой байна
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={orgNo}
+                      placeholder="РД (УУ12345678) эсвэл ТТД"
+                      className="w-64 font-mono uppercase"
+                      onChange={(event) => {
+                        setOrgNo(event.target.value);
+                        setOrgName("");
+                        setOrgTin("");
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={!orgValue || orgIsTin || orgLookupBusy}
+                      onClick={lookupOrg}
+                    >
+                      Шалгах
+                    </Button>
+                    {orgIsTin ? (
+                      <span className="text-xs text-[var(--ea-text-3)]">ТТД-гээр илгээнэ</span>
+                    ) : orgName ? (
+                      <span className="text-xs text-[var(--ea-success-fg)]">
+                        {orgName} · ТТД {orgTin}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-[var(--ea-text-3)]">
+                        РД өгвөл ТТД-г сервер өөрөө хайна
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {plan.warnings.length > 0 && (
           <ul className="space-y-0.5 text-xs text-[var(--ea-warning-fg)]">

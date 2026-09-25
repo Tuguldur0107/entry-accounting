@@ -61,6 +61,7 @@ import {
   parseStoredCart,
   pressNumpad,
   removeLine,
+  resolveLineAmounts,
   resolveScan,
   unparkTicket,
   type CartRow,
@@ -76,6 +77,27 @@ import { fmtMnt } from "@/lib/reports/balances";
 import { feedback } from "@/lib/ui/feedback";
 
 const QUOTE_DEBOUNCE_MS = 250;
+/** Баримт автоматаар хэвлэх — ТӨХӨӨРӨМЖ бүрийн тохиргоо (принтер нь төхөөрөмжийнх). */
+const AUTO_PRINT_KEY = "ea-pos-autoprint";
+
+/**
+ * Хөтчийн сүлжээний төлөв (navigator.onLine + online/offline үйл явдал).
+ * SSR-д үргэлж online — mount-ийн дараа бодит утга.
+ */
+function useOnlineStatus(): boolean {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const update = () => setOnline(window.navigator.onLine);
+    update();
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+  return online;
+}
 const DRAFT_SAVE_MS = 300;
 
 const draftKey = (warehouseId: string) => `ea-pos-cart-${warehouseId}`;
@@ -191,6 +213,21 @@ export function PosCheckoutView({
   const [paymentSession, setPaymentSession] = useState(0);
   const [saleBusy, setSaleBusy] = useState(false);
   const [receipt, setReceipt] = useState<PosReceipt | null>(null);
+  /** ТӨЛБӨР дарагдсан ч үнийн санал шинэчлэгдэж байна — ирмэгц диалог нээнэ. */
+  const [payWhenReady, setPayWhenReady] = useState(false);
+  const online = useOnlineStatus();
+  const [autoPrint, setAutoPrintState] = useState(true);
+  useEffect(() => {
+    // Хадгалалт хаалттай/хоосон бол анхдагч асаалттай хэвээр (hydration-ий дараа уншина).
+    const load = () => {
+      if (readStorage(AUTO_PRINT_KEY) === false) setAutoPrintState(false);
+    };
+    load();
+  }, []);
+  const setAutoPrint = useCallback((value: boolean) => {
+    setAutoPrintState(value);
+    writeStorage(AUTO_PRINT_KEY, value);
+  }, []);
   /** Сүүлийн үнийн санал — аль оролтод (key) хамаарахыг хамт хадгална. */
   const [quoteState, setQuoteState] = useState<{ key: string; quote: SaleQuote | null; error: string } | null>(null);
 
@@ -466,16 +503,37 @@ export function PosCheckoutView({
   }, [query, data.items, addItem, focusSearch]);
 
   // ── Төлбөр ─────────────────────────────────────────────────────────────
-  const canPay = cart.length > 0 && !!quote && !quoteError && !quoteBusy && !!shift && !saleBusy;
+  // Санал шинэчлэгдэж байх үед ч ТӨЛБӨР идэвхтэй (анивчихгүй) — дарвал шинэ
+  // санал ирмэгц диалог нээгдэнэ. Эцсийн дүн ҮРГЭЛЖ серверийн шинэ саналаас.
+  const canPay = cart.length > 0 && !quoteError && !!shift && !saleBusy && online;
 
   const openPayment = useCallback(() => {
     if (!shift) return toast.error("Эхлээд ээлж нээнэ үү");
     if (cart.length === 0) return toast.error("Сагс хоосон байна");
-    if (!quote || quoteError || quoteBusy)
-      return toast.error(quoteError || "Үнийн санал тооцогдож байна…");
+    if (!online) return toast.error("Интернэт холболт тасарсан — холболт сэргэмэгц төлбөр авна");
+    if (quoteError) return toast.error(quoteError);
+    if (!quote || quoteBusy) {
+      setPayWhenReady(true);
+      return;
+    }
     setPaymentSession((value) => value + 1);
     setPaymentOpen(true);
-  }, [shift, cart.length, quote, quoteError, quoteBusy]);
+  }, [shift, cart.length, online, quote, quoteError, quoteBusy]);
+
+  // Хүлээлгэд байсан ТӨЛБӨР — шинэ санал ирмэгц нээнэ (алдаатай бол зогсооно).
+  useEffect(() => {
+    if (!payWhenReady || quoteBusy) return;
+    const timer = setTimeout(() => {
+      setPayWhenReady(false);
+      if (cart.length === 0 || !quote || quoteError) {
+        if (quoteError) toast.error(quoteError);
+        return;
+      }
+      setPaymentSession((value) => value + 1);
+      setPaymentOpen(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [payWhenReady, quoteBusy, quote, quoteError, cart.length]);
 
   // ── Глобал товчлуур ────────────────────────────────────────────────────
   const keyHandlers = useRef({ openPayment, clearCart, commitScan, selectLine, incLine, decLine, dropLine });
@@ -564,17 +622,20 @@ export function PosCheckoutView({
       cart.map((row, index) => {
         const quoted = quote?.lines[index];
         const stock = data.stock[`${row.itemId}|${warehouseId}`] ?? 0;
+        // Мөрийн дүн ШУУД — санал хоцорсон мөрд ойролцоо дүн (checkout-state.ts).
+        const amounts = resolveLineAmounts(row, quoted, quoteFresh);
         return {
           ...row,
-          discountAmount: quoted?.discountAmount ?? 0,
-          discountCodes: quoted
-            ? [...new Set(quoted.discountDetail.map((entry) => entry.ruleCode ?? entry.kind))].join(", ")
-            : "",
-          lineTotal: quoted?.lineTotal ?? Math.round(row.quantity * row.unitPrice * 100) / 100,
+          discountAmount: amounts.discountAmount,
+          discountCodes:
+            quoted && !amounts.estimated
+              ? [...new Set(quoted.discountDetail.map((entry) => entry.ruleCode ?? entry.kind))].join(", ")
+              : "",
+          lineTotal: amounts.lineTotal,
           stockAfter: stock - (cartQtyByItem.get(row.itemId) ?? 0),
         };
       }),
-    [cart, quote, data.stock, warehouseId, cartQtyByItem]
+    [cart, quote, quoteFresh, data.stock, warehouseId, cartQtyByItem]
   );
 
   const discountBreakdown = useMemo(() => {
@@ -690,6 +751,11 @@ export function PosCheckoutView({
     }
   }
 
+  /** ТӨЛӨХ: шинэ санал бол серверийнх, эс бөгөөс мөрүүдийн шууд дүнгийн нийлбэр. */
+  const displayTotal = quoteFresh && quote
+    ? quote.total
+    : Math.round(ticketLines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+
   const setupMissing = data.cashAccounts.length === 0 || data.warehouses.length === 0;
   const discountsActive = couponCodes.length + (receiptDiscountNumber > 0 ? 1 : 0);
 
@@ -702,7 +768,21 @@ export function PosCheckoutView({
         shiftOptions={data.openShifts.length > 1 ? data.openShifts : undefined}
         onShiftChange={setShiftId}
         onCloseShift={() => setClosingShift(true)}
+        online={online}
       />
+
+      {!online && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-md border border-[var(--ea-danger)] bg-[color-mix(in_srgb,var(--ea-danger)_10%,transparent)] px-3 py-2 text-sm text-[var(--ea-danger-fg)]"
+        >
+          <Icon name="warning" size="sm" />
+          <span>
+            <span className="font-semibold">Интернэт холболт тасарсан.</span> Борлуулалт бичигдэхгүй — сагс
+            энэ төхөөрөмжид хадгалагдсан, холболт сэргэмэгц үргэлжилнэ.
+          </span>
+        </div>
+      )}
 
       <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)]">
         <ProductPanel
@@ -748,6 +828,8 @@ export function PosCheckoutView({
           onOpenParked={() => setParkedOpen(true)}
           onClear={() => void clearCart()}
           canPay={canPay}
+          payPending={payWhenReady}
+          displayTotal={displayTotal}
           saleBusy={saleBusy}
           onPay={openPayment}
           warehouseName={warehouseName}
@@ -850,6 +932,9 @@ export function PosCheckoutView({
           setReceipt(null);
           focusSearch();
         }}
+        autoPrint={autoPrint}
+        onAutoPrintChange={setAutoPrint}
+        waitForEbarimt={ebarimtBrowserMode}
       />
       {confirmDialog}
     </section>
@@ -863,6 +948,7 @@ function Header({
   shiftOptions,
   onShiftChange,
   onCloseShift,
+  online,
 }: {
   cashierName: string;
   shift: CheckoutData["openShifts"][number] | null;
@@ -870,6 +956,7 @@ function Header({
   shiftOptions?: CheckoutData["openShifts"];
   onShiftChange?: (id: string) => void;
   onCloseShift: () => void;
+  online: boolean;
 }) {
   // Цаг — зөвхөн mount-ийн дараа (SSR-тэй зөрөхгүй), минут тутам.
   const [clock, setClock] = useState<string | null>(null);
@@ -917,6 +1004,11 @@ function Header({
         )}
         <span>Кассчин: {cashierName || shift?.openedByName}</span>
         {clock && <span className="font-mono text-[var(--ea-text-2)]">{clock}</span>}
+        <span title={online ? "Интернэт холболттой" : "Интернэт холболт тасарсан"}>
+          <StatusBadge tone={online ? "success" : "danger"} size="sm">
+            {online ? "Онлайн" : "Офлайн"}
+          </StatusBadge>
+        </span>
       </div>
       {shift && (
         <Button variant="outline" size="sm" type="button" onClick={onCloseShift}>
