@@ -280,6 +280,9 @@ export interface PosSaleView {
   ebarimtType: string | null;
   ebarimtConsumerNo: string | null;
   ebarimtCustomerTin: string | null;
+  /** НӨАТ-гүй борлуулалт (НӨАТ задлаагүй, eBarimt үүсээгүй) — lib/pos/non-vat.ts. */
+  nonVat: boolean;
+  nonVatReason: string | null;
   note: string;
   /** Төлбөрийн хэлбэрийн товч (жишээ: "Бэлэн 1,000,000 · Карт 661,550"). */
   paymentSummary: string;
@@ -346,6 +349,9 @@ export interface PosSettingsView {
   cashOverAccountNumber: string;
   cashShortAccountNumber: string;
   roundingAccountNumber: string;
+  /** НӨАТ-гүй борлуулалтын орлого / авлагын данс — null = тохируулаагүй (lib/pos/non-vat.ts). */
+  nonVatRevenueAccountNumber: string | null;
+  nonVatReceivableAccountNumber: string | null;
   walkInCounterpartyId: string | null;
   issueTypeId: string | null;
   defaultWarehouseId: string | null;

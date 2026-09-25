@@ -73,6 +73,7 @@ import { scopeKey } from "@/lib/costing/periodic";
 import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
 import { applyDiscounts, approvalAuditNote } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
+import { NON_VAT_APPROVAL_REASON, planNonVatSale } from "@/lib/pos/non-vat";
 import { planPayments, planRefund } from "@/lib/pos/payments";
 import { enqueueEbarimt, loadEbarimtReadiness } from "@/lib/ebarimt/queue";
 import { QPAY_ERRORS, QPAY_INTENT_STATUS_LABELS, QPAY_PROVIDER, type QpayIntentStatus } from "@/lib/qpay/constants";
@@ -226,6 +227,18 @@ export async function updatePosSettings(
     for (const field of accountFields) {
       const value = data[field]?.trim();
       if (value == null) continue;
+      if (!/^\d{8}$/.test(value)) throw new Error(`${field}: 8 оронтой данс оруулна уу`);
+      await assertEnabledMainAccount(orgId, value);
+      patch[field] = value;
+    }
+    // НӨАТ-гүй борлуулалтын данс — хоосон = тохиргоог арилгана (default ЗОХИОХГҮЙ).
+    for (const field of ["nonVatRevenueAccountNumber", "nonVatReceivableAccountNumber"] as const) {
+      if (data[field] === undefined) continue;
+      const value = data[field]?.trim() ?? "";
+      if (!value) {
+        patch[field] = null;
+        continue;
+      }
       if (!/^\d{8}$/.test(value)) throw new Error(`${field}: 8 оронтой данс оруулна уу`);
       await assertEnabledMainAccount(orgId, value);
       patch[field] = value;
@@ -659,12 +672,21 @@ export interface SaleQuoteInput {
   couponCodes?: string[];
   receiptDiscountPercent?: number | null;
   receiptDiscountAmount?: number | null;
+  /**
+   * Кассын «НӨАТ» унтраалттай — НӨАТ задлахгүй, eBarimt үүсэхгүй, тусдаа
+   * орлого/авлагын данс; шалтгаан заавал, эрх pos:post (lib/pos/non-vat.ts).
+   */
+  nonVat?: boolean | null;
+  nonVatReason?: string | null;
 }
 
 interface QuoteContext {
   orgId: string;
   settings: Awaited<ReturnType<typeof ensurePosSettings>>;
+  /** ЭНЭ борлуулалтад НӨАТ задлах эсэх = байгууллага төлөгч БА «НӨАТ» асаалттай. */
   isVatPayer: boolean;
+  /** vat_settings.isVatPayer — байгууллагын түвшин (НӨАТ-гүй тугаас үл хамаарна). */
+  orgIsVatPayer: boolean;
   vatRatePercent: number;
   rules: DiscountRule[];
   customer: typeof counterparties.$inferSelect;
@@ -766,7 +788,12 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
   };
 }
 
-async function quoteContext(orgId: string, userId: string, counterpartyId: string | null | undefined): Promise<QuoteContext> {
+async function quoteContext(
+  orgId: string,
+  userId: string,
+  counterpartyId: string | null | undefined,
+  nonVat = false
+): Promise<QuoteContext> {
   const settings = await ensurePosSettings(orgId, userId);
   const [vat, rules, { customer, isWalkIn }] = await Promise.all([
     loadVatSettings(orgId, userId),
@@ -776,7 +803,8 @@ async function quoteContext(orgId: string, userId: string, counterpartyId: strin
   return {
     orgId,
     settings,
-    isVatPayer: vat.isVatPayer,
+    isVatPayer: vat.isVatPayer && !nonVat,
+    orgIsVatPayer: vat.isVatPayer,
     vatRatePercent: Number(vat.vatRatePercent),
     rules,
     customer,
@@ -794,13 +822,15 @@ export interface SaleQuote {
   receiptDiscounts: { ruleCode: string | null; kind: string; amount: number }[];
   approvalReasons: string[];
   isVatPayer: boolean;
+  /** Байгууллага НӨАТ төлөгч эсэх — кассын «НӨАТ» унтраалга зөвхөн төлөгчид. */
+  orgIsVatPayer: boolean;
 }
 
 /** Кассын дэлгэцийн үнийн санал — борлуулалттай ЯГ ижил хөдөлгөгч. */
 export async function quotePosSale(input: SaleQuoteInput): Promise<ActionResult<{ quote: SaleQuote }>> {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
-    const ctx = await quoteContext(orgId, userId, input.counterpartyId);
+    const ctx = await quoteContext(orgId, userId, input.counterpartyId, !!input.nonVat);
     const quote = await buildQuote(input, ctx);
     return {
       quote: {
@@ -815,8 +845,10 @@ export async function quotePosSale(input: SaleQuoteInput): Promise<ActionResult<
           kind: entry.kind,
           amount: entry.amount,
         })),
-        approvalReasons: quote.approvalReasons,
+        approvalReasons:
+          input.nonVat && ctx.orgIsVatPayer ? [...quote.approvalReasons, NON_VAT_APPROVAL_REASON] : quote.approvalReasons,
         isVatPayer: ctx.isVatPayer,
+        orgIsVatPayer: ctx.orgIsVatPayer,
       },
     };
   } catch (caught) {
@@ -860,6 +892,8 @@ export interface PosReceipt {
   cashierName: string;
   customerName: string;
   isVatPayer: boolean;
+  /** НӨАТ-гүй борлуулалт — баримт дээр ил тэмдэглэнэ. */
+  nonVat: boolean;
   lines: { name: string; quantity: number; unit: string; unitPrice: number; discount: number; total: number }[];
   grossAmount: number;
   discountTotal: number;
@@ -962,8 +996,24 @@ async function resolveQpayIntentForSale(
 
 async function createPosSaleCore(input: CreatePosSaleInput) {
   const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
-  const ctx = await quoteContext(orgId, userId, input.counterpartyId);
+  const ctx = await quoteContext(orgId, userId, input.counterpartyId, !!input.nonVat);
   const quote = await buildQuote(input, ctx);
+  // НӨАТ-гүй борлуулалт (lib/pos/non-vat.ts): шалтгаан, данс, eBarimt-гүй — буруу бол ШИДНЭ.
+  const nonVatPlan = planNonVatSale(
+    {
+      nonVat: input.nonVat,
+      nonVatReason: input.nonVatReason,
+      hasEbarimtData: !!(
+        cleanText(input.ebarimtId) ||
+        cleanText(input.ebarimtConsumerNo) ||
+        cleanText(input.ebarimtCustomerTin) ||
+        cleanText(input.ebarimtCustomerRegNo)
+      ),
+    },
+    ctx.settings,
+    ctx.orgIsVatPayer
+  );
+  if (nonVatPlan.nonVat) quote.approvalReasons.push(NON_VAT_APPROVAL_REASON);
   if (quote.approvalReasons.length > 0) {
     // Менежерийн зөвшөөрөл = pos:post эрх (D5). Кассчин зөвшөөрөлгүй бол алдаа.
     try {
@@ -1051,7 +1101,9 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   });
   if (plan.errors.length > 0) throw new Error(plan.errors.join("; "));
 
-  const controlAccount = customer.defaultReceivableAccountNumber?.trim();
+  const controlAccount = nonVatPlan.nonVat
+    ? nonVatPlan.receivableAccountNumber
+    : customer.defaultReceivableAccountNumber?.trim();
   if (!controlAccount) throw new Error(`${customer.name}: default авлагын данс тохируулаагүй байна`);
   await assertEnabledMainAccount(orgId, controlAccount);
   const vat = await loadVatSettings(orgId, userId);
@@ -1067,7 +1119,9 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   for (const itemId of new Set(quote.cart.map((line) => line.itemId)))
     itemAccounts.set(itemId, await itemAccountsFor(orgId, userId, itemId));
   const revenueAccountOf = (itemId: string) =>
-    quote.itemById.get(itemId)?.revenueAccountNumber?.trim() || settings.revenueAccountNumber;
+    nonVatPlan.nonVat
+      ? nonVatPlan.revenueAccountNumber
+      : quote.itemById.get(itemId)?.revenueAccountNumber?.trim() || settings.revenueAccountNumber;
   for (const line of quote.cart) await assertEnabledMainAccount(orgId, revenueAccountOf(line.itemId));
   if (quote.totals.vatAmount > 0) await assertEnabledMainAccount(orgId, vat.outputVatAccountNumber);
   if (settings.discountPosting === "contra" && quote.totals.discountTotal > 0)
@@ -1149,6 +1203,8 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         ebarimtStatus: ebarimtPlan.status,
         ebarimtConsumerNo,
         ebarimtCustomerTin,
+        nonVat: nonVatPlan.nonVat,
+        nonVatReason: nonVatPlan.nonVat ? nonVatPlan.reason : null,
       })
       .returning({ id: posSales.id });
     saleId = sale.id;
@@ -1651,7 +1707,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         action: "create_posted",
         entityType: "pos_sale",
         entityId: saleId,
-        summary: `POS борлуулалт — ${documentNo}, ${date}, ${customer.name}, ${quote.totals.lines.length} мөр, төлөх ${fmt(payable)}₮ (${plan.payments.map((payment) => `${payment.method.name} ${fmt(payment.baseAmount - payment.changeGiven)}`).join(", ")})${ebarimtPlan.status === "skipped" ? " — eBarimt илгээгээгүй (кассчин)" : ""}${approvalAuditNote(quote.approvalReasons)}`,
+        summary: `POS борлуулалт — ${documentNo}, ${date}, ${customer.name}, ${quote.totals.lines.length} мөр, төлөх ${fmt(payable)}₮ (${plan.payments.map((payment) => `${payment.method.name} ${fmt(payment.baseAmount - payment.changeGiven)}`).join(", ")})${ebarimtPlan.status === "skipped" ? " — eBarimt илгээгээгүй (кассчин)" : ""}${nonVatPlan.nonVat ? ` — НӨАТ-гүй (eBarimt үүсэхгүй): ${nonVatPlan.reason}` : ""}${approvalAuditNote(quote.approvalReasons)}`,
       },
       tx
     );
@@ -1681,6 +1737,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     cashierName: cashierRow?.name ?? "",
     customerName: isWalkIn ? "" : customer.name,
     isVatPayer: ctx.isVatPayer,
+    nonVat: nonVatPlan.nonVat,
     lines: quote.totals.lines.map((line) => ({
       name: line.itemName,
       quantity: line.quantity,
@@ -1859,6 +1916,19 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
 
   const controlAccount = original.arApDocument?.controlAccountNumber ?? original.counterparty?.defaultReceivableAccountNumber ?? "";
   if (!controlAccount) throw new Error("Авлагын данс олдсонгүй");
+  // НӨАТ-гүй борлуулалтын буцаалт ЭХ АР мөрийн ОРЛОГЫН данс руу (тохиргоо хожим
+  // солигдсон ч эх бичилттэйгээ тэгширнэ); НӨАТ эх мөрөөс 0 тул задрахгүй.
+  const originalLineAccounts = new Map<string, string>();
+  if (original.nonVat) {
+    const arLineIds = original.lines.map((line) => line.arApLineId).filter((id): id is string => !!id);
+    if (arLineIds.length > 0)
+      for (const row of await db
+        .select({ id: arApDocumentLines.id, accountNumber: arApDocumentLines.accountNumber })
+        .from(arApDocumentLines)
+        .where(inArray(arApDocumentLines.id, arLineIds)))
+        originalLineAccounts.set(row.id, row.accountNumber);
+  }
+  const returnVatPayer = vat.isVatPayer && !original.nonVat;
   const builders = await codeBuilders(orgId);
   const issueType =
     (settings.issueTypeId
@@ -1902,6 +1972,8 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
         isReturn: true,
         originalSaleId: original.id,
         returnReason: reason,
+        nonVat: original.nonVat,
+        nonVatReason: original.nonVatReason,
         note: "",
       })
       .returning({ id: posSales.id });
@@ -1926,10 +1998,13 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     let sortOrder = 0;
     for (const entry of planned) {
       const item = entry.original.item;
-      const revenueMain = item?.revenueAccountNumber?.trim() || settings.revenueAccountNumber;
+      const revenueMain = original.nonVat
+        ? originalLineAccounts.get(entry.original.arApLineId ?? "") ??
+          (settings.nonVatRevenueAccountNumber?.trim() || settings.revenueAccountNumber)
+        : item?.revenueAccountNumber?.trim() || settings.revenueAccountNumber;
       if (settings.discountPosting === "contra" && entry.discountAmount > 0) {
         const discountNet = discountNetOf(entry.discountAmount, toItemVatMode(entry.original.vatMode), {
-          isVatPayer: vat.isVatPayer,
+          isVatPayer: returnVatPayer,
           vatRatePercent: Number(vat.vatRatePercent),
         });
         creditLines.push({
@@ -2692,7 +2767,8 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
         soldAt: sale.soldAt,
         cashierName: sale.cashierName,
         customerName: sale.counterpartyId === settings.walkInCounterpartyId ? "" : sale.counterpartyName,
-        isVatPayer: vat.isVatPayer,
+        isVatPayer: vat.isVatPayer && !sale.nonVat,
+        nonVat: sale.nonVat,
         lines: sale.lines.map((line) => ({
           name: line.itemName,
           quantity: line.quantity,
@@ -2740,10 +2816,11 @@ export async function updateSaleEbarimt(
     const ebarimtId = cleanText(data.ebarimtId);
     const sale = await db.query.posSales.findFirst({
       where: and(eq(posSales.id, id), eq(posSales.organizationId, orgId)),
-      columns: { ebarimtStatus: true },
+      columns: { ebarimtStatus: true, nonVat: true },
     });
     if (!sale) throw new Error("Борлуулалт олдсонгүй");
     if (sale.ebarimtStatus === "sent") throw new Error("ТЕГ-д илгээгдсэн баримтын ДДТД-г гараар өөрчлөхгүй");
+    if (sale.nonVat && ebarimtId) throw new Error("НӨАТ-гүй борлуулалтад ДДТД оноохгүй (НӨАТ задлаагүй)");
     await db
       .update(posSales)
       .set({ ebarimtId, ebarimtStatus: ebarimtId ? "manual" : null })

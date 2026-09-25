@@ -26,6 +26,7 @@ import { DiscountDialog } from "@/components/pos/checkout/discount-dialog";
 import { ParkedDialog } from "@/components/pos/checkout/parked-dialog";
 import { ProductPanel } from "@/components/pos/checkout/product-panel";
 import { TicketPanel, type TicketLineView } from "@/components/pos/checkout/ticket-panel";
+import { VatReceiptBar } from "@/components/pos/checkout/vat-receipt-bar";
 import { PaymentDialog, type EbarimtBuyerInput, type PaymentConfirmExtra } from "@/components/pos/payment-dialog";
 import { ReceiptPreview } from "@/components/pos/receipt-preview";
 import { CloseShiftDialog, OpenShiftForm } from "@/components/pos/shift-dialogs";
@@ -41,7 +42,15 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { getEbarimtOutbox, recordEbarimtResponse } from "@/lib/actions/ebarimt";
+import { getEbarimtOutbox, lookupEbarimtTin, recordEbarimtResponse } from "@/lib/actions/ebarimt";
+import {
+  IDLE_LOOKUP,
+  orgNoKind,
+  resolveBuyer,
+  sanitizeOrgNo,
+  type BuyerState,
+  type BuyerType,
+} from "@/lib/pos/ebarimt-buyer";
 import {
   createPosSale,
   quotePosSale,
@@ -186,6 +195,96 @@ export function PosCheckoutView({
     () => data.customers.find((entry) => entry.id === customerId) ?? walkIn,
     [data.customers, customerId, walkIn]
   );
+  // ── «НӨАТ» мөр (VatReceiptBar) ─────────────────────────────────────────
+  // Анхдагч: НӨАТ-тай (eBarimt). Унтраавал НӨАТ-гүй борлуулалт — шалтгаан заавал,
+  // тусдаа данс (lib/pos/non-vat.ts). Борлуулалт бүрийн дараа анхдагч руу буцна.
+  const [vatReceipt, setVatReceipt] = useState(true);
+  const [nonVatReason, setNonVatReason] = useState("");
+  const [buyerState, setBuyerState] = useState<BuyerState>({
+    type: "individual",
+    consumerNo: "",
+    orgNo: "",
+    lookup: IDLE_LOOKUP,
+  });
+  const nonVat = data.isVatPayer && !vatReceipt;
+  const ebarimtBuyerActive = data.isVatPayer && vatReceipt && data.settings.ebarimtEnabled;
+  const resolvedBuyer = useMemo(() => resolveBuyer(buyerState), [buyerState]);
+  const buyerProblem = ebarimtBuyerActive ? resolvedBuyer.problem : null;
+  const nonVatProblem = nonVat && nonVatReason.trim().length < 3 ? "НӨАТ-гүй борлуулалтын шалтгаан бичнэ үү" : null;
+
+  const setBuyerType = useCallback((type: BuyerType) => {
+    setBuyerState((current) => ({ ...current, type }));
+  }, []);
+  const setOrgNo = useCallback((raw: string) => {
+    const orgNo = sanitizeOrgNo(raw);
+    setBuyerState((current) =>
+      current.orgNo === orgNo
+        ? current
+        : {
+            ...current,
+            orgNo,
+            lookup: orgNoKind(orgNo) === "register" ? { ...IDLE_LOOKUP, status: "loading" } : IDLE_LOOKUP,
+          }
+    );
+  }, []);
+  // 7 оронтой регистр бичигдмэгц ТЕГ-ээс НЭР + ТТД (getTinInfo → getInfo), debounce.
+  const lookupRegNo = buyerState.type === "org" && orgNoKind(buyerState.orgNo) === "register" ? buyerState.orgNo : "";
+  useEffect(() => {
+    if (!lookupRegNo) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      lookupEbarimtTin(lookupRegNo)
+        .then((result) => {
+          if (!alive) return;
+          setBuyerState((current) =>
+            current.orgNo !== lookupRegNo
+              ? current
+              : {
+                  ...current,
+                  lookup:
+                    result.info && !result.error
+                      ? { tin: result.info.tin, name: result.info.name, status: "found", error: "" }
+                      : { ...IDLE_LOOKUP, status: "error", error: result.error ?? "Байгууллага олдсонгүй" },
+                }
+          );
+        })
+        .catch(() => {
+          if (alive)
+            setBuyerState((current) =>
+              current.orgNo !== lookupRegNo
+                ? current
+                : { ...current, lookup: { ...IDLE_LOOKUP, status: "error", error: "ТЕГ-ийн лавлахад холбогдсонгүй" } }
+            );
+        });
+    }, 350);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [lookupRegNo]);
+
+  // Байгууллага харилцагч сонгоход (регистртэй) ААН-аар урьдчилан бөглөнө.
+  const changeCustomer = useCallback(
+    (id: string) => {
+      setCustomerId(id);
+      const picked = data.customers.find((entry) => entry.id === id);
+      const regNo = picked && !picked.isWalkIn && picked.entityKind === "organization" ? sanitizeOrgNo(picked.registerNo ?? "") : "";
+      if (regNo && orgNoKind(regNo) !== "incomplete") {
+        setBuyerState((current) =>
+          current.orgNo === regNo
+            ? { ...current, type: "org" } // ижил регистр — хайлтын үр дүн хэвээр (effect дахин ажиллахгүй)
+            : {
+                ...current,
+                type: "org",
+                orgNo: regNo,
+                lookup: orgNoKind(regNo) === "register" ? { ...IDLE_LOOKUP, status: "loading" } : IDLE_LOOKUP,
+              }
+        );
+      }
+    },
+    [data.customers]
+  );
+
   const customerOptions = useMemo(
     () =>
       data.customers.map((entry) => ({
@@ -314,8 +413,8 @@ export function PosCheckoutView({
   const quoteCustomerId = customer && !customer.isWalkIn ? customer.id : null;
   const quoteKey = useMemo(
     () =>
-      JSON.stringify({ lineInputs, customerId: quoteCustomerId, couponCodes, receiptDiscountPercent, receiptDiscountAmount }),
-    [lineInputs, quoteCustomerId, couponCodes, receiptDiscountPercent, receiptDiscountAmount]
+      JSON.stringify({ lineInputs, customerId: quoteCustomerId, couponCodes, receiptDiscountPercent, receiptDiscountAmount, nonVat }),
+    [lineInputs, quoteCustomerId, couponCodes, receiptDiscountPercent, receiptDiscountAmount, nonVat]
   );
   const quoteKeyRef = useRef(quoteKey);
   useEffect(() => {
@@ -334,6 +433,7 @@ export function PosCheckoutView({
         couponCodes,
         receiptDiscountPercent,
         receiptDiscountAmount,
+        nonVat,
       })
         .then((result) => {
           if (quoteKeyRef.current !== key) return;
@@ -345,7 +445,7 @@ export function PosCheckoutView({
         });
     }, QUOTE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [quoteKey, lineInputs, quoteCustomerId, couponCodes, receiptDiscountPercent, receiptDiscountAmount]);
+  }, [quoteKey, lineInputs, quoteCustomerId, couponCodes, receiptDiscountPercent, receiptDiscountAmount, nonVat]);
 
   const hasLines = lineInputs.length > 0;
   const quoteFresh = hasLines && quoteState?.key === quoteKey;
@@ -419,6 +519,9 @@ export function PosCheckoutView({
     setSelectedKey(null);
     setNumpadBuffer("");
     if (walkIn) setCustomerId(walkIn.id);
+    setVatReceipt(true);
+    setNonVatReason("");
+    setBuyerState({ type: "individual", consumerNo: "", orgNo: "", lookup: IDLE_LOOKUP });
   }, [walkIn]);
 
   const clearCart = useCallback(async () => {
@@ -505,7 +608,8 @@ export function PosCheckoutView({
   // ── Төлбөр ─────────────────────────────────────────────────────────────
   // Санал шинэчлэгдэж байх үед ч ТӨЛБӨР идэвхтэй (анивчихгүй) — дарвал шинэ
   // санал ирмэгц диалог нээгдэнэ. Эцсийн дүн ҮРГЭЛЖ серверийн шинэ саналаас.
-  const canPay = cart.length > 0 && !quoteError && !!shift && !saleBusy && online;
+  const canPay =
+    cart.length > 0 && !quoteError && !!shift && !saleBusy && online && !buyerProblem && !nonVatProblem;
 
   const openPayment = useCallback(() => {
     if (!shift) return toast.error("Эхлээд ээлж нээнэ үү");
@@ -715,8 +819,10 @@ export function PosCheckoutView({
       couponCodes,
       receiptDiscountPercent,
       receiptDiscountAmount,
+      nonVat,
+      nonVatReason: nonVat ? nonVatReason.trim() : null,
     }),
-    [shift?.id, warehouseId, customer, lineInputs, couponCodes, receiptDiscountPercent, receiptDiscountAmount]
+    [shift?.id, warehouseId, customer, lineInputs, couponCodes, receiptDiscountPercent, receiptDiscountAmount, nonVat, nonVatReason]
   );
 
   async function confirmSale(payments: PaymentInput[], buyer: EbarimtBuyerInput, extra: PaymentConfirmExtra) {
@@ -808,14 +914,30 @@ export function PosCheckoutView({
           onRemove={dropLine}
           customerId={customerId}
           customerOptions={customerOptions}
-          onCustomerChange={setCustomerId}
+          onCustomerChange={changeCustomer}
           customer={customer}
           customerRef={customerRef}
           quote={quote}
           quoteBusy={quoteBusy}
           quoteError={quoteError}
-          isVatPayer={data.isVatPayer}
+          isVatPayer={data.isVatPayer && vatReceipt}
           vatRatePercent={data.vatRatePercent}
+          vatBar={
+            data.isVatPayer ? (
+              <VatReceiptBar
+                vatReceipt={vatReceipt}
+                onVatReceiptChange={setVatReceipt}
+                nonVatReason={nonVatReason}
+                onNonVatReasonChange={setNonVatReason}
+                ebarimtEnabled={data.settings.ebarimtEnabled}
+                buyer={buyerState}
+                onBuyerTypeChange={setBuyerType}
+                onConsumerNoChange={(consumerNo) => setBuyerState((current) => ({ ...current, consumerNo }))}
+                onOrgNoChange={setOrgNo}
+                problem={buyerProblem ?? nonVatProblem}
+              />
+            ) : null
+          }
           discountBreakdown={discountBreakdown}
           numpadMode={numpadMode}
           onNumpadMode={onNumpadMode}
@@ -921,7 +1043,16 @@ export function PosCheckoutView({
         customer={customer}
         shift={shift}
         cashRoundingUnit={data.settings.cashRoundingUnit}
-        ebarimtEnabled={data.settings.ebarimtEnabled}
+        ebarimtEnabled={ebarimtBuyerActive}
+        buyer={resolvedBuyer.buyer}
+        buyerLabel={
+          !ebarimtBuyerActive
+            ? null
+            : buyerState.type === "org"
+              ? `ААН · ${buyerState.lookup.name || buyerState.orgNo}${resolvedBuyer.buyer.ebarimtCustomerTin ? ` · ТТД ${resolvedBuyer.buyer.ebarimtCustomerTin}` : ""}`
+              : `Хувь хүн${buyerState.consumerNo ? ` · ${buyerState.consumerNo}` : ""}`
+        }
+        nonVat={nonVat}
         busy={saleBusy}
         onConfirm={confirmSale}
         saleDraft={saleDraft}

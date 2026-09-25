@@ -864,6 +864,19 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   (`resendEbarimt`) дараа нь илгээнэ. Анхны статусын дүрэм ЦЭВЭР
   `initialSaleEbarimtStatus` (receipt.ts, тесттэй) — гар ДДТД > унтраалттай/
   НӨАТ бус (null) > skipped > pending; action дотор давтахгүй
+- **Кассын «НӨАТ» мөр** (`components/pos/checkout/vat-receipt-bar.tsx`, НӨАТ төлөгчид
+  л): ☑ НӨАТ (анхдагч, борлуулалт бүрийн дараа буцна) → «Хувь хүн» (eBarimt
+  дугаар, сонголтоор) | «ААН» (7 оронтой РЕГИСТР бичмэгц ТЕГ-ээс НЭР + ТТД —
+  `getTinInfo` нь ЗӨВХӨН ТТД-г тоогоор буцаадаг, нэр `getInfo?tin=`-ээс;
+  олдоогүй бол ТӨЛБӨР хаагдана). Худалдан авагчийн ЦЭВЭР дүрэм
+  `lib/pos/ebarimt-buyer.ts` (тесттэй); төлбөрийн диалогт зөвхөн хураангуй
+- **НӨАТ-гүй борлуулалт** (☐ НӨАТ — нөхөж оруулах, залруулга; `lib/pos/non-vat.ts`
+  ЦЭВЭР, тесттэй): НӨАТ задлахгүй, eBarimt ОГТ үүсэхгүй (`resendEbarimt` /
+  гар ДДТД татгалзана), GL-д `pos_settings.nonVatRevenue/ReceivableAccountNumber`
+  (default БАЙХГҮЙ — хоосон бол `[NON_VAT_ACCOUNTS_REQUIRED]`), шалтгаан ЗААВАЛ
+  (`pos_sales.nonVatReason`), эрх `pos:post` (approvalReasons), аудитад ил;
+  жагсаалтын «НӨАТ баримт» багана + «НӨАТ-гүй» шүүлт, панель. Буцаалт эх АР
+  мөрийн орлогын данс руу. AI `create_pos_sale` `nonVat` + `nonVatReason`
 - **taxType бүлэглэл:** НӨАТ төлөгч бус → бүх мөр `NOT_VAT`; төлөгч бол
   барааны `vatMode` → `VAT_ABLE|VAT_FREE|VAT_ZERO`, мөрүүд дэд баримт
   (`receipts[]`) болж бүлэглэгдэнэ. Хэсэгчилсэн буцаалтын дараа үлдсэн мөрөөр
@@ -906,7 +919,8 @@ lib/ebarimt/
 │                  components/inventory/ebarimt-code-pickers.tsx (7 ба 3 оронтой)
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
-├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo / getBranchInfo (24ц кэш)
+├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo (РД → ТТД) + getInfo (ТТД → нэр) /
+│                  getBranchInfo (24ц кэш; parse нь ЦЭВЭР, tests/ebarimt-lookup.test.ts)
 ├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /
 │                  claimDueSubmissions / ebarimtStatusSummary
 ├── worker.ts      claim → PosAPI → бичих; sendSubmissionNow (шууд, timeout-тэй,

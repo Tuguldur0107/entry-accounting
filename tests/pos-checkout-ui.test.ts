@@ -40,5 +40,27 @@ test("баримт автоматаар хэвлэгдэнэ, хэвлээгүй
 test("сүлжээ тасарвал ил мэдэгдэж, төлбөр хаагдана", () => {
   assert.match(view, /navigator\.onLine/);
   assert.match(view, /Интернэт холболт тасарсан/);
-  assert.match(view, /const canPay = [^;]*online/);
+  assert.match(view, /const canPay =\s[^;]*online/);
+});
+
+const vatBar = readFileSync("components/pos/checkout/vat-receipt-bar.tsx", "utf8");
+const salePanel = readFileSync("components/panel/pos-sale-panel.tsx", "utf8");
+const salesList = readFileSync("components/pos/sales-list-view.tsx", "utf8");
+
+test("«НӨАТ» мөр: анхдагч асаалттай, Хувь хүн/ААН, 7 оронтой регистрээр нэр татна", () => {
+  assert.match(view, /useState\(true\);\s*\n\s*const \[nonVatReason/, "НӨАТ анхдагч асаалттай");
+  assert.match(view, /<VatReceiptBar/);
+  assert.match(view, /lookupEbarimtTin\(lookupRegNo\)/, "регистр бичигдмэгц ТЕГ-ийн лавлах");
+  assert.match(view, /const canPay =[^;]*!buyerProblem[^;]*!nonVatProblem/);
+  assert.match(vatBar, /Хувь хүн/);
+  assert.match(vatBar, /ААН/);
+  assert.match(vatBar, /Байгууллагын регистр \(7 орон\)/);
+  assert.match(vatBar, /Шалтгаан \(заавал\)/);
+  assert.doesNotMatch(payment, /lookupEbarimtTin/, "худалдан авагчийн давхар сонголт төлбөрийн диалогт байхгүй");
+});
+
+test("НӨАТ-гүй борлуулалт жагсаалт, панельд ил; eBarimt засах/илгээх нуугдана", () => {
+  assert.match(salesList, /headerName: "НӨАТ баримт"/);
+  assert.match(salesList, /value: "non_vat"/);
+  assert.match(salePanel, /sale\.nonVat \? \(/);
 });

@@ -220,6 +220,11 @@ function PosSaleBody({
       <div className="flex flex-wrap items-center gap-2">
         <DocumentStatusBadge status={sale.status} size="md" />
         {sale.isReturn && <StatusBadge tone="warning">Буцаалт</StatusBadge>}
+        {sale.nonVat && (
+          <span title={sale.nonVatReason ? `Шалтгаан: ${sale.nonVatReason}` : undefined}>
+            <StatusBadge tone="warning">НӨАТ-гүй</StatusBadge>
+          </span>
+        )}
         <span className="font-mono text-xs font-semibold text-[var(--ea-text-1)]">{sale.documentNo}</span>
         <span className="text-xs text-[var(--ea-text-3)]">{fmtTime(sale.soldAt)}</span>
         {sale.originalSaleId && (
@@ -240,7 +245,14 @@ function PosSaleBody({
         {sale.note && <Fact label="Тэмдэглэл" value={sale.note} />}
       </div>
 
-      <EbarimtSection sale={sale} />
+      {sale.nonVat ? (
+        <div className="rounded-md border border-[var(--ea-warning)] bg-[var(--ea-warning-bg)] p-3 text-sm text-[var(--ea-warning-fg)]">
+          НӨАТ-гүй борлуулалт — НӨАТ задлаагүй, eBarimt үүсээгүй (дараа нь илгээх боломжгүй); тусдаа орлого/авлагын дансаар
+          бичигдсэн.{sale.nonVatReason ? ` Шалтгаан: ${sale.nonVatReason}` : ""}
+        </div>
+      ) : (
+        <EbarimtSection sale={sale} />
+      )}
 
       <div>
         <div className="mb-2 text-sm font-semibold text-[var(--ea-text-1)]">Мөрүүд</div>

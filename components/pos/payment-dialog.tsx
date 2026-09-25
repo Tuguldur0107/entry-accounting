@@ -23,9 +23,8 @@ import {
 import { SwitchField } from "@/components/ui/form-field";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
-import { lookupEbarimtTin } from "@/lib/actions/ebarimt";
 import { getGiftCardsAndCredits } from "@/lib/actions/pos";
-import { CONSUMER_NO_RE, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
+import type { EbarimtBuyerInput } from "@/lib/pos/ebarimt-buyer";
 import type { CheckoutCustomer } from "@/lib/pos/load-data";
 import { PAYMENT_KIND_LABELS } from "@/lib/pos/constants";
 import { roundToCashUnit } from "@/lib/pos/sale-math";
@@ -65,22 +64,7 @@ interface StoreCreditOption {
   status: string;
 }
 
-/** eBarimt-ийн худалдан авагч (createPosSale-д дамжина). */
-export interface EbarimtBuyerInput {
-  ebarimtConsumerNo: string | null;
-  ebarimtCustomerTin: string | null;
-  ebarimtCustomerRegNo: string | null;
-  /** «eBarimt илгээх» унтраалттай — энэ борлуулалт ТЕГ-д илгээгдэхгүй (статус skipped). */
-  skipEbarimt: boolean;
-}
-
-const EMPTY_BUYER: EbarimtBuyerInput = {
-  ebarimtConsumerNo: null,
-  ebarimtCustomerTin: null,
-  ebarimtCustomerRegNo: null,
-  skipEbarimt: false,
-};
-const SKIPPED_BUYER: EbarimtBuyerInput = { ...EMPTY_BUYER, skipEbarimt: true };
+export type { EbarimtBuyerInput };
 
 export function PaymentDialog({
   open,
@@ -92,6 +76,9 @@ export function PaymentDialog({
   shift,
   cashRoundingUnit,
   ebarimtEnabled = false,
+  buyer: buyerFromCheckout,
+  buyerLabel = null,
+  nonVat = false,
   busy,
   onConfirm,
   saleDraft,
@@ -105,8 +92,14 @@ export function PaymentDialog({
   customer: CheckoutCustomer | null;
   shift: PosShiftView | null;
   cashRoundingUnit: number;
-  /** pos_settings.ebarimtEnabled — асаалттай үед худалдан авагчийн блок гарна. */
+  /** Энэ борлуулалтад eBarimt үүсэх эсэх (eBarimt асаалттай + «НӨАТ» асаалттай). */
   ebarimtEnabled?: boolean;
+  /** Кассын «НӨАТ» мөрөөс шийдэгдсэн худалдан авагч (lib/pos/ebarimt-buyer.ts). */
+  buyer?: EbarimtBuyerInput;
+  /** Худалдан авагчийн товч тайлбар («ААН · Нэр · ТТД …»). */
+  buyerLabel?: string | null;
+  /** НӨАТ-гүй борлуулалт — диалогт ил тэмдэглэнэ. */
+  nonVat?: boolean;
   busy: boolean;
   /** Батлах — амжилттай бол true (эцэг диалогийг хаана). */
   onConfirm: (payments: PaymentInput[], buyer: EbarimtBuyerInput, extra: PaymentConfirmExtra) => Promise<boolean>;
@@ -140,65 +133,21 @@ export function PaymentDialog({
   /** Нээлттэй QPay диалог — аль мөрийнх. */
   const [qpayRowKey, setQpayRowKey] = useState<number | null>(null);
   const [storeCredits, setStoreCredits] = useState<StoreCreditOption[] | null>(null);
-  // ── eBarimt худалдан авагч (§4.5) ───────────────────────────────────────
-  // Сонгосон харилцагч БАЙГУУЛЛАГА (entityKind) бөгөөд РД/ТТД-тэй бол B2B
-  // баримтаар урьдчилан бөглөнө — кассчин дахин бичихгүй (диалог төлбөр бүрд
-  // шинээр mount болдог тул анхны утга хангалттай).
-  const orgCustomerRegNo =
-    customer && !customer.isWalkIn && customer.entityKind === "organization" && customer.registerNo?.trim()
-      ? customer.registerNo.trim().toUpperCase()
-      : "";
-  const [buyerType, setBuyerType] = useState<"citizen" | "org">(orgCustomerRegNo ? "org" : "citizen");
-  const [consumerNo, setConsumerNo] = useState("");
-  const [orgNo, setOrgNo] = useState(orgCustomerRegNo);
-  const [orgName, setOrgName] = useState("");
-  const [orgTin, setOrgTin] = useState("");
-  const [orgLookupBusy, setOrgLookupBusy] = useState(false);
-  // Борлуулалт бүрд eBarimt илгээх эсэх — default асаалттай; унтраавал худалдан
-  // авагчийн блок нуугдаж борлуулалт `skipped` статустай бичигдэнэ (дараа панелиас илгээж болно).
+  // ── eBarimt (§4.5) — худалдан авагчийг кассын «НӨАТ» мөрөөс авна ──────────
+  // Борлуулалт бүрд eBarimt илгээх эсэх — default асаалттай; унтраавал борлуулалт
+  // `skipped` статустай бичигдэнэ (НӨАТ задарсан хэвээр, дараа панелиас илгээж болно).
   const [sendEbarimt, setSendEbarimt] = useState(true);
-
-  const orgValue = orgNo.trim().toUpperCase();
-  const orgIsTin = MERCHANT_TIN_RE.test(orgValue);
-  const consumerNoInvalid = consumerNo.trim() !== "" && !CONSUMER_NO_RE.test(consumerNo.trim());
-
   const buyer = useMemo<EbarimtBuyerInput>(() => {
-    if (!ebarimtEnabled) return EMPTY_BUYER;
-    if (!sendEbarimt) return SKIPPED_BUYER;
-    if (buyerType === "org") {
-      if (!orgValue) return EMPTY_BUYER;
-      return {
-        ebarimtConsumerNo: null,
-        ebarimtCustomerTin: orgIsTin ? orgValue : orgTin || null,
-        ebarimtCustomerRegNo: orgIsTin ? null : orgValue,
-        skipEbarimt: false,
-      };
-    }
-    const value = consumerNo.trim();
-    return {
-      ebarimtConsumerNo: CONSUMER_NO_RE.test(value) ? value : null,
+    const empty: EbarimtBuyerInput = {
+      ebarimtConsumerNo: null,
       ebarimtCustomerTin: null,
       ebarimtCustomerRegNo: null,
       skipEbarimt: false,
     };
-  }, [ebarimtEnabled, sendEbarimt, buyerType, orgValue, orgIsTin, orgTin, consumerNo]);
-
-  function lookupOrg() {
-    if (!orgValue || orgIsTin) return;
-    setOrgLookupBusy(true);
-    lookupEbarimtTin(orgValue)
-      .then((result) => {
-        if (result.error || !result.info) {
-          setOrgName("");
-          setOrgTin("");
-          toast.error(result.error ?? "ТТД олдсонгүй");
-          return;
-        }
-        setOrgTin(result.info.tin);
-        setOrgName(result.info.name);
-      })
-      .finally(() => setOrgLookupBusy(false));
-  }
+    if (!ebarimtEnabled) return empty;
+    if (!sendEbarimt) return { ...empty, skipEbarimt: true };
+    return buyerFromCheckout ?? empty;
+  }, [ebarimtEnabled, sendEbarimt, buyerFromCheckout]);
 
   const activeMethods = useMemo(
     () =>
@@ -352,7 +301,7 @@ export function PaymentDialog({
 
   // QPay мөр бүр төлөгдсөн intent-тэй байх ёстой (сервер ч мөн шаардана); нэг л QPay мөр.
   const canSubmit =
-    rows.length > 0 && plan.remaining <= EPS && !busy && !consumerNoInvalid && !qpayUnpaid && qpayRows.length <= 1;
+    rows.length > 0 && plan.remaining <= EPS && !busy && !qpayUnpaid && qpayRows.length <= 1;
 
   async function submit() {
     if (!canSubmit) return;
@@ -547,96 +496,25 @@ export function PaymentDialog({
           )}
         </div>
 
+        {nonVat && (
+          <div className="rounded-md border border-[var(--ea-warning)] bg-[var(--ea-warning-bg)] p-2 text-xs text-[var(--ea-warning-fg)]">
+            НӨАТ-гүй борлуулалт — НӨАТ задлахгүй, eBarimt үүсэхгүй (тусдаа орлого/авлагын данс).
+          </div>
+        )}
         {ebarimtEnabled && (
           <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-2">
             <SwitchField
               label="eBarimt баримт илгээх"
               hint={
                 sendEbarimt
-                  ? undefined
+                  ? buyerLabel
+                    ? `Худалдан авагч: ${buyerLabel}`
+                    : undefined
                   : "Энэ борлуулалт ТЕГ-д илгээгдэхгүй — «Илгээгээгүй» статустай бичигдэнэ; дараа нь панелиас илгээж болно"
               }
               checked={sendEbarimt}
               onChange={setSendEbarimt}
-              className={sendEbarimt ? "mb-1.5" : undefined}
             />
-            {sendEbarimt && (
-              <>
-                <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-[var(--ea-text-1)]">
-                    eBarimt худалдан авагч
-                  </span>
-                  <div className="flex gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={buyerType === "citizen" ? "default" : "outline"}
-                      onClick={() => setBuyerType("citizen")}
-                    >
-                      Иргэн
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={buyerType === "org" ? "default" : "outline"}
-                      onClick={() => setBuyerType("org")}
-                    >
-                      Байгууллага
-                    </Button>
-                  </div>
-                </div>
-                {buyerType === "citizen" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={consumerNo}
-                      inputMode="numeric"
-                      maxLength={8}
-                      placeholder="eBarimt дугаар (8 орон, сонголтоор)"
-                      className="w-64 font-mono"
-                      onChange={(event) => setConsumerNo(event.target.value.replace(/\D/g, ""))}
-                    />
-                    {consumerNoInvalid && (
-                      <span className="text-xs text-[var(--ea-danger-fg)]">
-                        eBarimt дугаар 8 оронтой байна
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={orgNo}
-                      placeholder="РД (УУ12345678) эсвэл ТТД"
-                      className="w-64 font-mono uppercase"
-                      onChange={(event) => {
-                        setOrgNo(event.target.value);
-                        setOrgName("");
-                        setOrgTin("");
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={!orgValue || orgIsTin || orgLookupBusy}
-                      onClick={lookupOrg}
-                    >
-                      Шалгах
-                    </Button>
-                    {orgIsTin ? (
-                      <span className="text-xs text-[var(--ea-text-3)]">ТТД-гээр илгээнэ</span>
-                    ) : orgName ? (
-                      <span className="text-xs text-[var(--ea-success-fg)]">
-                        {orgName} · ТТД {orgTin}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-[var(--ea-text-3)]">
-                        РД өгвөл ТТД-г сервер өөрөө хайна
-                      </span>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
           </div>
         )}
 

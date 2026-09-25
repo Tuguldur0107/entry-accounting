@@ -799,6 +799,11 @@ async function main() {
     ["pos_settings", "qpay_merchant_id", "text"],
     ["pos_settings", "qpay_invoice_ttl_sec", "integer not null default 180"],
     ["pos_payment_methods", "provider", "text"],
+    // НӨАТ-гүй POS борлуулалт (lib/pos/non-vat.ts) — данс default-гүй (зохиохгүй)
+    ["pos_settings", "non_vat_revenue_account_number", "text"],
+    ["pos_settings", "non_vat_receivable_account_number", "text"],
+    ["pos_sales", "non_vat", "boolean not null default false"],
+    ["pos_sales", "non_vat_reason", "text"],
   ]) {
     await run(
       `${table}.${column} багана`,

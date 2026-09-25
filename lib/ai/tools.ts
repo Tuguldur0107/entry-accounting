@@ -3227,6 +3227,8 @@ export const AI_TOOLS: AiToolDef[] = [
         customerTin: { type: "string", description: "Байгууллагын ТТД (11/14 орон) — өгвөл B2B баримт" },
         customerRegNo: { type: "string", description: "Байгууллагын РД — ТТД-г ТЕГ-ийн лавлахаас автоматаар олно (customerTin-ийн оронд)" },
         skipEbarimt: { type: "boolean", description: "true бол ЭНЭ борлуулалтыг eBarimt-гүй бүртгэнэ (ТЕГ-д илгээхгүй, статус «Илгээгээгүй») — хэрэглэгч ил хүссэн үед л; дараа нь resend_ebarimt-ээр илгээж болно" },
+        nonVat: { type: "boolean", description: "true бол НӨАТ-гүй борлуулалт (кассын «НӨАТ» унтраалттай — нөхөж оруулах, залруулга): НӨАТ задлахгүй, eBarimt ОГТ үүсэхгүй, POS тохиргооны НӨАТ-гүй орлого/авлагын дансаар; nonVatReason ЗААВАЛ, менежерийн эрх (managerApproval). Хэрэглэгч ил хүссэн үед л" },
+        nonVatReason: { type: "string", description: "НӨАТ-гүй борлуулалтын шалтгаан (nonVat=true үед заавал)" },
         managerApproval: {
           type: "boolean",
           description:
@@ -11275,6 +11277,8 @@ async function runCreatePosSale(
     customerTin?: string;
     customerRegNo?: string;
     skipEbarimt?: boolean;
+    nonVat?: boolean;
+    nonVatReason?: string;
   },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
@@ -11313,6 +11317,8 @@ async function runCreatePosSale(
     couponCodes: input.couponCodes ?? [],
     receiptDiscountPercent: input.receiptDiscountPercent ?? null,
     receiptDiscountAmount: input.receiptDiscountAmount ?? null,
+    nonVat: input.nonVat === true,
+    nonVatReason: input.nonVatReason ?? null,
   };
   const { quote } = unwrapAction(await quotePosSale(quoteInput));
   assertPostLimit(quote.total);

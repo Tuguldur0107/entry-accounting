@@ -3662,6 +3662,13 @@ export const posSettings = pgTable(
     cashRoundingUnit: integer("cash_rounding_unit").notNull().default(0),
     receiptHeader: text("receipt_header").notNull().default(""),
     receiptFooter: text("receipt_footer").notNull().default("Худалдан авалтад баярлалаа"),
+    /**
+     * НӨАТ-гүй борлуулалтын (кассын «НӨАТ» унтраалттай — нөхөж оруулах, залруулга)
+     * орлого ба авлагын ДАНС. Кодод default БАЙХГҮЙ — хоосон бол НӨАТ-гүй
+     * борлуулалт `[NON_VAT_ACCOUNTS_REQUIRED]`-ээр татгалзана (данс ЗОХИОХГҮЙ).
+     */
+    nonVatRevenueAccountNumber: text("non_vat_revenue_account_number"),
+    nonVatReceivableAccountNumber: text("non_vat_receivable_account_number"),
     // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1, T1a) ──
     // Мерчантын тохиргоо харилцагчийн апп-д (Console-д биш); нууц энд байхгүй.
     /** Автомат илгээлт асаалттай эсэх — унтраалттай бол v1-ийн гар ДДТД хэвээр. */
@@ -3884,6 +3891,13 @@ export const posSales = pgTable(
     /** Худалдан авагч: иргэний eBarimt дугаар (B2C) эсвэл байгууллагын ТТД (B2B) — борлуулах мөчид бичигдэнэ. */
     ebarimtConsumerNo: text("ebarimt_consumer_no"),
     ebarimtCustomerTin: text("ebarimt_customer_tin"),
+    /**
+     * НӨАТ-гүй борлуулалт (кассын «НӨАТ» унтраалттай): НӨАТ задлахгүй, eBarimt
+     * ҮҮСГЭХГҮЙ (дараа нь илгээх ч боломжгүй), GL-д pos_settings.nonVat*-ийн
+     * орлого/авлагын дансаар. Шалтгаан ЗААВАЛ, эрх pos:post (lib/pos/non-vat.ts).
+     */
+    nonVat: boolean("non_vat").notNull().default(false),
+    nonVatReason: text("non_vat_reason"),
     note: text("note").notNull().default(""),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

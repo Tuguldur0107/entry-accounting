@@ -26,7 +26,7 @@ import { feedback } from "@/lib/ui/feedback";
 
 type StatusFilter = "all" | "posted" | "partially_returned" | "returned" | "voided";
 type KindFilter = "all" | "sales" | "returns";
-type EbarimtFilter = "all" | "failed" | "skipped";
+type EbarimtFilter = "all" | "failed" | "skipped" | "non_vat";
 
 export const SALE_STATUS_TONES: Record<string, StatusTone> = {
   posted: "success",
@@ -137,10 +137,12 @@ export function SalesListView({
   const ebarimtChips = useMemo<ChipOption<EbarimtFilter>[]>(() => {
     const failed = sales.filter((sale) => sale.ebarimtStatus === "failed").length;
     const skipped = sales.filter((sale) => sale.ebarimtStatus === "skipped").length;
+    const nonVatCount = sales.filter((sale) => sale.nonVat).length;
     return [
       { value: "all", label: "eBarimt бүгд" },
       { value: "failed", label: "eBarimt алдаатай", count: failed, tone: "warning" as const },
       { value: "skipped", label: "eBarimt илгээгээгүй", count: skipped, tone: "warning" as const },
+      { value: "non_vat", label: "НӨАТ-гүй", count: nonVatCount, tone: "warning" as const },
     ];
   }, [sales]);
 
@@ -149,7 +151,7 @@ export function SalesListView({
       kindFiltered.filter(
         (sale) =>
           (status === "all" || sale.status === status) &&
-          (ebarimt === "all" || sale.ebarimtStatus === ebarimt)
+          (ebarimt === "all" || (ebarimt === "non_vat" ? sale.nonVat : sale.ebarimtStatus === ebarimt))
       ),
     [kindFiltered, status, ebarimt]
   );
@@ -208,6 +210,24 @@ export function SalesListView({
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
         valueFormatter: (p) => (Number(p.value) > 0 ? `−${fmtMnt(Number(p.value))}` : ""),
+      },
+      {
+        // НӨАТ-гүй борлуулалт (кассын «НӨАТ» унтраалттай) — eBarimt үүсээгүй, тусдаа данс.
+        headerName: "НӨАТ баримт",
+        field: "nonVat",
+        width: 120,
+        valueGetter: (p) => (p.data?.nonVat ? "НӨАТ-гүй" : "НӨАТ-тэй"),
+        tooltipValueGetter: (p) => (p.data?.nonVat ? `Шалтгаан: ${p.data.nonVatReason ?? "—"}` : undefined),
+        cellRenderer: (p: ICellRendererParams<PosSaleView>) =>
+          p.data?.nonVat ? (
+            <span className="flex h-full items-center">
+              <StatusBadge tone="warning" size="sm">
+                НӨАТ-гүй
+              </StatusBadge>
+            </span>
+          ) : (
+            <span className="text-xs text-[var(--ea-text-3)]">НӨАТ-тэй</span>
+          ),
       },
       {
         headerName: "НӨАТ",
