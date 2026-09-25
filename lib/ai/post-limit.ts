@@ -36,7 +36,7 @@ export type AiPostLimitPlan =
 
 /**
  * Хязгаарын өөрчлөлтийг шалгана — ЦЭВЭР (DB-гүй, тесттэй).
- * `viaTool` нь AI/MCP/REST-ээс ирсэн эсэх: тэр замд ӨСГӨЛТ таазтай.
+ * `viaTool` нь AI/MCP/REST-ээс ирсэн эсэх: тэр замд ӨСГӨЛТ ХОРИОТОЙ — зөвхөн бууруулна (SIM ENT-068, CLAUDE.md §9).
  */
 export function planAiPostLimitChange(args: {
   currentMnt: number;
