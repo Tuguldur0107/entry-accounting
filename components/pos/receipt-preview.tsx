@@ -114,25 +114,38 @@ function buildQrPath(value: string): { path: string; count: number } | null {
   }
 }
 
+/**
+ * `qrcode-generator`-ийг НЭГ удаа ачаална (давхар дуудалт нэг promise-ийг
+ * хуваалцана). Баримтын диалог mount болмогц урьдчилан дуудагдана — сугалаа,
+ * QR нь нэг л удаа хэвлэгддэг тул эхний баримт ч QR-тай гарах ёстой.
+ */
+let qrFactoryLoading: Promise<void> | null = null;
+function ensureQrFactory(): Promise<void> {
+  if (qrFactory) return Promise.resolve();
+  qrFactoryLoading ??= import("qrcode-generator")
+    .then((module) => {
+      qrFactory = module.default;
+    })
+    .catch(() => {
+      // Ачаалагдаагүй — QR хэвлэгдэхгүй, ДДТД/сугалаа хэвээр; дараа дахин оролдоно.
+      qrFactoryLoading = null;
+    });
+  return qrFactoryLoading;
+}
+
 function ReceiptQr({ value }: { value: string }) {
+  // Render бүрд шууд (buildQrPath өөрөө Map-аар кэшлэдэг). useMemo([value]) нь
+  // сан ачаалагдахаас өмнөх null-ийг хадгалж QR ХЭЗЭЭ Ч зурагдахгүй байв —
+  // components/ui/qr-code.tsx-ийн #111 засвартай ижил алдаа.
   const [, setLoaded] = useState(0);
-  // useMemo БИШ: сан ачаалагдахаас өмнөх null-ийг хадгалж, хуудас ачаалсны
-  // дараах эхний баримт дээр QR огт зурагдахгүй байв (components/ui/qr-code.tsx-тэй
-  // ижил алдаа). buildQrPath өөрөө Map-аар кэшлэдэг.
   const qr = buildQrPath(value);
 
   useEffect(() => {
-    if (qr || qrFactory) return;
+    if (qr) return;
     let cancelled = false;
-    import("qrcode-generator")
-      .then((module) => {
-        if (cancelled) return;
-        qrFactory = module.default;
-        setLoaded((current) => current + 1);
-      })
-      .catch(() => {
-        // Ачаалагдаагүй — QR хэвлэгдэхгүй, ДДТД/сугалаа хэвээр.
-      });
+    void ensureQrFactory().then(() => {
+      if (!cancelled && qrFactory) setLoaded((current) => current + 1);
+    });
     return () => {
       cancelled = true;
     };
@@ -351,18 +364,31 @@ export function ReceiptPreview({
     }
   });
 
+  // QR-ийн санг урьдчилан ачаална — эхний борлуулалтын баримт ч QR-тай хэвлэгдэнэ.
+  useEffect(() => {
+    void ensureQrFactory();
+  }, []);
+
   const saleId = receipt?.saleId ?? null;
   const ebarimtPending = receipt?.ebarimtStatus === "pending";
+  const hasQr = !!receipt?.ebarimtQrData;
   useEffect(() => {
     if (!autoPrint || !saleId || autoPrintedFor.current === saleId) return;
-    const run = () => {
+    let cancelled = false;
+    const run = async () => {
+      // QR нэг л удаа хэвлэгддэг тул сан ачаалагдтал хүлээнэ (унасан бол QR-гүй).
+      if (hasQr) await ensureQrFactory();
+      if (cancelled) return;
       autoPrintedFor.current = saleId;
       closeAfterPrint.current = true;
       print();
     };
-    const timer = setTimeout(run, waitForEbarimt && ebarimtPending ? EBARIMT_PRINT_WAIT_MS : 0);
-    return () => clearTimeout(timer);
-  }, [autoPrint, saleId, ebarimtPending, waitForEbarimt, print]);
+    const timer = setTimeout(() => void run(), waitForEbarimt && ebarimtPending ? EBARIMT_PRINT_WAIT_MS : 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [autoPrint, saleId, ebarimtPending, waitForEbarimt, hasQr, print]);
 
   const printed = receipt !== null && printedId === receipt.saleId;
   const hasOneTimeData = !!(receipt?.ebarimtLottery || receipt?.ebarimtQrData);
