@@ -214,7 +214,8 @@ entry-accounting/
   `past_due` (grace `graceDaysFor`: skills 3, бусад 14). Идэвхтэй хугацаанд
   багц/суудал солихгүй (пропорц зохиохгүй); read-only үед ч төлнө
   (`requireRole`, assertWritesAllowed-гүй); мөнгө хэзээ ч алдагдахгүй
-  (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`)
+  (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`). Console: `GET
+  /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`)
 - **Дэмжлэгийн хандалт** (`docs/deployment/support-access.md` — ЗААВАЛ уншина;
   `lib/platform/support.ts` ЦЭВЭР + `support-store.ts` DB): платформын оператор
   харилцагчийн байгууллагад ТҮР орох цорын ганц зам. Эрх нь ХЭРЭГЛЭГЧИД биш
@@ -879,6 +880,9 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   (`pos_sales.nonVatReason`), эрх `pos:post` (approvalReasons), аудитад ил;
   жагсаалтын «НӨАТ баримт» багана + «НӨАТ-гүй» шүүлт, панель. Буцаалт эх АР
   мөрийн орлогын данс руу. AI `create_pos_sale` `nonVat` + `nonVatReason`
+- **Зээлээр (`credit`) = НЭХЭМЖЛЭХ:** зээлийн хэсэгтэй борлуулалт `B2C/B2B_INVOICE`
+  төрлөөр, тэр хэсэг `payments[].status = PAY` (бусад PAID), сугалаагүй —
+  `receiptTypeOf` (receipt.ts, тесттэй); `EBARIMT_INVOICE_PAYMENT_KINDS` нь ЦОРЫН ГАНЦ эх
 - **taxType бүлэглэл:** НӨАТ төлөгч бус → бүх мөр `NOT_VAT`; төлөгч бол
   барааны `vatMode` → `VAT_ABLE|VAT_FREE|VAT_ZERO`, мөрүүд дэд баримт
   (`receipts[]`) болж бүлэглэгдэнэ. Хэсэгчилсэн буцаалтын дараа үлдсэн мөрөөр

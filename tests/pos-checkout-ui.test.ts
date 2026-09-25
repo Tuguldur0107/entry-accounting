@@ -64,3 +64,12 @@ test("НӨАТ-гүй борлуулалт жагсаалт, панельд ил
   assert.match(salesList, /value: "non_vat"/);
   assert.match(salePanel, /sale\.nonVat \? \(/);
 });
+
+test("QR (eBarimt баримт, QPay/нэхэмжлэх) useMemo-гоор кэшлэгдэхгүй — сан ачаалагдахаас өмнөх null үлдэж QR зурагддаггүй байв", () => {
+  const qrCode = readFileSync("components/ui/qr-code.tsx", "utf8");
+  assert.doesNotMatch(receiptPreview, /useMemo\(\(\) => buildQrPath/, "ReceiptQr дахин useMemo-гоор кэшлэж байна");
+  assert.doesNotMatch(qrCode, /useMemo\(\(\) => buildPath/, "QrCode дахин useMemo-гоор кэшлэж байна");
+  // Сугалаа/QR нэг л удаа хэвлэгддэг — сан урьдчилан ачаалагдаж, автомат хэвлэлт QR-ийг хүлээнэ
+  assert.match(receiptPreview, /void ensureQrFactory\(\);/);
+  assert.match(receiptPreview, /if \(hasQr\) await ensureQrFactory\(\);/);
+});

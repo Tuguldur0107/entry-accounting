@@ -154,7 +154,7 @@ counterparties               registerNo (одоо байгаа) → getTinInfo-�
 | cash, cash_fx | `CASH` | валют → MNT `baseAmount` |
 | card | `PAYMENT_CARD` | `exchangeCode` = терминалын лавлагаа |
 | ewallet, transfer, bnpl | ТЕГ-ийн жагсаалтаас (§8 — `QPAY`/`SOCIALPAY`/`BANK_TRANSFER` мэт код байгаа эсэх) | олдохгүй бол `PAYMENT_CARD`? → ҮГҮЙ, шийдвэр §8 |
-| credit | баримт биш **INVOICE** төрөл? | §8 |
+| credit | `INVOICE` (хэрэглэгчийн шийдвэр 2026-09-25); баримт `B2C/B2B_INVOICE`, статус `PAY` | T3 — `receiptTypeOf` |
 | advance, gift_card, store_credit | урьдчилж төлөгдсөн → `CASH`? | §8 (гуравдагч талаас баталгаажуулна) |
 
 ### 4.4 Илгээлтийн урсгал (async, борлуулалт зогсохгүй)
