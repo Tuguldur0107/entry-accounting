@@ -27,12 +27,15 @@ import { Button } from "@/components/ui/button";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { PageTabs } from "@/components/ui/tabs";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { EBARIMT_STATUS_TONES } from "@/components/pos/sales-list-view";
+import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { downloadWorkbook, type ExportColumn } from "@/lib/excel/core";
 import { PAYMENT_KIND_LABELS, type PaymentKind } from "@/lib/pos/constants";
 import {
   aggregateBy,
   aggregatePayments,
   COGS_BASIS_LABELS,
+  ebarimtSentCount,
   summarize,
   type AggRow,
   type CogsBasis,
@@ -161,9 +164,37 @@ function cogsCell<T extends { cogsBasis: CogsBasis }>(): Partial<ColDef<T>> {
   };
 }
 
+/**
+ * eBarimt илгээсэн чек / нийт чек: бүгд илгээгдсэн бол амжилт, дутуу бол
+ * анхааруулгын өнгө (ТЕГ рүү очоогүй баримт ил); чекгүй мөр «—».
+ */
+function ebarimtCell<T extends { salesCount: number }>(): Partial<ColDef<T>> {
+  return {
+    ...numberCell,
+    cellRenderer: (params: ICellRendererParams<T>) => {
+      const sent = params.value as number | null | undefined;
+      const total = params.data?.salesCount ?? 0;
+      if (sent === null || sent === undefined || total === 0) return <span>—</span>;
+      const color = sent >= total ? "var(--ea-success-fg)" : "var(--ea-warning-fg)";
+      return (
+        <span style={{ color }}>
+          {sent}/{total}
+        </span>
+      );
+    },
+  };
+}
+
 // ─── Мөрийн төрлүүд ──────────────────────────────────────────────────────────
 
-type LineRow = SalesLineRow & { rowId: string; itemLabel: string; rulesLabel: string };
+type LineRow = SalesLineRow & { rowId: string; itemLabel: string; rulesLabel: string; ebarimtLabel: string };
+
+/** eBarimt багана: НӨАТ-гүй борлуулалт → «НӨАТ-гүй»; статусгүй → «—». */
+function ebarimtLabelOf(line: Pick<SalesLineRow, "nonVat" | "ebarimtStatus">): string {
+  if (line.nonVat) return "НӨАТ-гүй";
+  if (!line.ebarimtStatus) return "—";
+  return EBARIMT_STATUS_LABELS[line.ebarimtStatus as EbarimtStatus] ?? line.ebarimtStatus;
+}
 
 type ItemRow = AggRow & {
   itemId: string;
@@ -179,6 +210,18 @@ type DayRow = SalesSummary & {
   saleIds: string[];
   /** kind → тэмдэгтэй дүн. */
   byKind: Record<string, number>;
+  /** Тухайн өдөр борлуулсан салбарууд (нэрээр, «·»-ээр). */
+  warehouses: string;
+  /** eBarimt илгээгдсэн чек / нийт чек. */
+  ebarimtSent: number;
+};
+
+type WarehouseRow = SalesSummary & {
+  warehouseId: string;
+  warehouseName: string;
+  saleIds: string[];
+  discountPct: number | null;
+  ebarimtSent: number;
 };
 
 type CashierRow = SalesSummary & { cashierName: string; discountPct: number | null };
@@ -293,6 +336,7 @@ export function SalesReportView({
         rowId: `${line.saleId}:${index}`,
         itemLabel: line.itemCode ? `${line.itemCode} · ${line.itemName}` : line.itemName,
         rulesLabel: line.discountRules.join(", "),
+        ebarimtLabel: ebarimtLabelOf(line),
       })),
     [lines]
   );
@@ -324,6 +368,8 @@ export function SalesReportView({
         valueFormatter: (params) => (params.value ? fmtSoldAt(String(params.value)) : ""),
       },
       { headerName: "Дугаар", field: "documentNo", width: 130, cellClass: "font-mono" },
+      { headerName: "Салбар", field: "warehouseName", width: 130 },
+      { headerName: "Ээлж", field: "shiftNo", width: 110, cellClass: "font-mono text-xs" },
       { headerName: "Кассчин", field: "cashierName", width: 130 },
       { headerName: "Харилцагч", field: "counterpartyName", minWidth: 150, flex: 1 },
       { headerName: "Бараа", field: "itemLabel", minWidth: 180, flex: 1 },
@@ -335,6 +381,22 @@ export function SalesReportView({
       { headerName: "НӨАТ", field: "vatAmount", width: 110, ...moneyCell },
       { headerName: "Нийт", field: "lineTotal", width: 130, ...moneyCell },
       { headerName: "Төлбөр", field: "paymentSummary", minWidth: 160, flex: 1, cellClass: "text-xs" },
+      {
+        headerName: "eBarimt",
+        field: "ebarimtLabel",
+        width: 150,
+        cellRenderer: (params: ICellRendererParams<LineRow>) => {
+          const status = params.data?.ebarimtStatus;
+          if (!params.data || params.node.rowPinned) return <span />;
+          if (params.data.nonVat || !status) return <span className="text-xs text-[var(--ea-text-3)]">{params.value}</span>;
+          return (
+            <StatusBadge tone={EBARIMT_STATUS_TONES[status] ?? "muted"} size="sm">
+              {String(params.value)}
+            </StatusBadge>
+          );
+        },
+      },
+      { headerName: "ДДТД", field: "ebarimtId", width: 150, cellClass: "font-mono text-xs" },
       { headerName: "COGS", field: "cogs", width: 140, ...cogsCell<LineRow>() },
       { headerName: "Ахиуц", field: "margin", width: 140, ...cogsCell<LineRow>() },
     ],
@@ -420,6 +482,8 @@ export function SalesReportView({
         date,
         saleIds: uniqueSaleIds(group.lines),
         byKind: byDayKind.get(date) ?? {},
+        warehouses: [...new Set(group.lines.map((line) => line.warehouseName))].sort().join(" · "),
+        ebarimtSent: ebarimtSentCount(group.lines),
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [lines, payments]);
@@ -428,12 +492,14 @@ export function SalesReportView({
     for (const row of dayRows)
       for (const [kind, amount] of Object.entries(row.byKind))
         byKind[kind] = Math.round(((byKind[kind] ?? 0) + amount) * 100) / 100;
-    return [{ ...summary, date: "НИЙТ", saleIds: [], byKind }];
-  }, [dayRows, summary]);
+    return [{ ...summary, date: "НИЙТ", saleIds: [], byKind, warehouses: "", ebarimtSent: ebarimtSentCount(lines) }];
+  }, [dayRows, summary, lines]);
   const dayColumns = useMemo<ColDef<DayRow>[]>(
     () => [
       { headerName: "Огноо", field: "date", width: 120, cellClass: "font-mono" },
+      { headerName: "Салбар", field: "warehouses", width: 150, cellClass: "text-xs" },
       { headerName: "Чек", field: "salesCount", width: 80, ...numberCell },
+      { headerName: "eBarimt", field: "ebarimtSent", width: 100, ...ebarimtCell<DayRow>() },
       { headerName: "Дундаж чек", field: "averageTicket", width: 130, ...moneyCell },
       { headerName: "Нийт", field: "total", width: 140, ...moneyCell },
       { headerName: "Хөнгөлөлт", field: "discount", width: 120, ...moneyCell },
@@ -451,6 +517,55 @@ export function SalesReportView({
       { headerName: "Ахиуц", field: "margin", width: 140, ...cogsCell<DayRow>() },
     ],
     [presentKinds]
+  );
+
+  // ── Салбараар (агуулах = салбар, docs/pos §5 + QPay D2) ──
+  const warehouseRows = useMemo<WarehouseRow[]>(() => {
+    const names = new Map(lines.map((line) => [line.warehouseId, line.warehouseName]));
+    return [...groupSummaries(lines, (line) => line.warehouseId)]
+      .map(([warehouseId, group]) => ({
+        ...group.summary,
+        warehouseId,
+        warehouseName: names.get(warehouseId) ?? "—",
+        saleIds: uniqueSaleIds(group.lines),
+        discountPct:
+          group.summary.gross === 0
+            ? null
+            : Math.round((group.summary.discount / group.summary.gross) * 10000) / 100,
+        ebarimtSent: ebarimtSentCount(group.lines),
+      }))
+      .sort((a, b) => b.total - a.total || a.warehouseName.localeCompare(b.warehouseName));
+  }, [lines]);
+  const warehouseTotals = useMemo<Partial<WarehouseRow>[]>(
+    () => [
+      {
+        ...summary,
+        warehouseId: "total",
+        warehouseName: "НИЙТ",
+        saleIds: [],
+        discountPct: summary.gross === 0 ? null : Math.round((summary.discount / summary.gross) * 10000) / 100,
+        ebarimtSent: ebarimtSentCount(lines),
+      },
+    ],
+    [summary, lines]
+  );
+  const warehouseColumns = useMemo<ColDef<WarehouseRow>[]>(
+    () => [
+      { headerName: "Салбар", field: "warehouseName", minWidth: 180, flex: 1 },
+      { headerName: "Чек", field: "salesCount", width: 80, ...numberCell },
+      { headerName: "eBarimt", field: "ebarimtSent", width: 100, ...ebarimtCell<WarehouseRow>() },
+      { headerName: "Дундаж чек", field: "averageTicket", width: 130, ...moneyCell },
+      { headerName: "Нийт", field: "total", width: 140, ...moneyCell },
+      { headerName: "Хөнгөлөлт", field: "discount", width: 120, ...moneyCell },
+      { headerName: "Хөнгөлөлт %", field: "discountPct", width: 110, ...pctCell },
+      { headerName: "Цэвэр", field: "net", width: 140, ...moneyCell },
+      { headerName: "НӨАТ", field: "vat", width: 110, ...moneyCell },
+      { headerName: "Буцаалт", field: "returnsTotal", width: 120, ...moneyCell },
+      { headerName: "COGS", field: "cogs", width: 140, ...cogsCell<WarehouseRow>() },
+      { headerName: "Ахиуц ₮", field: "margin", width: 140, ...cogsCell<WarehouseRow>() },
+      { headerName: "Ахиуц %", field: "marginPercent", width: 100, ...pctCell },
+    ],
+    []
   );
 
   // ── 5.4 Кассчинаар ──
@@ -637,6 +752,9 @@ export function SalesReportView({
               return flat as unknown as DayRow;
             }),
           });
+          break;
+        case "warehouses":
+          await exportRows({ slug: "pos-sales-warehouses", sheetName: "Салбараар", columns: warehouseColumns, rows: warehouseRows });
           break;
         case "cashiers":
           await exportRows({ slug: "pos-sales-cashiers", sheetName: "Кассчинаар", columns: cashierColumns, rows: cashierRows });
@@ -831,6 +949,17 @@ export function SalesReportView({
           columnDefs={dayColumns}
           getRowId={(params) => params.data.date}
           pinnedBottomRowData={dayTotals as DayRow[]}
+          onRowDoubleClicked={(event) => {
+            if (!isTotalRow(event) && event.data) openSales(event.data.saleIds);
+          }}
+        />
+      ) : view === "warehouses" ? (
+        <DataGridDynamic<WarehouseRow>
+          {...gridProps}
+          rowData={warehouseRows}
+          columnDefs={warehouseColumns}
+          getRowId={(params) => params.data.warehouseId}
+          pinnedBottomRowData={warehouseTotals as WarehouseRow[]}
           onRowDoubleClicked={(event) => {
             if (!isTotalRow(event) && event.data) openSales(event.data.saleIds);
           }}

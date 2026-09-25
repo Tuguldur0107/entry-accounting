@@ -817,7 +817,7 @@ app/(dashboard)/inventory/sales  Борлуулалт (жагсаалт) — Э�
                                  POS тохиргоо `/inventory/pos-settings` нь ТУСДАА нав цэс
                                  (хуудас бүр зөвхөн ӨӨРИЙН өгөгдлөө ачаална; хуучин
                                  `/inventory/sales?tab=` линк redirect хийнэ)
-app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (7 зүсэлт, COGS cost_period_results-ээс;
+app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (8 зүсэлт, COGS cost_period_results-ээс;
                                  топбарын сонгогч «Борлуулалтын тайлан (POS)»)
 components/pos/                  pos-checkout-view (orchestrator) + checkout/{product-panel, ticket-panel,
                                  numpad, discount-dialog, parked-dialog}, payment-dialog, receipt-preview
@@ -825,7 +825,7 @@ components/pos/                  pos-checkout-view (orchestrator) + checkout/{pr
                                  sales-page-view → sales-list-view / shifts-view + shift-dialogs
                                  (нээх, хаах, Z-тайлан) / gift-cards-view / pos-settings-view
                                  (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
-                                 sales-report-view (/inventory/reports?tab=sales, 7 зүсэлт)
+                                 sales-report-view (/inventory/reports?tab=sales, 8 зүсэлт)
 components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт: мөр/дүн, буцаан олголт эсвэл
                                  дэлгүүрийн кредит; дахин хэвлэх; eBarimt; АР/журнал/хавсралт)
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
@@ -2277,7 +2277,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
 | POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
-| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 7 зүсэлт (гүйлгээ/бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 8 зүсэлт (гүйлгээ/бараа/өдөр/салбар/кассчин/хэлбэр/харилцагч/дүрэм) — «Гүйлгээ»-нд салбар, ээлж, eBarimt статус + ДДТД; «Өдрөөр»/«Салбараар»-т eBarimt илгээсэн/чек; COGS суурь `final`/`provisional` ил, pinned нийт |
 | Цалингийн хуудас (payslip) | [components/payroll/payslip-report-view.tsx](components/payroll/payslip-report-view.tsx) | Ажилтны жагсаалт (pinned нийт) + A4 хуудас: давхар даралт → нэг ажилтан, «Бүгдийг хэвлэх» → ажилтан бүр шинэ хуудсанд (`ea-printing-payslip`) |
 | POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
