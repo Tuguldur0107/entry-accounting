@@ -8,7 +8,7 @@
 // үзүүлнэ (апп, диалог, бусад панель хэвлэгдэхгүй). Z-тайлан ч мөн
 // `usePosPrint`-ийг хэрэглэнэ.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
@@ -116,7 +116,10 @@ function buildQrPath(value: string): { path: string; count: number } | null {
 
 function ReceiptQr({ value }: { value: string }) {
   const [, setLoaded] = useState(0);
-  const qr = useMemo(() => buildQrPath(value), [value]);
+  // useMemo БИШ: сан ачаалагдахаас өмнөх null-ийг хадгалж, хуудас ачаалсны
+  // дараах эхний баримт дээр QR огт зурагдахгүй байв (components/ui/qr-code.tsx-тэй
+  // ижил алдаа). buildQrPath өөрөө Map-аар кэшлэдэг.
+  const qr = buildQrPath(value);
 
   useEffect(() => {
     if (qr || qrFactory) return;
@@ -140,12 +143,13 @@ function ReceiptQr({ value }: { value: string }) {
     <div className="mt-1 flex justify-center">
       <svg
         viewBox={`-2 -2 ${qr.count + 4} ${qr.count + 4}`}
-        style={{ width: "36mm", height: "36mm" }}
+        style={{ width: "36mm", height: "36mm", background: "var(--ea-qr-bg)" }}
         shapeRendering="crispEdges"
         role="img"
         aria-label="eBarimt QR"
       >
-        <path d={qr.path} fill="currentColor" />
+        {/* Дэлгэцийн урьдчилсан харагдац dark горимд ч цагаан дээр хар (урвуу QR уншигдахгүй) */}
+        <path d={qr.path} fill="var(--ea-qr-fg)" />
       </svg>
     </div>
   );
