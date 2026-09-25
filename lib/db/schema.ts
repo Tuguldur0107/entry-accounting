@@ -1311,6 +1311,104 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
     .where(sql`${t.voucherId} is not null`),
 ]);
 
+// ─── Авлагын ECL нөөц, найдваргүй авлага хасах (ENT-065, IFRS 9) ─────────────
+// Шийдвэр D-ECL-1…4 — lib/arap/ecl.ts, docs/cost README 1.2.
+
+/** Байгууллага бүрийн ECL тохиргоо (ratified-seed: мөргүй бол default-аар үүснэ). */
+export const arapEclSettings = pgTable(
+  "arap_ecl_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    /** Нөөцийн (contra) данс — D-ECL-1 default 12000099. */
+    allowanceAccountNumber: text("allowance_account_number").notNull().default("12000099"),
+    /** ECL зардал; сэргэлт нь мөн энэ дансыг Кт (D-ECL-4) — default 87000002. */
+    expenseAccountNumber: text("expense_account_number").notNull().default("87000002"),
+    /** Хойшлогдсон татварын хөрөнгө (IAS 12) — default 26000001. */
+    deferredTaxAssetAccountNumber: text("deferred_tax_asset_account_number")
+      .notNull()
+      .default("26000001"),
+    /** Хойшлогдсон татварын зардал/орлого — default 70000004. */
+    deferredTaxExpenseAccountNumber: text("deferred_tax_expense_account_number")
+      .notNull()
+      .default("70000004"),
+    /** Provision matrix `[{ maxDays, ratePct }]` (D-ECL-2, засагдана). */
+    matrix: jsonb("matrix").notNull(),
+    /** ААНОАТ-ын хувь (DTA) — null = тохируулаагүй, DTA БОДОГДОХГҮЙ (зохиохгүй). */
+    taxRatePct: numeric("tax_rate_pct", { precision: 6, scale: 3 }),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("arap_ecl_settings_org_ux").on(t.organizationId)]
+);
+
+/** Найдваргүй авлага хасалт — нэхэмжлэхийн нээлттэй үлдэгдлийг хаасан бичилт. */
+export const arapWriteOffs = pgTable(
+  "arap_write_offs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => arApDocuments.id, { onDelete: "restrict" }),
+    /** Үлдэгдлийг хаасан тооцооны мөр (буцаахад устана). */
+    settlementId: uuid("settlement_id").references(() => arApSettlements.id, {
+      onDelete: "set null",
+    }),
+    voucherId: uuid("voucher_id")
+      .notNull()
+      .references(() => journalVouchers.id, { onDelete: "restrict" }),
+    date: text("date").notNull(),
+    /** Хассан дүн — баримтын валютаар. */
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    baseAmount: numeric("base_amount", { precision: 18, scale: 2 }).notNull(),
+    /** GL: нөөцөөс хаасан ба шууд зардалд бичсэн хэсэг (MNT). */
+    allowanceAmount: numeric("allowance_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    expenseAmount: numeric("expense_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** Сэргэлтийн нийлбэр (баримтын валют / MNT). */
+    recoveredAmount: numeric("recovered_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    recoveredBaseAmount: numeric("recovered_base_amount", { precision: 18, scale: 2 })
+      .notNull()
+      .default("0"),
+    reason: text("reason").notNull(),
+    /** "active" | "reversed" */
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("arap_write_offs_org_document_ix").on(t.organizationId, t.documentId)]
+);
+
+/** Хассан авлагын сэргэлт (D-ECL-4): Dr авлага / Cr ECL зардал. */
+export const arapWriteOffRecoveries = pgTable(
+  "arap_write_off_recoveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    writeOffId: uuid("write_off_id")
+      .notNull()
+      .references(() => arapWriteOffs.id, { onDelete: "cascade" }),
+    voucherId: uuid("voucher_id")
+      .notNull()
+      .references(() => journalVouchers.id, { onDelete: "restrict" }),
+    date: text("date").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    baseAmount: numeric("base_amount", { precision: 18, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("arap_write_off_recoveries_write_off_ix").on(t.writeOffId)]
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -2821,6 +2919,11 @@ export const purchaseOrders = pgTable(
       precision: 18,
       scale: 8,
     }),
+    /**
+     * Дутуу хаалтын шалтгаан (ENT-064, D-SC-3 — заавал). null = бүрэн хаалт.
+     * Дахин нээхэд null болно.
+     */
+    shortCloseReason: text("short_close_reason"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
@@ -2860,6 +2963,13 @@ export const purchaseOrderLines = pgTable(
     }),
     description: text("description").notNull().default(""),
     sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * Дутуу хаалтаар цуцлагдсан (хүлээн аваагүй) тоо — ENT-064. Хаалтын
+     * мөчид захиалсан − хүлээн авсан; дахин нээхэд 0 болж сэргэнэ.
+     */
+    cancelledQuantity: numeric("cancelled_quantity", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
   },
   (t) => [index("purchase_order_lines_po_ix").on(t.purchaseOrderId)]
 );

@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   arApSettlements,
+  arapWriteOffs,
   bankStatements,
   cashDocuments,
   cashFxRevaluations,
@@ -31,6 +32,7 @@ const PURGE_TABLES = {
   pos_shifts: posShifts,
   cost_allocations: costAllocations,
   cost_entries: costEntries,
+  arap_write_offs: arapWriteOffs,
   ar_ap_settlements: arApSettlements,
   cash_fx_revaluations: cashFxRevaluations,
   cash_documents: cashDocuments,

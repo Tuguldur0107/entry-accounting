@@ -36,6 +36,7 @@ import {
   arApDocumentLines,
   arApDocuments,
   arApSettlements,
+  arapWriteOffs,
   cashDocuments,
   chartOfAccounts,
   costAllocations,
@@ -2595,6 +2596,19 @@ async function reverseArApOffsetCore(voucherId: string) {
   if (ownerDocument)
     throw new Error(
       `[CREDIT_OWN_APPLICATION] Энэ нь ${ownerDocument.documentNo} кредит/дебит баримтын тооцоо — баримтыг «Буцаах»-аар цуцална уу`
+    );
+  // Найдваргүй авлагын хасалт (ENT-065) — нөөц/зардлын хуваалт, сэргэлттэй
+  // тул зөвхөн өөрийн замаар буцаана.
+  const writeOff = await db.query.arapWriteOffs.findFirst({
+    where: and(
+      eq(arapWriteOffs.organizationId, orgId),
+      eq(arapWriteOffs.voucherId, voucherId)
+    ),
+    columns: { id: true },
+  });
+  if (writeOff)
+    throw new Error(
+      "[USE_WRITE_OFF_REVERSE] Энэ нь найдваргүй авлагын хасалт — нэхэмжлэхийн панелийн «Хасалтыг буцаах»-аар буцаана уу"
     );
 
   const settlements = await db.query.arApSettlements.findMany({

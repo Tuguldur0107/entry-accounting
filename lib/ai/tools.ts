@@ -26,6 +26,13 @@ import {
 } from "@/lib/actions/arap";
 import { createCreditNote, getCreditNoteSource } from "@/lib/actions/arap-credit-note";
 import {
+  getEclOverview,
+  recoverArApWriteOff,
+  runEclProvision,
+  writeOffArApDocument,
+} from "@/lib/actions/arap-ecl";
+import type { EclProvisionPlan } from "@/lib/arap/ecl";
+import {
   arapLedger,
   documentTypeLabel,
   isCreditDocument,
@@ -250,6 +257,7 @@ import {
 import {
   arApDocuments,
   arApSettlements,
+  arapWriteOffs,
   auditEvents,
   cashAccounts,
   posSales,
@@ -1402,6 +1410,58 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["arInvoice", "apBill"],
+    },
+  },
+  {
+    name: "get_ecl_provision",
+    description:
+      "Авлагын хүлээгдэж буй зээлийн алдагдлын (IFRS 9 ECL) нөөцийн тооцоо — хялбаршуулсан арга, provision matrix (хугацаа хэтэрсэн хоногийн бүлэг × хувь): бүлэг бүрийн үлдэгдэл, шаардлагатай нөөц, GL-ийн одоогийн нөөц, бичигдэх delta, хойшлогдсон татвар (IAS 12; ААНОАТ-ын хувь тохируулаагүй бол бодогдохгүй). Зөвхөн УНШИНА — журнал үүсгэхгүй.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        asOf: { type: "string", description: "Аль өдрийн байдлаар YYYY-MM-DD (хоосон бол өнөөдөр)" },
+      },
+    },
+  },
+  {
+    name: "run_ecl_provision",
+    description:
+      "Сарын ECL нөөцийн журналыг НООРОГ болгон үүсгэнэ (Dr ECL зардал / Cr ECL нөөц эсвэл эргэлт; DTA мөртэй). Өмнөх ноорог ECL журнал солигдоно; батлах нь нягтланчийн баталгаажуулалтаар (post_journal_voucher). Аль ч горимд — ноорог л үүсгэнэ.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        asOf: { type: "string", description: "Сарын сүүлийн өдөр YYYY-MM-DD" },
+      },
+      required: ["asOf"],
+    },
+  },
+  {
+    name: "write_off_arap_document",
+    description:
+      "Авлагын нэхэмжлэлийг НАЙДВАРГҮЙ болгож хасна (IFRS 9 write-off): Dr ECL нөөц (хүрэлцэхгүй хэсэг Dr ECL зардал) / Cr авлага; нэхэмжлэл насжилтаас гарна. reason ЗААВАЛ (аудитад). Зөвхөн 'Шууд бичих' горимд, батлах хязгаар дотор. Дараа нь мөнгө орвол recover_arap_write_off.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        document: { type: "string", description: "Авлагын нэхэмжлэл — дугаар (AR-...), externalRef эсвэл ID" },
+        date: { type: "string", description: "Хасах огноо YYYY-MM-DD (хоосон бол өнөөдөр)" },
+        amount: { type: "number", description: "Хасах дүн баримтын валютаар (хоосон бол нээлттэй үлдэгдэл бүхэлдээ)" },
+        reason: { type: "string", description: "Шалтгаан (5+ тэмдэгт — жишээ: «Харилцагч татан буугдсан, шүүхийн шийдвэр №…»)" },
+      },
+      required: ["document", "reason"],
+    },
+  },
+  {
+    name: "recover_arap_write_off",
+    description:
+      "Хассан авлагын мөнгө орж ирэхэд СЭРГЭЭНЭ: Dr авлага / Cr ECL зардал (зардлыг бууруулна) — нэхэмжлэлийн үлдэгдэл дахин нээгдэж, дараа нь create_cash_transaction (applyTo)-оор хаана. Зөвхөн 'Шууд бичих' горимд, батлах хязгаар дотор.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        document: { type: "string", description: "Хасагдсан нэхэмжлэл — дугаар, externalRef эсвэл ID" },
+        date: { type: "string", description: "Сэргэлтийн огноо YYYY-MM-DD (хоосон бол өнөөдөр)" },
+        amount: { type: "number", description: "Сэргээх дүн баримтын валютаар (хоосон бол хассан дүнгийн үлдэгдэл)" },
+      },
+      required: ["document"],
     },
   },
   {
@@ -2780,7 +2840,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "close_purchase_order",
     description:
-      "Захиалгыг ХААНА — түр дансдыг тэгшитгэсэн батлагдсан журнал үүснэ (Dr бараа материалын түр данс / Cr өглөгийн түр данс; зөрүү нь ханшийн олз/гарз дансанд). Нөхцөл: Σ хүлээн авсан = захиалсан, Σ нэхэмжилсэн тоо ба дүн = захиалгын дүн, бүх нэмэлт зардал хуваарилагдсан ([PO_NOT_READY], шалтгааныг get_purchase_order харуулна). Зөвхөн 'Шууд бичих' горимд, хаалтын журналын дүн 10 сая ₮-с хэтрэхгүй үед — их дүнтэй импортыг нягтланч вэб дээрээс хаана.",
+      "Захиалгыг ХААНА — түр дансдыг тэгшитгэсэн батлагдсан журнал үүснэ (Dr бараа материалын түр данс / Cr өглөгийн түр данс; зөрүү нь ханшийн олз/гарз дансанд). Нөхцөл: Σ хүлээн авсан = захиалсан, Σ нэхэмжилсэн тоо ба дүн = захиалгын дүн, бүх нэмэлт зардал хуваарилагдсан ([PO_NOT_READY], шалтгааныг get_purchase_order харуулна). ДУТУУ ХААЛТ (shortClose: true — бараа бүрэн ирэхгүй болсон): хүлээн аваагүй үлдэгдэл цуцлагдана, хүлээн авснаас илүү нэхэмжилсэн дүн writeOffAccount (6/7/8XXXXXXX зардлын данс — хэрэглэгчээс асууна, ТААХГҮЙ) руу Dr; reason ЗААВАЛ (аудитад). Хүлээн авсан ч нэхэмжлээгүй бараа байвал дутуу хаалт хориотой — эхлээд нэхэмжлэхийг батална. Зөвхөн 'Шууд бичих' горимд, батлах хязгаар дотор — их дүнтэй импортыг нягтланч вэб дээрээс хаана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2791,6 +2851,18 @@ export const AI_TOOLS: AiToolDef[] = [
         closeDate: {
           type: "string",
           description: "Хаах огноо YYYY-MM-DD (хоосон бол өнөөдөр) — хаалтын журналын огноо",
+        },
+        shortClose: {
+          type: "boolean",
+          description: "true = ДУТУУ хаах (хүлээн аваагүй үлдэгдлийг цуцална). reason заавал",
+        },
+        reason: {
+          type: "string",
+          description: "Дутуу хаах шалтгаан (5+ тэмдэгт, жишээ: «Нийлүүлэгч үлдэгдлийг нийлүүлэх боломжгүй»)",
+        },
+        writeOffAccount: {
+          type: "string",
+          description: "Хүлээн авснаас илүү нэхэмжилсэн дүнг бичих ЗАРДЛЫН данс (8 оронтой, 6/7/8-аар эхэлнэ) — илүү нэхэмжлэл байвал заавал; хэрэглэгчээс асууна",
         },
       },
       required: ["purchaseOrderId"],
@@ -6663,6 +6735,109 @@ async function findArapDocument(orgId: string, idOrNo: string) {
   return resolveByIdPrefix(documents, idOrNo, "нэхэмжлэх");
 }
 
+// ── ECL нөөц, найдваргүй авлага (ENT-065) ────────────────────────────────────
+
+function fmtEclPlan(plan: EclProvisionPlan): string[] {
+  const lines = plan.buckets.map(
+    (bucket) =>
+      `  ${bucket.label}: ${fmt(bucket.balance)}₮ (${bucket.count} баримт) × ${bucket.ratePct}% = ${fmt(bucket.required)}₮`
+  );
+  lines.push(
+    `Нийт авлага ${fmt(plan.grossBalance)}₮ → шаардлагатай нөөц ${fmt(plan.requiredAllowance)}₮; GL-ийн одоогийн нөөц ${fmt(plan.currentAllowance)}₮; бичигдэх delta ${fmt(plan.allowanceDelta)}₮`
+  );
+  lines.push(
+    plan.deferredTax
+      ? `Хойшлогдсон татвар (IAS 12, ${plan.deferredTax.ratePct}%): шаардлагатай DTA ${fmt(plan.deferredTax.requiredAsset)}₮, одоо ${fmt(plan.deferredTax.currentAsset)}₮, delta ${fmt(plan.deferredTax.delta)}₮`
+      : "Хойшлогдсон татвар бодогдоогүй — ААНОАТ-ын хувийг Авлага → ECL нөөц → Тохиргоо-д оруулна (хувь зохиохгүй)"
+  );
+  return lines;
+}
+
+async function runGetEclProvision(input: { asOf?: string }): Promise<AiToolResult> {
+  const asOf = input.asOf?.trim() || ulaanbaatarToday();
+  const overview = unwrapAction(await getEclOverview(asOf));
+  return {
+    resultText: [
+      `ECL нөөц (IFRS 9, хялбаршуулсан арга) — ${asOf}:`,
+      ...fmtEclPlan(overview.plan),
+      overview.drafts.length > 0
+        ? `Ноорог ECL журнал байна: ${overview.drafts.map((draft) => draft.documentNo ?? draft.id.slice(0, 8)).join(", ")}`
+        : "Ноорог ECL журнал алга — run_ecl_provision-оор үүсгэнэ",
+    ].join("\n"),
+  };
+}
+
+async function runRunEclProvision(input: { asOf: string }): Promise<AiToolResult> {
+  const result = unwrapAction(await runEclProvision({ asOf: input.asOf?.trim() }));
+  if (!result.voucherId)
+    return {
+      resultText: [`ECL нөөцөд өөрчлөлт алга (${input.asOf}) — журнал үүсээгүй.`, ...fmtEclPlan(result.plan)].join("\n"),
+    };
+  return {
+    resultText: [
+      `ECL нөөцийн НООРОГ журнал үүслээ: ${result.documentNo}${result.replacedDrafts > 0 ? ` (өмнөх ${result.replacedDrafts} ноорог солигдов)` : ""}. Нягтланч шалгаад батална.`,
+      ...fmtEclPlan(result.plan),
+    ].join("\n"),
+    action: { kind: "voucher", id: result.voucherId, title: result.documentNo ?? "ECL", status: "draft" },
+  };
+}
+
+async function runWriteOffArap(
+  orgId: string,
+  input: { document: string; date?: string; amount?: number; reason?: string },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const doc = await findArapDocument(orgId, input.document);
+  const open = Number(doc.totalAmount) - Number(doc.paidAmount);
+  const amount = input.amount != null ? Number(input.amount) : open;
+  assertPostLimit(open > 0 ? (Number(doc.baseTotalAmount) - Number(doc.basePaidAmount)) * (amount / open) : amount);
+  const result = unwrapAction(
+    await writeOffArApDocument({
+      documentId: doc.id,
+      date: input.date?.trim() || ulaanbaatarToday(),
+      amount: input.amount ?? null,
+      reason: input.reason ?? "",
+    })
+  );
+  return {
+    resultText: `${doc.documentNo} найдваргүй болгож хасагдлаа: ${fmt(result.baseAmount)}₮ (ECL нөөцөөс ${fmt(result.fromAllowance)}₮, шууд зардалд ${fmt(result.toExpense)}₮), журнал ${result.documentNo}. Мөнгө орвол recover_arap_write_off.`,
+    action: { kind: "arap", id: doc.id, title: doc.documentNo, status: "posted" },
+  };
+}
+
+async function runRecoverArapWriteOff(
+  orgId: string,
+  input: { document: string; date?: string; amount?: number },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  assertPostMode(mode);
+  const doc = await findArapDocument(orgId, input.document);
+  const writeOff = await db.query.arapWriteOffs.findFirst({
+    where: and(
+      eq(arapWriteOffs.organizationId, orgId),
+      eq(arapWriteOffs.documentId, doc.id),
+      eq(arapWriteOffs.status, "active")
+    ),
+    orderBy: [desc(arapWriteOffs.createdAt)],
+  });
+  if (!writeOff) throw codedError("WRITE_OFF_NOT_FOUND", `${doc.documentNo}-д идэвхтэй хасалт алга`);
+  const remaining = Number(writeOff.amount) - Number(writeOff.recoveredAmount);
+  const amount = input.amount != null ? Number(input.amount) : remaining;
+  assertPostLimit(remaining > 0 ? (Number(writeOff.baseAmount) - Number(writeOff.recoveredBaseAmount)) * (amount / remaining) : amount);
+  const result = unwrapAction(
+    await recoverArApWriteOff({
+      writeOffId: writeOff.id,
+      date: input.date?.trim() || ulaanbaatarToday(),
+      amount: input.amount ?? null,
+    })
+  );
+  return {
+    resultText: `${doc.documentNo}-ийн хасалтаас ${fmt(result.baseAmount)}₮ сэргээв (Dr авлага / Cr ECL зардал), журнал ${result.documentNo}. Нэхэмжлэлийн үлдэгдэл дахин нээгдсэн — орлогыг create_cash_transaction (applyTo: ${doc.documentNo})-оор бүртгэнэ.`,
+    action: { kind: "arap", id: doc.id, title: doc.documentNo, status: "posted" },
+  };
+}
+
 async function runSendInvoiceEmail(
   orgId: string,
   input: { documentId: string; to?: string }
@@ -10151,7 +10326,13 @@ async function runApprovePurchaseOrder(
 
 async function runClosePurchaseOrder(
   orgId: string,
-  input: { purchaseOrderId: string; closeDate?: string },
+  input: {
+    purchaseOrderId: string;
+    closeDate?: string;
+    shortClose?: boolean;
+    reason?: string;
+    writeOffAccount?: string;
+  },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
@@ -10167,10 +10348,20 @@ async function runClosePurchaseOrder(
       `${order.documentNo} захиалга нээлттэй биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — хаах боломжгүй`
     );
   const detail = await requirePurchaseOrderDetail(orgId, order.id);
-  if (detail.blockers.length > 0)
+  const short = input.shortClose === true;
+  if (!short && detail.blockers.length > 0)
     throw codedError(
       "PO_NOT_READY",
-      `${order.documentNo} хаах нөхцөл биелээгүй: ${detail.blockers.join("; ")}`
+      `${order.documentNo} хаах нөхцөл биелээгүй: ${detail.blockers.join("; ")}${
+        detail.shortClose && detail.shortClose.blockers.length === 0
+          ? ` — бараа бүрэн ирэхгүй бол shortClose: true + reason-оор ДУТУУ хаана (цуцлах үлдэгдэл ${detail.shortClose.cancelledQuantity} нэгж${detail.shortClose.writeOffMnt > 0 ? `, илүү нэхэмжлэл ${fmt(detail.shortClose.writeOffMnt)}₮ → writeOffAccount заавал` : ""})`
+          : ""
+      }`
+    );
+  if (short && detail.shortClose && detail.shortClose.blockers.length > 0)
+    throw codedError(
+      "PO_NOT_READY",
+      `${order.documentNo} дутуу хаах нөхцөл биелээгүй: ${detail.shortClose.blockers.join("; ")}`
     );
   // Хаалтын журналын дүн (түр дансдын үлдэгдэл) АЛЬ ХЭДИЙН ₮-ээр.
   assertPostLimit(
@@ -10181,12 +10372,31 @@ async function runClosePurchaseOrder(
   );
   const closeDate =
     input.closeDate?.trim() || new Date().toISOString().slice(0, 10);
-  const { voucherId } = unwrapAction(
-    await closePurchaseOrder({ id: order.id, closeDate })
+  const closed = unwrapAction(
+    await closePurchaseOrder({
+      id: order.id,
+      closeDate,
+      shortClose: short
+        ? {
+            reason: input.reason ?? "",
+            writeOffAccount: input.writeOffAccount?.trim() || null,
+          }
+        : null,
+    })
   );
+  const { voucherId } = closed;
   return {
     resultText: [
-      `Захиалга ХААГДЛАА: ${order.documentNo} (${closeDate}).`,
+      `Захиалга ${short ? "ДУТУУ " : ""}ХААГДЛАА: ${order.documentNo} (${closeDate}).`,
+      ...(short
+        ? [
+            `Хүлээн аваагүй ${closed.cancelledQuantity ?? 0} нэгж цуцлагдав${
+              (closed.writeOffMnt ?? 0) > 0
+                ? `; хүлээн авснаас илүү нэхэмжлэл ${fmt(closed.writeOffMnt ?? 0)}₮ зардалд (Dr ${input.writeOffAccount})`
+                : ""
+            }. Шалтгаан аудитад бичигдэв; дахин нээхэд цуцлалт сэргэнэ.`,
+          ]
+        : []),
       `Түр дансдыг тэгшитгэсэн журнал бичигдэв (ID ${voucherId.slice(0, 8)}): Dr бараа материалын түр данс ${fmt(Math.abs(detail.clearing.inventory))}₮ / Cr өглөгийн түр данс ${fmt(Math.abs(detail.clearing.payable))}₮; зөрүү нь ханшийн олз/гарз дансанд.`,
       "Хоёр түр данс энэ захиалгаар 0 болов — reconcile_modules-оор шалгаж болно.",
     ].join("\n"),
@@ -10728,7 +10938,7 @@ async function runCreateApInvoiceFromPo(
     };
 
   return {
-    resultText: `Захиалгын нэхэмжлэх үүслээ: ${created.documentNo} (${order.documentNo}), дүн ${fmt(currencyTotal)} ${order.currency}${costLines.length > 0 ? `, нэмэлт зардлын мөр ${costLines.length}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note} — Dr өглөгийн түр данс / Cr өглөг (хөдөлгөөн үүсэхгүй, орлого нь хүлээн авалтаас)${costLines.length > 0 ? ". Нэмэлт зардлыг create_cost_allocation-оор хуваарилна" : ""}`,
+    resultText: `Захиалгын нэхэмжлэх үүслээ: ${created.documentNo} (${order.documentNo}), дүн ${fmt(currencyTotal)} ${order.currency}${costLines.length > 0 ? `, нэмэлт зардлын мөр ${costLines.length}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note} — Dr өглөгийн түр данс / Cr өглөг (хөдөлгөөн үүсэхгүй, орлого нь хүлээн авалтаас)${costLines.length > 0 ? ". Нэмэлт зардлыг create_cost_allocation-оор хуваарилна" : ""}${created.warning ? `\n⚠ ${created.warning}` : ""}`,
     action: {
       kind: "arap",
       id: created.id,
@@ -11879,6 +12089,14 @@ async function dispatchAiTool(
         return await runSettleArApOffset(orgId, args, mode);
       case "create_credit_note":
         return await runCreateCreditNote(orgId, args, mode);
+      case "get_ecl_provision":
+        return await runGetEclProvision(args);
+      case "run_ecl_provision":
+        return await runRunEclProvision(args);
+      case "write_off_arap_document":
+        return await runWriteOffArap(orgId, args, mode);
+      case "recover_arap_write_off":
+        return await runRecoverArapWriteOff(orgId, args, mode);
       case "list_gl_accounts":
         return await runListGlAccounts(orgId, args);
       case "list_cash_accounts":

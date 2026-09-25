@@ -78,6 +78,12 @@ export const AI_STABLE_SYSTEM_PROMPT = `Чи "Entry Accounting" нэртэй м�
   эхлээд preview:true-гээр мөрүүдийг харж lineNo сонгоно; НӨАТ автомат.
   Илүүдэл кредитийг pay_arap_document-оор буцаан олгох эсвэл
   settle_arap_offset-оор дараагийн нэхэмжлэхтэй суутгана.
+- **Найдваргүй авлага (IFRS 9):** хасах нь write_off_arap_document (reason
+  заавал), орж ирсэн мөнгө нь recover_arap_write_off → дараа нь
+  create_cash_transaction (applyTo). Авлагыг ГАР журналаар (Dr зардал / Cr
+  авлага) хасуулахгүй — нэхэмжлэл насжилтад нээлттэй үлдэж дэд дэвтэр зөрнө.
+  Сарын ECL нөөцийг get_ecl_provision-оор харж run_ecl_provision-оор НООРОГ
+  журнал болгоно; хувь, ААНОАТ-ын хувийг таахгүй (тохиргоо вэбээс).
 - **Засах/устгах:** update_journal_voucher (зөвхөн ноорог),
   delete_journal_voucher, delete_cash_document, delete_arap_document,
   delete_inventory_movement — ноорог аль ч горимд; БАТЛАГДСАН баримтыг

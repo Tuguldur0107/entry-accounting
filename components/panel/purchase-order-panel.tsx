@@ -27,7 +27,9 @@ import { CounterpartySelect } from "@/components/arap/counterparty-select";
 import { AttachmentList } from "@/components/attachments/attachment-list";
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { PanelError, PanelLoading } from "@/components/panel/panel-states";
+import { PoShortCloseDialog } from "@/components/procurement/po-short-close-dialog";
 import { SupplierCard } from "@/components/procurement/supplier-card";
+import { useModuleCan } from "@/components/layout/module-access-context";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -260,6 +262,8 @@ function PurchaseOrderBody({
   // ENT-067: хаах огноо topbar-ийн сонгосон сараар (өнгөрсөн сарын PO-г тэр
   // сарын сүүлийн өдрөөр), хэрэглэгч footer-ийн «Хаах огноо» талбараас засна.
   const [closeDate, setCloseDate] = useState(currentDocumentDate);
+  const [shortCloseOpen, setShortCloseOpen] = useState(false);
+  const canPost = useModuleCan("proc", "post");
   const [rateHint, setRateHint] = useState<{
     rate: number;
     rateDate: string;
@@ -994,6 +998,13 @@ function PurchaseOrderBody({
   ];
 
   const blockers = detail?.blockers ?? [];
+  // Дутуу хаалт (ENT-064) — энгийн хаалт хориглогдсон, дутуу хаалтын нөхцөл биелсэн үед.
+  const shortCloseReady =
+    blockers.length > 0 && !!detail?.shortClose && detail.shortClose.blockers.length === 0;
+  // D-SC-2: хүлээн авснаас илүү нэхэмжилсэн мөр — дутуу хаавал зардал болно.
+  const invoicedAheadLines = (detail?.lines ?? []).filter(
+    (line) => line.invoicedQuantity - line.receivedQuantity > 0.00005
+  ).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
@@ -1360,11 +1371,38 @@ function PurchaseOrderBody({
                 Бүх нөхцөл биелсэн — захиалгыг хааж түр дансуудыг тэгшитгэнэ.
               </p>
             ))}
+          {status === "open" && shortCloseReady && (
+            <p className="text-xs text-[var(--ea-text-3)]">
+              Бараа бүрэн ирэхгүй бол «Дутуу хаах»: хүлээн аваагүй{" "}
+              {detail.shortClose!.cancelledQuantity} нэгж цуцлагдана
+              {detail.shortClose!.writeOffMnt > 0
+                ? `, илүү нэхэмжлэл ${fmtMnt(detail.shortClose!.writeOffMnt)}₮ зардалд бичигдэнэ`
+                : ""}
+              .
+            </p>
+          )}
+          {status === "open" && invoicedAheadLines > 0 && (
+            <p className="flex items-start gap-1.5 text-xs text-[var(--ea-warning-fg)]">
+              <Icon name="warning" size="xs" className="mt-0.5 shrink-0" />
+              Хүлээн авснаас илүү нэхэмжилсэн — {invoicedAheadLines} мөр. Бараа ирэхгүй бол дутуу
+              хаахад энэ дүн зардал болно.
+            </p>
+          )}
           {status === "closed" && (
             <p className="text-xs text-[var(--ea-text-3)]">
               {detail.closedAt
                 ? `Хаагдсан: ${detail.closedAt.slice(0, 10)} — түр дансууд тэгшитгэгдсэн.`
                 : "Түр дансууд тэгшитгэгдсэн."}
+            </p>
+          )}
+          {status === "closed" && detail.shortCloseReason && (
+            <p className="text-xs text-[var(--ea-warning-fg)]">
+              Дутуу хаагдсан — цуцалсан{" "}
+              {detail.lines
+                .filter((line) => line.cancelledQuantity > 0)
+                .map((line) => `${line.itemCode} ${line.cancelledQuantity} ${line.unit}`)
+                .join(", ") || "үлдэгдэлгүй"}
+              . Шалтгаан: {detail.shortCloseReason}
             </p>
           )}
         </div>
@@ -1428,6 +1466,23 @@ function PurchaseOrderBody({
               <Icon name="locked" size="sm" />
               PO хаах
             </Button>
+            {shortCloseReady && (
+              <Button
+                variant="outline"
+                onClick={() => setShortCloseOpen(true)}
+                disabled={isPending || dirty || !canPost}
+                title={
+                  !canPost
+                    ? "Дутуу хаах нь хангамжийн батлах эрх шаардана"
+                    : dirty
+                      ? "Эхлээд өөрчлөлтөө хадгална уу"
+                      : "Хүлээн аваагүй үлдэгдлийг цуцалж хаана"
+                }
+              >
+                <Icon name="locked" size="sm" />
+                Дутуу хаах
+              </Button>
+            )}
           </>
         )}
         {detail && status === "open" && (
@@ -1472,6 +1527,20 @@ function PurchaseOrderBody({
         )}
       </div>
       {confirmDialog}
+      {detail && shortCloseOpen && (
+        <PoShortCloseDialog
+          detail={detail}
+          closeDate={closeDate}
+          writeOffAccounts={data.writeOffAccounts}
+          open={shortCloseOpen}
+          onOpenChange={setShortCloseOpen}
+          onClosed={() => {
+            setDirty(panel.id, false);
+            refreshOpenPanels();
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

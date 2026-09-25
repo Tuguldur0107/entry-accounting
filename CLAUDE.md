@@ -9,10 +9,10 @@
 | Ерөнхий журнал (GL) | ✅ | — |
 | Draft → Post журнал | ✅ | — |
 | Мөнгөн хөрөнгө (Cash) | ✅ | — |
-| Авлага / Өглөг (AR/AP) + кредит нэхэмжлэл / дебит нэхэмжлэх (ENT-029) | ✅ | eBarimt засвар (inactiveId), PO-той нэхэмжлэхийн дебит |
+| Авлага / Өглөг (AR/AP) + кредит нэхэмжлэл / дебит нэхэмжлэх (ENT-029) + ECL нөөц, найдваргүй авлага (ENT-065) | ✅ | eBarimt засвар (inactiveId), PO-той нэхэмжлэхийн дебит |
 | Бараа материал (Inventory) | ✅ | — |
 | Өртөг (Costing) | ✅ | — |
-| Хангамж (Procurement — PO, хүлээн авалт, landed cost) | ✅ | хангамжийн тайлан, урьдчилгаа/LC, receipt type |
+| Хангамж (Procurement — PO, хүлээн авалт, landed cost, дутуу хаалт ENT-064) | ✅ | хангамжийн тайлан, урьдчилгаа/LC, receipt type |
 | Үндсэн хөрөнгө (FA) | ✅ | — |
 | Period систем | ✅ | — |
 | AI туслах (expert accountant) | ✅ | — |
@@ -702,6 +702,15 @@ lib/costing/posting-helpers.ts  costing.ts-ээс ЗӨӨСӨН нийтлэг т
   нэхэмжилсэн тоо = захиалсан, Σ нэхэмжилсэн дүн (PO валют) = мөрийн дүн, бүх
   нэмэлт зардал хуваарилагдсан. Зөрүүг АВТОМАТААР нөхөхийг хориглоно — UI-д
   улаанаар харагдана
+- **Дутуу хаалт** (ENT-064, `poShortClosePlan`, docs/cost 1.1): бараа бүрэн
+  ирэхгүй бол `closePurchaseOrder({shortClose:{reason, writeOffAccount}})` /
+  AI `close_purchase_order {shortClose}` / панелийн «Дутуу хаах» — `proc:post`,
+  шалтгаан ЗААВАЛ (аудит, `short_close_reason`); хүлээн аваагүй үлдэгдэл
+  `cancelled_quantity`; хүлээн авснаас илүү нэхэмжлэл → хэрэглэгчийн ИЛ
+  сонгосон 6/7/8 зардлын данс (`poWriteOffAccountProblem`, кодод данс БАЙХГҮЙ),
+  ханшийн зөрүү үүнийг хассан өглөгийн түр данснаас. Хүлээн авсан ч
+  нэхэмжлээгүй бараа → ХОРИГЛОНО. Нэхэмжлэхийн тааз захиалсан тоо хэвээр,
+  хүлээн авснаас илүүд анхааруулга (D-SC-2). Дахин нээхэд цуцлалт сэргэнэ
 - **Нээлттэй PO-той сар хаалт** `costing_account_settings.open_po_close_mode`:
   `block` (default) | `warn` — хэсэгчлэн хүлээн авсан PO-той сарыг анхааруулгатай
   хаана (SIM2-023). Ноорог GR-ийг `delete_goods_receipt`; PO цуцлахад ноорог GR устна
@@ -1203,6 +1212,42 @@ lib/ai/tools.ts                  create_credit_note (preview, lineNo)
 tests/arap-credit-note.test.ts, tests/credit-note-flow.test.ts (DB)
 ```
 
+### 5e. Авлагын ECL нөөц, найдваргүй авлага (ENT-065, IFRS 9) — ХЭРЭГЖСЭН
+
+Шийдвэр: `docs/product/2026-09-audit-followup-proposal.md` §4 (D-ECL-1…4,
+product owner 2026-09-25), `docs/cost/README.md` **1.2**. Хуудас Авлага → ECL
+нөөц (`/receivables/ecl`, огноо = топбарын периодын төгсгөл).
+
+- **Дансууд РОЛЬ** (`arap_ecl_settings`, ratified-seed): нөөц `12000099`
+  (contra), зардал/сэргэлт `87000002`, DTA `26000001`, хойшлогдсон татварын
+  зардал `70000004` — кодод хатуу бичихгүй
+- **Хялбаршуулсан арга** — хугацаа хэтэрсэн хоногийн matrix (default 1/5/10/25/
+  50/100%, хугацаа болоогүй нь эхний бүлэгт), байгууллага засна (admin + `ar:post`,
+  аудит). Суурь = asOf-ийн байдлаарх батлагдсан АР нэхэмжлэлийн үлдэгдэл
+  (тэр өдрөөс хойшхи тооцоо тоологдохгүй). Сарын журнал = шаардлагатай −
+  GL-ийн нөөцийн үлдэгдэл, ЗААВАЛ НООРОГ (§9); дахин ажиллуулахад ноорог солигдоно
+- **Хойшлогдсон татвар** (D-ECL-3): DTA = нөөц × байгууллагын ОРУУЛСАН ААНОАТ-ын
+  хувь; хувь хоосон бол бодогдохгүй (ИЛ хэлнэ) — ХУВЬ ЗОХИОХГҮЙ. DTA данс бусад
+  түр зөрүүтэй хуваалцдаг тул ECL-ийн мөр `businessObjectType "ecl_deferred_tax"`
+- **Хасалт** (`writeOffArApDocument`, `ar:post`, шалтгаан заавал, зөвхөн `ar_invoice`):
+  Dr нөөц (Кт үлдэгдлээр хязгаарлагдана — нөөц ХЭЗЭЭ Ч Дт болохгүй) + үлдэгдэл
+  Dr зардал / Cr хяналтын данс; үлдэгдэл settlement-ээр хаагдана (`arap_write_offs`).
+  Суутган тооцооны буцаалт хасалтыг буцаахгүй (`[USE_WRITE_OFF_REVERSE]`)
+- **Сэргэлт** (D-ECL-4): Dr авлага / Cr ECL зардал → үлдэгдэл дахин нээгдэж
+  ердийн кассын орлогоор хаагдана (`arap_write_off_recoveries`). Сэргэлттэй
+  хасалт буцаагдахгүй (`[HAS_RECOVERY]`); сэргэлтгүйг эх огноогоор буцаана
+
+```
+lib/arap/ecl.ts            ЦЭВЭР (tests/arap-ecl.test.ts): matrix, planEclProvision,
+                           eclJournalLines, splitWriteOff, recoveryProblem, view төрлүүд
+lib/arap/ecl-db.ts         DB: loadEclSettings (seed), creditBalanceOf, loadEclOpenInvoices
+lib/actions/arap-ecl.ts    getEclOverview / runEclProvision / saveEclSettings /
+                           writeOffArApDocument / recoverArApWriteOff / reverseArApWriteOff /
+                           listArapWriteOffs
+components/arap/ecl-view.tsx, components/arap/write-off-section.tsx (АР панель)
+tests/arap-ecl-flow.test.ts (DB)
+```
+
 ### 6. НӨАТ (VAT) — 10% — ХЭРЭГЖСЭН
 
 Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
@@ -1500,7 +1545,7 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 145 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 149 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -1509,6 +1554,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), delete_cost_entry (ноорог — хожмын бичилт байвал татгалзана), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation,cost_entry}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
+| ECL / найдваргүй авлага | get_ecl_provision (унших), run_ecl_provision (сарын ECL журнал НООРОГ), write_off_arap_document (reason заавал), recover_arap_write_off (§5e) | get/run аль ч горимд; хасалт, сэргэлт ЗӨВХӨН post горим + батлах хязгаар |
 | Нээлтийн бараа | create_opening_stock (бараа × агуулах × тоо × нэгж өртөг, ≤1000 мөр, externalRef-ээр идемпотент — §5 ENT-003) | ноорог өртгийн бичилт; post горимд батлах хязгаар дотор бол батлагдаж НЭГ журнал |
 | Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, өсгөлт 1 тэрбум ₮ хүртэл, дээш нь зөвхөн вэбээс хүн (`[HUMAN_REQUIRED]`); `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
@@ -2265,7 +2311,9 @@ Cash       cash_accounts, cash_documents, bank_statements,
 AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
              documents.documentType ar_invoice|ap_bill|ar_credit_note|ap_debit_note;
                sourceDocumentId / lines.sourceLineId — кредит/дебит баримтын эх (§5d)
-           ar_ap_settlements
+           ar_ap_settlements, arap_ecl_settings, arap_write_offs,
+           arap_write_off_recoveries (ENT-065 §5e — хасалт нь settlement +
+             voucher-той, сэргэлт нь хасалтын үлдэгдлийг бууруулна)
              settlements.cashDocumentId нь `on delete set null` тул кассын
                баримт rollback-гүй устсан үед мөр ӨНЧИН үлдэж нэхэмжлэх «төлөгдсөн»
                мэт харагддаг байв (хяналтын дансны ТОГТМОЛ зөрүү). Бичилтийн
