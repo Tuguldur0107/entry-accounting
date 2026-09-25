@@ -60,3 +60,33 @@ export function classifyToolError(
 export function internalErrorText(logId: string): string {
   return `Дотоод алдаа гарлаа — дахин оролдоно уу (лавлах код: ${logId})`;
 }
+
+/**
+ * Алдааны cause гинжийг НЭГ мөрөнд — ЗӨВХӨН серверийн лог руу (хэрэглэгчид
+ * очихгүй). Drizzle-ийн `DrizzleQueryError` мессеж нь «Failed query: insert …»
+ * л байдаг бол SQLSTATE код, зөрчигдсөн constraint, detail нь `cause`
+ * (PostgresError)-д байдаг. 2026-09-24: run_monthly_costing-ийн unique
+ * violation-ыг Railway логоос олоход зөвхөн гадна талын мессеж бичигдсэн тул
+ * аль constraint мөргөлдсөнийг кодоос таамаглах шаардлагатай болсон.
+ */
+export function describeErrorChain(caught: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = caught;
+  for (let depth = 0; depth < 6 && current; depth += 1) {
+    const rec = current as Record<string, unknown>;
+    const str = (key: string) => (typeof rec[key] === "string" ? (rec[key] as string) : null);
+    const message = messageOf(current);
+    const fields = [
+      str("name") ?? (current instanceof Error ? current.name : "error"),
+      str("code") ? `code=${str("code")}` : null,
+      str("constraint_name") ? `constraint=${str("constraint_name")}` : null,
+      str("table_name") ? `table=${str("table_name")}` : null,
+      str("column_name") ? `column=${str("column_name")}` : null,
+      str("detail") ? `detail=${str("detail")}` : null,
+      message ? `msg=${message.slice(0, 200)}` : null,
+    ].filter((field): field is string => field !== null);
+    parts.push(fields.join(" "));
+    current = rec.cause;
+  }
+  return parts.join(" ← ");
+}

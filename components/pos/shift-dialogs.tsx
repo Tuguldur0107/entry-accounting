@@ -438,6 +438,15 @@ export function CloseShiftDialog({
               <span className="text-right font-mono">{fmtMnt(shift.cashReceipts)}</span>
               <span className="text-[var(--ea-text-3)]">Бэлэн буцаалт</span>
               <span className="text-right font-mono">−{fmtMnt(shift.cashRefunds)}</span>
+              {shift.paymentsByMethod
+                .filter((method) => method.kind !== "cash")
+                .map((method) => (
+                  // Бэлэн биш хэлбэр — системийн бэлэн мөнгөнд ОРОХГҮЙ, лавлагаа
+                  <div key={method.code} className="contents">
+                    <span className="text-[var(--ea-text-3)]">{method.name} · бэлэн биш</span>
+                    <span className="text-right font-mono text-[var(--ea-text-3)]">{fmtMnt(method.amount)}</span>
+                  </div>
+                ))}
               <span className="font-medium">Систем (урьдчилсан)</span>
               <span className="text-right font-mono font-semibold">{fmtMnt(expected)}</span>
             </div>
@@ -522,6 +531,10 @@ function ZReportSheet({ shift }: { shift: PosShiftView }) {
     ["Эхний мөнгө", shift.openingFloat],
     ["Бэлэн орлого", shift.cashReceipts],
     ["Бэлэн буцаалт", shift.cashRefunds],
+    // Бэлэн биш хэлбэр бүрийн цэвэр дүн — системийн бэлэн мөнгөнд орохгүй.
+    ...shift.paymentsByMethod
+      .filter((method) => method.kind !== "cash")
+      .map((method): [string, number | null] => [`${method.name}`, method.amount]),
     ["Систем", shift.systemCash],
     ["Тоолсон", shift.countedCash],
     ["Зөрүү", shift.varianceAmount],
