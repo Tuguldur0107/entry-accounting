@@ -22,6 +22,7 @@ import {
 } from "@/lib/db/schema";
 import { extractMainAccount } from "@/lib/reports/balances";
 import { periodCodeOf, periodRange } from "@/lib/periods/period";
+import { OPENING_STOCK_SOURCE_TYPE, OPENING_VALUATION_SOURCE } from "@/lib/inventory/opening-stock";
 import { PO_SOURCE_TYPE } from "@/lib/procurement/constants";
 import {
   buildInventoryReconciliationRows,
@@ -69,6 +70,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   gl_voucher: "GL журнал",
   cash_document: "Мөнгөн гүйлгээ",
   [PO_SOURCE_TYPE]: "Хүлээн авалт (PO)",
+  [OPENING_STOCK_SOURCE_TYPE]: "Нээлтийн үлдэгдэл",
 };
 
 export const movementTypeLabel = (type: string) =>
@@ -372,7 +374,9 @@ export async function loadTransactionDetail(
             ? "Хугацааны жигнэсэн дундаж"
             : entry.valuationSource === "provisional_avg"
               ? "Урьдчилсан (явцын дундаж — сар хаалтад залруулагдана)"
-              : "Гараар",
+              : entry.valuationSource === OPENING_VALUATION_SOURCE
+                ? "Нээлтийн үлдэгдэл (өртөгтэй)"
+                : "Гараар",
         costComponent: entry.costComponentId
           ? (componentLabel.get(entry.costComponentId) ?? null)
           : null,

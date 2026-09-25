@@ -149,6 +149,23 @@ receipt, supplier invoice, customs and freight, all three allocation bases, the
 close with its FX difference and both clearing roles at zero, and the period-close
 block.
 
+### Opening stock with cost (1.0 — ENT-003 / SIM2-007)
+
+- `lib/inventory/opening-stock.ts` (pure, `tests/opening-stock.test.ts`): line
+  validation (duplicate item × warehouse, quantity / unit cost > 0, ≤ 1000 lines)
+  and the D-OS-2 date rule `openingStockDateProblem`.
+- `lib/actions/opening-stock.ts` `createOpeningStock`: confirmed `opening`
+  receipts + `receipt_capitalize` entries (`valuationSource = "opening"`, stored
+  Dr inventory / Cr 44000098 or explicit counter account), one COST journal per
+  batch when posted; idempotent by `externalRef`.
+- AI/MCP `create_opening_stock` (post mode within the AI post limit, otherwise
+  draft entries); Excel import «Нээлтийн үлдэгдэл» on Бараа → Хөдөлгөөн
+  (`openingStockSpec`).
+- `postCostEntryCore` uses the stored accounts for `opening` entries;
+  `reverseCostEntryCore` mirrors only the reversed entry's lines;
+  `postCostEntries` reports per-entry failures (it previously counted every id as
+  posted). DB test `tests/opening-stock-flow.test.ts`.
+
 ### Corrected-baseline (0.2C) conformance
 
 The corrected package upgraded three areas. Current state against them:

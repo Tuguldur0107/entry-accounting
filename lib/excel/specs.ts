@@ -746,3 +746,86 @@ export function inventoryItemsSpec(context: {
     },
   };
 }
+
+// ── Нээлтийн барааны үлдэгдэл (өртөгтэй) — SIM2-007 ─────────────────────────
+
+export interface OpeningStockImportContext {
+  /** Идэвхтэй барааны кодууд. */
+  itemCodes: Set<string>;
+  /** Идэвхтэй агуулахын кодууд. */
+  warehouseCodes: Set<string>;
+}
+
+export interface OpeningStockImport {
+  date: string;
+  itemCode: string;
+  warehouseCode: string;
+  quantity: number;
+  unitCost: number;
+}
+
+export function openingStockSpec(
+  context: OpeningStockImportContext
+): ImportSpec<OpeningStockImport> {
+  return {
+    slug: "entry-opening-stock",
+    title: "Нээлтийн барааны үлдэгдэл — бараа × агуулах × тоо × нэгж өртөг",
+    columns: [
+      {
+        key: "date",
+        header: "Огноо",
+        required: true,
+        hint: "Нээлтийн (cut-off) огноо — бүх мөрд НЭГ огноо. Бусад барааны гүйлгээнээс хожуу байж болохгүй",
+        example: "2024-12-31",
+      },
+      {
+        key: "itemCode",
+        header: "Барааны код",
+        required: true,
+        hint: "Барааны бүртгэлийн код (идэвхтэй)",
+        example: "ITEM-001",
+      },
+      {
+        key: "warehouseCode",
+        header: "Агуулахын код",
+        required: true,
+        hint: "Агуулахын код. Нэг бараа × агуулах нэг л мөр",
+        example: "WH-01",
+      },
+      {
+        key: "quantity",
+        header: "Тоо",
+        required: true,
+        hint: "Тоо хэмжээ (0-ээс их)",
+        example: "120",
+      },
+      {
+        key: "unitCost",
+        header: "Нэгж өртөг",
+        required: true,
+        hint: "Нэгж өртөг ₮ (0-ээс их). Өртөг мэдэгдэхгүй бол энэ импортоор биш, өртөггүй орлогоор оруулна",
+        example: "25000",
+      },
+    ],
+    parseRow: (record) => {
+      const errors: string[] = [];
+      const date = parseDateCell(record.date ?? "");
+      if (!date) errors.push("Огноо YYYY-MM-DD хэлбэртэй байна");
+      const itemCode = (record.itemCode ?? "").trim();
+      if (!itemCode) errors.push("Барааны код хоосон");
+      else if (!context.itemCodes.has(itemCode)) errors.push(`Бараа «${itemCode}» олдсонгүй (идэвхтэй)`);
+      const warehouseCode = (record.warehouseCode ?? "").trim();
+      if (!warehouseCode) errors.push("Агуулахын код хоосон");
+      else if (!context.warehouseCodes.has(warehouseCode))
+        errors.push(`Агуулах «${warehouseCode}» олдсонгүй (идэвхтэй)`);
+      const quantity = parseAmountCell(record.quantity ?? "");
+      if (quantity == null || !(quantity > 0)) errors.push("Тоо 0-ээс их байна");
+      const unitCost = parseAmountCell(record.unitCost ?? "");
+      if (unitCost == null || !(unitCost > 0)) errors.push("Нэгж өртөг 0-ээс их байна");
+      if (errors.length > 0) return { errors };
+      return {
+        value: { date: date!, itemCode, warehouseCode, quantity: quantity!, unitCost: unitCost! },
+      };
+    },
+  };
+}

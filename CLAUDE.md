@@ -537,6 +537,7 @@ Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-perio
 | Шилжүүлэг (OD-014, 0.9) | Эх агуулахын сарын дунджаар гарч, хүлээн авагчид ТЭР өртгөөр «өртөгтэй» орлого болно; хөдөлгөгч сар бүр хүрээнүүдийг хамаарлын дарааллаар бодно; нэг сард бие биерүүгээ шилжүүлсэн тойрог → ил шалтгаантай блок; GL бичилтгүй (данс нь барааных) |
 | Блоклогдсон хүрээ (ENT-043) | ЗӨВХӨН өөрийн хөдөлгөөнийг зогсооно — бусад бараа-агуулах үнэлэгдэнэ; сар хаалт `unvalued-movements`-ээр хориглосон хэвээр |
 | PO-гүй АП орлого (ENT-018) | Батлахад нэхэмжлэхийн мөрийн дүн × ханшаар `receipt_capitalize` НООРОГ (`ap_line`); гар үнэ ялна |
+| Нээлтийн бараа (ENT-003 / SIM2-007, 1.0) | `create_opening_stock` / Excel «Нээлтийн үлдэгдэл»: баталгаажсан орлого (`sourceType "opening"`) + `receipt_capitalize` (`valuationSource "opening"`, данс ХАДГАЛАГДСАН: Dr нөөц / Cr 44000098 эсвэл ил өгсөн данс). D-OS-1: GL-д бичнэ — нээлтийн журнал барааг ДАВХАРДУУЛАХГҮЙ; D-OS-2: огноо нь нээлтийн бус анхны барааны гүйлгээнээс хожуу бол `[OPENING_AFTER_ACTIVITY]`; 0 өртөг хориотой. Батлах горимд багцад НЭГ журнал, эс бөгөөс ноорог бичилт (`postCostEntryCore` хадгалсан дансыг хүндэтгэнэ). Цэвэр `lib/inventory/opening-stock.ts` |
 
 Хатуу дүрмүүд:
 
@@ -1473,7 +1474,7 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 
 ### 9a. AI туслах — tool-use agent
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 144 core tool + custom/)
+AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 145 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -1482,6 +1483,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | Засах/устгах | update_{journal_voucher,inventory_movement}, delete_{journal_voucher,cash_document,arap_document,inventory_movement,fixed_asset}, delete_counterparty (баримтгүй үед л), delete_inventory_item (хөдөлгөөн/АР-АП мөр/PO мөр/өртгийн бичилтгүй үед л), delete_cost_entry (ноорог — хожмын бичилт байвал татгалзана), activate_fixed_asset, record_inventory_count | засах зөвхөн ноорог; устгах — ноорог аль ч горимд, батлагдсан зөвхөн post горим + ≤10M |
 | Батлах/буцаах | post_{journal_voucher,cash_document,arap_document,fa_depreciation,cost_entries}, confirm_inventory_movement, reverse_{journal_voucher,cash_document,fa_depreciation,cost_entry}, settle_arap_offset (АР↔АП суутган тооцоо — MNT, нэг харилцагч), close_period, reopen_period | ЗӨВХӨН post горим + ≤10M (assertPostMode/assertPostLimit) |
 | Мастер дата | create_{gl_account,counterparty,inventory_item,warehouse,cash_account}, update_{counterparty,inventory_item} | аль ч горимд |
+| Нээлтийн бараа | create_opening_stock (бараа × агуулах × тоо × нэгж өртөг, ≤1000 мөр, externalRef-ээр идемпотент — §5 ENT-003) | ноорог өртгийн бичилт; post горимд ≤10M бол батлагдаж НЭГ журнал |
 | Тохиргоо | get_company_settings, update_company_settings (`aiPostLimitMnt` — §9-ийн батлах хязгаар: бууруулах чөлөөтэй, ӨСГӨЛТ зөвхөн вэбээс хүн (`[HUMAN_REQUIRED]`); `largeAmountAlertMnt` — D2 босго) | аль ч горимд (эрх: admin+) |
 | Багц, төлбөр | get_billing_overview (багц, статус, бичих эрх + шалтгаан, суудал, боломж, trial/grace хугацаа — `/settings/billing`-тэй НЭГ loader `getBillingOverview`; ЗӨВХӨН унших, засах нь Console-д) | аль ч горимд (гишүүн бүр) |
 | Сар хаалтын тооцоо | run_fa_depreciation, run_monthly_costing | ноорог үүсгэдэг тул аль ч горимд |

@@ -78,6 +78,8 @@ import {
   updateInventoryItem,
   updateInventoryMovement,
 } from "@/lib/actions/inventory";
+import { createOpeningStock } from "@/lib/actions/opening-stock";
+import { planOpeningStock } from "@/lib/inventory/opening-stock";
 import {
   deleteCostEntry,
   postCostEntries,
@@ -578,7 +580,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "create_inventory_movement",
     description:
-      "Бараа материалын хөдөлгөөн үүсгэнэ (зөвхөн ТОО ХЭМЖЭЭ — үнэлгээг өртгийн модуль сар хаахад хийнэ). Төрөл: receipt=орлого, issue=зарлага, transfer=шилжүүлэг, adjustment=тохируулга, return_in=буцаан авалт, return_out=буцаалт. Бараа/агуулахыг кодоор нь заана (list_inventory-оор шалгаж болно).",
+      "Бараа материалын хөдөлгөөн үүсгэнэ (зөвхөн ТОО ХЭМЖЭЭ — үнэлгээг өртгийн модуль сар хаахад хийнэ; нээлтийн үлдэгдлийг ӨРТӨГТЭЙ нь create_opening_stock-оор). Төрөл: receipt=орлого, issue=зарлага, transfer=шилжүүлэг, adjustment=тохируулга, return_in=буцаан авалт, return_out=буцаалт. Бараа/агуулахыг кодоор нь заана (list_inventory-оор шалгаж болно).",
     inputSchema: {
       type: "object",
       properties: {
@@ -598,6 +600,38 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["movementType", "date", "itemCode", "warehouseCode", "quantity"],
+    },
+  },
+  {
+    name: "create_opening_stock",
+    description:
+      "Нээлтийн барааны үлдэгдлийг ӨРТӨГТЭЙ оруулна (нэвтрүүлэлт, бараа × агуулах × тоо × нэгж өртөг, ≤1000 мөр). Мөр бүрд баталгаажсан орлого + өртгийн бичилт үүсч GL-д Dr барааны нөөц / Cr нээлтийн зөрүүний данс (44000098) бичигдэнэ — тиймээс нээлтийн журнал барааг ДАХИН оруулахгүй (onboarding R8). Огноо нь нээлтийн бус анхны барааны гүйлгээнээс хожуу байж болохгүй. Ноорог горимд өртгийн бичилт ноорог (Өртөг → Өртгийн бичилтээс батална); 'Шууд бичих' горимд батлах хязгаар дотор шууд батлагдаж НЭГ журнал үүснэ. Өртөг мэдэгдэхгүй бараанд create_inventory_movement (өртөггүй орлого) хэрэглэнэ. externalRef-ээр идемпотент.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "Нээлтийн (cut-off) огноо YYYY-MM-DD" },
+        lines: {
+          type: "array",
+          description: "Мөрүүд — бараа × агуулах давхардахгүй",
+          items: {
+            type: "object",
+            properties: {
+              itemCode: { type: "string", description: "Барааны код" },
+              warehouseCode: { type: "string", description: "Агуулахын код" },
+              quantity: { type: "number", description: "Тоо хэмжээ (0-ээс их)" },
+              unitCost: { type: "number", description: "Нэгж өртөг ₮ (0-ээс их)" },
+            },
+            required: ["itemCode", "warehouseCode", "quantity", "unitCost"],
+          },
+        },
+        counterAccount: {
+          type: "string",
+          description: "Кредит данс (сонголтоор). Хоосон бол нээлтийн зөрүүний данс 44000098",
+        },
+        externalRef: { type: "string", description: "Идемпотент түлхүүр (ж: opening-stock:2024-12-31)" },
+        description: { type: "string", description: "Тайлбар" },
+      },
+      required: ["date", "lines"],
     },
   },
   {
@@ -4340,6 +4374,50 @@ async function runCreateCash(
     ].join("\n"),
     // Бүх хэсэг нь өмнө үүсчихсэн байсан бол шинэ бичлэг үүсээгүй — dedup.
     dedup: createdCount === 0 && skippedCount > 0,
+  };
+}
+
+async function runCreateOpeningStock(
+  input: {
+    date: string;
+    lines: { itemCode: string; warehouseCode: string; quantity: number; unitCost: number }[];
+    counterAccount?: string;
+    externalRef?: string;
+    description?: string;
+  },
+  mode: AiWriteMode
+): Promise<AiToolResult> {
+  const plan = planOpeningStock(Array.isArray(input.lines) ? input.lines : []);
+  if (!plan.ok) return { resultText: `Алдаа: [INVALID_INPUT] ${plan.errors.slice(0, 20).join("; ")}` };
+  // §9: шууд батлах нь зөвхөн «Шууд бичих» горимд, батлах хязгаар дотор.
+  const overLimit = plan.totalAmount > currentAiPostLimit();
+  const post = mode === "post" && !overLimit;
+  const result = unwrapAction(
+    await createOpeningStock({
+      date: input.date,
+      lines: input.lines,
+      post,
+      counterAccount: input.counterAccount ?? null,
+      externalRef: input.externalRef ?? null,
+      description: input.description ?? null,
+    })
+  );
+  const fmt = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (result.dedup)
+    return {
+      resultText: `Аль хэдийн оруулсан (externalRef давхардсан) — ${fmt(result.totalAmount)}₮, төлөв: ${result.status === "posted" ? `батлагдсан${result.voucherNo ? ` (${result.voucherNo})` : ""}` : "ноорог"}. Шинэ бичилт үүсээгүй.`,
+      dedup: true,
+    };
+  const statusText =
+    result.status === "posted"
+      ? `батлагдсан — журнал ${result.voucherNo ?? result.voucherId}`
+      : `өртгийн бичилт НООРОГ${mode === "post" && overLimit ? ` (${fmt(currentAiPostLimit())}₮-с их тул)` : ""} — нягтланч Өртөг → Өртгийн бичилтээс батална`;
+  return {
+    resultText: `Нээлтийн барааны үлдэгдэл оруулагдлаа: ${result.created} мөр, нийт ${fmt(result.totalAmount)}₮, ${input.date}. GL: Dr барааны нөөц / Cr ${result.counterAccount}. Төлөв: ${statusText}. ${
+      input.counterAccount?.trim()
+        ? `Нээлтийн журнал барааг ${result.counterAccount} дансанд Дт-ээр бичсэн бол тэр данс тэглэгдэнэ.`
+        : `Нээлтийн журналд барааны дүнг ДАХИН бичихгүй (${result.counterAccount} тэгширнэ).`
+    }`,
   };
 }
 
@@ -11780,6 +11858,8 @@ async function dispatchAiTool(
         return await runCreateCash(orgId, args, mode);
       case "create_inventory_movement":
         return await runCreateMovement(orgId, args, mode);
+      case "create_opening_stock":
+        return await runCreateOpeningStock(args, mode);
       case "create_fixed_asset":
         return await runCreateFixedAsset(orgId, args, mode);
       case "list_counterparties":
