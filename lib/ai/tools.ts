@@ -329,7 +329,7 @@ import { notificationTypeLabel } from "@/lib/notifications/catalog";
 import { emitNotification } from "@/lib/notifications/emit";
 import { ENTITY_HREF, ENTITY_MODULE_KEYS } from "@/lib/notifications/rules";
 
-import type { AiWriteMode } from "./models";
+import type { AiWriteMode } from "./write-mode";
 import {
   AI_POST_LIMIT_TOOL_MAX_MNT,
   currentAiPostLimit,
@@ -385,27 +385,18 @@ function codedError(code: string, message: string): Error {
 }
 
 /** Tool аль замаар нээгдэх вэ — өгөөгүй бол бүгдэд (чат, MCP, REST). */
-export type AiToolSurface = "chat" | "mcp" | "rest";
+export type AiToolSurface = "mcp" | "rest";
 
 export interface AiToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
   /**
-   * Хязгаарлагдсан зам — ж: мэдлэгийн сан зөвхөн ["chat", "mcp"]
+   * Хязгаарлагдсан зам — ж: мэдлэгийн сан зөвхөн ["mcp"]
    * (docs/knowledge/00-proposal.md D4: REST нь скриптээр бөөнөөр татах зам).
    * Undefined = бүх замд. Шүүлт: aiToolsForSurface().
    */
   surfaces?: AiToolSurface[];
-}
-
-/**
- * Чатад карт болгож үзүүлэх action-ий тэмдэглэгээ. Хариултын контентод
- * хадгалагддаг тул түүхээс дахин ачаалахад ч картууд харагдана; client
- * lib/ai/action-markers.ts-ээр задалж уншина.
- */
-export function actionMarker(action: AiAction): string {
-  return `\n[[EA_ACTION:${JSON.stringify(action)}]]\n`;
 }
 
 // ── Tool тодорхойлолтууд ────────────────────────────────────────────────────
@@ -2528,7 +2519,7 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
     },
-    surfaces: ["chat", "mcp"],
+    surfaces: ["mcp"],
   },
   {
     name: "read_knowledge_section",
@@ -2542,7 +2533,7 @@ export const AI_TOOLS: AiToolDef[] = [
       },
       required: ["topic"],
     },
-    surfaces: ["chat", "mcp"],
+    surfaces: ["mcp"],
   },
 
   // ── Аудит ба үнэлгээ ──────────────────────────────────────────────────────
@@ -4750,7 +4741,7 @@ function assertPostMode(mode: AiWriteMode) {
   if (mode !== "post")
     throw codedError(
       "DIRECT_MODE_REQUIRED",
-      "Батлах нь зөвхөн 'Шууд бичих' горимд зөвшөөрөгдөнө. Чатын доод талын toggle-оос горимоо солих эсвэл вэб дээрээс өөрөө батална уу."
+      "Батлах нь зөвхөн 'Шууд бичих' горимд зөвшөөрөгдөнө. Entry → AI холболт хуудаснаас горимоо солих эсвэл вэб дээрээс өөрөө батална уу."
     );
 }
 

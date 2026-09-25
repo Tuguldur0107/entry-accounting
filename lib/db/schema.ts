@@ -3448,47 +3448,10 @@ export const faDepreciationEntriesRelations = relations(
   })
 );
 
-// ─── AI чат ──────────────────────────────────────────────────────────────────
-// AI туслахын харилцан ярианы түүх — хэрэглэгч бүрд нэг урсгал.
-// Draft-first бодлого: AI зөвхөн зөвлөгөө өгнө, DB-руу бичилт хийхгүй тул
-// энд журналын reference хадгалахгүй.
-
-export const aiMessages = pgTable("ai_messages", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  role: text("role").notNull(), // "user" | "assistant"
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Мессежид хавсаргасан файлууд (зураг/PDF/текст, base64) — дараагийн
-// асуултуудад ч AI контекстээ харж чаддаг байхын тулд хадгална.
-export const aiAttachments = pgTable("ai_attachments", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  messageId: uuid("message_id")
-    .notNull()
-    .references(() => aiMessages.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  mediaType: text("media_type").notNull(),
-  data: text("data").notNull(), // base64
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const aiMessagesRelations = relations(aiMessages, ({ many }) => ({
-  attachments: many(aiAttachments),
-}));
-
-export const aiAttachmentsRelations = relations(aiAttachments, ({ one }) => ({
-  message: one(aiMessages, {
-    fields: [aiAttachments.messageId],
-    references: [aiMessages.id],
-  }),
-}));
+// ─── AI чат — ХАСАГДСАН (2026-09-25) ────────────────────────────────────────
+// ai_messages / ai_attachments хүснэгтүүд scripts/lib/removed-schema-objects.mjs-д
+// (preDeploy `archive` схем рүү зөөнө). Хэрэглэгч өөрийн ChatGPT / Claude-оос
+// MCP-ээр (lib/mcp/server.ts) ижил tool давхаргаар ажиллана.
 
 // ── OAuth 2.1 (MCP custom connector) ────────────────────────────────────────
 // claude.ai / Cowork-ийн custom connector "Connect" дарахад dynamic client
@@ -3566,11 +3529,10 @@ export const apiTokens = pgTable("api_tokens", {
   lastUsedAt: timestamp("last_used_at"),
 }, (t) => [uniqueIndex("api_tokens_token_hash_ux").on(t.tokenHash)]);
 
-// AI туслахын хэрэглэгч бүрийн тохиргоо. apiKey нь хэрэглэгчийн өөрийн
-// Anthropic түлхүүр — байхгүй бол серверийн ANTHROPIC_API_KEY-г ашиглана.
-// openaiApiKey — OpenAI моделиудад (байхгүй бол серверийн OPENAI_API_KEY).
-// model нь аль ч provider-ийн модель байж болно (provider нь моделиос
-// тодорхойлогдоно — lib/ai/models.ts modelInfo).
+// AI бичилтийн горим — хэрэглэгч × байгууллага (lib/ai/write-mode.ts). MCP ба
+// REST хоёулаа үүгээр. Апп доторх чатын api_key / openai_api_key / model /
+// effort / custom_instructions баганууд 2026-09-25-нд хасагдсан
+// (scripts/lib/removed-schema-objects.mjs).
 export const aiSettings = pgTable("ai_settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")
@@ -3580,14 +3542,9 @@ export const aiSettings = pgTable("ai_settings", {
   organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
     onDelete: "cascade",
   }),
-  apiKey: text("api_key"),
-  openaiApiKey: text("openai_api_key"),
-  model: text("model").notNull().default("claude-opus-4-8"),
-  effort: text("effort").notNull().default("high"), // low | medium | high
-  // AI бичилт хийх горим: "draft" = зөвхөн ноорог (§9 human-in-the-loop),
-  // "post" = тэнцсэн журналыг шууд батлахыг зөвшөөрнө (хэрэглэгч ил сонгоно).
+  // "draft" = зөвхөн ноорог (§9 human-in-the-loop), "post" = тэнцсэн,
+  // батлах хязгаар доторх бичилтийг шууд батлахыг зөвшөөрнө (хэрэглэгч ил сонгоно).
   writeMode: text("write_mode").notNull().default("draft"),
-  customInstructions: text("custom_instructions"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   // UNIQUE CONSTRAINT биш, UNIQUE INDEX — бусад хүснэгттэй ИЖИЛ шалтгаан
@@ -4670,8 +4627,6 @@ export type GoodsReceiptLine = typeof goodsReceiptLines.$inferSelect;
 export type DocumentAttachment = typeof documentAttachments.$inferSelect;
 export type FixedAsset = typeof fixedAssets.$inferSelect;
 export type FaDepreciationEntry = typeof faDepreciationEntries.$inferSelect;
-export type AiMessage = typeof aiMessages.$inferSelect;
-export type AiAttachment = typeof aiAttachments.$inferSelect;
 export type AiSettings = typeof aiSettings.$inferSelect;
 export type OrganizationProfile = typeof organizationProfile.$inferSelect;
 export type ArApInvoiceSend = typeof arApInvoiceSends.$inferSelect;

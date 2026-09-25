@@ -5,7 +5,6 @@ export type PlanId = "trial" | "standard" | "platform" | "enterprise" | "dedicat
 
 export type FeatureKey =
   | "ebarimt"
-  | "ai"
   | "mcp"
   | "api.rest"
   | "multi_company"
@@ -21,7 +20,6 @@ export type SubscriptionStatus = "trialing" | "active" | "past_due" | "suspended
 
 export const FEATURE_KEYS: FeatureKey[] = [
   "ebarimt",
-  "ai",
   "mcp",
   "api.rest",
   "multi_company",
@@ -32,9 +30,7 @@ export const FEATURE_KEYS: FeatureKey[] = [
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
   ebarimt: "eBarimt автомат баримт",
-  // ENT-063: чат нь байгууллагын ӨӨРИЙН API түлхүүрээр ажилладаг (BYO key).
-  ai: "AI туслах (өөрийн API түлхүүрээр)",
-  mcp: "MCP холболт (Claude)",
+  mcp: "MCP холболт (ChatGPT / Claude)",
   "api.rest": "REST API (гадаад интеграци)",
   multi_company: "Олон компани (групп / нягтлангийн фирм)",
   custom_extensions: "custom/ өргөтгөл",
@@ -69,7 +65,6 @@ export type PlanDef = {
 
 const ALL_ON: Record<FeatureKey, boolean> = {
   ebarimt: true,
-  ai: true,
   mcp: true,
   "api.rest": true,
   multi_company: true,
@@ -81,12 +76,9 @@ const ALL_ON: Record<FeatureKey, boolean> = {
   accounting: true,
 };
 
-/** Мэдлэгийн сан + MCP л — нягтлан бодох систем, чат, REST, eBarimt хаалттай. */
+/** Мэдлэгийн сан + MCP л — нягтлан бодох систем, REST, eBarimt хаалттай. */
 const SKILLS_ONLY: Record<FeatureKey, boolean> = {
   ebarimt: false,
-  // Вэб чат нь байгууллагын ӨӨРИЙН API түлхүүрээр ажилладаг (BYO) — skills
-  // хэрэглэгч өөрийн ChatGPT / Claude-оос MCP-ээр ханддаг тул хэрэггүй.
-  ai: false,
   mcp: true,
   // D4: мэдлэг REST-ээр ХЭЗЭЭ Ч гарахгүй — скриптээр бөөнөөр татах зам.
   "api.rest": false,

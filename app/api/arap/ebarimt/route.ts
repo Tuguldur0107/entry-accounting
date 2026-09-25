@@ -7,17 +7,12 @@
 // (idempotent, tools-ийн бэлэн dedup зам).
 
 import Anthropic from "@anthropic-ai/sdk";
-import { and, eq } from "drizzle-orm";
-
 import { requireAnyModuleAction } from "@/lib/auth";
-import { decryptSecret } from "@/lib/ai/crypto";
 import { executeAiTool } from "@/lib/ai/tools";
 import {
   EBARIMT_EXTRACTION_PROMPT,
   parseEbarimtExtraction,
 } from "@/lib/arap/ebarimt";
-import { db } from "@/lib/db";
-import { aiSettings } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -34,10 +29,9 @@ function errorJson(message: string, status = 400) {
 }
 
 export async function POST(request: Request) {
-  let orgId: string;
   let userId: string;
   try {
-    ({ orgId, userId } = await requireAnyModuleAction([["ar", "write"], ["ap", "write"]]));
+    ({ userId } = await requireAnyModuleAction([["ar", "write"], ["ap", "write"]]));
   } catch {
     return errorJson("Нэвтрэх эсвэл бичих эрх шаардлагатай", 401);
   }
@@ -57,17 +51,12 @@ export async function POST(request: Request) {
   if (mediaType !== "application/pdf" && !IMAGE_TYPES.has(mediaType))
     return errorJson("PDF эсвэл зураг (PNG/JPG/WEBP) оруулна уу");
 
-  // Түлхүүр — чатын AI тохиргоотой ИЖИЛ эх сурвалж (org-ийн encrypted key
-  // эсвэл серверийн env). OpenAI-д PDF дэмжигдэхгүй тул зөвхөн Anthropic.
-  const settings = await db.query.aiSettings.findFirst({
-    where: and(eq(aiSettings.userId, userId), eq(aiSettings.organizationId, orgId)),
-  });
-  const apiKey =
-    (settings?.apiKey ? decryptSecret(settings.apiKey) : null) ||
-    process.env.ANTHROPIC_API_KEY;
+  // Түлхүүр — ЗӨВХӨН серверийн env (Entry-ийн өөрийн Anthropic түлхүүр; апп
+  // доторх чат + BYO түлхүүр 2026-09-25-нд хасагдсан). Vision + PDF тул Anthropic.
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey)
     return errorJson(
-      "AI туслах тохируулагдаагүй байна — AI туслах → Тохиргоо хэсэгт Anthropic API түлхүүрээ оруулна уу.",
+      "Баримт таних AI серверт тохируулагдаагүй байна (ANTHROPIC_API_KEY) — нэхэмжлэхээ гараар оруулна уу.",
       503
     );
 

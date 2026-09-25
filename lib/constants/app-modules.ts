@@ -43,7 +43,7 @@ export const APP_MODULE_GROUP_LABELS: Record<
   },
   extra: {
     title: "Нэмэлт",
-    description: "Группын бүртгэл, AI туслах зэрэг нэмэлт чадварууд.",
+    description: "Группын бүртгэл, AI холболт зэрэг нэмэлт чадварууд.",
   },
 };
 
@@ -161,9 +161,9 @@ export const APP_MODULE_DEFS: AppModuleDef[] = [
   },
   {
     key: "ai",
-    nameMn: "AI туслах",
-    name: "AI Assistant",
-    description: "Чат, tool-үүд, топбарын AI товч",
+    nameMn: "AI холболт",
+    name: "AI Connect (MCP)",
+    description: "ChatGPT / Claude-д MCP-ээр холбох, бичилтийн горим, token",
     group: "extra",
     navId: "ai",
   },

@@ -35,6 +35,11 @@ export const REMOVED_TABLES = [
   "production_stages",
   "cost_pool_rules",
   "cost_pools",
+  // 2026-09-25 — апп доторх AI чат хасагдсан (хэрэглэгч өөрийн ChatGPT /
+  // Claude-оос MCP-ээр ажиллана). Хавсралт нь мессежээ FK-аар заадаг тул
+  // хоёуланг нэг дор архивлана.
+  "ai_attachments",
+  "ai_messages",
 ];
 
 /**
@@ -76,4 +81,12 @@ export const REMOVED_COLUMNS = [
     table: "pos_sales",
     column: "ebarimt_qr_data",
   },
+  // 2026-09-25 — апп доторх AI чат хасагдсан: BYO API түлхүүр, модель,
+  // хариултын гүн, нэмэлт заавар хэрэггүй. write_mode л үлдэнэ (MCP/REST).
+  // Түлхүүр шифртэй хадгалагддаг байсан — хөрвүүлэх зүйлгүй, устгах нь зорилго.
+  { table: "ai_settings", column: "api_key" },
+  { table: "ai_settings", column: "openai_api_key" },
+  { table: "ai_settings", column: "model" },
+  { table: "ai_settings", column: "effort" },
+  { table: "ai_settings", column: "custom_instructions" },
 ];

@@ -5,6 +5,26 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Removed
+
+- **Апп доторх AI чат хасагдсан — зөвхөн MCP холболт.** «AI туслах → Чат»
+  (BYO Anthropic/OpenAI API түлхүүр, модель сонгогч, стрим, хавсралт), топбарын
+  AI товч, хөвөгч чат панель, `/api/ai/chat`, OpenAI adapter бүгд устсан.
+  Хэрэглэгч ӨӨРИЙН ChatGPT / Claude-оос MCP-ээр (OAuth Connect) ижил tool
+  давхаргаар ажиллана — Entry AI-ийн API зардал төлөхгүй, хэрэглэгч түлхүүр
+  хуулахгүй, AI нягтлан ба Entry хэрэглэгч нэг л зааврыг дагана. Шинэ **«AI
+  холболт»** хуудас (`/ai`): ① ChatGPT / Claude-д холбох 3 алхам (AI нягтлантай
+  нэг component), ② **бичилтийн горим** (Ноорог / Шууд бичих — өмнө нь зөвхөн
+  чатын toggle байсан ч MCP, REST-д ч үйлчилдэг байсан; одоо ил switch, аудитад
+  бичигдэнэ, бичих эрхтэй л солино), ③ token (Claude Code / Codex).
+  `/ai/settings` → `/ai`. Нүүрний самбарт «AI холболт — багцад багтсан» карт.
+  DB: `ai_messages` / `ai_attachments` preDeploy-д `archive` схем рүү,
+  `ai_settings`-ийн `api_key` / `openai_api_key` / `model` / `effort` /
+  `custom_instructions` баганууд хасагдана (`write_mode` үлдэнэ). Багцын `ai`
+  боломж хасагдсан (`mcp` + `knowledge`). АР/АП-ийн eBarimt / PDF → нэхэмжлэхийн
+  ноорог таних нь ЗӨВХӨН серверийн `ANTHROPIC_API_KEY`-ээр (Entry-ийн түлхүүр)
+  ажиллана; байхгүй бол товч ил тайлбартай 503.
+
 ### Fixed
 
 - **POS баримтын eBarimt QR эхний баримт дээр зурагддаггүй байв.** `ReceiptQr`

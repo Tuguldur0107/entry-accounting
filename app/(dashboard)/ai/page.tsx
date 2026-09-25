@@ -1,22 +1,37 @@
-import { redirect } from "next/navigation";
+import { AiConnectView } from "@/components/ai/ai-connect-view";
+import { listApiTokens } from "@/lib/actions/mcp-tokens";
+import { resolveAiPostLimit } from "@/lib/ai/post-limit";
+import { loadAiWriteMode } from "@/lib/ai/write-mode-store";
+import { getActiveOrg, requireModuleAction } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { organizationProfile } from "@/lib/db/schema";
+import { mcpEndpointUrl } from "@/lib/mcp/endpoint";
+import { eq } from "drizzle-orm";
 
-import { AiChatView } from "@/components/ai/ai-chat-view";
-import { getAiChatBootstrap } from "@/lib/actions/ai";
-
-export default async function AiChatPage() {
-  // Хуудас болон глобал чат панель хоёул НЭГ ачаалагчийг хэрэглэнэ —
-  // query давхардахгүй (lib/actions/ai.ts).
-  const result = await getAiChatBootstrap();
-  if (!result.ok) redirect("/login");
+/** /ai — «AI холболт» (ChatGPT / Claude-д MCP-ээр холбох, бичилтийн горим, token). */
+export default async function AiConnectPage() {
+  const { userId, orgId } = await getActiveOrg();
+  const [mcpUrl, writeMode, mcpTokens, canWrite, profile] = await Promise.all([
+    mcpEndpointUrl(),
+    loadAiWriteMode(userId, orgId),
+    listApiTokens(),
+    requireModuleAction("ai", "write").then(
+      () => true,
+      () => false
+    ),
+    db.query.organizationProfile.findFirst({
+      where: eq(organizationProfile.organizationId, orgId),
+      columns: { aiPostLimitMnt: true },
+    }),
+  ]);
 
   return (
-    <AiChatView
-      initialMessages={result.data.initialMessages}
-      configured={result.data.configured}
-      anthropicConfigured={result.data.anthropicConfigured}
-      openaiConfigured={result.data.openaiConfigured}
-      initialModel={result.data.model}
-      initialWriteMode={result.data.writeMode}
+    <AiConnectView
+      mcpUrl={mcpUrl}
+      writeMode={writeMode}
+      canWrite={canWrite}
+      postLimitMnt={resolveAiPostLimit(profile?.aiPostLimitMnt)}
+      mcpTokens={mcpTokens}
     />
   );
 }

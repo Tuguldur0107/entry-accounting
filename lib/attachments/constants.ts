@@ -98,7 +98,7 @@ export function isAllowedAttachmentType(mediaType: string): boolean {
 
 /**
  * Файлын media type — зарим OS .xlsx/.docx-д хоосон MIME өгдөг тул
- * өргөтгөлөөс нөхнө (components/ai/ai-chat-view.tsx resolveMediaType хэв маяг).
+ * өргөтгөлөөс нөхнө (өргөтгөл → MIME хүснэгт).
  * Зөвшөөрөгдөөгүй бол null.
  */
 export function resolveAttachmentMediaType(

@@ -12,7 +12,7 @@
 
 import { createHash } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { runAsOrg } from "@/lib/auth";
 import { requireFeature } from "@/lib/billing/guards";
@@ -20,17 +20,14 @@ import { hasFeature } from "@/lib/billing/entitlements";
 import { getEntitlements } from "@/lib/billing/load";
 import { toolInPlan } from "@/lib/billing/tool-scope";
 import { db } from "@/lib/db";
-import { aiSettings, apiTokens } from "@/lib/db/schema";
+import { apiTokens } from "@/lib/db/schema";
 import {
   publicOrigin,
   resolveOAuthAccessToken,
   type TokenContext,
 } from "@/lib/oauth/server";
-import {
-  DEFAULT_AI_WRITE_MODE,
-  isAiWriteMode,
-  type AiWriteMode,
-} from "@/lib/ai/models";
+import type { AiWriteMode } from "@/lib/ai/write-mode";
+import { loadAiWriteMode } from "@/lib/ai/write-mode-store";
 import { aiRateLimitMessage, aiToolRateKind, checkAiRateLimit } from "@/lib/ai/rate-limit";
 import { aiToolsForSurface, executeAiTool } from "@/lib/ai/tools";
 import { runWithAiLogContext } from "@/lib/ai-logging/context";
@@ -97,18 +94,9 @@ export async function resolveApiToken(
   return context;
 }
 
-/** Хэрэглэгчийн сонгосон бичилтийн горим (чатын toggle-тэй нэг тохиргоо) — org бүрд тусдаа. */
+/** Хэрэглэгчийн сонгосон бичилтийн горим (/ai хуудасны тохиргоо, REST-тэй нэг) — org бүрд тусдаа. */
 export async function writeModeOf(context: TokenContext): Promise<AiWriteMode> {
-  const settings = await db.query.aiSettings.findFirst({
-    where: and(
-      eq(aiSettings.userId, context.userId),
-      eq(aiSettings.organizationId, context.orgId)
-    ),
-    columns: { writeMode: true },
-  });
-  return settings && isAiWriteMode(settings.writeMode)
-    ? settings.writeMode
-    : DEFAULT_AI_WRITE_MODE;
+  return loadAiWriteMode(context.userId, context.orgId);
 }
 
 /** Нягтлан бодох систем багцад байгаа үед (ердийн Entry харилцагч). */
@@ -276,7 +264,7 @@ export function mcpUnauthorized(request: Request): Response {
   return Response.json(
     {
       error:
-        "Нэвтрэлт хүчингүй эсвэл хугацаа нь дууссан — Claude / ChatGPT-оос холболтоо дахин Connect хийж Entry-д нэвтэрнэ үү (token ашигладаг бол Entry → Тохиргоо → AI туслах → MCP холболтоос шинээр үүсгэнэ)",
+        "Нэвтрэлт хүчингүй эсвэл хугацаа нь дууссан — Claude / ChatGPT-оос холболтоо дахин Connect хийж Entry-д нэвтэрнэ үү (token ашигладаг бол Entry → AI холболт хуудаснаас шинээр үүсгэнэ)",
     },
     {
       status: 401,

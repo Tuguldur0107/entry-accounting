@@ -15,7 +15,7 @@
 | Хангамж (Procurement — PO, хүлээн авалт, landed cost, дутуу хаалт ENT-064) | ✅ | хангамжийн тайлан, урьдчилгаа/LC, receipt type |
 | Үндсэн хөрөнгө (FA) | ✅ | — |
 | Period систем | ✅ | — |
-| AI туслах (expert accountant) | ✅ | — |
+| AI холболт — ChatGPT / Claude-д MCP-ээр (апп доторх чат 2026-09-25-нд хасагдсан) | ✅ | — |
 | НӨАТ модуль | ✅ | — |
 | Цалингийн модуль (Payroll) | ✅ | — |
 | Сар хаалтын wizard | ✅ | — |
@@ -170,7 +170,7 @@ entry-accounting/
   (`resolveEntitlements`, тесттэй), DB `load.ts`, **шалгах цэг ЗӨВХӨН
   `guards.ts`**: `assertWritesAllowed` (requireModuleAction write/post-д НЭГ
   цэгээс — read-only багцад `[SUBSCRIPTION_READ_ONLY]`), `requireFeature`
-  (REST `api.rest` → 402, MCP `mcp` → -32003, AI чат `ai`, eBarimt enqueue
+  (REST `api.rest` → 402, MCP `mcp` → -32003, eBarimt enqueue
   алгасна), `assertSeatAvailable` (урилга), `assertCompanyCreatable`
   (multi_company + компанийн тоо), `assertModuleEntitlements` (requireModuleAction —
   `accounting` боломж + бичих эрх, entitlement-ийг НЭГ удаа уншина).
@@ -1554,9 +1554,25 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 - `lib/payroll/calc.ts`-ийн `{ upTo: 10_000_000 }` нь ХАОАТ-ын шатлалын хил
   (ХУУЛИЙН тоо) — үүнтэй хольж тохируулга болгохыг ХОРИГЛОНО
 
-### 9a. AI туслах — tool-use agent
+### 9a. AI tool давхарга — MCP + REST (апп доторх чат ХАСАГДСАН)
 
-AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai/tools.ts, 149 core tool + custom/)
+**2026-09-25: апп доторх AI чат (BYO API түлхүүр, Anthropic/OpenAI adapter,
+`ai_messages`) хасагдсан.** Хэрэглэгч ӨӨРИЙН ChatGPT / Claude-оос MCP-ээр
+(§9b) ижил tool давхаргаар ажиллана — Entry AI-ийн API зардал төлөхгүй,
+хэрэглэгч түлхүүр хуулахгүй. Вэбийн `/ai` = «AI холболт» НЭГ хуудас
+(`components/ai/ai-connect-view.tsx`): ① холбох заавар (`components/skills/
+connect-guide` — AI нягтлантай НЭГ), ② бичилтийн горим (`lib/ai/write-mode.ts`
+ЦЭВЭР, `write-mode-store.ts` DB, `actions/ai-write-mode.ts` — ноорог / шууд
+бичих, `ai_settings.write_mode`, MCP ба REST-д НЭГ, аудитад бичигдэнэ),
+③ token (Claude Code / Codex). `/ai/settings` → `/ai` redirect. Модулийн
+түлхүүр `ai` ХЭВЭЭР (эрхийн бүртгэл хөндөгдөхгүй), нэр «AI холболт»; багцын
+`ai` боломж ХАСАГДСАН (`mcp` + `knowledge` л). Топбарын AI товч, хөвөгч чат
+панель, `actionMarker` байхгүй; `AiAction` төрөл (`action-markers.ts`) tool
+үр дүн + AI бүртгэлд үлдсэн. АР/АП-ийн eBarimt/PDF → ноорог таних
+(`app/api/arap/ebarimt`) ЗӨВХӨН серверийн `ANTHROPIC_API_KEY`-ээр (Entry-ийн
+өөрийн түлхүүр). Чат буцааж нэмэхийг ХОРИГЛОНО — MCP л.
+
+MCP, REST API хоёулаа НЭГ tool давхаргаар (lib/ai/tools.ts, 149 core tool + custom/)
 системийн бүх модульд ажиллана. Бүлгүүд:
 
 | Бүлэг | Tools | Горим |
@@ -1584,7 +1600,7 @@ AI чат, MCP, REST API гурвуул НЭГ tool давхаргаар (lib/ai
 | POS | get_pos_status (+ э-хэтэвчийн түр дансны тулгагдаагүй дүн), update_pos_settings (үйл ажиллагааны тохиргоо — `allowNegativeStock` унтраах, хөнгөлөлтийн хязгаар, бөөрөнхийлөл, дансны рольууд, `ewalletFeeAccount`; eBarimt/QPay энд БАЙХГҮЙ), open_pos_shift, list_pos_sales, get_pos_sale, get_pos_sales_report (бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрмээр, ахиуц), save_pos_payment_method / delete_pos_payment_method (төлбөрийн хэлбэрийн ЛАВЛАХ — eBarimt код оноох, буруу/давхардсан мөр цэвэрлэх; ашиглагдсан хэлбэр устахгүй, идэвхгүй болно) | аль ч горимд; create_pos_sale (нэг транзакц — АР+касс+зарлага+урьдчилсан COGS; `consumerNo`/`customerTin`/`customerRegNo`-оор eBarimt худалдан авагч), return_pos_sale, close_pos_shift нь ЗӨВХӨН post горим + ≤10M (ноорог байхгүй — бодит мөнгөн үйлдэл) |
 | eBarimt | get_ebarimt_status (асаалттай эсэх, тохиргооны дутуу, хүлээгдэж байгаа/алдаатай тоо), resend_ebarimt (зассаны дараа дахин илгээх / ДДТД цуцлах), lookup_tin (РД → ТТД, B2B баримтад) | аль ч горимд (журнал үүсгэхгүй; илгээлт нь async) |
 | QPay | get_qpay_status (асаалттай/тохируулсан эсэх, бэлэн байдлын дутуу, мерчант id, нээлттэй QR, төлөгдсөн ч борлуулалт болоогүй — нууц буцахгүй); холбох нь ЗӨВХӨН вэбээс [QPay холбох] | аль ч горимд (унших) |
-| Мэдлэгийн сан | list_knowledge_topics (сэдвийн индекс — гарчиг + хэсгийн нэрс, ангиллаар), read_knowledge_section (НЭГ хэсэг, ≤3000 тэмдэгт, ишлэлтэй) — §9e; `surfaces: ["chat","mcp"]` тул REST-д ГАРАХГҮЙ; `requireFeature("knowledge")` (Console-оос байгууллага бүрд), 24ц/200 квот `[KNOWLEDGE_LIMIT]` | аль ч горимд (унших; журнал үүсгэхгүй) |
+| Мэдлэгийн сан | list_knowledge_topics (сэдвийн индекс — гарчиг + хэсгийн нэрс, ангиллаар), read_knowledge_section (НЭГ хэсэг, ≤3000 тэмдэгт, ишлэлтэй) — §9e; `surfaces: ["mcp"]` тул REST-д ГАРАХГҮЙ; `requireFeature("knowledge")` (Console-оос байгууллага бүрд), 24ц/200 квот `[KNOWLEDGE_LIMIT]` | аль ч горимд (унших; журнал үүсгэхгүй) |
 
 ID-тэй tools бүгд бүтэн эсвэл 6+ тэмдэгтийн угтвар ID хүлээнэ;
 нэхэмжлэх documentNo болон externalRef-ээр ч олдоно. Lookup нь сүүлийн
@@ -1603,19 +1619,16 @@ ACCOUNT_NOT_FOUND, CONFLICT, AMOUNT_LIMIT_EXCEEDED, DIRECT_MODE_REQUIRED г.м.
 
 ```
 lib/ai/
-├── models.ts          Provider-aware registry (anthropic: fable/opus/sonnet/haiku,
-│                      openai: gpt-5.1/gpt-5/gpt-5-mini) + AiWriteMode
+├── write-mode.ts      AiWriteMode (draft | post) — ЦЭВЭР; write-mode-store.ts DB
 ├── tools.ts           Tool JSON schema + executor-ууд — одоо байгаа server
-│                      action-уудыг дуудна (шалгалт нэг газар); actionMarker
-├── action-markers.ts  CLIENT-safe: [[EA_ACTION:{json}]] задлагч
-├── openai.ts          OpenAI chat.completions adapter (fetch+SSE, function calling)
-├── system-prompt.ts   Tool дүрэм + UI навигацийн зам ("энд дараад тэнд дарна")
-└── crypto.ts          Түлхүүрүүд AES-256-GCM шифртэй (Anthropic + OpenAI)
+│                      action-уудыг дуудна (шалгалт нэг газар)
+├── action-markers.ts  AiAction төрөл (tool үр дүнгийн объект — AI бүртгэлд)
+├── post-limit.ts      §9 батлах хязгаар (AsyncLocalStorage)
+├── rate-limit.ts      MCP/REST-ийн tool дуудлагын хязгаар
+└── crypto.ts          Нууц AES-256-GCM шифр (QPay түлхүүр г.м. — нэр түүхэн)
 
-app/api/ai/chat/route.ts   Agent давталт (MAX_TOOL_ROUNDS=8): Anthropic tool-use
-                           stream эсвэл OpenAI adapter; action → маркер стримд
-components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэгтэй), Ноорог/Шууд
-                           бичих toggle, ActionCard (панель нээнэ)
+lib/actions/ai-write-mode.ts   saveAiWriteMode — /ai хуудасны горимын switch
+components/ai/ai-connect-view.tsx  «AI холболт»: заавар · горим · token
 ```
 
 Хатуу дүрмүүд:
@@ -1659,15 +1672,14 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
 - MCP-ийн `resolveApiToken` `eak_` (PAT) болон `eoat_` (OAuth) хоёуланг танина
 - proxy matcher `.well-known`-ийг алгасдаг; login redirect callbackUrl дамжуулдаг
 
-- **Нэвтрэлт:** Personal Access Token (`eak_...`, Тохиргоо → AI туслах →
-  MCP холболт). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л
+- **Нэвтрэлт:** Personal Access Token (`eak_...`, AI холболт `/ai` → Token). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л
   удаа бүтнээрээ харагдана; хэрэглэгч бүр дээд тал нь 5 token
-- **Tools = чатын agent-тай ИЖИЛ давхарга** (`lib/ai/tools.ts`) — тусдаа
+- **Tools = REST-тэй ИЖИЛ давхарга** (`lib/ai/tools.ts`) — тусдаа
   логик ХОРИОТОЙ; шинэ tool нэмбэл хоёр замд зэрэг очно
 - **Impersonation:** `runAsUser(userId, fn)` (lib/auth.ts, AsyncLocalStorage)
   — server action доторх `auth()` token-ий эзний session мэт хариулна.
   Cookie-той ердийн замд огт нөлөөгүй
-- Бичилтийн горим нь чатын toggle-тэй НЭГ тохиргоо (`ai_settings.write_mode`)
+- Бичилтийн горим `/ai` хуудасны switch — REST-тэй НЭГ тохиргоо (`ai_settings.write_mode`)
 - proxy.ts-ийн matcher `/api`-г алгасдаг тул энэ зам login redirect-д орохгүй
 
 ### 9c. Fork нэвтрүүлэлт, custom/ өргөтгөл, REST API
@@ -1684,8 +1696,8 @@ components/ai/ai-chat-view.tsx  Модель сонгогч (provider бүлэг
   interface `lib/custom/types.ts`; loader `lib/custom/loader.ts` (шалгалт
   `lib/custom/validate.ts`, тесттэй). Core нь custom/-ийн тодорхой багцын
   нэр/зам hardcode хийхгүй
-- **Tool нийлбэр:** `AI_TOOLS` = core; `allAiTools()` = core + custom — чат,
-  OpenAI adapter, MCP, REST БҮГД `allAiTools()` ашиглана. `executeAiTool`
+- **Tool нийлбэр:** `AI_TOOLS` = core; `allAiTools()` = core + custom — MCP,
+  REST хоёулаа `allAiTools()` (замаар шүүх бол `aiToolsForSurface`) ашиглана. `executeAiTool`
   default → custom tool. Шинэ consumer нэмбэл `allAiTools()`
 - **Мэдэгдлийн суваг** (фаз 2): `EntryCustomization.notificationChannels[]` —
   `NotificationChannel { key, label, deliver(ctx) }` (§9d); core Telegram-тай
@@ -1827,7 +1839,7 @@ tests/notification-{rules,attention,recipients,email}.test.ts
 Баримт: `docs/knowledge/00-proposal.md` (D1–D7 БАТЛАГДСАН 2026-09-23) — ЗААВАЛ уншина.
 `knowledge/` нь хөгжүүлэлтийн лавлагаа хэвээр; үүнээс гадна `01`, `02`,
 `04/skills` хавтас preDeploy-д `knowledge_articles`-д ачаалагдаж хэрэглэгчийн
-AI чат + MCP-д **хэсгээр** уншигдана. Хэрэглэгчид файл хэзээ ч очихгүй.
+MCP-д (хэрэглэгчийн ChatGPT / Claude) **хэсгээр** уншигдана. Хэрэглэгчид файл хэзээ ч очихгүй.
 
 ```
 scripts/lib/knowledge-parse.mjs  ЦЭВЭР parser (тесттэй): frontmatter, `## ` = хэсэг,
@@ -1867,7 +1879,7 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
   Тест `tests/billing-skills.test.ts`, `tests/skills-plan-flow.test.ts` (DB)
 - **Хэсгээр л** — «бүгдийг буцаах» параметр, сэдвийг бүтнээр өгөх зам НЭМЭХГҮЙ;
   хэсэг `KNOWLEDGE_MAX_SECTION_CHARS`-аар таслагдвал ИЛ хэлнэ
-- **`surfaces: ["chat", "mcp"]`** — REST-д ГАРАХГҮЙ (`aiToolsForSurface("rest")`
+- **`surfaces: ["mcp"]`** — REST-д ГАРАХГҮЙ (`aiToolsForSurface("rest")`
   жагсаалт ба дуудлага хоёуланд шүүнэ). Шинэ tool consumer нэмбэл
   `aiToolsForSurface(<зам>)`, `allAiTools()` шууд БИШ
 - Уншилт бүр `knowledge_reads` (аудит БИШ); 24ц квот `KNOWLEDGE_DAILY_READ_LIMIT`
@@ -2475,7 +2487,8 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            — 24ц квот + бөөнөөр татах илрүүлэлт, аудит БИШ (§9e)
 Тохиргоо   company_settings.aiPostLimitMnt — AI/MCP/REST-ийн ШУУД БАТЛАХ дээд
            хязгаар (MNT, null = 10 сая ₮ default, §9); tool-оор өсгөхөд 1 тэрбум ₮ тааз
-AI         ai_messages, ai_attachments, ai_settings
+AI         ai_settings (write_mode л — §9a; ai_messages / ai_attachments 2026-09-25-нд
+           архивлагдсан, removed-schema-objects)
 Тайлан     report_line_mappings
              cfCodes — мөнгөн гүйлгээний тайлангийн S8 сегментийн кодууд
                (дансны таарцаас ТҮРҮҮЛЖ шалгагдана)

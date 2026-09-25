@@ -240,14 +240,13 @@ export const MODULES: Module[] = [
     ],
   },
   {
+    // Апп доторх чат хасагдсан (2026-09-25) — хэрэглэгч өөрийн ChatGPT / Claude-оос
+    // MCP-ээр холбогддог; энэ модуль = холбох заавар + бичилтийн горим + token.
     id: "ai",
-    label: "AI туслах",
+    label: "AI холболт",
     matchPrefix: "/ai",
     defaultHref: "/ai",
-    items: [
-      { label: "Чат", href: "/ai", icon: "ai" },
-      { label: "Тохиргоо", href: "/ai/settings", icon: "settings" },
-    ],
+    items: [{ label: "ChatGPT / Claude холбох", href: "/ai", icon: "ai" }],
   },
   {
     // Тохиргоо — хэрэглэгч, байгууллага, бүртгэлийн тохиргоо НЭГ дор

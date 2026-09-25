@@ -31,8 +31,7 @@ export type PanelKind =
   | "arap-doc" // АР/АП баримт — үүсгэх эсвэл харах
   | "purchase-order" // Худалдан авалтын захиалга (PO) — үүсгэх/харах/засах
   | "goods-receipt" // Хүлээн авалтын баримт (PO-гийн үлдэгдлээс)
-  | "pos-sale" // POS борлуулалт / буцаалт — дэлгэрэнгүй, буцаалт, дахин хэвлэх
-  | "ai-chat"; // AI туслах — глобал хөвөгч чат
+  | "pos-sale"; // POS борлуулалт / буцаалт — дэлгэрэнгүй, буцаалт, дахин хэвлэх
 
 /** Самбарын задаргааны нэг мөр (drill панелийн payload-д). */
 export interface DrillPanelRow {
@@ -690,12 +689,3 @@ export function openPosSalePanel(
   });
 }
 
-/** AI туслах — глобал нэг чат панель (dedupe key тогтмол). */
-export function openAiChatPanel() {
-  return usePanelStore.getState().openPanel({
-    key: "ai-chat",
-    kind: "ai-chat",
-    title: "AI туслах",
-    payload: {},
-  });
-}

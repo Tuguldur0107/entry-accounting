@@ -27,7 +27,7 @@ Tuguldur0107/entry-accounting (core)         <харилцагч>/entry-accounti
 | 3 | Railway deploy — Entry Console автоматаар (§1b): `entry-<slug>` app + `entry-<slug>-db` Postgres, хувьсагчид, domain. Гараар бол: Postgres + repo холбох, `.env.example`-ийн DATABASE_URL, AUTH_SECRET, NEXT_PUBLIC_APP_URL | Бид | Console / Railway (`railway.toml` бэлэн: db:push + healthcheck) |
 | 4 | `/api/health` → `{ok:true, version:"1.0.0", sha:"…"}` шалгах | Бид | curl |
 | 5 | Эхний хэрэглэгч бүртгэх → байгууллага үүснэ → Тохиргоо → ЕЖ тохиргоо → стандарт данс sync | Харилцагч | Вэб |
-| 6 | Тохиргоо → AI туслах → MCP холболт → token үүсгэх (эсвэл Cowork-д OAuth-оор Connect) | Харилцагч | Вэб |
+| 6 | AI холболт (`/ai`) → ChatGPT / Claude-д OAuth-оор Connect (эсвэл Claude Code / Codex-д token) | Харилцагч | Вэб |
 | 7 | Материал бэлдэх + gap тайлан — MCP `get_onboarding_guide` (танилцуулга, шалгах жагсаалт, зөрүү шийдвэрлэх дүрэм R0–R9, байгууллагын шат) + `entry-onboarding` skill | Харилцагч + Cowork | [onboarding.md](onboarding.md) |
 | 8 | Master data импорт — Cowork + `master-data-import` skill | Харилцагч + Cowork | [master-data/README.md](master-data/README.md) |
 | 8a | Нээлтийн баланс тулгалт (`get_trial_balance`, `reconcile_modules`); зөрүү → [onboarding.md](onboarding.md) §3 | Нягтланч | Cowork/вэб |
@@ -219,7 +219,7 @@ Hook нь core guardrail-ийг (баланс, период, эрх, 10 сая �
 
 | Зам | Хэзээ | Баримт |
 |-----|-------|--------|
-| **MCP** (`/api/mcp`) | Claude Code, Cowork, claude.ai, ChatGPT — хүн AI-тай ярьж ажиллуулна | Тохиргоо → AI туслах → MCP холболт |
+| **MCP** (`/api/mcp`) | Claude Code, Cowork, claude.ai, ChatGPT — хүн AI-тай ярьж ажиллуулна | AI холболт (`/ai`) |
 | **REST API v1** (`/api/v1/tools/*`) | POS/ERP/банк/n8n скрипт машинаас дуудна — ижил token, ижил 90+ tool | [api-integration.md](api-integration.md) |
 | **OAuth 2.1** | Custom connector-ийн "Connect" товч | `/.well-known/oauth-authorization-server` |
 | **Outbound hook** | Entry-ээс гадагш (батлагдсан журнал → webhook) | `custom/packages/demo` `afterJournalPost` |
