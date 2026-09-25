@@ -26,7 +26,7 @@ export const EMPTY_BUYER: EbarimtBuyerInput = {
 
 export type BuyerType = "individual" | "org";
 
-/** Байгууллагын дугаарын хэлбэр: 7 оронтой регистр | 11/14 оронтой ТТД. */
+/** Байгууллагын дугаарын хэлбэр: 7 оронтой регистр | 11–14 оронтой ТТД. */
 export type OrgNoKind = "empty" | "register" | "tin" | "incomplete";
 
 export const ORG_REGISTER_RE = /^\d{7}$/;
@@ -60,6 +60,8 @@ export interface OrgLookupState {
   name: string;
   status: "idle" | "loading" | "found" | "error";
   error: string;
+  /** ТЕГ: НӨАТ-аас чөлөөлөгдөх төсөл — баримт VAT_FREE/304 байх ёстой, Entry автоматаар хийхгүй (P2-3). */
+  freeProject?: boolean;
 }
 
 export interface BuyerState {
@@ -86,7 +88,7 @@ export function resolveBuyer(state: BuyerState): { buyer: EbarimtBuyerInput; pro
   const kind = orgNoKind(value);
   if (kind === "empty") return { buyer: EMPTY_BUYER, problem: "Байгууллагын ТТД (11 орон) эсвэл регистрийн дугаар (7 орон) оруулна уу" };
   if (kind === "incomplete")
-    return { buyer: EMPTY_BUYER, problem: "ТТД 11/14 оронтой (эсвэл регистр 7 оронтой) байна" };
+    return { buyer: EMPTY_BUYER, problem: "ТТД 11–14 оронтой (эсвэл регистр 7 оронтой) байна" };
   if (kind === "tin") return { buyer: { ...EMPTY_BUYER, ebarimtCustomerTin: value }, problem: null };
   if (state.lookup.status === "loading") return { buyer: EMPTY_BUYER, problem: "Байгууллагыг ТЕГ-ээс шалгаж байна…" };
   if (state.lookup.status !== "found" || !state.lookup.tin)

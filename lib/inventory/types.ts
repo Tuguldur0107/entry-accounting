@@ -18,7 +18,7 @@ export type InventoryItemView = {
   categoryCode: string | null;
   /** eBarimt: ТЕГ-ийн ангилалын код (7 орон) — хоосон бол бүлгийнх өвлөгдөнө. */
   ebarimtClassificationCode: string | null;
-  /** eBarimt: НӨАТ-гүй/0% барааны татварын бүтээгдэхүүний код (3 орон). */
+  /** eBarimt: НӨАТ-гүй/0% барааны татварын бүтээгдэхүүний код (3–5 орон). */
   ebarimtTaxProductCode: string | null;
   /** Баркодын төрөл — "GS1" | "ISBN" | "UNDEFINED"; null = UNDEFINED. */
   barcodeType: string | null;

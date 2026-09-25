@@ -45,6 +45,7 @@ import {
   type SaleQuote,
 } from "@/lib/actions/pos";
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS, EBARIMT_PAYMENT_CODES } from "@/lib/ebarimt/constants";
+import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
 import {
   getQpayProvisionPreview,
   getQpayStatus,
@@ -1175,7 +1176,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
             onChange={(e) => patch({ ebarimtMerchantTin: e.target.value.replace(/\D/g, "") })}
           />
         </FormField>
-        <FormField label="Салбарын дугаар" hint="Мерчант порталын branchNo">
+        <FormField label="Салбарын дугаар" hint="3 оронтой тоо (001, 002 …) — татвар төлөгч өөрөө тодорхойлно (албан спек)">
           <Input
             value={form.ebarimtBranchNo}
             className="font-mono"
@@ -1290,6 +1291,13 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
                   <span className="text-[var(--ea-text-3)]">ТЕГ рүү сүүлд: </span>
                   <span className="font-mono">{status.posApi.lastSentDate ?? "—"}</span>
                 </div>
+                <div>
+                  <span className="text-[var(--ea-text-3)]">PosAPI хувилбар: </span>
+                  <span className={isPosApiVersionOutdated(status.posApiVersion) ? "font-semibold text-[var(--ea-danger-fg)]" : "font-mono"}>
+                    {status.posApiVersion ?? "— (сүүлийн баримтын хариунаас)"}
+                    {isPosApiVersionOutdated(status.posApiVersion) ? ` — ${POSAPI_MIN_VERSION}-оос доош, ТЕГ «яаралтай шинэчилнэ» (2025-11-25)` : ""}
+                  </span>
+                </div>
                 <div className="sm:col-span-2">
                   <span className="text-[var(--ea-text-3)]">Мерчант бүртгэл: </span>
                   {status.posApi.merchantRegistered == null ? (
@@ -1308,6 +1316,24 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
               <p className="text-xs text-[var(--ea-warning-fg)]">
                 PosAPI-д хүрэхгүй байна (/rest/info хариулсангүй) — URL, сүлжээ, үйлчилгээ ажиллаж буйг шалгана.
               </p>
+            )}
+            {status.merchant && (
+              <div className="mt-2 space-y-1 text-xs">
+                <div>
+                  <span className="text-[var(--ea-text-3)]">ТЕГ-ийн бүртгэл: </span>
+                  {status.merchant.name || "—"}
+                  {status.merchant.vatPayer === false ? <span className="text-[var(--ea-danger-fg)]"> · НӨАТ суутган төлөгч БИШ</span> : ""}
+                </div>
+                {status.merchant.cityPayer && (
+                  <div className="text-[var(--ea-warning-fg)]">
+                    ТЕГ: НХАТ (нийслэлийн албан татвар) суутган төлөгч — Entry хотын татварын дүнг баримтад бичдэггүй (үргэлж 0);
+                    НХАТ-тай бараа/үйлчилгээ зарахаас өмнө тусдаа шийдвэр шаардлагатай
+                  </div>
+                )}
+                {status.merchant.freeProject && (
+                  <div className="text-[var(--ea-warning-fg)]">ТЕГ: НӨАТ-аас чөлөөлөгдөх төслийн бүртгэлтэй — баримт VAT_FREE/304 байх ёстой, нягтлантай тохирно</div>
+                )}
+              </div>
             )}
           </div>
         )}

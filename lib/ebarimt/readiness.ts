@@ -74,7 +74,7 @@ export interface ReadinessGap {
 export interface EbarimtReadiness {
   /** Ангилалын код (7 орон) олдохгүй идэвхтэй бараа. */
   items: ReadinessGap;
-  /** НӨАТ-гүй / 0%-ийн бараанд татварын бүтээгдэхүүний код (3 орон) алга. */
+  /** НӨАТ-гүй / 0%-ийн бараанд татварын бүтээгдэхүүний код (3–5 орон) алга. */
   taxProduct: ReadinessGap;
   /** `ebarimtCode` оноогоогүй идэвхтэй төлбөрийн хэлбэр. */
   payments: ReadinessGap;
@@ -154,7 +154,7 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
     );
   if (taxProduct.count > 0)
     problems.push(
-      `${taxProduct.count} НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3 орон) алга: ${sampleText(taxProduct)}`
+      `${taxProduct.count} НӨАТ-гүй/0% бараанд татварын бүтээгдэхүүний код (3–5 орон) алга: ${sampleText(taxProduct)}`
     );
   if (payments.count > 0)
     problems.push(

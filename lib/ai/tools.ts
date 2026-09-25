@@ -10,6 +10,7 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
+import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
 import { createHash, randomUUID } from "node:crypto";
 
 import { and, asc, desc, eq, gte, inArray, like, lte, notInArray, or, sql, type SQL } from "drizzle-orm";
@@ -909,7 +910,7 @@ export const AI_TOOLS: AiToolDef[] = [
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
         ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
-        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3 орон — exempt/zero бараанд заавал" },
+        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3–5 орон (албан жагсаалт 3 орон) — exempt/zero бараанд заавал" },
         barcodeType: { type: "string", enum: ["GS1", "ISBN", "UNDEFINED"], description: "Баркодын төрөл (eBarimt barCodeType) — сонголтоор" },
         description: { type: "string", description: "Барааны тайлбар (≤2000) — сонголтоор" },
         brand: { type: "string", description: "Брэнд — сонголтоор" },
@@ -1047,7 +1048,7 @@ export const AI_TOOLS: AiToolDef[] = [
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
         ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
-        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3 орон — exempt/zero бараанд заавал" },
+        ebarimtTaxProductCode: { type: "string", description: "eBarimt: НӨАТ-гүй (305–446) / 0% (501–507) барааны татварын бүтээгдэхүүний код 3–5 орон (албан жагсаалт 3 орон) — exempt/zero бараанд заавал" },
         barcodeType: { type: "string", enum: ["GS1", "ISBN", "UNDEFINED"], description: "Баркодын төрөл (eBarimt barCodeType) — сонголтоор" },
         description: { type: "string", description: "Барааны тайлбар (≤2000) — сонголтоор" },
         brand: { type: "string", description: "Брэнд — сонголтоор" },
@@ -8700,7 +8701,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 НӨАТ-тай бол: авлага = нийт, орлого = нийт/1.1, НӨАТ өглөг 31410000 = нийт×10/110 гэж мөр хуваана.`,
   pos_sale: `ЖИЖИГЛЭН ХУДАЛДАА (POS — docs/pos) — зөв дараалал:
 0. Бараанд борлуулах үнэ (salesPrice), баркод, НӨАТ төрөл байх ёстой — update_inventory_item / create_inventory_items_batch.
-   eBarimt асаалттай бол бараа бүрд ТЕГ-ийн ангилалын код (7 орон) ба НӨАТ-гүй/0%-д татварын бүтээгдэхүүний код (3 орон), төлбөрийн хэлбэр бүрд eBarimt код ЗААВАЛ — эдгээргүй бол баримт илгээгдэхгүй (get_ebarimt_status алдааг нэрлэнэ)
+   eBarimt асаалттай бол бараа бүрд ТЕГ-ийн ангилалын код (7 орон) ба НӨАТ-гүй/0%-д татварын бүтээгдэхүүний код (3–5 орон), төлбөрийн хэлбэр бүрд eBarimt код ЗААВАЛ — эдгээргүй бол баримт илгээгдэхгүй (get_ebarimt_status алдааг нэрлэнэ)
 1. get_pos_status — нээлттэй ээлж, төлбөрийн хэлбэрийн кодууд (CASH, CARD, CREDIT …), НӨАТ төлөгч эсэх
 2. open_pos_shift {cashAccount, warehouseCode, openingFloat} — ээлж байхгүй бол (GL бичилтгүй)
 3. create_pos_sale {lines:[{itemCode, quantity}], payments:[{method:"CASH", amount}]} — НЭГ транзакцад: АР нэхэмжлэх posted + кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS. Хөнгөлөлтийн дүрэм автомат; купон couponCodes-оор; харилцагч өгвөл бүлгийн хөнгөлөлт/зээл. Зөвхөн 'Шууд бичих' горим, ≤10 сая ₮
@@ -11960,6 +11961,9 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,
     ...(readiness.warnings.length ? [`Анхааруулга: ${readiness.warnings.join("; ")}`] : []),
+    ...(status.posApiVersion ? [`PosAPI хувилбар: ${status.posApiVersion}${isPosApiVersionOutdated(status.posApiVersion) ? ` — ${POSAPI_MIN_VERSION}-оос доош, шинэчилнэ` : ""}`] : []),
+    ...(status.merchant?.cityPayer ? ["ТЕГ: НХАТ суутган төлөгч — Entry totalCityTax дэмжихгүй (үргэлж 0)"] : []),
+    ...(status.merchant?.freeProject ? ["ТЕГ: НӨАТ-аас чөлөөлөгдөх төсөл — баримт VAT_FREE/304 байх ёстой (гараар)"] : []),
     status.enabled && status.mode === "server"
       ? status.posApi
         ? `PosAPI: ${status.posApi.operatorName ?? "оператор ?"} · posNo ${status.posApi.posNo ?? "?"} · үлдсэн сугалаа ${status.posApi.leftLotteries ?? "?"} · ТЕГ рүү сүүлд ${status.posApi.lastSentDate ?? "?"} · мерчант бүртгэлтэй: ${status.posApi.merchantRegistered == null ? "тодорхойгүй" : status.posApi.merchantRegistered ? "тийм" : "ҮГҮЙ — operator.ebarimt.mn-ээс хүсэлт илгээж харилцагчаар батлуулна"}`

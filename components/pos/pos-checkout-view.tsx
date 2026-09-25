@@ -247,7 +247,7 @@ export function PosCheckoutView({
                   ...current,
                   lookup:
                     result.info && !result.error
-                      ? { tin: result.info.tin, name: result.info.name, status: "found", error: "" }
+                      ? { tin: result.info.tin, name: result.info.name, status: "found", error: "", freeProject: result.info.freeProject === true }
                       : { ...IDLE_LOOKUP, status: "error", error: result.error ?? "Байгууллага олдсонгүй" },
                 }
           );

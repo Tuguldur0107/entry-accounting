@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { hoursSince, isMerchantRegistered, parsePosApiInfo } from "../lib/ebarimt/posapi-info";
+import { hoursSince, isMerchantRegistered, isPosApiVersionOutdated, parsePosApiInfo } from "../lib/ebarimt/posapi-info";
 
 test("parsePosApiInfo: албан спек §6-ийн талбарууд, leftLoteries бичиглэлийг ч уншина", () => {
   const info = parsePosApiInfo({
@@ -43,4 +43,20 @@ test("hoursSince: PosAPI-ийн 'yyyy-MM-dd HH:mm:ss' → цаг; гажиг о�
   assert.equal(hoursSince("2026-09-21 00:00:00", "2026-09-20 12:00"), 0);
   assert.equal(hoursSince("сая", "2026-09-20 12:00"), null);
   assert.equal(hoursSince(null, "2026-09-20 12:00"), null);
+});
+
+test("P2-9: `lastSendDate` (SDK бичиглэл) ч уншигдана", () => {
+  assert.equal(parsePosApiInfo({ lastSendDate: "2026-09-20 11:30:00" }).lastSentDate, "2026-09-20 11:30:00");
+  assert.equal(parsePosApiInfo({ lastSentDate: "2026-09-21 00:00:00", lastSendDate: "x" }).lastSentDate, "2026-09-21 00:00:00");
+});
+
+test("P2-10: PosAPI хувилбар 3.0.12-оос доош бол хуучирсан; уншигдахгүй бол null", () => {
+  assert.equal(isPosApiVersionOutdated("3.2.44"), false);
+  assert.equal(isPosApiVersionOutdated("3.0.12"), false);
+  assert.equal(isPosApiVersionOutdated("3.0.11"), true);
+  assert.equal(isPosApiVersionOutdated("3.0.9"), true);
+  assert.equal(isPosApiVersionOutdated("v3.1"), false);
+  assert.equal(isPosApiVersionOutdated("2.9.99"), true);
+  assert.equal(isPosApiVersionOutdated(null), null);
+  assert.equal(isPosApiVersionOutdated("сая"), null);
 });

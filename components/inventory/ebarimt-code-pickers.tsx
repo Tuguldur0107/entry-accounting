@@ -3,12 +3,14 @@
 // eBarimt-ийн кодын ХАЙЛТТАЙ сонгогчууд — барааны карт ба ангиллын диалог.
 //  • ClassificationCodePicker — 7 оронтой ангилал (ТЕГ/ҮСХ): СЕРВЕРИЙН хайлт
 //    (хэдэн мянган мөр client-д ирэхгүй) + байгууллагын хэрэглэж буй код.
-//  • TaxProductCodePicker — 3 оронтой татварын бүтээгдэхүүний код: албан
+//  • TaxProductCodePicker — 3–5 оронтой татварын бүтээгдэхүүний код: албан
 //    жагсаалт (lib/ebarimt/tax-product-codes.ts) НӨАТ-ийн горимоор шүүгдэнэ.
 // Хоёулаа жагсаалтад байхгүй кодыг гараар оруулахыг ЗӨВШӨӨРНӨ (ТЕГ шинэ код
-// нэмдэг) — зөвхөн хэлбэрийг (7/3 орон) шалгана, код ЗОХИОХГҮЙ.
+// нэмдэг) — зөвхөн хэлбэрийг (7 / 3–5 орон, TAX_PRODUCT_CODE_RE) шалгана, код ЗОХИОХГҮЙ.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { TAX_PRODUCT_CODE_RE } from "@/lib/ebarimt/constants";
 
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { searchEbarimtClassifications } from "@/lib/actions/ebarimt-classification";
@@ -150,8 +152,8 @@ export function TaxProductCodePicker({
       placeholder={disabled ? "НӨАТ-тай бараанд шаардахгүй" : "Хайх: код эсвэл нэр"}
       valueLabel={taxProductCodeName(value) ?? "жагсаалтаар шалгаагүй"}
       customOption={(query) =>
-        /^\d{3}$/.test(query)
-          ? { value: query, label: "Гараар оруулах", hint: "жагсаалтаар шалгаагүй" }
+        TAX_PRODUCT_CODE_RE.test(query)
+          ? { value: query, label: "Гараар оруулах", hint: "жагсаалтаар шалгаагүй (3–5 орон)" }
           : null
       }
       footer={

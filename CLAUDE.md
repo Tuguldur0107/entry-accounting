@@ -879,7 +879,10 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   `api.ebarimt.mn` ЗӨВХӨН Монголын IP — env `EBARIMT_PUBLIC_API_BASE` (`publicApiBase()`);
   иргэний РД-аар `getTinInfo` ХОРИОТОЙ (ХХМХ 4.1.11, ТЕГ 2026-05-11), регистрээр лавлах
   2026-06-15-аас хязгаарлагдана → кассын B2B-д **ТТД шууд** үндсэн зам (нэр `getInfo`-оос,
-  `lookupTaxpayerByTin`; лавлах унасан ч төлбөр хаагдахгүй)
+  `lookupTaxpayerByTin`; лавлах унасан ч төлбөр хаагдахгүй). ТТД 11–14 орон (хувь хүн 12–14),
+  татварын бүтээгдэхүүний код 3–5 орон (`getProductTaxCode` 5 оронтой ч буцаадаг); `getInfo`-ийн
+  `cityPayer`/`freeProject` → мерчантын статус + кассын анхааруулга (НХАТ, VAT_FREE/304 автомат
+  БИШ); PosAPI хувилбар сүүлийн хариуны `version`-оос, <3.0.12 улаан (`isPosApiVersionOutdated`)
 - **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
   гараар засах ХОРИОТОЙ (давхар баримт)
 - **Борлуулалт бүрд eBarimt-гүй (`skipped`)**: төлбөрийн диалогийн «eBarimt
