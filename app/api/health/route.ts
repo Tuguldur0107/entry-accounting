@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { posEbarimtSubmissions, posQpayIntents, posSettings } from "@/lib/db/schema";
 import { QPAY_PAID_UNFINALIZED_MINUTES } from "@/lib/qpay/constants";
 import { knowledgeStats } from "@/lib/knowledge/store";
+import { aiLoggingHealthStats } from "@/lib/ai-logging/service";
 import { deploymentLicenseStatus } from "@/lib/licensing/license";
 import { deploymentMode } from "@/lib/deployment-mode";
 import { APP_VERSION, GIT_SHA } from "@/lib/version";
@@ -11,8 +12,8 @@ import { APP_VERSION, GIT_SHA } from "@/lib/version";
 export const dynamic = "force-dynamic";
 
 // Railway healthcheck + fork/deploy-ийн хувилбар шалгах цэг (нэвтрэлтгүй,
-// нууцгүй): { ok, version, sha, license, ebarimt }. license.reason нь хэрэглэгчид
-// харуулах ерөнхий текст — нууц агуулаагүй. ebarimt нь Entry Console-ийн
+// нууцгүй): { ok, version, sha, license, ebarimt, qpay, knowledge, aiLog }.
+// license.reason нь хэрэглэгчид харуулах ерөнхий текст — нууц агуулаагүй. ebarimt нь Entry Console-ийн
 // хяналтад (docs/pos/03 §3.1): зөвхөн тоолуур — ТТД, нууц байхгүй.
 async function ebarimtHealth() {
   try {
@@ -87,8 +88,14 @@ export async function GET() {
   try {
     await db.execute(sql`select 1`);
     const ebarimt = await ebarimtHealth();
-    const [qpay, knowledge] = await Promise.all([qpayHealth(), knowledgeHealth()]);
-    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay, knowledge });
+    // aiLog — ML сургалтын шошготой бүртгэл хуримтлагдаж буй эсэх (зөвхөн тоо,
+    // docs/ai-logging.md §11).
+    const [qpay, knowledge, aiLog] = await Promise.all([
+      qpayHealth(),
+      knowledgeHealth(),
+      aiLoggingHealthStats(),
+    ]);
+    return NextResponse.json({ ok: true, ...meta, ebarimt, qpay, knowledge, aiLog });
   } catch (err) {
     return NextResponse.json(
       { ok: false, ...meta, error: err instanceof Error ? err.message : String(err) },

@@ -546,6 +546,70 @@ export async function aiSuggestionStats(
   }
 }
 
+/** `/api/health`-ийн `aiLog` блок — ПЛАТФОРМЫН нэгтгэл тоо. */
+export type AiLoggingHealth = {
+  total: number;
+  last30Days: number;
+  organizations: number;
+  accepted: number;
+  modified: number;
+  rejected: number;
+  posted: number;
+  /** Сургалтад тэнцэх: батлагдсан + үе хаагдсан + буцаагдаагүй. */
+  trainable: number;
+  invalidated: number;
+  lastAt: string | null;
+};
+
+/**
+ * Deploy-ийн дараах хяналтад бүртгэл ХУРИМТЛАГДАЖ байгаа эсэхийг харуулна.
+ * Scope-гүй цорын ганц функц — зөвхөн COUNT/MAX буцаана: байгууллагын ID,
+ * payload, санал, баримтын холбоос ХЭЗЭЭ Ч гарахгүй (нэвтрэлтгүй health-д
+ * ил тул). Тоолох шүүлтүүр `isTrainingEligible`-тэй ижил гурван нөхцөл.
+ * Алдаа гарвал (хүснэгт хараахан үүсээгүй) null — health-ийг унагахгүй.
+ */
+export async function aiLoggingHealthStats(
+  executor: Pick<typeof db, "select"> = db
+): Promise<AiLoggingHealth | null> {
+  try {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+    const [row] = await executor
+      .select({
+        total: sql<number>`count(*)`,
+        last30Days: sql<number>`count(*) filter (where ${aiSuggestionLog.createdAt} >= ${since}::timestamptz)`,
+        organizations: sql<number>`count(distinct ${aiSuggestionLog.organizationId})`,
+        accepted: sql<number>`count(*) filter (where ${aiSuggestionOutcome.resolution} = 'accepted')`,
+        modified: sql<number>`count(*) filter (where ${aiSuggestionOutcome.resolution} = 'modified')`,
+        rejected: sql<number>`count(*) filter (where ${aiSuggestionOutcome.resolution} = 'rejected')`,
+        posted: sql<number>`count(*) filter (where ${aiSuggestionOutcome.isPosted})`,
+        trainable: sql<number>`count(*) filter (where ${aiSuggestionOutcome.isPosted} and ${aiSuggestionOutcome.isPeriodClosed} and not ${aiSuggestionOutcome.hasReversal})`,
+        invalidated: sql<number>`count(*) filter (where ${aiSuggestionOutcome.hasReversal})`,
+        lastAt: sql<string | null>`max(${aiSuggestionLog.createdAt})`,
+      })
+      .from(aiSuggestionLog)
+      .leftJoin(
+        aiSuggestionOutcome,
+        eq(aiSuggestionOutcome.suggestionId, aiSuggestionLog.id)
+      );
+    if (!row) return null;
+    return {
+      total: Number(row.total ?? 0),
+      last30Days: Number(row.last30Days ?? 0),
+      organizations: Number(row.organizations ?? 0),
+      accepted: Number(row.accepted ?? 0),
+      modified: Number(row.modified ?? 0),
+      rejected: Number(row.rejected ?? 0),
+      posted: Number(row.posted ?? 0),
+      trainable: Number(row.trainable ?? 0),
+      invalidated: Number(row.invalidated ?? 0),
+      lastAt: row.lastAt ? new Date(row.lastAt).toISOString() : null,
+    };
+  } catch (error) {
+    warn("health тоолуур", error);
+    return null;
+  }
+}
+
 /** Тестийн цэвэрлэгээнд — ЗӨВХӨН өөрийн байгууллагын мөрүүдийг устгана. */
 export async function deleteAiSuggestions(
   scope: Pick<AiLogScope, "orgId">,

@@ -88,6 +88,13 @@ test("AI бүртгэлийн хүснэгтэд ЗӨВХӨН lib/ai-logging/ х
   );
 });
 
+/**
+ * Scope-гүй ИЛ онцгой тохиолдол: зөвхөн платформын COUNT/MAX буцаадаг
+ * функц (мөр, payload, байгууллагын ID ГАРАХГҮЙ — ai-logging-isolation
+ * тест шалгана). Шинэ нэр нэмэх нь review-д ил харагдах шийдвэр байна.
+ */
+const PLATFORM_AGGREGATES = new Set(["aiLoggingHealthStats"]);
+
 test("service.ts-ийн бичих/унших функц бүр scope параметртэй", () => {
   const source = readFileSync(join("lib", "ai-logging", "service.ts"), "utf8");
   // `export async function <нэр>(` мөрийн ДАРААХ мөр нь scope параметр байх.
@@ -96,6 +103,7 @@ test("service.ts-ийн бичих/унших функц бүр scope парам
   ];
   assert.ok(exported.length >= 6, "экспортлогдсон функц хэт цөөн олдлоо");
   const missing = exported
+    .filter(([, name]) => !PLATFORM_AGGREGATES.has(name))
     .filter(([, , firstParam]) => !/scope|event\b/.test(firstParam))
     .map(([, name]) => name);
   assert.deepEqual(
