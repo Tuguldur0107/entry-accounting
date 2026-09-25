@@ -6,7 +6,7 @@ import { getPeriodSelection } from "@/lib/periods/selection";
 import { computeTaxDeadlines, type TaxDeadlineKey } from "@/lib/tax/calendar";
 
 // Татварын нэгдсэн самбар: ойрын тайлангийн хугацаанууд + татвар бүрийн
-// хураангуй карт. Хувь хэмжээ knowledge/01-онол-хууль-стандарт/tax/-аас —
+// хураангуй карт. Хувь хэмжээ entry-knowledge/01-онол-хууль-стандарт/tax/-аас —
 // лавлагаа зорилготой, тооцоолол нь тухайн хуудас/модульдаа.
 
 const DEADLINE_HREF: Record<TaxDeadlineKey, string> = {

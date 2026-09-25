@@ -5,6 +5,18 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ## [Unreleased]
 
+### Security
+
+- **Мэдлэгийн сан хувийн repo руу зөөгдсөн (фаз 2).** `knowledge/01-онол-хууль-стандарт`,
+  `02-нягтлан-бодох-мэргэжлийн`, `04-ai-agent/skills` нь «AI нягтлан» бүтээгдэхүүний
+  гол агуулга тул core (public) болон fork-оос хасагдаж `Tuguldur0107/entry-knowledge`
+  (хувийн) repo-д шилжсэн — зам, checksum ижил тул production-ийн сан хөндөгдөөгүй.
+  SaaS preDeploy (`seed-knowledge.mjs`) шинэ env `KNOWLEDGE_REPO` +
+  `KNOWLEDGE_REPO_TOKEN`-оор tarball татна (`scripts/lib/knowledge-source.mjs`, тесттэй);
+  fork-д эх сурвалж байхгүй тул юу ч ачаалагдахгүй. Эх сурвалж бүрэн биш үед
+  (token-гүй, татаж чадаагүй, хагас архив) seed DB-ээс ЮУ Ч УСТГАХГҮЙ. Хөгжүүлэгч
+  `../entry-knowledge` clone хийнэ; CLAUDE.md-ийн лавлагаанууд тийш заана.
+
 ### Removed
 
 - **Апп доторх AI чат хасагдсан — зөвхөн MCP холболт.** «AI туслах → Чат»

@@ -1,9 +1,9 @@
 // Цалингийн цэвэр тооцоолол — DB/framework хамааралгүй (тесттэй).
 //
 // Эх сурвалж (хувь хэмжээг ЭНДЭЭС өөр газар бичихийг хориглоно):
-//   knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/social-insurance.md
-//   knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/pit.md
-//   knowledge/01-онол-хууль-стандарт/tax/2026-updates.md
+//   entry-knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/social-insurance.md
+//   entry-knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/pit.md
+//   entry-knowledge/01-онол-хууль-стандарт/tax/2026-updates.md
 //
 // Effective date guardrail (§10): ХАОАТ 2025 хүртэл 10% flat, 2026-аас
 // шатлалт (10/15/20%). Хамаарах огноог заавал өгнө — таамаглахгүй.

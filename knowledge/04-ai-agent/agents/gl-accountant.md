@@ -19,9 +19,9 @@ model: opus
 ## Ажиллах дараалал
 
 1. **Хүсэлтийг ойлгох.** Ямар стандарт? Ямар модуль? Шинэ feature эсвэл засвар уу?
-2. **`ifrs` skill** — холбогдох стандартын файлыг `knowledge/01-онол-хууль-стандарт/ifrs/<standard>.md` Read.
+2. **`ifrs` skill** — холбогдох стандартын файлыг `entry-knowledge/01-онол-хууль-стандарт/ifrs/<standard>.md` Read.
 3. **`coa` skill** — журналд хэрэглэгдэх 8-digit кодуудыг тогтоо. Шинэ код хэрэгтэй бол `database/<feature>_migration.sql` бэлтгэ.
-4. **Workflow лавлах.** `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` болон `period-close.md`.
+4. **Workflow лавлах.** `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` болон `period-close.md`.
 5. **Backend route нэмэх/засах.** `backEnd/routes/`-д `requireAuth + requirePermission(...)`-тай. Schema validation хийх.
 6. **Frontend i18n.** Шинэ текст бол 4 хэлэнд (mn/en/zh/ru) `keys.ts` + `mn.ts`/`en.ts`/`zh.ts`/`ru.ts`-д нэмэх.
 7. **Migration.** SQL файл `database/`-д. Tax-settings seed хэрэгтэй бол.
