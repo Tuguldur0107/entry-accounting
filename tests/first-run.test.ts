@@ -15,15 +15,14 @@ import {
   type FirstRunSignals,
 } from "../lib/onboarding/first-run";
 
-// Анхны туршилт («Entry-г 5 минутад мэдэр»): алхмын илрүүлэлт, карт харагдах
-// нөхцөл, бэлэн асуултын нэг эх (нүүр, /ai, MCP prompts).
+// Анхны туршилт (AI-тай нэвтрүүлэлт): алхмын илрүүлэлт, карт харагдах нөхцөл,
+// бэлэн асуултын нэг эх (нүүр, /ai, MCP prompts).
 
 const base: FirstRunSignals = {
-  hasDemoOrg: false,
   isDemoOrg: false,
-  orgHasActivity: false,
   connected: false,
-  toolUsed: false,
+  orgHasMasterData: false,
+  orgHasActivity: false,
   isTrial: true,
   dismissed: false,
 };
@@ -31,40 +30,38 @@ const base: FirstRunSignals = {
 const done = (signals: FirstRunSignals) =>
   Object.fromEntries(firstRunSteps(signals).map((step) => [step.key, step.done]));
 
-test("firstRunSteps — дараалал try → connect → ask, өгөгдлөөс автоматаар ✓", () => {
+test("firstRunSteps — холбох → хуучин дата → нээлтийн үлдэгдэл, өгөгдлөөс автоматаар ✓", () => {
   assert.deepEqual(
     firstRunSteps(base).map((step) => step.key),
-    ["try", "connect", "ask"]
+    ["connect", "import", "opening"]
   );
-  assert.deepEqual(done(base), { try: false, connect: false, ask: false });
-  assert.deepEqual(done({ ...base, hasDemoOrg: true }), { try: true, connect: false, ask: false });
-  assert.deepEqual(done({ ...base, connected: true, toolUsed: true }), { try: false, connect: true, ask: true });
+  assert.deepEqual(done(base), { connect: false, import: false, opening: false });
+  assert.deepEqual(done({ ...base, connected: true }), { connect: true, import: false, opening: false });
+  assert.deepEqual(done({ ...base, orgHasMasterData: true }), { connect: false, import: true, opening: false });
+  assert.deepEqual(done({ ...base, orgHasActivity: true }), { connect: false, import: false, opening: true });
 });
 
-test("firstRunSteps — өөрийн дата бий бол демо шаардлагагүй; демо компанийн идэвх өөрийн дата биш", () => {
-  assert.equal(done({ ...base, orgHasActivity: true }).try, true);
-  // Демо компанид байгаа (идэвхтэй) ч гишүүнчлэл нь hasDemoOrg-оор ✓ болно
-  assert.equal(done({ ...base, orgHasActivity: true, isDemoOrg: true }).try, false);
-  assert.equal(done({ ...base, orgHasActivity: true, isDemoOrg: true, hasDemoOrg: true }).try, true);
+test("firstRunSteps — алхам бүрийн бэлэн асуулт бодит жагсаалтад бий", () => {
+  const ids = new Set(STARTER_PROMPTS.map((prompt) => prompt.id));
+  for (const step of firstRunSteps(base)) for (const id of step.promptIds) assert.ok(ids.has(id), `${step.key} → ${id}`);
+  assert.deepEqual(firstRunSteps(base)[1].promptIds, ["import_master_data"]);
 });
 
-test("shouldShowWelcome — туршилт / демо / хоосон байгууллагад л; хаасан, бүгд хийгдсэн бол үгүй", () => {
+test("shouldShowWelcome — туршилт / журналгүй байгууллагад л; хаасан, демо, бүгд хийгдсэн бол үгүй", () => {
   assert.equal(shouldShowWelcome(base), true);
   assert.equal(shouldShowWelcome({ ...base, dismissed: true }), false);
+  assert.equal(shouldShowWelcome({ ...base, isDemoOrg: true }), false, "демо компанид жишээ дата — нэвтрүүлэлтийн карт хэрэггүй");
   assert.equal(
-    shouldShowWelcome({ ...base, hasDemoOrg: true, connected: true, toolUsed: true }),
+    shouldShowWelcome({ ...base, connected: true, orgHasMasterData: true, orgHasActivity: true }),
     false,
     "3 алхам хийгдмэгц нуугдана"
   );
   // Идэвхтэй (туршилт биш) ажиллаж буй харилцагчид ХЭЗЭЭ Ч гарахгүй
   assert.equal(shouldShowWelcome({ ...base, isTrial: false, orgHasActivity: true }), false);
-  // Туршилт биш ч хоосон байгууллага (dedicated шинэ суулгалт) — гарна
+  // Туршилт биш ч журналгүй байгууллага (dedicated шинэ суулгалт) — гарна
   assert.equal(shouldShowWelcome({ ...base, isTrial: false }), true);
-  // Туршилт биш ч демо компанид — гарна (холбох, асуух алхам үлдсэн)
-  assert.equal(
-    shouldShowWelcome({ ...base, isTrial: false, orgHasActivity: true, isDemoOrg: true, hasDemoOrg: true }),
-    true
-  );
+  // Туршилтын хугацаанд дата орсон ч холбоогүй бол — гарна (холбох алхам үлдсэн)
+  assert.equal(shouldShowWelcome({ ...base, orgHasMasterData: true, orgHasActivity: true }), true);
 });
 
 test("STARTER_PROMPTS — id давхцахгүй, MCP нэрийн хэлбэр, текст хоосон биш, бичилттэй нь тэмдэглэгдсэн", () => {
@@ -76,8 +73,11 @@ test("STARTER_PROMPTS — id давхцахгүй, MCP нэрийн хэлбэр
     assert.ok(prompt.text.length >= 20, `${prompt.id} текст`);
   }
   assert.ok(STARTER_PROMPTS.some((prompt) => prompt.writes), "дор хаяж нэг ноорог үүсгэх жишээ");
-  // Нүүрний карт эхний 4-ийг харуулна — нягтлан бодох багцад бүгд нягтлангийнх
-  assert.ok(startersFor({ accounting: true, knowledge: true }).slice(0, 4).every((p) => p.feature === "accounting"));
+  // Эхний гурав нь нэвтрүүлэлт — MCP instructions-ийн жишээ, «+» цэсийн эхэнд
+  assert.deepEqual(
+    STARTER_PROMPTS.slice(0, 3).map((prompt) => prompt.id),
+    ["import_master_data", "import_opening_balances", "onboarding_check"]
+  );
 });
 
 test("startersFor — багцаар шүүнэ: «AI нягтлан» (skills) зөвхөн мэдлэгийн асуулт", () => {
@@ -99,7 +99,7 @@ test("MCP prompts/list ба prompts/get — нэг эх, багцад ороог
   assert.ok(got);
   assert.equal(got.messages.length, 1);
   assert.equal(got.messages[0].role, "user");
-  assert.equal(got.messages[0].content.text, STARTER_PROMPTS[0].text);
+  assert.equal(got.messages[0].content.text, STARTER_PROMPTS.find((prompt) => prompt.id === "month_overview")!.text);
 
   assert.equal(mcpPromptMessages("month_overview", { knowledge: true }), null, "skills багцад нягтлангийн асуулт үгүй");
   assert.equal(mcpPromptMessages("nope", { accounting: true, knowledge: true }), null);
@@ -107,7 +107,7 @@ test("MCP prompts/list ба prompts/get — нэг эх, багцад ороог
 
 test("starterInstructionHint — MCP instructions-д жишээ гарчиг; боломжгүй бол хоосон", () => {
   const hint = starterInstructionHint({ accounting: true });
-  assert.match(hint, /«Өнгөрсөн сарын тойм»/);
+  assert.match(hint, /«Хуучин датагаа оруулах»/);
   assert.equal(starterInstructionHint({}), "");
 });
 

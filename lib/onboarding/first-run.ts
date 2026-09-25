@@ -1,18 +1,20 @@
-// Анхны туршилт («Entry-г 5 минутад мэдэр») — ЦЭВЭР, client-safe (DB-гүй).
+// Анхны туршилт — «Өөрийн компаниа 15 минутад Entry-д» — ЦЭВЭР, client-safe (DB-гүй).
 //
-// Шинэ хэрэглэгч бүртгүүлмэгц систем ЧАДВАРТАЙ ч «юунаас эхлэх вэ» гэдгийг
-// өөрөө олох ёстой байв (самбарын checklist, «Демо компани» товч, /ai-ийн
-// холбох заавар тархай). Энд НЭГ зам:
+// Хүн бүртгүүлдэг нь ӨӨРИЙН компанийн асуудлыг шийдэхийн тулд — зохиомол демо
+// компани үнэ цэнийг хойшлуулж, ChatGPT / Claude-ийн холболт (идэвхтэй
+// байгууллагад уягддаг) дахин хийх саад үүсгэдэг байв. Тиймээс гол зам нь
+// AI-тай НЭВТРҮҮЛЭЛТ (get_onboarding_guide + create_*_batch + нээлтийн журнал —
+// бүгд ноорог-first):
 //
-//   ① Бэлэн дататай туршиж үзэх (демо компани) — эсвэл өөрийн дата аль хэдийн бий
-//   ② ChatGPT / Claude-даа холбох (OAuth / token)
-//   ③ Эхний асуултаа асуух (MCP-ээр анхны tool дуудлага)
+//   ① ChatGPT / Claude-даа холбох (өөрийн компанид)
+//   ② Хуучин датагаа өгөх — данс, харилцагч, бараа, ажилтан (Excel / экспорт)
+//   ③ Нээлтийн үлдэгдэл оруулж, тэнцлийг шалгах
 //
-// Алхам бүр ӨГӨГДЛӨӨС автоматаар ✓ болно (заавар уншуулахгүй); гурвуул
-// хийгдмэгц эсвэл хэрэглэгч хаамагц карт ХЭЗЭЭ Ч дахин гарахгүй.
-// Бэлэн асуултууд (`STARTER_PROMPTS`) нь нүүрний карт, /ai хуудас, MCP-ийн
-// `prompts/list` гурвын ЦОРЫН ГАНЦ эх — ChatGPT / Claude-ийн «+» цэсэнд ч гарна.
-// tests/first-run.test.ts.
+// Демо компани нь ТУСЛАХ зам (дата гартаа байхгүй, эсвэл эхлээд үзэх хүнд) —
+// картын доод мөрөнд. Алхам бүр ӨГӨГДЛӨӨС автоматаар ✓ болно; гурвуул хийгдмэгц
+// эсвэл хэрэглэгч хаамагц карт дахин гарахгүй. Бэлэн асуултууд (`STARTER_PROMPTS`)
+// нь нүүрний карт, /ai хуудас, MCP-ийн `prompts/list` гурвын ЦОРЫН ГАНЦ эх —
+// ChatGPT / Claude-ийн «+» цэсэнд ч гарна. tests/first-run.test.ts.
 
 /** Демо компанийн нэр — `createDemoCompany` (lib/actions/demo.ts) ба илрүүлэлт нэг эх. */
 export const DEMO_ORG_NAME = "Демо худалдааны компани";
@@ -33,11 +35,33 @@ export interface StarterPrompt {
 }
 
 /**
- * Демо компанийн датад (өнгөрсөн 2 сарын борлуулалт, худалдан авалт, төлбөр,
- * цалин, НӨАТ) шууд бодит хариу өгөхөөр сонгосон асуултууд. Хэрэглэгчийн өөрийн
- * датад ч адил ажиллана — харилцагч/сарыг нэрлэхгүй, AI өөрөө лавлана.
+ * Эхний гурав нь НЭВТРҮҮЛЭЛТ (картын ②③ алхам) — хэрэглэгч файлаа хавсаргаад
+ * асууна; AI нь get_onboarding_guide-ийн дүрмээр ноорог үүсгэнэ. Дараагийнх нь
+ * өдөр тутмын ашиглалт (өөрийн ч, демо датад ч бодит хариу) — харилцагч/сарыг
+ * нэрлэхгүй, AI өөрөө лавлана.
  */
 export const STARTER_PROMPTS: readonly StarterPrompt[] = [
+  {
+    id: "import_master_data",
+    title: "Хуучин датагаа оруулах",
+    text: "Хавсаргасан файлаас (хуучин програмын экспорт эсвэл Excel) дансны жагсаалт, харилцагч, бараа, ажилтнуудаа Entry-д оруул. Эхлээд Entry-ийн нэвтрүүлэлтийн зааврыг уншаад юу дутуу байгааг хэлж, оруулахаасаа өмнө надаар батлуул.",
+    feature: "accounting",
+    writes: true,
+  },
+  {
+    id: "import_opening_balances",
+    title: "Нээлтийн үлдэгдэл оруулах",
+    text: "Хавсаргасан эцсийн балансаас (гүйлгээ баланс эсвэл санхүүгийн байдлын тайлан) нээлтийн үлдэгдлийг Entry-д ноорог журнал болгож оруул — касс, авлага, өглөг, бараа, үндсэн хөрөнгийн задаргаатай нь. Дебет, кредит тэнцсэн эсэхийг шалга.",
+    feature: "accounting",
+    writes: true,
+  },
+  {
+    id: "onboarding_check",
+    title: "Оруулсан датаг шалгах",
+    text: "Entry-д оруулсан датаг шалгаад: баланс тэнцсэн үү, касс, авлага, өглөг, бараа ерөнхий журналтайгаа тулж байна уу, юу дутуу байгааг дарааллаар нь хэлээч.",
+    feature: "accounting",
+    writes: false,
+  },
   {
     id: "month_overview",
     title: "Өнгөрсөн сарын тойм",
@@ -115,63 +139,66 @@ export function starterPromptById(id: string): StarterPrompt | null {
 // ── Алхмын илрүүлэлт ─────────────────────────────────────────────────────────
 
 export interface FirstRunSignals {
-  /** Хэрэглэгч «Демо худалдааны компани»-ийн гишүүн. */
-  hasDemoOrg: boolean;
-  /** Одоогийн байгууллага демо компани мөн. */
+  /** Одоогийн байгууллага демо компани мөн (тэнд карт гарахгүй — жишээ дата). */
   isDemoOrg: boolean;
-  /** Одоогийн байгууллагад журнал бий (өөрийн датагаа оруулж эхэлсэн). */
-  orgHasActivity: boolean;
   /** Хэрэглэгч ChatGPT / Claude-д холбосон (OAuth эсвэл token — аль ч байгууллагад). */
   connected: boolean;
-  /** MCP-ээр дор хаяж нэг дуудлага хийгдсэн (token-ий `lastUsedAt`). */
-  toolUsed: boolean;
+  /** Одоогийн байгууллагад мастер дата бий — харилцагч, бараа эсвэл ажилтан. */
+  orgHasMasterData: boolean;
+  /** Одоогийн байгууллагад журнал бий (нээлтийн үлдэгдэл эсвэл анхны гүйлгээ). */
+  orgHasActivity: boolean;
   /** Туршилтын хугацаанд (багцын `trialing`). */
   isTrial: boolean;
   /** Хэрэглэгч картыг хаасан (`users.welcome_dismissed_at`). */
   dismissed: boolean;
 }
 
-export type FirstRunStepKey = "try" | "connect" | "ask";
+export type FirstRunStepKey = "connect" | "import" | "opening";
 
 export interface FirstRunStep {
   key: FirstRunStepKey;
   title: string;
   hint: string;
   done: boolean;
+  /** Энэ алхамд хуулж асуух бэлэн асуултууд (`STARTER_PROMPTS`-ийн id). */
+  promptIds: string[];
 }
 
 export function firstRunSteps(signals: FirstRunSignals): FirstRunStep[] {
   return [
     {
-      key: "try",
-      title: "Бэлэн дататай туршиж үзэх",
-      hint: "2 сарын борлуулалт, худалдан авалт, цалинтай демо компани — өөрийн датаг хөндөхгүй",
-      // Өөрийн дата аль хэдийн бий бол демо шаардлагагүй.
-      done: signals.hasDemoOrg || (signals.orgHasActivity && !signals.isDemoOrg),
-    },
-    {
       key: "connect",
       title: "ChatGPT / Claude-даа холбох",
       hint: "Өөрийн AI-аасаа Entry-д хандана — API түлхүүр хуулахгүй, нэмэлт төлбөргүй",
       done: signals.connected,
+      promptIds: [],
     },
     {
-      key: "ask",
-      title: "Эхний асуултаа асуух",
-      hint: "Доорх асуултын аль нэгийг хуулж ChatGPT / Claude-даа асуугаарай",
-      done: signals.toolUsed,
+      key: "import",
+      title: "Хуучин датагаа өгөх",
+      hint: "Хуучин програмын экспорт эсвэл Excel-ээ хавсаргаад доорх асуултыг асуу — данс, харилцагч, бараа, ажилтан",
+      done: signals.orgHasMasterData,
+      promptIds: ["import_master_data"],
+    },
+    {
+      key: "opening",
+      title: "Нээлтийн үлдэгдэл, тэнцэл",
+      hint: "Эцсийн балансаа өгөөд нээлтийн журнал ноороглуулна, дараа нь бүгд тулж байгааг шалгуулна",
+      done: signals.orgHasActivity,
+      promptIds: ["import_opening_balances", "onboarding_check"],
     },
   ];
 }
 
 /**
- * Карт харагдах эсэх: хаагаагүй, гурвуул хийгдээгүй, мөн туршилт / демо /
- * хоосон байгууллага (идэвхтэй ажиллаж буй харилцагчид ХЭЗЭЭ Ч гарахгүй).
+ * Карт харагдах эсэх: хаагаагүй, демо компани биш, гурвуул хийгдээгүй, мөн
+ * туршилт эсвэл журналгүй байгууллага (идэвхтэй ажиллаж буй харилцагчид ХЭЗЭЭ Ч
+ * гарахгүй).
  */
 export function shouldShowWelcome(signals: FirstRunSignals): boolean {
-  if (signals.dismissed) return false;
+  if (signals.dismissed || signals.isDemoOrg) return false;
   if (firstRunSteps(signals).every((step) => step.done)) return false;
-  return signals.isTrial || signals.isDemoOrg || !signals.orgHasActivity;
+  return signals.isTrial || !signals.orgHasActivity;
 }
 
 // ── MCP (prompts/list, prompts/get) ──────────────────────────────────────────

@@ -670,9 +670,10 @@ export default async function HomePage() {
     },
   ];
 
-  /* ── Анхны туршилт («Entry-г 5 минутад мэдэр») — lib/onboarding/first-run.ts ── */
+  /* ── Анхны туршилт (AI-тай нэвтрүүлэлт) — lib/onboarding/first-run.ts ── */
   const firstRun = await loadFirstRunSignals({
     userId,
+    orgId,
     orgName: orgRow?.name ?? null,
     orgHasActivity: vouchers.length > 0,
     isTrial: entitlements.status === "trialing",
@@ -682,7 +683,6 @@ export default async function HomePage() {
         steps: firstRunSteps(firstRun),
         mcpUrl: await mcpEndpointUrl(),
         orgName: orgRow?.name ?? "",
-        isDemoOrg: firstRun.isDemoOrg,
         prompts: startersFor({
           accounting: hasFeature(entitlements, "accounting"),
           knowledge: hasFeature(entitlements, "knowledge"),

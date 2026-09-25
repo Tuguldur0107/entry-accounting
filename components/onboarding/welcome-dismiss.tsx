@@ -1,6 +1,6 @@
 "use client";
 
-// «Entry-г 5 минутад мэдэр» картыг хаах — хэрэглэгчийн түвшинд (dismissWelcome).
+// Анхны туршилтын картыг хаах — хэрэглэгчийн түвшинд (dismissWelcome).
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";

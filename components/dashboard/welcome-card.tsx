@@ -1,5 +1,6 @@
-// Нүүрний «Entry-г 5 минутад мэдэр» карт — анхны туршилтын НЭГ зам:
-// ① бэлэн дататай турших → ② ChatGPT / Claude-даа холбох → ③ эхний асуулт.
+// Нүүрний «Өөрийн компаниа 15 минутад Entry-д» карт — анхны туршилтын гол зам
+// нь AI-тай НЭВТРҮҮЛЭЛТ: ① ChatGPT / Claude-даа холбох → ② хуучин датагаа өгөх →
+// ③ нээлтийн үлдэгдэл, тэнцэл. Демо компани нь доод мөрөнд ТУСЛАХ зам.
 // Алхам бүр өгөгдлөөс автоматаар ✓ (lib/onboarding/first-run.ts); гурвуул
 // хийгдмэгц эсвэл «Дараа үзнэ» дармагц нуугдана. Server Component — товчнууд
 // нь жижиг client хэсгүүд.
@@ -20,7 +21,7 @@ export type WelcomeCardData = {
   mcpUrl: string;
   /** OAuth зөвшөөрөл идэвхтэй байгууллагад уягддаг — аль компанид холбогдохыг ил хэлнэ. */
   orgName: string;
-  isDemoOrg: boolean;
+  /** Багцаар шүүсэн бэлэн асуултууд — алхам бүр өөрийнхөө id-гаар сонгоно. */
   prompts: StarterPrompt[];
 };
 
@@ -53,8 +54,12 @@ function StepHeader({ n, step }: { n: number; step: FirstRunStep }) {
 }
 
 export function WelcomeCard({ data }: { data: WelcomeCardData }) {
-  const [tryStep, connectStep, askStep] = data.steps;
+  const [connectStep, ...dataSteps] = data.steps;
   const doneCount = data.steps.filter((step) => step.done).length;
+  const promptsOf = (step: FirstRunStep) =>
+    step.promptIds
+      .map((id) => data.prompts.find((prompt) => prompt.id === id))
+      .filter((prompt): prompt is StarterPrompt => !!prompt);
 
   return (
     <section
@@ -66,37 +71,25 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
         <div>
           <h2 id="welcome-title" className="flex items-center gap-2 text-base font-semibold text-[var(--ea-text-1)]">
             <Icon name="ai" size="sm" className="text-[var(--ea-primary)]" />
-            Entry-г 5 минутад мэдэр
+            Өөрийн компаниа 15 минутад Entry-д
           </h2>
           <p className="mt-1 text-xs text-[var(--ea-text-3)]">
-            Нягтлан бодох бүртгэлээ өөрийн ChatGPT / Claude-аас асууж, тайлан гаргуулж, баримт
-            ноороглуулна. AI-ийн бичилт анхдагчаар НООРОГ — та шалгаж батална.
+            Хуучин програмын экспорт эсвэл Excel-ээ ChatGPT / Claude-даа өгөхөд AI нь данс, харилцагч,
+            бараа, нээлтийн үлдэгдлийг Entry-д оруулна. Бүх бичилт НООРОГ болж орно — та шалгаж батална.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--ea-text-3)]">{doneCount}/3 хийгдсэн</span>
+          <span className="text-xs text-[var(--ea-text-3)]">
+            {doneCount}/{data.steps.length} хийгдсэн
+          </span>
           <WelcomeDismiss />
         </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
-        {/* ① Бэлэн дататай турших */}
+        {/* ① ChatGPT / Claude-даа холбох */}
         <div className="space-y-3 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] p-3">
-          <StepHeader n={1} step={tryStep} />
-          {tryStep.done ? (
-            <p className="text-xs text-[var(--ea-text-3)]">
-              {data.isDemoOrg
-                ? "Та одоо демо компанид байна. Өөрийн компани руугаа топбарын компанийн сонгогчоор шилжинэ."
-                : "Бэлэн. Демо ба өөрийн компанийн хооронд топбарын компанийн сонгогчоор шилжинэ."}
-            </p>
-          ) : (
-            <DemoCompanyButton />
-          )}
-        </div>
-
-        {/* ② ChatGPT / Claude-даа холбох */}
-        <div className="space-y-3 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] p-3">
-          <StepHeader n={2} step={connectStep} />
+          <StepHeader n={1} step={connectStep} />
           {connectStep.done ? (
             <p className="text-xs text-[var(--ea-text-3)]">
               Холбогдсон. Өөр компанид холбох, token авах бол{" "}
@@ -116,18 +109,27 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
           )}
         </div>
 
-        {/* ③ Эхний асуулт */}
-        <div className="space-y-3 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] p-3">
-          <StepHeader n={3} step={askStep} />
-          <StarterPrompts prompts={data.prompts.slice(0, 4)} columns={1} />
-          <Link
-            href="/ai#starter-prompts"
-            className="inline-flex items-center gap-1 text-xs text-[var(--ea-primary)] underline-offset-2 hover:underline"
+        {/* ② Хуучин датагаа өгөх · ③ Нээлтийн үлдэгдэл, тэнцэл */}
+        {dataSteps.map((step, index) => (
+          <div
+            key={step.key}
+            className="space-y-3 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] p-3"
           >
-            Бүх жишээ асуулт
-            <Icon name="chevronRight" size="xs" />
+            <StepHeader n={index + 2} step={step} />
+            <StarterPrompts prompts={promptsOf(step)} columns={1} />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--ea-border)] pt-3">
+        <p className="text-xs text-[var(--ea-text-3)]">
+          Дата гартаа байхгүй юу? Эхлээд 2 сарын жишээ гүйлгээтэй демо компани дээр үзэж болно — таны
+          компанийг хөндөхгүй.{" "}
+          <Link href="/ai#starter-prompts" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
+            Бусад жишээ асуулт
           </Link>
-        </div>
+        </p>
+        <DemoCompanyButton />
       </div>
     </section>
   );

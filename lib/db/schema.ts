@@ -33,7 +33,7 @@ export const users = pgTable("users", {
    */
   emailVerifiedAt: timestamp("email_verified_at"),
   /**
-   * Нүүрний «Entry-г 5 минутад мэдэр» картыг хаасан мөч (lib/onboarding/first-run.ts).
+   * Нүүрний анхны туршилтын картыг хаасан мөч (lib/onboarding/first-run.ts).
    * null = хаагаагүй — алхмууд бүгд хийгдмэгц ч карт өөрөө нуугдана.
    */
   welcomeDismissedAt: timestamp("welcome_dismissed_at"),
