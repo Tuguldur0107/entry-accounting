@@ -1,4 +1,6 @@
 // Багц, төлбөр — байгууллагын харагдац (server component, ui-kit-ээр).
+import type { ReactNode } from "react";
+
 import { Icon } from "@/components/ui/icon";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import type { BillingOverview } from "@/lib/actions/billing";
@@ -6,8 +8,8 @@ import { READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
 import {
   FEATURE_KEYS,
   FEATURE_LABELS,
-  GRACE_DAYS,
   PLAN_LABELS,
+  graceDaysFor,
   PLANS,
   STATUS_LABELS,
   type PlanId,
@@ -25,7 +27,14 @@ const STATUS_TONE: Record<SubscriptionStatus, StatusTone> = {
 
 const fmt = (value: number) => value.toLocaleString("en-US");
 
-export function BillingOverviewView({ overview }: { overview: BillingOverview }) {
+export function BillingOverviewView({
+  overview,
+  selfPay,
+}: {
+  overview: BillingOverview;
+  /** QPay-ээр өөрөө төлөх хэсэг (saas) — components/settings/billing-self-pay.tsx. */
+  selfPay?: ReactNode;
+}) {
   const { entitlements: ent } = overview;
   const seatsLimit = ent.limits.seats;
   const seatsLabel = seatsLimit === null ? `${overview.seatsUsed} / хязгааргүй` : `${overview.seatsUsed} / ${seatsLimit}`;
@@ -87,6 +96,8 @@ export function BillingOverviewView({ overview }: { overview: BillingOverview })
         ) : null}
       </section>
 
+      {selfPay}
+
       <section className="ea-glass space-y-3 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5">
         <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Боломжууд</h2>
         <ul className="grid gap-1.5 text-xs sm:grid-cols-2">
@@ -104,8 +115,9 @@ export function BillingOverviewView({ overview }: { overview: BillingOverview })
           ))}
         </ul>
         <p className="text-[11px] text-[var(--ea-text-4)]">
-          Компанийн тоо: {ent.limits.companies === null ? "хязгааргүй" : ent.limits.companies}. Багц солих, суудал нэмэх бол{" "}
-          <a href="mailto:support@entry.mn" className="text-[var(--ea-primary)]">support@entry.mn</a> — төлбөрийн онлайн гарц дараагийн шатанд.
+          Компанийн тоо: {ent.limits.companies === null ? "хязгааргүй" : ent.limits.companies}. Идэвхтэй хугацаанд багц солих,
+          суудал нэмэх, {PLAN_LABELS.enterprise} гэрээ бол{" "}
+          <a href="mailto:support@entry.mn" className="text-[var(--ea-primary)]">support@entry.mn</a>.
         </p>
       </section>
 
@@ -167,7 +179,8 @@ function PlanComparison({ overview }: { overview: BillingOverview }) {
       </div>
       <p className="text-[11px] text-[var(--ea-text-3)]">
         Туршилт дуусахад: өгөгдөл устахгүй — бичилт түр хаагдаж, унших, тайлан, экспорт, сар хаалт нээлттэй
-        хэвээр. Төлбөр хоцорвол {GRACE_DAYS} хоногийн хугацаа олгоно. Багц идэвхжмэгц бичих эрх шууд сэргэнэ.
+        хэвээр. Төлсөн хугацаа дуусахад {graceDaysFor(ent.planId)} хоногийн хугацаа олгоно. QPay-ээр төлмөгц багц шууд
+        идэвхжиж бичих эрх сэргэнэ.
       </p>
     </section>
   );

@@ -203,7 +203,18 @@ entry-accounting/
   `lib/billing/pricing-store.ts`); SaaS харилцагч ба dedicated
   харилцагчийн удирдлага хоёулаа Console-д, апп дотор platform admin эрх
   ҮҮСГЭХГҮЙ (хольж хутгахгүй).
-  Өөрчлөлт бүр аудитын мөрд (`subscription`). Төлбөрийн гарц — фаз 2
+  Өөрчлөлт бүр аудитын мөрд (`subscription`).
+  **QPay-ээр ӨӨРӨӨ төлөх** (`docs/billing/00-proposal.md` §6a — ЗААВАЛ уншина):
+  `/settings/billing` эзэн/админ → skills/standard/platform, 1/3/6/12 сар
+  (хөнгөлөлтгүй) → Entry-ийн ӨӨРИЙН QPay мерчант (`ENTRY_BILLING_QPAY_*` env,
+  харилцагчийн POS QPay-тэй ХОЛБООГҮЙ) → webhook `/api/billing/qpay/webhook`
+  эсвэл [Шалгах] → `markBillingPaymentPaid` НЭГ транзакцаар subscription
+  `active` + `currentPeriodEnd` сунгана. ЦЭВЭР `lib/billing/self-pay.ts`
+  (тесттэй), DB `payment-store.ts`. `active` + өнгөрсөн `currentPeriodEnd` =
+  `past_due` (grace `graceDaysFor`: skills 3, бусад 14). Идэвхтэй хугацаанд
+  багц/суудал солихгүй (пропорц зохиохгүй); read-only үед ч төлнө
+  (`requireRole`, assertWritesAllowed-гүй); мөнгө хэзээ ч алдагдахгүй
+  (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`)
 - **Дэмжлэгийн хандалт** (`docs/deployment/support-access.md` — ЗААВАЛ уншина;
   `lib/platform/support.ts` ЦЭВЭР + `support-store.ts` DB): платформын оператор
   харилцагчийн байгууллагад ТҮР орох цорын ганц зам. Эрх нь ХЭРЭГЛЭГЧИД биш
@@ -2339,6 +2350,9 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            company_settings.largeAmountAlertMnt (D2 босго)
 Багц       organization_subscriptions (planId, status, seats, trialEndsAt,
            currentPeriodEnd, overrides, pricePerSeatMnt — харилцагчийн ТУСГАЙ үнэ)
+             billing_payments — багцын QPay төлбөр (§6a): plan/seats/months/amount,
+               status open|paid|cancelled|expired|failed, qpayInvoiceId (partial
+               unique INDEX), QR, paidAt, periodStart/End; org cascade
              platform_plan_prices — багцын үнийн ТҮҮХ, ПЛАТФОРМЫН лавлах
                (organizationId БАЙХГҮЙ). Мөр бүр = ОГНООНЫ МУЖ: effective_from
                (YYYY-MM-DD text) … effective_to (null = хугацаагүй), note;

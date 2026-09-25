@@ -266,6 +266,20 @@ platform admin UI байхгүй — удирдлага Console-д. Console та
 `ENTRY_SAAS_API_KEY` + `ENTRY_SAAS_API_URL` (SaaS аппын origin). Dedicated
 сервист энэ хувьсагч хэрэггүй (зам 404).
 
+**Багцын онлайн төлбөр (QPay, SaaS сервист л):** байгууллага `/settings/billing`
+дээрээс багцаа өөрөө төлнө (`docs/billing/00-proposal.md` §6a). Мөнгө Entry-ийн
+ӨӨРИЙН qpay-dashboard мерчант руу орно — харилцагчийн POS-ийн QPay-тэй холбоогүй:
+
+| Env | Утга |
+|---|---|
+| `ENTRY_BILLING_QPAY_API_KEY` | Entry-ийн мерчантын dashboard API key (`qpd_live_…`) |
+| `ENTRY_BILLING_QPAY_WEBHOOK_SECRET` | Тэр мерчантын webhook secret (HMAC-SHA256) |
+| `ENTRY_BILLING_QPAY_API_URL` | Сонголтоор — default `qpay-dashboard-production` |
+| `NEXT_PUBLIC_APP_URL` | Нийтийн хаяг — webhook `…/api/billing/qpay/webhook?payment=<id>` |
+
+Аль нэг нь дутуу бол «QPay-ээр төлөх» товч идэвхгүй бөгөөд шалтгаан ил
+харагдана (одоогийнх шиг Console-оос гараар идэвхжүүлнэ).
+
 ## Deployment-ийн лиценз (ENTRY_LICENSE)
 
 Console-оор provision хийгдээгүй хуулбар production горимд нэвтрэлт хүлээж

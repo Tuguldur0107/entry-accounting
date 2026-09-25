@@ -1061,6 +1061,47 @@ async function main() {
        on knowledge_reads (organization_id, created_at)`
   );
 
+  // ── 10b. Багцын QPay төлбөр (docs/billing/00-proposal.md §6a) ────────────
+  // Байгууллага багцаа өөрөө төлөх — schema.ts billingPayments-тэй ҮГ ҮГЭЭР.
+  await run(
+    "billing_payments хүснэгт",
+    `create table if not exists billing_payments (
+       id uuid primary key default gen_random_uuid(),
+       organization_id uuid not null references organizations(id) on delete cascade,
+       user_id text references users(id) on delete set null,
+       plan_id text not null,
+       seats integer not null,
+       months integer not null,
+       price_per_seat_mnt integer not null,
+       amount integer not null,
+       status text not null default 'open',
+       qpay_invoice_id text,
+       qr_text text,
+       qr_image text,
+       urls jsonb,
+       payment_id text,
+       paid_amount integer,
+       paid_at timestamp,
+       expires_at timestamp not null,
+       period_start timestamp,
+       period_end timestamp,
+       last_check_at timestamp,
+       last_error text,
+       created_at timestamp not null default now(),
+       updated_at timestamp not null default now()
+     )`
+  );
+  await run(
+    "billing_payments_invoice_ux индекс",
+    `create unique index if not exists billing_payments_invoice_ux
+       on billing_payments (qpay_invoice_id) where qpay_invoice_id is not null`
+  );
+  await run(
+    "billing_payments_org_time_ix индекс",
+    `create index if not exists billing_payments_org_time_ix
+       on billing_payments (organization_id, created_at)`
+  );
+
   // ── 11. POS урьдчилсан COGS-ийн залруулга (docs/pos §3.7) ────────────────
   // cost_entries_movement_active_uq нь "1 хөдөлгөөнд 1 идэвхтэй ҮНДСЭН
   // үнэлгээ" дүрмийн backstop. Анх (migrations/0015_dusty_ink.sql) зөвхөн

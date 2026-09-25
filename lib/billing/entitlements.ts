@@ -4,8 +4,8 @@
 
 import type { DeploymentMode } from "@/lib/deployment-mode";
 import {
-  GRACE_DAYS,
   PLANS,
+  graceDaysFor,
   TRIAL_DAYS,
   isPlanId,
   type FeatureKey,
@@ -142,11 +142,18 @@ export function resolveEntitlements(input: {
   for (const [key, value] of Object.entries(sub.overrides?.limits ?? {}))
     limits[key as LimitKey] = value as number | null;
 
-  const status = (
+  const storedStatus = (
     ["trialing", "active", "past_due", "suspended", "cancelled"].includes(sub.status)
       ? sub.status
       : "active"
   ) as SubscriptionStatus;
+  // Төлсөн хугацаа (currentPeriodEnd) дууссан `active` = хоцорсон (QPay-ээр
+  // өөрөө төлөх урсгал, 2026-09-25). Хугацаагүй (null) active хэвээр — Console-оос
+  // гараар удирддаг байгууллагууд хөндөгдөхгүй.
+  const status: SubscriptionStatus =
+    storedStatus === "active" && sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() <= now.getTime()
+      ? "past_due"
+      : storedStatus;
 
   let writable = true;
   let readOnlyReason: ReadOnlyReason | null = null;
@@ -162,9 +169,10 @@ export function resolveEntitlements(input: {
       readOnlyReason = "trial_expired";
     } else daysLeft = left;
   } else if (status === "past_due") {
-    // Grace — хугацааны эцэс (currentPeriodEnd) эсвэл тэмдэглэсэн өдрөөс 14 хоног.
+    // Grace — хугацааны эцэс (currentPeriodEnd) эсвэл тэмдэглэсэн өдрөөс
+    // багцын grace хоног (skills 3, бусад 14 — graceDaysFor).
     const anchor = sub.currentPeriodEnd ?? now;
-    graceEndsAt = new Date(anchor.getTime() + GRACE_DAYS * DAY_MS);
+    graceEndsAt = new Date(anchor.getTime() + graceDaysFor(planId) * DAY_MS);
     const left = daysUntil(graceEndsAt, now);
     if (left < 0) {
       writable = false;
