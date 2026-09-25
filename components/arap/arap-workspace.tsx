@@ -41,12 +41,18 @@ import {
 import {
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
   SYSTEM_ENTITY_KINDS,
+  TIN_LABEL,
+  TIN_PLACEHOLDER,
   baseKindOf,
+  normalizeTin,
   registerNoLabel,
   registerNoMismatch,
   registerNoPlaceholder,
   type EntityKindOption,
 } from "@/lib/arap/counterparty-kind";
+import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
+import { lookupCounterpartyTaxpayer } from "@/lib/actions/ebarimt";
+import { MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 import { EntityKindsDialog } from "@/components/arap/entity-kinds-dialog";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import { downloadWorkbook } from "@/lib/excel/core";
@@ -191,6 +197,7 @@ export function ArApWorkspace({
       counterpartyType: config.counterpartyType,
       entityKind: DEFAULT_COUNTERPARTY_ENTITY_KIND as string,
       registerNo: "",
+      tin: "",
       defaultReceivableAccountNumber: defaultAccountNumbers.receivable
         ? buildSegCode({ 3: defaultAccountNumbers.receivable }, activeSegIds, defaultSegments)
         : "",
@@ -515,6 +522,7 @@ export function ArApWorkspace({
       entityKind: counterparty.entityKind || DEFAULT_COUNTERPARTY_ENTITY_KIND,
       code: counterparty.code ?? "",
       registerNo: counterparty.registerNo ?? "",
+      tin: counterparty.tin ?? "",
       defaultReceivableAccountNumber:
         counterparty.defaultReceivableAccountNumber ?? "",
       defaultPayableAccountNumber:
@@ -1335,6 +1343,8 @@ function CounterpartyDialog({
     /** Төрлийн код — систем эсвэл нэмсэн (kind_<n>). */
     entityKind: string;
     registerNo: string;
+    /** ТТД — регистрээс тусдаа; «ТЕГ-ээс лавлах» товчоор бөглөгдөнө. */
+    tin: string;
     defaultReceivableAccountNumber: string;
     defaultPayableAccountNumber: string;
     defaultCurrency: string;
@@ -1359,6 +1369,43 @@ function CounterpartyDialog({
 }) {
   // Бизнесийн логик (регистрийн шошго, шалгалт) СУУРЬ төрлөөр.
   const baseKind = baseKindOf(form.entityKind, entityKinds);
+  // ТЕГ-ийн лавлах (ТТД → нэр/НӨАТ; байгууллагын регистр → ТТД) — нэг удаа,
+  // үр дүн нь картад хадгалагдана. Лавлах хүрэхгүй бол хадгалалт зогсохгүй.
+  const [tinLookup, setTinLookup] = useState<{ tone?: "warning"; text: string } | null>(null);
+  const [tinPending, startTinLookup] = useTransition();
+  const tinCheck = normalizeTin(form.tin);
+  const tinDigits = form.tin.replace(/[\s-]/g, "");
+  const canLookupTin =
+    !tinPending &&
+    (MERCHANT_TIN_RE.test(tinDigits) ||
+      (!tinDigits && baseKind === "organization" && ORG_REGISTER_RE.test(form.registerNo.trim())));
+  function runTinLookup() {
+    setTinLookup(null);
+    startTinLookup(async () => {
+      const result = await lookupCounterpartyTaxpayer({ tin: tinDigits, registerNo: form.registerNo });
+      if (result.error || !result.tin) {
+        setTinLookup({ tone: "warning", text: result.error || "ТТД олдсонгүй" });
+        return;
+      }
+      const foundTin = result.tin;
+      const foundName = result.name ?? "";
+      setForm((current) => ({
+        ...current,
+        tin: foundTin,
+        name: current.name.trim() || foundName || current.name,
+      }));
+      setTinLookup({
+        text: [
+          result.name ? `ТЕГ: ${result.name}` : "ТЕГ-ийн бүртгэлд олдов",
+          result.vatPayer === true ? "НӨАТ төлөгч" : result.vatPayer === false ? "НӨАТ төлөгч биш" : null,
+          result.cityPayer ? "НХАТ төлөгч" : null,
+          result.freeProject ? "НӨАТ-аас чөлөөлөгдөх төсөл" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      });
+    });
+  }
   // Идэвхгүй болсон төрлийг зөвхөн одоогийн утга байвал харуулна.
   const kindOptions = entityKinds.filter((kind) => kind.isActive || kind.code === form.entityKind);
   return (
@@ -1429,6 +1476,26 @@ function CounterpartyDialog({
                 setForm((current) => ({ ...current, registerNo: event.target.value }))
               }
             />
+          </FormField>
+          <FormField
+            label={TIN_LABEL}
+            hint={"error" in tinCheck ? tinCheck.error : tinLookup?.text ?? "Регистр (7 орон) байвал ТТД-г ТЕГ-ээс олно; ТТД байвал нэр, НӨАТ төлөгч эсэхийг шалгана"}
+            hintTone={"error" in tinCheck || tinLookup?.tone === "warning" ? "warning" : undefined}
+          >
+            <div className="flex gap-2">
+              <Input
+                value={form.tin}
+                inputMode="numeric"
+                placeholder={TIN_PLACEHOLDER}
+                onChange={(event) => {
+                  setTinLookup(null);
+                  setForm((current) => ({ ...current, tin: event.target.value }));
+                }}
+              />
+              <Button type="button" variant="outline" size="sm" className="h-9 shrink-0" disabled={!canLookupTin} onClick={runTinLookup}>
+                {tinPending ? "Лавлаж байна…" : "ТЕГ-ээс лавлах"}
+              </Button>
+            </div>
           </FormField>
           <FormField label="Валют">
             <CurrencySelect

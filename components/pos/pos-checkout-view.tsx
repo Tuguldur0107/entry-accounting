@@ -52,6 +52,7 @@ import {
   type BuyerState,
   type BuyerType,
 } from "@/lib/pos/ebarimt-buyer";
+import { effectiveTin } from "@/lib/arap/counterparty-kind";
 import {
   createPosSale,
   quotePosSale,
@@ -272,7 +273,11 @@ export function PosCheckoutView({
     (id: string) => {
       setCustomerId(id);
       const picked = data.customers.find((entry) => entry.id === id);
-      const regNo = picked && !picked.isWalkIn && picked.entityKind === "organization" ? sanitizeOrgNo(picked.registerNo ?? "") : "";
+      // Картад ТТД байвал ТҮРҮҮЛЖ (лавлахгүй B2B); үгүй бол регистр → ТЕГ лавлах.
+      const regNo =
+        picked && !picked.isWalkIn && picked.entityKind === "organization"
+          ? sanitizeOrgNo(effectiveTin(picked.tin, picked.registerNo) ?? picked.registerNo ?? "")
+          : "";
       if (regNo && orgNoKind(regNo) !== "incomplete") {
         setBuyerState((current) =>
           current.orgNo === regNo

@@ -201,6 +201,7 @@ export async function loadArApCounterparties(
     entityKindName: entityKindName(item.entityKind, kinds),
     entityKindBase: baseKindOf(item.entityKind, kinds),
     registerNo: item.registerNo,
+    tin: item.tin,
     defaultReceivableAccountNumber: item.defaultReceivableAccountNumber,
     defaultPayableAccountNumber: item.defaultPayableAccountNumber,
     defaultCurrency: item.defaultCurrency,

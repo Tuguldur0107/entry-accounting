@@ -819,6 +819,8 @@ async function main() {
     ["cash_accounts", "qpay_payout", "boolean not null default false"],
     ["cash_accounts", "qpay_default", "boolean not null default false"],
     ["warehouses", "qpay_cash_account_id", "uuid"],
+    // Харилцагчийн ТТД — регистрээс тусдаа (docs/integrations/01 §3 P1-2)
+    ["counterparties", "tin", "text"],
   ]) {
     await run(
       `${table}.${column} багана`,
@@ -898,6 +900,16 @@ async function main() {
         and not exists (
           select 1 from counterparties c2
            where c2.id = counterparties.id and c2.entity_kind <> 'organization')`
+  );
+  // Багана нэмэгдэхээс өмнө регистрийн талбарт ТТД (11–14 орон) бичигдсэн
+  // байгууллагын харилцагчид: ТТД-г өөрийн баганад нөхнө, регистр хэвээр
+  // (идемпотент — tin хоосон мөр л).
+  await run(
+    "counterparties.tin нөхөлт (register_no ТТД хэлбэртэй)",
+    `update counterparties
+        set tin = trim(register_no)
+      where tin is null
+        and trim(coalesce(register_no, '')) ~ '^[0-9]{11,14}$'`
   );
   await run(
     "pos_ebarimt_submissions хүснэгт",

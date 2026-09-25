@@ -9,7 +9,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
-import { requireModuleAction } from "@/lib/auth";
+import { requireAnyModuleAction, requireModuleAction } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { posEbarimtSubmissions, posSales } from "@/lib/db/schema";
@@ -19,7 +19,15 @@ import { todayInUlaanbaatar } from "@/lib/periods/selection";
 import { isOrgVatPayer } from "@/lib/vat/settings";
 import { posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
 import { EBARIMT_ERRORS } from "@/lib/ebarimt/constants";
-import { lookupBranchInfo, lookupTinByRegNo, type BranchInfoEntry, type TinInfo } from "@/lib/ebarimt/lookup";
+import {
+  lookupBranchInfo,
+  lookupTaxpayerByTin,
+  lookupTinByRegNo,
+  type BranchInfoEntry,
+  type TinInfo,
+} from "@/lib/ebarimt/lookup";
+import { MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
+import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { EbarimtError, ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
 import {
   ebarimtStatusWithPosApi,
@@ -146,6 +154,52 @@ export async function lookupEbarimtTin(regNo: string): Promise<ActionResult<{ in
     return { info: await lookupTinByRegNo(regNo) };
   } catch (caught) {
     return actionError("lookupEbarimtTin", caught, "ТТД олдсонгүй");
+  }
+}
+
+/** Харилцагчийн картын ТЕГ лавлах — ТТД (11–14) эсвэл байгууллагын регистр (7). */
+export interface CounterpartyTaxpayerLookup {
+  tin: string;
+  name: string;
+  vatPayer: boolean | null;
+  cityPayer: boolean | null;
+  freeProject: boolean | null;
+}
+
+/**
+ * Харилцагчийн картын «ТЕГ-ээс лавлах»: ТТД өгвөл `getInfo` (нэр, НӨАТ төлөгч);
+ * зөвхөн байгууллагын регистр (7 орон) байвал `getTinInfo` → ТТД → нэр. Иргэний
+ * РД-аар лавлахгүй (`lookupTinByRegNo` өөрөө татгалзана — ХХМХ 4.1.11). Лавлах
+ * хүрэхгүй (Монголын IP л) бол алдаа МОНГОЛООР — хадгалалт үүнээс хамаарахгүй.
+ */
+export async function lookupCounterpartyTaxpayer(input: {
+  tin?: string | null;
+  registerNo?: string | null;
+}): Promise<ActionResult<CounterpartyTaxpayerLookup>> {
+  try {
+    await requireAnyModuleAction([
+      ["ar", "read"],
+      ["ap", "read"],
+    ]);
+    const tin = (input.tin ?? "").replace(/[\s-]/g, "");
+    const registerNo = (input.registerNo ?? "").trim();
+    if (MERCHANT_TIN_RE.test(tin)) {
+      const info = await lookupTaxpayerByTin(tin);
+      return { tin, name: info.name, vatPayer: info.vatPayer, cityPayer: info.cityPayer, freeProject: info.freeProject };
+    }
+    if (tin) throw new Error("ТТД 11–14 оронтой тоо байна");
+    if (!ORG_REGISTER_RE.test(registerNo))
+      throw new Error("ТТД (11–14 орон) эсвэл байгууллагын регистр (7 орон) оруулна уу — иргэний РД-аар лавлахгүй");
+    const found = await lookupTinByRegNo(registerNo);
+    return {
+      tin: found.tin,
+      name: found.name,
+      vatPayer: found.vatPayer,
+      cityPayer: found.cityPayer ?? null,
+      freeProject: found.freeProject ?? null,
+    };
+  } catch (caught) {
+    return actionError("lookupCounterpartyTaxpayer", caught, "ТЕГ-ийн лавлах амжилтгүй");
   }
 }
 

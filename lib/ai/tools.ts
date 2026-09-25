@@ -236,6 +236,8 @@ import { ebarimtSettingsProblems } from "@/lib/ebarimt/receipt";
 import {
   DEFAULT_COUNTERPARTY_ENTITY_KIND,
   baseKindOf,
+  effectiveTin,
+  normalizeTin,
   entityKindName,
   inferEntityKindFromRegisterNo,
   resolveEntityKindCode,
@@ -874,7 +876,8 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "Харилцагчийн код — РД-ээс тусдаа, байгууллага дотор давтагдашгүй (сонголтоор; ж: 10001)",
         },
-        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллагад РД (7 орон) / ТТД (11/14), хувь хүнд иргэний РД (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистрийн дугаар — байгууллагад РД (7 орон), хувь хүнд иргэний РД (сонголтоор)" },
+        tin: { type: "string", description: "ТТД — татвар төлөгчийн дугаар, 11–14 орон (регистрээс тусдаа; байгууллагын регистрээс lookup_tin-ээр олно). POS B2B eBarimt баримтад шууд хэрэглэгдэнэ" },
         email: { type: "string", description: "И-мэйл (нэхэмжлэх илгээхэд ашиглагдана)" },
         defaultReceivableAccount: { type: "string", description: "Default авлагын данс (сонголтоор)" },
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
@@ -956,7 +959,8 @@ export const AI_TOOLS: AiToolDef[] = [
         defaultPayableAccount: { type: "string", description: "Default өглөгийн данс (сонголтоор)" },
         currency: { type: "string", description: "Default валют (сонголтоор)" },
         code: { type: "string", description: "Харилцагчийн код — давтагдашгүй; хоосон өгвөл арилна (сонголтоор)" },
-        registerNo: { type: "string", description: "Регистр/ТТД (сонголтоор)" },
+        registerNo: { type: "string", description: "Регистр (сонголтоор)" },
+        tin: { type: "string", description: "ТТД 11–14 орон; хоосон өгвөл арилна (сонголтоор)" },
         email: { type: "string", description: "И-мэйл — нэхэмжлэх илгээхэд (сонголтоор)" },
         phone: { type: "string", description: "Утас (сонголтоор)" },
         address: { type: "string", description: "Хаяг (сонголтоор)" },
@@ -2018,6 +2022,7 @@ export const AI_TOOLS: AiToolDef[] = [
               entityKind: { type: "string", description: "Төрөл — organization (default) / individual / байгууллагын нэмсэн төрлийн код эсвэл нэр" },
               code: { type: "string", description: "Харилцагчийн код (давтагдашгүй, сонголтоор)" },
               registerNo: { type: "string" },
+              tin: { type: "string", description: "ТТД 11–14 орон (сонголтоор)" },
               defaultReceivableAccount: { type: "string" },
               defaultPayableAccount: { type: "string" },
               currency: { type: "string" },
@@ -5140,7 +5145,8 @@ async function runListCounterparties(
         (entry) =>
           entry.name.toLowerCase().includes(q) ||
           (entry.code ?? "").toLowerCase().includes(q) ||
-          (entry.registerNo ?? "").toLowerCase().includes(q)
+          (entry.registerNo ?? "").toLowerCase().includes(q) ||
+          (entry.tin ?? "").includes(q)
       )
     : list;
   if (filtered.length === 0) return { resultText: "Тохирох харилцагч олдсонгүй" };
@@ -5157,7 +5163,8 @@ async function runListCounterparties(
           entry.id.slice(0, 8),
           entry.name,
           entry.code ? `Код ${entry.code}` : null,
-          entry.registerNo ? `${baseKindOf(entry.entityKind, kinds) === "individual" ? "РД" : "ТТД"} ${entry.registerNo}` : null,
+          entry.registerNo ? `${baseKindOf(entry.entityKind, kinds) === "individual" ? "РД" : "Регистр"} ${entry.registerNo}` : null,
+          entry.tin ? `ТТД ${entry.tin}` : null,
           entry.email || null,
           cpKindNote(entry.entityKind, kinds),
           CP_TYPE_LABELS[entry.counterpartyType] ?? entry.counterpartyType,
@@ -5351,6 +5358,7 @@ async function runCreateCounterparty(
     entityKind?: string;
     code?: string;
     registerNo?: string;
+    tin?: string;
     email?: string;
     defaultReceivableAccount?: string;
     defaultPayableAccount?: string;
@@ -5367,6 +5375,9 @@ async function runCreateCounterparty(
   const name = String(input.name ?? "").trim().replace(/\s+/g, " ");
   if (!name) throw new Error("Харилцагчийн нэр оруулна уу");
   const registerNo = input.registerNo?.trim() || undefined;
+  const tinResult = normalizeTin(input.tin);
+  if ("error" in tinResult) throw new Error(`[VALIDATION] ${tinResult.error}`);
+  const tin = tinResult.tin ?? undefined;
   const code = normalizeCounterpartyCode(input.code);
   // Төрөл: байгууллагын жагсаалтаас (систем + нэмсэн) код эсвэл нэрээр.
   // Өгөөгүй ч регистр нь иргэний РД хэлбэртэй бол «Хувь хүн» (таамаглал биш —
@@ -5389,6 +5400,7 @@ async function runCreateCounterparty(
     (entry) =>
       entry.name.toLowerCase() === name.toLowerCase() ||
       (registerNo != null && entry.registerNo === registerNo) ||
+      (tin != null && entry.tin === tin) ||
       (code != null && entry.code === code)
   );
   // SIM2-002: нэр/ТТД ижил харилцагчийг ӨӨР чиглэлээр (customer ↔ supplier)
@@ -5411,7 +5423,7 @@ async function runCreateCounterparty(
   }
   if (duplicate) {
     return {
-      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.code ? ` (код ${duplicate.code})` : ""}${duplicate.registerNo ? ` (ТТД ${duplicate.registerNo})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
+      resultText: `[CONFLICT] Аль хэдийн бүртгэгдсэн байна. ID: ${duplicate.id}, "${duplicate.name}"${duplicate.code ? ` (код ${duplicate.code})` : ""}${duplicate.registerNo ? ` (регистр ${duplicate.registerNo})` : ""}${duplicate.tin ? ` (ТТД ${duplicate.tin})` : ""}, ${CP_TYPE_LABELS[duplicate.counterpartyType] ?? duplicate.counterpartyType}${duplicate.isActive ? "" : " — ИДЭВХГҮЙ (update_counterparty-аар идэвхжүүлж болно)"}`,
       dedup: true,
     };
   }
@@ -5433,6 +5445,7 @@ async function runCreateCounterparty(
     entityKind,
     code: code ?? undefined,
     registerNo,
+    tin,
     email: input.email,
     defaultReceivableAccountNumber: receivableCode,
     defaultPayableAccountNumber: payableCode,
@@ -5446,7 +5459,7 @@ async function runCreateCounterparty(
     })
   );
   return {
-    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${baseKindOf(entityKind, kinds) === "individual" ? "РД" : "ТТД"} ${registerNo})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${entityKindName(entityKind, kinds)}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
+    resultText: `Харилцагч үүслээ. ID: ${id}, "${name}"${code ? ` (код ${code})` : ""}${registerNo ? ` (${baseKindOf(entityKind, kinds) === "individual" ? "РД" : "регистр"} ${registerNo})` : ""}${tin ? ` (ТТД ${tin})` : ""}${input.email?.trim() ? ` · ${input.email.trim()}` : ""}, ${entityKindName(entityKind, kinds)}, ${CP_TYPE_LABELS[input.counterpartyType]}, ${input.currency?.trim().toUpperCase() || "MNT"}, ${input.paymentTermsDays ?? 30} хоног`,
   };
 }
 
@@ -5559,6 +5572,7 @@ async function runUpdateCounterparty(
     currency?: string;
     code?: string;
     registerNo?: string;
+    tin?: string;
     email?: string;
     phone?: string;
     address?: string;
@@ -5601,6 +5615,11 @@ async function runUpdateCounterparty(
   }
   if (input.registerNo != null)
     changes.registerNo = input.registerNo.trim() || null;
+  if (input.tin != null) {
+    const tinResult = normalizeTin(input.tin);
+    if ("error" in tinResult) throw new Error(`[VALIDATION] ${tinResult.error}`);
+    changes.tin = tinResult.tin;
+  }
   if (input.email != null) {
     const email = input.email.trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -11715,10 +11734,11 @@ async function runCreatePosSale(
   if (!Array.isArray(input.lines) || input.lines.length === 0) throw new Error("Борлуулах бараа өгнө үү");
   const shift = await posShiftFor(orgId, input.warehouseCode);
   let counterpartyId: string | null = null;
+  let customerTinFromCard: string | null = null;
   if (input.customer?.trim()) {
     const cpList = await db.query.counterparties.findMany({
       where: and(eq(counterparties.organizationId, orgId), eq(counterparties.isActive, true)),
-      columns: { id: true, name: true, counterpartyType: true },
+      columns: { id: true, name: true, counterpartyType: true, tin: true, registerNo: true, entityKind: true },
     });
     const customer = requireSingle(
       nameMatches(cpList.filter((cp) => cp.counterpartyType !== "supplier"), (entry) => entry.name, input.customer),
@@ -11728,6 +11748,12 @@ async function runCreatePosSale(
       { codePrefix: "COUNTERPARTY", allNames: cpList.map((entry) => entry.name) }
     );
     counterpartyId = customer.id;
+    // Картад ТТД хадгалагдсан байгууллага → B2B баримт (tool ТТД/РД өгөөгүй үед);
+    // иргэн (consumerNo) өгсөн бол хөндөхгүй — лавлах дуудагдахгүй.
+    if (!input.customerTin && !input.customerRegNo && !input.consumerNo && customer.entityKind !== "individual") {
+      const storedTin = effectiveTin(customer.tin, customer.registerNo);
+      if (storedTin) customerTinFromCard = storedTin;
+    }
   }
   const lines: SaleLineInput[] = [];
   for (const line of input.lines) {
@@ -11785,7 +11811,7 @@ async function runCreatePosSale(
       note: input.note ?? null,
       ebarimtId: input.ebarimtId ?? null,
       ebarimtConsumerNo: input.consumerNo ?? null,
-      ebarimtCustomerTin: input.customerTin ?? null,
+      ebarimtCustomerTin: input.customerTin ?? customerTinFromCard,
       ebarimtCustomerRegNo: input.customerRegNo ?? null,
       skipEbarimt: input.skipEbarimt === true,
     })

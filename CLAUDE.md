@@ -2390,6 +2390,15 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
                `normalizeCounterpartyCode` (ТОМ үсэг, ≤32) — автомат дугаарлалт
                ХИЙХГҮЙ (гараар / импортоор оноогдоно). Кассын "Харилцагчийн код"
                багана, AI list/create/update_counterparty, master data CSV (`code`)
+             counterparties.tin — ТТД (татвар төлөгчийн дугаар, 11–14 орон):
+               регистрээс ТУСДАА багана; ЦЭВЭР `normalizeTin` / `effectiveTin`
+               (counterparty-kind.ts, тесттэй — хуучин мөрд регистрийн талбарт
+               бичигдсэн ТТД-г preDeploy нөхнө, харагдацад ч өвлөнө). Картын
+               «ТЕГ-ээс лавлах» (`lookupCounterpartyTaxpayer`: ТТД → нэр/НӨАТ
+               төлөгч, байгууллагын регистр → ТТД) НЭГ удаа; POS кассын B2B ба
+               AI `create_pos_sale` (customerTin өгөөгүй бол) картын ТТД-г шууд
+               хэрэглэнэ — регистрээр лавлах 2026-06-15-аас хязгаарлагдсан.
+               AI create/update/batch/list_counterparty `tin`, CSV `tin`
              counterparties.entityKind — СУБЪЕКТИЙН төрлийн КОД: систем
                "organization" (Байгууллага, default) | "individual" (Хувь хүн) ЭСВЭЛ
                байгууллагын НЭМСЭН `kind_<n>` (counterparty_entity_kinds: name,

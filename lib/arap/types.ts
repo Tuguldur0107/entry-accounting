@@ -13,6 +13,8 @@ export type CounterpartyView = {
   /** Суурь төрөл — регистрийн шалгалт, eBarimt B2B ЭНЭГЭЭР (`baseKindOf`). */
   entityKindBase: "organization" | "individual";
   registerNo: string | null;
+  /** ТТД — регистрээс тусдаа (lib/arap/counterparty-kind.ts `normalizeTin`); null = лавлаагүй. */
+  tin: string | null;
   defaultReceivableAccountNumber: string | null;
   defaultPayableAccountNumber: string | null;
   defaultCurrency: string;

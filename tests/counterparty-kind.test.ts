@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  effectiveTin,
+  normalizeTin,
   entityKindLabel,
   inferEntityKindFromRegisterNo,
   isCounterpartyEntityKind,
@@ -51,4 +53,23 @@ test("ENT-031: харилцагчийн чиглэл ба баримтын тө�
   assert.equal(counterpartyDirectionError("ap_bill", "both"), null);
   assert.equal(counterpartyDirectionError("ar_invoice", "customer"), null);
   assert.equal(counterpartyDirectionError("ar_invoice", null), null);
+});
+
+test("normalizeTin — хоосон null, зай/зураас цэвэрлэнэ, 11–14 орон л зөв", () => {
+  assert.deepEqual(normalizeTin(undefined), { tin: null });
+  assert.deepEqual(normalizeTin("  "), { tin: null });
+  assert.deepEqual(normalizeTin(" 379 008 467-88 "), { tin: "37900846788" });
+  assert.deepEqual(normalizeTin("12345678901234"), { tin: "12345678901234" });
+  assert.ok("error" in normalizeTin("2693518"), "7 оронтой регистр ТТД биш");
+  assert.ok("error" in normalizeTin("123456789012345"), "15 орон");
+  assert.ok("error" in normalizeTin("УУ12345678"), "иргэний РД");
+});
+
+test("effectiveTin — өөрийн багана түрүүлнэ, регистрийн талбарын ТТД өвлөгдөнө, регистр (7) null", () => {
+  assert.equal(effectiveTin("37900846788", "2693518"), "37900846788");
+  assert.equal(effectiveTin(null, "37900846788"), "37900846788");
+  assert.equal(effectiveTin("", " 61200064714 "), "61200064714");
+  assert.equal(effectiveTin(null, "2693518"), null);
+  assert.equal(effectiveTin(null, "УУ12345678"), null);
+  assert.equal(effectiveTin(undefined, undefined), null);
 });

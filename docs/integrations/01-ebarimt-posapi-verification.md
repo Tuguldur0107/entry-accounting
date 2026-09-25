@@ -251,6 +251,6 @@ npm test -- tests/ebarimt-receipt.test.ts tests/ebarimt-posapi-info.test.ts test
 2. ✅ P0-1/P0-2/P0-3 НЭГ PR-аар (types → receipt → client timeout → тест) — §2.0;
    production деплойн өмнө staging дээр §4.1 (1)(2)(3)(5) + 1 бүтэн + 1 хэсэгчилсэн
    буцаалт + 1 B2B (ХҮЛЭЭГДЭЖ БАЙНА — PosAPI daemon-той Linux орчин хэрэгтэй)
-3. P1-1/P1-2 — Монголын egress шийдэл (операторын сервер) + харилцагчийн картын ТТД
+3. P1-1 — Монголын egress шийдэл (операторын сервер, `EBARIMT_PUBLIC_API_BASE`); ✅ P1-2 харилцагчийн картын ТТД (`counterparties.tin`, «ТЕГ-ээс лавлах», POS/AI шууд хэрэглэнэ)
 4. `docs/pos/03-ebarimt-integration-plan.md` §8-д «2026-09-25 developer портал v3.0.12-тэй
    тулгав» мөр, `02-implementation-status.md`-д P2-5 (ОАТ) хязгаар
