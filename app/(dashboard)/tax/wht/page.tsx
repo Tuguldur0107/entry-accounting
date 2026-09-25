@@ -13,7 +13,7 @@ import {
 
 // Суутган татвар (WHT) — лавлагаа + GL бичилтийн заавар. Төлбөрөө Өглөг /
 // Мөнгөн хөрөнгө модулиар бүртгэхдээ суутгалын мөрийг журналд оруулна.
-// Лавлагаа: knowledge/01-онол-хууль-стандарт/tax/wht.md.
+// Лавлагаа: entry-knowledge/01-онол-хууль-стандарт/tax/wht.md.
 
 export default async function WhtPage() {
   const { orgId, userId } = await getActiveOrg();

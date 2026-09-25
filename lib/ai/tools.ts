@@ -251,9 +251,11 @@ import {
   aggregateBy,
   aggregatePayments,
   COGS_BASIS_LABELS,
+  ebarimtSentCount,
   loadSalesReport,
   summarize,
   type AggRow,
+  type SalesLineRow,
 } from "@/lib/pos/reports";
 import type { PaymentInput } from "@/lib/pos/types";
 import { getActiveOrg } from "@/lib/auth";
@@ -3453,7 +3455,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "get_pos_sales_report",
     description:
-      "Борлуулалтын дэлгэрэнгүй тайлан (docs/pos §5): хураангуй, бараагаар, өдрөөр, кассчинаар, төлбөрийн хэлбэрээр, харилцагчаар, хөнгөлөлтийн дүрмээр. COGS/ахиуц нь cost_period_results-ээс — сар хаагдаагүй бол 'урьдчилсан'/'тооцоолсон' гэж ил тэмдэглэгдэнэ (GL-ээс тооцохгүй).",
+      "Борлуулалтын дэлгэрэнгүй тайлан (docs/pos §5): хураангуй, бараагаар, өдрөөр, салбараар (агуулах), кассчинаар, төлбөрийн хэлбэрээр, харилцагчаар, хөнгөлөлтийн дүрмээр. Салбар/өдрийн мөрд eBarimt илгээсэн чекийн тоо. COGS/ахиуц нь cost_period_results-ээс — сар хаагдаагүй бол 'урьдчилсан'/'тооцоолсон' гэж ил тэмдэглэгдэнэ (GL-ээс тооцохгүй).",
     inputSchema: {
       type: "object",
       properties: {
@@ -3461,7 +3463,7 @@ export const AI_TOOLS: AiToolDef[] = [
         to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
         groupBy: {
           type: "string",
-          enum: ["summary", "item", "day", "cashier", "method", "customer", "rule"],
+          enum: ["summary", "item", "day", "warehouse", "cashier", "method", "customer", "rule"],
           description: "Нэгтгэлийн түвшин (default summary)",
         },
         warehouseCode: { type: "string" },
@@ -8815,7 +8817,7 @@ const WORKFLOW_GUIDES: Record<string, string> = {
 3. create_pos_sale {lines:[{itemCode, quantity}], payments:[{method:"CASH", amount}]} — НЭГ транзакцад: АР нэхэмжлэх posted + кассын баримт (settlement) + confirmed зарлага + урьдчилсан COGS. Хөнгөлөлтийн дүрэм автомат; купон couponCodes-оор; харилцагч өгвөл бүлгийн хөнгөлөлт/зээл. Зөвхөн 'Шууд бичих' горим, ≤10 сая ₮
 4. Буцаалт: return_pos_sale {sale, lines?, reason, refundMethod?|storeCredit}
 5. Ээлжийн төгсгөлд close_pos_shift {countedCash} — зөрүү кассын илүүдэл/дутагдалд
-6. get_pos_sales_report {from, to, groupBy} — борлуулалт, ахиуц (COGS сар хаагдаагүй бол 'урьдчилсан')
+6. get_pos_sales_report {from, to, groupBy} — борлуулалт, ахиуц (COGS сар хаагдаагүй бол 'урьдчилсан'); groupBy day/warehouse-д eBarimt илгээсэн чекийн тоо
 Сар хаалт: нээлттэй ээлж (open-pos-shifts) эсвэл сарын өртгийн тооцоололд ороогүй/хасах үлдэгдэлтэй бараа (unvalued-movements) байвал close_period ХОРИГЛОГДОНО — run_monthly_costing нь урьдчилсан COGS-ийг сарын дунджаар залруулна (cogs_true_up ноорог → post_cost_entries).
 POS-оос үүссэн АР/касс/хөдөлгөөн/өртгийн бичилтийг тус тусад нь буцаах ХОРИОТОЙ ([POS_SOURCED]) — зөвхөн return_pos_sale.
 eBarimt (docs/pos/03): борлуулалт батлагдмагц баримт ТЕГ-д ASYNC илгээгдэнэ (борлуулалт хүлээхгүй) — ДДТД/сугалаа/QR дараа нь баримтад гарна. Байгууллагад зарвал create_pos_sale-д customerTin эсвэл customerRegNo (lookup_tin) өг; иргэнд consumerNo. Буцаалт нь эх ДДТД-г ЦУЦАЛЖ, үлдсэн мөрөөр шинэ баримт илгээнэ. Илгээгдээгүй бол get_ebarimt_status → шалтгааныг зас → resend_ebarimt.`,
@@ -12033,13 +12035,29 @@ async function runGetPosSalesReport(
   const money = (value: number | null) => (value == null ? "—" : fmt(value));
   const rowText = (row: AggRow) =>
     `${row.label}${row.sublabel ? ` (${row.sublabel})` : ""} · чек ${row.count} · тоо ${row.quantity} · нийт ${fmt(row.gross)} · хөнг. ${fmt(row.discount)} · цэвэр ${fmt(row.net)} · НӨАТ ${fmt(row.vat)} · төлөх ${fmt(row.total)} · COGS ${money(row.cogs)} · ахиуц ${money(row.margin)}${row.marginPercent == null ? "" : ` (${row.marginPercent}%)`}${row.cogsBasis !== "final" ? ` [${COGS_BASIS_LABELS[row.cogsBasis]}]` : ""}`;
+  // eBarimt: бүлэг бүрд илгээгдсэн (sent) ЧЕКИЙН тоо — буцаалт тоологдохгүй.
+  let keyOfGroup: (line: SalesLineRow) => string = () => "";
+  const ebarimtSuffix = (row: AggRow) => {
+    const sent = ebarimtSentCount(report.lines.filter((line) => keyOfGroup(line) === row.key));
+    return ` · eBarimt ${sent}/${row.count}`;
+  };
   let body: string[] = [];
   switch (groupBy) {
     case "item":
       body = aggregateBy(report.lines, (line) => ({ key: line.itemId, label: `${line.itemCode} ${line.itemName}`, sublabel: line.categoryCode ?? undefined })).slice(0, limit).map(rowText);
       break;
     case "day":
-      body = aggregateBy(report.lines, (line) => ({ key: line.date, label: line.date })).sort((a, b) => a.label.localeCompare(b.label)).slice(0, limit).map(rowText);
+      keyOfGroup = (line) => line.date;
+      body = aggregateBy(report.lines, (line) => ({ key: line.date, label: line.date }))
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .slice(0, limit)
+        .map((row) => rowText(row) + ebarimtSuffix(row));
+      break;
+    case "warehouse":
+      keyOfGroup = (line) => line.warehouseId;
+      body = aggregateBy(report.lines, (line) => ({ key: line.warehouseId, label: line.warehouseName }))
+        .slice(0, limit)
+        .map((row) => rowText(row) + ebarimtSuffix(row));
       break;
     case "cashier":
       body = aggregateBy(report.lines, (line) => ({ key: line.cashierName, label: line.cashierName })).slice(0, limit).map(rowText);

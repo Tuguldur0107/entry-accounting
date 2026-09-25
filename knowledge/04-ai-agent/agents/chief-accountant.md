@@ -31,7 +31,7 @@ model: opus
 
 1. **Хүсэлтийг задлах** — ямар модулиуд, ямар стандартууд, ямар хязгаар.
 2. **Skill plan** — аль skill-уудаас уншихаа төлөвлө (`ifrs`, `mongolian-tax`, `payroll`, `coa`).
-3. **Workflow** — `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/`-аас тохирох (`period-close.md`, `vat-return.md`, `payroll-run.md`).
+3. **Workflow** — `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/`-аас тохирох (`period-close.md`, `vat-return.md`, `payroll-run.md`).
 4. **Architecture sketch** — DB schema, API contract, posting flow, side effect.
 5. **Implementation** — backend route → migration → frontend → i18n.
 6. **End-to-end test plan** — module бүр хооронд consistency-г нь шалгах.

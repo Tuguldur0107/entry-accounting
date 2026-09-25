@@ -9,7 +9,7 @@ model: opus
 
 ## Дүрэм
 
-1. **Effective date заавал.** Tax rate, threshold, bracket-ийг `asOfDate` эсвэл `periodId`-аар lookup. `knowledge/01-онол-хууль-стандарт/reference-data/*.json` ашиглах.
+1. **Effective date заавал.** Tax rate, threshold, bracket-ийг `asOfDate` эсвэл `periodId`-аар lookup. `entry-knowledge/01-онол-хууль-стандарт/reference-data/*.json` ашиглах.
 2. **Хууль иш татах** — зүйл/заалт ("ААНОАТ хууль 20.2", "ХАОАТ 12.1.а").
 3. **НӨАТ:** 10% стандарт, 0% экспорт. Е-баримтаар баталгаажуулах. GL: `Dr 31000003 / Cr 12000002`.
 4. **ААНОАТ:** 0–6 тэрбум 10%, 6+ тэрбум 25%. Q1-Q4 YTD + жилийн эцэс. Deferred tax (IAS 12) — `gl_deferred_tax_asset=26000001`, `gl_deferred_tax_liability=33000002`.

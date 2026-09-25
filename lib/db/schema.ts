@@ -2201,7 +2201,7 @@ export const costingAccountSettings = pgTable("costing_account_settings", {
 }, (t) => [uniqueIndex("costing_account_settings_org_id_ux").on(t.organizationId)]);
 
 // ─── Payroll (Цалин) ─────────────────────────────────────────────────────────
-// Knowledge: knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/. Тооцооллын
+// Knowledge: entry-knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/. Тооцооллын
 // хувь хэмжээ lib/payroll/calc.ts-д огноогоор (effective date guardrail §10);
 // данс/доод цалин/босго нь ЭНЭ тохиргооноос — кодод хатуу утга байхгүй.
 

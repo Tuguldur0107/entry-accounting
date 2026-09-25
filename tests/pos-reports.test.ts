@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { aggregateBy, aggregatePayments, summarize, type SalesLineRow, type SalesPaymentRow } from "../lib/pos/reports";
+import { aggregateBy, aggregatePayments, ebarimtSentCount, summarize, type SalesLineRow, type SalesPaymentRow } from "../lib/pos/reports";
 
 function line(partial: Partial<SalesLineRow> & Pick<SalesLineRow, "saleId" | "itemId" | "quantity" | "netAmount" | "lineTotal">): SalesLineRow {
   return {
@@ -26,6 +26,9 @@ function line(partial: Partial<SalesLineRow> & Pick<SalesLineRow, "saleId" | "it
     vatAmount: 0,
     discountRules: [],
     paymentSummary: "",
+    ebarimtId: null,
+    ebarimtStatus: null,
+    nonVat: false,
     cogs: null,
     cogsBasis: "none",
     margin: null,
@@ -97,4 +100,16 @@ test("aggregatePayments: хэлбэрээр нийлбэр, буцаалт ха�
   assert.equal(rows.find((row) => row.methodId === "card")?.amount, 661_550);
   assert.equal(rows.find((row) => row.methodId === "cash")?.provider, null);
   assert.equal(rows.find((row) => row.methodId === "qpay")?.provider, "qpay");
+});
+
+test("ebarimtSentCount: илгээгдсэн ЧЕКИЙН тоо — мөр биш баримт, буцаалт тоологдохгүй", () => {
+  const lines = [
+    line({ saleId: "s1", itemId: "A", quantity: 1, netAmount: 10, lineTotal: 11, ebarimtStatus: "sent", ebarimtId: "1234567890" }),
+    line({ saleId: "s1", itemId: "B", quantity: 1, netAmount: 10, lineTotal: 11, ebarimtStatus: "sent", ebarimtId: "1234567890" }),
+    line({ saleId: "s2", itemId: "A", quantity: 1, netAmount: 10, lineTotal: 11, ebarimtStatus: "pending" }),
+    line({ saleId: "s3", itemId: "A", quantity: 1, netAmount: 10, lineTotal: 11, nonVat: true }),
+    line({ saleId: "r1", itemId: "A", quantity: -1, netAmount: -10, lineTotal: -11, isReturn: true, ebarimtStatus: "sent" }),
+  ];
+  assert.equal(ebarimtSentCount(lines), 1);
+  assert.equal(ebarimtSentCount([]), 0);
 });

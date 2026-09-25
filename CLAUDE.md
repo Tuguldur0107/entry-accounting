@@ -26,7 +26,7 @@
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
 | POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
-| Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1 | fork-ын хамгаалалт: хувийн repo (фаз 2), dedicated sync |
+| Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
 | Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
 ## Файлын бүтэц
@@ -80,7 +80,8 @@ entry-accounting/
 │   └── store/gl-store.ts         # Zustand UI state
 ├── custom/                       # ХАРИЛЦАГЧИЙН өргөтгөл (fork) — core энд бичихгүй
 ├── docs/deployment/              # Fork нэвтрүүлэлт, API, master data загвар
-├── knowledge/                    # Мэргэжлийн мэдлэгийн сан
+├── knowledge/                    # Зөвхөн 03-стандарт (дансны жагсаалт, mapping, UI spec)
+│                                 #   01/02/04-skills → ХУВИЙН repo `entry-knowledge` (§9e)
 ├── .env.local                    # DATABASE_URL, AUTH_SECRET
 └── drizzle.config.ts
 ```
@@ -276,7 +277,7 @@ abs(ΣДебет − ΣКредит) ≤ 0.01   → тэнцсэн
 
 ### 2. Draft → Post журнал — ХЭРЭГЖСЭН
 
-Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md`
+Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md`
 
 ```
 Draft үүсгэх → хэрэглэгч шалгана → Post дарах → хадгалагдана
@@ -385,7 +386,7 @@ tests/gl-currency.test.ts Хөрвүүлэлт, шингээлт, тэнцэл, 
 
 ### 3. Дансны бүлгийн бүтэц (8 оронтой код)
 
-Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
+Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md`
 
 | Бүлэг | Код | Жишээ |
 |-------|-----|-------|
@@ -434,7 +435,7 @@ tests/company-segments.test.ts     Идемпотент, нэр солих, да
 
 ### 4. Period систем — ХЭРЭГЖСЭН
 
-Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md`
+Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md`
 Код: `lib/periods/period.ts` (цэвэр логик), `lib/periods/guard.ts`
 (`assertPeriodOpen`), `lib/actions/periods.ts`, `app/(dashboard)/settings/periods`
 
@@ -817,7 +818,7 @@ app/(dashboard)/inventory/sales  Борлуулалт (жагсаалт) — Э�
                                  POS тохиргоо `/inventory/pos-settings` нь ТУСДАА нав цэс
                                  (хуудас бүр зөвхөн ӨӨРИЙН өгөгдлөө ачаална; хуучин
                                  `/inventory/sales?tab=` линк redirect хийнэ)
-app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (7 зүсэлт, COGS cost_period_results-ээс;
+app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (8 зүсэлт, COGS cost_period_results-ээс;
                                  топбарын сонгогч «Борлуулалтын тайлан (POS)»)
 components/pos/                  pos-checkout-view (orchestrator) + checkout/{product-panel, ticket-panel,
                                  numpad, discount-dialog, parked-dialog}, payment-dialog, receipt-preview
@@ -825,7 +826,7 @@ components/pos/                  pos-checkout-view (orchestrator) + checkout/{pr
                                  sales-page-view → sales-list-view / shifts-view + shift-dialogs
                                  (нээх, хаах, Z-тайлан) / gift-cards-view / pos-settings-view
                                  (+ discount-rule-dialog, хөнгөлөлтийн симуляци),
-                                 sales-report-view (/inventory/reports?tab=sales, 7 зүсэлт)
+                                 sales-report-view (/inventory/reports?tab=sales, 8 зүсэлт)
 components/panel/pos-sale-panel  Борлуулалтын панель (буцаалт: мөр/дүн, буцаан олголт эсвэл
                                  дэлгүүрийн кредит; дахин хэвлэх; eBarimt; АР/журнал/хавсралт)
 tests/pos-*.test.ts, tests/provisional-cost.test.ts
@@ -886,6 +887,11 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   татварын бүтээгдэхүүний код 3–5 орон (`getProductTaxCode` 5 оронтой ч буцаадаг); `getInfo`-ийн
   `cityPayer`/`freeProject` → мерчантын статус + кассын анхааруулга (НХАТ, VAT_FREE/304 автомат
   БИШ); PosAPI хувилбар сүүлийн хариуны `version`-оос, <3.0.12 улаан (`isPosApiVersionOutdated`)
+- **Мерчантын ТТД регистрээс** (2026-09-25): хэрэглэгч 11 оронтой ТТД-гээ
+  мэддэггүй тул тохиргооны талбар 7 оронтой байгууллагын РЕГИСТР хүлээж авна —
+  «ТЕГ-ээс татах» (хоосон бол `company_settings.registerNo`) эсвэл хадгалахад
+  `updatePosSettings` `lookupTinByRegNo`-оор ТТД болгоно; унавал ШИДНЭ (ТТД
+  ЗОХИОХГҮЙ). Салбар / кассын дугаар хоосон бол форм «001»-ийг ИЛ санал болгоно
 - **Гар ДДТД (`manual`)** автомат илгээлтэд ОРОХГҮЙ; `sent` баримтын ДДТД-г
   гараар засах ХОРИОТОЙ (давхар баримт)
 - **Борлуулалт бүрд eBarimt-гүй (`skipped`)**: төлбөрийн диалогийн «eBarimt
@@ -1303,7 +1309,7 @@ tests/arap-ecl-flow.test.ts (DB)
 
 ### 6. НӨАТ (VAT) — 10% — ХЭРЭГЖСЭН
 
-Knowledge: `knowledge/01-онол-хууль-стандарт/tax/vat.md`, `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
+Knowledge: `entry-knowledge/01-онол-хууль-стандарт/tax/vat.md`, `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md`
 
 ```
 Exclusive: Авлага = Нийт, Орлого = Нийт/1.1, НӨАТ өглөг = Нийт × 10/110
@@ -1349,7 +1355,7 @@ app/(dashboard)/vat/     Сарын тайлангийн хуудас (URL `peri
 
 ### 7. Цалин (Payroll) — Gross → Net — ХЭРЭГЖСЭН
 
-Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/`
+Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/`
 
 Хэрэгжилт:
 
@@ -1558,7 +1564,7 @@ ENT-002/049/066/046/001): карт `openingAccumulatedDepreciation` (+ татв�
 
 ### 9. Human-in-the-loop (draft-first policy)
 
-Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/human-in-the-loop.md`
+Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/human-in-the-loop.md`
 
 - AI agent бичилт default-оор **ноорог** үүсгэнэ — хэрэглэгч баталгаажуулна
 - Хэрэглэгч чатнаас "Шууд бичих" горим ИЛ сонгосон үед л тэнцсэн, **батлах
@@ -1898,19 +1904,27 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   `RESEND_FROM_EMAIL` (и-мэйл суваг), `TELEGRAM_BOT_TOKEN` (Telegram суваг)
 - Фаз 3 (SSE realtime, web push/PWA, approval workflow) — саналын §8
 
-### 9e. Мэдлэгийн сан — хэрэглэгчид хүргэх (Фаз 1 ХЭРЭГЖСЭН)
+### 9e. Мэдлэгийн сан — хэрэглэгчид хүргэх (Фаз 1–2 ХЭРЭГЖСЭН)
 
 Баримт: `docs/knowledge/00-proposal.md` (D1–D7 БАТЛАГДСАН 2026-09-23) — ЗААВАЛ уншина.
-`knowledge/` нь хөгжүүлэлтийн лавлагаа хэвээр; үүнээс гадна `01`, `02`,
-`04/skills` хавтас preDeploy-д `knowledge_articles`-д ачаалагдаж хэрэглэгчийн
-MCP-д (хэрэглэгчийн ChatGPT / Claude) **хэсгээр** уншигдана. Хэрэглэгчид файл хэзээ ч очихгүй.
+Агуулга (`01-онол-хууль-стандарт`, `02-нягтлан-бодох-мэргэжлийн`,
+`04-ai-agent/skills`) нь **ХУВИЙН repo `Tuguldur0107/entry-knowledge`**-д
+(фаз 2, 2026-09-25) — core repo-д, fork харилцагчид ОЧИХГҮЙ; «AI нягтлан»
+бүтээгдэхүүний гол агуулга. SaaS preDeploy тэр repo-гийн tarball-ийг
+`KNOWLEDGE_REPO` + `KNOWLEDGE_REPO_TOKEN` (read-only PAT)-оор татаж
+`knowledge_articles`-д ачаална; хэрэглэгчийн MCP-д (ChatGPT / Claude)
+**хэсгээр** уншигдана. Хэрэглэгчид файл хэзээ ч очихгүй. Core-ийн `knowledge/`
+хавтсанд зөвхөн `03-стандарт` (хөгжүүлэлтийн лавлагаа) үлдсэн.
 
 ```
 scripts/lib/knowledge-parse.mjs  ЦЭВЭР parser (тесттэй): frontmatter, `## ` = хэсэг,
                                  slug (`ifrs/ias-16`), ангилал замаас, хамрах хүрээ
-scripts/seed-knowledge.mjs       preDeploy сүүлийн алхам: upsert (slug, section),
-                                 sha256 алгасалт, устсан файлын хэсэг хасагдана;
-                                 KNOWLEDGE_DIR байхгүй бол ЧИМЭЭГҮЙ алгасна (fork)
+scripts/seed-knowledge.mjs       preDeploy сүүлийн алхам: эх сурвалж KNOWLEDGE_REPO
+                                 (tarball) → KNOWLEDGE_DIR/./knowledge → алгасна (fork);
+                                 upsert (slug, section), sha256 алгасалт; устгалт ЗӨВХӨН
+                                 эх сурвалж БҮРЭН үед (санг хэзээ ч хоослохгүй)
+scripts/lib/knowledge-source.mjs ЦЭВЭР (тесттэй): extractTarFiles (pax/кирилл зам),
+                                 isCompleteKnowledgeSource, normalizeKnowledgeRepo
 lib/knowledge/catalog.ts         ЦЭВЭР (тесттэй): тогтмол, clampSection, formatTopicIndex /
                                  formatSection, normalizeTopicSlug (path traversal татгалзана)
 lib/knowledge/store.ts           DB: list/read/countReadsToday/recordRead/stats — эрхийн
@@ -1949,12 +1963,20 @@ lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
 - Уншилт бүр `knowledge_reads` (аудит БИШ); 24ц квот `KNOWLEDGE_DAILY_READ_LIMIT`
   DB-ээс тоологдоно — in-memory rate limit ХЭРЭГЛЭХГҮЙ (олон instance)
 - AI хариултдаа ишлэлээ ЗААВАЛ дурдана; санах ойгоос таахгүй (system prompt)
-- **Фаз 2 (хүний шийдвэр):** `knowledge/01,02,04` хувийн repo руу зөөж core-оос
-  хасах — үүнийг хийтэл fork харилцагчийн preDeploy агуулгыг ачаална
+- **Фаз 2 ХИЙГДСЭН (2026-09-25):** агуулга `entry-knowledge` хувийн repo-д; fork-ын
+  preDeploy эх сурвалжгүй тул юу ч ачаалахгүй. Token-гүй / татаж чадаагүй / хагас
+  архив → DB ХЭВЭЭР (устгахгүй) — `isCompleteKnowledgeSource` 01, 02, 04-skills
+  гурвууланг шаардана. Token-ий утгыг ХЭЗЭЭ Ч логлохгүй. Агуулга засахдаа
+  `entry-knowledge`-д push → дараагийн deploy шинэчилнэ. Сонголт (§6.4, хийгдээгүй):
+  dedicated харилцагчид `ENTRY_LICENSE`-ээр sync
+- **Хөгжүүлэлтэд:** `entry-knowledge`-ийг core-ийн хажууд `../entry-knowledge` болгон
+  clone хийнэ (Claude Code web-д repo-г session-д нэмнэ); `CLAUDE.md`-ийн
+  `entry-knowledge/…` лавлагаа тэр repo-г заана. Локал DB-д:
+  `KNOWLEDGE_DIR=../entry-knowledge node scripts/seed-knowledge.mjs`
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 
-Knowledge: `knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/effective-date.md`
+Knowledge: `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/guardrails/effective-date.md`
 
 - Татварын хувь, НДШ, ХАОАТ bracket-ийг **огноогоор** lookup хийнэ
 - Хамаарах огноогүй тооцоолол хийхгүй — хэрэглэгчээс асууна
@@ -2296,7 +2318,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |
 | POS тохиргоо | [components/pos/pos-settings-view.tsx](components/pos/pos-settings-view.tsx) | 3 дэд таб: дансны роль/хязгаар · төлбөрийн хэлбэр grid · хөнгөлөлтийн дүрэм grid (`discount-rule-dialog.tsx`) + симуляци |
-| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 7 зүсэлт (гүйлгээ/бараа/өдөр/кассчин/хэлбэр/харилцагч/дүрэм) — COGS суурь `final`/`provisional` ил, pinned нийт |
+| Борлуулалтын тайлан | [components/pos/sales-report-view.tsx](components/pos/sales-report-view.tsx) | 8 зүсэлт (гүйлгээ/бараа/өдөр/салбар/кассчин/хэлбэр/харилцагч/дүрэм) — «Гүйлгээ»-нд салбар, ээлж, eBarimt статус + ДДТД; «Өдрөөр»/«Салбараар»-т eBarimt илгээсэн/чек; COGS суурь `final`/`provisional` ил, pinned нийт |
 | Цалингийн хуудас (payslip) | [components/payroll/payslip-report-view.tsx](components/payroll/payslip-report-view.tsx) | Ажилтны жагсаалт (pinned нийт) + A4 хуудас: давхар даралт → нэг ажилтан, «Бүгдийг хэвлэх» → ажилтан бүр шинэ хуудсанд (`ea-printing-payslip`) |
 | POS борлуулалтын панель | [components/panel/pos-sale-panel.tsx](components/panel/pos-sale-panel.tsx) | Read-only мөрийн grid (хөнгөлөлт, НӨАТ, буцаасан, урьдчилсан COGS), төлбөр/буцаалт/холбоос, Буцаалт диалог, Дахин хэвлэх |
 
@@ -2626,6 +2648,10 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 
 **Нягтлан бодох логик нэмэхийн өмнө холбогдох файлыг заавал уншина. Татварын хувь, account code, IFRS дүрмийг дур мэдэн таахгүй.**
 
+`entry-knowledge/…` = ХУВИЙН repo `Tuguldur0107/entry-knowledge` (core-ийн хажууд
+`../entry-knowledge` болгон clone хийнэ, §9e). Session-д байхгүй бол эхлээд нэмнэ —
+файл байхгүй гэдгээр дүрмийг ТААХГҮЙ.
+
 | Нөхцөл | Унших файл |
 |--------|-----------|
 | **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
@@ -2634,14 +2660,14 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 | **eBarimt 3.0 (ЗААВАЛ)** | `docs/pos/03-ebarimt-integration-plan.md` → `docs/deployment/ebarimt.md`; төлөв `docs/pos/02-implementation-status.md` |
 | **Мэдлэгийн сан хэрэглэгчид (ЗААВАЛ)** | `docs/knowledge/00-proposal.md` — D1–D7; хэсэглэлт/квот/surfaces-ийн дүрэм §9e |
 | **ITC developer портал / eTax / e-Balance холболт (ЗААВАЛ)** | `docs/integrations/00-itc-developer-portal.md` (портал, нэвтрэлт, орчин, гео-хязгаар, нээлттэй асуулт) → eBarimt-ийн албан баримттай тулгалт `01-ebarimt-posapi-verification.md` (P0–P2, staging тест) |
-| Account код, GL posting template | `knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
-| Period close workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
-| Журнал бичих workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |
-| НӨАТ тайлан workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md` |
-| Цалингийн workflow | `knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/payroll-run.md` |
-| Цалин, НДШ тооцоолол | `knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/` |
-| IFRS стандарт | `knowledge/01-онол-хууль-стандарт/ifrs/_index.md` → тухайн файл |
-| Татварын хууль | `knowledge/01-онол-хууль-стандарт/tax/_index.md` → тухайн файл |
-| 2026 татварын шинэчлэлт | `knowledge/01-онол-хууль-стандарт/tax/2026-updates.md` |
+| Account код, GL posting template | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
+| Period close workflow | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/02-period-close.md` |
+| Журнал бичих workflow | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/journal-entry.md` |
+| НӨАТ тайлан workflow | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/vat-return.md` |
+| Цалингийн workflow | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/workflows/payroll-run.md` |
+| Цалин, НДШ тооцоолол | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/` |
+| IFRS стандарт | `entry-knowledge/01-онол-хууль-стандарт/ifrs/_index.md` → тухайн файл |
+| Татварын хууль | `entry-knowledge/01-онол-хууль-стандарт/tax/_index.md` → тухайн файл |
+| 2026 татварын шинэчлэлт | `entry-knowledge/01-онол-хууль-стандарт/tax/2026-updates.md` |
 | Дансны нэгдсэн жагсаалт | `knowledge/03-стандарт/chart-of-accounts.md` |
 | Тайлангийн mapping (BS / IS / CF) | `knowledge/03-стандарт/reports/01-line-mapping.md` |

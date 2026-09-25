@@ -82,7 +82,16 @@ lib/db/schema.ts                  knowledge_articles (uniqueIndex slug+section),
 scripts/apply-pending-ddl.mjs §9  Идемпотент DDL
 ```
 
-## 6. Фаз 2 — fork-ын хамгаалалт (хүний шийдвэр)
+## 6. Фаз 2 — fork-ын хамгаалалт (хүний шийдвэр) — ХИЙГДСЭН 2026-09-25
+
+**Төлөв:** эзэмшигч 2026-09-25-нд батлав. 1–3 алхам хийгдсэн: агуулга хувийн
+`Tuguldur0107/entry-knowledge` repo-д (зам өөрчлөгдөөгүй — 67 файл, 372 хэсэг,
+checksum ижил тул production-ийн сан шилжилтэд хөндөгдөөгүй); SaaS preDeploy
+`KNOWLEDGE_REPO` + `KNOWLEDGE_REPO_TOKEN`-оор tarball татна
+(`scripts/lib/knowledge-source.mjs`); core-оос файлууд хасагдсан. Хамгаалалт:
+эх сурвалж бүрэн биш (token-гүй, татаж чадаагүй, хагас архив) үед seed DB-ээс
+ЮУ Ч УСТГАХГҮЙ. 4-р алхам (dedicated sync) нээлттэй хэвээр.
+
 
 D7 нь «хавтас байхгүй бол алгас» гэдэг; одоогоор `knowledge/` core repo-д
 хэвээр тул **fork харилцагч seed ажиллуулбал агуулга ачаалагдана**. Бүрэн

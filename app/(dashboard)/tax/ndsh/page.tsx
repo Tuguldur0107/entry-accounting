@@ -17,7 +17,7 @@ import {
 
 // НДШ — нийгмийн даатгалын шимтгэлийн нэгтгэл. Тооцоолол (cap, хувь) нь
 // Цалин модульд payroll_settings-ээс effective date-ээр хийгдэнэ.
-// Лавлагаа: knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/, tax/2026-updates.md.
+// Лавлагаа: entry-knowledge/02-нягтлан-бодох-мэргэжлийн/payroll/, tax/2026-updates.md.
 
 export default async function NdshPage() {
   const { orgId, userId } = await getActiveOrg();

@@ -12,7 +12,7 @@ import { actionError, type ActionResult } from "@/lib/action-result";
 import { requireAnyModuleAction, requireModuleAction } from "@/lib/auth";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { posEbarimtSubmissions, posSales } from "@/lib/db/schema";
+import { organizationProfile, posEbarimtSubmissions, posSales } from "@/lib/db/schema";
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
@@ -59,21 +59,33 @@ function revalidateEbarimt() {
  * (docs/deployment/ebarimt.md §3).
  */
 export async function getEbarimtStatus(): Promise<
-  ActionResult<{ status: EbarimtStatusSummary; problems: string[]; readiness: EbarimtReadiness }>
+  ActionResult<{
+    status: EbarimtStatusSummary;
+    problems: string[];
+    readiness: EbarimtReadiness;
+    /** Компанийн мэдээллийн регистр (7 орон) — мерчантын ТТД-г ТЕГ-ээс татах эх. */
+    companyRegisterNo: string | null;
+  }>
 > {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
     const settings = await ensurePosSettings(orgId, userId);
-    const [status, readiness] = await Promise.all([
+    const [status, readiness, profile] = await Promise.all([
       ebarimtStatusWithPosApi(orgId, settings, todayInUlaanbaatar()),
       loadEbarimtReadiness(orgId),
+      db.query.organizationProfile.findFirst({
+        where: eq(organizationProfile.organizationId, orgId),
+        columns: { registerNo: true },
+      }),
     ]);
+    const register = profile?.registerNo?.trim() ?? "";
+    const companyRegisterNo = ORG_REGISTER_RE.test(register) ? register : null;
     const problems = ebarimtSettingsProblems(settingsInputOf(settings));
     if (!(await isOrgVatPayer(orgId)))
       problems.unshift(
         "Байгууллага НӨАТ төлөгчөөр бүртгэгдээгүй — eBarimt идэвхгүй (Тохиргоо → НӨАТ)"
       );
-    return { status, problems, readiness };
+    return { status, problems, readiness, companyRegisterNo };
   } catch (caught) {
     return actionError("getEbarimtStatus", caught, "eBarimt-ийн байдал уншигдсангүй");
   }
