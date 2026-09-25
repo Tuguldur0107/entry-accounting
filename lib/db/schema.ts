@@ -3664,11 +3664,11 @@ export const posSettings = pgTable(
     receiptFooter: text("receipt_footer").notNull().default("Худалдан авалтад баярлалаа"),
     /**
      * НӨАТ-гүй борлуулалтын (кассын «НӨАТ» унтраалттай — нөхөж оруулах, залруулга)
-     * орлого ба авлагын ДАНС. Кодод default БАЙХГҮЙ — хоосон бол НӨАТ-гүй
-     * борлуулалт `[NON_VAT_ACCOUNTS_REQUIRED]`-ээр татгалзана (данс ЗОХИОХГҮЙ).
+     * орлого ба авлагын ДАНС — бусад рольтой ижил default (product owner 2026-09-25);
+     * дансны модонд байхгүй бол ensurePosSettings стандарт нэрээр нээнэ.
      */
-    nonVatRevenueAccountNumber: text("non_vat_revenue_account_number"),
-    nonVatReceivableAccountNumber: text("non_vat_receivable_account_number"),
+    nonVatRevenueAccountNumber: text("non_vat_revenue_account_number").notNull().default("51100002"),
+    nonVatReceivableAccountNumber: text("non_vat_receivable_account_number").notNull().default("13110002"),
     // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1, T1a) ──
     // Мерчантын тохиргоо харилцагчийн апп-д (Console-д биш); нууц энд байхгүй.
     /** Автомат илгээлт асаалттай эсэх — унтраалттай бол v1-ийн гар ДДТД хэвээр. */
