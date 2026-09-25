@@ -36,3 +36,15 @@ test("НӨАТ-гүй: шалтгаангүй / данс тохируулааг�
     /NON_VAT_EBARIMT_CONFLICT/
   );
 });
+
+test("НӨАТ-гүй борлуулалтын данс default-тай, стандарт дансны төлөвлөгөөнд нэртэй", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { STANDARD_ACCOUNTS } = await import("../lib/constants/standard-accounts");
+  const schema = readFileSync("lib/db/schema.ts", "utf8");
+  const ddl = readFileSync("scripts/apply-pending-ddl.mjs", "utf8");
+  for (const number of ["51100002", "13110002"]) {
+    assert.ok(STANDARD_ACCOUNTS.some((account) => account.number === number), `${number} STANDARD_ACCOUNTS-д`);
+    assert.match(schema, new RegExp(`notNull\\(\\)\\.default\\("${number}"\\)`));
+    assert.match(ddl, new RegExp(`'${number}'`), `${number} preDeploy нөхөлтөд`);
+  }
+});

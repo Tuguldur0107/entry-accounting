@@ -799,9 +799,9 @@ async function main() {
     ["pos_settings", "qpay_merchant_id", "text"],
     ["pos_settings", "qpay_invoice_ttl_sec", "integer not null default 180"],
     ["pos_payment_methods", "provider", "text"],
-    // НӨАТ-гүй POS борлуулалт (lib/pos/non-vat.ts) — данс default-гүй (зохиохгүй)
-    ["pos_settings", "non_vat_revenue_account_number", "text"],
-    ["pos_settings", "non_vat_receivable_account_number", "text"],
+    // НӨАТ-гүй POS борлуулалт (lib/pos/non-vat.ts) — данс default-тай (доорх нөхөлт)
+    ["pos_settings", "non_vat_revenue_account_number", "text not null default '51100002'"],
+    ["pos_settings", "non_vat_receivable_account_number", "text not null default '13110002'"],
     ["pos_sales", "non_vat", "boolean not null default false"],
     ["pos_sales", "non_vat_reason", "text"],
   ]) {
@@ -809,6 +809,25 @@ async function main() {
       `${table}.${column} багана`,
       `alter table ${table}
          add column if not exists ${column} ${type}`
+    );
+  }
+  // НӨАТ-гүй борлуулалтын данс: v1.x-д nullable (default-гүй) нэмэгдсэн байсан
+  // багана → default + NOT NULL (drizzle push-ийн өмнө, идемпотент).
+  for (const [column, fallback] of [
+    ["non_vat_revenue_account_number", "51100002"],
+    ["non_vat_receivable_account_number", "13110002"],
+  ]) {
+    await run(
+      `pos_settings.${column} хоосон мөр нөхөлт`,
+      `update pos_settings set ${column} = '${fallback}' where ${column} is null or trim(${column}) = ''`
+    );
+    await run(
+      `pos_settings.${column} default`,
+      `alter table pos_settings alter column ${column} set default '${fallback}'`
+    );
+    await run(
+      `pos_settings.${column} not null`,
+      `alter table pos_settings alter column ${column} set not null`
     );
   }
   // Багана нэмэгдэхээс өмнөх мөр: регистр нь иргэний РД хэлбэртэй (2 кирилл

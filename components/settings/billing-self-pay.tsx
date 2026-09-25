@@ -198,7 +198,7 @@ export function BillingSelfPay({
   );
 }
 
-function BillingQpayDialog({
+export function BillingQpayDialog({
   initial,
   onClose,
 }: {
@@ -283,7 +283,12 @@ function BillingQpayDialog({
 
           {status === "open" &&
             (payment.qrText ? (
-              <QrCode value={payment.qrText} size={240} label="QPay QR" />
+              <QrCode
+                  value={payment.qrText}
+                  size={240}
+                  label="QPay QR"
+                  fallbackSrc={payment.qrImage ? `data:image/png;base64,${payment.qrImage}` : null}
+                />
             ) : payment.qrImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={`data:image/png;base64,${payment.qrImage}`} alt="QPay QR" width={240} height={240} />

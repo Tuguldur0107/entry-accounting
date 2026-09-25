@@ -1,133 +1,127 @@
-// «AI нягтлан» (skills) багцын нүүр — мэдлэгийн санг өөрийн ChatGPT / Claude-д
-// холбох заавар. Нягтлан бодох систем энэ багцад ороогүй тул модулийн самбарын
-// оронд энэ хуудас гарна (app/(dashboard)/page.tsx). Холболт нь OAuth:
-// хэрэглэгч URL-ыг нэмээд «Connect» дарахад Entry-д нэвтэрч зөвшөөрнө — token
-// хуулах, файл татах шаардлагагүй.
+// «AI нягтлан» (skills) багцын ЦОРЫН ГАНЦ хуудас (app/(dashboard)/page.tsx):
+// юу авах вэ → ① төлбөр (төлөв + сунгах) → ② ChatGPT / Claude-д холбох.
+// Тусдаа «Багц, төлбөр» хуудас энэ багцад байхгүй (/settings/billing → энд).
+// Холболт нь OAuth: хаягаа нэмээд Entry-ийн и-мэйл, нууц үгээр зөвшөөрнө —
+// token хуулах, файл татах шаардлагагүй.
+import type { ReactNode } from "react";
+
+import { ConnectGuide } from "@/components/skills/connect-guide";
 import { CopyValue } from "@/components/skills/copy-value";
-import { LinkButton } from "@/components/ui/link-button";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { SkillsPay } from "@/components/skills/skills-pay";
+import { Icon } from "@/components/ui/icon";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import type { Entitlements } from "@/lib/billing/entitlements";
 import { featureUsable, KNOWLEDGE_READ_ONLY_MESSAGES } from "@/lib/billing/entitlements";
-import { PLANS } from "@/lib/billing/plans";
+import type { SelfPayOptions } from "@/lib/billing/self-pay";
 
-const card =
-  "ea-glass space-y-3 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5";
+const card = "ea-glass space-y-4 rounded-[var(--ea-r-lg)] border border-[var(--ea-border)] p-5";
 
-function fmtEnds(date: Date): string {
-  return date.toLocaleString("mn-MN", { timeZone: "Asia/Ulaanbaatar", dateStyle: "medium", timeStyle: "short" });
-}
-
-const EXAMPLES = [
-  "НӨАТ-ын тайланг хэзээ, яаж тушаах вэ? Хоцорвол торгууль хэд вэ?",
-  "2026 онд цалингийн ХАОАТ-ыг шатлалаар хэрхэн тооцох вэ? Жишээгээр.",
-  "IAS 16-аар үндсэн хөрөнгийн элэгдлийг татварын элэгдлээс юугаараа ялгаатай бүртгэх вэ?",
-  "Импортын барааны гаалийн татвар өртөгт шингэх үү? Журналын бичилтийг харуул.",
+const BENEFITS = [
+  "Хууль, стандартын ишлэлтэй хариулт — AI таамаглахгүй",
+  "НӨАТ, ХАОАТ, НДШ, ААНОАТ, IFRS — 2026 оны шинэчлэлттэй",
+  "Юу ч суулгахгүй — 2 минутад холбогдоно",
 ];
 
-export function SkillsHome({ ent, mcpUrl }: { ent: Entitlements; mcpUrl: string }) {
+function fmtDate(date: Date, withTime = false): string {
+  return date.toLocaleString("mn-MN", {
+    timeZone: "Asia/Ulaanbaatar",
+    dateStyle: "medium",
+    ...(withTime ? { timeStyle: "short" } : {}),
+  });
+}
+
+function Step({ n, title, aside, children }: { n: number; title: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className={card}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="grid size-6 place-items-center rounded-full bg-[var(--ea-primary-50)] text-xs font-semibold text-[var(--ea-primary)]">
+          {n}
+        </span>
+        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">{title}</h2>
+        {aside ? <div className="ml-auto">{aside}</div> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+export function SkillsHome({
+  ent,
+  mcpUrl,
+  options,
+  ready,
+  canPay,
+  paidThrough,
+}: {
+  ent: Entitlements;
+  mcpUrl: string;
+  options: SelfPayOptions;
+  ready: boolean;
+  canPay: boolean;
+  /** Төлсөн хугацааны эцэс — байхгүй бол null. */
+  paidThrough: Date | null;
+}) {
   const usable = featureUsable(ent, "knowledge");
-  const price = PLANS.skills.pricePerSeatMnt ?? 0;
+  const active = usable && ent.status === "active";
+
+  let tone: StatusTone = "success";
+  let badge = "Идэвхтэй";
+  let status = paidThrough ? `${fmtDate(paidThrough)} хүртэл төлөгдсөн.` : "Идэвхтэй.";
+  if (!usable) {
+    tone = "danger";
+    badge = "Хаалттай";
+    status = ent.readOnlyReason ? KNOWLEDGE_READ_ONLY_MESSAGES[ent.readOnlyReason] : "Захиалга идэвхгүй байна.";
+  } else if (ent.status === "trialing") {
+    tone = "warning";
+    badge = "Туршилт";
+    status = ent.trialEndsAt ? `Үнэгүй туршилт ${fmtDate(ent.trialEndsAt, true)} хүртэл.` : "Үнэгүй туршилт.";
+  } else if (ent.status === "past_due") {
+    tone = "warning";
+    badge = "Хугацаа дууссан";
+    status = ent.graceEndsAt
+      ? `Төлсөн хугацаа дууссан — ${fmtDate(ent.graceEndsAt)} хүртэл ажиллана, сунгана уу.`
+      : "Төлсөн хугацаа дууссан — сунгана уу.";
+  }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="mx-auto w-full max-w-2xl space-y-5">
+      <header className="space-y-3">
+        <div className="flex items-center gap-2">
           <h1 className="text-xl font-semibold text-[var(--ea-text-1)]">AI нягтлан</h1>
-          {usable ? (
-            <StatusBadge tone={ent.status === "trialing" ? "warning" : "success"} size="sm">
-              {ent.status === "trialing" ? "Туршилт" : "Идэвхтэй"}
-            </StatusBadge>
-          ) : (
-            <StatusBadge tone="danger" size="sm">
-              Хаалттай
-            </StatusBadge>
-          )}
+          <StatusBadge tone={tone} size="sm">
+            {badge}
+          </StatusBadge>
         </div>
-        <p className="text-sm leading-relaxed text-[var(--ea-text-3)]">
-          Entry-ийн нягтлан бодох бүртгэл, IFRS, Монголын татвар, НДШ, цалингийн мэргэжлийн
-          мэдлэгийг өөрийн {"ChatGPT"} эсвэл {"Claude"}-д холбоно. Юу ч татахгүй, суулгахгүй — AI тань
-          асуулт бүрт эх сурвалжийн ишлэлтэй хариулна.
+        <p className="text-sm leading-relaxed text-[var(--ea-text-2)]">
+          Өөрийн {"ChatGPT"} эсвэл {"Claude"}-д Монголын нягтлан бодох бүртгэл, татвар, цалингийн мэргэжлийн мэдлэгийг
+          холбоно.
         </p>
-        {ent.status === "trialing" && ent.trialEndsAt && usable ? (
-          <p className="text-xs text-[var(--ea-warning-fg)]">
-            Туршилт {fmtEnds(ent.trialEndsAt)}-д дуусна. Үргэлжлүүлэх үнэ — {price.toLocaleString("en-US")}₮ / сар.
-          </p>
-        ) : null}
-        {!usable && ent.readOnlyReason ? (
-          <p className="text-xs text-[var(--ea-danger-fg)]">{KNOWLEDGE_READ_ONLY_MESSAGES[ent.readOnlyReason]}</p>
-        ) : null}
-        {ent.status !== "active" || !usable ? (
-          <div>
-            <LinkButton href="/settings/billing" icon="cash">
-              QPay-ээр төлөх — {price.toLocaleString("en-US")}₮ / сар
-            </LinkButton>
-          </div>
-        ) : null}
-      </header>
-
-      <section className={card}>
-        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">1. Холболтын хаяг</h2>
-        <CopyValue value={mcpUrl} />
-        <p className="text-xs text-[var(--ea-text-3)]">
-          Нэвтрэлт нь аюулгүй холболтоор ({"OAuth"}) явна: доорх алхмаар хаягаа нэмээд холбоход Entry-д
-          нэвтэрч зөвшөөрөл өгнө. Нууц түлхүүр хуулах шаардлагагүй.
-        </p>
-      </section>
-
-      <section className={card}>
-        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">2а. Claude-д холбох</h2>
-        <ol className="list-decimal space-y-1.5 pl-5 text-sm text-[var(--ea-text-2)]">
-          <li>
-            {"claude.ai"} → {"Settings → Connectors"} → {"Add custom connector"}
-          </li>
-          <li>
-            Нэр: <strong>{"Entry"}</strong>, хаяг: дээрх холболтын хаяг → нэмнэ
-          </li>
-          <li>
-            {"Connect"} дарж Entry-д нэвтрээд зөвшөөрнө
-          </li>
-          <li>Шинэ чатанд холболтоо идэвхжүүлээд асуултаа бичнэ</li>
-        </ol>
-      </section>
-
-      <section className={card}>
-        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">2б. ChatGPT-д холбох</h2>
-        <ol className="list-decimal space-y-1.5 pl-5 text-sm text-[var(--ea-text-2)]">
-          <li>
-            {"ChatGPT"} → {"Settings → Apps & Connectors"} → {"Advanced settings"} → {"Developer mode"} асаана
-          </li>
-          <li>
-            {"Create"} → нэр: <strong>{"Entry"}</strong>, хаяг: дээрх холболтын хаяг, нэвтрэлт: {"OAuth"}
-          </li>
-          <li>Entry-д нэвтэрч зөвшөөрнө</li>
-          <li>Чатанд холболтоо сонгоод асуултаа бичнэ</li>
-        </ol>
-        <p className="text-xs text-[var(--ea-text-4)]">
-          Гаднын холболт нэмэх боломж таны {"ChatGPT"} багцаас хамаарна — цэсний нэр шинэчлэлтээр өөрчлөгдөж болно.
-        </p>
-      </section>
-
-      <section className={card}>
-        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Жишээ асуултууд</h2>
-        <ul className="list-disc space-y-1.5 pl-5 text-sm text-[var(--ea-text-2)]">
-          {EXAMPLES.map((example) => (
-            <li key={example}>{example}</li>
+        <ul className="space-y-1.5">
+          {BENEFITS.map((benefit) => (
+            <li key={benefit} className="flex items-start gap-2 text-sm text-[var(--ea-text-2)]">
+              <Icon name="success" size="sm" className="mt-0.5 shrink-0" style={{ color: "var(--ea-success-fg)" }} />
+              {benefit}
+            </li>
           ))}
         </ul>
-      </section>
+      </header>
 
-      <section className={card}>
-        <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Бүртгэлээ ч AI-аараа хөтлөх үү?</h2>
-        <p className="text-sm text-[var(--ea-text-3)]">
-          Entry Accounting системийг ашиглавал AI тань журнал бичих, нэхэмжлэх, цалин, НӨАТ-ын тайлан бэлтгэх
-          хүртэл хийнэ — мэдлэгийн сан нь системийн багц бүрд үнэгүй дагалдана.
+      <Step n={1} title="Төлбөр">
+        <p className="text-xs" style={{ color: usable ? "var(--ea-text-3)" : "var(--ea-danger-fg)" }}>
+          {status}
         </p>
-        <div className="flex flex-wrap gap-2">
-          <LinkButton href="/settings/billing" icon="settings">
-            Багц, төлбөр
-          </LinkButton>
-        </div>
-      </section>
+        <SkillsPay options={options} ready={ready} canPay={canPay} renew={active} />
+      </Step>
+
+      <Step n={2} title={`${"ChatGPT"} / ${"Claude"}-д холбох`}>
+        <CopyValue value={mcpUrl} />
+        <ConnectGuide />
+        <p className="text-xs text-[var(--ea-text-3)]">
+          {usable
+            ? "Нууц үгээ мартвал нэвтрэх хуудасны «Нууц үг сэргээх»-ээр шинэчилнэ."
+            : "Төлбөр төлсний дараа холболт шууд ажиллана."}
+        </p>
+      </Step>
     </div>
   );
 }
