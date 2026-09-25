@@ -20,6 +20,7 @@ import {
   costingPostingCodeBuilder,
   itemAccountsFor,
 } from "@/lib/costing/posting-helpers";
+import { OPENING_VALUATION_SOURCE } from "@/lib/inventory/opening-stock";
 import { db } from "@/lib/db";
 import {
   accountingPeriods,
@@ -448,8 +449,14 @@ async function postCostEntryCore(id: string) {
       nrvReserve: roleSettings.nrvReserveAccountNumber,
     }
   );
-  const { debit, credit } =
-    isTrueUp && signedAmount < 0
+  // Нээлтийн үлдэгдэл (SIM2-007, D-OS-1): Cr нь нээлтийн зөрүүний данс —
+  // үүсгэх МӨЧИД шийдэгдэж хадгалагдсан; клиринг рүү дахин тооцохгүй.
+  const isOpening = entry.valuationSource === OPENING_VALUATION_SOURCE;
+  if (isOpening && !(entry.debitAccountNumber && entry.creditAccountNumber))
+    throw new Error("Нээлтийн өртгийн бичилтэд данс хадгалагдаагүй");
+  const { debit, credit } = isOpening
+    ? { debit: entry.debitAccountNumber!, credit: entry.creditAccountNumber! }
+    : isTrueUp && signedAmount < 0
       ? { debit: natural.credit, credit: natural.debit }
       : natural;
   await assertEnabledMainAccount(orgId, debit);
@@ -569,15 +576,11 @@ async function postCostEntriesCore(ids: string[]) {
   const failures: { id: string; error: string }[] = [];
   let posted = 0;
   for (const id of ids) {
-    try {
-      await postCostEntry(id);
-      posted += 1;
-    } catch (caught) {
-      failures.push({
-        id,
-        error: caught instanceof Error ? caught.message : "Батлагдсангүй",
-      });
-    }
+    // postCostEntry алдаагаа { error } УТГААР буцаадаг (шидэхгүй) — өмнө нь
+    // catch хэзээ ч ажиллахгүй тул бүх мөр «батлагдсан» гэж тоологддог байв.
+    const result = await postCostEntry(id);
+    if (result.error) failures.push({ id, error: result.error });
+    else posted += 1;
   }
   return { posted, failures };
 }
@@ -771,8 +774,12 @@ async function reverseCostEntryCore(id: string) {
       })
       .returning({ id: journalVouchers.id });
 
+    // Нэг журналд олон бичилт (нээлтийн үлдэгдлийн багц) байж болно —
+    // зөвхөн ЭНЭ бичилтийн мөрүүдийг эргүүлнэ; холбоосгүй хуучин журналд бүгд.
+    const ownLines = voucher.lines.filter((line) => line.costEntryId === entry.id);
+    const linesToReverse = ownLines.length > 0 ? ownLines : voucher.lines;
     await tx.insert(journalLines).values(
-      voucher.lines.map((line, index) => ({
+      linesToReverse.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
         debit: line.credit,

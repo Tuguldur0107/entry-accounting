@@ -42,6 +42,10 @@ import {
   deleteInventoryMovement,
   updateInventoryMovement,
 } from "@/lib/actions/inventory";
+import { createOpeningStock } from "@/lib/actions/opening-stock";
+import { ExcelImportDialog } from "@/components/excel/excel-import-dialog";
+import { useModuleCan } from "@/components/layout/module-access-context";
+import { openingStockSpec, type OpeningStockImport } from "@/lib/excel/specs";
 import type {
   InventoryItemView,
   InventoryMovementView,
@@ -133,6 +137,46 @@ export function InventoryMovementsView({
   const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
   const gridApiRef = useRef<GridApi<InventoryMovementView> | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  // Нээлтийн барааны үлдэгдэл (SIM2-007): бичих эрхтэй бол импортлоно;
+  // өртгийн батлах эрхтэй бол шууд GL-д, эс бөгөөс ноорог өртгийн бичилт.
+  const canWrite = useModuleCan("inv", "write");
+  const canPostCost = useModuleCan("cost", "post");
+  const [openingOpen, setOpeningOpen] = useState(false);
+  const openingSpec = useMemo(
+    () =>
+      openingStockSpec({
+        itemCodes: new Set(items.filter((item) => item.isActive).map((item) => item.code)),
+        warehouseCodes: new Set(warehouses.filter((wh) => wh.isActive).map((wh) => wh.code)),
+      }),
+    [items, warehouses]
+  );
+
+  async function handleOpeningImport(values: OpeningStockImport[]) {
+    const dates = [...new Set(values.map((value) => value.date))];
+    if (dates.length !== 1)
+      return `Бүх мөр НЭГ нээлтийн огноотой байна (одоо: ${dates.join(", ")})`;
+    try {
+      const result = await createOpeningStock({
+        date: dates[0],
+        lines: values.map(({ itemCode, warehouseCode, quantity, unitCost }) => ({
+          itemCode,
+          warehouseCode,
+          quantity,
+          unitCost,
+        })),
+        post: canPostCost,
+      });
+      if (result.error !== undefined) return result.error;
+      toast.success(
+        result.status === "posted"
+          ? `Нээлтийн үлдэгдэл: ${result.created} мөр, ${result.totalAmount.toLocaleString("en-US")}₮ — журнал ${result.voucherNo ?? ""}`
+          : `Нээлтийн үлдэгдэл: ${result.created} мөр ноорог өртгийн бичилттэй — Өртөг → Өртгийн бичилтээс батална`
+      );
+      router.refresh();
+    } catch (caught) {
+      return caught instanceof Error ? caught.message : "Импорт амжилтгүй";
+    }
+  }
 
   const activeTab: TypeTab = TYPE_TABS.some((t) => t.value === initialType)
     ? (initialType as TypeTab)
@@ -557,18 +601,38 @@ export function InventoryMovementsView({
             Зөвхөн тоо хэмжээ — үнэлгээ, GL бичилтийг өртгийн модуль хийнэ.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setForm(initialForm());
-            setError("");
-            setEditingId(null);
-            setOpen(true);
-          }}
-        >
-          <Icon name="add" />
-          Шинэ хөдөлгөөн
-        </Button>
+        <div className="flex items-center gap-2">
+          {canWrite && (
+            <Button
+              variant="outline"
+              onClick={() => setOpeningOpen(true)}
+              title="Нээлтийн барааны үлдэгдлийг өртөгтэй нь Excel-ээс оруулна (Dr нөөц / Cr нээлтийн зөрүүний данс)"
+            >
+              <Icon name="upload" />
+              Нээлтийн үлдэгдэл
+            </Button>
+          )}
+          <Button
+            onClick={() => {
+              setForm(initialForm());
+              setError("");
+              setEditingId(null);
+              setOpen(true);
+            }}
+          >
+            <Icon name="add" />
+            Шинэ хөдөлгөөн
+          </Button>
+        </div>
       </div>
+
+      <ExcelImportDialog
+        open={openingOpen}
+        onOpenChange={setOpeningOpen}
+        spec={openingSpec}
+        title="Нээлтийн барааны үлдэгдэл (өртөгтэй) импортлох"
+        onImport={handleOpeningImport}
+      />
 
       <PageTabs
         tabs={TYPE_TABS}

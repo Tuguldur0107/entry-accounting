@@ -146,7 +146,7 @@ export function deriveOnboardingPhase(status: OnboardingStatus): OnboardingPhase
       nextSteps: [
         "Дутуу master data-г batch tool-оор (100 мөр/дуудлага): create_counterparties_batch, create_inventory_items_batch, create_warehouse, create_cash_account, create_employees_batch, create_fixed_assets_batch",
         `Нээлтийн зөрүүний данс: ${status.differenceAccount ? `${status.differenceAccount.number} байна` : `${OPENING_DIFFERENCE_ACCOUNT.number} "${OPENING_DIFFERENCE_ACCOUNT.name}" — sync_standard_accounts (вэбд /settings/gl «Стандарт данс нэмэх»)`}`,
-        "2-р шат: АР/АП, бараа, ҮХ-ийг дэд дэвтрээр (задаргаагүй бол хураангуй R2/R3/R5), дараа нь create_journal_voucher НЭГ ноорог externalRef opening-balance:<cut-off> — дэд дэвтэрт орсон дансыг ДАВХАРДУУЛАХГҮЙ (R8)",
+        "2-р шат: АР/АП, бараа (create_opening_stock — өртөгтэй, Cr 44000098), ҮХ-ийг дэд дэвтрээр (задаргаагүй бол хураангуй R2/R3/R5), дараа нь create_journal_voucher НЭГ ноорог externalRef opening-balance:<cut-off> — дэд дэвтэрт орсон дансыг ДАВХАРДУУЛАХГҮЙ (R8)",
       ],
     };
 

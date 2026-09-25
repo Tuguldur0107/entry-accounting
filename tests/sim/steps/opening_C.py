@@ -75,12 +75,16 @@ for cp, d, fc, cu in P.OPEN_AP_FC:
     acc_add('31000001', -mnt); diff98 += mnt
 o.note('open', f'arap items {len(items)} → AR {len(ar_nos)} AP {len(ap_nos)}')
 
-# 3) бараа — тоо хэмжээ (receipt), өртөг нь costing-д "үнэ хүлээж" → oracle-д шууд
+# 3) бараа — тоо хэмжээ + нэгж өртөг (create_opening_stock), oracle-д шууд
 stock_val = 0.0
 st = P.opening_stock()
 s['opening_stock'] = st
+# create_opening_stock (SIM2-007): бараа × агуулах × тоо × нэгж өртөг НЭГ дуудлагаар.
+# Нээлтийн журнал барааг бараа мат. түр дансанд (14000099) бичдэг тул Cr-ыг
+# ИЛ тэр дансаар өгнө → Dr 14000001 / Cr 14000099 (түр данс тэглэгдэнэ).
+ok, t = o.call('create_opening_stock', {'date': CUT, 'counterAccount': '14000099', 'externalRef': f'opening-stock:{CUT}',
+                                        'lines': [dict(itemCode=code, warehouseCode=wh, quantity=q, unitCost=uc) for code, wh, q, uc in st]}, 'open:stock')
 for code, wh, q, uc in st:
-    ok, t = o.call('create_inventory_movement', {'movementType': 'receipt', 'date': CUT, 'itemCode': code, 'warehouseCode': wh, 'quantity': q, 'description': '[ОНБ] Нээлтийн үлдэгдэл'}, 'open:stock')
     s['stock'][f'{code}|{wh}'] = s['stock'].get(f'{code}|{wh}', 0) + q
     L.inv_receipt('2024-12', code, wh, q, uc, f'OPEN:{code}:{wh}')
     stock_val += q * uc
@@ -132,24 +136,9 @@ o.save()
 o.call('get_onboarding_guide', {'section': 'status'}, 'open')
 post_opening_arap('C', CUT)
 
-# Нээлтийн барааны өртөг (SIM2-007 / ENT-003 багц импорт хойшлогдсон): 2024-12-ийн
-# «үнэ хүлээж буй» орлогод нэгж өртгийг вэбээс бөглөж, сарын өртөг тооцож батална.
-import json
-# Түлхүүр = хөдөлгөөний ДУГААР: нэг бараа агуулах бүрд (ижил тоотой ч) өөр нэгж өртөгтэй байж болно.
-import re
-ucs = {(code, wh): uc for code, wh, q, uc in st}
-ok, lst = o.call('list_inventory_movements', {'from': CUT, 'to': CUT, 'movementType': 'receipt', 'limit': 500}, 'open:costmap')
-cmap = {}
-for no, code, wh in re.findall(r'(INV-\d{8}-[0-9A-F]+) · орлого · (\S+) × [\d.]+ · (\S+) ·', lst):
-    if (code, wh) in ucs:
-        cmap[no] = ucs[(code, wh)]
-assert len(cmap) == len(st), f'нээлтийн орлого {len(st)}, дугаартай {len(cmap)}'
-json.dump(cmap, open(os.path.join(ROOT, 'orgs', 'C', 'costmap.json'), 'w'))
-r = subprocess.run(['node', os.path.join(ROOT, 'web', 'costing_fill.mjs'), CUT[:7], 'open-cost'], capture_output=True, text=True, env=dict(os.environ, SIM_ORG='C'))
-print('[web] costing_fill\n' + (r.stdout + r.stderr)[-1500:], flush=True)
-o.call('run_monthly_costing', {'period': CUT[:7]}, 'open:costing')
+# Нээлтийн өртгийн бичилт 10 саяас их тул ноорог — вэбээс (нягтланч) батална.
 ok, t = o.call('post_cost_entries', {'month': CUT[:7]}, 'open:costing')
-if not ok:
+if not ok or 'алдаа' in t.lower():
     r = subprocess.run(['node', os.path.join(ROOT, 'web', 'bulk_post.mjs'), '/costing/entries', CUT[:7], 'open-cost-post'], capture_output=True, text=True, env=dict(os.environ, SIM_ORG='C'))
     print('[web] bulk_post\n' + (r.stdout + r.stderr)[-1500:], flush=True)
 o.call('list_cost_entries', {'month': CUT[:7], 'status': 'draft', 'limit': 5}, 'open:costing')

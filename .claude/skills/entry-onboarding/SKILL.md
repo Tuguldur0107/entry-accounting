@@ -46,7 +46,7 @@ MCP-ээр `get_onboarding_guide` tool ЯГ ТЭР баримтыг өгдөг �
 ## Шат 2 — Нээлтийн үлдэгдэл
 
 1. Дэд дэвтэр эхлээд: АР/АП (`create_arap_invoices_batch`, externalRef =
-   хуучин дугаар), бараа (`create_inventory_movement` орлого өртөгтэй), ҮХ
+   хуучин дугаар), бараа (`create_opening_stock` — бараа × агуулах × тоо × нэгж өртөг, Cr 44000098), ҮХ
    (`create_fixed_assets_batch`), касс `openingBalance`.
 2. Задаргаагүй бол хураангуй: R2 (`externalRef: opening-summary:ar|ap`,
    тайлбар `[ОНБ-ХУРААНГУЙ] …`), R3/R5 — зөвхөн GL-д нийт дүнгээр.
