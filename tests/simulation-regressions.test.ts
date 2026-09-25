@@ -534,16 +534,23 @@ test("ENT-031/036/033/010: чиглэл, унасан батлалт нооро�
   assert.match(deleted.resultText, /^Баталгаажсан хөдөлгөөн устгагдлаа/);
 });
 
-test("ENT-068: AI шууд батлах хязгаараа өсгөж чадахгүй, бууруулж болно", { skip: !DB_READY }, async () => {
+test("ENT-068: AI шууд батлах хязгаараа 1 тэрбум хүртэл өсгөнө, дээш нь HUMAN_REQUIRED, бууруулж болно", { skip: !DB_READY }, async () => {
   await setupOrg();
   const named = await tool("update_company_settings", { name: "SIM Trade ХХК" });
   assert.ok(okOrRevalidate(named.resultText), named.resultText);
+  // Тааз (AI_POST_LIMIT_TOOL_MAX_MNT = 1 тэрбум) хүртэл tool-оор өсгөж болно
   const raise = await tool("update_company_settings", { aiPostLimitMnt: 50_000_000 });
-  assert.match(raise.resultText, /HUMAN_REQUIRED/);
+  assert.ok(okOrRevalidate(raise.resultText), raise.resultText);
+  assert.match(raise.resultText, /50,000,000₮/);
+  // Таазнаас дээш — зөвхөн вэбээс админ
+  const tooHigh = await tool("update_company_settings", { aiPostLimitMnt: 1_000_000_001 });
+  assert.match(tooHigh.resultText, /HUMAN_REQUIRED/);
   const lower = await tool("update_company_settings", { aiPostLimitMnt: 5_000_000 });
   assert.ok(okOrRevalidate(lower.resultText), lower.resultText);
-  const raiseBack = await tool("update_company_settings", { aiPostLimitMnt: 10_000_000 });
-  assert.match(raiseBack.resultText, /HUMAN_REQUIRED/);
+  // Default (10 сая) руу буцаах — дараагийн тестүүд анхдагч хязгаарт тулгуурладаг
+  const reset = await tool("update_company_settings", { aiPostLimitMnt: 0 });
+  assert.ok(okOrRevalidate(reset.resultText), reset.resultText);
+  assert.match(reset.resultText, /10,000,000₮ \(default\)/);
 });
 
 test("ENT-013/014/045/030/057: валютын журнал, кассын үлдэгдэл, хөдөлгөөний шүүлт, мөрийн алдаа, линк", { skip: !DB_READY }, async () => {
