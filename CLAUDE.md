@@ -214,7 +214,8 @@ entry-accounting/
   `past_due` (grace `graceDaysFor`: skills 3, бусад 14). Идэвхтэй хугацаанд
   багц/суудал солихгүй (пропорц зохиохгүй); read-only үед ч төлнө
   (`requireRole`, assertWritesAllowed-гүй); мөнгө хэзээ ч алдагдахгүй
-  (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`)
+  (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`). Console: `GET
+  /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`)
 - **Дэмжлэгийн хандалт** (`docs/deployment/support-access.md` — ЗААВАЛ уншина;
   `lib/platform/support.ts` ЦЭВЭР + `support-store.ts` DB): платформын оператор
   харилцагчийн байгууллагад ТҮР орох цорын ганц зам. Эрх нь ХЭРЭГЛЭГЧИД биш
