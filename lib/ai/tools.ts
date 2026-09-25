@@ -2777,7 +2777,7 @@ export const AI_TOOLS: AiToolDef[] = [
   {
     name: "close_purchase_order",
     description:
-      "Захиалгыг ХААНА — түр дансдыг тэгшитгэсэн батлагдсан журнал үүснэ (Dr бараа материалын түр данс / Cr өглөгийн түр данс; зөрүү нь ханшийн олз/гарз дансанд). Нөхцөл: Σ хүлээн авсан = захиалсан, Σ нэхэмжилсэн тоо ба дүн = захиалгын дүн, бүх нэмэлт зардал хуваарилагдсан ([PO_NOT_READY], шалтгааныг get_purchase_order харуулна). Зөвхөн 'Шууд бичих' горимд, хаалтын журналын дүн 10 сая ₮-с хэтрэхгүй үед — их дүнтэй импортыг нягтланч вэб дээрээс хаана.",
+      "Захиалгыг ХААНА — түр дансдыг тэгшитгэсэн батлагдсан журнал үүснэ (Dr бараа материалын түр данс / Cr өглөгийн түр данс; зөрүү нь ханшийн олз/гарз дансанд). Нөхцөл: Σ хүлээн авсан = захиалсан, Σ нэхэмжилсэн тоо ба дүн = захиалгын дүн, бүх нэмэлт зардал хуваарилагдсан ([PO_NOT_READY], шалтгааныг get_purchase_order харуулна). ДУТУУ ХААЛТ (shortClose: true — бараа бүрэн ирэхгүй болсон): хүлээн аваагүй үлдэгдэл цуцлагдана, хүлээн авснаас илүү нэхэмжилсэн дүн writeOffAccount (6/7/8XXXXXXX зардлын данс — хэрэглэгчээс асууна, ТААХГҮЙ) руу Dr; reason ЗААВАЛ (аудитад). Хүлээн авсан ч нэхэмжлээгүй бараа байвал дутуу хаалт хориотой — эхлээд нэхэмжлэхийг батална. Зөвхөн 'Шууд бичих' горимд, батлах хязгаар дотор — их дүнтэй импортыг нягтланч вэб дээрээс хаана.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2788,6 +2788,18 @@ export const AI_TOOLS: AiToolDef[] = [
         closeDate: {
           type: "string",
           description: "Хаах огноо YYYY-MM-DD (хоосон бол өнөөдөр) — хаалтын журналын огноо",
+        },
+        shortClose: {
+          type: "boolean",
+          description: "true = ДУТУУ хаах (хүлээн аваагүй үлдэгдлийг цуцална). reason заавал",
+        },
+        reason: {
+          type: "string",
+          description: "Дутуу хаах шалтгаан (5+ тэмдэгт, жишээ: «Нийлүүлэгч үлдэгдлийг нийлүүлэх боломжгүй»)",
+        },
+        writeOffAccount: {
+          type: "string",
+          description: "Хүлээн авснаас илүү нэхэмжилсэн дүнг бичих ЗАРДЛЫН данс (8 оронтой, 6/7/8-аар эхэлнэ) — илүү нэхэмжлэл байвал заавал; хэрэглэгчээс асууна",
         },
       },
       required: ["purchaseOrderId"],
@@ -10148,7 +10160,13 @@ async function runApprovePurchaseOrder(
 
 async function runClosePurchaseOrder(
   orgId: string,
-  input: { purchaseOrderId: string; closeDate?: string },
+  input: {
+    purchaseOrderId: string;
+    closeDate?: string;
+    shortClose?: boolean;
+    reason?: string;
+    writeOffAccount?: string;
+  },
   mode: AiWriteMode
 ): Promise<AiToolResult> {
   assertPostMode(mode);
@@ -10164,10 +10182,20 @@ async function runClosePurchaseOrder(
       `${order.documentNo} захиалга нээлттэй биш (төлөв: ${PO_STATUS_LABELS[order.status] ?? order.status}) — хаах боломжгүй`
     );
   const detail = await requirePurchaseOrderDetail(orgId, order.id);
-  if (detail.blockers.length > 0)
+  const short = input.shortClose === true;
+  if (!short && detail.blockers.length > 0)
     throw codedError(
       "PO_NOT_READY",
-      `${order.documentNo} хаах нөхцөл биелээгүй: ${detail.blockers.join("; ")}`
+      `${order.documentNo} хаах нөхцөл биелээгүй: ${detail.blockers.join("; ")}${
+        detail.shortClose && detail.shortClose.blockers.length === 0
+          ? ` — бараа бүрэн ирэхгүй бол shortClose: true + reason-оор ДУТУУ хаана (цуцлах үлдэгдэл ${detail.shortClose.cancelledQuantity} нэгж${detail.shortClose.writeOffMnt > 0 ? `, илүү нэхэмжлэл ${fmt(detail.shortClose.writeOffMnt)}₮ → writeOffAccount заавал` : ""})`
+          : ""
+      }`
+    );
+  if (short && detail.shortClose && detail.shortClose.blockers.length > 0)
+    throw codedError(
+      "PO_NOT_READY",
+      `${order.documentNo} дутуу хаах нөхцөл биелээгүй: ${detail.shortClose.blockers.join("; ")}`
     );
   // Хаалтын журналын дүн (түр дансдын үлдэгдэл) АЛЬ ХЭДИЙН ₮-ээр.
   assertPostLimit(
@@ -10178,12 +10206,31 @@ async function runClosePurchaseOrder(
   );
   const closeDate =
     input.closeDate?.trim() || new Date().toISOString().slice(0, 10);
-  const { voucherId } = unwrapAction(
-    await closePurchaseOrder({ id: order.id, closeDate })
+  const closed = unwrapAction(
+    await closePurchaseOrder({
+      id: order.id,
+      closeDate,
+      shortClose: short
+        ? {
+            reason: input.reason ?? "",
+            writeOffAccount: input.writeOffAccount?.trim() || null,
+          }
+        : null,
+    })
   );
+  const { voucherId } = closed;
   return {
     resultText: [
-      `Захиалга ХААГДЛАА: ${order.documentNo} (${closeDate}).`,
+      `Захиалга ${short ? "ДУТУУ " : ""}ХААГДЛАА: ${order.documentNo} (${closeDate}).`,
+      ...(short
+        ? [
+            `Хүлээн аваагүй ${closed.cancelledQuantity ?? 0} нэгж цуцлагдав${
+              (closed.writeOffMnt ?? 0) > 0
+                ? `; хүлээн авснаас илүү нэхэмжлэл ${fmt(closed.writeOffMnt ?? 0)}₮ зардалд (Dr ${input.writeOffAccount})`
+                : ""
+            }. Шалтгаан аудитад бичигдэв; дахин нээхэд цуцлалт сэргэнэ.`,
+          ]
+        : []),
       `Түр дансдыг тэгшитгэсэн журнал бичигдэв (ID ${voucherId.slice(0, 8)}): Dr бараа материалын түр данс ${fmt(Math.abs(detail.clearing.inventory))}₮ / Cr өглөгийн түр данс ${fmt(Math.abs(detail.clearing.payable))}₮; зөрүү нь ханшийн олз/гарз дансанд.`,
       "Хоёр түр данс энэ захиалгаар 0 болов — reconcile_modules-оор шалгаж болно.",
     ].join("\n"),
@@ -10725,7 +10772,7 @@ async function runCreateApInvoiceFromPo(
     };
 
   return {
-    resultText: `Захиалгын нэхэмжлэх үүслээ: ${created.documentNo} (${order.documentNo}), дүн ${fmt(currencyTotal)} ${order.currency}${costLines.length > 0 ? `, нэмэлт зардлын мөр ${costLines.length}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note} — Dr өглөгийн түр данс / Cr өглөг (хөдөлгөөн үүсэхгүй, орлого нь хүлээн авалтаас)${costLines.length > 0 ? ". Нэмэлт зардлыг create_cost_allocation-оор хуваарилна" : ""}`,
+    resultText: `Захиалгын нэхэмжлэх үүслээ: ${created.documentNo} (${order.documentNo}), дүн ${fmt(currencyTotal)} ${order.currency}${costLines.length > 0 ? `, нэмэлт зардлын мөр ${costLines.length}` : ""}, төлөв: ${postNow ? "батлагдсан" : "ноорог"}${note} — Dr өглөгийн түр данс / Cr өглөг (хөдөлгөөн үүсэхгүй, орлого нь хүлээн авалтаас)${costLines.length > 0 ? ". Нэмэлт зардлыг create_cost_allocation-оор хуваарилна" : ""}${created.warning ? `\n⚠ ${created.warning}` : ""}`,
     action: {
       kind: "arap",
       id: created.id,

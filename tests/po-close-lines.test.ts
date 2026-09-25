@@ -125,3 +125,56 @@ test("чиглэл буруу үлдэгдэл (өглөгийн түр данс
 test("хоёр түр данс 0 бол хаах юм байхгүй тул ШИДНЭ", () => {
   assert.throws(() => build(0, 0), /Хаах үлдэгдэл алга/);
 });
+
+test("дутуу хаалт (ENT-064): илүү нэхэмжлэл зардалд, ханшийн зөрүүг ҮЛДСЭНЭЭС бодно", () => {
+  // Хүлээн авсан 12 × $100 × 3,450 = 4,140,000; нэхэмжилсэн 15 × $100 × 3,470 = 5,205,000.
+  // Илүү 3 нэгж → 1,041,000 зардал; үлдсэн 4,164,000 − 4,140,000 = 24,000 ханшийн гарз.
+  const lines = buildPoCloseLines({
+    purchaseOrderId: "po-1",
+    invClearingBalance: -4_140_000,
+    apClearingBalance: 5_205_000,
+    accounts: ACCOUNTS,
+    buildCode,
+    description: "[PO-1] дутуу",
+    writeOff: { account: "72900000", amount: 1_041_000, description: "илүү нэхэмжлэл" },
+  });
+  const byAccount = Object.fromEntries(
+    lines.map((line) => [line.accountNumber.split(".")[2], [Number(line.debit), Number(line.credit)]])
+  );
+  assert.deepEqual(byAccount["14000099"], [4_140_000, 0]);
+  assert.deepEqual(byAccount["31000099"], [0, 5_205_000]);
+  assert.deepEqual(byAccount["72900000"], [1_041_000, 0]);
+  assert.deepEqual(byAccount["87000003"], [24_000, 0]);
+  const debit = lines.reduce((sum, line) => sum + Number(line.debit), 0);
+  const credit = lines.reduce((sum, line) => sum + Number(line.credit), 0);
+  assert.equal(debit, credit);
+});
+
+test("дутуу хаалт: зардал өглөгийн түр данснаас их бол ШИДНЭ; зардалгүй бол хуучин зан төлөв", () => {
+  assert.throws(
+    () =>
+      buildPoCloseLines({
+        purchaseOrderId: "po-1",
+        invClearingBalance: -1_000,
+        apClearingBalance: 1_000,
+        accounts: ACCOUNTS,
+        buildCode,
+        description: "x",
+        writeOff: { account: "72900000", amount: 2_000, description: "x" },
+      }),
+    /өглөгийн түр дансны үлдэгдлээс их/
+  );
+  // Бүх бараа нэхэмжлэгдээгүй хэвээр (илүүг хассаны дараа нэг тал хоосон) — зогсооно.
+  assert.throws(
+    () =>
+      buildPoCloseLines({
+        purchaseOrderId: "po-1",
+        invClearingBalance: -1_000,
+        apClearingBalance: 1_000,
+        accounts: ACCOUNTS,
+        buildCode,
+        description: "x",
+        writeOff: { account: "72900000", amount: 1_000, description: "x" },
+      })
+  );
+});

@@ -31,7 +31,11 @@ import {
   purchaseOrders,
 } from "@/lib/db/schema";
 import { PO_BUSINESS_OBJECT } from "@/lib/procurement/constants";
-import { poCloseBlockers, type PoLineProgress } from "@/lib/procurement/po-math";
+import {
+  poCloseBlockers,
+  poShortClosePlan,
+  type PoLineProgress,
+} from "@/lib/procurement/po-math";
 import { extractMainAccount } from "@/lib/reports/balances";
 import type {
   GoodsReceiptLineView,
@@ -129,6 +133,8 @@ type InvoicedProgress = {
   amount: number;
   postedQuantity: number;
   postedAmount: number;
+  /** Батлагдсан нэхэмжлэхийн MNT дүн (мөр бүр × баримтын ханш) — дутуу хаалтад. */
+  postedAmountMnt: number;
 };
 
 /**
@@ -154,6 +160,7 @@ async function loadInvoicedByLine(
       amount: sql<string>`coalesce(sum(${arApDocumentLines.amount}), 0)`,
       postedQuantity: sql<string>`coalesce(sum(case when ${postedFilter} then ${arApDocumentLines.quantity} else 0 end), 0)`,
       postedAmount: sql<string>`coalesce(sum(case when ${postedFilter} then ${arApDocumentLines.amount} else 0 end), 0)`,
+      postedAmountMnt: sql<string>`coalesce(sum(case when ${postedFilter} then round(${arApDocumentLines.amount} * ${arApDocuments.exchangeRate}, 2) else 0 end), 0)`,
     })
     .from(arApDocumentLines)
     .innerJoin(
@@ -176,6 +183,7 @@ async function loadInvoicedByLine(
       amount: roundMoney(Number(row.amount ?? 0)),
       postedQuantity: round4(Number(row.postedQuantity ?? 0)),
       postedAmount: roundMoney(Number(row.postedAmount ?? 0)),
+      postedAmountMnt: roundMoney(Number(row.postedAmountMnt ?? 0)),
     });
   }
   return result;
@@ -443,6 +451,7 @@ type PurchaseOrderBundle = {
   clearing: { inventory: number; payable: number };
   unallocatedMnt: number;
   blockers: string[];
+  shortClose: PurchaseOrderDetail["shortClose"];
 };
 
 async function loadPurchaseOrderBundles(
@@ -532,6 +541,7 @@ async function loadPurchaseOrderBundles(
         receivedQuantity: received.get(line.id) ?? 0,
         invoicedQuantity: invoicedLine?.quantity ?? 0,
         invoicedAmount: invoicedLine?.amount ?? 0,
+        cancelledQuantity: Number(line.cancelledQuantity),
       };
     });
     const progress: PoLineProgress[] = lines.map((line) => {
@@ -574,8 +584,34 @@ async function loadPurchaseOrderBundles(
       approvedAt: isoOrNull(row.approvedAt),
       closedAt: isoOrNull(row.closedAt),
       closeVoucherId: row.closeVoucherId,
+      shortCloseReason: row.shortCloseReason,
       attachmentCount: attachmentCounts.get(row.id) ?? 0,
     };
+
+    const closeInput = {
+      unallocatedCostAmount: unallocatedMnt,
+      draftInvoiceCount: draftInvoices.get(row.id) ?? 0,
+      draftCostEntryCount: draftCostEntries.get(row.id) ?? 0,
+    };
+    const blockers = poCloseBlockers({ lines: progress, ...closeInput });
+    // Дутуу хаалтын урьдчилсан төлөвлөгөө — нээлттэй, энгийн хаалт
+    // хориглогдсон үед л (сервер хаалтын мөчид цоожтой ДАХИН бодно).
+    let shortClose: PurchaseOrderBundle["shortClose"] = null;
+    if (row.status === "open" && blockers.length > 0) {
+      const plan = poShortClosePlan({
+        ...closeInput,
+        lines: progress.map((line, index) => ({
+          ...line,
+          unitPrice: lines[index].unitPrice,
+          postedInvoicedMnt: invoiced.get(lines[index].id)?.postedAmountMnt ?? 0,
+        })),
+      });
+      shortClose = {
+        blockers: plan.blockers,
+        cancelledQuantity: plan.cancelledQuantity,
+        writeOffMnt: plan.writeOffMnt,
+      };
+    }
 
     return {
       view,
@@ -583,12 +619,8 @@ async function loadPurchaseOrderBundles(
       progress,
       clearing: clearing.get(row.id) ?? { inventory: 0, payable: 0 },
       unallocatedMnt,
-      blockers: poCloseBlockers({
-        lines: progress,
-        unallocatedCostAmount: unallocatedMnt,
-        draftInvoiceCount: draftInvoices.get(row.id) ?? 0,
-        draftCostEntryCount: draftCostEntries.get(row.id) ?? 0,
-      }),
+      blockers,
+      shortClose,
     };
   });
 }
@@ -649,6 +681,7 @@ export async function loadPurchaseOrderDetail(
     costLines,
     clearing: bundle.clearing,
     blockers: bundle.blockers,
+    shortClose: bundle.shortClose,
   };
 }
 

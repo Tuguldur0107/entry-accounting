@@ -2821,6 +2821,11 @@ export const purchaseOrders = pgTable(
       precision: 18,
       scale: 8,
     }),
+    /**
+     * Дутуу хаалтын шалтгаан (ENT-064, D-SC-3 — заавал). null = бүрэн хаалт.
+     * Дахин нээхэд null болно.
+     */
+    shortCloseReason: text("short_close_reason"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
@@ -2860,6 +2865,13 @@ export const purchaseOrderLines = pgTable(
     }),
     description: text("description").notNull().default(""),
     sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * Дутуу хаалтаар цуцлагдсан (хүлээн аваагүй) тоо — ENT-064. Хаалтын
+     * мөчид захиалсан − хүлээн авсан; дахин нээхэд 0 болж сэргэнэ.
+     */
+    cancelledQuantity: numeric("cancelled_quantity", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
   },
   (t) => [index("purchase_order_lines_po_ix").on(t.purchaseOrderId)]
 );

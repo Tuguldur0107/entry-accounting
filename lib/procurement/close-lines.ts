@@ -58,12 +58,26 @@ export function buildPoCloseLines(input: {
   };
   buildCode: (main: string) => string;
   description: string;
+  /**
+   * Дутуу хаалт (ENT-064, D-SC-1): хүлээн авснаас ИЛҮҮ нэхэмжилсэн MNT дүн —
+   * хэрэглэгчийн сонгосон зардлын дансанд Dr. Ханшийн зөрүүг ҮҮНИЙГ хассан
+   * өглөгийн түр данснаас бодно (илүү нэхэмжлэлийг «ханш» гэж бичихгүй).
+   */
+  writeOff?: { account: string; amount: number; description: string };
 }): PoCloseLine[] {
   const invCredit = roundMoney(-input.invClearingBalance);
   const apDebit = roundMoney(input.apClearingBalance);
+  const writeOff = roundMoney(input.writeOff?.amount ?? 0);
+  if (writeOff < 0) throw new Error("Зардалд бичих дүн сөрөг байж болохгүй");
+  // Ханшийн тооцооны суурь — илүү нэхэмжлэлийг хассан өглөгийн түр данс.
+  const apNet = roundMoney(apDebit - writeOff);
   if (invCredit < -LINE_EPSILON || apDebit < -LINE_EPSILON)
     throw new Error(
       "Түр дансны үлдэгдлийн чиглэл буруу байна — захиалгын журналуудыг шалгана уу"
+    );
+  if (apNet < -LINE_EPSILON)
+    throw new Error(
+      "Илүү нэхэмжлэлийн дүн өглөгийн түр дансны үлдэгдлээс их байна — нэхэмжлэхүүдийг шалгана уу"
     );
 
   // НЭГ ТАЛТ үлдэгдэл — хүлээн авалт эсвэл нэхэмжлэхийн аль нэг нь GL-д
@@ -72,7 +86,7 @@ export function buildPoCloseLines(input: {
   // орлого/зардал үүснэ — тиймээс хаалтыг ЗОГСООНО (баримтын түвшний
   // blocker-оос гадуур сүүлчийн хамгаалалт).
   const invPosted = invCredit > LINE_EPSILON;
-  const apPosted = apDebit > LINE_EPSILON;
+  const apPosted = apNet > LINE_EPSILON;
   if (invPosted !== apPosted)
     throw new Error(
       invPosted
@@ -83,8 +97,8 @@ export function buildPoCloseLines(input: {
   // Ханшийн зөрүү нь огнооны ялгаанаас үүсдэг тул худалдан авалтын дүнгийн
   // ӨЧҮҮХЭН хувь байх ёстой. 25%-иас дээш бол өгөгдөл эвдэрсэн (дутуу
   // нэхэмжлэх, буцаагдсан хуваарилалт г.м.) — чимээгүй бичихгүй, зогсооно.
-  const spread = Math.abs(roundMoney(apDebit - invCredit));
-  const scale = Math.max(invCredit, apDebit);
+  const spread = Math.abs(roundMoney(apNet - invCredit));
+  const scale = Math.max(invCredit, apNet);
   if (scale > 0 && spread / scale > 0.25)
     throw new Error(
       `Түр дансдын зөрүү хэт их байна (${spread.toLocaleString("en-US")} / ${scale.toLocaleString("en-US")}) — ханшийн зөрүү гэж бичихгүй. Хүлээн авалт, нэхэмжлэх, хуваарилалтаа шалгана уу`
@@ -115,8 +129,18 @@ export function buildPoCloseLines(input: {
       sortOrder: 1,
     });
 
+  if (writeOff > LINE_EPSILON && input.writeOff)
+    lines.push({
+      ...key,
+      accountNumber: input.buildCode(input.writeOff.account),
+      debit: String(writeOff),
+      credit: "0",
+      description: input.writeOff.description,
+      sortOrder: 2,
+    });
+
   // diff > 0 → өглөг илүү (ханш өссөн) → гарз; diff < 0 → олз.
-  const diff = roundMoney(apDebit - invCredit);
+  const diff = roundMoney(apNet - invCredit);
   if (Math.abs(diff) > FX_EPSILON)
     lines.push({
       ...key,
@@ -126,7 +150,7 @@ export function buildPoCloseLines(input: {
       debit: diff > 0 ? String(diff) : "0",
       credit: diff > 0 ? "0" : String(-diff),
       description: `Ханшийн ${diff > 0 ? "гарз" : "олз"}: ${input.description}`,
-      sortOrder: 2,
+      sortOrder: writeOff > LINE_EPSILON ? 3 : 2,
     });
 
   if (lines.length === 0)

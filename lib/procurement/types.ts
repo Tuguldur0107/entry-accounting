@@ -28,6 +28,8 @@ export type PurchaseOrderLineView = {
   receivedQuantity: number;
   invoicedQuantity: number;
   invoicedAmount: number;
+  /** Дутуу хаалтаар цуцлагдсан (хүлээн аваагүй) тоо — ENT-064. */
+  cancelledQuantity: number;
 };
 
 export type PurchaseOrderView = {
@@ -48,6 +50,8 @@ export type PurchaseOrderView = {
   approvedAt: string | null;
   closedAt: string | null;
   closeVoucherId: string | null;
+  /** Дутуу хаалтын шалтгаан (ENT-064); null = бүрэн хаалт. */
+  shortCloseReason: string | null;
   attachmentCount: number;
 };
 
@@ -100,6 +104,26 @@ export type PurchaseOrderDetail = PurchaseOrderView & {
   costLines: UnallocatedCostLineView[];
   clearing: { inventory: number; payable: number };
   blockers: string[];
+  /**
+   * Дутуу хаалтын урьдчилсан төлөвлөгөө (ENT-064) — нээлттэй, энгийн хаалт
+   * хориглогдсон үед л; бусад үед null.
+   */
+  shortClose: {
+    blockers: string[];
+    cancelledQuantity: number;
+    /** Зардалд бичигдэх илүү нэхэмжлэл, MNT (0 бол зардлын данс хэрэггүй). */
+    writeOffMnt: number;
+  } | null;
+};
+
+/**
+ * Дутуу хаалт (ENT-064): хүлээн аваагүй үлдэгдлийг цуцалж, хүлээн авснаас
+ * илүү нэхэмжилсэн дүнг `writeOffAccount` (зардал) руу бичнэ. Шалтгаан заавал.
+ */
+export type PoShortCloseInput = {
+  reason: string;
+  /** Илүү нэхэмжлэл байвал ЗААВАЛ — 6/7/8XXXXXXX зардлын данс. */
+  writeOffAccount?: string | null;
 };
 
 /** "Хуваарилагдаагүй зардал" worklist-ийн мөр. */
@@ -148,6 +172,11 @@ export type PurchaseOrderPanelData = {
     | (CounterpartyView & { openPayableMnt: number; previousOrders: number })
     | null;
   attachments: PoAttachmentView[];
+  /**
+   * Дутуу хаалтын илүү нэхэмжлэлийг бичих ЗАРДЛЫН дансууд (6/7/8, идэвхтэй) —
+   * зөвхөн бичих дүн байгаа үед ачаалагдана, бусад үед хоосон (ENT-064).
+   */
+  writeOffAccounts: { number: string; name: string }[];
   /** YYYY-MM-DD (server) — ноорог формын default огноо. */
   today: string;
 };

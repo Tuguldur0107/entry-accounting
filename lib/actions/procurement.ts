@@ -41,6 +41,7 @@ import { db } from "@/lib/db";
 import {
   arApDocumentLines,
   arApDocuments,
+  chartOfAccounts,
   costAllocations,
   costEntries,
   counterparties,
@@ -72,11 +73,19 @@ import {
   PO_INVOICE_COUNTED_STATUSES,
   PO_INVOICE_POSTED_STATUSES,
 } from "@/lib/procurement/load-data";
-import { poCloseBlockers, type PoLineProgress } from "@/lib/procurement/po-math";
+import {
+  PO_SHORT_CLOSE_REASON_MIN,
+  poCloseBlockers,
+  poShortClosePlan,
+  poWriteOffAccountProblem,
+  type PoLineProgress,
+  type PoShortClosePlan,
+} from "@/lib/procurement/po-math";
 import { extractMainAccount } from "@/lib/reports/balances";
 import type {
   GoodsReceiptPanelData,
   GoodsReceiptRemainingLine,
+  PoShortCloseInput,
   PurchaseOrderDetail,
   PurchaseOrderPanelData,
 } from "@/lib/procurement/types";
@@ -508,6 +517,8 @@ type InvoicedInTx = {
   amount: number;
   postedQuantity: number;
   postedAmount: number;
+  /** Батлагдсан нэхэмжлэхийн MNT дүн (мөр × баримтын ханш) — дутуу хаалтад. */
+  postedAmountMnt: number;
 };
 
 /**
@@ -528,6 +539,7 @@ async function invoicedByLineInTx(
       amount: sql<string>`coalesce(sum(${arApDocumentLines.amount}), 0)`,
       postedQuantity: sql<string>`coalesce(sum(case when ${posted} then ${arApDocumentLines.quantity} else 0 end), 0)`,
       postedAmount: sql<string>`coalesce(sum(case when ${posted} then ${arApDocumentLines.amount} else 0 end), 0)`,
+      postedAmountMnt: sql<string>`coalesce(sum(case when ${posted} then round(${arApDocumentLines.amount} * ${arApDocuments.exchangeRate}, 2) else 0 end), 0)`,
     })
     .from(arApDocumentLines)
     .innerJoin(arApDocuments, eq(arApDocuments.id, arApDocumentLines.documentId))
@@ -548,6 +560,7 @@ async function invoicedByLineInTx(
       amount: roundMoney(Number(row.amount ?? 0)),
       postedQuantity: round4(Number(row.postedQuantity ?? 0)),
       postedAmount: roundMoney(Number(row.postedAmount ?? 0)),
+      postedAmountMnt: roundMoney(Number(row.postedAmountMnt ?? 0)),
     });
   }
   return result;
@@ -618,6 +631,8 @@ async function loadPoCloseStateInTx(
   accounts: { invClearing: string; apClearing: string }
 ): Promise<{
   blockers: string[];
+  /** Дутуу хаалтын төлөвлөгөө (ENT-064) — ижил цоож, ижил уншилтаас. */
+  shortPlan: PoShortClosePlan;
   invClearingBalance: number;
   apClearingBalance: number;
   latestActivityDate: string | null;
@@ -718,12 +733,20 @@ async function loadPoCloseStateInTx(
     latestInvoiceRows[0]?.maxDate ?? null,
   ].filter((value): value is string => Boolean(value));
 
+  const closeInput = {
+    unallocatedCostAmount: unallocatedMnt,
+    draftInvoiceCount: Number(draftInvoiceRows[0]?.total ?? 0),
+    draftCostEntryCount: Number(draftCostEntryRows[0]?.total ?? 0),
+  };
   return {
-    blockers: poCloseBlockers({
-      lines: progress,
-      unallocatedCostAmount: unallocatedMnt,
-      draftInvoiceCount: Number(draftInvoiceRows[0]?.total ?? 0),
-      draftCostEntryCount: Number(draftCostEntryRows[0]?.total ?? 0),
+    blockers: poCloseBlockers({ lines: progress, ...closeInput }),
+    shortPlan: poShortClosePlan({
+      ...closeInput,
+      lines: progress.map((line, index) => ({
+        ...line,
+        unitPrice: Number(lines[index].unitPrice),
+        postedInvoicedMnt: invoiced.get(lines[index].id)?.postedAmountMnt ?? 0,
+      })),
     }),
     invClearingBalance,
     apClearingBalance,
@@ -1400,13 +1423,23 @@ export async function deletePurchaseOrder(input: {
 async function closePurchaseOrderCore(input: {
   id: string;
   closeDate: string;
-}): Promise<{ voucherId: string }> {
+  shortClose?: PoShortCloseInput | null;
+}): Promise<{ voucherId: string; cancelledQuantity?: number; writeOffMnt?: number }> {
   const { orgId, userId } = await requireModuleAction(
     PROCUREMENT_MODULE_KEY,
     "post"
   );
   assertDate(input.closeDate, "Хаах огноо");
   await assertPeriodOpen(orgId, input.closeDate);
+
+  const shortReason = input.shortClose ? input.shortClose.reason?.trim() ?? "" : null;
+  if (shortReason !== null && shortReason.length < PO_SHORT_CLOSE_REASON_MIN)
+    throw new Error(
+      `[REASON_REQUIRED] Дутуу хаах шалтгааныг бичнэ үү (${PO_SHORT_CLOSE_REASON_MIN}+ тэмдэгт) — аудитын мөрд хадгалагдана`
+    );
+  const writeOffMain = input.shortClose?.writeOffAccount?.trim()
+    ? extractMainAccount(input.shortClose.writeOffAccount.trim())
+    : "";
 
   const order = await requirePurchaseOrder(orgId, input.id);
   // UX-ийн ЭРТ шалгалт — жинхэнэ (цоожтой) шалгалт транзакц дотор давтагдана.
@@ -1436,7 +1469,9 @@ async function closePurchaseOrderCore(input: {
       .then((lookup) => lookup.rate)
       .catch(() => null);
 
-  const description = `[${order.documentNo}] Захиалгын хаалт — түр дансдын тэгшитгэл`;
+  const description = `[${order.documentNo}] ${
+    shortReason !== null ? "Захиалгын дутуу хаалт" : "Захиалгын хаалт"
+  } — түр дансдын тэгшитгэл`;
 
   const result = await db.transaction(async (tx) => {
     await assertPeriodOpenInTx(tx, orgId, input.closeDate);
@@ -1455,8 +1490,27 @@ async function closePurchaseOrderCore(input: {
       invClearing: roles.clearingAccountNumber,
       apClearing: roles.apClearingAccountNumber,
     });
-    if (state.blockers.length > 0)
-      throw new Error(`[PO_NOT_READY] ${state.blockers.join("; ")}`);
+    let plan: PoShortClosePlan | null = null;
+    if (shortReason === null) {
+      if (state.blockers.length > 0)
+        throw new Error(`[PO_NOT_READY] ${state.blockers.join("; ")}`);
+    } else {
+      if (state.blockers.length === 0)
+        throw new Error(
+          "[PO_FULLY_COMPLETE] Захиалга бүрэн гүйцэтгэгдсэн — дутуу биш, энгийн хаалтаар хаана уу"
+        );
+      if (state.shortPlan.blockers.length > 0)
+        throw new Error(`[PO_NOT_READY] ${state.shortPlan.blockers.join("; ")}`);
+      plan = state.shortPlan;
+      if (plan.writeOffMnt > 0) {
+        const problem = poWriteOffAccountProblem(writeOffMain, {
+          invClearing: roles.clearingAccountNumber,
+          apClearing: roles.apClearingAccountNumber,
+        });
+        if (problem) throw new Error(problem);
+        await assertEnabledMainAccount(orgId, writeOffMain);
+      }
+    }
     // Тэгшитгэл нь хамгийн хожуу гүйлгээний ДАРААХ огноогоор бичигдэнэ —
     // эс бөгөөс түр данс өмнөх сард хаагдаж, тайлан зөрнө.
     if (
@@ -1479,6 +1533,14 @@ async function closePurchaseOrderCore(input: {
       },
       buildCode,
       description,
+      writeOff:
+        plan && plan.writeOffMnt > 0
+          ? {
+              account: writeOffMain,
+              amount: plan.writeOffMnt,
+              description: `Хүлээн авснаас илүү нэхэмжлэл: [${order.documentNo}] ${shortReason}`,
+            }
+          : undefined,
     });
 
     const [voucher] = await tx
@@ -1507,6 +1569,7 @@ async function closePurchaseOrderCore(input: {
         closeVoucherId: voucher.id,
         closeExchangeRate:
           closeExchangeRate != null ? String(closeExchangeRate) : null,
+        shortCloseReason: shortReason,
       })
       .where(
         and(
@@ -1518,6 +1581,24 @@ async function closePurchaseOrderCore(input: {
       .returning({ id: purchaseOrders.id });
     if (!claimed) throw new Error("Захиалгын төлөв өөрчлөгдсөн байна");
 
+    // Хүлээн аваагүй үлдэгдэл «цуцлагдсан» — мөр бүрд (дахин нээхэд 0 болно).
+    if (plan)
+      for (const [index, line] of lockedLines.entries()) {
+        const cancelled = plan.lines[index]?.cancelledQuantity ?? 0;
+        if (cancelled > 0)
+          await tx
+            .update(purchaseOrderLines)
+            .set({ cancelledQuantity: String(cancelled) })
+            .where(eq(purchaseOrderLines.id, line.id));
+      }
+
+    const shortSummary = plan
+      ? `, ДУТУУ: цуцалсан ${plan.cancelledQuantity} нэгж${
+          plan.writeOffMnt > 0
+            ? `, илүү нэхэмжлэл ${plan.writeOffMnt.toLocaleString("en-US")}₮ → ${writeOffMain}`
+            : ""
+        }; шалтгаан: ${shortReason}`
+      : "";
     await logAuditEvent(
       {
         userId,
@@ -1525,11 +1606,17 @@ async function closePurchaseOrderCore(input: {
         action: "close",
         entityType: "purchase_order",
         entityId: order.id,
-        summary: `Захиалга хаагдав — ${order.documentNo}, ${input.closeDate}, журнал ${voucher.id}`,
+        summary: `Захиалга хаагдав — ${order.documentNo}, ${input.closeDate}, журнал ${voucher.id}${shortSummary}`,
       },
       tx
     );
-    return { voucherId: voucher.id };
+    return plan
+      ? {
+          voucherId: voucher.id,
+          cancelledQuantity: plan.cancelledQuantity,
+          writeOffMnt: plan.writeOffMnt,
+        }
+      : { voucherId: voucher.id };
   });
 
   revalidateProcurement();
@@ -1539,7 +1626,10 @@ async function closePurchaseOrderCore(input: {
 export async function closePurchaseOrder(input: {
   id: string;
   closeDate: string;
-}): Promise<ActionResult<{ voucherId: string }>> {
+  shortClose?: PoShortCloseInput | null;
+}): Promise<
+  ActionResult<{ voucherId: string; cancelledQuantity?: number; writeOffMnt?: number }>
+> {
   try {
     return await closePurchaseOrderCore(input);
   } catch (caught) {
@@ -1631,6 +1721,7 @@ async function reopenPurchaseOrderCore(input: {
         closedAt: null,
         closeVoucherId: null,
         closeExchangeRate: null,
+        shortCloseReason: null,
       })
       .where(
         and(
@@ -1641,6 +1732,11 @@ async function reopenPurchaseOrderCore(input: {
       )
       .returning({ id: purchaseOrders.id });
     if (!claimed) throw new Error("Захиалгын төлөв өөрчлөгдсөн байна");
+    // Дутуу хаалтын цуцлалт сэргэнэ (ENT-064, D-SC-3).
+    await tx
+      .update(purchaseOrderLines)
+      .set({ cancelledQuantity: "0" })
+      .where(eq(purchaseOrderLines.purchaseOrderId, order.id));
 
     await logAuditEvent(
       {
@@ -2576,7 +2672,7 @@ async function createApInvoiceFromPoCore(data: {
   }[];
   costLines?: { costComponentId: string; amount: number; description?: string }[];
   otherLines?: { account: string; amount: number; description?: string }[];
-}): Promise<{ id: string; documentNo: string; dedup?: boolean }> {
+}): Promise<{ id: string; documentNo: string; dedup?: boolean; warning?: string }> {
   const { orgId, userId } = await requireModuleAction(
     PROCUREMENT_MODULE_KEY,
     data.postNow ? "post" : "write"
@@ -2668,6 +2764,22 @@ async function createApInvoiceFromPoCore(data: {
       unitPrice,
     });
   }
+
+  // D-SC-2 (ENT-064): тааз нь ЗАХИАЛСАН тоо хэвээр, харин хүлээн авснаас
+  // ИЛҮҮ нэхэмжилбэл анхааруулна — бараа ирэхгүй бол дутуу хаалтад зардал болно.
+  const aheadOfReceipt = requested
+    .map((line) => {
+      const poLine = byId.get(line.purchaseOrderLineId)!;
+      const ahead = round4(
+        poLine.invoicedQuantity + round4(Number(line.quantity)) - poLine.receivedQuantity
+      );
+      return ahead > QTY_EPSILON ? `${poLine.itemCode} ${ahead}` : null;
+    })
+    .filter((value): value is string => value !== null);
+  const warning =
+    aheadOfReceipt.length > 0
+      ? `Хүлээн авснаас илүү нэхэмжилж байна (${aheadOfReceipt.join(", ")}) — бараа ирээгүй бол захиалгыг дутуу хаахад энэ дүн зардал болно`
+      : undefined;
 
   // ② Нэмэлт зардлын мөрүүд (гааль, тээвэр …) — бүрэлдэхүүнтэй, капиталжина.
   if (data.costLines && data.costLines.length > 0) {
@@ -2766,12 +2878,16 @@ async function createApInvoiceFromPoCore(data: {
   });
 
   revalidateProcurement();
-  return { id: created.id, documentNo: created.documentNo };
+  return warning
+    ? { id: created.id, documentNo: created.documentNo, warning }
+    : { id: created.id, documentNo: created.documentNo };
 }
 
 export async function createApInvoiceFromPo(
   data: Parameters<typeof createApInvoiceFromPoCore>[0]
-): Promise<ActionResult<{ id: string; documentNo: string; dedup?: boolean }>> {
+): Promise<
+  ActionResult<{ id: string; documentNo: string; dedup?: boolean; warning?: string }>
+> {
   try {
     return await createApInvoiceFromPoCore(data);
   } catch (caught) {
@@ -2818,6 +2934,22 @@ export async function getPurchaseOrderPanelData(purchaseOrderId?: string): Promi
       : Promise.resolve({ items: [] }),
   ]);
   if (purchaseOrderId && !detail) return { ok: false, code: "not-found" };
+
+  // Дутуу хаалтад илүү нэхэмжлэл бичих данс хэрэгтэй үед л (ENT-064, D-SC-1).
+  const writeOffAccounts =
+    detail?.shortClose && detail.shortClose.writeOffMnt > 0
+      ? await db
+          .select({ number: chartOfAccounts.number, name: chartOfAccounts.name })
+          .from(chartOfAccounts)
+          .where(
+            and(
+              eq(chartOfAccounts.organizationId, orgId),
+              eq(chartOfAccounts.isEnabled, true),
+              sql`${chartOfAccounts.number} ~ '^[678][0-9]{7}$'`
+            )
+          )
+          .orderBy(asc(chartOfAccounts.number))
+      : [];
 
   let supplier: PurchaseOrderPanelData["supplier"] = null;
   if (detail) {
@@ -2876,6 +3008,7 @@ export async function getPurchaseOrderPanelData(purchaseOrderId?: string): Promi
       },
       supplier,
       attachments: attachmentResult.items ?? [],
+      writeOffAccounts,
       today: todayIso(),
     },
   };

@@ -216,9 +216,19 @@ export async function updatePurchaseOrder(data: {
 export async function approvePurchaseOrder(input: { id: string }): Promise<ActionResult<{ id: string }>>;   // draft → open
 export async function cancelPurchaseOrder(input: { id: string }): Promise<ActionResult<{ id: string }>>;    // draft|open (хүлээн авалт/нэхэмжлэхгүй) → cancelled
 export async function deletePurchaseOrder(input: { id: string }): Promise<ActionResult>;                     // ЗӨВХӨН draft
-/** Түр дансдыг тэгшитгэх журнал (POSTED) + status closed. */
-export async function closePurchaseOrder(input: { id: string; closeDate: string }): Promise<ActionResult<{ voucherId: string }>>;
-/** PO хаалтыг буцаах — хаалтын журналыг эсрэг мөрөөр буцааж status open. */
+/**
+ * Түр дансдыг тэгшитгэх журнал (POSTED) + status closed.
+ * `shortClose` (ENT-064, docs/cost 1.1): энгийн хаалт хориглогдсон үед ДУТУУ
+ * хаах — хүлээн аваагүй үлдэгдэл `cancelled_quantity`, хүлээн авснаас илүү
+ * нэхэмжлэл `writeOffAccount` (6/7/8 зардал, заавал хэрэв > 0) руу Dr; шалтгаан
+ * заавал (`[REASON_REQUIRED]`), `poShortClosePlan`-ийн blocker → `[PO_NOT_READY]`,
+ * бүрэн гүйцэтгэлтэй PO → `[PO_FULLY_COMPLETE]`.
+ */
+export async function closePurchaseOrder(input: {
+  id: string; closeDate: string;
+  shortClose?: { reason: string; writeOffAccount?: string | null } | null;
+}): Promise<ActionResult<{ voucherId: string; cancelledQuantity?: number; writeOffMnt?: number }>>;
+/** PO хаалтыг буцаах — хаалтын журналыг эсрэг мөрөөр буцааж status open; дутуу хаалтын цуцлалт/шалтгаан арилна. */
 export async function reopenPurchaseOrder(input: { id: string; reversalDate?: string }): Promise<ActionResult<{ id: string }>>;
 
 export async function createGoodsReceipt(data: {
