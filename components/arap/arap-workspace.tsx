@@ -52,6 +52,7 @@ import {
 } from "@/lib/arap/counterparty-kind";
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { lookupCounterpartyTaxpayer } from "@/lib/actions/ebarimt";
+import { lookupTinPreferBrowser } from "@/lib/ebarimt/browser-lookup";
 import { MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
 import { EntityKindsDialog } from "@/components/arap/entity-kinds-dialog";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
@@ -1382,7 +1383,26 @@ function CounterpartyDialog({
   function runTinLookup() {
     setTinLookup(null);
     startTinLookup(async () => {
-      const result = await lookupCounterpartyTaxpayer({ tin: tinDigits, registerNo: form.registerNo });
+      // Нягтлангийн браузер Монголд — ТЕГ-ийн лавлахад эхлээд шууд, эс бөгөөс сервер.
+      const query = MERCHANT_TIN_RE.test(tinDigits) ? tinDigits : form.registerNo.trim();
+      const viaBrowser = await lookupTinPreferBrowser(query, async () => {
+        const server = await lookupCounterpartyTaxpayer({ tin: tinDigits, registerNo: form.registerNo });
+        return server.error || !server.tin
+          ? { error: server.error || "ТТД олдсонгүй" }
+          : {
+              info: {
+                regNo: form.registerNo.trim(),
+                tin: server.tin,
+                name: server.name ?? "",
+                vatPayer: server.vatPayer ?? null,
+                cityPayer: server.cityPayer ?? null,
+                freeProject: server.freeProject ?? null,
+              },
+            };
+      });
+      const result = viaBrowser.info
+        ? { ...viaBrowser.info, error: undefined }
+        : { error: viaBrowser.error ?? "ТТД олдсонгүй", tin: "", name: "", vatPayer: null, cityPayer: null, freeProject: null };
       if (result.error || !result.tin) {
         setTinLookup({ tone: "warning", text: result.error || "ТТД олдсонгүй" });
         return;

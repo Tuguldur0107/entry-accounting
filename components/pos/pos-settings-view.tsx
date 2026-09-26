@@ -47,6 +47,7 @@ import {
 } from "@/lib/actions/pos";
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS, EBARIMT_PAYMENT_CODES } from "@/lib/ebarimt/constants";
 import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
+import { lookupTinPreferBrowser } from "@/lib/ebarimt/browser-lookup";
 import {
   getQpayProvisionPreview,
   getQpayStatus,
@@ -1087,7 +1088,7 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       return;
     }
     startTransition(async () => {
-      const result = await lookupEbarimtTin(regNo);
+      const result = await lookupTinPreferBrowser(regNo, lookupEbarimtTin);
       if (result.error || !result.info) {
         setMerchantName(null);
         feedback.error(result.error ?? "ТТД олдсонгүй");
