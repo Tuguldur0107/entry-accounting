@@ -95,7 +95,7 @@ export function TicketPanel({
   onPay: () => void;
   warehouseName: string;
   allowNegativeStock: boolean;
-  /** «НӨАТ» мөр (VatReceiptBar) — НӨАТ төлөгч байгууллагад л. */
+  /** «НӨАТ» / eBarimt мөр (VatReceiptBar) — НӨАТ төлөгч эсвэл eBarimt асаалттай байгууллагад. */
   vatBar?: ReactNode;
 }) {
   const negativeLines = lines.filter((line) => line.stockAfter < 0);

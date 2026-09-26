@@ -70,7 +70,7 @@ import {
 } from "@/lib/costing/master-data";
 import { loadProvisionalUnitCosts } from "@/lib/costing/provisional-cost";
 import { scopeKey } from "@/lib/costing/periodic";
-import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
+import { loadVatSettings } from "@/lib/vat/settings";
 import { applyDiscounts, approvalAuditNote } from "@/lib/pos/discounts";
 import { computeSaleTotals, discountNetOf, ulaanbaatarNow } from "@/lib/pos/sale-math";
 import { NON_VAT_APPROVAL_REASON, planNonVatSale } from "@/lib/pos/non-vat";
@@ -311,11 +311,6 @@ export async function updatePosSettings(
           mode: merged.ebarimtMode === "browser" ? "browser" : "server",
         });
         if (problems.length > 0) throw new Error(`eBarimt идэвхжүүлэхээс өмнө: ${problems.join("; ")}`);
-        // НӨАТ-д хатуу хамаарах feature — зөвхөн НӨАТ төлөгч байгууллага асаана.
-        if (!(await isOrgVatPayer(orgId)))
-          throw new Error(
-            "НӨАТ төлөгч бус байгууллага eBarimt идэвхжүүлэх боломжгүй — Тохиргоо → НӨАТ дээр НӨАТ төлөгчөөр бүртгүүлнэ үү"
-          );
         // Кодын бэлэн байдал (docs/deployment/ebarimt.md §3 алхам 2–4): код
         // дутуу бараа/хэлбэр байвал тэр борлуулалт БОЛСНЫ ДАРАА л алдаж,
         // үйлчлүүлэгч баримтгүй үлдэнэ — иймд АСААХААС ӨМНӨ таслана.
@@ -1054,11 +1049,10 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
   if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
     throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");
-  // НӨАТ төлөгч бус байгууллагад eBarimt огт үүсгэхгүй (ctx.isVatPayer — vat_settings);
+  // НӨАТ төлөгч бус байгууллага ч баримт олгоно (NOT_VAT, НӨАТ 0 — receipt.ts taxTypeOf);
   // кассчин «eBarimt илгээх»-ийг унтраасан бол skipped (ЦЭВЭР дүрэм — receipt.ts).
   const ebarimtPlan = initialSaleEbarimtStatus({
     enabled: settings.ebarimtEnabled,
-    isVatPayer: ctx.isVatPayer,
     manualId: manualEbarimtId,
     skip: !!input.skipEbarimt,
   });
@@ -2428,13 +2422,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
   });
   // Илгээгдсэн eBarimt-тэй эх борлуулалт → бүтэн буцаалт бол DELETE, хэсэгчилсэн
   // бол inactiveId-тай засварын бичилт (сугалаа дахин олгохгүй) — prepareSubmission шийднэ.
-  // НӨАТ төлөгч бус болсон бол шинэ илгээлт үүсгэхгүй (өмнө илгээгдсэн нь ТЕГ-д хэвээр).
-  if (
-    settings.ebarimtEnabled &&
-    original.ebarimtStatus === "sent" &&
-    original.ebarimtId &&
-    (await isOrgVatPayer(orgId))
-  ) {
+  if (settings.ebarimtEnabled && original.ebarimtStatus === "sent" && original.ebarimtId) {
     await enqueueEbarimt(orgId, original.id, "cancel");
     if (settings.ebarimtMode !== "browser")
       void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] цуцлах илгээлт:", error));

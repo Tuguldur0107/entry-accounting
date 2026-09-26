@@ -63,19 +63,20 @@ export class EbarimtError extends Error {
 /**
  * Борлуулалт бүртгэх МӨЧИД eBarimt-ийн анхны статус ба автомат илгээх эсэх
  * (createPosSale + AI create_pos_sale нэг дүрэм):
- *  - eBarimt унтраалттай / НӨАТ төлөгч бус → null, илгээхгүй
+ *  - eBarimt унтраалттай → null, илгээхгүй
+ *  - НӨАТ төлөгч БУС байгууллага ч баримт олгоно (хууль) — мөрүүд `NOT_VAT`,
+ *    totalVAT 0 (`taxTypeOf`); НӨАТ төлөгч эсэх энд нөлөөгүй
  *  - гар ДДТД өгсөн → manual (ТЕГ-ийн апп-аар олгосон), илгээхгүй
  *  - кассчин «eBarimt илгээх»-ийг унтраасан → skipped (дараа панелиас илгээж болно)
  *  - бусад → pending, дараалалд орно
  */
 export function initialSaleEbarimtStatus(input: {
   enabled: boolean;
-  isVatPayer: boolean;
   manualId: string | null;
   skip: boolean;
 }): { status: EbarimtStatus | null; autoSend: boolean } {
   if (input.manualId) return { status: "manual", autoSend: false };
-  if (!input.enabled || !input.isVatPayer) return { status: null, autoSend: false };
+  if (!input.enabled) return { status: null, autoSend: false };
   if (input.skip) return { status: "skipped", autoSend: false };
   return { status: "pending", autoSend: true };
 }

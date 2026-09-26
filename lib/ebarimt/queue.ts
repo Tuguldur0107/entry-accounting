@@ -17,7 +17,7 @@ import {
   type PosSettings,
 } from "@/lib/db/schema";
 import { toItemVatMode } from "@/lib/inventory/load-data";
-import { isOrgVatPayer, loadVatSettings } from "@/lib/vat/settings";
+import { loadVatSettings } from "@/lib/vat/settings";
 import type { PaymentKind } from "@/lib/pos/constants";
 
 import { EBARIMT_ERRORS, backoffMs, type SubmissionKind } from "./constants";
@@ -387,13 +387,10 @@ export async function markFailed(
 export async function claimDueSubmissions(limit = 50): Promise<
   { submission: typeof posEbarimtSubmissions.$inferSelect; settings: PosSettings }[]
 > {
-  const enabledOrgs = await db.query.posSettings.findMany({
+  // НӨАТ төлөгч бус байгууллага ч илгээнэ (NOT_VAT) — хасахгүй.
+  const orgs: PosSettings[] = await db.query.posSettings.findMany({
     where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtMode, "server")),
   });
-  // НӨАТ төлөгч бус болсон байгууллагыг ТЕГ-ийн илгээлтээс ХАСНА (тоо цөөн — loop зүгээр).
-  const orgs: PosSettings[] = [];
-  for (const org of enabledOrgs)
-    if (await isOrgVatPayer(org.organizationId)) orgs.push(org);
   if (orgs.length === 0) return [];
   const rows = await db.query.posEbarimtSubmissions.findMany({
     where: and(
@@ -471,7 +468,7 @@ export async function loadSubmissionsForSale(orgId: string, saleId: string): Pro
  * Зөвхөн ИДЭВХТЭЙ мөрийг шалгана — архивласан бараа зарагдахгүй.
  */
 export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadiness> {
-  const [items, categories, methods] = await Promise.all([
+  const [items, categories, methods, vat] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
       columns: {
@@ -490,9 +487,11 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
       where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.isActive, true)),
       columns: { name: true, ebarimtCode: true },
     }),
+    loadVatSettings(orgId),
   ]);
 
   return ebarimtReadiness({
+    isVatPayer: vat.isVatPayer,
     items: items.map((item) => ({
       name: item.name,
       categoryCode: item.categoryCode,

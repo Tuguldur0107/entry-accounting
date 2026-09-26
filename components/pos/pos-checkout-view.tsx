@@ -210,7 +210,9 @@ export function PosCheckoutView({
     lookup: IDLE_LOOKUP,
   });
   const nonVat = data.isVatPayer && !vatReceipt;
-  const ebarimtBuyerActive = data.isVatPayer && vatReceipt && data.settings.ebarimtEnabled;
+  // НӨАТ төлөгч бус байгууллага ч eBarimt олгоно (NOT_VAT, НӨАТ 0) — худалдан авагчийн
+  // сонголт (Хувь хүн / ААН) хоёуланд; «☐ НӨАТ» (НӨАТ-гүй борлуулалт) зөвхөн төлөгчид.
+  const ebarimtBuyerActive = data.settings.ebarimtEnabled && (!data.isVatPayer || vatReceipt);
   const resolvedBuyer = useMemo(() => resolveBuyer(buyerState), [buyerState]);
   const buyerProblem = ebarimtBuyerActive ? resolvedBuyer.problem : null;
   const nonVatProblem = nonVat && nonVatReason.trim().length < 3 ? "НӨАТ-гүй борлуулалтын шалтгаан бичнэ үү" : null;
@@ -911,8 +913,9 @@ export function PosCheckoutView({
           isVatPayer={data.isVatPayer && vatReceipt}
           vatRatePercent={data.vatRatePercent}
           vatBar={
-            data.isVatPayer ? (
+            data.isVatPayer || data.settings.ebarimtEnabled ? (
               <VatReceiptBar
+                isVatPayer={data.isVatPayer}
                 vatReceipt={vatReceipt}
                 onVatReceiptChange={setVatReceipt}
                 nonVatReason={nonVatReason}

@@ -503,10 +503,15 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   баримт илгээх» switch (default асаалттай) → `skipEbarimt` → статус `skipped`,
   дараалалд орохгүй, аудитын хураангуйд ил; панелиас [eBarimt илгээх]
   (`resendEbarimt`) дараа нь илгээнэ. Анхны статусын дүрэм ЦЭВЭР
-  `initialSaleEbarimtStatus` (receipt.ts, тесттэй) — гар ДДТД > унтраалттай/
-  НӨАТ бус (null) > skipped > pending; action дотор давтахгүй
-- **Кассын «НӨАТ» мөр** (`components/pos/checkout/vat-receipt-bar.tsx`, НӨАТ төлөгчид
-  л): ☑ НӨАТ (анхдагч, борлуулалт бүрийн дараа буцна) → «Хувь хүн» (eBarimt
+  `initialSaleEbarimtStatus` (receipt.ts, тесттэй) — гар ДДТД > унтраалттай
+  (null) > skipped > pending; action дотор давтахгүй
+- **НӨАТ төлөгч БУС байгууллага ч eBarimt олгоно** (хууль, 2026-09-26 product owner):
+  бүх мөр `NOT_VAT`, `totalVAT` 0, татварын бүтээгдэхүүний код шаардахгүй
+  (readiness `isVatPayer:false`). НӨАТ төлөгч эсэхээр eBarimt-ийг ХААХГҮЙ
+  (асаах, илгээх, worker, sendData, буцаалт, outbox) — зөвхөн `taxTypeOf`
+  нөлөөлнө. Кассад checkbox-гүй «eBarimt» мөр (Хувь хүн | ААН), «☐ НӨАТ» горимгүй
+- **Кассын «НӨАТ» мөр** (`components/pos/checkout/vat-receipt-bar.tsx`, НӨАТ төлөгчид;
+  төлөгч бус бол eBarimt асаалттай үед худалдан авагчийн хэсэг л): ☑ НӨАТ (анхдагч, борлуулалт бүрийн дараа буцна) → «Хувь хүн» (eBarimt
   дугаар, сонголтоор) | «ААН» (7 оронтой РЕГИСТР бичмэгц ТЕГ-ээс НЭР + ТТД —
   `getTinInfo` нь ЗӨВХӨН ТТД-г тоогоор буцаадаг, нэр `getInfo?tin=`-ээс;
   олдоогүй бол ТӨЛБӨР хаагдана). Худалдан авагчийн ЦЭВЭР дүрэм

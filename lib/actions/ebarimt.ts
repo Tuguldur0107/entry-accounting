@@ -16,7 +16,6 @@ import { organizationProfile, posEbarimtSubmissions, posSales } from "@/lib/db/s
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
 import { todayInUlaanbaatar } from "@/lib/periods/selection";
-import { isOrgVatPayer } from "@/lib/vat/settings";
 import { posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
 import { EBARIMT_ERRORS } from "@/lib/ebarimt/constants";
 import {
@@ -79,10 +78,6 @@ export async function getEbarimtStatus(): Promise<
     const register = profile?.registerNo?.trim() ?? "";
     const companyRegisterNo = ORG_REGISTER_RE.test(register) ? register : null;
     const problems = ebarimtSettingsProblems(settingsInputOf(settings));
-    if (!(await isOrgVatPayer(orgId)))
-      problems.unshift(
-        "Байгууллага НӨАТ төлөгчөөр бүртгэгдээгүй — eBarimt идэвхгүй (Тохиргоо → НӨАТ)"
-      );
     return { status, problems, readiness, companyRegisterNo };
   } catch (caught) {
     return actionError("getEbarimtStatus", caught, "eBarimt-ийн байдал уншигдсангүй");
@@ -122,7 +117,7 @@ export async function resendEbarimt(
     if (sale.ebarimtStatus === "sent" && kind === "send")
       throw new Error("Энэ борлуулалт аль хэдийн ТЕГ-д илгээгдсэн");
     const settings = await ensurePosSettings(orgId, userId);
-    if (!settings.ebarimtEnabled || !(await isOrgVatPayer(orgId)))
+    if (!settings.ebarimtEnabled)
       throw new EbarimtError(EBARIMT_ERRORS.disabled, "eBarimt унтраалттай байна");
     await requeueEbarimt(orgId, saleId, kind);
     await logAuditEvent({
@@ -218,7 +213,7 @@ export async function pushEbarimtData(): Promise<ActionResult<{ result: Record<s
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
     const settings = await ensurePosSettings(orgId, userId);
-    if (!settings.ebarimtEnabled || !(await isOrgVatPayer(orgId)))
+    if (!settings.ebarimtEnabled)
       throw new EbarimtError(EBARIMT_ERRORS.disabled, "eBarimt унтраалттай байна");
     return { result: await posApiSendData(settings.ebarimtPosApiUrl) };
   } catch (caught) {
@@ -242,8 +237,7 @@ export async function getEbarimtOutbox(): Promise<
     // recordEbarimtResponse дээр "write" эрхээр шалгагдана.
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
     const settings = await ensurePosSettings(orgId, userId);
-    // НӨАТ төлөгч бус болсон бол browser горимд ч илгээх дараалал ХООСОН.
-    if (!settings.ebarimtEnabled || settings.ebarimtMode !== "browser" || !(await isOrgVatPayer(orgId)))
+    if (!settings.ebarimtEnabled || settings.ebarimtMode !== "browser")
       return { posApiUrl: settings.ebarimtPosApiUrl, items: [] };
     return { posApiUrl: settings.ebarimtPosApiUrl, items: await listPendingForBrowser(orgId, settings) };
   } catch (caught) {
