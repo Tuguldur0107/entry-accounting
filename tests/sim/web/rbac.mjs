@@ -16,5 +16,5 @@ const nb=page.getByRole('button',{name:/^Шинэ гүйлгээ$/}); log('new t
 if(await nb.count() && await nb.isEnabled()){ await nb.click(); await page.waitForTimeout(700); const d=page.locator('[role=dialog]').last(); await d.getByRole('button',{name:/^Орлого$/}).click(); await fill(d,'Дүн',1000); await d.locator('select').first().selectOption({index:1}); const gl=d.locator('input[placeholder="GL данс..."]').first(); await gl.fill('51100000'); await page.keyboard.press('Tab'); await fill(d,'Журналын нэр','RBAC тест'); await d.getByRole('button',{name:/^Хадгалж батлах$/}).click(); log('write toast',await toast(page)); await shot(page,'rbac-write'); }
 // журнал батлах / тохиргоо
 await page.goto(BASE+'/settings/permissions',{waitUntil:'networkidle'}); await page.waitForTimeout(800); log('perm page',(await page.locator('main').innerText()).replace(/\n+/g,' | ').slice(0,200));
-await page.goto(BASE+'/ai/settings',{waitUntil:'networkidle'}); await page.waitForTimeout(800); log('ai settings',(await page.locator('main').innerText()).replace(/\n+/g,' | ').slice(0,200));
+await page.goto(BASE+'/settings/ai',{waitUntil:'networkidle'}); await page.waitForTimeout(800); log('ai settings',(await page.locator('main').innerText()).replace(/\n+/g,' | ').slice(0,200));
 flush(); await browser.close();

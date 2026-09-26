@@ -481,7 +481,7 @@ export default async function HomePage() {
       // багцад багтсан (апп доторх чат 2026-09-25-нд хасагдсан, §9a).
       key: "ai",
       label: "AI холболт",
-      href: "/ai",
+      href: "/settings/ai",
       value: "ChatGPT / Claude",
       valueLabel: "багцад багтсан",
       note: "MCP-ээр холбоод бүртгэлээ AI-аар хөтөлнө",

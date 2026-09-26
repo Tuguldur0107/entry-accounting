@@ -1,7 +1,7 @@
 import {open,shot,flush,BASE,ODIR} from '../common/harness.mjs';
 import fs from 'fs'; import path from 'path';
 const {browser,page}=await open();
-await page.goto(BASE+'/ai/settings',{waitUntil:'networkidle'});
+await page.goto(BASE+'/settings/ai',{waitUntil:'networkidle'});
 for (const name of ['MCP холболт','MCP']) { const el=page.getByRole('tab',{name}); if(await el.count()){await el.first().click(); break;} const b=page.getByRole('button',{name}); if(await b.count()){await b.first().click();break;} }
 await page.waitForTimeout(800);
 await page.locator('#mcp-token-name').fill('SIM2 '+(process.env.SIM_ORG||''));

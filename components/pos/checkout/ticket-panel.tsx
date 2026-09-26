@@ -1,21 +1,22 @@
 "use client";
 
 // Кассын дэлгэцийн БАРУУН панель = баримт (ticket) — docs/pos §4.1 v2:
-//   харилцагч → сагсны мөрүүд (товшиж сонгоно; тоо −/+ эсвэл шууд бичнэ, ×) →
+//   сагсны мөрүүд (товшиж сонгоно; тоо −/+ эсвэл шууд бичнэ, ×) →
 //   дүн (ТӨЛӨХ том) → үйлдлүүд (мөр/баримтын хөнгөлөлт нь F4 цонхонд) → ТӨЛБӨР.
 //
 // Энэ бол хүрэлцэх дэлгэцийн БАРИМТ, өгөгдлийн хүснэгт биш — тиймээс AG Grid-ийн
 // стандарт (CLAUDE.md «Хүснэгтийн стандарт») хамаарахгүй; баримтын preview-тэй
 // ижил ангилал. Дүн бүр серверийн quote-оос — энд юу ч тооцогдохгүй.
+// Харилцагч энд СОНГОГДОХГҮЙ (2026-09-26, пилот): ердийн борлуулалт = «Бэлэн
+// худалдан авагч» (дотоод), зээл / урьдчилгаа / кредит хэлбэрт л төлбөрийн
+// цонхонд сонгоно (payment-dialog).
 
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import type { SaleQuote } from "@/lib/actions/pos";
 import { parseQuantityInput, type CartRow } from "@/lib/pos/checkout-state";
-import type { CheckoutCustomer } from "@/lib/pos/load-data";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
 
@@ -41,11 +42,6 @@ export function TicketPanel({
   onSetQty,
   onQtyEditDone,
   onRemove,
-  customerId,
-  customerOptions,
-  onCustomerChange,
-  customer,
-  customerRef,
   quote,
   quoteBusy,
   quoteError,
@@ -77,11 +73,6 @@ export function TicketPanel({
   /** Тоо бичиж дуусав (Enter / Esc / blur) — сканнерын focus буцна. */
   onQtyEditDone: () => void;
   onRemove: (key: string) => void;
-  customerId: string;
-  customerOptions: SearchableOption[];
-  onCustomerChange: (id: string) => void;
-  customer: CheckoutCustomer | null;
-  customerRef: RefObject<HTMLDivElement | null>;
   quote: SaleQuote | null;
   quoteBusy: boolean;
   quoteError: string;
@@ -112,26 +103,6 @@ export function TicketPanel({
 
   return (
     <div className="flex min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain rounded-lg border border-[var(--ea-border)] bg-[var(--ea-surface)] p-2.5">
-      {/* ── Харилцагч ── */}
-      <div ref={customerRef} className="flex items-center gap-2">
-        <Icon name="user" size="sm" className="shrink-0 text-[var(--ea-text-3)]" />
-        <div className="min-w-0 flex-1">
-          <SearchableSelect
-            value={customerId}
-            onChange={onCustomerChange}
-            options={customerOptions}
-            hideValue
-            placeholder="Бэлэн худалдан авагч"
-          />
-        </div>
-        <span className="hidden shrink-0 font-mono text-[10px] text-[var(--ea-text-4)] sm:inline">F6</span>
-      </div>
-      {customer && !customer.isWalkIn && (
-        <div className="-mt-1 flex flex-wrap gap-x-3 pl-6 text-[11px] text-[var(--ea-text-3)]">
-          {customer.customerGroup && <span>Бүлэг: {customer.customerGroup}</span>}
-          {customer.creditLimit != null && <span>Зээлийн лимит: {fmtMnt(customer.creditLimit)}₮</span>}
-        </div>
-      )}
       {vatBar}
 
       {/* ── Мөрүүд ── */}

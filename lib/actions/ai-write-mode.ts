@@ -32,6 +32,6 @@ async function saveAiWriteModeCore(mode: string) {
     action: "ai_write_mode",
     summary: `AI бичилтийн горим: ${mode === "post" ? "Шууд бичих" : "Ноорог"}`,
   });
-  revalidatePath("/ai");
+  revalidatePath("/settings/ai");
   return {};
 }

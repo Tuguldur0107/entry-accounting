@@ -41,8 +41,12 @@ export interface QpaySeedPlan {
   createAccount: { name: string; glAccountNumber: string } | null;
   /** Шинэ хэлбэр үүсгэх — cashAccountId нь `createAccount` бол дараа нь оноогдоно. */
   createMethod: { code: string; name: string; cashAccountId: string | null; ebarimtCode: string } | null;
-  /** Байгаа QPay хэлбэрийг засах: түр данс оноох / дахин идэвхжүүлэх / eBarimt код нөхөх. */
-  updateMethod: { id: string; cashAccountId?: string | null; isActive?: true; ebarimtCode?: string } | null;
+  /**
+   * Байгаа QPay хэлбэрийг засах: түр данс оноох / дахин идэвхжүүлэх / eBarimt код нөхөх;
+   * `adopt` — гараар үүсгэсэн провайдергүй QPAY ewallet-ийг QR горимд оруулах
+   * (provider "qpay", лавлах заавал БИШ).
+   */
+  updateMethod: { id: string; cashAccountId?: string | null; isActive?: true; ebarimtCode?: string; adopt?: true } | null;
   /** Хэрэглэгчид ил тайлбар (юу үүссэн / өөрчлөгдсөн). */
   notes: string[];
 }
@@ -55,14 +59,29 @@ export function pickQpayClearingAccount(accounts: QpaySeedCashAccount[]): QpaySe
   return candidates.find((a) => a.name === QPAY_CLEARING_ACCOUNT_NAME) ?? candidates[0] ?? null;
 }
 
+/** Гараар үүсгэсэн, провайдергүй QPay ewallet (код QPAY / QPAY-…). */
+function isAdoptableQpayMethod(m: QpaySeedMethod): boolean {
+  return m.kind === "ewallet" && !m.provider && /^QPAY(\b|-|_|$)/i.test(m.code);
+}
+
 export function planQpaySeed(input: { methods: QpaySeedMethod[]; cashAccounts: QpaySeedCashAccount[] }): QpaySeedPlan {
   const notes: string[] = [];
   const qpayMethods = input.methods.filter((m) => m.provider === QPAY_PROVIDER);
   // Идэвхтэй ewallet QPay хэлбэрийг түрүүлж, дараа нь идэвхгүйг (дахин асаана).
-  const method =
+  const providerMethod =
     qpayMethods.find((m) => m.kind === "ewallet" && m.isActive) ??
     qpayMethods.find((m) => m.kind === "ewallet") ??
     null;
+  // Провайдергүй, кодоороо QPAY… гэсэн ewallet (QPay асаахаас ӨМНӨ гараар үүсгэсэн,
+  // лавлах дугаар асуудаг) байвал ШИНЭ хэлбэр үүсгэхгүй — түүнийг QR горимд оруулна.
+  // Эс бөгөөс кассанд хоёр «QPay» товч гарч (Хос Хас 2026-09-26), кассчин QR-тэйг
+  // нь устгаж лавлах асуудаг нь үлдсэн.
+  const adoptable = providerMethod
+    ? null
+    : (input.methods.find((m) => isAdoptableQpayMethod(m) && m.isActive) ??
+      input.methods.find((m) => isAdoptableQpayMethod(m)) ??
+      null);
+  const method = providerMethod ?? adoptable;
   const account = pickQpayClearingAccount(input.cashAccounts);
   const createAccount = account ? null : { name: QPAY_CLEARING_ACCOUNT_NAME, glAccountNumber: QPAY_CLEARING_GL_ACCOUNT };
   if (createAccount) notes.push(`«${QPAY_CLEARING_ACCOUNT_NAME}» (банк, GL ${QPAY_CLEARING_GL_ACCOUNT}) үүсэв`);
@@ -85,14 +104,19 @@ export function planQpaySeed(input: { methods: QpaySeedMethod[]; cashAccounts: Q
 
   const update: QpaySeedPlan["updateMethod"] = { id: method.id };
   let changed = false;
+  if (adoptable) {
+    update.adopt = true;
+    changed = true;
+    notes.push(`«${method.code}» хэлбэр QPay QR-ээр батлагддаг болов (лавлах дугаар асуухгүй)`);
+  }
   if (!method.cashAccountId) {
     update.cashAccountId = account?.id ?? null;
     changed = true;
     notes.push("QPay хэлбэрт түр данс оноов");
   } else if (createAccount) {
-    // Хэлбэр аль хэдийн данстай — шинэ данс хэрэггүй.
-    notes.pop();
-    return { createAccount: null, createMethod: null, updateMethod: null, notes };
+    // Хэлбэр аль хэдийн данстай — шинэ данс хэрэггүй (доорх return createAccount-ыг
+    // null болгоно); данс үүсэв гэсэн тайлбарыг л хасна.
+    notes.shift();
   }
   if (!method.isActive) {
     update.isActive = true;

@@ -111,7 +111,7 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
           {connectStep.done ? (
             <p className="text-xs text-[var(--ea-text-3)]">
               Холбогдсон. Өөр компанид холбох, token авах бол{" "}
-              <Link href="/ai" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
+              <Link href="/settings/ai" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
                 AI холболт
               </Link>{" "}
               хуудас.
@@ -142,7 +142,7 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
 
       <p className="mt-3 border-t border-[var(--ea-border)] pt-3 text-xs text-[var(--ea-text-3)]">
         Бусад жишээ асуулт, бичилтийн горим, token —{" "}
-        <Link href="/ai#starter-prompts" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
+        <Link href="/settings/ai#starter-prompts" className="text-[var(--ea-primary)] underline-offset-2 hover:underline">
           AI холболт
         </Link>{" "}
         хуудсанд.

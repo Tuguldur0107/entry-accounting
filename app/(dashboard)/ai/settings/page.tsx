@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Хуучин «AI туслах → Тохиргоо» хаяг (deep link, «AI нягтлан»-ы заавар `?tab=mcp`) — одоо /ai нэг хуудас. */
+/** Хуучин «AI туслах → Тохиргоо» хаяг (deep link, «AI нягтлан»-ы заавар `?tab=mcp`) — одоо Тохиргоо → AI холболт. */
 export default function AiSettingsRedirect() {
-  redirect("/ai");
+  redirect("/settings/ai");
 }
