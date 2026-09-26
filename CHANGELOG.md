@@ -19,6 +19,13 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   Production-ийг Railway service `knowledge-sync` (entry-knowledge repo, token-гүй,
   push бүрд) бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env тавихгүй.
 
+### Changed
+
+- **«AI холболт» Тохиргоо дотор.** Тусдаа модуль байсныг Тохиргоо → AI холболт
+  (`/settings/ai`) цэс болгов — модулийн жагсаалтад нэг зүйл цөөрнө. Эрх нь `ai`
+  түлхүүрээр хэвээр (унтраасан / «Байхгүй» гишүүнд цэс нуугдаж, URL-ээр ч
+  нээгдэхгүй); хуучин `/ai`, `/ai/settings` хаяг redirect хийнэ.
+
 ### Fixed
 
 - **QPay key автоматаар сэргэнэ** (Хос Хасын пилот: dashboard-ын UI-аас «API key

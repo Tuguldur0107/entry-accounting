@@ -240,15 +240,6 @@ export const MODULES: Module[] = [
     ],
   },
   {
-    // Апп доторх чат хасагдсан (2026-09-25) — хэрэглэгч өөрийн ChatGPT / Claude-оос
-    // MCP-ээр холбогддог; энэ модуль = холбох заавар + бичилтийн горим + token.
-    id: "ai",
-    label: "AI холболт",
-    matchPrefix: "/ai",
-    defaultHref: "/ai",
-    items: [{ label: "ChatGPT / Claude холбох", href: "/ai", icon: "ai" }],
-  },
-  {
     // Тохиргоо — хэрэглэгч, байгууллага, бүртгэлийн тохиргоо НЭГ дор
     // (хуучин "Удирдлага" модуль энд нэгтгэгдсэн — /admin зам хэвээр).
     id: "settings",
@@ -259,6 +250,10 @@ export const MODULES: Module[] = [
     items: [
       { label: "Хэрэглэгчийн профайл", href: "/settings/profile", icon: "user" },
       { label: "Мэдэгдлийн тохиргоо", href: "/settings/notifications", icon: "bell" },
+      // AI холболт (ChatGPT / Claude-д MCP-ээр холбох, бичилтийн горим, token) —
+      // 2026-09-26-нд тусдаа модулиас Тохиргоо руу; эрх нь `ai` түлхүүрээр
+      // (унтраасан / «Байхгүй» бол ЭНЭ цэс л нуугдана). Хуучин /ai redirect.
+      { label: "AI холболт", href: "/settings/ai", icon: "ai", configKey: "ai" },
       { label: "Компанийн мэдээлэл", href: "/settings/company", icon: "company" },
       { label: "Байгууллага", href: "/admin/org", icon: "company" },
       { label: "Хэрэглэгчдийн эрх", href: "/settings/permissions", icon: "shield" },
@@ -275,7 +270,7 @@ export const MODULES: Module[] = [
 
 /**
  * Тохиргооны модулийн түлхүүр (module_configs.moduleKey) → навигацийн
- * модулийн id. Түлхүүргүй модулиуд (Татвар, Цалин, AI, Удирдлага, Тохиргоо,
+ * модулийн id. Түлхүүргүй модулиуд (Татвар, Цалин, Удирдлага, Тохиргоо,
  * Нүүр) үргэлж харагдана; agis нь тусдаа nav модульгүй (S6 сегментээр GL-д).
  */
 export const NAV_MODULE_BY_CONFIG_KEY: Record<string, string> = {
@@ -289,7 +284,6 @@ export const NAV_MODULE_BY_CONFIG_KEY: Record<string, string> = {
   cash: "cash",
   tax: "tax",
   payroll: "payroll",
-  ai: "ai",
 };
 
 /**

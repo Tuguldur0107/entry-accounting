@@ -109,7 +109,7 @@ async function SignedInSkills({ email }: { email: string | null }) {
     orgName = org?.name ?? null;
     hasKnowledge = featureUsable(ent, "knowledge");
     // skills багцын нүүр = холбох заавар; нягтлан бодох багцад AI тохиргооны MCP таб.
-    guideHref = hasFeature(ent, "accounting") ? "/ai/settings?tab=mcp" : "/";
+    guideHref = hasFeature(ent, "accounting") ? "/settings/ai" : "/";
   }
   return (
     <SkillsSignedIn

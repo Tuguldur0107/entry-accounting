@@ -165,6 +165,6 @@ export const APP_MODULE_DEFS: AppModuleDef[] = [
     name: "AI Connect (MCP)",
     description: "ChatGPT / Claude-д MCP-ээр холбох, бичилтийн горим, token",
     group: "extra",
-    navId: "ai",
+    // navId-гүй: Тохиргоо доторх ЦЭС (components/layout/modules.ts configKey "ai").
   },
 ];

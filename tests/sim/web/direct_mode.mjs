@@ -1,6 +1,6 @@
 import {open,shot,flush,BASE} from '../common/harness.mjs';
 const {browser,page}=await open();
-await page.goto(BASE+'/ai',{waitUntil:'networkidle'});
+await page.goto(BASE+'/settings/ai',{waitUntil:'networkidle'});
 await shot(page,'05-ai');
 const direct=page.getByRole('radio',{name:/Шууд бичих/});
 console.log('radio',await direct.count(), await page.getByRole('radio').allInnerTexts().catch(()=>[]));

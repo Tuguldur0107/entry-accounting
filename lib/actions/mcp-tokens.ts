@@ -123,7 +123,7 @@ export async function createApiToken(
       });
     });
 
-    revalidatePath("/ai/settings");
+    revalidatePath("/settings/ai");
     return { token };
   } catch (caught) {
     return {
@@ -142,7 +142,7 @@ export async function revokeApiToken(
     await db
       .delete(apiTokens)
       .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, userId)));
-    revalidatePath("/ai/settings");
+    revalidatePath("/settings/ai");
     return {};
   } catch (caught) {
     return {
