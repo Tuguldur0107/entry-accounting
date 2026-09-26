@@ -4,16 +4,14 @@ import assert from "node:assert/strict";
 import {
   addToCart,
   adjustLineQuantity,
-  applyNumpad,
   cartQuantityByItem,
   filterCheckoutItems,
   MAX_PARKED_TICKETS,
-  NUMPAD_MODE_LABELS,
-  numpadValue,
   parkTicket,
+  parseDiscountPercentInput,
   parseParkedTickets,
+  parseQuantityInput,
   parseStoredCart,
-  pressNumpad,
   resolveScan,
   setLineDiscountAmount,
   setLineDiscountPercent,
@@ -55,13 +53,12 @@ test("addToCart: хөнгөлөлттэй мөрд нэгтгэхгүй — ши
   assert.equal(cart[1].unitPrice, 2500);
 });
 
-test("касс үнэ засахгүй: numpad-д «Үнэ» горим байхгүй, мөр барааны үнээр", () => {
-  assert.deepEqual(Object.keys(NUMPAD_MODE_LABELS), ["qty", "discount"]);
+test("касс үнэ засахгүй: жинлэдэг бараанд зөвхөн тоо (жин) бичигдэнэ, үнэ барааных", () => {
   const next = keyGen();
   // Жинлэдэг бараа: кг-ийн үнэ = борлуулах үнэ, жин = тоо хэмжээ
   const meat = { id: "i-meat", code: "MT-01", name: "Үхрийн мах", unit: "кг", barcode: null, categoryCode: null, salesPrice: 18000 };
   let cart = addToCart([], meat, next)!.cart;
-  cart = applyNumpad(cart, "L1", "qty", "1.35");
+  cart = setLineQuantity(cart, "L1", parseQuantityInput("1,35")!);
   assert.equal(cart[0].quantity, 1.35);
   assert.equal(cart[0].unitPrice, 18000);
 });
@@ -100,32 +97,30 @@ test("хөнгөлөлт: % ба ₮ харилцан бие биеэ арилг
   assert.equal(cart[0].manualDiscountAmount, 300, "0% нь дүнгийн хөнгөлөлтийг арилгахгүй");
 });
 
-test("numpad буфер: тэргүүний 0, давхар цэг, ⌫, уртын хязгаар", () => {
-  assert.equal(pressNumpad("", "5"), "5");
-  assert.equal(pressNumpad("0", "5"), "5");
-  assert.equal(pressNumpad("", "."), "0.");
-  assert.equal(pressNumpad("0.", "."), "0.");
-  assert.equal(pressNumpad("12", "."), "12.");
-  assert.equal(pressNumpad("12.5", "."), "12.5");
-  assert.equal(pressNumpad("12.5", "⌫"), "12.");
-  assert.equal(pressNumpad("", "⌫"), "");
-  assert.equal(pressNumpad("123456789012", "3"), "123456789012");
-  assert.equal(numpadValue(""), null);
-  assert.equal(numpadValue("."), null);
-  assert.equal(numpadValue("0."), 0);
-  assert.equal(numpadValue("2.5"), 2.5);
+test("parseQuantityInput: таслал/цэг, хоосон ба гажиг → null, 0 → мөр хасах", () => {
+  assert.equal(parseQuantityInput("3"), 3);
+  assert.equal(parseQuantityInput(" 1,5 "), 1.5);
+  assert.equal(parseQuantityInput("0.25"), 0.25);
+  assert.equal(parseQuantityInput(".5"), 0.5);
+  assert.equal(parseQuantityInput("2."), 2);
+  assert.equal(parseQuantityInput("1.23456"), 1.2346);
+  assert.equal(parseQuantityInput("0"), 0);
+  assert.equal(parseQuantityInput(""), null);
+  assert.equal(parseQuantityInput("-2"), null);
+  assert.equal(parseQuantityInput("abc"), null);
+  assert.equal(parseQuantityInput("1.2.3"), null);
+  assert.equal(parseQuantityInput("1e3"), null);
+  assert.equal(parseQuantityInput("2000000"), null);
 });
 
-test("applyNumpad: горим бүрд зөв талбар; хоосон буфер өөрчлөлтгүй", () => {
-  const next = keyGen();
-  let cart = addToCart([], cola, next)!.cart;
-  assert.equal(applyNumpad(cart, "L1", "qty", ""), cart);
-  cart = applyNumpad(cart, "L1", "qty", "4");
-  assert.equal(cart[0].quantity, 4);
-  cart = applyNumpad(cart, "L1", "discount", "15");
-  assert.equal(cart[0].manualDiscountPercent, 15);
-  cart = applyNumpad(cart, "L1", "qty", "0");
-  assert.equal(cart.length, 0);
+test("parseDiscountPercentInput: хоосон/0 → арилгах, 0–100, гажиг → undefined", () => {
+  assert.equal(parseDiscountPercentInput(""), null);
+  assert.equal(parseDiscountPercentInput("0"), null);
+  assert.equal(parseDiscountPercentInput("15"), 15);
+  assert.equal(parseDiscountPercentInput("7,5"), 7.5);
+  assert.equal(parseDiscountPercentInput("150"), undefined);
+  assert.equal(parseDiscountPercentInput("-1"), undefined);
+  assert.equal(parseDiscountPercentInput("x"), undefined);
 });
 
 test("filterCheckoutItems: бүлэг + хайлт, яг таарсан код эхэнд", () => {

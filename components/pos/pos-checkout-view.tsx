@@ -5,7 +5,8 @@
 //
 //   ЗҮҮН  `ProductPanel`  сканнер/хайлт → бүлгийн chip → барааны TILE grid
 //   БАРУУН `TicketPanel`  харилцагч → баримтын мөрүүд (товшиж сонгох, −/+, ×)
-//                         → дүн (ТӨЛӨХ) → numpad (Тоо / Хөнг %) → ТӨЛБӨР
+//                         → тоо −/+ эсвэл шууд бичих → дүн (ТӨЛӨХ) → ТӨЛБӨР
+//   Хөнгөлөлт (купон / баримт / мөрийн %) бүгд F4 цонхонд (numpad 2026-09-26-нд хасагдсан).
 //   Ээлж нээгээгүй бол дэлгэц дээр НЭГ ТОВЧНЫ диалог (сүүлийн ээлжийн default).
 //
 // Үнэ / хөнгөлөлт CLIENT талд ТООЦОГДОХГҮЙ — зөвхөн серверийн `quotePosSale`
@@ -16,7 +17,8 @@
 // Товчлуур: F9 төлбөр · F3 эсвэл "/" хайлт · F4 хөнгөлөлт · F6 харилцагч ·
 // ↑/↓ мөр сонгох · + / − тоо · Delete мөр хасах · Esc сонголт → сагс цэвэрлэх.
 // Сканнер = гар (keyboard wedge): хайлтын input ҮРГЭЛЖ focus-той — tile,
-// мөр, numpad бүгд mousedown-ыг preventDefault хийж focus-ыг булаахгүй.
+// мөр бүгд mousedown-ыг preventDefault хийж focus-ыг булаахгүй; мөрийн ТОО-г
+// товшиж бичихэд л түр focus авч, дуусахад (Enter / Esc / blur) хайлт руу буцна.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -66,19 +68,17 @@ import type { EbarimtReceiptResponse } from "@/lib/ebarimt/types";
 import {
   addToCart,
   adjustLineQuantity,
-  applyNumpad,
   cartQuantityByItem,
   parkTicket,
   parseParkedTickets,
   parseStoredCart,
-  pressNumpad,
   removeLine,
   resolveLineAmounts,
   resolveScan,
+  setLineDiscountPercent,
+  setLineQuantity,
   unparkTicket,
   type CartRow,
-  type NumpadKey,
-  type NumpadMode,
   type ParkedTicket,
   type StoredCart,
 } from "@/lib/pos/checkout-state";
@@ -312,8 +312,6 @@ export function PosCheckoutView({
   const [receiptDiscountMode, setReceiptDiscountMode] = useState<"percent" | "amount">("percent");
   const [receiptDiscountValue, setReceiptDiscountValue] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [numpadMode, setNumpadMode] = useState<NumpadMode>("qty");
-  const [numpadBuffer, setNumpadBuffer] = useState("");
   const [parked, setParked] = useState<ParkedTicket[]>([]);
 
   const [discountOpen, setDiscountOpen] = useState(false);
@@ -355,7 +353,6 @@ export function PosCheckoutView({
           : (walkIn?.id ?? "")
       );
       setSelectedKey(null);
-      setNumpadBuffer("");
     },
     [data.customers, walkIn?.id]
   );
@@ -470,11 +467,7 @@ export function PosCheckoutView({
   const customerRef = useRef<HTMLDivElement>(null);
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
 
-  const selectLine = useCallback((key: string | null) => {
-    setSelectedKey(key);
-    setNumpadMode("qty");
-    setNumpadBuffer("");
-  }, []);
+  const selectLine = useCallback((key: string | null) => setSelectedKey(key), []);
 
   const addItem = useCallback(
     (item: CheckoutItem) => {
@@ -484,18 +477,22 @@ export function PosCheckoutView({
       }
       setCart((current) => addToCart(current, item, nextLineKey)?.cart ?? current);
       setSelectedKey(null);
-      setNumpadBuffer("");
     },
     []
   );
 
   const incLine = useCallback((key: string) => {
     setCart((current) => adjustLineQuantity(current, key, 1));
-    setNumpadBuffer("");
   }, []);
   const decLine = useCallback((key: string) => {
     setCart((current) => adjustLineQuantity(current, key, -1));
-    setNumpadBuffer("");
+  }, []);
+  // Тоог мөр дээр шууд бичнэ (жинлэдэг бараа «1,35») — 0 → мөр хасагдана.
+  const setLineQty = useCallback((key: string, quantity: number) => {
+    setCart((current) => setLineQuantity(current, key, quantity));
+  }, []);
+  const setLineDiscount = useCallback((key: string, percent: number | null) => {
+    setCart((current) => setLineDiscountPercent(current, key, percent));
   }, []);
   const dropLine = useCallback(
     (key: string) => {
@@ -505,21 +502,6 @@ export function PosCheckoutView({
     [selectedKey, selectLine]
   );
 
-  // Numpad: товч бүр буферт орж, буфер ТУХАЙ БҮР сонгосон мөрд орно (Odoo-ийн заншил).
-  const onNumpadKey = useCallback(
-    (key: NumpadKey) => {
-      if (!selectedKey) return;
-      const buffer = pressNumpad(numpadBuffer, key);
-      setNumpadBuffer(buffer);
-      if (buffer === "" && numpadMode === "qty") return; // ⌫-ээр хоосолбол тоог хөндөхгүй
-      setCart((current) => applyNumpad(current, selectedKey, numpadMode, buffer));
-    },
-    [selectedKey, numpadBuffer, numpadMode]
-  );
-  const onNumpadMode = useCallback((mode: NumpadMode) => {
-    setNumpadMode(mode);
-    setNumpadBuffer("");
-  }, []);
   // Тоо 0 → мөр хасагдсан бол сонголт ҮР ДҮНГЭЭР нь алга болно (effect биш, deriv).
   const activeKey = selectedKey && cart.some((row) => row.key === selectedKey) ? selectedKey : null;
 
@@ -528,7 +510,6 @@ export function PosCheckoutView({
     setCouponCodes([]);
     setReceiptDiscountValue("");
     setSelectedKey(null);
-    setNumpadBuffer("");
     if (walkIn) setCustomerId(walkIn.id);
     setVatReceipt(true);
     setNonVatReason("");
@@ -874,7 +855,10 @@ export function PosCheckoutView({
     : Math.round(ticketLines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
 
   const setupMissing = data.cashAccounts.length === 0 || data.warehouses.length === 0;
-  const discountsActive = couponCodes.length + (receiptDiscountNumber > 0 ? 1 : 0);
+  const discountsActive =
+    couponCodes.length +
+    (receiptDiscountNumber > 0 ? 1 : 0) +
+    cart.filter((row) => row.manualDiscountPercent != null || row.manualDiscountAmount != null).length;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2">
@@ -922,6 +906,8 @@ export function PosCheckoutView({
           onSelect={selectLine}
           onInc={incLine}
           onDec={decLine}
+          onSetQty={setLineQty}
+          onQtyEditDone={focusSearch}
           onRemove={dropLine}
           customerId={customerId}
           customerOptions={customerOptions}
@@ -950,10 +936,6 @@ export function PosCheckoutView({
             ) : null
           }
           discountBreakdown={discountBreakdown}
-          numpadMode={numpadMode}
-          onNumpadMode={onNumpadMode}
-          numpadBuffer={numpadBuffer}
-          onNumpadKey={onNumpadKey}
           discountsActive={discountsActive}
           onOpenDiscount={() => setDiscountOpen(true)}
           parkedCount={parked.length}
@@ -1029,6 +1011,8 @@ export function PosCheckoutView({
         receiptDiscountValue={receiptDiscountValue}
         onReceiptDiscountValueChange={setReceiptDiscountValue}
         maxManualDiscountPercent={data.settings.maxManualDiscountPercent}
+        lines={ticketLines}
+        onLineDiscountChange={setLineDiscount}
       />
       <ParkedDialog
         open={parkedOpen}

@@ -13,6 +13,7 @@ import { posQpayIntents, posSettings } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { parseWebhookPayload } from "@/lib/qpay/intent";
 import { verifyWebhookSignature } from "@/lib/qpay/webhook-signature";
+import { recoverQpayCredentials } from "@/lib/qpay/partner";
 import { markIntentPaid, resolveQpayWebhookSecret } from "@/lib/qpay/store";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,21 @@ export async function POST(request: Request) {
     });
     const secret = settings ? resolveQpayWebhookSecret(settings) : null;
     if (!secret) return NextResponse.json({ error: "webhook not configured" }, { status: 403 });
-    if (!verifyWebhookSignature(rawBody, request.headers.get("x-webhook-signature"), secret)) {
+    const signature = request.headers.get("x-webhook-signature");
+    let verified = verifyWebhookSignature(rawBody, signature, secret);
+    if (!verified && intent.status === "open") {
+      // Dashboard-аас webhook secret солигдсон байж болно — Partner API-аар
+      // ОДООГИЙН secret-ийг авч дахин шалгана. Зөвхөн хүлээгдэж буй (open) intent-д,
+      // cooldown байгууллагад минутад нэг — дур мэдэн илгээсэн хүсэлт secret-ийг
+      // задлахгүй (Entry л хадгална), давтамжаар key солиулж чадахгүй.
+      const fresh = await recoverQpayCredentials(intent.organizationId, {
+        reason: "webhook_signature",
+        userId: intent.cashierUserId ?? "",
+      });
+      const freshSecret = fresh ? resolveQpayWebhookSecret(fresh) : null;
+      verified = !!freshSecret && verifyWebhookSignature(rawBody, signature, freshSecret);
+    }
+    if (!verified) {
       await logAuditEvent({
         userId: intent.cashierUserId ?? "",
         organizationId: intent.organizationId,

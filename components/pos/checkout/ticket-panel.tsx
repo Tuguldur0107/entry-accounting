@@ -1,21 +1,20 @@
 "use client";
 
 // Кассын дэлгэцийн БАРУУН панель = баримт (ticket) — docs/pos §4.1 v2:
-//   харилцагч → сагсны мөрүүд (товшиж сонгоно, −/+, ×) → дүн (ТӨЛӨХ том) →
-//   numpad (сонгосон мөрийн Тоо / Хөнг %) → үйлдлүүд → ТӨЛБӨР.
+//   харилцагч → сагсны мөрүүд (товшиж сонгоно; тоо −/+ эсвэл шууд бичнэ, ×) →
+//   дүн (ТӨЛӨХ том) → үйлдлүүд (мөр/баримтын хөнгөлөлт нь F4 цонхонд) → ТӨЛБӨР.
 //
 // Энэ бол хүрэлцэх дэлгэцийн БАРИМТ, өгөгдлийн хүснэгт биш — тиймээс AG Grid-ийн
 // стандарт (CLAUDE.md «Хүснэгтийн стандарт») хамаарахгүй; баримтын preview-тэй
 // ижил ангилал. Дүн бүр серверийн quote-оос — энд юу ч тооцогдохгүй.
 
-import type { ReactNode, RefObject } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 
-import { Numpad } from "@/components/pos/checkout/numpad";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import type { SaleQuote } from "@/lib/actions/pos";
-import type { CartRow, NumpadKey, NumpadMode } from "@/lib/pos/checkout-state";
+import { parseQuantityInput, type CartRow } from "@/lib/pos/checkout-state";
 import type { CheckoutCustomer } from "@/lib/pos/load-data";
 import { fmtMnt } from "@/lib/reports/balances";
 import { cn } from "@/lib/utils";
@@ -39,6 +38,8 @@ export function TicketPanel({
   onSelect,
   onInc,
   onDec,
+  onSetQty,
+  onQtyEditDone,
   onRemove,
   customerId,
   customerOptions,
@@ -51,10 +52,6 @@ export function TicketPanel({
   isVatPayer,
   vatRatePercent,
   discountBreakdown,
-  numpadMode,
-  onNumpadMode,
-  numpadBuffer,
-  onNumpadKey,
   discountsActive,
   onOpenDiscount,
   parkedCount,
@@ -75,6 +72,10 @@ export function TicketPanel({
   onSelect: (key: string | null) => void;
   onInc: (key: string) => void;
   onDec: (key: string) => void;
+  /** Тоог гараар бичсэн (0 → мөр хасагдана). */
+  onSetQty: (key: string, quantity: number) => void;
+  /** Тоо бичиж дуусав (Enter / Esc / blur) — сканнерын focus буцна. */
+  onQtyEditDone: () => void;
   onRemove: (key: string) => void;
   customerId: string;
   customerOptions: SearchableOption[];
@@ -87,11 +88,7 @@ export function TicketPanel({
   isVatPayer: boolean;
   vatRatePercent: number;
   discountBreakdown: { code: string; amount: number }[];
-  numpadMode: NumpadMode;
-  onNumpadMode: (mode: NumpadMode) => void;
-  numpadBuffer: string;
-  onNumpadKey: (key: NumpadKey) => void;
-  /** Купон эсвэл баримтын хөнгөлөлт идэвхтэй (товчны badge). */
+  /** Купон, баримтын эсвэл мөрийн хөнгөлөлт идэвхтэй (товчны badge). */
   discountsActive: number;
   onOpenDiscount: () => void;
   parkedCount: number;
@@ -110,7 +107,6 @@ export function TicketPanel({
   /** «НӨАТ» мөр (VatReceiptBar) — НӨАТ төлөгч байгууллагад л. */
   vatBar?: ReactNode;
 }) {
-  const selected = lines.find((line) => line.key === selectedKey) ?? null;
   const negativeLines = lines.filter((line) => line.stockAfter < 0);
   const total = displayTotal;
 
@@ -164,6 +160,8 @@ export function TicketPanel({
                 onSelect={() => onSelect(line.key === selectedKey ? null : line.key)}
                 onInc={() => onInc(line.key)}
                 onDec={() => onDec(line.key)}
+                onSetQty={(quantity) => onSetQty(line.key, quantity)}
+                onQtyEditDone={onQtyEditDone}
                 onRemove={() => onRemove(line.key)}
               />
             ))}
@@ -240,16 +238,6 @@ export function TicketPanel({
         </div>
       )}
 
-      {/* ── Numpad ── */}
-      <Numpad
-        mode={numpadMode}
-        onMode={onNumpadMode}
-        buffer={numpadBuffer}
-        onKey={onNumpadKey}
-        disabled={!selected}
-        lineLabel={selected ? `${selected.name} · ${fmtQty(selected.quantity)} ${selected.unit}` : null}
-      />
-
       {/* ── Үйлдлүүд ── */}
       <div className="grid shrink-0 grid-cols-3 gap-1.5">
         <ActionButton icon="tune" label="Хөнгөлөлт" hint="F4" badge={discountsActive} onClick={onOpenDiscount} />
@@ -285,6 +273,8 @@ function TicketLine({
   onSelect,
   onInc,
   onDec,
+  onSetQty,
+  onQtyEditDone,
   onRemove,
 }: {
   index: number;
@@ -293,6 +283,8 @@ function TicketLine({
   onSelect: () => void;
   onInc: () => void;
   onDec: () => void;
+  onSetQty: (quantity: number) => void;
+  onQtyEditDone: () => void;
   onRemove: () => void;
 }) {
   return (
@@ -339,9 +331,12 @@ function TicketLine({
           <QtyButton label="Хасах" onClick={onDec}>
             <Icon name="minus" size="sm" />
           </QtyButton>
-          <span className="min-w-8 text-center font-mono text-sm font-semibold text-[var(--ea-text-1)]">
-            {fmtQty(line.quantity)}
-          </span>
+          <QtyInput
+            quantity={line.quantity}
+            unit={line.unit}
+            onCommit={onSetQty}
+            onDone={onQtyEditDone}
+          />
           <QtyButton label="Нэмэх" onClick={onInc}>
             <Icon name="add" size="sm" />
           </QtyButton>
@@ -351,6 +346,70 @@ function TicketLine({
         </span>
       </div>
     </li>
+  );
+}
+
+/**
+ * Мөрийн тоо — товшоод шууд бичнэ (утсан дээр тоон гар). Enter / focus алдахад
+ * хадгална, Esc буцаана; гажиг утга хуучнаараа үлдэнэ, 0 → мөр хасагдана.
+ * Хулганы даралт мөрийн `keepFocus`-т хүрэхгүй (stopPropagation) — эс бөгөөс
+ * input focus авч чадахгүй.
+ */
+function QtyInput({
+  quantity,
+  unit,
+  onCommit,
+  onDone,
+}: {
+  quantity: number;
+  unit: string;
+  onCommit: (quantity: number) => void;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Esc-ийн дараах blur хуучин draft-аар хадгалахгүй (setState нь асинхрон).
+  const cancelled = useRef(false);
+
+  function finish() {
+    if (draft === null || cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
+    const value = parseQuantityInput(draft);
+    setDraft(null);
+    if (value !== null && value !== quantity) onCommit(value);
+    onDone();
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      tabIndex={-1}
+      aria-label={`Тоо хэмжээ (${unit})`}
+      title="Товшоод тоо бичнэ"
+      value={draft ?? fmtQty(quantity)}
+      onMouseDown={(event) => event.stopPropagation()}
+      onFocus={(event) => {
+        cancelled.current = false;
+        setDraft(fmtQty(quantity).replace(/,/g, ""));
+        event.currentTarget.select();
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={finish}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelled.current = true;
+          setDraft(null);
+          onDone();
+        }
+      }}
+      className="h-8 w-14 rounded-md border border-transparent bg-transparent px-1 text-center font-mono text-sm font-semibold text-[var(--ea-text-1)] hover:border-[var(--ea-border)] focus:border-[var(--ea-primary)] focus:bg-[var(--ea-surface)] focus:outline-none"
+    />
   );
 }
 

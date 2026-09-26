@@ -812,14 +812,14 @@ lib/pos/
 ├── sale-math.ts        computeSaleTotals (inclusive НӨАТ), roundToCashUnit, discountNetOf, ulaanbaatarNow
 ├── payments.ts         planPayments / planRefund — ЦЭВЭР (тесттэй): хариулт, лимит, ханш, үлдэгдэл
 ├── load-data.ts        ensurePosSettings (ratified-seed), view ачаалагч, loadCheckoutData (бүлгүүд, lastShift)
-├── checkout-state.ts   Кассын дэлгэцийн ЦЭВЭР төлөв (тесттэй): addToCart, numpad буфер/apply,
+├── checkout-state.ts   Кассын дэлгэцийн ЦЭВЭР төлөв (тесттэй): addToCart, тоо/хөнгөлөлтийн оролт,
 │                       filterCheckoutItems/resolveScan, парк (localStorage бүтэц, шалгалттай parse)
 └── reports.ts          loadSalesReport + ЦЭВЭР нэгтгэл (aggregateBy/summarize/aggregatePayments, тесттэй)
 lib/costing/provisional-cost.ts  явцын дундаж + trueUpDelta (ЦЭВЭР, тесттэй) + loadProvisionalUnitCosts
 lib/costing/period-close.ts      cogs_true_up залруулга (posted урьдчилсан бичилтэд)
 lib/actions/pos.ts               createPosSale (атомик) / returnPosSale / ээлж / бэлгийн карт /
                                  тохиргоо / төлбөрийн хэлбэр / хөнгөлөлтийн дүрэм / quotePosSale
-app/(dashboard)/inventory/pos    Кассын дэлгэц v2 — дэлгүүрийн POS (tile + ticket + numpad; сканнер = гар,
+app/(dashboard)/inventory/pos    Кассын дэлгэц v2 — дэлгүүрийн POS (tile + ticket; сканнер = гар,
                                  F9 төлбөр, нэг товчны ээлж, баримт хэвлэх) — docs/pos §4.1
 app/(dashboard)/inventory/sales  Борлуулалт (жагсаалт) — Ээлж `/inventory/shifts`,
                                  Бэлгийн карт·кредит `/inventory/gift-cards`,
@@ -829,7 +829,7 @@ app/(dashboard)/inventory/sales  Борлуулалт (жагсаалт) — Э�
 app/(dashboard)/inventory/reports?tab=sales  Борлуулалтын тайлан (8 зүсэлт, COGS cost_period_results-ээс;
                                  топбарын сонгогч «Борлуулалтын тайлан (POS)»)
 components/pos/                  pos-checkout-view (orchestrator) + checkout/{product-panel, ticket-panel,
-                                 numpad, discount-dialog, parked-dialog}, payment-dialog, receipt-preview
+                                 discount-dialog, parked-dialog}, payment-dialog, receipt-preview
                                  (80мм хэвлэлт, usePosPrint); хуудас бүрийн харагдац ТУСДАА —
                                  sales-page-view → sales-list-view / shifts-view + shift-dialogs
                                  (нээх, хаах, Z-тайлан) / gift-cards-view / pos-settings-view
@@ -1044,6 +1044,17 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   `pos_settings.ewalletFeeAccountNumber`, default 73100008) — касс модуль ба GL
   хоёул тулна. Нийт нь тулгагдаагүй үлдэгдлээс хэтрэхгүй; шимтгэлийг ЗОХИОХГҮЙ
   (нийт − цэвэр = хуулгын бодит дүн). `get_pos_status` тулгагдаагүй дүнг заана
+- **Key-ийн АВТОМАТ сэргээлт** (2026-09-26, пилот: dashboard-ын UI-аас «API key
+  солих» Entry-ийн key-г хүчингүй болгож QR зогссон): dashboard интеграц бүрд
+  ТУСДАА key олгоно (`qpay-dashboard` `lib/client-keys.ts` — consent
+  `entry@<хост>`, partner `entry@<хост>#<org id>`; UI-ийн «солих» зөвхөн мерчантын
+  гар key-д). Entry 401 авбал `withQpayKeyRecovery` (`lib/qpay/partner.ts`) →
+  `POST …/partner/merchants/{id}/credentials` (partner key, `external_id` + `client_host`)
+  → шинэ key + одоогийн secret шифртэй → НЭГ удаа давтана; webhook-ийн гарын үсэг
+  таарахгүй (open intent) бол мөн сэргээж дахин шалгана. Cooldown байгууллагад
+  минутад нэг (`lib/qpay/recovery.ts` ЦЭВЭР, тесттэй); аудит `credentials_recovered`
+  / `credentials_recover_failed` (угтвар л). QPAY_PARTNER_KEY-гүй (dedicated) бол
+  [QPay дахин холбох] — алдааны мессеж замыг нэрлэнэ
 - **Нууц:** API key (`qpd_live_…`/`qpd_test_…`) ба webhook secret `encryptSecret`-ээр
   (`pos_settings.qpayApiKeyEnc/qpayWebhookSecretEnc`), зөвхөн `lib/qpay/store.ts`
   задална; `getQpayStatus` → `*Set: boolean`; аудит, лог, `/api/health.qpay`-д УТГА
@@ -2363,7 +2374,7 @@ AG Grid module init үед `document` хэрэгтэй. Бүх surface `DataGrid
 | Харилцагчийн сонгогч (shared) | [components/arap/counterparty-select.tsx](components/arap/counterparty-select.tsx) | АП ба PO панель хоёулаа ҮҮНИЙГ хэрэглэнэ — давхардсан сонгогч бичихгүй |
 | Хавсралтын жагсаалт (нийтлэг) | [components/attachments/attachment-list.tsx](components/attachments/attachment-list.tsx) | Зөвхөн ui-kit (`Button`, `IconAction`, `StatusBadge`, `EmptyState`, `useConfirm`) — шинэ icon бичихгүй |
 | Хавсралт — компакт мөр + popup | [components/attachments/attachment-section.tsx](components/attachments/attachment-section.tsx) | Панелиудын НЭГДСЭН хэрэглээ: `📎 Хавсралт · N` товч → `Dialog` дотор бүтэн жагсаалт |
-| POS кассын дэлгэц (v2, дэлгүүрийн POS) | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | **Хүснэгт БИШ** — хүрэлцэх дэлгэцийн ticket (AG Grid стандарт хамаарахгүй, баримтын preview-тэй ижил ангилал): зүүн `checkout/product-panel` (сканнер/хайлт, бүлгийн `FilterChips`, барааны tile), баруун `checkout/ticket-panel` (мөр сонгох, −/+/×, дүн, агуулах ЭЭЛЖИЙНХ (дундуур солихгүй), үнэгүй бараа «Үнэ тохируулаагүй»; `checkout/numpad` Тоо/Хөнг % — касс ҮНЭ ЗАСАХГҮЙ: барааны картын үнэ, жинлэдэгт кг-ийн үнэ × жин, буулгах нь хөнгөлөлтөөр; ТӨЛБӨР); `checkout/discount-dialog` (F4), `checkout/parked-dialog` (олон түр хадгалсан сагс); цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй); `quotePosSale` debounce 250мс (мөрийн дүн ШУУД `resolveLineAmounts`, эцсийн дүн серверийнх); баримт автомат хэвлэх (төхөөрөмжийн localStorage), Онлайн/Офлайн тэмдэг + баннер; сканнер = гар (input үргэлж focus-той); F9/F3/F4/F6/↑↓/+−/Delete/Esc (F2 = глобал «+ Шинэ») |
+| POS кассын дэлгэц (v2, дэлгүүрийн POS) | [components/pos/pos-checkout-view.tsx](components/pos/pos-checkout-view.tsx) | **Хүснэгт БИШ** — хүрэлцэх дэлгэцийн ticket (AG Grid стандарт хамаарахгүй, баримтын preview-тэй ижил ангилал): зүүн `checkout/product-panel` (сканнер/хайлт, бүлгийн `FilterChips`, барааны tile), баруун `checkout/ticket-panel` (мөр сонгох, −/+/×, дүн, агуулах ЭЭЛЖИЙНХ (дундуур солихгүй), үнэгүй бараа «Үнэ тохируулаагүй»; тоо −/+ эсвэл мөр дээр шууд бичих (numpad 2026-09-26-нд хасагдсан) — касс ҮНЭ ЗАСАХГҮЙ: барааны картын үнэ, жинлэдэгт кг-ийн үнэ × жин, буулгах нь хөнгөлөлтөөр; ТӨЛБӨР); `checkout/discount-dialog` (F4 — купон, баримтын ба мөрийн % хөнгөлөлт), `checkout/parked-dialog` (олон түр хадгалсан сагс); цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй); `quotePosSale` debounce 250мс (мөрийн дүн ШУУД `resolveLineAmounts`, эцсийн дүн серверийнх); баримт автомат хэвлэх (төхөөрөмжийн localStorage), Онлайн/Офлайн тэмдэг + баннер; сканнер = гар (input үргэлж focus-той); F9/F3/F4/F6/↑↓/+−/Delete/Esc (F2 = глобал «+ Шинэ») |
 | POS төлбөрийн диалог | [components/pos/payment-dialog.tsx](components/pos/payment-dialog.tsx) | Хэлбэрийн товчнууд, мөр бүрд дүн/лавлагаа/бэлгийн карт/кредит, хурдан бэлэн, Төлсөн/Үлдэгдэл/Хариулт (`roundToCashUnit`) — server `planPayments` эрх мэдэлтэй |
 | POS борлуулалтын жагсаалт | [components/pos/sales-list-view.tsx](components/pos/sales-list-view.tsx) | `FilterChips` статус + Борлуулалт/Буцаалт, огнооны муж (URL → cookie), давхар даралт → `pos-sale` панель |
 | POS ээлж / Z-тайлан | [components/pos/shifts-view.tsx](components/pos/shifts-view.tsx) | Ээлжийн grid, нээх/хаах диалог (`shift-dialogs.tsx`), тоолсон vs системийн бэлэн, зөрүү |

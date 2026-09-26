@@ -131,11 +131,12 @@ Cr COGS, `provisional_avg`), буцаан олголт: касс/банк хэл
   `/inventory/reports?tab=sales` (6 таб). `ModuleItem.configKey="pos"` —
   модуль унтраавал/эрх none бол эдгээр цэс нуугдана. Панель `pos-sale`.
 - Кассын дэлгэц v2 (§4.1): `PosCheckoutView` orchestrator →
-  `components/pos/checkout/{product-panel,ticket-panel,numpad,discount-dialog,parked-dialog}.tsx`;
+  `components/pos/checkout/{product-panel,ticket-panel,discount-dialog,parked-dialog}.tsx`;
   цэвэр төлөв `lib/pos/checkout-state.ts` — `addToCart`, `setLineQuantity`
   (≤0 → мөр хасагдана), `setLinePrice` / `setLineDiscountPercent` /
-  `setLineDiscountAmount` (% ба ₮ харилцан арилгана), `pressNumpad` /
-  `numpadValue` / `applyNumpad(cart, key, mode, buffer)`, `filterCheckoutItems`
+  `setLineDiscountAmount` (% ба ₮ харилцан арилгана), гараар бичих
+  оролт `parseQuantityInput` / `parseDiscountPercentInput` (numpad 2026-09-26-нд
+  хасагдсан), `filterCheckoutItems`
   (бүлэг + хайлт, яг таарсан код эхэнд), `resolveScan` (barcode → код → эхний
   илэрц), `parseStoredCart` / `parseParkedTickets` (localStorage-ийн шалгалттай
   уншилт, устсан бараа хасагдана), `parkTicket` / `unparkTicket` (≤ 20).

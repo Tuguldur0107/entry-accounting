@@ -27,7 +27,17 @@ import {
   type QpayPayoutAccount,
 } from "./provision";
 import type { QpayReferenceOption } from "./reference";
-import { ensureQpayPaymentMethod, loadQpayReadiness, qpayPartnerConfigured, qpayPartnerKey, qpayWebhookUrl } from "./store";
+import { clientHostOf, isQpayKeyRejected, takeRecoverySlot } from "./recovery";
+import {
+  ensureQpayPaymentMethod,
+  loadQpayReadiness,
+  publicAppUrl,
+  qpayPartnerConfigured,
+  qpayPartnerKey,
+  qpayWebhookUrl,
+  resolveQpayConfig,
+} from "./store";
+import type { QpayClientConfig } from "./client";
 
 export { qpayPartnerConfigured, qpayPartnerKey };
 
@@ -250,6 +260,98 @@ export interface ProvisionOutcome {
   setupLinkSent: boolean;
   /** Байгаа холбоос дээр key солиогүй (rotate биш) — нууц ирээгүй, хуучин key хэвээр. */
   credentialsUnchanged: boolean;
+}
+
+// ── Интеграцийн key-ийн АВТОМАТ сэргээлт (2026-09-26) ─────────────────────────
+// Dashboard-ын UI-аас key солих, өөр холболт г.м.-ээр Entry-ийн key хүчингүй
+// болбол (401) Partner API-аар ӨӨРИЙН интеграцийн key-г шинээр авч pos_settings-д
+// шифртэй хадгална — хэрэглэгч юу ч хийхгүй. Dashboard тал: lib/client-keys.ts,
+// `POST /api/partner/merchants/{id}/credentials` (эрх = холбоос ЭСВЭЛ consent).
+
+const recoveryAttempts = new Map<string, number>();
+
+/**
+ * Key-г сэргээж шинэчилсэн тохиргоог буцаана; боломжгүй (partner key алга,
+ * мерчант id алга, cooldown, dashboard татгалзсан) бол null — дуудагч анхны
+ * алдаагаа шиднэ. Нууц лог/аудитад ХЭЗЭЭ Ч орохгүй (зөвхөн угтвар).
+ */
+export async function recoverQpayCredentials(
+  orgId: string,
+  input: { reason: "api_key_rejected" | "webhook_signature"; userId: string }
+): Promise<PosSettings | null> {
+  if (!qpayPartnerConfigured()) return null;
+  const settings = await db.query.posSettings.findFirst({ where: eq(posSettings.organizationId, orgId) });
+  if (!settings?.qpayApiUrl || !settings.qpayMerchantId) return null;
+  if (!takeRecoverySlot(recoveryAttempts, orgId, Date.now())) return null;
+
+  const reasonLabel = input.reason === "api_key_rejected" ? "dashboard key-г таньсангүй (401)" : "webhook-ийн гарын үсэг таарсангүй";
+  let res: PartnerResponse<{ api_key?: string; webhook_secret?: string; api_key_prefix?: string; client_id?: string }>;
+  try {
+    res = await partnerCall(
+      settings.qpayApiUrl,
+      "POST",
+      `${QPAY_PARTNER_MERCHANTS_PATH}/${encodeURIComponent(settings.qpayMerchantId)}/credentials`,
+      { external_id: orgId, client_host: clientHostOf(publicAppUrl()) }
+    );
+  } catch (error) {
+    await logAuditEvent({
+      userId: input.userId,
+      organizationId: orgId,
+      action: "credentials_recover_failed",
+      entityType: "pos_settings",
+      entityId: settings.id,
+      summary: `QPay key автоматаар сэргээгдсэнгүй (${reasonLabel}) — ${error instanceof Error ? error.message : "сүлжээ"}`,
+    });
+    return null;
+  }
+  if (!res.ok || !res.data.api_key || !res.data.webhook_secret) {
+    await logAuditEvent({
+      userId: input.userId,
+      organizationId: orgId,
+      action: "credentials_recover_failed",
+      entityType: "pos_settings",
+      entityId: settings.id,
+      summary: `QPay key автоматаар сэргээгдсэнгүй (${reasonLabel}) — dashboard ${res.status}: ${res.data.error ?? "хариу дутуу"}`,
+    });
+    return null;
+  }
+  const patch = {
+    qpayApiKeyEnc: encryptSecret(res.data.api_key),
+    qpayWebhookSecretEnc: encryptSecret(res.data.webhook_secret),
+    updatedAt: new Date(),
+  };
+  await db.update(posSettings).set(patch).where(eq(posSettings.id, settings.id));
+  await logAuditEvent({
+    userId: input.userId,
+    organizationId: orgId,
+    action: "credentials_recovered",
+    entityType: "pos_settings",
+    entityId: settings.id,
+    summary: `QPay key автоматаар сэргээгдэв (${reasonLabel}) — ${res.data.api_key_prefix ?? "шинэ key"}…${
+      res.data.client_id ? `, ${res.data.client_id}` : ""
+    }`,
+  });
+  return { ...settings, ...patch };
+}
+
+/**
+ * Dashboard-ын дуудлага — 401 бол key-г сэргээгээд НЭГ удаа давтана. Сэргээж
+ * чадаагүй бол анхны алдаа (засах замыг нэрлэсэн) хэвээр шидэгдэнэ.
+ */
+export async function withQpayKeyRecovery<T>(
+  orgId: string,
+  settings: PosSettings,
+  userId: string,
+  call: (config: QpayClientConfig) => Promise<T>
+): Promise<T> {
+  try {
+    return await call(resolveQpayConfig(settings));
+  } catch (error) {
+    if (!isQpayKeyRejected(error)) throw error;
+    const fresh = await recoverQpayCredentials(orgId, { reason: "api_key_rejected", userId });
+    if (!fresh) throw error;
+    return call(resolveQpayConfig(fresh));
+  }
 }
 
 /**

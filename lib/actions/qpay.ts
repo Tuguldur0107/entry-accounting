@@ -19,6 +19,7 @@ import {
   provisionQpayMerchantForOrg,
   qpayPartnerConfigured,
   type ProvisionOutcome,
+  withQpayKeyRecovery,
 } from "@/lib/qpay/partner";
 import type { QpayReferenceOption } from "@/lib/qpay/reference";
 import { logAuditEvent } from "@/lib/audit";
@@ -50,7 +51,6 @@ import {
   publicAppUrl,
   qpayStatusSummary,
   qpayWebhookUrl,
-  resolveQpayConfig,
   setIntentStatus,
   toIntentView,
 } from "@/lib/qpay/store";
@@ -155,8 +155,8 @@ export async function testQpayConnection(): Promise<
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
     const settings = await ensurePosSettings(orgId, userId);
-    const config = resolveQpayConfig(settings);
-    const result = await listDashboardInvoices(config, 5);
+    // 401 → key автоматаар сэргээгдэж НЭГ удаа давтана (withQpayKeyRecovery).
+    const result = await withQpayKeyRecovery(orgId, settings, userId, (config) => listDashboardInvoices(config, 5));
     if (result.merchantId && result.merchantId !== settings.qpayMerchantId)
       await db.update(posSettings).set({ qpayMerchantId: result.merchantId }).where(eq(posSettings.id, settings.id));
     return { merchantId: result.merchantId, recentInvoices: result.invoices.length, webhookUrl: qpayWebhookUrl() };
@@ -240,7 +240,6 @@ export async function createQpayIntent(input: CreateQpayIntentInput): Promise<Ac
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
     const settings = await ensurePosSettings(orgId, userId);
     if (!settings.qpayEnabled) throw new QpayError(QPAY_ERRORS.disabled, "QPay идэвхгүй байна (Тохиргоо → QPay)");
-    const config = resolveQpayConfig(settings);
     const amount = invoiceAmountOf(Number(input.amount));
     if (!amount) throw new Error("QPay дүн 0-ээс их бүхэл ₮ байна");
     const shift = await db.query.posShifts.findFirst({
@@ -271,13 +270,17 @@ export async function createQpayIntent(input: CreateQpayIntentInput): Promise<Ac
       })
       .returning();
     try {
-      const invoice = await createDashboardInvoice(config, {
-        senderInvoiceNo: row.id,
-        amount,
-        description: `${shift.documentNo} POS төлбөр`,
-        callbackUrl: qpayWebhookUrl(row.id),
-        payoutAccountNumber,
-      });
+      // 401 бол key сэргээгдэж давтагдана — анхны оролдлого auth-д унасан тул
+      // dashboard-д нэхэмжлэх үүсээгүй (давхар QR үүсэхгүй).
+      const invoice = await withQpayKeyRecovery(orgId, settings, userId, (config) =>
+        createDashboardInvoice(config, {
+          senderInvoiceNo: row.id,
+          amount,
+          description: `${shift.documentNo} POS төлбөр`,
+          callbackUrl: qpayWebhookUrl(row.id),
+          payoutAccountNumber,
+        })
+      );
       const [updated] = await db
         .update(posQpayIntents)
         .set({
@@ -342,8 +345,10 @@ export async function checkQpayIntent(intentId: string): Promise<ActionResult<{ 
       if (!checkAllowed(row.lastCheckAt, now))
         throw new Error(`[${QPAY_ERRORS.checkThrottled}] 10 секунд тутамд нэг удаа шалгана`);
       await db.update(posQpayIntents).set({ lastCheckAt: now }).where(eq(posQpayIntents.id, row.id));
-      const config = resolveQpayConfig(settings);
-      const check = await checkDashboardPayment(config, row.qpayInvoiceId);
+      const invoiceId = row.qpayInvoiceId;
+      const check = await withQpayKeyRecovery(orgId, settings, userId, (config) =>
+        checkDashboardPayment(config, invoiceId)
+      );
       if (check.paid) {
         const result = await markIntentPaid(orgId, row.id, {
           paidAmount: check.paidAmount,
@@ -383,7 +388,8 @@ export async function cancelQpayIntent(intentId: string): Promise<ActionResult<{
       let lastError: string | null = null;
       if (row.qpayInvoiceId) {
         try {
-          await cancelDashboardInvoice(resolveQpayConfig(settings), row.qpayInvoiceId);
+          const invoiceId = row.qpayInvoiceId;
+          await withQpayKeyRecovery(orgId, settings, userId, (config) => cancelDashboardInvoice(config, invoiceId));
         } catch (error) {
           lastError = error instanceof Error ? error.message : "cancel";
         }

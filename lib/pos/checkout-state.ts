@@ -36,14 +36,6 @@ export interface CartItemLike {
   salesPrice: number | null;
 }
 
-/** Numpad-ийн горим: сонгосон мөрийн аль талбарт бичих вэ. */
-export type NumpadMode = "qty" | "discount";
-
-export const NUMPAD_MODE_LABELS: Record<NumpadMode, string> = {
-  qty: "Тоо",
-  discount: "Хөнг %",
-};
-
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /**
@@ -196,47 +188,31 @@ export function removeLine(cart: CartRow[], key: string): CartRow[] {
   return cart.filter((row) => row.key !== key);
 }
 
-// ── Numpad ──────────────────────────────────────────────────────────────────
-
-export type NumpadKey = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "." | "⌫";
+// ── Гараар бичих оролт ──────────────────────────────────────────────────────
 
 /**
- * Буферт товч нэмнэ: давхар цэг үгүй, тэргүүний 0 солигдоно ("0" → "5" = "5",
- * "0." хэвээр), ⌫ сүүлийн тэмдэгтийг хасна. 12 тэмдэгтээс уртсахгүй.
+ * Мөрийн ТОО-г гараар бичсэн текстээс уншина («1,5» ба «1.5» хоёулаа — жинлэдэг
+ * бараа). Хоосон / тоо биш / сөрөг → null (дуудагч хуучин утгаа үлдээнэ); 0 →
+ * 0 (мөр хасагдана — `setLineQuantity`). 4 оронгоор бөөрөнхийлнө (харагдацтай ижил).
  */
-export function pressNumpad(buffer: string, key: NumpadKey): string {
-  if (key === "⌫") return buffer.slice(0, -1);
-  if (key === ".") return buffer.includes(".") ? buffer : buffer === "" ? "0." : `${buffer}.`;
-  if (buffer.length >= 12) return buffer;
-  if (buffer === "0") return key;
-  return `${buffer}${key}`;
-}
-
-/** Буферийн тоон утга; хоосон / "." → null. */
-export function numpadValue(buffer: string): number | null {
-  if (buffer === "" || buffer === "." || buffer === "0.") return buffer === "0." ? 0 : null;
-  const value = Number(buffer);
-  return Number.isFinite(value) ? value : null;
+export function parseQuantityInput(text: string): number | null {
+  const normalized = text.trim().replace(/\s+/g, "").replace(",", ".");
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(normalized)) return null;
+  const value = Number(normalized);
+  if (!Number.isFinite(value) || value < 0 || value > 1_000_000) return null;
+  return Math.round(value * 10_000) / 10_000;
 }
 
 /**
- * Буферийг сонгосон мөрд горимоор нь оруулна. Тоо 0 → мөр хасагдана; хөнгөлөлт
- * >100 → өөрчлөлтгүй.
+ * Мөрийн хөнгөлөлтийн % — хоосон бол null (хөнгөлөлтгүй), 0–100 хооронд л;
+ * гажиг утга → undefined (дуудагч өөрчлөхгүй).
  */
-export function applyNumpad(
-  cart: CartRow[],
-  key: string,
-  mode: NumpadMode,
-  buffer: string
-): CartRow[] {
-  const value = numpadValue(buffer);
-  if (value == null) return cart;
-  switch (mode) {
-    case "qty":
-      return setLineQuantity(cart, key, value);
-    case "discount":
-      return setLineDiscountPercent(cart, key, value);
-  }
+export function parseDiscountPercentInput(text: string): number | null | undefined {
+  const normalized = text.trim().replace(",", ".");
+  if (normalized === "") return null;
+  const value = Number(normalized);
+  if (!Number.isFinite(value) || value < 0 || value > 100) return undefined;
+  return value === 0 ? null : value;
 }
 
 // ── Хайлт / сканнер ─────────────────────────────────────────────────────────
