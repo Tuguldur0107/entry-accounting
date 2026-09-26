@@ -9,7 +9,7 @@
 //
 // Ханш ЗОХИОГДОХГҮЙ — хэрэглэгч валют бүрд гараар оруулна (дэлгүүрийн ханш).
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { usePosPrint } from "@/components/pos/receipt-preview";
@@ -30,6 +30,12 @@ import { FormField } from "@/components/ui/form-field";
 import { closeShift, openShift } from "@/lib/actions/pos";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { isLargeShiftVariance, shiftVarianceThreshold } from "@/lib/pos/shift-variance";
+import {
+  SHIFT_DEVICE_STORAGE_KEY,
+  parseShiftDevicePicks,
+  pickShiftDefaults,
+  rememberShiftDevicePick,
+} from "@/lib/pos/shift-device";
 import type { PosShiftView } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
 
@@ -58,6 +64,28 @@ const fmtTime = (iso: string | null) => {
 //
 // НЭГ ТОВЧНЫ нээлт (docs/pos §4.1 v2): касс / агуулах / эхний мөнгө нь сүүлийн
 // ээлжээс default-оор бөглөгдөнө — кассчин ихэнхдээ зөвхөн «Ээлж нээх» дарна.
+// Олон салбартай бол ЭНЭ ТӨХӨӨРӨМЖ дээр сүүлд нээсэн касс / агуулах түрүүлнэ
+// (lib/pos/shift-device.ts, localStorage) — салбар бүрийн PC өөрийнхөө салбарыг.
+// Эхний мөнгөний санал нь сүүлийн ээлжийн КАССТАЙ таарвал л (өөр салбарын
+// тоолсон бэлэн санал болгохгүй).
+
+function readDevicePicks() {
+  try {
+    const raw = window.localStorage.getItem(SHIFT_DEVICE_STORAGE_KEY);
+    return parseShiftDevicePicks(raw ? JSON.parse(raw) : null);
+  } catch {
+    return [];
+  }
+}
+
+function saveDevicePick(cashAccountId: string, warehouseId: string) {
+  try {
+    const next = rememberShiftDevicePick(readDevicePicks(), { cashAccountId, warehouseId });
+    window.localStorage.setItem(SHIFT_DEVICE_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Хувийн цонх / хаалттай storage — санамжгүй ч ээлж нээгдэнэ.
+  }
+}
 // Валютын ханш хумигдсан (валютын касс байвал л товч гарна); ханш ЗОХИОГДОХГҮЙ.
 
 export function OpenShiftForm({
@@ -97,19 +125,53 @@ export function OpenShiftForm({
     () => [...new Set(cashAccounts.map((a) => a.currency).filter((c) => c !== "MNT"))],
     [cashAccounts]
   );
-  const [cashAccountId, setCashAccountId] = useState(
-    defaultCashAccountId && mntAccounts.some((a) => a.id === defaultCashAccountId)
-      ? defaultCashAccountId
-      : (mntAccounts[0]?.id ?? "")
-  );
-  const [warehouseId, setWarehouseId] = useState(
-    defaultWarehouseId && warehouses.some((w) => w.id === defaultWarehouseId)
-      ? defaultWarehouseId
-      : (warehouses[0]?.id ?? "")
-  );
-  const [openingFloat, setOpeningFloat] = useState(
-    defaultOpeningFloat != null && defaultOpeningFloat >= 0 ? String(defaultOpeningFloat) : "0"
-  );
+  // SSR-тэй ижил анхны утга (байгууллагын сүүлийн ээлж) — төхөөрөмжийн санамжийг
+  // mount-ын дараа л уншина (hydration зөрөхгүй).
+  const initial = pickShiftDefaults({
+    devicePicks: [],
+    cashAccountIds: mntAccounts.map((a) => a.id),
+    warehouseIds: warehouses.map((w) => w.id),
+    fallbackCashAccountId: defaultCashAccountId,
+    fallbackWarehouseId: defaultWarehouseId,
+  });
+  const [cashAccountId, setCashAccountIdState] = useState(initial.cashAccountId);
+  const [warehouseId, setWarehouseIdState] = useState(initial.warehouseId);
+  /** Эхний мөнгөний санал зөвхөн сүүлийн ээлжийн КАССАД хамаарна. */
+  const floatFor = (id: string) =>
+    defaultOpeningFloat != null &&
+    defaultOpeningFloat >= 0 &&
+    (!defaultCashAccountId || id === defaultCashAccountId)
+      ? String(defaultOpeningFloat)
+      : "0";
+  const [openingFloat, setOpeningFloat] = useState(() => floatFor(initial.cashAccountId));
+  const floatTouched = useRef(false);
+  const selectionTouched = useRef(false);
+
+  const applyCashAccount = (id: string) => {
+    setCashAccountIdState(id);
+    if (!floatTouched.current) setOpeningFloat(floatFor(id));
+  };
+  const setCashAccountId = (id: string) => {
+    selectionTouched.current = true;
+    applyCashAccount(id);
+  };
+  const setWarehouseId = (id: string) => {
+    selectionTouched.current = true;
+    setWarehouseIdState(id);
+  };
+
+  useEffect(() => {
+    const device = pickShiftDefaults({
+      devicePicks: readDevicePicks(),
+      cashAccountIds: mntAccounts.map((a) => a.id),
+      warehouseIds: warehouses.map((w) => w.id),
+    });
+    if (!device.fromDevice || selectionTouched.current) return;
+    applyCashAccount(device.cashAccountId);
+    setWarehouseIdState(device.warehouseId);
+    // Зөвхөн mount-д нэг удаа — дараагийн сонголт хэрэглэгчийнх.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [showFx, setShowFx] = useState(false);
@@ -143,6 +205,7 @@ export function OpenShiftForm({
         toast.error(result.error ?? "Ээлж нээгдсэнгүй");
         return;
       }
+      saveDevicePick(cashAccountId, warehouseId);
       toast.success(`${result.documentNo} ээлж нээгдлээ`);
       onDone({ id: result.id, documentNo: result.documentNo });
     });
@@ -212,10 +275,15 @@ export function OpenShiftForm({
           autoFocus={autoFocus}
           value={openingFloat}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => setOpeningFloat(event.target.value)}
+          onChange={(event) => {
+            floatTouched.current = true;
+            setOpeningFloat(event.target.value);
+          }}
           className="h-11 font-mono text-right text-lg"
         />
-        {openingHint && <p className="text-[11px] text-[var(--ea-text-3)]">{openingHint}</p>}
+        {openingHint && (!defaultCashAccountId || cashAccountId === defaultCashAccountId) && (
+          <p className="text-[11px] text-[var(--ea-text-3)]">{openingHint}</p>
+        )}
       </FormField>
 
       {showFx ? (
