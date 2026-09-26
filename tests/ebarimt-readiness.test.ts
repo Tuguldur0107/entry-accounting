@@ -76,6 +76,17 @@ test("НӨАТ-гүй / 0% бараанд татварын бүтээгдэхү�
   assert.equal(result.items.count, 0, "ангилалын код тусдаа тоологдоно");
 });
 
+test("НӨАТ төлөгч бус байгууллага: бүх мөр NOT_VAT — татварын бүтээгдэхүүний код шаардахгүй", () => {
+  const result = ebarimtReadiness({
+    items: [item({ name: "Эм", vatMode: "exempt" }), item({ name: "Экспорт", vatMode: "zero" })],
+    categories: [],
+    paymentMethods: [CASH],
+    isVatPayer: false,
+  });
+  assert.equal(result.taxProduct.count, 0);
+  assert.equal(result.ready, true);
+});
+
 test("төлбөрийн хэлбэрийн код дутуу", () => {
   const result = ebarimtReadiness({
     items: [],

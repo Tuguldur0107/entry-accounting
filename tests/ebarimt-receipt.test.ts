@@ -277,14 +277,13 @@ test("stripReceiptSecrets: сугалаа ба QR хадгалагдахгүй �
 });
 
 test("initialSaleEbarimtStatus — кассчины «илгээхгүй» сонголт, гар ДДТД, унтраалттай", () => {
-  const base = { enabled: true, isVatPayer: true, manualId: null, skip: false };
+  const base = { enabled: true, manualId: null, skip: false };
   assert.deepEqual(initialSaleEbarimtStatus(base), { status: "pending", autoSend: true });
   assert.deepEqual(initialSaleEbarimtStatus({ ...base, skip: true }), { status: "skipped", autoSend: false });
   // Гар ДДТД бүхнээс давамгайлна — skip байсан ч manual.
   assert.deepEqual(initialSaleEbarimtStatus({ ...base, skip: true, manualId: "1234567890" }), { status: "manual", autoSend: false });
-  // eBarimt унтраалттай / НӨАТ төлөгч бус → skip нөлөөгүй, null.
+  // eBarimt унтраалттай → skip нөлөөгүй, null.
   assert.deepEqual(initialSaleEbarimtStatus({ ...base, enabled: false, skip: true }), { status: null, autoSend: false });
-  assert.deepEqual(initialSaleEbarimtStatus({ ...base, isVatPayer: false }), { status: null, autoSend: false });
 });
 
 test("баркодын төрөл: барааны картаас, танигдахгүй бол UNDEFINED", async () => {

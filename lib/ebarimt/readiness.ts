@@ -62,6 +62,11 @@ export interface EbarimtReadinessInput {
   items: ReadinessItem[];
   categories: ReadinessCategory[];
   paymentMethods: ReadinessPaymentMethod[];
+  /**
+   * НӨАТ төлөгч бус байгууллагын бүх мөр `NOT_VAT` (receipt.ts taxTypeOf) —
+   * татварын бүтээгдэхүүний код шаардагдахгүй. Өгөөгүй бол төлөгч гэж үзнэ.
+   */
+  isVatPayer?: boolean;
 }
 
 /** Нэг бүлгийн дутуу — тоо + жишээ нэрс (UI-д бүгдийг нь асгахгүй). */
@@ -129,7 +134,7 @@ export function ebarimtReadiness(input: EbarimtReadinessInput): EbarimtReadiness
     if (!classification || !CLASSIFICATION_CODE_RE.test(classification)) {
       missingClassification.push(item.name);
     }
-    if (item.vatMode === "exempt" || item.vatMode === "zero") {
+    if (input.isVatPayer !== false && (item.vatMode === "exempt" || item.vatMode === "zero")) {
       const taxProduct = item.ebarimtTaxProductCode?.trim() ?? "";
       if (!TAX_PRODUCT_CODE_RE.test(taxProduct)) missingTaxProduct.push(item.name);
     }

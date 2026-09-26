@@ -7,6 +7,8 @@
 //        ТЕГ-ээс ТТД + НЭР автоматаар (lib/pos/ebarimt-buyer.ts; регистрээр лавлах 2026-06-15-аас хязгаарлагдана)
 //   ☐ НӨАТ            → НӨАТ-гүй борлуулалт: НӨАТ задлахгүй, eBarimt үүсэхгүй,
 //                       тусдаа орлого/авлагын данс, ШАЛТГААН заавал (lib/pos/non-vat.ts)
+// НӨАТ төлөгч БУС байгууллага (eBarimt асаалттай): checkbox-гүй «eBarimt» мөр —
+//   баримт NOT_VAT, НӨАТ 0 (хууль ёсоор баримт олгоно); НӨАТ-гүй борлуулалтын горим байхгүй.
 // Төлөв нь кассын дэлгэцэд (pos-checkout-view) — энд зөвхөн харагдац.
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +17,7 @@ import type { BuyerState, BuyerType } from "@/lib/pos/ebarimt-buyer";
 import { NON_VAT_REASON_PRESETS } from "@/lib/pos/non-vat";
 
 export function VatReceiptBar({
+  isVatPayer,
   vatReceipt,
   onVatReceiptChange,
   nonVatReason,
@@ -26,6 +29,8 @@ export function VatReceiptBar({
   onOrgNoChange,
   problem,
 }: {
+  /** НӨАТ төлөгч эсэх — бус бол «☐ НӨАТ» сонголт гарахгүй (баримт NOT_VAT). */
+  isVatPayer: boolean;
   vatReceipt: boolean;
   onVatReceiptChange: (value: boolean) => void;
   nonVatReason: string;
@@ -48,15 +53,21 @@ export function VatReceiptBar({
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex cursor-pointer select-none items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
-          <input
-            type="checkbox"
-            className="size-4 accent-[var(--ea-primary)]"
-            checked={vatReceipt}
-            onChange={(event) => onVatReceiptChange(event.target.checked)}
-          />
-          НӨАТ{ebarimtEnabled ? " (eBarimt)" : ""}
-        </label>
+        {isVatPayer ? (
+          <label className="flex cursor-pointer select-none items-center gap-2 text-sm font-semibold text-[var(--ea-text-1)]">
+            <input
+              type="checkbox"
+              className="size-4 accent-[var(--ea-primary)]"
+              checked={vatReceipt}
+              onChange={(event) => onVatReceiptChange(event.target.checked)}
+            />
+            НӨАТ{ebarimtEnabled ? " (eBarimt)" : ""}
+          </label>
+        ) : (
+          <span className="text-sm font-semibold text-[var(--ea-text-1)]">
+            eBarimt <span className="font-normal text-[var(--ea-text-3)]">· НӨАТ төлөгч бус (НӨАТ 0)</span>
+          </span>
+        )}
         {vatReceipt && ebarimtEnabled && (
           <div className="ml-auto flex gap-1">
             <Button
@@ -125,7 +136,7 @@ export function VatReceiptBar({
         <div className="text-xs text-[var(--ea-danger-fg)]">{problem}</div>
       )}
 
-      {!vatReceipt && (
+      {isVatPayer && !vatReceipt && (
         <div className="space-y-1.5">
           <div className="text-xs text-[var(--ea-warning-fg)]">
             НӨАТ-гүй борлуулалт — НӨАТ задлахгүй, eBarimt үүсэхгүй, тусдаа орлого/авлагын дансаар бичигдэнэ
