@@ -1022,6 +1022,17 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   `pos_settings.ewalletFeeAccountNumber`, default 73100008) — касс модуль ба GL
   хоёул тулна. Нийт нь тулгагдаагүй үлдэгдлээс хэтрэхгүй; шимтгэлийг ЗОХИОХГҮЙ
   (нийт − цэвэр = хуулгын бодит дүн). `get_pos_status` тулгагдаагүй дүнг заана
+- **Key-ийн АВТОМАТ сэргээлт** (2026-09-26, пилот: dashboard-ын UI-аас «API key
+  солих» Entry-ийн key-г хүчингүй болгож QR зогссон): dashboard интеграц бүрд
+  ТУСДАА key олгоно (`qpay-dashboard` `lib/client-keys.ts` — consent
+  `entry@<хост>`, partner `entry@<хост>#<org id>`; UI-ийн «солих» зөвхөн мерчантын
+  гар key-д). Entry 401 авбал `withQpayKeyRecovery` (`lib/qpay/partner.ts`) →
+  `POST …/partner/merchants/{id}/credentials` (partner key, `external_id` + `client_host`)
+  → шинэ key + одоогийн secret шифртэй → НЭГ удаа давтана; webhook-ийн гарын үсэг
+  таарахгүй (open intent) бол мөн сэргээж дахин шалгана. Cooldown байгууллагад
+  минутад нэг (`lib/qpay/recovery.ts` ЦЭВЭР, тесттэй); аудит `credentials_recovered`
+  / `credentials_recover_failed` (угтвар л). QPAY_PARTNER_KEY-гүй (dedicated) бол
+  [QPay дахин холбох] — алдааны мессеж замыг нэрлэнэ
 - **Нууц:** API key (`qpd_live_…`/`qpd_test_…`) ба webhook secret `encryptSecret`-ээр
   (`pos_settings.qpayApiKeyEnc/qpayWebhookSecretEnc`), зөвхөн `lib/qpay/store.ts`
   задална; `getQpayStatus` → `*Set: boolean`; аудит, лог, `/api/health.qpay`-д УТГА

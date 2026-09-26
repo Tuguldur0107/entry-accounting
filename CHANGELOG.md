@@ -19,6 +19,14 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   Production-ийг Railway service `knowledge-sync` (entry-knowledge repo, token-гүй,
   push бүрд) бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env тавихгүй.
 
+### Fixed
+
+- **QPay key автоматаар сэргэнэ** (Хос Хасын пилот: dashboard-ын UI-аас «API key
+  солих» дарагдаж QR үүсэхгүй болсон). Dashboard интеграц бүрд тусдаа key олгодог
+  болсон тул UI-ийн солилт Entry-г тасалдуулахгүй; Entry 401 / webhook-ийн гарын
+  үсэг таарахгүй үед Partner API-аар өөрийн key + secret-ээ сэргээж НЭГ удаа давтана
+  (`withQpayKeyRecovery`, cooldown минутад нэг, аудит `credentials_recovered`).
+
 ### Removed
 
 - **Кассын numpad хасагдсан** (QPay пилотын санал): мөр сонгоогүй үед товч идэвхгүй,
