@@ -84,3 +84,39 @@ test("eBarimt код: хоосон QPay хэлбэрт BANK_TRANSFER_QPAY нөх
   });
   assert.equal(legacyCaller.updateMethod, null);
 });
+
+test("гараар үүсгэсэн провайдергүй QPAY ewallet → ШИНЭ хэлбэр үүсгэхгүй, QR горимд оруулна", () => {
+  const plan = planQpaySeed({
+    methods: [
+      { id: "m0", code: "CASH", kind: "cash", provider: null, cashAccountId: "c1", isActive: true },
+      { id: "m1", code: "QPAY", kind: "ewallet", provider: null, cashAccountId: "b1", isActive: true, ebarimtCode: "BANK_TRANSFER_QPAY" },
+    ],
+    cashAccounts: [bank, cashBox],
+  });
+  assert.equal(plan.createMethod, null);
+  assert.equal(plan.createAccount, null);
+  assert.deepEqual(plan.updateMethod, { id: "m1", adopt: true });
+  assert.ok(plan.notes.some((n) => n.includes("QR")));
+});
+
+test("провайдергүй QPAY — өөр дансанд холбоотой, QPay нэртэй данс алга → данс зохиохгүй, adopt хэвээр", () => {
+  const plan = planQpaySeed({
+    methods: [{ id: "m1", code: "QPAY", kind: "ewallet", provider: null, cashAccountId: "other", isActive: false }],
+    cashAccounts: [cashBox],
+  });
+  assert.equal(plan.createAccount, null);
+  assert.deepEqual(plan.updateMethod, { id: "m1", adopt: true, isActive: true });
+  assert.ok(!plan.notes.some((n) => n.includes("үүсэв")));
+});
+
+test("провайдертэй QPay байвал гараар үүсгэсэн QPAY-г хөндөхгүй", () => {
+  const plan = planQpaySeed({
+    methods: [
+      { id: "m1", code: "QPAY", kind: "ewallet", provider: null, cashAccountId: "b1", isActive: true },
+      { id: "m2", code: "QPAY-5UNL", kind: "ewallet", provider: "qpay", cashAccountId: "b1", isActive: true },
+    ],
+    cashAccounts: [bank],
+  });
+  assert.equal(plan.updateMethod, null);
+  assert.equal(plan.createMethod, null);
+});

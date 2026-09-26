@@ -48,7 +48,7 @@ export default function SystemPage() {
         <div>
           <h2 className="text-sm font-semibold text-[var(--ea-text-1)]">Интеграцийн цэгүүд</h2>
           <p className="mt-0.5 text-xs text-[var(--ea-text-3)]">
-            Token: AI холболт (/ai) → Token. Дэлгэрэнгүй docs/deployment/api-integration.md
+            Token: Тохиргоо → AI холболт (/settings/ai) → Token. Дэлгэрэнгүй docs/deployment/api-integration.md
           </p>
         </div>
         <dl className="grid gap-2 text-xs sm:grid-cols-[180px_1fr]">

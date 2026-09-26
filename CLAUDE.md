@@ -646,6 +646,10 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   readiness `seedOnEnable` (default) хэлбэр/данс дутууг warning гэж үзнэ, seed-ийн
   ДАРАА `seedOnEnable:false` хатуу шалгана. eBarimt код `BANK_TRANSFER_QPAY`
   (PosAPI 3.0 албан жагсаалт, 2026-09-25 — урьд null); кодгүй байгаа QPay хэлбэрт нөхнө, хэрэглэгчийн оноосныг хөндөхгүй
+  Провайдергүй, кодоороо `QPAY…` гэсэн ewallet (асаахаас ӨМНӨ гараар үүсгэсэн,
+  лавлах асуудаг) байвал ШИНЭ хэлбэр үүсгэхгүй — түүнийг `provider "qpay"` +
+  лавлах заавал биш болгож QR горимд оруулна (`adopt`; кассанд хоёр QPay товч
+  гарахаас сэргийлнэ — Хос Хас 2026-09-26)
 - **Автомат бүртгэл — Partner API** (`docs/deployment/qpay.md` §2b, plan §3.7;
   dashboard `docs/API.md` «Partner»): `lib/qpay/provision.ts` ЦЭВЭР (тесттэй —
   `buildQpayProvisionPlan`: регистрээс company/person, дутууг МОНГОЛООР нэрлэнэ,

@@ -563,7 +563,7 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
       tone: "default",
       title: `API token «${token.name}» ${daysLeft === 0 ? "өнөөдөр" : `${daysLeft} хоногийн дараа`} дуусна`,
       detail: "MCP / REST холболт таслагдахаас өмнө шинэ token үүсгэнэ.",
-      href: "/ai/settings",
+      href: "/settings/ai",
       action: "MCP холболт руу",
       surfaces: ["daily"],
       notify: {

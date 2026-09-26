@@ -45,6 +45,7 @@ const EXPECTED: Record<string, { module?: string[]; role?: string }> = {
   tax: { module: ["tax"] },
   payroll: { module: ["payroll"] },
   ai: { module: ["ai"] },
+  "settings/ai": { module: ["ai"] },
   admin: { role: "admin" },
   "settings/permissions": { role: "admin" },
 };

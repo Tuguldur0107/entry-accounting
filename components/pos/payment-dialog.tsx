@@ -20,7 +20,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SwitchField } from "@/components/ui/form-field";
+import { FormField, SwitchField } from "@/components/ui/form-field";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { getGiftCardsAndCredits } from "@/lib/actions/pos";
@@ -36,6 +37,8 @@ import { QPAY_PROVIDER } from "@/lib/qpay/constants";
 import type { CreatePosSaleInput } from "@/lib/actions/pos";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
+/** Харилцагч заавал шаардах төлбөрийн хэлбэр (авлага / өглөгтэй холбогдоно). */
+const CUSTOMER_REQUIRED_KINDS = new Set(["credit", "advance", "store_credit"]);
 const EPS = 0.005;
 
 interface PaymentRow {
@@ -73,6 +76,8 @@ export function PaymentDialog({
   total,
   documentLabel,
   customer,
+  customerOptions = [],
+  onCustomerChange,
   shift,
   cashRoundingUnit,
   ebarimtEnabled = false,
@@ -90,6 +95,9 @@ export function PaymentDialog({
   total: number;
   documentLabel?: string;
   customer: CheckoutCustomer | null;
+  /** Зээл / урьдчилгаа / кредит мөртэй үед сонгох харилцагчид («Бэлэн худалдан авагч»-гүй). */
+  customerOptions?: SearchableOption[];
+  onCustomerChange?: (id: string) => void;
   shift: PosShiftView | null;
   cashRoundingUnit: number;
   /** Энэ борлуулалтад eBarimt үүсэх эсэх (eBarimt асаалттай + «НӨАТ» асаалттай). */
@@ -158,6 +166,11 @@ export function PaymentDialog({
   );
   const methodById = useMemo(() => new Map(methods.map((m) => [m.id, m])), [methods]);
   const isWalkIn = !customer || customer.isWalkIn;
+  // Харилцагч ЗӨВХӨН авлага/өглөгтэй холбогдох хэлбэрт (зээл, урьдчилгаа, кредит) —
+  // ердийн борлуулалт дотоод «Бэлэн худалдан авагч»-аар (кассын дэлгэцэд сонгогч байхгүй).
+  const needsCustomer = rows.some((row) =>
+    CUSTOMER_REQUIRED_KINDS.has(methodById.get(row.paymentMethodId)?.kind ?? "")
+  );
 
   // Нээгдэх бүрд эцэг `key`-ээр remount хийдэг тул мөрүүд цэвэр эхэлнэ.
 
@@ -219,7 +232,7 @@ export function PaymentDialog({
       } else nonCashBase += base;
       if (method.requiresReference && !row.reference.trim())
         warnings.push(`${method.name}: лавлах дугаар заавал`);
-      if (["credit", "advance", "store_credit"].includes(method.kind) && isWalkIn)
+      if (CUSTOMER_REQUIRED_KINDS.has(method.kind) && isWalkIn)
         warnings.push(`${method.name}: харилцагч заавал сонгоно`);
       if (method.kind === "credit" && customer?.creditLimit != null)
         warnings.push(
@@ -323,7 +336,15 @@ export function PaymentDialog({
       <DialogContent
         className="max-h-[92vh] overflow-y-auto sm:max-w-2xl"
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !(event.target instanceof HTMLTextAreaElement)) {
+          // Enter = батлах — харин сонгогчийн хайлт (Enter-ээр сонголт хийж
+          // preventDefault хийдэг, portal нь React-аар bubble хийнэ) болон товчнууд
+          // (Enter нь тэр товчийг л дарна) батлалт ЭХЛҮҮЛЭХГҮЙ.
+          if (
+            event.key === "Enter" &&
+            !event.defaultPrevented &&
+            !(event.target instanceof HTMLTextAreaElement) &&
+            !(event.target instanceof HTMLButtonElement)
+          ) {
             event.preventDefault();
             void submit();
           }
@@ -472,6 +493,19 @@ export function PaymentDialog({
             );
           })}
         </div>
+
+        {needsCustomer && onCustomerChange && (
+          <FormField label="Харилцагч (авлага / өглөг)" hint="Зээл, урьдчилгаа, кредит нь энэ харилцагчийн тооцоонд бичигдэнэ">
+            <SearchableSelect
+              value={isWalkIn ? "" : (customer?.id ?? "")}
+              onChange={onCustomerChange}
+              options={customerOptions}
+              hideValue
+              placeholder="— Харилцагч сонгох —"
+              emptyLabel="Харилцагч олдсонгүй — Авлага → Харилцагч-д бүртгэнэ"
+            />
+          </FormField>
+        )}
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-[var(--ea-bg)] px-3 py-2 text-sm">
           <span>

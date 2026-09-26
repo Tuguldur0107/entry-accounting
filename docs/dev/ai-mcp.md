@@ -7,13 +7,13 @@
 **2026-09-25: апп доторх AI чат (BYO API түлхүүр, Anthropic/OpenAI adapter,
 `ai_messages`) хасагдсан.** Хэрэглэгч ӨӨРИЙН ChatGPT / Claude-оос MCP-ээр
 (§9b) ижил tool давхаргаар ажиллана — Entry AI-ийн API зардал төлөхгүй,
-хэрэглэгч түлхүүр хуулахгүй. Вэбийн `/ai` = «AI холболт» НЭГ хуудас
+хэрэглэгч түлхүүр хуулахгүй. Вэбийн `/settings/ai` = Тохиргоо → «AI холболт» НЭГ хуудас (2026-09-26 хүртэл тусдаа модуль `/ai` байв)
 (`components/ai/ai-connect-view.tsx`): ① холбох заавар (`components/skills/
 connect-guide` — AI нягтлантай НЭГ), ② бичилтийн горим (`lib/ai/write-mode.ts`
 ЦЭВЭР, `write-mode-store.ts` DB, `actions/ai-write-mode.ts` — ноорог / шууд
 бичих, `ai_settings.write_mode`, MCP ба REST-д НЭГ, аудитад бичигдэнэ),
 ③ token (Claude Code / Codex); мөн «Эхлээд ингэж асуу» бэлэн асуултууд
-(`#starter-prompts`). `/ai/settings` → `/ai` redirect. Модулийн
+(`#starter-prompts`). `/ai`, `/ai/settings` → `/settings/ai` redirect. Модулийн
 түлхүүр `ai` ХЭВЭЭР (эрхийн бүртгэл хөндөгдөхгүй), нэр «AI холболт»; багцын
 `ai` боломж ХАСАГДСАН (`mcp` + `knowledge` л). Топбарын AI товч, хөвөгч чат
 панель, `actionMarker` байхгүй; `AiAction` төрөл (`action-markers.ts`) tool
@@ -41,7 +41,7 @@ reduced-motion-д унтарна): баганууд ээлжлэн гарна (`
 (`users.welcome_dismissed_at`, `dismissWelcome`), демо компани биш, 3 алхам
 дуусаагүй, мөн туршилт эсвэл журналгүй байгууллага — идэвхтэй харилцагчид ХЭЗЭЭ
 Ч гарахгүй. Демогийн нэр `DEMO_ORG_NAME` НЭГ эх. **Бэлэн асуултууд
-`STARTER_PROMPTS`** (эхний 3 = нэвтрүүлэлт) нь нүүрний карт, `/ai`, «AI нягтлан»
+`STARTER_PROMPTS`** (эхний 3 = нэвтрүүлэлт) нь нүүрний карт, `/settings/ai`, «AI нягтлан»
 нүүр, MCP `prompts/list` · `prompts/get` (ChatGPT / Claude-ийн «+» / «/» цэс) ба
 `instructions`-ийн жишээ — нэг эхээс, багцаар (`accounting` / `knowledge`)
 шүүгдэнэ; `id` = MCP нэр, ӨӨРЧЛӨХГҮЙ. Асуулт нэмэхэд зөвхөн энэ жагсаалтад.
@@ -146,12 +146,12 @@ components/ai/ai-connect-view.tsx  «AI холболт»: заавар · гор
 - MCP-ийн `resolveApiToken` `eak_` (PAT) болон `eoat_` (OAuth) хоёуланг танина
 - proxy matcher `.well-known`-ийг алгасдаг; login redirect callbackUrl дамжуулдаг
 
-- **Нэвтрэлт:** Personal Access Token (`eak_...`, AI холболт `/ai` → Token). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л
+- **Нэвтрэлт:** Personal Access Token (`eak_...`, Тохиргоо → AI холболт `/settings/ai` → Token). DB-д зөвхөн sha256 hash (`api_tokens`); үүсгэхэд НЭГ л
   удаа бүтнээрээ харагдана; хэрэглэгч бүр дээд тал нь 5 token
 - **Tools = REST-тэй ИЖИЛ давхарга** (`lib/ai/tools.ts`) — тусдаа
   логик ХОРИОТОЙ; шинэ tool нэмбэл хоёр замд зэрэг очно
 - **Impersonation:** `runAsUser(userId, fn)` (lib/auth.ts, AsyncLocalStorage)
   — server action доторх `auth()` token-ий эзний session мэт хариулна.
   Cookie-той ердийн замд огт нөлөөгүй
-- Бичилтийн горим `/ai` хуудасны switch — REST-тэй НЭГ тохиргоо (`ai_settings.write_mode`)
+- Бичилтийн горим `/settings/ai` хуудасны switch — REST-тэй НЭГ тохиргоо (`ai_settings.write_mode`)
 - proxy.ts-ийн matcher `/api`-г алгасдаг тул энэ зам login redirect-д орохгүй

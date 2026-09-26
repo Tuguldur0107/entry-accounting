@@ -23,7 +23,6 @@ const MODULE_ICONS: Record<string, IconName> = {
   fa: "fixedAsset",
   payroll: "user",
   tax: "report",
-  ai: "ai",
   settings: "settings",
 };
 
