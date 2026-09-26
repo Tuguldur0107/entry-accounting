@@ -3,11 +3,8 @@
 // Тамга + гарын үсэг: autoStamp үед гарын үсгийн зурган дээгүүр тамга
 // давхарлан буудаг (монгол баримтын хэвшил).
 
-import path from "node:path";
-
 import {
   Document,
-  Font,
   Image,
   Page,
   StyleSheet,
@@ -17,16 +14,7 @@ import {
 } from "@react-pdf/renderer";
 
 import type { InvoicePayload } from "@/lib/arap/invoice-payload";
-
-const FONT_DIR = path.join(process.cwd(), "lib", "pdf", "fonts");
-
-Font.register({
-  family: "NotoSans",
-  fonts: [
-    { src: path.join(FONT_DIR, "NotoSans-Regular.ttf"), fontWeight: "normal" },
-    { src: path.join(FONT_DIR, "NotoSans-Bold.ttf"), fontWeight: "bold" },
-  ],
-});
+import { PDF_FONT_FAMILY } from "@/lib/pdf/register-fonts";
 
 // PDF бол ЦААС — дэлгэцийн theme-ээс хамааралгүй тул энд утга шууд
 // бичигдэнэ (ui-kit-ийн "цаас үргэлж цагаан" зарчимтай ижил).
@@ -36,7 +24,7 @@ const RULE = "#999999";
 
 const styles = StyleSheet.create({
   page: {
-    fontFamily: "NotoSans",
+    fontFamily: PDF_FONT_FAMILY,
     fontSize: 9,
     color: INK,
     paddingTop: 40,

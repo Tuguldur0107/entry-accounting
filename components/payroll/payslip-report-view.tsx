@@ -5,18 +5,28 @@
 // Дүн бүр цалингийн бодолтын ХАДГАЛАГДСАН мөрөөс гарна (lib/payroll/payslip.ts
 // зөвхөн бүтэцчилнэ) тул хуудас нь GL журнал, банкны олголттой үргэлж таарна.
 // Хэвлэх нь POS-ийн баримттай ИЖИЛ хэв маяг: portal + body класс (§UI).
+// И-мэйлээр илгээх (PDF хавсралт) — `payroll:post`, журнал батлагдсаны дараа
+// (lib/payroll/payslip-email.ts).
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import type { ColDef, RowDoubleClickedEvent } from "ag-grid-community";
+import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { ReportEmpty, ReportHeader, ReportPage } from "@/components/reports/report-layout";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import type { PayslipReport } from "@/lib/actions/payroll";
-import type { Payslip } from "@/lib/payroll/payslip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { READ_ONLY_HINT, useModuleCan } from "@/components/layout/module-access-context";
+import {
+  sendPayslipEmails,
+  type PayslipEmailResult,
+} from "@/lib/actions/payroll-payslip-email";
+import type { Payslip, PayslipReport } from "@/lib/payroll/payslip";
+import { fmtDateTimeUb } from "@/lib/format/datetime";
 import { col } from "@/lib/grid/columnTypes";
 import { fmtMnt } from "@/lib/grid/formatters";
 import { fmtPeriodCode, fmtPeriodLabelMn } from "@/lib/periods/period";
@@ -59,11 +69,18 @@ type Row = {
   netSalary: number;
   advanceAmount: number;
   finalNet: number;
+  email: string;
+  lastSentAt: string;
 };
 
 export function PayslipReportView({ data }: Props) {
-  const { periodMonth, company, payslips, errors } = data;
+  const { periodMonth, company, payslips, errors, email } = data;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const canPost = useModuleCan("payroll", "post");
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const router = useRouter();
+  const [sending, startSending] = useTransition();
+  const [sendResult, setSendResult] = useState<PayslipEmailResult | null>(null);
 
   const selected = useMemo(
     () => payslips.find((slip) => slip.employeeId === selectedId) ?? null,
@@ -90,8 +107,10 @@ export function PayslipReportView({ data }: Props) {
         netSalary: slip.netSalary,
         advanceAmount: slip.advanceAmount,
         finalNet: slip.finalNet,
+        email: email.delivery[slip.employeeId]?.email ?? "",
+        lastSentAt: fmtDateTimeUb(email.delivery[slip.employeeId]?.lastSentAt) ?? "",
       })),
-    [payslips]
+    [payslips, email.delivery]
   );
 
   const totals = useMemo(
@@ -107,6 +126,8 @@ export function PayslipReportView({ data }: Props) {
           netSalary: sum.netSalary + row.netSalary,
           advanceAmount: sum.advanceAmount + row.advanceAmount,
           finalNet: sum.finalNet + row.finalNet,
+          email: "",
+          lastSentAt: "",
         }),
         {
           employeeId: "__totals__",
@@ -118,6 +139,8 @@ export function PayslipReportView({ data }: Props) {
           netSalary: 0,
           advanceAmount: 0,
           finalNet: 0,
+          email: "",
+          lastSentAt: "",
         } satisfies Row
       ),
     [rows]
@@ -178,9 +201,78 @@ export function PayslipReportView({ data }: Props) {
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
       }),
+      col<Row>({
+        eaType: "readonly-text",
+        headerName: "И-мэйл",
+        field: "email",
+        width: 190,
+        cellClass: "text-xs",
+        valueFormatter: (params) =>
+          params.node?.rowPinned ? "" : params.value || "— бүртгэлгүй",
+      }),
+      col<Row>({
+        eaType: "readonly-text",
+        headerName: "Илгээсэн",
+        field: "lastSentAt",
+        width: 140,
+        cellClass: "text-xs text-[var(--ea-text-3)]",
+      }),
     ],
     []
   );
+
+  // Илгээх товчны идэвхгүй шалтгаан — нэг л эх (tooltip + тайлбар).
+  const sendBlocker = !canPost
+    ? READ_ONLY_HINT
+    : email.blocker ??
+      (!email.configured
+        ? "И-мэйл илгээх тохиргоо хийгдээгүй (RESEND_API_KEY) — системийн админд хандана уу"
+        : null);
+  const targets = selected ? [selected] : payslips;
+  const missingEmail = targets.filter(
+    (slip) => !email.delivery[slip.employeeId]?.email
+  ).length;
+
+  const sendByEmail = async () => {
+    const withEmail = targets.length - missingEmail;
+    if (withEmail === 0) {
+      toast.error("Сонгосон ажилтанд и-мэйл хаяг бүртгэгдээгүй байна — Ажилтнууд хэсэгт нэмнэ үү");
+      return;
+    }
+    const resent = targets.some((slip) => email.delivery[slip.employeeId]?.lastSentAt);
+    const ok = await confirm({
+      title: selected
+        ? `${selected.employeeName}-д цалингийн хуудас илгээх үү?`
+        : `${withEmail} ажилтанд цалингийн хуудас илгээх үү?`,
+      description: [
+        "Хуудас PDF хавсралтаар очно; мэйлийн гарчиг, биед дүн бичигдэхгүй.",
+        missingEmail > 0 ? `${missingEmail} ажилтан и-мэйлгүй тул алгасагдана.` : "",
+        resent ? "Өмнө илгээсэн ажилтанд дахин очно." : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      confirmText: "Илгээх",
+    });
+    if (!ok) return;
+    startSending(async () => {
+      const result = await sendPayslipEmails(
+        periodMonth,
+        selected ? [selected.employeeId] : undefined
+      );
+      if (result.error !== undefined) {
+        toast.error(result.error);
+        return;
+      }
+      setSendResult(result);
+      if (result.sent.length > 0)
+        toast.success(`${result.sent.length} ажилтанд илгээгдлээ`);
+      if (result.failed.length > 0 || result.skipped.length > 0)
+        toast.warning(
+          `${result.failed.length + result.skipped.length} ажилтанд илгээгдсэнгүй — дэлгэрэнгүйг доор харна уу`
+        );
+      router.refresh();
+    });
+  };
 
   return (
     <ReportPage>
@@ -195,6 +287,16 @@ export function PayslipReportView({ data }: Props) {
                 Сонголт болих
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={sendByEmail}
+              disabled={payslips.length === 0 || !!sendBlocker || sending}
+              title={sendBlocker ?? undefined}
+            >
+              <Icon name={sending ? "loading" : "mail"} size="sm" />
+              {selected ? "И-мэйлээр илгээх" : "Бүгдэд и-мэйлээр илгээх"}
+            </Button>
             <Button size="sm" onClick={print} disabled={payslips.length === 0}>
               <Icon name="print" size="sm" />
               {selected ? `${selected.employeeName} — хэвлэх` : "Бүгдийг хэвлэх"}
@@ -208,6 +310,28 @@ export function PayslipReportView({ data }: Props) {
           {errors.length} ажилтны хуудас гарсангүй:{" "}
           {errors.map((row) => `${row.employeeName} — ${row.message}`).join("; ")}
         </p>
+      )}
+
+      {payslips.length > 0 && email.blocker && canPost && (
+        <p className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] px-3 py-2 text-xs text-[var(--ea-text-3)]">
+          И-мэйлээр илгээх: {email.blocker}
+        </p>
+      )}
+
+      {sendResult && (sendResult.failed.length > 0 || sendResult.skipped.length > 0) && (
+        <div className="rounded-md border border-[var(--ea-warning)]/50 bg-[var(--ea-warning)]/8 px-3 py-2 text-xs text-[var(--ea-text-1)]">
+          <p className="font-medium">
+            Илгээгдсэн {sendResult.sent.length} · илгээгдээгүй{" "}
+            {sendResult.failed.length + sendResult.skipped.length}
+          </p>
+          <ul className="mt-1 list-disc pl-4">
+            {[...sendResult.failed, ...sendResult.skipped].map((row, index) => (
+              <li key={`${row.employeeId}-${index}`}>
+                {row.employeeName} — {row.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {payslips.length === 0 ? (
@@ -241,6 +365,7 @@ export function PayslipReportView({ data }: Props) {
       )}
 
       {portal}
+      {confirmDialog}
     </ReportPage>
   );
 }

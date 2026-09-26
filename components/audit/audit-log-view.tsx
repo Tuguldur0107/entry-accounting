@@ -47,6 +47,7 @@ const ACTION_LABELS: Record<string, string> = {
   support_entered: "Дэмжлэг орсон",
   support_exited: "Дэмжлэг гарсан",
   manager_approval: "Менежерийн зөвшөөрөл",
+  email: "И-мэйлээр илгээсэн",
 };
 
 // Объектын төрөл → монгол шошго.
@@ -59,6 +60,7 @@ const ENTITY_LABELS: Record<string, string> = {
   inventory: "Бараа",
   period: "Период",
   payroll: "Цалин",
+  payslip: "Цалингийн хуудас",
   purchase_order: "Захиалга (PO)",
   goods_receipt: "Хүлээн авалт",
   organization: "Байгууллага",
