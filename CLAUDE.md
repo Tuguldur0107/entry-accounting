@@ -221,6 +221,14 @@ entry-accounting/
   (`requireRole`, assertWritesAllowed-гүй); мөнгө хэзээ ч алдагдахгүй
   (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`). Console: `GET
   /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`)
+  **Туршилтын funnel** (Console): `GET /api/platform/trial-funnel[?from&to&product=
+  accounting|skills]` — [from,to] мужид үүссэн байгууллагын когорт (default 90 хоног,
+  ≤366): бүртгүүлсэн → AI холбосон (анхны OAuth/token) → мастер дата (анхны
+  харилцагч/бараа/ажилтан; POS «Бэлэн худалдан авагч», цалингийн «Ажилчид» seed ХАСАГДАНА)
+  → анхны журнал → төлсөн (анхны `paid` төлбөр, эсвэл Console-оос идэвхжүүлсэн).
+  ДАРААЛСАН тоо + дараалал алгассан (`reachedAnyOrder`), хувь, медиан цаг, байгууллага
+  бүрийн мөр; демо ба эзний НЭМЭЛТ компани когортод орохгүй; skills нь богино funnel.
+  ЦЭВЭР `lib/platform/trial-funnel.ts` (тесттэй), DB `trial-funnel-store.ts` (НЭГ асуулга)
 - **Дэмжлэгийн хандалт** (`docs/deployment/support-access.md` — ЗААВАЛ уншина;
   `lib/platform/support.ts` ЦЭВЭР + `support-store.ts` DB): платформын оператор
   харилцагчийн байгууллагад ТҮР орох цорын ганц зам. Эрх нь ХЭРЭГЛЭГЧИД биш
