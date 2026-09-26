@@ -19,6 +19,7 @@
 | [periods.md](periods.md) | §4 | Период, топбарын шүүлтүүр, snapshot + delta, хаалтын дараалал |
 | [costing.md](costing.md) | §5 | Өртөг (PWA) — батлагдсан шийдвэр, UI бүтэц, гол файлууд |
 | [procurement.md](procurement.md) | §5a | Хангамж: PO урсгал, GL бичилт, хаалт, дутуу хаалт |
+| [pos.md](pos.md) | §5c | POS (борлуулалт, НХАТ, хөнгөлөлт, ээлж), eBarimt 3.0, QPay Quick QR |
 | [exchange-rates.md](exchange-rates.md) | §5b | Монголбанкны ханшийн түүх, store-first, FX тэгшитгэл |
 | [arap.md](arap.md) | §5d–§5e | Кредит нэхэмжлэл / дебит нэхэмжлэх, ECL нөөц, хасалт, сэргэлт |
 | [vat.md](vat.md) | §6 | НӨАТ тайлан, тооцооны журнал, эргэлтийн дүрэм |
@@ -31,6 +32,3 @@
 | [platform.md](platform.md) | Гол дүрэм | Багц/billing, үнэ, QPay-ээр төлөх, funnel, дэмжлэгийн хандалт, нууц үг сэргээх |
 | [ui.md](ui.md) | UI стандарт | Токен, панель, төлөв, тайлангийн стандарт, AG Grid, товчлол, Excel, surface inventory |
 | [db-schema.md](db-schema.md) | DB бүтэц | Хүснэгтийн бүлэг, баганын тайлбар |
-
-POS / eBarimt / QPay (§5c) одоогоор `CLAUDE.md`-д бүтнээрээ байна — нээлттэй
-PR-тай зөрчилдөхгүйн тулд дараагийн алхамд `pos.md` болгон зөөнө.
