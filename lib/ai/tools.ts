@@ -10,6 +10,7 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
+import { districtLabel } from "@/lib/ebarimt/district-codes";
 import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -12092,6 +12093,9 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   const lines = [
     `eBarimt автомат илгээлт: ${status.enabled ? `АСААЛТТАЙ (${status.mode === "browser" ? "кассын PC-ийн PosAPI" : "серверийн PosAPI"})` : "УНТРААЛТТАЙ — ДДТД гараар бичигдэнэ"}`,
     problems.length ? `Тохиргооны дутуу: ${problems.join("; ")}` : "Тохиргоо бүрэн",
+    ...(settings.ebarimtDistrictCode
+      ? [`Дүүргийн код: ${settings.ebarimtDistrictCode} — ${districtLabel(settings.ebarimtDistrictCode) ?? "ТЕГ-ийн албан жагсаалтад БАЙХГҮЙ (шалгана уу)"}`]
+      : []),
     readiness.ready
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,

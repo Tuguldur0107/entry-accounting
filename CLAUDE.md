@@ -907,13 +907,14 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   гэж хариулсан бол серверээр дахин асуухгүй. ТТД ЗОХИОХГҮЙ хэвээр (`lookup.ts`).
   PosAPI-ийн `/rest/info` регистр буцаадаггүй тул мерчантын ТТД ↔ регистрийн
   эх нь операторын консол (operator.ebarimt.mn → Мерчантын жагсаалт)
-- **ТЕГ-ийн лавлах БРАУЗЕРААС ЭХЛЭЭД** (2026-09-26, `lib/ebarimt/browser-lookup.ts`,
-  тесттэй): кассын ААН (регистр → нэр + ТТД), мерчантын «ТЕГ-ээс татах», харилцагчийн
-  картын лавлах — хэрэглэгчийн браузер Монголд тул `api.ebarimt.mn`-ийг ШУУД дуудна;
-  сүлжээ/CORS/timeout бол серверийн action (прокси) руу буцна, ТЕГ «олдсонгүй»
-  гэж хариулсан бол серверээр дахин асуухгүй. ТТД ЗОХИОХГҮЙ хэвээр (`lookup.ts`).
-  PosAPI-ийн `/rest/info` регистр буцаадаггүй тул мерчантын ТТД ↔ регистрийн
-  эх нь операторын консол (operator.ebarimt.mn → Мерчантын жагсаалт)
+- **Дүүргийн код = АЛБАН ЛАВЛАХААС СОНГОНО** (2026-09-26, `lib/ebarimt/district-codes.ts`
+  ЦЭВЭР, client-safe, тесттэй): код = аймаг/дүүрэг (2) + сум/хороо (2) — Баянзүрх 3-р хороо
+  **2403**, Чингэлтэй 5-р хороо 3505 (гараар андуурагдсан жишээ). Өгөгдөл
+  `district-codes.json` (506) — мерчантын багцын `DISTRICT CODE.txt` (ТЕГ `getBranchInfo`
+  хариу) → `node scripts/build-ebarimt-districts.mjs <файл>`. Серверээс `getBranchInfo`
+  ДУУДАХГҮЙ (гео-хязгаар; хуучин parser хороо алгасаж 2 оронтой код гаргадаг байсан —
+  хасагдсан). Жагсаалтад байхгүй 4 оронтой кодыг гараар оруулна — «шалгаагүй» гэж ил,
+  ЗОХИОХГҮЙ; `get_ebarimt_status` кодын нэрийг хэлнэ
 - **Операторын PosAPI нийтэд ХААЛТТАЙ** (2026-09-25, `docs/deployment/ebarimt.md`
   §4a): Cloudflare WAF нууц header шаардана; Entry сервер PosAPI + лавлахын прокси
   (`EBARIMT_PUBLIC_API_BASE`) руу `EBARIMT_GATEWAY_KEY`-г нэмнэ — ЗӨВХӨН
@@ -988,8 +989,9 @@ lib/ebarimt/
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
 ├── gateway-auth.ts WAF-ын нууц header — allowlist-ийн хост руу л (ЦЭВЭР, тесттэй)
-├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo (РД → ТТД) + getInfo (ТТД → нэр) /
-│                  getBranchInfo (24ц кэш; parse нь ЦЭВЭР, tests/ebarimt-lookup.test.ts)
+├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo (РД → ТТД) + getInfo (ТТД → нэр)
+│                  (24ц кэш; parse нь ЦЭВЭР, tests/ebarimt-lookup.test.ts)
+├── district-codes.ts/.json  Дүүрэг/хорооны АЛБАН лавлах (506, client-safe) — тохиргооны сонгогч
 ├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /
 │                  claimDueSubmissions / ebarimtStatusSummary
 ├── worker.ts      claim → PosAPI → бичих; sendSubmissionNow (шууд, timeout-тэй,
