@@ -243,3 +243,34 @@ export function buildPayslip(input: {
     averageNote,
   };
 }
+
+/** Хуудасны толгойн компанийн мэдээлэл (дэлгэц, PDF хоёуланд). */
+export interface PayslipCompany {
+  name: string;
+  registerNo: string;
+  address: string;
+  phone: string;
+}
+
+/** Ажилтан бүрийн и-мэйлээр хүргэлтийн төлөв. */
+export interface PayslipDelivery {
+  email: string | null;
+  /** Сүүлд илгээсэн (аудитаас) — ISO огноо. */
+  lastSentAt: string | null;
+}
+
+export interface PayslipReport {
+  periodMonth: string;
+  company: PayslipCompany;
+  payslips: Payslip[];
+  /** Мөр нь тэнцээгүй тул алгасагдсан ажилтад (буруу хуудас гаргахгүй). */
+  errors: { employeeName: string; message: string }[];
+  /** И-мэйлээр илгээх — lib/payroll/payslip-email.ts. */
+  email: {
+    /** null бол илгээж болно; үгүй бол шалтгаан (журнал батлагдаагүй г.м.). */
+    blocker: string | null;
+    /** RESEND_API_KEY тохируулсан эсэх. */
+    configured: boolean;
+    delivery: Record<string, PayslipDelivery>;
+  };
+}

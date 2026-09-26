@@ -16,7 +16,6 @@ import { db } from "@/lib/db";
 import {
   arApDocuments,
   chartOfAccounts,
-  organizationProfile,
   counterparties,
   employees,
   journalVouchers,
@@ -47,7 +46,8 @@ import {
   validatePayrollSettings,
   type PayrollSettingsInput,
 } from "@/lib/payroll/settings-input";
-import { buildPayslip, type Payslip } from "@/lib/payroll/payslip";
+import type { PayslipReport } from "@/lib/payroll/payslip";
+import { loadPayslipReport } from "@/lib/payroll/payslip-report";
 import { extractMainAccount } from "@/lib/reports/balances";
 import {
   buildPayrollJournalLines,
@@ -1745,121 +1745,12 @@ export async function savePayrollAccountSettings(input: {
 
 // ── Цалингийн хуудас (payslip) ──────────────────────────────────────────────
 
-export type PayslipReport = {
-  periodMonth: string;
-  company: {
-    name: string;
-    registerNo: string;
-    address: string;
-    phone: string;
-  };
-  payslips: Payslip[];
-  /** Мөр нь тэнцээгүй тул алгасагдсан ажилтад (буруу хуудас гаргахгүй). */
-  errors: { employeeName: string; message: string }[];
-};
-
 /**
- * Сарын бүх ажилтны цалингийн хуудас. Мөр бүрийн задаргаа нь ХАДГАЛАГДСАН
- * дүнгээс гарна (`buildPayslip` дахин бодохгүй, зөвхөн бүтэцчилнэ). Нэг мөр
- * тэнцэхгүй бол тэр АЖИЛТНЫГ алгасаад шалтгааныг буцаана — бусад ажилтны
- * хуудас зогсохгүй.
+ * Сарын бүх ажилтны цалингийн хуудас — ачаалагч нь lib/payroll/payslip-report.ts
+ * (и-мэйл илгээх action-тай НЭГ loader).
  */
 export async function getPayslipReport(periodMonth: string): Promise<PayslipReport> {
   const { orgId, userId } = await requireModuleAction("payroll", "read");
   if (!isPeriodCode(periodMonth)) throw new Error("Сар (YYYY-MM) буруу байна");
-
-  const [run, settingsRow, company] = await Promise.all([
-    db.query.payrollRuns.findFirst({
-      where: and(
-        eq(payrollRuns.organizationId, orgId),
-        eq(payrollRuns.periodMonth, periodMonth)
-      ),
-      with: {
-        lines: {
-          orderBy: [asc(payrollRunLines.sortOrder)],
-          with: { employee: true },
-        },
-      },
-    }),
-    loadPayrollSettings(orgId, userId),
-    db.query.organizationProfile.findFirst({
-      where: eq(organizationProfile.organizationId, orgId),
-    }),
-  ]);
-
-  const settings = computeSettingsOf(settingsRow);
-  const payslips: Payslip[] = [];
-  const errors: { employeeName: string; message: string }[] = [];
-
-  for (const line of run?.lines ?? []) {
-    const employeeName = [line.employee.lastName, line.employee.name]
-      .filter(Boolean)
-      .join(" ");
-    const netSalary = Number(line.netSalary);
-    const advanceAmount = Number(line.advanceAmount);
-    try {
-      payslips.push(
-        buildPayslip({
-          periodMonth,
-          coefficients: settings.coefficients,
-          monthlyWorkDays: settings.monthlyWorkDays,
-          line: {
-            employeeId: line.employeeId,
-            employeeName,
-            registerNo: line.employee.registerNo ?? "",
-            position: line.employee.position,
-            department: line.employee.department,
-            baseSalary: Number(line.employee.baseSalary),
-            standardHours: Number(line.standardHours),
-            workedHours: Number(line.workedHours),
-            baseEarnings:
-              Number(line.earnings) -
-              Number(line.vacationPay) -
-              Number(line.overtimePay) -
-              Number(line.otherAdditions),
-            overtimeHours: Number(line.overtimeHours),
-            restDayHours: Number(line.restDayHours),
-            holidayHours: Number(line.holidayHours),
-            nightHours: Number(line.nightHours),
-            overtimePay: Number(line.overtimePay),
-            overtimePayManual: line.overtimePayManual,
-            vacationDays: Number(line.vacationDays),
-            vacationPay: Number(line.vacationPay),
-            vacationPayManual: line.vacationPayManual,
-            otherAdditions: Number(line.otherAdditions),
-            earnings: Number(line.earnings),
-            employeeSi: Number(line.employeeSi),
-            pit: Number(line.pit),
-            otherDeductions: Number(line.otherDeductions),
-            sickDays: Number(line.sickDays),
-            sickBenefit: Number(line.sickBenefit),
-            sickBenefitManual: line.sickBenefitManual,
-            netSalary,
-            advanceAmount,
-            finalNet: Math.round((netSalary - advanceAmount) * 100) / 100,
-            employerSi: Number(line.employerSi),
-            averageMonthlyEarnings: Number(line.averageMonthlyEarnings),
-            averageMonthsUsed: line.averageMonthsUsed,
-          },
-        })
-      );
-    } catch (error) {
-      errors.push({
-        employeeName,
-        message: error instanceof Error ? error.message : "Хуудас бүтээж чадсангүй",
-      });
-    }
-  }
-
-  return {
-    periodMonth,
-    company: {
-      name: company?.name ?? "",
-      registerNo: company?.registerNo ?? "",
-      address: company?.address ?? "",
-      phone: company?.phone ?? "",
-    },
-    payslips,
-    errors,
-  };
+  return loadPayslipReport(orgId, userId, periodMonth);
 }
