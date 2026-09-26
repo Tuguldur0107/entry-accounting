@@ -284,6 +284,35 @@ body::before {
   to   { background-position: -200% 0; }
 }
 
+/* ─── Анхны туршилтын карт (components/dashboard/welcome-card.tsx) ─────────── */
+/* Хүүхэд бүр ээлжлэн дээш гарч ирнэ — индекс `--ea-i`, 80мс зөрүүтэй. */
+.ea-stagger > * {
+  animation: ea-fadeUp 0.45s ease both;
+  animation-delay: calc(var(--ea-i, 0) * 80ms);
+}
+/* ✓ болох / хуулагдах мөчийн «поп» — нэг удаа. */
+@keyframes ea-pop {
+  0%   { transform: scale(0.6); }
+  60%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.ea-pop { animation: ea-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+/* Одоо хийх алхам — хүрээ аяархан «амьсгална» (анхаарал татах, сатааруулахгүй). */
+@keyframes ea-pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ea-primary) 0%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ea-primary) 22%, transparent); }
+}
+.ea-pulse-ring { animation: ea-pulse-ring 2.4s ease-in-out infinite; }
+/* Stagger доторх идэвхтэй алхам — хоёр хөдөлгөөнийг ХАМТ (нэг `animation` нөгөөгөө дардаг). */
+.ea-stagger > .ea-pulse-ring {
+  animation-name: ea-fadeUp, ea-pulse-ring;
+  animation-duration: 0.45s, 2.4s;
+  animation-timing-function: ease, ease-in-out;
+  animation-delay: calc(var(--ea-i, 0) * 80ms), 0.6s;
+  animation-iteration-count: 1, infinite;
+  animation-fill-mode: both, none;
+}
+
 /* ─── AG Grid report-view row styling ──────────────────────────────────────── */
 /* Used by `components/gl/report-grid.tsx` to render the indented financial
    statement layout (Balance Sheet, Income Statement, Cash Flow). */
@@ -472,6 +501,9 @@ body::before {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ea-stagger > * { animation-delay: 0ms !important; }
 }
 
 /* ─── Панелиас хэвлэх ─────────────────────────────────────────────────────── */

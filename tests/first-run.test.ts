@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   DEMO_ORG_NAME,
   STARTER_PROMPTS,
+  activeStepKey,
   firstRunSteps,
   mcpPromptList,
   mcpPromptMessages,
@@ -45,6 +46,18 @@ test("firstRunSteps — алхам бүрийн бэлэн асуулт боди
   const ids = new Set(STARTER_PROMPTS.map((prompt) => prompt.id));
   for (const step of firstRunSteps(base)) for (const id of step.promptIds) assert.ok(ids.has(id), `${step.key} → ${id}`);
   assert.deepEqual(firstRunSteps(base)[1].promptIds, ["import_master_data"]);
+});
+
+test("activeStepKey — эхний хийгдээгүй алхам; дарааллыг алгасаж хийсэн ч эхний дутуу руу заана", () => {
+  assert.equal(activeStepKey(firstRunSteps(base)), "connect");
+  assert.equal(activeStepKey(firstRunSteps({ ...base, connected: true })), "import");
+  assert.equal(activeStepKey(firstRunSteps({ ...base, connected: true, orgHasMasterData: true })), "opening");
+  // 2-р алхам 1-ээс өмнө хийгдсэн — холболт хэвээр идэвхтэй
+  assert.equal(activeStepKey(firstRunSteps({ ...base, orgHasMasterData: true })), "connect");
+  assert.equal(
+    activeStepKey(firstRunSteps({ ...base, connected: true, orgHasMasterData: true, orgHasActivity: true })),
+    null
+  );
 });
 
 test("shouldShowWelcome — туршилт / журналгүй байгууллагад л; хаасан, демо, бүгд хийгдсэн бол үгүй", () => {

@@ -6,15 +6,22 @@
 // Алхам бүр өгөгдлөөс автоматаар ✓ (lib/onboarding/first-run.ts); гурвуул
 // хийгдмэгц эсвэл «Дараа үзнэ» дармагц нуугдана. Server Component — товчнууд
 // нь жижиг client хэсгүүд.
+//
+// Хөдөлгөөн (globals.css, prefers-reduced-motion-д унтарна): баганууд ээлжлэн
+// гарч ирнэ (`ea-stagger`); ОДОО хийх алхам (`activeStepKey`) өргөн, хүрээ нь
+// аяархан пульстэй; түүнээс хойшхи хийгдээгүй алхмууд бүдэг; ✓ болох мөчид
+// тэмдэг нэг удаа «поп» (StepBadge).
 
+import type { CSSProperties } from "react";
 import Link from "next/link";
 
 import { StarterPrompts } from "@/components/onboarding/starter-prompts";
+import { StepBadge } from "@/components/onboarding/step-badge";
 import { WelcomeDismiss } from "@/components/onboarding/welcome-dismiss";
 import { ConnectGuide } from "@/components/skills/connect-guide";
 import { CopyValue } from "@/components/skills/copy-value";
 import { Icon } from "@/components/ui/icon";
-import type { FirstRunStep, StarterPrompt } from "@/lib/onboarding/first-run";
+import { activeStepKey, type FirstRunStep, type StarterPrompt } from "@/lib/onboarding/first-run";
 import { cn } from "@/lib/utils";
 
 export type WelcomeCardData = {
@@ -26,23 +33,16 @@ export type WelcomeCardData = {
   prompts: StarterPrompt[];
 };
 
+type StepTone = "active" | "done" | "later";
+
 function StepHeader({ n, step }: { n: number; step: FirstRunStep }) {
   return (
     <div className="flex items-start gap-2">
-      <span
-        className={cn(
-          "grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold",
-          step.done
-            ? "bg-[var(--ea-success)] text-white"
-            : "bg-[var(--ea-primary-50)] text-[var(--ea-primary)]"
-        )}
-      >
-        {step.done ? <Icon name="approve" size="xs" /> : n}
-      </span>
+      <StepBadge stepKey={step.key} n={n} done={step.done} />
       <div className="min-w-0">
         <h3
           className={cn(
-            "text-sm font-semibold",
+            "text-sm font-semibold transition-colors duration-300",
             step.done ? "text-[var(--ea-text-3)] line-through" : "text-[var(--ea-text-1)]"
           )}
         >
@@ -54,9 +54,23 @@ function StepHeader({ n, step }: { n: number; step: FirstRunStep }) {
   );
 }
 
+/** Алхмын хайрцаг: идэвхтэй нь тод хүрээ + пульс, дараагийнх нь бүдэг (hover-т тодорно). */
+function stepBoxClass(tone: StepTone) {
+  return cn(
+    "space-y-3 rounded-[var(--ea-r-md)] border p-3 transition-[opacity,border-color] duration-300",
+    tone === "active" ? "ea-pulse-ring border-[var(--ea-primary)]" : "border-[var(--ea-border)]",
+    tone === "later" && "opacity-60 hover:opacity-100 focus-within:opacity-100"
+  );
+}
+
 export function WelcomeCard({ data }: { data: WelcomeCardData }) {
   const [connectStep, ...dataSteps] = data.steps;
   const doneCount = data.steps.filter((step) => step.done).length;
+  const active = activeStepKey(data.steps);
+  const toneOf = (step: FirstRunStep): StepTone =>
+    step.done ? "done" : step.key === active ? "active" : "later";
+  // Идэвхтэй багана өргөн (lg-ээс дээш); багана солигдоход grid зөөлөн шилжинэ.
+  const columns = data.steps.map((step) => (step.key === active ? "1.5fr" : "1fr")).join(" ");
   const promptsOf = (step: FirstRunStep) =>
     step.promptIds
       .map((id) => data.prompts.find((prompt) => prompt.id === id))
@@ -87,9 +101,12 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div
+        className="ea-stagger grid gap-3 transition-[grid-template-columns] duration-500 lg:grid-cols-[var(--ea-welcome-cols)]"
+        style={{ "--ea-welcome-cols": columns } as CSSProperties}
+      >
         {/* ① ChatGPT / Claude-даа холбох */}
-        <div className="space-y-3 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] p-3">
+        <div className={stepBoxClass(toneOf(connectStep))} style={{ "--ea-i": 0 } as CSSProperties}>
           <StepHeader n={1} step={connectStep} />
           {connectStep.done ? (
             <p className="text-xs text-[var(--ea-text-3)]">
@@ -114,7 +131,8 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
         {dataSteps.map((step, index) => (
           <div
             key={step.key}
-            className="space-y-3 rounded-[var(--ea-r-md)] border border-[var(--ea-border)] p-3"
+            className={stepBoxClass(toneOf(step))}
+            style={{ "--ea-i": index + 1 } as CSSProperties}
           >
             <StepHeader n={index + 2} step={step} />
             <StarterPrompts prompts={promptsOf(step)} columns={1} />
