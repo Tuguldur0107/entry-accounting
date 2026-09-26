@@ -1839,6 +1839,11 @@ export const inventoryItems = pgTable(
     barcode: text("barcode"),
     /** "standard" (НӨАТ-тай) | "exempt" (чөлөөлөгдсөн) | "zero" (0%). */
     vatMode: text("vat_mode").notNull().default("standard"),
+    /**
+     * НХАТ (нийслэлийн албан татвар) ногдох бараа/үйлчилгээ эсэх — хувь нь
+     * pos_settings.cityTaxPercent (байгууллага өөрөө тогтооно, 0 = бодохгүй).
+     */
+    cityTaxable: boolean("city_taxable").notNull().default(false),
     /** Барааны орлогын дансны override — хоосон бол pos_settings.revenueAccountNumber. */
     revenueAccountNumber: text("revenue_account_number"),
     /** Барааны бүлэг (inventory_categories.code) — хөнгөлөлтийн дүрэм, тайлан. */
@@ -3805,6 +3810,14 @@ export const posSettings = pgTable(
      * (lib/cash/ewallet-settlement.ts). Default стандарт «Банкны шимтгэлийн зардал».
      */
     ewalletFeeAccountNumber: text("ewallet_fee_account_number").notNull().default("73100008"),
+    /**
+     * НХАТ (нийслэлийн албан татвар) — хувь хэмжээг БАЙГУУЛЛАГА ӨӨРӨӨ бичнэ
+     * (кодод хуулийн тоо байхгүй, product owner 2026-09-26); 0 = НХАТ төлөгч
+     * биш, бодохгүй. Зөвхөн `inventory_items.cityTaxable` бараанд ногдоно.
+     */
+    cityTaxPercent: numeric("city_tax_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+    /** НХАТ өглөгийн данс — роль (default 31440000, дансны модонд байхгүй бол нээнэ). */
+    cityTaxAccountNumber: text("city_tax_account_number").notNull().default("31440000"),
     // ── eBarimt 3.0 (docs/pos/03-ebarimt-integration-plan.md §4.1, T1a) ──
     // Мерчантын тохиргоо харилцагчийн апп-д (Console-д биш); нууц энд байхгүй.
     /** Автомат илгээлт асаалттай эсэх — унтраалттай бол v1-ийн гар ДДТД хэвээр. */
@@ -4008,8 +4021,10 @@ export const posSales = pgTable(
     /** НӨАТ-гүй цэвэр орлого. */
     netAmount: numeric("net_amount", { precision: 18, scale: 2 }).notNull().default("0"),
     vatAmount: numeric("vat_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** НХАТ (нийслэлийн албан татвар). */
+    cityTaxAmount: numeric("city_tax_amount", { precision: 18, scale: 2 }).notNull().default("0"),
     roundingAmount: numeric("rounding_amount", { precision: 18, scale: 2 }).notNull().default("0"),
-    /** Төлөх дүн = net + vat + rounding. */
+    /** Төлөх дүн = net + vat + НХАТ + rounding. */
     total: numeric("total", { precision: 18, scale: 2 }).notNull().default("0"),
     arApDocumentId: uuid("ar_ap_document_id").references(() => arApDocuments.id, {
       onDelete: "restrict",
@@ -4079,7 +4094,8 @@ export const posSaleLines = pgTable(
     vatMode: text("vat_mode").notNull().default("standard"),
     netAmount: numeric("net_amount", { precision: 18, scale: 2 }).notNull(),
     vatAmount: numeric("vat_amount", { precision: 18, scale: 2 }).notNull().default("0"),
-    /** Хөнгөлөлтийн дараах, НӨАТ орсон мөрийн дүн. */
+    cityTaxAmount: numeric("city_tax_amount", { precision: 18, scale: 2 }).notNull().default("0"),
+    /** Хөнгөлөлтийн дараах, татвар (НӨАТ + НХАТ) орсон мөрийн дүн. */
     lineTotal: numeric("line_total", { precision: 18, scale: 2 }).notNull(),
     /** Буцаалтын мөр бол эх борлуулалтын мөр. */
     originalLineId: uuid("original_line_id"),

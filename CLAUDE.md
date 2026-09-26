@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
 | Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
@@ -783,6 +783,17 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
   мөн `open-pos-shifts` (нээлттэй ээлж)
 - **НӨАТ `vat_settings.isVatPayer`-ээс** (D4): төлөгч → барааны `salesPrice` НӨАТ
   ОРСОН, мөр бүр `vatMode`-оор задарна; төлөгч биш → НӨАТ мөр огт үгүй
+- **НХАТ (нийслэлийн албан татвар, T4 — 2026-09-26, product owner)**: хувь нь
+  `pos_settings.cityTaxPercent` — байгууллага ӨӨРӨӨ бичнэ (кодод хуулийн тоо БАЙХГҮЙ,
+  0 = НХАТ төлөгч биш, бодохгүй); зөвхөн барааны картад `cityTaxable` тэмдэгтэй бараанд;
+  НӨАТ-аас хамаарахгүй. Үнэ хоёр татварыг АГУУЛНА, хоёулаа цэвэр үнээс: цэвэр =
+  T/(1+v+c) (`lineTaxes`, `lib/pos/sale-math.ts` ЦЭВЭР, тесттэй — 11,200 = 10,000 + 1,000
+  + 200). GL Cr `cityTaxAccountNumber` (default **31440000 «НХАТ өглөг»**, стандарт данс,
+  балансын «Татварын өр» мөр), буцаалт Dr (хувь ЭХ мөрөөс); `pos_sales` /
+  `pos_sale_lines.cityTaxAmount`; eBarimt `totalCityTax` (item → receipt → root);
+  касс/баримт/панель/жагсаалт/тайланд НХАТ-тай үед л мөр/багана. AI
+  `update_pos_settings.cityTaxPercent` (таахгүй — хэрэглэгчээс), `create/update_inventory_item.cityTaxable`.
+  DB тест `tests/pos-city-tax-flow.test.ts`
 - **Хөнгөлөлтийн хөдөлгөгч** (`lib/pos/discounts.ts`, 9 төрөл, тесттэй): төлөх
   дүнд шууд нөлөөлнө, НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс; `approvalReasons`
   хоосон биш → `pos:post` эрх (`[APPROVAL_REQUIRED]`); GL default цэвэр орлого,

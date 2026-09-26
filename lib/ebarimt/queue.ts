@@ -131,6 +131,7 @@ export async function loadSaleForEbarimt(
         quantity: remaining,
         lineTotal: Math.round(Number(line.lineTotal) * share * 100) / 100,
         vatAmount: Math.round(Number(line.vatAmount) * share * 100) / 100,
+        cityTaxAmount: Math.round(Number(line.cityTaxAmount) * share * 100) / 100,
       };
     }),
     payments: sale.payments.map((payment) => ({

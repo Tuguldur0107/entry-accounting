@@ -227,6 +227,7 @@ export async function updatePosSettings(
       "nonVatRevenueAccountNumber",
       "nonVatReceivableAccountNumber",
       "ewalletFeeAccountNumber",
+      "cityTaxAccountNumber",
     ] as const;
     for (const field of accountFields) {
       const value = data[field]?.trim();
@@ -244,6 +245,12 @@ export async function updatePosSettings(
       if (!["best_single", "cumulative"].includes(data.discountStacking))
         throw new Error("Хөнгөлөлтийн давхцах бодлого буруу");
       patch.discountStacking = data.discountStacking;
+    }
+    if (data.cityTaxPercent != null) {
+      // НХАТ-ын хувийг байгууллага өөрөө бичнэ — кодод хуулийн тоо байхгүй (0 = бодохгүй).
+      const value = Number(data.cityTaxPercent);
+      if (!(Number.isFinite(value) && value >= 0 && value <= 10)) throw new Error("НХАТ-ын хувь 0–10 хооронд");
+      patch.cityTaxPercent = String(Math.round(value * 100) / 100);
     }
     if (data.provisionalCogs != null) patch.provisionalCogs = !!data.provisionalCogs;
     if (data.allowNegativeStock != null) patch.allowNegativeStock = !!data.allowNegativeStock;
@@ -690,6 +697,15 @@ interface QuoteContext {
   isWalkIn: boolean;
 }
 
+/** Татварын контекст — НӨАТ (энэ борлуулалтад) + НХАТ (pos_settings, байгууллага өөрөө тогтооно). */
+function taxContextOf(ctx: Pick<QuoteContext, "isVatPayer" | "vatRatePercent" | "settings">) {
+  return {
+    isVatPayer: ctx.isVatPayer,
+    vatRatePercent: ctx.vatRatePercent,
+    cityTaxPercent: Number(ctx.settings.cityTaxPercent),
+  };
+}
+
 async function resolveCustomer(orgId: string, settings: QuoteContext["settings"], counterpartyId: string | null | undefined) {
   const id = cleanText(counterpartyId) ?? settings.walkInCounterpartyId;
   if (!id) throw new Error("Бэлэн худалдан авагч тохируулаагүй байна — POS тохиргоог шалгана уу");
@@ -752,6 +768,7 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
       quantity,
       unitPrice,
       vatMode: toItemVatMode(item.vatMode),
+      cityTaxable: item.cityTaxable,
       minSalesPrice: item.minSalesPrice === null ? null : Number(item.minSalesPrice),
       manualDiscountPercent: line.manualDiscountPercent ?? null,
       manualDiscountAmount: line.manualDiscountAmount ?? null,
@@ -771,10 +788,7 @@ async function buildQuote(input: SaleQuoteInput, ctx: QuoteContext) {
     maxTotalDiscountPercent: Number(ctx.settings.maxTotalDiscountPercent),
   };
   const discounts = applyDiscounts(cart, ctx.rules, cartCtx);
-  const totals = computeSaleTotals(discounts.lines, {
-    isVatPayer: ctx.isVatPayer,
-    vatRatePercent: ctx.vatRatePercent,
-  });
+  const totals = computeSaleTotals(discounts.lines, taxContextOf(ctx));
   return {
     now,
     cart,
@@ -815,6 +829,8 @@ export interface SaleQuote {
   discountTotal: number;
   netAmount: number;
   vatAmount: number;
+  /** НХАТ (нийслэлийн албан татвар) — 0 бол баримтад мөр гарахгүй. */
+  cityTaxAmount: number;
   total: number;
   receiptDiscounts: { ruleCode: string | null; kind: string; amount: number }[];
   approvalReasons: string[];
@@ -836,6 +852,7 @@ export async function quotePosSale(input: SaleQuoteInput): Promise<ActionResult<
         discountTotal: quote.totals.discountTotal,
         netAmount: quote.totals.netAmount,
         vatAmount: quote.totals.vatAmount,
+        cityTaxAmount: quote.totals.cityTaxAmount,
         total: quote.totals.total,
         receiptDiscounts: quote.discounts.receiptDiscounts.map((entry) => ({
           ruleCode: entry.ruleCode,
@@ -896,6 +913,7 @@ export interface PosReceipt {
   discountTotal: number;
   netAmount: number;
   vatAmount: number;
+  cityTaxAmount: number;
   roundingAmount: number;
   total: number;
   payments: { name: string; amount: number; currency: string; baseAmount: number; change: number }[];
@@ -1121,6 +1139,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
       : quote.itemById.get(itemId)?.revenueAccountNumber?.trim() || settings.revenueAccountNumber;
   for (const line of quote.cart) await assertEnabledMainAccount(orgId, revenueAccountOf(line.itemId));
   if (quote.totals.vatAmount > 0) await assertEnabledMainAccount(orgId, vat.outputVatAccountNumber);
+  if (quote.totals.cityTaxAmount > 0) await assertEnabledMainAccount(orgId, settings.cityTaxAccountNumber);
   if (settings.discountPosting === "contra" && quote.totals.discountTotal > 0)
     await assertEnabledMainAccount(orgId, settings.discountAccountNumber);
   if (plan.roundingAmount !== 0) await assertEnabledMainAccount(orgId, settings.roundingAccountNumber);
@@ -1192,6 +1211,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         discountTotal: String(quote.totals.discountTotal),
         netAmount: String(quote.totals.netAmount),
         vatAmount: String(quote.totals.vatAmount),
+        cityTaxAmount: String(quote.totals.cityTaxAmount),
         roundingAmount: String(plan.roundingAmount),
         total: String(payable),
         status: "posted",
@@ -1261,6 +1281,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     });
     const arLineIds: string[] = [];
     let vatTotal = 0;
+    let cityTaxTotal = 0;
     for (const [index, line] of quote.totals.lines.entries()) {
       const revenueMain = revenueAccountOf(line.itemId);
       const [arLine] = await tx
@@ -1279,12 +1300,10 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         .returning({ id: arApDocumentLines.id });
       arLineIds.push(arLine.id);
       vatTotal += line.vatAmount;
+      cityTaxTotal += line.cityTaxAmount;
       if (settings.discountPosting === "contra" && line.discountAmount > 0) {
-        // Cr Орлого БҮТЭН (цэвэр + хөнгөлөлтийн НӨАТ-гүй хэсэг) + Dr Хөнгөлөлт — GL-д л
-        const discountNet = discountNetOf(line.discountAmount, line.vatMode, {
-          isVatPayer: ctx.isVatPayer,
-          vatRatePercent: ctx.vatRatePercent,
-        });
+        // Cr Орлого БҮТЭН (цэвэр + хөнгөлөлтийн татваргүй хэсэг) + Dr Хөнгөлөлт — GL-д л
+        const discountNet = discountNetOf(line.discountAmount, line.vatMode, taxContextOf(ctx), !!line.cityTaxable);
         voucherLines.push({
           voucherId: voucher.id,
           accountNumber: builders.sale(revenueMain),
@@ -1333,13 +1352,33 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         ...businessObject,
       });
     }
+    cityTaxTotal = round2(cityTaxTotal);
+    if (cityTaxTotal > 0) {
+      const cityTaxLabel = `НХАТ ${Number(settings.cityTaxPercent)}%`;
+      await tx.insert(arApDocumentLines).values({
+        documentId: arDoc.id,
+        accountNumber: settings.cityTaxAccountNumber,
+        description: cityTaxLabel,
+        amount: String(cityTaxTotal),
+        sortOrder: quote.totals.lines.length + 1,
+      });
+      voucherLines.push({
+        voucherId: voucher.id,
+        accountNumber: builders.sale(settings.cityTaxAccountNumber),
+        debit: "0",
+        credit: String(cityTaxTotal),
+        description: `${tag} ${cityTaxLabel}`,
+        sortOrder: sortOrder++,
+        ...businessObject,
+      });
+    }
     if (plan.roundingAmount !== 0) {
       await tx.insert(arApDocumentLines).values({
         documentId: arDoc.id,
         accountNumber: settings.roundingAccountNumber,
         description: "Бөөрөнхийлөл",
         amount: String(plan.roundingAmount),
-        sortOrder: quote.totals.lines.length + 1,
+        sortOrder: quote.totals.lines.length + 2,
       });
       voucherLines.push({
         voucherId: voucher.id,
@@ -1377,6 +1416,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
           vatMode: line.vatMode,
           netAmount: String(line.netAmount),
           vatAmount: String(line.vatAmount),
+          cityTaxAmount: String(line.cityTaxAmount),
           lineTotal: String(line.lineTotal),
           arApLineId: arLineIds[index] ?? null,
           sortOrder: index,
@@ -1747,6 +1787,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     discountTotal: quote.totals.discountTotal,
     netAmount: quote.totals.netAmount,
     vatAmount: quote.totals.vatAmount,
+    cityTaxAmount: quote.totals.cityTaxAmount,
     roundingAmount: plan.roundingAmount,
     total: plan.payable,
     payments: plan.payments.map((payment) => ({
@@ -1867,6 +1908,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     lineTotal: number;
     netAmount: number;
     vatAmount: number;
+    cityTaxAmount: number;
     discountAmount: number;
     lineGross: number;
   }[] = [];
@@ -1893,6 +1935,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
       lineTotal: remainingOf(Number(line.lineTotal)),
       netAmount: remainingOf(Number(line.netAmount)),
       vatAmount: remainingOf(Number(line.vatAmount)),
+      cityTaxAmount: remainingOf(Number(line.cityTaxAmount)),
       discountAmount: remainingOf(Number(line.discountAmount)),
       lineGross: remainingOf(Number(line.lineGross)),
     });
@@ -1901,6 +1944,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
   const refundTotal = round2(planned.reduce((sum, entry) => sum + entry.lineTotal, 0));
   const netTotal = round2(planned.reduce((sum, entry) => sum + entry.netAmount, 0));
   const vatTotal = round2(planned.reduce((sum, entry) => sum + entry.vatAmount, 0));
+  const cityTaxTotal = round2(planned.reduce((sum, entry) => sum + entry.cityTaxAmount, 0));
 
   const methods = await loadPaymentMethodViews(orgId);
   const useStoreCredit = !!input.storeCredit;
@@ -1963,6 +2007,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
         discountTotal: String(round2(planned.reduce((sum, entry) => sum + entry.discountAmount, 0))),
         netAmount: String(netTotal),
         vatAmount: String(vatTotal),
+        cityTaxAmount: String(cityTaxTotal),
         roundingAmount: "0",
         total: String(refundTotal),
         status: "posted",
@@ -1979,7 +2024,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     const tag = `[${documentNo}]`;
     const customerName = original.counterparty?.name ?? "";
 
-    // АР кредит: Dr Орлого (цэвэр) + Dr НӨАТ / Cr Авлага.
+    // АР кредит: Dr Орлого (цэвэр) + Dr НӨАТ + Dr НХАТ / Cr Авлага.
     const [creditVoucher] = await tx
       .insert(journalVouchers)
       .values({
@@ -2000,10 +2045,19 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
           (settings.nonVatRevenueAccountNumber?.trim() || settings.revenueAccountNumber)
         : item?.revenueAccountNumber?.trim() || settings.revenueAccountNumber;
       if (settings.discountPosting === "contra" && entry.discountAmount > 0) {
-        const discountNet = discountNetOf(entry.discountAmount, toItemVatMode(entry.original.vatMode), {
-          isVatPayer: returnVatPayer,
-          vatRatePercent: Number(vat.vatRatePercent),
-        });
+        // НХАТ-ын хувь ЭХ мөрөөс (тохиргоо хожим солигдсон ч эх бичилттэйгээ тэгширнэ).
+        const originalNet = Number(entry.original.netAmount);
+        const originalCity = Number(entry.original.cityTaxAmount);
+        const discountNet = discountNetOf(
+          entry.discountAmount,
+          toItemVatMode(entry.original.vatMode),
+          {
+            isVatPayer: returnVatPayer,
+            vatRatePercent: Number(vat.vatRatePercent),
+            cityTaxPercent: originalCity > 0 && originalNet > 0 ? round2((originalCity / originalNet) * 100) : 0,
+          },
+          originalCity > 0
+        );
         creditLines.push({
           voucherId: creditVoucher.id,
           accountNumber: builders.sale(revenueMain),
@@ -2043,6 +2097,16 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
         sortOrder: sortOrder++,
         ...businessObject,
       });
+    if (cityTaxTotal > 0)
+      creditLines.push({
+        voucherId: creditVoucher.id,
+        accountNumber: builders.sale(settings.cityTaxAccountNumber),
+        debit: String(cityTaxTotal),
+        credit: "0",
+        description: `${tag} НХАТ`,
+        sortOrder: sortOrder++,
+        ...businessObject,
+      });
     creditLines.push({
       voucherId: creditVoucher.id,
       accountNumber: builders.sale(controlAccount),
@@ -2072,6 +2136,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
           vatMode: entry.original.vatMode,
           netAmount: String(entry.netAmount),
           vatAmount: String(entry.vatAmount),
+          cityTaxAmount: String(entry.cityTaxAmount),
           lineTotal: String(entry.lineTotal),
           originalLineId: entry.original.id,
           sortOrder: index,
@@ -2778,6 +2843,7 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
         discountTotal: sale.discountTotal,
         netAmount: sale.netAmount,
         vatAmount: sale.vatAmount,
+        cityTaxAmount: sale.cityTaxAmount,
         roundingAmount: sale.roundingAmount,
         total: sale.total,
         payments: sale.payments.map((payment) => ({

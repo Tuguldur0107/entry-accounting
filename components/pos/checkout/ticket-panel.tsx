@@ -210,6 +210,7 @@ export function TicketPanel({
         {isVatPayer && (
           <TotalRow label={`НӨАТ ${vatRatePercent}% (орсон)`} value={quote ? fmtMnt(quote.vatAmount) : "0"} />
         )}
+        {quote && quote.cityTaxAmount > 0 && <TotalRow label="НХАТ (орсон)" value={fmtMnt(quote.cityTaxAmount)} />}
         <div className="flex items-baseline justify-between border-t border-[var(--ea-border)] pt-1.5">
           <span className="text-sm font-semibold text-[var(--ea-text-1)]">ТӨЛӨХ</span>
           <span

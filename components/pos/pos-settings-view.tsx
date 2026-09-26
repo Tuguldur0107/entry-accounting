@@ -155,6 +155,11 @@ const ACCOUNT_FIELDS: { key: keyof PosSettings; label: string; hint: string }[] 
     label: "QPay / э-хэтэвчийн шимтгэл (зардал)",
     hint: "Банкны хуулгаар settlement тулгахад түр данснаас суутгагдсан шимтгэл, default 73100008",
   },
+  {
+    key: "cityTaxAccountNumber",
+    label: "НХАТ өглөг",
+    hint: "Нийслэлийн албан татвар — «НХАТ ногдох» барааны борлуулалтад Cr, default 31440000",
+  },
 ];
 
 function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; issueTypes: IssueTypeOption[] }) {
@@ -221,6 +226,12 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
           </FormField>
           <FormField label="Нийт хөнгөлөлтийн тааз %">
             <Input type="number" min="0" max="100" value={form.maxTotalDiscountPercent} className="font-mono text-right" onChange={(e) => patch({ maxTotalDiscountPercent: Number(e.target.value) })} />
+          </FormField>
+          <FormField
+            label="НХАТ (нийслэлийн албан татвар) %"
+            hint="0 = НХАТ төлөгч биш. Хувийг байгууллага өөрөө тогтооно; зөвхөн барааны картад «НХАТ ногдох» тэмдэгтэй бараанд үнээс ялгагдана"
+          >
+            <Input type="number" min="0" max="10" step="0.01" value={form.cityTaxPercent} className="font-mono text-right" onChange={(e) => patch({ cityTaxPercent: Number(e.target.value) })} />
           </FormField>
           <FormField label="Бэлэн бөөрөнхийлөл" hint="Зөвхөн бэлэн (₮) төлөх хэсэгт">
             <select className="ea-form-select" value={form.cashRoundingUnit} onChange={(e) => patch({ cashRoundingUnit: Number(e.target.value) })}>
@@ -942,6 +953,12 @@ function DiscountSimulation({ checkout }: { checkout: CheckoutData }) {
                   <span className="font-mono">{fmtMnt(quote.vatAmount)}</span>
                 </div>
               )}
+              {quote.cityTaxAmount > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span>НХАТ</span>
+                  <span className="font-mono">{fmtMnt(quote.cityTaxAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold">
                 <span>Төлөх</span>
                 <span className="font-mono">{fmtMnt(quote.total)}</span>
@@ -1377,10 +1394,10 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
                   {status.merchant.name || "—"}
                   {status.merchant.vatPayer === false ? <span className="text-[var(--ea-danger-fg)]"> · НӨАТ суутган төлөгч БИШ</span> : ""}
                 </div>
-                {status.merchant.cityPayer && (
+                {status.merchant.cityPayer && !(settings.cityTaxPercent > 0) && (
                   <div className="text-[var(--ea-warning-fg)]">
-                    ТЕГ: НХАТ (нийслэлийн албан татвар) суутган төлөгч — Entry хотын татварын дүнг баримтад бичдэггүй (үргэлж 0);
-                    НХАТ-тай бараа/үйлчилгээ зарахаас өмнө тусдаа шийдвэр шаардлагатай
+                    ТЕГ: НХАТ (нийслэлийн албан татвар) суутган төлөгч — «Ерөнхий» табд НХАТ-ын хувийг бичиж,
+                    НХАТ ногдох барааг барааны картад тэмдэглэнэ үү (одоо баримтад НХАТ 0 явна)
                   </div>
                 )}
                 {status.merchant.freeProject && (

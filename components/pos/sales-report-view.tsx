@@ -327,6 +327,8 @@ export function SalesReportView({
 
   const { lines, payments } = data;
   const summary = useMemo(() => summarize(lines), [lines]);
+  /** НХАТ-тай борлуулалт байвал л НХАТ багана/үзүүлэлт гарна. */
+  const hasCityTax = summary.cityTax !== 0;
 
   // ── 5.1 Гүйлгээ ──
   const lineRows = useMemo<LineRow[]>(
@@ -350,6 +352,7 @@ export function SalesReportView({
         discountAmount: summary.discount,
         netAmount: summary.net,
         vatAmount: summary.vat,
+        cityTaxAmount: summary.cityTax,
         lineTotal: summary.total,
         cogs: summary.cogs,
         margin: summary.margin,
@@ -379,6 +382,7 @@ export function SalesReportView({
       { headerName: "Дүрэм", field: "rulesLabel", width: 130, cellClass: "text-xs" },
       { headerName: "Цэвэр", field: "netAmount", width: 130, ...moneyCell },
       { headerName: "НӨАТ", field: "vatAmount", width: 110, ...moneyCell },
+      { headerName: "НХАТ", field: "cityTaxAmount", width: 100, hide: !hasCityTax, ...moneyCell },
       { headerName: "Нийт", field: "lineTotal", width: 130, ...moneyCell },
       { headerName: "Төлбөр", field: "paymentSummary", minWidth: 160, flex: 1, cellClass: "text-xs" },
       {
@@ -400,7 +404,7 @@ export function SalesReportView({
       { headerName: "COGS", field: "cogs", width: 140, ...cogsCell<LineRow>() },
       { headerName: "Ахиуц", field: "margin", width: 140, ...cogsCell<LineRow>() },
     ],
-    []
+    [hasCityTax]
   );
 
   // ── 5.2 Бараагаар ──
@@ -436,6 +440,7 @@ export function SalesReportView({
         discount: summary.discount,
         net: summary.net,
         vat: summary.vat,
+        cityTax: summary.cityTax,
         cogs: summary.cogs,
         margin: summary.margin,
         marginPercent: summary.marginPercent,
@@ -456,12 +461,13 @@ export function SalesReportView({
       { headerName: "Хөнгөлөлт", field: "discount", width: 120, ...moneyCell },
       { headerName: "Цэвэр орлого", field: "net", width: 140, ...moneyCell },
       { headerName: "НӨАТ", field: "vat", width: 110, ...moneyCell },
+      { headerName: "НХАТ", field: "cityTax", width: 100, hide: !hasCityTax, ...moneyCell },
       { headerName: "COGS", field: "cogs", width: 140, ...cogsCell<ItemRow>() },
       { headerName: "Ахиуц ₮", field: "margin", width: 140, ...cogsCell<ItemRow>() },
       { headerName: "Ахиуц %", field: "marginPercent", width: 100, ...pctCell },
       { headerName: "Үлдэгдэл", field: "stock", width: 110, ...qtyCell },
     ],
-    []
+    [hasCityTax]
   );
 
   // ── 5.3 Өдрөөр ──
@@ -505,6 +511,7 @@ export function SalesReportView({
       { headerName: "Хөнгөлөлт", field: "discount", width: 120, ...moneyCell },
       { headerName: "Цэвэр", field: "net", width: 140, ...moneyCell },
       { headerName: "НӨАТ", field: "vat", width: 110, ...moneyCell },
+      { headerName: "НХАТ", field: "cityTax", width: 100, hide: !hasCityTax, ...moneyCell },
       ...presentKinds.map<ColDef<DayRow>>((kind) => ({
         headerName: KIND_SHORT[kind] ?? kind,
         colId: `kind:${kind}`,
@@ -516,7 +523,7 @@ export function SalesReportView({
       { headerName: "COGS", field: "cogs", width: 140, ...cogsCell<DayRow>() },
       { headerName: "Ахиуц", field: "margin", width: 140, ...cogsCell<DayRow>() },
     ],
-    [presentKinds]
+    [presentKinds, hasCityTax]
   );
 
   // ── Салбараар (агуулах = салбар, docs/pos §5 + QPay D2) ──
@@ -560,12 +567,13 @@ export function SalesReportView({
       { headerName: "Хөнгөлөлт %", field: "discountPct", width: 110, ...pctCell },
       { headerName: "Цэвэр", field: "net", width: 140, ...moneyCell },
       { headerName: "НӨАТ", field: "vat", width: 110, ...moneyCell },
+      { headerName: "НХАТ", field: "cityTax", width: 100, hide: !hasCityTax, ...moneyCell },
       { headerName: "Буцаалт", field: "returnsTotal", width: 120, ...moneyCell },
       { headerName: "COGS", field: "cogs", width: 140, ...cogsCell<WarehouseRow>() },
       { headerName: "Ахиуц ₮", field: "margin", width: 140, ...cogsCell<WarehouseRow>() },
       { headerName: "Ахиуц %", field: "marginPercent", width: 100, ...pctCell },
     ],
-    []
+    [hasCityTax]
   );
 
   // ── 5.4 Кассчинаар ──
@@ -790,6 +798,7 @@ export function SalesReportView({
     { label: "Хөнгөлөлт", value: fmtMnt(summary.discount) },
     { label: "Цэвэр орлого", value: fmtMnt(summary.net) },
     { label: "НӨАТ", value: fmtMnt(summary.vat) },
+    ...(hasCityTax ? [{ label: "НХАТ", value: fmtMnt(summary.cityTax) }] : []),
     { label: "Төлөх Σ", value: fmtMnt(summary.total) },
     { label: "Дундаж чек", value: fmtMnt(summary.averageTicket) },
     {

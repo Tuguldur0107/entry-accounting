@@ -79,6 +79,8 @@ export interface CartLine {
   /** Нэгж үнэ (НӨАТ төлөгч бол орсон). */
   unitPrice: number;
   vatMode: VatMode;
+  /** НХАТ ногдох бараа (inventory_items.cityTaxable). */
+  cityTaxable?: boolean;
   minSalesPrice: number | null;
   /** Кассчны гар хөнгөлөлт — хувь ЭСВЭЛ дүн (мөрөнд). */
   manualDiscountPercent?: number | null;
@@ -103,10 +105,11 @@ export interface PricedLine extends CartLine {
   lineTotal: number;
 }
 
-/** НӨАТ задарсан мөр — АР нэхэмжлэх, тайланд бичигдэх эцсийн хэлбэр. */
+/** Татвар (НӨАТ, НХАТ) задарсан мөр — АР нэхэмжлэх, тайланд бичигдэх эцсийн хэлбэр. */
 export interface TotaledLine extends PricedLine {
   netAmount: number;
   vatAmount: number;
+  cityTaxAmount: number;
 }
 
 export interface CartContext {
@@ -153,6 +156,8 @@ export interface SaleTotals {
   discountTotal: number;
   netAmount: number;
   vatAmount: number;
+  /** НХАТ (нийслэлийн албан татвар). */
+  cityTaxAmount: number;
   /** Бөөрөнхийлөлгүй төлөх дүн. */
   total: number;
 }
@@ -220,6 +225,7 @@ export interface SaleLineView {
   vatMode: VatMode;
   netAmount: number;
   vatAmount: number;
+  cityTaxAmount: number;
   lineTotal: number;
   /** Буцаасан тоо (эх борлуулалтын мөрөнд). */
   returnedQty: number;
@@ -262,6 +268,7 @@ export interface PosSaleView {
   discountTotal: number;
   netAmount: number;
   vatAmount: number;
+  cityTaxAmount: number;
   roundingAmount: number;
   total: number;
   status: string;
@@ -354,6 +361,10 @@ export interface PosSettingsView {
   nonVatReceivableAccountNumber: string;
   /** Э-хэтэвчийн (QPay) settlement-ийн шимтгэлийн зардлын данс (default 73100008). */
   ewalletFeeAccountNumber: string;
+  /** НХАТ-ын хувь — байгууллага өөрөө тогтооно, 0 = НХАТ төлөгч биш (бодохгүй). */
+  cityTaxPercent: number;
+  /** НХАТ өглөгийн данс (default 31440000). */
+  cityTaxAccountNumber: string;
   walkInCounterpartyId: string | null;
   issueTypeId: string | null;
   defaultWarehouseId: string | null;

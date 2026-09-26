@@ -136,6 +136,8 @@ export interface EbarimtSaleLineInput {
   /** Хөнгөлөлтийн ДАРААХ мөрийн дүн (татвар орсон) — үлдсэн тоонд. */
   lineTotal: number;
   vatAmount: number;
+  /** НХАТ (нийслэлийн албан татвар) — байхгүй бол 0 (`totalCityTax`). */
+  cityTaxAmount?: number;
 }
 
 export interface EbarimtSalePaymentInput {

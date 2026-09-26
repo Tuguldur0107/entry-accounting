@@ -306,3 +306,24 @@ test("P2-1/P2-2: ТТД 12–14 орон (хувь хүн) ба 5 оронтой
   );
   assert.equal(free.receipts[0].items[0].taxProductCode, "43401");
 });
+
+test("НХАТ: totalCityTax мөр → дэд баримт → root нийлбэр; НХАТ-гүй мөрөнд 0", () => {
+  const request = buildEbarimtReceipt(
+    sale({
+      total: 14_500,
+      lines: [
+        line({ itemName: "Пиво", quantity: 1, lineTotal: 11_200, vatAmount: 1_000, cityTaxAmount: 200 }),
+        line({ itemName: "Талх", quantity: 1, lineTotal: 3_300, vatAmount: 300 }),
+      ],
+      payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 14_500, reference: null }],
+    }),
+    settings
+  );
+  const [beer, bread] = request.receipts[0].items;
+  assert.equal(beer.totalCityTax, 200);
+  assert.equal(bread.totalCityTax, 0);
+  assert.equal(request.receipts[0].totalCityTax, 200);
+  assert.equal(request.totalCityTax, 200);
+  assert.equal(request.totalVAT, 1_300);
+  assert.equal(request.totalAmount, 14_500);
+});

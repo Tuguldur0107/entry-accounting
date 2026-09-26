@@ -13,6 +13,8 @@ export type InventoryItemView = {
   minSalesPrice: number | null;
   barcode: string | null;
   vatMode: ItemVatMode;
+  /** НХАТ (нийслэлийн албан татвар) ногдох бараа. */
+  cityTaxable: boolean;
   /** Барааны орлогын дансны override — null бол POS тохиргооны данс. */
   revenueAccountNumber: string | null;
   categoryCode: string | null;

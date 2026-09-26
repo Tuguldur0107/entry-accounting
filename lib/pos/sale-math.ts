@@ -1,5 +1,11 @@
 // Борлуулалтын тооцоо — ЦЭВЭР (тесттэй): НӨАТ задаргаа (D4: төлөгч эсэхээс),
-// бөөрөнхийлөл, нийт дүн. docs/pos/00-proposal.md §3.7-§3.8.
+// НХАТ (нийслэлийн албан татвар), бөөрөнхийлөл, нийт дүн.
+// docs/pos/00-proposal.md §3.7-§3.8.
+//
+// НХАТ (2026-09-26, product owner): хувь нь pos_settings.cityTaxPercent
+// (байгууллага өөрөө бичнэ, 0 = бодохгүй), зөвхөн `cityTaxable` бараанд. Үнэ
+// хоёр татварыг хоёуланг нь АГУУЛНА; хоёулаа ЦЭВЭР үнээс бодогдоно:
+//   цэвэр = T / (1 + НӨАТ% + НХАТ%)   ж: 11,200 = 10,000 + 1,000 НӨАТ + 200 НХАТ (2%)
 
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 import type { PricedLine, SaleTotals, TotaledLine } from "./types";
@@ -8,44 +14,74 @@ export interface VatContext {
   /** vat_settings.isVatPayer — false бол НӨАТ мөр огт үүсэхгүй. */
   isVatPayer: boolean;
   vatRatePercent: number;
+  /** pos_settings.cityTaxPercent — 0/байхгүй бол НХАТ бодохгүй. НӨАТ-аас хамаарахгүй. */
+  cityTaxPercent?: number;
+}
+
+function taxRates(
+  vatMode: PricedLine["vatMode"],
+  cityTaxable: boolean,
+  ctx: VatContext
+): { vat: number; city: number } {
+  const vat = ctx.isVatPayer && vatMode === "standard" && ctx.vatRatePercent > 0 ? ctx.vatRatePercent : 0;
+  const cityRate = ctx.cityTaxPercent ?? 0;
+  const city = cityTaxable && cityRate > 0 ? cityRate : 0;
+  return { vat, city };
 }
 
 /**
- * Мөрийн НӨАТ орсон дүнгээс НӨАТ-ийг ялгана (inclusive). exempt/zero → 0.
- * Төлөгч биш → 0 (үнэ = орлого).
+ * Мөрийн татвар орсон дүнгээс НӨАТ ба НХАТ-ыг ялгана (inclusive). Хоёулаа
+ * цэвэр үнээс: цэвэр = T / (1 + v + c); бөөрөнхийллийн үлдэгдэл цэвэрт.
+ */
+export function lineTaxes(
+  lineTotal: number,
+  vatMode: PricedLine["vatMode"],
+  cityTaxable: boolean,
+  ctx: VatContext
+): { netAmount: number; vatAmount: number; cityTaxAmount: number } {
+  const { vat, city } = taxRates(vatMode, cityTaxable, ctx);
+  if (vat === 0 && city === 0) return { netAmount: round2(lineTotal), vatAmount: 0, cityTaxAmount: 0 };
+  const divisor = 100 + vat + city;
+  const vatAmount = round2((lineTotal * vat) / divisor);
+  const cityTaxAmount = round2((lineTotal * city) / divisor);
+  return { netAmount: round2(lineTotal - vatAmount - cityTaxAmount), vatAmount, cityTaxAmount };
+}
+
+/**
+ * Мөрийн НӨАТ орсон дүнгээс НӨАТ-ийг ялгана (inclusive, НХАТ-гүй мөр).
+ * exempt/zero → 0. Төлөгч биш → 0 (үнэ = орлого).
  */
 export function lineVat(
   lineTotal: number,
   vatMode: PricedLine["vatMode"],
   ctx: VatContext
 ): { netAmount: number; vatAmount: number } {
-  if (!ctx.isVatPayer || vatMode !== "standard" || !(ctx.vatRatePercent > 0))
-    return { netAmount: round2(lineTotal), vatAmount: 0 };
-  const rate = ctx.vatRatePercent;
-  const vatAmount = round2((lineTotal * rate) / (100 + rate));
-  return { netAmount: round2(lineTotal - vatAmount), vatAmount };
+  const { netAmount, vatAmount } = lineTaxes(lineTotal, vatMode, false, ctx);
+  return { netAmount, vatAmount };
 }
 
-/** Хөнгөлөлт тооцогдсон мөрүүдээс НӨАТ задаргаа + нийт дүн. */
+/** Хөнгөлөлт тооцогдсон мөрүүдээс татварын (НӨАТ, НХАТ) задаргаа + нийт дүн. */
 export function computeSaleTotals(
   lines: PricedLine[],
   ctx: VatContext
 ): SaleTotals {
   const totaled: TotaledLine[] = lines.map((line) => ({
     ...line,
-    ...lineVat(line.lineTotal, line.vatMode, ctx),
+    ...lineTaxes(line.lineTotal, line.vatMode, !!line.cityTaxable, ctx),
   }));
   const grossAmount = round2(totaled.reduce((sum, line) => sum + line.lineGross, 0));
   const discountTotal = round2(totaled.reduce((sum, line) => sum + line.discountAmount, 0));
   const netAmount = round2(totaled.reduce((sum, line) => sum + line.netAmount, 0));
   const vatAmount = round2(totaled.reduce((sum, line) => sum + line.vatAmount, 0));
+  const cityTaxAmount = round2(totaled.reduce((sum, line) => sum + line.cityTaxAmount, 0));
   return {
     lines: totaled,
     grossAmount,
     discountTotal,
     netAmount,
     vatAmount,
-    total: round2(netAmount + vatAmount),
+    cityTaxAmount,
+    total: round2(netAmount + vatAmount + cityTaxAmount),
   };
 }
 
@@ -63,18 +99,19 @@ export function roundToCashUnit(
 }
 
 /**
- * Хөнгөлөлтийн НӨАТ-гүй хэсэг — contra горимд Dr Хөнгөлөлт данс энэ дүнгээр
- * (Cr Орлого бүтэн = net + энэ). Стандарт мөрөнд НӨАТ орсон хөнгөлөлтийг
- * /(1+r) болгоно; exempt/zero эсвэл төлөгч биш бол бүтнээрээ.
+ * Хөнгөлөлтийн татваргүй хэсэг — contra горимд Dr Хөнгөлөлт данс энэ дүнгээр
+ * (Cr Орлого бүтэн = net + энэ). Татвар (НӨАТ, НХАТ) орсон хөнгөлөлтийг
+ * /(1 + v + c) болгоно; татваргүй мөрөнд бүтнээрээ.
  */
 export function discountNetOf(
   discountAmount: number,
   vatMode: PricedLine["vatMode"],
-  ctx: VatContext
+  ctx: VatContext,
+  cityTaxable = false
 ): number {
-  if (!ctx.isVatPayer || vatMode !== "standard" || !(ctx.vatRatePercent > 0))
-    return round2(discountAmount);
-  return round2((discountAmount * 100) / (100 + ctx.vatRatePercent));
+  const { vat, city } = taxRates(vatMode, cityTaxable, ctx);
+  if (vat === 0 && city === 0) return round2(discountAmount);
+  return round2((discountAmount * 100) / (100 + vat + city));
 }
 
 /** Гарагийн дугаар 1 (Да) … 7 (Ня) — УБ-ын цагаар. */

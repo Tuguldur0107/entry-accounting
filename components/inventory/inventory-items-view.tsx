@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, SwitchField } from "@/components/ui/form-field";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -95,6 +95,7 @@ type ItemForm = {
   salesPrice: string;
   minSalesPrice: string;
   vatMode: ItemVatMode;
+  cityTaxable: boolean;
   revenueAccountNumber: string;
   barcode: string;
   barcodeType: string;
@@ -115,6 +116,7 @@ const emptyItemForm: ItemForm = {
   salesPrice: "",
   minSalesPrice: "",
   vatMode: "standard",
+  cityTaxable: false,
   revenueAccountNumber: "",
   barcode: "",
   barcodeType: "",
@@ -144,6 +146,7 @@ function formOf(item: InventoryItemView): ItemForm {
     salesPrice: item.salesPrice == null ? "" : String(item.salesPrice),
     minSalesPrice: item.minSalesPrice == null ? "" : String(item.minSalesPrice),
     vatMode: item.vatMode,
+    cityTaxable: item.cityTaxable,
     revenueAccountNumber: item.revenueAccountNumber ?? "",
     barcode: item.barcode ?? "",
     barcodeType: item.barcodeType ?? "",
@@ -329,6 +332,7 @@ export function InventoryItemsView({ items, categories, levels, isVatPayer = tru
       barcode: itemForm.barcode.trim() || null,
       barcodeType: itemForm.barcode.trim() ? itemForm.barcodeType || null : null,
       vatMode: itemForm.vatMode,
+      cityTaxable: itemForm.cityTaxable,
       categoryCode: itemForm.categoryCode || null,
       revenueAccountNumber: itemForm.revenueAccountNumber.trim() || null,
       ebarimtClassificationCode: itemForm.ebarimtClassificationCode.trim() || null,
@@ -629,6 +633,12 @@ export function InventoryItemsView({ items, categories, levels, isVatPayer = tru
                   </select>
                 </FormField>
               </div>
+              <SwitchField
+                label="НХАТ ногдох"
+                hint="Нийслэлийн албан татвар — зочид буудал, хоол, согтууруулах ундаа, тамхи г.м. Хувь нь POS тохиргооноос (0 бол бодохгүй)"
+                checked={itemForm.cityTaxable}
+                onChange={(value) => setItemForm((c) => ({ ...c, cityTaxable: value }))}
+              />
               <FormField label="Орлогын данс" hint="хоосон бол POS тохиргооны орлогын данс">
                 <Input
                   value={itemForm.revenueAccountNumber}
