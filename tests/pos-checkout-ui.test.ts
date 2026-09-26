@@ -50,7 +50,11 @@ const salesList = readFileSync("components/pos/sales-list-view.tsx", "utf8");
 test("«НӨАТ» мөр: анхдагч асаалттай, Хувь хүн/ААН, ТТД шууд (үндсэн) эсвэл 7 оронтой регистрээр нэр татна", () => {
   assert.match(view, /useState\(true\);\s*\n\s*const \[nonVatReason/, "НӨАТ анхдагч асаалттай");
   assert.match(view, /<VatReceiptBar/);
-  assert.match(view, /lookupEbarimtTin\(lookupRegNo\)/, "регистр бичигдмэгц ТЕГ-ийн лавлах");
+  assert.match(
+    view,
+    /lookupTinPreferBrowser\(lookupRegNo, lookupEbarimtTin\)/,
+    "регистр бичигдмэгц ТЕГ-ийн лавлах — браузераас эхлээд, эс бөгөөс сервер"
+  );
   assert.match(view, /const canPay =[^;]*!buyerProblem[^;]*!nonVatProblem/);
   assert.match(vatBar, /Хувь хүн/);
   assert.match(vatBar, /ААН/);

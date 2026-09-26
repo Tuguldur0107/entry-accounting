@@ -43,6 +43,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getEbarimtOutbox, lookupEbarimtTin, recordEbarimtResponse } from "@/lib/actions/ebarimt";
+import { lookupTinPreferBrowser } from "@/lib/ebarimt/browser-lookup";
 import {
   IDLE_LOOKUP,
   needsOrgLookup,
@@ -238,7 +239,8 @@ export function PosCheckoutView({
     if (!lookupRegNo) return;
     let alive = true;
     const timer = setTimeout(() => {
-      lookupEbarimtTin(lookupRegNo)
+      // Кассын PC Монголд — ТЕГ-ийн лавлахад эхлээд браузераас шууд, эс бөгөөс сервер.
+      lookupTinPreferBrowser(lookupRegNo, lookupEbarimtTin)
         .then((result) => {
           if (!alive) return;
           setBuyerState((current) =>
