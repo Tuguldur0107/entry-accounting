@@ -17,8 +17,8 @@ export type OwnedHotkeys = { path: string; keys: readonly string[] };
 
 export const PAGE_OWNED_HOTKEYS: readonly OwnedHotkeys[] = [
   // Кассын дэлгэц (components/pos/pos-checkout-view.tsx): F3 / "/" хайлт,
-  // F4 хөнгөлөлт, F6 харилцагч, F9 төлбөр. F2 ЭНД БАЙХГҮЙ — глобал «+ Шинэ».
-  { path: "/inventory/pos", keys: ["F3", "/", "F4", "F6", "F9"] },
+  // F4 хөнгөлөлт, F9 төлбөр. F2 ЭНД БАЙХГҮЙ — глобал «+ Шинэ».
+  { path: "/inventory/pos", keys: ["F3", "/", "F4", "F9"] },
 ];
 
 /** `pathname` нь `path` өөрөө эсвэл түүний дэд зам мөн эсэх. */

@@ -14,7 +14,7 @@
 // үүсгэхгүй: ноорог + түр хадгалсан (парк) сагснууд localStorage-д.
 // Сагсны цэвэр төлөв `lib/pos/checkout-state.ts` (тесттэй).
 //
-// Товчлуур: F9 төлбөр · F3 эсвэл "/" хайлт · F4 хөнгөлөлт · F6 харилцагч ·
+// Товчлуур: F9 төлбөр · F3 эсвэл "/" хайлт · F4 хөнгөлөлт ·
 // ↑/↓ мөр сонгох · + / − тоо · Delete мөр хасах · Esc сонголт → сагс цэвэрлэх.
 // Сканнер = гар (keyboard wedge): хайлтын input ҮРГЭЛЖ focus-той — tile,
 // мөр бүгд mousedown-ыг preventDefault хийж focus-ыг булаахгүй; мөрийн ТОО-г
@@ -296,9 +296,11 @@ export function PosCheckoutView({
     [data.customers]
   );
 
+  // Харилцагч нь ЗӨВХӨН төлбөрийн цонхонд (зээл / урьдчилгаа / кредит) сонгогдоно —
+  // «Бэлэн худалдан авагч» нь дотоод анхдагч тул жагсаалтад гарахгүй.
   const customerOptions = useMemo(
     () =>
-      data.customers.map((entry) => ({
+      data.customers.filter((entry) => !entry.isWalkIn).map((entry) => ({
         value: entry.id,
         label: entry.name,
         hint: entry.customerGroup ?? undefined,
@@ -464,7 +466,6 @@ export function PosCheckoutView({
 
   // ── Сагсны үйлдлүүд ────────────────────────────────────────────────────
   const searchRef = useRef<HTMLInputElement>(null);
-  const customerRef = useRef<HTMLDivElement>(null);
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
 
   const selectLine = useCallback((key: string | null) => setSelectedKey(key), []);
@@ -668,11 +669,6 @@ export function PosCheckoutView({
       if (event.key === "F4") {
         event.preventDefault();
         setDiscountOpen(true);
-        return;
-      }
-      if (event.key === "F6") {
-        event.preventDefault();
-        customerRef.current?.querySelector("button")?.focus();
         return;
       }
       if (typingElsewhere) return;
@@ -909,11 +905,6 @@ export function PosCheckoutView({
           onSetQty={setLineQty}
           onQtyEditDone={focusSearch}
           onRemove={dropLine}
-          customerId={customerId}
-          customerOptions={customerOptions}
-          onCustomerChange={changeCustomer}
-          customer={customer}
-          customerRef={customerRef}
           quote={quote}
           quoteBusy={quoteBusy}
           quoteError={quoteError}
@@ -1036,6 +1027,8 @@ export function PosCheckoutView({
         methods={data.methods}
         total={quote?.total ?? 0}
         customer={customer}
+        customerOptions={customerOptions}
+        onCustomerChange={changeCustomer}
         shift={shift}
         cashRoundingUnit={data.settings.cashRoundingUnit}
         ebarimtEnabled={ebarimtBuyerActive}
