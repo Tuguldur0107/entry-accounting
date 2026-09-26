@@ -53,7 +53,9 @@ async function call<T>(config: QpayClientConfig, method: "GET" | "POST" | "DELET
     const detail = typeof data.error === "string" ? data.error : text.slice(0, 160) || res.statusText;
     const hint =
       res.status === 401
-        ? "API key буруу эсвэл хүчингүй"
+        ? // Dashboard дээр key солигдсон (rotate / дахин холболт) үед Entry-д хадгалсан
+          // хуучин key хүчингүй болдог — засах зам нь нэг товч (2026-09-26 пилот).
+          "API key буруу эсвэл хүчингүй — POS тохиргоо → QPay → [QPay дахин холбох]"
         : res.status === 403
           ? "API хандалт идэвхгүй / акаунт түдгэлзсэн"
           : res.status === 409
