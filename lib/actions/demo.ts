@@ -21,8 +21,8 @@ import { db } from "@/lib/db";
 import { purgeOrganization } from "@/lib/org/purge";
 import { memberships, organizations } from "@/lib/db/schema";
 
-// "use server" файл зөвхөн async функц export хийнэ — нэр нь локал const.
-const DEMO_ORG_NAME = "Демо худалдааны компани";
+// Нэр нь анхны туршилтын илрүүлэлттэй НЭГ эх (lib/onboarding/first-run.ts).
+import { DEMO_ORG_NAME } from "@/lib/onboarding/first-run";
 const ORG_COOKIE = "ea-org";
 
 /** Tool-ийн үр дүн алдаа мөн үү — executeAiTool алдааг текстээр буцаадаг. */

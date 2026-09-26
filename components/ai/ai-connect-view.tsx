@@ -5,8 +5,9 @@
 // Claude-оос ижил tool давхаргаар (lib/ai/tools.ts) ажиллана.
 //
 //   ① Холбох — OAuth (token хэрэггүй): хаяг + 3 алхам (components/skills/connect-guide)
-//   ② Бичилтийн горим — ноорог / шууд бичих (lib/ai/write-mode.ts, MCP + REST-д нэг)
-//   ③ Token — Claude Code, Codex зэрэг OAuth-гүй клиентэд (eak_…, ≤5)
+//   ② Эхлээд ингэж асуу — бэлэн асуултууд (lib/onboarding/first-run.ts, MCP prompts-той нэг эх)
+//   ③ Бичилтийн горим — ноорог / шууд бичих (lib/ai/write-mode.ts, MCP + REST-д нэг)
+//   ④ Token — Claude Code, Codex зэрэг OAuth-гүй клиентэд (eak_…, ≤5)
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -24,6 +25,9 @@ import { saveAiWriteMode } from "@/lib/actions/ai-write-mode";
 import { createApiToken, revokeApiToken, type ApiTokenView } from "@/lib/actions/mcp-tokens";
 import type { AiWriteMode } from "@/lib/ai/write-mode";
 import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
+import { StarterPrompts } from "@/components/onboarding/starter-prompts";
+import type { StarterPrompt } from "@/lib/onboarding/first-run";
+import { cn } from "@/lib/utils";
 
 /** Token-ий хугацааны сонголтууд — "" нь хугацаагүй (default). */
 const TOKEN_EXPIRY_OPTIONS = [
@@ -35,9 +39,22 @@ const TOKEN_EXPIRY_OPTIONS = [
 
 const card = "space-y-3 rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-4";
 
-function Step({ n, title, hint, children }: { n: number; title: string; hint?: string; children: React.ReactNode }) {
+function Step({
+  n,
+  title,
+  hint,
+  id,
+  children,
+}: {
+  n: number;
+  title: string;
+  hint?: string;
+  /** Нүүрний картаас шууд үсрэх зангуу (ж: #starter-prompts). */
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section className={card}>
+    <section id={id} className={cn(card, "scroll-mt-20")}>
       <div className="flex items-center gap-2">
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[var(--ea-primary-50)] text-xs font-semibold text-[var(--ea-primary)]">
           {n}
@@ -56,6 +73,7 @@ export function AiConnectView({
   canWrite,
   postLimitMnt,
   mcpTokens,
+  starterPrompts,
 }: {
   mcpUrl: string;
   writeMode: AiWriteMode;
@@ -64,6 +82,8 @@ export function AiConnectView({
   /** §9 батлах хязгаар — «Шууд бичих» тайлбарт. */
   postLimitMnt: number;
   mcpTokens: ApiTokenView[];
+  /** Бэлэн асуултууд — багцаар шүүсэн (lib/onboarding/first-run.ts, MCP prompts-той нэг эх). */
+  starterPrompts: StarterPrompt[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -159,6 +179,15 @@ export function AiConnectView({
 
         <Step
           n={2}
+          id="starter-prompts"
+          title="Эхлээд ингэж асуу"
+          hint="Дарж хуулаад ChatGPT / Claude-даа буулгана. Эдгээр нь тэдний «+» / «/» цэсэнд ч Entry-ийн бэлэн асуулт болж харагдана."
+        >
+          <StarterPrompts prompts={starterPrompts} />
+        </Step>
+
+        <Step
+          n={3}
           title="Бичилтийн горим"
           hint="AI-ийн үүсгэсэн журнал, нэхэмжлэх, кассын баримт ямар төлөвтэй орох вэ. Батлах хязгаар, том дүн, сар хаалт, цалин үргэлж ноорог үлдэнэ (§9 human-in-the-loop)."
         >
@@ -176,7 +205,7 @@ export function AiConnectView({
           {!canWrite ? <p className="text-xs text-[var(--ea-text-4)]">Горимыг бичих эрхтэй гишүүн л солино.</p> : null}
         </Step>
 
-        <Step n={3} title="Token (Claude Code, Codex)" hint="OAuth дэмждэггүй клиентэд — token нь нэг л удаа харагдана, дээд тал нь 5.">
+        <Step n={4} title="Token (Claude Code, Codex)" hint="OAuth дэмждэггүй клиентэд — token нь нэг л удаа харагдана, дээд тал нь 5.">
           {mcpTokens.length > 0 && (
             <div className="space-y-1.5">
               {mcpTokens.map((token) => (

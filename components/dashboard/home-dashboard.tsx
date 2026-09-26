@@ -9,6 +9,7 @@ import {
   type SetupStep,
 } from "@/components/dashboard/setup-checklist";
 import { Icon, type IconName } from "@/components/ui/icon";
+import { WelcomeCard, type WelcomeCardData } from "@/components/dashboard/welcome-card";
 
 import { StatusBadge } from "@/components/ui/status-badge";
 import { fmtPeriodCode } from "@/lib/periods/period";
@@ -97,6 +98,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function HomeDashboard({
+  welcome,
   setupSteps,
   periodCode,
   periodStatus,
@@ -111,6 +113,8 @@ export function HomeDashboard({
   taxDeadlines,
   kpi,
 }: {
+  /** Анхны туршилтын карт — null бол харагдахгүй (lib/onboarding/first-run.ts). */
+  welcome: WelcomeCardData | null;
   setupSteps: SetupStep[];
   periodCode: string;
   periodStatus: "open" | "closed" | "missing";
@@ -168,6 +172,9 @@ export function HomeDashboard({
           </StatusBadge>
         </div>
       </div>
+
+      {/* Анхны туршилт — AI-тай нэвтрүүлэлт (хаах / бүгд хийгдмэгц нуугдана) */}
+      {welcome ? <WelcomeCard data={welcome} /> : null}
 
       {/* Ажлын дараалал — exception-first: анхаарал шаардсан зүйл л гарна */}
       <section>
@@ -227,7 +234,7 @@ export function HomeDashboard({
       <DashboardQuickActions />
 
       {/* П19 — эхлэлийн тохиргооны checklist (бүгд хийгдмэгц нуугдана) */}
-      <SetupChecklist steps={setupSteps} />
+      <SetupChecklist steps={setupSteps} showDemo={!welcome} />
 
       {/* Татварын хуанли — дараагийн тайлагналын хугацаанууд */}
       <section>
