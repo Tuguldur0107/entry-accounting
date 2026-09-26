@@ -139,6 +139,10 @@ export async function ensureQpayPaymentMethod(orgId: string, creatorUserId?: str
     if ("cashAccountId" in plan.updateMethod) patch.cashAccountId = accountId;
     if (plan.updateMethod.isActive) patch.isActive = true;
     if (plan.updateMethod.ebarimtCode) patch.ebarimtCode = plan.updateMethod.ebarimtCode;
+    if (plan.updateMethod.adopt) {
+      patch.provider = QPAY_PROVIDER;
+      patch.requiresReference = false;
+    }
     if (Object.keys(patch).length > 0)
       await db.update(posPaymentMethods).set(patch).where(and(eq(posPaymentMethods.id, plan.updateMethod.id), eq(posPaymentMethods.organizationId, orgId)));
   }
