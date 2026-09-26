@@ -166,6 +166,8 @@ export function SalesListView({
     []
   );
 
+  const hasCityTax = useMemo(() => sales.some((sale) => sale.cityTaxAmount !== 0), [sales]);
+
   const columns = useMemo<ColDef<PosSaleView>[]>(
     () => [
       {
@@ -238,6 +240,16 @@ export function SalesListView({
         valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
+        headerName: "НХАТ",
+        field: "cityTaxAmount",
+        width: 90,
+        // НХАТ-гүй байгууллагад багана нуугдана (хоосон багана харуулахгүй).
+        hide: !hasCityTax,
+        cellClass: "ag-right-aligned-cell font-mono text-xs",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
+      },
+      {
         headerName: "Төлөх",
         field: "total",
         width: 130,
@@ -288,7 +300,7 @@ export function SalesListView({
         valueFormatter: (p) => String(p.value ?? ""),
       },
     ],
-    []
+    [hasCityTax]
   );
 
   return (

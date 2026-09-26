@@ -20,10 +20,8 @@ import { isOrgVatPayer } from "@/lib/vat/settings";
 import { posApiInfo, posApiSendData } from "@/lib/ebarimt/client";
 import { EBARIMT_ERRORS } from "@/lib/ebarimt/constants";
 import {
-  lookupBranchInfo,
   lookupTaxpayerByTin,
   lookupTinByRegNo,
-  type BranchInfoEntry,
   type TinInfo,
 } from "@/lib/ebarimt/lookup";
 import { MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
@@ -212,16 +210,6 @@ export async function lookupCounterpartyTaxpayer(input: {
     };
   } catch (caught) {
     return actionError("lookupCounterpartyTaxpayer", caught, "ТЕГ-ийн лавлах амжилтгүй");
-  }
-}
-
-/** Дүүргийн кодын лавлах (тохиргооны сонголт). */
-export async function getEbarimtBranchInfo(): Promise<ActionResult<{ branches: BranchInfoEntry[] }>> {
-  try {
-    await requireModuleAction(POS_MODULE_KEY, "read");
-    return { branches: await lookupBranchInfo() };
-  } catch (caught) {
-    return actionError("getEbarimtBranchInfo", caught, "Дүүргийн лавлах уншигдсангүй");
   }
 }
 

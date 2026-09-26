@@ -25,13 +25,12 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PageTabs, type TabOption } from "@/components/ui/tabs";
 import { FormField, SwitchField } from "@/components/ui/form-field";
 import { IconAction } from "@/components/ui/icon-action";
 import {
-  getEbarimtBranchInfo,
   getEbarimtStatus,
   lookupEbarimtTin,
   pushEbarimtData,
@@ -48,6 +47,7 @@ import {
 import { EBARIMT_LOTTERY_LOW_THRESHOLD, EBARIMT_PAYMENT_CODE_SUGGESTIONS, EBARIMT_PAYMENT_CODES } from "@/lib/ebarimt/constants";
 import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
 import { lookupTinPreferBrowser } from "@/lib/ebarimt/browser-lookup";
+import { districtLabel, EBARIMT_DISTRICTS } from "@/lib/ebarimt/district-codes";
 import {
   getQpayProvisionPreview,
   getQpayStatus,
@@ -73,6 +73,12 @@ import {
 import type { DiscountRule, PaymentMethodView, PosSettingsView as PosSettings } from "@/lib/pos/types";
 import { fmtMnt } from "@/lib/reports/balances";
 import { feedback } from "@/lib/ui/feedback";
+
+/** eBarimt дүүргийн сонголт — ТЕГ-ийн албан лавлах (client-safe, ~500 мөр). */
+const districtOptions: SearchableOption[] = EBARIMT_DISTRICTS.map((entry) => ({
+  value: entry.code,
+  label: `${entry.district} · ${entry.khoroo}`,
+}));
 
 export interface IssueTypeOption {
   id: string;
@@ -149,6 +155,11 @@ const ACCOUNT_FIELDS: { key: keyof PosSettings; label: string; hint: string }[] 
     label: "QPay / э-хэтэвчийн шимтгэл (зардал)",
     hint: "Банкны хуулгаар settlement тулгахад түр данснаас суутгагдсан шимтгэл, default 73100008",
   },
+  {
+    key: "cityTaxAccountNumber",
+    label: "НХАТ өглөг",
+    hint: "Нийслэлийн албан татвар — «НХАТ ногдох» барааны борлуулалтад Cr, default 31440000",
+  },
 ];
 
 function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; issueTypes: IssueTypeOption[] }) {
@@ -215,6 +226,12 @@ function GeneralSettings({ checkout, issueTypes }: { checkout: CheckoutData; iss
           </FormField>
           <FormField label="Нийт хөнгөлөлтийн тааз %">
             <Input type="number" min="0" max="100" value={form.maxTotalDiscountPercent} className="font-mono text-right" onChange={(e) => patch({ maxTotalDiscountPercent: Number(e.target.value) })} />
+          </FormField>
+          <FormField
+            label="НХАТ (нийслэлийн албан татвар) %"
+            hint="0 = НХАТ төлөгч биш. Хувийг байгууллага өөрөө тогтооно; зөвхөн барааны картад «НХАТ ногдох» тэмдэгтэй бараанд үнээс ялгагдана"
+          >
+            <Input type="number" min="0" max="10" step="0.01" value={form.cityTaxPercent} className="font-mono text-right" onChange={(e) => patch({ cityTaxPercent: Number(e.target.value) })} />
           </FormField>
           <FormField label="Бэлэн бөөрөнхийлөл" hint="Зөвхөн бэлэн (₮) төлөх хэсэгт">
             <select className="ea-form-select" value={form.cashRoundingUnit} onChange={(e) => patch({ cashRoundingUnit: Number(e.target.value) })}>
@@ -936,6 +953,12 @@ function DiscountSimulation({ checkout }: { checkout: CheckoutData }) {
                   <span className="font-mono">{fmtMnt(quote.vatAmount)}</span>
                 </div>
               )}
+              {quote.cityTaxAmount > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span>НХАТ</span>
+                  <span className="font-mono">{fmtMnt(quote.cityTaxAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold">
                 <span>Төлөх</span>
                 <span className="font-mono">{fmtMnt(quote.total)}</span>
@@ -1028,8 +1051,6 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
   const [status, setStatus] = useState<EbarimtStatusSummary | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const [readiness, setReadiness] = useState<EbarimtReadiness | null>(null);
-  const [branches, setBranches] = useState<{ code: string; name: string }[] | null>(null);
-  const [branchFailed, setBranchFailed] = useState(false);
   const [info, setInfo] = useState<string[] | null>(null);
   const [companyRegisterNo, setCompanyRegisterNo] = useState<string | null>(null);
   /** ТЕГ-ээс татсан мерчантын нэр — ТТД зөв байгууллагынх эсэхийг нүдээр шалгана. */
@@ -1049,14 +1070,6 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
       setProblems(result.problems ?? []);
       setReadiness(result.readiness ?? null);
       setCompanyRegisterNo(result.companyRegisterNo ?? null);
-    });
-    getEbarimtBranchInfo().then((result) => {
-      if (cancelled) return;
-      if (result.error || !result.branches || result.branches.length === 0) {
-        setBranchFailed(true);
-        return;
-      }
-      setBranches(result.branches);
     });
     return () => {
       cancelled = true;
@@ -1247,31 +1260,27 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
         </FormField>
         <FormField
           label="Дүүргийн код"
-          hint={branchFailed ? "Лавлах уншигдсангүй — 4 оронтой кодыг гараар бичнэ" : "4 оронтой (ТЕГ-ийн лавлах)"}
+          hint={
+            form.ebarimtDistrictCode && !districtLabel(form.ebarimtDistrictCode)
+              ? "Албан жагсаалтад байхгүй код — ТЕГ шинээр нэмсэн эсэхийг шалгана уу"
+              : "Салбарын байршил: аймаг/дүүрэг (2 орон) + сум/хороо (2 орон) — ж: Баянзүрх 3-р хороо = 2403"
+          }
         >
-          {branches ? (
-            <select
-              className="ea-form-select"
-              value={form.ebarimtDistrictCode}
-              onChange={(e) => patch({ ebarimtDistrictCode: e.target.value })}
-            >
-              <option value="">— Сонгох —</option>
-              {branches.map((branch) => (
-                <option key={branch.code} value={branch.code}>
-                  {branch.code} · {branch.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <Input
-              value={form.ebarimtDistrictCode}
-              maxLength={4}
-              inputMode="numeric"
-              className="font-mono"
-              placeholder="3420"
-              onChange={(e) => patch({ ebarimtDistrictCode: e.target.value.replace(/\D/g, "") })}
-            />
-          )}
+          <SearchableSelect
+            value={form.ebarimtDistrictCode}
+            onChange={(value) => patch({ ebarimtDistrictCode: value })}
+            options={districtOptions}
+            maxVisible={60}
+            placeholder="Хайх: дүүрэг, хороо эсвэл код"
+            valueLabel={districtLabel(form.ebarimtDistrictCode) ?? "жагсаалтаар шалгаагүй"}
+            emptyLabel="Илэрц олдсонгүй — 4 оронтой кодыг шууд бичиж болно"
+            customOption={(query) =>
+              /^\d{4}$/.test(query.trim())
+                ? { value: query.trim(), label: "Гараар оруулах", hint: "жагсаалтаар шалгаагүй" }
+                : null
+            }
+            footer={`ТЕГ-ийн албан лавлах (PosAPI 3.0 багц) · ${EBARIMT_DISTRICTS.length} сум/хороо`}
+          />
         </FormField>
         <FormField label="Кассын дугаар (posNo)" hint="Бүртгэгдсэн терминал — ээлжээс тусдаа">
           <Input
@@ -1385,10 +1394,10 @@ function EbarimtSection({ settings }: { settings: PosSettings }) {
                   {status.merchant.name || "—"}
                   {status.merchant.vatPayer === false ? <span className="text-[var(--ea-danger-fg)]"> · НӨАТ суутган төлөгч БИШ</span> : ""}
                 </div>
-                {status.merchant.cityPayer && (
+                {status.merchant.cityPayer && !(settings.cityTaxPercent > 0) && (
                   <div className="text-[var(--ea-warning-fg)]">
-                    ТЕГ: НХАТ (нийслэлийн албан татвар) суутган төлөгч — Entry хотын татварын дүнг баримтад бичдэггүй (үргэлж 0);
-                    НХАТ-тай бараа/үйлчилгээ зарахаас өмнө тусдаа шийдвэр шаардлагатай
+                    ТЕГ: НХАТ (нийслэлийн албан татвар) суутган төлөгч — «Ерөнхий» табд НХАТ-ын хувийг бичиж,
+                    НХАТ ногдох барааг барааны картад тэмдэглэнэ үү (одоо баримтад НХАТ 0 явна)
                   </div>
                 )}
                 {status.merchant.freeProject && (

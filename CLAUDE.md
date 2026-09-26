@@ -24,7 +24,7 @@
 | `custom/` өргөтгөлийн давхарга (fork) | ✅ | seed script, манифест |
 | REST API v1 (гадаад интеграци) | ✅ | — |
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
-| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх, хотын татвар |
+| POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
 | Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
@@ -348,6 +348,17 @@ pos_sales → АР нэхэмжлэх (posted, sourceType "pos": Dr Авлага
   мөн `open-pos-shifts` (нээлттэй ээлж)
 - **НӨАТ `vat_settings.isVatPayer`-ээс** (D4): төлөгч → барааны `salesPrice` НӨАТ
   ОРСОН, мөр бүр `vatMode`-оор задарна; төлөгч биш → НӨАТ мөр огт үгүй
+- **НХАТ (нийслэлийн албан татвар, T4 — 2026-09-26, product owner)**: хувь нь
+  `pos_settings.cityTaxPercent` — байгууллага ӨӨРӨӨ бичнэ (кодод хуулийн тоо БАЙХГҮЙ,
+  0 = НХАТ төлөгч биш, бодохгүй); зөвхөн барааны картад `cityTaxable` тэмдэгтэй бараанд;
+  НӨАТ-аас хамаарахгүй. Үнэ хоёр татварыг АГУУЛНА, хоёулаа цэвэр үнээс: цэвэр =
+  T/(1+v+c) (`lineTaxes`, `lib/pos/sale-math.ts` ЦЭВЭР, тесттэй — 11,200 = 10,000 + 1,000
+  + 200). GL Cr `cityTaxAccountNumber` (default **31440000 «НХАТ өглөг»**, стандарт данс,
+  балансын «Татварын өр» мөр), буцаалт Dr (хувь ЭХ мөрөөс); `pos_sales` /
+  `pos_sale_lines.cityTaxAmount`; eBarimt `totalCityTax` (item → receipt → root);
+  касс/баримт/панель/жагсаалт/тайланд НХАТ-тай үед л мөр/багана. AI
+  `update_pos_settings.cityTaxPercent` (таахгүй — хэрэглэгчээс), `create/update_inventory_item.cityTaxable`.
+  DB тест `tests/pos-city-tax-flow.test.ts`
 - **Хөнгөлөлтийн хөдөлгөгч** (`lib/pos/discounts.ts`, 9 төрөл, тесттэй): төлөх
   дүнд шууд нөлөөлнө, НӨАТ хөнгөлөлтийн ДАРААХ дүнгээс; `approvalReasons`
   хоосон биш → `pos:post` эрх (`[APPROVAL_REQUIRED]`); GL default цэвэр орлого,
@@ -472,13 +483,14 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   гэж хариулсан бол серверээр дахин асуухгүй. ТТД ЗОХИОХГҮЙ хэвээр (`lookup.ts`).
   PosAPI-ийн `/rest/info` регистр буцаадаггүй тул мерчантын ТТД ↔ регистрийн
   эх нь операторын консол (operator.ebarimt.mn → Мерчантын жагсаалт)
-- **ТЕГ-ийн лавлах БРАУЗЕРААС ЭХЛЭЭД** (2026-09-26, `lib/ebarimt/browser-lookup.ts`,
-  тесттэй): кассын ААН (регистр → нэр + ТТД), мерчантын «ТЕГ-ээс татах», харилцагчийн
-  картын лавлах — хэрэглэгчийн браузер Монголд тул `api.ebarimt.mn`-ийг ШУУД дуудна;
-  сүлжээ/CORS/timeout бол серверийн action (прокси) руу буцна, ТЕГ «олдсонгүй»
-  гэж хариулсан бол серверээр дахин асуухгүй. ТТД ЗОХИОХГҮЙ хэвээр (`lookup.ts`).
-  PosAPI-ийн `/rest/info` регистр буцаадаггүй тул мерчантын ТТД ↔ регистрийн
-  эх нь операторын консол (operator.ebarimt.mn → Мерчантын жагсаалт)
+- **Дүүргийн код = АЛБАН ЛАВЛАХААС СОНГОНО** (2026-09-26, `lib/ebarimt/district-codes.ts`
+  ЦЭВЭР, client-safe, тесттэй): код = аймаг/дүүрэг (2) + сум/хороо (2) — Баянзүрх 3-р хороо
+  **2403**, Чингэлтэй 5-р хороо 3505 (гараар андуурагдсан жишээ). Өгөгдөл
+  `district-codes.json` (506) — мерчантын багцын `DISTRICT CODE.txt` (ТЕГ `getBranchInfo`
+  хариу) → `node scripts/build-ebarimt-districts.mjs <файл>`. Серверээс `getBranchInfo`
+  ДУУДАХГҮЙ (гео-хязгаар; хуучин parser хороо алгасаж 2 оронтой код гаргадаг байсан —
+  хасагдсан). Жагсаалтад байхгүй 4 оронтой кодыг гараар оруулна — «шалгаагүй» гэж ил,
+  ЗОХИОХГҮЙ; `get_ebarimt_status` кодын нэрийг хэлнэ
 - **Операторын PosAPI нийтэд ХААЛТТАЙ** (2026-09-25, `docs/deployment/ebarimt.md`
   §4a): Cloudflare WAF нууц header шаардана; Entry сервер PosAPI + лавлахын прокси
   (`EBARIMT_PUBLIC_API_BASE`) руу `EBARIMT_GATEWAY_KEY`-г нэмнэ — ЗӨВХӨН
@@ -553,8 +565,9 @@ lib/ebarimt/
 ├── client.ts      PosAPI REST: putReceipt / deleteReceipt / info / sendData
 │                  (DB-гүй — browser горимд кассын дэлгэц ч дуудна)
 ├── gateway-auth.ts WAF-ын нууц header — allowlist-ийн хост руу л (ЦЭВЭР, тесттэй)
-├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo (РД → ТТД) + getInfo (ТТД → нэр) /
-│                  getBranchInfo (24ц кэш; parse нь ЦЭВЭР, tests/ebarimt-lookup.test.ts)
+├── lookup.ts      ТЕГ-ийн нийтийн getTinInfo (РД → ТТД) + getInfo (ТТД → нэр)
+│                  (24ц кэш; parse нь ЦЭВЭР, tests/ebarimt-lookup.test.ts)
+├── district-codes.ts/.json  Дүүрэг/хорооны АЛБАН лавлах (506, client-safe) — тохиргооны сонгогч
 ├── queue.ts       DB давхарга: enqueue / prepare / markSent / markFailed /
 │                  claimDueSubmissions / ebarimtStatusSummary
 ├── worker.ts      claim → PosAPI → бичих; sendSubmissionNow (шууд, timeout-тэй,

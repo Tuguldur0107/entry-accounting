@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   computeSaleTotals,
   discountNetOf,
+  lineTaxes,
   lineVat,
   posIssueTypeWarning,
   roundToCashUnit,
@@ -60,6 +61,46 @@ test("computeSaleTotals: мөр бүрийн НӨАТ нийлбэр = бари�
   assert.equal(totals.netAmount + totals.vatAmount, totals.total);
 });
 
+test("НХАТ: 11,200 = цэвэр 10,000 + НӨАТ 1,000 + НХАТ 200 (2%) — хоёулаа цэвэр үнээс", () => {
+  const ctx = { ...payer, cityTaxPercent: 2 };
+  assert.deepEqual(lineTaxes(11_200, "standard", true, ctx), { netAmount: 10_000, vatAmount: 1_000, cityTaxAmount: 200 });
+  // НХАТ ногдохгүй бараа — зөвхөн НӨАТ (хуучин зан төлөв)
+  assert.deepEqual(lineTaxes(11_000, "standard", false, ctx), { netAmount: 10_000, vatAmount: 1_000, cityTaxAmount: 0 });
+  // НӨАТ төлөгч биш ч НХАТ төлөгч — НХАТ НӨАТ-аас хамаарахгүй
+  assert.deepEqual(lineTaxes(10_200, "standard", true, { isVatPayer: false, vatRatePercent: 10, cityTaxPercent: 2 }), {
+    netAmount: 10_000,
+    vatAmount: 0,
+    cityTaxAmount: 200,
+  });
+  // НӨАТ-аас чөлөөлөгдсөн ч НХАТ ногдоно
+  assert.deepEqual(lineTaxes(10_200, "exempt", true, ctx), { netAmount: 10_000, vatAmount: 0, cityTaxAmount: 200 });
+});
+
+test("НХАТ: хувь 0 / тохируулаагүй бол бодохгүй (хувь ЗОХИОХГҮЙ)", () => {
+  assert.deepEqual(lineTaxes(11_000, "standard", true, payer), { netAmount: 10_000, vatAmount: 1_000, cityTaxAmount: 0 });
+  assert.deepEqual(lineTaxes(11_000, "standard", true, { ...payer, cityTaxPercent: 0 }), {
+    netAmount: 10_000,
+    vatAmount: 1_000,
+    cityTaxAmount: 0,
+  });
+});
+
+test("НХАТ: баримтын нийт = цэвэр + НӨАТ + НХАТ, мөрийн нийлбэрээр", () => {
+  const totals = computeSaleTotals(
+    [
+      priced({ key: "beer", lineTotal: 11_200, cityTaxable: true }),
+      priced({ key: "bread", lineTotal: 3_300 }),
+      priced({ key: "wine", lineTotal: 7_777, cityTaxable: true }),
+    ],
+    { ...payer, cityTaxPercent: 2 }
+  );
+  assert.equal(totals.total, 22_277);
+  assert.equal(totals.cityTaxAmount, totals.lines.reduce((sum, line) => sum + line.cityTaxAmount, 0));
+  assert.equal(Math.round((totals.netAmount + totals.vatAmount + totals.cityTaxAmount) * 100) / 100, totals.total);
+  for (const line of totals.lines)
+    assert.equal(Math.round((line.netAmount + line.vatAmount + line.cityTaxAmount) * 100) / 100, line.lineTotal);
+});
+
 test("roundToCashUnit: 10₮, 100₮, 0 (унтраалттай)", () => {
   assert.deepEqual(roundToCashUnit(1_234, 10), { rounded: 1_230, diff: -4 });
   assert.deepEqual(roundToCashUnit(1_236, 10), { rounded: 1_240, diff: 4 });
@@ -70,6 +111,8 @@ test("roundToCashUnit: 10₮, 100₮, 0 (унтраалттай)", () => {
 test("discountNetOf: НӨАТ орсон хөнгөлөлтийг /1.1 (contra горим)", () => {
   assert.equal(discountNetOf(110_000, "standard", payer), 100_000);
   assert.equal(discountNetOf(110_000, "exempt", payer), 110_000);
+  // НХАТ ногдох мөр: /(1 + 0.10 + 0.02)
+  assert.equal(discountNetOf(112_000, "standard", { ...payer, cityTaxPercent: 2 }, true), 100_000);
 });
 
 test("ulaanbaatarNow: УБ-ын огноо/цаг/гараг", () => {

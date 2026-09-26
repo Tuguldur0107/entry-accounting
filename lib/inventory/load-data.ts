@@ -58,6 +58,7 @@ export async function loadInventoryBase(orgId: string) {
     minSalesPrice: numberOrNull(item.minSalesPrice),
     barcode: item.barcode ?? null,
     vatMode: toItemVatMode(item.vatMode),
+    cityTaxable: item.cityTaxable,
     revenueAccountNumber: item.revenueAccountNumber ?? null,
     categoryCode: item.categoryCode ?? null,
     ebarimtClassificationCode: item.ebarimtClassificationCode ?? null,

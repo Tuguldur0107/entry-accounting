@@ -109,6 +109,8 @@ export type InventoryItemPosFields = {
   minSalesPrice?: number | null;
   barcode?: string | null;
   vatMode?: ItemVatMode;
+  /** НХАТ (нийслэлийн албан татвар) ногдох бараа — хувь нь POS тохиргооноос. */
+  cityTaxable?: boolean;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
   /** eBarimt ангилалын код (7 орон) / татварын бүтээгдэхүүний код (3–5 орон). */
@@ -172,6 +174,7 @@ async function validateItemPosFields(
   minSalesPrice?: string | null;
   barcode?: string | null;
   vatMode?: ItemVatMode;
+  cityTaxable?: boolean;
   revenueAccountNumber?: string | null;
   categoryCode?: string | null;
   ebarimtClassificationCode?: string | null;
@@ -274,6 +277,7 @@ async function validateItemPosFields(
       minSalesPrice === undefined ? undefined : minSalesPrice == null ? null : String(minSalesPrice),
     barcode,
     vatMode: data.vatMode,
+    cityTaxable: data.cityTaxable === undefined ? undefined : !!data.cityTaxable,
     revenueAccountNumber,
     categoryCode,
     ebarimtClassificationCode,
@@ -351,6 +355,7 @@ async function createInventoryItemCore(
         minSalesPrice: pos.minSalesPrice ?? null,
         barcode: pos.barcode ?? null,
         vatMode: pos.vatMode ?? "standard",
+        cityTaxable: pos.cityTaxable ?? false,
         revenueAccountNumber: pos.revenueAccountNumber ?? null,
         categoryCode: pos.categoryCode ?? null,
         ebarimtClassificationCode: pos.ebarimtClassificationCode ?? null,
@@ -420,6 +425,7 @@ async function updateInventoryItemCore(
         ...(pos.minSalesPrice !== undefined ? { minSalesPrice: pos.minSalesPrice } : {}),
         ...(pos.barcode !== undefined ? { barcode: pos.barcode } : {}),
         ...(pos.vatMode !== undefined ? { vatMode: pos.vatMode } : {}),
+        ...(pos.cityTaxable !== undefined ? { cityTaxable: pos.cityTaxable } : {}),
         ...(pos.revenueAccountNumber !== undefined
           ? { revenueAccountNumber: pos.revenueAccountNumber }
           : {}),

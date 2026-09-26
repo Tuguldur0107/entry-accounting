@@ -177,6 +177,14 @@ function PosSaleBody({
         valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
+        headerName: "НХАТ",
+        field: "cityTaxAmount",
+        width: 90,
+        cellClass: "ag-right-aligned-cell font-mono text-xs",
+        headerClass: "ag-right-aligned-header",
+        valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
+      },
+      {
         headerName: "Нийт",
         field: "lineTotal",
         width: 120,
@@ -269,6 +277,7 @@ function PosSaleBody({
           <TotalRow label="Хөнгөлөлт" value={sale.discountTotal > 0 ? `−${fmtMnt(sale.discountTotal)}` : "0"} />
           <TotalRow label="Цэвэр дүн" value={fmtMnt(sale.netAmount)} />
           <TotalRow label="НӨАТ" value={fmtMnt(sale.vatAmount)} />
+          {sale.cityTaxAmount > 0 && <TotalRow label="НХАТ" value={fmtMnt(sale.cityTaxAmount)} />}
           {sale.roundingAmount !== 0 && <TotalRow label="Бөөрөнхийлөл" value={fmtMnt(sale.roundingAmount)} />}
           <TotalRow label="Төлөх" value={fmtMnt(sale.total)} strong />
         </div>

@@ -188,6 +188,7 @@ export async function loadSalesReport(orgId: string, filter: SalesReportFilter):
         discountAmount: sign * Number(line.discountAmount),
         netAmount,
         vatAmount: sign * Number(line.vatAmount),
+        cityTaxAmount: sign * Number(line.cityTaxAmount),
         lineTotal: sign * Number(line.lineTotal),
         discountRules: [...new Set((line.discountDetail ?? []).map((detail) => detail.ruleCode ?? detail.kind))],
         paymentSummary,

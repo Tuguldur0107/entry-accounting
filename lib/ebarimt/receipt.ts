@@ -15,7 +15,9 @@
 //  5. Ямар нэг зүйл дутуу (ангилал, татварын код, төлбөрийн код, Σ зөрүү) →
 //     `[EBARIMT_*]` алдаа ШИДНЭ — payload зохиогдохгүй, борлуулалт зогсохгүй
 //     (дуудагч submission-ийг failed болгож шалтгааныг ил харуулна).
-//  6. Wire түлхүүр АЛБАН спекийнхээр: `totalVAT` (root, receipts[], items[]) —
+//  6. НХАТ (`totalCityTax`) = POS-ийн мөрийн cityTaxAmount (item → receipt → root
+//     нийлбэр); хувь нь pos_settings.cityTaxPercent, cityTaxable бараанд л.
+//  7. Wire түлхүүр АЛБАН спекийнхээр: `totalVAT` (root, receipts[], items[]) —
 //     camelCase `totalVat` гэж явуулбал PosAPI НӨАТ-ыг 0 гэж уншиж болзошгүй
 //     (P0-1); `billIdSuffix` заавал (P0-2) — billIdSuffixOf.
 
@@ -132,7 +134,7 @@ function toItem(line: EbarimtSaleLineInput, taxType: EbarimtTaxType): EbarimtIte
     qty,
     unitPrice: qty > 0 ? round2(totalAmount / qty) : 0,
     totalVAT,
-    totalCityTax: 0,
+    totalCityTax: round2(line.cityTaxAmount ?? 0),
     totalAmount,
   };
   if (line.barcode) {
@@ -273,11 +275,12 @@ export function buildEbarimtReceipt(
     merchantTin,
     totalAmount: round2(items.reduce((sum, item) => sum + item.totalAmount, 0)),
     totalVAT: round2(items.reduce((sum, item) => sum + item.totalVAT, 0)),
-    totalCityTax: 0,
+    totalCityTax: round2(items.reduce((sum, item) => sum + item.totalCityTax, 0)),
     items,
   }));
   const totalAmount = round2(receipts.reduce((sum, receipt) => sum + receipt.totalAmount, 0));
   const totalVAT = round2(receipts.reduce((sum, receipt) => sum + receipt.totalVAT, 0));
+  const totalCityTax = round2(receipts.reduce((sum, receipt) => sum + receipt.totalCityTax, 0));
   if (totalAmount <= 0) throw new EbarimtError(EBARIMT_ERRORS.totalMismatch, "Баримтын дүн 0");
 
   const customerTin = sale.customerTin?.trim() || null;
@@ -291,7 +294,7 @@ export function buildEbarimtReceipt(
   const request: EbarimtReceiptRequest = {
     totalAmount,
     totalVAT,
-    totalCityTax: 0,
+    totalCityTax,
     // Засвар (inactiveId) бол edit ≥ 1 ЗААВАЛ — эх баримтын suffix-тэй ижил явуулбал
     // PosAPI давхардал гэж үзээд шинэ ДДТД олгохгүй байж болзошгүй.
     billIdSuffix: billIdSuffixOf(sale.documentNo, options.edit ?? (inactiveId ? 1 : 0)),

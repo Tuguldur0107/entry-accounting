@@ -10,6 +10,7 @@
 // Tool schema нь JSON Schema — Anthropic input_schema болон OpenAI
 // function.parameters хоёуланд нь ИЖИЛ бүтцээр явна.
 
+import { districtLabel } from "@/lib/ebarimt/district-codes";
 import { isPosApiVersionOutdated, POSAPI_MIN_VERSION } from "@/lib/ebarimt/posapi-info";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -914,6 +915,10 @@ export const AI_TOOLS: AiToolDef[] = [
           enum: ["standard", "exempt", "zero"],
           description: "НӨАТ-ийн горим: standard (10%) / exempt (чөлөөлөгдсөн) / zero (0%) — сонголтоор, default standard",
         },
+        cityTaxable: {
+          type: "boolean",
+          description: "НХАТ (нийслэлийн албан татвар) ногдох бараа эсэх — хувь нь POS тохиргооны cityTaxPercent (0 бол бодохгүй). Сонголтоор, default false",
+        },
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
         ebarimtClassificationCode: { type: "string", description: "eBarimt: ТЕГ/ҮСХ-ын бараа, үйлчилгээний ангиллын код 7 орон (хоосон бол ангиллаас өвлөнө) — сонголтоор. Код ЗОХИОХГҮЙ — мэдэхгүй бол хэрэглэгчээс асууна" },
@@ -1052,6 +1057,10 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           enum: ["standard", "exempt", "zero"],
           description: "НӨАТ-ийн горим: standard (10%) / exempt (чөлөөлөгдсөн) / zero (0%) — сонголтоор, default standard",
+        },
+        cityTaxable: {
+          type: "boolean",
+          description: "НХАТ (нийслэлийн албан татвар) ногдох бараа эсэх — хувь нь POS тохиргооны cityTaxPercent (0 бол бодохгүй). Сонголтоор, default false",
         },
         categoryCode: { type: "string", description: "Барааны бүлгийн код (бүртгэлд байх ёстой) — сонголтоор" },
         revenueAccountNumber: { type: "string", description: "Орлогын дансны override, 8 оронтой (хоосон бол POS тохиргооны данс) — сонголтоор" },
@@ -3267,6 +3276,11 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "QPay / э-хэтэвчийн settlement-ийн ШИМТГЭЛИЙН зардлын данс (8 орон; default 73100008) — import_bank_statement-ийн ewalletSettlement мөрд",
         },
+        cityTaxPercent: {
+          type: "number",
+          description: "НХАТ (нийслэлийн албан татвар)-ын хувь 0–10 — байгууллага ӨӨРӨӨ тогтооно (хэрэглэгчээс асууна, таахгүй); 0 = НХАТ төлөгч биш. Зөвхөн cityTaxable бараанд ногдоно",
+        },
+        cityTaxAccount: { type: "string", description: "НХАТ өглөгийн данс (8 орон; default 31440000)" },
       },
     },
   },
@@ -5486,6 +5500,7 @@ type ItemPosInput = {
   minSalesPrice?: number;
   barcode?: string;
   vatMode?: "standard" | "exempt" | "zero";
+  cityTaxable?: boolean;
   categoryCode?: string;
   revenueAccountNumber?: string;
   ebarimtClassificationCode?: string;
@@ -5504,6 +5519,7 @@ function itemPosFieldsOf(input: ItemPosInput) {
     minSalesPrice?: number;
     barcode?: string | null;
     vatMode?: "standard" | "exempt" | "zero";
+    cityTaxable?: boolean;
     categoryCode?: string | null;
     revenueAccountNumber?: string | null;
     ebarimtClassificationCode?: string | null;
@@ -5535,6 +5551,7 @@ function itemPosFieldsOf(input: ItemPosInput) {
       throw new Error("vatMode нь standard / exempt / zero байна");
     fields.vatMode = input.vatMode;
   }
+  if (input.cityTaxable != null) fields.cityTaxable = !!input.cityTaxable;
   if (input.categoryCode != null) fields.categoryCode = input.categoryCode.trim() || null;
   if (input.revenueAccountNumber != null)
     fields.revenueAccountNumber = input.revenueAccountNumber.trim() || null;
@@ -5559,6 +5576,7 @@ async function runCreateItem(
     pos.salesPrice != null ? `үнэ ${pos.salesPrice.toLocaleString()}₮` : null,
     pos.barcode ? `баркод ${pos.barcode}` : null,
     pos.vatMode && pos.vatMode !== "standard" ? `НӨАТ ${pos.vatMode}` : null,
+    pos.cityTaxable ? "НХАТ ногдоно" : null,
     pos.categoryCode ? `бүлэг ${pos.categoryCode}` : null,
   ].filter(Boolean);
   return {
@@ -11546,6 +11564,8 @@ async function runUpdatePosSettings(
     nonVatRevenueAccount?: string;
     nonVatReceivableAccount?: string;
     ewalletFeeAccount?: string;
+    cityTaxPercent?: number;
+    cityTaxAccount?: string;
   }
 ): Promise<AiToolResult> {
   const before = await ensurePosSettings(orgId);
@@ -11576,6 +11596,8 @@ async function runUpdatePosSettings(
     nonVatRevenueAccountNumber: account(input.nonVatRevenueAccount),
     nonVatReceivableAccountNumber: account(input.nonVatReceivableAccount),
     ewalletFeeAccountNumber: account(input.ewalletFeeAccount),
+    cityTaxPercent: input.cityTaxPercent == null ? undefined : Number(input.cityTaxPercent),
+    cityTaxAccountNumber: account(input.cityTaxAccount),
   };
   const given = Object.entries(patch).filter(([, value]) => value !== undefined);
   if (given.length === 0)
@@ -11899,7 +11921,7 @@ async function runCreatePosSale(
   const text = [
     `Борлуулалт ${receipt.documentNo} бүртгэгдлээ (${receipt.date}, ээлж ${shift.documentNo}).`,
     ...receipt.lines.map((line) => `  ${line.name} × ${line.quantity} × ${fmt(line.unitPrice)}${line.discount ? ` − хөнг. ${fmt(line.discount)}` : ""} = ${fmt(line.total)}₮`),
-    `Нийт ${fmt(receipt.grossAmount)}₮ · хөнгөлөлт ${fmt(receipt.discountTotal)}₮ · цэвэр ${fmt(receipt.netAmount)}₮ · НӨАТ ${fmt(receipt.vatAmount)}₮${receipt.roundingAmount ? ` · бөөрөнхийлөл ${fmt(receipt.roundingAmount)}₮` : ""} · ТӨЛӨХ ${fmt(receipt.total)}₮`,
+    `Нийт ${fmt(receipt.grossAmount)}₮ · хөнгөлөлт ${fmt(receipt.discountTotal)}₮ · цэвэр ${fmt(receipt.netAmount)}₮ · НӨАТ ${fmt(receipt.vatAmount)}₮${receipt.cityTaxAmount ? ` · НХАТ ${fmt(receipt.cityTaxAmount)}₮` : ""}${receipt.roundingAmount ? ` · бөөрөнхийлөл ${fmt(receipt.roundingAmount)}₮` : ""} · ТӨЛӨХ ${fmt(receipt.total)}₮`,
     `Төлбөр: ${receipt.payments.map((payment) => `${payment.name} ${fmt(payment.baseAmount)}₮${payment.change ? ` (хариулт ${fmt(payment.change)}₮)` : ""}`).join(", ")}`,
     quote.approvalReasons.length ? `Менежерийн зөвшөөрлөөр: ${quote.approvalReasons.join("; ")}` : "",
     receipt.negativeStock.length
@@ -12002,9 +12024,9 @@ async function runGetPosSale(orgId: string, input: { sale: string }): Promise<Ai
     `${sale.documentNo}${sale.isReturn ? ` (буцаалт ← ${sale.originalSaleNo}: ${sale.returnReason ?? ""})` : ""} · ${sale.date} · ${sale.warehouseName} · ${sale.counterpartyName} · кассчин ${sale.cashierName} · ${SALE_STATUS_LABELS[sale.status] ?? sale.status}`,
     ...sale.lines.map(
       (line) =>
-        `  ${line.itemCode} ${line.itemName} × ${line.quantity} × ${fmt(line.unitPrice)} − хөнг. ${fmt(line.discountAmount)}${line.discountDetail.length ? ` [${line.discountDetail.map((detail) => `${detail.ruleCode ?? detail.kind} ${fmt(detail.amount)}`).join(", ")}]` : ""} = цэвэр ${fmt(line.netAmount)} + НӨАТ ${fmt(line.vatAmount)} = ${fmt(line.lineTotal)}₮${line.returnedQty ? ` · буцаасан ${line.returnedQty}` : ""} · урьдчилсан COGS ${line.provisionalCost == null ? "—" : fmt(line.provisionalCost)}`
+        `  ${line.itemCode} ${line.itemName} × ${line.quantity} × ${fmt(line.unitPrice)} − хөнг. ${fmt(line.discountAmount)}${line.discountDetail.length ? ` [${line.discountDetail.map((detail) => `${detail.ruleCode ?? detail.kind} ${fmt(detail.amount)}`).join(", ")}]` : ""} = цэвэр ${fmt(line.netAmount)} + НӨАТ ${fmt(line.vatAmount)}${line.cityTaxAmount ? ` + НХАТ ${fmt(line.cityTaxAmount)}` : ""} = ${fmt(line.lineTotal)}₮${line.returnedQty ? ` · буцаасан ${line.returnedQty}` : ""} · урьдчилсан COGS ${line.provisionalCost == null ? "—" : fmt(line.provisionalCost)}`
     ),
-    `Нийт ${fmt(sale.grossAmount)} · хөнгөлөлт ${fmt(sale.discountTotal)} · цэвэр ${fmt(sale.netAmount)} · НӨАТ ${fmt(sale.vatAmount)} · төлөх ${fmt(sale.total)}₮`,
+    `Нийт ${fmt(sale.grossAmount)} · хөнгөлөлт ${fmt(sale.discountTotal)} · цэвэр ${fmt(sale.netAmount)} · НӨАТ ${fmt(sale.vatAmount)}${sale.cityTaxAmount ? ` · НХАТ ${fmt(sale.cityTaxAmount)}` : ""} · төлөх ${fmt(sale.total)}₮`,
     `Төлбөр: ${sale.payments.map((payment) => `${payment.methodName} ${fmt(payment.baseAmount)}${payment.changeGiven ? ` (хариулт ${fmt(payment.changeGiven)})` : ""}${payment.reference ? ` реф ${payment.reference}` : ""}`).join(", ") || "—"}`,
     `АР нэхэмжлэх: ${sale.arApDocumentNo ?? "—"} (${sale.arApStatus ?? "—"}) · журнал ${sale.voucherIds.length} · буцаалт: ${sale.returns.map((ret) => `${ret.documentNo} ${fmt(ret.total)}₮`).join(", ") || "—"}${sale.ebarimtId ? ` · eBarimt ${sale.ebarimtId}` : ""}`,
     `eBarimt: ${sale.ebarimtStatus ? EBARIMT_STATUS_LABELS[sale.ebarimtStatus as EbarimtStatus] ?? sale.ebarimtStatus : "илгээгдээгүй"}${sale.ebarimtDate ? ` · ${sale.ebarimtDate}` : ""}${sale.ebarimtCustomerTin ? ` · худалдан авагч ТТД ${sale.ebarimtCustomerTin}` : sale.ebarimtConsumerNo ? ` · иргэн ${sale.ebarimtConsumerNo}` : ""}`,
@@ -12030,7 +12052,7 @@ async function runGetPosSalesReport(
   }
   const report = await loadSalesReport(orgId, { from: input.from, to: input.to, warehouseId });
   const summary = summarize(report.lines);
-  const header = `${input.from} … ${input.to}: борлуулалт ${summary.salesCount} (буцаалт ${summary.returnsCount}) · нийт ${fmt(summary.gross)} · хөнгөлөлт ${fmt(summary.discount)} · цэвэр ${fmt(summary.net)} · НӨАТ ${fmt(summary.vat)} · төлөх ${fmt(summary.total)}₮ · дундаж чек ${fmt(summary.averageTicket)}₮ · COGS ${summary.cogs == null ? "—" : fmt(summary.cogs)} · ахиуц ${summary.margin == null ? "—" : `${fmt(summary.margin)}₮ (${summary.marginPercent}%)`} [${COGS_BASIS_LABELS[summary.cogsBasis]}]`;
+  const header = `${input.from} … ${input.to}: борлуулалт ${summary.salesCount} (буцаалт ${summary.returnsCount}) · нийт ${fmt(summary.gross)} · хөнгөлөлт ${fmt(summary.discount)} · цэвэр ${fmt(summary.net)} · НӨАТ ${fmt(summary.vat)}${summary.cityTax ? ` · НХАТ ${fmt(summary.cityTax)}` : ""} · төлөх ${fmt(summary.total)}₮ · дундаж чек ${fmt(summary.averageTicket)}₮ · COGS ${summary.cogs == null ? "—" : fmt(summary.cogs)} · ахиуц ${summary.margin == null ? "—" : `${fmt(summary.margin)}₮ (${summary.marginPercent}%)`} [${COGS_BASIS_LABELS[summary.cogsBasis]}]`;
   const groupBy = input.groupBy ?? "summary";
   const money = (value: number | null) => (value == null ? "—" : fmt(value));
   const rowText = (row: AggRow) =>
@@ -12092,12 +12114,18 @@ async function runGetEbarimtStatus(orgId: string): Promise<AiToolResult> {
   const lines = [
     `eBarimt автомат илгээлт: ${status.enabled ? `АСААЛТТАЙ (${status.mode === "browser" ? "кассын PC-ийн PosAPI" : "серверийн PosAPI"})` : "УНТРААЛТТАЙ — ДДТД гараар бичигдэнэ"}`,
     problems.length ? `Тохиргооны дутуу: ${problems.join("; ")}` : "Тохиргоо бүрэн",
+    ...(settings.ebarimtDistrictCode
+      ? [`Дүүргийн код: ${settings.ebarimtDistrictCode} — ${districtLabel(settings.ebarimtDistrictCode) ?? "ТЕГ-ийн албан жагсаалтад БАЙХГҮЙ (шалгана уу)"}`]
+      : []),
     readiness.ready
       ? "Кодын бэлэн байдал: бараа ба төлбөрийн хэлбэр бүрэн"
       : `Кодын дутуу (баримт илгээгдэхгүй): ${readiness.problems.join("; ")}`,
     ...(readiness.warnings.length ? [`Анхааруулга: ${readiness.warnings.join("; ")}`] : []),
     ...(status.posApiVersion ? [`PosAPI хувилбар: ${status.posApiVersion}${isPosApiVersionOutdated(status.posApiVersion) ? ` — ${POSAPI_MIN_VERSION}-оос доош, шинэчилнэ` : ""}`] : []),
-    ...(status.merchant?.cityPayer ? ["ТЕГ: НХАТ суутган төлөгч — Entry totalCityTax дэмжихгүй (үргэлж 0)"] : []),
+    ...(status.merchant?.cityPayer && !(Number(settings.cityTaxPercent) > 0)
+      ? ["ТЕГ: НХАТ суутган төлөгч — POS тохиргоонд НХАТ-ын хувь (cityTaxPercent) тохируулаагүй тул баримтад НХАТ 0 явна; хувийг update_pos_settings-ээр, барааг cityTaxable-аар тэмдэглэнэ"]
+      : []),
+    ...(Number(settings.cityTaxPercent) > 0 ? [`НХАТ: ${Number(settings.cityTaxPercent)}% (cityTaxable бараанд) → данс ${settings.cityTaxAccountNumber}`] : []),
     ...(status.merchant?.freeProject ? ["ТЕГ: НӨАТ-аас чөлөөлөгдөх төсөл — баримт VAT_FREE/304 байх ёстой (гараар)"] : []),
     status.enabled && status.mode === "server"
       ? status.posApi

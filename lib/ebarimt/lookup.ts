@@ -38,14 +38,8 @@ export interface TinInfo {
   freeProject: boolean | null;
 }
 
-export interface BranchInfoEntry {
-  code: string;
-  name: string;
-}
-
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const tinCache = new Map<string, { at: number; value: TinInfo }>();
-let branchCache: { at: number; value: BranchInfoEntry[] } | null = null;
 
 /**
  * Сүлжээний түүхий алдааг (англи «This operation was aborted», «fetch failed»)
@@ -193,28 +187,4 @@ export async function lookupTaxpayerByTin(tinRaw: string): Promise<TaxpayerInfo>
 
 export function isRegisterNoShape(value: string): boolean {
   return REGISTER_NO_RE.test(value.trim()) || /^\d{7}$/.test(value.trim());
-}
-
-/** Дүүргийн кодын лавлах — тохиргооны сонголтод. */
-export async function lookupBranchInfo(): Promise<BranchInfoEntry[]> {
-  if (branchCache && Date.now() - branchCache.at < CACHE_TTL_MS) return branchCache.value;
-  const json = await getJson(`${publicApiBase()}/getBranchInfo`);
-  const root = json && typeof json === "object" && "data" in json ? (json as { data: unknown }).data : json;
-  const entries: BranchInfoEntry[] = [];
-  const visit = (node: unknown, prefix: string) => {
-    if (Array.isArray(node)) {
-      for (const child of node) visit(child, prefix);
-      return;
-    }
-    if (!node || typeof node !== "object") return;
-    const record = node as Record<string, unknown>;
-    const code = pick(record, ["branchCode", "code", "districtCode"]);
-    const name = pick(record, ["branchName", "name", "districtName"]);
-    if (code && name) entries.push({ code, name: prefix ? `${prefix} · ${name}` : name });
-    const children = record.children ?? record.subBranches ?? record.districts;
-    if (children) visit(children, name || prefix);
-  };
-  visit(root, "");
-  branchCache = { at: Date.now(), value: entries };
-  return entries;
 }

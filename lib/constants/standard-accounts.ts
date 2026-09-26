@@ -184,6 +184,7 @@ export const STANDARD_ACCOUNTS: StandardAccount[] = [
   { number: "31410000", name: "НӨАТ өглөг (гаралтын)" },
   { number: "31420000", name: "НДШ өглөг" },
   { number: "31430000", name: "ХХОАТ өглөг" },
+  { number: "31440000", name: "НХАТ өглөг (нийслэлийн албан татвар)" },
   { number: "31500001", name: "Цалингийн өглөг (нэт)" },
   { number: "31600001", name: "Wallet үүргийн өр" },
   { number: "31600003", name: "Бэлгийн картын өглөг (POS)" },

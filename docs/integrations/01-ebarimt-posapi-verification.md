@@ -229,7 +229,7 @@ npm test -- tests/ebarimt-receipt.test.ts tests/ebarimt-posapi-info.test.ts test
 | P2-1 | `MERCHANT_TIN_RE = ^(\d{11}|\d{14})$` — албан: хуулийн этгээд 11, **хувь хүн 12–14** | `^\d{11,14}$` (§4.1 (9)-ийн дараа) — customerTin, merchantTin хоёуланд |
 | P2-2 | `TAX_PRODUCT_CODE_RE = ^\d{3}$` — `getProductTaxCode` жишээ `43401` (5 орон); албан жагсаалт огноотой (`startDate/endDate`) | Лавлахыг API-аас (Монголын egress) татаж `tax-product-codes.ts`-тэй тулгах; урт 3–5 |
 | P2-3 | `getInfo` → `freeProject: true` бол `taxType VAT_FREE` + `taxProductCode "304"` (НӨАТ-аас чөлөөлөгдөх төслийн худалдан авагч) | B2B худалдан авагчийн лавлахад `freeProject`-ийг авч мөрүүдийг VAT_FREE/304 болгох сонголт (баталгаажуулалттай) |
-| P2-4 | `cityPayer` (НХАТ) — `totalCityTax` үргэлж 0 (T4 хойшилсон) | Зочид буудал/ресторан/бар харилцагч авахаас өмнө T4; `getInfo.cityPayer` = true бол readiness анхааруулга |
+| P2-4 | `cityPayer` (НХАТ) — ✅ 2026-09-26: T4 хэрэгжсэн, `totalCityTax` = мөрийн `cityTaxAmount` | `getInfo.cityPayer` = true ба `cityTaxPercent` 0 бол тохиргооны анхааруулга хэвээр |
 | P2-5 | `items[].data.stockQR[]` — ОАТ-ын тэмдэгтэй бараа (архи, тамхи) **2025-04-01-ээс заавал**; `type STOCK_QR` | Барааны картад «ОАТ тэмдэгтэй» тэмдэг + QR сканнердах — дэмжигдээгүй, `02-implementation-status.md`-д ил хязгаар болгож бичих |
 | P2-6 | `receipts[].data.location` (GPS / LICENSE) — 2026-06-18-аас боломж | Сонголтоор: `pos_settings`-д салбарын өргөрөг/уртраг; LICENSE-д `cityTax/location` (X-API-KEY) |
 | P2-7 | `payments[].data` EASY_BANK_CARD (terminalID, rrn, maskedCardNumber, easy) — банкны терминалтай холбогдсон бол «заавал» (шаардлага №18) | Entry терминалтай холбогдоогүй → N/A; ирээдүйн карт интеграцид `exchangeCode`-оос гадна `data` |

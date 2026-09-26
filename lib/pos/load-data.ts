@@ -62,6 +62,7 @@ function roleAccountsOf(row: PosSettings): string[] {
     row.nonVatRevenueAccountNumber,
     row.nonVatReceivableAccountNumber,
     row.ewalletFeeAccountNumber,
+    row.cityTaxAccountNumber,
     DEFAULT_RECEIVABLE_ACCOUNT,
   ];
 }
@@ -217,6 +218,8 @@ export function toPosSettingsView(row: PosSettings): PosSettingsView {
     nonVatRevenueAccountNumber: row.nonVatRevenueAccountNumber,
     nonVatReceivableAccountNumber: row.nonVatReceivableAccountNumber,
     ewalletFeeAccountNumber: row.ewalletFeeAccountNumber,
+    cityTaxPercent: Number(row.cityTaxPercent),
+    cityTaxAccountNumber: row.cityTaxAccountNumber,
     walkInCounterpartyId: row.walkInCounterpartyId,
     issueTypeId: row.issueTypeId,
     defaultWarehouseId: row.defaultWarehouseId,
@@ -542,6 +545,7 @@ function toSaleView(
     discountTotal: Number(row.discountTotal),
     netAmount: Number(row.netAmount),
     vatAmount: Number(row.vatAmount),
+    cityTaxAmount: Number(row.cityTaxAmount),
     roundingAmount: Number(row.roundingAmount),
     total: Number(row.total),
     status: row.status,
@@ -658,6 +662,7 @@ export async function loadSaleDetail(orgId: string, saleId: string): Promise<Pos
       vatMode: toItemVatMode(line.vatMode),
       netAmount: Number(line.netAmount),
       vatAmount: Number(line.vatAmount),
+      cityTaxAmount: Number(line.cityTaxAmount),
       lineTotal: Number(line.lineTotal),
       returnedQty: returnedByLine.get(line.id) ?? 0,
       movementId: line.movementId,

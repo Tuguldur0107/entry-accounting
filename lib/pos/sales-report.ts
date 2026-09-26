@@ -33,6 +33,8 @@ export interface SalesLineRow {
   discountAmount: number;
   netAmount: number;
   vatAmount: number;
+  /** НХАТ (тэмдэгтэй) — байхгүй бол 0. */
+  cityTaxAmount?: number;
   lineTotal: number;
   discountRules: string[];
   paymentSummary: string;
@@ -93,6 +95,8 @@ export interface AggRow {
   discount: number;
   net: number;
   vat: number;
+  /** НХАТ (нийслэлийн албан татвар). */
+  cityTax: number;
   total: number;
   cogs: number | null;
   margin: number | null;
@@ -127,6 +131,7 @@ export function aggregateBy(
         discount: 0,
         net: 0,
         vat: 0,
+        cityTax: 0,
         total: 0,
         cogs: 0,
         margin: 0,
@@ -142,6 +147,7 @@ export function aggregateBy(
     row.discount += line.discountAmount;
     row.net += line.netAmount;
     row.vat += line.vatAmount;
+    row.cityTax += line.cityTaxAmount ?? 0;
     row.total += line.lineTotal;
     if (line.cogs === null) {
       row.cogs = null;
@@ -167,6 +173,7 @@ export function aggregateBy(
         discount: r2(rest.discount),
         net,
         vat: r2(rest.vat),
+        cityTax: r2(rest.cityTax),
         total: r2(rest.total),
         cogs,
         margin,
@@ -216,6 +223,7 @@ export interface SalesSummary {
   discount: number;
   net: number;
   vat: number;
+  cityTax: number;
   total: number;
   returnsTotal: number;
   averageTicket: number;
@@ -228,7 +236,7 @@ export interface SalesSummary {
 export function summarize(lines: SalesLineRow[]): SalesSummary {
   const saleIds = new Set<string>();
   const returnIds = new Set<string>();
-  let gross = 0, discount = 0, net = 0, vat = 0, total = 0, returnsTotal = 0;
+  let gross = 0, discount = 0, net = 0, vat = 0, cityTax = 0, total = 0, returnsTotal = 0;
   let cogs: number | null = 0;
   let basis: CogsBasis = "final";
   for (const line of lines) {
@@ -240,6 +248,7 @@ export function summarize(lines: SalesLineRow[]): SalesSummary {
     discount += line.discountAmount;
     net += line.netAmount;
     vat += line.vatAmount;
+    cityTax += line.cityTaxAmount ?? 0;
     total += line.lineTotal;
     if (line.cogs === null) {
       cogs = null;
@@ -260,6 +269,7 @@ export function summarize(lines: SalesLineRow[]): SalesSummary {
     discount: r2(discount),
     net: netR,
     vat: r2(vat),
+    cityTax: r2(cityTax),
     total: r2(total),
     returnsTotal: r2(returnsTotal),
     averageTicket: saleIds.size ? r2(salesTotal / saleIds.size) : 0,

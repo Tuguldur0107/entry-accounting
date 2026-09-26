@@ -248,6 +248,7 @@ export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
         ) : (
           <div className="text-[10px]">НӨАТ-гүй</div>
         )}
+        {receipt.cityTaxAmount > 0 && <Row label="НХАТ" value={fmtMnt(receipt.cityTaxAmount)} />}
         {receipt.roundingAmount !== 0 && (
           <Row label="Бөөрөнхийлөл" value={fmtMnt(receipt.roundingAmount)} />
         )}
