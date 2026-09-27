@@ -1153,6 +1153,27 @@ function ArapDocReadOnly({
         </div>
       </div>
 
+      {document.publicLinkUrl && document.publicLinkQr && (
+        <div className="mt-6 flex items-center gap-3 text-xs">
+          {/* Sync SVG (серверт бодсон матриц) — хэвлэх агшинд л mount болдог тул. */}
+          <svg
+            width={88}
+            height={88}
+            viewBox={`-2 -2 ${document.publicLinkQr.count + 4} ${document.publicLinkQr.count + 4}`}
+            role="img"
+            aria-label="Нэхэмжлэхийн линкийн QR"
+            shapeRendering="crispEdges"
+            className="shrink-0 bg-white"
+          >
+            <path d={document.publicLinkQr.path} fill="currentColor" />
+          </svg>
+          <div>
+            <div className="font-semibold">QR уншуулж онлайнаар үзэх, төлөх</div>
+            <div className="text-neutral-500">{document.publicLinkUrl}</div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-12 grid grid-cols-2 gap-8 text-xs">
         <div>
           Захирал: _______________________

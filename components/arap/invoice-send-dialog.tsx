@@ -26,6 +26,7 @@ import {
   revokeInvoiceSend,
   sendInvoiceEmail,
 } from "@/lib/actions/invoice-send";
+import { sendInvoiceReminder } from "@/lib/actions/ar-reminders";
 import { toast } from "sonner";
 
 type SendRow = {
@@ -89,6 +90,7 @@ function SendDialogBody({
   const [email, setEmail] = useState("");
   const [sends, setSends] = useState<SendRow[] | null>(null);
   const [linkExpiry, setLinkExpiry] = useState("90");
+  const [reminderAvailable, setReminderAvailable] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   // Mount үед контекст (харилцагчийн и-мэйл + түүх) ачаална.
@@ -102,6 +104,7 @@ function SendDialogBody({
           return;
         }
         setSends(context.sends);
+        setReminderAvailable(context.reminderAvailable);
         // Хэрэглэгч гараар бичээгүй л бол харилцагчийн и-мэйлийг бөглөнө.
         setEmail((current) => current || context.counterpartyEmail || "");
       })
@@ -134,6 +137,18 @@ function SendDialogBody({
       } catch (caught) {
         toast.error(caught instanceof Error ? caught.message : "Илгээх амжилтгүй");
       }
+    });
+  }
+
+  function handleSendReminder() {
+    startTransition(async () => {
+      const result = await sendInvoiceReminder(documentId, email);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`№ ${result.documentNo} төлбөрийн сануулга ${result.sentTo} руу илгээгдлээ`);
+      refresh();
     });
   }
 
@@ -187,6 +202,18 @@ function SendDialogBody({
             <p className="text-[11px] text-[var(--ea-text-4)]">
               Харилцагчийн картад и-мэйл байвал автоматаар бөглөгдөнө.
             </p>
+            {reminderAvailable && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendReminder}
+                disabled={isPending || !email.trim()}
+                title="Үлдэгдэл, төлөх огноо, QPay-ээр төлөх линктэй богино сануулга (PDF-гүй) — нэхэмжлэхэд өдөрт нэг"
+              >
+                <Icon name="bell" size="sm" />
+                Төлбөрийн сануулга илгээх
+              </Button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

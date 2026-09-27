@@ -27,10 +27,8 @@ import type { QpayIntentResolution, QpayIntentView, QpayStatusSummary } from "./
 type Executor = Pick<typeof db, "update" | "select" | "insert" | "query" | "execute">;
 
 /** NEXT_PUBLIC_APP_URL — webhook хүрэх нийтийн URL; байхгүй бол null (polling нөөц). */
-export function publicAppUrl(): string | null {
-  const value = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
-  return value && /^https?:\/\//.test(value) ? value : null;
-}
+import { publicAppUrl } from "@/lib/app-url";
+export { publicAppUrl };
 
 /**
  * QPAY_PARTNER_KEY — Partner API-ийн (автомат мерчант бүртгэл, lib/qpay/partner.ts)

@@ -237,6 +237,11 @@ async function getInvoiceSendContextCore(documentId: string) {
   return {
     counterpartyEmail: document.counterparty.email,
     counterpartyName: document.counterparty.name,
+    /** Төлбөрийн сануулга гараар илгээж болох эсэх (docs/dev/arap.md §5g). */
+    reminderAvailable:
+      document.documentType === "ar_invoice" &&
+      ["posted", "partially_paid"].includes(document.status) &&
+      Number(document.totalAmount) - Number(document.paidAmount) > 0.01,
     sends: await listInvoiceSends(documentId),
   };
 }

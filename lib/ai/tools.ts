@@ -211,6 +211,8 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
+import { getArReminderOverview, sendInvoiceReminder } from "@/lib/actions/ar-reminders";
+import { reminderStageLabel } from "@/lib/arap/reminders";
 import {
   closeShift,
   createPosSale,
@@ -996,6 +998,30 @@ export const AI_TOOLS: AiToolDef[] = [
           type: "string",
           description: "Хүлээн авагчийн и-мэйл (default: харилцагчийн бүртгэлтэй и-мэйл)",
         },
+      },
+      required: ["documentId"],
+    },
+  },
+  {
+    name: "get_payment_reminders",
+    description:
+      "Төлбөрийн автомат сануулгын тохиргоо (асаалттай эсэх, шатууд, илгээх боломжгүй шалтгаан) ба сүүлд илгээсэн сануулгууд (нэхэмжлэх, харилцагч, шат, төлөв). Тохиргоог өөрчлөх нь зөвхөн вэбээс (Авлага → Сануулга).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Сүүлийн хэдэн сануулга (default 20, max 100)" },
+      },
+    },
+  },
+  {
+    name: "send_payment_reminder",
+    description:
+      "Төлөгдөөгүй үлдэгдэлтэй, батлагдсан авлагын нэхэмжлэхэд төлбөрийн сануулга и-мэйлээр ОДОО илгээнэ (үлдэгдэл, төлөх огноо, QPay-ээр төлөх линктэй; PDF-гүй). Нэхэмжлэхэд өдөрт нэг. to өгөхгүй бол харилцагчийн бүртгэлтэй и-мэйл. Хэрэглэгч ил хүссэн үед л ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Нэхэмжлэхийн ID, дугаар (AR-...), эсвэл externalRef" },
+        to: { type: "string", description: "Хүлээн авагчийн и-мэйл (default: харилцагчийн бүртгэлтэй и-мэйл)" },
       },
       required: ["documentId"],
     },
@@ -7003,6 +7029,36 @@ async function runSendInvoiceEmail(
   };
 }
 
+async function runGetPaymentReminders(input: { limit?: number }): Promise<AiToolResult> {
+  const overview = unwrapAction(await getArReminderOverview());
+  const limit = Math.min(Math.max(Math.trunc(Number(input.limit) || 20), 1), 100);
+  const { settings } = overview;
+  const stages = [
+    settings.beforeDays ? `${settings.beforeDays} хоногийн өмнө` : null,
+    ...settings.afterDays.map((days) => `${days} хоног хэтэрсэн`),
+  ].filter(Boolean);
+  const lines = [
+    `Автомат сануулга: ${settings.enabled ? "АСААЛТТАЙ" : "унтраалттай"} · шат: ${stages.join(", ") || "—"}`,
+    overview.problem ? `Илгээх боломжгүй: ${overview.problem}` : null,
+    overview.excluded.length ? `Хасагдсан харилцагч: ${overview.excluded.map((row) => row.name).join(", ")}` : null,
+    "",
+    overview.recent.length ? `Сүүлийн ${Math.min(limit, overview.recent.length)} сануулга:` : "Сануулга илгээгдээгүй.",
+    ...overview.recent
+      .slice(0, limit)
+      .map(
+        (row) =>
+          `- ${row.createdAt.slice(0, 10)} ${row.documentNo} · ${row.counterpartyName} · ${reminderStageLabel(row.stage)} → ${row.recipient}: ${row.status}${row.error ? ` (${row.error})` : ""}`
+      ),
+  ].filter((line) => line !== null);
+  return { resultText: lines.join("\n") };
+}
+
+async function runSendPaymentReminder(orgId: string, input: { documentId: string; to?: string }): Promise<AiToolResult> {
+  const document = await findArapDocument(orgId, input.documentId);
+  const result = unwrapAction(await sendInvoiceReminder(document.id, input.to ?? null));
+  return { resultText: `Төлбөрийн сануулга илгээгдлээ: ${result.documentNo} → ${result.sentTo}` };
+}
+
 async function runCreateInvoiceLink(
   orgId: string,
   input: { documentId: string }
@@ -12413,6 +12469,10 @@ async function dispatchAiTool(
         return await runSendInvoiceEmail(orgId, args);
       case "create_invoice_link":
         return await runCreateInvoiceLink(orgId, args);
+      case "get_payment_reminders":
+        return await runGetPaymentReminders(args);
+      case "send_payment_reminder":
+        return await runSendPaymentReminder(orgId, args);
       case "get_counterparty_balance":
         return await runCounterpartyBalance(orgId, args);
       case "pay_arap_document":

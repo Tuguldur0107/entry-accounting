@@ -67,6 +67,7 @@ test("тохиргооны шалгалт", () => {
   assert.equal(parseDayList("1, долоо"), null);
   assert.equal(reminderStageLabel("before:3"), "3 хоногийн өмнө");
   assert.equal(reminderStageLabel("after:7"), "7 хоног хэтэрсэн");
+  assert.equal(reminderStageLabel("manual:2026-10-01"), "Гараар");
 });
 
 test("и-мэйл: гарчигт дүн БАЙХГҮЙ, биед үлдэгдэл + линк", () => {

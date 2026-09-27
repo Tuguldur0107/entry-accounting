@@ -95,6 +95,193 @@ async function resolveSender(orgId: string) {
   );
 }
 
+type ArDocument = typeof arApDocuments.$inferSelect;
+type ReminderRow = typeof arInvoiceReminders.$inferSelect;
+
+interface DeliveryContext {
+  orgId: string;
+  /** Аудитын actor — автомат бол owner, гараар бол илгээсэн хэрэглэгч. */
+  actor: string;
+  /** Автомат (хуваарьт) — мэдэгдэл owner-т ч очно (lib/audit.ts `system`). */
+  system: boolean;
+  today: string;
+  sender: { from: string; replyTo?: string };
+  base: string;
+  resend: Resend;
+}
+
+async function deliveryContext(
+  orgId: string,
+  actor: string,
+  today: string,
+  system: boolean
+): Promise<DeliveryContext> {
+  return {
+    orgId,
+    actor,
+    system,
+    today,
+    sender: await resolveSender(orgId),
+    base: publicAppUrl()!,
+    resend: new Resend(process.env.RESEND_API_KEY),
+  };
+}
+
+const stageText = (dueDate: string, today: string) => {
+  const diff = daysBetween(dueDate, today);
+  return diff < 0 ? `${-diff} хоногийн өмнө` : diff === 0 ? "хугацааны өдөр" : `${diff} хоног хэтэрсэн`;
+};
+
+/**
+ * Шатыг булааж (шинэ → insert, бүтэлгүй байсан → attempts-ийг нөхцөлтэй өсгөнө)
+ * захиа илгээнэ. Өөр дуудагч булаасан бол "claimed". ШИДЭХГҮЙ: алдаа нь мөрөнд
+ * `failed` + аудит `reminder_failed` (→ мэдэгдэл, lib/notifications/rules.ts).
+ */
+async function claimAndDeliver(
+  context: DeliveryContext,
+  args: { document: ArDocument; stageKey: string; recipient: string; previous: ReminderRow | null }
+): Promise<{ status: "sent" } | { status: "failed"; error: string } | { status: "claimed" }> {
+  const { orgId, actor, today } = context;
+  const { document, stageKey, recipient, previous } = args;
+  const [claim] = previous
+    ? await db
+        .update(arInvoiceReminders)
+        .set({ status: "sending", attempts: previous.attempts + 1, recipient, error: null })
+        .where(
+          and(
+            eq(arInvoiceReminders.id, previous.id),
+            eq(arInvoiceReminders.status, "failed"),
+            eq(arInvoiceReminders.attempts, previous.attempts)
+          )
+        )
+        .returning({ id: arInvoiceReminders.id })
+    : await db
+        .insert(arInvoiceReminders)
+        .values({ organizationId: orgId, documentId: document.id, dueDate: document.dueDate, stage: stageKey, recipient })
+        .onConflictDoNothing()
+        .returning({ id: arInvoiceReminders.id });
+  if (!claim) return { status: "claimed" };
+
+  const fail = async (message: string) => {
+    await db.update(arInvoiceReminders).set({ status: "failed", error: message }).where(eq(arInvoiceReminders.id, claim.id));
+    await logAuditEvent({
+      userId: actor,
+      system: context.system,
+      organizationId: orgId,
+      action: "reminder_failed",
+      entityType: "arap",
+      entityId: document.id,
+      summary: `${document.documentNo} төлбөрийн сануулга ${recipient} руу илгээгдсэнгүй: ${message}`,
+    });
+    return { status: "failed" as const, error: message };
+  };
+  try {
+    const invoice = await loadInvoicePayload(orgId, document.id);
+    if (!invoice) return await fail("Нэхэмжлэх олдсонгүй");
+    const qpay = await invoiceQpayAvailable(orgId, document).catch(() => false);
+    const [send] = await db
+      .insert(arApInvoiceSends)
+      .values({ userId: actor, organizationId: orgId, documentId: document.id, channel: "email", purpose: "reminder", recipient })
+      .returning({ id: arApInvoiceSends.id, token: arApInvoiceSends.token });
+    const mail = buildReminderEmail({
+      companyName: invoice.company.name || "Байгууллага",
+      documentNo: document.documentNo,
+      dueDate: document.dueDate,
+      today,
+      balance: Math.round((Number(document.totalAmount) - Number(document.paidAmount)) * 100) / 100,
+      currency: document.currency,
+      viewUrl: `${context.base}/invoice/${send.token}`,
+      qpay,
+      bankAccounts: invoice.company.bankAccounts,
+    });
+    const { data, error } = await context.resend.emails.send({
+      from: context.sender.from,
+      to: recipient,
+      ...(context.sender.replyTo ? { replyTo: context.sender.replyTo } : {}),
+      subject: mail.subject,
+      text: mail.text,
+    });
+    if (error) {
+      await db.update(arApInvoiceSends).set({ revokedAt: new Date() }).where(eq(arApInvoiceSends.id, send.id));
+      return await fail(translateResendError(error.message));
+    }
+    await db
+      .update(arApInvoiceSends)
+      .set({ messageId: data?.id ?? null })
+      .where(eq(arApInvoiceSends.id, send.id));
+    await db
+      .update(arInvoiceReminders)
+      .set({ status: "sent", sendId: send.id, sentAt: new Date() })
+      .where(eq(arInvoiceReminders.id, claim.id));
+    await logAuditEvent({
+      userId: actor,
+      system: context.system,
+      organizationId: orgId,
+      action: "reminder_sent",
+      entityType: "arap",
+      entityId: document.id,
+      summary: `${document.documentNo} төлбөрийн сануулга → ${recipient} (${stageKey.startsWith("manual:") ? "гараар, " : ""}${stageText(document.dueDate, today)})`,
+    });
+    return { status: "sent" };
+  } catch (error) {
+    return await fail(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Гараар «Одоо сануулга илгээх» — автомат тохиргоо унтраалттай ч, харилцагч
+ * автомат сануулгаас хасагдсан ч ажиллана (хэрэглэгчийн ИЛ үйлдэл). Нэхэмжлэхэд
+ * өдөрт НЭГ удаа (шат `manual:<өдөр>`), бүтэлгүй бол тэр өдөртөө дахин болно.
+ * Автомат шатыг хөндөхгүй. Хэрэглэгчид ойлгомжтой алдааг ШИДНЭ (action нь барина).
+ */
+export async function sendManualInvoiceReminder(
+  orgId: string,
+  actorUserId: string,
+  documentId: string,
+  to?: string | null
+): Promise<{ documentNo: string; sentTo: string }> {
+  const document = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, documentId), eq(arApDocuments.organizationId, orgId)),
+  });
+  if (!document || document.documentType !== "ar_invoice") throw new Error("Авлагын нэхэмжлэх олдсонгүй");
+  if (!["posted", "partially_paid"].includes(document.status) || Number(document.totalAmount) - Number(document.paidAmount) <= 0.01)
+    throw new Error("Төлөгдөөгүй үлдэгдэлтэй, батлагдсан нэхэмжлэхэд л сануулга илгээнэ");
+  let recipient = to?.trim();
+  if (!recipient) {
+    const counterparty = await db.query.counterparties.findFirst({
+      where: and(eq(counterparties.id, document.counterpartyId), eq(counterparties.organizationId, orgId)),
+      columns: { name: true, email: true },
+    });
+    recipient = counterparty?.email?.trim() || undefined;
+    if (!recipient) throw new Error(`"${counterparty?.name ?? "?"}" харилцагчид и-мэйл бүртгэгдээгүй — и-мэйл хаяг оруулна уу`);
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new Error("И-мэйл хаяг буруу байна");
+  const problem = await reminderSenderProblem(orgId);
+  if (problem) throw new Error(problem);
+
+  const today = todayInUlaanbaatar();
+  const stageKey = `manual:${today}`;
+  const previous =
+    (await db.query.arInvoiceReminders.findFirst({
+      where: and(
+        eq(arInvoiceReminders.documentId, document.id),
+        eq(arInvoiceReminders.dueDate, document.dueDate),
+        eq(arInvoiceReminders.stage, stageKey)
+      ),
+    })) ?? null;
+  if (previous && previous.status !== "failed")
+    throw new Error("Энэ нэхэмжлэхэд өнөөдөр сануулга аль хэдийн илгээсэн — маргааш дахин илгээнэ үү");
+  const outcome = await claimAndDeliver(await deliveryContext(orgId, actorUserId, today, false), {
+    document,
+    stageKey,
+    recipient,
+    previous,
+  });
+  if (outcome.status === "claimed") throw new Error("Сануулга яг одоо илгээгдэж байна — түр хүлээнэ үү");
+  if (outcome.status === "failed") throw new Error(`Сануулга илгээгдсэнгүй: ${outcome.error}`);
+  return { documentNo: document.documentNo, sentTo: recipient };
+}
+
 export interface OrgReminderResult {
   sent: number;
   failed: number;
@@ -109,9 +296,8 @@ export async function sendOrgInvoiceReminders(orgId: string, today: string): Pro
   if (!settings.enabled) return result;
   const problem = await reminderSenderProblem(orgId);
   if (problem) throw new Error(problem);
-  const sender = await resolveSender(orgId);
-  const base = publicAppUrl()!;
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  const actor = await orgOwnerUserId(orgId);
+  const context = await deliveryContext(orgId, actor, today, true);
 
   const maxAfter = Math.max(0, ...settings.afterDays);
   const shift = (days: number) => new Date(Date.parse(`${today}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -144,7 +330,6 @@ export async function sendOrgInvoiceReminders(orgId: string, today: string): Pro
         )
       )
     );
-  const actor = await orgOwnerUserId(orgId);
 
   for (const { document, email, disabled } of rows) {
     if (result.sent + result.failed >= REMINDER_DAILY_LIMIT_PER_ORG) break;
@@ -160,90 +345,14 @@ export async function sendOrgInvoiceReminders(orgId: string, today: string): Pro
       continue;
     }
 
-    // Булаалт: шинэ шат → insert; бүтэлгүй байсан шат → attempts-ийг нөхцөлтэй өсгөнө.
-    const previous = own.find((row) => row.stage === stage.key);
-    const [claim] = previous
-      ? await db
-          .update(arInvoiceReminders)
-          .set({ status: "sending", attempts: previous.attempts + 1, recipient, error: null })
-          .where(
-            and(
-              eq(arInvoiceReminders.id, previous.id),
-              eq(arInvoiceReminders.status, "failed"),
-              eq(arInvoiceReminders.attempts, previous.attempts)
-            )
-          )
-          .returning({ id: arInvoiceReminders.id })
-      : await db
-          .insert(arInvoiceReminders)
-          .values({ organizationId: orgId, documentId: document.id, dueDate: document.dueDate, stage: stage.key, recipient })
-          .onConflictDoNothing()
-          .returning({ id: arInvoiceReminders.id });
-    if (!claim) continue;
-
-    const fail = async (message: string) => {
-      result.failed += 1;
-      await db
-        .update(arInvoiceReminders)
-        .set({ status: "failed", error: message })
-        .where(eq(arInvoiceReminders.id, claim.id));
-    };
-    try {
-      const invoice = await loadInvoicePayload(orgId, document.id);
-      if (!invoice) {
-        await fail("Нэхэмжлэх олдсонгүй");
-        continue;
-      }
-      const qpay = await invoiceQpayAvailable(orgId, document).catch(() => false);
-      const [send] = await db
-        .insert(arApInvoiceSends)
-        .values({ userId: actor, organizationId: orgId, documentId: document.id, channel: "email", purpose: "reminder", recipient })
-        .returning({ id: arApInvoiceSends.id, token: arApInvoiceSends.token });
-      const balance = Math.round((Number(document.totalAmount) - Number(document.paidAmount)) * 100) / 100;
-      const mail = buildReminderEmail({
-        companyName: invoice.company.name || "Байгууллага",
-        documentNo: document.documentNo,
-        dueDate: document.dueDate,
-        today,
-        balance,
-        currency: document.currency,
-        viewUrl: `${base}/invoice/${send.token}`,
-        qpay,
-        bankAccounts: invoice.company.bankAccounts,
-      });
-      const { data, error } = await resend.emails.send({
-        from: sender.from,
-        to: recipient,
-        ...(sender.replyTo ? { replyTo: sender.replyTo } : {}),
-        subject: mail.subject,
-        text: mail.text,
-      });
-      if (error) {
-        await db.update(arApInvoiceSends).set({ revokedAt: new Date() }).where(eq(arApInvoiceSends.id, send.id));
-        await fail(translateResendError(error.message));
-        continue;
-      }
-      await db
-        .update(arApInvoiceSends)
-        .set({ messageId: data?.id ?? null })
-        .where(eq(arApInvoiceSends.id, send.id));
-      await db
-        .update(arInvoiceReminders)
-        .set({ status: "sent", sendId: send.id, sentAt: new Date() })
-        .where(eq(arInvoiceReminders.id, claim.id));
-      result.sent += 1;
-      const diff = daysBetween(document.dueDate, today);
-      await logAuditEvent({
-        userId: actor,
-        organizationId: orgId,
-        action: "reminder_sent",
-        entityType: "arap",
-        entityId: document.id,
-        summary: `${document.documentNo} төлбөрийн сануулга → ${recipient} (${diff < 0 ? `${-diff} хоногийн өмнө` : diff === 0 ? "хугацааны өдөр" : `${diff} хоног хэтэрсэн`})`,
-      });
-    } catch (error) {
-      await fail(error instanceof Error ? error.message : String(error));
-    }
+    const outcome = await claimAndDeliver(context, {
+      document,
+      stageKey: stage.key,
+      recipient,
+      previous: own.find((row) => row.stage === stage.key) ?? null,
+    });
+    if (outcome.status === "sent") result.sent += 1;
+    else if (outcome.status === "failed") result.failed += 1;
   }
   return result;
 }
@@ -288,6 +397,19 @@ export async function runInvoiceReminders(today = todayInUlaanbaatar()): Promise
         .update(notificationRuns)
         .set({ finishedAt: new Date(), error: message })
         .where(eq(notificationRuns.id, claim.id));
+      // Асаалттай атлаа илгээж чадахгүй (илгээгч, домэйн, түлхүүр) — чимээгүй
+      // зогсохгүй: аудит → мэдэгдэл (rules.ts: settings × reminders_blocked).
+      const actor = await orgOwnerUserId(organizationId).catch(() => null);
+      if (actor)
+        await logAuditEvent({
+          userId: actor,
+          system: true,
+          organizationId,
+          action: "reminders_blocked",
+          entityType: "settings",
+          entityId: "ar_reminders",
+          summary: `Төлбөрийн автомат сануулга ${today}-нд илгээгдсэнгүй: ${message}`,
+        });
     }
   }
   return result;

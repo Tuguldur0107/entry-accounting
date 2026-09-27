@@ -14,6 +14,7 @@ import {
   loadReminderSettings,
   normalizeReminderSettings,
   reminderSenderProblem,
+  sendManualInvoiceReminder,
   type ReminderSettings,
 } from "@/lib/arap/reminders-run";
 import { db } from "@/lib/db";
@@ -148,6 +149,25 @@ export async function saveArReminderSettings(input: {
     return { settings };
   } catch (caught) {
     return actionError("saveArReminderSettings", caught, "Тохиргоо хадгалагдсангүй");
+  }
+}
+
+/**
+ * Гараар «Төлбөрийн сануулга илгээх» — автомат тохиргооноос үл хамааран
+ * (нэхэмжлэхэд өдөрт нэг). И-мэйл өгөхгүй бол харилцагчийн бүртгэлтэй хаяг.
+ */
+export async function sendInvoiceReminder(
+  documentId: string,
+  to?: string | null
+): Promise<ActionResult<{ documentNo: string; sentTo: string }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction("ar", "write");
+    const result = await sendManualInvoiceReminder(orgId, userId, documentId, to);
+    revalidatePath(REMINDERS_PATH);
+    revalidatePath("/receivables/documents");
+    return result;
+  } catch (caught) {
+    return actionError("sendInvoiceReminder", caught, "Сануулга илгээгдсэнгүй");
   }
 }
 

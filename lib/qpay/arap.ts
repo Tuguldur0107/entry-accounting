@@ -53,7 +53,7 @@ async function loadSendDocument(token: string) {
 }
 
 /** Байгууллагын эзэн — webhook / нээлттэй хуудас сессгүй тул бичилтийг эзний нэрээр. */
-async function systemActor(orgId: string): Promise<string> {
+export async function systemActor(orgId: string): Promise<string> {
   const owner = await db.query.memberships.findFirst({
     where: and(eq(memberships.organizationId, orgId), eq(memberships.role, "owner")),
     orderBy: [asc(memberships.createdAt)],

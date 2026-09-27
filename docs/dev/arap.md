@@ -165,12 +165,25 @@ tests/qpay-arap-flow.test.ts (DB), tests/qr-matrix.test.ts
   хэтэрсэн хоног, линк, банкны данс. Захиа бүр шинэ `ar_ap_invoice_sends` (`purpose
   reminder`, channel email) — «Үзсэн» төлөв, илгээлтийн түүхэнд «Сануулга ·». Аудит
   `arap` / `reminder_sent` (мэдэгдэл үүсгэхгүй)
+- **Алдаа ЧИМЭЭГҮЙ үлдэхгүй:** захиа бүтэлгүй бол аудит `arap` / `reminder_failed`,
+  асаалттай ч бүхэлдээ гацвал (илгээгч, домэйн, түлхүүр) `settings` / `reminders_blocked`
+  → мэдэгдэл `arap.reminder_failed` (instant, ar:post; нэхэмжлэх × өдөр / өдөрт нэг).
+  Хуваарьт ажил `system: true` — owner ч мэдэгдэл авна (docs/dev/notifications.md)
+- **Гараар** (`sendManualInvoiceReminder`, action `sendInvoiceReminder` ar:write, AI
+  `send_payment_reminder`): нэхэмжлэх илгээх цонхны «Төлбөрийн сануулга илгээх».
+  Автомат унтраалттай ч, харилцагч хасагдсан ч (ИЛ үйлдэл) — шат `manual:<өдөр>`,
+  нэхэмжлэхэд өдөрт НЭГ, автомат шатыг хөндөхгүй. AI унших `get_payment_reminders`;
+  тохиргоо өөрчлөх нь ЗӨВХӨН вэбээс
+- **Хэвлэх хуудас / PDF-ийн QR:** хүчинтэй линк байвал (`lib/arap/invoice-link.ts`
+  `activeInvoiceLinkUrl`). Хэвлэх хуудас хэвлэх агшинд л mount болдог тул QR матрицыг
+  СЕРВЕРТ бодно (`ArApDocumentDetail.publicLinkQr`, `lib/qr/matrix.ts`) — асинхрон
+  `QrCode` тэнд хоосон гарна
 
 ```
 lib/arap/reminders.ts            ЦЭВЭР (tests/ar-reminders.test.ts): шат, тохиргоо, захиа
 lib/arap/reminders-run.ts        DB хөдөлгүүр: sendOrgInvoiceReminders, runInvoiceReminders
 lib/actions/ar-reminders.ts      getArReminderOverview / saveArReminderSettings /
-                                 setCounterpartyReminderOptOut
+                                 sendInvoiceReminder / setCounterpartyReminderOptOut
 components/arap/reminders-view.tsx, app/(dashboard)/receivables/reminders
 tests/ar-reminders-flow.test.ts (DB)
 ```
