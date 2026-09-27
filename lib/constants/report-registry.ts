@@ -77,6 +77,7 @@ export const REPORT_REGISTRY: readonly ReportModule[] = [
         label: "Авлагын насжилт",
         href: "/receivables/reports",
       },
+      { value: "ar-statement", label: "Тооцоо нийлсэн акт", href: "/receivables/reports/statement" },
     ],
   },
   {
@@ -85,6 +86,7 @@ export const REPORT_REGISTRY: readonly ReportModule[] = [
     basePath: "/payables/reports",
     entries: [
       { value: "ap-aging", label: "Өглөгийн насжилт", href: "/payables/reports" },
+      { value: "ap-statement", label: "Тооцоо нийлсэн акт", href: "/payables/reports/statement" },
     ],
   },
   {

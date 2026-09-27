@@ -56,6 +56,7 @@ const REPORT_VIEWS = [
   "components/costing/transaction-detail-report.tsx",
   "components/costing/component-analysis-report.tsx",
   "components/gl/reports-view.tsx",
+  "components/arap/statement-report-view.tsx",
   // Насжилт нь АР/АП workspace-ийн ReportSection — өөрийн огнооны талбартай
   // байсан тайлан; Dialog доторх бичилтийн огноо (суутган тооцоо) зөвшөөрөгдөнө.
   "components/arap/arap-workspace.tsx",

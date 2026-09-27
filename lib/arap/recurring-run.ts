@@ -247,13 +247,25 @@ export interface RecurringRunResult {
   errors: { templateId: string; error: string }[];
 }
 
-/** Хугацаа нь болсон бүх идэвхтэй загвар (бүх байгууллага) — ticker 15 мин тутам. */
-export async function runRecurringInvoices(today = todayInUlaanbaatar()): Promise<RecurringRunResult> {
+/**
+ * Хугацаа нь болсон бүх идэвхтэй загвар (бүх байгууллага) — ticker 15 мин тутам.
+ * `organizationId` — нэг байгууллагаар хязгаарлах (тест, гараар ажиллуулах).
+ */
+export async function runRecurringInvoices(
+  today = todayInUlaanbaatar(),
+  options: { organizationId?: string } = {}
+): Promise<RecurringRunResult> {
   const result: RecurringRunResult = { today, created: 0, failed: 0, errors: [] };
   const due = await db
     .select()
     .from(arRecurringInvoices)
-    .where(and(eq(arRecurringInvoices.status, "active"), lte(arRecurringInvoices.nextRunDate, today)));
+    .where(
+      and(
+        eq(arRecurringInvoices.status, "active"),
+        lte(arRecurringInvoices.nextRunDate, today),
+        options.organizationId ? eq(arRecurringInvoices.organizationId, options.organizationId) : undefined
+      )
+    );
   const owners = new Map<string, string>();
   for (let template of due) {
     try {

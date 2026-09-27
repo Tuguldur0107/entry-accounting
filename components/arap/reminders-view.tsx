@@ -205,6 +205,7 @@ export function RemindersView({ overview, error }: { overview: ArReminderOvervie
                 hint: customer.email ?? "и-мэйлгүй",
               }))}
               placeholder="— Харилцагч сонгох —"
+              hideValue
               emptyLabel="Харилцагч алга"
               disabled={!canWrite || isPending}
             />
