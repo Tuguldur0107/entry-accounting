@@ -48,6 +48,10 @@ export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
 
 const STATUS_VALUES: StatusFilter[] = ["all", "posted", "partially_returned", "returned", "voided"];
 
+/** Буцаалтын дүн ХАСАХ утгаар (мөнгө / орлого гарсан) — жагсаалт, хөлийн нийлбэр цэвэр. */
+const signed = (sale: PosSaleView | undefined, value: number | undefined) =>
+  (sale?.isReturn ? -1 : 1) * Number(value ?? 0);
+
 const fmtTime = (iso: string) => {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -202,6 +206,7 @@ export function SalesListView({
       {
         headerName: "Нийт (хөнг. өмнө)",
         field: "grossAmount",
+        valueGetter: (p) => signed(p.data, p.data?.grossAmount),
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
@@ -210,10 +215,12 @@ export function SalesListView({
       {
         headerName: "Хөнгөлөлт",
         field: "discountTotal",
+        // Хөнгөлөлт борлуулалтад −, буцаалтад + (буцаагдсан хөнгөлөлт).
+        valueGetter: (p) => -signed(p.data, p.data?.discountTotal),
         width: 110,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) > 0 ? `−${fmtMnt(Number(p.value))}` : ""),
+        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
         // НӨАТ-гүй борлуулалт (кассын «НӨАТ» унтраалттай) — eBarimt үүсээгүй, тусдаа данс.
@@ -236,24 +243,27 @@ export function SalesListView({
       {
         headerName: "НӨАТ",
         field: "vatAmount",
+        valueGetter: (p) => signed(p.data, p.data?.vatAmount),
         width: 100,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
+        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
         headerName: "НХАТ",
         field: "cityTaxAmount",
+        valueGetter: (p) => signed(p.data, p.data?.cityTaxAmount),
         width: 90,
         // НХАТ-гүй байгууллагад багана нуугдана (хоосон багана харуулахгүй).
         hide: !hasCityTax,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
+        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
         headerName: "Төлөх",
         field: "total",
+        valueGetter: (p) => signed(p.data, p.data?.total),
         width: 130,
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",

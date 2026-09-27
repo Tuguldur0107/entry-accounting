@@ -1,5 +1,6 @@
 "use server";
 
+import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
@@ -1923,8 +1924,8 @@ async function reverseArApDocumentCore(id: string) {
       voucher.lines.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
         // Клирингийн бизнес объект урвуу мөрд ч дамжина — PO-гүй баримтад
@@ -2712,8 +2713,8 @@ async function reverseArApOffsetCore(voucherId: string) {
       voucher.lines.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
       }))

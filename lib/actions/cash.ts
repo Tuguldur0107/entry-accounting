@@ -1,5 +1,6 @@
 "use server";
 
+import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
@@ -1427,8 +1428,8 @@ async function reverseCashDocumentCore(id: string) {
         voucherId: reversal.id,
         cashAccountId: line.cashAccountId,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
       }))
@@ -2093,8 +2094,8 @@ async function postCashFxRevaluationCore(data: {
           voucherId: reversal.id,
           cashAccountId: line.cashAccountId,
           accountNumber: line.accountNumber,
-          debit: line.credit,
-          credit: line.debit,
+          // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+          ...stornoOf({ debit: line.debit, credit: line.credit }),
           description: line.description,
           sortOrder: index,
         }))
@@ -2295,8 +2296,8 @@ async function reverseCashFxRevaluationCore(id: string) {
         voucherId: reversal.id,
         cashAccountId: line.cashAccountId,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
       }))

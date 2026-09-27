@@ -52,6 +52,7 @@ import {
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { logAuditEvent } from "@/lib/audit";
 import { assertPeriodOpen, assertPeriodOpenInTx } from "@/lib/periods/guard";
+import { stornoFromMirror } from "@/lib/gl/storno";
 import { periodCodeOf } from "@/lib/periods/period";
 import { postingCodeBuilderFromData } from "@/lib/gl/posting-code";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
@@ -182,6 +183,9 @@ async function nextSequentialNo(
   }
   return `${stem}${String(max + 1).padStart(width, "0")}`;
 }
+
+/** Толин тусгалаар угсарсан буцаалтын мөрүүдийг улаан сторно болгоно. */
+const stornoRows = (rows: (typeof journalLines.$inferInsert)[]) => rows.map(stornoFromMirror);
 
 async function codeBuilders(orgId: string) {
   const [configs, values] = await Promise.all([
@@ -2129,7 +2133,9 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
     const tag = `[${documentNo}]`;
     const customerName = original.counterparty?.name ?? "";
 
-    // АР кредит: Dr Орлого (цэвэр) + Dr НӨАТ + Dr НХАТ / Cr Авлага.
+    // АР буцаалт — улаан сторно (lib/gl/storno.ts): мөрүүдийг борлуулалтын толин
+    // тусгалаар угсраад ЭХ талд нь сөрөг болгоно: Кт Орлого −, Кт НӨАТ −, Кт НХАТ −,
+    // Дт Хөнгөлөлт −, Дт Авлага −. Эргэлт хөөрөхгүй, орлого цэвэр дүнгээр буурна.
     const [creditVoucher] = await tx
       .insert(journalVouchers)
       .values({
@@ -2221,7 +2227,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
       sortOrder: sortOrder++,
       ...businessObject,
     });
-    await tx.insert(journalLines).values(creditLines);
+    await tx.insert(journalLines).values(creditLines.map(stornoFromMirror));
 
     // Мөрүүд + return_in хөдөлгөөн + урьдчилсан COGS урвуу.
     let costVoucherId: string | null = null;
@@ -2317,7 +2323,8 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
             .returning({ id: costEntries.id });
           costEntryId = costEntry.id;
           const description = `${tag} ${entry.original.description} — ${entry.quantity} × ${fmt(unitCost)} (урьдчилсан урвуу)`;
-          await tx.insert(journalLines).values([
+          // Толин тусгалаар угсарсан мөр → сторно: Дт COGS −, Кт Бараа −.
+          await tx.insert(journalLines).values(stornoRows([
             {
               voucherId: costVoucherId,
               costEntryId: costEntry.id,
@@ -2340,7 +2347,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
               sortOrder: costSort++,
               ...businessObject,
             },
-          ]);
+          ]));
         }
       }
       await tx
@@ -2475,7 +2482,8 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
             postedAt: at,
           })
           .returning({ id: cashDocuments.id });
-        await tx.insert(journalLines).values([
+        // Буцаан олголт = орлогын баримтын сторно: Дт Касс −, Кт Авлага −.
+        await tx.insert(journalLines).values(stornoRows([
           {
             voucherId: voucher.id,
             accountNumber: builders.cash(controlAccount),
@@ -2495,7 +2503,7 @@ async function returnPosSaleCore(input: ReturnPosSaleInput) {
             sortOrder: 1,
             ...businessObject,
           },
-        ]);
+        ]));
         await tx.insert(posPayments).values({
           saleId: returnId,
           paymentMethodId: payment.method.id,

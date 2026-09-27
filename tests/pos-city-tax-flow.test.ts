@@ -161,7 +161,7 @@ test("НХАТ: POS борлуулалт ба буцаалт — Cr/Dr 31440000,
   assert.equal(saleGl.byAccount("31440000", "credit"), 400);
   assert.equal(saleGl.byAccount("31410000", "credit"), 2_300);
 
-  // Буцаалт — нэг пиво: НХАТ 200 Дт, НӨАТ 1,000 Дт
+  // Буцаалт — нэг пиво, улаан сторно: НХАТ Кт −200, НӨАТ Кт −1,000 (Дт/Кт солихгүй)
   ok(await tool("return_pos_sale", { sale: sale.documentNo, lines: [{ itemCode: "BEER", quantity: 1 }], reason: "туршилт" }, "post"));
   const ret = await db.query.posSales.findFirst({
     where: and(eq(posSales.organizationId, orgId), eq(posSales.isReturn, true)),
@@ -170,8 +170,15 @@ test("НХАТ: POS борлуулалт ба буцаалт — Cr/Dr 31440000,
   assert.equal(Number(ret.cityTaxAmount), 200);
   assert.equal(Number(ret.total), 11_200);
   const returnGl = await voucherLines(`pos-return:${ret.id}`);
-  assert.equal(returnGl.byAccount("31440000", "debit"), 200);
-  assert.equal(returnGl.byAccount("31410000", "debit"), 1_000);
+  assert.equal(returnGl.byAccount("31440000", "credit"), -200);
+  assert.equal(returnGl.byAccount("31410000", "credit"), -1_000);
+  assert.equal(returnGl.byAccount("31440000", "debit"), 0);
+  const returnVoucher = await db.query.journalVouchers.findFirst({
+    where: and(eq(journalVouchers.organizationId, orgId), eq(journalVouchers.externalRef, `pos-return:${ret.id}`)),
+    with: { lines: true },
+  });
+  // Буцаалтын бүх мөр сөрөг (эсвэл 0) — эерэг Дт/Кт сольсон мөр байхгүй.
+  assert.ok(returnVoucher!.lines.every((line) => Number(line.debit) <= 0 && Number(line.credit) <= 0));
 
   // НХАТ 0 бол бодохгүй — хувь ЗОХИОХГҮЙ
   ok(await tool("update_pos_settings", { cityTaxPercent: 0 }));

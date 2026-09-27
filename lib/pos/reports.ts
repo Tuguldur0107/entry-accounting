@@ -120,7 +120,7 @@ export async function loadSalesReport(orgId: string, filter: SalesReportFilter):
     const sign = sale.isReturn ? -1 : 1;
     const periodCode = periodCodeOf(sale.date);
     const paymentSummary = sale.payments
-      .map((payment) => `${payment.method?.name ?? "—"} ${(Number(payment.baseAmount) - Number(payment.changeGiven)).toLocaleString("en-US")}`)
+      .map((payment) => `${payment.method?.name ?? "—"} ${(sign * (Number(payment.baseAmount) - Number(payment.changeGiven))).toLocaleString("en-US")}`)
       .join(" · ");
     for (const payment of sale.payments) {
       if (filter.methodId && payment.paymentMethodId !== filter.methodId) continue;

@@ -1,5 +1,6 @@
 "use server";
 
+import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
@@ -782,8 +783,8 @@ async function reverseCostEntryCore(id: string) {
       linesToReverse.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
         // Буцаалтын мөр ЭХ мөрийн бизнес объектыг үүрнэ — эс бөгөөс

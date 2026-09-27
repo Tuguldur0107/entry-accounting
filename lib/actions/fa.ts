@@ -1,5 +1,6 @@
 "use server";
 
+import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
@@ -640,9 +641,8 @@ async function runDepreciationCore(data: { month: string }) {
           voucher.lines.map((line, index) => ({
             voucherId: reversal.id,
             accountNumber: line.accountNumber,
-            // Буцаалт = Дт/Кт солигдсон толин тусгал.
-            debit: line.credit,
-            credit: line.debit,
+            // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+            ...stornoOf({ debit: line.debit, credit: line.credit }),
             description: `Буцаалт: ${line.description}`,
             sortOrder: index,
           }))
@@ -970,8 +970,8 @@ async function reverseDepreciationEntryCore(id: string) {
       voucher.lines.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
       }))
@@ -1423,8 +1423,8 @@ async function reverseFixedAssetDisposalCore(id: string) {
       voucher.lines.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
       }))
