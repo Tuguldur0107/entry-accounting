@@ -46,7 +46,8 @@ export const PUBLIC_CHAT_FAQ: readonly PublicChatFaq[] = [
       "Бүртгүүлсний дараа системийн «Тохиргоо → AI холболт» хэсэгт «Хаягийг хуулаад … тохиргоог нээх» " +
       "товч бий. Claude: Settings → Connectors → Add custom connector; ChatGPT: Settings → Apps & " +
       "Connectors → Developer mode. Хаяг: app.entry.mn/api/mcp — Entry-ийн и-мэйл, нууц үгээрээ " +
-      "нэвтэрч зөвшөөрнө. Юу ч суулгахгүй.",
+      "нэвтэрч зөвшөөрнө. Юу ч суулгахгүй. Анхаар: ChatGPT, Claude-ийн ТӨЛБӨРТЭЙ хувилбар (жишээ нь " +
+      "ChatGPT Plus, Claude Pro) шаардлагатай; ChatGPT-д Developer mode-ийг асаана.",
   },
   {
     key: "skills",

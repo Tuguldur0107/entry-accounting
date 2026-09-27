@@ -49,5 +49,9 @@ test("харьцангуй хугацаа", () => {
 });
 
 test("тохиргооны хаяг https", () => {
-  for (const target of Object.values(CONNECTOR_TARGETS)) assert.match(target.settingsUrl, /^https:\/\//);
+  for (const target of Object.values(CONNECTOR_TARGETS)) {
+    assert.match(target.settingsUrl, /^https:\/\//);
+    assert.match(target.requirement, /төлбөртэй/, `${target.label}: төлбөртэй хувилбарын шаардлага харагдана`);
+  }
+  assert.match(CONNECTOR_TARGETS.chatgpt.requirement, /Developer mode/);
 });

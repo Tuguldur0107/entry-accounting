@@ -73,6 +73,10 @@ export function ConnectGuide({
             : " · хараахан асуугаагүй байна"}
         </p>
       ) : null}
+      <p className="flex items-start gap-1.5 text-xs text-[var(--ea-warning-fg)]">
+        <Icon name="warning" size="xs" className="mt-0.5 shrink-0" />
+        {target.requirement}
+      </p>
       <ol className="list-decimal space-y-1.5 pl-5 text-sm text-[var(--ea-text-2)]">
         {STEPS[client].map((step) => (
           <li key={step}>{step}</li>
