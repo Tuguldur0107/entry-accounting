@@ -325,6 +325,8 @@ function toDocumentView(
     voucherId: item.voucherId,
     reversalVoucherId: item.reversalVoucherId,
     purchaseOrderId: item.purchaseOrderId,
+    ebarimtStatus: item.ebarimtStatus,
+    ebarimtId: item.ebarimtId,
   };
 }
 

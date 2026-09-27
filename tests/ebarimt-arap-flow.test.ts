@@ -27,6 +27,7 @@ import { syncStandardAccounts } from "../lib/actions/gl";
 import { getPosSettings } from "../lib/actions/pos";
 import { resendArapEbarimt } from "../lib/actions/arap";
 import { processPendingEbarimt } from "../lib/ebarimt/worker";
+import { loadEbarimtDocuments } from "../lib/ebarimt/list-data";
 import { db } from "../lib/db";
 import {
   arApDocuments,
@@ -221,4 +222,20 @@ test("АР нэхэмжлэх → eBarimt B2B_INVOICE (PAY), ТТД-гүй бо�
   // Илгээгдсэнийг дахин илгээхгүй.
   const again = await asOrg(() => resendArapEbarimt(sent.id));
   assert.match(again.error ?? "", /аль хэдийн/);
+
+  // Нэгдсэн жагсаалт (/tax/ebarimt): илгээгдсэн 2 нэхэмжлэх, дүн/НӨАТ нь ИЛГЭЭСЭН payload-оос;
+  // тохиргоо унтраалттай үеийн нэхэмжлэх (eBarimt төлөвгүй) орохгүй; эрхгүй эх хасагдана.
+  const list = await loadEbarimtDocuments(orgId, { from: "2026-09-01", to: "2026-09-30" }, ["pos", "arap"]);
+  assert.equal(list.truncated, false);
+  assert.deepEqual(list.rows.map((row) => row.id).sort(), [sent.id, noTin.id].sort());
+  const b2b = list.rows.find((row) => row.id === sent.id)!;
+  assert.equal(b2b.source, "arap");
+  assert.equal(b2b.status, "sent");
+  assert.equal(b2b.ebarimtType, "B2B_INVOICE");
+  assert.equal(b2b.customerTin, "61200064714");
+  assert.equal(b2b.total, 1_100_000);
+  assert.equal(b2b.vat, 100_000);
+  assert.equal(b2b.lastError, null);
+  const posOnly = await loadEbarimtDocuments(orgId, { from: "2026-09-01", to: "2026-09-30" }, ["pos"]);
+  assert.equal(posOnly.rows.length, 0);
 });

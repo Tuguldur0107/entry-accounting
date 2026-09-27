@@ -65,6 +65,10 @@ export type ArApDocumentView = {
    * үүснэ (docs/procurement §3.3 ③④).
    */
   purchaseOrderId: string | null;
+  /** eBarimt нэхэмжлэх (docs/pos/05 Шат 2) — null = илгээгээгүй / хамаарахгүй. */
+  ebarimtStatus: string | null;
+  /** ДДТД (33 орон) — илгээгдсэн үед. */
+  ebarimtId: string | null;
 };
 
 export type ArApLineInput = {
