@@ -132,8 +132,8 @@ test("Давтамжтай нэхэмжлэх: хуваарь, давхарда�
     assert.equal(created.nextRunDate, "2026-10-05");
     const templateId = created.id!;
 
-    assert.equal((await runRecurringInvoices("2026-10-04")).created, 0);
-    const first = await runRecurringInvoices("2026-10-05");
+    assert.equal((await runRecurringInvoices("2026-10-04", { organizationId: orgId })).created, 0);
+    const first = await runRecurringInvoices("2026-10-05", { organizationId: orgId });
     assert.equal(first.created, 1, JSON.stringify(first.errors));
     let docs = await generated(templateId);
     assert.deepEqual(
@@ -141,7 +141,7 @@ test("Давтамжтай нэхэмжлэх: хуваарь, давхарда�
       [["2026-10-05", "2026-10-19", "draft", 500_000, "Оффисын түрээс — 2026-10"]]
     );
     // Давтан tick — давхардахгүй.
-    assert.equal((await runRecurringInvoices("2026-10-05")).created, 0);
+    assert.equal((await runRecurringInvoices("2026-10-05", { organizationId: orgId })).created, 0);
     // Системийн үүсгэлт → owner-т мэдэгдэл (ноорог — батлах хэрэгтэй).
     const alerts = await db.query.notifications.findMany({
       where: and(eq(notifications.organizationId, orgId), eq(notifications.type, "arap.recurring_created")),
@@ -149,7 +149,7 @@ test("Давтамжтай нэхэмжлэх: хуваарь, давхарда�
     assert.deepEqual(alerts.map((row) => row.userId), [userId]);
 
     // 2) Нөхөлт + дуусах огноо: 11, 12-р сар үүсээд загвар дуусна.
-    const catchUp = await runRecurringInvoices("2027-02-01");
+    const catchUp = await runRecurringInvoices("2027-02-01", { organizationId: orgId });
     assert.equal(catchUp.created, 2, JSON.stringify(catchUp.errors));
     docs = await generated(templateId);
     assert.deepEqual(docs.map((doc) => doc.date), ["2026-10-05", "2026-11-05", "2026-12-05"]);
@@ -173,7 +173,7 @@ test("Давтамжтай нэхэмжлэх: хуваарь, давхарда�
       })
     );
     assert.equal(auto.error, undefined, auto.error);
-    const autoRun = await runRecurringInvoices(today);
+    const autoRun = await runRecurringInvoices(today, { organizationId: orgId });
     assert.equal(autoRun.created, 1, JSON.stringify(autoRun.errors));
     const [posted] = await generated(auto.id!);
     assert.equal(posted.status, "posted");
@@ -196,7 +196,7 @@ test("Давтамжтай нэхэмжлэх: хуваарь, давхарда�
     // 5) Түр зогсоох → хуваарийн өдөр ч үүсэхгүй; сэргээхэд зогссон үе нөхөгдөхгүй.
     const paused = await asOrg(() => setRecurringInvoiceStatus(auto.id!, true));
     assert.equal(paused.error, undefined, paused.error);
-    assert.equal((await runRecurringInvoices(nextMonthRun)).created, 0);
+    assert.equal((await runRecurringInvoices(nextMonthRun, { organizationId: orgId })).created, 0);
     const resumed = await asOrg(() => setRecurringInvoiceStatus(auto.id!, false));
     assert.equal(resumed.error, undefined, resumed.error);
     assert.equal(resumed.nextRunDate, nextMonthRun, "ирээдүйн огноо хэвээр");

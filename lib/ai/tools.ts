@@ -212,6 +212,7 @@ import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
 import { createRecurringInvoice, getRecurringInvoices } from "@/lib/actions/ar-recurring";
+import { getCounterpartyStatement } from "@/lib/actions/ar-statement";
 import { getArReminderOverview, sendInvoiceReminder } from "@/lib/actions/ar-reminders";
 import { reminderStageLabel } from "@/lib/arap/reminders";
 import {
@@ -1001,6 +1002,20 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["documentId"],
+    },
+  },
+  {
+    name: "get_counterparty_statement",
+    description:
+      "Тооцоо нийлсэн акт — нэг харилцагчийн авлага + өглөгийн нэгдсэн хуулга (эхний үлдэгдэл, нэхэмжлэх, төлбөр, урьдчилгаа, эцсийн үлдэгдэл, ₮). Тэмдэг: дебит = харилцагч өртэй болох, кредит = буурах / манай өглөг. PDF (гарын үсэгтэй): вэб Авлага → Тайлан → Тооцоо нийлсэн акт.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        counterparty: { type: "string", description: "Харилцагчийн нэр" },
+        from: { type: "string", description: "Эхлэх огноо YYYY-MM-DD" },
+        to: { type: "string", description: "Дуусах огноо YYYY-MM-DD" },
+      },
+      required: ["counterparty", "from", "to"],
     },
   },
   {
@@ -7055,6 +7070,33 @@ async function runSendInvoiceEmail(
   };
 }
 
+async function runCounterpartyStatement(
+  orgId: string,
+  input: { counterparty: string; from: string; to: string }
+): Promise<AiToolResult> {
+  const list = await db.query.counterparties.findMany({ where: eq(counterparties.organizationId, orgId) });
+  const counterparty = requireSingle(
+    nameMatches(list, (entry) => entry.name, input.counterparty),
+    (entry) => entry.name,
+    "харилцагч",
+    input.counterparty
+  );
+  const { statement } = unwrapAction(await getCounterpartyStatement(counterparty.id, input.from, input.to));
+  const fmt = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return {
+    resultText: [
+      `Тооцоо нийлсэн акт: ${statement.counterparty.name}, ${statement.from} — ${statement.to} (₮)`,
+      `Эхний үлдэгдэл: ${fmt(statement.opening)}`,
+      ...statement.rows.map(
+        (row) => `- ${row.date} ${row.reference} · ${row.description} · Дт ${fmt(row.debit)} · Кт ${fmt(row.credit)} · үлдэгдэл ${fmt(row.balance)}`
+      ),
+      `Гүйлгээ: Дт ${fmt(statement.totalDebit)} · Кт ${fmt(statement.totalCredit)}`,
+      `Эцсийн үлдэгдэл: ${fmt(statement.closing)}`,
+      statement.conclusion,
+    ].join("\n"),
+  };
+}
+
 async function runListRecurring(): Promise<AiToolResult> {
   const { rows } = unwrapAction(await getRecurringInvoices());
   if (rows.length === 0) return { resultText: "Давтамжтай нэхэмжлэх алга." };
@@ -12541,6 +12583,8 @@ async function dispatchAiTool(
         return await runSendInvoiceEmail(orgId, args);
       case "create_invoice_link":
         return await runCreateInvoiceLink(orgId, args);
+      case "get_counterparty_statement":
+        return await runCounterpartyStatement(orgId, args);
       case "list_recurring_invoices":
         return await runListRecurring();
       case "create_recurring_invoice":

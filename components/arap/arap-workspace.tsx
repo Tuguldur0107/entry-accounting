@@ -67,6 +67,8 @@ import { currentDocumentDate } from "@/lib/periods/document-date";
 import { arapBalanceSummary, arapKpis } from "@/lib/arap/kpis";
 import { arapLedger, controlSide, documentTypeLabel, ledgerSign } from "@/lib/arap/document-kind";
 import { ArapBalanceHero } from "@/components/arap/arap-balance-hero";
+import { CollectionsPanel } from "@/components/arap/collections-panel";
+import type { CollectionsOverview } from "@/lib/arap/collections";
 import { MobileCardList, useIsMobileViewport } from "@/components/datagrid/mobile-card-list";
 import { col } from "@/lib/grid/columnTypes";
 
@@ -102,6 +104,8 @@ interface Props {
     payable: string;
   };
   reportAsOf?: string;
+  /** Авлагын цуглуулалтын самбар (docs/dev/arap.md §5j) — зөвхөн авлагын нүүрт. */
+  collections?: CollectionsOverview | null;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -175,6 +179,7 @@ export function ArApWorkspace({
   defaultSegments,
   defaultAccountNumbers,
   reportAsOf = today(),
+  collections = null,
 }: Props) {
   const router = useRouter();
   const config = MODE_CONFIG[mode];
@@ -777,6 +782,8 @@ export function ArApWorkspace({
           />
         )}
       </section>
+
+      {focus === "dashboard" && mode === "receivable" && collections && <CollectionsPanel overview={collections} />}
 
       {focus === "dashboard" &&
         (filteredDocuments.length === 0 && filteredCounterparties.length === 0 ? (
