@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 import {
+  acceptsPayment,
+  isLatePayment,
   isPendingAttention,
   pickFinalizeShift,
   amountMatches,
@@ -25,6 +27,20 @@ test("шилжилт — open→paid→finalized; эцсийн төлөвөөс 
   assert.equal(canTransition("paid", "cancelled"), false); // мөнгө орсон — цуцлахгүй
   assert.equal(canTransition("open", "finalized"), false); // төлөгдөөгүй байж бүртгэхгүй
   assert.equal(canTransition("finalized", "paid"), false);
+  // Хоцорсон төлбөр: QR хаагдсан ч мөнгө орвол paid (дүн зөрвөл failed) — чимээгүй алгасахгүй.
+  assert.equal(canTransition("expired", "paid"), true);
+  assert.equal(canTransition("cancelled", "paid"), true);
+  assert.equal(canTransition("expired", "failed"), true);
+  assert.equal(canTransition("expired", "finalized"), false);
+  assert.equal(acceptsPayment("open"), true);
+  assert.equal(acceptsPayment("expired"), true);
+  assert.equal(acceptsPayment("cancelled"), true);
+  assert.equal(acceptsPayment("paid"), false); // идемпотент
+  assert.equal(acceptsPayment("finalized"), false);
+  assert.equal(acceptsPayment("failed"), false);
+  assert.equal(isLatePayment("expired"), true);
+  assert.equal(isLatePayment("cancelled"), true);
+  assert.equal(isLatePayment("open"), false);
   assert.equal(isTerminalStatus("finalized"), true);
   assert.equal(isTerminalStatus("open"), false);
 });

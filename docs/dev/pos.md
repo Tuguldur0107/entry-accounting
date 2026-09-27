@@ -309,7 +309,10 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   Сагсны ээлж хаагдсан бол ИЖИЛ агуулахын нээлттэй ээлжид (`pickFinalizeShift`,
   ЦЭВЭР, тесттэй) — өөр салбар руу ХЭЗЭЭ Ч шилжихгүй, шилжүүлбэл аудит `finalize`
   Баннер (`isPendingAttention`): `failed` нь мөнгө орсон байж болзошгүй үед л
-  (дүн зөрсөн webhook / QR үүссэн); dashboard-д нэхэмжлэх үүсээгүй оролдлого нуугдана
+  (дүн зөрсөн webhook / QR үүссэн); dashboard-д нэхэмжлэх үүсээгүй оролдлого нуугдана.
+  Хоцорсон төлбөр: `cancelled`/`expired` → `paid` (`acceptsPayment`, `isLatePayment`) +
+  `[QPAY_LATE_PAYMENT]`, аудит `late_paid` → шууд мэдэгдэл; хугацаа дуусахад dashboard-ын
+  нэхэмжлэхийг устгана (`expireAndCancelStale`, best-effort). Тест `qpay-late-payment-flow` (DB)
 - **GL ӨӨРЧЛӨЛТГҮЙ:** `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ,
   ККТТ 1% шимтгэл settlement-д гарна); QPay буцаалт БАЙХГҮЙ (Quick QR refund-гүй) —
   бэлэн / шилжүүлэг / дэлгүүрийн кредитээр. **QPay хэлбэрт «Буцаалтад ашиглана»

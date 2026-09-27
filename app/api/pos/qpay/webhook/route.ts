@@ -11,7 +11,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { posQpayIntents, posSettings } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
-import { parseWebhookPayload } from "@/lib/qpay/intent";
+import { acceptsPayment, parseWebhookPayload } from "@/lib/qpay/intent";
+import type { QpayIntentStatus } from "@/lib/qpay/constants";
 import { verifyWebhookSignature } from "@/lib/qpay/webhook-signature";
 import { recoverQpayCredentials } from "@/lib/qpay/partner";
 import { markIntentPaid, resolveQpayWebhookSecret } from "@/lib/qpay/store";
@@ -34,9 +35,10 @@ export async function POST(request: Request) {
     if (!secret) return NextResponse.json({ error: "webhook not configured" }, { status: 403 });
     const signature = request.headers.get("x-webhook-signature");
     let verified = verifyWebhookSignature(rawBody, signature, secret);
-    if (!verified && intent.status === "open") {
+    if (!verified && acceptsPayment(intent.status as QpayIntentStatus)) {
       // Dashboard-аас webhook secret солигдсон байж болно — Partner API-аар
-      // ОДООГИЙН secret-ийг авч дахин шалгана. Зөвхөн хүлээгдэж буй (open) intent-д,
+      // ОДООГИЙН secret-ийг авч дахин шалгана. Зөвхөн төлбөр хүлээж авах intent-д
+      // (open, эсвэл хоцорсон төлбөрт cancelled / expired),
       // cooldown байгууллагад минутад нэг — дур мэдэн илгээсэн хүсэлт secret-ийг
       // задлахгүй (Entry л хадгална), давтамжаар key солиулж чадахгүй.
       const fresh = await recoverQpayCredentials(intent.organizationId, {
@@ -76,16 +78,19 @@ export async function POST(request: Request) {
       source: "webhook",
     });
     if (result.changed) {
+      const amount = `${Number(intent.amount).toLocaleString("en-US")}₮`;
+      const late = result.late ? " — QR хаагдсаны дараа (хоцорсон төлбөр)" : "";
       await logAuditEvent({
         userId: intent.cashierUserId ?? "",
         organizationId: intent.organizationId,
-        action: result.status === "paid" ? "paid" : "webhook_amount_mismatch",
+        // rules.ts: late_paid ба webhook_amount_mismatch → шууд мэдэгдэл (мөнгө санаандгүй орсон).
+        action: result.status !== "paid" ? "webhook_amount_mismatch" : result.late ? "late_paid" : "paid",
         entityType: "pos_qpay_intent",
         entityId: intent.id,
         summary:
           result.status === "paid"
-            ? `QPay төлөгдлөө (webhook) — ${payload.invoiceId}, ${Number(intent.amount).toLocaleString("en-US")}₮`
-            : `QPay webhook: ${result.reason ?? "дүн зөрсөн"} — ${payload.invoiceId}`,
+            ? `QPay төлөгдлөө (webhook) — ${payload.invoiceId}, ${amount}${late}`
+            : `QPay webhook: ${result.reason ?? "дүн зөрсөн"} — ${payload.invoiceId}${late}`,
       });
     }
     // Дүн зөрсөн нь dashboard-ын алдаа биш — 200 (дахин илгээх нь юу ч засахгүй).

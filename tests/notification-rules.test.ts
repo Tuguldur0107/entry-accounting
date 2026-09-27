@@ -134,3 +134,27 @@ test("minuteStamp: секундыг хаяна — нэг минутын retry �
   assert.equal(minuteStamp(new Date("2026-10-07T02:12:59Z")), "2026-10-07T02:12");
   assert.equal(minuteStamp(new Date("2026-10-07T02:13:00Z")), "2026-10-07T02:13");
 });
+
+test("QPay: QR хаагдсаны дараах төлбөр / дүн зөрсөн → POS бичих эрхтэйд шууд danger, гарчигт дүнгүй", () => {
+  for (const [action, type] of [
+    ["late_paid", "pos.qpay_late_payment"],
+    ["webhook_amount_mismatch", "pos.qpay_amount_mismatch"],
+  ] as const) {
+    const draft = notificationFromAudit(
+      { userId: "cashier", action, entityType: "pos_qpay_intent", entityId: "i1", summary: "QPay … 4,200₮" },
+      NOW
+    );
+    assert.ok(draft, action);
+    assert.equal(draft.type, type);
+    assert.equal(draft.severity, "danger");
+    assert.equal(draft.href, "/inventory/sales");
+    assert.equal(draft.dedupeKey, `qpay-${action}:i1`);
+    assert.deepEqual(draft.audience, { kind: "module", moduleKeys: ["pos"], minLevel: "write" });
+    assert.doesNotMatch(draft.title, /\d/);
+  }
+  // Хэвийн төлбөр — мэдэгдэлгүй (кассын дэлгэц өөрөө борлуулалт болгоно).
+  assert.equal(
+    notificationFromAudit({ userId: "c", action: "paid", entityType: "pos_qpay_intent", entityId: "i2" }, NOW),
+    null
+  );
+});

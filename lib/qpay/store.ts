@@ -10,7 +10,7 @@ import { cashAccounts, posPaymentMethods, posQpayIntents, posSales, users, type 
 import { ensureAccountsExist, seedCreatorUserId } from "@/lib/costing/master-data";
 import { QPAY_ERRORS, QPAY_PAID_UNFINALIZED_MINUTES, QPAY_WEBHOOK_PATH, type QpayIntentStatus } from "./constants";
 import { QpayError, type QpayClientConfig } from "./client";
-import { amountMatches, canTransition, clampInvoiceTtl, isPendingAttention } from "./intent";
+import { acceptsPayment, amountMatches, canTransition, clampInvoiceTtl, isLatePayment, isPendingAttention } from "./intent";
 import { qpayReadiness, type QpayReadiness } from "./readiness";
 import { planQpaySeed } from "./seed";
 import { QPAY_PROVIDER } from "./constants";
@@ -197,33 +197,42 @@ export async function expireStaleIntents(orgId: string, now = new Date()): Promi
 }
 
 /**
- * Төлөгдсөн гэж тэмдэглэнэ — ИДЕМПОТЕНТ: зөвхөн `open` мөр `paid` болно;
- * аль хэдийн paid/finalized бол `changed: false`. Дүн зөрвөл `failed`
+ * Төлөгдсөн гэж тэмдэглэнэ — ИДЕМПОТЕНТ: `open` мөр `paid` болно; QR хаагдсаны
+ * (`cancelled` / `expired`) дараа ирсэн төлбөр мөн `paid` болж `late: true` +
+ * `[QPAY_LATE_PAYMENT]` тэмдэгтэй үлдэнэ (мөнгө ХЭЗЭЭ Ч чимээгүй алгасагдахгүй).
+ * Аль хэдийн paid/finalized/failed бол `changed: false`. Дүн зөрвөл `failed`
  * (мөнгө орсон ч борлуулалт бүртгэгдэхгүй — гараар шийднэ).
  */
 export async function markIntentPaid(
   orgId: string,
   intentId: string,
   paid: { paidAmount: number | null; paymentId: string | null; paidAt: Date | null; source: "webhook" | "check" }
-): Promise<{ changed: boolean; status: QpayIntentStatus; reason?: string }> {
+): Promise<{ changed: boolean; status: QpayIntentStatus; late: boolean; reason?: string }> {
   const intent = await loadIntent(orgId, intentId);
-  if (!intent) return { changed: false, status: "failed", reason: "intent олдсонгүй" };
+  if (!intent) return { changed: false, status: "failed", late: false, reason: "intent олдсонгүй" };
   const status = intent.status as QpayIntentStatus;
-  if (status !== "open") return { changed: false, status };
+  if (!acceptsPayment(status)) return { changed: false, status, late: false };
+  const late = isLatePayment(status);
+  const lateNote = late
+    ? `[${QPAY_ERRORS.latePayment}] QR ${status === "cancelled" ? "цуцлагдсаны" : "хугацаа дууссаны"} дараа төлөгдсөн — сагс өөр хэлбэрээр аль хэдийн зарагдсан бол «Борлуулалт болгох» бүү дар (давхар бүртгэгдэнэ), мөнгийг харилцагчид буцаана`
+    : null;
   const now = new Date();
   // Dashboard дүнг мэдээлэхгүй байж болно (Quick QR) — null бол PAID статус л дохио.
   if (paid.paidAmount != null && !amountMatches(Number(intent.amount), paid.paidAmount)) {
-    await db
+    const mismatch = `[${QPAY_ERRORS.amountMismatch}] Төлсөн дүн ${paid.paidAmount} ≠ ${Number(intent.amount)}`;
+    const rows = await db
       .update(posQpayIntents)
       .set({
         status: "failed",
-        lastError: `[${QPAY_ERRORS.amountMismatch}] Төлсөн дүн ${paid.paidAmount} ≠ ${Number(intent.amount)}`,
+        lastError: late ? `${mismatch}; QR хаагдсаны дараа төлөгдсөн` : mismatch,
         paidAmount: String(paid.paidAmount),
         paymentId: paid.paymentId,
+        paidAt: paid.paidAt ?? now,
         updatedAt: now,
       })
-      .where(and(eq(posQpayIntents.id, intentId), eq(posQpayIntents.status, "open")));
-    return { changed: true, status: "failed", reason: "дүн зөрсөн" };
+      .where(and(eq(posQpayIntents.id, intentId), eq(posQpayIntents.status, status)))
+      .returning({ id: posQpayIntents.id });
+    return { changed: rows.length > 0, status: "failed", late, reason: "дүн зөрсөн" };
   }
   const rows = await db
     .update(posQpayIntents)
@@ -232,12 +241,16 @@ export async function markIntentPaid(
       paidAmount: paid.paidAmount == null ? String(Number(intent.amount)) : String(paid.paidAmount),
       paymentId: paid.paymentId,
       paidAt: paid.paidAt ?? now,
-      lastError: null,
+      lastError: lateNote,
       updatedAt: now,
     })
-    .where(and(eq(posQpayIntents.id, intentId), eq(posQpayIntents.status, "open")))
+    .where(and(eq(posQpayIntents.id, intentId), eq(posQpayIntents.status, status)))
     .returning({ id: posQpayIntents.id });
-  return { changed: rows.length > 0, status: rows.length > 0 ? "paid" : ((await loadIntent(orgId, intentId))?.status as QpayIntentStatus) };
+  return {
+    changed: rows.length > 0,
+    status: rows.length > 0 ? "paid" : ((await loadIntent(orgId, intentId))?.status as QpayIntentStatus),
+    late: rows.length > 0 && late,
+  };
 }
 
 /**
