@@ -165,7 +165,7 @@ eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
            claimed|sent|failed|cancelled, payload/response jsonb, attempts,
            nextAttemptAt; partial unique (saleId, kind) pending|claimed; АР-д
            arapDocumentId (saleId NULL — яг нэг нь), (arapDocumentId, kind) unique),
-           ar_ap_documents.ebarimt{Id,Status,Date,Type,Total,Vat,CityTax}, pos_settings.ebarimtArap*
+           ar_ap_documents.ebarimt{Id,Status,Date,Type,CustomerTin,Total,Vat,CityTax}, pos_settings.ebarimtArap*
            (docs/pos/05)
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,

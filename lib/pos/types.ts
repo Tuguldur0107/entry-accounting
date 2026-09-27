@@ -8,6 +8,7 @@ import type {
   PaymentKind,
   VatMode,
 } from "./constants";
+import type { EbarimtCorrection } from "@/lib/ebarimt/list-types";
 
 /** Хөнгөлөлтийн дүрэм — pos_discount_rules-ийн plain хувилбар (тоон талбар number). */
 export interface DiscountRule {
@@ -304,6 +305,11 @@ export interface PosSaleDetail extends PosSaleView {
   voucherIds: string[];
   /** Буцаалтууд (эх борлуулалтад). */
   returns: { id: string; documentNo: string; date: string; total: number }[];
+  /**
+   * ТЕГ ↔ Entry тулгалт (lib/ebarimt/list-types posEbarimtCorrection) — буцаалтын
+   * засвар ТЕГ-д очоогүй / зөрсөн бол панельд анхааруулга + «Засвар илгээх».
+   */
+  ebarimtCorrection: EbarimtCorrection | null;
 }
 
 export interface PosShiftView {

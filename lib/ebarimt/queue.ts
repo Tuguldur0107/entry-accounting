@@ -55,6 +55,7 @@ export function targetOf(row: { saleId: string | null; arapDocumentId?: string |
 
 /** ТЕГ-д бүртгэлтэй дүн (MNT) — numeric баганад string. */
 type ReportedAmounts = { ebarimtTotal: string | null; ebarimtVat: string | null; ebarimtCityTax: string | null };
+const ZERO_AMOUNTS: ReportedAmounts = { ebarimtTotal: "0.00", ebarimtVat: "0.00", ebarimtCityTax: "0.00" };
 
 /**
  * Илгээсэн receipt-ийн дүн → ТЕГ-д бүртгэлтэй дүн. receipt байхгүй (хуучин мөр,
@@ -74,7 +75,12 @@ function reportedAmountsOf(payload: Record<string, unknown> | null | undefined):
   };
 }
 
-/** Эх баримтын eBarimt талбарууд. `onlyOpen` — sent/cancelled-ийг дарахгүй (алдааны үед). */
+/**
+ * Эх баримтын eBarimt талбарууд — НЭГ UPDATE (дүн, ДДТД, засварын төлөв хамт; хагас
+ * бичигдэхгүй). `onlyOpen` — sent/cancelled-ийг дарахгүй (алдааны үед).
+ * `ebarimtCorrection` зөвхөн POS-д, `ebarimtCustomerTin` зөвхөн АР-д (POS-д борлуулах
+ * мөчид бичигдсэн).
+ */
 async function setTargetEbarimt(
   target: EbarimtTarget,
   patch: {
@@ -82,13 +88,16 @@ async function setTargetEbarimt(
     ebarimtId?: string | null;
     ebarimtDate?: string | null;
     ebarimtType?: string | null;
+    ebarimtCorrection?: "pending" | "failed" | null;
+    ebarimtCustomerTin?: string | null;
   } & Partial<ReportedAmounts>,
   onlyOpen = false
 ): Promise<void> {
+  const { ebarimtCorrection, ebarimtCustomerTin, ...common } = patch;
   if (target.saleId) {
     await db
       .update(posSales)
-      .set(patch)
+      .set(ebarimtCorrection === undefined ? common : { ...common, ebarimtCorrection })
       .where(
         onlyOpen
           ? and(eq(posSales.id, target.saleId), or(isNull(posSales.ebarimtStatus), inArray(posSales.ebarimtStatus, ["pending", "failed"])))
@@ -97,7 +106,7 @@ async function setTargetEbarimt(
   } else if (target.arapDocumentId) {
     await db
       .update(arApDocuments)
-      .set(patch)
+      .set(ebarimtCustomerTin === undefined ? common : { ...common, ebarimtCustomerTin })
       .where(
         onlyOpen
           ? and(
@@ -114,7 +123,12 @@ async function setTargetEbarimt(
  * борлуулалтад л (АР-ын цуцлалт илгээгдэхгүй, docs/pos/05 Q5). Шидэхгүй.
  */
 async function setSaleCorrection(saleId: string, correction: "pending" | "failed" | null, handle: DbHandle = db) {
-  await handle.update(posSales).set({ ebarimtCorrection: correction }).where(eq(posSales.id, saleId));
+  // pending/failed зөвхөн ТЕГ-д БҮРТГЭЛТЭЙ (sent) баримтад — засах зүйлгүй (илгээгээгүй,
+  // гараар, цуцлагдсан) баримтад «Засвар» тэмдэг тавихгүй; цэвэрлэх нь үргэлж.
+  await handle
+    .update(posSales)
+    .set({ ebarimtCorrection: correction })
+    .where(correction ? and(eq(posSales.id, saleId), eq(posSales.ebarimtStatus, "sent")) : eq(posSales.id, saleId));
 }
 
 export function settingsInputOf(row: PosSettings): EbarimtSettingsInput {
@@ -344,15 +358,15 @@ export async function requeueEbarimt(orgId: string, saleId: string, kind: Submis
       .update(posEbarimtSubmissions)
       .set({ status: "pending", nextAttemptAt: new Date(), lastError: null, payload: null, updatedAt: new Date() })
       .where(eq(posEbarimtSubmissions.id, existing.id));
-  } else {
-    await enqueueEbarimt(orgId, saleId, kind);
-  }
-  if (kind === "cancel") {
     // Засварыг дахин илгээхэд баримт `sent` хэвээр (хуучин ДДТД хүчинтэй) — зөвхөн
     // засварын төлөв; «pending» болговол ТЕГ-д бүртгэлтэй дүн жагсаалтаас алга болно.
-    await setSaleCorrection(saleId, "pending");
-    return;
+    if (kind === "cancel") await setSaleCorrection(saleId, "pending");
+  } else {
+    // Шинэ мөр орсон үед л enqueueEbarimt өөрөө засварын төлөв тавина (орохгүй бол —
+    // багцад eBarimt байхгүй г.м. — тэмдэг үүрд үлдэхгүй).
+    await enqueueEbarimt(orgId, saleId, kind);
   }
+  if (kind === "cancel") return;
   await db
     .update(posSales)
     .set({ ebarimtStatus: "pending" })
@@ -432,10 +446,16 @@ export async function prepareSubmission(
       .update(posEbarimtSubmissions)
       .set({ status: "sent", sentAt: now, updatedAt: now, lastError: null })
       .where(eq(posEbarimtSubmissions.id, submission.id));
-    if (saleStatus)
-      await db.update(posSales).set({ ebarimtStatus: saleStatus }).where(eq(posSales.id, saleId));
-    // Засах зүйлгүй цуцлалт (эх нь ТЕГ-д очоогүй) — засварын төлөв хаагдана.
-    if (kind === "cancel") await setSaleCorrection(saleId, null);
+    // ТЕГ-д очоогүй ч бүгд буцаагдсан → ТЕГ-д бүртгэлтэй дүн 0 (preDeploy нөхөлттэй ижил);
+    // засах зүйлгүй цуцлалт — засварын төлөв хаагдана. НЭГ UPDATE.
+    if (saleStatus || kind === "cancel")
+      await db
+        .update(posSales)
+        .set({
+          ...(saleStatus ? { ebarimtStatus: saleStatus, ...ZERO_AMOUNTS } : {}),
+          ...(kind === "cancel" ? { ebarimtCorrection: null } : {}),
+        })
+        .where(eq(posSales.id, saleId));
     return null;
   };
   try {
@@ -553,21 +573,30 @@ export async function markSent(
     })
     .where(eq(posEbarimtSubmissions.id, submissionId))
     .returning({ payload: posEbarimtSubmissions.payload });
-  if (kind === "cancel" && target.saleId) await setSaleCorrection(target.saleId, null);
+  // Засвар амжсан → засварын төлөв цэвэр (дүн, ДДТД-тэй НЭГ UPDATE-д). Хэрэв засвар
+  // явж байх үед дахин буцаалт хийгдсэн бол (дараалалд орж чадаагүй) ТЕГ-ийн дүн
+  // Entry-ийн үлдсэн дүнтэй зөрж жагсаалтад «ТЕГ-тэй зөрсөн» болж ил гарна.
+  const correction = kind === "cancel" ? { ebarimtCorrection: null } : {};
   if (kind === "cancel" && !result.id) {
     // Бүтэн цуцлагдсан — ДДТД хүчингүй, ТЕГ-д бүртгэлтэй дүн 0.
-    await setTargetEbarimt(target, { ebarimtStatus: "cancelled", ebarimtTotal: "0.00", ebarimtVat: "0.00", ebarimtCityTax: "0.00" });
+    await setTargetEbarimt(target, { ebarimtStatus: "cancelled", ...ZERO_AMOUNTS, ...correction });
     return;
   }
   // Хэсэгчилсэн буцаалтын засвар (inactiveId) → ДДТД ШИНЭЧЛЭГДЭНЭ — дараагийн
   // засвар энэ сүүлийн ДДТД-г inactiveId болгоно (гинж). ТЕГ-д бүртгэлтэй дүн =
   // ЭНЭ receipt-ийнх (засварын дараа үлдсэн дүн) — жагсаалт/тайлан үүнийг уншина.
+  const request = sent?.payload?.request as Record<string, unknown> | undefined;
   await setTargetEbarimt(target, {
     ebarimtStatus: "sent",
     ebarimtId: result.id,
     ebarimtDate: result.date,
     ebarimtType: result.type,
     ...reportedAmountsOf(sent?.payload),
+    ...correction,
+    // АР: ТЕГ-д очсон ТТД (харилцагчийн одоогийн ТТД биш).
+    ...(target.arapDocumentId && request
+      ? { ebarimtCustomerTin: typeof request.customerTin === "string" ? request.customerTin : null }
+      : {}),
   });
 }
 

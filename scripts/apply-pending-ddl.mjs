@@ -831,6 +831,7 @@ async function main() {
     ["ar_ap_documents", "ebarimt_total", "numeric(18, 2)"],
     ["ar_ap_documents", "ebarimt_vat", "numeric(18, 2)"],
     ["ar_ap_documents", "ebarimt_city_tax", "numeric(18, 2)"],
+    ["ar_ap_documents", "ebarimt_customer_tin", "text"],
   ]) {
     await run(
       `${table}.${column} багана`,
@@ -859,12 +860,31 @@ async function main() {
     );
   }
   await run(
+    "ar_ap_documents.ebarimt_customer_tin нөхөлт (sent)",
+    `update ar_ap_documents t
+        set ebarimt_customer_tin = x.req->>'customerTin'
+       from (select distinct on (arap_document_id) arap_document_id as target_id, payload->'request' as req
+               from pos_ebarimt_submissions
+              where arap_document_id is not null and status = 'sent' and payload->'request' is not null
+              order by arap_document_id, created_at desc, id desc) x
+      where t.id = x.target_id and t.ebarimt_status = 'sent' and t.ebarimt_customer_tin is null
+        and x.req->>'customerTin' is not null`
+  );
+  await run(
     "pos_sales.ebarimt_total нөхөлт (cancelled / manual)",
     `update pos_sales
-        set ebarimt_total = case when ebarimt_status = 'manual' then total else 0 end,
+        set ebarimt_total = case when ebarimt_status = 'manual' then total - rounding_amount else 0 end,
             ebarimt_vat = case when ebarimt_status = 'manual' then vat_amount else 0 end,
             ebarimt_city_tax = case when ebarimt_status = 'manual' then city_tax_amount else 0 end
       where ebarimt_status in ('cancelled', 'manual') and ebarimt_total is null`
+  );
+  await run(
+    "pos_sales.ebarimt_total: гараар ДДТД-ийн тоймлолт хасах",
+    // v(#184)-ийн нөхөлт гараар ДДТД-д total-ыг (тоймлолттой) бичсэн — баримтад
+    // тоймлолт ордоггүй. Идемпотент: засагдсаны дараа ebarimt_total <> total.
+    `update pos_sales
+        set ebarimt_total = total - rounding_amount
+      where ebarimt_status = 'manual' and rounding_amount <> 0 and ebarimt_total = total`
   );
   await run(
     "pos_sales.ebarimt_correction нөхөлт",

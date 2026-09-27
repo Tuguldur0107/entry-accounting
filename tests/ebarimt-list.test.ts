@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import { EBARIMT_RECEIPT_TYPES, EBARIMT_RECEIPT_TYPE_LABELS } from "../lib/ebarimt/constants";
 import {
+  canResendCorrection,
   ebarimtTypeLabel,
+  posEbarimtCorrection,
   isAttentionRow,
   reportedAmounts,
   summarizeEbarimtRows,
@@ -87,4 +89,25 @@ test("засвар дуусаагүй мөр «Анхаарах»-д (төлөв
   // ТЕГ-д одоо бүртгэлтэй — засвар очоогүй мөрийн хуучин (ТЕГ дахь) дүн ОРНО.
   assert.equal(summary.reported.total, 11_000 + 3_300 + 2_200);
   assert.deepEqual(totalAmounts(rows), { count: 4, total: 11_000 + 3_300 + 2_200 + 5_000, vat: 1_000 + 300 + 200 + 500, cityTax: 0 });
+});
+
+test("ТЕГ ↔ Entry тулгалт: тэмдэг түрүүлнэ; зөрвөл mismatch/manual; 1₮ тэвчээр; хуучин өгөгдөл unknown", () => {
+  const base = { ebarimtStatus: "sent", saleStatus: "posted", flag: null, registeredTotal: 3_300, remainingTotal: 3_300 };
+  assert.equal(posEbarimtCorrection(base), null);
+  assert.equal(posEbarimtCorrection({ ...base, flag: "pending", remainingTotal: 2_200 }), "pending");
+  assert.equal(posEbarimtCorrection({ ...base, flag: "failed" }), "failed");
+  // eBarimt унтраалттай үед буцаасан — тэмдэггүй ч ТЕГ 3,300 ≠ Entry 2,200
+  assert.equal(posEbarimtCorrection({ ...base, saleStatus: "partially_returned", remainingTotal: 2_200 }), "mismatch");
+  assert.equal(posEbarimtCorrection({ ...base, remainingTotal: 3_299.5 }), null, "бутархай бөөрөнхийлөлт");
+  assert.equal(posEbarimtCorrection({ ...base, ebarimtStatus: "manual", saleStatus: "returned", remainingTotal: 0 }), "manual");
+  assert.equal(posEbarimtCorrection({ ...base, ebarimtStatus: "manual", registeredTotal: null, saleStatus: "partially_returned", remainingTotal: 1 }), "manual");
+  assert.equal(posEbarimtCorrection({ ...base, registeredTotal: null, saleStatus: "partially_returned", remainingTotal: 1_100 }), "unknown");
+  assert.equal(posEbarimtCorrection({ ...base, registeredTotal: null }), null);
+  assert.equal(posEbarimtCorrection({ ...base, ebarimtStatus: "cancelled", registeredTotal: 0, remainingTotal: 0 }), null);
+  assert.equal(posEbarimtCorrection({ ...base, ebarimtStatus: "cancelled", registeredTotal: 0, remainingTotal: 1_100 }), "mismatch");
+  assert.equal(posEbarimtCorrection({ ...base, ebarimtStatus: "failed", remainingTotal: 0 }), null, "илгээгээгүй — засах зүйлгүй");
+  assert.deepEqual(
+    (["pending", "failed", "mismatch", "manual", "unknown", null] as const).map(canResendCorrection),
+    [false, true, true, false, false, false]
+  );
 });

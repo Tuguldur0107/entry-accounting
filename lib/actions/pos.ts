@@ -1361,6 +1361,16 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
         note: input.note?.trim() ?? "",
         ebarimtId: manualEbarimtId,
         ebarimtStatus: ebarimtPlan.status,
+        // Кассаас гараар ДДТД бичсэн — өөр төхөөрөмжийн баримт ТЕГ-д бүтэн дүнгээр
+        // бүртгэлтэй (updateSaleEbarimt-тэй ИЖИЛ дүрэм; бэлэн мөнгөний тоймлолт баримтад
+        // ордоггүй — receipt.ts мөрийн нийлбэр).
+        ...(ebarimtPlan.status === "manual"
+          ? {
+              ebarimtTotal: (payable - plan.roundingAmount).toFixed(2),
+              ebarimtVat: String(quote.totals.vatAmount),
+              ebarimtCityTax: String(quote.totals.cityTaxAmount),
+            }
+          : {}),
         ebarimtConsumerNo,
         ebarimtCustomerTin,
         nonVat: nonVatPlan.nonVat,
@@ -3020,7 +3030,7 @@ export async function updateSaleEbarimt(
     const ebarimtId = cleanText(data.ebarimtId);
     const sale = await db.query.posSales.findFirst({
       where: and(eq(posSales.id, id), eq(posSales.organizationId, orgId)),
-      columns: { ebarimtStatus: true, nonVat: true, total: true, vatAmount: true, cityTaxAmount: true },
+      columns: { ebarimtStatus: true, nonVat: true, total: true, roundingAmount: true, vatAmount: true, cityTaxAmount: true },
     });
     if (!sale) throw new Error("Борлуулалт олдсонгүй");
     if (sale.ebarimtStatus === "sent") throw new Error("ТЕГ-д илгээгдсэн баримтын ДДТД-г гараар өөрчлөхгүй");
@@ -3031,9 +3041,12 @@ export async function updateSaleEbarimt(
         ebarimtId,
         ebarimtStatus: ebarimtId ? "manual" : null,
         // Өөр төхөөрөмжөөр олгосон баримт — ТЕГ-д борлуулалтын бүтэн дүнгээр бүртгэлтэй.
-        ebarimtTotal: ebarimtId ? sale.total : null,
+        // Бэлэн мөнгөний тоймлолт баримтад ордоггүй (receipt.ts мөрийн нийлбэр).
+        ebarimtTotal: ebarimtId ? (Number(sale.total) - Number(sale.roundingAmount)).toFixed(2) : null,
         ebarimtVat: ebarimtId ? sale.vatAmount : null,
         ebarimtCityTax: ebarimtId ? sale.cityTaxAmount : null,
+        // Хүлээгдэж буй автомат илгээлт (засвар ч) доор цуцлагдана — засварын тэмдэг гацахгүй.
+        ebarimtCorrection: null,
       })
       .where(and(eq(posSales.id, id), eq(posSales.organizationId, orgId)));
     if (ebarimtId)

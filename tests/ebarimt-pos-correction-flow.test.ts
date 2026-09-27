@@ -250,7 +250,26 @@ test("POS: ТЕГ-д бүртгэлтэй дүн баримт дээр, амжи
   assert.equal(Number(cancelled.ebarimtTotal), 0);
   assert.equal(cancelled.ebarimtCorrection, null);
 
-  // 5) Гараар ДДТД бичсэн борлуулалт → ТЕГ-д бүтэн дүн; Entry-д буцаахад ТЕГ-д
+  // 5) eBarimt УНТРААЛТТАЙ үед буцаавал засвар дараалалд ОРОХГҮЙ — тэмдэггүй ч ТЕГ ↔
+  //    Entry тулгалтаар «mismatch» болж «Анхаарах»-д ил; асаагаад «Засвар илгээх» → засагдана.
+  const driftNo = await sell(2);
+  const driftSent = await settle(driftNo, (sale) => sale.ebarimtStatus === "sent");
+  assert.equal(Number(driftSent.ebarimtTotal), 2_200);
+  await db.update(posSettings).set({ ebarimtEnabled: false }).where(eq(posSettings.organizationId, orgId));
+  ok(await tool("return_pos_sale", { sale: driftNo, lines: [{ itemCode: "MILK", quantity: 1 }], reason: "туршилт" }, "post"));
+  const drifted = await saleByNo(driftNo);
+  assert.equal(drifted.ebarimtCorrection, null, "дараалалд ороогүй — тэмдэг байхгүй");
+  const driftRow = await listRow(drifted.id);
+  assert.equal(driftRow.row.correction, "mismatch");
+  assert.equal(driftRow.row.total, 2_200, "ТЕГ-д одоо бүртгэлтэй = буцаалтаас өмнөх");
+  await db.update(posSettings).set({ ebarimtEnabled: true }).where(eq(posSettings.organizationId, orgId));
+  const sendFix = await asOrg(() => resendEbarimt(drifted.id, "cancel"));
+  assert.ok(!sendFix.error, sendFix.error);
+  const driftFixed = await settle(driftNo, (sale) => Number(sale.ebarimtTotal) === 1_100 && sale.ebarimtCorrection === null);
+  assert.equal(Number(driftFixed.ebarimtTotal), 1_100);
+  assert.equal((await listRow(drifted.id)).row.correction, null);
+
+  // 6) Гараар ДДТД бичсэн борлуулалт → ТЕГ-д бүтэн дүн; Entry-д буцаахад ТЕГ-д
   //    хүрэхгүй тул «manual» засвар (Анхаарах), дүн нь ТЕГ-д бүртгэлтэй хэвээр.
   await db.update(posSettings).set({ ebarimtEnabled: false }).where(eq(posSettings.organizationId, orgId));
   const manualNo = await sell(2);
@@ -264,5 +283,5 @@ test("POS: ТЕГ-д бүртгэлтэй дүн баримт дээр, амжи
   assert.equal(manualRow.row.total, 2_200);
   const summary = summarizeEbarimtRows(manualRow.rows);
   assert.equal(summary.attention, 1);
-  assert.equal(summary.reported.total, 2_200, "ТЕГ-д бүртгэлтэй: гараар 2,200 (цуцлагдсан 0)");
+  assert.equal(summary.reported.total, 2_200 + 1_100, "ТЕГ-д бүртгэлтэй: гараар 2,200 + засагдсан 1,100 (цуцлагдсан 0)");
 });

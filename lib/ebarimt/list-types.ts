@@ -23,19 +23,60 @@ export const isAttentionStatus = (status: string) =>
   status === "failed" || status === "skipped" || status === "pending";
 
 /**
- * ТЕГ-ийн дүн буцаалттай ЗӨРЖ болзошгүй (баримт өөрөө `sent`/`manual`):
+ * ТЕГ-ийн дүн Entry-ийн дүнтэй ЗӨРСӨН / зөрж болзошгүй:
  * - `pending` / `failed` — буцаалтын засварын баримт (inactiveId / DELETE) ТЕГ-д очоогүй
+ * - `mismatch` — ТЕГ-д бүртгэлтэй дүн ≠ Entry-ийн ҮЛДСЭН дүн (засвар дараалалд ороогүй:
+ *   eBarimt унтраалттай / багцгүй үед буцаасан, засвар явж байхад дахин буцаасан г.м.)
  * - `manual` — гараар ДДТД бичсэн борлуулалт буцаагдсан; ТЕГ-д гараар засна
  * - `unknown` — хуучин өгөгдөл: ТЕГ-д бүртгэлтэй дүн хадгалагдаагүй, буцаалттай
  */
-export type EbarimtCorrection = "pending" | "failed" | "manual" | "unknown";
+export type EbarimtCorrection = "pending" | "failed" | "mismatch" | "manual" | "unknown";
 
 export const EBARIMT_CORRECTION_LABELS: Record<EbarimtCorrection, string> = {
   pending: "Буцаалтын засвар ТЕГ-д очоогүй (хүлээгдэж буй)",
-  failed: "Буцаалтын засвар ТЕГ-д амжилтгүй — панелаас дахин илгээнэ",
+  failed: "Буцаалтын засвар ТЕГ-д амжилтгүй — панелаас «Засвар илгээх»",
+  mismatch: "ТЕГ-д бүртгэлтэй дүн Entry-ийн үлдсэн дүнтэй зөрсөн — панелаас «Засвар илгээх»",
   manual: "Гараар олгосон баримт буцаагдсан — ТЕГ-д гараар засна",
   unknown: "ТЕГ-д бүртгэлтэй дүн тодорхойгүй (хуучин өгөгдөл) — ТЕГ-ийн порталаас тулгана",
 };
+
+/** ТЕГ ↔ Entry зөрүүний тэвчээр (₮) — мөрийн бутархай бөөрөнхийлөлт. */
+export const EBARIMT_DRIFT_TOLERANCE = 1;
+
+/** Системээр засвар илгээж болох уу (гараар / хуучин өгөгдөл — үгүй). */
+export const canResendCorrection = (correction: EbarimtCorrection | null) =>
+  correction === "failed" || correction === "mismatch";
+
+/**
+ * POS борлуулалтын ТЕГ ↔ Entry тулгалт — ЦЭВЭР. Засварын тэмдэгт (дараалал) бүрэн
+ * найдахгүй: ТЕГ-д бүртгэлтэй дүнг Entry-ийн ҮЛДСЭН дүнтэй (борлуулалт − буцаалтууд,
+ * бэлэн мөнгөний тоймлолтгүй — баримтад ордоггүй) шууд харьцуулна. Ингэснээр засвар
+ * ямар замаар алдагдсан ч «Анхаарах»-д ил гарна (CLAUDE.md §5c).
+ */
+export function posEbarimtCorrection(input: {
+  ebarimtStatus: string | null;
+  saleStatus: string;
+  flag: string | null;
+  registeredTotal: number | null;
+  remainingTotal: number;
+}): EbarimtCorrection | null {
+  if (input.flag === "pending" || input.flag === "failed") return input.flag;
+  const returned = input.saleStatus === "partially_returned" || input.saleStatus === "returned";
+  const drift =
+    input.registeredTotal !== null && Math.abs(input.registeredTotal - input.remainingTotal) > EBARIMT_DRIFT_TOLERANCE;
+  switch (input.ebarimtStatus) {
+    case "manual":
+      return (input.registeredTotal === null ? returned : drift) ? "manual" : null;
+    case "sent":
+      if (input.registeredTotal === null) return returned ? "unknown" : null;
+      return drift ? "mismatch" : null;
+    case "cancelled":
+      // ТЕГ-д цуцлагдсан (0) ч Entry-д үлдэгдэлтэй борлуулалт.
+      return input.remainingTotal > EBARIMT_DRIFT_TOLERANCE ? "mismatch" : null;
+    default:
+      return null;
+  }
+}
 
 /** Анхаарах мөр: анхаарах төлөв ЭСВЭЛ ТЕГ-ийн дүн буцаалттай зөрж болзошгүй. */
 export const isAttentionRow = (row: Pick<EbarimtDocumentRow, "status" | "correction">) =>

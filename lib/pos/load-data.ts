@@ -44,6 +44,8 @@ import type {
   PosSettingsView,
   PosShiftView,
 } from "./types";
+import { loadPosRemainingTotals } from "@/lib/ebarimt/list-data";
+import { posEbarimtCorrection } from "@/lib/ebarimt/list-types";
 
 export const WALK_IN_CUSTOMER_NAME = "Бэлэн худалдан авагч";
 const DEFAULT_RECEIVABLE_ACCOUNT = "13110000";
@@ -726,6 +728,15 @@ export async function loadSaleDetail(orgId: string, saleId: string): Promise<Pos
       date: ret.date,
       total: Number(ret.total),
     })),
+    ebarimtCorrection: row.isReturn
+      ? null
+      : posEbarimtCorrection({
+          ebarimtStatus: row.ebarimtStatus,
+          saleStatus: row.status,
+          flag: row.ebarimtCorrection,
+          registeredTotal: row.ebarimtTotal === null ? null : Number(row.ebarimtTotal),
+          remainingTotal: (await loadPosRemainingTotals(orgId, [row])).get(row.id) ?? 0,
+        }),
   };
 }
 
