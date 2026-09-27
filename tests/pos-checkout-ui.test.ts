@@ -79,3 +79,12 @@ test("QR (eBarimt баримт, QPay/нэхэмжлэх) useMemo-гоор кэш
   assert.match(receiptPreview, /void ensureQrFactory\(\);/);
   assert.match(receiptPreview, /if \(hasQr\) await ensureQrFactory\(\);/);
 });
+
+test("төлбөрийн диалогт [Урьдчилж харах] — борлуулалт бүртгэхгүйгээр баримт (previewPosReceipt)", () => {
+  assert.match(payment, /Урьдчилж харах/);
+  assert.match(payment, /previewPosReceipt\(buildSaleInput\(\)\)/);
+});
+
+test("Эцсийн хэрэглэгч дээр оролтын талбар байхгүй (ААН-д л регистр/ТТД)", () => {
+  assert.doesNotMatch(vatBar, /eBarimt хэрэглэгчийн дугаар/);
+});

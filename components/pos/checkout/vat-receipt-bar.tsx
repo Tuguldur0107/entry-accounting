@@ -25,7 +25,6 @@ export function VatReceiptBar({
   ebarimtEnabled,
   buyer,
   onBuyerTypeChange,
-  onConsumerNoChange,
   onOrgNoChange,
   problem,
 }: {
@@ -39,7 +38,6 @@ export function VatReceiptBar({
   ebarimtEnabled: boolean;
   buyer: BuyerState;
   onBuyerTypeChange: (type: BuyerType) => void;
-  onConsumerNoChange: (value: string) => void;
   onOrgNoChange: (value: string) => void;
   /** Төлбөр хаах шалтгаан (ААН-ий регистр дутуу г.м.) — улаанаар. */
   problem: string | null;
@@ -90,17 +88,6 @@ export function VatReceiptBar({
         )}
       </div>
 
-      {vatReceipt && ebarimtEnabled && buyer.type === "individual" && (
-        <Input
-          value={buyer.consumerNo}
-          inputMode="numeric"
-          maxLength={8}
-          placeholder="eBarimt хэрэглэгчийн дугаар (8 орон, сонголтоор)"
-          className="h-8 font-mono"
-          onChange={(event) => onConsumerNoChange(event.target.value.replace(/\D/g, ""))}
-        />
-      )}
-
       {vatReceipt && ebarimtEnabled && buyer.type === "org" && (
         <div className="space-y-1">
           <Input
@@ -108,6 +95,7 @@ export function VatReceiptBar({
             inputMode="numeric"
             maxLength={14}
             autoFocus
+            autoComplete="off"
             placeholder="Байгууллагын ТТД (11 орон) эсвэл регистр (7 орон)"
             className="h-8 font-mono"
             onChange={(event) => onOrgNoChange(event.target.value)}

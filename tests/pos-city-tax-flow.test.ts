@@ -20,11 +20,15 @@ try {
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
 import { syncStandardAccounts } from "../lib/actions/gl";
+import { previewPosReceipt } from "../lib/actions/pos";
 import { db } from "../lib/db";
 import {
   journalLines,
+  inventoryItems,
   journalVouchers,
   memberships,
+  posPaymentMethods,
+  posShifts,
   organizationProfile,
   organizations,
   posSaleLines,
@@ -89,6 +93,38 @@ test("НХАТ: POS борлуулалт ба буцаалт — Cr/Dr 31440000,
   // Үлдэгдэлгүй туршилт — хасах үлдэгдлийг зөвшөөрнө; НХАТ-ын хувийг байгууллага өөрөө бичнэ.
   ok(await tool("update_pos_settings", { allowNegativeStock: true, cityTaxPercent: 2 }));
   ok(await tool("open_pos_shift", { cashAccount: "Касс", warehouseCode: "WH1" }, "post"));
+
+  // [Урьдчилж харах] — ижил тооцоо, гэхдээ DB-д борлуулалт БИЧИГДЭХГҮЙ.
+  const beerItem = await db.query.inventoryItems.findFirst({
+    where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, "BEER")),
+  });
+  const breadItem = await db.query.inventoryItems.findFirst({
+    where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.code, "BREAD")),
+  });
+  const openShift = await db.query.posShifts.findFirst({
+    where: and(eq(posShifts.organizationId, orgId), eq(posShifts.status, "open")),
+  });
+  const cashMethod = await db.query.posPaymentMethods.findFirst({
+    where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.code, "CASH")),
+  });
+  assert.ok(beerItem && breadItem && openShift && cashMethod);
+  const preview = await asOrg(() =>
+    previewPosReceipt({
+      shiftId: openShift.id,
+      lines: [
+        { itemId: beerItem.id, quantity: 2 },
+        { itemId: breadItem.id, quantity: 1 },
+      ],
+      payments: [{ paymentMethodId: cashMethod.id, amount: 25_700 }],
+    })
+  );
+  assert.ok(!preview.error, preview.error);
+  assert.equal(preview.receipt?.documentNo, "УРЬДЧИЛСАН");
+  assert.equal(preview.receipt?.total, 25_700);
+  assert.equal(preview.receipt?.cityTaxAmount, 400);
+  assert.equal(preview.receipt?.ebarimtId, null);
+  const salesAfterPreview = await db.query.posSales.findMany({ where: eq(posSales.organizationId, orgId) });
+  assert.equal(salesAfterPreview.length, 0, "урьдчилан харах борлуулалт бүртгэхгүй");
 
   const sold = ok(
     await tool(
