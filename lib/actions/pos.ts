@@ -1049,7 +1049,7 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
   if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
     throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");
-  // НӨАТ төлөгч бус байгууллага ч баримт олгоно (NOT_VAT, НӨАТ 0 — receipt.ts taxTypeOf);
+  // НӨАТ төлөгч бус байгууллага ч баримт олгоно (НӨАТ 0, vatMode-оор taxType — receipt.ts taxTypeOf);
   // кассчин «eBarimt илгээх»-ийг унтраасан бол skipped (ЦЭВЭР дүрэм — receipt.ts).
   const ebarimtPlan = initialSaleEbarimtStatus({
     enabled: settings.ebarimtEnabled,

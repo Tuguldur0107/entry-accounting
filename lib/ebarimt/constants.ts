@@ -41,7 +41,7 @@ export const EBARIMT_TAX_TYPE_LABELS: Record<EbarimtTaxType, string> = {
   VAT_ABLE: "НӨАТ-тай (10%)",
   VAT_FREE: "НӨАТ-гүй (чөлөөлөгдсөн)",
   VAT_ZERO: "НӨАТ 0%",
-  NOT_VAT: "НӨАТ төлөгч бус",
+  NOT_VAT: "Хилийн гаднах борлуулалт",
 };
 
 /** Барааны баркодын төрөл — PosAPI `items[].barCodeType`. */
