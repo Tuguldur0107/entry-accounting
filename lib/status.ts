@@ -50,6 +50,13 @@ export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
   skipped: "warning",
 };
 
+/** Давтамжтай нэхэмжлэхийн төлөвийн өнгө (lib/arap/recurring RECURRING_STATUS_LABELS). */
+export const RECURRING_STATUS_TONES: Record<string, StatusTone> = {
+  active: "success",
+  paused: "warning",
+  ended: "muted",
+};
+
 /** Төлбөрийн сануулгын төлөвийн өнгө (lib/arap/reminders REMINDER_STATUS_LABELS). */
 export const REMINDER_STATUS_TONES: Record<string, StatusTone> = {
   sent: "success",

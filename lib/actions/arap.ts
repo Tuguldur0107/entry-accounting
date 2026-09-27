@@ -1,7 +1,8 @@
 "use server";
 
 import { stornoOf } from "@/lib/gl/storno";
-import { revalidatePath } from "next/cache";
+import { revalidatePathSafe } from "@/lib/next/revalidate";
+
 import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 
 import {
@@ -131,14 +132,14 @@ function round4(value: number) {
 
 function revalidateArAp() {
   for (const root of ["/arap", "/receivables", "/payables"]) {
-    revalidatePath(root);
-    revalidatePath(`${root}/counterparties`);
-    revalidatePath(`${root}/documents`);
-    revalidatePath(`${root}/reports`);
-    revalidatePath(`${root}/settings`);
+    revalidatePathSafe(root);
+    revalidatePathSafe(`${root}/counterparties`);
+    revalidatePathSafe(`${root}/documents`);
+    revalidatePathSafe(`${root}/reports`);
+    revalidatePathSafe(`${root}/settings`);
   }
-  revalidatePath("/gl/journal");
-  revalidatePath("/gl/reports");
+  revalidatePathSafe("/gl/journal");
+  revalidatePathSafe("/gl/reports");
 }
 
 function cleanText(value: string | null | undefined) {

@@ -49,6 +49,8 @@ AR/AP      counterparties, ar_ap_documents, ar_ap_document_lines,
              documents.documentType ar_invoice|ap_bill|ar_credit_note|ap_debit_note;
                sourceDocumentId / lines.sourceLineId — кредит/дебит баримтын эх (§5d)
            ar_ap_settlements, arap_ecl_settings, arap_write_offs,
+           ar_recurring_invoices (§5h давтамжтай нэхэмжлэх — загвар: мөр jsonb,
+             хуваарь, nextRunDate, autoPost/sendEmail, status active|paused|ended)
            ar_reminder_settings, ar_invoice_reminders (§5g төлбөрийн сануулга —
              нэхэмжлэх × төлөх огноо × шат unique; counterparties.arRemindersDisabled,
              ar_ap_invoice_sends.purpose invoice|reminder)

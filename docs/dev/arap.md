@@ -187,3 +187,47 @@ lib/actions/ar-reminders.ts      getArReminderOverview / saveArReminderSettings 
 components/arap/reminders-view.tsx, app/(dashboard)/receivables/reminders
 tests/ar-reminders-flow.test.ts (DB)
 ```
+
+### 5h. Давтамжтай нэхэмжлэх — ХЭРЭГЖСЭН (2026-09-28)
+
+Авлага → **Давтамжтай** (`/receivables/recurring`); шинээр нэмэх нь нэхэмжлэхийн
+панелийн **«Давтамжтай болгох»** — мөр, данс, НӨАТ-ын мөр, дүн нь ТЭР нэхэмжлэхээс
+хуулагдана (тусдаа мөрийн editor байхгүй). Түрээс, захиалга, үйлчилгээний гэрээнд.
+
+- **Хамрах** (`loadRecurringSource`): АР нэхэмжлэх, ₮ (ханш ЗОХИОХГҮЙ — валют нь
+  сар бүрийн МБ ханш шаардана), бараагүй (бараа материал хөдөлгөхгүй), POS/PO-гүй,
+  буцаагдаагүй. Панелийн товч мөн адил нөхцөлтэй
+- **Хуваарь** (`lib/arap/recurring.ts` ЦЭВЭР, тесттэй): 1 / 3 / 6 / 12 сар, сарын
+  өдөр 1–28 эсвэл сүүлийн өдөр (богино сард сүүлийн өдөр, 31 → 30 → 31 алдагдахгүй),
+  эхлэх / дуусах огноо, төлөх хугацаа (default эх нэхэмжлэхийнх)
+- **Горим:** анхдагч НООРОГ → мэдэгдэл `arap.recurring_created` (нягтлан батална);
+  «Автоматаар батлах» + «И-мэйлээр илгээх» (PDF + линк, QPay) ИЛ сонголт — батлах
+  тохиргоо `ar:post` эрх шаардана. Ноорог + и-мэйл хослол татгалзана
+- **Хөдөлгүүр** (`lib/arap/recurring-run.ts`, ticker 09:00 УБ-аас tick бүрд, cron
+  `?job=recurring`): нэхэмжлэх нь owner-ийн нэрээр ердийн `createArApDocument`-оор
+  (период, данс, дугаар, eBarimt дараалал — тусдаа логик ҮГҮЙ), огноо = хуваарийн
+  өдөр, утга «<утга> — YYYY-MM». Давхардалгүй: `externalRef recurring:<id>:<огноо>`
+  (unique) + `nextRunDate`-ийг нөхцөлтэй урагшлуулна. Нэг tick-д ≤ 3 нөхөлт; дуусах
+  огноо давбал `ended`. Алдаа (период хаалттай г.м) → `lastError` + `recurring_failed`
+  → мэдэгдэл (instant, өдөрт нэг), дараагийн tick дахин оролдоно. Аудит `system: true`
+- **Засах:** батлах/илгээх, төлөх хугацаа, дуусах огноо. Давтамж / өдрийг ЗАСАХГҮЙ
+  (тэр сарын нэхэмжлэх давхардах) — шинээр үүсгэнэ. **Түр зогсоох / сэргээх** —
+  сэргээхэд зогссон хугацааны нэхэмжлэх НӨХӨГДӨХГҮЙ. **«Дараагийнхыг одоо үүсгэх»**
+  — дараагийн occurrence-ийг ӨНӨӨДРИЙН огноогоор (ирээдүйн сар батлагдахгүй), тэр
+  өдөр ticker давхарлахгүй. Устгахад үүссэн нэхэмжлэхүүд хэвээр
+- **Хүсэлтийн гадна `revalidatePath`:** ticker-ээс action дуудахад Next «static
+  generation store missing» шиддэг — `lib/next/revalidate.ts` `revalidatePathSafe`
+  (АР action-ууд, нэхэмжлэх илгээх) тэр алдааг л залгина
+
+```
+lib/arap/recurring.ts            ЦЭВЭР (tests/ar-recurring.test.ts): хуваарь, шалгалт, шошго
+lib/arap/recurring-run.ts        DB: loadRecurringSource, createRecurringFromDocument,
+                                 runRecurringInvoices, runRecurringNow, listRecurringTemplates
+lib/actions/ar-recurring.ts      getRecurringInvoices / getRecurringSourcePreview /
+                                 createRecurringInvoice / updateRecurringInvoice /
+                                 setRecurringInvoiceStatus / deleteRecurringInvoice /
+                                 runRecurringInvoiceNow
+components/arap/recurring-dialog.tsx, recurring-view.tsx, app/(dashboard)/receivables/recurring
+AI: list_recurring_invoices, create_recurring_invoice
+tests/ar-recurring-flow.test.ts (DB)
+```

@@ -211,6 +211,7 @@ import { loadClearingReconciliation } from "@/lib/costing/clearing-reconciliatio
 import { loadCostingAccountSettings } from "@/lib/costing/master-data";
 import { loadInventoryGlReconciliation } from "@/lib/costing/transaction-detail";
 import { unwrapAction } from "@/lib/action-result";
+import { createRecurringInvoice, getRecurringInvoices } from "@/lib/actions/ar-recurring";
 import { getArReminderOverview, sendInvoiceReminder } from "@/lib/actions/ar-reminders";
 import { reminderStageLabel } from "@/lib/arap/reminders";
 import {
@@ -1000,6 +1001,31 @@ export const AI_TOOLS: AiToolDef[] = [
         },
       },
       required: ["documentId"],
+    },
+  },
+  {
+    name: "list_recurring_invoices",
+    description:
+      "Давтамжтай нэхэмжлэхүүд (түрээс, захиалга, гэрээ): харилцагч, дүн, хуваарь, дараагийн огноо, горим (ноорог / шууд батална + и-мэйл), төлөв, сүүлийн алдаа.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_recurring_invoice",
+    description:
+      "Одоо байгаа авлагын нэхэмжлэхийг ДАВТАМЖТАЙ болгоно — мөр, данс, дүн нь тэр нэхэмжлэхээс; хуваарийн өдөр шинэ нэхэмжлэх үүснэ. Зөвхөн ₮, бараагүй (үйлчилгээ, түрээс) нэхэмжлэх. Анхдагчаар НООРОГ үүснэ; autoPost нь зөвхөн хэрэглэгч ил хүссэн үед. Хэрэглэгч ил хүссэн үед л ашиглана.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        documentId: { type: "string", description: "Эх нэхэмжлэхийн ID, дугаар (AR-...), эсвэл externalRef" },
+        intervalMonths: { type: "number", description: "1 (сар бүр) | 3 (улирал) | 6 | 12 (жил)" },
+        dayOfMonth: { type: "number", description: "Сарын өдөр 1–28; 0 = сарын сүүлийн өдөр" },
+        startDate: { type: "string", description: "Эхлэх огноо YYYY-MM-DD (энэ өдрөөс хойших эхний хуваарийн өдөр)" },
+        endDate: { type: "string", description: "Дуусах огноо YYYY-MM-DD (заавал биш)" },
+        paymentTermsDays: { type: "number", description: "Төлөх хугацаа, хоног (default: эх нэхэмжлэхийнхтэй ижил)" },
+        autoPost: { type: "boolean", description: "Шууд батлах (default false — ноорог)" },
+        sendEmail: { type: "boolean", description: "Батлагдсаныг харилцагч руу и-мэйлээр (autoPost шаардана)" },
+      },
+      required: ["documentId", "intervalMonths", "dayOfMonth", "startDate"],
     },
   },
   {
@@ -7029,6 +7055,52 @@ async function runSendInvoiceEmail(
   };
 }
 
+async function runListRecurring(): Promise<AiToolResult> {
+  const { rows } = unwrapAction(await getRecurringInvoices());
+  if (rows.length === 0) return { resultText: "Давтамжтай нэхэмжлэх алга." };
+  return {
+    resultText: rows
+      .map(
+        (row) =>
+          `- ${row.counterpartyName} · ${row.description} · ${row.totalAmount.toLocaleString("en-US")}₮ · ${row.scheduleLabel} · дараагийнх ${row.nextRunDate} · ${row.autoPost ? "шууд батална" : "ноорог"}${row.sendEmail ? " + и-мэйл" : ""} · ${row.status}${row.lastError ? ` · АЛДАА: ${row.lastError}` : ""} (id ${row.id})`
+      )
+      .join("\n"),
+  };
+}
+
+async function runCreateRecurring(
+  orgId: string,
+  input: {
+    documentId: string;
+    intervalMonths: number;
+    dayOfMonth: number;
+    startDate: string;
+    endDate?: string;
+    paymentTermsDays?: number;
+    autoPost?: boolean;
+    sendEmail?: boolean;
+  }
+): Promise<AiToolResult> {
+  const document = await findArapDocument(orgId, input.documentId);
+  const terms =
+    input.paymentTermsDays ??
+    Math.max(0, Math.round((Date.parse(`${document.dueDate}T00:00:00Z`) - Date.parse(`${document.date}T00:00:00Z`)) / 86_400_000));
+  const result = unwrapAction(
+    await createRecurringInvoice(document.id, {
+      intervalMonths: Number(input.intervalMonths),
+      dayOfMonth: Number(input.dayOfMonth),
+      startDate: input.startDate,
+      endDate: input.endDate ?? null,
+      paymentTermsDays: terms,
+      autoPost: input.autoPost ?? false,
+      sendEmail: input.sendEmail ?? false,
+    })
+  );
+  return {
+    resultText: `Давтамжтай нэхэмжлэх хадгалагдлаа: ${document.documentNo}-ээс, эхний нэхэмжлэх ${result.nextRunDate} (${input.autoPost ? "шууд батална" : "НООРОГ — нягтлан батална"}).`,
+  };
+}
+
 async function runGetPaymentReminders(input: { limit?: number }): Promise<AiToolResult> {
   const overview = unwrapAction(await getArReminderOverview());
   const limit = Math.min(Math.max(Math.trunc(Number(input.limit) || 20), 1), 100);
@@ -12469,6 +12541,10 @@ async function dispatchAiTool(
         return await runSendInvoiceEmail(orgId, args);
       case "create_invoice_link":
         return await runCreateInvoiceLink(orgId, args);
+      case "list_recurring_invoices":
+        return await runListRecurring();
+      case "create_recurring_invoice":
+        return await runCreateRecurring(orgId, args);
       case "get_payment_reminders":
         return await runGetPaymentReminders(args);
       case "send_payment_reminder":
