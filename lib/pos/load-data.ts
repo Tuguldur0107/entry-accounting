@@ -15,6 +15,7 @@ import {
   posDiscountRules,
   posPaymentMethods,
   posPayments,
+  posQpayIntents,
   posSales,
   posSettings,
   posShifts,
@@ -335,7 +336,7 @@ export async function loadShiftViews(
   if (rows.length === 0) return [];
   const shiftIds = rows.map((row) => row.id);
   const closerIds = [...new Set(rows.map((row) => row.closedBy).filter((id): id is string => !!id))];
-  const [closers, sales, paymentRows] = await Promise.all([
+  const [closers, sales, paymentRows, qpayCashRefunds] = await Promise.all([
     closerIds.length
       ? db.query.users.findMany({ where: inArray(users.id, closerIds), columns: { id: true, name: true } })
       : Promise.resolve([]),
@@ -357,6 +358,22 @@ export async function loadShiftViews(
       .innerJoin(posSales, eq(posSales.id, posPayments.saleId))
       .innerJoin(posPaymentMethods, eq(posPaymentMethods.id, posPayments.paymentMethodId))
       .where(and(eq(posSales.organizationId, orgId), inArray(posSales.shiftId, shiftIds))),
+    // QPay-ийн давхар төлбөрийг кассаас бэлнээр буцаасан (lib/qpay/refund.ts) —
+    // бэлэн мөнгө шургуулганаас гарсан тул ээлжийн системийн бэлэнд тооцно.
+    db
+      .select({
+        shiftId: sql<string>`${posQpayIntents.resolution}->>'shiftId'`,
+        amount: sql<string>`${posQpayIntents.resolution}->>'amount'`,
+      })
+      .from(posQpayIntents)
+      .where(
+        and(
+          eq(posQpayIntents.organizationId, orgId),
+          eq(posQpayIntents.status, "refunded"),
+          sql`${posQpayIntents.resolution}->>'kind' = 'cash'`,
+          inArray(sql`${posQpayIntents.resolution}->>'shiftId'`, shiftIds)
+        )
+      ),
   ]);
   const closerName = new Map(closers.map((user) => [user.id, user.name]));
   const summary = new Map<
@@ -409,6 +426,10 @@ export async function loadShiftViews(
     if (payment.kind !== "cash") continue;
     if (payment.isReturn) entry.cashRefunds += net;
     else entry.cashReceipts += net;
+  }
+  for (const refund of qpayCashRefunds) {
+    if (!refund.shiftId) continue;
+    of(refund.shiftId).cashRefunds += Number(refund.amount) || 0;
   }
   return rows.map((row) => {
     const entry = summary.get(row.id) ?? {

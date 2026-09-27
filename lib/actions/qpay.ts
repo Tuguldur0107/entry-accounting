@@ -24,7 +24,16 @@ import {
 import type { QpayReferenceOption } from "@/lib/qpay/reference";
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { cashAccounts, organizations, posQpayIntents, posSettings, posShifts, warehouses } from "@/lib/db/schema";
+import {
+  cashAccounts,
+  counterparties,
+  organizations,
+  posPaymentMethods,
+  posQpayIntents,
+  posSettings,
+  posShifts,
+  warehouses,
+} from "@/lib/db/schema";
 import { createPosSale, type CreatePosSaleInput, type PosReceipt } from "@/lib/actions/pos";
 import { POS_MODULE_KEY } from "@/lib/pos/constants";
 import { ensurePosSettings } from "@/lib/pos/load-data";
@@ -36,7 +45,8 @@ import {
   listDashboardInvoices,
   QpayError,
 } from "@/lib/qpay/client";
-import { QPAY_ERRORS, type QpayIntentStatus } from "@/lib/qpay/constants";
+import { QPAY_ERRORS, QPAY_PROVIDER, type QpayIntentStatus } from "@/lib/qpay/constants";
+import { refundQpayIntentCore, type RefundQpayInput } from "@/lib/qpay/refund";
 import { QPAY_CONNECT_CALLBACK_PATH, buildConnectState, connectUrl } from "@/lib/qpay/connect";
 import { checkAllowed, clampInvoiceTtl, invoiceAmountOf, isExpired, pickFinalizeShift } from "@/lib/qpay/intent";
 import type { QpayReadiness } from "@/lib/qpay/readiness";
@@ -512,6 +522,59 @@ export async function finalizeQpayIntent(
     return { id: result.id!, documentNo: result.documentNo!, receipt: result.receipt };
   } catch (caught) {
     return actionError("finalizeQpayIntent", caught, "QPay төлбөр борлуулалт болсонгүй");
+  }
+}
+
+/**
+ * Орсон QPay мөнгийг харилцагчид буцаах (давхар төлбөр / дүн зөрсөн) — журнал
+ * + мөнгөн баримт НЭГ транзакцаар (lib/qpay/refund.ts). Мөнгө гаргах тул
+ * менежер (pos:post) — кассчин ганцаараа QPay-ийн мөнгийг «алга болгож» чадахгүй.
+ */
+export async function refundQpayIntent(
+  intentId: string,
+  input: RefundQpayInput
+): Promise<ActionResult<{ voucherNo: string; amount: number }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    const { voucherNo, amount } = await refundQpayIntentCore(orgId, userId, intentId, input);
+    revalidateQpay();
+    revalidatePath("/inventory/shifts");
+    return { voucherNo, amount };
+  } catch (caught) {
+    return actionError("refundQpayIntent", caught, "QPay төлбөр буцаагдсангүй");
+  }
+}
+
+/** Буцаах цонхны сонголт — банк/касс данс (QPay түр данснаас бусад), харилцагч. */
+export async function getQpayRefundOptions(): Promise<
+  ActionResult<{
+    accounts: { id: string; name: string; accountType: string }[];
+    customers: { id: string; name: string; code: string | null }[];
+  }>
+> {
+  try {
+    const { orgId } = await requireModuleAction(POS_MODULE_KEY, "post");
+    const [accounts, qpayMethods, customers] = await Promise.all([
+      db.query.cashAccounts.findMany({
+        where: and(eq(cashAccounts.organizationId, orgId), eq(cashAccounts.isActive, true), eq(cashAccounts.currency, "MNT")),
+        columns: { id: true, name: true, accountType: true },
+        orderBy: [asc(cashAccounts.name)],
+      }),
+      db.query.posPaymentMethods.findMany({
+        where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.provider, QPAY_PROVIDER)),
+        columns: { cashAccountId: true },
+      }),
+      db.query.counterparties.findMany({
+        where: eq(counterparties.organizationId, orgId),
+        columns: { id: true, name: true, code: true },
+        orderBy: [asc(counterparties.name)],
+        limit: 2000,
+      }),
+    ]);
+    const clearing = new Set(qpayMethods.map((m) => m.cashAccountId).filter(Boolean));
+    return { accounts: accounts.filter((a) => !clearing.has(a.id)), customers };
+  } catch (caught) {
+    return actionError("getQpayRefundOptions", caught, "Буцаах сонголт уншигдсангүй");
   }
 }
 

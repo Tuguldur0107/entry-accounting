@@ -4,6 +4,7 @@ import { createHmac } from "node:crypto";
 
 import {
   acceptsPayment,
+  refundableAmount,
   isLatePayment,
   isPendingAttention,
   pickFinalizeShift,
@@ -150,4 +151,20 @@ test("isPendingAttention — QR огт үүсээгүй алдаатай оро�
   assert.equal(isPendingAttention({ ...base, status: "failed", qpayInvoiceId: "inv" }), true);
   for (const status of ["finalized", "cancelled", "expired"] as const)
     assert.equal(isPendingAttention({ ...base, status, qpayInvoiceId: "inv" }), false);
+});
+
+test("refundableAmount — зөвхөн QPay-д БОДИТ орсон, бүртгэгдээгүй мөнгө", () => {
+  const base = { saleId: null, amount: "4200", paidAmount: "4200", paymentId: "p" };
+  assert.equal(refundableAmount({ ...base, status: "paid" }), 4200);
+  assert.equal(refundableAmount({ ...base, status: "paid", saleId: "s1" }), null); // борлуулалт болсон
+  // Дүн зөрсөн — бодит орсон дүнгээр.
+  assert.equal(refundableAmount({ ...base, status: "failed", paidAmount: "5000" }), 5000);
+  // QR үүсээгүй failed — мөнгөгүй.
+  assert.equal(refundableAmount({ ...base, status: "failed", paidAmount: null, paymentId: null }), null);
+  for (const status of ["open", "finalized", "cancelled", "expired", "refunded"] as const)
+    assert.equal(refundableAmount({ ...base, status }), null, status);
+  assert.equal(canTransition("paid", "refunded"), true);
+  assert.equal(canTransition("failed", "refunded"), true);
+  assert.equal(canTransition("refunded", "paid"), false);
+  assert.equal(isTerminalStatus("refunded"), true);
 });

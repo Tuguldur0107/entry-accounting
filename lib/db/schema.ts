@@ -4368,6 +4368,8 @@ export const posQpayIntents = pgTable(
     /** Сүүлийн гар/автомат `payments/check` дуудлага — QPay-руу ≤ 1/10 сек. */
     lastCheckAt: timestamp("last_check_at"),
     lastError: text("last_error"),
+    /** Буцаалтаар шийдсэн (status refunded) — журнал / мөнгөн баримтын холбоос. */
+    resolution: jsonb("resolution").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

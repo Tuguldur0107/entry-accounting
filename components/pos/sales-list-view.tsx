@@ -23,6 +23,7 @@ import { cancelQpayIntent, finalizeQpayIntent, listPendingQpayIntents } from "@/
 import { QPAY_INTENT_STATUS_LABELS } from "@/lib/qpay/constants";
 import type { QpayIntentView } from "@/lib/qpay/types";
 import { feedback } from "@/lib/ui/feedback";
+import { QpayRefundDialog } from "@/components/pos/qpay-refund-dialog";
 
 type StatusFilter = "all" | "posted" | "partially_returned" | "returned" | "voided";
 type KindFilter = "all" | "sales" | "returns";
@@ -76,6 +77,7 @@ export function SalesListView({
   // QPay intent — төлөгдсөн ч борлуулалт бүртгэгдээгүй / нээлттэй / алдаатай (docs/pos/04 §3.3, D3).
   const [qpayPending, setQpayPending] = useState<QpayIntentView[]>([]);
   const [qpayBusy, setQpayBusy] = useState<string | null>(null);
+  const [refunding, setRefunding] = useState<QpayIntentView | null>(null);
   const loadQpayPending = useCallback(() => {
     listPendingQpayIntents().then((result) => {
       if (!result.error && result.intents) setQpayPending(result.intents);
@@ -337,7 +339,7 @@ export function SalesListView({
           <div className="mb-1 font-semibold text-[var(--ea-warning-fg)]">
             QPay хүлээгдэж буй · {qpayPending.length}
             <span className="ml-2 font-normal text-[var(--ea-text-3)]">
-              Төлөгдсөн ч борлуулалт бүртгэгдээгүй бол «Борлуулалт болгох» — сагс тухайн үеийнхээрээ бичигдэнэ
+              Мөнгө орсон ч бүртгэгдээгүй: сагсыг өгсөн бол «Борлуулалт болгох», өөр хэлбэрээр аль хэдийн зарсан (давхар төлбөр) эсвэл дүн зөрсөн бол «Буцаах»
             </span>
           </div>
           <ul className="space-y-1">
@@ -365,11 +367,27 @@ export function SalesListView({
                     Цуцлах
                   </Button>
                 )}
+                {intent.refundableAmount != null && (
+                  <Button size="xs" variant="outline" disabled={qpayBusy === intent.id} onClick={() => setRefunding(intent)}>
+                    Буцаах
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      <QpayRefundDialog
+        intent={refunding}
+        onOpenChange={(open) => {
+          if (!open) setRefunding(null);
+        }}
+        onDone={() => {
+          loadQpayPending();
+          onRangeChange(rangeFrom, rangeTo);
+        }}
+      />
 
       {sales.length === 0 ? (
         <EmptyState
