@@ -86,3 +86,30 @@ export function secondsLeft(expiresAt: Date | string, now: Date): number {
   const at = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
   return Math.max(0, Math.ceil((at.getTime() - now.getTime()) / 1000));
 }
+
+export interface FinalizeShiftOption {
+  id: string;
+  warehouseId: string;
+  cashAccountId: string;
+}
+
+/**
+ * Төлөгдсөн intent-ийг борлуулалт болгох ээлж. Сагсны ээлж нээлттэй бол ТЭР;
+ * хаагдсан бол (кассчин ээлжээ хаачихсан — 2026-09-26 Хос Хас) ИЖИЛ агуулахын
+ * (салбар = агуулах, мөнгө тэр салбарын QPay дансанд орсон) нээлттэй ээлж —
+ * эхлээд ижил кассынх. Өөр салбарын ээлж рүү ХЭЗЭЭ Ч шилжүүлэхгүй; олдохгүй бол
+ * null — дуудагч «тэр салбарт ээлж нээнэ үү» гэж ил хэлнэ.
+ */
+export function pickFinalizeShift(input: {
+  snapshotShiftId: string | null;
+  warehouseId: string | null;
+  cashAccountId: string | null;
+  openShifts: FinalizeShiftOption[];
+}): { shiftId: string; rebound: boolean } | null {
+  const same = input.openShifts.find((shift) => shift.id === input.snapshotShiftId);
+  if (same) return { shiftId: same.id, rebound: false };
+  if (!input.warehouseId) return null;
+  const branch = input.openShifts.filter((shift) => shift.warehouseId === input.warehouseId);
+  const pick = branch.find((shift) => shift.cashAccountId === input.cashAccountId) ?? branch[0];
+  return pick ? { shiftId: pick.id, rebound: true } : null;
+}
