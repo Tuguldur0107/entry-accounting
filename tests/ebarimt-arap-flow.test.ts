@@ -238,4 +238,38 @@ test("АР нэхэмжлэх → eBarimt B2B_INVOICE (PAY), ТТД-гүй бо�
   assert.equal(b2b.lastError, null);
   const posOnly = await loadEbarimtDocuments(orgId, { from: "2026-09-01", to: "2026-09-30" }, ["pos"]);
   assert.equal(posOnly.rows.length, 0);
+
+  // Дүн = ТЕГ-д очсон СҮҮЛИЙН receipt (засвар/inactiveId-ийн дараах — POS хэсэгчилсэн
+  // буцаалттай ижил дүрэм); хүлээгдэж буй шинэ илгээлт тоонд нөлөөлөхгүй.
+  const range = { from: "2026-09-01", to: "2026-09-30" };
+  const corrected = { type: "B2B_INVOICE", customerTin: "61200064714", totalAmount: 550_000, totalVAT: 50_000, totalCityTax: 0 };
+  await db.insert(posEbarimtSubmissions).values({
+    organizationId: orgId,
+    arapDocumentId: sent.id,
+    kind: "cancel",
+    status: "sent",
+    payload: { request: { ...corrected, inactiveId: sentAfter?.ebarimtId } },
+    sentAt: new Date(),
+    createdAt: new Date(Date.now() + 1_000),
+  });
+  await db.insert(posEbarimtSubmissions).values({
+    organizationId: orgId,
+    arapDocumentId: sent.id,
+    kind: "send",
+    status: "pending",
+    payload: { request: { ...corrected, totalAmount: 999, totalVAT: 99 } },
+    createdAt: new Date(Date.now() + 2_000),
+  });
+  const afterCorrection = (await loadEbarimtDocuments(orgId, range, ["arap"])).rows.find((row) => row.id === sent.id)!;
+  assert.equal(afterCorrection.total, 550_000);
+  assert.equal(afterCorrection.vat, 50_000);
+
+  // Илгээлт бэлтгэгдээгүй валютын нэхэмжлэх → нэхэмжлэхийн MNT дүн (баримтын валютаар БИШ).
+  await db
+    .update(arApDocuments)
+    .set({ ebarimtStatus: "failed", totalAmount: "1000", baseTotalAmount: "3450000" })
+    .where(eq(arApDocuments.id, off.id));
+  const fx = (await loadEbarimtDocuments(orgId, range, ["arap"])).rows.find((row) => row.id === off.id)!;
+  assert.equal(fx.total, 3_450_000);
+  assert.equal(fx.vat, 0);
 });

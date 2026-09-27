@@ -33,6 +33,13 @@ export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 /** Баримтын төрөл — PosAPI `type`. */
 export const EBARIMT_RECEIPT_TYPES = ["B2C_RECEIPT", "B2B_RECEIPT", "B2C_INVOICE", "B2B_INVOICE"] as const;
 export type EbarimtReceiptType = (typeof EBARIMT_RECEIPT_TYPES)[number];
+/** Баримтын төрлийн UI шошго — төлбөрийн баримт vs нэхэмжлэх, иргэн vs ААН. */
+export const EBARIMT_RECEIPT_TYPE_LABELS: Record<EbarimtReceiptType, string> = {
+  B2C_RECEIPT: "Төлбөрийн баримт · иргэн",
+  B2B_RECEIPT: "Төлбөрийн баримт · ААН",
+  B2C_INVOICE: "Нэхэмжлэх · иргэн",
+  B2B_INVOICE: "Нэхэмжлэх · ААН",
+};
 
 /** Дэд баримтын татварын төрөл — PosAPI `receipts[].taxType`. */
 export const EBARIMT_TAX_TYPES = ["VAT_ABLE", "VAT_FREE", "VAT_ZERO", "NOT_VAT"] as const;
