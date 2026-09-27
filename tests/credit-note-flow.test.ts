@@ -181,11 +181,15 @@ test("ENT-029: хэсэгчилсэн кредит нэхэмжлэл — GL, э
   assert.equal(Number(source.paidAmount), 3300);
   assert.equal(source.status, "partially_paid");
 
-  // GL: Dr 51900001 3,000 + Dr 31410000 300 / Cr 13110000 3,300
+  // GL (улаан сторно — нэхэмжлэхийн талд сөрөг): Кт 51900001 −3,000 + Кт 31410000 −300 / Дт 13110000 −3,300
   const gl = await voucherTotals(credit.voucherId!);
   assert.equal(gl.get("51900001"), 3000);
   assert.equal(gl.get("31410000"), 300);
   assert.equal(gl.get("13110000"), -3300);
+  const cnLines = await db.query.journalLines.findMany({ where: eq(journalLines.voucherId, credit.voucherId!) });
+  assert.ok(cnLines.every((line) => Number(line.debit) <= 0 && Number(line.credit) <= 0), "Дт/Кт сольсон эерэг мөр алга");
+  const arLine = cnLines.find((line) => line.accountNumber.split(".")[2] === "13110000" || line.accountNumber === "13110000");
+  assert.equal(Number(arLine?.debit), -3300);
 
   // Бараа буцаалтын НООРОГ return_in хөдөлгөөн (3 ш)
   const creditLines = await db.query.arApDocumentLines.findMany({
@@ -324,7 +328,7 @@ test("ENT-029: АП дебит нэхэмжлэх — эх данс, оролт�
   assert.equal(debit.documentType, "ap_debit_note");
   assert.match(debit.documentNo, /^DN-/);
   const gl = await voucherTotals(debit.voucherId!);
-  // Dr AP 1,760 / Cr клиринг 1,600 + Cr оролтын НӨАТ 160
+  // Улаан сторно: Кт AP −1,760 / Дт клиринг −1,600 + Дт оролтын НӨАТ −160
   assert.equal(gl.get("13620000"), -160);
   assert.equal(Math.round([...gl.values()].reduce((a, b) => a + b, 0) * 100) / 100, 0);
   const apMain = billDoc.controlAccountNumber.split(".").length === 10 ? billDoc.controlAccountNumber.split(".")[2] : billDoc.controlAccountNumber;

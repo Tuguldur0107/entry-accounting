@@ -6,8 +6,8 @@
 // хөдөлгөөн, дугаарын угтвар) ЭНД — `=== "ar_invoice" ? … : …` гэсэн хоёр
 // салаат шалгалт шинэ төрлийг АП руу чимээгүй унагадаг байсан.
 //
-// Кредит/дебит баримтын дүн ЭЕРЭГ хадгалагдана; тэмдэг нь GL-ийн тал
-// (controlSide) ба дэвтрийн үлдэгдлийн тэмдгээр (ledgerSign) илэрхийлэгдэнэ.
+// Кредит/дебит баримтын дүн ЭЕРЭГ хадгалагдана; журнал нь улаан сторно
+// (documentPosting — эх нэхэмжлэхийн талд сөрөг), дэвтэр/UI-ийн тэмдэг ledgerSign.
 
 export const ARAP_DOCUMENT_TYPES = [
   "ar_invoice",
@@ -48,6 +48,20 @@ export function creditDocumentTypeFor(sourceType: string): ArApDocumentType | nu
  */
 export function controlSide(type: string): "debit" | "credit" {
   return type === "ar_invoice" || type === "ap_debit_note" ? "debit" : "credit";
+}
+
+/**
+ * Баримтын ЖУРНАЛ — улаан сторно (2026-09-27, lib/gl/storno.ts): буцаалтын
+ * баримт (кредит нэхэмжлэл / дебит нэхэмжлэх) Дт/Кт СОЛИХГҮЙ — ЭХ нэхэмжлэхийн
+ * талд, дүн СӨРӨГ. Жишээ: кредит нэхэмжлэл Дт Авлага −X / Кт 51900001 −X.
+ * Хяналтын дансны үлдэгдэлд нөлөө нь controlSide-тай ижил (Дт −X ≡ Кт X).
+ */
+export function documentPosting(type: string): { controlDebit: boolean; sign: 1 | -1 } {
+  if (isCreditDocument(type)) {
+    const base = arapLedger(type) === "ar" ? "ar_invoice" : "ap_bill";
+    return { controlDebit: controlSide(base) === "debit", sign: -1 };
+  }
+  return { controlDebit: controlSide(type) === "debit", sign: 1 };
 }
 
 /**

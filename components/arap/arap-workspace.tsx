@@ -63,7 +63,7 @@ import { fmtMnt } from "@/lib/reports/balances";
 import { openArapDocPanel, openCashNewPanel } from "@/lib/store/panel-store";
 import { currentDocumentDate } from "@/lib/periods/document-date";
 import { arapBalanceSummary, arapKpis } from "@/lib/arap/kpis";
-import { arapLedger, controlSide, documentTypeLabel } from "@/lib/arap/document-kind";
+import { arapLedger, controlSide, documentTypeLabel, ledgerSign } from "@/lib/arap/document-kind";
 import { ArapBalanceHero } from "@/components/arap/arap-balance-hero";
 import { MobileCardList, useIsMobileViewport } from "@/components/datagrid/mobile-card-list";
 import { col } from "@/lib/grid/columnTypes";
@@ -401,6 +401,8 @@ export function ArApWorkspace({
       {
         headerName: "Дүн",
         field: "totalAmount",
+        // Кредит нэхэмжлэл / дебит нэхэмжлэх ХАСАХ (улаан сторно, ledgerSign).
+        valueGetter: (params) => ledgerSign(params.data?.documentType ?? "") * Number(params.data?.totalAmount ?? 0),
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
@@ -409,6 +411,7 @@ export function ArApWorkspace({
       {
         headerName: "Үлдэгдэл",
         field: "balance",
+        valueGetter: (params) => ledgerSign(params.data?.documentType ?? "") * Number(params.data?.balance ?? 0),
         width: 140,
         cellClass: "ag-right-aligned-cell font-mono font-semibold",
         headerClass: "ag-right-aligned-header",
