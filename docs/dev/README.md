@@ -29,6 +29,7 @@
 | [fork-custom.md](fork-custom.md) | §9c | Fork, `custom/` өргөтгөл, hook, REST API, лиценз |
 | [notifications.md](notifications.md) | §9d | Мэдэгдлийн систем, суваг, scheduler |
 | [knowledge.md](knowledge.md) | §9e | Мэдлэгийн сан, `knowledge-sync`, skills багц |
+| [public-chat.md](public-chat.md) | §9f | Landing-ийн чат: нийтийн өрөө, хувийн яриа, Telegram, модерац |
 | [platform.md](platform.md) | Гол дүрэм | Багц/billing, үнэ, QPay-ээр төлөх, funnel, дэмжлэгийн хандалт, нууц үг сэргээх |
 | [ui.md](ui.md) | UI стандарт | Токен, панель, төлөв, тайлангийн стандарт, AG Grid, товчлол, Excel, surface inventory |
 | [db-schema.md](db-schema.md) | DB бүтэц | Хүснэгтийн бүлэг, баганын тайлбар |

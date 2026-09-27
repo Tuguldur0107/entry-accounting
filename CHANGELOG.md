@@ -19,6 +19,17 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   Production-ийг Railway service `knowledge-sync` (entry-knowledge repo, token-гүй,
   push бүрд) бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env тавихгүй.
 
+### Added
+
+- **Landing-ийн чат (entry.mn) — нийтийн өрөө + хувийн яриа** (`docs/dev/public-chat.md`,
+  CLAUDE.md §9f). Бүртгэлгүй зочин Turnstile давж нийтийн өрөөнд эсвэл Entry багтай
+  1:1 бичнэ; мессеж багийн Telegram групп руу relay болж, Reply-ээр хариулна
+  (`/room` — өрөөнд, [Нуух]/[Зочныг хаах] — модерац). Нийтийн өрөөнд холбоос хориотой,
+  утас/и-мэйл/РД/данс автоматаар нуугдана. Entry Console `GET/POST /api/platform/public-chat`.
+  Зөвхөн saas; AI автоматаар хариулахгүй. Шинэ хүснэгт `public_chat_visitors`,
+  `public_chat_threads`, `public_chat_messages`; тест `public-chat` (ЦЭВЭР) ба
+  `public-chat-flow` (DB).
+
 ### Changed
 
 - **Касс: харилцагч зөвхөн зээл / урьдчилгаа / кредитэд.** Кассын дэлгэцийн

@@ -26,6 +26,7 @@
 | Fork нэвтрүүлэлт: version + upstream sync | ✅ | — |
 | POS (борлуулалтын цэг) — кассын дэлгэц, борлуулах үнэ, борлуулалт→АР→касс→бараа→өртөг, хөнгөлөлт, ээлж, тайлан, **eBarimt 3.0 автомат баримт**, **QPay Quick QR (нэг товчны холболт)** | ✅ | QPay пилот, камер barcode, B2B нэхэмжлэх |
 | Мэдэгдлийн систем (in-app хонх, и-мэйл, Telegram, custom суваг, тохиргоо, AI tools) | ✅ фаз 0–2 | SSE realtime, web push (фаз 3) |
+| Landing-ийн чат (entry.mn) — нийтийн өрөө + зочин ↔ Entry баг хувийн яриа, Telegram-аар хариулах, модерац (§9f) | ✅ backend (widget `entry-landing`-д) | SSE realtime |
 | Мэдлэгийн сан — IFRS/татвар/цалин/урсгал хэрэглэгчийн AI + MCP-д; SaaS багц бүрд үнэгүй, систем ашиглахгүй бол «AI нягтлан» (skills) захиалга | ✅ фаз 1–2 (агуулга хувийн `entry-knowledge` repo-д) | dedicated харилцагчид лицензээр sync |
 | Төрийн системийн холболт — eTax (Цахим татварын систем, ITC), e-Balance (Цахим санхүүгийн тайлан, Сангийн яам) | 📋 бэлтгэл (`docs/integrations/`); ✅ `lib/itc/` scaffold (Keycloak нэвтрэлт, TPI parser, ДДТД тулгалт — ЦЭВЭР, тесттэй); ✅ e-Balance маягтын тайлан + Excel (`/gl/reports?report=ebalance`, `lib/reports/ebalance.ts` ЦЭВЭР, тесттэй, AI `get_ebalance_statements`) | НӨАТ тайлан илгээх, ТЕГ ↔ Entry тулгалт (TPI), e-Balance тодруулга / импорт спек |
 
@@ -504,6 +505,20 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 - Хандалт ЗӨВХӨН багцын `knowledge` боломжоор; `skills` багцад нягтлан бодох систем
   хаалттай — шинэ tool-ыг нээх эсэхийг ЗӨВХӨН `ACCOUNTING_FREE_TOOLS`-оор шийднэ
 - Хэсгээр л (бүгдийг буцаах зам НЭМЭХГҮЙ), `surfaces: ["mcp"]`, квот DB-ээс
+
+### 9f. Landing-ийн чат (entry.mn) — нийтийн өрөө + хувийн яриа — ХЭРЭГЖСЭН
+
+Дэлгэрэнгүй: `docs/dev/public-chat.md`. Код: `lib/public-chat/`; widget `entry-landing` repo.
+
+- Бүртгэлгүй зочин бичнэ; зөвхөн saas (dedicated-д 404); CORS зөвхөн
+  `PUBLIC_CHAT_ALLOWED_ORIGINS`; Turnstile + IP rate limit; токен/IP зөвхөн sha256
+- **AI автоматаар ХАРИУЛАХГҮЙ** — хариуг Entry баг (Telegram Reply / Console);
+  багийн мессеж нийтэд ҮРГЭЛЖ «Entry баг», ажилтны нэр зочинд ОЧИХГҮЙ
+- Нийтийн өрөөнд холбоос ХОРИОТОЙ, хувийн мэдээлэл АВТОМАТААР нуугдана
+  (`maskPersonalData`, тесттэй); хувийн ярианд хөндөхгүй
+- Telegram relay commit-ийн ДАРАА, шидэхгүй; чатын bot мэдэгдлийн bot-оос ТУСДАА
+  (тэр нь `getUpdates` — webhook тавибал эвдэрнэ)
+- Telegram ба Console НЭГ store функц — тусдаа логик ХОРИОТОЙ
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 
