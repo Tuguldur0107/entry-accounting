@@ -94,6 +94,7 @@ export const MODULES: Module[] = [
       { label: "Нэхэмжлэл", href: "/receivables/documents", icon: "document" },
       { label: "Тайлан", href: "/receivables/reports", icon: "reportDetailed" },
       { label: "ECL нөөц", href: "/receivables/ecl", icon: "shield" },
+      { label: "eBarimt", href: "/receivables/ebarimt", icon: "reconciliation" },
       { label: "Сануулга", href: "/receivables/reminders", icon: "bell" },
       // Харилцагч бол лавлах өгөгдөл — тохиргооны байрлалд (сүүлд) байна.
       {
@@ -112,6 +113,7 @@ export const MODULES: Module[] = [
       { label: "Хяналтын самбар", href: "/payables", icon: "dashboard" },
       { label: "Нэхэмжлэх", href: "/payables/documents", icon: "document" },
       { label: "Тайлан", href: "/payables/reports", icon: "reportDetailed" },
+      { label: "eBarimt", href: "/payables/ebarimt", icon: "reconciliation" },
       {
         label: "Харилцагчид",
         href: "/payables/counterparties",

@@ -128,7 +128,10 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   Эрх: `tax:read` + эх бүр өөрийн модулийн уншилтаар (`pos` / `ar`). Огноо = топбарын
   период. Цэвэр `lib/ebarimt/list-types.ts` (тест `tests/ebarimt-list.test.ts`), DB
   `list-data.ts`. Худалдан авалтын баримт (ITC TPI) Монголын сүлжээний прокси бэлэн
-  болмогц энд нэмэгдэнэ. АР жагсаалтад мөн «eBarimt» багана (илгээсэн байгууллагад л)
+  болмогц нэмэгдэнэ. Ижил жагсаалт Авлага → «eBarimt» (`/receivables/ebarimt`, `ar:read`);
+  Өглөг → «eBarimt» (`/payables/ebarimt`) нь худалдан авалтын баримтын байр — ITC холболт
+  хүртэл өгөгдөл ЗОХИОХГҮЙ, хүлээгдэж буйг ил харуулна. Хуудас бүр `lib/ebarimt/list-page.ts`
+  НЭГ ачаалагчтай. АР жагсаалтад мөн «eBarimt» багана (илгээсэн байгууллагад л)
 - **Борлуулалт ХЭЗЭЭ Ч илгээлтээс болж зогсохгүй** — enqueue нь commit-ийн
   ДАРАА, async; амжилтгүй бол backoff (15с→1мин→5мин→30мин→2ц, max 20),
   3 дараалсан алдаанд `ebarimt_failed` аудит → `pos.ebarimt_failed` мэдэгдэл
