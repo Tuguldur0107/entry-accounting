@@ -53,7 +53,9 @@ import {
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { lookupCounterpartyTaxpayer } from "@/lib/actions/ebarimt";
 import { lookupTinPreferBrowser } from "@/lib/ebarimt/browser-lookup";
-import { MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
+import { EBARIMT_STATUS_LABELS, MERCHANT_TIN_RE, type EbarimtStatus } from "@/lib/ebarimt/constants";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EBARIMT_STATUS_TONES } from "@/lib/status";
 import { EntityKindsDialog } from "@/components/arap/entity-kinds-dialog";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import { downloadWorkbook } from "@/lib/excel/core";
@@ -380,6 +382,9 @@ export function ArApWorkspace({
     [activeSegIds]
   );
 
+  // eBarimt багана — АР нэхэмжлэх eBarimt-д илгээгдсэн байгууллагад л (хоосон багана харуулахгүй).
+  const hasEbarimt = useMemo(() => filteredDocuments.some((doc) => doc.ebarimtStatus), [filteredDocuments]);
+
   const documentColumns = useMemo<ColDef<ArApDocumentView>[]>(
     () => [
       { headerName: "Огноо", field: "date", width: 112, cellClass: "font-mono text-xs" },
@@ -436,6 +441,25 @@ export function ArApWorkspace({
               ? "text-[var(--ea-success-fg)]"
               : "text-[var(--ea-text-3)]"
           ),
+      },
+      {
+        headerName: "eBarimt",
+        field: "ebarimtStatus",
+        width: 125,
+        hide: !hasEbarimt,
+        valueGetter: (params) =>
+          params.data?.ebarimtStatus
+            ? EBARIMT_STATUS_LABELS[params.data.ebarimtStatus as EbarimtStatus] ?? params.data.ebarimtStatus
+            : "",
+        tooltipValueGetter: (params) => (params.data?.ebarimtId ? `ДДТД ${params.data.ebarimtId}` : undefined),
+        cellRenderer: ({ data }: { data?: ArApDocumentView }) =>
+          data?.ebarimtStatus ? (
+            <span className="flex h-full items-center">
+              <StatusBadge tone={EBARIMT_STATUS_TONES[data.ebarimtStatus] ?? "muted"} size="sm">
+                {EBARIMT_STATUS_LABELS[data.ebarimtStatus as EbarimtStatus] ?? data.ebarimtStatus}
+              </StatusBadge>
+            </span>
+          ) : null,
       },
       {
         headerName: "Үйлдэл",
@@ -496,7 +520,7 @@ export function ArApWorkspace({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [hasEbarimt]
   );
 
   // Dialog нээгдэх агшинд snapshot авна — бөглөж эхэлснийг үүнтэй
