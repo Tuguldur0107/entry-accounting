@@ -13,6 +13,7 @@ import {
   type AttentionInput,
 } from "../lib/notifications/attention";
 import { computeTaxDeadlines } from "../lib/tax/calendar";
+import { isNotificationType } from "../lib/notifications/catalog";
 
 function input(today: string, overrides: Partial<AttentionInput> = {}): AttentionInput {
   return {
@@ -291,6 +292,21 @@ test("QPay — төлөгдсөн ч бүртгэгдээгүй intent → dange
   assert.equal(some[0].notify?.dedupeKey, "qpay:unfinalized:2026-09-20");
   assert.match(some[0].detail ?? "", /35 мин/);
   assert.deepEqual(some[0].surfaces, ["dashboard", "daily"]);
+});
+
+test("QPay — дүн зөрсөн төлбөр → тусдаа danger дохио; QR үүсээгүй алдаа тоологдохгүй", () => {
+  const none = attentionSignals(
+    input("2026-09-20", { qpay: { paidUnfinalized: 0, oldestMinutes: null, amountMismatch: 0 } })
+  ).filter((s) => s.key.startsWith("qpay"));
+  assert.deepEqual(none, []);
+  const some = attentionSignals(
+    input("2026-09-20", { qpay: { paidUnfinalized: 0, oldestMinutes: null, amountMismatch: 1 } })
+  ).filter((s) => s.key.startsWith("qpay"));
+  assert.equal(some.length, 1);
+  assert.equal(some[0].key, "qpay-amount-mismatch");
+  assert.equal(some[0].notify?.type, "pos.qpay_amount_mismatch");
+  assert.equal(some[0].notify?.dedupeKey, "qpay:mismatch:2026-09-20");
+  assert.ok(isNotificationType("pos.qpay_amount_mismatch"));
 });
 
 test("SIM2-045: бүртгүүлэхээс өмнөх / НӨАТ, цалингийн бичилтгүй сард татварын ‼ мэдэгдэл явахгүй", () => {

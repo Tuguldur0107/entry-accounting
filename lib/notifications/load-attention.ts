@@ -28,7 +28,7 @@ import {
   vatSettings,
   warehouses,
 } from "@/lib/db/schema";
-import { countPaidUnfinalized } from "@/lib/qpay/store";
+import { countAmountMismatch, countPaidUnfinalized } from "@/lib/qpay/store";
 import { fetchPosApiHealth } from "@/lib/ebarimt/client";
 import { hoursSince } from "@/lib/ebarimt/posapi-info";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
@@ -186,8 +186,11 @@ async function loadQpay(orgId: string): Promise<AttentionInput["qpay"]> {
     columns: { qpayEnabled: true },
   });
   if (!settings?.qpayEnabled) return undefined;
-  const { count, oldestMinutes } = await countPaidUnfinalized(orgId);
-  return { paidUnfinalized: count, oldestMinutes };
+  const [{ count, oldestMinutes }, amountMismatch] = await Promise.all([
+    countPaidUnfinalized(orgId),
+    countAmountMismatch(orgId),
+  ]);
+  return { paidUnfinalized: count, oldestMinutes, amountMismatch };
 }
 
 /**

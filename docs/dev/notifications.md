@@ -91,6 +91,7 @@ tests/notification-{rules,attention,recipients,email}.test.ts
   үл хамаарах №2: аюулгүй байдлын хяналт тул AI/MCP-ээр өөрчлөгдсөн үед
   token-ий эзэн өөрөө тэр даруй харах ёстой),
   `pos.qpay_paid_unfinalized` (QPay төлөгдсөн ч борлуулалт болоогүй ≥10 мин, pos write),
+  `pos.qpay_amount_mismatch` (QPay мөнгө орсон ч дүн зөрсөн — `failed` + payment, pos write),
   `bank.unmatched` (импортоос 3 хоног), `fx.reval_due` (сарын сүүлийн 3 хоног),
   `fx.rate_missing` (ажлын өдөр, МБ ханш алга), `stock.negative` (долоо хоног тутам)
 - **Нэмэлт суваг:** tick бүрд `deliverPendingChannels` — суваг × мэдэгдэл нэг л удаа;

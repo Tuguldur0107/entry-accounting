@@ -351,3 +351,22 @@ export async function countPaidUnfinalized(orgId: string, olderThanMinutes = QPA
   };
 }
 
+
+/**
+ * Мөнгө орсон ч дүн зөрсөн intent (`failed` + payment мэдээлэлтэй) — борлуулалт
+ * автоматаар үүсэхгүй тул attention `pos.qpay_amount_mismatch`-аар мэдэгдэнэ.
+ * QR үүсгэж чадаагүй `failed` (payment-гүй) тоологдохгүй — мөнгө ороогүй.
+ */
+export async function countAmountMismatch(orgId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(posQpayIntents)
+    .where(
+      and(
+        eq(posQpayIntents.organizationId, orgId),
+        eq(posQpayIntents.status, "failed"),
+        sql`(${posQpayIntents.paymentId} is not null or ${posQpayIntents.paidAmount} is not null)`
+      )
+    );
+  return Number(row?.n ?? 0);
+}

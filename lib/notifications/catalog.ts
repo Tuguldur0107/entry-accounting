@@ -231,6 +231,15 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // QPay: мөнгө орсон ч дүн зөрсөн (webhook-ийн дүн ≠ QR) — intent `failed`,
+  // борлуулалт автоматаар үүсэхгүй; мөнгө ХЭЗЭЭ Ч чимээгүй үлдэхгүй.
+  "pos.qpay_amount_mismatch": {
+    category: "documents",
+    severity: "danger",
+    label: "QPay төлбөрийн дүн зөрсөн",
+    email: "instant",
+    inApp: true,
+  },
   "license.expiring": {
     category: "security",
     severity: "warning",
