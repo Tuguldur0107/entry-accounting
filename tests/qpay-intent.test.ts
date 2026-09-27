@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 import {
+  isPendingAttention,
   pickFinalizeShift,
   amountMatches,
   canTransition,
@@ -119,4 +120,18 @@ test("pickFinalizeShift — хаагдсан ээлжийн төлбөр ижи�
   assert.equal(pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: "wh-c", cashAccountId: null, openShifts }), null);
   assert.equal(pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: null, cashAccountId: null, openShifts }), null);
   assert.equal(pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: "wh-a", cashAccountId: null, openShifts: [] }), null);
+});
+
+test("isPendingAttention — QR огт үүсээгүй алдаатай оролдлого баннерт харагдахгүй", () => {
+  const base = { qpayInvoiceId: null, paymentId: null, paidAmount: null };
+  assert.equal(isPendingAttention({ ...base, status: "open" }), true);
+  assert.equal(isPendingAttention({ ...base, status: "paid" }), true);
+  // API key буруу — dashboard-д нэхэмжлэх үүсээгүй → мөнгө орох боломжгүй.
+  assert.equal(isPendingAttention({ ...base, status: "failed" }), false);
+  // Дүн зөрсөн webhook — мөнгө орсон, заавал харагдана.
+  assert.equal(isPendingAttention({ ...base, status: "failed", qpayInvoiceId: "inv", paymentId: "p1", paidAmount: "5000" }), true);
+  // QR үүссэн (харилцагч төлсөн байж болзошгүй) — харагдана.
+  assert.equal(isPendingAttention({ ...base, status: "failed", qpayInvoiceId: "inv" }), true);
+  for (const status of ["finalized", "cancelled", "expired"] as const)
+    assert.equal(isPendingAttention({ ...base, status, qpayInvoiceId: "inv" }), false);
 });

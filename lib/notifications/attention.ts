@@ -102,6 +102,8 @@ export interface AttentionInput {
     paidUnfinalized: number;
     /** Хамгийн эртийнх төлөгдсөнөөс хойш хэдэн минут (null = байхгүй). */
     oldestMinutes: number | null;
+    /** Мөнгө орсон ч дүн зөрсөн (`failed` + payment) — борлуулалт автоматаар үүсэхгүй. */
+    amountMismatch?: number;
   };
 }
 
@@ -745,6 +747,25 @@ export function attentionSignals(input: AttentionInput): AttentionSignal[] {
         type: "pos.qpay_paid_unfinalized",
         dedupeKey: `qpay:unfinalized:${input.today}`,
         audience: posAudience,
+        severity: "danger",
+      },
+    });
+  }
+
+  if (qpay && (qpay.amountMismatch ?? 0) > 0) {
+    signals.push({
+      key: "qpay-amount-mismatch",
+      tone: "danger",
+      title: `QPay төлбөр ${qpay.amountMismatch} дүн зөрсөн`,
+      detail:
+        "Харилцагч QR-ын дүнгээс өөр дүн төлсөн тул борлуулалт автоматаар бүртгэгдээгүй. QPay-ийн гүйлгээг шалгаад борлуулалтыг бэлэн/бусад хэлбэрээр бүртгэх эсвэл илүү/дутууг харилцагчтай тооцно.",
+      href: "/inventory/sales",
+      action: "QPay хүлээгдэж буй",
+      surfaces: ["dashboard", "daily"],
+      notify: {
+        type: "pos.qpay_amount_mismatch",
+        dedupeKey: `qpay:mismatch:${input.today}`,
+        audience: { kind: "module", moduleKeys: ["pos"], minLevel: "write" },
         severity: "danger",
       },
     });

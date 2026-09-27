@@ -10,7 +10,7 @@ import { cashAccounts, posPaymentMethods, posQpayIntents, posSales, users, type 
 import { ensureAccountsExist, seedCreatorUserId } from "@/lib/costing/master-data";
 import { QPAY_ERRORS, QPAY_PAID_UNFINALIZED_MINUTES, QPAY_WEBHOOK_PATH, type QpayIntentStatus } from "./constants";
 import { QpayError, type QpayClientConfig } from "./client";
-import { amountMatches, canTransition, clampInvoiceTtl } from "./intent";
+import { amountMatches, canTransition, clampInvoiceTtl, isPendingAttention } from "./intent";
 import { qpayReadiness, type QpayReadiness } from "./readiness";
 import { planQpaySeed } from "./seed";
 import { QPAY_PROVIDER } from "./constants";
@@ -282,11 +282,12 @@ export async function setIntentStatus(
 /** Төлөгдсөн ч бүртгэгдээгүй + нээлттэй intent-үүд (жагсаалтын «QPay хүлээгдэж буй»). */
 export async function listPendingIntents(orgId: string): Promise<QpayIntentView[]> {
   await expireStaleIntents(orgId);
-  const rows = await db.query.posQpayIntents.findMany({
+  const allRows = await db.query.posQpayIntents.findMany({
     where: and(eq(posQpayIntents.organizationId, orgId), sql`${posQpayIntents.status} in ('open', 'paid', 'failed')`),
     orderBy: [desc(posQpayIntents.createdAt)],
     limit: 100,
   });
+  const rows = allRows.filter((row) => isPendingAttention({ ...row, status: row.status as QpayIntentStatus }));
   const cashierIds = [...new Set(rows.map((row) => row.cashierUserId).filter((id): id is string => !!id))];
   const cashiers = cashierIds.length
     ? await db.query.users.findMany({ where: sql`${users.id} in ${cashierIds}`, columns: { id: true, name: true } })
@@ -350,3 +351,22 @@ export async function countPaidUnfinalized(orgId: string, olderThanMinutes = QPA
   };
 }
 
+
+/**
+ * Мөнгө орсон ч дүн зөрсөн intent (`failed` + payment мэдээлэлтэй) — борлуулалт
+ * автоматаар үүсэхгүй тул attention `pos.qpay_amount_mismatch`-аар мэдэгдэнэ.
+ * QR үүсгэж чадаагүй `failed` (payment-гүй) тоологдохгүй — мөнгө ороогүй.
+ */
+export async function countAmountMismatch(orgId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(posQpayIntents)
+    .where(
+      and(
+        eq(posQpayIntents.organizationId, orgId),
+        eq(posQpayIntents.status, "failed"),
+        sql`(${posQpayIntents.paymentId} is not null or ${posQpayIntents.paidAmount} is not null)`
+      )
+    );
+  return Number(row?.n ?? 0);
+}

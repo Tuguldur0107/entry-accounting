@@ -113,3 +113,20 @@ export function pickFinalizeShift(input: {
   const pick = branch.find((shift) => shift.cashAccountId === input.cashAccountId) ?? branch[0];
   return pick ? { shiftId: pick.id, rebound: true } : null;
 }
+
+/**
+ * «QPay хүлээгдэж буй» баннерт харагдах эсэх. `open` / `paid` үргэлж. `failed`
+ * нь мөнгө орсон байж болзошгүй үед л (дүн зөрсөн webhook, эсвэл QR үүссэн) —
+ * dashboard-д нэхэмжлэх ОГТ үүсээгүй (жишээ нь API key буруу) оролдлогод
+ * харилцагч төлөх QR хараагүй тул мөнгө орох боломжгүй; баннерыг бөглөхгүй.
+ */
+export function isPendingAttention(intent: {
+  status: QpayIntentStatus;
+  qpayInvoiceId: string | null;
+  paymentId: string | null;
+  paidAmount: string | number | null;
+}): boolean {
+  if (intent.status === "open" || intent.status === "paid") return true;
+  if (intent.status !== "failed") return false;
+  return !!intent.qpayInvoiceId || !!intent.paymentId || intent.paidAmount != null;
+}
