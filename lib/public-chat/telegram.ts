@@ -14,6 +14,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 
+import { PUBLIC_CHAT_FAQ, faqCallbackData } from "./faq";
 import { escapeHtml, relayText, telegramRef, type PublicChatScope, type TelegramChatRole } from "./rules";
 import { setTelegramMessageId } from "./store";
 
@@ -179,6 +180,47 @@ export async function updateModerationButtons(
     });
   } catch (error) {
     console.error("[public-chat] editMessageReplyMarkup:", error);
+  }
+}
+
+/**
+ * `/faq` — бэлэн хариултын товчнууд. `targetMessageId` (relay-ийн DB мөр) байвал
+ * тэр зочин/мессежид, null бол нийтийн өрөөнд очно.
+ */
+export async function sendFaqMenu(
+  config: PublicChatTelegramConfig,
+  chat: TelegramChatRole,
+  targetMessageId: string | null,
+  replyTo: number
+): Promise<void> {
+  const buttons = PUBLIC_CHAT_FAQ.map((faq) => ({ text: faq.title, callback_data: faqCallbackData(faq.key, targetMessageId) }));
+  const rows: InlineButton[][] = [];
+  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  await call(config, "sendMessage", {
+    chat_id: chatIdOf(config, chat),
+    text: targetMessageId ? "Бэлэн хариулт — сонговол энэ зочинд очно:" : "Бэлэн хариулт — сонговол нийтийн өрөөнд очно:",
+    reply_markup: { inline_keyboard: rows },
+    reply_parameters: { message_id: replyTo, allow_sending_without_reply: true },
+  });
+}
+
+/** Бэлэн хариулт илгээгдсэний дараа товчтой мессежийг илгээсэн текстээр солино (дахин дарахгүй). */
+export async function markFaqSent(
+  config: PublicChatTelegramConfig,
+  chat: TelegramChatRole,
+  buttonMessageId: number,
+  html: string
+): Promise<void> {
+  try {
+    await call(config, "editMessageText", {
+      chat_id: chatIdOf(config, chat),
+      message_id: buttonMessageId,
+      text: html,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  } catch (error) {
+    console.error("[public-chat] editMessageText:", error);
   }
 }
 

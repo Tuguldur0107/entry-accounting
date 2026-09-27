@@ -5,9 +5,9 @@
 // Зөвхөн PUBLIC_CHAT_TELEGRAM_CHAT_ID группаас (ба тохируулсан бол
 // PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID-аас): relay мессеж дээр Reply →
 // тухайн зочин/өрөөнд «Entry баг» нэрээр хариу; `/room <текст>` → нийтийн
-// өрөөнд; [Нуух]/[Сэргээх]/[Зочныг хаах] товч → модерац. Групп НЭЭЛТТЭЙ
-// (хувийн chat тусдаа) үед группаас ЗӨВХӨН админ — бусдын Reply бол энгийн
-// яриа. Бусад update-ийг үл тоомсорлож 200 буцаана (Telegram дахин илгээхгүй).
+// өрөөнд; `/faq` → бэлэн хариултын товч; [Нуух]/[Сэргээх]/[Зочныг хаах] товч →
+// модерац. Групп НЭЭЛТТЭЙ (хувийн chat тусдаа) үед группаас ЗӨВХӨН админ —
+// админы Reply-гүй энгийн мессеж нийтийн өрөөнд очно, бусдынх бол энгийн яриа. Бусад update-ийг үл тоомсорлож 200 буцаана (Telegram дахин илгээхгүй).
 import { NextResponse } from "next/server";
 
 import { chatGate } from "@/lib/public-chat/http";
@@ -19,18 +19,22 @@ import {
   telegramRef,
   type TelegramUpdate,
 } from "@/lib/public-chat/rules";
+import { findFaq } from "@/lib/public-chat/faq";
 import {
   findMessage,
   findMessageByTelegramId,
   postTeamMessage,
   postTeamReply,
+  postTeamReplyTo,
   setMessageHidden,
   setVisitorBlocked,
 } from "@/lib/public-chat/store";
 import {
   answerCallback,
   isTeamChatAdmin,
+  markFaqSent,
   publicChatTelegramConfig,
+  sendFaqMenu,
   sendTeamText,
   teamGroupIsPublic,
   updateModerationButtons,
@@ -56,13 +60,17 @@ export async function POST(request: Request) {
   } catch {
     return OK();
   }
-  const command = parseTeamUpdate(update, config.chatId, config.privateChatId);
+  const command = parseTeamUpdate(update, config.chatId, {
+    privateChatId: config.privateChatId,
+    plainToRoom: teamGroupIsPublic(config),
+  });
   if (command.kind === "ignore") return OK();
   const chat = command.chat;
 
   // Нээлттэй группт хэн ч «Entry баг» нэрээр бичиж, зочныг хааж чадахгүй.
   if (chat === "team" && teamGroupIsPublic(config) && !(await isTeamChatAdmin(config, command.fromId))) {
-    if (command.kind === "moderate") await answerCallback(config, command.callbackId, "Зөвхөн группын админ");
+    if (command.kind === "moderate" || command.kind === "faq_send")
+      await answerCallback(config, command.callbackId, "Зөвхөн группын админ");
     return OK();
   }
 
@@ -90,6 +98,45 @@ export async function POST(request: Request) {
         const ownRef = telegramRef(chat, command.telegramMessageId);
         if (await findMessageByTelegramId(ownRef)) return OK();
         await postTeamMessage({ scope: "room" }, command.body, command.staff, ownRef);
+        return OK();
+      }
+      case "faq_menu": {
+        let target: string | null = null;
+        if (command.replyToTelegramId != null) {
+          const original = await findMessageByTelegramId(telegramRef(chat, command.replyToTelegramId));
+          if (!original) {
+            await sendTeamText(config, "Энэ мессеж зочны чатын relay биш — зочны мессеж дээр Reply хийж /faq бичнэ үү.", command.telegramMessageId, chat);
+            return OK();
+          }
+          target = original.id;
+        }
+        await sendFaqMenu(config, chat, target, command.telegramMessageId);
+        return OK();
+      }
+      case "faq_send": {
+        const buttonRef = telegramRef(chat, command.buttonMessageId);
+        // Нэг товчийг хоёр удаа дарсан / webhook дахин ирсэн — нэг л удаа.
+        if (await findMessageByTelegramId(buttonRef)) {
+          await answerCallback(config, command.callbackId, "Аль хэдийн илгээсэн");
+          return OK();
+        }
+        const faq = findFaq(command.key);
+        const original = command.targetMessageId ? await findMessage(command.targetMessageId) : null;
+        if (!faq || (command.targetMessageId && !original)) {
+          await answerCallback(config, command.callbackId, "Олдсонгүй");
+          return OK();
+        }
+        const row = original
+          ? await postTeamReplyTo(original, faq.body, command.staff, buttonRef)
+          : await postTeamMessage({ scope: "room" }, faq.body, command.staff, buttonRef);
+        const where = row.scope === "room" ? "нийтийн өрөө" : `хувийн <code>${(row.threadId ?? "").slice(0, 8)}</code>`;
+        await markFaqSent(
+          config,
+          chat,
+          command.buttonMessageId,
+          `✅ <b>Entry баг</b> → ${where} · ${escapeHtml(faq.title)} (${escapeHtml(command.staff)})\n\n${escapeHtml(faq.body)}`
+        );
+        await answerCallback(config, command.callbackId, "Илгээлээ");
         return OK();
       }
       case "moderate": {
