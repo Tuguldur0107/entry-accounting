@@ -823,6 +823,14 @@ async function main() {
     ["counterparties", "tin", "text"],
     // Нүүрний анхны туршилтын картыг хаасан мөч (lib/onboarding/first-run.ts)
     ["users", "welcome_dismissed_at", "timestamp"],
+    // eBarimt: ТЕГ-д БҮРТГЭЛТЭЙ дүн + буцаалтын засварын төлөв (lib/ebarimt/queue.ts markSent)
+    ["pos_sales", "ebarimt_total", "numeric(18, 2)"],
+    ["pos_sales", "ebarimt_vat", "numeric(18, 2)"],
+    ["pos_sales", "ebarimt_city_tax", "numeric(18, 2)"],
+    ["pos_sales", "ebarimt_correction", "text"],
+    ["ar_ap_documents", "ebarimt_total", "numeric(18, 2)"],
+    ["ar_ap_documents", "ebarimt_vat", "numeric(18, 2)"],
+    ["ar_ap_documents", "ebarimt_city_tax", "numeric(18, 2)"],
   ]) {
     await run(
       `${table}.${column} багана`,
@@ -830,6 +838,45 @@ async function main() {
          add column if not exists ${column} ${type}`
     );
   }
+
+  // eBarimt: ТЕГ-д бүртгэлтэй дүнг хуучин мөрт нөхнө — СҮҮЛИЙН амжилттай receipt-ээс
+  // (хэсэгчилсэн буцаалтын засвар = үлдсэн дүн). Идемпотент (зөвхөн null-ийг бөглөнө).
+  for (const [table, column] of [
+    ["pos_sales", "sale_id"],
+    ["ar_ap_documents", "arap_document_id"],
+  ]) {
+    await run(
+      `${table}.ebarimt_total нөхөлт (sent)`,
+      `update ${table} t
+          set ebarimt_total = coalesce((x.req->>'totalAmount')::numeric, 0),
+              ebarimt_vat = coalesce((x.req->>'totalVAT')::numeric, 0),
+              ebarimt_city_tax = coalesce((x.req->>'totalCityTax')::numeric, 0)
+         from (select distinct on (${column}) ${column} as target_id, payload->'request' as req
+                 from pos_ebarimt_submissions
+                where ${column} is not null and status = 'sent' and payload->'request' is not null
+                order by ${column}, created_at desc, id desc) x
+        where t.id = x.target_id and t.ebarimt_status = 'sent' and t.ebarimt_total is null`
+    );
+  }
+  await run(
+    "pos_sales.ebarimt_total нөхөлт (cancelled / manual)",
+    `update pos_sales
+        set ebarimt_total = case when ebarimt_status = 'manual' then total else 0 end,
+            ebarimt_vat = case when ebarimt_status = 'manual' then vat_amount else 0 end,
+            ebarimt_city_tax = case when ebarimt_status = 'manual' then city_tax_amount else 0 end
+      where ebarimt_status in ('cancelled', 'manual') and ebarimt_total is null`
+  );
+  await run(
+    "pos_sales.ebarimt_correction нөхөлт",
+    `update pos_sales s
+        set ebarimt_correction = case when x.status = 'failed' then 'failed' else 'pending' end
+       from (select distinct on (sale_id) sale_id, kind, status
+               from pos_ebarimt_submissions
+              where sale_id is not null
+              order by sale_id, created_at desc, id desc) x
+      where s.id = x.sale_id and x.kind = 'cancel' and x.status in ('pending', 'claimed', 'failed')
+        and s.ebarimt_status = 'sent' and s.ebarimt_correction is null`
+  );
   // НӨАТ-гүй борлуулалтын данс: v1.x-д nullable (default-гүй) нэмэгдсэн байсан
   // багана → default + NOT NULL (drizzle push-ийн өмнө, идемпотент).
   for (const [column, fallback] of [

@@ -1312,6 +1312,10 @@ export const arApDocuments = pgTable(
     ebarimtStatus: text("ebarimt_status"),
     ebarimtDate: text("ebarimt_date"),
     ebarimtType: text("ebarimt_type"),
+    /** ТЕГ-д БҮРТГЭЛТЭЙ дүн (MNT) — илгээсэн receipt-ээс markSent бичнэ; null = илгээгээгүй. */
+    ebarimtTotal: numeric("ebarimt_total", { precision: 18, scale: 2 }),
+    ebarimtVat: numeric("ebarimt_vat", { precision: 18, scale: 2 }),
+    ebarimtCityTax: numeric("ebarimt_city_tax", { precision: 18, scale: 2 }),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -4265,6 +4269,20 @@ export const posSales = pgTable(
      */
     ebarimtDate: text("ebarimt_date"),
     ebarimtType: text("ebarimt_type"),
+    /**
+     * ТЕГ-д БҮРТГЭЛТЭЙ дүн (MNT) — СҮҮЛИЙН амжилттай receipt-ээс markSent бичнэ:
+     * хэсэгчилсэн буцаалтын засварын (inactiveId) дараа ҮЛДСЭН дүн, бүтэн цуцлалтад 0,
+     * гараар ДДТД бичихэд борлуулалтын дүн. null = ТЕГ-д бүртгэлгүй / хуучин өгөгдөл.
+     */
+    ebarimtTotal: numeric("ebarimt_total", { precision: 18, scale: 2 }),
+    ebarimtVat: numeric("ebarimt_vat", { precision: 18, scale: 2 }),
+    ebarimtCityTax: numeric("ebarimt_city_tax", { precision: 18, scale: 2 }),
+    /**
+     * Буцаалтын ТЕГ-ийн засвар (cancel submission) ДУУСААГҮЙ: null | "pending" |
+     * "failed". Баримт `sent` хэвээр (хуучин ДДТД хүчинтэй) ч ТЕГ-ийн дүн буцаалтаас
+     * өмнөх — жагсаалтын «Анхаарах»-д ил гарна. markSent цэвэрлэнэ.
+     */
+    ebarimtCorrection: text("ebarimt_correction"),
     /** Худалдан авагч: иргэний eBarimt дугаар (B2C) эсвэл байгууллагын ТТД (B2B) — борлуулах мөчид бичигдэнэ. */
     ebarimtConsumerNo: text("ebarimt_consumer_no"),
     ebarimtCustomerTin: text("ebarimt_customer_tin"),

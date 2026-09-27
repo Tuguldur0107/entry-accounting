@@ -239,30 +239,24 @@ test("АР нэхэмжлэх → eBarimt B2B_INVOICE (PAY), ТТД-гүй бо�
   const posOnly = await loadEbarimtDocuments(orgId, { from: "2026-09-01", to: "2026-09-30" }, ["pos"]);
   assert.equal(posOnly.rows.length, 0);
 
-  // Дүн = ТЕГ-д очсон СҮҮЛИЙН receipt (засвар/inactiveId-ийн дараах — POS хэсэгчилсэн
-  // буцаалттай ижил дүрэм); хүлээгдэж буй шинэ илгээлт тоонд нөлөөлөхгүй.
+  // ТЕГ-д бүртгэлтэй дүн нэхэмжлэх дээр (markSent) — хүлээгдэж буй шинэ илгээлт
+  // тоонд нөлөөлөхгүй (зөвхөн амжилттай receipt бичнэ).
   const range = { from: "2026-09-01", to: "2026-09-30" };
-  const corrected = { type: "B2B_INVOICE", customerTin: "61200064714", totalAmount: 550_000, totalVAT: 50_000, totalCityTax: 0 };
-  await db.insert(posEbarimtSubmissions).values({
-    organizationId: orgId,
-    arapDocumentId: sent.id,
-    kind: "cancel",
-    status: "sent",
-    payload: { request: { ...corrected, inactiveId: sentAfter?.ebarimtId } },
-    sentAt: new Date(),
-    createdAt: new Date(Date.now() + 1_000),
-  });
+  const stored = await db.query.arApDocuments.findFirst({ where: eq(arApDocuments.id, sent.id) });
+  assert.equal(Number(stored?.ebarimtTotal), 1_100_000);
+  assert.equal(Number(stored?.ebarimtVat), 100_000);
   await db.insert(posEbarimtSubmissions).values({
     organizationId: orgId,
     arapDocumentId: sent.id,
     kind: "send",
     status: "pending",
-    payload: { request: { ...corrected, totalAmount: 999, totalVAT: 99 } },
+    payload: { request: { type: "B2B_INVOICE", customerTin: "61200064714", totalAmount: 999, totalVAT: 99 } },
     createdAt: new Date(Date.now() + 2_000),
   });
-  const afterCorrection = (await loadEbarimtDocuments(orgId, range, ["arap"])).rows.find((row) => row.id === sent.id)!;
-  assert.equal(afterCorrection.total, 550_000);
-  assert.equal(afterCorrection.vat, 50_000);
+  const withPending = (await loadEbarimtDocuments(orgId, range, ["arap"])).rows.find((row) => row.id === sent.id)!;
+  assert.equal(withPending.total, 1_100_000);
+  assert.equal(withPending.vat, 100_000);
+  assert.equal(withPending.customerTin, "61200064714");
 
   // Илгээлт бэлтгэгдээгүй валютын нэхэмжлэх → нэхэмжлэхийн MNT дүн (баримтын валютаар БИШ).
   await db
