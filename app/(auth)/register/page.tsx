@@ -34,7 +34,11 @@ export default async function RegisterPage({
     const session = await auth();
     if (session?.user?.id) return <SignedInSkills email={session.user.email ?? null} />;
   }
-  if (mode === "open" || invite) return <RegisterForm plan={skills ? "skills" : undefined} />;
+  // Үйлчилгээний нөхцөл / нууцлалын бодлого нь Entry-ийн SaaS-д (entry.mn) л
+  // хамаарна — dedicated (харилцагчийн өөрийн сервер) дээр харуулахгүй.
+  const legalLinks = deploymentMode() === "saas";
+  if (mode === "open" || invite)
+    return <RegisterForm plan={skills ? "skills" : undefined} legalLinks={legalLinks} />;
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
