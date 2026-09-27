@@ -31,7 +31,8 @@ test("төлбөрийн хэлбэр ижил хэмжээтэй том тов�
   assert.doesNotMatch(payment, /\+10,000|bumpCash/, "дэвсгэртийн хурдан товч хасагдсан — дүнг гараар");
 });
 
-test("баримт автоматаар хэвлэгдэнэ, хэвлээгүй хаавал сугалаа/QR-ийн анхааруулга", () => {
+test("баримт анхдагчаар урьдчилан харагдана (автомат хэвлэлт — сонголтоор), хэвлээгүй хаавал сугалаа/QR-ийн анхааруулга", () => {
+  assert.match(view, /useState\(false\);\s*useEffect\(\(\) => \{[^}]*AUTO_PRINT_KEY\) === true/, "анхдагч урьдчилан харах");
   assert.match(receiptPreview, /autoPrint/);
   assert.match(receiptPreview, /Баримт хэвлээгүй байна/);
   assert.match(view, /autoPrint=\{autoPrint\}/, "кассын дэлгэц автомат хэвлэлтийг дамжуулна");
