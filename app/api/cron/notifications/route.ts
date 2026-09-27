@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { runInvoiceReminders } from "@/lib/arap/reminders-run";
 import { deliverPendingChannels } from "@/lib/notifications/channel-delivery";
 import { deliverPendingEmails } from "@/lib/notifications/email-delivery";
 import { runDailyNotifications } from "@/lib/notifications/scheduler";
@@ -16,8 +17,8 @@ export const maxDuration = 120;
 // CRON_SECRET тохируулаагүй deployment-д зам хаалттай (503) — in-process
 // ticker (lib/notifications/ticker.ts) тэнд default-оор ажиллана.
 //
-// ?job=daily|email|channels|all (default all) — өдрийн дүрмүүд / и-мэйл /
-// нэмэлт сувгууд (Telegram, custom/).
+// ?job=daily|email|channels|reminders|all (default all) — өдрийн дүрмүүд / и-мэйл /
+// нэмэлт сувгууд (Telegram, custom/) / харилцагчид төлбөрийн сануулга (docs/dev/arap.md §5g).
 // ?date=YYYY-MM-DD — тухайн өдрийг (backfill/тест) дахин ажиллуулна;
 // байгууллага × өдөр нэг л удаа тул давхар дуудахад аюулгүй.
 
@@ -41,9 +42,9 @@ async function handle(request: Request) {
   const params = new URL(request.url).searchParams;
   const date = params.get("date") ?? todayInUlaanbaatar();
   const job = params.get("job") ?? "all";
-  if (!["daily", "email", "channels", "all"].includes(job))
+  if (!["daily", "email", "channels", "reminders", "all"].includes(job))
     return NextResponse.json(
-      { ok: false, error: "job нь daily | email | channels | all" },
+      { ok: false, error: "job нь daily | email | channels | reminders | all" },
       { status: 400 }
     );
   try {
@@ -51,7 +52,9 @@ async function handle(request: Request) {
     const email = job === "email" || job === "all" ? await deliverPendingEmails() : undefined;
     const channels =
       job === "channels" || job === "all" ? await deliverPendingChannels() : undefined;
-    return NextResponse.json({ ok: true, daily, email, channels });
+    const reminders =
+      job === "reminders" || job === "all" ? await runInvoiceReminders(date) : undefined;
+    return NextResponse.json({ ok: true, daily, email, channels, reminders });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : String(error) },

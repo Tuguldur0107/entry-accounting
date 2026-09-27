@@ -31,6 +31,7 @@ import { toast } from "sonner";
 type SendRow = {
   id: string;
   channel: "email" | "link";
+  reminder: boolean;
   recipient: string | null;
   url: string | null;
   sentAt: string;
@@ -245,6 +246,7 @@ function SendDialogBody({
                       className="shrink-0 text-[var(--ea-text-3)]"
                     />
                     <span className="min-w-0 flex-1 truncate text-[var(--ea-text-1)]">
+                      {send.reminder && <span className="mr-1 text-[var(--ea-text-3)]">Сануулга ·</span>}
                       {send.channel === "email" ? send.recipient : "Нээлттэй линк"}
                       <span className="ml-2 text-[var(--ea-text-4)]">
                         {send.sentAt.slice(0, 16).replace("T", " ")}

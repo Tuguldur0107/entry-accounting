@@ -94,6 +94,7 @@ export const MODULES: Module[] = [
       { label: "Нэхэмжлэл", href: "/receivables/documents", icon: "document" },
       { label: "Тайлан", href: "/receivables/reports", icon: "reportDetailed" },
       { label: "ECL нөөц", href: "/receivables/ecl", icon: "shield" },
+      { label: "Сануулга", href: "/receivables/reminders", icon: "bell" },
       // Харилцагч бол лавлах өгөгдөл — тохиргооны байрлалд (сүүлд) байна.
       {
         label: "Харилцагчид",
