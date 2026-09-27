@@ -4,10 +4,11 @@
 // Борлуулалтын commit-ийн ДАРАА enqueue хийгдэнэ; энд ХЭЗЭЭ Ч шидэхгүй —
 // борлуулалт илгээлтээс болж унахгүй (алдаа лог руу, submission failed).
 
-import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
+  arApDocuments,
   inventoryCategories,
   inventoryItems,
   posEbarimtSubmissions,
@@ -26,6 +27,8 @@ import { fetchPosApiHealth } from "./client";
 import { lookupTaxpayerByTin } from "./lookup";
 import { isMerchantRegistered } from "./posapi-info";
 import { buildEbarimtReceipt, EbarimtError, stripReceiptSecrets } from "./receipt";
+import { arapBillIdSuffix } from "./arap-receipt";
+import { loadArapInvoiceForEbarimt } from "./arap-load";
 import type {
   EbarimtDeleteRequest,
   EbarimtReceiptRequest,
@@ -36,6 +39,49 @@ import type {
 } from "./types";
 
 type DbHandle = typeof db;
+
+/**
+ * Илгээлтийн эх — POS борлуулалт ЭСВЭЛ АР нэхэмжлэх (docs/pos/05 Шат 1–2).
+ * Нэг submission-д яг нэг нь; төлөвийг (`ebarimtStatus` / ДДТД) тэр эх дээр бичнэ.
+ */
+export interface EbarimtTarget {
+  saleId: string | null;
+  arapDocumentId: string | null;
+}
+
+export function targetOf(row: { saleId: string | null; arapDocumentId?: string | null }): EbarimtTarget {
+  return { saleId: row.saleId ?? null, arapDocumentId: row.arapDocumentId ?? null };
+}
+
+/** Эх баримтын eBarimt талбарууд. `onlyOpen` — sent/cancelled-ийг дарахгүй (алдааны үед). */
+async function setTargetEbarimt(
+  target: EbarimtTarget,
+  patch: { ebarimtStatus: string; ebarimtId?: string | null; ebarimtDate?: string | null; ebarimtType?: string | null },
+  onlyOpen = false
+): Promise<void> {
+  if (target.saleId) {
+    await db
+      .update(posSales)
+      .set(patch)
+      .where(
+        onlyOpen
+          ? and(eq(posSales.id, target.saleId), or(isNull(posSales.ebarimtStatus), inArray(posSales.ebarimtStatus, ["pending", "failed"])))
+          : eq(posSales.id, target.saleId)
+      );
+  } else if (target.arapDocumentId) {
+    await db
+      .update(arApDocuments)
+      .set(patch)
+      .where(
+        onlyOpen
+          ? and(
+              eq(arApDocuments.id, target.arapDocumentId),
+              or(isNull(arApDocuments.ebarimtStatus), inArray(arApDocuments.ebarimtStatus, ["pending", "failed"]))
+            )
+          : eq(arApDocuments.id, target.arapDocumentId)
+      );
+  }
+}
 
 export function settingsInputOf(row: PosSettings): EbarimtSettingsInput {
   return {
@@ -175,6 +221,77 @@ export async function enqueueEbarimt(
   }
 }
 
+/**
+ * АР нэхэмжлэхийг дараалалд (docs/pos/05 Шат 2). Шидэхгүй. Нөхцөл: eBarimt +
+ * «АР нэхэмжлэх» асаалттай, server горим, багцад eBarimt, баримт ar_invoice +
+ * батлагдсан + илгээгдээгүй. Нөхцөл таарахгүй бол чимээгүй null (нягтлан бодох
+ * ажлыг ХЭЗЭЭ Ч зогсоохгүй).
+ */
+export async function enqueueArapInvoiceEbarimt(orgId: string, documentId: string): Promise<string | null> {
+  try {
+    const settings = await db.query.posSettings.findFirst({ where: eq(posSettings.organizationId, orgId) });
+    if (!settings?.ebarimtEnabled || !settings.ebarimtArapEnabled || settings.ebarimtMode !== "server") return null;
+    const doc = await db.query.arApDocuments.findFirst({
+      where: and(eq(arApDocuments.id, documentId), eq(arApDocuments.organizationId, orgId)),
+      columns: { documentType: true, status: true, ebarimtStatus: true, sourceType: true },
+    });
+    // POS-оос үүссэн АР нь POS-ийн баримтаараа явна — давхар илгээхгүй.
+    if (!doc || doc.documentType !== "ar_invoice" || doc.sourceType === "pos") return null;
+    if (doc.status === "draft" || doc.status === "reversed" || doc.ebarimtStatus === "sent") return null;
+    const { getEntitlements } = await import("@/lib/billing/load");
+    if (!(await getEntitlements(orgId)).features.ebarimt) return null;
+    const [row] = await db
+      .insert(posEbarimtSubmissions)
+      .values({ organizationId: orgId, arapDocumentId: documentId, kind: "send", status: "pending", nextAttemptAt: new Date() })
+      .onConflictDoNothing()
+      .returning({ id: posEbarimtSubmissions.id });
+    await setTargetEbarimt({ saleId: null, arapDocumentId: documentId }, { ebarimtStatus: "pending" }, true);
+    return row?.id ?? null;
+  } catch (error) {
+    console.error("[ebarimt] АР enqueue унав:", documentId, error);
+    return null;
+  }
+}
+
+/** АР нэхэмжлэхийн failed илгээлтийг дахин pending (гар «Дахин илгээх»); байхгүй бол шинээр. */
+export async function requeueArapInvoiceEbarimt(orgId: string, documentId: string): Promise<void> {
+  const existing = await db.query.posEbarimtSubmissions.findFirst({
+    where: and(
+      eq(posEbarimtSubmissions.organizationId, orgId),
+      eq(posEbarimtSubmissions.arapDocumentId, documentId),
+      eq(posEbarimtSubmissions.kind, "send")
+    ),
+    orderBy: [desc(posEbarimtSubmissions.createdAt)],
+  });
+  if (existing && (existing.status === "pending" || existing.status === "claimed")) return;
+  if (existing && existing.status === "failed") {
+    await db
+      .update(posEbarimtSubmissions)
+      .set({ status: "pending", nextAttemptAt: new Date(), lastError: null, payload: null, updatedAt: new Date() })
+      .where(eq(posEbarimtSubmissions.id, existing.id));
+    await setTargetEbarimt({ saleId: null, arapDocumentId: documentId }, { ebarimtStatus: "pending" }, true);
+    return;
+  }
+  await enqueueArapInvoiceEbarimt(orgId, documentId);
+}
+
+/** АР нэхэмжлэхийн илгээлтийн түүх (панель) — шинэ нь эхэндээ. */
+export async function loadSubmissionsForArapDocument(orgId: string, documentId: string) {
+  const rows = await db.query.posEbarimtSubmissions.findMany({
+    where: and(eq(posEbarimtSubmissions.organizationId, orgId), eq(posEbarimtSubmissions.arapDocumentId, documentId)),
+    orderBy: [desc(posEbarimtSubmissions.createdAt)],
+    columns: { id: true, status: true, attempts: true, lastError: true, sentAt: true, createdAt: true },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    attempts: row.attempts,
+    lastError: row.lastError,
+    sentAt: row.sentAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
 /** Failed мөрийг дахин pending болгоно (гар «Дахин илгээх»); байхгүй бол шинээр. */
 export async function requeueEbarimt(orgId: string, saleId: string, kind: SubmissionKind = "send"): Promise<void> {
   const existing = await db.query.posEbarimtSubmissions.findFirst({
@@ -200,10 +317,9 @@ export async function requeueEbarimt(orgId: string, saleId: string, kind: Submis
     .where(and(eq(posSales.id, saleId), eq(posSales.organizationId, orgId)));
 }
 
-export interface PreparedSubmission {
+export interface PreparedSubmission extends EbarimtTarget {
   id: string;
   orgId: string;
-  saleId: string;
   kind: SubmissionKind;
   attempts: number;
   settings: EbarimtSettingsInput;
@@ -222,14 +338,22 @@ export interface PreparedSubmission {
  * submission-ийн дахин илгээлт бүрд ижил (PosAPI давхардлыг таних), харин
  * дараагийн бичилт (inactiveId засвар, цуцлагдсаны дараах дахин илгээлт) бүрд өөр.
  */
-async function editIndexOf(submission: { id: string; saleId: string; organizationId: string; createdAt: Date }): Promise<number> {
+async function editIndexOf(submission: {
+  id: string;
+  saleId: string | null;
+  arapDocumentId?: string | null;
+  organizationId: string;
+  createdAt: Date;
+}): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)` })
     .from(posEbarimtSubmissions)
     .where(
       and(
         eq(posEbarimtSubmissions.organizationId, submission.organizationId),
-        eq(posEbarimtSubmissions.saleId, submission.saleId),
+        submission.arapDocumentId
+          ? eq(posEbarimtSubmissions.arapDocumentId, submission.arapDocumentId)
+          : eq(posEbarimtSubmissions.saleId, submission.saleId ?? ""),
         or(
           lt(posEbarimtSubmissions.createdAt, submission.createdAt),
           and(eq(posEbarimtSubmissions.createdAt, submission.createdAt), lt(posEbarimtSubmissions.id, submission.id))
@@ -244,9 +368,19 @@ async function editIndexOf(submission: { id: string; saleId: string; organizatio
  * бол ([EBARIMT_*]) submission failed → null.
  */
 export async function prepareSubmission(
-  submission: { id: string; organizationId: string; saleId: string; kind: string; attempts: number; createdAt: Date },
+  submission: {
+    id: string;
+    organizationId: string;
+    saleId: string | null;
+    arapDocumentId?: string | null;
+    kind: string;
+    attempts: number;
+    createdAt: Date;
+  },
   settingsRow: PosSettings
 ): Promise<PreparedSubmission | null> {
+  if (submission.arapDocumentId) return prepareArapSubmission({ ...submission, arapDocumentId: submission.arapDocumentId }, settingsRow);
+  const saleId = submission.saleId ?? "";
   const settings = settingsInputOf(settingsRow);
   const kind: SubmissionKind = submission.kind === "cancel" ? "cancel" : "send";
   // PosAPI дуудалгүй хаах — давхар enqueue, эсвэл ТЕГ-д бүртгэх зүйл үлдээгүй.
@@ -257,16 +391,16 @@ export async function prepareSubmission(
       .set({ status: "sent", sentAt: now, updatedAt: now, lastError: null })
       .where(eq(posEbarimtSubmissions.id, submission.id));
     if (saleStatus)
-      await db.update(posSales).set({ ebarimtStatus: saleStatus }).where(eq(posSales.id, submission.saleId));
+      await db.update(posSales).set({ ebarimtStatus: saleStatus }).where(eq(posSales.id, saleId));
     return null;
   };
   try {
     const sale = await db.query.posSales.findFirst({
-      where: eq(posSales.id, submission.saleId),
+      where: eq(posSales.id, saleId),
       columns: { ebarimtId: true, ebarimtDate: true, ebarimtStatus: true },
     });
     if (!sale) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Борлуулалт олдсонгүй");
-    const input = await loadSaleForEbarimt(submission.organizationId, submission.saleId);
+    const input = await loadSaleForEbarimt(submission.organizationId, saleId);
     if (!input) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Буцаалтын баримт өөрөө илгээгдэхгүй");
     // Буцаалт бүр loadSaleForEbarimt-д тооцогддог тул хожуу илгээгдэх баримт
     // ч үлдсэн мөрөөр л явна.
@@ -301,9 +435,51 @@ export async function prepareSubmission(
       .update(posEbarimtSubmissions)
       .set({ payload: { ...(request ? { request } : {}), ...(cancel ? { cancel } : {}) }, updatedAt: new Date() })
       .where(eq(posEbarimtSubmissions.id, submission.id));
-    return { id: submission.id, orgId: submission.organizationId, saleId: submission.saleId, kind, attempts: submission.attempts, settings, request, cancel };
+    return { id: submission.id, orgId: submission.organizationId, saleId, arapDocumentId: null, kind, attempts: submission.attempts, settings, request, cancel };
   } catch (error) {
-    await markFailed(submission.id, submission.saleId, error, { terminal: error instanceof EbarimtError });
+    await markFailed(submission.id, { saleId, arapDocumentId: null }, error, { terminal: error instanceof EbarimtError });
+    return null;
+  }
+}
+
+/**
+ * АР нэхэмжлэх → eBarimt нэхэмжлэх (docs/pos/05 Шат 2). Зөвхөн «send»:
+ * цуцлах/засах (кредит нэхэмжлэл, Q5) болон төлөлт (Q1) албан урсгал
+ * тодорхойгүй тул ЭНД ХИЙГДЭХГҮЙ. Аль хэдийн `sent` бол дуудалгүй хаана.
+ */
+async function prepareArapSubmission(
+  submission: { id: string; organizationId: string; arapDocumentId: string; kind: string; attempts: number; createdAt: Date },
+  settingsRow: PosSettings
+): Promise<PreparedSubmission | null> {
+  const target: EbarimtTarget = { saleId: null, arapDocumentId: submission.arapDocumentId };
+  try {
+    if (submission.kind !== "send")
+      throw new EbarimtError(EBARIMT_ERRORS.notSent, "АР нэхэмжлэхийн цуцлалт/засвар албан урсгал тодорхойгүй (docs/pos/05 Q5) — ТЕГ-т гараар");
+    const doc = await db.query.arApDocuments.findFirst({
+      where: and(eq(arApDocuments.id, submission.arapDocumentId), eq(arApDocuments.organizationId, submission.organizationId)),
+      columns: { ebarimtId: true, ebarimtStatus: true },
+    });
+    if (!doc) throw new EbarimtError(EBARIMT_ERRORS.notSent, "Нэхэмжлэх олдсонгүй");
+    if (doc.ebarimtId && doc.ebarimtStatus === "sent") {
+      const now = new Date();
+      await db
+        .update(posEbarimtSubmissions)
+        .set({ status: "sent", sentAt: now, updatedAt: now, lastError: null })
+        .where(eq(posEbarimtSubmissions.id, submission.id));
+      return null;
+    }
+    const settings = settingsInputOf(settingsRow);
+    const input = await loadArapInvoiceForEbarimt(submission.organizationId, submission.arapDocumentId, settingsRow);
+    const request = buildEbarimtReceipt(input, settings, {
+      billIdSuffix: arapBillIdSuffix(submission.arapDocumentId, await editIndexOf({ ...submission, saleId: null })),
+    });
+    await db
+      .update(posEbarimtSubmissions)
+      .set({ payload: { request }, updatedAt: new Date() })
+      .where(eq(posEbarimtSubmissions.id, submission.id));
+    return { id: submission.id, orgId: submission.organizationId, ...target, kind: "send", attempts: submission.attempts, settings, request, cancel: null };
+  } catch (error) {
+    await markFailed(submission.id, target, error, { terminal: error instanceof EbarimtError });
     return null;
   }
 }
@@ -315,7 +491,7 @@ export async function prepareSubmission(
  */
 export async function markSent(
   submissionId: string,
-  saleId: string,
+  target: EbarimtTarget,
   kind: SubmissionKind,
   response: Record<string, unknown>,
   result: { id: string | null; date: string | null; type: string | null }
@@ -334,15 +510,12 @@ export async function markSent(
     .where(eq(posEbarimtSubmissions.id, submissionId));
   if (kind === "cancel" && !result.id) {
     // Бүтэн цуцлагдсан — ДДТД хүчингүй.
-    await db.update(posSales).set({ ebarimtStatus: "cancelled" }).where(eq(posSales.id, saleId));
+    await setTargetEbarimt(target, { ebarimtStatus: "cancelled" });
     return;
   }
   // Хэсэгчилсэн буцаалтын засвар (inactiveId) → ДДТД ШИНЭЧЛЭГДЭНЭ — дараагийн
   // засвар энэ сүүлийн ДДТД-г inactiveId болгоно (гинж).
-  await db
-    .update(posSales)
-    .set({ ebarimtStatus: "sent", ebarimtId: result.id, ebarimtDate: result.date, ebarimtType: result.type })
-    .where(eq(posSales.id, saleId));
+  await setTargetEbarimt(target, { ebarimtStatus: "sent", ebarimtId: result.id, ebarimtDate: result.date, ebarimtType: result.type });
 }
 
 /**
@@ -352,7 +525,7 @@ export async function markSent(
  */
 export async function markFailed(
   submissionId: string,
-  saleId: string,
+  target: EbarimtTarget,
   error: unknown,
   options: { terminal?: boolean; response?: Record<string, unknown>; maxAttempts?: number } = {}
 ): Promise<number> {
@@ -376,10 +549,7 @@ export async function markFailed(
       updatedAt: now,
     })
     .where(eq(posEbarimtSubmissions.id, submissionId));
-  await db
-    .update(posSales)
-    .set({ ebarimtStatus: stop ? "failed" : "pending" })
-    .where(and(eq(posSales.id, saleId), or(isNull(posSales.ebarimtStatus), inArray(posSales.ebarimtStatus, ["pending", "failed"]))));
+  await setTargetEbarimt(target, { ebarimtStatus: stop ? "failed" : "pending" }, true);
   return attempts;
 }
 
@@ -411,6 +581,8 @@ export async function listPendingForBrowser(orgId: string, settingsRow: PosSetti
     where: and(
       eq(posEbarimtSubmissions.organizationId, orgId),
       eq(posEbarimtSubmissions.status, "pending"),
+      // Browser горим (кассын PC) — зөвхөн POS; АР нэхэмжлэх server горимд л.
+      isNotNull(posEbarimtSubmissions.saleId),
       lte(posEbarimtSubmissions.nextAttemptAt, new Date())
     ),
     with: { sale: { columns: { documentNo: true } } },
@@ -423,7 +595,7 @@ export async function listPendingForBrowser(orgId: string, settingsRow: PosSetti
     if (!prepared) continue;
     views.push({
       id: row.id,
-      saleId: row.saleId,
+      saleId: row.saleId ?? "",
       documentNo: row.sale?.documentNo ?? "",
       kind: prepared.kind,
       status: "pending",
@@ -448,7 +620,7 @@ export async function loadSubmissionsForSale(orgId: string, saleId: string): Pro
     const payload = (row.payload ?? {}) as { request?: EbarimtReceiptRequest; cancel?: EbarimtDeleteRequest };
     return {
       id: row.id,
-      saleId: row.saleId,
+      saleId: row.saleId ?? "",
       documentNo: row.sale?.documentNo ?? "",
       kind: row.kind === "cancel" ? "cancel" : "send",
       status: (["pending", "sent", "failed", "cancelled"].includes(row.status) ? row.status : "pending") as EbarimtSubmissionView["status"],

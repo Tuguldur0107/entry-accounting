@@ -384,6 +384,12 @@ export interface PosSettingsView {
   ebarimtPosNo: string;
   ebarimtPosApiUrl: string;
   ebarimtMode: "server" | "browser";
+  /** АР нэхэмжлэх → eBarimt нэхэмжлэх (docs/pos/05 Шат 2) — анхнаасаа унтраалттай. */
+  ebarimtArapEnabled: boolean;
+  ebarimtArapPaymentCode: string;
+  ebarimtArapClassificationCode: string;
+  /** Орлогын үндсэн данс (8 орон) → ангиллын код (7 орон). */
+  ebarimtArapAccountCodes: Record<string, string>;
   // ── QPay (docs/pos/04-qpay-integration-plan.md) — нууц нь view-д ОРОХГҮЙ, зөвхөн «тохируулсан» туг ──
   qpayEnabled: boolean;
   qpayApiUrl: string;

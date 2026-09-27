@@ -302,6 +302,40 @@ export async function updatePosSettings(
       if (!["server", "browser"].includes(data.ebarimtMode)) throw new Error("eBarimt горим server эсвэл browser");
       patch.ebarimtMode = data.ebarimtMode;
     }
+    // ── АР нэхэмжлэх → eBarimt (docs/pos/05 Шат 2) ──
+    if (data.ebarimtArapPaymentCode != null) {
+      const code = data.ebarimtArapPaymentCode.trim().toUpperCase();
+      if (code && !/^[A-Z][A-Z0-9_]{1,39}$/.test(code)) throw new Error("АР нэхэмжлэхийн төлбөрийн код: латин том үсэг, тоо, «_» (жишээ INVOICE)");
+      patch.ebarimtArapPaymentCode = code;
+    }
+    if (data.ebarimtArapClassificationCode != null) {
+      const code = data.ebarimtArapClassificationCode.trim();
+      if (code && !/^\d{7}$/.test(code)) throw new Error("Анхдагч ангиллын код 7 оронтой байна");
+      patch.ebarimtArapClassificationCode = code;
+    }
+    if (data.ebarimtArapAccountCodes != null) {
+      const codes: Record<string, string> = {};
+      for (const [account, code] of Object.entries(data.ebarimtArapAccountCodes)) {
+        const main = account.trim();
+        const value = String(code ?? "").trim();
+        if (!main && !value) continue;
+        if (!/^\d{8}$/.test(main)) throw new Error(`«${account}»: 8 оронтой үндсэн данс байна`);
+        if (!/^\d{7}$/.test(value)) throw new Error(`${main}: ангиллын код 7 оронтой байна`);
+        await assertEnabledMainAccount(orgId, main);
+        codes[main] = value;
+      }
+      patch.ebarimtArapAccountCodes = codes;
+    }
+    if (data.ebarimtArapEnabled != null) {
+      if (data.ebarimtArapEnabled) {
+        const merged = { ...current, ...patch };
+        if (!merged.ebarimtEnabled) throw new Error("Эхлээд eBarimt-ийг идэвхжүүлнэ үү");
+        if (merged.ebarimtMode !== "server") throw new Error("АР нэхэмжлэх зөвхөн «Сервер» горимд илгээгдэнэ");
+        if (!merged.ebarimtArapPaymentCode.trim())
+          throw new Error("АР нэхэмжлэхийн төлөгдөөгүй дүнгийн eBarimt төлбөрийн код оруулна уу (docs/pos/05 Q2)");
+      }
+      patch.ebarimtArapEnabled = !!data.ebarimtArapEnabled;
+    }
     if (data.ebarimtEnabled != null) {
       if (data.ebarimtEnabled) {
         const merged = { ...current, ...patch };

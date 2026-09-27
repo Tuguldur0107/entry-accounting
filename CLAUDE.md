@@ -347,6 +347,10 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
   гараар засахгүй; НӨАТ төлөгч БУС байгууллага ч баримт олгоно (vatMode-оор
   taxType, НӨАТ 0, сугалаатай — `NOT_VAT` = хилийн гаднах, ХЭРЭГЛЭХГҮЙ)
 - Операторын нууц header ЗӨВХӨН allowlist-ийн хост руу; иргэний РД-аар лавлахгүй
+- АР нэхэмжлэх → eBarimt нэхэмжлэх (`docs/pos/05`): тохиргоо анхнаасаа УНТРААЛТТАЙ,
+  батлалтын commit-ийн ДАРАА `enqueueArapInvoiceEbarimt` (шидэхгүй); нэг дараалал
+  (`EbarimtTarget` — POS эсвэл АР); кредит нэхэмжлэл / төлөлт Q1/Q5-ын хариугүйгээр
+  ИЛГЭЭХГҮЙ; ТЕГ/ITC-д хүрэх ажлууд `docs/deployment/mongolia-network-runbook.md`
 
 **QPay Quick QR**
 - Entry QPay-тэй ШУУД харьцахгүй — `qpay-dashboard` REST-ээр; QPay-г polling ХИЙХГҮЙ

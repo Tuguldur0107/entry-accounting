@@ -198,6 +198,13 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  "arap.ebarimt_failed": {
+    category: "documents",
+    severity: "danger",
+    label: "eBarimt нэхэмжлэх илгээгдсэнгүй",
+    email: "instant",
+    inApp: true,
+  },
   // ТЕГ-ийн тестийн checklist: «сугалааны дугаар дуусаж буй, мэдээ илгээх 3
   // өдрийн хугацаа дуусаж буйг анхааруулах» — эх нь PosAPI /rest/info
   // (lib/notifications/attention.ts, өдөр тутам).

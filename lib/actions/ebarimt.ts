@@ -264,6 +264,7 @@ export async function recordEbarimtResponse(input: {
       {
         id: submission.id,
         saleId: submission.saleId,
+        arapDocumentId: submission.arapDocumentId,
         kind: submission.kind === "cancel" ? "cancel" : "send",
         request: (payload.request ?? null) as never,
       },

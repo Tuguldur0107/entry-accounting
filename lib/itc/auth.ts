@@ -19,10 +19,17 @@ export function isItcEnvironment(value: unknown): value is ItcEnvironment {
   return value === "staging" || value === "production";
 }
 
-/** Keycloak token endpoint — `{authBase}/auth/realms/{realm}/protocol/openid-connect/token`. */
-export function itcTokenUrl(env: ItcEnvironment): string {
+/**
+ * Keycloak token endpoint — `{authBase}/auth/realms/{realm}/protocol/openid-connect/token`.
+ * `authBaseOverride` — auth.itc.gov.mn ч ЗӨВХӨН Монголын IP-ээс хандагддаг тул
+ * гадаад бүсийн серверт Монголд байрлах прокси (env `ITC_AUTH_BASE`, client.ts).
+ * Realm орчноосоо хэвээр.
+ */
+export function itcTokenUrl(env: ItcEnvironment, authBaseOverride?: string | null): string {
   const { authBase, realm } = ITC_AUTH[env];
-  return `${authBase}/auth/realms/${encodeURIComponent(realm)}/protocol/openid-connect/token`;
+  const override = (authBaseOverride ?? "").trim().replace(/\/+$/, "");
+  if (override && !/^https?:\/\//i.test(override)) throw new ItcError(ITC_ERRORS.config, "ITC_AUTH_BASE http(s) URL байна");
+  return `${override || authBase}/auth/realms/${encodeURIComponent(realm)}/protocol/openid-connect/token`;
 }
 
 /** `grant_type=password` — албан заавар (client нууцгүй public client). */

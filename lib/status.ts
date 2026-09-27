@@ -40,6 +40,16 @@ export const DOCUMENT_STATUS: Record<string, StatusMeta> = {
   voided: { label: "Цуцалсан", tone: "muted", icon: "cancel", shape: "struck" },
 };
 
+/** eBarimt илгээлтийн төлөвийн өнгө (lib/ebarimt/constants EbarimtStatus) — POS ба АР нэг эх. */
+export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
+  sent: "success",
+  pending: "warning",
+  failed: "danger",
+  cancelled: "muted",
+  manual: "muted",
+  skipped: "warning",
+};
+
 /** Үл мэдэгдэх төлөвт ч хоосон биш, уншигдахуйц badge. */
 export function statusMeta(status: string | null | undefined): StatusMeta {
   return (

@@ -7,11 +7,11 @@ import { and, eq, sql } from "drizzle-orm";
 
 import { logAuditEvent } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { posEbarimtSubmissions, posSales, posSettings } from "@/lib/db/schema";
+import { arApDocuments, posEbarimtSubmissions, posSales, posSettings } from "@/lib/db/schema";
 
 import { posApiDeleteReceipt, posApiPutReceipt, posApiSendData } from "./client";
 import { EBARIMT_ALERT_AFTER_ATTEMPTS, EBARIMT_ERRORS, EBARIMT_MAX_ATTEMPTS } from "./constants";
-import { claimDueSubmissions, markFailed, markSent, prepareSubmission, type PreparedSubmission } from "./queue";
+import { claimDueSubmissions, markFailed, markSent, prepareSubmission, targetOf, type EbarimtTarget, type PreparedSubmission } from "./queue";
 import { EbarimtError, receiptResponseOutcome } from "./receipt";
 import type { EbarimtReceiptResponse, EbarimtSaleResult } from "./types";
 
@@ -65,7 +65,7 @@ export interface ApplyResult {
 
 /** Бэлтгэсэн submission-ийг PosAPI-д илгээж үр дүнг бичнэ (server + browser хоёуланд нийтлэг). */
 export async function applyPosApiResponse(
-  prepared: Pick<PreparedSubmission, "id" | "saleId" | "kind" | "request">,
+  prepared: Pick<PreparedSubmission, "id" | "saleId" | "arapDocumentId" | "kind" | "request">,
   response: EbarimtReceiptResponse,
   stage: "send" | "cancel"
 ): Promise<ApplyResult> {
@@ -74,22 +74,22 @@ export async function applyPosApiResponse(
     const status = typeof response.status === "string" ? response.status.toUpperCase() : "";
     const ok = status !== "ERROR" && (raw.httpStatus == null || Number(raw.httpStatus) < 400);
     if (!ok) {
-      const attempts = await markFailed(prepared.id, prepared.saleId, new EbarimtError(
+      const attempts = await markFailed(prepared.id, targetOf(prepared), new EbarimtError(
           "EBARIMT_REJECTED",
           `${response.message ?? "Цуцлах хүсэлт татгалзагдав"} — ТЕГ: DELETE зөвхөн B2C_RECEIPT, иргэн баталгаажуулаагүй баримтад; баталгаажсан бол иргэн Ebarimt апп-аас зөвшөөрөх хүртэл «Баталгаажаагүй буцаалт»; B2B/нэхэмжлэх бол ТЕГ-тэй тохирно (docs/integrations/01 P1-3)`
         ), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
       return { ok: false, attempts, result: null };
     }
-    await markSent(prepared.id, prepared.saleId, "cancel", raw, { id: null, date: null, type: null });
+    await markSent(prepared.id, targetOf(prepared), "cancel", raw, { id: null, date: null, type: null });
     return { ok: true, attempts: 0, result: null };
   }
   const outcome = receiptResponseOutcome(response);
   if (!outcome.ok) {
-    const attempts = await markFailed(prepared.id, prepared.saleId, new EbarimtError("EBARIMT_REJECTED", outcome.message), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
+    const attempts = await markFailed(prepared.id, targetOf(prepared), new EbarimtError("EBARIMT_REJECTED", outcome.message), { response: raw, maxAttempts: EBARIMT_MAX_ATTEMPTS });
     return { ok: false, attempts, result: null };
   }
   const result = resultOf(response, prepared.request?.type ?? null);
-  await markSent(prepared.id, prepared.saleId, prepared.kind, raw, {
+  await markSent(prepared.id, targetOf(prepared), prepared.kind, raw, {
     id: result.ebarimtId,
     date: result.ebarimtDate,
     type: result.ebarimtType,
@@ -97,8 +97,27 @@ export async function applyPosApiResponse(
   return { ok: true, attempts: 0, result };
 }
 
-async function alertIfNeeded(orgId: string, saleId: string, attempts: number, error: string): Promise<void> {
+async function alertIfNeeded(orgId: string, target: EbarimtTarget, attempts: number, error: string): Promise<void> {
   if (attempts !== EBARIMT_ALERT_AFTER_ATTEMPTS) return;
+  if (target.arapDocumentId) {
+    const doc = await db.query.arApDocuments.findFirst({
+      where: eq(arApDocuments.id, target.arapDocumentId),
+      columns: { userId: true, documentNo: true },
+    });
+    if (!doc) return;
+    // Аудит → мэдэгдлийн гүүр (lib/notifications/rules.ts: arap × ebarimt_failed).
+    await logAuditEvent({
+      userId: doc.userId,
+      organizationId: orgId,
+      action: "ebarimt_failed",
+      entityType: "arap",
+      entityId: target.arapDocumentId,
+      summary: `eBarimt нэхэмжлэх ${attempts} удаа амжилтгүй — ${doc.documentNo}: ${error.slice(0, 300)}`,
+    });
+    return;
+  }
+  const saleId = target.saleId;
+  if (!saleId) return;
   const sale = await db.query.posSales.findFirst({ where: eq(posSales.id, saleId), columns: { userId: true, documentNo: true } });
   if (!sale) return;
   // Аудит → мэдэгдлийн гүүр (lib/notifications/rules.ts: pos_sale × ebarimt_failed).
@@ -141,7 +160,7 @@ export async function processSubmission(
       const cancelResponse = await posApiDeleteReceipt(prepared.settings.posApiUrl, prepared.cancel);
       const cancelResult = await applyPosApiResponse(prepared, cancelResponse, "cancel");
       if (!cancelResult.ok) {
-        await alertIfNeeded(prepared.orgId, prepared.saleId, cancelResult.attempts, String(cancelResponse.message ?? ""));
+        await alertIfNeeded(prepared.orgId, targetOf(prepared), cancelResult.attempts, String(cancelResponse.message ?? ""));
         return { outcome: "failed", result: null };
       }
       return { outcome: "sent", result: null };
@@ -150,7 +169,7 @@ export async function processSubmission(
     const response = await posApiPutReceipt(prepared.settings.posApiUrl, prepared.request!);
     const applied = await applyPosApiResponse(prepared, response, "send");
     if (!applied.ok) {
-      await alertIfNeeded(prepared.orgId, prepared.saleId, applied.attempts, String(response.message ?? ""));
+      await alertIfNeeded(prepared.orgId, targetOf(prepared), applied.attempts, String(response.message ?? ""));
       return { outcome: "failed", result: null };
     }
     return { outcome: "sent", result: applied.result };
@@ -169,8 +188,8 @@ export async function processSubmission(
             } (docs/integrations/01 §2 P0-3)`
           )
         : error;
-    const attempts = await markFailed(prepared.id, prepared.saleId, failure, { maxAttempts: EBARIMT_MAX_ATTEMPTS });
-    await alertIfNeeded(prepared.orgId, prepared.saleId, attempts, failure instanceof Error ? failure.message : String(failure));
+    const attempts = await markFailed(prepared.id, targetOf(prepared), failure, { maxAttempts: EBARIMT_MAX_ATTEMPTS });
+    await alertIfNeeded(prepared.orgId, targetOf(prepared), attempts, failure instanceof Error ? failure.message : String(failure));
     return { outcome: "failed", result: null };
   }
 }

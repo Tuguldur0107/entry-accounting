@@ -1,7 +1,11 @@
 # eBarimt НЭХЭМЖЛЭХ ба түүний ТӨЛӨЛТ — төлөвлөгөө (2026-09-27)
 
-> **Төлөв:** ТӨЛӨВЛӨГӨӨ. Шат 0-ийн (§4) хариугүйгээр код бичихгүй — PosAPI-ийн
-> нэхэмжлэхийн урсгалыг ТААМАГЛАХГҮЙ (CLAUDE.md §5c «код ЗОХИОХГҮЙ»).
+> **Төлөв (2026-09-27):** Шат 1–2 ✅ ХЭРЭГЖСЭН, тохиргоо анхнаасаа **УНТРААЛТТАЙ**
+> (POS тохиргоо → eBarimt → «АР нэхэмжлэх»). Payload нь Entry-ийн баталгаатай
+> бүтэц (`buildEbarimtReceipt`) + тохиргооны төлбөрийн код — Q1–Q2-ын хариу (Шат 0)
+> ирэхээс өмнө PosAPI нэхэмжлэхийн урсгалыг ТААМАГЛАХГҮЙн тулд байгууллага өөрөө
+> асаана. Шат 3 (төлөлт) — зөвхөн панельд ил тэмдэглэгээ (3a), илгээлт Q1-ийн дараа.
+> Шат 0-ийн гүйцэтгэл: `docs/deployment/mongolia-network-runbook.md`.
 > Холбоотой: `03-ebarimt-integration-plan.md` T3, `docs/integrations/01-ebarimt-posapi-verification.md`
 > P1-4 / §4 (staging), `docs/integrations/00-itc-developer-portal.md` §4.1 (TPI `prParentRno`).
 
@@ -98,6 +102,24 @@
 Хариу бүрийг энэ баримтын §3-т «✅ ХАРИУ: …, эх сурвалж» гэж бичнэ.
 
 ## 5. Шат 1–4 (Шат 0-ийн дараа)
+
+### Хэрэгжсэн байдал (Шат 1–2, 3a)
+
+| Хэсэг | Код |
+|---|---|
+| АР-ын eBarimt талбар | `ar_ap_documents.ebarimtId/Status/Date/Type` |
+| Ерөнхий дараалал | `pos_ebarimt_submissions.saleId` NULL болж, `arapDocumentId` нэмэгдэв (яг нэг нь); `pos_ebarimt_submissions_arap_active_ux`. Queue/worker `EbarimtTarget`-аар (POS эсвэл АР) — `markSent/markFailed` төлөвийг эх дээр бичнэ. Browser горимд зөвхөн POS |
+| Тохиргоо | `pos_settings.ebarimtArapEnabled` (default false), `ebarimtArapPaymentCode` (Q2), `ebarimtArapClassificationCode` (анхдагч), `ebarimtArapAccountCodes` (үндсэн данс → код). Асаах нөхцөл: eBarimt идэвхтэй, server горим, төлбөрийн код. UI `components/pos/ebarimt-arap-settings.tsx` |
+| Хөрвүүлэлт (ЦЭВЭР) | `lib/ebarimt/arap-receipt.ts` — НӨАТ-ын мөрийг standard мөрүүдэд хувиар; ангилал бараа → данс → анхдагч; зөвхөн MNT; хасах мөр, ТТД-гүй байгууллага, НӨАТ-ын зөрчил → ил алдаа; `billIdSuffix` = UUID-аас «8» + 7 орон. Тест `tests/ebarimt-arap-receipt.test.ts` |
+| DB ачаалагч | `lib/ebarimt/arap-load.ts` (харилцагч `baseKindOf` + `effectiveTin`, НӨАТ тохиргоо) |
+| Дуудах цэг | `createArApDocument(postNow)` + `postArApDocumentCore` — commit-ийн ДАРАА `enqueueArapInvoiceEbarimt` (шидэхгүй), POS-оос үүссэн АР (`sourceType=pos`) ХАСАГДАНА |
+| Дахин илгээх | `resendArapEbarimt` (ar:post) — панелийн `components/arap/arap-ebarimt-field.tsx` |
+| Мэдэгдэл | `arap.ebarimt_failed` (3 удаа амжилтгүй, ar:post гишүүдэд) |
+| DB тест | `tests/ebarimt-arap-flow.test.ts` — хуурамч PosAPI: унтраалттай бол явахгүй, B2B_INVOICE/PAY, ТТД-гүй → failed + шалтгаан → дахин илгээх → sent |
+
+Хязгаарлалт (Q-ийн хариу ирэх хүртэл): кредит нэхэмжлэл / буцаалт eBarimt-д
+явахгүй (Q5), төлөлт мэдэгдэхгүй (Q1), валютын нэхэмжлэх ил алдаа, AI/MCP
+`resend_ebarimt` зөвхөн POS.
 
 ### Шат 1 — өгөгдлийн суурь (1 PR)
 - `ar_ap_documents`: `ebarimtId`, `ebarimtStatus`, `ebarimtType`, `ebarimtDate`,

@@ -261,7 +261,7 @@ export function billIdSuffixOf(documentNo: string, edit = 0): string {
 export function buildEbarimtReceipt(
   sale: EbarimtSaleInput,
   settings: EbarimtSettingsInput,
-  options: { inactiveId?: string | null; edit?: number } = {}
+  options: { inactiveId?: string | null; edit?: number; billIdSuffix?: string } = {}
 ): EbarimtReceiptRequest {
   const problems = ebarimtSettingsProblems(settings);
   if (problems.length > 0) throw new EbarimtError(EBARIMT_ERRORS.settings, problems.join("; "));
@@ -305,7 +305,8 @@ export function buildEbarimtReceipt(
     totalCityTax,
     // Засвар (inactiveId) бол edit ≥ 1 ЗААВАЛ — эх баримтын suffix-тэй ижил явуулбал
     // PosAPI давхардал гэж үзээд шинэ ДДТД олгохгүй байж болзошгүй.
-    billIdSuffix: billIdSuffixOf(sale.documentNo, options.edit ?? (inactiveId ? 1 : 0)),
+    // АР нэхэмжлэх өөрийн suffix-тэй (arap-receipt.ts arapBillIdSuffix — дугаар нь POS хэлбэр биш).
+    billIdSuffix: options.billIdSuffix ?? billIdSuffixOf(sale.documentNo, options.edit ?? (inactiveId ? 1 : 0)),
     branchNo: settings.branchNo.trim(),
     districtCode: settings.districtCode.trim(),
     merchantTin,

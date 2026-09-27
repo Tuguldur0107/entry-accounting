@@ -17,6 +17,7 @@ import {
   inventoryItems,
   warehouses,
   arApInvoiceSends,
+  posEbarimtSubmissions,
 } from "@/lib/db/schema";
 import type { ArApDocumentView, CounterpartyView } from "@/lib/arap/types";
 import type { SegOption } from "@/lib/grid/editors/SegSelect";
@@ -79,6 +80,17 @@ export type ArApDocumentDetail = ArApDocumentView & {
   /** Кредит/дебит баримтын эх нэхэмжлэх (ENT-029). */
   sourceDocumentId: string | null;
   sourceDocumentNo: string | null;
+  /**
+   * eBarimt нэхэмжлэх (docs/pos/05 Шат 2) — илгээгээгүй бол null. `lastError` нь
+   * сүүлийн илгээлтийн алдаа (failed/pending үед шалтгааныг ил харуулна).
+   */
+  ebarimt: {
+    id: string | null;
+    status: string;
+    date: string | null;
+    type: string | null;
+    lastError: string | null;
+  } | null;
   /** Энэ нэхэмжлэхээс үүссэн кредит/дебит баримтууд. */
   creditDocuments: {
     id: string;
@@ -394,8 +406,24 @@ export async function loadArApDocumentDetail(
     },
   });
   if (!row) return null;
+  const lastSubmission = row.ebarimtStatus
+    ? await db.query.posEbarimtSubmissions.findFirst({
+        where: and(eq(posEbarimtSubmissions.organizationId, orgId), eq(posEbarimtSubmissions.arapDocumentId, documentId)),
+        orderBy: (submission, { desc }) => [desc(submission.createdAt)],
+        columns: { lastError: true },
+      })
+    : null;
   return {
     ...toDocumentView(row),
+    ebarimt: row.ebarimtStatus
+      ? {
+          id: row.ebarimtId,
+          status: row.ebarimtStatus,
+          date: row.ebarimtDate,
+          type: row.ebarimtType,
+          lastError: row.ebarimtStatus === "sent" ? null : lastSubmission?.lastError ?? null,
+        }
+      : null,
     purchaseOrderNo: row.purchaseOrder?.documentNo ?? null,
     sourceType: row.sourceType,
     sourceDocumentId: row.sourceDocumentId,
