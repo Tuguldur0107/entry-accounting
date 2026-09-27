@@ -119,7 +119,7 @@ export function WelcomeCard({ data }: { data: WelcomeCardData }) {
           ) : (
             <>
               <CopyValue value={data.mcpUrl} />
-              <ConnectGuide />
+              <ConnectGuide mcpUrl={data.mcpUrl} />
               <p className="text-[11px] text-[var(--ea-text-3)]">
                 Зөвшөөрөх үед идэвхтэй компани — «{data.orgName}» — руу холбогдоно.
               </p>

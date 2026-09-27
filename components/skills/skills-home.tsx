@@ -6,6 +6,7 @@
 import type { ReactNode } from "react";
 
 import { ConnectGuide } from "@/components/skills/connect-guide";
+import type { AiConnectionView } from "@/lib/ai/connector-clients";
 import { CopyValue } from "@/components/skills/copy-value";
 import { StarterPrompts } from "@/components/onboarding/starter-prompts";
 import { startersFor } from "@/lib/onboarding/first-run";
@@ -50,6 +51,7 @@ function Step({ n, title, aside, children }: { n: number; title: string; aside?:
 export function SkillsHome({
   ent,
   mcpUrl,
+  aiConnections,
   options,
   ready,
   canPay,
@@ -57,6 +59,8 @@ export function SkillsHome({
 }: {
   ent: Entitlements;
   mcpUrl: string;
+  /** Энэ хэрэглэгчийн ChatGPT / Claude-ийн OAuth холболт (lib/ai/connector-status.ts). */
+  aiConnections: AiConnectionView[];
   options: SelfPayOptions;
   ready: boolean;
   canPay: boolean;
@@ -117,7 +121,7 @@ export function SkillsHome({
 
       <Step n={2} title={`${"ChatGPT"} / ${"Claude"}-д холбох`}>
         <CopyValue value={mcpUrl} />
-        <ConnectGuide />
+        <ConnectGuide mcpUrl={mcpUrl} connections={aiConnections} />
         <p className="text-xs text-[var(--ea-text-3)]">
           {usable
             ? "Нууц үгээ мартвал нэвтрэх хуудасны «Нууц үг сэргээх»-ээр шинэчилнэ."

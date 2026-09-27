@@ -2,6 +2,7 @@ import { AiConnectView } from "@/components/ai/ai-connect-view";
 import { listApiTokens } from "@/lib/actions/mcp-tokens";
 import { resolveAiPostLimit } from "@/lib/ai/post-limit";
 import { loadAiWriteMode } from "@/lib/ai/write-mode-store";
+import { loadAiConnections } from "@/lib/ai/connector-status";
 import { getActiveOrg, requireModuleAction } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { organizationProfile } from "@/lib/db/schema";
@@ -14,7 +15,7 @@ import { eq } from "drizzle-orm";
 /** /settings/ai — «AI холболт» (ChatGPT / Claude-д MCP-ээр холбох, бичилтийн горим, token). */
 export default async function AiConnectPage() {
   const { userId, orgId } = await getActiveOrg();
-  const [mcpUrl, writeMode, mcpTokens, canWrite, profile, entitlements] = await Promise.all([
+  const [mcpUrl, writeMode, mcpTokens, canWrite, profile, entitlements, aiConnections] = await Promise.all([
     mcpEndpointUrl(),
     loadAiWriteMode(userId, orgId),
     listApiTokens(),
@@ -27,6 +28,7 @@ export default async function AiConnectPage() {
       columns: { aiPostLimitMnt: true },
     }),
     getEntitlements(orgId),
+    loadAiConnections(userId, orgId),
   ]);
 
   return (
@@ -36,6 +38,7 @@ export default async function AiConnectPage() {
       canWrite={canWrite}
       postLimitMnt={resolveAiPostLimit(profile?.aiPostLimitMnt)}
       mcpTokens={mcpTokens}
+      aiConnections={aiConnections}
       starterPrompts={startersFor({
         accounting: hasFeature(entitlements, "accounting"),
         knowledge: hasFeature(entitlements, "knowledge"),
