@@ -25,6 +25,12 @@ export type AuditEventInput = {
   entityId: string;
   /** Хүнд уншигдах товч тайлбар (дугаар, дүн, огноо). */
   summary?: string;
+  /**
+   * Хүн биш СИСТЕМ үүсгэсэн (webhook, хуваарьт ажил) — `userId` нь зөвхөн
+   * бүртгэлийн эзэн (ихэвчлэн owner). Мэдэгдлийн «actor өөртөө мэдэгдэхгүй»
+   * хасалт хамаарахгүй: эзэн өөрөө ч мэдэгдлээ авна.
+   */
+  system?: boolean;
 };
 
 export async function logAuditEvent(

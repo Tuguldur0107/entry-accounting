@@ -69,6 +69,10 @@ tests/notification-{rules,attention,recipients,email}.test.ts
 - **dedupeKey ЗААВАЛ** — дүрмийн «байгалийн үе» (`tax:vat:2026-09:3`,
   `overdue:ar:2026-W41`, `close-due:2026-09`); unique INDEX
   `(organizationId, userId, dedupeKey)` — constraint биш (#5955)
+- **Системийн аудит** (`logAuditEvent({ system: true })` — QPay webhook, төлбөрийн
+  сануулгын хуваарьт ажил): `userId` нь бүртгэлийн эзэн (owner) тул энгийн «actor
+  хасалт» нь эзнийг (ихэвчлэн ганц хэрэглэгч) мэдэгдлээс хасч байв — `system` үед
+  bridge `actorUserId: null`. Хүний үйлдэлд ХЭРЭГЛЭХГҮЙ
 - **Actor өөртөө мэдэгдэхгүй**; хүлээн авагч нь модульд ≥ түвшний эрхтэй
   гишүүд л (`selectRecipients` ↔ `lib/permissions.ts`); `doc.posted` зөвхөн
   ноорог үүсгэсэн хүнд (D4); `period.closed/reopened` бүх гишүүнд (D5)

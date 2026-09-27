@@ -3,28 +3,14 @@
 // Линк ҮҮСГЭХГҮЙ: нийтийн линк нь хэрэглэгчийн ИЛ үйлдлээр л (Линк үүсгэх /
 // И-мэйлээр илгээх) гарна — PDF татахад далдаар гадагш нээгдэхгүй.
 
-import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
+import { publicAppUrl } from "@/lib/app-url";
+import { activeInvoiceLinkToken } from "@/lib/arap/invoice-link";
 import { db } from "@/lib/db";
-import { arApDocuments, arApInvoiceSends } from "@/lib/db/schema";
+import { arApDocuments } from "@/lib/db/schema";
 import type { InvoicePdfOptions } from "@/lib/pdf/invoice-pdf";
 import { invoiceQpayAvailable } from "@/lib/qpay/arap";
-import { publicAppUrl } from "@/lib/qpay/store";
-
-/** Баримтын хамгийн сүүлийн хүчинтэй (цуцлаагүй, дуусаагүй) линкийн токен. */
-export async function activeInvoiceLinkToken(orgId: string, documentId: string): Promise<string | null> {
-  const row = await db.query.arApInvoiceSends.findFirst({
-    where: and(
-      eq(arApInvoiceSends.organizationId, orgId),
-      eq(arApInvoiceSends.documentId, documentId),
-      isNull(arApInvoiceSends.revokedAt),
-      or(isNull(arApInvoiceSends.expiresAt), gt(arApInvoiceSends.expiresAt, new Date()))
-    ),
-    orderBy: [desc(arApInvoiceSends.sentAt)],
-    columns: { token: true },
-  });
-  return row?.token ?? null;
-}
 
 /**
  * PDF-ийн QR-ын сонголт. Нийтийн URL (NEXT_PUBLIC_APP_URL) тохируулаагүй бол
@@ -43,3 +29,5 @@ export async function invoicePdfOptions(
   const qpay = document ? await invoiceQpayAvailable(orgId, document).catch(() => false) : false;
   return { payUrl: `${base}/invoice/${token}`, qpay };
 }
+
+export { activeInvoiceLinkToken };

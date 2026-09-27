@@ -20,7 +20,7 @@ try {
 
 import { executeAiTool } from "../lib/ai/tools";
 import { runAsOrg } from "../lib/auth";
-import { saveArReminderSettings, setCounterpartyReminderOptOut } from "../lib/actions/ar-reminders";
+import { saveArReminderSettings, sendInvoiceReminder, setCounterpartyReminderOptOut } from "../lib/actions/ar-reminders";
 import { syncStandardAccounts } from "../lib/actions/gl";
 import { runInvoiceReminders, sendOrgInvoiceReminders } from "../lib/arap/reminders-run";
 import { db } from "../lib/db";
@@ -30,6 +30,7 @@ import {
   arInvoiceReminders,
   counterparties,
   memberships,
+  notifications,
   organizationProfile,
   organizations,
   users,
@@ -160,6 +161,11 @@ test("Төлбөрийн сануулга: шат бүр нэг удаа, хас
     });
     assert.equal(failed?.status, "failed");
     assert.ok(failed?.error);
+    // Автомат (систем) алдаа → owner-т ч мэдэгдэл (actor хасалт хамаарахгүй).
+    const alerts = await db.query.notifications.findMany({
+      where: and(eq(notifications.organizationId, orgId), eq(notifications.type, "arap.reminder_failed")),
+    });
+    assert.deepEqual(alerts.map((row) => row.userId), [userId]);
     // Байгууллага × өдөр НЭГ ажил: эхний run дахин оролдоод илгээнэ, хоёр дахь нь булаалтгүй.
     const first = await runInvoiceReminders("2026-09-27");
     assert.ok(first.claimed >= 1);
@@ -176,6 +182,20 @@ test("Төлбөрийн сануулга: шат бүр нэг удаа, хас
     assert.equal(optOut.error, undefined, optOut.error);
     assert.deepEqual(await sendOrgInvoiceReminders(orgId, "2026-10-04"), { sent: 0, failed: 0, skipped: 1 });
     assert.equal(sent.length, 2);
+
+    // 7) Гараар — хасагдсан харилцагчид ч (ИЛ үйлдэл), нэхэмжлэхэд өдөрт нэг.
+    const manual = await asOrg(() => sendInvoiceReminder(invoice!.id, null));
+    assert.equal(manual.error, undefined, manual.error);
+    assert.equal(manual.sentTo, "bat@example.mn");
+    assert.equal(sent.length, 3);
+    const again = await asOrg(() => sendInvoiceReminder(invoice!.id, "other@example.mn"));
+    assert.match(again.error ?? "", /аль хэдийн/);
+    assert.equal(sent.length, 3);
+    const manualRow = await db.query.arInvoiceReminders.findFirst({
+      where: and(eq(arInvoiceReminders.documentId, invoice!.id), eq(arInvoiceReminders.status, "sent"), eq(arInvoiceReminders.recipient, "bat@example.mn")),
+      orderBy: (row, { desc }) => [desc(row.createdAt)],
+    });
+    assert.match(manualRow?.stage ?? "", /^manual:\d{4}-\d{2}-\d{2}$/);
   } finally {
     await purgeOrganization(orgId);
     await db.delete(users).where(eq(users.id, userId));

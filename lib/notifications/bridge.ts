@@ -143,7 +143,7 @@ async function notifyLargeAmount(
     const draft = largeAmountNotification(event, amount, threshold);
     if (!draft) return 0;
     return await emitNotification(event.organizationId, draft, {
-      actorUserId: event.userId,
+      actorUserId: event.system ? null : event.userId,
       executor,
     });
   } catch (error) {
@@ -183,7 +183,7 @@ export async function notifyFromAudit(
     return (
       large +
       (await emitNotification(event.organizationId, resolved, {
-        actorUserId: event.userId,
+        actorUserId: event.system ? null : event.userId,
         executor,
       }))
     );

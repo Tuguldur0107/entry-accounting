@@ -16,7 +16,7 @@ import type { QpayIntentStatus } from "@/lib/qpay/constants";
 import { verifyWebhookSignature } from "@/lib/qpay/webhook-signature";
 import { recoverQpayCredentials } from "@/lib/qpay/partner";
 import { markIntentPaid, resolveQpayWebhookSecret } from "@/lib/qpay/store";
-import { QPAY_ARAP_PURPOSE, settleArapIntent } from "@/lib/qpay/arap";
+import { QPAY_ARAP_PURPOSE, settleArapIntent, systemActor } from "@/lib/qpay/arap";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +51,10 @@ export async function POST(request: Request) {
     }
     if (!verified) {
       await logAuditEvent({
-        userId: intent.cashierUserId ?? "",
+        // Нэхэмжлэхийн QPay (purpose arap) кассчингүй — owner-ийн нэрээр; webhook
+        // бол систем тул мэдэгдэл тэр хүнд ч очно (lib/audit.ts `system`).
+        userId: intent.cashierUserId ?? (await systemActor(intent.organizationId)),
+        system: true,
         organizationId: intent.organizationId,
         action: "webhook_rejected",
         entityType: "pos_qpay_intent",
@@ -82,7 +85,10 @@ export async function POST(request: Request) {
       const amount = `${Number(intent.amount).toLocaleString("en-US")}₮`;
       const late = result.late ? " — QR хаагдсаны дараа (хоцорсон төлбөр)" : "";
       await logAuditEvent({
-        userId: intent.cashierUserId ?? "",
+        // Нэхэмжлэхийн QPay (purpose arap) кассчингүй — owner-ийн нэрээр; webhook
+        // бол систем тул мэдэгдэл тэр хүнд ч очно (lib/audit.ts `system`).
+        userId: intent.cashierUserId ?? (await systemActor(intent.organizationId)),
+        system: true,
         organizationId: intent.organizationId,
         // rules.ts: late_paid ба webhook_amount_mismatch → шууд мэдэгдэл (мөнгө санаандгүй орсон).
         action: result.status !== "paid" ? "webhook_amount_mismatch" : result.late ? "late_paid" : "paid",

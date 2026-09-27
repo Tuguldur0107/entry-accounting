@@ -198,6 +198,13 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  "arap.reminder_failed": {
+    category: "documents",
+    severity: "warning",
+    label: "Төлбөрийн сануулга илгээгдсэнгүй",
+    email: "instant",
+    inApp: true,
+  },
   "arap.ebarimt_failed": {
     category: "documents",
     severity: "danger",

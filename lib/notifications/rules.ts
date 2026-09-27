@@ -12,6 +12,8 @@ import type { NotificationAudience, NotificationDraft } from "./types";
 export interface AuditLikeEvent {
   /** Үйлдлийг хийсэн хүн (actor). */
   userId: string;
+  /** Систем үүсгэсэн (lib/audit.ts) — actor хасалт хамаарахгүй. */
+  system?: boolean;
   action: string;
   entityType: string;
   entityId: string;
@@ -234,6 +236,27 @@ export function notificationFromAudit(
       "eBarimt баримт илгээгдсэнгүй",
       { kind: "module", moduleKeys: ["pos"], minLevel: "write" },
       { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
+    );
+  // Төлбөрийн сануулга (docs/dev/arap.md §5g): харилцагч руу захиа явсангүй —
+  // авлагын батлах эрхтэй гишүүдэд. Нэхэмжлэх × өдөр нэг (дахин оролдлого давхардахгүй);
+  // асаалттай ч бүхэлдээ гацсан бол (илгээгч/домэйн) өдөрт нэг.
+  if (entityType === "arap" && action === "reminder_failed")
+    return draft(
+      event,
+      now,
+      "arap.reminder_failed",
+      "Төлбөрийн сануулга илгээгдсэнгүй",
+      { kind: "module", moduleKeys: ["ar"], minLevel: "post" },
+      { severity: "warning", dedupeKey: `reminder-failed:${event.entityId}:${now.toISOString().slice(0, 10)}` }
+    );
+  if (entityType === "settings" && event.entityId === "ar_reminders" && action === "reminders_blocked")
+    return draft(
+      event,
+      now,
+      "arap.reminder_failed",
+      "Төлбөрийн автомат сануулга зогссон",
+      { kind: "module", moduleKeys: ["ar"], minLevel: "post" },
+      { severity: "danger", href: "/receivables/reminders", dedupeKey: `reminders-blocked:${now.toISOString().slice(0, 10)}` }
     );
   // АР нэхэмжлэхийн eBarimt (docs/pos/05 Шат 2) — авлагын батлах эрхтэй гишүүдэд.
   if (entityType === "arap" && action === "ebarimt_failed")

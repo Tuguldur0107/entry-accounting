@@ -50,6 +50,7 @@ export function reminderStageLabel(key: string): string {
   const [kind, days] = key.split(":");
   if (kind === "before") return `${days} хоногийн өмнө`;
   if (kind === "after") return `${days} хоног хэтэрсэн`;
+  if (kind === "manual") return "Гараар";
   return key;
 }
 

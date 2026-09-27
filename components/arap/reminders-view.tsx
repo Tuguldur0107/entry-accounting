@@ -34,16 +34,16 @@ import { REMINDER_STATUS_TONES } from "@/lib/status";
 import { openArapDocPanel } from "@/lib/store/panel-store";
 import { feedback } from "@/lib/ui/feedback";
 
+/** «2026-09-28 11:48» — Улаанбаатарын цагаар (sv-SE нь ISO хэлбэртэй). */
 const dateTime = (value: string | null) =>
   value
-    ? new Intl.DateTimeFormat("mn-MN", {
+    ? new Intl.DateTimeFormat("sv-SE", {
         timeZone: "Asia/Ulaanbaatar",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
-        hour12: false,
       }).format(new Date(value))
     : "";
 

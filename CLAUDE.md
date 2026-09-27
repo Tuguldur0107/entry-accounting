@@ -516,7 +516,8 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 - Call site-д `emit` ГАР дуудахгүй — `logAuditEvent` + `rules.ts`-ийн дүрэм
 - Анхаарлын/хугацааны дүрэм ЗӨВХӨН `attention.ts`-д (нүүр + scheduler НЭГ эх)
 - Мэдэгдэл ХЭЗЭЭ Ч шидэхгүй; `dedupeKey` ЗААВАЛ; actor өөртөө мэдэгдэхгүй (ил
-  бүртгэсэн 2 үл хамаарахаас бусад)
+  бүртгэсэн 2 үл хамаарахаас бусад); СИСТЕМ үүсгэсэн аудит (webhook, хуваарьт ажил —
+  `logAuditEvent({ system: true })`, userId нь owner) actor хасалтгүй — эзэн ч авна
 - Scheduler request scope-гүй (`cookies()` / `getActiveOrg()` дуудахгүй); и-мэйлийн
   гарчигт ДҮН БИЧИХГҮЙ
 

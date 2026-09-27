@@ -6,6 +6,8 @@ import { canAutoDefaultSegment } from "@/lib/gl/posting-code";
 import { SEGMENT_DEFS } from "@/lib/constants/standard-accounts";
 import { db } from "@/lib/db";
 import { baseKindOf, entityKindName } from "@/lib/arap/counterparty-kind";
+import { activeInvoiceLinkUrl } from "@/lib/arap/invoice-link";
+import { qrSvgPath } from "@/lib/qr/matrix";
 import { loadEntityKinds } from "@/lib/arap/entity-kinds";
 import {
   arApDocuments,
@@ -91,6 +93,16 @@ export type ArApDocumentDetail = ArApDocumentView & {
     type: string | null;
     lastError: string | null;
   } | null;
+  /**
+   * АР нэхэмжлэхийн ХҮЧИНТЭЙ нийтийн линк (хэвлэх хуудасны QR) — линк үүсгээгүй
+   * эсвэл NEXT_PUBLIC_APP_URL байхгүй бол null. Хэвлэхэд линк ҮҮСГЭХГҮЙ.
+   */
+  publicLinkUrl: string | null;
+  /**
+   * `publicLinkUrl`-ийн QR матриц (lib/qr/matrix.ts) — СЕРВЕРТ урьдчилан бодно:
+   * хэвлэх хуудас хэвлэх агшинд л mount болдог тул асинхрон QrCode хоосон гарна.
+   */
+  publicLinkQr: { path: string; count: number } | null;
   /** Энэ нэхэмжлэхээс үүссэн кредит/дебит баримтууд. */
   creditDocuments: {
     id: string;
@@ -415,8 +427,11 @@ export async function loadArApDocumentDetail(
         columns: { lastError: true },
       })
     : null;
+  const publicLinkUrl = row.documentType === "ar_invoice" ? await activeInvoiceLinkUrl(orgId, documentId) : null;
   return {
     ...toDocumentView(row),
+    publicLinkUrl,
+    publicLinkQr: publicLinkUrl ? qrSvgPath(publicLinkUrl) : null,
     ebarimt: row.ebarimtStatus
       ? {
           id: row.ebarimtId,
