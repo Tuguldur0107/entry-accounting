@@ -16,6 +16,7 @@ import {
   prepareRoomMessage,
   prepareThreadStart,
   relayText,
+  telegramRef,
 } from "../lib/public-chat/rules";
 
 test("normalizeBody — хоосон, урт, удирдах тэмдэгт, илүү мөр", () => {
@@ -99,19 +100,21 @@ test("parseTeamUpdate — Reply, /room, модерац; өөр chat, bot үл т
       { message: { message_id: 9, chat: { id: -100500 }, from, text: "Сайн байна уу", reply_to_message: { message_id: 7 } } },
       TEAM
     ),
-    { kind: "reply", replyToTelegramId: 7, body: "Сайн байна уу", staff: "Туул", telegramMessageId: 9 }
+    { kind: "reply", replyToTelegramId: 7, body: "Сайн байна уу", staff: "Туул", telegramMessageId: 9, chat: "team", fromId: null }
   );
   assert.deepEqual(parseTeamUpdate({ message: { message_id: 10, chat: { id: TEAM }, from, text: "/room@EntryBot НӨАТ 10%" } }, TEAM), {
     kind: "room_post",
     body: "НӨАТ 10%",
     staff: "Туул",
     telegramMessageId: 10,
+    chat: "team",
+    fromId: null,
   });
-  assert.deepEqual(parseTeamUpdate({ message: { message_id: 11, chat: { id: TEAM }, from, text: "/room" } }, TEAM), { kind: "help" });
+  assert.deepEqual(parseTeamUpdate({ message: { message_id: 11, chat: { id: TEAM }, from, text: "/room" } }, TEAM), { kind: "help", chat: "team", fromId: null });
   const id = "0b7a2c1e-1111-4222-8333-444455556666";
   assert.deepEqual(
     parseTeamUpdate({ callback_query: { id: "cb", from, data: `block:${id}`, message: { message_id: 3, chat: { id: TEAM } } } }, TEAM),
-    { kind: "moderate", action: "block", messageId: id, staff: "Туул", callbackId: "cb" }
+    { kind: "moderate", action: "block", messageId: id, staff: "Туул", callbackId: "cb", chat: "team", fromId: null }
   );
   // Өөр chat, bot-ийн мессеж, Reply-гүй энгийн яриа, танихгүй callback
   assert.equal(parseTeamUpdate({ message: { message_id: 1, chat: { id: 1 }, text: "x", reply_to_message: { message_id: 7 } } }, TEAM).kind, "ignore");
@@ -124,6 +127,36 @@ test("parseTeamUpdate — Reply, /room, модерац; өөр chat, bot үл т
     parseTeamUpdate({ callback_query: { id: "cb", data: "drop:x", message: { message_id: 3, chat: { id: TEAM } } } }, TEAM).kind,
     "ignore"
   );
+});
+
+test("parseTeamUpdate — хувийн chat (нээлттэй групп горим), илгээгчийн id; telegramRef", () => {
+  const PRIVATE = "7160304495";
+  const admin = { id: 42, first_name: "Туул" };
+  // Хувийн chat — тохируулсан үед л танигдана
+  const dm = { message: { message_id: 5, chat: { id: 7160304495 }, from: admin, text: "За", reply_to_message: { message_id: 4 } } };
+  assert.equal(parseTeamUpdate(dm, TEAM).kind, "ignore");
+  assert.deepEqual(parseTeamUpdate(dm, TEAM, PRIVATE), {
+    kind: "reply",
+    replyToTelegramId: 4,
+    body: "За",
+    staff: "Туул",
+    telegramMessageId: 5,
+    chat: "private",
+    fromId: 42,
+  });
+  // Группаас — илгээгчийн id (админ эсэхийг webhook шалгана)
+  const group = parseTeamUpdate({ message: { message_id: 6, chat: { id: TEAM }, from: { id: 99 }, text: "/help" } }, TEAM, PRIVATE);
+  assert.deepEqual(group, { kind: "help", chat: "team", fromId: 99 });
+  const id = "0b7a2c1e-1111-4222-8333-444455556666";
+  const cb = parseTeamUpdate(
+    { callback_query: { id: "cb", from: { id: 99 }, data: `hide:${id}`, message: { message_id: 3, chat: { id: TEAM } } } },
+    TEAM,
+    PRIVATE
+  );
+  assert.equal(cb.kind === "moderate" && cb.fromId, 99);
+  // message_id chat бүрт тусдаа — хувийн chat-ийнх угтвартай
+  assert.equal(telegramRef("team", 7), "7");
+  assert.equal(telegramRef("private", 7), "p:7");
 });
 
 test("relayText — HTML escape, холбоо барих мэдээлэл, нуусан тэмдэглэгээ", () => {

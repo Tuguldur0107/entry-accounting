@@ -528,6 +528,8 @@ tests/ai-post-limit.test.ts  өсгөлтийн хориг, бууруулалт
 - Telegram relay commit-ийн ДАРАА, шидэхгүй; чатын bot мэдэгдлийн bot-оос ТУСДАА
   (тэр нь `getUpdates` — webhook тавибал эвдэрнэ)
 - Telegram ба Console НЭГ store функц — тусдаа логик ХОРИОТОЙ
+- Нээлттэй групп горим (`PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID`): хувийн яриа
+  нийтийн группт ХЭЗЭЭ Ч очихгүй; группаас бичих/модерац ЗӨВХӨН админ
 
 ### 10. Effective date (татвар/цалины тооцоололд)
 

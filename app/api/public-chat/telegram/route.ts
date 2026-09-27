@@ -2,14 +2,23 @@
 //
 //   POST /api/public-chat/telegram   (Telegram → X-Telegram-Bot-Api-Secret-Token)
 //
-// Зөвхөн PUBLIC_CHAT_TELEGRAM_CHAT_ID группаас: relay мессеж дээр Reply →
+// Зөвхөн PUBLIC_CHAT_TELEGRAM_CHAT_ID группаас (ба тохируулсан бол
+// PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID-аас): relay мессеж дээр Reply →
 // тухайн зочин/өрөөнд «Entry баг» нэрээр хариу; `/room <текст>` → нийтийн
-// өрөөнд; [Нуух]/[Сэргээх]/[Зочныг хаах] товч → модерац. Бусад update-ийг
-// үл тоомсорлож 200 буцаана (Telegram дахин илгээхгүй).
+// өрөөнд; [Нуух]/[Сэргээх]/[Зочныг хаах] товч → модерац. Групп НЭЭЛТТЭЙ
+// (хувийн chat тусдаа) үед группаас ЗӨВХӨН админ — бусдын Reply бол энгийн
+// яриа. Бусад update-ийг үл тоомсорлож 200 буцаана (Telegram дахин илгээхгүй).
 import { NextResponse } from "next/server";
 
 import { chatGate } from "@/lib/public-chat/http";
-import { PublicChatInputError, TEAM_HELP_TEXT, escapeHtml, parseTeamUpdate, type TelegramUpdate } from "@/lib/public-chat/rules";
+import {
+  PublicChatInputError,
+  TEAM_HELP_TEXT,
+  escapeHtml,
+  parseTeamUpdate,
+  telegramRef,
+  type TelegramUpdate,
+} from "@/lib/public-chat/rules";
 import {
   findMessage,
   findMessageByTelegramId,
@@ -20,8 +29,10 @@ import {
 } from "@/lib/public-chat/store";
 import {
   answerCallback,
+  isTeamChatAdmin,
   publicChatTelegramConfig,
   sendTeamText,
+  teamGroupIsPublic,
   updateModerationButtons,
   webhookAuthorized,
 } from "@/lib/public-chat/telegram";
@@ -45,26 +56,40 @@ export async function POST(request: Request) {
   } catch {
     return OK();
   }
-  const command = parseTeamUpdate(update, config.chatId);
+  const command = parseTeamUpdate(update, config.chatId, config.privateChatId);
+  if (command.kind === "ignore") return OK();
+  const chat = command.chat;
+
+  // Нээлттэй группт хэн ч «Entry баг» нэрээр бичиж, зочныг хааж чадахгүй.
+  if (chat === "team" && teamGroupIsPublic(config) && !(await isTeamChatAdmin(config, command.fromId))) {
+    if (command.kind === "moderate") await answerCallback(config, command.callbackId, "Зөвхөн группын админ");
+    return OK();
+  }
 
   try {
     switch (command.kind) {
-      case "ignore":
-        return OK();
       case "help":
-        await sendTeamText(config, escapeHtml(TEAM_HELP_TEXT));
+        await sendTeamText(config, escapeHtml(TEAM_HELP_TEXT), undefined, chat);
         return OK();
       case "reply": {
+        const ownRef = telegramRef(chat, command.telegramMessageId);
         // Webhook дахин ирсэн (өмнөх оролдлого 5xx) — аль хэдийн бичигдсэн.
-        if (await findMessageByTelegramId(command.telegramMessageId)) return OK();
-        const row = await postTeamReply(command.replyToTelegramId, command.body, command.staff, command.telegramMessageId);
-        if (!row)
-          await sendTeamText(config, "Энэ мессеж зочны чатын relay биш — зочны мессеж дээр Reply хийнэ үү.", command.telegramMessageId);
+        if (await findMessageByTelegramId(ownRef)) return OK();
+        const row = await postTeamReply(telegramRef(chat, command.replyToTelegramId), command.body, command.staff, ownRef);
+        // Нээлттэй группт энгийн яриа ч Reply-тэй байдаг — тэнд чимээгүй.
+        if (!row && !(chat === "team" && teamGroupIsPublic(config)))
+          await sendTeamText(
+            config,
+            "Энэ мессеж зочны чатын relay биш — зочны мессеж дээр Reply хийнэ үү.",
+            command.telegramMessageId,
+            chat
+          );
         return OK();
       }
       case "room_post": {
-        if (await findMessageByTelegramId(command.telegramMessageId)) return OK();
-        await postTeamMessage({ scope: "room" }, command.body, command.staff, command.telegramMessageId);
+        const ownRef = telegramRef(chat, command.telegramMessageId);
+        if (await findMessageByTelegramId(ownRef)) return OK();
+        await postTeamMessage({ scope: "room" }, command.body, command.staff, ownRef);
         return OK();
       }
       case "moderate": {
@@ -92,7 +117,7 @@ export async function POST(request: Request) {
     }
   } catch (caught) {
     if (caught instanceof PublicChatInputError) {
-      await sendTeamText(config, escapeHtml(caught.message)).catch(() => undefined);
+      await sendTeamText(config, escapeHtml(caught.message), undefined, chat).catch(() => undefined);
       return OK();
     }
     console.error("[public-chat] telegram webhook:", caught);

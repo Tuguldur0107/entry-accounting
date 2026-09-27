@@ -280,14 +280,15 @@ export async function postPrivateMessage(
 
 // ─── Entry баг (Telegram / Console) ─────────────────────────────────────────
 
-export async function setTelegramMessageId(messageId: string, telegramMessageId: number): Promise<void> {
+/** `telegramMessageId` — группынх тоо, хувийн chat-ийнх `telegramRef("private", …)`. */
+export async function setTelegramMessageId(messageId: string, telegramMessageId: number | string): Promise<void> {
   await db
     .update(publicChatMessages)
     .set({ telegramMessageId: String(telegramMessageId) })
     .where(eq(publicChatMessages.id, messageId));
 }
 
-export async function findMessageByTelegramId(telegramMessageId: number): Promise<MessageRow | null> {
+export async function findMessageByTelegramId(telegramMessageId: number | string): Promise<MessageRow | null> {
   const [row] = await db
     .select()
     .from(publicChatMessages)
@@ -314,7 +315,7 @@ export async function postTeamMessage(
   target: TeamPostTarget,
   rawBody: string,
   staff: string,
-  telegramMessageId: number | null = null
+  telegramMessageId: number | string | null = null
 ): Promise<MessageRow> {
   const body = normalizeBody(rawBody);
   const tg = telegramMessageId == null ? null : String(telegramMessageId);
@@ -358,10 +359,10 @@ export async function postTeamMessage(
 
 /** Relay мессеж дээрх Reply → тэр мессежийн өрөө/яриа руу багийн хариу. */
 export async function postTeamReply(
-  replyToTelegramId: number,
+  replyToTelegramId: number | string,
   body: string,
   staff: string,
-  telegramMessageId: number | null = null
+  telegramMessageId: number | string | null = null
 ): Promise<MessageRow | null> {
   const original = await findMessageByTelegramId(replyToTelegramId);
   if (!original) return null;

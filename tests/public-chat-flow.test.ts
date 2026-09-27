@@ -12,9 +12,10 @@ import { eq, inArray } from "drizzle-orm";
 import { db } from "../lib/db";
 import { publicChatMessages, publicChatVisitors } from "../lib/db/schema";
 import { requestAiReply } from "../lib/public-chat/assistant";
-import { PublicChatInputError, prepareRoomMessage, prepareThreadStart } from "../lib/public-chat/rules";
+import { PublicChatInputError, prepareRoomMessage, prepareThreadStart, telegramRef } from "../lib/public-chat/rules";
 import {
   createVisitor,
+  findMessageByTelegramId,
   findVisitor,
   getThreadForConsole,
   ipRecentlyBlocked,
@@ -120,8 +121,11 @@ test("хувийн яриа — зочин бүрд нэг, багийн хар�
   assert.equal(summary.awaitingReply, true);
   assert.equal(summary.messageCount, 2);
 
-  await setTelegramMessageId(second.message.id, TG + 10);
-  const reply = await postTeamReply(TG + 10, "Сайн байна уу! Үнэ 1 суудал …", "Туул");
+  // Нээлттэй групп горим: хувийн relay тусдаа chat-д — түлхүүр нь `p:` угтвартай,
+  // группын ижил дугаартай мессежтэй давхцахгүй
+  await setTelegramMessageId(second.message.id, telegramRef("private", TG + 10));
+  assert.equal(await findMessageByTelegramId(TG + 10), null, "группын ижил message_id → өөр мессеж");
+  const reply = await postTeamReply(telegramRef("private", TG + 10), "Сайн байна уу! Үнэ 1 суудал …", "Туул", telegramRef("private", TG + 11));
   assert.equal(reply?.scope, "private");
   assert.equal(reply?.threadId, first.thread.id);
 

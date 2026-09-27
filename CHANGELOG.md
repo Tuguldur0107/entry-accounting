@@ -21,6 +21,12 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **Landing-ийн чат: нээлттэй Telegram групп горим.** Шинэ env
+  `PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID` тавибал зочны хувийн яриа (утас,
+  и-мэйл, AI-ийн хариу) зөвхөн тэр chat руу очиж, олон нийтийн группт
+  харагдахгүй; группаас «Entry баг» нэрээр хариулах, `/room`, модерацын товч
+  зөвхөн группын админд (docs/dev/public-chat.md).
+
 - **Landing-ийн чатын «AI туслах»** (`docs/dev/public-chat.md`, CLAUDE.md §9f/§9a үл
   хамаарал). Хувийн ярианд Entry-г сонирхогчид борлуулалтын өмнөх мэдээллийг AI
   эхэлж өгнө; Claude-г entry-landing дуудна (энэ сервер AI API дуудахгүй). Entry баг
