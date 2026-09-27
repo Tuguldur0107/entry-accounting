@@ -7,7 +7,9 @@ import {
   Document,
   Image,
   Page,
+  Path,
   StyleSheet,
+  Svg,
   Text,
   View,
   renderToBuffer,
@@ -15,6 +17,7 @@ import {
 
 import type { InvoicePayload } from "@/lib/arap/invoice-payload";
 import { PDF_FONT_FAMILY } from "@/lib/pdf/register-fonts";
+import { qrSvgPath } from "@/lib/qr/matrix";
 
 // PDF бол ЦААС — дэлгэцийн theme-ээс хамааралгүй тул энд утга шууд
 // бичигдэнэ (ui-kit-ийн "цаас үргэлж цагаан" зарчимтай ижил).
@@ -116,7 +119,7 @@ const fmt = (value: number) =>
     maximumFractionDigits: 2,
   });
 
-function InvoiceDocument({ invoice }: { invoice: InvoicePayload }) {
+function InvoiceDocument({ invoice, options }: { invoice: InvoicePayload; options: InvoicePdfOptions }) {
   const { company, counterparty } = invoice;
   const hasItems = invoice.lines.some((line) => line.itemName);
   const withStamp = company.autoStamp;
@@ -266,6 +269,9 @@ function InvoiceDocument({ invoice }: { invoice: InvoicePayload }) {
           </View>
         )}
 
+        {/* Нэхэмжлэхийн нээлттэй линкийн QR — утсаар уншуулж онлайнаар үзэх, QPay-ээр төлөх */}
+        {options.payUrl && <LinkQr url={options.payUrl} qpay={!!options.qpay} />}
+
         {/* Гарын үсэг + тамга */}
         <View style={styles.signBlock} wrap={false}>
           {signatures.map((signature, index) => (
@@ -307,9 +313,41 @@ function InvoiceDocument({ invoice }: { invoice: InvoicePayload }) {
   );
 }
 
+export interface InvoicePdfOptions {
+  /** Нээлттэй линк (`/invoice/<token>`) — өгвөл QR хэвлэгдэнэ. */
+  payUrl?: string | null;
+  /** Байгууллага QPay-ээр хүлээн авдаг (₮, нээлттэй үлдэгдэлтэй) — QR-ын тайлбарт. */
+  qpay?: boolean;
+}
+
+function LinkQr({ url, qpay }: { url: string; qpay: boolean }) {
+  const { path, count } = qrSvgPath(url);
+  const quiet = 4;
+  const box = count + quiet * 2;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }} wrap={false}>
+      <Svg width={74} height={74} viewBox={`${-quiet} ${-quiet} ${box} ${box}`}>
+        <Path d={path} fill={INK} />
+      </Svg>
+      <View style={{ marginLeft: 8, maxWidth: "70%" }}>
+        <Text style={{ fontSize: 9, fontWeight: "bold" }}>
+          {qpay ? "QR уншуулж QPay-ээр төлөх" : "QR уншуулж онлайнаар үзэх"}
+        </Text>
+        <Text style={[styles.small, { marginTop: 2 }]}>
+          {qpay
+            ? "Утасныхаа камераар уншуулахад нэхэмжлэх нээгдэж, банкны аппаараа шууд төлнө."
+            : "Утасныхаа камераар уншуулахад нэхэмжлэх онлайнаар нээгдэнэ."}
+        </Text>
+        <Text style={[styles.small, { marginTop: 2 }]}>{url}</Text>
+      </View>
+    </View>
+  );
+}
+
 /** Нэхэмжлэхийн PDF-ийг Buffer болгож буцаана (route, и-мэйл хавсралтад). */
 export async function renderInvoicePdf(
-  invoice: InvoicePayload
+  invoice: InvoicePayload,
+  options: InvoicePdfOptions = {}
 ): Promise<Buffer> {
-  return renderToBuffer(<InvoiceDocument invoice={invoice} />);
+  return renderToBuffer(<InvoiceDocument invoice={invoice} options={options} />);
 }

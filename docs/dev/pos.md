@@ -322,6 +322,9 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   ээлжийн `cashRefunds`-д тооцогдоно; bank → Кт сонгосон данс; store_credit → Кт
   `storeCreditLiabilityAccountNumber` + `pos_store_credits`. Бүгд Dt QPay түр данс тул ewallet
   settlement тулгана. Тест `qpay-refund-flow` (DB)
+- **Нэхэмжлэхийн QPay** (`purpose "arap"`, `docs/dev/arap.md` §5f): ижил intent машин,
+  ээлжгүй; `paid` → `settleArapIntent` орлогын баримт (Dt түр данс / Кт авлага). Баннерт
+  «Нэхэмжлэх AR-…», товч «Нэхэмжлэхэд бүртгэх»; илүү төлбөр `[QPAY_ARAP_OVERPAID]` → «Буцаах»
 - **GL ӨӨРЧЛӨЛТГҮЙ:** `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ,
   ККТТ 1% шимтгэл settlement-д гарна); QPay буцаалт БАЙХГҮЙ (Quick QR refund-гүй) —
   бэлэн / шилжүүлэг / дэлгүүрийн кредитээр. **QPay хэлбэрт «Буцаалтад ашиглана»

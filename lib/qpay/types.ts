@@ -58,6 +58,10 @@ export interface QpayIntentView {
   cashierName: string;
   /** Snapshot-ын товч — жагсаалтад (мөрийн тоо, харилцагч). */
   lineCount: number;
+  /** `pos` — кассын сагс; `arap` — авлагын нэхэмжлэхийн нээлттэй линкээс. */
+  purpose: "pos" | "arap";
+  /** arap: нэхэмжлэхийн дугаар (баннерт). */
+  arApDocumentNo: string | null;
   /** Харилцагчид буцааж болох дүн (`refundableAmount`); null = буцаах зүйлгүй. */
   refundableAmount: number | null;
   resolution: QpayIntentResolution | null;

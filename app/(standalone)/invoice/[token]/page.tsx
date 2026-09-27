@@ -7,7 +7,9 @@ import { notFound } from "next/navigation";
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
 import { db } from "@/lib/db";
 import { emitNotification } from "@/lib/notifications/emit";
-import { arApInvoiceSends } from "@/lib/db/schema";
+import { arApDocuments, arApInvoiceSends } from "@/lib/db/schema";
+import { invoiceQpayAvailable } from "@/lib/qpay/arap";
+import { InvoiceQpayPay } from "@/components/arap/invoice-qpay-pay";
 
 export const metadata = { title: "Нэхэмжлэх" };
 
@@ -73,6 +75,11 @@ export default async function PublicInvoicePage({
   const { company, counterparty } = invoice;
   const hasItems = invoice.lines.some((line) => line.itemName);
   const balance = invoice.totalAmount - invoice.paidAmount;
+  // QPay-ээр төлөх товч — байгууллага QPay холбосон, ₮ нэхэмжлэх, нээлттэй үлдэгдэлтэй үед.
+  const rawDocument = await db.query.arApDocuments.findFirst({
+    where: and(eq(arApDocuments.id, send.documentId), eq(arApDocuments.organizationId, send.organizationId)),
+  });
+  const qpayAvailable = rawDocument ? await invoiceQpayAvailable(send.organizationId, rawDocument).catch(() => false) : false;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
@@ -189,6 +196,8 @@ export default async function PublicInvoicePage({
           </div>
         )}
       </div>
+
+      {qpayAvailable && <InvoiceQpayPay token={token} balance={balance} />}
 
       <div className="mt-4 flex justify-center">
         <a

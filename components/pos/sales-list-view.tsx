@@ -97,7 +97,7 @@ export function SalesListView({
       feedback.error(result.error);
       return;
     }
-    feedback.posted(`${result.documentNo} батлагдлаа (QPay)`);
+    feedback.posted(intent.purpose === "arap" ? `${result.documentNo} нэхэмжлэхэд QPay төлөлт бүртгэгдлээ` : `${result.documentNo} батлагдлаа (QPay)`);
     loadQpayPending();
     onRangeChange(rangeFrom, rangeTo);
   }
@@ -367,9 +367,12 @@ export function SalesListView({
                   {intent.qpayInvoiceId ? ` · ${intent.qpayInvoiceId.slice(0, 8)}…` : ""}
                 </span>
                 {intent.lastError && <span className="text-[var(--ea-danger-fg)]">{intent.lastError}</span>}
+                {intent.arApDocumentNo && (
+                  <span className="font-mono text-[var(--ea-text-2)]">Нэхэмжлэх {intent.arApDocumentNo}</span>
+                )}
                 {intent.status === "paid" && (
                   <Button size="xs" disabled={qpayBusy === intent.id} onClick={() => finalizeIntent(intent)}>
-                    Борлуулалт болгох
+                    {intent.purpose === "arap" ? "Нэхэмжлэхэд бүртгэх" : "Борлуулалт болгох"}
                   </Button>
                 )}
                 {intent.status === "open" && (

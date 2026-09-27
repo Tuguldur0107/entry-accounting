@@ -4370,6 +4370,14 @@ export const posQpayIntents = pgTable(
     lastError: text("last_error"),
     /** Буцаалтаар шийдсэн (status refunded) — журнал / мөнгөн баримтын холбоос. */
     resolution: jsonb("resolution").$type<Record<string, unknown>>(),
+    /**
+     * Зориулалт: `pos` — кассын сагс (cartSnapshot → createPosSale); `arap` —
+     * авлагын нэхэмжлэхийн нээлттэй линкээс (arApDocumentId → орлогын баримт).
+     */
+    purpose: text("purpose").notNull().default("pos"),
+    arApDocumentId: uuid("ar_ap_document_id").references(() => arApDocuments.id, { onDelete: "set null" }),
+    /** arap: төлөгдмөгц үүссэн орлогын кассын баримт (Дт QPay түр данс / Кт Авлага). */
+    cashDocumentId: uuid("cash_document_id").references(() => cashDocuments.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -4378,6 +4386,9 @@ export const posQpayIntents = pgTable(
       .on(t.organizationId, t.qpayInvoiceId)
       .where(sql`${t.qpayInvoiceId} is not null`),
     index("pos_qpay_intents_org_status_ix").on(t.organizationId, t.status, t.createdAt),
+    index("pos_qpay_intents_arap_doc_ix")
+      .on(t.arApDocumentId, t.createdAt)
+      .where(sql`${t.arApDocumentId} is not null`),
   ]
 );
 
