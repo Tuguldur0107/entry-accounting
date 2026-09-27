@@ -233,6 +233,87 @@ export const platformSupportSessions = pgTable(
 );
 
 /**
+ * LANDING-ИЙН ЧАТ (entry.mn) — бүртгэлгүй зочин (docs/dev/public-chat.md).
+ * organizationId БАЙХГҮЙ: платформын түвшин, харилцагчийн өгөгдөлтэй ХОЛБООГҮЙ.
+ * Зочин = Turnstile давсан хөтчийн сесс; токен DB-д зөвхөн sha256. Модератор
+ * зочныг хааж болно (blockedAt) — тэр үед бичих эрхгүй, нийтийн мессеж нуугдана.
+ */
+export const publicChatVisitors = pgTable(
+  "public_chat_visitors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tokenHash: text("token_hash").notNull(),
+    /** sha256(AUTH_SECRET + IP) — түүхий IP хадгалахгүй. */
+    ipHash: text("ip_hash"),
+    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+    blockedAt: timestamp("blocked_at"),
+    blockedBy: text("blocked_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("public_chat_visitors_token_ux").on(t.tokenHash)]
+);
+
+/** Зочин ↔ Entry баг хувийн яриа — зочин бүрд НЭГ (дахин бичихэд үргэлжилнэ). */
+export const publicChatThreads = pgTable(
+  "public_chat_threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    visitorId: uuid("visitor_id")
+      .notNull()
+      .references(() => publicChatVisitors.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Сонголтоор — бүртгүүлсэн хэрэглэгчтэй Console уншихдаа и-мэйлээр тулгана. */
+    email: text("email"),
+    phone: text("phone"),
+    /** open | closed — зочин дахин бичвэл open болно. */
+    status: text("status").notNull().default("open"),
+    lastMessageAt: timestamp("last_message_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("public_chat_threads_visitor_ux").on(t.visitorId),
+    index("public_chat_threads_last_ix").on(t.lastMessageAt),
+  ]
+);
+
+/**
+ * Мессеж — scope `room` (нийтийн өрөө, threadId null) | `private` (threadId).
+ * (scope ↔ threadId тохирлыг store баталгаажуулна — CHECK constraint-ийг
+ * drizzle-kit push дахин diff хийдэг тул схемд бичээгүй.)
+ * author `visitor` | `team`; багийн мессеж нийтэд «Entry баг» нэрээр, ажилтны
+ * нэр (staffName) зөвхөн Console-д. telegramMessageId — багийн группын relay
+ * мессеж; тэр дээр Reply хийхэд хариу хаашаа очихыг олно.
+ */
+export const publicChatMessages = pgTable(
+  "public_chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scope: text("scope").notNull(),
+    threadId: uuid("thread_id").references(() => publicChatThreads.id, { onDelete: "cascade" }),
+    visitorId: uuid("visitor_id").references(() => publicChatVisitors.id, { onDelete: "set null" }),
+    author: text("author").notNull(),
+    name: text("name").notNull(),
+    staffName: text("staff_name"),
+    body: text("body").notNull(),
+    /** Нийтийн өрөөнд хувийн мэдээлэл автоматаар нуугдсан. */
+    masked: boolean("masked").notNull().default(false),
+    replyToId: uuid("reply_to_id"),
+    telegramMessageId: text("telegram_message_id"),
+    hiddenAt: timestamp("hidden_at"),
+    hiddenBy: text("hidden_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ columns: [t.replyToId], foreignColumns: [t.id] }).onDelete("set null"),
+    index("public_chat_messages_scope_time_ix").on(t.scope, t.createdAt),
+    index("public_chat_messages_thread_time_ix").on(t.threadId, t.createdAt),
+    uniqueIndex("public_chat_messages_telegram_ux")
+      .on(t.telegramMessageId)
+      .where(sql`${t.telegramMessageId} is not null`),
+  ]
+);
+
+/**
  * МЭДЛЭГИЙН САН — IFRS / татвар / цалин / workflow (docs/knowledge/00-proposal.md).
  * organizationId БАЙХГҮЙ: нийтийн лавлах (exchange_rates-тэй ижил зарчим).
  * Мөр = нэг сэдвийн НЭГ хэсэг (`## ` толгой бүр); AI tool хэсгээр л уншдаг

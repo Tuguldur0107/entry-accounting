@@ -19,6 +19,17 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   Production-ийг Railway service `knowledge-sync` (entry-knowledge repo, token-гүй,
   push бүрд) бичнэ — `entry-accounting`-д `KNOWLEDGE_REPO*` env тавихгүй.
 
+### Added
+
+- **Landing-ийн чат (entry.mn) — нийтийн өрөө + хувийн яриа** (`docs/dev/public-chat.md`,
+  CLAUDE.md §9f). Бүртгэлгүй зочин Turnstile давж нийтийн өрөөнд эсвэл Entry багтай
+  1:1 бичнэ; мессеж багийн Telegram групп руу relay болж, Reply-ээр хариулна
+  (`/room` — өрөөнд, [Нуух]/[Зочныг хаах] — модерац). Нийтийн өрөөнд холбоос хориотой,
+  утас/и-мэйл/РД/данс автоматаар нуугдана. Entry Console `GET/POST /api/platform/public-chat`.
+  Зөвхөн saas; AI автоматаар хариулахгүй. Шинэ хүснэгт `public_chat_visitors`,
+  `public_chat_threads`, `public_chat_messages`; тест `public-chat` (ЦЭВЭР) ба
+  `public-chat-flow` (DB).
+
 ### Changed
 
 - **Ээлж нээх: төхөөрөмж сүүлд сонгосон касс / агуулахаа санана.** Олон салбартай
@@ -186,7 +197,7 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
   ачаалагддаг) 250KB → ~87KB: хөндлөн дүрэм + модуль бүрийн ХАТУУ дүрмийн хураангуй
   үлдэж, дэлгэрэнгүй нь `docs/dev/<модуль>.md` (16 файл, `docs/dev/README.md` индекс)
   руу ҮГЧЛЭН зөөгдсөн — нэг ч мөр алдагдаагүй (скриптээр шалгасан). POS / eBarimt /
-  QPay (§5c) нээлттэй PR-тай зөрчилдөхгүйн тулд дараагийн алхамд зөөгдөнө.
+  QPay (§5c) нь `docs/dev/pos.md` (хураангуй нь `CLAUDE.md`-д) — эцэст нь `CLAUDE.md` ~50KB.
 
 - **eBarimt: зээлээр борлуулалт НЭХЭМЖЛЭХ төрлөөр.** Зээлээр (дараа төлөх) хэсэгтэй
   борлуулалт `B2C_INVOICE` / `B2B_INVOICE` болж илгээгдэнэ; зээлийн хэсэг

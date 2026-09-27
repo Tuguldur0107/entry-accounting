@@ -203,6 +203,10 @@ Audit      audit_events — статус шилжилт бүрд lib/audit.ts lo
            token_hash (sha256, unique INDEX), user_id (линк НЭГ хүнд уягдана),
            role viewer|admin (owner БАЙХГҮЙ), expires_at (линк) · started_at →
            ends_at (сесс) · ended_at (гарсан), reason/issued_by — Console
+Чат        public_chat_visitors / public_chat_threads / public_chat_messages —
+           landing-ийн чат (§9f), organizationId БАЙХГҮЙ: зочны токен/IP sha256,
+           зочинд НЭГ яриа (visitor_id unique), scope room|private, author
+           visitor|team, telegram_message_id partial unique, hidden_at, blocked_at
 Мэдлэг     knowledge_articles — НИЙТИЙН лавлах (organizationId БАЙХГҮЙ): slug ×
            section unique INDEX, category, title/heading/body, citation, modules
            jsonb, source_path, checksum (sha256 — seed алгасалт), sort_order.
