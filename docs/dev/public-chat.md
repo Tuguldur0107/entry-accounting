@@ -106,6 +106,7 @@ masked, reply_to_id self-FK, telegram_message_id partial unique — webhook да
 PUBLIC_CHAT_TELEGRAM_BOT_TOKEN=      # @BotFather — мэдэгдлийн bot-оос ТУСДАА bot
 PUBLIC_CHAT_TELEGRAM_CHAT_ID=        # багийн групп (-100…); bot-ыг группт нэмнэ
 PUBLIC_CHAT_TELEGRAM_WEBHOOK_SECRET= # 16–256, A-Z a-z 0-9 _ -
+PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID= # сонголтоор — «нээлттэй групп» горим (доор)
 TURNSTILE_SECRET_KEY=                # Cloudflare Turnstile (site key нь landing-д)
 PUBLIC_CHAT_ALLOWED_ORIGINS=         # сонголтоор; default entry.mn + www
 ```
@@ -117,6 +118,29 @@ Deploy-ийн дараа НЭГ удаа: `node scripts/public-chat-telegram-web
 
 Группийн chat id олох: bot-ыг группт нэмээд группт `/help` бичээд
 `https://api.telegram.org/bot<TOKEN>/getUpdates` (webhook тавихаас ӨМНӨ) → `chat.id`.
+
+### Нээлттэй групп горим (2026-09-27)
+
+Product owner олон нийтийн Telegram группыг (landing-ийн QR/линк) багийн
+групптай НЭГ байлгахаар шийдсэн. `PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID`
+тавибал (`lib/public-chat/telegram.ts`):
+
+| | `CHAT_ID` (нээлттэй групп) | `PRIVATE_CHAT_ID` (эзний bot-той DM / хаалттай групп) |
+|---|---|---|
+| Нийтийн өрөөний relay + [Нуух]/[Хаах] | ✅ | — |
+| Хувийн яриа (зочны утас, и-мэйл), AI-ийн хариу, Console-ийн хувийн хариу | ❌ ХЭЗЭЭ Ч | ✅ |
+| Reply → «Entry баг», `/room`, товч, `/help` | ЗӨВХӨН группын админ (`getChatAdministrators`, 60 сек кэш, алдаа → эрхгүй) | ✅ |
+
+- Энгийн гишүүний Reply бол группын яриа — чимээгүй үл тоомсорлоно, товч
+  дарвал «Зөвхөн группын админ». Багийн гишүүнийг группт АДМИН болгоно.
+- Telegram-ийн `message_id` chat бүрт тусдаа тоологддог тул хувийн chat-ийн
+  мессежийг DB-д `p:<id>` түлхүүрээр (`telegramRef`) — группынх цэвэр тоо
+  хэвээр (өмнөх мөрүүд хөндөгдөхгүй, unique index давхцахгүй).
+- DM ашиглах бол эзэн bot-д нэг удаа **Start** дарна (bot эхэлж бичиж чадахгүй).
+- Группыг олон нийтэд **invite линкээр** (`t.me/+…`) нээнэ. Нийтийн username
+  (`t.me/нэр`) тавибал Telegram энгийн группыг supergroup болгож chat id
+  (`-100…`) өөрчилнө — тэгвэл `PUBLIC_CHAT_TELEGRAM_CHAT_ID`-г шинэчилнэ.
+- Env тавиагүй бол өмнөх шигээ — бүх relay нэг (хаалттай) группт, эрх шалгахгүй.
 
 ## AI туслах (2026-09-27)
 

@@ -3,25 +3,56 @@
 //
 // Мэдэгдлийн bot (lib/notifications/channels/telegram.ts)-оос ТУСДАА bot:
 // тэр нь холболтын кодоо `getUpdates`-ээр уншдаг тул webhook тавибал эвдэрнэ.
-// env: PUBLIC_CHAT_TELEGRAM_BOT_TOKEN, PUBLIC_CHAT_TELEGRAM_CHAT_ID (багийн
-// групп), PUBLIC_CHAT_TELEGRAM_WEBHOOK_SECRET (Telegram-ийн secret_token).
+// env: PUBLIC_CHAT_TELEGRAM_BOT_TOKEN, PUBLIC_CHAT_TELEGRAM_CHAT_ID (групп),
+// PUBLIC_CHAT_TELEGRAM_WEBHOOK_SECRET (Telegram-ийн secret_token).
 // Тохируулаагүй бол relay алгасна — мессеж DB-д, Console-д харагдсаар.
+//
+// НЭЭЛТТЭЙ ГРУПП (олон нийтийн group-ийг ашиглах) — PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID
+// тавибал: хувийн ярианы relay (зочны утас, и-мэйл, AI-ийн хариу) ЗӨВХӨН тэр
+// chat руу (эзний bot-той DM эсвэл хаалттай групп) — нийтийн группт ОЧИХГҮЙ;
+// группаас хариулах / `/room` / модерацын товч ЗӨВХӨН группын админд.
 
 import { timingSafeEqual } from "node:crypto";
 
-import { escapeHtml, relayText, type PublicChatScope } from "./rules";
+import { escapeHtml, relayText, telegramRef, type PublicChatScope, type TelegramChatRole } from "./rules";
 import { setTelegramMessageId } from "./store";
 
 const API = "https://api.telegram.org";
 const TIMEOUT_MS = 10_000;
 
-export type PublicChatTelegramConfig = { token: string; chatId: string; webhookSecret: string | null };
+export type PublicChatTelegramConfig = {
+  token: string;
+  chatId: string;
+  /** null — хувийн яриа ч группт (хаалттай багийн групп). */
+  privateChatId: string | null;
+  webhookSecret: string | null;
+};
 
 export function publicChatTelegramConfig(): PublicChatTelegramConfig | null {
   const token = process.env.PUBLIC_CHAT_TELEGRAM_BOT_TOKEN?.trim();
   const chatId = process.env.PUBLIC_CHAT_TELEGRAM_CHAT_ID?.trim();
   if (!token || !chatId) return null;
-  return { token, chatId, webhookSecret: process.env.PUBLIC_CHAT_TELEGRAM_WEBHOOK_SECRET?.trim() || null };
+  const privateChatId = process.env.PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID?.trim() || null;
+  return {
+    token,
+    chatId,
+    privateChatId: privateChatId && privateChatId !== chatId ? privateChatId : null,
+    webhookSecret: process.env.PUBLIC_CHAT_TELEGRAM_WEBHOOK_SECRET?.trim() || null,
+  };
+}
+
+/** Группыг олон нийтэд нээлттэй гэж үзэх үү (хувийн chat тусдаа тохируулсан). */
+export function teamGroupIsPublic(config: PublicChatTelegramConfig): boolean {
+  return config.privateChatId !== null;
+}
+
+/** Тухайн хүрээний relay аль chat руу очих. */
+export function relayChatFor(config: PublicChatTelegramConfig, scope: PublicChatScope): TelegramChatRole {
+  return scope === "private" && config.privateChatId ? "private" : "team";
+}
+
+function chatIdOf(config: PublicChatTelegramConfig, chat: TelegramChatRole): string {
+  return chat === "private" && config.privateChatId ? config.privateChatId : config.chatId;
 }
 
 async function call<T>(config: PublicChatTelegramConfig, method: string, body: Record<string, unknown>): Promise<T> {
@@ -51,15 +82,46 @@ function moderationKeyboard(messageId: string, hidden: boolean): { inline_keyboa
   };
 }
 
-export async function sendTeamText(config: PublicChatTelegramConfig, html: string, replyTo?: number): Promise<number> {
+/** Багийн chat руу текст; DB-д хадгалах түлхүүрийг (`telegramRef`) буцаана. */
+export async function sendTeamText(
+  config: PublicChatTelegramConfig,
+  html: string,
+  replyTo?: number,
+  chat: TelegramChatRole = "team"
+): Promise<string> {
   const sent = await call<{ message_id: number }>(config, "sendMessage", {
-    chat_id: config.chatId,
+    chat_id: chatIdOf(config, chat),
     text: html,
     parse_mode: "HTML",
     disable_web_page_preview: true,
     ...(replyTo ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {}),
   });
-  return sent.message_id;
+  return telegramRef(chat, sent.message_id);
+}
+
+// Группын админуудын id — товч/хариу бүрд Telegram руу дуудахгүйн тулд богино кэш.
+const ADMIN_CACHE_MS = 60_000;
+let adminCache: { chatId: string; at: number; ids: Set<number> } | null = null;
+
+/**
+ * Нээлттэй группт «Entry баг» нэрээр бичих / модерац хийх эрх — группын
+ * creator / administrator. Telegram алдаа өгвөл ЭРХГҮЙ гэж үзнэ (fail closed).
+ */
+export async function isTeamChatAdmin(config: PublicChatTelegramConfig, userId: number | null): Promise<boolean> {
+  if (userId == null) return false;
+  const now = Date.now();
+  if (!adminCache || adminCache.chatId !== config.chatId || now - adminCache.at > ADMIN_CACHE_MS) {
+    try {
+      const admins = await call<Array<{ user: { id: number }; status: string }>>(config, "getChatAdministrators", {
+        chat_id: config.chatId,
+      });
+      adminCache = { chatId: config.chatId, at: now, ids: new Set(admins.map((a) => a.user.id)) };
+    } catch (error) {
+      console.error("[public-chat] getChatAdministrators:", error);
+      return false;
+    }
+  }
+  return adminCache.ids.has(userId);
 }
 
 /**
@@ -80,15 +142,16 @@ export async function relayVisitorMessage(input: {
 }): Promise<void> {
   const config = publicChatTelegramConfig();
   if (!config) return;
+  const chat = relayChatFor(config, input.scope);
   try {
     const sent = await call<{ message_id: number }>(config, "sendMessage", {
-      chat_id: config.chatId,
+      chat_id: chatIdOf(config, chat),
       text: relayText(input),
       parse_mode: "HTML",
       disable_web_page_preview: true,
       ...(input.scope === "room" ? { reply_markup: moderationKeyboard(input.messageId, false) } : {}),
     });
-    await setTelegramMessageId(input.messageId, sent.message_id);
+    await setTelegramMessageId(input.messageId, telegramRef(chat, sent.message_id));
   } catch (error) {
     console.error("[public-chat] telegram relay:", error);
   }
@@ -142,11 +205,13 @@ export async function mirrorTeamMessage(input: {
   if (!config) return;
   const where = input.scope === "room" ? "нийтийн өрөө" : `хувийн <code>${(input.threadId ?? "").slice(0, 8)}</code>`;
   try {
-    const sentId = await sendTeamText(
+    const ref = await sendTeamText(
       config,
-      `🗨 <b>Entry баг</b> → ${where} (Console · ${escapeHtml(input.staff)})\n\n${escapeHtml(input.body)}`
+      `🗨 <b>Entry баг</b> → ${where} (Console · ${escapeHtml(input.staff)})\n\n${escapeHtml(input.body)}`,
+      undefined,
+      relayChatFor(config, input.scope)
     );
-    await setTelegramMessageId(input.messageId, sentId);
+    await setTelegramMessageId(input.messageId, ref);
   } catch (error) {
     console.error("[public-chat] telegram mirror:", error);
   }

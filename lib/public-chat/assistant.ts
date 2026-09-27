@@ -9,7 +9,7 @@
 
 import { aiSkipReason, AI_REQUEST_TIMEOUT_MS, buildAiTurns, parseAiReply } from "./assistant-rules";
 import { loadAiThreadContext, postAiMessage, setTelegramMessageId } from "./store";
-import { publicChatTelegramConfig, sendTeamText } from "./telegram";
+import { publicChatTelegramConfig, relayChatFor, sendTeamText } from "./telegram";
 import { escapeHtml } from "./rules";
 
 export type PublicChatAiConfig = { url: string; secret: string };
@@ -68,11 +68,13 @@ async function relayAiReply(input: { messageId: string; threadId: string; body: 
     const head = input.handoff
       ? `⚠️ <b>AI туслах хариулж чадсангүй — хүн хариулна уу</b> · <code>${input.threadId.slice(0, 8)}</code>`
       : `🤖 <b>AI туслах хариулсан</b> · <code>${input.threadId.slice(0, 8)}</code>`;
-    const sentId = await sendTeamText(
+    const ref = await sendTeamText(
       config,
-      `${head}\n\n${escapeHtml(input.body)}\n\n<i>Reply хийвэл зочинд та хариулна — AI энэ ярианд зогсоно</i>`
+      `${head}\n\n${escapeHtml(input.body)}\n\n<i>Reply хийвэл зочинд та хариулна — AI энэ ярианд зогсоно</i>`,
+      undefined,
+      relayChatFor(config, "private")
     );
-    await setTelegramMessageId(input.messageId, sentId);
+    await setTelegramMessageId(input.messageId, ref);
   } catch (error) {
     console.error("[public-chat] ai relay:", error);
   }
