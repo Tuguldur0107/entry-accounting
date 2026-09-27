@@ -30,6 +30,7 @@ import {
   creditDocumentTypeFor,
   documentTypeLabel,
   isCreditDocument,
+  ledgerSign,
   settlementCashType,
 } from "@/lib/arap/document-kind";
 import {
@@ -1359,28 +1360,28 @@ function ArapDocReadOnly({
       <div className="grid gap-3 sm:grid-cols-3">
         <ReadField label={`Нийт дүн (${document.currency})`}>
           <span className="font-mono font-semibold">
-            {fmtMnt(document.totalAmount)}
+            {fmtMnt(ledgerSign(document.documentType) * document.totalAmount)}
           </span>
         </ReadField>
         <ReadField label={`Төлсөн (${document.currency})`}>
-          <span className="font-mono">{fmtMnt(document.paidAmount)}</span>
+          <span className="font-mono">{fmtMnt(ledgerSign(document.documentType) * document.paidAmount)}</span>
         </ReadField>
         <ReadField label={`Үлдэгдэл (${document.currency})`}>
           <span className="font-mono font-semibold">
-            {fmtMnt(document.balance)}
+            {fmtMnt(ledgerSign(document.documentType) * document.balance)}
           </span>
         </ReadField>
         {foreign && (
           <>
             <ReadField label="Нийт дүн (MNT)">
-              <span className="font-mono">{fmtMnt(document.baseTotalAmount)}</span>
+              <span className="font-mono">{fmtMnt(ledgerSign(document.documentType) * document.baseTotalAmount)}</span>
             </ReadField>
             <ReadField label="Төлсөн (MNT)">
-              <span className="font-mono">{fmtMnt(document.basePaidAmount)}</span>
+              <span className="font-mono">{fmtMnt(ledgerSign(document.documentType) * document.basePaidAmount)}</span>
             </ReadField>
             <ReadField label="Үлдэгдэл (MNT)">
               <span className="font-mono font-semibold">
-                {fmtMnt(document.baseBalance)}
+                {fmtMnt(ledgerSign(document.documentType) * document.baseBalance)}
               </span>
             </ReadField>
           </>

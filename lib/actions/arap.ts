@@ -90,7 +90,7 @@ import {
 import { creditOverrunError } from "@/lib/arap/credit-note";
 import {
   arapLedger,
-  controlSide,
+  documentPosting,
   documentNoPrefix,
   documentTypeLabel,
   isCreditDocument,
@@ -188,8 +188,8 @@ function nextDocumentNo(type: ArApDocumentType, date: string) {
 }
 
 /**
- * Баримтын журналын мөрүүд — хяналтын данс `controlSide`-ийн талд, мөрүүд
- * эсрэг талд (нэхэмжлэх/кредит/дебит баримт бүгд НЭГ дүрмээр).
+ * Баримтын журналын мөрүүд — хяналтын данс `documentPosting`-ийн талд, мөрүүд
+ * эсрэг талд; кредит/дебит баримт эх нэхэмжлэхийн талд сөрөг (улаан сторно).
  */
 function documentVoucherLines(args: {
   voucherId: string;
@@ -201,12 +201,14 @@ function documentVoucherLines(args: {
   businessObject: { businessObjectType?: string; businessObjectId?: string };
 }) {
   const { voucherId, businessObject } = args;
-  const controlDebit = controlSide(args.documentType) === "debit";
+  // Буцаалтын баримт = улаан сторно: эх нэхэмжлэхийн талд, дүн сөрөг (documentPosting).
+  const { controlDebit, sign } = documentPosting(args.documentType);
+  const amount = (value: number) => String(sign * value);
   const control = (sortOrder: number) => ({
     voucherId,
     accountNumber: args.controlAccountNumber,
-    debit: controlDebit ? String(args.baseTotalAmount) : "0",
-    credit: controlDebit ? "0" : String(args.baseTotalAmount),
+    debit: controlDebit ? amount(args.baseTotalAmount) : "0",
+    credit: controlDebit ? "0" : amount(args.baseTotalAmount),
     description: args.description,
     sortOrder,
     ...businessObject,
@@ -215,8 +217,8 @@ function documentVoucherLines(args: {
     args.lines.map((line, index) => ({
       voucherId,
       accountNumber: line.accountNumber,
-      debit: controlDebit ? "0" : String(line.baseAmount),
-      credit: controlDebit ? String(line.baseAmount) : "0",
+      debit: controlDebit ? "0" : amount(line.baseAmount),
+      credit: controlDebit ? amount(line.baseAmount) : "0",
       description: line.description || args.description,
       sortOrder: index + offset,
       ...businessObject,
