@@ -58,6 +58,26 @@ export interface QpayIntentView {
   cashierName: string;
   /** Snapshot-ын товч — жагсаалтад (мөрийн тоо, харилцагч). */
   lineCount: number;
+  /** Харилцагчид буцааж болох дүн (`refundableAmount`); null = буцаах зүйлгүй. */
+  refundableAmount: number | null;
+  resolution: QpayIntentResolution | null;
+}
+
+/** `pos_qpay_intents.resolution` — буцаалтаар шийдсэн тэмдэглэл (журналтай). */
+export interface QpayIntentResolution {
+  kind: "cash" | "bank" | "store_credit";
+  amount: number;
+  reason: string;
+  voucherId: string;
+  voucherNo: string;
+  cashDocumentId: string;
+  /** Кассаас бэлнээр — ээлжийн бэлэн мөнгөнд (cashRefunds) тооцогдоно. */
+  shiftId: string | null;
+  cashAccountId: string | null;
+  counterpartyId: string | null;
+  storeCreditId: string | null;
+  userId: string;
+  at: string;
 }
 
 export interface QpayStatusSummary {

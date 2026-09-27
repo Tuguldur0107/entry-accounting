@@ -9,7 +9,7 @@ export const QPAY_DEFAULT_API_URL = "https://qpay-dashboard-production.up.railwa
 export const QPAY_WEBHOOK_PATH = "/api/pos/qpay/webhook";
 
 /** pos_qpay_intents.status */
-export const QPAY_INTENT_STATUSES = ["open", "paid", "finalized", "cancelled", "expired", "failed"] as const;
+export const QPAY_INTENT_STATUSES = ["open", "paid", "finalized", "cancelled", "expired", "failed", "refunded"] as const;
 export type QpayIntentStatus = (typeof QPAY_INTENT_STATUSES)[number];
 export const QPAY_INTENT_STATUS_LABELS: Record<QpayIntentStatus, string> = {
   open: "Төлбөр хүлээж байна",
@@ -18,6 +18,22 @@ export const QPAY_INTENT_STATUS_LABELS: Record<QpayIntentStatus, string> = {
   cancelled: "Цуцлагдсан",
   expired: "Хугацаа дууссан",
   failed: "Алдаатай",
+  refunded: "Харилцагчид буцаагдсан",
+};
+
+/**
+ * Орсон мөнгийг борлуулалт болгохгүй бол харилцагчид буцаах зам (P1,
+ * `refundQpayIntent`). Журнал бүгд Dt QPay түр данс-аар (мөнгө QPay-д орсон):
+ *   cash         Кт ээлжийн касс — кассаас бэлнээр өгөв (ээлжийн бэлэнд тооцогдоно)
+ *   bank         Кт сонгосон банк/касс — шилжүүлгээр буцаав
+ *   store_credit Кт дэлгүүрийн кредитийн өглөг — харилцагчид кредит үлдээв
+ */
+export const QPAY_REFUND_METHODS = ["cash", "bank", "store_credit"] as const;
+export type QpayRefundMethod = (typeof QPAY_REFUND_METHODS)[number];
+export const QPAY_REFUND_METHOD_LABELS: Record<QpayRefundMethod, string> = {
+  cash: "Кассаас бэлнээр",
+  bank: "Банкаар шилжүүлж",
+  store_credit: "Харилцагчийн кредит болгож",
 };
 
 /** Нэхэмжлэхийн хүчинтэй хугацаа (сек) — тохиргоо, доод/дээд хязгаартай. */

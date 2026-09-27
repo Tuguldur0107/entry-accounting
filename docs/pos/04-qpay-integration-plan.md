@@ -129,6 +129,8 @@ Entry (SaaS / dedicated)                  qpay-dashboard (Railway)              
 ⑥ Хоцорсон төлбөр (DELETE амжаагүй / хугацаа дуусах мөчид төлсөн) → webhook → cancelled|expired
      → paid + lastError [QPAY_LATE_PAYMENT] (дүн зөрвөл failed) → баннер + шууд мэдэгдэл
      `pos.qpay_late_payment`; сагс өөр хэлбэрээр зарагдсан бол «Борлуулалт болгох» ДАРАХГҮЙ
+⑦ «Буцаах» (давхар төлбөр / дүн зөрсөн, pos:post) → refunded + журнал Dt QPay түр данс /
+     Кт касс (ээлжийн бэлэнд) | банк | дэлгүүрийн кредитийн өглөг — lib/qpay/refund.ts
 ```
 
 - **[Шалгах] товч** = dashboard `payments/check` (QPay-ийн `payment/check`) —

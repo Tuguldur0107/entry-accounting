@@ -15,14 +15,18 @@ import type { QpayWebhookPayload } from "./types";
 
 const TRANSITIONS: Record<QpayIntentStatus, readonly QpayIntentStatus[]> = {
   open: ["paid", "cancelled", "expired", "failed"],
-  paid: ["finalized"],
+  // Сагс өөр хэлбэрээр зарагдсан (давхар төлбөр) → харилцагчид буцаана (refundQpayIntent).
+  paid: ["finalized", "refunded"],
   finalized: [],
   // QR Entry-д хаагдсан ч QPay мөнгө хүлээн авч болно (харилцагч хугацаа дуусах
   // мөчид төлсөн, dashboard-ын DELETE амжаагүй). Мөнгө бол үнэн: хоцорсон
   // төлбөрийг `paid` (дүн зөрвөл `failed`) болгоно — ХЭЗЭЭ Ч чимээгүй алгасахгүй.
   cancelled: ["paid", "failed"],
   expired: ["paid", "failed"],
-  failed: [],
+  // Дүн зөрсөн (мөнгө орсон) → буцаана; QR үүсээгүй failed-д мөнгө байхгүй тул
+  // буцаах дүн нь `refundableAmount` = null (action татгалзана).
+  failed: ["refunded"],
+  refunded: [],
 };
 
 export function canTransition(from: QpayIntentStatus, to: QpayIntentStatus): boolean {
@@ -142,4 +146,23 @@ export function isPendingAttention(intent: {
   if (intent.status === "open" || intent.status === "paid") return true;
   if (intent.status !== "failed") return false;
   return !!intent.qpayInvoiceId || !!intent.paymentId || intent.paidAmount != null;
+}
+
+/**
+ * Харилцагчид буцааж болох дүн (MNT) — QPay-д БОДИТ орсон мөнгө: борлуулалт
+ * болоогүй `paid`, эсвэл дүн зөрсөн `failed` (payment мэдээлэлтэй). Бусад үед
+ * null — мөнгө ороогүй / аль хэдийн бүртгэгдсэн / буцаагдсан. Дүн нь
+ * `paidAmount` (dashboard мэдээлсэн), байхгүй бол intent-ийн дүн.
+ */
+export function refundableAmount(intent: {
+  status: QpayIntentStatus;
+  saleId: string | null;
+  amount: string | number;
+  paidAmount: string | number | null;
+  paymentId: string | null;
+}): number | null {
+  const money = intent.status === "paid" ? !intent.saleId : intent.status === "failed" && (intent.paidAmount != null || !!intent.paymentId);
+  if (!money) return null;
+  const value = Math.round(Number(intent.paidAmount ?? intent.amount) * 100) / 100;
+  return Number.isFinite(value) && value > 0 ? value : null;
 }

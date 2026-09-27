@@ -313,6 +313,15 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   Хоцорсон төлбөр: `cancelled`/`expired` → `paid` (`acceptsPayment`, `isLatePayment`) +
   `[QPAY_LATE_PAYMENT]`, аудит `late_paid` → шууд мэдэгдэл; хугацаа дуусахад dashboard-ын
   нэхэмжлэхийг устгана (`expireAndCancelStale`, best-effort). Тест `qpay-late-payment-flow` (DB)
+- **Буцаах** (`lib/qpay/refund.ts` `refundQpayIntentCore`, action `refundQpayIntent`, pos:post,
+  шалтгаан заавал): `refundableAmount` (ЦЭВЭР) — борлуулалт болоогүй `paid` эсвэл дүн зөрсөн
+  `failed` (бодит `paidAmount`-аар). НЭГ транзакц: intent → `refunded` (эхэлж эзэмшинэ) +
+  журнал `CM-YY-NNNNNN` (`externalRef qpay-refund:<id>`, мөр `businessObjectType pos_qpay_intent`)
+  + мөнгөн баримт `QP-…` (sourceType pos — касс модулиас засахгүй) + `resolution` jsonb:
+  cash → касс→түр данс шилжүүлэг, Кт ТЭР салбарын нээлттэй ээлжийн касс (`pickFinalizeShift`),
+  ээлжийн `cashRefunds`-д тооцогдоно; bank → Кт сонгосон данс; store_credit → Кт
+  `storeCreditLiabilityAccountNumber` + `pos_store_credits`. Бүгд Dt QPay түр данс тул ewallet
+  settlement тулгана. Тест `qpay-refund-flow` (DB)
 - **GL ӨӨРЧЛӨЛТГҮЙ:** `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ,
   ККТТ 1% шимтгэл settlement-д гарна); QPay буцаалт БАЙХГҮЙ (Quick QR refund-гүй) —
   бэлэн / шилжүүлэг / дэлгүүрийн кредитээр. **QPay хэлбэрт «Буцаалтад ашиглана»

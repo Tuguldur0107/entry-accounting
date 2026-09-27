@@ -10,11 +10,19 @@ import { cashAccounts, posPaymentMethods, posQpayIntents, posSales, users, type 
 import { ensureAccountsExist, seedCreatorUserId } from "@/lib/costing/master-data";
 import { QPAY_ERRORS, QPAY_PAID_UNFINALIZED_MINUTES, QPAY_WEBHOOK_PATH, type QpayIntentStatus } from "./constants";
 import { QpayError, type QpayClientConfig } from "./client";
-import { acceptsPayment, amountMatches, canTransition, clampInvoiceTtl, isLatePayment, isPendingAttention } from "./intent";
+import {
+  acceptsPayment,
+  amountMatches,
+  canTransition,
+  clampInvoiceTtl,
+  isLatePayment,
+  isPendingAttention,
+  refundableAmount,
+} from "./intent";
 import { qpayReadiness, type QpayReadiness } from "./readiness";
 import { planQpaySeed } from "./seed";
 import { QPAY_PROVIDER } from "./constants";
-import type { QpayIntentView, QpayStatusSummary } from "./types";
+import type { QpayIntentResolution, QpayIntentView, QpayStatusSummary } from "./types";
 
 type Executor = Pick<typeof db, "update" | "select" | "insert" | "query" | "execute">;
 
@@ -168,6 +176,8 @@ export function toIntentView(row: PosQpayIntent & { sale?: { documentNo: string 
     createdAt: row.createdAt.toISOString(),
     cashierName: row.cashierName ?? "",
     lineCount: Array.isArray(snapshot?.lines) ? snapshot!.lines!.length : 0,
+    refundableAmount: refundableAmount({ ...row, status: row.status as QpayIntentStatus }),
+    resolution: (row.resolution as QpayIntentResolution | null) ?? null,
   };
 }
 
