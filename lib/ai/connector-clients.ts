@@ -10,8 +10,8 @@
 export type ConnectorClient = "claude" | "chatgpt";
 
 export const CONNECTOR_TARGETS: Record<ConnectorClient, { label: string; settingsUrl: string }> = {
-  claude: { label: "Claude", settingsUrl: "https://claude.ai/settings/connectors" },
-  chatgpt: { label: "ChatGPT", settingsUrl: "https://chatgpt.com/#settings/Connectors" },
+  claude: { label: "Claude", settingsUrl: "https://claude.ai/new#customize/connectors" },
+  chatgpt: { label: "ChatGPT", settingsUrl: "https://chatgpt.com/plugins" },
 };
 
 const HOST_PATTERNS: Record<ConnectorClient, RegExp> = {
