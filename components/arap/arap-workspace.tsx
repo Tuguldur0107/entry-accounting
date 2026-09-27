@@ -387,10 +387,11 @@ export function ArApWorkspace({
     [activeSegIds]
   );
 
-  // eBarimt багана — АР нэхэмжлэх eBarimt-д илгээгдсэн байгууллагад л (хоосон багана
-  // харуулахгүй). Шүүлтээс БИШ бүх баримтаас — шүүлтүүр солиход багана гарч/алга
-  // болж columnDefs дахин үүсэхгүй (өргөн, эрэмбэ хадгалагдана).
-  const hasEbarimt = useMemo(() => documents.some((doc) => doc.ebarimtStatus), [documents]);
+  // eBarimt багана — ЭНЭ дэвтрийн (авлага / өглөг) баримт eBarimt-тэй үед л (хоосон
+  // багана харуулахгүй). `filteredDocuments` нь зөвхөн дэвтрээр шүүгдсэн (хэрэглэгчийн
+  // шүүлтүүр биш) тул columnDefs шүүлтүүр солиход дахин үүсэхгүй; өглөгийн хуудсанд
+  // авлагын eBarimt-ээс болж хоосон багана гарахгүй.
+  const hasEbarimt = useMemo(() => filteredDocuments.some((doc) => doc.ebarimtStatus), [filteredDocuments]);
 
   const documentColumns = useMemo<ColDef<ArApDocumentView>[]>(
     () => [

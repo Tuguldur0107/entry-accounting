@@ -53,10 +53,36 @@ export function targetOf(row: { saleId: string | null; arapDocumentId?: string |
   return { saleId: row.saleId ?? null, arapDocumentId: row.arapDocumentId ?? null };
 }
 
+/** ТЕГ-д бүртгэлтэй дүн (MNT) — numeric баганад string. */
+type ReportedAmounts = { ebarimtTotal: string | null; ebarimtVat: string | null; ebarimtCityTax: string | null };
+
+/**
+ * Илгээсэн receipt-ийн дүн → ТЕГ-д бүртгэлтэй дүн. receipt байхгүй (хуучин мөр,
+ * давхар enqueue-ийн settle) бол undefined — өмнөх утгыг ДАРАХГҮЙ.
+ */
+function reportedAmountsOf(payload: Record<string, unknown> | null | undefined): ReportedAmounts | undefined {
+  const request = payload?.request as Record<string, unknown> | undefined;
+  if (!request || typeof request !== "object") return undefined;
+  const amount = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(2) : "0.00";
+  };
+  return {
+    ebarimtTotal: amount(request.totalAmount),
+    ebarimtVat: amount(request.totalVAT),
+    ebarimtCityTax: amount(request.totalCityTax),
+  };
+}
+
 /** Эх баримтын eBarimt талбарууд. `onlyOpen` — sent/cancelled-ийг дарахгүй (алдааны үед). */
 async function setTargetEbarimt(
   target: EbarimtTarget,
-  patch: { ebarimtStatus: string; ebarimtId?: string | null; ebarimtDate?: string | null; ebarimtType?: string | null },
+  patch: {
+    ebarimtStatus: string;
+    ebarimtId?: string | null;
+    ebarimtDate?: string | null;
+    ebarimtType?: string | null;
+  } & Partial<ReportedAmounts>,
   onlyOpen = false
 ): Promise<void> {
   if (target.saleId) {
@@ -81,6 +107,14 @@ async function setTargetEbarimt(
           : eq(arApDocuments.id, target.arapDocumentId)
       );
   }
+}
+
+/**
+ * Буцаалтын ТЕГ-ийн засвар (cancel submission) явцад / амжилтгүй — POS
+ * борлуулалтад л (АР-ын цуцлалт илгээгдэхгүй, docs/pos/05 Q5). Шидэхгүй.
+ */
+async function setSaleCorrection(saleId: string, correction: "pending" | "failed" | null, handle: DbHandle = db) {
+  await handle.update(posSales).set({ ebarimtCorrection: correction }).where(eq(posSales.id, saleId));
 }
 
 export function settingsInputOf(row: PosSettings): EbarimtSettingsInput {
@@ -214,6 +248,8 @@ export async function enqueueEbarimt(
       .values({ organizationId: orgId, saleId, kind, status: "pending", nextAttemptAt: new Date() })
       .onConflictDoNothing()
       .returning({ id: posEbarimtSubmissions.id });
+    // Буцаалтын засвар дараалалд — ДДТД хүчинтэй хэвээр ч ТЕГ-ийн дүн хуучирсан.
+    if (row && kind === "cancel") await setSaleCorrection(saleId, "pending", handle);
     return row?.id ?? null;
   } catch (error) {
     console.error("[ebarimt] enqueue унав:", saleId, kind, error);
@@ -311,6 +347,12 @@ export async function requeueEbarimt(orgId: string, saleId: string, kind: Submis
   } else {
     await enqueueEbarimt(orgId, saleId, kind);
   }
+  if (kind === "cancel") {
+    // Засварыг дахин илгээхэд баримт `sent` хэвээр (хуучин ДДТД хүчинтэй) — зөвхөн
+    // засварын төлөв; «pending» болговол ТЕГ-д бүртгэлтэй дүн жагсаалтаас алга болно.
+    await setSaleCorrection(saleId, "pending");
+    return;
+  }
   await db
     .update(posSales)
     .set({ ebarimtStatus: "pending" })
@@ -392,6 +434,8 @@ export async function prepareSubmission(
       .where(eq(posEbarimtSubmissions.id, submission.id));
     if (saleStatus)
       await db.update(posSales).set({ ebarimtStatus: saleStatus }).where(eq(posSales.id, saleId));
+    // Засах зүйлгүй цуцлалт (эх нь ТЕГ-д очоогүй) — засварын төлөв хаагдана.
+    if (kind === "cancel") await setSaleCorrection(saleId, null);
     return null;
   };
   try {
@@ -497,7 +541,7 @@ export async function markSent(
   result: { id: string | null; date: string | null; type: string | null }
 ): Promise<void> {
   const now = new Date();
-  await db
+  const [sent] = await db
     .update(posEbarimtSubmissions)
     .set({
       status: "sent",
@@ -507,15 +551,24 @@ export async function markSent(
       lastError: null,
       attempts: sql`${posEbarimtSubmissions.attempts} + 1`,
     })
-    .where(eq(posEbarimtSubmissions.id, submissionId));
+    .where(eq(posEbarimtSubmissions.id, submissionId))
+    .returning({ payload: posEbarimtSubmissions.payload });
+  if (kind === "cancel" && target.saleId) await setSaleCorrection(target.saleId, null);
   if (kind === "cancel" && !result.id) {
-    // Бүтэн цуцлагдсан — ДДТД хүчингүй.
-    await setTargetEbarimt(target, { ebarimtStatus: "cancelled" });
+    // Бүтэн цуцлагдсан — ДДТД хүчингүй, ТЕГ-д бүртгэлтэй дүн 0.
+    await setTargetEbarimt(target, { ebarimtStatus: "cancelled", ebarimtTotal: "0.00", ebarimtVat: "0.00", ebarimtCityTax: "0.00" });
     return;
   }
   // Хэсэгчилсэн буцаалтын засвар (inactiveId) → ДДТД ШИНЭЧЛЭГДЭНЭ — дараагийн
-  // засвар энэ сүүлийн ДДТД-г inactiveId болгоно (гинж).
-  await setTargetEbarimt(target, { ebarimtStatus: "sent", ebarimtId: result.id, ebarimtDate: result.date, ebarimtType: result.type });
+  // засвар энэ сүүлийн ДДТД-г inactiveId болгоно (гинж). ТЕГ-д бүртгэлтэй дүн =
+  // ЭНЭ receipt-ийнх (засварын дараа үлдсэн дүн) — жагсаалт/тайлан үүнийг уншина.
+  await setTargetEbarimt(target, {
+    ebarimtStatus: "sent",
+    ebarimtId: result.id,
+    ebarimtDate: result.date,
+    ebarimtType: result.type,
+    ...reportedAmountsOf(sent?.payload),
+  });
 }
 
 /**
@@ -532,7 +585,7 @@ export async function markFailed(
   const message = error instanceof Error ? error.message : String(error);
   const row = await db.query.posEbarimtSubmissions.findFirst({
     where: eq(posEbarimtSubmissions.id, submissionId),
-    columns: { attempts: true },
+    columns: { attempts: true, kind: true },
   });
   const attempts = (row?.attempts ?? 0) + 1;
   const max = options.maxAttempts ?? 20;
@@ -550,6 +603,9 @@ export async function markFailed(
     })
     .where(eq(posEbarimtSubmissions.id, submissionId));
   await setTargetEbarimt(target, { ebarimtStatus: stop ? "failed" : "pending" }, true);
+  // Засварын алдаа: баримт `sent` хэвээр тул дээрх onlyOpen хөндөхгүй — засварын
+  // төлөвөөр ил гаргана (чимээгүй үлдэхгүй).
+  if (row?.kind === "cancel" && target.saleId) await setSaleCorrection(target.saleId, stop ? "failed" : "pending");
   return attempts;
 }
 

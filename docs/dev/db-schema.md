@@ -158,12 +158,14 @@ eBarimt    pos_settings.ebarimt{Enabled,MerchantTin,BranchNo,DistrictCode,PosNo,
            PosApiUrl,Mode} (мерчантын тохиргоо — нууц БАЙХГҮЙ),
            pos_payment_methods.ebarimtCode, inventory_items.ebarimt{Classification,
            TaxProduct}Code, inventory_categories.ebarimtClassificationCode,
-           pos_sales.ebarimt{Id,Lottery,Status,QrData,Date,Type,ConsumerNo,CustomerTin},
+           pos_sales.ebarimt{Id,Lottery,Status,QrData,Date,Type,ConsumerNo,CustomerTin,
+           Total,Vat,CityTax,Correction} (Total/Vat/CityTax = ТЕГ-д БҮРТГЭЛТЭЙ дүн,
+           markSent бичнэ; Correction = буцаалтын засвар pending|failed),
            pos_ebarimt_submissions (дараалал — kind send|cancel, status pending|
            claimed|sent|failed|cancelled, payload/response jsonb, attempts,
            nextAttemptAt; partial unique (saleId, kind) pending|claimed; АР-д
            arapDocumentId (saleId NULL — яг нэг нь), (arapDocumentId, kind) unique),
-           ar_ap_documents.ebarimt{Id,Status,Date,Type}, pos_settings.ebarimtArap*
+           ar_ap_documents.ebarimt{Id,Status,Date,Type,Total,Vat,CityTax}, pos_settings.ebarimtArap*
            (docs/pos/05)
 Costing    cost_components, inventory_issue_types, costing_account_settings,
            costing_item_settings, cost_allocations, cost_allocation_lines,

@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import { EBARIMT_RECEIPT_TYPES, EBARIMT_RECEIPT_TYPE_LABELS } from "../lib/ebarimt/constants";
 import {
   ebarimtTypeLabel,
+  isAttentionRow,
   reportedAmounts,
   summarizeEbarimtRows,
+  totalAmounts,
   type EbarimtDocumentRow,
 } from "../lib/ebarimt/list-types";
 
@@ -19,6 +21,7 @@ function row(partial: Partial<EbarimtDocumentRow>): EbarimtDocumentRow {
     counterpartyName: null,
     customerTin: null,
     partiallyReturned: false,
+    correction: null,
     ebarimtType: "B2C_RECEIPT",
     status: "sent",
     ebarimtId: "0".repeat(33),
@@ -69,4 +72,19 @@ test("баримтын төрлийн шошго НЭГ эх (constants.ts), ү�
   for (const type of EBARIMT_RECEIPT_TYPES) assert.equal(ebarimtTypeLabel(type), EBARIMT_RECEIPT_TYPE_LABELS[type]);
   assert.equal(ebarimtTypeLabel("NEW_TYPE"), "NEW_TYPE");
   assert.equal(ebarimtTypeLabel(null), "");
+});
+
+test("засвар дуусаагүй мөр «Анхаарах»-д (төлөв нь sent/manual ч); хөл дүн = бүх харагдаж буй + ТЕГ-д бүртгэлтэй", () => {
+  const rows = [
+    row({}),
+    row({ partiallyReturned: true, correction: "failed", total: 3_300, vat: 300 }),
+    row({ status: "manual", correction: "manual", total: 2_200, vat: 200 }),
+    row({ status: "failed", total: 5_000, vat: 500 }),
+  ];
+  assert.deepEqual(rows.map(isAttentionRow), [false, true, true, true]);
+  const summary = summarizeEbarimtRows(rows);
+  assert.equal(summary.attention, 3);
+  // ТЕГ-д одоо бүртгэлтэй — засвар очоогүй мөрийн хуучин (ТЕГ дахь) дүн ОРНО.
+  assert.equal(summary.reported.total, 11_000 + 3_300 + 2_200);
+  assert.deepEqual(totalAmounts(rows), { count: 4, total: 11_000 + 3_300 + 2_200 + 5_000, vat: 1_000 + 300 + 200 + 500, cityTax: 0 });
 });
