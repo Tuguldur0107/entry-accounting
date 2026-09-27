@@ -2,8 +2,10 @@
 // docs/pos/03-ebarimt-integration-plan.md §4.2.
 //
 // Дүрэм:
-//  1. НӨАТ төлөгч бус → бүх мөр NOT_VAT; төлөгч бол vatMode → VAT_ABLE /
-//     VAT_FREE / VAT_ZERO.
+//  1. Барааны vatMode → VAT_ABLE / VAT_FREE / VAT_ZERO — НӨАТ төлөгч эсэхээс
+//     ҮЛ ХАМААРНА (гарын авлага «POS API 3.0» §5 хүснэгт 1–2: төлөгч бус мерчант
+//     ч эдгээр төрлөөр илгээж, сугалаа авна, НӨАТ 0). NOT_VAT = «хилийн гаднах»
+//     (сугалаагүй) — Entry ашиглахгүй.
 //  2. Мөрүүдийг taxType-аар БҮЛЭГЛЭЖ дэд баримт (receipts[]) болгоно.
 //  3. Мөрийн дүн = POS-ийн lineTotal (хөнгөлөлтийн дараах, татвар орсон) —
 //     computeSaleTotals-той ЯГ ижил; unitPrice = lineTotal / qty (2 орон).
@@ -64,8 +66,8 @@ export class EbarimtError extends Error {
  * Борлуулалт бүртгэх МӨЧИД eBarimt-ийн анхны статус ба автомат илгээх эсэх
  * (createPosSale + AI create_pos_sale нэг дүрэм):
  *  - eBarimt унтраалттай → null, илгээхгүй
- *  - НӨАТ төлөгч БУС байгууллага ч баримт олгоно (хууль) — мөрүүд `NOT_VAT`,
- *    totalVAT 0 (`taxTypeOf`); НӨАТ төлөгч эсэх энд нөлөөгүй
+ *  - НӨАТ төлөгч БУС байгууллага ч баримт олгоно (хууль) — мөр бүр vatMode-оор,
+ *    totalVAT 0 (мөрийн НӨАТ 0); НӨАТ төлөгч эсэх энд нөлөөгүй
  *  - гар ДДТД өгсөн → manual (ТЕГ-ийн апп-аар олгосон), илгээхгүй
  *  - кассчин «eBarimt илгээх»-ийг унтраасан → skipped (дараа панелиас илгээж болно)
  *  - бусад → pending, дараалалд орно
@@ -92,8 +94,13 @@ export function ebarimtSettingsProblems(settings: EbarimtSettingsInput): string[
   return problems;
 }
 
-export function taxTypeOf(line: Pick<EbarimtSaleLineInput, "vatMode">, isVatPayer: boolean): EbarimtTaxType {
-  if (!isVatPayer) return "NOT_VAT";
+/**
+ * Барааны vatMode → taxType. НӨАТ төлөгч БУС мерчант ч ижил төрлөөр илгээнэ —
+ * PosAPI мерчантын бүртгэлээр НӨАТ бодохгүй, харин хувь хүнд сугалаа олгоно
+ * (гарын авлага §5 хүснэгт 1). `NOT_VAT` нь «хилийн гаднах» — сугалаагүй тул
+ * төлөгч бусад ХЭРЭГЛЭХГҮЙ (2026-09-27 засвар; өмнө нь алдаатай NOT_VAT байв).
+ */
+export function taxTypeOf(line: Pick<EbarimtSaleLineInput, "vatMode">): EbarimtTaxType {
   switch (line.vatMode) {
     case "exempt":
       return "VAT_FREE";
@@ -265,7 +272,7 @@ export function buildEbarimtReceipt(
 
   const groups = new Map<EbarimtTaxType, EbarimtItem[]>();
   for (const line of activeLines) {
-    const taxType = taxTypeOf(line, sale.isVatPayer);
+    const taxType = taxTypeOf(line);
     const list = groups.get(taxType) ?? [];
     list.push(toItem(line, taxType));
     groups.set(taxType, list);

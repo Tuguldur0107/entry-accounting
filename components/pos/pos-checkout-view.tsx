@@ -210,8 +210,8 @@ export function PosCheckoutView({
     lookup: IDLE_LOOKUP,
   });
   const nonVat = data.isVatPayer && !vatReceipt;
-  // НӨАТ төлөгч бус байгууллага ч eBarimt олгоно (NOT_VAT, НӨАТ 0) — худалдан авагчийн
-  // сонголт (Хувь хүн / ААН) хоёуланд; «☐ НӨАТ» (НӨАТ-гүй борлуулалт) зөвхөн төлөгчид.
+  // НӨАТ төлөгч бус байгууллага ч eBarimt олгоно (НӨАТ 0, сугалаатай) — худалдан авагчийн
+  // сонголт (Эцсийн хэрэглэгч / ААН) хоёуланд; «☐ НӨАТ» (НӨАТ-гүй борлуулалт) зөвхөн төлөгчид.
   const ebarimtBuyerActive = data.settings.ebarimtEnabled && (!data.isVatPayer || vatReceipt);
   const resolvedBuyer = useMemo(() => resolveBuyer(buyerState), [buyerState]);
   const buyerProblem = ebarimtBuyerActive ? resolvedBuyer.problem : null;
@@ -1041,7 +1041,7 @@ export function PosCheckoutView({
             ? null
             : buyerState.type === "org"
               ? `ААН · ${buyerState.lookup.name || buyerState.orgNo}${resolvedBuyer.buyer.ebarimtCustomerTin ? ` · ТТД ${resolvedBuyer.buyer.ebarimtCustomerTin}` : ""}`
-              : `Хувь хүн${buyerState.consumerNo ? ` · ${buyerState.consumerNo}` : ""}`
+              : `Эцсийн хэрэглэгч${buyerState.consumerNo ? ` · ${buyerState.consumerNo}` : ""}`
         }
         nonVat={nonVat}
         busy={saleBusy}

@@ -387,7 +387,7 @@ export async function markFailed(
 export async function claimDueSubmissions(limit = 50): Promise<
   { submission: typeof posEbarimtSubmissions.$inferSelect; settings: PosSettings }[]
 > {
-  // НӨАТ төлөгч бус байгууллага ч илгээнэ (NOT_VAT) — хасахгүй.
+  // НӨАТ төлөгч бус байгууллага ч илгээнэ (НӨАТ 0, сугалаатай) — хасахгүй.
   const orgs: PosSettings[] = await db.query.posSettings.findMany({
     where: and(eq(posSettings.ebarimtEnabled, true), eq(posSettings.ebarimtMode, "server")),
   });
@@ -468,7 +468,7 @@ export async function loadSubmissionsForSale(orgId: string, saleId: string): Pro
  * Зөвхөн ИДЭВХТЭЙ мөрийг шалгана — архивласан бараа зарагдахгүй.
  */
 export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadiness> {
-  const [items, categories, methods, vat] = await Promise.all([
+  const [items, categories, methods] = await Promise.all([
     db.query.inventoryItems.findMany({
       where: and(eq(inventoryItems.organizationId, orgId), eq(inventoryItems.isActive, true)),
       columns: {
@@ -487,11 +487,9 @@ export async function loadEbarimtReadiness(orgId: string): Promise<EbarimtReadin
       where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.isActive, true)),
       columns: { name: true, ebarimtCode: true },
     }),
-    loadVatSettings(orgId),
   ]);
 
   return ebarimtReadiness({
-    isVatPayer: vat.isVatPayer,
     items: items.map((item) => ({
       name: item.name,
       categoryCode: item.categoryCode,

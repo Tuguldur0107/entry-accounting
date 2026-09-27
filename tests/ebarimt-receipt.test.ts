@@ -62,12 +62,10 @@ test("тохиргооны шалгалт — дутуу талбар бүр н�
   assert.equal(problems.length, 3);
 });
 
-test("taxType: НӨАТ төлөгч бус → NOT_VAT; төлөгч → vatMode-оор", () => {
-  assert.equal(taxTypeOf({ vatMode: "standard" }, false), "NOT_VAT");
-  assert.equal(taxTypeOf({ vatMode: "exempt" }, false), "NOT_VAT");
-  assert.equal(taxTypeOf({ vatMode: "standard" }, true), "VAT_ABLE");
-  assert.equal(taxTypeOf({ vatMode: "exempt" }, true), "VAT_FREE");
-  assert.equal(taxTypeOf({ vatMode: "zero" }, true), "VAT_ZERO");
+test("taxType: vatMode-оор — НӨАТ төлөгч эсэхээс үл хамаарна (NOT_VAT = хилийн гаднах, ашиглахгүй)", () => {
+  assert.equal(taxTypeOf({ vatMode: "standard" }), "VAT_ABLE");
+  assert.equal(taxTypeOf({ vatMode: "exempt" }), "VAT_FREE");
+  assert.equal(taxTypeOf({ vatMode: "zero" }), "VAT_ZERO");
 });
 
 test("B2C баримт: нэг VAT_ABLE дэд баримт, Σ мөр = totalAmount, төлбөр = баримтын дүн", () => {
@@ -86,14 +84,16 @@ test("B2C баримт: нэг VAT_ABLE дэд баримт, Σ мөр = totalAm
   assert.equal(request.consumerNo, undefined);
 });
 
-test("НӨАТ төлөгч бус: NOT_VAT, totalVAT 0, taxProductCode шаардахгүй", () => {
+test("НӨАТ төлөгч бус (гарын авлага §5 хүснэгт 1): VAT_ABLE, totalVAT 0, хувь хүнд B2C (сугалаатай)", () => {
   const request = buildEbarimtReceipt(
-    sale({ isVatPayer: false, lines: [line({ itemName: "A", quantity: 2, lineTotal: 20_000, vatMode: "exempt", vatAmount: 0 })], total: 20_000, payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 20_000, reference: null }] }),
+    sale({ isVatPayer: false, lines: [line({ itemName: "A", quantity: 2, lineTotal: 20_000, vatMode: "standard", vatAmount: 0 })], total: 20_000, payments: [{ kind: "cash", methodName: "Бэлэн", ebarimtCode: "CASH", baseAmount: 20_000, reference: null }] }),
     settings
   );
-  assert.equal(request.receipts[0].taxType, "NOT_VAT");
+  assert.equal(request.type, "B2C_RECEIPT");
+  assert.equal(request.receipts[0].taxType, "VAT_ABLE");
   assert.equal(request.totalVAT, 0);
   assert.equal(request.receipts[0].items[0].totalVAT, 0);
+  assert.ok(request.receipts.every((receipt) => receipt.taxType !== "NOT_VAT"));
 });
 
 test("холимог taxType → дэд баримт бүрд бүлэглэнэ; exempt-д татварын код заавал", () => {

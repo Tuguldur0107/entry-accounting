@@ -21,7 +21,7 @@ PROD + ST хувилбар), «Хэрэглэгчийн систем нийлү�
 | Архитектур | **PosAPI 3.0 = ОПЕРАТОРЫН талд төвлөрсөн үйлчилгээ** (Qt, Linux `.deb`, REST, default порт 7080; DB QPSQL/QSQLITE). Албан заавар §1.2: нэг PosAPI **олон мерчант** (олон ТТД)-ын баримт бүртгэнэ. Баримт бүрийг ТЕГ-ийн серверт өөрөө илгээж, ДДТД/сугалаа/QR буцаана; сүлжээгүй үед дотоод санд хадгалаад `sendData`-аар дараа илгээнэ | Entry-г нийлүүлэгч = оператор. Харилцагч бүрийн `pos_settings.ebarimtPosApiUrl` → операторын НЭГ PosAPI; `merchantTin` = харилцагчийнх. Харилцагчийн серверт юу ч суулгахгүй (§3 A′) |
 | Бүртгэл | ebarimt.mn мерчант портал → «PosAPI 3.0 хүсэлт» → батлагдмагц **merchantTin (ТТД, 11/14 орон)**, **branchNo (салбар)**, **posNo (кассын дугаар)**, **districtCode (4 оронтой дүүрэг)** олгогдоно; PosAPI суулгац тэдгээрээр идэвхжинэ | `pos_settings`-д eBarimt блок; кассын ээлж бүр ≠ posNo (posNo нь бүртгэлтэй терминал — ээлжээс тусдаа) |
 | Баримтын төрөл | `B2C_RECEIPT` (иргэн, `consumerNo` 8 оронтой эсвэл хоосон), `B2B_RECEIPT` (`customerTin` — байгууллага), `B2C_INVOICE` / `B2B_INVOICE` (нэхэмжлэх, дараа төлөгдөх) | POS борлуулалт → RECEIPT; зээлээр (`credit`) төлбөр → INVOICE эсэх — §8 асуулт |
-| Татварын төрөл | Дэд баримт (`receipts[]`) бүр нэг `taxType`: `VAT_ABLE` / `VAT_FREE` / `VAT_ZERO` / `NOT_VAT` (НӨАТ төлөгч бус) | Барааны `vatMode` (standard/exempt/zero) + `vat_settings.isVatPayer` → мөрүүдийг taxType-аар БҮЛЭГЛЭНЭ |
+| Татварын төрөл | Дэд баримт (`receipts[]`) бүр нэг `taxType`: `VAT_ABLE` / `VAT_FREE` / `VAT_ZERO` (`NOT_VAT` = хилийн гаднах — ашиглахгүй) | Барааны `vatMode` (standard/exempt/zero) → мөрүүдийг taxType-аар БҮЛЭГЛЭНЭ; НӨАТ төлөгч бус бол мөрийн НӨАТ 0 (гарын авлага §5 хүснэгт 1) |
 | Барааны ангилал | Мөр бүрд **`classificationCode` 7 оронтой** (ТЕГ-ийн бараа/үйлчилгээний ангилал), `VAT_FREE`/`VAT_ZERO`-д **`taxProductCode` 3 оронтой** заавал; `barCode` + `barCodeType` (`UNDEFINED`/`GS1`/`ISBN`…), `measureUnit`, `qty`, `unitPrice` (татвар ОРСОН), `totalVAT` (түлхүүр ЯГ ингэж — camelCase биш), `totalCityTax`, `totalAmount` | `inventory_items`-д 2 шинэ талбар; ангилалгүй бараа eBarimt-д илгээгдэхгүй → UI-д улаан |
 | Хотын татвар | `totalCityTax` (НХАТ — зөвхөн тодорхой салбар: зочид буудал, ресторан, бар, согтууруулах ундаа/тамхи) | `pos_settings.cityTaxPercent` (default 0); НХАТ өглөгийн данс роль |
 | Төлбөр | `payments[]`: `code` (`CASH`, `PAYMENT_CARD`, … ), `status: PAID`, `paidAmount`, `exchangeCode` (гуравдагч системийн код); Σ = `totalAmount` | 10 `kind` → eBarimt код map (§4.3) |
@@ -133,7 +133,7 @@ counterparties               registerNo (одоо байгаа) → getTinInfo-�
 
 `buildEbarimtReceipt(sale: PosSaleDetail, settings, items): EbarimtReceiptRequest`
 
-1. Мөр бүрийн taxType: org НӨАТ төлөгч биш → бүгд `NOT_VAT`; төлөгч бол `vatMode`
+1. Мөр бүрийн taxType: `vatMode`-оор (НӨАТ төлөгч эсэхээс үл хамаарна; төлөгч бус → НӨАТ 0)
    standard→`VAT_ABLE`, exempt→`VAT_FREE`, zero→`VAT_ZERO`.
 2. Мөрүүдийг taxType-аар бүлэглэж `receipts[]` дэд баримт болгоно; дэд баримт бүр
    `totalAmount/totalVAT/totalCityTax` = Σ мөр.
@@ -205,7 +205,7 @@ lib/ebarimt/
 lib/actions/ebarimt.ts       Server Actions: тохиргоо, холболт шалгах, дахин илгээх, browser горимд recordEbarimtResult
 app/api/ebarimt/worker/route.ts   cron (Railway cron эсвэл Vercel-маягийн secret header) — A горим
 components/pos/ebarimt-settings.tsx, receipt-preview.tsx (QR), sales-list-view.tsx (багана)
-tests/ebarimt-receipt.test.ts     бүлэглэл, VAT/NOT_VAT, хэсэгчилсэн буцаалт, Σ таарах, ангилалгүй бараа
+tests/ebarimt-receipt.test.ts     бүлэглэл, VAT / төлөгч бус (НӨАТ 0), хэсэгчилсэн буцаалт, Σ таарах, ангилалгүй бараа
 ```
 
 ---

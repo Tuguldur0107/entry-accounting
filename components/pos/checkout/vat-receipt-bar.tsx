@@ -2,13 +2,13 @@
 
 // Кассын «НӨАТ» мөр — сагсны дээр, харилцагчийн доор.
 //
-//   ☑ НӨАТ (eBarimt)  [Хувь хүн | ААН]
+//   ☑ НӨАТ (eBarimt)  [Эцсийн хэрэглэгч | ААН]
 //        ААН → ТТД (11/14) шууд (үндсэн зам — нэр нь ТЕГ-ээс) эсвэл регистр (7 орон) →
 //        ТЕГ-ээс ТТД + НЭР автоматаар (lib/pos/ebarimt-buyer.ts; регистрээр лавлах 2026-06-15-аас хязгаарлагдана)
 //   ☐ НӨАТ            → НӨАТ-гүй борлуулалт: НӨАТ задлахгүй, eBarimt үүсэхгүй,
 //                       тусдаа орлого/авлагын данс, ШАЛТГААН заавал (lib/pos/non-vat.ts)
 // НӨАТ төлөгч БУС байгууллага (eBarimt асаалттай): checkbox-гүй «eBarimt» мөр —
-//   баримт NOT_VAT, НӨАТ 0 (хууль ёсоор баримт олгоно); НӨАТ-гүй борлуулалтын горим байхгүй.
+//   баримт vatMode-оор, НӨАТ 0, сугалаатай (хууль ёсоор олгоно); НӨАТ-гүй борлуулалтын горим байхгүй.
 // Төлөв нь кассын дэлгэцэд (pos-checkout-view) — энд зөвхөн харагдац.
 
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ export function VatReceiptBar({
   onOrgNoChange,
   problem,
 }: {
-  /** НӨАТ төлөгч эсэх — бус бол «☐ НӨАТ» сонголт гарахгүй (баримт NOT_VAT). */
+  /** НӨАТ төлөгч эсэх — бус бол «☐ НӨАТ» сонголт гарахгүй (баримт НӨАТ 0). */
   isVatPayer: boolean;
   vatReceipt: boolean;
   onVatReceiptChange: (value: boolean) => void;
@@ -76,7 +76,7 @@ export function VatReceiptBar({
               variant={buyer.type === "individual" ? "default" : "outline"}
               onClick={() => onBuyerTypeChange("individual")}
             >
-              Хувь хүн
+              Эцсийн хэрэглэгч
             </Button>
             <Button
               type="button"
