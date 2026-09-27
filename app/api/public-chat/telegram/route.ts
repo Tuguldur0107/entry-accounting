@@ -31,11 +31,13 @@ import {
 } from "@/lib/public-chat/store";
 import {
   answerCallback,
+  answerFaqInGroup,
   isTeamChatAdmin,
   markFaqSent,
   publicChatTelegramConfig,
   sendFaqMenu,
   sendTeamText,
+  sendWelcome,
   teamGroupIsPublic,
   updateModerationButtons,
   webhookAuthorized,
@@ -66,6 +68,22 @@ export async function POST(request: Request) {
   });
   if (command.kind === "ignore") return OK();
   const chat = command.chat;
+
+  // Нээлттэй группын олон нийтийн хэсэг — шинэ гишүүнийг угтах, угтах мессежийн
+  // товч (дурын гишүүн). Хаалттай багийн группт хэрэггүй.
+  if (command.kind === "welcome" || command.kind === "faq_public") {
+    if (chat !== "team" || !teamGroupIsPublic(config)) return OK();
+    if (command.kind === "welcome") {
+      await sendWelcome(config, command.names);
+      return OK();
+    }
+    const sent = await answerFaqInGroup(config, command.key, command.buttonMessageId).catch((error) => {
+      console.error("[public-chat] faq answer:", error);
+      return false;
+    });
+    await answerCallback(config, command.callbackId, sent ? "Хариуллаа" : "Дээр хариулсан — группаас харна уу");
+    return OK();
+  }
 
   // Нээлттэй группт хэн ч «Entry баг» нэрээр бичиж, зочныг хааж чадахгүй.
   if (chat === "team" && teamGroupIsPublic(config) && !(await isTeamChatAdmin(config, command.fromId))) {

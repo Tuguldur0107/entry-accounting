@@ -18,7 +18,7 @@ import {
   relayText,
   telegramRef,
 } from "../lib/public-chat/rules";
-import { PUBLIC_CHAT_FAQ, faqCallbackData, findFaq } from "../lib/public-chat/faq";
+import { PUBLIC_CHAT_FAQ, faqCallbackData, faqGroupCallbackData, findFaq } from "../lib/public-chat/faq";
 import { PLANS } from "../lib/billing/plans";
 
 test("normalizeBody — хоосон, урт, удирдах тэмдэгт, илүү мөр", () => {
@@ -206,6 +206,32 @@ test("parseTeamUpdate — нээлттэй группт энгийн текст 
   );
 });
 
+test("parseTeamUpdate — шинэ гишүүн (угтах), угтах мессежийн товч (дурын гишүүн)", () => {
+  const joined = {
+    message: {
+      message_id: 40,
+      chat: { id: TEAM },
+      from: { id: 7, first_name: "Бат" },
+      new_chat_members: [{ id: 7, first_name: "Бат" }, { id: 8, first_name: "Bot", is_bot: true }],
+    },
+  };
+  assert.deepEqual(parseTeamUpdate(joined, TEAM), { kind: "welcome", names: ["Бат"], chat: "team", fromId: 7 });
+  // Зөвхөн bot нэмэгдсэн → угтахгүй
+  assert.equal(
+    parseTeamUpdate({ message: { message_id: 41, chat: { id: TEAM }, new_chat_members: [{ id: 8, is_bot: true }] } }, TEAM).kind,
+    "ignore"
+  );
+  // Хувийн chat-д шинэ гишүүн — угтахгүй
+  assert.equal(
+    parseTeamUpdate({ message: { message_id: 42, chat: { id: 555 }, new_chat_members: [{ id: 9, first_name: "Дорж" }] } }, TEAM, { privateChatId: "555" }).kind,
+    "ignore"
+  );
+  assert.deepEqual(
+    parseTeamUpdate({ callback_query: { id: "cb", from: { id: 7 }, data: faqGroupCallbackData("price"), message: { message_id: 50, chat: { id: TEAM } } } }, TEAM),
+    { kind: "faq_public", key: "price", callbackId: "cb", buttonMessageId: 50, chat: "team", fromId: 7 }
+  );
+});
+
 test("бэлэн хариулт — товчны өгөгдөл ≤ 64 байт, текст хязгаартаа, үнэ plans.ts-ээс", () => {
   const keys = new Set<string>();
   for (const faq of PUBLIC_CHAT_FAQ) {
@@ -213,6 +239,7 @@ test("бэлэн хариулт — товчны өгөгдөл ≤ 64 байт,
     keys.add(faq.key);
     assert.match(faq.key, /^[a-z]{1,16}$/);
     assert.ok(Buffer.byteLength(faqCallbackData(faq.key, "0b7a2c1e-1111-4222-8333-444455556666")) <= 64, faq.key);
+    assert.ok(Buffer.byteLength(faqGroupCallbackData(faq.key)) <= 64, faq.key);
     assert.ok(faq.body.length <= PUBLIC_CHAT_MAX_BODY, faq.key);
     assert.equal(normalizeBody(faq.body), faq.body, `${faq.key} normalizeBody-оор өөрчлөгдөхгүй`);
   }

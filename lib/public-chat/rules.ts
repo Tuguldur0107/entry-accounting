@@ -186,6 +186,8 @@ export type TelegramUpdate = {
     from?: { id?: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean };
     text?: string;
     reply_to_message?: { message_id: number };
+    /** Группт шинэ гишүүн нэгдсэн (service message). */
+    new_chat_members?: { id?: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean }[];
   };
   callback_query?: {
     id: string;
@@ -221,6 +223,10 @@ export type TeamCommand =
       callbackId: string;
       buttonMessageId: number;
     } & CommandSource)
+  /** Нээлттэй группт шинэ гишүүн — угтах мессеж + түгээмэл асуултын товч. */
+  | ({ kind: "welcome"; names: string[] } & CommandSource)
+  /** Угтах мессежийн товч — ДУРЫН гишүүн дарна, хариу группт (landing-д очихгүй). */
+  | ({ kind: "faq_public"; key: string; callbackId: string; buttonMessageId: number } & CommandSource)
   | ({ kind: "help" } & CommandSource)
   | { kind: "ignore" };
 
@@ -269,6 +275,16 @@ export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, opti
   if (callback) {
     const chat = chatRole(callback.message?.chat.id, teamChatId, privateChatId);
     if (!chat || !callback.message) return { kind: "ignore" };
+    const faqPublic = /^faqg:([a-z]{1,16})$/i.exec(callback.data ?? "");
+    if (faqPublic)
+      return {
+        kind: "faq_public",
+        key: faqPublic[1].toLowerCase(),
+        callbackId: callback.id,
+        buttonMessageId: callback.message.message_id,
+        chat,
+        fromId: callback.from?.id ?? null,
+      };
     const faq = /^faq:([a-z]{1,16}):(room|[0-9a-f-]{36})$/i.exec(callback.data ?? "");
     if (faq) {
       const target = faq[2].toLowerCase();
@@ -297,10 +313,13 @@ export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, opti
     };
   }
   const message = update.message;
-  if (!message || message.from?.is_bot) return { kind: "ignore" };
+  if (!message) return { kind: "ignore" };
   const chat = chatRole(message.chat.id, teamChatId, privateChatId);
   if (!chat) return { kind: "ignore" };
   const source: CommandSource = { chat, fromId: message.from?.id ?? null };
+  const joined = (message.new_chat_members ?? []).filter((member) => !member.is_bot);
+  if (joined.length) return chat === "team" ? { kind: "welcome", names: joined.map(staffName), ...source } : { kind: "ignore" };
+  if (message.from?.is_bot) return { kind: "ignore" };
   const text = message.text?.trim() ?? "";
   if (!text) return { kind: "ignore" };
   const command = /^\/(\w+)(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text);
