@@ -1,0 +1,40 @@
+{
+  "totalAmount": 1100000,
+  "totalVAT": 100000,
+  "totalCityTax": 0,
+  "billIdSuffix": "REPLACED_BY_RUN_SH",
+  "branchNo": "001",
+  "districtCode": "REPLACED_BY_RUN_SH",
+  "merchantTin": "REPLACED_BY_RUN_SH",
+  "posNo": "REPLACED_BY_RUN_SH",
+  "type": "B2B_INVOICE",
+  "receipts": [
+    {
+      "taxType": "VAT_ABLE",
+      "merchantTin": "REPLACED_BY_RUN_SH",
+      "totalAmount": 1100000,
+      "totalVAT": 100000,
+      "totalCityTax": 0,
+      "items": [
+        {
+          "name": "Зөвлөх үйлчилгээ",
+          "classificationCode": "8311100",
+          "measureUnit": "ш",
+          "qty": 1,
+          "unitPrice": 1100000,
+          "totalVAT": 100000,
+          "totalCityTax": 0,
+          "totalAmount": 1100000
+        }
+      ]
+    }
+  ],
+  "payments": [
+    {
+      "code": "INVOICE",
+      "status": "PAY",
+      "paidAmount": 1100000
+    }
+  ],
+  "customerTin": "REPLACED_BY_RUN_SH"
+}

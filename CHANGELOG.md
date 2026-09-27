@@ -21,6 +21,12 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **eBarimt нэхэмжлэх + төлөлтийн төлөвлөгөө** (`docs/pos/05-ebarimt-invoice-plan.md`).
+  «POS API 3.0» гарын авлагад нэхэмжлэхийн төлөлтийн урсгал, `PAY`/`PAID` төлөв,
+  зээлийн төлбөрийн код тусгагдаагүйг баримтжуулж, Q1–Q8 асуулт, ITC-д илгээх
+  загвар, staging туршилтын скрипт (`docs/pos/ebarimt-invoice-staging/run.sh` —
+  `STAGING=yes` заавал, сугалаа/QR хадгалахгүй) нэмэв. Код Шат 0-ийн хариуны дараа.
+
 - **Бүртгэлийн хуудсанд Үйлчилгээний нөхцөл, Нууцлалын бодлогын холбоос**
   (entry.mn/terms, entry.mn/privacy) — зөвхөн saas горимд; dedicated-д харагдахгүй.
 
