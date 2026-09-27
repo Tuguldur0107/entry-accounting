@@ -157,7 +157,9 @@ entry-accounting/
     `ORG_PURGE_ORDER` (`lib/org/purge-order.ts`)-аар устгаад үлдсэнийг cascade,
     НЭГ транзакцаар. Шинэ RESTRICT/NO ACTION FK нэмбэл `tests/org-purge.test.ts`
     (DB каталогоор) унаж дараалалд бүртгэхийг шаардана. `db.delete(organizations)`
-    шууд дуудахгүй
+    шууд дуудахгүй. Апп доторх эзний устгалт ба Console-ийн `DELETE
+    /api/platform/organizations` (`lib/platform/org-purge.ts`, нэр/ID баталгаажуулалт,
+    буцаагдахгүй — `docs/dev/platform.md`) хоёул ЭНЭ НЭГ замаар
   - **Урилга** (`org_invitations`) 7 хоног хүчинтэй (`expiresAt`,
     `ORG_INVITATION_TTL_DAYS`); дахин урихад token + хугацаа шинэчлэгдэнэ;
     урилгын ЛИНК зөвхөн admin+ хардаг (`getOrgSettingsData`). Байгууллага/

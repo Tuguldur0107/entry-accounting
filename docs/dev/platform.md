@@ -55,7 +55,21 @@
   багц/суудал солихгүй (пропорц зохиохгүй); read-only үед ч төлнө
   (`requireRole`, assertWritesAllowed-гүй); мөнгө хэзээ ч алдагдахгүй
   (хугацаа дууссан нэхэмжлэхэд ирсэн webhook ч `paid`). Console: `GET
-  /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`)
+  /api/platform/billing-payments` (бүх төлбөр, QR/нууцгүй — `platform-payments.ts`).
+  **Байгууллага БҮРМӨСӨН устгах** (Console-ийн «Аюултай бүс», туршилтын / хаагдсан
+  байгууллагыг цэвэрлэх): `DELETE /api/platform/organizations?id=<uuid>` body
+  `{ confirm: <нэр эсвэл id>, purgeUsers?: boolean, actor? }` (`confirm`-ыг query-д ч
+  өгч болно) → `{ ok, organizationId, orgName, memberCount, deletedUsers, keptUsers }`.
+  Цөм `lib/platform/org-purge.ts` — апп доторх эзний устгалттай (`deleteOrganization`)
+  НЭГ `purgeOrganization` (`lib/org/purge.ts`) ашиглана, тусдаа устгах логик ХОРИОТОЙ.
+  Баталгаажуулалт: `confirm` нь байгууллагын НЭР эсвэл ID-тай таарах ёстой (зай, том/
+  жижиг үсэг үл харгалзана; хэсэгчилсэн нэр татгалзана) — `purgeConfirmationMatches`
+  ЦЭВЭР (`tests/platform-org-purge.test.ts`); таарахгүй бол юу ч устгахгүй.
+  `purgeUsers=true` бол устгалтын ДАРАА өөр байгууллагад гишүүн БИШ (өнчин) болсон
+  хэрэглэгчийн бүртгэлийг устгана; өөр байгууллагын бичилтэд RESTRICT-ээр заагдсан
+  хэрэглэгч (ээлж нээсэн кассчин г.м.) үлдэж `keptUsers`-т тоологдоно, устгалт
+  зогсохгүй. **БУЦААГДАХГҮЙ**; байгууллага устсан тул аудитын мөр бичих газаргүй —
+  зөвхөн серверийн лог `[platform-purge]` (actor, нэр, id, тоо)
   **Туршилтын funnel** (Console): `GET /api/platform/trial-funnel[?from&to&product=
   accounting|skills]` — [from,to] мужид үүссэн байгууллагын когорт (default 90 хоног,
   ≤366): бүртгүүлсэн → AI холбосон (анхны OAuth/token) → мастер дата (анхны
