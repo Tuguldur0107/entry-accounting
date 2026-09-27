@@ -7,7 +7,7 @@
 // Бүгд ActionResult — алдаа УТГААР (lib/action-result.ts).
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
 import { encryptSecret } from "@/lib/ai/crypto";
@@ -38,7 +38,7 @@ import {
 } from "@/lib/qpay/client";
 import { QPAY_ERRORS, type QpayIntentStatus } from "@/lib/qpay/constants";
 import { QPAY_CONNECT_CALLBACK_PATH, buildConnectState, connectUrl } from "@/lib/qpay/connect";
-import { checkAllowed, clampInvoiceTtl, invoiceAmountOf, isExpired } from "@/lib/qpay/intent";
+import { checkAllowed, clampInvoiceTtl, invoiceAmountOf, isExpired, pickFinalizeShift } from "@/lib/qpay/intent";
 import type { QpayReadiness } from "@/lib/qpay/readiness";
 import {
   expireStaleIntents,
@@ -431,14 +431,54 @@ export async function finalizeQpayIntent(
   intentId: string
 ): Promise<ActionResult<{ id: string; documentNo: string; receipt: PosReceipt }>> {
   try {
-    const { orgId } = await requireModuleAction(POS_MODULE_KEY, "write");
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
     const row = await loadIntent(orgId, intentId);
     if (!row) throw new Error("QPay intent олдсонгүй");
     if (row.status !== "paid" || row.saleId)
       throw new Error(`[${QPAY_ERRORS.intentNotPaid}] Зөвхөн төлөгдсөн, бүртгэгдээгүй QPay төлбөрийг борлуулалт болгоно`);
     const snapshot = row.cartSnapshot as unknown as CreatePosSaleInput;
-    const result = await createPosSale({ ...snapshot, qpayIntentId: row.id });
+    // Сагсны ээлж хаагдсан бол ижил салбарын нээлттэй ээлжид бүртгэнэ — эс бөгөөс
+    // мөнгө орсон intent хэзээ ч борлуулалт болж чадахгүй «ЯАРАЛТАЙ» хэвээр үлддэг.
+    const originalShift = row.shiftId
+      ? await db.query.posShifts.findFirst({
+          where: and(eq(posShifts.id, row.shiftId), eq(posShifts.organizationId, orgId)),
+          columns: { documentNo: true, warehouseId: true, cashAccountId: true },
+        })
+      : null;
+    const openShifts = await db.query.posShifts.findMany({
+      where: and(eq(posShifts.organizationId, orgId), eq(posShifts.status, "open")),
+      columns: { id: true, documentNo: true, warehouseId: true, cashAccountId: true },
+      orderBy: [asc(posShifts.openedAt)],
+    });
+    const warehouseId = snapshot.warehouseId || originalShift?.warehouseId || null;
+    const target = pickFinalizeShift({
+      snapshotShiftId: snapshot.shiftId ?? row.shiftId,
+      warehouseId,
+      cashAccountId: originalShift?.cashAccountId ?? null,
+      openShifts,
+    });
+    if (!target)
+      throw new Error(
+        `Ээлж ${originalShift?.documentNo ?? ""} хаагдсан — тэр салбарт (агуулахад) ээлж нээгээд дахин «Борлуулалт болгох» дарна уу`
+      );
+    const result = await createPosSale({
+      ...snapshot,
+      shiftId: target.shiftId,
+      ...(target.rebound && warehouseId ? { warehouseId } : {}),
+      qpayIntentId: row.id,
+    });
     if (result.error || !result.receipt) throw new Error(result.error ?? "Борлуулалт бүртгэгдсэнгүй");
+    if (target.rebound) {
+      const targetNo = openShifts.find((shift) => shift.id === target.shiftId)?.documentNo ?? target.shiftId;
+      await logAuditEvent({
+        userId,
+        organizationId: orgId,
+        action: "finalize",
+        entityType: "pos_qpay_intent",
+        entityId: row.id,
+        summary: `QPay төлбөр ${result.documentNo} болов — ээлж ${originalShift?.documentNo ?? "(устсан)"} хаагдсан тул ${targetNo}-д бүртгэв`,
+      });
+    }
     revalidateQpay();
     return { id: result.id!, documentNo: result.documentNo!, receipt: result.receipt };
   } catch (caught) {

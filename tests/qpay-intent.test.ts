@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 import {
+  pickFinalizeShift,
   amountMatches,
   canTransition,
   checkAllowed,
@@ -91,4 +92,31 @@ test("webhook payload задлалт — зөвхөн payment.paid + invoice_id"
   assert.equal(parseWebhookPayload({ event: "payment.paid" }), null);
   assert.equal(parseWebhookPayload("nope"), null);
   assert.ok(Number.isNaN(parseWebhookPayload({ event: "payment.paid", invoice_id: "x", amount: "abc" })!.amount));
+});
+
+test("pickFinalizeShift — хаагдсан ээлжийн төлбөр ижил салбарын нээлттэй ээлжид", () => {
+  const openShifts = [
+    { id: "s-b1", warehouseId: "wh-b", cashAccountId: "cash-b" },
+    { id: "s-a1", warehouseId: "wh-a", cashAccountId: "cash-a2" },
+    { id: "s-a2", warehouseId: "wh-a", cashAccountId: "cash-a" },
+  ];
+  // Сагсны ээлж нээлттэй — хэвээр.
+  assert.deepEqual(
+    pickFinalizeShift({ snapshotShiftId: "s-b1", warehouseId: "wh-b", cashAccountId: "cash-b", openShifts }),
+    { shiftId: "s-b1", rebound: false }
+  );
+  // Хаагдсан — ижил агуулах + ижил касс түрүүлнэ.
+  assert.deepEqual(
+    pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: "wh-a", cashAccountId: "cash-a", openShifts }),
+    { shiftId: "s-a2", rebound: true }
+  );
+  // Ижил касс алга — ижил агуулахын эхнийх.
+  assert.deepEqual(
+    pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: "wh-a", cashAccountId: "other", openShifts }),
+    { shiftId: "s-a1", rebound: true }
+  );
+  // Өөр салбар руу ХЭЗЭЭ Ч шилжихгүй; агуулах тодорхойгүй бол null.
+  assert.equal(pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: "wh-c", cashAccountId: null, openShifts }), null);
+  assert.equal(pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: null, cashAccountId: null, openShifts }), null);
+  assert.equal(pickFinalizeShift({ snapshotShiftId: "closed", warehouseId: "wh-a", cashAccountId: null, openShifts: [] }), null);
 });
