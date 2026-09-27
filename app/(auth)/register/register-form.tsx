@@ -12,7 +12,7 @@ import { HeroPixelGrid } from '@/components/auth/hero-pixel-grid';
 import { registerUser } from '@/lib/actions/auth';
 import { ThemeToggle } from '@/components/theme-toggle';
 
-export default function RegisterForm({ plan }: { plan?: 'skills' } = {}) {
+export default function RegisterForm({ plan, legalLinks = false }: { plan?: 'skills'; legalLinks?: boolean } = {}) {
   // «AI нягтлан» (skills): мэдлэгийн сан л — компанийн нэр хэрэггүй, 24ц туршилт.
   const skills = plan === 'skills';
   // registerUser амжилттай бол server action өөрөө redirect хийдэг тул router хэрэггүй
@@ -120,6 +120,20 @@ export default function RegisterForm({ plan }: { plan?: 'skills' } = {}) {
                   {loading ? 'Бүртгэж байна...' : <>{`Бүртгүүлэх`} <Icon name="arrowRight" /></>}
                 </EAButton>
               </div>
+
+              {legalLinks && (
+                <p style={{ marginTop: 14, textAlign: 'center', fontSize: 12, lineHeight: 1.6, color: 'var(--ea-text-3)' }}>
+                  Бүртгүүлснээр та{' '}
+                  <a href="https://entry.mn/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ea-primary)' }}>
+                    Үйлчилгээний нөхцөл
+                  </a>{' '}
+                  болон{' '}
+                  <a href="https://entry.mn/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ea-primary)' }}>
+                    Нууцлалын бодлого
+                  </a>
+                  -ыг зөвшөөрнө.
+                </p>
+              )}
 
               <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13, color: 'var(--ea-text-3)' }}>
                 Бүртгэлтэй юу?{' '}
