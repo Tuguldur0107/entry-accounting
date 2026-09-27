@@ -8,13 +8,13 @@ import Link from "next/link";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { LOGOUT_PATH } from "@/lib/auth-logout";
 
 export function SkillsSignedIn({
   email,
   orgName,
   hasKnowledge,
   guideHref,
-  signOutAction,
 }: {
   email: string | null;
   orgName: string | null;
@@ -22,7 +22,6 @@ export function SkillsSignedIn({
   hasKnowledge: boolean;
   /** Холбох заавар — skills багц бол нүүр, нягтлан бодох багц бол AI тохиргооны MCP таб. */
   guideHref: string;
-  signOutAction: () => Promise<void>;
 }) {
   const text = { marginTop: 14, fontSize: 14, lineHeight: 1.7, color: "var(--ea-text-3)" } as const;
   const strong = { color: "var(--ea-text-1)" } as const;
@@ -55,7 +54,8 @@ export function SkillsSignedIn({
             Холбох заавар үзэх
           </Link>
         ) : null}
-        <form action={signOutAction}>
+        <form action={LOGOUT_PATH} method="post">
+          <input type="hidden" name="redirectTo" value="/register?plan=skills" />
           <button
             type="submit"
             className={buttonVariants({ variant: hasKnowledge ? "outline" : "default", size: "lg" })}

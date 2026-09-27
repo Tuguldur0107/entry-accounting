@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { auth, getSupportBanner, signOut } from "@/lib/auth";
+import { auth, getSupportBanner } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { EAMark, EAWordmark } from "@/components/auth/brand";
 import { UserMenu } from "@/components/layout/user-menu";
@@ -177,10 +177,6 @@ export default async function DashboardLayout({
             <UserMenu
               name={session.user.name ?? session.user.email ?? "Хэрэглэгч"}
               email={session.user.email}
-              signOutAction={async () => {
-                "use server";
-                await signOut({ redirectTo: "/login" });
-              }}
             />
           </div>
         </div>
