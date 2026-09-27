@@ -890,6 +890,12 @@ async function main() {
              and ps.qpay_provisioned_at is not null
         )`
   );
+  // QPay-д буцаах функц байхгүй (docs/pos/04 D5) — гараар асаасан QPay хэлбэрийн
+  // «Буцаалтад ашиглана»-г унтраана (код ч canRefundWithMethod-оор хаадаг; идемпотент).
+  await run(
+    "pos_payment_methods: QPay хэлбэрийн allows_refund = false",
+    `update pos_payment_methods set allows_refund = false where provider = 'qpay' and allows_refund = true`
+  );
   // Багана нэмэгдэхээс өмнөх мөр: регистр нь иргэний РД хэлбэртэй (2 кирилл
   // үсэг + 8 орон) бол «Хувь хүн» — зөвхөн default утгатай мөрийг хөндөнө
   // (хэрэглэгчийн сонгосон утгыг дарахгүй, идемпотент).

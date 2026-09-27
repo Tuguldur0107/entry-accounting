@@ -441,7 +441,8 @@ export async function savePaymentMethod(data: {
       currency,
       requiresReference: !!data.requiresReference,
       allowsChange: data.kind === "cash" ? !!data.allowsChange : false,
-      allowsRefund: data.allowsRefund ?? true,
+      // QPay хэлбэр буцаалтад ХЭЗЭЭ Ч орохгүй (canRefundWithMethod) — хадгалахад ч false.
+      allowsRefund: resolvePaymentProvider(data.kind, data.provider) === QPAY_PROVIDER ? false : (data.allowsRefund ?? true),
       feePercent: data.feePercent == null ? null : String(Number(data.feePercent)),
       ebarimtCode: cleanText(data.ebarimtCode)?.toUpperCase() ?? null,
       provider: resolvePaymentProvider(data.kind, data.provider),

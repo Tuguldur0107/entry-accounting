@@ -10,7 +10,7 @@ import {
   roundToCashUnit,
   ulaanbaatarNow,
 } from "../lib/pos/sale-math";
-import { planPayments, planRefund } from "../lib/pos/payments";
+import { canRefundWithMethod, planPayments, planRefund } from "../lib/pos/payments";
 import type { PaymentContext, PaymentMethodView, PricedLine } from "../lib/pos/types";
 
 const payer = { isVatPayer: true, vatRatePercent: 10 };
@@ -235,6 +235,15 @@ test("planRefund: allowsRefund, нийлбэр таарах", () => {
   assert.ok(wrong.errors.some((error) => error.includes("таарахгүй")));
   const noRefund = planRefund([{ paymentMethodId: "card", amount: 31_350 }], [{ ...card, allowsRefund: false }], 31_350, {});
   assert.ok(noRefund.errors.some((error) => error.includes("боломжгүй")));
+});
+
+test("planRefund: QPay хэлбэр allowsRefund=true байсан ч буцаалтад ОРОХГҮЙ (D5)", () => {
+  const qpay: PaymentMethodView = { ...card, id: "qpay", code: "QPAY", name: "QPAY", kind: "ewallet", provider: "qpay", allowsRefund: true, requiresReference: false };
+  assert.equal(canRefundWithMethod(qpay), false);
+  assert.equal(canRefundWithMethod(card), true);
+  const plan = planRefund([{ paymentMethodId: "qpay", amount: 4_200 }], [qpay], 4_200, {});
+  assert.ok(plan.errors.some((error) => error.includes("QPay")));
+  assert.equal(plan.payments.length, 0);
 });
 
 test("Аудит M6: POS-ийн зарлагын төрөл COGS биш бол ИЛ анхааруулна", () => {

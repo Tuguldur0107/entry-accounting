@@ -310,7 +310,12 @@ QPay мөр → [QR үүсгэх] → pos_qpay_intents (open, cartSnapshot) → 
   ЦЭВЭР, тесттэй) — өөр салбар руу ХЭЗЭЭ Ч шилжихгүй, шилжүүлбэл аудит `finalize`
 - **GL ӨӨРЧЛӨЛТГҮЙ:** `ewallet` хэлбэрийн түр данс (банкны хуулгаар тэгшитгэнэ,
   ККТТ 1% шимтгэл settlement-д гарна); QPay буцаалт БАЙХГҮЙ (Quick QR refund-гүй) —
-  бэлэн / дэлгүүрийн кредитээр
+  бэлэн / шилжүүлэг / дэлгүүрийн кредитээр. **QPay хэлбэрт «Буцаалтад ашиглана»
+  тохиргоо ч БАЙХГҮЙ** — `canRefundWithMethod` (`lib/pos/payments.ts`, тесттэй) нь
+  `provider = qpay`-г тохиргооноос үл хамааран хаана: `planRefund`, view
+  (`load-data`), хадгалалт (`savePaymentMethod` false), буцаалтын диалог, preDeploy
+  (`allows_refund = false`). QPay-ээр «буцаасан» гэж бичвэл мөнгө очихгүй ч дэвтэрт
+  гарсан мэт болдог байв
 - **Settlement автомат** (`lib/cash/ewallet-settlement.ts` ЦЭВЭР, тесттэй; DB
   `ewallet-settlement-data.ts`): провайдер шимтгэлээ суутгаад банкинд шилжүүлсэн
   хуулгын мөрийг түр дансны ТУЛГАГДААГҮЙ орлогуудтай FIFO-оор тулгана (үлдэгдэлд

@@ -54,6 +54,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { feedback } from "@/lib/ui/feedback";
+import { canRefundWithMethod } from "@/lib/pos/payments";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const fmtQty = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -618,7 +619,7 @@ function ReturnDialog({
   }, [open, methods]);
 
   const refundMethods = useMemo(
-    () => (methods ?? []).filter((method) => method.isActive && method.allowsRefund).sort((a, b) => a.sortOrder - b.sortOrder),
+    () => (methods ?? []).filter((method) => method.isActive && canRefundWithMethod(method)).sort((a, b) => a.sortOrder - b.sortOrder),
     [methods]
   );
   const methodById = useMemo(() => new Map((methods ?? []).map((m) => [m.id, m])), [methods]);
