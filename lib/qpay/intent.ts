@@ -17,13 +17,26 @@ const TRANSITIONS: Record<QpayIntentStatus, readonly QpayIntentStatus[]> = {
   open: ["paid", "cancelled", "expired", "failed"],
   paid: ["finalized"],
   finalized: [],
-  cancelled: [],
-  expired: [],
+  // QR Entry-д хаагдсан ч QPay мөнгө хүлээн авч болно (харилцагч хугацаа дуусах
+  // мөчид төлсөн, dashboard-ын DELETE амжаагүй). Мөнгө бол үнэн: хоцорсон
+  // төлбөрийг `paid` (дүн зөрвөл `failed`) болгоно — ХЭЗЭЭ Ч чимээгүй алгасахгүй.
+  cancelled: ["paid", "failed"],
+  expired: ["paid", "failed"],
   failed: [],
 };
 
 export function canTransition(from: QpayIntentStatus, to: QpayIntentStatus): boolean {
   return TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+/** Энэ төлөвт QPay-ийн төлбөрийн дохиог (webhook / шалгалт) хүлээн авах уу. */
+export function acceptsPayment(status: QpayIntentStatus): boolean {
+  return canTransition(status, "paid");
+}
+
+/** QR хаагдсаны (цуцлагдсан / хугацаа дууссан) дараа ирсэн төлбөр үү. */
+export function isLatePayment(status: QpayIntentStatus): boolean {
+  return status === "cancelled" || status === "expired";
 }
 
 /** Intent-ийн эцсийн (өөрчлөгдөхгүй) төлөв үү. */

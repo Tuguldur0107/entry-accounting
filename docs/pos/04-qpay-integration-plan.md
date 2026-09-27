@@ -126,6 +126,9 @@ Entry (SaaS / dedicated)                  qpay-dashboard (Railway)              
 ④ Кассын дэлгэц paid харангуут createPosSale({payments:[{method: QPay, amount, reference: qpayInvoiceId}], qpayIntentId})
      → intent {status: "finalized", saleId}; хэвийн зам: АР + касс (QPay түр данс) + eBarimt
 ⑤ Цуцлах / хугацаа дуусах → DELETE /api/v1/invoices/{id} → intent "cancelled" | "expired"
+⑥ Хоцорсон төлбөр (DELETE амжаагүй / хугацаа дуусах мөчид төлсөн) → webhook → cancelled|expired
+     → paid + lastError [QPAY_LATE_PAYMENT] (дүн зөрвөл failed) → баннер + шууд мэдэгдэл
+     `pos.qpay_late_payment`; сагс өөр хэлбэрээр зарагдсан бол «Борлуулалт болгох» ДАРАХГҮЙ
 ```
 
 - **[Шалгах] товч** = dashboard `payments/check` (QPay-ийн `payment/check`) —

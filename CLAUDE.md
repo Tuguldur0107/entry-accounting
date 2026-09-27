@@ -345,7 +345,8 @@ POS `docs/pos/00-proposal.md` → `01-implementation-contract.md` (функци�
 **QPay Quick QR**
 - Entry QPay-тэй ШУУД харьцахгүй — `qpay-dashboard` REST-ээр; QPay-г polling ХИЙХГҮЙ
 - Intent машин ЦЭВЭР, `markIntentPaid` идемпотент; дүн зөрвөл `failed` — төлбөр ЗОХИОХГҮЙ;
-  төлөгдсөн ч борлуулалт болоогүй intent ХЭЗЭЭ Ч чимээгүй үлдэхгүй
+  төлөгдсөн ч борлуулалт болоогүй intent ХЭЗЭЭ Ч чимээгүй үлдэхгүй — QR хаагдсаны
+  (expired / cancelled) дараах төлбөр ч `paid` + `[QPAY_LATE_PAYMENT]` + шууд мэдэгдэл
 - Нууц (API key, webhook secret) шифртэй, УТГА нь лог/аудит/health-д ХЭЗЭЭ Ч гарахгүй
 - Raw `sql`-д Date объект ШУУД параметр болохгүй (`tests/sql-date-params.test.ts`)
 

@@ -231,6 +231,15 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  // QPay: QR Entry-д хаагдсаны (цуцлагдсан / хугацаа дууссан) дараа төлбөр орсон —
+  // сагс өөр хэлбэрээр аль хэдийн зарагдсан байж болзошгүй (давхар төлбөр).
+  "pos.qpay_late_payment": {
+    category: "documents",
+    severity: "danger",
+    label: "QPay: QR хаагдсаны дараа төлбөр орсон",
+    email: "instant",
+    inApp: true,
+  },
   // QPay: мөнгө орсон ч дүн зөрсөн (webhook-ийн дүн ≠ QR) — intent `failed`,
   // борлуулалт автоматаар үүсэхгүй; мөнгө ХЭЗЭЭ Ч чимээгүй үлдэхгүй.
   "pos.qpay_amount_mismatch": {

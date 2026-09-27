@@ -44,6 +44,8 @@ export const QPAY_ERRORS = {
   intentRequired: "QPAY_INTENT_REQUIRED",
   intentNotPaid: "QPAY_INTENT_NOT_PAID",
   amountMismatch: "QPAY_AMOUNT_MISMATCH",
+  /** QR хаагдсаны дараа төлөгдсөн — сагс өөр хэлбэрээр зарагдсан байж болзошгүй. */
+  latePayment: "QPAY_LATE_PAYMENT",
   alreadyFinalized: "QPAY_ALREADY_FINALIZED",
   checkThrottled: "QPAY_CHECK_THROTTLED",
   dashboard: "QPAY_DASHBOARD",

@@ -236,6 +236,19 @@ export function notificationFromAudit(
       { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
     );
 
+  // QPay: мөнгө санаандгүй орсон — QR хаагдсаны дараа төлөгдсөн (давхар төлбөр
+  // байж болзошгүй) эсвэл дүн зөрсөн. Хоёулаа борлуулалт автоматаар үүсгэхгүй тул
+  // POS-ийн бичих эрхтэй гишүүдэд ШУУД (attention-ийн өдрийн сануулгаас гадна).
+  if (entityType === "pos_qpay_intent" && (action === "late_paid" || action === "webhook_amount_mismatch"))
+    return draft(
+      event,
+      now,
+      action === "late_paid" ? "pos.qpay_late_payment" : "pos.qpay_amount_mismatch",
+      action === "late_paid" ? "QPay: QR хаагдсаны дараа төлбөр орлоо" : "QPay төлбөрийн дүн зөрсөн",
+      { kind: "module", moduleKeys: ["pos"], minLevel: "write" },
+      { severity: "danger", href: "/inventory/sales", dedupeKey: `qpay-${action}:${event.entityId}` }
+    );
+
   // Платформын дэмжлэгийн хандалт — ГАДНЫ хүн орсон/гарсан. Эзэн/админд
   // ЗААВАЛ мэдэгдэнэ (D-дүрмийн «actor-ыг хасах» нь хамаарахгүй: оператор нь
   // энэ байгууллагын гишүүн биш тул хүлээн авагчийн жагсаалтад ч байхгүй).

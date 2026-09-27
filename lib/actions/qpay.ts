@@ -313,14 +313,33 @@ export async function createQpayIntent(input: CreateQpayIntentInput): Promise<Ac
   }
 }
 
+/**
+ * Хугацаа дууссан intent-үүдийг хааж, QPay талд нэхэмжлэхийг нь устгана
+ * (docs/pos/04 §3.3 ⑤) — харилцагч хаагдсан QR-аар төлөх боломжийг хаана.
+ * Устгалт унавал (сүлжээ, аль хэдийн төлөгдсөн) чимээгүй: хоцорсон төлбөр
+ * webhook-оор `paid` + `[QPAY_LATE_PAYMENT]` болж баннер/мэдэгдэлд гарна.
+ */
+async function expireAndCancelStale(orgId: string, userId: string): Promise<void> {
+  const invoiceIds = await expireStaleIntents(orgId);
+  if (invoiceIds.length === 0) return;
+  const settings = await ensurePosSettings(orgId, userId);
+  for (const invoiceId of invoiceIds) {
+    try {
+      await withQpayKeyRecovery(orgId, settings, userId, (config) => cancelDashboardInvoice(config, invoiceId));
+    } catch {
+      /* хоцорсон төлбөрийн зам (markIntentPaid) хамгаална */
+    }
+  }
+}
+
 /** Кассын дэлгэцийн polling — ЗӨВХӨН Entry DB (QPay-д хүрэхгүй); хугацаа дууссан бол expired. */
 export async function getQpayIntent(intentId: string): Promise<ActionResult<{ intent: QpayIntentView }>> {
   try {
-    const { orgId } = await requireModuleAction(POS_MODULE_KEY, "read");
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
     const row = await loadIntent(orgId, intentId);
     if (!row) throw new Error("QPay intent олдсонгүй");
     if (isExpired({ status: row.status as QpayIntentStatus, expiresAt: row.expiresAt }, new Date())) {
-      await expireStaleIntents(orgId);
+      await expireAndCancelStale(orgId, userId);
     }
     const view = await loadIntentView(orgId, intentId);
     if (!view) throw new Error("QPay intent олдсонгүй");
@@ -365,8 +384,17 @@ export async function checkQpayIntent(intentId: string): Promise<ActionResult<{ 
             entityId: row.id,
             summary: `QPay төлөгдлөө (гар шалгалт) — ${row.qpayInvoiceId}, ${Number(row.amount).toLocaleString("en-US")}₮`,
           });
+        else if (result.changed)
+          await logAuditEvent({
+            userId,
+            organizationId: orgId,
+            action: "webhook_amount_mismatch",
+            entityType: "pos_qpay_intent",
+            entityId: row.id,
+            summary: `QPay гар шалгалт: ${result.reason ?? "дүн зөрсөн"} — ${row.qpayInvoiceId}`,
+          });
       } else if (isExpired({ status: "open", expiresAt: row.expiresAt }, now)) {
-        await expireStaleIntents(orgId);
+        await expireAndCancelStale(orgId, userId);
       }
     }
     const view = await loadIntentView(orgId, intentId);
@@ -416,7 +444,8 @@ export async function cancelQpayIntent(intentId: string): Promise<ActionResult<{
 /** Жагсаалтын «QPay хүлээгдэж буй» — open / paid-бүртгэгдээгүй / failed. */
 export async function listPendingQpayIntents(): Promise<ActionResult<{ intents: QpayIntentView[] }>> {
   try {
-    const { orgId } = await requireModuleAction(POS_MODULE_KEY, "read");
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "read");
+    await expireAndCancelStale(orgId, userId);
     return { intents: await listPendingIntents(orgId) };
   } catch (caught) {
     return actionError("listPendingQpayIntents", caught, "QPay жагсаалт уншигдсангүй");
