@@ -654,7 +654,7 @@ INDEX нь `pg_indexes`-ээс зөв танигдаж, ижил баталга�
 | **Өртгийн логик (ЗААВАЛ)** | `docs/cost/README.md` → `01`…`04` → `docs/cost/CLAUDE.md` |
 | **Хангамж / PO (ЗААВАЛ)** | `docs/procurement/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.6, норматив §11 FR-PROC-006…012 |
 | **POS (ЗААВАЛ)** | `docs/pos/00-proposal.md` → `01-implementation-contract.md`; батлагдсан шийдвэр `docs/cost/README.md` 0.8 |
-| **eBarimt 3.0 (ЗААВАЛ)** | `docs/pos/03-ebarimt-integration-plan.md` → `docs/deployment/ebarimt.md`; төлөв `docs/pos/02-implementation-status.md` |
+| **eBarimt 3.0 (ЗААВАЛ)** | `docs/pos/03-ebarimt-integration-plan.md` → `docs/deployment/ebarimt.md`; төлөв `docs/pos/02-implementation-status.md`; нэхэмжлэх + төлөлт (АР) `docs/pos/05-ebarimt-invoice-plan.md` |
 | **Мэдлэгийн сан хэрэглэгчид (ЗААВАЛ)** | `docs/knowledge/00-proposal.md` — D1–D7; хэсэглэлт/квот/surfaces-ийн дүрэм §9e |
 | **ITC developer портал / eTax / e-Balance холболт (ЗААВАЛ)** | `docs/integrations/00-itc-developer-portal.md` (портал, нэвтрэлт, орчин, гео-хязгаар, нээлттэй асуулт) → eBarimt-ийн албан баримттай тулгалт `01-ebarimt-posapi-verification.md` (P0–P2, staging тест) |
 | Account код, GL posting template | `entry-knowledge/02-нягтлан-бодох-мэргэжлийн/01-gl-posting-matrix.md` |
