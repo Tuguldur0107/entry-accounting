@@ -1193,6 +1193,8 @@ export const counterparties = pgTable(
     creditLimit: numeric("credit_limit", { precision: 18, scale: 2 }),
     bankName: text("bank_name"),
     bankAccountNo: text("bank_account_no"),
+    /** Төлбөрийн автомат сануулга (docs/dev/arap.md §5g) энэ харилцагчид ЯВАХГҮЙ. */
+    arRemindersDisabled: boolean("ar_reminders_disabled").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -1433,6 +1435,58 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
 // Шийдвэр D-ECL-1…4 — lib/arap/ecl.ts, docs/cost README 1.2.
 
 /** Байгууллага бүрийн ECL тохиргоо (ratified-seed: мөргүй бол default-аар үүснэ). */
+// Төлбөрийн автомат сануулга (docs/dev/arap.md §5g) — байгууллагад НЭГ мөр,
+// анхнаасаа УНТРААЛТТАЙ. Шат: хугацаанаас `beforeDays` өмнө + хэтэрсний дараа
+// `afterDays` (хоног) бүрд харилцагчийн и-мэйл рүү линктэй сануулга.
+export const arReminderSettings = pgTable(
+  "ar_reminder_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    enabled: boolean("enabled").notNull().default(false),
+    /** Хугацаанаас хэдэн хоногийн өмнө — null бол урьдчилсан сануулгагүй. */
+    beforeDays: integer("before_days").default(3),
+    /** Хэтэрсний дараах шатууд (хоног, өсөх) — `[1, 7, 14]`. */
+    afterDays: jsonb("after_days").notNull().default([1, 7, 14]),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [uniqueIndex("ar_reminder_settings_org_ux").on(t.organizationId)]
+);
+
+// Илгээсэн сануулга — нэхэмжлэх × төлөх огноо × шат НЭГ мөр (unique INDEX):
+// олон instance / давтан tick-д давхар захиа явахгүй; төлөх огноо өөрчлөгдвөл
+// шатууд шинээр тоологдоно.
+export const arInvoiceReminders = pgTable(
+  "ar_invoice_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => arApDocuments.id, { onDelete: "cascade" }),
+    dueDate: text("due_date").notNull(),
+    /** "before:3" | "after:7" */
+    stage: text("stage").notNull(),
+    /** sending | sent | failed */
+    status: text("status").notNull().default("sending"),
+    attempts: integer("attempts").notNull().default(1),
+    recipient: text("recipient").notNull(),
+    sendId: uuid("send_id").references(() => arApInvoiceSends.id, { onDelete: "set null" }),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    sentAt: timestamp("sent_at"),
+  },
+  (t) => [
+    uniqueIndex("ar_invoice_reminders_doc_stage_ux").on(t.documentId, t.dueDate, t.stage),
+    index("ar_invoice_reminders_org_created_ix").on(t.organizationId, t.createdAt),
+  ]
+);
+
 export const arapEclSettings = pgTable(
   "arap_ecl_settings",
   {
@@ -3793,6 +3847,8 @@ export const arApInvoiceSends = pgTable("ar_ap_invoice_sends", {
     .notNull()
     .references(() => arApDocuments.id, { onDelete: "cascade" }),
   channel: text("channel").notNull(), // "email" | "link"
+  /** "invoice" — нэхэмжлэх илгээлт; "reminder" — төлбөрийн автомат сануулга (§5g). */
+  purpose: text("purpose").notNull().default("invoice"),
   /** И-мэйл суваг: хүлээн авагчийн хаяг. Линк суваг: null. */
   recipient: text("recipient"),
   /** Public линкний токен — таамаглагдашгүй, хүчингүй болгож болно. */

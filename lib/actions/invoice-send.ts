@@ -257,6 +257,8 @@ export async function listInvoiceSends(documentId: string) {
     return {
       id: row.id,
       channel: row.channel as "email" | "link",
+      /** "reminder" — төлбөрийн автомат сануулга (docs/dev/arap.md §5g). */
+      reminder: row.purpose === "reminder",
       recipient: row.recipient,
       url:
         row.revokedAt || expired

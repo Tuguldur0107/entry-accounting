@@ -137,3 +137,40 @@ tests/qpay-arap-flow.test.ts (DB), tests/qr-matrix.test.ts
   «Дахин илгээх» `resendArapEbarimt` (ar:post)
 - Кредит нэхэмжлэл, буцаалт, төлөлт eBarimt-д ИЛГЭЭГДЭХГҮЙ — docs/pos/05 Q1/Q5-ын хариу хүртэл
 
+
+### 5g. Төлбөрийн автомат сануулга — ХЭРЭГЖСЭН (2026-09-28)
+
+Авлага → **Сануулга** (`/receivables/reminders`). Төлөгдөөгүй нэхэмжлэхийн харилцагчид
+нэхэмжлэхийн нээлттэй линктэй (QPay идэвхтэй бол шууд төлөх, §5f) и-мэйл.
+
+- **Анхнаасаа УНТРААЛТТАЙ** (`ar_reminder_settings.enabled`); асаах/шат засах `ar:post`,
+  асаахад илгээх бэлэн байдал (`reminderSenderProblem`: `RESEND_API_KEY`, илгээгч —
+  нэхэмжлэх илгээхтэй ИЖИЛ `resolveInvoiceSender`, `NEXT_PUBLIC_APP_URL`) шалгагдана.
+  Өөрчлөлт бүр аудит (`settings` / `ar_reminders`)
+- **Шат:** хугацаанаас `beforeDays` (default 3) өмнө + хэтэрсний дараа `afterDays`
+  (default 1, 7, 14; ≤ 5 шат). `dueReminderStage` (ЦЭВЭР, тесттэй): өнөөдөр болсон
+  ХАМГИЙН СҮҮЛИЙН НЭГ шат, шат болсноос ≤ `REMINDER_CATCH_UP_DAYS` (7) хоногийн дотор,
+  хожуу шат явсан бол өмнөхийг нөхөхгүй, урьдчилсан шат хэтэрсний дараа үгүй. Асаамагц
+  аль эрт хэтэрсэн нэхэмжлэх рүү «хуучин өр» захиа цацахгүй
+- **Хамрах:** `ar_invoice`, posted / partially_paid, үлдэгдэл > 0.01 (хасалт, кредит
+  нэхэмжлэл `paidAmount`-аар тооцогдоно), харилцагч и-мэйлтэй, `arRemindersDisabled`
+  биш. И-мэйлгүй / хасагдсан → `skipped` (мөр бичихгүй — и-мэйл нэмбэл дараагийн шат явна)
+- **Хөдөлгүүр** (`lib/arap/reminders-run.ts`, request scope-гүй): ticker 10:00 УБ-аас
+  (`REMINDER_JOB_HOUR_UB`), cron `?job=reminders`. Байгууллага × өдөр `notification_runs`
+  (job `ar_reminders`) НЭГ дуудагч; нэхэмжлэх × төлөх огноо × шат `ar_invoice_reminders`
+  unique INDEX-ээр булаагдсаны ДАРАА л захиа явна (олон instance давхардахгүй; төлөх огноо
+  өөрчлөгдвөл шат шинээр). Resend алдаа → `failed`, дараагийн өдөр дахин (≤ 3 оролдлого).
+  Байгууллагад өдөрт ≤ 100 захиа
+- **Захиа:** гарчигт ДҮН БИЧИХГҮЙ (`buildReminderEmail`); биед үлдэгдэл, төлөх огноо,
+  хэтэрсэн хоног, линк, банкны данс. Захиа бүр шинэ `ar_ap_invoice_sends` (`purpose
+  reminder`, channel email) — «Үзсэн» төлөв, илгээлтийн түүхэнд «Сануулга ·». Аудит
+  `arap` / `reminder_sent` (мэдэгдэл үүсгэхгүй)
+
+```
+lib/arap/reminders.ts            ЦЭВЭР (tests/ar-reminders.test.ts): шат, тохиргоо, захиа
+lib/arap/reminders-run.ts        DB хөдөлгүүр: sendOrgInvoiceReminders, runInvoiceReminders
+lib/actions/ar-reminders.ts      getArReminderOverview / saveArReminderSettings /
+                                 setCounterpartyReminderOptOut
+components/arap/reminders-view.tsx, app/(dashboard)/receivables/reminders
+tests/ar-reminders-flow.test.ts (DB)
+```
