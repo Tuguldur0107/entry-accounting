@@ -59,6 +59,7 @@ import { loadProcurementDashboard } from "@/lib/procurement/load-data";
 import { loadVoucherSummaries } from "@/lib/reports/voucher-summaries";
 import { firstRunSteps, shouldShowWelcome, startersFor } from "@/lib/onboarding/first-run";
 import { loadFirstRunSignals } from "@/lib/onboarding/first-run-db";
+import { loadAiConnections } from "@/lib/ai/connector-status";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 
@@ -68,15 +69,17 @@ export default async function HomePage() {
   // оронд НЭГ хуудас (давуу тал → төлбөр → ChatGPT / Claude-д холбох).
   const entitlements = await getEntitlements(orgId);
   if (!hasFeature(entitlements, "accounting")) {
-    const [mcpUrl, options, subscription] = await Promise.all([
+    const [mcpUrl, options, subscription, aiConnections] = await Promise.all([
       mcpEndpointUrl(),
       loadSelfPayOptions(orgId),
       loadSubscription(orgId),
+      loadAiConnections(userId, orgId),
     ]);
     return (
       <SkillsHome
         ent={entitlements}
         mcpUrl={mcpUrl}
+        aiConnections={aiConnections}
         options={options}
         ready={billingQpayConfig().config !== null}
         canPay={ROLE_RANK[role] >= ROLE_RANK.admin}

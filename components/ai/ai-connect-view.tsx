@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { saveAiWriteMode } from "@/lib/actions/ai-write-mode";
 import { createApiToken, revokeApiToken, type ApiTokenView } from "@/lib/actions/mcp-tokens";
 import type { AiWriteMode } from "@/lib/ai/write-mode";
+import type { AiConnectionView } from "@/lib/ai/connector-clients";
 import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
 import { StarterPrompts } from "@/components/onboarding/starter-prompts";
 import type { StarterPrompt } from "@/lib/onboarding/first-run";
@@ -74,6 +75,7 @@ export function AiConnectView({
   postLimitMnt,
   mcpTokens,
   starterPrompts,
+  aiConnections,
 }: {
   mcpUrl: string;
   writeMode: AiWriteMode;
@@ -84,6 +86,8 @@ export function AiConnectView({
   mcpTokens: ApiTokenView[];
   /** Бэлэн асуултууд — багцаар шүүсэн (lib/onboarding/first-run.ts, MCP prompts-той нэг эх). */
   starterPrompts: StarterPrompt[];
+  /** Энэ хэрэглэгч × байгууллагын ChatGPT / Claude-ийн OAuth холболт. */
+  aiConnections: AiConnectionView[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -174,7 +178,7 @@ export function AiConnectView({
       <div className="max-w-2xl space-y-4">
         <Step n={1} title={`${"ChatGPT"} / ${"Claude"}-д холбох`} hint="Хаягийг нэмээд «Connect» дарахад Entry-ийн и-мэйл, нууц үгээрээ нэвтэрч зөвшөөрнө.">
           <CopyValue value={mcpUrl} />
-          <ConnectGuide />
+          <ConnectGuide mcpUrl={mcpUrl} connections={aiConnections} />
         </Step>
 
         <Step

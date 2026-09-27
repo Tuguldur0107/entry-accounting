@@ -9,7 +9,11 @@
 (§9b) ижил tool давхаргаар ажиллана — Entry AI-ийн API зардал төлөхгүй,
 хэрэглэгч түлхүүр хуулахгүй. Вэбийн `/settings/ai` = Тохиргоо → «AI холболт» НЭГ хуудас (2026-09-26 хүртэл тусдаа модуль `/ai` байв)
 (`components/ai/ai-connect-view.tsx`): ① холбох заавар (`components/skills/
-connect-guide` — AI нягтлантай НЭГ), ② бичилтийн горим (`lib/ai/write-mode.ts`
+connect-guide` — AI нягтлантай НЭГ; «Хаягийг хуулаад … тохиргоог нээх» товч
+(гадны connector-ийг автоматаар нэмдэг deep link БАЙХГҮЙ — хаягийг хуулж тэдний
+тохиргоог шинэ табд нээнэ, хаяг нь ЗӨВХӨН `lib/ai/connector-clients.ts`-д) +
+холбогдсон эсэх «Claude ✓ · сүүлд ашигласан …» — OAuth token-оос, энэ хэрэглэгч ×
+байгууллагаар, `lib/ai/connector-status.ts`), ② бичилтийн горим (`lib/ai/write-mode.ts`
 ЦЭВЭР, `write-mode-store.ts` DB, `actions/ai-write-mode.ts` — ноорог / шууд
 бичих, `ai_settings.write_mode`, MCP ба REST-д НЭГ, аудитад бичигдэнэ),
 ③ token (Claude Code / Codex); мөн «Эхлээд ингэж асуу» бэлэн асуултууд
