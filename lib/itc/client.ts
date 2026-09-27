@@ -1,8 +1,12 @@
 // ITC HTTP клиент — Keycloak token + eBarimt TPI дуудлага (SERVER; DB-гүй).
 // Монголын IP-ээс л хандагддаг (docs/integrations/00 §3) — гадаад бүсийн серверт
-// `ITC_PROXY_BASE`-ээр Монголд байрлах прокси/операторын хаяг (ebarimt-ийн
-// `EBARIMT_PUBLIC_API_BASE`-тэй ижил зарчим). Алдаа бүр ItcError `[CODE]`.
+// `ITC_TPI_BASE` / `ITC_AUTH_BASE`-ээр Монголд байрлах прокси
+// (docs/deployment/mongolia-network-runbook.md §A; ebarimt-ийн
+// `EBARIMT_PUBLIC_API_BASE`-тэй ижил зарчим). Прокси Cloudflare WAF-ын ард бол
+// нууц header нь ЗӨВХӨН `EBARIMT_GATEWAY_HOSTS`-ийн хост руу (gateway-auth.ts) —
+// албан ITC хост руу ХЭЗЭЭ Ч явахгүй. Алдаа бүр ItcError `[CODE]`.
 
+import { gatewayHeaders } from "@/lib/ebarimt/gateway-auth";
 import {
   EBARIMT_TPI_BASE,
   ITC_CLIENT_IDS,
@@ -47,11 +51,17 @@ export function itcTpiBase(env: ItcEnvironment, override = process.env.ITC_TPI_B
   return EBARIMT_TPI_BASE[env];
 }
 
+/** Keycloak token URL — env `ITC_AUTH_BASE` (Монголд байрлах прокси) байвал түрүүлнэ. */
+export function itcAuthTokenUrl(env: ItcEnvironment, override = process.env.ITC_AUTH_BASE): string {
+  return itcTokenUrl(env, override);
+}
+
 async function request<T>(url: string, init: RequestInit, timeoutMs: number): Promise<{ status: number; body: T }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+    const headers = { ...(init.headers as Record<string, string> | undefined), ...gatewayHeaders(url) };
+    const response = await fetch(url, { ...init, headers, signal: controller.signal, cache: "no-store" });
     const text = await response.text();
     let body: T;
     try {
@@ -78,7 +88,7 @@ export async function fetchItcToken(
   clientId: string = ITC_CLIENT_IDS.ebarimtTpi
 ): Promise<ItcToken> {
   const { body } = await request<unknown>(
-    itcTokenUrl(env),
+    itcAuthTokenUrl(env),
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -92,7 +102,7 @@ export async function fetchItcToken(
 /** Refresh token-оор сунгах. */
 export async function refreshItcToken(env: ItcEnvironment, refreshToken: string, clientId: string = ITC_CLIENT_IDS.ebarimtTpi): Promise<ItcToken> {
   const { body } = await request<unknown>(
-    itcTokenUrl(env),
+    itcAuthTokenUrl(env),
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

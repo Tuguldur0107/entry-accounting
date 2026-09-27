@@ -21,6 +21,14 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **Монголын сүлжээний runbook** (`docs/deployment/mongolia-network-runbook.md`):
+  серверийн админд илгээх nginx-ийн 3 прокси зам (`/teg/` лавлах, `/tpi/` TPI,
+  `/itc-auth/` ITC нэвтрэлт) + шалгах команд, staging PosAPI-ийн нэхэмжлэхийн
+  туршилт, developer.itc.gov.mn-ийн хадгалах хуудсууд, ITC-д нэг захидал (нэхэмжлэх
+  Q1–Q8, TPI, eTax). Cloudflare WAF эдгээр замыг урьдчилж хамгаалав. Entry тал:
+  `ITC_AUTH_BASE` (Keycloak прокси), ITC хүсэлтэд нууц header зөвхөн
+  `EBARIMT_GATEWAY_HOSTS`-ийн хост руу.
+
 - **eBarimt нэхэмжлэх + төлөлтийн төлөвлөгөө** (`docs/pos/05-ebarimt-invoice-plan.md`).
   «POS API 3.0» гарын авлагад нэхэмжлэхийн төлөлтийн урсгал, `PAY`/`PAID` төлөв,
   зээлийн төлбөрийн код тусгагдаагүйг баримтжуулж, Q1–Q8 асуулт, ITC-д илгээх

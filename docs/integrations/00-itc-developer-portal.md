@@ -152,7 +152,9 @@ lib/itc/
 │                    parseSaleListErp (танигдахгүй мөр алгасаж ТООЛНО), assertTpiStatus,
 │                    reconcileDdtd (ТЕГ ↔ Entry ДДТД олонлог — E5-ийн суурь)
 ├── client.ts        ✅ SERVER: fetchItcToken / refreshItcToken (Keycloak), tpiSalesTotalData /
-│                    tpiSaleListErp (Bearer + X-API-KEY, 60 сек timeout); env ITC_TPI_BASE
+│                    tpiSaleListErp (Bearer + X-API-KEY, 60 сек timeout); env ITC_TPI_BASE,
+│                    ITC_AUTH_BASE (Keycloak ч Монголын IP-д л — прокси; нууц header
+│                    зөвхөн EBARIMT_GATEWAY_HOSTS руу) — docs/deployment/mongolia-network-runbook.md
 │                    (Монголд байрлах прокси — §3), ITC_ENV, ITC_TPI_API_KEY (.env.example)
 ├── etax/            ⏳ client.ts (REST), forms/ (маягт → JSON mapper, ЦЭВЭР, тесттэй), types.ts —
 │                    «ETAX API documentation v1.1» PDF-ээс (§4.4 №2–3)

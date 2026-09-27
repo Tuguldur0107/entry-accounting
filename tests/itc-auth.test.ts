@@ -21,6 +21,13 @@ import { ITC_CLIENT_IDS, ITC_TOKEN_SKEW_MS } from "../lib/itc/constants";
 test("itcTokenUrl — орчин бүрийн realm-тэй Keycloak зам", () => {
   assert.equal(itcTokenUrl("staging"), "https://st.auth.itc.gov.mn/auth/realms/Staging/protocol/openid-connect/token");
   assert.equal(itcTokenUrl("production"), "https://auth.itc.gov.mn/auth/realms/ITC/protocol/openid-connect/token");
+  // Монголд байрлах прокси (ITC_AUTH_BASE) — realm орчноосоо хэвээр, төгсгөлийн / хасагдана
+  assert.equal(
+    itcTokenUrl("production", "https://ebarimt.chipmo.mn/itc-auth/"),
+    "https://ebarimt.chipmo.mn/itc-auth/auth/realms/ITC/protocol/openid-connect/token"
+  );
+  assert.equal(itcTokenUrl("staging", "  "), "https://st.auth.itc.gov.mn/auth/realms/Staging/protocol/openid-connect/token");
+  assert.throws(() => itcTokenUrl("production", "ftp://x"), /ITC_AUTH_BASE/);
   assert.equal(isItcEnvironment("staging"), true);
   assert.equal(isItcEnvironment("prod"), false);
 });
