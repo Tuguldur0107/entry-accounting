@@ -1435,6 +1435,59 @@ export const arApSettlements = pgTable("ar_ap_settlements", {
 // Шийдвэр D-ECL-1…4 — lib/arap/ecl.ts, docs/cost README 1.2.
 
 /** Байгууллага бүрийн ECL тохиргоо (ratified-seed: мөргүй бол default-аар үүснэ). */
+// Давтамжтай нэхэмжлэх (docs/dev/arap.md §5h) — одоо байгаа АР нэхэмжлэхээс
+// хуулсан загвар (мөр, данс, НӨАТ-ын мөр) + хуваарь. Үүсгэлт бүр `externalRef =
+// recurring:<id>:<огноо>` (ar_ap_documents unique) — давхардахгүй.
+export const arRecurringInvoices = pgTable(
+  "ar_recurring_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    counterpartyId: uuid("counterparty_id")
+      .notNull()
+      .references(() => counterparties.id, { onDelete: "cascade" }),
+    /** Эх нэхэмжлэх (хуулсан) — устгагдвал загвар хэвээр. */
+    sourceDocumentId: uuid("source_document_id").references(() => arApDocuments.id, { onDelete: "set null" }),
+    controlAccountNumber: text("control_account_number").notNull(),
+    currency: text("currency").notNull().default("MNT"),
+    description: text("description").notNull(),
+    /** ArApLineInput[] (бараагүй) — эх нэхэмжлэхийн мөрүүд, НӨАТ-ын мөр орно. */
+    lines: jsonb("lines").notNull(),
+    totalAmount: numeric("total_amount", { precision: 18, scale: 2 }).notNull(),
+    /** 1 | 3 | 6 | 12 сар тутам. */
+    intervalMonths: integer("interval_months").notNull().default(1),
+    /** Сарын өдөр 1–28; 0 = сарын сүүлийн өдөр. */
+    dayOfMonth: integer("day_of_month").notNull().default(1),
+    paymentTermsDays: integer("payment_terms_days").notNull().default(0),
+    startDate: text("start_date").notNull(),
+    /** Хамгийн сүүлийн үүсгэх огноо (хамааруулна) — null бол хугацаагүй. */
+    endDate: text("end_date"),
+    /** Дараагийн үүсгэх огноо (YYYY-MM-DD). */
+    nextRunDate: text("next_run_date").notNull(),
+    /** true бол шууд батална; false (default) бол НООРОГ — нягтлан батална. */
+    autoPost: boolean("auto_post").notNull().default(false),
+    /** Батлагдсан нэхэмжлэхийг харилцагчийн и-мэйл рүү (линк + PDF). autoPost шаардана. */
+    sendEmail: boolean("send_email").notNull().default(false),
+    /** active | paused | ended */
+    status: text("status").notNull().default("active"),
+    runCount: integer("run_count").notNull().default(0),
+    lastRunAt: timestamp("last_run_at"),
+    lastDocumentId: uuid("last_document_id").references(() => arApDocuments.id, { onDelete: "set null" }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("ar_recurring_invoices_org_ix").on(t.organizationId, t.status),
+    index("ar_recurring_invoices_due_ix").on(t.status, t.nextRunDate),
+  ]
+);
+
 // Төлбөрийн автомат сануулга (docs/dev/arap.md §5g) — байгууллагад НЭГ мөр,
 // анхнаасаа УНТРААЛТТАЙ. Шат: хугацаанаас `beforeDays` өмнө + хэтэрсний дараа
 // `afterDays` (хоног) бүрд харилцагчийн и-мэйл рүү линктэй сануулга.

@@ -33,6 +33,7 @@ export const ENTITY_MODULE_KEYS: Record<string, string[]> = {
   goods_receipt: ["proc"],
   payroll: ["payroll"],
   pos_sale: ["pos"],
+  ar_recurring: ["ar"],
 };
 
 /** Панельгүй (эсвэл панель нээгдэхгүй) үед очих жагсаалтын зам. */
@@ -51,6 +52,7 @@ export const ENTITY_HREF: Record<string, string> = {
   period: "/settings/periods",
   membership: "/settings/permissions",
   settings: "/settings/company",
+  ar_recurring: "/receivables/recurring",
 };
 
 const ENTITY_LABEL: Record<string, string> = {
@@ -236,6 +238,26 @@ export function notificationFromAudit(
       "eBarimt баримт илгээгдсэнгүй",
       { kind: "module", moduleKeys: ["pos"], minLevel: "write" },
       { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
+    );
+  // Давтамжтай нэхэмжлэх (docs/dev/arap.md §5h): үүсвэл (ноорог бол батлах
+  // хэрэгтэй) ба үүсэж чадаагүй бол — авлагын батлах эрхтэй гишүүдэд.
+  if (entityType === "arap" && action === "recurring_created")
+    return draft(
+      event,
+      now,
+      "arap.recurring_created",
+      "Давтамжтай нэхэмжлэх үүслээ",
+      { kind: "module", moduleKeys: ["ar"], minLevel: "post" },
+      { dedupeKey: `recurring-created:${event.entityId}` }
+    );
+  if (entityType === "ar_recurring" && action === "recurring_failed")
+    return draft(
+      event,
+      now,
+      "arap.recurring_failed",
+      "Давтамжтай нэхэмжлэх үүссэнгүй",
+      { kind: "module", moduleKeys: ["ar"], minLevel: "post" },
+      { severity: "danger", dedupeKey: `recurring-failed:${event.entityId}:${now.toISOString().slice(0, 10)}` }
     );
   // Төлбөрийн сануулга (docs/dev/arap.md §5g): харилцагч руу захиа явсангүй —
   // авлагын батлах эрхтэй гишүүдэд. Нэхэмжлэх × өдөр нэг (дахин оролдлого давхардахгүй);

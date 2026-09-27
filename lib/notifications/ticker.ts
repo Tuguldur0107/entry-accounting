@@ -5,7 +5,8 @@
 // 15 минут тутам: (а) Улаанбаатарын цаг 08:00-оос хойш бол өдрийн дүрмүүд,
 // (б) tick бүрд и-мэйлийн хүргэлт (instant ≤15 мин, digest цагт нь),
 // (в) tick бүрд нэмэлт сувгууд (Telegram, custom/),
-// (г) 10:00-оос хойш харилцагчид төлбөрийн сануулга (docs/dev/arap.md §5g).
+// (г) 09:00-оос давтамжтай нэхэмжлэх (§5h), 10:00-оос харилцагчид төлбөрийн
+// сануулга (docs/dev/arap.md §5g).
 // Ажил бүр notification_runs-аар байгууллага × өдөрт НЭГ удаа л ажиллах тул
 // давтан tick, олон instance, cron route-тэй давхцал бүгд аюулгүй.
 //
@@ -17,6 +18,8 @@ import { runDailyNotifications } from "./scheduler";
 
 /** Өдрийн ажил эхлэх цаг — Улаанбаатарын цагаар. */
 export const DAILY_JOB_HOUR_UB = 8;
+/** Давтамжтай нэхэмжлэх (docs/dev/arap.md §5h) — өглөө, ажлын өдөр эхлэхэд. */
+export const RECURRING_JOB_HOUR_UB = 9;
 /** Харилцагч руу захиа ажлын цагаар л — шөнө/өглөө эрт сануулга явуулахгүй. */
 export const REMINDER_JOB_HOUR_UB = 10;
 const TICK_MS = 15 * 60 * 1000;
@@ -66,6 +69,12 @@ export async function tick(): Promise<void> {
       );
     for (const failure of channels.errors)
       console.error("[notifications] суваг", failure.channel, failure.notificationId, failure.error);
+    if (hourInUlaanbaatar() >= RECURRING_JOB_HOUR_UB) {
+      const { runRecurringInvoices } = await import("@/lib/arap/recurring-run");
+      const recurring = await runRecurringInvoices();
+      if (recurring.created > 0 || recurring.failed > 0)
+        console.log(`[recurring] ${recurring.today}: ${recurring.created} нэхэмжлэх, ${recurring.failed} алдаа`);
+    }
     if (hourInUlaanbaatar() >= REMINDER_JOB_HOUR_UB) {
       // Хойшлуулсан import — АР/QPay-ийн хамаарлыг instrumentation-ийн эхлэлд татахгүй.
       const { runInvoiceReminders } = await import("@/lib/arap/reminders-run");

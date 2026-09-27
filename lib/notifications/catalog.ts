@@ -198,6 +198,20 @@ export const NOTIFICATION_CATALOG = {
     email: "instant",
     inApp: true,
   },
+  "arap.recurring_created": {
+    category: "documents",
+    severity: "info",
+    label: "Давтамжтай нэхэмжлэх үүслээ",
+    email: "digest",
+    inApp: true,
+  },
+  "arap.recurring_failed": {
+    category: "documents",
+    severity: "danger",
+    label: "Давтамжтай нэхэмжлэх үүссэнгүй",
+    email: "instant",
+    inApp: true,
+  },
   "arap.reminder_failed": {
     category: "documents",
     severity: "warning",

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
+import { CreateRecurringDialog } from "@/components/arap/recurring-dialog";
 import { CreditNoteDialog } from "@/components/arap/credit-note-dialog";
 import { WriteOffSection } from "@/components/arap/write-off-section";
 import { ArapEbarimtField } from "@/components/arap/arap-ebarimt-field";
@@ -700,6 +701,7 @@ function ArapDocReadOnly({
   const { print, renderSheet } = usePanelPrint();
   // Нэхэмжлэх илгээх dialog (зөвхөн posted АР нэхэмжлэхэд).
   const [sendOpen, setSendOpen] = useState(false);
+  const [recurOpen, setRecurOpen] = useState(false);
   // Кредит нэхэмжлэл / дебит нэхэмжлэх үүсгэх dialog (ENT-029).
   const [creditOpen, setCreditOpen] = useState(false);
 
@@ -1054,6 +1056,15 @@ function ArapDocReadOnly({
     ["posted", "partially_paid", "paid"].includes(document.status) &&
     document.sourceType !== "pos" &&
     !document.purchaseOrderId;
+  // Давтамжтай болгох (docs/dev/arap.md §5h) — серверийн loadRecurringSource-той ижил:
+  // ₮, бараагүй, POS/PO-гүй, буцаагдаагүй АР нэхэмжлэх.
+  const canRecur =
+    isAr &&
+    !foreign &&
+    document.status !== "reversed" &&
+    document.sourceType !== "pos" &&
+    !document.purchaseOrderId &&
+    document.lines.every((line) => !line.itemId && !line.costComponentId);
 
   // Хэвлэх маягт — НЭХЭМЖЛЭХ (АР) / ХУДАЛДАН АВАЛТЫН БАРИМТ (АП).
   const printSheet = (
@@ -1506,6 +1517,17 @@ function ArapDocReadOnly({
               : "Мөнгөн хөрөнгөөр хаах"}
           </Button>
         )}
+        {canRecur && (
+          <Button
+            variant="outline"
+            onClick={() => setRecurOpen(true)}
+            disabled={isPending}
+            title="Сар бүр (улирал, жил) ижил нэхэмжлэх автоматаар үүсгэх — түрээс, захиалга, гэрээ"
+          >
+            <Icon name="refresh" size="sm" />
+            Давтамжтай болгох
+          </Button>
+        )}
         {canCredit && (
           <Button variant="outline" onClick={() => setCreditOpen(true)} disabled={isPending}>
             <Icon name="reset" size="sm" />
@@ -1556,6 +1578,14 @@ function ArapDocReadOnly({
             router.refresh();
             openArapDocPanel({ documentId: created.id, mode: panelMode, title: created.documentNo });
           }}
+        />
+      )}
+      {canRecur && (
+        <CreateRecurringDialog
+          documentId={document.id}
+          documentNo={document.documentNo}
+          open={recurOpen}
+          onOpenChange={setRecurOpen}
         />
       )}
       {isAr && (

@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 
 import { and, desc, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
+import { revalidatePathSafe } from "@/lib/next/revalidate";
 import { Resend } from "resend";
 
 import { actionError, type ActionResult } from "@/lib/action-result";
@@ -102,7 +102,7 @@ async function createInvoiceLinkCore(
     .values({ userId, organizationId: orgId, documentId, channel: "link", expiresAt })
     .returning({ token: arApInvoiceSends.token });
 
-  revalidatePath("/receivables/documents");
+  revalidatePathSafe("/receivables/documents");
   return { url: `${appBaseUrl()}/invoice/${send.token}` };
 }
 
@@ -211,7 +211,7 @@ async function sendInvoiceEmailCore(documentId: string, recipient: string) {
       .set({ messageId: data.id })
       .where(eq(arApInvoiceSends.token, send.token));
 
-  revalidatePath("/receivables/documents");
+  revalidatePathSafe("/receivables/documents");
   return { sentTo: email, documentNo: document.documentNo };
 }
 
@@ -290,5 +290,5 @@ export async function revokeInvoiceSend(sendId: string) {
         eq(arApInvoiceSends.organizationId, orgId)
       )
     );
-  revalidatePath("/receivables/documents");
+  revalidatePathSafe("/receivables/documents");
 }

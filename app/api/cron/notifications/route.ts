@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { runRecurringInvoices } from "@/lib/arap/recurring-run";
 import { runInvoiceReminders } from "@/lib/arap/reminders-run";
 import { deliverPendingChannels } from "@/lib/notifications/channel-delivery";
 import { deliverPendingEmails } from "@/lib/notifications/email-delivery";
@@ -17,8 +18,9 @@ export const maxDuration = 120;
 // CRON_SECRET тохируулаагүй deployment-д зам хаалттай (503) — in-process
 // ticker (lib/notifications/ticker.ts) тэнд default-оор ажиллана.
 //
-// ?job=daily|email|channels|reminders|all (default all) — өдрийн дүрмүүд / и-мэйл /
-// нэмэлт сувгууд (Telegram, custom/) / харилцагчид төлбөрийн сануулга (docs/dev/arap.md §5g).
+// ?job=daily|email|channels|recurring|reminders|all (default all) — өдрийн дүрмүүд /
+// и-мэйл / нэмэлт сувгууд (Telegram, custom/) / давтамжтай нэхэмжлэх (§5h) /
+// харилцагчид төлбөрийн сануулга (docs/dev/arap.md §5g).
 // ?date=YYYY-MM-DD — тухайн өдрийг (backfill/тест) дахин ажиллуулна;
 // байгууллага × өдөр нэг л удаа тул давхар дуудахад аюулгүй.
 
@@ -42,9 +44,9 @@ async function handle(request: Request) {
   const params = new URL(request.url).searchParams;
   const date = params.get("date") ?? todayInUlaanbaatar();
   const job = params.get("job") ?? "all";
-  if (!["daily", "email", "channels", "reminders", "all"].includes(job))
+  if (!["daily", "email", "channels", "recurring", "reminders", "all"].includes(job))
     return NextResponse.json(
-      { ok: false, error: "job нь daily | email | channels | reminders | all" },
+      { ok: false, error: "job нь daily | email | channels | recurring | reminders | all" },
       { status: 400 }
     );
   try {
@@ -52,9 +54,11 @@ async function handle(request: Request) {
     const email = job === "email" || job === "all" ? await deliverPendingEmails() : undefined;
     const channels =
       job === "channels" || job === "all" ? await deliverPendingChannels() : undefined;
+    const recurring =
+      job === "recurring" || job === "all" ? await runRecurringInvoices(date) : undefined;
     const reminders =
       job === "reminders" || job === "all" ? await runInvoiceReminders(date) : undefined;
-    return NextResponse.json({ ok: true, daily, email, channels, reminders });
+    return NextResponse.json({ ok: true, daily, email, channels, recurring, reminders });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : String(error) },
