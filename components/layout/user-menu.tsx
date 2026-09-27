@@ -2,13 +2,15 @@
 
 // Топбарын профайл цэс — өдөр бүр хэрэглэгддэггүй удирдлага (дуу, горим,
 // гарах) нэг товчны ард (UI гайдын карт 8, ENT-061: толгойн ~10 удирдлагыг
-// ≤5 болгох). Гарах нь server action-ийг prop-оор авна (layout-д тодорхойлогдсон).
+// ≤5 болгох). Гарах нь энгийн form POST `/api/auth/logout` — server action БИШ
+// (deploy-оос өмнө нээсэн таб ч гарч чадна; lib/auth-logout.ts).
 
 import { useState, useSyncExternalStore } from "react";
 
 import { Dropdown, DropdownItem, DropdownSeparator } from "@/components/ui/dropdown";
 import { Icon } from "@/components/ui/icon";
 import { toggleTheme } from "@/components/theme-toggle";
+import { LOGOUT_PATH } from "@/lib/auth-logout";
 import { isSoundOn, setSoundOn, subscribeSound } from "@/lib/ui/feedback";
 
 function subscribeTheme(listener: () => void) {
@@ -24,11 +26,9 @@ function readIsDark() {
 export function UserMenu({
   name,
   email,
-  signOutAction,
 }: {
   name: string;
   email?: string | null;
-  signOutAction: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const soundOn = useSyncExternalStore(subscribeSound, isSoundOn, () => true);
@@ -72,7 +72,7 @@ export function UserMenu({
         <span className="flex-1">{isDark ? "Цайвар горим" : "Харанхуй горим"}</span>
       </DropdownItem>
       <DropdownSeparator />
-      <form action={signOutAction}>
+      <form action={LOGOUT_PATH} method="post">
         <button
           type="submit"
           role="menuitem"

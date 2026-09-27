@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { EAMark, EAWordmark } from "@/components/auth/brand";
 import { SkillsSignedIn } from "@/components/skills/skills-signed-in";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { auth, getActiveOrg, signOut } from "@/lib/auth";
+import { auth, getActiveOrg } from "@/lib/auth";
 import { featureUsable, hasFeature } from "@/lib/billing/entitlements";
 import { getEntitlements } from "@/lib/billing/load";
 import { db } from "@/lib/db";
@@ -117,10 +117,6 @@ async function SignedInSkills({ email }: { email: string | null }) {
       orgName={orgName}
       hasKnowledge={hasKnowledge}
       guideHref={guideHref}
-      signOutAction={async () => {
-        "use server";
-        await signOut({ redirectTo: "/register?plan=skills" });
-      }}
     />
   );
 }
