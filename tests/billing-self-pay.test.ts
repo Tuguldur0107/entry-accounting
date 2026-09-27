@@ -55,7 +55,7 @@ test("trial байгууллага — Standard / Platform сонгоно, су�
   assert.equal(options.seatsFixed, null);
   assert.throws(() => planBillingPayment(options, { planId: "standard", seats: 2, months: 1 }), /Суудал 3/);
   const plan = planBillingPayment(options, { planId: "platform", seats: 4, months: 12 });
-  assert.equal(plan.amount, 4 * 100_000 * 12);
+  assert.equal(plan.amount, 4 * 149_000 * 12);
 });
 
 test("идэвхтэй хугацаанд — ижил багц, ижил суудлаар л сунгана (пропорц зохиохгүй)", () => {
@@ -94,7 +94,7 @@ test("байгууллагын тусгай үнэ зөвхөн ОДООГИЙН
   if (!options.allowed) return;
   const byPlan = Object.fromEntries(options.plans.map((plan) => [plan.planId, plan.pricePerSeatMnt]));
   assert.equal(byPlan.standard, 70_000);
-  assert.equal(byPlan.platform, 100_000);
+  assert.equal(byPlan.platform, 149_000);
 });
 
 test("addMonths — сарын сүүлийн өдрийг хавчина", () => {
