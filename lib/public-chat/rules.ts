@@ -5,7 +5,8 @@
 // AI автоматаар ХАРИУЛАХГҮЙ (CLAUDE.md §9a) — хариуг зөвхөн Entry баг бичнэ.
 
 export type PublicChatScope = "room" | "private";
-export type PublicChatAuthor = "visitor" | "team";
+/** ai — landing-ийн «AI туслах» (зөвхөн хувийн ярианд, assistant-rules.ts). */
+export type PublicChatAuthor = "visitor" | "team" | "ai";
 
 export const PUBLIC_CHAT_MAX_BODY = 1000;
 export const PUBLIC_CHAT_MAX_NAME = 40;

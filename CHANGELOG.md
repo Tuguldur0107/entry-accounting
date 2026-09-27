@@ -21,6 +21,12 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **Landing-ийн чатын «AI туслах»** (`docs/dev/public-chat.md`, CLAUDE.md §9f/§9a үл
+  хамаарал). Хувийн ярианд Entry-г сонирхогчид борлуулалтын өмнөх мэдээллийг AI
+  эхэлж өгнө; Claude-г entry-landing дуудна (энэ сервер AI API дуудахгүй). Entry баг
+  хариулсан ярианд AI зогсоно, ярианд 20 / нийт 500 хариу 24 цагт, хуучирсан хариу
+  хадгалахгүй. env `PUBLIC_CHAT_AI_URL`, `PUBLIC_CHAT_AI_SECRET`.
+
 - **Landing-ийн чат (entry.mn) — нийтийн өрөө + хувийн яриа** (`docs/dev/public-chat.md`,
   CLAUDE.md §9f). Бүртгэлгүй зочин Turnstile давж нийтийн өрөөнд эсвэл Entry багтай
   1:1 бичнэ; мессеж багийн Telegram групп руу relay болж, Reply-ээр хариулна

@@ -280,7 +280,8 @@ export const publicChatThreads = pgTable(
  * Мессеж — scope `room` (нийтийн өрөө, threadId null) | `private` (threadId).
  * (scope ↔ threadId тохирлыг store баталгаажуулна — CHECK constraint-ийг
  * drizzle-kit push дахин diff хийдэг тул схемд бичээгүй.)
- * author `visitor` | `team`; багийн мессеж нийтэд «Entry баг» нэрээр, ажилтны
+ * author `visitor` | `team` | `ai` (landing-ийн «AI туслах», зөвхөн хувийн ярианд);
+ * багийн мессеж нийтэд «Entry баг» нэрээр, ажилтны
  * нэр (staffName) зөвхөн Console-д. telegramMessageId — багийн группын relay
  * мессеж; тэр дээр Reply хийхэд хариу хаашаа очихыг олно.
  */
@@ -310,6 +311,10 @@ export const publicChatMessages = pgTable(
     uniqueIndex("public_chat_messages_telegram_ux")
       .on(t.telegramMessageId)
       .where(sql`${t.telegramMessageId} is not null`),
+    // AI туслах нэг зочны мессежид НЭГ л удаа хариулна (давхар дуудлагаас).
+    uniqueIndex("public_chat_messages_ai_reply_ux")
+      .on(t.replyToId)
+      .where(sql`${t.author} = 'ai'`),
   ]
 );
 

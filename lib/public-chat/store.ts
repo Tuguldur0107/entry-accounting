@@ -20,6 +20,7 @@ import {
   type PublicChatAuthor,
   type PublicChatScope,
 } from "./rules";
+import { AI_CONTEXT_MESSAGES, PUBLIC_CHAT_AI_NAME, type TranscriptMessage } from "./assistant-rules";
 
 export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -54,7 +55,7 @@ export function messageDto(row: MessageRow, visitorId: string | null): PublicCha
   return {
     id: row.id,
     author: row.author as PublicChatAuthor,
-    name: row.author === "team" ? PUBLIC_CHAT_TEAM_NAME : row.name,
+    name: row.author === "team" ? PUBLIC_CHAT_TEAM_NAME : row.author === "ai" ? PUBLIC_CHAT_AI_NAME : row.name,
     body: row.body,
     masked: row.masked,
     replyToId: row.replyToId,
@@ -561,4 +562,96 @@ export async function countUnrelayed(since: Date): Promise<number> {
       )
     );
   return row?.n ?? 0;
+}
+
+// ─── AI туслах (assistant.ts) ──────────────────────────────────────────────
+
+export type AiThreadContext = {
+  thread: PublicChatThread;
+  /** Сүүлийн AI_CONTEXT_MESSAGES мессеж, хугацаагаар өсөхөөр. */
+  messages: TranscriptMessage[];
+  latestVisitorMessageId: string | null;
+  lastTeamAt: Date | null;
+  aiRepliesInThread24h: number;
+  aiRepliesGlobal24h: number;
+};
+
+export async function loadAiThreadContext(threadId: string, now: Date): Promise<AiThreadContext | null> {
+  const [thread] = await db.select().from(publicChatThreads).where(eq(publicChatThreads.id, threadId)).limit(1);
+  if (!thread) return null;
+  const since = new Date(now.getTime() - 24 * 3_600_000);
+  const rows = await db
+    .select({ id: publicChatMessages.id, author: publicChatMessages.author, body: publicChatMessages.body })
+    .from(publicChatMessages)
+    .where(eq(publicChatMessages.threadId, threadId))
+    .orderBy(desc(publicChatMessages.createdAt))
+    .limit(AI_CONTEXT_MESSAGES);
+  const [lastTeam] = await db
+    .select({ at: publicChatMessages.createdAt })
+    .from(publicChatMessages)
+    .where(and(eq(publicChatMessages.threadId, threadId), eq(publicChatMessages.author, "team")))
+    .orderBy(desc(publicChatMessages.createdAt))
+    .limit(1);
+  const [threadAi] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(publicChatMessages)
+    .where(
+      and(
+        eq(publicChatMessages.threadId, threadId),
+        eq(publicChatMessages.author, "ai"),
+        gte(publicChatMessages.createdAt, since)
+      )
+    );
+  const [globalAi] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(publicChatMessages)
+    .where(and(eq(publicChatMessages.author, "ai"), gte(publicChatMessages.createdAt, since)));
+  const ordered = rows.reverse();
+  return {
+    thread,
+    messages: ordered.map((row) => ({ author: row.author as TranscriptMessage["author"], body: row.body })),
+    latestVisitorMessageId: [...ordered].reverse().find((row) => row.author === "visitor")?.id ?? null,
+    lastTeamAt: lastTeam?.at ?? null,
+    aiRepliesInThread24h: threadAi?.n ?? 0,
+    aiRepliesGlobal24h: globalAi?.n ?? 0,
+  };
+}
+
+/**
+ * AI-ийн хариуг хадгална. `replyToId` = хариулж буй зочны мессеж; нэг зочны
+ * мессежид НЭГ л AI хариу (partial unique index), хооронд нь Entry баг хариулсан
+ * эсвэл зочин шинэ мессеж бичсэн бол хадгалахгүй (null) — хуучирсан хариу.
+ */
+export async function postAiMessage(input: {
+  threadId: string;
+  replyToId: string;
+  body: string;
+}): Promise<MessageRow | null> {
+  return db.transaction(async (tx) => {
+    const [latest] = await tx
+      .select({ id: publicChatMessages.id, author: publicChatMessages.author })
+      .from(publicChatMessages)
+      .where(and(eq(publicChatMessages.threadId, input.threadId), inArray(publicChatMessages.author, ["visitor", "team"])))
+      .orderBy(desc(publicChatMessages.createdAt))
+      .limit(1);
+    if (!latest || latest.id !== input.replyToId) return null;
+    const [row] = await tx
+      .insert(publicChatMessages)
+      .values({
+        scope: "private",
+        threadId: input.threadId,
+        author: "ai",
+        name: PUBLIC_CHAT_AI_NAME,
+        body: input.body,
+        replyToId: input.replyToId,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!row) return null;
+    await tx
+      .update(publicChatThreads)
+      .set({ lastMessageAt: new Date() })
+      .where(eq(publicChatThreads.id, input.threadId));
+    return row;
+  });
 }

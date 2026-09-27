@@ -15,8 +15,8 @@
 | Хувийн мэдээлэл | Утас, и-мэйл, РД, данс АВТОМАТААР нуугдана | Хэвээр |
 | Хариу | Entry баг (Telegram Reply / `/room` / Console) | Entry баг (Telegram Reply / Console) |
 
-**AI автоматаар ХАРИУЛАХГҮЙ** — Entry сервер AI-ийн API дуудахгүй (§9a). Хариуг
-зөвхөн хүн бичнэ.
+**«AI туслах»** — хувийн ярианд эхний хариуг AI өгч болно (доорх «AI туслах»
+хэсэг). Нийтийн өрөөнд зөвхөн хүн хариулна. Entry сервер AI-ийн API дуудахгүй (§9a).
 
 ## Урсгал
 
@@ -118,6 +118,31 @@ Deploy-ийн дараа НЭГ удаа: `node scripts/public-chat-telegram-web
 Группийн chat id олох: bot-ыг группт нэмээд группт `/help` бичээд
 `https://api.telegram.org/bot<TOKEN>/getUpdates` (webhook тавихаас ӨМНӨ) → `chat.id`.
 
+## AI туслах (2026-09-27)
+
+Зорилго: Entry-г сонирхож буй хүнд **борлуулалтын өмнөх мэдээлэл** (Entry гэж юу,
+боломж, үнэ, ChatGPT/Claude-д холбох, туршилт) шуурхай өгөх. Харилцагчийн
+нягтлан бодох өгөгдөл, татварын зөвлөгөө — ХАМААРАХГҮЙ.
+
+```
+зочин → POST /private → хадгална → after(): Telegram relay → requestAiReply
+   → POST ${PUBLIC_CHAT_AI_URL} (Bearer PUBLIC_CHAT_AI_SECRET, {threadId, messages})
+   → entry-landing /api/chat-assistant → Claude (FAQ мэдлэгтэй) → {reply, handoff}
+   → postAiMessage (author ai, «AI туслах») → Telegram «🤖 AI туслах хариулсан»
+```
+
+- **Хэзээ хариулахгүй** (`aiSkipReason`, тесттэй): тохиргоогүй; Entry баг сүүлийн 24
+  цагт энэ ярианд бичсэн (хүн авсан); ярианд 24 цагт 20 AI хариу; нийт 500/24ц
+- **Хуучирсан хариу хадгалахгүй** (`postAiMessage`): хариулах зуур зочин шинэ мессеж
+  бичсэн эсвэл баг хариулсан бол. Нэг зочны мессежид НЭГ AI хариу — partial unique
+  index `public_chat_messages_ai_reply_ux` (reply_to_id where author = 'ai')
+- **handoff** — AI мэдэхгүй / хүний шийдвэр шаардсан асуулт: зочинд «Entry баг
+  удахгүй хариулна» гэж хэлж, группт «⚠️ хүн хариулна уу» гэж тэмдэглэгдэнэ
+- Зочны UI: POST-ийн хариуны `assistant: true` үед «AI туслах бичиж байна…»
+- Мэдлэг, prompt, загвар — entry-landing (`src/assistant/`), `CHAT_AI_MODEL` env
+- env: `PUBLIC_CHAT_AI_URL` (жишээ нь `https://entry.mn/api/chat-assistant`),
+  `PUBLIC_CHAT_AI_SECRET` (хоёр сервист ижил). Тохируулаагүй бол AI унтраалттай
+
 ## Файлууд
 
 ```
@@ -125,6 +150,8 @@ lib/public-chat/rules.ts     ЦЭВЭР: шалгалт, нуух, холбоо�
 lib/public-chat/store.ts     DB: зочин, өрөө, яриа, багийн хариу, модерац, Console жагсаалт
 lib/public-chat/http.ts      CORS, saas хаалга, rate limit, Turnstile, токен
 lib/public-chat/telegram.ts  Багийн bot: relay, товч, толин
+lib/public-chat/assistant-rules.ts  ЦЭВЭР: AI хариулах эсэх, transcript, хариу шалгах
+lib/public-chat/assistant.ts        landing руу дамжуулах, хадгалах, relay
 app/api/public-chat/{session,room,private,telegram}/route.ts
 app/api/platform/public-chat/route.ts
 scripts/public-chat-telegram-webhook.mjs
