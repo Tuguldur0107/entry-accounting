@@ -61,6 +61,20 @@ export interface RefundQpayInput {
 
 const fmt = (value: number) => value.toLocaleString("en-US");
 
+/** QPay түр данс (QPay хэлбэрийн касс/банкны данс) — QPay-ээр орсон мөнгө энд. */
+export async function loadQpayClearingAccount(orgId: string) {
+  const methods = await db.query.posPaymentMethods.findMany({
+    where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.provider, QPAY_PROVIDER)),
+    with: { cashAccount: true },
+  });
+  const clearing =
+    methods.find((m) => m.isActive && m.cashAccount?.isActive)?.cashAccount ??
+    methods.find((m) => m.cashAccount?.isActive)?.cashAccount ??
+    null;
+  if (!clearing) throw new Error("QPay түр данс тохируулаагүй — POS тохиргоо → Төлбөрийн хэлбэр → QPay");
+  return clearing;
+}
+
 export async function refundQpayIntentCore(
   orgId: string,
   userId: string,
@@ -83,15 +97,7 @@ export async function refundQpayIntentCore(
     );
 
   // QPay түр данс — мөнгө орсон газар.
-  const methods = await db.query.posPaymentMethods.findMany({
-    where: and(eq(posPaymentMethods.organizationId, orgId), eq(posPaymentMethods.provider, QPAY_PROVIDER)),
-    with: { cashAccount: true },
-  });
-  const clearing =
-    methods.find((m) => m.isActive && m.cashAccount?.isActive)?.cashAccount ??
-    methods.find((m) => m.cashAccount?.isActive)?.cashAccount ??
-    null;
-  if (!clearing) throw new Error("QPay түр данс тохируулаагүй — POS тохиргоо → Төлбөрийн хэлбэр → QPay");
+  const clearing = await loadQpayClearingAccount(orgId);
 
   const settings = await ensurePosSettings(orgId, userId);
   const date = ulaanbaatarNow().date;

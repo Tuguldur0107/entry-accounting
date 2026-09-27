@@ -16,6 +16,7 @@ import type { QpayIntentStatus } from "@/lib/qpay/constants";
 import { verifyWebhookSignature } from "@/lib/qpay/webhook-signature";
 import { recoverQpayCredentials } from "@/lib/qpay/partner";
 import { markIntentPaid, resolveQpayWebhookSecret } from "@/lib/qpay/store";
+import { QPAY_ARAP_PURPOSE, settleArapIntent } from "@/lib/qpay/arap";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,10 @@ export async function POST(request: Request) {
             : `QPay webhook: ${result.reason ?? "дүн зөрсөн"} — ${payload.invoiceId}${late}`,
       });
     }
+    // Нэхэмжлэхийн линкээс (purpose arap) — сагсгүй тул ШУУД орлогын баримт
+    // (settleArapIntent шидэхгүй; бүртгэж чадаагүй бол paid + шалтгаан → баннер/мэдэгдэл).
+    if (result.changed && result.status === "paid" && intent.purpose === QPAY_ARAP_PURPOSE)
+      await settleArapIntent(intent.organizationId, intent.id);
     // Дүн зөрсөн нь dashboard-ын алдаа биш — 200 (дахин илгээх нь юу ч засахгүй).
     return NextResponse.json({ ok: true, status: result.status, changed: result.changed });
   } catch (error) {

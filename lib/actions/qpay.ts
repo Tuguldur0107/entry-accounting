@@ -47,6 +47,7 @@ import {
 } from "@/lib/qpay/client";
 import { QPAY_ERRORS, QPAY_PROVIDER, type QpayIntentStatus } from "@/lib/qpay/constants";
 import { refundQpayIntentCore, type RefundQpayInput } from "@/lib/qpay/refund";
+import { QPAY_ARAP_PURPOSE, settleArapIntent } from "@/lib/qpay/arap";
 import { QPAY_CONNECT_CALLBACK_PATH, buildConnectState, connectUrl } from "@/lib/qpay/connect";
 import { checkAllowed, clampInvoiceTtl, invoiceAmountOf, isExpired, pickFinalizeShift } from "@/lib/qpay/intent";
 import type { QpayReadiness } from "@/lib/qpay/readiness";
@@ -468,13 +469,20 @@ export async function listPendingQpayIntents(): Promise<ActionResult<{ intents: 
  */
 export async function finalizeQpayIntent(
   intentId: string
-): Promise<ActionResult<{ id: string; documentNo: string; receipt: PosReceipt }>> {
+): Promise<ActionResult<{ id: string; documentNo: string; receipt: PosReceipt | null }>> {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
     const row = await loadIntent(orgId, intentId);
     if (!row) throw new Error("QPay intent олдсонгүй");
     if (row.status !== "paid" || row.saleId)
       throw new Error(`[${QPAY_ERRORS.intentNotPaid}] Зөвхөн төлөгдсөн, бүртгэгдээгүй QPay төлбөрийг борлуулалт болгоно`);
+    if (row.purpose === QPAY_ARAP_PURPOSE) {
+      // Нэхэмжлэхийн QPay — сагс биш: нэхэмжлэхэд орлогын баримтаар дахин бүртгэнэ.
+      const settled = await settleArapIntent(orgId, row.id);
+      if (!settled.ok) throw new Error(settled.reason ?? "Нэхэмжлэхийн төлөлт бүртгэгдсэнгүй");
+      revalidateQpay();
+      return { id: row.id, documentNo: String((row.cartSnapshot as { documentNo?: string }).documentNo ?? ""), receipt: null };
+    }
     const snapshot = row.cartSnapshot as unknown as CreatePosSaleInput;
     // Сагсны ээлж хаагдсан бол ижил салбарын нээлттэй ээлжид бүртгэнэ — эс бөгөөс
     // мөнгө орсон intent хэзээ ч борлуулалт болж чадахгүй «ЯАРАЛТАЙ» хэвээр үлддэг.

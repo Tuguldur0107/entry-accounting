@@ -3,6 +3,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 
 import { loadInvoicePayload } from "@/lib/arap/invoice-payload";
+import { invoicePdfOptions } from "@/lib/arap/invoice-pdf-options";
 import { db } from "@/lib/db";
 import { arApInvoiceSends } from "@/lib/db/schema";
 import { renderInvoicePdf } from "@/lib/pdf/invoice-pdf";
@@ -29,7 +30,7 @@ export async function GET(
   const invoice = await loadInvoicePayload(send.organizationId, send.documentId);
   if (!invoice) return new Response("Олдсонгүй", { status: 404 });
 
-  const pdf = await renderInvoicePdf(invoice);
+  const pdf = await renderInvoicePdf(invoice, await invoicePdfOptions(send.organizationId, send.documentId, token));
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",

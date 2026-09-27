@@ -176,6 +176,8 @@ export function toIntentView(row: PosQpayIntent & { sale?: { documentNo: string 
     createdAt: row.createdAt.toISOString(),
     cashierName: row.cashierName ?? "",
     lineCount: Array.isArray(snapshot?.lines) ? snapshot!.lines!.length : 0,
+    purpose: row.purpose === "arap" ? "arap" : "pos",
+    arApDocumentNo: row.purpose === "arap" ? String((snapshot as { documentNo?: unknown } | null)?.documentNo ?? "") || null : null,
     refundableAmount: refundableAmount({ ...row, status: row.status as QpayIntentStatus }),
     resolution: (row.resolution as QpayIntentResolution | null) ?? null,
   };

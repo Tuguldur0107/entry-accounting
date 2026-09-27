@@ -115,6 +115,10 @@ QPay мерчант болно, key/secret эргээд Entry-д ирнэ, да�
    → QR + deeplink; диалог Entry DB-ээс 2 сек тутам (QPay-руу polling ҮГҮЙ — ККТТ хориг)
    ← webhook payment.paid (HMAC-SHA256, ТҮҮХИЙ body) ЭСВЭЛ [Шалгах] (10 сек-д нэг) → paid
    → «Төлбөр авах» → createPosSale({ qpayIntentId }) → транзакц дотор finalized
+
+Нэхэмжлэх:   /invoice/[token] [QPay-ээр төлөх] → intent (purpose arap, нээлттэй үлдэгдэл бүтэн)
+   → dashboard нэхэмжлэх → webhook / [Шалгах] → paid → settleArapIntent → орлогын баримт
+   (Dt QPay түр данс / Кт авлага, externalRef qpay-arap:<id>) → finalized; PDF-д линкийн QR
 ```
 
 - Нууц (key, secret, code) URL, browser, лог, аудитад ХЭЗЭЭ Ч орохгүй

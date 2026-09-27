@@ -5,6 +5,8 @@
 // ноорог, буцаагдсан илгээхийг хориглоно
 // (human-in-the-loop зарчим). Илгээлт бүр arApInvoiceSends-д бүртгэгдэнэ.
 
+import { randomUUID } from "node:crypto";
+
 import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { Resend } from "resend";
@@ -23,6 +25,7 @@ import {
   resolveInvoiceSender,
   translateResendError,
 } from "@/lib/email/sender";
+import { invoicePdfOptions } from "@/lib/arap/invoice-pdf-options";
 import { renderInvoicePdf } from "@/lib/pdf/invoice-pdf";
 
 
@@ -163,13 +166,14 @@ async function sendInvoiceEmailCore(documentId: string, recipient: string) {
   );
 
   // PDF-ийг бүртгэл үүсгэхээс ӨМНӨ — render унавал линк ч, и-мэйл ч үлдэхгүй
-  // (хагас илгээлт үүсгэхгүй).
-  const pdf = await renderInvoicePdf(invoice);
+  // (хагас илгээлт үүсгэхгүй). Токеныг урьдчилан үүсгэж PDF-ийн QR-д оруулна.
+  const token = randomUUID();
+  const pdf = await renderInvoicePdf(invoice, await invoicePdfOptions(orgId, documentId, token));
 
   // Линк + и-мэйлийг НЭГ бүртгэлээр — линк нь мэйл доторх "онлайнаар үзэх".
   const [send] = await db
     .insert(arApInvoiceSends)
-    .values({ userId, organizationId: orgId, documentId, channel: "email", recipient: email })
+    .values({ userId, organizationId: orgId, documentId, channel: "email", recipient: email, token })
     .returning({ token: arApInvoiceSends.token });
   const viewUrl = `${appBaseUrl()}/invoice/${send.token}`;
 

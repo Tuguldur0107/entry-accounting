@@ -92,3 +92,39 @@ lib/actions/arap-ecl.ts    getEclOverview / runEclProvision / saveEclSettings /
 components/arap/ecl-view.tsx, components/arap/write-off-section.tsx (АР панель)
 tests/arap-ecl-flow.test.ts (DB)
 ```
+
+### 5f. Нэхэмжлэхийн линкээр QPay-ээр төлөх + PDF дээрх QR — ХЭРЭГЖСЭН (2026-09-27)
+
+Шийдвэр (product owner 2026-09-27): **1% шимтгэлийг байгууллага даана** (харилцагч
+нэхэмжлэхийн дүнг л төлнө); **зөвхөн НЭЭЛТТЭЙ ҮЛДЭГДЛЭЭР бүтэн** — хэсэгчилсэн
+төлбөр линкээр ҮГҮЙ.
+
+- **Нөхцөл** (`invoiceQpayAvailable`, `lib/qpay/arap.ts`): `ar_invoice`, MNT,
+  posted / partially_paid, үлдэгдэлтэй, `pos_settings.qpayEnabled` + readiness.
+  Нийтийн хуудас `/invoice/[token]` дээр «QPay-ээр төлөх» (`components/arap/invoice-qpay-pay.tsx`)
+- **Intent** = `pos_qpay_intents` `purpose "arap"` + `ar_ap_document_id` (shift / cashier
+  NULL). Нээлттэй ижил дүнтэй intent-ийг дахин ашиглана; баримтад цагт ≤ 10 шинэ QR
+  (`ARAP_QPAY_MAX_PER_HOUR`), IP-ээр 20/мин (`lib/actions/invoice-qpay.ts`). Төлөв Entry
+  DB-ээс 3 сек тутам; [Төлсөн бол шалгах] QPay-ээс ≤ 1/10 сек
+- **Бүртгэл** (`settleArapIntent`, ШИДЭХГҮЙ): webhook / шалгалт → `paid` → орлогын баримт
+  `createCashDocument({ receipt, toCashAccountId: QPay түр данс, counterAccount: хяналтын
+  данс, arApDocumentId, postNow, externalRef "qpay-arap:<id>" })` → intent `finalized` +
+  `cash_document_id`. Журнал: Dt QPay түр данс / Кт авлага → ewallet settlement-ээр банк
+  руу тулгагдана (шимтгэл тэнд). Webhook + шалгалт зэрэг ирвэл externalRef-ийн unique
+  index → өмнөх баримтыг л холбоно (давхар орлого ҮГҮЙ)
+- **Илүү / хоцорсон төлбөр** (харилцагч өөр замаар төлсөн, нэхэмжлэх хаагдсан):
+  нэхэмжлэхэд бүртгэхгүй — intent `paid` + `[QPAY_ARAP_OVERPAID]`, POS жагсаалтын QPay
+  баннерт «Нэхэмжлэх AR-…» → «Нэхэмжлэхэд бүртгэх» (дахин оролдох) эсвэл «Буцаах»
+- **PDF дээрх QR** (`lib/pdf/invoice-pdf.tsx` `LinkQr`, `lib/qr/matrix.ts`): нийтийн линкийн
+  URL (`NEXT_PUBLIC_APP_URL` заавал — байхгүй бол QR-гүй). И-мэйлээр илгээхэд токеныг
+  урьдчилан үүсгэж PDF-д оруулна; апп доторх PDF татах нь ХҮЧИНТЭЙ линк байвал л QR
+  (`activeInvoiceLinkToken`) — **PDF татах нь нийтийн линк ҮҮСГЭХГҮЙ** (гадагш нээх нь
+  ИЛ үйлдлээр л). QPay идэвхтэй бол «QR уншуулж QPay-ээр төлөх», эс бөгөөс «онлайнаар үзэх»
+
+```
+lib/qpay/arap.ts                 startInvoiceQpay / invoiceQpayStatus / settleArapIntent / invoiceQpayAvailable
+lib/qpay/arap-types.ts           InvoiceQpayView (client-safe)
+lib/actions/invoice-qpay.ts      нийтийн action (токеноор, IP rate limit)
+lib/arap/invoice-pdf-options.ts  PDF-ийн QR сонголт
+tests/qpay-arap-flow.test.ts (DB), tests/qr-matrix.test.ts
+```
