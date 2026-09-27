@@ -24,6 +24,7 @@ import { usePanelPrint } from "@/lib/ui/use-panel-print";
 import { InvoiceSendDialog } from "@/components/arap/invoice-send-dialog";
 import { CreditNoteDialog } from "@/components/arap/credit-note-dialog";
 import { WriteOffSection } from "@/components/arap/write-off-section";
+import { ArapEbarimtField } from "@/components/arap/arap-ebarimt-field";
 import {
   ARAP_DOCUMENT_TYPE_LABELS,
   arapLedger,
@@ -1238,6 +1239,18 @@ function ArapDocReadOnly({
               ))}
             </span>
           </ReadField>
+        )}
+        {document.ebarimt && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <ReadField label="eBarimt">
+              <ArapEbarimtField
+                documentId={document.id}
+                ebarimt={document.ebarimt}
+                paid={document.status === "paid" || document.status === "partially_paid"}
+                reversed={document.status === "reversed"}
+              />
+            </ReadField>
+          </div>
         )}
         <div className="sm:col-span-2 lg:col-span-3">
           <ReadField label="Журналын нэр">{document.description}</ReadField>

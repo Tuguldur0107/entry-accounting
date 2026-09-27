@@ -235,6 +235,16 @@ export function notificationFromAudit(
       { kind: "module", moduleKeys: ["pos"], minLevel: "write" },
       { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
     );
+  // АР нэхэмжлэхийн eBarimt (docs/pos/05 Шат 2) — авлагын батлах эрхтэй гишүүдэд.
+  if (entityType === "arap" && action === "ebarimt_failed")
+    return draft(
+      event,
+      now,
+      "arap.ebarimt_failed",
+      "eBarimt нэхэмжлэх илгээгдсэнгүй",
+      { kind: "module", moduleKeys: ["ar"], minLevel: "post" },
+      { severity: "danger", dedupeKey: `ebarimt-failed:${event.entityId}` }
+    );
 
   // QPay: мөнгө санаандгүй орсон — QR хаагдсаны дараа төлөгдсөн (давхар төлбөр
   // байж болзошгүй) эсвэл дүн зөрсөн. Хоёулаа борлуулалт автоматаар үүсгэхгүй тул

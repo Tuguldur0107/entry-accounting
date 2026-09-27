@@ -101,6 +101,8 @@ import { inventoryItems, warehouses } from "@/lib/db/schema";
 import { logAuditEvent } from "@/lib/audit";
 import { deleteAttachmentsFor } from "@/lib/attachments/cleanup";
 import { actionError, type ActionResult } from "@/lib/action-result";
+import { enqueueArapInvoiceEbarimt, requeueArapInvoiceEbarimt } from "@/lib/ebarimt/queue";
+import { processPendingEbarimt } from "@/lib/ebarimt/worker";
 
 /**
  * POS (docs/pos §3.3): борлуулалтаас үүссэн нэхэмжлэх нь касс, зарлага,
@@ -1535,6 +1537,11 @@ async function createArApDocumentCore(data: {
         caught
       );
     }
+    // eBarimt НЭХЭМЖЛЭХ (docs/pos/05 Шат 2) — postArApDocumentCore-той ижил, шидэхгүй.
+    if (data.documentType === "ar_invoice") {
+      const submissionId = await enqueueArapInvoiceEbarimt(orgId, createdDocumentId);
+      if (submissionId) void processPendingEbarimt(5).catch(() => undefined);
+    }
   }
 
   revalidateArAp();
@@ -1763,7 +1770,54 @@ async function postArApDocumentCore(id: string) {
     );
   }
 
+  // eBarimt НЭХЭМЖЛЭХ (docs/pos/05 Шат 2) — commit-ийн ДАРАА; тохиргоо унтраалттай /
+  // нөхцөл таарахгүй бол юу ч хийхгүй. ХЭЗЭЭ Ч шидэхгүй — батлалт eBarimt-ээс
+  // болж унахгүй; илгээлт worker-т (ticker 20 сек) эсвэл энд шууд эхэлнэ.
+  if (document.documentType === "ar_invoice") {
+    const submissionId = await enqueueArapInvoiceEbarimt(orgId, id);
+    if (submissionId) void processPendingEbarimt(5).catch(() => undefined);
+  }
+
   revalidateArAp();
+}
+
+/**
+ * АР нэхэмжлэхийн eBarimt-ийг ДАХИН илгээх (failed / тохиргоо засварласны дараа).
+ * `sent` ДДТД-г давхар илгээхгүй (queue шалгана).
+ */
+export async function resendArapEbarimt(id: string): Promise<ActionResult<{ status: string | null }>> {
+  try {
+    const { orgId, userId } = await getActiveOrg();
+    const document = await db.query.arApDocuments.findFirst({
+      where: and(eq(arApDocuments.id, id), eq(arApDocuments.organizationId, orgId)),
+      columns: { id: true, documentNo: true, documentType: true, status: true, ebarimtStatus: true },
+    });
+    if (!document) throw new Error("Баримт олдсонгүй");
+    await requireModuleAction(permissionModuleOf(document.documentType), "post");
+    if (document.documentType !== "ar_invoice") throw new Error("Зөвхөн борлуулалтын нэхэмжлэх eBarimt-д илгээгдэнэ");
+    if (document.status === "draft" || document.status === "reversed") throw new Error("Батлагдсан нэхэмжлэх л илгээгдэнэ");
+    if (document.ebarimtStatus === "sent") throw new Error("eBarimt-д аль хэдийн илгээгдсэн");
+    await requeueArapInvoiceEbarimt(orgId, id);
+    const after = await db.query.arApDocuments.findFirst({
+      where: eq(arApDocuments.id, id),
+      columns: { ebarimtStatus: true },
+    });
+    if (!after?.ebarimtStatus)
+      throw new Error("eBarimt-д илгээх нөхцөл хангагдаагүй — POS тохиргоо → eBarimt → «АР нэхэмжлэх» асаалттай, server горимтой эсэхийг шалгана уу");
+    await logAuditEvent({
+      userId,
+      organizationId: orgId,
+      action: "ebarimt_resend",
+      entityType: "arap",
+      entityId: id,
+      summary: `eBarimt нэхэмжлэх дахин илгээх — ${document.documentNo}`,
+    });
+    void processPendingEbarimt(5).catch(() => undefined);
+    revalidateArAp();
+    return { status: after.ebarimtStatus };
+  } catch (caught) {
+    return actionError("resendArapEbarimt", caught, "eBarimt дахин илгээгдсэнгүй");
+  }
 }
 
 export async function postArApDocument(id: string): Promise<ActionResult> {

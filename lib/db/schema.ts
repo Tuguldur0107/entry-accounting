@@ -1300,6 +1300,16 @@ export const arApDocuments = pgTable(
      * буцаалттай үед устгах/буцаахыг action хориглоно.
      */
     sourceDocumentId: uuid("source_document_id"),
+    /**
+     * eBarimt НЭХЭМЖЛЭХ (docs/pos/05 Шат 1–2) — зөвхөн ar_invoice, POS-ийн
+     * тохиргооны «АР нэхэмжлэх» асаалттай үед. ДДТД (33 орон), төлөв
+     * null | "pending" | "sent" | "failed" (lib/ebarimt/constants EBARIMT_STATUSES),
+     * огноо, төрөл (B2B_INVOICE / B2C_INVOICE). `sent` ДДТД-г гараар засахгүй.
+     */
+    ebarimtId: text("ebarimt_id"),
+    ebarimtStatus: text("ebarimt_status"),
+    ebarimtDate: text("ebarimt_date"),
+    ebarimtType: text("ebarimt_type"),
     postedAt: timestamp("posted_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -1708,6 +1718,10 @@ export const arApDocumentLinesRelations = relations(
     document: one(arApDocuments, {
       fields: [arApDocumentLines.documentId],
       references: [arApDocuments.id],
+    }),
+    item: one(inventoryItems, {
+      fields: [arApDocumentLines.itemId],
+      references: [inventoryItems.id],
     }),
     purchaseOrderLine: one(purchaseOrderLines, {
       fields: [arApDocumentLines.purchaseOrderLineId],
@@ -3920,6 +3934,16 @@ export const posSettings = pgTable(
     ebarimtPosApiUrl: text("ebarimt_pos_api_url").notNull().default("http://localhost:7080"),
     /** "server" (Railway-ийн posapi service, worker илгээнэ) | "browser" (кассын PC-ийн localhost, дэлгэц илгээнэ). */
     ebarimtMode: text("ebarimt_mode").notNull().default("server"),
+    // ── eBarimt: АР НЭХЭМЖЛЭХ (docs/pos/05 Шат 1–2) — анхнаасаа УНТРААЛТТАЙ ──
+    // PosAPI-ийн нэхэмжлэхийн урсгал албан баталгаажаагүй (05 §3 Q1–Q2) тул
+    // байгууллага өөрөө асаана; зөвхөн "server" горимд илгээгдэнэ.
+    ebarimtArapEnabled: boolean("ebarimt_arap_enabled").notNull().default(false),
+    /** Төлөгдөөгүй дүнгийн eBarimt төлбөрийн код (05 Q2) — хоосон бол илгээхгүй (ил алдаа). */
+    ebarimtArapPaymentCode: text("ebarimt_arap_payment_code").notNull().default(""),
+    /** Бараагүй (үйлчилгээний) мөрийн анхдагч ангиллын код (7 орон). */
+    ebarimtArapClassificationCode: text("ebarimt_arap_classification_code").notNull().default(""),
+    /** Орлогын үндсэн данс (S3) → ангиллын код; анхдагчаас түрүүлнэ. */
+    ebarimtArapAccountCodes: jsonb("ebarimt_arap_account_codes").$type<Record<string, string>>().notNull().default({}),
     // ── QPay (docs/pos/04-qpay-integration-plan.md §3.4) — qpay-dashboard хаалгаар ──
     // Мерчантын API key / webhook secret нь ШИФРТЭЙ (lib/ai/crypto.ts encryptSecret),
     // лог/аудит/health-д ХЭЗЭЭ Ч гарахгүй. Console-д БИШ — харилцагчийн апп-д.
@@ -4308,9 +4332,10 @@ export const posEbarimtSubmissions = pgTable(
     organizationId: uuid("organization_id").notNull().references(() => organizations.id, {
       onDelete: "cascade",
     }),
-    saleId: uuid("sale_id")
-      .notNull()
-      .references(() => posSales.id, { onDelete: "cascade" }),
+    /** POS борлуулалт — эсвэл `arapDocumentId` (яг нэг нь). */
+    saleId: uuid("sale_id").references(() => posSales.id, { onDelete: "cascade" }),
+    /** АР нэхэмжлэх (docs/pos/05 Шат 1–2) — эсвэл `saleId`. */
+    arapDocumentId: uuid("arap_document_id").references(() => arApDocuments.id, { onDelete: "cascade" }),
     kind: text("kind").notNull().default("send"),
     status: text("status").notNull().default("pending"),
     /** PosAPI-д илгээх JSON (receipt.ts-ээр үүссэн) — дахин илгээхэд ижил. */
@@ -4328,6 +4353,9 @@ export const posEbarimtSubmissions = pgTable(
     uniqueIndex("pos_ebarimt_submissions_active_ux")
       .on(t.saleId, t.kind)
       .where(sql`${t.status} in ('pending', 'claimed')`),
+    uniqueIndex("pos_ebarimt_submissions_arap_active_ux")
+      .on(t.arapDocumentId, t.kind)
+      .where(sql`${t.status} in ('pending', 'claimed') and ${t.arapDocumentId} is not null`),
     index("pos_ebarimt_submissions_org_status_ix").on(t.organizationId, t.status, t.nextAttemptAt),
   ]
 );
@@ -4399,6 +4427,7 @@ export const posQpayIntentsRelations = relations(posQpayIntents, ({ one }) => ({
 
 export const posEbarimtSubmissionsRelations = relations(posEbarimtSubmissions, ({ one }) => ({
   sale: one(posSales, { fields: [posEbarimtSubmissions.saleId], references: [posSales.id] }),
+  arapDocument: one(arApDocuments, { fields: [posEbarimtSubmissions.arapDocumentId], references: [arApDocuments.id] }),
 }));
 
 export const posSalesRelations = relations(posSales, ({ one, many }) => ({

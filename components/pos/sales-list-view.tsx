@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { EBARIMT_STATUS_TONES } from "@/lib/status";
 import { FilterChips, type ChipOption } from "@/components/ui/tabs";
 import { EBARIMT_STATUS_LABELS, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import { SALE_STATUS_LABELS } from "@/lib/pos/constants";
@@ -36,15 +37,8 @@ export const SALE_STATUS_TONES: Record<string, StatusTone> = {
   voided: "danger",
 };
 
-/** eBarimt статусын өнгө (lib/ebarimt/constants.ts EbarimtStatus). */
-export const EBARIMT_STATUS_TONES: Record<string, StatusTone> = {
-  sent: "success",
-  pending: "warning",
-  failed: "danger",
-  cancelled: "muted",
-  manual: "muted",
-  skipped: "warning",
-};
+/** eBarimt статусын өнгө — нэг эх lib/status.ts. */
+export { EBARIMT_STATUS_TONES };
 
 const STATUS_VALUES: StatusFilter[] = ["all", "posted", "partially_returned", "returned", "voided"];
 

@@ -142,6 +142,10 @@ tests/pos-*.test.ts, tests/provisional-cost.test.ts
   < 200, ТЕГ рүү ≥48ц илгээгдээгүй (72ц хуулийн хязгаар), хүрэхгүй → `attention.ts`
   (`pos.ebarimt_lottery_low` / `send_stale` / `posapi_down`, өдөрт нэг); статуст
   «Мерчант бүртгэл» = операторын хүсэлтийг харилцагч батласан эсэх
+- **АР нэхэмжлэх** (docs/pos/05, анхнаасаа унтраалттай) мөн энэ дараалал/worker-ээр:
+  submission-д `arapDocumentId` (saleId NULL), queue/worker `EbarimtTarget`-аар төлөвийг
+  эх дээр бичнэ; хөрвүүлэлт `lib/ebarimt/arap-receipt.ts` (ЦЭВЭР), ачаалагч `arap-load.ts`;
+  browser горимд зөвхөн POS
 - **Идемпотент:** `pos_ebarimt_submissions` дээр (saleId, kind) partial unique
   (`pending`/`claimed`); аль хэдийн `sent` борлуулалт PosAPI-г дахин дуудахгүй;
   worker `pending → claimed` атомик шилжилтээр нэг мөрийг хоёр instance зэрэг

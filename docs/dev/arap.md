@@ -128,3 +128,12 @@ lib/actions/invoice-qpay.ts      нийтийн action (токеноор, IP rat
 lib/arap/invoice-pdf-options.ts  PDF-ийн QR сонголт
 tests/qpay-arap-flow.test.ts (DB), tests/qr-matrix.test.ts
 ```
+
+### 5g. eBarimt нэхэмжлэх (docs/pos/05) — ХЭРЭГЖСЭН, анхнаасаа УНТРААЛТТАЙ
+
+- Батлагдсан `ar_invoice` (POS-оос үүсээгүй) commit-ийн ДАРАА `enqueueArapInvoiceEbarimt`
+  (`createArApDocument(postNow)` + `postArApDocumentCore`) — шидэхгүй, батлалтыг зогсоохгүй
+- `ar_ap_documents.ebarimt*` — төлөв/ДДТД; панель `components/arap/arap-ebarimt-field.tsx`,
+  «Дахин илгээх» `resendArapEbarimt` (ar:post)
+- Кредит нэхэмжлэл, буцаалт, төлөлт eBarimt-д ИЛГЭЭГДЭХГҮЙ — docs/pos/05 Q1/Q5-ын хариу хүртэл
+

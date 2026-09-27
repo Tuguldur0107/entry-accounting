@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { DataGridDynamic } from "@/components/datagrid/DataGridDynamic";
 import { DiscountRuleDialog } from "@/components/pos/discount-rule-dialog";
+import { EbarimtArapSettings } from "@/components/pos/ebarimt-arap-settings";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
@@ -122,7 +123,10 @@ export function PosSettingsView({
       {section === "methods" && <PaymentMethodsSection methods={checkout.methods} cashAccounts={checkout.cashAccounts} />}
       {section === "rules" && <DiscountRulesSection checkout={checkout} />}
       {section === "ebarimt" && (
-        <EbarimtSection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />
+        <>
+          <EbarimtSection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />
+          <EbarimtArapSettings key={`arap-${JSON.stringify(checkout.settings)}`} settings={checkout.settings} />
+        </>
       )}
       {section === "qpay" && <QpaySection key={JSON.stringify(checkout.settings)} settings={checkout.settings} />}
     </div>
