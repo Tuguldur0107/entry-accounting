@@ -1,10 +1,10 @@
-// eBarimt-д илгээсэн баримтуудын НЭГДСЭН жагсаалт (`/tax/ebarimt`) — ЦЭВЭР төрөл,
-// нийлбэр. `@/lib/db` импортгүй (client component импортлодог — CLAUDE.md «Client/
-// server хил»). DB давхарга: list-data.ts.
+// eBarimt-д илгээсэн баримтуудын НЭГДСЭН жагсаалт (`/tax/ebarimt`,
+// `/receivables/ebarimt`) — ЦЭВЭР төрөл, нийлбэр. `@/lib/db` импортгүй (client
+// component импортлодог — CLAUDE.md «Client/server хил»). DB давхарга: list-data.ts.
 
-import type { EbarimtStatus } from "./constants";
+import { EBARIMT_RECEIPT_TYPE_LABELS, type EbarimtReceiptType, type EbarimtStatus } from "./constants";
 
-/** Эх модуль: POS борлуулалт/буцаалт эсвэл АР нэхэмжлэх (docs/pos/05 Шат 2). */
+/** Эх модуль: POS борлуулалт эсвэл АР нэхэмжлэх (docs/pos/05 Шат 2). */
 export type EbarimtDocumentSource = "pos" | "arap";
 
 export const EBARIMT_SOURCE_LABELS: Record<EbarimtDocumentSource, string> = {
@@ -12,13 +12,18 @@ export const EBARIMT_SOURCE_LABELS: Record<EbarimtDocumentSource, string> = {
   arap: "Авлагын нэхэмжлэх",
 };
 
-/** PosAPI-ийн баримтын төрөл → UI шошго (төлбөрийн баримт vs нэхэмжлэх, иргэн vs ААН). */
-export const EBARIMT_TYPE_LABELS: Record<string, string> = {
-  B2C_RECEIPT: "Төлбөрийн баримт · иргэн",
-  B2B_RECEIPT: "Төлбөрийн баримт · ААН",
-  B2C_INVOICE: "Нэхэмжлэх · иргэн",
-  B2B_INVOICE: "Нэхэмжлэх · ААН",
-};
+/**
+ * ТЕГ-д БҮРТГЭЛТЭЙ баримтын төлөв: `sent` (Entry илгээсэн) ба `manual` (өөр
+ * төхөөрөмжөөр олгож ДДТД-г гараар бичсэн). Хураангуй, хөл дүн зөвхөн эдгээрээс.
+ */
+export const EBARIMT_REPORTED_STATUSES: readonly string[] = ["sent", "manual"];
+export const isReportedStatus = (status: string) => EBARIMT_REPORTED_STATUSES.includes(status);
+/** Анхаарах: алдаатай, илгээгээгүй (кассчин), хүлээгдэж буй. */
+export const isAttentionStatus = (status: string) =>
+  status === "failed" || status === "skipped" || status === "pending";
+
+export const ebarimtTypeLabel = (type: string | null) =>
+  type ? EBARIMT_RECEIPT_TYPE_LABELS[type as EbarimtReceiptType] ?? type : "";
 
 export interface EbarimtDocumentRow {
   /** `${source}:${id}` — grid-ийн мөрийн түлхүүр. */
@@ -31,15 +36,22 @@ export interface EbarimtDocumentRow {
   counterpartyName: string | null;
   /** Худалдан авагч ААН-ийн ТТД (B2B) — иргэнд null. */
   customerTin: string | null;
-  /** POS буцаалт — дүн ХАСАХ утгаар (улаан сторно, CLAUDE.md §1). */
-  isReturn: boolean;
-  /** B2C_RECEIPT / B2B_RECEIPT / B2C_INVOICE / B2B_INVOICE — PosAPI-ийн хариунаас. */
+  /**
+   * POS борлуулалт хэсэгчлэн буцаагдсан — ДДТД нь буцаалтын дараах засварын
+   * баримт (inactiveId гинж), дүн нь ТЕГ-д одоо бүртгэлтэй ҮЛДСЭН дүн.
+   * Буцаалт өөрөө тусдаа баримт биш (queue.ts) тул жагсаалтад мөр болохгүй.
+   */
+  partiallyReturned: boolean;
+  /** B2C_RECEIPT / B2B_RECEIPT / B2C_INVOICE / B2B_INVOICE. */
   ebarimtType: string | null;
   status: EbarimtStatus | string;
   /** ДДТД (33 орон). */
   ebarimtId: string | null;
   ebarimtDate: string | null;
-  /** Нийт, НӨАТ, НХАТ (MNT) — буцаалтад хасах. */
+  /**
+   * Нийт, НӨАТ, НХАТ (MNT). Илгээгдсэн бол ТЕГ-д очсон СҮҮЛИЙН баримтаас;
+   * бусад үед баримтын өөрийн MNT дүн (илгээх гэж буй).
+   */
   total: number;
   vat: number;
   cityTax: number;
@@ -47,43 +59,45 @@ export interface EbarimtDocumentRow {
   lastError: string | null;
 }
 
+export interface EbarimtAmounts {
+  count: number;
+  total: number;
+  vat: number;
+  cityTax: number;
+}
+
 export interface EbarimtListSummary {
   count: number;
   byStatus: Record<string, number>;
-  /** ЗӨВХӨН илгээгдсэн (sent) баримтын цэвэр дүн — ТЕГ-д очсон. */
-  sentTotal: number;
-  sentVat: number;
-  sentCityTax: number;
-  /** Анхаарал шаардах: алдаатай + илгээгээгүй + хүлээгдэж буй. */
+  /** ЗӨВХӨН ТЕГ-д бүртгэлтэй (sent + manual) баримт. */
+  reported: EbarimtAmounts;
   attention: number;
 }
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-/** Жагсаалтын хураангуй — дүн нь ЗӨВХӨН илгээгдсэн баримтаас (буцаалт хасагдана). */
-export function summarizeEbarimtRows(rows: EbarimtDocumentRow[]): EbarimtListSummary {
-  const byStatus: Record<string, number> = {};
-  let sentTotal = 0;
-  let sentVat = 0;
-  let sentCityTax = 0;
+/** ТЕГ-д бүртгэлтэй мөрүүдийн дүн — хураангуй карт ба хөл дүн НЭГ эх. */
+export function reportedAmounts(rows: EbarimtDocumentRow[]): EbarimtAmounts {
+  let count = 0;
+  let total = 0;
+  let vat = 0;
+  let cityTax = 0;
   for (const row of rows) {
-    byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
-    if (row.status !== "sent") continue;
-    sentTotal += row.total;
-    sentVat += row.vat;
-    sentCityTax += row.cityTax;
+    if (!isReportedStatus(row.status)) continue;
+    count += 1;
+    total += row.total;
+    vat += row.vat;
+    cityTax += row.cityTax;
   }
-  return {
-    count: rows.length,
-    byStatus,
-    sentTotal: round2(sentTotal),
-    sentVat: round2(sentVat),
-    sentCityTax: round2(sentCityTax),
-    attention: (byStatus.failed ?? 0) + (byStatus.skipped ?? 0) + (byStatus.pending ?? 0),
-  };
+  return { count, total: round2(total), vat: round2(vat), cityTax: round2(cityTax) };
 }
 
-/** Буцаалтыг хасах тэмдэгтэй болгоно (DB-д дүн эерэг хадгалагддаг). */
-export function signedAmount(isReturn: boolean, value: number): number {
-  return (isReturn ? -1 : 1) * value;
+export function summarizeEbarimtRows(rows: EbarimtDocumentRow[]): EbarimtListSummary {
+  const byStatus: Record<string, number> = {};
+  let attention = 0;
+  for (const row of rows) {
+    byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
+    if (isAttentionStatus(row.status)) attention += 1;
+  }
+  return { count: rows.length, byStatus, reported: reportedAmounts(rows), attention };
 }

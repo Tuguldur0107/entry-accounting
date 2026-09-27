@@ -17,13 +17,16 @@ import { FilterChips, type ChipOption } from "@/components/ui/tabs";
 import { EBARIMT_STATUS_LABELS, EBARIMT_STATUSES, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import {
   EBARIMT_SOURCE_LABELS,
-  EBARIMT_TYPE_LABELS,
+  ebarimtTypeLabel,
+  isAttentionStatus,
+  reportedAmounts,
   summarizeEbarimtRows,
   type EbarimtDocumentRow,
   type EbarimtDocumentSource,
 } from "@/lib/ebarimt/list-types";
 import { downloadWorkbook } from "@/lib/excel/core";
 import { fmtMntCompact } from "@/lib/format/money";
+import { col } from "@/lib/grid/columnTypes";
 import { fmtMnt } from "@/lib/reports/balances";
 import { EBARIMT_STATUS_TONES } from "@/lib/status";
 import { openArapDocPanel, openPosSalePanel } from "@/lib/store/panel-store";
@@ -33,8 +36,6 @@ type SourceFilter = "all" | EbarimtDocumentSource;
 type StatusFilter = "all" | "attention" | EbarimtStatus;
 
 const statusLabel = (status: string) => EBARIMT_STATUS_LABELS[status as EbarimtStatus] ?? status;
-const typeLabel = (type: string | null) => (type ? EBARIMT_TYPE_LABELS[type] ?? type : "");
-const isAttention = (status: string) => status === "failed" || status === "skipped" || status === "pending";
 
 type GridRow = EbarimtDocumentRow & { pinned?: boolean };
 
@@ -62,12 +63,18 @@ export function EbarimtDocumentsView({
   const visible = useMemo(
     () =>
       bySource.filter((row) =>
-        status === "all" ? true : status === "attention" ? isAttention(row.status) : row.status === status
+        status === "all" ? true : status === "attention" ? isAttentionStatus(row.status) : row.status === status
       ),
     [bySource, status]
   );
   const summary = useMemo(() => summarizeEbarimtRows(bySource), [bySource]);
-  const visibleSummary = useMemo(() => summarizeEbarimtRows(visible), [visible]);
+
+  // Эх солиход өмнөх төлөвийн шүүлтүүр шинэ эхэд байхгүй байж болно — chip нь
+  // харагдахгүй ч шүүлт идэвхтэй үлдэж хүснэгт шалтгаангүй хоосрохоос сэргийлнэ.
+  const changeSource = useCallback((next: SourceFilter) => {
+    setSource(next);
+    setStatus("all");
+  }, []);
 
   const sourceChips = useMemo<ChipOption<SourceFilter>[]>(
     () => [
@@ -113,33 +120,33 @@ export function EbarimtDocumentsView({
       });
   }, []);
 
-  const pinnedBottom = useMemo<GridRow[]>(
-    () =>
-      visible.length === 0
-        ? []
-        : [
-            {
-              key: "total",
-              pinned: true,
-              source: "pos",
-              id: "",
-              documentNo: `Нийт · ${visible.length}`,
-              date: "",
-              counterpartyName: null,
-              customerTin: null,
-              isReturn: false,
-              ebarimtType: null,
-              status: "",
-              ebarimtId: null,
-              ebarimtDate: null,
-              total: visible.reduce((sum, row) => sum + row.total, 0),
-              vat: visible.reduce((sum, row) => sum + row.vat, 0),
-              cityTax: visible.reduce((sum, row) => sum + row.cityTax, 0),
-              lastError: null,
-            },
-          ],
-    [visible]
-  );
+  // Хөл дүн = харагдаж буй мөрүүдийн ТЕГ-д БҮРТГЭЛТЭЙ (sent + manual) хэсэг —
+  // хураангуй карттай НЭГ дүрэм (цуцлагдсан, алдаатай, хүлээгдэж буй орохгүй).
+  const pinnedBottom = useMemo<GridRow[]>(() => {
+    if (visible.length === 0) return [];
+    const reported = reportedAmounts(visible);
+    return [
+      {
+        key: "total",
+        pinned: true,
+        source: "pos",
+        id: "",
+        documentNo: `ТЕГ-д бүртгэлтэй · ${reported.count}`,
+        date: "",
+        counterpartyName: null,
+        customerTin: null,
+        partiallyReturned: false,
+        ebarimtType: null,
+        status: "",
+        ebarimtId: null,
+        ebarimtDate: null,
+        total: reported.total,
+        vat: reported.vat,
+        cityTax: reported.cityTax,
+        lastError: null,
+      },
+    ];
+  }, [visible]);
 
   const hasCityTax = useMemo(() => rows.some((row) => row.cityTax !== 0), [rows]);
 
@@ -162,10 +169,12 @@ export function EbarimtDocumentsView({
           p.data ? (
             <span className="flex h-full items-center gap-1.5">
               <span className={p.data.pinned ? "font-semibold" : undefined}>{p.data.documentNo}</span>
-              {p.data.isReturn && (
-                <StatusBadge tone="warning" size="sm">
-                  Буцаалт
-                </StatusBadge>
+              {p.data.partiallyReturned && (
+                <span title="Хэсэгчлэн буцаасан — ДДТД ба дүн нь буцаалтын дараах засварын баримтынх">
+                  <StatusBadge tone="warning" size="sm">
+                    Хэсэгчлэн буцаасан
+                  </StatusBadge>
+                </span>
               )}
             </span>
           ) : null,
@@ -174,36 +183,14 @@ export function EbarimtDocumentsView({
         headerName: "Төрөл",
         field: "ebarimtType",
         width: 170,
-        valueGetter: (p) => typeLabel(p.data?.ebarimtType ?? null),
+        valueGetter: (p) => ebarimtTypeLabel(p.data?.ebarimtType ?? null),
         cellClass: "text-xs",
       },
       { headerName: "Харилцагч", field: "counterpartyName", minWidth: 170, flex: 1 },
       { headerName: "ТТД", field: "customerTin", width: 120, cellClass: "font-mono text-xs" },
-      {
-        headerName: "Нийт",
-        field: "total",
-        width: 130,
-        cellClass: "ag-right-aligned-cell font-mono font-medium",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => fmtMnt(Number(p.value ?? 0)),
-      },
-      {
-        headerName: "НӨАТ",
-        field: "vat",
-        width: 110,
-        cellClass: "ag-right-aligned-cell font-mono text-xs",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
-      },
-      {
-        headerName: "НХАТ",
-        field: "cityTax",
-        width: 95,
-        hide: !hasCityTax,
-        cellClass: "ag-right-aligned-cell font-mono text-xs",
-        headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
-      },
+      col<GridRow>({ eaType: "readonly-money", headerName: "Нийт", field: "total", width: 130 }),
+      col<GridRow>({ eaType: "readonly-money", headerName: "НӨАТ", field: "vat", width: 110 }),
+      col<GridRow>({ eaType: "readonly-money", headerName: "НХАТ", field: "cityTax", width: 95, hide: !hasCityTax }),
       {
         headerName: "eBarimt",
         field: "status",
@@ -257,7 +244,7 @@ export function EbarimtDocumentsView({
           row.date,
           EBARIMT_SOURCE_LABELS[row.source],
           row.documentNo,
-          typeLabel(row.ebarimtType),
+          ebarimtTypeLabel(row.ebarimtType),
           row.counterpartyName ?? "",
           row.customerTin ?? "",
           row.total,
@@ -288,15 +275,15 @@ export function EbarimtDocumentsView({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="grid gap-3 sm:grid-cols-3">
         <TaxStatCard
-          label={`Илгээгдсэн · ${summary.byStatus.sent ?? 0}`}
-          value={fmtMntCompact(summary.sentTotal)}
-          hint={`${from} — ${to} · ТЕГ-д очсон цэвэр дүн (буцаалт хасагдсан)`}
+          label={`ТЕГ-д бүртгэлтэй · ${summary.reported.count}`}
+          value={fmtMntCompact(summary.reported.total)}
+          hint={`${from} — ${to} · илгээсэн + гараар ДДТД бичсэн, буцаалтын дараах дүнгээр`}
           mono
         />
         <TaxStatCard
-          label="Илгээгдсэн НӨАТ"
-          value={fmtMntCompact(summary.sentVat)}
-          hint={summary.sentCityTax !== 0 ? `НХАТ ${fmtMnt(summary.sentCityTax)}` : "НӨАТ-ын тайлантай тулгана"}
+          label="ТЕГ-д бүртгэлтэй НӨАТ"
+          value={fmtMntCompact(summary.reported.vat)}
+          hint={summary.reported.cityTax !== 0 ? `НХАТ ${fmtMnt(summary.reported.cityTax)}` : "НӨАТ-ын тайлантай тулгана"}
           mono
         />
         <TaxStatCard
@@ -308,7 +295,7 @@ export function EbarimtDocumentsView({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        {sources.length > 1 && <FilterChips options={sourceChips} value={source} onChange={setSource} />}
+        {sources.length > 1 && <FilterChips options={sourceChips} value={source} onChange={changeSource} />}
         <FilterChips options={statusChips} value={status} onChange={setStatus} />
         <div className="ml-auto flex items-center gap-2">
           {truncated && (
@@ -341,11 +328,6 @@ export function EbarimtDocumentsView({
             if (event.data && !event.data.pinned) openRow(event.data);
           }}
         />
-      )}
-      {visible.length !== rows.length && visible.length > 0 && (
-        <div className="text-xs text-[var(--ea-text-3)]">
-          Шүүлтүүрт {visible.length} баримт · илгээгдсэн {fmtMnt(visibleSummary.sentTotal)} ₮
-        </div>
       )}
     </div>
   );
