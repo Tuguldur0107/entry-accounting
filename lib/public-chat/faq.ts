@@ -90,3 +90,8 @@ export function findFaq(key: string): PublicChatFaq | null {
 export function faqCallbackData(key: string, target: string | null): string {
   return `faq:${key}:${target ?? "room"}`;
 }
+
+/** Группын угтах мессежийн товч (дурын гишүүн): `faqg:<key>` — хариу группт. */
+export function faqGroupCallbackData(key: string): string {
+  return `faqg:${key}`;
+}

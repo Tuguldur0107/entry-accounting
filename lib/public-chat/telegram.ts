@@ -14,7 +14,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 
-import { PUBLIC_CHAT_FAQ, faqCallbackData } from "./faq";
+import { PUBLIC_CHAT_FAQ, faqCallbackData, faqGroupCallbackData, findFaq } from "./faq";
 import { escapeHtml, relayText, telegramRef, type PublicChatScope, type TelegramChatRole } from "./rules";
 import { setTelegramMessageId } from "./store";
 
@@ -193,15 +193,63 @@ export async function sendFaqMenu(
   targetMessageId: string | null,
   replyTo: number
 ): Promise<void> {
-  const buttons = PUBLIC_CHAT_FAQ.map((faq) => ({ text: faq.title, callback_data: faqCallbackData(faq.key, targetMessageId) }));
-  const rows: InlineButton[][] = [];
-  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
   await call(config, "sendMessage", {
     chat_id: chatIdOf(config, chat),
     text: targetMessageId ? "Бэлэн хариулт — сонговол энэ зочинд очно:" : "Бэлэн хариулт — сонговол нийтийн өрөөнд очно:",
-    reply_markup: { inline_keyboard: rows },
+    reply_markup: faqKeyboard((key) => faqCallbackData(key, targetMessageId)),
     reply_parameters: { message_id: replyTo, allow_sending_without_reply: true },
   });
+}
+
+function faqKeyboard(data: (key: string) => string): { inline_keyboard: InlineButton[][] } {
+  const buttons = PUBLIC_CHAT_FAQ.map((faq) => ({ text: faq.title, callback_data: data(faq.key) }));
+  const rows: InlineButton[][] = [];
+  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  return { inline_keyboard: rows };
+}
+
+// Нээлттэй группын угтах мессеж — сүүлийнхийг л үлдээнэ (группыг бүү дүүргэ).
+let lastWelcome: { chatId: string; messageId: number } | null = null;
+
+/** Нээлттэй группт шинэ гишүүн — угтах мессеж + түгээмэл асуултын товч. Шидэхгүй. */
+export async function sendWelcome(config: PublicChatTelegramConfig, names: string[]): Promise<void> {
+  const who = names.slice(0, 5).map(escapeHtml).join(", ");
+  try {
+    const sent = await call<{ message_id: number }>(config, "sendMessage", {
+      chat_id: config.chatId,
+      text:
+        `👋 Тавтай морил, ${who}!\n\nЭнэ бол <b>Entry Accounting</b>-ийн олон нийтийн групп. ` +
+        "Түгээмэл асуултын хариуг доорх товчоор аваарай — бусад асуултаа энд чөлөөтэй бичээрэй.",
+      parse_mode: "HTML",
+      reply_markup: faqKeyboard(faqGroupCallbackData),
+    });
+    const previous = lastWelcome;
+    lastWelcome = { chatId: config.chatId, messageId: sent.message_id };
+    if (previous?.chatId === config.chatId)
+      await call(config, "deleteMessage", { chat_id: config.chatId, message_id: previous.messageId }).catch(() => undefined);
+  } catch (error) {
+    console.error("[public-chat] welcome:", error);
+  }
+}
+
+// Угтах мессежийн товчийг олон хүн дарж группыг спамдахаас: нэг асуултын хариу
+// 10 минутад нэг л удаа (дараагийнхэнд «дээр хариулсан»).
+const FAQ_PUBLIC_REPEAT_MS = 10 * 60_000;
+const recentFaqAnswers = new Map<string, number>();
+
+/**
+ * Угтах мессежийн товч — хариуг группт (landing-д ОЧИХГҮЙ). `false` — саяхан
+ * хариулсан эсвэл олдсонгүй.
+ */
+export async function answerFaqInGroup(config: PublicChatTelegramConfig, key: string, replyTo: number): Promise<boolean> {
+  const faq = findFaq(key);
+  if (!faq) return false;
+  const now = Date.now();
+  const last = recentFaqAnswers.get(key);
+  if (last && now - last < FAQ_PUBLIC_REPEAT_MS) return false;
+  recentFaqAnswers.set(key, now);
+  await sendTeamText(config, `<b>${escapeHtml(faq.title)}</b>\n\n${escapeHtml(faq.body)}`, replyTo);
+  return true;
 }
 
 /** Бэлэн хариулт илгээгдсэний дараа товчтой мессежийг илгээсэн текстээр солино (дахин дарахгүй). */
