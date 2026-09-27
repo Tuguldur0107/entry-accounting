@@ -328,11 +328,13 @@ export function PosCheckoutView({
   /** ТӨЛБӨР дарагдсан ч үнийн санал шинэчлэгдэж байна — ирмэгц диалог нээнэ. */
   const [payWhenReady, setPayWhenReady] = useState(false);
   const online = useOnlineStatus();
-  const [autoPrint, setAutoPrintState] = useState(true);
+  // Анхдагч: УРЬДЧИЛАН ХАРАХ (баримтыг шалгаад [Хэвлэх]) — Хос Хас 2026-09-27.
+  // Төхөөрөмж дээр «Автоматаар хэвлэх»-ийг асаасан бол л шууд хэвлэнэ.
+  const [autoPrint, setAutoPrintState] = useState(false);
   useEffect(() => {
-    // Хадгалалт хаалттай/хоосон бол анхдагч асаалттай хэвээр (hydration-ий дараа уншина).
+    // Хадгалалт хаалттай/хоосон бол анхдагч унтраалттай хэвээр (hydration-ий дараа уншина).
     const load = () => {
-      if (readStorage(AUTO_PRINT_KEY) === false) setAutoPrintState(false);
+      if (readStorage(AUTO_PRINT_KEY) === true) setAutoPrintState(true);
     };
     load();
   }, []);
