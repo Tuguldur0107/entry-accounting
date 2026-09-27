@@ -16,11 +16,14 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { FilterChips, type ChipOption } from "@/components/ui/tabs";
 import { EBARIMT_STATUS_LABELS, EBARIMT_STATUSES, type EbarimtStatus } from "@/lib/ebarimt/constants";
 import {
+  EBARIMT_CORRECTION_LABELS,
   EBARIMT_SOURCE_LABELS,
   ebarimtTypeLabel,
-  isAttentionStatus,
+  isAttentionRow,
   reportedAmounts,
   summarizeEbarimtRows,
+  totalAmounts,
+  type EbarimtAmounts,
   type EbarimtDocumentRow,
   type EbarimtDocumentSource,
 } from "@/lib/ebarimt/list-types";
@@ -38,6 +41,30 @@ type StatusFilter = "all" | "attention" | EbarimtStatus;
 const statusLabel = (status: string) => EBARIMT_STATUS_LABELS[status as EbarimtStatus] ?? status;
 
 type GridRow = EbarimtDocumentRow & { pinned?: boolean };
+
+/** Хөлийн мөр — дүн нь `amounts`-аас, бусад талбар хоосон. */
+function pinnedRow(key: string, label: string, amounts: EbarimtAmounts): GridRow {
+  return {
+    key,
+    pinned: true,
+    source: "pos",
+    id: "",
+    documentNo: `${label} · ${amounts.count}`,
+    date: "",
+    counterpartyName: null,
+    customerTin: null,
+    partiallyReturned: false,
+    correction: null,
+    ebarimtType: null,
+    status: "",
+    ebarimtId: null,
+    ebarimtDate: null,
+    total: amounts.total,
+    vat: amounts.vat,
+    cityTax: amounts.cityTax,
+    lastError: null,
+  };
+}
 
 export function EbarimtDocumentsView({
   rows,
@@ -63,7 +90,7 @@ export function EbarimtDocumentsView({
   const visible = useMemo(
     () =>
       bySource.filter((row) =>
-        status === "all" ? true : status === "attention" ? isAttentionStatus(row.status) : row.status === status
+        status === "all" ? true : status === "attention" ? isAttentionRow(row) : row.status === status
       ),
     [bySource, status]
   );
@@ -120,33 +147,19 @@ export function EbarimtDocumentsView({
       });
   }, []);
 
-  // Хөл дүн = харагдаж буй мөрүүдийн ТЕГ-д БҮРТГЭЛТЭЙ (sent + manual) хэсэг —
-  // хураангуй карттай НЭГ дүрэм (цуцлагдсан, алдаатай, хүлээгдэж буй орохгүй).
-  const pinnedBottom = useMemo<GridRow[]>(() => {
-    if (visible.length === 0) return [];
-    const reported = reportedAmounts(visible);
-    return [
-      {
-        key: "total",
-        pinned: true,
-        source: "pos",
-        id: "",
-        documentNo: `ТЕГ-д бүртгэлтэй · ${reported.count}`,
-        date: "",
-        counterpartyName: null,
-        customerTin: null,
-        partiallyReturned: false,
-        ebarimtType: null,
-        status: "",
-        ebarimtId: null,
-        ebarimtDate: null,
-        total: reported.total,
-        vat: reported.vat,
-        cityTax: reported.cityTax,
-        lastError: null,
-      },
-    ];
-  }, [visible]);
+  // Хөл дүн ХОЁР мөр: харагдаж буй БҮХ мөр (шүүлтүүрийн нийлбэр — «Алдаатай»-д
+  // ТЕГ-д очоогүй дүн) + тэдгээрийн ТЕГ-д БҮРТГЭЛТЭЙ (sent + manual) хэсэг —
+  // хоёр дахь нь хураангуй карттай НЭГ дүрэм (reportedAmounts).
+  const pinnedBottom = useMemo<GridRow[]>(
+    () =>
+      visible.length === 0
+        ? []
+        : [
+            pinnedRow("total-visible", "Харагдаж буй", totalAmounts(visible)),
+            pinnedRow("total-reported", "ТЕГ-д бүртгэлтэй", reportedAmounts(visible)),
+          ],
+    [visible]
+  );
 
   const hasCityTax = useMemo(() => rows.some((row) => row.cityTax !== 0), [rows]);
 
@@ -170,7 +183,13 @@ export function EbarimtDocumentsView({
             <span className="flex h-full items-center gap-1.5">
               <span className={p.data.pinned ? "font-semibold" : undefined}>{p.data.documentNo}</span>
               {p.data.partiallyReturned && (
-                <span title="Хэсэгчлэн буцаасан — ДДТД ба дүн нь буцаалтын дараах засварын баримтынх">
+                <span
+                  title={
+                    p.data.correction
+                      ? `Хэсэгчлэн буцаасан — ${EBARIMT_CORRECTION_LABELS[p.data.correction]}`
+                      : "Хэсэгчлэн буцаасан — ДДТД ба дүн нь буцаалтын дараах засварын баримтынх"
+                  }
+                >
                   <StatusBadge tone="warning" size="sm">
                     Хэсэгчлэн буцаасан
                   </StatusBadge>
@@ -194,15 +213,23 @@ export function EbarimtDocumentsView({
       {
         headerName: "eBarimt",
         field: "status",
-        width: 150,
+        width: 190,
         valueGetter: (p) => (p.data?.pinned ? "" : statusLabel(p.data?.status ?? "")),
-        tooltipValueGetter: (p) => p.data?.lastError ?? undefined,
+        tooltipValueGetter: (p) =>
+          [p.data?.correction ? EBARIMT_CORRECTION_LABELS[p.data.correction] : null, p.data?.lastError]
+            .filter(Boolean)
+            .join(" · ") || undefined,
         cellRenderer: (p: ICellRendererParams<GridRow>) =>
           p.data && !p.data.pinned ? (
-            <span className="flex h-full items-center">
+            <span className="flex h-full items-center gap-1">
               <StatusBadge tone={EBARIMT_STATUS_TONES[p.data.status] ?? "muted"} size="sm">
                 {statusLabel(p.data.status)}
               </StatusBadge>
+              {p.data.correction && (
+                <StatusBadge tone={p.data.correction === "pending" ? "warning" : "danger"} size="sm">
+                  Засвар
+                </StatusBadge>
+              )}
             </span>
           ) : null,
       },
@@ -277,7 +304,7 @@ export function EbarimtDocumentsView({
         <TaxStatCard
           label={`ТЕГ-д бүртгэлтэй · ${summary.reported.count}`}
           value={fmtMntCompact(summary.reported.total)}
-          hint={`${from} — ${to} · илгээсэн + гараар ДДТД бичсэн, буцаалтын дараах дүнгээр`}
+          hint={`${from} — ${to} · илгээсэн + гараар ДДТД бичсэн; ТЕГ-д одоо бүртгэлтэй дүнгээр`}
           mono
         />
         <TaxStatCard
@@ -289,7 +316,7 @@ export function EbarimtDocumentsView({
         <TaxStatCard
           label="Анхаарах"
           value={String(summary.attention)}
-          hint="Алдаатай, илгээгээгүй, хүлээгдэж буй — панелаас дахин илгээнэ"
+          hint="Алдаатай, илгээгээгүй, хүлээгдэж буй, буцаалтын засвар дуусаагүй — панелаас дахин илгээнэ"
           tone={summary.attention > 0 ? "danger" : undefined}
         />
       </div>

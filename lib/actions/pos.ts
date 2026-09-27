@@ -3020,14 +3020,21 @@ export async function updateSaleEbarimt(
     const ebarimtId = cleanText(data.ebarimtId);
     const sale = await db.query.posSales.findFirst({
       where: and(eq(posSales.id, id), eq(posSales.organizationId, orgId)),
-      columns: { ebarimtStatus: true, nonVat: true },
+      columns: { ebarimtStatus: true, nonVat: true, total: true, vatAmount: true, cityTaxAmount: true },
     });
     if (!sale) throw new Error("Борлуулалт олдсонгүй");
     if (sale.ebarimtStatus === "sent") throw new Error("ТЕГ-д илгээгдсэн баримтын ДДТД-г гараар өөрчлөхгүй");
     if (sale.nonVat && ebarimtId) throw new Error("НӨАТ-гүй борлуулалтад ДДТД оноохгүй (НӨАТ задлаагүй)");
     await db
       .update(posSales)
-      .set({ ebarimtId, ebarimtStatus: ebarimtId ? "manual" : null })
+      .set({
+        ebarimtId,
+        ebarimtStatus: ebarimtId ? "manual" : null,
+        // Өөр төхөөрөмжөөр олгосон баримт — ТЕГ-д борлуулалтын бүтэн дүнгээр бүртгэлтэй.
+        ebarimtTotal: ebarimtId ? sale.total : null,
+        ebarimtVat: ebarimtId ? sale.vatAmount : null,
+        ebarimtCityTax: ebarimtId ? sale.cityTaxAmount : null,
+      })
       .where(and(eq(posSales.id, id), eq(posSales.organizationId, orgId)));
     if (ebarimtId)
       // Гараар олгосон бол хүлээгдэж буй автомат илгээлтийг зогсооно (давхар баримт үүсгэхгүй).

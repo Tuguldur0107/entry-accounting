@@ -2,16 +2,23 @@
 // list-page.ts дууддаг). Цэвэр төрөл/нийлбэр: list-types.ts.
 //
 // Мөр = eBarimt төлөвтэй БАРИМТ (POS борлуулалт, АР нэхэмжлэх) — илгээлтийн
-// оролдлого бүр биш. Илгээгдсэн баримтын дүн нь ТЕГ-д очсон СҮҮЛИЙН receipt-ээс
-// (`payload.request` — дахин бодохгүй): POS-ын хэсэгчилсэн буцаалтын дараа
-// inactiveId засварын баримт (үлдсэн дүн) нь эх борлуулалтын бүтэн дүнг орлоно.
+// оролдлого бүр биш. ТЕГ-д бүртгэлтэй дүн нь баримт дээрээ (`ebarimtTotal/Vat/
+// CityTax` — queue.ts markSent СҮҮЛИЙН амжилттай receipt-ээс бичнэ; хэсэгчилсэн
+// буцаалтын засварын дараа ҮЛДСЭН дүн) — илгээлтийн түүхээс нөхөж бодохгүй.
+// Буцаалтын засвар дуусаагүй бол `posSales.ebarimtCorrection` → «Анхаарах».
 
 import { and, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 
+import { effectiveTin } from "@/lib/arap/counterparty-kind";
 import { db } from "@/lib/db";
 import { arApDocuments, posEbarimtSubmissions, posSales } from "@/lib/db/schema";
 
-import type { EbarimtDocumentRow, EbarimtDocumentSource } from "./list-types";
+import {
+  isReportedStatus,
+  type EbarimtCorrection,
+  type EbarimtDocumentRow,
+  type EbarimtDocumentSource,
+} from "./list-types";
 
 export * from "./list-types";
 
@@ -25,56 +32,45 @@ const num = (value: unknown) => {
 
 type TargetColumn = typeof posEbarimtSubmissions.saleId | typeof posEbarimtSubmissions.arapDocumentId;
 
-interface ReceiptFacts {
-  lastError: string | null;
-  /** receipt байхгүй (DELETE-ийн мөр, бэлтгэгдээгүй) бол null. */
-  receipt: { total: number; vat: number; cityTax: number; type: string | null; customerTin: string | null } | null;
-}
-
-const request = (field: "totalAmount" | "totalVAT" | "totalCityTax" | "type" | "customerTin") =>
+const request = (field: "totalAmount" | "totalVAT" | "customerTin") =>
   sql<string | null>`${posEbarimtSubmissions.payload}->'request'->>${field}::text`;
 
 /**
- * Баримт бүрийн СҮҮЛИЙН илгээлт (DISTINCT ON — түүхийг бүтнээр татахгүй, payload-оос
- * зөвхөн хэрэгтэй талбарууд). `onlySent` → ТЕГ-д очсон сүүлийн receipt (дүнгийн эх).
+ * Баримт бүрийн СҮҮЛИЙН илгээлт — зөвхөн анхаарах мөрүүдэд (алдааны шалтгаан,
+ * илгээх гэж буй receipt-ийн НӨАТ). DISTINCT ON + id-аар тогтвортой дараалал
+ * (queue.ts editIndexOf-той ижил), payload-оос зөвхөн хэрэгтэй талбар.
  */
-async function latestFacts(orgId: string, column: TargetColumn, ids: string[], onlySent: boolean) {
-  const facts = new Map<string, ReceiptFacts>();
-  if (ids.length === 0) return facts;
-  const conditions = [eq(posEbarimtSubmissions.organizationId, orgId), inArray(column, ids)];
-  if (onlySent)
-    conditions.push(eq(posEbarimtSubmissions.status, "sent"), sql`${posEbarimtSubmissions.payload}->'request' is not null`);
+async function latestSubmissions(orgId: string, column: TargetColumn, ids: string[]) {
+  const latest = new Map<
+    string,
+    { lastError: string | null; total: number | null; vat: number | null; customerTin: string | null }
+  >();
+  if (ids.length === 0) return latest;
   const rows = await db
     .selectDistinctOn([column], {
       targetId: column,
       lastError: posEbarimtSubmissions.lastError,
-      hasRequest: sql<boolean>`${posEbarimtSubmissions.payload}->'request' is not null`,
       total: request("totalAmount"),
       vat: request("totalVAT"),
-      cityTax: request("totalCityTax"),
-      type: request("type"),
       customerTin: request("customerTin"),
     })
     .from(posEbarimtSubmissions)
-    .where(and(...conditions))
-    .orderBy(column, desc(posEbarimtSubmissions.createdAt));
+    .where(and(eq(posEbarimtSubmissions.organizationId, orgId), inArray(column, ids)))
+    .orderBy(column, desc(posEbarimtSubmissions.createdAt), desc(posEbarimtSubmissions.id));
   for (const row of rows) {
     if (!row.targetId) continue;
-    facts.set(row.targetId, {
+    latest.set(row.targetId, {
       lastError: row.lastError,
-      receipt: row.hasRequest
-        ? {
-            total: num(row.total),
-            vat: num(row.vat),
-            cityTax: num(row.cityTax),
-            type: row.type,
-            customerTin: row.customerTin,
-          }
-        : null,
+      total: row.total === null ? null : num(row.total),
+      vat: row.vat === null ? null : num(row.vat),
+      customerTin: row.customerTin,
     });
   }
-  return facts;
+  return latest;
 }
+
+/** ТЕГ-д бүртгэлтэй (sent / manual / cancelled) бол хадгалсан ТЕГ-ийн дүн байна. */
+const hasRegisteredStatus = (status: string) => isReportedStatus(status) || status === "cancelled";
 
 async function loadPosRows(orgId: string, from: string, to: string) {
   // Буцаалтын мөр (isReturn) өөрөө eBarimt баримт биш — эх борлуулалтын ДДТД-г
@@ -99,6 +95,10 @@ async function loadPosRows(orgId: string, from: string, to: string) {
       ebarimtDate: true,
       ebarimtType: true,
       ebarimtCustomerTin: true,
+      ebarimtTotal: true,
+      ebarimtVat: true,
+      ebarimtCityTax: true,
+      ebarimtCorrection: true,
     },
     with: { counterparty: { columns: { name: true } } },
     orderBy: [desc(posSales.soldAt)],
@@ -106,22 +106,29 @@ async function loadPosRows(orgId: string, from: string, to: string) {
   });
   const truncated = rows.length > EBARIMT_LIST_LIMIT;
   const kept = rows.slice(0, EBARIMT_LIST_LIMIT);
-  const [sent, latest] = await Promise.all([
-    latestFacts(
-      orgId,
-      posEbarimtSubmissions.saleId,
-      kept.filter((row) => row.ebarimtStatus === "sent").map((row) => row.id),
-      true
-    ),
-    latestFacts(
-      orgId,
-      posEbarimtSubmissions.saleId,
-      kept.filter((row) => row.ebarimtStatus !== "sent" && row.ebarimtStatus !== "manual").map((row) => row.id),
-      false
-    ),
-  ]);
+
+  const returned = (status: string) => status === "partially_returned" || status === "returned";
+  const correctionOf = (row: (typeof kept)[number]): EbarimtCorrection | null => {
+    const status = row.ebarimtStatus ?? "";
+    if (row.ebarimtCorrection === "pending" || row.ebarimtCorrection === "failed") return row.ebarimtCorrection;
+    // Гараар олгосон баримт — Entry-ийн буцаалт ТЕГ-д хүрдэггүй (гараар засна).
+    if (status === "manual" && returned(row.status)) return "manual";
+    // Хуучин өгөгдөл: ТЕГ-ийн дүн хадгалагдаагүй бөгөөд буцаалттай — зөв дүн тодорхойгүй.
+    if (status === "sent" && row.ebarimtTotal === null && returned(row.status)) return "unknown";
+    return null;
+  };
+  const corrections = new Map(kept.map((row) => [row.id, correctionOf(row)]));
+  const latest = await latestSubmissions(
+    orgId,
+    posEbarimtSubmissions.saleId,
+    kept
+      .filter((row) => !hasRegisteredStatus(row.ebarimtStatus ?? "") || corrections.get(row.id) === "pending" || corrections.get(row.id) === "failed")
+      .map((row) => row.id)
+  );
+
   const result: EbarimtDocumentRow[] = kept.map((row) => {
-    const receipt = row.ebarimtStatus === "sent" ? sent.get(row.id)?.receipt ?? null : null;
+    const status = row.ebarimtStatus ?? "";
+    const registered = hasRegisteredStatus(status) && row.ebarimtTotal !== null;
     return {
       key: `pos:${row.id}`,
       source: "pos",
@@ -131,13 +138,14 @@ async function loadPosRows(orgId: string, from: string, to: string) {
       counterpartyName: row.counterparty?.name ?? null,
       customerTin: row.ebarimtCustomerTin,
       partiallyReturned: row.status === "partially_returned",
+      correction: corrections.get(row.id) ?? null,
       ebarimtType: row.ebarimtType,
-      status: row.ebarimtStatus ?? "",
+      status,
       ebarimtId: row.ebarimtId,
       ebarimtDate: row.ebarimtDate,
-      total: receipt ? receipt.total : num(row.total),
-      vat: receipt ? receipt.vat : num(row.vatAmount),
-      cityTax: receipt ? receipt.cityTax : num(row.cityTaxAmount),
+      total: registered ? num(row.ebarimtTotal) : num(row.total),
+      vat: registered ? num(row.ebarimtVat) : num(row.vatAmount),
+      cityTax: registered ? num(row.ebarimtCityTax) : num(row.cityTaxAmount),
       lastError: latest.get(row.id)?.lastError ?? null,
     };
   });
@@ -161,23 +169,27 @@ async function loadArapRows(orgId: string, from: string, to: string) {
       ebarimtStatus: true,
       ebarimtDate: true,
       ebarimtType: true,
+      ebarimtTotal: true,
+      ebarimtVat: true,
+      ebarimtCityTax: true,
     },
-    with: { counterparty: { columns: { name: true } } },
+    with: { counterparty: { columns: { name: true, tin: true, registerNo: true } } },
     orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
     limit: EBARIMT_LIST_LIMIT + 1,
   });
   const truncated = rows.length > EBARIMT_LIST_LIMIT;
   const kept = rows.slice(0, EBARIMT_LIST_LIMIT);
-  const ids = kept.map((row) => row.id);
-  const [sent, latest] = await Promise.all([
-    latestFacts(orgId, posEbarimtSubmissions.arapDocumentId, ids, true),
-    latestFacts(orgId, posEbarimtSubmissions.arapDocumentId, ids, false),
-  ]);
+  // Зөвхөн илгээгдээгүй нэхэмжлэхэд (алдаа + илгээх гэж буй receipt).
+  const latest = await latestSubmissions(
+    orgId,
+    posEbarimtSubmissions.arapDocumentId,
+    kept.filter((row) => row.ebarimtStatus !== "sent").map((row) => row.id)
+  );
   const result: EbarimtDocumentRow[] = kept.map((row) => {
-    // Илгээгдсэн → ТЕГ-д очсон receipt; бусад → илгээх гэж буй receipt, бэлтгэгдээгүй
-    // бол нэхэмжлэхийн MNT дүн (`baseTotalAmount` — валютын нэхэмжлэхэд ч MNT).
-    const isSent = row.ebarimtStatus === "sent";
-    const receipt = (isSent ? sent.get(row.id) : latest.get(row.id))?.receipt ?? null;
+    const status = row.ebarimtStatus ?? "";
+    const registered = status === "sent" && row.ebarimtTotal !== null;
+    const pending = latest.get(row.id);
+    const b2b = (row.ebarimtType ?? "").startsWith("B2B");
     return {
       key: `arap:${row.id}`,
       source: "arap",
@@ -185,16 +197,22 @@ async function loadArapRows(orgId: string, from: string, to: string) {
       documentNo: row.documentNo,
       date: row.date,
       counterpartyName: row.counterparty?.name ?? null,
-      customerTin: receipt?.customerTin ?? null,
+      customerTin:
+        pending?.customerTin ??
+        (b2b && row.counterparty ? effectiveTin(row.counterparty.tin, row.counterparty.registerNo) : null),
       partiallyReturned: false,
-      ebarimtType: row.ebarimtType ?? receipt?.type ?? null,
-      status: row.ebarimtStatus ?? "",
+      // АР-ын кредит нэхэмжлэл/төлөлт eBarimt-д илгээгдэхгүй (docs/pos/05 Q1/Q5) — засвар байхгүй.
+      correction: null,
+      ebarimtType: row.ebarimtType,
+      status,
       ebarimtId: row.ebarimtId,
       ebarimtDate: row.ebarimtDate,
-      total: receipt ? receipt.total : num(row.baseTotalAmount),
-      vat: receipt ? receipt.vat : 0,
-      cityTax: receipt ? receipt.cityTax : 0,
-      lastError: isSent ? null : latest.get(row.id)?.lastError ?? null,
+      // Илгээгдээгүй: илгээх гэж буй receipt (бэлтгэгдсэн бол) эсвэл нэхэмжлэхийн MNT
+      // дүн (`baseTotalAmount` — валютын нэхэмжлэхэд ч MNT, баримтын валютаар БИШ).
+      total: registered ? num(row.ebarimtTotal) : pending?.total ?? num(row.baseTotalAmount),
+      vat: registered ? num(row.ebarimtVat) : pending?.vat ?? 0,
+      cityTax: registered ? num(row.ebarimtCityTax) : 0,
+      lastError: status === "sent" ? null : pending?.lastError ?? null,
     };
   });
   return { rows: result, truncated };

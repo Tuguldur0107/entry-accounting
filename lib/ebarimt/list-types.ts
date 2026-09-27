@@ -18,9 +18,28 @@ export const EBARIMT_SOURCE_LABELS: Record<EbarimtDocumentSource, string> = {
  */
 export const EBARIMT_REPORTED_STATUSES: readonly string[] = ["sent", "manual"];
 export const isReportedStatus = (status: string) => EBARIMT_REPORTED_STATUSES.includes(status);
-/** Анхаарах: алдаатай, илгээгээгүй (кассчин), хүлээгдэж буй. */
+/** Анхаарах төлөв: алдаатай, илгээгээгүй (кассчин), хүлээгдэж буй. */
 export const isAttentionStatus = (status: string) =>
   status === "failed" || status === "skipped" || status === "pending";
+
+/**
+ * ТЕГ-ийн дүн буцаалттай ЗӨРЖ болзошгүй (баримт өөрөө `sent`/`manual`):
+ * - `pending` / `failed` — буцаалтын засварын баримт (inactiveId / DELETE) ТЕГ-д очоогүй
+ * - `manual` — гараар ДДТД бичсэн борлуулалт буцаагдсан; ТЕГ-д гараар засна
+ * - `unknown` — хуучин өгөгдөл: ТЕГ-д бүртгэлтэй дүн хадгалагдаагүй, буцаалттай
+ */
+export type EbarimtCorrection = "pending" | "failed" | "manual" | "unknown";
+
+export const EBARIMT_CORRECTION_LABELS: Record<EbarimtCorrection, string> = {
+  pending: "Буцаалтын засвар ТЕГ-д очоогүй (хүлээгдэж буй)",
+  failed: "Буцаалтын засвар ТЕГ-д амжилтгүй — панелаас дахин илгээнэ",
+  manual: "Гараар олгосон баримт буцаагдсан — ТЕГ-д гараар засна",
+  unknown: "ТЕГ-д бүртгэлтэй дүн тодорхойгүй (хуучин өгөгдөл) — ТЕГ-ийн порталаас тулгана",
+};
+
+/** Анхаарах мөр: анхаарах төлөв ЭСВЭЛ ТЕГ-ийн дүн буцаалттай зөрж болзошгүй. */
+export const isAttentionRow = (row: Pick<EbarimtDocumentRow, "status" | "correction">) =>
+  isAttentionStatus(row.status) || row.correction !== null;
 
 export const ebarimtTypeLabel = (type: string | null) =>
   type ? EBARIMT_RECEIPT_TYPE_LABELS[type as EbarimtReceiptType] ?? type : "";
@@ -42,6 +61,8 @@ export interface EbarimtDocumentRow {
    * Буцаалт өөрөө тусдаа баримт биш (queue.ts) тул жагсаалтад мөр болохгүй.
    */
   partiallyReturned: boolean;
+  /** ТЕГ-ийн дүн буцаалттай зөрж болзошгүй шалтгаан — null бол зөрөөгүй. */
+  correction: EbarimtCorrection | null;
   /** B2C_RECEIPT / B2B_RECEIPT / B2C_INVOICE / B2B_INVOICE. */
   ebarimtType: string | null;
   status: EbarimtStatus | string;
@@ -49,14 +70,27 @@ export interface EbarimtDocumentRow {
   ebarimtId: string | null;
   ebarimtDate: string | null;
   /**
-   * Нийт, НӨАТ, НХАТ (MNT). Илгээгдсэн бол ТЕГ-д очсон СҮҮЛИЙН баримтаас;
-   * бусад үед баримтын өөрийн MNT дүн (илгээх гэж буй).
+   * Нийт, НӨАТ, НХАТ (MNT). ТЕГ-д бүртгэлтэй бол баримт дээр хадгалсан ТЕГ-ийн
+   * дүн (markSent — засварын дараах үлдсэн дүн); бусад үед баримтын өөрийн MNT дүн.
    */
   total: number;
   vat: number;
   cityTax: number;
   /** Илгээгдээгүй бол сүүлийн илгээлтийн алдаа (шалтгааныг ил харуулна). */
   lastError: string | null;
+}
+
+/** Харагдаж буй бүх мөрийн дүн (төлөв харгалзахгүй) — шүүлтүүрийн хөл дүн. */
+export function totalAmounts(rows: EbarimtDocumentRow[]): EbarimtAmounts {
+  let total = 0;
+  let vat = 0;
+  let cityTax = 0;
+  for (const row of rows) {
+    total += row.total;
+    vat += row.vat;
+    cityTax += row.cityTax;
+  }
+  return { count: rows.length, total: round2(total), vat: round2(vat), cityTax: round2(cityTax) };
 }
 
 export interface EbarimtAmounts {
@@ -97,7 +131,7 @@ export function summarizeEbarimtRows(rows: EbarimtDocumentRow[]): EbarimtListSum
   let attention = 0;
   for (const row of rows) {
     byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
-    if (isAttentionStatus(row.status)) attention += 1;
+    if (isAttentionRow(row)) attention += 1;
   }
   return { count: rows.length, byStatus, reported: reportedAmounts(rows), attention };
 }
