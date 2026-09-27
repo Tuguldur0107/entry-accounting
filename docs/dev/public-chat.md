@@ -159,6 +159,13 @@ Product owner олон нийтийн Telegram группыг (landing-ийн QR
 болгож chat id-г (`-100…`) өөрчилнө — `PUBLIC_CHAT_TELEGRAM_CHAT_ID`-г
 шинэчилнэ (хуучин id руу илгээхэд `migrate_to_chat_id` буцаана).
 
+### `/hide` (2026-09-27)
+
+Relay эсвэл багийн мессеж (группаас бичсэн «Entry баг» ч) дээр Reply хийж
+`/hide` → нийтийн өрөөнөөс нууна (`setMessageHidden`, сэргээх нь Console).
+Telegram мессеж устгасныг bot мэддэггүй (Bot API-д event байхгүй) тул группаас
+устгах нь landing-д нөлөөлөхгүй — `/hide` хэрэглэнэ. Нээлттэй группт зөвхөн админ.
+
 ### Бэлэн хариулт (`/faq`, 2026-09-27)
 
 `lib/public-chat/faq.ts` (ЦЭВЭР, тесттэй): Entry гэж юу, үнэ, туршилт, холболт,

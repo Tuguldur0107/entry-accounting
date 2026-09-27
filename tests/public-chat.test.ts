@@ -232,6 +232,15 @@ test("parseTeamUpdate — шинэ гишүүн (угтах), угтах мес�
   );
 });
 
+test("parseTeamUpdate — /hide: Reply хийсэн мессежийг нууна, Reply-гүй бол тусламж", () => {
+  const from = { id: 42, first_name: "Туул" };
+  assert.deepEqual(
+    parseTeamUpdate({ message: { message_id: 60, chat: { id: TEAM }, from, text: "/hide", reply_to_message: { message_id: 55 } } }, TEAM),
+    { kind: "hide_reply", replyToTelegramId: 55, staff: "Туул", telegramMessageId: 60, chat: "team", fromId: 42 }
+  );
+  assert.equal(parseTeamUpdate({ message: { message_id: 61, chat: { id: TEAM }, from, text: "/hide" } }, TEAM).kind, "help");
+});
+
 test("бэлэн хариулт — товчны өгөгдөл ≤ 64 байт, текст хязгаартаа, үнэ plans.ts-ээс", () => {
   const keys = new Set<string>();
   for (const faq of PUBLIC_CHAT_FAQ) {

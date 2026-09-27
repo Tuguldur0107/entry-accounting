@@ -157,6 +157,18 @@ export async function POST(request: Request) {
         await answerCallback(config, command.callbackId, "Илгээлээ");
         return OK();
       }
+      case "hide_reply": {
+        const original = await findMessageByTelegramId(telegramRef(chat, command.replyToTelegramId));
+        const hidden =
+          original?.scope === "room" ? await setMessageHidden(original.id, true, command.staff) : null;
+        await sendTeamText(
+          config,
+          hidden ? "🙈 Нийтийн өрөөнөөс нуулаа." : "Энэ мессеж нийтийн өрөөнд харагдаагүй — нуух зүйл алга.",
+          command.telegramMessageId,
+          chat
+        );
+        return OK();
+      }
       case "moderate": {
         const message = await findMessage(command.messageId);
         if (!message || message.scope !== "room") {
