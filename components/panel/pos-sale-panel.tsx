@@ -124,6 +124,8 @@ function PosSaleBody({
   const returnableQty = sale.lines.reduce((sum, line) => sum + Math.max(0, line.quantity - line.returnedQty), 0);
   const canReturn = !sale.isReturn && sale.status !== "voided" && returnableQty > 0;
 
+  // Буцаалтын тоо, дүн ХАСАХ утгаар (журналын улаан сторнотой нийцтэй); нэгж үнэ эерэг.
+  const sign = sale.isReturn ? -1 : 1;
   const columns = useMemo<ColDef<SaleLineView>[]>(
     () => [
       {
@@ -136,6 +138,7 @@ function PosSaleBody({
       {
         headerName: "Тоо",
         field: "quantity",
+        valueGetter: (p) => sign * Number(p.data?.quantity ?? 0),
         width: 84,
         cellClass: "ag-right-aligned-cell font-mono",
         headerClass: "ag-right-aligned-header",
@@ -152,10 +155,11 @@ function PosSaleBody({
       {
         headerName: "Хөнгөлөлт",
         field: "discountAmount",
+        valueGetter: (p) => sign * Number(p.data?.discountAmount ?? 0),
         width: 110,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) > 0 ? `−${fmtMnt(Number(p.value))}` : ""),
+        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(-Number(p.value)) : ""),
         tooltipValueGetter: (p) =>
           p.data?.discountDetail.length
             ? p.data.discountDetail.map((d) => `${d.ruleCode ?? d.kind}: ${fmtMnt(d.amount)}`).join(" · ")
@@ -164,6 +168,7 @@ function PosSaleBody({
       {
         headerName: "Цэвэр",
         field: "netAmount",
+        valueGetter: (p) => sign * Number(p.data?.netAmount ?? 0),
         width: 110,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
@@ -172,22 +177,25 @@ function PosSaleBody({
       {
         headerName: "НӨАТ",
         field: "vatAmount",
+        valueGetter: (p) => sign * Number(p.data?.vatAmount ?? 0),
         width: 96,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
+        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
         headerName: "НХАТ",
         field: "cityTaxAmount",
+        valueGetter: (p) => sign * Number(p.data?.cityTaxAmount ?? 0),
         width: 90,
         cellClass: "ag-right-aligned-cell font-mono text-xs",
         headerClass: "ag-right-aligned-header",
-        valueFormatter: (p) => (Number(p.value) > 0 ? fmtMnt(Number(p.value)) : ""),
+        valueFormatter: (p) => (Number(p.value) !== 0 ? fmtMnt(Number(p.value)) : ""),
       },
       {
         headerName: "Нийт",
         field: "lineTotal",
+        valueGetter: (p) => sign * Number(p.data?.lineTotal ?? 0),
         width: 120,
         cellClass: "ag-right-aligned-cell font-mono font-medium",
         headerClass: "ag-right-aligned-header",
@@ -210,7 +218,7 @@ function PosSaleBody({
         valueFormatter: (p) => (p.value == null ? "өртөг хүлээж байна" : fmtMnt(Number(p.value))),
       },
     ],
-    []
+    [sign]
   );
 
   function reprint() {
@@ -274,13 +282,13 @@ function PosSaleBody({
           suppressCellFocus
         />
         <div className="mt-2 grid gap-x-6 gap-y-0.5 text-xs sm:grid-cols-2">
-          <TotalRow label="Нийт (хөнг. өмнө)" value={fmtMnt(sale.grossAmount)} />
-          <TotalRow label="Хөнгөлөлт" value={sale.discountTotal > 0 ? `−${fmtMnt(sale.discountTotal)}` : "0"} />
-          <TotalRow label="Цэвэр дүн" value={fmtMnt(sale.netAmount)} />
-          <TotalRow label="НӨАТ" value={fmtMnt(sale.vatAmount)} />
-          {sale.cityTaxAmount > 0 && <TotalRow label="НХАТ" value={fmtMnt(sale.cityTaxAmount)} />}
-          {sale.roundingAmount !== 0 && <TotalRow label="Бөөрөнхийлөл" value={fmtMnt(sale.roundingAmount)} />}
-          <TotalRow label="Төлөх" value={fmtMnt(sale.total)} strong />
+          <TotalRow label="Нийт (хөнг. өмнө)" value={fmtMnt(sign * sale.grossAmount)} />
+          <TotalRow label="Хөнгөлөлт" value={sale.discountTotal > 0 ? fmtMnt(-sign * sale.discountTotal) : "0"} />
+          <TotalRow label="Цэвэр дүн" value={fmtMnt(sign * sale.netAmount)} />
+          <TotalRow label="НӨАТ" value={fmtMnt(sign * sale.vatAmount)} />
+          {sale.cityTaxAmount > 0 && <TotalRow label="НХАТ" value={fmtMnt(sign * sale.cityTaxAmount)} />}
+          {sale.roundingAmount !== 0 && <TotalRow label="Бөөрөнхийлөл" value={fmtMnt(sign * sale.roundingAmount)} />}
+          <TotalRow label={sale.isReturn ? "Буцаан олгох" : "Төлөх"} value={fmtMnt(sign * sale.total)} strong />
         </div>
       </div>
 
@@ -320,7 +328,7 @@ function PosSaleBody({
                       {payment.amount.toLocaleString("en-US")} {payment.currency} × {payment.exchangeRate}
                     </span>
                   )}
-                  <span>{fmtMnt(payment.baseAmount - payment.changeGiven)}</span>
+                  <span>{fmtMnt(sign * (payment.baseAmount - payment.changeGiven))}</span>
                   {payment.changeGiven > 0 && <span className="text-[var(--ea-text-3)]">(хариулт {fmtMnt(payment.changeGiven)})</span>}
                   {payment.voucherId && (
                     <IconAction name="journal" label="Журнал" size="xs" onClick={() => openVoucherPanel(payment.voucherId!)} />

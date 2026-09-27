@@ -12,6 +12,7 @@
 // транзакцийн ДОТОР ПЕРВЫЙ. Дансны дугаар кодод хатуу бичигдэхгүй —
 // loadCostingAccountSettings / itemAccountsFor-оос.
 
+import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, asc, eq, inArray, isNotNull, like, ne, notInArray, sql } from "drizzle-orm";
 
@@ -1692,8 +1693,8 @@ async function reopenPurchaseOrderCore(input: {
         costEntryId: line.costEntryId,
         inventoryMovementId: line.inventoryMovementId,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description ?? "",
         sortOrder: index,
         businessObjectType: line.businessObjectType,
@@ -2501,8 +2502,8 @@ async function reverseGoodsReceiptCore(input: {
         costEntryId: line.costEntryId,
         inventoryMovementId: line.inventoryMovementId,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description ?? "",
         sortOrder: index,
         businessObjectType: line.businessObjectType,

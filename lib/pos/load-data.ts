@@ -473,14 +473,14 @@ export async function loadShiftViews(
   });
 }
 
+/** «Бэлэн 4,200 · QPay 1,000» — буцаалтынх хасах (−4,200): мөнгө гарсан. */
 function paymentSummaryOf(
-  payments: { methodName: string; baseAmount: number; changeGiven: number }[]
+  payments: { methodName: string; baseAmount: number; changeGiven: number }[],
+  isReturn = false
 ): string {
+  const sign = isReturn ? -1 : 1;
   return payments
-    .map(
-      (payment) =>
-        `${payment.methodName} ${(payment.baseAmount - payment.changeGiven).toLocaleString("en-US")}`
-    )
+    .map((payment) => `${payment.methodName} ${(sign * (payment.baseAmount - payment.changeGiven)).toLocaleString("en-US")}`)
     .join(" · ");
 }
 
@@ -592,7 +592,8 @@ function toSaleView(
         methodName: payment.method?.name ?? "—",
         baseAmount: Number(payment.baseAmount),
         changeGiven: Number(payment.changeGiven),
-      }))
+      })),
+      row.isReturn
     ),
     lineCount: row.lines.length,
   };

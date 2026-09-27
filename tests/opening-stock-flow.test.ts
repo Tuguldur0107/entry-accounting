@@ -176,10 +176,12 @@ test("SIM2-007: ноорог горим → «Өртгийн бичилт»-ээ
     with: { lines: true },
   });
   assert.equal(reversal?.lines.length, 2);
+  // Улаан сторно: эх мөрийн талд сөрөг — Дт нөөц −X, Кт 44000098 −X.
   assert.equal(
     reversal!.lines.reduce((sum, line) => sum + Number(line.debit), 0),
-    Number(batchEntry.amount)
+    -Number(batchEntry.amount)
   );
+  assert.ok(reversal!.lines.every((line) => Number(line.debit) <= 0 && Number(line.credit) <= 0));
 
   // postCostEntries нь алдааг ил тоолно (өмнө нь бүгдийг «батлагдсан» гэдэг байв).
   const batch = await asOrg(() => postCostEntries(["00000000-0000-4000-a000-000000000000"]));

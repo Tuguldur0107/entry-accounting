@@ -5,6 +5,7 @@
 //
 // ⚠️ Энэ файл ЗӨВХӨН async функц export хийнэ (төрөл lib/arap/ecl*.ts-д).
 
+import { stornoOf } from "@/lib/gl/storno";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 
@@ -618,8 +619,8 @@ async function reverseArApWriteOffCore(writeOffId: string): Promise<{ reversalVo
       voucher.lines.map((line, index) => ({
         voucherId: reversal.id,
         accountNumber: line.accountNumber,
-        debit: line.credit,
-        credit: line.debit,
+        // Улаан сторно: тал хэвээр, дүн сөрөг (lib/gl/storno.ts).
+        ...stornoOf({ debit: line.debit, credit: line.credit }),
         description: line.description,
         sortOrder: index,
       }))
