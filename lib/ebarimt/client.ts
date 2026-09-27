@@ -13,6 +13,25 @@ function baseUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
+/**
+ * PosAPI-ийн хариуг JSON болгож уншина. PosAPI үргэлж JSON буцаадаг — HTML / текст
+ * ирвэл хүсэлт PosAPI-д ХҮРЭЭГҮЙ (Cloudflare WAF-ын 403 хуудас, буруу URL-ийн вэб
+ * консол г.м.) тул амжилт гэж үзэхгүй, шалтгааныг нэрлэж ШИДНЭ. 2026-09-27: WAF
+ * блоклосон 403 HTML-ийг «PosAPI-тай холбогдлоо» гэж харуулж байсан.
+ */
+export function parsePosApiBody<T>(status: number, text: string, url: string): T {
+  if (!text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const hint =
+      status === 403
+        ? " — Cloudflare WAF татгалзсан: Railway-ийн EBARIMT_GATEWAY_KEY ба WAF дүрмийн нууц таарахгүй, эсвэл EBARIMT_GATEWAY_HOSTS-д энэ хост алга (docs/deployment/ebarimt.md §4a)"
+        : " — PosAPI биш хуудас хариулсан (URL-аа шалгана уу)";
+    throw new EbarimtError(EBARIMT_ERRORS.posApi, `PosAPI JSON биш хариу өглөө (HTTP ${status}, ${url})${hint}`);
+  }
+}
+
 async function call<T>(
   url: string,
   init: RequestInit,
@@ -26,14 +45,9 @@ async function call<T>(
     const headers = { ...(init.headers as Record<string, string> | undefined), ...gatewayHeaders(url) };
     const response = await fetch(url, { ...init, headers, signal: controller.signal, cache: "no-store" });
     const text = await response.text();
-    let body: T;
-    try {
-      body = (text ? JSON.parse(text) : {}) as T;
-    } catch {
-      body = { message: text.slice(0, 500) } as T;
-    }
-    return { status: response.status, body };
+    return { status: response.status, body: parsePosApiBody<T>(response.status, text, url) };
   } catch (error) {
+    if (error instanceof EbarimtError) throw error;
     if (error instanceof Error && error.name === "AbortError")
       // Timeout нь «хүрсэнгүй» БИШ — хүсэлт PosAPI-д хүрч ДДТД үүссэн байж болзошгүй
       // (P0-3); дуудагч (worker) давхардлын эрсдэлийг lastError-д ил бичнэ.
