@@ -783,11 +783,17 @@ function ReturnDialog({
                     className="font-mono text-right"
                     onChange={(e) => setRefunds((current) => current.map((r) => (r.key === row.key ? { ...r, amount: e.target.value } : r)))}
                   />
-                  <Input
-                    value={row.reference}
-                    placeholder="Лавлах"
-                    onChange={(e) => setRefunds((current) => current.map((r) => (r.key === row.key ? { ...r, reference: e.target.value } : r)))}
-                  />
+                  {method?.requiresReference ? (
+                    // Лавлах дугаар нь ЗААВАЛ гэж тохируулсан хэлбэрт л (төлбөрийн
+                    // диалогтой ижил) — бэлэн г.м. хэлбэрт утгагүй хоосон талбар байв.
+                    <Input
+                      value={row.reference}
+                      placeholder="Лавлах дугаар (заавал)"
+                      onChange={(e) => setRefunds((current) => current.map((r) => (r.key === row.key ? { ...r, reference: e.target.value } : r)))}
+                    />
+                  ) : (
+                    <span />
+                  )}
                   <IconAction name="close" label="Мөр хасах" size="sm" onClick={() => setRefunds((current) => current.filter((r) => r.key !== row.key))} />
                 </div>
               );

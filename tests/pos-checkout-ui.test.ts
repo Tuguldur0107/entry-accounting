@@ -91,3 +91,9 @@ test("төлбөрийн диалогт [Урьдчилж харах] — бор
 test("Эцсийн хэрэглэгч дээр оролтын талбар байхгүй (ААН-д л регистр/ТТД)", () => {
   assert.doesNotMatch(vatBar, /eBarimt хэрэглэгчийн дугаар/);
 });
+
+test("буцаалтын диалогт «Лавлах» зөвхөн лавлах заавал хэлбэрт (бэлэнд хоосон талбаргүй)", () => {
+  const panel = readFileSync("components/panel/pos-sale-panel.tsx", "utf8");
+  assert.doesNotMatch(panel, /placeholder="Лавлах"/);
+  assert.match(panel, /method\?\.requiresReference \?/);
+});
