@@ -169,7 +169,14 @@ function ReceiptQr({ value }: { value: string }) {
 }
 
 /** 80мм-ийн баримтын бие — дэлгэц дээр ч, хэвлэхэд ч ИЖИЛ markup. */
-export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
+export function ReceiptSheet({
+  receipt,
+  ebarimtPlaceholder = false,
+}: {
+  receipt: PosReceipt;
+  /** Урьдчилан харахад: eBarimt олгох бол ДДТД/сугалаа/QR-ийн БАЙР (утга батлахад л). */
+  ebarimtPlaceholder?: boolean;
+}) {
   const headerLines = receipt.header.split("\n").filter((line) => line.trim());
   const footerLines = receipt.footer.split("\n").filter((line) => line.trim());
   return (
@@ -272,6 +279,16 @@ export function ReceiptSheet({ receipt }: { receipt: PosReceipt }) {
         ))}
         {receipt.change > 0 && <Row label="Хариулт" value={fmtMnt(receipt.change)} />}
       </div>
+
+      {ebarimtPlaceholder && (
+        <div className="mt-1 border-t border-dashed border-current pt-1">
+          <div>ДДТД: ——————————</div>
+          <div>Сугалаа: ————————</div>
+          <div className="mx-auto my-1 flex size-[34mm] items-center justify-center border border-dashed border-current text-[10px]">
+            QR
+          </div>
+        </div>
+      )}
 
       {(receipt.ebarimtId ||
         receipt.ebarimtLottery ||
