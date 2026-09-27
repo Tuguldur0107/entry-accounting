@@ -22,6 +22,8 @@ lib/notifications/
 ├── scheduler.ts      runDailyNotifications — org × өдөр нэг удаа (notification_runs)
 ├── ticker.ts         In-process default scheduler (instrumentation.ts, 15 мин):
 │                     өдрийн дүрмүүд (08:00 УБ-аас) + tick бүрд и-мэйлийн хүргэлт
+│                     + харилцагчид төлбөрийн сануулга (10:00-аас, job "ar_reminders" —
+│                     docs/dev/arap.md §5g; cron `?job=reminders`)
 ├── email-plan.ts     И-мэйлийн хүргэлтийн ЦЭВЭР төлөвлөгч: instant / digest (цаг,
 │                     өдөрт нэг) / off (тесттэй)
 ├── email-delivery.ts Resend-ээр хүргэнэ — emailedAt, digest булаалт
