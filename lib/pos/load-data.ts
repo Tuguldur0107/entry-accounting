@@ -30,6 +30,7 @@ import {
 import { loadVatSettings } from "@/lib/vat/settings";
 import { loadQtyBalancesFast } from "@/lib/inventory/period-balances";
 import { toItemVatMode } from "@/lib/inventory/load-data";
+import { canRefundWithMethod } from "@/lib/pos/payments";
 import { ancestorCodes, buildCategoryTree } from "@/lib/inventory/category-tree";
 import { baseKindOf } from "@/lib/arap/counterparty-kind";
 import { loadEntityKinds } from "@/lib/arap/entity-kinds";
@@ -266,7 +267,7 @@ export async function loadPaymentMethodViews(
     currency: row.currency,
     requiresReference: row.requiresReference,
     allowsChange: row.allowsChange,
-    allowsRefund: row.allowsRefund,
+    allowsRefund: canRefundWithMethod({ allowsRefund: row.allowsRefund, provider: row.provider ?? null }),
     feePercent: row.feePercent === null ? null : Number(row.feePercent),
     ebarimtCode: row.ebarimtCode ?? null,
     provider: row.provider ?? null,

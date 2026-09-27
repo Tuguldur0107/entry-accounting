@@ -614,7 +614,10 @@ function PaymentMethodDialog({
           {form.kind === "cash" && (
             <SwitchField label="Хариулт өгнө" checked={form.allowsChange} onChange={(v) => patch({ allowsChange: v })} />
           )}
-          <SwitchField label="Буцаалтад ашиглана" checked={form.allowsRefund} onChange={(v) => patch({ allowsRefund: v })} />
+          {/* QPay-д буцаах функц байхгүй (docs/pos/04 D5) — тохиргоо ч БАЙХГҮЙ. */}
+          {!(form.kind === "ewallet" && form.provider === QPAY_PROVIDER) && (
+            <SwitchField label="Буцаалтад ашиглана" checked={form.allowsRefund} onChange={(v) => patch({ allowsRefund: v })} />
+          )}
           <SwitchField label="Идэвхтэй" checked={form.isActive} onChange={(v) => patch({ isActive: v })} />
         </div>
         <DialogFooter className="sm:justify-between">

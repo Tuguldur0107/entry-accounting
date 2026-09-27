@@ -54,6 +54,7 @@ import {
   type PanelInstance,
 } from "@/lib/store/panel-store";
 import { feedback } from "@/lib/ui/feedback";
+import { canRefundWithMethod } from "@/lib/pos/payments";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const fmtQty = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -618,7 +619,7 @@ function ReturnDialog({
   }, [open, methods]);
 
   const refundMethods = useMemo(
-    () => (methods ?? []).filter((method) => method.isActive && method.allowsRefund).sort((a, b) => a.sortOrder - b.sortOrder),
+    () => (methods ?? []).filter((method) => method.isActive && canRefundWithMethod(method)).sort((a, b) => a.sortOrder - b.sortOrder),
     [methods]
   );
   const methodById = useMemo(() => new Map((methods ?? []).map((m) => [m.id, m])), [methods]);
@@ -783,11 +784,17 @@ function ReturnDialog({
                     className="font-mono text-right"
                     onChange={(e) => setRefunds((current) => current.map((r) => (r.key === row.key ? { ...r, amount: e.target.value } : r)))}
                   />
-                  <Input
-                    value={row.reference}
-                    placeholder="Лавлах"
-                    onChange={(e) => setRefunds((current) => current.map((r) => (r.key === row.key ? { ...r, reference: e.target.value } : r)))}
-                  />
+                  {method?.requiresReference ? (
+                    // Лавлах дугаар нь ЗААВАЛ гэж тохируулсан хэлбэрт л (төлбөрийн
+                    // диалогтой ижил) — бэлэн г.м. хэлбэрт утгагүй хоосон талбар байв.
+                    <Input
+                      value={row.reference}
+                      placeholder="Лавлах дугаар (заавал)"
+                      onChange={(e) => setRefunds((current) => current.map((r) => (r.key === row.key ? { ...r, reference: e.target.value } : r)))}
+                    />
+                  ) : (
+                    <span />
+                  )}
                   <IconAction name="close" label="Мөр хасах" size="sm" onClick={() => setRefunds((current) => current.filter((r) => r.key !== row.key))} />
                 </div>
               );

@@ -147,7 +147,7 @@ export function PaymentDialog({
   // `skipped` статустай бичигдэнэ (НӨАТ задарсан хэвээр, дараа панелиас илгээж болно).
   const [sendEbarimt, setSendEbarimt] = useState(true);
   /** [Урьдчилж харах] — борлуулалт бүртгэхгүйгээр баримтын төрх (previewPosReceipt). */
-  const [preview, setPreview] = useState<PosReceipt | null>(null);
+  const [preview, setPreview] = useState<{ receipt: PosReceipt; ebarimtExpected: boolean } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const buyer = useMemo<EbarimtBuyerInput>(() => {
     const empty: EbarimtBuyerInput = {
@@ -316,7 +316,7 @@ export function PaymentDialog({
         toast.error(result.error ?? "Баримтыг урьдчилан харж чадсангүй");
         return;
       }
-      setPreview(result.receipt);
+      setPreview({ receipt: result.receipt, ebarimtExpected: !!result.ebarimtExpected });
     } finally {
       setPreviewBusy(false);
     }
@@ -610,14 +610,11 @@ export function PaymentDialog({
       <Dialog open={preview !== null} onOpenChange={(next) => !next && setPreview(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Баримтын урьдчилсан харагдац</DialogTitle>
-            <DialogDescription>
-              Борлуулалт хараахан бүртгэгдээгүй — ДДТД, сугалаа, QR нь «Батлаад хэвлэх»-ийн дараа гарна.
-            </DialogDescription>
+            <DialogTitle>Баримт — {preview?.receipt.documentNo}</DialogTitle>
           </DialogHeader>
           {preview && (
             <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-[var(--ea-text-1)]">
-              <ReceiptSheet receipt={preview} />
+              <ReceiptSheet receipt={preview.receipt} ebarimtPlaceholder={preview.ebarimtExpected} />
             </div>
           )}
           <DialogFooter>

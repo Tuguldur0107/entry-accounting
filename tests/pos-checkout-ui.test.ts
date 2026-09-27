@@ -83,8 +83,17 @@ test("QR (eBarimt баримт, QPay/нэхэмжлэх) useMemo-гоор кэш
 test("төлбөрийн диалогт [Урьдчилж харах] — борлуулалт бүртгэхгүйгээр баримт (previewPosReceipt)", () => {
   assert.match(payment, /Урьдчилж харах/);
   assert.match(payment, /previewPosReceipt\(buildSaleInput\(\)\)/);
+  // Хэвлэх баримттай ижил төрх — «урьдчилсан» гэсэн гарчиг/тайлбаргүй, eBarimt-ийн байртай.
+  assert.doesNotMatch(payment, /урьдчилсан харагдац/i);
+  assert.match(payment, /ebarimtPlaceholder=\{preview\.ebarimtExpected\}/);
 });
 
 test("Эцсийн хэрэглэгч дээр оролтын талбар байхгүй (ААН-д л регистр/ТТД)", () => {
   assert.doesNotMatch(vatBar, /eBarimt хэрэглэгчийн дугаар/);
+});
+
+test("буцаалтын диалогт «Лавлах» зөвхөн лавлах заавал хэлбэрт (бэлэнд хоосон талбаргүй)", () => {
+  const panel = readFileSync("components/panel/pos-sale-panel.tsx", "utf8");
+  assert.doesNotMatch(panel, /placeholder="Лавлах"/);
+  assert.match(panel, /method\?\.requiresReference \?/);
 });

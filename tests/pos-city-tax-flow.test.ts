@@ -119,7 +119,8 @@ test("НХАТ: POS борлуулалт ба буцаалт — Cr/Dr 31440000,
     })
   );
   assert.ok(!preview.error, preview.error);
-  assert.equal(preview.receipt?.documentNo, "УРЬДЧИЛСАН");
+  // Хэвлэх баримттай ИЖИЛ: дараагийн дугаар (тоолуур ахихгүй).
+  assert.match(preview.receipt?.documentNo ?? "", /^POS-\d{4}-0001$/);
   assert.equal(preview.receipt?.total, 25_700);
   assert.equal(preview.receipt?.cityTaxAmount, 400);
   assert.equal(preview.receipt?.ebarimtId, null);

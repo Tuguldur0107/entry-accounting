@@ -3,6 +3,7 @@
 // бэлгийн карт / кредитийн үлдэгдэл, валютын ханш.
 
 import { roundMoney as round2 } from "@/lib/arap/accounting";
+import { QPAY_PROVIDER } from "@/lib/qpay/constants";
 import { roundToCashUnit } from "./sale-math";
 import type {
   PaymentContext,
@@ -152,6 +153,16 @@ export function planPayments(
 }
 
 /**
+ * Энэ хэлбэрээр буцаан олгож болох уу. QPay Quick QR-т буцаах API БАЙХГҮЙ
+ * (docs/pos/04 D5) — QPay хэлбэрээр «буцаасан» гэж бичвэл худалдан авагчид
+ * мөнгө очихгүй ч дэвтэрт гарсан мэт болно. Тиймээс QPay хэлбэр тохиргооноос
+ * үл хамааран ХЭЗЭЭ Ч буцаалтад орохгүй (бэлэн / шилжүүлэг / кредитээр).
+ */
+export function canRefundWithMethod(method: Pick<PaymentMethodView, "allowsRefund" | "provider">): boolean {
+  return method.allowsRefund && method.provider !== QPAY_PROVIDER;
+}
+
+/**
  * Буцаалтын буцаан олголт — эх хэлбэрээр (allowsRefund) эсвэл бэлэн/кредит.
  * Σ = буцаах дүн байх ёстой (хариулт байхгүй).
  */
@@ -170,8 +181,12 @@ export function planRefund(
       errors.push("Төлбөрийн хэлбэр олдсонгүй");
       continue;
     }
-    if (!method.allowsRefund) {
-      errors.push(`"${method.name}" хэлбэрээр буцаан олгох боломжгүй`);
+    if (!canRefundWithMethod(method)) {
+      errors.push(
+        method.provider === QPAY_PROVIDER
+          ? `"${method.name}" (QPay)-ээр буцаан олгох боломжгүй — QPay-д буцаах функц байхгүй; бэлэн эсвэл шилжүүлгээр буцаана`
+          : `"${method.name}" хэлбэрээр буцаан олгох боломжгүй`
+      );
       continue;
     }
     const amount = Number(input.amount);

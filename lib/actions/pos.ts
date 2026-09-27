@@ -163,7 +163,7 @@ const fmt = (value: number) => value.toLocaleString("en-US", { maximumFractionDi
 
 /** Сар дотор дараалсан дугаар: `PREFIX-YYMM-NNNN` (PO/GR-ийн хэв маяг). */
 async function nextSequentialNo(
-  tx: DbTx,
+  tx: DbTx | typeof db,
   table: typeof posSales | typeof posShifts,
   orgId: string,
   prefix: string,
@@ -441,7 +441,8 @@ export async function savePaymentMethod(data: {
       currency,
       requiresReference: !!data.requiresReference,
       allowsChange: data.kind === "cash" ? !!data.allowsChange : false,
-      allowsRefund: data.allowsRefund ?? true,
+      // QPay хэлбэр буцаалтад ХЭЗЭЭ Ч орохгүй (canRefundWithMethod) — хадгалахад ч false.
+      allowsRefund: resolvePaymentProvider(data.kind, data.provider) === QPAY_PROVIDER ? false : (data.allowsRefund ?? true),
       feePercent: data.feePercent == null ? null : String(Number(data.feePercent)),
       ebarimtCode: cleanText(data.ebarimtCode)?.toUpperCase() ?? null,
       provider: resolvePaymentProvider(data.kind, data.provider),
@@ -942,7 +943,7 @@ export interface ReceiptSeller {
 }
 
 async function loadReceiptSeller(orgId: string): Promise<ReceiptSeller | null> {
-  const [profile, organization] = await Promise.all([
+  const [profile, organization, pos] = await Promise.all([
     db.query.organizationProfile.findFirst({
       where: eq(organizationProfile.organizationId, orgId),
       columns: { name: true, registerNo: true, vatPayerNo: true, address: true, phone: true },
@@ -951,13 +952,22 @@ async function loadReceiptSeller(orgId: string): Promise<ReceiptSeller | null> {
       where: eq(organizations.id, orgId),
       columns: { name: true },
     }),
+    db.query.posSettings.findFirst({
+      where: eq(posSettings.organizationId, orgId),
+      columns: { ebarimtMerchantTin: true },
+    }),
   ]);
   const name = profile?.name?.trim() || organization?.name?.trim();
   if (!name) return null;
+  // ТТД: eBarimt-д бүртгэлтэй мерчантын ТТД (баримтын ДДТД-тэй НЭГ эх) → профайлын
+  // ТТД. Зөвхөн 11–14 оронтой тоо — «байхгүй» зэрэг чөлөөт текст баримтад гарахгүй.
+  const tin = [pos?.ebarimtMerchantTin, profile?.vatPayerNo]
+    .map((value) => value?.trim() ?? "")
+    .find((value) => MERCHANT_TIN_RE.test(value));
   return {
     name,
-    registerNo: profile?.registerNo ?? null,
-    vatPayerNo: profile?.vatPayerNo ?? null,
+    registerNo: profile?.registerNo?.trim() || null,
+    vatPayerNo: tin ?? null,
     address: profile?.address ?? null,
     phone: profile?.phone ?? null,
   };
@@ -976,12 +986,13 @@ export async function createPosSale(
 /**
  * Баримтыг БОРЛУУЛАЛТ БҮРТГЭХГҮЙГЭЭР урьдчилан харах (төлбөрийн диалогийн
  * [Урьдчилж харах]) — createPosSale-тай ИЖИЛ үнийн санал + төлбөрийн төлөвлөгөө,
- * гэхдээ DB-д юу ч бичихгүй, eBarimt илгээхгүй (ДДТД/сугалаа/QR үгүй — тэр нь
- * зөвхөн батлахад). Дугаар «УРЬДЧИЛСАН».
+ * гэхдээ DB-д юу ч бичихгүй, eBarimt илгээхгүй. Хэвлэх баримттай ИЖИЛ төрх:
+ * дараагийн дугаар, eBarimt олгох бол ДДТД/сугалаа/QR-ийн байр (`ebarimtExpected`)
+ * — утга нь зөвхөн батлахад.
  */
 export async function previewPosReceipt(
   input: CreatePosSaleInput
-): Promise<ActionResult<{ receipt: PosReceipt }>> {
+): Promise<ActionResult<{ receipt: PosReceipt; ebarimtExpected: boolean }>> {
   try {
     const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
     const ctx = await quoteContext(orgId, userId, input.counterpartyId, !!input.nonVat);
@@ -994,15 +1005,26 @@ export async function previewPosReceipt(
       resolveQpayIntent: false,
     });
     const cashierRow = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { name: true } });
+    // Дараагийн дугаар (тоолуур ахихгүй — уншиж л харуулна; зэрэг борлуулалтад
+    // батлахад өөр дугаар авч болно).
+    const documentNo = await nextSequentialNo(db, posSales, orgId, POS_SALE_NO_PREFIX, quote.now.date, 4);
+    const nonVat = !!input.nonVat && ctx.orgIsVatPayer;
+    const ebarimtExpected =
+      !nonVat &&
+      initialSaleEbarimtStatus({
+        enabled: ctx.settings.ebarimtEnabled,
+        manualId: cleanText(input.ebarimtId),
+        skip: !!input.skipEbarimt,
+      }).autoSend;
     const receipt: PosReceipt = {
       saleId: "preview",
-      documentNo: "УРЬДЧИЛСАН",
+      documentNo,
       date: quote.now.date,
       soldAt: new Date().toISOString(),
       cashierName: cashierRow?.name ?? "",
       customerName: ctx.isWalkIn ? "" : ctx.customer.name,
       isVatPayer: ctx.isVatPayer,
-      nonVat: !!input.nonVat && ctx.orgIsVatPayer,
+      nonVat,
       lines: quote.totals.lines.map((line) => ({
         name: line.itemName,
         quantity: line.quantity,
@@ -1035,7 +1057,7 @@ export async function previewPosReceipt(
       ebarimtQrData: null,
       ebarimtStatus: null,
     };
-    return { receipt };
+    return { receipt, ebarimtExpected };
   } catch (caught) {
     return actionError("previewPosReceipt", caught, "Баримтыг урьдчилан харж чадсангүй");
   }
