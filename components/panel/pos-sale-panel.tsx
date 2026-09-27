@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { DocumentStatusBadge, StatusBadge } from "@/components/ui/status-badge";
 import { Switch } from "@/components/ui/switch";
 import { getEbarimtSubmissions, resendEbarimt } from "@/lib/actions/ebarimt";
+import { EBARIMT_CORRECTION_LABELS, canResendCorrection } from "@/lib/ebarimt/list-types";
 import {
   getPaymentMethods,
   getPosReceipt,
@@ -446,6 +447,10 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
   const isSent = status === "sent";
   const isSkipped = status === "skipped";
   const canResend = status === "failed" || status === "pending" || isSkipped;
+  // Буцаалтын засвар ТЕГ-д очоогүй / зөрсөн — засварын (inactiveId / DELETE) баримтыг
+  // Entry-ийн ҮЛДСЭН мөрөөр дахин илгээнэ (prepareSubmission).
+  const correction = sale.ebarimtCorrection;
+  const canSendCorrection = isSent && canResendCorrection(correction);
 
   useEffect(() => {
     if (!status) return;
@@ -468,6 +473,19 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
       }
       toast.success("eBarimt мэдээлэл хадгалагдлаа");
       setEditing(false);
+      refreshOpenPanels();
+      router.refresh();
+    });
+  }
+
+  function sendCorrection() {
+    startTransition(async () => {
+      const result = await resendEbarimt(sale.id, "cancel");
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Засвар ТЕГ-д илгээх дараалалд орлоо");
       refreshOpenPanels();
       router.refresh();
     });
@@ -506,6 +524,12 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
           )}
         </div>
         <div className="flex items-center gap-1">
+          {canSendCorrection && (
+            <Button size="sm" variant="outline" onClick={sendCorrection} disabled={isPending}>
+              <Icon name="send" size="sm" />
+              Засвар илгээх
+            </Button>
+          )}
           {canResend && (
             <Button size="sm" variant="outline" onClick={resend} disabled={isPending}>
               <Icon name="send" size="sm" />
@@ -537,6 +561,10 @@ function EbarimtSection({ sale }: { sale: PosSaleDetail }) {
           <Fact label="Төрөл" value={sale.ebarimtType ?? "—"} mono />
           <Fact label="Худалдан авагч" value={buyer} />
         </div>
+      )}
+
+      {correction && (
+        <p className="mt-1 text-xs text-[var(--ea-warning-fg)]">{EBARIMT_CORRECTION_LABELS[correction]}</p>
       )}
 
       {!editing && !sale.ebarimtId && !sale.isReturn && !status && (

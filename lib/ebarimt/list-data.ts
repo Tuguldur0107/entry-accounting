@@ -9,13 +9,12 @@
 
 import { and, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 
-import { effectiveTin } from "@/lib/arap/counterparty-kind";
 import { db } from "@/lib/db";
 import { arApDocuments, posEbarimtSubmissions, posSales } from "@/lib/db/schema";
 
 import {
   isReportedStatus,
-  type EbarimtCorrection,
+  posEbarimtCorrection,
   type EbarimtDocumentRow,
   type EbarimtDocumentSource,
 } from "./list-types";
@@ -32,7 +31,7 @@ const num = (value: unknown) => {
 
 type TargetColumn = typeof posEbarimtSubmissions.saleId | typeof posEbarimtSubmissions.arapDocumentId;
 
-const request = (field: "totalAmount" | "totalVAT" | "customerTin") =>
+const request = (field: "totalAmount" | "totalVAT" | "totalCityTax" | "customerTin") =>
   sql<string | null>`${posEbarimtSubmissions.payload}->'request'->>${field}::text`;
 
 /**
@@ -43,7 +42,13 @@ const request = (field: "totalAmount" | "totalVAT" | "customerTin") =>
 async function latestSubmissions(orgId: string, column: TargetColumn, ids: string[]) {
   const latest = new Map<
     string,
-    { lastError: string | null; total: number | null; vat: number | null; customerTin: string | null }
+    {
+      lastError: string | null;
+      total: number | null;
+      vat: number | null;
+      cityTax: number | null;
+      customerTin: string | null;
+    }
   >();
   if (ids.length === 0) return latest;
   const rows = await db
@@ -52,6 +57,7 @@ async function latestSubmissions(orgId: string, column: TargetColumn, ids: strin
       lastError: posEbarimtSubmissions.lastError,
       total: request("totalAmount"),
       vat: request("totalVAT"),
+      cityTax: request("totalCityTax"),
       customerTin: request("customerTin"),
     })
     .from(posEbarimtSubmissions)
@@ -63,10 +69,46 @@ async function latestSubmissions(orgId: string, column: TargetColumn, ids: strin
       lastError: row.lastError,
       total: row.total === null ? null : num(row.total),
       vat: row.vat === null ? null : num(row.vat),
+      cityTax: row.cityTax === null ? null : num(row.cityTax),
       customerTin: row.customerTin,
     });
   }
   return latest;
+}
+
+/**
+ * Борлуулалт бүрийн Entry дахь ҮЛДСЭН дүн = борлуулалт − буцаалтууд, бэлэн мөнгөний
+ * тоймлолтгүй (receipt.ts мөрийн нийлбэр — баримтад тоймлолт ордоггүй). ТЕГ-д
+ * бүртгэлтэй дүнтэй тулгана (posEbarimtCorrection). POS панель ч үүнийг дуудна.
+ */
+export async function loadPosRemainingTotals(
+  orgId: string,
+  sales: { id: string; total: string | number; roundingAmount: string | number }[]
+): Promise<Map<string, number>> {
+  const remaining = new Map(sales.map((sale) => [sale.id, num(sale.total) - num(sale.roundingAmount)]));
+  if (sales.length === 0) return remaining;
+  const returns = await db
+    .select({
+      originalSaleId: posSales.originalSaleId,
+      returned: sql<string>`sum(${posSales.total} - ${posSales.roundingAmount})`,
+    })
+    .from(posSales)
+    .where(
+      and(
+        eq(posSales.organizationId, orgId),
+        eq(posSales.isReturn, true),
+        inArray(
+          posSales.originalSaleId,
+          sales.map((sale) => sale.id)
+        )
+      )
+    )
+    .groupBy(posSales.originalSaleId);
+  for (const row of returns) {
+    if (!row.originalSaleId) continue;
+    remaining.set(row.originalSaleId, (remaining.get(row.originalSaleId) ?? 0) - num(row.returned));
+  }
+  return remaining;
 }
 
 /** ТЕГ-д бүртгэлтэй (sent / manual / cancelled) бол хадгалсан ТЕГ-ийн дүн байна. */
@@ -88,6 +130,7 @@ async function loadPosRows(orgId: string, from: string, to: string) {
       date: true,
       status: true,
       total: true,
+      roundingAmount: true,
       vatAmount: true,
       cityTaxAmount: true,
       ebarimtId: true,
@@ -107,17 +150,19 @@ async function loadPosRows(orgId: string, from: string, to: string) {
   const truncated = rows.length > EBARIMT_LIST_LIMIT;
   const kept = rows.slice(0, EBARIMT_LIST_LIMIT);
 
-  const returned = (status: string) => status === "partially_returned" || status === "returned";
-  const correctionOf = (row: (typeof kept)[number]): EbarimtCorrection | null => {
-    const status = row.ebarimtStatus ?? "";
-    if (row.ebarimtCorrection === "pending" || row.ebarimtCorrection === "failed") return row.ebarimtCorrection;
-    // Гараар олгосон баримт — Entry-ийн буцаалт ТЕГ-д хүрдэггүй (гараар засна).
-    if (status === "manual" && returned(row.status)) return "manual";
-    // Хуучин өгөгдөл: ТЕГ-ийн дүн хадгалагдаагүй бөгөөд буцаалттай — зөв дүн тодорхойгүй.
-    if (status === "sent" && row.ebarimtTotal === null && returned(row.status)) return "unknown";
-    return null;
-  };
-  const corrections = new Map(kept.map((row) => [row.id, correctionOf(row)]));
+  const remaining = await loadPosRemainingTotals(orgId, kept);
+  const corrections = new Map(
+    kept.map((row) => [
+      row.id,
+      posEbarimtCorrection({
+        ebarimtStatus: row.ebarimtStatus,
+        saleStatus: row.status,
+        flag: row.ebarimtCorrection,
+        registeredTotal: row.ebarimtTotal === null ? null : num(row.ebarimtTotal),
+        remainingTotal: remaining.get(row.id) ?? 0,
+      }),
+    ])
+  );
   const latest = await latestSubmissions(
     orgId,
     posEbarimtSubmissions.saleId,
@@ -169,11 +214,12 @@ async function loadArapRows(orgId: string, from: string, to: string) {
       ebarimtStatus: true,
       ebarimtDate: true,
       ebarimtType: true,
+      ebarimtCustomerTin: true,
       ebarimtTotal: true,
       ebarimtVat: true,
       ebarimtCityTax: true,
     },
-    with: { counterparty: { columns: { name: true, tin: true, registerNo: true } } },
+    with: { counterparty: { columns: { name: true } } },
     orderBy: [desc(arApDocuments.date), desc(arApDocuments.createdAt)],
     limit: EBARIMT_LIST_LIMIT + 1,
   });
@@ -189,7 +235,6 @@ async function loadArapRows(orgId: string, from: string, to: string) {
     const status = row.ebarimtStatus ?? "";
     const registered = status === "sent" && row.ebarimtTotal !== null;
     const pending = latest.get(row.id);
-    const b2b = (row.ebarimtType ?? "").startsWith("B2B");
     return {
       key: `arap:${row.id}`,
       source: "arap",
@@ -197,9 +242,8 @@ async function loadArapRows(orgId: string, from: string, to: string) {
       documentNo: row.documentNo,
       date: row.date,
       counterpartyName: row.counterparty?.name ?? null,
-      customerTin:
-        pending?.customerTin ??
-        (b2b && row.counterparty ? effectiveTin(row.counterparty.tin, row.counterparty.registerNo) : null),
+      // Илгээгдсэн: ТЕГ-д очсон ТТД (markSent); бусад: илгээх гэж буй receipt-ийнх.
+      customerTin: registered ? row.ebarimtCustomerTin : pending?.customerTin ?? null,
       partiallyReturned: false,
       // АР-ын кредит нэхэмжлэл/төлөлт eBarimt-д илгээгдэхгүй (docs/pos/05 Q1/Q5) — засвар байхгүй.
       correction: null,
@@ -211,7 +255,7 @@ async function loadArapRows(orgId: string, from: string, to: string) {
       // дүн (`baseTotalAmount` — валютын нэхэмжлэхэд ч MNT, баримтын валютаар БИШ).
       total: registered ? num(row.ebarimtTotal) : pending?.total ?? num(row.baseTotalAmount),
       vat: registered ? num(row.ebarimtVat) : pending?.vat ?? 0,
-      cityTax: registered ? num(row.ebarimtCityTax) : 0,
+      cityTax: registered ? num(row.ebarimtCityTax) : pending?.cityTax ?? 0,
       lastError: status === "sent" ? null : pending?.lastError ?? null,
     };
   });

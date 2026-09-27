@@ -1312,6 +1312,8 @@ export const arApDocuments = pgTable(
     ebarimtStatus: text("ebarimt_status"),
     ebarimtDate: text("ebarimt_date"),
     ebarimtType: text("ebarimt_type"),
+    /** ТЕГ-д очсон худалдан авагчийн ТТД (receipt-ээс markSent) — харилцагчийн одоогийн ТТД биш. */
+    ebarimtCustomerTin: text("ebarimt_customer_tin"),
     /** ТЕГ-д БҮРТГЭЛТЭЙ дүн (MNT) — илгээсэн receipt-ээс markSent бичнэ; null = илгээгээгүй. */
     ebarimtTotal: numeric("ebarimt_total", { precision: 18, scale: 2 }),
     ebarimtVat: numeric("ebarimt_vat", { precision: 18, scale: 2 }),
