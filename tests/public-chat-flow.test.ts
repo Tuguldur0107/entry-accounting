@@ -6,10 +6,12 @@ import "./helpers/load-env";
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer, type Server } from "node:http";
 import { eq, inArray } from "drizzle-orm";
 
 import { db } from "../lib/db";
 import { publicChatMessages, publicChatVisitors } from "../lib/db/schema";
+import { requestAiReply } from "../lib/public-chat/assistant";
 import { PublicChatInputError, prepareRoomMessage, prepareThreadStart } from "../lib/public-chat/rules";
 import {
   createVisitor,
@@ -143,6 +145,65 @@ test("хувийн яриа — зочин бүрд нэг, багийн хар�
   // Console-оос шууд
   const fromConsole = await postTeamMessage({ scope: "private", threadId: first.thread.id }, "Демо линк И-мэйлээр явууллаа", "Entry Console · op");
   assert.equal(fromConsole.author, "team");
+});
+
+test("AI туслах — landing руу дамжуулж хадгална; давхар, хуучирсан, баг оролцсон үед үгүй", { skip: !DB_READY }, async () => {
+  const received: unknown[] = [];
+  let reply = { reply: "Entry бол AI нягтлан бодох систем.", handoff: false };
+  const server: Server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      assert.equal(req.headers.authorization, "Bearer test-ai-secret");
+      received.push(JSON.parse(raw));
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(reply));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  process.env.PUBLIC_CHAT_AI_URL = `http://127.0.0.1:${port}/api/chat-assistant`;
+  process.env.PUBLIC_CHAT_AI_SECRET = "test-ai-secret";
+  try {
+    const { visitor } = await createVisitor(null);
+    visitorIds.push(visitor.id);
+    const first = await postPrivateMessage(visitor, prepareThreadStart({ name: "AI", body: `Entry гэж юу вэ? ${STAMP}` }), null);
+    await requestAiReply(first.thread.id, first.message.id);
+    let view = await listThreadMessages({ threadId: first.thread.id, after: null, visitorId: visitor.id });
+    assert.deepEqual(view.map((m) => [m.author, m.name]), [["visitor", "AI"], ["ai", "AI туслах"]]);
+    assert.deepEqual((received[0] as { messages: unknown }).messages, [{ role: "user", content: `Entry гэж юу вэ? ${STAMP}` }]);
+
+    // Ижил мессежид дахин дуудвал (after давтагдсан) — хоёр дахь хариу үгүй
+    await requestAiReply(first.thread.id, first.message.id);
+    view = await listThreadMessages({ threadId: first.thread.id, after: null, visitorId: visitor.id });
+    assert.equal(view.filter((m) => m.author === "ai").length, 1);
+
+    // Хуучирсан: зочин шинэ мессеж бичсэн бол өмнөх мессежийн хариу хадгалагдахгүй
+    const second = await postPrivateMessage(visitor, prepareThreadStart({ body: "Үнэ хэд вэ?" }), null);
+    await postPrivateMessage(visitor, prepareThreadStart({ body: "Бас демо?" }), null);
+    const before = received.length;
+    await requestAiReply(first.thread.id, second.message.id);
+    assert.equal(received.length, before, "хуучирсан мессежид landing дуудахгүй");
+
+    // Entry баг оролцсон бол AI зогсоно
+    await postTeamMessage({ scope: "private", threadId: first.thread.id }, "Би хариулъя", "Туул");
+    const third = await postPrivateMessage(visitor, prepareThreadStart({ body: "За баярлалаа" }), null);
+    await requestAiReply(first.thread.id, third.message.id);
+    assert.equal(received.length, before, "баг оролцсон ярианд AI хариулахгүй");
+
+    // landing буруу хэлбэр буцаавал хадгалахгүй
+    const { visitor: other } = await createVisitor(null);
+    visitorIds.push(other.id);
+    const lone = await postPrivateMessage(other, prepareThreadStart({ body: `Асуулт ${STAMP}` }), null);
+    reply = { reply: "", handoff: false };
+    await requestAiReply(lone.thread.id, lone.message.id);
+    view = await listThreadMessages({ threadId: lone.thread.id, after: null, visitorId: other.id });
+    assert.equal(view.length, 1);
+  } finally {
+    delete process.env.PUBLIC_CHAT_AI_URL;
+    delete process.env.PUBLIC_CHAT_AI_SECRET;
+    server.close();
+  }
 });
 
 test("цэвэрлэгээ", { skip: !DB_READY }, async () => {

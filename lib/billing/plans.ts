@@ -97,12 +97,15 @@ export const PLANS: Record<PlanId, PlanDef> = {
   standard: {
     features: { ...ALL_ON, "api.rest": false, multi_company: false, custom_extensions: false },
     limits: { seats: 1, companies: 1 },
-    pricePerSeatMnt: 100_000,
+    // 2026-09-27 product owner: 79,000₮ (landing-ийн AI туслахын мэдлэгтэй ИЖИЛ —
+    // entry-landing src/assistant/knowledge.ts). Console-ийн үнийн үе давамгайлна.
+    pricePerSeatMnt: 79_000,
   },
   platform: {
     features: ALL_ON,
     limits: { seats: 1, companies: 10 },
-    pricePerSeatMnt: 100_000,
+    // 2026-09-27 product owner: 149,000₮ (standard-тай адил — landing-тэй ИЖИЛ).
+    pricePerSeatMnt: 149_000,
   },
   enterprise: {
     features: ALL_ON,

@@ -5,7 +5,8 @@
 //   (хоёулаа x-visitor-token — зочин бүрд НЭГ яриа)
 //
 // Зөвхөн тухайн зочин ба Entry баг хардаг. Хариуг баг Telegram-аас (Reply)
-// эсвэл Console-оос бичнэ; зочин 5 сек тутам polling-оор авна.
+// эсвэл Console-оос бичнэ; зочин 5 сек тутам polling-оор авна. PUBLIC_CHAT_AI_*
+// тохируулсан бол «AI туслах» (landing) эхэлж хариулна — assistant.ts.
 import { after } from "next/server";
 
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/lib/public-chat/http";
 import { PUBLIC_CHAT_LIMITS, prepareThreadStart } from "@/lib/public-chat/rules";
 import { findThreadOfVisitor, listThreadMessages, messageDto, postPrivateMessage } from "@/lib/public-chat/store";
+import { aiActiveForThread, requestAiReply } from "@/lib/public-chat/assistant";
 import { relayVisitorMessage } from "@/lib/public-chat/telegram";
 
 export const runtime = "nodejs";
@@ -66,8 +68,8 @@ export async function POST(request: Request) {
     const existing = await findThreadOfVisitor(visitor.id);
     if (!existing && rateLimited(request, "thread-create", PUBLIC_CHAT_LIMITS.threadCreate)) return tooMany(request);
     const { thread, message, isNewThread } = await postPrivateMessage(visitor, prepared, ipHashOf(request));
-    after(() =>
-      relayVisitorMessage({
+    after(async () => {
+      await relayVisitorMessage({
         messageId: message.id,
         scope: "private",
         name: thread.name,
@@ -76,11 +78,14 @@ export async function POST(request: Request) {
         phone: thread.phone,
         threadId: thread.id,
         isNewThread,
-      })
-    );
+      });
+      await requestAiReply(thread.id, message.id);
+    });
     return chatJson(request, {
       ok: true,
       message: messageDto(message, visitor.id),
+      // UI «AI туслах бичиж байна…» — AI хариулах магадлалтай эсэх.
+      assistant: await aiActiveForThread(thread.id),
     });
   } catch (caught) {
     return chatFailure(request, caught);
