@@ -9,9 +9,18 @@
 
 export type ConnectorClient = "claude" | "chatgpt";
 
-export const CONNECTOR_TARGETS: Record<ConnectorClient, { label: string; settingsUrl: string }> = {
-  claude: { label: "Claude", settingsUrl: "https://claude.ai/new#customize/connectors" },
-  chatgpt: { label: "ChatGPT", settingsUrl: "https://chatgpt.com/plugins" },
+export const CONNECTOR_TARGETS: Record<ConnectorClient, { label: string; settingsUrl: string; requirement: string }> = {
+  claude: {
+    label: "Claude",
+    settingsUrl: "https://claude.ai/new#customize/connectors",
+    // Custom connector нь Claude-ийн төлбөртэй хувилбарт л (2026-09-27 product owner).
+    requirement: "Claude-ийн төлбөртэй хувилбар (жишээ нь Pro) шаардлагатай.",
+  },
+  chatgpt: {
+    label: "ChatGPT",
+    settingsUrl: "https://chatgpt.com/plugins",
+    requirement: "ChatGPT-ийн төлбөртэй хувилбар (жишээ нь Plus) шаардлагатай, Developer mode-ийг асаана.",
+  },
 };
 
 const HOST_PATTERNS: Record<ConnectorClient, RegExp> = {

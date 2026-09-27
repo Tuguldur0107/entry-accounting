@@ -53,6 +53,11 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Changed
 
+- **ChatGPT / Claude холбох заавар: төлбөртэй хувилбар шаардлагатай.** «AI холболт»
+  / «AI нягтлан»-ы заавар (`CONNECTOR_TARGETS.requirement`) болон landing-ийн
+  чатын `/faq` хариултад ChatGPT Plus / Claude Pro г.м. төлбөртэй хувилбар,
+  ChatGPT-д Developer mode шаардлагатайг ил бичив.
+
 - **Багцын анхдагч үнэ (2026-09-27): Standard 79,000₮, Platform 149,000₮ / хэрэглэгч / сар**
   (`lib/billing/plans.ts`; өмнө хоёулаа 100,000₮). Landing-ийн «AI туслах»-ын хэлдэг үнэтэй
   ИЖИЛ. Entry Console-оос тавьсан үнийн үе, харилцагчийн тусгай үнэ давамгайлсаар; өмнө
