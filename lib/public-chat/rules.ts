@@ -227,6 +227,8 @@ export type TeamCommand =
   | ({ kind: "welcome"; names: string[] } & CommandSource)
   /** Угтах мессежийн товч — ДУРЫН гишүүн дарна, хариу группт (landing-д очихгүй). */
   | ({ kind: "faq_public"; key: string; callbackId: string; buttonMessageId: number } & CommandSource)
+  /** `/hide` — Reply хийсэн мессежийг (зочны ч, багийн ч) нийтийн өрөөнөөс нууна. */
+  | ({ kind: "hide_reply"; replyToTelegramId: number; staff: string; telegramMessageId: number } & CommandSource)
   | ({ kind: "help" } & CommandSource)
   | { kind: "ignore" };
 
@@ -335,7 +337,15 @@ export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, opti
         telegramMessageId: message.message_id,
         ...source,
       };
-    if (name === "help" || name === "start" || name === "room") return { kind: "help", ...source };
+    if (name === "hide" && message.reply_to_message)
+      return {
+        kind: "hide_reply",
+        replyToTelegramId: message.reply_to_message.message_id,
+        staff: staffName(message.from),
+        telegramMessageId: message.message_id,
+        ...source,
+      };
+    if (name === "help" || name === "start" || name === "room" || name === "hide") return { kind: "help", ...source };
     return { kind: "ignore" };
   }
   if (message.reply_to_message)
@@ -358,6 +368,7 @@ export const TEAM_HELP_TEXT =
   "• /room <текст> — нийтийн өрөөнд Entry багийн нэрээр бичнэ (нээлттэй группт энгийн бичихэд л хангалттай)\n" +
   "• /faq — бэлэн хариултын товч: зочны мессеж дээр Reply хийж бичвэл тэр зочинд, эс бөгөөс нийтийн өрөөнд\n" +
   "• [Нуух] товч — нийтийн өрөөнөөс мессежийг нууна\n" +
+  "• /hide — мессеж (Entry багийнх ч) дээр Reply хийж бичвэл нийтийн өрөөнөөс нууна\n" +
   "• [Зочныг хаах] — тэр хөтчөөс бичихийг хааж, нийтийн мессежийг нь бүгдийг нууна\n" +
   "• Хувийн chat тохируулсан бол (нээлттэй групп) хувийн асуулт ТЭНД ирнэ, группт зөвхөн админ хариулна";
 
