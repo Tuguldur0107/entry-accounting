@@ -210,6 +210,17 @@ export type TeamCommand =
   | ({ kind: "reply"; replyToTelegramId: number; body: string; staff: string; telegramMessageId: number } & CommandSource)
   | ({ kind: "room_post"; body: string; staff: string; telegramMessageId: number } & CommandSource)
   | ({ kind: "moderate"; action: ModerationAction; messageId: string; staff: string; callbackId: string } & CommandSource)
+  /** `/faq` — бэлэн хариултын товч; relay дээр Reply бол тэр зочинд, эс бөгөөс нийтийн өрөөнд. */
+  | ({ kind: "faq_menu"; replyToTelegramId: number | null; telegramMessageId: number } & CommandSource)
+  /** Бэлэн хариултын товч дарсан — `targetMessageId` null бол нийтийн өрөөнд. */
+  | ({
+      kind: "faq_send";
+      key: string;
+      targetMessageId: string | null;
+      staff: string;
+      callbackId: string;
+      buttonMessageId: number;
+    } & CommandSource)
   | ({ kind: "help" } & CommandSource)
   | { kind: "ignore" };
 
@@ -234,6 +245,15 @@ function chatRole(chatId: number | string | undefined, teamChatId: string, priva
   return null;
 }
 
+export type ParseTeamUpdateOptions = {
+  privateChatId?: string | null;
+  /**
+   * Нээлттэй групп горим: группт Reply-гүй энгийн бичсэн текст → нийтийн
+   * өрөөнд «Entry баг» нэрээр (эрхийг — админ эсэхийг — webhook шалгана).
+   */
+  plainToRoom?: boolean;
+};
+
 /**
  * Багийн chat-аас ирсэн update-ийг команд болгоно. Зөвхөн ТОХИРУУЛСАН chat
  * (`PUBLIC_CHAT_TELEGRAM_CHAT_ID`, `PUBLIC_CHAT_TELEGRAM_PRIVATE_CHAT_ID`) —
@@ -243,11 +263,27 @@ function chatRole(chatId: number | string | undefined, teamChatId: string, priva
  *   - `/room <текст>` → нийтийн өрөөнд багийн мессеж (FAQ дүүргэх)
  *   - [Нуух]/[Сэргээх]/[Зочныг хаах] товч → модерац
  */
-export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, privateChatId: string | null = null): TeamCommand {
+export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, options: ParseTeamUpdateOptions = {}): TeamCommand {
+  const privateChatId = options.privateChatId ?? null;
   const callback = update.callback_query;
   if (callback) {
     const chat = chatRole(callback.message?.chat.id, teamChatId, privateChatId);
-    if (!chat) return { kind: "ignore" };
+    if (!chat || !callback.message) return { kind: "ignore" };
+    const faq = /^faq:([a-z]{1,16}):(room|[0-9a-f-]{36})$/i.exec(callback.data ?? "");
+    if (faq) {
+      const target = faq[2].toLowerCase();
+      if (target !== "room" && !isUuid(target)) return { kind: "ignore" };
+      return {
+        kind: "faq_send",
+        key: faq[1].toLowerCase(),
+        targetMessageId: target === "room" ? null : target,
+        staff: staffName(callback.from),
+        callbackId: callback.id,
+        buttonMessageId: callback.message.message_id,
+        chat,
+        fromId: callback.from?.id ?? null,
+      };
+    }
     const match = /^(hide|unhide|block):([0-9a-f-]{36})$/i.exec(callback.data ?? "");
     if (!match || !isUuid(match[2])) return { kind: "ignore" };
     return {
@@ -273,6 +309,13 @@ export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, priv
     const rest = command[2]?.trim() ?? "";
     if (name === "room" && rest)
       return { kind: "room_post", body: rest, staff: staffName(message.from), telegramMessageId: message.message_id, ...source };
+    if (name === "faq")
+      return {
+        kind: "faq_menu",
+        replyToTelegramId: message.reply_to_message?.message_id ?? null,
+        telegramMessageId: message.message_id,
+        ...source,
+      };
     if (name === "help" || name === "start" || name === "room") return { kind: "help", ...source };
     return { kind: "ignore" };
   }
@@ -285,13 +328,16 @@ export function parseTeamUpdate(update: TelegramUpdate, teamChatId: string, priv
       telegramMessageId: message.message_id,
       ...source,
     };
+  if (options.plainToRoom && chat === "team")
+    return { kind: "room_post", body: text, staff: staffName(message.from), telegramMessageId: message.message_id, ...source };
   return { kind: "ignore" };
 }
 
 export const TEAM_HELP_TEXT =
   "Entry чатын бот:\n" +
   "• Зочны мессеж дээр Reply хийж бичвэл тэр зочинд (эсвэл нийтийн өрөөнд) хариу очно\n" +
-  "• /room <текст> — нийтийн өрөөнд Entry багийн нэрээр бичнэ\n" +
+  "• /room <текст> — нийтийн өрөөнд Entry багийн нэрээр бичнэ (нээлттэй группт энгийн бичихэд л хангалттай)\n" +
+  "• /faq — бэлэн хариултын товч: зочны мессеж дээр Reply хийж бичвэл тэр зочинд, эс бөгөөс нийтийн өрөөнд\n" +
   "• [Нуух] товч — нийтийн өрөөнөөс мессежийг нууна\n" +
   "• [Зочныг хаах] — тэр хөтчөөс бичихийг хааж, нийтийн мессежийг нь бүгдийг нууна\n" +
   "• Хувийн chat тохируулсан бол (нээлттэй групп) хувийн асуулт ТЭНД ирнэ, группт зөвхөн админ хариулна";

@@ -18,6 +18,8 @@ import {
   relayText,
   telegramRef,
 } from "../lib/public-chat/rules";
+import { PUBLIC_CHAT_FAQ, faqCallbackData, findFaq } from "../lib/public-chat/faq";
+import { PLANS } from "../lib/billing/plans";
 
 test("normalizeBody — хоосон, урт, удирдах тэмдэгт, илүү мөр", () => {
   assert.throws(() => normalizeBody("   "), PublicChatInputError);
@@ -135,7 +137,7 @@ test("parseTeamUpdate — хувийн chat (нээлттэй групп гор�
   // Хувийн chat — тохируулсан үед л танигдана
   const dm = { message: { message_id: 5, chat: { id: 7160304495 }, from: admin, text: "За", reply_to_message: { message_id: 4 } } };
   assert.equal(parseTeamUpdate(dm, TEAM).kind, "ignore");
-  assert.deepEqual(parseTeamUpdate(dm, TEAM, PRIVATE), {
+  assert.deepEqual(parseTeamUpdate(dm, TEAM, { privateChatId: PRIVATE }), {
     kind: "reply",
     replyToTelegramId: 4,
     body: "За",
@@ -145,18 +147,79 @@ test("parseTeamUpdate — хувийн chat (нээлттэй групп гор�
     fromId: 42,
   });
   // Группаас — илгээгчийн id (админ эсэхийг webhook шалгана)
-  const group = parseTeamUpdate({ message: { message_id: 6, chat: { id: TEAM }, from: { id: 99 }, text: "/help" } }, TEAM, PRIVATE);
+  const group = parseTeamUpdate({ message: { message_id: 6, chat: { id: TEAM }, from: { id: 99 }, text: "/help" } }, TEAM, { privateChatId: PRIVATE });
   assert.deepEqual(group, { kind: "help", chat: "team", fromId: 99 });
   const id = "0b7a2c1e-1111-4222-8333-444455556666";
   const cb = parseTeamUpdate(
     { callback_query: { id: "cb", from: { id: 99 }, data: `hide:${id}`, message: { message_id: 3, chat: { id: TEAM } } } },
     TEAM,
-    PRIVATE
+    { privateChatId: PRIVATE }
   );
   assert.equal(cb.kind === "moderate" && cb.fromId, 99);
   // message_id chat бүрт тусдаа — хувийн chat-ийнх угтвартай
   assert.equal(telegramRef("team", 7), "7");
   assert.equal(telegramRef("private", 7), "p:7");
+});
+
+test("parseTeamUpdate — нээлттэй группт энгийн текст → өрөө, /faq, бэлэн хариултын товч", () => {
+  const from = { id: 42, first_name: "Туул" };
+  const plain = { message: { message_id: 20, chat: { id: TEAM }, from, text: "Шинэ хувилбар гарлаа" } };
+  // Хаалттай багийн группт энгийн яриа хэвээр — өрөөнд очихгүй
+  assert.equal(parseTeamUpdate(plain, TEAM).kind, "ignore");
+  assert.deepEqual(parseTeamUpdate(plain, TEAM, { plainToRoom: true }), {
+    kind: "room_post",
+    body: "Шинэ хувилбар гарлаа",
+    staff: "Туул",
+    telegramMessageId: 20,
+    chat: "team",
+    fromId: 42,
+  });
+  // Хувийн chat-ийн энгийн текст өрөөнд ХЭЗЭЭ Ч очихгүй
+  assert.equal(
+    parseTeamUpdate({ message: { message_id: 3, chat: { id: 555 }, from, text: "тэмдэглэл" } }, TEAM, { privateChatId: "555", plainToRoom: true }).kind,
+    "ignore"
+  );
+  assert.deepEqual(
+    parseTeamUpdate({ message: { message_id: 21, chat: { id: TEAM }, from, text: "/faq", reply_to_message: { message_id: 7 } } }, TEAM),
+    { kind: "faq_menu", replyToTelegramId: 7, telegramMessageId: 21, chat: "team", fromId: 42 }
+  );
+  assert.deepEqual(parseTeamUpdate({ message: { message_id: 22, chat: { id: TEAM }, from, text: "/faq@EntryMnChatBot" } }, TEAM), {
+    kind: "faq_menu",
+    replyToTelegramId: null,
+    telegramMessageId: 22,
+    chat: "team",
+    fromId: 42,
+  });
+  const id = "0b7a2c1e-1111-4222-8333-444455556666";
+  assert.deepEqual(
+    parseTeamUpdate({ callback_query: { id: "cb", from, data: faqCallbackData("price", id), message: { message_id: 30, chat: { id: TEAM } } } }, TEAM),
+    { kind: "faq_send", key: "price", targetMessageId: id, staff: "Туул", callbackId: "cb", buttonMessageId: 30, chat: "team", fromId: 42 }
+  );
+  const room = parseTeamUpdate(
+    { callback_query: { id: "cb", from, data: faqCallbackData("trial", null), message: { message_id: 31, chat: { id: TEAM } } } },
+    TEAM
+  );
+  assert.equal(room.kind === "faq_send" && room.targetMessageId, null);
+  assert.equal(
+    parseTeamUpdate({ callback_query: { id: "cb", from, data: "faq:price:nope", message: { message_id: 31, chat: { id: TEAM } } } }, TEAM).kind,
+    "ignore"
+  );
+});
+
+test("бэлэн хариулт — товчны өгөгдөл ≤ 64 байт, текст хязгаартаа, үнэ plans.ts-ээс", () => {
+  const keys = new Set<string>();
+  for (const faq of PUBLIC_CHAT_FAQ) {
+    assert.ok(!keys.has(faq.key), `давхар түлхүүр ${faq.key}`);
+    keys.add(faq.key);
+    assert.match(faq.key, /^[a-z]{1,16}$/);
+    assert.ok(Buffer.byteLength(faqCallbackData(faq.key, "0b7a2c1e-1111-4222-8333-444455556666")) <= 64, faq.key);
+    assert.ok(faq.body.length <= PUBLIC_CHAT_MAX_BODY, faq.key);
+    assert.equal(normalizeBody(faq.body), faq.body, `${faq.key} normalizeBody-оор өөрчлөгдөхгүй`);
+  }
+  const price = findFaq("price")?.body ?? "";
+  assert.ok(price.includes(`${PLANS.standard.pricePerSeatMnt?.toLocaleString("en-US")}₮`));
+  assert.ok(price.includes(`${PLANS.platform.pricePerSeatMnt?.toLocaleString("en-US")}₮`));
+  assert.equal(findFaq("nope"), null);
 });
 
 test("relayText — HTML escape, холбоо барих мэдээлэл, нуусан тэмдэглэгээ", () => {

@@ -366,6 +366,16 @@ export async function postTeamReply(
 ): Promise<MessageRow | null> {
   const original = await findMessageByTelegramId(replyToTelegramId);
   if (!original) return null;
+  return postTeamReplyTo(original, body, staff, telegramMessageId);
+}
+
+/** Тухайн мессежийн өрөө/яриа руу багийн хариу (Telegram Reply, `/faq` товч). */
+export async function postTeamReplyTo(
+  original: MessageRow,
+  body: string,
+  staff: string,
+  telegramMessageId: number | string | null = null
+): Promise<MessageRow> {
   if (original.scope === "private" && original.threadId)
     return postTeamMessage({ scope: "private", threadId: original.threadId }, body, staff, telegramMessageId);
   // Багийн өөрийн мессеж дээр Reply — анхны зочны мессежийг л иш татна.
