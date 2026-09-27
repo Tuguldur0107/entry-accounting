@@ -974,6 +974,74 @@ export async function createPosSale(
 }
 
 /**
+ * Баримтыг БОРЛУУЛАЛТ БҮРТГЭХГҮЙГЭЭР урьдчилан харах (төлбөрийн диалогийн
+ * [Урьдчилж харах]) — createPosSale-тай ИЖИЛ үнийн санал + төлбөрийн төлөвлөгөө,
+ * гэхдээ DB-д юу ч бичихгүй, eBarimt илгээхгүй (ДДТД/сугалаа/QR үгүй — тэр нь
+ * зөвхөн батлахад). Дугаар «УРЬДЧИЛСАН».
+ */
+export async function previewPosReceipt(
+  input: CreatePosSaleInput
+): Promise<ActionResult<{ receipt: PosReceipt }>> {
+  try {
+    const { orgId, userId } = await requireModuleAction(POS_MODULE_KEY, "write");
+    const ctx = await quoteContext(orgId, userId, input.counterpartyId, !!input.nonVat);
+    const quote = await buildQuote(input, ctx);
+    const shift = await db.query.posShifts.findFirst({
+      where: and(eq(posShifts.id, input.shiftId), eq(posShifts.organizationId, orgId)),
+      columns: { fxRates: true },
+    });
+    const { plan } = await planSalePayments(orgId, input, ctx, quote.totals.total, shift?.fxRates ?? {}, {
+      resolveQpayIntent: false,
+    });
+    const cashierRow = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { name: true } });
+    const receipt: PosReceipt = {
+      saleId: "preview",
+      documentNo: "УРЬДЧИЛСАН",
+      date: quote.now.date,
+      soldAt: new Date().toISOString(),
+      cashierName: cashierRow?.name ?? "",
+      customerName: ctx.isWalkIn ? "" : ctx.customer.name,
+      isVatPayer: ctx.isVatPayer,
+      nonVat: !!input.nonVat && ctx.orgIsVatPayer,
+      lines: quote.totals.lines.map((line) => ({
+        name: line.itemName,
+        quantity: line.quantity,
+        unit: line.unit,
+        unitPrice: line.unitPrice,
+        discount: line.discountAmount,
+        total: line.lineTotal,
+      })),
+      grossAmount: quote.totals.grossAmount,
+      discountTotal: quote.totals.discountTotal,
+      netAmount: quote.totals.netAmount,
+      vatAmount: quote.totals.vatAmount,
+      cityTaxAmount: quote.totals.cityTaxAmount,
+      roundingAmount: plan.roundingAmount,
+      total: plan.payable,
+      payments: plan.payments.map((payment) => ({
+        name: payment.method.name,
+        amount: payment.amount,
+        currency: payment.currency,
+        baseAmount: payment.baseAmount,
+        change: payment.changeGiven,
+      })),
+      change: plan.change,
+      header: ctx.settings.receiptHeader,
+      footer: ctx.settings.receiptFooter,
+      seller: await loadReceiptSeller(orgId),
+      negativeStock: [],
+      ebarimtId: null,
+      ebarimtLottery: null,
+      ebarimtQrData: null,
+      ebarimtStatus: null,
+    };
+    return { receipt };
+  } catch (caught) {
+    return actionError("previewPosReceipt", caught, "Баримтыг урьдчилан харж чадсангүй");
+  }
+}
+
+/**
  * QPay провайдертай төлбөрийн мөр → intent-ийг баталгаажуулна (docs/pos/04 §3.5):
  * intent өгөөгүй / олдохгүй / `paid` биш / дүн зөрсөн бол ШИДНЭ. Intent өгсөн
  * ч QPay мөр байхгүй бол мөн шиднэ (мөнгө орсон боловч бүртгэгдэхгүй үлдэхээс сэргийлнэ).
@@ -1002,6 +1070,60 @@ async function resolveQpayIntentForSale(
   if (!qpayAmountMatches(Number(intent.amount), Number(qpayRows[0].amount)))
     throw new Error(`[${QPAY_ERRORS.amountMismatch}] QPay-ээр төлсөн ${fmt(Number(intent.amount))}₮ ≠ мөрийн ${fmt(Number(qpayRows[0].amount))}₮`);
   return intent;
+}
+
+/**
+ * Борлуулалтын төлбөрийн төлөвлөгөө — createPosSale ба previewPosReceipt НЭГ зам
+ * (бэлгийн карт, дэлгүүрийн кредит, зээлийн лимит, урьдчилгаа, валютын ханш,
+ * бөөрөнхийллийн дүрэм ижил). Урьдчилан харахад QPay intent шаардахгүй
+ * (`resolveQpayIntent: false`) — төлбөр хараахан аваагүй.
+ */
+async function planSalePayments(
+  orgId: string,
+  input: CreatePosSaleInput,
+  ctx: QuoteContext,
+  quoteTotal: number,
+  fxRates: Record<string, number>,
+  options: { resolveQpayIntent: boolean }
+) {
+  const { settings, customer, isWalkIn } = ctx;
+  const methods = await loadPaymentMethodViews(orgId);
+  const giftCodes = (input.payments ?? []).map((payment) => cleanText(payment.giftCardCode)).filter((code): code is string => !!code);
+  const giftCards = giftCodes.length
+    ? await db.query.posGiftCards.findMany({
+        where: and(eq(posGiftCards.organizationId, orgId), inArray(posGiftCards.code, giftCodes), eq(posGiftCards.status, "active")),
+      })
+    : [];
+  const storeCreditRows = isWalkIn
+    ? []
+    : await db.query.posStoreCredits.findMany({
+        where: and(
+          eq(posStoreCredits.organizationId, orgId),
+          eq(posStoreCredits.counterpartyId, customer.id),
+          eq(posStoreCredits.status, "active")
+        ),
+      });
+  const openReceivable = isWalkIn ? 0 : await loadOpenReceivable(db, orgId, customer.id);
+  const advanceBalance = isWalkIn ? 0 : await loadAdvanceBalance(orgId, customer.name, settings.customerAdvanceAccountNumber);
+  // QPay: провайдертай мөр → intent заавал, paid, дүн таарна; reference = QPay нэхэмжлэхийн id.
+  const qpayIntent = options.resolveQpayIntent ? await resolveQpayIntentForSale(orgId, input, methods) : null;
+  const paymentInputs = (input.payments ?? []).map((payment) =>
+    qpayIntent && methods.find((m) => m.id === payment.paymentMethodId)?.provider === QPAY_PROVIDER
+      ? { ...payment, reference: qpayIntent.qpayInvoiceId ?? payment.reference ?? null }
+      : payment
+  );
+  const plan = planPayments(paymentInputs, methods, quoteTotal, {
+    isWalkIn,
+    creditLimit: customer.creditLimit === null ? null : Number(customer.creditLimit),
+    openReceivable,
+    advanceBalance,
+    giftCardBalances: Object.fromEntries(giftCards.map((card) => [card.code, Number(card.balance)])),
+    storeCreditBalances: Object.fromEntries(storeCreditRows.map((credit) => [credit.id, Number(credit.balance)])),
+    fxRates,
+    cashRoundingUnit: settings.cashRoundingUnit,
+  });
+  if (plan.errors.length > 0) throw new Error(plan.errors.join("; "));
+  return { plan, giftCards, qpayIntent };
 }
 
 async function createPosSaleCore(input: CreatePosSaleInput) {
@@ -1072,43 +1194,10 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   });
   if (!warehouse) throw new Error("Идэвхтэй агуулах олдсонгүй");
 
-  // Төлбөрийн төлөвлөгөө.
-  const methods = await loadPaymentMethodViews(orgId);
-  const giftCodes = (input.payments ?? []).map((payment) => cleanText(payment.giftCardCode)).filter((code): code is string => !!code);
-  const giftCards = giftCodes.length
-    ? await db.query.posGiftCards.findMany({
-        where: and(eq(posGiftCards.organizationId, orgId), inArray(posGiftCards.code, giftCodes), eq(posGiftCards.status, "active")),
-      })
-    : [];
-  const storeCreditRows = isWalkIn
-    ? []
-    : await db.query.posStoreCredits.findMany({
-        where: and(
-          eq(posStoreCredits.organizationId, orgId),
-          eq(posStoreCredits.counterpartyId, customer.id),
-          eq(posStoreCredits.status, "active")
-        ),
-      });
-  const openReceivable = isWalkIn ? 0 : await loadOpenReceivable(db, orgId, customer.id);
-  const advanceBalance = isWalkIn ? 0 : await loadAdvanceBalance(orgId, customer.name, settings.customerAdvanceAccountNumber);
-  // QPay: провайдертай мөр → intent заавал, paid, дүн таарна; reference = QPay нэхэмжлэхийн id.
-  const qpayIntent = await resolveQpayIntentForSale(orgId, input, methods);
-  const paymentInputs = (input.payments ?? []).map((payment) =>
-    qpayIntent && methods.find((m) => m.id === payment.paymentMethodId)?.provider === QPAY_PROVIDER
-      ? { ...payment, reference: qpayIntent.qpayInvoiceId ?? payment.reference ?? null }
-      : payment
-  );
-  const plan = planPayments(paymentInputs, methods, quote.totals.total, {
-    isWalkIn,
-    creditLimit: customer.creditLimit === null ? null : Number(customer.creditLimit),
-    openReceivable,
-    advanceBalance,
-    giftCardBalances: Object.fromEntries(giftCards.map((card) => [card.code, Number(card.balance)])),
-    storeCreditBalances: Object.fromEntries(storeCreditRows.map((credit) => [credit.id, Number(credit.balance)])),
-    fxRates: shift.fxRates ?? {},
-    cashRoundingUnit: settings.cashRoundingUnit,
+  // Төлбөрийн төлөвлөгөө (урьдчилан харахтай НЭГ helper).
+  const { plan, giftCards, qpayIntent } = await planSalePayments(orgId, input, ctx, quote.totals.total, shift.fxRates ?? {}, {
+    resolveQpayIntent: true,
   });
-  if (plan.errors.length > 0) throw new Error(plan.errors.join("; "));
 
   const controlAccount = nonVatPlan.nonVat
     ? nonVatPlan.receivableAccountNumber

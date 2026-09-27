@@ -24,7 +24,8 @@ import { FormField, SwitchField } from "@/components/ui/form-field";
 import { SearchableSelect, type SearchableOption } from "@/components/ui/searchable-select";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
-import { getGiftCardsAndCredits } from "@/lib/actions/pos";
+import { getGiftCardsAndCredits, previewPosReceipt, type PosReceipt } from "@/lib/actions/pos";
+import { ReceiptSheet } from "@/components/pos/receipt-preview";
 import type { EbarimtBuyerInput } from "@/lib/pos/ebarimt-buyer";
 import type { CheckoutCustomer } from "@/lib/pos/load-data";
 import { PAYMENT_KIND_LABELS } from "@/lib/pos/constants";
@@ -145,6 +146,9 @@ export function PaymentDialog({
   // Борлуулалт бүрд eBarimt илгээх эсэх — default асаалттай; унтраавал борлуулалт
   // `skipped` статустай бичигдэнэ (НӨАТ задарсан хэвээр, дараа панелиас илгээж болно).
   const [sendEbarimt, setSendEbarimt] = useState(true);
+  /** [Урьдчилж харах] — борлуулалт бүртгэхгүйгээр баримтын төрх (previewPosReceipt). */
+  const [preview, setPreview] = useState<PosReceipt | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const buyer = useMemo<EbarimtBuyerInput>(() => {
     const empty: EbarimtBuyerInput = {
       ebarimtConsumerNo: null,
@@ -302,6 +306,20 @@ export function PaymentDialog({
       ebarimtCustomerRegNo: buyer.ebarimtCustomerRegNo,
       skipEbarimt: buyer.skipEbarimt,
     };
+  }
+
+  async function openPreview() {
+    setPreviewBusy(true);
+    try {
+      const result = await previewPosReceipt(buildSaleInput());
+      if (result.error || !result.receipt) {
+        toast.error(result.error ?? "Баримтыг урьдчилан харж чадсангүй");
+        return;
+      }
+      setPreview(result.receipt);
+    } finally {
+      setPreviewBusy(false);
+    }
   }
 
   function patchRow(key: number, patch: Partial<PaymentRow>) {
@@ -581,11 +599,34 @@ export function PaymentDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Болих
           </Button>
+          <Button variant="outline" onClick={() => void openPreview()} disabled={busy || previewBusy || rows.length === 0}>
+            {previewBusy ? "Бэлдэж байна…" : "Урьдчилж харах"}
+          </Button>
           <Button onClick={submit} disabled={!canSubmit}>
             {busy ? "Бичиж байна…" : "Батлаад хэвлэх ⏎"}
           </Button>
         </DialogFooter>
       </DialogContent>
+      <Dialog open={preview !== null} onOpenChange={(next) => !next && setPreview(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Баримтын урьдчилсан харагдац</DialogTitle>
+            <DialogDescription>
+              Борлуулалт хараахан бүртгэгдээгүй — ДДТД, сугалаа, QR нь «Батлаад хэвлэх»-ийн дараа гарна.
+            </DialogDescription>
+          </DialogHeader>
+          {preview && (
+            <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-[var(--ea-text-1)]">
+              <ReceiptSheet receipt={preview} />
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreview(null)}>
+              Буцах
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

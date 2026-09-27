@@ -925,7 +925,6 @@ export function PosCheckoutView({
                 ebarimtEnabled={data.settings.ebarimtEnabled}
                 buyer={buyerState}
                 onBuyerTypeChange={setBuyerType}
-                onConsumerNoChange={(consumerNo) => setBuyerState((current) => ({ ...current, consumerNo }))}
                 onOrgNoChange={setOrgNo}
                 problem={buyerProblem ?? nonVatProblem}
               />
