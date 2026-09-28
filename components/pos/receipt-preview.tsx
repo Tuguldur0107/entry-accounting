@@ -8,7 +8,7 @@
 // үзүүлнэ (апп, диалог, бусад панель хэвлэгдэхгүй). Z-тайлан ч мөн
 // `usePosPrint`-ийг хэрэглэнэ.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { SwitchField } from "@/components/ui/form-field";
 import { Icon } from "@/components/ui/icon";
+import { sendPosSaleEbarimtNow } from "@/lib/actions/ebarimt";
 import type { PosReceipt } from "@/lib/actions/pos";
 import { fmtMnt } from "@/lib/reports/balances";
 
@@ -219,7 +220,19 @@ export function ReceiptSheet({
         <div className="flex justify-between">
           <span>Кассчин: {receipt.cashierName || "—"}</span>
         </div>
-        <div>Харилцагч: {receipt.customerName}</div>
+        {receipt.customerName && <div>Харилцагч: {receipt.customerName}</div>}
+        {/* B2B худалдан авагч — ХСН №16: нэр, ТТД (иргэний дугаар ХЭВЛЭХГҮЙ) */}
+        {receipt.buyer && (
+          <div className="mt-0.5">
+            <div>Худалдан авагч: {receipt.buyer.name || "—"}</div>
+            <div>
+              ТТД {receipt.buyer.tin}
+              {receipt.buyer.regNo && receipt.buyer.regNo !== receipt.buyer.tin
+                ? ` · РД ${receipt.buyer.regNo}`
+                : ""}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="py-1">
@@ -299,14 +312,9 @@ export function ReceiptSheet({
           {receipt.ebarimtId && <div>ДДТД: {receipt.ebarimtId}</div>}
           {receipt.ebarimtLottery && <div>Сугалаа: {receipt.ebarimtLottery}</div>}
           {receipt.ebarimtQrData && <ReceiptQr value={receipt.ebarimtQrData} />}
-          {receipt.ebarimtStatus === "pending" && (
-            <div className="text-[var(--ea-text-3)] print:text-black">
-              eBarimt: илгээж байна… (ДДТД дахин хэвлэхэд гарна)
-            </div>
-          )}
-          {receipt.ebarimtStatus === "failed" && (
+          {(receipt.ebarimtStatus === "pending" || receipt.ebarimtStatus === "failed") && (
             <div className="text-[var(--ea-danger-fg)] print:text-black">
-              eBarimt: илгээгдсэнгүй
+              eBarimt: баримт олгогдоогүй
             </div>
           )}
         </div>
@@ -346,6 +354,9 @@ function Row({ label, value }: { label: string; value: string }) {
 /** Browser горимд eBarimt-ийн хариу (сугалаа/QR) ирэхийг хүлээх дээд хугацаа. */
 const EBARIMT_PRINT_WAIT_MS = 8_000;
 
+const ebarimtMissing = (receipt: PosReceipt | null) =>
+  receipt?.ebarimtStatus === "pending" || receipt?.ebarimtStatus === "failed";
+
 /**
  * Баримтын диалог: борлуулалт батлагдсаны дараа (кассын дэлгэц) ба
  * "Дахин хэвлэх" (борлуулалтын панель) хоёуланд.
@@ -354,9 +365,13 @@ const EBARIMT_PRINT_WAIT_MS = 8_000;
  * гармагц хэвлэгдэж, хэвлэсний дараа цонх өөрөө хаагдана. eBarimt-ийн
  * сугалаа, QR нь ЗӨВХӨН энэ цонхонд нэг удаа гардаг (хадгалахыг хуулиар
  * хориглосон) тул хэвлээгүй хаах гэвэл анхааруулна.
+ *
+ * Server горимд eBarimt амжилтгүй / хүлээгдэж байвал АВТОМАТААР ХЭВЛЭХГҮЙ —
+ * шалтгааныг (зөвхөн дэлгэцэнд) харуулж «Дахин илгээх»-ээр ТЕГ-ийн хариуг
+ * (сугалаа/QR) авсны ДАРАА хэвлэнэ; eBarimt-гүй хэвлэх бол ил баталгаажуулна.
  */
 export function ReceiptPreview({
-  receipt,
+  receipt: receiptProp,
   onClose,
   autoPrint,
   onAutoPrintChange,
@@ -370,9 +385,14 @@ export function ReceiptPreview({
   /** eBarimt browser горим: `pending` баримтыг хариу иртэл (≤8 сек) хүлээж хэвлэнэ. */
   waitForEbarimt?: boolean;
 }) {
+  // «Дахин илгээх»-ийн хариу (сугалаа/QR) — зөвхөн энэ борлуулалтад, санах ойд.
+  const [live, setLive] = useState<Partial<PosReceipt> & { saleId: string } | null>(null);
+  const receipt: PosReceipt | null =
+    receiptProp && live && live.saleId === receiptProp.saleId ? { ...receiptProp, ...live } : receiptProp;
   const [printedId, setPrintedId] = useState<string | null>(null);
   const autoPrintedFor = useRef<string | null>(null);
   const closeAfterPrint = useRef(false);
+  const [sending, startSending] = useTransition();
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { print, portal } = usePosPrint(receipt ? <ReceiptSheet receipt={receipt} /> : null, () => {
     if (receipt) setPrintedId(receipt.saleId);
@@ -389,9 +409,12 @@ export function ReceiptPreview({
 
   const saleId = receipt?.saleId ?? null;
   const ebarimtPending = receipt?.ebarimtStatus === "pending";
+  const missing = ebarimtMissing(receipt);
+  // Server горимд eBarimt олгогдоогүй бол кассчин шийднэ (Дахин илгээх / eBarimt-гүй хэвлэх).
+  const holdForCashier = missing && !waitForEbarimt;
   const hasQr = !!receipt?.ebarimtQrData;
   useEffect(() => {
-    if (!autoPrint || !saleId || autoPrintedFor.current === saleId) return;
+    if (!autoPrint || !saleId || autoPrintedFor.current === saleId || holdForCashier) return;
     let cancelled = false;
     const run = async () => {
       // QR нэг л удаа хэвлэгддэг тул сан ачаалагдтал хүлээнэ (унасан бол QR-гүй).
@@ -406,10 +429,46 @@ export function ReceiptPreview({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [autoPrint, saleId, ebarimtPending, waitForEbarimt, hasQr, print]);
+  }, [autoPrint, saleId, ebarimtPending, waitForEbarimt, holdForCashier, hasQr, print]);
 
   const printed = receipt !== null && printedId === receipt.saleId;
   const hasOneTimeData = !!(receipt?.ebarimtLottery || receipt?.ebarimtQrData);
+
+  function sendNow() {
+    if (!receipt) return;
+    const id = receipt.saleId;
+    startSending(async () => {
+      const result = await sendPosSaleEbarimtNow(id);
+      if (result.error) {
+        setLive({ saleId: id, ebarimtError: result.error });
+        return;
+      }
+      setLive({
+        saleId: id,
+        ebarimtStatus: result.status ?? "pending",
+        ebarimtId: result.ebarimtId ?? null,
+        ebarimtLottery: result.ebarimtLottery ?? null,
+        ebarimtQrData: result.ebarimtQrData ?? null,
+        ebarimtError: result.reason ?? null,
+      });
+      if (result.ebarimtQrData) void ensureQrFactory();
+    });
+  }
+
+  async function requestPrint() {
+    if (missing && !printed) {
+      const ok = await confirm({
+        title: "eBarimt олгогдоогүй байна",
+        description:
+          "Баримт ТЕГ-д бүртгэгдээгүй тул ДДТД, сугалаа, QR-гүй хэвлэгдэнэ. Эхлээд «Дахин илгээх» дарахыг зөвлөж байна. eBarimt-гүй хэвлэх үү?",
+        confirmText: "eBarimt-гүй хэвлэх",
+        cancelText: "Буцах",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    print();
+  }
 
   async function requestClose() {
     if (!printed && hasOneTimeData) {
@@ -441,6 +500,25 @@ export function ReceiptPreview({
               80мм-ийн кассын баримт. «Хэвлэх» нь зөвхөн баримтыг хэвлэнэ.
             </DialogDescription>
           </DialogHeader>
+          {receipt && holdForCashier && (
+            <div className="rounded-md border border-[var(--ea-danger-fg)] bg-[var(--ea-danger-bg)] p-3 text-sm">
+              <div className="font-semibold text-[var(--ea-danger-fg)]">
+                {sending ? "eBarimt илгээж байна…" : "eBarimt олгогдоогүй — хэвлэхээс өмнө дахин илгээнэ үү"}
+              </div>
+              {!sending && receipt.ebarimtError && (
+                <div className="mt-1 break-words text-[var(--ea-text-2)]">{receipt.ebarimtError}</div>
+              )}
+              {!sending && !receipt.ebarimtError && (
+                <div className="mt-1 text-[var(--ea-text-2)]">
+                  ТЕГ-ийн хариу хугацаандаа ирсэнгүй — дахин илгээж сугалаа, QR-тай хэвлэнэ.
+                </div>
+              )}
+              <Button className="mt-2" size="sm" onClick={sendNow} disabled={sending}>
+                <Icon name="send" size="sm" />
+                Дахин илгээх
+              </Button>
+            </div>
+          )}
           {receipt && (
             <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-[var(--ea-text-1)]">
               <ReceiptSheet receipt={receipt} />
@@ -458,7 +536,7 @@ export function ReceiptPreview({
             <Button variant="outline" onClick={() => void requestClose()}>
               Хаах
             </Button>
-            <Button onClick={print} autoFocus>
+            <Button onClick={() => void requestPrint()} autoFocus={!holdForCashier} disabled={sending}>
               <Icon name="print" size="sm" />
               {printed ? "Дахин хэвлэх" : "Хэвлэх"}
             </Button>

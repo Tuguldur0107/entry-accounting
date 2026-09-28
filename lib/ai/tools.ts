@@ -12199,7 +12199,7 @@ async function runGetPosSale(orgId: string, input: { sale: string }): Promise<Ai
     `Нийт ${fmt(sale.grossAmount)} · хөнгөлөлт ${fmt(sale.discountTotal)} · цэвэр ${fmt(sale.netAmount)} · НӨАТ ${fmt(sale.vatAmount)}${sale.cityTaxAmount ? ` · НХАТ ${fmt(sale.cityTaxAmount)}` : ""} · төлөх ${fmt(sale.total)}₮`,
     `Төлбөр: ${sale.payments.map((payment) => `${payment.methodName} ${fmt(payment.baseAmount)}${payment.changeGiven ? ` (хариулт ${fmt(payment.changeGiven)})` : ""}${payment.reference ? ` реф ${payment.reference}` : ""}`).join(", ") || "—"}`,
     `АР нэхэмжлэх: ${sale.arApDocumentNo ?? "—"} (${sale.arApStatus ?? "—"}) · журнал ${sale.voucherIds.length} · буцаалт: ${sale.returns.map((ret) => `${ret.documentNo} ${fmt(ret.total)}₮`).join(", ") || "—"}${sale.ebarimtId ? ` · eBarimt ${sale.ebarimtId}` : ""}`,
-    `eBarimt: ${sale.ebarimtStatus ? EBARIMT_STATUS_LABELS[sale.ebarimtStatus as EbarimtStatus] ?? sale.ebarimtStatus : "илгээгдээгүй"}${sale.ebarimtDate ? ` · ${sale.ebarimtDate}` : ""}${sale.ebarimtCustomerTin ? ` · худалдан авагч ТТД ${sale.ebarimtCustomerTin}` : sale.ebarimtConsumerNo ? ` · иргэн ${sale.ebarimtConsumerNo}` : ""}`,
+    `eBarimt: ${sale.ebarimtStatus ? EBARIMT_STATUS_LABELS[sale.ebarimtStatus as EbarimtStatus] ?? sale.ebarimtStatus : "илгээгдээгүй"}${sale.ebarimtDate ? ` · ${sale.ebarimtDate}` : ""}${sale.ebarimtCustomerTin ? ` · худалдан авагч ТТД ${sale.ebarimtCustomerTin}${sale.ebarimtCustomerName ? ` ${sale.ebarimtCustomerName}` : ""}` : sale.ebarimtConsumerNo ? ` · иргэн ${sale.ebarimtConsumerNo}` : ""}`,
   ];
   return { resultText: lines.join("\n") };
 }

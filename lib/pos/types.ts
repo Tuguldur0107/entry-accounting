@@ -288,6 +288,9 @@ export interface PosSaleView {
   ebarimtType: string | null;
   ebarimtConsumerNo: string | null;
   ebarimtCustomerTin: string | null;
+  /** B2B худалдан авагчийн регистр ба нэр (баримтад хэвлэнэ). */
+  ebarimtCustomerRegNo: string | null;
+  ebarimtCustomerName: string | null;
   /** НӨАТ-гүй борлуулалт (НӨАТ задлаагүй, eBarimt үүсээгүй) — lib/pos/non-vat.ts. */
   nonVat: boolean;
   nonVatReason: string | null;

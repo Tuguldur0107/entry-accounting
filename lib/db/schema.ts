@@ -4289,6 +4289,12 @@ export const posSales = pgTable(
     ebarimtConsumerNo: text("ebarimt_consumer_no"),
     ebarimtCustomerTin: text("ebarimt_customer_tin"),
     /**
+     * B2B худалдан авагчийн регистр (кассчин оруулсан бол) ба НЭР — баримтад
+     * хэвлэнэ (ХСН шаардлага №16). Нэр ТЕГ-ийн лавлахаас; олдоогүй бол null (зохиохгүй).
+     */
+    ebarimtCustomerRegNo: text("ebarimt_customer_reg_no"),
+    ebarimtCustomerName: text("ebarimt_customer_name"),
+    /**
      * НӨАТ-гүй борлуулалт (кассын «НӨАТ» унтраалттай): НӨАТ задлахгүй, eBarimt
      * ҮҮСГЭХГҮЙ (дараа нь илгээх ч боломжгүй), GL-д pos_settings.nonVat*-ийн
      * орлого/авлагын дансаар. Шалтгаан ЗААВАЛ, эрх pos:post (lib/pos/non-vat.ts).

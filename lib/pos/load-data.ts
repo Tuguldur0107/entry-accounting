@@ -590,6 +590,8 @@ function toSaleView(
     ebarimtType: row.ebarimtType,
     ebarimtConsumerNo: row.ebarimtConsumerNo,
     ebarimtCustomerTin: row.ebarimtCustomerTin,
+    ebarimtCustomerRegNo: row.ebarimtCustomerRegNo,
+    ebarimtCustomerName: row.ebarimtCustomerName,
     nonVat: row.nonVat,
     nonVatReason: row.nonVatReason,
     note: row.note,

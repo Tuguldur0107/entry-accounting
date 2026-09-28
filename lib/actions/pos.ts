@@ -82,7 +82,7 @@ import { amountMatches as qpayAmountMatches } from "@/lib/qpay/intent";
 import { finalizeIntentInTx, loadIntent as loadQpayIntent } from "@/lib/qpay/store";
 import type { EbarimtSaleResult } from "@/lib/ebarimt/types";
 import { processPendingEbarimt, sendSubmissionNow } from "@/lib/ebarimt/worker";
-import { lookupTinByRegNo } from "@/lib/ebarimt/lookup";
+import { lookupTaxpayerByTin, lookupTinByRegNo } from "@/lib/ebarimt/lookup";
 import { ORG_REGISTER_RE } from "@/lib/pos/ebarimt-buyer";
 import { ebarimtSettingsProblems, initialSaleEbarimtStatus } from "@/lib/ebarimt/receipt";
 import { CONSUMER_NO_RE, DISTRICT_CODE_RE, EBARIMT_INLINE_SEND_TIMEOUT_MS, MERCHANT_TIN_RE } from "@/lib/ebarimt/constants";
@@ -932,6 +932,9 @@ export interface CreatePosSaleInput extends SaleQuoteInput {
   qpayIntentId?: string | null;
 }
 
+/** B2B худалдан авагчийн нэрийг ТЕГ-ээс хүлээх дээд хугацаа (борлуулалтын зам дээр). */
+const BUYER_NAME_LOOKUP_MS = 3_000;
+
 export interface PosReceipt {
   saleId: string;
   documentNo: string;
@@ -970,6 +973,19 @@ export interface PosReceipt {
   ebarimtLottery: string | null;
   ebarimtQrData: string | null;
   ebarimtStatus: string | null;
+  /**
+   * Сүүлийн илгээлтийн алдаа (pending/failed үед) — кассчинд ДЭЛГЭЦЭНД л
+   * харагдана («Дахин илгээх»), баримтад хэвлэгдэхгүй.
+   */
+  ebarimtError: string | null;
+  /** B2B худалдан авагч (ХСН №16 — баримтад ТТД, нэр хэвлэнэ). Иргэний дугаар ХЭВЛЭХГҮЙ. */
+  buyer: ReceiptBuyer | null;
+}
+
+export interface ReceiptBuyer {
+  tin: string;
+  regNo: string | null;
+  name: string | null;
 }
 
 export interface ReceiptSeller {
@@ -1094,6 +1110,8 @@ export async function previewPosReceipt(
       ebarimtLottery: null,
       ebarimtQrData: null,
       ebarimtStatus: null,
+      ebarimtError: null,
+      buyer: null,
     };
     return { receipt, ebarimtExpected };
   } catch (caught) {
@@ -1222,12 +1240,28 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   const manualEbarimtId = cleanText(input.ebarimtId);
   let ebarimtCustomerTin = cleanText(input.ebarimtCustomerTin);
   const ebarimtCustomerRegNo = cleanText(input.ebarimtCustomerRegNo);
+  let ebarimtCustomerName: string | null = null;
   if (!ebarimtCustomerTin && ebarimtCustomerRegNo) {
     const info = await lookupTinByRegNo(ebarimtCustomerRegNo);
     ebarimtCustomerTin = info.tin;
+    ebarimtCustomerName = info.name || null;
   }
   if (ebarimtCustomerTin && !MERCHANT_TIN_RE.test(ebarimtCustomerTin))
     throw new Error("Худалдан авагчийн ТТД 11–14 оронтой тоо байна (хуулийн этгээд 11, хувь хүн 12–14)");
+  if (ebarimtCustomerTin && !ebarimtCustomerName) {
+    // B2B баримтад худалдан авагчийн НЭР хэвлэнэ (ХСН №16) — лавлах унавал ТТД-ээр
+    // үргэлжилнэ (нэр зохиохгүй, борлуулалт зогсохгүй).
+    // Кассыг удаан барихгүй — BUYER_NAME_LOOKUP_MS-д амжихгүй бол нэргүй.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const info = await Promise.race([
+      lookupTaxpayerByTin(ebarimtCustomerTin).catch(() => null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), BUYER_NAME_LOOKUP_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    ebarimtCustomerName = info?.name || null;
+  }
   const ebarimtConsumerNo = cleanText(input.ebarimtConsumerNo);
   if (ebarimtConsumerNo && !CONSUMER_NO_RE.test(ebarimtConsumerNo))
     throw new Error("Иргэний eBarimt дугаар 8 оронтой тоо байна");
@@ -1373,6 +1407,8 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
           : {}),
         ebarimtConsumerNo,
         ebarimtCustomerTin,
+        ebarimtCustomerRegNo: ebarimtCustomerTin ? ebarimtCustomerRegNo : null,
+        ebarimtCustomerName: ebarimtCustomerTin ? ebarimtCustomerName : null,
         nonVat: nonVatPlan.nonVat,
         nonVatReason: nonVatPlan.nonVat ? nonVatPlan.reason : null,
       })
@@ -1906,12 +1942,20 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
   // eBarimt дараалал — commit-ийн ДАРАА, борлуулалтыг ХЭЗЭЭ Ч зогсоохгүй (§4.4).
   // Server горимд хариуг ХҮЛЭЭЖ (≤ EBARIMT_INLINE_SEND_TIMEOUT_MS) баримт дээр
   // сугалаа/QR-ийг НЭГ удаа хэвлүүлнэ — DB-д хадгалагдахгүй (албан спек §5).
-  // Хэтэрвэл баримт QR-гүй гарч, илгээлт ард үргэлжилнэ (ДДТД дахин хэвлэхэд).
+  // Амжилтгүй бол алдааг баримтын цонхонд ил гаргаж кассчин хэвлэхээс ӨМНӨ
+  // «Дахин илгээх» дарна (retryPosSaleEbarimt) — сугалаа/QR нэг л удаа хэвлэгддэг.
   let liveEbarimt: EbarimtSaleResult | null = null;
+  let liveEbarimtStatus: string | null = ebarimtPlan.status;
+  let liveEbarimtError: string | null = null;
   if (autoEbarimt) {
     const submissionId = await enqueueEbarimt(orgId, saleId, "send");
     if (settings.ebarimtMode !== "browser") {
-      if (submissionId) liveEbarimt = await sendSubmissionNow(submissionId, settings, EBARIMT_INLINE_SEND_TIMEOUT_MS);
+      if (submissionId) {
+        const inline = await sendSubmissionNow(submissionId, settings, EBARIMT_INLINE_SEND_TIMEOUT_MS);
+        liveEbarimt = inline.result;
+        liveEbarimtStatus = inline.status;
+        liveEbarimtError = inline.error;
+      }
       if (!liveEbarimt)
         void processPendingEbarimt(5).catch((error) => console.error("[ebarimt] шууд илгээлт:", error));
     }
@@ -1958,7 +2002,11 @@ async function createPosSaleCore(input: CreatePosSaleInput) {
     ebarimtId: liveEbarimt?.ebarimtId ?? manualEbarimtId,
     ebarimtLottery: liveEbarimt?.ebarimtLottery ?? null,
     ebarimtQrData: liveEbarimt?.ebarimtQrData ?? null,
-    ebarimtStatus: liveEbarimt ? "sent" : ebarimtPlan.status,
+    ebarimtStatus: liveEbarimt ? "sent" : liveEbarimtStatus,
+    ebarimtError: liveEbarimt ? null : liveEbarimtError,
+    buyer: ebarimtCustomerTin
+      ? { tin: ebarimtCustomerTin, regNo: ebarimtCustomerRegNo, name: ebarimtCustomerName }
+      : null,
   };
   return { id: saleId, documentNo, receipt };
 }
@@ -3014,6 +3062,10 @@ export async function getPosReceipt(id: string): Promise<ActionResult<{ receipt:
         ebarimtLottery: null,
         ebarimtQrData: null,
         ebarimtStatus: sale.ebarimtStatus,
+        ebarimtError: null,
+        buyer: sale.ebarimtCustomerTin
+          ? { tin: sale.ebarimtCustomerTin, regNo: sale.ebarimtCustomerRegNo, name: sale.ebarimtCustomerName }
+          : null,
       },
     };
   } catch (caught) {
