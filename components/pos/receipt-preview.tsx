@@ -21,10 +21,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SwitchField } from "@/components/ui/form-field";
-import { Icon } from "@/components/ui/icon";
+import { Icon, type IconName } from "@/components/ui/icon";
+import { FilterChips } from "@/components/ui/tabs";
 import { sendPosSaleEbarimtNow } from "@/lib/actions/ebarimt";
 import type { PosReceipt } from "@/lib/actions/pos";
+import { receiptSteps, type ReceiptStep, type ReceiptStepState } from "@/lib/pos/receipt-steps";
 import { fmtMnt } from "@/lib/reports/balances";
 
 /**
@@ -351,6 +352,58 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+const PRINT_MODE_OPTIONS = [
+  { value: "steps", label: "Алхамаар" },
+  { value: "auto", label: "Шууд хэвлэх" },
+] as const;
+
+const STEP_ICON: Record<ReceiptStepState, { icon: IconName; color: string }> = {
+  done: { icon: "success", color: "text-[var(--ea-success-fg)]" },
+  active: { icon: "pending", color: "text-[var(--ea-primary)]" },
+  error: { icon: "error", color: "text-[var(--ea-danger-fg)]" },
+  skipped: { icon: "info", color: "text-[var(--ea-text-3)]" },
+  waiting: { icon: "pending", color: "text-[var(--ea-text-3)]" },
+};
+
+/** ① Борлуулалт → ② eBarimt → ③ Хэвлэх (lib/pos/receipt-steps.ts). Зөвхөн дэлгэцэнд. */
+function ReceiptStepList({ steps, onRetry }: { steps: ReceiptStep[]; onRetry?: () => void }) {
+  return (
+    <ol className="space-y-1.5 rounded-md border border-[var(--ea-border)] p-3 text-sm">
+      {steps.map((step, index) => {
+        const tone = STEP_ICON[step.state];
+        const loading = step.state === "active" && step.key === "ebarimt";
+        return (
+          <li key={step.key} className="flex items-start gap-2">
+            <Icon name={loading ? "loading" : tone.icon} size="sm" className={`mt-0.5 shrink-0 ${tone.color}`} />
+            <div className="min-w-0 flex-1">
+              <div
+                className={
+                  step.state === "waiting"
+                    ? "text-[var(--ea-text-3)]"
+                    : step.state === "error"
+                      ? "font-semibold text-[var(--ea-danger-fg)]"
+                      : "font-medium text-[var(--ea-text-1)]"
+                }
+              >
+                {index + 1}. {step.label}
+              </div>
+              {step.detail && (
+                <div className="break-words text-xs text-[var(--ea-text-2)]">{step.detail}</div>
+              )}
+              {step.key === "ebarimt" && step.state === "error" && onRetry && (
+                <Button className="mt-1.5" size="sm" onClick={onRetry}>
+                  <Icon name="send" size="sm" />
+                  Дахин илгээх
+                </Button>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 /** Browser горимд eBarimt-ийн хариу (сугалаа/QR) ирэхийг хүлээх дээд хугацаа. */
 const EBARIMT_PRINT_WAIT_MS = 8_000;
 
@@ -500,37 +553,40 @@ export function ReceiptPreview({
               80мм-ийн кассын баримт. «Хэвлэх» нь зөвхөн баримтыг хэвлэнэ.
             </DialogDescription>
           </DialogHeader>
-          {receipt && holdForCashier && (
-            <div className="rounded-md border border-[var(--ea-danger-fg)] bg-[var(--ea-danger-bg)] p-3 text-sm">
-              <div className="font-semibold text-[var(--ea-danger-fg)]">
-                {sending ? "eBarimt илгээж байна…" : "eBarimt олгогдоогүй — хэвлэхээс өмнө дахин илгээнэ үү"}
-              </div>
-              {!sending && receipt.ebarimtError && (
-                <div className="mt-1 break-words text-[var(--ea-text-2)]">{receipt.ebarimtError}</div>
-              )}
-              {!sending && !receipt.ebarimtError && (
-                <div className="mt-1 text-[var(--ea-text-2)]">
-                  ТЕГ-ийн хариу хугацаандаа ирсэнгүй — дахин илгээж сугалаа, QR-тай хэвлэнэ.
-                </div>
-              )}
-              <Button className="mt-2" size="sm" onClick={sendNow} disabled={sending}>
-                <Icon name="send" size="sm" />
-                Дахин илгээх
-              </Button>
+          {onAutoPrintChange && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--ea-text-3)]">
+              <span>Хэвлэх горим</span>
+              <FilterChips
+                options={PRINT_MODE_OPTIONS}
+                value={autoPrint ? "auto" : "steps"}
+                onChange={(mode) => onAutoPrintChange(mode === "auto")}
+              />
+              <span className="basis-full">
+                {autoPrint
+                  ? "Энэ төхөөрөмжид: батлагдмагц шууд хэвлэж цонх хаагдана (eBarimt олгогдоогүй бол зогсоно)"
+                  : "Энэ төхөөрөмжид: алхам бүрийг шалгаад «Хэвлэх» дарна"}
+              </span>
             </div>
+          )}
+          {receipt && (
+            <ReceiptStepList
+              steps={receiptSteps({
+                documentNo: receipt.documentNo,
+                ebarimtStatus: receipt.ebarimtStatus,
+                ebarimtId: receipt.ebarimtId,
+                ebarimtLottery: receipt.ebarimtLottery,
+                ebarimtError: receipt.ebarimtError,
+                sending,
+                waitingForBrowser: waitForEbarimt,
+                printed,
+              })}
+              onRetry={holdForCashier && !sending ? sendNow : undefined}
+            />
           )}
           {receipt && (
             <div className="rounded-md border border-[var(--ea-border)] bg-[var(--ea-surface)] p-3 text-[var(--ea-text-1)]">
               <ReceiptSheet receipt={receipt} />
             </div>
-          )}
-          {onAutoPrintChange && (
-            <SwitchField
-              label="Автоматаар хэвлэх"
-              hint="Энэ төхөөрөмжид: борлуулалт батлагдмагц баримт хэвлэгдэж цонх хаагдана"
-              checked={!!autoPrint}
-              onChange={onAutoPrintChange}
-            />
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => void requestClose()}>
