@@ -1,11 +1,14 @@
 // «AI нягтлан» (skills) багцын ЦОРЫН ГАНЦ хуудас (app/(dashboard)/page.tsx):
-// юу авах вэ → ① төлбөр (төлөв + сунгах) → ② ChatGPT / Claude-д холбох.
+// юу авах вэ → ① төлбөр (төлөв + сунгах) → ② ChatGPT / Claude-д холбох →
+// ③ AI нягтлангийн төслийн заавар (components/skills/ai-accountant-setup).
 // Тусдаа «Багц, төлбөр» хуудас энэ багцад байхгүй (/settings/billing → энд).
 // Холболт нь OAuth: хаягаа нэмээд Entry-ийн и-мэйл, нууц үгээр зөвшөөрнө —
 // token хуулах, файл татах шаардлагагүй.
 import type { ReactNode } from "react";
 
+import { AiAccountantSetup } from "@/components/skills/ai-accountant-setup";
 import { ConnectGuide } from "@/components/skills/connect-guide";
+import type { AiAccountantStatus } from "@/lib/ai/accountant-setup";
 import type { AiConnectionView } from "@/lib/ai/connector-clients";
 import { CopyValue } from "@/components/skills/copy-value";
 import { StarterPrompts } from "@/components/onboarding/starter-prompts";
@@ -56,6 +59,7 @@ export function SkillsHome({
   ready,
   canPay,
   paidThrough,
+  accountant,
 }: {
   ent: Entitlements;
   mcpUrl: string;
@@ -66,6 +70,8 @@ export function SkillsHome({
   canPay: boolean;
   /** Төлсөн хугацааны эцэс — байхгүй бол null. */
   paidThrough: Date | null;
+  /** Мэдлэгийн сангийн төлөв — ③ төслийн зааварт. */
+  accountant: AiAccountantStatus;
 }) {
   const usable = featureUsable(ent, "knowledge");
   const active = usable && ent.status === "active";
@@ -129,6 +135,14 @@ export function SkillsHome({
         </p>
         <p className="text-xs font-medium text-[var(--ea-text-2)]">Холбосны дараа эхлээд ингэж асуугаарай:</p>
         <StarterPrompts prompts={startersFor({ knowledge: true })} columns={1} />
+      </Step>
+
+      <Step n={3} title="AI нягтлангаа тохируулах">
+        <p className="text-xs text-[var(--ea-text-3)]">
+          Төслийн зааврыг нэг удаа буулгахад л AI тань хариулт бүртээ мэдлэгийн сангаас ишлэлтэй, таны сонгосон хэлбэрээр
+          хариулна.
+        </p>
+        <AiAccountantSetup status={accountant} orgName={null} accounting={false} writeMode="draft" showStatus={false} />
       </Step>
     </div>
   );

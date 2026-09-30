@@ -60,6 +60,9 @@ import { loadVoucherSummaries } from "@/lib/reports/voucher-summaries";
 import { firstRunSteps, shouldShowWelcome, startersFor } from "@/lib/onboarding/first-run";
 import { loadFirstRunSignals } from "@/lib/onboarding/first-run-db";
 import { loadAiConnections } from "@/lib/ai/connector-status";
+import { aiAccountantStatus } from "@/lib/ai/accountant-setup";
+import { KNOWLEDGE_DAILY_READ_LIMIT } from "@/lib/knowledge/catalog";
+import { countKnowledgeReadsToday, knowledgeStats } from "@/lib/knowledge/store";
 import { roundMoney as round2 } from "@/lib/arap/accounting";
 
 
@@ -69,11 +72,13 @@ export default async function HomePage() {
   // оронд НЭГ хуудас (давуу тал → төлбөр → ChatGPT / Claude-д холбох).
   const entitlements = await getEntitlements(orgId);
   if (!hasFeature(entitlements, "accounting")) {
-    const [mcpUrl, options, subscription, aiConnections] = await Promise.all([
+    const [mcpUrl, options, subscription, aiConnections, readsToday, stats] = await Promise.all([
       mcpEndpointUrl(),
       loadSelfPayOptions(orgId),
       loadSubscription(orgId),
       loadAiConnections(userId, orgId),
+      countKnowledgeReadsToday(orgId),
+      knowledgeStats(),
     ]);
     return (
       <SkillsHome
@@ -84,6 +89,12 @@ export default async function HomePage() {
         ready={billingQpayConfig().config !== null}
         canPay={ROLE_RANK[role] >= ROLE_RANK.admin}
         paidThrough={subscription?.currentPeriodEnd ?? null}
+        accountant={aiAccountantStatus({
+          ent: entitlements,
+          readsToday,
+          dailyLimit: KNOWLEDGE_DAILY_READ_LIMIT,
+          sections: stats.sections,
+        })}
       />
     );
   }

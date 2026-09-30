@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -54,4 +55,12 @@ test("тохиргооны хаяг https", () => {
     assert.match(target.requirement, /төлбөртэй/, `${target.label}: төлбөртэй хувилбарын шаардлага харагдана`);
   }
   assert.match(CONNECTOR_TARGETS.chatgpt.requirement, /Developer mode/);
+});
+
+test("«Хаягийг хуулаад … нээх» товч MCP хаягийг хуулна (useCopyFlash: key, text)", () => {
+  // 2026-09-30: аргументын дараалал урвуу байсан тул clipboard-д хаягийн оронд
+  // «open:claude» ордог байв.
+  const source = readFileSync("components/skills/connect-guide.tsx", "utf8");
+  assert.match(source, /copy\(`open:\$\{client\}`, mcpUrl\)/);
+  assert.doesNotMatch(source, /copy\(mcpUrl,/);
 });

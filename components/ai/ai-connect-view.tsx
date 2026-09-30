@@ -5,14 +5,17 @@
 // Claude-оос ижил tool давхаргаар (lib/ai/tools.ts) ажиллана.
 //
 //   ① Холбох — OAuth (token хэрэггүй): хаяг + 3 алхам (components/skills/connect-guide)
-//   ② Эхлээд ингэж асуу — бэлэн асуултууд (lib/onboarding/first-run.ts, MCP prompts-той нэг эх)
-//   ③ Бичилтийн горим — ноорог / шууд бичих (lib/ai/write-mode.ts, MCP + REST-д нэг)
-//   ④ Token — Claude Code, Codex зэрэг OAuth-гүй клиентэд (eak_…, ≤5)
+//   ② AI нягтлан — багцад ҮНЭГҮЙ мэдлэгийн сангийн төлөв + төслийн заавар
+//      (components/skills/ai-accountant-setup, lib/ai/accountant-setup.ts)
+//   ③ Эхлээд ингэж асуу — бэлэн асуултууд (lib/onboarding/first-run.ts, MCP prompts-той нэг эх)
+//   ④ Бичилтийн горим — ноорог / шууд бичих (lib/ai/write-mode.ts, MCP + REST-д нэг)
+//   ⑤ Token — Claude Code, Codex зэрэг OAuth-гүй клиентэд (eak_…, ≤5)
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { AiAccountantSetup } from "@/components/skills/ai-accountant-setup";
 import { ConnectGuide } from "@/components/skills/connect-guide";
 import { CopyValue } from "@/components/skills/copy-value";
 import { Button } from "@/components/ui/button";
@@ -23,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveAiWriteMode } from "@/lib/actions/ai-write-mode";
 import { createApiToken, revokeApiToken, type ApiTokenView } from "@/lib/actions/mcp-tokens";
+import type { AiAccountantStatus } from "@/lib/ai/accountant-setup";
 import type { AiWriteMode } from "@/lib/ai/write-mode";
 import type { AiConnectionView } from "@/lib/ai/connector-clients";
 import { MAX_TOKENS_PER_USER } from "@/lib/mcp/constants";
@@ -76,6 +80,8 @@ export function AiConnectView({
   mcpTokens,
   starterPrompts,
   aiConnections,
+  orgName,
+  aiAccountant,
 }: {
   mcpUrl: string;
   writeMode: AiWriteMode;
@@ -88,6 +94,10 @@ export function AiConnectView({
   starterPrompts: StarterPrompt[];
   /** Энэ хэрэглэгч × байгууллагын ChatGPT / Claude-ийн OAuth холболт. */
   aiConnections: AiConnectionView[];
+  /** «AI нягтлан»-ы заавар дахь компанийн нэр. */
+  orgName: string | null;
+  /** Мэдлэгийн сангийн төлөв (багцад багтсан эсэх, өнөөдрийн уншилт). */
+  aiAccountant: AiAccountantStatus;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -183,6 +193,15 @@ export function AiConnectView({
 
         <Step
           n={2}
+          id="ai-accountant"
+          title="AI нягтлан — үнэгүй"
+          hint="Таны ChatGPT / Claude Монголын нягтлан бодох бүртгэл, татвар, цалингийн мэдлэгийн сангаас ишлэлтэй хариулна. Төслийн зааврыг нэг удаа буулгахад л AI тань компанийн нягтлан шиг ажиллана."
+        >
+          <AiAccountantSetup status={aiAccountant} orgName={orgName} accounting writeMode={writeMode} />
+        </Step>
+
+        <Step
+          n={3}
           id="starter-prompts"
           title="Эхлээд ингэж асуу"
           hint="Дарж хуулаад ChatGPT / Claude-даа буулгана. Эдгээр нь тэдний «+» / «/» цэсэнд ч Entry-ийн бэлэн асуулт болж харагдана."
@@ -191,7 +210,7 @@ export function AiConnectView({
         </Step>
 
         <Step
-          n={3}
+          n={4}
           title="Бичилтийн горим"
           hint="AI-ийн үүсгэсэн журнал, нэхэмжлэх, кассын баримт ямар төлөвтэй орох вэ. Батлах хязгаар, том дүн, сар хаалт, цалин үргэлж ноорог үлдэнэ (§9 human-in-the-loop)."
         >
@@ -209,7 +228,7 @@ export function AiConnectView({
           {!canWrite ? <p className="text-xs text-[var(--ea-text-4)]">Горимыг бичих эрхтэй гишүүн л солино.</p> : null}
         </Step>
 
-        <Step n={4} title="Token (Claude Code, Codex)" hint="OAuth дэмждэггүй клиентэд — token нь нэг л удаа харагдана, дээд тал нь 5.">
+        <Step n={5} title="Token (Claude Code, Codex)" hint="OAuth дэмждэггүй клиентэд — token нь нэг л удаа харагдана, дээд тал нь 5.">
           {mcpTokens.length > 0 && (
             <div className="space-y-1.5">
               {mcpTokens.map((token) => (
