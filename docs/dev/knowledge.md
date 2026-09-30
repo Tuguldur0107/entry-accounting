@@ -30,7 +30,28 @@ lib/knowledge/catalog.ts         ЦЭВЭР (тесттэй): тогтмол, cl
 lib/knowledge/store.ts           DB: list/read/countReadsToday/recordRead/stats — эрхийн
                                  шалгалт БАЙХГҮЙ (нийтийн лавлах), дуудагч шалгана
 lib/ai/tools.ts                  list_knowledge_topics / read_knowledge_section
+lib/ai/accountant-setup.ts       ЦЭВЭР (тесттэй): «AI нягтлан» хэсгийн төлөв
+                                 (aiAccountantStatus) + төслийн заавар
+                                 (buildAccountantInstructions, ≤1500 тэмдэгт)
+components/skills/ai-accountant-setup.tsx  /settings/ai ② ба skills нүүрний ③
 ```
+
+**«AI нягтлан» хэсэг (2026-09-30)** — нягтлан бодох багцын хэрэглэгчид мэдлэгийн
+сан ҮНЭГҮЙ багтдаг ч апп дотор ил харагддаггүй байв. `/settings/ai`-ийн ② «AI
+нягтлан — үнэгүй» (`#ai-accountant`) нь: төлөв (`Үнэгүй · багцад багтсан` /
+Console-оор унтарсан / read-only / 24ц квот хүрсэн, өнөөдрийн уншилт, сангийн хэсгийн
+тоо) → сонголт (хэнд: нягтлан / захирал; хэлбэр: товч / дэлгэрэнгүй) → Claude /
+ChatGPT-ийн **төслийн Instructions**-д буулгах заавар (компанийн нэр, мэдлэгийн
+tool, тоо зохиохгүй, бичилтийн горим — §9-ийг ИЛ давтана). Skills нүүрэнд ③
+(бүртгэлгүй хувилбар). Дүрэм:
+
+- Энэ хэсэг багц/боломжийг **АСААХГҮЙ** — `knowledge` унтарсан бол «Entry багтай
+  холбогдоно уу» л гэнэ (багц засах нь ЗӨВХӨН Console)
+- Заавар нь хэрэглэгчийн ӨӨРИЙН төсөлд — сервер AI дуудахгүй, DB-д хадгалахгүй;
+  сонголт зөвхөн хөтчид (`localStorage`, try/catch, SSR анхдагч)
+- Заавар ChatGPT-ийн Custom instructions-ийн 1500 тэмдэгтэд багтана (тест);
+  Claude / ChatGPT-ийн цэсний нэр зөвхөн `ACCOUNTANT_PASTE_STEPS`-д
+
 
 Хатуу дүрмүүд:
 

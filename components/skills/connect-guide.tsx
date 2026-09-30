@@ -49,7 +49,7 @@ export function ConnectGuide({
     if (!mcpUrl) return;
     // Popup blocker-оос сэргийлж табыг даралтын мөчид НЭЭНЭ, хуулалт араас.
     window.open(target.settingsUrl, "_blank", "noopener,noreferrer");
-    void copy(mcpUrl, `open:${client}`);
+    void copy(`open:${client}`, mcpUrl);
   }
 
   return (

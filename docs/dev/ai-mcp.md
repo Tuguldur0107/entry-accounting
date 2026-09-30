@@ -13,11 +13,12 @@ connect-guide` — AI нягтлантай НЭГ; «Хаягийг хуулаа
 (гадны connector-ийг автоматаар нэмдэг deep link БАЙХГҮЙ — хаягийг хуулж тэдний
 тохиргоог шинэ табд нээнэ, хаяг нь ЗӨВХӨН `lib/ai/connector-clients.ts`-д) +
 холбогдсон эсэх «Claude ✓ · сүүлд ашигласан …» — OAuth token-оос, энэ хэрэглэгч ×
-байгууллагаар, `lib/ai/connector-status.ts`), ② бичилтийн горим (`lib/ai/write-mode.ts`
+байгууллагаар, `lib/ai/connector-status.ts`), ② «AI нягтлан — үнэгүй» (мэдлэгийн
+сангийн төлөв + төслийн заавар, `docs/dev/knowledge.md`), ③ бэлэн асуултууд, ④ бичилтийн горим (`lib/ai/write-mode.ts`
 ЦЭВЭР, `write-mode-store.ts` DB, `actions/ai-write-mode.ts` — ноорог / шууд
 бичих, `ai_settings.write_mode`, MCP ба REST-д НЭГ, аудитад бичигдэнэ),
-③ token (Claude Code / Codex); мөн «Эхлээд ингэж асуу» бэлэн асуултууд
-(`#starter-prompts`). `/ai`, `/ai/settings` → `/settings/ai` redirect. Модулийн
+⑤ token (Claude Code / Codex); бэлэн асуултуудын зангуу `#starter-prompts`,
+AI нягтлангийнх `#ai-accountant`. `/ai`, `/ai/settings` → `/settings/ai` redirect. Модулийн
 түлхүүр `ai` ХЭВЭЭР (эрхийн бүртгэл хөндөгдөхгүй), нэр «AI холболт»; багцын
 `ai` боломж ХАСАГДСАН (`mcp` + `knowledge` л). Топбарын AI товч, хөвөгч чат
 панель, `actionMarker` байхгүй; `AiAction` төрөл (`action-markers.ts`) tool
