@@ -21,6 +21,15 @@ Tag = `v` + package.json version. Fork-ууд tag-аар шинэчилнэ (doc
 
 ### Added
 
+- **Голомт банкны API-аас хуулга шууд татах (Фаз 1 — зөвхөн унших).** Касс →
+  Банкны хуулга дэлгэцэд «Голомт API» (admin: орчин, нэвтрэх нэр, нууц үг,
+  session/IV key — шифртэй, write-only) ба «Голомтоос татах» (огнооны муж, ≤ 92
+  хоног). Татсан гүйлгээ файлын импорттой ИЖИЛ хянах → данс оноох → хадгалах
+  урсгалаар орно; өмнө импортлогдсон гүйлгээ `externalRef`-ээр алгасагдана.
+  Гүйлгээ хийх түлхүүр (X-GOLOMT-KEY) Entry-д ОРОХГҮЙ. Шинэ хүснэгт
+  `bank_api_connections`, багана `bank_statement_lines.external_ref`
+  (`lib/bank/golomt/`, тесттэй; дэлгэрэнгүй `docs/dev/bank-api.md`).
+
 - **Platform API: байгууллага бүрмөсөн устгах** — `DELETE /api/platform/organizations?id=`
   (Entry Console-ийн «Аюултай бүс»): нэр/ID-гээр баталгаажуулж апп доторх устгалттай
   НЭГ `purgeOrganization`-оор устгана; сонголтоор (`purgeUsers`) өнчин болсон гишүүдийн

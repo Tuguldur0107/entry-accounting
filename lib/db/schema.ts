@@ -1000,9 +1000,16 @@ export const bankStatementLines = pgTable(
     voucherId: uuid("voucher_id").references(() => journalVouchers.id, {
       onDelete: "set null",
     }),
+    /**
+     * Банкны API-аас татсан мөрийн түлхүүр (ж: `golomt:<данс>:<tranId>:…`,
+     * lib/bank/golomt/statement.ts). Байгууллага дотор давхардлыг
+     * saveBankStatement шалгана; файлын импортод null.
+     */
+    externalRef: text("external_ref"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
+    index("bank_statement_lines_external_ref_ix").on(table.externalRef),
     // UNIQUE CONSTRAINT биш, UNIQUE INDEX — drizzle-kit 0.31.x-ийн алдаа
     // (drizzle-team/drizzle-orm#5955): `unique()`-ээр үүссэн constraint-ыг
     // push дараагийн удаа "байхгүй" гэж үзээд бөглөөтэй хүснэгтэд дахин
@@ -1013,6 +1020,47 @@ export const bankStatementLines = pgTable(
     uniqueIndex("bank_statement_lines_statement_row_ux").on(
       table.statementId,
       table.rowNumber
+    ),
+  ]
+);
+
+// Банкны API холболт (Фаз 1 — Голомт OBI, ЗӨВХӨН унших; docs/dev/bank-api.md).
+// Байгууллага × банк НЭГ мөр. Нууц (нууц үг, session key, IV key) нь
+// encryptSecret-ээр (AES-256-GCM) шифртэй — утга нь client, лог, аудитад
+// ХЭЗЭЭ Ч гарахгүй. Гүйлгээ хийх TOTP түлхүүр (X-GOLOMT-KEY) энд ХАДГАЛАХГҮЙ.
+export const bankApiConnections = pgTable(
+  "bank_api_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Сүүлд хадгалсан хэрэглэгч. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** "golomt" — lib/bank/golomt/constants.ts. */
+    bank: text("bank").notNull(),
+    /** "uat" | "production" — хост нь кодод (GOLOMT_API_BASE), хэрэглэгч URL оруулахгүй. */
+    environment: text("environment").notNull().default("uat"),
+    username: text("username").notNull(),
+    passwordEnc: text("password_enc").notNull(),
+    sessionKeyEnc: text("session_key_enc").notNull(),
+    ivKeyEnc: text("iv_key_enc").notNull(),
+    clientId: text("client_id"),
+    /** Данс эзэмшигч байгууллагын регистр (API-ийн registerNo). */
+    registerNo: text("register_no").notNull(),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    lastCheckedAt: timestamp("last_checked_at"),
+    /** Сүүлийн шалгалт/татлагын алдаа (нууц утгагүй текст); амжилттай бол null. */
+    lastCheckError: text("last_check_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("bank_api_connections_org_bank_ux").on(
+      table.organizationId,
+      table.bank
     ),
   ]
 );
